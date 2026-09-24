@@ -225,3 +225,24 @@ footer.foot { max-width: 1240px; margin: 0 auto; padding: 0 clamp(14px, 3vw, 32p
 .detail-row .stat:last-of-type { border-bottom: 0; }
 .detail-row .stat dd { font-size: 17px; text-align: left; }
 .detail-row .stat dt { padding: 0; border: 0; }
+
+/* Explaining a term */
+.field-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.field-head label { margin-bottom: 0; }
+.info {
+  flex: none; width: 17px; height: 17px; padding: 0; border-radius: 50%; cursor: pointer;
+  border: 1px solid var(--rule); background: var(--surface-2); color: var(--muted);
+  font-size: 12px; font-weight: 700; line-height: 1; font-family: inherit;
+}
+.info:hover, .info[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.info:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* An open note takes the whole row, so long text reads as a paragraph, not a narrow column. */
+.fields .field.explaining { grid-column: 1 / -1; }
+/* In a table cell the note sets the column's width, so keep it narrow enough not to force a scrollbar. */
+.data td .explain { max-width: 34ch; font-size: 13.5px; white-space: normal; }
+.explain {
+  display: block; margin: 8px 0 2px; padding: 9px 11px; max-width: 72ch;
+  font-size: 14px; font-weight: 400; line-height: 1.45; text-align: left;
+  color: var(--ink); background: var(--surface-2);
+  border-left: 3px solid var(--accent); border-radius: var(--r-s);
+}

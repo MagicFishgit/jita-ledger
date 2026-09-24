@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { resolveType } from '../lib/market';
 import { update, useData } from '../lib/store';
 import { fmtDate, isk, units } from '../lib/format';
@@ -42,10 +42,57 @@ export function LevelBoxes(props: { label: string; help?: string; value: number;
   );
 }
 
+/** The "i" itself. Open state lives with whatever owns the note, so it can place it sensibly. */
+function InfoButton(p: { term: string; open: boolean; controls: string; onToggle: () => void }) {
+  return (
+    <button
+      type="button" className="info" aria-expanded={p.open} aria-controls={p.controls}
+      aria-label={`What \u201c${p.term}\u201d means`} onClick={p.onToggle}
+    >i</button>
+  );
+}
+
+/** A small "i" that opens a plain-English note, for a term that isn't a form field. */
+export function Explain({ term, children }: { term: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <>
+      <InfoButton term={term} open={open} controls={id} onToggle={() => setOpen(!open)} />
+      {open && <span className="explain" id={id}>{children}</span>}
+    </>
+  );
+}
+
+/**
+ * A labelled input with an "i" explaining the term in plain English.
+ * The note opens under the field and takes the whole row, so a long one reads as a
+ * paragraph rather than a tall column of two-word lines.
+ */
+export function Field(props: { id: string; label: string; opt?: string; tip?: ReactNode; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const tipId = useId();
+  return (
+    <div className={'field' + (open ? ' explaining' : '')}>
+      <div className="field-head">
+        <label htmlFor={props.id}>{props.label}{props.opt && <span className="opt"> {props.opt}</span>}</label>
+        {props.tip && <InfoButton term={props.label} open={open} controls={tipId} onToggle={() => setOpen(!open)} />}
+      </div>
+      {props.children}
+      {props.tip && open && <p className="explain" id={tipId}>{props.tip}</p>}
+    </div>
+  );
+}
+
 /** Exact in-game item name to type ID, with names you've already seen offered as suggestions. */
-export function ItemFinder(props: { label?: string; button?: string; onFound: (t: { id: number; name: string }) => void; initial?: string }) {
+export function ItemFinder(props: { label?: string; button?: string; onFound: (t: { id: number; name: string }) => void; initial?: string; tip?: ReactNode }) {
   const d = useData();
   const [text, setText] = useState(props.initial ?? '');
+  // Follow the item the page is showing, so a #/calculator?type=123 link fills the box in.
+  // This alone can't clear it: Clear sets the item to null, and null -> null leaves the
+  // dependency unchanged, so the parent remounts this with a key instead.
+  const { initial } = props;
+  useEffect(() => { setText(initial ?? ''); setErr(null); }, [initial]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const listId = useId();
@@ -73,11 +120,10 @@ export function ItemFinder(props: { label?: string; button?: string; onFound: (t
 
   return (
     <form className="inline-form" onSubmit={submit}>
-      <div className="field">
-        <label htmlFor={inputId}>{props.label ?? 'Item'}</label>
+      <Field id={inputId} label={props.label ?? 'Item'} tip={props.tip}>
         <input id={inputId} type="text" list={listId} value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. Hammerhead II" autoComplete="off" />
         <datalist id={listId}>{known.map((n) => <option key={n} value={n} />)}</datalist>
-      </div>
+      </Field>
       <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? 'Finding…' : props.button ?? 'Find'}</button>
       {err && <p className="hint neg" style={{ flexBasis: '100%', margin: 0 }} role="alert">{err}</p>}
     </form>
