@@ -1,0 +1,188 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { isk, iskBig, iskSigned, pct, plainNum, units } from '../lib/format';
+import { resolveNames } from '../lib/market';
+import { DEFAULT_FILTERS } from '../lib/prospects';
+import { coverage, loadCache, rankProspects, runScan, stopScan, useScanState, type ScanCache } from '../lib/scan';
+import { update, useData } from '../lib/store';
+import { addToWatchlist, startPosition } from '../lib/actions';
+import { navigate } from '../lib/hooks';
+import type { Prospect, ProspectFilters, ProspectWarning } from '../lib/types';
+import { useTypeName } from './common';
+import { Sparkline } from './Sparkline';
+
+const WARNING: Record<ProspectWarning, { short: string; why: string }> = {
+  thin: { short: 'Thin', why: 'Fewer than five orders on one side. The spread is wide because almost nobody is standing there, and it can vanish the moment one person moves.' },
+  fluke: { short: 'Fluke', why: 'Today’s gap is much wider than this item usually trades in a day. Expect it to close before your order fills.' },
+  falling: { short: 'Falling', why: 'The 30-day average price is more than 10% below the 90-day. You would be buying into a slide.' },
+  crowded: { short: 'Crowded', why: 'Hundreds of listings against very few trades. You would be joining a queue, not a market.' },
+};
+
+const FILTER_FIELDS: { key: keyof ProspectFilters; label: string; hint: string; step?: string }[] = [
+  { key: 'budget', label: 'ISK I can tie up', hint: 'Caps how much of a day’s volume you take on' },
+  { key: 'minTrades', label: 'Trades a day, at least', hint: 'Median over the last 30 days' },
+  { key: 'minDays', label: 'Days traded out of 30, at least', hint: 'Days with any trade at all' },
+  { key: 'minRoi', label: 'Return, at least (%)', hint: 'Net of your broker fee and sales tax' },
+];
+
+export function Prospects() {
+  const d = useData();
+  const nameOf = useTypeName();
+  const scan = useScanState();
+  const [cache, setCache] = useState<ScanCache | null>(null);
+  const [f, setF] = useState<ProspectFilters>(() => ({
+    ...DEFAULT_FILTERS,
+    budget: d.meta.walletBalance && d.meta.walletBalance > 1e6 ? Math.round(d.meta.walletBalance) : DEFAULT_FILTERS.budget,
+  }));
+  const [open, setOpen] = useState<number | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const reload = useCallback(async () => setCache(await loadCache()), []);
+  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { if (scan.phase === 'done') reload(); }, [scan.phase, reload]);
+
+  const rows = useMemo(() => (cache ? rankProspects(cache, d.settings, f) : []), [cache, d.settings, f]);
+  const cov = cache ? coverage(cache) : { candidates: 0, checked: 0, priced: 0 };
+
+  // Names for anything the scan turned up that this browser hasn't seen before.
+  useEffect(() => {
+    const missing = rows.map((r) => r.typeId).filter((id) => !d.names[id]).slice(0, 500);
+    if (!missing.length) return;
+    let live = true;
+    resolveNames(missing)
+      .then((names) => { if (live && Object.keys(names).length) update((x) => ({ names: { ...x.names, ...names } })); })
+      .catch(() => undefined);
+    return () => { live = false; };
+  }, [rows, d.names]);
+
+  const busy = scan.phase === 'sampling' || scan.phase === 'liquidity' || scan.phase === 'pricing';
+  const set = (k: keyof ProspectFilters) => (v: string) => {
+    const n = parseFloat(v.replace(/[^0-9.]/g, ''));
+    setF((x) => ({ ...x, [k]: Number.isFinite(n) ? (k === 'minRoi' ? n / 100 : n) : 0 }));
+  };
+  const valueOf = (k: keyof ProspectFilters) => (k === 'minRoi' ? plainNum(f.minRoi * 100) : String(f[k]));
+
+  return (
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <h1>Prospects</h1>
+          <p>
+            Items worth station trading at Jita 4-4, found by sampling the order book, then checking how often each one
+            really changes hands. Anything that doesn’t trade on most days is left out, however good the margin looks —
+            a wide spread on something that sells once a month isn’t a trade you can repeat.
+          </p>
+        </div>
+        <div className="row">
+          {busy
+            ? <button className="btn" onClick={stopScan}>Stop</button>
+            : <button className="btn btn-primary" onClick={() => runScan(d.settings, f)}>{cov.checked ? 'Scan again' : 'Scan the market'}</button>}
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="fields">
+          {FILTER_FIELDS.map(({ key, label, hint }) => (
+            <div className="field" key={key}>
+              <label htmlFor={`p-${key}`}>{label}</label>
+              <input id={`p-${key}`} type="text" inputMode="decimal" value={valueOf(key)} onChange={(e) => set(key)(e.target.value)} />
+              <span className="hint">{hint}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {busy && (
+        <p className="notice" role="status">
+          <span className="spinner" aria-hidden="true" />
+          {scan.message}
+          {scan.total > 0 && <> <strong>{scan.done}</strong> of {scan.total}.</>}
+          {scan.failed > 0 && <span className="muted small"> {scan.failed} couldn’t be read.</span>}
+        </p>
+      )}
+      {scan.error && <p className="notice err" role="alert">{scan.error}</p>}
+      {msg && <p className="notice" role="status">{msg}</p>}
+
+      {!busy && cov.checked > 0 && (
+        <p className="small muted" style={{ margin: '0 0 14px' }}>
+          Checked {units(cov.checked)} of about {units(cov.candidates)} candidates, {units(cov.priced)} priced against the live book.
+          {cov.checked < cov.candidates && ' Scan again to widen the net.'}
+        </p>
+      )}
+
+      {!cov.checked ? (
+        <p className="empty">
+          Nothing scanned yet. A scan samples 20 pages of the Jita order book, checks the trading history of the busiest
+          few hundred items, and prices the ones that trade steadily. It takes about a minute and a half, and what it
+          finds is kept, so scanning again picks up where it left off rather than starting over.
+        </p>
+      ) : !rows.length ? (
+        <p className="empty">
+          Nothing scanned so far clears these filters. Loosen the return or the trades a day, raise the ISK you can tie
+          up, or scan again to check more of the market.
+        </p>
+      ) : (
+        <div className="table-wrap">
+          <table className="data wide">
+            <thead>
+              <tr>
+                <th scope="col">Item</th><th scope="col">Return</th><th scope="col">Profit per unit</th>
+                <th scope="col">Trades a day</th><th scope="col">Days traded</th><th scope="col">Volume, 30 days</th>
+                <th scope="col">Est. ISK per day</th><th scope="col">ISK tied up</th><th scope="col">Flags</th>
+                <th scope="col"><span className="opt">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((p) => <Row key={p.typeId} p={p} name={nameOf(p.typeId)} open={open === p.typeId}
+                onToggle={() => setOpen(open === p.typeId ? null : p.typeId)} onMsg={setMsg} />)}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Row({ p, name, open, onToggle, onMsg }: { p: Prospect; name: string; open: boolean; onToggle: () => void; onMsg: (s: string) => void }) {
+  const s = p.stats;
+  return (
+    <>
+      <tr>
+        <td className="name">
+          <button className="link-btn" aria-expanded={open} onClick={onToggle}>{name}</button>
+        </td>
+        <td className="pos">{pct(p.roi, 1)}</td>
+        <td className="pos">{iskSigned(p.net)}</td>
+        <td>{plainNum(Math.round(s.tradesPerDay))}</td>
+        <td>{s.daysTraded} of 30</td>
+        <td><Sparkline values={s.spark} label={`Daily volume over 30 days, ${s.daysTraded} days with trades`} /></td>
+        <td className="pos">{iskBig(p.iskPerDay)}</td>
+        <td>{iskBig(p.capital)}</td>
+        <td>
+          {p.warnings.length
+            ? p.warnings.map((w) => <span key={w} className="flag" title={WARNING[w].why}>{WARNING[w].short}</span>)
+            : <span className="muted">–</span>}
+        </td>
+        <td>
+          <button className="link-btn" onClick={() => navigate(`calculator?type=${p.typeId}`)} aria-label={`Open ${name} in the calculator`}>Calculator</button>
+          <button className="link-btn" onClick={() => onMsg(addToWatchlist(p.typeId) ? `Added ${name} to your watchlist.` : `${name} is already on your watchlist.`)}>Watch</button>
+          <button className="link-btn" onClick={() => navigate(`positions/${startPosition(p.typeId).id}`)} aria-label={`Start trading ${name}`}>Trade</button>
+        </td>
+      </tr>
+      {open && (
+        <tr className="detail-row">
+          <td colSpan={10}>
+            <dl className="figures">
+              <div className="stat"><dt>Your prices</dt><dd>{isk(p.buy)} buy, {isk(p.sell)} sell<small>One legal step inside {isk(p.bestBuy)} / {isk(p.bestSell)}</small></dd></div>
+              <div className="stat"><dt>Spread</dt><dd>{pct(p.spreadPct, 1)}<small>Usually {pct(s.dailyRange, 1)} in a day</small></dd></div>
+              <div className="stat"><dt>Competition</dt><dd>{units(p.buyOrders)} buy, {units(p.sellOrders)} sell<small>{units(p.topSellVol)} units at the best sell</small></dd></div>
+              <div className="stat"><dt>Steadiness</dt><dd>{pct(s.spikiness, 0)}<small>Share of the month’s volume on its busiest day</small></dd></div>
+              <div className="stat"><dt>Price trend</dt><dd className={s.trend >= 0 ? 'pos' : 'neg'}>{pct(s.trend, 1)}<small>30-day average against the 90-day</small></dd></div>
+              <div className="stat"><dt>Position modelled</dt><dd>{units(p.qty)} units<small>Of {units(Math.round(s.unitsPerDay))} traded a day</small></dd></div>
+            </dl>
+            {p.warnings.map((w) => <p key={w} className="small muted" style={{ margin: '6px 0 0' }}><strong className="warn">{WARNING[w].short}.</strong> {WARNING[w].why}</p>)}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}

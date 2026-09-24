@@ -113,3 +113,20 @@ export function warningsFor(
   if (stats.tradesPerDay > 0 && estOrders / stats.tradesPerDay > 20) out.push('crowded');
   return out;
 }
+
+/**
+ * Roughly what an item could pay in a day, before we spend a request on its live book.
+ *
+ * An item can only pay if it habitually moves further in a day than the fees cost to get in
+ * and out — `breakEven` is that threshold, the spread at which a trade nets nothing. Below it
+ * no spread survives the round trip however much volume there is, which is why the busiest
+ * items on the market (minerals, extractors) are usually the worst things to trade.
+ */
+export function expectedEdge(
+  s: Pick<ProspectStats, 'dailyRange' | 'avgPrice' | 'unitsPerDay'>,
+  breakEven: number,
+  share: number,
+): number {
+  const edge = s.dailyRange - breakEven;
+  return edge <= 0 ? 0 : edge * s.avgPrice * s.unitsPerDay * share;
+}

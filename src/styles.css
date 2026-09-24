@@ -206,3 +206,15 @@ table { width: 100%; border-collapse: collapse; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .seg { transition: none; } .spinner { animation-duration: 2.4s; } }
 footer.foot { max-width: 1240px; margin: 0 auto; padding: 0 clamp(14px, 3vw, 32px) 32px; color: var(--muted); font-size: 14px; }
+
+/* Prospects */
+.spark { display: block; overflow: visible; }
+.spark rect { fill: var(--accent); }
+.spark rect.gap { fill: var(--rule); }
+.flag {
+  display: inline-block; margin: 0 4px 2px 0; padding: 1px 7px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--rule); color: var(--warn);
+  font-size: 13px; font-weight: 600; cursor: help;
+}
+.detail-row > td { background: var(--surface-2); padding: 14px 10px; }
+.detail-row .figures { margin: 0; }

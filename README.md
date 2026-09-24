@@ -3,6 +3,8 @@
 A station trading tool for Jita 4-4 that runs entirely in your browser and is hosted on GitHub Pages.
 
 - **Calculator**: profit per unit after broker fees and sales tax, break-even and target prices, with live Jita 4-4 prices and daily volume from ESI.
+- **Prospects**: finds items worth trading by sampling the Jita order book, then checking how often each one really
+  changes hands. Anything that doesn't trade on most days is left out, however wide the margin.
 - **Watchlist**: compare items by spread, return, volume and a rough ISK-per-day estimate.
 - **Positions**: track an item you're trading from the first buy to the last sell. Buys, sells, fees and tax are pulled from your wallet, so you can see what you actually made and how your prices compared with the market.
 - **Inbox**: trades that don't belong to any position, so personal purchases stay out of your trading results.
@@ -106,6 +108,10 @@ Fees depend on your clone state, because Alpha clones can't use some trade skill
   ([Broker Relations](https://www.eveonline.com/news/view/broker-relations), March 2020). So the smallest change you can make
   to an order is 1,000 ISK on a million-ISK item and 0.01 ISK on a cheap one, not 0.01 ISK flat. The Watchlist and the
   Calculator's autofill price one step inside the spread, and the break-even and target prices are rounded onto the same grid.
+- **Prospects samples the market, it doesn't read all of it.** The whole Forge order book is 408 pages, so a scan
+  reads 20 random ones. ESI shuffles order pages by item, so that is a fair 5% sample, but a quiet item can be
+  missed. Trading history costs one request per item, so a run checks a few hundred and keeps what it learns —
+  scan again to widen the net. Coverage is shown under the filters.
 - **Journal linking is an assumption.** Matching broker fees to orders assumes the journal's `context_id` for `brokers_fee` entries is the order ID. If yours isn't, broker fees fall back to estimates, labelled as such.
 - **Tested with mocked ESI responses**, not against the live API. If a route has changed, the error message will say which one.
 

@@ -2,9 +2,9 @@ import { useSyncExternalStore } from 'react';
 import { get, set } from 'idb-keyval';
 import { JITA_44, THE_FORGE } from './config';
 import { esi } from './esi';
-import { calc, type Settings } from './fees';
+import { calc, rates, type Settings } from './fees';
 import { jitaBook, marketHistory } from './market';
-import { DEFAULT_FILTERS, passesGate, pickPages, statsFrom, warningsFor } from './prospects';
+import { DEFAULT_FILTERS, expectedEdge, passesGate, pickPages, statsFrom, warningsFor } from './prospects';
 import { cacheStore } from './store';
 import { tickDown, tickUp } from './tick';
 import type { BookLevel, Prospect, ProspectFilters, ProspectStats } from './types';
@@ -197,12 +197,19 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
     await saveCache(cache);
     if (abort) return setState({ phase: 'idle', message: '' });
 
-    // Price the survivors, busiest by ISK turnover first — that is where a real spread pays.
+    // Spend the book requests where they can pay. Turnover alone would send them all to
+    // minerals and extractors, whose spreads are far too thin to survive the fees — an item
+    // has to move further in a day than the round trip costs before volume means anything.
+    const { be } = rates(settings);
+    const share = settings.share / 100;
     const survivors = Object.values(cache.stats)
       .filter((s) => passesGate(s, filters))
       .filter((s) => { const b = cache.books[s.typeId]; return !b || now - Date.parse(b.at) > BOOK_TTL; })
-      .sort((a, b) => b.unitsPerDay * b.avgPrice - a.unitsPerDay * a.avgPrice)
-      .slice(0, BOOKS_PER_RUN);
+      .map((s) => ({ s, edge: expectedEdge(s, be, share) }))
+      .filter((x) => x.edge > 0)
+      .sort((a, b) => b.edge - a.edge)
+      .slice(0, BOOKS_PER_RUN)
+      .map((x) => x.s);
 
     setState({
       phase: 'pricing', done: 0, total: survivors.length,

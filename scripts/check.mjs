@@ -1,6 +1,6 @@
 // Verification harness for the pure logic that has no UI to eyeball.
 // Run with: npm run check   (Node strips the TypeScript types natively)
-import { statsFrom, pickPages, passesGate, warningsFor, DEFAULT_FILTERS } from '../src/lib/prospects.ts';
+import { statsFrom, pickPages, passesGate, warningsFor, expectedEdge, DEFAULT_FILTERS } from '../src/lib/prospects.ts';
 
 let failed = 0;
 const eq = (label, got, want) => {
@@ -80,6 +80,17 @@ eq('all at once', warningsFor({ dailyRange: 0.05, trend: -0.5, tradesPerDay: 2 }
    ['thin', 'fluke', 'falling', 'crowded']);
 // No habitual range to compare against means no fluke claim.
 eq('no range, no fluke', warningsFor({ ...st, dailyRange: 0 }, deep, 5, 100), []);
+
+console.log('\n--- expectedEdge ---');
+const BE = 0.073; // break-even spread at a 1.5% broker fee and 3.38% sales tax
+// Mexallon: enormous volume, 0.14% daily range. No amount of turnover survives the fees.
+eq('thin range pays nothing', expectedEdge({ dailyRange: 0.0014, avgPrice: 100, unitsPerDay: 1e9 }, BE, 0.1), 0);
+eq('range exactly at break-even pays nothing', expectedEdge({ dailyRange: BE, avgPrice: 1e6, unitsPerDay: 100 }, BE, 0.1), 0);
+// A wide daily range on modest volume beats a razor spread on huge volume.
+const wide = expectedEdge({ dailyRange: 0.2, avgPrice: 1e6, unitsPerDay: 50 }, BE, 0.1);
+const fat = expectedEdge({ dailyRange: 0.02, avgPrice: 100, unitsPerDay: 1e9 }, BE, 0.1);
+if (!(wide > 0 && fat === 0)) { failed++; console.log(`  FAIL ranking: wide=${wide} fat=${fat}`); }
+eq('edge scales with share', expectedEdge({ dailyRange: 0.173, avgPrice: 1000, unitsPerDay: 10 }, BE, 0.5), 0.1 * 1000 * 10 * 0.5);
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

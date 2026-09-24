@@ -7,6 +7,7 @@ import { ago } from './lib/format';
 import { useAuth, useRoute } from './lib/hooks';
 import { APP_NAME } from './lib/config';
 import { Calculator } from './components/Calculator';
+import { Prospects } from './components/Prospects';
 import { Watchlist } from './components/Watchlist';
 import { Positions } from './components/Positions';
 import { PositionDetail } from './components/PositionDetail';
@@ -50,7 +51,7 @@ export function App() {
   const mismatch = auth && d.meta.syncedCharacterId && d.meta.syncedCharacterId !== auth.characterId;
 
   const nav: [string, string][] = [
-    ['calculator', 'Calculator'], ['watchlist', 'Watchlist'], ['positions', 'Positions'], ['inbox', 'Inbox'], ['omega', 'Omega'], ['settings', 'Settings'],
+    ['calculator', 'Calculator'], ['prospects', 'Prospects'], ['watchlist', 'Watchlist'], ['positions', 'Positions'], ['inbox', 'Inbox'], ['omega', 'Omega'], ['settings', 'Settings'],
   ];
 
   return (
@@ -94,7 +95,8 @@ export function App() {
 
       {!ready ? (
         <div className="page"><p className="muted"><span className="spinner" aria-hidden="true" />Loading your ledger…</p></div>
-      ) : page === 'watchlist' ? <Watchlist />
+      ) : page === 'prospects' ? <Prospects />
+        : page === 'watchlist' ? <Watchlist />
         : page === 'positions' && route.path[1] ? <PositionDetail id={route.path[1]} />
         : page === 'positions' ? <Positions />
         : page === 'inbox' ? <Inbox />

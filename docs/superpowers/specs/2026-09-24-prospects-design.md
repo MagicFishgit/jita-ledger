@@ -51,7 +51,11 @@ order book, sample 19 more pages at random, count orders per `type_id` where
 first, skipping any scanned in the last 24 h. Reduce 419 days to a compact stat record and
 throw the raw rows away. Apply the gate here.
 
-**Stage 2 — Live price** (1 request per survivor, top 40). Reuse `jitaBook()` from
+**Stage 2 — Live price** (1 request per survivor, top 40). Survivors are ordered by
+`expectedEdge` — how far the item habitually moves in a day *beyond* the break-even spread
+its fees imply. Ordering by turnover instead sends every request to minerals and Skill
+Extractors, whose spreads fees always eat; measured live, that ordering returned 10 negative
+margins out of 12, against 11 positive out of 12 for `expectedEdge`. Reuse `jitaBook()` from
 `market.ts` for the real best bid/ask, book depth and competitor counts. Price one step
 inside the spread with `tickUp`/`tickDown`, then run the user's own fees through the
 existing `calc()`.
@@ -91,8 +95,9 @@ on the page:
 - `daysTraded >= 20` (of 30)
 - `tradesPerDay >= 5`
 - `spikiness <= 0.5` — no single day may be more than half the month's volume
-- `capital <= budget`, where `capital = unitsPerDay x share x buyPrice` — the ISK tied up
-  holding one day's stock, using the user's existing "share of volume" setting
+- the budget **caps position size** rather than rejecting: `qty = min(day's share, budget / buyPrice)`,
+  and an item is only dropped when the budget cannot afford a single unit. A small budget shrinks the
+  ISK/day figure instead of hiding the item, which is strictly more useful.
 - net return `> 0` after their real broker fee and sales tax
 
 ## Ranking and warnings
@@ -128,11 +133,11 @@ New route `#/prospects`, nav entry "Prospects" between Calculator and Watchlist.
 
 | File | Change |
 | --- | --- |
-| `src/lib/prospects.ts` | new — stats, gate, scoring, scan orchestration |
+| `src/lib/prospects.ts` | new — the pure rules: stats, gate, warnings, expected edge |
+| `src/lib/scan.ts` | new — the machinery: sampling, evaluation, orchestration, caching |
 | `src/components/Prospects.tsx` | new — the page |
 | `src/components/Sparkline.tsx` | new — small inline-SVG volume strip |
 | `src/lib/types.ts` | add `ProspectStats`, `Prospect` |
-| `src/lib/market.ts` | add `sampleForgeOrders()` |
 | `src/App.tsx` | route + nav entry |
 | `src/styles.css` | styles for the table, sparkline, warning pills |
 | `README.md` | document the page and its assumptions |
