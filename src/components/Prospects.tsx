@@ -109,7 +109,8 @@ export function Prospects() {
         </p>
       )}
 
-      {!cov.checked ? (
+      {busy && !rows.length ? null
+        : !cov.checked ? (
         <p className="empty">
           Nothing scanned yet. A scan samples 20 pages of the Jita order book, checks the trading history of the busiest
           few hundred items, and prices the ones that trade steadily. It takes about a minute and a half, and what it

@@ -217,4 +217,11 @@ footer.foot { max-width: 1240px; margin: 0 auto; padding: 0 clamp(14px, 3vw, 32p
   font-size: 13px; font-weight: 600; cursor: help;
 }
 .detail-row > td { background: var(--surface-2); padding: 14px 10px; }
-.detail-row .figures { margin: 0; }
+.detail-row .figures {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+  gap: 0 26px; margin: 0;
+}
+.detail-row .stat { min-width: 0; }
+.detail-row .stat:last-of-type { border-bottom: 0; }
+.detail-row .stat dd { font-size: 17px; text-align: left; }
+.detail-row .stat dt { padding: 0; border: 0; }
