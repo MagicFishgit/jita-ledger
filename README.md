@@ -102,6 +102,10 @@ Fees depend on your clone state, because Alpha clones can't use some trade skill
 - **ESI only keeps recent history**: about 30 days of wallet transactions and journal, and 90 days of order history. The app keeps everything it has seen, so sync at least every few weeks. Anything older can be added by hand on the position page.
 - **Your data is in one browser.** Use **Settings > Export backup** regularly, and import the file on another device.
 - **One character per browser.** Syncing a second character mixes their trades.
+- **Order prices step on a grid.** EVE order prices carry at most four significant figures, with 0.01 ISK as the floor
+  ([Broker Relations](https://www.eveonline.com/news/view/broker-relations), March 2020). So the smallest change you can make
+  to an order is 1,000 ISK on a million-ISK item and 0.01 ISK on a cheap one, not 0.01 ISK flat. The Watchlist and the
+  Calculator's autofill price one step inside the spread, and the break-even and target prices are rounded onto the same grid.
 - **Journal linking is an assumption.** Matching broker fees to orders assumes the journal's `context_id` for `brokers_fee` entries is the order ID. If yours isn't, broker fees fall back to estimates, labelled as such.
 - **Tested with mocked ESI responses**, not against the live API. If a route has changed, the error message will say which one.
 

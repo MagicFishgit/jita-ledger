@@ -1,5 +1,6 @@
 import type { Settings, TradeResult } from '../lib/fees';
 import { isk, iskBig, iskBigSigned, iskSigned, pct, plainNum, units } from '../lib/format';
+import { priceDown, priceUp } from '../lib/tick';
 
 function volNote(share: number) {
   if (share <= 0.1) return 'Rough guide: a modest slice of the market';
@@ -44,9 +45,10 @@ export function TradeReadout({ c, s, asOmega }: { c: TradeResult; s: Settings; a
     ['Spread', pct(c.spreadPct)],
     ['Return on ISK spent', pct(c.roi), undefined, c.roi >= 0 ? 'pos' : 'neg'],
     ['ISK you put in', iskBig(c.cost + c.brokerBuy), 'Buy order plus its broker fee'],
-    ['Break-even sell price', isk(c.beSell), 'At your buy price'],
-    [`Sell price for a ${T}% return`, isk(c.targetSell), 'At your buy price'],
-    [`Highest buy price for a ${T}% return`, isk(c.maxBuy), 'At your sell price'],
+    // Rounded onto EVE's four-significant-figure price grid, each way round so the rounded price still clears the mark.
+    ['Break-even sell price', isk(priceUp(c.beSell)), 'At your buy price, rounded up to a price EVE accepts'],
+    [`Sell price for a ${T}% return`, isk(priceUp(c.targetSell)), 'At your buy price, rounded up to a price EVE accepts'],
+    [`Highest buy price for a ${T}% return`, isk(priceDown(c.maxBuy)), 'At your sell price, rounded down to a price EVE accepts'],
   ];
   if (Number.isFinite(c.volShare)) figs.push(['Share of daily volume', pct(c.volShare, 1), volNote(c.volShare)]);
   if (asOmega?.ok) {

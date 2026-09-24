@@ -5,6 +5,7 @@ import { snapshot } from '../lib/market';
 import { update, useData } from '../lib/store';
 import { addToWatchlist, startPosition } from '../lib/actions';
 import { navigate } from '../lib/hooks';
+import { tickDown, tickUp } from '../lib/tick';
 import { ItemFinder, useTypeName } from './common';
 
 export function Watchlist() {
@@ -33,8 +34,8 @@ export function Watchlist() {
 
   const rows = d.watchlist.map((w) => {
     const s = w.snap;
-    const buy = s?.bestBuy != null ? s.bestBuy + 0.01 : NaN;
-    const sell = s?.bestSell != null ? s.bestSell - 0.01 : NaN;
+    const buy = tickUp(s?.bestBuy ?? NaN);
+    const sell = tickDown(s?.bestSell ?? NaN);
     const c = calc({ buy, sell, qty: 1 }, d.settings);
     const perDay = c.ok && s?.avgVol7 ? (c.net) * s.avgVol7 * share : NaN;
     return { w, s, c, perDay };
@@ -47,7 +48,8 @@ export function Watchlist() {
         <div>
           <h1>Watchlist</h1>
           <p>
-            Items you’re considering, priced at 0.01 inside the current Jita 4-4 spread. Estimated ISK per day assumes you
+            Items you’re considering, priced one step inside the current Jita 4-4 spread. EVE order prices carry only four
+            significant figures, so a step is 1,000 ISK on a million-ISK item and 0.01 ISK on a cheap one. Estimated ISK per day assumes you
             capture {plainNum(d.settings.share)}% of the 7-day average volume, which you can change in Settings. It’s a rough guide, not a forecast.
           </p>
         </div>

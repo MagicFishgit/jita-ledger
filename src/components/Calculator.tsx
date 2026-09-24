@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState, type ChangeEvent } from 'react';
 import { calc, calcWith, omegaRates } from '../lib/fees';
-import { inputNum, parseISK } from '../lib/format';
+import { inputNum, isk, parseISK } from '../lib/format';
 import { marketHistory, snapshot } from '../lib/market';
 import { useData } from '../lib/store';
 import { addToWatchlist, startPosition } from '../lib/actions';
 import { navigate, type Route } from '../lib/hooks';
+import { tickDown, tickUp } from '../lib/tick';
 import type { HistRow, MarketSnap } from '../lib/types';
 import { ItemFinder } from './common';
 import { MarketPanel } from './MarketPanel';
@@ -43,13 +44,25 @@ export function Calculator({ route }: { route: Route }) {
       const [s, h] = await Promise.all([snapshot(t.id, force), marketHistory(t.id)]);
       setSnap(s); setHist(h);
       if (fill) {
+        // One step inside the spread, where a step is the smallest change EVE takes at that price.
+        const bb = s.bestBuy ?? NaN, bs = s.bestSell ?? NaN;
+        const buy = tickUp(bb), sell = tickDown(bs);
         setF((x) => ({
           ...x,
-          buy: s.bestBuy != null ? inputNum(s.bestBuy + 0.01) : x.buy,
-          sell: s.bestSell != null ? inputNum(s.bestSell - 0.01) : x.sell,
+          buy: Number.isFinite(buy) ? inputNum(buy) : x.buy,
+          sell: Number.isFinite(sell) ? inputNum(sell) : x.sell,
           vol: s.avgVol7 != null ? inputNum(Math.round(s.avgVol7)) : x.vol,
         }));
-        setMsg({ text: 'Filled in: your buy order 0.01 above the top buy, your sell order 0.01 below the lowest sell, and the 7-day average volume.' });
+        const filled = [
+          Number.isFinite(buy) ? `your buy order ${isk(buy - bb)} above the top buy` : null,
+          Number.isFinite(sell) ? `your sell order ${isk(bs - sell)} below the lowest sell` : null,
+          s.avgVol7 != null ? 'the 7-day average volume' : null,
+        ].filter(Boolean);
+        setMsg({
+          text: filled.length
+            ? `Filled in: ${filled.join(', ')}. EVE order prices carry only four significant figures, so those are the smallest steps you can take here.`
+            : 'Jita 4-4 has no orders for this item right now.',
+        });
       }
     } catch (e) {
       setMsg({ text: e instanceof Error ? e.message : String(e), err: true });
