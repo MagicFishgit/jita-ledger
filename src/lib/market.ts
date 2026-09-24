@@ -1,0 +1,101 @@
+import { get, set } from 'idb-keyval';
+import { esi, esiAllPages } from './esi';
+import { GLOBAL_PLEX_MARKET, JITA_44, PLEX_TYPE, THE_FORGE } from './config';
+import { cacheStore } from './store';
+import type { BookLevel, HistRow, MarketSnap } from './types';
+
+type IdsResponse = {
+  inventory_types?: { id: number; name: string }[];
+  factions?: { id: number; name: string }[];
+  corporations?: { id: number; name: string }[];
+};
+
+/** Exact item name, as shown in game, to its type ID. */
+export async function resolveType(name: string): Promise<{ id: number; name: string } | null> {
+  const clean = name.trim();
+  if (!clean) return null;
+  const { data } = await esi<IdsResponse>('/universe/ids/', { method: 'POST', body: [clean] });
+  const t = data.inventory_types?.[0];
+  return t ? { id: t.id, name: t.name } : null;
+}
+
+export async function resolveIds(names: string[]): Promise<IdsResponse> {
+  const { data } = await esi<IdsResponse>('/universe/ids/', { method: 'POST', body: names });
+  return data;
+}
+
+export async function resolveNames(ids: number[]): Promise<Record<number, string>> {
+  const out: Record<number, string> = {};
+  const uniq = [...new Set(ids)].filter((n) => Number.isFinite(n) && n > 0);
+  for (let i = 0; i < uniq.length; i += 1000) {
+    const { data } = await esi<{ id: number; name: string }[]>('/universe/names/', { method: 'POST', body: uniq.slice(i, i + 1000) });
+    data.forEach((d) => (out[d.id] = d.name));
+  }
+  return out;
+}
+
+type RawMarketOrder = { order_id: number; is_buy_order: boolean; price: number; volume_remain: number; location_id: number };
+
+function levels(orders: RawMarketOrder[], n: number): BookLevel[] {
+  const out: BookLevel[] = [];
+  for (const o of orders) {
+    const last = out[out.length - 1];
+    if (last && last.price === o.price) last.volume += o.volume_remain;
+    else if (out.length < n) out.push({ price: o.price, volume: o.volume_remain });
+    else break;
+  }
+  return out;
+}
+
+/** PLEX has one global market; everything else is read from The Forge and filtered to Jita 4-4. */
+const regionFor = (typeId: number) => (typeId === PLEX_TYPE ? GLOBAL_PLEX_MARKET : THE_FORGE);
+const atJita = (typeId: number, locationId: number) => typeId === PLEX_TYPE || locationId === JITA_44;
+
+const bookCache = new Map<number, { at: number; snap: Omit<MarketSnap, 'avgVol7' | 'avgPrice7'> }>();
+
+/** Jita 4-4 order book only (The Forge region data, filtered to the station). ESI caches this for 5 minutes. */
+export async function jitaBook(typeId: number, force = false) {
+  const hit = bookCache.get(typeId);
+  if (!force && hit && Date.now() - hit.at < 5 * 60_000) return hit.snap;
+  const orders = await esiAllPages<RawMarketOrder>(`/markets/${regionFor(typeId)}/orders/`, { query: { order_type: 'all', type_id: typeId } });
+  const here = orders.filter((o) => atJita(typeId, o.location_id));
+  const buys = here.filter((o) => o.is_buy_order).sort((a, b) => b.price - a.price);
+  const sells = here.filter((o) => !o.is_buy_order).sort((a, b) => a.price - b.price);
+  const snap = {
+    typeId,
+    fetchedAt: new Date().toISOString(),
+    bestBuy: buys[0]?.price ?? null,
+    bestSell: sells[0]?.price ?? null,
+    buyOrders: buys.length,
+    sellOrders: sells.length,
+    topBuys: levels(buys, 5),
+    topSells: levels(sells, 5),
+  };
+  bookCache.set(typeId, { at: Date.now(), snap });
+  return snap;
+}
+
+/** Daily history for the whole of The Forge (most of it is Jita). Cached for 3 hours. */
+export async function marketHistory(typeId: number): Promise<HistRow[]> {
+  const key = `hist:${typeId}`;
+  const cached = (await get(key, cacheStore)) as { at: number; rows: HistRow[] } | undefined;
+  if (cached && Date.now() - cached.at < 3 * 3600_000) return cached.rows;
+  const { data } = await esi<HistRow[]>(`/markets/${regionFor(typeId)}/history/`, { query: { type_id: typeId } });
+  const rows = [...data].sort((a, b) => a.date.localeCompare(b.date));
+  await set(key, { at: Date.now(), rows }, cacheStore).catch(() => undefined);
+  return rows;
+}
+
+export function recentAverages(rows: HistRow[], days = 7) {
+  const recent = rows.slice(-days);
+  if (!recent.length) return { avgVol: null, avgPrice: null };
+  const vol = recent.reduce((s, r) => s + r.volume, 0);
+  const val = recent.reduce((s, r) => s + r.volume * r.average, 0);
+  return { avgVol: vol / recent.length, avgPrice: vol > 0 ? val / vol : null };
+}
+
+export async function snapshot(typeId: number, force = false): Promise<MarketSnap> {
+  const [book, hist] = await Promise.all([jitaBook(typeId, force), marketHistory(typeId)]);
+  const { avgVol, avgPrice } = recentAverages(hist, 7);
+  return { ...book, avgVol7: avgVol, avgPrice7: avgPrice };
+}
