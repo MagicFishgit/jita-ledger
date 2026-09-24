@@ -91,7 +91,8 @@ on the page:
 - `daysTraded >= 20` (of 30)
 - `tradesPerDay >= 5`
 - `spikiness <= 0.5` — no single day may be more than half the month's volume
-- capital to hold a day's stock `<=` the user's budget
+- `capital <= budget`, where `capital = unitsPerDay x share x buyPrice` — the ISK tied up
+  holding one day's stock, using the user's existing "share of volume" setting
 - net return `> 0` after their real broker fee and sales tax
 
 ## Ranking and warnings
@@ -107,7 +108,8 @@ Warnings are surfaced per row rather than folded into the score, so the user can
 - **Thin book** — fewer than 5 orders on either side; the spread is wide because nobody is there
 - **Fluke spread** — live spread > 2.5 × `dailyRange`; today's gap is unusual and will close
 - **Falling knife** — `trend < −10%`
-- **Crowded** — estimated live orders ÷ `tradesPerDay` > 20; many listings, few trades
+- **Crowded** — `estOrders / tradesPerDay > 20`, where `estOrders = sampledOrders x (totalPages / sampledPages)`;
+  many listings, few trades — the Thukker Battery case
 
 ## Page
 
