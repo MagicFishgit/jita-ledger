@@ -135,7 +135,11 @@ export function rankProspects(cache: ScanCache, settings: Settings, filters: Pro
     const p = evaluate(s, book, settings, filters, (cache.sample?.counts[s.typeId] ?? 0) * scale);
     if (p) out.push(p);
   }
-  return out.sort((a, b) => b.roi - a.roi);
+  // Flags don't change what an item earns, so they never change the score — they only decide
+  // which shelf it sits on. Sinking by count keeps a lone "falling" above a thin, fluke,
+  // crowded one, which matters when a flag as common as falling would otherwise bury half the list.
+  return out.sort((a, b) =>
+    (filters.demoteFlagged ? a.warnings.length - b.warnings.length : 0) || b.roi - a.roi);
 }
 
 /** How much of the candidate pool has been checked, for an honest coverage line. */

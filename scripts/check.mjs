@@ -92,5 +92,29 @@ const fat = expectedEdge({ dailyRange: 0.02, avgPrice: 100, unitsPerDay: 1e9 }, 
 if (!(wide > 0 && fat === 0)) { failed++; console.log(`  FAIL ranking: wide=${wide} fat=${fat}`); }
 eq('edge scales with share', expectedEdge({ dailyRange: 0.173, avgPrice: 1000, unitsPerDay: 10 }, BE, 0.5), 0.1 * 1000 * 10 * 0.5);
 
+console.log('\n--- demoting flagged items ---');
+// rankProspects does this sort; replicated here because it lives behind ESI and store imports.
+const order = (list, demote) => [...list]
+  .sort((a, b) => (demote ? a.warnings.length - b.warnings.length : 0) || b.roi - a.roi)
+  .map((x) => x.id);
+const list = [
+  { id: 'messy-best', roi: 2.8, warnings: ['thin', 'fluke'] },
+  { id: 'clean-ok', roi: 0.2, warnings: [] },
+  { id: 'one-flag', roi: 0.9, warnings: ['falling'] },
+  { id: 'clean-good', roi: 0.5, warnings: [] },
+];
+eq('off: pure return order', order(list, false), ['messy-best', 'one-flag', 'clean-good', 'clean-ok']);
+eq('on: clean first, then by flag count', order(list, true), ['clean-good', 'clean-ok', 'one-flag', 'messy-best']);
+// A single common flag must still beat a pile of them.
+eq('one flag outranks three', order([
+  { id: 'three', roi: 9, warnings: ['thin', 'fluke', 'crowded'] },
+  { id: 'one', roi: 0.1, warnings: ['falling'] },
+], true), ['one', 'three']);
+// Within a group, return still decides.
+eq('return decides within a group', order([
+  { id: 'lo', roi: 0.1, warnings: ['thin'] },
+  { id: 'hi', roi: 0.4, warnings: ['falling'] },
+], true), ['hi', 'lo']);
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

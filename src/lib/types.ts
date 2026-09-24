@@ -118,6 +118,8 @@ export type ProspectFilters = {
   minDays: number;
   minRoi: number;
   maxSpikiness: number;
+  /** Sort items carrying flags below clean ones, the more flags the further down. */
+  demoteFlagged: boolean;
 };
 
 

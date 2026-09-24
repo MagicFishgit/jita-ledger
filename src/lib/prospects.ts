@@ -73,6 +73,7 @@ export const DEFAULT_FILTERS: ProspectFilters = {
   minDays: 20,
   minRoi: 0.03,
   maxSpikiness: 0.5,
+  demoteFlagged: false,
 };
 
 /**

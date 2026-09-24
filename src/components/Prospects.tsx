@@ -17,7 +17,10 @@ const WARNING: Record<ProspectWarning, { short: string; why: string }> = {
   crowded: { short: 'Crowded', why: 'Hundreds of listings against very few trades. You would be joining a queue, not a market.' },
 };
 
-const FILTER_FIELDS: { key: keyof ProspectFilters; label: string; hint: string; step?: string }[] = [
+/** The filters that are typed into. demoteFlagged is a tick box, so it is not one of these. */
+type NumberFilter = Exclude<keyof ProspectFilters, 'demoteFlagged'>;
+
+const FILTER_FIELDS: { key: NumberFilter; label: string; hint: string }[] = [
   { key: 'budget', label: 'ISK I can tie up', hint: 'Caps how much of a day’s volume you take on' },
   { key: 'minTrades', label: 'Trades a day, at least', hint: 'Median over the last 30 days' },
   { key: 'minDays', label: 'Days traded out of 30, at least', hint: 'Days with any trade at all' },
@@ -55,11 +58,11 @@ export function Prospects() {
   }, [rows, d.names]);
 
   const busy = scan.phase === 'sampling' || scan.phase === 'liquidity' || scan.phase === 'pricing';
-  const set = (k: keyof ProspectFilters) => (v: string) => {
+  const set = (k: NumberFilter) => (v: string) => {
     const n = parseFloat(v.replace(/[^0-9.]/g, ''));
     setF((x) => ({ ...x, [k]: Number.isFinite(n) ? (k === 'minRoi' ? n / 100 : n) : 0 }));
   };
-  const valueOf = (k: keyof ProspectFilters) => (k === 'minRoi' ? plainNum(f.minRoi * 100) : String(f[k]));
+  const valueOf = (k: NumberFilter) => (k === 'minRoi' ? plainNum(f.minRoi * 100) : String(f[k]));
 
   return (
     <div className="page">
@@ -89,6 +92,10 @@ export function Prospects() {
             </div>
           ))}
         </div>
+        <label className="check" style={{ marginTop: 14 }}>
+          <input type="checkbox" checked={f.demoteFlagged} onChange={(e) => setF((x) => ({ ...x, demoteFlagged: e.target.checked }))} />
+          <span>Push flagged items down the list, the more flags the further down</span>
+        </label>
       </div>
 
       {busy && (
