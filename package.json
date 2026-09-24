@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check": "node scripts/check.mjs"
   },
   "dependencies": {
     "idb-keyval": "^6.2.1",

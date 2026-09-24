@@ -1,0 +1,47 @@
+// Verification harness for the pure logic that has no UI to eyeball.
+// Run with: npm run check   (Node strips the TypeScript types natively)
+import { statsFrom } from '../src/lib/prospects.ts';
+
+let failed = 0;
+const eq = (label, got, want) => {
+  const ok = typeof want === 'number' ? Math.abs(got - want) < 1e-9 : JSON.stringify(got) === JSON.stringify(want);
+  if (!ok) { failed++; console.log(`  FAIL ${label}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`); }
+};
+const DAY = 86400_000;
+const NOW = Date.parse('2026-09-24T12:00:00Z');
+const dayAgo = (n) => new Date(NOW - n * DAY).toISOString().slice(0, 10);
+const rows = (n, f = () => ({})) =>
+  Array.from({ length: n }, (_, i) => ({
+    date: dayAgo(i + 1), average: 100, highest: 110, lowest: 90, volume: 1000, order_count: 20, ...f(i),
+  }));
+
+console.log('--- statsFrom ---');
+const steady = statsFrom(1, rows(30), NOW);
+eq('daysTraded steady', steady.daysTraded, 30);
+eq('tradesPerDay', steady.tradesPerDay, 20);
+eq('unitsPerDay', steady.unitsPerDay, 1000);
+eq('spikiness steady', steady.spikiness, 1 / 30);
+eq('dailyRange', steady.dailyRange, 0.2);
+eq('spark length', steady.spark.length, 30);
+
+// The case the whole page exists to reject: a healthy monthly total, all on one day.
+const spike = statsFrom(2, [{ date: dayAgo(1), average: 100, highest: 110, lowest: 90, volume: 30000, order_count: 40 }], NOW);
+eq('daysTraded spike', spike.daysTraded, 1);
+eq('spikiness spike', spike.spikiness, 1);
+
+// Gaps are real: ESI omits days with no trades.
+const gappy = statsFrom(3, rows(30).filter((_, i) => i % 3 === 0), NOW);
+eq('daysTraded gappy', gappy.daysTraded, 10);
+eq('spark zeroes on gaps', gappy.spark.filter((v) => v === 0).length, 20);
+
+// A falling price shows as a negative trend.
+const falling = statsFrom(4, rows(90, (i) => ({ average: 100 + i })), NOW);
+if (!(falling.trend < -0.05)) { failed++; console.log(`  FAIL trend falling: ${falling.trend}`); }
+
+// Dead items return null rather than flattering stats.
+eq('dead item', statsFrom(5, [{ date: '2025-01-01', average: 1, highest: 1, lowest: 1, volume: 5, order_count: 1 }], NOW), null);
+eq('no rows', statsFrom(6, [], NOW), null);
+eq('excludes today', statsFrom(7, [{ date: dayAgo(0), average: 1, highest: 1, lowest: 1, volume: 5, order_count: 1 }], NOW), null);
+
+console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
+process.exit(failed ? 1 : 0);

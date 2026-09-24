@@ -73,6 +73,28 @@ export type HistRow = { date: string; average: number; highest: number; lowest: 
 
 export type WatchItem = { typeId: number; addedAt: string; snap?: MarketSnap };
 
+/** What a scan learned about one item's trading, reduced from ESI's daily history. */
+export type ProspectStats = {
+  typeId: number;
+  at: string;
+  /** Of the last 30 complete days, how many had any trade at all. */
+  daysTraded: number;
+  /** Median trades per day. */
+  tradesPerDay: number;
+  /** Median units per day. */
+  unitsPerDay: number;
+  /** The busiest day's share of the month's volume. High means one big day, not steady trade. */
+  spikiness: number;
+  /** Median (highest - lowest) / average: how wide this item's spread usually is. */
+  dailyRange: number;
+  /** 30-day average price against the 90-day, as a fraction. Negative means falling. */
+  trend: number;
+  avgPrice: number;
+  /** 30 daily volumes, oldest first, zero on days nothing traded. */
+  spark: number[];
+};
+
+
 export type Meta = {
   lastSync?: string;
   lastSyncError?: string;
