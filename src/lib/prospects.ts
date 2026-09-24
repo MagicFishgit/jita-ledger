@@ -1,4 +1,4 @@
-import type { HistRow, ProspectStats } from './types';
+import type { BookLevel, HistRow, ProspectFilters, ProspectStats, ProspectWarning } from './types';
 
 const DAY = 86400_000;
 const dayKey = (t: number) => new Date(t).toISOString().slice(0, 10);
@@ -52,4 +52,64 @@ export function statsFrom(typeId: number, rows: HistRow[], now = Date.now()): Pr
     avgPrice: avg30,
     spark,
   };
+}
+
+/**
+ * Page 1 plus distinct random others. Page 1 is always in, because it has to be fetched
+ * anyway to learn how many pages there are.
+ */
+export function pickPages(total: number, want: number, rnd: () => number = Math.random): number[] {
+  const pool = Array.from({ length: Math.max(0, total - 1) }, (_, i) => i + 2);
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return [1, ...pool.slice(0, Math.max(0, Math.min(want, total) - 1))];
+}
+
+export const DEFAULT_FILTERS: ProspectFilters = {
+  budget: 250_000_000,
+  minTrades: 5,
+  minDays: 20,
+  minRoi: 0.03,
+  maxSpikiness: 0.5,
+};
+
+/**
+ * Does this item change hands often enough, and steadily enough, to trade every day?
+ *
+ * spikiness is the one that earns its keep. An item can move 30,000 units in a month and
+ * still be no use to you if it all went on a single day; days traded alone waves that through.
+ */
+export function passesGate(
+  s: Pick<ProspectStats, 'daysTraded' | 'tradesPerDay' | 'spikiness'>,
+  f: ProspectFilters,
+): boolean {
+  return s.daysTraded >= f.minDays && s.tradesPerDay >= f.minTrades && s.spikiness <= f.maxSpikiness;
+}
+
+export type BookShape = {
+  buyOrders: number; sellOrders: number;
+  topBuys: BookLevel[]; topSells: BookLevel[];
+};
+
+/**
+ * The ways a good-looking spread turns out not to be one. Surfaced next to the item rather
+ * than folded into the score, because whether they matter depends on how you trade.
+ */
+export function warningsFor(
+  stats: Pick<ProspectStats, 'dailyRange' | 'trend' | 'tradesPerDay'>,
+  book: BookShape,
+  spreadPct: number,
+  estOrders: number,
+): ProspectWarning[] {
+  const out: ProspectWarning[] = [];
+  // Few orders on a side means the gap is wide because nobody is standing there.
+  if (book.buyOrders < 5 || book.sellOrders < 5) out.push('thin');
+  // Today's gap is far wider than this item's habitual daily range, so expect it to close.
+  if (stats.dailyRange > 0 && spreadPct > 2.5 * stats.dailyRange) out.push('fluke');
+  if (stats.trend < -0.1) out.push('falling');
+  // Hundreds of listings against a handful of trades: a queue, not a market.
+  if (stats.tradesPerDay > 0 && estOrders / stats.tradesPerDay > 20) out.push('crowded');
+  return out;
 }

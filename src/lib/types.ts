@@ -94,6 +94,32 @@ export type ProspectStats = {
   spark: number[];
 };
 
+export type ProspectWarning = 'thin' | 'fluke' | 'falling' | 'crowded';
+
+/** A candidate that cleared the gate, priced against the live book. */
+export type Prospect = {
+  typeId: number;
+  stats: ProspectStats;
+  bestBuy: number; bestSell: number;
+  /** One legal step inside the spread: what you would actually place. */
+  buy: number; sell: number;
+  buyOrders: number; sellOrders: number;
+  topBuyVol: number; topSellVol: number;
+  qty: number;
+  net: number; roi: number; spreadPct: number;
+  iskPerDay: number; capital: number;
+  warnings: ProspectWarning[];
+};
+
+export type ProspectFilters = {
+  /** ISK you are willing to tie up in one item at a time. */
+  budget: number;
+  minTrades: number;
+  minDays: number;
+  minRoi: number;
+  maxSpikiness: number;
+};
+
 
 export type Meta = {
   lastSync?: string;

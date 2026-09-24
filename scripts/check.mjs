@@ -1,6 +1,6 @@
 // Verification harness for the pure logic that has no UI to eyeball.
 // Run with: npm run check   (Node strips the TypeScript types natively)
-import { statsFrom } from '../src/lib/prospects.ts';
+import { statsFrom, pickPages, passesGate, warningsFor, DEFAULT_FILTERS } from '../src/lib/prospects.ts';
 
 let failed = 0;
 const eq = (label, got, want) => {
@@ -42,6 +42,44 @@ if (!(falling.trend < -0.05)) { failed++; console.log(`  FAIL trend falling: ${f
 eq('dead item', statsFrom(5, [{ date: '2025-01-01', average: 1, highest: 1, lowest: 1, volume: 5, order_count: 1 }], NOW), null);
 eq('no rows', statsFrom(6, [], NOW), null);
 eq('excludes today', statsFrom(7, [{ date: dayAgo(0), average: 1, highest: 1, lowest: 1, volume: 5, order_count: 1 }], NOW), null);
+
+console.log('\n--- pickPages ---');
+const seq = (() => { let i = 1; return () => ((i = (i * 9301 + 49297) % 233280), i / 233280); })();
+for (const [total, want] of [[408, 20], [5, 20], [1, 20], [20, 20]]) {
+  const p = pickPages(total, want, seq);
+  eq(`pickPages(${total},${want}) length`, p.length, Math.min(total, want));
+  eq(`pickPages(${total},${want}) distinct`, new Set(p).size, p.length);
+  if (p.some((n) => n < 1 || n > total)) { failed++; console.log(`  FAIL out of range: ${p}`); }
+  if (p[0] !== 1) { failed++; console.log(`  FAIL must include page 1: ${p}`); }
+}
+
+console.log('\n--- passesGate ---');
+const base = { daysTraded: 25, tradesPerDay: 10, spikiness: 0.2 };
+const gate = (over) => passesGate({ ...base, ...over }, DEFAULT_FILTERS);
+eq('healthy passes', gate({}), true);
+eq('trades once a month fails', gate({ daysTraded: 1, tradesPerDay: 1 }), false);
+eq('too few trading days fails', gate({ daysTraded: 19 }), false);
+eq('boundary trading days passes', gate({ daysTraded: 20 }), true);
+eq('too few trades fails', gate({ tradesPerDay: 4 }), false);
+eq('boundary trades passes', gate({ tradesPerDay: 5 }), true);
+eq('one big day fails', gate({ spikiness: 0.51 }), false);
+eq('boundary spikiness passes', gate({ spikiness: 0.5 }), true);
+// A month of volume on one day is the exact case this page exists to reject.
+eq('spike month rejected', passesGate(spike, DEFAULT_FILTERS), false);
+eq('steady month accepted', passesGate(steady, DEFAULT_FILTERS), true);
+
+console.log('\n--- warningsFor ---');
+const deep = { buyOrders: 40, sellOrders: 40, topBuys: [], topSells: [] };
+const st = { dailyRange: 0.08, trend: 0, tradesPerDay: 20 };
+eq('clean', warningsFor(st, deep, 0.09, 100), []);
+eq('thin book', warningsFor(st, { ...deep, sellOrders: 4 }, 0.09, 100), ['thin']);
+eq('fluke spread', warningsFor(st, deep, 0.3, 100), ['fluke']);
+eq('falling knife', warningsFor({ ...st, trend: -0.2 }, deep, 0.09, 100), ['falling']);
+eq('crowded book', warningsFor(st, deep, 0.09, 500), ['crowded']);
+eq('all at once', warningsFor({ dailyRange: 0.05, trend: -0.5, tradesPerDay: 2 }, { ...deep, buyOrders: 1 }, 0.9, 400),
+   ['thin', 'fluke', 'falling', 'crowded']);
+// No habitual range to compare against means no fluke claim.
+eq('no range, no fluke', warningsFor({ ...st, dailyRange: 0 }, deep, 5, 100), []);
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
