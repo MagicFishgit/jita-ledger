@@ -7,7 +7,7 @@ import { update, useData } from '../lib/store';
 import { addToWatchlist, startPosition } from '../lib/actions';
 import { navigate, useNow } from '../lib/hooks';
 import type { Prospect, ProspectFilters, ProspectWarning } from '../lib/types';
-import { useTypeName } from './common';
+import { OpenInGame, useTypeName } from './common';
 import { Sparkline } from './Sparkline';
 
 const WARNING: Record<ProspectWarning, { short: string; why: string }> = {
@@ -272,6 +272,7 @@ function Row({ p, name, open, onToggle, onMsg }: { p: Prospect; name: string; op
           <button className="link-btn" onClick={() => navigate(`calculator?type=${p.typeId}`)} aria-label={`Open ${name} in the calculator`}>Calculator</button>
           <button className="link-btn" onClick={() => onMsg(addToWatchlist(p.typeId) ? `Added ${name} to your watchlist.` : `${name} is already on your watchlist.`)}>Watch</button>
           <button className="link-btn" onClick={() => navigate(`positions/${startPosition(p.typeId).id}`)} aria-label={`Start trading ${name}`}>Trade</button>
+          <OpenInGame typeId={p.typeId} name={name} label="In game" />
         </td>
       </tr>
       {open && (

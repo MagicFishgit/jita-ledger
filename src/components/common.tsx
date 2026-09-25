@@ -1,5 +1,7 @@
 import { useEffect, useId, useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
-import { resolveType } from '../lib/market';
+import { openMarketWindow, resolveType } from '../lib/market';
+import { hasScope } from '../lib/auth';
+import { SCOPES } from '../lib/config';
 import { update, useData } from '../lib/store';
 import { fmtDate, isk, units } from '../lib/format';
 
@@ -139,6 +141,41 @@ export function ItemFinder(props: { label?: string; button?: string; onFound: (t
       <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? 'Finding…' : props.button ?? 'Find'}</button>
       {err && <p className="hint neg" style={{ flexBasis: '100%', margin: 0 }} role="alert">{err}</p>}
     </form>
+  );
+}
+
+const UI_SCOPE = SCOPES[4];
+
+/**
+ * Opens an item's market window in the running EVE client.
+ *
+ * This is as far as ESI reaches: it can put the right window in front of you inside the game, but
+ * nothing on a web page can raise the game itself --- a browser is not allowed to focus another
+ * application. So you will still need to switch to the client; the window will be waiting.
+ *
+ * Renders nothing without the scope, since a button that cannot work is worse than no button.
+ */
+export function OpenInGame({ typeId, name, label = 'Open in game' }: { typeId: number; name: string; label?: string }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'done' | 'failed'>('idle');
+  if (!hasScope(UI_SCOPE)) return null;
+  return (
+    <button
+      className="link-btn" disabled={state === 'busy'}
+      aria-label={`Open ${name}'s market window in the EVE client`}
+      title="Opens the market window in your EVE client. You'll still need to switch to the game."
+      onClick={async () => {
+        setState('busy');
+        try {
+          await openMarketWindow(typeId);
+          setState('done');
+        } catch {
+          setState('failed');
+        }
+        setTimeout(() => setState('idle'), 2500);
+      }}
+    >
+      {state === 'busy' ? 'Opening…' : state === 'done' ? 'Opened ✓' : state === 'failed' ? 'Failed' : label}
+    </button>
   );
 }
 

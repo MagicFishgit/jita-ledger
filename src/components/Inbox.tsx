@@ -5,7 +5,7 @@ import { update, useData } from '../lib/store';
 import { patchPosition, startPosition } from '../lib/actions';
 import { JITA_44 } from '../lib/config';
 import { confirmAsk } from '../lib/confirm';
-import { useTypeName } from './common';
+import { OpenInGame, useTypeName } from './common';
 
 const LIMIT = 300;
 
@@ -92,6 +92,7 @@ export function Inbox() {
                             }}>Start position from here</button>
                           )}
                           <button className="link-btn" onClick={() => markPersonal([tx.id])}>Personal</button>
+                          <OpenInGame typeId={tx.typeId} name={name} label="In game" />
                         </>
                       )}
                     </td>

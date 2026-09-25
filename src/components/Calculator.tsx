@@ -7,7 +7,7 @@ import { addToWatchlist, startPosition } from '../lib/actions';
 import { navigate, type Route } from '../lib/hooks';
 import { tickDown, tickUp } from '../lib/tick';
 import type { HistRow, MarketSnap } from '../lib/types';
-import { Field, ItemFinder } from './common';
+import { Field, ItemFinder, OpenInGame } from './common';
 import { MarketPanel } from './MarketPanel';
 import { TradeReadout } from './TradeReadout';
 
@@ -157,6 +157,7 @@ export function Calculator({ route }: { route: Route }) {
                   navigate(`positions/${r.id}`);
                 }}>Start trading this item</button>
                 <button className="btn" onClick={() => setMsg({ text: addToWatchlist(item.id) ? `Added ${item.name} to your watchlist.` : `${item.name} is already on your watchlist.` })}>Add to watchlist</button>
+                <OpenInGame typeId={item.id} name={item.name} />
               </>
             )}
             <button className="btn" onClick={() => { setF(EMPTY); setItem(null); setSnap(null); setHist([]); setMsg(null); setFinderKey((k) => k + 1); }}>Clear</button>

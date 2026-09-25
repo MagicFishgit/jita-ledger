@@ -6,7 +6,7 @@ import { update, useData } from '../lib/store';
 import { addToWatchlist, startPosition } from '../lib/actions';
 import { navigate } from '../lib/hooks';
 import { tickDown, tickUp } from '../lib/tick';
-import { ItemFinder, useTypeName } from './common';
+import { ItemFinder, OpenInGame, useTypeName } from './common';
 
 export function Watchlist() {
   const d = useData();
@@ -92,6 +92,7 @@ export function Watchlist() {
                     <td>
                       <button className="link-btn" onClick={() => navigate(`calculator?type=${w.typeId}`)} aria-label={`Open ${name} in the calculator`}>Calculator</button>
                       <button className="link-btn" onClick={() => navigate(`positions/${startPosition(w.typeId).id}`)} aria-label={`Start trading ${name}`}>Start trading</button>
+                      <OpenInGame typeId={w.typeId} name={name} label="In game" />
                       <button className="link-btn danger" onClick={() => update((x) => ({ watchlist: x.watchlist.filter((i) => i.typeId !== w.typeId) }))} aria-label={`Remove ${name} from the watchlist`}>Remove</button>
                     </td>
                   </tr>

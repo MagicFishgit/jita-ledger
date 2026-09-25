@@ -4,11 +4,11 @@ import { SCOPES } from '../lib/config';
 import { rates } from '../lib/fees';
 import { ago, isk, iskBig, plainNum, units, until } from '../lib/format';
 import { useAuth, useNow, navigate } from '../lib/hooks';
-import { jitaOrders, marketHistory, openMarketWindow, recentAverages, tradedAtJita, type OrderLite } from '../lib/market';
+import { jitaOrders, marketHistory, recentAverages, tradedAtJita, type OrderLite } from '../lib/market';
 import { adviseRelist, byUrgency, type Relist, type Verdict } from '../lib/relist';
 import { update, useData } from '../lib/store';
 import { computePosition } from '../lib/positions';
-import { Explain, useTypeName } from './common';
+import { Explain, OpenInGame, useTypeName } from './common';
 
 /**
  * Plain-English notes behind the "i" on each column, phrased for whichever side you are reading.
@@ -147,16 +147,6 @@ export function Orders() {
   const holding = all.filter((x) => x.verdict === 'wait');
   const canOpen = hasScope(UI_SCOPE);
 
-  async function openInGame(typeId: number, name: string) {
-    setMsg(null); setErr(null);
-    try {
-      await openMarketWindow(typeId);
-      setMsg(`Opened ${name} in the market window in game.`);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    }
-  }
-
   return (
     <div className="page">
       <div className="page-head">
@@ -281,7 +271,7 @@ export function Orders() {
                         </td>
                         <td>{iskBig(r.atRisk)}</td>
                         <td>
-                          {canOpen && <button className="link-btn" onClick={() => openInGame(r.typeId, name)}>Open in game</button>}
+                          <OpenInGame typeId={r.typeId} name={name} label="In game" />
                           <button className="link-btn" onClick={() => navigate(`calculator?type=${r.typeId}`)}>Calculator</button>
                         </td>
                       </tr>

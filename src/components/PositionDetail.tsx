@@ -10,7 +10,7 @@ import { update, useData } from '../lib/store';
 import { patchPosition } from '../lib/actions';
 import { navigate, useThemeColors } from '../lib/hooks';
 import type { HistRow, MarketSnap, Tx } from '../lib/types';
-import { ChartTip, Stat, useTypeName } from './common';
+import { ChartTip, OpenInGame, Stat, useTypeName } from './common';
 
 const DAY = 86400_000;
 
@@ -129,6 +129,7 @@ export function PositionDetail({ id }: { id: string }) {
           {c.roi != null && <p className="hl-total">{pct(c.roi, 1)} return on the cost of what you’ve sold</p>}
         </div>
         <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <OpenInGame typeId={pos.typeId} name={name} />
           {pos.status === 'open'
             ? <button className="btn" onClick={close}>Close position</button>
             : <button className="btn" onClick={reopen}>Reopen</button>}

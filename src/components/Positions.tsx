@@ -6,7 +6,7 @@ import { syncCharacter, useSyncState } from '../lib/sync';
 import { effectiveSkills, orderSlots } from '../lib/fees';
 import { startPosition } from '../lib/actions';
 import { navigate, useNow } from '../lib/hooks';
-import { ItemFinder, Stat, useTypeName } from './common';
+import { ItemFinder, OpenInGame, Stat, useTypeName } from './common';
 
 const todayUTC = () => new Date().toISOString().slice(0, 10);
 
@@ -121,7 +121,13 @@ export function Positions() {
             <tbody>
               {shown.map(({ p, c }) => (
                 <tr key={p.id} className="clickable" onClick={() => navigate(`positions/${p.id}`)}>
-                  <td className="name"><a href={`#/positions/${p.id}`} onClick={(e) => e.stopPropagation()}>{nameOf(p.typeId)}</a></td>
+                  <td className="name">
+                    <a href={`#/positions/${p.id}`} onClick={(e) => e.stopPropagation()}>{nameOf(p.typeId)}</a>
+                    {/* The row itself navigates, so keep the button's click to itself. */}
+                    <span onClick={(e) => e.stopPropagation()}>
+                      <OpenInGame typeId={p.typeId} name={nameOf(p.typeId)} label="In game" />
+                    </span>
+                  </td>
                   <td className="left"><span className={'pill ' + p.status}>{p.status === 'open' ? 'Open' : 'Closed'}</span></td>
                   <td>{fmtDate(p.openedAt)}</td>
                   <td>{units(c.bought)}</td>
