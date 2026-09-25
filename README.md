@@ -10,10 +10,12 @@ A station trading tool for Jita 4-4 that runs entirely in your browser and is ho
   takes minutes. Both are resumable, and the table sorts on any column. A scan refreshes prices over an hour old,
   history over a day old and the order book sample over six hours old; the page says how old the prices on screen
   are, and **Clear these results** throws the scan away without touching your trades, positions or settings.
-- **Orders**: your open market orders checked against the live Jita 4-4 book, so you can see which have been
-  undercut or outbid without hunting through them in game, what the legal price to move to is, and what the move
-  costs in margin and broker fee. ESI cannot place or change an order, and automating the client is a bannable
-  offence, so this finds the work and you do the clicking.
+- **Orders**: your open market orders checked against the live Jita 4-4 book. Being undercut is not by itself a
+  reason to move, so this weighs the stock queued ahead of you against how fast the item actually trades: a
+  handful of units in front of something that moves thousands a day is gone in minutes and you are back at the
+  front for free. Each order gets a verdict — move it, leave it, already in front, or not worth the price it
+  would take — with buy and sell orders filterable separately. ESI cannot place or change an order, and
+  automating the client is a bannable offence, so this finds the work and you do the clicking.
 - **Watchlist**: compare items by spread, return, volume and a rough ISK-per-day estimate.
 - **Positions**: track an item you're trading from the first buy to the last sell. Buys, sells, fees and tax are pulled from your wallet, so you can see what you actually made and how your prices compared with the market.
 - **Inbox**: trades that don't belong to any position, so personal purchases stay out of your trading results.

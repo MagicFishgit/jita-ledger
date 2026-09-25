@@ -265,3 +265,9 @@ footer.foot { max-width: var(--page-max); margin: 0 auto; padding: 0 clamp(14px,
 .data th .sort .arrow { font-size: 12px; opacity: 0.45; }
 .data th .sort.on .arrow { opacity: 1; color: var(--accent); }
 .data th .sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+/* Order verdicts */
+.flag.v-move { color: var(--accent); border-color: var(--accent); }
+.flag.v-wait { color: var(--profit); border-color: var(--profit); }
+.flag.v-front { color: var(--muted); }
+.flag.v-loss { color: var(--loss); border-color: var(--loss); }

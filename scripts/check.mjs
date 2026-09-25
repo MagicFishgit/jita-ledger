@@ -184,68 +184,81 @@ const orig = [...set];
 sortProspects(set, { key: 'roi', dir: 'asc' }, nm);
 eq('does not mutate input', ids(set), ids(orig));
 
-console.log('\n--- adviseRelist: sell orders ---');
-const K = 0.00375; // price-change fee at a 1.5% broker fee with Advanced Broker Relations V
-const mineSell = { orderId: 1, typeId: 34, isBuy: false, price: 1000, volumeRemain: 100 };
-const o = (id, isBuy, price) => ({ id, isBuy, price, volume: 1 });
+console.log('\n--- adviseRelist ---');
+const R = { k: 0.00375, f: 0.015, t: 0.0338 };
+const o = (id, isBuy, price, volume = 1) => ({ id, isBuy, price, volume });
+const sell = { orderId: 1, typeId: 34, isBuy: false, price: 1000, volumeRemain: 100 };
+const buy = { orderId: 5, typeId: 34, isBuy: true, price: 1000, volumeRemain: 100 };
 
-// Nobody else there: nothing to chase.
-let r = adviseRelist(mineSell, [o(1, false, 1000)], K);
-eq('sell alone: not beaten', r.beaten, false);
-eq('sell alone: no best', r.best, null);
-eq('sell alone: costs nothing', r.cost, 0);
+// --- being in front ---
+let r = adviseRelist(sell, { book: [o(1, false, 1000)] }, R);
+eq('alone: front', r.verdict, 'front');
+eq('alone: no best', r.best, null);
+r = adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 1000)] }, R);
+eq('tied is still front', r.verdict, 'front');
+r = adviseRelist(sell, { book: [o(1, false, 1000), o(9, true, 500)] }, R);
+eq('other side is not competition', r.verdict, 'front');
 
-// Your own order must never count as competition against you.
-r = adviseRelist(mineSell, [o(1, false, 1000), o(2, false, 1200)], K);
-eq('sell ahead: not beaten', r.beaten, false);
-eq('sell ahead: best is the rival', r.best, 1200);
+// --- the case this exists for: a shallow queue on a fast item is not worth chasing ---
+r = adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 40)] }, { ...R });
+eq('no volume data: cannot reassure, so move', r.verdict, 'move');
+r = adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 40)], dailyVolume: 5000 }, R);
+eq('40 ahead of 5000/day: wait', r.verdict, 'wait');
+eq('wait still reports the ahead depth', r.aheadUnits, 40);
+eq('wait knows how many rivals', r.aheadOrders, 1);
+// 40/5000 of a day = 11.5 min
+if (!(r.hoursToFront > 0.15 && r.hoursToFront < 0.25)) { failed++; console.log(`  FAIL hoursToFront ${r.hoursToFront}`); }
 
-// Level with the best is still the front of the queue.
-r = adviseRelist(mineSell, [o(1, false, 1000), o(2, false, 1000)], K);
-eq('sell tied: not beaten', r.beaten, false);
+// A deep queue on the same item is worth moving for.
+r = adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 20000)], dailyVolume: 5000 }, R);
+eq('20000 ahead of 5000/day: move', r.verdict, 'move');
+eq('move: ahead units', r.aheadUnits, 20000);
+eq('move: ~4 days', Math.round(r.hoursToFront), 96);
 
-// Undercut: come down one legal step BELOW them.
-r = adviseRelist(mineSell, [o(1, false, 1000), o(2, false, 990)], K);
-eq('sell undercut: beaten', r.beaten, true);
-eq('sell undercut: best', r.best, 990);
-eq('sell undercut: new price is a step under them', r.newPrice, 989.9);
-eq('sell undercut: gap per unit', r.gap, 10);
-eq('sell undercut: revenue given up', r.give, (1000 - 989.9) * 100);
-eq('sell undercut: fee', r.fee, K * 989.9 * 100);
-eq('sell undercut: at risk', r.atRisk, 100000);
+// Only orders strictly in front count towards the queue.
+r = adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 30), o(3, false, 1100, 9999)], dailyVolume: 5000 }, R);
+eq('orders behind you are not ahead of you', r.aheadUnits, 30);
 
-// The other side of the book is not your competition.
-r = adviseRelist(mineSell, [o(1, false, 1000), o(9, true, 5000)], K);
-eq('sell ignores buy side', r.beaten, false);
+// --- buy side mirrors it ---
+r = adviseRelist(buy, { book: [o(5, true, 1000), o(6, true, 1010, 25)], dailyVolume: 5000 }, R);
+eq('buy: shallow queue waits', r.verdict, 'wait');
+eq('buy: moves up', r.newPrice, 1011);
+r = adviseRelist(buy, { book: [o(5, true, 1000), o(6, true, 1010, 40000)], dailyVolume: 5000 }, R);
+eq('buy: deep queue moves', r.verdict, 'move');
 
-console.log('\n--- adviseRelist: buy orders ---');
-const mineBuy = { orderId: 5, typeId: 34, isBuy: true, price: 1000, volumeRemain: 100 };
+// --- chasing into a loss ---
+// Matching them nets 950 * (1 - 0.015 - 0.0338) = 903.6, under a 960 average cost.
+r = adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 950, 99999)], dailyVolume: 5000, avgCost: 960 }, R);
+eq('sell under cost: loss', r.verdict, 'loss');
+// Same book, cheaper stock: worth moving.
+r = adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 950, 99999)], dailyVolume: 5000, avgCost: 500 }, R);
+eq('sell above cost: move', r.verdict, 'move');
+// Bidding 1011 when the best sell nets only 1000 * 0.9512 = 951 is buying at a loss.
+r = adviseRelist(buy, { book: [o(5, true, 1000), o(6, true, 1010, 99999)], dailyVolume: 5000, bestSell: 1000 }, R);
+eq('buy above resale: loss', r.verdict, 'loss');
+r = adviseRelist(buy, { book: [o(5, true, 1000), o(6, true, 1010, 99999)], dailyVolume: 5000, bestSell: 5000 }, R);
+eq('buy with room: move', r.verdict, 'move');
 
-r = adviseRelist(mineBuy, [o(5, true, 1000), o(6, true, 900)], K);
-eq('buy ahead: not beaten', r.beaten, false);
+// Nothing legal below the floor.
+r = adviseRelist({ orderId: 9, typeId: 34, isBuy: false, price: 0.02, volumeRemain: 10 },
+  { book: [o(9, false, 0.02), o(10, false, 0.01, 9999)], dailyVolume: 5000 }, R);
+eq('cannot undercut 0.01: loss', r.verdict, 'loss');
 
-// Outbid: go up one legal step ABOVE them.
-r = adviseRelist(mineBuy, [o(5, true, 1000), o(6, true, 1010)], K);
-eq('buy outbid: beaten', r.beaten, true);
-eq('buy outbid: best', r.best, 1010);
-eq('buy outbid: new price is a step over them', r.newPrice, 1011);
-eq('buy outbid: extra outlay', r.give, (1011 - 1000) * 100);
-eq('buy outbid: fee on the new value', r.fee, K * 1011 * 100);
-
-// The 100 ISK floor applies to tiny orders, same as the broker fee.
-r = adviseRelist({ orderId: 7, typeId: 34, isBuy: false, price: 5, volumeRemain: 1 }, [o(7, false, 5), o(8, false, 4)], K);
-eq('tiny order pays the 100 ISK floor', r.fee, 100);
-eq('tiny order new price', r.newPrice, 3.99);
-
-// Nothing legal below the floor price, so there is nothing to chase.
-r = adviseRelist({ orderId: 9, typeId: 34, isBuy: false, price: 0.02, volumeRemain: 10 }, [o(9, false, 0.02), o(10, false, 0.01)], K);
-eq('cannot undercut the 0.01 floor', Number.isFinite(r.newPrice), false);
-eq('cannot undercut: no cost quoted', r.cost, 0);
+// --- costs still work ---
+r = adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 99999)], dailyVolume: 5000 }, R);
+eq('new price a step under them', r.newPrice, 989.9);
+eq('revenue given up', r.give, (1000 - 989.9) * 100);
+eq('fee on the new value', r.fee, R.k * 989.9 * 100);
+r = adviseRelist({ orderId: 7, typeId: 34, isBuy: false, price: 5, volumeRemain: 1 },
+  { book: [o(7, false, 5), o(8, false, 4, 9999)], dailyVolume: 5000 }, R);
+eq('100 ISK fee floor', r.fee, 100);
 
 console.log('\n--- byUrgency ---');
-const urg = (beaten, atRisk) => ({ beaten, atRisk });
-eq('beaten before untouched', [urg(false, 999), urg(true, 1)].sort(byUrgency).map((x) => x.atRisk), [1, 999]);
-eq('most ISK at stake first', [urg(true, 10), urg(true, 500), urg(true, 90)].sort(byUrgency).map((x) => x.atRisk), [500, 90, 10]);
+const u = (verdict, atRisk) => ({ verdict, atRisk });
+eq('real relists first, then ISK at stake',
+   [u('front', 999), u('wait', 500), u('move', 10), u('loss', 1), u('move', 900)]
+     .sort(byUrgency).map((x) => `${x.verdict}:${x.atRisk}`),
+   ['move:900', 'move:10', 'loss:1', 'wait:500', 'front:999']);
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
