@@ -6,8 +6,10 @@ A station trading tool for Jita 4-4 that runs entirely in your browser and is ho
 - **Prospects**: finds items worth trading by sampling the Jita order book, then checking how often each one really
   changes hands. Anything that doesn't trade on most days is left out, however wide the margin. A **quick scan**
   takes about a minute and a half and skims the busiest books; a **deep scan** samples three times as much of the
-  order book, lowers the bar so quieter items make the shortlist, and checks several times as many of them, which
-  takes minutes. Both are resumable, and the table sorts on any column. A scan refreshes prices over an hour old,
+  order book, lowers the bar so quieter items make the shortlist, and
+  works through every candidate it finds rather than stopping early, which takes a while but leaves nothing to come
+  back for. Results appear as they are found and are written away as it goes, so stopping early costs you nothing.
+  The table sorts on any column. A scan refreshes prices over an hour old,
   history over a day old and the order book sample over six hours old; the page says how old the prices on screen
   are, and **Clear these results** throws the scan away without touching your trades, positions or settings.
 - **Orders**: your open market orders checked against the live Jita 4-4 book. Being undercut is not by itself a

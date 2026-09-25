@@ -25,9 +25,16 @@ import type { BookLevel, Prospect, ProspectFilters, ProspectStats } from './type
  */
 export type ScanDepth = 'quick' | 'deep';
 const DEPTH: Record<ScanDepth, { pages: number; history: number; books: number; minSampled: number }> = {
+  // Sized to stay usable: about a minute and a half, skimming the busiest books.
   quick: { pages: 20, history: 250, books: 40, minSampled: 3 },
-  deep: { pages: 60, history: 1200, books: 150, minSampled: 2 },
+  // Runs to the end however long that takes. Three times the sample, a lower bar so quieter items
+  // make the shortlist, and no cap on how many get checked --- a deep scan that stopped early and
+  // asked to be run again is just a quick scan with extra steps.
+  deep: { pages: 60, history: Infinity, books: Infinity, minSampled: 2 },
 };
+
+/** How often to write progress away mid-run, so a long scan survives the tab closing. */
+const SAVE_EVERY = 150;
 const SAMPLE_TTL = 6 * 3600_000;
 const STATS_TTL = 24 * 3600_000;
 const BOOK_TTL = 60 * 60_000;
@@ -53,8 +60,12 @@ export type ScanPhase = 'idle' | 'sampling' | 'liquidity' | 'pricing' | 'done';
 export type ScanState = {
   phase: ScanPhase; done: number; total: number; message: string;
   failed: number; candidates: number; error: string | null; depth: ScanDepth;
+  /** When this run began, for working out how much longer it has. */
+  startedAt: number;
+  /** Bumped on every mid-run save, so the page knows there is more to show. */
+  saved: number;
 };
-const IDLE: ScanState = { phase: 'idle', done: 0, total: 0, message: '', failed: 0, candidates: 0, error: null, depth: 'quick' };
+const IDLE: ScanState = { phase: 'idle', done: 0, total: 0, message: '', failed: 0, candidates: 0, error: null, depth: 'quick', startedAt: 0, saved: 0 };
 let state = IDLE;
 const listeners = new Set<() => void>();
 const setState = (p: Partial<ScanState>) => { state = { ...state, ...p }; listeners.forEach((l) => l()); };
@@ -190,7 +201,7 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
   if (state.phase === 'sampling' || state.phase === 'liquidity' || state.phase === 'pricing') return;
   abort = false;
   const want = DEPTH[depth];
-  setState({ ...IDLE, phase: 'sampling', depth, message: 'Sampling the Jita 4-4 order book…' });
+  setState({ ...IDLE, phase: 'sampling', depth, startedAt: Date.now(), message: 'Sampling the Jita 4-4 order book…' });
   try {
     const cache = await loadCache();
     const now = Date.now();
@@ -223,6 +234,7 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
       phase: 'liquidity', done: 0, total: todo.length, candidates: candidates.length,
       message: `Checking how often ${todo.length.toLocaleString('en-US')} items actually trade…`,
     });
+    let sinceSave = 0;
     await pool(todo, async (id) => {
       try {
         cache.stats[id] = statsFrom(id, await marketHistory(id)) ?? dead(id);
@@ -230,9 +242,16 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
         setState({ failed: state.failed + 1 });
       }
       setState({ done: state.done + 1 });
+      // A deep run can take the better part of an hour; don't make the whole thing all-or-nothing.
+      if (++sinceSave >= SAVE_EVERY) {
+        sinceSave = 0;
+        await saveCache(cache);
+        setState({ saved: state.saved + 1 });
+      }
     });
     await saveCache(cache);
-    if (abort) return setState({ phase: 'idle', message: '' });
+    setState({ saved: state.saved + 1 });
+    if (abort) { await saveCache(cache); return setState({ phase: 'done', message: '', saved: state.saved + 1 }); }
 
     // Spend the book requests where they can pay. Turnover alone would send them all to
     // minerals and extractors, whose spreads are far too thin to survive the fees — an item
@@ -252,6 +271,7 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
       phase: 'pricing', done: 0, total: survivors.length,
       message: `Pricing ${survivors.length} of them against the live book…`,
     });
+    sinceSave = 0;
     await pool(survivors, async (s) => {
       try {
         cache.books[s.typeId] = { at: new Date().toISOString(), ...(await jitaBook(s.typeId)) };
@@ -259,8 +279,14 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
         setState({ failed: state.failed + 1 });
       }
       setState({ done: state.done + 1 });
+      if (++sinceSave >= SAVE_EVERY) {
+        sinceSave = 0;
+        await saveCache(cache);
+        setState({ saved: state.saved + 1 });
+      }
     });
     await saveCache(cache);
+    setState({ saved: state.saved + 1 });
 
     setState({ phase: 'done', message: '', candidates: candidates.length });
   } catch (e) {

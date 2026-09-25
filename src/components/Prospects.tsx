@@ -54,6 +54,8 @@ export function Prospects() {
   const reload = useCallback(async () => setCache(await loadCache()), []);
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => { if (scan.phase === 'done') reload(); }, [scan.phase, reload]);
+  // A deep run writes away every so often; pick those up so the table fills while it works.
+  useEffect(() => { if (scan.saved > 0) reload(); }, [scan.saved, reload]);
 
   const ranked = useMemo(() => (cache ? rankProspects(cache, d.settings, f) : []), [cache, d.settings, f]);
   const rows = useMemo(
@@ -76,6 +78,15 @@ export function Prospects() {
   }, [rows, d.names]);
 
   const busy = scan.phase === 'sampling' || scan.phase === 'liquidity' || scan.phase === 'pricing';
+  // Worked out from the rate so far, and only once there is enough of it to mean anything.
+  const left = (() => {
+    if (!busy || scan.done < 20 || !scan.startedAt) return null;
+    const per = (Date.now() - scan.startedAt) / scan.done;
+    const secs = ((scan.total - scan.done) * per) / 1000;
+    if (secs < 90) return `${Math.max(1, Math.round(secs))} sec`;
+    if (secs < 5400) return `${Math.round(secs / 60)} min`;
+    return `${(secs / 3600).toFixed(1)} h`;
+  })();
   const set = (k: NumberFilter) => (v: string) => {
     const n = parseFloat(v.replace(/[^0-9.]/g, ''));
     setF((x) => ({ ...x, [k]: Number.isFinite(n) ? (k === 'minRoi' ? n / 100 : n) : 0 }));
@@ -99,7 +110,10 @@ export function Prospects() {
           ) : (
             <>
               <button className="btn btn-primary" onClick={() => runScan(d.settings, f, 'quick')}>Quick scan</button>
-              <button className="btn" onClick={() => runScan(d.settings, f, 'deep')} title="Samples three times as much of the order book and checks far more items. Takes several minutes.">
+              <button
+                className="btn" onClick={() => runScan(d.settings, f, 'deep')}
+                title="Samples three times as much of the order book and works through every candidate it finds. Takes a while — leave it running."
+              >
                 Deep scan
               </button>
             </>
@@ -127,8 +141,10 @@ export function Prospects() {
         <p className="notice" role="status">
           <span className="spinner" aria-hidden="true" />
           {scan.message}
-          {scan.total > 0 && <> <strong>{scan.done}</strong> of {scan.total}.</>}
-          {scan.failed > 0 && <span className="muted small"> {scan.failed} couldn’t be read.</span>}
+          {scan.total > 0 && <> <strong>{units(scan.done)}</strong> of {units(scan.total)}.</>}
+          {left && <> About {left} left.</>}
+          {scan.failed > 0 && <span className="muted small"> {units(scan.failed)} couldn’t be read.</span>}
+          {scan.depth === 'deep' && <span className="muted small"> You can leave this running, or stop and keep what it has found.</span>}
         </p>
       )}
       {scan.error && <p className="notice err" role="alert">{scan.error}</p>}
@@ -138,7 +154,9 @@ export function Prospects() {
         <p className="small muted" style={{ margin: '0 0 14px' }}>
           Checked {units(cov.checked)} of about {units(cov.candidates)} candidates, {units(cov.priced)} priced against the live book.
           {cov.pricedAt && <> Prices from <strong>{ago(cov.pricedAt, now)}</strong>; a scan refreshes any over an hour old.</>}
-          {cov.checked < cov.candidates && ' Scan again to widen the net.'}
+          {cov.priced === 0
+            ? ' A quick scan will price the best of them — it keeps the trading history already gathered, so it only takes a moment.'
+            : cov.checked < cov.candidates && ' Scan again to widen the net.'}
           {' '}
           <button
             className="link-btn danger" onClick={async () => { await clearScan(); await reload(); setOpen(null); }}
@@ -150,9 +168,11 @@ export function Prospects() {
       {busy && !rows.length ? null
         : !cov.checked ? (
         <p className="empty">
-          Nothing scanned yet. A scan samples 20 pages of the Jita order book, checks the trading history of the busiest
-          few hundred items, and prices the ones that trade steadily. It takes about a minute and a half, and what it
-          finds is kept, so scanning again picks up where it left off rather than starting over.
+          Nothing scanned yet. A <strong>quick scan</strong> samples 20 pages of the Jita order book, checks the trading
+          history of the busiest few hundred items, and prices the ones that trade steadily — about a minute and a half.
+          A <strong>deep scan</strong> samples three times as much and works through every candidate it finds, which
+          takes considerably longer but leaves nothing to come back for. Either way, results appear as they are found and
+          are kept, so stopping early costs you nothing.
         </p>
       ) : !rows.length ? (
         <p className="empty">
