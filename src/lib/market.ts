@@ -1,5 +1,5 @@
 import { get, set } from 'idb-keyval';
-import { esi, esiAllPages } from './esi';
+import { esi } from './esi';
 import { GLOBAL_PLEX_MARKET, JITA_44, PLEX_TYPE, THE_FORGE } from './config';
 import { cacheStore } from './store';
 import type { BookLevel, HistRow, MarketSnap } from './types';
@@ -61,22 +61,30 @@ export type OrderLite = { id: number; isBuy: boolean; price: number; volume: num
 
 // Raw orders are kept beside the summary rather than in it: MarketSnap gets persisted to
 // IndexedDB by the watchlist and the scan, and this list is far too big to store per item.
-const bookCache = new Map<number, { at: number; snap: Omit<MarketSnap, 'avgVol7' | 'avgPrice7'>; raw: OrderLite[] }>();
+const bookCache = new Map<number, { at: number; expires: number | null; snap: Omit<MarketSnap, 'avgVol7' | 'avgPrice7'>; raw: OrderLite[] }>();
 
 /** Jita 4-4 order book only (The Forge region data, filtered to the station). ESI caches this for 5 minutes. */
 export async function jitaBook(typeId: number, force = false) {
   return (await readBook(typeId, force)).snap;
 }
 
-/** Every live order for an item at Jita 4-4. Same fetch and cache as jitaBook, just not summarised. */
-export async function jitaOrders(typeId: number, force = false): Promise<OrderLite[]> {
-  return (await readBook(typeId, force)).raw;
+/**
+ * Every live order for an item at Jita 4-4, with the moment ESI will have anything new.
+ *
+ * ESI caches this route for five minutes, so a relist made in game is not visible before then --- no
+ * amount of re-checking changes that, and the expiry is what lets the page say so instead of looking
+ * broken.
+ */
+export async function jitaOrders(typeId: number, force = false): Promise<{ orders: OrderLite[]; expires: number | null }> {
+  const e = await readBook(typeId, force);
+  return { orders: e.raw, expires: e.expires };
 }
 
 async function readBook(typeId: number, force: boolean) {
   const hit = bookCache.get(typeId);
   if (!force && hit && Date.now() - hit.at < 5 * 60_000) return hit;
-  const orders = await esiAllPages<RawMarketOrder>(`/markets/${regionFor(typeId)}/orders/`, { query: { order_type: 'all', type_id: typeId } });
+  // A forced read is someone asking again on purpose, so go past the browser's copy of it.
+  const { orders, expires } = await fetchBook(typeId, force);
   const here = orders.filter((o) => atJita(typeId, o.location_id));
   const buys = here.filter((o) => o.is_buy_order).sort((a, b) => b.price - a.price);
   const sells = here.filter((o) => !o.is_buy_order).sort((a, b) => a.price - b.price);
@@ -91,7 +99,7 @@ async function readBook(typeId: number, force: boolean) {
     topSells: levels(sells, 5),
   };
   const raw: OrderLite[] = here.map((o) => ({ id: o.order_id, isBuy: o.is_buy_order, price: o.price, volume: o.volume_remain }));
-  const entry = { at: Date.now(), snap, raw };
+  const entry = { at: Date.now(), expires, snap, raw };
   bookCache.set(typeId, entry);
   return entry;
 }
@@ -104,6 +112,25 @@ async function readBook(typeId: number, force: boolean) {
  */
 export async function openMarketWindow(typeId: number): Promise<void> {
   await esi<void>('/ui/openwindow/marketdetails/', { auth: true, method: 'POST', query: { type_id: typeId } });
+}
+
+/** Reads every page of an item's book, keeping the first page's expiry. */
+async function fetchBook(typeId: number, fresh: boolean) {
+  const path = `/markets/${regionFor(typeId)}/orders/`;
+  const query = { order_type: 'all', type_id: typeId };
+  const first = await esi<RawMarketOrder[]>(path, { query: { ...query, page: 1 }, fresh });
+  const orders = [...first.data];
+  const pages = Math.min(first.pages ?? 1, 20);
+  if (pages > 1) {
+    const rest = await Promise.all(
+      Array.from({ length: pages - 1 }, (_, i) =>
+        esi<RawMarketOrder[]>(path, { query: { ...query, page: i + 2 }, fresh })
+          .then((r) => r.data)
+          .catch(() => [] as RawMarketOrder[])),
+    );
+    rest.forEach((r) => orders.push(...r));
+  }
+  return { orders, expires: first.expires };
 }
 
 /** Daily history for the whole of The Forge (most of it is Jita). Cached for 3 hours. */

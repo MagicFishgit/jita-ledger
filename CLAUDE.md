@@ -101,6 +101,10 @@ Don't re-derive or contradict these without new evidence.
   `ago()` / `until()`, or the display freezes on whatever it first said.
 - **Grid items default to `min-width: auto`**, so text won't wrap and overflows its track. `min-width: 0`.
 - Tooltips must be positioned out of the flow; one that pushes rows down is worse than none.
+- **`fetch()` defaults to the browser's HTTP cache**, and ESI market data is `cache-control: public`
+  with an Expires minutes out — so a repeat read is answered in ~3ms without a request being made.
+  Measured: 612ms, then 3ms, then 358ms with `cache: 'no-cache'`. Pass `fresh: true` to `esi()` when
+  someone has explicitly asked to re-check, or the button does nothing and looks broken.
 
 ## Known bugs, unfixed
 

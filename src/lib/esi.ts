@@ -21,6 +21,16 @@ type Opts = {
   query?: Record<string, string | number | undefined>;
   method?: 'GET' | 'POST';
   body?: unknown;
+  /**
+   * Revalidate with ESI instead of accepting the browser's copy.
+   *
+   * ESI serves market data with `cache-control: public` and an Expires a few minutes out, so a
+   * repeat fetch is answered from the browser's own HTTP cache without a request ever being made.
+   * That is right for ordinary reads and wrong when someone has explicitly asked to check again:
+   * it returns the same bytes in three milliseconds and looks like nothing happened. This sends
+   * the conditional request, so ESI answers 304 when it really has nothing new.
+   */
+  fresh?: boolean;
 };
 
 /**
@@ -40,6 +50,7 @@ export async function esi<T>(path: string, opts: Opts = {}): Promise<{ data: T; 
       try {
         res = await fetch(url, {
           method: opts.method ?? 'GET',
+          cache: opts.fresh ? 'no-cache' : 'default',
           headers,
           body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
         });

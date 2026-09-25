@@ -71,6 +71,9 @@ export function Orders() {
   const [daily, setDaily] = useState<Record<number, number | null>>({});
   const [side, setSide] = useState<'all' | 'sell' | 'buy'>('all');
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
+  // When ESI will next have a different book. Re-checking before then cannot show a relist.
+  const [bookFreshAt, setBookFreshAt] = useState<number | null>(null);
+  const [changed, setChanged] = useState<number | null>(null);
   const [busy, setBusy] = useState<{ done: number; total: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -90,12 +93,19 @@ export function Orders() {
     setBusy({ done: 0, total: typeIds.length }); setErr(null); setMsg(null);
     const out: Record<number, OrderLite[]> = {};
     const vol: Record<number, number | null> = {};
-    let failed = 0, done = 0;
+    let failed = 0, done = 0, soonest = Infinity, moved = 0;
     let i = 0;
     await Promise.all(Array.from({ length: Math.min(4, typeIds.length) }, async () => {
       while (i < typeIds.length) {
         const id = typeIds[i++];
-        try { out[id] = await jitaOrders(id, true); } catch { failed++; }
+        try {
+          const r = await jitaOrders(id, true);
+          // Did anything actually differ from what we were already showing?
+          const before = books?.[id];
+          if (before && JSON.stringify(before) !== JSON.stringify(r.orders)) moved++;
+          out[id] = r.orders;
+          if (r.expires != null) soonest = Math.min(soonest, r.expires);
+        } catch { failed++; }
         // How fast the item moves is what decides whether a queue ahead is worth waiting out.
         try { vol[id] = recentAverages(await marketHistory(id), 7).avgVol; } catch { vol[id] = null; }
         setBusy({ done: ++done, total: typeIds.length });
@@ -103,10 +113,12 @@ export function Orders() {
     }));
     setBooks(out);
     setDaily(vol);
+    setBookFreshAt(Number.isFinite(soonest) ? soonest : null);
+    setChanged(books ? moved : null);
     setCheckedAt(new Date().toISOString());
     setBusy(null);
     if (failed) setErr(`${failed} item${failed > 1 ? 's' : ''} couldn’t be read. Try again in a minute.`);
-  }, [mine]);
+  }, [mine, books]);
 
   const r = rates(d.settings);
   const costOf = useMemo(() => {
@@ -193,7 +205,12 @@ export function Orders() {
                       : 'you are in front on all of them.'
                 }`
               : ' Check prices to see which are worth moving.'}
-            {until(d.meta.nextSyncAt, now) && ` Your order list refreshes ${until(d.meta.nextSyncAt, now)} — until then a relist you just made shows up from the live book, not from here.`}
+            {checkedAt && changed !== null && (changed > 0
+              ? ` ${units(changed)} ${changed === 1 ? 'book' : 'books'} moved since the last check.`
+              : bookFreshAt && bookFreshAt > Date.now()
+                ? ` Nothing had changed — ESI holds the order book for five minutes, so a relist made in game shows up ${until(new Date(bookFreshAt).toISOString(), now) ?? 'shortly'}.`
+                : ' Nothing had changed since the last check.')}
+            {until(d.meta.nextSyncAt, now) && ` Your own order list refreshes ${until(d.meta.nextSyncAt, now)}.`}
             {elsewhere > 0 && ` ${units(elsewhere)} more ${elsewhere > 1 ? 'are' : 'is'} in other stations and can’t be checked here.`}
             {unread > 0 && ` ${units(unread)} couldn’t be read from ESI — check again.`}
           </p>
