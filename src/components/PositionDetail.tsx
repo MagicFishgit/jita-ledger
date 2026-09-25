@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Area, ComposedChart, Line, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis, ZAxis } from 'recharts';
 import { computePosition, vsMarket } from '../lib/positions';
 import { priceUp, tickDown } from '../lib/tick';
+import { confirmAsk } from '../lib/confirm';
 import { rates } from '../lib/fees';
 import { fmtDate, fmtDateTime, fmtShort, isk, iskAxis, iskBig, iskBigSigned, parseISK, pct, rid, timeTicks, units } from '../lib/format';
 import { marketHistory, snapshot } from '../lib/market';
@@ -81,9 +82,9 @@ export function PositionDetail({ id }: { id: string }) {
   const hasTrades = c.buys.length + c.sells.length > 0;
   const ticks = timeTicks(startT, endT);
 
-  function toggle(tx: Tx, match: string) {
+  async function toggle(tx: Tx, match: string) {
     if (tx.source === 'manual') {
-      if (!confirm('Delete this manual entry?')) return;
+      if (!(await confirmAsk({ title: 'Delete this entry?', body: 'Only entries you added by hand can be deleted. Trades from ESI stay.', confirm: 'Delete', danger: true }))) return;
       update((x) => { const txs = { ...x.txs }; delete txs[tx.id]; return { txs }; });
       return;
     }
@@ -100,8 +101,8 @@ export function PositionDetail({ id }: { id: string }) {
     if (other) { setMsg(`Close your other open ${name} position first.`); return; }
     patchPosition(pos!.id, { status: 'open', closedAt: undefined });
   }
-  function remove() {
-    if (!confirm(`Delete the ${name} position? Your ESI trades stay in the app, but manual entries for this position are deleted.`)) return;
+  async function remove() {
+    if (!(await confirmAsk({ title: `Delete the ${name} position?`, body: 'Your ESI trades stay in the app. Entries you added by hand for this position are deleted with it.', confirm: 'Delete position', danger: true }))) return;
     update((x) => {
       const txs = { ...x.txs };
       Object.values(txs).forEach((t) => { if (t.positionId === pos!.id) delete txs[t.id]; });

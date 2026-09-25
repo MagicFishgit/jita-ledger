@@ -244,6 +244,20 @@ footer.foot { max-width: var(--page-max); margin: 0 auto; padding: 0 clamp(14px,
 .fields .field.explaining { grid-column: 1 / -1; }
 /* In a table cell the note sets the column's width, so keep it narrow enough not to force a scrollbar. */
 .data td .explain { max-width: 34ch; font-size: 13.5px; white-space: normal; }
+/* The note sits out of the flow, so revealing it never moves anything else. */
+.tipwrap { position: relative; display: inline-block; }
+.tipwrap > .explain {
+  position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  z-index: 20; width: max-content; max-width: 34ch; margin: 0;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
+  visibility: hidden; opacity: 0; transition: opacity .12s ease;
+}
+.tipwrap:hover > .explain,
+.tipwrap:focus-within > .explain,
+.tipwrap.tapped > .explain { visibility: visible; opacity: 1; }
+/* Near the right edge a centred note would overflow, so the last columns anchor right instead. */
+.data th:nth-last-child(-n+3) .tipwrap > .explain { left: auto; right: 0; transform: none; }
+
 .explain {
   display: block; margin: 8px 0 2px; padding: 9px 11px; max-width: 72ch;
   font-size: 14px; font-weight: 400; line-height: 1.45; text-align: left;
@@ -278,6 +292,14 @@ footer.foot { max-width: var(--page-max); margin: 0 auto; padding: 0 clamp(14px,
 
 /* Secondary line inside a table cell */
 .data td .sub { display: block; font-weight: 400; font-size: 13px; color: var(--muted); white-space: nowrap; }
-.data th .explain { max-width: 40ch; white-space: normal; font-weight: 400; text-align: left; }
+.data th .explain { white-space: normal; font-weight: 400; text-align: left; }
 /* So the other headings stay put when one of them opens its note. */
 .data th { vertical-align: top; }
+
+/* Asking a question, in the app's own voice rather than the browser's */
+.confirm { padding: 0; border: 1px solid var(--rule); border-radius: var(--r-m); background: var(--surface); color: var(--ink); max-width: min(460px, calc(100vw - 32px)); }
+.confirm::backdrop { background: rgba(0, 0, 0, .45); }
+.confirm-inner { padding: 20px 22px 18px; display: grid; gap: 12px; }
+.confirm h2 { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 700; font-size: 24px; margin: 0; }
+.confirm p { margin: 0; color: var(--muted); }
+.btn-danger { background: var(--loss); border-color: var(--loss); color: #fff; }

@@ -2,6 +2,7 @@ import { useRef, useState, type ChangeEvent } from 'react';
 import { effectiveSkills, orderSlots, rates, sanitizeSettings, type Settings as S } from '../lib/fees';
 import { ago, pct, plainNum, units } from '../lib/format';
 import { clearAll, exportAll, importAll, update, useData } from '../lib/store';
+import { confirmAsk } from '../lib/confirm';
 import { isConfigured, login, logout } from '../lib/auth';
 import { syncCharacter, useSyncState } from '../lib/sync';
 import { useAuth } from '../lib/hooks';
@@ -139,7 +140,11 @@ export function Settings() {
               <button className="btn" onClick={() => fileRef.current?.click()}>Import backup</button>
               <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={onImport} />
               <button className="btn btn-danger" onClick={async () => {
-                if (!confirm('Delete all positions, trades and settings from this browser? Export a backup first if you might want them.')) return;
+                if (!(await confirmAsk({
+                  title: 'Delete everything in this browser?',
+                  body: 'Every position, trade and setting goes. Export a backup first if you might want them back.',
+                  confirm: 'Delete everything', danger: true,
+                }))) return;
                 await clearAll();
                 setDataMsg({ text: 'Everything was deleted from this browser.' });
               }}>Delete all data</button>

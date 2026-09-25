@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { hasScope } from '../lib/auth';
 import { SCOPES } from '../lib/config';
 import { rates } from '../lib/fees';
-import { ago, isk, iskBig, plainNum, units } from '../lib/format';
+import { ago, isk, iskBig, plainNum, units, until } from '../lib/format';
 import { useAuth, useNow, navigate } from '../lib/hooks';
 import { jitaOrders, marketHistory, openMarketWindow, recentAverages, tradedAtJita, type OrderLite } from '../lib/market';
 import { adviseRelist, byUrgency, type Relist, type Verdict } from '../lib/relist';
@@ -10,17 +10,31 @@ import { update, useData } from '../lib/store';
 import { computePosition } from '../lib/positions';
 import { Explain, useTypeName } from './common';
 
-/** Plain-English notes behind the "i" on each column. */
-const TIPS: Record<string, string> = {
-  Verdict: 'Whether this order is worth doing something about. Being undercut on its own is not a reason to move \u2014 what matters is how long the people ahead of you will stay ahead.',
-  'Ahead of you': 'How many units are queued in front of your price, and how many separate traders that is. One big order is better news than a crowd: when it sells you jump straight to the front, whereas a crowd will each undercut you again.',
-  'Clears in': 'Roughly how long the stock ahead of you takes to sell at this item\u2019s usual daily pace. If that is short, waiting costs you nothing and a relist would just be a wasted broker fee.',
-  'Your price': 'What you are asking, or bidding, right now.',
-  'Move to': 'The price that would put you back in front \u2014 one legal step past the best rival. EVE prices carry only four significant figures, so this is the smallest move the game allows.',
-  'Costs you': 'What getting back in front would cost: the margin you give up by changing price, plus the broker fee on the new order value. Hover the number for the split.',
-  'Your stock': 'How much of this order is left, and roughly how long that would take to sell once you reach the front. If your own stock is days of the market, being at the front matters more.',
-  'ISK in order': 'The ISK currently tied up in this order at its own price. Bigger numbers cost you more to leave sitting behind someone else.',
-};
+/**
+ * Plain-English notes behind the "i" on each column, phrased for whichever side you are reading.
+ * A buy order is beaten from above and a sell from below, so a column means the mirror image of
+ * itself depending on the tab, and wording it for sells while you read the buy tab is just wrong.
+ */
+function tipsFor(side: 'all' | 'sell' | 'buy'): Record<string, string> {
+  const buy = side === 'buy';
+  const both = side === 'all';
+  const rival = buy ? 'buyer' : 'seller';
+  const rivals = buy ? 'buyers' : 'sellers';
+  const beat = buy ? 'outbid' : 'undercut';
+  const past = buy ? 'above the best bid' : 'below the cheapest offer';
+  const gets = buy ? 'bought from first' : 'sold to first';
+  return {
+    Verdict: `Whether this order is worth doing something about. Being ${both ? 'beaten' : beat} on its own is not a reason to move \u2014 what matters is how long the ${both ? 'traders' : rivals} ahead of you will stay ahead.`,
+    'Ahead of you': `How many units are queued in front of your price, and how many separate ${both ? 'traders' : rivals} that is. One big order is better news than a crowd: when it goes you jump straight to the front, whereas a crowd will each ${both ? 'beat' : beat} you again.`,
+    'Clears in': 'Roughly how long the stock ahead of you takes to clear at this item\u2019s usual daily pace. If that is short, waiting costs you nothing and a relist would just be a wasted broker fee.',
+    'Your price': both ? 'What you are asking, or bidding, right now.' : buy ? 'What you are bidding right now.' : 'What you are asking right now.',
+    'Move to': `The price that would put you back in front \u2014 one legal step ${both ? 'past the best rival' : past}. EVE prices carry only four significant figures, so this is the smallest move the game allows.`,
+    'Costs you': `What getting back in front would cost: the margin you give up by ${both ? 'changing price' : buy ? 'bidding higher' : 'asking less'}, plus the broker fee on the new order value. Hover the number for the split.`,
+    'Your stock': `How much of this order is left, and roughly how long that would take to ${buy ? 'fill' : 'sell'} once you reach the front. If your own order is days of the market, being at the front matters more.`,
+    'ISK in order': `The ISK currently tied up in this order at its own price. Bigger numbers cost you more to leave sitting behind ${both ? 'someone else' : 'another ' + rival}.`,
+    Side: `Whether you are buying or selling. A buy order is beaten from above and must go up; a sell is beaten from below and must come down. Either way, being at the front means being ${gets}.`,
+  };
+}
 
 const VERDICT: Record<Verdict, { label: string; cls: string }> = {
   move: { label: 'Move it', cls: 'v-move' },
@@ -128,6 +142,7 @@ export function Orders() {
   );
   const unread = books ? mine.filter((o) => !books[o.typeId]).length : 0;
 
+  const tips = useMemo(() => tipsFor(side), [side]);
   const worth = all.filter((x) => x.verdict === 'move');
   const holding = all.filter((x) => x.verdict === 'wait');
   const canOpen = hasScope(UI_SCOPE);
@@ -188,6 +203,7 @@ export function Orders() {
                       : 'you are in front on all of them.'
                 }`
               : ' Check prices to see which are worth moving.'}
+            {until(d.meta.nextSyncAt, now) && ` Your order list refreshes ${until(d.meta.nextSyncAt, now)} — until then a relist you just made shows up from the live book, not from here.`}
             {elsewhere > 0 && ` ${units(elsewhere)} more ${elsewhere > 1 ? 'are' : 'is'} in other stations and can’t be checked here.`}
             {unread > 0 && ` ${units(unread)} couldn’t be read from ESI — check again.`}
           </p>
@@ -230,9 +246,10 @@ export function Orders() {
               <table className="data wide">
                 <thead>
                   <tr>
-                    <th scope="col">Item</th><th scope="col">Side</th>
+                    <th scope="col">Item</th>
+                    <th scope="col">Side<Explain term="Side">{tips.Side}</Explain></th>
                     {(['Verdict', 'Ahead of you', 'Clears in', 'Your price', 'Move to', 'Costs you', 'Your stock', 'ISK in order'] as const).map((h) => (
-                      <th scope="col" key={h}>{h}{TIPS[h] && <Explain term={h}>{TIPS[h]}</Explain>}</th>
+                      <th scope="col" key={h}>{h}{tips[h] && <Explain term={h}>{tips[h]}</Explain>}</th>
                     ))}
                     <th scope="col"><span className="opt">Actions</span></th>
                   </tr>
@@ -251,7 +268,9 @@ export function Orders() {
                         <td className={r.verdict === 'wait' ? 'pos' : ''}>
                           {!r.beaten ? '–' : !Number.isFinite(r.hoursToFront) ? <span className="muted">barely trades</span> : hours(r.hoursToFront)}
                         </td>
-                        <td>{isk(r.price)}</td>
+                        <td title={r.live ? 'Read from the live book just now' : 'From your last sync; ESI caches orders for twenty minutes'}>
+                          {isk(r.price)}{!r.live && <small className="sub">from last sync</small>}
+                        </td>
                         <td className={r.verdict === 'move' ? 'pos' : ''}>
                           {Number.isFinite(r.newPrice) ? isk(r.newPrice) : '–'}
                         </td>

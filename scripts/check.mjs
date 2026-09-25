@@ -287,7 +287,7 @@ r = adviseRelist({ orderId: 9, typeId: 34, isBuy: false, price: 0.02, volumeRema
 eq('cannot undercut 0.01: loss', r.verdict, 'loss');
 
 // --- costs still work ---
-r = adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 99999)], dailyVolume: 5000 }, R);
+r = adviseRelist(sell, { book: [o(1, false, 1000, 100), o(2, false, 990, 99999)], dailyVolume: 5000 }, R);
 eq('new price a step under them', r.newPrice, 989.9);
 eq('revenue given up', r.give, (1000 - 989.9) * 100);
 eq('fee on the new value', r.fee, R.k * 989.9 * 100);
@@ -304,6 +304,30 @@ eq('very patient leaves a long queue', adviseRelist(sell, { book: [o(1, false, 1
 // Being in front never depends on patience.
 eq('front regardless of threshold', adviseRelist(sell, { book: [o(1, false, 1000)] }, R, 0).verdict, 'front');
 
+console.log('\n--- your own order is read from the live book, not the stale copy ---');
+// You relisted in game from 1000 down to 985. ESI still reports 1000 for up to twenty minutes,
+// but the book already shows 985 under the same order id. The book must win.
+const stale = { orderId: 1, typeId: 34, isBuy: false, price: 1000, volumeRemain: 100 };
+r = adviseRelist(stale, { book: [o(1, false, 985, 100), o(2, false, 990, 5000)], dailyVolume: 5000 }, R);
+eq('uses the live price', r.price, 985);
+eq('so it knows you are in front', r.beaten, false);
+eq('and says the price is live', r.live, true);
+// Without the fix the stale 1000 would look beaten by the 990 rival.
+eq('the stale price would have said beaten', 990 < stale.price, true);
+// Remaining volume comes from the book too: you may have partly filled since the sync.
+r = adviseRelist(stale, { book: [o(1, false, 1000, 40), o(2, false, 990, 5000)], dailyVolume: 5000 }, R);
+eq('uses the live remaining volume', r.volumeRemain, 40);
+eq('and prices the relist on it', r.fee, Math.max(100, R.k * 989.9 * 40));
+// An order that has left the book entirely filled, expired or was cancelled.
+r = adviseRelist(stale, { book: [o(2, false, 990, 5000)], dailyVolume: 5000 }, R);
+eq('gone from the book', r.gone, true);
+eq('gone is not a relist', r.verdict, 'front');
+// An empty book says nothing either way, so do not claim the order is gone.
+r = adviseRelist(stale, { book: [], dailyVolume: 5000 }, R);
+eq('empty book is not proof of anything', r.gone, false);
+eq('falls back to the stored price', r.price, 1000);
+eq('and says the price is not live', r.live, false);
+
 console.log('\n--- rival concentration and your own queue ---');
 // One wall: when it fills you are straight at the front.
 r = adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 900), o(3, false, 995, 100)], dailyVolume: 5000 }, R);
@@ -316,7 +340,7 @@ eq('crowd: rivals counted', r.aheadOrders, 20);
 eq('crowd: no one dominates', Math.round(r.topRivalShare * 100), 5);
 // Your own stock is its own wait, on top of the queue.
 r = adviseRelist({ orderId: 1, typeId: 34, isBuy: false, price: 1000, volumeRemain: 2500 },
-  { book: [o(1, false, 1000), o(2, false, 990, 5000)], dailyVolume: 5000 }, R);
+  { book: [o(1, false, 1000, 2500), o(2, false, 990, 5000)], dailyVolume: 5000 }, R);
 eq('your stock is half a day', Math.round(r.yourHours), 12);
 eq('queue ahead is a day', Math.round(r.hoursToFront), 24);
 // With no volume data neither can be stated.

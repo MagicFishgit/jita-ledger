@@ -10,6 +10,7 @@ import { APP_NAME } from './lib/config';
 import { Calculator } from './components/Calculator';
 import { Prospects } from './components/Prospects';
 import { Watchlist } from './components/Watchlist';
+import { ConfirmDialog } from './components/ConfirmDialog';
 import { Orders } from './components/Orders';
 import { Positions } from './components/Positions';
 import { PositionDetail } from './components/PositionDetail';
@@ -106,6 +107,8 @@ export function App() {
         : page === 'omega' ? <Omega />
         : page === 'settings' ? <Settings />
         : <Calculator route={route} />}
+
+      <ConfirmDialog />
 
       <footer className="foot">
         <p>Your data stays in this browser. Market data from ESI. Not affiliated with EVE Online’s developer; EVE Online and related materials belong to their owner.</p>

@@ -52,15 +52,27 @@ function InfoButton(p: { term: string; open: boolean; controls: string; onToggle
   );
 }
 
-/** A small "i" that opens a plain-English note, for a term that isn't a form field. */
+/**
+ * A small "i" whose note appears on hover, for a term that isn't a form field.
+ *
+ * The note is positioned out of the flow, so showing it never pushes the rest of the page around ---
+ * a tooltip that shifts every row below it is worse than no tooltip. Hover and keyboard focus both
+ * reveal it through CSS alone; the button stays a real button so touch, where there is no hover,
+ * can still tap it open.
+ */
 export function Explain({ term, children }: { term: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
+  const [tapped, setTapped] = useState(false);
   const id = useId();
   return (
-    <>
-      <InfoButton term={term} open={open} controls={id} onToggle={() => setOpen(!open)} />
-      {open && <span className="explain" id={id}>{children}</span>}
-    </>
+    <span className={'tipwrap' + (tapped ? ' tapped' : '')}>
+      <button
+        type="button" className="info" aria-describedby={id}
+        aria-label={`What \u201c${term}\u201d means`}
+        onClick={() => setTapped((t) => !t)}
+        onBlur={() => setTapped(false)}
+      >i</button>
+      <span className="explain" id={id} role="tooltip">{children}</span>
+    </span>
   );
 }
 

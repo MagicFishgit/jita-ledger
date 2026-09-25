@@ -4,6 +4,7 @@ import { fmtDateTime, isk, iskBig, units } from '../lib/format';
 import { update, useData } from '../lib/store';
 import { patchPosition, startPosition } from '../lib/actions';
 import { JITA_44 } from '../lib/config';
+import { confirmAsk } from '../lib/confirm';
 import { useTypeName } from './common';
 
 const LIMIT = 300;
@@ -39,7 +40,11 @@ export function Inbox() {
             {showPersonal ? 'Show new trades' : `Show personal (${units(personal.length)})`}
           </button>
           {!showPersonal && list.length > 0 && (
-            <button className="btn btn-small" onClick={() => { if (confirm(`Mark all ${list.length} trades as personal?`)) markPersonal(list.map((t) => t.id)); }}>
+            <button className="btn btn-small" onClick={async () => {
+              if (await confirmAsk({ title: `Mark all ${list.length} trades as personal?`, body: 'They stay in the app but stop counting towards any position.', confirm: 'Mark as personal' })) {
+                markPersonal(list.map((t) => t.id));
+              }
+            }}>
               Mark all as personal
             </button>
           )}

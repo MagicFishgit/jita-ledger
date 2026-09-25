@@ -28,6 +28,10 @@ export type Relist = {
   volumeRemain: number;
   best: number | null;
   beaten: boolean;
+  /** Your price came from the live book rather than the last sync, so a relist shows up at once. */
+  live: boolean;
+  /** Your order is no longer in the book: it filled, expired or was cancelled. */
+  gone: boolean;
   newPrice: number;
   gap: number;
   give: number;
@@ -72,25 +76,33 @@ export function adviseRelist(
   r: { k: number; f: number; t: number },
   waitHours = WAIT_HOURS,
 ): Relist {
+  // Character orders are cached by ESI for twenty minutes, so the stored copy of your own order can
+  // be stale for that long after you relist. The live book knows better: your order is in it, under
+  // the same id, at whatever price it is really sitting at now.
+  const self = m.book.find((o) => o.id === mine.orderId);
+  const price = self ? self.price : mine.price;
+  const volumeRemain = self ? self.volume : mine.volumeRemain;
+  const gone = m.book.length > 0 && !self;
+
   const rivals = m.book.filter((o) => o.id !== mine.orderId && o.isBuy === mine.isBuy);
   const prices = rivals.map((o) => o.price);
   const best = prices.length ? (mine.isBuy ? Math.max(...prices) : Math.min(...prices)) : null;
-  const beaten = best !== null && (mine.isBuy ? best > mine.price : best < mine.price);
+  const beaten = best !== null && (mine.isBuy ? best > price : best < price);
 
   // Everyone strictly in front of you in the queue.
-  const ahead = rivals.filter((o) => (mine.isBuy ? o.price > mine.price : o.price < mine.price));
+  const ahead = rivals.filter((o) => (mine.isBuy ? o.price > price : o.price < price));
   const aheadUnits = ahead.reduce((n, o) => n + o.volume, 0);
   const daily = m.dailyVolume && m.dailyVolume > 0 ? m.dailyVolume : null;
   const hoursToFront = !beaten ? 0 : daily ? (aheadUnits / daily) * 24 : Infinity;
   // One big wall clears all at once and drops you straight to the front; a crowd of small orders
   // is a queue of people who will each undercut you again.
   const topRivalShare = aheadUnits > 0 ? Math.max(...ahead.map((o) => o.volume)) / aheadUnits : 0;
-  const yourHours = daily ? (mine.volumeRemain / daily) * 24 : Infinity;
+  const yourHours = daily ? (volumeRemain / daily) * 24 : Infinity;
 
   const newPrice = beaten && best !== null ? (mine.isBuy ? tickUp(best) : tickDown(best)) : NaN;
   const moves = beaten && Number.isFinite(newPrice);
-  const give = moves ? Math.abs(newPrice - mine.price) * mine.volumeRemain : 0;
-  const fee = moves ? Math.max(100, r.k * newPrice * mine.volumeRemain) : 0;
+  const give = moves ? Math.abs(newPrice - price) * volumeRemain : 0;
+  const fee = moves ? Math.max(100, r.k * newPrice * volumeRemain) : 0;
 
   // Would the price it takes to get back in front actually be worth having?
   const netOfSale = (p: number) => p * (1 - r.f - r.t);
@@ -101,7 +113,10 @@ export function adviseRelist(
 
   let verdict: Verdict;
   let why: string;
-  if (!beaten) {
+  if (gone) {
+    verdict = 'front';
+    why = 'This order is no longer in the book \u2014 it filled, expired or was cancelled';
+  } else if (!beaten) {
     verdict = 'front';
     why = best === null ? 'Nobody else is selling or buying here' : 'You are at the front of the queue';
   } else if (badSell) {
@@ -125,11 +140,11 @@ export function adviseRelist(
 
   return {
     orderId: mine.orderId, typeId: mine.typeId, isBuy: mine.isBuy,
-    price: mine.price, volumeRemain: mine.volumeRemain,
+    price, volumeRemain, live: !!self, gone,
     best, beaten, newPrice,
-    gap: best === null ? 0 : Math.abs(best - mine.price),
+    gap: best === null ? 0 : Math.abs(best - price),
     give, fee, cost: give + fee,
-    atRisk: mine.price * mine.volumeRemain,
+    atRisk: price * volumeRemain,
     aheadUnits, aheadOrders: ahead.length, hoursToFront, topRivalShare, yourHours,
     verdict, why,
   };
