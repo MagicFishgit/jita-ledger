@@ -92,6 +92,13 @@ Don't re-derive or contradict these without new evidence.
   beats `settings.target`, hold. This is what stops it advising a 31% price cut to get in front of a
   thin skim of cheap stock that clears in 20 hours anyway. A relist fee is fixed, so buying back a few
   minutes with one can never pay; patience settings cannot override this check.
+- **And it ignores prices that aren't the market.** `weightedLevel` is the volume-weighted median of
+  your side of the book, so one unit fat-fingered at two thirds the going rate moves it by nothing.
+  A move landing >10% past that level, *and* chasing under 2% of the side's volume, is a mistake or a
+  token dump rather than a repricing. **Both conditions matter**: distance alone wrongly condemned 217
+  units of genuinely cheap supply as a "mistake"; quantity is what separates a fat finger from a
+  cheap seller. This needs only the live book, so it is the one guard that still works for an item
+  with no trading history — which is exactly when the other two cannot fire.
 - **Prospects sizes a position by what an item can absorb** (`units/day × share × price × horizon`),
   not by one day's volume. The budget is a target, not a cap.
 - **Pages run full width** via `--page-max`, so wide tables don't need a scrollbar. Prose keeps its own

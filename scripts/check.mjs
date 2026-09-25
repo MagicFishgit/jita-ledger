@@ -3,7 +3,7 @@
 import { statsFrom, pickPages, passesGate, warningsFor, expectedEdge, sortProspects, FIRST_DIR, DEFAULT_FILTERS } from '../src/lib/prospects.ts';
 import { priceUp, tickDown } from '../src/lib/tick.ts';
 import { dueForSync } from '../src/lib/schedule.ts';
-import { adviseRelist, byUrgency } from '../src/lib/relist.ts';
+import { adviseRelist, byUrgency, weightedLevel } from '../src/lib/relist.ts';
 
 let failed = 0;
 const eq = (label, got, want) => {
@@ -334,6 +334,54 @@ r = adviseRelist(stale, { book: [], dailyVolume: 5000 }, R);
 eq('empty book is not proof of anything', r.gone, false);
 eq('falls back to the stored price', r.price, 1000);
 eq('and says the price is not live', r.live, false);
+
+console.log('\n--- weightedLevel ignores token quantities ---');
+// One unit at two thirds the going rate must not move where the book says the item trades.
+eq('a single cheap unit does not shift the level',
+   weightedLevel([o(1, false, 5055, 1), o(2, false, 7160, 1230), o(3, false, 7161, 991)]), 7160);
+eq('real volume does shift it',
+   weightedLevel([o(1, false, 5055, 5000), o(2, false, 7160, 100)]), 5055);
+eq('empty book has no level', weightedLevel([]), 0);
+
+console.log('\n--- a mistaken price is not the market ---');
+// The reported book: someone listed one unit at 5,055 against a market sitting at 7,160-7,177.
+const fatBook = [
+  o(1, false, 5055, 1), o(2, false, 7160, 1230), o(3, false, 7161, 991), o(4, false, 7164, 2),
+  o(5, false, 7166, 1105), o(6, false, 7167, 783), o(7, false, 7177, 33),
+];
+const fatMine = { orderId: 2, typeId: 1, isBuy: false, price: 7160, volumeRemain: 1230 };
+for (const [label, ctx] of [
+  ['with history', { book: fatBook, dailyVolume: 500 }],
+  ['with a slow item', { book: fatBook, dailyVolume: 5 }],
+  ['with no history at all', { book: fatBook }],
+]) {
+  const v = adviseRelist(fatMine, ctx, R);
+  eq(`fat-finger ignored ${label}`, v.verdict, 'wait');
+  if (!/mistake or a token dump/.test(v.why)) { failed++; console.log(`  FAIL reason ${label}: ${v.why}`); }
+}
+// Without history the other two checks cannot fire, so this guard is the only thing standing between
+// the user and a 29% cut to chase one unit. That is the case it exists for.
+eq('no history: the cut it prevented', Math.round(adviseRelist(fatMine, { book: fatBook }, R).cutPct * 100), 29);
+
+// A market that has genuinely moved must NOT be mistaken for an outlier: real volume at the new
+// level, a modest gap, and enough stock ahead that waiting it out would take days.
+const moved = [
+  o(1, false, 7000, 900), o(2, false, 7001, 800), o(3, false, 7002, 700),
+  o(4, false, 7160, 1230),
+];
+const r2 = adviseRelist({ orderId: 4, typeId: 1, isBuy: false, price: 7160, volumeRemain: 1230 },
+  { book: moved, dailyVolume: 800 }, R);
+if (/mistake or a token dump/.test(r2.why)) { failed++; console.log(`  FAIL real move called an outlier: ${r2.why}`); }
+eq('a repriced market is chased, not ignored', r2.verdict, 'move');
+eq('  and it is a small cut', Math.round(r2.cutPct * 1000) / 10, 2.2);
+eq('  to save days, not minutes', Math.round(r2.hoursToFront), 72);
+
+// Buy side mirrored: someone bidding far above the book is equally not the market.
+const fatBuy = [o(1, true, 9000, 1), o(2, true, 7160, 1230), o(3, true, 7159, 900)];
+const rb = adviseRelist({ orderId: 2, typeId: 1, isBuy: true, price: 7160, volumeRemain: 1230 },
+  { book: fatBuy }, R);
+eq('buy side: absurd bid ignored', rb.verdict, 'wait');
+if (!/above where the rest of the book sits/.test(rb.why)) { failed++; console.log(`  FAIL buy reason: ${rb.why}`); }
 
 console.log('\n--- a big cut to get past a thin skim is not worth making ---');
 // The reported case, from a real book. 488 units at 34,430, with only 217 cheaper units ahead

@@ -80,6 +80,43 @@ export type MarketContext = {
  */
 export const WAIT_HOURS = 4;
 
+/**
+ * How far past the book's own centre of gravity a price has to be before chasing it is treated as
+ * chasing a mistake rather than the market.
+ */
+export const OUTLIER_DIVE = 0.1;
+
+/**
+ * And how small the stock at that price has to be to read as a mistake rather than a cheap seller.
+ *
+ * Distance alone is not enough. A couple of hundred units priced well under the rest of the book is
+ * real supply that someone means to sell, and worth weighing on its merits; a single unit at two
+ * thirds the going rate is a fat finger. Quantity is what separates them.
+ */
+export const OUTLIER_SHARE = 0.02;
+
+/**
+ * Where the book says this item actually trades: the price at which half the stock on your side
+ * sits cheaper and half dearer, weighted by volume.
+ *
+ * Weighting by volume is the point. Someone who fat-fingers a single unit at two thirds of the
+ * going rate moves this by nothing, so a price far away from it is a mistake or a token dump rather
+ * than a market that has moved. It needs only the live book, so it still holds for an item with no
+ * trading history to reason about.
+ */
+export function weightedLevel(orders: OrderLite[]): number {
+  if (!orders.length) return 0;
+  const sorted = [...orders].sort((a, b) => a.price - b.price);
+  const total = sorted.reduce((n, o) => n + o.volume, 0);
+  if (total <= 0) return sorted[Math.floor(sorted.length / 2)].price;
+  let seen = 0;
+  for (const o of sorted) {
+    seen += o.volume;
+    if (seen >= total / 2) return o.price;
+  }
+  return sorted[sorted.length - 1].price;
+}
+
 export function adviseRelist(
   mine: Mine,
   m: MarketContext,
@@ -118,6 +155,15 @@ export function adviseRelist(
   const cost = give + fee;
   const atRisk = price * volumeRemain;
   const cutPct = moves && price > 0 ? Math.abs(newPrice - price) / price : 0;
+
+  // Would getting in front put you well outside where the bulk of the book sits? The live book
+  // answers that on its own, so it holds even for an item we know nothing else about.
+  const level = weightedLevel([...rivals, { id: mine.orderId, isBuy: mine.isBuy, price, volume: volumeRemain }]);
+  const sideVolume = rivals.reduce((n, o) => n + o.volume, 0) + volumeRemain;
+  const chasingOutlier =
+    moves && level > 0 &&
+    (mine.isBuy ? newPrice > level * (1 + OUTLIER_DIVE) : newPrice < level * (1 - OUTLIER_DIVE)) &&
+    sideVolume > 0 && aheadUnits / sideVolume < OUTLIER_SHARE;
   // The share of the order's value burned to get in front, spread over the waiting it saves.
   const waitingPaysDaily =
     moves && atRisk > 0 && Number.isFinite(hoursToFront) && hoursToFront > 0
@@ -149,6 +195,12 @@ export function adviseRelist(
   } else if (!moves) {
     verdict = 'loss';
     why = 'There is no legal price below theirs left to take';
+  } else if (chasingOutlier) {
+    verdict = 'wait';
+    why =
+      `The ${aheadUnits.toLocaleString('en-US')} unit${aheadUnits === 1 ? '' : 's'} ahead of you ${aheadUnits === 1 ? 'is' : 'are'} priced ` +
+      `${pctText(Math.abs(level - newPrice) / level)} ${mine.isBuy ? 'above' : 'below'} where the rest of the book sits ` +
+      `(${Math.round(level).toLocaleString('en-US')}) \u2014 someone's mistake or a token dump, not the market`;
   } else if (waitingPaysDaily > targetDaily) {
     // The move is expensive relative to the waiting it saves. Cutting a third off a price to get in
     // front of a thin skim of cheap stock destroys far more than it brings forward.
