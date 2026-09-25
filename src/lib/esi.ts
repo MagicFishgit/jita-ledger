@@ -56,7 +56,9 @@ export async function esi<T>(path: string, opts: Opts = {}): Promise<{ data: T; 
         const expires = !Number.isFinite(exp) ? null
           : Number.isFinite(svr) ? Date.now() + (exp - svr)
           : exp;
-        return { data: (await res.json()) as T, pages: p ? Number(p) : null, expires };
+        // Some routes answer 204 with no body at all (the /ui/ ones), so don't demand JSON.
+        const text = await res.text();
+        return { data: (text ? JSON.parse(text) : undefined) as T, pages: p ? Number(p) : null, expires };
       }
       if ([502, 503, 504].includes(res.status) && attempt === 0) { await sleep(1200); continue; }
       const retryAfter = Number(res.headers.get('Retry-After')) || undefined;

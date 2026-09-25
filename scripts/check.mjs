@@ -2,6 +2,7 @@
 // Run with: npm run check   (Node strips the TypeScript types natively)
 import { statsFrom, pickPages, passesGate, warningsFor, expectedEdge, sortProspects, FIRST_DIR, DEFAULT_FILTERS } from '../src/lib/prospects.ts';
 import { dueForSync } from '../src/lib/schedule.ts';
+import { adviseRelist, byUrgency } from '../src/lib/relist.ts';
 
 let failed = 0;
 const eq = (label, got, want) => {
@@ -182,6 +183,69 @@ eq('demote on: clean first, still by volume', ids(sortProspects(mixed, { key: 'v
 const orig = [...set];
 sortProspects(set, { key: 'roi', dir: 'asc' }, nm);
 eq('does not mutate input', ids(set), ids(orig));
+
+console.log('\n--- adviseRelist: sell orders ---');
+const K = 0.00375; // price-change fee at a 1.5% broker fee with Advanced Broker Relations V
+const mineSell = { orderId: 1, typeId: 34, isBuy: false, price: 1000, volumeRemain: 100 };
+const o = (id, isBuy, price) => ({ id, isBuy, price, volume: 1 });
+
+// Nobody else there: nothing to chase.
+let r = adviseRelist(mineSell, [o(1, false, 1000)], K);
+eq('sell alone: not beaten', r.beaten, false);
+eq('sell alone: no best', r.best, null);
+eq('sell alone: costs nothing', r.cost, 0);
+
+// Your own order must never count as competition against you.
+r = adviseRelist(mineSell, [o(1, false, 1000), o(2, false, 1200)], K);
+eq('sell ahead: not beaten', r.beaten, false);
+eq('sell ahead: best is the rival', r.best, 1200);
+
+// Level with the best is still the front of the queue.
+r = adviseRelist(mineSell, [o(1, false, 1000), o(2, false, 1000)], K);
+eq('sell tied: not beaten', r.beaten, false);
+
+// Undercut: come down one legal step BELOW them.
+r = adviseRelist(mineSell, [o(1, false, 1000), o(2, false, 990)], K);
+eq('sell undercut: beaten', r.beaten, true);
+eq('sell undercut: best', r.best, 990);
+eq('sell undercut: new price is a step under them', r.newPrice, 989.9);
+eq('sell undercut: gap per unit', r.gap, 10);
+eq('sell undercut: revenue given up', r.give, (1000 - 989.9) * 100);
+eq('sell undercut: fee', r.fee, K * 989.9 * 100);
+eq('sell undercut: at risk', r.atRisk, 100000);
+
+// The other side of the book is not your competition.
+r = adviseRelist(mineSell, [o(1, false, 1000), o(9, true, 5000)], K);
+eq('sell ignores buy side', r.beaten, false);
+
+console.log('\n--- adviseRelist: buy orders ---');
+const mineBuy = { orderId: 5, typeId: 34, isBuy: true, price: 1000, volumeRemain: 100 };
+
+r = adviseRelist(mineBuy, [o(5, true, 1000), o(6, true, 900)], K);
+eq('buy ahead: not beaten', r.beaten, false);
+
+// Outbid: go up one legal step ABOVE them.
+r = adviseRelist(mineBuy, [o(5, true, 1000), o(6, true, 1010)], K);
+eq('buy outbid: beaten', r.beaten, true);
+eq('buy outbid: best', r.best, 1010);
+eq('buy outbid: new price is a step over them', r.newPrice, 1011);
+eq('buy outbid: extra outlay', r.give, (1011 - 1000) * 100);
+eq('buy outbid: fee on the new value', r.fee, K * 1011 * 100);
+
+// The 100 ISK floor applies to tiny orders, same as the broker fee.
+r = adviseRelist({ orderId: 7, typeId: 34, isBuy: false, price: 5, volumeRemain: 1 }, [o(7, false, 5), o(8, false, 4)], K);
+eq('tiny order pays the 100 ISK floor', r.fee, 100);
+eq('tiny order new price', r.newPrice, 3.99);
+
+// Nothing legal below the floor price, so there is nothing to chase.
+r = adviseRelist({ orderId: 9, typeId: 34, isBuy: false, price: 0.02, volumeRemain: 10 }, [o(9, false, 0.02), o(10, false, 0.01)], K);
+eq('cannot undercut the 0.01 floor', Number.isFinite(r.newPrice), false);
+eq('cannot undercut: no cost quoted', r.cost, 0);
+
+console.log('\n--- byUrgency ---');
+const urg = (beaten, atRisk) => ({ beaten, atRisk });
+eq('beaten before untouched', [urg(false, 999), urg(true, 1)].sort(byUrgency).map((x) => x.atRisk), [1, 999]);
+eq('most ISK at stake first', [urg(true, 10), urg(true, 500), urg(true, 90)].sort(byUrgency).map((x) => x.atRisk), [500, 90, 10]);
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

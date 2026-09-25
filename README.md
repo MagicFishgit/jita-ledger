@@ -10,6 +10,10 @@ A station trading tool for Jita 4-4 that runs entirely in your browser and is ho
   takes minutes. Both are resumable, and the table sorts on any column. A scan refreshes prices over an hour old,
   history over a day old and the order book sample over six hours old; the page says how old the prices on screen
   are, and **Clear these results** throws the scan away without touching your trades, positions or settings.
+- **Orders**: your open market orders checked against the live Jita 4-4 book, so you can see which have been
+  undercut or outbid without hunting through them in game, what the legal price to move to is, and what the move
+  costs in margin and broker fee. ESI cannot place or change an order, and automating the client is a bannable
+  offence, so this finds the work and you do the clicking.
 - **Watchlist**: compare items by spread, return, volume and a rough ISK-per-day estimate.
 - **Positions**: track an item you're trading from the first buy to the last sell. Buys, sells, fees and tax are pulled from your wallet, so you can see what you actually made and how your prices compared with the market.
 - **Inbox**: trades that don't belong to any position, so personal purchases stay out of your trading results.
@@ -43,6 +47,7 @@ At <https://developers.eveonline.com/> create an application:
   - `esi-markets.read_character_orders.v1`
   - `esi-skills.read_skills.v1`
   - `esi-characters.read_standings.v1`
+  - `esi-ui.open_window.v1`
 - **Callback URL**: `https://magicfishgit.github.io/jita-ledger/` (exactly, including the trailing slash)
 
 Copy the **Client ID**. You don't need the secret: the app logs in with PKCE, which is meant for apps that can't keep a secret.
@@ -113,6 +118,10 @@ Fees depend on your clone state, because Alpha clones can't use some trade skill
   ([Broker Relations](https://www.eveonline.com/news/view/broker-relations), March 2020). So the smallest change you can make
   to an order is 1,000 ISK on a million-ISK item and 0.01 ISK on a cheap one, not 0.01 ISK flat. The Watchlist and the
   Calculator's autofill price one step inside the spread, and the break-even and target prices are rounded onto the same grid.
+- **The Orders page needs a fresh login if you set the app up before it existed.** It asks for one new scope,
+  `esi-ui.open_window.v1`, purely so a row can open that item's market window in your client. Everything else on
+  the page works without it; log out and in again to enable the button. Add the scope to your application on
+  <https://developers.eveonline.com/> as well.
 - **Prospects samples the market, it doesn't read all of it.** The whole Forge order book is 408 pages, so a scan
   reads 20 random ones. ESI shuffles order pages by item, so that is a fair 5% sample, but a quiet item can be
   missed. Trading history costs one request per item, so a run checks a few hundred and keeps what it learns —

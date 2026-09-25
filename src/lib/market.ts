@@ -51,12 +51,26 @@ function levels(orders: RawMarketOrder[], n: number): BookLevel[] {
 const regionFor = (typeId: number) => (typeId === PLEX_TYPE ? GLOBAL_PLEX_MARKET : THE_FORGE);
 const atJita = (typeId: number, locationId: number) => typeId === PLEX_TYPE || locationId === JITA_44;
 
-const bookCache = new Map<number, { at: number; snap: Omit<MarketSnap, 'avgVol7' | 'avgPrice7'> }>();
+/** One order in the book, with its ID, so you can tell your own from the competition. */
+export type OrderLite = { id: number; isBuy: boolean; price: number; volume: number };
+
+// Raw orders are kept beside the summary rather than in it: MarketSnap gets persisted to
+// IndexedDB by the watchlist and the scan, and this list is far too big to store per item.
+const bookCache = new Map<number, { at: number; snap: Omit<MarketSnap, 'avgVol7' | 'avgPrice7'>; raw: OrderLite[] }>();
 
 /** Jita 4-4 order book only (The Forge region data, filtered to the station). ESI caches this for 5 minutes. */
 export async function jitaBook(typeId: number, force = false) {
+  return (await readBook(typeId, force)).snap;
+}
+
+/** Every live order for an item at Jita 4-4. Same fetch and cache as jitaBook, just not summarised. */
+export async function jitaOrders(typeId: number, force = false): Promise<OrderLite[]> {
+  return (await readBook(typeId, force)).raw;
+}
+
+async function readBook(typeId: number, force: boolean) {
   const hit = bookCache.get(typeId);
-  if (!force && hit && Date.now() - hit.at < 5 * 60_000) return hit.snap;
+  if (!force && hit && Date.now() - hit.at < 5 * 60_000) return hit;
   const orders = await esiAllPages<RawMarketOrder>(`/markets/${regionFor(typeId)}/orders/`, { query: { order_type: 'all', type_id: typeId } });
   const here = orders.filter((o) => atJita(typeId, o.location_id));
   const buys = here.filter((o) => o.is_buy_order).sort((a, b) => b.price - a.price);
@@ -71,8 +85,20 @@ export async function jitaBook(typeId: number, force = false) {
     topBuys: levels(buys, 5),
     topSells: levels(sells, 5),
   };
-  bookCache.set(typeId, { at: Date.now(), snap });
-  return snap;
+  const raw: OrderLite[] = here.map((o) => ({ id: o.order_id, isBuy: o.is_buy_order, price: o.price, volume: o.volume_remain }));
+  const entry = { at: Date.now(), snap, raw };
+  bookCache.set(typeId, entry);
+  return entry;
+}
+
+/**
+ * Opens an item's market window in the running EVE client.
+ *
+ * This is the only market thing ESI will do for you: it cannot place, change or cancel an order,
+ * so the most a tool can legitimately do is put the right window in front of you.
+ */
+export async function openMarketWindow(typeId: number): Promise<void> {
+  await esi<void>('/ui/openwindow/marketdetails/', { auth: true, method: 'POST', query: { type_id: typeId } });
 }
 
 /** Daily history for the whole of The Forge (most of it is Jita). Cached for 3 hours. */

@@ -10,6 +10,7 @@ import { APP_NAME } from './lib/config';
 import { Calculator } from './components/Calculator';
 import { Prospects } from './components/Prospects';
 import { Watchlist } from './components/Watchlist';
+import { Orders } from './components/Orders';
 import { Positions } from './components/Positions';
 import { PositionDetail } from './components/PositionDetail';
 import { Inbox } from './components/Inbox';
@@ -52,7 +53,7 @@ export function App() {
   const mismatch = auth && d.meta.syncedCharacterId && d.meta.syncedCharacterId !== auth.characterId;
 
   const nav: [string, string][] = [
-    ['calculator', 'Calculator'], ['prospects', 'Prospects'], ['watchlist', 'Watchlist'], ['positions', 'Positions'], ['inbox', 'Inbox'], ['omega', 'Omega'], ['settings', 'Settings'],
+    ['calculator', 'Calculator'], ['prospects', 'Prospects'], ['watchlist', 'Watchlist'], ['positions', 'Positions'], ['orders', 'Orders'], ['inbox', 'Inbox'], ['omega', 'Omega'], ['settings', 'Settings'],
   ];
 
   return (
@@ -99,6 +100,7 @@ export function App() {
       ) : page === 'prospects' ? <Prospects />
         : page === 'watchlist' ? <Watchlist />
         : page === 'positions' && route.path[1] ? <PositionDetail id={route.path[1]} />
+        : page === 'orders' ? <Orders />
         : page === 'positions' ? <Positions />
         : page === 'inbox' ? <Inbox />
         : page === 'omega' ? <Omega />
