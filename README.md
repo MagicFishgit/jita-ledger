@@ -135,10 +135,15 @@ Fees depend on your clone state, because Alpha clones can't use some trade skill
 - **Stock is what sits loose in your Jita hangar, plus whatever is committed to open sell orders.** A sell order
   holds the goods itself, so both count. Anything packed into a container or a ship is reported by ESI against
   that container rather than a station, so it cannot be attributed and is reported separately instead.
-- **The Orders page needs a fresh login if you set the app up before it existed.** It asks for one new scope,
-  `esi-ui.open_window.v1`, purely so a row can open that item's market window in your client. Everything else on
-  the page works without it; log out and in again to enable the button. Add the scope to your application on
-  <https://developers.eveonline.com/> as well.
+- **"Open in game" needs a fresh login if you set the app up before it existed.** It asks for one scope,
+  `esi-ui.open_window.v1`, purely so an item's market window can be opened in your client. Everything else works
+  without it; log out and in again to enable the button, and add the scope to your application on
+  <https://developers.eveonline.com/> as well. The button then appears anywhere an item is named — Prospects, the
+  Watchlist, Positions, the Calculator, the Inbox and Orders.
+- **Opening an item in game can't bring the game forward.** A web page isn't allowed to focus another application,
+  so the market window opens behind whatever you're looking at and you still switch to the client yourself. That's
+  a browser rule rather than a gap in ESI; the tools that raise the EVE window are separate programs running on
+  your own machine.
 - **Prospects samples the market, it doesn't read all of it.** The whole Forge order book is 408 pages, so a scan
   reads 20 random ones. ESI shuffles order pages by item, so that is a fair 5% sample, but a quiet item can be
   missed. Trading history costs one request per item, so a run checks a few hundred and keeps what it learns —
