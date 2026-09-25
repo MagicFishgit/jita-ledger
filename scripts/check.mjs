@@ -4,11 +4,15 @@ import { statsFrom, pickPages, passesGate, warningsFor, expectedEdge, sortProspe
 import { priceUp, tickDown } from '../src/lib/tick.ts';
 import { dueForSync } from '../src/lib/schedule.ts';
 import { adviseRelist, byUrgency, weightedLevel, marketBest } from '../src/lib/relist.ts';
+import { valueOffer, byIskPerLp, patientPrice, instantPrice, daysToClear, planFor, notesFor, spendPlan } from '../src/lib/loyalty.ts';
 
 let failed = 0;
 const eq = (label, got, want) => {
   const ok = typeof want === 'number' ? Math.abs(got - want) < 1e-9 : JSON.stringify(got) === JSON.stringify(want);
   if (!ok) { failed++; console.log(`  FAIL ${label}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`); }
+};
+const has = (label, got, want) => {
+  if (!got.includes(want)) { failed++; console.log(`  FAIL ${label}: ${JSON.stringify(got)} should include ${JSON.stringify(want)}`); }
 };
 const DAY = 86400_000;
 const NOW = Date.parse('2026-09-24T12:00:00Z');
@@ -468,6 +472,179 @@ eq('real relists first, then ISK at stake',
    [u('front', 999), u('wait', 500), u('move', 10), u('loss', 1), u('move', 900)]
      .sort(byUrgency).map((x) => `${x.verdict}:${x.atRisk}`),
    ['move:900', 'move:10', 'loss:1', 'wait:500', 'front:999']);
+
+console.log('\n--- valuing a loyalty point offer ---');
+const price = (map) => (id) => map[id] ?? null;
+// A plain offer: 5,000 LP and 5M ISK for 1 item that nets 20M.
+const plain = { offerId: 1, typeId: 100, quantity: 1, lpCost: 5000, iskCost: 5_000_000, requiredItems: [] };
+let v = valueOffer(plain, price({ 100: { net: 20_000_000, buy: 21_000_000 } }), 50_000);
+eq('revenue is what selling nets', v.revenue, 20_000_000);
+eq('outlay is the store price', v.outlay, 5_000_000);
+eq('profit', v.profit, 15_000_000);
+eq('ISK per LP', v.iskPerLp, 3000);
+eq('runs your points afford', v.runs, 10);
+eq('and the total that is worth', v.totalProfit, 150_000_000);
+
+// Required items are part of the cost, and ignoring them flatters the offer badly.
+const withReq = { ...plain, offerId: 2, requiredItems: [{ typeId: 200, quantity: 5000 }] };
+v = valueOffer(withReq, price({ 100: { net: 20_000_000, buy: 21_000_000 }, 200: { net: 900, buy: 1000 } }), 50_000);
+eq('buying the required items counts', v.itemsCost, 5_000_000);
+eq('so the outlay is both', v.outlay, 10_000_000);
+eq('and the profit is lower', v.profit, 10_000_000);
+eq('required items use the BUY price, not the sell', v.itemsCost, 5000 * 1000);
+
+// Quantity multiplies the output, not the cost.
+v = valueOffer({ ...plain, offerId: 3, quantity: 100 }, price({ 100: { net: 200_000, buy: 210_000 } }), 5000);
+eq('quantity multiplies revenue', v.revenue, 20_000_000);
+eq('one run affordable', v.runs, 1);
+
+// An offer that loses money must be allowed to say so rather than being hidden.
+v = valueOffer(plain, price({ 100: { net: 1_000_000, buy: 1_100_000 } }), 5000);
+eq('a bad offer reports a loss', v.profit, -4_000_000);
+if (!(v.iskPerLp < 0)) { failed++; console.log('  FAIL a loss should read negative per LP'); }
+
+// No price for the thing you would receive: there is no honest number, so drop it.
+eq('unpriceable output is dropped', valueOffer(plain, price({}), 5000), null);
+// No price for a required item: keep it, but say the outlay is understated.
+v = valueOffer(withReq, price({ 100: { net: 20_000_000, buy: 21_000_000 } }), 5000);
+eq('unpriceable requirement is flagged', v.unpriced, [200]);
+eq('  and its cost is left out rather than guessed', v.itemsCost, 0);
+
+// Not enough points to run it even once.
+eq('too few points means no runs', valueOffer(plain, price({ 100: { net: 20_000_000, buy: 21_000_000 } }), 100).runs, 0);
+eq('  but it is still ranked on its merits', valueOffer(plain, price({ 100: { net: 20_000_000, buy: 21_000_000 } }), 100).iskPerLp, 3000);
+// Degenerate offers cannot be valued.
+eq('no LP cost', valueOffer({ ...plain, lpCost: 0 }, price({ 100: { net: 1, buy: 1 } }), 100), null);
+eq('no quantity', valueOffer({ ...plain, quantity: 0 }, price({ 100: { net: 1, buy: 1 } }), 100), null);
+
+console.log('\n--- ranking is per point, not per ISK ---');
+// A small offer with a better rate beats a huge one with a worse rate: points are the scarce thing.
+const small = { iskPerLp: 1200, totalProfit: 400_000 };
+const huge = { iskPerLp: 900, totalProfit: 90_000_000 };
+eq('better rate ranks first', [huge, small].sort(byIskPerLp)[0].iskPerLp, 1200);
+
+console.log('\n--- what a unit of loyalty loot is actually worth ---');
+// Listing it: one legal step under the cheapest ask, less broker fee and sales tax.
+let up = patientPrice({ bestSell: 1_000_000, bestBuy: 800_000 }, 0.03, 0.02);
+eq('patient sale undercuts the ask', up.buy, 1_000_000);
+// One legal step below 1,000,000 is 999,900 --- four significant figures, not a hundredth.
+eq('patient net is the undercut ask less both charges', up.net, 999_900 * 0.95);
+// Selling into a standing bid costs no broker fee --- only the tax.
+up = instantPrice({ bestSell: 1_000_000, bestBuy: 800_000 }, 0.02);
+eq('instant sale takes the bid', up.net, 800_000 * 0.98);
+eq('  and still reports what buying one costs', up.buy, 1_000_000);
+eq('nothing bidding means no instant sale', instantPrice({ bestSell: 1_000_000, bestBuy: null }, 0.02), null);
+// Nothing listed at all: the bid stands in rather than inventing an ask.
+eq('no asks falls back to the bid', patientPrice({ bestSell: null, bestBuy: 500_000 }, 0.03, 0.02).buy, 500_000);
+eq('an empty book cannot be priced', patientPrice({ bestSell: null, bestBuy: null }, 0.03, 0.02), null);
+
+console.log('\n--- how long the selling takes ---');
+eq('a day at 100 a day', daysToClear(100, 100), 1);
+eq('ten days at 10 a day', daysToClear(100, 10), 10);
+// You do not get the whole market: a tenth of the flow is ten times the wait.
+eq('your share stretches it', daysToClear(100, 100, 10), 10);
+if (Number.isFinite(daysToClear(100, null))) { failed++; console.log('  FAIL no history should not read as instant'); }
+if (Number.isFinite(daysToClear(100, 0))) { failed++; console.log('  FAIL nothing trading should not read as instant'); }
+
+console.log('\n--- what to actually do with the points ---');
+const impl = { quantity: 1, lpCost: 375, runs: 666, profit: 300_000, totalProfit: 199_800_000 };
+// Affording 666 implants is not the same as being able to sell 666 of them.
+let lpp = planFor(impl, 5, 7, 100);
+eq('the market caps the runs', lpp.runs, 35);
+eq('  not what the points afford', lpp.affordable, 666);
+eq('  and the total follows the runs', lpp.profit, 35 * 300_000);
+eq('  and it says which limit bit', lpp.limitedBy, 'market');
+// A busy market, and the points are what run out.
+lpp = planFor(impl, 5000, 7, 100);
+eq('a busy market leaves the points the limit', lpp.runs, 666);
+eq('  and says so', lpp.limitedBy, 'points');
+// Your share of the flow is part of the cap, not an afterthought.
+eq('a tenth of the flow caps it ten times harder', planFor(impl, 500, 7, 10).runs, 350);
+eq('  where the whole flow would not have', planFor(impl, 500, 7, 100).runs, 666);
+// Multi-unit offers eat the absorption faster.
+eq('quantity is counted against absorption', planFor({ ...impl, quantity: 10 }, 100, 7, 100).runs, 70);
+// No history: the cap cannot be worked out, so it is not invented.
+lpp = planFor(impl, null, 7, 100);
+eq('no history means no cap', lpp.absorbable, null);
+eq('  and the affordable count stands', lpp.runs, 666);
+eq('  flagged as unknown rather than fine', lpp.limitedBy, 'unknown');
+if (Number.isFinite(lpp.days)) { failed++; console.log('  FAIL an unknown pace should not read as a known one'); }
+// With no points at all, the pace shown is still one run's worth rather than nothing.
+eq('no points still shows one run\u2019s pace', planFor({ ...impl, runs: 0 }, 5, 7, 100).days, 0.2);
+
+console.log('\n--- why an offer sits where it does ---');
+// A capped plan always fills the horizon, so the pace judgment has to come from one run, not the plan.
+
+const lpv = (o) => ({
+  offerId: 1, typeId: 100, quantity: 10, lpCost: 1000, revenue: 10_000_000, iskCost: 0,
+  itemsCost: 0, outlay: 0, profit: 1_000_000, iskPerLp: 1000, runs: 1, totalProfit: 1_000_000,
+  unpriced: [], ...o,
+});
+const quick = { affordable: 5, absorbable: 50, runs: 5, units: 50, days: 0.5, limitedBy: 'points', profit: 5 };
+const crawling = { affordable: 5, absorbable: 50, runs: 5, units: 50, days: 30, limitedBy: 'points', profit: 5 };
+const unknownPace = { affordable: 5, absorbable: null, runs: 5, units: 50, days: Infinity, limitedBy: 'unknown', profit: 5 };
+const squeezed = { affordable: 500, absorbable: 20, runs: 20, units: 20, days: 7, limitedBy: 'market', profit: 20 };
+let notes = notesFor(lpv({ iskPerLp: 2500 }), { medianRate: 1000, plan: quick, runDays: 0.5, live: true });
+has('twice the usual rate is called out', notes, 'topRate');
+has('  and a quick seller says so', notes, 'fast');
+has('more points than the market will take is called out', notesFor(lpv({}), { medianRate: 1000, plan: squeezed, runDays: 1, live: true }), 'capped');
+has('a poor rate is called out', notesFor(lpv({ iskPerLp: 400 }), { medianRate: 1000, plan: quick, runDays: 0.5, live: true }), 'poorRate');
+has('a loss is called out', notesFor(lpv({ profit: -5, iskPerLp: -1 }), { medianRate: 1000, plan: quick, runDays: 0.5, live: true }), 'loss');
+// A loss is the story; whether the rate beats the median is not.
+if (notesFor(lpv({ profit: -5, iskPerLp: 2500 }), { medianRate: 1000, plan: quick, runDays: 0.5, live: true }).includes('topRate')) {
+  failed++; console.log('  FAIL a losing offer must not be praised for its rate');
+}
+has('nothing trading is a warning', notesFor(lpv({}), { medianRate: 1000, plan: unknownPace, runDays: Infinity, live: true }), 'illiquid');
+has('a week to shift a single run is a warning', notesFor(lpv({}), { medianRate: 1000, plan: crawling, runDays: 30, live: true }), 'slow');
+// Items you must buy first are real capital, and easy to overlook.
+has('items you must front are called out', notesFor(lpv({ itemsCost: 4_000_000, outlay: 4_000_000 }), { medianRate: 1000, plan: quick, runDays: 0.5, live: true }), 'needsItems');
+has('  and ISK left committed is called out', notesFor(lpv({ itemsCost: 7_000_000, outlay: 7_000_000 }), { medianRate: 1000, plan: quick, runDays: 0.5, live: true }), 'capitalHeavy');
+has('an understated cost is flagged', notesFor(lpv({ unpriced: [7] }), { medianRate: 1000, plan: quick, runDays: 0.5, live: true }), 'unpriced');
+has('a rough valuation says so', notesFor(lpv({}), { medianRate: 1000, plan: quick, runDays: 0.5, live: false }), 'rough');
+has('worth listing rather than dumping', notesFor(lpv({}), { medianRate: 1000, plan: quick, runDays: 0.5, live: true, instantPerLp: 100 }), 'patienceMatters');
+if (notesFor(lpv({}), { medianRate: 1000, plan: quick, runDays: 0.5, live: true, instantPerLp: 900 }).includes('patienceMatters')) {
+  failed++; console.log('  FAIL a near-equal instant price needs no patience');
+}
+
+console.log('\n--- a capped plan is not the same as a slow item ---');
+// The plan runs to the horizon by construction; the item itself sells a run in a day.
+has('a market-capped plan on a fast item still reads fast',
+  notesFor(lpv({}), { medianRate: 1000, plan: { ...squeezed, days: 7 }, runDays: 0.4, live: true }), 'fast');
+if (notesFor(lpv({}), { medianRate: 1000, plan: { ...squeezed, days: 7 }, runDays: 0.4, live: true }).includes('slow')) {
+  failed++; console.log('  FAIL filling the horizon is not the item being slow');
+}
+
+console.log('\n--- spending the whole pile, not one offer ---');
+const cand = (offerId, typeId, iskPerLp, lpCost, profit, quantity = 1, runs = 1e9) =>
+  ({ v: { offerId, typeId, quantity, lpCost, iskPerLp, profit, runs }, unitsAllowed: null });
+// Best rate first.
+let picks = spendPlan([cand(1, 10, 500, 1000, 500_000), cand(2, 20, 1500, 1000, 1_500_000)], 3000);
+eq('the best rate is taken first', picks[0].offerId, 2);
+eq('  and it takes everything it can', picks[0].runs, 3);
+eq('  leaving nothing for the worse one', picks.length, 1);
+// When the market caps the best one, the points move down the list rather than sitting idle.
+picks = spendPlan([
+  { ...cand(1, 10, 500, 1000, 500_000), unitsAllowed: 100 },
+  { ...cand(2, 20, 1500, 1000, 1_500_000), unitsAllowed: 2 },
+], 5000);
+eq('the capped best one is taken to its limit', picks[0].runs, 2);
+eq('  then the next best gets the rest', picks[1].offerId, 1);
+eq('  which is the points left over', picks[1].runs, 3);
+eq('  and the profit is both together', picks.reduce((t, p) => t + p.profit, 0), 2 * 1_500_000 + 3 * 500_000);
+// Two offers for the SAME item compete for the same buyers.
+picks = spendPlan([
+  { ...cand(1, 10, 1500, 1000, 1_500_000), unitsAllowed: 5 },
+  { ...cand(2, 10, 1000, 1000, 1_000_000), unitsAllowed: 5 },
+], 100_000);
+eq('the first offer takes the item\u2019s whole allowance', picks[0].runs, 5);
+eq('  and the second gets none of it', picks.length, 1);
+// Offers that lose money are never part of a plan, however many points are going spare.
+eq('losing offers are left alone', spendPlan([cand(1, 10, -50, 1000, -50_000)], 100_000).length, 0);
+// Multi-unit offers eat the allowance in units, not runs.
+eq('quantity counts against the allowance',
+  spendPlan([{ ...cand(1, 10, 500, 1000, 500_000, 10), unitsAllowed: 25 }], 100_000)[0].runs, 2);
+// Not enough points for one run of anything.
+eq('too few points buys nothing', spendPlan([cand(1, 10, 500, 1000, 500_000)], 999).length, 0);
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

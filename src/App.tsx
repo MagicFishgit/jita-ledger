@@ -17,6 +17,7 @@ import { PositionDetail } from './components/PositionDetail';
 import { Inbox } from './components/Inbox';
 import { Settings } from './components/Settings';
 import { Omega } from './components/Omega';
+import { Loyalty } from './components/Loyalty';
 
 
 
@@ -54,7 +55,7 @@ export function App() {
   const mismatch = auth && d.meta.syncedCharacterId && d.meta.syncedCharacterId !== auth.characterId;
 
   const nav: [string, string][] = [
-    ['calculator', 'Calculator'], ['prospects', 'Prospects'], ['watchlist', 'Watchlist'], ['positions', 'Positions'], ['orders', 'Orders'], ['inbox', 'Inbox'], ['omega', 'Omega'], ['settings', 'Settings'],
+    ['calculator', 'Calculator'], ['prospects', 'Prospects'], ['watchlist', 'Watchlist'], ['positions', 'Positions'], ['orders', 'Orders'], ['inbox', 'Inbox'], ['loyalty', 'Loyalty'], ['omega', 'Omega'], ['settings', 'Settings'],
   ];
 
   return (
@@ -104,6 +105,7 @@ export function App() {
         : page === 'orders' ? <Orders />
         : page === 'positions' ? <Positions />
         : page === 'inbox' ? <Inbox />
+        : page === 'loyalty' ? <Loyalty />
         : page === 'omega' ? <Omega />
         : page === 'settings' ? <Settings />
         : <Calculator route={route} />}

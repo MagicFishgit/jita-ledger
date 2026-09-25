@@ -4,7 +4,7 @@ A station-trading tool for EVE Online's Jita 4-4. No server: React + TypeScript 
 IndexedDB, talking straight to ESI and EVE SSO. Deployed to GitHub Pages on every push to `main`.
 
 Pages: Calculator, Prospects (find items), Watchlist, Positions, Orders (which of mine are beaten),
-Inbox, Omega, Settings.
+Inbox, Loyalty (spending LP), Omega, Settings.
 
 ## Working here
 
@@ -74,6 +74,13 @@ Don't re-derive or contradict these without new evidence.
 - **PLEX trades on one global market** (region 19000001), not in a station — it's the exception to
   every "is this at Jita 4-4" check. See `tradedAtJita`.
 - **ESI history omits days with no trades**, so a gap *is* a zero-volume day, not missing data.
+- **Loyalty store offers are public**: `/loyalty/stores/{corp}/offers/` needs no scope or login. Only
+  the *balances* need one (`esi-characters.read_loyalty.v1`, 1h cache). Caldari Navy is corp 1000035.
+  Its store is 310 offers over 303 output items and 92 required items; 377 of those 395 types have a
+  figure in `/markets/prices/`.
+- **`/markets/prices/` gives a rough price for every type in the game in one unauthenticated
+  request.** A global average, not a Jita quote — good enough to decide what is worth pricing
+  properly, never good enough to act on.
 
 ## Decisions worth not undoing
 
@@ -107,6 +114,18 @@ Don't re-derive or contradict these without new evidence.
   not by one day's volume. The budget is a target, not a cap.
 - **Pages run full width** via `--page-max`, so wide tables don't need a scrollbar. Prose keeps its own
   measure.
+- **Loyalty ranks per point, not per ISK**, because points are the scarce thing. An offer's output is
+  valued as *listed and waited* (one tick under `marketBest`, less broker fee and tax) with *sold into
+  the standing bids* (less tax only) shown beside it; required items are costed at what buying them
+  would actually cost, and an offer whose output can't be priced is dropped rather than guessed.
+- **Loyalty caps runs by what the market will take**, not by what the points afford (`planFor`).
+  Affording 666 runs of an implant that trades five a day is not a plan. `spendPlan` then works down
+  the whole store — best rate until its market is full, then the next — which is the real answer to
+  "what do I do with 250,000 points". It uses only offers priced against the live book *with* a
+  trading history; a plan built on a global average and an unknown pace spends everything on whatever
+  looks best on paper.
+- **Liquidity notes are judged on one run, never on the plan.** A capped plan fills the horizon by
+  construction, so its length says nothing about the item.
 
 ## Gotchas that have bitten
 
@@ -145,3 +164,5 @@ State these rather than letting them be discovered:
   It's a guess, and absorption is linear in it.
 - No market-impact modelling. At billion-ISK positions your own orders move the price against you.
 - Jita 4-4 only. Orders elsewhere can't be judged and are counted out with a reason.
+- Loyalty prices only the best 40 offers against the live book; the rest of the table sits on a global
+  average and is marked "rough price". Widening that is just more requests, not new logic.

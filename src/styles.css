@@ -296,6 +296,12 @@ footer.foot { max-width: var(--page-max); margin: 0 auto; padding: 0 clamp(14px,
 /* So the other headings stay put when one of them opens its note. */
 .data th { vertical-align: top; }
 
+/* The suggested way to spend a pile of loyalty points: an order to work down */
+.plan { margin: 0; padding: 0 0 0 22px; font-size: 16px; }
+.plan li { padding: 5px 0; border-bottom: 1px dotted var(--rule); }
+.plan li:last-child { border-bottom: 0; }
+.plan .link-btn { margin-left: 8px; }
+
 /* Asking a question, in the app's own voice rather than the browser's */
 .confirm { padding: 0; border: 1px solid var(--rule); border-radius: var(--r-m); background: var(--surface); color: var(--ink); max-width: min(460px, calc(100vw - 32px)); }
 .confirm::backdrop { background: rgba(0, 0, 0, .45); }

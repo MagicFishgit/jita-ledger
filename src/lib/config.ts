@@ -24,6 +24,7 @@ export const SCOPES = [
   'esi-characters.read_standings.v1', // Caldari State and Caldari Navy standings
   'esi-ui.open_window.v1', // open an item's market window in the client, so relisting is one click away
   'esi-assets.read_assets.v1', // what you actually hold, to check against what your trades imply
+  'esi-characters.read_loyalty.v1', // loyalty point balances, for working out what to spend them on
 ];
 
 export const THE_FORGE = 10000002;
@@ -47,6 +48,9 @@ export const SKILL_FALLBACK_IDS: Record<SkillKey, number> = {
  * Skills trained above these stay trained but inactive while you're Alpha.
  */
 export const ALPHA_CAPS: Record<SkillKey, number> = { acc: 0, br: 2, abr: 0, trade: 3, retail: 0, wholesale: 0, tycoon: 0 };
+
+/** Caldari Navy: the loyalty store a Jita trader is most likely to have points with. */
+export const CALDARI_NAVY = 1000035;
 
 // PLEX trades on one market for the whole game, not in The Forge.
 export const PLEX_TYPE = 44992;

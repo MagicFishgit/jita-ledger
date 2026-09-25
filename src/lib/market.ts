@@ -3,6 +3,7 @@ import { esi } from './esi';
 import { GLOBAL_PLEX_MARKET, JITA_44, PLEX_TYPE, THE_FORGE } from './config';
 import { cacheStore } from './store';
 import type { BookLevel, HistRow, MarketSnap } from './types';
+import type { LpOffer } from './loyalty';
 
 type IdsResponse = {
   inventory_types?: { id: number; name: string }[];
@@ -156,4 +157,43 @@ export async function snapshot(typeId: number, force = false): Promise<MarketSna
   const [book, hist] = await Promise.all([jitaBook(typeId, force), marketHistory(typeId)]);
   const { avgVol, avgPrice } = recentAverages(hist, 7);
   return { ...book, avgVol7: avgVol, avgPrice7: avgPrice };
+}
+
+type RawOffer = {
+  offer_id: number; type_id: number; quantity: number;
+  lp_cost: number; isk_cost: number;
+  required_items?: { type_id: number; quantity: number }[];
+};
+
+/** Everything a corporation's loyalty store will trade you. Public: no login needed to browse. */
+export async function loyaltyOffers(corporationId: number): Promise<LpOffer[]> {
+  const { data } = await esi<RawOffer[]>(`/loyalty/stores/${corporationId}/offers/`);
+  return data.map((o) => ({
+    offerId: o.offer_id, typeId: o.type_id, quantity: o.quantity,
+    lpCost: o.lp_cost, iskCost: o.isk_cost,
+    requiredItems: (o.required_items ?? []).map((r) => ({ typeId: r.type_id, quantity: r.quantity })),
+  }));
+}
+
+/**
+ * A rough price for every type in the game, in one request.
+ *
+ * This is a global average rather than a Jita quote, so it is only good enough to decide which
+ * offers are worth pricing properly --- 300-odd offers would otherwise mean 400 book lookups before
+ * anything could be shown.
+ */
+export async function roughPrices(): Promise<Record<number, number>> {
+  const { data } = await esi<{ type_id: number; average_price?: number }[]>('/markets/prices/');
+  const out: Record<number, number> = {};
+  for (const p of data) if (p.average_price) out[p.type_id] = p.average_price;
+  return out;
+}
+
+/** Loyalty points held with each corporation. */
+export async function loyaltyPoints(characterId: number): Promise<{ corporationId: number; points: number }[]> {
+  const { data } = await esi<{ corporation_id: number; loyalty_points: number }[]>(
+    `/characters/${characterId}/loyalty/points/`, { auth: true },
+  );
+  return data.map((d) => ({ corporationId: d.corporation_id, points: d.loyalty_points }))
+    .sort((a, b) => b.points - a.points);
 }
