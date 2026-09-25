@@ -23,6 +23,7 @@ export const SCOPES = [
   'esi-skills.read_skills.v1', // Accounting, Broker Relations, Advanced Broker Relations
   'esi-characters.read_standings.v1', // Caldari State and Caldari Navy standings
   'esi-ui.open_window.v1', // open an item's market window in the client, so relisting is one click away
+  'esi-assets.read_assets.v1', // what you actually hold, to check against what your trades imply
 ];
 
 export const THE_FORGE = 10000002;

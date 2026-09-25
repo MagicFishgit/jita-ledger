@@ -49,7 +49,12 @@ function levels(orders: RawMarketOrder[], n: number): BookLevel[] {
 
 /** PLEX has one global market; everything else is read from The Forge and filtered to Jita 4-4. */
 const regionFor = (typeId: number) => (typeId === PLEX_TYPE ? GLOBAL_PLEX_MARKET : THE_FORGE);
-const atJita = (typeId: number, locationId: number) => typeId === PLEX_TYPE || locationId === JITA_44;
+/**
+ * Whether an order at this location is one Jita Ledger can reason about. PLEX is the exception:
+ * it trades on a single market for the whole game rather than in a station.
+ */
+export const tradedAtJita = (typeId: number, locationId: number) => typeId === PLEX_TYPE || locationId === JITA_44;
+const atJita = tradedAtJita;
 
 /** One order in the book, with its ID, so you can tell your own from the competition. */
 export type OrderLite = { id: number; isBuy: boolean; price: number; volume: number };

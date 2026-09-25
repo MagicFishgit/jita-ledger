@@ -73,6 +73,21 @@ export type HistRow = { date: string; average: number; highest: number; lowest: 
 
 export type WatchItem = { typeId: number; addedAt: string; snap?: MarketSnap };
 
+/**
+ * What you actually hold, counted per item, as opposed to what your trades imply you should.
+ * Only loose hangar stock is counted --- anything packed into a container is reported by ESI
+ * against the container rather than the station, so it cannot be attributed to a place.
+ */
+export type Stock = {
+  at: string;
+  /** Loose in the Jita 4-4 hangar: the stock a position is actually about. */
+  jita: Record<number, number>;
+  /** Everywhere, including ships and other stations. */
+  total: Record<number, number>;
+  /** Items held somewhere this can't attribute, so the two counts above understate the truth. */
+  inContainers: number;
+};
+
 /** What a scan learned about one item's trading, reduced from ESI's daily history. */
 export type ProspectStats = {
   typeId: number;

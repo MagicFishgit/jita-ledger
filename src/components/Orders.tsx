@@ -4,7 +4,7 @@ import { SCOPES } from '../lib/config';
 import { rates } from '../lib/fees';
 import { ago, isk, iskBig, units } from '../lib/format';
 import { useAuth, useNow, navigate } from '../lib/hooks';
-import { jitaOrders, openMarketWindow, type OrderLite } from '../lib/market';
+import { jitaOrders, openMarketWindow, tradedAtJita, type OrderLite } from '../lib/market';
 import { adviseRelist, byUrgency, type Relist } from '../lib/relist';
 import { useData } from '../lib/store';
 import { useTypeName } from './common';
@@ -22,10 +22,14 @@ export function Orders() {
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const mine = useMemo(
+  const open = useMemo(
     () => Object.values(d.orders).filter((o) => o.state === 'open' && o.volumeRemain > 0),
     [d.orders],
   );
+  // Only Jita 4-4 orders can be judged here: the book this compares against is Jita's, so an
+  // order anywhere else would be scored against a market it is not even in.
+  const mine = useMemo(() => open.filter((o) => tradedAtJita(o.typeId, o.locationId)), [open]);
+  const elsewhere = open.length - mine.length;
 
   const check = useCallback(async () => {
     const typeIds = [...new Set(mine.map((o) => o.typeId))];
@@ -50,11 +54,9 @@ export function Orders() {
   const k = rates(d.settings).k;
   const rows: Relist[] = useMemo(() => {
     if (!books) return [];
-    return mine
-      .filter((o) => books[o.typeId])
-      .map((o) => adviseRelist(o, books[o.typeId], k))
-      .sort(byUrgency);
+    return mine.filter((o) => books[o.typeId]).map((o) => adviseRelist(o, books[o.typeId], k)).sort(byUrgency);
   }, [books, mine, k]);
+  const unread = books ? mine.filter((o) => !books[o.typeId]).length : 0;
 
   const beaten = rows.filter((r) => r.beaten);
   const canOpen = hasScope(UI_SCOPE);
@@ -92,20 +94,33 @@ export function Orders() {
 
       {!auth ? (
         <p className="empty">Log in with EVE Online to see your orders.</p>
-      ) : !mine.length ? (
+      ) : !open.length ? (
         <p className="empty">
           No open market orders. They come from your last sync — ESI holds them for twenty minutes, so an order you
           placed a moment ago may take that long to appear.
         </p>
+      ) : !mine.length ? (
+        <p className="empty">
+          All {units(elsewhere)} of your open orders are in other stations. Jita Ledger only knows the Jita 4-4 book,
+          so it can’t tell you whether those have been beaten.
+        </p>
       ) : (
         <>
           <p className="small muted" style={{ margin: '0 0 14px' }}>
-            {units(mine.length)} open order{mine.length > 1 ? 's' : ''} from your last sync ({ago(d.meta.lastSync, now)}).
+            {units(mine.length)} order{mine.length > 1 ? 's' : ''} in Jita 4-4, from your last sync ({ago(d.meta.lastSync, now)}).
             {checkedAt
               ? ` Prices checked ${ago(checkedAt, now)}: ${beaten.length ? `${units(beaten.length)} of ${units(rows.length)} beaten.` : 'you are still in front on all of them.'}`
               : ' Check prices to see which have been beaten.'}
-            {!canOpen && checkedAt && ' Log out and in again to let this open the market window in game for you.'}
+            {elsewhere > 0 && ` ${units(elsewhere)} more ${elsewhere > 1 ? 'are' : 'is'} in other stations and can’t be checked here.`}
+            {unread > 0 && ` ${units(unread)} couldn’t be read from ESI — check again.`}
           </p>
+          {!canOpen && (
+            <p className="notice warn">
+              Your login predates the “Open in game” button. Add <code>esi-ui.open_window.v1</code> to your application
+              on developers.eveonline.com, then log out and in again, and each row will open that item’s market window
+              in your client.
+            </p>
+          )}
 
           {rows.length > 0 && (
             <div className="table-wrap">

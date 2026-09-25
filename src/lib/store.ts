@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { createStore, get, set, del, keys } from 'idb-keyval';
 import { DEFAULT_SETTINGS, rates, sanitizeSettings, type Settings } from './fees';
-import type { JournalEntry, Meta, Order, Position, Tx, WatchItem } from './types';
+import type { JournalEntry, Meta, Order, Position, Stock, Tx, WatchItem } from './types';
 
 /**
  * All app data lives in this browser's IndexedDB. Use Settings → Export to back it up,
@@ -16,10 +16,11 @@ export type Data = {
   watchlist: WatchItem[];
   names: Record<number, string>;
   ignored: string[];
+  stock?: Stock;
   meta: Meta;
 };
 type Key = keyof Data;
-const KEYS: Key[] = ['settings', 'txs', 'journal', 'orders', 'positions', 'watchlist', 'names', 'ignored', 'meta'];
+const KEYS: Key[] = ['settings', 'txs', 'journal', 'orders', 'positions', 'watchlist', 'names', 'ignored', 'stock', 'meta'];
 
 const idb = createStore('jita-ledger', 'kv');
 export const cacheStore = createStore('jita-ledger-cache', 'kv');

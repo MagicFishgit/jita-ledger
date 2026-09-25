@@ -48,6 +48,7 @@ At <https://developers.eveonline.com/> create an application:
   - `esi-skills.read_skills.v1`
   - `esi-characters.read_standings.v1`
   - `esi-ui.open_window.v1`
+  - `esi-assets.read_assets.v1`
 - **Callback URL**: `https://magicfishgit.github.io/jita-ledger/` (exactly, including the trailing slash)
 
 Copy the **Client ID**. You don't need the secret: the app logs in with PKCE, which is meant for apps that can't keep a secret.
@@ -118,6 +119,12 @@ Fees depend on your clone state, because Alpha clones can't use some trade skill
   ([Broker Relations](https://www.eveonline.com/news/view/broker-relations), March 2020). So the smallest change you can make
   to an order is 1,000 ISK on a million-ISK item and 0.01 ISK on a cheap one, not 0.01 ISK flat. The Watchlist and the
   Calculator's autofill price one step inside the spread, and the break-even and target prices are rounded onto the same grid.
+- **Orders are only checked in Jita 4-4.** The book they are compared against is Jita's, so an order in any other
+  station cannot be judged and is counted out with a note rather than shown blank. PLEX is the exception: it
+  trades on one market for the whole game, so PLEX orders are checked wherever they are.
+- **Stock is what sits loose in your Jita hangar, plus whatever is committed to open sell orders.** A sell order
+  holds the goods itself, so both count. Anything packed into a container or a ship is reported by ESI against
+  that container rather than a station, so it cannot be attributed and is reported separately instead.
 - **The Orders page needs a fresh login if you set the app up before it existed.** It asks for one new scope,
   `esi-ui.open_window.v1`, purely so a row can open that item's market window in your client. Everything else on
   the page works without it; log out and in again to enable the button. Add the scope to your application on

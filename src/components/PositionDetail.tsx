@@ -42,6 +42,15 @@ export function PositionDetail({ id }: { id: string }) {
   const name = nameOf(pos.typeId);
   const r = rates(d.settings);
   const finished = pos.status === 'closed' && c.stock === 0;
+
+  // What your trades imply you hold, against what you actually hold. A sell order keeps the goods
+  // itself, so real stock is the hangar plus whatever is still committed to open sell orders.
+  const held = d.stock?.jita[pos.typeId] ?? null;
+  const committed = Object.values(d.orders)
+    .filter((o) => o.typeId === pos.typeId && !o.isBuy && o.state === 'open')
+    .reduce((n, o) => n + o.volumeRemain, 0);
+  const actual = held === null ? null : held + committed;
+  const drift = actual === null ? null : actual - c.stock;
   const unrealized = snap?.bestSell && c.stock > 0 ? c.stock * snap.bestSell * (1 - r.f - r.t) - c.costOfStock : null;
   const sellVs = vsMarket(c.sells, hist);
   const buyVs = vsMarket(c.buys, hist);
@@ -125,6 +134,19 @@ export function PositionDetail({ id }: { id: string }) {
         <Stat label="Sold" value={`${units(c.sold)} units`} note={iskBig(c.soldValue)} />
         <Stat label="Average sell price" value={isk(c.avgSell)} note={sellVs != null ? `${pct(sellVs, 1)} vs daily average` : undefined} />
         <Stat label="In stock" value={`${units(c.stock)} units`} note={c.stock > 0 ? `${iskBig(c.costOfStock)} at cost` : undefined} />
+        {actual !== null && (
+          <Stat
+            label="Actually held"
+            value={`${units(actual)} units`}
+            cls={drift !== 0 ? 'warn' : undefined}
+            note={
+              drift === 0
+                ? 'Matches what your trades imply'
+                : `${units(Math.abs(drift as number))} ${(drift as number) > 0 ? 'more' : 'fewer'} than your trades imply` +
+                  (committed > 0 ? `; ${units(committed)} sitting in sell orders` : '')
+            }
+          />
+        )}
         <Stat
           label="Broker fees"
           value={iskBig(c.brokerFees)}

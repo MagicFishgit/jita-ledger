@@ -1,13 +1,13 @@
 import { useSyncExternalStore } from 'react';
 import { getAuth, hasScope } from './auth';
 import { esi, esiAllPages } from './esi';
-import { ALPHA_CAPS, NPC_FALLBACK_IDS, NPC_NAMES, SCOPES, SKILL_FALLBACK_IDS, SKILL_NAMES, type SkillKey } from './config';
+import { ALPHA_CAPS, JITA_44, NPC_FALLBACK_IDS, NPC_NAMES, SCOPES, SKILL_FALLBACK_IDS, SKILL_NAMES, type SkillKey } from './config';
 import { resolveIds, resolveNames } from './market';
 import { getData, update, type Data } from './store';
 import { sanitizeSettings, type Settings } from './fees';
-import type { JournalEntry, Meta, Order, Tx } from './types';
+import type { JournalEntry, Meta, Order, Stock, Tx } from './types';
 
-const [WALLET, ORDERS, SKILLS, STANDINGS] = SCOPES;
+const [WALLET, ORDERS, SKILLS, STANDINGS, , ASSETS] = SCOPES;
 
 /** How long to wait after a failed sync before trying again. */
 const RETRY_AFTER_FAIL_MS = 5 * 60_000;
@@ -64,6 +64,31 @@ async function ensureIds(d: Data) {
 
 type RawSkill = { skill_id: number; active_skill_level: number; trained_skill_level: number };
 
+type RawAsset = { type_id: number; quantity: number; location_id: number; location_flag: string; location_type: string };
+
+/**
+ * Count what the character is holding, per item.
+ *
+ * ESI reports an item's location as whatever contains it, so anything inside a can or a ship is
+ * listed against that container's id rather than a station. Those cannot be attributed to a place,
+ * so they are counted separately and reported rather than quietly folded in.
+ */
+function countStock(raw: RawAsset[]): Stock {
+  const jita: Record<number, number> = {};
+  const total: Record<number, number> = {};
+  const stations = new Set(raw.filter((a) => a.location_type === 'station').map((a) => a.location_id));
+  let inContainers = 0;
+  for (const a of raw) {
+    total[a.type_id] = (total[a.type_id] ?? 0) + a.quantity;
+    if (a.location_id === JITA_44 && a.location_flag === 'Hangar') {
+      jita[a.type_id] = (jita[a.type_id] ?? 0) + a.quantity;
+    } else if (a.location_type === 'item' && !stations.has(a.location_id)) {
+      inContainers += a.quantity;
+    }
+  }
+  return { at: new Date().toISOString(), jita, total, inContainers };
+}
+
 /**
  * ESI has no clone-state field, but Alpha clones have skills whose active level is below the trained level.
  * If none are capped and a trade skill is active above the Alpha cap, the character is Omega. Otherwise we can't tell.
@@ -118,7 +143,7 @@ export async function syncCharacter(): Promise<void> {
     const noteExpiry = (at: number | null) => { if (at != null) soonest = Math.min(soonest, at); };
 
     let added = 0;
-    const fetched: { txs?: Record<string, Tx>; journal?: Record<string, JournalEntry>; orders?: Record<string, Order>; names?: Record<number, string> } = {};
+    const fetched: { txs?: Record<string, Tx>; journal?: Record<string, JournalEntry>; orders?: Record<string, Order>; names?: Record<number, string>; stock?: Stock } = {};
     if (hasScope(WALLET)) {
       setState({ message: 'Reading wallet balance…' });
       const { data: balance } = await esi<number>(`/characters/${cid}/wallet/`, { auth: true });
@@ -175,6 +200,14 @@ export async function syncCharacter(): Promise<void> {
       fetched.orders = orders;
     }
 
+    if (hasScope(ASSETS)) {
+      setState({ message: 'Reading what you\u2019re holding\u2026' });
+      try {
+        const raw = await esiAllPages<RawAsset>(`/characters/${cid}/assets/`, { auth: true });
+        fetched.stock = countStock(raw);
+      } catch { /* stock is a cross-check, not the ledger: a failure here must not fail the sync */ }
+    }
+
     const allTypeIds = [
       ...Object.values(fetched.txs ?? d.txs).map((t) => t.typeId),
       ...Object.values(fetched.orders ?? d.orders).map((o) => o.typeId),
@@ -202,6 +235,8 @@ export async function syncCharacter(): Promise<void> {
       if (fetched.journal) p.journal = { ...cur.journal, ...fetched.journal };
       if (fetched.orders) p.orders = { ...cur.orders, ...fetched.orders };
       if (fetched.names) p.names = { ...cur.names, ...fetched.names };
+      // Replaced wholesale, not merged: it is a snapshot of what you hold right now.
+      if (fetched.stock) p.stock = fetched.stock;
       if (fromChar) p.settings = sanitizeSettings({ ...cur.settings, ...fromChar });
       return p;
     });

@@ -64,6 +64,13 @@ export function Positions() {
         {until(d.meta.tradesFreshAt, now) && ` New trades can appear ${until(d.meta.tradesFreshAt, now)}.`}
       </p>
 
+      {d.stock && (
+        <p className="small muted" style={{ margin: '0 0 14px' }}>
+          Stock checked against what you actually hold, as of {ago(d.stock.at, now)}.
+          {d.stock.inContainers > 0 && ` ${units(d.stock.inContainers)} items sit in containers or ships, which ESI reports against the container rather than a station, so they aren't counted.`}
+        </p>
+      )}
+
       {all.length > 0 && (
         <dl className="stats" style={{ marginBottom: 22 }}>
           <Stat label="Realized profit, all positions" value={iskBigSigned(realized)} cls={realized >= 0 ? 'pos' : 'neg'} />
