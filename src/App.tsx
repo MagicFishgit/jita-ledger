@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { handleCallback, isConfigured, login } from './lib/auth';
 import { initStore, useData } from './lib/store';
 import { syncCharacter, useSyncState } from './lib/sync';
+import { dueForSync } from './lib/schedule';
 import { unassigned } from './lib/positions';
 import { ago } from './lib/format';
-import { useAuth, useRoute } from './lib/hooks';
+import { useAuth, useNow, useRoute } from './lib/hooks';
 import { APP_NAME } from './lib/config';
 import { Calculator } from './components/Calculator';
 import { Prospects } from './components/Prospects';
@@ -15,7 +16,7 @@ import { Inbox } from './components/Inbox';
 import { Settings } from './components/Settings';
 import { Omega } from './components/Omega';
 
-const AUTO_SYNC_MS = 15 * 60_000;
+
 
 export function App() {
   const [ready, setReady] = useState(false);
@@ -23,6 +24,7 @@ export function App() {
   const auth = useAuth();
   const route = useRoute();
   const sync = useSyncState();
+  const now = useNow();
   const d = useData();
 
   useEffect(() => {
@@ -34,17 +36,16 @@ export function App() {
     })();
   }, []);
 
-  // Sync on start and every 15 minutes while the tab is open. ESI caches wallet data for longer anyway.
+  // Sync when ESI's cache actually lets go, checked once a minute. Asking sooner just returns the
+  // same cached body, and the old fixed 15-minute poll could land up to 15 minutes late on top of
+  // the hour ESI holds wallet transactions for.
   useEffect(() => {
     if (!ready || !auth) return;
-    const tick = () => {
-      const last = d.meta.lastSync ? Date.parse(d.meta.lastSync) : 0;
-      if (Date.now() - last > AUTO_SYNC_MS) syncCharacter();
-    };
+    const tick = () => { if (dueForSync(d.meta)) syncCharacter(); };
     tick();
     const id = setInterval(tick, 60_000);
     return () => clearInterval(id);
-  }, [ready, auth?.characterId, d.meta.lastSync]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready, auth?.characterId, d.meta.lastSync, d.meta.nextSyncAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const inboxCount = useMemo(() => (ready ? unassigned(d).length : 0), [ready, d]);
   const page = route.path[0];
@@ -74,7 +75,7 @@ export function App() {
                 <div className="who">
                   {auth.characterName} <span className="muted small">{d.settings.clone === 'alpha' ? 'Alpha' : 'Omega'}</span>
                   <small aria-live="polite">
-                    {sync.running ? <><span className="spinner" aria-hidden="true" />{sync.message}</> : sync.error ? <span className="neg">Sync failed</span> : `Synced ${ago(d.meta.lastSync)}`}
+                    {sync.running ? <><span className="spinner" aria-hidden="true" />{sync.message}</> : sync.error ? <span className="neg">Sync failed</span> : `Synced ${ago(d.meta.lastSync, now)}`}
                   </small>
                 </div>
                 <button className="btn btn-small" disabled={sync.running} onClick={() => syncCharacter()}>Sync</button>

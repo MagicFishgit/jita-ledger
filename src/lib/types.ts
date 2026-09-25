@@ -133,6 +133,10 @@ export type Meta = {
   cloneDetected?: 'alpha' | 'omega';
   walletBalance?: number;
   walletAt?: string;
+  /** When ESI's cache next lets go on any route we sync, so the next sync is timed rather than guessed. */
+  nextSyncAt?: string;
+  /** When new buys and sells can next appear. ESI caches wallet transactions for an hour. */
+  tradesFreshAt?: string;
   /** Broker fee and sales tax over time, so estimates for old trades use the rates you had then. */
   rateHistory?: RateStamp[];
   /** When the starting rates were assumed; changes within a day replace them instead of adding history. */

@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { computePosition } from '../lib/positions';
-import { fmtDate, isk, iskBig, iskBigSigned, pct, units } from '../lib/format';
+import { ago, fmtDate, isk, iskBig, iskBigSigned, pct, units, until } from '../lib/format';
 import { useData } from '../lib/store';
+import { syncCharacter, useSyncState } from '../lib/sync';
 import { effectiveSkills, orderSlots } from '../lib/fees';
 import { startPosition } from '../lib/actions';
-import { navigate } from '../lib/hooks';
+import { navigate, useNow } from '../lib/hooks';
 import { ItemFinder, Stat, useTypeName } from './common';
 
 const todayUTC = () => new Date().toISOString().slice(0, 10);
@@ -16,6 +17,8 @@ export function Positions() {
   const [from, setFrom] = useState(todayUTC);
   const [jitaOnly, setJitaOnly] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
+  const sync = useSyncState();
+  const now = useNow();
 
   const all = useMemo(
     () => d.positions.map((p) => ({ p, c: computePosition(p, d, d.settings) })),
@@ -46,7 +49,20 @@ export function Positions() {
             Anything else you buy stays out, and you can exclude a single purchase if it was for your own use.
           </p>
         </div>
+        <div className="row">
+          <button className="btn" disabled={sync.running} onClick={() => syncCharacter()}>
+            {sync.running ? 'Checking…' : 'Check for new trades'}
+          </button>
+        </div>
       </div>
+
+      <p className="notice" style={{ marginBottom: 20 }}>
+        <strong>Trades arrive on EVE’s schedule, not yours.</strong> ESI holds your wallet transactions for an
+        hour before it hands over new ones, so a buy or sell that just filled in game won’t show here straight
+        away. Jita Ledger now asks the moment that hour is up, rather than on a timer of its own.
+        {' '}{d.meta.lastSync ? `Last checked ${ago(d.meta.lastSync, now)}.` : 'Not checked yet.'}
+        {until(d.meta.tradesFreshAt, now) && ` New trades can appear ${until(d.meta.tradesFreshAt, now)}.`}
+      </p>
 
       {all.length > 0 && (
         <dl className="stats" style={{ marginBottom: 22 }}>

@@ -79,14 +79,24 @@ const shortFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'shor
 export const fmtDate = (d: string | number) => dFmt.format(new Date(d));
 export const fmtDateTime = (d: string | number) => dtFmt.format(new Date(d)) + ' ET';
 export const fmtShort = (d: string | number) => shortFmt.format(new Date(d));
-export function ago(iso?: string): string {
+export function ago(iso?: string, now = Date.now()): string {
   if (!iso) return 'never';
-  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  const s = (now - new Date(iso).getTime()) / 1000;
   if (s < 60) return 'just now';
   if (s < 3600) return Math.round(s / 60) + ' min ago';
   if (s < 86400) return Math.round(s / 3600) + ' h ago';
   return Math.round(s / 86400) + ' days ago';
 }
+/** How long until a moment: "in 12 min", "any moment now". */
+export function until(iso?: string, now = Date.now()): string | null {
+  if (!iso) return null;
+  const s = (Date.parse(iso) - now) / 1000;
+  if (!Number.isFinite(s)) return null;
+  if (s <= 60) return 'any moment now';
+  if (s < 3600) return `in ${Math.round(s / 60)} min`;
+  return `in ${Math.round(s / 3600)} h`;
+}
+
 export function rid(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }

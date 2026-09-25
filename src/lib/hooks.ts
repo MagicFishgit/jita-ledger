@@ -5,6 +5,20 @@ export function useAuth() {
   return useSyncExternalStore(onAuthChange, getAuth);
 }
 
+/**
+ * A clock that re-renders. Relative times are worked out during render, and nothing else in the
+ * app renders on a timer, so without this a countdown sits frozen on whatever it said when the
+ * page last changed --- which reads exactly like the page having stopped noticing anything.
+ */
+export function useNow(everyMs = 30_000): number {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), everyMs);
+    return () => clearInterval(id);
+  }, [everyMs]);
+  return now;
+}
+
 export type Route = { path: string[]; query: URLSearchParams };
 function parseHash(): Route {
   const raw = window.location.hash.replace(/^#\/?/, '');

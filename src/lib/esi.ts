@@ -23,7 +23,12 @@ type Opts = {
   body?: unknown;
 };
 
-export async function esi<T>(path: string, opts: Opts = {}): Promise<{ data: T; pages: number | null }> {
+/**
+ * `expires` is when ESI's own cache for this route lets go, from its Expires header. ESI caches
+ * server-side, so asking again before then returns the identical body --- knowing the moment is
+ * the difference between polling blind and asking exactly when there is something new.
+ */
+export async function esi<T>(path: string, opts: Opts = {}): Promise<{ data: T; pages: number | null; expires: number | null }> {
   return gate(async () => {
     const url = new URL(ESI_BASE + path);
     for (const [k, v] of Object.entries(opts.query ?? {})) if (v !== undefined) url.searchParams.set(k, String(v));
@@ -43,7 +48,15 @@ export async function esi<T>(path: string, opts: Opts = {}): Promise<{ data: T; 
       }
       if (res.ok) {
         const p = res.headers.get('X-Pages');
-        return { data: (await res.json()) as T, pages: p ? Number(p) : null };
+        // Expires and Date come off the same server clock, so their difference is a true
+        // time-to-live. Comparing ESI's Expires against ours directly would be wrong by however
+        // far the browser's clock has drifted.
+        const exp = Date.parse(res.headers.get('Expires') ?? '');
+        const svr = Date.parse(res.headers.get('Date') ?? '');
+        const expires = !Number.isFinite(exp) ? null
+          : Number.isFinite(svr) ? Date.now() + (exp - svr)
+          : exp;
+        return { data: (await res.json()) as T, pages: p ? Number(p) : null, expires };
       }
       if ([502, 503, 504].includes(res.status) && attempt === 0) { await sleep(1200); continue; }
       const retryAfter = Number(res.headers.get('Retry-After')) || undefined;

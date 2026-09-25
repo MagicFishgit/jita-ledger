@@ -4,10 +4,13 @@ import { esi, esiAllPages } from './esi';
 import { ALPHA_CAPS, NPC_FALLBACK_IDS, NPC_NAMES, SCOPES, SKILL_FALLBACK_IDS, SKILL_NAMES, type SkillKey } from './config';
 import { resolveIds, resolveNames } from './market';
 import { getData, update, type Data } from './store';
-import { sanitizeSettings } from './fees';
-import type { JournalEntry, Order, Tx } from './types';
+import { sanitizeSettings, type Settings } from './fees';
+import type { JournalEntry, Meta, Order, Tx } from './types';
 
 const [WALLET, ORDERS, SKILLS, STANDINGS] = SCOPES;
+
+/** How long to wait after a failed sync before trying again. */
+const RETRY_AFTER_FAIL_MS = 5 * 60_000;
 
 type SyncState = { running: boolean; message: string; error: string | null; lastAdded: number | null };
 let state: SyncState = { running: false, message: '', error: null, lastAdded: null };
@@ -81,20 +84,23 @@ export async function syncCharacter(): Promise<void> {
   const cid = auth.characterId;
   setState({ running: true, error: null, message: 'Starting sync…' });
   try {
+    // Read once for the diffing below, but never write this snapshot back: the sync spends tens of
+    // seconds on the network, and anything the user does meanwhile lives in the live store, not here.
     const d = getData();
-    const patch: Partial<Data> = {};
     const { skillIds, npcIds } = await ensureIds(d);
-    const meta = { ...d.meta, skillIds, npcIds };
+    const metaPatch: Partial<Meta> = { skillIds, npcIds };
+    /** Only the settings the character owns. Everything else the user controls and we must not touch. */
+    let fromChar: Partial<Settings> | null = null;
 
     if (d.settings.fromCharacter) {
-      const s = { ...d.settings };
+      const s: Partial<Settings> = {};
       if (hasScope(SKILLS)) {
         setState({ message: 'Reading skills…' });
         const { data } = await esi<{ skills: RawSkill[] }>(`/characters/${cid}/skills/`, { auth: true });
         // Store trained levels; Alpha caps are applied when rates are worked out.
         for (const k of SKILL_KEYS) s[k] = data.skills.find((x) => x.skill_id === skillIds[k])?.trained_skill_level ?? 0;
         const clone = detectClone(data.skills, skillIds);
-        if (clone) { s.clone = clone; meta.cloneDetected = clone; }
+        if (clone) { s.clone = clone; metaPatch.cloneDetected = clone; }
       }
       if (hasScope(STANDINGS)) {
         setState({ message: 'Reading standings…' });
@@ -102,26 +108,35 @@ export async function syncCharacter(): Promise<void> {
         s.faction = Math.max(0, data.find((x) => x.from_id === npcIds.faction)?.standing ?? 0);
         s.corp = Math.max(0, data.find((x) => x.from_id === npcIds.corp)?.standing ?? 0);
       }
-      patch.settings = sanitizeSettings(s);
+      fromChar = s;
     }
 
+    // ESI caches server-side, so it tells us exactly when each route can hold something new.
+    // The soonest of those is when it is worth asking again; anything earlier returns the same body.
+    let soonest = Infinity;
+    let tradesAt: number | null = null;
+    const noteExpiry = (at: number | null) => { if (at != null) soonest = Math.min(soonest, at); };
+
     let added = 0;
+    const fetched: { txs?: Record<string, Tx>; journal?: Record<string, JournalEntry>; orders?: Record<string, Order>; names?: Record<number, string> } = {};
     if (hasScope(WALLET)) {
       setState({ message: 'Reading wallet balance…' });
       const { data: balance } = await esi<number>(`/characters/${cid}/wallet/`, { auth: true });
-      meta.walletBalance = balance;
-      meta.walletAt = new Date().toISOString();
+      metaPatch.walletBalance = balance;
+      metaPatch.walletAt = new Date().toISOString();
 
       setState({ message: 'Reading wallet transactions…' });
-      const txs: Record<string, Tx> = { ...d.txs };
+      const txs: Record<string, Tx> = {};
       let fromId: number | undefined;
       for (let loop = 0; loop < 10; loop++) {
-        const { data } = await esi<RawTx[]>(`/characters/${cid}/wallet/transactions/`, { auth: true, query: { from_id: fromId } });
+        const { data, expires } = await esi<RawTx[]>(`/characters/${cid}/wallet/transactions/`, { auth: true, query: { from_id: fromId } });
+        // The first page is the live one; later pages walk back through history.
+        if (fromId === undefined) { noteExpiry(expires); tradesAt = expires; }
         if (!data.length) break;
         let fresh = 0;
         for (const t of data) {
           const id = String(t.transaction_id);
-          if (!txs[id]) { fresh++; added++; }
+          if (!d.txs[id]) fresh++;
           txs[id] = {
             id, source: 'esi', typeId: t.type_id, date: t.date, isBuy: t.is_buy,
             qty: t.quantity, unitPrice: t.unit_price, locationId: t.location_id,
@@ -131,11 +146,11 @@ export async function syncCharacter(): Promise<void> {
         if (fresh === 0 || data.length < 500 || (fromId !== undefined && minId >= fromId)) break;
         fromId = minId - 1;
       }
-      patch.txs = txs;
+      fetched.txs = txs;
 
       setState({ message: 'Reading fees and tax from your wallet journal…' });
       const raw = await esiAllPages<RawJournal>(`/characters/${cid}/wallet/journal/`, { auth: true });
-      const journal: Record<string, JournalEntry> = { ...d.journal };
+      const journal: Record<string, JournalEntry> = {};
       for (const j of raw) {
         if (j.ref_type !== 'brokers_fee' && j.ref_type !== 'transaction_tax') continue;
         journal[String(j.id)] = {
@@ -143,42 +158,61 @@ export async function syncCharacter(): Promise<void> {
           contextId: j.context_id, contextIdType: j.context_id_type,
         };
       }
-      patch.journal = journal;
+      fetched.journal = journal;
     }
 
     if (hasScope(ORDERS)) {
       setState({ message: 'Reading your market orders…' });
-      const orders: Record<string, Order> = { ...d.orders };
-      const [open, hist] = await Promise.all([
-        esi<RawCharOrder[]>(`/characters/${cid}/orders/`, { auth: true }).then((r) => r.data),
+      const orders: Record<string, Order> = {};
+      const [openRes, hist] = await Promise.all([
+        esi<RawCharOrder[]>(`/characters/${cid}/orders/`, { auth: true }),
         esiAllPages<RawCharOrder>(`/characters/${cid}/orders/history/`, { auth: true }),
       ]);
+      const open = openRes.data;
+      noteExpiry(openRes.expires);
       hist.forEach((o) => (orders[String(o.order_id)] = toOrder(o, 'closed')));
       open.forEach((o) => (orders[String(o.order_id)] = toOrder(o, 'open')));
-      patch.orders = orders;
+      fetched.orders = orders;
     }
 
     const allTypeIds = [
-      ...Object.values(patch.txs ?? d.txs).map((t) => t.typeId),
-      ...Object.values(patch.orders ?? d.orders).map((o) => o.typeId),
+      ...Object.values(fetched.txs ?? d.txs).map((t) => t.typeId),
+      ...Object.values(fetched.orders ?? d.orders).map((o) => o.typeId),
     ];
     const missing = [...new Set(allTypeIds)].filter((id) => !d.names[id]);
     if (missing.length) {
       setState({ message: 'Looking up item names…' });
-      try { patch.names = { ...d.names, ...(await resolveNames(missing)) }; } catch { /* names are cosmetic */ }
+      try { fetched.names = await resolveNames(missing); } catch { /* names are cosmetic */ }
     }
 
-    meta.lastSync = new Date().toISOString();
-    meta.lastSyncError = undefined;
-    meta.syncedCharacterId = cid;
-    patch.meta = meta;
-    update(patch);
+    metaPatch.lastSync = new Date().toISOString();
+    metaPatch.nextSyncAt = Number.isFinite(soonest) ? new Date(soonest).toISOString() : undefined;
+    metaPatch.tradesFreshAt = tradesAt != null ? new Date(tradesAt).toISOString() : undefined;
+    metaPatch.lastSyncError = undefined;
+    metaPatch.syncedCharacterId = cid;
+
+    // Merge onto whatever the store holds NOW. Writing the snapshot back would erase a trade added
+    // by hand, a row excluded, or a setting changed while the sync was in flight.
+    update((cur) => {
+      const p: Partial<Data> = { meta: { ...cur.meta, ...metaPatch } };
+      if (fetched.txs) {
+        added = Object.keys(fetched.txs).filter((id) => !cur.txs[id]).length;
+        p.txs = { ...cur.txs, ...fetched.txs };
+      }
+      if (fetched.journal) p.journal = { ...cur.journal, ...fetched.journal };
+      if (fetched.orders) p.orders = { ...cur.orders, ...fetched.orders };
+      if (fetched.names) p.names = { ...cur.names, ...fetched.names };
+      if (fromChar) p.settings = sanitizeSettings({ ...cur.settings, ...fromChar });
+      return p;
+    });
     // From the first successful sync on, rate changes (like going Omega) are kept as history.
     if (getData().meta.rateSeededAt) update((x) => ({ meta: { ...x.meta, rateSeededAt: undefined } }));
     setState({ running: false, message: '', lastAdded: added });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    update((d) => ({ meta: { ...d.meta, lastSyncError: msg } }));
+    // Back off, or the minute-by-minute scheduler retries a failing sync forever.
+    const retryAt = new Date(Date.now() + RETRY_AFTER_FAIL_MS).toISOString();
+    update((x) => ({ meta: { ...x.meta, lastSyncError: msg, nextSyncAt: retryAt } }));
     setState({ running: false, message: '', error: msg });
   }
 }

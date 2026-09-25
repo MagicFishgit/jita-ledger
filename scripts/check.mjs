@@ -1,6 +1,7 @@
 // Verification harness for the pure logic that has no UI to eyeball.
 // Run with: npm run check   (Node strips the TypeScript types natively)
 import { statsFrom, pickPages, passesGate, warningsFor, expectedEdge, DEFAULT_FILTERS } from '../src/lib/prospects.ts';
+import { dueForSync } from '../src/lib/schedule.ts';
 
 let failed = 0;
 const eq = (label, got, want) => {
@@ -115,6 +116,28 @@ eq('return decides within a group', order([
   { id: 'lo', roi: 0.1, warnings: ['thin'] },
   { id: 'hi', roi: 0.4, warnings: ['falling'] },
 ], true), ['hi', 'lo']);
+
+console.log('\n--- dueForSync ---');
+const T = Date.parse('2026-09-25T12:00:00Z');
+const at = (min) => new Date(T + min * 60_000).toISOString();
+const due = (m) => dueForSync(m, T);
+eq('never synced -> ask now', due({}), true);
+// The floor holds even when ESI says data is already available.
+eq('synced 30s ago -> wait', due({ lastSync: at(-0.5), nextSyncAt: at(-99) }), false);
+// Follow ESI's clock, not ours.
+eq('expiry still ahead -> wait', due({ lastSync: at(-5), nextSyncAt: at(10) }), false);
+eq('expiry passed -> ask', due({ lastSync: at(-5), nextSyncAt: at(-1) }), true);
+eq('expiry exactly now -> ask', due({ lastSync: at(-5), nextSyncAt: at(0) }), true);
+// Without an expiry, fall back to the old fixed interval.
+eq('no expiry, 10 min -> wait', due({ lastSync: at(-10) }), false);
+eq('no expiry, 20 min -> ask', due({ lastSync: at(-20) }), true);
+eq('unparseable expiry falls back', due({ lastSync: at(-20), nextSyncAt: 'not a date' }), true);
+eq('unparseable expiry, too soon', due({ lastSync: at(-2), nextSyncAt: 'not a date' }), false);
+// The old blind poll would have fired here; ESI has nothing new for another 40 minutes.
+eq('old 15-min poll would waste a call', due({ lastSync: at(-16), nextSyncAt: at(44) }), false);
+// After a failure, sync pushes nextSyncAt out so a broken sync is not retried every 60 s forever.
+eq('failed sync backs off', due({ lastSync: at(-90), nextSyncAt: at(4) }), false);
+eq('backoff elapsed -> retry', due({ lastSync: at(-90), nextSyncAt: at(-1) }), true);
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
