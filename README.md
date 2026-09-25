@@ -7,7 +7,9 @@ A station trading tool for Jita 4-4 that runs entirely in your browser and is ho
   changes hands. Anything that doesn't trade on most days is left out, however wide the margin. A **quick scan**
   takes about a minute and a half and skims the busiest books; a **deep scan** samples three times as much of the
   order book, lowers the bar so quieter items make the shortlist, and checks several times as many of them, which
-  takes minutes. Both are resumable, and the table sorts on any column.
+  takes minutes. Both are resumable, and the table sorts on any column. A scan refreshes prices over an hour old,
+  history over a day old and the order book sample over six hours old; the page says how old the prices on screen
+  are, and **Clear these results** throws the scan away without touching your trades, positions or settings.
 - **Watchlist**: compare items by spread, return, volume and a rough ISK-per-day estimate.
 - **Positions**: track an item you're trading from the first buy to the last sell. Buys, sells, fees and tax are pulled from your wallet, so you can see what you actually made and how your prices compared with the market.
 - **Inbox**: trades that don't belong to any position, so personal purchases stay out of your trading results.

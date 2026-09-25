@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { get, set } from 'idb-keyval';
+import { del, get, set } from 'idb-keyval';
 import { JITA_44, THE_FORGE } from './config';
 import { esi } from './esi';
 import { calc, rates, type Settings } from './fees';
@@ -147,12 +147,29 @@ export function rankProspects(cache: ScanCache, settings: Settings, filters: Pro
   return out.sort((a, b) => b.roi - a.roi);
 }
 
-/** How much of the candidate pool has been checked, for an honest coverage line. */
+/** Throw away everything a scan learned, without touching trades, positions or settings. */
+export async function clearScan(): Promise<void> {
+  await del(CACHE_KEY, cacheStore).catch(() => undefined);
+  setState({ ...IDLE });
+}
+
+/** How much of the candidate pool has been checked, and how old the prices on screen are. */
 export function coverage(cache: ScanCache) {
   const counts = cache.sample?.counts ?? {};
   const min = cache.sample?.minSampled ?? DEPTH.quick.minSampled;
   const candidates = Object.keys(counts).filter((id) => counts[Number(id)] >= min).length;
-  return { candidates, checked: Object.keys(cache.stats).length, priced: Object.keys(cache.books).length };
+  const books = Object.values(cache.books);
+  // The oldest price is the honest one to quote: it is the worst thing on screen.
+  const oldest = books.reduce<number | null>((acc, b) => {
+    const t = Date.parse(b.at);
+    return Number.isFinite(t) && (acc === null || t < acc) ? t : acc;
+  }, null);
+  return {
+    candidates,
+    checked: Object.keys(cache.stats).length,
+    priced: books.length,
+    pricedAt: oldest === null ? null : new Date(oldest).toISOString(),
+  };
 }
 
 /** Run a list through a small worker pool. The esi() gate caps real concurrency at 4 anyway. */

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { isk, iskBig, iskSigned, pct, plainNum, units } from '../lib/format';
+import { ago, isk, iskBig, iskSigned, pct, plainNum, units } from '../lib/format';
 import { resolveNames } from '../lib/market';
 import { DEFAULT_FILTERS, FIRST_DIR, sortProspects, type Sort, type SortKey } from '../lib/prospects';
-import { coverage, loadCache, rankProspects, runScan, stopScan, useScanState, type ScanCache } from '../lib/scan';
+import { clearScan, coverage, loadCache, rankProspects, runScan, stopScan, useScanState, type ScanCache } from '../lib/scan';
 import { update, useData } from '../lib/store';
 import { addToWatchlist, startPosition } from '../lib/actions';
-import { navigate } from '../lib/hooks';
+import { navigate, useNow } from '../lib/hooks';
 import type { Prospect, ProspectFilters, ProspectWarning } from '../lib/types';
 import { useTypeName } from './common';
 import { Sparkline } from './Sparkline';
@@ -45,6 +45,7 @@ export function Prospects() {
   }));
   const [open, setOpen] = useState<number | null>(null);
   const [sort, setSort] = useState<Sort>({ key: 'roi', dir: 'desc' });
+  const now = useNow();
   // Clicking a new column opens it at its interesting end; clicking the current one flips it.
   const sortBy = (key: SortKey) =>
     setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: FIRST_DIR[key] }));
@@ -61,7 +62,7 @@ export function Prospects() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [ranked, sort, f.demoteFlagged, d.names],
   );
-  const cov = cache ? coverage(cache) : { candidates: 0, checked: 0, priced: 0 };
+  const cov = cache ? coverage(cache) : { candidates: 0, checked: 0, priced: 0, pricedAt: null };
 
   // Names for anything the scan turned up that this browser hasn't seen before.
   useEffect(() => {
@@ -136,7 +137,13 @@ export function Prospects() {
       {!busy && cov.checked > 0 && (
         <p className="small muted" style={{ margin: '0 0 14px' }}>
           Checked {units(cov.checked)} of about {units(cov.candidates)} candidates, {units(cov.priced)} priced against the live book.
+          {cov.pricedAt && <> Prices from <strong>{ago(cov.pricedAt, now)}</strong>; a scan refreshes any over an hour old.</>}
           {cov.checked < cov.candidates && ' Scan again to widen the net.'}
+          {' '}
+          <button
+            className="link-btn danger" onClick={async () => { await clearScan(); await reload(); setOpen(null); }}
+            title="Deletes only what the scan found. Your trades, positions and settings are untouched."
+          >Clear these results</button>
         </p>
       )}
 
