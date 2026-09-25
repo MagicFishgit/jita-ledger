@@ -28,7 +28,7 @@ function tipsFor(side: 'all' | 'sell' | 'buy'): Record<string, string> {
     'Ahead of you': `How many units are queued in front of your price, and how many separate ${both ? 'traders' : rivals} that is. One big order is better news than a crowd: when it goes you jump straight to the front, whereas a crowd will each ${both ? 'beat' : beat} you again.`,
     'Clears in': 'Roughly how long the stock ahead of you takes to clear at this item\u2019s usual daily pace. If that is short, waiting costs you nothing and a relist would just be a wasted broker fee.',
     'Your price': both ? 'What you are asking, or bidding, right now.' : buy ? 'What you are bidding right now.' : 'What you are asking right now.',
-    'Move to': `The price that would put you back in front \u2014 one legal step ${both ? 'past the best rival' : past}. EVE prices carry only four significant figures, so this is the smallest move the game allows.`,
+    'Move to': `The price that would put you back in front \u2014 one legal step ${both ? 'past the best rival' : past} \u2014 and how far that is from your own price. A big number here means the stock ahead is priced well away from where the item normally trades, so getting under it costs far more than waiting for it to clear.`,
     'Costs you': `What getting back in front would cost: the margin you give up by ${both ? 'changing price' : buy ? 'bidding higher' : 'asking less'}, plus the broker fee on the new order value. Hover the number for the split.`,
     'Your stock': `How much of this order is left, and roughly how long that would take to ${buy ? 'fill' : 'sell'} once you reach the front. If your own order is days of the market, being at the front matters more.`,
     'ISK in order': `The ISK currently tied up in this order at its own price. Bigger numbers cost you more to leave sitting behind ${both ? 'someone else' : 'another ' + rival}.`,
@@ -144,10 +144,10 @@ export function Orders() {
           dailyVolume: daily[o.typeId],
           avgCost: costOf[o.typeId],
           bestSell: sells.length ? Math.min(...sells) : null,
-        }, r, d.settings.waitHours);
+        }, r, d.settings.waitHours, d.settings.target / 100);
       })
       .sort(byUrgency);
-  }, [books, mine, daily, costOf, r, d.settings.waitHours]);
+  }, [books, mine, daily, costOf, r, d.settings.waitHours, d.settings.target]);
   const rows = useMemo(
     () => (side === 'all' ? all : all.filter((x) => (side === 'buy' ? x.isBuy : !x.isBuy))),
     [all, side],
@@ -280,6 +280,11 @@ export function Orders() {
                         </td>
                         <td className={r.verdict === 'move' ? 'pos' : ''}>
                           {Number.isFinite(r.newPrice) ? isk(r.newPrice) : '–'}
+                          {r.cutPct > 0 && (
+                            <small className={'sub' + (r.cutPct >= 0.05 ? ' neg' : '')}>
+                              {r.isBuy ? '+' : '−'}{(r.cutPct * 100).toFixed(r.cutPct < 0.1 ? 1 : 0)}%
+                            </small>
+                          )}
                         </td>
                         <td>{r.cost > 0 ? <span title={`${isk(r.give)} of margin plus a ${isk(r.fee)} broker fee`}>{iskBig(r.cost)}</span> : '–'}</td>
                         <td>

@@ -295,11 +295,18 @@ r = adviseRelist({ orderId: 7, typeId: 34, isBuy: false, price: 5, volumeRemain:
   { book: [o(7, false, 5), o(8, false, 4, 9999)], dailyVolume: 5000 }, R);
 eq('100 ISK fee floor', r.fee, 100);
 
-// The patience threshold is a setting, so the same book can read either way.
-r = adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 1000)], dailyVolume: 5000 }, R);
-eq('default 4 h: 1000 of 5000/day (4.8 h) moves', r.verdict, 'move');
-eq('patient trader leaves it', adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 1000)], dailyVolume: 5000 }, R, 8).verdict, 'wait');
-eq('impatient trader moves it', adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 40)], dailyVolume: 5000 }, R, 0).verdict, 'move');
+// The patience threshold is a setting, so the same book can read either way. These use a realistic
+// order size: on a one-unit order the 100 ISK fee floor alone is a tenth of its value, which drowns
+// out everything else.
+const big = { orderId: 1, typeId: 34, isBuy: false, price: 1000, volumeRemain: 10000 };
+const cheapCut = (aheadVol) => ({ book: [o(1, false, 1000, 10000), o(2, false, 999, aheadVol)], dailyVolume: 5000 });
+// A 0.11% cut to save 4.8 hours: worth making, and past the 4 h default.
+r = adviseRelist(big, cheapCut(1000), R);
+eq('default 4 h: a cheap cut saving 4.8 h moves', r.verdict, 'move');
+eq('patient trader leaves it', adviseRelist(big, cheapCut(1000), R, 8).verdict, 'wait');
+// Patience cannot force a move that does not pay: a relist fee is fixed, so buying back a few
+// minutes with one can never beat simply waiting those minutes out.
+eq('impatient, but a fee to save 11 minutes never pays', adviseRelist(big, cheapCut(40), R, 0).verdict, 'wait');
 eq('very patient leaves a long queue', adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 20000)], dailyVolume: 5000 }, R, 168).verdict, 'wait');
 // Being in front never depends on patience.
 eq('front regardless of threshold', adviseRelist(sell, { book: [o(1, false, 1000)] }, R, 0).verdict, 'front');
@@ -327,6 +334,44 @@ r = adviseRelist(stale, { book: [], dailyVolume: 5000 }, R);
 eq('empty book is not proof of anything', r.gone, false);
 eq('falls back to the stored price', r.price, 1000);
 eq('and says the price is not live', r.live, false);
+
+console.log('\n--- a big cut to get past a thin skim is not worth making ---');
+// The reported case, from a real book. 488 units at 34,430, with only 217 cheaper units ahead
+// spread from 23,800 to 28,000, and the real market clustered at 34,430-34,490.
+const skim = { orderId: 1, typeId: 1, isBuy: false, price: 34430, volumeRemain: 488 };
+const skimBook = [
+  o(1, false, 34430, 488), o(10, false, 23800, 1), o(11, false, 23900, 54), o(12, false, 24800, 2),
+  o(13, false, 24900, 15), o(14, false, 25000, 143), o(15, false, 28000, 2),
+  o(16, false, 34440, 3), o(17, false, 34490, 37),
+];
+// 217 ahead against ~260/day is about 20 hours.
+r = adviseRelist(skim, { book: skimBook, dailyVolume: 260 }, R);
+eq('the queue ahead', r.aheadUnits, 217);
+eq('about 20 hours of it', Math.round(r.hoursToFront), 20);
+eq('the move is a 31% cut', Math.round(r.cutPct * 100), 31);
+// Burning ~31% of the order to save 20 hours is a ~37%/day return for doing nothing.
+if (!(r.waitingPaysDaily > 0.3)) { failed++; console.log(`  FAIL waiting should pay hugely: ${r.waitingPaysDaily}`); }
+eq('so: wait, not move', r.verdict, 'wait');
+if (!/holding your price/.test(r.why)) { failed++; console.log(`  FAIL reason should say so: ${r.why}`); }
+
+// A small cut to save the same wait IS worth making.
+const cheapMove = { orderId: 1, typeId: 1, isBuy: false, price: 100, volumeRemain: 500 };
+r = adviseRelist(cheapMove, { book: [o(1, false, 100, 500), o(2, false, 99.9, 217)], dailyVolume: 260 }, R);
+eq('a 0.1% cut for the same wait: move', r.verdict, 'move');
+
+// The same logic on the buy side: bidding 31% more to get in front is equally bad.
+const skimBuy = { orderId: 1, typeId: 1, isBuy: true, price: 23800, volumeRemain: 488 };
+r = adviseRelist(skimBuy, { book: [o(1, true, 23800, 488), o(2, true, 34430, 217)], dailyVolume: 260 }, R);
+eq('buy side: large raise waits too', r.verdict, 'wait');
+if (!(r.cutPct > 0.4)) { failed++; console.log(`  FAIL buy cut should be large: ${r.cutPct}`); }
+
+// Patience is still a setting, but it cannot force a ruinous move.
+eq('even an impatient trader waits on a 31% cut', adviseRelist(skim, { book: skimBook, dailyVolume: 260 }, R, 0).verdict, 'wait');
+// A higher target return makes you fussier about what is worth holding for.
+eq('a 60%/day target would take the move', adviseRelist(skim, { book: skimBook, dailyVolume: 260 }, R, 4, 0.6).verdict, 'move');
+// With no volume data there is no waiting to value, so it falls through to the old behaviour.
+r = adviseRelist(skim, { book: skimBook }, R);
+eq('unknown pace: cannot value waiting', r.waitingPaysDaily, 0);
 
 console.log('\n--- rival concentration and your own queue ---');
 // One wall: when it fills you are straight at the front.

@@ -87,6 +87,11 @@ Don't re-derive or contradict these without new evidence.
   made in game shows up at once.
 - **Relist advice weighs depth ahead against daily volume**, not just "am I beaten". A shallow queue on
   a fast item clears in minutes; patience is a user setting (`settings.waitHours`).
+- **It also weighs what the move costs against the waiting it saves.** `waitingPaysDaily =
+  (cost / orderValue) / (hoursToFront / 24)` — the daily return of leaving the order alone. When that
+  beats `settings.target`, hold. This is what stops it advising a 31% price cut to get in front of a
+  thin skim of cheap stock that clears in 20 hours anyway. A relist fee is fixed, so buying back a few
+  minutes with one can never pay; patience settings cannot override this check.
 - **Prospects sizes a position by what an item can absorb** (`units/day × share × price × horizon`),
   not by one day's volume. The budget is a target, not a cap.
 - **Pages run full width** via `--page-max`, so wide tables don't need a scrollbar. Prose keeps its own

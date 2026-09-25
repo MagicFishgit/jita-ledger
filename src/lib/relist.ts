@@ -48,6 +48,16 @@ export type Relist = {
   yourHours: number;
   /** Hours for the queue ahead to clear at the item's usual pace. Infinity when we can't tell. */
   hoursToFront: number;
+  /** How far the price has to move, as a share of your own. A 31% cut is not an adjustment. */
+  cutPct: number;
+  /**
+   * What holding your price is worth, per day, expressed as a return.
+   *
+   * Moving costs you `cost` now and saves you `hoursToFront` of waiting. Not moving therefore earns
+   * you that cost back over that time, so this is the daily rate of simply leaving the order alone.
+   * When it beats the return you would accept on a trade, waiting is the better trade.
+   */
+  waitingPaysDaily: number;
   verdict: Verdict;
   why: string;
 };
@@ -75,6 +85,8 @@ export function adviseRelist(
   m: MarketContext,
   r: { k: number; f: number; t: number },
   waitHours = WAIT_HOURS,
+  /** The daily return you'd accept on a trade, as a fraction. Holding must beat it to be worth it. */
+  targetDaily = 0.05,
 ): Relist {
   // Character orders are cached by ESI for twenty minutes, so the stored copy of your own order can
   // be stale for that long after you relist. The live book knows better: your order is in it, under
@@ -103,12 +115,21 @@ export function adviseRelist(
   const moves = beaten && Number.isFinite(newPrice);
   const give = moves ? Math.abs(newPrice - price) * volumeRemain : 0;
   const fee = moves ? Math.max(100, r.k * newPrice * volumeRemain) : 0;
+  const cost = give + fee;
+  const atRisk = price * volumeRemain;
+  const cutPct = moves && price > 0 ? Math.abs(newPrice - price) / price : 0;
+  // The share of the order's value burned to get in front, spread over the waiting it saves.
+  const waitingPaysDaily =
+    moves && atRisk > 0 && Number.isFinite(hoursToFront) && hoursToFront > 0
+      ? (cost / atRisk) / (hoursToFront / 24)
+      : 0;
 
   // Would the price it takes to get back in front actually be worth having?
   const netOfSale = (p: number) => p * (1 - r.f - r.t);
   const badSell = moves && !mine.isBuy && m.avgCost != null && netOfSale(newPrice) < m.avgCost;
   const badBuy = moves && mine.isBuy && m.bestSell != null && newPrice >= netOfSale(m.bestSell);
 
+  const pctText = (x: number) => `${x >= 1 ? Math.round(x * 100) : (x * 100).toFixed(x < 0.1 ? 1 : 0)}%`;
   const hrs = (h: number) => (h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`);
 
   let verdict: Verdict;
@@ -128,6 +149,14 @@ export function adviseRelist(
   } else if (!moves) {
     verdict = 'loss';
     why = 'There is no legal price below theirs left to take';
+  } else if (waitingPaysDaily > targetDaily) {
+    // The move is expensive relative to the waiting it saves. Cutting a third off a price to get in
+    // front of a thin skim of cheap stock destroys far more than it brings forward.
+    verdict = 'wait';
+    why =
+      `Getting in front means moving ${pctText(cutPct)} to ${Math.round(newPrice).toLocaleString('en-US')}, ` +
+      `which costs ${Math.round(cost).toLocaleString('en-US')} ISK to save ${hrs(hoursToFront)} of waiting — ` +
+      `holding your price is worth about ${pctText(waitingPaysDaily)} a day`;
   } else if (hoursToFront <= waitHours) {
     verdict = 'wait';
     why = `Only ${aheadUnits.toLocaleString('en-US')} ahead of you, about ${hrs(hoursToFront)} at this item's pace`;
@@ -143,9 +172,10 @@ export function adviseRelist(
     price, volumeRemain, live: !!self, gone,
     best, beaten, newPrice,
     gap: best === null ? 0 : Math.abs(best - price),
-    give, fee, cost: give + fee,
-    atRisk: price * volumeRemain,
+    give, fee, cost,
+    atRisk,
     aheadUnits, aheadOrders: ahead.length, hoursToFront, topRivalShare, yourHours,
+    cutPct, waitingPaysDaily,
     verdict, why,
   };
 }
