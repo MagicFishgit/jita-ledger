@@ -131,3 +131,55 @@ export function expectedEdge(
   const edge = s.dailyRange - breakEven;
   return edge <= 0 ? 0 : edge * s.avgPrice * s.unitsPerDay * share;
 }
+
+export type SortKey = 'name' | 'roi' | 'net' | 'trades' | 'days' | 'volume' | 'iskPerDay' | 'capital' | 'flags';
+export type Sort = { key: SortKey; dir: 'asc' | 'desc' };
+
+/** Numbers read best biggest-first; a name reads best A to Z. */
+export const FIRST_DIR: Record<SortKey, 'asc' | 'desc'> = {
+  name: 'asc', roi: 'desc', net: 'desc', trades: 'desc', days: 'desc',
+  volume: 'desc', iskPerDay: 'desc', capital: 'desc', flags: 'asc',
+};
+
+type Sortable = {
+  typeId: number;
+  roi: number; net: number; iskPerDay: number; capital: number;
+  warnings: unknown[];
+  stats: { tradesPerDay: number; daysTraded: number; unitsPerDay: number };
+};
+
+const valueOf = (p: Sortable, k: SortKey): number => {
+  switch (k) {
+    case 'roi': return p.roi;
+    case 'net': return p.net;
+    case 'trades': return p.stats.tradesPerDay;
+    case 'days': return p.stats.daysTraded;
+    case 'volume': return p.stats.unitsPerDay;
+    case 'iskPerDay': return p.iskPerDay;
+    case 'capital': return p.capital;
+    case 'flags': return p.warnings.length;
+    default: return 0;
+  }
+};
+
+/**
+ * Order the table.
+ *
+ * Demoting flagged items stays the outer key when it is on, so picking a column sorts within the
+ * clean items and the flagged ones separately rather than mixing them back together.
+ */
+export function sortProspects<T extends Sortable>(
+  rows: T[],
+  sort: Sort,
+  nameOf: (typeId: number) => string,
+  demoteFlagged = false,
+): T[] {
+  const sign = sort.dir === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    if (demoteFlagged && a.warnings.length !== b.warnings.length) return a.warnings.length - b.warnings.length;
+    if (sort.key === 'name') return sign * nameOf(a.typeId).localeCompare(nameOf(b.typeId));
+    const d = valueOf(a, sort.key) - valueOf(b, sort.key);
+    // Equal values fall back to name, so the order never jitters between renders.
+    return d !== 0 ? sign * d : nameOf(a.typeId).localeCompare(nameOf(b.typeId));
+  });
+}

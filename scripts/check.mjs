@@ -1,6 +1,6 @@
 // Verification harness for the pure logic that has no UI to eyeball.
 // Run with: npm run check   (Node strips the TypeScript types natively)
-import { statsFrom, pickPages, passesGate, warningsFor, expectedEdge, DEFAULT_FILTERS } from '../src/lib/prospects.ts';
+import { statsFrom, pickPages, passesGate, warningsFor, expectedEdge, sortProspects, FIRST_DIR, DEFAULT_FILTERS } from '../src/lib/prospects.ts';
 import { dueForSync } from '../src/lib/schedule.ts';
 
 let failed = 0;
@@ -138,6 +138,50 @@ eq('old 15-min poll would waste a call', due({ lastSync: at(-16), nextSyncAt: at
 // After a failure, sync pushes nextSyncAt out so a broken sync is not retried every 60 s forever.
 eq('failed sync backs off', due({ lastSync: at(-90), nextSyncAt: at(4) }), false);
 eq('backoff elapsed -> retry', due({ lastSync: at(-90), nextSyncAt: at(-1) }), true);
+
+console.log('\n--- sortProspects ---');
+const mk = (id, name, o = {}) => ({
+  typeId: id, _name: name, roi: 0, net: 0, iskPerDay: 0, capital: 0, warnings: [],
+  stats: { tradesPerDay: 0, daysTraded: 0, unitsPerDay: 0 }, ...o,
+});
+const NAMES = {};
+const rowsOf = (...rs) => { rs.forEach((r) => (NAMES[r.typeId] = r._name)); return rs; };
+const nm = (id) => NAMES[id];
+const ids = (rs) => rs.map((r) => NAMES[r.typeId]);
+
+const set = rowsOf(
+  mk(1, 'Alpha', { roi: 0.1, stats: { tradesPerDay: 900, daysTraded: 30, unitsPerDay: 5000 }, iskPerDay: 10 }),
+  mk(2, 'Bravo', { roi: 0.9, stats: { tradesPerDay: 10, daysTraded: 21, unitsPerDay: 50 }, iskPerDay: 300 }),
+  mk(3, 'Charlie', { roi: 0.5, stats: { tradesPerDay: 400, daysTraded: 30, unitsPerDay: 900 }, iskPerDay: 50 }),
+);
+// The example from the request: click volume, get the highest-volume items first.
+eq('volume desc', ids(sortProspects(set, { key: 'volume', dir: 'desc' }, nm)), ['Alpha', 'Charlie', 'Bravo']);
+eq('volume asc', ids(sortProspects(set, { key: 'volume', dir: 'asc' }, nm)), ['Bravo', 'Charlie', 'Alpha']);
+eq('return desc', ids(sortProspects(set, { key: 'roi', dir: 'desc' }, nm)), ['Bravo', 'Charlie', 'Alpha']);
+eq('isk/day desc', ids(sortProspects(set, { key: 'iskPerDay', dir: 'desc' }, nm)), ['Bravo', 'Charlie', 'Alpha']);
+eq('name asc', ids(sortProspects(set, { key: 'name', dir: 'asc' }, nm)), ['Alpha', 'Bravo', 'Charlie']);
+eq('name desc', ids(sortProspects(set, { key: 'name', dir: 'desc' }, nm)), ['Charlie', 'Bravo', 'Alpha']);
+// A first click should show the interesting end of each column.
+eq('numbers open biggest-first', FIRST_DIR.volume, 'desc');
+eq('names open A-Z', FIRST_DIR.name, 'asc');
+
+// Ties fall back to name so the order cannot jitter between renders.
+const tied = rowsOf(mk(4, 'Zulu', { roi: 0.2 }), mk(5, 'Kilo', { roi: 0.2 }), mk(6, 'Echo', { roi: 0.2 }));
+eq('ties break by name', ids(sortProspects(tied, { key: 'roi', dir: 'desc' }, nm)), ['Echo', 'Kilo', 'Zulu']);
+
+// Demotion stays the outer key, so a column sorts within each shelf.
+const mixed = rowsOf(
+  mk(7, 'Flagged-big', { stats: { tradesPerDay: 0, daysTraded: 0, unitsPerDay: 9999 }, warnings: ['thin'] }),
+  mk(8, 'Clean-small', { stats: { tradesPerDay: 0, daysTraded: 0, unitsPerDay: 1 }, warnings: [] }),
+  mk(9, 'Clean-big', { stats: { tradesPerDay: 0, daysTraded: 0, unitsPerDay: 500 }, warnings: [] }),
+);
+eq('demote off: pure volume', ids(sortProspects(mixed, { key: 'volume', dir: 'desc' }, nm, false)), ['Flagged-big', 'Clean-big', 'Clean-small']);
+eq('demote on: clean first, still by volume', ids(sortProspects(mixed, { key: 'volume', dir: 'desc' }, nm, true)), ['Clean-big', 'Clean-small', 'Flagged-big']);
+
+// Sorting must not mutate the caller's array.
+const orig = [...set];
+sortProspects(set, { key: 'roi', dir: 'asc' }, nm);
+eq('does not mutate input', ids(set), ids(orig));
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

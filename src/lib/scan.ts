@@ -17,10 +17,17 @@ import type { BookLevel, Prospect, ProspectFilters, ProspectStats } from './type
  * doing the same work twice.
  */
 
-const SAMPLE_PAGES = 20;
-const HISTORY_PER_RUN = 250;
-const BOOKS_PER_RUN = 40;
-const MIN_SAMPLED = 3;
+/**
+ * How hard to look. A quick scan is sized to stay usable --- about a minute and a half --- and
+ * skims the busiest books. A deep scan samples three times as much of the order book, drops the
+ * threshold so quieter items make the shortlist, and checks several times as many of them; it
+ * takes minutes rather than seconds and is meant to be left running.
+ */
+export type ScanDepth = 'quick' | 'deep';
+const DEPTH: Record<ScanDepth, { pages: number; history: number; books: number; minSampled: number }> = {
+  quick: { pages: 20, history: 250, books: 40, minSampled: 3 },
+  deep: { pages: 60, history: 1200, books: 150, minSampled: 2 },
+};
 const SAMPLE_TTL = 6 * 3600_000;
 const STATS_TTL = 24 * 3600_000;
 const BOOK_TTL = 60 * 60_000;
@@ -29,7 +36,7 @@ type RawOrder = { type_id: number; location_id: number };
 export type Book = { at: string; bestBuy: number | null; bestSell: number | null; buyOrders: number; sellOrders: number; topBuys: BookLevel[]; topSells: BookLevel[] };
 
 export type ScanCache = {
-  sample?: { at: string; totalPages: number; sampledPages: number; counts: Record<number, number> };
+  sample?: { at: string; totalPages: number; sampledPages: number; minSampled: number; counts: Record<number, number> };
   stats: Record<number, ProspectStats>;
   books: Record<number, Book>;
 };
@@ -45,9 +52,9 @@ const saveCache = (c: ScanCache) => set(CACHE_KEY, c, cacheStore).catch(() => un
 export type ScanPhase = 'idle' | 'sampling' | 'liquidity' | 'pricing' | 'done';
 export type ScanState = {
   phase: ScanPhase; done: number; total: number; message: string;
-  failed: number; candidates: number; error: string | null;
+  failed: number; candidates: number; error: string | null; depth: ScanDepth;
 };
-const IDLE: ScanState = { phase: 'idle', done: 0, total: 0, message: '', failed: 0, candidates: 0, error: null };
+const IDLE: ScanState = { phase: 'idle', done: 0, total: 0, message: '', failed: 0, candidates: 0, error: null, depth: 'quick' };
 let state = IDLE;
 const listeners = new Set<() => void>();
 const setState = (p: Partial<ScanState>) => { state = { ...state, ...p }; listeners.forEach((l) => l()); };
@@ -69,7 +76,7 @@ export function stopScan() { abort = true; }
  * This counts listings, not trades. Plenty of items carry hundreds of listings and barely
  * trade, so the result is a shortlist to check, never a ranking.
  */
-export async function sampleJita(pages = SAMPLE_PAGES) {
+export async function sampleJita(pages = DEPTH.quick.pages) {
   const path = `/markets/${THE_FORGE}/orders/`;
   const first = await esi<RawOrder[]>(path, { query: { order_type: 'all', page: 1 } });
   const totalPages = first.pages ?? 1;
@@ -135,17 +142,16 @@ export function rankProspects(cache: ScanCache, settings: Settings, filters: Pro
     const p = evaluate(s, book, settings, filters, (cache.sample?.counts[s.typeId] ?? 0) * scale);
     if (p) out.push(p);
   }
-  // Flags don't change what an item earns, so they never change the score — they only decide
-  // which shelf it sits on. Sinking by count keeps a lone "falling" above a thin, fluke,
-  // crowded one, which matters when a flag as common as falling would otherwise bury half the list.
-  return out.sort((a, b) =>
-    (filters.demoteFlagged ? a.warnings.length - b.warnings.length : 0) || b.roi - a.roi);
+  // Ordering is the caller's business now --- the table header decides it. Return best return
+  // first so a caller that does not sort still gets something sensible.
+  return out.sort((a, b) => b.roi - a.roi);
 }
 
 /** How much of the candidate pool has been checked, for an honest coverage line. */
 export function coverage(cache: ScanCache) {
   const counts = cache.sample?.counts ?? {};
-  const candidates = Object.keys(counts).filter((id) => counts[Number(id)] >= MIN_SAMPLED).length;
+  const min = cache.sample?.minSampled ?? DEPTH.quick.minSampled;
+  const candidates = Object.keys(counts).filter((id) => counts[Number(id)] >= min).length;
   return { candidates, checked: Object.keys(cache.stats).length, priced: Object.keys(cache.books).length };
 }
 
@@ -163,28 +169,38 @@ const dead = (typeId: number): ProspectStats => ({
   spikiness: 1, dailyRange: 0, trend: 0, avgPrice: 0, spark: new Array(30).fill(0),
 });
 
-export async function runScan(settings: Settings, filters: ProspectFilters = DEFAULT_FILTERS): Promise<void> {
+export async function runScan(settings: Settings, filters: ProspectFilters = DEFAULT_FILTERS, depth: ScanDepth = 'quick'): Promise<void> {
   if (state.phase === 'sampling' || state.phase === 'liquidity' || state.phase === 'pricing') return;
   abort = false;
-  setState({ ...IDLE, phase: 'sampling', message: 'Sampling the Jita 4-4 order book…' });
+  const want = DEPTH[depth];
+  setState({ ...IDLE, phase: 'sampling', depth, message: 'Sampling the Jita 4-4 order book…' });
   try {
     const cache = await loadCache();
     const now = Date.now();
 
-    if (!cache.sample || now - Date.parse(cache.sample.at) > SAMPLE_TTL) {
-      const s = await sampleJita();
-      cache.sample = { at: new Date().toISOString(), totalPages: s.totalPages, sampledPages: s.sampledPages, counts: s.counts };
+    let sample = cache.sample;
+    const stale = !sample || now - Date.parse(sample.at) > SAMPLE_TTL;
+    // A deep run wants a deeper sample, even if the shallow one is still fresh.
+    const tooShallow = !!sample && (sample.sampledPages < want.pages || sample.minSampled > want.minSampled);
+    if (stale || tooShallow) {
+      const s = await sampleJita(want.pages);
+      sample = {
+        at: new Date().toISOString(), totalPages: s.totalPages, sampledPages: s.sampledPages,
+        minSampled: want.minSampled, counts: s.counts,
+      };
+      cache.sample = sample;
       await saveCache(cache);
     }
     if (abort) return setState({ phase: 'idle', message: '' });
+    if (!sample) return setState({ phase: 'done', error: 'The order book sample came back empty. Try again in a minute.' });
 
-    const counts = cache.sample.counts;
+    const counts = sample.counts;
     const candidates = Object.keys(counts).map(Number)
-      .filter((id) => counts[id] >= MIN_SAMPLED)
+      .filter((id) => counts[id] >= want.minSampled)
       .sort((a, b) => counts[b] - counts[a]);
     const todo = candidates
       .filter((id) => { const s = cache.stats[id]; return !s || now - Date.parse(s.at) > STATS_TTL; })
-      .slice(0, HISTORY_PER_RUN);
+      .slice(0, want.history);
 
     setState({
       phase: 'liquidity', done: 0, total: todo.length, candidates: candidates.length,
@@ -212,7 +228,7 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
       .map((s) => ({ s, edge: expectedEdge(s, be, share) }))
       .filter((x) => x.edge > 0)
       .sort((a, b) => b.edge - a.edge)
-      .slice(0, BOOKS_PER_RUN)
+      .slice(0, want.books)
       .map((x) => x.s);
 
     setState({

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { isk, iskBig, iskSigned, pct, plainNum, units } from '../lib/format';
 import { resolveNames } from '../lib/market';
-import { DEFAULT_FILTERS } from '../lib/prospects';
+import { DEFAULT_FILTERS, FIRST_DIR, sortProspects, type Sort, type SortKey } from '../lib/prospects';
 import { coverage, loadCache, rankProspects, runScan, stopScan, useScanState, type ScanCache } from '../lib/scan';
 import { update, useData } from '../lib/store';
 import { addToWatchlist, startPosition } from '../lib/actions';
@@ -20,6 +20,13 @@ const WARNING: Record<ProspectWarning, { short: string; why: string }> = {
 /** The filters that are typed into. demoteFlagged is a tick box, so it is not one of these. */
 type NumberFilter = Exclude<keyof ProspectFilters, 'demoteFlagged'>;
 
+/** The sortable columns, in table order. Actions is not one of them. */
+const COLUMNS: [SortKey, string][] = [
+  ['name', 'Item'], ['roi', 'Return'], ['net', 'Profit per unit'], ['trades', 'Trades a day'],
+  ['days', 'Days traded'], ['volume', 'Volume, 30 days'], ['iskPerDay', 'Est. ISK per day'],
+  ['capital', 'ISK tied up'], ['flags', 'Flags'],
+];
+
 const FILTER_FIELDS: { key: NumberFilter; label: string; hint: string }[] = [
   { key: 'budget', label: 'ISK I can tie up', hint: 'Caps how much of a day’s volume you take on' },
   { key: 'minTrades', label: 'Trades a day, at least', hint: 'Median over the last 30 days' },
@@ -37,13 +44,23 @@ export function Prospects() {
     budget: d.meta.walletBalance && d.meta.walletBalance > 1e6 ? Math.round(d.meta.walletBalance) : DEFAULT_FILTERS.budget,
   }));
   const [open, setOpen] = useState<number | null>(null);
+  const [sort, setSort] = useState<Sort>({ key: 'roi', dir: 'desc' });
+  // Clicking a new column opens it at its interesting end; clicking the current one flips it.
+  const sortBy = (key: SortKey) =>
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: FIRST_DIR[key] }));
   const [msg, setMsg] = useState<string | null>(null);
 
   const reload = useCallback(async () => setCache(await loadCache()), []);
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => { if (scan.phase === 'done') reload(); }, [scan.phase, reload]);
 
-  const rows = useMemo(() => (cache ? rankProspects(cache, d.settings, f) : []), [cache, d.settings, f]);
+  const ranked = useMemo(() => (cache ? rankProspects(cache, d.settings, f) : []), [cache, d.settings, f]);
+  const rows = useMemo(
+    () => sortProspects(ranked, sort, nameOf, f.demoteFlagged),
+    // nameOf closes over d.names, which is what actually changes the name ordering.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ranked, sort, f.demoteFlagged, d.names],
+  );
   const cov = cache ? coverage(cache) : { candidates: 0, checked: 0, priced: 0 };
 
   // Names for anything the scan turned up that this browser hasn't seen before.
@@ -76,9 +93,16 @@ export function Prospects() {
           </p>
         </div>
         <div className="row">
-          {busy
-            ? <button className="btn" onClick={stopScan}>Stop</button>
-            : <button className="btn btn-primary" onClick={() => runScan(d.settings, f)}>{cov.checked ? 'Scan again' : 'Scan the market'}</button>}
+          {busy ? (
+            <button className="btn" onClick={stopScan}>Stop {scan.depth === 'deep' ? 'deep scan' : 'scan'}</button>
+          ) : (
+            <>
+              <button className="btn btn-primary" onClick={() => runScan(d.settings, f, 'quick')}>Quick scan</button>
+              <button className="btn" onClick={() => runScan(d.settings, f, 'deep')} title="Samples three times as much of the order book and checks far more items. Takes several minutes.">
+                Deep scan
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -133,9 +157,19 @@ export function Prospects() {
           <table className="data wide">
             <thead>
               <tr>
-                <th scope="col">Item</th><th scope="col">Return</th><th scope="col">Profit per unit</th>
-                <th scope="col">Trades a day</th><th scope="col">Days traded</th><th scope="col">Volume, 30 days</th>
-                <th scope="col">Est. ISK per day</th><th scope="col">ISK tied up</th><th scope="col">Flags</th>
+                {COLUMNS.map(([key, label]) => (
+                  <th
+                    key={key} scope="col"
+                    aria-sort={sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  >
+                    <button
+                      type="button" className={'sort' + (sort.key === key ? ' on' : '')} onClick={() => sortBy(key)}
+                      title={`Sort by ${label}`}
+                    >
+                      {label}<span className="arrow" aria-hidden="true">{sort.key === key ? (sort.dir === 'asc' ? '\u2191' : '\u2193') : '\u2195'}</span>
+                    </button>
+                  </th>
+                ))}
                 <th scope="col"><span className="opt">Actions</span></th>
               </tr>
             </thead>

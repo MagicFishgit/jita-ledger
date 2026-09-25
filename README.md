@@ -4,7 +4,10 @@ A station trading tool for Jita 4-4 that runs entirely in your browser and is ho
 
 - **Calculator**: profit per unit after broker fees and sales tax, break-even and target prices, with live Jita 4-4 prices and daily volume from ESI.
 - **Prospects**: finds items worth trading by sampling the Jita order book, then checking how often each one really
-  changes hands. Anything that doesn't trade on most days is left out, however wide the margin.
+  changes hands. Anything that doesn't trade on most days is left out, however wide the margin. A **quick scan**
+  takes about a minute and a half and skims the busiest books; a **deep scan** samples three times as much of the
+  order book, lowers the bar so quieter items make the shortlist, and checks several times as many of them, which
+  takes minutes. Both are resumable, and the table sorts on any column.
 - **Watchlist**: compare items by spread, return, volume and a rough ISK-per-day estimate.
 - **Positions**: track an item you're trading from the first buy to the last sell. Buys, sells, fees and tax are pulled from your wallet, so you can see what you actually made and how your prices compared with the market.
 - **Inbox**: trades that don't belong to any position, so personal purchases stay out of your trading results.
