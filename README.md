@@ -9,7 +9,10 @@ A station trading tool for Jita 4-4 that runs entirely in your browser and is ho
   order book, lowers the bar so quieter items make the shortlist, and
   works through every candidate it finds rather than stopping early, which takes a while but leaves nothing to come
   back for. Results appear as they are found and are written away as it goes, so stopping early costs you nothing.
-  The table sorts on any column. A scan refreshes prices over an hour old,
+  You say how much you want to put into one item and how long you'll leave it there, and only items whose daily
+  turnover can absorb that inside your horizon are shown, with what each could take and how long your money
+  would be in it. Ask for a small amount and nearly everything qualifies, which is the spread-thin case; ask for
+  a billion and only the markets with the turnover to swallow it survive. The table sorts on any column. A scan refreshes prices over an hour old,
   history over a day old and the order book sample over six hours old; the page says how old the prices on screen
   are, and **Clear these results** throws the scan away without touching your trades, positions or settings.
 - **Orders**: your open market orders checked against the live Jita 4-4 book. Being undercut is not by itself a
@@ -20,7 +23,9 @@ A station trading tool for Jita 4-4 that runs entirely in your browser and is ho
   Each column explains itself behind an “i”. ESI cannot place or change an order, and
   automating the client is a bannable offence, so this finds the work and you do the clicking.
 - **Watchlist**: compare items by spread, return, volume and a rough ISK-per-day estimate.
-- **Positions**: track an item you're trading from the first buy to the last sell. Buys, sells, fees and tax are pulled from your wallet, so you can see what you actually made and how your prices compared with the market.
+- **Positions**: track an item you're trading from the first buy to the last sell, and when the stock is ready to go
+  out, what to ask for it: the break-even price that covers what it cost you after fees, and a suggested price one
+  step under the cheapest seller with what it would clear. Buys, sells, fees and tax are pulled from your wallet, so you can see what you actually made and how your prices compared with the market.
 - **Inbox**: trades that don't belong to any position, so personal purchases stay out of your trading results.
 - **Omega**: what a month of Omega costs in PLEX, how much of it your wallet covers, whether your last 30 days of trading would pay for it, and Alpha and Omega fees side by side.
 

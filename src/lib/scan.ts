@@ -109,8 +109,11 @@ export async function sampleJita(pages = DEPTH.quick.pages) {
 /**
  * Price a candidate against the live book, through the trader's own fees and skills.
  *
- * The position is a day's worth of the market at their usual share, capped by what their
- * budget can carry: a small budget shrinks the ISK per day rather than hiding the item.
+ * The position is the amount you actually want to put in, not a day's worth of the market. An item
+ * only qualifies if it can absorb that inside your horizon at your usual share of its trade ---
+ * which is the difference between "is this a good trade" and "can I put a billion into it". Ask for
+ * a small amount and almost everything qualifies, which is the spread-thin case; ask for a large
+ * one and only the items with the turnover to take it survive.
  */
 export function evaluate(
   stats: ProspectStats,
@@ -124,10 +127,16 @@ export function evaluate(
   const buy = tickUp(bestBuy), sell = tickDown(bestSell);
   if (!Number.isFinite(buy) || !Number.isFinite(sell) || sell <= buy) return null;
 
-  const wanted = Math.max(1, Math.round(stats.unitsPerDay * (settings.share / 100)));
-  const affordable = Math.floor(filters.budget / buy);
-  if (affordable < 1) return null;
-  const qty = Math.min(wanted, affordable);
+  // What you could realistically push through this item in a day, in ISK.
+  const perDay = stats.unitsPerDay * (settings.share / 100) * buy;
+  if (!(perDay > 0)) return null;
+  const canTake = perDay * filters.horizonDays;
+  // Too slow to swallow what you want to invest inside the time you'll give it.
+  if (canTake < filters.budget) return null;
+
+  const qty = Math.floor(filters.budget / buy);
+  if (qty < 1) return null;
+  const daysToFlip = filters.budget / perDay;
 
   const c = calc({ buy, sell, qty }, settings);
   if (!c.ok || c.net <= 0 || c.roi < filters.minRoi) return null;
@@ -137,7 +146,10 @@ export function evaluate(
     buyOrders: book.buyOrders, sellOrders: book.sellOrders,
     topBuyVol: book.topBuys[0]?.volume ?? 0, topSellVol: book.topSells[0]?.volume ?? 0,
     qty, net: c.net / qty, roi: c.roi, spreadPct: c.spreadPct,
-    iskPerDay: c.net, capital: c.spent,
+    canTake, daysToFlip,
+    // Profit spread over the days your money is actually tied up, so a fast small flip and a slow
+    // big one can be compared at all.
+    iskPerDay: c.net / Math.max(daysToFlip, 1 / 24), capital: c.spent,
     warnings: warningsFor(stats, book, c.spreadPct, estOrders),
   };
 }

@@ -1,6 +1,7 @@
 // Verification harness for the pure logic that has no UI to eyeball.
 // Run with: npm run check   (Node strips the TypeScript types natively)
 import { statsFrom, pickPages, passesGate, warningsFor, expectedEdge, sortProspects, FIRST_DIR, DEFAULT_FILTERS } from '../src/lib/prospects.ts';
+import { priceUp, tickDown } from '../src/lib/tick.ts';
 import { dueForSync } from '../src/lib/schedule.ts';
 import { adviseRelist, byUrgency } from '../src/lib/relist.ts';
 
@@ -183,6 +184,47 @@ eq('demote on: clean first, still by volume', ids(sortProspects(mixed, { key: 'v
 const orig = [...set];
 sortProspects(set, { key: 'roi', dir: 'asc' }, nm);
 eq('does not mutate input', ids(set), ids(orig));
+
+console.log('\n--- absorption: can an item take what I want to invest? ---');
+// The model: an item can absorb (units/day x my share x price x horizon) inside my horizon.
+const absorb = (unitsPerDay, price, sharePct, days) => unitsPerDay * (sharePct / 100) * price * days;
+// 5,000 units/day at 1,000 ISK is 5M ISK/day of flow; at a 10% share that is 500k a day.
+eq('1 day of a small market', absorb(5000, 1000, 10, 1), 500_000);
+eq('3 days of the same', absorb(5000, 1000, 10, 3), 1_500_000);
+// So it cannot take 500M inside 3 days, and should be filtered out.
+if (absorb(5000, 1000, 10, 3) >= 500e6) { failed++; console.log('  FAIL small market should not absorb 500M'); }
+// A Large Skill Injector market: ~2,000/day at ~750M is 1.5 trillion a day of flow.
+if (!(absorb(2000, 750e6, 10, 1) >= 1e9)) { failed++; console.log('  FAIL big market should absorb 1B in a day'); }
+// Doubling the horizon doubles what it can take; halving the share halves it.
+eq('horizon scales it', absorb(5000, 1000, 10, 6), absorb(5000, 1000, 10, 3) * 2);
+eq('share scales it', absorb(5000, 1000, 5, 3), absorb(5000, 1000, 10, 3) / 2);
+// Days to flip is the inverse: what you put in over what flows per day.
+const flipDays = (budget, unitsPerDay, price, sharePct) => budget / (unitsPerDay * (sharePct / 100) * price);
+eq('500k into a 500k/day market takes a day', flipDays(500_000, 5000, 1000, 10), 1);
+eq('250k takes half a day', flipDays(250_000, 5000, 1000, 10), 0.5);
+
+console.log('\n--- sell plan: what to ask for stock you are holding ---');
+// A sale nets price x (1 - broker fee - sales tax), so break-even is cost / that.
+const plan = (avgCost, bestSell, f, t) => {
+  const keep = 1 - f - t;
+  const suggested = tickDown(bestSell);
+  return { breakEven: priceUp(avgCost / keep), suggested, ok: suggested * keep >= avgCost };
+};
+let pl = plan(1000, 2000, 0.015, 0.0338);
+eq('break-even is above cost, not equal to it', pl.breakEven > 1000, true);
+eq('break-even rounds onto a legal price', pl.breakEven, 1052);
+// Rounding must go UP: the step below would not actually cover the cost.
+eq('break-even really breaks even', pl.breakEven * (1 - 0.015 - 0.0338) >= 1000, true);
+eq('one step lower would not', (pl.breakEven - 1) * (1 - 0.015 - 0.0338) >= 1000, false);
+eq('suggested undercuts the market', pl.suggested, 1999);
+eq('a wide spread clears', pl.ok, true);
+// Stock bought above what it now sells for cannot be sold at a profit.
+pl = plan(2500, 2000, 0.015, 0.0338);
+eq('bought too high: flagged as a loss', pl.ok, false);
+eq('and break-even is above the market', pl.breakEven > pl.suggested, true);
+// Fees decide it at the margin: the same prices clear at low fees and not at high ones.
+eq('clears at a low fee', plan(1900, 2000, 0.01, 0.02).ok, true);
+eq('does not clear at a high one', plan(1900, 2000, 0.05, 0.05).ok, false);
 
 console.log('\n--- adviseRelist ---');
 const R = { k: 0.00375, f: 0.015, t: 0.0338 };

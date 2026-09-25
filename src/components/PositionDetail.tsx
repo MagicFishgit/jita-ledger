@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Area, ComposedChart, Line, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis, ZAxis } from 'recharts';
 import { computePosition, vsMarket } from '../lib/positions';
+import { priceUp, tickDown } from '../lib/tick';
 import { rates } from '../lib/fees';
 import { fmtDate, fmtDateTime, fmtShort, isk, iskAxis, iskBig, iskBigSigned, parseISK, pct, rid, timeTicks, units } from '../lib/format';
 import { marketHistory, snapshot } from '../lib/market';
@@ -52,6 +53,23 @@ export function PositionDetail({ id }: { id: string }) {
   const actual = held === null ? null : held + committed;
   const drift = actual === null ? null : actual - c.stock;
   const unrealized = snap?.bestSell && c.stock > 0 ? c.stock * snap.bestSell * (1 - r.f - r.t) - c.costOfStock : null;
+
+  // What to ask when the stock is ready to go out. A sale nets price x (1 - broker fee - sales tax),
+  // so breaking even on what the stock cost means asking cost / (1 - f - t), rounded up to a price
+  // EVE will take. The suggestion is one legal step under the cheapest seller, where you'd place it.
+  const sellPlan = (() => {
+    if (c.stock <= 0 || c.avgCost == null) return null;
+    const keep = 1 - r.f - r.t;
+    if (!(keep > 0)) return null;
+    const suggested = snap?.bestSell != null ? tickDown(snap.bestSell) : NaN;
+    const has = Number.isFinite(suggested);
+    return {
+      breakEven: priceUp(c.avgCost / keep),
+      suggested,
+      ok: has && suggested * keep >= c.avgCost,
+      profit: has ? (suggested * keep - c.avgCost) * c.stock : NaN,
+    };
+  })();
   const sellVs = vsMarket(c.sells, hist);
   const buyVs = vsMarket(c.buys, hist);
 
@@ -155,6 +173,25 @@ export function PositionDetail({ id }: { id: string }) {
         <Stat label="Sales tax" value={iskBig(c.salesTax)} note={c.taxEstimated ? `${units(c.taxEstimated)} of ${units(c.taxActual + c.taxEstimated)} sales estimated` : c.taxActual ? 'From your wallet journal' : undefined} />
         {c.manualFees > 0 && <Stat label="Fees on manual entries" value={iskBig(c.manualFees)} />}
         {c.priceChanges != null && <Stat label="Price changes" value={units(c.priceChanges)} note="Counted from broker fee entries" />}
+        {sellPlan && (
+          <Stat
+            label="Break-even sell price"
+            value={isk(sellPlan.breakEven)}
+            note={`Covers the ${isk(c.avgCost)} a unit the stock cost you, after broker fee and sales tax`}
+          />
+        )}
+        {sellPlan && Number.isFinite(sellPlan.suggested) && (
+          <Stat
+            label="Suggested sell price"
+            value={isk(sellPlan.suggested)}
+            cls={sellPlan.ok ? 'pos' : 'neg'}
+            note={
+              sellPlan.ok
+                ? `One step under the cheapest seller. Clears ${iskBigSigned(sellPlan.profit)} on your ${units(c.stock)} units`
+                : `One step under the cheapest seller, which is below your break-even — you'd lose ${iskBig(Math.abs(sellPlan.profit))}`
+            }
+          />
+        )}
         {unrealized != null && (
           <Stat label="Stock if sold now" value={iskBigSigned(unrealized)} cls={unrealized >= 0 ? 'pos' : 'neg'} note={`At today’s lowest sell, ${isk(snap?.bestSell)}, after fees`} />
         )}

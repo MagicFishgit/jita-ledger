@@ -69,6 +69,7 @@ export function pickPages(total: number, want: number, rnd: () => number = Math.
 
 export const DEFAULT_FILTERS: ProspectFilters = {
   budget: 250_000_000,
+  horizonDays: 3,
   minTrades: 5,
   minDays: 20,
   minRoi: 0.03,
@@ -132,18 +133,20 @@ export function expectedEdge(
   return edge <= 0 ? 0 : edge * s.avgPrice * s.unitsPerDay * share;
 }
 
-export type SortKey = 'name' | 'roi' | 'net' | 'trades' | 'days' | 'volume' | 'iskPerDay' | 'capital' | 'flags';
+export type SortKey = 'name' | 'roi' | 'canTake' | 'flip' | 'net' | 'trades' | 'days' | 'volume' | 'iskPerDay' | 'capital' | 'flags';
 export type Sort = { key: SortKey; dir: 'asc' | 'desc' };
 
 /** Numbers read best biggest-first; a name reads best A to Z. */
 export const FIRST_DIR: Record<SortKey, 'asc' | 'desc'> = {
-  name: 'asc', roi: 'desc', net: 'desc', trades: 'desc', days: 'desc',
+  name: 'asc', roi: 'desc', canTake: 'desc', net: 'desc', trades: 'desc', days: 'desc',
   volume: 'desc', iskPerDay: 'desc', capital: 'desc', flags: 'asc',
+  // The only one where small is good: a fast flip beats a slow one.
+  flip: 'asc',
 };
 
 type Sortable = {
   typeId: number;
-  roi: number; net: number; iskPerDay: number; capital: number;
+  roi: number; net: number; iskPerDay: number; capital: number; canTake: number; daysToFlip: number;
   warnings: unknown[];
   stats: { tradesPerDay: number; daysTraded: number; unitsPerDay: number };
 };
@@ -151,6 +154,8 @@ type Sortable = {
 const valueOf = (p: Sortable, k: SortKey): number => {
   switch (k) {
     case 'roi': return p.roi;
+    case 'canTake': return p.canTake;
+    case 'flip': return p.daysToFlip;
     case 'net': return p.net;
     case 'trades': return p.stats.tradesPerDay;
     case 'days': return p.stats.daysTraded;
@@ -182,4 +187,17 @@ export function sortProspects<T extends Sortable>(
     // Equal values fall back to name, so the order never jitters between renders.
     return d !== 0 ? sign * d : nameOf(a.typeId).localeCompare(nameOf(b.typeId));
   });
+}
+
+/**
+ * ISK an item could take inside a horizon, at your share of its daily trade. Uses the item's own
+ * average price rather than a live quote, so it can be worked out for everything scanned, not just
+ * the handful that have been priced against the book.
+ */
+export function absorbable(
+  s: Pick<ProspectStats, 'unitsPerDay' | 'avgPrice'>,
+  sharePct: number,
+  days: number,
+): number {
+  return s.unitsPerDay * (sharePct / 100) * s.avgPrice * days;
 }

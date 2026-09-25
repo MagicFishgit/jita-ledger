@@ -122,13 +122,19 @@ export type Prospect = {
   topBuyVol: number; topSellVol: number;
   qty: number;
   net: number; roi: number; spreadPct: number;
+  /** ISK this item could absorb inside your horizon, at your share of its daily trade. */
+  canTake: number;
+  /** How long your money would be in it: buying in and selling out at your share. */
+  daysToFlip: number;
   iskPerDay: number; capital: number;
   warnings: ProspectWarning[];
 };
 
 export type ProspectFilters = {
-  /** ISK you are willing to tie up in one item at a time. */
+  /** ISK you want to put into a single item. A target to be met, not a ceiling to stay under. */
   budget: number;
+  /** How long you'll accept being in the position. Decides how much an item can absorb. */
+  horizonDays: number;
   minTrades: number;
   minDays: number;
   minRoi: number;

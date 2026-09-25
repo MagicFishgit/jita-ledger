@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ago, isk, iskBig, iskSigned, pct, plainNum, units } from '../lib/format';
 import { resolveNames } from '../lib/market';
-import { DEFAULT_FILTERS, FIRST_DIR, sortProspects, type Sort, type SortKey } from '../lib/prospects';
+import { absorbable, DEFAULT_FILTERS, FIRST_DIR, passesGate, sortProspects, type Sort, type SortKey } from '../lib/prospects';
 import { clearScan, coverage, loadCache, rankProspects, runScan, stopScan, useScanState, type ScanCache } from '../lib/scan';
 import { update, useData } from '../lib/store';
 import { addToWatchlist, startPosition } from '../lib/actions';
@@ -21,14 +21,24 @@ const WARNING: Record<ProspectWarning, { short: string; why: string }> = {
 type NumberFilter = Exclude<keyof ProspectFilters, 'demoteFlagged'>;
 
 /** The sortable columns, in table order. Actions is not one of them. */
+/** How long the money is in, in a unit that reads naturally. */
+function flip(days: number): string {
+  if (!Number.isFinite(days)) return '–';
+  if (days < 1 / 24) return '< 1 h';
+  if (days < 1) return `${Math.round(days * 24)} h`;
+  return `${days < 10 ? days.toFixed(1) : Math.round(days)} days`;
+}
+
 const COLUMNS: [SortKey, string][] = [
-  ['name', 'Item'], ['roi', 'Return'], ['net', 'Profit per unit'], ['trades', 'Trades a day'],
-  ['days', 'Days traded'], ['volume', 'Volume, 30 days'], ['iskPerDay', 'Est. ISK per day'],
-  ['capital', 'ISK tied up'], ['flags', 'Flags'],
+  ['name', 'Item'], ['roi', 'Return'], ['canTake', 'Can take'], ['flip', 'Flips in'],
+  ['net', 'Profit per unit'], ['trades', 'Trades a day'], ['days', 'Days traded'],
+  ['volume', 'Volume, 30 days'], ['iskPerDay', 'ISK per day'], ['capital', 'ISK tied up'],
+  ['flags', 'Flags'],
 ];
 
 const FILTER_FIELDS: { key: NumberFilter; label: string; hint: string }[] = [
-  { key: 'budget', label: 'ISK I can tie up', hint: 'Caps how much of a day’s volume you take on' },
+  { key: 'budget', label: 'ISK I want to put into one item', hint: 'Only items that can absorb this are shown' },
+  { key: 'horizonDays', label: 'And be out within (days)', hint: 'How long you’ll leave the money in it' },
   { key: 'minTrades', label: 'Trades a day, at least', hint: 'Median over the last 30 days' },
   { key: 'minDays', label: 'Days traded out of 30, at least', hint: 'Days with any trade at all' },
   { key: 'minRoi', label: 'Return, at least (%)', hint: 'Net of your broker fee and sales tax' },
@@ -65,6 +75,16 @@ export function Prospects() {
     [ranked, sort, f.demoteFlagged, d.names],
   );
   const cov = cache ? coverage(cache) : { candidates: 0, checked: 0, priced: 0, pricedAt: null };
+  // The most any scanned item could swallow, so a nil return can say why rather than just "none".
+  const biggest = useMemo(() => {
+    if (!cache) return 0;
+    let best = 0;
+    for (const st of Object.values(cache.stats)) {
+      if (!passesGate(st, f)) continue;
+      best = Math.max(best, absorbable(st, d.settings.share, f.horizonDays));
+    }
+    return best;
+  }, [cache, f, d.settings.share]);
 
   // Names for anything the scan turned up that this browser hasn't seen before.
   useEffect(() => {
@@ -176,8 +196,23 @@ export function Prospects() {
         </p>
       ) : !rows.length ? (
         <p className="empty">
-          Nothing scanned so far clears these filters. Loosen the return or the trades a day, raise the ISK you can tie
-          up, or scan again to check more of the market.
+          {biggest > 0 && biggest < f.budget ? (
+            <>
+              Nothing scanned so far can absorb {iskBig(f.budget)} within {plainNum(f.horizonDays)} day
+              {f.horizonDays === 1 ? '' : 's'}. The busiest market found so far could take about{' '}
+              <strong>{iskBig(biggest)}</strong> in that time. Put in less, allow longer, or run a deep scan — the
+              markets that swallow billions are the busiest ones, and a quick scan only skims the top of the book.
+            </>
+          ) : biggest >= f.budget ? (
+            <>
+              Some scanned items are busy enough to absorb {iskBig(f.budget)}, but none of the{' '}
+              {units(cov.priced)} priced against the live book so far do — pricing only covers the best of what has
+              been checked. Scan again to price more of them, or loosen the other filters.
+            </>
+          ) : (
+            <>Nothing scanned so far clears these filters. Loosen the return or the trades a day, allow a longer
+              horizon, or scan again to check more of the market.</>
+          )}
         </p>
       ) : (
         <div className="table-wrap">
@@ -220,6 +255,8 @@ function Row({ p, name, open, onToggle, onMsg }: { p: Prospect; name: string; op
           <button className="link-btn" aria-expanded={open} onClick={onToggle}>{name}</button>
         </td>
         <td className="pos">{pct(p.roi, 1)}</td>
+        <td title={`${plainNum(Math.round(s.unitsPerDay))} units trade here a day`}>{iskBig(p.canTake)}</td>
+        <td>{flip(p.daysToFlip)}</td>
         <td className="pos">{iskSigned(p.net)}</td>
         <td>{plainNum(Math.round(s.tradesPerDay))}</td>
         <td>{s.daysTraded} of 30</td>
