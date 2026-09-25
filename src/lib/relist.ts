@@ -38,6 +38,10 @@ export type Relist = {
   aheadUnits: number;
   /** How many separate orders that is. One big rival is not the same as thirty small ones. */
   aheadOrders: number;
+  /** The biggest single order ahead, as a share of the queue. High means one wall, not a crowd. */
+  topRivalShare: number;
+  /** Hours for YOUR remaining stock to sell once you reach the front, at the item's usual pace. */
+  yourHours: number;
   /** Hours for the queue ahead to clear at the item's usual pace. Infinity when we can't tell. */
   hoursToFront: number;
   verdict: Verdict;
@@ -56,13 +60,17 @@ export type MarketContext = {
   bestSell?: number | null;
 };
 
-/** Below this, the queue ahead clears soon enough that moving is not worth a broker fee. */
+/**
+ * Default patience: below this, the queue ahead clears soon enough that moving is not worth a
+ * broker fee. How patient to be is a matter of how you trade, so it is a setting rather than a rule.
+ */
 export const WAIT_HOURS = 4;
 
 export function adviseRelist(
   mine: Mine,
   m: MarketContext,
   r: { k: number; f: number; t: number },
+  waitHours = WAIT_HOURS,
 ): Relist {
   const rivals = m.book.filter((o) => o.id !== mine.orderId && o.isBuy === mine.isBuy);
   const prices = rivals.map((o) => o.price);
@@ -74,6 +82,10 @@ export function adviseRelist(
   const aheadUnits = ahead.reduce((n, o) => n + o.volume, 0);
   const daily = m.dailyVolume && m.dailyVolume > 0 ? m.dailyVolume : null;
   const hoursToFront = !beaten ? 0 : daily ? (aheadUnits / daily) * 24 : Infinity;
+  // One big wall clears all at once and drops you straight to the front; a crowd of small orders
+  // is a queue of people who will each undercut you again.
+  const topRivalShare = aheadUnits > 0 ? Math.max(...ahead.map((o) => o.volume)) / aheadUnits : 0;
+  const yourHours = daily ? (mine.volumeRemain / daily) * 24 : Infinity;
 
   const newPrice = beaten && best !== null ? (mine.isBuy ? tickUp(best) : tickDown(best)) : NaN;
   const moves = beaten && Number.isFinite(newPrice);
@@ -101,7 +113,7 @@ export function adviseRelist(
   } else if (!moves) {
     verdict = 'loss';
     why = 'There is no legal price below theirs left to take';
-  } else if (hoursToFront <= WAIT_HOURS) {
+  } else if (hoursToFront <= waitHours) {
     verdict = 'wait';
     why = `Only ${aheadUnits.toLocaleString('en-US')} ahead of you, about ${hrs(hoursToFront)} at this item's pace`;
   } else {
@@ -118,7 +130,7 @@ export function adviseRelist(
     gap: best === null ? 0 : Math.abs(best - mine.price),
     give, fee, cost: give + fee,
     atRisk: mine.price * mine.volumeRemain,
-    aheadUnits, aheadOrders: ahead.length, hoursToFront,
+    aheadUnits, aheadOrders: ahead.length, hoursToFront, topRivalShare, yourHours,
     verdict, why,
   };
 }

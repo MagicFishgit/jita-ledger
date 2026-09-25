@@ -14,7 +14,8 @@ A station trading tool for Jita 4-4 that runs entirely in your browser and is ho
   reason to move, so this weighs the stock queued ahead of you against how fast the item actually trades: a
   handful of units in front of something that moves thousands a day is gone in minutes and you are back at the
   front for free. Each order gets a verdict — move it, leave it, already in front, or not worth the price it
-  would take — with buy and sell orders filterable separately. ESI cannot place or change an order, and
+  would take — with buy and sell orders filterable separately, and how patient to be set by you rather than assumed.
+  Each column explains itself behind an “i”. ESI cannot place or change an order, and
   automating the client is a bannable offence, so this finds the work and you do the clicking.
 - **Watchlist**: compare items by spread, return, volume and a rough ISK-per-day estimate.
 - **Positions**: track an item you're trading from the first buy to the last sell. Buys, sells, fees and tax are pulled from your wallet, so you can see what you actually made and how your prices compared with the market.

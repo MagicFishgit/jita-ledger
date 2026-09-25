@@ -12,6 +12,8 @@ export type Settings = Skills & {
   target: number;
   /** Share of daily volume you expect to capture, used for rough ISK/day estimates. */
   share: number;
+  /** How long you'll let stock sit ahead of one of your orders before it's worth relisting. */
+  waitHours: number;
   /** Fill skills, standings and clone state from the logged-in character on sync. */
   fromCharacter: boolean;
   /** Omega skill plan used for the Alpha vs Omega comparison. */
@@ -26,7 +28,7 @@ export const DEFAULT_SETTINGS: Settings = {
   clone: 'alpha',
   faction: 0, corp: 0,
   taxBase: 7.5, override: false, brokerPct: 1.5, taxPct: 3.38,
-  target: 5, share: 10, fromCharacter: true,
+  target: 5, share: 10, waitHours: 4, fromCharacter: true,
   planAcc: 5, planBr: 5, planAbr: 5,
   plexPerMonth: 500, plexPrice: 0,
 };
@@ -52,6 +54,7 @@ export function sanitizeSettings(s: Partial<Settings> | null | undefined): Setti
     taxPct: clamp(num(x.taxPct, DEFAULT_SETTINGS.taxPct), 0, 100),
     target: clamp(num(x.target, DEFAULT_SETTINGS.target), 0, 1000),
     share: clamp(num(x.share, DEFAULT_SETTINGS.share), 0, 100),
+    waitHours: clamp(num(x.waitHours, DEFAULT_SETTINGS.waitHours), 0, 168),
     fromCharacter: x.fromCharacter === undefined ? true : !!x.fromCharacter,
     planAcc: x.planAcc === undefined ? 5 : lvl(x.planAcc),
     planBr: x.planBr === undefined ? 5 : lvl(x.planBr),

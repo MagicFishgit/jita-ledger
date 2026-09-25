@@ -2,13 +2,25 @@ import { useCallback, useMemo, useState } from 'react';
 import { hasScope } from '../lib/auth';
 import { SCOPES } from '../lib/config';
 import { rates } from '../lib/fees';
-import { ago, isk, iskBig, units } from '../lib/format';
+import { ago, isk, iskBig, plainNum, units } from '../lib/format';
 import { useAuth, useNow, navigate } from '../lib/hooks';
 import { jitaOrders, marketHistory, openMarketWindow, recentAverages, tradedAtJita, type OrderLite } from '../lib/market';
 import { adviseRelist, byUrgency, type Relist, type Verdict } from '../lib/relist';
-import { useData } from '../lib/store';
+import { update, useData } from '../lib/store';
 import { computePosition } from '../lib/positions';
-import { useTypeName } from './common';
+import { Explain, useTypeName } from './common';
+
+/** Plain-English notes behind the "i" on each column. */
+const TIPS: Record<string, string> = {
+  Verdict: 'Whether this order is worth doing something about. Being undercut on its own is not a reason to move \u2014 what matters is how long the people ahead of you will stay ahead.',
+  'Ahead of you': 'How many units are queued in front of your price, and how many separate traders that is. One big order is better news than a crowd: when it sells you jump straight to the front, whereas a crowd will each undercut you again.',
+  'Clears in': 'Roughly how long the stock ahead of you takes to sell at this item\u2019s usual daily pace. If that is short, waiting costs you nothing and a relist would just be a wasted broker fee.',
+  'Your price': 'What you are asking, or bidding, right now.',
+  'Move to': 'The price that would put you back in front \u2014 one legal step past the best rival. EVE prices carry only four significant figures, so this is the smallest move the game allows.',
+  'Costs you': 'What getting back in front would cost: the margin you give up by changing price, plus the broker fee on the new order value. Hover the number for the split.',
+  'Your stock': 'How much of this order is left, and roughly how long that would take to sell once you reach the front. If your own stock is days of the market, being at the front matters more.',
+  'ISK in order': 'The ISK currently tied up in this order at its own price. Bigger numbers cost you more to leave sitting behind someone else.',
+};
 
 const VERDICT: Record<Verdict, { label: string; cls: string }> = {
   move: { label: 'Move it', cls: 'v-move' },
@@ -18,6 +30,16 @@ const VERDICT: Record<Verdict, { label: string; cls: string }> = {
 };
 
 const UI_SCOPE = SCOPES[4];
+
+/** The shape of the queue ahead, in words rather than a ratio. */
+function rivalShape(orders: number, topShare: number, isBuy: boolean): string {
+  const who = isBuy ? 'buyer' : 'seller';
+  if (orders === 0) return '';
+  if (orders === 1) return `one ${who}`;
+  if (topShare >= 0.6) return `${orders} ${who}s, mostly one order`;
+  if (orders >= 10) return `a crowd of ${orders} ${who}s`;
+  return `${orders} ${who}s`;
+}
 
 /** A wait, in the largest unit that still reads naturally. */
 function hours(h: number): string {
@@ -96,10 +118,10 @@ export function Orders() {
           dailyVolume: daily[o.typeId],
           avgCost: costOf[o.typeId],
           bestSell: sells.length ? Math.min(...sells) : null,
-        }, r);
+        }, r, d.settings.waitHours);
       })
       .sort(byUrgency);
-  }, [books, mine, daily, costOf, r]);
+  }, [books, mine, daily, costOf, r, d.settings.waitHours]);
   const rows = useMemo(
     () => (side === 'all' ? all : all.filter((x) => (side === 'buy' ? x.isBuy : !x.isBuy))),
     [all, side],
@@ -178,7 +200,7 @@ export function Orders() {
           )}
 
           {all.length > 0 && (
-            <div className="row" style={{ marginBottom: 12 }}>
+            <div className="row" style={{ marginBottom: 12, justifyContent: 'space-between' }}>
               <div className="seg-control" role="group" aria-label="Which orders to show">
                 {([['all', 'All'], ['sell', 'Sell orders'], ['buy', 'Buy orders']] as const).map(([key, label]) => {
                   const n = key === 'all' ? all.length : all.filter((x) => (key === 'buy' ? x.isBuy : !x.isBuy)).length;
@@ -189,6 +211,17 @@ export function Orders() {
                   );
                 })}
               </div>
+              <label className="wait">
+                <span>Leave orders that clear within</span>
+                <input
+                  type="number" min={0} max={168} step={1} value={plainNum(d.settings.waitHours)}
+                  onChange={(e) => {
+                    const n = parseFloat(e.target.value);
+                    update((x) => ({ settings: { ...x.settings, waitHours: Number.isFinite(n) ? Math.min(168, Math.max(0, n)) : 0 } }));
+                  }}
+                />
+                <span>hours</span>
+              </label>
             </div>
           )}
 
@@ -197,10 +230,10 @@ export function Orders() {
               <table className="data wide">
                 <thead>
                   <tr>
-                    <th scope="col">Item</th><th scope="col">Side</th><th scope="col">Verdict</th>
-                    <th scope="col">Ahead of you</th><th scope="col">Clears in</th>
-                    <th scope="col">Your price</th><th scope="col">Move to</th>
-                    <th scope="col">Costs you</th><th scope="col">Left</th><th scope="col">ISK in order</th>
+                    <th scope="col">Item</th><th scope="col">Side</th>
+                    {(['Verdict', 'Ahead of you', 'Clears in', 'Your price', 'Move to', 'Costs you', 'Your stock', 'ISK in order'] as const).map((h) => (
+                      <th scope="col" key={h}>{h}{TIPS[h] && <Explain term={h}>{TIPS[h]}</Explain>}</th>
+                    ))}
                     <th scope="col"><span className="opt">Actions</span></th>
                   </tr>
                 </thead>
@@ -212,7 +245,9 @@ export function Orders() {
                         <td className="name">{name}</td>
                         <td>{r.isBuy ? 'Buy' : 'Sell'}</td>
                         <td><span className={'flag ' + VERDICT[r.verdict].cls} title={r.why}>{VERDICT[r.verdict].label}</span></td>
-                        <td>{r.beaten ? <span title={`${units(r.aheadOrders)} order${r.aheadOrders === 1 ? '' : 's'} in front of you`}>{units(r.aheadUnits)}</span> : '–'}</td>
+                        <td>
+                          {r.beaten ? <>{units(r.aheadUnits)}<small className="sub">{rivalShape(r.aheadOrders, r.topRivalShare, r.isBuy)}</small></> : '–'}
+                        </td>
                         <td className={r.verdict === 'wait' ? 'pos' : ''}>
                           {!r.beaten ? '–' : !Number.isFinite(r.hoursToFront) ? <span className="muted">barely trades</span> : hours(r.hoursToFront)}
                         </td>
@@ -221,7 +256,10 @@ export function Orders() {
                           {Number.isFinite(r.newPrice) ? isk(r.newPrice) : '–'}
                         </td>
                         <td>{r.cost > 0 ? <span title={`${isk(r.give)} of margin plus a ${isk(r.fee)} broker fee`}>{iskBig(r.cost)}</span> : '–'}</td>
-                        <td>{units(r.volumeRemain)}</td>
+                        <td>
+                          {units(r.volumeRemain)}
+                          {Number.isFinite(r.yourHours) && <small className="sub">{hours(r.yourHours)} to sell</small>}
+                        </td>
                         <td>{iskBig(r.atRisk)}</td>
                         <td>
                           {canOpen && <button className="link-btn" onClick={() => openInGame(r.typeId, name)}>Open in game</button>}

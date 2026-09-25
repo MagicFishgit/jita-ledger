@@ -253,6 +253,36 @@ r = adviseRelist({ orderId: 7, typeId: 34, isBuy: false, price: 5, volumeRemain:
   { book: [o(7, false, 5), o(8, false, 4, 9999)], dailyVolume: 5000 }, R);
 eq('100 ISK fee floor', r.fee, 100);
 
+// The patience threshold is a setting, so the same book can read either way.
+r = adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 1000)], dailyVolume: 5000 }, R);
+eq('default 4 h: 1000 of 5000/day (4.8 h) moves', r.verdict, 'move');
+eq('patient trader leaves it', adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 1000)], dailyVolume: 5000 }, R, 8).verdict, 'wait');
+eq('impatient trader moves it', adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 40)], dailyVolume: 5000 }, R, 0).verdict, 'move');
+eq('very patient leaves a long queue', adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 20000)], dailyVolume: 5000 }, R, 168).verdict, 'wait');
+// Being in front never depends on patience.
+eq('front regardless of threshold', adviseRelist(sell, { book: [o(1, false, 1000)] }, R, 0).verdict, 'front');
+
+console.log('\n--- rival concentration and your own queue ---');
+// One wall: when it fills you are straight at the front.
+r = adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 900), o(3, false, 995, 100)], dailyVolume: 5000 }, R);
+eq('one wall: rivals counted', r.aheadOrders, 2);
+eq('one wall: top rival is most of it', Math.round(r.topRivalShare * 100), 90);
+// A crowd: no single order dominates.
+const crowd = Array.from({ length: 20 }, (_, i) => o(100 + i, false, 990 + i * 0.01, 50));
+r = adviseRelist(sell, { book: [o(1, false, 1000), ...crowd], dailyVolume: 5000 }, R);
+eq('crowd: rivals counted', r.aheadOrders, 20);
+eq('crowd: no one dominates', Math.round(r.topRivalShare * 100), 5);
+// Your own stock is its own wait, on top of the queue.
+r = adviseRelist({ orderId: 1, typeId: 34, isBuy: false, price: 1000, volumeRemain: 2500 },
+  { book: [o(1, false, 1000), o(2, false, 990, 5000)], dailyVolume: 5000 }, R);
+eq('your stock is half a day', Math.round(r.yourHours), 12);
+eq('queue ahead is a day', Math.round(r.hoursToFront), 24);
+// With no volume data neither can be stated.
+r = adviseRelist(sell, { book: [o(1, false, 1000), o(2, false, 990, 10)] }, R);
+eq('no volume: your wait unknown', Number.isFinite(r.yourHours), false);
+// Nobody ahead means no concentration to report.
+eq('alone: no top rival', adviseRelist(sell, { book: [o(1, false, 1000)] }, R).topRivalShare, 0);
+
 console.log('\n--- byUrgency ---');
 const u = (verdict, atRisk) => ({ verdict, atRisk });
 eq('real relists first, then ISK at stake',
