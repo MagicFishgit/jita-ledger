@@ -3,7 +3,7 @@
 import { statsFrom, pickPages, passesGate, warningsFor, expectedEdge, sortProspects, FIRST_DIR, DEFAULT_FILTERS } from '../src/lib/prospects.ts';
 import { priceUp, tickDown } from '../src/lib/tick.ts';
 import { dueForSync } from '../src/lib/schedule.ts';
-import { adviseRelist, byUrgency, weightedLevel } from '../src/lib/relist.ts';
+import { adviseRelist, byUrgency, weightedLevel, marketBest } from '../src/lib/relist.ts';
 
 let failed = 0;
 const eq = (label, got, want) => {
@@ -342,6 +342,26 @@ eq('a single cheap unit does not shift the level',
 eq('real volume does shift it',
    weightedLevel([o(1, false, 5055, 5000), o(2, false, 7160, 100)]), 5055);
 eq('empty book has no level', weightedLevel([]), 0);
+
+console.log('\n--- marketBest skips a price that is not the market ---');
+const lv = (price, volume) => ({ price, volume });
+// The Cap Recharger book, as aggregated levels. One unit at 5,055 must not be the answer.
+const recharger = [lv(5055, 1), lv(7160, 1230), lv(7161, 991), lv(7164, 2), lv(7166, 1105)];
+eq('sell side skips the fat finger', marketBest(recharger, false), 7160);
+// The Capacitor Transmitter book: 217 units of genuinely cheap stock IS the market.
+const transmitter = [lv(23800, 1), lv(23900, 54), lv(24800, 2), lv(24900, 15), lv(25000, 143)];
+eq('real cheap supply is not skipped', marketBest(transmitter, false), 23800);
+// Several token orders stacked below still get skipped, together.
+eq('skips a run of token orders', marketBest([lv(1000, 1), lv(1100, 1), lv(7160, 5000)], false), 7160);
+// But once the skipped stock stops being a rounding error, it counts.
+eq('stops skipping when the volume is real', marketBest([lv(5000, 400), lv(7160, 1000)], false), 5000);
+// Buy side mirrored: an absurdly high bid of one unit is not the market either.
+eq('buy side skips an absurd bid', marketBest([lv(9000, 1), lv(7160, 1230), lv(7159, 900)], true), 7160);
+eq('empty book has no best', marketBest([], false), null);
+// A thin book has no outlier to skip: the level sits on one of its own prices, so the best price
+// is never far from it. It must always answer with a price that is really in the book.
+eq('a two-order book answers with its own best', marketBest([lv(1000, 1), lv(2000, 1)], false), 1000);
+eq('and on the buy side', marketBest([lv(1000, 1), lv(2000, 1)], true), 2000);
 
 console.log('\n--- a mistaken price is not the market ---');
 // The reported book: someone listed one unit at 5,055 against a market sitting at 7,160-7,177.

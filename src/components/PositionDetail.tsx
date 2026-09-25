@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Area, ComposedChart, Line, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis, ZAxis } from 'recharts';
 import { computePosition, vsMarket } from '../lib/positions';
 import { priceUp, tickDown } from '../lib/tick';
+import { marketBest } from '../lib/relist';
 import { confirmAsk } from '../lib/confirm';
 import { rates } from '../lib/fees';
 import { fmtDate, fmtDateTime, fmtShort, isk, iskAxis, iskBig, iskBigSigned, parseISK, pct, rid, timeTicks, units } from '../lib/format';
@@ -53,7 +54,11 @@ export function PositionDetail({ id }: { id: string }) {
     .reduce((n, o) => n + o.volumeRemain, 0);
   const actual = held === null ? null : held + committed;
   const drift = actual === null ? null : actual - c.stock;
-  const unrealized = snap?.bestSell && c.stock > 0 ? c.stock * snap.bestSell * (1 - r.f - r.t) - c.costOfStock : null;
+  // What the market will really pay, ignoring a token quantity someone has mispriced. Valuing your
+  // stock at a fat finger, or suggesting you match it, would be worse than saying nothing.
+  const realBest = snap ? marketBest(snap.topSells, false) : null;
+  const mispriced = realBest != null && snap?.bestSell != null && realBest !== snap.bestSell;
+  const unrealized = realBest && c.stock > 0 ? c.stock * realBest * (1 - r.f - r.t) - c.costOfStock : null;
 
   // What to ask when the stock is ready to go out. A sale nets price x (1 - broker fee - sales tax),
   // so breaking even on what the stock cost means asking cost / (1 - f - t), rounded up to a price
@@ -62,7 +67,7 @@ export function PositionDetail({ id }: { id: string }) {
     if (c.stock <= 0 || c.avgCost == null) return null;
     const keep = 1 - r.f - r.t;
     if (!(keep > 0)) return null;
-    const suggested = snap?.bestSell != null ? tickDown(snap.bestSell) : NaN;
+    const suggested = realBest != null ? tickDown(realBest) : NaN;
     const has = Number.isFinite(suggested);
     return {
       breakEven: priceUp(c.avgCost / keep),
@@ -189,13 +194,18 @@ export function PositionDetail({ id }: { id: string }) {
             cls={sellPlan.ok ? 'pos' : 'neg'}
             note={
               sellPlan.ok
-                ? `One step under the cheapest seller. Clears ${iskBigSigned(sellPlan.profit)} on your ${units(c.stock)} units`
-                : `One step under the cheapest seller, which is below your break-even — you'd lose ${iskBig(Math.abs(sellPlan.profit))}`
+                ? `One step under the cheapest ${mispriced ? 'genuine listing' : 'seller'}. Clears ${iskBigSigned(sellPlan.profit)} on your ${units(c.stock)} units`
+                : `One step under the cheapest ${mispriced ? 'genuine listing' : 'seller'}, which is below your break-even — you'd lose ${iskBig(Math.abs(sellPlan.profit))}`
             }
           />
         )}
         {unrealized != null && (
-          <Stat label="Stock if sold now" value={iskBigSigned(unrealized)} cls={unrealized >= 0 ? 'pos' : 'neg'} note={`At today’s lowest sell, ${isk(snap?.bestSell)}, after fees`} />
+          <Stat
+            label="Stock if sold now" value={iskBigSigned(unrealized)} cls={unrealized >= 0 ? 'pos' : 'neg'}
+            note={mispriced
+              ? `At ${isk(realBest)} after fees. The cheapest listing is ${isk(snap?.bestSell)}, but it is a token quantity priced well off the rest of the book`
+              : `At today’s lowest sell, ${isk(realBest)}, after fees`}
+          />
         )}
       </dl>
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ChangeEvent } from 'react';
 import { calc, calcWith, omegaRates } from '../lib/fees';
 import { inputNum, isk, parseISK } from '../lib/format';
 import { marketHistory, snapshot } from '../lib/market';
+import { marketBest } from '../lib/relist';
 import { useData } from '../lib/store';
 import { addToWatchlist, startPosition } from '../lib/actions';
 import { navigate, type Route } from '../lib/hooks';
@@ -58,7 +59,9 @@ export function Calculator({ route }: { route: Route }) {
       setSnap(s); setHist(h);
       if (fill) {
         // One step inside the spread, where a step is the smallest change EVE takes at that price.
-        const bb = s.bestBuy ?? NaN, bs = s.bestSell ?? NaN;
+        // Prefill against the real market, not against a token order someone has mispriced.
+        const bb = marketBest(s.topBuys, true) ?? NaN;
+        const bs = marketBest(s.topSells, false) ?? NaN;
         const buy = tickUp(bb), sell = tickDown(bs);
         setF((x) => ({
           ...x,

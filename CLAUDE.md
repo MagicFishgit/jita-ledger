@@ -99,6 +99,10 @@ Don't re-derive or contradict these without new evidence.
   units of genuinely cheap supply as a "mistake"; quantity is what separates a fat finger from a
   cheap seller. This needs only the live book, so it is the one guard that still works for an item
   with no trading history — which is exactly when the other two cannot fire.
+- **`marketBest` applies the same idea wherever a best price becomes a price you'd act on**: the
+  suggested sell price and "stock if sold now" on a position, and the Calculator's prefill. Prospects
+  and the Watchlist deliberately don't use it — an outlier only ever *narrows* an apparent spread
+  there, so it hides an opportunity rather than inventing a bad trade, and that is the safe direction.
 - **Prospects sizes a position by what an item can absorb** (`units/day × share × price × horizon`),
   not by one day's volume. The budget is a target, not a cap.
 - **Pages run full width** via `--page-max`, so wide tables don't need a scrollbar. Prose keeps its own

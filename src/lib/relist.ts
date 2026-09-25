@@ -95,6 +95,35 @@ export const OUTLIER_DIVE = 0.1;
  */
 export const OUTLIER_SHARE = 0.02;
 
+/** Anything with a price and a quantity: a live order, or an aggregated level of the book. */
+export type PriceVolume = { price: number; volume: number };
+
+/**
+ * The best price on a side that is actually the market, skipping token quantities priced far away
+ * from where the rest of the book sits.
+ *
+ * Used wherever a best price becomes a price you would act on --- what to ask for stock you hold,
+ * what to prefill into an order --- because one unit fat-fingered at two thirds the going rate
+ * should not be allowed to talk you into dumping a thousand.
+ */
+export function marketBest(levels: PriceVolume[], isBuy: boolean): number | null {
+  if (!levels.length) return null;
+  const level = weightedLevel(levels);
+  const total = levels.reduce((n, l) => n + l.volume, 0);
+  const ordered = [...levels].sort((a, b) => (isBuy ? b.price - a.price : a.price - b.price));
+  let skipped = 0;
+  for (const l of ordered) {
+    const far = isBuy ? l.price > level * (1 + OUTLIER_DIVE) : l.price < level * (1 - OUTLIER_DIVE);
+    // Skip only while the skipped stock stays a rounding error on the side's volume.
+    if (far && total > 0 && (skipped + l.volume) / total < OUTLIER_SHARE) {
+      skipped += l.volume;
+      continue;
+    }
+    return l.price;
+  }
+  return ordered[ordered.length - 1].price;
+}
+
 /**
  * Where the book says this item actually trades: the price at which half the stock on your side
  * sits cheaper and half dearer, weighted by volume.
@@ -104,7 +133,7 @@ export const OUTLIER_SHARE = 0.02;
  * than a market that has moved. It needs only the live book, so it still holds for an item with no
  * trading history to reason about.
  */
-export function weightedLevel(orders: OrderLite[]): number {
+export function weightedLevel(orders: PriceVolume[]): number {
   if (!orders.length) return 0;
   const sorted = [...orders].sort((a, b) => a.price - b.price);
   const total = sorted.reduce((n, o) => n + o.volume, 0);
