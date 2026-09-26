@@ -6,7 +6,7 @@ import { dueForSync } from '../src/lib/schedule.ts';
 import { adviseRelist, byUrgency, weightedLevel, marketBest } from '../src/lib/relist.ts';
 import { valueOffer, byIskPerLp, patientPrice, instantPrice, daysToClear, planFor, notesFor, spendPlan } from '../src/lib/loyalty.ts';
 import { parseFilament, byTier, runsFrom, TIERS } from '../src/lib/abyssal.ts';
-import { judgeCourier, byRewardPerJump, byUsefulness, roundTrips, tally, HAULERS } from '../src/lib/courier.ts';
+import { judgeCourier, byRewardPerJump, byUsefulness, roundTrips, tally, HAULERS, effectiveCapacity } from '../src/lib/courier.ts';
 import { parsePlanetType, planetsFor, estimate, inBand, P0_PER_P1, sortSystems, rankProducts, refineVerdict, RAW_PER_HOUR, MADE_PER_HOUR, BASIC_FACTORY, P1_PER_P2, setupSteps, P1_TO_P0 } from '../src/lib/pi.ts';
 import { classify, readExtractor, contentsOf, readColony, byAttention, typesIn, valueOf } from '../src/lib/colony.ts';
 import { check, byUrgency as bySkillUrgency, readiness, injectorYield, SP_FLOOR, skillsOf, trainedOptions, HAULING_SKILLS } from '../src/lib/skills.ts';
@@ -768,6 +768,31 @@ if (HAULERS.some((h) => /Bowhead/i.test(h.name))) {
 }
 // Every preset must be a real, positive volume.
 if (HAULERS.some((h) => !(h.m3 > 0))) { failed++; console.log('  FAIL a hauler preset with no capacity'); }
+
+console.log('\n--- your skills, not a stranger\u2019s, decide what fits ---');
+const freighter = HAULERS.find((h) => /^Freighter/.test(h.name));
+const none = () => 0;
+eq('an untrained pilot gets the bare hull', effectiveCapacity(freighter, none).m3, 465000);
+eq('  and nothing is claimed for them', effectiveCapacity(freighter, none).from.length, 0);
+// freighterBonusC1 and C2 are both 5, tied to the two skills a freighter requires. Both compound.
+const allV = (n) => (n === 'Caldari Freighter' || n === 'Advanced Spaceship Command' ? 5 : 0);
+eq('both freighter bonuses apply at V', effectiveCapacity(freighter, allV).m3, Math.round(465000 * 1.25 * 1.25));
+eq('  naming the skills doing the work', effectiveCapacity(freighter, allV).from.length, 2);
+// Any race satisfies the racial half, same as the skills panel.
+eq('a Gallente freighter pilot gets the same', effectiveCapacity(freighter, (n) => (n === 'Gallente Freighter' ? 5 : 0)).m3, Math.round(465000 * 1.25));
+// Part-trained is part of the bonus, not all or nothing.
+eq('three levels give three levels of bonus', effectiveCapacity(freighter, (n) => (n === 'Caldari Freighter' ? 3 : 0)).m3, Math.round(465000 * 1.15));
+// The Orca's bonus attribute names the stat, so it is applied; the classes whose attributes do not
+// say what they modify get nothing rather than a guess.
+const orca = HAULERS.find((h) => /^Orca/.test(h.name));
+eq('the Orca bonus applies', effectiveCapacity(orca, (n) => (n === 'Industrial Command Ships' ? 5 : 0)).m3, Math.round(70000 * 1.25));
+const dst = HAULERS.find((h) => /^Deep Space/.test(h.name));
+eq('a class with no verified cargo bonus is left alone', effectiveCapacity(dst, () => 5).m3, dst.m3);
+// A freighter pilot should see contracts an untrained one cannot take.
+const bigHaul = { contractId: 9, reward: 50_000_000, collateral: 0, volume: 600_000, daysToComplete: 5, dateExpired: '2026-10-30T00:00:00Z', startId: 1, endId: 2, title: '' };
+const trainedLimits = { ...LIM, maxVolume: effectiveCapacity(freighter, allV).m3 };
+has('600,000 m3 is too big for a bare freighter', judgeCourier(bigHaul, stn(0.9), stn(0.8), 10, { ...LIM, maxVolume: 465000 }, NOWC).flags, 'tooBig');
+eq('  but not for a trained one', judgeCourier(bigHaul, stn(0.9), stn(0.8), 10, trainedLimits, NOWC).takeable, true);
 
 console.log('\n--- planets ---');
 eq('ESI planet type names parse', parsePlanetType('Planet (Barren)'), 'Barren');

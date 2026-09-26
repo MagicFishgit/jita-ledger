@@ -132,37 +132,71 @@ export function byUsefulness(a: CourierVerdict, b: CourierVerdict): number {
 }
 
 /**
- * Ships people actually haul in, with the cargo a bare hull holds.
+ * Ships people actually haul in, with the cargo a bare hull holds and the skills that grow it.
  *
- * Every figure is the base capacity read off ESI, and for the hulls with a fleet hangar it is the
- * cargo hold plus that hangar, since a courier package can travel in either --- which is the whole
- * reason a Deep Space Transport with a 3,900 m3 hold is the standard ship for 50,000 m3 contracts.
+ * Every base figure is read off ESI, and for the hulls with a fleet hangar it is the cargo hold plus
+ * that hangar, since a courier package can travel in either --- which is why a Deep Space Transport
+ * with a 3,900 m3 hold is the standard ship for 50,000 m3 contracts.
  *
- * They are a starting point and nothing more: expanders, rigs and the freighter skill all move the
- * number a long way, and only your fitting window knows the truth. So the field they fill in stays
- * editable.
+ * The bonuses are applied only where the hull's own dogma attributes name the stat they modify:
+ * `freighterBonusC1` and `freighterBonusC2` on a freighter, both 5, tied to exactly the two skills a
+ * freighter requires; and `industrialCommandBonusShipCargoCapacity` on the Orca, which says what it
+ * does in its own name. The other classes carry bonus attributes too, but nothing in the data says
+ * which stat they move, so none is assumed --- a half-remembered bonus is how this file once claimed
+ * a freighter holds 1,100,000 m3.
  *
- * Classes rather than hulls, with a ship from each race, because which race you fly changes nothing
- * about whether the cargo fits. The Bowhead is deliberately absent --- see ORE_NOTE.
+ * Everything remains a starting point: expanders and rigs move the real number further, and only
+ * your fitting window knows it.
  */
-export const HAULERS: { name: string; m3: number }[] = [
+export type HaulerBonus = {
+  /** Any one of these skills; the best trained level counts. */
+  anyOf: string[];
+  /** Percent of base cargo added per level. */
+  perLevel: number;
+};
+
+export const HAULERS: { name: string; m3: number; bonuses?: HaulerBonus[] }[] = [
   { name: 'Industrial — Iteron Mark V, Badger, Wreathe, Sigil', m3: 5800 },
   { name: 'Blockade Runner — Crane, Viator, Prowler, Prorator', m3: 4300 },
   { name: 'Deep Space Transport — Bustard, Mastodon, Occator, Impel', m3: 55000 },
-  { name: 'Orca (ORE, Industrial Command Ships)', m3: 70000 },
+  {
+    name: 'Orca (ORE, Industrial Command Ships)', m3: 70000,
+    bonuses: [{ anyOf: ['Industrial Command Ships'], perLevel: 5 }],
+  },
   { name: 'Jump Freighter — Rhea, Anshar, Ark, Nomad', m3: 144000 },
-  { name: 'Freighter — Charon, Obelisk, Providence, Fenrir', m3: 465000 },
+  {
+    name: 'Freighter — Charon, Obelisk, Providence, Fenrir', m3: 465000,
+    bonuses: [
+      { anyOf: ['Amarr Freighter', 'Caldari Freighter', 'Gallente Freighter', 'Minmatar Freighter'], perLevel: 5 },
+      { anyOf: ['Advanced Spaceship Command'], perLevel: 5 },
+    ],
+  },
 ];
 
 /**
- * Why ORE's freighter is not in the freighter list.
+ * What that hull holds for *you*, rather than for a pilot who has trained nothing.
  *
- * The Bowhead's 1,600,000 m3 bay carries assembled ships and nothing else; its actual cargo hold is
- * 4,000 m3, smaller than a Badger's. Treating ORE Freighter as satisfying the freighter requirement
- * would tell someone they could take a 400,000 m3 contract in a ship that holds four thousand.
- * The Orca is a different matter and is listed above: 30,000 of hold plus a 40,000 fleet hangar is
- * a real hauler, and it is the ORE ship that belongs here.
+ * A Charon at Advanced Spaceship Command V and its racial Freighter V carries 1.5625 times its base
+ * --- the difference between seeing a 600,000 m3 contract as impossible and as an evening's work.
+ * Bonuses compound rather than add, which is how EVE applies them.
  */
+export function effectiveCapacity(
+  hauler: { m3: number; bonuses?: HaulerBonus[] },
+  levelOf: (skill: string) => number,
+): { m3: number; from: { skill: string; level: number; perLevel: number }[] } {
+  const from: { skill: string; level: number; perLevel: number }[] = [];
+  let m3 = hauler.m3;
+  for (const b of hauler.bonuses ?? []) {
+    const best = b.anyOf
+      .map((skill) => ({ skill, level: levelOf(skill) }))
+      .sort((x, y) => y.level - x.level)[0];
+    if (!best || best.level <= 0) continue;
+    m3 *= 1 + (b.perLevel / 100) * best.level;
+    from.push({ ...best, perLevel: b.perLevel });
+  }
+  return { m3: Math.round(m3), from };
+}
+
 export const ORE_NOTE =
   'ORE builds industrials too, but only one of them helps here. The Orca carries 70,000 m3 of general '
   + 'cargo and is in the list above. The Bowhead is not: its enormous bay takes assembled ships only, '

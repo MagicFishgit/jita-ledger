@@ -22,6 +22,23 @@ async function skillIds(names: string[]): Promise<Record<string, number>> {
   return next;
 }
 
+/**
+ * Skill name to type ID, resolved once and cached.
+ *
+ * Shared because the hauling page needs the same lookup for cargo bonuses, and resolving the same
+ * names twice would be two round trips for one answer.
+ */
+export function useSkillIds(names: string[]): Record<string, number> {
+  const [ids, setIds] = useState<Record<string, number>>({});
+  const key = [...new Set(names)].sort().join(',');
+  useEffect(() => {
+    let alive = true;
+    skillIds(key.split(',').filter(Boolean)).then((m) => { if (alive) setIds(m); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [key]);
+  return ids;
+}
+
 const DOT: Record<Checked['status'], string> = { met: 'met', partial: 'partial', missing: 'missing', unknown: 'unknown' };
 /** EVE writes skill levels in Roman numerals, and so should we. */
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V'];

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
-  byUsefulness, HAULERS, judgeCourier, ORE_NOTE, roundTrips, tally, UNSAFE,
+  byUsefulness, effectiveCapacity, HAULERS, judgeCourier, ORE_NOTE, roundTrips, tally, UNSAFE,
   type CourierContract, type CourierFlag, type CourierLimits, type Endpoint,
 } from '../../lib/courier';
 import { iskBig, plainNum, units } from '../../lib/format';
@@ -10,6 +10,8 @@ import { endpoint, secureJumps } from '../../lib/universe';
 import { THE_FORGE } from '../../lib/config';
 import { SkillPanel } from './SkillPanel';
 import { HAULING_SKILLS } from '../../lib/skills';
+import { useData } from '../../lib/store';
+import { useSkillIds } from './SkillPanel';
 
 const FLAG: Record<CourierFlag, { short: string; why: string }> = {
   endUnknown: {
@@ -58,6 +60,13 @@ const FLAG: Record<CourierFlag, { short: string; why: string }> = {
 const DEFAULTS: CourierLimits = { maxVolume: 55_000, maxCollateral: 500_000_000, minRewardPerJump: 500_000 };
 
 export function Courier() {
+  const d = useData();
+  // Cargo bonuses need skill IDs; the skills panel already resolves and caches them by name.
+  const skillIds = useSkillIds(HAULERS.flatMap((h) => (h.bonuses ?? []).flatMap((b) => b.anyOf)));
+  const levelOf = useCallback(
+    (name: string) => d.skills?.[skillIds[name] ?? -1] ?? 0,
+    [d.skills, skillIds],
+  );
   // What was fetched, kept separate from what it means. Judging happens at render against the
   // current limits, so changing your hauler re-reads the whole list instead of needing a rescan.
   const [raw, setRaw] = useState<{ c: CourierContract; start: Endpoint; end: Endpoint; jumps: number | null }[] | null>(null);
@@ -114,6 +123,13 @@ export function Courier() {
     [raw, limits],
   );
 
+  // Each hull at the capacity your skills actually give it.
+  const withSkills = useMemo(
+    () => HAULERS.map((h) => ({ ...h, ...effectiveCapacity(h, levelOf) })),
+    [levelOf],
+  );
+  const trained = withSkills.some((h) => h.from.length > 0);
+  const chosenBonus = withSkills.find((h) => h.m3 === limits.maxVolume)?.from ?? [];
   const trips = useMemo(() => roundTrips(rows), [rows]);
   const run = useMemo(() => tally(rows, 5), [rows]);
   const shown = rows.filter((v) => !safeOnly || v.safe);
@@ -140,13 +156,17 @@ export function Courier() {
           <div className="field">
             <label htmlFor="h-ship">What you haul in</label>
             <select
-              id="h-ship" value={HAULERS.some((h) => h.m3 === limits.maxVolume) ? limits.maxVolume : ''}
+              id="h-ship" value={withSkills.some((h) => h.m3 === limits.maxVolume) ? limits.maxVolume : ''}
               onChange={(e) => setLimits((l) => ({ ...l, maxVolume: Number(e.target.value) }))}
             >
-              {!HAULERS.some((h) => h.m3 === limits.maxVolume) && <option value="">Your own figure</option>}
-              {HAULERS.map((h) => <option key={h.name} value={h.m3}>{h.name} — {units(h.m3)} m³</option>)}
+              {!withSkills.some((h) => h.m3 === limits.maxVolume) && <option value="">Your own figure</option>}
+              {withSkills.map((h) => <option key={h.name} value={h.m3}>{h.name} — {units(h.m3)} m³</option>)}
             </select>
-            <span className="hint">Base hulls, from the game data</span>
+            <span className="hint">
+              {trained
+                ? 'Grown by your own skills, from the game data'
+                : 'Base hulls, from the game data'}
+            </span>
           </div>
           <div className="field">
             <label htmlFor="h-vol">Cargo you can actually carry (m³)</label>
@@ -157,7 +177,11 @@ export function Courier() {
                 setLimits((l) => ({ ...l, maxVolume: Number.isFinite(n) ? n : 0 }));
               }}
             />
-            <span className="hint">Expanders, rigs and skills move this a long way — your fitting window has the real number</span>
+            <span className="hint">
+              {chosenBonus.length
+                ? `Includes ${chosenBonus.map((b) => `${b.skill} ${b.level}`).join(' and ')}. Expanders and rigs add more.`
+                : 'Expanders, rigs and skills move this a long way — your fitting window has the real number'}
+            </span>
           </div>
           <div className="field">
             <label htmlFor="h-coll">Most collateral I’ll front</label>
