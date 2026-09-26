@@ -4,7 +4,7 @@ A station-trading tool for EVE Online's Jita 4-4. No server: React + TypeScript 
 IndexedDB, talking straight to ESI and EVE SSO. Deployed to GitHub Pages on every push to `main`.
 
 Pages: Calculator, Prospects (find items), Watchlist, Positions, Orders (which of mine are beaten),
-Inbox, Loyalty (spending LP), Omega, Settings.
+Inbox, Loyalty (spending LP), Side hustles (Abyssal / Hauling / Planets / Injectors), Omega, Settings.
 
 ## Working here
 
@@ -126,6 +126,18 @@ Don't re-derive or contradict these without new evidence.
   looks best on paper.
 - **Liquidity notes are judged on one run, never on the plan.** A capped plan fills the horizon by
   construction, so its length says nothing about the item.
+- **Abyssal returns come from the wallet, not from a drop table.** Filaments bought and abyssal loot
+  sold are both already in `txs`, so ISK-per-run is measured. It is pooled across tiers on purpose:
+  loot carries no record of the run it fell from, so a per-tier split would be a lie. `concentration`
+  reports how much of the mix is one filament, which is what makes the pooled figure trustworthy.
+- **Courier contracts are judged at render, not at fetch.** `judgeCourier` runs in a `useMemo` over
+  the current limits, so changing your hauler re-reads the list instead of needing a rescan. Fetching
+  and judging were fused once and the ship dropdown silently did nothing.
+- **A contract is only "safe" if both ends resolve, both are high-sec, and a secure route exists.**
+  All three, and an endpoint we couldn't resolve deliberately suppresses the `noSafeRoute` flag ---
+  claiming there's no route to a place we couldn't identify is a second, wrong story.
+- **PI separates what is known from what is assumed.** Planet locations are exact; income is
+  arithmetic on the extraction rate *you* read off the client. Never present the second as the first.
 
 ## Gotchas that have bitten
 
@@ -166,3 +178,9 @@ State these rather than letting them be discovered:
 - Jita 4-4 only. Orders elsewhere can't be judged and are counted out with a reason.
 - Loyalty prices only the best 40 offers against the live book; the rest of the table sits on a global
   average and is marked "rough price". Widening that is just more requests, not new logic.
+- Abyssal ISK-per-run only counts loot that has been **sold**. A good week looks flat until you list
+  the hangar, and filaments you looted rather than bought aren't counted as runs at all.
+- Hauling reads The Forge only. Contracts starting elsewhere are invisible, which is the right
+  default for someone sitting in Jita and the wrong one for a dedicated hauler.
+- A PI region scan is one request per planet (~610 for The Forge). Cached permanently since planet
+  types never change, but the first run on a region takes a minute.

@@ -5,6 +5,9 @@ import { priceUp, tickDown } from '../src/lib/tick.ts';
 import { dueForSync } from '../src/lib/schedule.ts';
 import { adviseRelist, byUrgency, weightedLevel, marketBest } from '../src/lib/relist.ts';
 import { valueOffer, byIskPerLp, patientPrice, instantPrice, daysToClear, planFor, notesFor, spendPlan } from '../src/lib/loyalty.ts';
+import { parseFilament, byTier, runsFrom, TIERS } from '../src/lib/abyssal.ts';
+import { judgeCourier, byRewardPerJump, byUsefulness } from '../src/lib/courier.ts';
+import { parsePlanetType, planetsFor, estimate, inBand, P0_PER_P1 } from '../src/lib/pi.ts';
 
 let failed = 0;
 const eq = (label, got, want) => {
@@ -645,6 +648,128 @@ eq('quantity counts against the allowance',
   spendPlan([{ ...cand(1, 10, 500, 1000, 500_000, 10), unitsAllowed: 25 }], 100_000)[0].runs, 2);
 // Not enough points for one run of anything.
 eq('too few points buys nothing', spendPlan([cand(1, 10, 500, 1000, 500_000)], 999).length, 0);
+
+console.log('\n--- telling a real filament from the junk in the same market group ---');
+eq('a plain filament parses', parseFilament(1, 'Raging Dark Filament').tier, 'Raging');
+eq('  and keeps its weather', parseFilament(1, 'Raging Dark Filament').weather, 'Dark');
+eq('  and knows where it sits on the ladder', parseFilament(1, 'Raging Dark Filament').tierIndex, TIERS.indexOf('Raging'));
+eq('the easiest tier is first', parseFilament(1, 'Tranquil Gamma Filament').tierIndex, 0);
+// The filament market groups also carry event leftovers and warp matrix filaments. None are runs.
+eq('expired event filaments are not runs', parseFilament(2, 'Expired Sinister Exotic Filament'), null);
+eq('warp matrix filaments are not runs', parseFilament(3, 'Expired Curious Warp Matrix Filament'), null);
+eq('jump filaments are not runs', parseFilament(4, 'Zarzakh Jump Filament'), null);
+eq('a made-up tier is rejected', parseFilament(5, 'Furious Dark Filament'), null);
+eq('a made-up weather is rejected', parseFilament(6, 'Raging Sunny Filament'), null);
+// Ladder order, then weather, so the table reads as a progression.
+const fl = (n) => parseFilament(1, n);
+eq('sorted by difficulty first', [fl('Cataclysmic Dark Filament'), fl('Calm Gamma Filament')].sort(byTier)[0].tier, 'Calm');
+
+console.log('\n--- what abyssal running actually paid, from the wallet ---');
+const FIL = new Map([[100, fl('Raging Dark Filament')], [101, fl('Calm Exotic Filament')]]);
+const LOOT = new Set([200, 201]);
+const T0 = Date.parse('2026-09-01T00:00:00Z');
+const tx = (typeId, isBuy, qty, unitPrice, day = 10) =>
+  ({ typeId, isBuy, qty, unitPrice, date: `2026-09-${String(day).padStart(2, '0')}T12:00:00Z` });
+let rs = runsFrom([
+  tx(100, true, 10, 1_700_000),        // ten runs bought
+  tx(200, false, 500, 40_000),         // loot sold
+], FIL, LOOT, T0, 0.02);
+eq('runs counted from filaments bought', rs.runs, 10);
+eq('filament spend totalled', rs.spentOnFilaments, 17_000_000);
+eq('loot proceeds are net of sales tax', rs.lootSold, 500 * 40_000 * 0.98);
+eq('profit is loot less filaments', rs.profit, 500 * 40_000 * 0.98 - 17_000_000);
+eq('and the number that matters is per run', rs.perRun, rs.profit / 10);
+// Selling a filament is not running one, and buying loot is not looting it.
+rs = runsFrom([tx(100, false, 5, 1_700_000), tx(200, true, 100, 40_000)], FIL, LOOT, T0, 0.02);
+eq('selling filaments is not a run', rs.runs, 0);
+eq('buying loot is not income', rs.lootSold, 0);
+eq('  so there is no per-run figure to give', rs.perRun, null);
+// Anything outside the window, or not abyssal at all, is none of this page's business.
+eq('older transactions are outside the window', runsFrom([tx(100, true, 10, 1_700_000, 1)], FIL, LOOT, Date.parse('2026-09-05T00:00:00Z'), 0.02).runs, 0);
+eq('unrelated items are ignored', runsFrom([tx(999, true, 10, 5), tx(998, false, 10, 5)], FIL, LOOT, T0, 0.02).runs, 0);
+// Loot cannot be traced to the run it fell from, so the figure is pooled --- and says how pooled.
+rs = runsFrom([tx(100, true, 90, 1_000_000), tx(101, true, 10, 70_000)], FIL, LOOT, T0, 0.02);
+eq('the dominant filament is named', rs.topFilament.tier, 'Raging');
+eq('  with its share of the runs', Math.round(rs.concentration * 100), 90);
+
+console.log('\n--- courier contracts: a job or a trap ---');
+const stn = (sec) => ({ kind: 'station', systemId: 30000142, security: sec, name: 'Somewhere' });
+const unknowable = { kind: 'structure', systemId: null, security: null, name: null };
+const job = {
+  contractId: 1, reward: 20_000_000, collateral: 100_000_000, volume: 300_000,
+  daysToComplete: 5, dateExpired: '2026-10-30T00:00:00Z', startId: 60003760, endId: 60000307, title: '',
+};
+const LIM = { maxVolume: 1_100_000, maxCollateral: 500_000_000, minRewardPerJump: 1_000_000 };
+const NOWC = Date.parse('2026-09-26T00:00:00Z');
+let cv = judgeCourier(job, stn(0.9), stn(0.8), 10, LIM, NOWC);
+eq('a clean high-sec haul is safe', cv.safe, true);
+eq('  and worth taking', cv.takeable, true);
+eq('  paid per jump', cv.rewardPerJump, 2_000_000);
+// The scam that costs people freighters: a destination you cannot even look up.
+cv = judgeCourier(job, stn(0.9), unknowable, 10, LIM, NOWC);
+has('an unresolvable destination is flagged', cv.flags, 'endUnknown');
+eq('  and that is never safe', cv.safe, false);
+// No high-sec route means the job cannot be done without leaving high-sec, whatever the endpoints say.
+cv = judgeCourier(job, stn(0.9), stn(0.8), null, LIM, NOWC);
+has('no secure route is flagged', cv.flags, 'noSafeRoute');
+eq('  and that is not a relaxing evening', cv.safe, false);
+has('a low-sec endpoint is flagged', judgeCourier(job, stn(0.9), stn(0.3), 10, LIM, NOWC).flags, 'lowsec');
+// An unresolvable endpoint is already the story; don't also claim there is no route.
+if (judgeCourier(job, stn(0.9), unknowable, null, LIM, NOWC).flags.includes('noSafeRoute')) {
+  failed++; console.log('  FAIL cannot judge the route to a place we could not resolve');
+}
+// Fronting a fortune to earn a little is a bad bargain even when honest.
+has('collateral dwarfing the reward is flagged',
+  judgeCourier({ ...job, collateral: 5_000_000_000 }, stn(0.9), stn(0.8), 10, LIM, NOWC).flags, 'collateralHeavy');
+has('  and over your own limit too',
+  judgeCourier({ ...job, collateral: 5_000_000_000 }, stn(0.9), stn(0.8), 10, LIM, NOWC).flags, 'collateralOverLimit');
+// Your hauler is the constraint the contract knows nothing about.
+has('cargo bigger than your ship is flagged',
+  judgeCourier(job, stn(0.9), stn(0.8), 10, { ...LIM, maxVolume: 62_000 }, NOWC).flags, 'tooBig');
+eq('  which makes it not takeable', judgeCourier(job, stn(0.9), stn(0.8), 10, { ...LIM, maxVolume: 62_000 }, NOWC).takeable, false);
+eq('  but not unsafe', judgeCourier(job, stn(0.9), stn(0.8), 10, { ...LIM, maxVolume: 62_000 }, NOWC).safe, true);
+has('a trip that pays too little is flagged',
+  judgeCourier({ ...job, reward: 500_000 }, stn(0.9), stn(0.8), 10, LIM, NOWC).flags, 'thinReward');
+// A day to cross twenty jumps in a freighter is a way to make you forfeit the collateral.
+has('an impossible deadline is flagged',
+  judgeCourier({ ...job, daysToComplete: 1 }, stn(0.9), stn(0.8), 20, LIM, NOWC).flags, 'rushed');
+has('one about to expire is flagged',
+  judgeCourier({ ...job, dateExpired: '2026-09-26T02:00:00Z' }, stn(0.9), stn(0.8), 10, LIM, NOWC).flags, 'expiringSoon');
+eq('best paid per jump ranks first',
+  [judgeCourier({ ...job, reward: 5_000_000 }, stn(0.9), stn(0.8), 10, LIM, NOWC),
+   judgeCourier(job, stn(0.9), stn(0.8), 10, LIM, NOWC)].sort(byRewardPerJump)[0].rewardPerJump, 2_000_000);
+
+// A job you can actually take beats a better-paid one you cannot.
+// Over the freighter limit, so it pays best and cannot be taken.
+const bigPay = judgeCourier({ ...job, reward: 500_000_000, volume: 1_500_000 }, stn(0.9), stn(0.8), 10, LIM, NOWC);
+const canDo = judgeCourier({ ...job, reward: 20_000_000, volume: 5_000 }, stn(0.9), stn(0.8), 10, LIM, NOWC);
+eq('the takeable job is listed first', [bigPay, canDo].sort(byUsefulness)[0].c.reward, 20_000_000);
+eq('  and the sort is still by pay within each group',
+  [canDo, judgeCourier({ ...job, reward: 40_000_000, volume: 5_000 }, stn(0.9), stn(0.8), 10, LIM, NOWC)]
+    .sort(byUsefulness)[0].c.reward, 40_000_000);
+
+console.log('\n--- planets ---');
+eq('ESI planet type names parse', parsePlanetType('Planet (Barren)'), 'Barren');
+eq('  including the shattered ones we do not want', parsePlanetType('Planet (Shattered)'), null);
+eq('  and anything else', parsePlanetType('Jita IV'), null);
+// Where do I go to make Plasmoids? Suspended Plasma planets, and only those.
+has('plasmoids come from lava', planetsFor('Plasmoids'), 'Lava');
+has('  and storm', planetsFor('Plasmoids'), 'Storm');
+has('  and plasma', planetsFor('Plasmoids'), 'Plasma');
+if (planetsFor('Plasmoids').includes('Ice')) { failed++; console.log('  FAIL ice planets do not yield suspended plasma'); }
+eq('an unknown product has no planets', planetsFor('Nanites').length, 0);
+eq('high-sec band', inBand(0.5, 'high'), true);
+eq('  0.45 is not high-sec', inBand(0.4, 'high'), false);
+eq('low-sec band', inBand(0.3, 'low'), true);
+eq('  and null is not low-sec', inBand(0.0, 'low'), false);
+// The income is arithmetic on YOUR extraction rate, not a forecast.
+let est = estimate(1000, 4, 100, 2000, 0.02, 0.01);
+eq('a day of extraction across four planets', est.p0PerDay, 1000 * 24 * 4);
+eq('refined into P1 at the schematic ratio', est.p1PerDay, (1000 * 24 * 4) / P0_PER_P1);
+eq('raw value is net of fees', est.p0Value, 96_000 * 100 * 0.97);
+eq('refining is worth it here', Math.round(est.uplift * 100) / 100, Math.round(((96_000 / P0_PER_P1) * 2000) / (96_000 * 100) * 100) / 100);
+eq('no planets, no income', estimate(1000, 0, 100, 2000, 0.02, 0.01).p0Value, 0);
+eq('an unpriced product is worth nothing rather than NaN', estimate(1000, 4, null, null, 0.02, 0.01).p1Value, 0);
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

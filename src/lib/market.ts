@@ -1,5 +1,5 @@
 import { get, set } from 'idb-keyval';
-import { esi } from './esi';
+import { esi, esiAllPages } from './esi';
 import { GLOBAL_PLEX_MARKET, JITA_44, PLEX_TYPE, THE_FORGE } from './config';
 import { cacheStore } from './store';
 import type { BookLevel, HistRow, MarketSnap } from './types';
@@ -196,4 +196,39 @@ export async function loyaltyPoints(characterId: number): Promise<{ corporationI
   );
   return data.map((d) => ({ corporationId: d.corporation_id, points: d.loyalty_points }))
     .sort((a, b) => b.points - a.points);
+}
+
+type RawGroup = { market_group_id: number; name: string; types?: number[]; parent_group_id?: number };
+
+/** One market group. Static data, so the browser cache is welcome to it. */
+export async function marketGroup(id: number): Promise<{ name: string; types: number[] }> {
+  const { data } = await esi<RawGroup>(`/markets/groups/${id}/`);
+  return { name: data.name, types: data.types ?? [] };
+}
+
+/**
+ * Every type in the given market groups.
+ *
+ * Reading the groups rather than keeping a list of type IDs means the sets stay right when CCP adds
+ * a filament, which they do. Only the named groups are fetched --- walking the whole tree would
+ * mean a request per market group in the game, which is two thousand of them.
+ */
+export async function groupTypes(ids: number[]): Promise<number[]> {
+  const groups = await Promise.all(ids.map((id) => marketGroup(id).catch(() => ({ name: '', types: [] as number[] }))));
+  return [...new Set(groups.flatMap((g) => g.types))];
+}
+
+/** Market groups holding the five abyssal weather filaments, and the loot they pay out in. */
+export const FILAMENT_GROUPS = [2457, 2458, 2459, 2460, 2461];
+export const ABYSSAL_MATERIALS_GROUP = 2479;
+
+export type RawContract = {
+  contract_id: number; type: string; reward?: number; collateral?: number; volume?: number;
+  days_to_complete?: number; date_expired: string; date_issued: string;
+  start_location_id?: number; end_location_id?: number; title?: string; price?: number;
+};
+
+/** Every public contract in a region. Public: no login needed. */
+export async function publicContracts(regionId: number): Promise<RawContract[]> {
+  return esiAllPages<RawContract>(`/contracts/public/${regionId}/`);
 }
