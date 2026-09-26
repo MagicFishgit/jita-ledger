@@ -2,6 +2,13 @@
 
 A station trading tool for Jita 4-4 that runs entirely in your browser and is hosted on GitHub Pages.
 
+- **Wallet** (the home page): where your ISK comes from and goes, drawn from the wallet journal's own
+  balance-after figure; net worth (wallet, sell orders, escrow, assets at CCP's rough prices, loyalty points);
+  the fee leak; trades no position tracks, sorted and correctable; goals, runway, running costs, ships lost and a
+  light check for unusual activity. A monthly CSV and a shareable image.
+- **Tonight's run**: everything worth doing now in one list — orders worth moving, sold-out positions, margin
+  squeezes, planetary programmes ending, trades your positions skipped, suspicious markets, an overdue backup —
+  biggest ISK first. N steps, Enter opens.
 - **Calculator**: profit per unit after broker fees and sales tax, break-even and target prices, with live Jita 4-4 prices and daily volume from ESI.
 - **Prospects**: finds items worth trading by sampling the Jita order book, then checking how often each one really
   changes hands. Anything that doesn't trade on most days is left out, however wide the margin. A **quick scan**
@@ -23,10 +30,18 @@ A station trading tool for Jita 4-4 that runs entirely in your browser and is ho
   Each column explains itself behind an “i”. ESI cannot place or change an order, and
   automating the client is a bannable offence, so this finds the work and you do the clicking.
 - **Watchlist**: compare items by spread, return, volume and a rough ISK-per-day estimate.
+- **Capital planner**: spreads the ISK you name across the Prospects list by return per day, never more than a
+  market can take in your horizon or your cap per item, two order slots each, flagged spreads left out.
+- **Hub arbitrage**: items dearer in Amarr, Dodixie, Rens or Hek than in Jita after both hubs' fees, with the haul
+  priced from a PushX quote you paste, your own jumps on the real route, or a courier reward (with the going rate
+  read from public contracts).
 - **Positions**: track an item you're trading from the first buy to the last sell, and when the stock is ready to go
   out, what to ask for it: the break-even price that covers what it cost you after fees, and a suggested price one
   step under the cheapest seller with what it would clear. Buys, sells, fees and tax are pulled from your wallet, so you can see what you actually made and how your prices compared with the market.
-- **Inbox**: trades that don't belong to any position, so personal purchases stay out of your trading results.
+- **Results**: what each activity made, each counted by one stated rule, and ISK per hour once you say how many
+  hours a week you spend on it.
+- **Loyalty**, **Side hustles** (Abyssal, Hauling, Planets, Injectors) and **Combat**: spending LP, the hustles a
+  trader can run beside the market, and your kills and losses priced on the day they happened.
 - **Omega**: what a month of Omega costs in PLEX, how much of it your wallet covers, whether your last 30 days of trading would pay for it, and Alpha and Omega fees side by side.
 
 There's no server. Your data lives in your browser's IndexedDB, and the app talks directly to ESI and EVE SSO.
@@ -59,6 +74,12 @@ At <https://developers.eveonline.com/> create an application:
   - `esi-characters.read_standings.v1`
   - `esi-ui.open_window.v1`
   - `esi-assets.read_assets.v1`
+  - `esi-characters.read_loyalty.v1`
+  - `esi-planets.manage_planets.v1`
+  - `esi-killmails.read_killmails.v1`
+
+  Settings lists every one with what it unlocks and what stops working without it. A scope added to the
+  application after you logged in is simply missing until you log out and in again.
 - **Callback URL**: `https://magicfishgit.github.io/jita-ledger/` (exactly, including the trailing slash)
 
 Copy the **Client ID**. You don't need the secret: the app logs in with PKCE, which is meant for apps that can't keep a secret.
@@ -92,7 +113,7 @@ A position is "I'm trading this item from this date". A trade counts towards it 
 - it was in Jita 4-4, unless you untick "Only count trades in Jita 4-4",
 - and you haven't excluded it.
 
-Everything else lands in the **Inbox**. From there you can mark a trade as personal, count it in an open position, or start a new position from it. If you buy an item you're trading for your own use, exclude that row in the position.
+Everything else appears on the **Wallet** under "Trades no position tracks", guessed as loot, personal, trading or other; click the tag to correct it, or start a position from the trade. If you buy an item you're trading for your own use, exclude that row in the position.
 
 Only one position per item can be open at a time. When everything has sold, close it to lock in the result, and start a new one next time you trade that item.
 
@@ -139,7 +160,7 @@ Fees depend on your clone state, because Alpha clones can't use some trade skill
   `esi-ui.open_window.v1`, purely so an item's market window can be opened in your client. Everything else works
   without it; log out and in again to enable the button, and add the scope to your application on
   <https://developers.eveonline.com/> as well. The button then appears anywhere an item is named — Prospects, the
-  Watchlist, Positions, the Calculator, the Inbox and Orders.
+  Watchlist, Positions, the Calculator and Orders.
 - **Opening an item in game can't bring the game forward.** A web page isn't allowed to focus another application,
   so the market window opens behind whatever you're looking at and you still switch to the client yourself. That's
   a browser rule rather than a gap in ESI; the tools that raise the EVE window are separate programs running on

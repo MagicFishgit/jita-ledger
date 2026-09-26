@@ -3,9 +3,16 @@
 A station-trading tool for EVE Online's Jita 4-4. No server: React + TypeScript + Vite, all state in
 IndexedDB, talking straight to ESI and EVE SSO. Deployed to GitHub Pages on every push to `main`.
 
-Pages: Calculator, Prospects (find items), Watchlist, Positions, Orders (which of mine are beaten),
-Inbox, Loyalty (spending LP), Side hustles (Abyssal / Hauling / Planets / Injectors), Omega, Settings.
+Pages: Wallet (home), Tonight's run, Calculator, Prospects (find items), Watchlist, Capital planner, Hub
+arbitrage, Positions, Orders (which of mine are beaten), Results, Loyalty (spending LP), Side hustles
+(Abyssal / Hauling / Planets / Injectors), Combat, Omega, Settings (tabbed: `settings/<tab>`). Inbox is gone:
+its job is the Wallet's "Trades no position tracks" table, and `#inbox` redirects to the Wallet.
 Planets is a four-step walkthrough and also reads your real colonies when the planets scope is granted.
+
+The look is the HUD redesign in `docs/Jita Ledger space console redesign/` (untracked, not committed):
+`Jita Ledger HUD.dc.html` is the source of truth for layout and copy, but **every number in it was invented
+by the design tool** — never copy a figure from it. Shared pieces live in `components/ui.tsx` (panels, tiles,
+Seg, Check, NumChip, Guide…), `components/charts.tsx` (inline SVG charts) and `components/shell/`.
 
 ## Working here
 
@@ -32,9 +39,13 @@ the evidence was. Long is fine.
 `scripts/check.mjs` runs modules directly through Node's type stripping.
 `scripts/resolve-ts.mjs` resolves the app's extensionless imports (`./tick`), which Node otherwise
 can't load. Modules importing `./config` still can't be tested this way — it reads `import.meta.env`.
+Plain constants (Jita's IDs, skill names, Alpha caps, Caldari Navy, PLEX) live in `constants.ts`, which
+`config.ts` re-exports; a pure module imports them from `./constants` so it stays testable.
 
 That split is deliberate and worth keeping: **pure rules in `prospects.ts` / `relist.ts` / `tick.ts` /
-`schedule.ts`, I/O in `scan.ts` / `market.ts` / `sync.ts`.**
+`schedule.ts` (and the redesign's `split` / `planner` / `arbitrage` / `wallet` / `combat` / `results` /
+`tonight` / `training` / `signals` / `alerts`), I/O in `scan.ts` / `market.ts` / `sync.ts` (and
+`orderCheck` / `watch` / `colonyStore` / `killmails` / `attribution` / `alertsRunner`).**
 
 ### Browser checks
 
@@ -45,6 +56,13 @@ to set up cases. Note `browser_navigate` to a URL differing only by `#hash` does
 Orders is behind an auth gate. Testing it means temporarily editing `{!auth ? (` to `{false && !auth ? (`.
 **Always revert and grep to confirm** before committing — this was clobbered once by restoring a stale
 backup, losing unrelated work.
+
+The page scrolls inside `.content`, not the document, so a `fullPage` screenshot shows only the viewport:
+set `document.querySelector('.content').scrollTop` and shoot again, or resize the viewport tall. Page changes
+animate, so wait a second before a screenshot or it catches the warp mid-flight. For a data-heavy check, build
+a synthetic ledger (journal *with balances assigned in date order*, txs, orders, stock, killmails), serve it
+from `.playwright-mcp/` (Vite serves it; the folder is gitignored), `put` it into the `kv` store and reload —
+and back up the real store first and restore it after (`clear()` then `put`, or seeded-only keys linger).
 
 ## EVE facts that cost real research
 
@@ -126,6 +144,23 @@ Don't re-derive or contradict these without new evidence.
   `factory_details` a factory, anything else that holds things is storage. No list to go stale.
 - **`qty_per_cycle` is not a flat rate.** Real extraction decays across a programme, so the per-hour
   figure derived from it is the top of the range. Say so rather than presenting it as steady.
+- **`/universe/ids/` will not resolve Amarr's trade station by name** ("Amarr VIII (Oris) - Emperor Family
+  Academy" comes back missing while Dodixie, Rens and Hek resolve), so `HUBS` holds station IDs, each checked
+  against `/universe/stations/{id}/`: Amarr 60008494, Dodixie 60011866, Rens 60004588, Hek 60005686. NPC
+  station IDs don't change; this is not the skill-name situation.
+- **`/universe/names/` rejects the whole batch if one ID is bad.** `useEnsureNames` falls back to one
+  `/universe/types/{id}/` per type when that happens, or the batch stays "Item #…" for good.
+- **Planetary goods are market groups 1333–1337** (Raw, Processed, Refined, Specialized, Advanced: 15, 15,
+  24, 21 and 8 types, checked against ESI). 1332 is the parent and lists no types itself.
+- **A blueprint copy shares its type ID with the original**, so any price for it is the original's: one
+  battleship BPC reads as billions. `is_blueprint_copy` assets are left out of every stock count; copies
+  can't be sold on the market anyway.
+- **Some busy items really do trade in a 0.1–1% daily range.** Hammerhead II's ESI history shows
+  (high − low) / average of 0.13% to 1.3% on most days. A squeeze warning on such an item is correct, not a bug.
+- **A market_transaction journal entry's `context_id` is the transaction ID**, which is how the Wallet names
+  the item behind a balance jump. Buy orders are escrowed when placed (`market_escrow`), so money in and out is
+  read from transactions for trades and the two market ref_types are left out of the categories — counting both
+  doubles every purchase.
 - **Hauler capacities are read from ESI, not remembered.** A Charon holds **465,000** m³, not the
   1,100,000 once written here — that was an expanded fit passed off as the hull, and it would send
   someone to a contract they cannot pick up. For hulls with a fleet hangar the usable figure is cargo
@@ -220,6 +255,27 @@ Don't re-derive or contradict these without new evidence.
   it. Told to sell raw, the build guide drops the factories and draws extractor straight to
   launchpad. Refining currently ranges 0.76×–1.57× across the products, so the answer genuinely
   differs per product and moves with the market.
+- **Every figure the redesign added is read, derived, or asked for — never invented.** The buy/sell split comes
+  from where each day's average sits between its low and high; training time from dogma and attributes; the
+  PushX cost, delivery days, hours spent per activity, Omega pack prices (only the 1-month 500 PLEX is assumed)
+  and gank lines are the user's to enter, and a blank one shows as "–" rather than a stand-in. The rule
+  thresholds that remain (competition pivot 60 orders, share clamped 0.3–1.5×, wall 50%, escrow 10% over the
+  30-day high, spike 5× volume and 10% price, relist fee charged on half the order) are named constants stated
+  in the copy.
+- **Pages that need the same live answer share one store**: `orderCheck` (your orders against the book),
+  `watch` (squeeze and scam signals), `colonyStore` and the killmail pricer. Orders, Tonight's run and the
+  alerts all read `orderCheck` rather than fetching the same books three times.
+- **Killmails are priced once, from market history on the day, and never re-priced.** A loss in March cost
+  March's prices. Refits use today's Jita book because that is what you'd pay now; the two are shown side by side.
+- **Results attributes each ISK movement by one stated rule** (`attribute` in `results.ts`): positions' realized
+  profit, filaments against abyssal loot, PI goods less customs, LP-store goods less the store's ISK, courier
+  rewards, bounties; ships lost charged to the activity they died in. A trade a position counts is always
+  trading, and an item in no set is left out rather than guessed at.
+- **Net worth keeps one snapshot a day in this browser** (`Data.netWorth`), written by the Wallet page. ESI has no
+  net-worth history, so the trend starts the first day the page is opened and says so.
+- **Alerts run only while a tab is open.** A web page can't watch anything once it is closed; Settings says so.
+  They reuse the pages' checks, respect quiet hours and don't repeat a finding within six hours.
+- **No chart library.** Charts are inline SVG in the theme tokens (`charts.tsx`); recharts was removed.
 - **Diagrams are authored as inline SVG, not fetched.** A hosted image means someone else's server on
   every load, a licence to honour and a broken box the day it moves. Inline SVG inherits the theme
   tokens, stays sharp at any size and costs no request.
@@ -243,6 +299,10 @@ Don't re-derive or contradict these without new evidence.
   went missing exactly this way — one anchor in this file moved and everything chaining off it
   cascaded — and it was caught only by grepping for the phrases afterwards. Use the Edit tool, or
   `assert anchor in s` before every replace, and grep for what you added once it is written.
+- **A global CSS rule on a shared class reaches pages you aren't looking at.** `.chip` becoming
+  `inline-flex`, `.kv .v` gaining `nowrap` and `.empty svg` (which enlarged every icon inside an empty state's
+  button until narrowed to `.empty > svg`) all changed pages other than the one being built. Re-shoot the
+  Calculator, Prospects and a settings tab after touching `styles.css`.
 - **`SCOPE_INFO` in `config.ts` is the single answer to "what do I need to enable".** Settings lists
   every scope, its exact ESI name, what it unlocks and what breaks without it, logged in or not ---
   a scope registered on the application but granted before it was added is simply absent, with no
@@ -250,16 +310,16 @@ Don't re-derive or contradict these without new evidence.
 
 ## Known bugs, unfixed
 
-Found by an adversarial review and verified real; none are fixed yet.
+Found by an adversarial review and verified real.
 
-- Overlapping positions on the same item **double-count** the all-positions totals.
+- Overlapping positions on the same item **double-count** the all-positions totals (and so the Wallet's
+  trading profit and Results' trading line).
 - Sells with no matching buys are costed at their own sell price, reporting exactly zero profit.
-- `clearAll` doesn't abort an in-flight sync, which then rewrites the data just wiped.
-- `importAll` replaces trades and positions wholesale with no confirmation.
 - Broker fees are dropped for orders issued before a position's start date, though their fills count.
-- "Stock if sold now" freezes its market price at mount while labelling it today's.
-- `computePosition` rebuilds the whole journal index once per position — worth fixing before the
-  journal gets large.
+
+Fixed with the redesign: `clearAll` bumps a generation that an in-flight sync checks before writing;
+importing a backup confirms and says what it replaces; "stock if sold now" re-reads the market every five
+minutes; the journal index is cached per journal version instead of rebuilt per position.
 
 That review's verification pass was cut short, so this list is what survived, not a full audit.
 
@@ -287,3 +347,15 @@ State these rather than letting them be discovered:
   hulls and the figure stays editable.
 - The colony panel's rendering of live data is **unverified**: it needs the planets scope and a
   character with planets. Its logic is unit-tested; the screen has never been seen with real data.
+- **The buy/sell split is a heuristic.** Where a day's average sits between its low and high says roughly how
+  much traded at the ask, not exactly. It is shown as an estimate and falls back to 50/50 without history.
+- **Net worth values assets at CCP's rough global average**, which flatters anything hard to sell, and its
+  trend exists only from the first day the Wallet page was opened in this browser.
+- **Results leaves out any trade whose item belongs to no activity set**, and counts LP-store goods as loyalty
+  income only for the stores you currently hold points with.
+- **Hub arbitrage reads selling speed from the hub's whole region**, which is mostly but not only the hub.
+  It prices about 40 candidates (the busiest from the last scan, plus positions and watchlist) — not the market.
+- **Combat's "Does PvP pay?" is a ceiling**: everything that dropped from your kills, whether or not you looted
+  it, against what PvP cost you.
+- **The Wallet's unusual-activity check is a prompt, not a detector**: new donors, large donations out, and big
+  contracts at hours with under 2% of your journal activity.
