@@ -6,8 +6,10 @@ import { dueForSync } from '../src/lib/schedule.ts';
 import { adviseRelist, byUrgency, weightedLevel, marketBest } from '../src/lib/relist.ts';
 import { valueOffer, byIskPerLp, patientPrice, instantPrice, daysToClear, planFor, notesFor, spendPlan } from '../src/lib/loyalty.ts';
 import { parseFilament, byTier, runsFrom, TIERS } from '../src/lib/abyssal.ts';
-import { judgeCourier, byRewardPerJump, byUsefulness } from '../src/lib/courier.ts';
+import { judgeCourier, byRewardPerJump, byUsefulness, roundTrips, tally } from '../src/lib/courier.ts';
 import { parsePlanetType, planetsFor, estimate, inBand, P0_PER_P1 } from '../src/lib/pi.ts';
+import { check, byUrgency as bySkillUrgency, readiness, injectorYield, SP_FLOOR } from '../src/lib/skills.ts';
+import { iskPerHour, RUN_MINUTES } from '../src/lib/abyssal.ts';
 
 let failed = 0;
 const eq = (label, got, want) => {
@@ -770,6 +772,70 @@ eq('raw value is net of fees', est.p0Value, 96_000 * 100 * 0.97);
 eq('refining is worth it here', Math.round(est.uplift * 100) / 100, Math.round(((96_000 / P0_PER_P1) * 2000) / (96_000 * 100) * 100) / 100);
 eq('no planets, no income', estimate(1000, 0, 100, 2000, 0.02, 0.01).p0Value, 0);
 eq('an unpriced product is worth nothing rather than NaN', estimate(1000, 4, null, null, 0.02, 0.01).p1Value, 0);
+
+console.log('\n--- do you have the skills for it ---');
+const need = { name: 'Evasive Maneuvering', level: 4, why: 'align time' };
+eq('trained to the level asked', check(need, 3453, { 3453: 4 }).status, 'met');
+eq('trained past it is still met', check(need, 3453, { 3453: 5 }).status, 'met');
+eq('part way there', check(need, 3453, { 3453: 2 }).status, 'partial');
+eq('not trained at all', check(need, 3453, { 3453: 0 }).status, 'missing');
+eq('absent from the map is not trained', check(need, 3453, {}).status, 'missing');
+// Not logged in, or the skill name no longer resolves: say so rather than claiming it is missing.
+eq('no skills read yet is unknown', check(need, 3453, undefined).status, 'unknown');
+eq('an unresolvable skill name is unknown', check(need, null, { 3453: 5 }).status, 'unknown');
+// The next thing to train should be the biggest gap among the ones that are not optional.
+const ck = (name, level, have, optional) => check({ name, level, why: '', optional }, 1, have === null ? undefined : { 1: have });
+const ordered = [
+  { ...ck('Done', 4, 5) }, { ...ck('Small gap', 4, 3) }, { ...ck('Big gap', 5, 0) }, { ...ck('Optional gap', 5, 0, true) },
+].sort(bySkillUrgency);
+eq('the biggest shortfall comes first', ordered[0].name, 'Big gap');
+eq('  then the smaller one', ordered[1].name, 'Small gap');
+eq('  optional gaps rank below needed ones', ordered[2].name, 'Optional gap');
+eq('  and what is done sinks to the bottom', ordered[3].name, 'Done');
+// "Ready" means the needed ones, not every last optional.
+eq('optional gaps do not block readiness', readiness([ck('a', 4, 4), ck('b', 4, 0, true)]).core, true);
+eq('a needed gap does', readiness([ck('a', 4, 1), ck('b', 4, 4)]).core, false);
+eq('and nothing needed at all is not "ready"', readiness([ck('b', 4, 0, true)]).core, false);
+
+console.log('\n--- an injector is worth less the more you already know ---');
+eq('a new character gets the lot', injectorYield(1_000_000), 500_000);
+eq('past five million it drops', injectorYield(20_000_000), 400_000);
+eq('past fifty million it drops again', injectorYield(60_000_000), 300_000);
+eq('and a veteran gets the least', injectorYield(120_000_000), 150_000);
+// Boundaries are exact: at exactly five million you are already in the lower band.
+eq('the boundary belongs to the band above', injectorYield(SP_FLOOR), 400_000);
+
+console.log('\n--- putting the hustles on the same footing ---');
+eq('a run an hour is the per-run figure', iskPerHour(50_000_000, 60), 50_000_000);
+eq('three runs an hour is three times it', iskPerHour(50_000_000, 20), 150_000_000);
+eq('a pace of nothing is not infinite money', iskPerHour(50_000_000, 0), 0);
+if (!(RUN_MINUTES.Cataclysmic > RUN_MINUTES.Calm)) { failed++; console.log('  FAIL harder tiers should take longer'); }
+
+console.log('\n--- not flying home empty ---');
+const leg = (id, fromSys, toSys, reward, takeable = true) => ({
+  c: { contractId: id, reward, collateral: 0, volume: 1000, daysToComplete: 5, dateExpired: '2026-10-30T00:00:00Z', startId: 1, endId: 2, title: '' },
+  start: { kind: 'station', systemId: fromSys, security: 0.9, name: `S${fromSys}` },
+  end: { kind: 'station', systemId: toSys, security: 0.9, name: `S${toSys}` },
+  jumps: 5, rewardPerJump: reward / 5, rewardPerM3: 1, collateralRatio: 0, flags: [], safe: true, takeable,
+});
+let rt = roundTrips([leg(1, 100, 200, 10_000_000), leg(2, 200, 100, 8_000_000)]);
+eq('a job out and one back is a round trip', rt.length, 1);
+eq('  paying both rewards', rt[0].reward, 18_000_000);
+eq('  over both legs of jumps', rt[0].jumps, 10);
+// Two legs in the same direction are not a round trip.
+eq('same direction is not a round trip', roundTrips([leg(1, 100, 200, 10), leg(2, 100, 200, 10)]).length, 0);
+// A contract you cannot take is not half of a plan.
+eq('an untakeable leg is not paired', roundTrips([leg(1, 100, 200, 10), leg(2, 200, 100, 10, false)]).length, 0);
+// One contract cannot be both legs of two different trips.
+rt = roundTrips([leg(1, 100, 200, 10), leg(2, 200, 100, 10), leg(3, 200, 100, 10)]);
+eq('a contract is used once', rt.length, 1);
+
+console.log('\n--- what a run of the best jobs comes to ---');
+const t = tally([leg(1, 100, 200, 10_000_000), leg(2, 200, 300, 5_000_000), leg(3, 300, 400, 1_000_000, false)], 5);
+eq('only the ones you can take', t.count, 2);
+eq('rewards added up', t.reward, 15_000_000);
+eq('jumps added up', t.jumps, 10);
+eq('and it stops at the number asked for', tally([leg(1, 1, 2, 10), leg(2, 2, 3, 10), leg(3, 3, 4, 10)], 2).count, 2);
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

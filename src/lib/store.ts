@@ -17,10 +17,12 @@ export type Data = {
   names: Record<number, string>;
   ignored: string[];
   stock?: Stock;
+  /** Every skill the character has trained, by skill type ID. Used well beyond the trade skills. */
+  skills?: Record<number, number>;
   meta: Meta;
 };
 type Key = keyof Data;
-const KEYS: Key[] = ['settings', 'txs', 'journal', 'orders', 'positions', 'watchlist', 'names', 'ignored', 'stock', 'meta'];
+const KEYS: Key[] = ['settings', 'txs', 'journal', 'orders', 'positions', 'watchlist', 'names', 'ignored', 'stock', 'skills', 'meta'];
 
 const idb = createStore('jita-ledger', 'kv');
 export const cacheStore = createStore('jita-ledger-cache', 'kv');

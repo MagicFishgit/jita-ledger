@@ -143,6 +143,9 @@ export async function scanPlanets(
   return out;
 }
 
+/** Jita, for working out how far a system is from home. */
+export const JITA_SYSTEM = 30000142;
+
 /** Regions a Jita trader can reach without a long trip. */
 export const NEAR_JITA: { id: number; name: string }[] = [
   { id: 10000002, name: 'The Forge' },

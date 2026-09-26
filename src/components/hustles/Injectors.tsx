@@ -6,6 +6,8 @@ import { marketBest } from '../../lib/relist';
 import { tickDown, tickUp } from '../../lib/tick';
 import { useData } from '../../lib/store';
 import { Explain, OpenInGame } from '../common';
+import { SkillPanel } from './SkillPanel';
+import { INJECTOR_YIELD, SP_FLOOR, TRADE_SKILLS } from '../../lib/skills';
 
 /**
  * Extractor to injector: the trade a station trader can do without leaving the station.
@@ -63,6 +65,9 @@ export function Injectors() {
   // Taking both sides immediately: hit the ask to buy, hit the bid to sell. No broker fee either way.
   const nowUnit = ext?.sell != null && inj?.buy != null ? inj.buy * (1 - r.t) - ext.sell : null;
   const capital = buyAt != null ? buyAt * (1 + r.f) * qty : null;
+  // ESI reports total skill points directly. Adding up levels would not work: the points a level
+  // costs depend on the skill's rank, which the skills endpoint doesn't carry.
+  const totalSp = d.meta.totalSp ?? null;
 
   return (
     <>
@@ -194,8 +199,57 @@ export function Injectors() {
               </p>
             )}
           </div>
+
+          <div className="card" style={{ marginBottom: 20 }}>
+            <h2 style={{ margin: '0 0 6px', fontSize: '1.05rem' }}>
+              What an injector is worth to whoever buys it
+              <Explain term="What an injector is worth to whoever buys it">
+                An injector gives fewer skill points the more the buyer already has. That is why the
+                price does not simply track the point count, and why the market for them is steadier
+                than you would expect — the people paying most are the ones getting least.
+              </Explain>
+            </h2>
+            <div className="table-wrap">
+              <table className="data">
+                <thead><tr><th scope="col">Buyer’s skill points</th><th scope="col">Points one injector gives</th><th scope="col">ISK per point they pay</th></tr></thead>
+                <tbody>
+                  {INJECTOR_YIELD.map((t, i) => {
+                    const from = i === 0 ? 0 : INJECTOR_YIELD[i - 1].upTo;
+                    return (
+                      <tr key={t.points}>
+                        <td className="name">
+                          {Number.isFinite(t.upTo) ? `${units(from)} to ${units(t.upTo)}` : `Over ${units(from)}`}
+                        </td>
+                        <td>{units(t.points)}</td>
+                        <td>{inj?.sell ? isk(inj.sell / t.points) : <span className="muted">–</span>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="small muted" style={{ margin: '12px 0 0' }}>
+              You cannot extract below {units(SP_FLOOR)} skill points, so the first {units(SP_FLOOR)} are
+              not yours to sell.
+              {totalSp != null && (
+                totalSp > SP_FLOOR
+                  ? <> You have about <strong>{units(Math.round(totalSp))}</strong> trained, which is{' '}
+                    <strong className="pos">{units(Math.floor((totalSp - SP_FLOOR) / 500_000))}</strong> extractions’
+                    worth above the floor{perUnit != null && <> — about {iskBig(Math.floor((totalSp - SP_FLOOR) / 500_000) * perUnit)} if you sold every one</>}.
+                    Whether that is a good idea is another matter: those points took time you cannot buy back.</>
+                  : <> You have about <strong>{units(Math.round(totalSp))}</strong> trained, which is below the
+                    floor, so there is nothing to extract yet.</>
+              )}
+            </p>
+          </div>
         </>
       )}
+
+      <SkillPanel
+        title="Skills this wants"
+        needs={TRADE_SKILLS}
+        note="Nothing is needed to use an extractor or an injector. These are the trading skills that decide what the spread is worth once fees come off, and how many of these you can have working at once."
+      />
     </>
   );
 }

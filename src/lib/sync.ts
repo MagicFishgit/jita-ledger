@@ -116,14 +116,19 @@ export async function syncCharacter(): Promise<void> {
     const metaPatch: Partial<Meta> = { skillIds, npcIds };
     /** Only the settings the character owns. Everything else the user controls and we must not touch. */
     let fromChar: Partial<Settings> | null = null;
+    let allSkills: Record<number, number> | null = null;
 
     if (d.settings.fromCharacter) {
       const s: Partial<Settings> = {};
       if (hasScope(SKILLS)) {
         setState({ message: 'Reading skills…' });
-        const { data } = await esi<{ skills: RawSkill[] }>(`/characters/${cid}/skills/`, { auth: true });
+        const { data } = await esi<{ skills: RawSkill[]; total_sp?: number }>(`/characters/${cid}/skills/`, { auth: true });
         // Store trained levels; Alpha caps are applied when rates are worked out.
         for (const k of SKILL_KEYS) s[k] = data.skills.find((x) => x.skill_id === skillIds[k])?.trained_skill_level ?? 0;
+        // Keep the lot. The side hustles ask about hauling, planets and tanking skills, and this
+        // response already holds every one of them --- fetching it again per page would be silly.
+        allSkills = Object.fromEntries(data.skills.map((x) => [x.skill_id, x.trained_skill_level]));
+        if (data.total_sp != null) metaPatch.totalSp = data.total_sp;
         const clone = detectClone(data.skills, skillIds);
         if (clone) { s.clone = clone; metaPatch.cloneDetected = clone; }
       }
@@ -235,6 +240,7 @@ export async function syncCharacter(): Promise<void> {
       if (fetched.journal) p.journal = { ...cur.journal, ...fetched.journal };
       if (fetched.orders) p.orders = { ...cur.orders, ...fetched.orders };
       if (fetched.names) p.names = { ...cur.names, ...fetched.names };
+      if (allSkills) p.skills = allSkills;
       // Replaced wholesale, not merged: it is a snapshot of what you hold right now.
       if (fetched.stock) p.stock = fetched.stock;
       if (fromChar) p.settings = sanitizeSettings({ ...cur.settings, ...fromChar });

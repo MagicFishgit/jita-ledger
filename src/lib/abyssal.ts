@@ -135,6 +135,24 @@ export function runsFrom(
   };
 }
 
+/**
+ * Roughly how long a pocket takes, by tier, in minutes.
+ *
+ * Every abyssal pocket has a hard twenty-minute timer per room and three rooms, so the ceiling is
+ * fixed by the game rather than estimated; what varies is how fast you clear. These are starting
+ * figures the page lets you change --- the point is to put every hustle on the same ISK-per-hour
+ * footing, not to predict your clear speed.
+ */
+export const RUN_MINUTES: Record<Tier, number> = {
+  Tranquil: 12, Calm: 12, Agitated: 14, Fierce: 16, Raging: 18, Chaotic: 20, Cataclysmic: 22,
+};
+
+/** What the measured return per run works out to per hour at a given pace. */
+export function iskPerHour(perRun: number, minutesPerRun: number): number {
+  if (minutesPerRun <= 0) return 0;
+  return perRun * (60 / minutesPerRun);
+}
+
 /** Links worth having open beside the game. Kept short: these are the ones people actually use. */
 export const ABYSSAL_LINKS: { href: string; title: string; what: string }[] = [
   {

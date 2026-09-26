@@ -145,6 +145,8 @@ export type ProspectFilters = {
 
 
 export type Meta = {
+  /** Total trained skill points, as ESI reports it. Levels alone can't give this: it depends on each skill's rank. */
+  totalSp?: number;
   lastSync?: string;
   lastSyncError?: string;
   syncedCharacterId?: number;

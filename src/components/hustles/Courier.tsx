@@ -1,12 +1,15 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
-  byUsefulness, HAULERS, judgeCourier, UNSAFE,
+  byUsefulness, HAULERS, judgeCourier, roundTrips, tally, UNSAFE,
   type CourierContract, type CourierFlag, type CourierLimits, type Endpoint,
 } from '../../lib/courier';
 import { iskBig, plainNum, units } from '../../lib/format';
+import { Explain } from '../common';
 import { publicContracts } from '../../lib/market';
 import { endpoint, secureJumps } from '../../lib/universe';
 import { THE_FORGE } from '../../lib/config';
+import { SkillPanel } from './SkillPanel';
+import { HAULING_SKILLS } from '../../lib/skills';
 
 const FLAG: Record<CourierFlag, { short: string; why: string }> = {
   endUnknown: {
@@ -110,6 +113,8 @@ export function Courier() {
     [raw, limits],
   );
 
+  const trips = useMemo(() => roundTrips(rows), [rows]);
+  const run = useMemo(() => tally(rows, 5), [rows]);
   const shown = rows.filter((v) => !safeOnly || v.safe);
   const unsafeCount = rows.filter((v) => !v.safe).length;
 
@@ -193,6 +198,42 @@ export function Courier() {
             {' '}<strong>{units(shown.filter((v) => v.takeable).length)}</strong> are ones you could leave with now,
             and those are listed first.
           </p>
+          {(trips.length > 0 || run.count > 1) && (
+            <div className="card" style={{ marginBottom: 20 }}>
+              {run.count > 1 && (
+                <p className="small" style={{ margin: '0 0 10px' }}>
+                  Taking the best <strong>{run.count}</strong> you can carry pays{' '}
+                  <strong className="pos">{iskBig(run.reward)}</strong> over {units(run.jumps)} jumps
+                  {run.collateral > 0 && <> and ties up {iskBig(run.collateral)} of collateral while you fly them</>}.
+                </p>
+              )}
+              {trips.length > 0 && (
+                <>
+                  <h2 style={{ margin: '0 0 4px', fontSize: '1.05rem' }}>
+                    Don’t fly home empty
+                    <Explain term="Don’t fly home empty">
+                      A job going out and another coming straight back to where you started. The return
+                      jumps are ones you were making anyway, so the second reward is close to free.
+                      Matched on the system rather than the station — a different station in the same
+                      system is an undock, not a trip.
+                    </Explain>
+                  </h2>
+                  <ol className="plan">
+                    {trips.slice(0, 4).map((t) => (
+                      <li key={t.out.c.contractId}>
+                        <strong>{t.out.start.name?.split(' - ')[0] ?? '?'} ⇄ {t.out.end.name?.split(' - ')[0] ?? '?'}</strong>
+                        <span className="muted small">
+                          {' '}— {iskBig(t.out.c.reward)} out, {iskBig(t.back.c.reward)} back,{' '}
+                          <strong className="pos">{iskBig(t.reward)}</strong> for {units(t.jumps)} jumps
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              )}
+            </div>
+          )}
+
           <div className="table-wrap">
             <table className="data wide">
               <thead>
@@ -236,6 +277,12 @@ export function Courier() {
           </div>
         </>
       )}
+
+      <SkillPanel
+        title="Skills this wants"
+        needs={HAULING_SKILLS}
+        note="Evasive Maneuvering is the one to train first and the one people skip. Align time is what decides whether a gank has time to land, and it costs nothing to fly a ship that aligns quickly."
+      />
     </>
   );
 }

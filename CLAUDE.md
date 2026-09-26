@@ -138,6 +138,14 @@ Don't re-derive or contradict these without new evidence.
   claiming there's no route to a place we couldn't identify is a second, wrong story.
 - **PI separates what is known from what is assumed.** Planet locations are exact; income is
   arithmetic on the extraction rate *you* read off the client. Never present the second as the first.
+- **The whole skill map is synced, not just the seven trade skills.** `Data.skills` holds every
+  trained level, because the hustle pages ask about hauling, tanking and planet skills and the
+  skills response already contains all of them.
+- **Interplanetary Consolidation fills in the PI planet count** (one, plus one per level) until the
+  user types over it. A skill that exactly determines a field should populate that field.
+- **Abyssal loot is recognised by market group *and* by name**, and any type you have traded that
+  this browser cannot name gets resolved first. Without that step a mutaplasmid sale was silently
+  dropped from the return figures --- caught only by seeding a transaction and counting the items.
 
 ## Gotchas that have bitten
 

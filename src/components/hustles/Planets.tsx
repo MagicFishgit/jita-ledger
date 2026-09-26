@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   estimate, HIGHSEC_TAX_NOTE, inBand, P0_PER_P1, P0_TO_P1, PI_LINKS, planetsFor,
   PLANET_RESOURCES, PLANET_TYPES, type Band, type PiPlanet, type PlanetType,
@@ -7,9 +7,11 @@ import { rates } from '../../lib/fees';
 import { iskBig, isk, plainNum, units } from '../../lib/format';
 import { jitaBook, resolveIds } from '../../lib/market';
 import { marketBest } from '../../lib/relist';
-import { NEAR_JITA, scanPlanets } from '../../lib/universe';
+import { JITA_SYSTEM, NEAR_JITA, scanPlanets, secureJumps } from '../../lib/universe';
 import { useData } from '../../lib/store';
 import { Explain } from '../common';
+import { SkillPanel } from './SkillPanel';
+import { PI_SKILLS } from '../../lib/skills';
 
 const P1S = [...new Set(Object.values(P0_TO_P1))].sort();
 
@@ -25,7 +27,15 @@ export function Planets() {
   const [err, setErr] = useState<string | null>(null);
   const [rate, setRate] = useState(1000);
   const [count, setCount] = useState(4);
+  const [countTouched, setCountTouched] = useState(false);
+  const [jumps, setJumps] = useState<Record<number, number | null>>({});
   const [prices, setPrices] = useState<{ p0: number | null; p1: number | null } | null>(null);
+
+  // Interplanetary Consolidation is exactly "one planet, plus one per level", so the field starts at
+  // what you can actually run rather than at a number pulled from the air. Typing over it wins.
+  const consolidation = d.skills?.[2495];
+  const canRun = consolidation == null ? null : 1 + consolidation;
+  useEffect(() => { if (!countTouched && canRun != null) setCount(canRun); }, [canRun, countTouched]);
 
   const p0 = useMemo(() => Object.entries(P0_TO_P1).find(([, v]) => v === product)?.[0] ?? '', [product]);
   const wanted = useMemo(() => planetsFor(product), [product]);
@@ -64,14 +74,30 @@ export function Planets() {
   const est = estimate(rate, count, prices?.p0 ?? null, prices?.p1 ?? null, r.t, r.f);
   const matching = (planets ?? []).filter((p) => wanted.includes(p.type));
   const bySystem = useMemo(() => {
-    const m = new Map<string, { security: number; types: Map<PlanetType, number> }>();
+    const m = new Map<string, { security: number; systemId: number; types: Map<PlanetType, number> }>();
     for (const p of matching) {
-      const e = m.get(p.systemName) ?? { security: p.security, types: new Map() };
+      const e = m.get(p.systemName) ?? { security: p.security, systemId: p.systemId, types: new Map() };
       e.types.set(p.type, (e.types.get(p.type) ?? 0) + 1);
       m.set(p.systemName, e);
     }
     return [...m.entries()].sort((a, b) => b[1].security - a[1].security || a[0].localeCompare(b[0]));
   }, [matching]);
+
+  // How far each candidate is from home. You have to haul the output to Jita to sell it, and a
+  // 0.9 system twelve jumps out is a worse place to put a command centre than a 0.6 next door.
+  useEffect(() => {
+    const need = bySystem.map(([, e]) => e.systemId).filter((id) => !(id in jumps)).slice(0, 40);
+    if (!need.length) return;
+    let alive = true;
+    (async () => {
+      for (const id of need) {
+        const j = await secureJumps(JITA_SYSTEM, id).catch(() => null);
+        if (!alive) return;
+        setJumps((cur) => ({ ...cur, [id]: j }));
+      }
+    })();
+    return () => { alive = false; };
+  }, [bySystem, jumps]);
 
   return (
     <>
@@ -150,9 +176,13 @@ export function Planets() {
             <label htmlFor="pi-count">Planets</label>
             <input
               id="pi-count" type="text" inputMode="numeric" value={plainNum(count)}
-              onChange={(e) => { const n = parseFloat(e.target.value.replace(/[^0-9.]/g, '')); setCount(Number.isFinite(n) ? n : 0); }}
+              onChange={(e) => { setCountTouched(true); const n = parseFloat(e.target.value.replace(/[^0-9.]/g, '')); setCount(Number.isFinite(n) ? n : 0); }}
             />
-            <span className="hint">Command centre skills cap this, usually at five or six</span>
+            <span className="hint">
+              {canRun != null
+                ? `Your Interplanetary Consolidation ${consolidation} lets you run ${canRun}`
+                : 'One, plus one per level of Interplanetary Consolidation'}
+            </span>
           </div>
         </div>
         {!prices ? (
@@ -193,22 +223,47 @@ export function Planets() {
             <div className="table-wrap">
               <table className="data">
                 <thead>
-                  <tr><th scope="col">System</th><th scope="col">Security</th><th scope="col">Planets you could use</th></tr>
+                  <tr>
+                    <th scope="col">System</th>
+                    <th scope="col">Security</th>
+                    <th scope="col">
+                      From Jita
+                      <Explain term="From Jita">
+                        Jumps on a high-sec-only route. You have to carry the output home to sell it,
+                        so a rich planet fifteen jumps away is worse than a fair one next door.
+                      </Explain>
+                    </th>
+                    <th scope="col">Planets you could use</th>
+                  </tr>
                 </thead>
                 <tbody>
-                  {bySystem.slice(0, 60).map(([name, e]) => (
-                    <tr key={name}>
-                      <td className="name">{name}</td>
-                      <td className={e.security >= 0.5 ? 'pos' : 'neg'}>{e.security.toFixed(1)}</td>
-                      <td>{[...e.types.entries()].map(([t, n]) => `${n}× ${t}`).join(', ')}</td>
-                    </tr>
-                  ))}
+                  {bySystem.slice(0, 60).map(([name, e]) => {
+                    const j = jumps[e.systemId];
+                    return (
+                      <tr key={name}>
+                        <td className="name">{name}</td>
+                        <td className={e.security >= 0.5 ? 'pos' : 'neg'}>{e.security.toFixed(1)}</td>
+                        <td className={j != null && j <= 10 ? 'pos' : undefined}>
+                          {j === undefined ? <span className="muted">…</span>
+                            : j === null ? <span className="neg" title="No high-sec route from Jita">not in high-sec</span>
+                              : `${j} jumps`}
+                        </td>
+                        <td>{[...e.types.entries()].map(([t, n]) => `${n}× ${t}`).join(', ')}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
         </>
       )}
+
+      <SkillPanel
+        title="Skills this wants"
+        needs={PI_SKILLS}
+        note="Interplanetary Consolidation is the one that pays for itself fastest: every level is another whole planet, and the income above scales straight off the planet count."
+      />
 
       <h2 style={{ fontSize: '1.05rem', margin: '26px 0 8px' }}>What each planet type can extract</h2>
       <div className="table-wrap">

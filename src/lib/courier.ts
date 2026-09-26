@@ -139,3 +139,46 @@ export const HAULERS: { name: string; m3: number }[] = [
   { name: 'Freighter (e.g. Charon, Obelisk)', m3: 1100000 },
   { name: 'Jump Freighter (e.g. Rhea)', m3: 360000 },
 ];
+
+/**
+ * A job to take out and one to bring back.
+ *
+ * Half of hauling badly is flying home empty. If something is being shipped from where you are
+ * going to where you started, the return leg pays too and the jumps are ones you were making anyway.
+ * Matching is on the system rather than the station: a different station in the same system is a
+ * short undock, not another trip.
+ */
+export type RoundTrip = { out: CourierVerdict; back: CourierVerdict; reward: number; jumps: number };
+
+export function roundTrips(rows: CourierVerdict[]): RoundTrip[] {
+  const takeable = rows.filter((v) => v.takeable && v.start.systemId != null && v.end.systemId != null);
+  const out: RoundTrip[] = [];
+  const used = new Set<number>();
+  for (const a of takeable) {
+    if (used.has(a.c.contractId)) continue;
+    const back = takeable.find((b) =>
+      b.c.contractId !== a.c.contractId &&
+      !used.has(b.c.contractId) &&
+      b.start.systemId === a.end.systemId &&
+      b.end.systemId === a.start.systemId);
+    if (!back) continue;
+    used.add(a.c.contractId); used.add(back.c.contractId);
+    out.push({
+      out: a, back,
+      reward: a.c.reward + back.c.reward,
+      jumps: (a.jumps ?? 0) + (back.jumps ?? 0),
+    });
+  }
+  return out.sort((x, y) => y.reward - x.reward);
+}
+
+/** What a run of the best jobs would pay, and what it would tie up while you fly it. */
+export function tally(rows: CourierVerdict[], n: number): { reward: number; jumps: number; collateral: number; count: number } {
+  const take = rows.filter((v) => v.takeable).slice(0, n);
+  return {
+    reward: take.reduce((t, v) => t + v.c.reward, 0),
+    jumps: take.reduce((t, v) => t + (v.jumps ?? 0), 0),
+    collateral: take.reduce((t, v) => t + v.c.collateral, 0),
+    count: take.length,
+  };
+}

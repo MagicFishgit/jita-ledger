@@ -1,5 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ABYSSAL_LINKS, byTier, parseFilament, runsFrom, TIERS, WEATHERS, type Filament, type Weather } from '../../lib/abyssal';
+import {
+  ABYSSAL_LINKS, byTier, iskPerHour, parseFilament, RUN_MINUTES, runsFrom, TIERS, WEATHERS,
+  type Filament, type Weather,
+} from '../../lib/abyssal';
 import { rates } from '../../lib/fees';
 import { iskBig, isk, pct, plainNum, units } from '../../lib/format';
 import {
@@ -10,6 +13,8 @@ import { marketBest } from '../../lib/relist';
 import { tickDown } from '../../lib/tick';
 import { update, useData } from '../../lib/store';
 import { Explain, OpenInGame } from '../common';
+import { SkillPanel } from './SkillPanel';
+import { ABYSSAL_SKILLS } from '../../lib/skills';
 
 type Quote = { f: Filament; cost: number | null; flipNet: number | null; perDay: number | null };
 
@@ -40,9 +45,20 @@ export function Abyssal() {
 
       // Mutaplasmids are the other half of abyssal income and live in a tree of their own, so they
       // are recognised by name rather than by fetching two thousand market groups to find them.
+      //
+      // That only works if we know the names, and a mutaplasmid you sold may never have been named
+      // in this browser --- which silently dropped the sale from the figures below. So anything you
+      // have traded and we cannot name gets resolved here first.
+      const traded = [...new Set(Object.values(d.txs).map((t) => t.typeId))];
+      const unnamed = traded.filter((id) => !d.names[id] && !names[id]);
+      const extra = unnamed.length ? await resolveNames(unnamed).catch(() => ({})) : {};
+      if (Object.keys(extra).length) update((x) => ({ names: { ...x.names, ...extra } }));
+
       const loot = new Set<number>(matIds);
-      for (const [id, n] of Object.entries(d.names)) if (/Mutaplasmid$/.test(n)) loot.add(Number(id));
-      for (const [id, n] of Object.entries(names)) if (/Mutaplasmid$/.test(n)) loot.add(Number(id));
+      const sources: Record<number, string>[] = [d.names, names, extra];
+      for (const src of sources) {
+        for (const [id, n] of Object.entries(src)) if (/Mutaplasmid$/.test(n)) loot.add(Number(id));
+      }
       setLootTypes(loot);
 
       const out: Quote[] = [];
@@ -73,7 +89,7 @@ export function Abyssal() {
     } finally {
       setBusy(null);
     }
-  }, [r.f, r.t, d.names]);
+  }, [r.f, r.t, d.names, d.txs]);
 
   const filamentMap = useMemo(() => {
     const m = new Map<number, Filament>();
@@ -87,6 +103,13 @@ export function Abyssal() {
   }, [d.txs, filamentMap, lootTypes, r.t]);
 
   const shown = (quotes ?? []).filter((q) => weather === 'all' || q.f.weather === weather);
+  // Filaments already in the hangar, from the assets sync. Runs you can start without buying anything.
+  const held = (quotes ?? [])
+    .map((q) => ({ f: q.f, n: d.stock?.total?.[q.f.typeId] ?? 0 }))
+    .filter((x) => x.n > 0)
+    .sort((a, b) => b.n - a.n);
+  const minutes = stats.topFilament ? RUN_MINUTES[stats.topFilament.tier] : 18;
+  const perHour = stats.perRun != null ? iskPerHour(stats.perRun, minutes) : null;
 
   return (
     <>
@@ -136,6 +159,21 @@ export function Abyssal() {
                   </dd>
                 </div>
                 <div className="stat">
+                  <dt>
+                    Per hour
+                    <Explain term="Per hour">
+                      Your measured return per run at the usual pace for that tier, so it can be set
+                      beside hauling and PI on the same footing. A pocket is three rooms on a
+                      twenty-minute timer each, so the ceiling is the game's, not an estimate — what
+                      varies is how fast you clear.
+                    </Explain>
+                  </dt>
+                  <dd className={(perHour ?? 0) >= 0 ? 'pos' : 'neg'}>
+                    {perHour == null ? '–' : iskBig(perHour)}
+                    <small>At about {minutes} min a run</small>
+                  </dd>
+                </div>
+                <div className="stat">
                   <dt>Mostly</dt>
                   <dd>
                     {stats.topFilament ? `${stats.topFilament.tier} ${stats.topFilament.weather}` : '–'}
@@ -150,6 +188,24 @@ export function Abyssal() {
               </p>
             </>
           )}
+        </div>
+      )}
+
+      {quotes && held.length > 0 && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <h2 style={{ margin: '0 0 6px', fontSize: '1.05rem' }}>Filaments you already have</h2>
+          <p className="small muted" style={{ margin: '0 0 10px' }}>
+            From your synced assets — runs you can start without buying anything. Worth{' '}
+            <strong>{iskBig(held.reduce((t, x) => t + x.n * ((quotes.find((q) => q.f.typeId === x.f.typeId)?.flipNet) ?? 0), 0))}</strong>{' '}
+            if you sold them instead.
+          </p>
+          <p style={{ margin: 0 }}>
+            {held.map((x) => (
+              <span key={x.f.typeId} className="flag" title={`${x.n} in your hangars`}>
+                {x.n}× {x.f.tier} {x.f.weather}
+              </span>
+            ))}
+          </p>
         </div>
       )}
 
@@ -217,6 +273,12 @@ export function Abyssal() {
           </div>
         </>
       )}
+
+      <SkillPanel
+        title="Skills this wants"
+        needs={ABYSSAL_SKILLS}
+        note="Hull and weapon skills depend on what you fly, so they are not listed here — these are the support skills every abyssal fit leans on whatever the hull. Tiers above Raging punish a thin tank far more than they reward a fat gun."
+      />
 
       <h2 style={{ fontSize: '1.05rem', margin: '26px 0 8px' }}>Worth having open</h2>
       <ul className="links">
