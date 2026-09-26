@@ -621,7 +621,20 @@ input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.7); }
 .tooltip .trb { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
 .tooltip .trb .ev { font-size: 10.5px; color: var(--faint); white-space: nowrap; }
 
-.toasts { position: fixed; right: 22px; bottom: 44px; z-index: 55; display: flex; flex-direction: column; gap: 10px; width: var(--tw, 340px); max-width: calc(100vw - 44px); pointer-events: none; }
+.toasts { position: fixed; right: 22px; bottom: 44px; z-index: 55; display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: var(--tw, 340px); max-width: calc(100vw - 44px); pointer-events: none; }
+/* One toast in front; those waiting peek out above it as a stack, and the next comes forward when it goes. */
+.toast-stack { position: relative; pointer-events: auto; margin-top: 22px; }
+.toast.front { z-index: 3; }
+.toast.ghost {
+  position: absolute; inset: 0; padding: 0; animation: none; pointer-events: none; z-index: calc(3 - var(--i));
+  border-top: 1px solid color-mix(in oklab, var(--c) 70%, transparent); background: linear-gradient(180deg, rgba(16, 30, 44, .98), rgba(8, 16, 26, .98));
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, .5); transform: translateY(calc(-11px * var(--i))) scale(calc(1 - .045 * var(--i))); transform-origin: top center;
+  opacity: calc(1 - .28 * var(--i)); transition: transform .3s, opacity .3s;
+}
+.toast-more { display: flex; justify-content: flex-end; align-items: baseline; gap: 12px; pointer-events: auto; font-family: var(--f-head); font-size: 10.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--label); }
+.toast-more button { background: none; border: 0; padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--acc); cursor: pointer; }
+.toast-more button:hover { color: #fff; }
+.toast.paused .tbar { animation-play-state: paused; }
 .toast {
   position: relative; pointer-events: auto; display: flex; gap: var(--tg, 12px); align-items: flex-start; padding: var(--tp, 12px 14px 14px);
   background: linear-gradient(180deg, rgba(10, 21, 32, .96), rgba(5, 11, 18, .96)); border: 1px solid rgba(130, 185, 225, .18);

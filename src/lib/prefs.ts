@@ -15,11 +15,17 @@ export const ALERT_SIZES: { value: number; label: string }[] = [
   { value: 1, label: 'Default' }, { value: 1.25, label: 'Large' }, { value: 1.5, label: 'Larger' }, { value: 1.85, label: 'Largest' },
 ];
 
+/** How long alerts stay on screen. Null keeps each one until it is closed. */
+export const TOAST_SECONDS: { value: number | null; label: string }[] = [
+  { value: 5, label: '5 s' }, { value: 10, label: '10 s' }, { value: 20, label: '20 s' }, { value: 60, label: '1 min' }, { value: null, label: 'Until closed' },
+];
+
 export const ACTIVITIES: Activity[] = ['Trading', 'Loyalty', 'Planets', 'Hauling', 'Abyssal', 'Combat'];
 
 export const DEFAULT_PREFS: Prefs = {
   theme: 'Caldari',
   alertSize: 1,
+  toastSeconds: 10,
   hours: {},
   gankLines: {},
   learnFromLosses: true,
@@ -69,6 +75,9 @@ export function sanitizePrefs(p: Partial<Prefs> | null | undefined): Prefs {
     theme,
     motion,
     alertSize: size,
+    // Absent on prefs saved before this existed: take the default. An explicit null means "until closed".
+    toastSeconds: x.toastSeconds === undefined ? DEFAULT_PREFS.toastSeconds
+      : TOAST_SECONDS.some((o) => o.value === x.toastSeconds) ? (x.toastSeconds as number | null) : DEFAULT_PREFS.toastSeconds,
     hours,
     gankLines,
     learnFromLosses: x.learnFromLosses === undefined ? true : !!x.learnFromLosses,

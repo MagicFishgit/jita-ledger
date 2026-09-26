@@ -1333,12 +1333,39 @@ console.log('\n--- recent averages over calendar days ---');
   eq('price is weighted by volume', recentAverages([row('2026-09-24', 1, 100), row('2026-09-25', 3, 200)], 7, now).avgPrice, 175);
 }
 
+console.log('\n--- toasts queue, one at a time ---');
+{
+  const T = await import('../src/lib/toast.ts');
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  T.setToastLife(0.06);
+  T.toast('first'); T.toast('second'); T.toast('third');
+  const now = () => T.__peek();
+  eq('they queue in arrival order, the first in front', now().list.map((t) => t.text), ['first', 'second', 'third']);
+  await wait(90);
+  eq('only the front one ran its clock: one gone, the next forward', now().list.map((t) => t.text), ['second', 'third']);
+  T.pauseToasts();
+  await wait(120);
+  eq('hovering holds the clock', now().list.map((t) => t.text), ['second', 'third']);
+  T.resumeToasts();
+  await wait(90);
+  eq('  and letting go resumes it', now().list.map((t) => t.text), ['third']);
+  T.setToastLife(null);
+  await wait(120);
+  eq('"until closed" keeps it', now().list.map((t) => t.text), ['third']);
+  T.dismiss(now().list[0].id);
+  eq('closing it empties the queue', now().list.length, 0);
+  T.setToastLife(10);
+}
+
 console.log('\n--- prefs ---');
 eq('an unknown theme falls back', sanitizePrefs({ theme: 'Jove' }).theme, 'Caldari');
 eq('motion left unset follows the system', effectiveMotion(undefined, true), 'Calm');
 eq('  or full when not asked', effectiveMotion(undefined, false), 'Full');
 eq('a chosen motion wins', effectiveMotion('Off', false), 'Off');
 eq('only the one-month pack is assumed', sanitizePrefs({}).omegaPacks, { 1: 500, 3: null, 6: null, 12: null });
+eq('alerts stay ten seconds unless set', sanitizePrefs({}).toastSeconds, 10);
+eq('"until closed" is kept as null', sanitizePrefs({ toastSeconds: null }).toastSeconds, null);
+eq('an odd duration falls back', sanitizePrefs({ toastSeconds: 7 }).toastSeconds, 10);
 eq('alerts start off', sanitizeAlerts({}).on, false);
 eq('an odd interval falls back', sanitizeAlerts({ interval: 7 }).interval, 5);
 

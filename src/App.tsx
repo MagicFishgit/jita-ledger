@@ -8,7 +8,7 @@ import { bumpWarp, useMotion } from './lib/motion';
 import { THEMES } from './lib/prefs';
 import { priceKillmails } from './lib/killmails';
 import { startAlerts } from './lib/alertsRunner';
-import { toast } from './lib/toast';
+import { setToastLife, toast } from './lib/toast';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { Rail } from './components/shell/Rail';
 import { TopBar } from './components/shell/TopBar';
@@ -119,6 +119,9 @@ export function App() {
     window.addEventListener('resize', on);
     return () => window.removeEventListener('resize', on);
   }, []);
+
+  // How long toasts stay is a setting; the toast queue lives outside React, so tell it.
+  useEffect(() => { setToastLife(d.prefs.toastSeconds); }, [d.prefs.toastSeconds]);
 
   // Ctrl/Cmd K opens the palette from anywhere.
   useEffect(() => {

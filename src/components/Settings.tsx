@@ -11,7 +11,7 @@ import { isConfigured, login, logout } from '../lib/auth';
 import { syncCharacter, useSyncState } from '../lib/sync';
 import { navigate, useAuth, useNow, type Route } from '../lib/hooks';
 import { ALPHA_CAPS, REDIRECT_URI, SCOPE_INFO, SCOPES } from '../lib/config';
-import { ALERT_EVENTS, ALERT_SIZES, THEMES } from '../lib/prefs';
+import { ALERT_EVENTS, ALERT_SIZES, THEMES, TOAST_SECONDS } from '../lib/prefs';
 import { ALERT_LABELS } from '../lib/alerts';
 import { testAlert, useAlertRunner, BACKUP_DAYS } from '../lib/alertsRunner';
 import { useMotion, bumpWarp } from '../lib/motion';
@@ -387,6 +387,15 @@ function Alerts() {
             </div>
           </div>
           <div>
+            <div className="lbl" style={{ marginBottom: 6 }}>Alerts stay for</div>
+            <div className="row wide">
+              {/* Seg takes numbers, so "until closed" travels as 0 and is stored as null. */}
+              <Seg label="How long alerts stay" value={d.prefs.toastSeconds ?? 0} onChange={(v) => update((x) => ({ prefs: { ...x.prefs, toastSeconds: v === 0 ? null : v } }))}
+                options={TOAST_SECONDS.map((o) => ({ v: o.value ?? 0, label: o.label }))} />
+              <span className="note small">Several at once queue behind each other; the next comes forward as each one goes. Hovering holds the clock.</span>
+            </div>
+          </div>
+          <div>
             <div className="lbl" style={{ marginBottom: 8 }}>Tell me when</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,300px),1fr))', gap: '12px 24px', opacity: a.on ? 1 : 0.45 }}>
               {ALERT_EVENTS.map((k) => (
@@ -432,7 +441,7 @@ function Alerts() {
           <div className="toast" style={cssVars({ '--c': 'var(--acc2)', position: 'relative', maxWidth: `${Math.round(340 * Math.min(z, 1.6))}px`, animation: 'none', '--tf': `${(13 * z).toFixed(1)}px`, '--ti': `${Math.round(17 * z)}px`, '--tg': `${Math.round(12 * z)}px`, '--tp': `${Math.round(12 * z)}px ${Math.round(14 * z)}px ${Math.round(14 * z)}px` })}>
             <BellRing aria-hidden="true" /><span className="tmsg">Hammerhead II sell order beaten — worth moving (costs 2.14 M). An example; your own alerts use your orders.</span>
           </div>
-          <p className="note">In-app alerts slide in at the bottom right and fade after a few seconds. With browser notifications on, the same text also appears as a system notification while this tab is in the background.</p>
+          <p className="note">In-app alerts slide in at the bottom right and stay {d.prefs.toastSeconds == null ? 'until you close them' : `for ${TOAST_SECONDS.find((o) => o.value === d.prefs.toastSeconds)?.label ?? `${d.prefs.toastSeconds} s`}`}. When several arrive together they wait behind each other and come forward one at a time. With browser notifications on, the same text also appears as a system notification while this tab is in the background.</p>
           <button type="button" className="btn primary" style={{ alignSelf: 'flex-start' }} onClick={testAlert}><Send aria-hidden="true" />Send a test alert</button>
         </Card>
       </div>

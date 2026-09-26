@@ -1,5 +1,5 @@
 import { CircleAlert, CircleCheck, Info, TriangleAlert, X } from 'lucide-react';
-import { dismiss, TOAST_MS, useToasts, type ToastKind } from '../../lib/toast';
+import { dismiss, dismissAll, pauseToasts, resumeToasts, useToasts, type ToastKind } from '../../lib/toast';
 
 const LOOK: Record<ToastKind, { c: string; Icon: typeof Info }> = {
   ok: { c: 'var(--pos)', Icon: CircleCheck },
@@ -8,9 +8,15 @@ const LOOK: Record<ToastKind, { c: string; Icon: typeof Info }> = {
   err: { c: 'var(--neg)', Icon: CircleAlert },
 };
 
-/** Bottom-right messages. Their size follows the alert size setting, capped to the viewport. */
+/** How many waiting toasts show as cards peeking out behind the front one. */
+const GHOSTS = 2;
+
+/**
+ * Bottom-right messages, one at a time. The front one is readable; the ones waiting sit behind it as
+ * a stack, and the next comes forward when it goes. Size follows the alert size setting.
+ */
 export function Toasts({ size }: { size: number }) {
-  const list = useToasts();
+  const { list, lifeMs, paused } = useToasts();
   const z = size || 1;
   const style = {
     ['--tw' as string]: `${Math.round(340 * Math.min(z, 1.6))}px`,
@@ -19,21 +25,36 @@ export function Toasts({ size }: { size: number }) {
     ['--tg' as string]: `${Math.round(12 * z)}px`,
     ['--tp' as string]: `${Math.round(12 * z)}px ${Math.round(14 * z)}px ${Math.round(14 * z)}px`,
     ['--tb' as string]: `${Math.max(2, Math.round(2 * z))}px`,
-    ['--dur' as string]: `${(TOAST_MS - 100) / 1000}s`,
+    ['--dur' as string]: lifeMs == null ? '0s' : `${lifeMs / 1000}s`,
   };
+  const front = list[0];
+  const waiting = list.slice(1);
   return (
     <div className="toasts" aria-live="polite" style={style}>
-      {list.map((t) => {
-        const { c, Icon } = LOOK[t.kind];
-        return (
-          <div key={t.id} className="toast" style={{ ['--c' as string]: c }} role={t.kind === 'err' ? 'alert' : 'status'}>
-            <Icon aria-hidden="true" />
-            <span className="tmsg">{t.text}</span>
-            <button type="button" className="tclose" aria-label="Dismiss" onClick={() => dismiss(t.id)}><X /></button>
-            <div className="tbar" />
-          </div>
-        );
-      })}
+      {waiting.length > 0 && (
+        <div className="toast-more">
+          <span>{waiting.length} more waiting</span>
+          <button type="button" onClick={dismissAll}>Dismiss all</button>
+        </div>
+      )}
+      {front && (
+        <div className="toast-stack" onMouseEnter={pauseToasts} onMouseLeave={resumeToasts} onFocus={pauseToasts} onBlur={resumeToasts}>
+          {waiting.slice(0, GHOSTS).map((t, i) => (
+            <div key={t.id} className="toast ghost" aria-hidden="true" style={{ ['--c' as string]: LOOK[t.kind].c, ['--i' as string]: i + 1 }} />
+          ))}
+          {(() => {
+            const { c, Icon } = LOOK[front.kind];
+            return (
+              <div key={front.id} className={'toast front' + (paused ? ' paused' : '')} style={{ ['--c' as string]: c }} role={front.kind === 'err' ? 'alert' : 'status'}>
+                <Icon aria-hidden="true" />
+                <span className="tmsg">{front.text}</span>
+                <button type="button" className="tclose" aria-label={waiting.length ? 'Dismiss and show the next' : 'Dismiss'} onClick={() => dismiss(front.id)}><X /></button>
+                {lifeMs != null && <div className="tbar" />}
+              </div>
+            );
+          })()}
+        </div>
+      )}
     </div>
   );
 }

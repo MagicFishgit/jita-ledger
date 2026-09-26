@@ -268,6 +268,8 @@ export type Prefs = {
   /** Unset means follow the system: Calm when reduced motion is asked for, Full otherwise. */
   motion?: Motion;
   alertSize: number;
+  /** Seconds a toast stays on screen; null keeps it until you close it. */
+  toastSeconds: number | null;
   /** Hours a week you spend on each activity, for ISK per hour of your time. Blank until you say. */
   hours: Partial<Record<Activity, number>>;
   /** Collateral above which a contract through Uedama or Sivala is worth ganking, per hull. Yours to set. */
