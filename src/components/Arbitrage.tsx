@@ -3,7 +3,7 @@ import { CalendarClock, Check, MapPin, Package, PackageCheck, RefreshCw, Scale, 
 import { rates } from '../lib/fees';
 import { isk, iskBig, iskBigSigned, iskSigned, pct, units } from '../lib/format';
 import { navigate } from '../lib/hooks';
-import { jitaBook, publicContracts, regionHistory, resolveIds, stationBook } from '../lib/market';
+import { jitaBook, publicContracts, recentAverages, regionHistory, resolveIds, stationBook } from '../lib/market';
 import { buyerShare } from '../lib/split';
 import { marketBest } from '../lib/relist';
 import { loadCache } from '../lib/scan';
@@ -53,7 +53,8 @@ export function Arbitrage() {
   const [going, setGoing] = useState<{ rate: number | null; n: number } | null>(null);
   const [goingBusy, setGoingBusy] = useState(false);
 
-  async function load(hub = s.hub) {
+  /** `fresh` when someone asked to price again: the browser's HTTP cache would otherwise answer. */
+  async function load(hub = s.hub, fresh = false) {
     setBusy({ done: 0, total: 0 });
     try {
       const place = await placeOf(hub);
@@ -74,21 +75,20 @@ export function Arbitrage() {
           const id = ids[i++];
           try {
             const cached = cache.books[id];
-            const fresh = cached && Date.now() - Date.parse(cached.at) < 60 * 60_000;
+            const useCache = !fresh && cached && Date.now() - Date.parse(cached.at) < 60 * 60_000;
             const [hub2, hist, info, jita] = await Promise.all([
-              stationBook(id, place.regionId, place.stationId),
+              stationBook(id, place.regionId, place.stationId, fresh),
               regionHistory(id, place.regionId).catch(() => []),
               typeInfo(id),
-              fresh ? Promise.resolve(null) : jitaBook(id),
+              useCache ? Promise.resolve(null) : jitaBook(id, fresh),
             ]);
-            const jb = fresh ? cached : jita!;
-            const recent = hist.slice(-7);
+            const jb = useCache ? cached : jita!;
             quotes.push({
               typeId: id, m3: info.packagedVolume ?? info.volume,
               jitaBestBuy: marketBest(jb.topBuys, true), jitaBestSell: marketBest(jb.topSells, false),
               // Listing at the hub is a price you act on, so one fat-fingered order can't set it.
               hubBestSell: marketBest(hub2.topSells, false),
-              hubUnitsPerDay: recent.length ? recent.reduce((t, x) => t + x.volume, 0) / 7 : null,
+              hubUnitsPerDay: recentAverages(hist, 7).avgVol,
               hubBuyers: buyerShare(hist.slice(-30)),
             });
           } catch { /* priced next time */ }
@@ -178,7 +178,7 @@ export function Arbitrage() {
           <section className="panel flush" data-rv="" style={{ flex: '999 1 640px', minWidth: 0 }}>
             <div className="panel-bar">
               <span className="note small">{rows.length} of {data.quotes.length} items clear a profit before hauling. Priced {new Date(data.at).toISOString().slice(11, 16)} EVE.</span>
-              <button type="button" className="link-btn" onClick={() => load()}><RefreshCw aria-hidden="true" />Price again</button>
+              <button type="button" className="link-btn" onClick={() => load(s.hub, true)}><RefreshCw aria-hidden="true" />Price again</button>
             </div>
             {!rows.length ? <p className="note" style={{ padding: 16 }}>Nothing is cheaper in Jita than it sells for in {s.hub} after fees and tax right now.</p> : (
               <div className="tbl-scroll">
@@ -275,7 +275,7 @@ export function Arbitrage() {
           { icon: CalendarClock, title: 'Judge by return per day', body: 'The shipment panel adds delivery time to selling time. A big profit that takes two weeks can be worse than a Jita flip.' },
         ]}
         habits={[
-          { icon: Skull, title: 'Collateral is what gankers see', body: 'A fat cargo through Niarja or Uedama in a weak hull is bait. That’s what PushX is for.', color: '#ff8d9a' },
+          { icon: Skull, title: 'Collateral is what gankers see', body: 'A fat cargo through Uedama or Sivala in a weak hull is bait. That’s what PushX is for.', color: '#ff8d9a' },
           { icon: Scale, title: 'Don’t flood a small hub', body: 'Lots are capped at a few days of the hub’s volume. Sending more just means competing with yourself.', color: 'var(--acc2)' },
         ]}
       />

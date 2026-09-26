@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BadgePercent, Coins, ListOrdered, MonitorUp, Store, Tag } from 'lucide-react';
 import { getAuth, hasScope } from '../lib/auth';
-import { CALDARI_NAVY } from '../lib/config';
+import { CALDARI_NAVY, SCOPE } from '../lib/config';
 import { rates } from '../lib/fees';
 import { isk, iskBig, parseISK, plainNum, units } from '../lib/format';
 import { navigate } from '../lib/hooks';
@@ -18,7 +18,7 @@ import { OpenInGame, useTypeName, canOpenInGame } from './common';
 import { flip } from './Prospects';
 import { Check, cssVars, Expander, Guide, ItemIcon, Notice, PageHead, SortTh, Tip } from './ui';
 
-const LOYALTY_SCOPE = 'esi-characters.read_loyalty.v1';
+const LOYALTY_SCOPE = SCOPE.loyalty;
 /** How many of the best-looking offers get real Jita prices rather than a global average. */
 const PRICE_TOP = 40;
 /** Rows shown. Past this the rate is poor enough that the rest is noise. */
@@ -198,11 +198,13 @@ export function Loyalty() {
   const spentLp = spend.reduce((t, p) => t + p.lpSpent, 0);
   const spentIsk = spend.reduce((t, p) => t + p.iskSpent, 0);
 
-  // Keep the realistic rate for the Wallet's net worth: what the plan turns a point into, not the headline best.
+  // Keep the realistic rate for the Wallet's net worth: what the plan turns a point into, not the
+  // headline best, and how many points the plan could actually place. Points beyond that have no
+  // market in the plan's own terms, so the Wallet doesn't value them at this rate.
   useEffect(() => {
     if (!spentLp || !live.size) return;
     const rate = spendTotal / spentLp;
-    update((x) => ({ meta: { ...x.meta, lpRate: { ...x.meta.lpRate, [corp]: { rate, at: new Date().toISOString() } } } }));
+    update((x) => ({ meta: { ...x.meta, lpRate: { ...x.meta.lpRate, [corp]: { rate, lp: spentLp, at: new Date().toISOString() } } } }));
   }, [spendTotal, spentLp, live.size, corp]);
 
   const corpName = (id: number) => d.names[id] ?? (id === CALDARI_NAVY ? 'Caldari Navy' : `Corporation #${id}`);

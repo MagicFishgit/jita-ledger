@@ -136,8 +136,13 @@ export function parseBackup(json: string): { data: Partial<Data>; exportedAt: st
 
 export async function importAll(json: string): Promise<void> {
   const incoming = parseBackup(json).data;
+  // A backup replaces what is here, as the confirmation says. Anything the file doesn't hold (an older
+  // backup has no killmails, no net-worth history, no tags) goes back to empty rather than surviving
+  // from this browser and mixing two ledgers. A sync already running must not write over it either.
+  generation++;
+  const base = empty();
   const p: Partial<Data> = {};
-  for (const k of KEYS) if (incoming[k] !== undefined) (p as Record<string, unknown>)[k] = incoming[k];
+  for (const k of KEYS) (p as Record<string, unknown>)[k] = incoming[k] !== undefined ? incoming[k] : base[k];
   if (p.settings) p.settings = sanitizeSettings(p.settings);
   if (p.prefs) p.prefs = sanitizePrefs(p.prefs);
   if (p.alerts) p.alerts = sanitizeAlerts(p.alerts);

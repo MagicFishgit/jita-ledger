@@ -21,8 +21,12 @@ export const HUBS: { name: string; station: string; stationId: number }[] = [
   { name: 'Hek', station: 'Hek VIII - Moon 12 - Boundless Creation Factory', stationId: 60005686 },
 ];
 
-/** The two high-sec systems gank fleets are known to camp. Resolved by name at runtime. */
-export const GANK_SYSTEMS = ['Uedama', 'Niarja'];
+/**
+ * The two high-sec systems gank fleets are known to camp, on the secure Jita–Amarr route. Resolved by
+ * name at runtime. Niarja used to be the other one, but it has been Pochven since 2020 (ESI gives it
+ * −1.0), so a high-sec route can never pass through it; the route now runs Uedama → Sivala.
+ */
+export const GANK_SYSTEMS = ['Uedama', 'Sivala'];
 
 export type BuyMode = 'sells' | 'order';
 

@@ -18,7 +18,7 @@ import { OpenInGame, useTypeName } from './common';
 import { Busy, Check, Chip, Empty, Expander, Flag, Guide, ItemIcon, PageHead, SortTh, Sparkline } from './ui';
 
 export const WARNING: Record<ProspectWarning, { short: string; why: string }> = {
-  wall: { short: 'Wall', why: 'One price holds more than half the visible stock on its side. Walls are often placed to make a spread look stable, then pulled once traders pile in behind them.' },
+  wall: { short: 'Wall', why: 'The best price on one side holds more than half the visible stock, and more than three days of what the item trades. Walls are often placed to make a spread look stable, then pulled once traders pile in behind them.' },
   escrow: { short: 'Escrow bait', why: 'A buy order well above anything paid for this all month. The classic margin-trading scam: the buyer has only a sliver of that ISK, and the order vanishes the moment you haul stock in to fill it.' },
   spike: { short: 'Spike', why: 'One recent day traded more than five times the usual volume at an unusual price. Someone may be moving the price to lure traders in.' },
   thin: { short: 'Thin', why: 'Fewer than five orders on one side. The spread is wide because almost nobody is standing there, and it can vanish the moment one person moves.' },

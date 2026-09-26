@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { EsiError } from './esi';
 import { marketHistory, resolveNames } from './market';
 import { getData, update } from './store';
 import { groupName, typeInfo } from './universe';
@@ -32,40 +33,55 @@ export async function priceKillmails(): Promise<void> {
 
   const types = [...new Set(todo.flatMap((k) => [k.victim.shipTypeId, ...k.items.map((i) => i.typeId)]).filter((x): x is number => !!x))];
   setState({ running: true, done: 0, total: types.length });
-  const hist = new Map<number, HistRow[]>();
-  let i = 0, done = 0;
-  await Promise.all(Array.from({ length: Math.min(4, types.length) }, async () => {
-    while (i < types.length) {
-      const id = types[i++];
-      try { hist.set(id, await marketHistory(id)); } catch { hist.set(id, []); }
-      setState({ done: ++done });
-    }
-  }));
+  try {
+    const hist = new Map<number, HistRow[]>();
+    // A history that couldn't be fetched is not the same as one with no trades. A value is stored for
+    // good, so a mail touching a failed type is left unpriced and tried again next time, rather than
+    // kept forever with that item counted as worthless.
+    const failed = new Set<number>();
+    let i = 0, done = 0;
+    await Promise.all(Array.from({ length: Math.min(4, types.length) }, async () => {
+      while (i < types.length) {
+        const id = types[i++];
+        try {
+          hist.set(id, await marketHistory(id));
+        } catch (e) {
+          // ESI answers 400 for a type that can't be traded at all (a capsule, a BPC): that item
+          // genuinely has no price. Anything else is a failed fetch, worth another try.
+          if (e instanceof EsiError && (e.status === 400 || e.status === 404)) hist.set(id, []); else failed.add(id);
+        }
+        setState({ done: ++done });
+      }
+    }));
 
-  const valued: Record<string, Killmail> = {};
-  for (const k of todo) {
-    const day = k.time.slice(0, 10);
-    valued[String(k.id)] = { ...k, value: valueKillmail(k, (id) => priceOnDay(hist.get(id) ?? [], day)?.price ?? null) };
-  }
-  // Names for everyone and everything on the mails, so the page reads as names rather than numbers.
-  const ids = new Set<number>();
-  for (const k of todo) {
-    for (const p of [k.victim, ...k.attackers]) {
-      for (const x of [p.characterId, p.corporationId, p.allianceId, p.shipTypeId, p.weaponTypeId]) if (x) ids.add(x);
+    const valued: Record<string, Killmail> = {};
+    for (const k of todo) {
+      if ([k.victim.shipTypeId, ...k.items.map((it) => it.typeId)].some((id) => id != null && failed.has(id))) continue;
+      const day = k.time.slice(0, 10);
+      valued[String(k.id)] = { ...k, value: valueKillmail(k, (id) => priceOnDay(hist.get(id) ?? [], day)?.price ?? null) };
     }
-    k.items.forEach((it) => ids.add(it.typeId));
-    ids.add(k.systemId);
-  }
-  const missing = [...ids].filter((x) => !d.names[x]);
-  const names = missing.length ? await resolveNames(missing).catch(() => ({})) : {};
+    // Names for everyone and everything on the mails, so the page reads as names rather than numbers.
+    const ids = new Set<number>();
+    for (const k of todo) {
+      for (const p of [k.victim, ...k.attackers]) {
+        for (const x of [p.characterId, p.corporationId, p.allianceId, p.shipTypeId, p.weaponTypeId]) if (x) ids.add(x);
+      }
+      k.items.forEach((it) => ids.add(it.typeId));
+      ids.add(k.systemId);
+    }
+    const missing = [...ids].filter((x) => !d.names[x]);
+    const names = missing.length ? await resolveNames(missing).catch(() => ({})) : {};
 
-  update((cur) => {
-    const next = { ...cur.killmails };
-    for (const [id, k] of Object.entries(valued)) if (next[id] && !next[id].value) next[id] = { ...next[id], value: k.value };
-    for (const k of needsInsurance) if (next[String(k.id)]) next[String(k.id)] = { ...next[String(k.id)], insurance: insurance[k.id] };
-    return { killmails: next, names: { ...cur.names, ...names } };
-  });
-  setState({ running: false });
+    if (!Object.keys(valued).length && !needsInsurance.length && !Object.keys(names).length) return;
+    update((cur) => {
+      const next = { ...cur.killmails };
+      for (const [id, k] of Object.entries(valued)) if (next[id] && !next[id].value) next[id] = { ...next[id], value: k.value };
+      for (const k of needsInsurance) if (next[String(k.id)]) next[String(k.id)] = { ...next[String(k.id)], insurance: insurance[k.id] };
+      return { killmails: next, names: { ...cur.names, ...names } };
+    });
+  } finally {
+    setState({ running: false });
+  }
 }
 
 /** Ship group names, for telling a hauler loss from a combat one. Cached for good. */

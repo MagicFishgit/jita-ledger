@@ -14,6 +14,27 @@ export function median(xs: number[]): number {
 }
 
 /**
+ * Average units a day and volume-weighted price over the last `days` calendar days of history.
+ *
+ * ESI leaves out days with no trades, so dividing by the rows present would spread seven trading days
+ * from the last two months over one week and overstate a thin item's pace many times over. The
+ * divisor is the number of days in the window. The window ends on the latest day ESI has published
+ * when the item traded then (history runs a day behind, sometimes two before the daily update), and on
+ * yesterday otherwise. No history at all is null, not zero: we don't know.
+ */
+export function recentAverages(rows: HistRow[], days = 7, now = Date.now()): { avgVol: number | null; avgPrice: number | null } {
+  if (!rows.length) return { avgVol: null, avgPrice: null };
+  const today = startOf(now);
+  const last = Date.parse(rows[rows.length - 1].date + 'T00:00:00Z');
+  const end = last >= today - 2 * DAY && last < today ? last : today - DAY;
+  const from = end - (days - 1) * DAY;
+  const recent = rows.filter((r) => { const t = Date.parse(r.date + 'T00:00:00Z'); return t >= from && t <= end; });
+  const vol = recent.reduce((s, r) => s + r.volume, 0);
+  const val = recent.reduce((s, r) => s + r.volume * r.average, 0);
+  return { avgVol: vol / days, avgPrice: vol > 0 ? val / vol : null };
+}
+
+/**
  * Reduce ESI's daily history to the handful of numbers a screener needs.
  *
  * The window is the 30 complete days ending yesterday: today's history is still filling and
@@ -73,8 +94,10 @@ export const SPIKE_VOLUME = 5;
 export const SPIKE_PRICE = 0.1;
 /** A best bid this far above the highest trade of the month is bait, not a market. */
 export const ESCROW_OVER = 0.1;
-/** One price holding more than this share of the stock visible on its side is a wall. */
+/** The best price holding more than this share of the stock visible on its side... */
 export const WALL_SHARE = 0.5;
+/** ...and more than this many days of the item's whole daily volume, is a wall. */
+export const WALL_DAYS = 3;
 
 /**
  * Page 1 plus distinct random others. Page 1 is always in, because it has to be fetched
@@ -122,7 +145,7 @@ export type BookShape = {
  * than folded into the score, because whether they matter depends on how you trade.
  */
 export function warningsFor(
-  stats: Pick<ProspectStats, 'dailyRange' | 'trend' | 'tradesPerDay'> & Partial<Pick<ProspectStats, 'high30' | 'spike'>>,
+  stats: Pick<ProspectStats, 'dailyRange' | 'trend' | 'tradesPerDay'> & Partial<Pick<ProspectStats, 'high30' | 'spike' | 'unitsPerDay'>>,
   book: BookShape,
   spreadPct: number,
   estOrders: number,
@@ -135,9 +158,9 @@ export function warningsFor(
   if (stats.trend < -0.1) out.push('falling');
   // Hundreds of listings against a handful of trades: a queue, not a market.
   if (stats.tradesPerDay > 0 && estOrders / stats.tradesPerDay > 20) out.push('crowded');
-  // One price holding most of what is on show: stock placed to make the book look solid, and liable
-  // to be pulled the moment traders line up behind it.
-  if (isWall(book.topSells) || isWall(book.topBuys)) out.push('wall');
+  // The front of the book held by one price with days of the market's volume behind it: stock placed
+  // to make the book look solid, and liable to be pulled the moment traders line up behind it.
+  if (isWall(book.topSells, stats.unitsPerDay) || isWall(book.topBuys, stats.unitsPerDay)) out.push('wall');
   // A bid well above anything paid all month needs escrow nobody honest puts up. The classic margin
   // scam: the order is backed by a sliver of ISK and vanishes when you haul stock in to fill it.
   const bid = book.topBuys[0]?.price;
@@ -147,11 +170,18 @@ export function warningsFor(
   return out;
 }
 
-/** More than half the visible stock on a side at one price, with at least one other price to compare. */
-export function isWall(levels: BookLevel[]): boolean {
-  if (levels.length < 2) return false;
+/**
+ * A wall: the best price on a side (the one you'd queue behind) holding more than half the visible
+ * stock and more than WALL_DAYS of the item's whole daily volume. A big order deeper in the book is
+ * just a big order, and a big one at the front of a market that moves that much in a day is just
+ * supply — neither is what traders chase and get stranded behind. Needs another price to compare
+ * against, and a known pace.
+ */
+export function isWall(levels: BookLevel[], unitsPerDay?: number): boolean {
+  if (levels.length < 2 || !(unitsPerDay != null && unitsPerDay > 0)) return false;
   const total = levels.reduce((t, l) => t + l.volume, 0);
-  return total > 0 && Math.max(...levels.map((l) => l.volume)) > WALL_SHARE * total;
+  const front = levels[0].volume;
+  return total > 0 && front > WALL_SHARE * total && front > WALL_DAYS * unitsPerDay;
 }
 
 /**

@@ -5,7 +5,7 @@ import { ago, iskBig, iskBigSigned, pct, share, units } from '../lib/format';
 import { computePosition, countedIn, realizedBetween } from '../lib/positions';
 import { jitaBook } from '../lib/market';
 import { update, useData } from '../lib/store';
-import { useAuth } from '../lib/hooks';
+import { useAuth, useNow } from '../lib/hooks';
 import { JITA_44, PLEX_TYPE } from '../lib/config';
 import { bumpWarp } from '../lib/motion';
 import { toast } from '../lib/toast';
@@ -33,6 +33,7 @@ export function CloneSwitch({ value, onChange }: { value: 'alpha' | 'omega'; onC
 export function Omega() {
   const d = useData();
   const auth = useAuth();
+  const now = useNow(60_000);
   const s = d.settings;
   const [loading, setLoading] = useState(false);
   const set = (patch: Partial<S>) => update((x) => ({ settings: sanitizeSettings({ ...x.settings, ...patch }) }));
@@ -144,7 +145,7 @@ export function Omega() {
           <div>
             <div style={{ fontSize: 14, color: 'var(--body-2)' }}>{months == null ? (monthCost ? `${iskBig(monthCost)} for a month of Omega` : 'Waiting for the PLEX price') : months >= 1 ? 'of Omega your wallet could buy' : 'of a month of Omega is in your wallet'}</div>
             <div style={{ fontSize: 12, color: 'var(--note)', marginTop: 4, textWrap: 'pretty' }}>
-              {wallet != null && monthCost ? `${iskBig(wallet)} in your wallet (${ago(d.meta.walletAt)}), ${iskBig(monthCost)} for ${units(s.plexPerMonth)} PLEX.` : auth ? 'Sync to read your wallet balance.' : 'Log in and sync to compare this with your wallet.'}
+              {wallet != null && monthCost ? `${iskBig(wallet)} in your wallet (${ago(d.meta.walletAt, now)}), ${iskBig(monthCost)} for ${units(s.plexPerMonth)} PLEX.` : auth ? 'Sync to read your wallet balance.' : 'Log in and sync to compare this with your wallet.'}
             </div>
           </div>
           <div style={{ width: '100%', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -180,7 +181,7 @@ export function Omega() {
         <div className="col" style={{ gap: 14, flex: '2 1 560px' }}>
           <div data-rv="" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12 }}>
             {[
-              { l: 'PLEX price', v: plexPrice ? iskBig(plexPrice) : '–', n: s.plexPrice > 0 ? 'Your price' : d.meta.plex ? `Lowest sell on the Global PLEX Market, ${ago(d.meta.plex.at)}` : 'Loading…' },
+              { l: 'PLEX price', v: plexPrice ? iskBig(plexPrice) : '–', n: s.plexPrice > 0 ? 'Your price' : d.meta.plex ? `Lowest sell on the Global PLEX Market, ${ago(d.meta.plex.at, now)}` : 'Loading…' },
               { l: 'A month of Omega', v: iskBig(monthCost), n: `${units(s.plexPerMonth)} PLEX for 30 days` },
               { l: 'Tied up in trading', v: iskBig(pace.escrow + pace.stockAtCost), n: 'Buy order escrow plus stock at cost' },
             ].map((t) => (

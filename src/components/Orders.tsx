@@ -190,7 +190,8 @@ export function Orders() {
               <div className="panel-head">
                 <span className="panel-title">Weakest slots</span>
                 <span className="note small">
-                  {mine.length < slots * 0.9
+                  {/* Every open order takes a slot, wherever it is, so the count is all of them. */}
+                  {open.length < slots * 0.9
                     ? `You’re using ${units(open.length)} of ${units(slots)} slots, so none needs freeing yet — but these earn least per slot, and are the first to swap when you get busy.`
                     : `You’re using ${units(open.length)} of ${units(slots)} slots. These earn least per slot; swapping them is how a full book earns more.`}
                 </span>

@@ -21,17 +21,22 @@ export const CLIENT_ID = import.meta.env.VITE_EVE_CLIENT_ID ?? '';
 export const REDIRECT_URI = window.location.origin + import.meta.env.BASE_URL;
 
 // Read-only scopes. The app never needs to change anything in the game.
-export const SCOPES = [
-  'esi-wallet.read_character_wallet.v1', // wallet transactions and journal (fees and tax)
-  'esi-markets.read_character_orders.v1', // open orders and order history
-  'esi-skills.read_skills.v1', // Accounting, Broker Relations, Advanced Broker Relations
-  'esi-characters.read_standings.v1', // Caldari State and Caldari Navy standings
-  'esi-ui.open_window.v1', // open an item's market window in the client, so relisting is one click away
-  'esi-assets.read_assets.v1', // what you actually hold, to check against what your trades imply
-  'esi-characters.read_loyalty.v1', // loyalty point balances, for working out what to spend them on
-  'esi-planets.manage_planets.v1', // your planetary colonies: extractor programmes, output and stored goods
-  'esi-killmails.read_killmails.v1', // your kills and losses, priced on the day, for Combat and the Wallet
-];
+/**
+ * Every scope, by name. Code asks for `SCOPE.wallet`, never for a position in the list, so adding or
+ * reordering scopes can't quietly make a page check the wrong one.
+ */
+export const SCOPE = {
+  wallet: 'esi-wallet.read_character_wallet.v1', // wallet transactions and journal (fees and tax)
+  orders: 'esi-markets.read_character_orders.v1', // open orders and order history
+  skills: 'esi-skills.read_skills.v1', // Accounting, Broker Relations, Advanced Broker Relations
+  standings: 'esi-characters.read_standings.v1', // Caldari State and Caldari Navy standings
+  ui: 'esi-ui.open_window.v1', // open an item's market window in the client, so relisting is one click away
+  assets: 'esi-assets.read_assets.v1', // what you actually hold, to check against what your trades imply
+  loyalty: 'esi-characters.read_loyalty.v1', // loyalty point balances, for working out what to spend them on
+  planets: 'esi-planets.manage_planets.v1', // your planetary colonies: extractor programmes, output and stored goods
+  killmails: 'esi-killmails.read_killmails.v1', // your kills and losses, priced on the day, for Combat and the Wallet
+} as const;
+export const SCOPES: string[] = Object.values(SCOPE);
 
 
 // Resolved by name at sync time; these are fallbacks.

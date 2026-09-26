@@ -259,9 +259,20 @@ Don't re-derive or contradict these without new evidence.
   from where each day's average sits between its low and high; training time from dogma and attributes; the
   PushX cost, delivery days, hours spent per activity, Omega pack prices (only the 1-month 500 PLEX is assumed)
   and gank lines are the user's to enter, and a blank one shows as "–" rather than a stand-in. The rule
-  thresholds that remain (competition pivot 60 orders, share clamped 0.3–1.5×, wall 50%, escrow 10% over the
-  30-day high, spike 5× volume and 10% price, relist fee charged on half the order) are named constants stated
-  in the copy.
+  thresholds that remain (competition pivot 60 orders, share clamped 0.3–1.5×, a wall being the *best* price
+  holding over 50% of its side *and* over 3 days of volume, escrow 10% over the 30-day high, spike 5× volume
+  and 10% price, relist fee charged on half the order) are named constants stated in the copy. The wall rule
+  was first "any level over 50%", which flagged ordinary markets and then re-alerted every six hours; a big
+  order deeper in the book, or one the market clears in a day, is not a wall.
+- **Daily volume divides by calendar days, not by history rows** (`recentAverages`). Dividing by rows present
+  spread a thin item's last seven trading days — maybe two months of them — over one week and overstated its
+  pace many times over, which sized arbitrage lots and relist advice off a market that wasn't there.
+- **The gank systems are Uedama and Sivala.** Niarja used to be the other, but ESI gives it −1.0: it has been
+  Pochven since 2020, so no secure route can pass through it. The secure Jita–Amarr route runs Uedama → Sivala.
+- **A killmail that couldn't be fully priced is left unpriced and retried**, never stored with the missing
+  items at zero: its value is kept for good. ESI's 400 for an untradable type (a capsule) is a real "no
+  price"; any other failure is a retry.
+- **Scopes are looked up by name** (`SCOPE.wallet`), never by position in `SCOPES`.
 - **Pages that need the same live answer share one store**: `orderCheck` (your orders against the book),
   `watch` (squeeze and scam signals), `colonyStore` and the killmail pricer. Orders, Tonight's run and the
   alerts all read `orderCheck` rather than fetching the same books three times.

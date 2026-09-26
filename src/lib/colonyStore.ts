@@ -6,6 +6,7 @@ import { colonyLayout, jitaBook, myPlanets, resolveNames } from './market';
 import { marketBest } from './relist';
 import { getData, update } from './store';
 import { system } from './universe';
+import { SCOPE } from './config';
 
 /**
  * Your colonies, read once and shared.
@@ -14,7 +15,7 @@ import { system } from './universe';
  * answer, mainly to know when an extraction programme stops. Reading them three times would be three
  * times the requests for one answer.
  */
-export const PLANETS_SCOPE = 'esi-planets.manage_planets.v1';
+export const PLANETS_SCOPE = SCOPE.planets;
 
 export type ColonyRead = {
   at: string;

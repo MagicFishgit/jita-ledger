@@ -121,14 +121,19 @@ export function Tonight() {
     for (const c of col.read?.colonies ?? []) {
       const sys = col.read?.systems[c.head.solarSystemId]?.name ?? `Planet ${c.head.planetId}`;
       for (const e of c.extractors) {
-        if (e.expiry == null || (e.state !== 'expired' && e.state !== 'endingSoon')) continue;
+        // Timed from the expiry against now, not from when the colonies were read, which may be an
+        // hour ago: a programme that ended since then must show as ended.
+        if (e.expiry == null || e.state === 'idle') continue;
+        const hours = (e.expiry - now) / 3600_000;
+        if (hours > 24) continue;
+        const ended = hours <= 0;
         const price = e.productTypeId != null ? col.read?.prices[e.productTypeId] ?? 0 : 0;
         const perDay = e.unitsPerHour * 24 * price;
         const product = e.productTypeId != null ? name(e.productTypeId) : 'an extractor';
         out.push({
-          id: `pi:${e.pinId}:${e.expiry}`, kind: e.state === 'expired' ? 'piExpired' : 'piEnding', stake: perDay,
+          id: `pi:${e.pinId}:${e.expiry}`, kind: ended ? 'piExpired' : 'piEnding', stake: perDay,
           title: `${sys} · ${product}`,
-          detail: e.state === 'expired' ? 'The extraction programme has ended. It earns nothing until you reset the heads.' : `The programme ends in ${Math.max(1, Math.round(e.hours))} h. Reset it while you’re on.`,
+          detail: ended ? 'The extraction programme has ended. It earns nothing until you reset the heads.' : `The programme ends in ${Math.max(1, Math.round(hours))} h. Reset it while you’re on.`,
           action: { label: 'Open planets', route: 'hustles/planets' },
         });
       }
@@ -138,7 +143,7 @@ export function Tonight() {
       for (const f of sig.signals[id]?.flags ?? []) {
         out.push({
           id: `scam:${id}:${f}`, kind: 'scam', stake: 0, title: name(id),
-          detail: f === 'escrow' ? 'A bid far above anything paid this month — escrow bait. Don’t sell into it.' : f === 'wall' ? 'One price holds most of the stock on show — a wall. Don’t chase it.' : 'A recent day traded far above normal at an odd price — a spike. Don’t trust the average.',
+          detail: f === 'escrow' ? 'A bid far above anything paid this month — escrow bait. Don’t sell into it.' : f === 'wall' ? 'The best price holds days of the market’s volume — a wall. Don’t queue behind it.' : 'A recent day traded far above normal at an odd price — a spike. Don’t trust the average.',
           action: { label: 'Look closer', route: `calculator?type=${id}` },
         });
       }

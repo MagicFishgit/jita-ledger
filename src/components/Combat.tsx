@@ -8,7 +8,7 @@ import { jitaBook, resolveNames } from '../lib/market';
 import { marketBest } from '../lib/relist';
 import { update, useData } from '../lib/store';
 import { system } from '../lib/universe';
-import { SCOPES } from '../lib/config';
+import { SCOPE } from '../lib/config';
 import { toast } from '../lib/toast';
 import type { KillParty, Killmail } from '../lib/types';
 import { useEnsureNames, useTypeName } from './common';
@@ -16,7 +16,7 @@ import { useLearnedGankLines } from './gank';
 import { Busy, Check, Empty, PageHead, Panel, Seg, Tiles } from './ui';
 
 const DAY = 86400_000;
-const KILLMAIL_SCOPE = SCOPES[8];
+const KILLMAIL_SCOPE = SCOPE.killmails;
 const ACT_COLOR: Record<CombatActivity, string> = { Abyssal: '#ff8d9a', Hauling: 'var(--acc2)', PvP: '#a98bff', PvE: '#7aa6ff' };
 
 type SysInfo = { name: string; security: number };
@@ -157,7 +157,7 @@ export function Combat() {
           <Check bare checked={d.prefs.learnFromLosses} onChange={(v) => update((x) => ({ prefs: { ...x.prefs, learnFromLosses: v } }))} desc="Lowers the gank line when you’ve been ganked">Adjust hauling risk from my losses</Check>
           <p className="note" style={{ color: '#b6c6d4' }}>
             {!d.prefs.learnFromLosses ? 'Turned off — the Hauling tab uses only the gank lines you set yourself.'
-              : !learnedList.length ? 'None of your losses was a hauler ganked in Uedama or Niarja with cargo aboard, so there is nothing to learn yet.'
+              : !learnedList.length ? 'None of your losses was a hauler ganked in Uedama or Sivala with cargo aboard, so there is nothing to learn yet.'
                 : learnedList.map(([hull, l]) => {
                   const km = d.killmails[String(l.killmailId)];
                   const set = gankLineFor(hull, d.prefs.gankLines, learned, true);

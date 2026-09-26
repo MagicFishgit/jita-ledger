@@ -43,8 +43,22 @@ export function jitaOpen(d: Pick<Data, 'orders'>): Order[] {
   return Object.values(d.orders).filter((o) => o.state === 'open' && o.volumeRemain > 0 && tradedAtJita(o.typeId, o.locationId));
 }
 
-export async function checkOrders(fresh = true): Promise<void> {
-  if (state.busy) return;
+let running: Promise<void> | null = null;
+
+/**
+ * Check every open Jita order against the live book. A second caller while one check is running
+ * waits for that check rather than returning at once: the alerts would otherwise read the books from
+ * the check before, or none at all.
+ */
+export function checkOrders(fresh = true): Promise<void> {
+  if (running) return running;
+  running = runCheck(fresh)
+    .catch((e) => { setState({ busy: null }); throw e; })
+    .finally(() => { running = null; });
+  return running;
+}
+
+async function runCheck(fresh: boolean): Promise<void> {
   const mine = jitaOpen(getData());
   const typeIds = [...new Set(mine.map((o) => o.typeId))];
   if (!typeIds.length) { setState({ books: {}, checkedAt: new Date().toISOString() }); return; }

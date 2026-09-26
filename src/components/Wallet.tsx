@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Crosshair, FileSpreadsheet, Flame, HandCoins, Image as ImageIcon, Plus, Rocket, ShieldCheck, Target, TrendingUp, TriangleAlert, Wallet as WalletIcon, X,
 } from 'lucide-react';
-import { JITA_44, SCOPES } from '../lib/config';
+import { JITA_44, SCOPE } from '../lib/config';
 import { fmtDate, fmtDateTime, fmtShort, iskBig, iskBigSigned, pct, rid, units } from '../lib/format';
 import { navigate, useAuth, useNow } from '../lib/hooks';
 import { resolveNames, roughPricesShared } from '../lib/market';
-import { computePosition, countedIn, realizedBetween } from '../lib/positions';
+import { computePosition, countedIn, realizedBetween, type SeriesPoint } from '../lib/positions';
 import { startPosition } from '../lib/actions';
 import { update, useData, type Data } from '../lib/store';
 import { toast } from '../lib/toast';
@@ -15,13 +15,13 @@ import { isAbyssalSystem, netLoss } from '../lib/combat';
 import {
   autoTag, balanceAt, balanceSeries, csvCell, describeRef, feeLeak, flows, goalEta, nextTag, RUNNING, runwayDays, unusual, type Line, type TradeClass,
 } from '../lib/wallet';
-import type { Goal, JournalEntry, Tx, UntrackedTag } from '../lib/types';
+import type { Goal, JournalEntry, Position, Tx, UntrackedTag } from '../lib/types';
 import { AreaLine, MiniLine } from './charts';
 import { downloadBlob, downloadText, useTypeName } from './common';
 import { BarLine, cssVars, Empty, Figure, NumChip, PageHead, Panel, Seg, Tiles } from './ui';
 
 const DAY = 86400_000;
-const [WALLET_SCOPE, , , , , , , , KILLMAIL_SCOPE] = SCOPES;
+const WALLET_SCOPE = SCOPE.wallet, KILLMAIL_SCOPE = SCOPE.killmails;
 type Days = 1 | 7 | 30 | 90;
 const DAYS_KEY = 'jita-ledger:wallet-days';
 
@@ -69,6 +69,9 @@ export function Wallet() {
   // Which trades a position counts, worked out once rather than per panel.
   const tracked = useMemo(() => new Set(txList.filter((t) => d.positions.some((p) => countedIn(p, t))).map((t) => t.id)), [txList, d.positions]);
   const everBought = useMemo(() => new Set(txList.filter((t) => t.isBuy).map((t) => t.typeId)), [txList]);
+  // Each position's profit history, worked out once per change to the ledger rather than on every tick.
+  const posSeries = useMemo(() => d.positions.map((p) => ({ p, series: computePosition(p, d, d.settings).series })),
+    [d.positions, d.txs, d.journal, d.orders, d.settings]); // eslint-disable-line react-hooks/exhaustive-deps
   const ignored = useMemo(() => new Set(d.ignored), [d.ignored]);
   const tagOf = (tx: Tx): UntrackedTag => (ignored.has(tx.id) ? 'personal' : d.tags[tx.id] ?? autoTag(tx, everBought));
   const classOf = (tx: Tx): TradeClass => ({ tracked: tracked.has(tx.id), tag: tagOf(tx) });
@@ -99,8 +102,16 @@ export function Wallet() {
   const sellValue = open.filter((o) => !o.isBuy).reduce((t, o) => t + o.price * o.volumeRemain, 0);
   const escrow = open.filter((o) => o.isBuy).reduce((t, o) => t + (o.escrow ?? o.price * o.volumeRemain), 0);
   const assets = value(d.stock?.total);
-  const lp = (d.meta.lpBalances ?? []).map((b) => ({ ...b, rate: d.meta.lpRate?.[b.corporationId]?.rate ?? null }));
-  const lpValue = lp.reduce((t, b) => t + (b.rate != null ? b.points * b.rate : 0), 0);
+  // Only the points the Loyalty page's plan could place are valued at its rate; the rest have no market
+  // it found, so they count for nothing rather than for the same rate.
+  const lp = (d.meta.lpBalances ?? []).map((b) => {
+    // A rate saved before the plan's reach was kept says nothing about how many points it covers.
+    const saved = d.meta.lpRate?.[b.corporationId];
+    const r = saved?.lp != null ? saved : null;
+    const valued = r ? Math.min(b.points, r.lp!) : 0;
+    return { ...b, rate: r?.rate ?? null, valued };
+  });
+  const lpValue = lp.reduce((t, b) => t + (b.rate != null ? b.valued * b.rate : 0), 0);
   const nwParts = [
     { l: 'Wallet', v: wallet ?? 0, c: 'var(--acc)' },
     { l: 'Stock in sell orders', v: sellValue, c: '#6ee7a8' },
@@ -205,7 +216,7 @@ export function Wallet() {
   const leakMax = Math.max(1, ...leakRows.map((r) => r[1]));
 
   // ---- Trading against play
-  const profit = d.positions.reduce((t, p) => t + realizedBetween(computePosition(p, d, d.settings).series, since, now), 0);
+  const profit = posSeries.reduce((t, x) => t + realizedBetween(x.series, since, now), 0);
   const play = f.outs.filter((l) => l.kind === 'Personal').reduce((t, l) => t + l.amount, 0);
   const left = profit - play;
 
@@ -341,7 +352,7 @@ export function Wallet() {
         <Unusual d={d} journal={journal} now={now} />
       </div>
 
-      <Report d={d} journal={journal} txList={txList} classOf={classOf} m0={m0} now={now} monthName={monthName} describe={describe} characterName={auth?.characterName ?? null} />
+      <Report journal={journal} txList={txList} classOf={classOf} m0={m0} now={now} monthName={monthName} describe={describe} characterName={auth?.characterName ?? null} posSeries={posSeries} />
     </div>
   );
 }
@@ -395,7 +406,7 @@ function NetWorth(props: {
 
 function WhereItSits(props: {
   d: Data; value: (x: Record<number, number> | undefined) => number; rough: Record<number, number> | null; sellValue: number; escrow: number;
-  lp: { corporationId: number; points: number; rate: number | null }[]; now: number; hasAssets: boolean;
+  lp: { corporationId: number; points: number; rate: number | null; valued: number }[]; now: number; hasAssets: boolean;
 }) {
   const { d, value, rough, now } = props;
   const byLoc = d.stock?.byLocation ?? {};
@@ -425,8 +436,10 @@ function WhereItSits(props: {
   if (d.stock?.nested && Object.keys(d.stock.nested).length) rows.push({ l: 'Inside ships and containers', v: rough ? value(d.stock.nested) : null, d: 'Fitted to ships or packed away' });
   for (const b of props.lp.filter((x) => x.points > 0)) {
     rows.push({
-      l: `Loyalty points${names[b.corporationId] ? ` · ${names[b.corporationId]}` : ''}`, v: b.rate != null ? b.points * b.rate : null, flag: 'Idle',
-      d: b.rate != null ? `${units(b.points)} LP at ${b.rate.toFixed(0)} ISK a point, from the Loyalty page` : `${units(b.points)} LP, not priced yet — open the Loyalty page`,
+      l: `Loyalty points${names[b.corporationId] ? ` · ${names[b.corporationId]}` : ''}`, v: b.rate != null ? b.valued * b.rate : null, flag: 'Idle',
+      d: b.rate == null ? `${units(b.points)} LP, not priced yet — open the Loyalty page`
+        : b.valued < b.points ? `${units(b.valued)} of ${units(b.points)} LP at ${b.rate.toFixed(0)} ISK a point — as many as the Loyalty page’s plan could place`
+          : `${units(b.points)} LP at ${b.rate.toFixed(0)} ISK a point, from the Loyalty page`,
     });
   }
   const sorted = rows.sort((a, b) => (b.v ?? -1) - (a.v ?? -1));
@@ -666,10 +679,11 @@ function Unusual({ d, journal, now }: { d: Data; journal: JournalEntry[]; now: n
 }
 
 function Report(props: {
-  d: Data; journal: JournalEntry[]; txList: Tx[]; classOf: (tx: Tx) => TradeClass; m0: number; now: number; monthName: string;
+  journal: JournalEntry[]; txList: Tx[]; classOf: (tx: Tx) => TradeClass; m0: number; now: number; monthName: string;
   describe: (e: JournalEntry) => string; characterName: string | null;
+  posSeries: { p: Position; series: SeriesPoint[] }[];
 }) {
-  const { d, journal, txList, classOf, m0, now, monthName } = props;
+  const { journal, txList, classOf, m0, now, monthName } = props;
   const name = useTypeName();
   const fm = flows(journal, txList, classOf, m0);
   const net = fm.inTotal - fm.outTotal;
@@ -681,7 +695,7 @@ function Report(props: {
     weeks.push({ from: s, to, net: w.inTotal - w.outTotal });
   }
   const best = weeks.length > 1 ? [...weeks].sort((a, b) => b.net - a.net)[0] : null;
-  const earners = d.positions.map((p) => ({ p, v: realizedBetween(computePosition(p, d, d.settings).series, m0, now) })).sort((a, b) => b.v - a.v);
+  const earners = props.posSeries.map(({ p, series }) => ({ p, v: realizedBetween(series, m0, now) })).sort((a, b) => b.v - a.v);
   const top = earners[0] && earners[0].v > 0 ? earners[0] : null;
   const fees = feeLeak(journal, m0).total;
   const tiles = [

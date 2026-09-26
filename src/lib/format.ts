@@ -79,7 +79,8 @@ const shortFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'shor
 export const fmtDate = (d: string | number) => dFmt.format(new Date(d));
 export const fmtDateTime = (d: string | number) => dtFmt.format(new Date(d)) + ' ET';
 export const fmtShort = (d: string | number) => shortFmt.format(new Date(d));
-export function ago(iso?: string, now = Date.now()): string {
+/** How long ago, measured against `now` from useNow() so it keeps moving; there is no default on purpose. */
+export function ago(iso: string | undefined, now: number): string {
   if (!iso) return 'never';
   const s = (now - new Date(iso).getTime()) / 1000;
   if (s < 60) return 'just now';
@@ -89,7 +90,7 @@ export function ago(iso?: string, now = Date.now()): string {
   return d === 1 ? '1 day ago' : d + ' days ago';
 }
 /** How long until a moment: "in 12 min", "any moment now". */
-export function until(iso?: string, now = Date.now()): string | null {
+export function until(iso: string | undefined, now: number): string | null {
   if (!iso) return null;
   const s = (Date.parse(iso) - now) / 1000;
   if (!Number.isFinite(s)) return null;

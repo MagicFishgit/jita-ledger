@@ -1,14 +1,14 @@
 import { useSyncExternalStore } from 'react';
 import { getAuth, hasScope } from './auth';
 import { esi, esiAllPages } from './esi';
-import { ALPHA_CAPS, JITA_44, NPC_FALLBACK_IDS, NPC_NAMES, SCOPES, SKILL_FALLBACK_IDS, SKILL_NAMES, type SkillKey } from './config';
+import { ALPHA_CAPS, JITA_44, NPC_FALLBACK_IDS, NPC_NAMES, SCOPE, SKILL_FALLBACK_IDS, SKILL_NAMES, type SkillKey } from './config';
 import { loyaltyPoints, resolveIds, resolveNames } from './market';
 import { dataGeneration, getData, update, type Data } from './store';
 import { sanitizeSettings, type Settings } from './fees';
 import { readKillmail, type RawKillmail } from './combat';
 import type { JournalEntry, Killmail, Meta, Order, Stock, Tx } from './types';
 
-const [WALLET, ORDERS, SKILLS, STANDINGS, , ASSETS, LOYALTY, , KILLMAILS] = SCOPES;
+const { wallet: WALLET, orders: ORDERS, skills: SKILLS, standings: STANDINGS, assets: ASSETS, loyalty: LOYALTY, killmails: KILLMAILS } = SCOPE;
 
 /** How long to wait after a failed sync before trying again. */
 const RETRY_AFTER_FAIL_MS = 5 * 60_000;

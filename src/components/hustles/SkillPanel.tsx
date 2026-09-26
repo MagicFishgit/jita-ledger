@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { get, set } from 'idb-keyval';
 import { hasScope } from '../../lib/auth';
-import { SCOPES } from '../../lib/config';
+import { SCOPE } from '../../lib/config';
 import { byUrgency, check, readiness, skillsOf, trainedOptions, type Checked, type Need } from '../../lib/skills';
 import { resolveIds } from '../../lib/market';
 import { cacheStore, useData } from '../../lib/store';
 import { cssVars, Tip } from '../ui';
 
-const SKILLS_SCOPE = SCOPES[2];
+const SKILLS_SCOPE = SCOPE.skills;
 const CACHE = 'skill-ids';
 
 /** Name to skill type ID, resolved once and kept: skills are not renamed often, but they are. */

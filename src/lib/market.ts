@@ -6,6 +6,7 @@ import { buyerShare } from './split';
 import type { BookLevel, HistRow, MarketSnap } from './types';
 import type { LpOffer } from './loyalty';
 import type { PlanetHead, RawColony } from './colony';
+import { recentAverages } from './prospects';
 
 type IdsResponse = {
   inventory_types?: { id: number; name: string }[];
@@ -155,14 +156,15 @@ export async function regionHistory(typeId: number, regionId: number): Promise<H
 }
 
 /** One station's book in another region: another trade hub, for comparing against Jita. */
-export async function stationBook(typeId: number, regionId: number, stationId: number) {
+export async function stationBook(typeId: number, regionId: number, stationId: number, fresh = false) {
   const path = `/markets/${regionId}/orders/`;
-  const first = await esi<RawMarketOrder[]>(path, { query: { order_type: 'all', type_id: typeId, page: 1 } });
+  const first = await esi<RawMarketOrder[]>(path, { query: { order_type: 'all', type_id: typeId, page: 1 }, fresh });
   const orders = [...first.data];
   const pages = Math.min(first.pages ?? 1, 10);
-  for (let p = 2; p <= pages; p++) {
-    orders.push(...(await esi<RawMarketOrder[]>(path, { query: { order_type: 'all', type_id: typeId, page: p } }).then((r) => r.data).catch(() => [])));
-  }
+  // A page that fails is not left out: half a book would present its best price as the best price.
+  const rest = await Promise.all(Array.from({ length: pages - 1 }, (_, i) =>
+    esi<RawMarketOrder[]>(path, { query: { order_type: 'all', type_id: typeId, page: i + 2 }, fresh }).then((r) => r.data)));
+  for (const page of rest) orders.push(...page);
   const here = orders.filter((o) => o.location_id === stationId);
   const buys = here.filter((o) => o.is_buy_order).sort((a, b) => b.price - a.price);
   const sells = here.filter((o) => !o.is_buy_order).sort((a, b) => a.price - b.price);
@@ -187,13 +189,8 @@ export async function skillDogma(typeId: number): Promise<{ rank: number; primar
   return out;
 }
 
-export function recentAverages(rows: HistRow[], days = 7) {
-  const recent = rows.slice(-days);
-  if (!recent.length) return { avgVol: null, avgPrice: null };
-  const vol = recent.reduce((s, r) => s + r.volume, 0);
-  const val = recent.reduce((s, r) => s + r.volume * r.average, 0);
-  return { avgVol: vol / recent.length, avgPrice: vol > 0 ? val / vol : null };
-}
+// Lives with the other pure history rules so it can be tested; re-exported for existing callers.
+export { recentAverages };
 
 export async function snapshot(typeId: number, force = false): Promise<MarketSnap> {
   const [book, hist] = await Promise.all([jitaBook(typeId, force), marketHistory(typeId)]);

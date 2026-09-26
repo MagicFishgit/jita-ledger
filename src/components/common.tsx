@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useState, type KeyboardEvent, type ReactNode
 import { MonitorUp, Search } from 'lucide-react';
 import { openMarketWindow, resolveNames, resolveType } from '../lib/market';
 import { hasScope } from '../lib/auth';
-import { SCOPES } from '../lib/config';
+import { SCOPE } from '../lib/config';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { iskBig } from '../lib/format';
@@ -153,7 +153,7 @@ export function ItemSearch(props: {
   );
 }
 
-const UI_SCOPE = SCOPES[4];
+const UI_SCOPE = SCOPE.ui;
 
 /**
  * Opens an item's market window in the running EVE client.

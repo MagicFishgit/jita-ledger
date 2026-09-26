@@ -1,6 +1,6 @@
 // Verification harness for the pure logic that has no UI to eyeball.
 // Run with: npm run check   (Node strips the TypeScript types natively)
-import { statsFrom, pickPages, passesGate, warningsFor, expectedEdge, sortProspects, FIRST_DIR, DEFAULT_FILTERS } from '../src/lib/prospects.ts';
+import { statsFrom, pickPages, passesGate, warningsFor, expectedEdge, sortProspects, FIRST_DIR, DEFAULT_FILTERS, recentAverages } from '../src/lib/prospects.ts';
 import { priceUp, tickDown } from '../src/lib/tick.ts';
 import { dueForSync } from '../src/lib/schedule.ts';
 import { adviseRelist, byUrgency, weightedLevel, marketBest } from '../src/lib/relist.ts';
@@ -1051,9 +1051,12 @@ eq('what the book cannot take is reported, not priced', w.left, 10);
 eq('  and only what sold is valued', w.value, 10 * 100 + 5 * 95 + 5 * 90);
 
 console.log('\n--- suspicious markets ---');
-eq('one price holding most of the side is a wall', isWall([{ price: 1, volume: 900 }, { price: 2, volume: 100 }]), true);
-eq('an even book is not', isWall([{ price: 1, volume: 500 }, { price: 2, volume: 500 }]), false);
-eq('a single level cannot be judged', isWall([{ price: 1, volume: 900 }]), false);
+eq('the front holding most of the side and days of volume is a wall', isWall([{ price: 1, volume: 900 }, { price: 2, volume: 100 }], 100), true);
+eq('an even book is not', isWall([{ price: 1, volume: 500 }, { price: 2, volume: 500 }], 100), false);
+eq('a single level cannot be judged', isWall([{ price: 1, volume: 900 }], 100), false);
+eq('a big order deeper in the book is just a big order', isWall([{ price: 1, volume: 50 }, { price: 2, volume: 900 }, { price: 3, volume: 50 }], 100), false);
+eq('a big front on a market that clears it in a day is just supply', isWall([{ price: 1, volume: 900 }, { price: 2, volume: 100 }], 1000), false);
+eq('without a known pace there is no claim', isWall([{ price: 1, volume: 900 }, { price: 2, volume: 100 }]), false);
 const deepBook = { buyOrders: 40, sellOrders: 40, topBuys: [{ price: 100, volume: 10 }, { price: 99, volume: 10 }], topSells: [{ price: 110, volume: 10 }, { price: 111, volume: 10 }] };
 has('a bid far above anything paid all month is escrow bait',
   warningsFor({ ...st, high30: 80 }, deepBook, 0.09, 100), 'escrow');
@@ -1305,6 +1308,22 @@ eq('per hour over the period', perHour(700, 7, 7), 100);
   eq('combat: bounties', by('Combat'), 300);
   eq('a trade a position counts is never double-counted', ev.some((e) => e.isk === 777 || e.isk === 777 * 0.9), false);
   eq('an item belonging to nothing is left out', ev.some((e) => e.isk === 4500), false);
+}
+
+console.log('\n--- recent averages over calendar days ---');
+{
+  const now = Date.parse('2026-09-26T12:00:00Z');
+  const row = (date, volume, average = 100) => ({ date, volume, average, highest: average, lowest: average, order_count: 1 });
+  const busy = ['19', '20', '21', '22', '23', '24', '25'].map((d) => row(`2026-09-${d}`, 70));
+  eq('a busy item: seven days of rows over seven days', recentAverages(busy, 7, now).avgVol, 70);
+  const thin = ['2026-07-30', '2026-08-06', '2026-08-13', '2026-08-20', '2026-08-27', '2026-09-03', '2026-09-24'].map((d) => row(d, 70));
+  eq('a thin item: only the rows inside the week count, spread over the week', recentAverages(thin, 7, now).avgVol, 10);
+  eq('an item that stopped trading is zero, not its last pace', recentAverages([row('2026-08-01', 500)], 7, now).avgVol, 0);
+  eq('  and has no price', recentAverages([row('2026-08-01', 500)], 7, now).avgPrice, null);
+  eq('no history at all is unknown, not zero', recentAverages([], 7, now).avgVol, null);
+  const late = ['18', '19', '20', '21', '22', '23', '24'].map((d) => row(`2026-09-${d}`, 70));
+  eq('before the daily update, the window ends on the last published day', recentAverages(late, 7, now).avgVol, 70);
+  eq('price is weighted by volume', recentAverages([row('2026-09-24', 1, 100), row('2026-09-25', 3, 200)], 7, now).avgPrice, 175);
 }
 
 console.log('\n--- prefs ---');

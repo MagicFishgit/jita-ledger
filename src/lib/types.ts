@@ -216,7 +216,7 @@ export type Meta = {
   /** Last time killmails were read. */
   killmailsAt?: string;
   /** The best ISK per loyalty point last worked out on the Loyalty page, per corporation. */
-  lpRate?: Record<number, { rate: number; at: string }>;
+  lpRate?: Record<number, { rate: number; at: string; /** Points the plan could place at that rate. */ lp?: number }>;
   /** Loyalty point balances as last read. */
   lpBalances?: { corporationId: number; points: number }[];
   /** When ESI's cache next lets go, per route, as read from each response. For the status bar's timers. */
@@ -270,7 +270,7 @@ export type Prefs = {
   alertSize: number;
   /** Hours a week you spend on each activity, for ISK per hour of your time. Blank until you say. */
   hours: Partial<Record<Activity, number>>;
-  /** Collateral above which a contract through Uedama or Niarja is worth ganking, per hull. Yours to set. */
+  /** Collateral above which a contract through Uedama or Sivala is worth ganking, per hull. Yours to set. */
   gankLines: Record<string, number>;
   /** Let your own hauling losses lower the gank line. */
   learnFromLosses: boolean;

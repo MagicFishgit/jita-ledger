@@ -91,7 +91,7 @@ export async function runChecks(): Promise<void> {
         for (const id of types) {
           for (const f of sig[id]?.flags ?? []) {
             findings.push({ kind: 'scam', key: `scam:${id}:${f}`, title: ALERT_LABELS.scam.label,
-              text: `${names(id)}: ${f === 'escrow' ? 'a bid far above anything paid this month — escrow bait' : f === 'wall' ? 'one price holds most of the stock on show — a wall' : 'a recent day traded far above normal at an odd price — a spike'}.` });
+              text: `${names(id)}: ${f === 'escrow' ? 'a bid far above anything paid this month — escrow bait' : f === 'wall' ? 'the best price holds days of the market’s volume — a wall' : 'a recent day traded far above normal at an odd price — a spike'}.` });
           }
         }
       }

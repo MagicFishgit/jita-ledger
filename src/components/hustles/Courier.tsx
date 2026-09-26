@@ -27,7 +27,7 @@ const FLAG: Record<CourierFlag, { short: string; why: string }> = {
   thinReward: { short: 'Pays too little', why: 'Below the per-jump rate you said was worth the trip.' },
   rushed: { short: 'Not enough time', why: 'More than fifteen jumps a day to make the deadline. Miss it and you forfeit the collateral, which is sometimes the whole point of the contract.' },
   expiringSoon: { short: 'Expiring', why: 'This contract disappears within six hours. Fine if you are undocking now.' },
-  gankBait: { short: 'Gank bait', why: 'The collateral is above the gank line for your hull, and the route runs through Uedama or Niarja, where gank fleets wait. Take it in a tougher hull, split the load, or bring a webbing alt.' },
+  gankBait: { short: 'Gank bait', why: 'The collateral is above the gank line for your hull, and the route runs through Uedama or Sivala, where gank fleets wait. Take it in a tougher hull, split the load, or bring a webbing alt.' },
 };
 
 type Raw = { c: CourierContract; start: Endpoint; end: Endpoint; jumps: number | null; route: number[] | null };
@@ -131,14 +131,14 @@ export function Courier() {
           onChange={(n) => update((x) => ({ prefs: { ...x.prefs, perJump: n ?? 0 } }))} />
         <NumChip id="h-gank" key={hull} label="Gank line" width={118} decimals={0} value={d.prefs.gankLines[hull] ?? null}
           placeholder={learned[hull] ? iskBig(learned[hull].value).replace(' ISK', '') : 'not set'} tipTitle="Gank line"
-          tip={`Collateral above this, on a route through Uedama or Niarja, is flagged as gank bait for a ${hull === 'Custom' ? 'hull of your own figure' : hull}. There is no published figure for this — it depends on your fit — so it is yours to set.${learned[hull] ? ` Your own losses put it no higher than ${iskBig(learned[hull].value)}.` : ''}`}
+          tip={`Collateral above this, on a route through Uedama or Sivala, is flagged as gank bait for a ${hull === 'Custom' ? 'hull of your own figure' : hull}. There is no published figure for this — it depends on your fit — so it is yours to set.${learned[hull] ? ` Your own losses put it no higher than ${iskBig(learned[hull].value)}.` : ''}`}
           onChange={setLine} />
         <Check checked={safeOnly} onChange={setSafeOnly} tip="Only show contracts that pass the safety checks">Safe only</Check>
         <span style={{ flexBasis: '100%', fontSize: 11.5, color: gank.line != null ? 'var(--acc2)' : 'var(--note)', display: 'flex', alignItems: 'center', gap: 6 }}>
           <Skull aria-hidden="true" style={{ width: 13, height: 13 }} />
           {gank.line == null
-            ? `No gank line for a ${hull === 'Custom' ? 'custom hold' : hull}: set one above and contracts through Uedama or Niarja worth more than it are flagged.`
-            : `Gank line for a ${hull === 'Custom' ? 'custom hold' : hull}: about ${iskBig(gank.line)} of collateral through Uedama or Niarja${gank.from === 'learned' ? ' — lowered by your own loss there, from your killmails' : ''}.`}
+            ? `No gank line for a ${hull === 'Custom' ? 'custom hold' : hull}: set one above and contracts through Uedama or Sivala worth more than it are flagged.`
+            : `Gank line for a ${hull === 'Custom' ? 'custom hold' : hull}: about ${iskBig(gank.line)} of collateral through Uedama or Sivala${gank.from === 'learned' ? ' — lowered by your own loss there, from your killmails' : ''}.`}
         </span>
       </div>
       <p className="note small">{ORE_NOTE}</p>
