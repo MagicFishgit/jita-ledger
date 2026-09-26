@@ -51,15 +51,19 @@ export async function cleanupAlertMails(now = Date.now()): Promise<number> {
   // Only this character's: another's mail can't be deleted from here, and waits until they log in.
   for (const m of getData().meta.alertMails ?? []) if (m.char === me && now - Date.parse(m.at) > keep * 60_000) stale.add(m.id);
   const gone = new Set<number>();
+  // A failed read still lets the recorded ones go; the failure is reported once they have.
+  let readFailed: unknown = null;
   try {
     if (hasScope(SCOPE.mailRead)) {
-      let last: number | undefined;
-      for (let page = 0; page < LOOK_BACK_PAGES; page++) {
-        const { data } = await esi<MailHeader[]>(`/characters/${me}/mail/`, { auth: true, query: { last_mail_id: last } });
-        for (const m of data) if (isStaleAlertMail(m, me, keep, now)) stale.add(m.mail_id);
-        if (data.length < 50) break;
-        last = Math.min(...data.map((m) => m.mail_id));
-      }
+      try {
+        let last: number | undefined;
+        for (let page = 0; page < LOOK_BACK_PAGES; page++) {
+          const { data } = await esi<MailHeader[]>(`/characters/${me}/mail/`, { auth: true, query: { last_mail_id: last } });
+          for (const m of data) if (isStaleAlertMail(m, me, keep, now)) stale.add(m.mail_id);
+          if (data.length < 50) break;
+          last = Math.min(...data.map((m) => m.mail_id));
+        }
+      } catch (e) { readFailed = e; }
     }
     for (const id of stale) {
       try {
@@ -76,5 +80,6 @@ export async function cleanupAlertMails(now = Date.now()): Promise<number> {
     // whatever did go is forgotten, so it isn't asked for again.
     update((d) => ({ meta: { ...d.meta, mailCleanAt: new Date(now).toISOString(), alertMails: (d.meta.alertMails ?? []).filter((m) => !gone.has(m.id)) } }));
   }
+  if (readFailed) throw readFailed;
   return gone.size;
 }

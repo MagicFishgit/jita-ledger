@@ -427,6 +427,10 @@ State these rather than letting them be discovered:
 - **PI does not model powergrid or CPU.** Command Center Upgrades governs how many extractor heads
   and factories physically fit; "1 factory per planet" does not check that you can fit it. The
   per-structure costs and per-level budgets are not in ESI.
+- **Two open tabs each run their own alert checks**, so each can raise, and mail, the same finding. System
+  notifications collapse by `tag`; toasts and mails have no equivalent. Keep one tab open.
+- Alert mails' look in the client (ARGB `<font>` colours, `showinfo:` links) was written from the client's
+  mail format and checked only against a mocked ESI, not seen in game.
 - Deep Space Transports, Blockade Runners, Industrials and Jump Freighters get **no** skill cargo
   bonus, because their bonus attributes do not say which stat they modify. Their presets are bare
   hulls and the figure stays editable.
