@@ -19,7 +19,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 type Opts = {
   auth?: boolean;
   query?: Record<string, string | number | undefined>;
-  method?: 'GET' | 'POST';
+  method?: 'GET' | 'POST' | 'DELETE';
   body?: unknown;
   /**
    * Revalidate with ESI instead of accepting the browser's copy.

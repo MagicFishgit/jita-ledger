@@ -216,6 +216,10 @@ export type Meta = {
   prevVisitAt?: string;
   /** When a backup was last exported. ESI keeps 30 days of wallet history, so this browser is the record. */
   lastBackupAt?: string;
+  /** Alert mails this browser sent, so they can be deleted on time even without the read-mail scope. */
+  alertMails?: { id: number; at: string; char: number }[];
+  /** When old alert mails were last tidied away. */
+  mailCleanAt?: string;
   /** Character attributes, for working out how long a skill takes to train. */
   attributes?: { intelligence: number; memory: number; perception: number; willpower: number; charisma: number };
   /** Every skill's trained skill points, by type ID, so training time counts what is already in. */
@@ -302,6 +306,12 @@ export type AlertConfig = {
   minIsk: number;
   quiet: boolean;
   ev: Record<AlertEvent, boolean>;
+  /** Also send alerts as an EVE mail to yourself, for when you're in the game. */
+  mail: boolean;
+  /** Which alerts go by mail. Only the ones worth acting on in game, unless you say otherwise. */
+  mailEv: Record<AlertEvent, boolean>;
+  /** Minutes before an alert mail is deleted, read or not; null keeps them. */
+  mailKeepMin: number | null;
 };
 export type AlertLogEntry = { at: string; kind: AlertEvent; key: string; title: string; text: string; test?: boolean };
 

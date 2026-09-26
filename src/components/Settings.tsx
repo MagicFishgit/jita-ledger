@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { get } from 'idb-keyval';
 import {
-  BellRing, Database, Download, GraduationCap, HardDriveDownload, LogIn, LogOut, Palette, Percent, RefreshCw, Send, Trash2, Upload, UserRound,
+  BellRing, Database, Download, GraduationCap, HardDriveDownload, LogIn, LogOut, Mail, Palette, Percent, RefreshCw, Send, Trash2, Upload, UserRound,
 } from 'lucide-react';
 import { effectiveSkills, orderSlots, rates, RELIST_LEFT, sanitizeSettings, type Settings as S } from '../lib/fees';
 import { ago, iskBig, iskBigSigned, pct, plainNum, units } from '../lib/format';
@@ -10,17 +10,17 @@ import { confirmAsk } from '../lib/confirm';
 import { isConfigured, login, logout } from '../lib/auth';
 import { syncCharacter, useSyncState } from '../lib/sync';
 import { navigate, useAuth, useNow, type Route } from '../lib/hooks';
-import { ALPHA_CAPS, REDIRECT_URI, SCOPE_INFO, SCOPES } from '../lib/config';
-import { ALERT_EVENTS, ALERT_SIZES, THEMES, TOAST_SECONDS } from '../lib/prefs';
-import { ALERT_LABELS } from '../lib/alerts';
-import { testAlert, useAlertRunner, BACKUP_DAYS } from '../lib/alertsRunner';
+import { ALPHA_CAPS, REDIRECT_URI, SCOPE, SCOPE_INFO, SCOPES } from '../lib/config';
+import { ALERT_EVENTS, ALERT_SIZES, MAIL_KEEP, THEMES, TOAST_SECONDS } from '../lib/prefs';
+import { ALERT_LABELS, tidyEvery } from '../lib/alerts';
+import { testAlert, testMail, useAlertRunner, BACKUP_DAYS } from '../lib/alertsRunner';
 import { useMotion, bumpWarp } from '../lib/motion';
 import { toast } from '../lib/toast';
 import type { Motion, Theme } from '../lib/types';
 import { downloadText, LevelBoxes } from './common';
 import { CloneSwitch } from './Omega';
 import { useSkillPayback } from './payback';
-import { Check, cssVars, NumChip, PageHead, Seg } from './ui';
+import { Check, cssVars, Notice, NumChip, PageHead, Seg } from './ui';
 
 type Tab = 'account' | 'skills' | 'rates' | 'alerts' | 'appearance' | 'data';
 const TABS: Tab[] = ['account', 'skills', 'rates', 'alerts', 'appearance', 'data'];
@@ -407,6 +407,7 @@ function Alerts() {
           <Check bare checked={a.browser} onChange={toggleBrowser} desc="Shows even when this tab isn’t in front. Your browser will ask first.">Also send browser notifications</Check>
           <Check bare checked={a.quiet} onChange={(v) => setA({ quiet: v })} desc="Hold alerts overnight">Quiet hours, 23:00–07:00 EVE</Check>
         </section>
+        <MailAlerts />
       </div>
       <div style={gridC}>
         <Card title="Alerts in the last 24 h">
@@ -455,6 +456,69 @@ function Alerts() {
         </Card>
       </div>
     </>
+  );
+}
+
+/** Alerts as EVE mail to yourself, and how long those mails are kept. */
+function MailAlerts() {
+  const d = useData();
+  const a = d.alerts;
+  const auth = useAuth();
+  const runner = useAlertRunner();
+  const now = useNow(30_000);
+  const [sending, setSending] = useState(false);
+  const setA = (patch: Partial<typeof a>) => update((x) => ({ alerts: { ...x.alerts, ...patch } }));
+  const has = (s: string) => !!auth?.scopes.includes(s);
+  const canSend = has(SCOPE.mailSend), canDelete = has(SCOPE.mailOrganize), canRead = has(SCOPE.mailRead);
+  const sendTest = async () => {
+    setSending(true);
+    const ok = await testMail();
+    setSending(false);
+    if (ok) toast('Test mail sent. It can take a minute to reach your inbox in game.');
+  };
+  const pending = d.meta.alertMails?.filter((m) => m.char === auth?.characterId).length ?? 0;
+  return (
+    <section className="panel" aria-label="EVE mail alerts" style={{ padding: 18, gap: 14 }}>
+      <div className="panel-head">
+        <span className="panel-title">EVE mail</span>
+        <button type="button" className="link-btn" onClick={sendTest} disabled={!canSend || sending}><Mail aria-hidden="true" />{sending ? 'Sending…' : 'Send a test mail'}</button>
+      </div>
+      <Check bare checked={a.mail} disabled={!canSend} onChange={(v) => setA({ mail: v })}
+        desc="Reaches you inside the game, where browser notifications may not. One mail per check, holding everything it found.">
+        Also send alerts as an EVE mail to myself
+      </Check>
+      {!auth ? <Notice>Log in to send alert mail. It only ever goes to the character you log in with.</Notice>
+        : !canSend ? <Notice kind="warn">This login doesn’t have the <b>Send EVE mail</b> permission. Log out and in again to grant it.</Notice>
+          : null}
+      <p style={{ margin: '-4px 0 0', fontSize: 12, color: 'var(--note)', textWrap: 'pretty' }}>
+        Each item’s name in the mail is a link that opens the item in game, one click from its market. Nothing opens on its own: the mail only arrives. Quiet hours and “Only if at least” apply here too, and like every alert it only checks while this tab is open.
+      </p>
+      <div>
+        <div className="lbl" style={{ marginBottom: 8 }}>Mail me about</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,220px),1fr))', gap: '10px 24px', opacity: a.mail ? 1 : 0.45 }}>
+          {ALERT_EVENTS.map((k) => (
+            <Check key={k} bare checked={a.mailEv[k] && a.ev[k]} disabled={!a.ev[k]} onChange={(v) => setA({ mailEv: { ...a.mailEv, [k]: v } })}
+              desc={!a.ev[k] ? 'Turned off under “Tell me when”' : undefined}>{ALERT_LABELS[k].label}</Check>
+          ))}
+        </div>
+        <p className="note small" style={{ marginTop: 8 }}>By default only the two you can act on from inside the game: an order worth moving, and a planet about to stop.</p>
+      </div>
+      <div>
+        <div className="lbl" style={{ marginBottom: 6 }}>Delete alert mails after</div>
+        <div className="row wide">
+          {/* Seg takes numbers, so "keep them" travels as 0 and is stored as null. */}
+          <Seg label="Delete alert mails after" value={a.mailKeepMin ?? 0} onChange={(v) => setA({ mailKeepMin: v === 0 ? null : v })}
+            options={MAIL_KEEP.map((o) => ({ v: o.value ?? 0, label: o.label }))} />
+        </div>
+        <p className="note small" style={{ marginTop: 8, textWrap: 'pretty' }}>
+          {a.mailKeepMin == null ? 'Alert mails stay in your inbox until you delete them.'
+            : !canDelete ? <>Deleting needs the <b>Delete EVE mail</b> permission, which this login doesn’t have. Until it does, alert mails stay.</>
+              : <>Deleted whether you’ve read them or not, checked every {Math.round(tidyEvery(a.mailKeepMin) / 60_000)} minutes while the app is open. Only the app’s own alert mails go: {canRead ? 'sent by you to you, with a subject starting “Jita Ledger:”.' : 'the ones this browser sent. With the Read EVE mail headers permission it could also find ones sent from another browser.'}</>}
+          {a.mailKeepMin != null && canDelete && d.meta.mailCleanAt ? ` Last tidied ${ago(d.meta.mailCleanAt, now)}${pending ? `; ${pending} sent from here still ${pending === 1 ? 'waits' : 'wait'} ${pending === 1 ? 'its' : 'their'} turn` : ''}.` : ''}
+        </p>
+      </div>
+      {runner.mailError && <Notice kind="err">{runner.mailError}</Notice>}
+    </section>
   );
 }
 

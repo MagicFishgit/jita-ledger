@@ -37,6 +37,9 @@ export const SCOPE = {
   killmails: 'esi-killmails.read_killmails.v1', // your kills and losses, priced on the day, for Combat and the Wallet
   structures: 'esi-universe.read_structures.v1', // names of player structures you can dock at
   waypoint: 'esi-ui.write_waypoint.v1', // set a station or structure as your destination in the client
+  mailSend: 'esi-mail.send_mail.v1', // alerts as an EVE mail to yourself, for when you're in the game
+  mailRead: 'esi-mail.read_mail.v1', // find old alert mails, to tidy them away
+  mailOrganize: 'esi-mail.organize_mail.v1', // delete old alert mails
 } as const;
 export const SCOPES: string[] = Object.values(SCOPE);
 
@@ -102,6 +105,21 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
     label: 'Set destination in your client',
     unlocks: 'Click a station or structure on the Wallet to set it as your autopilot destination in game. It sets a route; it can’t fly the ship.',
     without: 'Places are shown by name only; you set the destination in game yourself.',
+  },
+  'esi-mail.send_mail.v1': {
+    label: 'Send EVE mail',
+    unlocks: 'Alerts as an EVE mail to yourself, so they reach you inside the game. Only ever sent to you, and only if you turn it on under Settings → Alerts.',
+    without: 'Alerts only appear in the app and as browser notifications, which Windows may hold back while a game is in front.',
+  },
+  'esi-mail.read_mail.v1': {
+    label: 'Read EVE mail headers',
+    unlocks: 'Finds the alert mails the app sent you, by sender and subject, so old ones can be tidied away. Nothing else in your mail is read or kept.',
+    without: 'Old alert mails can only be tidied away if this browser sent them.',
+  },
+  'esi-mail.organize_mail.v1': {
+    label: 'Delete EVE mail',
+    unlocks: 'Deletes alert mails once they’re older than you choose. Only the app’s own alert mails, never anything else.',
+    without: 'Alert mails stay in your inbox until you delete them yourself.',
   },
   'esi-killmails.read_killmails.v1': {
     label: 'Killmails',

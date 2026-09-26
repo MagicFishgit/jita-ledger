@@ -46,7 +46,17 @@ export const DEFAULT_ALERTS: AlertConfig = {
   minIsk: 5_000_000,
   quiet: false,
   ev: { move: true, clearing: false, squeeze: true, pi: true, scam: true, backup: true },
+  mail: false,
+  // By mail, only what you can act on from inside the game: an order to move, a colony to reset.
+  mailEv: { move: true, clearing: false, squeeze: false, pi: true, scam: false, backup: false },
+  mailKeepMin: 3 * 1440,
 };
+
+/** How long alert mails are kept before the app deletes them. Null keeps them. */
+export const MAIL_KEEP: { value: number | null; label: string }[] = [
+  { value: 30, label: '30 min' }, { value: 60, label: '1 hour' }, { value: 1440, label: '1 day' },
+  { value: 3 * 1440, label: '3 days' }, { value: 7 * 1440, label: '1 week' }, { value: null, label: 'Keep them' },
+];
 
 const num = (v: unknown, d: number) => {
   const n = typeof v === 'number' ? v : parseFloat(String(v));
@@ -92,6 +102,8 @@ export function sanitizeAlerts(a: Partial<AlertConfig> | null | undefined): Aler
   const x = a ?? {};
   const ev = { ...DEFAULT_ALERTS.ev };
   for (const k of ALERT_EVENTS) if (x.ev && typeof x.ev[k] === 'boolean') ev[k] = x.ev[k];
+  const mailEv = { ...DEFAULT_ALERTS.mailEv };
+  for (const k of ALERT_EVENTS) if (x.mailEv && typeof x.mailEv[k] === 'boolean') mailEv[k] = x.mailEv[k];
   return {
     on: !!x.on,
     browser: !!x.browser,
@@ -99,6 +111,11 @@ export function sanitizeAlerts(a: Partial<AlertConfig> | null | undefined): Aler
     minIsk: clamp(num(x.minIsk, DEFAULT_ALERTS.minIsk), 0, 1e13),
     quiet: !!x.quiet,
     ev,
+    mail: !!x.mail,
+    mailEv,
+    // Absent on settings saved before mail existed: take the default. An explicit null keeps mails.
+    mailKeepMin: x.mailKeepMin === undefined ? DEFAULT_ALERTS.mailKeepMin
+      : MAIL_KEEP.some((o) => o.value === x.mailKeepMin) ? (x.mailKeepMin as number | null) : DEFAULT_ALERTS.mailKeepMin,
   };
 }
 

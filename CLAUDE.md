@@ -127,6 +127,12 @@ Don't re-derive or contradict these without new evidence.
 - **The client can be given a destination, not an info window for a structure.** `POST /ui/autopilot/waypoint/`
   (`esi-ui.write_waypoint.v1`) takes a solar system, station *or* structure ID and plots the route.
   `/ui/openwindow/information` only opens characters, corporations and alliances.
+- **EVE mail through ESI** (`esi-mail.*`): POST `/characters/{id}/mail/` takes `{recipients:[{recipient_id,
+  recipient_type:'character'}], subject, body, approved_cost}` and answers 201 with the new mail's ID. Body at
+  most 10,000 characters, subject 1,000. The body is the client's small HTML: `<br>`, `<b>`, `<font size color>`
+  with ARGB colours (`#ffRRGGBB`), and `<a href>` — `showinfo:{typeId}` opens an item, and a web link makes the
+  client ask first. GET gives the 50 newest headers (`from`, `subject`, `timestamp`, `is_read`, `labels`),
+  older ones via `last_mail_id`. DELETE `/mail/{id}/` answers 204, and 404 once it is already gone.
 - **Public contracts are public**: `/contracts/public/{region}/` needs no scope. The Forge runs to
   ~35 pages of 1,000, of which only ~120 are couriers.
 - **Market groups are the honest way to get a set of types.** Filaments are groups 2457–2461, abyssal
@@ -334,6 +340,16 @@ Don't re-derive or contradict these without new evidence.
   mark, drawn to PNG) and an `image` (the alert as a card in the theme's colours, 2:1), which Chrome shows on
   Windows and Android and macOS ignores (`lib/notifyArt.ts`). They only fire while the tab is hidden, which is
   why Settings has a delayed test.
+- **Alerts can go by EVE mail, to yourself only, opt-in** (`lib/mailAlerts.ts`, builder `alertMail` in
+  `alerts.ts`). A browser notification is held back while a borderless game is in front, and a web page can't
+  put anything inside the client, but a mail arrives there with the client's own blink. One mail per check
+  holding everything raised, never one per alert. By default only `move` and `pi` are mailed, the two you can
+  act on from inside the game. Item names are `showinfo:` links, which open the item in game on a click;
+  nothing opens a market window unasked. Old alert mails are deleted after a chosen time (30 min to a week, or
+  kept), read or not, on a cadence of a sixth of that time between 5 and 60 minutes (`tidyEvery`). Only mails
+  **from you, to you, with a subject starting `Jita Ledger:`** are ever touched (`isStaleAlertMail`); without
+  the read scope, only the mail IDs this browser recorded sending. Cleanup runs even with alerts off, and
+  stamps its time on failure too, so a lasting error retries at that cadence rather than every 15 s tick.
 - **No chart library.** Charts are inline SVG in the theme tokens (`charts.tsx`); recharts was removed.
 - **Diagrams are authored as inline SVG, not fetched.** A hosted image means someone else's server on
   every load, a licence to honour and a broken box the day it moves. Inline SVG inherits the theme

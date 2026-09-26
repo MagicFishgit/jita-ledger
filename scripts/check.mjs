@@ -19,7 +19,7 @@ import { nearMisses, squeezed as isSqueezed } from '../src/lib/signals.ts';
 import { exportTax, PI_BASE, HIGHSEC_NPC_TAX } from '../src/lib/pi.ts';
 import { allocate } from '../src/lib/planner.ts';
 import { priceHub, shipment, goingRate } from '../src/lib/arbitrage.ts';
-import { shouldAlert, nextCheckIn } from '../src/lib/alerts.ts';
+import { shouldAlert, nextCheckIn, alertMail, isStaleAlertMail, MAIL_SUBJECT, keepSaid, tidyEvery } from '../src/lib/alerts.ts';
 import { spForLevel, spPerMinute, trainingDays, monthlyGain } from '../src/lib/training.ts';
 import { categoryOf, flows, feeLeak, balanceAt, balanceSeries, autoTag, nextTag, runwayDays, unusual, csvCell } from '../src/lib/wallet.ts';
 import { readKillmail, priceOnDay, valueKillmail, activityOf, matchInsurance, learnedGankLines, gankLineFor, multibuy } from '../src/lib/combat.ts';
@@ -1503,21 +1503,25 @@ console.log('\n--- toasts queue, one at a time ---');
 {
   const T = await import('../src/lib/toast.ts');
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-  T.setToastLife(0.06);
+  // Waits for the thing itself rather than a fixed time: a busy machine runs timers late, and a fixed
+  // wait then sees the next alert's clock run out too.
+  const until = async (cond) => { for (let t = 0; t < 400 && !cond(); t++) await wait(5); };
+  const texts = () => T.__peek().list.map((t) => t.text);
+  T.setToastLife(0.15);
   T.toast('first'); T.toast('second'); T.toast('third');
   const now = () => T.__peek();
-  eq('they queue in arrival order, the first in front', now().list.map((t) => t.text), ['first', 'second', 'third']);
-  await wait(90);
-  eq('only the front one ran its clock: one gone, the next forward', now().list.map((t) => t.text), ['second', 'third']);
+  eq('they queue in arrival order, the first in front', texts(), ['first', 'second', 'third']);
+  await until(() => !texts().includes('first'));
+  eq('only the front one ran its clock: one gone, the next forward', texts(), ['second', 'third']);
   T.pauseToasts();
-  await wait(120);
-  eq('hovering holds the clock', now().list.map((t) => t.text), ['second', 'third']);
+  await wait(250);
+  eq('hovering holds the clock', texts(), ['second', 'third']);
   T.resumeToasts();
-  await wait(90);
-  eq('  and letting go resumes it', now().list.map((t) => t.text), ['third']);
+  await until(() => !texts().includes('second'));
+  eq('  and letting go resumes it', texts(), ['third']);
   T.setToastLife(null);
-  await wait(120);
-  eq('"until closed" keeps it', now().list.map((t) => t.text), ['third']);
+  await wait(250);
+  eq('"until closed" keeps it', texts(), ['third']);
   T.dismiss(now().list[0].id);
   eq('closing it empties the queue', now().list.length, 0);
   // Hovering the last one and closing it takes the stack away before the pointer can leave it. The
@@ -1527,7 +1531,7 @@ console.log('\n--- toasts queue, one at a time ---');
   T.pauseToasts();
   T.dismiss(now().list[0].id);
   T.toast('next');
-  await wait(90);
+  await until(() => !now().list.length);
   eq('closing the last one while hovering does not leave the queue paused', now().list.length, 0);
   T.setToastLife(10);
 }
@@ -1543,6 +1547,51 @@ eq('"until closed" is kept as null', sanitizePrefs({ toastSeconds: null }).toast
 eq('an odd duration falls back', sanitizePrefs({ toastSeconds: 7 }).toastSeconds, 10);
 eq('alerts start off', sanitizeAlerts({}).on, false);
 eq('an odd interval falls back', sanitizeAlerts({ interval: 7 }).interval, 5);
+eq('mail starts off', sanitizeAlerts({}).mail, false);
+eq('  and by mail only what you can act on in game', Object.entries(sanitizeAlerts({}).mailEv).filter(([, v]) => v).map(([k]) => k), ['move', 'pi']);
+eq('mails are deleted after 3 days unless set', sanitizeAlerts({}).mailKeepMin, 4320);
+eq('"keep them" is kept as null', sanitizeAlerts({ mailKeepMin: null }).mailKeepMin, null);
+eq('half an hour is a choice', sanitizeAlerts({ mailKeepMin: 30 }).mailKeepMin, 30);
+eq('an odd keep falls back', sanitizeAlerts({ mailKeepMin: 5 }).mailKeepMin, 4320);
+eq('a saved mail choice survives', sanitizeAlerts({ mailEv: { scam: true } }).mailEv.scam, true);
+
+console.log('\n--- alert mail ---');
+{
+  const move = { kind: 'move', key: 'k1', title: 'Order worth moving', typeId: 2185, name: 'Hammerhead II',
+    text: 'Hammerhead II sell order beaten — worth moving to 1,234 ISK (costs 2.1 M).' };
+  const pi = { kind: 'pi', key: 'k2', title: 'PI programme ending', text: 'Tama: an extraction programme ends in 3 h.' };
+  const one = alertMail([move], { appUrl: 'https://x.test/jita-ledger/', keepMin: 4320 });
+  eq('one alert: its title is the subject', one.subject, 'Jita Ledger: Order worth moving');
+  eq('  the item name opens it in game', one.body.includes('<a href="showinfo:2185">Hammerhead II</a> sell order beaten'), true);
+  eq('  the name is not repeated', one.body.split('Hammerhead II').length - 1, 1);
+  eq('  an order alert links to the orders page', one.body.includes('https://x.test/jita-ledger/#orders'), true);
+  eq('  and says when it goes', one.body.includes('deleted after 3 days, read or not'), true);
+  eq('keep times read naturally', [30, 60, 360, 1440, 4320, 10080].map(keepSaid), ['30 minutes', 'an hour', '6 hours', 'a day', '3 days', 'a week']);
+  eq('a short keep is tidied often enough', [30, 60, 1440].map((m) => tidyEvery(m) / 60_000), [5, 10, 60]);
+  const two = alertMail([move, pi], { appUrl: 'https://x.test/', keepMin: null });
+  eq('two alerts: one mail, counted', two.subject, 'Jita Ledger: 2 alerts');
+  eq('  both in the body', two.body.includes('Tama: an extraction') && two.body.includes('showinfo:2185'), true);
+  eq('  kept mails say so', two.body.includes('Alert mails are kept'), true);
+  eq('a PI alert alone links to Tonight', alertMail([pi], { appUrl: 'u/', keepMin: 1440 }).body.includes('u/#tonight'), true);
+  eq('  and a day reads as a day', alertMail([pi], { appUrl: 'u/', keepMin: 1440 }).body.includes('deleted after a day'), true);
+  eq('a test says so in the subject', alertMail([move], { appUrl: '', keepMin: 4320, test: true }).subject, 'Jita Ledger: test — Order worth moving');
+  const odd = { ...pi, text: 'A <b> & C', typeId: 5, name: 'Nope' };
+  eq('text is escaped, and a name the text does not start with is not linked', alertMail([odd], { appUrl: '', keepMin: 4320 }).body.includes('A &lt;b&gt; &amp; C') && !alertMail([odd], { appUrl: '', keepMin: 4320 }).body.includes('showinfo:5'), true);
+  const many = Array.from({ length: 40 }, (_, i) => ({ ...move, key: 'm' + i, text: 'Hammerhead II ' + 'x'.repeat(400) }));
+  const big = alertMail(many, { appUrl: '', keepMin: 4320 });
+  eq('a burst is capped and summed up', big.body.includes('…and 25 more in the app.'), true);
+  eq('  and stays under ESI’s 10,000 characters', big.body.length <= 10000, true);
+  const huge = alertMail(Array.from({ length: 15 }, (_, i) => ({ ...move, key: 'h' + i, text: 'Hammerhead II ' + 'y'.repeat(900) })), { appUrl: '', keepMin: 4320 });
+  eq('long alerts are dropped whole to fit', huge.body.length <= 10000 && huge.body.endsWith('Settings → Alerts.</font>') && huge.body.includes('more in the app'), true);
+
+  const now = Date.parse('2026-09-27T12:00:00Z');
+  const h = (from, subject, daysAgo) => ({ from, subject, timestamp: new Date(now - daysAgo * 86400_000).toISOString() });
+  eq('an old alert mail from me is stale', isStaleAlertMail(h(7, `${MAIL_SUBJECT}: 2 alerts`, 4), 7, 4320, now), true);
+  eq('half an hour on, a 30-minute mail goes', isStaleAlertMail(h(7, `${MAIL_SUBJECT}: 2 alerts`, 31 / 1440), 7, 30, now), true);
+  eq('  a young one is not', isStaleAlertMail(h(7, `${MAIL_SUBJECT}: 2 alerts`, 2), 7, 4320, now), false);
+  eq('  nor one from someone else', isStaleAlertMail(h(8, `${MAIL_SUBJECT}: 2 alerts`, 9), 7, 4320, now), false);
+  eq('  nor my own mail about something else', isStaleAlertMail(h(7, 'Jita Ledger notes', 9), 7, 4320, now), false);
+}
 
 }
 

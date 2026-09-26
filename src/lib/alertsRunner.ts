@@ -1,9 +1,10 @@
 import { useSyncExternalStore } from 'react';
 import { getAuth } from './auth';
-import { ALERT_LABELS, shouldAlert, type Finding } from './alerts';
+import { ALERT_LABELS, shouldAlert, tidyEvery, type Finding } from './alerts';
 import { readColonies } from './colonyStore';
 import { breakEvenSpread, rates } from './fees';
 import { iskBig } from './format';
+import { canMail, cleanupAlertMails, sendAlertMail } from './mailAlerts';
 import { checkOrders, costBasis, getOrderCheck, jitaOpen, verdicts } from './orderCheck';
 import { squeezed } from './signals';
 import { getData, update } from './store';
@@ -20,8 +21,12 @@ import type { AlertEvent, AlertLogEntry } from './types';
  * the rules in alerts.ts say is worth raising.
  */
 
-type State = { startedAt: number; lastRun: number | null; running: boolean; watching: number };
-let state: State = { startedAt: Date.now(), lastRun: null, running: false, watching: 0 };
+type State = {
+  startedAt: number; lastRun: number | null; running: boolean; watching: number;
+  /** Why the last alert mail couldn't be sent or tidied away, until one next succeeds. */
+  mailError: string | null;
+};
+let state: State = { startedAt: Date.now(), lastRun: null, running: false, watching: 0, mailError: null };
 const listeners = new Set<() => void>();
 const setState = (p: Partial<State>) => { state = { ...state, ...p }; listeners.forEach((l) => l()); };
 export function useAlertRunner(): State {
@@ -31,7 +36,7 @@ export function useAlertRunner(): State {
 const DAY = 86400_000;
 export const BACKUP_DAYS = 14;
 
-function raise(f: Finding, test = false) {
+function raise(f: Finding, test = false): void {
   const entry: AlertLogEntry = { at: new Date().toISOString(), kind: f.kind, key: f.key, title: f.title, text: f.text, test: test || undefined };
   update((d) => ({ alertLog: [entry, ...d.alertLog].slice(0, 200) }));
   // The system notification rides on the toast, so it queues and times out by the same settings.
@@ -42,6 +47,42 @@ function raise(f: Finding, test = false) {
 
 export function testAlert() {
   raise({ kind: 'move', key: 'test', title: ALERT_LABELS.move.label, text: 'This is how an order worth moving will be announced.' }, true);
+}
+
+const SEND_FAILED = 'Couldn’t send the alert mail: ';
+const TIDY_FAILED = 'Couldn’t delete old alert mails: ';
+const mailFailed = (prefix: string, e: unknown) => {
+  const msg = prefix + (e instanceof Error ? e.message : String(e));
+  // Said once, not every check: the error stays on Settings until the next success.
+  if (msg !== state.mailError) toast(msg, 'err');
+  setState({ mailError: msg });
+};
+
+/** Mail everything one check raised, as a single mail. */
+async function mailFindings(raised: Finding[]): Promise<void> {
+  const cfg = getData().alerts;
+  const send = raised.filter((f) => cfg.mailEv[f.kind]);
+  if (!cfg.mail || !send.length || !canMail()) return;
+  try { await sendAlertMail(send); setState({ mailError: null }); } catch (e) { mailFailed(SEND_FAILED, e); }
+}
+
+/**
+ * A test mail, about an item you actually have an order on if there is one, so its link can be tried.
+ * Returns true once ESI has accepted it.
+ */
+export async function testMail(): Promise<boolean> {
+  const d = getData();
+  const o = Object.values(d.orders).find((x) => x.state === 'open') ?? null;
+  const typeId = o?.typeId ?? 34;
+  const name = d.names[typeId] ?? (o ? `Item #${typeId}` : 'Tritanium');
+  try {
+    await sendAlertMail([{
+      kind: 'move', key: 'test', title: ALERT_LABELS.move.label, typeId, name,
+      text: `${name}: this is how an order worth moving will be announced. The item’s name opens it in game, one click from its market.`,
+    }], true);
+    setState({ mailError: null });
+    return true;
+  } catch (e) { mailFailed(SEND_FAILED, e); return false; }
 }
 
 /** One check. Findings that pass the rules are raised; the rest are dropped quietly. */
@@ -63,10 +104,10 @@ export async function runChecks(): Promise<void> {
       for (const x of list) {
         const side = x.isBuy ? 'buy' : 'sell';
         if (x.verdict === 'move') {
-          findings.push({ kind: 'move', key: `move:${x.orderId}:${x.newPrice}`, isk: x.atRisk, title: ALERT_LABELS.move.label,
+          findings.push({ kind: 'move', key: `move:${x.orderId}:${x.newPrice}`, isk: x.atRisk, title: ALERT_LABELS.move.label, typeId: x.typeId, name: names(x.typeId),
             text: `${names(x.typeId)} ${side} order beaten — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK (costs ${iskBig(x.cost)}).` });
         } else if (x.verdict === 'wait' && x.beaten) {
-          findings.push({ kind: 'clearing', key: `clear:${x.orderId}:${x.best}`, isk: x.atRisk, title: ALERT_LABELS.clearing.label,
+          findings.push({ kind: 'clearing', key: `clear:${x.orderId}:${x.best}`, isk: x.atRisk, title: ALERT_LABELS.clearing.label, typeId: x.typeId, name: names(x.typeId),
             text: `${names(x.typeId)} ${side} order is beaten, but ${x.why.charAt(0).toLowerCase() + x.why.slice(1)}.` });
         }
       }
@@ -81,7 +122,7 @@ export async function runChecks(): Promise<void> {
           const s = sig[p.typeId]?.stats;
           if (s && squeezed(s.range7, be2)) {
             const last = s.range7![s.range7!.length - 1];
-            findings.push({ kind: 'squeeze', key: `squeeze:${p.id}:${new Date().toISOString().slice(0, 10)}`, title: ALERT_LABELS.squeeze.label,
+            findings.push({ kind: 'squeeze', key: `squeeze:${p.id}:${new Date().toISOString().slice(0, 10)}`, title: ALERT_LABELS.squeeze.label, typeId: p.typeId, name: names(p.typeId),
               text: `${names(p.typeId)}: the daily range is down to ${(last * 100).toFixed(1)}%, close to the ${(be2 * 100).toFixed(1)}% you need after fees.` });
           }
         }
@@ -89,7 +130,7 @@ export async function runChecks(): Promise<void> {
       if (ev.scam) {
         for (const id of types) {
           for (const f of sig[id]?.flags ?? []) {
-            findings.push({ kind: 'scam', key: `scam:${id}:${f}`, title: ALERT_LABELS.scam.label,
+            findings.push({ kind: 'scam', key: `scam:${id}:${f}`, title: ALERT_LABELS.scam.label, typeId: id, name: names(id),
               text: `${names(id)}: ${f === 'escrow' ? 'a bid far above anything paid this month — escrow bait' : f === 'wall' ? 'the best price holds days of the market’s volume — a wall' : 'a recent day traded far above normal at an odd price — a spike'}.` });
           }
         }
@@ -121,7 +162,9 @@ export async function runChecks(): Promise<void> {
     const cfg = getData().alerts;
     const log = getData().alertLog;
     const now = Date.now();
-    for (const f of findings) if (shouldAlert(f, cfg, log, now)) raise(f);
+    const raised = findings.filter((f) => shouldAlert(f, cfg, log, now));
+    raised.forEach((f) => raise(f));
+    await mailFindings(raised);
   } finally {
     setState({ running: false, lastRun: Date.now() });
   }
@@ -129,12 +172,33 @@ export async function runChecks(): Promise<void> {
 
 let timer: ReturnType<typeof setInterval> | null = null;
 
+let tidying = false;
+
+/**
+ * Delete old alert mails, on a cadence set by how long they're kept. Runs even with alerts switched
+ * off, so mails already sent still go on schedule, but only while there is something of ours to look for.
+ */
+function tidyMail() {
+  const d = getData();
+  const keep = d.alerts.mailKeepMin;
+  if (tidying || keep == null || !getAuth()) return;
+  if (!d.alerts.mail && !d.meta.alertMails?.some((m) => m.char === getAuth()?.characterId)) return;
+  const last = d.meta.mailCleanAt ? Date.parse(d.meta.mailCleanAt) : 0;
+  if (Date.now() - last < tidyEvery(keep)) return;
+  tidying = true;
+  cleanupAlertMails()
+    .then(() => { if (state.mailError?.startsWith(TIDY_FAILED)) setState({ mailError: null }); })
+    .catch((e) => mailFailed(TIDY_FAILED, e))
+    .finally(() => { tidying = false; });
+}
+
 /** Start watching. Runs a check whenever the interval has passed since the last one. */
 export function startAlerts(): () => void {
   if (timer) return () => undefined;
   setState({ startedAt: Date.now() });
   const tick = () => {
     const cfg = getData().alerts;
+    tidyMail();
     if (!cfg.on) return;
     const due = state.lastRun == null || Date.now() - state.lastRun >= cfg.interval * 60_000;
     if (due) runChecks().catch(() => undefined);

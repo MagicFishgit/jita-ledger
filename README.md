@@ -79,6 +79,9 @@ At <https://developers.eveonline.com/> create an application:
   - `esi-killmails.read_killmails.v1`
   - `esi-universe.read_structures.v1`
   - `esi-ui.write_waypoint.v1`
+  - `esi-mail.send_mail.v1`
+  - `esi-mail.read_mail.v1`
+  - `esi-mail.organize_mail.v1`
 
   Settings lists every one with what it unlocks and what stops working without it. A scope added to the
   application after you logged in is simply missing until you log out and in again. Ticking a scope on
@@ -174,6 +177,12 @@ Fees depend on your clone state, because Alpha clones can't use some trade skill
   reads 20 random ones. ESI shuffles order pages by item, so that is a fair 5% sample, but a quiet item can be
   missed. Trading history costs one request per item, so a run checks a few hundred and keeps what it learns —
   scan again to widen the net. Coverage is shown under the filters.
+- **Alerts can arrive as EVE mail**, for when you're in the game and a browser notification would be held back.
+  It's off until you turn it on in Settings → Alerts, only ever goes to your own character, puts everything one
+  check found in a single mail, and by default only mails what you can act on in game (an order worth moving, a
+  planet about to stop). Item names in the mail open the item in game. Alert mails delete themselves after a time
+  you choose, from 30 minutes to a week, read or not; the app only deletes mails from you to you whose subject
+  starts "Jita Ledger:". Like every alert, it only checks while a tab is open.
 - **Fee matching goes by the clock.** ESI's journal doesn't say which order a broker fee or which sale a tax was for, so they're matched by the second they were charged. A price change made and undone between two syncs, or two made close together, can be missed.
 - **Tested with mocked ESI responses**, not against the live API. If a route has changed, the error message will say which one.
 
@@ -189,9 +198,11 @@ The proxy only forwards the token request. There's no secret involved.
 
 ## Security
 
-- The app asks for read-only scopes. It can't move ISK, place orders or change anything in game.
+- Almost every scope only reads. The few that act do small, visible things: open a market window, set an
+  autopilot destination, send alert mail to yourself (only once you turn it on) and delete the app's own alert
+  mails. None can move ISK, and ESI has no way at all to place, change or cancel a market order.
 - The refresh token is kept in this browser's local storage so you stay logged in. Log out to revoke it, or remove the app's access from the third-party applications page of your EVE account.
 
 ## Tech
 
-Vite, React, TypeScript, Recharts and idb-keyval. ESI requests send an `X-Compatibility-Date` header (see `src/lib/config.ts`).
+Vite, React, TypeScript and idb-keyval; charts are inline SVG. ESI requests send an `X-Compatibility-Date` header (see `src/lib/config.ts`).
