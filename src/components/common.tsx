@@ -6,6 +6,7 @@ import { SCOPES } from '../lib/config';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { iskBig } from '../lib/format';
+import { typeName } from '../lib/universe';
 
 const ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V'];
 
@@ -210,9 +211,11 @@ export function useEnsureNames(ids: number[]) {
   useEffect(() => {
     if (!key) return;
     let live = true;
-    resolveNames(key.split(',').map(Number))
-      .then((n) => { if (live && Object.keys(n).length) update((x) => ({ names: { ...x.names, ...n } })); })
-      .catch(() => undefined);
+    const ids = key.split(',').map(Number);
+    const keep = (n: Record<number, string>) => { if (live && Object.keys(n).length) update((x) => ({ names: { ...x.names, ...n } })); };
+    // /universe/names/ refuses the whole batch if one ID is bad, so fall back to asking one at a time.
+    resolveNames(ids).then(keep).catch(() => Promise.all(ids.map((id) => typeName(id).then((n) => [id, n] as const).catch(() => null)))
+      .then((rows) => keep(Object.fromEntries(rows.filter((r): r is readonly [number, string] => !!r && !!r[1])))));
     return () => { live = false; };
   }, [key]);
 }

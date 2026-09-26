@@ -353,12 +353,16 @@ function Alerts() {
   const COL: Record<string, string> = { move: 'var(--acc2)', clearing: '#90a5b8', squeeze: 'var(--neg)', pi: 'var(--pos)', scam: 'var(--neg-l)', backup: 'var(--acc2)' };
   const z = d.prefs.alertSize;
 
+  // Only switch on what can actually fire: a box ticked while the browser blocks notifications
+  // would promise alerts that never come.
   const toggleBrowser = async () => {
-    if (!a.browser && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+    if (a.browser) { setA({ browser: false }); return; }
+    if (typeof Notification === 'undefined') { toast('This browser can’t show notifications from a web page.', 'warn'); return; }
+    if (Notification.permission === 'default') {
       try { await Notification.requestPermission(); } catch { /* the browser said no */ }
     }
-    if (!a.browser && typeof Notification !== 'undefined' && Notification.permission === 'denied') toast('Your browser is blocking notifications for this site. Allow them in its site settings first.', 'warn');
-    setA({ browser: !a.browser });
+    if (Notification.permission !== 'granted') { toast('Your browser is blocking notifications for this site. Allow them in its site settings, then tick this again.', 'warn'); return; }
+    setA({ browser: true });
   };
 
   return (

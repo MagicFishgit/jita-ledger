@@ -24,15 +24,15 @@ const DONE_KEY = 'jita-ledger:tonight-done';
 /** A session's ticks are kept this long, then the list starts clean. */
 const DONE_TTL = 12 * 3600_000;
 
-const LOOK: Record<TonightKind, { Icon: typeof Check; c: string; act: string }> = {
-  move: { Icon: CircleDollarSign, c: 'var(--acc2)', act: 'Open' },
-  close: { Icon: ListChecks, c: 'var(--pos)', act: 'Close' },
-  squeeze: { Icon: TrendingDown, c: 'var(--neg)', act: 'Review' },
-  piExpired: { Icon: Leaf, c: 'var(--neg)', act: 'Planets' },
-  piEnding: { Icon: Leaf, c: 'var(--acc2)', act: 'Planets' },
-  nearMiss: { Icon: GitPullRequestArrow, c: 'var(--acc)', act: 'Review' },
-  scam: { Icon: ShieldAlert, c: 'var(--neg-l)', act: 'Look' },
-  backup: { Icon: HardDriveDownload, c: 'var(--acc2)', act: 'Export' },
+const LOOK: Record<TonightKind, { Icon: typeof Check; c: string }> = {
+  move: { Icon: CircleDollarSign, c: 'var(--acc2)' },
+  close: { Icon: ListChecks, c: 'var(--pos)' },
+  squeeze: { Icon: TrendingDown, c: 'var(--neg)' },
+  piExpired: { Icon: Leaf, c: 'var(--neg)' },
+  piEnding: { Icon: Leaf, c: 'var(--acc2)' },
+  nearMiss: { Icon: GitPullRequestArrow, c: 'var(--acc)' },
+  scam: { Icon: ShieldAlert, c: 'var(--neg-l)' },
+  backup: { Icon: HardDriveDownload, c: 'var(--acc2)' },
 };
 
 function readDone(): Set<string> {
@@ -74,11 +74,13 @@ export function Tonight() {
     // Orders the book says are worth moving.
     for (const x of verdicts(d, check, costBasis(d))) {
       if (x.verdict !== 'move') continue;
+      const who = x.isBuy ? 'buyer' : 'seller';
+      const by = x.aheadOrders > 5 ? `a crowd of ${x.aheadOrders} ${who}s` : `${x.aheadOrders} ${who}${x.aheadOrders === 1 ? '' : 's'}`;
       out.push({
         id: `move:${x.orderId}:${x.newPrice}`, kind: 'move', stake: x.atRisk,
         title: `${name(x.typeId)} ${x.isBuy ? 'buy' : 'sell'} order`,
-        detail: `Beaten. Move to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK — costs ${iskBig(x.cost)}.`,
-        action: { label: 'Open', typeId: x.typeId, route: 'orders' },
+        detail: `Beaten by ${by} — move to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, costs ${iskBig(x.cost)}.`,
+        action: { label: canOpenInGame() ? 'Open in game' : 'Open orders', typeId: x.typeId, route: 'orders' },
       });
     }
     const be2 = breakEvenSpread(r, 2);
@@ -91,16 +93,18 @@ export function Tonight() {
         out.push({
           id: `close:${p.id}`, kind: 'close', stake: Math.abs(c.realized),
           title: name(p.typeId), detail: `Every unit is sold, ${c.realized >= 0 ? 'for' : 'at'} ${iskBig(c.realized)}${c.realized >= 0 ? ' profit' : ' loss'}. Close it so later trades don’t land in it.`,
-          action: { label: 'Close', route: `positions/${p.id}` },
+          action: { label: 'Open position', route: `positions/${p.id}` },
         });
       }
       const s = sig.signals[p.typeId]?.stats;
       if (c.stock > 0 && s && squeezed(s.range7, be2)) {
-        const last = s.range7![s.range7!.length - 1];
+        const r7 = s.range7!;
+        const first = r7[0], last = r7[r7.length - 1];
         out.push({
           id: `squeeze:${p.id}:${new Date(now).toISOString().slice(0, 10)}`, kind: 'squeeze', stake: c.costOfStock,
-          title: name(p.typeId), detail: `The daily range is down to ${(last * 100).toFixed(1)}%, close to the ${(be2 * 100).toFixed(1)}% you need after fees. ${units(c.stock)} still in stock.`,
-          action: { label: 'Review', route: `positions/${p.id}` },
+          title: `${name(p.typeId)} spread is narrowing`,
+          detail: `${first > last ? `Down from ${(first * 100).toFixed(1)}% to ${(last * 100).toFixed(1)}% in ${r7.length - 1} days` : `The daily range is ${(last * 100).toFixed(1)}%`} — ${last < be2 ? 'below' : `${(last / be2).toFixed(1)}×`} your ${(be2 * 100).toFixed(1)}% break-even spread. ${units(c.stock)} still in stock.`,
+          action: { label: 'Open position', route: `positions/${p.id}` },
         });
       }
       const nm = nearMisses(p, txs, d.positions, nd, JITA_44);
@@ -109,7 +113,7 @@ export function Tonight() {
         out.push({
           id: `near:${p.id}:${nm.map((n) => n.tx.id).join('.')}`, kind: 'nearMiss', stake: v,
           title: name(p.typeId), detail: `${nm.length} trade${nm.length === 1 ? '' : 's'} just outside this position — before it started, or outside Jita 4-4. Count or ignore ${nm.length === 1 ? 'it' : 'them'}.`,
-          action: { label: 'Review', route: `positions/${p.id}` },
+          action: { label: 'Open position', route: `positions/${p.id}` },
         });
       }
     }
@@ -125,7 +129,7 @@ export function Tonight() {
           id: `pi:${e.pinId}:${e.expiry}`, kind: e.state === 'expired' ? 'piExpired' : 'piEnding', stake: perDay,
           title: `${sys} · ${product}`,
           detail: e.state === 'expired' ? 'The extraction programme has ended. It earns nothing until you reset the heads.' : `The programme ends in ${Math.max(1, Math.round(e.hours))} h. Reset it while you’re on.`,
-          action: { label: 'Planets', route: 'hustles/planets' },
+          action: { label: 'Open planets', route: 'hustles/planets' },
         });
       }
     }
@@ -135,7 +139,7 @@ export function Tonight() {
         out.push({
           id: `scam:${id}:${f}`, kind: 'scam', stake: 0, title: name(id),
           detail: f === 'escrow' ? 'A bid far above anything paid this month — escrow bait. Don’t sell into it.' : f === 'wall' ? 'One price holds most of the stock on show — a wall. Don’t chase it.' : 'A recent day traded far above normal at an odd price — a spike. Don’t trust the average.',
-          action: { label: 'Look', route: `calculator?type=${id}` },
+          action: { label: 'Look closer', route: `calculator?type=${id}` },
         });
       }
     }

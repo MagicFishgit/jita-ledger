@@ -85,7 +85,8 @@ export function ago(iso?: string, now = Date.now()): string {
   if (s < 60) return 'just now';
   if (s < 3600) return Math.round(s / 60) + ' min ago';
   if (s < 86400) return Math.round(s / 3600) + ' h ago';
-  return Math.round(s / 86400) + ' days ago';
+  const d = Math.round(s / 86400);
+  return d === 1 ? '1 day ago' : d + ' days ago';
 }
 /** How long until a moment: "in 12 min", "any moment now". */
 export function until(iso?: string, now = Date.now()): string | null {

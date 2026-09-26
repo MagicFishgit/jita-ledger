@@ -244,7 +244,7 @@ export function Wallet() {
           )}
           <p className="note">{events.length ? 'Hover a dot to see what moved the balance.' : 'Nothing large moved the balance in this window.'} The line is the balance ESI records after every journal entry, not a reconstruction.</p>
         </Panel>
-        <NetWorth parts={nwParts} total={nwTotal} ready={nwReady} points={nwPoints} base={nwBase} periodWords={periodWords} growPerDay={nwGrowPerDay}
+        <NetWorth parts={nwParts} total={nwTotal} ready={nwReady} points={nwPoints} base={nwBase} periodWords={periodWords} growPerDay={nwGrowPerDay} windowStart={startOfUtcDay(since)}
           hasAssets={!!d.stock} unpricedLp={lp.filter((b) => b.rate == null && b.points > 0).length} />
       </div>
 
@@ -358,17 +358,18 @@ function WalletHead({ days, setDays }: { days: Days; setDays: (d: Days) => void 
 
 function NetWorth(props: {
   parts: { l: string; v: number; c: string }[]; total: number; ready: boolean; points: { date: string; total: number }[]; base: { date: string; total: number } | null;
-  periodWords: string; growPerDay: number | null; hasAssets: boolean; unpricedLp: number;
+  periodWords: string; growPerDay: number | null; hasAssets: boolean; unpricedLp: number; windowStart: number;
 }) {
   const { parts, total, ready, points, base } = props;
   const change = ready && base ? total - base.total : null;
-  const since = base && points.length > 1 ? `since ${fmtShort(base.date)}` : null;
+  // The history may not reach back to the start of the window; say where it really starts.
+  const partial = !!base && Date.parse(base.date) > props.windowStart + DAY;
   return (
     <Panel title="Net worth">
       <Figure
         value={ready ? iskBig(total) : 'Pricing…'} color="var(--pos)"
         sub={change != null && points.length > 1
-          ? `${iskBigSigned(change)} ${since && Date.parse(base!.date) > Date.now() - 2 * DAY ? since : props.periodWords}${props.growPerDay != null ? ` · ${iskBigSigned(props.growPerDay)} a day` : ''}`
+          ? `${iskBigSigned(change)} ${partial ? `since ${fmtShort(base!.date)}` : props.periodWords}${props.growPerDay != null ? ` · ${iskBigSigned(props.growPerDay)} a day` : ''}`
           : 'The trend starts today: this browser records your net worth once a day'}
       />
       {points.length > 1 && <MiniLine values={[...points.map((p) => p.total), ...(ready ? [total] : [])]} />}
