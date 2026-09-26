@@ -98,6 +98,15 @@ export const OUTLIER_DIVE = 0.1;
  */
 export const OUTLIER_SHARE = 0.02;
 
+/**
+ * Against a day's trading, skipped stock has to stay under this share too, when the day's volume is
+ * known. The share of the book alone can be fooled: one enormous order far up the book (9,909 units
+ * at 45,000 on a PL-0 Scoped Cargo Scanner) makes 161 real units at 30,040 look like 1% of the side,
+ * when they're over half of what the item trades in a day and will sell first. A quarter of a day is
+ * the line: a single unit 29% under the market on an item trading five a day is still a fat finger.
+ */
+export const OUTLIER_OF_DAY = 0.25;
+
 /** Anything with a price and a quantity: a live order, or an aggregated level of the book. */
 export type PriceVolume = { price: number; volume: number };
 
@@ -109,7 +118,7 @@ export type PriceVolume = { price: number; volume: number };
  * what to prefill into an order --- because one unit fat-fingered at two thirds the going rate
  * should not be allowed to talk you into dumping a thousand.
  */
-export function marketBest(levels: PriceVolume[], isBuy: boolean): number | null {
+export function marketBest(levels: PriceVolume[], isBuy: boolean, dailyVolume?: number | null): number | null {
   if (!levels.length) return null;
   const level = weightedLevel(levels);
   const total = levels.reduce((n, l) => n + l.volume, 0);
@@ -117,8 +126,10 @@ export function marketBest(levels: PriceVolume[], isBuy: boolean): number | null
   let skipped = 0;
   for (const l of ordered) {
     const far = isBuy ? l.price > level * (1 + OUTLIER_DIVE) : l.price < level * (1 - OUTLIER_DIVE);
-    // Skip only while the skipped stock stays a rounding error on the side's volume.
-    if (far && total > 0 && (skipped + l.volume) / total < OUTLIER_SHARE) {
+    // Skip only while the skipped stock stays a rounding error on the side's volume, and, when we
+    // know how much it trades, on a day's trading too.
+    const small = (skipped + l.volume) / total < OUTLIER_SHARE && !(dailyVolume != null && dailyVolume > 0 && (skipped + l.volume) >= dailyVolume * OUTLIER_OF_DAY);
+    if (far && total > 0 && small) {
       skipped += l.volume;
       continue;
     }
@@ -195,7 +206,9 @@ export function adviseRelist(
   const chasingOutlier =
     moves && level > 0 &&
     (mine.isBuy ? newPrice > level * (1 + OUTLIER_DIVE) : newPrice < level * (1 - OUTLIER_DIVE)) &&
-    sideVolume > 0 && aheadUnits / sideVolume < OUTLIER_SHARE;
+    sideVolume > 0 && aheadUnits / sideVolume < OUTLIER_SHARE &&
+    // Stock that's a real share of a day's trading will sell before yours, however big the book.
+    !(daily != null && aheadUnits >= daily * OUTLIER_OF_DAY);
   // The share of the order's value burned to get in front, spread over the waiting it saves.
   const waitingPaysDaily =
     moves && atRisk > 0 && Number.isFinite(hoursToFront) && hoursToFront > 0

@@ -70,6 +70,14 @@ export type PositionCalc = {
   stock: number; avgCost: number | null; costOfStock: number;
   costOfSold: number; oversold: number;
   brokerFees: number; brokerActualOrders: number; brokerEstimatedOrders: number; priceChanges: number | null;
+  /**
+   * Broker fees paid up front for the part of your open orders that hasn't filled yet: a sell order
+   * for 2,000 units pays its whole fee when listed. Kept out of realized profit until those units trade,
+   * because they aren't a cost of anything sold so far.
+   */
+  prepaidFees: number;
+  /** Buy-side broker fees carried in the cost of the stock you still hold (they're part of what it cost). */
+  buyFeesInStock: number;
   salesTax: number; taxActual: number; taxEstimated: number;
   manualFees: number;
   realized: number; roi: number | null;
@@ -77,7 +85,7 @@ export type PositionCalc = {
   firstT: number | null; lastT: number | null;
 };
 
-type Ev = { t: number; kind: 'buy' | 'sell' | 'fee'; qty: number; price: number; fee: number };
+type Ev = { t: number; kind: 'buy' | 'sell' | 'fee'; qty: number; price: number; fee: number; /** Buy fee carried into cost, or sell fee charged, per unit. */ unitFee?: number };
 
 export function computePosition(pos: Position, d: Data, s: Settings): PositionCalc {
   const now = rates(s);
@@ -119,53 +127,89 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
   const orders: Order[] = Object.values(d.orders).filter(
     (o) => o.typeId === pos.typeId && (!pos.jitaOnly || o.locationId === JITA_44) && ts(o.issued) >= openT && ts(o.issued) <= closeT,
   );
-  let brokerFees = 0, brokerActualOrders = 0, brokerEstimatedOrders = 0, journalBrokerEntries = 0;
+  // A broker fee is charged on a whole order when it's placed, so it belongs to the units of that order,
+  // not to the moment it was paid. Each order's fee is split per unit of the order:
+  // - units that filled on a buy order carry their share into the cost of the stock;
+  // - units that filled on a sell order are charged their share as they sell;
+  // - units still waiting on an open order are prepaid, and not a cost of anything yet;
+  // - units a closed order never filled are simply spent, when the order was placed.
+  // A price change is a fee of its own, charged when you make it.
+  let brokerFees = 0, brokerActualOrders = 0, brokerEstimatedOrders = 0, journalBrokerEntries = 0, prepaidFees = 0;
+  let buyFeePool = 0, sellFeePool = 0;
   for (const o of orders) {
     const js = brokerByOrder.get(o.orderId);
+    let placed: number;
     if (js && js.length) {
       brokerActualOrders++;
       journalBrokerEntries += js.length;
-      for (const j of js) {
+      const sorted = [...js].sort((a, b) => ts(a.date) - ts(b.date));
+      placed = Math.abs(sorted[0].amount);
+      for (const j of sorted.slice(1)) {
         const fee = Math.abs(j.amount);
         brokerFees += fee;
         events.push({ t: ts(j.date), kind: 'fee', qty: 0, price: 0, fee });
       }
     } else {
       brokerEstimatedOrders++;
-      const fee = Math.max(100, rAt(o.issued).f * o.price * o.volumeTotal);
-      brokerFees += fee;
-      events.push({ t: ts(o.issued), kind: 'fee', qty: 0, price: 0, fee });
+      placed = Math.max(100, rAt(o.issued).f * o.price * o.volumeTotal);
     }
+    brokerFees += placed;
+    const total = Math.max(1, o.volumeTotal);
+    const remain = Math.max(0, Math.min(total, o.volumeRemain));
+    const filledShare = placed * ((total - remain) / total);
+    const unfilledShare = placed - filledShare;
+    if (o.state === 'open') prepaidFees += unfilledShare;
+    else if (unfilledShare > 0) events.push({ t: ts(o.issued), kind: 'fee', qty: 0, price: 0, fee: unfilledShare });
+    if (o.isBuy) buyFeePool += filledShare; else sellFeePool += filledShare;
   }
   const priceChanges = brokerActualOrders > 0 && brokerEstimatedOrders === 0 ? journalBrokerEntries - brokerActualOrders : null;
+
+  // Spread each side's filled share over the units the position counts on that side. If nothing on
+  // a side is counted, its share is spent when paid rather than lost from the totals.
+  const countedBuys = events.filter((e) => e.kind === 'buy').reduce((n, e) => n + e.qty, 0);
+  const countedSells = events.filter((e) => e.kind === 'sell').reduce((n, e) => n + e.qty, 0);
+  const buyFeeUnit = countedBuys > 0 ? buyFeePool / countedBuys : 0;
+  const sellFeeUnit = countedSells > 0 ? sellFeePool / countedSells : 0;
+  const firstOrder = orders.length ? Math.min(...orders.map((o) => ts(o.issued))) : null;
+  if (!countedBuys && buyFeePool > 0) events.push({ t: firstOrder ?? Date.now(), kind: 'fee', qty: 0, price: 0, fee: buyFeePool });
+  if (!countedSells && sellFeePool > 0) events.push({ t: firstOrder ?? Date.now(), kind: 'fee', qty: 0, price: 0, fee: sellFeePool });
+  for (const e of events) {
+    if (e.kind === 'buy') e.unitFee = buyFeeUnit;
+    else if (e.kind === 'sell') e.unitFee = sellFeeUnit;
+  }
 
   // Walk everything in time order using average cost.
   const order = { buy: 0, sell: 1, fee: 2 } as const;
   events.sort((a, b) => a.t - b.t || order[a.kind] - order[b.kind]);
-  let stock = 0, basis = 0, realized = 0, costOfSold = 0, oversold = 0;
+  let stock = 0, basis = 0, realized = 0, costOfSold = 0, oversold = 0, feeBasis = 0;
   let bought = 0, boughtValue = 0, sold = 0, soldValue = 0, lastAvg: number | null = null;
   const series: SeriesPoint[] = [];
   const buys: PricePoint[] = [], sells: PricePoint[] = [];
   for (const e of events) {
     if (e.kind === 'buy') {
-      stock += e.qty; basis += e.qty * e.price;
+      const fee = e.qty * (e.unitFee ?? 0);
+      stock += e.qty; basis += e.qty * e.price + fee; feeBasis += fee;
       bought += e.qty; boughtValue += e.qty * e.price;
       lastAvg = basis / stock;
       buys.push({ t: e.t, price: e.price, qty: e.qty });
     } else if (e.kind === 'sell') {
       const avg = stock > 0 ? basis / stock : lastAvg ?? e.price;
+      const feeAvg = stock > 0 ? feeBasis / stock : 0;
       const covered = Math.min(e.qty, stock);
       const extra = e.qty - covered;
       const cost = covered * avg + extra * (lastAvg ?? e.price);
       oversold += extra;
       costOfSold += cost;
-      realized += e.qty * e.price - cost;
-      stock -= covered; basis = stock * avg;
+      realized += e.qty * e.price - cost - e.qty * (e.unitFee ?? 0);
+      stock -= covered; basis = stock * avg; feeBasis = stock * feeAvg;
       sold += e.qty; soldValue += e.qty * e.price;
       sells.push({ t: e.t, price: e.price, qty: e.qty });
     } else {
       realized -= e.fee;
     }
+    // A sale and its tax happen in the same moment: record the moment once, after both, so the
+    // profit line doesn't spike up and straight back down between them.
+    if (series.length && series[series.length - 1].t === e.t) series.pop();
     series.push({ t: e.t, stock, avgCost: stock > 0 ? basis / stock : null, realized });
   }
 
@@ -176,7 +220,7 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
     sold, soldValue, avgSell: sold ? soldValue / sold : null,
     stock, avgCost: stock > 0 ? basis / stock : null, costOfStock: basis,
     costOfSold, oversold,
-    brokerFees, brokerActualOrders, brokerEstimatedOrders, priceChanges,
+    brokerFees, brokerActualOrders, brokerEstimatedOrders, priceChanges, prepaidFees, buyFeesInStock: feeBasis,
     salesTax, taxActual, taxEstimated, manualFees,
     realized, roi: costOfSold > 0 ? realized / costOfSold : null,
     series, buys, sells,
@@ -185,19 +229,32 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
   };
 }
 
-/** How your prices compared with that day's average price in The Forge, weighted by quantity. */
-export function vsMarket(points: PricePoint[], hist: HistRow[]): number | null {
-  if (!points.length || !hist.length) return null;
-  const byDay = new Map(hist.map((h) => [h.date, h.average]));
+/**
+ * How your prices compared with that day's average price in The Forge, weighted by quantity, and how
+ * much of those days' trading was yours. On a thin item your own trades can be most of a day's
+ * volume, and then the "market average" is largely your own price: `ownShare` says when that is so.
+ * `diff` is null when no day you traded has history yet (ESI adds a day only after it ends).
+ */
+export function vsMarketDetail(points: PricePoint[], hist: HistRow[]): { diff: number | null; ownShare: number | null } {
+  if (!points.length || !hist.length) return { diff: null, ownShare: null };
+  const byDay = new Map(hist.map((h) => [h.date, h]));
   let w = 0, sum = 0;
+  const mine = new Map<string, number>();
   for (const p of points) {
     const day = new Date(p.t).toISOString().slice(0, 10);
-    const avg = byDay.get(day);
-    if (!avg) continue;
-    sum += p.qty * (p.price / avg - 1);
+    const h = byDay.get(day);
+    if (!h?.average) continue;
+    sum += p.qty * (p.price / h.average - 1);
     w += p.qty;
+    mine.set(day, (mine.get(day) ?? 0) + p.qty);
   }
-  return w ? sum / w : null;
+  if (!w) return { diff: null, ownShare: null };
+  const volume = [...mine.keys()].reduce((t, day) => t + (byDay.get(day)?.volume ?? 0), 0);
+  return { diff: sum / w, ownShare: volume > 0 ? Math.min(1, w / volume) : null };
+}
+
+export function vsMarket(points: PricePoint[], hist: HistRow[]): number | null {
+  return vsMarketDetail(points, hist).diff;
 }
 
 /** Realized profit gained between two moments, from a position's series. */

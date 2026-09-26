@@ -163,12 +163,17 @@ export type FeeLeak = { sales: number; broker: number; relists: number; pi: numb
 /**
  * What fees and taxes took. A broker fee on an order that already had one is a price change, which is
  * the part of trading most people underestimate, so it is pulled out on its own.
+ *
+ * That split needs to know which order a fee was for, and ESI's journal never says: an order ID isn't
+ * one of the context types it documents. A context is only trusted as an order when it matches one of
+ * `orderIds`, your own orders. Anything else (a station, say) would lump every fee in Jita together and
+ * call all but the first a price change; those fees count as plain broker fees instead.
  */
-export function feeLeak(journal: JournalEntry[], since: number): FeeLeak {
+export function feeLeak(journal: JournalEntry[], since: number, orderIds: Set<number> = new Set()): FeeLeak {
   let sales = 0, broker = 0, relists = 0, pi = 0, clones = 0;
   const byOrder = new Map<number, JournalEntry[]>();
   for (const e of journal) {
-    if (e.refType !== 'brokers_fee' || e.contextId == null) continue;
+    if (e.refType !== 'brokers_fee' || e.contextId == null || !orderIds.has(e.contextId)) continue;
     const list = byOrder.get(e.contextId) ?? [];
     list.push(e);
     byOrder.set(e.contextId, list);
@@ -183,7 +188,7 @@ export function feeLeak(journal: JournalEntry[], since: number): FeeLeak {
     const a = -e.amount;
     if (e.refType === 'transaction_tax') sales += a;
     else if (e.refType === 'brokers_fee') {
-      if (e.contextId != null && !firsts.has(e.id)) relists += a; else broker += a;
+      if (e.contextId != null && orderIds.has(e.contextId) && !firsts.has(e.id)) relists += a; else broker += a;
     } else if (e.refType.startsWith('planetary_') && e.refType.endsWith('_tax')) pi += a;
     else if (e.refType.startsWith('jump_clone')) clones += a;
   }

@@ -10,7 +10,7 @@ import { PLEX_TYPE } from '../lib/config';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import type { Goal, GoalMeasure } from '../lib/types';
-import { ItemSearch, useTypeName } from './common';
+import { ItemSearch, useEnsureNames, useTypeName } from './common';
 import { cssVars, NumChip, Panel, Seg } from './ui';
 
 const DAY = 86400_000;
@@ -24,10 +24,27 @@ const KIND: Record<Kind, { label: string; Icon: typeof Target; c: string }> = {
   earn: { label: 'Earn', Icon: TrendingUp, c: '#6ee7a8' },
   skill: { label: 'Train', Icon: GraduationCap, c: 'var(--acc2)' },
 };
-const MEASURE: Record<GoalMeasure, { label: string; words: string }> = {
-  wallet: { label: 'Wallet', words: 'your wallet' },
-  liquid: { label: 'Wallet + orders', words: 'your wallet and orders' },
-  nw: { label: 'Net worth', words: 'your net worth' },
+const MEASURE: Record<GoalMeasure, { label: string; words: string; tip: string }> = {
+  wallet: {
+    label: 'Wallet', words: 'your wallet',
+    tip: 'Only the ISK in your wallet right now. Example: 2 B in your wallet counts as 2 B, even if another 500 M is tied up in buy orders.',
+  },
+  liquid: {
+    label: 'Wallet + orders', words: 'your wallet and orders',
+    tip: 'Your wallet plus the ISK tied up in your market orders: what’s held back for your buy orders, and your sell orders at their listed price. Example: 2 B in the wallet + 300 M held for buy orders + 700 M of items listed for sale = 3 B.',
+  },
+  nw: {
+    label: 'Net worth', words: 'your net worth',
+    tip: 'Everything you own: wallet, orders, the items in your hangars at rough market prices, and loyalty points. Example: 3 B of wallet and orders + 1.2 B of ships and modules = 4.2 B.',
+  },
+};
+const measureOptions = (['wallet', 'liquid', 'nw'] as GoalMeasure[]).map((v) => ({ v, label: MEASURE[v].label, tip: MEASURE[v].tip, tipTitle: MEASURE[v].label }));
+const KIND_TIP: Record<Kind, string> = {
+  afford: 'Save up enough to buy something at today’s price. Example: 500 PLEX at 4.7 M each needs 2.35 B; buy 100 along the way and the goal only needs the other 400.',
+  hold: 'Own an amount of an item. Example: hold 20 Large Skill Injectors, counted in your hangars and sell orders.',
+  isk: 'Reach an amount of ISK. Example: 10 B net worth by the end of the year.',
+  earn: 'Make a profit over a period. Example: 1 B of trading profit this month.',
+  skill: 'Train a skill to a level. Example: Accounting V, with the date worked out from your attributes.',
 };
 
 const startOfMonth = (t: number) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1); };
@@ -48,6 +65,9 @@ export function Goals(props: {
   const [adding, setAdding] = useState(false);
   const [showDone, setShowDone] = useState(false);
   const goals = useMemo(() => d.goals.map(normalizeGoal).filter((g): g is Goal => !!g), [d.goals]);
+  // Every item and skill a goal names needs a name here, including PLEX picked from the shortcut,
+  // which never went through a lookup: otherwise the card reads "Item #44992".
+  useEnsureNames(goals.map((g) => (g.kind === 'afford' || g.kind === 'hold' ? g.typeId : g.kind === 'skill' ? g.skillId : 0)).filter(Boolean));
 
   // Live prices for whatever the open afford goals want to buy, re-read every five minutes, which
   // is how often ESI has a new book.
@@ -292,18 +312,19 @@ function GoalBuilder({ onDone }: { onDone: () => void }) {
       if (!dg) { toast(`${skill.name} isn’t a skill — use the skill’s exact name.`, 'warn'); return; }
       g = { ...base, kind, skillId: skill.id, level };
     }
-    update((x) => ({ goals: [...x.goals, g!] }));
+    const named = item && (kind === 'afford' || kind === 'hold') ? { [item.id]: item.name } : skill && kind === 'skill' ? { [skill.id]: skill.name } : {};
+    update((x) => ({ goals: [...x.goals, g!], names: { ...named, ...x.names } }));
     toast(`Goal added: ${g.label}.`, 'ok');
     onDone();
   }
 
   const quick = (t: { id: number; name: string }) => (
-    <button type="button" className={'chip-btn' + (item?.id === t.id ? ' on' : '')} onClick={() => setItem(t)}>{t.name}</button>
+    <button type="button" className={'chip-btn' + (item?.id === t.id ? ' on' : '')} onClick={() => { setItem(t); update((x) => (x.names[t.id] ? {} : { names: { ...x.names, [t.id]: t.name } })); }}>{t.name}</button>
   );
 
   return (
     <div className="goal-builder">
-      <Seg label="Kind of goal" value={kind} onChange={setKind} options={(Object.keys(KIND) as Kind[]).map((v) => ({ v, label: KIND[v].label }))} />
+      <Seg label="Kind of goal" value={kind} onChange={setKind} options={(Object.keys(KIND) as Kind[]).map((v) => ({ v, label: KIND[v].label, tip: KIND_TIP[v], tipTitle: KIND[v].label }))} />
       <p className="note small">
         {kind === 'afford' ? 'Have the ISK to buy a quantity of something at today’s price. Anything of it you buy on the market along the way comes off what’s left.'
           : kind === 'hold' ? 'Own a quantity of an item. Counted in your hangars and sell orders — for PLEX, which ESI can’t see in the vault, from your count now plus what you buy on the market.'
@@ -320,20 +341,26 @@ function GoalBuilder({ onDone }: { onDone: () => void }) {
             {kind === 'hold' && item?.id === PLEX_TYPE && (
               <NumChip label="PLEX you have now" value={start} onChange={setStart} width={80} decimals={0} placeholder="0" tip="ESI can’t see the PLEX vault, so this is where the count starts. PLEX you buy or sell on the market after this is added automatically." />
             )}
-            {kind === 'afford' && <Seg label="Paid from" value={measure} onChange={setMeasure} options={(['wallet', 'liquid', 'nw'] as GoalMeasure[]).map((v) => ({ v, label: MEASURE[v].label }))} />}
+            {kind === 'afford' && <Seg label="Paid from" value={measure} onChange={setMeasure} options={measureOptions} />}
           </>
         )}
         {kind === 'isk' && (
           <>
-            <Seg label="Counting" value={measure} onChange={setMeasure} options={(['wallet', 'liquid', 'nw'] as GoalMeasure[]).map((v) => ({ v, label: MEASURE[v].label }))} />
+            <Seg label="Counting" value={measure} onChange={setMeasure} options={measureOptions} />
             <NumChip label="Target" value={target} onChange={setTarget} width={110} decimals={0} placeholder="1.2b" />
           </>
         )}
         {kind === 'earn' && (
           <>
-            <Seg label="Counting" value={source} onChange={setSource} options={[{ v: 'trading' as const, label: 'Trading profit' }, { v: 'cashflow' as const, label: 'Net cash flow' }]} />
+            <Seg label="Counting" value={source} onChange={setSource} options={[
+              { v: 'trading' as const, label: 'Trading profit', tipTitle: 'Trading profit', tip: 'What your positions made on the units they sold, after broker fees and sales tax. Example: buy 100 at 1 M and sell them at 1.2 M: that’s 20 M before costs, about 13 M after fees and tax with the trade skills trained, less without them.' },
+              { v: 'cashflow' as const, label: 'Net cash flow', tipTitle: 'Net cash flow', tip: 'All the ISK that came in minus all that went out, whatever it was for. Example: 800 M in from sales and bounties, 500 M out on stock and fees = +300 M. Buying stock counts as money out, even though you still own it.' },
+            ]} />
             <NumChip label="Target" value={target} onChange={setTarget} width={110} decimals={0} placeholder="1b" />
-            <Seg label="Period" value={period} onChange={setPeriod} options={[{ v: 'month' as const, label: 'This month' }, { v: 'now' as const, label: 'From today' }]} />
+            <Seg label="Period" value={period} onChange={setPeriod} options={[
+              { v: 'month' as const, label: 'This month', tipTitle: 'This month', tip: 'Counts from the 1st of this month and ends on its last day. Example: set on the 20th, the profit you made since the 1st already counts.' },
+              { v: 'now' as const, label: 'From today', tipTitle: 'From today', tip: 'Starts counting now, with no end unless you pick a date. Example: “make 1 B” counts only profit from today on.' },
+            ]} />
           </>
         )}
         {kind === 'skill' && (

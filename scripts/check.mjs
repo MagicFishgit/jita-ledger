@@ -1,6 +1,6 @@
 // Verification harness for the pure logic that has no UI to eyeball.
 // Run with: npm run check   (Node strips the TypeScript types natively)
-import { statsFrom, pickPages, passesGate, warningsFor, expectedEdge, sortProspects, FIRST_DIR, DEFAULT_FILTERS, recentAverages } from '../src/lib/prospects.ts';
+import { statsFrom, pickPages, passesGate, warningsFor, expectedEdge, sortProspects, FIRST_DIR, DEFAULT_FILTERS, recentAverages, typicalDailyVolume } from '../src/lib/prospects.ts';
 import { priceUp, tickDown } from '../src/lib/tick.ts';
 import { dueForSync } from '../src/lib/schedule.ts';
 import { adviseRelist, byUrgency, weightedLevel, marketBest } from '../src/lib/relist.ts';
@@ -383,6 +383,13 @@ eq('stops skipping when the volume is real', marketBest([lv(5000, 400), lv(7160,
 // Buy side mirrored: an absurdly high bid of one unit is not the market either.
 eq('buy side skips an absurd bid', marketBest([lv(9000, 1), lv(7160, 1230), lv(7159, 900)], true), 7160);
 eq('empty book has no best', marketBest([], false), null);
+// PL-0 Scoped Cargo Scanner's real book: one huge order at 45,000 makes 161 real units at 30,040
+// look like 1% of the side. Against what the item trades in a day they're half a day's supply.
+const pl0 = [lv(30040, 105), lv(30050, 56), lv(34780, 1995), lv(34800, 844), lv(34830, 619), lv(44990, 1), lv(45000, 9909)];
+eq('without the day\'s volume the cheap listings look like a token', marketBest(pl0, false), 34780);
+eq('with it they are the real cheapest seller', marketBest(pl0, false, 250), 30040);
+eq('but a quarter of a day is the line: 161 units on an item trading 1,000 a day is still skippable', marketBest(pl0, false, 1000), 34780);
+eq('a single fat-fingered unit is still skipped on a busy item', marketBest([lv(1000, 1), lv(7160, 5000)], false, 900), 7160);
 // A thin book has no outlier to skip: the level sits on one of its own prices, so the best price
 // is never far from it. It must always answer with a price that is really in the book.
 eq('a two-order book answers with its own best', marketBest([lv(1000, 1), lv(2000, 1)], false), 1000);
@@ -1201,10 +1208,14 @@ const jr = [
   J('10', '2026-09-20T00:00:00Z', 'brokers_fee', -100, { contextId: 7 }), J('11', '2026-09-21T00:00:00Z', 'brokers_fee', -30, { contextId: 7 }),
   J('12', '2026-09-21T00:00:00Z', 'transaction_tax', -80), J('13', '2026-09-21T00:00:00Z', 'planetary_export_tax', -5),
 ];
-const leak = feeLeak(jr, Date.parse('2026-09-01T00:00:00Z'));
+const leak = feeLeak(jr, Date.parse('2026-09-01T00:00:00Z'), new Set([7]));
 eq('the first fee on an order is the listing', leak.broker, 100);
 eq('  later ones on it are price changes', leak.relists, 30);
 eq('sales tax and PI tax are counted', leak.sales + leak.pi, 85);
+// A context that isn't one of your orders (the station, say) can't group fees: they're all listings.
+const stn = [J('20', '2026-09-20T00:00:00Z', 'brokers_fee', -100, { contextId: 60003760 }), J('21', '2026-09-21T00:00:00Z', 'brokers_fee', -40, { contextId: 60003760 })];
+eq('fees sharing a station are not price changes', feeLeak(stn, 0, new Set([7])).relists, 0);
+eq('  they are broker fees', feeLeak(stn, 0, new Set([7])).broker, 140);
 const bal = [J('1', '2026-09-20T00:00:00Z', 'x', 1, { balance: 100 }), J('2', '2026-09-21T00:00:00Z', 'x', 1, { balance: 150 })];
 eq('balance after a moment is the last entry before it', balanceAt(bal, Date.parse('2026-09-20T12:00:00Z')), 100);
 eq('the series runs oldest first', balanceSeries(bal, 0).map((p) => p.balance), [100, 150]);
@@ -1328,6 +1339,50 @@ console.log('\n--- recent averages over calendar days ---');
   const late = ['18', '19', '20', '21', '22', '23', '24'].map((d) => row(`2026-09-${d}`, 70));
   eq('before the daily update, the window ends on the last published day', recentAverages(late, 7, now).avgVol, 70);
   eq('price is weighted by volume', recentAverages([row('2026-09-24', 1, 100), row('2026-09-25', 3, 200)], 7, now).avgPrice, 175);
+  // PL-0 Scoped Cargo Scanner's real history, the last day being mostly your own buying.
+  const pl0 = [['18', 146], ['19', 183], ['20', 167], ['21', 92], ['22', 245], ['23', 313], ['24', 1187], ['25', 3854]].map(([dd, v]) => row(`2026-09-${dd}`, v));
+  eq('a typical day is the median, not dragged up by one huge day', typicalDailyVolume(pl0, 7, now), 245);
+  eq('  where the average is', Math.round(recentAverages(pl0, 7, now).avgVol), 863);
+}
+
+console.log('\n--- a position: fees belong to the units they were paid for ---');
+{
+  const { computePosition } = await import('../src/lib/positions.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  // PL-0 Scoped Cargo Scanner, as reported: 2,039 bought at 9,042, a sell order listing all of them at
+  // 34,810, five sold. Broker fee 1.3%, sales tax 3.375%.
+  const S = sanitizeSettings({ override: true, brokerPct: 1.3, taxPct: 3.375 });
+  const JITA = 60003760, TYPE = 1;
+  const tx = (id, isBuy, qty, price, date) => ({ id, source: 'esi', typeId: TYPE, date, isBuy, qty, unitPrice: price, locationId: JITA });
+  const order = (id, isBuy, price, total, remain, state, issued) => ({ orderId: id, typeId: TYPE, isBuy, price, volumeTotal: total, volumeRemain: remain, issued, state, locationId: JITA });
+  const d = {
+    txs: {
+      b1: tx('b1', true, 1000, 9042, '2026-09-25T10:00:00Z'), b2: tx('b2', true, 1039, 9042, '2026-09-25T12:00:00Z'),
+      s1: tx('s1', false, 5, 34810, '2026-09-26T10:00:00Z'),
+    },
+    orders: {
+      1: order(1, true, 9042, 1000, 0, 'closed', '2026-09-25T09:00:00Z'),
+      2: order(2, true, 9042, 1039, 0, 'closed', '2026-09-25T11:00:00Z'),
+      3: order(3, false, 34810, 2039, 2034, 'open', '2026-09-25T13:00:00Z'),
+    },
+    journal: {}, meta: {},
+  };
+  const pos = { id: 'p', typeId: TYPE, openedAt: '2026-09-25T00:00:00Z', status: 'open', jitaOnly: true, excluded: [], included: [] };
+  const c = computePosition(pos, d, S);
+  const buyFee = 0.013 * 9042 * 2039, sellFee = 0.013 * 34810 * 2039;
+  eq('all four fees are still counted as paid', Math.round(c.brokerFees), Math.round(buyFee + sellFee));
+  eq('the listing fee for the 2,034 unsold is prepaid, not a loss', Math.round(c.prepaidFees), Math.round(sellFee * 2034 / 2039));
+  eq('the buy fee is part of what the stock cost', Math.round(c.avgCost * 100) / 100, Math.round((9042 + 0.013 * 9042) * 100) / 100);
+  const expect = 5 * 34810 - 5 * (9042 * 1.013) - 5 * 34810 * 0.03375 - sellFee * 5 / 2039;
+  eq('realized profit is the five sold, less their own share of fees', Math.round(c.realized), Math.round(expect));
+  eq('  a sensible positive return, not -2325%', Math.round(c.roi * 100), Math.round(expect / (5 * 9042 * 1.013) * 100));
+  const cash = 5 * 34810 - 2039 * 9042 - c.brokerFees - c.salesTax;
+  eq('nothing lost: cash + stock at cost + prepaid fees = realized', Math.round(cash + c.costOfStock + c.prepaidFees), Math.round(c.realized));
+  // A closed buy order that only half filled: the unfilled half of its fee is simply spent.
+  const d2 = { ...d, orders: { 1: order(1, true, 9042, 2000, 1000, 'expired', '2026-09-25T09:00:00Z') }, txs: { b1: d.txs.b1 } };
+  const c2 = computePosition(pos, d2, S);
+  eq('an expired order\'s unfilled half is spent', Math.round(-c2.realized), Math.round(0.013 * 9042 * 1000));
+  eq('  and its filled half is in the stock\'s cost', Math.round(c2.costOfStock), Math.round(1000 * 9042 + 0.013 * 9042 * 1000));
 }
 
 console.log('\n--- goals ---');

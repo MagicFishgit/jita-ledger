@@ -226,7 +226,8 @@ export function Wallet() {
   const net = f.inTotal - f.outTotal;
 
   // ---- Fee leak
-  const leak = feeLeak(journal, since);
+  const orderIds = new Set(Object.values(d.orders).map((o) => o.orderId));
+  const leak = feeLeak(journal, since, orderIds);
   const tradingIn = f.ins.find((l) => l.key === 'trading')?.amount ?? 0;
   const leakRows = [
     ['Sales tax', leak.sales], ['Broker fees', leak.broker], ['Price changes', leak.relists], ['Planetary customs tax', leak.pi], ['Jump clone fees', leak.clones],
@@ -372,7 +373,7 @@ export function Wallet() {
         <Unusual d={d} journal={journal} now={now} />
       </div>
 
-      <Report journal={journal} txList={txList} classOf={classOf} m0={m0} now={now} monthName={monthName} describe={describe} characterName={auth?.characterName ?? null} posSeries={posSeries} />
+      <Report journal={journal} txList={txList} classOf={classOf} m0={m0} now={now} monthName={monthName} describe={describe} characterName={auth?.characterName ?? null} posSeries={posSeries} orders={d.orders} />
     </div>
   );
 }
@@ -707,6 +708,7 @@ function Report(props: {
   journal: JournalEntry[]; txList: Tx[]; classOf: (tx: Tx) => TradeClass; m0: number; now: number; monthName: string;
   describe: (e: JournalEntry) => string; characterName: string | null;
   posSeries: { p: Position; series: SeriesPoint[] }[];
+  orders: Data['orders'];
 }) {
   const { journal, txList, classOf, m0, now, monthName } = props;
   const name = useTypeName();
@@ -722,7 +724,7 @@ function Report(props: {
   const best = weeks.length > 1 ? [...weeks].sort((a, b) => b.net - a.net)[0] : null;
   const earners = props.posSeries.map(({ p, series }) => ({ p, v: realizedBetween(series, m0, now) })).sort((a, b) => b.v - a.v);
   const top = earners[0] && earners[0].v > 0 ? earners[0] : null;
-  const fees = feeLeak(journal, m0).total;
+  const fees = feeLeak(journal, m0, new Set(Object.values(props.orders).map((o) => o.orderId))).total;
   const tiles = [
     { l: 'Net', v: iskBigSigned(net), c: net >= 0 ? 'var(--pos)' : 'var(--neg)' },
     { l: 'Best week', v: best ? `${new Date(best.from).getUTCDate()}–${new Date(best.to - 1).getUTCDate()} ${new Date(best.from).toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' })}` : '–' },

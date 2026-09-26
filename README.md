@@ -125,9 +125,9 @@ Only one position per item can be open at a time. When everything has sold, clos
 
 - **Average cost**: each sale is costed at the average price of the stock you held at that moment.
 - **Sales tax** comes from your wallet journal where ESI links it to the sale, and is estimated from your rates otherwise.
-- **Broker fees** come from your wallet journal where the entry's context ID matches one of your orders for the item, and are estimated from your rates otherwise. The position page shows how many were estimated.
-- **Price changes** are only counted when the journal links each broker fee to its order. Estimated orders don't include relist fees.
-- Fees are subtracted when they're paid, so a position can show a small loss right after you place orders.
+- **Broker fees** are worked out from your broker rate for each order. ESI's wallet journal never says which order a fee was for (an order ID isn't among the contexts it documents), so they can't be read exactly; if a fee's context ever does match one of your orders, that figure is used instead.
+- **Each order's fee belongs to its units.** A buy order's fee becomes part of what the stock cost; a sell order's fee is charged a share at a time as units sell; the share for units still waiting on an open order is shown as fees paid up front, not as a loss. So listing 2,000 units and selling 5 doesn't show as a large loss on the 5.
+- **Price changes** aren't counted on the position page, for the same reason: the journal can't tie a fee to the order it changed.
 
 ## Alpha and Omega
 
@@ -173,7 +173,7 @@ Fees depend on your clone state, because Alpha clones can't use some trade skill
   reads 20 random ones. ESI shuffles order pages by item, so that is a fair 5% sample, but a quiet item can be
   missed. Trading history costs one request per item, so a run checks a few hundred and keeps what it learns —
   scan again to widen the net. Coverage is shown under the filters.
-- **Journal linking is an assumption.** Matching broker fees to orders assumes the journal's `context_id` for `brokers_fee` entries is the order ID. If yours isn't, broker fees fall back to estimates, labelled as such.
+- **Broker fees are estimates.** ESI's journal can't tie a broker fee to its order, so they're worked out from your rates at the time. Sales tax is read from the journal where the entry can be matched to the sale.
 - **Tested with mocked ESI responses**, not against the live API. If a route has changed, the error message will say which one.
 
 ## If login fails

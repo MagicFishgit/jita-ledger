@@ -361,6 +361,13 @@ input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.7); }
 .lrow .lt { display: block; font-size: 13.5px; color: var(--ink); }
 .lrow .ls { display: block; font-size: 12px; color: var(--note); }
 .lrow .lv { font-family: var(--f-mono); font-size: 13px; color: var(--body); white-space: nowrap; }
+.chart-box .mdot { position: absolute; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%; background: var(--label); }
+
+/* a position's own orders */
+.your-orders { display: flex; flex-direction: column; }
+.yo-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; padding: 8px 0; border-top: 1px solid var(--line-4); }
+.yo-row:first-child { border-top: 0; }
+
 /* trades a position skipped */
 .near-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 14px; padding: 12px 16px; background: color-mix(in oklab, var(--acc2) 7%, rgba(3, 8, 14, .8)); border: 1px solid color-mix(in oklab, var(--acc2) 40%, transparent); animation: rise .3s; }
 .near-banner > svg { width: 18px; height: 18px; color: var(--acc2); flex: none; }

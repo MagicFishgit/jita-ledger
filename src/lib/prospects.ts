@@ -35,6 +35,21 @@ export function recentAverages(rows: HistRow[], days = 7, now = Date.now()): { a
 }
 
 /**
+ * Units a typical day trades: the median over the last `days` calendar days, days with no trades
+ * counting as zero. Unlike an average, one enormous day (often your own buying) can't inflate it.
+ */
+export function typicalDailyVolume(rows: HistRow[], days = 14, now = Date.now()): number | null {
+  if (!rows.length) return null;
+  const today = startOf(now);
+  const last = Date.parse(rows[rows.length - 1].date + 'T00:00:00Z');
+  const end = last >= today - 2 * DAY && last < today ? last : today - DAY;
+  const byDay = new Map(rows.map((r) => [r.date, r.volume]));
+  const vols: number[] = [];
+  for (let i = 0; i < days; i++) vols.push(byDay.get(dayKey(end - i * DAY)) ?? 0);
+  return median(vols);
+}
+
+/**
  * Reduce ESI's daily history to the handful of numbers a screener needs.
  *
  * The window is the 30 complete days ending yesterday: today's history is still filling and

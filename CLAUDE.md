@@ -113,6 +113,12 @@ Don't re-derive or contradict these without new evidence.
   `structureInfo` now separates *unchecked* (no scope: nothing asked, nothing claimed) from *refused*.
 - **Location IDs tell you what they are by range**: NPC stations 60–64 million, solar systems 30–33 million
   (items in space), player structures from 1,000,000,000,000 up. `isStation` / `isSystem` / `isStructure`.
+- **A wallet journal entry never names an order.** ESI's `context_id_type` can be a transaction,
+  station, structure, character, corporation, alliance, system, industry job, contract, planet or type —
+  not an order. So a broker fee can't be matched to its order, and grouping fees by `context_id` groups
+  them by whatever the context is (a station would lump every Jita fee together). Broker fees are worked
+  out from rates per order; a fee's context is only trusted as an order when it equals one of your
+  order IDs (`feeLeak`'s `orderIds`).
 - **The client can be given a destination, not an info window for a structure.** `POST /ui/autopilot/waypoint/`
   (`esi-ui.write_waypoint.v1`) takes a solar system, station *or* structure ID and plots the route.
   `/ui/openwindow/information` only opens characters, corporations and alliances.
@@ -204,6 +210,18 @@ Don't re-derive or contradict these without new evidence.
   units of genuinely cheap supply as a "mistake"; quantity is what separates a fat finger from a
   cheap seller. This needs only the live book, so it is the one guard that still works for an item
   with no trading history — which is exactly when the other two cannot fire.
+- **A broker fee belongs to its order's units, not to the moment it was paid** (`computePosition`). A
+  buy order's fee goes into the stock's cost; a sell order's fee is charged per unit as units sell; the
+  share for units still waiting on an open order is `prepaidFees`, shown beside the profit rather than in
+  it; a closed order's unfilled share is spent. Charging fees when paid made a PL-0 Scoped Cargo Scanner
+  position that had sold 5 of 2,039 read −1.05 M and "−2325% return", when those 5 had made money: the
+  listing fee for all 2,039 had been charged against them. A test checks cash + stock at cost + prepaid
+  fees = realized.
+- **"Is that cheap listing a token?" also asks how much the item trades in a day.** Share of the book
+  alone was fooled on PL-0: one 9,909-unit order at 45,000 made 161 real units at 30,040 look like 1% of
+  the side, so the app suggested 34,770. Stock worth at least a quarter of a typical day's trading is real
+  supply (`OUTLIER_OF_DAY`), in `marketBest` and in relist advice. "Typical" is the 14-day median
+  (`typicalDailyVolume`): your own big buying day can make the average several times the norm.
 - **`marketBest` applies the same idea wherever a best price becomes a price you'd act on**: the
   suggested sell price and "stock if sold now" on a position, and the Calculator's prefill. Prospects
   and the Watchlist deliberately don't use it — an outlier only ever *narrows* an apparent spread

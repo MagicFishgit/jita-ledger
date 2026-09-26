@@ -70,12 +70,12 @@ export function Tip({ text, title, big, glyph = 'i' }: { text: string; title?: s
 }
 
 export function Seg<T extends string | number>(props: {
-  value: T; options: { v: T; label: ReactNode; n?: ReactNode; tip?: string }[]; onChange: (v: T) => void; label: string; size?: 'sm' | 'md';
+  value: T; options: { v: T; label: ReactNode; n?: ReactNode; tip?: string; tipTitle?: string }[]; onChange: (v: T) => void; label: string; size?: 'sm' | 'md';
 }) {
   return (
     <div className={'seg' + (props.size ? ' ' + props.size : '')} role="group" aria-label={props.label}>
       {props.options.map((o) => (
-        <button key={String(o.v)} type="button" aria-pressed={props.value === o.v} onClick={() => props.onChange(o.v)} data-tip={o.tip}>
+        <button key={String(o.v)} type="button" aria-pressed={props.value === o.v} onClick={() => props.onChange(o.v)} data-tip={o.tip} data-tip-title={o.tip ? o.tipTitle : undefined}>
           {o.label}{o.n != null && <span className="n">{o.n}</span>}
         </button>
       ))}
