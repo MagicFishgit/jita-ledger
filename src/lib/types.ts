@@ -298,9 +298,41 @@ export type AlertConfig = {
 };
 export type AlertLogEntry = { at: string; kind: AlertEvent; key: string; title: string; text: string; test?: boolean };
 
-export type Goal = { id: string; label: string; kind: 'wallet' | 'nw'; target: number };
+/**
+ * Which ISK a goal counts: the wallet alone; the wallet plus what's held in your orders (escrow and
+ * stock listed for sale), which you could free up; or everything, net worth.
+ */
+export type GoalMeasure = 'wallet' | 'liquid' | 'nw';
+
+type GoalBase = {
+  id: string;
+  label: string;
+  createdAt: string;
+  /** Optional: turns "when will I get there" into "am I on pace". */
+  deadline?: string;
+  /** Set the first time it is reached. A reached goal stays reached. */
+  doneAt?: string;
+};
+
+/**
+ * A goal is one of five kinds, each measured from something the app can read:
+ * - isk: an ISK measure reaches a target.
+ * - afford: have the ISK to buy `qty` of an item at the live price. Units of it bought on the market
+ *   since the goal was set count towards it, so buying in small lots along the way shrinks what's left.
+ * - hold: own `qty` of an item. Counted from your hangars and sell orders, except PLEX, whose vault
+ *   ESI can't see: that counts `startCount` plus what you've bought on the market since.
+ * - earn: trading profit or net cash flow since `from` reaches a target.
+ * - skill: a skill trained to a level.
+ */
+export type Goal = GoalBase & (
+  | { kind: 'isk'; measure: GoalMeasure; target: number }
+  | { kind: 'afford'; typeId: number; qty: number; measure: GoalMeasure }
+  | { kind: 'hold'; typeId: number; qty: number; startCount?: number }
+  | { kind: 'earn'; source: 'trading' | 'cashflow'; target: number; from: string }
+  | { kind: 'skill'; skillId: number; level: number }
+);
 
 /** One day's net worth, kept so the trend has something to draw. */
-export type NetWorthPoint = { date: string; total: number; wallet: number };
+export type NetWorthPoint = { date: string; total: number; wallet: number; /** Wallet plus escrow and stock in sell orders. Absent on older points. */ liquid?: number };
 
 export type UntrackedTag = 'loot' | 'personal' | 'trading' | 'other';

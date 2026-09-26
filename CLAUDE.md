@@ -294,6 +294,14 @@ Don't re-derive or contradict these without new evidence.
   net-worth history, so the trend starts the first day the page is opened and says so.
 - **Alerts run only while a tab is open.** A web page can't watch anything once it is closed; Settings says so.
   They reuse the pages' checks, respect quiet hours and don't repeat a finding within six hours.
+- **Goals are five kinds, each measured from something the app reads** (`lib/goals.ts`): afford N of an item
+  at the live price (units bought on the market since the goal was set come off what's left, so buying PLEX
+  in small lots counts), hold N of an item (hangars plus sell orders), save ISK (wallet, wallet + orders, or
+  net worth), earn over a period (positions' realized profit or net cash flow), train a skill. Any can carry a
+  deadline, which turns the ETA into "needs X a day, going at Y". A reached goal is stamped once and stays
+  reached. Old `{ kind: 'wallet' | 'nw' }` goals are read as ISK goals.
+- **ESI has no PLEX vault endpoint** — none of its paths mention PLEX or a vault. A PLEX "hold" goal starts
+  from the count you give it and follows your market trades; PLEX from the store isn't visible.
 - **No chart library.** Charts are inline SVG in the theme tokens (`charts.tsx`); recharts was removed.
 - **Diagrams are authored as inline SVG, not fetched.** A hosted image means someone else's server on
   every load, a licence to honour and a broken box the day it moves. Inline SVG inherits the theme

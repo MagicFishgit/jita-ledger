@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Crosshair, FileSpreadsheet, Flame, HandCoins, Image as ImageIcon, MapPin, Plus, Rocket, ShieldCheck, Target, TrendingUp, TriangleAlert, Wallet as WalletIcon, X,
+  Crosshair, FileSpreadsheet, Flame, HandCoins, Image as ImageIcon, MapPin, ShieldCheck, TriangleAlert, Wallet as WalletIcon,
 } from 'lucide-react';
 import { JITA_44, SCOPE } from '../lib/config';
-import { fmtDate, fmtDateTime, fmtShort, iskBig, iskBigSigned, pct, rid, units } from '../lib/format';
+import { fmtDate, fmtDateTime, fmtShort, iskBig, iskBigSigned, pct, units } from '../lib/format';
 import { navigate, useAuth, useNow } from '../lib/hooks';
 import { resolveNames, roughPricesShared, setDestination } from '../lib/market';
 import { computePosition, countedIn, realizedBetween, type SeriesPoint } from '../lib/positions';
@@ -13,12 +13,13 @@ import { toast } from '../lib/toast';
 import { isStation, isStructure, isSystem, structureInfo, system, type StructureRead } from '../lib/universe';
 import { isAbyssalSystem, netLoss } from '../lib/combat';
 import {
-  autoTag, balanceAt, balanceSeries, csvCell, describeRef, feeLeak, flows, goalEta, nextTag, RUNNING, runwayDays, unusual, type Line, type TradeClass,
+  autoTag, balanceAt, balanceSeries, csvCell, describeRef, feeLeak, flows, nextTag, RUNNING, runwayDays, unusual, type Line, type TradeClass,
 } from '../lib/wallet';
-import type { Goal, JournalEntry, Position, Tx, UntrackedTag } from '../lib/types';
+import type { JournalEntry, Position, Tx, UntrackedTag } from '../lib/types';
 import { AreaLine, MiniLine } from './charts';
+import { Goals } from './Goals';
 import { downloadBlob, downloadText, useTypeName } from './common';
-import { BarLine, cssVars, Empty, Figure, NumChip, PageHead, Panel, Seg, Tiles } from './ui';
+import { BarLine, cssVars, Empty, Figure, PageHead, Panel, Seg, Tiles } from './ui';
 
 const DAY = 86400_000;
 const WALLET_SCOPE = SCOPE.wallet, KILLMAIL_SCOPE = SCOPE.killmails;
@@ -120,6 +121,8 @@ export function Wallet() {
     { l: 'Loyalty points', v: lpValue, c: '#ff8d9a' },
   ];
   const nwTotal = nwParts.reduce((t, p) => t + p.v, 0);
+  // The ISK you could free up without selling anything: wallet, buy-order escrow, and sell orders.
+  const liquid = wallet != null ? wallet + escrow + sellValue : null;
   const nwReady = wallet != null && (!stockTypes || rough != null);
 
   // One point a day is kept, so the trend has a history of its own beyond ESI's 30 days.
@@ -128,7 +131,7 @@ export function Wallet() {
     const today = dayKey(Date.now());
     const cur = d.netWorth.find((p) => p.date === today);
     if (cur && Math.abs(cur.total - nwTotal) < nwTotal * 0.005) return;
-    update((x) => ({ netWorth: [...x.netWorth.filter((p) => p.date !== today), { date: today, total: nwTotal, wallet: wallet ?? 0 }].sort((a, b) => a.date.localeCompare(b.date)).slice(-730) }));
+    update((x) => ({ netWorth: [...x.netWorth.filter((p) => p.date !== today), { date: today, total: nwTotal, wallet: wallet ?? 0, liquid: liquid ?? undefined }].sort((a, b) => a.date.localeCompare(b.date)).slice(-730) }));
   }, [nwReady, Math.round(nwTotal / 1e5)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const nwPoints = d.netWorth.filter((p) => Date.parse(p.date) >= startOfUtcDay(since));
@@ -139,10 +142,24 @@ export function Wallet() {
     const span = (now - Date.parse(base.date)) / DAY;
     return span >= 1 ? (nwTotal - base.total) / span : null;
   })();
+  // Only snapshots from after it was first recorded carry it, so this has no answer for a while.
+  const liquidGrowPerDay = (() => {
+    const base = d.netWorth.find((p) => p.liquid != null && Date.parse(p.date) >= now - 30 * DAY);
+    if (!base || liquid == null) return null;
+    const span = (now - Date.parse(base.date)) / DAY;
+    return span >= 1 ? (liquid - base.liquid!) / span : null;
+  })();
   const walletGrowPerDay = (() => {
     const b = balanceAt(journal, now - 30 * DAY);
     return wallet != null && b != null ? (wallet - b) / 30 : null;
   })();
+
+  // What a goal counts as earned: trading profit from positions, or net cash flow, between two moments.
+  const earned = (source: 'trading' | 'cashflow', from: number, to: number) => {
+    if (source === 'trading') return posSeries.reduce((t, x) => t + realizedBetween(x.series, from, to), 0);
+    const f = flows(journal, txList, classOf, from, to);
+    return f.inTotal - f.outTotal;
+  };
 
   if (!journal.length && !txList.length) {
     return (
@@ -334,8 +351,13 @@ export function Wallet() {
         </Panel>
       </div>
 
-      <div className="g-440">
-        <Goals d={d} wallet={wallet} nw={nwReady ? nwTotal : null} walletGrow={walletGrowPerDay} nwGrow={nwGrowPerDay} />
+      <Goals
+        funds={{ wallet, liquid, nw: nwReady ? nwTotal : null }}
+        growth={{ wallet: walletGrowPerDay, liquid: liquidGrowPerDay, nw: nwGrowPerDay }}
+        earned={earned}
+      />
+
+      <div className="g-300">
         <Panel title="Running costs">
           <Figure value={`${iskBig(runningT)} a month`} sub={f30.inTotal > 0 ? `${pct(runningT / f30.inTotal, 1)} of your income keeps the lights on` : 'In the last 30 days'} color="var(--ink)" />
           <div>
@@ -346,9 +368,6 @@ export function Wallet() {
             {!running.length && <p className="note" style={{ marginTop: 8 }}>No rent, couriers, planet tax or clone fees in the last 30 days.</p>}
           </div>
         </Panel>
-      </div>
-
-      <div className="g-440">
         <ShipsLost d={d} now={now} hasScope={(auth?.scopes ?? []).includes(KILLMAIL_SCOPE)} />
         <Unusual d={d} journal={journal} now={now} />
       </div>
@@ -583,59 +602,6 @@ function Untracked(props: { d: Data; txs: Tx[]; tagOf: (tx: Tx) => UntrackedTag;
       )}
       {rows.length > 8 && <button type="button" className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => setAll(!all)}>{all ? 'Show fewer' : `Show all ${rows.length}`}</button>}
       <p className="note">Loot you sell from missions and abyssals lands in “Loot &amp; other sales” above. Anything marked personal counts as play in Trading against play below.</p>
-    </Panel>
-  );
-}
-
-function Goals(props: { d: Data; wallet: number | null; nw: number | null; walletGrow: number | null; nwGrow: number | null }) {
-  const { d } = props;
-  const [adding, setAdding] = useState(false);
-  const [label, setLabel] = useState('');
-  const [kind, setKind] = useState<Goal['kind']>('wallet');
-  const [target, setTarget] = useState<number | null>(null);
-  const add = () => {
-    if (!label.trim() || !target || target <= 0) { toast('A goal needs a name and a target above zero.', 'warn'); return; }
-    update((x) => ({ goals: [...x.goals, { id: rid(), label: label.trim(), kind, target }] }));
-    setAdding(false); setLabel(''); setTarget(null);
-  };
-  return (
-    <Panel title="Goals">
-      {!d.goals.length && !adding && <p className="note">Something to save towards — a ship, a year of Omega, a net-worth milestone. The date is worked out from how fast you’re actually growing.</p>}
-      <div className="col" style={{ gap: 12 }}>
-        {d.goals.map((g) => {
-          const have = g.kind === 'nw' ? props.nw : props.wallet;
-          const grow = g.kind === 'nw' ? props.nwGrow : props.walletGrow;
-          const frac = have == null ? 0 : Math.max(0, Math.min(1, have / g.target));
-          const eta = have == null ? null : goalEta(have, g.target, grow ?? 0);
-          const done = frac >= 1;
-          const c = done ? 'var(--pos)' : 'var(--acc)';
-          const Icon = g.kind === 'nw' ? TrendingUp : /ship|fund|raven|orca|hull/i.test(g.label) ? Rocket : Target;
-          return (
-            <div key={g.id} style={{ display: 'grid', gridTemplateColumns: '38px minmax(0,1fr) auto', gap: 12, alignItems: 'center' }}>
-              <span style={{ width: 36, height: 36, display: 'grid', placeItems: 'center', border: `1px solid ${c}`, color: c }}><Icon aria-hidden="true" style={{ width: 17, height: 17 }} /></span>
-              <div style={{ minWidth: 0 }}>
-                <div className="kv" style={{ fontSize: 13.5 }}><span style={{ color: 'var(--ink)' }}>{g.label}</span><span className="v" style={{ fontSize: 12, color: 'var(--sec)' }}>{have == null ? '–' : iskBig(have)} / {iskBig(g.target)}</span></div>
-                <div className="track h8" style={{ margin: '5px 0 3px' }}><span className="fill" style={{ width: `${frac * 100}%`, background: c, boxShadow: `0 0 8px ${c}` }} /></div>
-                <div style={{ fontSize: 12, color: 'var(--note)' }}>
-                  {pct(frac, 0)} of {g.kind === 'nw' ? 'net worth' : 'wallet'} · {done ? 'Reached — well done' : eta == null ? 'Not growing at the moment, so no date' : `About ${units(Math.ceil(eta))} days at your current growth`}
-                </div>
-              </div>
-              <button type="button" className="icon-btn" aria-label={`Remove goal ${g.label}`} onClick={() => update((x) => ({ goals: x.goals.filter((y) => y.id !== g.id) }))}><X aria-hidden="true" /></button>
-            </div>
-          );
-        })}
-      </div>
-      {adding ? (
-        <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-          <label className="chip h34"><span className="cl">Goal</span><input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="A new Orca" style={{ width: 150 }} autoFocus /></label>
-          <Seg label="Measured against" value={kind} onChange={setKind} options={[{ v: 'wallet' as const, label: 'Wallet' }, { v: 'nw' as const, label: 'Net worth' }]} />
-          <NumChip label="Target" value={target} onChange={setTarget} width={110} decimals={0} placeholder="1.05b" />
-          <button type="button" className="btn sm primary" onClick={add}>Add</button>
-          <button type="button" className="btn sm" onClick={() => setAdding(false)}>Cancel</button>
-        </div>
-      ) : (
-        <button type="button" className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => setAdding(true)}><Plus aria-hidden="true" />Add a goal</button>
-      )}
     </Panel>
   );
 }

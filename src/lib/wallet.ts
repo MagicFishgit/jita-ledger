@@ -205,16 +205,6 @@ export function runwayDays(wallet: number, dailyBurn: number): number {
   return dailyBurn > 0 ? wallet / dailyBurn : Infinity;
 }
 
-/**
- * Days to reach a target at a growth rate, or null when it is not growing. A goal already reached
- * takes no days at all.
- */
-export function goalEta(have: number, target: number, perDay: number): number | null {
-  if (have >= target) return 0;
-  if (!(perDay > 0)) return null;
-  return (target - have) / perDay;
-}
-
 export type Unusual = { id: string; kind: 'donationIn' | 'donationOut' | 'oddHour'; entry: JournalEntry };
 
 /**

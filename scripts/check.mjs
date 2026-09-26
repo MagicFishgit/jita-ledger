@@ -21,7 +21,7 @@ import { allocate } from '../src/lib/planner.ts';
 import { priceHub, shipment, goingRate } from '../src/lib/arbitrage.ts';
 import { shouldAlert, nextCheckIn } from '../src/lib/alerts.ts';
 import { spForLevel, spPerMinute, trainingDays, monthlyGain } from '../src/lib/training.ts';
-import { categoryOf, flows, feeLeak, balanceAt, balanceSeries, autoTag, nextTag, goalEta, runwayDays, unusual, csvCell } from '../src/lib/wallet.ts';
+import { categoryOf, flows, feeLeak, balanceAt, balanceSeries, autoTag, nextTag, runwayDays, unusual, csvCell } from '../src/lib/wallet.ts';
 import { readKillmail, priceOnDay, valueKillmail, activityOf, matchInsurance, learnedGankLines, gankLineFor, multibuy } from '../src/lib/combat.ts';
 import { orderTonight, summarise, MINUTES } from '../src/lib/tonight.ts';
 import { byDay, totals, perHour, attribute } from '../src/lib/results.ts';
@@ -1210,9 +1210,6 @@ eq('balance after a moment is the last entry before it', balanceAt(bal, Date.par
 eq('the series runs oldest first', balanceSeries(bal, 0).map((p) => p.balance), [100, 150]);
 eq('a sale of something never bought is loot', autoTag(tx2('z', '', false, 1, 1, 5), new Set([34])), 'loot');
 eq('tags cycle', nextTag('other'), 'loot');
-eq('a goal already reached takes no days', goalEta(10, 5, 1), 0);
-eq('no growth, no ETA', goalEta(1, 5, 0), null);
-eq('ETA is the gap over growth', goalEta(1, 5, 2), 2);
 eq('runway is wallet over burn', runwayDays(100, 10), 10);
 const odd = unusual([
   J('1', '2026-09-01T00:00:00Z', 'player_donation', 5e6, { firstPartyId: 9 }),
@@ -1331,6 +1328,71 @@ console.log('\n--- recent averages over calendar days ---');
   const late = ['18', '19', '20', '21', '22', '23', '24'].map((d) => row(`2026-09-${d}`, 70));
   eq('before the daily update, the window ends on the last published day', recentAverages(late, 7, now).avgVol, 70);
   eq('price is weighted by volume', recentAverages([row('2026-09-24', 1, 100), row('2026-09-25', 3, 200)], 7, now).avgPrice, 175);
+}
+
+console.log('\n--- goals ---');
+{
+  const G = await import('../src/lib/goals.ts');
+  const NOW = Date.parse('2026-09-27T12:00:00Z');
+  const t0 = '2026-09-01T00:00:00Z';
+  const tx = (date, isBuy, qty, typeId = 44992) => ({ typeId, date, isBuy, qty, source: 'esi' });
+  const base = (over = {}) => ({
+    now: NOW,
+    funds: { wallet: 1e9, liquid: 1.5e9, nw: 3e9 }, growth: { wallet: 50e6, liquid: null, nw: 20e6 },
+    price: (id) => (id === 44992 ? 5e6 : null), held: () => 12, txs: [],
+    earned: () => 0, skill: () => null, ...over,
+  });
+
+  eq('old wallet goals are read as ISK goals', G.normalizeGoal({ id: 'a', label: 'x', kind: 'nw', target: 5 }).measure, 'nw');
+  eq('junk is dropped', G.normalizeGoal({ kind: 'afford', typeId: 0 }), null);
+  eq('PLEX bought since the goal counts, sold PLEX comes off, earlier buys do not',
+    G.netBought([tx('2026-08-01T00:00:00Z', true, 99), tx('2026-09-05T00:00:00Z', true, 120), tx('2026-09-10T00:00:00Z', false, 20)], 44992, Date.parse(t0)), 100);
+
+  // Afford 500 PLEX at 5 M each, with 100 already bought on the market since the goal was set.
+  const aff = { id: 'p', label: '500 PLEX', createdAt: t0, kind: 'afford', typeId: 44992, qty: 500, measure: 'wallet' };
+  let p = G.goalProgress(aff, base({ txs: [tx('2026-09-05T00:00:00Z', true, 100)] }));
+  eq('afford: what is bought comes off what is left', [p.acquired, p.remaining], [100, 400]);
+  eq('  and what is left is priced live', p.costLeft, 400 * 5e6);
+  eq('  2 B needed, 1 B in the wallet: not yet', p.affordable, false);
+  eq('  progress counts what the wallet would buy too', p.frac, (100 + 200) / 500);
+  eq('  ETA from how fast the wallet grows', p.etaDays, 1e9 / 50e6);
+  p = G.goalProgress(aff, base({ funds: { wallet: 2.5e9, liquid: null, nw: null }, txs: [tx('2026-09-05T00:00:00Z', true, 100)] }));
+  eq('  once the wallet covers the rest, it can be bought now', [p.affordable, p.etaDays], [true, 0]);
+  eq('  but it is not done until it is bought', p.done, false);
+  p = G.goalProgress(aff, base({ txs: [tx('2026-09-05T00:00:00Z', true, 500)] }));
+  eq('  buying all of it finishes it', [p.done, p.frac], [true, 1]);
+  p = G.goalProgress(aff, base({ price: () => null }));
+  eq('  no price, no claim', [p.missing, p.affordable], ['price', false]);
+
+  // Hold: PLEX from a count plus market trades; anything else from hangars and sell orders.
+  const holdPlex = { id: 'h', label: '', createdAt: t0, kind: 'hold', typeId: 44992, qty: 500, startCount: 150 };
+  p = G.goalProgress(holdPlex, base({ txs: [tx('2026-09-05T00:00:00Z', true, 50)] }));
+  eq('hold PLEX: your count plus what you have bought since', p.have, 200);
+  const holdItem = { id: 'i', label: '', createdAt: t0, kind: 'hold', typeId: 40520, qty: 20 };
+  eq('hold an item: from hangars and orders', G.goalProgress(holdItem, base()).have, 12);
+  eq('  without the assets permission it says so', G.goalProgress(holdItem, base({ held: () => null })).missing, 'assets');
+
+  // ISK with a deadline: the pace it needs against the pace it has.
+  const isk = { id: 'k', label: '', createdAt: t0, kind: 'isk', measure: 'wallet', target: 2e9, deadline: '2026-10-07T12:00:00Z' };
+  p = G.goalProgress(isk, base());
+  eq('isk: half way', p.frac, 0.5);
+  eq('  needs 100 M a day to make a deadline ten days out', Math.round(p.needPerDay), 100e6);
+  eq('  and at 50 M a day it will not', G.onPace(p), false);
+  eq('no history for a measure, no ETA', G.goalProgress({ ...isk, measure: 'liquid' }, base()).etaDays, null);
+
+  // Earn: counted from its start, paced over the days since.
+  const earn = { id: 'e', label: '', createdAt: t0, kind: 'earn', source: 'trading', target: 1e9, from: '2026-09-17T12:00:00Z' };
+  p = G.goalProgress(earn, base({ earned: (src, from, to) => (src === 'trading' && to === NOW ? 400e6 : 0) }));
+  eq('earn: what was made since the start', p.have, 400e6);
+  eq('  at 40 M a day over ten days', p.nowPerDay, 40e6);
+  eq('  so fifteen more days', p.etaDays, 15);
+
+  // Skill: done by level; ETA is the training time.
+  const sk = { id: 's', label: '', createdAt: t0, kind: 'skill', skillId: 16622, level: 5 };
+  p = G.goalProgress(sk, base({ skill: () => ({ level: 4, frac: 0.3, days: 12.5 }) }));
+  eq('skill: level IV of V, 30% of the points, 12.5 days', [p.have, p.frac, p.etaDays, p.done], [4, 0.3, 12.5, false]);
+  eq('  trained to V is done', G.goalProgress(sk, base({ skill: () => ({ level: 5, frac: 1, days: 0 }) })).done, true);
+  eq('  no skills synced says so', G.goalProgress(sk, base()).missing, 'skills');
 }
 
 console.log('\n--- toasts queue, one at a time ---');
