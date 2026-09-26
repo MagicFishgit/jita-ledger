@@ -55,3 +55,49 @@ export const CALDARI_NAVY = 1000035;
 // PLEX trades on one market for the whole game, not in The Forge.
 export const PLEX_TYPE = 44992;
 export const GLOBAL_PLEX_MARKET = 19000001;
+
+/**
+ * What each permission is for, in the order the login asks for them.
+ *
+ * Every one is read-only: ESI has no write operation that touches a market order, and the only
+ * write this app makes at all is opening a market window in your client. Kept beside SCOPES so the
+ * Settings page can say which are missing and what stops working without each, rather than the
+ * "some permissions weren't granted" shrug it used to give.
+ */
+export const SCOPE_INFO: Record<string, { label: string; unlocks: string; without: string }> = {
+  'esi-wallet.read_character_wallet.v1': {
+    label: 'Wallet transactions and journal',
+    unlocks: 'Positions, Inbox, the fee figures, and the abyssal ISK-per-run worked out from filaments bought against loot sold.',
+    without: 'Nothing tracks what you actually bought and sold; positions and abyssal returns stay empty.',
+  },
+  'esi-markets.read_character_orders.v1': {
+    label: 'Your market orders',
+    unlocks: 'The Orders page: which of your orders have been undercut and whether moving is worth it.',
+    without: 'The Orders page has nothing to judge.',
+  },
+  'esi-skills.read_skills.v1': {
+    label: 'Skills',
+    unlocks: 'Broker fee and sales tax worked out from your real levels, clone detection, and the skill readiness panel on every side hustle.',
+    without: 'Fees fall back to what you type in Settings, and the hustle pages cannot tell you what you have trained.',
+  },
+  'esi-characters.read_standings.v1': {
+    label: 'Standings',
+    unlocks: 'The standings part of your broker fee, which is worth real ISK at Jita.',
+    without: 'Broker fee is estimated slightly high.',
+  },
+  'esi-ui.open_window.v1': {
+    label: 'Open a window in your client',
+    unlocks: 'The "In game" buttons that open an item’s market window next to you.',
+    without: 'Those buttons are hidden, since a button that cannot work is worse than none.',
+  },
+  'esi-assets.read_assets.v1': {
+    label: 'Assets',
+    unlocks: 'Stock reconciliation on positions, and the filaments already in your hangar on the Abyssal page.',
+    without: 'Positions cannot check what you hold against what your trades imply.',
+  },
+  'esi-characters.read_loyalty.v1': {
+    label: 'Loyalty points',
+    unlocks: 'Your LP balance per corporation on the Loyalty page, so it knows what you have to spend.',
+    without: 'The Loyalty page still works — you type a points figure in by hand.',
+  },
+};

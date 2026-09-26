@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   estimate, HIGHSEC_TAX_NOTE, inBand, P0_PER_P1, P0_TO_P1, PI_LINKS, planetsFor,
-  PLANET_RESOURCES, PLANET_TYPES, type Band, type PiPlanet, type PlanetType,
+  PLANET_RESOURCES, PLANET_SORTS, PLANET_TYPES, SECURITY_NOTE, sortSystems,
+  type Band, type PiPlanet, type PlanetSort, type PlanetType,
 } from '../../lib/pi';
 import { rates } from '../../lib/fees';
 import { iskBig, isk, plainNum, units } from '../../lib/format';
@@ -30,6 +31,7 @@ export function Planets() {
   const [countTouched, setCountTouched] = useState(false);
   const [jumps, setJumps] = useState<Record<number, number | null>>({});
   const [prices, setPrices] = useState<{ p0: number | null; p1: number | null } | null>(null);
+  const [order, setOrder] = useState<PlanetSort>('yield');
 
   // Interplanetary Consolidation is exactly "one planet, plus one per level", so the field starts at
   // what you can actually run rather than at a number pulled from the air. Typing over it wins.
@@ -74,19 +76,25 @@ export function Planets() {
   const est = estimate(rate, count, prices?.p0 ?? null, prices?.p1 ?? null, r.t, r.f);
   const matching = (planets ?? []).filter((p) => wanted.includes(p.type));
   const bySystem = useMemo(() => {
-    const m = new Map<string, { security: number; systemId: number; types: Map<PlanetType, number> }>();
+    const m = new Map<string, { name: string; security: number; systemId: number; types: Map<PlanetType, number> }>();
     for (const p of matching) {
-      const e = m.get(p.systemName) ?? { security: p.security, systemId: p.systemId, types: new Map() };
+      const e = m.get(p.systemName) ?? { name: p.systemName, security: p.security, systemId: p.systemId, types: new Map() };
       e.types.set(p.type, (e.types.get(p.type) ?? 0) + 1);
       m.set(p.systemName, e);
     }
-    return [...m.entries()].sort((a, b) => b[1].security - a[1].security || a[0].localeCompare(b[0]));
+    return [...m.values()];
   }, [matching]);
+
+  // Ordered only once the jumps are in, so "closest to Jita" doesn't jump about as they arrive.
+  const ordered = useMemo(
+    () => sortSystems(bySystem.map((e) => ({ ...e, jumps: jumps[e.systemId] })), order),
+    [bySystem, jumps, order],
+  );
 
   // How far each candidate is from home. You have to haul the output to Jita to sell it, and a
   // 0.9 system twelve jumps out is a worse place to put a command centre than a 0.6 next door.
   useEffect(() => {
-    const need = bySystem.map(([, e]) => e.systemId).filter((id) => !(id in jumps)).slice(0, 40);
+    const need = bySystem.map((e) => e.systemId).filter((id) => !(id in jumps)).slice(0, 40);
     if (!need.length) return;
     let alive = true;
     (async () => {
@@ -214,6 +222,18 @@ export function Planets() {
             region. ESI does not publish how rich any individual planet is, so this says where to look,
             not which one to pick — the client shows richness the moment you warp to it.
           </p>
+          <p className="notice" style={{ margin: '0 0 14px' }}>{SECURITY_NOTE}</p>
+          <div className="row" style={{ gap: 10, alignItems: 'center', margin: '0 0 12px' }}>
+            <div className="seg-control" role="group" aria-label="How to order the systems">
+              {PLANET_SORTS.map((o) => (
+                <button key={o.key} type="button" aria-pressed={order === o.key} title={o.hint} onClick={() => setOrder(o.key)}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            <span className="small muted">{PLANET_SORTS.find((o) => o.key === order)?.hint}</span>
+          </div>
+
           {!bySystem.length ? (
             <p className="empty">
               No {wanted.join(' or ')} planets in the {band === 'high' ? 'high-sec' : 'low-sec'} part of
@@ -225,7 +245,10 @@ export function Planets() {
                 <thead>
                   <tr>
                     <th scope="col">System</th>
-                    <th scope="col">Security</th>
+                    <th scope="col">
+                      Security
+                      <Explain term="Security">{SECURITY_NOTE}</Explain>
+                    </th>
                     <th scope="col">
                       From Jita
                       <Explain term="From Jita">
@@ -237,12 +260,14 @@ export function Planets() {
                   </tr>
                 </thead>
                 <tbody>
-                  {bySystem.slice(0, 60).map(([name, e]) => {
-                    const j = jumps[e.systemId];
+                  {ordered.slice(0, 60).map((e) => {
+                    const j = e.jumps;
                     return (
-                      <tr key={name}>
-                        <td className="name">{name}</td>
-                        <td className={e.security >= 0.5 ? 'pos' : 'neg'}>{e.security.toFixed(1)}</td>
+                      <tr key={e.name}>
+                        <td className="name">{e.name}</td>
+                        <td className={e.security <= 0.6 ? 'pos' : ''} title={e.security <= 0.6 ? 'Lower security, so richer planets' : undefined}>
+                          {e.security.toFixed(1)}
+                        </td>
                         <td className={j != null && j <= 10 ? 'pos' : undefined}>
                           {j === undefined ? <span className="muted">…</span>
                             : j === null ? <span className="neg" title="No high-sec route from Jita">not in high-sec</span>

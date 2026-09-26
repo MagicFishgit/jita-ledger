@@ -139,3 +139,38 @@ export const PI_LINKS: { href: string; title: string; what: string }[] = [
  */
 export const HIGHSEC_TAX_NOTE =
   'High-sec customs offices are NPC-run and take a much bigger cut than the player-owned ones in low and null. That tax, more than the extraction rate, is why the same planets pay less here.';
+
+/**
+ * Within a security band, lower security means richer planets.
+ *
+ * This is a real mechanic and it runs the *opposite* way to how a system list normally wants to be
+ * sorted: for extraction a 0.5 is better than a 1.0, and low-sec is better than both. What ESI will
+ * not tell us is by how much --- resource richness per planet exists only in the client, so there is
+ * no multiplier here to multiply by. The page can point you at the right systems and must leave the
+ * size of the difference to what you see when you survey.
+ */
+export const SECURITY_NOTE =
+  'Lower security means richer planets, and that holds inside high-sec too — a 0.5 system extracts '
+  + 'more than a 1.0. ESI does not publish how much richer, because richness lives only in the game '
+  + 'client, so this orders systems by where to look rather than putting a number on it. Against that, '
+  + '0.5 systems are where gankers wait for haulers, so the output still has to get home.';
+
+export type PlanetSort = 'yield' | 'near' | 'safe';
+
+export const PLANET_SORTS: { key: PlanetSort; label: string; hint: string }[] = [
+  { key: 'yield', label: 'Best yield', hint: 'Lowest security first, because those planets are the richest' },
+  { key: 'near', label: 'Closest to Jita', hint: 'Fewest jumps to carry the output home and sell it' },
+  { key: 'safe', label: 'Safest', hint: 'Highest security first, if you would rather not be shot at' },
+];
+
+export function sortSystems<T extends { security: number; jumps?: number | null; name: string }>(
+  rows: T[],
+  sort: PlanetSort,
+): T[] {
+  const far = (j: number | null | undefined) => (j == null ? Number.MAX_SAFE_INTEGER : j);
+  return [...rows].sort((a, b) => {
+    if (sort === 'yield') return a.security - b.security || far(a.jumps) - far(b.jumps) || a.name.localeCompare(b.name);
+    if (sort === 'near') return far(a.jumps) - far(b.jumps) || a.security - b.security || a.name.localeCompare(b.name);
+    return b.security - a.security || far(a.jumps) - far(b.jumps) || a.name.localeCompare(b.name);
+  });
+}

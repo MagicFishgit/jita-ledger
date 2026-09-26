@@ -6,7 +6,7 @@ import { confirmAsk } from '../lib/confirm';
 import { isConfigured, login, logout } from '../lib/auth';
 import { syncCharacter, useSyncState } from '../lib/sync';
 import { useAuth } from '../lib/hooks';
-import { ALPHA_CAPS, REDIRECT_URI, SCOPES } from '../lib/config';
+import { ALPHA_CAPS, REDIRECT_URI, SCOPE_INFO, SCOPES } from '../lib/config';
 import { LevelBoxes, downloadText } from './common';
 
 export function NumField(props: { id: string; label: string; value: number; hint?: string; disabled?: boolean; onChange: (n: number) => void }) {
@@ -105,19 +105,23 @@ export function Settings() {
                   <button className="btn btn-primary" disabled={sync.running} onClick={() => syncCharacter()}>{sync.running ? 'Syncing…' : 'Sync now'}</button>
                   <button className="btn" onClick={() => logout()}>Log out</button>
                 </div>
-                {SCOPES.some((sc) => !auth.scopes.includes(sc)) && (
-                  <p className="small warn" style={{ margin: 0 }}>Some permissions weren’t granted, so parts of the sync are skipped. Log out and in again to grant them.</p>
-                )}
+
               </>
             ) : (
               <>
                 <p style={{ margin: 0 }}>
-                  Log in to fill in your skills, standings and clone state and to track your trades. The app asks for read-only access to your wallet, market orders, skills and standings. It can’t change anything in game.
+                  Log in to fill in your skills, standings and clone state and to track your trades. Everything it asks for
+                  is read-only — ESI has no way to place, change or cancel an order, so nothing here can trade for you. The
+                  one exception writes nothing: opening a market window in your client.
                 </p>
+
                 <div><button className="btn btn-primary" onClick={() => login().catch((e) => setLoginErr(String(e.message ?? e)))}>Log in with EVE Online</button></div>
                 {loginErr && <p className="small neg" role="alert" style={{ margin: 0 }}>{loginErr}</p>}
               </>
             )}
+            {/* Always shown: when login is off this is the list to tick on your application, and
+                when you are logged in it is the list of what you actually granted. */}
+            <ScopeList granted={auth?.scopes ?? []} />
             <div>
               <span className="label">Clone state</span>
               <CloneSwitch value={s.clone} onChange={(v) => set({ clone: v })} />
@@ -211,6 +215,50 @@ export function Settings() {
           </section>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Which permissions you granted, and what each one is actually for.
+ *
+ * Scopes are registered on your application at developers.eveonline.com and granted at login, and
+ * the two can drift apart --- a scope added to the app after you last logged in is simply absent
+ * until you log in again, with no error anywhere. Naming them individually is the difference
+ * between "something is missing" and knowing which page is quietly running on less than it could.
+ */
+function ScopeList({ granted }: { granted: string[] }) {
+  const missing = SCOPES.filter((sc) => !granted.includes(sc));
+  return (
+    <div>
+      <span className="label">Permissions</span>
+      {granted.length > 0 && (
+        <p className="small muted" style={{ margin: '0 0 8px' }}>
+          {missing.length === 0
+            ? 'All granted. Everything in the app has what it needs.'
+            : `${missing.length} of ${SCOPES.length} not granted. Each must be ticked on your application at developers.eveonline.com first, then log out and in again here.`}
+        </p>
+      )}
+      <ul className="scopes">
+        {SCOPES.map((sc) => {
+          const info = SCOPE_INFO[sc];
+          const has = granted.includes(sc);
+          return (
+            <li key={sc}>
+              <span className={'dot ' + (granted.length === 0 ? 'unknown' : has ? 'met' : 'missing')} aria-hidden="true" />
+              <div>
+                <strong>{info?.label ?? sc}</strong>
+                {granted.length > 0 && !has && <span className="flag" style={{ marginLeft: 8 }}>not granted</span>}
+                <code className="small muted" style={{ display: 'block' }}>{sc}</code>
+                <span className="small muted">{info?.unlocks}</span>
+                {granted.length > 0 && !has && info && (
+                  <span className="small warn" style={{ display: 'block' }}>Without it: {info.without}</span>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

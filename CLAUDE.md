@@ -161,6 +161,11 @@ Don't re-derive or contradict these without new evidence.
   Measured: 612ms, then 3ms, then 358ms with `cache: 'no-cache'`. Pass `fresh: true` to `esi()` when
   someone has explicitly asked to re-check, or the button does nothing and looks broken.
 
+- **`SCOPE_INFO` in `config.ts` is the single answer to "what do I need to enable".** Settings lists
+  every scope, its exact ESI name, what it unlocks and what breaks without it, logged in or not ---
+  a scope registered on the application but granted before it was added is simply absent, with no
+  error anywhere. Add a scope to `SCOPES` and add its entry here in the same commit.
+
 ## Known bugs, unfixed
 
 Found by an adversarial review and verified real; none are fixed yet.

@@ -334,6 +334,13 @@ footer.foot { max-width: var(--page-max); margin: 0 auto; padding: 0 clamp(14px,
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
+/* What each ESI permission is for, and whether you granted it */
+.scopes { list-style: none; margin: 0; padding: 0; }
+.scopes li { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px dotted var(--rule); }
+.scopes li:last-child { border-bottom: 0; }
+.scopes .dot { margin-top: 7px; flex: none; }
+.scopes code { font-size: 12px; margin: 2px 0; }
+
 /* Asking a question, in the app's own voice rather than the browser's */
 .confirm { padding: 0; border: 1px solid var(--rule); border-radius: var(--r-m); background: var(--surface); color: var(--ink); max-width: min(460px, calc(100vw - 32px)); }
 .confirm::backdrop { background: rgba(0, 0, 0, .45); }

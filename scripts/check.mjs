@@ -7,7 +7,7 @@ import { adviseRelist, byUrgency, weightedLevel, marketBest } from '../src/lib/r
 import { valueOffer, byIskPerLp, patientPrice, instantPrice, daysToClear, planFor, notesFor, spendPlan } from '../src/lib/loyalty.ts';
 import { parseFilament, byTier, runsFrom, TIERS } from '../src/lib/abyssal.ts';
 import { judgeCourier, byRewardPerJump, byUsefulness, roundTrips, tally } from '../src/lib/courier.ts';
-import { parsePlanetType, planetsFor, estimate, inBand, P0_PER_P1 } from '../src/lib/pi.ts';
+import { parsePlanetType, planetsFor, estimate, inBand, P0_PER_P1, sortSystems } from '../src/lib/pi.ts';
 import { check, byUrgency as bySkillUrgency, readiness, injectorYield, SP_FLOOR } from '../src/lib/skills.ts';
 import { iskPerHour, RUN_MINUTES } from '../src/lib/abyssal.ts';
 
@@ -836,6 +836,22 @@ eq('only the ones you can take', t.count, 2);
 eq('rewards added up', t.reward, 15_000_000);
 eq('jumps added up', t.jumps, 10);
 eq('and it stops at the number asked for', tally([leg(1, 1, 2, 10), leg(2, 2, 3, 10), leg(3, 3, 4, 10)], 2).count, 2);
+
+console.log('\n--- ordering PI systems, which runs against the instinct ---');
+const sys = [
+  { name: 'Safe far', security: 1.0, jumps: 20 },
+  { name: 'Rich near', security: 0.5, jumps: 3 },
+  { name: 'Middle', security: 0.7, jumps: 9 },
+];
+// Lower security means richer planets, so "best yield" puts 0.5 first, not 1.0.
+eq('best yield takes the lowest security', sortSystems(sys, 'yield')[0].name, 'Rich near');
+eq('  and the highest last', sortSystems(sys, 'yield')[2].name, 'Safe far');
+eq('closest to Jita is by jumps', sortSystems(sys, 'near')[0].name, 'Rich near');
+eq('safest is the old order', sortSystems(sys, 'safe')[0].name, 'Safe far');
+// A system whose jumps have not arrived yet must not pretend to be next door.
+const pending = [{ name: 'Unknown', security: 0.5, jumps: null }, { name: 'Known', security: 0.5, jumps: 12 }];
+eq('unknown distance sorts last, not first', sortSystems(pending, 'near')[0].name, 'Known');
+eq('  and does not disturb the yield order', sortSystems(pending, 'yield').length, 2);
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
