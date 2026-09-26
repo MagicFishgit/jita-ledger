@@ -20,7 +20,7 @@ Seg, Check, NumChip, Guide…), `components/charts.tsx` (inline SVG charts) and 
 npm run check    # pure-logic tests, fast, no network
 npm run build    # tsc --noEmit && vite build
 npm run dev      # http://localhost:5173/jita-ledger/
-node scripts/scan-live.mjs   # end-to-end funnel against real ESI
+npm run scan-live   # end-to-end funnel against real ESI (needs the resolver hook, so not bare node)
 ```
 
 **Verify before claiming.** `npm run check` and `npm run build` for every change, plus a browser

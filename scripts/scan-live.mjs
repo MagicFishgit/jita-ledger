@@ -1,5 +1,6 @@
 // End-to-end check of the Prospects funnel against live ESI. Hits the network, so it is
-// deliberately not part of `npm run check`.  Run with: node scripts/scan-live.mjs
+// deliberately not part of `npm run check`.  Run with: npm run scan-live
+// (it needs the same resolver hook as the checks: the app's modules import each other extensionless).
 import { pickPages, statsFrom, passesGate, warningsFor, expectedEdge, DEFAULT_FILTERS } from '../src/lib/prospects.ts';
 
 const H = { 'X-Compatibility-Date': '2026-08-18', 'User-Agent': 'jita-ledger/scan-live' };
