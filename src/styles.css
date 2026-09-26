@@ -741,7 +741,7 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 
 .chart-box { position: relative; border: 1px solid var(--line-3); background: rgba(2, 7, 12, .4); overflow: hidden; }
 .chart-box svg.plot { position: absolute; inset: 0; width: 100%; height: 100%; }
-.chart-box .ax { position: absolute; font-family: var(--f-mono); font-size: 10.5px; color: var(--label); pointer-events: none; }
+.chart-box .ax { position: absolute; z-index: 1; padding: 1px 4px; background: rgba(3, 8, 14, .82); font-family: var(--f-mono); font-size: 10.5px; color: var(--label); pointer-events: none; }
 .chart-box .ax.f { font-size: 10px; color: var(--faint-2); }
 .chart-box.cross { cursor: crosshair; }
 .evdot { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 3px rgba(2, 7, 12, .85), 0 0 10px var(--c); cursor: help; border: 0; padding: 0; }
