@@ -83,7 +83,7 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
   },
   'esi-ui.open_window.v1': {
     label: 'Open a window in your client',
-    unlocks: 'The "In game" buttons that open an item’s market window next to you.',
+    unlocks: 'The "In game" buttons that open an item’s market window next to you, and the “Open its market in game” link in alert mails.',
     without: 'Those buttons are hidden, since a button that cannot work is worse than none.',
   },
   'esi-assets.read_assets.v1': {

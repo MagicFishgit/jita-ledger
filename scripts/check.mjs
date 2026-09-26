@@ -1565,6 +1565,8 @@ console.log('\n--- alert mail ---');
   eq('  the item name opens it in game', one.body.includes('<a href="showinfo:2185">Hammerhead II</a> sell order beaten'), true);
   eq('  the name is not repeated', one.body.split('Hammerhead II').length - 1, 1);
   eq('  an order alert links to the orders page', one.body.includes('https://x.test/jita-ledger/#orders'), true);
+  eq('  and to its market, through the app', one.body.includes('<a href="https://x.test/jita-ledger/#orders?market=2185">Open its market in game</a>'), true);
+  eq('an alert with no item has no market link', alertMail([pi], { appUrl: 'u/', keepMin: 1440 }).body.includes('market='), false);
   eq('  and says when it goes', one.body.includes('deleted after 3 days, read or not'), true);
   eq('keep times read naturally', [30, 60, 360, 1440, 4320, 10080].map(keepSaid), ['30 minutes', 'an hour', '6 hours', 'a day', '3 days', 'a week']);
   eq('a short keep is tidied often enough', [30, 60, 1440].map((m) => tidyEvery(m) / 60_000), [5, 10, 60]);

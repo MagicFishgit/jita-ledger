@@ -59,8 +59,10 @@ const escapeMail = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
  * The EVE mail for one check's alerts: everything found at once in a single mail rather than one each.
  *
  * EVE mail takes a small set of HTML. An item's name becomes a `showinfo:` link, which opens the item
- * in the client, one step from its market. The app's page is linked too; the client asks before
- * opening a web link. Colours are ARGB, as the client writes them.
+ * in the client. EVE mail has no link that opens a market window, so each item also gets a link to the
+ * app (`#orders?market=ID`), which asks ESI to open that market when it loads: the client asks before
+ * following a web link, the browser opens the app, the app opens the window. Colours are ARGB, as the
+ * client writes them.
  */
 /** "30 minutes", "an hour", "a day", "3 days": how long a mail is kept, said as a person would. */
 export function keepSaid(min: number): string {
@@ -83,7 +85,8 @@ export function alertMail(findings: Finding[], opts: { appUrl: string; keepMin: 
   };
   const build = (shown: Finding[]) => [
     `<font size="14" color="#ff5cd3f2"><b>Jita Ledger</b></font><br>`,
-    ...shown.map((f) => `<br><font color="#fff2b15c"><b>${escapeMail(f.title)}</b></font><br>${line(f)}<br>`),
+    ...shown.map((f) => `<br><font color="#fff2b15c"><b>${escapeMail(f.title)}</b></font><br>${line(f)}<br>`
+      + (f.typeId ? `<a href="${opts.appUrl}#orders?market=${f.typeId}">Open its market in game</a><br>` : '')),
     n > shown.length ? `<br>…and ${n - shown.length} more in the app.<br>` : '',
     findings.some((f) => f.kind === 'move' || f.kind === 'clearing')
       ? `<br><a href="${opts.appUrl}#orders">Open your orders in Jita Ledger</a><br>`

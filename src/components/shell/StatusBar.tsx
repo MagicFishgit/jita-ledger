@@ -52,6 +52,7 @@ export function StatusBar() {
   const al = d.alerts;
   const next = runner.lastRun == null ? al.interval * 60_000 : Math.max(0, runner.lastRun + al.interval * 60_000 - now);
   const alertText = !al.on ? 'Alerts off'
+    : !runner.leader ? 'Alerts in another tab'
     : (window.innerWidth >= 1200 && runner.watching ? `Watching ${runner.watching} orders · next check ` : 'Next check ') + clock(next);
 
   const last = d.meta.lastBackupAt ? Date.parse(d.meta.lastBackupAt) : null;

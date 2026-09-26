@@ -25,8 +25,10 @@ type State = {
   startedAt: number; lastRun: number | null; running: boolean; watching: number;
   /** Why the last alert mail couldn't be sent or tidied away, until one next succeeds. */
   mailError: string | null;
+  /** Whether this tab is the one doing the checking. Only one tab does, so nothing is raised twice. */
+  leader: boolean;
 };
-let state: State = { startedAt: Date.now(), lastRun: null, running: false, watching: 0, mailError: null };
+let state: State = { startedAt: Date.now(), lastRun: null, running: false, watching: 0, mailError: null, leader: false };
 const listeners = new Set<() => void>();
 const setState = (p: Partial<State>) => { state = { ...state, ...p }; listeners.forEach((l) => l()); };
 export function useAlertRunner(): State {
@@ -170,8 +172,6 @@ export async function runChecks(): Promise<void> {
   }
 }
 
-let timer: ReturnType<typeof setInterval> | null = null;
-
 let tidying = false;
 
 /**
@@ -192,20 +192,52 @@ function tidyMail() {
     .finally(() => { tidying = false; });
 }
 
-/** Start watching. Runs a check whenever the interval has passed since the last one. */
+/** The lock the checking tab holds. Web Locks are shared by every tab of the app, and freed when one closes. */
+export const ALERTS_LOCK = 'jita-ledger:alerts';
+export const isAlertLeader = () => state.leader;
+
+/**
+ * Start watching. Runs a check whenever the interval has passed since the last one.
+ *
+ * Only one tab watches. Each tab asks for the same lock and the first to get it does the checking; the
+ * rest wait in line and one takes over when that tab closes. Two tabs used to raise, and mail, every
+ * finding twice, and every click on an alert mail's market link opens another tab.
+ */
 export function startAlerts(): () => void {
-  if (timer) return () => undefined;
-  setState({ startedAt: Date.now() });
-  const tick = () => {
-    const cfg = getData().alerts;
-    tidyMail();
-    if (!cfg.on) return;
-    const due = state.lastRun == null || Date.now() - state.lastRun >= cfg.interval * 60_000;
-    if (due) runChecks().catch(() => undefined);
+  let stopped = false;
+  let release: (() => void) | null = null;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let first: ReturnType<typeof setTimeout> | null = null;
+  const begin = () => {
+    setState({ startedAt: Date.now(), leader: true });
+    const tick = () => {
+      const cfg = getData().alerts;
+      tidyMail();
+      if (!cfg.on) return;
+      const due = state.lastRun == null || Date.now() - state.lastRun >= cfg.interval * 60_000;
+      if (due) runChecks().catch(() => undefined);
+    };
+    timer = setInterval(tick, 15_000);
+    first = setTimeout(tick, 5_000);
   };
-  timer = setInterval(tick, 15_000);
-  setTimeout(tick, 5_000);
-  return () => { if (timer) clearInterval(timer); timer = null; };
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  if (locks) {
+    // Held for as long as the promise is pending: until this tab stops watching or closes.
+    locks.request(ALERTS_LOCK, () => new Promise<void>((resolve) => {
+      // Granted after this watcher was already stopped (React runs effects twice in development).
+      if (stopped) { resolve(); return; }
+      release = resolve;
+      begin();
+    })).catch(() => undefined);
+  } else {
+    begin();
+  }
+  return () => {
+    stopped = true;
+    if (timer) clearInterval(timer);
+    if (first) clearTimeout(first);
+    if (release) { release(); setState({ leader: false }); }
+  };
 }
 
 export const EVENT_KEYS: AlertEvent[] = ['move', 'clearing', 'squeeze', 'pi', 'scam', 'backup'];

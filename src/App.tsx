@@ -8,6 +8,7 @@ import { bumpWarp, useMotion } from './lib/motion';
 import { THEMES } from './lib/prefs';
 import { priceKillmails } from './lib/killmails';
 import { startAlerts } from './lib/alertsRunner';
+import { marketParam, openFromLink, withoutMarket } from './lib/marketLink';
 import { setToastLife, toast } from './lib/toast';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { Rail } from './components/shell/Rail';
@@ -159,6 +160,19 @@ export function App() {
   useEffect(() => { if (sync.error) toast(`Sync failed: ${sync.error}`, 'err'); }, [sync.error]);
 
   useEffect(() => { if (ready) return startAlerts(); }, [ready]);
+
+  // A market link from an alert mail (`#orders?market=ID`): open that market in the client, once. The
+  // request comes off the address first, so a reload or a failure halfway can't open it again; that
+  // doesn't fire hashchange, so the ref is what stops React's second run in development.
+  const marketDone = useRef<number | null>(null);
+  useEffect(() => {
+    if (!ready) return;
+    const id = marketParam(route.query);
+    if (id == null || marketDone.current === id) return;
+    marketDone.current = id;
+    history.replaceState(null, '', withoutMarket(route.path, route.query));
+    openFromLink(id).catch(() => undefined);
+  }, [ready, route]);
 
   // Page transitions: the old page warps out before the hash changes, the new one warps in.
   useEffect(() => {

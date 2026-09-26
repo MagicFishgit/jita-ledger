@@ -344,12 +344,24 @@ Don't re-derive or contradict these without new evidence.
   `alerts.ts`). A browser notification is held back while a borderless game is in front, and a web page can't
   put anything inside the client, but a mail arrives there with the client's own blink. One mail per check
   holding everything raised, never one per alert. By default only `move` and `pi` are mailed, the two you can
-  act on from inside the game. Item names are `showinfo:` links, which open the item in game on a click;
-  nothing opens a market window unasked. Old alert mails are deleted after a chosen time (30 min to a week, or
+  act on from inside the game. Item names are `showinfo:` links, which open the item in game on a click.
+  EVE mail has no link that opens a market window, so each item also links to `#orders?market=ID`: the
+  client asks before following it, the browser opens the app, and `lib/marketLink.ts` calls
+  `openMarketWindow` once, having first taken `market` off the address with `replaceState` so a reload
+  can't repeat it. Nothing opens a market window unless someone clicked. ESI answers 204 whether or not
+  the game is running, so the toast says the client was *asked*. Old alert mails are deleted after a chosen time (30 min to a week, or
   kept), read or not, on a cadence of a sixth of that time between 5 and 60 minutes (`tidyEvery`). Only mails
   **from you, to you, with a subject starting `Jita Ledger:`** are ever touched (`isStaleAlertMail`); without
   the read scope, only the mail IDs this browser recorded sending. Cleanup runs even with alerts off, and
   stamps its time on failure too, so a lasting error retries at that cadence rather than every 15 s tick.
+- **Only one tab runs the alert checks**, elected with a Web Lock (`ALERTS_LOCK` in `alertsRunner.ts`).
+  Every tab asks for it, the holder checks, the rest queue and one takes over when the holder closes. Two
+  tabs used to raise and mail every finding twice, and each click on a mail's market link opens a new tab.
+  The grant can arrive after React's development double-run has already cleaned the effect up, so the
+  callback checks a per-call `stopped` flag and resolves at once. A tab opened from a market link closes
+  itself when another tab holds the lock: Chromium allows `window.close()` on a tab with one history entry,
+  which is what an OS-opened link is (Playwright's `newPage` starts at `about:blank` and has two, so test it
+  with CDP `Target.createTarget`). If the browser refuses, the tab says it can be closed.
 - **No chart library.** Charts are inline SVG in the theme tokens (`charts.tsx`); recharts was removed.
 - **Diagrams are authored as inline SVG, not fetched.** A hosted image means someone else's server on
   every load, a licence to honour and a broken box the day it moves. Inline SVG inherits the theme
@@ -427,8 +439,6 @@ State these rather than letting them be discovered:
 - **PI does not model powergrid or CPU.** Command Center Upgrades governs how many extractor heads
   and factories physically fit; "1 factory per planet" does not check that you can fit it. The
   per-structure costs and per-level budgets are not in ESI.
-- **Two open tabs each run their own alert checks**, so each can raise, and mail, the same finding. System
-  notifications collapse by `tag`; toasts and mails have no equivalent. Keep one tab open.
 - Alert mails' look in the client (ARGB `<font>` colours, `showinfo:` links) was written from the client's
   mail format and checked only against a mocked ESI, not seen in game.
 - Deep Space Transports, Blockade Runners, Industrials and Jump Freighters get **no** skill cargo

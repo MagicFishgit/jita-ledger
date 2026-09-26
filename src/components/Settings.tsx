@@ -372,7 +372,8 @@ function Alerts() {
           <div className="panel-head"><span className="panel-title">Undercut alerts</span><button type="button" className="link-btn" onClick={testAlert}><Send aria-hidden="true" />Send a test</button></div>
           <Check bare checked={a.on} onChange={(v) => setA({ on: v })} desc="Turn off to stop every alert below">Watch my orders while this tab is open</Check>
           <p style={{ margin: '-4px 0 0', fontSize: 12, color: 'var(--note)', textWrap: 'pretty' }}>
-            {a.on ? `ESI refreshes the order book every 5 minutes, so checking more often can’t show anything new. Next check in ${mm}:${ss}.` : 'Nothing is being checked. Turn alerts on to watch your orders while this tab is open — a web page cannot watch anything once it is closed.'}
+            {a.on && !runner.leader ? 'Another Jita Ledger tab is doing the checking, so nothing is raised twice. This one takes over if that tab closes.'
+              : a.on ? `ESI refreshes the order book every 5 minutes, so checking more often can’t show anything new. Next check in ${mm}:${ss}.` : 'Nothing is being checked. Turn alerts on to watch your orders while this tab is open — a web page cannot watch anything once it is closed.'}
           </p>
           <div>
             <div className="lbl" style={{ marginBottom: 6 }}>Check</div>
