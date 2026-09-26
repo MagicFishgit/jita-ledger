@@ -6,6 +6,8 @@ import { JITA_44, SCOPE } from '../lib/config';
 import { fmtDate, fmtDateTime, fmtShort, iskBig, iskBigSigned, pct, units } from '../lib/format';
 import { navigate, useAuth, useNow } from '../lib/hooks';
 import { resolveNames, roughPricesShared, setDestination } from '../lib/market';
+import { priceStore, storeRate } from '../lib/lpStore';
+import { rates } from '../lib/fees';
 import { computePosition, countedIn, realizedBetween, type SeriesPoint } from '../lib/positions';
 import { startPosition } from '../lib/actions';
 import { update, useData, type Data } from '../lib/store';
@@ -22,6 +24,10 @@ import { downloadBlob, downloadText, useTypeName } from './common';
 import { BarLine, cssVars, Empty, Figure, PageHead, Panel, Seg, Tiles } from './ui';
 
 const DAY = 86400_000;
+/** How old a loyalty-point valuation can get before the Wallet prices the store again. */
+const LP_STALE = 12 * 3600_000;
+/** Stores tried this session, so a failing one isn't hammered on every visit. */
+const lpTried = new Map<number, number>();
 const WALLET_SCOPE = SCOPE.wallet, KILLMAIL_SCOPE = SCOPE.killmails;
 type Days = 1 | 7 | 30 | 90;
 const DAYS_KEY = 'jita-ledger:wallet-days';
@@ -113,12 +119,46 @@ export function Wallet() {
     return { ...b, rate: r?.rate ?? null, valued };
   });
   const lpValue = lp.reduce((t, b) => t + (b.rate != null ? b.valued * b.rate : 0), 0);
-  const nwParts = [
+
+  // Points are valued by what the Loyalty page's spend plan would make from them. Rather than wait for
+  // someone to open that page, the Wallet prices each store itself when it has no usable rate or the
+  // rate is over twelve hours old: the same pricing, run in the background.
+  const [lpPricing, setLpPricing] = useState(false);
+  const lpDue = (d.meta.lpBalances ?? []).filter((b) => {
+    if (b.points <= 0) return false;
+    const r = d.meta.lpRate?.[b.corporationId];
+    return !r || r.lp == null || Date.now() - Date.parse(r.at) > LP_STALE;
+  });
+  const lpKey = lpDue.map((b) => b.corporationId).join(',');
+  useEffect(() => {
+    const due = lpDue.filter((b) => !(Date.now() - (lpTried.get(b.corporationId) ?? 0) < 30 * 60_000));
+    if (!due.length) return;
+    let alive = true;
+    setLpPricing(true);
+    (async () => {
+      const r = rates(d.settings);
+      for (const b of due) {
+        lpTried.set(b.corporationId, Date.now());
+        try {
+          const p = await priceStore(b.corporationId, b.points, r);
+          const got = storeRate(p, b.points, r, 7, d.settings.share);
+          const at = new Date().toISOString();
+          // Nothing profitable is still an answer: those points are worth nothing to sell right now.
+          update((x) => ({ meta: { ...x.meta, lpRate: { ...x.meta.lpRate, [b.corporationId]: got ? { rate: got.rate, lp: got.lp, at } : { rate: 0, lp: 0, at } } } }));
+        } catch { /* tried again later */ }
+      }
+    })().finally(() => { if (alive) setLpPricing(false); });
+    return () => { alive = false; };
+  }, [lpKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const lpHeld = lp.some((b) => b.points > 0);
+  const lpUnpriced = lp.some((b) => b.points > 0 && b.rate == null);
+  const nwParts: { l: string; v: number; c: string; text?: string }[] = [
     { l: 'Wallet', v: wallet ?? 0, c: 'var(--acc)' },
     { l: 'Stock in sell orders', v: sellValue, c: '#6ee7a8' },
     { l: 'Assets at rough prices', v: assets, c: '#a98bff' },
     { l: 'Buy order escrow', v: escrow, c: 'var(--acc2)' },
-    { l: 'Loyalty points', v: lpValue, c: '#ff8d9a' },
+    { l: 'Loyalty points', v: lpValue, c: '#ff8d9a', text: lpHeld && lpUnpriced ? (lpPricing ? 'Pricing…' : 'Not priced yet') : undefined },
   ];
   const nwTotal = nwParts.reduce((t, p) => t + p.v, 0);
   // The ISK you could free up without selling anything: wallet, buy-order escrow, and sell orders.
@@ -275,7 +315,7 @@ export function Wallet() {
           <p className="note">{events.length ? 'Hover a dot to see what moved the balance.' : 'Nothing large moved the balance in this window.'} The line is the balance ESI records after every journal entry, not a reconstruction.</p>
         </Panel>
         <NetWorth parts={nwParts} total={nwTotal} ready={nwReady} points={nwPoints} base={nwBase} periodWords={periodWords} growPerDay={nwGrowPerDay} windowStart={startOfUtcDay(since)}
-          hasAssets={!!d.stock} unpricedLp={lp.filter((b) => b.rate == null && b.points > 0).length} />
+          hasAssets={!!d.stock} unpricedLp={lp.filter((b) => b.rate == null && b.points > 0).length} lpHeld={lpHeld} />
       </div>
 
       <div className="g-440">
@@ -389,8 +429,8 @@ function WalletHead({ days, setDays }: { days: Days; setDays: (d: Days) => void 
 }
 
 function NetWorth(props: {
-  parts: { l: string; v: number; c: string }[]; total: number; ready: boolean; points: { date: string; total: number }[]; base: { date: string; total: number } | null;
-  periodWords: string; growPerDay: number | null; hasAssets: boolean; unpricedLp: number; windowStart: number;
+  parts: { l: string; v: number; c: string; text?: string }[]; total: number; ready: boolean; points: { date: string; total: number }[]; base: { date: string; total: number } | null;
+  periodWords: string; growPerDay: number | null; hasAssets: boolean; unpricedLp: number; windowStart: number; lpHeld: boolean;
 }) {
   const { parts, total, ready, points, base } = props;
   const change = ready && base ? total - base.total : null;
@@ -412,14 +452,14 @@ function NetWorth(props: {
         {parts.map((p) => (
           <div key={p.l} className="kv" style={{ padding: '6px 0', borderBottom: '1px solid var(--line-4)' }}>
             <span className="row tight" style={{ color: 'var(--body)' }}><span style={{ width: 8, height: 8, flex: 'none', background: p.c }} />{p.l}</span>
-            <span className="v" style={{ color: 'var(--sec)' }}>{iskBig(p.v)}</span>
+            <span className="v" style={{ color: p.text ? 'var(--note)' : 'var(--sec)' }}>{p.text ?? iskBig(p.v)}</span>
           </div>
         ))}
       </div>
       <p className="note">
         Buying stock lowers your wallet but not your net worth — this is the number that shows real growth.
         {props.hasAssets ? ' Assets use CCP’s rough average prices, which flatter anything hard to sell; blueprint copies are left out.' : ' Assets aren’t counted: that needs the assets permission.'}
-        {props.unpricedLp > 0 && ' Loyalty points count once the Loyalty page has priced their store.'}
+        {props.lpHeld && ' Loyalty points count at what the Loyalty page’s spend plan would make from them after fees, and only as many as the markets can take; they’re re-priced every twelve hours.'}
       </p>
     </Panel>
   );
@@ -494,9 +534,10 @@ function WhereItSits(props: {
     rows.push({
       k: `lp:${b.corporationId}`,
       l: `Loyalty points${names[b.corporationId] ? ` · ${names[b.corporationId]}` : ''}`, v: b.rate != null ? b.valued * b.rate : null, flag: 'Idle',
-      d: b.rate == null ? `${units(b.points)} LP, not priced yet — open the Loyalty page`
-        : b.valued < b.points ? `${units(b.valued)} of ${units(b.points)} LP at ${b.rate.toFixed(0)} ISK a point — as many as the Loyalty page’s plan could place`
-          : `${units(b.points)} LP at ${b.rate.toFixed(0)} ISK a point, from the Loyalty page`,
+      d: b.rate == null ? `${units(b.points)} LP, being priced from the store`
+        : b.rate === 0 ? `${units(b.points)} LP — nothing in the store turns them into a profit right now`
+        : b.valued < b.points ? `${units(b.valued)} of ${units(b.points)} LP at ${b.rate.toFixed(0)} ISK a point — as many as the store’s markets can take now`
+          : `${units(b.points)} LP at ${b.rate.toFixed(0)} ISK a point: what the store’s best offers would make from them now`,
     });
   }
   const sorted = rows.sort((a, b) => (b.v ?? -1) - (a.v ?? -1));

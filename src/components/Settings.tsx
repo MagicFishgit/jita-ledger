@@ -442,7 +442,16 @@ function Alerts() {
             <BellRing aria-hidden="true" /><span className="tmsg">Hammerhead II sell order beaten — worth moving (costs 2.14 M). An example; your own alerts use your orders.</span>
           </div>
           <p className="note">In-app alerts slide in at the bottom right and stay {d.prefs.toastSeconds == null ? 'until you close them' : `for ${TOAST_SECONDS.find((o) => o.value === d.prefs.toastSeconds)?.label ?? `${d.prefs.toastSeconds} s`}`}. When several arrive together they wait behind each other and come forward one at a time. With browser notifications on, the same text also appears as a system notification while this tab is in the background.</p>
-          <button type="button" className="btn primary" style={{ alignSelf: 'flex-start' }} onClick={testAlert}><Send aria-hidden="true" />Send a test alert</button>
+          <div className="row" style={{ gap: 10 }}>
+            <button type="button" className="btn primary" onClick={testAlert}><Send aria-hidden="true" />Send a test alert</button>
+            {a.browser && (
+              // A system notification only shows while this tab is in the background, so give time to switch away.
+              <button type="button" className="btn" onClick={() => { toast('Switch to another window or tab now — the test notification arrives in 5 seconds.', 'info'); setTimeout(testAlert, 5000); }}>
+                <BellRing aria-hidden="true" />Test a system notification
+              </button>
+            )}
+          </div>
+          {a.browser && <p className="note small">Your system draws those notifications, so it decides their look. The app gives them its icon and, where the system shows pictures (Chrome on Windows and Android), a picture of the alert in the app’s style.</p>}
         </Card>
       </div>
     </>

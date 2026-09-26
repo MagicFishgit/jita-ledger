@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { alertCard, appIcon } from './notifyArt';
 
 /**
  * Short messages in the corner, for things that just happened: a watchlist add, a backup saved, an
@@ -11,7 +12,7 @@ import { useSyncExternalStore } from 'react';
  */
 export type ToastKind = 'ok' | 'info' | 'warn' | 'err';
 /** A toast can also appear as a system notification, for when this tab isn't the one in front. */
-export type ToastSystem = { title: string; tag?: string };
+export type ToastSystem = { title: string; tag?: string; /** The alert's own name, for the picture. */ heading?: string };
 export type Toast = { id: string; text: string; kind: ToastKind; system?: ToastSystem };
 export type ToastState = { list: Toast[]; lifeMs: number | null; paused: boolean };
 
@@ -41,7 +42,13 @@ function showSystem(t: Toast) {
   if (!t.system || typeof Notification === 'undefined' || typeof document === 'undefined') return;
   if (Notification.permission !== 'granted' || !document.hidden) return;
   try {
-    const n = new Notification(t.system.title, { body: t.text, tag: t.system.tag, requireInteraction: state.lifeMs == null });
+    // The system draws the notification; the app chooses its icon and, where the system shows one,
+    // a picture of the alert in the app's own style (Chrome on Windows and Android does).
+    const opts: NotificationOptions & { image?: string } = {
+      body: t.text, tag: t.system.tag, requireInteraction: state.lifeMs == null,
+      icon: appIcon(), image: alertCard(t.system.heading ?? t.system.title, t.text, t.kind),
+    };
+    const n = new Notification(t.system.title, opts);
     n.onclick = () => { window.focus(); dismiss(t.id); };
     shown = { id: t.id, n };
   } catch { /* some browsers refuse outside a service worker */ }

@@ -5,13 +5,13 @@ import { CALDARI_NAVY, SCOPE } from '../lib/config';
 import { rates } from '../lib/fees';
 import { isk, iskBig, parseISK, plainNum, units } from '../lib/format';
 import { navigate } from '../lib/hooks';
-import { jitaBook, loyaltyOffers, loyaltyPoints, marketHistory, openMarketWindow, recentAverages, resolveNames, roughPrices } from '../lib/market';
+import { loyaltyPoints, openMarketWindow, resolveNames } from '../lib/market';
 import {
   byIskPerLp, daysToClear, instantPrice, notesFor, patientPrice, planFor, spendPlan, valueOffer,
   type LpNote, type LpOffer, type LpPlan, type LpValue, type Quote, type UnitPrice,
 } from '../lib/loyalty';
 import { median } from '../lib/prospects';
-import { marketBest } from '../lib/relist';
+import { PRICE_TOP, priceStore } from '../lib/lpStore';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { OpenInGame, useTypeName, canOpenInGame } from './common';
@@ -20,7 +20,6 @@ import { Check, cssVars, Expander, Guide, ItemIcon, Notice, PageHead, SortTh, Ti
 
 const LOYALTY_SCOPE = SCOPE.loyalty;
 /** How many of the best-looking offers get real Jita prices rather than a global average. */
-const PRICE_TOP = 40;
 /** Rows shown. Past this the rate is poor enough that the rest is noise. */
 const SHOW = 60;
 
@@ -113,36 +112,8 @@ export function Loyalty() {
   const load = useCallback(async () => {
     setBusy('Reading the store…'); setOpen(null);
     try {
-      const [o, rough] = await Promise.all([loyaltyOffers(corp), roughPrices()]);
-      const q: Record<number, Quote> = {};
-      for (const [id, p] of Object.entries(rough)) q[Number(id)] = { bestSell: p, bestBuy: p };
-      setOffers(o); setQuotes(q); setLive(new Set()); setVol({});
-      // Rank on the rough figures first and price only the best of them properly.
-      const shortlist = o
-        .map((x) => valueOffer(x, (id) => (q[id] ? patientPrice(q[id], r.f, r.t) : null), lp))
-        .filter((x): x is LpValue => !!x).sort(byIskPerLp).slice(0, PRICE_TOP);
-      const byOffer = new Map(o.map((x) => [x.offerId, x]));
-      const ids = [...new Set(shortlist.flatMap((s) => [s.typeId, ...(byOffer.get(s.offerId)?.requiredItems.map((x) => x.typeId) ?? [])]))];
-      const gotQ: Record<number, Quote> = {};
-      const gotV: Record<number, number | null> = {};
-      const priced = new Set<number>();
-      let next = 0, done = 0;
-      await Promise.all(Array.from({ length: Math.min(4, ids.length) }, async () => {
-        while (next < ids.length) {
-          const id = ids[next++];
-          try {
-            const book = await jitaBook(id);
-            // marketBest, not the raw best: one mispriced listing must not set the valuation.
-            gotQ[id] = { bestSell: marketBest(book.topSells, false), bestBuy: marketBest(book.topBuys, true) };
-            priced.add(id);
-          } catch { /* the rough price stands */ }
-          try { gotV[id] = recentAverages(await marketHistory(id), 7).avgVol; } catch { gotV[id] = null; }
-          setBusy(`Pricing ${++done} of ${ids.length} against Jita…`);
-        }
-      }));
-      setQuotes((cur) => ({ ...cur, ...gotQ }));
-      setLive(priced);
-      setVol(gotV);
+      const p = await priceStore(corp, lp, r, (done, total) => setBusy(`Pricing ${done} of ${total} against Jita…`));
+      setOffers(p.offers); setQuotes(p.quotes); setLive(p.live); setVol(p.vol);
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'err');
     } finally {

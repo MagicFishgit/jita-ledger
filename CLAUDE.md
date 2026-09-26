@@ -320,6 +320,15 @@ Don't re-derive or contradict these without new evidence.
   reached. Old `{ kind: 'wallet' | 'nw' }` goals are read as ISK goals.
 - **ESI has no PLEX vault endpoint** — none of its paths mention PLEX or a vault. A PLEX "hold" goal starts
   from the count you give it and follows your market trades; PLEX from the store isn't visible.
+- **The Wallet prices loyalty points itself** (`lib/lpStore.ts`, shared with the Loyalty page): the same
+  rough-rank-then-price-the-top-40 pass, run in the background when a store has no usable rate or it is over
+  12 hours old, valued at what the spend plan would make and only for as many points as the markets take.
+  Waiting for someone to open the Loyalty page left points at "0.00 ISK" in net worth; an unpriced balance
+  now says "Pricing…" or "Not priced yet", never a zero.
+- **System notifications can't take the app's CSS** — the OS draws them. The app sets their icon (the hex
+  mark, drawn to PNG) and an `image` (the alert as a card in the theme's colours, 2:1), which Chrome shows on
+  Windows and Android and macOS ignores (`lib/notifyArt.ts`). They only fire while the tab is hidden, which is
+  why Settings has a delayed test.
 - **No chart library.** Charts are inline SVG in the theme tokens (`charts.tsx`); recharts was removed.
 - **Diagrams are authored as inline SVG, not fetched.** A hosted image means someone else's server on
   every load, a licence to honour and a broken box the day it moves. Inline SVG inherits the theme

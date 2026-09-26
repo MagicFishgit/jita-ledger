@@ -37,7 +37,7 @@ function raise(f: Finding, test = false) {
   // The system notification rides on the toast, so it queues and times out by the same settings.
   const cfg = getData().alerts;
   toast((test ? 'Test alert — ' : '') + f.text, f.kind === 'move' || f.kind === 'scam' || f.kind === 'squeeze' ? 'warn' : 'info',
-    { system: cfg.browser ? { title: `Jita Ledger · ${f.title}`, tag: f.key } : undefined });
+    { system: cfg.browser ? { title: `Jita Ledger · ${f.title}`, tag: f.key, heading: (test ? 'Test · ' : '') + f.title } : undefined });
 }
 
 export function testAlert() {
