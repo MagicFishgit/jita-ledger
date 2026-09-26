@@ -5,6 +5,7 @@ IndexedDB, talking straight to ESI and EVE SSO. Deployed to GitHub Pages on ever
 
 Pages: Calculator, Prospects (find items), Watchlist, Positions, Orders (which of mine are beaten),
 Inbox, Loyalty (spending LP), Side hustles (Abyssal / Hauling / Planets / Injectors), Omega, Settings.
+Planets is a four-step walkthrough and also reads your real colonies when the planets scope is granted.
 
 ## Working here
 
@@ -81,6 +82,60 @@ Don't re-derive or contradict these without new evidence.
 - **`/markets/prices/` gives a rough price for every type in the game in one unauthenticated
   request.** A global average, not a Jita quote — good enough to decide what is worth pricing
   properly, never good enough to act on.
+- **ESI has no loot tables of any kind.** Nothing says what an abyssal filament drops. Any "expected
+  reward" would be invented. Don't. Abyssal returns come from the wallet instead.
+- **`/route/` is one of the few endpoints still under a version prefix** (`/v1/route/...`), not the
+  compatibility-date root — the unversioned path 404s. `flag=secure` routes high-sec only, and a 404
+  from it means *no such route exists*, which is an answer rather than a failure.
+- **A player structure answers 401 to anyone without docking access**, while NPC stations
+  (`60000000`–`64000000`) always resolve. That refusal is the best hauling-scam signal there is: a
+  destination you cannot look up is one you may not be able to deliver to.
+- **Public contracts are public**: `/contracts/public/{region}/` needs no scope. The Forge runs to
+  ~35 pages of 1,000, of which only ~120 are couriers.
+- **Market groups are the honest way to get a set of types.** Filaments are groups 2457–2461, abyssal
+  loot materials 2479. Walking the whole tree is not an option: there are 2,114 groups and
+  `/markets/groups/{id}/` gives no child list, so fetch named groups only.
+- **Skill names are not stable.** The industrial ship skills are *Caldari Hauler*, not *Caldari
+  Industrial* — CCP renamed them. Skill needs are declared by name and resolved at runtime for that
+  reason: a stale hardcoded ID checks the wrong thing silently, while a name that stops resolving
+  shows as unknown.
+- **`/characters/{id}/skills/` carries `total_sp`.** Summing levels cannot give it — the points a
+  level costs depend on each skill's rank, which that response doesn't include.
+- **An injector gives fewer points the more the buyer already has** (500k under 5M SP, then 400k,
+  300k, 150k), and you cannot extract below 5M SP at all. That is why injector prices don't track
+  the raw point count.
+- **Planet types come from `/universe/planets/{id}` → `type_id` → `Planet (Barren)`.** Richness — the
+  thing that decides what a PI planet actually yields — exists only in the client, not in ESI.
+- **Lower security means richer PI planets, and that holds *inside* high-sec**: a 0.5 extracts more
+  than a 1.0. A PI system list must therefore not default to sorting by security descending, which is
+  the instinct everywhere else here and is exactly backwards. The size of the difference is not in
+  ESI, so don't put a number on it.
+- **150 units of raw make one refined unit.** A Basic Industry Facility takes 3,000 per 30-minute
+  cycle and returns 20, so one gets through 6,000 an hour for 40 out. This was once written as 14,
+  which flattered refining roughly tenfold and told people to build factories for a 1.08× gain while
+  showing them 11.6×. ESI does not serve schematic inputs — only names and cycle times — but the
+  30-minute cycle **is** confirmed there: exactly 15 schematics carry an 1,800-second cycle and they
+  are exactly the 15 refined products. An Advanced facility is 40 each of **two different** refined
+  goods for 5 processed, hourly: 16 in per 1 out.
+- **Which refined pair makes which processed good is not in ESI and is not guessed at.** The factory
+  lists them in the client. Naming recipes from memory is how the 14 got in.
+- **A PI extraction programme has an end date and then simply stops** (`expiry_time` on the extractor
+  pin). The colony looks normal, factories drain what is left, and it earns nothing until the heads
+  are reset — the commonest way PI money is lost, and a field nothing was reading.
+- **Colony pins are classified by shape, not by type ID**: `extractor_details` makes it an extractor,
+  `factory_details` a factory, anything else that holds things is storage. No list to go stale.
+- **`qty_per_cycle` is not a flat rate.** Real extraction decays across a programme, so the per-hour
+  figure derived from it is the top of the range. Say so rather than presenting it as steady.
+- **Hauler capacities are read from ESI, not remembered.** A Charon holds **465,000** m³, not the
+  1,100,000 once written here — that was an expanded fit passed off as the hull, and it would send
+  someone to a contract they cannot pick up. For hulls with a fleet hangar the usable figure is cargo
+  **plus** hangar, since a courier package travels in either; that is why a Deep Space Transport with
+  a 3,900 m³ hold is the standard ship for 50,000 m³ contracts.
+- **Only two cargo bonuses are applied, because only they name the stat they move.**
+  `freighterBonusC1`/`C2` on a freighter (both 5, tied to the racial Freighter skill and Advanced
+  Spaceship Command, compounding — a Charon at both V holds 726,563 m³) and
+  `industrialCommandBonusShipCargoCapacity` on the Orca. Other classes carry bonus attributes whose
+  target stat the data does not state; nothing is assumed for those.
 
 ## Decisions worth not undoing
 
@@ -146,6 +201,28 @@ Don't re-derive or contradict these without new evidence.
 - **Abyssal loot is recognised by market group *and* by name**, and any type you have traded that
   this browser cannot name gets resolved first. Without that step a mutaplasmid sale was silently
   dropped from the return figures --- caught only by seeding a transaction and counting the items.
+- **A racial line is a choice, not a checklist.** Hauler, freighter and cruiser skills come in four
+  races and any one does the job, so a requirement can be a `Need` with `anyOf`: the check takes the
+  race you are furthest along in, and the panel lists every race you have started. Part-trained lines
+  do not sum — three at II is not one at IV. Never name one race as the requirement; the app already
+  reads every skill, so asking which race someone flies is asking for what it can see. The same
+  `anyOf` drives the cargo bonus, which uses the best trained racial Freighter level.
+- **ORE's freighter is not a freighter for this purpose.** The Bowhead's 1,600,000 m³ bay takes
+  assembled ships only and its cargo hold is 4,000 m³, smaller than a Badger's. The Orca is the ORE
+  ship that belongs in a hauling list: 30,000 hold plus a 40,000 fleet hangar, flown on Industrial
+  Command Ships rather than a racial line.
+- **PI factories are per colony and are not fed continuously.** One planet cannot supply another, and
+  a factory receiving less than 6,000 an hour does not stop working — it runs fewer cycles. So show
+  how many are needed to keep up (rounded up) and how busy they will be, never how many the
+  extraction can "afford".
+- **The Planets page is a walkthrough whose instructions follow its own verdict.** Pick a product
+  (all 15 priced live and ranked per 1,000 units of extraction), find planets, see the return, build
+  it. Told to sell raw, the build guide drops the factories and draws extractor straight to
+  launchpad. Refining currently ranges 0.76×–1.57× across the products, so the answer genuinely
+  differs per product and moves with the market.
+- **Diagrams are authored as inline SVG, not fetched.** A hosted image means someone else's server on
+  every load, a licence to honour and a broken box the day it moves. Inline SVG inherits the theme
+  tokens, stays sharp at any size and costs no request.
 
 ## Gotchas that have bitten
 
@@ -161,6 +238,11 @@ Don't re-derive or contradict these without new evidence.
   Measured: 612ms, then 3ms, then 358ms with `cache: 'no-cache'`. Pass `fresh: true` to `esi()` when
   someone has explicitly asked to re-check, or the button does nothing and looks broken.
 
+- **Python `str.replace` no-ops silently when the anchor has drifted.** No error, the file is
+  written unchanged, the commit lands and the doc is quietly wrong. Five commits' worth of EVE facts
+  went missing exactly this way — one anchor in this file moved and everything chaining off it
+  cascaded — and it was caught only by grepping for the phrases afterwards. Use the Edit tool, or
+  `assert anchor in s` before every replace, and grep for what you added once it is written.
 - **`SCOPE_INFO` in `config.ts` is the single answer to "what do I need to enable".** Settings lists
   every scope, its exact ESI name, what it unlocks and what breaks without it, logged in or not ---
   a scope registered on the application but granted before it was added is simply absent, with no
@@ -197,3 +279,11 @@ State these rather than letting them be discovered:
   default for someone sitting in Jita and the wrong one for a dedicated hauler.
 - A PI region scan is one request per planet (~610 for The Forge). Cached permanently since planet
   types never change, but the first run on a region takes a minute.
+- **PI does not model powergrid or CPU.** Command Center Upgrades governs how many extractor heads
+  and factories physically fit; "1 factory per planet" does not check that you can fit it. The
+  per-structure costs and per-level budgets are not in ESI.
+- Deep Space Transports, Blockade Runners, Industrials and Jump Freighters get **no** skill cargo
+  bonus, because their bonus attributes do not say which stat they modify. Their presets are bare
+  hulls and the figure stays editable.
+- The colony panel's rendering of live data is **unverified**: it needs the planets scope and a
+  character with planets. Its logic is unit-tested; the screen has never been seen with real data.
