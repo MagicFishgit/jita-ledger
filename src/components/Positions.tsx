@@ -12,6 +12,7 @@ import { JITA_44 } from '../lib/constants';
 import { readSignals, useSignals } from '../lib/watch';
 import { toast } from '../lib/toast';
 import { ItemSearch, useTypeName } from './common';
+import { nearSummary } from './NearMisses';
 import { Check, cssVars, Empty, Guide, ItemIcon, PageHead, Seg, Sparkline, Th } from './ui';
 
 const todayUTC = () => new Date().toISOString().slice(0, 10);
@@ -153,7 +154,7 @@ export function Positions() {
                             <a href={`#/positions/${p.id}`} className="name ellipsis" style={{ display: 'block', color: 'var(--ink)' }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigate(`positions/${p.id}`); }}>{name}</a>
                             {nm.length > 0 && (
                               <span className="near" tabIndex={0} data-tip-title="Trades this position skipped"
-                                data-tip={nm.map((n) => `${n.tx.isBuy ? 'Bought' : 'Sold'} ${units(n.tx.qty)} on ${fmtD(n.tx.date)}${n.why === 'before' ? ', before this position started' : ', outside Jita 4-4'}`).join(' · ') + '. Open the position to count or ignore.'}>
+                                data-tip={`${nearSummary(nm, p)} Open the position to review, count or ignore them.`}>
                                 <GitPullRequestArrow aria-hidden="true" />{nm.length} {nm.length === 1 ? 'trade' : 'trades'} nearby
                               </span>
                             )}

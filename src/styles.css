@@ -361,6 +361,16 @@ input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.7); }
 .lrow .lt { display: block; font-size: 13.5px; color: var(--ink); }
 .lrow .ls { display: block; font-size: 12px; color: var(--note); }
 .lrow .lv { font-family: var(--f-mono); font-size: 13px; color: var(--body); white-space: nowrap; }
+/* trades a position skipped */
+.near-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 14px; padding: 12px 16px; background: color-mix(in oklab, var(--acc2) 7%, rgba(3, 8, 14, .8)); border: 1px solid color-mix(in oklab, var(--acc2) 40%, transparent); animation: rise .3s; }
+.near-banner > svg { width: 18px; height: 18px; color: var(--acc2); flex: none; }
+.near-banner .nb-title { display: block; font-size: 14px; color: var(--ink); }
+.near-banner .nb-sub { display: block; font-size: 12.5px; color: #b6c6d4; text-wrap: pretty; }
+.dlg.wide { width: min(820px, 100%); }
+.nm-table { margin-top: 16px; max-height: min(46vh, 420px); overflow: auto; border: 1px solid var(--line-3); }
+.nm-table .tbl th { position: sticky; top: 0; z-index: 1; background: rgba(8, 16, 26, .98); }
+.dlg-actions button:disabled { opacity: .45; cursor: default; filter: none; }
+
 /* goals */
 .goal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 12px; }
 .goal { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 14px 16px; background: rgba(2, 7, 12, .5); border: 1px solid var(--line-3); border-left: 3px solid var(--c); }

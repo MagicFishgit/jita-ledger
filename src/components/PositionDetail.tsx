@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ChevronDown, GitPullRequestArrow, Inbox, PartyPopper, PenLine, RefreshCw, Trash2 } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Inbox, PartyPopper, PenLine, RefreshCw, Trash2 } from 'lucide-react';
 import { computePosition, vsMarket, type PositionCalc } from '../lib/positions';
 import { priceUp, tickDown } from '../lib/tick';
 import { marketBest, walkBids } from '../lib/relist';
@@ -16,6 +16,7 @@ import { JITA_44 } from '../lib/constants';
 import { toast } from '../lib/toast';
 import type { HistRow, MarketSnap, Position, Tx } from '../lib/types';
 import { OpenInGame, useTypeName } from './common';
+import { NearMissBanner } from './NearMisses';
 import { flip } from './Prospects';
 import { Check, cssVars, Seg, Th } from './ui';
 
@@ -166,13 +167,6 @@ export function PositionDetail({ id }: { id: string }) {
     toast(`Deleted the ${name} position.`, 'info');
     navigate('positions');
   }
-  const countNear = () => {
-    const ids = near.map((n) => n.tx.id);
-    patchPosition(pos.id, (p) => ({ included: [...new Set([...p.included, ...ids])], excluded: p.excluded.filter((e) => !ids.includes(e)) }));
-    update((x) => ({ nearDone: [...new Set([...x.nearDone, ...ids])] }));
-    toast(`Counted in your ${name} position.`);
-  };
-  const ignoreNear = () => { update((x) => ({ nearDone: [...new Set([...x.nearDone, ...near.map((n) => n.tx.id)])] })); toast('Ignored — they won’t be suggested again.', 'info'); };
   const pc = c.realized >= 0 ? 'var(--pos)' : 'var(--neg)';
 
   return (
@@ -217,19 +211,7 @@ export function PositionDetail({ id }: { id: string }) {
           <button type="button" className="link-btn" style={{ color: 'var(--pos)', fontSize: 12 }} onClick={close}>Close the position to lock in the result</button>
         </div>
       )}
-      {near.length > 0 && (
-        <div className="row wide" style={{ padding: '12px 16px', background: 'color-mix(in oklab,var(--acc2) 7%,rgba(3,8,14,.8))', border: '1px solid color-mix(in oklab,var(--acc2) 40%,transparent)', animation: 'rise .3s' }}>
-          <GitPullRequestArrow aria-hidden="true" style={{ width: 18, height: 18, color: 'var(--acc2)' }} />
-          <span style={{ flex: 1, minWidth: 240 }}>
-            <span style={{ display: 'block', fontSize: 14, color: 'var(--ink)' }}>{near.length === 1 ? `1 trade of ${name} wasn’t counted` : `${near.length} trades of ${name} weren’t counted`}</span>
-            <span style={{ display: 'block', fontSize: 12.5, color: '#b6c6d4' }}>
-              {near.map((n) => `${n.tx.isBuy ? 'Bought' : 'Sold'} ${units(n.tx.qty)} at ${isk(n.tx.unitPrice)} on ${fmtD(Date.parse(n.tx.date))} — ${n.why === 'before' ? 'before this position started' : 'outside Jita 4-4'}`).join('; ')}
-            </span>
-          </span>
-          <button type="button" className="btn primary sm" onClick={countNear}>Count them</button>
-          <button type="button" className="link-btn dim" onClick={ignoreNear}>Ignore</button>
-        </div>
-      )}
+      {near.length > 0 && <NearMissBanner pos={pos} near={near} name={name} />}
       {c.oversold > 0 && (
         <div className="notice warn">
           You sold {units(c.oversold)} more units than this position bought. They were probably bought before its start date: move the
