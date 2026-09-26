@@ -2,6 +2,10 @@
 
 export const APP_NAME = 'Jita Ledger';
 
+// The pure constants live in ./constants so logic that needs them can be tested without Vite.
+export * from './constants';
+import type { SkillKey } from './constants';
+
 export const ESI_BASE = 'https://esi.evetech.net';
 // ESI pins response formats to a compatibility date. See
 // https://developers.eveonline.com/docs/services/esi/overview/ and bump this when you review the routes used.
@@ -26,36 +30,17 @@ export const SCOPES = [
   'esi-assets.read_assets.v1', // what you actually hold, to check against what your trades imply
   'esi-characters.read_loyalty.v1', // loyalty point balances, for working out what to spend them on
   'esi-planets.manage_planets.v1', // your planetary colonies: extractor programmes, output and stored goods
+  'esi-killmails.read_killmails.v1', // your kills and losses, priced on the day, for Combat and the Wallet
 ];
 
-export const THE_FORGE = 10000002;
-export const JITA_44 = 60003760;
 
 // Resolved by name at sync time; these are fallbacks.
 export const NPC_NAMES = { faction: 'Caldari State', corp: 'Caldari Navy' };
 export const NPC_FALLBACK_IDS = { faction: 500001, corp: 1000035 };
-export const SKILL_NAMES = {
-  acc: 'Accounting', br: 'Broker Relations', abr: 'Advanced Broker Relations',
-  trade: 'Trade', retail: 'Retail', wholesale: 'Wholesale', tycoon: 'Tycoon',
-} as const;
-export type SkillKey = keyof typeof SKILL_NAMES;
 export const SKILL_FALLBACK_IDS: Record<SkillKey, number> = {
   acc: 16622, br: 3446, abr: 16597, trade: 3443, retail: 3444, wholesale: 16596, tycoon: 18580,
 };
 
-/**
- * Highest level an Alpha clone can use (EVE University wiki, Clone states, Feb 2026).
- * Accounting, Advanced Broker Relations, Retail, Wholesale and Tycoon are Omega only.
- * Skills trained above these stay trained but inactive while you're Alpha.
- */
-export const ALPHA_CAPS: Record<SkillKey, number> = { acc: 0, br: 2, abr: 0, trade: 3, retail: 0, wholesale: 0, tycoon: 0 };
-
-/** Caldari Navy: the loyalty store a Jita trader is most likely to have points with. */
-export const CALDARI_NAVY = 1000035;
-
-// PLEX trades on one market for the whole game, not in The Forge.
-export const PLEX_TYPE = 44992;
-export const GLOBAL_PLEX_MARKET = 19000001;
 
 /**
  * What each permission is for, in the order the login asks for them.
@@ -68,8 +53,8 @@ export const GLOBAL_PLEX_MARKET = 19000001;
 export const SCOPE_INFO: Record<string, { label: string; unlocks: string; without: string }> = {
   'esi-wallet.read_character_wallet.v1': {
     label: 'Wallet transactions and journal',
-    unlocks: 'Positions, Inbox, the fee figures, and the abyssal ISK-per-run worked out from filaments bought against loot sold.',
-    without: 'Nothing tracks what you actually bought and sold; positions and abyssal returns stay empty.',
+    unlocks: 'The Wallet page (balance, money in and out, net worth, fee leak), Positions, Results, and the abyssal ISK-per-run worked out from filaments bought against loot sold.',
+    without: 'Nothing tracks what you actually bought and sold; the Wallet, positions and abyssal returns stay empty.',
   },
   'esi-markets.read_character_orders.v1': {
     label: 'Your market orders',
@@ -100,6 +85,11 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
     label: 'Planetary colonies',
     unlocks: 'Your real colonies on the Planets page: when each extraction programme runs out, what every extractor is pulling an hour, and what is sitting in the launchpads waiting to be collected.',
     without: 'Planets falls back to the estimator, where you type in an extraction rate yourself. Nothing warns you when a programme has expired.',
+  },
+  'esi-killmails.read_killmails.v1': {
+    label: 'Killmails',
+    unlocks: 'The Combat page: your kills and losses, each priced at Jita on the day it happened, with the fit and a refit at today’s prices. Also the ships lost on the Wallet page, and the hauling gank line learning from your own losses.',
+    without: 'Combat has nothing to show, and ship losses are missing from the Wallet and Results.',
   },
   'esi-characters.read_loyalty.v1': {
     label: 'Loyalty points',

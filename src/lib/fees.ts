@@ -1,4 +1,4 @@
-import { ALPHA_CAPS, type SkillKey } from './config';
+import { ALPHA_CAPS, type SkillKey } from './constants';
 
 export type Clone = 'alpha' | 'omega';
 export type Skills = Record<SkillKey, number>;
@@ -114,6 +114,15 @@ export type TradeResult =
       beSell: number; targetSell: number; maxBuy: number; volShare: number;
     };
 
+/**
+ * How much of an order is still unfilled, on average, when you change its price.
+ *
+ * The fee for changing a price is charged on what is left of the order, not on the quantity you first
+ * listed --- by the time someone undercuts you, part of it has usually filled. Half is an assumption
+ * rather than a measurement, and it is stated wherever it feeds a figure.
+ */
+export const RELIST_LEFT = 0.5;
+
 export function calcWith(tr: TradeInput, r: Rates, target: number): TradeResult {
   const B = tr.buy, S = tr.sell, q = tr.qty;
   if (!(B > 0) || !(S > 0) || !(q > 0)) return { ok: false, r };
@@ -122,16 +131,16 @@ export function calcWith(tr: TradeInput, r: Rates, target: number): TradeResult 
   const brokerBuy = Math.max(100, r.f * cost);
   const brokerSell = Math.max(100, r.f * rev);
   const tax = r.t * rev;
-  const relistBuy = nB * Math.max(100, r.k * cost);
-  const relistSell = nS * Math.max(100, r.k * rev);
+  const relistBuy = nB * Math.max(100, r.k * cost * RELIST_LEFT);
+  const relistSell = nS * Math.max(100, r.k * rev * RELIST_LEFT);
   const relist = relistBuy + relistSell;
   const fees = brokerBuy + brokerSell + tax + relist;
   const spread = rev - cost;
   const net = spread - fees;
   const spent = cost + brokerBuy + relistBuy;
   const m = target / 100;
-  const sellDen = 1 - r.f - r.t - nS * r.k;
-  const buyFactor = 1 + r.f + nB * r.k;
+  const sellDen = 1 - r.f - r.t - nS * r.k * RELIST_LEFT;
+  const buyFactor = 1 + r.f + nB * r.k * RELIST_LEFT;
   return {
     ok: true, r, B, S, q, nB, nS, cost, rev, brokerBuy, brokerSell, tax, relist, fees, spread, net, spent,
     roi: net / spent,
@@ -155,4 +164,19 @@ export function rateAt(history: RateStamp[] | undefined, t: number, fallback: Ra
   let pick = history[0];
   for (const h of history) { if (Date.parse(h.at) <= t) pick = h; else break; }
   return { f: pick.f, t: pick.t };
+}
+
+/**
+ * The lowest sell price that covers what stock cost you, after the sale's broker fee and sales tax
+ * and a number of price changes on the way --- each charged on the half of the order assumed left.
+ */
+export function breakEvenSell(avgCost: number, r: Pick<Rates, 'f' | 't' | 'k'>, relists = 0): number {
+  const keep = 1 - r.f - r.t - relists * r.k * RELIST_LEFT;
+  return keep > 0 && avgCost > 0 ? avgCost / keep : NaN;
+}
+
+/** The spread a round trip needs just to pay its fees, with a number of price changes on the sell side. */
+export function breakEvenSpread(r: Pick<Rates, 'f' | 't' | 'k'>, relists = 0): number {
+  const keep = 1 - r.f - r.t - relists * r.k * RELIST_LEFT;
+  return keep > 0 ? (1 + r.f) / keep - 1 : NaN;
 }

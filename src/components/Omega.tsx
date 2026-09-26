@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Gem, GraduationCap, RefreshCw, Scale } from 'lucide-react';
 import { effectiveSkills, omegaRates, orderSlots, rates, sanitizeSettings, type Rates, type Settings as S } from '../lib/fees';
 import { ago, iskBig, iskBigSigned, pct, share, units } from '../lib/format';
 import { computePosition, countedIn, realizedBetween } from '../lib/positions';
@@ -6,26 +7,43 @@ import { jitaBook } from '../lib/market';
 import { update, useData } from '../lib/store';
 import { useAuth } from '../lib/hooks';
 import { JITA_44, PLEX_TYPE } from '../lib/config';
-import { LevelBoxes, Stat } from './common';
-import { CloneSwitch, NumField } from './Settings';
+import { bumpWarp } from '../lib/motion';
+import { toast } from '../lib/toast';
+import { LevelBoxes } from './common';
+import { cssVars, Guide, NumChip, PageHead, Seg } from './ui';
+import { useSkillPayback } from './payback';
 
 const DAY = 86400_000;
+const ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V'];
+const PACKS = ['1', '3', '6', '12'] as const;
+
+export function CloneSwitch({ value, onChange }: { value: 'alpha' | 'omega'; onChange: (v: 'alpha' | 'omega') => void }) {
+  return (
+    <div className="seg" role="group" aria-label="Clone state">
+      {(['alpha', 'omega'] as const).map((k) => (
+        <button key={k} type="button" aria-pressed={value === k} onClick={() => onChange(k)}
+          style={{ height: 34, padding: '0 18px', fontWeight: 700, fontSize: 12, letterSpacing: '.14em', ...(value === k ? { background: k === 'alpha' ? 'var(--acc2)' : 'var(--acc)' } : {}) }}>
+          {k === 'alpha' ? 'Alpha' : 'Omega'}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function Omega() {
   const d = useData();
   const auth = useAuth();
   const s = d.settings;
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
   const set = (patch: Partial<S>) => update((x) => ({ settings: sanitizeSettings({ ...x.settings, ...patch }) }));
 
   async function fetchPlex() {
-    setLoading(true); setErr(null);
+    setLoading(true);
     try {
       const b = await jitaBook(PLEX_TYPE, true);
       update((x) => ({ meta: { ...x.meta, plex: { price: b.bestSell, buy: b.bestBuy, at: new Date().toISOString() } } }));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      toast(`Couldn’t load the PLEX price: ${e instanceof Error ? e.message : String(e)}`, 'err');
     } finally {
       setLoading(false);
     }
@@ -40,7 +58,6 @@ export function Omega() {
   const wallet = d.meta.walletBalance ?? null;
   const months = monthCost && wallet != null ? wallet / monthCost : null;
   const alpha = s.clone === 'alpha';
-
   const plan = { acc: s.planAcc, br: s.planBr, abr: s.planAbr };
   const rNow = rates(s);
   const rPlan = omegaRates(s, plan);
@@ -62,7 +79,7 @@ export function Omega() {
     const types = new Set(d.positions.map((p) => p.typeId));
     let orderValue = 0, escrow = 0;
     for (const o of Object.values(d.orders)) {
-      if (o.state === 'open' && o.isBuy) escrow += o.price * o.volumeRemain;
+      if (o.state === 'open' && o.isBuy) escrow += o.escrow ?? o.price * o.volumeRemain;
       if (!types.has(o.typeId) || o.locationId !== JITA_44 || Date.parse(o.issued) < from) continue;
       if (d.positions.some((p) => p.typeId === o.typeId && Date.parse(o.issued) >= Date.parse(p.openedAt))) orderValue += o.price * o.volumeTotal;
     }
@@ -78,131 +95,211 @@ export function Omega() {
   const omegaS = { ...s, clone: 'omega' as const, override: false };
   const cols: { label: string; r: Rates; slots: number; now: boolean }[] = [
     { label: 'Alpha', r: rates(alphaS), slots: orderSlots(effectiveSkills(alphaS)), now: alpha },
-    { label: 'Omega, skills you’ve trained', r: rates(omegaS), slots: orderSlots(effectiveSkills(omegaS)), now: !alpha },
+    { label: 'Omega, trained', r: rates(omegaS), slots: orderSlots(effectiveSkills(omegaS)), now: !alpha },
     { label: 'Omega, your plan', r: rPlan, slots: orderSlots(effectiveSkills(omegaS)), now: false },
   ];
-  const flip = 100e6;
+
+  // Skill payback: what the next level of each trade skill would have saved on the same 30 days.
+  const { rows: ranked, perDay } = useSkillPayback(d);
+
+  const packPlex = d.prefs.omegaPacks;
+  const pack = d.prefs.omegaPack;
+  const packTotal = packPlex[pack];
+  const monthly = packPlex['1'] ?? 500;
+  const choosePack = (k: (typeof PACKS)[number]) => {
+    update((x) => ({ prefs: { ...x.prefs, omegaPack: k } }));
+    const total = packPlex[k];
+    if (total) set({ plexPerMonth: Math.round(total / Number(k)) });
+  };
+
+  const C = 2 * Math.PI * 84;
+  const ringC = months != null && months >= 1 ? 'var(--pos)' : 'var(--acc2)';
+  const frac = months == null ? 0 : months >= 1 ? 1 : months;
+  const partial = months == null ? 0 : months >= 1 ? months % 1 : 0;
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
-          <h1>{alpha ? 'Road to Omega' : 'Staying Omega'}</h1>
-          <p>
-            What a month of Omega costs in PLEX, how far your wallet gets you, and whether your trading could pay for it.
-            As Alpha you can’t use Accounting or Advanced Broker Relations, and Broker Relations stops at level II, so your fees are higher.
-          </p>
-        </div>
-        <div>
-          <span className="label">You are</span>
-          <CloneSwitch value={s.clone} onChange={(v) => set({ clone: v })} />
+      <PageHead
+        kicker="09 · Clone economics" title={alpha ? 'Road to Omega' : 'Staying Omega'} wide
+        lede="What a month of Omega costs in PLEX, how far your wallet gets you, and whether your trading could pay for it. As Alpha you can’t use Accounting or Advanced Broker Relations, and Broker Relations stops at level II."
+        actions={<><span className="lbl" style={{ fontSize: 11, letterSpacing: '.18em' }}>You are</span><CloneSwitch value={s.clone} onChange={(v) => { set({ clone: v }); bumpWarp(0.6); }} /></>}
+      />
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'stretch' }}>
+        <section className="panel" aria-label="Wallet" data-rv="" style={{ flex: '1 1 340px', padding: 22, gap: 16, alignItems: 'center', textAlign: 'center' }}>
+          <div style={{ position: 'relative', width: 210, height: 210 }}>
+            <svg viewBox="0 0 200 200" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', transform: 'rotate(-90deg)' }} aria-hidden="true">
+              <circle cx={100} cy={100} r={84} fill="none" stroke="rgba(130,185,225,.1)" strokeWidth={10} />
+              <circle cx={100} cy={100} r={84} fill="none" stroke={ringC} strokeWidth={10} strokeDasharray={`${(frac * C).toFixed(1)} ${C.toFixed(1)}`} style={{ transition: 'stroke-dasharray 1s cubic-bezier(.2,.8,.2,1)', filter: `drop-shadow(0 0 6px ${ringC})` }} />
+              {partial > 0 && <circle cx={100} cy={100} r={84} fill="none" stroke="var(--acc2)" strokeWidth={4} strokeDasharray={`${(partial * C).toFixed(1)} ${C.toFixed(1)}`} />}
+              <circle cx={100} cy={100} r={68} fill="none" stroke="rgba(130,185,225,.12)" strokeWidth={1} strokeDasharray="2 6" />
+            </svg>
+            <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
+              <div>
+                <div className="mono" style={{ fontSize: 44, lineHeight: 1, color: 'var(--ink)' }}>{months == null ? '–' : months >= 1 ? months.toFixed(1) : pct(months, 0)}</div>
+                <div className="lbl" style={{ fontSize: 12, letterSpacing: '.2em', color: ringC, marginTop: 4 }}>{months != null && months >= 1 ? 'months' : ''}</div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 14, color: 'var(--body-2)' }}>{months == null ? (monthCost ? `${iskBig(monthCost)} for a month of Omega` : 'Waiting for the PLEX price') : months >= 1 ? 'of Omega your wallet could buy' : 'of a month of Omega is in your wallet'}</div>
+            <div style={{ fontSize: 12, color: 'var(--note)', marginTop: 4, textWrap: 'pretty' }}>
+              {wallet != null && monthCost ? `${iskBig(wallet)} in your wallet (${ago(d.meta.walletAt)}), ${iskBig(monthCost)} for ${units(s.plexPerMonth)} PLEX.` : auth ? 'Sync to read your wallet balance.' : 'Log in and sync to compare this with your wallet.'}
+            </div>
+          </div>
+          <div style={{ width: '100%', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div className="lbl">Subscription length</div>
+            <Seg label="Subscription length" value={pack} onChange={choosePack} size="md" options={PACKS.map((k) => ({ v: k, label: k === '1' ? '1 month' : `${k} months` }))} />
+            <p style={{ fontSize: 12, color: 'var(--sec)', textWrap: 'pretty' }}>
+              {pack === '1'
+                ? 'Paying month by month. Longer packs cost less per month, if you know you’ll stay.'
+                : !packTotal
+                  ? `The ${pack}-month pack’s PLEX price changes with store sales and isn’t in any API. Type it from the store below and this works out the monthly cost.`
+                  : `${units(packTotal)} PLEX up front, ${units(Math.round(packTotal / Number(pack)))} a month${plexPrice ? ` — ${iskBig((monthly - packTotal / Number(pack)) * plexPrice)} a month ${monthly - packTotal / Number(pack) >= 0 ? 'cheaper' : 'dearer'} than paying monthly. You need ${iskBig(packTotal * plexPrice)} at once` : ''}.`}
+            </p>
+            {pack !== '1' && (
+              <NumChip label={`PLEX for ${pack} months`} width={90} decimals={0} value={packPlex[pack]} placeholder="from the store"
+                onChange={(n) => { update((x) => ({ prefs: { ...x.prefs, omegaPacks: { ...x.prefs.omegaPacks, [pack]: n && n > 0 ? n : null } } })); if (n && n > 0) set({ plexPerMonth: Math.round(n / Number(pack)) }); }} />
+            )}
+          </div>
+          <div style={{ width: '100%', display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 10, textAlign: 'left' }}>
+            <div className="field">
+              <label htmlFor="o-n" style={{ fontSize: 10.5 }}>PLEX for 30 days</label>
+              <input id="o-n" className="num" inputMode="decimal" value={s.plexPerMonth} onChange={(e) => { const n = parseFloat(e.target.value); if (Number.isFinite(n)) set({ plexPerMonth: n }); }} />
+              <span className="hint" style={{ fontSize: 11 }}>{monthly} in the store, less in sales</span>
+            </div>
+            <div className="field">
+              <label htmlFor="o-p" style={{ fontSize: 10.5 }}>PLEX price override</label>
+              <input id="o-p" className="num" inputMode="decimal" value={s.plexPrice} onChange={(e) => { const n = parseFloat(e.target.value.replace(/,/g, '')); set({ plexPrice: Number.isFinite(n) ? n : 0 }); }} />
+              <span className="hint" style={{ fontSize: 11 }}>0 uses the market price</span>
+            </div>
+          </div>
+          <button type="button" className="btn sm" disabled={loading} onClick={fetchPlex}><RefreshCw aria-hidden="true" className={loading ? 'spinning' : undefined} />{loading ? 'Refreshing…' : 'Refresh PLEX price'}</button>
+        </section>
+
+        <div className="col" style={{ gap: 14, flex: '2 1 560px' }}>
+          <div data-rv="" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12 }}>
+            {[
+              { l: 'PLEX price', v: plexPrice ? iskBig(plexPrice) : '–', n: s.plexPrice > 0 ? 'Your price' : d.meta.plex ? `Lowest sell on the Global PLEX Market, ${ago(d.meta.plex.at)}` : 'Loading…' },
+              { l: 'A month of Omega', v: iskBig(monthCost), n: `${units(s.plexPerMonth)} PLEX for 30 days` },
+              { l: 'Tied up in trading', v: iskBig(pace.escrow + pace.stockAtCost), n: 'Buy order escrow plus stock at cost' },
+            ].map((t) => (
+              <div key={t.l} className="tile" style={cssVars({ '--c': 'var(--acc)', padding: '12px 14px', borderColor: 'var(--line-2)', borderTopColor: 'var(--acc)' })}>
+                <div className="tile-l">{t.l}</div><div className="tile-v" style={{ color: 'var(--ink)' }}>{t.v}</div><div className="tile-n" style={{ fontSize: 11.5 }}>{t.n}</div>
+              </div>
+            ))}
+          </div>
+          <section className="panel" aria-label="Trading pace" data-rv="" style={{ clipPath: 'none' }}>
+            <div className="panel-title">Could trading pay for it?</div>
+            {!hasTrades ? (
+              <p className="note">Once your positions have some sales, this shows your last 30 days of profit against the cost of Omega.</p>
+            ) : (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12, marginTop: 2 }}>
+                  {[
+                    { l: 'Realized profit, last 30 days', v: iskBigSigned(pace.realized), c: pace.realized >= 0 ? 'var(--pos)' : 'var(--neg)', n: monthCost && pace.realized > 0 ? `${share(pace.realized / monthCost)} of a month of Omega` : '' },
+                    ...(alpha ? [
+                      { l: 'Fees Omega would have saved', v: iskBig(savings), c: 'var(--figure)', n: 'Same trades at your plan’s rates' },
+                      { l: 'The same 30 days as Omega', v: iskBigSigned(asOmega), c: asOmega >= 0 ? 'var(--pos)' : 'var(--neg)', n: monthCost && asOmega > 0 ? `${share(asOmega / monthCost)} of a month of Omega` : '' },
+                    ] : []),
+                  ].map((t) => (
+                    <div key={t.l}><div className="lbl">{t.l}</div><div className="mono" style={{ fontSize: 19, color: t.c, marginTop: 4 }}>{t.v}</div><div style={{ fontSize: 11.5, color: 'var(--note)' }}>{t.n}</div></div>
+                  ))}
+                </div>
+                {monthCost && (
+                  <>
+                    <div style={{ position: 'relative', height: 8, marginTop: 14, background: 'var(--track)', border: '1px solid var(--line-3)' }}>
+                      <div style={{ height: '100%', width: `${Math.max(0, Math.min(100, ((alpha ? asOmega : pace.realized) / monthCost) * 100))}%`, background: 'linear-gradient(90deg,var(--acc),var(--pos))', boxShadow: '0 0 12px color-mix(in oklab,var(--acc) 60%,transparent)', transition: 'width 1s cubic-bezier(.2,.8,.2,1)' }} />
+                      <span className="lbl" style={{ position: 'absolute', right: 0, top: 12, fontSize: 10, letterSpacing: '.14em', color: 'var(--note)', fontWeight: 400 }}>One month of Omega</span>
+                    </div>
+                    <p style={{ margin: '26px 0 0', fontSize: 13, color: '#9fb3c5', textWrap: 'pretty' }}>
+                      {alpha
+                        ? asOmega >= monthCost ? `At your last 30 days’ pace, trading as Omega would cover the subscription and leave about ${iskBig(asOmega - monthCost)} a month.`
+                          : asOmega > 0 ? `At your last 30 days’ pace, trading as Omega would cover ${share(asOmega / monthCost)} of the subscription.` : 'Your last 30 days of trading didn’t make a profit yet, even at Omega rates.'
+                        : pace.realized >= monthCost ? `Your last 30 days of trading covered Omega with ${iskBig(pace.realized - monthCost)} to spare.`
+                          : pace.realized > 0 ? `Your last 30 days of trading covered ${share(pace.realized / monthCost)} of a month of Omega.` : 'Your last 30 days of trading didn’t make a profit yet.'}
+                      {' '}That’s a look back, not a forecast. Price-change fees aren’t in the savings estimate.
+                    </p>
+                  </>
+                )}
+              </>
+            )}
+          </section>
+          <div data-rv="" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,280px),1fr))', gap: 14 }}>
+            <section aria-label="Alpha and Omega compared" className="panel flush" style={{ clipPath: 'none', overflow: 'auto' }}>
+              <table className="tbl short" style={{ fontSize: 12.5 }}>
+                <thead>
+                  <tr>
+                    <th className="l" scope="col">Alpha and Omega compared</th>
+                    {cols.map((c) => <th key={c.label} scope="col" style={{ color: c.now ? 'var(--acc)' : undefined }}>{c.label}{c.now ? ' · you' : ''}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {([
+                    ['Broker fee', (x: Rates) => pct(x.f)], ['Sales tax', (x: Rates) => pct(x.t)], ['Changing a price', (x: Rates) => pct(x.k)],
+                    ['Break-even spread', (x: Rates) => pct(x.be, 1)], ['Fees on a 100 M ISK flip', (x: Rates) => iskBig(1e8 * (2 * x.f + x.t))],
+                  ] as const).map(([l, fn]) => (
+                    <tr key={l}>
+                      <td className="l txt" style={{ color: 'var(--dim)', fontSize: 13 }}>{l}</td>
+                      {cols.map((c) => <td key={c.label} style={{ color: c.now ? '#fff' : 'var(--cell)', background: c.now ? 'color-mix(in oklab,var(--acc) 10%,transparent)' : undefined }}>{fn(c.r)}</td>)}
+                    </tr>
+                  ))}
+                  <tr>
+                    <td className="l txt" style={{ color: 'var(--dim)', fontSize: 13 }}>Order slots</td>
+                    {cols.map((c) => <td key={c.label} style={{ color: c.now ? '#fff' : 'var(--cell)', background: c.now ? 'color-mix(in oklab,var(--acc) 10%,transparent)' : undefined }}>{units(c.slots)}</td>)}
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+            <section className="panel" style={{ clipPath: 'none', padding: 16 }}>
+              <div className="panel-title">Your Omega skill plan</div>
+              <LevelBoxes label="Accounting" value={s.planAcc} onChange={(n) => set({ planAcc: n })} />
+              <LevelBoxes label="Broker Relations" value={s.planBr} onChange={(n) => set({ planBr: n })} />
+              <LevelBoxes label="Advanced Broker Relations" value={s.planAbr} onChange={(n) => set({ planAbr: n })} />
+            </section>
+          </div>
         </div>
       </div>
 
-      {err && <p className="notice err" role="alert">Couldn’t load the PLEX price: {err}</p>}
-
-      <section className="card" aria-label="Wallet">
-        {months != null ? (
-          <>
-            <p className={'hl-value ' + (months >= 1 ? 'pos' : '')}>
-              {months >= 1 ? `${months.toFixed(1)} months` : pct(months, 0)}
-            </p>
-            <p className="hl-sub">{months >= 1 ? 'of Omega your wallet could buy' : 'of a month of Omega is in your wallet'}</p>
-            <div className={'progress' + (months >= 1 ? ' over' : '')} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(1, months) * 100)} aria-label="Wallet towards a month of Omega">
-              <span style={{ width: `${Math.min(100, months * 100)}%` }} />
-            </div>
-            <p className="small muted" style={{ margin: 0 }}>
-              {iskBig(wallet)} in your wallet ({ago(d.meta.walletAt)}), {iskBig(monthCost)} for {units(s.plexPerMonth)} PLEX.
-            </p>
-          </>
-        ) : (
-          <>
-            <p className="hl-value">{monthCost ? iskBig(monthCost) : '–'}</p>
-            <p className="hl-sub">for a month of Omega ({units(s.plexPerMonth)} PLEX)</p>
-            <p className="small muted">{auth ? 'Sync to read your wallet balance.' : 'Log in and sync to compare this with your wallet.'}</p>
-          </>
-        )}
-        <dl className="stats" style={{ marginTop: 16 }}>
-          <Stat
-            label="PLEX price"
-            value={plexPrice ? iskBig(plexPrice) : '–'}
-            note={s.plexPrice > 0 ? 'Your price' : d.meta.plex ? `Lowest sell on the PLEX market, ${ago(d.meta.plex.at)}` : 'Loading…'}
-          />
-          <Stat label="A month of Omega" value={iskBig(monthCost)} note={`${units(s.plexPerMonth)} PLEX for 30 days`} />
-          <Stat label="Tied up in trading" value={iskBig(pace.escrow + pace.stockAtCost)} note="Buy order escrow plus stock at cost" />
-        </dl>
-        <div className="fields" style={{ marginTop: 14 }}>
-          <NumField id="o-plex-n" label="PLEX for 30 days of Omega" value={s.plexPerMonth} hint="500 in the in-game store, less during sales." onChange={(n) => set({ plexPerMonth: n })} />
-          <NumField id="o-plex-p" label="PLEX price override, ISK" value={s.plexPrice} hint="Leave at 0 to use the market price." onChange={(n) => set({ plexPrice: n })} />
+      <section className="panel" aria-label="Skill payback" data-rv="">
+        <div className="panel-head">
+          <span className="panel-title">Skill payback</span>
+          <span className="panel-sub">What the next level of each trade skill adds at your last 30 days of trading, ranked by ISK per day of training.</span>
         </div>
-        <button className="btn btn-small" style={{ marginTop: 12 }} disabled={loading} onClick={fetchPlex}>{loading ? 'Refreshing…' : 'Refresh PLEX price'}</button>
-      </section>
-
-      <section style={{ marginTop: 28 }} aria-label="Trading pace">
-        <h2 className="section">Could trading pay for it?</h2>
-        {!hasTrades ? (
-          <p className="empty">Once your positions have some sales, this shows your last 30 days of profit against the cost of Omega.</p>
-        ) : (
-          <>
-            <dl className="stats">
-              <Stat label="Realized profit, last 30 days" value={iskBigSigned(pace.realized)} cls={pace.realized >= 0 ? 'pos' : 'neg'}
-                note={monthCost && pace.realized > 0 ? `${share(pace.realized / monthCost)} of a month of Omega` : undefined} />
-              {alpha && (
-                <Stat label="Fees Omega would have saved" value={iskBig(savings)}
-                  note={`Same trades at your plan’s rates, from ${iskBig(pace.sellValue)} of sales and ${iskBig(pace.orderValue)} of orders`} />
-              )}
-              {alpha && (
-                <Stat label="The same 30 days as Omega" value={iskBigSigned(asOmega)} cls={asOmega >= 0 ? 'pos' : 'neg'}
-                  note={monthCost && asOmega > 0 ? `${share(asOmega / monthCost)} of a month of Omega` : undefined} />
-              )}
-            </dl>
-            {monthCost && (
-              <p className="notice" style={{ marginTop: 16 }}>
-                {alpha
-                  ? asOmega >= monthCost
-                    ? `At your last 30 days’ pace, trading as Omega would cover the subscription and leave about ${iskBig(asOmega - monthCost)} a month.`
-                    : asOmega > 0
-                      ? `At your last 30 days’ pace, trading as Omega would cover ${share(asOmega / monthCost)} of the subscription.`
-                      : 'Your last 30 days of trading didn’t make a profit yet, even at Omega rates.'
-                  : pace.realized >= monthCost
-                    ? `Your last 30 days of trading covered Omega with about ${iskBig(pace.realized - monthCost)} to spare.`
-                    : pace.realized > 0
-                      ? `Your last 30 days of trading covered ${share(pace.realized / monthCost)} of a month of Omega.`
-                      : 'Your last 30 days of trading didn’t make a profit yet.'}
-                {' '}That’s a look back, not a forecast. Price-change fees aren’t in the savings estimate.
-              </p>
-            )}
-          </>
-        )}
-      </section>
-
-      <section style={{ marginTop: 28 }} aria-label="Alpha and Omega compared">
-        <h2 className="section">Alpha and Omega compared</h2>
-        <p className="small muted" style={{ marginTop: -6 }}>
-          Uses your standings and base sales tax. Skills you train as Omega take time, so set the plan to what you expect to have.
-        </p>
-        <div className="table-wrap">
-          <table className="data compare">
-            <thead>
-              <tr><th scope="col" /> {cols.map((c) => <th key={c.label} scope="col">{c.label}{c.now ? ' (you now)' : ''}</th>)}</tr>
-            </thead>
+        {!d.meta.attributes && <p className="note small">Training times need your attributes, which come with the skills permission on the next sync. Until then the table ranks by what each level would add.</p>}
+        <div className="tbl-scroll">
+          <table className="tbl compact" style={{ minWidth: 900 }}>
+            <thead><tr><th className="l">Skill</th><th className="l">Level</th><th>Training</th><th>Adds</th><th>Payback</th><th className="l">Why</th></tr></thead>
             <tbody>
-              <tr><th scope="row">Broker fee</th>{cols.map((c) => <td key={c.label} className={c.now ? 'now' : ''}>{pct(c.r.f)}</td>)}</tr>
-              <tr><th scope="row">Sales tax</th>{cols.map((c) => <td key={c.label} className={c.now ? 'now' : ''}>{pct(c.r.t)}</td>)}</tr>
-              <tr><th scope="row">Changing a price</th>{cols.map((c) => <td key={c.label} className={c.now ? 'now' : ''}>{pct(c.r.k)}</td>)}</tr>
-              <tr><th scope="row">Break-even spread</th>{cols.map((c) => <td key={c.label} className={c.now ? 'now' : ''}>{pct(c.r.be, 1)}</td>)}</tr>
-              <tr><th scope="row">Fees on a 100 M ISK flip</th>{cols.map((c) => <td key={c.label} className={c.now ? 'now' : ''}>{iskBig(flip * (2 * c.r.f + c.r.t))}</td>)}</tr>
-              <tr><th scope="row">Order slots</th>{cols.map((c) => <td key={c.label} className={c.now ? 'now' : ''}>{units(c.slots)}</td>)}</tr>
+              {ranked.map((x, i) => {
+                const maxed = x.cur >= 5;
+                const pd = perDay(x);
+                return (
+                  <tr key={x.key} style={{ opacity: maxed ? 0.5 : 1 }}>
+                    <td className="l"><span className="row tight" style={{ flexWrap: 'nowrap' }}><span className="name" style={{ fontWeight: 400 }}>{x.name}</span>{i === 0 && pd > 0 && <span className="lbl" style={{ padding: '1px 7px', fontSize: 10, letterSpacing: '.08em', color: '#03121a', background: 'var(--pos)' }}>Train next</span>}</span></td>
+                    <td className="l" style={{ color: 'var(--sec)' }}>{maxed ? `${ROMAN[x.cur]} · maxed` : `${ROMAN[x.cur]} → ${ROMAN[x.next]}`}</td>
+                    <td>{maxed ? '—' : x.days == null ? '–' : `${x.days.toFixed(1)} days`}</td>
+                    <td style={{ color: x.gain && x.gain > 0 ? 'var(--pos)' : '#90a5b8' }}>{maxed ? '—' : x.gain == null ? 'depends' : x.gain > 0 ? `${iskBig(x.gain)} / mo` : 'nothing yet'}</td>
+                    <td style={{ color: 'var(--acc)' }}>{pd > 0 ? `${iskBig(pd)} per training day` : maxed ? '' : '—'}</td>
+                    <td className="l wrap txt" style={{ color: 'var(--note)', paddingTop: 8, paddingBottom: 8 }}>{x.why}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
-        <div className="card" style={{ marginTop: 16, maxWidth: 560 }}>
-          <h3 style={{ margin: '0 0 6px', fontSize: 17 }}>Your Omega skill plan</h3>
-          <LevelBoxes label="Accounting" value={s.planAcc} onChange={(n) => set({ planAcc: n })} />
-          <LevelBoxes label="Broker Relations" value={s.planBr} onChange={(n) => set({ planBr: n })} />
-          <LevelBoxes label="Advanced Broker Relations" value={s.planAbr} onChange={(n) => set({ planAbr: n })} />
-        </div>
+        {alpha && <p style={{ fontSize: 12.5, color: 'var(--acc2)' }}>As Alpha, Accounting and Advanced Broker Relations do nothing until you go Omega — the table uses your Omega rates.</p>}
       </section>
+
+      <Guide
+        title="How to use Omega"
+        intro="What Omega costs, whether your trading pays for it, and which skills repay their training fastest."
+        steps={[
+          { icon: Gem, title: 'Pick a subscription length', body: 'Longer packs cost less per month, but you pay up front.' },
+          { icon: Scale, title: 'Compare Alpha and Omega', body: 'Omega cuts broker fees and tax. The comparison shows what that’s worth on your own trading.' },
+          { icon: GraduationCap, title: 'Train by payback', body: 'Skill payback ranks the next level of each trade skill by ISK per training day. Train the top one next.' },
+        ]}
+      />
     </div>
   );
 }

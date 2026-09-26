@@ -66,7 +66,10 @@ type Mine = { orderId: number; typeId: number; isBuy: boolean; price: number; vo
 
 export type MarketContext = {
   book: OrderLite[];
-  /** Units the whole market trades in a day. Without it, nothing can be said about waiting. */
+  /**
+   * Units a day that can reach this order: buyers taking listings for a sell, sellers dumping into bids
+   * for a buy. Without it, nothing can be said about waiting.
+   */
   dailyVolume?: number | null;
   /** Your average cost, when a position knows it. Guards a sell against chasing into a loss. */
   avgCost?: number | null;
@@ -266,4 +269,23 @@ const RANK: Record<Verdict, number> = { move: 0, loss: 1, wait: 2, front: 3 };
 /** What needs doing first: real relists, then the ISK at stake within each group. */
 export function byUrgency(a: Relist, b: Relist): number {
   return RANK[a.verdict] - RANK[b.verdict] || b.atRisk - a.atRisk;
+}
+
+/**
+ * What stock fetches if you sell it into the standing buy orders right now, walking down the bids
+ * until it is gone. Only sales tax applies: filling someone else's order costs no broker fee.
+ *
+ * Anything the visible bids cannot take is reported rather than priced --- the next bid down is not
+ * in the book you have, and guessing at it would flatter the dump.
+ */
+export function walkBids(stock: number, bids: PriceVolume[], salesTax: number): { value: number; sold: number; left: number } {
+  const sorted = [...bids].sort((a, b) => b.price - a.price);
+  let left = Math.max(0, stock), value = 0;
+  for (const b of sorted) {
+    if (left <= 0) break;
+    const take = Math.min(left, b.volume);
+    value += take * b.price * (1 - salesTax);
+    left -= take;
+  }
+  return { value, sold: Math.max(0, stock) - left, left };
 }

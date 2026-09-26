@@ -2,6 +2,7 @@ import { get, set } from 'idb-keyval';
 import { esi, esiAllPages } from './esi';
 import { GLOBAL_PLEX_MARKET, JITA_44, PLEX_TYPE, THE_FORGE } from './config';
 import { cacheStore } from './store';
+import { buyerShare } from './split';
 import type { BookLevel, HistRow, MarketSnap } from './types';
 import type { LpOffer } from './loyalty';
 import type { PlanetHead, RawColony } from './colony';
@@ -10,6 +11,8 @@ type IdsResponse = {
   inventory_types?: { id: number; name: string }[];
   factions?: { id: number; name: string }[];
   corporations?: { id: number; name: string }[];
+  systems?: { id: number; name: string }[];
+  stations?: { id: number; name: string }[];
 };
 
 /** Exact item name, as shown in game, to its type ID. */
@@ -97,8 +100,8 @@ async function readBook(typeId: number, force: boolean) {
     bestSell: sells[0]?.price ?? null,
     buyOrders: buys.length,
     sellOrders: sells.length,
-    topBuys: levels(buys, 5),
-    topSells: levels(sells, 5),
+    topBuys: levels(buys, 7),
+    topSells: levels(sells, 7),
   };
   const raw: OrderLite[] = here.map((o) => ({ id: o.order_id, isBuy: o.is_buy_order, price: o.price, volume: o.volume_remain }));
   const entry = { at: Date.now(), expires, snap, raw };
@@ -137,13 +140,51 @@ async function fetchBook(typeId: number, fresh: boolean) {
 
 /** Daily history for the whole of The Forge (most of it is Jita). Cached for 3 hours. */
 export async function marketHistory(typeId: number): Promise<HistRow[]> {
-  const key = `hist:${typeId}`;
+  return regionHistory(typeId, regionFor(typeId));
+}
+
+/** Daily history for an item in any region. Cached for 3 hours: ESI only adds a day at a time. */
+export async function regionHistory(typeId: number, regionId: number): Promise<HistRow[]> {
+  const key = regionId === THE_FORGE || regionId === GLOBAL_PLEX_MARKET ? `hist:${typeId}` : `hist:${regionId}:${typeId}`;
   const cached = (await get(key, cacheStore)) as { at: number; rows: HistRow[] } | undefined;
   if (cached && Date.now() - cached.at < 3 * 3600_000) return cached.rows;
-  const { data } = await esi<HistRow[]>(`/markets/${regionFor(typeId)}/history/`, { query: { type_id: typeId } });
+  const { data } = await esi<HistRow[]>(`/markets/${regionId}/history/`, { query: { type_id: typeId } });
   const rows = [...data].sort((a, b) => a.date.localeCompare(b.date));
   await set(key, { at: Date.now(), rows }, cacheStore).catch(() => undefined);
   return rows;
+}
+
+/** One station's book in another region: another trade hub, for comparing against Jita. */
+export async function stationBook(typeId: number, regionId: number, stationId: number) {
+  const path = `/markets/${regionId}/orders/`;
+  const first = await esi<RawMarketOrder[]>(path, { query: { order_type: 'all', type_id: typeId, page: 1 } });
+  const orders = [...first.data];
+  const pages = Math.min(first.pages ?? 1, 10);
+  for (let p = 2; p <= pages; p++) {
+    orders.push(...(await esi<RawMarketOrder[]>(path, { query: { order_type: 'all', type_id: typeId, page: p } }).then((r) => r.data).catch(() => [])));
+  }
+  const here = orders.filter((o) => o.location_id === stationId);
+  const buys = here.filter((o) => o.is_buy_order).sort((a, b) => b.price - a.price);
+  const sells = here.filter((o) => !o.is_buy_order).sort((a, b) => a.price - b.price);
+  return {
+    bestBuy: buys[0]?.price ?? null, bestSell: sells[0]?.price ?? null,
+    buyOrders: buys.length, sellOrders: sells.length,
+    topBuys: levels(buys, 5), topSells: levels(sells, 5),
+  };
+}
+
+/** A skill's rank and training attributes, from its dogma. Static, so kept for good. */
+export async function skillDogma(typeId: number): Promise<{ rank: number; primary: number; secondary: number } | null> {
+  const key = `skill-dogma:${typeId}`;
+  const hit = (await get(key, cacheStore).catch(() => undefined)) as { rank: number; primary: number; secondary: number } | undefined;
+  if (hit) return hit;
+  const { data } = await esi<{ dogma_attributes?: { attribute_id: number; value: number }[] }>(`/universe/types/${typeId}/`);
+  const a = (id: number) => data.dogma_attributes?.find((x) => x.attribute_id === id)?.value;
+  const rank = a(275), primary = a(180), secondary = a(181);
+  if (rank == null || primary == null || secondary == null) return null;
+  const out = { rank, primary, secondary };
+  await set(key, out, cacheStore).catch(() => undefined);
+  return out;
 }
 
 export function recentAverages(rows: HistRow[], days = 7) {
@@ -157,7 +198,7 @@ export function recentAverages(rows: HistRow[], days = 7) {
 export async function snapshot(typeId: number, force = false): Promise<MarketSnap> {
   const [book, hist] = await Promise.all([jitaBook(typeId, force), marketHistory(typeId)]);
   const { avgVol, avgPrice } = recentAverages(hist, 7);
-  return { ...book, avgVol7: avgVol, avgPrice7: avgPrice };
+  return { ...book, avgVol7: avgVol, avgPrice7: avgPrice, buyerShare: buyerShare(hist.slice(-30)) };
 }
 
 type RawOffer = {
@@ -188,6 +229,17 @@ export async function roughPrices(): Promise<Record<number, number>> {
   const out: Record<number, number> = {};
   for (const p of data) if (p.average_price) out[p.type_id] = p.average_price;
   return out;
+}
+
+let rough: { at: number; p: Promise<Record<number, number>> } | null = null;
+/** The same rough prices, fetched at most once an hour however many panels ask for them. */
+export function roughPricesShared(): Promise<Record<number, number>> {
+  if (!rough || Date.now() - rough.at > 3600_000) {
+    const p = roughPrices();
+    rough = { at: Date.now(), p };
+    p.catch(() => { rough = null; });
+  }
+  return rough.p;
 }
 
 /** Loyalty points held with each corporation. */

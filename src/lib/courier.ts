@@ -49,7 +49,7 @@ export type CourierLimits = {
 
 export type CourierFlag =
   | 'endUnknown' | 'startUnknown' | 'lowsec' | 'noSafeRoute'
-  | 'tooBig' | 'collateralOverLimit' | 'collateralHeavy' | 'thinReward' | 'rushed' | 'expiringSoon';
+  | 'tooBig' | 'collateralOverLimit' | 'collateralHeavy' | 'thinReward' | 'rushed' | 'expiringSoon' | 'gankBait';
 
 /** Flags that make a contract unsafe rather than merely unattractive. */
 export const UNSAFE: CourierFlag[] = ['endUnknown', 'startUnknown', 'lowsec', 'noSafeRoute'];
@@ -79,6 +79,12 @@ export function judgeCourier(
   jumps: number | null,
   limits: CourierLimits,
   now = Date.now(),
+  /**
+   * Whether the route runs through a system gank fleets camp, and the collateral above which your
+   * hull is worth their while there. Both come from outside: the route from ESI, the line from you
+   * or from your own losses. No line means no claim either way.
+   */
+  gank?: { through: boolean; line: number | null },
 ): CourierVerdict {
   const flags: CourierFlag[] = [];
 
@@ -103,6 +109,7 @@ export function judgeCourier(
 
   const msLeft = Date.parse(c.dateExpired) - now;
   if (Number.isFinite(msLeft) && msLeft < 6 * 3600_000) flags.push('expiringSoon');
+  if (gank?.through && gank.line != null && c.collateral > gank.line) flags.push('gankBait');
 
   const safe = !flags.some((f) => UNSAFE.includes(f));
   return {
@@ -111,7 +118,7 @@ export function judgeCourier(
     rewardPerM3: c.volume > 0 ? c.reward / c.volume : 0,
     collateralRatio: c.reward > 0 ? c.collateral / c.reward : Infinity,
     flags, safe,
-    takeable: safe && !flags.some((f) => ['tooBig', 'collateralOverLimit', 'thinReward'].includes(f)),
+    takeable: safe && !flags.some((f) => ['tooBig', 'collateralOverLimit', 'thinReward', 'gankBait'].includes(f)),
   };
 }
 
@@ -155,17 +162,27 @@ export type HaulerBonus = {
   perLevel: number;
 };
 
-export const HAULERS: { name: string; m3: number; bonuses?: HaulerBonus[] }[] = [
-  { name: 'Industrial — Iteron Mark V, Badger, Wreathe, Sigil', m3: 5800 },
-  { name: 'Blockade Runner — Crane, Viator, Prowler, Prorator', m3: 4300 },
-  { name: 'Deep Space Transport — Bustard, Mastodon, Occator, Impel', m3: 55000 },
+/** Hull classes as ESI's inventory groups name them, so a lost ship can be matched to one. */
+export type HullClass = 'Industrial' | 'Blockade Runner' | 'Deep Space Transport' | 'Orca' | 'Jump Freighter' | 'Freighter';
+
+/** The hull class a ship group belongs to, for learning gank lines from your own losses. */
+export function hullClassOf(group: string | null): HullClass | null {
+  if (!group) return null;
+  if (group === 'Industrial Command Ship') return 'Orca';
+  return (['Industrial', 'Blockade Runner', 'Deep Space Transport', 'Jump Freighter', 'Freighter'] as const).find((c) => c === group) ?? null;
+}
+
+export const HAULERS: { name: string; cls: HullClass; m3: number; bonuses?: HaulerBonus[] }[] = [
+  { name: 'Industrial — Iteron Mark V, Badger, Wreathe, Sigil', cls: 'Industrial', m3: 5800 },
+  { name: 'Blockade Runner — Crane, Viator, Prowler, Prorator', cls: 'Blockade Runner', m3: 4300 },
+  { name: 'Deep Space Transport — Bustard, Mastodon, Occator, Impel', cls: 'Deep Space Transport', m3: 55000 },
   {
-    name: 'Orca (ORE, Industrial Command Ships)', m3: 70000,
+    name: 'Orca (ORE, Industrial Command Ships)', cls: 'Orca', m3: 70000,
     bonuses: [{ anyOf: ['Industrial Command Ships'], perLevel: 5 }],
   },
-  { name: 'Jump Freighter — Rhea, Anshar, Ark, Nomad', m3: 144000 },
+  { name: 'Jump Freighter — Rhea, Anshar, Ark, Nomad', cls: 'Jump Freighter', m3: 144000 },
   {
-    name: 'Freighter — Charon, Obelisk, Providence, Fenrir', m3: 465000,
+    name: 'Freighter — Charon, Obelisk, Providence, Fenrir', cls: 'Freighter', m3: 465000,
     bonuses: [
       { anyOf: ['Amarr Freighter', 'Caldari Freighter', 'Gallente Freighter', 'Minmatar Freighter'], perLevel: 5 },
       { anyOf: ['Advanced Spaceship Command'], perLevel: 5 },

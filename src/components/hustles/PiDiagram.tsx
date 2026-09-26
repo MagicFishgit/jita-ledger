@@ -57,36 +57,3 @@ export function ColonyDiagram({ raw, product, refine }: { raw: string; product: 
     </svg>
   );
 }
-
-/** What 1,000 units of raw becomes at each step, so the cost of refining is visible rather than stated. */
-export function ChainDiagram({ raw, product }: { raw: string; product: string }) {
-  return (
-    <svg viewBox="0 0 660 150" className="pi-svg" role="img"
-      aria-label={`One thousand units of ${raw} refine into about seven ${product}; sixteen of those would make one processed good`}>
-      <g className="pi-node">
-        <rect x={16} y={40} width={150} height={70} rx={6} className="pi-ex" />
-        <text x={91} y={68} className="pi-big">1,000</text>
-        <text x={91} y={88} className="pi-label">{raw}</text>
-        <text x={91} y={104} className="pi-sub">straight from the ground</text>
-
-        <rect x={255} y={40} width={150} height={70} rx={6} className="pi-fac" />
-        <text x={330} y={68} className="pi-big">6.7</text>
-        <text x={330} y={88} className="pi-label">{product}</text>
-        <text x={330} y={104} className="pi-sub">150 raw make one</text>
-
-        <rect x={494} y={40} width={150} height={70} rx={6} className="pi-p2" />
-        <text x={569} y={68} className="pi-big">0.4</text>
-        <text x={569} y={88} className="pi-label">processed good</text>
-        <text x={569} y={104} className="pi-sub">16 refined make one</text>
-      </g>
-      <g className="pi-link">
-        <line x1={166} y1={75} x2={255} y2={75} />
-        <line x1={405} y1={75} x2={494} y2={75} />
-      </g>
-      <g className="pi-flow">
-        <text x={210} y={66} className="pi-sub">÷150</text>
-        <text x={449} y={66} className="pi-sub">÷16</text>
-      </g>
-    </svg>
-  );
-}

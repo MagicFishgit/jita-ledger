@@ -323,3 +323,24 @@ export const PI_LINKS: { href: string; title: string; what: string }[] = [
     what: 'Look up a system before you commit a command centre: security, jumps from Jita, and how quiet the neighbourhood is.',
   },
 ];
+
+/**
+ * Customs office tax is charged on a fixed value per tier, not on what the goods sell for.
+ *
+ * These are CCP's taxable base values (EVE University, Planetary Industry): the same for every item in
+ * a tier, which is why a cheap P1 and a dear one pay identical tax per unit. Export is charged at the
+ * full rate, import at half. ESI serves none of it.
+ */
+export const PI_BASE = { raw: 5, refined: 400, p2: 7_200, p3: 60_000, p4: 1_200_000 } as const;
+
+/**
+ * High-sec customs offices carry a 10% NPC tax, on top of anything a player owner adds. It is the
+ * floor in high-sec, so it is what the page assumes until you say otherwise; low-sec offices charge
+ * whatever their owner set, and there is no honest default for that.
+ */
+export const HIGHSEC_NPC_TAX = 0.1;
+
+/** Tax to export a number of units of one tier through a customs office. */
+export function exportTax(units: number, base: number, rate: number): number {
+  return Math.max(0, units) * base * Math.max(0, rate);
+}

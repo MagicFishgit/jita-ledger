@@ -85,9 +85,10 @@ export async function esi<T>(path: string, opts: Opts = {}): Promise<{ data: T; 
   });
 }
 
-/** Fetches every page of a paginated route. */
-export async function esiAllPages<T>(path: string, opts: Opts = {}): Promise<T[]> {
+/** Fetches every page of a paginated route. `onExpires` hears when ESI's cache for it lets go. */
+export async function esiAllPages<T>(path: string, opts: Opts & { onExpires?: (at: number | null) => void } = {}): Promise<T[]> {
   const first = await esi<T[]>(path, { ...opts, query: { ...opts.query, page: 1 } });
+  opts.onExpires?.(first.expires);
   const out = [...first.data];
   if (first.pages != null) {
     const rest = [];

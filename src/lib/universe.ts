@@ -76,16 +76,51 @@ export async function endpoint(locationId: number): Promise<Endpoint> {
  */
 export async function secureJumps(from: number, to: number): Promise<number | null> {
   if (from === to) return 0;
-  return cached(`route:${from}:${to}`, async () => {
+  const route = await secureRoute(from, to);
+  return route ? route.length - 1 : null;
+}
+
+/**
+ * Every system on the high-sec-only route, start and end included, or null when there isn't one.
+ * Kept whole rather than as a jump count so a route can be checked for the gank systems on it.
+ */
+export async function secureRoute(from: number, to: number): Promise<number[] | null> {
+  if (from === to) return [from];
+  return cached(`route-sys:${from}:${to}`, async () => {
     try {
       const { data } = await esi<number[]>(`/v1/route/${from}/${to}/`, { query: { flag: 'secure' } });
-      return data.length > 0 ? data.length - 1 : null;
+      return data.length > 0 ? data : null;
     } catch (e) {
       if (e instanceof EsiError && e.status === 404) return null;
       throw e;
     }
   });
 }
+
+export type TypeInfo = { name: string; groupId: number; marketGroupId: number | null; volume: number; packagedVolume: number | null };
+
+/** Static facts about an item type. They do not change, so they are kept for good. */
+export const typeInfo = (id: number) => cached(`type:${id}`, async () => {
+  const { data } = await esi<{ name: string; group_id: number; market_group_id?: number; volume?: number; packaged_volume?: number }>(`/universe/types/${id}/`);
+  return {
+    name: data.name, groupId: data.group_id, marketGroupId: data.market_group_id ?? null,
+    volume: data.volume ?? 0, packagedVolume: data.packaged_volume ?? null,
+  } satisfies TypeInfo;
+});
+
+/** An inventory group's name, such as "Deep Space Transport". */
+export const groupName = (id: number) => cached(`group:${id}`, async () => {
+  const { data } = await esi<{ name: string }>(`/universe/groups/${id}/`);
+  return data.name;
+});
+
+/** Region and system for a station, for reading another hub's market. */
+export const stationPlace = (id: number) => cached(`stn-place:${id}`, async () => {
+  const s = await station(id);
+  const { data: sys } = await esi<{ constellation_id: number }>(`/universe/systems/${s.systemId}/`);
+  const { data: con } = await esi<{ region_id: number }>(`/universe/constellations/${sys.constellation_id}/`);
+  return { name: s.name, systemId: s.systemId, regionId: con.region_id };
+});
 
 export const regionSystems = (regionId: number) => cached(`region-sys:${regionId}`, async () => {
   const { data: region } = await esi<{ constellations: number[] }>(`/universe/regions/${regionId}/`);

@@ -7,6 +7,7 @@ import { jitaBook, marketHistory } from './market';
 import { DEFAULT_FILTERS, expectedEdge, passesGate, pickPages, statsFrom, warningsFor } from './prospects';
 import { cacheStore } from './store';
 import { tickDown, tickUp } from './tick';
+import { competitionShare, EVEN_SPLIT, MIN_DAYS, returnPerDay, throughput } from './split';
 import type { BookLevel, Prospect, ProspectFilters, ProspectStats } from './types';
 
 /**
@@ -127,16 +128,24 @@ export function evaluate(
   const buy = tickUp(bestBuy), sell = tickDown(bestSell);
   if (!Number.isFinite(buy) || !Number.isFinite(sell) || sell <= buy) return null;
 
+  // Only one side of the daily volume fills each of your orders: sellers dumping into bids fill your
+  // buy, buyers taking listings fill your sell. And your share of each side shrinks the more orders
+  // you are queued among. The slower side is what limits how much you can push through.
+  const buyers = stats.buyerShare ?? EVEN_SPLIT;
+  const sellShare = competitionShare(settings.share, book.sellOrders);
+  const unitsPerDay = throughput(stats.unitsPerDay, buyers, settings.share, book.buyOrders, book.sellOrders);
   // What you could realistically push through this item in a day, in ISK.
-  const perDay = stats.unitsPerDay * (settings.share / 100) * buy;
+  const perDay = unitsPerDay * buy;
   if (!(perDay > 0)) return null;
   const canTake = perDay * filters.horizonDays;
-  // Too slow to swallow what you want to invest inside the time you'll give it.
-  if (canTake < filters.budget) return null;
+  // Too slow to swallow what you want to invest inside the time you'll give it. The planner asks for
+  // partial fills instead: it wants to know what each market can take, not only the ones that take all.
+  if (canTake < filters.budget && !filters.partial) return null;
 
-  const qty = Math.floor(filters.budget / buy);
+  const size = Math.min(filters.budget, canTake);
+  const qty = Math.floor(size / buy);
   if (qty < 1) return null;
-  const daysToFlip = filters.budget / perDay;
+  const daysToFlip = (qty * buy) / perDay;
 
   const c = calc({ buy, sell, qty }, settings);
   if (!c.ok || c.net <= 0 || c.roi < filters.minRoi) return null;
@@ -147,9 +156,11 @@ export function evaluate(
     topBuyVol: book.topBuys[0]?.volume ?? 0, topSellVol: book.topSells[0]?.volume ?? 0,
     qty, net: c.net / qty, roi: c.roi, spreadPct: c.spreadPct,
     canTake, daysToFlip,
+    roiPerDay: returnPerDay(c.roi, daysToFlip),
     // Profit spread over the days your money is actually tied up, so a fast small flip and a slow
     // big one can be compared at all.
-    iskPerDay: c.net / Math.max(daysToFlip, 1 / 24), capital: c.spent,
+    iskPerDay: c.net / Math.max(daysToFlip, MIN_DAYS), capital: c.spent,
+    share: sellShare, buyerShare: buyers,
     warnings: warningsFor(stats, book, c.spreadPct, estOrders),
   };
 }
@@ -165,9 +176,9 @@ export function rankProspects(cache: ScanCache, settings: Settings, filters: Pro
     const p = evaluate(s, book, settings, filters, (cache.sample?.counts[s.typeId] ?? 0) * scale);
     if (p) out.push(p);
   }
-  // Ordering is the caller's business now --- the table header decides it. Return best return
-  // first so a caller that does not sort still gets something sensible.
-  return out.sort((a, b) => b.roi - a.roi);
+  // Ordering is the caller's business now --- the table header decides it. Return best return per
+  // day first so a caller that does not sort still gets something sensible.
+  return out.sort((a, b) => b.roiPerDay - a.roiPerDay);
 }
 
 /** Throw away everything a scan learned, without touching trades, positions or settings. */

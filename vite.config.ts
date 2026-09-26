@@ -8,6 +8,5 @@ export default defineConfig({
   base: '/jita-ledger/',
   build: {
     chunkSizeWarningLimit: 800,
-    rollupOptions: { output: { manualChunks: { charts: ['recharts'] } } },
   },
 });

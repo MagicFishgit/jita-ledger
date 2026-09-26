@@ -199,7 +199,7 @@ export function notesFor(
 }
 
 /** One line of the suggested spend: take this offer this many times. */
-export type LpPick = { offerId: number; typeId: number; runs: number; lpSpent: number; profit: number };
+export type LpPick = { offerId: number; typeId: number; runs: number; lpSpent: number; iskSpent: number; profit: number };
 
 /**
  * How to spend a pile of points across the whole store, rather than on one offer.
@@ -214,20 +214,28 @@ export type LpPick = { offerId: number; typeId: number; runs: number; lpSpent: n
 export function spendPlan(
   candidates: { v: LpValue; unitsAllowed: number | null }[],
   lpAvailable: number,
+  /**
+   * ISK you are prepared to put in. Every run costs the store's price plus the items it demands, and
+   * a plan that spends 250,000 points on offers needing 2 billion ISK you do not have is no plan.
+   */
+  iskAvailable = Infinity,
 ): LpPick[] {
   const left = new Map<number, number | null>();
   for (const c of candidates) if (!left.has(c.v.typeId)) left.set(c.v.typeId, c.unitsAllowed);
 
   let lp = Math.max(0, lpAvailable);
+  let isk = Math.max(0, iskAvailable);
   const picks: LpPick[] = [];
   for (const { v } of [...candidates].sort((a, b) => byIskPerLp(a.v, b.v))) {
     if (v.profit <= 0 || v.lpCost <= 0) continue;
     const units = left.get(v.typeId);
     const byMarket = units == null ? Infinity : Math.floor(units / v.quantity);
-    const runs = Math.min(Math.floor(lp / v.lpCost), byMarket);
+    const byIsk = v.outlay > 0 ? Math.floor(isk / v.outlay) : Infinity;
+    const runs = Math.min(Math.floor(lp / v.lpCost), byMarket, byIsk);
     if (runs <= 0) continue;
-    picks.push({ offerId: v.offerId, typeId: v.typeId, runs, lpSpent: runs * v.lpCost, profit: runs * v.profit });
+    picks.push({ offerId: v.offerId, typeId: v.typeId, runs, lpSpent: runs * v.lpCost, iskSpent: runs * v.outlay, profit: runs * v.profit });
     lp -= runs * v.lpCost;
+    isk -= runs * v.outlay;
     if (units != null) left.set(v.typeId, units - runs * v.quantity);
     if (lp <= 0) break;
   }

@@ -1,4 +1,4 @@
-import { JITA_44 } from './config';
+import { JITA_44 } from './constants';
 import { rateAt, rates, type Settings } from './fees';
 import type { Data } from './store';
 import type { HistRow, JournalEntry, Order, Position, Tx } from './types';
@@ -32,6 +32,33 @@ export function unassigned(d: Data): Tx[] {
     .sort((a, b) => ts(b.date) - ts(a.date));
 }
 
+type JournalIndex = { taxByTx: Map<number, number>; brokerByOrder: Map<number, JournalEntry[]> };
+const indexCache = new WeakMap<Record<string, JournalEntry>, JournalIndex>();
+
+/**
+ * Sales tax per transaction and broker fees per order, from the journal. Built once per version of
+ * the journal rather than once per position: with the whole journal kept, rebuilding it for every
+ * position on every render was the slowest thing on the Positions page.
+ */
+function journalIndex(journal: Record<string, JournalEntry>): JournalIndex {
+  const hit = indexCache.get(journal);
+  if (hit) return hit;
+  const taxByTx = new Map<number, number>();
+  const brokerByOrder = new Map<number, JournalEntry[]>();
+  for (const j of Object.values(journal)) {
+    if (j.contextId == null) continue;
+    if (j.refType === 'transaction_tax') taxByTx.set(j.contextId, (taxByTx.get(j.contextId) ?? 0) + Math.abs(j.amount));
+    if (j.refType === 'brokers_fee') {
+      const list = brokerByOrder.get(j.contextId) ?? [];
+      list.push(j);
+      brokerByOrder.set(j.contextId, list);
+    }
+  }
+  const out = { taxByTx, brokerByOrder };
+  indexCache.set(journal, out);
+  return out;
+}
+
 export type TxRow = { tx: Tx; match: Exclude<Match, null>; fee: number; feeActual: boolean };
 export type SeriesPoint = { t: number; stock: number; avgCost: number | null; realized: number };
 export type PricePoint = { t: number; price: number; qty: number };
@@ -59,18 +86,7 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
   const all = Object.values(d.txs);
   const rows: TxRow[] = [];
 
-  // Sales tax actually paid, keyed by transaction ID.
-  const taxByTx = new Map<number, number>();
-  const brokerByOrder = new Map<number, JournalEntry[]>();
-  for (const j of Object.values(d.journal)) {
-    if (j.contextId == null) continue;
-    if (j.refType === 'transaction_tax') taxByTx.set(j.contextId, (taxByTx.get(j.contextId) ?? 0) + Math.abs(j.amount));
-    if (j.refType === 'brokers_fee') {
-      const list = brokerByOrder.get(j.contextId) ?? [];
-      list.push(j);
-      brokerByOrder.set(j.contextId, list);
-    }
-  }
+  const { taxByTx, brokerByOrder } = journalIndex(d.journal);
 
   const events: Ev[] = [];
   let manualFees = 0, salesTax = 0, taxActual = 0, taxEstimated = 0;

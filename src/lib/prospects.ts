@@ -1,4 +1,5 @@
 import type { BookLevel, HistRow, ProspectFilters, ProspectStats, ProspectWarning } from './types';
+import { buyerShare } from './split';
 
 const DAY = 86400_000;
 const dayKey = (t: number) => new Date(t).toISOString().slice(0, 10);
@@ -40,19 +41,40 @@ export function statsFrom(typeId: number, rows: HistRow[], now = Date.now()): Pr
   const spark: number[] = [];
   for (let i = 29; i >= 0; i--) spark.push(byDay.get(dayKey(end - i * DAY)) ?? 0);
 
+  const unitsPerDay = median(vols);
+  // The last week of the window, oldest first, for the margin line and the spike check.
+  const recent = [...w30].sort((a, b) => a.date.localeCompare(b.date)).slice(-7);
+  const usualPrice = median(w30.map((r) => r.average));
+  const spike = recent.some((r) =>
+    unitsPerDay > 0 && r.volume > SPIKE_VOLUME * unitsPerDay &&
+    usualPrice > 0 && Math.abs(r.average / usualPrice - 1) > SPIKE_PRICE);
+
   return {
     typeId,
     at: new Date(now).toISOString(),
     daysTraded: Math.min(30, w30.length),
     tradesPerDay: median(w30.map((r) => r.order_count)),
-    unitsPerDay: median(vols),
+    unitsPerDay,
     spikiness: total > 0 ? Math.max(...vols) / total : 1,
     dailyRange: median(w30.map((r) => (r.average > 0 ? (r.highest - r.lowest) / r.average : 0))),
     trend: avg90 > 0 ? avg30 / avg90 - 1 : 0,
     avgPrice: avg30,
     spark,
+    buyerShare: buyerShare(w30),
+    high30: Math.max(...w30.map((r) => r.highest)),
+    spike,
+    range7: recent.map((r) => (r.average > 0 ? (r.highest - r.lowest) / r.average : 0)),
   };
 }
+
+/** A day counts as a spike when it trades this many times the usual volume... */
+export const SPIKE_VOLUME = 5;
+/** ...at an average this far from the usual price. Volume alone is just a busy day. */
+export const SPIKE_PRICE = 0.1;
+/** A best bid this far above the highest trade of the month is bait, not a market. */
+export const ESCROW_OVER = 0.1;
+/** One price holding more than this share of the stock visible on its side is a wall. */
+export const WALL_SHARE = 0.5;
 
 /**
  * Page 1 plus distinct random others. Page 1 is always in, because it has to be fetched
@@ -100,7 +122,7 @@ export type BookShape = {
  * than folded into the score, because whether they matter depends on how you trade.
  */
 export function warningsFor(
-  stats: Pick<ProspectStats, 'dailyRange' | 'trend' | 'tradesPerDay'>,
+  stats: Pick<ProspectStats, 'dailyRange' | 'trend' | 'tradesPerDay'> & Partial<Pick<ProspectStats, 'high30' | 'spike'>>,
   book: BookShape,
   spreadPct: number,
   estOrders: number,
@@ -113,7 +135,23 @@ export function warningsFor(
   if (stats.trend < -0.1) out.push('falling');
   // Hundreds of listings against a handful of trades: a queue, not a market.
   if (stats.tradesPerDay > 0 && estOrders / stats.tradesPerDay > 20) out.push('crowded');
+  // One price holding most of what is on show: stock placed to make the book look solid, and liable
+  // to be pulled the moment traders line up behind it.
+  if (isWall(book.topSells) || isWall(book.topBuys)) out.push('wall');
+  // A bid well above anything paid all month needs escrow nobody honest puts up. The classic margin
+  // scam: the order is backed by a sliver of ISK and vanishes when you haul stock in to fill it.
+  const bid = book.topBuys[0]?.price;
+  if (bid != null && stats.high30 != null && stats.high30 > 0 && bid > stats.high30 * (1 + ESCROW_OVER)) out.push('escrow');
+  // A recent day far busier than usual at an unusual price: someone may be moving it to lure traders in.
+  if (stats.spike) out.push('spike');
   return out;
+}
+
+/** More than half the visible stock on a side at one price, with at least one other price to compare. */
+export function isWall(levels: BookLevel[]): boolean {
+  if (levels.length < 2) return false;
+  const total = levels.reduce((t, l) => t + l.volume, 0);
+  return total > 0 && Math.max(...levels.map((l) => l.volume)) > WALL_SHARE * total;
 }
 
 /**
@@ -133,13 +171,15 @@ export function expectedEdge(
   return edge <= 0 ? 0 : edge * s.avgPrice * s.unitsPerDay * share;
 }
 
-export type SortKey = 'name' | 'roi' | 'canTake' | 'flip' | 'net' | 'trades' | 'days' | 'volume' | 'iskPerDay' | 'capital' | 'flags';
+export type SortKey = 'name' | 'roi' | 'roiDay' | 'canTake' | 'flip' | 'net' | 'trades' | 'days' | 'volume' | 'iskPerDay' | 'capital' | 'flags';
 export type Sort = { key: SortKey; dir: 'asc' | 'desc' };
 
 /** Numbers read best biggest-first; a name reads best A to Z. */
 export const FIRST_DIR: Record<SortKey, 'asc' | 'desc'> = {
-  name: 'asc', roi: 'desc', canTake: 'desc', net: 'desc', trades: 'desc', days: 'desc',
-  volume: 'desc', iskPerDay: 'desc', capital: 'desc', flags: 'asc',
+  name: 'asc', roi: 'desc', roiDay: 'desc', canTake: 'desc', net: 'desc', trades: 'desc', days: 'desc',
+  volume: 'desc', iskPerDay: 'desc', flags: 'asc',
+  // Less tied up for the same return is the better trade.
+  capital: 'asc',
   // The only one where small is good: a fast flip beats a slow one.
   flip: 'asc',
 };
@@ -147,6 +187,7 @@ export const FIRST_DIR: Record<SortKey, 'asc' | 'desc'> = {
 type Sortable = {
   typeId: number;
   roi: number; net: number; iskPerDay: number; capital: number; canTake: number; daysToFlip: number;
+  roiPerDay?: number;
   warnings: unknown[];
   stats: { tradesPerDay: number; daysTraded: number; unitsPerDay: number };
 };
@@ -154,6 +195,7 @@ type Sortable = {
 const valueOf = (p: Sortable, k: SortKey): number => {
   switch (k) {
     case 'roi': return p.roi;
+    case 'roiDay': return p.roiPerDay ?? 0;
     case 'canTake': return p.canTake;
     case 'flip': return p.daysToFlip;
     case 'net': return p.net;

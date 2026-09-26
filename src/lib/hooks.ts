@@ -20,14 +20,21 @@ export function useNow(everyMs = 30_000): number {
 }
 
 export type Route = { path: string[]; query: URLSearchParams };
-function parseHash(): Route {
-  const raw = window.location.hash.replace(/^#\/?/, '');
+
+/** The home page. The Inbox it replaced has no page of its own any more, so its links land here. */
+export const HOME = 'wallet';
+const RENAMED: Record<string, string> = { inbox: HOME };
+
+export function parseHash(hash = window.location.hash): Route {
+  const raw = hash.replace(/^#\/?/, '');
   const [p, q] = raw.split('?');
-  const path = (p || 'calculator').split('/').filter(Boolean);
-  return { path: path.length ? path : ['calculator'], query: new URLSearchParams(q || '') };
+  const path = (p || HOME).split('/').filter(Boolean);
+  if (path.length && RENAMED[path[0]]) path.splice(0, path.length, RENAMED[path[0]]);
+  return { path: path.length ? path : [HOME], query: new URLSearchParams(q || '') };
 }
+
 export function useRoute(): Route {
-  const [route, setRoute] = useState(parseHash);
+  const [route, setRoute] = useState(() => parseHash());
   useEffect(() => {
     const on = () => setRoute(parseHash());
     window.addEventListener('hashchange', on);
@@ -35,26 +42,19 @@ export function useRoute(): Route {
   }, []);
   return route;
 }
-export function navigate(to: string) {
-  window.location.hash = to.startsWith('#') ? to : '#/' + to.replace(/^\//, '');
-}
 
-const VARS = ['--ink', '--muted', '--rule', '--accent', '--profit', '--loss', '--warn', '--buy', '--sell', '--line', '--surface', '--surface-2', '--seg-spread'] as const;
-export type ThemeColors = Record<(typeof VARS)[number], string>;
-function readColors(): ThemeColors {
-  const cs = getComputedStyle(document.documentElement);
-  const out = {} as ThemeColors;
-  VARS.forEach((v) => (out[v] = cs.getPropertyValue(v).trim() || '#888'));
-  return out;
-}
-/** Chart libraries need real colour values, so read the CSS tokens and follow light/dark changes. */
-export function useThemeColors(): ThemeColors {
-  const [c, setC] = useState(readColors);
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const on = () => setC(readColors());
-    mq.addEventListener('change', on);
-    return () => mq.removeEventListener('change', on);
-  }, []);
-  return c;
+/**
+ * The page-leave animation, registered by the frame that owns the content area. Navigation plays it
+ * before the hash changes so the old page warps out rather than blinking away.
+ */
+let leave: ((done: () => void) => void) | null = null;
+export function onLeave(fn: ((done: () => void) => void) | null) { leave = fn; }
+
+export function navigate(to: string) {
+  const hash = to.startsWith('#') ? to : '#/' + to.replace(/^\//, '');
+  if (hash === window.location.hash) return;
+  const go = () => { window.location.hash = hash; };
+  // Same page, different detail (a query or a sub-path): no need to animate the whole page out.
+  const samePage = parseHash(hash).path[0] === parseHash().path[0];
+  if (leave && !samePage) leave(go); else go();
 }

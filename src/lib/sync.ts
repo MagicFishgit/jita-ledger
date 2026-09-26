@@ -2,12 +2,13 @@ import { useSyncExternalStore } from 'react';
 import { getAuth, hasScope } from './auth';
 import { esi, esiAllPages } from './esi';
 import { ALPHA_CAPS, JITA_44, NPC_FALLBACK_IDS, NPC_NAMES, SCOPES, SKILL_FALLBACK_IDS, SKILL_NAMES, type SkillKey } from './config';
-import { resolveIds, resolveNames } from './market';
-import { getData, update, type Data } from './store';
+import { loyaltyPoints, resolveIds, resolveNames } from './market';
+import { dataGeneration, getData, update, type Data } from './store';
 import { sanitizeSettings, type Settings } from './fees';
-import type { JournalEntry, Meta, Order, Stock, Tx } from './types';
+import { readKillmail, type RawKillmail } from './combat';
+import type { JournalEntry, Killmail, Meta, Order, Stock, Tx } from './types';
 
-const [WALLET, ORDERS, SKILLS, STANDINGS, , ASSETS] = SCOPES;
+const [WALLET, ORDERS, SKILLS, STANDINGS, , ASSETS, LOYALTY, , KILLMAILS] = SCOPES;
 
 /** How long to wait after a failed sync before trying again. */
 const RETRY_AFTER_FAIL_MS = 5 * 60_000;
@@ -19,25 +20,36 @@ function setState(p: Partial<SyncState>) { state = { ...state, ...p }; listeners
 export function useSyncState(): SyncState {
   return useSyncExternalStore((cb) => { listeners.add(cb); return () => listeners.delete(cb); }, () => state);
 }
+export function getSyncState(): SyncState { return state; }
 
 type RawTx = {
   transaction_id: number; date: string; is_buy: boolean; quantity: number;
   type_id: number; unit_price: number; location_id: number; journal_ref_id: number;
 };
 type RawJournal = {
-  id: number; date: string; ref_type: string; amount?: number;
+  id: number; date: string; ref_type: string; amount?: number; balance?: number;
   context_id?: number; context_id_type?: string;
+  first_party_id?: number; second_party_id?: number; description?: string; reason?: string;
 };
 type RawCharOrder = {
   order_id: number; type_id: number; is_buy_order?: boolean; price: number;
-  volume_total: number; volume_remain: number; issued: string; state?: string; location_id: number;
+  volume_total: number; volume_remain: number; issued: string; state?: string; location_id: number; escrow?: number;
 };
 
 function toOrder(o: RawCharOrder, fallbackState: string): Order {
   return {
     orderId: o.order_id, typeId: o.type_id, isBuy: !!o.is_buy_order, price: o.price,
     volumeTotal: o.volume_total, volumeRemain: o.volume_remain, issued: o.issued,
-    state: o.state ?? fallbackState, locationId: o.location_id,
+    state: o.state ?? fallbackState, locationId: o.location_id, escrow: o.escrow,
+  };
+}
+
+export function toJournal(j: RawJournal): JournalEntry {
+  return {
+    id: String(j.id), date: j.date, refType: j.ref_type, amount: j.amount ?? 0,
+    contextId: j.context_id, contextIdType: j.context_id_type, balance: j.balance,
+    firstPartyId: j.first_party_id, secondPartyId: j.second_party_id,
+    description: j.description, reason: j.reason || undefined,
   };
 }
 
@@ -62,9 +74,9 @@ async function ensureIds(d: Data) {
   return { skillIds, npcIds };
 }
 
-type RawSkill = { skill_id: number; active_skill_level: number; trained_skill_level: number };
+type RawSkill = { skill_id: number; active_skill_level: number; trained_skill_level: number; skillpoints_in_skill?: number };
 
-type RawAsset = { type_id: number; quantity: number; location_id: number; location_flag: string; location_type: string };
+type RawAsset = { item_id: number; type_id: number; quantity: number; location_id: number; location_flag: string; location_type: string; is_blueprint_copy?: boolean };
 
 /**
  * Count what the character is holding, per item.
@@ -73,20 +85,34 @@ type RawAsset = { type_id: number; quantity: number; location_id: number; locati
  * listed against that container's id rather than a station. Those cannot be attributed to a place,
  * so they are counted separately and reported rather than quietly folded in.
  */
-function countStock(raw: RawAsset[]): Stock {
+export function countStock(raw: RawAsset[], jitaId: number): Stock {
   const jita: Record<number, number> = {};
   const total: Record<number, number> = {};
+  const byLocation: Record<number, Record<number, number>> = {};
+  const nested: Record<number, number> = {};
   const stations = new Set(raw.filter((a) => a.location_type === 'station').map((a) => a.location_id));
+  const itemIds = new Set(raw.map((a) => a.item_id));
   let inContainers = 0;
   for (const a of raw) {
+    // A blueprint copy shares its type with the original, so any price for it would be the
+    // original's: one copy of a battleship blueprint would read as billions. Copies can't be sold on
+    // the market at all, so they are not stock and are left out of every count.
+    if (a.is_blueprint_copy) continue;
     total[a.type_id] = (total[a.type_id] ?? 0) + a.quantity;
-    if (a.location_id === JITA_44 && a.location_flag === 'Hangar') {
+    if (a.location_id === jitaId && a.location_flag === 'Hangar') {
       jita[a.type_id] = (jita[a.type_id] ?? 0) + a.quantity;
-    } else if (a.location_type === 'item' && !stations.has(a.location_id)) {
-      inContainers += a.quantity;
+    }
+    if (a.location_type === 'item' && !stations.has(a.location_id)) inContainers += a.quantity;
+    // Inside something you own (a ship, a can): counted apart. A structure's hangar is also an
+    // "item" location, but the structure is not yours, which is how the two are told apart.
+    if (a.location_type === 'item' && itemIds.has(a.location_id)) {
+      nested[a.type_id] = (nested[a.type_id] ?? 0) + a.quantity;
+    } else if (a.location_flag === 'Hangar') {
+      const loc = (byLocation[a.location_id] ??= {});
+      loc[a.type_id] = (loc[a.type_id] ?? 0) + a.quantity;
     }
   }
-  return { at: new Date().toISOString(), jita, total, inContainers };
+  return { at: new Date().toISOString(), jita, total, inContainers, byLocation, nested };
 }
 
 /**
@@ -102,43 +128,58 @@ function detectClone(all: RawSkill[], ids: Record<SkillKey, number>): 'alpha' | 
   return aboveCap ? 'omega' : undefined;
 }
 
-/** Pulls skills, standings, wallet transactions, fee journal entries and orders, and merges them into local storage. */
+/** Pulls skills, standings, wallet transactions, the whole wallet journal and orders, and merges them into local storage. */
 export async function syncCharacter(): Promise<void> {
   const auth = getAuth();
   if (!auth || state.running) return;
   const cid = auth.characterId;
+  const gen = dataGeneration();
   setState({ running: true, error: null, message: 'Starting sync…' });
+  const read: string[] = [];
   try {
     // Read once for the diffing below, but never write this snapshot back: the sync spends tens of
     // seconds on the network, and anything the user does meanwhile lives in the live store, not here.
     const d = getData();
     const { skillIds, npcIds } = await ensureIds(d);
     const metaPatch: Partial<Meta> = { skillIds, npcIds };
+    const expiries: NonNullable<Meta['expiries']> = {};
+    const keep = (k: keyof NonNullable<Meta['expiries']>) => (at: number | null) => { if (at != null) expiries[k] = new Date(at).toISOString(); };
     /** Only the settings the character owns. Everything else the user controls and we must not touch. */
     let fromChar: Partial<Settings> | null = null;
     let allSkills: Record<number, number> | null = null;
 
-    if (d.settings.fromCharacter) {
-      const s: Partial<Settings> = {};
-      if (hasScope(SKILLS)) {
-        setState({ message: 'Reading skills…' });
-        const { data } = await esi<{ skills: RawSkill[]; total_sp?: number }>(`/characters/${cid}/skills/`, { auth: true });
+    if (hasScope(SKILLS)) {
+      setState({ message: 'Reading skills…' });
+      const { data, expires: skillsAt } = await esi<{ skills: RawSkill[]; total_sp?: number }>(`/characters/${cid}/skills/`, { auth: true });
+      // Keep the lot. The side hustles ask about hauling, planets and tanking skills, and this
+      // response already holds every one of them --- fetching it again per page would be silly.
+      allSkills = Object.fromEntries(data.skills.map((x) => [x.skill_id, x.trained_skill_level]));
+      metaPatch.skillSp = Object.fromEntries(data.skills.map((x) => [x.skill_id, x.skillpoints_in_skill ?? 0]));
+      if (data.total_sp != null) metaPatch.totalSp = data.total_sp;
+      read.push('skills');
+      keep('skills')(skillsAt);
+      try {
+        const { data: at } = await esi<Meta['attributes']>(`/characters/${cid}/attributes/`, { auth: true });
+        if (at) metaPatch.attributes = { intelligence: at.intelligence, memory: at.memory, perception: at.perception, willpower: at.willpower, charisma: at.charisma };
+      } catch { /* training time is a nicety; the sync does not hang on it */ }
+      if (d.settings.fromCharacter) {
+        const s: Partial<Settings> = {};
         // Store trained levels; Alpha caps are applied when rates are worked out.
         for (const k of SKILL_KEYS) s[k] = data.skills.find((x) => x.skill_id === skillIds[k])?.trained_skill_level ?? 0;
-        // Keep the lot. The side hustles ask about hauling, planets and tanking skills, and this
-        // response already holds every one of them --- fetching it again per page would be silly.
-        allSkills = Object.fromEntries(data.skills.map((x) => [x.skill_id, x.trained_skill_level]));
-        if (data.total_sp != null) metaPatch.totalSp = data.total_sp;
         const clone = detectClone(data.skills, skillIds);
         if (clone) { s.clone = clone; metaPatch.cloneDetected = clone; }
+        fromChar = s;
       }
-      if (hasScope(STANDINGS)) {
-        setState({ message: 'Reading standings…' });
-        const { data } = await esi<{ from_id: number; standing: number }[]>(`/characters/${cid}/standings/`, { auth: true });
-        s.faction = Math.max(0, data.find((x) => x.from_id === npcIds.faction)?.standing ?? 0);
-        s.corp = Math.max(0, data.find((x) => x.from_id === npcIds.corp)?.standing ?? 0);
-      }
-      fromChar = s;
+    }
+    if (d.settings.fromCharacter && hasScope(STANDINGS)) {
+      setState({ message: 'Reading standings…' });
+      const { data } = await esi<{ from_id: number; standing: number }[]>(`/characters/${cid}/standings/`, { auth: true });
+      fromChar = {
+        ...(fromChar ?? {}),
+        faction: Math.max(0, data.find((x) => x.from_id === npcIds.faction)?.standing ?? 0),
+        corp: Math.max(0, data.find((x) => x.from_id === npcIds.corp)?.standing ?? 0),
+      };
+      read.push('standings');
     }
 
     // ESI caches server-side, so it tells us exactly when each route can hold something new.
@@ -148,10 +189,14 @@ export async function syncCharacter(): Promise<void> {
     const noteExpiry = (at: number | null) => { if (at != null) soonest = Math.min(soonest, at); };
 
     let added = 0;
-    const fetched: { txs?: Record<string, Tx>; journal?: Record<string, JournalEntry>; orders?: Record<string, Order>; names?: Record<number, string>; stock?: Stock } = {};
+    const fetched: {
+      txs?: Record<string, Tx>; journal?: Record<string, JournalEntry>; orders?: Record<string, Order>;
+      names?: Record<number, string>; stock?: Stock; killmails?: Record<string, Killmail>;
+    } = {};
     if (hasScope(WALLET)) {
       setState({ message: 'Reading wallet balance…' });
-      const { data: balance } = await esi<number>(`/characters/${cid}/wallet/`, { auth: true });
+      const { data: balance, expires: walletAt } = await esi<number>(`/characters/${cid}/wallet/`, { auth: true });
+      keep('wallet')(walletAt);
       metaPatch.walletBalance = balance;
       metaPatch.walletAt = new Date().toISOString();
 
@@ -161,7 +206,7 @@ export async function syncCharacter(): Promise<void> {
       for (let loop = 0; loop < 10; loop++) {
         const { data, expires } = await esi<RawTx[]>(`/characters/${cid}/wallet/transactions/`, { auth: true, query: { from_id: fromId } });
         // The first page is the live one; later pages walk back through history.
-        if (fromId === undefined) { noteExpiry(expires); tradesAt = expires; }
+        if (fromId === undefined) { noteExpiry(expires); tradesAt = expires; keep('transactions')(expires); }
         if (!data.length) break;
         let fresh = 0;
         for (const t of data) {
@@ -178,17 +223,14 @@ export async function syncCharacter(): Promise<void> {
       }
       fetched.txs = txs;
 
-      setState({ message: 'Reading fees and tax from your wallet journal…' });
-      const raw = await esiAllPages<RawJournal>(`/characters/${cid}/wallet/journal/`, { auth: true });
+      // The whole journal, not just fees and tax: every entry carries the balance after it, which is
+      // what the Wallet page draws, and the rest is where the money actually came from and went.
+      setState({ message: 'Reading your wallet journal…' });
+      const raw = await esiAllPages<RawJournal>(`/characters/${cid}/wallet/journal/`, { auth: true, onExpires: keep('journal') });
       const journal: Record<string, JournalEntry> = {};
-      for (const j of raw) {
-        if (j.ref_type !== 'brokers_fee' && j.ref_type !== 'transaction_tax') continue;
-        journal[String(j.id)] = {
-          id: String(j.id), date: j.date, refType: j.ref_type, amount: j.amount ?? 0,
-          contextId: j.context_id, contextIdType: j.context_id_type,
-        };
-      }
+      for (const j of raw) journal[String(j.id)] = toJournal(j);
       fetched.journal = journal;
+      read.push('wallet', 'journal');
     }
 
     if (hasScope(ORDERS)) {
@@ -200,17 +242,50 @@ export async function syncCharacter(): Promise<void> {
       ]);
       const open = openRes.data;
       noteExpiry(openRes.expires);
+      keep('orders')(openRes.expires);
       hist.forEach((o) => (orders[String(o.order_id)] = toOrder(o, 'closed')));
       open.forEach((o) => (orders[String(o.order_id)] = toOrder(o, 'open')));
       fetched.orders = orders;
+      read.push('orders');
     }
 
     if (hasScope(ASSETS)) {
-      setState({ message: 'Reading what you\u2019re holding\u2026' });
+      setState({ message: 'Reading what you’re holding…' });
       try {
-        const raw = await esiAllPages<RawAsset>(`/characters/${cid}/assets/`, { auth: true });
-        fetched.stock = countStock(raw);
+        const raw = await esiAllPages<RawAsset>(`/characters/${cid}/assets/`, { auth: true, onExpires: keep('assets') });
+        fetched.stock = countStock(raw, JITA_44);
+        read.push('assets');
       } catch { /* stock is a cross-check, not the ledger: a failure here must not fail the sync */ }
+    }
+
+    if (hasScope(LOYALTY)) {
+      try {
+        metaPatch.lpBalances = await loyaltyPoints(cid);
+        read.push('loyalty');
+      } catch { /* balances are shown where they are used; a failure here is not a failed sync */ }
+    }
+
+    if (hasScope(KILLMAILS)) {
+      setState({ message: 'Reading your killmails…' });
+      try {
+        const recent = await esiAllPages<{ killmail_id: number; killmail_hash: string }>(`/characters/${cid}/killmails/recent/`, { auth: true, onExpires: keep('killmails') });
+        const missing = recent.filter((k) => !d.killmails[String(k.killmail_id)]).slice(0, 200);
+        const got: Record<string, Killmail> = {};
+        let i = 0;
+        await Promise.all(Array.from({ length: Math.min(4, missing.length) }, async () => {
+          while (i < missing.length) {
+            const k = missing[i++];
+            try {
+              // Killmails are public and never change once written, so the detail route needs no login.
+              const { data } = await esi<RawKillmail>(`/killmails/${k.killmail_id}/${k.killmail_hash}/`);
+              got[String(k.killmail_id)] = readKillmail(data, k.killmail_hash, cid);
+            } catch { /* picked up on the next sync */ }
+          }
+        }));
+        fetched.killmails = got;
+        metaPatch.killmailsAt = new Date().toISOString();
+        read.push('killmails');
+      } catch { /* combat is a side page; its failure must not fail the sync */ }
     }
 
     const allTypeIds = [
@@ -223,23 +298,27 @@ export async function syncCharacter(): Promise<void> {
       try { fetched.names = await resolveNames(missing); } catch { /* names are cosmetic */ }
     }
 
+    // Everything was wiped while this was in flight: writing now would put it all back.
+    if (dataGeneration() !== gen) { setState({ running: false, message: '' }); return; }
+
     metaPatch.lastSync = new Date().toISOString();
     metaPatch.nextSyncAt = Number.isFinite(soonest) ? new Date(soonest).toISOString() : undefined;
     metaPatch.tradesFreshAt = tradesAt != null ? new Date(tradesAt).toISOString() : undefined;
     metaPatch.lastSyncError = undefined;
     metaPatch.syncedCharacterId = cid;
+    metaPatch.expiries = { ...d.meta.expiries, ...expiries };
 
     // Merge onto whatever the store holds NOW. Writing the snapshot back would erase a trade added
     // by hand, a row excluded, or a setting changed while the sync was in flight.
     update((cur) => {
-      const p: Partial<Data> = { meta: { ...cur.meta, ...metaPatch } };
-      if (fetched.txs) {
-        added = Object.keys(fetched.txs).filter((id) => !cur.txs[id]).length;
-        p.txs = { ...cur.txs, ...fetched.txs };
-      }
+      added = fetched.txs ? Object.keys(fetched.txs).filter((id) => !cur.txs[id]).length : 0;
+      const log = [{ at: metaPatch.lastSync!, what: read.join(', ') || 'nothing permitted', ok: true, added }, ...(cur.meta.syncLog ?? [])].slice(0, 12);
+      const p: Partial<Data> = { meta: { ...cur.meta, ...metaPatch, syncLog: log } };
+      if (fetched.txs) p.txs = { ...cur.txs, ...fetched.txs };
       if (fetched.journal) p.journal = { ...cur.journal, ...fetched.journal };
       if (fetched.orders) p.orders = { ...cur.orders, ...fetched.orders };
       if (fetched.names) p.names = { ...cur.names, ...fetched.names };
+      if (fetched.killmails && Object.keys(fetched.killmails).length) p.killmails = { ...cur.killmails, ...fetched.killmails };
       if (allSkills) p.skills = allSkills;
       // Replaced wholesale, not merged: it is a snapshot of what you hold right now.
       if (fetched.stock) p.stock = fetched.stock;
@@ -253,7 +332,14 @@ export async function syncCharacter(): Promise<void> {
     const msg = e instanceof Error ? e.message : String(e);
     // Back off, or the minute-by-minute scheduler retries a failing sync forever.
     const retryAt = new Date(Date.now() + RETRY_AFTER_FAIL_MS).toISOString();
-    update((x) => ({ meta: { ...x.meta, lastSyncError: msg, nextSyncAt: retryAt } }));
+    if (dataGeneration() === gen) {
+      update((x) => ({
+        meta: {
+          ...x.meta, lastSyncError: msg, nextSyncAt: retryAt,
+          syncLog: [{ at: new Date().toISOString(), what: read.join(', ') || 'nothing', ok: false, error: msg }, ...(x.meta.syncLog ?? [])].slice(0, 12),
+        },
+      }));
+    }
     setState({ running: false, message: '', error: msg });
   }
 }
