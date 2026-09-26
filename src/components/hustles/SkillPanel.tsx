@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { get, set } from 'idb-keyval';
 import { hasScope } from '../../lib/auth';
 import { SCOPES } from '../../lib/config';
-import { byUrgency, check, readiness, type Checked, type Need } from '../../lib/skills';
+import { byUrgency, check, readiness, skillsOf, trainedOptions, type Checked, type Need } from '../../lib/skills';
 import { resolveIds } from '../../lib/market';
 import { cacheStore, useData } from '../../lib/store';
 import { Explain } from '../common';
@@ -44,12 +44,12 @@ export function SkillPanel({ title, needs, note }: { title: string; needs: Need[
 
   useEffect(() => {
     let alive = true;
-    skillIds(needs.map((n) => n.name)).then((m) => { if (alive) setIds(m); }).catch(() => undefined);
+    skillIds(needs.flatMap(skillsOf)).then((m) => { if (alive) setIds(m); }).catch(() => undefined);
     return () => { alive = false; };
   }, [needs]);
 
   const checked = useMemo(
-    () => needs.map((n) => check(n, ids[n.name] ?? null, d.skills)).sort(byUrgency),
+    () => needs.map((n) => check(n, (name) => ids[name] ?? null, d.skills)).sort(byUrgency),
     [needs, ids, d.skills],
   );
   const r = readiness(checked);
@@ -78,7 +78,10 @@ export function SkillPanel({ title, needs, note }: { title: string; needs: Need[
             {r.core
               ? <><strong className="pos">You have what this needs.</strong> {r.met} of {r.of} including the optional ones.</>
               : next
-                ? <>Trained {r.met} of {r.of}. The one that would help most next is <strong>{next.name} {ROMAN[next.level]}</strong>{next.have > 0 ? `, at ${ROMAN[next.have]} now` : ', not trained at all'}.</>
+                ? <>Trained {r.met} of {r.of}. The one that would help most next is{' '}
+                  <strong>{next.best && next.anyOf && next.have > 0 ? next.best.name : next.name} {ROMAN[next.level]}</strong>
+                  {next.have > 0 ? `, at ${ROMAN[next.have]} now` : ', not trained at all'}
+                  {next.anyOf && next.have === 0 && ' in any race'}.</>
                 : <>Trained {r.met} of {r.of}.</>}
           </p>
           <div className="table-wrap">
@@ -95,8 +98,15 @@ export function SkillPanel({ title, needs, note }: { title: string; needs: Need[
               <tbody>
                 {checked.map((c) => (
                   <tr key={c.name} className={c.status === 'met' ? 'muted' : ''}>
-                    <td className="name">
+                    <td className="name" style={{ whiteSpace: 'normal' }}>
                       {c.name}
+                      {c.anyOf && (
+                        <small className="sub" style={{ whiteSpace: 'normal' }}>
+                          {trainedOptions(c).length
+                            ? trainedOptions(c).map((o) => `${o.name.split(' ')[0]} ${ROMAN[o.have]}`).join(' · ')
+                            : `any of ${c.anyOf.length} races`}
+                        </small>
+                      )}
                       {c.optional && <small className="sub">optional</small>}
                     </td>
                     <td>{ROMAN[c.level]}</td>

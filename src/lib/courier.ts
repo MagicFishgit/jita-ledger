@@ -131,13 +131,18 @@ export function byUsefulness(a: CourierVerdict, b: CourierVerdict): number {
   return byRewardPerJump(a, b);
 }
 
-/** Ships people actually haul in, so the volume limit isn't a number pulled from the air. */
+/**
+ * Ships people actually haul in, so the volume limit isn't a number pulled from the air.
+ *
+ * Named by class rather than by hull, with examples from more than one race: every race has a ship
+ * in each of these rows, and which one you fly changes nothing about whether the cargo fits.
+ */
 export const HAULERS: { name: string; m3: number }[] = [
-  { name: 'Industrial (e.g. Badger, Wreathe)', m3: 5000 },
-  { name: 'Tech 2 hauler (e.g. Crane, Prowler)', m3: 6000 },
-  { name: 'Deep Space Transport (e.g. Occator)', m3: 62000 },
-  { name: 'Freighter (e.g. Charon, Obelisk)', m3: 1100000 },
-  { name: 'Jump Freighter (e.g. Rhea)', m3: 360000 },
+  { name: 'Industrial (Badger, Wreathe, Iteron, Sigil)', m3: 5000 },
+  { name: 'Tech 2 hauler (Crane, Prowler, Viator, Bustard)', m3: 6000 },
+  { name: 'Deep Space Transport (Occator, Impel, Mastodon, Bustard)', m3: 62000 },
+  { name: 'Jump Freighter (Rhea, Anshar, Ark, Nomad)', m3: 360000 },
+  { name: 'Freighter (Charon, Obelisk, Providence, Fenrir)', m3: 1100000 },
 ];
 
 /**

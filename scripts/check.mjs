@@ -9,7 +9,7 @@ import { parseFilament, byTier, runsFrom, TIERS } from '../src/lib/abyssal.ts';
 import { judgeCourier, byRewardPerJump, byUsefulness, roundTrips, tally } from '../src/lib/courier.ts';
 import { parsePlanetType, planetsFor, estimate, inBand, P0_PER_P1, sortSystems } from '../src/lib/pi.ts';
 import { classify, readExtractor, contentsOf, readColony, byAttention, typesIn, valueOf } from '../src/lib/colony.ts';
-import { check, byUrgency as bySkillUrgency, readiness, injectorYield, SP_FLOOR } from '../src/lib/skills.ts';
+import { check, byUrgency as bySkillUrgency, readiness, injectorYield, SP_FLOOR, skillsOf, trainedOptions, HAULING_SKILLS } from '../src/lib/skills.ts';
 import { iskPerHour, RUN_MINUTES } from '../src/lib/abyssal.ts';
 
 let failed = 0;
@@ -775,28 +775,48 @@ eq('no planets, no income', estimate(1000, 0, 100, 2000, 0.02, 0.01).p0Value, 0)
 eq('an unpriced product is worth nothing rather than NaN', estimate(1000, 4, null, null, 0.02, 0.01).p1Value, 0);
 
 console.log('\n--- do you have the skills for it ---');
+const skillIdMap = { 'Evasive Maneuvering': 3453, 'Amarr Hauler': 3343, 'Caldari Hauler': 3342, 'Gallente Hauler': 3340, 'Minmatar Hauler': 3341 };
+const idOf = (n) => skillIdMap[n] ?? null;
 const need = { name: 'Evasive Maneuvering', level: 4, why: 'align time' };
-eq('trained to the level asked', check(need, 3453, { 3453: 4 }).status, 'met');
-eq('trained past it is still met', check(need, 3453, { 3453: 5 }).status, 'met');
-eq('part way there', check(need, 3453, { 3453: 2 }).status, 'partial');
-eq('not trained at all', check(need, 3453, { 3453: 0 }).status, 'missing');
-eq('absent from the map is not trained', check(need, 3453, {}).status, 'missing');
+eq('trained to the level asked', check(need, idOf, { 3453: 4 }).status, 'met');
+eq('trained past it is still met', check(need, idOf, { 3453: 5 }).status, 'met');
+eq('part way there', check(need, idOf, { 3453: 2 }).status, 'partial');
+eq('not trained at all', check(need, idOf, { 3453: 0 }).status, 'missing');
+eq('absent from the map is not trained', check(need, idOf, {}).status, 'missing');
 // Not logged in, or the skill name no longer resolves: say so rather than claiming it is missing.
-eq('no skills read yet is unknown', check(need, 3453, undefined).status, 'unknown');
-eq('an unresolvable skill name is unknown', check(need, null, { 3453: 5 }).status, 'unknown');
-// The next thing to train should be the biggest gap among the ones that are not optional.
-const ck = (name, level, have, optional) => check({ name, level, why: '', optional }, 1, have === null ? undefined : { 1: have });
-const ordered = [
-  { ...ck('Done', 4, 5) }, { ...ck('Small gap', 4, 3) }, { ...ck('Big gap', 5, 0) }, { ...ck('Optional gap', 5, 0, true) },
-].sort(bySkillUrgency);
-eq('the biggest shortfall comes first', ordered[0].name, 'Big gap');
-eq('  then the smaller one', ordered[1].name, 'Small gap');
-eq('  optional gaps rank below needed ones', ordered[2].name, 'Optional gap');
-eq('  and what is done sinks to the bottom', ordered[3].name, 'Done');
-// "Ready" means the needed ones, not every last optional.
-eq('optional gaps do not block readiness', readiness([ck('a', 4, 4), ck('b', 4, 0, true)]).core, true);
-eq('a needed gap does', readiness([ck('a', 4, 1), ck('b', 4, 4)]).core, false);
-eq('and nothing needed at all is not "ready"', readiness([ck('b', 4, 0, true)]).core, false);
+eq('no skills read yet is unknown', check(need, idOf, undefined).status, 'unknown');
+eq('an unresolvable skill name is unknown', check({ ...need, name: 'Nonesuch' }, idOf, { 3453: 5 }).status, 'unknown');
+
+console.log('\n--- a racial line is a choice, not a checklist ---');
+const hauler = { name: 'Racial hauler', level: 4, why: '', anyOf: ['Amarr Hauler', 'Caldari Hauler', 'Gallente Hauler', 'Minmatar Hauler'] };
+// Any one race satisfies it. Gallente IV is as good as Caldari IV.
+eq('Gallente alone meets it', check(hauler, idOf, { 3340: 4 }).status, 'met');
+eq('Caldari alone meets it', check(hauler, idOf, { 3342: 5 }).status, 'met');
+eq('  and the verdict names the race you actually fly', check(hauler, idOf, { 3340: 4 }).best.name, 'Gallente Hauler');
+// The best line is the one judged, not the first or the last.
+let g = check(hauler, idOf, { 3342: 2, 3340: 5, 3341: 1 });
+eq('the strongest line is the one judged', g.have, 5);
+eq('  which is Gallente here', g.best.name, 'Gallente Hauler');
+eq('  and it is met', g.status, 'met');
+// Several part-trained lines still do not add up to one trained line.
+g = check(hauler, idOf, { 3342: 2, 3340: 3, 3341: 2 });
+eq('part-trained races do not sum', g.status, 'partial');
+eq('  the best of them is what counts', g.have, 3);
+eq('none of the four is missing, not unknown', check(hauler, idOf, {}).status, 'missing');
+eq('  but no skills read at all is unknown', check(hauler, idOf, undefined).status, 'unknown');
+// What the panel lists under the group: every race you have started, best first.
+eq('trained races are listed best first', trainedOptions(check(hauler, idOf, { 3342: 2, 3340: 5 })).map((o) => o.name),
+  ['Gallente Hauler', 'Caldari Hauler']);
+eq('an untouched group lists nothing', trainedOptions(check(hauler, idOf, {})).length, 0);
+// Resolving IDs has to cover every alternative, or three of the four would never be looked up.
+eq('a group needs all its skills resolved', skillsOf(hauler).length, 4);
+eq('a plain need is just itself', skillsOf(need), ['Evasive Maneuvering']);
+// The shipped hauling list must not name one race as the requirement.
+const racial = HAULING_SKILLS.filter((n) => n.anyOf);
+eq('hauling asks for racial lines as groups, not Caldari', racial.length, 2);
+if (HAULING_SKILLS.some((n) => !n.anyOf && /Amarr|Caldari|Gallente|Minmatar/.test(n.name))) {
+  failed++; console.log('  FAIL a single race should never be a hauling requirement on its own');
+}
 
 console.log('\n--- an injector is worth less the more you already know ---');
 eq('a new character gets the lot', injectorYield(1_000_000), 500_000);
