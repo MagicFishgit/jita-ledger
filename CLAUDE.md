@@ -314,6 +314,13 @@ Don't re-derive or contradict these without new evidence.
   `inline-flex`, `.kv .v` gaining `nowrap` and `.empty svg` (which enlarged every icon inside an empty state's
   button until narrowed to `.empty > svg`) all changed pages other than the one being built. Re-shoot the
   Calculator, Prospects and a settings tab after touching `styles.css`.
+- **Test with an empty store and a sparse one, not only a rich seed.** The Wallet crashed the whole app on
+  a ledger with trades but no journal (the state of anyone whose early syncs predate the full journal):
+  the oldest entry was `Infinity` and formatting it threw. A rich synthetic ledger never shows that. Pages
+  now render inside `PageBoundary`, so a failing page shows its error inside the shell instead of a blank app.
+- **`browser_navigate` to the same URL with another `#hash` keeps the old document**, including modules an
+  HMR update failed to replace — a page can run stale code while the file on disk is right. `location.reload()`
+  after edits, and import the app's own module instance (its `?t=` URL from `performance`), not the bare path.
 - **`SCOPE_INFO` in `config.ts` is the single answer to "what do I need to enable".** Settings lists
   every scope, its exact ESI name, what it unlocks and what breaks without it, logged in or not ---
   a scope registered on the application but granted before it was added is simply absent, with no

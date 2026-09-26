@@ -35,6 +35,7 @@ import { Combat } from './components/Combat';
 import { Omega } from './components/Omega';
 import { Settings } from './components/Settings';
 import { Notice } from './components/ui';
+import { PageBoundary } from './components/shell/PageBoundary';
 
 const RAIL_KEY = 'jita-ledger:rail';
 const PAGES = new Set<string>(['wallet', 'tonight', 'calculator', 'prospects', 'watchlist', 'planner', 'arbitrage', 'positions', 'orders', 'results', 'loyalty', 'hustles', 'combat', 'omega', 'settings']);
@@ -219,6 +220,7 @@ export function App() {
                 <Notice kind="warn">This browser holds trades synced from a different character. Positions track one character at a time, so mixed data may not add up.</Notice>
               </div>
             )}
+            <PageBoundary key={routeKey}>
             {!ready ? null
               : page === 'wallet' ? <Wallet />
               : page === 'tonight' ? <Tonight />
@@ -236,6 +238,7 @@ export function App() {
               : page === 'combat' ? <Combat />
               : page === 'omega' ? <Omega />
               : <Settings route={route} />}
+            </PageBoundary>
           </div>
         </main>
         <StatusBar />

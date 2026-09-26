@@ -197,7 +197,8 @@ export function Wallet() {
   }));
   const balChange = wallet != null && startBal != null ? wallet - startBal : null;
   const periodWords = days === 1 ? 'in 24 hours' : `in ${days} days`;
-  const histNote = oldest > since + DAY
+  // No journal at all (trades synced before the journal was kept) leaves `oldest` infinite: no note.
+  const histNote = Number.isFinite(oldest) && oldest > since + DAY
     ? `ESI returns 30 days of journal. This browser has kept it since ${fmtDate(oldest)}, so the window starts there.`
     : null;
 
