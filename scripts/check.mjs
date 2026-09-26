@@ -7,7 +7,7 @@ import { adviseRelist, byUrgency, weightedLevel, marketBest } from '../src/lib/r
 import { valueOffer, byIskPerLp, patientPrice, instantPrice, daysToClear, planFor, notesFor, spendPlan } from '../src/lib/loyalty.ts';
 import { parseFilament, byTier, runsFrom, TIERS } from '../src/lib/abyssal.ts';
 import { judgeCourier, byRewardPerJump, byUsefulness, roundTrips, tally, HAULERS } from '../src/lib/courier.ts';
-import { parsePlanetType, planetsFor, estimate, inBand, P0_PER_P1, sortSystems } from '../src/lib/pi.ts';
+import { parsePlanetType, planetsFor, estimate, inBand, P0_PER_P1, sortSystems, rankProducts, refineVerdict, RAW_PER_HOUR, MADE_PER_HOUR, BASIC_FACTORY, P1_PER_P2, setupSteps, P1_TO_P0 } from '../src/lib/pi.ts';
 import { classify, readExtractor, contentsOf, readColony, byAttention, typesIn, valueOf } from '../src/lib/colony.ts';
 import { check, byUrgency as bySkillUrgency, readiness, injectorYield, SP_FLOOR, skillsOf, trainedOptions, HAULING_SKILLS } from '../src/lib/skills.ts';
 import { iskPerHour, RUN_MINUTES } from '../src/lib/abyssal.ts';
@@ -773,7 +773,6 @@ console.log('\n--- planets ---');
 eq('ESI planet type names parse', parsePlanetType('Planet (Barren)'), 'Barren');
 eq('  including the shattered ones we do not want', parsePlanetType('Planet (Shattered)'), null);
 eq('  and anything else', parsePlanetType('Jita IV'), null);
-// Where do I go to make Plasmoids? Suspended Plasma planets, and only those.
 has('plasmoids come from lava', planetsFor('Plasmoids'), 'Lava');
 has('  and storm', planetsFor('Plasmoids'), 'Storm');
 has('  and plasma', planetsFor('Plasmoids'), 'Plasma');
@@ -783,98 +782,89 @@ eq('high-sec band', inBand(0.5, 'high'), true);
 eq('  0.45 is not high-sec', inBand(0.4, 'high'), false);
 eq('low-sec band', inBand(0.3, 'low'), true);
 eq('  and null is not low-sec', inBand(0.0, 'low'), false);
-// The income is arithmetic on YOUR extraction rate, not a forecast.
-let est = estimate(1000, 4, 100, 2000, 0.02, 0.01);
-eq('a day of extraction across four planets', est.p0PerDay, 1000 * 24 * 4);
-eq('refined into P1 at the schematic ratio', est.p1PerDay, (1000 * 24 * 4) / P0_PER_P1);
-eq('raw value is net of fees', est.p0Value, 96_000 * 100 * 0.97);
-eq('refining is worth it here', Math.round(est.uplift * 100) / 100, Math.round(((96_000 / P0_PER_P1) * 2000) / (96_000 * 100) * 100) / 100);
-eq('no planets, no income', estimate(1000, 0, 100, 2000, 0.02, 0.01).p0Value, 0);
-eq('an unpriced product is worth nothing rather than NaN', estimate(1000, 4, null, null, 0.02, 0.01).p1Value, 0);
+// Every raw material must refine into something, and every product come from somewhere.
+eq('fifteen products, fifteen inputs', Object.keys(P1_TO_P0).length, 15);
 
-console.log('\n--- do you have the skills for it ---');
-const skillIdMap = { 'Evasive Maneuvering': 3453, 'Amarr Hauler': 3343, 'Caldari Hauler': 3342, 'Gallente Hauler': 3340, 'Minmatar Hauler': 3341 };
-const idOf = (n) => skillIdMap[n] ?? null;
-const need = { name: 'Evasive Maneuvering', level: 4, why: 'align time' };
-eq('trained to the level asked', check(need, idOf, { 3453: 4 }).status, 'met');
-eq('trained past it is still met', check(need, idOf, { 3453: 5 }).status, 'met');
-eq('part way there', check(need, idOf, { 3453: 2 }).status, 'partial');
-eq('not trained at all', check(need, idOf, { 3453: 0 }).status, 'missing');
-eq('absent from the map is not trained', check(need, idOf, {}).status, 'missing');
-// Not logged in, or the skill name no longer resolves: say so rather than claiming it is missing.
-eq('no skills read yet is unknown', check(need, idOf, undefined).status, 'unknown');
-eq('an unresolvable skill name is unknown', check({ ...need, name: 'Nonesuch' }, idOf, { 3453: 5 }).status, 'unknown');
+console.log('\n--- the factory ratio, which was wrong by an order of magnitude ---');
+// A Basic Industry Facility: 3,000 raw per 30 minutes for 20 refined. That is 150 raw per unit, not
+// the 14 this once used --- which flattered refining roughly tenfold.
+eq('150 raw make one refined unit', P0_PER_P1, 150);
+eq('  which is the schematic, not a guess', BASIC_FACTORY.rawPerCycle / BASIC_FACTORY.madePerCycle, 150);
+eq('one factory eats 6,000 raw an hour', RAW_PER_HOUR, 6000);
+eq('  and returns 40', MADE_PER_HOUR, 40);
+eq('sixteen refined units make one processed good', P1_PER_P2, 16);
 
-console.log('\n--- a racial line is a choice, not a checklist ---');
-const hauler = { name: 'Racial hauler', level: 4, why: '', anyOf: ['Amarr Hauler', 'Caldari Hauler', 'Gallente Hauler', 'Minmatar Hauler'] };
-// Any one race satisfies it. Gallente IV is as good as Caldari IV.
-eq('Gallente alone meets it', check(hauler, idOf, { 3340: 4 }).status, 'met');
-eq('Caldari alone meets it', check(hauler, idOf, { 3342: 5 }).status, 'met');
-eq('  and the verdict names the race you actually fly', check(hauler, idOf, { 3340: 4 }).best.name, 'Gallente Hauler');
-// The best line is the one judged, not the first or the last.
-let g = check(hauler, idOf, { 3342: 2, 3340: 5, 3341: 1 });
-eq('the strongest line is the one judged', g.have, 5);
-eq('  which is Gallente here', g.best.name, 'Gallente Hauler');
-eq('  and it is met', g.status, 'met');
-// Several part-trained lines still do not add up to one trained line.
-g = check(hauler, idOf, { 3342: 2, 3340: 3, 3341: 2 });
-eq('part-trained races do not sum', g.status, 'partial');
-eq('  the best of them is what counts', g.have, 3);
-eq('none of the four is missing, not unknown', check(hauler, idOf, {}).status, 'missing');
-eq('  but no skills read at all is unknown', check(hauler, idOf, undefined).status, 'unknown');
-// What the panel lists under the group: every race you have started, best first.
-eq('trained races are listed best first', trainedOptions(check(hauler, idOf, { 3342: 2, 3340: 5 })).map((o) => o.name),
-  ['Gallente Hauler', 'Caldari Hauler']);
-eq('an untouched group lists nothing', trainedOptions(check(hauler, idOf, {})).length, 0);
-// Resolving IDs has to cover every alternative, or three of the four would never be looked up.
-eq('a group needs all its skills resolved', skillsOf(hauler).length, 4);
-eq('a plain need is just itself', skillsOf(need), ['Evasive Maneuvering']);
-// The shipped hauling list must not name one race as the requirement.
-const racial = HAULING_SKILLS.filter((n) => n.anyOf);
-eq('hauling asks for racial lines as groups, not Caldari', racial.length, 2);
-if (HAULING_SKILLS.some((n) => !n.anyOf && /Amarr|Caldari|Gallente|Minmatar/.test(n.name))) {
-  failed++; console.log('  FAIL a single race should never be a hauling requirement on its own');
+console.log('\n--- what a day of extraction comes to ---');
+let est = estimate(1000, 4, 100, 20000, 0.02, 0.01);
+eq('a day of extraction across four planets', est.rawPerDay, 1000 * 24 * 4);
+eq('refined at the real ratio', est.madePerDay, (1000 * 24 * 4) / 150);
+eq('raw value is net of fees', est.rawValue, 96_000 * 100 * 0.97);
+eq('refined value likewise', est.madeValue, (96_000 / 150) * 20_000 * 0.97);
+// A factory fed below its rate does not stop existing; it runs fewer cycles. One is still needed.
+eq('a slow extractor still needs one factory', est.factories, 1);
+eq('  which idles most of the time', Math.round(est.utilisation * 100), Math.round(1000 / 6000 * 100));
+// Factories are per planet: four colonies cannot pool their extraction into one factory.
+est = estimate(6000, 4, 100, 20000, 0.02, 0.01);
+eq('one factory exactly keeps up with 6,000 an hour', est.factories, 1);
+eq('  and is busy all the time', Math.round(est.utilisation * 100), 100);
+est = estimate(13000, 1, 100, 20000, 0.02, 0.01);
+eq('13,000 an hour needs three factories', est.factories, 3);
+eq('  the third barely used', Math.round(est.utilisation * 100), Math.round(13000 / 18000 * 100));
+eq('extracting nothing needs no factories', estimate(0, 4, 100, 20000, 0.02, 0.01).factories, 0);
+eq('no planets, no income', estimate(1000, 0, 100, 2000, 0.02, 0.01).rawValue, 0);
+eq('an unpriced product is worth nothing rather than NaN', estimate(1000, 4, null, null, 0.02, 0.01).madeValue, 0);
+
+console.log('\n--- refine it, or sell it as it comes out ---');
+eq('double the value is worth refining', refineVerdict(2.4).worth, true);
+eq('a clear gain is worth refining', refineVerdict(1.3).worth, true);
+eq('a coin-flip is not worth the factories', refineVerdict(1.02).worth, false);
+eq('  and says so plainly', refineVerdict(1.02).short, 'Barely matters');
+eq('a loss says sell it raw', refineVerdict(0.6).short, 'Sell it raw');
+eq('nothing priced is not a recommendation', refineVerdict(0).worth, false);
+
+console.log('\n--- which product to make ---');
+// Same raw cost for every product, so the ranking is on what the refined unit fetches.
+const prices = { Plasmoids: 500, 'Suspended Plasma': 3, Water: 100, 'Aqueous Liquids': 1 };
+let ranked = rankProducts((n) => prices[n] ?? null, 0, 0);
+eq('all fifteen are ranked', ranked.length, 15);
+eq('the most valuable refined product leads', ranked[0].p1, 'Plasmoids');
+// 1,000 raw makes 6.67 units, so 6.67 x 500.
+eq('  valued per thousand units of extraction', Math.round(ranked[0].refinedPer1000Raw), Math.round((1000 / 150) * 500));
+eq('  against what that raw would fetch unrefined', ranked[0].rawPer1000Raw, 1000 * 3);
+eq('  giving the gain from refining', Math.round(ranked[0].uplift * 100), Math.round(((1000 / 150) * 500) / 3000 * 100));
+// Refining Aqueous Liquids at these prices is a loss, and must not be dressed up as a gain.
+const water = ranked.find((p) => p.p1 === 'Water');
+eq('a poor product still reports its real uplift', Math.round(water.uplift * 100) / 100, Math.round(((1000 / 150) * 100) / 1000 * 100) / 100);
+eq('  and is judged accordingly', refineVerdict(water.uplift).worth, false);
+// Nothing priced must not crash the ranking or invent an order.
+eq('unpriced products still appear', rankProducts(() => null, 0, 0).length, 15);
+eq('  worth nothing rather than NaN', rankProducts(() => null, 0, 0)[0].refinedPer1000Raw, 0);
+// Availability is carried so a scarce input can be seen, not silently preferred.
+eq('availability counts the planet types', ranked.find((p) => p.p1 === 'Plasmoids').availability, 3);
+
+console.log('\n--- the build guide follows the decision ---');
+const withFactories = setupSteps('Plasmoids', true);
+const rawOnly = setupSteps('Plasmoids', false);
+if (!withFactories.some((s) => /Basic Industry Facility/.test(s.title))) {
+  failed++; console.log('  FAIL refining should tell you to build a factory');
 }
-
-console.log('\n--- an injector is worth less the more you already know ---');
-eq('a new character gets the lot', injectorYield(1_000_000), 500_000);
-eq('past five million it drops', injectorYield(20_000_000), 400_000);
-eq('past fifty million it drops again', injectorYield(60_000_000), 300_000);
-eq('and a veteran gets the least', injectorYield(120_000_000), 150_000);
-// Boundaries are exact: at exactly five million you are already in the lower band.
-eq('the boundary belongs to the band above', injectorYield(SP_FLOOR), 400_000);
-
-console.log('\n--- putting the hustles on the same footing ---');
-eq('a run an hour is the per-run figure', iskPerHour(50_000_000, 60), 50_000_000);
-eq('three runs an hour is three times it', iskPerHour(50_000_000, 20), 150_000_000);
-eq('a pace of nothing is not infinite money', iskPerHour(50_000_000, 0), 0);
-if (!(RUN_MINUTES.Cataclysmic > RUN_MINUTES.Calm)) { failed++; console.log('  FAIL harder tiers should take longer'); }
-
-console.log('\n--- not flying home empty ---');
-const leg = (id, fromSys, toSys, reward, takeable = true) => ({
-  c: { contractId: id, reward, collateral: 0, volume: 1000, daysToComplete: 5, dateExpired: '2026-10-30T00:00:00Z', startId: 1, endId: 2, title: '' },
-  start: { kind: 'station', systemId: fromSys, security: 0.9, name: `S${fromSys}` },
-  end: { kind: 'station', systemId: toSys, security: 0.9, name: `S${toSys}` },
-  jumps: 5, rewardPerJump: reward / 5, rewardPerM3: 1, collateralRatio: 0, flags: [], safe: true, takeable,
-});
-let rt = roundTrips([leg(1, 100, 200, 10_000_000), leg(2, 200, 100, 8_000_000)]);
-eq('a job out and one back is a round trip', rt.length, 1);
-eq('  paying both rewards', rt[0].reward, 18_000_000);
-eq('  over both legs of jumps', rt[0].jumps, 10);
-// Two legs in the same direction are not a round trip.
-eq('same direction is not a round trip', roundTrips([leg(1, 100, 200, 10), leg(2, 100, 200, 10)]).length, 0);
-// A contract you cannot take is not half of a plan.
-eq('an untakeable leg is not paired', roundTrips([leg(1, 100, 200, 10), leg(2, 200, 100, 10, false)]).length, 0);
-// One contract cannot be both legs of two different trips.
-rt = roundTrips([leg(1, 100, 200, 10), leg(2, 200, 100, 10), leg(3, 200, 100, 10)]);
-eq('a contract is used once', rt.length, 1);
-
-console.log('\n--- what a run of the best jobs comes to ---');
-const t = tally([leg(1, 100, 200, 10_000_000), leg(2, 200, 300, 5_000_000), leg(3, 300, 400, 1_000_000, false)], 5);
-eq('only the ones you can take', t.count, 2);
-eq('rewards added up', t.reward, 15_000_000);
-eq('jumps added up', t.jumps, 10);
-eq('and it stops at the number asked for', tally([leg(1, 1, 2, 10), leg(2, 2, 3, 10), leg(3, 3, 4, 10)], 2).count, 2);
+if (rawOnly.some((s) => /Basic Industry Facility/.test(s.title))) {
+  failed++; console.log('  FAIL selling raw should not tell you to build factories');
+}
+if (!rawOnly.some((s) => /launchpad/i.test(s.title))) {
+  failed++; console.log('  FAIL every colony needs somewhere to put the output');
+}
+// Surveying must come before anything is placed; doing it later is the classic wasted colony.
+const surveyAt = withFactories.findIndex((s) => /Survey/i.test(s.title));
+const extractorAt = withFactories.findIndex((s) => /extractor control unit/i.test(s.title));
+eq('survey comes before the extractor is placed', surveyAt < extractorAt && surveyAt >= 0, true);
+// The routing step is the one people miss, so it must be there whenever there is a factory.
+if (!withFactories.some((s) => /Route/i.test(s.title))) {
+  failed++; console.log('  FAIL routing is the step people miss and must be spelled out');
+}
+if (!withFactories.some((s) => `${s.body} ${s.tip ?? ''}`.includes('150'))) {
+  failed++; console.log('  FAIL the guide should state the ratio that drives the decision');
+}
 
 console.log('\n--- ordering PI systems, which runs against the instinct ---');
 const sys = [

@@ -341,6 +341,52 @@ footer.foot { max-width: var(--page-max); margin: 0 auto; padding: 0 clamp(14px,
 .scopes .dot { margin-top: 7px; flex: none; }
 .scopes code { font-size: 12px; margin: 2px 0; }
 
+/* The planetary interaction walkthrough: numbered steps that tick off as you go */
+.pi-step {
+  border: 1px solid var(--rule); border-left: 3px solid var(--rule); border-radius: var(--r-m);
+  background: var(--surface); padding: 18px 20px; margin: 0 0 18px;
+}
+.pi-step.done { border-left-color: var(--profit); }
+.pi-step > h2 {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 12px; font-size: 1.1rem;
+}
+.pi-num {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 26px; height: 26px; border-radius: 50%; font-size: 14px; font-weight: 700;
+  background: var(--surface-2); border: 1px solid var(--rule); color: var(--muted);
+}
+.pi-step.done .pi-num { background: var(--profit); border-color: var(--profit); color: var(--bg); }
+.pi-step .fields { margin-bottom: 0; }
+
+/* The build instructions themselves */
+.pi-steps { margin: 16px 0 0; padding-left: 22px; font-size: 16px; }
+.pi-steps > li { padding: 0 0 14px; }
+.pi-steps > li > strong { display: block; margin-bottom: 4px; }
+.pi-steps p { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.55; }
+.pi-tip {
+  margin-top: 6px !important; padding: 7px 10px; border-radius: var(--r-s);
+  background: var(--surface-2); border-left: 2px solid var(--accent);
+}
+
+/* Diagrams, drawn rather than fetched so they follow the theme */
+.pi-svg { display: block; width: 100%; height: auto; max-width: 720px; margin: 14px 0; }
+.pi-svg .pi-cc { fill: var(--surface-2); stroke: var(--rule); }
+.pi-svg .pi-ex { fill: var(--surface-2); stroke: var(--accent); }
+.pi-svg .pi-fac { fill: var(--surface-2); stroke: var(--profit); }
+.pi-svg .pi-p2 { fill: var(--surface-2); stroke: var(--rule); stroke-dasharray: 4 3; }
+.pi-svg .pi-pad { fill: var(--surface-2); stroke: var(--rule); }
+.pi-svg rect { stroke-width: 1.5; }
+.pi-svg .pi-link line { stroke: var(--rule); stroke-width: 2; stroke-dasharray: 5 4; }
+.pi-svg text { text-anchor: middle; font-family: inherit; }
+.pi-svg .pi-label { fill: var(--ink); font-size: 13px; font-weight: 600; }
+.pi-svg .pi-sub { fill: var(--muted); font-size: 11px; }
+.pi-svg .pi-big { fill: var(--accent); font-size: 20px; font-weight: 700; }
+
+/* The row you chose, so it stays findable in a long table */
+.data tr.picked > td { background: var(--surface-2); }
+.data tr.picked > td.name { box-shadow: inset 2px 0 0 var(--accent); }
+
 /* Asking a question, in the app's own voice rather than the browser's */
 .confirm { padding: 0; border: 1px solid var(--rule); border-radius: var(--r-m); background: var(--surface); color: var(--ink); max-width: min(460px, calc(100vw - 32px)); }
 .confirm::backdrop { background: rgba(0, 0, 0, .45); }
