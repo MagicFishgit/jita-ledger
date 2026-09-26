@@ -2,6 +2,8 @@ import { get, set } from 'idb-keyval';
 import { esi, EsiError } from './esi';
 import { cacheStore } from './store';
 import type { Endpoint } from './courier';
+import { hasScope } from './auth';
+import { SCOPE } from './config';
 import { parsePlanetType, type PiPlanet } from './pi';
 
 /**
@@ -42,6 +44,46 @@ export const station = (id: number) => cached(`stn:${id}`, async () => {
 /** Station IDs sit in a fixed band; anything above it is a player structure. */
 export const isStation = (locationId: number) => locationId >= 60000000 && locationId < 64000000;
 
+/** Player structure IDs sit far above every NPC ID range. */
+export const isStructure = (locationId: number) => locationId >= 1_000_000_000_000;
+/** Solar system IDs: known space, then wormholes, then abyssal pockets. */
+export const isSystem = (locationId: number) => locationId >= 30_000_000 && locationId < 33_000_000;
+
+/**
+ * A player structure, as far as ESI will say.
+ *
+ * - `unchecked`: the login lacks esi-universe.read_structures.v1, so nothing was asked. Not evidence
+ *   of anything.
+ * - `refused`: ESI answered Forbidden. It says that to anyone not on the structure's access list
+ *   ("returns Forbidden for all inputs" in its own spec), so this is the real signal: you can't dock.
+ * - `failed`: anything else --- a network error or ESI having a bad minute.
+ *
+ * Names can change, so a found structure is kept for a day, not for good; a refusal for an hour.
+ */
+export type StructureRead =
+  | { status: 'found'; name: string; systemId: number }
+  | { status: 'unchecked' | 'refused' | 'failed' };
+
+const structureMem = new Map<number, { at: number; read: StructureRead }>();
+export async function structureInfo(id: number): Promise<StructureRead> {
+  if (!hasScope(SCOPE.structures)) return { status: 'unchecked' };
+  const key = `structure:${id}`;
+  const hit = structureMem.get(id) ?? ((await get(key, cacheStore).catch(() => undefined)) as { at: number; read: StructureRead } | undefined);
+  const ttl = hit?.read.status === 'found' ? 24 * 3600_000 : 3600_000;
+  if (hit && hit.read.status !== 'failed' && Date.now() - hit.at < ttl) return hit.read;
+  let read: StructureRead;
+  try {
+    const { data } = await esi<{ name: string; solar_system_id: number }>(`/universe/structures/${id}/`, { auth: true });
+    read = { status: 'found', name: data.name, systemId: data.solar_system_id };
+  } catch (e) {
+    read = { status: e instanceof EsiError && e.status === 403 ? 'refused' : 'failed' };
+  }
+  const entry = { at: Date.now(), read };
+  structureMem.set(id, entry);
+  if (read.status !== 'failed') await set(key, entry, cacheStore).catch(() => undefined);
+  return read;
+}
+
 /**
  * What a contract's endpoint really is.
  *
@@ -58,12 +100,15 @@ export async function endpoint(locationId: number): Promise<Endpoint> {
       return { kind: 'station', systemId: null, security: null, name: null };
     }
   }
+  // Without the structures permission nothing was asked, which says nothing about the structure.
+  // Only ESI's refusal is the "you can't dock there" signal.
+  const read = await structureInfo(locationId);
+  if (read.status !== 'found') return { kind: 'structure', systemId: null, security: null, name: null, unchecked: read.status === 'unchecked' };
   try {
-    const { data } = await esi<{ name: string; solar_system_id: number }>(`/universe/structures/${locationId}/`, { auth: true });
-    const sys = await system(data.solar_system_id);
-    return { kind: 'structure', systemId: data.solar_system_id, security: sys.security, name: data.name };
+    const sys = await system(read.systemId);
+    return { kind: 'structure', systemId: read.systemId, security: sys.security, name: read.name };
   } catch {
-    return { kind: 'structure', systemId: null, security: null, name: null };
+    return { kind: 'structure', systemId: read.systemId, security: null, name: read.name };
   }
 }
 

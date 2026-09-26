@@ -77,9 +77,13 @@ At <https://developers.eveonline.com/> create an application:
   - `esi-characters.read_loyalty.v1`
   - `esi-planets.manage_planets.v1`
   - `esi-killmails.read_killmails.v1`
+  - `esi-universe.read_structures.v1`
+  - `esi-ui.write_waypoint.v1`
 
   Settings lists every one with what it unlocks and what stops working without it. A scope added to the
-  application after you logged in is simply missing until you log out and in again.
+  application after you logged in is simply missing until you log out and in again. Ticking a scope on
+  the application *before* the app asks for it matters the other way round: EVE's login refuses a request for
+  any scope the application doesn't have, so nobody can log in.
 - **Callback URL**: `https://magicfishgit.github.io/jita-ledger/` (exactly, including the trailing slash)
 
 Copy the **Client ID**. You don't need the secret: the app logs in with PKCE, which is meant for apps that can't keep a secret.

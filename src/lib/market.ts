@@ -120,6 +120,17 @@ export async function openMarketWindow(typeId: number): Promise<void> {
   await esi<void>('/ui/openwindow/marketdetails/', { auth: true, method: 'POST', query: { type_id: typeId } });
 }
 
+/**
+ * Make a station, structure or solar system your autopilot destination in the client, replacing any
+ * route already set. It plots the route; it doesn't fly anything.
+ */
+export async function setDestination(destinationId: number): Promise<void> {
+  await esi<void>('/ui/autopilot/waypoint/', {
+    auth: true, method: 'POST',
+    query: { add_to_beginning: 'false', clear_other_waypoints: 'true', destination_id: destinationId },
+  });
+}
+
 /** Reads every page of an item's book, keeping the first page's expiry. */
 async function fetchBook(typeId: number, fresh: boolean) {
   const path = `/markets/${regionFor(typeId)}/orders/`;

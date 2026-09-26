@@ -361,6 +361,11 @@ input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.7); }
 .lrow .lt { display: block; font-size: 13.5px; color: var(--ink); }
 .lrow .ls { display: block; font-size: 12px; color: var(--note); }
 .lrow .lv { font-family: var(--f-mono); font-size: 13px; color: var(--body); white-space: nowrap; }
+/* A place name you can click to set as your destination in game. */
+.dest-btn { display: inline-flex; align-items: center; gap: 6px; padding: 0; background: none; border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; text-decoration: underline dotted color-mix(in oklab, var(--acc) 55%, transparent); text-underline-offset: 3px; }
+.dest-btn svg { width: 13px; height: 13px; flex: none; color: var(--acc); opacity: .55; transition: opacity .2s; }
+.dest-btn:hover { color: #fff; }
+.dest-btn:hover svg, .dest-btn:focus-visible svg { opacity: 1; }
 .kv { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
 .kv .v { font-family: var(--f-mono); font-size: 12.5px; white-space: nowrap; }
 

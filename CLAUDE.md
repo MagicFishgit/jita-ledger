@@ -105,9 +105,17 @@ Don't re-derive or contradict these without new evidence.
 - **`/route/` is one of the few endpoints still under a version prefix** (`/v1/route/...`), not the
   compatibility-date root — the unversioned path 404s. `flag=secure` routes high-sec only, and a 404
   from it means *no such route exists*, which is an answer rather than a failure.
-- **A player structure answers 401 to anyone without docking access**, while NPC stations
-  (`60000000`–`64000000`) always resolve. That refusal is the best hauling-scam signal there is: a
-  destination you cannot look up is one you may not be able to deliver to.
+- **A player structure is only described to a login with `esi-universe.read_structures.v1`, and only if
+  you're on its access list.** `/universe/structures/{id}/` says so in ESI's own spec: otherwise it returns
+  "Forbidden" (403) for all inputs. NPC stations (`60000000`–`64000000`) always resolve. The refusal is the
+  best hauling-scam signal there is — but only when the scope was granted. Until September 2026 the app never
+  requested it, so every structure failed and Hauling called every structure contract "the classic scam".
+  `structureInfo` now separates *unchecked* (no scope: nothing asked, nothing claimed) from *refused*.
+- **Location IDs tell you what they are by range**: NPC stations 60–64 million, solar systems 30–33 million
+  (items in space), player structures from 1,000,000,000,000 up. `isStation` / `isSystem` / `isStructure`.
+- **The client can be given a destination, not an info window for a structure.** `POST /ui/autopilot/waypoint/`
+  (`esi-ui.write_waypoint.v1`) takes a solar system, station *or* structure ID and plots the route.
+  `/ui/openwindow/information` only opens characters, corporations and alliances.
 - **Public contracts are public**: `/contracts/public/{region}/` needs no scope. The Forge runs to
   ~35 pages of 1,000, of which only ~120 are couriers.
 - **Market groups are the honest way to get a set of types.** Filaments are groups 2457–2461, abyssal
@@ -314,6 +322,9 @@ Don't re-derive or contradict these without new evidence.
   `inline-flex`, `.kv .v` gaining `nowrap` and `.empty svg` (which enlarged every icon inside an empty state's
   button until narrowed to `.empty > svg`) all changed pages other than the one being built. Re-shoot the
   Calculator, Prospects and a settings tab after touching `styles.css`.
+- **Never key a React list by a display label.** Every unnamed structure on the Wallet was labelled "A player
+  structure", the rows shared that key, and React reused the wrong row on re-render: a stale "Pricing…" and
+  a list that looked unsorted. Key by the ID the row stands for.
 - **Test with an empty store and a sparse one, not only a rich seed.** The Wallet crashed the whole app on
   a ledger with trades but no journal (the state of anyone whose early syncs predate the full journal):
   the oldest entry was `Infinity` and formatting it threw. A rich synthetic ledger never shows that. Pages

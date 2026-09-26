@@ -35,6 +35,8 @@ export const SCOPE = {
   loyalty: 'esi-characters.read_loyalty.v1', // loyalty point balances, for working out what to spend them on
   planets: 'esi-planets.manage_planets.v1', // your planetary colonies: extractor programmes, output and stored goods
   killmails: 'esi-killmails.read_killmails.v1', // your kills and losses, priced on the day, for Combat and the Wallet
+  structures: 'esi-universe.read_structures.v1', // names of player structures you can dock at
+  waypoint: 'esi-ui.write_waypoint.v1', // set a station or structure as your destination in the client
 } as const;
 export const SCOPES: string[] = Object.values(SCOPE);
 
@@ -90,6 +92,16 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
     label: 'Planetary colonies',
     unlocks: 'Your real colonies on the Planets page: when each extraction programme runs out, what every extractor is pulling an hour, and what is sitting in the launchpads waiting to be collected.',
     without: 'Planets falls back to the estimator, where you type in an extraction rate yourself. Nothing warns you when a programme has expired.',
+  },
+  'esi-universe.read_structures.v1': {
+    label: 'Player structure names',
+    unlocks: 'Names the player structures your stock sits in on the Wallet, and lets Hauling check whether you can dock at a contract’s pickup and destination. ESI only describes a structure you are on the access list of.',
+    without: 'Structures show as “a player structure”, and Hauling can’t tell a structure you can dock at from one you can’t, so every structure contract is left unchecked.',
+  },
+  'esi-ui.write_waypoint.v1': {
+    label: 'Set destination in your client',
+    unlocks: 'Click a station or structure on the Wallet to set it as your autopilot destination in game. It sets a route; it can’t fly the ship.',
+    without: 'Places are shown by name only; you set the destination in game yourself.',
   },
   'esi-killmails.read_killmails.v1': {
     label: 'Killmails',

@@ -19,6 +19,8 @@ import { useLearnedGankLines } from '../gank';
 const FLAG: Record<CourierFlag, { short: string; why: string }> = {
   endUnknown: { short: 'Can’t see destination', why: 'The delivery point is a player structure ESI won’t describe without docking access. This is the classic hauling scam: you fly the cargo out, find you can’t dock, and the collateral is theirs. Never take one of these.' },
   startUnknown: { short: 'Can’t see pickup', why: 'The pickup point is a player structure you may not be able to dock at. You can’t even start the job, and if you accept it the clock still runs.' },
+  endUnchecked: { short: 'Destination unchecked', why: 'The delivery point is a player structure, and your login doesn’t include esi-universe.read_structures.v1, so the app couldn’t ask ESI whether you can dock there. Add that permission (Settings lists it) and this becomes a real check. Until then, look it up in game before accepting.' },
+  startUnchecked: { short: 'Pickup unchecked', why: 'The pickup point is a player structure, and without esi-universe.read_structures.v1 the app couldn’t ask ESI whether you can dock there. Check it in game before accepting.' },
   lowsec: { short: 'Not high-sec', why: 'One end sits below 0.5. Gate camps do not care that you are only passing through, and the collateral goes with the ship.' },
   noSafeRoute: { short: 'No high-sec route', why: 'There is no way to make this trip without leaving high-sec, whatever the two endpoints look like. ESI was asked for a high-sec-only route and there isn’t one.' },
   tooBig: { short: 'Too big', why: 'The cargo is larger than the hauler you picked. Nothing wrong with the contract; you just can’t carry it.' },

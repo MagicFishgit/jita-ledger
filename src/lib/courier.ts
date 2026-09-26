@@ -23,6 +23,8 @@ export type Endpoint = {
   systemId: number | null;
   security: number | null;
   name: string | null;
+  /** A structure nobody asked ESI about, because the login lacks the structures permission. */
+  unchecked?: boolean;
 };
 
 export type CourierContract = {
@@ -48,11 +50,11 @@ export type CourierLimits = {
 };
 
 export type CourierFlag =
-  | 'endUnknown' | 'startUnknown' | 'lowsec' | 'noSafeRoute'
+  | 'endUnknown' | 'startUnknown' | 'endUnchecked' | 'startUnchecked' | 'lowsec' | 'noSafeRoute'
   | 'tooBig' | 'collateralOverLimit' | 'collateralHeavy' | 'thinReward' | 'rushed' | 'expiringSoon' | 'gankBait';
 
 /** Flags that make a contract unsafe rather than merely unattractive. */
-export const UNSAFE: CourierFlag[] = ['endUnknown', 'startUnknown', 'lowsec', 'noSafeRoute'];
+export const UNSAFE: CourierFlag[] = ['endUnknown', 'startUnknown', 'endUnchecked', 'startUnchecked', 'lowsec', 'noSafeRoute'];
 
 export type CourierVerdict = {
   c: CourierContract;
@@ -88,14 +90,17 @@ export function judgeCourier(
 ): CourierVerdict {
   const flags: CourierFlag[] = [];
 
-  // A destination we cannot even resolve is the scam, not a risk to weigh.
-  if (end.kind === 'structure' && end.systemId == null) flags.push('endUnknown');
-  if (start.kind === 'structure' && start.systemId == null) flags.push('startUnknown');
+  // A destination ESI refused to describe is the scam, not a risk to weigh. One nobody asked about,
+  // because the permission is missing, is only unchecked: still not safe, but not accused of anything.
+  const unknown = (e: Endpoint) => e.kind === 'structure' && e.systemId == null;
+  if (unknown(end)) flags.push(end.unchecked ? 'endUnchecked' : 'endUnknown');
+  if (unknown(start)) flags.push(start.unchecked ? 'startUnchecked' : 'startUnknown');
 
   const secs = [start.security, end.security].filter((s): s is number => s != null);
   if (secs.some((s) => s < HIGHSEC)) flags.push('lowsec');
   // No high-sec-only route: the job cannot be done without leaving high-sec, whatever the endpoints.
-  if (jumps == null && !flags.includes('endUnknown') && !flags.includes('startUnknown')) flags.push('noSafeRoute');
+  // Claiming that about a place we couldn't identify would be a second, wrong story.
+  if (jumps == null && !unknown(start) && !unknown(end)) flags.push('noSafeRoute');
 
   if (c.volume > limits.maxVolume) flags.push('tooBig');
   if (c.collateral > limits.maxCollateral) flags.push('collateralOverLimit');

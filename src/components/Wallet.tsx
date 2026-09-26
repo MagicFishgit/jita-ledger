@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Crosshair, FileSpreadsheet, Flame, HandCoins, Image as ImageIcon, Plus, Rocket, ShieldCheck, Target, TrendingUp, TriangleAlert, Wallet as WalletIcon, X,
+  Crosshair, FileSpreadsheet, Flame, HandCoins, Image as ImageIcon, MapPin, Plus, Rocket, ShieldCheck, Target, TrendingUp, TriangleAlert, Wallet as WalletIcon, X,
 } from 'lucide-react';
 import { JITA_44, SCOPE } from '../lib/config';
 import { fmtDate, fmtDateTime, fmtShort, iskBig, iskBigSigned, pct, rid, units } from '../lib/format';
 import { navigate, useAuth, useNow } from '../lib/hooks';
-import { resolveNames, roughPricesShared } from '../lib/market';
+import { resolveNames, roughPricesShared, setDestination } from '../lib/market';
 import { computePosition, countedIn, realizedBetween, type SeriesPoint } from '../lib/positions';
 import { startPosition } from '../lib/actions';
 import { update, useData, type Data } from '../lib/store';
 import { toast } from '../lib/toast';
-import { isStation, system } from '../lib/universe';
+import { isStation, isStructure, isSystem, structureInfo, system, type StructureRead } from '../lib/universe';
 import { isAbyssalSystem, netLoss } from '../lib/combat';
 import {
   autoTag, balanceAt, balanceSeries, csvCell, describeRef, feeLeak, flows, goalEta, nextTag, RUNNING, runwayDays, unusual, type Line, type TradeClass,
@@ -405,16 +405,21 @@ function NetWorth(props: {
   );
 }
 
+type Place = { k: string; l: string; v: number | null; d: string; flag?: string; dest?: number; named?: boolean };
+
 function WhereItSits(props: {
   d: Data; value: (x: Record<number, number> | undefined) => number; rough: Record<number, number> | null; sellValue: number; escrow: number;
   lp: { corporationId: number; points: number; rate: number | null; valued: number }[]; now: number; hasAssets: boolean;
 }) {
   const { d, value, rough, now } = props;
+  const auth = useAuth();
+  const canDest = (auth?.scopes ?? []).includes(SCOPE.waypoint);
   const byLoc = d.stock?.byLocation ?? {};
   const locIds = Object.keys(byLoc).map(Number).filter((id) => id !== JITA_44);
   const corpIds = props.lp.filter((b) => b.points > 0).map((b) => b.corporationId);
   const [names, setNames] = useState<Record<number, string>>({});
-  const idKey = [...locIds.filter(isStation), ...corpIds].join(',');
+  // Stations and solar systems have public names; corporations too.
+  const idKey = [...locIds.filter((id) => isStation(id) || isSystem(id)), ...corpIds].join(',');
   useEffect(() => {
     const ids = idKey ? idKey.split(',').map(Number) : [];
     if (!ids.length) return;
@@ -422,21 +427,52 @@ function WhereItSits(props: {
     resolveNames(ids).then((n) => { if (alive) setNames(n); }).catch(() => undefined);
     return () => { alive = false; };
   }, [idKey]);
+  // Player structures only answer to a login with the structures permission, and only if you're on
+  // their access list.
+  const [structs, setStructs] = useState<Record<number, StructureRead>>({});
+  const structKey = locIds.filter(isStructure).join(',');
+  useEffect(() => {
+    const ids = structKey ? structKey.split(',').map(Number) : [];
+    if (!ids.length) return;
+    let alive = true;
+    Promise.all(ids.map(async (id) => [id, await structureInfo(id)] as const))
+      .then((list) => { if (alive) setStructs(Object.fromEntries(list)); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [structKey, auth?.scopes.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const lastTradeAt = (loc: number) => Object.values(d.txs).filter((t) => t.locationId === loc).reduce((m, t) => Math.max(m, Date.parse(t.date)), 0);
-  const rows: { l: string; v: number | null; d: string; flag?: string }[] = [];
+  const place = (id: number): { l: string; named: boolean; note?: string } => {
+    if (isStation(id)) return names[id] ? { l: names[id], named: true } : { l: 'A station', named: false };
+    // Named for the row, but not for "the stock at …" in the note, where it wouldn't read.
+    if (isSystem(id)) return { l: `In space${names[id] ? ` · ${names[id]}` : ''}`, named: false };
+    if (isStructure(id)) {
+      const r = structs[id];
+      if (r?.status === 'found') return { l: r.name, named: true };
+      if (r?.status === 'refused') return { l: 'A structure you can’t see into', named: false, note: 'ESI says you’re not on its access list, so you may not be able to dock there to fetch this' };
+      if (r?.status === 'unchecked') return { l: 'A player structure', named: false, note: 'Add the structure-names permission in Settings to see which' };
+      return { l: 'A player structure', named: false };
+    }
+    return { l: `Location ${id}`, named: false };
+  };
+
+  const rows: Place[] = [];
   const jitaItems = byLoc[JITA_44] ?? d.stock?.jita;
-  if (d.stock) rows.push({ l: 'Jita 4-4 hangar', v: rough ? value(jitaItems) : null, d: `${units(Object.keys(jitaItems ?? {}).length)} kinds of item, loose` });
-  rows.push({ l: 'In sell orders', v: props.sellValue, d: 'Working' });
-  rows.push({ l: 'Buy order escrow', v: props.escrow, d: 'Working' });
+  if (d.stock) rows.push({ k: 'jita', l: 'Jita 4-4 hangar', v: rough ? value(jitaItems) : null, d: `${units(Object.keys(jitaItems ?? {}).length)} kinds of item, loose`, dest: JITA_44, named: true });
+  rows.push({ k: 'sell', l: 'In sell orders', v: props.sellValue, d: 'Working' });
+  rows.push({ k: 'escrow', l: 'Buy order escrow', v: props.escrow, d: 'Working' });
   for (const id of locIds) {
     const v = rough ? value(byLoc[id]) : null;
     const last = lastTradeAt(id);
     const idle = now - last > 30 * DAY;
-    rows.push({ l: isStation(id) ? names[id] ?? `Station ${id}` : 'A player structure', v, d: last ? `Last traded there ${fmtDate(last)}` : 'No trades there that this browser has seen', flag: idle ? 'Idle' : undefined });
+    const p = place(id);
+    const traded = last ? `Last traded there ${fmtDate(last)}` : 'No trades there that this browser has seen';
+    rows.push({ k: `loc:${id}`, l: p.l, v, d: p.note ? `${p.note}. ${traded}` : traded, flag: idle ? 'Idle' : undefined, dest: id, named: p.named });
   }
-  if (d.stock?.nested && Object.keys(d.stock.nested).length) rows.push({ l: 'Inside ships and containers', v: rough ? value(d.stock.nested) : null, d: 'Fitted to ships or packed away' });
+  if (d.stock?.nested && Object.keys(d.stock.nested).length) rows.push({ k: 'nested', l: 'Inside ships and containers', v: rough ? value(d.stock.nested) : null, d: 'Fitted to ships or packed away' });
   for (const b of props.lp.filter((x) => x.points > 0)) {
     rows.push({
+      k: `lp:${b.corporationId}`,
       l: `Loyalty points${names[b.corporationId] ? ` · ${names[b.corporationId]}` : ''}`, v: b.rate != null ? b.valued * b.rate : null, flag: 'Idle',
       d: b.rate == null ? `${units(b.points)} LP, not priced yet — open the Loyalty page`
         : b.valued < b.points ? `${units(b.valued)} of ${units(b.points)} LP at ${b.rate.toFixed(0)} ISK a point — as many as the Loyalty page’s plan could place`
@@ -445,15 +481,36 @@ function WhereItSits(props: {
   }
   const sorted = rows.sort((a, b) => (b.v ?? -1) - (a.v ?? -1));
   const shown = sorted.slice(0, 8);
-  const idleNames = shown.filter((r) => r.flag === 'Idle' && !r.l.startsWith('Loyalty')).map((r) => r.l);
-  const idleLp = shown.some((r) => r.flag === 'Idle' && r.l.startsWith('Loyalty'));
+  const idleNames = shown.filter((r) => r.flag === 'Idle' && r.k.startsWith('loc:') && r.named).map((r) => r.l);
+  const idleElsewhere = shown.some((r) => r.flag === 'Idle' && r.k.startsWith('loc:') && !r.named);
+  const idleLp = shown.some((r) => r.flag === 'Idle' && r.k.startsWith('lp:'));
+  const anyPlace = shown.some((r) => r.dest != null);
+
+  async function go(r: Place) {
+    if (r.dest == null) return;
+    try {
+      await setDestination(r.dest);
+      const what = /^A (player )?structure/.test(r.l) ? 'that structure' : r.l.replace(/^In space · /, '');
+      toast(`Destination set to ${what} in your client. Switch to the game to undock.`, 'info');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'err');
+    }
+  }
+
   return (
     <Panel title="Where your wealth sits">
       <div>
         {shown.map((r) => (
-          <div key={r.l} className="lrow">
+          <div key={r.k} className="lrow">
             <span style={{ minWidth: 0 }}>
-              <span className="lt" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{r.l}{r.flag && <span className="flag" style={{ fontSize: 10, color: 'var(--acc2)', borderColor: 'color-mix(in oklab,var(--acc2) 50%,transparent)' }}>{r.flag}</span>}</span>
+              <span className="lt" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                {r.dest != null && canDest ? (
+                  <button type="button" className="dest-btn" onClick={() => go(r)} data-tip="Set as your autopilot destination in game. It plots the route; you still fly it." data-tip-title="Set destination">
+                    {r.l}<MapPin aria-hidden="true" />
+                  </button>
+                ) : r.l}
+                {r.flag && <span className="flag" style={{ fontSize: 10, color: 'var(--acc2)', borderColor: 'color-mix(in oklab,var(--acc2) 50%,transparent)' }}>{r.flag}</span>}
+              </span>
               <span className="ls">{r.d}</span>
             </span>
             <span className="lv">{r.v == null ? (rough || !props.hasAssets ? '–' : 'Pricing…') : iskBig(r.v)}</span>
@@ -464,9 +521,10 @@ function WhereItSits(props: {
       <p className="note">
         {!d.stock ? 'Hangars aren’t counted: that needs the assets permission.'
           : !d.stock.byLocation ? 'Sync again to see stock at other stations — this sync predates the per-station count.'
-            : idleNames.length || idleLp
-              ? `Idle ISK earns nothing.${idleNames.length ? ` The stock at ${idleNames.slice(0, 2).join(' and ')}${idleNames.length > 2 ? ' and elsewhere' : ''} could be hauled to Jita${idleLp ? ',' : '.'}` : ''}${idleLp ? `${idleNames.length ? ' and the' : ' The'} loyalty points spent from the Loyalty page.` : ''}`
+            : idleNames.length || idleElsewhere || idleLp
+              ? `Idle ISK earns nothing.${idleNames.length || idleElsewhere ? ` The stock at ${idleNames.length ? idleNames.slice(0, 2).join(' and ') : 'the places marked idle'}${idleNames.length > 2 || (idleNames.length && idleElsewhere) ? ' and elsewhere' : ''} could be hauled to Jita${idleLp ? ',' : '.'}` : ''}${idleLp ? `${idleNames.length || idleElsewhere ? ' and the' : ' The'} loyalty points spent from the Loyalty page.` : ''}`
               : 'Everything is either working in orders or at hand in Jita.'}
+        {anyPlace && (canDest ? ' Click a place to set it as your destination in game.' : ' With the set-destination permission, clicking a place would plot a route to it in game.')}
       </p>
     </Panel>
   );

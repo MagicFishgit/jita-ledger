@@ -732,6 +732,13 @@ cv = judgeCourier(job, stn(0.9), stn(0.8), null, LIM, NOWC);
 has('no secure route is flagged', cv.flags, 'noSafeRoute');
 eq('  and that is not a relaxing evening', cv.safe, false);
 has('a low-sec endpoint is flagged', judgeCourier(job, stn(0.9), stn(0.3), 10, LIM, NOWC).flags, 'lowsec');
+// Not asking is not the same as being refused: without the structures permission, the app must not
+// call a structure a scam. It is still not safe, because nobody checked.
+const unasked = { ...unknowable, unchecked: true };
+cv = judgeCourier(job, unasked, unasked, null, LIM, NOWC);
+eq('a structure nobody could ask about is unchecked, not accused', cv.flags.filter((f) => /Unknown|Unchecked/.test(f)), ['endUnchecked', 'startUnchecked']);
+eq('  still not safe', cv.safe, false);
+eq('  and no route claim about places we did not identify', cv.flags.includes('noSafeRoute'), false);
 // An unresolvable endpoint is already the story; don't also claim there is no route.
 if (judgeCourier(job, stn(0.9), unknowable, null, LIM, NOWC).flags.includes('noSafeRoute')) {
   failed++; console.log('  FAIL cannot judge the route to a place we could not resolve');
