@@ -1208,14 +1208,11 @@ const jr = [
   J('10', '2026-09-20T00:00:00Z', 'brokers_fee', -100, { contextId: 7 }), J('11', '2026-09-21T00:00:00Z', 'brokers_fee', -30, { contextId: 7 }),
   J('12', '2026-09-21T00:00:00Z', 'transaction_tax', -80), J('13', '2026-09-21T00:00:00Z', 'planetary_export_tax', -5),
 ];
-const leak = feeLeak(jr, Date.parse('2026-09-01T00:00:00Z'), new Set([7]));
-eq('the first fee on an order is the listing', leak.broker, 100);
-eq('  later ones on it are price changes', leak.relists, 30);
+const leak = feeLeak(jr, Date.parse('2026-09-01T00:00:00Z'), new Set(['11']));
+eq('a fee matched as a price change is one', leak.relists, 30);
+eq('  every other broker fee is a listing', leak.broker, 100);
 eq('sales tax and PI tax are counted', leak.sales + leak.pi, 85);
-// A context that isn't one of your orders (the station, say) can't group fees: they're all listings.
-const stn = [J('20', '2026-09-20T00:00:00Z', 'brokers_fee', -100, { contextId: 60003760 }), J('21', '2026-09-21T00:00:00Z', 'brokers_fee', -40, { contextId: 60003760 })];
-eq('fees sharing a station are not price changes', feeLeak(stn, 0, new Set([7])).relists, 0);
-eq('  they are broker fees', feeLeak(stn, 0, new Set([7])).broker, 140);
+eq('without matches nothing is called a price change', feeLeak(jr, 0).relists, 0);
 const bal = [J('1', '2026-09-20T00:00:00Z', 'x', 1, { balance: 100 }), J('2', '2026-09-21T00:00:00Z', 'x', 1, { balance: 150 })];
 eq('balance after a moment is the last entry before it', balanceAt(bal, Date.parse('2026-09-20T12:00:00Z')), 100);
 eq('the series runs oldest first', balanceSeries(bal, 0).map((p) => p.balance), [100, 150]);
@@ -1345,6 +1342,47 @@ console.log('\n--- recent averages over calendar days ---');
   eq('  where the average is', Math.round(recentAverages(pl0, 7, now).avgVol), 863);
 }
 
+console.log('\n--- matching fees and tax to orders and sales by the second ---');
+{
+  const { matchFees, withHistory, mergeOrders } = await import('../src/lib/feeMatch.ts');
+  const rate = () => ({ f: 0.013, k: 0.013 * 0.2, t: 0.03375 });
+  const O = (id, price, total, remain, issued, isBuy = false) => ({ orderId: id, typeId: 1, isBuy, price, volumeTotal: total, volumeRemain: remain, issued, state: 'open', locationId: 60003760 });
+  const JE = (id, date, refType, amount) => ({ id, date, refType, amount });
+
+  // History: the first sync sees the order; the next sees it at a new price and a new issued time.
+  let o = withHistory(undefined, O(1, 34810, 2039, 2039, '2026-09-26T20:00:00Z'));
+  eq('a new order starts its history', o.seen.length, 1);
+  o = withHistory(o, O(1, 34810, 2030, 2030, '2026-09-26T20:00:00Z'));
+  eq('a fill alone is not a price change', o.seen.length, 1);
+  o = withHistory(o, O(1, 34770, 2030, 2030, '2026-09-27T09:15:04Z'));
+  eq('a new price is a new version', o.seen.map((v) => v.price), [34810, 34770]);
+  const o3 = mergeOrders({ 1: o }, { 1: O(1, 34700, 2030, 2030, '2026-09-27T12:00:00Z') })[1];
+  eq('merging keeps history for orders already stored', o3.seen.length, 3);
+
+  const journal = [
+    JE('a', '2026-09-26T20:00:00Z', 'brokers_fee', -922700), // listing 2,039 at 34,810
+    JE('b', '2026-09-27T09:15:04Z', 'brokers_fee', -183500), // moved to 34,770
+    JE('c', '2026-09-27T09:15:04Z', 'brokers_fee', -5000),   // someone else's order in the same second
+    JE('t1', '2026-09-27T10:00:00Z', 'transaction_tax', -5874.19),
+    JE('t2', '2026-09-27T10:00:00Z', 'transaction_tax', -417.49),
+  ];
+  const sales = [
+    { id: 's1', source: 'esi', typeId: 1, date: '2026-09-27T10:00:00Z', isBuy: false, qty: 5, unitPrice: 34810 },
+    { id: 's2', source: 'esi', typeId: 2, date: '2026-09-27T10:00:00Z', isBuy: false, qty: 1, unitPrice: 12370 },
+  ];
+  const m = matchFees(journal, [o3], sales, rate);
+  const f = m.byOrder.get(1);
+  eq('the listing fee is read from the journal', [f.placement.amount, f.placement.actual], [922700, true]);
+  eq('the price change is matched by its second, and by size over the other fee', [f.relists.length, f.relists[0].amount, f.relists[0].actual], [2, 183500, true]);
+  eq('  and a change seen without a journal entry is estimated', f.relists[1].actual, false);
+  eq('it counts as a price change for the fee leak', [...m.relistIds], ['b']);
+  eq('two sales in one second each get their own tax', [m.taxByTx.get('s1'), m.taxByTx.get('s2')], [5874.19, 417.49]);
+  // First seen after a change: the fee in that second is too small to be a placement.
+  const late = { ...O(9, 1000, 1000, 800, '2026-09-27T11:00:00Z'), seen: [{ issued: '2026-09-27T11:00:00Z', price: 1000, remain: 800 }] };
+  const m2 = matchFees([JE('x', '2026-09-27T11:00:00Z', 'brokers_fee', -2080)], [late], [], rate);
+  eq('a small fee on the first version seen is a change, not the placement', [m2.byOrder.get(9).relists.length, m2.byOrder.get(9).placement.actual], [1, false]);
+}
+
 console.log('\n--- a position: fees belong to the units they were paid for ---');
 {
   const { computePosition } = await import('../src/lib/positions.ts');
@@ -1383,6 +1421,17 @@ console.log('\n--- a position: fees belong to the units they were paid for ---')
   const c2 = computePosition(pos, d2, S);
   eq('an expired order\'s unfilled half is spent', Math.round(-c2.realized), Math.round(0.013 * 9042 * 1000));
   eq('  and its filled half is in the stock\'s cost', Math.round(c2.costOfStock), Math.round(1000 * 9042 + 0.013 * 9042 * 1000));
+  // The sell order moved once to get back on top: its fee, from the journal, comes off profit.
+  const moved = { ...d.orders[3], price: 34770, issued: '2026-09-26T09:00:00Z', seen: [
+    { issued: '2026-09-25T13:00:00Z', price: 34810, remain: 2039 }, { issued: '2026-09-26T09:00:00Z', price: 34770, remain: 2039 }] };
+  const d3 = { ...d, orders: { ...d.orders, 3: moved }, journal: { r: { id: 'r', date: '2026-09-26T09:00:00Z', refType: 'brokers_fee', amount: -184000 } } };
+  const c3 = computePosition(pos, d3, S);
+  eq('a price change is counted', [c3.priceChanges, c3.relistFees, c3.relistsEstimated], [1, 184000, 0]);
+  // It was charged on the 2,039 left then; 5 have sold since, so they carry 5/2,039 of it and the rest is prepaid.
+  eq('  the units sold since carry their share of it', Math.round(c.realized - c3.realized), Math.round(184000 * 5 / 2039));
+  eq('  the rest waits with the units still listed', Math.round(c3.prepaidFees - c.prepaidFees), Math.round(184000 * 2034 / 2039));
+  const cashAfter = 5 * 34810 - 2039 * 9042 - c3.brokerFees - c3.salesTax;
+  eq('  and nothing is lost', Math.round(cashAfter + c3.costOfStock + c3.prepaidFees), Math.round(c3.realized));
 }
 
 console.log('\n--- goals ---');

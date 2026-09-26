@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { effectiveSkills, orderSlots, rates } from '../lib/fees';
 import { skillDogma } from '../lib/market';
 import { feeLeak } from '../lib/wallet';
+import { feeMatchesFor } from '../lib/positions';
 import { monthlyGain, trainingDays, type Pace } from '../lib/training';
 import { SKILL_FALLBACK_IDS, type SkillKey } from '../lib/config';
 import type { Data } from '../lib/store';
@@ -18,7 +19,7 @@ export function recentPace(d: Data): Pace {
     // Every market sale is taxed, tracked by a position or not.
     sales: Object.values(d.txs).filter((t) => !t.isBuy && t.source === 'esi' && Date.parse(t.date) >= from).reduce((a, t) => a + t.qty * t.unitPrice, 0),
     ordersPlaced: Object.values(d.orders).filter((o) => Date.parse(o.issued) >= from).reduce((a, o) => a + o.price * o.volumeTotal, 0),
-    relistFees: feeLeak(Object.values(d.journal), from, new Set(Object.values(d.orders).map((o) => o.orderId))).relists,
+    relistFees: feeLeak(Object.values(d.journal), from, feeMatchesFor(d, d.settings).relistIds).relists,
   };
 }
 

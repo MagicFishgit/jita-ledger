@@ -7,6 +7,7 @@ import { dataGeneration, getData, update, type Data } from './store';
 import { sanitizeSettings, type Settings } from './fees';
 import { readKillmail, type RawKillmail } from './combat';
 import type { JournalEntry, Killmail, Meta, Order, Stock, Tx } from './types';
+import { mergeOrders } from './feeMatch';
 
 const { wallet: WALLET, orders: ORDERS, skills: SKILLS, standings: STANDINGS, assets: ASSETS, loyalty: LOYALTY, killmails: KILLMAILS } = SCOPE;
 
@@ -316,7 +317,9 @@ export async function syncCharacter(): Promise<void> {
       const p: Partial<Data> = { meta: { ...cur.meta, ...metaPatch, syncLog: log } };
       if (fetched.txs) p.txs = { ...cur.txs, ...fetched.txs };
       if (fetched.journal) p.journal = { ...cur.journal, ...fetched.journal };
-      if (fetched.orders) p.orders = { ...cur.orders, ...fetched.orders };
+      // Each order keeps the versions seen before, so a price change shows up as its own event with the
+      // time its fee was charged (see feeMatch.ts).
+      if (fetched.orders) p.orders = mergeOrders(cur.orders, fetched.orders);
       if (fetched.names) p.names = { ...cur.names, ...fetched.names };
       if (fetched.killmails && Object.keys(fetched.killmails).length) p.killmails = { ...cur.killmails, ...fetched.killmails };
       if (allSkills) p.skills = allSkills;

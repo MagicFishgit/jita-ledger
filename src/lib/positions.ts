@@ -1,7 +1,8 @@
 import { JITA_44 } from './constants';
 import { rateAt, rates, type Settings } from './fees';
 import type { Data } from './store';
-import type { HistRow, JournalEntry, Order, Position, Tx } from './types';
+import { matchFees, type FeeMatches } from './feeMatch';
+import type { HistRow, Order, Position, Tx } from './types';
 
 const ts = (iso: string) => Date.parse(iso);
 
@@ -32,31 +33,26 @@ export function unassigned(d: Data): Tx[] {
     .sort((a, b) => ts(b.date) - ts(a.date));
 }
 
-type JournalIndex = { taxByTx: Map<number, number>; brokerByOrder: Map<number, JournalEntry[]> };
-const indexCache = new WeakMap<Record<string, JournalEntry>, JournalIndex>();
+type MatchCache = { journal: unknown; orders: unknown; txs: unknown; hist: unknown; k: number; result: FeeMatches };
+let matchCache: MatchCache | null = null;
 
 /**
- * Sales tax per transaction and broker fees per order, from the journal. Built once per version of
- * the journal rather than once per position: with the whole journal kept, rebuilding it for every
- * position on every render was the slowest thing on the Positions page.
+ * Every order's placement and price-change fees and every sale's tax, matched from the journal by the
+ * second they were charged (see feeMatch.ts). Worked out once per version of the journal, orders and
+ * trades rather than once per position: it looks at all of them.
  */
-function journalIndex(journal: Record<string, JournalEntry>): JournalIndex {
-  const hit = indexCache.get(journal);
-  if (hit) return hit;
-  const taxByTx = new Map<number, number>();
-  const brokerByOrder = new Map<number, JournalEntry[]>();
-  for (const j of Object.values(journal)) {
-    if (j.contextId == null) continue;
-    if (j.refType === 'transaction_tax') taxByTx.set(j.contextId, (taxByTx.get(j.contextId) ?? 0) + Math.abs(j.amount));
-    if (j.refType === 'brokers_fee') {
-      const list = brokerByOrder.get(j.contextId) ?? [];
-      list.push(j);
-      brokerByOrder.set(j.contextId, list);
-    }
-  }
-  const out = { taxByTx, brokerByOrder };
-  indexCache.set(journal, out);
-  return out;
+export function feeMatchesFor(d: Data, s: Settings): FeeMatches {
+  const now = rates(s);
+  const c = matchCache;
+  if (c && c.journal === d.journal && c.orders === d.orders && c.txs === d.txs && c.hist === d.meta.rateHistory && c.k === now.k) return c.result;
+  const rateAtIso = (iso: string) => {
+    const r = rateAt(d.meta.rateHistory, ts(iso), now);
+    // The discount on price changes comes from Advanced Broker Relations, which isn't in the rate history.
+    return { f: r.f, t: r.t, k: (1 - now.d) * r.f };
+  };
+  const result = matchFees(Object.values(d.journal), Object.values(d.orders), Object.values(d.txs), rateAtIso);
+  matchCache = { journal: d.journal, orders: d.orders, txs: d.txs, hist: d.meta.rateHistory, k: now.k, result };
+  return result;
 }
 
 export type TxRow = { tx: Tx; match: Exclude<Match, null>; fee: number; feeActual: boolean };
@@ -69,7 +65,9 @@ export type PositionCalc = {
   sold: number; soldValue: number; avgSell: number | null;
   stock: number; avgCost: number | null; costOfStock: number;
   costOfSold: number; oversold: number;
-  brokerFees: number; brokerActualOrders: number; brokerEstimatedOrders: number; priceChanges: number | null;
+  brokerFees: number; brokerActualOrders: number; brokerEstimatedOrders: number;
+  /** Price changes seen on this position's orders, what they cost, and how many of those fees were estimated. */
+  priceChanges: number; relistFees: number; relistsEstimated: number;
   /**
    * Broker fees paid up front for the part of your open orders that hasn't filled yet: a sell order
    * for 2,000 units pays its whole fee when listed. Kept out of realized profit until those units trade,
@@ -94,7 +92,7 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
   const all = Object.values(d.txs);
   const rows: TxRow[] = [];
 
-  const { taxByTx, brokerByOrder } = journalIndex(d.journal);
+  const matches = feeMatchesFor(d, s);
 
   const events: Ev[] = [];
   let manualFees = 0, salesTax = 0, taxActual = 0, taxEstimated = 0;
@@ -109,7 +107,7 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
       if (tx.fees != null && Number.isFinite(tx.fees)) { fee = tx.fees; feeActual = true; }
       else fee = tx.isBuy ? Math.max(100, r.f * value) : Math.max(100, r.f * value) + r.t * value;
     } else if (!tx.isBuy) {
-      const actual = taxByTx.get(Number(tx.id));
+      const actual = matches.taxByTx.get(tx.id);
       if (actual != null) { fee = actual; feeActual = true; } else fee = r.t * value;
     }
     rows.push({ tx, match: m, fee, feeActual });
@@ -134,24 +132,28 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
   // - units still waiting on an open order are prepaid, and not a cost of anything yet;
   // - units a closed order never filled are simply spent, when the order was placed.
   // A price change is a fee of its own, charged when you make it.
-  let brokerFees = 0, brokerActualOrders = 0, brokerEstimatedOrders = 0, journalBrokerEntries = 0, prepaidFees = 0;
+  let brokerFees = 0, brokerActualOrders = 0, brokerEstimatedOrders = 0, prepaidFees = 0;
+  let priceChanges = 0, relistFees = 0, relistsEstimated = 0;
   let buyFeePool = 0, sellFeePool = 0;
   for (const o of orders) {
-    const js = brokerByOrder.get(o.orderId);
-    let placed: number;
-    if (js && js.length) {
-      brokerActualOrders++;
-      journalBrokerEntries += js.length;
-      const sorted = [...js].sort((a, b) => ts(a.date) - ts(b.date));
-      placed = Math.abs(sorted[0].amount);
-      for (const j of sorted.slice(1)) {
-        const fee = Math.abs(j.amount);
-        brokerFees += fee;
-        events.push({ t: ts(j.date), kind: 'fee', qty: 0, price: 0, fee });
-      }
-    } else {
-      brokerEstimatedOrders++;
-      placed = Math.max(100, rAt(o.issued).f * o.price * o.volumeTotal);
+    const m = matches.byOrder.get(o.orderId);
+    const placed = m ? m.placement.amount : Math.max(100, rAt(o.issued).f * o.price * o.volumeTotal);
+    if (m?.placement.actual) brokerActualOrders++; else brokerEstimatedOrders++;
+    // A price change is a fee on the units left at the time, so it's split the same way as the
+    // placing fee: units that fill afterwards carry their share, units still waiting have it prepaid,
+    // and on an order that closed, the share of units that never filled is spent.
+    for (const r of m?.relists ?? []) {
+      priceChanges++;
+      relistFees += r.amount;
+      if (!r.actual) relistsEstimated++;
+      brokerFees += r.amount;
+      const at = Math.max(1, r.remain);
+      const filled = Math.max(0, Math.min(at, at - o.volumeRemain));
+      const filledShare = r.amount * (filled / at);
+      const unfilledShare = r.amount - filledShare;
+      if (o.state === 'open') prepaidFees += unfilledShare;
+      else if (unfilledShare > 0) events.push({ t: ts(r.at), kind: 'fee', qty: 0, price: 0, fee: unfilledShare });
+      if (o.isBuy) buyFeePool += filledShare; else sellFeePool += filledShare;
     }
     brokerFees += placed;
     const total = Math.max(1, o.volumeTotal);
@@ -162,7 +164,6 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
     else if (unfilledShare > 0) events.push({ t: ts(o.issued), kind: 'fee', qty: 0, price: 0, fee: unfilledShare });
     if (o.isBuy) buyFeePool += filledShare; else sellFeePool += filledShare;
   }
-  const priceChanges = brokerActualOrders > 0 && brokerEstimatedOrders === 0 ? journalBrokerEntries - brokerActualOrders : null;
 
   // Spread each side's filled share over the units the position counts on that side. If nothing on
   // a side is counted, its share is spent when paid rather than lost from the totals.
@@ -220,7 +221,7 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
     sold, soldValue, avgSell: sold ? soldValue / sold : null,
     stock, avgCost: stock > 0 ? basis / stock : null, costOfStock: basis,
     costOfSold, oversold,
-    brokerFees, brokerActualOrders, brokerEstimatedOrders, priceChanges, prepaidFees, buyFeesInStock: feeBasis,
+    brokerFees, brokerActualOrders, brokerEstimatedOrders, priceChanges, relistFees, relistsEstimated, prepaidFees, buyFeesInStock: feeBasis,
     salesTax, taxActual, taxEstimated, manualFees,
     realized, roi: costOfSold > 0 ? realized / costOfSold : null,
     series, buys, sells,

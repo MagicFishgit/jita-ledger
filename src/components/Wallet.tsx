@@ -8,7 +8,7 @@ import { navigate, useAuth, useNow } from '../lib/hooks';
 import { resolveNames, roughPricesShared, setDestination } from '../lib/market';
 import { priceStore, storeRate } from '../lib/lpStore';
 import { rates } from '../lib/fees';
-import { computePosition, countedIn, realizedBetween, type SeriesPoint } from '../lib/positions';
+import { computePosition, countedIn, feeMatchesFor, realizedBetween, type SeriesPoint } from '../lib/positions';
 import { startPosition } from '../lib/actions';
 import { update, useData, type Data } from '../lib/store';
 import { toast } from '../lib/toast';
@@ -266,8 +266,8 @@ export function Wallet() {
   const net = f.inTotal - f.outTotal;
 
   // ---- Fee leak
-  const orderIds = new Set(Object.values(d.orders).map((o) => o.orderId));
-  const leak = feeLeak(journal, since, orderIds);
+  const relistIds = feeMatchesFor(d, d.settings).relistIds;
+  const leak = feeLeak(journal, since, relistIds);
   const tradingIn = f.ins.find((l) => l.key === 'trading')?.amount ?? 0;
   const leakRows = [
     ['Sales tax', leak.sales], ['Broker fees', leak.broker], ['Price changes', leak.relists], ['Planetary customs tax', leak.pi], ['Jump clone fees', leak.clones],
@@ -360,7 +360,7 @@ export function Wallet() {
               </div>
             ))}
           </div>
-          <p className="note small">A broker fee on an order that already paid one is a price change, which is why that line is split out: it’s the fee people most underestimate.</p>
+          <p className="note small">Price changes are split out because they’re the fee people most underestimate. They’re the fees matched to a change in one of your orders’ prices, by the second they were charged; changes the app didn’t see (before it kept order history, or two between syncs) sit in broker fees.</p>
           <button type="button" className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => navigate('omega')}>Which skills would cut this — Skill payback</button>
         </Panel>
         <Panel title="Trading against play">
@@ -413,7 +413,7 @@ export function Wallet() {
         <Unusual d={d} journal={journal} now={now} />
       </div>
 
-      <Report journal={journal} txList={txList} classOf={classOf} m0={m0} now={now} monthName={monthName} describe={describe} characterName={auth?.characterName ?? null} posSeries={posSeries} orders={d.orders} />
+      <Report journal={journal} txList={txList} classOf={classOf} m0={m0} now={now} monthName={monthName} describe={describe} characterName={auth?.characterName ?? null} posSeries={posSeries} />
     </div>
   );
 }
@@ -749,7 +749,6 @@ function Report(props: {
   journal: JournalEntry[]; txList: Tx[]; classOf: (tx: Tx) => TradeClass; m0: number; now: number; monthName: string;
   describe: (e: JournalEntry) => string; characterName: string | null;
   posSeries: { p: Position; series: SeriesPoint[] }[];
-  orders: Data['orders'];
 }) {
   const { journal, txList, classOf, m0, now, monthName } = props;
   const name = useTypeName();
@@ -765,7 +764,7 @@ function Report(props: {
   const best = weeks.length > 1 ? [...weeks].sort((a, b) => b.net - a.net)[0] : null;
   const earners = props.posSeries.map(({ p, series }) => ({ p, v: realizedBetween(series, m0, now) })).sort((a, b) => b.v - a.v);
   const top = earners[0] && earners[0].v > 0 ? earners[0] : null;
-  const fees = feeLeak(journal, m0, new Set(Object.values(props.orders).map((o) => o.orderId))).total;
+  const fees = feeLeak(journal, m0).total;
   const tiles = [
     { l: 'Net', v: iskBigSigned(net), c: net >= 0 ? 'var(--pos)' : 'var(--neg)' },
     { l: 'Best week', v: best ? `${new Date(best.from).getUTCDate()}–${new Date(best.to - 1).getUTCDate()} ${new Date(best.from).toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' })}` : '–' },

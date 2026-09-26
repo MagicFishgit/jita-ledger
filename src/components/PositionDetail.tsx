@@ -123,15 +123,21 @@ export function PositionDetail({ id }: { id: string }) {
   stats.push({
     l: 'Broker fees', v: iskBig(c.brokerFees),
     n: c.prepaidFees > 0 ? `${iskBig(c.prepaidFees)} of it is for orders still waiting to fill, and counts against your profit only as they do` : c.brokerFees ? 'Charged against the units they were paid for' : 'No orders found yet',
-    tip: `A fee charged when you place an order, on the whole order. ${c.brokerActualOrders ? 'Read from your wallet journal where it could be matched to the order.' : 'Worked out from your broker rate: ESI’s journal never says which order a fee was for, so it can’t be matched exactly.'} Each order’s fee is split across its units, so a listing for 2,000 units isn’t counted as a loss on the first 5 that sell.`,
+    tip: `A fee charged when you place an order, on the whole order, plus one each time you change its price. ESI’s journal doesn’t say which order a fee was for, so each is matched to your order by the second it was charged; ${c.brokerEstimatedOrders ? `${units(c.brokerEstimatedOrders)} of ${units(c.brokerActualOrders + c.brokerEstimatedOrders)} orders’ placing fees couldn’t be matched and are worked out from your rate` : 'every order’s placing fee was matched'}. Each order’s fee is split across its units, so a listing for 2,000 units isn’t counted as a loss on the first 5 that sell.`,
   });
   stats.push({
     l: 'Sales tax', v: iskBig(c.salesTax),
     n: c.taxActual && !c.taxEstimated ? 'From your wallet journal' : c.taxActual ? `${units(c.taxEstimated)} of ${units(c.taxActual + c.taxEstimated)} sales worked out from your tax rate` : c.taxEstimated ? 'Worked out from your tax rate' : undefined,
-    tip: 'Charged on every sale. Taken from your wallet journal when the entry can be matched to the sale, otherwise worked out from your tax rate at the time.',
+    tip: 'Charged on every sale. Read from your wallet journal, matched to the sale by the second it happened and its size; worked out from your tax rate at the time when no entry matches.',
   });
   if (c.manualFees > 0) stats.push({ l: 'Fees on manual entries', v: iskBig(c.manualFees) });
-  if (c.priceChanges != null) stats.push({ l: 'Price changes', v: units(c.priceChanges), n: 'Counted from broker fee entries' });
+  stats.push({
+    l: 'Price changes', v: c.priceChanges ? iskBig(c.relistFees) : 'None seen', c: c.priceChanges ? 'var(--acc2)' : undefined,
+    n: c.priceChanges
+      ? `${units(c.priceChanges)} change${c.priceChanges === 1 ? '' : 's'}${c.relistsEstimated ? `; ${units(c.relistsEstimated)} of the fees worked out from your rates` : ', each fee read from your journal'}`
+      : 'Moving an order’s price costs a fee each time; they’ll show here',
+    tip: 'Each time you change an order’s price to get back on top, you pay a fee. The app keeps every version of your orders it sees at each sync: a new price is a change, and its fee is matched to your wallet journal by the second it was charged, or worked out from your rates if no entry matches. Two changes between syncs show as one, and changes made before the app started keeping order history can’t be counted. A change’s fee is charged on the units still on the order, so like the listing fee it comes off your profit a share at a time as those units sell.',
+  });
 
   if (c.stock > 0 && c.avgCost != null && keep > 0) {
     const be = priceUp(breakEvenSell(c.avgCost, r, 0));

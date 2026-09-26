@@ -49,6 +49,13 @@ export type Order = {
   locationId: number;
   /** ISK held back for a buy order. Below price x remaining when Margin Trading is trained. */
   escrow?: number;
+  /**
+   * Every version of this order the app has seen, oldest first. Changing an order's price moves its
+   * `issued` time to the moment of the change, so each entry is a placement or a price change, and its
+   * time is when the fee for it was charged. Only as good as how often the app synced: two changes
+   * between syncs show as one.
+   */
+  seen?: { issued: string; price: number; remain: number }[];
 };
 
 /**

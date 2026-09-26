@@ -113,12 +113,17 @@ Don't re-derive or contradict these without new evidence.
   `structureInfo` now separates *unchecked* (no scope: nothing asked, nothing claimed) from *refused*.
 - **Location IDs tell you what they are by range**: NPC stations 60–64 million, solar systems 30–33 million
   (items in space), player structures from 1,000,000,000,000 up. `isStation` / `isSystem` / `isStructure`.
-- **A wallet journal entry never names an order.** ESI's `context_id_type` can be a transaction,
-  station, structure, character, corporation, alliance, system, industry job, contract, planet or type —
-  not an order. So a broker fee can't be matched to its order, and grouping fees by `context_id` groups
-  them by whatever the context is (a station would lump every Jita fee together). Broker fees are worked
-  out from rates per order; a fee's context is only trusted as an order when it equals one of your
-  order IDs (`feeLeak`'s `orderIds`).
+- **Broker fees and sales tax carry no context at all; they're matched by the second.** Checked on a
+  real journal: 588 `brokers_fee` and 2,473 `transaction_tax` entries, not one with a `context_id`. But
+  385 of the broker fees fell in exactly the second of one of the character's orders' `issued` time,
+  because placing an order — and changing its price, which moves `issued` to that moment — charges the fee
+  then. So `feeMatch.ts` matches a fee to an order version by second (amount breaks ties), and a tax to a
+  sale by second and size. Orders keep every version seen (`Order.seen`, merged in sync), so a new price
+  is a price change whose fee can be found. Two changes between syncs show as one, and changes before
+  order history was kept can't be attributed. Unmatched fees are estimated from rates and say so.
+- **A price-change fee is split like the placing fee**: over the units left on the order when it was
+  charged, so units that fill afterwards carry it and the rest is prepaid. Charging it at once put a
+  position that moved a 2,000-unit listing after selling 5 at −139%.
 - **The client can be given a destination, not an info window for a structure.** `POST /ui/autopilot/waypoint/`
   (`esi-ui.write_waypoint.v1`) takes a solar system, station *or* structure ID and plots the route.
   `/ui/openwindow/information` only opens characters, corporations and alliances.

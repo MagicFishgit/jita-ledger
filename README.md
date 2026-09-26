@@ -125,9 +125,10 @@ Only one position per item can be open at a time. When everything has sold, clos
 
 - **Average cost**: each sale is costed at the average price of the stock you held at that moment.
 - **Sales tax** comes from your wallet journal where ESI links it to the sale, and is estimated from your rates otherwise.
-- **Broker fees** are worked out from your broker rate for each order. ESI's wallet journal never says which order a fee was for (an order ID isn't among the contexts it documents), so they can't be read exactly; if a fee's context ever does match one of your orders, that figure is used instead.
+- **Broker fees** are read from your wallet journal, matched to each order by the second they were charged: placing an order, or changing its price, charges its fee that second. ESI gives no other link. A fee that can't be matched is worked out from your rates, and the page says how many were.
+- **Price changes** are counted from the versions of your orders the app sees at each sync: a new price is a change, and its fee is matched to the journal the same way. Two changes between syncs show as one, and changes from before the app kept order history aren't counted.
+- **Sales tax** is read from the journal, matched to each sale by the second it happened and its size.
 - **Each order's fee belongs to its units.** A buy order's fee becomes part of what the stock cost; a sell order's fee is charged a share at a time as units sell; the share for units still waiting on an open order is shown as fees paid up front, not as a loss. So listing 2,000 units and selling 5 doesn't show as a large loss on the 5.
-- **Price changes** aren't counted on the position page, for the same reason: the journal can't tie a fee to the order it changed.
 
 ## Alpha and Omega
 
@@ -173,7 +174,7 @@ Fees depend on your clone state, because Alpha clones can't use some trade skill
   reads 20 random ones. ESI shuffles order pages by item, so that is a fair 5% sample, but a quiet item can be
   missed. Trading history costs one request per item, so a run checks a few hundred and keeps what it learns —
   scan again to widen the net. Coverage is shown under the filters.
-- **Broker fees are estimates.** ESI's journal can't tie a broker fee to its order, so they're worked out from your rates at the time. Sales tax is read from the journal where the entry can be matched to the sale.
+- **Fee matching goes by the clock.** ESI's journal doesn't say which order a broker fee or which sale a tax was for, so they're matched by the second they were charged. A price change made and undone between two syncs, or two made close together, can be missed.
 - **Tested with mocked ESI responses**, not against the live API. If a route has changed, the error message will say which one.
 
 ## If login fails
