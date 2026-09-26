@@ -25,6 +25,7 @@ export const SCOPES = [
   'esi-ui.open_window.v1', // open an item's market window in the client, so relisting is one click away
   'esi-assets.read_assets.v1', // what you actually hold, to check against what your trades imply
   'esi-characters.read_loyalty.v1', // loyalty point balances, for working out what to spend them on
+  'esi-planets.manage_planets.v1', // your planetary colonies: extractor programmes, output and stored goods
 ];
 
 export const THE_FORGE = 10000002;
@@ -94,6 +95,11 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
     label: 'Assets',
     unlocks: 'Stock reconciliation on positions, and the filaments already in your hangar on the Abyssal page.',
     without: 'Positions cannot check what you hold against what your trades imply.',
+  },
+  'esi-planets.manage_planets.v1': {
+    label: 'Planetary colonies',
+    unlocks: 'Your real colonies on the Planets page: when each extraction programme runs out, what every extractor is pulling an hour, and what is sitting in the launchpads waiting to be collected.',
+    without: 'Planets falls back to the estimator, where you type in an extraction rate yourself. Nothing warns you when a programme has expired.',
   },
   'esi-characters.read_loyalty.v1': {
     label: 'Loyalty points',

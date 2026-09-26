@@ -12,6 +12,7 @@ import { JITA_SYSTEM, NEAR_JITA, scanPlanets, secureJumps } from '../../lib/univ
 import { useData } from '../../lib/store';
 import { Explain } from '../common';
 import { SkillPanel } from './SkillPanel';
+import { Colonies } from './Colonies';
 import { PI_SKILLS } from '../../lib/skills';
 
 const P1S = [...new Set(Object.values(P0_TO_P1))].sort();
@@ -116,6 +117,8 @@ export function Planets() {
         client. So the income below is your own number run through live Jita prices, not a forecast.
         Read the rate off the extractor when you place it and type it in.
       </p>
+
+      <Colonies />
 
       {err && <p className="notice err" role="alert">{err}</p>}
 

@@ -4,6 +4,7 @@ import { GLOBAL_PLEX_MARKET, JITA_44, PLEX_TYPE, THE_FORGE } from './config';
 import { cacheStore } from './store';
 import type { BookLevel, HistRow, MarketSnap } from './types';
 import type { LpOffer } from './loyalty';
+import type { PlanetHead, RawColony } from './colony';
 
 type IdsResponse = {
   inventory_types?: { id: number; name: string }[];
@@ -231,4 +232,24 @@ export type RawContract = {
 /** Every public contract in a region. Public: no login needed. */
 export async function publicContracts(regionId: number): Promise<RawContract[]> {
   return esiAllPages<RawContract>(`/contracts/public/${regionId}/`);
+}
+
+type RawPlanetHead = {
+  planet_id: number; planet_type: string; solar_system_id: number;
+  upgrade_level: number; num_pins: number; last_update: string;
+};
+
+/** The planets you have a command centre on. */
+export async function myPlanets(characterId: number): Promise<PlanetHead[]> {
+  const { data } = await esi<RawPlanetHead[]>(`/characters/${characterId}/planets/`, { auth: true });
+  return data.map((p) => ({
+    planetId: p.planet_id, planetType: p.planet_type, solarSystemId: p.solar_system_id,
+    upgradeLevel: p.upgrade_level, numPins: p.num_pins, lastUpdate: p.last_update,
+  }));
+}
+
+/** One colony's layout: every pin, with extraction programmes and what each is holding. */
+export async function colonyLayout(characterId: number, planetId: number): Promise<RawColony> {
+  const { data } = await esi<RawColony>(`/characters/${characterId}/planets/${planetId}/`, { auth: true });
+  return data;
 }

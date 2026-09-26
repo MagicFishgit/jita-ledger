@@ -8,6 +8,7 @@ import { valueOffer, byIskPerLp, patientPrice, instantPrice, daysToClear, planFo
 import { parseFilament, byTier, runsFrom, TIERS } from '../src/lib/abyssal.ts';
 import { judgeCourier, byRewardPerJump, byUsefulness, roundTrips, tally } from '../src/lib/courier.ts';
 import { parsePlanetType, planetsFor, estimate, inBand, P0_PER_P1, sortSystems } from '../src/lib/pi.ts';
+import { classify, readExtractor, contentsOf, readColony, byAttention, typesIn, valueOf } from '../src/lib/colony.ts';
 import { check, byUrgency as bySkillUrgency, readiness, injectorYield, SP_FLOOR } from '../src/lib/skills.ts';
 import { iskPerHour, RUN_MINUTES } from '../src/lib/abyssal.ts';
 
@@ -852,6 +853,76 @@ eq('safest is the old order', sortSystems(sys, 'safe')[0].name, 'Safe far');
 const pending = [{ name: 'Unknown', security: 0.5, jumps: null }, { name: 'Known', security: 0.5, jumps: 12 }];
 eq('unknown distance sorts last, not first', sortSystems(pending, 'near')[0].name, 'Known');
 eq('  and does not disturb the yield order', sortSystems(pending, 'yield').length, 2);
+
+console.log('\n--- reading a colony, which is mostly about when it stops ---');
+const NOWP = Date.parse('2026-09-26T12:00:00Z');
+const hoursOut = (h) => new Date(NOWP + h * 3600_000).toISOString();
+const extractor = (h, qty = 3000, cycle = 3600) => ({
+  pin_id: 1, type_id: 2848, expiry_time: h == null ? undefined : hoursOut(h),
+  extractor_details: { cycle_time: cycle, product_type_id: 2268, qty_per_cycle: qty, heads: [{ head_id: 0 }, { head_id: 1 }] },
+});
+// Pins say what they are by their shape, so no table of type IDs can go stale.
+eq('an extraction unit is an extractor', classify(extractor(48)), 'extractor');
+eq('a schematic makes it a factory', classify({ pin_id: 2, type_id: 1, factory_details: { schematic_id: 65 } }), 'factory');
+eq('anything else that holds things is storage', classify({ pin_id: 3, type_id: 1, contents: [{ type_id: 2268, amount: 10 }] }), 'storage');
+
+// The state that costs people money: a programme that ended while they were not looking.
+eq('a running programme', readExtractor(extractor(72), NOWP).state, 'running');
+eq('one about to end', readExtractor(extractor(6), NOWP).state, 'endingSoon');
+eq('  and a day out is still "soon"', readExtractor(extractor(23), NOWP).state, 'endingSoon');
+eq('  but three days out is not', readExtractor(extractor(72), NOWP).state, 'running');
+eq('one that has ended', readExtractor(extractor(-5), NOWP).state, 'expired');
+eq('  and it says how long ago', Math.round(readExtractor(extractor(-5), NOWP).hours), -5);
+// An extractor with no programme never started; that is not the same as one that ran out.
+eq('no expiry at all is idle', readExtractor(extractor(null), NOWP).state, 'idle');
+eq('no quantity is idle too', readExtractor(extractor(48, 0), NOWP).state, 'idle');
+// Output per hour comes off the cycle, and an ended programme produces nothing.
+eq('per-hour rate from the cycle', readExtractor(extractor(48, 3000, 1800), NOWP).unitsPerHour, 6000);
+eq('an hour-long cycle is the quantity', readExtractor(extractor(48, 3000, 3600), NOWP).unitsPerHour, 3000);
+eq('an expired programme produces nothing', readExtractor(extractor(-1), NOWP).unitsPerHour, 0);
+eq('and so does an idle one', readExtractor(extractor(null), NOWP).unitsPerHour, 0);
+eq('heads are counted', readExtractor(extractor(48), NOWP).heads, 2);
+
+// Storage is merged across every pin that holds anything.
+eq('contents merge by type', contentsOf([
+  { pin_id: 1, type_id: 1, contents: [{ type_id: 2268, amount: 100 }] },
+  { pin_id: 2, type_id: 1, contents: [{ type_id: 2268, amount: 50 }, { type_id: 2270, amount: 7 }] },
+]), [{ typeId: 2268, amount: 150 }, { typeId: 2270, amount: 7 }]);
+eq('nothing stored is no rows', contentsOf([{ pin_id: 1, type_id: 1 }]).length, 0);
+
+const head = { planetId: 40001, planetType: 'lava', solarSystemId: 30000142, upgradeLevel: 4, numPins: 6, lastUpdate: hoursOut(-1) };
+let col = readColony(head, { pins: [extractor(-3)], links: [{}] }, NOWP);
+has('an ended programme is flagged', col.warnings, 'expired');
+eq('  and nothing is coming out', col.unitsPerHour, 0);
+col = readColony(head, { pins: [extractor(100), extractor(4)], links: [{}] }, NOWP);
+has('one ending soon is flagged even when another is fine', col.warnings, 'endingSoon');
+eq('  and the soonest deadline is the one reported', Math.round(col.soonest), 4);
+eq('  with both still producing', col.unitsPerHour, 6000);
+has('a colony with no extractor is flagged', readColony(head, { pins: [], links: [] }, NOWP).warnings, 'noExtractor');
+has('extracting with nowhere to send it is flagged',
+  readColony(head, { pins: [extractor(100)], links: [] }, NOWP).warnings, 'nothingRouted');
+
+// Trouble first: an expired colony outranks one merely ending soon.
+const ended = readColony(head, { pins: [extractor(-2)], links: [{}] }, NOWP);
+const soon = readColony(head, { pins: [extractor(3)], links: [{}] }, NOWP);
+const fine = readColony(head, { pins: [extractor(200)], links: [{}] }, NOWP);
+eq('what has stopped comes first', [fine, soon, ended].sort(byAttention)[0].warnings[0], 'expired');
+eq('  then what is about to', [fine, soon, ended].sort(byAttention)[1].warnings[0], 'endingSoon');
+
+console.log('\n--- what the colonies are worth ---');
+const withStock = readColony(head, {
+  pins: [extractor(100), { pin_id: 9, type_id: 1, contents: [{ type_id: 2268, amount: 5000 }] }],
+  links: [{}],
+}, NOWP);
+eq('every type touched is offered for pricing', typesIn([withStock]).sort(), [2268]);
+let colVal = valueOf([withStock], () => 100);
+eq('production is per hour at the net price', colVal.perHour, 3000 * 100);
+eq('  and a day is twenty-four of them', colVal.perDay, 3000 * 100 * 24);
+eq('stock already out of the ground is counted apart', colVal.stored, 5000 * 100);
+// An unpriceable item understates the total rather than poisoning it with NaN.
+colVal = valueOf([withStock], () => null);
+eq('nothing priced is zero, not NaN', colVal.perHour, 0);
+eq('  and it says how much it could not price', colVal.unpriced, 2);
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
