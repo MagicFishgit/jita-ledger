@@ -34,11 +34,10 @@ export const BACKUP_DAYS = 14;
 function raise(f: Finding, test = false) {
   const entry: AlertLogEntry = { at: new Date().toISOString(), kind: f.kind, key: f.key, title: f.title, text: f.text, test: test || undefined };
   update((d) => ({ alertLog: [entry, ...d.alertLog].slice(0, 200) }));
-  toast((test ? 'Test alert — ' : '') + f.text, f.kind === 'move' || f.kind === 'scam' || f.kind === 'squeeze' ? 'warn' : 'info');
+  // The system notification rides on the toast, so it queues and times out by the same settings.
   const cfg = getData().alerts;
-  if (cfg.browser && typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.hidden) {
-    try { new Notification('Jita Ledger', { body: f.text, tag: f.key }); } catch { /* some browsers refuse outside a service worker */ }
-  }
+  toast((test ? 'Test alert — ' : '') + f.text, f.kind === 'move' || f.kind === 'scam' || f.kind === 'squeeze' ? 'warn' : 'info',
+    { system: cfg.browser ? { title: `Jita Ledger · ${f.title}`, tag: f.key } : undefined });
 }
 
 export function testAlert() {

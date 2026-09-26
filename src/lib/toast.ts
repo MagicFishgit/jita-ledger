@@ -10,7 +10,9 @@ import { useSyncExternalStore } from 'react';
  * close it, and hovering holds the clock. Nothing important should live only in a toast either way.
  */
 export type ToastKind = 'ok' | 'info' | 'warn' | 'err';
-export type Toast = { id: string; text: string; kind: ToastKind };
+/** A toast can also appear as a system notification, for when this tab isn't the one in front. */
+export type ToastSystem = { title: string; tag?: string };
+export type Toast = { id: string; text: string; kind: ToastKind; system?: ToastSystem };
 export type ToastState = { list: Toast[]; lifeMs: number | null; paused: boolean };
 
 /** How long a toast stays when nothing else is set. */
@@ -26,6 +28,28 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let frontId: string | null = null;
 let remaining = 0;
 let startedAt = 0;
+let shown: { id: string; n: Notification } | null = null;
+
+/**
+ * The system notification follows the queue too: it's shown when its toast comes to the front, and
+ * closed when that toast goes. So a burst arrives one at a time there as well, each for as long as you
+ * set, and "until closed" asks the system to keep it until you dismiss it. Only while this tab is in
+ * the background: when you're looking at the page, the toast is enough.
+ */
+function showSystem(t: Toast) {
+  closeSystem();
+  if (!t.system || typeof Notification === 'undefined' || typeof document === 'undefined') return;
+  if (Notification.permission !== 'granted' || !document.hidden) return;
+  try {
+    const n = new Notification(t.system.title, { body: t.text, tag: t.system.tag, requireInteraction: state.lifeMs == null });
+    n.onclick = () => { window.focus(); dismiss(t.id); };
+    shown = { id: t.id, n };
+  } catch { /* some browsers refuse outside a service worker */ }
+}
+function closeSystem() {
+  try { shown?.n.close(); } catch { /* already gone */ }
+  shown = null;
+}
 
 function stop() {
   if (timer) clearTimeout(timer);
@@ -36,17 +60,17 @@ function stop() {
 function arm() {
   stop();
   const front = state.list[0];
-  if (!front) { frontId = null; return; }
-  if (front.id !== frontId) { frontId = front.id; remaining = state.lifeMs ?? Infinity; }
+  if (!front) { frontId = null; closeSystem(); return; }
+  if (front.id !== frontId) { frontId = front.id; remaining = state.lifeMs ?? Infinity; showSystem(front); }
   if (state.paused || state.lifeMs == null) return;
   startedAt = Date.now();
   const id = front.id;
   timer = setTimeout(() => dismiss(id), remaining);
 }
 
-export function toast(text: string, kind: ToastKind = 'ok'): void {
+export function toast(text: string, kind: ToastKind = 'ok', opts: { system?: ToastSystem } = {}): void {
   const id = Math.random().toString(36).slice(2);
-  let list = [...state.list, { id, text, kind }];
+  let list = [...state.list, { id, text, kind, system: opts.system }];
   if (list.length > MAX_QUEUED) list = [list[0], ...list.slice(list.length - MAX_QUEUED + 1)];
   set({ list });
   if (list.length === 1) arm();
@@ -55,14 +79,18 @@ export function toast(text: string, kind: ToastKind = 'ok'): void {
 export function dismiss(id: string): void {
   if (!state.list.some((t) => t.id === id)) return;
   const wasFront = state.list[0].id === id;
-  set({ list: state.list.filter((t) => t.id !== id) });
+  const list = state.list.filter((t) => t.id !== id);
+  // Closing the last one while hovering it removes the stack from under the pointer, so the "pointer
+  // left" that would resume the clock never fires. An empty queue can't be paused.
+  set(list.length ? { list } : { list, paused: false });
   if (wasFront) arm();
 }
 
 export function dismissAll(): void {
   stop();
   frontId = null;
-  set({ list: [] });
+  closeSystem();
+  set({ list: [], paused: false });
 }
 
 /** Hold the front toast's clock while the pointer is over it, so it can't vanish mid-read. */

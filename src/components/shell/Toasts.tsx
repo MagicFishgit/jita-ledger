@@ -38,7 +38,13 @@ export function Toasts({ size }: { size: number }) {
         </div>
       )}
       {front && (
-        <div className="toast-stack" onMouseEnter={pauseToasts} onMouseLeave={resumeToasts} onFocus={pauseToasts} onBlur={resumeToasts}>
+        <div
+          className="toast-stack" onMouseLeave={resumeToasts}
+          // Hold the clock only when the pointer actually moves onto it. A new alert appearing under a
+          // pointer resting in the corner gets a synthetic hover with no movement, and would otherwise
+          // stay paused until the mouse happened to move.
+          onPointerMove={(e) => { if (e.movementX || e.movementY) pauseToasts(); }}
+        >
           {waiting.slice(0, GHOSTS).map((t, i) => (
             <div key={t.id} className="toast ghost" aria-hidden="true" style={{ ['--c' as string]: LOOK[t.kind].c, ['--i' as string]: i + 1 }} />
           ))}

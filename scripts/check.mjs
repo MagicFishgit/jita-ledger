@@ -1416,6 +1416,15 @@ console.log('\n--- toasts queue, one at a time ---');
   eq('"until closed" keeps it', now().list.map((t) => t.text), ['third']);
   T.dismiss(now().list[0].id);
   eq('closing it empties the queue', now().list.length, 0);
+  // Hovering the last one and closing it takes the stack away before the pointer can leave it. The
+  // next alert must still run its clock, not sit there paused for ever.
+  T.setToastLife(0.06);
+  T.toast('hovered');
+  T.pauseToasts();
+  T.dismiss(now().list[0].id);
+  T.toast('next');
+  await wait(90);
+  eq('closing the last one while hovering does not leave the queue paused', now().list.length, 0);
   T.setToastLife(10);
 }
 
