@@ -110,6 +110,7 @@ export const HAULING_SKILLS: Need[] = [
   { name: 'Navigation', level: 3, why: 'Sub-warp speed, which decides how long you sit on a gate looking edible.' },
   { name: 'Transport Ships', level: 1, why: 'Deep Space Transports and Blockade Runners — far more hit points or far more agility. Needs a racial hauler at V first.', optional: true },
   { name: 'Advanced Spaceship Command', level: 5, why: 'The gate to freighters. A long train, and only worth it if you mean to do this properly.', optional: true },
+  { name: 'Industrial Command Ships', level: 1, why: 'Flies the Orca, which is ORE\u2019s contribution to hauling: 30,000 m\u00b3 of hold and a 40,000 m\u00b3 fleet hangar, both of which a courier package can travel in. It is not a racial line, so it stands on its own.', optional: true },
   {
     name: 'Racial freighter', level: 1, anyOf: FREIGHTERS_BY_RACE, optional: true,
     why: 'Most of the big courier contracts are freighter-sized and simply invisible to you without one. Again any race will do, so follow whichever hauler line you already have.',

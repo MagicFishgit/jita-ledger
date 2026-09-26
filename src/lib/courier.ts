@@ -132,18 +132,41 @@ export function byUsefulness(a: CourierVerdict, b: CourierVerdict): number {
 }
 
 /**
- * Ships people actually haul in, so the volume limit isn't a number pulled from the air.
+ * Ships people actually haul in, with the cargo a bare hull holds.
  *
- * Named by class rather than by hull, with examples from more than one race: every race has a ship
- * in each of these rows, and which one you fly changes nothing about whether the cargo fits.
+ * Every figure is the base capacity read off ESI, and for the hulls with a fleet hangar it is the
+ * cargo hold plus that hangar, since a courier package can travel in either --- which is the whole
+ * reason a Deep Space Transport with a 3,900 m3 hold is the standard ship for 50,000 m3 contracts.
+ *
+ * They are a starting point and nothing more: expanders, rigs and the freighter skill all move the
+ * number a long way, and only your fitting window knows the truth. So the field they fill in stays
+ * editable.
+ *
+ * Classes rather than hulls, with a ship from each race, because which race you fly changes nothing
+ * about whether the cargo fits. The Bowhead is deliberately absent --- see ORE_NOTE.
  */
 export const HAULERS: { name: string; m3: number }[] = [
-  { name: 'Industrial (Badger, Wreathe, Iteron, Sigil)', m3: 5000 },
-  { name: 'Tech 2 hauler (Crane, Prowler, Viator, Bustard)', m3: 6000 },
-  { name: 'Deep Space Transport (Occator, Impel, Mastodon, Bustard)', m3: 62000 },
-  { name: 'Jump Freighter (Rhea, Anshar, Ark, Nomad)', m3: 360000 },
-  { name: 'Freighter (Charon, Obelisk, Providence, Fenrir)', m3: 1100000 },
+  { name: 'Industrial — Iteron Mark V, Badger, Wreathe, Sigil', m3: 5800 },
+  { name: 'Blockade Runner — Crane, Viator, Prowler, Prorator', m3: 4300 },
+  { name: 'Deep Space Transport — Bustard, Mastodon, Occator, Impel', m3: 55000 },
+  { name: 'Orca (ORE, Industrial Command Ships)', m3: 70000 },
+  { name: 'Jump Freighter — Rhea, Anshar, Ark, Nomad', m3: 144000 },
+  { name: 'Freighter — Charon, Obelisk, Providence, Fenrir', m3: 465000 },
 ];
+
+/**
+ * Why ORE's freighter is not in the freighter list.
+ *
+ * The Bowhead's 1,600,000 m3 bay carries assembled ships and nothing else; its actual cargo hold is
+ * 4,000 m3, smaller than a Badger's. Treating ORE Freighter as satisfying the freighter requirement
+ * would tell someone they could take a 400,000 m3 contract in a ship that holds four thousand.
+ * The Orca is a different matter and is listed above: 30,000 of hold plus a 40,000 fleet hangar is
+ * a real hauler, and it is the ORE ship that belongs here.
+ */
+export const ORE_NOTE =
+  'ORE builds industrials too, but only one of them helps here. The Orca carries 70,000 m3 of general '
+  + 'cargo and is in the list above. The Bowhead is not: its enormous bay takes assembled ships only, '
+  + 'and its actual cargo hold is 4,000 m3 — smaller than a Badger.';
 
 /**
  * A job to take out and one to bring back.

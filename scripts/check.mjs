@@ -6,7 +6,7 @@ import { dueForSync } from '../src/lib/schedule.ts';
 import { adviseRelist, byUrgency, weightedLevel, marketBest } from '../src/lib/relist.ts';
 import { valueOffer, byIskPerLp, patientPrice, instantPrice, daysToClear, planFor, notesFor, spendPlan } from '../src/lib/loyalty.ts';
 import { parseFilament, byTier, runsFrom, TIERS } from '../src/lib/abyssal.ts';
-import { judgeCourier, byRewardPerJump, byUsefulness, roundTrips, tally } from '../src/lib/courier.ts';
+import { judgeCourier, byRewardPerJump, byUsefulness, roundTrips, tally, HAULERS } from '../src/lib/courier.ts';
 import { parsePlanetType, planetsFor, estimate, inBand, P0_PER_P1, sortSystems } from '../src/lib/pi.ts';
 import { classify, readExtractor, contentsOf, readColony, byAttention, typesIn, valueOf } from '../src/lib/colony.ts';
 import { check, byUrgency as bySkillUrgency, readiness, injectorYield, SP_FLOOR, skillsOf, trainedOptions, HAULING_SKILLS } from '../src/lib/skills.ts';
@@ -750,6 +750,24 @@ eq('the takeable job is listed first', [bigPay, canDo].sort(byUsefulness)[0].c.r
 eq('  and the sort is still by pay within each group',
   [canDo, judgeCourier({ ...job, reward: 40_000_000, volume: 5_000 }, stn(0.9), stn(0.8), 10, LIM, NOWC)]
     .sort(byUsefulness)[0].c.reward, 40_000_000);
+
+console.log('\n--- what a hauler actually holds ---');
+// These were wrong once: "freighter = 1,100,000" was an expanded fit presented as the hull. A
+// Charon holds 465,000 before rigs, and telling someone otherwise sends them to a contract they
+// cannot pick up. Guard the order of magnitude rather than the exact figure.
+const cap = Object.fromEntries(HAULERS.map((h) => [h.name.split(' ')[0], h.m3]));
+eq('a freighter is a few hundred thousand, not a million', cap.Freighter, 465000);
+eq('a jump freighter holds less than a freighter', cap.Jump < cap.Freighter, true);
+eq('a DST holds more than an industrial', cap['Deep'] > cap.Industrial, true);
+eq('an Orca beats a DST', cap['Orca'] > cap['Deep'], true);
+// A blockade runner is small: it survives by being quick, not by being big.
+eq('a blockade runner is the smallest of them', Math.min(...HAULERS.map((h) => h.m3)), cap.Blockade);
+// The Bowhead must never appear as a freighter: its hold is 4,000, the bay takes ships only.
+if (HAULERS.some((h) => /Bowhead/i.test(h.name))) {
+  failed++; console.log('  FAIL the Bowhead carries assembled ships, not courier cargo');
+}
+// Every preset must be a real, positive volume.
+if (HAULERS.some((h) => !(h.m3 > 0))) { failed++; console.log('  FAIL a hauler preset with no capacity'); }
 
 console.log('\n--- planets ---');
 eq('ESI planet type names parse', parsePlanetType('Planet (Barren)'), 'Barren');

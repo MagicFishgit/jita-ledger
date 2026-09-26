@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
-  byUsefulness, HAULERS, judgeCourier, roundTrips, tally, UNSAFE,
+  byUsefulness, HAULERS, judgeCourier, ORE_NOTE, roundTrips, tally, UNSAFE,
   type CourierContract, type CourierFlag, type CourierLimits, type Endpoint,
 } from '../../lib/courier';
 import { iskBig, plainNum, units } from '../../lib/format';
@@ -54,7 +54,8 @@ const FLAG: Record<CourierFlag, { short: string; why: string }> = {
   },
 };
 
-const DEFAULTS: CourierLimits = { maxVolume: 62000, maxCollateral: 500_000_000, minRewardPerJump: 500_000 };
+// A Deep Space Transport: the ship most people doing this for a quiet evening are actually in.
+const DEFAULTS: CourierLimits = { maxVolume: 55_000, maxCollateral: 500_000_000, minRewardPerJump: 500_000 };
 
 export function Courier() {
   // What was fetched, kept separate from what it means. Judging happens at render against the
@@ -139,12 +140,24 @@ export function Courier() {
           <div className="field">
             <label htmlFor="h-ship">What you haul in</label>
             <select
-              id="h-ship" value={limits.maxVolume}
+              id="h-ship" value={HAULERS.some((h) => h.m3 === limits.maxVolume) ? limits.maxVolume : ''}
               onChange={(e) => setLimits((l) => ({ ...l, maxVolume: Number(e.target.value) }))}
             >
+              {!HAULERS.some((h) => h.m3 === limits.maxVolume) && <option value="">Your own figure</option>}
               {HAULERS.map((h) => <option key={h.name} value={h.m3}>{h.name} — {units(h.m3)} m³</option>)}
             </select>
-            <span className="hint">Contracts bigger than this are marked too big</span>
+            <span className="hint">Base hulls, from the game data</span>
+          </div>
+          <div className="field">
+            <label htmlFor="h-vol">Cargo you can actually carry (m³)</label>
+            <input
+              id="h-vol" type="text" inputMode="decimal" value={plainNum(limits.maxVolume)}
+              onChange={(e) => {
+                const n = parseFloat(e.target.value.replace(/[^0-9.]/g, ''));
+                setLimits((l) => ({ ...l, maxVolume: Number.isFinite(n) ? n : 0 }));
+              }}
+            />
+            <span className="hint">Expanders, rigs and skills move this a long way — your fitting window has the real number</span>
           </div>
           <div className="field">
             <label htmlFor="h-coll">Most collateral I’ll front</label>
@@ -173,6 +186,7 @@ export function Courier() {
           <input type="checkbox" checked={safeOnly} onChange={(e) => setSafeOnly(e.target.checked)} />
           <span>Only show contracts that pass the safety checks</span>
         </label>
+        <p className="small muted" style={{ margin: '12px 0 0' }}>{ORE_NOTE}</p>
       </div>
 
       {busy && <p className="notice" role="status"><span className="spinner" aria-hidden="true" />{busy}</p>}
