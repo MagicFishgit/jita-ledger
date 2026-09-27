@@ -181,7 +181,9 @@ Fees depend on your clone state, because Alpha clones can't use some trade skill
   They're sent from a second character of yours (any one, on the same account or not, and it needn't be online)
   because a mail you send yourself only shows in game after you log in again: EVE doesn't tell the client. The
   second login asks only to send mail and delete what it sent. If your main charges for mail from strangers
-  (CSPA), add the sender as a contact. It's off until you turn it on in Settings → Alerts, only ever goes to your own character, puts everything one
+  (CSPA), add the sender as a contact. Each alert starts with what to do ("RECOMMENDED: move your sell order down to 1,228,900 ISK"), then
+  your price against the best, what moving costs, the queue ahead and how long it takes to clear; the subject
+  line says the same. It's off until you turn it on in Settings → Alerts, only ever goes to your own character, puts everything one
   check found in a single mail, and by default only mails what you can act on in game (an order worth moving, a
   planet about to stop). Clicking an item's name in the mail opens its market window: the client
   asks before following the link (you can tell it not to), your browser opens the app, and the app asks the

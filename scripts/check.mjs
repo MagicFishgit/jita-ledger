@@ -1571,7 +1571,7 @@ console.log('\n--- alert mail ---');
   eq('keep times read naturally', [30, 60, 360, 1440, 4320, 10080].map(keepSaid), ['30 minutes', 'an hour', '6 hours', 'a day', '3 days', 'a week']);
   eq('a short keep is tidied often enough', [30, 60, 1440].map((m) => tidyEvery(m) / 60_000), [5, 10, 60]);
   const two = alertMail([move, pi], { appUrl: 'https://x.test/', keepMin: null });
-  eq('two alerts: one mail, counted', two.subject, 'Jita Ledger: 2 alerts');
+  eq('two alerts: one mail, both named in the subject', two.subject, 'Jita Ledger: Order worth moving · PI programme ending');
   eq('  both in the body', two.body.includes('Tama: an extraction') && two.body.includes('market=2185'), true);
   eq('  kept mails say so', two.body.includes('Alert mails are kept'), true);
   eq('a PI alert alone links to Tonight', alertMail([pi], { appUrl: 'u/', keepMin: 1440 }).body.includes('u/#tonight'), true);
@@ -1587,6 +1587,37 @@ console.log('\n--- alert mail ---');
   eq('  and stays under ESI’s 10,000 characters', big.body.length <= 10000, true);
   const huge = alertMail(Array.from({ length: 15 }, (_, i) => ({ ...move, key: 'h' + i, text: 'Hammerhead II ' + 'y'.repeat(900) })), { appUrl: '', keepMin: 4320 });
   eq('long alerts are dropped whole to fit', huge.body.length <= 10000 && huge.body.endsWith('Settings → Alerts.</font>') && huge.body.includes('more in the app'), true);
+
+  // With the order check's facts, a mail says what to do and why.
+  const facts = { verdict: 'move', isBuy: false, price: 1234000, best: 1229000, gap: 5000, newPrice: 1228900, volumeRemain: 12,
+    give: 61200, fee: 3100, cost: 64300, atRisk: 14808000, aheadUnits: 40, aheadOrders: 3, hoursToFront: 6.2, why: '40 ahead of you, about 6 h of waiting' };
+  const at = Date.parse('2026-09-27T12:00:00Z');
+  const rich = alertMail([{ ...move, order: facts }], { appUrl: 'u/', keepMin: 30, now: at });
+  eq('an order alert says plainly what to do', rich.body.includes('RECOMMENDED: move your sell order down to 1,228,900 ISK'), true);
+  eq('  and the subject says it too', rich.subject, 'Jita Ledger: move Hammerhead II sell to 1,228,900');
+  eq('  with yours against the best, and by how much', rich.body.includes('1,234,000') && rich.body.includes('1,229,000') && rich.body.includes('(beaten by 5,000)'), true);
+  eq('  what moving costs, split', rich.body.includes('64,300 ISK') && rich.body.includes('61,200 ISK lower price + 3,100 ISK fee') && rich.body.includes('14.81 M ISK'), true);
+  eq('  and the queue ahead', rich.body.includes('3 orders, 40 units') && rich.body.includes('about 6 h to clear'), true);
+  eq('  the name is still the market link', rich.body.includes('<a href="u/#orders?market=2185">Hammerhead II</a>'), true);
+  const buyUp = alertMail([{ ...move, order: { ...facts, isBuy: true } }], { appUrl: 'u/', keepMin: 30, now: at });
+  eq('a buy order moves up', buyUp.body.includes('move your buy order up to'), true);
+  const hold = alertMail([{ ...move, kind: 'clearing', title: 'Beaten but clearing', order: { ...facts, verdict: 'wait', why: 'Only 4 ahead of you, about 20 min at this item\'s pace', hoursToFront: Infinity } }], { appUrl: 'u/', keepMin: 30, now: at });
+  eq('a hold says so, with the reason', hold.body.includes('RECOMMENDED: leave it where it is') && hold.body.includes('<i>Only 4 ahead of you'), true);
+  eq('  and no cost of moving', hold.body.includes('Moving costs'), false);
+  eq('  an unknown pace is said, not guessed', hold.body.includes('too little trading history'), true);
+  eq('  its subject', hold.subject, 'Jita Ledger: Hammerhead II beaten, but hold');
+  const piF = { kind: 'pi', key: 'p', title: 'PI programme ending', text: 'Tama: ends in 3 h.', pi: { system: 'Tama', systemId: 30002813, planetType: 'barren', product: 'Base Metals', ends: at + 3 * 3600_000 } };
+  const piMail = alertMail([piF], { appUrl: 'u/', keepMin: 30, now: at });
+  eq('a PI alert names the system as an in-game link', piMail.body.includes('<a href="showinfo:5//30002813">Tama</a>'), true);
+  eq('  the planet and what it extracts', piMail.body.includes('Barren planet · extracting Base Metals'), true);
+  eq('  and when to reset it, in EVE time', /RECOMMENDED: reset the extractor heads before 27 Sept?, 15:00 ET/.test(piMail.body), true);
+  eq('  its subject', piMail.subject, 'Jita Ledger: PI ends in 3 h in Tama');
+  const ended = alertMail([{ ...piF, title: 'PI programme ended', pi: { ...piF.pi, ends: at - 3600_000 } }], { appUrl: 'u/', keepMin: 30, now: at });
+  eq('an ended programme is red and says it has stopped', ended.body.includes('ff6b7d') && ended.body.includes('it has stopped') && ended.subject === 'Jita Ledger: PI stopped in Tama', true);
+  const both = alertMail([piF, { ...move, order: facts }], { appUrl: 'u/', keepMin: 30, now: at });
+  eq('the order comes first, whatever order they were found in', both.subject, 'Jita Ledger: move Hammerhead II sell to 1,228,900 · PI ends in 3 h in Tama');
+  eq('  in the body too', both.body.indexOf('ORDER WORTH MOVING') < both.body.indexOf('PI PROGRAMME ENDING'), true);
+  eq('nothing EVE can’t draw', /&nbsp;|<hr|×/.test(both.body + rich.body + hold.body + ended.body), false);
 
   const now = Date.parse('2026-09-27T12:00:00Z');
   const h = (from, subject, daysAgo) => ({ from, subject, timestamp: new Date(now - daysAgo * 86400_000).toISOString() });

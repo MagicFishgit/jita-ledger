@@ -1,11 +1,12 @@
 import { useSyncExternalStore } from 'react';
 import { getAuth } from './auth';
-import { ALERT_LABELS, shouldAlert, tidyEvery, type Finding } from './alerts';
+import { ALERT_LABELS, shouldAlert, tidyEvery, type Finding, type OrderFacts } from './alerts';
 import { readColonies } from './colonyStore';
 import { breakEvenSpread, rates } from './fees';
 import { iskBig } from './format';
 import { canMail, cleanupAlertMails, sendAlertMail } from './mailAlerts';
 import { checkOrders, costBasis, getOrderCheck, jitaOpen, verdicts } from './orderCheck';
+import type { Relist } from './relist';
 import { squeezed } from './signals';
 import { getData, update } from './store';
 import { toast } from './toast';
@@ -68,20 +69,36 @@ async function mailFindings(raised: Finding[]): Promise<void> {
   try { await sendAlertMail(send); setState({ mailError: null }); } catch (e) { mailFailed(SEND_FAILED, e); }
 }
 
+const facts = (x: Relist): OrderFacts => ({
+  verdict: x.verdict, isBuy: x.isBuy, price: x.price, best: x.best, gap: x.gap, newPrice: x.newPrice, volumeRemain: x.volumeRemain,
+  give: x.give, fee: x.fee, cost: x.cost, atRisk: x.atRisk, aheadUnits: x.aheadUnits, aheadOrders: x.aheadOrders, hoursToFront: x.hoursToFront, why: x.why,
+});
+
 /**
- * A test mail, about an item you actually have an order on if there is one, so its link can be tried.
- * Returns true once ESI has accepted it.
+ * A test mail. It's built from one of your real orders against the live book when there is one, so
+ * what arrives is exactly what an alert about it would say, today. Returns true once ESI accepted it.
  */
 export async function testMail(): Promise<boolean> {
-  const d = getData();
-  const o = Object.values(d.orders).find((x) => x.state === 'open') ?? null;
-  const typeId = o?.typeId ?? 34;
-  const name = d.names[typeId] ?? (o ? `Item #${typeId}` : 'Tritanium');
+  let finding: Finding | null = null;
   try {
-    await sendAlertMail([{
-      kind: 'move', key: 'test', title: ALERT_LABELS.move.label, typeId, name,
-      text: `${name}: this is how an order worth moving will be announced. Click the item’s name to open its market in game.`,
-    }], true);
+    if (getAuth() && jitaOpen(getData()).length) {
+      await checkOrders(false);
+      const d = getData();
+      const list = verdicts(d, getOrderCheck(), costBasis(d)).filter((x) => !x.gone);
+      const x = list.find((v) => v.verdict === 'move') ?? list.find((v) => v.beaten) ?? list[0];
+      if (x) {
+        const name = d.names[x.typeId] ?? `Item #${x.typeId}`;
+        const title = x.verdict === 'move' ? ALERT_LABELS.move.label : x.beaten ? 'Order beaten' : 'Order at the front';
+        finding = { kind: x.verdict === 'move' ? 'move' : 'clearing', key: 'test', title, typeId: x.typeId, name, text: `${name}: ${x.why}.`, order: facts(x) };
+      }
+    }
+  } catch { /* no live book: fall back to a plain test */ }
+  if (!finding) {
+    finding = { kind: 'move', key: 'test', title: ALERT_LABELS.move.label, typeId: 34, name: 'Tritanium',
+      text: 'Tritanium: this is how an alert will be announced. You have no open orders in Jita to build a real example from.' };
+  }
+  try {
+    await sendAlertMail([finding], true);
     setState({ mailError: null });
     return true;
   } catch (e) { mailFailed(SEND_FAILED, e); return false; }
@@ -106,10 +123,10 @@ export async function runChecks(): Promise<void> {
       for (const x of list) {
         const side = x.isBuy ? 'buy' : 'sell';
         if (x.verdict === 'move') {
-          findings.push({ kind: 'move', key: `move:${x.orderId}:${x.newPrice}`, isk: x.atRisk, title: ALERT_LABELS.move.label, typeId: x.typeId, name: names(x.typeId),
+          findings.push({ kind: 'move', key: `move:${x.orderId}:${x.newPrice}`, isk: x.atRisk, title: ALERT_LABELS.move.label, typeId: x.typeId, name: names(x.typeId), order: facts(x),
             text: `${names(x.typeId)} ${side} order beaten — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK (costs ${iskBig(x.cost)}).` });
         } else if (x.verdict === 'wait' && x.beaten) {
-          findings.push({ kind: 'clearing', key: `clear:${x.orderId}:${x.best}`, isk: x.atRisk, title: ALERT_LABELS.clearing.label, typeId: x.typeId, name: names(x.typeId),
+          findings.push({ kind: 'clearing', key: `clear:${x.orderId}:${x.best}`, isk: x.atRisk, title: ALERT_LABELS.clearing.label, typeId: x.typeId, name: names(x.typeId), order: facts(x),
             text: `${names(x.typeId)} ${side} order is beaten, but ${x.why.charAt(0).toLowerCase() + x.why.slice(1)}.` });
         }
       }
@@ -146,8 +163,9 @@ export async function runChecks(): Promise<void> {
         for (const e of c.extractors) {
           if (e.expiry == null) continue;
           const h = (e.expiry - Date.now()) / 3600_000;
-          if (h <= 0) findings.push({ kind: 'pi', key: `pi:${e.pinId}:${e.expiry}:ended`, title: 'PI programme ended', text: `${sys}: an extraction programme has ended. It earns nothing until you reset the heads.` });
-          else if (h <= 24) findings.push({ kind: 'pi', key: `pi:${e.pinId}:${e.expiry}:soon`, title: 'PI programme ending', text: `${sys}: an extraction programme ends in ${Math.max(1, Math.round(h))} h.` });
+          const pi = { system: sys, systemId: c.head.solarSystemId, planetType: c.head.planetType, product: e.productTypeId ? getData().names[e.productTypeId] ?? null : null, ends: e.expiry };
+          if (h <= 0) findings.push({ kind: 'pi', key: `pi:${e.pinId}:${e.expiry}:ended`, title: 'PI programme ended', text: `${sys}: an extraction programme has ended. It earns nothing until you reset the heads.`, pi });
+          else if (h <= 24) findings.push({ kind: 'pi', key: `pi:${e.pinId}:${e.expiry}:soon`, title: 'PI programme ending', text: `${sys}: an extraction programme ends in ${Math.max(1, Math.round(h))} h.`, pi });
         }
       }
     }

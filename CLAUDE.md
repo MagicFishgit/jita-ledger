@@ -137,7 +137,12 @@ Don't re-derive or contradict these without new evidence.
   recipient_type:'character'}], subject, body, approved_cost}` and answers 201 with the new mail's ID. Body at
   most 10,000 characters, subject 1,000. The body is the client's small HTML: `<br>`, `<b>`, `<font size color>`
   with ARGB colours (`#ffRRGGBB`), and `<a href>` — `showinfo:{typeId}` opens an item, and a web link makes the
-  client ask first. GET gives the 50 newest headers (`from`, `subject`, `timestamp`, `is_read`, `labels`),
+  client ask first. **What it draws was settled by a sample mail to the user's character:** sizes 10–32 all
+  differ; `<b>`, `<i>`, `<u>` work; every colour works; `showinfo:` links open items, systems
+  (`showinfo:5//{systemId}`), stations (`showinfo:{stationTypeId}//{stationId}`) and planets
+  (`showinfo:{planetTypeId}//{planetId}`) without leaving the game; → · • ✓ ★ ± render; runs of spaces are
+  kept. `&nbsp;` shows literally, `<hr>` draws nothing, a monospace `face` is ignored, a link's colour
+  can't be changed (links are always gold), and × has no glyph. So no tables and no rules. GET gives the 50 newest headers (`from`, `subject`, `timestamp`, `is_read`, `labels`),
   older ones via `last_mail_id`. DELETE `/mail/{id}/` answers 204, and 404 once it is already gone.
 - **Public contracts are public**: `/contracts/public/{region}/` needs no scope. The Forge runs to
   ~35 pages of 1,000, of which only ~120 are couriers.
@@ -346,6 +351,13 @@ Don't re-derive or contradict these without new evidence.
   mark, drawn to PNG) and an `image` (the alert as a card in the theme's colours, 2:1), which Chrome shows on
   Windows and Android and macOS ignores (`lib/notifyArt.ts`). They only fire while the tab is hidden, which is
   why Settings has a delayed test.
+- **An alert mail says what to do before it says why.** Each alert opens with a **RECOMMENDED:** line (move
+  your sell order down to X; leave it where it is; reset the extractor heads before a time), then the facts
+  the check already had: yours against the best and by how much, what moving costs split into the lower
+  price and the fee, what's at stake, the queue ahead and how long it takes to clear, or for PI the system
+  (an in-game link), planet, product and end time. The subject leads with the same advice, since the inbox
+  list and the new-mail notice show nothing else. The test mail is built from one of your real orders
+  against the live book, so it shows exactly what an alert about it would say.
 - **Alerts can go by EVE mail, opt-in, always *to* the trading character and *from* a second one** (`lib/mailAlerts.ts`,
   builder `alertMail` in `alerts.ts`). The sender is a second login slot in `auth.ts` (`jita-ledger:mailer`,
   `loginMailer`, `getMailerToken`), asking only for send and organize mail. `handleCallback` tells the two
