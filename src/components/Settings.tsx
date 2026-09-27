@@ -13,7 +13,7 @@ import { navigate, useAuth, useMailer, useNow, type Route } from '../lib/hooks';
 import { ALPHA_CAPS, JITA_44, REDIRECT_URI, SCOPE, SCOPE_INFO, SCOPES } from '../lib/config';
 import { marketHistory } from '../lib/market';
 import { measureShare, MIN_SIDE_DAYS, sharedTypes, SHARE_DAYS, type ShareMeasure } from '../lib/share';
-import { ALERT_EVENTS, ALERT_SIZES, MAIL_KEEP, THEMES, TOAST_SECONDS } from '../lib/prefs';
+import { ALERT_EVENTS, ALERT_SIZES, MAIL_KEEP, REPEAT_HOURS, THEMES, TOAST_SECONDS } from '../lib/prefs';
 import { ALERT_LABELS, tidyEvery } from '../lib/alerts';
 import { testAlert, testMail, useAlertRunner, BACKUP_DAYS } from '../lib/alertsRunner';
 import { useMotion, bumpWarp } from '../lib/motion';
@@ -484,6 +484,13 @@ function Alerts() {
             <Seg label="How often to check" value={a.interval} onChange={(v) => setA({ interval: v })} options={[5, 15, 30, 60].map((m) => ({ v: m, label: m === 5 ? 'Every book refresh (5 min)' : `${m} min` }))} />
           </div>
           <div>
+            <div className="lbl" style={{ marginBottom: 6 }}>Remind me again after</div>
+            <div className="row wide">
+              <Seg label="Remind me again after" value={a.repeatH} onChange={(v) => setA({ repeatH: v })} options={REPEAT_HOURS.map((h) => ({ v: h, label: `${h} h` }))} />
+              <span className="note small">The same alert about an order waits this long before it comes again. Something new comes at once: here, a fresh undercut; by mail, a new price of yours, so a bot war doesn’t fill your inbox.</span>
+            </div>
+          </div>
+          <div>
             <div className="lbl" style={{ marginBottom: 6 }}>Alert size</div>
             <div className="row wide">
               <Seg label="Alert size" value={z} onChange={(v) => { update((x) => ({ prefs: { ...x.prefs, alertSize: v } })); toast(`This is how alerts will look at ${ALERT_SIZES.find((s2) => s2.value === v)?.label.toLowerCase()} size.`, 'info'); }}
@@ -838,7 +845,7 @@ function CloudPanel() {
         <div className="sub-box" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div className="lbl" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             Alert mail while the app is closed
-            <Tip title="Alert mail from the cloud" text={'With a character to send from, the cloud checks your orders against the Jita books it reads every five minutes, and your colonies every hour, and mails you in game, whether or not a browser is open.\n\n• It judges an order by the same rules as the Orders page, and mails what your Alerts settings say to mail: the same kinds, the same minimum, quiet hours and check interval.\n• An order is mailed about once at each price of yours. Move it and get beaten again, and you hear again; leave it, and you are reminded after six hours.\n• While the cloud mails, this browser doesn’t, so nothing arrives twice. Old alert mails are deleted on the same schedule.\n• Squeeze and suspicious-market alerts still come only from an open app.'} />
+            <Tip title="Alert mail from the cloud" text={'With a character to send from, the cloud checks your orders against the Jita books it reads every five minutes, and your colonies every hour, and mails you in game, whether or not a browser is open.\n\n• It judges an order by the same rules as the Orders page, and mails what your Alerts settings say to mail: the same kinds, the same minimum, quiet hours and check interval.\n• An order is mailed about once at each price of yours. Move it and get beaten again, and you hear again; leave it, and you are reminded after ' + alerts.repeatH + ' hours (Alerts → Remind me again after).\n• While the cloud mails, this browser doesn’t, so nothing arrives twice. Old alert mails are deleted on the same schedule.\n• Squeeze and suspicious-market alerts still come only from an open app.'} />
           </div>
           {!sender ? (
             <>

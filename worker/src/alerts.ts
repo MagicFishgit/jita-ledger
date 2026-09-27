@@ -12,7 +12,7 @@
  * mail switched on in Settings, at the check interval chosen there. Squeeze and suspicious-market alerts
  * stay with the browser: they read signals the cloud doesn't keep.
  */
-import { alertMail, isStaleAlertMail, mailKey, orderFacts, orderFindings, piFindings, REPEAT_MS, shouldAlert, tidyEvery, type Finding } from '../../src/lib/alerts';
+import { alertMail, isStaleAlertMail, mailKey, orderFacts, orderFindings, piFindings, repeatMs, shouldAlert, tidyEvery, type Finding } from '../../src/lib/alerts';
 import { readColony, type PlanetHead, type RawColony } from '../../src/lib/colony';
 import type { OrderRecord, TxRecord } from '../../src/lib/esiRecords';
 import { sanitizeSettings, type Settings } from '../../src/lib/fees';
@@ -365,7 +365,7 @@ export async function alertRound(env: Env, charId: number, now = Date.now(), jud
   }
   out.found = findings.length;
 
-  const logged = (await env.DB.prepare('SELECT key, kind, at, title, text FROM alert_log WHERE char_id = ?1 AND at > ?2').bind(charId, now - REPEAT_MS)
+  const logged = (await env.DB.prepare('SELECT key, kind, at, title, text FROM alert_log WHERE char_id = ?1 AND at > ?2').bind(charId, now - repeatMs(cfg))
     .all<{ key: string; kind: AlertLogEntry['kind']; at: number; title: string; text: string }>()).results
     .map((r): AlertLogEntry => ({ key: r.key, kind: r.kind, at: new Date(r.at).toISOString(), title: r.title, text: r.text }));
   const mail = findings.filter((f) => cfg.mailEv[f.kind] && shouldAlert({ ...f, key: mailKey(f) }, cfg, logged, now));

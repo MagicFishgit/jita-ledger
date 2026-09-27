@@ -53,7 +53,8 @@ export const QUIET_TO = 7;
 export const isQuiet = (t: number) => { const h = new Date(t).getUTCHours(); return h >= QUIET_FROM || h < QUIET_TO; };
 
 /** Don't raise the same finding twice inside this window. */
-export const REPEAT_MS = 6 * 3600_000;
+/** How long the same alert waits before it comes again ("Remind me again after"). */
+export const repeatMs = (cfg: Pick<AlertConfig, 'repeatH'>) => cfg.repeatH * 3600_000;
 
 /** Events judged in ISK, so the minimum applies to them. */
 const BY_ISK: AlertEvent[] = ['move', 'clearing'];
@@ -144,7 +145,7 @@ export function shouldAlert(f: Finding, cfg: AlertConfig, log: AlertLogEntry[], 
   if (!cfg.on || !cfg.ev[f.kind]) return false;
   if (cfg.quiet && isQuiet(now)) return false;
   if (BY_ISK.includes(f.kind) && (f.isk ?? 0) < cfg.minIsk) return false;
-  return !log.some((l) => !l.test && l.key === f.key && now - Date.parse(l.at) < REPEAT_MS);
+  return !log.some((l) => !l.test && l.key === f.key && now - Date.parse(l.at) < repeatMs(cfg));
 }
 
 /** The countdown to the next check, from when checking started. */

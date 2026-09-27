@@ -348,6 +348,8 @@ export type AlertConfig = {
   mailEv: Record<AlertEvent, boolean>;
   /** Minutes before an alert mail is deleted, read or not; null keeps them. */
   mailKeepMin: number | null;
+  /** Hours before the same alert comes again, notification or mail. */
+  repeatH: number;
 };
 export type AlertLogEntry = { at: string; kind: AlertEvent; key: string; title: string; text: string; test?: boolean };
 

@@ -1167,7 +1167,7 @@ eq('hauling is spread by volume', ship.haulPerUnit[2], 700_000 * 30 / (350 * 10 
 eq('the going rate is the median', goingRate([{ reward: 100, volume: 1 }, { reward: 300, volume: 1 }, { reward: 9e9, volume: 1 }]), 300);
 
 console.log('\n--- alerts ---');
-const CFG = { on: true, browser: false, interval: 5, minIsk: 5e6, quiet: false, ev: { move: true, clearing: false, squeeze: true, pi: true, scam: true, backup: true } };
+const CFG = { on: true, browser: false, interval: 5, minIsk: 5e6, quiet: false, repeatH: 4, ev: { move: true, clearing: false, squeeze: true, pi: true, scam: true, backup: true } };
 const F = { kind: 'move', key: 'o1', title: 't', text: 'x', isk: 10e6 };
 const noon = Date.parse('2026-09-26T12:00:00Z');
 eq('a big move alerts', shouldAlert(F, CFG, [], noon), true);
@@ -1177,7 +1177,9 @@ eq('small ISK is below the line', shouldAlert({ ...F, isk: 1e6 }, CFG, [], noon)
 eq('the ISK line does not apply to a PI programme', shouldAlert({ kind: 'pi', key: 'p', title: '', text: '' }, CFG, [], noon), true);
 eq('quiet hours hold at 2am EVE', shouldAlert(F, { ...CFG, quiet: true }, [], Date.parse('2026-09-26T02:00:00Z')), false);
 eq('the same thing is not raised twice', shouldAlert(F, CFG, [{ at: new Date(noon - 3600_000).toISOString(), kind: 'move', key: 'o1', title: '', text: '' }], noon), false);
-eq('  unless it has been a while', shouldAlert(F, CFG, [{ at: new Date(noon - 7 * 3600_000).toISOString(), kind: 'move', key: 'o1', title: '', text: '' }], noon), true);
+eq('  not after 3 h when you asked for 4', shouldAlert(F, CFG, [{ at: new Date(noon - 3 * 3600_000).toISOString(), kind: 'move', key: 'o1', title: '', text: '' }], noon), false);
+eq('  unless it has been a while', shouldAlert(F, CFG, [{ at: new Date(noon - 5 * 3600_000).toISOString(), kind: 'move', key: 'o1', title: '', text: '' }], noon), true);
+eq('  and after 2 h when you asked for 1', shouldAlert(F, { ...CFG, repeatH: 1 }, [{ at: new Date(noon - 2 * 3600_000).toISOString(), kind: 'move', key: 'o1', title: '', text: '' }], noon), true);
 eq('a test alert does not block the real one', shouldAlert(F, CFG, [{ at: new Date(noon).toISOString(), kind: 'move', key: 'o1', title: '', text: '', test: true }], noon), true);
 eq('the countdown wraps', nextCheckIn(0, 5, 6 * 60_000), 4 * 60_000);
 
@@ -1929,6 +1931,7 @@ eq('"until closed" is kept as null', sanitizePrefs({ toastSeconds: null }).toast
 eq('an odd duration falls back', sanitizePrefs({ toastSeconds: 7 }).toastSeconds, 10);
 eq('alerts start off', sanitizeAlerts({}).on, false);
 eq('an odd interval falls back', sanitizeAlerts({ interval: 7 }).interval, 5);
+eq('remind again after 4 h unless you chose otherwise', [sanitizeAlerts({}).repeatH, sanitizeAlerts({ repeatH: 12 }).repeatH, sanitizeAlerts({ repeatH: 5 }).repeatH], [4, 12, 4]);
 eq('mail starts off', sanitizeAlerts({}).mail, false);
 eq('  and by mail only what you can act on in game, plus the cloud’s trades worth a look', Object.entries(sanitizeAlerts({}).mailEv).filter(([, v]) => v).map(([k]) => k), ['move', 'pi', 'opportunity']);
 eq('  a saved config from before opportunities gets them from the defaults', sanitizeAlerts({ ev: { move: true }, mailEv: { move: true } }).mailEv.opportunity, true);

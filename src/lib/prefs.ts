@@ -50,7 +50,15 @@ export const DEFAULT_ALERTS: AlertConfig = {
   // By mail, only what you can act on from inside the game: an order to move, a colony to reset.
   mailEv: { move: true, clearing: false, squeeze: false, pi: true, scam: false, backup: false, opportunity: true },
   mailKeepMin: 3 * 1440,
+  repeatH: 4,
 };
+
+/**
+ * "Remind me again after": how long the same alert waits before it comes again. It was a fixed six hours, which
+ * the user found too long once they understood it: left alone in space, a big order was mailed once and then
+ * not again for six hours however often it was undercut.
+ */
+export const REPEAT_HOURS = [1, 2, 4, 6, 12, 24];
 
 /** How long alert mails are kept before the app deletes them. Null keeps them. */
 export const MAIL_KEEP: { value: number | null; label: string }[] = [
@@ -116,6 +124,7 @@ export function sanitizeAlerts(a: Partial<AlertConfig> | null | undefined): Aler
     // Absent on settings saved before mail existed: take the default. An explicit null keeps mails.
     mailKeepMin: x.mailKeepMin === undefined ? DEFAULT_ALERTS.mailKeepMin
       : MAIL_KEEP.some((o) => o.value === x.mailKeepMin) ? (x.mailKeepMin as number | null) : DEFAULT_ALERTS.mailKeepMin,
+    repeatH: REPEAT_HOURS.includes(x.repeatH as number) ? (x.repeatH as number) : DEFAULT_ALERTS.repeatH,
   };
 }
 
