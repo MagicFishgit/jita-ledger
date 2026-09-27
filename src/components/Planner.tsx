@@ -5,14 +5,14 @@ import {
 import { effectiveSkills, orderSlots } from '../lib/fees';
 import { iskBig, pct, units } from '../lib/format';
 import { navigate } from '../lib/hooks';
-import { allocate, PLANNER_EXCLUDES, SLOTS_PER_ITEM } from '../lib/planner';
-import { DEFAULT_FILTERS } from '../lib/prospects';
+import { allocate, PLANNER_EXCLUDES, PLANNER_HORIZONS, plannerFilters, SLOTS_PER_ITEM } from '../lib/planner';
+import { horizonSaid, horizonShort, snapHorizon } from '../lib/prospects';
 import { loadCache, rankProspects, useScanState, type ScanCache } from '../lib/scan';
 import { useData } from '../lib/store';
 import type { ProspectFilters } from '../lib/types';
 import { useEnsureNames, useTypeName } from './common';
-import { flip } from './Prospects';
-import { Empty, Guide, ItemIcon, NumChip, PageHead, Panel, Tiles } from './ui';
+import { flip, WARNING } from './Prospects';
+import { Empty, Flag, Guide, ItemIcon, NumChip, PageHead, Panel, Seg, Tiles } from './ui';
 import { ScanFreshness } from './ScanFreshness';
 
 const KEY = 'jita-ledger:planner';
@@ -22,13 +22,9 @@ type Inputs = { isk: number | null; slots: number | null; days: number | null; m
 function readInputs(): Partial<Inputs> {
   try { return JSON.parse(localStorage.getItem(KEY) || '{}') as Partial<Inputs>; } catch { return {}; }
 }
-/** The Prospects page's own filters, so the planner draws from the same list you see there. */
-function prospectFilters(): ProspectFilters {
-  try {
-    const p = JSON.parse(localStorage.getItem('jita-ledger:prospects') || 'null');
-    if (p?.f) return { ...DEFAULT_FILTERS, ...p.f };
-  } catch { /* private window */ }
-  return DEFAULT_FILTERS;
+/** The Prospects page's own saved filters, which the planner draws from (see plannerFilters). */
+function savedProspectFilters(): Partial<ProspectFilters> | null {
+  try { return JSON.parse(localStorage.getItem('jita-ledger:prospects') || 'null')?.f ?? null; } catch { return null; }
 }
 
 export function Planner() {
@@ -41,7 +37,8 @@ export function Planner() {
   const [inp, setInp] = useState<Inputs>({
     isk: saved.isk ?? (d.meta.walletBalance ? Math.round(d.meta.walletBalance * 0.5 / 1e6) * 1e6 : null),
     slots: saved.slots ?? Math.max(0, totalSlots - openOrders),
-    days: saved.days ?? 3,
+    // Snapped onto the choices: a typed-in horizon from before they existed lands on the nearest.
+    days: snapHorizon(saved.days ?? 3) ?? 3,
     maxPct: saved.maxPct ?? 25,
   });
   const set = (p: Partial<Inputs>) => setInp((cur) => {
@@ -53,16 +50,23 @@ export function Planner() {
   const [cache, setCache] = useState<ScanCache | null>(null);
   useEffect(() => { loadCache().then(setCache).catch(() => setCache({ stats: {}, books: {} })); }, [scan.saved, scan.phase]);
 
-  const isk = inp.isk ?? 0, slots = inp.slots ?? 0, days = Math.max(0.25, inp.days ?? 3), maxShare = Math.max(0, Math.min(100, inp.maxPct ?? 100)) / 100;
+  const isk = inp.isk ?? 0, slots = inp.slots ?? 0, days = inp.days ?? 3, maxShare = Math.max(0, Math.min(100, inp.maxPct ?? 100)) / 100;
   const { plan, pool, excluded } = useMemo(() => {
     if (!cache || !isk) return { plan: null, pool: 0, excluded: 0 };
     // Every market's own limit, not just those that could take the whole budget.
-    const list = rankProspects(cache, d.settings, { ...prospectFilters(), budget: isk, horizonDays: days, partial: true });
+    const list = rankProspects(cache, d.settings, plannerFilters(savedProspectFilters(), isk, days));
     const bad = list.filter((p) => p.warnings.some((w) => PLANNER_EXCLUDES.includes(w))).length;
     return { plan: allocate(list, { isk, slots, horizonDays: days, maxShare }), pool: list.length, excluded: bad };
   }, [cache, d.settings, isk, slots, days, maxShare]);
 
   useEnsureNames(plan?.rows.map((a) => a.p.typeId) ?? []);
+  // What you already have working in each item, so the mix doesn't quietly double you up.
+  const inOrders = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const o of Object.values(d.orders)) if (o.state === 'open') m.set(o.typeId, (m.get(o.typeId) ?? 0) + o.price * o.volumeRemain);
+    return m;
+  }, [d.orders]);
+  const inPositions = useMemo(() => new Set(d.positions.filter((p) => p.status === 'open').map((p) => p.typeId)), [d.positions]);
   const scanned = cache ? Object.keys(cache.books).length : 0;
   const idleWhy = !plan ? '' : plan.limit === 'slots'
     ? `Out of order slots — each item takes ${SLOTS_PER_ITEM}. Train Wholesale or free some up to put the rest to work.`
@@ -79,8 +83,13 @@ export function Planner() {
         <span className="chipbar-title"><SlidersHorizontal aria-hidden="true" />Budget</span>
         <NumChip id="pl-isk" label="ISK to deploy" value={inp.isk} onChange={(v) => set({ isk: v })} width={130} decimals={0} placeholder="2b" tip="Free ISK you want working — not what’s already in orders" />
         <NumChip id="pl-slots" label="Free slots" value={inp.slots} onChange={(v) => set({ slots: v })} width={60} decimals={0} tip={`Each item uses one buy and one sell order slot. You have ${totalSlots} and ${openOrders} are in use.`} />
-        <NumChip id="pl-days" label="Horizon, days" value={inp.days} onChange={(v) => set({ days: v })} width={60} decimals={1} tip="How long you’ll leave the money in" />
         <NumChip id="pl-max" label="Max per item" value={inp.maxPct} onChange={(v) => set({ maxPct: v })} width={60} decimals={0} percent tip="Caps how much of the budget can go into one market" />
+        <div className="row" style={{ flexBasis: '100%', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span className="lbl" style={{ fontSize: 10.5 }} tabIndex={0} data-tip-title="Horizon"
+            data-tip={'How long you’ll leave the money in, from buying in to selling out.\n\n• Each market gets as much as it can take in this time at your share of its trade, never more than your cap per item.\n• A longer horizon lets slow markets take more; a shorter one keeps to the fast ones.\n\nThe hour choices are for fast flips. Speeds come from daily volume, so they mean “on an average day”.'}>Horizon</span>
+          <Seg size="sm" label="Horizon" value={days} onChange={(v) => set({ days: v })} options={PLANNER_HORIZONS.map((h) => ({ v: h, label: horizonShort(h) }))} />
+          <span className="note small">Money back in about {horizonSaid(days)}.</span>
+        </div>
       </div>
 
       {!cache ? null : !scanned ? (
@@ -110,18 +119,31 @@ export function Planner() {
                     <thead><tr>
                       <th scope="col" className="l">Item</th><th scope="col">ISK in</th><th scope="col">Share</th><th scope="col">Units</th>
                       <th scope="col" data-tip="How long this much takes to buy in and sell out at your share of the slower side">Turns in</th>
-                      <th scope="col">ISK / day</th><th scope="col">Return / day</th><th scope="col"><span className="sr-only">Actions</span></th>
+                      <th scope="col">ISK / day</th><th scope="col">Return / day</th>
+                      <th scope="col" data-tip="Flags that don’t keep an item out but are worth reading first. Hover one for what it means.">Flags</th>
+                      <th scope="col"><span className="sr-only">Actions</span></th>
                     </tr></thead>
                     <tbody>
                       {plan.rows.map((a, i) => (
                         <tr key={a.p.typeId} className="hover">
-                          <td className="l"><span className="cellrow"><span style={{ width: 10, height: 10, flex: 'none', background: COLS[i % COLS.length] }} /><ItemIcon id={a.p.typeId} /><span className="name ellipsis">{name(a.p.typeId)}</span></span></td>
+                          <td className="l">
+                            <span className="cellrow">
+                              <span style={{ width: 10, height: 10, flex: 'none', background: COLS[i % COLS.length] }} /><ItemIcon id={a.p.typeId} /><span className="name ellipsis">{name(a.p.typeId)}</span>
+                              {(inOrders.has(a.p.typeId) || inPositions.has(a.p.typeId)) && (
+                                <Flag color="var(--acc)" title="You already trade this"
+                                  why={`${inOrders.has(a.p.typeId) ? `You have ${iskBig(inOrders.get(a.p.typeId)!)} in open orders on it` : 'You have an open position on it'}. This would be on top of that, and it takes two more order slots.`}>
+                                  Already trading
+                                </Flag>
+                              )}
+                            </span>
+                          </td>
                           <td>{iskBig(a.isk)}</td>
                           <td style={{ color: 'var(--sec)' }}>{pct(a.isk / isk, 0)}</td>
                           <td>{units(a.units)}</td>
                           <td>{flip(a.days)}</td>
                           <td style={{ color: 'var(--pos)' }}>{iskBig(a.perDay)}</td>
                           <td style={{ color: 'var(--acc)' }}>{pct(a.perDay / a.isk, 2)}</td>
+                          <td>{a.p.warnings.length ? <span className="flags">{a.p.warnings.map((w) => <Flag key={w} why={WARNING[w].why} title={WARNING[w].short}>{WARNING[w].short}</Flag>)}</span> : <span style={{ color: 'var(--ghost)' }}>–</span>}</td>
                           <td><button type="button" className="link-btn" onClick={() => navigate(`calculator?type=${a.p.typeId}`)}><CalcIcon aria-hidden="true" />Calc</button></td>
                         </tr>
                       ))}
@@ -133,7 +155,7 @@ export function Planner() {
             {plan.idle > isk * 0.05 ? (
               <p className="row tight" style={{ fontSize: 13, color: 'var(--acc2)' }}><Info aria-hidden="true" style={{ width: 14, height: 14, flex: 'none' }} /><span><b>{iskBig(plan.idle)}</b> left idle. {idleWhy}</span></p>
             ) : plan.rows.length > 0 && <p className="note small">Nearly everything is working.</p>}
-            <p className="note small">Each market’s limit is your share of its slower side over the horizon ({d.settings.share}% of volume, scaled for how many orders you queue among), from the scan’s prices — which are up to an hour old. Check each in the Calculator before placing anything.</p>
+            <p className="note small">Each market’s limit is your share of its slower side over the horizon ({d.settings.share}% of volume, scaled for how many orders you queue among), at the prices the last scan found (the banner above says how old). An item flagged “Bids not reached” is priced where trading actually reaches, not at the best bid. Check each in the Calculator before placing anything.</p>
           </Panel>
         </>
       )}
@@ -162,7 +184,7 @@ export function Planner() {
           { icon: CalcIcon, title: 'Check each item before you buy', body: 'Click Calc on any row. The Calculator shows the order book, whether your prices sit inside recent trading, and your break-even.' },
           { icon: Layers, title: 'Start one position per item', body: 'Once the buy orders are placed, start a position for each item so your fills are tracked from the first unit. That’s how Results can later tell you what worked.', color: '#6ee7a8' },
           { icon: RefreshCw, title: 'Re-run it as things fill', body: 'As orders fill and ISK comes back, run the planner again with what’s free. The best items change daily.', color: 'var(--acc2)' },
-          { icon: ShieldAlert, title: 'Trust the flags', body: 'Items marked Wall, Spike, Fluke or Escrow bait are left out on purpose. If one tempts you in Prospects, read its flag first.', color: '#ff8d9a' },
+          { icon: ShieldAlert, title: 'Trust the flags', body: 'Items marked Wall, Spike, Fluke or Escrow bait are left out on purpose. Others, like Bids not reached or Thin, stay in but show in the Flags column: hover one before you commit.', color: '#ff8d9a' },
           { icon: ListChecks, title: 'Let Tonight’s run do the upkeep', body: 'Once the orders are placed, the daily work is moving the ones that get beaten. Tonight’s run and the undercut alerts tell you which.' },
           { icon: Scale, title: 'Spread beats size', body: 'Ten modest markets are safer than two big ones at the same expected profit. When unsure, lower the cap per item.', color: '#a98bff' },
         ]}

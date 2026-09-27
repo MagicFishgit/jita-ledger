@@ -6,11 +6,25 @@
  * buy and a sell. Anything carrying a warning that suggests the spread is bait is left out entirely.
  */
 
-import type { Prospect, ProspectWarning } from './types';
+import { DEFAULT_FILTERS } from './prospects';
+import type { Prospect, ProspectFilters, ProspectWarning } from './types';
 
 /** Flags that say the spread may not be real. Everything else is information, not a veto. */
 export const PLANNER_EXCLUDES: ProspectWarning[] = ['escrow', 'wall', 'spike', 'fluke'];
 export const SLOTS_PER_ITEM = 2;
+
+/**
+ * The filters the planner ranks with: your Prospects filters (so it draws from the list you see there),
+ * but never the Busy markets view --- that one prices at the top of the book and ignores "Return ≥ %",
+ * and left switched on in Prospects it was quietly feeding the planner a different list --- and always
+ * sized to the planner's own ISK and horizon, with partial fills so every market's own limit counts.
+ */
+export function plannerFilters(saved: Partial<ProspectFilters> | null | undefined, isk: number, horizonDays: number): ProspectFilters {
+  return { ...DEFAULT_FILTERS, ...(saved ?? {}), busy: false, budget: isk, horizonDays, partial: true };
+}
+
+/** The planner's horizon choices: the Prospects ones, without "any", which a plan can't be sized to. */
+export const PLANNER_HORIZONS = [4 / 24, 12 / 24, 1, 3, 7, 14, 30];
 
 export type PlanInput = { isk: number; slots: number; horizonDays: number; maxShare: number };
 export type Allocation = { p: Prospect; isk: number; units: number; days: number; perDay: number };

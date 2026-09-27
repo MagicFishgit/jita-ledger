@@ -1658,6 +1658,17 @@ console.log('\n--- how current the Prospects scan is ---');
   eq('a scan from before finishing times were kept is judged by its newest price', P.scanFreshness(undefined, h(10), now).level, 'stale');
 }
 
+console.log('\n--- planner filters ---');
+{
+  const { plannerFilters, PLANNER_HORIZONS } = await import('../src/lib/planner.ts');
+  const f = plannerFilters({ busy: true, minRoi: 0.05, horizonDays: null, budget: 1 }, 2e9, 7);
+  eq('the planner never uses the Busy markets view', f.busy, false);
+  eq('  keeps your other Prospects filters', f.minRoi, 0.05);
+  eq('  and sizes to its own ISK and horizon, with partial fills', [f.budget, f.horizonDays, f.partial], [2e9, 7, true]);
+  eq('  nothing saved is the defaults', plannerFilters(null, 1e9, 3).minRoi, 0.03);
+  eq('its horizons are the Prospects ones without "any"', PLANNER_HORIZONS.includes(null), false);
+}
+
 console.log('\n--- horizon ---');
 {
   const { snapHorizon, HORIZONS, horizonSaid, horizonShort } = await import('../src/lib/prospects.ts');

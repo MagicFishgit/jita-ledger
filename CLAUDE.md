@@ -310,6 +310,12 @@ Don't re-derive or contradict these without new evidence.
   between them, over the 1.5× a quiet market gets, to the half percent. Needs `MIN_SHARE_DAYS` (10) item-days
   and drops a side with under `MIN_SIDE_DAYS` (3): one day of buying suggested 66.5%. Only days you traded
   count, so it reads high, and says so. The user had 50% set; their wallet measured 1.2% on buys, 5.8% on sells.
+- **The Capital planner ranks with `plannerFilters`**: your Prospects filters, but never Busy markets, and
+  always its own ISK and horizon with partial fills. It used to copy the saved Prospects filters wholesale,
+  so with Busy markets left on it built from the busy list (top-of-book prices, "Return ≥ %" ignored): on the
+  test browser at the user's rates that deployed 1,994 M into 5 items for 43.9 M a day, against 247 M into 10
+  for 19.2 M on the normal list. The mix now shows the flags that don't exclude an item, marks items you
+  already have orders or a position on, and offers the Prospects horizon choices (without "any").
 - **Pages that work from the Prospects scan say how old it is** (`ScanFreshness`, rule `scanFreshness`): the
   Capital planner, Hub arbitrage, and the slot-swap suggestions on Orders. Nothing else refreshes that data,
   and the user worried about acting on an old scan. The scan records when a quick and a deep scan last *ran
