@@ -11,8 +11,7 @@ import {
   type LpNote, type LpOffer, type LpPlan, type LpValue, type Quote, type UnitPrice,
 } from '../lib/loyalty';
 import { median } from '../lib/prospects';
-import { PRICE_TOP, priceRest, priceStore } from '../lib/lpStore';
-import { EVEN_SPLIT, sideVolume } from '../lib/split';
+import { PRICE_TOP, priceRest, priceStore, sellPerDay } from '../lib/lpStore';
 import { tickDown } from '../lib/tick';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
@@ -31,7 +30,7 @@ const TIPS: Record<string, string> = {
   outlay: 'The loyalty points, the store’s own ISK price, and the cost of buying any items the offer demands first.',
   revenue: 'What the offer hands over, and what selling it would really net you after broker fee and sales tax.',
   profit: 'What is left once everything you paid is taken off what you got.',
-  days: 'How many of these change hands at Jita on an average day, and how long one purchase would take to sell at your share.',
+  days: 'How many of these change hands at Jita on an average day, and how long one purchase would take to sell.\n\n• A sell order only fills from buyers taking listings. The day’s count also includes sellers dumping into buy orders, so only the buyers’ part is used, estimated from where each day’s average sits between its low and high.\n• Of that, you get your share (Settings).',
   total: 'How many times to buy this offer, capped by what can actually be sold inside the time you allowed.',
 };
 
@@ -39,8 +38,8 @@ export const NOTE: Record<LpNote, { short: string; why: string; bad?: boolean }>
   loss: { short: 'Loses money', why: 'The goods are worth less than the offer costs. Taking it would turn loyalty points into a loss.', bad: true },
   topRate: { short: 'Best rate', why: 'Well above the typical rate in this store — half again or better. This is where the points are worth spending.' },
   poorRate: { short: 'Poor rate', why: 'Under half the typical rate in this store. The same points do far better further up this list.' },
-  fast: { short: 'Sells fast', why: 'One purchase sells within a day at your usual share of the trade, so the ISK comes back quickly and you can go round again.' },
-  slow: { short: 'Slow to sell', why: 'More than a week to sell what one purchase gives you, at your usual share of the trade. Fine once; not something to repeat.', bad: true },
+  fast: { short: 'Sells fast', why: 'One purchase sells within a day at your usual share of the buyers, so the ISK comes back quickly and you can go round again.' },
+  slow: { short: 'Slow to sell', why: 'More than a week to sell what one purchase gives you, at your usual share of the buyers. Fine once; not something to repeat.', bad: true },
   illiquid: { short: 'Barely trades', why: 'No recent trading history to judge by. The price may be real, but there may be nobody to sell to.', bad: true },
   needsItems: { short: 'Buy items first', why: 'A quarter or more of what you get back goes on the items the store demands before it will trade. You have to front that ISK, and those prices can move against you.' },
   capped: { short: 'Market-limited', why: 'Your points could buy this more times than the market will take in the time you allowed.' },
@@ -50,7 +49,7 @@ export const NOTE: Record<LpNote, { short: string; why: string; bad?: boolean }>
   patienceMatters: { short: 'Worth listing', why: 'Selling into the standing buy orders gets less than half what listing does. This one wants an order and some patience.' },
 };
 
-type Row = { v: LpValue; instant: LpValue | null; notes: LpNote[]; plan: LpPlan; live: boolean; perDay: number | null; runDays: number };
+type Row = { v: LpValue; instant: LpValue | null; notes: LpNote[]; plan: LpPlan; live: boolean; perDay: number | null; sellDay: number | null; runDays: number };
 type SortKey = 'name' | 'rate' | 'instant' | 'outlay' | 'revenue' | 'profit' | 'days' | 'total';
 const FIRST_DIR: Record<SortKey, 'asc' | 'desc'> = { name: 'asc', rate: 'desc', instant: 'desc', outlay: 'asc', revenue: 'desc', profit: 'desc', days: 'asc', total: 'desc' };
 
@@ -148,11 +147,13 @@ export function Loyalty() {
       const inst = valueOffer(o, instant, lp);
       const isLive = live.has(v.typeId);
       const perDay = vol[v.typeId] ?? null;
-      const plan = planFor(v, perDay, days, d.settings.share);
-      const runDays = daysToClear(v.quantity, perDay, d.settings.share);
-      return { v, instant: inst, live: isLive, plan, perDay, runDays, notes: notesFor(v, { medianRate, plan, runDays, live: isLive, instantPerLp: inst?.iskPerLp ?? null }) };
+      // What sells store goods is buyers taking listings, not the whole volume.
+      const sellDay = sellPerDay({ vol, buyers }, v.typeId);
+      const plan = planFor(v, sellDay, days, d.settings.share);
+      const runDays = daysToClear(v.quantity, sellDay, d.settings.share);
+      return { v, instant: inst, live: isLive, plan, perDay, sellDay, runDays, notes: notesFor(v, { medianRate, plan, runDays, live: isLive, instantPerLp: inst?.iskPerLp ?? null }) };
     });
-  }, [offers, quotes, live, vol, lp, r.f, r.t, days, d.settings.share]);
+  }, [offers, quotes, live, vol, buyers, lp, r.f, r.t, days, d.settings.share]);
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -175,16 +176,15 @@ export function Loyalty() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [all, sort, hideLosses, d.names, q]);
 
-  // One run, listed as one sell order and left alone: how long it takes to sell at your share of the
-  // buyers taking listings (not the whole volume: only buyers fill a sell order).
+  // All the points on one item, listed as one sell order and left alone.
   const lazy = useMemo(() => lazyPicks(
-    all.filter((x) => x.live && x.perDay != null).map((x) => ({
+    all.filter((x) => x.live && x.sellDay != null).map((x) => ({
       v: x.v,
-      sideUnitsPerDay: sideVolume(x.perDay!, buyers[x.v.typeId] ?? EVEN_SPLIT, false),
+      sideUnitsPerDay: x.sellDay,
       listAt: tickDown(quotes[x.v.typeId]?.bestSell ?? NaN),
     })),
     d.settings.share, lp,
-  ), [all, buyers, quotes, lp, d.settings.share]);
+  ), [all, quotes, lp, d.settings.share]);
 
   const profitable = all.filter((x) => x.v.profit > 0).length;
   const best = [...all].sort((a, b) => byIskPerLp(a.v, b.v)).find((x) => x.v.profit > 0);
@@ -231,7 +231,7 @@ export function Loyalty() {
           <input id="lp-have" type="text" inputMode="numeric" value={held ? units(held) : manualLp} disabled={held > 0} placeholder="e.g. 250000"
             onChange={(e) => setManualLp(e.target.value)} style={{ width: 110, color: held ? 'var(--acc2)' : undefined }} />
         </label>
-        <label htmlFor="lp-h" className="chip h34" data-tip={`Caps how many times you buy each offer at what the market will take, at ${plainNum(d.settings.share)}% of its daily trade`}>
+        <label htmlFor="lp-h" className="chip h34" data-tip={`Caps how many times you buy each offer at what the market will take, at ${plainNum(d.settings.share)}% of the buyers taking listings each day`}>
           <span className="cl">Sell within, days</span>
           <input id="lp-h" type="text" inputMode="decimal" value={horizon} onChange={(e) => setHorizon(e.target.value)} style={{ width: 56 }} />
         </label>
@@ -266,7 +266,7 @@ export function Loyalty() {
           <section data-rv="" style={{ minWidth: 0, position: 'relative', padding: 18, overflow: 'hidden', background: 'linear-gradient(160deg,color-mix(in oklab,var(--acc2) 12%,rgba(7,13,21,.92)),rgba(7,13,21,.92) 60%)', border: '1px solid color-mix(in oklab,var(--acc2) 35%,transparent)', clipPath: 'var(--cut)' }}>
             <div className="hero-l" style={{ color: 'var(--acc2)' }}>
               Spend it like this
-              <Tip title="Spend it like this" text={'How to spend your points for the most ISK:\n\n• the best rate first, as many times as its market will absorb in the days you allowed;\n• then the next best, until the points or the ISK run out.\n\nOnly offers priced against the live Jita book, with a trading history to judge the pace by, are used.'} />
+              <Tip title="Spend it like this" text={'How to spend your points for the most ISK:\n\n• the best rate first, as many times as its buyers will take in the days you allowed, at your share of the buyers taking listings;\n• then the next best, until the points or the ISK run out.\n\nOnly offers priced against the live Jita book, with a trading history to judge the pace by, are used.'} />
             </div>
             {!spend.length ? (
               <p className="note" style={{ marginTop: 10 }}>{lp > 0 ? 'Nothing priced against the live book is worth taking with these points and this much ISK.' : 'Type how many points you have, or log in with the loyalty scope, and this becomes a plan.'}</p>
@@ -277,7 +277,7 @@ export function Loyalty() {
                   {units(spentLp)} of {units(lp)} points across {spend.length} offer{spend.length === 1 ? '' : 's'} turns into about that much profit — {units(Math.round(spendTotal / spentLp))} ISK a point overall, selling over the next {plainNum(days)} days.
                 </p>
                 <p style={{ margin: '-8px 0 12px', fontSize: 12, color: 'var(--label)' }}>
-                  Uses {iskBig(spentIsk)}{Number.isFinite(iskCap) ? ` of the ${iskBig(iskCap)} you set aside` : ' of ISK up front'}
+                  Uses {iskBig(spentIsk)}{Number.isFinite(iskCap) ? ` of the ${iskBig(iskCap)} you set aside` : ' up front'}
                   {spentLp < lp * 0.95 ? `; ${units(lp - spentLp)} points wait for ${Number.isFinite(iskCap) ? 'more ISK or ' : ''}better offers.` : '.'}
                 </p>
                 <div className="col" style={{ gap: 10 }}>

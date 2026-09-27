@@ -1,7 +1,7 @@
 import { jitaBook, loyaltyOffers, marketHistory, recentAverages, roughPricesShared } from './market';
 import { byIskPerLp, patientPrice, planFor, spendPlan, valueOffer, type LpOffer, type LpValue, type Quote } from './loyalty';
 import { marketBest } from './relist';
-import { buyerShare } from './split';
+import { buyerShare, EVEN_SPLIT, sideVolume } from './split';
 
 /**
  * Pricing a loyalty store, shared by the Loyalty page and the Wallet's net worth.
@@ -83,12 +83,22 @@ export async function priceRest(p0: StorePricing, lp: number, r: { f: number; t:
  * place. Only offers priced against the live book, with a trading history to cap them, are used, as on
  * the Loyalty page. Null when nothing in the store would take any points at a profit.
  */
+/**
+ * Units a day that buyers take from listings: the only trades that fill a sell order, which is how
+ * store goods get sold. The whole volume also counts sellers dumping into bids, and planning on it
+ * sold everything about twice as fast as it would go.
+ */
+export function sellPerDay(p: Pick<StorePricing, 'vol' | 'buyers'>, typeId: number): number | null {
+  const v = p.vol[typeId];
+  return v == null ? null : sideVolume(v, p.buyers[typeId] ?? EVEN_SPLIT, false);
+}
+
 export function storeRate(p: StorePricing, lp: number, r: { f: number; t: number }, horizonDays: number, sharePct: number): { rate: number; lp: number } | null {
   const patient = (id: number) => (p.quotes[id] ? patientPrice(p.quotes[id], r.f, r.t) : null);
   const candidates = p.offers
     .map((o) => valueOffer(o, patient, lp))
     .filter((v): v is LpValue => !!v && p.live.has(v.typeId))
-    .map((v) => ({ v, plan: planFor(v, p.vol[v.typeId] ?? null, horizonDays, sharePct) }))
+    .map((v) => ({ v, plan: planFor(v, sellPerDay(p, v.typeId), horizonDays, sharePct) }))
     .filter((x) => x.plan.absorbable != null)
     .map((x) => ({ v: x.v, unitsAllowed: (x.plan.absorbable ?? 0) * x.v.quantity }));
   const picks = spendPlan(candidates, lp);
