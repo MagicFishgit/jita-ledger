@@ -681,7 +681,12 @@ Don't re-derive or contradict these without new evidence.
   from the second character, and tidies old alert mail on `tidyEvery`. **A mail is remembered by the order and your
   price on it** (`mailKey`), not by the advice: every undercut changes the advised price, and with nobody reading,
   one order left alone would be mailed about every round. Move it and get beaten again and you hear again; otherwise
-  after six hours. While the cloud holds both logins (`cloudSendsMail`, from `/v1/status`, kept across reloads and
+  after six hours. **So the cloud mails less often than an open app notifies**: the app's key carries the advised
+  price (`move:ID:newPrice`, `clear:ID:best`), so every fresh undercut is a new notification. The user asked on 27
+  September 2026 why mail had "stopped" while notifications kept coming; a replay of the round on their live data
+  showed 48 of 52 findings under their 5 M minimum (which the app applies too) and the other 4 held as mailed at
+  that price within six hours. Offered the app's rule, they kept this one: it is anti-spam, and mail picks up
+  again once they stop updating orders by hand. While the cloud holds both logins (`cloudSendsMail`, from `/v1/status`, kept across reloads and
   re-read every 10 minutes) the browser neither mails nor tidies, so nothing arrives twice. Squeeze and
   suspicious-market alerts stay with an open app: they need signals the cloud doesn't keep.
 - **Results reads the long run** (`lib/longRange.ts`). Periods run to a year and All; past 90 days the bars are
