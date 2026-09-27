@@ -4,7 +4,7 @@ import { JITA_44, THE_FORGE } from './config';
 import { esi } from './esi';
 import { rates, type Settings } from './fees';
 import { jitaBook, marketHistory } from './market';
-import { BUSY_SHOWN, DEFAULT_FILTERS, expectedEdge, passesGate, pickPages, statsFrom, tradedPerDay } from './prospects';
+import { BUSY_SHOWN, CLOUD_FRESH_HOURS, DEFAULT_FILTERS, expectedEdge, passesGate, pickPages, statsFrom, tradedPerDay } from './prospects';
 import { cacheStore, getData } from './store';
 import { toast } from './toast';
 import { watchedDays, watchedFlow } from './flowStore';
@@ -70,8 +70,11 @@ export type CloudScan = { meta: { at: string; pages: number }; items: [number, P
  * not merged: a book this browser read three days ago beside today's stats would be judged as one. The counts are
  * exact (every page was read), so the sample is the whole book. A scan running here is left to finish.
  */
+/** A scan is running in this browser. */
+export const scanBusy = () => state.phase !== 'idle' && state.phase !== 'done';
+
 export async function adoptCloudScan(scan: CloudScan): Promise<boolean> {
-  if (state.phase !== 'idle' && state.phase !== 'done') return false;
+  if (scanBusy()) return false;
   const old = await loadCache();
   const newest = [old.runs?.quick, old.runs?.deep, old.runs?.cloud].filter((x): x is string => !!x).sort().pop();
   if (newest && newest >= scan.meta.at) return false;
@@ -238,7 +241,10 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
     const now = Date.now();
 
     let sample = cache.sample;
-    const stale = !sample || now - Date.parse(sample.at) > SAMPLE_TTL;
+    // The cloud's read of every page counts orders exactly; a fresh 5% sample would be worse, not newer, for as
+    // long as that scan counts as fresh.
+    const full = !!sample && sample.sampledPages >= sample.totalPages;
+    const stale = !sample || now - Date.parse(sample.at) > (full ? CLOUD_FRESH_HOURS * 3600_000 : SAMPLE_TTL);
     // A deep run wants a deeper sample, even if the shallow one is still fresh.
     const tooShallow = !!sample && (sample.sampledPages < want.pages || sample.minSampled > want.minSampled);
     if (stale || tooShallow) {

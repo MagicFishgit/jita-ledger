@@ -12,7 +12,7 @@ import type { HourBucket } from './rhythm';
 import type { FlowLog } from './flow';
 import { sanitizeAlerts, sanitizePrefs } from './prefs';
 import { costBasis } from './orderCheck';
-import { adoptCloudScan, loadCache, mergeLiveBooks, rankProspects, type CloudScan } from './scan';
+import { adoptCloudScan, loadCache, mergeLiveBooks, rankProspects, scanBusy, type CloudScan } from './scan';
 import type { Book } from './evaluate';
 import { DEFAULT_FILTERS } from './prospects';
 import type { ProspectFilters } from './types';
@@ -374,6 +374,8 @@ async function takeCloudScan(): Promise<void> {
   const local = await loadCache();
   const newest = [local.runs?.quick, local.runs?.deep, local.runs?.cloud].filter((x): x is string => !!x).sort().pop();
   if (newest && newest >= meta.at) { scanSeen = meta.at; return; }
+  // Megabytes: not while a scan here is running, which would only turn it down. The next look takes it.
+  if (scanBusy()) return;
   const scan = await call<CloudScan | null>('/v1/scan');
   if (scan && await adoptCloudScan(scan)) scanSeen = meta.at;
 }
