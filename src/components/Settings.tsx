@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { get } from 'idb-keyval';
 import {
-  BellRing, Cloud, Database, Download, GraduationCap, HardDriveDownload, LogIn, LogOut, Mail, Palette, Percent, RefreshCw, Send, Trash2, Upload, UserRound,
+  BellRing, Cloud, Database, Download, GraduationCap, HardDriveDownload, LogIn, LogOut, Mail, Palette, Percent, Radar, RefreshCw, Send, Trash2, Upload, UserRound,
 } from 'lucide-react';
 import { effectiveSkills, orderSlots, rates, RELIST_LEFT, sanitizeSettings, type Settings as S } from '../lib/fees';
-import { ago, iskBig, iskBigSigned, pct, plainNum, units } from '../lib/format';
+import { ago, fmtDateTime, iskBig, iskBigSigned, pct, plainNum, units, until } from '../lib/format';
 import { cacheStore, clearAll, exportAll, importAll, parseBackup, update, useData } from '../lib/store';
 import { confirmAsk } from '../lib/confirm';
 import { isConfigured, login, loginForCloud, loginMailer, loginMailerForCloud, logout, logoutMailer } from '../lib/auth';
@@ -18,15 +18,17 @@ import { ALERT_LABELS, tidyEvery } from '../lib/alerts';
 import { testAlert, testMail, useAlertRunner, BACKUP_DAYS } from '../lib/alertsRunner';
 import { useMotion, bumpWarp } from '../lib/motion';
 import { toast } from '../lib/toast';
-import { cloudCovers, cloudEnabled, cloudEsiCheck, cloudSummary, cloudTestMail, dropCloudLogin, runCloudArchive, setCloudEnabled, syncCloudNow, useCloud } from '../lib/cloud';
+import { cloudCovers, cloudEnabled, cloudEsiCheck, cloudSummary, cloudTestMail, dropCloudLogin, runCloudArchive, setCloudEnabled, syncCloudNow, useCloud, useCloudScanStatus } from '../lib/cloud';
+import { loadCache, useScanState } from '../lib/scan';
+import type { ScanRuns } from '../lib/prospects';
 import type { AlertEvent, Motion, Theme } from '../lib/types';
 import { downloadText, LevelBoxes } from './common';
 import { CloneSwitch } from './Omega';
 import { useSkillPayback } from './payback';
 import { Check, cssVars, Notice, NumChip, PageHead, Seg, Tip } from './ui';
 
-type Tab = 'account' | 'skills' | 'rates' | 'alerts' | 'appearance' | 'data';
-const TABS: Tab[] = ['account', 'skills', 'rates', 'alerts', 'appearance', 'data'];
+type Tab = 'account' | 'skills' | 'rates' | 'alerts' | 'appearance' | 'data' | 'scan';
+const TABS: Tab[] = ['account', 'skills', 'rates', 'alerts', 'appearance', 'data', 'scan'];
 const ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V'];
 
 /** A plain labelled number field for the settings forms. Tidies itself when you leave it. */
@@ -155,6 +157,7 @@ export function Settings({ route }: { route: Route }) {
   const backupOld = last == null || now - last > BACKUP_DAYS * 86400_000;
   const cloudOk = cloudCovers(useCloud());
   const motion = useMotion();
+  const scan = useCloudScanStatus().status;
 
   const tabs: { k: Tab; label: string; Icon: typeof UserRound; sub: string; dot?: string }[] = [
     { k: 'account', label: 'Account', Icon: UserRound, sub: auth ? `${auth.characterName}${missing ? ` · ${missing} permission${missing === 1 ? '' : 's'} missing` : ''}` : 'Not logged in', dot: auth && missing ? 'var(--acc2)' : undefined },
@@ -163,6 +166,11 @@ export function Settings({ route }: { route: Route }) {
     { k: 'alerts', label: 'Alerts', Icon: BellRing, sub: d.alerts.on ? `On · every ${d.alerts.interval} min` : 'Off', dot: d.alerts.on ? 'var(--pos)' : undefined },
     { k: 'appearance', label: 'Appearance', Icon: Palette, sub: `${d.prefs.theme} · motion ${motion.toLowerCase()}` },
     { k: 'data', label: 'Your data', Icon: Database, sub: cloudOk ? 'Kept in the cloud' : backupDays == null ? 'Never backed up' : `Last backup ${backupDays} day${backupDays === 1 ? '' : 's'} ago`, dot: backupOld && !cloudOk ? 'var(--acc2)' : undefined },
+    {
+      k: 'scan', label: 'Market scan', Icon: Radar,
+      sub: scan?.progress ? 'Running now' : scan?.lastError ? 'Last run failed' : scan?.last ? `Last full scan ${ago(scan.last.at, now)}` : 'Every order, once a day',
+      dot: scan?.progress ? 'var(--acc)' : scan?.lastError ? 'var(--neg)' : undefined,
+    },
   ];
 
   return (
@@ -179,7 +187,7 @@ export function Settings({ route }: { route: Route }) {
           ))}
         </nav>
         <div className="col" style={{ gap: 16, minWidth: 0 }} role="tabpanel" key={tab}>
-          {tab === 'account' ? <Account /> : tab === 'skills' ? <Skills /> : tab === 'rates' ? <RatesTab /> : tab === 'alerts' ? <Alerts /> : tab === 'appearance' ? <Appearance /> : <DataTab />}
+          {tab === 'account' ? <Account /> : tab === 'skills' ? <Skills /> : tab === 'rates' ? <RatesTab /> : tab === 'alerts' ? <Alerts /> : tab === 'appearance' ? <Appearance /> : tab === 'scan' ? <ScanTab /> : <DataTab />}
         </div>
       </div>
     </div>
@@ -878,6 +886,105 @@ function CloudPanel() {
         </div>
       )}
     </section>
+  );
+}
+
+const SCAN_STEP = {
+  pages: { n: 1, what: 'Reading every order in The Forge', unit: 'pages' },
+  history: { n: 2, what: 'Checking price history', unit: 'items' },
+  saving: { n: 2, what: 'Saving the results', unit: 'items' },
+} as const;
+const took = (s: number) => (s < 60 ? `${s} s` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ''}`);
+
+/**
+ * The cloud's daily full-market scan: when it last ran and what it covered, where a running one has got to, and
+ * when the next one is due.
+ */
+function ScanTab() {
+  const c = useCloud();
+  const now = useNow(15_000);
+  const { status: s, error } = useCloudScanStatus();
+  const saved = useScanState().saved;
+  const [runs, setRuns] = useState<ScanRuns | undefined>();
+  useEffect(() => { loadCache().then((x) => setRuns(x.runs)).catch(() => undefined); }, [saved, s?.last?.at]);
+  const ready = cloudEnabled() && c.phase !== 'waiting' && c.phase !== 'off';
+  const p = s?.progress ?? null;
+  const last = s?.last ?? null;
+  const step = p ? SCAN_STEP[p.phase] : null;
+  const share = p ? (p.phase === 'saving' ? 1 : p.total ? p.done / p.total : 0) : 0;
+  const local = [runs?.quick && { at: runs.quick, depth: 'quick' }, runs?.deep && { at: runs.deep, depth: 'deep' }]
+    .filter((x): x is { at: string; depth: string } => !!x).sort((a, b) => b.at.localeCompare(a.at))[0];
+  const nextCatchUp = s ? new Date(s.next).getUTCMinutes() === 7 : false;
+  const line = !ready ? null
+    : p ? `Running now: started ${ago(p.startedAt, now)}.`
+      : s?.lastError ? `The last run failed: ${s.lastError}. It tries again at the next hourly check.`
+        : last ? `Last ran ${fmtDateTime(last.at)}, ${ago(last.at, now)}. It took ${took(last.seconds)}.`
+          : s ? 'No full scan has run yet.' : error ? `Couldn’t reach the cloud: ${error}.` : 'Asking the cloud…';
+  return (
+    <div style={grid2}>
+      <section className="panel" aria-label="Full-market scan" style={{ padding: 18, gap: 12, clipPath: 'none' }}>
+        <div className="panel-title">
+          Full-market scan
+          <Tip title="Full-market scan" text={'Once a day the cloud reads every order in The Forge and checks the price history of every item a trade could pay on. Prospects and the Capital planner open on it, so you don’t have to scan.\n\n• It runs at 11:25 EVE time, 20 minutes after ESI publishes the day’s trading history.\n• A run that is missed, or stops at its time limit, carries on at the next hourly check (7 minutes past).\n• Between runs the cloud re-reads the prices of the best 150 candidates every five minutes, so the top of the list stays current.\n• Quick and Deep scan on Prospects still work. They sample part of the book from this browser, and whichever scan is newest is the one used.'} />
+        </div>
+        {!ready ? (
+          <p className="note" style={{ margin: 0 }}>Turn on the cloud copy and log in (Settings → Your data) to see it here. The scan runs either way.</p>
+        ) : (
+          <>
+            <p className="row tight" style={{ fontSize: 12.5, color: p ? 'var(--acc)' : s?.lastError ? 'var(--neg)' : last ? 'var(--pos)' : 'var(--label)' }}>
+              <Radar aria-hidden="true" style={{ width: 14, height: 14 }} />{line}
+            </p>
+            {p && step && (
+              <div className="sub-box" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div className="lbl">Step {step.n} of 2 · {step.what}</div>
+                <span className="track h8" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)}>
+                  <span className="fill glow" style={{ width: `${Math.round(share * 100)}%` }} />
+                </span>
+                <div className="note small" style={{ margin: 0 }}>
+                  {p.phase === 'saving' ? 'Nearly done.' : `${units(p.done)} of ${units(p.total)} ${step.unit} (${Math.round(share * 100)}%).`}
+                  {p.phase === 'pages' ? ' Then it checks the price history of every item worth a look.' : ''}
+                </div>
+              </div>
+            )}
+            {s && (
+              <p className="note" style={{ margin: 0 }}>
+                Next run: <b>{fmtDateTime(s.next)}</b>, {until(s.next, now)}{!p && nextCatchUp ? ', catching up on today’s' : ''}.
+              </p>
+            )}
+            {last && !p && (
+              <p className="note" style={{ margin: 0 }}>
+                {runs?.cloud === last.at ? 'This browser is using it: Prospects and the Capital planner open on it.'
+                  : local && local.at > last.at ? `This browser is using the ${local.depth} scan you ran here ${ago(local.at, now)}, since it’s newer. The next full scan takes over.`
+                    : 'This browser is taking it now.'}
+              </p>
+            )}
+          </>
+        )}
+      </section>
+      {ready && last && (
+        <Card title="What the last run covered">
+          <div>
+            {[
+              { l: 'Order book pages read', h: 'All of The Forge, every order', v: last.pagesFailed ? `${units(last.pages - last.pagesFailed)} of ${units(last.pages)}` : `${units(last.pages)} of ${units(last.pages)}` },
+              { l: 'Items for sale or wanted in Jita', h: 'At Jita 4-4, plus PLEX', v: units(last.jitaTypes) },
+              { l: 'With both buyers and sellers', h: 'Items NPCs sell are left out: nothing undercuts them', v: units(last.twoSided) },
+              { l: 'Price history checked', h: `Every item whose buy and sell prices are far enough apart to pay the fees, and the ${units(300)} busiest`, v: units(last.checked) },
+              { l: 'In Prospects', h: 'Those with trading history to judge them by', v: units(last.kept) },
+            ].map((x) => (
+              <div key={x.l} className="lrow"><span><span className="lt" style={{ fontSize: 13 }}>{x.l}</span><span className="ls">{x.h}</span></span><span className="lv mono" style={{ fontSize: 13 }}>{x.v}</span></div>
+            ))}
+          </div>
+          {last.partial && (
+            <p className="note" style={{ color: 'var(--acc2)' }}>
+              It stopped at its time limit with {units(last.history.remaining)} items still to check. The next hourly check carries on from there.
+            </p>
+          )}
+          {!!last.history.failed && (
+            <p className="note">ESI didn’t answer for {units(last.history.failed)} item{last.history.failed === 1 ? '' : 's'}. {last.history.failed === 1 ? 'It keeps its' : 'Each keeps its'} history from the check before, where there was one.</p>
+          )}
+        </Card>
+      )}
+    </div>
   );
 }
 

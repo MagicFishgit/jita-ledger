@@ -491,7 +491,24 @@ Don't re-derive or contradict these without new evidence.
   warning; over a day a red one; each with when a deep scan last finished, flagged if never or over a week,
   and a link to Prospects. Scans from before finishing times were kept are judged by the newest price in the
   cache. A deep scan that finishes says so, as a system notification too when browser notifications are on,
-  since it's left running.
+  since it's left running. A cloud full-market scan (`runs.cloud`) is fresh for `CLOUD_FRESH_HOURS` (30): it
+  runs daily and the watch keeps the best candidates' prices live, so a 6-hour warning would fire every afternoon.
+- **The cloud reads the whole market once a day** (`worker/src/scan.ts`, `hist.ts`, `scanTimes.ts`). The user
+  thought Deep scan already did ("i thought deep scan checks the full market which is what I wanted it to be in the
+  first place"): it samples ~15% of the order book, Quick ~5%. The Worker reads all ~405 pages of The Forge's book
+  at 11:25 EVE (after ESI's 11:05 history), folds Jita's orders into per-item book summaries (7 levels a side,
+  exact order counts, what live orders sold, NPC sellers), gates on a spread over 4% one tick inside the best
+  (`MIN_GROSS_SPREAD`: nobody's fees are under ~4.4%), adds the 300 busiest, and checks history for all of them
+  (~15,000 on 27 September 2026; 13,331 had trading history). Measured locally: 23 s for the pages, 153 s in all,
+  16 MB to download (3.5 MB gzipped), Prospects renders it in under half a second. Browsers take it whole
+  (`adoptCloudScan`, replacing rather than merging) when it's newer than their own scan; `/v1/scan` is streamed
+  from the stored JSON so the Worker never holds it. Stored history rows are ~10 KB each and **all expire at
+  11:05**, so `eachHistory` reads an expired copy only for an item whose fetch fails: loading them up front as a
+  fallback would be 80–150 MB on day two, past the Worker's 128 MB. A run stops starting fetches after 11 minutes
+  (`TIME_BUDGET`, under the 15-minute cron limit), saves what it has as `partial`, and the hourly check (7 past)
+  carries on. `[limits] subrequests = 30000` because the default 10,000 doesn't cover it. Settings → Market scan
+  shows the last run, the next, and live progress (`scan_meta` 'progress', written every 10 s; polled every 5 s
+  while one runs, every minute otherwise, only while something shows it).
 - **The sell side is judged like the buy side** (`askToPlace`, flag `unreachedSell`, "Sells not reached"). An ask
   one step under the best that the bulk of trading reached on fewer than `FILL_RARE` of 14 days is lowered to the
   7th-highest daily high, and an item left with no margin drops out; Busy markets still prices at the top. Stats
@@ -771,6 +788,14 @@ Don't re-derive or contradict these without new evidence.
 
 ## Gotchas that have bitten
 
+- **Editing any file the Worker imports kills a scheduled run in `wrangler dev`**, and that includes the app's
+  `src/lib` modules it shares (`prospects.ts`, `evaluate.ts`, …). The reload ends the run without an error or a log
+  line, so it looks exactly like a hang: the first local full scan "stopped" at 700 items two minutes after
+  `prospects.ts` was saved. Don't touch shared modules while a local scheduled run is going.
+- **An inline `subscribe` for `useSyncExternalStore` is a new function every render**, so React unsubscribes and
+  subscribes again each time. A store that starts work on its first subscriber, or writes a new snapshot object on
+  subscribe, then loops: the scan-status store did, the tab hit "Maximum update depth" and grew to 2 GB. Define the
+  subscribe function once at module level, and only replace the snapshot when something changed.
 - **`\uXXXX` in JSX *text* is not an escape** and renders literally. Only inside JS string literals. The same
   goes for `\n` in a quoted JSX attribute (`tip="a\nb"` shows a backslash): a structured tip needs `tip={'…'}`.
 - **`.data td` sets `white-space: nowrap`**, which children inherit — anything wrapping inside a table
@@ -880,6 +905,9 @@ State these rather than letting them be discovered:
   spent: fees match orders by the second, and a trade doesn't say which order filled it.
 - **Results leaves out any trade whose item belongs to no activity set**, and counts LP-store goods as loyalty
   income only for the stores you currently hold points with.
+- **The full-market scan's prices are the morning's** for everything outside the watch: the cloud re-reads the
+  best 150 candidates every five minutes, and every other item's book is as it was at 11:25 EVE until the next day.
+  An item whose spread was under 4% that morning and widened since isn't checked until then either.
 - **Hub arbitrage reads selling speed from the hub's whole region**, which is mostly but not only the hub.
   It prices about 40 candidates (the busiest from the last scan, plus positions and watchlist) — not the market.
 - **Combat's "Does PvP pay?" is a ceiling**: everything that dropped from your kills, whether or not you looted

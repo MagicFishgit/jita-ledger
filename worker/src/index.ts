@@ -6,10 +6,11 @@
  * access token the app already has; `caller` checks it and everything is keyed by that character.
  */
 import { AuthError, caller } from './auth';
-import { alertRound, judgeAll, previewRound, testRound, trackRecord, trackSummary } from './alerts';
+import { alertRound, bookOf, judgeAll, previewRound, testRound, trackRecord, trackSummary } from './alerts';
+import { fullScan, markScanStarted, scanDue, scanStatus, scanStream } from './scan';
 import { sanitizeSettings, type Settings } from '../../src/lib/fees';
 import { archive, noteJob, refreshOrders } from './archive';
-import { flowFor, hoursFor, pricesFor, watchMarkets } from './market';
+import { flowFor, hoursFor, pricesFor, unpack, watchMarkets } from './market';
 import { dropLogin, EveError, keepLogin, type Purpose } from './eve';
 import { BadRequest, pull, push, status, type PushBody } from './sync';
 
@@ -58,6 +59,33 @@ async function fiveMinutes(env: Env) {
     } catch (e) {
       await noteJob(env.DB, id, 'alerts', { ok: false, error: e instanceof Error ? e.message : String(e) });
     }
+  }
+}
+
+/** The watched books for some items, as book summaries, when read in the last 15 minutes: live prices for a scan. */
+async function freshBooks(db: D1Database, types: number[]) {
+  const out: Record<number, ReturnType<typeof bookOf>> = {};
+  const now = Date.now();
+  for (let i = 0; i < types.length; i += 90) {
+    const part = types.slice(i, i + 90);
+    const rows = (await db.prepare(`SELECT type_id, orders, sold, at FROM books WHERE type_id IN (${part.map((_, n) => `?${n + 1}`).join(',')})`).bind(...part)
+      .all<{ type_id: number; orders: string; sold: string | null; at: number }>()).results;
+    for (const r of rows) if (now - r.at <= 15 * 60_000) out[r.type_id] = bookOf(unpack(r.orders), r.at, r.sold ? JSON.parse(r.sold) : undefined);
+  }
+  return out;
+}
+
+/** The day's full-market scan, when one is due and none is running; noted under ledger 0. */
+async function runScan(env: Env) {
+  if (!(await scanDue(env.DB))) return;
+  await markScanStarted(env.DB);
+  try {
+    const meta = await fullScan(env.DB);
+    console.log('full scan', JSON.stringify(meta));
+    await noteJob(env.DB, 0, 'scan', { ok: true, detail: meta });
+  } catch (e) {
+    console.error('full scan failed', e);
+    await noteJob(env.DB, 0, 'scan', { ok: false, error: e instanceof Error ? e.message : String(e) });
   }
 }
 
@@ -133,11 +161,18 @@ export default {
       ctx.waitUntil(fiveMinutes(env));
       return;
     }
+    // The day's full-market scan, just after ESI publishes the day's history.
+    if (event.cron === '25 11 * * *') {
+      ctx.waitUntil(runScan(env));
+      return;
+    }
     const ledgers = (await env.DB.prepare(`SELECT char_id FROM keys WHERE purpose = 'main'`).all<{ char_id: number }>()).results;
     ctx.waitUntil((async () => {
       for (const l of ledgers) {
         try { await runArchive(env, l.char_id); } catch (e) { console.error('archive failed', l.char_id, e); }
       }
+      // The hourly run catches up a day's scan the daily one missed (or the first, after a deploy).
+      await runScan(env);
     })());
   },
 
@@ -181,6 +216,19 @@ export default {
       if (url.pathname === '/v1/flow' && request.method === 'GET') {
         const types = (url.searchParams.get('types') ?? '').split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0).slice(0, 500);
         return json(await flowFor(env.DB, types), 200, c);
+      }
+      if (url.pathname === '/v1/scan/meta' && request.method === 'GET') {
+        const row = await env.DB.prepare(`SELECT data FROM scan_meta WHERE key = 'scan'`).first<{ data: string }>();
+        return json(row ? JSON.parse(row.data) : null, 200, c);
+      }
+      if (url.pathname === '/v1/scan' && request.method === 'GET') {
+        const body = await scanStream(env.DB);
+        return body ? new Response(body, { headers: { ...c, 'Content-Type': 'application/json' } }) : json(null, 200, c);
+      }
+      if (url.pathname === '/v1/scan/status' && request.method === 'GET') return json(await scanStatus(env.DB), 200, c);
+      if (url.pathname === '/v1/books' && request.method === 'GET') {
+        const types = (url.searchParams.get('types') ?? '').split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0).slice(0, 500);
+        return json(await freshBooks(env.DB, types), 200, c);
       }
       if (url.pathname === '/v1/hours' && request.method === 'GET') {
         const types = (url.searchParams.get('types') ?? '').split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0).slice(0, 500);

@@ -17,11 +17,14 @@ migrations_dir = "migrations"
 [observability]
 enabled = true
 
-# Background jobs: the market watch every five minutes, the archive hourly at seven past.
+# Background jobs: the market watch every five minutes, the archive hourly at seven past, and the full-market
+# scan daily at 11:25 EVE, after ESI publishes the day's history (the hourly run catches up a missed one).
 [triggers]
-crons = ["*/5 * * * *", "7 * * * *"]
+crons = ["*/5 * * * *", "7 * * * *", "25 11 * * *"]
 
 # Requests and the hourly archive may use up to 2 minutes of CPU. The five-minute round can't: Cloudflare gives
 # crons more frequent than hourly 30 s regardless. It uses about 0.2 s for ~130 items, so 400 is ~1 s.
+# The full-market scan reads ~405 order pages and ~15,000 histories in one run, past the default 10,000 requests.
 [limits]
 cpu_ms = 120000
+subrequests = 30000

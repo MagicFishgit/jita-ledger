@@ -62,6 +62,47 @@ export async function loadCache(): Promise<ScanCache> {
 }
 const saveCache = (c: ScanCache) => set(CACHE_KEY, c, cacheStore).catch(() => undefined);
 
+/** The cloud's daily full-market scan, as it arrives: what it covered and each item's stats, book and order count. */
+export type CloudScan = { meta: { at: string; pages: number }; items: [number, ProspectStats, Book, number][] };
+
+/**
+ * Takes the cloud's full-market scan as this browser's scan, when it's newer than what's here. Replaced whole,
+ * not merged: a book this browser read three days ago beside today's stats would be judged as one. The counts are
+ * exact (every page was read), so the sample is the whole book. A scan running here is left to finish.
+ */
+export async function adoptCloudScan(scan: CloudScan): Promise<boolean> {
+  if (state.phase !== 'idle' && state.phase !== 'done') return false;
+  const old = await loadCache();
+  const newest = [old.runs?.quick, old.runs?.deep, old.runs?.cloud].filter((x): x is string => !!x).sort().pop();
+  if (newest && newest >= scan.meta.at) return false;
+  const stats: ScanCache['stats'] = {}, books: ScanCache['books'] = {}, counts: Record<number, number> = {};
+  for (const [t, s, b, n] of scan.items) { stats[t] = s; books[t] = b; counts[t] = n; }
+  await saveCache({
+    stats, books,
+    sample: { at: scan.meta.at, totalPages: scan.meta.pages, sampledPages: scan.meta.pages, minSampled: 1, counts },
+    runs: { ...old.runs, cloud: scan.meta.at },
+  });
+  setState({ saved: state.saved + 1 });
+  return true;
+}
+
+/** Live books from the cloud's five-minute watch, over the scan's older ones, for items it has. */
+export async function mergeLiveBooks(live: Record<number, Book>): Promise<number> {
+  if (state.phase !== 'idle' && state.phase !== 'done') return 0;
+  const cache = await loadCache();
+  let n = 0;
+  for (const [id, b] of Object.entries(live)) {
+    const t = Number(id);
+    const cur = cache.books[t];
+    if (!cache.stats[t] || (cur && Date.parse(cur.at) >= Date.parse(b.at))) continue;
+    // The watch's summary doesn't know NPC sellers; the scan's does.
+    cache.books[t] = { ...b, npcSell: cur?.npcSell ?? b.npcSell };
+    n++;
+  }
+  if (n) { await saveCache(cache); setState({ saved: state.saved + 1 }); }
+  return n;
+}
+
 export type ScanPhase = 'idle' | 'sampling' | 'liquidity' | 'pricing' | 'done';
 export type ScanState = {
   phase: ScanPhase; done: number; total: number; message: string;

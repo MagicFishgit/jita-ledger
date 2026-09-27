@@ -34,7 +34,23 @@ export function ScanFreshness({ what, compact }: { what: string; compact?: boole
   if (f.level === 'none') {
     return <Notice kind="warn"><b>No Prospects scan yet</b>, so {what} has nothing to work from. Run a quick scan on Prospects first. {open}</Notice>;
   }
-  const when = `a ${f.lastDepth ? `${f.lastDepth} ` : ''}scan ${ago(f.last!, now)}`;
+  const when = f.lastDepth === 'cloud'
+    ? `the cloud’s full-market scan ${ago(f.last!, now)}`
+    : `a ${f.lastDepth ? `${f.lastDepth} ` : ''}scan ${ago(f.last!, now)}`;
+  if (f.level === 'fresh' && f.lastDepth === 'cloud') {
+    return (
+      <p className="note small" style={{ margin: compact ? 0 : '0 0 4px' }}>
+        {what.charAt(0).toUpperCase() + what.slice(1)} comes from {when}: every order in The Forge, checked against its history. The best candidates’ prices are re-read every 5 minutes.
+      </p>
+    );
+  }
+  if (f.lastDepth === 'cloud') {
+    return (
+      <Notice kind={f.level === 'old' ? 'err' : 'warn'}>
+        <b>The cloud’s daily scan last finished {ago(f.last!, now)}.</b> It runs each day at 11:25 EVE; until the next one, a quick scan on Prospects refreshes {what}. {open}
+      </Notice>
+    );
+  }
   if (f.level === 'fresh') {
     return (
       <p className="note small" style={{ margin: compact ? 0 : '0 0 4px', display: 'flex', flexWrap: 'wrap', gap: '4px 10px', alignItems: 'baseline' }}>

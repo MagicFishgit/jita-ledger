@@ -25,15 +25,14 @@ import { sanitizeAlerts } from '../../src/lib/prefs';
 import { paceDay } from '../../src/lib/prospects';
 import { byUrgency, judgeOrder, type Relist } from '../../src/lib/relist';
 import { buyerShare, type BookSold } from '../../src/lib/split';
-import type { AlertConfig, AlertLogEntry, BookLevel, HistRow, Prospect, ProspectFilters } from '../../src/lib/types';
+import type { AlertConfig, AlertLogEntry, BookLevel, Prospect, ProspectFilters } from '../../src/lib/types';
 import { noteJob } from './archive';
-import { esiDelete, esiGet, esiPost, HEADERS, useLogin, type Login } from './eve';
+import { esiDelete, esiGet, esiPost, useLogin, type Login } from './eve';
 import { flowFor, unpack } from './market';
+import { histories } from './hist';
 
 const JITA_44 = 60003760;
 const PLEX = 44992;
-const THE_FORGE = 10000002;
-const PLEX_MARKET = 19000001;
 const S = {
   planets: 'esi-planets.manage_planets.v1',
   mailRead: 'esi-mail.read_mail.v1',
@@ -41,8 +40,6 @@ const S = {
 };
 /** A book older than this means the market watch has stalled; judging an order on it could say the wrong thing. */
 const BOOK_MAX_AGE = 15 * 60_000;
-/** Histories fetched in one round at most; the rest come in the next. ESI adds a day at a time. */
-const HIST_PER_ROUND = 60;
 /** Your own buys count as fills for this long (`fillingNow` in fills.ts). */
 const OWN_FILL_MS = 3 * 86400_000;
 /** Colonies change slowly and a programme's end is known a day ahead, so they're read hourly. */
@@ -58,41 +55,6 @@ async function lastRun(db: D1Database, charId: number, job: string): Promise<num
   return (await db.prepare('SELECT last_run FROM jobs WHERE char_id = ?1 AND job = ?2').bind(charId, job).first<{ last_run: number }>())?.last_run ?? 0;
 }
 const inList = (n: number, from = 1) => Array.from({ length: n }, (_, i) => `?${i + from}`).join(',');
-
-/** The Forge's daily history for each item (PLEX's own market for PLEX): kept in D1 until ESI's copy expires. */
-async function histories(db: D1Database, types: number[], now: number): Promise<Record<number, HistRow[]>> {
-  const out: Record<number, HistRow[]> = {};
-  const due = new Set(types);
-  for (let i = 0; i < types.length; i += 90) {
-    const part = types.slice(i, i + 90);
-    const rows = (await db.prepare(`SELECT type_id, expires, rows FROM hist WHERE type_id IN (${inList(part.length)})`).bind(...part)
-      .all<{ type_id: number; expires: number; rows: string }>()).results;
-    for (const r of rows) {
-      out[r.type_id] = JSON.parse(r.rows);
-      if (r.expires > now) due.delete(r.type_id);
-    }
-  }
-  const fetchList = [...due].slice(0, HIST_PER_ROUND);
-  const set = db.prepare('INSERT INTO hist (type_id, expires, rows) VALUES (?1, ?2, ?3) ON CONFLICT(type_id) DO UPDATE SET expires = excluded.expires, rows = excluded.rows');
-  const stmts: D1PreparedStatement[] = [];
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(6, fetchList.length) }, async () => {
-    while (next < fetchList.length) {
-      const t = fetchList[next++];
-      try {
-        const res = await fetch(`https://esi.evetech.net/markets/${t === PLEX ? PLEX_MARKET : THE_FORGE}/history/?type_id=${t}`, { headers: HEADERS });
-        if (!res.ok) { await res.body?.cancel(); continue; }
-        // Two months is more than any rule reads: 14 days of pace and reach, 30 rows of split.
-        const rows = ((await res.json()) as HistRow[]).slice(-60);
-        const exp = Date.parse(res.headers.get('Expires') ?? '');
-        out[t] = rows;
-        stmts.push(set.bind(t, Number.isFinite(exp) ? exp : now + 3600_000, JSON.stringify(rows)));
-      } catch { /* kept from last time, or tried next round */ }
-    }
-  }));
-  for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
-  return out;
-}
 
 async function namesFor(db: D1Database, charId: number, ids: number[]): Promise<Record<number, string>> {
   const out: Record<number, string> = {};
@@ -210,13 +172,13 @@ async function tidy(env: Env, charId: number, main: Login, cfg: AlertConfig, now
 }
 
 /** A book as Prospects sees it, from the orders the watch last read. */
-function bookOf(orders: OrderLite[], at: number, sold: Book['sold']): Book {
+export function bookOf(orders: OrderLite[], at: number, sold: Book['sold']): Book {
   const levels = (side: OrderLite[], desc: boolean): BookLevel[] => {
     const out: BookLevel[] = [];
     for (const o of [...side].sort((a, b) => (desc ? b.price - a.price : a.price - b.price))) {
       const last = out[out.length - 1];
       if (last && last.price === o.price) last.volume += o.volume;
-      else if (out.length < 5) out.push({ price: o.price, volume: o.volume });
+      else if (out.length < 7) out.push({ price: o.price, volume: o.volume });
     }
     return out;
   };

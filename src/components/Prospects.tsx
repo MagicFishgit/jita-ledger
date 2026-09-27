@@ -147,13 +147,15 @@ export function Prospects() {
     <div className="page" style={{ minHeight: 600 }}>
       <PageHead
         kicker="02 · Market survey" title="Prospects" wide
-        lede="Items worth station trading at Jita 4-4, found by sampling the order book, then checking how often each one really changes hands. A wide spread on something that sells once a month isn’t a trade you can repeat."
+        lede="Items worth station trading at Jita 4-4: the cloud reads every order in The Forge each day, then checks how often each item really changes hands. A wide spread on something that sells once a month isn’t a trade you can repeat."
         actions={busy ? (
           <button type="button" className="btn danger tall" onClick={stopScan}><Square aria-hidden="true" />{scan.depth === 'deep' ? 'Stop deep scan' : 'Stop scan'}</button>
         ) : (
           <>
-            <button type="button" className="btn primary tall" onClick={() => runScan(d.settings, f, 'quick')}><Radar aria-hidden="true" />Quick scan</button>
-            <button type="button" className="btn tall" onClick={() => runScan(d.settings, f, 'deep')} data-tip-title="Deep scan" data-tip="Samples three times as much of the order book and works through every candidate it finds. Takes a while — leave it running."><ScanSearch aria-hidden="true" />Deep scan</button>
+            <button type="button" className="btn primary tall" onClick={() => runScan(d.settings, f, 'quick')} data-tip-title="Quick scan"
+              data-tip={'Checks now, from this browser, without waiting for the cloud’s daily scan.\n\n• Samples about 5% of The Forge’s order book (20 of ~400 pages): busy items show up, quiet ones can be missed.\n• Checks the history of up to 250 of what it finds and prices the best against the live book.\n\nAbout a minute and a half.'}><Radar aria-hidden="true" />Quick scan</button>
+            <button type="button" className="btn tall" onClick={() => runScan(d.settings, f, 'deep')} data-tip-title="Deep scan"
+              data-tip={'A bigger sample, from this browser.\n\n• Samples about 15% of the order book (60 pages) and checks every candidate it finds.\n• Still a sample: only the cloud’s daily scan reads every order.\n\nTakes a while; leave it running.'}><ScanSearch aria-hidden="true" />Deep scan</button>
           </>
         )}
       />
@@ -196,9 +198,11 @@ export function Prospects() {
             Checked {units(cov.checked)} of about {units(cov.candidates)} candidates, {units(cov.priced)} priced against the live book.
             {cov.pricedAt && <> Prices from <strong style={{ color: 'var(--body)' }}>{ago(cov.pricedAt, now)}</strong>; a scan refreshes any over an hour old.</>}
             {cov.priced === 0 ? ' A quick scan will price the best of them — it keeps the trading history already gathered.' : cov.checked < cov.candidates ? ' Scan again to widen the net.' : ''}
-            {' '}{cache?.runs?.deep
-              ? <>Last deep scan finished <strong style={{ color: 'var(--body)' }}>{ago(cache.runs.deep, now)}</strong>.</>
-              : <span style={{ color: 'var(--acc2)' }}>No deep scan has finished yet.</span>}
+            {' '}{cache?.runs?.cloud && (!cache.runs.deep || cache.runs.cloud > cache.runs.deep)
+              ? <>From the cloud’s full-market scan <strong style={{ color: 'var(--body)' }}>{ago(cache.runs.cloud, now)}</strong>: every order in The Forge read, not sampled.</>
+              : cache?.runs?.deep
+                ? <>Last deep scan finished <strong style={{ color: 'var(--body)' }}>{ago(cache.runs.deep, now)}</strong>.</>
+                : <span style={{ color: 'var(--acc2)' }}>No deep scan has finished yet.</span>}
           </span>
           <button type="button" className="link-btn danger" onClick={async () => {
             if (!(await confirmAsk({ title: 'Clear these results?', body: 'Deletes only what the scan found. Your trades, positions and settings are untouched.', confirm: 'Clear results', danger: true }))) return;

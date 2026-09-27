@@ -1843,6 +1843,10 @@ console.log('\n--- how current the Prospects scan is ---');
   eq('the newest finished scan counts, of either depth', P.scanFreshness({ quick: h(30), deep: h(2) }, null, now).lastDepth, 'deep');
   eq('no deep scan, or one over a week old, is worth running again', [P.scanFreshness({ quick: h(1) }, null, now).deepStale, P.scanFreshness({ deep: h(24 * 8) }, null, now).deepStale, P.scanFreshness({ deep: h(24 * 2) }, null, now).deepStale], [true, true, false]);
   eq('a scan from before finishing times were kept is judged by its newest price', P.scanFreshness(undefined, h(10), now).level, 'stale');
+  eq('the cloud’s daily full-market scan stays fresh through the day it covers', [P.scanFreshness({ cloud: h(20) }, null, now).level, P.scanFreshness({ cloud: h(20) }, null, now).lastDepth], ['fresh', 'cloud']);
+  eq('  a missed day makes it stale, two old', [P.scanFreshness({ cloud: h(35) }, null, now).level, P.scanFreshness({ cloud: h(60) }, null, now).level], ['stale', 'old']);
+  eq('  and a recent one leaves nothing for a deep scan to add', P.scanFreshness({ cloud: h(20) }, null, now).deepStale, false);
+  eq('  a quick scan after it is the newest', P.scanFreshness({ cloud: h(20), quick: h(1) }, null, now).lastDepth, 'quick');
 }
 
 console.log('\n--- planner filters ---');
@@ -2213,6 +2217,20 @@ console.log('\n--- where to list and wait ---');
   const highs = [97580, 99960, 99960, 97900, 97840, 97830, 97820, 88510, 92200, 92200, 97650, 89970, 96470, 94430];
   eq('the patient price: where trading got up to on half the days', [ra(highs, FILL_TYPICAL), ard(highs, ra(highs, FILL_TYPICAL))], [97650, 7]);
   eq('  the safer one: on most of them', [ra(highs, FILL_MOST), ard(highs, ra(highs, FILL_MOST))], [92200, 12]);
+}
+
+console.log('\n--- when the next full-market scan runs ---');
+{
+  const { nextScanAt, dayBoundary } = await import('../worker/src/scanTimes.ts');
+  const at = (iso) => Date.parse(iso);
+  const iso = (n) => new Date(n).toISOString().slice(0, 16);
+  eq('  done for today: tomorrow at 11:25', iso(nextScanAt(at('2026-09-27T20:25:00Z'), false, false)), '2026-09-28T11:25');
+  eq('  before 11:25 and not yet due: today at 11:25', iso(nextScanAt(at('2026-09-27T09:00:00Z'), false, false)), '2026-09-27T11:25');
+  eq('  missed or stopped short: the next hourly check', iso(nextScanAt(at('2026-09-27T20:25:00Z'), true, false)), '2026-09-27T21:07');
+  eq('  due at 20:03: this hour\'s check is still ahead', iso(nextScanAt(at('2026-09-27T20:03:00Z'), true, false)), '2026-09-27T20:07');
+  eq('  due at 11:10: the daily run comes before the next hourly one', iso(nextScanAt(at('2026-09-27T11:10:00Z'), true, false)), '2026-09-27T11:25');
+  eq('  while one runs: the next daily one', iso(nextScanAt(at('2026-09-27T11:30:00Z'), true, true)), '2026-09-28T11:25');
+  eq('  the day turns at 11:10, after ESI\'s 11:05 history', [iso(dayBoundary(at('2026-09-27T11:09:00Z'))), iso(dayBoundary(at('2026-09-27T11:11:00Z')))], ['2026-09-26T11:10', '2026-09-27T11:10']);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

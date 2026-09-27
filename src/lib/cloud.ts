@@ -12,7 +12,8 @@ import type { HourBucket } from './rhythm';
 import type { FlowLog } from './flow';
 import { sanitizeAlerts, sanitizePrefs } from './prefs';
 import { costBasis } from './orderCheck';
-import { loadCache, rankProspects } from './scan';
+import { adoptCloudScan, loadCache, mergeLiveBooks, rankProspects, type CloudScan } from './scan';
+import type { Book } from './evaluate';
 import { DEFAULT_FILTERS } from './prospects';
 import type { ProspectFilters } from './types';
 
@@ -354,6 +355,78 @@ async function refreshCloudFlow(): Promise<void> {
   if (held.length) setCloudHours(await call<Record<number, HourBucket[]>>(`/v1/hours?types=${held.join(',')}`));
 }
 
+let scanSeen: string | null = null;
+
+/**
+ * Takes the cloud's daily full-market scan as this browser's scan when there's a newer one: its time is checked
+ * first (a few bytes), and the scan itself (several MB) only fetched when it's new.
+ */
+let scanSyncing: Promise<void> | null = null;
+/** One at a time: the scan is megabytes, and the start, the hourly look and Settings may all ask at once. */
+function syncCloudScan(): Promise<void> {
+  scanSyncing ??= takeCloudScan().finally(() => { scanSyncing = null; });
+  return scanSyncing;
+}
+async function takeCloudScan(): Promise<void> {
+  if (!state || !cloudEnabled()) return;
+  const meta = await call<{ at: string } | null>('/v1/scan/meta');
+  if (!meta?.at || meta.at === scanSeen) return;
+  const local = await loadCache();
+  const newest = [local.runs?.quick, local.runs?.deep, local.runs?.cloud].filter((x): x is string => !!x).sort().pop();
+  if (newest && newest >= meta.at) { scanSeen = meta.at; return; }
+  const scan = await call<CloudScan | null>('/v1/scan');
+  if (scan && await adoptCloudScan(scan)) scanSeen = meta.at;
+}
+
+/** The cloud's full-market scan as Settings shows it: the last run, a running one's progress, when the next is due. */
+export type CloudScanStatus = {
+  last: {
+    at: string; startedAt: string; seconds: number; pages: number; pagesFailed: number;
+    jitaTypes: number; twoSided: number; gated: number; checked: number; kept: number;
+    history: { cached: number; fetched: number; failed: number; remaining: number }; partial: boolean;
+  } | null;
+  progress: { phase: 'pages' | 'history' | 'saving'; done: number; total: number; startedAt: string; updatedAt: string } | null;
+  next: string;
+  lastError: string | null;
+};
+
+/**
+ * Read while something shows it: every 5 seconds while a scan runs, every minute otherwise. A scan that finished
+ * since this browser last looked is taken at once rather than at the hourly look.
+ */
+type ScanStatusSnap = { status: CloudScanStatus | null; error: string | null };
+let scanSnap: ScanStatusSnap = { status: null, error: null };
+const scanListeners = new Set<() => void>();
+let scanTimer: ReturnType<typeof setTimeout> | undefined;
+async function lookAtScan(): Promise<void> {
+  clearTimeout(scanTimer);
+  if (!state || !cloudEnabled()) { if (scanSnap.status || scanSnap.error) scanSnap = { status: null, error: null }; }
+  else {
+    try {
+      const s = await call<CloudScanStatus>('/v1/scan/status');
+      scanSnap = { status: s, error: null };
+      if (s.last?.at && s.last.at !== scanSeen && !s.progress) syncCloudScan().catch(() => undefined);
+    } catch (e) { scanSnap = { ...scanSnap, error: e instanceof Error ? e.message : String(e) }; }
+  }
+  scanListeners.forEach((l) => l());
+  // Before the cloud has started (the page opened straight onto Settings) there is nothing to ask yet: look again soon.
+  if (scanListeners.size) scanTimer = setTimeout(() => { lookAtScan(); }, !state ? 3_000 : scanSnap.status?.progress ? 5_000 : 60_000);
+}
+// One subscribe function for good: an inline one is new each render, so React unsubscribes and subscribes again
+// every time, and each first subscriber would start another read.
+const watchScan = (cb: () => void) => {
+  scanListeners.add(cb);
+  if (scanListeners.size === 1) lookAtScan();
+  return () => { scanListeners.delete(cb); if (!scanListeners.size) clearTimeout(scanTimer); };
+};
+export const useCloudScanStatus = (): ScanStatusSnap => useSyncExternalStore(watchScan, () => scanSnap);
+
+/** Live prices for the watched candidates, from the cloud's five-minute watch, over the scan's morning ones. */
+async function refreshLiveBooks(): Promise<void> {
+  if (!state || !cloudEnabled() || !watchAsked.length) return;
+  await mergeLiveBooks(await call<Record<number, Book>>(`/v1/books?types=${watchAsked.slice(0, 500).join(',')}`));
+}
+
 /** An item's trade by hour of day (UTC), as the cloud counted it. */
 export const cloudHours = (typeId: number) => call<Record<number, HourBucket[]>>(`/v1/hours?types=${typeId}`).then((r) => r[typeId] ?? []);
 
@@ -416,16 +489,23 @@ export function startCloud(): () => void {
     if (!alive) return;
     if (!cloudEnabled()) { setStatus({ phase: 'off' }); return; }
     setStatus({ phase: 'idle' });
-    syncCloudNow().then(() => pushWatch().catch(() => undefined)).then(() => Promise.all([refreshCloudFlow(), cloudSummary(), pushCosts(), refreshTrack()])).catch(() => undefined);
+    syncCloudNow()
+      .then(() => syncCloudScan().catch(() => undefined))
+      .then(() => pushWatch().catch(() => undefined))
+      .then(() => Promise.all([refreshCloudFlow(), cloudSummary(), pushCosts(), refreshTrack(), refreshLiveBooks()]))
+      .catch(() => undefined);
   };
   begin();
   const offAuth = onAuthChange(() => { begin(); });
   const tick = setInterval(() => { if (document.visibilityState === 'visible' && state && cloudEnabled()) syncCloudNow(); }, PULL_EVERY);
   // The cloud reads the books every five minutes; fetching its counts every ten keeps the pages close to it.
   // The same cadence for whether the cloud mails (another device may have handed it a sender) and the costs.
+  // The day's scan lands once, after 11:25 EVE; an hourly look for it costs a few bytes.
+  const scanTick = setInterval(() => { if (document.visibilityState === 'visible') syncCloudScan().then(() => pushWatch()).catch(() => undefined); }, 60 * 60_000);
   const flowTick = setInterval(() => {
     if (document.visibilityState !== 'visible' || !state || !cloudEnabled()) return;
     pushWatch().catch(() => undefined).then(() => refreshCloudFlow()).catch(() => undefined);
+    refreshLiveBooks().catch(() => undefined);
     cloudSummary().catch(() => undefined);
     pushCosts().catch(() => undefined);
     refreshTrack().catch(() => undefined);
@@ -437,6 +517,7 @@ export function startCloud(): () => void {
     offChange(); offAuth();
     clearInterval(tick);
     clearInterval(flowTick);
+    clearInterval(scanTick);
     document.removeEventListener('visibilitychange', onVisible);
     if (pushTimer) clearTimeout(pushTimer);
   };

@@ -161,19 +161,24 @@ export function pickPages(total: number, want: number, rnd: () => number = Math.
 }
 
 /** When a quick and a deep scan last ran to the end. */
-export type ScanRuns = { quick?: string; deep?: string };
+export type ScanRuns = { quick?: string; deep?: string; /** The cloud's daily full-market scan. */ cloud?: string };
 /** Scan data older than this is a bit stale: prices and volumes have moved. */
 export const SCAN_STALE_HOURS = 6;
 /** Older than this, it's old: trading history refreshes daily. */
 export const SCAN_OLD_HOURS = 24;
 /** A deep scan older than this, or none at all, is worth running again: it checks every candidate. */
 export const DEEP_STALE_DAYS = 7;
+/**
+ * The cloud's full-market scan runs once a day, after the day's history, and the five-minute watch keeps its best
+ * candidates' prices live between runs, so it's fresh for a day and a bit (a scan finishing late, a missed day).
+ */
+export const CLOUD_FRESH_HOURS = 30;
 
 export type ScanFreshness = {
   level: 'none' | 'fresh' | 'stale' | 'old';
   /** When the data was last refreshed by a finished scan, or by the last pricing for a scan from before this was kept. */
   last: string | null;
-  lastDepth: 'quick' | 'deep' | null;
+  lastDepth: 'quick' | 'deep' | 'cloud' | null;
   deepAt: string | null;
   deepStale: boolean;
 };
@@ -184,16 +189,20 @@ export type ScanFreshness = {
  * finishing times were kept: better than calling it "never".
  */
 export function scanFreshness(runs: ScanRuns | undefined, fallback: string | null, now = Date.now()): ScanFreshness {
-  const finished = [runs?.quick, runs?.deep].filter((x): x is string => !!x).sort();
+  const finished = [runs?.quick, runs?.deep, runs?.cloud].filter((x): x is string => !!x).sort();
   const last = finished.pop() ?? fallback ?? null;
   const hours = last ? (now - Date.parse(last)) / 3600_000 : null;
-  const level = hours == null ? 'none' : hours < SCAN_STALE_HOURS ? 'fresh' : hours < SCAN_OLD_HOURS ? 'stale' : 'old';
+  const cloud = !!last && last === runs?.cloud;
+  const [fresh, old] = cloud ? [CLOUD_FRESH_HOURS, CLOUD_FRESH_HOURS + SCAN_OLD_HOURS] : [SCAN_STALE_HOURS, SCAN_OLD_HOURS];
+  const level = hours == null ? 'none' : hours < fresh ? 'fresh' : hours < old ? 'stale' : 'old';
   const deepAt = runs?.deep ?? null;
+  // A full-market scan covers more than a deep one: a recent one leaves nothing for a deep scan to add.
+  const cloudRecent = !!runs?.cloud && (now - Date.parse(runs.cloud)) / 86400_000 <= DEEP_STALE_DAYS;
   return {
     level, last,
-    lastDepth: last && last === runs?.deep ? 'deep' : last && last === runs?.quick ? 'quick' : null,
+    lastDepth: cloud ? 'cloud' : last && last === runs?.deep ? 'deep' : last && last === runs?.quick ? 'quick' : null,
     deepAt,
-    deepStale: !deepAt || (now - Date.parse(deepAt)) / 86400_000 > DEEP_STALE_DAYS,
+    deepStale: !cloudRecent && (!deepAt || (now - Date.parse(deepAt)) / 86400_000 > DEEP_STALE_DAYS),
   };
 }
 
