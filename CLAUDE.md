@@ -422,9 +422,11 @@ Don't re-derive or contradict these without new evidence.
   price, the expiry). The session remembers each one; when a build no longer produces it, a per-kind judge
   reads the current data and moves it to Done with what changed ("You moved it to 799,300 ISK, and it's at the
   front", "The heads were reset: it runs until …", "You exported a backup"). **Absent is not done**: before the
-  orders are checked every order is absent, so a judge answers only from a read that can tell (a check that
-  read that item's book, a colony or signal read newer than the one that showed it, or the ledger, which is
-  always current), and otherwise the item stays listed as being checked. While the page is open it re-checks
+  orders are checked every order is absent, so a judge answers only from a read that can tell (an order check,
+  colony read or signal read *newer than the one that showed it*, which for an order must also have read that
+  item's book; or the ledger, which is always current: a sync saying the order closed, a position closed, a
+  backup exported), and otherwise the item stays listed as being checked. "Newer" also keeps a second tab with
+  an older check from judging what the first tab saw since; the tabs share the session through `storage` events. While the page is open it re-checks
   the orders when ESI's book expires (not more than every 2 minutes), colonies every 10 minutes while a PI item
   waits, and at once when the tab becomes visible again. A tick by hand holds for the same `ver` only: a chore
   for 12 hours, a warning (scam, squeeze) until it changes, so a new undercut reopens a skipped move. Done items

@@ -6,9 +6,10 @@ A station trading tool for Jita 4-4 that runs entirely in your browser and is ho
   balance-after figure; net worth (wallet, sell orders, escrow, assets at CCP's rough prices, loyalty points);
   the fee leak; trades no position tracks, sorted and correctable; goals, runway, running costs, ships lost and a
   light check for unusual activity. A monthly CSV and a shareable image.
-- **Tonight's run**: everything worth doing now in one list — orders worth moving, sold-out positions, margin
+- **To do**: everything worth doing now in one list — orders worth moving, sold-out positions, margin
   squeezes, planetary programmes ending, trades your positions skipped, suspicious markets, an overdue backup —
-  biggest ISK first. N steps, Enter opens.
+  biggest ISK first. N steps, Enter opens. It ticks itself off as you play: when a newer read of the market, your
+  colonies or your ledger no longer shows something, it moves to Done with what changed.
 - **Calculator**: profit per unit after broker fees and sales tax, break-even and target prices, with live Jita 4-4 prices and daily volume from ESI.
 - **Prospects**: finds items worth trading by sampling the Jita order book, then checking how often each one really
   changes hands. Anything that doesn't trade on most days is left out, however wide the margin. A **quick scan**

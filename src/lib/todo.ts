@@ -161,10 +161,12 @@ const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
  */
 export function judgeOrder(
   e: Entry,
-  c: { open: boolean; checked: boolean; bookRead: boolean; v?: { gone: boolean; verdict: Verdict; price: number; why: string } },
+  c: { open: boolean; checkedAt: number | null; bookRead: boolean; v?: { gone: boolean; verdict: Verdict; price: number; why: string } },
 ): string | null {
   if (!c.open) return 'The order has closed: it filled, expired or was cancelled.';
-  if (!c.checked || !c.bookRead || !c.v) return null;
+  // Only a check newer than the one that showed it. A second tab holding an older check must not judge
+  // an item the first tab saw since.
+  if (c.checkedAt == null || c.checkedAt <= e.seenAt || !c.bookRead || !c.v) return null;
   const v = c.v;
   if (v.gone) return 'It’s no longer in the market: it filled, expired or was cancelled.';
   if (v.verdict === 'move' || v.verdict === 'dry') return null;
@@ -179,7 +181,8 @@ export function judgePi(e: Entry, c: { readAt: number | null; extractor: { expir
   if (c.readAt == null || c.readAt <= e.seenAt) return null;
   if (!c.extractor) return 'The extractor is no longer on that colony.';
   const { expiry } = c.extractor;
-  if (expiry != null && expiry - now > 24 * 3600_000) return `The heads were reset: it runs until ${fmtDateTime(expiry)}.`;
+  if (expiry == null) return 'The extractor has no programme running now.';
+  if (expiry - now > 24 * 3600_000) return `The heads were reset: it runs until ${fmtDateTime(expiry)}.`;
   return null;
 }
 

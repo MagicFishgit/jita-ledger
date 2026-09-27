@@ -71,6 +71,12 @@ export function Todo() {
   const sig = useSignals();
   const col = useColonies();
   const [mem, setMem] = useState<Memory>(readMem);
+  // Another tab on this page saves its own view of the session: take it, so the two don't overwrite each other.
+  useEffect(() => {
+    const on = (ev: StorageEvent) => { if (ev.key === MEM_KEY) setMem(readMem()); };
+    window.addEventListener('storage', on);
+    return () => window.removeEventListener('storage', on);
+  }, []);
   const [sel, setSel] = useState(0);
   const [allDone, setAllDone] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
@@ -227,7 +233,7 @@ export function Todo() {
           const o = d.orders[Number(id)];
           return judgeOrder(e, {
             open: !!o && o.state === 'open' && o.volumeRemain > 0,
-            checked: checkedAt != null,
+            checkedAt,
             bookRead: !!o && !!check.books?.[o.typeId],
             v: byOrder.get(Number(id)),
           });

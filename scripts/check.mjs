@@ -1314,9 +1314,10 @@ console.log('\n--- to do and results ---');
 
   const e = { item: it('order:1', 10, 'move', { price: 100 }), seenAt: 0, lastAt: 0 };
   const v = (verdict, price = 100, extra = {}) => ({ gone: false, verdict, price, why: 'Only 3 ahead of you, about 2 h at this item’s pace', ...extra });
-  const seen = { open: true, checked: true, bookRead: true };
-  eq('an order the sync says closed', judgeOrder(e, { open: false, checked: false, bookRead: false }), 'The order has closed: it filled, expired or was cancelled.');
-  eq('  before any check: can’t say', judgeOrder(e, { open: true, checked: false, bookRead: false }), null);
+  const seen = { open: true, checkedAt: 1, bookRead: true };
+  eq('an order the sync says closed', judgeOrder(e, { open: false, checkedAt: null, bookRead: false }), 'The order has closed: it filled, expired or was cancelled.');
+  eq('  before any check: can’t say', judgeOrder(e, { open: true, checkedAt: null, bookRead: false }), null);
+  eq('  the check that showed it can’t say', judgeOrder(e, { ...seen, checkedAt: 0, v: v('front', 99.5) }), null);
   eq('  its book failed to load: can’t say', judgeOrder(e, { ...seen, bookRead: false, v: v('front') }), null);
   eq('  gone from the book', judgeOrder(e, { ...seen, v: v('front', 100, { gone: true }) }), 'It’s no longer in the market: it filled, expired or was cancelled.');
   eq('  relisted to the front', judgeOrder(e, { ...seen, v: v('front', 99.5) }), 'You moved it to 99.50 ISK, and it’s at the front.');
@@ -1328,6 +1329,7 @@ console.log('\n--- to do and results ---');
   eq('PI: the same read can’t say', judgePi(pe, { readAt: 1000, extractor: null }, T0), null);
   eq('  a newer read with the heads reset', judgePi(pe, { readAt: 2000, extractor: { expiry: ends } }, T0), `The heads were reset: it runs until ${fmtDateTime(ends)}.`);
   eq('  a newer read, still ending', judgePi(pe, { readAt: 2000, extractor: { expiry: T0 + 3600_000 } }, T0), null);
+  eq('  a newer read, no programme at all', judgePi(pe, { readAt: 2000, extractor: { expiry: null } }, T0), 'The extractor has no programme running now.');
   const se = { item: it('scam:3:wall', 0, 'scam', { source: 'signals' }), seenAt: 1000, lastAt: 1000 };
   eq('a wall needs a newer read to clear', [judgeScam(se, { tracked: true, signalAt: 1000 }), judgeScam(se, { tracked: true, signalAt: 2000 })], [null, 'The wall has gone.']);
 }
