@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { CalendarRange, Clock, Layers, Trophy } from 'lucide-react';
 import { rates } from '../lib/fees';
 import { fmtDate, fmtShort, iskBig, iskBigSigned, pct, units } from '../lib/format';
@@ -180,6 +180,9 @@ export function Results() {
   const unbought = itemRows.filter(isUnbought);
   const tradeSet = new Set(tradeRows.map((r) => r.typeId));
   const tradeProfit = tradeRows.reduce((t, r) => t + r.profit, 0);
+  // The By activity row beside Trading: the same bar scale, and per hour on the trading hours.
+  const barMax = Math.max(1, ...tot, tradeProfit);
+  const allTradingPh = perHour(tradeProfit, hours.Trading, covered);
   // Items that sold are what the table and the kinds compare; orders that sold nothing are said apart, since
   // their fees against the cost of what did sell make a nonsense percentage.
   const soldRows = tradeRows.filter((r) => r.sold > 0);
@@ -293,23 +296,42 @@ export function Results() {
               </tr></thead>
               <tbody>
                 {acts.map((a, k) => (
-                  <tr key={a}>
-                    <td className="l" data-tip={WHAT[a]} data-tip-title={a}><span className="row tight" style={{ fontSize: 13.5, color: 'var(--ink)', fontFamily: 'var(--f-body)' }}><span style={{ width: 9, height: 9, background: COLOR[a] }} />{a}</span></td>
-                    <td className="l" style={{ width: '45%' }}>
-                      <span className="row tight" style={{ flexWrap: 'nowrap' }}>
-                        <span className="track" style={{ flex: 1 }}><span className="fill" style={{ width: `${(Math.max(0, tot[k]) / Math.max(1, ...tot)) * 100}%`, background: COLOR[a] }} /></span>
-                        <span style={{ fontSize: 12, color: tot[k] < 0 ? 'var(--neg-t)' : 'var(--figure)' }}>{tot[k] ? iskBigSigned(tot[k]) : '–'}</span>
-                      </span>
-                    </td>
-                    <td><NumChip label={`Hours a week on ${a.toLowerCase()}`} hideLabel value={hours[a] ?? null} onChange={(v) => setHours(a, v)} width={56} decimals={1} placeholder="–" /></td>
-                    <td style={{ color: ph[k] != null && overallPh != null && ph[k]! > overallPh ? 'var(--pos)' : 'var(--figure)' }}>{ph[k] == null ? '–' : iskBigSigned(ph[k])}</td>
-                  </tr>
+                  <Fragment key={a}>
+                    <tr>
+                      <td className="l" data-tip={WHAT[a]} data-tip-title={a}><span className="row tight" style={{ fontSize: 13.5, color: 'var(--ink)', fontFamily: 'var(--f-body)' }}><span style={{ width: 9, height: 9, background: COLOR[a] }} />{a}</span></td>
+                      <td className="l" style={{ width: '45%' }}>
+                        <span className="row tight" style={{ flexWrap: 'nowrap' }}>
+                          <span className="track" style={{ flex: 1 }}><span className="fill" style={{ width: `${(Math.max(0, tot[k]) / barMax) * 100}%`, background: COLOR[a] }} /></span>
+                          <span style={{ fontSize: 12, color: tot[k] < 0 ? 'var(--neg-t)' : 'var(--figure)' }}>{tot[k] ? iskBigSigned(tot[k]) : '–'}</span>
+                        </span>
+                      </td>
+                      <td><NumChip label={`Hours a week on ${a.toLowerCase()}`} hideLabel value={hours[a] ?? null} onChange={(v) => setHours(a, v)} width={56} decimals={1} placeholder="–" /></td>
+                      <td style={{ color: ph[k] != null && overallPh != null && ph[k]! > overallPh ? 'var(--pos)' : 'var(--figure)' }}>{ph[k] == null ? '–' : iskBigSigned(ph[k])}</td>
+                    </tr>
+                    {a === 'Trading' && (
+                      <tr>
+                        <td className="l" data-tip-title="Every item traded" data-tip={'Every trade in an item you bought, tracked by a position or not, worked out by the same rules as Positions.\n\n• Trades you tagged Personal are left out, as on the Wallet.\n• Shown beside Trading, not added to the total: tracked trades are already counted there.\n• "Every item you traded" below lists them one by one.'}>
+                          <span className="row tight" style={{ fontSize: 13, color: 'var(--sec)', fontFamily: 'var(--f-body)', paddingLeft: 12, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
+                            <span style={{ width: 9, height: 9, border: `1px solid ${COLOR.Trading}` }} />Every item traded
+                          </span>
+                        </td>
+                        <td className="l" style={{ width: '45%' }}>
+                          <span className="row tight" style={{ flexWrap: 'nowrap' }}>
+                            <span className="track" style={{ flex: 1 }}><span className="fill" style={{ width: `${(Math.max(0, tradeProfit) / barMax) * 100}%`, background: `color-mix(in oklab,${COLOR.Trading} 45%,transparent)` }} /></span>
+                            <span style={{ fontSize: 12, color: tradeProfit < 0 ? 'var(--neg-t)' : 'var(--figure)' }}>{tradeProfit ? iskBigSigned(tradeProfit) : '–'}</span>
+                          </span>
+                        </td>
+                        <td style={{ color: 'var(--sec)', fontSize: 12 }} data-tip="Uses your hours a week on trading.">as above</td>
+                        <td style={{ color: 'var(--figure)' }}>{allTradingPh == null ? '–' : iskBigSigned(allTradingPh)}</td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
           </div>
           <p className="note" style={{ color: 'var(--sec)' }}>{verdict}</p>
-          <p className="note small">Each activity is counted by one rule — hover its name to see it. A trade a position counts is always trading; anything else goes to the activity its item belongs to, and items that belong to none are left out rather than guessed at.</p>
+          <p className="note small">Each activity is counted by one rule — hover its name to see it. A trade a position counts is always trading; anything else goes to the activity its item belongs to, and items that belong to none are left out rather than guessed at. Every item traded counts your trades whether a position tracks them or not, and is shown beside Trading rather than added to the total.</p>
         </Panel>
       </div>
       <div className="g-440" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,380px),1fr))' }}>

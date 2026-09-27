@@ -589,7 +589,9 @@ Don't re-derive or contradict these without new evidence.
   cost of what did sell made "−1151.5%". Items sold with no recorded buy (loot, store and planetary goods) are
   counted by their activity, not here. "What kind of trading pays" groups the sold items by ESI category (looked up
   once per item and kept), price per unit and time held. On the user's ledger it agrees with the positions-based
-  Trading line (−3.08 M both), as it should while all their trading sits in positions. `computePosition` now reads
+  Trading line (−3.08 M both), as it should while all their trading sits in positions. The same total shows in
+  "By activity" as **Every item traded**, a row under Trading and never added to the total: the user asked for
+  a second line rather than a change to what Trading counts, which stays tracked positions only. `computePosition` now reads
   trades from an index by item kept per `d.txs` version (`tradesFor`): identical on all 376 positions checked,
   6× faster, and it no longer grows with items × trades.
 - **Pages that need the same live answer share one store**: `orderCheck` (your orders against the book),
