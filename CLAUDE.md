@@ -528,6 +528,17 @@ Don't re-derive or contradict these without new evidence.
   the limit (the user's 129 slots held 126 orders, 123 of them sells).
 - **Settings are one row each: name and hint, then a short number box with its unit** (`SetRow`). The old
   full-width fields put the number at the far end of the page from its label.
+- **"What your standings are worth" prices your real trading at other standings** (`lib/standings.ts`, Rates & fees).
+  Every broker charge is the broker rate × an order's value (a price change × (1 − the Advanced Broker Relations
+  discount)), so each fee ÷ the rate paid that day is the trading behind it, and that total × any rate is what the
+  same trading costs there. It takes **every** broker fee the ledger holds, not a window: the user asked for all of
+  it as it builds up. The rate paid each day is **measured**, the median of fee ÷ order value over that day's
+  placements matched to their orders (`measuredRates`, at least 3, skipping 100 ISK minimums), because the kept
+  `rateHistory` starts with setup noise: the user's read 2.23% until their first sync at 18:51 on 24 September,
+  while their placements that day paid 1.331%; on 25–27 September they paid 1.328%, 1.306%, 1.298% as standings rose.
+  Trusting each match's order value instead was tried: most of the ISK (58.8 of 80.2 M) is in unmatched fees and a
+  few matches are wrong (implied rates of 7% and infinity), so one rate per day is sturdier. The chart's axis starts
+  at zero; the "you" dot shows only once standings are known (synced, or typed), never at an unsynced 0 and 0.
 - **A switch that means "I'll type it in" must say so, never "from the game".** The fee override was labelled "Use
   my exact broker fee and sales tax from the game"; the user read it as "sync them from the game" and left it on,
   so a standings rise from two storyline missions would never have reached the app's fee. It is now "Type in my

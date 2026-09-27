@@ -29,7 +29,11 @@ export function mergeOrders(cur: Record<string, Order>, fetched: Record<string, 
 export type FeeRates = (iso: string) => { f: number; k: number; t: number };
 
 /** A fee, when it was charged, and how many units were left on the order then (what it was charged on). */
-export type OrderFee = { at: string; amount: number; actual: boolean; remain: number; journalId?: string };
+export type OrderFee = {
+  at: string; amount: number; actual: boolean; remain: number; journalId?: string;
+  /** The order value it was charged on: the whole order for a placement, what was left for a price change. */
+  value: number;
+};
 export type OrderFees = { placement: OrderFee; relists: OrderFee[] };
 export type FeeMatches = {
   byOrder: Map<number, OrderFees>;
@@ -86,14 +90,14 @@ export function matchFees(journal: JournalEntry[], orders: Order[], txs: Tx[], r
       if (e) claimed.add(e.id);
       const amount = e ? Math.abs(e.amount) : expectPlacement ? full : change;
       const isPlacement = expectPlacement && (!e || amount >= PLACEMENT_SHARE * r.f * v.price * o.volumeTotal);
-      const fee: OrderFee = { at: v.issued, amount, actual: !!e, remain: v.remain, journalId: e?.id };
+      const fee: OrderFee = { at: v.issued, amount, actual: !!e, remain: v.remain, journalId: e?.id, value: v.price * (isPlacement ? o.volumeTotal : v.remain) };
       if (isPlacement) placement = fee;
       else { relists.push(fee); if (e) relistIds.add(e.id); }
     });
     // A placement never seen: estimate it from the earliest price we know.
     if (!placement) {
       const v = versions[0];
-      placement = { at: v.issued, amount: Math.max(100, rateAt(v.issued).f * v.price * o.volumeTotal), actual: false, remain: o.volumeTotal };
+      placement = { at: v.issued, amount: Math.max(100, rateAt(v.issued).f * v.price * o.volumeTotal), actual: false, remain: o.volumeTotal, value: v.price * o.volumeTotal };
     }
     byOrder.set(o.orderId, { placement, relists });
   }

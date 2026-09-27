@@ -237,3 +237,40 @@ export function HourlyChart({ points, height = 170 }: { points: HourPoint[]; hei
     </div>
   );
 }
+
+/**
+ * Broker fees for the same trading along the faction's standing (0 to 10), one line per corporation standing,
+ * with a dot where you are. The axis starts at zero, so a third less in fees looks like a third less.
+ */
+export function StandingsChart(props: {
+  lines: { label: string; color: string; dashed?: boolean; points: { x: number; fees: number }[] }[];
+  you?: { x: number; fees: number; tip: string };
+  height?: number;
+}) {
+  const W = 600, H = 200, base = H - 18;
+  const hi = Math.max(1, ...props.lines.flatMap((l) => l.points.map((p) => p.fees)), props.you?.fees ?? 0) * 1.12;
+  const X = (x: number) => (x / 10) * W;
+  const Y = (v: number) => base - (v / hi) * (base - 8);
+  return (
+    <div className="chart-box" style={{ height: props.height ?? 230 }}>
+      <svg className="plot" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+        <path d={[0.25, 0.5, 0.75, 1].map((q) => `M0 ${Y(hi * q / 1.12).toFixed(1)}H${W}`).join('')} stroke="rgba(130,185,225,.07)" vectorEffect="non-scaling-stroke" fill="none" />
+        <path d={`M0 ${base}H${W}`} stroke="rgba(130,185,225,.18)" vectorEffect="non-scaling-stroke" fill="none" />
+        {[2.5, 5, 7.5].map((x) => <path key={x} d={`M${X(x)} 0V${base}`} stroke="rgba(130,185,225,.05)" vectorEffect="non-scaling-stroke" fill="none" />)}
+        {props.lines.map((l) => (
+          <path key={l.label} d={l.points.map((p, i) => `${i ? 'L' : 'M'}${X(p.x).toFixed(1)} ${Y(p.fees).toFixed(1)}`).join('')} fill="none"
+            stroke={l.color} strokeWidth={2} strokeDasharray={l.dashed ? '6 5' : undefined} vectorEffect="non-scaling-stroke" style={{ filter: `drop-shadow(0 0 3px ${l.color})` }} />
+        ))}
+      </svg>
+      {props.you && (
+        <button type="button" className="evdot" data-tip={props.you.tip} data-tip-title="Where you are" aria-label={`Where you are: ${props.you.tip}`}
+          style={cssVars({ left: `${(X(props.you.x) / W) * 100}%`, top: `${(Y(props.you.fees) / H) * 100}%`, '--c': 'var(--acc)' })} />
+      )}
+      <span className="ax" style={{ left: 8, top: 6 }}>{iskBig(hi / 1.12)}</span>
+      <span className="ax" style={{ left: 8, bottom: 22 }}>0 ISK</span>
+      <span className="ax f" style={{ left: 8, bottom: 4 }}>Caldari State 0</span>
+      <span className="ax f" style={{ left: '50%', bottom: 4, transform: 'translateX(-50%)' }}>5</span>
+      <span className="ax f" style={{ right: 8, bottom: 4 }}>10</span>
+    </div>
+  );
+}

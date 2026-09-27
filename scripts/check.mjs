@@ -2236,5 +2236,51 @@ console.log('\n--- when the next full-market scan runs ---');
   eq('  the day turns at 11:10, after ESI\'s 11:05 history', [iso(dayBoundary(at('2026-09-27T11:09:00Z'))), iso(dayBoundary(at('2026-09-27T11:11:00Z')))], ['2026-09-26T11:10', '2026-09-27T11:10']);
 }
 
+console.log('\n--- what standings are worth in broker fees ---');
+{
+  const { brokerRateAt, brokerFeesPaid, standingsWorth, measuredRates } = await import('../src/lib/standings.ts');
+  const r4 = (x) => +(x * 100).toFixed(4);
+  eq('  the user: Broker Relations V, Caldari State 2.188, Caldari Navy 7.040', r4(brokerRateAt(5, 2.188057744, 7.039647095)), 1.2936);
+  eq('  no standings at V is 1.5%, both at 10 exactly 1%', [r4(brokerRateAt(5, 0, 0)), r4(brokerRateAt(5, 10, 10))], [1.5, 1]);
+  eq('  Broker Relations IV with both at 10 is 1.3%', r4(brokerRateAt(4, 10, 10)), 1.3);
+  const now = Date.parse('2026-09-27T23:00:00Z');
+  const J = {
+    a: { id: 'a', date: '2026-09-24T17:04:14Z', refType: 'brokers_fee', amount: -60_000_000 },
+    b: { id: 'b', date: '2026-09-27T20:00:00Z', refType: 'brokers_fee', amount: -20_191_029 },
+    c: { id: 'c', date: '2026-08-01T00:00:00Z', refType: 'brokers_fee', amount: -5_000_000 },
+    d: { id: 'd', date: '2026-09-27T20:00:00Z', refType: 'transaction_tax', amount: -9_000_000 },
+  };
+  const flat = () => 0.012936;
+  const p = brokerFeesPaid(J, now, flat);
+  eq('  every broker fee the ledger holds, from the first one', [p.paid, p.count, p.from], [85_191_029, 3, '2026-08-01T00:00:00Z']);
+  eq('  an empty journal', brokerFeesPaid({}, now, flat), { paid: 0, base: 0, count: 0, exact: 0, from: null, days: 0 });
+  // The day's rate is measured from its placements: the median, so one wrong match (7%) and a 100 ISK minimum don't move it.
+  const P = (id, date, fee, value) => [id, { placement: { journalId: id, value } }];
+  const JP = {
+    p1: { id: 'p1', date: '2026-09-24T17:10:00Z', refType: 'brokers_fee', amount: -1330 },
+    p2: { id: 'p2', date: '2026-09-24T17:20:00Z', refType: 'brokers_fee', amount: -2660 },
+    p3: { id: 'p3', date: '2026-09-24T17:30:00Z', refType: 'brokers_fee', amount: -7000 },
+    p4: { id: 'p4', date: '2026-09-24T17:40:00Z', refType: 'brokers_fee', amount: -1330 },
+    p5: { id: 'p5', date: '2026-09-24T17:50:00Z', refType: 'brokers_fee', amount: -100 },
+    big: { id: 'big', date: '2026-09-24T18:00:00Z', refType: 'brokers_fee', amount: -13_300_000 },
+  };
+  const byOrder = new Map([P('p1', 0, 0, 100_000), P('p2', 0, 0, 200_000), P('p3', 0, 0, 100_000), P('p4', 0, 0, 100_000), P('p5', 0, 0, 10)]);
+  const mr = measuredRates(byOrder, JP);
+  eq('  a day\'s rate is the median of its placements', +(mr.get('2026-09-24') * 100).toFixed(4), 1.33);
+  const pm = brokerFeesPaid({ big: JP.big }, now, () => 0.0223, mr);
+  eq('  an unmatched fee that day is read at it, not at the record\'s setup 2.23%', [Math.round(pm.base), pm.exact], [1e9, 1]);
+  eq('  fewer than 3 placements measure nothing', measuredRates(new Map([P('p1', 0, 0, 100_000)]), JP).size, 0);
+  // One fee paid back when the rate was 1.5%: the trading behind it is 60 M / 1.5%, not 60 M / today's rate.
+  const hist = (iso) => (iso < '2026-09-01' ? 0.015 : 0.012936);
+  const q = brokerFeesPaid({ a: J.a, c: J.c }, now, hist);
+  eq('  each fee over the rate you had when you paid it', Math.round(q.base), Math.round(60_000_000 / 0.012936 + 5_000_000 / 0.015));
+  const w = standingsWorth(80_191_029 / 0.0129360, 5, 2.188057744, 7.039647095);
+  const by = Object.fromEntries(w.cases.map((c) => [c.key, Math.round(c.fees / 1e5) / 10]));
+  eq('  the same trading at other standings (M ISK)', by, { none: 93, you: 80.2, f5: 75, f10: 65.7, both: 62 });
+  eq('  each case against your standings now', w.cases.find((c) => c.key === 'you').diff, 0);
+  eq('  the curve runs 0 to 10 and meets you', [w.curve(7.039647095).length, w.curve(7.039647095)[0].x, w.curve(7.039647095)[20].x], [21, 0, 10]);
+  eq('  already at 10 on both: no cases above you', standingsWorth(1e6, 5, 10, 10).cases.map((c) => c.key), ['none', 'you']);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

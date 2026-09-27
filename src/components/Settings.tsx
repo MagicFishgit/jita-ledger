@@ -3,8 +3,10 @@ import { get } from 'idb-keyval';
 import {
   BellRing, Cloud, Database, Download, GraduationCap, HardDriveDownload, LogIn, LogOut, Mail, Palette, Percent, Radar, RefreshCw, Send, Trash2, Upload, UserRound,
 } from 'lucide-react';
-import { effectiveSkills, orderSlots, rates, RELIST_LEFT, sanitizeSettings, type Settings as S } from '../lib/fees';
-import { ago, fmtDateTime, iskBig, iskBigSigned, pct, plainNum, units, until } from '../lib/format';
+import { effectiveSkills, orderSlots, rateAt, rates, RELIST_LEFT, sanitizeSettings, type Settings as S } from '../lib/fees';
+import { brokerFeesPaid, measuredRates, standingsWorth } from '../lib/standings';
+import { feeMatchesFor } from '../lib/positions';
+import { ago, fmtDate, fmtDateTime, iskBig, iskBigSigned, pct, plainNum, units, until } from '../lib/format';
 import { cacheStore, clearAll, exportAll, importAll, parseBackup, update, useData } from '../lib/store';
 import { confirmAsk } from '../lib/confirm';
 import { isConfigured, login, loginForCloud, loginMailer, loginMailerForCloud, logout, logoutMailer } from '../lib/auth';
@@ -22,6 +24,7 @@ import { cloudCovers, cloudEnabled, cloudEsiCheck, cloudSummary, cloudTestMail, 
 import { loadCache, useScanState } from '../lib/scan';
 import type { ScanRuns } from '../lib/prospects';
 import type { AlertEvent, Motion, Theme } from '../lib/types';
+import { StandingsChart } from './charts';
 import { downloadText, LevelBoxes } from './common';
 import { CloneSwitch } from './Omega';
 import { useSkillPayback } from './payback';
@@ -371,6 +374,81 @@ function Skills() {
   );
 }
 
+/**
+ * What standings are worth: every broker fee in the ledger, each over the rate you had when you paid it, priced at
+ * other Caldari State and Caldari Navy standings. Drawn only once the app knows your standings: an unsynced 0 and 0
+ * would put "you" confidently at the worst rate.
+ */
+function StandingsWorth() {
+  const d = useData();
+  const auth = useAuth();
+  const now = useNow(60_000);
+  const s = d.settings;
+  const r = rates(s);
+  const br = effectiveSkills(s).br;
+  const known = s.faction !== 0 || s.corp !== 0 || (s.fromCharacter && !!auth?.scopes.includes(SCOPE.standings));
+  // Each day's rate is measured from that day's placements matched to their orders; days with too few fall back to
+  // the rate on record.
+  const matches = feeMatchesFor(d, s);
+  const measured = useMemo(() => measuredRates(matches.byOrder, d.journal), [matches, d.journal]);
+  const fp = useMemo(() => brokerFeesPaid(d.journal, now, (iso) => rateAt(d.meta.rateHistory, Date.parse(iso), r).f, measured),
+    [d.journal, d.meta.rateHistory, r.f, now, measured]); // eslint-disable-line react-hooks/exhaustive-deps
+  const days = [...measured.keys()].sort();
+  const w = useMemo(() => standingsWorth(fp.base, br, s.faction, s.corp), [fp.base, br, s.faction, s.corp]);
+  const you = w.cases.find((c) => c.key === 'you')!;
+  const both = w.cases.find((c) => c.key === 'both');
+  const st = (n: number) => (Math.round(n * 100) / 100).toString();
+  return (
+    <Card title="What your standings are worth"
+      right={<Tip title="What your standings are worth" text={'Your broker fee at Jita 4-4 is 3%, less 0.3% for each level of Broker Relations, less 0.03% × your Caldari State standing and 0.02% × your Caldari Navy standing, never under 1%.\n\n• Every broker charge, price changes included, is that rate times the order’s value.\n• So each fee you paid, divided by the rate you had when you paid it, is the trading behind it. The chart prices that same trading at other standings.\n• Sales tax depends only on Accounting, so standings don’t change it.\n\nFor example: at Broker Relations V, Caldari State going from 0 to 10 takes 0.3% off every order you place.'} />}>
+      {!fp.count ? <p className="note">No broker fees in your ledger yet. Once you’ve placed orders, this shows what your standings save you.</p>
+        : !known ? <p className="note">The app doesn’t know your standings yet. Grant the Standings permission (Settings → Account) and sync, and this shows what they’re worth to you.</p>
+          : (
+            <>
+              <p className="note" style={{ margin: 0 }}>
+                Every broker fee you’ve paid since {fmtDate(fp.from!)}: <b>{iskBig(fp.paid)}</b> over {units(fp.count)} orders and price changes.
+                {' '}At your standings now (Caldari State {st(s.faction)}, Caldari Navy {st(s.corp)}) your broker fee is <b>{pct(w.rateNow)}</b>. The same trading at other standings:
+              </p>
+              <StandingsChart height={180}
+                lines={[
+                  { label: 'Caldari Navy at 0', color: 'var(--neg)', dashed: true, points: w.curve(0) },
+                  { label: `Caldari Navy at ${st(s.corp)} (yours)`, color: 'var(--acc)', points: w.curve(s.corp) },
+                  ...(s.corp < 10 ? [{ label: 'Caldari Navy at 10', color: 'var(--pos)', dashed: true, points: w.curve(10) }] : []),
+                ]}
+                you={{ x: s.faction, fees: you.fees, tip: `Caldari State ${st(s.faction)}, Caldari Navy ${st(s.corp)}: ${pct(w.rateNow)}, ${iskBig(you.fees)} on all your trading so far.` }}
+              />
+              <div className="row" style={{ flexWrap: 'wrap', gap: '4px 16px', fontSize: 11.5, color: 'var(--label)' }}>
+                <span><span style={{ color: 'var(--neg)' }}>╌</span> Caldari Navy at 0</span>
+                <span><span style={{ color: 'var(--acc)' }}>━</span> Caldari Navy at {st(s.corp)}, yours</span>
+                {s.corp < 10 && <span><span style={{ color: 'var(--pos)' }}>╌</span> Caldari Navy at 10</span>}
+                <span><span style={{ color: 'var(--acc)' }}>●</span> you</span>
+              </div>
+              <div>
+                {w.cases.map((c) => (
+                  <div key={c.key} className="lrow">
+                    <span><span className="lt" style={{ fontSize: 13 }}>{c.key === 'you' ? <b>{c.label}</b> : c.label}</span><span className="ls">Caldari State {st(c.faction)} · Caldari Navy {st(c.corp)} · broker fee {pct(c.rate)}</span></span>
+                    <span className="lv" style={{ fontSize: 12.5, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                      <span>{iskBig(c.fees)}</span>
+                      <span style={{ fontSize: 11.5, color: c.key === 'you' ? 'var(--faint)' : c.diff > 0 ? 'var(--neg-t)' : 'var(--pos)' }}>{c.key === 'you' ? 'now' : iskBigSigned(c.diff)}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {both && both.diff < 0 && (
+                <p className="note" style={{ margin: 0 }}>At the pace you’ve traded since {fmtDate(fp.from!)}, both standings at 10 would save about <b>{iskBig(-both.diff * 30 / fp.days)}</b> a month.</p>
+              )}
+              <p className="note small" style={{ margin: 0 }}>
+                {days.length
+                  ? <>Every fee is read at the broker fee you actually paid that day, measured from your own orders ({days.length === 1 ? `${pct(measured.get(days[0])!)} on ${fmtDate(days[0])}` : `${pct(measured.get(days[0])!)} on ${fmtDate(days[0])}, ${pct(measured.get(days[days.length - 1])!)} on ${fmtDate(days[days.length - 1])}`}){fp.exact < fp.count ? `; ${units(fp.count - fp.exact)} on days with too few orders to measure are read at the fee the app had on record` : ''}.</>
+                  : 'Each fee is read at the broker fee the app had on record when it was charged.'}
+                {' '}Standings are as ESI reports them.
+              </p>
+            </>
+          )}
+    </Card>
+  );
+}
+
 function RatesTab() {
   const d = useData();
   const s = d.settings;
@@ -453,6 +531,7 @@ function RatesTab() {
           <p className="note">Anything left of the marker loses money after fees. Every level of Broker Relations or Accounting moves it left.</p>
         </Card>
       </div>
+      <StandingsWorth />
     </>
   );
 }
