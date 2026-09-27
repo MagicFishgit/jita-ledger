@@ -66,6 +66,8 @@ export type Relist = {
   reach: number | null;
   /** For a buy trading doesn't reach: the bid it did reach on 7 of those days. */
   reachAt: number | null;
+  /** A buy the bulk of trading hasn't been getting down to, and that isn't visibly filling either. */
+  unreached: boolean;
 };
 
 type Mine = { orderId: number; typeId: number; isBuy: boolean; price: number; volumeRemain: number };
@@ -85,6 +87,8 @@ export type MarketContext = {
   lows?: (number | null)[] | null;
   /** The return you want on a trade, as a fraction: what a bid moved to where trading reaches must still make. */
   targetReturn?: number;
+  /** Your own buy is visibly filling (fills.ts `fillingNow`), so trading reaches it whatever history says. */
+  filling?: boolean;
 };
 
 /**
@@ -205,7 +209,8 @@ export function adviseRelist(
   // your price, one step above the best bid may not be reached either (it wasn't, for the Syndicate Gas
   // Cloud Scoop the user bid on): the move worth making is to where trading does reach.
   const reach = mine.isBuy && m.lows && !gone ? bidReachDays(m.lows, price) : null;
-  const unreached = reach != null && reach < FILL_RARE;
+  // Your own fills overrule the count: history lags and is trimmed, your order isn't.
+  const unreached = reach != null && reach < FILL_RARE && !m.filling;
   const reachAt = unreached ? reachedBid(m.lows!) : null;
   const oneStep = beaten && best !== null ? (mine.isBuy ? tickUp(best) : tickDown(best)) : NaN;
   const newPrice = unreached && reachAt != null && !(oneStep >= reachAt) ? reachAt : oneStep;
@@ -307,7 +312,7 @@ export function adviseRelist(
     atRisk,
     aheadUnits, aheadOrders: ahead.length, hoursToFront, topRivalShare, yourHours,
     cutPct, waitingPaysDaily,
-    verdict, why, reach, reachAt,
+    verdict, why, reach, reachAt, unreached,
   };
 }
 

@@ -248,7 +248,12 @@ Don't re-derive or contradict these without new evidence.
     `dry` verdict: **Cancel it**. It raises a "move" alert (it replaces a move recommendation) and a Tonight
     item, its mail says "RECOMMENDED: cancel this buy order", and it earns nothing per slot;
   - the Calculator's price notes use the same count, since one day's extreme said "inside what sellers
-    accepted" about a bid the rest of the fortnight never reached.
+    accepted" about a bid the rest of the fortnight never reached;
+  - **your own fills overrule the count** (`fillingNow`): a buy that has shrunk since its price was set, or an
+    item you bought at or below the bid in the same station in the last 3 days, is reached, whatever history
+    says. History lags a day or two and an order repriced since isn't in it at all: the user's Datacore -
+    Rocket Science buy at 83,230 was told to cancel ("reached on 2 of 14 days") with 4,133 of 10,000 already
+    filled. Consumers read `Relist.unreached`, which carries the override, never `reach` directly.
 - **A one-sided day says nothing about who traded** (`buyerShare`). A day whose trading sat only in the upper
   half of the week around it (or only the lower) is skipped, like a flat day; the median comes from two-sided
   days, and needs `MIN_TWO_SIDED` (7) of them or every day is read as before. Reading such a day by where its

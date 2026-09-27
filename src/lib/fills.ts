@@ -17,7 +17,7 @@
  * Pure: takes history rows, returns counts and prices.
  */
 
-import type { HistRow } from './types';
+import type { HistRow, Order, Tx } from './types';
 
 const DAY = 86400_000;
 const dayKey = (t: number) => new Date(t).toISOString().slice(0, 10);
@@ -48,6 +48,37 @@ export function recentRange(rows: Pick<HistRow, 'date' | 'lowest' | 'highest'>[]
 /** On how many of the days the bulk of trading got down to a bid at `price`. */
 export function bidReachDays(lows: (number | null)[], price: number): number {
   return lows.filter((l) => l != null && l <= price).length;
+}
+
+/** Days of your own buying that count as proof a bid is being reached. */
+export const OWN_FILL_DAYS = 3;
+
+/**
+ * Whether your own buy order is plainly being reached, whatever the history says.
+ *
+ * Your own fills beat anything inferred from history. ESI's runs a day or two behind and trims each
+ * day's range, and an order placed or repriced since the last day it covers isn't in it at all. The
+ * user's Datacore - Rocket Science buy at 83,230 was called "reached on 2 of 14 days" and told to
+ * cancel while 4,133 of its 10,000 had already filled: history ended on 25 Sep, the order was
+ * repriced on 26 Sep, and the market had moved down in between.
+ *
+ * Reached if the order has shrunk since its price was set (the remaining volume first seen at this
+ * price against what's left now, live when known), or if you've bought the item at or below this
+ * price, in the same station, in the last OWN_FILL_DAYS days.
+ */
+export function fillingNow(
+  o: Pick<Order, 'isBuy' | 'typeId' | 'price' | 'volumeRemain' | 'locationId' | 'seen'>,
+  liveRemain: number | null | undefined,
+  txs: Pick<Tx, 'source' | 'typeId' | 'isBuy' | 'unitPrice' | 'date' | 'locationId'>[],
+  now = Date.now(),
+): boolean {
+  if (!o.isBuy) return false;
+  const version = o.seen ? [...o.seen].reverse().find((v) => v.price === o.price) : undefined;
+  if (version && (liveRemain ?? o.volumeRemain) < version.remain) return true;
+  const since = now - OWN_FILL_DAYS * DAY;
+  return txs.some((t) => t.source === 'esi' && t.isBuy && t.typeId === o.typeId
+    && (t.locationId == null || t.locationId === o.locationId)
+    && t.unitPrice <= o.price * (1 + 1e-9) && Date.parse(t.date) >= since);
 }
 
 /** On how many of the days the bulk of trading got up to an ask at `price`. The sell side of the same test. */

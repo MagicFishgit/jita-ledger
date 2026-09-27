@@ -8,7 +8,7 @@ import { checkOrders, costBasis, jitaOpen, useOrderCheck, verdicts } from '../li
 import { computePosition } from '../lib/positions';
 import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, update, useData } from '../lib/store';
-import { FILL_RARE, FILL_WINDOW } from '../lib/fills';
+import { FILL_WINDOW } from '../lib/fills';
 import { KIND_LABEL, MINUTES, orderTonight, summarise, type TonightItem, type TonightKind } from '../lib/tonight';
 import { PLANETS_SCOPE, readColonies, useColonies } from '../lib/colonyStore';
 import { readSignals, trackedTypes, useSignals } from '../lib/watch';
@@ -89,7 +89,7 @@ export function Tonight() {
       out.push({
         id: `move:${x.orderId}:${x.newPrice}`, kind: 'move', stake: x.atRisk,
         title: `${name(x.typeId)} ${x.isBuy ? 'buy' : 'sell'} order`,
-        detail: x.reach != null && x.reach < FILL_RARE
+        detail: x.unreached
           ? `Trading rarely gets down to your bid (${x.reach} of the last ${FILL_WINDOW} days) — move to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, where it does, costs ${iskBig(x.cost)}.`
           : `Beaten by ${by} — move to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, costs ${iskBig(x.cost)}.`,
         action: { label: canOpenInGame() ? 'Open in game' : 'Open orders', typeId: x.typeId, route: 'orders' },

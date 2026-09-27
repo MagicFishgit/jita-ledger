@@ -4,7 +4,7 @@ import { computePosition } from './positions';
 import { rates } from './fees';
 import { adviseRelist, byUrgency, type Relist } from './relist';
 import { buyerShare, sideVolume } from './split';
-import { recentRange } from './fills';
+import { fillingNow, recentRange } from './fills';
 import { getData, type Data } from './store';
 import type { Order } from './types';
 
@@ -118,6 +118,7 @@ export function costBasis(d: Data): Record<number, number> {
 export function verdicts(d: Data, check: CheckState, cost: Record<number, number>): Relist[] {
   if (!check.books) return [];
   const r = rates(d.settings);
+  const txs = Object.values(d.txs);
   return jitaOpen(d)
     .filter((o) => check.books![o.typeId])
     .map((o) => {
@@ -132,6 +133,7 @@ export function verdicts(d: Data, check: CheckState, cost: Record<number, number
         bestSell: sells.length ? Math.min(...sells) : null,
         lows: check.lows?.[o.typeId] ?? null,
         targetReturn: d.settings.target / 100,
+        filling: fillingNow(o, book.find((x) => x.id === o.orderId)?.volume, txs),
       }, r, d.settings.waitHours, d.settings.target / 100);
     })
     .sort(byUrgency);

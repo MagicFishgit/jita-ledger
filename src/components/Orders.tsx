@@ -10,7 +10,7 @@ import { loadCache, rankProspects } from '../lib/scan';
 import { DEFAULT_FILTERS } from '../lib/prospects';
 import { update, useData } from '../lib/store';
 import type { Relist, Verdict } from '../lib/relist';
-import { FILL_RARE, FILL_WINDOW } from '../lib/fills';
+import { FILL_WINDOW } from '../lib/fills';
 import type { Prospect } from '../lib/types';
 import { canOpenInGame, OpenInGame, useTypeName } from './common';
 import { cssVars, Empty, Guide, ItemIcon, Notice, PageHead, Seg, Th } from './ui';
@@ -99,7 +99,7 @@ export function Orders() {
       const daily = check.daily[x.typeId];
       const sideOrders = book.filter((o) => o.isBuy === x.isBuy).length;
       // A buy the bulk of trading doesn't reach isn't filling at the usual pace: it earns next to nothing.
-      const unreached = x.reach != null && x.reach < FILL_RARE;
+      const unreached = x.unreached;
       const fills = daily && !unreached ? sideVolume(daily, check.buyers[x.typeId] ?? EVEN_SPLIT, x.isBuy) * competitionShare(d.settings.share, sideOrders) : 0;
       out[x.orderId] = Number.isFinite(margin) ? margin * Math.min(fills, x.volumeRemain) : NaN;
     }
@@ -267,7 +267,7 @@ export function Orders() {
                         </td>
                         <td>{x?.beaten ? <>{units(x.aheadUnits)}<span className="sub">{rivalShape(x.aheadOrders, x.topRivalShare, x.isBuy)}</span></> : '–'}</td>
                         <td style={{ color: x?.verdict === 'wait' ? 'var(--pos)' : 'var(--cell)' }}>
-                          {x?.reach != null && x.reach < FILL_RARE
+                          {x?.unreached
                             ? <span data-tip={`The bulk of the day’s trading got down to your price on ${x.reach} of the last ${FILL_WINDOW} days. Sellers here list and wait, so the queue ahead isn’t what’s holding you back.`} data-tip-title="Rarely reached" tabIndex={0} style={{ color: 'var(--neg)' }}>rarely reached<span className="sub">{x.reach} of {FILL_WINDOW} days</span></span>
                             : !x?.beaten ? '–' : !Number.isFinite(x.hoursToFront) ? <span className="faint">barely trades</span> : hours(x.hoursToFront)}
                         </td>
@@ -279,7 +279,7 @@ export function Orders() {
                           {x && x.cutPct > 0 && <span className="sub mono" style={{ color: x.cutPct >= 0.02 ? 'var(--neg)' : 'var(--label)' }}>{x.isBuy ? '+' : '−'}{(x.cutPct * 100).toFixed(x.cutPct < 0.1 ? 1 : 0)}%</span>}
                         </td>
                         <td data-tip={x && x.cost > 0 ? `${isk(x.give)} of margin plus a ${isk(x.fee)} fee` : undefined}>{x && x.cost > 0 ? iskBig(x.cost) : '–'}</td>
-                        <td>{units(x?.volumeRemain ?? o.volumeRemain)}{x && Number.isFinite(x.yourHours) && !(x.reach != null && x.reach < FILL_RARE) && <span className="sub">{hours(x.yourHours)} to {x.isBuy ? 'fill' : 'sell'}</span>}</td>
+                        <td>{units(x?.volumeRemain ?? o.volumeRemain)}{x && Number.isFinite(x.yourHours) && !x.unreached && <span className="sub">{hours(x.yourHours)} to {x.isBuy ? 'fill' : 'sell'}</span>}</td>
                         <td>{iskBig((x?.price ?? o.price) * (x?.volumeRemain ?? o.volumeRemain))}</td>
                         <td style={{ color: 'var(--acc)' }}>{x && Number.isFinite(perSlot[x.orderId]) ? iskBig(perSlot[x.orderId]) : '–'}</td>
                         <td>

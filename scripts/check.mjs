@@ -1592,6 +1592,25 @@ console.log('\n--- whether trading reaches a bid ---');
   eq('a sell order is not judged this way', advise({ ...mine, isBuy: false }, { book, lows: scoopLows }, RR2).reach, null);
   eq('a buy trading reaches is judged as before', advise({ ...mine, price: 115 * M }, { book: [{ id: 7, isBuy: true, price: 115 * M, volume: 2 }, ...book.slice(1)], bestSell: 117.1 * M, lows: scoopLows, targetReturn: 0.07 }, RR2).verdict, 'front');
 
+  // Datacore - Rocket Science: a buy of 10,000 at 83,230, repriced on 26 Sep, 4,133 filled by 27 Sep, while
+  // ESI's history (to 25 Sep) had the bulk of trading reach 83,230 on only 2 of 14 days.
+  const J = 60003760;
+  const dcLows = [88150, 97010, 88620, 88140, 88280, 88440, 88470, 97820, 88110, 83990, 92200, 80570, 80630, 96300];
+  const dc = { orderId: 11, typeId: 20420, isBuy: true, price: 83230, volumeRemain: 5867, locationId: J, seen: [{ issued: '2026-09-26T23:37:10Z', price: 83230, remain: 10000 }] };
+  const at27 = Date.parse('2026-09-27T01:00:00Z');
+  eq('an order that has shrunk since its price was set is being reached', F.fillingNow(dc, 5867, [], at27), true);
+  eq('  so is one you bought at, lately, in the same station', F.fillingNow({ ...dc, seen: undefined }, null, [{ source: 'esi', typeId: 20420, isBuy: true, unitPrice: 83230, date: '2026-09-27T00:43:47Z', locationId: J }], at27), true);
+  eq('  but not on a buy days ago, dearer than the bid, elsewhere, or someone else’s item', [
+    { date: '2026-09-22T00:00:00Z' }, { unitPrice: 85000 }, { locationId: 60008494 }, { typeId: 34 },
+  ].map((x) => F.fillingNow({ ...dc, seen: undefined }, null, [{ source: 'esi', typeId: 20420, isBuy: true, unitPrice: 83230, date: '2026-09-27T00:43:47Z', locationId: J, ...x }], at27)), [false, false, false, false]);
+  eq('  a version first seen after it had already filled proves nothing by itself', F.fillingNow({ ...dc, seen: [{ issued: 'x', price: 83230, remain: 5867 }] }, 5867, [], at27), false);
+  eq('  and a sell order is never judged this way', F.fillingNow({ ...dc, isBuy: false }, 1, [], at27), false);
+  const dcBook = [{ id: 11, isBuy: true, price: 83230, volume: 5867 }, { id: 12, isBuy: true, price: 83210, volume: 397 }, { id: 13, isBuy: false, price: 89230, volume: 19 }];
+  const dcArgs = { book: dcBook, bestSell: 89230, lows: dcLows, targetReturn: 0.1 };
+  eq('by history alone, the datacore buy would be told to cancel', advise(dc, dcArgs, RR2).verdict, 'dry');
+  const dcFilling = advise(dc, { ...dcArgs, filling: true }, RR2);
+  eq('  but it is filling, so it is judged as any other buy: in front', [dcFilling.verdict, dcFilling.unreached], ['front', false]);
+
   const dryMail = mail([{ kind: 'move', key: 'd', title: 'Buy order unlikely to fill', typeId: 28788, name: 'Syndicate Gas Cloud Scoop', text: 'x', order: { ...strict } }], { appUrl: 'u/', keepMin: 30, now });
   eq('the mail says to cancel it, in the subject and the body', dryMail.subject === 'Jita Ledger: cancel Syndicate Gas Cloud Scoop buy' && dryMail.body.includes('RECOMMENDED: cancel this buy order'), true);
   const moveMail = mail([{ kind: 'move', key: 'm', title: 'Order worth moving', typeId: 28788, name: 'Syndicate Gas Cloud Scoop', text: 'x', order: { ...easy } }], { appUrl: 'u/', keepMin: 30, now });

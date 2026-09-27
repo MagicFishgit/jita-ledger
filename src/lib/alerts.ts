@@ -5,7 +5,7 @@
  * decides whether a finding is worth interrupting you for. Pure, so the rules can be tested.
  */
 
-import { FILL_RARE, FILL_WINDOW } from './fills';
+import { FILL_WINDOW } from './fills';
 import { fmtDateTime, isk, iskBig, units } from './format';
 import type { Relist } from './relist';
 import type { AlertConfig, AlertEvent, AlertLogEntry } from './types';
@@ -56,7 +56,7 @@ const BY_ISK: AlertEvent[] = ['move', 'clearing'];
 /** What the order check worked out about an order, which a mail spells out. */
 export type OrderFacts = Pick<Relist,
   'verdict' | 'isBuy' | 'price' | 'best' | 'gap' | 'newPrice' | 'volumeRemain' | 'give' | 'fee' | 'cost' | 'atRisk' | 'aheadUnits' | 'aheadOrders' | 'hoursToFront' | 'why'>
-  & Partial<Pick<Relist, 'reach' | 'reachAt'>>;
+  & Partial<Pick<Relist, 'reach' | 'reachAt' | 'unreached'>>;
 
 /** A colony's extraction programme, as read from ESI. */
 export type PiFacts = { system: string; systemId: number; planetType: string; product: string | null; ends: number };
@@ -146,7 +146,7 @@ function section(f: Finding, market: (typeId: number) => string, now: number): s
     out.push(o.best == null
       ? `${col('grey', 'Yours ')}${price(o.price)}${col('grey', ' · nobody else on your side')}<br>`
       : `${col('grey', 'Yours ')}${price(o.price)}${col('grey', ' · best now ')}${col(o.gap > 0 && o.verdict !== 'front' ? 'red' : 'white', price(o.best))}${o.gap > 0 && o.verdict !== 'front' ? col('grey', ` (beaten by ${price(o.gap)})`) : ''}<br>`);
-    if (o.verdict === 'move' && o.reach != null && o.reach < FILL_RARE) {
+    if (o.verdict === 'move' && o.unreached) {
       out.push(col('grey', `Trading reached your bid on ${o.reach} of the last ${FILL_WINDOW} days. ${price(o.newPrice)} is where it did on half of them.`) + '<br>');
     }
     if (o.verdict === 'move') {

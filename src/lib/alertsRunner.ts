@@ -7,7 +7,7 @@ import { iskBig } from './format';
 import { canMail, cleanupAlertMails, sendAlertMail } from './mailAlerts';
 import { checkOrders, costBasis, getOrderCheck, jitaOpen, verdicts } from './orderCheck';
 import type { Relist } from './relist';
-import { FILL_RARE, FILL_WINDOW } from './fills';
+import { FILL_WINDOW } from './fills';
 import { squeezed } from './signals';
 import { getData, update } from './store';
 import { toast } from './toast';
@@ -73,7 +73,7 @@ async function mailFindings(raised: Finding[]): Promise<void> {
 const facts = (x: Relist): OrderFacts => ({
   verdict: x.verdict, isBuy: x.isBuy, price: x.price, best: x.best, gap: x.gap, newPrice: x.newPrice, volumeRemain: x.volumeRemain,
   give: x.give, fee: x.fee, cost: x.cost, atRisk: x.atRisk, aheadUnits: x.aheadUnits, aheadOrders: x.aheadOrders, hoursToFront: x.hoursToFront, why: x.why,
-  reach: x.reach, reachAt: x.reachAt,
+  reach: x.reach, reachAt: x.reachAt, unreached: x.unreached,
 });
 
 /**
@@ -126,7 +126,7 @@ export async function runChecks(): Promise<void> {
         const side = x.isBuy ? 'buy' : 'sell';
         if (x.verdict === 'move') {
           findings.push({ kind: 'move', key: `move:${x.orderId}:${x.newPrice}`, isk: x.atRisk, title: ALERT_LABELS.move.label, typeId: x.typeId, name: names(x.typeId), order: facts(x),
-            text: x.reach != null && x.reach < FILL_RARE
+            text: x.unreached
               ? `${names(x.typeId)} buy order: trading rarely gets down to it (${x.reach} of the last ${FILL_WINDOW} days) — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, where it does (costs ${iskBig(x.cost)}).`
               : `${names(x.typeId)} ${side} order beaten — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK (costs ${iskBig(x.cost)}).` });
         } else if (x.verdict === 'dry') {
