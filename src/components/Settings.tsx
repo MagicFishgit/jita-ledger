@@ -376,6 +376,10 @@ function RatesTab() {
   const s = d.settings;
   const r = rates(s);
   const alpha = s.clone === 'alpha';
+  // What the skills and standings synced from the character give, to set beside figures typed in by hand.
+  const auto = rates({ ...s, override: false });
+  const autoBp = +(auto.f * 100).toFixed(2), autoTp = +(auto.t * 100).toFixed(3);
+  const typedDiffers = s.override && (Math.abs(autoBp - s.brokerPct) >= 0.005 || Math.abs(autoTp - s.taxPct) >= 0.0005);
   const bb = Math.max(100, r.f * 1e8), bs = Math.max(100, r.f * 1.1e8), tx = r.t * 1.1e8;
   const rl = r.k * RELIST_LEFT * (1e8 + 1.1e8);
   const total = bb + bs + tx + rl;
@@ -397,19 +401,29 @@ function RatesTab() {
                 <Check bare checked={s.override} onChange={(on) => {
                   const cur = rates({ ...s, override: false });
                   set(on ? { override: true, brokerPct: +(cur.f * 100).toFixed(2), taxPct: +(cur.t * 100).toFixed(3) } : { override: false });
-                }}>Use my exact broker fee and sales tax from the game</Check>
+                }} desc={s.override
+                  ? 'On: the two figures below are used exactly as typed and never update. A new skill level or standing changes nothing until you change them.'
+                  : 'Off: worked out from your skills and standings, which update every time the app syncs your character.'}>
+                  Type in my broker fee and sales tax myself
+                </Check>
               </div>
               {s.override && (
                 <div className="col" style={{ gap: 0, animation: 'unfold .3s ease-out' }}>
-                  <SetRow id="s-bp" label="Broker fee" unit="%" value={s.brokerPct} hint="As the game shows it, with your skills and standings." onChange={(n) => set({ brokerPct: n })} />
-                  <SetRow id="s-tp" label="Sales tax" unit="%" value={s.taxPct} hint="As the game shows it, after Accounting." onChange={(n) => set({ taxPct: n })} />
-                  <p style={{ fontSize: 11.5, color: 'var(--acc2)', margin: '8px 0 0' }}>Update these when you switch between Alpha and Omega; exact rates don’t follow your clone state.</p>
+                  <SetRow id="s-bp" label="Broker fee" unit="%" value={s.brokerPct} hint="Typed in by you, copied from the game’s market window. It doesn’t update itself." onChange={(n) => set({ brokerPct: n })} />
+                  <SetRow id="s-tp" label="Sales tax" unit="%" value={s.taxPct} hint="Typed in by you, as the game shows it. It doesn’t update itself." onChange={(n) => set({ taxPct: n })} />
+                  {typedDiffers && (
+                    <p className="note" style={{ margin: '8px 0 0' }}>
+                      Your skills and standings now give a broker fee of <b>{autoBp}%</b> and sales tax of <b>{autoTp}%</b>.{' '}
+                      <button type="button" className="link-btn" onClick={() => { set({ brokerPct: autoBp, taxPct: autoTp }); toast(`Broker fee ${autoBp}%, sales tax ${autoTp}%.`); }}>Use these</button>
+                    </p>
+                  )}
+                  <p style={{ fontSize: 11.5, color: 'var(--acc2)', margin: '8px 0 0' }}>Update these when you switch between Alpha and Omega; typed-in rates don’t follow your clone state.</p>
                 </div>
               )}
             </div>
             <div style={{ padding: '12px 14px', background: 'color-mix(in oklab,var(--acc) 6%,rgba(2,7,12,.6))', border: '1px solid color-mix(in oklab,var(--acc) 25%,transparent)' }}>
               <div className="lbl" style={{ marginBottom: 6 }}>What you pay</div>
-              {[['Rates as', s.override ? 'Exact' : alpha ? 'Alpha' : 'Omega'], ['Broker fee', pct(r.f)], ['Sales tax', pct(r.t)], ['Changing a price', `${pct(r.k)} of what’s left`], ['Break-even spread', pct(r.be, 1)]].map(([l, v]) => (
+              {[['Rates as', s.override ? 'Typed in by you' : alpha ? 'Alpha' : 'Omega'], ['Broker fee', pct(r.f)], ['Sales tax', pct(r.t)], ['Changing a price', `${pct(r.k)} of what’s left`], ['Break-even spread', pct(r.be, 1)]].map(([l, v]) => (
                 <div key={l} className="kv" style={{ padding: '4px 0' }}><span style={{ color: 'var(--dim)' }}>{l}</span><span className="v" style={{ color: 'var(--ink)', fontSize: 13 }}>{v}</span></div>
               ))}
             </div>

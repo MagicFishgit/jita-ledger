@@ -528,6 +528,12 @@ Don't re-derive or contradict these without new evidence.
   the limit (the user's 129 slots held 126 orders, 123 of them sells).
 - **Settings are one row each: name and hint, then a short number box with its unit** (`SetRow`). The old
   full-width fields put the number at the far end of the page from its label.
+- **A switch that means "I'll type it in" must say so, never "from the game".** The fee override was labelled "Use
+  my exact broker fee and sales tax from the game"; the user read it as "sync them from the game" and left it on,
+  so a standings rise from two storyline missions would never have reached the app's fee. It is now "Type in my
+  broker fee and sales tax myself", its description says on/off in plain terms (typed figures never update; off,
+  they follow skills and standings on every sync), and while it's on and the typed figures differ from what the
+  synced skills and standings give, the tab shows those with **Use these**.
 - **The horizon is a choice of 4 h, 12 h, 1, 3, 7, 14 or 30 days, or Any** (`HORIZONS`; Any is stored as `null`, since the
   filters live in localStorage JSON where Infinity doesn't survive). It is a gate and a size cap, never a
   ranking input: ranking is return per day either way. Any leaves nothing out for being slow and flags a

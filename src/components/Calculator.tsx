@@ -375,7 +375,7 @@ function Readout({ c, asOmega, target, rateKind, buyers, vol, baseShare, snap }:
             <Tip title="Net profit per unit" text={'What one unit leaves you with after the fees and tax in the table below.\n\n• It assumes both orders fill in full at the prices you typed.\n• To compare items that cost very different amounts, look at return on ISK spent instead.'} />
           </div>
           <div className="hero-v" style={cssVars({ '--c': pos ? 'var(--pos)' : 'var(--neg)', '--glow': pos ? 'rgba(110,231,168,.35)' : 'rgba(255,107,125,.35)' })}>{iskSigned(per)}</div>
-          <div className="hero-s">after broker fees and sales tax at your {rateKind === 'Exact' ? 'exact' : rateKind} rates</div>
+          <div className="hero-s">after broker fees and sales tax {rateKind === 'Exact' ? 'at the rates you typed in (Settings → Rates & fees)' : `at your ${rateKind} rates`}</div>
           {q > 1 && <div className="hero-t">Total for {units(q)} units: <span style={{ color: pos ? 'var(--pos)' : 'var(--neg)' }}>{iskBigSigned(c.net)}</span></div>}
         </div>
         <div className="verdict" style={cssVars({ '--c': verdict.color })}><verdict.Icon aria-hidden="true" />{verdict.text}</div>
