@@ -183,8 +183,8 @@ Fees depend on your clone state, because Alpha clones can't use some trade skill
   second login asks only to send mail and delete what it sent. If your main charges for mail from strangers
   (CSPA), add the sender as a contact. It's off until you turn it on in Settings → Alerts, only ever goes to your own character, puts everything one
   check found in a single mail, and by default only mails what you can act on in game (an order worth moving, a
-  planet about to stop). Item names in the mail open the item in game, and "Open its market in game" opens its
-  market window: the client asks before following the link, your browser opens the app, and the app asks the
+  planet about to stop). Clicking an item's name in the mail opens its market window: the client
+  asks before following the link (you can tell it not to), your browser opens the app, and the app asks the
   client to open the market (it needs the "open a window" permission, and a browser that's logged in). If
   another Jita Ledger tab is already open, the new one closes itself after a few seconds. Only one tab ever
   runs the checks, so nothing is raised or mailed twice. Alert mails delete themselves after a time

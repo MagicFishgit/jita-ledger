@@ -55,15 +55,6 @@ const MAIL_MAX = 15;
 
 const escapeMail = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-/**
- * The EVE mail for one check's alerts: everything found at once in a single mail rather than one each.
- *
- * EVE mail takes a small set of HTML. An item's name becomes a `showinfo:` link, which opens the item
- * in the client. EVE mail has no link that opens a market window, so each item also gets a link to the
- * app (`#orders?market=ID`), which asks ESI to open that market when it loads: the client asks before
- * following a web link, the browser opens the app, the app opens the window. Colours are ARGB, as the
- * client writes them.
- */
 /** "30 minutes", "an hour", "a day", "3 days": how long a mail is kept, said as a person would. */
 export function keepSaid(min: number): string {
   if (min < 60) return `${min} minutes`;
@@ -72,21 +63,31 @@ export function keepSaid(min: number): string {
   return d === 1 ? 'a day' : d === 7 ? 'a week' : `${d} days`;
 }
 
+/**
+ * The EVE mail for one check's alerts: everything found at once in a single mail rather than one each.
+ *
+ * EVE mail takes a small set of HTML, and a mail link can open an item's info (`showinfo:`) but not its
+ * market. So an item's name links to the app instead (`#orders?market=ID`), which asks ESI to open that
+ * market when it loads: the client follows the web link, the browser opens the app, the app opens the
+ * window. One link, on the name, because the market is what an alert sends you to; the info window
+ * alone was a detour. Colours are ARGB, as the client writes them.
+ */
 export function alertMail(findings: Finding[], opts: { appUrl: string; keepMin: number | null; test?: boolean }): { subject: string; body: string } {
   const n = findings.length;
   const first = findings[0];
   const subject = `${MAIL_SUBJECT}: ${opts.test ? 'test — ' : ''}${n === 1 ? first.title : `${n} alerts`}`.slice(0, 1000);
+  const market = (typeId: number) => `${opts.appUrl}#orders?market=${typeId}`;
   const line = (f: Finding) => {
     const text = escapeMail(f.text);
     if (f.typeId && f.name && f.text.startsWith(f.name)) {
-      return `<a href="showinfo:${f.typeId}">${escapeMail(f.name)}</a>${text.slice(escapeMail(f.name).length)}`;
+      return `<a href="${market(f.typeId)}">${escapeMail(f.name)}</a>${text.slice(escapeMail(f.name).length)}<br>`;
     }
-    return text;
+    // An item the text doesn't start with still gets its market, on a line of its own.
+    return `${text}<br>${f.typeId ? `<a href="${market(f.typeId)}">Open its market in game</a><br>` : ''}`;
   };
   const build = (shown: Finding[]) => [
     `<font size="14" color="#ff5cd3f2"><b>Jita Ledger</b></font><br>`,
-    ...shown.map((f) => `<br><font color="#fff2b15c"><b>${escapeMail(f.title)}</b></font><br>${line(f)}<br>`
-      + (f.typeId ? `<a href="${opts.appUrl}#orders?market=${f.typeId}">Open its market in game</a><br>` : '')),
+    ...shown.map((f) => `<br><font color="#fff2b15c"><b>${escapeMail(f.title)}</b></font><br>${line(f)}`),
     n > shown.length ? `<br>…and ${n - shown.length} more in the app.<br>` : '',
     findings.some((f) => f.kind === 'move' || f.kind === 'clearing')
       ? `<br><a href="${opts.appUrl}#orders">Open your orders in Jita Ledger</a><br>`

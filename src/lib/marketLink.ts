@@ -6,7 +6,7 @@ import { getData, update } from './store';
 import { toast } from './toast';
 
 /**
- * The link an alert mail puts beside each item: `#orders?market=ID`.
+ * The link an alert mail puts on each item's name: `#orders?market=ID`.
  *
  * EVE mail can't open a market window itself, but it can link to a web page, and the app can ask ESI to
  * open one. So the client hands the link to the browser, the app loads, and this opens the market. It

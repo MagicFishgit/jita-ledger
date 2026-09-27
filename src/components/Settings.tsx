@@ -523,7 +523,7 @@ function MailAlerts() {
         </div>
       )}
       <p style={{ margin: '-4px 0 0', fontSize: 12, color: 'var(--note)', textWrap: 'pretty' }}>
-        In the mail, an item’s name opens its info in game, and “Open its market in game” opens its market window through this app. Nothing opens on its own. Quiet hours and “Only if at least” apply here too, and like every alert it only checks while a tab is open. If your character charges for mail from strangers (CSPA), add the sending character as a contact.
+        In the mail, click an item’s name to open its market in game: EVE hands the link to your browser, and this app opens the market window. Nothing opens on its own. Quiet hours and “Only if at least” apply here too, and like every alert it only checks while a tab is open. If your character charges for mail from strangers (CSPA), add the sending character as a contact.
       </p>
       <div>
         <div className="lbl" style={{ marginBottom: 8 }}>Mail me about</div>

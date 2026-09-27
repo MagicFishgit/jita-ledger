@@ -356,9 +356,10 @@ Don't re-derive or contradict these without new evidence.
   main login and then, best effort, the sender's Sent copy with the sender's. A browser notification is held back while a borderless game is in front, and a web page can't
   put anything inside the client, but a mail arrives there with the client's own blink. One mail per check
   holding everything raised, never one per alert. By default only `move` and `pi` are mailed, the two you can
-  act on from inside the game. Item names are `showinfo:` links, which open the item in game on a click.
-  EVE mail has no link that opens a market window, so each item also links to `#orders?market=ID`: the
-  client asks before following it, the browser opens the app, and `lib/marketLink.ts` calls
+  act on from inside the game. EVE mail has no link that opens a market window (`showinfo:` opens only the
+  info window), so an item's *name* links to `#orders?market=ID`. It was first a `showinfo:` link with a
+  separate market link beneath; the user asked for one link on the name, since the market is where an alert
+  sends you. The client asks before following it, the browser opens the app, and `lib/marketLink.ts` calls
   `openMarketWindow` once, having first taken `market` off the address with `replaceState` so a reload
   can't repeat it. Nothing opens a market window unless someone clicked. ESI answers 204 whether or not
   the game is running, so the toast says the client was *asked*. Old alert mails are deleted after a chosen time (30 min to a week, or
@@ -452,8 +453,7 @@ State these rather than letting them be discovered:
   and factories physically fit; "1 factory per planet" does not check that you can fit it. The
   per-structure costs and per-level budgets are not in ESI.
 - Alert mails were seen in game, sent from a second character: the ARGB `<font>` colours, `<b>` and the links
-  render as intended, the `showinfo:` name opens the item, and "Open its market in game" opens the market
-  window through the app (the client's external-link prompt can be told never to ask again). The cost is
+  render as intended, and the market link opens the market window through the app (the client's external-link prompt can be told never to ask again). The cost is
   focus: the OS brings the browser forward to open the link, and on a single monitor the game drops behind
   it. A page can't hand focus back to another application, so the user tabs back in.
 - Deep Space Transports, Blockade Runners, Industrials and Jump Freighters get **no** skill cargo
