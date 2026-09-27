@@ -1926,7 +1926,8 @@ eq('an odd duration falls back', sanitizePrefs({ toastSeconds: 7 }).toastSeconds
 eq('alerts start off', sanitizeAlerts({}).on, false);
 eq('an odd interval falls back', sanitizeAlerts({ interval: 7 }).interval, 5);
 eq('mail starts off', sanitizeAlerts({}).mail, false);
-eq('  and by mail only what you can act on in game', Object.entries(sanitizeAlerts({}).mailEv).filter(([, v]) => v).map(([k]) => k), ['move', 'pi']);
+eq('  and by mail only what you can act on in game, plus the cloud’s trades worth a look', Object.entries(sanitizeAlerts({}).mailEv).filter(([, v]) => v).map(([k]) => k), ['move', 'pi', 'opportunity']);
+eq('  a saved config from before opportunities gets them from the defaults', sanitizeAlerts({ ev: { move: true }, mailEv: { move: true } }).mailEv.opportunity, true);
 eq('mails are deleted after 3 days unless set', sanitizeAlerts({}).mailKeepMin, 4320);
 eq('"keep them" is kept as null', sanitizeAlerts({ mailKeepMin: null }).mailKeepMin, null);
 eq('half an hour is a choice', sanitizeAlerts({ mailKeepMin: 30 }).mailKeepMin, 30);
@@ -2135,6 +2136,22 @@ console.log('\n--- an item\'s daily rhythm ---');
   const sp = spreadAtHour(pts, Date.parse('2026-10-10T19:30:00Z'));
   eq('the spread now against the median of the same hour on 9 earlier days', [Math.round(sp.now * 1000) / 10, Math.round(sp.usual * 1000) / 10, sp.days], [12, 6, 9]);
   eq('  nothing with under a week of that hour', spreadAtHour(pts.slice(4), Date.parse('2026-10-10T19:30:00Z')), null);
+}
+
+console.log('\n--- opportunity mail and relists over a period ---');
+{
+  const { alertMail: mail2 } = await import('../src/lib/alerts.ts');
+  const { itemResult: ir } = await import('../src/lib/longRange.ts');
+  const opp = { kind: 'opportunity', key: 'opp:2185', title: 'Trade worth a look', typeId: 2185, name: 'Hammerhead II', text: 'x',
+    opp: { buy: 700000, sell: 760000, roi: 0.061, iskPerDay: 4200000, qty: 120, daysToFlip: 1.5, watchedH: 30, bought: 240, dumped: 180 } };
+  const m = mail2([opp], { appUrl: 'https://x.test/jita-ledger/', keepMin: 1440 });
+  eq('an opportunity mail leads with where to buy and list', m.body.includes('RECOMMENDED: buy at 700,000 ISK, list at 760,000 ISK'), true);
+  eq('  its name opens the Calculator, not a market', [m.body.includes('#calculator?type=2185">Hammerhead II</a>'), m.body.includes('market=2185')], [true, false]);
+  eq('  the subject says what and how much', m.subject, 'Jita Ledger: look at Hammerhead II, 6.1%');
+  eq('  and it points to Prospects', m.body.includes('#prospects'), true);
+  const D = 86400_000, t0 = Date.parse('2026-09-01T00:00:00Z');
+  const c = { typeId: 1, buys: [], sells: [], series: [], relists: [{ t: t0 + D, amount: 500 }, { t: t0 + 5 * D, amount: 700 }] };
+  eq('relists are counted in the period they were made', [ir(c, t0, t0 + 3 * D).relists, ir(c, t0, t0 + 3 * D).relistFees, ir(c, t0, t0 + 9 * D).relistFees], [1, 500, 1200]);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

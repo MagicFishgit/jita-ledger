@@ -237,4 +237,4 @@ export function startAlerts(): () => void {
   };
 }
 
-export const EVENT_KEYS: AlertEvent[] = ['move', 'clearing', 'squeeze', 'pi', 'scam', 'backup'];
+export const EVENT_KEYS: AlertEvent[] = ['move', 'clearing', 'squeeze', 'pi', 'scam', 'backup', 'opportunity'];

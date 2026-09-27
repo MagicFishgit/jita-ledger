@@ -86,6 +86,8 @@ export type PositionCalc = {
   brokerFees: number; brokerActualOrders: number; brokerEstimatedOrders: number;
   /** Price changes seen on this position's orders, what they cost, and how many of those fees were estimated. */
   priceChanges: number; relistFees: number; relistsEstimated: number;
+  /** Each price change and its fee, when it was charged: for relists over a period. */
+  relistEvents: { t: number; amount: number }[];
   /**
    * Broker fees paid up front for the part of your open orders that hasn't filled yet: a sell order
    * for 2,000 units pays its whole fee when listed. Kept out of realized profit until those units trade,
@@ -175,6 +177,7 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
   // A price change is a fee of its own, charged when you make it.
   let brokerFees = 0, brokerActualOrders = 0, brokerEstimatedOrders = 0, prepaidFees = 0;
   let priceChanges = 0, relistFees = 0, relistsEstimated = 0;
+  const relistEvents: { t: number; amount: number }[] = [];
   let buyFeePool = 0, sellFeePool = 0;
   for (const o of orders) {
     const m = matches.byOrder.get(o.orderId);
@@ -186,6 +189,7 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
     for (const r of m?.relists ?? []) {
       priceChanges++;
       relistFees += r.amount;
+      relistEvents.push({ t: ts(r.at), amount: r.amount });
       if (!r.actual) relistsEstimated++;
       brokerFees += r.amount;
       const at = Math.max(1, r.remain);
@@ -262,7 +266,7 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
     sold, soldValue, avgSell: sold ? soldValue / sold : null,
     stock, avgCost: stock > 0 ? basis / stock : null, costOfStock: basis,
     costOfSold, oversold,
-    brokerFees, brokerActualOrders, brokerEstimatedOrders, priceChanges, relistFees, relistsEstimated, prepaidFees, buyFeesInStock: feeBasis,
+    brokerFees, brokerActualOrders, brokerEstimatedOrders, priceChanges, relistFees, relistsEstimated, relistEvents, prepaidFees, buyFeesInStock: feeBasis,
     salesTax, taxActual, taxEstimated, manualFees,
     realized, roi: costOfSold > 0 ? realized / costOfSold : null,
     series, buys, sells,

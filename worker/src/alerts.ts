@@ -17,12 +17,14 @@ import { readColony, type PlanetHead, type RawColony } from '../../src/lib/colon
 import type { OrderRecord, TxRecord } from '../../src/lib/esiRecords';
 import { sanitizeSettings, type Settings } from '../../src/lib/fees';
 import { recentRange } from '../../src/lib/fills';
-import { observedFlow, sidePaceOf, type FlowDay } from '../../src/lib/flow';
+import { observedFlow, RELIST_MIN_H, sidePaceOf, type FlowDay, type OrderLite } from '../../src/lib/flow';
+import { judgeProspect, type Book } from '../../src/lib/evaluate';
+import { DEFAULT_FILTERS, passesGate, statsFrom } from '../../src/lib/prospects';
 import { sanitizeAlerts } from '../../src/lib/prefs';
 import { paceDay } from '../../src/lib/prospects';
 import { byUrgency, judgeOrder, type Relist } from '../../src/lib/relist';
 import { buyerShare, type BookSold } from '../../src/lib/split';
-import type { AlertConfig, AlertLogEntry, HistRow } from '../../src/lib/types';
+import type { AlertConfig, AlertLogEntry, BookLevel, HistRow, Prospect, ProspectFilters } from '../../src/lib/types';
 import { noteJob } from './archive';
 import { esiDelete, esiGet, esiPost, HEADERS, useLogin, type Login } from './eve';
 import { flowFor, unpack } from './market';
@@ -206,13 +208,161 @@ async function tidy(env: Env, charId: number, main: Login, cfg: AlertConfig, now
   return gone;
 }
 
+/** A book as Prospects sees it, from the orders the watch last read. */
+function bookOf(orders: OrderLite[], at: number, sold: Book['sold']): Book {
+  const levels = (side: OrderLite[], desc: boolean): BookLevel[] => {
+    const out: BookLevel[] = [];
+    for (const o of [...side].sort((a, b) => (desc ? b.price - a.price : a.price - b.price))) {
+      const last = out[out.length - 1];
+      if (last && last.price === o.price) last.volume += o.volume;
+      else if (out.length < 5) out.push({ price: o.price, volume: o.volume });
+    }
+    return out;
+  };
+  const bids = orders.filter((o) => o.isBuy), asks = orders.filter((o) => !o.isBuy);
+  const topBuys = levels(bids, true), topSells = levels(asks, false);
+  return {
+    at: new Date(at).toISOString(), bestBuy: topBuys[0]?.price ?? null, bestSell: topSells[0]?.price ?? null,
+    buyOrders: bids.length, sellOrders: asks.length, topBuys, topSells, npcSell: false, sold,
+  };
+}
+
+/** Most opportunities in one mail. */
+const OPP_PER_MAIL = 3;
+
+/**
+ * The watched items that clear this ledger's Prospects filters now, judged exactly as Prospects judges them
+ * (`judgeProspect`) on the book the watch just read, history, and what was watched. Only items with no warning
+ * flag, watched at least RELIST_MIN_H, and not already traded. `fresh` are the ones that didn't qualify at the
+ * last check: an item is mailed when it opens up, not every round it stays open.
+ */
+export type OppStages = { candidates: number; withBook: number; withHistory: number; watched: number; passFilters: number; priced: number; clean: number };
+
+export async function opportunities(db: D1Database, charId: number, settings: Settings, now = Date.now(), record = true): Promise<{ qualifying: Prospect[]; fresh: Prospect[]; checked: number; stages: OppStages }> {
+  const watch = await doc<{ types?: number[]; filters?: Partial<ProspectFilters> }>(db, charId, 'watch');
+  const held = new Set((await db.prepare(`SELECT CAST(json_extract(data, '$.typeId') AS INTEGER) AS t FROM records WHERE char_id = ?1 AND data IS NOT NULL AND
+      ((kind = 'orders' AND json_extract(data, '$.state') = 'open') OR (kind = 'positions' AND json_extract(data, '$.status') = 'open'))`)
+    .bind(charId).all<{ t: number }>()).results.map((r) => r.t));
+  const types = (watch?.types ?? []).filter((t) => !held.has(t)).slice(0, 200);
+  const stages: OppStages = { candidates: types.length, withBook: 0, withHistory: 0, watched: 0, passFilters: 0, priced: 0, clean: 0 };
+  if (!types.length) return { qualifying: [], fresh: [], checked: 0, stages };
+  const filters: ProspectFilters = { ...DEFAULT_FILTERS, ...(watch?.filters ?? {}), busy: false, partial: false };
+
+  const books: Record<number, Book> = {};
+  for (let i = 0; i < types.length; i += 90) {
+    const part = types.slice(i, i + 90);
+    const rows = (await db.prepare(`SELECT type_id, orders, sold, at FROM books WHERE type_id IN (${inList(part.length)})`).bind(...part)
+      .all<{ type_id: number; orders: string; sold: string | null; at: number }>()).results;
+    for (const r of rows) if (now - r.at <= BOOK_MAX_AGE) books[r.type_id] = bookOf(unpack(r.orders), r.at, r.sold ? JSON.parse(r.sold) : undefined);
+  }
+  const fresh = types.filter((t) => books[t]);
+  stages.withBook = fresh.length;
+  const hist = await histories(db, fresh, now);
+  const flow = await flowFor(db, fresh);
+  const qualifying: Prospect[] = [];
+  let checked = 0;
+  for (const t of fresh) {
+    const rows = hist[t];
+    if (!rows) continue;
+    checked++; stages.withHistory++;
+    const watched = observedFlow({ [t]: flow[t] ?? {} }, t, now);
+    if (watched.h < RELIST_MIN_H) continue;
+    stages.watched++;
+    const stats = statsFrom(t, rows, now);
+    if (!stats || !passesGate(stats, filters)) continue;
+    stages.passFilters++;
+    const book = books[t];
+    const p = judgeProspect(stats, book, settings, filters, book.buyOrders + book.sellOrders, false, { days: flow[t], flow: watched });
+    if (!p) continue;
+    stages.priced++;
+    if (!p.warnings.length) { stages.clean++; qualifying.push(p); }
+  }
+
+  // Which of them are new since the last check; items that stopped qualifying are forgotten, so they can be
+  // mailed again the next time they open up. Items this round couldn't judge (a stale book) are left as they were.
+  const seen = new Set((await db.prepare('SELECT type_id FROM opp_seen WHERE char_id = ?1').bind(charId).all<{ type_id: number }>()).results.map((r) => r.type_id));
+  const nowIn = new Set(qualifying.map((p) => p.typeId));
+  const judged = new Set(fresh.filter((t) => hist[t]));
+  const stmts: D1PreparedStatement[] = [];
+  for (const p of qualifying) if (!seen.has(p.typeId)) stmts.push(db.prepare('INSERT OR IGNORE INTO opp_seen (char_id, type_id, since) VALUES (?1, ?2, ?3)').bind(charId, p.typeId, now));
+  for (const t of seen) if (judged.has(t) && !nowIn.has(t)) stmts.push(db.prepare('DELETE FROM opp_seen WHERE char_id = ?1 AND type_id = ?2').bind(charId, t));
+  if (record) for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
+  return { qualifying, fresh: qualifying.filter((p) => !seen.has(p.typeId)).sort((a, b) => b.iskPerDay - a.iskPerDay), checked, stages };
+}
+
+/** Names for items a ledger may never have traded: its own names first, then ESI's. */
+async function namesAnywhere(db: D1Database, charId: number, ids: number[]): Promise<Record<number, string>> {
+  const out = await namesFor(db, charId, ids);
+  const missing = ids.filter((id) => !out[id]);
+  if (missing.length) {
+    try { for (const n of await esiPost<{ id: number; name: string }[]>('/universe/names/', missing)) out[n.id] = n.name; } catch { /* left as numbers */ }
+  }
+  return out;
+}
+
+/** Days after which a prediction nobody could check is written off as late. */
+const TRACK_DAYS = 14;
+
+/**
+ * "Clears in", checked against what happened. Each beaten order's prediction is kept once per order and price;
+ * the order reaching the front (or selling out) resolves it, a new price or a cancel voids it, and one still not
+ * at the front after TRACK_DAYS is late. Rounds whose books were stale leave predictions as they were.
+ */
+export async function trackRecord(db: D1Database, charId: number, judged: { list: Relist[]; unread: number }, now = Date.now()): Promise<{ added: number; resolved: number }> {
+  const stmts: D1PreparedStatement[] = [];
+  const add = db.prepare('INSERT OR IGNORE INTO predictions (char_id, order_id, price, type_id, is_buy, at, hours, ahead) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)');
+  let added = 0;
+  for (const x of judged.list) {
+    if (!x.beaten || !Number.isFinite(x.hoursToFront) || x.hoursToFront <= 0) continue;
+    stmts.push(add.bind(charId, x.orderId, x.price, x.typeId, x.isBuy ? 1 : 0, now, x.hoursToFront, x.aheadUnits));
+    added++;
+  }
+  const open = (await db.prepare('SELECT order_id, price, at FROM predictions WHERE char_id = ?1 AND outcome IS NULL').bind(charId)
+    .all<{ order_id: number; price: number; at: number }>()).results;
+  const byOrder = new Map(judged.list.map((x) => [x.orderId, x]));
+  const resolve = db.prepare('UPDATE predictions SET outcome = ?4, resolved_at = ?5 WHERE char_id = ?1 AND order_id = ?2 AND price = ?3');
+  let resolved = 0;
+  const gone = open.filter((p) => !byOrder.has(p.order_id)).map((p) => String(p.order_id));
+  const records = new Map<string, { state: string; volumeRemain: number }>();
+  for (let i = 0; i < gone.length; i += 90) {
+    const part = gone.slice(i, i + 90);
+    const rows = (await db.prepare(`SELECT id, data FROM records WHERE char_id = ?1 AND kind = 'orders' AND id IN (${inList(part.length, 2)})`)
+      .bind(charId, ...part).all<{ id: string; data: string | null }>()).results;
+    for (const r of rows) if (r.data) records.set(r.id, JSON.parse(r.data));
+  }
+  for (const p of open) {
+    const x = byOrder.get(p.order_id);
+    let outcome: string | null = null;
+    if (x) outcome = x.price !== p.price ? 'void' : !x.beaten ? 'front' : null;
+    else {
+      const r = records.get(String(p.order_id));
+      // Sold out: it reached the front on the way. Closed with stock left: cancelled or expired, no answer.
+      if (r && r.state !== 'open') outcome = r.volumeRemain === 0 ? 'front' : 'void';
+      else if (!judged.unread) outcome = 'void';
+    }
+    if (!outcome && now - p.at > TRACK_DAYS * 86400_000) outcome = 'late';
+    if (outcome) { stmts.push(resolve.bind(charId, p.order_id, p.price, outcome, now)); resolved++; }
+  }
+  for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
+  return { added, resolved };
+}
+
+/** How "Clears in" has done on this ledger's orders over the last 30 days. */
+export async function trackSummary(db: D1Database, charId: number, now = Date.now()) {
+  const rows = (await db.prepare(`SELECT at, hours, outcome, resolved_at FROM predictions WHERE char_id = ?1 AND outcome IN ('front', 'late') AND resolved_at > ?2`)
+    .bind(charId, now - 30 * 86400_000).all<{ at: number; hours: number; outcome: string; resolved_at: number }>()).results;
+  const ratios = rows.map((r) => (r.outcome === 'front' ? (r.resolved_at - r.at) / 3600_000 / r.hours : Infinity)).sort((a, b) => a - b);
+  const within = ratios.filter((x) => x <= 2).length;
+  return { checked: rows.length, within2x: within, medianRatio: ratios.length ? ratios[ratios.length >> 1] : null };
+}
+
 export type AlertRound = { ran: boolean; judged: number; unread: number; found: number; mailed: number; mailId: number | null; tidied: number | null; why?: string };
 
 /**
  * One round for one ledger: tidy old mail, then, when alerts and mail are on and the interval has passed,
  * judge the orders (and hourly the colonies), and mail whatever the rules say is worth it, once.
  */
-export async function alertRound(env: Env, charId: number, now = Date.now()): Promise<AlertRound> {
+export async function alertRound(env: Env, charId: number, now = Date.now(), judgedAlready?: { list: Relist[]; unread: number }): Promise<AlertRound> {
   const out: AlertRound = { ran: false, judged: 0, unread: 0, found: 0, mailed: 0, mailId: null, tidied: null };
   const hasSender = await env.DB.prepare(`SELECT 1 AS y FROM keys WHERE char_id = ?1 AND purpose = 'mailer'`).bind(charId).first();
   if (!hasSender) return { ...out, why: 'no sender' };
@@ -232,10 +382,24 @@ export async function alertRound(env: Env, charId: number, now = Date.now()): Pr
   const settings = sanitizeSettings(await doc<Partial<Settings>>(env.DB, charId, 'settings'));
   const findings: Finding[] = [];
   if ((cfg.ev.move && cfg.mailEv.move) || (cfg.ev.clearing && cfg.mailEv.clearing)) {
-    const { list, unread } = await judgeAll(env.DB, charId, settings, now);
+    const { list, unread } = judgedAlready ?? await judgeAll(env.DB, charId, settings, now);
     out.judged = list.length; out.unread = unread;
     const names = await namesFor(env.DB, charId, [...new Set(list.map((x) => x.typeId))]);
     findings.push(...orderFindings(list, (id) => names[id] ?? `Item #${id}`));
+  }
+  if (cfg.ev.opportunity && cfg.mailEv.opportunity) {
+    const o = await opportunities(env.DB, charId, settings, now);
+    const top = o.fresh.slice(0, OPP_PER_MAIL);
+    const names = await namesAnywhere(env.DB, charId, top.map((p) => p.typeId));
+    for (const p of top) {
+      const flow = observedFlow({ [p.typeId]: (await flowFor(env.DB, [p.typeId]))[p.typeId] ?? {} }, p.typeId, now);
+      const name = names[p.typeId] ?? `Item #${p.typeId}`;
+      findings.push({
+        kind: 'opportunity', key: `opp:${p.typeId}`, title: 'Trade worth a look', typeId: p.typeId, name,
+        text: `${name}: buy at ${Math.round(p.buy).toLocaleString('en-US')}, list at ${Math.round(p.sell).toLocaleString('en-US')}, ${(p.roi * 100).toFixed(1)}% after fees.`,
+        opp: { buy: p.buy, sell: p.sell, roi: p.roi, iskPerDay: p.iskPerDay, qty: p.qty, daysToFlip: p.daysToFlip, watchedH: flow.h, bought: flow.sell, dumped: flow.buy },
+      });
+    }
   }
   if (cfg.ev.pi && cfg.mailEv.pi && main.scopes.includes(S.planets) && now - (await lastRun(env.DB, charId, 'pi')) >= PI_EVERY - 60_000) {
     try {
@@ -273,7 +437,10 @@ export async function previewRound(env: Env, charId: number, now = Date.now()) {
   const { list, unread } = await judgeAll(env.DB, charId, settings, now);
   const names = await namesFor(env.DB, charId, [...new Set(list.map((x) => x.typeId))]);
   const findings = orderFindings(list, (id) => names[id] ?? `Item #${id}`);
+  const opp = await opportunities(env.DB, charId, settings, now, false);
+  const oppNames = await namesAnywhere(env.DB, charId, opp.qualifying.map((p) => p.typeId));
   return {
+    opportunities: { checked: opp.checked, stages: opp.stages, qualifying: opp.qualifying.map((p) => ({ typeId: p.typeId, name: oppNames[p.typeId], buy: p.buy, sell: p.sell, roi: p.roi, iskPerDay: p.iskPerDay, isNew: opp.fresh.includes(p) })) },
     unread,
     orders: list.map((x) => ({ orderId: x.orderId, typeId: x.typeId, name: names[x.typeId], isBuy: x.isBuy, price: x.price, verdict: x.verdict, newPrice: x.newPrice, hoursToFront: x.hoursToFront, why: x.why })),
     findings: findings.map((f) => ({ key: mailKey(f), kind: f.kind, text: f.text, isk: f.isk, passes: cfg.mailEv[f.kind] && shouldAlert({ ...f, key: mailKey(f) }, cfg, [], now) })),

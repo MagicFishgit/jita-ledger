@@ -634,7 +634,7 @@ function MailAlerts() {
         </div>
       )}
       <p style={{ margin: '-4px 0 0', fontSize: 12, color: 'var(--note)', textWrap: 'pretty' }}>
-        In the mail, click an item’s name to open its market in game: EVE hands the link to your browser, and this app opens the market window. Nothing opens on its own. Quiet hours and “Only if at least” apply here too, and like every alert it only checks while a tab is open. If your character charges for mail from strangers (CSPA), add the sending character as a contact.
+        In the mail, click an item’s name to open its market in game: EVE hands the link to your browser, and this app opens the market window. Nothing opens on its own. Quiet hours and “Only if at least” apply here too. The app checks while a tab is open; once the cloud holds a sending character (Settings → Your data), it checks and mails all day instead. If your character charges for mail from strangers (CSPA), add the sending character as a contact.
       </p>
       <div>
         <div className="lbl" style={{ marginBottom: 8 }}>Mail me about</div>
@@ -646,7 +646,7 @@ function MailAlerts() {
             </WithTip>
           ))}
         </div>
-        <p className="note small" style={{ marginTop: 8 }}>By default only the two you can act on from inside the game: an order worth moving, and a planet about to stop.</p>
+        <p className="note small" style={{ marginTop: 8 }}>By default only what you can act on from inside the game: an order worth moving, a planet about to stop, and a trade worth a look (sent by the cloud).</p>
       </div>
       <div>
         <div className="lbl" style={{ marginBottom: 6 }}>Delete alert mails after</div>

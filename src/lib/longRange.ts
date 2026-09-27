@@ -16,6 +16,8 @@ export type ItemCalc = {
   typeId: number; series: SeriesPoint[]; buys: PricePoint[]; sells: PricePoint[];
   /** A buy order was placed, filled or not: a fee on one that never filled is still a cost of trading. */
   ordered?: boolean;
+  /** Price changes on its orders and what each cost. */
+  relists?: { t: number; amount: number }[];
 };
 
 export type ItemResult = {
@@ -34,6 +36,9 @@ export type ItemResult = {
   avgSell: number | null;
   /** Anything was ever bought or bid for: without that, what sold was loot, a store good or a gift, not a trade. */
   everBought: boolean;
+  /** Price changes in the window, and their whole fees. `profit` holds only the share for units that sold. */
+  relists: number;
+  relistFees: number;
 };
 
 /** The realized profit at time t, from a position's series. */
@@ -94,6 +99,8 @@ export function itemResult(c: ItemCalc, from: number, to: number): ItemResult {
     heldDays: covered > 0 ? heldSum / covered / DAY : null,
     avgSell: sold > 0 ? revenue / sold : null,
     everBought: c.buys.length > 0 || !!c.ordered,
+    relists: (c.relists ?? []).filter((r) => r.t > from && r.t <= to).length,
+    relistFees: (c.relists ?? []).filter((r) => r.t > from && r.t <= to).reduce((t, r) => t + r.amount, 0),
   };
 }
 

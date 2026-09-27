@@ -48,6 +48,8 @@ export type CloudStatus = {
   rev: number;
   /** This browser's ledger has met the cloud's at least once: everything here is up there. */
   started: boolean;
+  /** How "Clears in" has done on your orders over 30 days, as the cloud checked it; null until fetched. */
+  track: { checked: number; within2x: number; medianRatio: number | null } | null;
   /**
    * What the cloud's background side holds for this ledger (its logins, never the tokens, and what each
    * job last did), as of the last look. Kept across reloads so a tab knows at once whether the cloud mails.
@@ -55,7 +57,7 @@ export type CloudStatus = {
   background: CloudBackground | null;
 };
 
-let status: CloudStatus = { phase: 'off', doing: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, rev: 0, started: false, background: null };
+let status: CloudStatus = { phase: 'off', doing: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, rev: 0, started: false, background: null, track: null };
 const listeners = new Set<() => void>();
 const setStatus = (p: Partial<CloudStatus>) => { status = { ...status, ...p }; listeners.forEach((l) => l()); };
 export function useCloud(): CloudStatus {
@@ -369,6 +371,12 @@ export async function cloudSummary(): Promise<CloudSummary> {
   return s;
 }
 
+/** How "Clears in" has done on your orders, kept in the status for the Orders tip. */
+async function refreshTrack(): Promise<void> {
+  if (!state || !cloudEnabled()) return;
+  setStatus({ track: await call<CloudStatus['track']>('/v1/track') });
+}
+
 /** A test alert mail sent by the cloud, from one of your real orders. */
 export const cloudTestMail = () => call<{ mailId: number; about: string }>('/v1/alerts/test', { method: 'POST' });
 
@@ -408,7 +416,7 @@ export function startCloud(): () => void {
     if (!alive) return;
     if (!cloudEnabled()) { setStatus({ phase: 'off' }); return; }
     setStatus({ phase: 'idle' });
-    syncCloudNow().then(() => pushWatch().catch(() => undefined)).then(() => Promise.all([refreshCloudFlow(), cloudSummary(), pushCosts()])).catch(() => undefined);
+    syncCloudNow().then(() => pushWatch().catch(() => undefined)).then(() => Promise.all([refreshCloudFlow(), cloudSummary(), pushCosts(), refreshTrack()])).catch(() => undefined);
   };
   begin();
   const offAuth = onAuthChange(() => { begin(); });
@@ -420,6 +428,7 @@ export function startCloud(): () => void {
     pushWatch().catch(() => undefined).then(() => refreshCloudFlow()).catch(() => undefined);
     cloudSummary().catch(() => undefined);
     pushCosts().catch(() => undefined);
+    refreshTrack().catch(() => undefined);
   }, 10 * 60_000);
   const onVisible = () => { if (document.visibilityState === 'visible' && state && cloudEnabled()) syncCloudNow(); };
   document.addEventListener('visibilitychange', onVisible);

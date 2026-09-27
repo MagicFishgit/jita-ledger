@@ -340,6 +340,22 @@ Don't re-derive or contradict these without new evidence.
   said in EVE time and the viewer's own ("Buyers take listings most between 18:00 and 22:00 EVE time (20:00–00:00
   yours)") in the Calculator and the Clears-in tip. Spread now against the median of the same hour on 7+ earlier
   days, under the Calculator's hourly chart. Nothing shows before then; there's no "collecting data" wording.
+- **"Trade worth a look" is mailed by the cloud when a watched item newly clears your Prospects filters**
+  (`opportunities` in `worker/src/alerts.ts`, alert kind `opportunity`, on and mailed by default). The item is
+  judged exactly as Prospects judges it: `evaluate` moved to `lib/evaluate.ts` (`judgeProspect`, with the
+  watched data passed in) so the Worker can run it, with the filters from the `watch` doc, on the book the watch
+  just read, and each item's Jita order count standing in for the scan's order estimate. Only items with no
+  warning flag, watched at least 6 h and not already held; `opp_seen` remembers which qualify, so an item is
+  mailed when it opens up, not every round it stays, and again after it closes and reopens. At most 3 a mail,
+  the name linking to the Calculator. `/v1/alerts/preview` reports the stages (candidates, with book, history,
+  6 h watched, filters, priced, clean): on relaxed filters and stand-in watching, 64 candidates gave 13 priced
+  and 6 clean.
+- **"Clears in" is checked against what happened** (`trackRecord`, `predictions`). Every five-minute round the
+  cloud judges each ledger's orders once (for this and the alerts) and keeps each beaten order's prediction
+  once per order and price. The order reaching the front, or selling out, resolves it; a new price or a cancel
+  voids it; after 14 days it is late. Orders' Clears-in tip quotes it from 5 checked predictions up: "N of M
+  reached the front within twice the time it said" (`/v1/track`, 30 days). Results' item table counts relists
+  in the period and their whole fees; Made holds only the share for units that sold.
 - **"Clears in" is paced by what the Jita book was seen doing, not only by a guess from history** (`lib/flow.ts`,
   `sidePace` in `orderCheck.ts`). A six-hour study of the user's 71 beaten orders (27 September 2026, 03:44–09:44
   EVE time, 79 reads of each book ~5 minutes apart) found:

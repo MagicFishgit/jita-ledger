@@ -6,7 +6,8 @@
  * access token the app already has; `caller` checks it and everything is keyed by that character.
  */
 import { AuthError, caller } from './auth';
-import { alertRound, previewRound, testRound } from './alerts';
+import { alertRound, judgeAll, previewRound, testRound, trackRecord, trackSummary } from './alerts';
+import { sanitizeSettings, type Settings } from '../../src/lib/fees';
 import { archive, noteJob, refreshOrders } from './archive';
 import { flowFor, hoursFor, pricesFor, watchMarkets } from './market';
 import { dropLogin, EveError, keepLogin, type Purpose } from './eve';
@@ -43,8 +44,16 @@ async function fiveMinutes(env: Env) {
   }
   try { console.log('market watch', JSON.stringify(await watchMarkets(env.DB))); } catch (e) { console.error('market watch failed', e); }
   for (const id of ledgers) {
+    // Each ledger's orders judged once: the track record checks "Clears in" against what happened, and the
+    // alerts mail what's worth it.
+    let judged: Awaited<ReturnType<typeof judgeAll>> | undefined;
     try {
-      const r = await alertRound(env, id);
+      const row = await env.DB.prepare(`SELECT data FROM docs WHERE char_id = ?1 AND key = 'settings'`).bind(id).first<{ data: string }>();
+      judged = await judgeAll(env.DB, id, sanitizeSettings(row ? (JSON.parse(row.data) as Partial<Settings>) : null));
+      await trackRecord(env.DB, id, judged);
+    } catch (e) { console.error('track record failed', id, e); }
+    try {
+      const r = await alertRound(env, id, Date.now(), judged);
       if (r.ran) console.log('alerts', id, JSON.stringify(r));
     } catch (e) {
       await noteJob(env.DB, id, 'alerts', { ok: false, error: e instanceof Error ? e.message : String(e) });
@@ -168,6 +177,7 @@ export default {
       if (url.pathname === '/v1/jobs/market' && request.method === 'POST') return json(await watchMarkets(env.DB), 200, c);
       if (url.pathname === '/v1/alerts/test' && request.method === 'POST') return json(await testRound(env, who.charId), 200, c);
       if (url.pathname === '/v1/alerts/preview' && request.method === 'GET') return json(await previewRound(env, who.charId), 200, c);
+      if (url.pathname === '/v1/track' && request.method === 'GET') return json(await trackSummary(env.DB, who.charId), 200, c);
       if (url.pathname === '/v1/flow' && request.method === 'GET') {
         const types = (url.searchParams.get('types') ?? '').split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0).slice(0, 500);
         return json(await flowFor(env.DB, types), 200, c);

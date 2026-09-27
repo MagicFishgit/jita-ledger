@@ -6,7 +6,7 @@
  */
 
 import { FILL_WINDOW } from './fills';
-import { fmtDateTime, isk, iskBig, units } from './format';
+import { fmtDateTime, isk, iskBig, pct, units } from './format';
 import type { Colony } from './colony';
 import type { Relist } from './relist';
 import type { AlertConfig, AlertEvent, AlertLogEntry } from './types';
@@ -37,6 +37,10 @@ export const ALERT_LABELS: Record<AlertEvent, { label: string; what: string; tip
     label: 'Suspicious market', what: 'A wall, escrow bait or price spike appears on a position, a bid or your watchlist',
     tip: 'Something on an item you hold a position in, bid on or watch looks like a trap. Items you only sell, like loot, aren’t checked. Three kinds are:\n\n• Wall: the best price holds over half its side and more than 3 days of trading.\n• Escrow bait: a buy order more than 10% above anything paid in the last 30 days.\n• Spike: a day with over 5 times the usual volume, at a price more than 10% off normal.\n\nFor example: a buy order at 1.3 M when nothing sold above 1.1 M this month. Someone may be baiting sellers.',
   },
+  opportunity: {
+    label: 'Trade worth a look', what: 'A market the cloud watches opens up past your target: mailed by the cloud',
+    tip: 'One of the items the cloud watches for you (the best from your last Prospects scan, and your loyalty plan’s items) newly clears your Prospects filters.\n\n• It has to pass with no warning flag, after at least 6 hours of the cloud watching its book.\n• Judged exactly as Prospects judges it: where trading reaches for the buy, one tick under the best sell, your fees, your horizon.\n• Mailed once when it newly qualifies, at most three to a mail. Only the cloud sends these.\n\nFor example: a module you don’t trade yet now makes 6% after fees in about a day. The mail says where to buy and list.',
+  },
   backup: {
     label: 'Backup overdue', what: 'Your last backup is more than two weeks old',
     tip: 'You haven’t exported a backup for more than 14 days.\n\n• Everything the app knows lives in this browser.\n• ESI only keeps 30 days of wallet history, so clearing the browser loses anything older.\n\nFor example: positions from two months ago can only come back from a backup. Export one in Settings → Your data.',
@@ -59,6 +63,9 @@ export type OrderFacts = Pick<Relist,
   'verdict' | 'isBuy' | 'price' | 'best' | 'gap' | 'newPrice' | 'volumeRemain' | 'give' | 'fee' | 'cost' | 'atRisk' | 'aheadUnits' | 'aheadOrders' | 'hoursToFront' | 'why'>
   & Partial<Pick<Relist, 'reach' | 'reachAt' | 'unreached'>>;
 
+/** A trade the cloud found in the items it watches: what Prospects would say about it. */
+export type OppFacts = { buy: number; sell: number; roi: number; iskPerDay: number; qty: number; daysToFlip: number; watchedH: number; bought: number; dumped: number };
+
 /** A colony's extraction programme, as read from ESI. */
 export type PiFacts = { system: string; systemId: number; planetType: string; product: string | null; ends: number };
 
@@ -67,7 +74,7 @@ export type Finding = {
   /** The item it's about, when there is one: `text` starts with its name, which a mail makes a link. */
   typeId?: number; name?: string;
   /** The detail behind the one-line text, for a mail that has room to say it. */
-  order?: OrderFacts; pi?: PiFacts;
+  order?: OrderFacts; pi?: PiFacts; opp?: OppFacts;
 };
 
 export const orderFacts = (x: Relist): OrderFacts => ({
@@ -173,7 +180,7 @@ const price = (n: number) => isk(n).replace(/ ISK$/, '');
 const money = iskBig;
 const hoursSaid = (h: number) => (h < 1 ? 'under an hour' : h < 48 ? `about ${Math.round(h)} h` : `about ${Math.round(h / 24)} days`);
 
-const URGENCY: Record<AlertEvent, number> = { move: 0, pi: 1, scam: 2, squeeze: 3, clearing: 4, backup: 5 };
+const URGENCY: Record<AlertEvent, number> = { move: 0, pi: 1, scam: 2, squeeze: 3, clearing: 4, backup: 5, opportunity: 6 };
 
 /** A short phrase for the subject line, which is what the inbox list and the new-mail notice show. */
 export function subjectPart(f: Finding, now = Date.now()): string {
@@ -187,14 +194,26 @@ export function subjectPart(f: Finding, now = Date.now()): string {
   }
   const p = f.pi;
   if (p) return p.ends <= now ? `PI stopped in ${p.system}` : `PI ends in ${hoursSaid((p.ends - now) / 3600_000).replace('about ', '')} in ${p.system}`;
+  if (f.opp && f.name) return `look at ${f.name}, ${pct(f.opp.roi, 1)}`;
   return f.title;
 }
 
 /** The body of one alert: what it is, what to do, then the facts behind it. */
-function section(f: Finding, market: (typeId: number) => string, now: number): string {
+function section(f: Finding, market: (typeId: number, calc?: boolean) => string, now: number): string {
   const head = (t: string, c: keyof typeof COL = 'gold') => `<br>${sized(SIZE.title, col(c, `<b>${escapeMail(t.toUpperCase())}</b>`))}<br>`;
   const advice = (c: keyof typeof COL, t: string) => `${col(c, `<b>RECOMMENDED: ${escapeMail(t)}</b>`)}<br>`;
-  const itemLink = (f.typeId && f.name) ? `<a href="${market(f.typeId)}">${escapeMail(f.name)}</a>` : '';
+  // An opportunity opens in the Calculator, where the trade can be checked; everything else at its market.
+  const itemLink = (f.typeId && f.name) ? `<a href="${market(f.typeId, !!f.opp)}">${escapeMail(f.name)}</a>` : '';
+  const q = f.opp;
+  if (q && itemLink) {
+    return [
+      head(f.title, 'cyan'),
+      advice('green', `buy at ${price(q.buy)} ISK, list at ${price(q.sell)} ISK`),
+      `${itemLink}${col('grey', ' · ')}${pct(q.roi, 1)}${col('grey', ' after fees · about ')}${money(q.iskPerDay)}${col('grey', ' a day')}<br>`,
+      col('grey', `Up to ${units(q.qty)} (${iskBig(q.qty * q.buy)}) flips in ${hoursSaid(q.daysToFlip * 24).replace('about ', '')} at your share.`) + '<br>',
+      col('grey', `Watched ${Math.round(q.watchedH)} h: ${units(Math.round(q.bought))} bought from listings, ${units(Math.round(q.dumped))} sold into bids.`) + '<br>',
+    ].join('');
+  }
   const o = f.order;
   if (o && itemLink) {
     const side = o.isBuy ? 'buy' : 'sell';
@@ -275,7 +294,7 @@ export function alertMail(findings: Finding[], opts: { appUrl: string; keepMin: 
   }
   const more = n - parts.length;
   const subject = `${MAIL_SUBJECT}: ${opts.test ? 'test — ' : ''}${parts.join(' · ')}${more ? ` · +${more} more` : ''}`.slice(0, 1000);
-  const market = (typeId: number) => `${opts.appUrl}#orders?market=${typeId}`;
+  const market = (typeId: number, calc = false) => (calc ? `${opts.appUrl}#calculator?type=${typeId}` : `${opts.appUrl}#orders?market=${typeId}`);
   const build = (shown: Finding[]) => [
     `<font size="${SIZE.text}">`,
     `${sized(SIZE.brand, col('cyan', '<b>Jita Ledger</b>'))}<br>`,
@@ -283,7 +302,9 @@ export function alertMail(findings: Finding[], opts: { appUrl: string; keepMin: 
     n > shown.length ? `<br>…and ${n - shown.length} more in the app.<br>` : '',
     findings.some((f) => f.kind === 'move' || f.kind === 'clearing')
       ? `<br><a href="${opts.appUrl}#orders">Open your orders in Jita Ledger</a><br>`
-      : `<br><a href="${opts.appUrl}#todo">Open your to-do list in Jita Ledger</a><br>`,
+      : findings.every((f) => f.kind === 'opportunity')
+        ? `<br><a href="${opts.appUrl}#prospects">Open Prospects in Jita Ledger</a><br>`
+        : `<br><a href="${opts.appUrl}#todo">Open your to-do list in Jita Ledger</a><br>`,
     `<br>${sized(SIZE.small, col('grey', `${opts.keepMin == null ? 'Alert mails are kept' : `This mail is deleted after ${keepSaid(opts.keepMin)}, read or not`}. Change that, or turn mail alerts off, in Jita Ledger → Settings → Alerts.`))}`,
     '</font>',
   ].join('');

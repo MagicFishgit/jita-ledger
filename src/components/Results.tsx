@@ -172,7 +172,7 @@ export function Results() {
     const types = [...new Set([...traded, ...bids])];
     return types.map((typeId) => {
       const c = computePosition(everything(typeId, personal.get(typeId) ?? []), d, d.settings);
-      return { typeId, series: c.series, buys: c.buys, sells: c.sells, ordered: bids.has(typeId) };
+      return { typeId, series: c.series, buys: c.buys, sells: c.sells, ordered: bids.has(typeId), relists: c.relistEvents };
     });
   }, [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored]); // eslint-disable-line react-hooks/exhaustive-deps
   const itemRows = useMemo(() => itemCalcs.map((c) => itemResult(c, since - 1, now)), [itemCalcs, since, now]);
@@ -384,6 +384,7 @@ export function Results() {
                 <th scope="col">Sold</th>
                 <th scope="col" data-tip="Average price per unit sold in the period.">Avg sale</th>
                 <th scope="col" data-tip="Average time from buying a unit to selling it, oldest units first.">Held</th>
+                <th scope="col" data-tip="Times you changed an order’s price in the period, and the fees those changes cost. Like the listing fee, each is spread over the order’s units: Made counts only the share for units that have sold, and the rest waits on the ones still listed.">Relists</th>
               </tr></thead>
               <tbody>
                 {shownItems.map((r: ItemResult) => (
@@ -394,6 +395,7 @@ export function Results() {
                     <td>{r.sold ? units(r.sold) : '–'}</td>
                     <td>{r.avgSell != null ? iskBig(r.avgSell) : '–'}</td>
                     <td>{r.heldDays != null ? flip(r.heldDays) : '–'}</td>
+                    <td>{r.relists ? <>{units(r.relists)}<span className="sub">{iskBig(r.relistFees)}</span></> : '–'}</td>
                   </tr>
                 ))}
               </tbody>

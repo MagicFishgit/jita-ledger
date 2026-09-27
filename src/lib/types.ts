@@ -324,7 +324,7 @@ export type Prefs = {
   omegaPack: '1' | '3' | '6' | '12';
 };
 
-export type AlertEvent = 'move' | 'clearing' | 'squeeze' | 'pi' | 'scam' | 'backup';
+export type AlertEvent = 'move' | 'clearing' | 'squeeze' | 'pi' | 'scam' | 'backup' | 'opportunity';
 export type AlertConfig = {
   on: boolean;
   browser: boolean;

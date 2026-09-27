@@ -8,6 +8,10 @@ import { tickDown } from '../lib/tick';
 import { competitionShare, SPLIT_SAID } from '../lib/split';
 import { useFlow, watchedFlow, watchedHours } from '../lib/flowStore';
 import { busyHours, busySaid } from '../lib/rhythm';
+import { getCloudStatus } from '../lib/cloud';
+
+/** Predictions checked before the track record is quoted: a handful says little. */
+const TRACK_MIN = 5;
 import { relistPace } from '../lib/flow';
 import { loadCache, rankProspects } from '../lib/scan';
 import { DEFAULT_FILTERS } from '../lib/prospects';
@@ -355,8 +359,13 @@ function PaceNote({ x, hours }: { x: Relist; hours: (h: number) => string }) {
   const side = x.isBuy ? 'buy' : 'sell';
   const busy = busyHours(watchedHours(x.typeId), side);
   const when = busy ? `\n\n${busySaid(busy, side, -new Date().getTimezoneOffset() / 60)}` : '';
+  // How this estimate has done on your own orders, once the cloud has checked enough of them.
+  const tr = getCloudStatus().track;
+  const record = tr && tr.checked >= TRACK_MIN
+    ? `\n\nChecked on your orders over 30 days: ${units(tr.within2x)} of ${units(tr.checked)} reached the front within twice the time it said.`
+    : '';
   return (
-    <span tabIndex={0} data-tip={basis + cuts + when} data-tip-title="What this rests on">
+    <span tabIndex={0} data-tip={basis + cuts + when + record} data-tip-title="What this rests on">
       {hours(x.hoursToFront)}<span className="sub">{p.watchedH >= 1 ? `${Math.round(p.watchedH)} h watched` : p.splitFrom === 'book' ? 'from the book' : 'from history'}</span>
     </span>
   );
