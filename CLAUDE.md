@@ -127,6 +127,11 @@ Don't re-derive or contradict these without new evidence.
 - **The client can be given a destination, not an info window for a structure.** `POST /ui/autopilot/waypoint/`
   (`esi-ui.write_waypoint.v1`) takes a solar system, station *or* structure ID and plots the route.
   `/ui/openwindow/information` only opens characters, corporations and alliances.
+- **A mail a character sends itself doesn't reach the client until it logs in again.** Checked on the user's
+  character in September 2026: ESI accepted the mail (201, an ID), and `/mail/{id}` and `/mail/labels/`
+  showed it in the Inbox (labels 1 and 2, Inbox unread 1). But the client's Inbox, open the whole time,
+  never listed it, and it appeared only after logging off to character select and back. So alert mail comes
+  from a second character, and arrives as ordinary incoming mail.
 - **EVE mail through ESI** (`esi-mail.*`): POST `/characters/{id}/mail/` takes `{recipients:[{recipient_id,
   recipient_type:'character'}], subject, body, approved_cost}` and answers 201 with the new mail's ID. Body at
   most 10,000 characters, subject 1,000. The body is the client's small HTML: `<br>`, `<b>`, `<font size color>`
@@ -340,8 +345,14 @@ Don't re-derive or contradict these without new evidence.
   mark, drawn to PNG) and an `image` (the alert as a card in the theme's colours, 2:1), which Chrome shows on
   Windows and Android and macOS ignores (`lib/notifyArt.ts`). They only fire while the tab is hidden, which is
   why Settings has a delayed test.
-- **Alerts can go by EVE mail, to yourself only, opt-in** (`lib/mailAlerts.ts`, builder `alertMail` in
-  `alerts.ts`). A browser notification is held back while a borderless game is in front, and a web page can't
+- **Alerts can go by EVE mail, opt-in, always *to* the trading character and *from* a second one** (`lib/mailAlerts.ts`,
+  builder `alertMail` in `alerts.ts`). The sender is a second login slot in `auth.ts` (`jita-ledger:mailer`,
+  `loginMailer`, `getMailerToken`), asking only for send and organize mail. `handleCallback` tells the two
+  logins apart by the `purpose` stored with the PKCE verifier, and refuses (and revokes) a sender login that
+  comes back as the trading character. Logging either one out leaves the other. Without a sender, mail goes
+  to yourself and Settings says it will only show after a relog. `esi()` takes a `token` to call as the
+  sender. A mail has one ID for sender and recipient, so cleanup deletes the recipient's copy with the
+  main login and then, best effort, the sender's Sent copy with the sender's. A browser notification is held back while a borderless game is in front, and a web page can't
   put anything inside the client, but a mail arrives there with the client's own blink. One mail per check
   holding everything raised, never one per alert. By default only `move` and `pi` are mailed, the two you can
   act on from inside the game. Item names are `showinfo:` links, which open the item in game on a click.
@@ -351,7 +362,7 @@ Don't re-derive or contradict these without new evidence.
   can't repeat it. Nothing opens a market window unless someone clicked. ESI answers 204 whether or not
   the game is running, so the toast says the client was *asked*. Old alert mails are deleted after a chosen time (30 min to a week, or
   kept), read or not, on a cadence of a sixth of that time between 5 and 60 minutes (`tidyEvery`). Only mails
-  **from you, to you, with a subject starting `Jita Ledger:`** are ever touched (`isStaleAlertMail`); without
+  **from you or your sender, with a subject starting `Jita Ledger:`** are ever touched (`isStaleAlertMail`); without
   the read scope, only the mail IDs this browser recorded sending. Cleanup runs even with alerts off, and
   stamps its time on failure too, so a lasting error retries at that cadence rather than every 15 s tick.
 - **Only one tab runs the alert checks**, elected with a Web Lock (`ALERTS_LOCK` in `alertsRunner.ts`).

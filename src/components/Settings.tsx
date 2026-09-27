@@ -7,9 +7,9 @@ import { effectiveSkills, orderSlots, rates, RELIST_LEFT, sanitizeSettings, type
 import { ago, iskBig, iskBigSigned, pct, plainNum, units } from '../lib/format';
 import { cacheStore, clearAll, exportAll, importAll, parseBackup, update, useData } from '../lib/store';
 import { confirmAsk } from '../lib/confirm';
-import { isConfigured, login, logout } from '../lib/auth';
+import { isConfigured, login, loginMailer, logout, logoutMailer } from '../lib/auth';
 import { syncCharacter, useSyncState } from '../lib/sync';
-import { navigate, useAuth, useNow, type Route } from '../lib/hooks';
+import { navigate, useAuth, useMailer, useNow, type Route } from '../lib/hooks';
 import { ALPHA_CAPS, REDIRECT_URI, SCOPE, SCOPE_INFO, SCOPES } from '../lib/config';
 import { ALERT_EVENTS, ALERT_SIZES, MAIL_KEEP, THEMES, TOAST_SECONDS } from '../lib/prefs';
 import { ALERT_LABELS, tidyEvery } from '../lib/alerts';
@@ -465,12 +465,21 @@ function MailAlerts() {
   const d = useData();
   const a = d.alerts;
   const auth = useAuth();
+  const mailer = useMailer();
   const runner = useAlertRunner();
   const now = useNow(30_000);
   const [sending, setSending] = useState(false);
   const setA = (patch: Partial<typeof a>) => update((x) => ({ alerts: { ...x.alerts, ...patch } }));
   const has = (s: string) => !!auth?.scopes.includes(s);
-  const canSend = has(SCOPE.mailSend), canDelete = has(SCOPE.mailOrganize), canRead = has(SCOPE.mailRead);
+  // A second character that can send, and isn't the one being mailed.
+  const alt = mailer && auth && mailer.characterId !== auth.characterId && mailer.scopes.includes(SCOPE.mailSend) ? mailer : null;
+  const canSend = !!auth && (!!alt || has(SCOPE.mailSend)), canDelete = has(SCOPE.mailOrganize), canRead = has(SCOPE.mailRead);
+  const signInAlt = () => loginMailer().catch((e) => toast(e instanceof Error ? e.message : String(e), 'err'));
+  const dropAlt = async () => {
+    if (!(await confirmAsk({ title: 'Stop sending from this character?', body: `Alert mail will come from ${auth?.characterName ?? 'you'} to itself, which EVE only shows after you log in again. Nothing else changes.`, confirm: 'Stop', danger: true }))) return;
+    await logoutMailer();
+    toast(`${mailer?.characterName ?? 'That character'} no longer sends alert mail.`, 'info');
+  };
   const sendTest = async () => {
     setSending(true);
     const ok = await testMail();
@@ -486,13 +495,35 @@ function MailAlerts() {
       </div>
       <Check bare checked={a.mail} disabled={!canSend} onChange={(v) => setA({ mail: v })}
         desc="Reaches you inside the game, where browser notifications may not. One mail per check, holding everything it found.">
-        Also send alerts as an EVE mail to myself
+        Also send alerts as an EVE mail
       </Check>
       {!auth ? <Notice>Log in to send alert mail. It only ever goes to the character you log in with.</Notice>
-        : !canSend ? <Notice kind="warn">This login doesn’t have the <b>Send EVE mail</b> permission. Log out and in again to grant it.</Notice>
+        : !canSend ? <Notice kind="warn">Sending needs a character to send from. Log one in below.</Notice>
           : null}
+      {auth && (
+        <div>
+          <div className="lbl" style={{ marginBottom: 6 }}>Sent from</div>
+          {alt ? (
+            <div className="row wide" style={{ alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 13, color: 'var(--body)', flex: 1, minWidth: 200 }}>From <b>{alt.characterName}</b> to <b>{auth.characterName}</b>, so it arrives like any other mail.</span>
+              <button type="button" className="btn sm" onClick={signInAlt}>Change</button>
+              <button type="button" className="link-btn dim" onClick={dropAlt}>Stop</button>
+            </div>
+          ) : (
+            <div className="col" style={{ gap: 8 }}>
+              <p style={{ margin: 0, fontSize: 12.5, color: 'var(--body)', textWrap: 'pretty' }}>
+                Mail {auth.characterName} sends itself reaches the inbox but EVE doesn’t tell the game, so it only shows after you log in again. Send it from another of your characters instead and it arrives like any other mail. Any character works, on this account or another. It doesn’t need to be online, and it only gets permission to send mail and delete what it sent.
+              </p>
+              <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+                <button type="button" className="btn sm" onClick={signInAlt}><LogIn aria-hidden="true" />Log in a character to send from</button>
+                <span className="note small">EVE’s login page asks which character. Pick the other one, not {auth.characterName}.</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       <p style={{ margin: '-4px 0 0', fontSize: 12, color: 'var(--note)', textWrap: 'pretty' }}>
-        Each item’s name in the mail is a link that opens the item in game, one click from its market. Nothing opens on its own: the mail only arrives. Quiet hours and “Only if at least” apply here too, and like every alert it only checks while this tab is open.
+        In the mail, an item’s name opens its info in game, and “Open its market in game” opens its market window through this app. Nothing opens on its own. Quiet hours and “Only if at least” apply here too, and like every alert it only checks while a tab is open. If your character charges for mail from strangers (CSPA), add the sending character as a contact.
       </p>
       <div>
         <div className="lbl" style={{ marginBottom: 8 }}>Mail me about</div>
@@ -514,7 +545,7 @@ function MailAlerts() {
         <p className="note small" style={{ marginTop: 8, textWrap: 'pretty' }}>
           {a.mailKeepMin == null ? 'Alert mails stay in your inbox until you delete them.'
             : !canDelete ? <>Deleting needs the <b>Delete EVE mail</b> permission, which this login doesn’t have. Until it does, alert mails stay.</>
-              : <>Deleted whether you’ve read them or not, checked every {Math.round(tidyEvery(a.mailKeepMin) / 60_000)} minutes while the app is open. Only the app’s own alert mails go: {canRead ? 'sent by you to you, with a subject starting “Jita Ledger:”.' : 'the ones this browser sent. With the Read EVE mail headers permission it could also find ones sent from another browser.'}</>}
+              : <>Deleted whether you’ve read them or not, checked every {Math.round(tidyEvery(a.mailKeepMin) / 60_000)} minutes while the app is open. Only the app’s own alert mails go: {canRead ? `from ${alt ? `${alt.characterName} or yourself` : 'yourself'}, with a subject starting “Jita Ledger:”${alt ? `, and ${alt.characterName}’s sent copy with them` : ''}.` : 'the ones this browser sent. With the Read EVE mail headers permission it could also find ones sent from another browser.'}</>}
           {a.mailKeepMin != null && canDelete && d.meta.mailCleanAt ? ` Last tidied ${ago(d.meta.mailCleanAt, now)}${pending ? `; ${pending} sent from here still ${pending === 1 ? 'waits' : 'wait'} ${pending === 1 ? 'its' : 'their'} turn` : ''}.` : ''}
         </p>
       </div>

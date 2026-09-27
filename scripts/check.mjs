@@ -1588,11 +1588,13 @@ console.log('\n--- alert mail ---');
 
   const now = Date.parse('2026-09-27T12:00:00Z');
   const h = (from, subject, daysAgo) => ({ from, subject, timestamp: new Date(now - daysAgo * 86400_000).toISOString() });
-  eq('an old alert mail from me is stale', isStaleAlertMail(h(7, `${MAIL_SUBJECT}: 2 alerts`, 4), 7, 4320, now), true);
-  eq('half an hour on, a 30-minute mail goes', isStaleAlertMail(h(7, `${MAIL_SUBJECT}: 2 alerts`, 31 / 1440), 7, 30, now), true);
-  eq('  a young one is not', isStaleAlertMail(h(7, `${MAIL_SUBJECT}: 2 alerts`, 2), 7, 4320, now), false);
-  eq('  nor one from someone else', isStaleAlertMail(h(8, `${MAIL_SUBJECT}: 2 alerts`, 9), 7, 4320, now), false);
-  eq('  nor my own mail about something else', isStaleAlertMail(h(7, 'Jita Ledger notes', 9), 7, 4320, now), false);
+  eq('an old alert mail from me is stale', isStaleAlertMail(h(7, `${MAIL_SUBJECT}: 2 alerts`, 4), [7], 4320, now), true);
+  eq('half an hour on, a 30-minute mail goes', isStaleAlertMail(h(7, `${MAIL_SUBJECT}: 2 alerts`, 31 / 1440), [7], 30, now), true);
+  eq('  a young one is not', isStaleAlertMail(h(7, `${MAIL_SUBJECT}: 2 alerts`, 2), [7], 4320, now), false);
+  eq('  nor one from someone else', isStaleAlertMail(h(8, `${MAIL_SUBJECT}: 2 alerts`, 9), [7], 4320, now), false);
+  eq('one from my sending character is mine too', isStaleAlertMail(h(8, `${MAIL_SUBJECT}: 2 alerts`, 9), [7, 8], 4320, now), true);
+  eq('  but not one with no sender', isStaleAlertMail({ subject: `${MAIL_SUBJECT}: x`, timestamp: new Date(now - 9 * 86400_000).toISOString() }, [7, 8], 4320, now), false);
+  eq('  nor my own mail about something else', isStaleAlertMail(h(7, 'Jita Ledger notes', 9), [7], 4320, now), false);
 }
 
 }

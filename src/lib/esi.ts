@@ -21,6 +21,8 @@ type Opts = {
   query?: Record<string, string | number | undefined>;
   method?: 'GET' | 'POST' | 'DELETE';
   body?: unknown;
+  /** Call as another login than the trading character: how alert mail is sent from a second character. */
+  token?: () => Promise<string>;
   /**
    * Revalidate with ESI instead of accepting the browser's copy.
    *
@@ -44,7 +46,8 @@ export async function esi<T>(path: string, opts: Opts = {}): Promise<{ data: T; 
     for (const [k, v] of Object.entries(opts.query ?? {})) if (v !== undefined) url.searchParams.set(k, String(v));
     for (let attempt = 0; ; attempt++) {
       const headers: Record<string, string> = { Accept: 'application/json', 'X-Compatibility-Date': ESI_COMPAT_DATE };
-      if (opts.auth) headers.Authorization = 'Bearer ' + (await getAccessToken());
+      if (opts.token) headers.Authorization = 'Bearer ' + (await opts.token());
+      else if (opts.auth) headers.Authorization = 'Bearer ' + (await getAccessToken());
       if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
       let res: Response;
       try {

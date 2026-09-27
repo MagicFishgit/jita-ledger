@@ -178,7 +178,10 @@ Fees depend on your clone state, because Alpha clones can't use some trade skill
   missed. Trading history costs one request per item, so a run checks a few hundred and keeps what it learns —
   scan again to widen the net. Coverage is shown under the filters.
 - **Alerts can arrive as EVE mail**, for when you're in the game and a browser notification would be held back.
-  It's off until you turn it on in Settings → Alerts, only ever goes to your own character, puts everything one
+  They're sent from a second character of yours (any one, on the same account or not, and it needn't be online)
+  because a mail you send yourself only shows in game after you log in again: EVE doesn't tell the client. The
+  second login asks only to send mail and delete what it sent. If your main charges for mail from strangers
+  (CSPA), add the sender as a contact. It's off until you turn it on in Settings → Alerts, only ever goes to your own character, puts everything one
   check found in a single mail, and by default only mails what you can act on in game (an order worth moving, a
   planet about to stop). Item names in the mail open the item in game, and "Open its market in game" opens its
   market window: the client asks before following the link, your browser opens the app, and the app asks the
@@ -186,7 +189,7 @@ Fees depend on your clone state, because Alpha clones can't use some trade skill
   another Jita Ledger tab is already open, the new one closes itself after a few seconds. Only one tab ever
   runs the checks, so nothing is raised or mailed twice. Alert mails delete themselves after a time
   you choose, from 30 minutes to a week, read or not; the app only deletes mails from you to you whose subject
-  starts "Jita Ledger:". Like every alert, it only checks while a tab is open.
+  starts "Jita Ledger:", sent by you or your sending character. Like every alert, it only checks while a tab is open.
 - **Fee matching goes by the clock.** ESI's journal doesn't say which order a broker fee or which sale a tax was for, so they're matched by the second they were charged. A price change made and undone between two syncs, or two made close together, can be missed.
 - **Tested with mocked ESI responses**, not against the live API. If a route has changed, the error message will say which one.
 
@@ -203,9 +206,11 @@ The proxy only forwards the token request. There's no secret involved.
 ## Security
 
 - Almost every scope only reads. The few that act do small, visible things: open a market window, set an
-  autopilot destination, send alert mail to yourself (only once you turn it on) and delete the app's own alert
-  mails. None can move ISK, and ESI has no way at all to place, change or cancel a market order.
-- The refresh token is kept in this browser's local storage so you stay logged in. Log out to revoke it, or remove the app's access from the third-party applications page of your EVE account.
+  autopilot destination, send alert mail to your character (only once you turn it on) and delete the app's own
+  alert mails. None can move ISK, and ESI has no way at all to place, change or cancel a market order.
+- The refresh tokens are kept in this browser's local storage so you stay logged in: your character's, and the
+  sending character's if you add one. Logging either out revokes its token and leaves the other. You can also
+  remove the app's access from the third-party applications page of your EVE account.
 
 ## Tech
 

@@ -100,9 +100,12 @@ export function alertMail(findings: Finding[], opts: { appUrl: string; keepMin: 
   return { subject, body };
 }
 
-/** Whether a mail header is one of the app's own alert mails, old enough to delete. */
-export function isStaleAlertMail(m: { from?: number; subject?: string; timestamp?: string }, characterId: number, keepMin: number, now: number): boolean {
-  return m.from === characterId && !!m.subject?.startsWith(MAIL_SUBJECT + ':') && !!m.timestamp && now - Date.parse(m.timestamp) > keepMin * 60_000;
+/**
+ * Whether a mail header is one of the app's own alert mails, old enough to delete: from you or your
+ * sending character, with the app's subject.
+ */
+export function isStaleAlertMail(m: { from?: number; subject?: string; timestamp?: string }, senders: number[], keepMin: number, now: number): boolean {
+  return m.from != null && senders.includes(m.from) && !!m.subject?.startsWith(MAIL_SUBJECT + ':') && !!m.timestamp && now - Date.parse(m.timestamp) > keepMin * 60_000;
 }
 
 /**

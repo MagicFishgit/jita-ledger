@@ -217,7 +217,7 @@ export type Meta = {
   /** When a backup was last exported. ESI keeps 30 days of wallet history, so this browser is the record. */
   lastBackupAt?: string;
   /** Alert mails this browser sent, so they can be deleted on time even without the read-mail scope. */
-  alertMails?: { id: number; at: string; char: number }[];
+  alertMails?: { id: number; at: string; char: number; from?: number }[];
   /** When old alert mails were last tidied away. */
   mailCleanAt?: string;
   /** Character attributes, for working out how long a skill takes to train. */

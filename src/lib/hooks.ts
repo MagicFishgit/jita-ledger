@@ -1,8 +1,13 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { getAuth, onAuthChange } from './auth';
+import { getAuth, getMailer, onAuthChange } from './auth';
 
 export function useAuth() {
   return useSyncExternalStore(onAuthChange, getAuth);
+}
+
+/** The character that sends alert mail, when one is logged in. */
+export function useMailer() {
+  return useSyncExternalStore(onAuthChange, getMailer);
 }
 
 /**

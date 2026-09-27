@@ -1,4 +1,4 @@
-import { CLIENT_ID, REDIRECT_URI, SCOPES, SSO_AUTHORIZE, SSO_REVOKE, SSO_TOKEN } from './config';
+import { CLIENT_ID, REDIRECT_URI, SCOPE, SCOPES, SSO_AUTHORIZE, SSO_REVOKE, SSO_TOKEN } from './config';
 
 export type Auth = {
   accessToken: string;
@@ -9,32 +9,47 @@ export type Auth = {
   scopes: string[];
 };
 
-const AUTH_KEY = 'jita-ledger:auth';
 const PKCE_KEY = 'jita-ledger:pkce';
 const listeners = new Set<() => void>();
 
-let current: Auth | null = readAuth();
+/**
+ * A stored login. There are two: the character you trade with, and optionally a second one that only
+ * sends alert mail. EVE doesn't tell the client about mail a character sends itself --- it reaches the
+ * server's Inbox at once but only shows after logging in again --- so alerts come from another character
+ * and arrive like any other mail.
+ */
+type Slot = { key: string; auth: Auth | null; refreshing: Promise<string> | null };
 
-function readAuth(): Auth | null {
+function readAuth(key: string): Auth | null {
   try {
-    const raw = localStorage.getItem(AUTH_KEY);
+    const raw = localStorage.getItem(key);
     return raw ? (JSON.parse(raw) as Auth) : null;
   } catch {
     return null;
   }
 }
-function writeAuth(a: Auth | null) {
-  current = a;
+const slot = (key: string): Slot => ({ key, auth: readAuth(key), refreshing: null });
+const main = slot('jita-ledger:auth');
+const mailer = slot('jita-ledger:mailer');
+
+function write(s: Slot, a: Auth | null) {
+  s.auth = a;
   try {
-    if (a) localStorage.setItem(AUTH_KEY, JSON.stringify(a));
-    else localStorage.removeItem(AUTH_KEY);
+    if (a) localStorage.setItem(s.key, JSON.stringify(a));
+    else localStorage.removeItem(s.key);
   } catch { /* storage unavailable */ }
   listeners.forEach((l) => l());
 }
+const writeAuth = (a: Auth | null) => write(main, a);
 
-export function getAuth(): Auth | null { return current; }
+export function getAuth(): Auth | null { return main.auth; }
 export function onAuthChange(cb: () => void): () => void { listeners.add(cb); return () => listeners.delete(cb); }
-export function hasScope(scope: string): boolean { return !!current?.scopes.includes(scope); }
+export function hasScope(scope: string): boolean { return !!main.auth?.scopes.includes(scope); }
+
+/** The character that sends alert mail, when one is set up. */
+export function getMailer(): Auth | null { return mailer.auth; }
+/** Only what sending needs: send, and delete its own sent copies. */
+export const MAILER_SCOPES = [SCOPE.mailSend, SCOPE.mailOrganize];
 export const isConfigured = () => CLIENT_ID.length > 0;
 
 function b64url(bytes: ArrayBuffer | Uint8Array): string {
@@ -47,23 +62,29 @@ function randomString(n = 32): string {
   return b64url(crypto.getRandomValues(new Uint8Array(n)));
 }
 
-export async function login(): Promise<void> {
+type Purpose = 'main' | 'mailer';
+
+async function startLogin(purpose: Purpose, scopes: string[]): Promise<void> {
   if (!isConfigured()) throw new Error('No EVE client ID is set. See the README.');
   const verifier = randomString(32);
   const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
   const state = randomString(16);
-  sessionStorage.setItem(PKCE_KEY, JSON.stringify({ verifier, state, returnHash: window.location.hash }));
+  sessionStorage.setItem(PKCE_KEY, JSON.stringify({ verifier, state, returnHash: window.location.hash, purpose }));
   const q = new URLSearchParams({
     response_type: 'code',
     redirect_uri: REDIRECT_URI,
     client_id: CLIENT_ID,
-    scope: SCOPES.join(' '),
+    scope: scopes.join(' '),
     code_challenge: challenge,
     code_challenge_method: 'S256',
     state,
   });
   window.location.assign(`${SSO_AUTHORIZE}?${q.toString()}`);
 }
+
+export const login = () => startLogin('main', SCOPES);
+/** Log in the character that will send alert mail. EVE's login page asks which character. */
+export const loginMailer = () => startLogin('mailer', MAILER_SCOPES);
 
 function decodeJwt(token: string): Record<string, unknown> {
   const part = token.split('.')[1] ?? '';
@@ -121,7 +142,7 @@ export async function handleCallback(): Promise<{ handled: boolean; error?: stri
   const state = params.get('state');
   if (!code && !params.get('error')) return { handled: false };
 
-  let saved: { verifier: string; state: string; returnHash: string } | null = null;
+  let saved: { verifier: string; state: string; returnHash: string; purpose?: Purpose } | null = null;
   try { saved = JSON.parse(sessionStorage.getItem(PKCE_KEY) || 'null'); } catch { saved = null; }
   sessionStorage.removeItem(PKCE_KEY);
   const clean = () => window.history.replaceState(null, '', REDIRECT_URI + (saved?.returnHash || '#/settings'));
@@ -130,8 +151,18 @@ export async function handleCallback(): Promise<{ handled: boolean; error?: stri
   if (!saved || saved.state !== state) { clean(); return { handled: true, error: 'The login response didn’t match this browser session. Try logging in again.' }; }
   try {
     const t = await tokenRequest({ grant_type: 'authorization_code', code: code!, client_id: CLIENT_ID, code_verifier: saved.verifier });
-    writeAuth(toAuth(t));
+    const got = toAuth(t);
     clean();
+    if (saved.purpose === 'mailer') {
+      // The same character would be mailing itself, which is the thing this login exists to avoid.
+      if (got.characterId === main.auth?.characterId) {
+        await revoke(got);
+        return { handled: true, error: `${got.characterName} is the character alerts are sent to. Log in with your other character to send them from — EVE’s login page lets you pick.` };
+      }
+      write(mailer, got);
+      return { handled: true };
+    }
+    writeAuth(got);
     return { handled: true };
   } catch (e) {
     clean();
@@ -139,36 +170,34 @@ export async function handleCallback(): Promise<{ handled: boolean; error?: stri
   }
 }
 
-let refreshing: Promise<string> | null = null;
-
-/** A valid access token, refreshed when it's within a minute of expiring. */
-export async function getAccessToken(): Promise<string> {
-  const a = current;
-  if (!a) throw new Error('Not logged in.');
+/** A valid access token for a login, refreshed when it's within a minute of expiring. */
+async function tokenFor(s: Slot, who: string): Promise<string> {
+  const a = s.auth;
+  if (!a) throw new Error(`${who} isn’t logged in.`);
   if (a.expiresAt - Date.now() > 60_000) return a.accessToken;
-  if (!refreshing) {
-    refreshing = (async () => {
+  if (!s.refreshing) {
+    s.refreshing = (async () => {
       try {
         const t = await tokenRequest({ grant_type: 'refresh_token', refresh_token: a.refreshToken, client_id: CLIENT_ID });
         const next = toAuth(t);
-        writeAuth(next);
+        write(s, next);
         return next.accessToken;
       } catch (e) {
         const status = (e as { status?: number }).status;
-        if (status === 400 || status === 401) writeAuth(null); // refresh token revoked or expired
+        if (status === 400 || status === 401) write(s, null); // refresh token revoked or expired
         throw e;
       } finally {
-        refreshing = null;
+        s.refreshing = null;
       }
     })();
   }
-  return refreshing;
+  return s.refreshing;
 }
 
-export async function logout(): Promise<void> {
-  const a = current;
-  writeAuth(null);
-  if (!a) return;
+export const getAccessToken = () => tokenFor(main, 'Your character');
+export const getMailerToken = () => tokenFor(mailer, 'The character that sends alert mail');
+
+async function revoke(a: Auth): Promise<void> {
   try {
     await fetch(SSO_REVOKE, {
       method: 'POST',
@@ -176,4 +205,18 @@ export async function logout(): Promise<void> {
       body: new URLSearchParams({ token_type_hint: 'refresh_token', token: a.refreshToken, client_id: CLIENT_ID }).toString(),
     });
   } catch { /* best effort: the token is gone from this browser either way */ }
+}
+
+/** Log out the trading character. The mail sender, if any, stays. */
+export async function logout(): Promise<void> {
+  const a = main.auth;
+  writeAuth(null);
+  if (a) await revoke(a);
+}
+
+/** Stop sending alert mail from the second character. The trading login is untouched. */
+export async function logoutMailer(): Promise<void> {
+  const a = mailer.auth;
+  write(mailer, null);
+  if (a) await revoke(a);
 }
