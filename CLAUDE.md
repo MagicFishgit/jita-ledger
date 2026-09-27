@@ -78,7 +78,20 @@ npx wrangler tail jita-ledger-cloud                      # live logs
 ```
 
 `npm run build` type-checks the Worker too (`tsc -p worker`). Deploys of the Worker are by hand for now; the
-Pages workflow doesn't touch it.
+Pages workflow doesn't touch it. Apply a migration before deploying code that needs it.
+
+**The Worker runs the app's own rules**, imported straight from `src/lib`: `esiRecords`, `flow`, `split`, `relist`,
+`fills`, `fees`, `prefs`, `prospects`, `alerts`, `colony`, `tick`, `format`, `constants`, `types`. These must stay
+free of `./config`, `./store`, React and the DOM, even for a type import: `tsc -p worker` pulls in whatever they
+import. That is why `OrderLite` lives in `flow.ts`, `SkillKey` comes from `constants`, and `soldFrom`, `sidePaceOf`,
+`judgeOrder`, `orderFindings` and `piFindings` were moved out of the I/O modules.
+
+**Timers** (`[triggers]` in `wrangler.toml`): every five minutes `fiveMinutes` in `index.ts` refreshes each
+ledger's open orders when ESI's 20-minute copy has turned over, reads every watched book (`watchMarkets`), then
+runs each ledger's alert round, in that order in one chain; hourly at :07 the archive. **A newly added cron took
+26 minutes to fire** (registered 16:04:29, first run 16:30 on 27 September 2026; Cloudflare says up to 15) while
+the existing hourly one kept running. Don't debug a new trigger before half an hour has passed;
+`workersInvocationsScheduled` in Cloudflare's GraphQL analytics lists every scheduled run.
 
 **Testing end to end without an EVE login:** `npm run worker:dev` runs the Worker locally on :8787 with a local
 D1 (`npx wrangler d1 migrations apply jita-ledger --local` first) and `DEV_AUTH_CHAR`, which makes the token
@@ -86,6 +99,12 @@ D1 (`npx wrangler d1 migrations apply jita-ledger --local` first) and `DEV_AUTH_
 `wrangler.toml`. Run the app with `VITE_CLOUD_URL=http://localhost:8787 VITE_CLOUD_DEV_TOKEN=dev-token npm run dev`
 and the Playwright browser syncs with it. Seeding a big ledger through `update(..., { origin: 'cloud' })` keeps
 it from being pushed.
+To test against the real ledger, export it (`npx wrangler d1 export jita-ledger --remote --table records
+--no-schema --output …`, same for `docs`), run it into the local D1 with `--file`, and start `wrangler dev` with
+`--var DEV_AUTH_CHAR:<the character's ID> --test-scheduled`: `curl "localhost:8787/__scheduled?cron=*/5+*+*+*+*"`
+runs a five-minute round, and `GET /v1/alerts/preview` shows every order's verdict and what would be mailed,
+sending nothing. The local D1 holds no EVE logins, so mail itself can only be tested in production (Settings →
+Your data → Send a test mail).
 
 ## EVE facts that cost real research
 
@@ -535,6 +554,27 @@ Don't re-derive or contradict these without new evidence.
   the database to any minute of the last 30 days (paid plan; 7 on free), which stands in for dated backups. While
   the cloud copy is healthy (`cloudCovers`) the backup reminders (status bar, To do, alerts, Settings tab) stand
   down.
+- **The cloud keeps watch with logins handed to it** (`POST /v1/keys`; `loginForCloud` / `loginMailerForCloud` bring
+  back a refresh token that goes straight to the Worker and is never stored in the browser). They are sealed with the
+  `TOKEN_KEY` secret (AES-GCM); the Worker refreshes one once to prove it, and checks the main login is the ledger's
+  character and the sender isn't. Access tokens are kept sealed too (`access_enc`, `access_exp`) and reused until two
+  minutes before expiry, so the five-minute round doesn't rotate the refresh token ~300 times a day. The hourly
+  archive (`archive.ts`) turns ESI into the same records the app makes (`esiRecords.ts`) and pushes only what's new
+  or changed, and keeps one net-worth point a day the Wallet's way; the market watch (`worker/src/market.ts`) does
+  `bookFills` all day on every item any ledger has open orders, open positions or watchlist entries on, and the app
+  merges that flow with its own (`setCloudFlow`, cloud wins per day).
+- **Alert mail comes from the cloud once it holds a sender** (`worker/src/alerts.ts`). It judges each open Jita order
+  with `judgeOrder` on the book the watch just read (never one over 15 minutes old: a stalled watch skips, it doesn't
+  guess), history cached in D1 until ESI's `Expires`, the cloud's flow, the user's cost basis (the `costs` doc: the
+  browser pushes `costBasis` every 10 minutes when it changes, since working positions out needs every trade and fee;
+  only the cloud reads it) and the last 3 days' buys for `fillingNow`. Colonies are read hourly. It honours the synced
+  alert settings (on, mail, kinds, minimum ISK, quiet hours, interval) through `shouldAlert`, sends one mail per round
+  from the second character, and tidies old alert mail on `tidyEvery`. **A mail is remembered by the order and your
+  price on it** (`mailKey`), not by the advice: every undercut changes the advised price, and with nobody reading,
+  one order left alone would be mailed about every round. Move it and get beaten again and you hear again; otherwise
+  after six hours. While the cloud holds both logins (`cloudSendsMail`, from `/v1/status`, kept across reloads and
+  re-read every 10 minutes) the browser neither mails nor tidies, so nothing arrives twice. Squeeze and
+  suspicious-market alerts stay with an open app: they need signals the cloud doesn't keep.
 - **Pages that need the same live answer share one store**: `orderCheck` (your orders against the book),
   `watch` (squeeze and scam signals), `colonyStore` and the killmail pricer. Orders, To do and the
   alerts all read `orderCheck` rather than fetching the same books three times.

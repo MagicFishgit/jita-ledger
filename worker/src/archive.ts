@@ -37,6 +37,52 @@ async function doc<T>(db: D1Database, charId: number, key: string): Promise<T | 
   return row ? (JSON.parse(row.data) as T) : null;
 }
 
+/**
+ * The character's open orders (and with `closed`, its order history too), each merged onto the stored
+ * record with its versions. Returns the records that changed, for the caller to push, and every order read.
+ */
+export async function readOrders(db: D1Database, charId: number, token: string, closed: boolean): Promise<{ changed: { k: string; i: string; d: unknown }[]; all: OrderRecord[] }> {
+  const [open, hist] = await Promise.all([
+    esiGet<RawCharOrder[]>(`/characters/${charId}/orders/`, { token }).then((r) => r.data),
+    closed ? esiAll<RawCharOrder>(`/characters/${charId}/orders/history/`, { token }) : Promise.resolve([] as RawCharOrder[]),
+  ]);
+  const fetched = new Map<string, OrderRecord>();
+  for (const o of hist) fetched.set(String(o.order_id), toOrder(o, 'closed'));
+  for (const o of open) fetched.set(String(o.order_id), toOrder(o, 'open'));
+  const stored = new Map<string, OrderRecord>();
+  const idsList = [...fetched.keys()];
+  for (let i = 0; i < idsList.length; i += 90) {
+    const part = idsList.slice(i, i + 90);
+    const rows = (await db.prepare(`SELECT id, data FROM records WHERE char_id = ?1 AND kind = 'orders' AND id IN (${part.map((_, n) => `?${n + 2}`).join(',')})`)
+      .bind(charId, ...part).all<{ id: string; data: string | null }>()).results;
+    for (const r of rows) if (r.data) stored.set(r.id, JSON.parse(r.data));
+  }
+  const changed: { k: string; i: string; d: unknown }[] = [];
+  for (const [id, o] of fetched) {
+    const merged = withHistory(stored.get(id), o);
+    if (JSON.stringify(merged) !== JSON.stringify(stored.get(id))) changed.push({ k: 'orders', i: id, d: merged });
+  }
+  return { changed, all: [...fetched.values()] };
+}
+
+/** ESI caches a character's orders for twenty minutes, so reading them more often shows nothing new. */
+export const ORDERS_EVERY_MS = 20 * 60_000;
+
+/**
+ * Between hourly archives, the open orders alone, so an order placed or repriced since is watched and
+ * judged within twenty minutes rather than an hour.
+ */
+export async function refreshOrders(env: Env, charId: number): Promise<number | null> {
+  const last = await env.DB.prepare(`SELECT last_run FROM jobs WHERE char_id = ?1 AND job = 'orders'`).bind(charId).first<{ last_run: number }>();
+  if (last && Date.now() - last.last_run < ORDERS_EVERY_MS) return null;
+  const login = await useLogin(env, charId, 'main');
+  if (!login || !has(login.scopes, S.orders)) return null;
+  const r = await readOrders(env.DB, charId, login.access, false);
+  if (r.changed.length) await push(env.DB, charId, { records: r.changed, docs: [] });
+  await noteJob(env.DB, charId, 'orders', { ok: true, detail: { orders: r.changed.length } });
+  return r.changed.length;
+}
+
 export async function archive(env: Env, charId: number): Promise<ArchiveResult> {
   const login = await useLogin(env, charId, 'main');
   if (!login) throw new Error('No login kept for the cloud');
@@ -79,28 +125,13 @@ export async function archive(env: Env, charId: number): Promise<ArchiveResult> 
   // merged onto the stored record and only pushed when it moved.
   let orders: OrderRecord[] = [];
   if (has(scopes, S.orders)) {
-    const [open, hist] = await Promise.all([
-      esiGet<RawCharOrder[]>(`/characters/${charId}/orders/`, { token }).then((r) => r.data),
-      esiAll<RawCharOrder>(`/characters/${charId}/orders/history/`, { token }),
-    ]);
-    const fetched = new Map<string, OrderRecord>();
-    for (const o of hist) fetched.set(String(o.order_id), toOrder(o, 'closed'));
-    for (const o of open) fetched.set(String(o.order_id), toOrder(o, 'open'));
-    const stored = new Map<string, OrderRecord>();
-    const idsList = [...fetched.keys()];
-    for (let i = 0; i < idsList.length; i += 90) {
-      const part = idsList.slice(i, i + 90);
-      const rows = (await db.prepare(`SELECT id, data FROM records WHERE char_id = ?1 AND kind = 'orders' AND id IN (${part.map((_, n) => `?${n + 2}`).join(',')})`)
-        .bind(charId, ...part).all<{ id: string; data: string | null }>()).results;
-      for (const r of rows) if (r.data) stored.set(r.id, JSON.parse(r.data));
-    }
-    for (const [id, o] of fetched) {
-      const merged = withHistory(stored.get(id), o);
-      if (JSON.stringify(merged) !== JSON.stringify(stored.get(id))) { records.push({ k: 'orders', i: id, d: merged }); result.orders++; }
-      typeIds.add(o.typeId);
-    }
+    const r = await readOrders(db, charId, token, true);
+    await noteJob(db, charId, 'orders', { ok: true, detail: { orders: r.changed.length } });
+    records.push(...r.changed);
+    result.orders = r.changed.length;
+    for (const o of r.all) typeIds.add(o.typeId);
     // Everything open now, for net worth, whether or not it changed.
-    orders = [...fetched.values()];
+    orders = r.all;
   }
 
   // Assets: a snapshot, replaced whole; pushed only when the counts moved.

@@ -1,13 +1,12 @@
 import { useSyncExternalStore } from 'react';
 import { jitaOrders, marketHistory, tradedAtJita, type OrderLite } from './market';
-import { pace } from './flow';
+import { sidePaceOf } from './flow';
 import { loadFlow, settleFlow, watchedFlow } from './flowStore';
 import { paceDay } from './prospects';
 import { computePosition } from './positions';
-import { rates } from './fees';
-import { adviseRelist, byUrgency, type Relist } from './relist';
-import { buyerShare, sideVolume, tradingSplit, type BookSold, type SplitFrom } from './split';
-import { fillingNow, recentRange } from './fills';
+import { byUrgency, judgeOrder, type Relist } from './relist';
+import { buyerShare, type BookSold } from './split';
+import { recentRange } from './fills';
 import { getData, type Data } from './store';
 import type { Order } from './types';
 
@@ -130,23 +129,16 @@ export function costBasis(d: Data): Record<number, number> {
  */
 export function verdicts(d: Data, check: CheckState, cost: Record<number, number>): Relist[] {
   if (!check.books) return [];
-  const r = rates(d.settings);
   const txs = Object.values(d.txs);
   return jitaOpen(d)
     .filter((o) => check.books![o.typeId])
-    .map((o) => {
-      const book = check.books![o.typeId];
-      const sells = book.filter((x) => !x.isBuy).map((x) => x.price);
-      return adviseRelist(o, {
-        book,
-        dailyVolume: sidePace(check, o.typeId, o.isBuy).perDay,
-        avgCost: cost[o.typeId],
-        bestSell: sells.length ? Math.min(...sells) : null,
-        lows: check.lows?.[o.typeId] ?? null,
-        targetReturn: d.settings.target / 100,
-        filling: fillingNow(o, book.find((x) => x.id === o.orderId)?.volume, txs),
-      }, r, d.settings.waitHours, d.settings.target / 100);
-    })
+    .map((o) => judgeOrder(o, {
+      book: check.books![o.typeId],
+      perDay: sidePace(check, o.typeId, o.isBuy).perDay,
+      avgCost: cost[o.typeId],
+      lows: check.lows?.[o.typeId] ?? null,
+      txs,
+    }, d.settings))
     .sort(byUrgency);
 }
 
@@ -156,17 +148,6 @@ export function verdicts(d: Data, check: CheckState, cost: Record<number, number
  * blended with what the checks have watched the Jita book do, trusted more the longer it has watched
  * (`pace` in `lib/flow.ts`). `watchedH` says how much watching there is behind it.
  */
-export function sidePace(check: CheckState, typeId: number, isBuy: boolean, now = Date.now()): { perDay: number | null; watchedH: number; undercutsPerH: number | null; splitFrom: SplitFrom } {
-  const daily = check.daily[typeId];
-  // The prior's split: what the live orders have sold, or history's guess. The watching is blended in
-  // below, by hours, since it also says how fast Jita itself trades.
-  const split = tradingSplit({ history: check.buyers[typeId], book: check.sold[typeId] });
-  const prior = daily != null ? sideVolume(daily, split.share, isBuy) : null;
-  const o = watchedFlow(typeId, now);
-  return {
-    perDay: pace(prior, isBuy ? o.buy : o.sell, o.h),
-    watchedH: o.h,
-    splitFrom: split.from,
-    undercutsPerH: o.h > 0 ? (isBuy ? o.newBuy : o.newSell) / o.h : null,
-  };
+export function sidePace(check: CheckState, typeId: number, isBuy: boolean, now = Date.now()): ReturnType<typeof sidePaceOf> {
+  return sidePaceOf({ daily: check.daily[typeId], buyers: check.buyers[typeId], sold: check.sold[typeId], watched: watchedFlow(typeId, now) }, isBuy);
 }

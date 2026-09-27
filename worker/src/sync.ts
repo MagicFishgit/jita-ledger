@@ -10,7 +10,8 @@
 export const RECORD_KINDS = new Set([
   'txs', 'journal', 'orders', 'names', 'killmails', 'tags', 'positions', 'goals', 'watchlist', 'netWorth',
 ]);
-export const DOC_KEYS = new Set(['settings', 'meta', 'prefs', 'alerts', 'stock', 'skills', 'ignored', 'nearDone', 'unusualOk']);
+// `costs` is the one doc only the cloud reads: the browser's cost basis per item, for the alert checks.
+export const DOC_KEYS = new Set(['settings', 'meta', 'prefs', 'alerts', 'stock', 'skills', 'ignored', 'nearDone', 'unusualOk', 'costs']);
 
 /** D1 takes a bound string up to 2 MB; records go up in chunks well under that. */
 const CHUNK_BYTES = 900_000;

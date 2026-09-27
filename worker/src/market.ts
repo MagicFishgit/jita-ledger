@@ -8,6 +8,7 @@
  * instead of history's guess. It also keeps the best prices hour by hour, where ESI's history is daily.
  */
 import { bookFills, MAX_GAP_H, type OrderLite } from '../../src/lib/flow';
+import { soldFrom, type BookSold } from '../../src/lib/split';
 
 const JITA_44 = 60003760;
 const THE_FORGE = 10000002;
@@ -15,7 +16,7 @@ const PLEX = 44992;
 const PLEX_MARKET = 19000001;
 const HEADERS = { 'X-Compatibility-Date': '2025-08-26', 'User-Agent': 'jita-ledger-cloud (github.com/MagicFishgit/jita-ledger)', Accept: 'application/json' };
 
-type Raw = { order_id: number; is_buy_order: boolean; price: number; volume_remain: number; location_id: number };
+type Raw = { order_id: number; is_buy_order: boolean; price: number; volume_remain: number; volume_total?: number; location_id: number };
 
 /** Every item any ledger trades or watches: open Jita orders, open positions, the watchlist. */
 export async function watchedTypes(db: D1Database): Promise<number[]> {
@@ -29,7 +30,7 @@ export async function watchedTypes(db: D1Database): Promise<number[]> {
 }
 
 /** One item's Jita book, every page, with ESI's Expires as the stamp of that snapshot. Null if any page failed. */
-async function readBook(typeId: number): Promise<{ orders: OrderLite[]; stamp: number } | null> {
+async function readBook(typeId: number): Promise<{ orders: OrderLite[]; stamp: number; sold: BookSold } | null> {
   const plex = typeId === PLEX;
   const base = `https://esi.evetech.net/markets/${plex ? PLEX_MARKET : THE_FORGE}/orders/?type_id=${typeId}&order_type=all`;
   const all: Raw[] = [];
@@ -45,11 +46,11 @@ async function readBook(typeId: number): Promise<{ orders: OrderLite[]; stamp: n
   }
   if (!Number.isFinite(stamp)) return null;
   const here = plex ? all : all.filter((o) => o.location_id === JITA_44);
-  return { stamp, orders: here.map((o) => ({ id: o.order_id, isBuy: o.is_buy_order, price: o.price, volume: o.volume_remain })) };
+  return { stamp, sold: soldFrom(here), orders: here.map((o) => ({ id: o.order_id, isBuy: o.is_buy_order, price: o.price, volume: o.volume_remain })) };
 }
 
 const pack = (orders: OrderLite[]) => JSON.stringify(orders.map((o) => [o.id, o.isBuy ? 1 : 0, o.price, o.volume]));
-const unpack = (s: string): OrderLite[] => (JSON.parse(s) as [number, number, number, number][]).map(([id, b, price, volume]) => ({ id, isBuy: b === 1, price, volume }));
+export const unpack = (s: string): OrderLite[] => (JSON.parse(s) as [number, number, number, number][]).map(([id, b, price, volume]) => ({ id, isBuy: b === 1, price, volume }));
 
 export type WatchResult = { items: number; read: number; counted: number; failed: number };
 
@@ -69,7 +70,7 @@ export async function watchMarkets(db: D1Database): Promise<WatchResult> {
   const stmts: D1PreparedStatement[] = [];
   const now = Date.now();
   const hour = Math.floor(now / 3600_000);
-  const setBook = db.prepare('INSERT INTO books (type_id, stamp, orders, at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(type_id) DO UPDATE SET stamp = excluded.stamp, orders = excluded.orders, at = excluded.at');
+  const setBook = db.prepare('INSERT INTO books (type_id, stamp, orders, at, sold) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(type_id) DO UPDATE SET stamp = excluded.stamp, orders = excluded.orders, at = excluded.at, sold = excluded.sold');
   const addFlow = db.prepare(`
     INSERT INTO flow (type_id, day, h, sell, buy, new_sell, new_buy) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
     ON CONFLICT(type_id, day) DO UPDATE SET h = h + excluded.h, sell = sell + excluded.sell, buy = buy + excluded.buy,
@@ -98,7 +99,7 @@ export async function watchMarkets(db: D1Database): Promise<WatchResult> {
           result.counted++;
         }
       }
-      if (!was || book.stamp !== was.stamp) stmts.push(setBook.bind(typeId, book.stamp, pack(book.orders), now));
+      if (!was || book.stamp !== was.stamp) stmts.push(setBook.bind(typeId, book.stamp, pack(book.orders), now, JSON.stringify(book.sold)));
       const bids = book.orders.filter((o) => o.isBuy), asks = book.orders.filter((o) => !o.isBuy);
       const bestBuy = bids.length ? Math.max(...bids.map((o) => o.price)) : null;
       const bestSell = asks.length ? Math.min(...asks.map((o) => o.price)) : null;

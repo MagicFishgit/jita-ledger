@@ -1989,5 +1989,41 @@ console.log('\n--- alert mail ---');
 
 }
 
+console.log('\n--- cloud alerts share the app\'s rules ---');
+{
+  const { mailKey, orderFindings, piFindings } = await import('../src/lib/alerts.ts');
+  const { sidePaceOf } = await import('../src/lib/flow.ts');
+  const { judgeOrder } = await import('../src/lib/relist.ts');
+  const { DEFAULT_SETTINGS } = await import('../src/lib/fees.ts');
+  const facts = { verdict: 'move', isBuy: false, price: 100, best: 99, gap: 1, newPrice: 98.9, volumeRemain: 10, give: 11, fee: 5, cost: 16, atRisk: 1000, aheadUnits: 40, aheadOrders: 2, hoursToFront: 96, why: 'x' };
+  const f = { kind: 'move', key: 'move:77:98.9', title: 't', text: 't', order: facts };
+  eq('a mailed move is remembered by the order and your price', mailKey(f), 'move:77@100');
+  eq('  so a fresh undercut on an order you left alone is not mailed again', mailKey({ ...f, key: 'move:77:97.5' }), 'move:77@100');
+  eq('  but one after you moved it is', mailKey({ ...f, order: { ...facts, price: 98.9 } }) !== mailKey(f), true);
+  eq('  a buy order to cancel keeps its own kind', mailKey({ ...f, key: 'dry:77:100' }), 'dry:77@100');
+  eq('  anything without an order keeps its key', mailKey({ kind: 'pi', key: 'pi:1:2:soon', title: '', text: '' }), 'pi:1:2:soon');
+
+  const base = { orderId: 1, typeId: 34, isBuy: false, price: 10, volumeRemain: 5, best: 9, beaten: true, live: true, gone: false, newPrice: 8.99, gap: 0.1, give: 1, fee: 1, cost: 2, atRisk: 6e6, aheadUnits: 3, aheadOrders: 1, hoursToFront: 50, why: 'Clears in 2 days' };
+  const found = orderFindings([{ ...base, verdict: 'move' }, { ...base, orderId: 2, verdict: 'wait' }, { ...base, orderId: 3, verdict: 'front', beaten: false }], () => 'Tritanium');
+  eq('order findings: a move and a beaten wait, nothing for the front', found.map((x) => x.key), ['move:1:8.99', 'clear:2:9']);
+  eq('  each carries the order facts a mail spells out', found.every((x) => x.order && x.name === 'Tritanium'), true);
+
+  const now = Date.parse('2026-09-27T12:00:00Z');
+  const col = (expiry) => ({ head: { planetId: 9, planetType: 'barren', solarSystemId: 30000142 }, extractors: [{ pinId: 5, expiry, productTypeId: 2267 }] });
+  eq('a programme ending in 3 h is said', piFindings([col(now + 3 * 3600_000)], () => 'Jita', () => 'Base Metals', now).map((x) => x.text), ['Jita: an extraction programme ends in 3 h.']);
+  eq('  one that ended says so', piFindings([col(now - 1)], () => 'Jita', () => undefined, now)[0].key, `pi:5:${now - 1}:ended`);
+  eq('  one two days out is not', piFindings([col(now + 48 * 3600_000)], () => 'Jita', () => undefined, now).length, 0);
+
+  const none = { h: 0, sell: 0, buy: 0, newSell: 0, newBuy: 0 };
+  eq('side pace with no watching is history\'s split of the typical day', sidePaceOf({ daily: 100, buyers: 0.25, sold: undefined, watched: none }, true).perDay, 75);
+  eq('  a day watched pulls it halfway to what was seen', Math.round(sidePaceOf({ daily: 100, buyers: 0.25, sold: undefined, watched: { ...none, h: 24, buy: 25 } }, true).perDay), 50);
+
+  const book = [{ id: 1, isBuy: false, price: 10, volume: 5 }, { id: 2, isBuy: false, price: 9, volume: 1 }];
+  const o = { orderId: 1, typeId: 34, isBuy: false, price: 10, volumeRemain: 5, locationId: 60003760 };
+  const j = judgeOrder(o, { book, perDay: 100, lows: null, txs: [] }, DEFAULT_SETTINGS, now);
+  eq('judgeOrder reads the order from the live book, like the Orders page', [j.beaten, j.aheadUnits, j.gone], [true, 1, false]);
+  eq('  and says gone when the book no longer has it', judgeOrder(o, { book: [book[1]], perDay: 100, lows: null, txs: [] }, DEFAULT_SETTINGS, now).gone, true);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

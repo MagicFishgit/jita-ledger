@@ -2,7 +2,7 @@ import { get, set } from 'idb-keyval';
 import { esi, esiAllPages } from './esi';
 import { GLOBAL_PLEX_MARKET, JITA_44, PLEX_TYPE, THE_FORGE } from './config';
 import { cacheStore } from './store';
-import { buyerShare, tradingSplit, type BookSold } from './split';
+import { buyerShare, soldFrom, tradingSplit, type BookSold } from './split';
 import { loadFlow, recordRead, watchedFlow } from './flowStore';
 import type { BookLevel, HistRow, MarketSnap } from './types';
 import type { LpOffer } from './loyalty';
@@ -43,20 +43,6 @@ export async function resolveNames(ids: number[]): Promise<Record<number, string
 
 type RawMarketOrder = { order_id: number; is_buy_order: boolean; price: number; volume_remain: number; volume_total?: number; location_id: number; duration?: number };
 
-/** What the live orders have already sold, per side: which side of the book has been trading. */
-function soldFrom(orders: RawMarketOrder[]): BookSold {
-  const s: BookSold = { sell: 0, buy: 0, single: { sell: 0, buy: 0 }, orders: { sell: 0, buy: 0 } };
-  for (const o of orders) {
-    const total = o.volume_total ?? o.volume_remain;
-    const n = Math.max(0, total - o.volume_remain);
-    const side = o.is_buy_order ? 'buy' : 'sell';
-    s[side] += n;
-    s.orders![side]++;
-    if (total === 1) s.single![side]++;
-  }
-  return s;
-}
-
 /**
  * NPC market orders run for 365 days; a player's run for 90 at most. So an item NPCs sell shows itself
  * in the book, with no list of such items to keep up to date. Checked on Raven Blueprint, which NPCs
@@ -85,7 +71,8 @@ export const tradedAtJita = (typeId: number, locationId: number) => typeId === P
 const atJita = tradedAtJita;
 
 /** One order in the book, with its ID, so you can tell your own from the competition. */
-export type OrderLite = { id: number; isBuy: boolean; price: number; volume: number };
+export type { OrderLite } from './flow';
+import type { OrderLite } from './flow';
 
 // Raw orders are kept beside the summary rather than in it: MarketSnap gets persisted to
 // IndexedDB by the watchlist and the scan, and this list is far too big to store per item.

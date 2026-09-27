@@ -8,7 +8,7 @@ import { open, seal } from './crypto';
 
 const TOKEN_URL = 'https://login.eveonline.com/v2/oauth/token';
 const ESI = 'https://esi.evetech.net';
-const HEADERS = { 'X-Compatibility-Date': '2025-08-26', 'User-Agent': 'jita-ledger-cloud (github.com/MagicFishgit/jita-ledger)', Accept: 'application/json' };
+export const HEADERS = { 'X-Compatibility-Date': '2025-08-26', 'User-Agent': 'jita-ledger-cloud (github.com/MagicFishgit/jita-ledger)', Accept: 'application/json' };
 
 export type Purpose = 'main' | 'mailer';
 export type Login = { access: string; charId: number; name: string; scopes: string[] };
@@ -17,13 +17,14 @@ export class EveError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
-function claims(access: string): { charId: number; name: string; scopes: string[] } {
+function claims(access: string): { charId: number; name: string; scopes: string[]; exp: number } {
   const part = access.split('.')[1] ?? '';
-  const c = JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(part.length / 4) * 4, '='))) as { sub?: string; name?: string; scp?: string | string[] };
+  const c = JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(part.length / 4) * 4, '='))) as { sub?: string; name?: string; scp?: string | string[]; exp?: number };
   const m = /^CHARACTER:EVE:(\d+)$/.exec(c.sub ?? '');
   if (!m) throw new EveError(400, 'That login isn’t for a character');
-  return { charId: Number(m[1]), name: c.name ?? '', scopes: Array.isArray(c.scp) ? c.scp : c.scp ? [c.scp] : [] };
+  return { charId: Number(m[1]), name: c.name ?? '', scopes: Array.isArray(c.scp) ? c.scp : c.scp ? [c.scp] : [], exp: (c.exp ?? 0) * 1000 };
 }
+const asLogin = (access: string): Login => { const { exp: _exp, ...who } = claims(access); return { access, ...who }; };
 
 /** Trade a refresh token for an access token (and maybe a new refresh token). */
 export async function refresh(refreshToken: string, clientId: string): Promise<{ access: string; refresh: string }> {
@@ -46,11 +47,12 @@ export async function keepLogin(env: Env, ledgerChar: number, purpose: Purpose, 
   if (purpose === 'main' && who.charId !== ledgerChar) throw new EveError(400, `That login is ${who.name}, not the character whose ledger this is`);
   if (purpose === 'mailer' && who.charId === ledgerChar) throw new EveError(400, `${who.name} is the character alerts go to; the sender has to be your other character`);
   await env.DB.prepare(`
-    INSERT INTO keys (char_id, purpose, token_char_id, token_char_name, scopes, refresh_enc, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+    INSERT INTO keys (char_id, purpose, token_char_id, token_char_name, scopes, refresh_enc, updated_at, access_enc, access_exp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
     ON CONFLICT(char_id, purpose) DO UPDATE SET token_char_id = excluded.token_char_id, token_char_name = excluded.token_char_name,
-      scopes = excluded.scopes, refresh_enc = excluded.refresh_enc, updated_at = excluded.updated_at`)
-    .bind(ledgerChar, purpose, who.charId, who.name, who.scopes.join(' '), await seal(env.TOKEN_KEY, t.refresh), Date.now()).run();
-  return { access: t.access, ...who };
+      scopes = excluded.scopes, refresh_enc = excluded.refresh_enc, updated_at = excluded.updated_at,
+      access_enc = excluded.access_enc, access_exp = excluded.access_exp`)
+    .bind(ledgerChar, purpose, who.charId, who.name, who.scopes.join(' '), await seal(env.TOKEN_KEY, t.refresh), Date.now(), await seal(env.TOKEN_KEY, t.access), who.exp).run();
+  return asLogin(t.access);
 }
 
 export async function dropLogin(env: Env, ledgerChar: number, purpose: Purpose): Promise<void> {
@@ -67,14 +69,22 @@ export async function dropLogin(env: Env, ledgerChar: number, purpose: Purpose):
   } catch { /* gone from here regardless */ }
 }
 
-/** A fresh access token for a kept login; the rotated refresh token is stored. */
+/**
+ * An access token for a kept login. One still good for two more minutes is reused; otherwise the refresh
+ * token is traded and the rotated one stored. Every five-minute round needs one, and trading the refresh
+ * token that often would rotate it nearly three hundred times a day for nothing.
+ */
 export async function useLogin(env: Env, ledgerChar: number, purpose: Purpose): Promise<Login | null> {
-  const row = await env.DB.prepare('SELECT refresh_enc FROM keys WHERE char_id = ?1 AND purpose = ?2').bind(ledgerChar, purpose).first<{ refresh_enc: string }>();
+  const row = await env.DB.prepare('SELECT refresh_enc, access_enc, access_exp FROM keys WHERE char_id = ?1 AND purpose = ?2')
+    .bind(ledgerChar, purpose).first<{ refresh_enc: string; access_enc: string | null; access_exp: number | null }>();
   if (!row) return null;
+  if (row.access_enc && (row.access_exp ?? 0) > Date.now() + 120_000) {
+    try { return asLogin(await open(env.TOKEN_KEY, row.access_enc)); } catch { /* refresh below */ }
+  }
   const t = await refresh(await open(env.TOKEN_KEY, row.refresh_enc), env.EVE_CLIENT_ID);
-  await env.DB.prepare('UPDATE keys SET refresh_enc = ?3, updated_at = ?4 WHERE char_id = ?1 AND purpose = ?2')
-    .bind(ledgerChar, purpose, await seal(env.TOKEN_KEY, t.refresh), Date.now()).run();
-  return { access: t.access, ...claims(t.access) };
+  await env.DB.prepare('UPDATE keys SET refresh_enc = ?3, updated_at = ?4, access_enc = ?5, access_exp = ?6 WHERE char_id = ?1 AND purpose = ?2')
+    .bind(ledgerChar, purpose, await seal(env.TOKEN_KEY, t.refresh), Date.now(), await seal(env.TOKEN_KEY, t.access), claims(t.access).exp).run();
+  return asLogin(t.access);
 }
 
 /** One ESI GET. `token` for authenticated routes. Returns the body and how many pages there are. */
@@ -96,6 +106,13 @@ export async function esiAll<T>(path: string, opts: { token?: string; query?: Re
   const out = [...first.data];
   for (let p = 2; p <= Math.min(first.pages, 50); p++) out.push(...(await esiGet<T[]>(path, { ...opts, query: { ...opts.query, page: p } })).data);
   return out;
+}
+
+/** DELETE on ESI. A 404 means it was already gone, which is what was wanted. */
+export async function esiDelete(path: string, token: string): Promise<void> {
+  const res = await fetch(ESI + path, { method: 'DELETE', headers: { ...HEADERS, Authorization: `Bearer ${token}` } });
+  await res.body?.cancel();
+  if (!res.ok && res.status !== 404) throw new EveError(res.status, `ESI ${res.status} on DELETE ${path}`);
 }
 
 /** POST to ESI (names lookups, mail). */

@@ -7,7 +7,7 @@ import { effectiveSkills, orderSlots, rates, RELIST_LEFT, sanitizeSettings, type
 import { ago, iskBig, iskBigSigned, pct, plainNum, units } from '../lib/format';
 import { cacheStore, clearAll, exportAll, importAll, parseBackup, update, useData } from '../lib/store';
 import { confirmAsk } from '../lib/confirm';
-import { isConfigured, login, loginForCloud, loginMailer, logout, logoutMailer } from '../lib/auth';
+import { isConfigured, login, loginForCloud, loginMailer, loginMailerForCloud, logout, logoutMailer } from '../lib/auth';
 import { syncCharacter, useSyncState } from '../lib/sync';
 import { navigate, useAuth, useMailer, useNow, type Route } from '../lib/hooks';
 import { ALPHA_CAPS, JITA_44, REDIRECT_URI, SCOPE, SCOPE_INFO, SCOPES } from '../lib/config';
@@ -18,7 +18,7 @@ import { ALERT_LABELS, tidyEvery } from '../lib/alerts';
 import { testAlert, testMail, useAlertRunner, BACKUP_DAYS } from '../lib/alertsRunner';
 import { useMotion, bumpWarp } from '../lib/motion';
 import { toast } from '../lib/toast';
-import { cloudCovers, cloudEnabled, cloudEsiCheck, cloudSummary, dropCloudLogin, runCloudArchive, setCloudEnabled, syncCloudNow, useCloud, type CloudBackground } from '../lib/cloud';
+import { cloudCovers, cloudEnabled, cloudEsiCheck, cloudSummary, cloudTestMail, dropCloudLogin, runCloudArchive, setCloudEnabled, syncCloudNow, useCloud } from '../lib/cloud';
 import type { AlertEvent, Motion, Theme } from '../lib/types';
 import { downloadText, LevelBoxes } from './common';
 import { CloneSwitch } from './Omega';
@@ -755,12 +755,15 @@ function CloudPanel() {
   const now = useNow(30_000);
   const [on, setOn] = useState(cloudEnabled);
   const [held, setHeld] = useState<{ kinds: { kind: string; n: number }[]; rev: number } | null>(null);
-  const [bg, setBg] = useState<CloudBackground | null>(null);
+  const bg = c.background;
+  const alerts = useData().alerts;
   const ready = on && c.phase !== 'waiting' && c.phase !== 'off';
-  const refreshBg = () => cloudSummary().then((s) => { setBg(s.background); setHeld(s); }).catch(() => undefined);
+  const refreshBg = () => cloudSummary().then((s) => { setHeld(s); }).catch(() => undefined);
   useEffect(() => { if (ready) refreshBg(); }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
   const watcher = bg?.keys.find((k) => k.purpose === 'main');
+  const sender = bg?.keys.find((k) => k.purpose === 'mailer');
   const archiveJob = bg?.jobs.find((j) => j.job === 'archive');
+  const alertsJob = bg?.jobs.find((j) => j.job === 'alerts');
   const [esi, setEsi] = useState<{ url: string; status: number; ms: number; headers: Record<string, string> }[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const last = Math.max(c.lastPushAt ?? 0, c.lastPullAt ?? 0);
@@ -823,6 +826,43 @@ function CloudPanel() {
             </>
           )}
       </div>
+      {ready && watcher && (
+        <div className="sub-box" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="lbl" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            Alert mail while the app is closed
+            <Tip title="Alert mail from the cloud" text={'With a character to send from, the cloud checks your orders against the Jita books it reads every five minutes, and your colonies every hour, and mails you in game, whether or not a browser is open.\n\n• It judges an order by the same rules as the Orders page, and mails what your Alerts settings say to mail: the same kinds, the same minimum, quiet hours and check interval.\n• An order is mailed about once at each price of yours. Move it and get beaten again, and you hear again; leave it, and you are reminded after six hours.\n• While the cloud mails, this browser doesn’t, so nothing arrives twice. Old alert mails are deleted on the same schedule.\n• Squeeze and suspicious-market alerts still come only from an open app.'} />
+          </div>
+          {!sender ? (
+            <>
+              <p className="note" style={{ margin: 0 }}>Off. Alert mail goes out only while a browser has the app open. Log in your second character here and the cloud sends from it, day and night.</p>
+              {!alerts.on || !alerts.mail ? <p className="note" style={{ margin: 0, color: 'var(--acc2)' }}>Alert mail is switched off under Alerts, so nothing would be sent yet.</p> : null}
+              <button type="button" className="btn sm primary" style={{ alignSelf: 'flex-start' }} onClick={() => loginMailerForCloud()}><Cloud aria-hidden="true" />Let the cloud send alert mail</button>
+            </>
+          ) : (
+            <>
+              <p className="note" style={{ margin: 0, color: alertsJob?.lastError ? 'var(--neg)' : !alerts.on || !alerts.mail ? 'var(--acc2)' : 'var(--pos)' }}>
+                {`From ${sender.name} to ${watcher.name}. `}
+                {!alerts.on || !alerts.mail ? 'Alerts or alert mail are switched off under Alerts, so nothing is sent.'
+                  : !alertsJob ? 'The first check is due within five minutes.'
+                    : alertsJob.lastError ? `The last check failed: ${alertsJob.lastError}.`
+                      : `Last check ${ago(new Date(alertsJob.lastRun).toISOString(), now)}: ${units(Number(alertsJob.detail?.judged ?? 0))} orders judged, ${Number(alertsJob.detail?.mailed ?? 0) ? `${units(Number(alertsJob.detail?.mailed))} alert${Number(alertsJob.detail?.mailed) === 1 ? '' : 's'} mailed` : 'nothing new to mail'}.`}
+              </p>
+              <div className="row" style={{ gap: 10 }}>
+                <button type="button" className="btn sm" disabled={!!busy} onClick={() => run('cloudmail', async () => {
+                  const r = await cloudTestMail();
+                  toast(`The cloud sent a test mail${r.about ? ` about ${r.about}` : ''}. It should arrive in game in a moment.`);
+                })}>
+                  <Mail aria-hidden="true" />{busy === 'cloudmail' ? 'Sending…' : 'Send a test mail'}
+                </button>
+                <button type="button" className="link-btn" disabled={!!busy} onClick={() => run('stopmail', async () => {
+                  if (!(await confirmAsk({ title: 'Stop cloud alert mail?', body: `The cloud forgets ${sender.name}’s login. Alert mail goes back to coming from an open app.`, confirm: 'Stop' }))) return;
+                  await dropCloudLogin('mailer'); await refreshBg();
+                })}>Stop</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
       {held && (
         <p className="note" style={{ margin: 0 }}>
           {held.kinds.length ? `${held.kinds.map((k) => kindSaid(k.kind, k.n)).join(', ')}.` : 'Nothing yet.'} Revision {units(held.rev)}.

@@ -1,3 +1,5 @@
+import { sideVolume, tradingSplit, type BookSold, type SplitFrom } from './split';
+
 /**
  * One order in a book: the same shape as `OrderLite` in market.ts, written out so the cloud Worker can use
  * this module without reaching the browser-only market code.
@@ -121,4 +123,26 @@ export function observedFlow(log: FlowLog, typeId: number, now: number): FlowDay
 export function pace(prior: number | null, units: number, hours: number, w = PRIOR_HOURS): number | null {
   if (prior == null || !Number.isFinite(prior)) return hours >= w / 4 ? (units / hours) * 24 : null;
   return ((units + (prior / 24) * w) / (hours + w)) * 24;
+}
+
+/**
+ * Units a day that reach your side of an item: buyers taking listings for a sell, sellers dumping into
+ * bids for a buy. The guess from history (the typical day, split by what the live orders have sold or by
+ * where each day's average sat) is blended with what was watched of the Jita book, trusted more the
+ * longer it has watched. `watchedH` says how much watching there is behind it. Used by the app's order
+ * check and by the cloud's, so both judge an order the same way.
+ */
+export function sidePaceOf(
+  ev: { daily: number | null | undefined; buyers: number | undefined; sold: BookSold | undefined; watched: FlowDay },
+  isBuy: boolean,
+): { perDay: number | null; watchedH: number; undercutsPerH: number | null; splitFrom: SplitFrom } {
+  const split = tradingSplit({ history: ev.buyers, book: ev.sold });
+  const prior = ev.daily != null ? sideVolume(ev.daily, split.share, isBuy) : null;
+  const o = ev.watched;
+  return {
+    perDay: pace(prior, isBuy ? o.buy : o.sell, o.h),
+    watchedH: o.h,
+    splitFrom: split.from,
+    undercutsPerH: o.h > 0 ? (isBuy ? o.newBuy : o.newSell) / o.h : null,
+  };
 }

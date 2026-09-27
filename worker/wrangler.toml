@@ -6,6 +6,7 @@ compatibility_date = "2026-09-20"
 [vars]
 EVE_CLIENT_ID = "7acf615bd9f343be9511e10c1f8ecc82"
 ALLOWED_ORIGINS = "https://magicfishgit.github.io,http://localhost:5173"
+APP_URL = "https://magicfishgit.github.io/jita-ledger/"
 
 [[d1_databases]]
 binding = "DB"
@@ -19,3 +20,8 @@ enabled = true
 # Background jobs: the market watch every five minutes, the archive hourly at seven past.
 [triggers]
 crons = ["*/5 * * * *", "7 * * * *"]
+
+# The five-minute round reads every watched book and judges each ledger's orders: more than the
+# default 30 s of CPU can be needed on a busy round.
+[limits]
+cpu_ms = 120000

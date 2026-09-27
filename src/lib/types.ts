@@ -1,5 +1,5 @@
 import type { BookSold, SplitFrom } from './split';
-import type { SkillKey } from './config';
+import type { SkillKey } from './constants';
 import type { RateStamp } from './fees';
 
 /** A single buy or sell. ESI transactions use their transaction_id; manual ones start with "m-". */

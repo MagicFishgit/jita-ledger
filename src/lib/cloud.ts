@@ -10,6 +10,7 @@ import { sanitizeSettings } from './fees';
 import { setCloudFlow } from './flowStore';
 import type { FlowLog } from './flow';
 import { sanitizeAlerts, sanitizePrefs } from './prefs';
+import { costBasis } from './orderCheck';
 
 /**
  * Keeps the ledger in the cloud (the Worker in `worker/`), so no browser holds the only copy.
@@ -29,7 +30,7 @@ const PULL_EVERY = 60_000;
 /** Records per push request. Well under the Worker's limits even for large killmails. */
 const PUSH_CHUNK = 1500;
 
-type Saved = { charId: number; rev: number; started: boolean; dirty: { r: string[]; d: string[] } };
+type Saved = { charId: number; rev: number; started: boolean; dirty: { r: string[]; d: string[] }; bg?: CloudBackground | null };
 
 export type CloudStatus = {
   phase: 'off' | 'waiting' | 'idle' | 'working' | 'error';
@@ -43,9 +44,14 @@ export type CloudStatus = {
   rev: number;
   /** This browser's ledger has met the cloud's at least once: everything here is up there. */
   started: boolean;
+  /**
+   * What the cloud's background side holds for this ledger (its logins, never the tokens, and what each
+   * job last did), as of the last look. Kept across reloads so a tab knows at once whether the cloud mails.
+   */
+  background: CloudBackground | null;
 };
 
-let status: CloudStatus = { phase: 'off', doing: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, rev: 0, started: false };
+let status: CloudStatus = { phase: 'off', doing: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, rev: 0, started: false, background: null };
 const listeners = new Set<() => void>();
 const setStatus = (p: Partial<CloudStatus>) => { status = { ...status, ...p }; listeners.forEach((l) => l()); };
 export function useCloud(): CloudStatus {
@@ -60,6 +66,14 @@ export const getCloudStatus = () => status;
  */
 export const cloudCovers = (s: CloudStatus = status) => s.started && s.phase !== 'off' && s.phase !== 'error' && s.phase !== 'waiting';
 
+/**
+ * The cloud sends alert mail for this ledger: it holds both logins, the trading character's and one to
+ * send from. The browser then mails nothing itself, or every alert would arrive twice. The Worker also
+ * needs alerts and alert mail switched on, which is the same synced setting the browser reads.
+ */
+export const cloudSendsMail = (s: CloudStatus = status) =>
+  !!s.background?.keys.some((k) => k.purpose === 'mailer') && !!s.background?.keys.some((k) => k.purpose === 'main');
+
 export function cloudEnabled(): boolean {
   try { return localStorage.getItem(OFF_KEY) !== '1'; } catch { return true; }
 }
@@ -69,7 +83,7 @@ export function cloudEnabled(): boolean {
 const dirtyRecords = new Map<string, number>();
 const dirtyDocs = new Map<DocKey, number>();
 let gen = 0;
-let state: { charId: number; rev: number; started: boolean } | null = null;
+let state: { charId: number; rev: number; started: boolean; bg?: CloudBackground | null } | null = null;
 /** Revisions this browser pushed: pulling them back would only re-apply what's already here. */
 const ownRevs = new Set<number>();
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -229,15 +243,15 @@ async function loadState(charId: number) {
   const saved = (await get(STATE_KEY, dataStore).catch(() => undefined)) as Saved | undefined;
   ownRevs.clear();
   if (saved && saved.charId === charId) {
-    state = { charId, rev: saved.rev, started: saved.started };
+    state = { charId, rev: saved.rev, started: saved.started, bg: saved.bg ?? null };
     for (const key of saved.dirty.r) if (!dirtyRecords.has(key)) dirtyRecords.set(key, ++gen);
     for (const k of saved.dirty.d) if (isDocKey(k) && !dirtyDocs.has(k)) dirtyDocs.set(k, ++gen);
   } else {
     // Another character, or never synced: start from nothing and let the first sync sort it out.
-    state = { charId, rev: 0, started: false };
+    state = { charId, rev: 0, started: false, bg: null };
     dirtyRecords.clear(); dirtyDocs.clear();
   }
-  setStatus({ rev: state.rev, pending: pendingCount(), started: state.started });
+  setStatus({ rev: state.rev, pending: pendingCount(), started: state.started, background: state.bg ?? null });
 }
 
 /** Push anything waiting and pull what's new, now. */
@@ -299,8 +313,34 @@ async function refreshCloudFlow(): Promise<void> {
 export const cloudPrices = (typeId: number, hours = 24 * 14) =>
   call<{ hour: number; bestBuy: number | null; bestSell: number | null; buyUnits: number | null; sellUnits: number | null }[]>(`/v1/prices?type=${typeId}&hours=${hours}`);
 
-/** What the cloud holds for this character. */
-export const cloudSummary = () => call<{ rev: number; kinds: { kind: string; n: number; at: number }[]; docs: { key: string; at: number }[]; background: CloudBackground }>('/v1/status');
+export type CloudSummary = { rev: number; kinds: { kind: string; n: number; at: number }[]; docs: { key: string; at: number }[]; background: CloudBackground };
+
+/** What the cloud holds for this character. Its background side is kept in the status too. */
+export async function cloudSummary(): Promise<CloudSummary> {
+  const s = await call<CloudSummary>('/v1/status');
+  if (state) { state.bg = s.background; save(); }
+  setStatus({ background: s.background });
+  return s;
+}
+
+/** A test alert mail sent by the cloud, from one of your real orders. */
+export const cloudTestMail = () => call<{ mailId: number; about: string }>('/v1/alerts/test', { method: 'POST' });
+
+let costsSent: string | null = null;
+
+/**
+ * Your average cost per item on open positions, for the cloud's alert checks: a sell order is never told
+ * to move below what you paid. The cloud doesn't work positions out itself (that needs every trade and
+ * fee matched to its order), so the browser sends the answer when it changes. Only the cloud reads it.
+ */
+async function pushCosts(): Promise<void> {
+  if (!state || !cloudEnabled()) return;
+  const costs = JSON.stringify(costBasis(getData()));
+  if (costs === costsSent) return;
+  const res = await call<{ rev: number }>('/v1/push', { method: 'POST', body: JSON.stringify({ records: [], docs: [{ key: 'costs', d: JSON.parse(costs) }] }) });
+  ownRevs.add(res.rev);
+  costsSent = costs;
+}
 
 /** A few ESI calls made from Cloudflare, with ESI's limit headers. */
 export const cloudEsiCheck = () => call<{ url: string; status: number; ms: number; headers: Record<string, string> }[]>('/v1/esi-check');
@@ -322,13 +362,19 @@ export function startCloud(): () => void {
     if (!alive) return;
     if (!cloudEnabled()) { setStatus({ phase: 'off' }); return; }
     setStatus({ phase: 'idle' });
-    syncCloudNow().then(() => refreshCloudFlow()).catch(() => undefined);
+    syncCloudNow().then(() => Promise.all([refreshCloudFlow(), cloudSummary(), pushCosts()])).catch(() => undefined);
   };
   begin();
   const offAuth = onAuthChange(() => { begin(); });
   const tick = setInterval(() => { if (document.visibilityState === 'visible' && state && cloudEnabled()) syncCloudNow(); }, PULL_EVERY);
   // The cloud reads the books every five minutes; fetching its counts every ten keeps the pages close to it.
-  const flowTick = setInterval(() => { if (document.visibilityState === 'visible') refreshCloudFlow().catch(() => undefined); }, 10 * 60_000);
+  // The same cadence for whether the cloud mails (another device may have handed it a sender) and the costs.
+  const flowTick = setInterval(() => {
+    if (document.visibilityState !== 'visible' || !state || !cloudEnabled()) return;
+    refreshCloudFlow().catch(() => undefined);
+    cloudSummary().catch(() => undefined);
+    pushCosts().catch(() => undefined);
+  }, 10 * 60_000);
   const onVisible = () => { if (document.visibilityState === 'visible' && state && cloudEnabled()) syncCloudNow(); };
   document.addEventListener('visibilitychange', onVisible);
   return () => {

@@ -7,6 +7,7 @@
 
 import { FILL_WINDOW } from './fills';
 import { fmtDateTime, isk, iskBig, units } from './format';
+import type { Colony } from './colony';
 import type { Relist } from './relist';
 import type { AlertConfig, AlertEvent, AlertLogEntry } from './types';
 
@@ -68,6 +69,67 @@ export type Finding = {
   /** The detail behind the one-line text, for a mail that has room to say it. */
   order?: OrderFacts; pi?: PiFacts;
 };
+
+export const orderFacts = (x: Relist): OrderFacts => ({
+  verdict: x.verdict, isBuy: x.isBuy, price: x.price, best: x.best, gap: x.gap, newPrice: x.newPrice, volumeRemain: x.volumeRemain,
+  give: x.give, fee: x.fee, cost: x.cost, atRisk: x.atRisk, aheadUnits: x.aheadUnits, aheadOrders: x.aheadOrders, hoursToFront: x.hoursToFront, why: x.why,
+  reach: x.reach, reachAt: x.reachAt, unreached: x.unreached,
+});
+
+/**
+ * What the order check's verdicts are worth saying: a move, a buy order unlikely to fill, or beaten but
+ * clearing. Shared by the browser's checks and the cloud's, so a mail reads the same from either.
+ */
+export function orderFindings(list: Relist[], name: (typeId: number) => string): Finding[] {
+  const out: Finding[] = [];
+  for (const x of list) {
+    const side = x.isBuy ? 'buy' : 'sell';
+    const n = name(x.typeId);
+    if (x.verdict === 'move') {
+      out.push({ kind: 'move', key: `move:${x.orderId}:${x.newPrice}`, isk: x.atRisk, title: ALERT_LABELS.move.label, typeId: x.typeId, name: n, order: orderFacts(x),
+        text: x.unreached
+          ? `${n} buy order: trading rarely gets down to it (${x.reach} of the last ${FILL_WINDOW} days) — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, where it does (costs ${iskBig(x.cost)}).`
+          : `${n} ${side} order beaten — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK (costs ${iskBig(x.cost)}).` });
+    } else if (x.verdict === 'dry') {
+      // Replaces the advice to move, so it goes out as an order to act on, and is mailed like one.
+      out.push({ kind: 'move', key: `dry:${x.orderId}:${x.price}`, isk: x.atRisk, title: 'Buy order unlikely to fill', typeId: x.typeId, name: n, order: orderFacts(x),
+        text: `${n} buy order: trading reached it on ${x.reach} of the last 14 days, and bidding where it does leaves too little margin. Consider cancelling it.` });
+    } else if (x.verdict === 'wait' && x.beaten) {
+      out.push({ kind: 'clearing', key: `clear:${x.orderId}:${x.best}`, isk: x.atRisk, title: ALERT_LABELS.clearing.label, typeId: x.typeId, name: n, order: orderFacts(x),
+        text: `${n} ${side} order is beaten, but ${x.why.charAt(0).toLowerCase() + x.why.slice(1)}.` });
+    }
+  }
+  return out;
+}
+
+/** Extraction programmes that have ended, or end within a day. */
+export function piFindings(colonies: Colony[], systemName: (id: number) => string | undefined, name: (typeId: number) => string | undefined, now: number): Finding[] {
+  const out: Finding[] = [];
+  for (const c of colonies) {
+    const sys = systemName(c.head.solarSystemId) ?? `Planet ${c.head.planetId}`;
+    for (const e of c.extractors) {
+      if (e.expiry == null) continue;
+      const h = (e.expiry - now) / 3600_000;
+      const pi = { system: sys, systemId: c.head.solarSystemId, planetType: c.head.planetType, product: e.productTypeId ? name(e.productTypeId) ?? null : null, ends: e.expiry };
+      if (h <= 0) out.push({ kind: 'pi', key: `pi:${e.pinId}:${e.expiry}:ended`, title: 'PI programme ended', text: `${sys}: an extraction programme has ended. It earns nothing until you reset the heads.`, pi });
+      else if (h <= 24) out.push({ kind: 'pi', key: `pi:${e.pinId}:${e.expiry}:soon`, title: 'PI programme ending', text: `${sys}: an extraction programme ends in ${Math.max(1, Math.round(h))} h.`, pi });
+    }
+  }
+  return out;
+}
+
+/**
+ * What the cloud remembers a mailed finding by. An order's advice changes with every undercut (a new
+ * price to move to), and in the six-hour study 46 of 71 beaten orders were undercut again within six
+ * hours: keyed by the advice, one order left alone would be mailed about again and again with nobody
+ * there to read it. Keyed by the order and your price on it, it is said once, and said again as soon as
+ * you have moved it and been beaten at the new price.
+ */
+export function mailKey(f: Finding): string {
+  if (!f.order) return f.key;
+  const [kind, id] = f.key.split(':');
+  return `${kind}:${id}@${f.order.price}`;
+}
 
 export function shouldAlert(f: Finding, cfg: AlertConfig, log: AlertLogEntry[], now: number): boolean {
   if (!cfg.on || !cfg.ev[f.kind]) return false;

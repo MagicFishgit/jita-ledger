@@ -75,6 +75,20 @@ export type BookSold = {
   orders?: { sell: number; buy: number };
 };
 
+/** What the live orders in a book have already sold, per side. Shared with the cloud's market watch. */
+export function soldFrom(orders: { is_buy_order: boolean; volume_remain: number; volume_total?: number }[]): BookSold {
+  const s: BookSold = { sell: 0, buy: 0, single: { sell: 0, buy: 0 }, orders: { sell: 0, buy: 0 } };
+  for (const o of orders) {
+    const total = o.volume_total ?? o.volume_remain;
+    const n = Math.max(0, total - o.volume_remain);
+    const side = o.is_buy_order ? 'buy' : 'sell';
+    s[side] += n;
+    s.orders![side]++;
+    if (total === 1) s.single![side]++;
+  }
+  return s;
+}
+
 /**
  * A side with more than this share of its orders placed for one unit can't show its sales in the book,
  * since a single unit bought just vanishes. Item 16423 had 7 of 10 listings at one unit, so the book read

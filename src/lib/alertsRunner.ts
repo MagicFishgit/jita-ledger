@@ -1,14 +1,11 @@
 import { useSyncExternalStore } from 'react';
 import { getAuth } from './auth';
-import { ALERT_LABELS, shouldAlert, tidyEvery, type Finding, type OrderFacts } from './alerts';
+import { ALERT_LABELS, orderFacts, orderFindings, piFindings, shouldAlert, tidyEvery, type Finding } from './alerts';
 import { readColonies } from './colonyStore';
-import { cloudCovers } from './cloud';
+import { cloudCovers, cloudSendsMail } from './cloud';
 import { breakEvenSpread, rates } from './fees';
-import { iskBig } from './format';
 import { canMail, cleanupAlertMails, sendAlertMail } from './mailAlerts';
 import { checkOrders, costBasis, getOrderCheck, jitaOpen, verdicts } from './orderCheck';
-import type { Relist } from './relist';
-import { FILL_WINDOW } from './fills';
 import { squeezed } from './signals';
 import { getData, update } from './store';
 import { toast } from './toast';
@@ -67,15 +64,10 @@ const mailFailed = (prefix: string, e: unknown) => {
 async function mailFindings(raised: Finding[]): Promise<void> {
   const cfg = getData().alerts;
   const send = raised.filter((f) => cfg.mailEv[f.kind]);
-  if (!cfg.mail || !send.length || !canMail()) return;
+  // The cloud mails these itself, all day, and the same finding mustn't arrive twice.
+  if (!cfg.mail || !send.length || !canMail() || cloudSendsMail()) return;
   try { await sendAlertMail(send); setState({ mailError: null }); } catch (e) { mailFailed(SEND_FAILED, e); }
 }
-
-const facts = (x: Relist): OrderFacts => ({
-  verdict: x.verdict, isBuy: x.isBuy, price: x.price, best: x.best, gap: x.gap, newPrice: x.newPrice, volumeRemain: x.volumeRemain,
-  give: x.give, fee: x.fee, cost: x.cost, atRisk: x.atRisk, aheadUnits: x.aheadUnits, aheadOrders: x.aheadOrders, hoursToFront: x.hoursToFront, why: x.why,
-  reach: x.reach, reachAt: x.reachAt, unreached: x.unreached,
-});
 
 /**
  * A test mail. It's built from one of your real orders against the live book when there is one, so
@@ -92,7 +84,7 @@ export async function testMail(): Promise<boolean> {
       if (x) {
         const name = d.names[x.typeId] ?? `Item #${x.typeId}`;
         const title = x.verdict === 'move' ? ALERT_LABELS.move.label : x.verdict === 'dry' ? 'Buy order unlikely to fill' : x.beaten ? 'Order beaten' : 'Order at the front';
-        finding = { kind: x.verdict === 'move' || x.verdict === 'dry' ? 'move' : 'clearing', key: 'test', title, typeId: x.typeId, name, text: `${name}: ${x.why}.`, order: facts(x) };
+        finding = { kind: x.verdict === 'move' || x.verdict === 'dry' ? 'move' : 'clearing', key: 'test', title, typeId: x.typeId, name, text: `${name}: ${x.why}.`, order: orderFacts(x) };
       }
     }
   } catch { /* no live book: fall back to a plain test */ }
@@ -123,22 +115,7 @@ export async function runChecks(): Promise<void> {
       await checkOrders(false);
       const list = verdicts(getData(), getOrderCheck(), costBasis(getData()));
       setState({ watching: list.length });
-      for (const x of list) {
-        const side = x.isBuy ? 'buy' : 'sell';
-        if (x.verdict === 'move') {
-          findings.push({ kind: 'move', key: `move:${x.orderId}:${x.newPrice}`, isk: x.atRisk, title: ALERT_LABELS.move.label, typeId: x.typeId, name: names(x.typeId), order: facts(x),
-            text: x.unreached
-              ? `${names(x.typeId)} buy order: trading rarely gets down to it (${x.reach} of the last ${FILL_WINDOW} days) — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, where it does (costs ${iskBig(x.cost)}).`
-              : `${names(x.typeId)} ${side} order beaten — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK (costs ${iskBig(x.cost)}).` });
-        } else if (x.verdict === 'dry') {
-          // Replaces the advice to move, so it goes out as an order to act on, and is mailed like one.
-          findings.push({ kind: 'move', key: `dry:${x.orderId}:${x.price}`, isk: x.atRisk, title: 'Buy order unlikely to fill', typeId: x.typeId, name: names(x.typeId), order: facts(x),
-            text: `${names(x.typeId)} buy order: trading reached it on ${x.reach} of the last 14 days, and bidding where it does leaves too little margin. Consider cancelling it.` });
-        } else if (x.verdict === 'wait' && x.beaten) {
-          findings.push({ kind: 'clearing', key: `clear:${x.orderId}:${x.best}`, isk: x.atRisk, title: ALERT_LABELS.clearing.label, typeId: x.typeId, name: names(x.typeId), order: facts(x),
-            text: `${names(x.typeId)} ${side} order is beaten, but ${x.why.charAt(0).toLowerCase() + x.why.slice(1)}.` });
-        }
-      }
+      findings.push(...orderFindings(list, names));
     }
 
     if (ev.squeeze || ev.scam) {
@@ -167,16 +144,7 @@ export async function runChecks(): Promise<void> {
 
     if (ev.pi) {
       const read = await readColonies(60 * 60_000);
-      for (const c of read?.colonies ?? []) {
-        const sys = read?.systems[c.head.solarSystemId]?.name ?? `Planet ${c.head.planetId}`;
-        for (const e of c.extractors) {
-          if (e.expiry == null) continue;
-          const h = (e.expiry - Date.now()) / 3600_000;
-          const pi = { system: sys, systemId: c.head.solarSystemId, planetType: c.head.planetType, product: e.productTypeId ? getData().names[e.productTypeId] ?? null : null, ends: e.expiry };
-          if (h <= 0) findings.push({ kind: 'pi', key: `pi:${e.pinId}:${e.expiry}:ended`, title: 'PI programme ended', text: `${sys}: an extraction programme has ended. It earns nothing until you reset the heads.`, pi });
-          else if (h <= 24) findings.push({ kind: 'pi', key: `pi:${e.pinId}:${e.expiry}:soon`, title: 'PI programme ending', text: `${sys}: an extraction programme ends in ${Math.max(1, Math.round(h))} h.`, pi });
-        }
-      }
+      findings.push(...piFindings(read?.colonies ?? [], (id) => read?.systems[id]?.name, (id) => getData().names[id], Date.now()));
     }
 
     if (ev.backup) {
@@ -209,7 +177,8 @@ let tidying = false;
 function tidyMail() {
   const d = getData();
   const keep = d.alerts.mailKeepMin;
-  if (tidying || keep == null || !getAuth()) return;
+  // The cloud tidies its own mail, from the same rule.
+  if (tidying || keep == null || !getAuth() || cloudSendsMail()) return;
   if (!d.alerts.mail && !d.meta.alertMails?.some((m) => m.char === getAuth()?.characterId)) return;
   const last = d.meta.mailCleanAt ? Date.parse(d.meta.mailCleanAt) : 0;
   if (Date.now() - last < tidyEvery(keep)) return;

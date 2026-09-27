@@ -6,7 +6,8 @@
  * access token the app already has; `caller` checks it and everything is keyed by that character.
  */
 import { AuthError, caller } from './auth';
-import { archive, noteJob } from './archive';
+import { alertRound, previewRound, testRound } from './alerts';
+import { archive, noteJob, refreshOrders } from './archive';
 import { flowFor, pricesFor, watchMarkets } from './market';
 import { dropLogin, EveError, keepLogin, type Purpose } from './eve';
 import { BadRequest, pull, push, status, type PushBody } from './sync';
@@ -24,6 +25,31 @@ export interface Env {
   DEV_AUTH_CHAR?: string;
   /** 32 random bytes, base64: seals the refresh tokens the background jobs use. A secret, never in wrangler.toml. */
   TOKEN_KEY: string;
+  /** Where the app lives, for the links in alert mail. */
+  APP_URL: string;
+}
+
+/**
+ * The five-minute round. Each ledger's open orders first (when ESI's twenty-minute copy has turned
+ * over), so an order placed since the hourly archive has its book read; then every watched book; then
+ * each ledger's alerts, judged on the books just read. One chain, so the alerts never read a half-done watch.
+ */
+async function fiveMinutes(env: Env) {
+  const ledgers = (await env.DB.prepare(`SELECT char_id FROM keys WHERE purpose = 'main'`).all<{ char_id: number }>()).results.map((r) => r.char_id);
+  for (const id of ledgers) {
+    try { await refreshOrders(env, id); } catch (e) {
+      await noteJob(env.DB, id, 'orders', { ok: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  try { console.log('market watch', JSON.stringify(await watchMarkets(env.DB))); } catch (e) { console.error('market watch failed', e); }
+  for (const id of ledgers) {
+    try {
+      const r = await alertRound(env, id);
+      if (r.ran) console.log('alerts', id, JSON.stringify(r));
+    } catch (e) {
+      await noteJob(env.DB, id, 'alerts', { ok: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
 }
 
 /** Run the archive for one ledger and note how it went. */
@@ -95,7 +121,7 @@ export default {
    */
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     if (event.cron === '*/5 * * * *') {
-      ctx.waitUntil(watchMarkets(env.DB).then((r) => console.log('market watch', JSON.stringify(r))).catch((e) => console.error('market watch failed', e)));
+      ctx.waitUntil(fiveMinutes(env));
       return;
     }
     const ledgers = (await env.DB.prepare(`SELECT char_id FROM keys WHERE purpose = 'main'`).all<{ char_id: number }>()).results;
@@ -140,6 +166,8 @@ export default {
       }
       if (url.pathname === '/v1/jobs/archive' && request.method === 'POST') return json(await runArchive(env, who.charId), 200, c);
       if (url.pathname === '/v1/jobs/market' && request.method === 'POST') return json(await watchMarkets(env.DB), 200, c);
+      if (url.pathname === '/v1/alerts/test' && request.method === 'POST') return json(await testRound(env, who.charId), 200, c);
+      if (url.pathname === '/v1/alerts/preview' && request.method === 'GET') return json(await previewRound(env, who.charId), 200, c);
       if (url.pathname === '/v1/flow' && request.method === 'GET') {
         const types = (url.searchParams.get('types') ?? '').split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0).slice(0, 500);
         return json(await flowFor(env.DB, types), 200, c);

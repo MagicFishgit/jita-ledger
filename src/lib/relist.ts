@@ -1,6 +1,7 @@
 import { tickDown, tickUp } from './tick';
-import { bidReachDays, FILL_RARE, FILL_TYPICAL, FILL_WINDOW, reachedBid } from './fills';
-import type { OrderLite } from './market';
+import { bidReachDays, fillingNow, FILL_RARE, FILL_TYPICAL, FILL_WINDOW, reachedBid } from './fills';
+import { rates, type Settings } from './fees';
+import type { OrderLite } from './flow';
 
 /**
  * Whether one of your market orders is worth chasing.
@@ -150,6 +151,28 @@ export function marketBest(levels: PriceVolume[], isBuy: boolean, dailyVolume?: 
     return l.price;
   }
   return ordered[ordered.length - 1].price;
+}
+
+/**
+ * One open order judged against its live book, the way the Orders page, To do, the alerts and the cloud's
+ * alert mail all do: your side's pace, your cost, how far trading reaches, and your own fills.
+ */
+export function judgeOrder(
+  o: Mine & { locationId: number; seen?: { issued: string; price: number; remain: number }[] },
+  m: { book: OrderLite[]; perDay: number | null; avgCost?: number | null; lows: (number | null)[] | null; txs: Parameters<typeof fillingNow>[2] },
+  s: Settings,
+  now = Date.now(),
+): Relist {
+  const sells = m.book.filter((x) => !x.isBuy).map((x) => x.price);
+  return adviseRelist(o, {
+    book: m.book,
+    dailyVolume: m.perDay,
+    avgCost: m.avgCost,
+    bestSell: sells.length ? Math.min(...sells) : null,
+    lows: m.lows,
+    targetReturn: s.target / 100,
+    filling: fillingNow(o, m.book.find((x) => x.id === o.orderId)?.volume, m.txs, now),
+  }, rates(s), s.waitHours, s.target / 100);
 }
 
 /**
