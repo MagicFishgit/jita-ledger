@@ -19,6 +19,7 @@ import { sanitizeSettings, type Settings } from '../../src/lib/fees';
 import { recentRange } from '../../src/lib/fills';
 import { observedFlow, RELIST_MIN_H, sidePaceOf, type FlowDay, type OrderLite } from '../../src/lib/flow';
 import { judgeProspect, type Book } from '../../src/lib/evaluate';
+import { predictionOutcome } from '../../src/lib/track';
 import { DEFAULT_FILTERS, passesGate, statsFrom } from '../../src/lib/prospects';
 import { sanitizeAlerts } from '../../src/lib/prefs';
 import { paceDay } from '../../src/lib/prospects';
@@ -300,9 +301,6 @@ async function namesAnywhere(db: D1Database, charId: number, ids: number[]): Pro
   return out;
 }
 
-/** Days after which a prediction nobody could check is written off as late. */
-const TRACK_DAYS = 14;
-
 /**
  * "Clears in", checked against what happened. Each beaten order's prediction is kept once per order and price;
  * the order reaching the front (or selling out) resolves it, a new price or a cancel voids it, and one still not
@@ -331,16 +329,7 @@ export async function trackRecord(db: D1Database, charId: number, judged: { list
     for (const r of rows) if (r.data) records.set(r.id, JSON.parse(r.data));
   }
   for (const p of open) {
-    const x = byOrder.get(p.order_id);
-    let outcome: string | null = null;
-    if (x) outcome = x.price !== p.price ? 'void' : !x.beaten ? 'front' : null;
-    else {
-      const r = records.get(String(p.order_id));
-      // Sold out: it reached the front on the way. Closed with stock left: cancelled or expired, no answer.
-      if (r && r.state !== 'open') outcome = r.volumeRemain === 0 ? 'front' : 'void';
-      else if (!judged.unread) outcome = 'void';
-    }
-    if (!outcome && now - p.at > TRACK_DAYS * 86400_000) outcome = 'late';
+    const outcome = predictionOutcome(p, byOrder.get(p.order_id), records.get(String(p.order_id)), now);
     if (outcome) { stmts.push(resolve.bind(charId, p.order_id, p.price, outcome, now)); resolved++; }
   }
   for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
@@ -390,6 +379,8 @@ export async function alertRound(env: Env, charId: number, now = Date.now(), jud
   if (cfg.ev.opportunity && cfg.mailEv.opportunity) {
     const o = await opportunities(env.DB, charId, settings, now);
     const top = o.fresh.slice(0, OPP_PER_MAIL);
+    // The rest that newly qualify are counted in the mail, not dropped: they're in Prospects.
+    const more = o.fresh.length - top.length;
     const names = await namesAnywhere(env.DB, charId, top.map((p) => p.typeId));
     for (const p of top) {
       const flow = observedFlow({ [p.typeId]: (await flowFor(env.DB, [p.typeId]))[p.typeId] ?? {} }, p.typeId, now);
@@ -397,7 +388,7 @@ export async function alertRound(env: Env, charId: number, now = Date.now(), jud
       findings.push({
         kind: 'opportunity', key: `opp:${p.typeId}`, title: 'Trade worth a look', typeId: p.typeId, name,
         text: `${name}: buy at ${Math.round(p.buy).toLocaleString('en-US')}, list at ${Math.round(p.sell).toLocaleString('en-US')}, ${(p.roi * 100).toFixed(1)}% after fees.`,
-        opp: { buy: p.buy, sell: p.sell, roi: p.roi, iskPerDay: p.iskPerDay, qty: p.qty, daysToFlip: p.daysToFlip, watchedH: flow.h, bought: flow.sell, dumped: flow.buy },
+        opp: { buy: p.buy, sell: p.sell, roi: p.roi, iskPerDay: p.iskPerDay, qty: p.qty, daysToFlip: p.daysToFlip, watchedH: flow.h, bought: flow.sell, dumped: flow.buy, more: p === top[top.length - 1] ? more : 0 },
       });
     }
   }

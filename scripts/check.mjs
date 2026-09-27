@@ -2154,5 +2154,21 @@ console.log('\n--- opportunity mail and relists over a period ---');
   eq('relists are counted in the period they were made', [ir(c, t0, t0 + 3 * D).relists, ir(c, t0, t0 + 3 * D).relistFees, ir(c, t0, t0 + 9 * D).relistFees], [1, 500, 1200]);
 }
 
+console.log('\n--- "Clears in", checked ---');
+{
+  const { predictionOutcome, TRACK_DAYS } = await import('../src/lib/track.ts');
+  const p = { price: 100, at: 0 };
+  eq('reached the front at the price it was predicted at', predictionOutcome(p, { price: 100, beaten: false }, undefined, 3600_000), 'front');
+  eq('  still beaten: undecided', predictionOutcome(p, { price: 100, beaten: true }, undefined, 3600_000), null);
+  eq('  moved to another price: void', predictionOutcome(p, { price: 99, beaten: true }, undefined, 3600_000), 'void');
+  eq('  gone from the book while its record still says open: undecided, not void', predictionOutcome(p, undefined, { state: 'open', volumeRemain: 40 }, 3600_000), null);
+  eq('  and once the record says it sold out: the front', predictionOutcome(p, undefined, { state: 'closed', volumeRemain: 0 }, 3600_000), 'front');
+  eq('  closed with stock left (cancelled or expired): void', predictionOutcome(p, undefined, { state: 'cancelled', volumeRemain: 5 }, 3600_000), 'void');
+  eq('  undecided for over two weeks: late', predictionOutcome(p, { price: 100, beaten: true }, undefined, (TRACK_DAYS + 1) * 86400_000), 'late');
+  const { alertMail: mail3 } = await import('../src/lib/alerts.ts');
+  const f = { kind: 'opportunity', key: 'opp:1', title: 'Trade worth a look', typeId: 1, name: 'X', text: 'x', opp: { buy: 1, sell: 2, roi: 0.1, iskPerDay: 5, qty: 1, daysToFlip: 1, watchedH: 7, bought: 1, dumped: 1, more: 4 } };
+  eq('an opportunity mail counts the ones it didn’t name', mail3([f], { appUrl: 'u/', keepMin: 60 }).body.includes('4 more newly clear your filters: see Prospects.'), true);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

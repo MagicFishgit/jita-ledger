@@ -21,7 +21,7 @@ enabled = true
 [triggers]
 crons = ["*/5 * * * *", "7 * * * *"]
 
-# The five-minute round reads every watched book and judges each ledger's orders: more than the
-# default 30 s of CPU can be needed on a busy round.
+# Requests and the hourly archive may use up to 2 minutes of CPU. The five-minute round can't: Cloudflare gives
+# crons more frequent than hourly 30 s regardless. It uses about 0.2 s for ~130 items, so 400 is ~1 s.
 [limits]
 cpu_ms = 120000

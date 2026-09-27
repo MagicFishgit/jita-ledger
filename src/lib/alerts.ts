@@ -64,7 +64,9 @@ export type OrderFacts = Pick<Relist,
   & Partial<Pick<Relist, 'reach' | 'reachAt' | 'unreached'>>;
 
 /** A trade the cloud found in the items it watches: what Prospects would say about it. */
-export type OppFacts = { buy: number; sell: number; roi: number; iskPerDay: number; qty: number; daysToFlip: number; watchedH: number; bought: number; dumped: number };
+export type OppFacts = { buy: number; sell: number; roi: number; iskPerDay: number; qty: number; daysToFlip: number; watchedH: number; bought: number; dumped: number;
+  /** On the last one mailed: how many more newly clear your filters, left to Prospects. */
+  more?: number };
 
 /** A colony's extraction programme, as read from ESI. */
 export type PiFacts = { system: string; systemId: number; planetType: string; product: string | null; ends: number };
@@ -190,6 +192,7 @@ export function subjectPart(f: Finding, now = Date.now()): string {
     if (o.verdict === 'wait') return `${f.name} beaten, but hold`;
     if (o.verdict === 'loss') return `${f.name} beaten, don’t match`;
     if (o.verdict === 'dry') return `cancel ${f.name} buy`;
+    if (o.verdict === 'bid') return `sell ${f.name} into the bids`;
     return `${f.name} at the front`;
   }
   const p = f.pi;
@@ -212,6 +215,7 @@ function section(f: Finding, market: (typeId: number, calc?: boolean) => string,
       `${itemLink}${col('grey', ' · ')}${pct(q.roi, 1)}${col('grey', ' after fees · about ')}${money(q.iskPerDay)}${col('grey', ' a day')}<br>`,
       col('grey', `Up to ${units(q.qty)} (${iskBig(q.qty * q.buy)}) flips in ${hoursSaid(q.daysToFlip * 24).replace('about ', '')} at your share.`) + '<br>',
       col('grey', `Watched ${Math.round(q.watchedH)} h: ${units(Math.round(q.bought))} bought from listings, ${units(Math.round(q.dumped))} sold into bids.`) + '<br>',
+      q.more ? `<br>${col('cyan', `${units(q.more)} more newly clear your filters: see Prospects.`)}<br>` : '',
     ].join('');
   }
   const o = f.order;
@@ -222,6 +226,7 @@ function section(f: Finding, market: (typeId: number, calc?: boolean) => string,
     else if (o.verdict === 'wait') out.push(advice('white', 'leave it where it is'), `${col('grey', `<i>${escapeMail(o.why)}.</i>`)}<br>`);
     else if (o.verdict === 'loss') out.push(advice('white', 'don’t match them'), `${col('grey', `<i>${escapeMail(o.why)}.</i>`)}<br>`);
     else if (o.verdict === 'dry') out.push(advice('red', 'cancel this buy order'), `${col('grey', `<i>${escapeMail(o.why)}.</i>`)}<br>`);
+    else if (o.verdict === 'bid') out.push(advice('gold', 'cancel the listing and sell into the bids'), `${col('grey', `<i>${escapeMail(o.why)}.</i>`)}<br>`);
     else out.push(advice('white', 'nothing to do'), `${col('grey', `<i>${escapeMail(o.why)}.</i>`)}<br>`);
     out.push(`${itemLink}${col('grey', ` · ${side} order · `)}${units(o.volumeRemain)} left<br>`);
     out.push(o.best == null

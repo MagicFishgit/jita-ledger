@@ -90,7 +90,9 @@ import. That is why `OrderLite` lives in `flow.ts`, `SkillKey` comes from `const
 ledger's open orders when ESI's 20-minute copy has turned over, reads every watched book (`watchMarkets`), then
 runs each ledger's alert round, in that order in one chain; hourly at :07 the archive. **A newly added cron took
 26 minutes to fire** (registered 16:04:29, first run 16:30 on 27 September 2026; Cloudflare says up to 15) while
-the existing hourly one kept running. Don't debug a new trigger before half an hour has passed;
+the existing hourly one kept running. A cron more frequent than hourly gets 30 s of CPU whatever `cpu_ms`
+says (that applies to requests and the hourly one); the round uses about 0.2 s for ~130 items. The plan includes
+50 M D1 row writes a month; ~130 watched items write about 3 M, 400 about 10 M. Don't debug a new trigger before half an hour has passed;
 `workersInvocationsScheduled` in Cloudflare's GraphQL analytics lists every scheduled run.
 
 **Testing end to end without an EVE login:** `npm run worker:dev` runs the Worker locally on :8787 with a local
@@ -352,8 +354,11 @@ Don't re-derive or contradict these without new evidence.
   and 6 clean.
 - **"Clears in" is checked against what happened** (`trackRecord`, `predictions`). Every five-minute round the
   cloud judges each ledger's orders once (for this and the alerts) and keeps each beaten order's prediction
-  once per order and price. The order reaching the front, or selling out, resolves it; a new price or a cancel
-  voids it; after 14 days it is late. Orders' Clears-in tip quotes it from 5 checked predictions up: "N of M
+  once per order and price (`predictionOutcome` in `lib/track.ts`). The order reaching the front, or its
+  record showing it sold out, resolves it; a new price, or a record closed with stock left, voids it; after 14
+  days it is late. An order gone from the book while its record still says open stays undecided: a sell-out
+  leaves the book within five minutes but its record only says so after the next orders refresh, and the first
+  version voided every one of those, which would have counted each success as a void. Orders' Clears-in tip quotes it from 5 checked predictions up: "N of M
   reached the front within twice the time it said" (`/v1/track`, 30 days). Results' item table counts relists
   in the period and their whole fees; Made holds only the share for units that sold.
 - **"Clears in" is paced by what the Jita book was seen doing, not only by a guess from history** (`lib/flow.ts`,
