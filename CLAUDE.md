@@ -440,7 +440,11 @@ Don't re-derive or contradict these without new evidence.
   Rocket Science, down to 85 k against an 87,860 break-even: patiently 97,650, safely 92,200. "Average sell
   price" became "Your average sale": it's your own sales, and it read like a market price. The cheapest seller to
   undercut is judged on the whole book from others, like the chart: on the snapshot's five levels the token rule
-  called 727 units at 92,440 the market, which the whole book (19,000 a day trades) showed to be a skim.
+  called 727 units at 92,440 the market, which the whole book (19,000 a day trades) showed to be a skim. The
+  undercut's selling time is scaled by how often trading reached its price, like the patient ones: the Arbalest's
+  cheapest listing, 62,920 (a two-level market: bids filled near 24,600 daily, listings taken at 63–71 k on 4
+  days of 14), claimed 75 days, faster than a price reached on 7; it's about 310. "Sell to buyers right now" walks
+  others' bids only: the top bid was the user's own 3,910-unit buy order.
 - **A broker fee belongs to its order's units, not to the moment it was paid** (`computePosition`). A
   buy order's fee goes into the stock's cost; a sell order's fee is charged per unit as units sell; the
   share for units still waiting on an open order is `prepaidFees`, shown beside the profit rather than in

@@ -12,7 +12,7 @@ import { patchPosition } from '../lib/actions';
 import { navigate } from '../lib/hooks';
 import { nearMisses } from '../lib/signals';
 import { competitionShare, EVEN_SPLIT, sideVolume } from '../lib/split';
-import { askReachDays, FILL_MOST, FILL_TYPICAL, FILL_WINDOW, reachedAsk, recentRange } from '../lib/fills';
+import { askReachDays, FILL_MOST, FILL_RARE, FILL_TYPICAL, FILL_WINDOW, reachedAsk, recentRange } from '../lib/fills';
 import { useFlow, watchedDays } from '../lib/flowStore';
 import { typicalDailyVolume } from '../lib/prospects';
 import { JITA_44 } from '../lib/constants';
@@ -179,7 +179,7 @@ export function PositionDetail({ id }: { id: string }) {
       ].filter(Boolean);
       patient.push({
         l, v: isk(price), c: good ? 'var(--pos)' : 'var(--neg)',
-        n: `${parts.join(' ')}${parts.length ? '. ' : ''}Trading got up to it on ${reached} of the last ${FILL_WINDOW} days${days != null ? `, so about ${flip(days)} at your share of buyers` : ''}.${below ? ' Today’s market is above it: undercutting pays more now.' : ''}`,
+        n: `${parts.join(' ')}${parts.length ? '. ' : ''}Trading got up to it on ${reached} of the last ${FILL_WINDOW} days${days != null ? `, so about ${flip(days)} at your share of buyers` : ''}.${below ? ' Today’s cheapest listing is above this price.' : ''}`,
         tip: `The price the bulk of each day’s trading got up to on ${word} of the last ${FILL_WINDOW} days (the ${k === FILL_TYPICAL ? '7th' : '11th'}-highest daily high), counting Jita sales the app watched. List here and leave it: it sells on the days the market comes up to it.\n\n• ${k === FILL_TYPICAL ? 'More profit, more waiting than the safer price.' : 'Reached on most days: less profit than the patient price, but it sells sooner and more surely.'}\n• Profit is after the broker fee and sales tax, against what the units cost you (or, before any fill, what your buy order pays).\n• The time is a rough guide: your share of buyers, on the days the market gets there.\n• ESI trims each day’s high, so this is where most trading got to; a few sales went higher.\n\nFor a big buy order you mean to fill slowly, this is the price to plan the resale at.`,
       });
     }
@@ -201,16 +201,22 @@ export function PositionDetail({ id }: { id: string }) {
     const sug = realBest != null ? tickDown(realBest) : NaN;
     if (Number.isFinite(sug) && snap) {
       const profit = (sug * keep - c.avgCost) * c.stock;
-      const fills = snap.avgVol7 ? sideVolume(snap.avgVol7, snap.buyerShare ?? EVEN_SPLIT, false) * competitionShare(d.settings.share, snap.sellOrders) : 0;
+      // How often trading got up there, and the time scaled by it, exactly as the patient prices are: a listing
+      // sells only on the days the market reaches it. The Arbalest's cheapest listing, 62,920, was reached on 4
+      // days of 14 and claimed 75 days, faster than a price reached on 7.
+      const reachedSug = highs ? askReachDays(highs, sug) : null;
+      const fills = listFills * (reachedSug != null ? reachedSug / FILL_WINDOW : 1);
       stats.push({
-        l: 'Undercut the cheapest seller', v: isk(sug), c: profit >= 0 ? 'var(--pos)' : 'var(--neg)',
-        n: `${profit >= 0 ? 'Makes' : 'Loses'} ${iskBig(Math.abs(profit))} if all ${units(c.stock)} sell at this price${fills > 0 ? `, in about ${flip(c.stock / fills)} at your share of buyers` : ''}`,
-        tip: `One price step under the cheapest real listing from others in Jita right now (${isk(realBest)}).${mispriced ? `\n\nIt leaves out ${units(skippedUnits)} unit${skippedUnits === 1 ? '' : 's'} listed from ${isk(rawBest)}: under 2% of what’s listed and ${typicalDay ? `a small part of the ${units(Math.round(typicalDay))} a typical day trades` : 'too few to matter'}, so they sell before yours would and aren’t worth a lower price.` : ''}\n\nThe profit is after the broker fee and sales tax on the sale, against what the units cost you. How long it takes comes from how many units a day buyers take and the share of them you’d get.`,
+        l: 'Undercut the cheapest seller', v: isk(sug), c: profit < 0 ? 'var(--neg)' : reachedSug != null && reachedSug < FILL_RARE ? 'var(--acc2)' : 'var(--pos)',
+        n: `${profit >= 0 ? 'Makes' : 'Loses'} ${iskBig(Math.abs(profit))} if all ${units(c.stock)} sell at this price.${reachedSug != null ? ` Trading got up to it on ${reachedSug} of the last ${FILL_WINDOW} days${reachedSug < FILL_RARE ? ': a listing here may just sit' : ''}` : ''}${fills > 0 ? `${reachedSug != null ? ', so' : ','} about ${flip(c.stock / fills)} at your share of buyers` : ''}.`,
+        tip: `One price step under the cheapest real listing from others in Jita right now (${isk(realBest)}).${mispriced ? `\n\nIt leaves out ${units(skippedUnits)} unit${skippedUnits === 1 ? '' : 's'} listed from ${isk(rawBest)}: under 2% of what’s listed and ${typicalDay ? `a small part of the ${units(Math.round(typicalDay))} a typical day trades` : 'too few to matter'}, so they sell before yours would and aren’t worth a lower price.` : ''}\n\nThe profit is after the broker fee and sales tax on the sale, against what the units cost you. How long it takes comes from how many units a day buyers take and the share of them you’d get, on the days trading gets up to this price.`,
       });
     }
     stats.push(...patient);
     if (bids) {
-      const w = walkBids(c.stock, bids, r.t);
+      // Others' bids only: your own buy order is the top bid on an item you're still buying, and selling into it
+      // is buying your own stock back.
+      const w = walkBids(c.stock, bids.filter((x) => !ownIds.has(x.id)), r.t);
       if (w.sold > 0) {
         const dump = w.value - (c.avgCost * w.sold);
         stats.push({
