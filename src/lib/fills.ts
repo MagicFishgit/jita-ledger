@@ -78,6 +78,13 @@ export function withWatchedLows(lows: (number | null)[], end: string, watched: W
   return lows.map((l, i) => lowest(l, watched[dayKey(e - (lows.length - 1 - i) * DAY)]?.buyLow));
 }
 
+/** The same for a scan's kept highs: the highest sale watched since, over the same days. */
+export function withWatchedHighs(highs: (number | null)[], end: string, watched: WatchedExtremes | undefined): (number | null)[] {
+  if (!watched) return highs;
+  const e = Date.parse(end + 'T00:00:00Z');
+  return highs.map((h, i) => highest(h, watched[dayKey(e - (highs.length - 1 - i) * DAY)]?.sellHigh));
+}
+
 /** On how many of the days the bulk of trading got down to a bid at `price`. */
 export function bidReachDays(lows: (number | null)[], price: number): number {
   return lows.filter((l) => l != null && l <= price).length;
@@ -125,5 +132,11 @@ export function askReachDays(highs: (number | null)[], price: number): number {
  */
 export function reachedBid(lows: (number | null)[], k = FILL_TYPICAL): number | null {
   const sorted = lows.filter((l): l is number => l != null).sort((a, b) => a - b);
+  return sorted.length >= k ? sorted[k - 1] : null;
+}
+
+/** The highest ask the bulk of trading got up to on at least `k` of the days: the k-th highest daily high. */
+export function reachedAsk(highs: (number | null)[], k = FILL_TYPICAL): number | null {
+  const sorted = highs.filter((h): h is number => h != null).sort((a, b) => b - a);
   return sorted.length >= k ? sorted[k - 1] : null;
 }

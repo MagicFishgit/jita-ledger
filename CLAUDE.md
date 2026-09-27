@@ -477,6 +477,23 @@ Don't re-derive or contradict these without new evidence.
   and a link to Prospects. Scans from before finishing times were kept are judged by the newest price in the
   cache. A deep scan that finishes says so, as a system notification too when browser notifications are on,
   since it's left running.
+- **The sell side is judged like the buy side** (`askToPlace`, flag `unreachedSell`, "Sells not reached"). An ask
+  one step under the best that the bulk of trading reached on fewer than `FILL_RARE` of 14 days is lowered to the
+  7th-highest daily high, and an item left with no margin drops out; Busy markets still prices at the top. Stats
+  keep `highs14` for it. It was a stated limit ("only buy orders are judged") until the Capital planner's top
+  pick turned out to be True Sansha EM Armor Hardener at "59% a flip".
+- **"Price just moved" keeps a spread across two price levels out of the planner** (`lastMove`, `MOVED` 0.5, flag
+  `moved`). True Sansha traded around 3.6 M for weeks, then days spanning 3 M to 9 M, then a day at 7.0–7.55 M:
+  both its bid (where it had traded) and its ask (where it had jumped to) counted as reached on those wide days.
+  The latest day's average more than 50% from the median of the days before it is a move, not a wobble; Prospects
+  flags it and the planner and opportunity mail leave it out. Scans refresh stats that lack `highs14` or
+  `lastMove`, and the planner says "Scan again before investing" while any of its items predate them.
+- **The Capital planner starts from what you have now** (`walletIsk`, free slots from your open orders). It used to
+  default to half the wallet and then keep whatever was first typed, for good: the user found 486 M against a
+  972 M wallet. ISK (the wallet, rounded down to the million: escrow has already left it) and free slots are read
+  on each visit; a typed figure holds for the tab (`sessionStorage`), with a link back. The horizon and the cap per
+  item are still kept. A notice says when free slots allow fewer than three items, since that, not ISK, is often
+  the limit (the user's 129 slots held 126 orders, 123 of them sells).
 - **Settings are one row each: name and hint, then a short number box with its unit** (`SetRow`). The old
   full-width fields put the number at the far end of the page from its label.
 - **The horizon is a choice of 4 h, 12 h, 1, 3, 7, 14 or 30 days, or Any** (`HORIZONS`; Any is stored as `null`, since the
@@ -806,7 +823,7 @@ State these rather than letting them be discovered:
 - **Pricing a buy where trading reaches is conservative.** Because ESI trims each day's low, an item whose
   dumps into bids live entirely in that trimmed tail looks unreached and can drop out of Prospects. Nobody can
   build a position on that tail, but a small, patient order might still fill there.
-- The reach count uses The Forge's history, not Jita's alone, and only buy orders are judged by it.
+- The reach count uses The Forge's history, not Jita's alone (plus the exact Jita fills the cloud watched).
 - A scan treats cached stats without `lows14`, and books without `npcSell`, as stale, and fetches history for
   any item it prices whose stats lack the lows. The liquidity pass refreshes the *most-listed* items and the
   pricing pass takes the *best-margin* ones, which are mostly different: before the second fix only 5 of 42

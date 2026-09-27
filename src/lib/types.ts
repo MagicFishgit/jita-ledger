@@ -156,6 +156,10 @@ export type ProspectStats = {
   lows14?: (number | null)[];
   /** The day `lows14` ends on, so the fills watched since can be folded in over the same days. */
   lowsEnd?: string;
+  /** Each of the same 14 days' highs, for whether trading gets up to an ask. */
+  highs14?: (number | null)[];
+  /** The latest day's average against the median of the days before it, as a fraction: a price that just moved. */
+  lastMove?: number;
   /** The highest price anyone paid in the window. Nothing honest bids far above it. */
   high30?: number;
   /** A recent day traded several times the usual volume at an unusual price. */
@@ -164,7 +168,7 @@ export type ProspectStats = {
   range7?: number[];
 };
 
-export type ProspectWarning = 'thin' | 'fluke' | 'falling' | 'crowded' | 'wall' | 'escrow' | 'spike' | 'unreached' | 'slow';
+export type ProspectWarning = 'thin' | 'fluke' | 'falling' | 'crowded' | 'wall' | 'escrow' | 'spike' | 'moved' | 'unreached' | 'unreachedSell' | 'slow';
 
 /** A candidate that cleared the gate, priced against the live book. */
 export type Prospect = {
@@ -196,6 +200,10 @@ export type Prospect = {
   bidReach: number | null;
   /** True when `buy` was raised from one step above the best bid to where trading actually reached. */
   buyRaised: boolean;
+  /** Of the last 14 days, how many the bulk of trading reached an ask one step under the best. Null without highs. */
+  askReach?: number | null;
+  /** True when `sell` was lowered from one step under the best ask to where trading actually reached. */
+  sellLowered?: boolean;
   warnings: ProspectWarning[];
 };
 

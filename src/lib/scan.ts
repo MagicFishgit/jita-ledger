@@ -219,7 +219,7 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
     const todo = candidates
       // Stats from before the 14-day lows were kept are stale too, or a scan today would price those items
       // the old way for up to a day. A dead item has none to keep, so it isn't asked for again.
-      .filter((id) => { const s = cache.stats[id]; return !s || now - Date.parse(s.at) > STATS_TTL || (s.daysTraded > 0 && !s.lows14); })
+      .filter((id) => { const s = cache.stats[id]; return !s || now - Date.parse(s.at) > STATS_TTL || (s.daysTraded > 0 && (!s.lows14 || !s.highs14 || s.lastMove === undefined)); })
       .slice(0, want.history);
 
     setState({
@@ -278,7 +278,8 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
         // Whatever gets priced gets judged on where trading reaches, so its stats need the 14-day lows.
         // The liquidity pass refreshes the most-listed items and these are the best-margin ones --- mostly
         // different --- so without this only a handful of the priced items (5 of 42 in a test) had them.
-        const [book, hist] = await Promise.all([jitaBook(s.typeId), s.lows14 ? null : marketHistory(s.typeId)]);
+        // The highs likewise, for the sell side.
+        const [book, hist] = await Promise.all([jitaBook(s.typeId), s.lows14 && s.highs14 && s.lastMove !== undefined ? null : marketHistory(s.typeId)]);
         cache.books[s.typeId] = { at: new Date().toISOString(), ...book };
         if (hist) cache.stats[s.typeId] = statsFrom(s.typeId, hist) ?? dead(s.typeId);
       } catch {

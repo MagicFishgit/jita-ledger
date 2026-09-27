@@ -1,7 +1,7 @@
 import type { BookLevel, HistRow, ProspectFilters, ProspectStats, ProspectWarning } from './types';
 import { buyerShare } from './split';
-import { bidReachDays, FILL_RARE, reachedBid, recentRange } from './fills';
-import { tickUp } from './tick';
+import { askReachDays, bidReachDays, FILL_RARE, reachedAsk, reachedBid, recentRange } from './fills';
+import { tickDown, tickUp } from './tick';
 
 const DAY = 86400_000;
 const dayKey = (t: number) => new Date(t).toISOString().slice(0, 10);
@@ -100,6 +100,13 @@ export function statsFrom(typeId: number, rows: HistRow[], now = Date.now()): Pr
     usualPrice > 0 && Math.abs(r.average / usualPrice - 1) > SPIKE_PRICE);
 
   const lows = recentRange(rows, 14, now);
+  // The latest day's average against the median of the days before it: a price level that has just shifted,
+  // which makes a spread between the old level and the new one look like margin.
+  const sorted = [...w30].sort((a, b) => a.date.localeCompare(b.date));
+  const latest = sorted[sorted.length - 1];
+  const before = sorted.slice(-14, -1).map((r) => r.average);
+  const usualBefore = before.length >= 5 ? median(before) : 0;
+  const lastMove = latest && within(latest, 3) && usualBefore > 0 ? latest.average / usualBefore - 1 : 0;
   return {
     typeId,
     at: new Date(now).toISOString(),
@@ -117,8 +124,17 @@ export function statsFrom(typeId: number, rows: HistRow[], now = Date.now()): Pr
     range7: recent.map((r) => (r.average > 0 ? (r.highest - r.lowest) / r.average : 0)),
     lows14: lows.lows,
     lowsEnd: lows.end,
+    highs14: lows.highs,
+    lastMove,
   };
 }
+
+/**
+ * The latest day's average this far from the days before it, up or down, and the price has moved rather than
+ * wobbled. True Sansha EM Armor Hardener went from about 3.6 M to 7.5 M; the scan showed a 59% flip buying at the
+ * old level and selling at the new, with both prices "reached" on days that traded from 3 M to 9 M.
+ */
+export const MOVED = 0.5;
 
 /** A day counts as a spike when it trades this many times the usual volume... */
 export const SPIKE_VOLUME = 5;
@@ -245,6 +261,21 @@ export function bidToPlace(bestBuy: number, lows?: (number | null)[] | null): { 
   return { top, buy, bidReach, raised: buy !== top };
 }
 
+/**
+ * The ask you'd actually list at, the other half of the same test. One legal step under the best ask, unless the
+ * bulk of trading hasn't been getting up there (reached on fewer than FILL_RARE of the last 14 days): then it's
+ * where trading did reach on half of them. An ask nobody buys at is not a price you can sell at. True Sansha EM
+ * Armor Hardener, a month around 3.4 M with one day at 7 M, showed a 59% flip buying where it had traded and
+ * selling where it had just jumped to; neither side would fill. Without the highs it's the step under the best.
+ */
+export function askToPlace(bestSell: number, highs?: (number | null)[] | null): { top: number; sell: number; askReach: number | null; lowered: boolean } {
+  const top = tickDown(bestSell);
+  const askReach = highs ? askReachDays(highs, top) : null;
+  const reached = highs && askReach != null && askReach < FILL_RARE ? reachedAsk(highs) : null;
+  const sell = reached != null && reached < top ? reached : top;
+  return { top, sell, askReach, lowered: sell !== top };
+}
+
 export type BookShape = {
   buyOrders: number; sellOrders: number;
   topBuys: BookLevel[]; topSells: BookLevel[];
@@ -255,7 +286,7 @@ export type BookShape = {
  * than folded into the score, because whether they matter depends on how you trade.
  */
 export function warningsFor(
-  stats: Pick<ProspectStats, 'dailyRange' | 'trend' | 'tradesPerDay'> & Partial<Pick<ProspectStats, 'high30' | 'spike' | 'unitsPerDay'>>,
+  stats: Pick<ProspectStats, 'dailyRange' | 'trend' | 'tradesPerDay'> & Partial<Pick<ProspectStats, 'high30' | 'spike' | 'unitsPerDay' | 'lastMove'>>,
   book: BookShape,
   spreadPct: number,
   estOrders: number,
@@ -277,6 +308,7 @@ export function warningsFor(
   if (bid != null && stats.high30 != null && stats.high30 > 0 && bid > stats.high30 * (1 + ESCROW_OVER)) out.push('escrow');
   // A recent day far busier than usual at an unusual price: someone may be moving it to lure traders in.
   if (stats.spike) out.push('spike');
+  if (stats.lastMove != null && Math.abs(stats.lastMove) > MOVED) out.push('moved');
   return out;
 }
 

@@ -10,17 +10,24 @@ import { horizonSaid, horizonShort, snapHorizon } from '../lib/prospects';
 import { loadCache, rankProspects, useScanState, type ScanCache } from '../lib/scan';
 import { useData } from '../lib/store';
 import type { ProspectFilters } from '../lib/types';
-import { useEnsureNames, useTypeName } from './common';
+import { BusyRelisting, useEnsureNames, useTypeName } from './common';
 import { flip, WARNING } from './Prospects';
 import { Empty, Flag, Guide, ItemIcon, NumChip, PageHead, Panel, Seg, Tiles } from './ui';
 import { ScanFreshness } from './ScanFreshness';
 
 const KEY = 'jita-ledger:planner';
+/** ISK and slots typed in on this visit: they hold until the tab closes, then the planner follows the wallet again. */
+const SESSION_KEY = 'jita-ledger:planner-session';
 const COLS = ['var(--acc)', '#a98bff', '#6ee7a8', 'var(--acc2)', '#ff8d9a', '#7aa6ff', '#eed79a', '#5fe0b5', '#ff9f6b', '#c7d2de'];
 
-type Inputs = { isk: number | null; slots: number | null; days: number | null; maxPct: number | null };
+/** Kept between visits: the horizon and the cap per item. ISK and slots are read fresh each visit. */
+type Inputs = { days: number | null; maxPct: number | null };
 function readInputs(): Partial<Inputs> {
   try { return JSON.parse(localStorage.getItem(KEY) || '{}') as Partial<Inputs>; } catch { return {}; }
+}
+type Override = { isk?: number | null; slots?: number | null };
+function readOverride(): Override {
+  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || '{}') as Override; } catch { return {}; }
 }
 /** The Prospects page's own saved filters, which the planner draws from (see plannerFilters). */
 function savedProspectFilters(): Partial<ProspectFilters> | null {
@@ -32,11 +39,14 @@ export function Planner() {
   const name = useTypeName();
   const scan = useScanState();
   const totalSlots = orderSlots(effectiveSkills(d.settings));
-  const openOrders = Object.values(d.orders).filter((o) => o.state === 'open').length;
+  const openList = Object.values(d.orders).filter((o) => o.state === 'open');
+  const openOrders = openList.length;
+  const openSells = openList.filter((o) => !o.isBuy).length;
+  const freeSlots = Math.max(0, totalSlots - openOrders);
+  // The wallet is what you can spend: buy orders' escrow has already left it. Rounded down to the million.
+  const walletIsk = d.meta.walletBalance && d.meta.walletBalance > 0 ? Math.floor(d.meta.walletBalance / 1e6) * 1e6 : null;
   const saved = readInputs();
   const [inp, setInp] = useState<Inputs>({
-    isk: saved.isk ?? (d.meta.walletBalance ? Math.round(d.meta.walletBalance * 0.5 / 1e6) * 1e6 : null),
-    slots: saved.slots ?? Math.max(0, totalSlots - openOrders),
     // Snapped onto the choices: a typed-in horizon from before they existed lands on the nearest.
     days: snapHorizon(saved.days ?? 3) ?? 3,
     maxPct: saved.maxPct ?? 25,
@@ -46,17 +56,30 @@ export function Planner() {
     try { localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* private window */ }
     return next;
   });
+  // ISK and slots follow the wallet and your open orders, so the planner opens on what you have now. Once, both
+  // were saved the first time they were typed and kept for good: the user found "ISK to deploy" at half a wallet
+  // that had long since changed. A figure typed now holds for this visit only.
+  const [over, setOver] = useState<Override>(readOverride);
+  const override = (p: Override) => setOver((cur) => {
+    const next = { ...cur, ...p };
+    try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(next)); } catch { /* private window */ }
+    return next;
+  });
+  const iskIn = over.isk != null ? over.isk : walletIsk;
+  const slotsIn = over.slots != null ? over.slots : freeSlots;
 
   const [cache, setCache] = useState<ScanCache | null>(null);
   useEffect(() => { loadCache().then(setCache).catch(() => setCache({ stats: {}, books: {} })); }, [scan.saved, scan.phase]);
 
-  const isk = inp.isk ?? 0, slots = inp.slots ?? 0, days = inp.days ?? 3, maxShare = Math.max(0, Math.min(100, inp.maxPct ?? 100)) / 100;
-  const { plan, pool, excluded } = useMemo(() => {
-    if (!cache || !isk) return { plan: null, pool: 0, excluded: 0 };
+  const isk = iskIn ?? 0, slots = slotsIn, days = inp.days ?? 3, maxShare = Math.max(0, Math.min(100, inp.maxPct ?? 100)) / 100;
+  const { plan, pool, excluded, unchecked } = useMemo(() => {
+    if (!cache || !isk) return { plan: null, pool: 0, excluded: 0, unchecked: 0 };
     // Every market's own limit, not just those that could take the whole budget.
     const list = rankProspects(cache, d.settings, plannerFilters(savedProspectFilters(), isk, days));
     const bad = list.filter((p) => p.warnings.some((w) => PLANNER_EXCLUDES.includes(w))).length;
-    return { plan: allocate(list, { isk, slots, horizonDays: days, maxShare }), pool: list.length, excluded: bad };
+    // Items scanned before the sell side and price jumps were judged: their spread hasn't been checked for either.
+    const old = list.filter((p) => p.stats.lastMove === undefined || !p.stats.highs14).length;
+    return { plan: allocate(list, { isk, slots, horizonDays: days, maxShare }), pool: list.length, excluded: bad, unchecked: old };
   }, [cache, d.settings, isk, slots, days, maxShare]);
 
   useEnsureNames(plan?.rows.map((a) => a.p.typeId) ?? []);
@@ -76,13 +99,18 @@ export function Planner() {
     <div className="page">
       <PageHead
         kicker="02b · Put ISK to work" title="Capital planner" wide
-        lede="Tell it how much ISK and how many order slots you have free, and it builds a mix from your Prospects — best payback first, never more than a market can take, and never too much in one item. Anything flagged as a wall, spike, fluke or escrow bait is left out."
+        lede="Tell it how much ISK and how many order slots you have free, and it builds a mix from your Prospects — best payback first, never more than a market can take, and never too much in one item. Anything flagged as a wall, spike, fluke, escrow bait or a price that just moved is left out."
       />
       <ScanFreshness what="the plan" />
       <div className="chipbar" data-rv="">
         <span className="chipbar-title"><SlidersHorizontal aria-hidden="true" />Budget</span>
-        <NumChip id="pl-isk" label="ISK to deploy" value={inp.isk} onChange={(v) => set({ isk: v })} width={160} decimals={0} placeholder="2b" tip="Free ISK you want working — not what’s already in orders" />
-        <NumChip id="pl-slots" label="Free slots" value={inp.slots} onChange={(v) => set({ slots: v })} width={60} decimals={0} tip={`Each item uses one buy and one sell order slot. You have ${totalSlots} and ${openOrders} are in use.`} />
+        <NumChip id="pl-isk" label="ISK to deploy" value={iskIn} onChange={(v) => override({ isk: v })} width={160} decimals={0} placeholder="2b"
+          tip={'Starts at your wallet, rounded down to the million: the ISK you can spend, since buy orders’ escrow has already left it.\n\n• Change it for this visit; next time it starts from your wallet again.\n• Put in less to keep some back for relisting, a bargain, or Omega.'} />
+        {over.isk != null && walletIsk != null
+          ? <button type="button" className="link-btn" onClick={() => override({ isk: null })}>Use my wallet ({iskBig(walletIsk)})</button>
+          : walletIsk != null && <span className="note small" style={{ margin: 0 }}>From your wallet</span>}
+        <NumChip id="pl-slots" label="Free slots" value={slotsIn} onChange={(v) => override({ slots: v })} width={60} decimals={0} tip={`Each item uses one buy and one sell order slot. You have ${totalSlots}, ${openOrders} in use, so ${freeSlots} free. Change it for this visit to plan as if you'd freed some.`} />
+        {over.slots != null && <button type="button" className="link-btn" onClick={() => override({ slots: null })}>Use free slots ({freeSlots})</button>}
         <NumChip id="pl-max" label="Max per item" value={inp.maxPct} onChange={(v) => set({ maxPct: v })} width={60} decimals={0} percent tip="Caps how much of the budget can go into one market" />
         <div className="row" style={{ flexBasis: '100%', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <span className="lbl" style={{ fontSize: 10.5 }} tabIndex={0} data-tip-title="Horizon"
@@ -92,6 +120,25 @@ export function Planner() {
         </div>
       </div>
 
+      {unchecked > 0 && (
+        <p className="row tight" style={{ fontSize: 13, color: 'var(--acc2)', margin: 0 }}>
+          <Radar aria-hidden="true" style={{ width: 14, height: 14, flex: 'none' }} />
+          <span>
+            Scan again before investing: {units(unchecked)} of these items were scanned before the plan checked sell prices and sudden price moves, so their margins may be ones trading can’t reach. A quick scan is enough.{' '}
+            <button type="button" className="link-btn" onClick={() => navigate('prospects')}>Open Prospects</button>
+          </span>
+        </p>
+      )}
+      {slots < SLOTS_PER_ITEM * 3 && (
+        <p className="row tight" style={{ fontSize: 13, color: 'var(--acc2)', margin: 0 }}>
+          <LayoutGrid aria-hidden="true" style={{ width: 14, height: 14, flex: 'none' }} />
+          <span>
+            {slots < SLOTS_PER_ITEM ? 'No room for an item: ' : `Room for ${Math.floor(slots / SLOTS_PER_ITEM)} item${Math.floor(slots / SLOTS_PER_ITEM) === 1 ? '' : 's'} only: `}
+            {slots} free order slot{slots === 1 ? '' : 's'}, and each item takes {SLOTS_PER_ITEM}. {openSells} of your {openOrders} open orders are sell orders; the listings Orders marks <b>Sell to bids</b> are the first worth freeing.{' '}
+            <button type="button" className="link-btn" onClick={() => navigate('orders')}>Open Orders</button>
+          </span>
+        </p>
+      )}
       {!cache ? null : !scanned ? (
         <Empty icon={Radar} action={<button type="button" className="btn primary" onClick={() => navigate('prospects')}>Scan on Prospects</button>}>
           The planner builds from the items a Prospects scan found. Nothing has been scanned in this browser yet.
@@ -128,7 +175,7 @@ export function Planner() {
                         <tr key={a.p.typeId} className="hover">
                           <td className="l">
                             <span className="cellrow">
-                              <span style={{ width: 10, height: 10, flex: 'none', background: COLS[i % COLS.length] }} /><ItemIcon id={a.p.typeId} /><span className="name ellipsis">{name(a.p.typeId)}</span>
+                              <span style={{ width: 10, height: 10, flex: 'none', background: COLS[i % COLS.length] }} /><ItemIcon id={a.p.typeId} /><span className="name ellipsis">{name(a.p.typeId)}</span><BusyRelisting typeId={a.p.typeId} />
                               {(inOrders.has(a.p.typeId) || inPositions.has(a.p.typeId)) && (
                                 <Flag color="var(--acc)" title="You already trade this"
                                   why={`${inOrders.has(a.p.typeId) ? `You have ${iskBig(inOrders.get(a.p.typeId)!)} in open orders on it` : 'You have an open position on it'}. This would be on top of that, and it takes two more order slots.`}>
@@ -166,8 +213,8 @@ export function Planner() {
         groups={[
           {
             title: 'Setting it up', steps: [
-              { icon: Wallet, title: 'Only count ISK you can leave alone', body: 'Put in what you can afford to have tied up for the whole horizon — not your full wallet. Keep some back for relisting, for a bargain that turns up, and for Omega if you pay for it with ISK.' },
-              { icon: LayoutGrid, title: 'Free slots are the real limit', body: 'Every item needs a buy order and later a sell order, so each one costs two slots. With six free you can only run three items, however much ISK you have. That’s why the mix can stop short of spending everything.' },
+              { icon: Wallet, title: 'Only count ISK you can leave alone', body: 'It starts from your whole wallet. Lower it to what you can have tied up for the whole horizon: keep some back for relisting, for a bargain that turns up, and for Omega if you pay for it with ISK.' },
+              { icon: LayoutGrid, title: 'Free slots are the real limit', body: 'Every item needs a buy order and later a sell order, so each one costs two slots. With six free you can only run three items, however much ISK you have. It counts your free slots from your open orders; plan as if you’d freed some by typing a bigger number.' },
               { icon: Hourglass, title: 'The horizon is your patience', body: 'Three days means “I want this money back in about three days.” A longer horizon lets the planner put more into each market, because a slow market absorbs more over a week than over a day.' },
               { icon: Shield, title: 'The cap per item is your safety net', body: 'Never let one market hold too much of your money. If a price drops or a rival floods it, a 25% cap means it hurts but doesn’t sink you. New to trading? Go lower — 10 to 15%.' },
             ],
@@ -184,7 +231,7 @@ export function Planner() {
           { icon: CalcIcon, title: 'Check each item before you buy', body: 'Click Calc on any row. The Calculator shows the order book, whether your prices sit inside recent trading, and your break-even.' },
           { icon: Layers, title: 'Start one position per item', body: 'Once the buy orders are placed, start a position for each item so your fills are tracked from the first unit. That’s how Results can later tell you what worked.', color: '#6ee7a8' },
           { icon: RefreshCw, title: 'Re-run it as things fill', body: 'As orders fill and ISK comes back, run the planner again with what’s free. The best items change daily.', color: 'var(--acc2)' },
-          { icon: ShieldAlert, title: 'Trust the flags', body: 'Items marked Wall, Spike, Fluke or Escrow bait are left out on purpose. Others, like Bids not reached or Thin, stay in but show in the Flags column: hover one before you commit.', color: '#ff8d9a' },
+          { icon: ShieldAlert, title: 'Trust the flags', body: 'Items marked Wall, Spike, Fluke, Escrow bait or Price just moved are left out on purpose. Others, like Bids not reached, Sells not reached or Thin, stay in but show in the Flags column, priced where trading actually reaches: hover one before you commit.', color: '#ff8d9a' },
           { icon: ListChecks, title: 'Let To do handle the upkeep', body: 'Once the orders are placed, the daily work is moving the ones that get beaten. The To do list and the undercut alerts tell you which.' },
           { icon: Scale, title: 'Spread beats size', body: 'Ten modest markets are safer than two big ones at the same expected profit. When unsure, lower the cap per item.', color: '#a98bff' },
         ]}

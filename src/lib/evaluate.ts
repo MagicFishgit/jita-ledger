@@ -5,11 +5,10 @@
  * Pure.
  */
 import { calc, type Settings } from './fees';
-import { FILL_RARE, withWatchedLows, type WatchedExtremes } from './fills';
+import { FILL_RARE, withWatchedHighs, withWatchedLows, type WatchedExtremes } from './fills';
 import type { FlowDay } from './flow';
-import { bidToPlace, SLOW_DAYS, tradedPerDay, warningsFor } from './prospects';
+import { askToPlace, bidToPlace, SLOW_DAYS, tradedPerDay, warningsFor } from './prospects';
 import { competitionShare, MIN_DAYS, returnPerDay, throughput, tradingSplit, type BookSold } from './split';
-import { tickDown } from './tick';
 import type { BookLevel, Prospect, ProspectFilters, ProspectStats } from './types';
 
 export type Book = { at: string; bestBuy: number | null; bestSell: number | null; buyOrders: number; sellOrders: number; topBuys: BookLevel[]; topSells: BookLevel[]; npcSell?: boolean;
@@ -52,7 +51,10 @@ export function judgeProspect(
   const { bidReach } = placed;
   const buy = anyReturn ? placed.top : placed.buy;
   const raised = buy !== placed.top;
-  const sell = tickDown(bestSell);
+  // The sell side the same way: where the bulk of trading gets up to, not merely one step under the best ask.
+  const highs = stats.highs14 && stats.lowsEnd ? withWatchedHighs(stats.highs14, stats.lowsEnd, watched?.days) : stats.highs14;
+  const asked = askToPlace(bestSell, highs);
+  const sell = anyReturn ? asked.top : asked.sell;
   // A buy at or above the sell is a loss, which the Busy markets view shows rather than hides.
   if (!Number.isFinite(buy) || !Number.isFinite(sell) || (!anyReturn && sell <= buy)) return null;
 
@@ -92,10 +94,11 @@ export function judgeProspect(
     // big one can be compared at all.
     iskPerDay: c.net / Math.max(daysToFlip, MIN_DAYS), capital: c.spent,
     share: sellShare, buyerShare: buyers, splitFrom: split.from,
-    bidReach, buyRaised: raised,
+    bidReach, buyRaised: raised, askReach: asked.askReach, sellLowered: sell !== asked.top,
     warnings: [
       ...warningsFor(stats, book, c.spreadPct, estOrders),
       ...(bidReach != null && bidReach < FILL_RARE ? ['unreached' as const] : []),
+      ...(asked.askReach != null && asked.askReach < FILL_RARE ? ['unreachedSell' as const] : []),
       ...(daysToFlip > SLOW_DAYS ? ['slow' as const] : []),
     ],
   };

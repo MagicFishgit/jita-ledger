@@ -2170,5 +2170,41 @@ console.log('\n--- "Clears in", checked ---');
   eq('an opportunity mail counts the ones it didn’t name', mail3([f], { appUrl: 'u/', keepMin: 60 }).body.includes('4 more newly clear your filters: see Prospects.'), true);
 }
 
+console.log('\n--- the sell side judged like the buy side ---');
+{
+  const { askToPlace, bidToPlace: bid2 } = await import('../src/lib/prospects.ts');
+  const { reachedAsk, withWatchedHighs } = await import('../src/lib/fills.ts');
+  const M = 1e6;
+  // True Sansha EM Armor Hardener: a month around 3-4 M, then one day at 7 M.
+  const highs = [3.6, 2.9, 4.1, 3.0, 3.1, 3.2, 3.8, 4.0, 3.2, 3.3, 3.7, 3.9, 4.0, 7.5].map((x) => x * M);
+  const lows = [3.38, 2.61, 3.89, 2.79, 2.83, 2.88, 3.48, 3.79, 2.95, 3.05, 3.52, 3.74, 3.82, 7.0].map((x) => x * M);
+  const a = askToPlace(7.397 * M, highs);
+  eq('an ask trading reached on 1 day of 14 is lowered to where it reached on half', [a.askReach, a.sell, a.lowered], [1, 3.7 * M, true]);
+  eq('  the 7th highest high', reachedAsk(highs), 3.7 * M);
+  const b = bid2(4.362 * M, lows);
+  eq('  so the 59% flip that bought at 4.36 M and sold at 7.4 M leaves no margin at all', a.sell < b.buy, true);
+  const busy = askToPlace(25_690, [25_700, 25_660, 25_900, 25_800, 25_720, 25_680, 25_750, 25_710, 25_700, 25_690, 25_900, 25_880, 25_700, 25_760]);
+  eq('an ask trading gets up to on most days stays one step under the best', [busy.lowered, busy.sell], [false, 25_680]);
+  eq('without highs nothing is claimed', askToPlace(100, null), { top: 99.99, sell: 99.99, askReach: null, lowered: false });
+  eq('the highest sale watched since a scan counts over the same days', withWatchedHighs([5, null, 6], '2026-09-26', { '2026-09-25': { sellHigh: 9 } }), [5, 9, 6]);
+}
+
+console.log('\n--- a price that just moved ---');
+{
+  const { statsFrom: sf, warningsFor: wf } = await import('../src/lib/prospects.ts');
+  const { PLANNER_EXCLUDES: ex } = await import('../src/lib/planner.ts');
+  const now = Date.parse('2026-09-27T18:00:00Z');
+  const day = (i) => new Date(Date.parse('2026-09-26T00:00:00Z') - i * 86400_000).toISOString().slice(0, 10);
+  const row = (i, avg) => ({ date: day(i), average: avg, lowest: avg * 0.9, highest: avg * 1.1, volume: 30, order_count: 10 });
+  // True Sansha EM Armor Hardener's shape: two weeks around 3.6 M, then a day at 7.5 M.
+  const sansha = [...Array.from({ length: 13 }, (_, k) => row(13 - k, 3.6e6)), row(0, 7.539e6)];
+  const st = sf(13970, sansha, now);
+  eq('the latest day at double the fortnight before is a move', Math.round(st.lastMove * 100), 109);
+  const book = { buyOrders: 20, sellOrders: 20, topBuys: [{ price: 4.36e6, volume: 7 }], topSells: [{ price: 7.4e6, volume: 1 }] };
+  eq('  flagged, and the planner leaves it out', [wf(st, book, 0.7, 40).includes('moved'), ex.includes('moved')], [true, true]);
+  const calm = [...Array.from({ length: 13 }, (_, k) => row(13 - k, 3.6e6)), row(0, 3.9e6)];
+  eq('  an ordinary day is not', wf(sf(13970, calm, now), book, 0.1, 40).includes('moved'), false);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

@@ -10,7 +10,7 @@ import { DEFAULT_FILTERS } from './prospects';
 import type { Prospect, ProspectFilters, ProspectWarning } from './types';
 
 /** Flags that say the spread may not be real. Everything else is information, not a veto. */
-export const PLANNER_EXCLUDES: ProspectWarning[] = ['escrow', 'wall', 'spike', 'fluke'];
+export const PLANNER_EXCLUDES: ProspectWarning[] = ['escrow', 'wall', 'spike', 'fluke', 'moved'];
 export const SLOTS_PER_ITEM = 2;
 
 /**
