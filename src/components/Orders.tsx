@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { Ban, ChevronsUp, CircleDashed, CircleX, Crosshair, Hourglass, LayoutGrid, ListOrdered, MoveVertical, Repeat, Timer } from 'lucide-react';
 import { ago, isk, iskBig, plainNum, units, until } from '../lib/format';
 import { useAuth, useNow, navigate } from '../lib/hooks';
-import { checkOrders, costBasis, jitaOpen, useOrderCheck, verdicts } from '../lib/orderCheck';
+import { checkOrders, costBasis, jitaOpen, sidePace, useOrderCheck, verdicts } from '../lib/orderCheck';
 import { rates, effectiveSkills, orderSlots } from '../lib/fees';
 import { tickDown } from '../lib/tick';
-import { competitionShare, EVEN_SPLIT, sideVolume } from '../lib/split';
+import { competitionShare } from '../lib/split';
 import { loadCache, rankProspects } from '../lib/scan';
 import { DEFAULT_FILTERS } from '../lib/prospects';
 import { update, useData } from '../lib/store';
@@ -32,7 +32,7 @@ function tipsFor(side: 'all' | 'sell' | 'buy'): Record<string, string> {
     Side: `Whether you are buying or selling. A buy order is beaten from above and must go up; a sell is beaten from below and must come down. Either way, being at the front means being ${gets}.`,
     Verdict: `Whether this order is worth doing something about.\n\n• Being ${both ? 'beaten' : beat} on its own isn’t a reason to move.\n• What matters is how long the ${both ? 'traders' : rivals} ahead of you will stay ahead.${buy || both ? '\n• A buy order also has to be reached: if the bulk of trading hasn’t been getting down to it, the move is to where it does, and if that leaves too little margin, the advice is to cancel it.' : ''}`,
     'Ahead of you': `How many units are queued in front of your price, and how many separate ${both ? 'traders' : rivals} that is.\n\nOne big order is better news than a crowd: when it goes, you jump straight to the front.`,
-    'Clears in': 'How long the stock ahead of you takes to clear.\n\n• Only one side of daily volume reaches you: buyers taking listings for a sell order, sellers dumping into bids for a buy.\n• So this uses that side alone, estimated from where each day’s average sits between its low and high.\n\nIf it’s shorter than the hours you’ll wait, relisting would just be a wasted fee.',
+    'Clears in': 'How long the stock ahead of you takes to clear, if nobody undercuts you meanwhile.\n\n• Only one side of the trading reaches you: buyers taking listings for a sell order, sellers dumping into bids for a buy.\n• Which side trades is measured. Each check compares the Jita book with the one before and counts what sold from each side. Until an item has been watched for about a day, a guess from its history carries most of the weight.\n• New orders placed in front of you aren’t counted, and they’re common: in a six-hour watch of 71 beaten orders, 46 were undercut again.\n\nIf it’s shorter than the hours you’ll wait, relisting would just be a wasted fee.',
     'Your price': both ? 'What you are asking, or bidding, right now.' : buy ? 'What you are bidding right now.' : 'What you are asking right now.',
     'Move to': `The price that would put you back in front — one legal step ${both ? 'past the best rival' : past} — and how far that is from your own price.`,
     'Costs you': `What getting back in front would cost:\n\n• the margin you give up by ${both ? 'changing price' : buy ? 'bidding higher' : 'asking less'};\n• plus the fee on the new order value.\n\nHover the number for the split.`,
@@ -97,11 +97,11 @@ export function Orders() {
       const margin = x.isBuy
         ? (asks.length ? tickDown(Math.min(...asks)) * (1 - r.f - r.t) - x.price * (1 + r.f) : NaN)
         : x.price * (1 - r.f - r.t) - (avg ?? (bids.length ? Math.max(...bids) * (1 + r.f) : NaN));
-      const daily = check.daily[x.typeId];
+      const side = sidePace(check, x.typeId, x.isBuy).perDay;
       const sideOrders = book.filter((o) => o.isBuy === x.isBuy).length;
       // A buy the bulk of trading doesn't reach isn't filling at the usual pace: it earns next to nothing.
       const unreached = x.unreached;
-      const fills = daily && !unreached ? sideVolume(daily, check.buyers[x.typeId] ?? EVEN_SPLIT, x.isBuy) * competitionShare(d.settings.share, sideOrders) : 0;
+      const fills = side && !unreached ? side * competitionShare(d.settings.share, sideOrders) : 0;
       out[x.orderId] = Number.isFinite(margin) ? margin * Math.min(fills, x.volumeRemain) : NaN;
     }
     return out;
@@ -271,7 +271,7 @@ export function Orders() {
                         <td style={{ color: x?.verdict === 'wait' ? 'var(--pos)' : 'var(--cell)' }}>
                           {x?.unreached
                             ? <span data-tip={`The bulk of the day’s trading got down to your price on ${x.reach} of the last ${FILL_WINDOW} days. Sellers here list and wait, so the queue ahead isn’t what’s holding you back.`} data-tip-title="Rarely reached" tabIndex={0} style={{ color: 'var(--neg)' }}>rarely reached<span className="sub">{x.reach} of {FILL_WINDOW} days</span></span>
-                            : !x?.beaten ? '–' : !Number.isFinite(x.hoursToFront) ? <span className="faint">barely trades</span> : hours(x.hoursToFront)}
+                            : !x?.beaten ? '–' : !Number.isFinite(x.hoursToFront) ? <span className="faint">barely trades</span> : <PaceNote x={x} hours={hours} />}
                         </td>
                         <td data-tip={x ? (x.live ? 'Read from the live book just now' : 'From your last sync; ESI caches orders for twenty minutes') : undefined}>
                           {isk(x?.price ?? o.price)}{(!x || !x.live) && <span className="sub">from last sync</span>}
@@ -312,5 +312,27 @@ export function Orders() {
         ]}
       />
     </div>
+  );
+}
+
+/**
+ * A "Clears in" figure, with what it rests on: how long the app has watched this book, and how often
+ * someone has listed in front since. The guess from history carries most of the weight until an item
+ * has been watched for about a day.
+ */
+function PaceNote({ x, hours }: { x: Relist; hours: (h: number) => string }) {
+  const check = useOrderCheck();
+  const p = sidePace(check, x.typeId, x.isBuy);
+  const who = x.isBuy ? 'sellers dumping into bids' : 'buyers taking listings';
+  const basis = p.watchedH >= 1
+    ? `${units(Math.round(p.perDay ?? 0))} a day reaching you: ${who} at Jita over the ${Math.round(p.watchedH)} h this app has watched the book, blended with the guess from history.`
+    : `${units(Math.round(p.perDay ?? 0))} a day reaching you, guessed from history: the typical day, split by where each day’s average sat. The app hasn’t watched this book long enough to measure it yet.`;
+  const cuts = p.undercutsPerH != null && p.watchedH >= 1
+    ? `\n\nWhile watched, about ${units(Math.round(p.undercutsPerH))} units an hour were newly listed at the front of your side. This figure doesn’t count them.`
+    : '';
+  return (
+    <span tabIndex={0} data-tip={basis + cuts} data-tip-title="What this rests on">
+      {hours(x.hoursToFront)}<span className="sub">{p.watchedH >= 1 ? `${Math.round(p.watchedH)} h watched` : 'history only'}</span>
+    </span>
   );
 }

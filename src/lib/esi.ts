@@ -40,7 +40,7 @@ type Opts = {
  * server-side, so asking again before then returns the identical body --- knowing the moment is
  * the difference between polling blind and asking exactly when there is something new.
  */
-export async function esi<T>(path: string, opts: Opts = {}): Promise<{ data: T; pages: number | null; expires: number | null }> {
+export async function esi<T>(path: string, opts: Opts = {}): Promise<{ data: T; pages: number | null; expires: number | null; stamp: number | null }> {
   return gate(async () => {
     const url = new URL(ESI_BASE + path);
     for (const [k, v] of Object.entries(opts.query ?? {})) if (v !== undefined) url.searchParams.set(k, String(v));
@@ -72,7 +72,8 @@ export async function esi<T>(path: string, opts: Opts = {}): Promise<{ data: T; 
           : exp;
         // Some routes answer 204 with no body at all (the /ui/ ones), so don't demand JSON.
         const text = await res.text();
-        return { data: (text ? JSON.parse(text) : undefined) as T, pages: p ? Number(p) : null, expires };
+        // `stamp` is ESI's own Expires, on its clock: two answers with the same one are the same snapshot.
+        return { data: (text ? JSON.parse(text) : undefined) as T, pages: p ? Number(p) : null, expires, stamp: Number.isFinite(exp) ? exp : null };
       }
       if ([502, 503, 504].includes(res.status) && attempt === 0) { await sleep(1200); continue; }
       const retryAfter = Number(res.headers.get('Retry-After')) || undefined;

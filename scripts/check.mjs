@@ -25,6 +25,7 @@ import { categoryOf, flows, feeLeak, balanceAt, balanceSeries, autoTag, nextTag,
 import { readKillmail, priceOnDay, valueKillmail, activityOf, matchInsurance, learnedGankLines, gankLineFor, multibuy } from '../src/lib/combat.ts';
 import { orderTodo, remember, split, summarise, judgeOrder, judgePi, judgeScam, SESSION_MS } from '../src/lib/todo.ts';
 import { fmtDateTime } from '../src/lib/format.ts';
+import { bookFills, addFlow, observedFlow, pruneFlow, pace as sidePaceBlend, MAX_GAP_H } from '../src/lib/flow.ts';
 import { byDay, totals, perHour, attribute } from '../src/lib/results.ts';
 import { sanitizePrefs, sanitizeAlerts, effectiveMotion } from '../src/lib/prefs.ts';
 
@@ -1282,6 +1283,31 @@ console.log('\n--- gank bait ---');
   eq('a combat ship has no hauling class', hullClassOf('Cruiser'), null);
 }
 
+console.log('\n--- measured pace: what the books did between checks ---');
+{
+  const o = (id, isBuy, price, volume) => ({ id, isBuy, price, volume });
+  const prev = [o(1, false, 100, 10), o(2, false, 101, 50), o(3, false, 105, 20), o(4, true, 95, 30), o(5, true, 90, 40)];
+  eq('the same book twice: nothing happened', bookFills(prev, prev), { sell: 0, buy: 0, newSell: 0, newBuy: 0 });
+  const cur = [o(1, false, 100, 4), o(2, false, 101, 50), o(4, true, 95, 25), o(5, true, 90, 40)];
+  eq('shrunken orders are sales on their side; a deep order vanishing is not', bookFills(prev, cur), { sell: 6, buy: 5, newSell: 0, newBuy: 0 });
+  const bought = [o(2, false, 101, 50), o(3, false, 105, 20), o(4, true, 95, 30), o(5, true, 90, 40)];
+  eq('  the best ask vanishing counts as bought out', bookFills(prev, bought).sell, 10);
+  const undercut = [...prev.filter((x) => x.id !== 2), o(2, false, 99.9, 50), o(6, false, 99.8, 7), o(7, false, 103, 9)];
+  eq('undercuts: new or repriced at the front count, deeper ones don’t', bookFills(prev, undercut).newSell, 57);
+  const t = Date.parse('2026-09-27T10:00:00Z');
+  const f = { sell: 6, buy: 5, newSell: 0, newBuy: 0 };
+  let log = addFlow({}, 34, t, 0.1, f);
+  log = addFlow(log, 34, t + 360_000, 0.1, f);
+  eq('intervals add up per item and day', observedFlow(log, 34, t), { h: 0.2, sell: 12, buy: 10, newSell: 0, newBuy: 0 });
+  eq('  a gap longer than half an hour is not counted', addFlow(log, 34, t, MAX_GAP_H + 0.01, f), log);
+  eq('  nor is the same snapshot read twice', addFlow(log, 34, t, 0, f), log);
+  const old = addFlow({}, 35, t - 20 * 86400_000, 0.1, f);
+  eq('  old days are dropped', Object.keys(pruneFlow({ ...old, ...log }, t)), ['34']);
+  eq('pace: nothing watched is the guess', sidePaceBlend(240, 0, 0), 240);
+  eq('  a day watched with no sale halves it rather than zeroing it', sidePaceBlend(240, 0, 24), 120);
+  eq('  long watching converges on what was seen (576 a day)', Math.round(sidePaceBlend(240, 24000, 1000)), 568);
+  eq('  no guess: watching alone once there’s six hours of it', [sidePaceBlend(null, 10, 5), sidePaceBlend(null, 12, 6)], [null, 48]);
+}
 console.log('\n--- to do and results ---');
 {
   const it = (key, stake, kind = 'move', extra = {}) => ({ key, ver: '1', kind, source: 'orders', title: '', detail: '', stake, action: { label: '' }, ...extra });

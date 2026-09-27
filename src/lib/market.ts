@@ -74,7 +74,7 @@ export type OrderLite = { id: number; isBuy: boolean; price: number; volume: num
 
 // Raw orders are kept beside the summary rather than in it: MarketSnap gets persisted to
 // IndexedDB by the watchlist and the scan, and this list is far too big to store per item.
-const bookCache = new Map<number, { at: number; expires: number | null; snap: Omit<MarketSnap, 'avgVol7' | 'avgPrice7'>; raw: OrderLite[] }>();
+const bookCache = new Map<number, { at: number; expires: number | null; stamp: number | null; partial: boolean; snap: Omit<MarketSnap, 'avgVol7' | 'avgPrice7'>; raw: OrderLite[] }>();
 
 /** Jita 4-4 order book only (The Forge region data, filtered to the station). ESI caches this for 5 minutes. */
 export async function jitaBook(typeId: number, force = false) {
@@ -88,9 +88,9 @@ export async function jitaBook(typeId: number, force = false) {
  * amount of re-checking changes that, and the expiry is what lets the page say so instead of looking
  * broken.
  */
-export async function jitaOrders(typeId: number, force = false): Promise<{ orders: OrderLite[]; expires: number | null }> {
+export async function jitaOrders(typeId: number, force = false): Promise<{ orders: OrderLite[]; expires: number | null; stamp: number | null; partial: boolean }> {
   const e = await readBook(typeId, force);
-  return { orders: e.raw, expires: e.expires };
+  return { orders: e.raw, expires: e.expires, stamp: e.stamp, partial: e.partial };
 }
 
 /**
@@ -108,7 +108,7 @@ async function readBook(typeId: number, force: boolean) {
   const hit = bookCache.get(typeId);
   if (!force && hit && bookFresh(hit)) return hit;
   // A forced read is someone asking again on purpose, so go past the browser's copy of it.
-  const { orders, expires } = await fetchBook(typeId, force);
+  const { orders, expires, stamp, partial } = await fetchBook(typeId, force);
   const here = orders.filter((o) => atJita(typeId, o.location_id));
   const buys = here.filter((o) => o.is_buy_order).sort((a, b) => b.price - a.price);
   const sells = here.filter((o) => !o.is_buy_order).sort((a, b) => a.price - b.price);
@@ -124,7 +124,7 @@ async function readBook(typeId: number, force: boolean) {
     npcSell: sells.some((o) => (o.duration ?? 0) >= NPC_DURATION),
   };
   const raw: OrderLite[] = here.map((o) => ({ id: o.order_id, isBuy: o.is_buy_order, price: o.price, volume: o.volume_remain }));
-  const entry = { at: Date.now(), expires, snap, raw };
+  const entry = { at: Date.now(), expires, stamp, partial, snap, raw };
   bookCache.set(typeId, entry);
   return entry;
 }
@@ -157,16 +157,19 @@ async function fetchBook(typeId: number, fresh: boolean) {
   const first = await esi<RawMarketOrder[]>(path, { query: { ...query, page: 1 }, fresh });
   const orders = [...first.data];
   const pages = Math.min(first.pages ?? 1, 20);
+  // A page that fails is left out here, but the read is marked partial: its orders would otherwise look
+  // like orders that had just been bought out.
+  let partial = (first.pages ?? 1) > pages;
   if (pages > 1) {
     const rest = await Promise.all(
       Array.from({ length: pages - 1 }, (_, i) =>
         esi<RawMarketOrder[]>(path, { query: { ...query, page: i + 2 }, fresh })
           .then((r) => r.data)
-          .catch(() => [] as RawMarketOrder[])),
+          .catch(() => { partial = true; return [] as RawMarketOrder[]; })),
     );
     rest.forEach((r) => orders.push(...r));
   }
-  return { orders, expires: first.expires };
+  return { orders, expires: first.expires, stamp: first.stamp, partial };
 }
 
 /** Daily history for the whole of The Forge (most of it is Jita). Cached for 3 hours. */

@@ -254,6 +254,28 @@ Don't re-derive or contradict these without new evidence.
     says. History lags a day or two and an order repriced since isn't in it at all: the user's Datacore -
     Rocket Science buy at 83,230 was told to cancel ("reached on 2 of 14 days") with 4,133 of 10,000 already
     filled. Consumers read `Relist.unreached`, which carries the override, never `reach` directly.
+- **"Clears in" is paced by what the Jita book was seen doing, not only by a guess from history** (`lib/flow.ts`,
+  `sidePace` in `orderCheck.ts`). A six-hour study of the user's 71 beaten orders (27 September 2026, 03:44–09:44
+  EVE time, 79 reads of each book ~5 minutes apart) found:
+  - the queue mechanics right: every unit sold at Jita came off the orders ahead of theirs;
+  - Jita's whole trade near the Forge's typical pace (median 0.82 of the 14-day median day, 0.6 of the 7-day
+    average);
+  - the buyer/seller split badly off: a median 0.33 from what the books showed, often "nearly all buyers" on
+    items where sellers dumping into bids did nearly all the trading (5245: guessed 1.00, saw 0.3 bought from
+    listings an hour against 26 sold into bids);
+  - only 4 of the 22 orders predicted to reach the front in that window did.
+  So every check compares each book with the previous read of it (`bookFills`: shrunken orders are sales on
+  their side, a vanished order only if it was the best on its side), timed by ESI's own `Expires` (`stamp`)
+  so the same snapshot read twice adds nothing, and gaps over 30 minutes or partial reads are skipped. Kept 14
+  days per item and day in the cache store (`flow`). The pace blends that with the history guess as if the
+  guess were 24 hours of watching (`PRIOR_HOURS`), and the guess now uses the 14-day median day. Orders shows
+  "N h watched" or "history only" under the figure. No re-weighting of history alone helped (every variant was
+  off by 5–20× per item); measuring the side during the user's own play hours is the fix.
+- **Undercuts are shown, not modelled.** In the study 46 of 71 beaten orders were undercut again within six
+  hours, and on busy items new stock arrived at the front ~1.9× as fast as the queue drained, so a queue is not
+  fixed. But the undercut rate read from one book (units ahead placed after your last change, over the time
+  since) predicted the next six hours poorly (median log error 1.49), and subtracting it would flip verdicts to
+  "move" wholesale on thin evidence. The watched rate of new stock at the front is in the Clears-in tip instead.
 - **A one-sided day says nothing about who traded** (`buyerShare`). A day whose trading sat only in the upper
   half of the week around it (or only the lower) is skipped, like a flat day; the median comes from two-sided
   days, and needs `MIN_TWO_SIDED` (7) of them or every day is read as before. Reading such a day by where its
@@ -612,8 +634,13 @@ State these rather than letting them be discovered:
   hulls and the figure stays editable.
 - The colony panel's rendering of live data is **unverified**: it needs the planets scope and a
   character with planets. Its logic is unit-tested; the screen has never been seen with real data.
-- **The buy/sell split is a heuristic.** Where a day's average sits between its low and high says roughly how
-  much traded at the ask, not exactly. It is shown as an estimate and falls back to 50/50 without history.
+- **The buy/sell split is a heuristic, and a weak one.** Where a day's average sits between its low and high was
+  a median 0.33 away from the split the books showed over six hours (some of that is the hour of day). Orders now
+  measures it (see "Clears in"), but the Calculator, Prospects, Loyalty and Hub arbitrage still use the guess
+  alone: their selling times can be several times too fast or too slow for a given item.
+- **"Clears in" assumes nobody undercuts you meanwhile**, and in practice most beaten orders get undercut again
+  within hours. It also needs a day or so of the app watching an item before the measured split outweighs the
+  guess, and it measures during the hours the app is open, which is the right bias for someone deciding now.
 - **Net worth values assets at CCP's rough global average**, which flatters anything hard to sell, and its
   trend exists only from the first day the Wallet page was opened in this browser.
 - **Results leaves out any trade whose item belongs to no activity set**, and counts LP-store goods as loyalty
