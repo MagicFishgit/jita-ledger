@@ -131,7 +131,8 @@ Don't re-derive or contradict these without new evidence.
   character in September 2026: ESI accepted the mail (201, an ID), and `/mail/{id}` and `/mail/labels/`
   showed it in the Inbox (labels 1 and 2, Inbox unread 1). But the client's Inbox, open the whole time,
   never listed it, and it appeared only after logging off to character select and back. So alert mail comes
-  from a second character, and arrives as ordinary incoming mail.
+  from a second character. Sent that way through ESI it arrived in the open client near instantly, with the
+  new-mail notice, as ordinary incoming mail.
 - **EVE mail through ESI** (`esi-mail.*`): POST `/characters/{id}/mail/` takes `{recipients:[{recipient_id,
   recipient_type:'character'}], subject, body, approved_cost}` and answers 201 with the new mail's ID. Body at
   most 10,000 characters, subject 1,000. The body is the client's small HTML: `<br>`, `<b>`, `<font size color>`
@@ -450,8 +451,9 @@ State these rather than letting them be discovered:
 - **PI does not model powergrid or CPU.** Command Center Upgrades governs how many extractor heads
   and factories physically fit; "1 factory per planet" does not check that you can fit it. The
   per-structure costs and per-level budgets are not in ESI.
-- Alert mails' look in the client (ARGB `<font>` colours, `showinfo:` links) was written from the client's
-  mail format and checked only against a mocked ESI, not seen in game.
+- Alert mails were seen in game once, sent from a second character: the ARGB `<font>` colours, `<b>` and the
+  links render as intended. Clicking the `showinfo:` name and the "Open its market in game" link through
+  the client's external-link prompt hasn't been reported on yet.
 - Deep Space Transports, Blockade Runners, Industrials and Jump Freighters get **no** skill cargo
   bonus, because their bonus attributes do not say which stat they modify. Their presets are bare
   hulls and the figure stays editable.

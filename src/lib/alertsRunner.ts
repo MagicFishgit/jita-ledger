@@ -80,7 +80,7 @@ export async function testMail(): Promise<boolean> {
   try {
     await sendAlertMail([{
       kind: 'move', key: 'test', title: ALERT_LABELS.move.label, typeId, name,
-      text: `${name}: this is how an order worth moving will be announced. The item’s name opens it in game, one click from its market.`,
+      text: `${name}: this is how an order worth moving will be announced. The item’s name opens its info in game, and the link below opens its market.`,
     }], true);
     setState({ mailError: null });
     return true;
