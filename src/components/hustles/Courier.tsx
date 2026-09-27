@@ -160,7 +160,7 @@ export function Courier() {
             <div className="g-300" style={{ gap: 14, animation: 'rise .4s ease-out' }}>
               {run.count > 1 && (
                 <div style={{ padding: '14px 16px', background: 'linear-gradient(160deg,rgba(110,231,168,.08),rgba(7,13,21,.9) 60%)', border: '1px solid rgba(110,231,168,.3)' }}>
-                  <div className="lbl">Tonight’s run</div>
+                  <div className="lbl">Best haul you can carry</div>
                   <div className="mono" style={{ fontSize: 26, color: 'var(--pos)', marginTop: 4 }}>{iskBig(run.reward)}</div>
                   <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#9fb3c5' }}>
                     Taking the best {run.count} you can carry pays that much over {units(run.jumps)} jumps{run.collateral > 0 && ` and ties up ${iskBig(run.collateral)} of collateral while you fly them`}.

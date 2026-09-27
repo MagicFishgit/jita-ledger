@@ -817,11 +817,19 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .suggest button[aria-selected='true'], .suggest button:hover { background: color-mix(in oklab, var(--acc) 12%, transparent); }
 .suggest button span:last-child { font-family: var(--f-mono); font-size: 11px; color: var(--faint); }
 
-/* tonight */
+/* to do */
 .tn-item { display: grid; grid-template-columns: 26px 34px 40px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line-soft); border-left: 3px solid transparent; transition: background .2s; }
 .tn-item.sel { background: color-mix(in oklab, var(--acc) 9%, transparent); border-left-color: var(--acc); }
-.tn-item.done { opacity: .45; }
-.tn-item.done .tn-title { text-decoration: line-through; }
+.tn-item.done { opacity: .62; }
+.tn-item.done .tn-title { text-decoration: line-through; text-decoration-color: color-mix(in oklab, var(--ink) 45%, transparent); }
+.tn-item.checking { opacity: .7; }
+.tn-box[aria-disabled='true'] { cursor: default; }
+.tn-how { font-size: 12.5px; color: var(--pos); text-wrap: pretty; }
+.tn-note { font-size: 12px; color: var(--acc2); margin-top: 3px; text-wrap: pretty; }
+.tn-note svg { width: 12px; height: 12px; vertical-align: -1px; margin-right: 5px; }
+.tn-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 18px 10px; border-bottom: 1px solid var(--line-soft); background: color-mix(in oklab, var(--pos) 4%, transparent); }
+.tn-clear { display: flex; align-items: center; gap: 10px; margin: 0; padding: 18px; border-bottom: 1px solid var(--line-soft); font-size: 14px; color: var(--pos); }
+.tn-clear svg { width: 18px; height: 18px; }
 .tn-box { width: 22px; height: 22px; border: 1px solid var(--acc); background: transparent; display: grid; place-items: center; padding: 0; }
 .tn-box svg { width: 14px; height: 14px; color: #03121a; opacity: 0; }
 .tn-box[aria-checked='true'] { background: var(--pos); border-color: var(--pos); }

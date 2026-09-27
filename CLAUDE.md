@@ -3,7 +3,7 @@
 A station-trading tool for EVE Online's Jita 4-4. No server: React + TypeScript + Vite, all state in
 IndexedDB, talking straight to ESI and EVE SSO. Deployed to GitHub Pages on every push to `main`.
 
-Pages: Wallet (home), Tonight's run, Calculator, Prospects (find items), Watchlist, Capital planner, Hub
+Pages: Wallet (home), To do (was Tonight's run; `#tonight` still lands there), Calculator, Prospects (find items), Watchlist, Capital planner, Hub
 arbitrage, Positions, Orders (which of mine are beaten), Results, Loyalty (spending LP), Side hustles
 (Abyssal / Hauling / Planets / Injectors), Combat, Omega, Settings (tabbed: `settings/<tab>`). Inbox is gone:
 its job is the Wallet's "Trades no position tracks" table, and `#inbox` redirects to the Wallet.
@@ -44,7 +44,7 @@ Plain constants (Jita's IDs, skill names, Alpha caps, Caldari Navy, PLEX) live i
 
 That split is deliberate and worth keeping: **pure rules in `prospects.ts` / `relist.ts` / `tick.ts` /
 `schedule.ts` (and the redesign's `split` / `planner` / `arbitrage` / `wallet` / `combat` / `results` /
-`tonight` / `training` / `signals` / `alerts`), I/O in `scan.ts` / `market.ts` / `sync.ts` (and
+`todo` / `training` / `signals` / `alerts`), I/O in `scan.ts` / `market.ts` / `sync.ts` (and
 `orderCheck` / `watch` / `colonyStore` / `killmails` / `attribution` / `alertsRunner`).**
 
 ### Browser checks
@@ -245,7 +245,7 @@ Don't re-derive or contradict these without new evidence.
     Hammerhead II 5.2% → −6.3% and went;
   - a buy order below where trading reaches is told to move *there* (not one tick over the best bid, which
     for the scoop was reached on 1 day of 14), or, if selling on from there misses `settings.target`, gets the
-    `dry` verdict: **Cancel it**. It raises a "move" alert (it replaces a move recommendation) and a Tonight
+    `dry` verdict: **Cancel it**. It raises a "move" alert (it replaces a move recommendation) and a To do
     item, its mail says "RECOMMENDED: cancel this buy order", and it earns nothing per slot;
   - the Calculator's price notes use the same count, since one day's extreme said "inside what sellers
     accepted" about a bid the rest of the fortnight never reached;
@@ -416,8 +416,22 @@ Don't re-derive or contradict these without new evidence.
   items at zero: its value is kept for good. ESI's 400 for an untradable type (a capsule) is a real "no
   price"; any other failure is a retry.
 - **Scopes are looked up by name** (`SCOPE.wallet`), never by position in `SCOPES`.
+- **To do ticks itself off** (`lib/todo.ts`). The user plays without looking at it, and a list still
+  demanding things already done is worse than none. Every finding has a stable `key` (what it's about:
+  `order:ID`, `pi:pin`, `squeeze:position`, `scam:type:flag`, `backup`) and a `ver` (its state: the suggested
+  price, the expiry). The session remembers each one; when a build no longer produces it, a per-kind judge
+  reads the current data and moves it to Done with what changed ("You moved it to 799,300 ISK, and it's at the
+  front", "The heads were reset: it runs until …", "You exported a backup"). **Absent is not done**: before the
+  orders are checked every order is absent, so a judge answers only from a read that can tell (a check that
+  read that item's book, a colony or signal read newer than the one that showed it, or the ledger, which is
+  always current), and otherwise the item stays listed as being checked. While the page is open it re-checks
+  the orders when ESI's book expires (not more than every 2 minutes), colonies every 10 minutes while a PI item
+  waits, and at once when the tab becomes visible again. A tick by hand holds for the same `ver` only: a chore
+  for 12 hours, a warning (scam, squeeze) until it changes, so a new undercut reopens a skipped move. Done items
+  stay listed 12 hours. The book cache in `market.ts` lets go at ESI's Expires rather than 5 minutes after our
+  read, which had put a relist up to 10 minutes behind.
 - **Pages that need the same live answer share one store**: `orderCheck` (your orders against the book),
-  `watch` (squeeze and scam signals), `colonyStore` and the killmail pricer. Orders, Tonight's run and the
+  `watch` (squeeze and scam signals), `colonyStore` and the killmail pricer. Orders, To do and the
   alerts all read `orderCheck` rather than fetching the same books three times.
 - **Killmails are priced once, from market history on the day, and never re-priced.** A loss in March cost
   March's prices. Refits use today's Jita book because that is what you'd pay now; the two are shown side by side.

@@ -23,7 +23,8 @@ import { shouldAlert, nextCheckIn, alertMail, isStaleAlertMail, MAIL_SUBJECT, ke
 import { spForLevel, spPerMinute, trainingDays, monthlyGain } from '../src/lib/training.ts';
 import { categoryOf, flows, feeLeak, balanceAt, balanceSeries, autoTag, nextTag, runwayDays, unusual, csvCell } from '../src/lib/wallet.ts';
 import { readKillmail, priceOnDay, valueKillmail, activityOf, matchInsurance, learnedGankLines, gankLineFor, multibuy } from '../src/lib/combat.ts';
-import { orderTonight, summarise, MINUTES } from '../src/lib/tonight.ts';
+import { orderTodo, remember, split, summarise, judgeOrder, judgePi, judgeScam, SESSION_MS } from '../src/lib/todo.ts';
+import { fmtDateTime } from '../src/lib/format.ts';
 import { byDay, totals, perHour, attribute } from '../src/lib/results.ts';
 import { sanitizePrefs, sanitizeAlerts, effectiveMotion } from '../src/lib/prefs.ts';
 
@@ -1281,14 +1282,55 @@ console.log('\n--- gank bait ---');
   eq('a combat ship has no hauling class', hullClassOf('Cruiser'), null);
 }
 
-console.log('\n--- tonight and results ---');
-const it = (id, stake, kind = 'move') => ({ id, kind, title: '', detail: '', stake, action: { label: '' } });
-eq('most ISK first', orderTonight([it('a', 1), it('b', 5), it('c', 3)]).map((x) => x.id), ['b', 'c', 'a']);
-const sum = summarise([it('a', 10), it('b', 5, 'piExpired')], new Set(['a']));
-eq('what is left', sum.left, 1);
-eq('  its ISK', sum.stake, 5);
-eq('  and its rough time', sum.minutes, MINUTES.piExpired);
-eq('  half done', sum.frac, 0.5);
+console.log('\n--- to do and results ---');
+{
+  const it = (key, stake, kind = 'move', extra = {}) => ({ key, ver: '1', kind, source: 'orders', title: '', detail: '', stake, action: { label: '' }, ...extra });
+  eq('most ISK first', orderTodo([it('a', 1), it('b', 5), it('c', 3)]).map((x) => x.key), ['b', 'c', 'a']);
+  const T0 = Date.parse('2026-09-27T10:00:00Z');
+  const cant = () => null;
+  const at = () => T0;
+  // Seen, then the page loads again before the orders are checked: nothing is present, nothing can be judged.
+  const m = remember({}, [it('order:1', 10), it('pi:2', 5, 'piEnding', { source: 'colonies' })], at, cant, T0);
+  const reload = remember(m, [], at, cant, T0 + 60_000);
+  eq('absent is not done: nothing is ticked off before a newer read', Object.values(reload).filter((e) => e.done).length, 0);
+  eq('  both still listed, as being checked', split(reload, new Set()).open.map((o) => [o.e.item.key, o.checking]), [['order:1', true], ['pi:2', true]]);
+  const later = remember(reload, [], at, (e) => (e.item.key === 'order:1' ? 'moved' : null), T0 + 120_000);
+  eq('a newer read ticks it off, saying what changed', later['order:1'].done, { at: T0 + 120_000, how: 'moved' });
+  eq('  the other keeps waiting', later['pi:2'].done, undefined);
+  const s2 = summarise(split(later, new Set()));
+  eq('  one left, half done', [s2.left, s2.frac], [1, 0.5]);
+  eq('  its ISK and rough time', [s2.stake, s2.minutes], [5, 4]);
+  eq('a finding that comes back is open again', remember(later, [it('order:1', 10)], at, cant, T0 + 180_000)['order:1'].done, undefined);
+  const tick = (mm, key) => ({ ...mm, [key]: { ...mm[key], ticked: { ver: mm[key].item.ver, at: T0 } } });
+  const both = [it('order:1', 10), it('scam:3:wall', 0, 'scam', { source: 'signals' })];
+  const t = tick(tick(remember({}, both, at, cant, T0), 'order:1'), 'scam:3:wall');
+  eq('a tick by hand holds on the same version', !!remember(t, both, at, cant, T0 + 3600_000)['order:1'].ticked, true);
+  eq('  a new undercut reopens it', remember(t, [it('order:1', 10, 'move', { ver: '2' })], at, cant, T0 + 3600_000)['order:1'].ticked, undefined);
+  const after = remember(t, both, at, cant, T0 + SESSION_MS + 1);
+  eq('  a chore ticked by hand comes back after the session', after['order:1'].ticked, undefined);
+  eq('  a warning stays seen while it lasts', !!after['scam:3:wall'].ticked, true);
+  eq('  ticked items count as done', split(remember(t, both, at, cant, T0 + 1), new Set(['order:1', 'scam:3:wall'])).done.length, 2);
+  eq('done and unjudged items are forgotten after the session', Object.keys(remember(later, [], at, cant, T0 + 120_000 + SESSION_MS + 1)), []);
+
+  const e = { item: it('order:1', 10, 'move', { price: 100 }), seenAt: 0, lastAt: 0 };
+  const v = (verdict, price = 100, extra = {}) => ({ gone: false, verdict, price, why: 'Only 3 ahead of you, about 2 h at this item’s pace', ...extra });
+  const seen = { open: true, checked: true, bookRead: true };
+  eq('an order the sync says closed', judgeOrder(e, { open: false, checked: false, bookRead: false }), 'The order has closed: it filled, expired or was cancelled.');
+  eq('  before any check: can’t say', judgeOrder(e, { open: true, checked: false, bookRead: false }), null);
+  eq('  its book failed to load: can’t say', judgeOrder(e, { ...seen, bookRead: false, v: v('front') }), null);
+  eq('  gone from the book', judgeOrder(e, { ...seen, v: v('front', 100, { gone: true }) }), 'It’s no longer in the market: it filled, expired or was cancelled.');
+  eq('  relisted to the front', judgeOrder(e, { ...seen, v: v('front', 99.5) }), 'You moved it to 99.50 ISK, and it’s at the front.');
+  eq('  the queue cleared by itself', judgeOrder(e, { ...seen, v: v('front') }), 'It’s at the front now: the orders ahead of it have gone.');
+  eq('  no longer worth moving', judgeOrder(e, { ...seen, v: v('wait') }), 'Not worth moving now: only 3 ahead of you, about 2 h at this item’s pace.');
+  eq('  still worth moving is not done', judgeOrder(e, { ...seen, v: v('move', 99) }), null);
+  const pe = { item: it('pi:9', 5, 'piEnding', { source: 'colonies' }), seenAt: 1000, lastAt: 1000 };
+  const ends = Date.parse('2026-09-30T14:00:00Z');
+  eq('PI: the same read can’t say', judgePi(pe, { readAt: 1000, extractor: null }, T0), null);
+  eq('  a newer read with the heads reset', judgePi(pe, { readAt: 2000, extractor: { expiry: ends } }, T0), `The heads were reset: it runs until ${fmtDateTime(ends)}.`);
+  eq('  a newer read, still ending', judgePi(pe, { readAt: 2000, extractor: { expiry: T0 + 3600_000 } }, T0), null);
+  const se = { item: it('scam:3:wall', 0, 'scam', { source: 'signals' }), seenAt: 1000, lastAt: 1000 };
+  eq('a wall needs a newer read to clear', [judgeScam(se, { tracked: true, signalAt: 1000 }), judgeScam(se, { tracked: true, signalAt: 2000 })], [null, 'The wall has gone.']);
+}
 const acts = ['Trading', 'Abyssal'];
 const series = byDay([{ t: Date.parse('2026-09-25T10:00:00Z'), activity: 'Trading', isk: 5 }, { t: Date.parse('2026-09-26T10:00:00Z'), activity: 'Abyssal', isk: 7 },
   { t: Date.parse('2026-08-01T10:00:00Z'), activity: 'Trading', isk: 99 }], 2, Date.parse('2026-09-26T12:00:00Z'), acts);
@@ -1765,7 +1807,7 @@ console.log('\n--- alert mail ---');
   eq('two alerts: one mail, both named in the subject', two.subject, 'Jita Ledger: Order worth moving · PI programme ending');
   eq('  both in the body', two.body.includes('Tama: an extraction') && two.body.includes('market=2185'), true);
   eq('  kept mails say so', two.body.includes('Alert mails are kept'), true);
-  eq('a PI alert alone links to Tonight', alertMail([pi], { appUrl: 'u/', keepMin: 1440 }).body.includes('u/#tonight'), true);
+  eq('a PI alert alone links to the to-do list', alertMail([pi], { appUrl: 'u/', keepMin: 1440 }).body.includes('u/#todo'), true);
   eq('  and a day reads as a day', alertMail([pi], { appUrl: 'u/', keepMin: 1440 }).body.includes('deleted after a day'), true);
   eq('a test says so in the subject', alertMail([move], { appUrl: '', keepMin: 4320, test: true }).subject, 'Jita Ledger: test — Order worth moving');
   const odd = { ...pi, text: 'A <b> & C', typeId: 5, name: 'Nope' };

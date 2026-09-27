@@ -11,7 +11,7 @@ import { SCOPE } from './config';
 /**
  * Your colonies, read once and shared.
  *
- * The Planets page reads them when asked; Tonight's run and the background alerts need the same
+ * The Planets page reads them when asked; the To do list and the background alerts need the same
  * answer, mainly to know when an extraction programme stops. Reading them three times would be three
  * times the requests for one answer.
  */

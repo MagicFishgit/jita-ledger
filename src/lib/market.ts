@@ -93,9 +93,20 @@ export async function jitaOrders(typeId: number, force = false): Promise<{ order
   return { orders: e.raw, expires: e.expires };
 }
 
+/**
+ * A book read is kept until ESI says it has a newer one, not for five minutes from when we read it: the
+ * copy we got may already have been minutes old, and holding it a full five more put a relist made in
+ * game up to ten minutes behind. Kept at least BOOK_MIN, so an Expires already past can't make every
+ * read a request, and never past BOOK_MAX.
+ */
+const BOOK_MIN = 30_000;
+const BOOK_MAX = 5 * 60_000;
+const bookFresh = (hit: { at: number; expires: number | null }, now = Date.now()) =>
+  now < Math.min(hit.at + BOOK_MAX, Math.max(hit.at + BOOK_MIN, hit.expires ?? hit.at + BOOK_MAX));
+
 async function readBook(typeId: number, force: boolean) {
   const hit = bookCache.get(typeId);
-  if (!force && hit && Date.now() - hit.at < 5 * 60_000) return hit;
+  if (!force && hit && bookFresh(hit)) return hit;
   // A forced read is someone asking again on purpose, so go past the browser's copy of it.
   const { orders, expires } = await fetchBook(typeId, force);
   const here = orders.filter((o) => atJita(typeId, o.location_id));

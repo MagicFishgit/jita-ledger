@@ -221,7 +221,7 @@ export function alertMail(findings: Finding[], opts: { appUrl: string; keepMin: 
     n > shown.length ? `<br>…and ${n - shown.length} more in the app.<br>` : '',
     findings.some((f) => f.kind === 'move' || f.kind === 'clearing')
       ? `<br><a href="${opts.appUrl}#orders">Open your orders in Jita Ledger</a><br>`
-      : `<br><a href="${opts.appUrl}#tonight">Open Tonight’s run in Jita Ledger</a><br>`,
+      : `<br><a href="${opts.appUrl}#todo">Open your to-do list in Jita Ledger</a><br>`,
     `<br>${sized(SIZE.small, col('grey', `${opts.keepMin == null ? 'Alert mails are kept' : `This mail is deleted after ${keepSaid(opts.keepMin)}, read or not`}. Change that, or turn mail alerts off, in Jita Ledger → Settings → Alerts.`))}`,
     '</font>',
   ].join('');

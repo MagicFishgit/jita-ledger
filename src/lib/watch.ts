@@ -9,7 +9,7 @@ import type { ProspectStats, ProspectWarning } from './types';
  *
  * The suspicious-market flags (a wall, escrow bait, a spike) and the margin line behind the squeeze
  * warning, for every item you have a stake in. Read from the same history and book as Prospects, and
- * shared by Positions, Tonight's run and the alerts.
+ * shared by Positions, the To do list and the alerts.
  */
 export const SCAM_FLAGS: ProspectWarning[] = ['wall', 'escrow', 'spike'];
 

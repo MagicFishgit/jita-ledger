@@ -4,14 +4,14 @@ import {
 } from 'lucide-react';
 
 export type PageKey =
-  | 'wallet' | 'tonight' | 'calculator' | 'prospects' | 'watchlist' | 'planner' | 'arbitrage'
+  | 'wallet' | 'todo' | 'calculator' | 'prospects' | 'watchlist' | 'planner' | 'arbitrage'
   | 'positions' | 'orders' | 'results' | 'loyalty' | 'hustles' | 'combat' | 'omega' | 'settings';
 
 export type NavItem = { key: PageKey; label: string; icon: LucideIcon };
 export type NavGroup = { label: string; items: NavItem[] };
 
 export const NAV: NavGroup[] = [
-  { label: 'Today', items: [{ key: 'wallet', label: 'Wallet', icon: Wallet }, { key: 'tonight', label: 'Tonight’s run', icon: ListChecks }] },
+  { label: 'Today', items: [{ key: 'wallet', label: 'Wallet', icon: Wallet }, { key: 'todo', label: 'To do', icon: ListChecks }] },
   {
     label: 'Market', items: [
       { key: 'calculator', label: 'Calculator', icon: Calculator }, { key: 'prospects', label: 'Prospects', icon: Radar },

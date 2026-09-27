@@ -202,7 +202,7 @@ export function Positions() {
           { icon: Play, title: 'Start before you buy', body: 'Set the start date to before your first buy order, so every fill counts. Trades before it are flagged on the position as “trades nearby”, so you can count or ignore them.' },
           { icon: Layers, title: 'One open position per item', body: 'Close it when everything has sold, then start a new one next time. That keeps each result clean.' },
           { icon: TrendingDown, title: 'Watch the margin column', body: 'It shows the daily range over the last week against your break-even. “Squeezed” means competition is closing the gap — sell down before you’re stuck.' },
-          { icon: Lock, title: 'Close to lock in', body: 'Closing freezes the result, which is what Results and Tonight’s run use.' },
+          { icon: Lock, title: 'Close to lock in', body: 'Closing freezes the result, which is what Results and the To do list use.' },
         ]}
         habits={[{ icon: Inbox, title: 'Personal purchases stay out', body: 'Anything you bought for yourself can be excluded inside a position, or tagged Personal on the Wallet page.' }]}
       />

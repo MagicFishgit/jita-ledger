@@ -20,7 +20,7 @@ import { Toasts } from './components/shell/Toasts';
 import { Palette } from './components/shell/Palette';
 import { pageOf, type PageKey } from './components/shell/nav';
 import { Wallet } from './components/Wallet';
-import { Tonight } from './components/Tonight';
+import { Todo } from './components/Todo';
 import { Calculator } from './components/Calculator';
 import { Prospects } from './components/Prospects';
 import { Watchlist } from './components/Watchlist';
@@ -39,7 +39,7 @@ import { Notice } from './components/ui';
 import { PageBoundary } from './components/shell/PageBoundary';
 
 const RAIL_KEY = 'jita-ledger:rail';
-const PAGES = new Set<string>(['wallet', 'tonight', 'calculator', 'prospects', 'watchlist', 'planner', 'arbitrage', 'positions', 'orders', 'results', 'loyalty', 'hustles', 'combat', 'omega', 'settings']);
+const PAGES = new Set<string>(['wallet', 'todo', 'calculator', 'prospects', 'watchlist', 'planner', 'arbitrage', 'positions', 'orders', 'results', 'loyalty', 'hustles', 'combat', 'omega', 'settings']);
 
 function readRail(): boolean {
   try {
@@ -240,7 +240,7 @@ export function App() {
             <PageBoundary key={routeKey}>
             {!ready ? null
               : page === 'wallet' ? <Wallet />
-              : page === 'tonight' ? <Tonight />
+              : page === 'todo' ? <Todo />
               : page === 'calculator' ? <Calculator route={route} />
               : page === 'prospects' ? <Prospects />
               : page === 'watchlist' ? <Watchlist />

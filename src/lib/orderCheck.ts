@@ -11,7 +11,7 @@ import type { Order } from './types';
 /**
  * Your open orders checked against the live Jita book, shared.
  *
- * The Orders page, Tonight's run and the background alerts all ask the same question of the same
+ * The Orders page, the To do list and the background alerts all ask the same question of the same
  * books. Fetching them three times would triple the traffic for one answer, so the result lives here
  * and every page reads it.
  */

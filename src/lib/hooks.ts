@@ -28,7 +28,8 @@ export type Route = { path: string[]; query: URLSearchParams };
 
 /** The home page. The Inbox it replaced has no page of its own any more, so its links land here. */
 export const HOME = 'wallet';
-const RENAMED: Record<string, string> = { inbox: HOME };
+/** Old addresses, still in bookmarks and alert mails. Tonight's run became To do: people don't only play at night. */
+const RENAMED: Record<string, string> = { inbox: HOME, tonight: 'todo' };
 
 export function parseHash(hash = window.location.hash): Route {
   const raw = hash.replace(/^#\/?/, '');

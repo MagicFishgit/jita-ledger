@@ -162,7 +162,7 @@ export function Planner() {
 
       <Guide
         title="How to use the planner"
-        intro={<>The planner answers one question: <b style={{ color: 'var(--ink)' }}>if I had to spread this ISK across the market tonight, where would it earn the most per day without getting stuck?</b> It’s a starting point for your own judgement, not an order to follow.</>}
+        intro={<>The planner answers one question: <b style={{ color: 'var(--ink)' }}>if I had to spread this ISK across the market right now, where would it earn the most per day without getting stuck?</b> It’s a starting point for your own judgement, not an order to follow.</>}
         groups={[
           {
             title: 'Setting it up', steps: [
@@ -185,7 +185,7 @@ export function Planner() {
           { icon: Layers, title: 'Start one position per item', body: 'Once the buy orders are placed, start a position for each item so your fills are tracked from the first unit. That’s how Results can later tell you what worked.', color: '#6ee7a8' },
           { icon: RefreshCw, title: 'Re-run it as things fill', body: 'As orders fill and ISK comes back, run the planner again with what’s free. The best items change daily.', color: 'var(--acc2)' },
           { icon: ShieldAlert, title: 'Trust the flags', body: 'Items marked Wall, Spike, Fluke or Escrow bait are left out on purpose. Others, like Bids not reached or Thin, stay in but show in the Flags column: hover one before you commit.', color: '#ff8d9a' },
-          { icon: ListChecks, title: 'Let Tonight’s run do the upkeep', body: 'Once the orders are placed, the daily work is moving the ones that get beaten. Tonight’s run and the undercut alerts tell you which.' },
+          { icon: ListChecks, title: 'Let To do handle the upkeep', body: 'Once the orders are placed, the daily work is moving the ones that get beaten. The To do list and the undercut alerts tell you which.' },
           { icon: Scale, title: 'Spread beats size', body: 'Ten modest markets are safer than two big ones at the same expected profit. When unsure, lower the cap per item.', color: '#a98bff' },
         ]}
       />
