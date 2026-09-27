@@ -74,7 +74,7 @@ export function Watchlist() {
                 <tr>
                   <Th left>#</Th><Th left>Item</Th><Th>Top buy</Th><Th>Lowest sell</Th><Th>Spread</Th><Th>Return</Th>
                   <Th>Profit / unit</Th><Th>7-day volume</Th>
-                  <Th tip="Net profit per unit times the units a day your orders can expect: the slower of the two sides of the volume, at your share, scaled for how many orders you queue among.">Est. ISK per day</Th>
+                  <Th tip={'A rough daily profit from trading this item.\n\n• Net profit per unit, times the units a day your orders can expect.\n• That’s the slower side of the volume, at your share, scaled for how many orders you queue among.'}>Est. ISK per day</Th>
                   <Th>Updated</Th><th scope="col" style={{ color: 'var(--faint-2)' }}>Actions</th>
                 </tr>
               </thead>

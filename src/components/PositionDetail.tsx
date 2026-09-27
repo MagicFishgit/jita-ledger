@@ -117,18 +117,18 @@ export function PositionDetail({ id }: { id: string }) {
       l: 'In your hangar and orders', v: `${units(actual)} units`, c: drift !== 0 ? 'var(--acc2)' : undefined,
       n: drift === 0 ? `Matches what your trades say you should have${committed > 0 ? ` (${units(committed)} of them listed for sale)` : ''}`
         : `${units(Math.abs(drift as number))} ${(drift as number) > 0 ? 'more' : 'fewer'} than your trades say you should have${committed > 0 ? `; ${units(committed)} are listed for sale` : ''}`,
-      tip: 'Counted from your assets at the last sync: loose in your Jita 4-4 hangar plus whatever is listed in your sell orders, which hold their own goods. If this differs from "Still to sell", some trades are missing from this position or were counted by another.',
+      tip: 'What you actually hold, counted from your assets at the last sync:\n\n• loose in your Jita 4-4 hangar;\n• plus whatever is listed in your sell orders, which hold their own goods.\n\nIf this differs from "Still to sell", some trades are missing from this position, or another position counted them.',
     });
   }
   stats.push({
     l: 'Broker fees', v: iskBig(c.brokerFees),
     n: c.prepaidFees > 0 ? `${iskBig(c.prepaidFees)} of it is for orders still waiting to fill, and counts against your profit only as they do` : c.brokerFees ? 'Charged against the units they were paid for' : 'No orders found yet',
-    tip: `A fee charged when you place an order, on the whole order, plus one each time you change its price. ESI’s journal doesn’t say which order a fee was for, so each is matched to your order by the second it was charged; ${c.brokerEstimatedOrders ? `${units(c.brokerEstimatedOrders)} of ${units(c.brokerActualOrders + c.brokerEstimatedOrders)} orders’ placing fees couldn’t be matched and are worked out from your rate` : 'every order’s placing fee was matched'}. Each order’s fee is split across its units, so a listing for 2,000 units isn’t counted as a loss on the first 5 that sell.`,
+    tip: `The fee for placing an order, on the whole order, plus one each time you change its price.\n\n• Matched to your orders by the second it was charged, since ESI’s journal doesn’t say which order a fee was for.\n• ${c.brokerEstimatedOrders ? `${units(c.brokerEstimatedOrders)} of ${units(c.brokerActualOrders + c.brokerEstimatedOrders)} orders’ placing fees couldn’t be matched, so they’re worked out from your rate.` : 'Every order’s placing fee was matched.'}\n• Each order’s fee is split across its units.\n\nFor example: a listing for 2,000 units isn’t counted as a loss on the first 5 that sell.`,
   });
   stats.push({
     l: 'Sales tax', v: iskBig(c.salesTax),
     n: c.taxActual && !c.taxEstimated ? 'From your wallet journal' : c.taxActual ? `${units(c.taxEstimated)} of ${units(c.taxActual + c.taxEstimated)} sales worked out from your tax rate` : c.taxEstimated ? 'Worked out from your tax rate' : undefined,
-    tip: 'Charged on every sale. Read from your wallet journal, matched to the sale by the second it happened and its size; worked out from your tax rate at the time when no entry matches.',
+    tip: 'Charged on every sale.\n\n• Read from your wallet journal, matched to the sale by the second it happened and its size.\n• When no entry matches, worked out from your tax rate at the time.',
   });
   if (c.manualFees > 0) stats.push({ l: 'Fees on manual entries', v: iskBig(c.manualFees) });
   stats.push({
@@ -136,7 +136,7 @@ export function PositionDetail({ id }: { id: string }) {
     n: c.priceChanges
       ? `${units(c.priceChanges)} change${c.priceChanges === 1 ? '' : 's'}${c.relistsEstimated ? `; ${units(c.relistsEstimated)} of the fees worked out from your rates` : ', each fee read from your journal'}`
       : 'Moving an order’s price costs a fee each time; they’ll show here',
-    tip: 'Each time you change an order’s price to get back on top, you pay a fee. The app keeps every version of your orders it sees at each sync: a new price is a change, and its fee is matched to your wallet journal by the second it was charged, or worked out from your rates if no entry matches. Two changes between syncs show as one, and changes made before the app started keeping order history can’t be counted. A change’s fee is charged on the units still on the order, so like the listing fee it comes off your profit a share at a time as those units sell.',
+    tip: 'The fee you pay each time you change an order’s price to get back on top.\n\n• The app keeps every version of your orders it sees at each sync, so a new price is a change.\n• Its fee is matched to your wallet journal by the second, or worked out from your rates if nothing matches.\n• Like the listing fee, it’s charged on the units still on the order and comes off your profit as they sell.\n\nWhat it can’t see: two changes between syncs show as one, and changes from before the app kept order history aren’t counted.',
   });
 
   if (c.stock > 0 && c.avgCost != null && keep > 0) {
@@ -145,12 +145,12 @@ export function PositionDetail({ id }: { id: string }) {
     stats.push({
       l: 'Break-even price', v: isk(be),
       n: 'Sell above this and each unit makes money',
-      tip: `What a unit has to sell for to get back the ${isk(c.avgCost)} it cost you, after the broker fee and sales tax on the sale itself. Example: sell one at ${isk(be)} and you end up with exactly what you paid.`,
+      tip: `What a unit has to sell for to get back the ${isk(c.avgCost)} it cost you, after the broker fee and sales tax on the sale.\n\nFor example: sell one at ${isk(be)} and you end up with exactly what you paid.`,
     });
     stats.push({
       l: 'Break-even after 2 price cuts', v: isk(be2), c: 'var(--acc2)',
       n: 'The same, if you have to lower your price twice before it all sells',
-      tip: `Changing an order’s price costs another fee, and on a busy item you’ll usually be undercut and change it a couple of times. This assumes two changes, each charged on the half of the order still unsold. Example: list at ${isk(be2)}, get undercut twice, and you still break even.`,
+      tip: `The break-even price if you have to lower your price twice before it all sells.\n\n• Each change costs another fee, and on a busy item you’ll usually be undercut a couple of times.\n• This assumes two changes, each charged on the half of the order still unsold.\n\nFor example: list at ${isk(be2)}, get undercut twice, and you still break even.`,
     });
     const sug = realBest != null ? tickDown(realBest) : NaN;
     if (Number.isFinite(sug) && snap) {
@@ -170,7 +170,7 @@ export function PositionDetail({ id }: { id: string }) {
           l: 'Sell to buyers right now', v: iskBigSigned(dump), c: dump >= 0 ? 'var(--pos)' : 'var(--neg)',
           n: w.left > 0 ? `The buy orders in Jita take ${units(w.sold)} of your ${units(c.stock)}; nobody is bidding for the other ${units(w.left)}`
             : `The buy orders in Jita take all ${units(c.stock)}, at ${isk(w.value / w.sold)} each after tax`,
-          tip: 'What you’d make or lose selling straight into the buy orders in Jita now, instead of listing: the best bid first, then the next, until your stock runs out or the bids do. After sales tax, against what those units cost you. The quick way out, usually at a loss.',
+          tip: 'What you’d make or lose selling straight into Jita’s buy orders now, instead of listing.\n\n• The best bid first, then the next, until your stock or the bids run out.\n• After sales tax, against what those units cost you.\n\nThe quick way out, usually at a loss.',
         });
       } else stats.push({ l: 'Sell to buyers right now', v: '–', n: 'Nobody is bidding for it in Jita 4-4 right now' });
     }
@@ -228,7 +228,7 @@ export function PositionDetail({ id }: { id: string }) {
             <div className="mono" style={{ fontSize: 'clamp(30px,3vw,42px)', lineHeight: 1, color: pc, textShadow: `0 0 26px ${c.realized >= 0 ? 'rgba(110,231,168,.3)' : 'rgba(255,107,125,.3)'}` }}>{iskBigSigned(c.realized)}</div>
             <div style={{ fontSize: 12.5, color: 'var(--sec)', marginTop: 4 }}>{finished ? 'Final profit, after fees and tax' : `Profit on the ${units(c.sold)} sold so far, after their fees and tax`}</div>
             {c.roi != null && <div className="mono" style={{ fontSize: 12.5, color: 'var(--dim)' }}>{c.roi >= 0 ? '+' : ''}{pct(c.roi, 1)} on what those units cost you</div>}
-            {c.prepaidFees > 0 && <div style={{ fontSize: 12, color: 'var(--note)', marginTop: 2 }} data-tip="A broker fee is paid on a whole order when you place it. The part for units that haven’t traded yet isn’t a loss on what has sold, so it’s set aside and comes off as those units sell." data-tip-title="Fees paid up front">+ {iskBig(c.prepaidFees)} of broker fees paid up front on your open orders</div>}
+            {c.prepaidFees > 0 && <div style={{ fontSize: 12, color: 'var(--note)', marginTop: 2 }} data-tip={'Broker fees already paid for the part of your orders that hasn’t sold yet.\n\n• A fee is paid on a whole order when you place it.\n• The part for unsold units isn’t a loss on what has sold, so it’s set aside and comes off as those units sell.'} data-tip-title="Fees paid up front">+ {iskBig(c.prepaidFees)} of broker fees paid up front on your open orders</div>}
           </div>
           <div className="head-actions">
             <OpenInGame typeId={pos.typeId} name={name} label="Open in game" variant="btn" />

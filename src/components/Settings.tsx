@@ -16,11 +16,11 @@ import { ALERT_LABELS, tidyEvery } from '../lib/alerts';
 import { testAlert, testMail, useAlertRunner, BACKUP_DAYS } from '../lib/alertsRunner';
 import { useMotion, bumpWarp } from '../lib/motion';
 import { toast } from '../lib/toast';
-import type { Motion, Theme } from '../lib/types';
+import type { AlertEvent, Motion, Theme } from '../lib/types';
 import { downloadText, LevelBoxes } from './common';
 import { CloneSwitch } from './Omega';
 import { useSkillPayback } from './payback';
-import { Check, cssVars, Notice, NumChip, PageHead, Seg } from './ui';
+import { Check, cssVars, Notice, NumChip, PageHead, Seg, Tip } from './ui';
 
 type Tab = 'account' | 'skills' | 'rates' | 'alerts' | 'appearance' | 'data';
 const TABS: Tab[] = ['account', 'skills', 'rates', 'alerts', 'appearance', 'data'];
@@ -400,7 +400,9 @@ function Alerts() {
             <div className="lbl" style={{ marginBottom: 8 }}>Tell me when</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,300px),1fr))', gap: '12px 24px', opacity: a.on ? 1 : 0.45 }}>
               {ALERT_EVENTS.map((k) => (
-                <Check key={k} bare checked={a.ev[k]} onChange={(v) => setA({ ev: { ...a.ev, [k]: v } })} desc={ALERT_LABELS[k].what}>{ALERT_LABELS[k].label}</Check>
+                <WithTip key={k} k={k}>
+                  <Check bare checked={a.ev[k]} onChange={(v) => setA({ ev: { ...a.ev, [k]: v } })} desc={ALERT_LABELS[k].what}>{ALERT_LABELS[k].label}</Check>
+                </WithTip>
               ))}
             </div>
           </div>
@@ -457,6 +459,19 @@ function Alerts() {
         </Card>
       </div>
     </>
+  );
+}
+
+/**
+ * An alert's checkbox with its "i" beside the name. The tip sits outside the checkbox, since a button
+ * can't hold another button, and on the first line when the checkbox has a description under it.
+ */
+function WithTip({ k, children }: { k: AlertEvent; children: ReactNode }) {
+  return (
+    <span style={{ display: 'flex', alignItems: 'flex-start', gap: 7, minWidth: 0 }}>
+      {children}
+      <span style={{ marginTop: 1 }}><Tip text={ALERT_LABELS[k].tip} title={ALERT_LABELS[k].label} /></span>
+    </span>
   );
 }
 
@@ -529,8 +544,10 @@ function MailAlerts() {
         <div className="lbl" style={{ marginBottom: 8 }}>Mail me about</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,220px),1fr))', gap: '10px 24px', opacity: a.mail ? 1 : 0.45 }}>
           {ALERT_EVENTS.map((k) => (
-            <Check key={k} bare checked={a.mailEv[k] && a.ev[k]} disabled={!a.ev[k]} onChange={(v) => setA({ mailEv: { ...a.mailEv, [k]: v } })}
-              desc={!a.ev[k] ? 'Turned off under “Tell me when”' : undefined}>{ALERT_LABELS[k].label}</Check>
+            <WithTip key={k} k={k}>
+              <Check bare checked={a.mailEv[k] && a.ev[k]} disabled={!a.ev[k]} onChange={(v) => setA({ mailEv: { ...a.mailEv, [k]: v } })}
+                desc={!a.ev[k] ? 'Turned off under “Tell me when”' : undefined}>{ALERT_LABELS[k].label}</Check>
+            </WithTip>
           ))}
         </div>
         <p className="note small" style={{ marginTop: 8 }}>By default only the two you can act on from inside the game: an order worth moving, and a planet about to stop.</p>

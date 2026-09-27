@@ -27,21 +27,27 @@ export function parseISK(input: string | null | undefined): number {
   return Number.isFinite(n) ? n * mult : NaN;
 }
 
+/**
+ * An amount of ISK. Under 100,000 it keeps the cents a market price can carry (5.50 ISK), but a whole
+ * number drops its ".00": "5,000.00 ISK" was hard to read and said nothing "5,000 ISK" doesn't.
+ */
 export function isk(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '–';
   const a = Math.abs(n);
-  return (n < 0 ? MINUS : '') + (a < 100000 ? nf2 : nf0).format(a) + ' ISK';
+  const s = a < 100000 ? nf2.format(a).replace(/\.00$/, '') : nf0.format(a);
+  return (n < 0 && s !== '0' ? MINUS : '') + s + ' ISK';
 }
 export function iskSigned(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '–';
   return (n > 0 ? '+' : '') + isk(n);
 }
+/** Big amounts in M, B or T, to two decimals with trailing zeros dropped: 14.81 M, 14.5 M, 14 M. */
 export function iskBig(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '–';
   const a = Math.abs(n), sign = n < 0 ? MINUS : '';
-  if (a >= 1e12) return sign + (a / 1e12).toFixed(2) + ' T ISK';
-  if (a >= 1e9) return sign + (a / 1e9).toFixed(2) + ' B ISK';
-  if (a >= 1e6) return sign + (a / 1e6).toFixed(2) + ' M ISK';
+  if (a >= 1e12) return sign + +(a / 1e12).toFixed(2) + ' T ISK';
+  if (a >= 1e9) return sign + +(a / 1e9).toFixed(2) + ' B ISK';
+  if (a >= 1e6) return sign + +(a / 1e6).toFixed(2) + ' M ISK';
   return isk(n);
 }
 export function iskBigSigned(n: number | null | undefined): string {

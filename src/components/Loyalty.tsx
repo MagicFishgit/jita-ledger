@@ -236,7 +236,7 @@ export function Loyalty() {
           <section data-rv="" style={{ flex: '1 1 320px', minWidth: 0, position: 'relative', padding: 18, overflow: 'hidden', background: 'linear-gradient(160deg,color-mix(in oklab,var(--acc2) 12%,rgba(7,13,21,.92)),rgba(7,13,21,.92) 60%)', border: '1px solid color-mix(in oklab,var(--acc2) 35%,transparent)', clipPath: 'var(--cut)' }}>
             <div className="hero-l" style={{ color: 'var(--acc2)' }}>
               Spend it like this
-              <Tip title="Spend it like this" text="The best rate first, taken as many times as the market will absorb within the days you allowed, then the next best, until the points or the ISK run out. Only offers priced against the live Jita book with a trading history to judge the pace by are used." />
+              <Tip title="Spend it like this" text={'How to spend your points for the most ISK:\n\n• the best rate first, as many times as its market will absorb in the days you allowed;\n• then the next best, until the points or the ISK run out.\n\nOnly offers priced against the live Jita book, with a trading history to judge the pace by, are used.'} />
             </div>
             {!spend.length ? (
               <p className="note" style={{ marginTop: 10 }}>{lp > 0 ? 'Nothing priced against the live book is worth taking with these points and this much ISK.' : 'Type how many points you have, or log in with the loyalty scope, and this becomes a plan.'}</p>

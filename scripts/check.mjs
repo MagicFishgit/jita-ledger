@@ -1536,6 +1536,34 @@ console.log('\n--- toasts queue, one at a time ---');
   T.setToastLife(10);
 }
 
+console.log('\n--- tooltip layout ---');
+{
+  const { tipBlocks, isWideTip } = await import('../src/lib/tipText.ts');
+  eq('a one-line tip is one paragraph', tipBlocks('Just this.'), [{ kind: 'p', text: 'Just this.' }]);
+  eq('paragraphs, bullets and an example', tipBlocks('Lead line.\n\n• one;\n• two.\n\nFor example: 5 units.').map((b) => b.kind), ['p', 'list', 'example']);
+  eq('  the bullets keep their text', tipBlocks('• one;\n• two.')[0], { kind: 'list', items: ['one;', 'two.'] });
+  eq('  the example loses its label and starts with a capital', tipBlocks('For example: buy 100 at 1 M.')[0], { kind: 'example', text: 'Buy 100 at 1 M.' });
+  eq('  "Example:" works too', tipBlocks('Example: x')[0].kind, 'example');
+  eq('a lead line followed by bullets in one paragraph splits', tipBlocks('Three kinds:\n• a\n• b').map((b) => b.kind), ['p', 'list']);
+  eq('long or structured tips get the wide box', [isWideTip('short'), isWideTip('a\nb'), isWideTip('x'.repeat(201))], [false, true, true]);
+}
+
+console.log('\n--- ISK formatting ---');
+{
+  const F = await import('../src/lib/format.ts');
+  eq('a whole amount drops its .00', F.isk(5000), '5,000 ISK');
+  eq('  cents stay when there are cents', F.isk(5.5), '5.50 ISK');
+  eq('  and a price in cents keeps both', F.isk(45010.25), '45,010.25 ISK');
+  eq('  big amounts had none already', F.isk(423236), '423,236 ISK');
+  eq('  rounding to a whole drops them too', F.isk(12.004), '12 ISK');
+  eq('  no minus on a zero', F.isk(-0.001), '0 ISK');
+  eq('  negatives keep their sign', F.isk(-1234.5), '\u22121,234.50 ISK');
+  eq('millions drop trailing zeros', [4e6, 14.5e6, 14.81e6].map(F.iskBig), ['4 M ISK', '14.5 M ISK', '14.81 M ISK']);
+  eq('  billions and trillions too', [2e9, 1.2e12].map(F.iskBig), ['2 B ISK', '1.2 T ISK']);
+  eq('  under a million it is the plain amount', F.iskBig(64300), '64,300 ISK');
+  eq('signed amounts follow', [F.iskSigned(5000), F.iskBigSigned(-3e6)], ['+5,000 ISK', '\u22123 M ISK']);
+}
+
 console.log('\n--- prefs ---');
 eq('an unknown theme falls back', sanitizePrefs({ theme: 'Jove' }).theme, 'Caldari');
 eq('motion left unset follows the system', effectiveMotion(undefined, true), 'Calm');

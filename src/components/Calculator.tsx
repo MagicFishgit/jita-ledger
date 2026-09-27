@@ -20,21 +20,21 @@ import { cssVars, Guide, ItemIcon, PageHead, Seg, Tip } from './ui';
 
 /** Plain-English notes behind each field, shown in the tooltip over it. */
 const TIPS = {
-  item: 'Type the item’s name exactly as it’s spelled in the game, then look it up. Your buy and sell prices come from the Jita 4-4 order book, the daily volume from the past week of trading, and the item’s market panel opens beside this. You can skip this and type prices in by hand — the maths doesn’t need the name.',
-  buy: 'What you’d offer per unit on your buy order. Looking an item up fills in one step above the top buy — the smallest raise EVE accepts at that price — which puts you first in line to be sold to. Your buy-side broker fee is charged on it.',
-  sell: 'What you’d ask per unit on your sell order. Looking an item up fills in one step below the lowest sell — the smallest undercut EVE accepts — so yours is the order buyers take first. Both your sell-side broker fee and the sales tax come out of this price.',
-  qty: 'How many units you plan to buy and then sell. It scales the totals, and together with daily volume it sets your share of a day’s trade. Broker fees have a 100 ISK minimum per order, so a very small quantity pays proportionally more.',
-  vol: 'Roughly how many units trade in a day — the 7-day average for The Forge. It changes none of your profit figures; it feeds “Share of daily volume” and how long the round trip takes.',
-  nBuy: 'How many times you expect to raise this buy order’s price after placing it. Each change costs a fee on what’s left of the order — assumed to be half on average — at half the broker fee’s percentage, less with Advanced Broker Relations as Omega. Leave it at 0 if you’ll place the order once and wait.',
-  nSell: 'How many times you expect to drop this sell order’s price after placing it. Each change costs a fee on what’s left of the order. Every one you add lowers the net profit and raises the break-even and target sell prices.',
+  item: 'Type the item’s name as it’s spelled in the game, then look it up. That fills in:\n\n• your buy and sell prices, from the Jita 4-4 order book;\n• the daily volume, from the past week of trading;\n• the item’s market panel, beside this.\n\nYou can skip it and type prices in by hand: the maths doesn’t need the name.',
+  buy: 'What you’d offer per unit on your buy order.\n\n• Looking an item up fills in one step above the top buy: the smallest raise EVE accepts, which puts you first in line to be sold to.\n• Your buy-side broker fee is charged on it.',
+  sell: 'What you’d ask per unit on your sell order.\n\n• Looking an item up fills in one step below the lowest sell: the smallest undercut EVE accepts, so buyers take yours first.\n• Your sell-side broker fee and the sales tax both come out of this price.',
+  qty: 'How many units you plan to buy and then sell.\n\n• It scales the totals.\n• With daily volume, it sets your share of a day’s trade.\n• Broker fees have a 100 ISK minimum per order, so a very small quantity pays proportionally more.',
+  vol: 'Roughly how many units trade in a day: the 7-day average for The Forge.\n\n• It changes none of your profit figures.\n• It feeds “Share of daily volume” and how long the round trip takes.',
+  nBuy: 'How many times you expect to raise this buy order’s price after placing it.\n\n• Each change costs a fee on what’s left of the order, assumed to be half on average.\n• That fee is half the broker fee’s percentage, less with Advanced Broker Relations as Omega.\n\nLeave it at 0 if you’ll place the order once and wait.',
+  nSell: 'How many times you expect to drop this sell order’s price after placing it.\n\n• Each change costs a fee on what’s left of the order.\n• Every one you add lowers the net profit and raises the break-even and target sell prices.',
 };
 
 const T_ROW: Record<string, string> = {
   spread: 'The gap between your two prices, times the quantity: what the trade is worth before anything is charged for it. Every fee and tax below comes out of this.',
-  bb: 'What the station charges for placing the buy order: your broker fee rate on the whole order’s value. You pay it up front, which is why a trade starts out behind. Never less than 100 ISK.',
+  bb: 'What the station charges for placing the buy order: your broker fee rate on the whole order’s value.\n\n• You pay it up front, which is why a trade starts out behind.\n• Never less than 100 ISK.',
   bs: 'The same charge again when you list the goods for sale, on the value of the sell order. You pay a broker fee twice because you place two orders.',
   tx: 'Taken out as your sell order fills. It applies to the sale only and has no minimum. The Accounting skill cuts the rate, but only while you’re Omega.',
-  rl: `What it costs to edit the price of an order you’ve already placed, once for each change you entered. It’s charged on what’s left of the order, not the original quantity — by the time you’re undercut some has usually filled, so this assumes ${Math.round(RELIST_LEFT * 100)}% is left on average. Half the broker fee rate to start with, down to a fifth with Advanced Broker Relations.`,
+  rl: `What it costs to change the price of an order you’ve already placed, once for each change you entered.\n\n• Charged on what’s left of the order, not the original quantity. Some has usually filled by the time you’re undercut, so this assumes ${Math.round(RELIST_LEFT * 100)}% is left.\n• Half the broker fee rate to start with, down to a fifth with Advanced Broker Relations.`,
   net: 'Your spread with the fees and tax above taken off — the ISK you actually keep once both orders have filled.',
 };
 
@@ -46,7 +46,7 @@ const T_FIG: Record<string, string> = {
   target: 'The lowest sell price that hits the target return you set in Settings.',
   maxBuy: 'The most you can pay per unit and still hit your target return.',
   share: 'Your quantity against the Daily volume box — a 7-day average for the whole Forge region, so treat it as a rough guide to how long you’d wait to fill.',
-  trip: 'How long the whole trade takes: your buy order fills only as fast as sellers dump into bids, and your sell only as fast as buyers take listings. Daily volume counts both, so each side gets only its share of it — estimated from where each day’s average sits between its low and high.',
+  trip: 'How long the whole trade takes, buying and then selling.\n\n• Your buy order fills only as fast as sellers dump into bids.\n• Your sell order fills only as fast as buyers take listings.\n• Daily volume counts both, so each side gets only its share, estimated from where each day’s average sits between its low and high.',
   perDay: 'Return divided by how many days your ISK is committed. A 6% trade that turns round in hours beats a 12% one that takes a week, because the money can go round again.',
   omega: 'The same trade at the rates your Omega skill plan would give you. The difference is what Omega would add per unit, before you pay for Omega itself.',
 };
@@ -325,7 +325,7 @@ function Readout({ c, asOmega, target, rateKind, buyers, vol, baseShare, snap }:
         <div style={{ minWidth: 0 }}>
           <div className="hero-l">
             Net profit per unit
-            <Tip title="Net profit per unit" text="What one unit leaves you with after the fees and tax in the table below. It assumes both orders fill in full at the prices you typed. To weigh up items that cost very different amounts, look at return on ISK spent instead." />
+            <Tip title="Net profit per unit" text={'What one unit leaves you with after the fees and tax in the table below.\n\n• It assumes both orders fill in full at the prices you typed.\n• To compare items that cost very different amounts, look at return on ISK spent instead.'} />
           </div>
           <div className="hero-v" style={cssVars({ '--c': pos ? 'var(--pos)' : 'var(--neg)', '--glow': pos ? 'rgba(110,231,168,.35)' : 'rgba(255,107,125,.35)' })}>{iskSigned(per)}</div>
           <div className="hero-s">after broker fees and sales tax at your {rateKind === 'Exact' ? 'exact' : rateKind} rates</div>
@@ -466,14 +466,14 @@ function Market(props: {
             {hist.length > 0 && (
               <span
                 tabIndex={0} style={{ fontSize: 11.5, color: 'var(--acc2)', cursor: 'help' }} data-tip-title="Who’s trading"
-                data-tip="Daily volume counts every trade, both buyers taking sell orders and sellers dumping into buy orders. Your sell order only fills from the first kind, so this split is what the round-trip time uses. Estimated from where each day’s average sits between its low and high."
+                data-tip={'How much of the daily volume is buyers taking sell orders, the only trades that fill your sell order.\n\n• Daily volume counts both kinds: buyers taking sells, and sellers dumping into buy orders.\n• The round-trip time uses this split.\n• Estimated from where each day’s average sits between its low and high.'}
               >~{pct(buyers, 0)} of volume is buyers taking sells</span>
             )}
           </span>
           <span className="legend">
             <Seg size="sm" label="Chart range" value={range} onChange={props.setRange} options={[7, 30, 90].map((n) => ({ v: n, label: `${n}D` }))} />
             <span><i style={{ width: 12, height: 2, background: 'var(--acc)' }} />Average</span>
-            <span tabIndex={0} style={{ cursor: 'help' }} data-tip-title="Daily high–low" data-tip="Each day’s lowest and highest trade. The top edge is roughly where sell orders filled, the bottom where buy orders filled — the average sits between them, pulled toward whichever side traded more.">
+            <span tabIndex={0} style={{ cursor: 'help' }} data-tip-title="Daily high–low" data-tip={'Each day’s lowest and highest trade.\n\n• The top edge is roughly where sell orders filled.\n• The bottom edge is roughly where buy orders filled.\n• The average sits between them, pulled toward whichever side traded more.'}>
               <i style={{ width: 10, height: 8, background: 'color-mix(in oklab,var(--acc) 30%,transparent)', border: '1px solid color-mix(in oklab,var(--acc) 50%,transparent)' }} />High–low
             </span>
             <span><i style={{ width: 8, height: 8, background: 'color-mix(in oklab,var(--acc2) 45%,transparent)' }} />Units traded</span>

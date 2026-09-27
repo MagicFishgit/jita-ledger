@@ -59,7 +59,7 @@ export function SkillPanel({ title, needs, note }: { title: string; needs: Need[
     <div className="inset-box" style={{ padding: '14px 16px', background: 'rgba(2,7,12,.45)' }}>
       <div className="panel-title">
         {title}
-        <Tip title={title} text="Read from your character, not a guess. Levels shown are what is worth having rather than the bare minimum to undock — the difference between the two is usually the difference between doing this once and doing it repeatedly." />
+        <Tip title={title} text={'Read from your character, not guessed.\n\n• The levels shown are what’s worth having, not the bare minimum to undock.\n• That gap is usually the difference between doing this once and doing it again and again.'} />
       </div>
       {!d.skills ? (
         <p className="note" style={{ margin: '6px 0 0' }}>

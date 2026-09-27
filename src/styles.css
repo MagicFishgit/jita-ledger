@@ -644,7 +644,13 @@ input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.7); }
 .tooltip::before { left: 0; top: 0; border-left: 2px solid var(--acc); border-top: 2px solid var(--acc); }
 .tooltip::after { right: 0; bottom: 0; border-right: 2px solid var(--acc); border-bottom: 2px solid var(--acc); }
 .tooltip .tt { font-family: var(--f-head); font-size: 10.5px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; color: var(--acc); margin-bottom: 6px; }
-.tooltip .tx { font-size: 13px; line-height: 1.5; color: #c6d6e3; text-wrap: pretty; white-space: pre-line; }
+.tooltip .tx { font-size: 13px; line-height: 1.5; color: #c6d6e3; text-wrap: pretty; display: flex; flex-direction: column; gap: 8px; }
+.tooltip .tx p { margin: 0; }
+.tooltip .tx p:first-child { color: #e2edf5; }
+.tooltip .tx ul { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 4px; }
+.tooltip .tx li::marker { color: var(--acc); }
+.tooltip .tex { padding: 8px 10px; background: rgba(130, 185, 225, .06); border-left: 2px solid var(--acc2); color: #b9cad8; font-size: 12.5px; }
+.tooltip .tel { display: block; font-family: var(--f-head); font-size: 9.5px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--acc2); margin-bottom: 3px; }
 .tooltip .trs { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .tooltip .trr { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; }
 .tooltip .trr .v { font-family: var(--f-mono); color: var(--acc); }

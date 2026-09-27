@@ -28,12 +28,12 @@ function tipsFor(side: 'all' | 'sell' | 'buy'): Record<string, string> {
   const gets = buy ? 'bought from first' : 'sold to first';
   return {
     Side: `Whether you are buying or selling. A buy order is beaten from above and must go up; a sell is beaten from below and must come down. Either way, being at the front means being ${gets}.`,
-    Verdict: `Whether this order is worth doing something about. Being ${both ? 'beaten' : beat} on its own is not a reason to move — what matters is how long the ${both ? 'traders' : rivals} ahead of you will stay ahead.`,
-    'Ahead of you': `How many units are queued in front of your price, and how many separate ${both ? 'traders' : rivals} that is. One big order is better news than a crowd: when it goes you jump straight to the front.`,
-    'Clears in': 'How long the stock ahead of you takes to clear. Only one side of daily volume reaches you — buyers taking listings for a sell order, sellers dumping into bids for a buy — so this uses that side alone, estimated from where each day’s average sits between its low and high. If it is shorter than the hours you’ll wait, relisting would just be a wasted fee.',
+    Verdict: `Whether this order is worth doing something about.\n\n• Being ${both ? 'beaten' : beat} on its own isn’t a reason to move.\n• What matters is how long the ${both ? 'traders' : rivals} ahead of you will stay ahead.`,
+    'Ahead of you': `How many units are queued in front of your price, and how many separate ${both ? 'traders' : rivals} that is.\n\nOne big order is better news than a crowd: when it goes, you jump straight to the front.`,
+    'Clears in': 'How long the stock ahead of you takes to clear.\n\n• Only one side of daily volume reaches you: buyers taking listings for a sell order, sellers dumping into bids for a buy.\n• So this uses that side alone, estimated from where each day’s average sits between its low and high.\n\nIf it’s shorter than the hours you’ll wait, relisting would just be a wasted fee.',
     'Your price': both ? 'What you are asking, or bidding, right now.' : buy ? 'What you are bidding right now.' : 'What you are asking right now.',
     'Move to': `The price that would put you back in front — one legal step ${both ? 'past the best rival' : past} — and how far that is from your own price.`,
-    'Costs you': `What getting back in front would cost: the margin you give up by ${both ? 'changing price' : buy ? 'bidding higher' : 'asking less'}, plus the fee on the new order value. Hover the number for the split.`,
+    'Costs you': `What getting back in front would cost:\n\n• the margin you give up by ${both ? 'changing price' : buy ? 'bidding higher' : 'asking less'};\n• plus the fee on the new order value.\n\nHover the number for the split.`,
     'Your stock': `How much of this order is left, and roughly how long that would take to ${buy ? 'fill' : 'sell'} once you reach the front.`,
     'ISK in order': 'The ISK currently tied up in this order at its own price.',
   };
@@ -235,7 +235,7 @@ export function Orders() {
                     <Th left tip={tips.Side}>Side</Th>
                     <Th left tip={tips.Verdict}>Verdict</Th>
                     {(['Ahead of you', 'Clears in', 'Your price', 'Move to', 'Costs you', 'Your stock', 'ISK in order'] as const).map((h) => <Th key={h} tip={tips[h]}>{h}</Th>)}
-                    <Th title="ISK per day per slot" tip="Rough ISK a day this order earns for the slot it takes: its margin at your rates times how fast your side of the volume fills it at your share. Low numbers are the first to swap when you run out of slots.">Per slot</Th>
+                    <Th title="ISK per day per slot" tip={'Rough ISK a day this order earns for the order slot it takes.\n\n• Its margin at your rates, times how fast your side of the volume fills it at your share.\n• The lowest are the first to swap out when you run out of slots.'}>Per slot</Th>
                     <th scope="col" style={{ color: 'var(--faint-2)' }}>Actions</th>
                   </tr>
                 </thead>

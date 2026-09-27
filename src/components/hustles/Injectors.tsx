@@ -64,12 +64,12 @@ export function Injectors() {
   const c = (x: number | null) => ((x ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)');
 
   const figs = [
-    { l: 'Listed both sides', v: perUnit == null ? '–' : isk(perUnit), n: 'Each, net of your fees', c: c(perUnit), tip: 'Buy order one tick above the best bid, sell order one tick under the best ask. Both carry a broker fee and the sale is taxed. The patient version, and it pays most.' },
+    { l: 'Listed both sides', v: perUnit == null ? '–' : isk(perUnit), n: 'Each, net of your fees', c: c(perUnit), tip: 'Buying with a buy order one tick above the best bid, and selling with a sell order one tick under the best ask.\n\n• Both carry a broker fee, and the sale is taxed.\n• The patient version, and it pays most.' },
     { l: 'Taken immediately', v: nowUnit == null ? '–' : isk(nowUnit), n: 'Each, no waiting', c: c(nowUnit), tip: 'Buying the extractor from the cheapest listing and selling the injector into the best standing bid. No broker fee either way, but you give up the spread.' },
     { l: `On ${units(n)}`, v: perUnit == null ? '–' : iskBig(perUnit * n), n: 'Patiently, if every one fills', c: c(perUnit) },
     { l: 'Capital needed', v: capital == null ? '–' : iskBig(capital), n: 'Tied up until the injectors sell' },
     { l: 'Return on it', v: perUnit != null && capital ? pct((perUnit * n) / capital, 1) : '–', n: 'Per round trip, not annualised', c: c(perUnit) },
-    { l: 'Per skill point', v: perUnit == null ? '–' : `${(perUnit / SP_PER).toFixed(1)} ISK`, n: '500,000 points come out per extractor', c: c(perUnit), tip: 'What the spare skill points are actually worth, which is the number to judge this by. Skill points are the scarce input, not the ISK — the extractor is just the container you buy to move them.' },
+    { l: 'Per skill point', v: perUnit == null ? '–' : `${(perUnit / SP_PER).toFixed(1)} ISK`, n: '500,000 points come out per extractor', c: c(perUnit), tip: 'What the spare skill points are actually worth: the number to judge this by.\n\n• Skill points are the scarce thing, not the ISK.\n• The extractor is just the container you buy to move them.' },
     { l: 'How busy', v: inj?.perDay ? `${units(Math.round(inj.perDay))}/day` : '–', n: 'Injectors traded at Jita' },
   ];
 
@@ -113,7 +113,7 @@ export function Injectors() {
           <div className="sub-box" style={{ alignSelf: 'start' }}>
             <div className="panel-title">
               What an injector is worth to whoever buys it
-              <Tip title="What an injector is worth" text="An injector gives fewer skill points the more the buyer already has. That is why the price does not simply track the point count — the people paying most are the ones getting least." />
+              <Tip title="What an injector is worth" text={'An injector gives fewer skill points the more the buyer already has.\n\n• So the price doesn’t simply follow the point count.\n• The people paying most are the ones getting least.'} />
             </div>
             <div style={{ marginTop: 12, border: '1px solid var(--line-3)' }}>
               <table className="tbl compact">

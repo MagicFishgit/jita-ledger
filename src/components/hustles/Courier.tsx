@@ -17,9 +17,9 @@ import { SkillPanel, useSkillIds } from './SkillPanel';
 import { useLearnedGankLines } from '../gank';
 
 const FLAG: Record<CourierFlag, { short: string; why: string }> = {
-  endUnknown: { short: 'Can’t see destination', why: 'The delivery point is a player structure ESI won’t describe without docking access. This is the classic hauling scam: you fly the cargo out, find you can’t dock, and the collateral is theirs. Never take one of these.' },
+  endUnknown: { short: 'Can’t see destination', why: 'The delivery point is a player structure that ESI won’t describe without docking access.\n\nThis is the classic hauling scam: you fly the cargo out, find you can’t dock, and the collateral is theirs. Never take one of these.' },
   startUnknown: { short: 'Can’t see pickup', why: 'The pickup point is a player structure you may not be able to dock at. You can’t even start the job, and if you accept it the clock still runs.' },
-  endUnchecked: { short: 'Destination unchecked', why: 'The delivery point is a player structure, and your login doesn’t include esi-universe.read_structures.v1, so the app couldn’t ask ESI whether you can dock there. Add that permission (Settings lists it) and this becomes a real check. Until then, look it up in game before accepting.' },
+  endUnchecked: { short: 'Destination unchecked', why: 'The delivery point is a player structure, and your login can’t ask ESI whether you can dock there.\n\nAdd the esi-universe.read_structures.v1 permission (Settings lists it) and this becomes a real check. Until then, look it up in game before accepting.' },
   startUnchecked: { short: 'Pickup unchecked', why: 'The pickup point is a player structure, and without esi-universe.read_structures.v1 the app couldn’t ask ESI whether you can dock there. Check it in game before accepting.' },
   lowsec: { short: 'Not high-sec', why: 'One end sits below 0.5. Gate camps do not care that you are only passing through, and the collateral goes with the ship.' },
   noSafeRoute: { short: 'No high-sec route', why: 'There is no way to make this trip without leaving high-sec, whatever the two endpoints look like. ESI was asked for a high-sec-only route and there isn’t one.' },
@@ -29,7 +29,7 @@ const FLAG: Record<CourierFlag, { short: string; why: string }> = {
   thinReward: { short: 'Pays too little', why: 'Below the per-jump rate you said was worth the trip.' },
   rushed: { short: 'Not enough time', why: 'More than fifteen jumps a day to make the deadline. Miss it and you forfeit the collateral, which is sometimes the whole point of the contract.' },
   expiringSoon: { short: 'Expiring', why: 'This contract disappears within six hours. Fine if you are undocking now.' },
-  gankBait: { short: 'Gank bait', why: 'The collateral is above the gank line for your hull, and the route runs through Uedama or Sivala, where gank fleets wait. Take it in a tougher hull, split the load, or bring a webbing alt.' },
+  gankBait: { short: 'Gank bait', why: 'The collateral is above the gank line for your hull, and the route runs through Uedama or Sivala, where gank fleets wait.\n\nTake it in a tougher hull, split the load, or bring a webbing alt.' },
 };
 
 type Raw = { c: CourierContract; start: Endpoint; end: Endpoint; jumps: number | null; route: number[] | null };
@@ -133,7 +133,7 @@ export function Courier() {
           onChange={(n) => update((x) => ({ prefs: { ...x.prefs, perJump: n ?? 0 } }))} />
         <NumChip id="h-gank" key={hull} label="Gank line" width={118} decimals={0} value={d.prefs.gankLines[hull] ?? null}
           placeholder={learned[hull] ? iskBig(learned[hull].value).replace(' ISK', '') : 'not set'} tipTitle="Gank line"
-          tip={`Collateral above this, on a route through Uedama or Sivala, is flagged as gank bait for a ${hull === 'Custom' ? 'hull of your own figure' : hull}. There is no published figure for this — it depends on your fit — so it is yours to set.${learned[hull] ? ` Your own losses put it no higher than ${iskBig(learned[hull].value)}.` : ''}`}
+          tip={`The collateral above which a contract counts as gank bait, for a ${hull === 'Custom' ? 'hull of your own figure' : hull}.\n\n• Only on routes through Uedama or Sivala.\n• There’s no published figure, since it depends on your fit, so it’s yours to set.${learned[hull] ? `\n• Your own losses put it no higher than ${iskBig(learned[hull].value)}.` : ''}`}
           onChange={setLine} />
         <Check checked={safeOnly} onChange={setSafeOnly} tip="Only show contracts that pass the safety checks">Safe only</Check>
         <span style={{ flexBasis: '100%', fontSize: 11.5, color: gank.line != null ? 'var(--acc2)' : 'var(--note)', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -171,7 +171,7 @@ export function Courier() {
                 <div className="sub-box">
                   <div className="panel-title">
                     Don’t fly home empty
-                    <Tip title="Don’t fly home empty" text="A job going out and another coming straight back to where you started. The return jumps are ones you were making anyway, so the second reward is close to free. Matched on the system rather than the station." />
+                    <Tip title="Don’t fly home empty" text={'A job going out, and another coming straight back to where you started.\n\n• You were making the return jumps anyway, so the second reward is close to free.\n• Matched on the system rather than the station.'} />
                   </div>
                   <div className="col" style={{ gap: 8, marginTop: 10 }}>
                     {trips.slice(0, 4).map((t) => (

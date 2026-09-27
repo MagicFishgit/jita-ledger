@@ -1,4 +1,5 @@
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
+import { isWideTip, tipBlocks } from '../../lib/tipText';
 
 /**
  * The one tooltip. Anything with `data-tip` gets it on hover or keyboard focus, titled by
@@ -8,23 +9,38 @@ import { useEffect, useReducer, useRef, useState } from 'react';
  * target when there is no room above. It re-reads its target every second, so a countdown inside a
  * tooltip keeps counting while you look at it. On touch, tapping an "i" pins it until the next tap.
  */
-type Shown = { el: Element; x: number; y: number; below: boolean };
+type Shown = { el: Element; x: number; y: number; w: number; below: boolean; fitted?: boolean };
 type Row = [string, string, string | number, string];
 
 const WIDTH = 300;
+/** Room for a tip with paragraphs, a list or an example, so it reads as a column and not a strip. */
+const WIDE = 400;
 
 function place(el: Element): Shown {
   const r = el.getBoundingClientRect();
-  const w = Math.min(WIDTH, window.innerWidth - 24);
+  const w = Math.min(isWideTip(el.getAttribute('data-tip') ?? '') ? WIDE : WIDTH, window.innerWidth - 24);
   const x = Math.min(window.innerWidth - w - 12, Math.max(12, r.left + r.width / 2 - w / 2));
   const below = r.top < 220;
-  return { el, x, y: below ? r.bottom + 10 : r.top - 10, below };
+  return { el, x, y: below ? r.bottom + 10 : r.top - 10, w, below };
 }
 
 export function TipLayer({ routeKey }: { routeKey: string }) {
   const [shown, setShown] = useState<Shown | null>(null);
   const pinned = useRef(false);
   const [, tick] = useReducer((n: number) => n + 1, 0);
+  const box = useRef<HTMLDivElement>(null);
+
+  // A tall tip may not fit on the side it was first put: measure it once and flip it if the other
+  // side has more room.
+  useLayoutEffect(() => {
+    if (!shown || shown.fitted || !box.current) return;
+    const h = box.current.offsetHeight;
+    const r = shown.el.getBoundingClientRect();
+    const roomAbove = r.top - 18, roomBelow = window.innerHeight - r.bottom - 18;
+    const fits = shown.below ? h <= roomBelow : h <= roomAbove;
+    const flip = !fits && (shown.below ? roomAbove > roomBelow : roomBelow > roomAbove);
+    setShown(flip ? { ...shown, below: !shown.below, y: shown.below ? r.top - 10 : r.bottom + 10, fitted: true } : { ...shown, fitted: true });
+  }, [shown]);
 
   useEffect(() => {
     let current: Element | null = null;
@@ -89,11 +105,17 @@ export function TipLayer({ routeKey }: { routeKey: string }) {
 
   return (
     <div
-      className="tooltip" role="tooltip"
-      style={{ left: shown.x, top: shown.y, ['--tt' as string]: shown.below ? 'none' : 'translateY(-100%)' }}
+      className="tooltip" role="tooltip" ref={box}
+      style={{ left: shown.x, top: shown.y, width: shown.w, ['--tt' as string]: shown.below ? 'none' : 'translateY(-100%)' }}
     >
       {title && <div className="tt">{title}</div>}
-      <div className="tx">{text}</div>
+      <div className="tx">
+        {tipBlocks(text).map((b, i) => b.kind === 'list'
+          ? <ul key={i}>{b.items.map((it, j) => <li key={j}>{it}</li>)}</ul>
+          : b.kind === 'example'
+            ? <div key={i} className="tex"><span className="tel">Example</span>{b.text}</div>
+            : <p key={i}>{b.text}</p>)}
+      </div>
       {rows.length > 0 && (
         <div className="trs">
           {rows.map(([l, v, f, every]) => (

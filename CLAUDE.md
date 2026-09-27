@@ -389,6 +389,17 @@ Don't re-derive or contradict these without new evidence.
   itself when another tab holds the lock: Chromium allows `window.close()` on a tab with one history entry,
   which is what an OS-opened link is (Playwright's `newPage` starts at `about:blank` and has two, so test it
   with CDP `Target.createTarget`). If the browser refuses, the tab says it can be closed.
+- **A tooltip longer than a sentence or two is laid out, not written as a paragraph** (`lib/tipText.ts`,
+  drawn by `TipLayer`). Tips stay plain strings, and the structure lives in the text: a blank line starts a
+  paragraph, a line starting "• " is a bullet, and a paragraph starting "For example:" becomes a boxed
+  example. Anything over 200 characters, or with a line break, gets a 400 px box instead of 300, and a tall
+  tip flips to whichever side of its target has room. Write a long tip as a lead line saying what the thing
+  *is*, then bullets for how it's worked out, then the example. The user found the one-paragraph versions a
+  wall of text. Explanations that also show inline (flag `why`s) use paragraph breaks only, since a bullet
+  would read oddly there.
+- **ISK amounts don't carry a useless ".00".** `isk()` keeps cents under 100,000 only when there are cents
+  (5.50 ISK, but 5,000 ISK), and `iskBig()` drops trailing zeros (14 M, 14.5 M, 14.81 M). CSV exports keep
+  full precision on purpose.
 - **No chart library.** Charts are inline SVG in the theme tokens (`charts.tsx`); recharts was removed.
 - **Diagrams are authored as inline SVG, not fetched.** A hosted image means someone else's server on
   every load, a licence to honour and a broken box the day it moves. Inline SVG inherits the theme
@@ -396,7 +407,8 @@ Don't re-derive or contradict these without new evidence.
 
 ## Gotchas that have bitten
 
-- **`\uXXXX` in JSX *text* is not an escape** and renders literally. Only inside JS string literals.
+- **`\uXXXX` in JSX *text* is not an escape** and renders literally. Only inside JS string literals. The same
+  goes for `\n` in a quoted JSX attribute (`tip="a\nb"` shows a backslash): a structured tip needs `tip={'…'}`.
 - **`.data td` sets `white-space: nowrap`**, which children inherit — anything wrapping inside a table
   cell needs `white-space: normal` or it blows out the table width.
 - **Relative times are computed at render and nothing ticks on its own.** Use `useNow()` and pass it to

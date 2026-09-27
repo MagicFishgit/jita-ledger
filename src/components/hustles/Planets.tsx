@@ -175,7 +175,7 @@ export function Planets() {
               <thead>
                 <tr>
                   <Th left>Make</Th><Th left>From</Th>
-                  <Th tip={`What a thousand units of extraction is worth once refined and sold, net of your broker fee and sales tax. Every product costs the same ${P0_PER_P1} raw units each, so this is the fair way to set them side by side.`}>Per 1,000 raw</Th>
+                  <Th tip={`What 1,000 units of extraction is worth once refined and sold, after broker fee and sales tax.\n\n• Every product takes the same ${P0_PER_P1} raw units each, so this is the fair way to compare them.`}>Per 1,000 raw</Th>
                   <Th>Or sold raw</Th>
                   <Th tip="Refined value divided by raw value. Below 1 the factories lose you money and the raw should go straight out of the launchpad.">Refining gains</Th>
                   <Th left>Planets</Th><th scope="col" style={{ color: 'var(--faint-2)' }}>Pick</th>
@@ -305,7 +305,7 @@ export function Planets() {
                 {
                   l: 'Factories to build', v: refine ? `${units(est.factories)} per planet` : '—', c: undefined,
                   n: refine ? (est.factories === 0 ? 'Nothing extracted yet' : `Busy ${Math.round(est.utilisation * 100)}% of the time at ${units(Math.round(rate ?? 0))}/hour`) : 'None — sell it raw',
-                  tip: `Per planet, not across them: each colony is its own island and cannot feed another. One Basic Industry Facility gets through ${RAW_PER_HOUR.toLocaleString()} raw units an hour and returns ${MADE_PER_HOUR}. A factory fed more slowly does not stop working — it runs fewer cycles — so this is how many you need to keep up, and how busy they will be.`,
+                  tip: `How many factories to build, per planet.\n\n• Each colony is its own island and can’t feed another.\n• One Basic Industry Facility gets through ${RAW_PER_HOUR.toLocaleString()} raw units an hour and returns ${MADE_PER_HOUR}.\n• A factory fed more slowly doesn’t stop, it runs fewer cycles. So this is how many you need to keep up, and how busy they’ll be.`,
                 },
                 { l: 'A week', v: iskBig(best * 7), n: 'Whichever way pays better, before customs tax', c: 'var(--pos)' },
                 { l: 'A month', v: iskBig(best * 30), n: 'Before the customs office takes its cut', c: 'var(--pos)' },

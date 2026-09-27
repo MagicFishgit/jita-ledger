@@ -9,7 +9,7 @@ import { useTypeName } from '../common';
 import { cssVars, Notice, Th, Tip } from '../ui';
 
 export const COLONY_WARNING: Record<ColonyWarning, { short: string; why: string; bad: boolean }> = {
-  expired: { short: 'Programme ended', bad: true, why: 'An extraction programme has run out. The colony looks fine from the outside, the factories finish what is left, and then it earns nothing at all until you reset the heads. This is the most common way PI money is quietly lost.' },
+  expired: { short: 'Programme ended', bad: true, why: 'An extraction programme has run out.\n\nThe colony looks fine from the outside and the factories finish what’s left, then it earns nothing until you reset the heads. This is the most common way PI money is quietly lost.' },
   endingSoon: { short: 'Ending soon', bad: false, why: 'A programme runs out within a day. Reset it next time you log in and the colony never stops.' },
   noExtractor: { short: 'No extractor', bad: true, why: 'This colony has no extractor control unit at all, so nothing is being pulled out of the ground.' },
   idleExtractor: { short: 'Extractor idle', bad: true, why: 'An extractor is built but has no programme installed. It cost you the powergrid and is doing nothing.' },
@@ -85,7 +85,7 @@ export function Colonies() {
             <div className="mini-tiles">
               {[
                 { l: 'Colonies', v: units(read.colonies.length), n: `${units(read.colonies.reduce((t, c) => t + c.extractors.length, 0))} extractors, ${units(read.colonies.reduce((t, c) => t + c.factories, 0))} factories` },
-                { l: 'Coming out an hour', v: iskBig(value.perHour), n: `${iskBig(value.perDay)} a day`, c: 'var(--pos)', tip: 'Every running extractor’s per-cycle figure turned into an hourly rate and priced at what it would net you at Jita. Output falls away over a programme, so read it as the top of the range.' },
+                { l: 'Coming out an hour', v: iskBig(value.perHour), n: `${iskBig(value.perDay)} a day`, c: 'var(--pos)', tip: 'What your running extractors produce, priced at what it would net you at Jita.\n\n• Each extractor’s per-cycle figure, turned into an hourly rate.\n• Output falls away over a programme, so read this as the top of the range.' },
                 { l: 'Waiting to be collected', v: iskBig(value.stored), n: 'Sitting in storage and launchpads', c: value.stored > 0 ? 'var(--pos)' : undefined },
                 { l: 'A week of this', v: iskBig(value.perDay * 7), n: 'If nothing runs out', c: 'var(--pos)' },
               ].map((t) => (
@@ -100,7 +100,7 @@ export function Colonies() {
               <thead>
                 <tr>
                   <Th left>Planet</Th><Th left>Extracting</Th>
-                  <Th tip="An extraction programme runs for a set time and then stops dead. The colony looks normal, the factories drain what is left, and it earns nothing until you reset the heads.">Programme ends</Th>
+                  <Th tip={'When the extraction programme stops.\n\n• It runs for a set time, then stops dead.\n• The colony still looks normal and the factories drain what’s left, but it earns nothing until you reset the heads.'}>Programme ends</Th>
                   <Th>An hour</Th><Th>Stored</Th><Th left>Notes</Th>
                 </tr>
               </thead>

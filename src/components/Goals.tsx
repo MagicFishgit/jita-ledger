@@ -27,15 +27,15 @@ const KIND: Record<Kind, { label: string; Icon: typeof Target; c: string }> = {
 const MEASURE: Record<GoalMeasure, { label: string; words: string; tip: string }> = {
   wallet: {
     label: 'Wallet', words: 'your wallet',
-    tip: 'Only the ISK in your wallet right now. Example: 2 B in your wallet counts as 2 B, even if another 500 M is tied up in buy orders.',
+    tip: 'Only the ISK in your wallet right now.\n\nFor example: 2 B in your wallet counts as 2 B, even if another 500 M is tied up in buy orders.',
   },
   liquid: {
     label: 'Wallet + orders', words: 'your wallet and orders',
-    tip: 'Your wallet plus the ISK tied up in your market orders: what’s held back for your buy orders, and your sell orders at their listed price. Example: 2 B in the wallet + 300 M held for buy orders + 700 M of items listed for sale = 3 B.',
+    tip: 'Your wallet plus the ISK tied up in your market orders:\n\n• what’s held back for your buy orders;\n• your sell orders, at their listed price.\n\nFor example: 2 B in the wallet + 300 M held for buy orders + 700 M of items listed for sale = 3 B.',
   },
   nw: {
     label: 'Net worth', words: 'your net worth',
-    tip: 'Everything you own: wallet, orders, the items in your hangars at rough market prices, and loyalty points. Example: 3 B of wallet and orders + 1.2 B of ships and modules = 4.2 B.',
+    tip: 'Everything you own:\n\n• wallet and orders;\n• the items in your hangars, at rough market prices;\n• loyalty points.\n\nFor example: 3 B of wallet and orders + 1.2 B of ships and modules = 4.2 B.',
   },
 };
 const measureOptions = (['wallet', 'liquid', 'nw'] as GoalMeasure[]).map((v) => ({ v, label: MEASURE[v].label, tip: MEASURE[v].tip, tipTitle: MEASURE[v].label }));
@@ -353,8 +353,8 @@ function GoalBuilder({ onDone }: { onDone: () => void }) {
         {kind === 'earn' && (
           <>
             <Seg label="Counting" value={source} onChange={setSource} options={[
-              { v: 'trading' as const, label: 'Trading profit', tipTitle: 'Trading profit', tip: 'What your positions made on the units they sold, after broker fees and sales tax. Example: buy 100 at 1 M and sell them at 1.2 M: that’s 20 M before costs, about 13 M after fees and tax with the trade skills trained, less without them.' },
-              { v: 'cashflow' as const, label: 'Net cash flow', tipTitle: 'Net cash flow', tip: 'All the ISK that came in minus all that went out, whatever it was for. Example: 800 M in from sales and bounties, 500 M out on stock and fees = +300 M. Buying stock counts as money out, even though you still own it.' },
+              { v: 'trading' as const, label: 'Trading profit', tipTitle: 'Trading profit', tip: 'What your positions made on the units they sold, after broker fees and sales tax.\n\nFor example: buy 100 at 1 M and sell them at 1.2 M. That’s 20 M before costs, about 13 M after fees and tax with the trade skills trained, less without them.' },
+              { v: 'cashflow' as const, label: 'Net cash flow', tipTitle: 'Net cash flow', tip: 'All the ISK that came in minus all that went out, whatever it was for.\n\n• Buying stock counts as money out, even though you still own it.\n\nFor example: 800 M in from sales and bounties, 500 M out on stock and fees = +300 M.' },
             ]} />
             <NumChip label="Target" value={target} onChange={setTarget} width={110} decimals={0} placeholder="1b" />
             <Seg label="Period" value={period} onChange={setPeriod} options={[

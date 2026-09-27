@@ -107,7 +107,7 @@ export function Abyssal() {
             <div className="sub-box" style={{ gridColumn: held.length ? undefined : '1 / -1' }}>
               <div className="panel-title">
                 What your runs have paid
-                <Tip title="What your runs have paid" text={`Filaments you bought and abyssal loot you sold, both from your synced wallet, over the last ${WINDOW_DAYS} days. Loot carries no record of which run it fell from, so this is pooled across every tier you ran. Loot still unsold in your hangar counts for nothing here, so a good week can look flat until you sell it. Ships lost are from your killmails, priced on the day.`} />
+                <Tip title="What your runs have paid" text={`What your abyssal runs have actually paid over the last ${WINDOW_DAYS} days:\n\n• filaments you bought, against abyssal loot you sold, from your synced wallet;\n• ships lost, from your killmails, priced on the day.\n\nWhat it can’t see: loot doesn’t record which run it came from, so every tier is pooled; and loot you haven’t sold counts for nothing, so a good week can look flat until you sell it.`} />
               </div>
               {stats.runs === 0 ? (
                 <p className="note" style={{ marginTop: 8 }}>No filament purchases in your last {WINDOW_DAYS} days of transactions. Buy filaments on the market rather than looting them and this fills in on its own — nothing to log.</p>
@@ -120,7 +120,7 @@ export function Abyssal() {
                       { l: 'Loot sold', v: iskBig(stats.lootSold), n: `${units(stats.lootItems)} items, after sales tax`, c: 'var(--pos)' },
                       { l: 'Profit', v: iskBig(stats.profit), n: 'Loot sold less filaments bought', c: sign(stats.profit) },
                       { l: 'Per run', v: stats.perRun == null ? '–' : iskBig(stats.perRun), n: 'What one filament turned into', c: sign(stats.perRun) },
-                      { l: 'Per hour', v: perHour == null ? '–' : iskBig(perHour), n: `At about ${minutes} min a run`, c: sign(perHour), tip: 'Your measured return per run at the usual pace for that tier, so it can be set beside hauling and PI. A pocket is three rooms on a twenty-minute timer each, so the ceiling is the game’s — what varies is how fast you clear.' },
+                      { l: 'Per hour', v: perHour == null ? '–' : iskBig(perHour), n: `At about ${minutes} min a run`, c: sign(perHour), tip: 'Your measured return per run, at the usual pace for that tier, so it can be set beside hauling and PI.\n\n• A pocket is three rooms on a 20-minute timer each, so the game sets the ceiling.\n• What varies is how fast you clear.' },
                       { l: 'Mostly', v: stats.topFilament ? `${stats.topFilament.tier} ${stats.topFilament.weather}` : '–', n: `${pct(stats.concentration, 0)} of your runs` },
                       { l: 'Ships lost', v: lost.length ? `−${iskBig(lostIsk)}` : 'None', n: lost.length ? `${lost.map((k) => nameOf(k.victim.shipTypeId ?? 0)).join(', ')}, net of insurance — from your killmails` : `No abyssal losses in ${WINDOW_DAYS} days`, c: lost.length ? 'var(--neg)' : undefined },
                     ].map((t) => (
@@ -166,7 +166,7 @@ export function Abyssal() {
                 <tr>
                   <Th left>Filament</Th><Th left>Tier</Th>
                   <Th tip="What one filament costs to buy outright at Jita right now, ignoring any single mispriced listing.">Costs</Th>
-                  <Th tip="What you would net by listing the filament instead of running it, after your broker fee and sales tax. Your loot has to sell for more than this or the run was not worth doing — and that holds for a filament you looted too, because selling it was still the alternative.">A run must beat</Th>
+                  <Th tip={'What you’d net by selling the filament instead of running it, after broker fee and sales tax.\n\n• Your loot has to sell for more than this, or the run wasn’t worth doing.\n• That holds for a filament you looted too: selling it was still the alternative.'}>A run must beat</Th>
                   <Th tip="The gap between buying one and selling it straight back: the spread plus both charges. Small on the busy tiers, wide on the thin ones.">Cost of flipping</Th>
                   <Th tip="How many of this filament change hands at Jita on an average day. A thin one is awkward to buy in quantity and awkward to flip.">Traded a day</Th>
                   <th scope="col" style={{ color: 'var(--faint-2)' }}>Actions</th>

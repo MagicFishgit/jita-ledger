@@ -133,7 +133,7 @@ export function Positions() {
                 <tr>
                   <Th left>Item</Th><Th left>Status</Th><Th>Since</Th><Th>Bought</Th><Th>Sold</Th><Th>In stock</Th>
                   <Th>Avg buy</Th><Th>Avg sell</Th><Th>Realized profit</Th><Th>Return</Th>
-                  <Th title="Margin squeeze" tip="Each day’s high-to-low range over the last week, as a share of its average — what a trader working both sides can capture. The dashed line is your break-even spread with two price changes. When the range narrows toward it, competition is squeezing you out: sell down before you’re stuck holding stock.">Margin, 7 d</Th>
+                  <Th title="Margin squeeze" tip={'How much room is left to trade this item profitably.\n\n• Each day’s high-to-low range over the last week, as a share of its average: what trading both sides can capture.\n• The dashed line is your break-even spread, allowing two price changes.\n\nWhen the range narrows toward the line, competition is squeezing you out. Sell down before you’re stuck holding stock.'}>Margin, 7 d</Th>
                 </tr>
               </thead>
               <tbody>
@@ -175,7 +175,7 @@ export function Positions() {
                         {p.status !== 'open' ? <span className="faint">–</span> : !range?.length ? <span className="faint">{sig.busy ? '…' : '–'}</span> : (
                           <span tabIndex={0} data-tip-title="Margin, 7 days"
                             data-tip={sq
-                              ? `The daily range fell from ${pct(range[0], 1)} to ${pct(last, 1)} in ${range.length} days — close to the ${pct(be2, 1)} you need after fees and a couple of relists. Consider selling down before it closes.`
+                              ? `The daily range fell from ${pct(range[0], 1)} to ${pct(last, 1)} in ${range.length} days, close to the ${pct(be2, 1)} you need after fees and a couple of relists.\n\nConsider selling down before it closes.`
                               : `Daily range over the last ${range.length} trading days. The dashed line is your break-even spread with two price changes, ${pct(be2, 1)}.`}
                             style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
                             <span style={{ width: 64 }}><Sparkline values={range} baseline={be2} color={mc} label="Daily range, last week" /></span>

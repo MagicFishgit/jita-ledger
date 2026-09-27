@@ -9,13 +9,36 @@ import { fmtDateTime, isk, iskBig, units } from './format';
 import type { Relist } from './relist';
 import type { AlertConfig, AlertEvent, AlertLogEntry } from './types';
 
-export const ALERT_LABELS: Record<AlertEvent, { label: string; what: string }> = {
-  move: { label: 'Order worth moving', what: 'An order of yours is beaten and the queue ahead won’t clear inside your wait time' },
-  clearing: { label: 'Beaten but clearing', what: 'You’re undercut, but the stock ahead will clear on its own — usually just noise' },
-  squeeze: { label: 'Margin squeeze', what: 'A position’s daily range has narrowed close to its break-even spread' },
-  pi: { label: 'PI programme ending', what: 'An extraction programme ends within a day, or has ended' },
-  scam: { label: 'Suspicious market', what: 'A wall, escrow bait or price spike appears on something you trade or watch' },
-  backup: { label: 'Backup overdue', what: 'Your last backup is more than two weeks old' },
+/**
+ * Each alert's name, a one-line description, and `tip`: the plain-language explanation with an example
+ * that Settings shows behind an "i". The figures in the examples are illustrations; the thresholds
+ * named are the real rules (see relist.ts, signals.ts and prospects.ts).
+ */
+export const ALERT_LABELS: Record<AlertEvent, { label: string; what: string; tip: string }> = {
+  move: {
+    label: 'Order worth moving', what: 'An order of yours is beaten and the queue ahead won’t clear inside your wait time',
+    tip: 'One of your orders has been undercut (or outbid, for a buy), and waiting it out would take longer than you said you’d wait.\n\n• Moving costs a fee, but here the wait costs more.\n• Your wait time is set in Settings → Rates & fees.\n\nFor example: you sell at 1,234,000. 40 units now sit at 1,229,000 on an item that sells 10 a day, so you’d queue for four days. The app says move to 1,228,900.',
+  },
+  clearing: {
+    label: 'Beaten but clearing', what: 'You’re undercut, but the stock ahead will clear on its own — usually just noise',
+    tip: 'You’ve been undercut, but only by a little stock that will sell on its own soon.\n\n• Moving would waste the fee: you’ll be back in front without doing anything.\n• Usually just noise, so most people leave this one off.\n\nFor example: 4 units sit below you on an item that sells 200 a day. They’re gone in minutes.',
+  },
+  squeeze: {
+    label: 'Margin squeeze', what: 'A position’s daily range has narrowed close to its break-even spread',
+    tip: 'The profit left in trading one of your items is nearly gone. It warns when both are true:\n\n• the item’s daily high-to-low range is within 35% of what you need to break even after fees, tax and two price changes;\n• that range has shrunk by at least a quarter this week.\n\nFor example: you need 3% to break even, and the daily range has fallen from 6% to 3.8%.',
+  },
+  pi: {
+    label: 'PI programme ending', what: 'An extraction programme ends within a day, or has ended',
+    tip: 'An extractor on one of your planets stops within a day, or already has.\n\n• When the programme runs out, the colony still looks normal but produces nothing.\n• It stays that way until you reset the extractor heads.\n\nFor example: the extractor on your Barren planet in Tama ends at 15:00 EVE time, so reset it before then.',
+  },
+  scam: {
+    label: 'Suspicious market', what: 'A wall, escrow bait or price spike appears on something you trade or watch',
+    tip: 'Something on an item you trade or watch looks like a trap. Three kinds are checked:\n\n• Wall: the best price holds over half its side and more than 3 days of trading.\n• Escrow bait: a buy order more than 10% above anything paid in the last 30 days.\n• Spike: a day with over 5 times the usual volume, at a price more than 10% off normal.\n\nFor example: a buy order at 1.3 M when nothing sold above 1.1 M this month. Someone may be baiting sellers.',
+  },
+  backup: {
+    label: 'Backup overdue', what: 'Your last backup is more than two weeks old',
+    tip: 'You haven’t exported a backup for more than 14 days.\n\n• Everything the app knows lives in this browser.\n• ESI only keeps 30 days of wallet history, so clearing the browser loses anything older.\n\nFor example: positions from two months ago can only come back from a backup. Export one in Settings → Your data.',
+  },
 };
 
 /** Quiet hours run overnight in EVE time, when you are most likely asleep and least likely to act. */
@@ -80,10 +103,10 @@ const sized = (z: number, s: string) => `<font size="${z}">${s}</font>`;
  * wrapped in TEXT, and an inner size overrides it (nesting was confirmed by the first alert mails).
  */
 const SIZE = { brand: 26, title: 20, text: 16, small: 13 } as const;
-/** A price as the market shows it, without the unit: 1,228,900 or 5.23, and no ".00" on a whole number. */
-const price = (n: number) => isk(n).replace(/ ISK$/, '').replace(/\.00$/, '');
-/** An amount of ISK, short when it's big and without ".00" when it's whole: 64,300 ISK, 14.81 M ISK. */
-const money = (n: number) => iskBig(n).replace(/\.00 ISK$/, ' ISK');
+/** A price as the market shows it, without the unit: 1,228,900 or 5.23. */
+const price = (n: number) => isk(n).replace(/ ISK$/, '');
+/** An amount of ISK, short when it's big: 64,300 ISK, 14.81 M ISK. */
+const money = iskBig;
 const hoursSaid = (h: number) => (h < 1 ? 'under an hour' : h < 48 ? `about ${Math.round(h)} h` : `about ${Math.round(h / 24)} days`);
 
 const URGENCY: Record<AlertEvent, number> = { move: 0, pi: 1, scam: 2, squeeze: 3, clearing: 4, backup: 5 };
@@ -147,7 +170,7 @@ function section(f: Finding, market: (typeId: number) => string, now: number): s
   const body = itemLink && f.text.startsWith(f.name!)
     ? `${itemLink}${text.slice(escapeMail(f.name!).length)}<br>`
     : `${text}<br>${f.typeId ? `<a href="${market(f.typeId)}">Open its market in game</a><br>` : ''}`;
-  const worth = f.kind === 'backup' ? advice('green', 'export a backup in Jita Ledger → Settings → Data')
+  const worth = f.kind === 'backup' ? advice('green', 'export a backup in Jita Ledger → Settings → Your data')
     : f.kind === 'squeeze' || f.kind === 'scam' ? `${col('white', '<b>WORTH CHECKING before you trade more of it.</b>')}<br>` : '';
   return head(f.title) + worth + body;
 }
