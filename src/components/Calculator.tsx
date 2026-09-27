@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CircleAlert, CircleCheck, Eye, Gauge, Hash, ChartLine, Pencil, Play, Radar, RefreshCw, Search,
   SlidersHorizontal, Sparkles, TrendingDown, TriangleAlert,
@@ -96,6 +96,10 @@ export function Calculator({ route }: { route: Route }) {
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ f, item, range })); } catch { /* ignore */ }
   }, [f, item, range]);
 
+  const sharePct = d.settings.share;
+  // The fields as they are now, for the lookup, which runs after an await.
+  const fRef = useRef(f);
+  fRef.current = f;
   const load = useCallback(async (t: { id: number; name: string }, fill: boolean, force = false) => {
     setItem(t); setLoading(true); setMsg(null);
     if (!force) { setSnap(null); setHist([]); }
@@ -108,16 +112,25 @@ export function Calculator({ route }: { route: Route }) {
         const bb = marketBest(s.topBuys, true) ?? NaN;
         const bs = marketBest(s.topSells, false) ?? NaN;
         const buy = tickUp(bb), sell = tickDown(bs);
-        setF((x) => ({
-          ...x,
-          buy: Number.isFinite(buy) ? inputNum(buy) : x.buy,
-          sell: Number.isFinite(sell) ? inputNum(sell) : x.sell,
-          vol: (s.typicalVol ?? s.avgVol7) != null ? inputNum(Math.round((s.typicalVol ?? s.avgVol7)!)) : x.vol,
-        }));
+        const day = s.typicalVol ?? s.avgVol7;
+        // A quantity you typed stays. An empty one would leave the result blank for every item looked up (a
+        // cleared box is kept in the draft), so it takes your share of a typical day.
+        const shareQty = day != null && day > 0 ? Math.max(1, Math.round(day * sharePct / 100)) : 1;
+        const qtyFilled = !(parseISK(fRef.current.qty) > 0);
+        setF((x) => {
+          return {
+            ...x,
+            buy: Number.isFinite(buy) ? inputNum(buy) : x.buy,
+            sell: Number.isFinite(sell) ? inputNum(sell) : x.sell,
+            vol: day != null ? inputNum(Math.round(day)) : x.vol,
+            qty: qtyFilled ? String(shareQty) : x.qty,
+          };
+        });
         const filled = [
           Number.isFinite(buy) ? `your buy order ${isk(buy - bb)} above the top buy` : null,
           Number.isFinite(sell) ? `your sell order ${isk(bs - sell)} below the lowest sell` : null,
-          (s.typicalVol ?? s.avgVol7) != null ? 'a typical day’s volume' : null,
+          day != null ? 'a typical day’s volume' : null,
+          qtyFilled ? `a quantity of ${units(shareQty)} (your ${sharePct}% share of a typical day)` : null,
         ].filter(Boolean);
         setMsg({
           text: filled.length
@@ -130,7 +143,7 @@ export function Calculator({ route }: { route: Route }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [sharePct]);
 
   // #/calculator?type=123 opens an item straight away; ?name= looks one up by its exact name.
   const typeParam = route.query.get('type');
@@ -163,6 +176,9 @@ export function Calculator({ route }: { route: Route }) {
     nBuy: Math.max(0, parseInt(f.nBuy, 10) || 0), nSell: Math.max(0, parseInt(f.nSell, 10) || 0),
   };
   const c = calc(tr, s);
+  // What the empty result is waiting for, named, rather than all three fields every time.
+  const gaps = [!(tr.buy > 0) ? 'a buy price' : null, !(tr.sell > 0) ? 'a sell price' : null, !(tr.qty > 0) ? 'a quantity' : null].filter(Boolean) as string[];
+  const missing = gaps.length > 1 ? `${gaps.slice(0, -1).join(', ')} and ${gaps[gaps.length - 1]}` : gaps[0] ?? 'a buy price, sell price and quantity';
   const asOmega = s.clone === 'alpha' ? calcWith(tr, omegaRates(s, { acc: s.planAcc, br: s.planBr, abr: s.planAbr }), s.target) : null;
   // Who's trading: what the live orders have sold and what this app has watched, before history's guess.
   const flow = useFlow();
@@ -247,7 +263,7 @@ export function Calculator({ route }: { route: Route }) {
         <section className="panel" aria-label="Result" data-rv="">
           {!c.ok ? (
             <div style={{ flex: 1, display: 'grid', placeItems: 'center', textAlign: 'center', color: 'var(--note)', padding: '40px 20px' }}>
-              <div><div className="empty-fig">–</div><p style={{ margin: '8px 0 0', maxWidth: 300 }}>Enter a buy price, sell price and quantity to see what you’d make.</p></div>
+              <div><div className="empty-fig">–</div><p style={{ margin: '8px 0 0', maxWidth: 300 }}>Enter {missing} to see what you’d make.</p></div>
             </div>
           ) : <Readout c={c} asOmega={asOmega} target={s.target} rateKind={rateKind} buyers={buyers} vol={tr.vol} baseShare={s.share} snap={snap} />}
         </section>
