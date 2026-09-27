@@ -430,6 +430,17 @@ Don't re-derive or contradict these without new evidence.
   Positions list ("Finished") and the position's own page; Delete says what it takes off the books and offers
   **Close instead** (`chooseAsk`'s `alt`); Close warns first when stock or open orders remain, since later sales
   won't count. Delete is for mistakes: the wrong item, a duplicate.
+- **A position says where to list and wait, not only what selling now would do** (`PositionDetail`: "List
+  patiently" and "List safely"). The user's question: I bought this, the market is down on what I paid, so what
+  price will it come back to if I just leave it listed? Patiently is the price the bulk of trading got up to on
+  half of the last 14 days (`reachedAsk`, the 7th-highest high, with watched Jita sales folded in); safely, on
+  most of them (`FILL_MOST`, 11). Each shows the profit if all the stock sells there, the margin on what an open
+  buy order is still filling (the resale to plan a slow, deliberate buy at, shown even before anything fills),
+  how many days trading got there, and a rough time at your share of buyers scaled by those days. On the user's
+  Rocket Science, down to 85 k against an 87,860 break-even: patiently 97,650, safely 92,200. "Average sell
+  price" became "Your average sale": it's your own sales, and it read like a market price. The cheapest seller to
+  undercut is judged on the whole book from others, like the chart: on the snapshot's five levels the token rule
+  called 727 units at 92,440 the market, which the whole book (19,000 a day trades) showed to be a skim.
 - **A broker fee belongs to its order's units, not to the moment it was paid** (`computePosition`). A
   buy order's fee goes into the stock's cost; a sell order's fee is charged per unit as units sell; the
   share for units still waiting on an open order is `prepaidFees`, shown beside the profit rather than in

@@ -28,6 +28,11 @@ export const FILL_WINDOW = 14;
 export const FILL_RARE = 4;
 /** A bid reached on this many days (half the window) is where the app prices buying in. */
 export const FILL_TYPICAL = 7;
+/**
+ * A price reached on this many of the 14 days is where trading gets to on most days: the safer patient ask on a
+ * position (the 11th-highest daily high), beside the one reached on half of them.
+ */
+export const FILL_MOST = 11;
 
 /**
  * Per UTC day, what the app watched in the Jita book itself (`bookFills` in flow.ts): the lowest price a buy

@@ -12,6 +12,8 @@ import { patchPosition } from '../lib/actions';
 import { navigate } from '../lib/hooks';
 import { nearMisses } from '../lib/signals';
 import { competitionShare, EVEN_SPLIT, sideVolume } from '../lib/split';
+import { askReachDays, FILL_MOST, FILL_TYPICAL, FILL_WINDOW, reachedAsk, recentRange } from '../lib/fills';
+import { useFlow, watchedDays } from '../lib/flowStore';
 import { typicalDailyVolume } from '../lib/prospects';
 import { JITA_44 } from '../lib/constants';
 import { toast } from '../lib/toast';
@@ -33,6 +35,8 @@ export function PositionDetail({ id }: { id: string }) {
   const [snap, setSnap] = useState<MarketSnap | null>(null);
   const [book, setBook] = useState<OrderLite[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  // The exact sales the app watched feed the patient prices; a new read of them re-renders.
+  useFlow();
 
   const typeId = pos?.typeId;
   const readMarket = async (force: boolean) => {
@@ -83,13 +87,19 @@ export function PositionDetail({ id }: { id: string }) {
   // A typical day's volume keeps real cheap sellers from being waved away as a token listing on a thin
   // item. The median, because one enormous day (often your own buying) would inflate an average.
   const typicalDay = typicalDailyVolume(hist);
-  const realBest = snap ? marketBest(snap.topSells, false, typicalDay) : null;
-  const mispriced = realBest != null && snap?.bestSell != null && realBest !== snap.bestSell;
   const bookTime = snap ? new Date(snap.fetchedAt).toISOString().slice(11, 16) : null;
 
   const bids = book?.filter((x) => x.isBuy) ?? null;
   // Lines for the price chart: your open orders at their live price, and today's best prices from others.
   const ownIds = new Set(Object.values(d.orders).map((o) => o.orderId));
+  // The cheapest real listing from others, judged on the whole book. The snapshot keeps only five price levels,
+  // which hides the volume further up that decides what's a token: on Rocket Science it called 727 units at
+  // 92,440 the market while the whole book (and the chart below) said 94,340. Your own listings aren't undercut.
+  const otherAsks = book ? book.filter((x) => !x.isBuy && !ownIds.has(x.id)).map((x) => ({ price: x.price, volume: x.volume })) : null;
+  const realBest = otherAsks?.length ? marketBest(otherAsks, false, typicalDay) : snap ? marketBest(snap.topSells, false, typicalDay) : null;
+  const rawBest = otherAsks?.length ? Math.min(...otherAsks.map((x) => x.price)) : snap?.bestSell ?? null;
+  const skippedUnits = otherAsks && realBest != null ? otherAsks.filter((x) => x.price < realBest).reduce((n, x) => n + x.volume, 0) : 0;
+  const mispriced = realBest != null && rawBest != null && realBest !== rawBest;
   const openMine = Object.values(d.orders).filter((o) => o.typeId === pos.typeId && o.state === 'open' && o.volumeRemain > 0 && (!pos.jitaOnly || o.locationId === JITA_44));
   const others = (book ?? []).filter((x) => !ownIds.has(x.id));
   const otherSells = others.filter((x) => !x.isBuy).map((x) => ({ price: x.price, volume: x.volume }));
@@ -107,7 +117,7 @@ export function PositionDetail({ id }: { id: string }) {
     { l: 'Bought', v: `${units(c.bought)} units`, n: `for ${iskBig(c.boughtValue)}` },
     { l: 'Average buy price', v: isk(c.avgBuy), n: vsNote(buyVs, true) },
     { l: 'Sold', v: `${units(c.sold)} units`, n: c.sold ? `for ${iskBig(c.soldValue)}` : 'Nothing sold yet' },
-    { l: 'Average sell price', v: isk(c.avgSell), n: c.sold ? vsNote(sellVs, false) : undefined },
+    { l: 'Your average sale', v: isk(c.avgSell), n: c.sold ? vsNote(sellVs, false) : 'What your own sales on this position have averaged, once there are some' },
     {
       l: 'Still to sell', v: `${units(c.stock)} units`,
       n: c.stock > 0 ? `They cost you ${iskBig(c.costOfStock)}, ${isk(c.avgCost)} each including the fee on the buy` : c.bought > 0 ? 'Everything bought has sold' : 'Nothing was bought',
@@ -140,6 +150,41 @@ export function PositionDetail({ id }: { id: string }) {
     tip: 'The fee you pay each time you change an order’s price to get back on top.\n\n• The app keeps every version of your orders it sees at each sync, so a new price is a change.\n• Its fee is matched to your wallet journal by the second, or worked out from your rates if nothing matches.\n• Like the listing fee, it’s charged on the units still on the order and comes off your profit as they sell.\n\nWhat it can’t see: two changes between syncs show as one, and changes from before the app kept order history aren’t counted.',
   });
 
+  // Where to list and wait: the prices the bulk of trading got up to on half, and on most, of the last 14 days,
+  // counting the exact sales the app watched in Jita. When today's market is down on what you paid, this is the
+  // price it tends to come back to; for a big buy order filling slowly, it's the resale to plan at.
+  const openBuy = openMine.find((o) => o.isBuy);
+  const buyLive = openBuy ? book?.find((x) => x.id === openBuy.orderId) : undefined;
+  const buyAt = openBuy ? buyLive?.price ?? openBuy.price : null;
+  const buyLeft = openBuy ? buyLive?.volume ?? openBuy.volumeRemain : 0;
+  const unitCost = c.stock > 0 && c.avgCost != null ? c.avgCost : buyAt != null ? buyAt * (1 + r.f) : null;
+  const highs = hist.length ? recentRange(hist, FILL_WINDOW, Date.now(), watchedDays(pos.typeId)).highs : null;
+  const listFills = snap?.avgVol7 ? sideVolume(snap.avgVol7, snap.buyerShare ?? EVEN_SPLIT, false) * competitionShare(d.settings.share, snap.sellOrders) : 0;
+  const patient: Stat[] = [];
+  if (highs && unitCost != null && keep > 0) {
+    for (const [l, k, word] of [['List patiently', FILL_TYPICAL, 'half'], ['List safely', FILL_MOST, 'most']] as const) {
+      const price = reachedAsk(highs, k);
+      if (price == null) continue;
+      const reached = askReachDays(highs, price);
+      const perUnit = price * keep - unitCost;
+      const onStock = c.stock > 0 ? perUnit * c.stock : null;
+      // Units still to come on your buy order, at what that order pays for them.
+      const onBuy = openBuy && buyAt != null && buyLeft > 0 ? (price * keep - buyAt * (1 + r.f)) * buyLeft : null;
+      const days = c.stock > 0 && listFills > 0 ? c.stock / (listFills * reached / FILL_WINDOW) : null;
+      const below = realBest != null && price <= tickDown(realBest);
+      const good = (onStock ?? onBuy ?? perUnit) >= 0;
+      const parts = [
+        onStock != null ? `${onStock >= 0 ? 'Makes' : 'Loses'} ${iskBig(Math.abs(onStock))} if all ${units(c.stock)} sell here` : null,
+        onBuy != null ? `${onStock != null ? 'and ' : ''}${onBuy >= 0 ? '+' : '−'}${iskBig(Math.abs(onBuy))} on the ${units(buyLeft)} your buy order is still filling` : null,
+      ].filter(Boolean);
+      patient.push({
+        l, v: isk(price), c: good ? 'var(--pos)' : 'var(--neg)',
+        n: `${parts.join(' ')}${parts.length ? '. ' : ''}Trading got up to it on ${reached} of the last ${FILL_WINDOW} days${days != null ? `, so about ${flip(days)} at your share of buyers` : ''}.${below ? ' Today’s market is above it: undercutting pays more now.' : ''}`,
+        tip: `The price the bulk of each day’s trading got up to on ${word} of the last ${FILL_WINDOW} days (the ${k === FILL_TYPICAL ? '7th' : '11th'}-highest daily high), counting Jita sales the app watched. List here and leave it: it sells on the days the market comes up to it.\n\n• ${k === FILL_TYPICAL ? 'More profit, more waiting than the safer price.' : 'Reached on most days: less profit than the patient price, but it sells sooner and more surely.'}\n• Profit is after the broker fee and sales tax, against what the units cost you (or, before any fill, what your buy order pays).\n• The time is a rough guide: your share of buyers, on the days the market gets there.\n• ESI trims each day’s high, so this is where most trading got to; a few sales went higher.\n\nFor a big buy order you mean to fill slowly, this is the price to plan the resale at.`,
+      });
+    }
+  }
+
   if (c.stock > 0 && c.avgCost != null && keep > 0) {
     const be = priceUp(breakEvenSell(c.avgCost, r, 0));
     const be2 = priceUp(breakEvenSell(c.avgCost, r, 2));
@@ -160,9 +205,10 @@ export function PositionDetail({ id }: { id: string }) {
       stats.push({
         l: 'Undercut the cheapest seller', v: isk(sug), c: profit >= 0 ? 'var(--pos)' : 'var(--neg)',
         n: `${profit >= 0 ? 'Makes' : 'Loses'} ${iskBig(Math.abs(profit))} if all ${units(c.stock)} sell at this price${fills > 0 ? `, in about ${flip(c.stock / fills)} at your share of buyers` : ''}`,
-        tip: `One price step under the cheapest real listing in Jita right now (${isk(realBest)})${mispriced ? `, ignoring a token listing at ${isk(snap.bestSell)} that’s too small to matter` : ''}. The profit is after the broker fee and sales tax on the sale, against what the units cost you. How long it takes comes from how many units a day buyers take and the share of them you’d get.`,
+        tip: `One price step under the cheapest real listing from others in Jita right now (${isk(realBest)}).${mispriced ? `\n\nIt leaves out ${units(skippedUnits)} unit${skippedUnits === 1 ? '' : 's'} listed from ${isk(rawBest)}: under 2% of what’s listed and ${typicalDay ? `a small part of the ${units(Math.round(typicalDay))} a typical day trades` : 'too few to matter'}, so they sell before yours would and aren’t worth a lower price.` : ''}\n\nThe profit is after the broker fee and sales tax on the sale, against what the units cost you. How long it takes comes from how many units a day buyers take and the share of them you’d get.`,
       });
     }
+    stats.push(...patient);
     if (bids) {
       const w = walkBids(c.stock, bids, r.t);
       if (w.sold > 0) {
@@ -175,6 +221,9 @@ export function PositionDetail({ id }: { id: string }) {
         });
       } else stats.push({ l: 'Sell to buyers right now', v: '–', n: 'Nobody is bidding for it in Jita 4-4 right now' });
     }
+  } else if (patient.length && pos.status === 'open') {
+    // Nothing in stock yet, a buy order filling: the resale price to plan at.
+    stats.push(...patient);
   }
 
   async function toggle(tx: Tx, match: string) {

@@ -2206,5 +2206,14 @@ console.log('\n--- a price that just moved ---');
   eq('  an ordinary day is not', wf(sf(13970, calm, now), book, 0.1, 40).includes('moved'), false);
 }
 
+console.log('\n--- where to list and wait ---');
+{
+  const { reachedAsk: ra, askReachDays: ard, FILL_MOST, FILL_TYPICAL } = await import('../src/lib/fills.ts');
+  // Datacore - Rocket Science, 13-26 Sep 2026: each day's high from ESI.
+  const highs = [97580, 99960, 99960, 97900, 97840, 97830, 97820, 88510, 92200, 92200, 97650, 89970, 96470, 94430];
+  eq('the patient price: where trading got up to on half the days', [ra(highs, FILL_TYPICAL), ard(highs, ra(highs, FILL_TYPICAL))], [97650, 7]);
+  eq('  the safer one: on most of them', [ra(highs, FILL_MOST), ard(highs, ra(highs, FILL_MOST))], [92200, 12]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
