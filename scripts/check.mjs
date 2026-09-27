@@ -1669,6 +1669,24 @@ console.log('\n--- planner filters ---');
   eq('its horizons are the Prospects ones without "any"', PLANNER_HORIZONS.includes(null), false);
 }
 
+console.log('\n--- loyalty: all on one item ---');
+{
+  const L = await import('../src/lib/loyalty.ts');
+  const v = (offerId, iskPerLp, profit, lpCost = 1000, quantity = 1) => ({ offerId, typeId: offerId, quantity, lpCost, revenue: 0, iskCost: 0, itemsCost: 0, outlay: 100, profit, iskPerLp, runs: 0, totalProfit: 0, unpriced: [] });
+  // Share 10%: a market with 10 buyers a day sells you one a day.
+  const c = (id, rate, profit, buyersPerDay, lpCost = 1000) => ({ v: v(id, rate, profit, lpCost), sideUnitsPerDay: buyersPerDay, listAt: 100 });
+  // 100,000 points. Offer 1: 100 runs, sells in 10 days. Offer 2: 8 runs, 16 days. Offer 3: 100 runs in 200 days.
+  const cands = [c(1, 700, 0.7e6, 100), c(2, 900, 11e6, 5, 12000), c(3, 1500, 1.5e6, 5), c(4, 100, 0.1e6, 1000)];
+  const picks = L.lazyPicks(cands, 10, 100000);
+  eq('every run the points afford goes into the one item', picks.find((p) => p.v.offerId === 1).runs, 100);
+  eq('within two weeks comes first; a slower one fills in behind it, flagged only past 30 days', picks.map((p) => [p.v.offerId, p.slow]), [[1, false], [2, false]]);
+  eq('  a pile that would take months is never suggested, whatever its rate', picks.some((p) => p.v.offerId === 3), false);
+  eq('  a poor rate is left out', picks.some((p) => p.v.offerId === 4), false);
+  eq('ranked by what it makes: your points times its rate, less what’s left over', L.lazyPicks([c(1, 700, 0.7e6, 1000), c(2, 900, 11e6, 1000, 12000)], 10, 100000).map((p) => p.v.offerId), [2, 1]);
+  const slow = L.lazyPicks([c(5, 900, 1e6, 10)], 10, 40000);
+  eq('40 days to sell is shown, flagged slow', [slow.length, slow[0]?.slow, Math.round(slow[0]?.sellDays)], [1, true, 40]);
+}
+
 console.log('\n--- horizon ---');
 {
   const { snapHorizon, HORIZONS, horizonSaid, horizonShort } = await import('../src/lib/prospects.ts');

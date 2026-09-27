@@ -241,3 +241,45 @@ export function spendPlan(
   }
   return picks;
 }
+
+/**
+ * "All on one item": the best few items to spend all your points on, listed as one sell order and left
+ * to sell in its own time.
+ *
+ * Every run your points afford goes into the one item, so what the listing makes is your points times
+ * its ISK a point (less what's left over), and that's the ranking. What makes a pick reasonable is how
+ * long that whole pile takes to sell at your share of the buyers taking listings: within LAZY_DAYS
+ * first; if too few manage that, slower ones fill in up to LAZY_MAX_DAYS, flagged past LAZY_WARN_DAYS.
+ * Nothing that would take months is suggested. Offers under half the store's typical rate are left out.
+ * Without a points figure, one run is sized instead.
+ */
+export const LAZY_DAYS = 14;
+export const LAZY_WARN_DAYS = 30;
+export const LAZY_MAX_DAYS = 90;
+export const LAZY_SHOWN = 5;
+
+/** An offer, and how many units a day of buyers taking listings its market has. */
+export type LazyCandidate = { v: LpValue; sideUnitsPerDay: number | null; listAt: number };
+export type LazyPick = { v: LpValue; listAt: number; runs: number; units: number; lp: number; isk: number; profit: number; sellDays: number; slow: boolean };
+
+export function lazyPicks(candidates: LazyCandidate[], sharePct: number, lpAvailable: number, n = LAZY_SHOWN): LazyPick[] {
+  const rates = candidates.filter((c) => c.v.profit > 0).map((c) => c.v.iskPerLp).sort((a, b) => a - b);
+  const typical = rates.length ? rates[rates.length >> 1] : 0;
+  const out: LazyPick[] = [];
+  for (const c of candidates) {
+    if (c.v.profit <= 0 || (typical > 0 && c.v.iskPerLp < typical * 0.5)) continue;
+    const pace = (c.sideUnitsPerDay ?? 0) * (sharePct / 100);
+    if (!(pace > 0)) continue;
+    const afford = lpAvailable > 0 ? Math.floor(lpAvailable / c.v.lpCost) : Infinity;
+    if (afford < 1) continue;
+    const runs = Number.isFinite(afford) ? afford : 1;
+    const units = runs * c.v.quantity;
+    const sellDays = units / pace;
+    if (sellDays > LAZY_MAX_DAYS) continue;
+    out.push({ v: c.v, listAt: c.listAt, runs, units, lp: runs * c.v.lpCost, isk: runs * c.v.outlay, profit: runs * c.v.profit, sellDays, slow: sellDays > LAZY_WARN_DAYS });
+  }
+  const byProfit = (a: LazyPick, b: LazyPick) => b.profit - a.profit || b.v.iskPerLp - a.v.iskPerLp;
+  const picks = out.filter((p) => p.sellDays <= LAZY_DAYS).sort(byProfit).slice(0, n);
+  if (picks.length < n) picks.push(...out.filter((p) => p.sellDays > LAZY_DAYS).sort(byProfit).slice(0, n - picks.length));
+  return picks;
+}

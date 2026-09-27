@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BadgePercent, Coins, ListOrdered, MonitorUp, Store, Tag } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BadgePercent, Coins, ListOrdered, MonitorUp, Search, Store, Tag } from 'lucide-react';
 import { getAuth, hasScope } from '../lib/auth';
 import { CALDARI_NAVY, SCOPE } from '../lib/config';
 import { rates } from '../lib/fees';
@@ -7,11 +7,13 @@ import { isk, iskBig, parseISK, plainNum, units } from '../lib/format';
 import { navigate } from '../lib/hooks';
 import { loyaltyPoints, openMarketWindow, resolveNames } from '../lib/market';
 import {
-  byIskPerLp, daysToClear, instantPrice, notesFor, patientPrice, planFor, spendPlan, valueOffer,
+  byIskPerLp, daysToClear, instantPrice, LAZY_DAYS, LAZY_WARN_DAYS, lazyPicks, notesFor, patientPrice, planFor, spendPlan, valueOffer,
   type LpNote, type LpOffer, type LpPlan, type LpValue, type Quote, type UnitPrice,
 } from '../lib/loyalty';
 import { median } from '../lib/prospects';
-import { PRICE_TOP, priceStore } from '../lib/lpStore';
+import { PRICE_TOP, priceRest, priceStore } from '../lib/lpStore';
+import { EVEN_SPLIT, sideVolume } from '../lib/split';
+import { tickDown } from '../lib/tick';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { OpenInGame, useTypeName, canOpenInGame } from './common';
@@ -29,19 +31,19 @@ const TIPS: Record<string, string> = {
   outlay: 'The loyalty points, the store’s own ISK price, and the cost of buying any items the offer demands first.',
   revenue: 'What the offer hands over, and what selling it would really net you after broker fee and sales tax.',
   profit: 'What is left once everything you paid is taken off what you got.',
-  days: 'How many of these change hands at Jita on an average day, and how long one run would take to sell at your share.',
-  total: 'How many times to take this offer, capped by what can actually be sold inside the time you allowed.',
+  days: 'How many of these change hands at Jita on an average day, and how long one purchase would take to sell at your share.',
+  total: 'How many times to buy this offer, capped by what can actually be sold inside the time you allowed.',
 };
 
 export const NOTE: Record<LpNote, { short: string; why: string; bad?: boolean }> = {
   loss: { short: 'Loses money', why: 'The goods are worth less than the offer costs. Taking it would turn loyalty points into a loss.', bad: true },
   topRate: { short: 'Best rate', why: 'Well above the typical rate in this store — half again or better. This is where the points are worth spending.' },
   poorRate: { short: 'Poor rate', why: 'Under half the typical rate in this store. The same points do far better further up this list.' },
-  fast: { short: 'Sells fast', why: 'One run sells within a day at your usual share of the trade, so the ISK comes back quickly and you can go round again.' },
-  slow: { short: 'Slow to sell', why: 'More than a week to shift a single run at your usual share of the trade. Fine once; not something to repeat.', bad: true },
+  fast: { short: 'Sells fast', why: 'One purchase sells within a day at your usual share of the trade, so the ISK comes back quickly and you can go round again.' },
+  slow: { short: 'Slow to sell', why: 'More than a week to sell what one purchase gives you, at your usual share of the trade. Fine once; not something to repeat.', bad: true },
   illiquid: { short: 'Barely trades', why: 'No recent trading history to judge by. The price may be real, but there may be nobody to sell to.', bad: true },
   needsItems: { short: 'Buy items first', why: 'A quarter or more of what you get back goes on the items the store demands before it will trade. You have to front that ISK, and those prices can move against you.' },
-  capped: { short: 'Market-limited', why: 'Your points afford more runs of this than the market will take in the time you allowed.' },
+  capped: { short: 'Market-limited', why: 'Your points could buy this more times than the market will take in the time you allowed.' },
   capitalHeavy: { short: 'Ties up ISK', why: 'Most of what you get back is money you had to put in first. Your ISK is committed until the goods sell.' },
   unpriced: { short: 'Cost incomplete', why: 'Something this offer demands could not be priced, so what you pay is understated and the profit shown is too high.', bad: true },
   rough: { short: 'Rough price', why: 'Valued on a global average rather than the live Jita book, because only the best offers get priced properly.' },
@@ -63,7 +65,13 @@ export function Loyalty() {
   const [quotes, setQuotes] = useState<Record<number, Quote>>({});
   const [live, setLive] = useState<Set<number>>(new Set());
   const [vol, setVol] = useState<Record<number, number | null>>({});
+  const [buyers, setBuyers] = useState<Record<number, number>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  /** The second pass, pricing the rest of the store in the background. */
+  const [more, setMore] = useState<string | null>(null);
+  const pass = useRef(0);
+  const [q, setQ] = useState('');
+  const [showAll, setShowAll] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
   const [hideLosses, setHideLosses] = useState(true);
   const [horizon, setHorizon] = useState('7');
@@ -111,13 +119,21 @@ export function Loyalty() {
 
   const load = useCallback(async () => {
     setBusy('Reading the store…'); setOpen(null);
+    const mine = ++pass.current;
     try {
       const p = await priceStore(corp, lp, r, (done, total) => setBusy(`Pricing ${done} of ${total} against Jita…`));
-      setOffers(p.offers); setQuotes(p.quotes); setLive(p.live); setVol(p.vol);
+      setOffers(p.offers); setQuotes(p.quotes); setLive(p.live); setVol(p.vol); setBuyers(p.buyers);
+      setBusy(null);
+      // Then everything else that looks worth taking, in the background: the table and the lazy picks
+      // fill in with live prices and paces as it goes. A newer look-up makes this one stand down.
+      setMore('Pricing the rest of the store…');
+      const rest = await priceRest(p, lp, r, (done, total) => { if (pass.current === mine) setMore(`Pricing the rest against Jita: ${done} of ${total}…`); });
+      if (pass.current === mine) { setQuotes(rest.quotes); setLive(rest.live); setVol(rest.vol); setBuyers(rest.buyers); }
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'err');
     } finally {
       setBusy(null);
+      if (pass.current === mine) setMore(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [corp, lp, r.f, r.t]);
@@ -139,7 +155,9 @@ export function Loyalty() {
   }, [offers, quotes, live, vol, lp, r.f, r.t, days, d.settings.share]);
 
   const rows = useMemo(() => {
-    const keep = hideLosses ? all.filter((x) => x.v.profit > 0) : all;
+    const needle = q.trim().toLowerCase();
+    const keep = (hideLosses ? all.filter((x) => x.v.profit > 0) : all)
+      .filter((x) => !needle || nameOf(x.v.typeId).toLowerCase().includes(needle));
     const val = (x: Row): number => {
       switch (sort.key) {
         case 'rate': return x.v.iskPerLp;
@@ -155,7 +173,18 @@ export function Loyalty() {
     const sorted = [...keep].sort((a, b) => (sort.key === 'name' ? nameOf(a.v.typeId).localeCompare(nameOf(b.v.typeId)) : val(a) - val(b) || nameOf(a.v.typeId).localeCompare(nameOf(b.v.typeId))));
     return sort.dir === 'desc' ? sorted.reverse() : sorted;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [all, sort, hideLosses, d.names]);
+  }, [all, sort, hideLosses, d.names, q]);
+
+  // One run, listed as one sell order and left alone: how long it takes to sell at your share of the
+  // buyers taking listings (not the whole volume: only buyers fill a sell order).
+  const lazy = useMemo(() => lazyPicks(
+    all.filter((x) => x.live && x.perDay != null).map((x) => ({
+      v: x.v,
+      sideUnitsPerDay: sideVolume(x.perDay!, buyers[x.v.typeId] ?? EVEN_SPLIT, false),
+      listAt: tickDown(quotes[x.v.typeId]?.bestSell ?? NaN),
+    })),
+    d.settings.share, lp,
+  ), [all, buyers, quotes, lp, d.settings.share]);
 
   const profitable = all.filter((x) => x.v.profit > 0).length;
   const best = [...all].sort((a, b) => byIskPerLp(a.v, b.v)).find((x) => x.v.profit > 0);
@@ -202,7 +231,7 @@ export function Loyalty() {
           <input id="lp-have" type="text" inputMode="numeric" value={held ? units(held) : manualLp} disabled={held > 0} placeholder="e.g. 250000"
             onChange={(e) => setManualLp(e.target.value)} style={{ width: 110, color: held ? 'var(--acc2)' : undefined }} />
         </label>
-        <label htmlFor="lp-h" className="chip h34" data-tip={`Caps the runs at what the market will take, at ${plainNum(d.settings.share)}% of its daily trade`}>
+        <label htmlFor="lp-h" className="chip h34" data-tip={`Caps how many times you buy each offer at what the market will take, at ${plainNum(d.settings.share)}% of its daily trade`}>
           <span className="cl">Sell within, days</span>
           <input id="lp-h" type="text" inputMode="decimal" value={horizon} onChange={(e) => setHorizon(e.target.value)} style={{ width: 56 }} />
         </label>
@@ -233,7 +262,8 @@ export function Loyalty() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-start' }}>
-          <section data-rv="" style={{ flex: '1 1 320px', minWidth: 0, position: 'relative', padding: 18, overflow: 'hidden', background: 'linear-gradient(160deg,color-mix(in oklab,var(--acc2) 12%,rgba(7,13,21,.92)),rgba(7,13,21,.92) 60%)', border: '1px solid color-mix(in oklab,var(--acc2) 35%,transparent)', clipPath: 'var(--cut)' }}>
+          <div className="col" style={{ flex: '1 1 320px', minWidth: 0, gap: 14 }}>
+          <section data-rv="" style={{ minWidth: 0, position: 'relative', padding: 18, overflow: 'hidden', background: 'linear-gradient(160deg,color-mix(in oklab,var(--acc2) 12%,rgba(7,13,21,.92)),rgba(7,13,21,.92) 60%)', border: '1px solid color-mix(in oklab,var(--acc2) 35%,transparent)', clipPath: 'var(--cut)' }}>
             <div className="hero-l" style={{ color: 'var(--acc2)' }}>
               Spend it like this
               <Tip title="Spend it like this" text={'How to spend your points for the most ISK:\n\n• the best rate first, as many times as its market will absorb in the days you allowed;\n• then the next best, until the points or the ISK run out.\n\nOnly offers priced against the live Jita book, with a trading history to judge the pace by, are used.'} />
@@ -272,16 +302,58 @@ export function Loyalty() {
             )}
           </section>
 
+          <section data-rv="" className="panel" aria-label="All on one item" style={{ padding: 18, gap: 10, clipPath: 'none' }}>
+            <div className="hero-l" style={{ color: 'var(--acc)' }}>
+              All on one item
+              <Tip title="All on one item" text={`The best few items to spend all your points on: one trip to the store, one sell order, left to sell in its own time.\n\n• All your points go on the one item, bought as many times as they cover, so they’re ranked by what that makes: your points times its ISK a point.\n• What keeps a pick reasonable is how long the whole pile takes to sell at your share of the buyers taking listings: within ${LAZY_DAYS} days first. Slower ones only fill in when there aren’t enough, anything over ${LAZY_WARN_DAYS} days is flagged, and nothing that would take months is suggested.\n• Offers under half the store’s typical rate per point are left out.\n\nPrices are from the live Jita book; the time to sell is from the last week’s trading at your share (Settings).`} />
+            </div>
+            {!lazy.length ? (
+              <p className="note">{more ? 'Pricing the rest of the store; picks appear as it finishes.' : lp > 0 ? 'Nothing this store sells would sell within three months at your share, or your points don’t cover buying one.' : 'Nothing priced against the live book sells within three months at your share.'}</p>
+            ) : (
+              <div className="col" style={{ gap: 12 }}>
+                {lazy.map((p) => (
+                  <div key={p.v.offerId} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div className="ellipsis" style={{ fontSize: 13, color: 'var(--ink)' }}><b className="mono" style={{ color: 'var(--acc)', fontWeight: 500 }}>{units(p.units)}× </b>{nameOf(p.v.typeId)}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--label)' }}>
+                        {p.runs > 1 ? `Buy it ${units(p.runs)} times: ` : ''}{units(p.lp)} LP + {iskBig(p.isk)}{Number.isFinite(p.listAt) ? `, list at ${isk(p.listAt)}` : ''} → <b style={{ color: 'var(--pos)', fontWeight: 500 }}>{iskBig(p.profit)}</b> ({units(Math.round(p.v.iskPerLp))} a point)
+                      </div>
+                      <div style={{ fontSize: 11.5, color: p.slow ? 'var(--acc2)' : 'var(--sec)' }}>
+                        {p.slow ? `Slow: about ${flip(p.sellDays)} to sell, at your share` : `Sells in about ${flip(p.sellDays)}, at your share`}
+                      </div>
+                    </div>
+                    {canOpenInGame() && (
+                      <button type="button" className="icon-btn plain" aria-label={`Open ${nameOf(p.v.typeId)} in game`} onClick={() => openMarketWindow(p.v.typeId).then(() => toast(`Opened ${nameOf(p.v.typeId)}’s market window in your client.`, 'info')).catch((e) => toast(String(e.message ?? e), 'err'))}>
+                        <MonitorUp aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {lp <= 0 && <p className="note small">Sized to one purchase each: type how many points you have to size them to all of them.</p>}
+              </div>
+            )}
+          </section>
+          </div>
+
           <div data-rv="" className="col" style={{ flex: '3 1 640px', minWidth: 0 }}>
             <p style={{ fontSize: 12.5, color: 'var(--label)', textWrap: 'pretty' }}>
               {units(all.length)} offers valued, {units(profitable)} of them worth taking{lp > 0 && <> with {units(lp)} points</>}.
-              {live.size > 0 ? ` The top ${PRICE_TOP} are priced against the live Jita book; the rest sit on a global average and are marked rough.` : ' All on a global average so far.'}
+              {more ? ` ${more}` : live.size > 0 ? ` ${units(live.size)} items priced against the live Jita book; anything left on a global average is marked rough.` : ' All on a global average so far.'}
               {best && <> Best rate: <b style={{ color: 'var(--figure)' }}>{units(Math.round(best.v.iskPerLp))} ISK per point on {nameOf(best.v.typeId)}</b>.</>}
             </p>
+            <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+              <label className="chip h34" style={{ flex: '0 1 320px' }}>
+                <Search aria-hidden="true" style={{ width: 14, height: 14, color: 'var(--dim)' }} />
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find an item, e.g. augmentation" aria-label="Find an item in this store" style={{ border: 0, background: 'transparent', color: 'var(--ink)', width: '100%', outline: 'none' }} />
+              </label>
+              {rows.length > SHOW && (
+                <button type="button" className="link-btn" onClick={() => setShowAll((v) => !v)}>{showAll ? `Show the top ${SHOW}` : `Show all ${units(rows.length)}`}</button>
+              )}
+            </div>
             <section className="panel flush">
               <div className="tbl-scroll" style={{ maxHeight: 'calc(100vh - 380px)', minHeight: 300 }}>
                 {!rows.length ? (
-                  <p className="note" style={{ padding: 20 }}>Nothing in this store is worth taking at current Jita prices. Untick “Hide losing offers” to see the numbers anyway.</p>
+                  <p className="note" style={{ padding: 20 }}>{q.trim() ? `Nothing here matches “${q.trim()}”${hideLosses ? ' among the offers worth taking. Untick “Hide losing offers” to search them all' : ''}.` : 'Nothing in this store is worth taking at current Jita prices. Untick “Hide losing offers” to see the numbers anyway.'}</p>
                 ) : (
                   <table className="tbl" style={{ minWidth: 1180 }}>
                     <thead>
@@ -293,13 +365,13 @@ export function Loyalty() {
                         <SortTh k="revenue" label="You get" sort={sort} onSort={sortBy} tip={TIPS.revenue} />
                         <SortTh k="profit" label="Profit" sort={sort} onSort={sortBy} tip={TIPS.profit} />
                         <SortTh k="days" label="Trades a day" sort={sort} onSort={sortBy} tip={TIPS.days} />
-                        <SortTh k="total" label="Runs" sort={sort} onSort={sortBy} tip={TIPS.total} />
+                        <SortTh k="total" label="Times to buy" sort={sort} onSort={sortBy} tip={TIPS.total} />
                         <th scope="col" className="l">Why</th>
                         <th scope="col" style={{ color: 'var(--faint-2)' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.slice(0, SHOW).map((row) => (
+                      {(showAll ? rows : rows.slice(0, SHOW)).map((row) => (
                         <OfferRow key={row.v.offerId} row={row} name={nameOf(row.v.typeId)} lp={lp} open={open === row.v.offerId}
                           onToggle={() => setOpen(open === row.v.offerId ? null : row.v.offerId)} />
                       ))}
@@ -308,7 +380,7 @@ export function Loyalty() {
                 )}
               </div>
             </section>
-            {rows.length > SHOW && <p className="note small">Showing {SHOW} of {units(rows.length)}. Sort by a different column to see the rest.</p>}
+            {rows.length > SHOW && !showAll && <p className="note small">Showing the top {SHOW} of {units(rows.length)}. Search above, or show them all.</p>}
           </div>
         </div>
       )}
@@ -319,7 +391,7 @@ export function Loyalty() {
         steps={[
           { icon: Store, title: 'Pick your store', body: 'Your balances load automatically. Caldari Navy is the usual Jita trader’s store.' },
           { icon: Coins, title: 'Set the ISK you can put in', body: 'Many offers want ISK and items as well as points. The plan won’t spend more than you set.' },
-          { icon: ListOrdered, title: 'Follow the spend plan', body: 'Best rate first, as many runs as the market takes, then the next best. Listing 600 of something that sells five a day only competes with yourself.' },
+          { icon: ListOrdered, title: 'Follow the spend plan', body: 'Best rate first, bought as many times as the market takes, then the next best. Listing 600 of something that sells five a day only competes with yourself.' },
         ]}
         habits={[{ icon: Tag, title: 'Worth listing vs sell now', body: 'Sell now dumps into buy orders instantly; listing pays more but takes time.' }]}
       />
@@ -331,15 +403,15 @@ function OfferRow({ row, name, lp, open, onToggle }: { row: Row; name: string; l
   const { v, instant, notes, plan, perDay, runDays } = row;
   const perUnit = v.revenue / v.quantity;
   const det: { l: string; v: string; n: string; c?: string }[] = [
-    { l: 'One run', v: `${units(v.lpCost)} LP${v.iskCost > 0 ? ` + ${iskBig(v.iskCost)}` : ''}`, n: `Gives ${units(v.quantity)} × ${name}` },
+    { l: 'Each purchase', v: `${units(v.lpCost)} LP${v.iskCost > 0 ? ` + ${iskBig(v.iskCost)}` : ''}`, n: `Gives ${units(v.quantity)} × ${name}` },
     { l: 'Items to buy first', v: v.itemsCost > 0 ? iskBig(v.itemsCost) : 'None', n: v.itemsCost > 0 ? 'At the cheapest Jita listings' : 'This offer wants points and ISK only' },
     { l: 'Listed and waited', v: iskBig(v.revenue), n: v.quantity > 1 ? `${isk(perUnit)} each after fees` : 'After your broker fee and sales tax', c: 'var(--pos)' },
     { l: 'Sold now instead', v: instant ? iskBig(instant.revenue) : 'Nothing bidding', n: instant ? `${units(Math.round(instant.iskPerLp))} ISK per point` : 'No buy orders to sell into' },
     { l: 'Per point', v: `${units(Math.round(v.iskPerLp))} ISK`, n: `${iskBig(v.profit)} profit ÷ ${units(v.lpCost)} LP`, c: v.iskPerLp > 0 ? 'var(--pos)' : 'var(--neg)' },
     {
       l: 'What limits it', v: plan.limitedBy === 'market' ? 'The market' : plan.limitedBy === 'points' ? 'Your points' : 'Not known',
-      n: plan.limitedBy === 'market' ? `Points afford ${units(plan.affordable)} runs; the market takes ${units(plan.absorbable ?? 0)} in the time allowed`
-        : plan.limitedBy === 'points' ? `${units(Math.floor(lp / v.lpCost))} runs affordable, and the market would take ${units(plan.absorbable ?? 0)}`
+      n: plan.limitedBy === 'market' ? `Your points buy it ${units(plan.affordable)} times; the market takes ${units(plan.absorbable ?? 0)} in the time allowed`
+        : plan.limitedBy === 'points' ? `Your points buy it ${units(Math.floor(lp / v.lpCost))} times, and the market would take ${units(plan.absorbable ?? 0)}`
           : 'No recent trading history, so there is nothing to judge the pace by',
     },
   ];
@@ -351,7 +423,7 @@ function OfferRow({ row, name, lp, open, onToggle }: { row: Row; name: string; l
             <ItemIcon id={v.typeId} />
             <span style={{ minWidth: 0 }}>
               <span className="name ellipsis" style={{ display: 'block', maxWidth: 260 }}>{name}</span>
-              {v.quantity > 1 && <span className="sub">{units(v.quantity)} per run</span>}
+              {v.quantity > 1 && <span className="sub">{units(v.quantity)} per purchase</span>}
             </span>
           </Expander>
         </td>
@@ -360,7 +432,7 @@ function OfferRow({ row, name, lp, open, onToggle }: { row: Row; name: string; l
         <td>{units(v.lpCost)} LP<span className="sub">{v.outlay > 0 ? iskBig(v.outlay) : 'no ISK'}{v.itemsCost > 0 && `, ${iskBig(v.itemsCost)} of it items`}</span></td>
         <td>{iskBig(v.revenue)}</td>
         <td style={{ color: v.profit >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{iskBig(v.profit)}</td>
-        <td>{perDay != null && perDay > 0 ? <>{units(Math.round(perDay))}<span className="sub">a run in {flip(runDays)}</span></> : <span className="faint" data-tip="No trades recorded in the last week">–</span>}</td>
+        <td>{perDay != null && perDay > 0 ? <>{units(Math.round(perDay))}<span className="sub">one purchase sells in {flip(runDays)}</span></> : <span className="faint" data-tip="No trades recorded in the last week">–</span>}</td>
         <td>{plan.runs > 0 ? <>{units(plan.runs)}<span className="sub">{iskBig(plan.profit)} in all</span></> : <span className="faint">–</span>}</td>
         <td className="l">
           <span className="flags" style={{ justifyContent: 'flex-start' }}>

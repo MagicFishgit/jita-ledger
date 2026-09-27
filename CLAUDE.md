@@ -346,7 +346,18 @@ Don't re-derive or contradict these without new evidence.
   "what do I do with 250,000 points". It uses only offers priced against the live book *with* a
   trading history; a plan built on a global average and an unknown pace spends everything on whatever
   looks best on paper.
-- **Liquidity notes are judged on one run, never on the plan.** A capped plan fills the horizon by
+- **The Loyalty table isn't capped out of sight.** It showed the top 60 of ~200 profitable offers, which hid
+  every attribute implant in the Caldari Navy store (420–500 ISK a point, ranked 101st–181st) and made them
+  look filtered out. It now has a name search and "Show all", and prices them live in the background pass.
+- **"All on one item"** (`lazyPicks`) answers "spend all my points on one thing, list it, leave it": every
+  purchase the points cover, ranked by what that makes (points × ISK a point), kept reasonable by how long
+  the whole pile takes to sell at your share of the *buyers taking listings* (not total volume): within 14
+  days first, slower ones filling in flagged past 30, nothing past 90. Offers under half the store's typical
+  rate are left out. Ranking one purchase by ISK a point, the first attempt, filled it with 375-point items
+  making under 1.2 M.
+- **Loyalty speaks of buying an offer, never "runs"**, which read like an industry job to the user: "buy it 83
+  times", "each purchase", "times to buy". The code keeps `runs` as the field name.
+- **Liquidity notes are judged on one purchase, never on the plan.** A capped plan fills the horizon by
   construction, so its length says nothing about the item.
 - **Abyssal returns come from the wallet, not from a drop table.** Filaments bought and abyssal loot
   sold are both already in `txs`, so ISK-per-run is measured. It is pooled across tiers on purpose:
@@ -564,8 +575,9 @@ State these rather than letting them be discovered:
   pricing pass takes the *best-margin* ones, which are mostly different: before the second fix only 5 of 42
   priced items had lows. Items a scan doesn't reach keep their old record, priced one step over the best bid
   and unflagged, until one does.
-- Loyalty prices only the best 40 offers against the live book; the rest of the table sits on a global
-  average and is marked "rough price". Widening that is just more requests, not new logic.
+- Loyalty prices the best 40 offers against the live book first, then every other offer that looks
+  profitable on the rough prices in a background pass (`priceRest`, about half a minute for Caldari Navy's
+  store). Loss-makers on the rough price stay rough.
 - Abyssal ISK-per-run only counts loot that has been **sold**. A good week looks flat until you list
   the hangar, and filaments you looted rather than bought aren't counted as runs at all.
 - Hauling reads The Forge only. Contracts starting elsewhere are invisible, which is the right
