@@ -4,6 +4,7 @@ import { computePosition } from './positions';
 import { rates } from './fees';
 import { adviseRelist, byUrgency, type Relist } from './relist';
 import { buyerShare, sideVolume } from './split';
+import { recentRange } from './fills';
 import { getData, type Data } from './store';
 import type { Order } from './types';
 
@@ -21,6 +22,8 @@ export type CheckState = {
   daily: Record<number, number | null>;
   /** Share of each item's volume that is buyers taking sells. */
   buyers: Record<number, number>;
+  /** Each item's last 14 days' lows, for whether trading reaches a buy at all. */
+  lows: Record<number, (number | null)[]>;
   checkedAt: string | null;
   /** When ESI will next have a different book. Re-checking before then cannot show a relist. */
   bookFreshAt: number | null;
@@ -30,7 +33,7 @@ export type CheckState = {
   failed: number;
 };
 
-let state: CheckState = { books: null, daily: {}, buyers: {}, checkedAt: null, bookFreshAt: null, changed: null, busy: null, failed: 0 };
+let state: CheckState = { books: null, daily: {}, buyers: {}, lows: {}, checkedAt: null, bookFreshAt: null, changed: null, busy: null, failed: 0 };
 const listeners = new Set<() => void>();
 const setState = (p: Partial<CheckState>) => { state = { ...state, ...p }; listeners.forEach((l) => l()); };
 export function useOrderCheck(): CheckState {
@@ -67,6 +70,7 @@ async function runCheck(fresh: boolean): Promise<void> {
   const out: Record<number, OrderLite[]> = {};
   const vol: Record<number, number | null> = {};
   const buyers: Record<number, number> = {};
+  const lows: Record<number, (number | null)[]> = {};
   let failed = 0, done = 0, soonest = Infinity, moved = 0, i = 0;
   await Promise.all(Array.from({ length: Math.min(4, typeIds.length) }, async () => {
     while (i < typeIds.length) {
@@ -82,12 +86,13 @@ async function runCheck(fresh: boolean): Promise<void> {
         const h = await marketHistory(id);
         vol[id] = recentAverages(h, 7).avgVol;
         buyers[id] = buyerShare(h.slice(-30));
+        lows[id] = recentRange(h).lows;
       } catch { vol[id] = null; }
       setState({ busy: { done: ++done, total: typeIds.length } });
     }
   }));
   setState({
-    books: out, daily: vol, buyers,
+    books: out, daily: vol, buyers, lows,
     bookFreshAt: Number.isFinite(soonest) ? soonest : null,
     changed: before ? moved : null,
     checkedAt: new Date().toISOString(),
@@ -125,6 +130,8 @@ export function verdicts(d: Data, check: CheckState, cost: Record<number, number
         dailyVolume: daily != null ? sideVolume(daily, buyers, o.isBuy) : null,
         avgCost: cost[o.typeId],
         bestSell: sells.length ? Math.min(...sells) : null,
+        lows: check.lows?.[o.typeId] ?? null,
+        targetReturn: d.settings.target / 100,
       }, r, d.settings.waitHours, d.settings.target / 100);
     })
     .sort(byUrgency);

@@ -89,6 +89,8 @@ export type MarketSnap = {
   avgPrice7: number | null;
   /** Share of volume that is buyers taking sells, from the last 30 days. Absent on older snapshots. */
   buyerShare?: number;
+  /** NPCs sell this here, at a fixed price in unlimited supply. */
+  npcSell?: boolean;
 };
 
 export type HistRow = { date: string; average: number; highest: number; lowest: number; volume: number; order_count: number };
@@ -138,6 +140,11 @@ export type ProspectStats = {
    * day's average sits between its low and high. Absent on stats cached before it was kept.
    */
   buyerShare?: number;
+  /**
+   * Each of the last 14 days' low, oldest first, null where nothing traded: where the bulk of trading
+   * got down to, for judging whether a bid will be reached (see fills.ts). Absent on older stats.
+   */
+  lows14?: (number | null)[];
   /** The highest price anyone paid in the window. Nothing honest bids far above it. */
   high30?: number;
   /** A recent day traded several times the usual volume at an unusual price. */
@@ -146,7 +153,7 @@ export type ProspectStats = {
   range7?: number[];
 };
 
-export type ProspectWarning = 'thin' | 'fluke' | 'falling' | 'crowded' | 'wall' | 'escrow' | 'spike';
+export type ProspectWarning = 'thin' | 'fluke' | 'falling' | 'crowded' | 'wall' | 'escrow' | 'spike' | 'unreached';
 
 /** A candidate that cleared the gate, priced against the live book. */
 export type Prospect = {
@@ -170,6 +177,10 @@ export type Prospect = {
   share: number;
   /** Share of volume that is buyers taking sells, 0 to 1. */
   buyerShare: number;
+  /** Of the last 14 days, how many the bulk of trading reached a bid one step above the best. Null without history for it. */
+  bidReach: number | null;
+  /** True when `buy` was raised from one step above the best bid to where trading actually reached. */
+  buyRaised: boolean;
   warnings: ProspectWarning[];
 };
 

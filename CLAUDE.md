@@ -93,6 +93,18 @@ Don't re-derive or contradict these without new evidence.
 - **PLEX trades on one global market** (region 19000001), not in a station — it's the exception to
   every "is this at Jita 4-4" check. See `tradedAtJita`.
 - **ESI history omits days with no trades**, so a gap *is* a zero-volume day, not missing data.
+- **ESI's daily `highest` and `lowest` are trimmed, not the true extremes.** Checked against the user's own
+  wallet in September 2026: of 182 days they sold something in Jita, 86 had a sale *above* the reported high
+  (60 of them by 5% or more; one ammo sale at 53.98 against a reported high of 40.66), and 6 of 41 buy-days
+  had a buy below the reported low. The trades left out were typically about 2% of that day's volume, once
+  25%. CCP documents none of this. So a day's low is where the *bulk* of the day's trading got down to:
+  "the low stayed above your bid" means most trading stayed above it, never "nothing sold lower". Say it that
+  way in copy. The history is also region-wide (all of The Forge), not Jita alone.
+- **ESI's `average` may be the client's median price, not a true average** (an unanswered forum observation,
+  not checked here). Nothing is built on the difference; it is a limit, not a fact.
+- **NPC market orders run for 365 days; a player's run for 90 at most.** So an item NPCs sell shows itself in
+  the book (`duration`), with no list to keep. Raven Blueprint: NPC-sold at a fixed 1.135 B, flat on 23 of 25
+  days, its bids a lowball 0.02 ISK.
 - **Loyalty store offers are public**: `/loyalty/stores/{corp}/offers/` needs no scope or login. Only
   the *balances* need one (`esi-characters.read_loyalty.v1`, 1h cache). Caldari Navy is corp 1000035.
   Its store is 310 offers over 303 output items and 92 required items; 377 of those 395 types have a
@@ -218,6 +230,34 @@ Don't re-derive or contradict these without new evidence.
   Destructive questions focus Cancel. No native `confirm()` anywhere.
 - **Your own order's price is read from the live book**, not the 20-minute-cached store, so a relist
   made in game shows up at once.
+- **Whether trading reaches a bid is judged by counting days, not read off the top of the book**
+  (`lib/fills.ts`). A wide gap between best bid and best ask looked like margin on items whose sellers list
+  and wait: the user bid on a Syndicate Gas Cloud Scoop Prospects had suggested and it never filled. Over the
+  last 14 days, the bulk of its trading reached a bid one step over the best (101.7 M) on 1 day and the user's
+  99.79 M on none, while sellers took 103–110 M. Hammerhead II (0 of 14 at its 711.7 k top bid, all trading
+  near 800 k), Mobile Tractor Unit and Caldari Navy Ballistic Control System looked the same; Machariel (12),
+  Gist X-Type boosters (11) and High-grade Snake Alphas (9) didn't. It is not a category: the data decides.
+  The rules, all from `lows14` / `recentRange`:
+  - reached on fewer than `FILL_RARE` (4) of 14 days, a bid is below where the item trades;
+  - the realistic bid is `reachedBid`, the 7th-lowest daily low (reached on half the days);
+  - Prospects prices buying there (`bidToPlace`), flags `unreached`, and an item whose realistic bid leaves
+    no margin drops out. On live data (1.5% broker, 3.38% tax): the scoop went 7.8% → 4.5% and stayed,
+    Hammerhead II 5.2% → −6.3% and went;
+  - a buy order below where trading reaches is told to move *there* (not one tick over the best bid, which
+    for the scoop was reached on 1 day of 14), or, if selling on from there misses `settings.target`, gets the
+    `dry` verdict: **Cancel it**. It raises a "move" alert (it replaces a move recommendation) and a Tonight
+    item, its mail says "RECOMMENDED: cancel this buy order", and it earns nothing per slot;
+  - the Calculator's price notes use the same count, since one day's extreme said "inside what sellers
+    accepted" about a bid the rest of the fortnight never reached.
+- **A one-sided day says nothing about who traded** (`buyerShare`). A day whose trading sat only in the upper
+  half of the week around it (or only the lower) is skipped, like a flat day; the median comes from two-sided
+  days, and needs `MIN_TWO_SIDED` (7) of them or every day is read as before. Reading such a day by where its
+  average sat inside its own narrow range counted the scoop's 107.8–109.1 M day as mostly sellers dumping.
+  Measured on live history: the scoop's seller-side estimate fell 42 → 26 a day, Tritanium's stayed in the
+  billions, Machariel's didn't move; Mobile Tractor Unit had only 5 two-sided days and falls back. Assigning
+  one-sided days 100/0 instead was tried and wrong: it put Tritanium's sellers at zero.
+- **Items NPCs sell are kept out of Prospects** (`npcSell` on the book, from `NPC_DURATION`) and flagged in the
+  Calculator: a bid won't fill below an unlimited NPC price, and there's nothing cheaper to buy and resell.
 - **Relist advice weighs depth ahead against daily volume**, not just "am I beaten". A shallow queue on
   a fast item clears in minutes; patience is a user setting (`settings.waitHours`).
 - **It also weighs what the move costs against the waiting it saves.** `waitingPaysDaily =
@@ -467,6 +507,12 @@ State these rather than letting them be discovered:
   It's a guess, and absorption is linear in it.
 - No market-impact modelling. At billion-ISK positions your own orders move the price against you.
 - Jita 4-4 only. Orders elsewhere can't be judged and are counted out with a reason.
+- **Pricing a buy where trading reaches is conservative.** Because ESI trims each day's low, an item whose
+  dumps into bids live entirely in that trimmed tail looks unreached and can drop out of Prospects. Nobody can
+  build a position on that tail, but a small, patient order might still fill there.
+- The reach count uses The Forge's history, not Jita's alone, and only buy orders are judged by it.
+- Prospects stats cached before `lows14` existed carry no lows until their 24-hour refresh: until then
+  those items are priced one step over the best bid and never flagged `unreached`.
 - Loyalty prices only the best 40 offers against the live book; the rest of the table sits on a global
   average and is marked "rough price". Widening that is just more requests, not new logic.
 - Abyssal ISK-per-run only counts loot that has been **sold**. A good week looks flat until you list

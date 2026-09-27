@@ -6,7 +6,7 @@
  * age of your last backup. Nothing is added here that the other pages would not also say.
  */
 
-export type TonightKind = 'move' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup';
+export type TonightKind = 'move' | 'cancel' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup';
 
 export type TonightItem = {
   id: string;
@@ -24,11 +24,11 @@ export type TonightItem = {
  * measured --- they are there so a list of twelve relists reads as a quarter of an hour, not an evening.
  */
 export const MINUTES: Record<TonightKind, number> = {
-  move: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1,
+  move: 1, cancel: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1,
 };
 
 export const KIND_LABEL: Record<TonightKind, string> = {
-  move: 'Move order', close: 'Close position', squeeze: 'Margin squeeze', piExpired: 'PI expired',
+  move: 'Move order', cancel: 'Cancel order', close: 'Close position', squeeze: 'Margin squeeze', piExpired: 'PI expired',
   piEnding: 'PI ending', nearMiss: 'Trades your positions skipped', scam: 'Suspicious market', backup: 'Backup',
 };
 

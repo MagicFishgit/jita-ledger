@@ -5,6 +5,7 @@
  * decides whether a finding is worth interrupting you for. Pure, so the rules can be tested.
  */
 
+import { FILL_RARE, FILL_WINDOW } from './fills';
 import { fmtDateTime, isk, iskBig, units } from './format';
 import type { Relist } from './relist';
 import type { AlertConfig, AlertEvent, AlertLogEntry } from './types';
@@ -54,7 +55,8 @@ const BY_ISK: AlertEvent[] = ['move', 'clearing'];
 
 /** What the order check worked out about an order, which a mail spells out. */
 export type OrderFacts = Pick<Relist,
-  'verdict' | 'isBuy' | 'price' | 'best' | 'gap' | 'newPrice' | 'volumeRemain' | 'give' | 'fee' | 'cost' | 'atRisk' | 'aheadUnits' | 'aheadOrders' | 'hoursToFront' | 'why'>;
+  'verdict' | 'isBuy' | 'price' | 'best' | 'gap' | 'newPrice' | 'volumeRemain' | 'give' | 'fee' | 'cost' | 'atRisk' | 'aheadUnits' | 'aheadOrders' | 'hoursToFront' | 'why'>
+  & Partial<Pick<Relist, 'reach' | 'reachAt'>>;
 
 /** A colony's extraction programme, as read from ESI. */
 export type PiFacts = { system: string; systemId: number; planetType: string; product: string | null; ends: number };
@@ -118,6 +120,7 @@ export function subjectPart(f: Finding, now = Date.now()): string {
     if (o.verdict === 'move') return `move ${f.name} ${o.isBuy ? 'buy' : 'sell'} to ${price(o.newPrice)}`;
     if (o.verdict === 'wait') return `${f.name} beaten, but hold`;
     if (o.verdict === 'loss') return `${f.name} beaten, don’t match`;
+    if (o.verdict === 'dry') return `cancel ${f.name} buy`;
     return `${f.name} at the front`;
   }
   const p = f.pi;
@@ -137,11 +140,15 @@ function section(f: Finding, market: (typeId: number) => string, now: number): s
     if (o.verdict === 'move') out.push(advice('green', `move your ${side} order ${o.isBuy ? 'up' : 'down'} to ${price(o.newPrice)} ISK`));
     else if (o.verdict === 'wait') out.push(advice('white', 'leave it where it is'), `${col('grey', `<i>${escapeMail(o.why)}.</i>`)}<br>`);
     else if (o.verdict === 'loss') out.push(advice('white', 'don’t match them'), `${col('grey', `<i>${escapeMail(o.why)}.</i>`)}<br>`);
+    else if (o.verdict === 'dry') out.push(advice('red', 'cancel this buy order'), `${col('grey', `<i>${escapeMail(o.why)}.</i>`)}<br>`);
     else out.push(advice('white', 'nothing to do'), `${col('grey', `<i>${escapeMail(o.why)}.</i>`)}<br>`);
     out.push(`${itemLink}${col('grey', ` · ${side} order · `)}${units(o.volumeRemain)} left<br>`);
     out.push(o.best == null
       ? `${col('grey', 'Yours ')}${price(o.price)}${col('grey', ' · nobody else on your side')}<br>`
       : `${col('grey', 'Yours ')}${price(o.price)}${col('grey', ' · best now ')}${col(o.gap > 0 && o.verdict !== 'front' ? 'red' : 'white', price(o.best))}${o.gap > 0 && o.verdict !== 'front' ? col('grey', ` (beaten by ${price(o.gap)})`) : ''}<br>`);
+    if (o.verdict === 'move' && o.reach != null && o.reach < FILL_RARE) {
+      out.push(col('grey', `Trading reached your bid on ${o.reach} of the last ${FILL_WINDOW} days. ${price(o.newPrice)} is where it did on half of them.`) + '<br>');
+    }
     if (o.verdict === 'move') {
       out.push(`${col('grey', 'Moving costs ')}${money(o.cost)}${col('grey', ` (${money(o.give)} ${o.isBuy ? 'higher' : 'lower'} price + ${money(o.fee)} fee) · `)}${money(o.atRisk)}${col('grey', ' at stake')}<br>`);
     }

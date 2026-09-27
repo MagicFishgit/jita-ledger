@@ -1536,6 +1536,68 @@ console.log('\n--- toasts queue, one at a time ---');
   T.setToastLife(10);
 }
 
+console.log('\n--- whether trading reaches a bid ---');
+{
+  const F = await import('../src/lib/fills.ts');
+  const { buyerShare: share2, MIN_TWO_SIDED } = await import('../src/lib/split.ts');
+  const { bidToPlace } = await import('../src/lib/prospects.ts');
+  const { adviseRelist: advise } = await import('../src/lib/relist.ts');
+  const { alertMail: mail } = await import('../src/lib/alerts.ts');
+  const M = 1e6;
+  // Syndicate Gas Cloud Scoop, 12–25 Sep 2026, from ESI: each day's low, in millions.
+  const scoopLows = [102.4, 104.45, 114.7, 105.7, 107.0, 103.5, 105.7, 104.9, 103.0, 103.7, 105.0, 99.99, 107.8, 110.5].map((x) => x * M);
+
+  const now = Date.parse('2026-09-27T12:00:00Z');
+  const rows = [{ date: '2026-09-24', lowest: 5, highest: 9, average: 7, volume: 1, order_count: 1 }, { date: '2026-09-26', lowest: 6, highest: 8, average: 7, volume: 1, order_count: 1 }];
+  const rr = F.recentRange(rows, 3, now);
+  eq('the last days, oldest first, a day with no trades is null', rr.lows, [5, null, 6]);
+  eq('  highs likewise', rr.highs, [9, null, 8]);
+  eq('days the bulk of trading reached a bid', F.bidReachDays(scoopLows, 101.7 * M), 1);
+  eq('  the scoop order at 99.79 M: none', F.bidReachDays(scoopLows, 99.79 * M), 0);
+  eq('the bid reached on 7 of 14 days is the 7th lowest low', F.reachedBid(scoopLows), 104.9 * M);
+  eq('  and there is none when fewer days traded', F.reachedBid([1, 2, null, null], 3), null);
+  eq('the sell side counts days trading got up to an ask', F.askReachDays([10, null, 12, 9], 10), 2);
+
+  const scoop = bidToPlace(101.6 * M, scoopLows);
+  eq('Prospects prices the scoop’s buy where trading reached, not one step over the best bid', [scoop.top, scoop.buy, scoop.bidReach, scoop.raised], [101.7 * M, 104.9 * M, 1, true]);
+  const busy = bidToPlace(100, [99, 98, 100, 97, 99, 98, 99, 100, 98, 97, 99, 98, 99, 98]);
+  eq('  a bid trading reaches every day stays one step over the best', [busy.buy, busy.raised], [100.1, false]);
+  eq('  without the lows, nothing is claimed', bidToPlace(100, undefined), { top: 100.1, buy: 100.1, bidReach: null, raised: false });
+
+  // A day that traded only near the ask says nothing about dumping. Ten two-sided days at an even
+  // split, then twenty quiet days trading high in the week's range with their average at their own low.
+  const day = (i) => new Date(Date.parse('2026-08-28T00:00:00Z') + i * 86400_000).toISOString().slice(0, 10);
+  const two = Array.from({ length: 10 }, (_, i) => ({ date: day(i), lowest: 90, highest: 110, average: 100 }));
+  const one = Array.from({ length: 20 }, (_, i) => ({ date: day(10 + i), lowest: 108, highest: 109, average: 108, volume: 1 }));
+  const withWide = [...two, ...one.map((r, i) => (i % 5 === 0 ? { ...r, lowest: 90, highest: 110, average: 100 } : r))];
+  eq('one-sided days are skipped, so they stop reading as sellers dumping', share2(withWide), 0.5);
+  eq('  the old reading would have said mostly sellers', share2(withWide.map(({ date, ...r }) => r)) < 0.2, true);
+  eq('  with too few two-sided days, every day is read as before', share2([...two.slice(0, MIN_TWO_SIDED - 1), ...one]), share2([...two.slice(0, MIN_TWO_SIDED - 1), ...one].map(({ date, ...r }) => r)));
+
+  // The user's order: a buy at 99.79 M, beaten by 101.6 M, selling on at 117.1 M.
+  const RR2 = { k: 0.00375, f: 0.015, t: 0.0338 };
+  const mine = { orderId: 7, typeId: 28788, isBuy: true, price: 99.79 * M, volumeRemain: 2 };
+  const book = [{ id: 7, isBuy: true, price: 99.79 * M, volume: 2 }, { id: 8, isBuy: true, price: 101.6 * M, volume: 2 }, { id: 9, isBuy: false, price: 117.1 * M, volume: 3 }];
+  const strict = advise(mine, { book, bestSell: 117.1 * M, lows: scoopLows, targetReturn: 0.07 }, RR2);
+  eq('a buy trading doesn’t reach, with too little margin where it does: cancel it', strict.verdict, 'dry');
+  eq('  it says how often trading reached it, and where it would', strict.why.includes('reached your bid on 0 of the last 14 days') && strict.why.includes('104,900,000') && strict.why.includes('under your 7.0% target'), true);
+  eq('  and carries the counts', [strict.reach, strict.reachAt], [0, 104.9 * M]);
+  const dear = advise(mine, { book, bestSell: 117.1 * M, lows: scoopLows, targetReturn: 0.07 }, { k: 0.015, f: 0.03, t: 0.075 });
+  eq('  at dearer rates it says the move would lose money, not "0%"', dear.verdict === 'dry' && dear.why.includes('would lose') && !dear.why.includes('0.0%'), true);
+  const easy = advise(mine, { book, bestSell: 117.1 * M, lows: scoopLows, targetReturn: 0.03 }, RR2);
+  eq('with enough margin there, move to where trading reaches, not one step over the best bid', [easy.verdict, easy.newPrice], ['move', 104.9 * M]);
+  const front = advise({ ...mine, price: 101.7 * M }, { book: [{ id: 7, isBuy: true, price: 101.7 * M, volume: 2 }, { id: 9, isBuy: false, price: 117.1 * M, volume: 3 }], bestSell: 117.1 * M, lows: scoopLows, targetReturn: 0.07 }, RR2);
+  eq('  being in front doesn’t help when trading doesn’t come down to you', front.verdict, 'dry');
+  eq('without the lows, the advice is as before', advise(mine, { book, bestSell: 117.1 * M }, RR2).newPrice, 101.7 * M);
+  eq('a sell order is not judged this way', advise({ ...mine, isBuy: false }, { book, lows: scoopLows }, RR2).reach, null);
+  eq('a buy trading reaches is judged as before', advise({ ...mine, price: 115 * M }, { book: [{ id: 7, isBuy: true, price: 115 * M, volume: 2 }, ...book.slice(1)], bestSell: 117.1 * M, lows: scoopLows, targetReturn: 0.07 }, RR2).verdict, 'front');
+
+  const dryMail = mail([{ kind: 'move', key: 'd', title: 'Buy order unlikely to fill', typeId: 28788, name: 'Syndicate Gas Cloud Scoop', text: 'x', order: { ...strict } }], { appUrl: 'u/', keepMin: 30, now });
+  eq('the mail says to cancel it, in the subject and the body', dryMail.subject === 'Jita Ledger: cancel Syndicate Gas Cloud Scoop buy' && dryMail.body.includes('RECOMMENDED: cancel this buy order'), true);
+  const moveMail = mail([{ kind: 'move', key: 'm', title: 'Order worth moving', typeId: 28788, name: 'Syndicate Gas Cloud Scoop', text: 'x', order: { ...easy } }], { appUrl: 'u/', keepMin: 30, now });
+  eq('  and a move to where trading reaches says why', moveMail.body.includes('Trading reached your bid on 0 of the last 14 days') && moveMail.body.includes('move your buy order up to 104,900,000 ISK'), true);
+}
+
 console.log('\n--- tooltip layout ---');
 {
   const { tipBlocks, isWideTip } = await import('../src/lib/tipText.ts');

@@ -192,6 +192,13 @@ Fees depend on your clone state, because Alpha clones can't use some trade skill
   runs the checks, so nothing is raised or mailed twice. Alert mails delete themselves after a time
   you choose, from 30 minutes to a week, read or not; the app only deletes mails from you to you whose subject
   starts "Jita Ledger:", sent by you or your sending character. Like every alert, it only checks while a tab is open.
+- **A buy order only fills if sellers come down to it.** On many items (Hammerhead II, the Syndicate Gas Cloud
+  Scoop) sellers list and wait, so the best bid sits below where anyone trades and the gap to the best ask is
+  margin you can't take. The app counts, over the last 14 days, how often the bulk of trading reached a bid.
+  Prospects prices buying where it did on half the days and drops items that leaves no margin on. The
+  Calculator says when your bid is rarely reached. Orders tells you to move a buy to where trading reaches,
+  or to cancel it when that leaves too little. ESI's daily lows leave out a small share of trades, so it is
+  "the bulk of trading", not every trade. Items NPCs sell are left out of Prospects altogether.
 - **Fee matching goes by the clock.** ESI's journal doesn't say which order a broker fee or which sale a tax was for, so they're matched by the second they were charged. A price change made and undone between two syncs, or two made close together, can be missed.
 - **Tested with mocked ESI responses**, not against the live API. If a route has changed, the error message will say which one.
 

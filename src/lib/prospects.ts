@@ -1,5 +1,7 @@
 import type { BookLevel, HistRow, ProspectFilters, ProspectStats, ProspectWarning } from './types';
 import { buyerShare } from './split';
+import { bidReachDays, FILL_RARE, reachedBid, recentRange } from './fills';
+import { tickUp } from './tick';
 
 const DAY = 86400_000;
 const dayKey = (t: number) => new Date(t).toISOString().slice(0, 10);
@@ -100,6 +102,7 @@ export function statsFrom(typeId: number, rows: HistRow[], now = Date.now()): Pr
     high30: Math.max(...w30.map((r) => r.highest)),
     spike,
     range7: recent.map((r) => (r.average > 0 ? (r.highest - r.lowest) / r.average : 0)),
+    lows14: recentRange(rows, 14, now).lows,
   };
 }
 
@@ -148,6 +151,20 @@ export function passesGate(
   f: ProspectFilters,
 ): boolean {
   return s.daysTraded >= f.minDays && s.tradesPerDay >= f.minTrades && s.spikiness <= f.maxSpikiness;
+}
+
+/**
+ * The bid you'd actually place. One legal step above the best, unless the bulk of trading hasn't been
+ * getting down there (reached on fewer than FILL_RARE of the last 14 days): then it's where trading did
+ * reach on half of them. A best bid nobody sells into is not a price you can buy at. Without the lows
+ * (stats cached before they were kept) it's the step above the best, and nothing is claimed.
+ */
+export function bidToPlace(bestBuy: number, lows?: (number | null)[] | null): { top: number; buy: number; bidReach: number | null; raised: boolean } {
+  const top = tickUp(bestBuy);
+  const bidReach = lows ? bidReachDays(lows, top) : null;
+  const reached = lows && bidReach != null && bidReach < FILL_RARE ? reachedBid(lows) : null;
+  const buy = reached != null && reached > top ? reached : top;
+  return { top, buy, bidReach, raised: buy !== top };
 }
 
 export type BookShape = {

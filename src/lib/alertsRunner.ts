@@ -72,6 +72,7 @@ async function mailFindings(raised: Finding[]): Promise<void> {
 const facts = (x: Relist): OrderFacts => ({
   verdict: x.verdict, isBuy: x.isBuy, price: x.price, best: x.best, gap: x.gap, newPrice: x.newPrice, volumeRemain: x.volumeRemain,
   give: x.give, fee: x.fee, cost: x.cost, atRisk: x.atRisk, aheadUnits: x.aheadUnits, aheadOrders: x.aheadOrders, hoursToFront: x.hoursToFront, why: x.why,
+  reach: x.reach, reachAt: x.reachAt,
 });
 
 /**
@@ -85,11 +86,11 @@ export async function testMail(): Promise<boolean> {
       await checkOrders(false);
       const d = getData();
       const list = verdicts(d, getOrderCheck(), costBasis(d)).filter((x) => !x.gone);
-      const x = list.find((v) => v.verdict === 'move') ?? list.find((v) => v.beaten) ?? list[0];
+      const x = list.find((v) => v.verdict === 'move') ?? list.find((v) => v.verdict === 'dry') ?? list.find((v) => v.beaten) ?? list[0];
       if (x) {
         const name = d.names[x.typeId] ?? `Item #${x.typeId}`;
-        const title = x.verdict === 'move' ? ALERT_LABELS.move.label : x.beaten ? 'Order beaten' : 'Order at the front';
-        finding = { kind: x.verdict === 'move' ? 'move' : 'clearing', key: 'test', title, typeId: x.typeId, name, text: `${name}: ${x.why}.`, order: facts(x) };
+        const title = x.verdict === 'move' ? ALERT_LABELS.move.label : x.verdict === 'dry' ? 'Buy order unlikely to fill' : x.beaten ? 'Order beaten' : 'Order at the front';
+        finding = { kind: x.verdict === 'move' || x.verdict === 'dry' ? 'move' : 'clearing', key: 'test', title, typeId: x.typeId, name, text: `${name}: ${x.why}.`, order: facts(x) };
       }
     }
   } catch { /* no live book: fall back to a plain test */ }
@@ -125,6 +126,10 @@ export async function runChecks(): Promise<void> {
         if (x.verdict === 'move') {
           findings.push({ kind: 'move', key: `move:${x.orderId}:${x.newPrice}`, isk: x.atRisk, title: ALERT_LABELS.move.label, typeId: x.typeId, name: names(x.typeId), order: facts(x),
             text: `${names(x.typeId)} ${side} order beaten — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK (costs ${iskBig(x.cost)}).` });
+        } else if (x.verdict === 'dry') {
+          // Replaces the advice to move, so it goes out as an order to act on, and is mailed like one.
+          findings.push({ kind: 'move', key: `dry:${x.orderId}:${x.price}`, isk: x.atRisk, title: 'Buy order unlikely to fill', typeId: x.typeId, name: names(x.typeId), order: facts(x),
+            text: `${names(x.typeId)} buy order: trading reached it on ${x.reach} of the last 14 days, and bidding where it does leaves too little margin. Consider cancelling it.` });
         } else if (x.verdict === 'wait' && x.beaten) {
           findings.push({ kind: 'clearing', key: `clear:${x.orderId}:${x.best}`, isk: x.atRisk, title: ALERT_LABELS.clearing.label, typeId: x.typeId, name: names(x.typeId), order: facts(x),
             text: `${names(x.typeId)} ${side} order is beaten, but ${x.why.charAt(0).toLowerCase() + x.why.slice(1)}.` });

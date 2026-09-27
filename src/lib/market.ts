@@ -40,7 +40,14 @@ export async function resolveNames(ids: number[]): Promise<Record<number, string
   return out;
 }
 
-type RawMarketOrder = { order_id: number; is_buy_order: boolean; price: number; volume_remain: number; location_id: number };
+type RawMarketOrder = { order_id: number; is_buy_order: boolean; price: number; volume_remain: number; location_id: number; duration?: number };
+
+/**
+ * NPC market orders run for 365 days; a player's run for 90 at most. So an item NPCs sell shows itself
+ * in the book, with no list of such items to keep up to date. Checked on Raven Blueprint, which NPCs
+ * sell at a fixed price.
+ */
+export const NPC_DURATION = 365;
 
 function levels(orders: RawMarketOrder[], n: number): BookLevel[] {
   const out: BookLevel[] = [];
@@ -103,6 +110,7 @@ async function readBook(typeId: number, force: boolean) {
     sellOrders: sells.length,
     topBuys: levels(buys, 7),
     topSells: levels(sells, 7),
+    npcSell: sells.some((o) => (o.duration ?? 0) >= NPC_DURATION),
   };
   const raw: OrderLite[] = here.map((o) => ({ id: o.order_id, isBuy: o.is_buy_order, price: o.price, volume: o.volume_remain }));
   const entry = { at: Date.now(), expires, snap, raw };

@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ArrowDownWideNarrow, BellRing, Check, CircleDollarSign, GitPullRequestArrow, HardDriveDownload, Keyboard, Leaf, ListChecks, RotateCcw, ShieldAlert, Timer, TrendingDown, TriangleAlert,
-} from 'lucide-react';
+import { ArrowDownWideNarrow, BellRing, Check, CircleDollarSign, CircleX, GitPullRequestArrow, HardDriveDownload, Keyboard, Leaf, ListChecks, RotateCcw, ShieldAlert, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
 import { breakEvenSpread, rates } from '../lib/fees';
 import { iskBig, units } from '../lib/format';
 import { navigate, useAuth, useNow } from '../lib/hooks';
@@ -10,6 +8,7 @@ import { checkOrders, costBasis, jitaOpen, useOrderCheck, verdicts } from '../li
 import { computePosition } from '../lib/positions';
 import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, update, useData } from '../lib/store';
+import { FILL_RARE, FILL_WINDOW } from '../lib/fills';
 import { KIND_LABEL, MINUTES, orderTonight, summarise, type TonightItem, type TonightKind } from '../lib/tonight';
 import { PLANETS_SCOPE, readColonies, useColonies } from '../lib/colonyStore';
 import { readSignals, trackedTypes, useSignals } from '../lib/watch';
@@ -26,6 +25,7 @@ const DONE_TTL = 12 * 3600_000;
 
 const LOOK: Record<TonightKind, { Icon: typeof Check; c: string }> = {
   move: { Icon: CircleDollarSign, c: 'var(--acc2)' },
+  cancel: { Icon: CircleX, c: 'var(--neg)' },
   close: { Icon: ListChecks, c: 'var(--pos)' },
   squeeze: { Icon: TrendingDown, c: 'var(--neg)' },
   piExpired: { Icon: Leaf, c: 'var(--neg)' },
@@ -73,13 +73,25 @@ export function Tonight() {
     const out: TonightItem[] = [];
     // Orders the book says are worth moving.
     for (const x of verdicts(d, check, costBasis(d))) {
+      if (x.verdict === 'dry') {
+        // A buy trading doesn't reach, where reaching it leaves too little: the ISK is better freed.
+        out.push({
+          id: `cancel:${x.orderId}:${x.price}`, kind: 'cancel', stake: x.atRisk,
+          title: `${name(x.typeId)} buy order`,
+          detail: `Trading reached your bid on ${x.reach} of the last ${FILL_WINDOW} days, and bidding where it does leaves too little margin. Cancel it to free ${iskBig(x.atRisk)}.`,
+          action: { label: canOpenInGame() ? 'Open in game' : 'Open orders', typeId: x.typeId, route: 'orders' },
+        });
+        continue;
+      }
       if (x.verdict !== 'move') continue;
       const who = x.isBuy ? 'buyer' : 'seller';
       const by = x.aheadOrders > 5 ? `a crowd of ${x.aheadOrders} ${who}s` : `${x.aheadOrders} ${who}${x.aheadOrders === 1 ? '' : 's'}`;
       out.push({
         id: `move:${x.orderId}:${x.newPrice}`, kind: 'move', stake: x.atRisk,
         title: `${name(x.typeId)} ${x.isBuy ? 'buy' : 'sell'} order`,
-        detail: `Beaten by ${by} — move to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, costs ${iskBig(x.cost)}.`,
+        detail: x.reach != null && x.reach < FILL_RARE
+          ? `Trading rarely gets down to your bid (${x.reach} of the last ${FILL_WINDOW} days) — move to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, where it does, costs ${iskBig(x.cost)}.`
+          : `Beaten by ${by} — move to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, costs ${iskBig(x.cost)}.`,
         action: { label: canOpenInGame() ? 'Open in game' : 'Open orders', typeId: x.typeId, route: 'orders' },
       });
     }

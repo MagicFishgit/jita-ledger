@@ -25,6 +25,7 @@ export const WARNING: Record<ProspectWarning, { short: string; why: string }> = 
   fluke: { short: 'Fluke', why: 'Today’s gap is much wider than this item usually trades in a day. Expect it to close before your order fills.' },
   falling: { short: 'Falling', why: 'The 30-day average price is more than 10% below the 90-day. You would be buying into a slide.' },
   crowded: { short: 'Crowded', why: 'Hundreds of listings against very few trades. You would be joining a queue, not a market.' },
+  unreached: { short: 'Bids not reached', why: 'The bulk of trading hasn’t been getting down to the best bid: on fewer than 4 of the last 14 days did the day’s trading reach it.\n\nSellers here list and wait rather than sell into buy orders, so a bid at the top can sit for weeks with your ISK held in it. The prices shown assume you bid where trading did reach, on 7 of the last 14 days.\n\nESI’s daily low leaves out a small share of trades, so a few units may still sell lower. Not enough to build a position on.' },
 };
 
 /** How long the money is in, in a unit that reads naturally. */
@@ -242,7 +243,10 @@ function Row({ p, name, open, onToggle, baseShare }: { p: Prospect; name: string
   const s = p.stats;
   const base = baseShare / 100;
   const det: { l: string; v: string; n: string; c?: string }[] = [
-    { l: 'Your prices', v: `${isk(p.buy)} buy · ${isk(p.sell)} sell`, n: `One legal step inside ${isk(p.bestBuy)} / ${isk(p.bestSell)}` },
+    { l: 'Your prices', v: `${isk(p.buy)} buy · ${isk(p.sell)} sell`,
+      n: p.buyRaised
+        ? `The buy is where trading reached on 7 of the last 14 days. One step above the best bid (${isk(p.bestBuy)}) was reached on ${p.bidReach} of them.`
+        : `One legal step inside ${isk(p.bestBuy)} / ${isk(p.bestSell)}` },
     { l: 'Spread', v: pct(p.spreadPct, 1), n: `Usually ${pct(s.dailyRange, 1)} in a day` },
     { l: 'Competition', v: `${units(p.buyOrders)} buy, ${units(p.sellOrders)} sell`, n: `${units(p.topSellVol)} units at the best sell` },
     { l: 'Steadiness', v: pct(s.spikiness, 0), n: 'Share of the month’s volume on its busiest day' },

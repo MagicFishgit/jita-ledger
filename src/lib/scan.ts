@@ -4,10 +4,11 @@ import { JITA_44, THE_FORGE } from './config';
 import { esi } from './esi';
 import { calc, rates, type Settings } from './fees';
 import { jitaBook, marketHistory } from './market';
-import { DEFAULT_FILTERS, expectedEdge, passesGate, pickPages, statsFrom, warningsFor } from './prospects';
+import { bidToPlace, DEFAULT_FILTERS, expectedEdge, passesGate, pickPages, statsFrom, warningsFor } from './prospects';
 import { cacheStore } from './store';
-import { tickDown, tickUp } from './tick';
+import { tickDown } from './tick';
 import { competitionShare, EVEN_SPLIT, MIN_DAYS, returnPerDay, throughput } from './split';
+import { FILL_RARE } from './fills';
 import type { BookLevel, Prospect, ProspectFilters, ProspectStats } from './types';
 
 /**
@@ -41,7 +42,7 @@ const STATS_TTL = 24 * 3600_000;
 const BOOK_TTL = 60 * 60_000;
 
 type RawOrder = { type_id: number; location_id: number };
-export type Book = { at: string; bestBuy: number | null; bestSell: number | null; buyOrders: number; sellOrders: number; topBuys: BookLevel[]; topSells: BookLevel[] };
+export type Book = { at: string; bestBuy: number | null; bestSell: number | null; buyOrders: number; sellOrders: number; topBuys: BookLevel[]; topSells: BookLevel[]; npcSell?: boolean };
 
 export type ScanCache = {
   sample?: { at: string; totalPages: number; sampledPages: number; minSampled: number; counts: Record<number, number> };
@@ -125,7 +126,12 @@ export function evaluate(
 ): Prospect | null {
   const { bestBuy, bestSell } = book;
   if (bestBuy == null || bestSell == null) return null;
-  const buy = tickUp(bestBuy), sell = tickDown(bestSell);
+  // NPCs sell it at a fixed price in unlimited supply: players rarely sell below that, so a bid doesn't
+  // fill, and there's nothing cheaper to buy and resell. Neither side can be traded, so it isn't shown.
+  if (book.npcSell) return null;
+  // Where the bulk of trading reaches, not merely one step above the best bid (see bidToPlace).
+  const { buy, bidReach, raised } = bidToPlace(bestBuy, stats.lows14);
+  const sell = tickDown(bestSell);
   if (!Number.isFinite(buy) || !Number.isFinite(sell) || sell <= buy) return null;
 
   // Only one side of the daily volume fills each of your orders: sellers dumping into bids fill your
@@ -161,7 +167,8 @@ export function evaluate(
     // big one can be compared at all.
     iskPerDay: c.net / Math.max(daysToFlip, MIN_DAYS), capital: c.spent,
     share: sellShare, buyerShare: buyers,
-    warnings: warningsFor(stats, book, c.spreadPct, estOrders),
+    bidReach, buyRaised: raised,
+    warnings: [...warningsFor(stats, book, c.spreadPct, estOrders), ...(bidReach != null && bidReach < FILL_RARE ? ['unreached' as const] : [])],
   };
 }
 

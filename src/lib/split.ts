@@ -23,15 +23,37 @@ function median(xs: number[]): number {
 /** When history cannot tell, assume an even split rather than either extreme. */
 export const EVEN_SPLIT = 0.5;
 
+/** Days either side of a day that make up its neighbourhood, for telling a one-sided day. */
+const NEAR_DAYS = 3;
+/** Two-sided days needed before they alone are trusted; fewer, and every day is read as before. */
+export const MIN_TWO_SIDED = 7;
+
 /**
  * The share of volume that was buyers taking sell orders, 0 to 1, as the median over the days given.
- * A flat day (low equals high) says nothing and is skipped.
+ *
+ * A day only says something when both kinds of trade happened in it. A flat day (low equals high)
+ * says nothing, and neither does a one-sided day: one that traded only in the upper half of the week
+ * around it (buyers taking listings, nobody dumping) or only in the lower half. Where the average sat
+ * inside such a day's narrow range is noise, and it was being read as a split. Syndicate Gas Cloud
+ * Scoop traded between 107.8 M and 109.1 M on 24 Sep 2026, nowhere near its ~101 M bids, and counted
+ * as a day of mostly sellers dumping. Rows without dates can't be placed in a week, and are read as
+ * before; so is a month with too few two-sided days to be worth a median.
  */
-export function buyerShare(rows: Pick<HistRow, 'average' | 'highest' | 'lowest'>[]): number {
-  const shares = rows
-    .filter((r) => r.highest > r.lowest && r.average > 0)
-    .map((r) => Math.min(1, Math.max(0, (r.average - r.lowest) / (r.highest - r.lowest))));
-  return shares.length ? median(shares) : EVEN_SPLIT;
+export function buyerShare(rows: (Pick<HistRow, 'average' | 'highest' | 'lowest'> & { date?: string })[]): number {
+  const own = (r: Pick<HistRow, 'average' | 'highest' | 'lowest'>) => Math.min(1, Math.max(0, (r.average - r.lowest) / (r.highest - r.lowest)));
+  const all = rows.filter((r) => r.highest > r.lowest && r.average > 0);
+  if (all.length && all.every((r) => r.date)) {
+    const t = (r: { date?: string }) => Date.parse(r.date + 'T00:00:00Z');
+    const twoSided = all.filter((r) => {
+      const near = rows.filter((x) => x.date && Math.abs(t(x) - t(r)) <= NEAR_DAYS * 86400_000);
+      const lo = Math.min(...near.map((x) => x.lowest)), hi = Math.max(...near.map((x) => x.highest));
+      if (!(hi > lo)) return false;
+      const mid = lo + (hi - lo) / 2;
+      return r.lowest < mid && r.highest > mid;
+    });
+    if (twoSided.length >= MIN_TWO_SIDED) return median(twoSided.map(own));
+  }
+  return all.length ? median(all.map(own)) : EVEN_SPLIT;
 }
 
 /** Units a day that reach your side: buyers for a sell order, sellers for a buy order. */

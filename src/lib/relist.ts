@@ -1,4 +1,5 @@
 import { tickDown, tickUp } from './tick';
+import { bidReachDays, FILL_RARE, FILL_TYPICAL, FILL_WINDOW, reachedBid } from './fills';
 import type { OrderLite } from './market';
 
 /**
@@ -18,7 +19,8 @@ export type Verdict =
   | 'front' // nobody is ahead of you
   | 'wait'  // someone is, but they will be cleared out shortly
   | 'move'  // a real queue is ahead of you
-  | 'loss'; // you could move, but the price it takes is not worth having
+  | 'loss'  // you could move, but the price it takes is not worth having
+  | 'dry';  // a buy that trading doesn't reach, and bidding where it does leaves too little: cancel it
 
 export type Relist = {
   orderId: number;
@@ -60,6 +62,10 @@ export type Relist = {
   waitingPaysDaily: number;
   verdict: Verdict;
   why: string;
+  /** For a buy: of the last 14 days, how many the bulk of trading reached your price. Null for a sell or without history. */
+  reach: number | null;
+  /** For a buy trading doesn't reach: the bid it did reach on 7 of those days. */
+  reachAt: number | null;
 };
 
 type Mine = { orderId: number; typeId: number; isBuy: boolean; price: number; volumeRemain: number };
@@ -75,6 +81,10 @@ export type MarketContext = {
   avgCost?: number | null;
   /** The current lowest sell, for judging whether a higher bid could still be sold on. */
   bestSell?: number | null;
+  /** The last 14 days' lows (fills.ts), for judging whether trading reaches a buy at all. */
+  lows?: (number | null)[] | null;
+  /** The return you want on a trade, as a fraction: what a bid moved to where trading reaches must still make. */
+  targetReturn?: number;
 };
 
 /**
@@ -191,8 +201,15 @@ export function adviseRelist(
   const topRivalShare = aheadUnits > 0 ? Math.max(...ahead.map((o) => o.volume)) / aheadUnits : 0;
   const yourHours = daily ? (volumeRemain / daily) * 24 : Infinity;
 
-  const newPrice = beaten && best !== null ? (mine.isBuy ? tickUp(best) : tickDown(best)) : NaN;
-  const moves = beaten && Number.isFinite(newPrice);
+  // A buy only fills when sellers sell into it. When the bulk of trading hasn't been getting down to
+  // your price, one step above the best bid may not be reached either (it wasn't, for the Syndicate Gas
+  // Cloud Scoop the user bid on): the move worth making is to where trading does reach.
+  const reach = mine.isBuy && m.lows && !gone ? bidReachDays(m.lows, price) : null;
+  const unreached = reach != null && reach < FILL_RARE;
+  const reachAt = unreached ? reachedBid(m.lows!) : null;
+  const oneStep = beaten && best !== null ? (mine.isBuy ? tickUp(best) : tickDown(best)) : NaN;
+  const newPrice = unreached && reachAt != null && !(oneStep >= reachAt) ? reachAt : oneStep;
+  const moves = (beaten || unreached) && Number.isFinite(newPrice);
   const give = moves ? Math.abs(newPrice - price) * volumeRemain : 0;
   const fee = moves ? Math.max(100, r.k * newPrice * volumeRemain) : 0;
   const cost = give + fee;
@@ -228,6 +245,23 @@ export function adviseRelist(
   if (gone) {
     verdict = 'front';
     why = 'This order is no longer in the book \u2014 it filled, expired or was cancelled';
+  } else if (unreached) {
+    // Worth moving to where trading reaches only if selling on from there still makes your target.
+    const sellNet = m.bestSell != null ? tickDown(m.bestSell) * (1 - r.f - r.t) : null;
+    const ret = moves && sellNet != null ? sellNet / (newPrice * (1 + r.f)) - 1 : null;
+    const target = m.targetReturn ?? 0;
+    const said = `The bulk of trading reached your bid on ${reach} of the last ${FILL_WINDOW} days`;
+    const at = (p: number) => Math.round(p).toLocaleString('en-US');
+    if (reachAt == null) {
+      verdict = 'dry';
+      why = `${said}, and the item traded on too few days for any bid to be reached reliably`;
+    } else if (ret == null || ret < target) {
+      verdict = 'dry';
+      why = `${said}. Bidding where it did on ${FILL_TYPICAL} of them, ${at(newPrice)}, ${ret == null ? 'would leave nothing to sell into' : ret < 0 ? `would lose ${pctText(-ret)} after fees` : `would leave ${pctText(ret)} after fees, under your ${pctText(target)} target`}`;
+    } else {
+      verdict = 'move';
+      why = `${said}. At ${at(newPrice)} it did on ${FILL_TYPICAL} of them, and still makes ${pctText(ret)} after fees`;
+    }
   } else if (!beaten) {
     verdict = 'front';
     why = best === null ? 'Nobody else is selling or buying here' : 'You are at the front of the queue';
@@ -273,11 +307,11 @@ export function adviseRelist(
     atRisk,
     aheadUnits, aheadOrders: ahead.length, hoursToFront, topRivalShare, yourHours,
     cutPct, waitingPaysDaily,
-    verdict, why,
+    verdict, why, reach, reachAt,
   };
 }
 
-const RANK: Record<Verdict, number> = { move: 0, loss: 1, wait: 2, front: 3 };
+const RANK: Record<Verdict, number> = { move: 0, dry: 1, loss: 2, wait: 3, front: 4 };
 
 /** What needs doing first: real relists, then the ISK at stake within each group. */
 export function byUrgency(a: Relist, b: Relist): number {

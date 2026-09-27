@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Ban, ChevronsUp, CircleDashed, Crosshair, Hourglass, LayoutGrid, ListOrdered, MoveVertical, Repeat, Timer } from 'lucide-react';
+import { Ban, ChevronsUp, CircleDashed, CircleX, Crosshair, Hourglass, LayoutGrid, ListOrdered, MoveVertical, Repeat, Timer } from 'lucide-react';
 import { ago, isk, iskBig, plainNum, units, until } from '../lib/format';
 import { useAuth, useNow, navigate } from '../lib/hooks';
 import { checkOrders, costBasis, jitaOpen, useOrderCheck, verdicts } from '../lib/orderCheck';
@@ -10,6 +10,7 @@ import { loadCache, rankProspects } from '../lib/scan';
 import { DEFAULT_FILTERS } from '../lib/prospects';
 import { update, useData } from '../lib/store';
 import type { Relist, Verdict } from '../lib/relist';
+import { FILL_RARE, FILL_WINDOW } from '../lib/fills';
 import type { Prospect } from '../lib/types';
 import { canOpenInGame, OpenInGame, useTypeName } from './common';
 import { cssVars, Empty, Guide, ItemIcon, Notice, PageHead, Seg, Th } from './ui';
@@ -28,7 +29,7 @@ function tipsFor(side: 'all' | 'sell' | 'buy'): Record<string, string> {
   const gets = buy ? 'bought from first' : 'sold to first';
   return {
     Side: `Whether you are buying or selling. A buy order is beaten from above and must go up; a sell is beaten from below and must come down. Either way, being at the front means being ${gets}.`,
-    Verdict: `Whether this order is worth doing something about.\n\n• Being ${both ? 'beaten' : beat} on its own isn’t a reason to move.\n• What matters is how long the ${both ? 'traders' : rivals} ahead of you will stay ahead.`,
+    Verdict: `Whether this order is worth doing something about.\n\n• Being ${both ? 'beaten' : beat} on its own isn’t a reason to move.\n• What matters is how long the ${both ? 'traders' : rivals} ahead of you will stay ahead.${buy || both ? '\n• A buy order also has to be reached: if the bulk of trading hasn’t been getting down to it, the move is to where it does, and if that leaves too little margin, the advice is to cancel it.' : ''}`,
     'Ahead of you': `How many units are queued in front of your price, and how many separate ${both ? 'traders' : rivals} that is.\n\nOne big order is better news than a crowd: when it goes, you jump straight to the front.`,
     'Clears in': 'How long the stock ahead of you takes to clear.\n\n• Only one side of daily volume reaches you: buyers taking listings for a sell order, sellers dumping into bids for a buy.\n• So this uses that side alone, estimated from where each day’s average sits between its low and high.\n\nIf it’s shorter than the hours you’ll wait, relisting would just be a wasted fee.',
     'Your price': both ? 'What you are asking, or bidding, right now.' : buy ? 'What you are bidding right now.' : 'What you are asking right now.',
@@ -44,6 +45,7 @@ const VERDICT: Record<Verdict, { label: string; c: string; Icon: typeof Ban }> =
   wait: { label: 'Leave it', c: 'var(--pos)', Icon: Hourglass },
   front: { label: 'In front', c: 'var(--acc)', Icon: ChevronsUp },
   loss: { label: 'Not worth it', c: 'var(--neg)', Icon: Ban },
+  dry: { label: 'Cancel it', c: 'var(--neg)', Icon: CircleX },
 };
 
 function rivalShape(orders: number, topShare: number, isBuy: boolean): string {
@@ -96,7 +98,9 @@ export function Orders() {
         : x.price * (1 - r.f - r.t) - (avg ?? (bids.length ? Math.max(...bids) * (1 + r.f) : NaN));
       const daily = check.daily[x.typeId];
       const sideOrders = book.filter((o) => o.isBuy === x.isBuy).length;
-      const fills = daily ? sideVolume(daily, check.buyers[x.typeId] ?? EVEN_SPLIT, x.isBuy) * competitionShare(d.settings.share, sideOrders) : 0;
+      // A buy the bulk of trading doesn't reach isn't filling at the usual pace: it earns next to nothing.
+      const unreached = x.reach != null && x.reach < FILL_RARE;
+      const fills = daily && !unreached ? sideVolume(daily, check.buyers[x.typeId] ?? EVEN_SPLIT, x.isBuy) * competitionShare(d.settings.share, sideOrders) : 0;
       out[x.orderId] = Number.isFinite(margin) ? margin * Math.min(fills, x.volumeRemain) : NaN;
     }
     return out;
@@ -117,8 +121,10 @@ export function Orders() {
 
   const weakest = all.filter((x) => Number.isFinite(perSlot[x.orderId])).sort((a, b) => perSlot[a.orderId] - perSlot[b.orderId]).slice(0, 3);
   const tips = tipsFor(side);
-  const tally = (['move', 'wait', 'front', 'loss'] as Verdict[]).map((v) => ({ v, n: all.filter((x) => x.verdict === v).length }));
-  const worth = tally[0].n, holding = tally[1].n;
+  const count = (v: Verdict) => all.filter((x) => x.verdict === v).length;
+  // "Cancel it" only earns a card when there's something to cancel.
+  const tally = (['move', 'dry', 'wait', 'front', 'loss'] as Verdict[]).filter((v) => v !== 'dry' || count(v) > 0).map((v) => ({ v, n: count(v) }));
+  const worth = count('move'), holding = count('wait'), cancel = count('dry');
   const pct = check.busy ? (check.busy.done / Math.max(1, check.busy.total)) * 100 : 0;
 
   return (
@@ -170,7 +176,7 @@ export function Orders() {
           <p data-rv="" style={{ fontSize: 12.5, color: 'var(--label)', textWrap: 'pretty' }}>
             {units(mine.length)} order{mine.length > 1 ? 's' : ''} in Jita 4-4, from your last sync ({ago(d.meta.lastSync, now)}).
             {check.checkedAt
-              ? ` Prices checked ${ago(check.checkedAt, now)}: ${worth ? `${units(worth)} worth moving${holding ? `, ${units(holding)} beaten but clearing on their own` : ''}.` : holding ? `nothing worth moving — ${units(holding)} beaten, but the stock ahead should clear shortly.` : 'you are in front on all of them.'}`
+              ? ` Prices checked ${ago(check.checkedAt, now)}: ${worth || cancel ? `${[worth ? `${units(worth)} worth moving` : '', cancel ? `${units(cancel)} to cancel` : '', holding ? `${units(holding)} beaten but clearing on their own` : ''].filter(Boolean).join(', ')}.` : holding ? `nothing worth moving — ${units(holding)} beaten, but the stock ahead should clear shortly.` : 'you are in front on all of them.'}`
               : ' Check prices to see which are worth moving.'}
             {check.checkedAt && check.changed !== null && (check.changed > 0
               ? ` ${units(check.changed)} ${check.changed === 1 ? 'book' : 'books'} moved since the last check.`
@@ -261,7 +267,9 @@ export function Orders() {
                         </td>
                         <td>{x?.beaten ? <>{units(x.aheadUnits)}<span className="sub">{rivalShape(x.aheadOrders, x.topRivalShare, x.isBuy)}</span></> : '–'}</td>
                         <td style={{ color: x?.verdict === 'wait' ? 'var(--pos)' : 'var(--cell)' }}>
-                          {!x?.beaten ? '–' : !Number.isFinite(x.hoursToFront) ? <span className="faint">barely trades</span> : hours(x.hoursToFront)}
+                          {x?.reach != null && x.reach < FILL_RARE
+                            ? <span data-tip={`The bulk of the day’s trading got down to your price on ${x.reach} of the last ${FILL_WINDOW} days. Sellers here list and wait, so the queue ahead isn’t what’s holding you back.`} data-tip-title="Rarely reached" tabIndex={0} style={{ color: 'var(--neg)' }}>rarely reached<span className="sub">{x.reach} of {FILL_WINDOW} days</span></span>
+                            : !x?.beaten ? '–' : !Number.isFinite(x.hoursToFront) ? <span className="faint">barely trades</span> : hours(x.hoursToFront)}
                         </td>
                         <td data-tip={x ? (x.live ? 'Read from the live book just now' : 'From your last sync; ESI caches orders for twenty minutes') : undefined}>
                           {isk(x?.price ?? o.price)}{(!x || !x.live) && <span className="sub">from last sync</span>}
@@ -271,7 +279,7 @@ export function Orders() {
                           {x && x.cutPct > 0 && <span className="sub mono" style={{ color: x.cutPct >= 0.02 ? 'var(--neg)' : 'var(--label)' }}>{x.isBuy ? '+' : '−'}{(x.cutPct * 100).toFixed(x.cutPct < 0.1 ? 1 : 0)}%</span>}
                         </td>
                         <td data-tip={x && x.cost > 0 ? `${isk(x.give)} of margin plus a ${isk(x.fee)} fee` : undefined}>{x && x.cost > 0 ? iskBig(x.cost) : '–'}</td>
-                        <td>{units(x?.volumeRemain ?? o.volumeRemain)}{x && Number.isFinite(x.yourHours) && <span className="sub">{hours(x.yourHours)} to {x.isBuy ? 'fill' : 'sell'}</span>}</td>
+                        <td>{units(x?.volumeRemain ?? o.volumeRemain)}{x && Number.isFinite(x.yourHours) && !(x.reach != null && x.reach < FILL_RARE) && <span className="sub">{hours(x.yourHours)} to {x.isBuy ? 'fill' : 'sell'}</span>}</td>
                         <td>{iskBig((x?.price ?? o.price) * (x?.volumeRemain ?? o.volumeRemain))}</td>
                         <td style={{ color: 'var(--acc)' }}>{x && Number.isFinite(perSlot[x.orderId]) ? iskBig(perSlot[x.orderId]) : '–'}</td>
                         <td>

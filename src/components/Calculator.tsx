@@ -12,6 +12,7 @@ import { addToWatchlist, startPosition } from '../lib/actions';
 import { navigate, useNow, type Route } from '../lib/hooks';
 import { priceDown, priceUp, tickDown, tickUp } from '../lib/tick';
 import { buyerShare, competitionShare, returnPerDay, sideVolume } from '../lib/split';
+import { askReachDays, bidReachDays, FILL_RARE, FILL_WINDOW, reachedBid, recentRange } from '../lib/fills';
 import { toast } from '../lib/toast';
 import type { HistRow, MarketSnap } from '../lib/types';
 import { ItemSearch, OpenInGame } from './common';
@@ -159,6 +160,10 @@ export function Calculator({ route }: { route: Route }) {
   const c = calc(tr, s);
   const asOmega = s.clone === 'alpha' ? calcWith(tr, omegaRates(s, { acc: s.planAcc, br: s.planBr, abr: s.planAbr }), s.target) : null;
   const buyers = useMemo(() => buyerShare(hist.slice(-30)), [hist]);
+  // Does the bulk of trading get down to the buy price typed in? Only said when it doesn't.
+  const lows = useMemo(() => (hist.length ? recentRange(hist).lows : null), [hist]);
+  const reach = lows && Number.isFinite(tr.buy) && tr.buy > 0 ? bidReachDays(lows, tr.buy) : null;
+  const reachAt = lows ? reachedBid(lows) : null;
   const set = (k: keyof Fields) => (v: string) => { setF((x) => ({ ...x, [k]: v })); setMsg(null); };
   const tidy = (k: keyof Fields) => () => {
     const n = parseISK(f[k]);
@@ -208,6 +213,21 @@ export function Calculator({ route }: { route: Route }) {
         {msg && (
           <div className="msg" role="status" style={cssVars({ flexBasis: '100%', '--c': msg.err ? 'var(--neg)' : '#9fb3c5' })}>
             {msg.err ? <CircleAlert aria-hidden="true" /> : <Sparkles aria-hidden="true" />}<span>{msg.text}</span>
+          </div>
+        )}
+        {snap?.npcSell && (
+          <div className="msg" role="note" style={cssVars({ flexBasis: '100%', '--c': 'var(--neg)' })}>
+            <CircleAlert aria-hidden="true" />
+            <span><b>NPCs sell this.</b> They sell it in Jita at a fixed price, in unlimited supply. Players rarely sell below that, so a buy order won’t fill, and there’s nothing cheaper to buy and resell. Neither side of this trade works.</span>
+          </div>
+        )}
+        {!snap?.npcSell && reach != null && reach < FILL_RARE && (
+          <div className="msg" role="note" style={cssVars({ flexBasis: '100%', '--c': 'var(--acc2)' })}>
+            <CircleAlert aria-hidden="true" />
+            <span>
+              <b>Trading rarely gets down to your buy price.</b> The bulk of the day’s trading reached {isk(tr.buy)} on {reach} of the last {FILL_WINDOW} days. Sellers here list and wait, so this bid may sit for weeks with your ISK held in it.
+              {reachAt != null ? ` Trading reached ${isk(reachAt)} on 7 of them.` : ''}
+            </span>
           </div>
         )}
       </section>
@@ -406,17 +426,23 @@ function Market(props: {
   const mn = win.length ? Math.min(...win.map((x) => x.lowest)) : NaN;
   const mx = win.length ? Math.max(...win.map((x) => x.highest)) : NaN;
 
+  // Judged the way the rest of the app judges it (fills.ts): on how many recent days the bulk of trading
+  // reached the price. One day's extreme isn't enough, and ESI's daily high and low leave out a small
+  // share of trades anyway, so "above every trade" was never quite true.
   const reality: { ok: boolean; t: string }[] = [];
   if (last7.length) {
+    const { lows, highs } = recentRange(hist);
     if (Number.isFinite(props.sell) && props.sell > 0) {
-      reality.push(props.sell > hi7 * 1.002
-        ? { ok: false, t: `Your sell at ${iskBig(props.sell)} is above every trade in the last 7 days (the highest was ${iskBig(hi7)}). It will likely sit until the market comes up to it.` }
-        : { ok: true, t: `Your sell at ${iskBig(props.sell)} is inside what buyers paid this week (up to ${iskBig(hi7)}). The average line sits lower because it also counts sales into buy orders.` });
+      const n = askReachDays(highs, props.sell);
+      reality.push(n < FILL_RARE
+        ? { ok: false, t: `The bulk of trading got up to your sell at ${iskBig(props.sell)} on ${n} of the last ${FILL_WINDOW} days (this week’s high was ${iskBig(hi7)}). It will likely sit until the market comes up to it.` }
+        : { ok: true, t: `Trading got up to your sell at ${iskBig(props.sell)} on ${n} of the last ${FILL_WINDOW} days. The average line sits lower because it also counts sales into buy orders.` });
     }
     if (Number.isFinite(props.buy) && props.buy > 0) {
-      reality.push(props.buy < lo7 * 0.998
-        ? { ok: false, t: `Your buy at ${iskBig(props.buy)} is below every trade in the last 7 days (the lowest was ${iskBig(lo7)}). Sellers may never come down to it.` }
-        : { ok: true, t: `Your buy at ${iskBig(props.buy)} is inside what sellers accepted this week (down to ${iskBig(lo7)}).` });
+      const n = bidReachDays(lows, props.buy);
+      reality.push(n < FILL_RARE
+        ? { ok: false, t: `The bulk of trading got down to your buy at ${iskBig(props.buy)} on ${n} of the last ${FILL_WINDOW} days (this week’s low was ${iskBig(lo7)}). Sellers here list and wait.` }
+        : { ok: true, t: `Trading got down to your buy at ${iskBig(props.buy)} on ${n} of the last ${FILL_WINDOW} days.` });
     }
   }
 
