@@ -15,3 +15,7 @@ migrations_dir = "migrations"
 
 [observability]
 enabled = true
+
+# Background jobs. The archive runs hourly at seven past; the other jobs join this list as they're built.
+[triggers]
+crons = ["7 * * * *"]

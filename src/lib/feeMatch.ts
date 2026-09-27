@@ -14,19 +14,10 @@
  */
 
 import type { JournalEntry, Order, Tx } from './types';
+import { withHistory, type OrderVersion } from './esiRecords';
 
-export type OrderVersion = { issued: string; price: number; remain: number };
-
-/**
- * An order as synced, with its history carried over from what was stored. A version is added whenever
- * its `issued` time or price has moved since the last one seen.
- */
-export function withHistory(prev: Order | undefined, next: Order): Order {
-  const seen = prev?.seen?.length ? [...prev.seen] : prev ? [{ issued: prev.issued, price: prev.price, remain: prev.volumeRemain }] : [];
-  const last = seen[seen.length - 1];
-  if (!last || last.issued !== next.issued || last.price !== next.price) seen.push({ issued: next.issued, price: next.price, remain: next.volumeRemain });
-  return { ...next, seen };
-}
+// Kept with the ESI record shapes (shared with the cloud Worker); re-exported for existing callers.
+export { withHistory, type OrderVersion };
 
 /** Merge a sync's orders onto the stored ones, keeping each order's history. */
 export function mergeOrders(cur: Record<string, Order>, fetched: Record<string, Order>): Record<string, Order> {

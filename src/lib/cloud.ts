@@ -255,8 +255,29 @@ export function setCloudEnabled(on: boolean) {
   if (on) { setStatus({ phase: state ? 'idle' : 'waiting' }); syncCloudNow(); } else setStatus({ phase: 'off', doing: null });
 }
 
+/**
+ * Hands a login to the cloud for its background jobs. The Worker refreshes it once to prove it works,
+ * checks it's the right character (the trading one for 'main', the other one for 'mailer'), and keeps it
+ * encrypted. This browser keeps nothing.
+ */
+export async function keepCloudLogin(k: { purpose: 'main' | 'mailer'; refreshToken: string }): Promise<{ name: string }> {
+  const res = await call<{ kept: { name: string } }>('/v1/keys', { method: 'POST', body: JSON.stringify(k) });
+  return res.kept;
+}
+
+/** Stops a background login, at the Worker and at EVE. */
+export const dropCloudLogin = (purpose: 'main' | 'mailer') => call(`/v1/keys?purpose=${purpose}`, { method: 'DELETE' });
+
+/** Runs the archive now instead of waiting for the hour. */
+export const runCloudArchive = () => call<{ trades: number; journal: number; orders: number; names: number; stock: boolean; netWorth: number | null }>('/v1/jobs/archive', { method: 'POST' });
+
+export type CloudBackground = {
+  keys: { purpose: 'main' | 'mailer'; charId: number; name: string; scopes: number; at: number }[];
+  jobs: { job: string; lastRun: number; lastOk: number | null; lastError: string | null; detail: Record<string, unknown> | null }[];
+};
+
 /** What the cloud holds for this character. */
-export const cloudSummary = () => call<{ rev: number; kinds: { kind: string; n: number; at: number }[]; docs: { key: string; at: number }[] }>('/v1/status');
+export const cloudSummary = () => call<{ rev: number; kinds: { kind: string; n: number; at: number }[]; docs: { key: string; at: number }[]; background: CloudBackground }>('/v1/status');
 
 /** A few ESI calls made from Cloudflare, with ESI's limit headers. */
 export const cloudEsiCheck = () => call<{ url: string; status: number; ms: number; headers: Record<string, string> }[]>('/v1/esi-check');

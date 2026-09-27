@@ -62,7 +62,11 @@ function randomString(n = 32): string {
   return b64url(crypto.getRandomValues(new Uint8Array(n)));
 }
 
-type Purpose = 'main' | 'mailer';
+/**
+ * Which login a redirect was for. The two `cloud` ones never stay in this browser: their refresh token is
+ * handed to the cloud Worker, which keeps it (encrypted) to read ESI and send mail while no tab is open.
+ */
+type Purpose = 'main' | 'mailer' | 'cloud' | 'cloud-mailer';
 
 async function startLogin(purpose: Purpose, scopes: string[]): Promise<void> {
   if (!isConfigured()) throw new Error('No EVE client ID is set. See the README.');
@@ -85,6 +89,10 @@ async function startLogin(purpose: Purpose, scopes: string[]): Promise<void> {
 export const login = () => startLogin('main', SCOPES);
 /** Log in the character that will send alert mail. EVE's login page asks which character. */
 export const loginMailer = () => startLogin('mailer', MAILER_SCOPES);
+/** A login for the cloud's background jobs, with the same permissions as the trading login. */
+export const loginForCloud = () => startLogin('cloud', SCOPES);
+/** A login for the cloud to send alert mail from the second character. */
+export const loginMailerForCloud = () => startLogin('cloud-mailer', MAILER_SCOPES);
 
 function decodeJwt(token: string): Record<string, unknown> {
   const part = token.split('.')[1] ?? '';
@@ -136,7 +144,7 @@ async function tokenRequest(body: Record<string, string>): Promise<TokenResponse
 }
 
 /** Call once on startup. Returns true when it finished a login redirect. */
-export async function handleCallback(): Promise<{ handled: boolean; error?: string }> {
+export async function handleCallback(): Promise<{ handled: boolean; error?: string; cloudKey?: { purpose: 'main' | 'mailer'; refreshToken: string; name: string } }> {
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code');
   const state = params.get('state');
@@ -153,6 +161,10 @@ export async function handleCallback(): Promise<{ handled: boolean; error?: stri
     const t = await tokenRequest({ grant_type: 'authorization_code', code: code!, client_id: CLIENT_ID, code_verifier: saved.verifier });
     const got = toAuth(t);
     clean();
+    // For the cloud: hand the refresh token on, and keep nothing here.
+    if (saved.purpose === 'cloud' || saved.purpose === 'cloud-mailer') {
+      return { handled: true, cloudKey: { purpose: saved.purpose === 'cloud' ? 'main' : 'mailer', refreshToken: got.refreshToken, name: got.characterName } };
+    }
     if (saved.purpose === 'mailer') {
       // The same character would be mailing itself, which is the thing this login exists to avoid.
       if (got.characterId === main.auth?.characterId) {

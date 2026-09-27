@@ -7,7 +7,7 @@ import { effectiveSkills, orderSlots, rates, RELIST_LEFT, sanitizeSettings, type
 import { ago, iskBig, iskBigSigned, pct, plainNum, units } from '../lib/format';
 import { cacheStore, clearAll, exportAll, importAll, parseBackup, update, useData } from '../lib/store';
 import { confirmAsk } from '../lib/confirm';
-import { isConfigured, login, loginMailer, logout, logoutMailer } from '../lib/auth';
+import { isConfigured, login, loginForCloud, loginMailer, logout, logoutMailer } from '../lib/auth';
 import { syncCharacter, useSyncState } from '../lib/sync';
 import { navigate, useAuth, useMailer, useNow, type Route } from '../lib/hooks';
 import { ALPHA_CAPS, JITA_44, REDIRECT_URI, SCOPE, SCOPE_INFO, SCOPES } from '../lib/config';
@@ -18,7 +18,7 @@ import { ALERT_LABELS, tidyEvery } from '../lib/alerts';
 import { testAlert, testMail, useAlertRunner, BACKUP_DAYS } from '../lib/alertsRunner';
 import { useMotion, bumpWarp } from '../lib/motion';
 import { toast } from '../lib/toast';
-import { cloudCovers, cloudEnabled, cloudEsiCheck, cloudSummary, setCloudEnabled, syncCloudNow, useCloud } from '../lib/cloud';
+import { cloudCovers, cloudEnabled, cloudEsiCheck, cloudSummary, dropCloudLogin, runCloudArchive, setCloudEnabled, syncCloudNow, useCloud, type CloudBackground } from '../lib/cloud';
 import type { AlertEvent, Motion, Theme } from '../lib/types';
 import { downloadText, LevelBoxes } from './common';
 import { CloneSwitch } from './Omega';
@@ -755,6 +755,12 @@ function CloudPanel() {
   const now = useNow(30_000);
   const [on, setOn] = useState(cloudEnabled);
   const [held, setHeld] = useState<{ kinds: { kind: string; n: number }[]; rev: number } | null>(null);
+  const [bg, setBg] = useState<CloudBackground | null>(null);
+  const ready = on && c.phase !== 'waiting' && c.phase !== 'off';
+  const refreshBg = () => cloudSummary().then((s) => { setBg(s.background); setHeld(s); }).catch(() => undefined);
+  useEffect(() => { if (ready) refreshBg(); }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  const watcher = bg?.keys.find((k) => k.purpose === 'main');
+  const archiveJob = bg?.jobs.find((j) => j.job === 'archive');
   const [esi, setEsi] = useState<{ url: string; status: number; ms: number; headers: Record<string, string> }[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const last = Math.max(c.lastPushAt ?? 0, c.lastPullAt ?? 0);
@@ -781,8 +787,41 @@ function CloudPanel() {
       <div className="row" style={{ flexWrap: 'wrap', gap: 10 }}>
         <Check checked={on} onChange={(v) => { setOn(v); setCloudEnabled(v); }} tip="Each browser can be switched off on its own; the cloud copy stays either way.">Keep this browser in sync</Check>
         <button type="button" className="btn sm" disabled={!on || c.phase === 'waiting' || !!busy} onClick={() => run('sync', () => syncCloudNow())}><RefreshCw aria-hidden="true" />Sync now</button>
-        <button type="button" className="btn sm" disabled={!on || c.phase === 'waiting' || !!busy} onClick={() => run('held', async () => setHeld(await cloudSummary()))}><Database aria-hidden="true" />What’s in the cloud</button>
+        <button type="button" className="btn sm" disabled={!on || c.phase === 'waiting' || !!busy} onClick={() => run('held', refreshBg)}><Database aria-hidden="true" />What’s in the cloud</button>
         <button type="button" className="link-btn" disabled={!on || c.phase === 'waiting' || !!busy} onClick={() => run('esi', async () => setEsi(await cloudEsiCheck()))}>Check ESI from the cloud</button>
+      </div>
+      <div className="sub-box" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="lbl" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          Keeping watch while the app is closed
+          <Tip title="Keeping watch" text={'The cloud reads your wallet, journal, orders and assets every hour and keeps a net-worth point each day, whether or not a browser is open.\n\n• ESI only keeps 30 days of wallet history; with this on, a month away loses nothing.\n• It needs its own EVE login, held encrypted by the cloud. This browser keeps nothing extra.\n• Stop it any time here, or revoke it on EVE’s third-party applications page.'} />
+        </div>
+        {!ready ? <p className="note" style={{ margin: 0 }}>Turn on the cloud copy and log in first.</p>
+          : !watcher ? (
+            <>
+              <p className="note" style={{ margin: 0 }}>Off. Your ledger only updates while a browser has the app open.</p>
+              <button type="button" className="btn sm primary" style={{ alignSelf: 'flex-start' }} onClick={() => loginForCloud()}><Cloud aria-hidden="true" />Let the cloud keep watch</button>
+            </>
+          ) : (
+            <>
+              <p className="note" style={{ margin: 0, color: archiveJob?.lastError ? 'var(--neg)' : 'var(--pos)' }}>
+                {`On, as ${watcher.name}. `}
+                {!archiveJob ? 'The first hourly run is due soon.'
+                  : archiveJob.lastError ? `The last run failed: ${archiveJob.lastError}.`
+                    : `Last run ${ago(new Date(archiveJob.lastRun).toISOString(), now)}${archiveJob.detail ? `: ${[
+                      ['trades', 'new trade'], ['journal', 'journal entry'], ['orders', 'order change'], ['names', 'name'],
+                    ].map(([k, w]) => { const n = Number(archiveJob.detail?.[k] ?? 0); return n ? `${units(n)} ${n === 1 ? w : w === 'journal entry' ? 'journal entries' : w + 's'}` : null; }).filter(Boolean).join(', ') || 'nothing new'}` : ''}.`}
+              </p>
+              <div className="row" style={{ gap: 10 }}>
+                <button type="button" className="btn sm" disabled={!!busy} onClick={() => run('archive', async () => { const r = await runCloudArchive(); toast(`Archived: ${units(r.trades)} new trades, ${units(r.journal)} journal entries, ${units(r.orders)} order changes.`); await syncCloudNow(); await refreshBg(); })}>
+                  <RefreshCw aria-hidden="true" />{busy === 'archive' ? 'Running…' : 'Run it now'}
+                </button>
+                <button type="button" className="link-btn" disabled={!!busy} onClick={() => run('stop', async () => {
+                  if (!(await confirmAsk({ title: 'Stop keeping watch?', body: 'The cloud forgets its EVE login and stops reading your wallet while the app is closed. Your ledger in the cloud stays.', confirm: 'Stop' }))) return;
+                  await dropCloudLogin('main'); await refreshBg();
+                })}>Stop</button>
+              </div>
+            </>
+          )}
       </div>
       {held && (
         <p className="note" style={{ margin: 0 }}>

@@ -8,7 +8,7 @@ import { bumpWarp, useMotion } from './lib/motion';
 import { THEMES } from './lib/prefs';
 import { priceKillmails } from './lib/killmails';
 import { startAlerts } from './lib/alertsRunner';
-import { startCloud } from './lib/cloud';
+import { keepCloudLogin, startCloud } from './lib/cloud';
 import { marketParam, openFromLink, withoutMarket } from './lib/marketLink';
 import { setToastLife, toast } from './lib/toast';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -75,6 +75,12 @@ export function App() {
     (async () => {
       const cb = await handleCallback();
       if (cb.error) setLoginErr(cb.error);
+      // A login for the cloud's background jobs goes straight to the Worker; nothing stays here.
+      if (cb.cloudKey) {
+        keepCloudLogin(cb.cloudKey)
+          .then((k) => toast(cb.cloudKey!.purpose === 'main' ? `The cloud now keeps watch as ${k.name}, with this app closed too.` : `The cloud will send alert mail from ${k.name}.`))
+          .catch((e) => toast(`The cloud couldn’t keep that login: ${e instanceof Error ? e.message : String(e)}`, 'err'));
+      }
       await initStore();
       // "Since your last visit" is measured from when the app was last open, not from this minute.
       const seen = getData().meta.lastSeenAt;

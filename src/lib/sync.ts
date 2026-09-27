@@ -8,6 +8,7 @@ import { sanitizeSettings, type Settings } from './fees';
 import { readKillmail, type RawKillmail } from './combat';
 import type { JournalEntry, Killmail, Meta, Order, Stock, Tx } from './types';
 import { mergeOrders } from './feeMatch';
+import { countStock, toJournal, toOrder, toTx, type RawAsset, type RawCharOrder, type RawJournal, type RawTx } from './esiRecords';
 
 const { wallet: WALLET, orders: ORDERS, skills: SKILLS, standings: STANDINGS, assets: ASSETS, loyalty: LOYALTY, killmails: KILLMAILS } = SCOPE;
 
@@ -23,36 +24,8 @@ export function useSyncState(): SyncState {
 }
 export function getSyncState(): SyncState { return state; }
 
-type RawTx = {
-  transaction_id: number; date: string; is_buy: boolean; quantity: number;
-  type_id: number; unit_price: number; location_id: number; journal_ref_id: number;
-};
-type RawJournal = {
-  id: number; date: string; ref_type: string; amount?: number; balance?: number;
-  context_id?: number; context_id_type?: string;
-  first_party_id?: number; second_party_id?: number; description?: string; reason?: string;
-};
-type RawCharOrder = {
-  order_id: number; type_id: number; is_buy_order?: boolean; price: number;
-  volume_total: number; volume_remain: number; issued: string; state?: string; location_id: number; escrow?: number;
-};
-
-function toOrder(o: RawCharOrder, fallbackState: string): Order {
-  return {
-    orderId: o.order_id, typeId: o.type_id, isBuy: !!o.is_buy_order, price: o.price,
-    volumeTotal: o.volume_total, volumeRemain: o.volume_remain, issued: o.issued,
-    state: o.state ?? fallbackState, locationId: o.location_id, escrow: o.escrow,
-  };
-}
-
-export function toJournal(j: RawJournal): JournalEntry {
-  return {
-    id: String(j.id), date: j.date, refType: j.ref_type, amount: j.amount ?? 0,
-    contextId: j.context_id, contextIdType: j.context_id_type, balance: j.balance,
-    firstPartyId: j.first_party_id, secondPartyId: j.second_party_id,
-    description: j.description, reason: j.reason || undefined,
-  };
-}
+// ESI's shapes and their conversion into records live in esiRecords.ts, shared with the cloud Worker.
+export { toJournal, countStock } from './esiRecords';
 
 const SKILL_KEYS = Object.keys(SKILL_NAMES) as SkillKey[];
 
@@ -77,44 +50,6 @@ async function ensureIds(d: Data) {
 
 type RawSkill = { skill_id: number; active_skill_level: number; trained_skill_level: number; skillpoints_in_skill?: number };
 
-type RawAsset = { item_id: number; type_id: number; quantity: number; location_id: number; location_flag: string; location_type: string; is_blueprint_copy?: boolean };
-
-/**
- * Count what the character is holding, per item.
- *
- * ESI reports an item's location as whatever contains it, so anything inside a can or a ship is
- * listed against that container's id rather than a station. Those cannot be attributed to a place,
- * so they are counted separately and reported rather than quietly folded in.
- */
-export function countStock(raw: RawAsset[], jitaId: number): Stock {
-  const jita: Record<number, number> = {};
-  const total: Record<number, number> = {};
-  const byLocation: Record<number, Record<number, number>> = {};
-  const nested: Record<number, number> = {};
-  const stations = new Set(raw.filter((a) => a.location_type === 'station').map((a) => a.location_id));
-  const itemIds = new Set(raw.map((a) => a.item_id));
-  let inContainers = 0;
-  for (const a of raw) {
-    // A blueprint copy shares its type with the original, so any price for it would be the
-    // original's: one copy of a battleship blueprint would read as billions. Copies can't be sold on
-    // the market at all, so they are not stock and are left out of every count.
-    if (a.is_blueprint_copy) continue;
-    total[a.type_id] = (total[a.type_id] ?? 0) + a.quantity;
-    if (a.location_id === jitaId && a.location_flag === 'Hangar') {
-      jita[a.type_id] = (jita[a.type_id] ?? 0) + a.quantity;
-    }
-    if (a.location_type === 'item' && !stations.has(a.location_id)) inContainers += a.quantity;
-    // Inside something you own (a ship, a can): counted apart. A structure's hangar is also an
-    // "item" location, but the structure is not yours, which is how the two are told apart.
-    if (a.location_type === 'item' && itemIds.has(a.location_id)) {
-      nested[a.type_id] = (nested[a.type_id] ?? 0) + a.quantity;
-    } else if (a.location_flag === 'Hangar') {
-      const loc = (byLocation[a.location_id] ??= {});
-      loc[a.type_id] = (loc[a.type_id] ?? 0) + a.quantity;
-    }
-  }
-  return { at: new Date().toISOString(), jita, total, inContainers, byLocation, nested };
-}
 
 /**
  * ESI has no clone-state field, but Alpha clones have skills whose active level is below the trained level.
@@ -213,10 +148,7 @@ export async function syncCharacter(): Promise<void> {
         for (const t of data) {
           const id = String(t.transaction_id);
           if (!d.txs[id]) fresh++;
-          txs[id] = {
-            id, source: 'esi', typeId: t.type_id, date: t.date, isBuy: t.is_buy,
-            qty: t.quantity, unitPrice: t.unit_price, locationId: t.location_id,
-          };
+          txs[id] = toTx(t);
         }
         const minId = Math.min(...data.map((t) => t.transaction_id));
         if (fresh === 0 || data.length < 500 || (fromId !== undefined && minId >= fromId)) break;
