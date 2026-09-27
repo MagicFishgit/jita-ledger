@@ -1617,6 +1617,16 @@ console.log('\n--- whether trading reaches a bid ---');
   eq('  and a move to where trading reaches says why', moveMail.body.includes('Trading reached your bid on 0 of the last 14 days') && moveMail.body.includes('move your buy order up to 104,900,000 ISK'), true);
 }
 
+console.log('\n--- horizon ---');
+{
+  const { snapHorizon, HORIZONS } = await import('../src/lib/prospects.ts');
+  eq('the choices', HORIZONS, [3, 7, 14, 30, null]);
+  eq('"any" stays any', snapHorizon(null), null);
+  eq('a choice stays itself', snapHorizon(14), 14);
+  eq('a typed-in horizon snaps to the nearest choice', [snapHorizon(5), snapHorizon(10), snapHorizon(60)], [3, 7, 30]);
+  eq('nothing saved is the default', [snapHorizon(undefined), snapHorizon(0)], [3, 3]);
+}
+
 console.log('\n--- tooltip layout ---');
 {
   const { tipBlocks, isWideTip } = await import('../src/lib/tipText.ts');

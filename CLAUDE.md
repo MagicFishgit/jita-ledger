@@ -295,6 +295,12 @@ Don't re-derive or contradict these without new evidence.
   there, so it hides an opportunity rather than inventing a bad trade, and that is the safe direction.
 - **Prospects sizes a position by what an item can absorb** (`units/day × share × price × horizon`),
   not by one day's volume. The budget is a target, not a cap.
+- **The horizon is a choice of 3, 7, 14 or 30 days, or Any** (`HORIZONS`; Any is stored as `null`, since the
+  filters live in localStorage JSON where Infinity doesn't survive). It is a gate and a size cap, never a
+  ranking input: ranking is return per day either way. Any leaves nothing out for being slow and flags a
+  position that takes over `SLOW_DAYS` (30) to flip as "Locks ISK for weeks"; "Can take" says "no limit".
+  An empty box meaning "unlimited" was considered and rejected: it would quietly bring back the locked-ISK
+  trap the reach work was built against. A saved typed-in horizon snaps to the nearest choice.
 - **Pages run full width** via `--page-max`, so wide tables don't need a scrollbar. Prose keeps its own
   measure.
 - **Loyalty ranks per point, not per ISK**, because points are the scarce thing. An offer's output is

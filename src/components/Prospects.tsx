@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { ago, isk, iskBig, iskSigned, pct, plainNum, units } from '../lib/format';
 import { resolveNames } from '../lib/market';
-import { absorbable, DEFAULT_FILTERS, FIRST_DIR, passesGate, sortProspects, type Sort, type SortKey } from '../lib/prospects';
+import { absorbable, DEFAULT_FILTERS, FIRST_DIR, HORIZONS, passesGate, SLOW_DAYS, snapHorizon, sortProspects, type Sort, type SortKey } from '../lib/prospects';
 import { clearScan, coverage, loadCache, rankProspects, runScan, stopScan, useScanState, type ScanCache } from '../lib/scan';
 import { COMPETITION_PIVOT } from '../lib/split';
 import { update, useData } from '../lib/store';
@@ -15,7 +15,7 @@ import { confirmAsk } from '../lib/confirm';
 import { toast } from '../lib/toast';
 import type { Prospect, ProspectFilters, ProspectWarning } from '../lib/types';
 import { OpenInGame, useTypeName } from './common';
-import { Busy, Check, Chip, Empty, Expander, Flag, Guide, ItemIcon, PageHead, SortTh, Sparkline } from './ui';
+import { Busy, Check, Chip, Empty, Expander, Flag, Guide, ItemIcon, PageHead, Seg, SortTh, Sparkline } from './ui';
 
 export const WARNING: Record<ProspectWarning, { short: string; why: string }> = {
   wall: { short: 'Wall', why: 'The best price on one side holds more than half the visible stock, and more than three days of what the item trades.\n\nWalls are often placed to make a spread look stable, then pulled once traders pile in behind them.' },
@@ -25,6 +25,7 @@ export const WARNING: Record<ProspectWarning, { short: string; why: string }> = 
   fluke: { short: 'Fluke', why: 'Today’s gap is much wider than this item usually trades in a day. Expect it to close before your order fills.' },
   falling: { short: 'Falling', why: 'The 30-day average price is more than 10% below the 90-day. You would be buying into a slide.' },
   crowded: { short: 'Crowded', why: 'Hundreds of listings against very few trades. You would be joining a queue, not a market.' },
+  slow: { short: 'Locks ISK for weeks', why: `At your share of the trade, this position takes more than ${SLOW_DAYS} days to buy in and sell out.\n\nFine if you meant to hold it that long, but the ISK is tied up the whole time and the market can move against you meanwhile.` },
   unreached: { short: 'Bids not reached', why: 'The bulk of trading hasn’t been getting down to the best bid: on fewer than 4 of the last 14 days did the day’s trading reach it.\n\nSellers here list and wait rather than sell into buy orders, so a bid at the top can sit for weeks with your ISK held in it. The prices shown assume you bid where trading did reach, on 7 of the last 14 days.\n\nESI’s daily low leaves out a small share of trades, so a few units may still sell lower. Not enough to build a position on.' },
 };
 
@@ -39,15 +40,14 @@ export function flip(days: number): string {
 const COLUMNS: [SortKey, string, string?][] = [
   ['roi', 'Return'],
   ['roiDay', 'Return / day', 'Return divided by the days your ISK is tied up. The default sort — it rewards items that turn round fast.'],
-  ['canTake', 'Can take', 'ISK this item can absorb inside your horizon at your share of the side that fills slower.'],
+  ['canTake', 'Can take', 'ISK this item can absorb inside your horizon at your share of the side that fills slower. With “Any”, there’s no limit: see “Flips in” for how long it takes.'],
   ['flip', 'Flips in'], ['net', 'Profit / unit'], ['trades', 'Trades a day'], ['days', 'Days traded'],
   ['volume', 'Volume, 30 d'], ['iskPerDay', 'ISK per day'], ['capital', 'ISK tied up'], ['flags', 'Flags'],
 ];
 
-type NumberFilter = 'budget' | 'horizonDays' | 'minTrades' | 'minDays' | 'minRoi';
+type NumberFilter = 'budget' | 'minTrades' | 'minDays' | 'minRoi';
 const FILTER_FIELDS: { key: NumberFilter; label: string; hint: string }[] = [
   { key: 'budget', label: 'ISK per item', hint: 'The ISK you want to put into one item. Only items that can absorb this are shown.' },
-  { key: 'horizonDays', label: 'Out within, days', hint: 'How long you’ll leave the money in it.' },
   { key: 'minTrades', label: 'Trades / day ≥', hint: 'Median trades a day over the last 30 days.' },
   { key: 'minDays', label: 'Days traded ≥', hint: 'Days out of 30 with any trade at all.' },
   { key: 'minRoi', label: 'Return ≥ %', hint: 'Net of your broker fee and sales tax.' },
@@ -58,7 +58,7 @@ function loadPrefs(wallet: number | undefined): { f: ProspectFilters; sort: Sort
   const base = { ...DEFAULT_FILTERS, demoteFlagged: true, budget: wallet && wallet > 1e6 ? Math.round(wallet) : DEFAULT_FILTERS.budget };
   try {
     const p = JSON.parse(localStorage.getItem(PREFS_KEY) || 'null');
-    if (p?.f) return { f: { ...base, ...p.f, partial: false }, sort: p.sort?.key ? p.sort : { key: 'roiDay', dir: 'desc' } };
+    if (p?.f) return { f: { ...base, ...p.f, horizonDays: snapHorizon(p.f.horizonDays), partial: false }, sort: p.sort?.key ? p.sort : { key: 'roiDay', dir: 'desc' } };
   } catch { /* private window */ }
   return { f: base, sort: { key: 'roiDay', dir: 'desc' } };
 }
@@ -73,7 +73,7 @@ export function Prospects() {
   const [f, setF] = useState<ProspectFilters>(init.f);
   const [sort, setSort] = useState<Sort>(init.sort);
   const [text, setText] = useState<Record<NumberFilter, string>>(() => ({
-    budget: Math.round(init.f.budget).toLocaleString('en-US'), horizonDays: plainNum(init.f.horizonDays),
+    budget: Math.round(init.f.budget).toLocaleString('en-US'),
     minTrades: plainNum(init.f.minTrades), minDays: plainNum(init.f.minDays), minRoi: plainNum(init.f.minRoi * 100),
   }));
   const [open, setOpen] = useState<number | null>(null);
@@ -103,7 +103,7 @@ export function Prospects() {
     let best = 0;
     for (const st of Object.values(cache.stats)) {
       if (!passesGate(st, f)) continue;
-      best = Math.max(best, absorbable(st, d.settings.share, f.horizonDays));
+      best = Math.max(best, f.horizonDays == null ? Infinity : absorbable(st, d.settings.share, f.horizonDays));
     }
     return best;
   }, [cache, f, d.settings.share]);
@@ -160,6 +160,20 @@ export function Prospects() {
             onBlur={() => key === 'budget' && setText((t) => ({ ...t, budget: Math.round(f.budget).toLocaleString('en-US') }))} />
         ))}
         <Check checked={f.demoteFlagged} onChange={(v) => setF((x) => ({ ...x, demoteFlagged: v }))} tip="Push flagged items down the list — the more flags, the further down">Push flagged down</Check>
+        <div className="row" style={{ flexBasis: '100%', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span className="lbl" style={{ fontSize: 10.5 }} data-tip-title="Out within" tabIndex={0}
+            data-tip={'How long you’re willing to have the ISK in one item, from buying in to selling out.\n\n• An item has to be able to take your ISK per item within this time, at your share of its trade, or it’s left out.\n• It doesn’t change the ranking: that’s return per day either way.\n\n“Any” leaves nothing out for being slow, and flags positions that take more than 30 days as “Locks ISK for weeks”.'}>
+            Out within
+          </span>
+          {/* Seg takes numbers, so "any" travels as 0 and is stored as null. */}
+          <Seg size="sm" label="Out within" value={f.horizonDays ?? 0} onChange={(v) => setF((x) => ({ ...x, horizonDays: v === 0 ? null : v }))}
+            options={HORIZONS.map((h) => ({ v: h ?? 0, label: h == null ? 'Any' : `${h} d` }))} />
+          <span className="note small" style={{ flex: '1 1 260px' }}>
+            {f.horizonDays == null
+              ? `Nothing is left out for being slow. Anything taking over ${SLOW_DAYS} days is flagged.`
+              : `${iskBig(f.budget)} in ${f.horizonDays} day${f.horizonDays === 1 ? '' : 's'} needs an item where your share of the trade comes to ${iskBig(f.budget / f.horizonDays)} a day.`}
+          </span>
+        </div>
       </div>
 
       {busy ? (
@@ -193,7 +207,7 @@ export function Prospects() {
           busy ? <Empty icon={Radar}>Scanning. Anything that clears your filters appears here as soon as it is priced.</Empty> : (
             <Empty icon={Telescope}>
               {biggest > 0 && biggest < f.budget
-                ? `Nothing scanned so far can absorb ${iskBig(f.budget)} within ${plainNum(f.horizonDays)} day${f.horizonDays === 1 ? '' : 's'}. The busiest market found so far could take about ${iskBig(biggest)} in that time. Put in less, allow longer, or run a deep scan.`
+                ? `Nothing scanned so far can absorb ${iskBig(f.budget)} within ${plainNum(f.horizonDays ?? 0)} day${f.horizonDays === 1 ? '' : 's'}. The busiest market found so far could take about ${iskBig(biggest)} in that time. Put in less, allow longer, or run a deep scan.`
                 : biggest >= f.budget
                   ? `Some scanned items are busy enough to absorb ${iskBig(f.budget)}, but none of the ${units(cov.priced)} priced against the live book so far do. Scan again to price more of them, or loosen the other filters.`
                   : 'Nothing scanned so far clears these filters. Loosen the return or the trades a day, allow a longer horizon, or scan again to check more of the market.'}
@@ -269,7 +283,7 @@ function Row({ p, name, open, onToggle, baseShare }: { p: Prospect; name: string
         </td>
         <td className="pos">{pct(p.roi, 1)}</td>
         <td style={{ color: 'var(--acc)' }}>{pct(p.roiPerDay, 2)}</td>
-        <td data-tip={`${units(Math.round(s.unitsPerDay))} units trade here a day`}>{iskBig(p.canTake)}</td>
+        <td data-tip={`${units(Math.round(s.unitsPerDay))} units trade here a day`}>{Number.isFinite(p.canTake) ? iskBig(p.canTake) : <span className="faint">no limit</span>}</td>
         <td>{flip(p.daysToFlip)}</td>
         <td className="pos">{iskSigned(p.net)}</td>
         <td>{units(Math.round(s.tradesPerDay))}</td>

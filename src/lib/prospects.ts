@@ -130,6 +130,18 @@ export function pickPages(total: number, want: number, rnd: () => number = Math.
   return [1, ...pool.slice(0, Math.max(0, Math.min(want, total) - 1))];
 }
 
+/** The horizons offered, in days. Null is "any": nothing is left out for being slow, and slow is flagged. */
+export const HORIZONS: (number | null)[] = [3, 7, 14, 30, null];
+/** A position that takes longer than this to buy in and sell out ties ISK up for weeks, and says so. */
+export const SLOW_DAYS = 30;
+/** A saved horizon that isn't one of the choices (typed in before they existed) snaps to the nearest one. */
+export function snapHorizon(days: number | null | undefined): number | null {
+  if (days === null) return null;
+  if (days == null || !Number.isFinite(days) || days <= 0) return DEFAULT_FILTERS.horizonDays;
+  const opts = HORIZONS.filter((h): h is number => h != null);
+  return opts.reduce((best, h) => (Math.abs(h - days) < Math.abs(best - days) ? h : best), opts[0]);
+}
+
 export const DEFAULT_FILTERS: ProspectFilters = {
   budget: 250_000_000,
   horizonDays: 3,

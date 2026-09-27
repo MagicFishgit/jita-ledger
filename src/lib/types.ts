@@ -153,7 +153,7 @@ export type ProspectStats = {
   range7?: number[];
 };
 
-export type ProspectWarning = 'thin' | 'fluke' | 'falling' | 'crowded' | 'wall' | 'escrow' | 'spike' | 'unreached';
+export type ProspectWarning = 'thin' | 'fluke' | 'falling' | 'crowded' | 'wall' | 'escrow' | 'spike' | 'unreached' | 'slow';
 
 /** A candidate that cleared the gate, priced against the live book. */
 export type Prospect = {
@@ -187,8 +187,8 @@ export type Prospect = {
 export type ProspectFilters = {
   /** ISK you want to put into a single item. A target to be met, not a ceiling to stay under. */
   budget: number;
-  /** How long you'll accept being in the position. Decides how much an item can absorb. */
-  horizonDays: number;
+  /** How long you'll accept being in the position. Decides how much an item can absorb. Null: any length. */
+  horizonDays: number | null;
   minTrades: number;
   minDays: number;
   minRoi: number;

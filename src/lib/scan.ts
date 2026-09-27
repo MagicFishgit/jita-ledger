@@ -4,7 +4,7 @@ import { JITA_44, THE_FORGE } from './config';
 import { esi } from './esi';
 import { calc, rates, type Settings } from './fees';
 import { jitaBook, marketHistory } from './market';
-import { bidToPlace, DEFAULT_FILTERS, expectedEdge, passesGate, pickPages, statsFrom, warningsFor } from './prospects';
+import { bidToPlace, DEFAULT_FILTERS, expectedEdge, passesGate, pickPages, SLOW_DAYS, statsFrom, warningsFor } from './prospects';
 import { cacheStore } from './store';
 import { tickDown } from './tick';
 import { competitionShare, EVEN_SPLIT, MIN_DAYS, returnPerDay, throughput } from './split';
@@ -143,7 +143,8 @@ export function evaluate(
   // What you could realistically push through this item in a day, in ISK.
   const perDay = unitsPerDay * buy;
   if (!(perDay > 0)) return null;
-  const canTake = perDay * filters.horizonDays;
+  // With no horizon, anything that trades at all can take the budget, and slow is flagged instead.
+  const canTake = filters.horizonDays == null ? Infinity : perDay * filters.horizonDays;
   // Too slow to swallow what you want to invest inside the time you'll give it. The planner asks for
   // partial fills instead: it wants to know what each market can take, not only the ones that take all.
   if (canTake < filters.budget && !filters.partial) return null;
@@ -168,7 +169,11 @@ export function evaluate(
     iskPerDay: c.net / Math.max(daysToFlip, MIN_DAYS), capital: c.spent,
     share: sellShare, buyerShare: buyers,
     bidReach, buyRaised: raised,
-    warnings: [...warningsFor(stats, book, c.spreadPct, estOrders), ...(bidReach != null && bidReach < FILL_RARE ? ['unreached' as const] : [])],
+    warnings: [
+      ...warningsFor(stats, book, c.spreadPct, estOrders),
+      ...(bidReach != null && bidReach < FILL_RARE ? ['unreached' as const] : []),
+      ...(daysToFlip > SLOW_DAYS ? ['slow' as const] : []),
+    ],
   };
 }
 
