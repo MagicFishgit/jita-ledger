@@ -179,8 +179,14 @@ export function adviseRelist(
   m: MarketContext,
   r: { k: number; f: number; t: number },
   waitHours = WAIT_HOURS,
-  /** The daily return you'd accept on a trade, as a fraction. Holding must beat it to be worth it. */
-  targetDaily = 0.05,
+  /**
+   * The return you want each trade to make, as a fraction: Settings' "Target return", which is per trade.
+   * Holding is worth it when what the move costs, per day of waiting it saves, beats that return spread
+   * over the days this order's stock takes to sell. It was once compared with the target as if it were a
+   * daily rate, which made every hour look five times dearer on a week-long sale: an order with one unit
+   * ahead of it and six days of stock was told to move.
+   */
+  targetPerTrade = 0.05,
 ): Relist {
   // Character orders are cached by ESI for twenty minutes, so the stored copy of your own order can
   // be stale for that long after you relist. The live book knows better: your order is in it, under
@@ -231,6 +237,10 @@ export function adviseRelist(
     sideVolume > 0 && aheadUnits / sideVolume < OUTLIER_SHARE &&
     // Stock that's a real share of a day's trading will sell before yours, however big the book.
     !(daily != null && aheadUnits >= daily * OUTLIER_OF_DAY);
+  // What freeing this order's capital sooner earns a day: the target for a trade, spread over how long this
+  // one takes to sell. At least a day, so a fast order is judged exactly as before and never more eagerly.
+  const tradeDays = Number.isFinite(yourHours) ? Math.max(1, yourHours / 24) : 1;
+  const targetDaily = targetPerTrade / tradeDays;
   // The share of the order's value burned to get in front, spread over the waiting it saves.
   const waitingPaysDaily =
     moves && atRisk > 0 && Number.isFinite(hoursToFront) && hoursToFront > 0
@@ -292,7 +302,10 @@ export function adviseRelist(
     why =
       `Getting in front means moving ${pctText(cutPct)} to ${Math.round(newPrice).toLocaleString('en-US')}, ` +
       `which costs ${Math.round(cost).toLocaleString('en-US')} ISK to save ${hrs(hoursToFront)} of waiting — ` +
-      `holding your price is worth about ${pctText(waitingPaysDaily)} a day`;
+      `holding your price is worth about ${pctText(waitingPaysDaily)} a day` +
+      (tradeDays > 1
+        ? `, more than the ${pctText(targetDaily)} a day your ${pctText(targetPerTrade)} target comes to over the ${Math.round(tradeDays)} days this stock takes to sell`
+        : `, more than your ${pctText(targetPerTrade)} target`);
   } else if (hoursToFront <= waitHours) {
     verdict = 'wait';
     why = `Only ${aheadUnits.toLocaleString('en-US')} ahead of you, about ${hrs(hoursToFront)} at this item's pace`;

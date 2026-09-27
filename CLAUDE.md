@@ -289,9 +289,14 @@ Don't re-derive or contradict these without new evidence.
   a fast item clears in minutes; patience is a user setting (`settings.waitHours`).
 - **It also weighs what the move costs against the waiting it saves.** `waitingPaysDaily =
   (cost / orderValue) / (hoursToFront / 24)` — the daily return of leaving the order alone. When that
-  beats `settings.target`, hold. This is what stops it advising a 31% price cut to get in front of a
-  thin skim of cheap stock that clears in 20 hours anyway. A relist fee is fixed, so buying back a few
-  minutes with one can never pay; patience settings cannot override this check.
+  beats what `settings.target` comes to a day, hold. This is what stops it advising a 31% price cut to get
+  in front of a thin skim of cheap stock that clears in 20 hours anyway. A relist fee is fixed, so buying
+  back a few minutes with one can never pay; patience settings cannot override this check.
+  **The target is per trade** (Settings says so: "what you want each trade to make"), so it's spread over the
+  days this order's stock takes to sell (`yourHours`, at least one day) before the comparison. It was once
+  compared as if it were 5% a day, which made every hour on a week-long sale look five times dearer: the
+  user's Upgraded Explosive Coating I, 36 units taking six days with one unit ahead, was told to move for
+  ~1,200 ISK to save four hours. With the floor, a stock that sells within a day is judged exactly as before.
 - **And it ignores prices that aren't the market.** `weightedLevel` is the volume-weighted median of
   your side of the book, so one unit fat-fingered at two thirds the going rate moves it by nothing.
   A move landing >10% past that level, *and* chasing under 2% of the side's volume, is a mistake or a

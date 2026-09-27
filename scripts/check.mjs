@@ -470,7 +470,20 @@ if (!(r.cutPct > 0.4)) { failed++; console.log(`  FAIL buy cut should be large: 
 // Patience is still a setting, but it cannot force a ruinous move.
 eq('even an impatient trader waits on a 31% cut', adviseRelist(skim, { book: skimBook, dailyVolume: 260 }, R, 0).verdict, 'wait');
 // A higher target return makes you fussier about what is worth holding for.
-eq('a 60%/day target would take the move', adviseRelist(skim, { book: skimBook, dailyVolume: 260 }, R, 4, 0.6).verdict, 'move');
+// The target is per trade. Here the stock takes nearly two days to sell, so only a target over about 70%
+// a trade would make the hour-for-hour saving worth a 31% cut.
+eq('a target of 100% a trade would take the move', adviseRelist(skim, { book: skimBook, dailyVolume: 260 }, R, 4, 1).verdict, 'move');
+eq('  60% a trade would not', adviseRelist(skim, { book: skimBook, dailyVolume: 260 }, R, 4, 0.6).verdict, 'wait');
+// The user's Upgraded Explosive Coating I, 27 Sep 2026: one unit ahead, 36 of their own taking six days
+// to sell. Getting in front saves about four hours of a six-day sale; at 5% a trade that's worth well under
+// the ~1,600 ISK the move costs. Read as 5% a day, the rule had said move.
+{
+  const coating = { orderId: 1, typeId: 16321, isBuy: false, price: 9388, volumeRemain: 36 };
+  const c = adviseRelist(coating, { book: [o(1, false, 9388, 36), o(2, false, 9380, 1), o(3, false, 9389, 35)], dailyVolume: 5.6 }, R, 4, 0.05);
+  eq('one unit ahead of a six-day sale: leave it', c.verdict, 'wait');
+  has('  and it says why', c.why, 'over the 6 days this stock takes to sell');
+  eq('  the same with the stock selling in a day moves', adviseRelist({ ...coating, volumeRemain: 5 }, { book: [o(1, false, 9388, 5), o(2, false, 9380, 1)], dailyVolume: 5.6 }, R, 4, 0.05).verdict, 'move');
+}
 // With no volume data there is no waiting to value, so it falls through to the old behaviour.
 r = adviseRelist(skim, { book: skimBook }, R);
 eq('unknown pace: cannot value waiting', r.waitingPaysDaily, 0);
