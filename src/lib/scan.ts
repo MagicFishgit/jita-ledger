@@ -307,7 +307,12 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
     sinceSave = 0;
     await pool(survivors, async (s) => {
       try {
-        cache.books[s.typeId] = { at: new Date().toISOString(), ...(await jitaBook(s.typeId)) };
+        // Whatever gets priced gets judged on where trading reaches, so its stats need the 14-day lows.
+        // The liquidity pass refreshes the most-listed items and these are the best-margin ones --- mostly
+        // different --- so without this only a handful of the priced items (5 of 42 in a test) had them.
+        const [book, hist] = await Promise.all([jitaBook(s.typeId), s.lows14 ? null : marketHistory(s.typeId)]);
+        cache.books[s.typeId] = { at: new Date().toISOString(), ...book };
+        if (hist) cache.stats[s.typeId] = statsFrom(s.typeId, hist) ?? dead(s.typeId);
       } catch {
         setState({ failed: state.failed + 1 });
       }
