@@ -5,7 +5,7 @@
  */
 
 import { matchTx } from './positions';
-import type { Position, Tx } from './types';
+import type { Order, Position, Tx, WatchItem } from './types';
 
 const DAY = 86400_000;
 
@@ -52,4 +52,18 @@ export function squeezed(range7: number[] | undefined, breakEvenSpread: number):
   if (!range7 || range7.length < 3 || !(breakEvenSpread > 0)) return false;
   const first = range7[0], last = range7[range7.length - 1];
   return last < breakEvenSpread * SQUEEZE_NEAR && last < first * (1 - SQUEEZE_FALL);
+}
+
+/**
+ * Items you are putting ISK into: open positions, open buy orders, and the watchlist, where you look before
+ * buying. Not items you only sell. A spike or escrow bait is a trap for someone buying, and the queue ahead of
+ * a sell order is already weighed on Orders; the user's 118 loot items on sell orders filled To do with
+ * warnings about markets they weren't buying into.
+ */
+export function trackedTypes(d: { positions: Pick<Position, 'typeId' | 'status'>[]; orders: Record<string, Pick<Order, 'typeId' | 'state' | 'isBuy'>>; watchlist: Pick<WatchItem, 'typeId'>[] }): number[] {
+  const s = new Set<number>();
+  d.positions.filter((p) => p.status === 'open').forEach((p) => s.add(p.typeId));
+  Object.values(d.orders).filter((o) => o.state === 'open' && o.isBuy).forEach((o) => s.add(o.typeId));
+  d.watchlist.forEach((w) => s.add(w.typeId));
+  return [...s];
 }

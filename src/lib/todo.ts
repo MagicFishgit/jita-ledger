@@ -79,9 +79,10 @@ export const KIND_LABEL: Record<TodoKind, string> = {
 
 /**
  * What the current data says about a remembered item the latest build no longer produced: a sentence
- * saying what changed, or null when it can't tell yet (the read it came from hasn't been redone).
+ * saying what changed, null when it can't tell yet (the read it came from hasn't been redone), or false
+ * when it no longer concerns you at all and should go without a tick.
  */
-export type Judge = (e: Entry) => string | null;
+export type Judge = (e: Entry) => string | null | false;
 
 /**
  * Fold the latest findings into the session's memory.
@@ -105,6 +106,7 @@ export function remember(mem: Memory, items: TodoItem[], seenAt: (x: TodoItem) =
       continue;
     }
     const how = judge(e);
+    if (how === false) continue;
     if (how != null) next[k] = { ...e, done: { at: now, how } };
     else if (now - e.lastAt < SESSION_MS) next[k] = e;
   }
@@ -194,9 +196,12 @@ export function judgeSqueeze(e: Entry, c: { open: boolean; stock: number; signal
   return 'The spread has widened again.';
 }
 
-/** A suspicious-market flag that has gone. */
-export function judgeScam(e: Entry, c: { tracked: boolean; signalAt: number | null }): string | null {
-  if (!c.tracked) return 'You no longer hold, trade or watch it.';
+/**
+ * A suspicious-market flag that has gone. On an item that is no longer a position, a bid or on the watchlist
+ * it just goes, unticked: there was nothing to do about it, and the item may be one you still sell.
+ */
+export function judgeScam(e: Entry, c: { tracked: boolean; signalAt: number | null }): string | null | false {
+  if (!c.tracked) return false;
   if (c.signalAt == null || c.signalAt <= e.seenAt) return null;
   const flag = e.item.key.split(':').pop();
   return flag === 'wall' ? 'The wall has gone.' : flag === 'escrow' ? 'The bait bid has gone.' : 'The odd day has dropped out of the recent history.';

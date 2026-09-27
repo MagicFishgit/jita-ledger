@@ -1,11 +1,10 @@
 import { useSyncExternalStore } from 'react';
 import { jitaBook, marketHistory } from './market';
 import { statsFrom, warningsFor } from './prospects';
-import type { Data } from './store';
 import type { ProspectStats, ProspectWarning } from './types';
 
 /**
- * What the market is doing to the things you actually hold, trade or watch.
+ * What the market is doing to the things you hold a position in, bid on or watch.
  *
  * The suspicious-market flags (a wall, escrow bait, a spike) and the margin line behind the squeeze
  * warning, for every item you have a stake in. Read from the same history and book as Prospects, and
@@ -23,14 +22,7 @@ export function useSignals(): State {
 }
 export const getSignals = () => state;
 
-/** Items with open positions, open orders or a place on the watchlist. */
-export function trackedTypes(d: Pick<Data, 'positions' | 'orders' | 'watchlist'>): number[] {
-  const s = new Set<number>();
-  d.positions.filter((p) => p.status === 'open').forEach((p) => s.add(p.typeId));
-  Object.values(d.orders).filter((o) => o.state === 'open').forEach((o) => s.add(o.typeId));
-  d.watchlist.forEach((w) => s.add(w.typeId));
-  return [...s];
-}
+export { trackedTypes } from './signals';
 
 /** Read history and book for each item, keeping answers younger than `maxAgeMs`. */
 export async function readSignals(typeIds: number[], maxAgeMs = 30 * 60_000): Promise<Record<number, Signal>> {

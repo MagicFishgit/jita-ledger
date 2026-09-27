@@ -202,7 +202,8 @@ export function Todo() {
         });
       }
     }
-    // Suspicious markets on anything you hold, trade or watch. No ISK: there so you don't act on a trap.
+    // Suspicious markets on anything you hold a position in, bid on or watch (not what you only sell). No ISK:
+    // there so you don't act on a trap.
     for (const id of tracked) {
       for (const f of sig.signals[id]?.flags ?? []) {
         out.push({
@@ -234,7 +235,7 @@ export function Todo() {
       x.source === 'orders' ? checkedAt ?? t : x.source === 'colonies' ? readAt ?? t : x.source === 'signals' ? sig.signals[x.typeId!]?.at ?? t : t;
     const byOrder = new Map(vs.map((v) => [v.orderId, v]));
     const position = (id: string) => d.positions.find((p) => p.id === id) ?? null;
-    const judge = (e: Entry): string | null => {
+    const judge = (e: Entry): string | null | false => {
       const x = e.item;
       const id = idOf(x.key);
       switch (x.kind) {

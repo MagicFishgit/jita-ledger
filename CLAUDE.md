@@ -533,7 +533,12 @@ Don't re-derive or contradict these without new evidence.
   waits, and at once when the tab becomes visible again. A tick by hand holds for the same `ver` only: a chore
   for 12 hours, a warning (scam, squeeze) until it changes, so a new undercut reopens a skipped move. Done items
   stay listed 12 hours. The book cache in `market.ts` lets go at ESI's Expires rather than 5 minutes after our
-  read, which had put a relist up to 10 minutes behind.
+  read, which had put a relist up to 10 minutes behind. A judge can also answer `false`: the item goes unticked,
+  neither open nor done. That is what a suspicious-market warning does when its item leaves the set it covers.
+- **Suspicious-market warnings cover what you put ISK into**: open positions, open buy orders and the watchlist
+  (`trackedTypes` in `signals.ts`), not items you only sell. The user's 118 loot items on sell orders filled To do
+  with walls and spikes they didn't care about. A spike or escrow bait traps a buyer, and the queue ahead of a
+  sell order is already weighed on Orders. The alerts use the same set.
 - **The ledger syncs to the cloud record by record** (`lib/cloudSync.ts` pure, `lib/cloud.ts` I/O, `worker/src/sync.ts`).
   Collections (txs, journal, orders, names, killmails, tags, positions, goals, watchlist, netWorth) go up one
   record at a time, keyed by kind and ID, so two devices changing different things never collide; small whole

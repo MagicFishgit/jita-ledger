@@ -34,8 +34,8 @@ export const ALERT_LABELS: Record<AlertEvent, { label: string; what: string; tip
     tip: 'An extractor on one of your planets stops within a day, or already has.\n\n• When the programme runs out, the colony still looks normal but produces nothing.\n• It stays that way until you reset the extractor heads.\n\nFor example: the extractor on your Barren planet in Tama ends at 15:00 EVE time, so reset it before then.',
   },
   scam: {
-    label: 'Suspicious market', what: 'A wall, escrow bait or price spike appears on something you trade or watch',
-    tip: 'Something on an item you trade or watch looks like a trap. Three kinds are checked:\n\n• Wall: the best price holds over half its side and more than 3 days of trading.\n• Escrow bait: a buy order more than 10% above anything paid in the last 30 days.\n• Spike: a day with over 5 times the usual volume, at a price more than 10% off normal.\n\nFor example: a buy order at 1.3 M when nothing sold above 1.1 M this month. Someone may be baiting sellers.',
+    label: 'Suspicious market', what: 'A wall, escrow bait or price spike appears on a position, a bid or your watchlist',
+    tip: 'Something on an item you hold a position in, bid on or watch looks like a trap. Items you only sell, like loot, aren’t checked. Three kinds are:\n\n• Wall: the best price holds over half its side and more than 3 days of trading.\n• Escrow bait: a buy order more than 10% above anything paid in the last 30 days.\n• Spike: a day with over 5 times the usual volume, at a price more than 10% off normal.\n\nFor example: a buy order at 1.3 M when nothing sold above 1.1 M this month. Someone may be baiting sellers.',
   },
   backup: {
     label: 'Backup overdue', what: 'Your last backup is more than two weeks old',

@@ -1425,6 +1425,13 @@ console.log('\n--- to do and results ---');
   eq('  a newer read, no programme at all', judgePi(pe, { readAt: 2000, extractor: { expiry: null } }, T0), 'The extractor has no programme running now.');
   const se = { item: it('scam:3:wall', 0, 'scam', { source: 'signals' }), seenAt: 1000, lastAt: 1000 };
   eq('a wall needs a newer read to clear', [judgeScam(se, { tracked: true, signalAt: 1000 }), judgeScam(se, { tracked: true, signalAt: 2000 })], [null, 'The wall has gone.']);
+  eq('  and on an item you only sell it just goes, unticked', judgeScam(se, { tracked: false, signalAt: 2000 }), false);
+  const kept = remember({ [se.item.key]: se }, [], () => 0, () => false, 5000);
+  eq('  a judge saying false forgets the item: not open, not done', Object.keys(kept), []);
+  const { trackedTypes } = await import('../src/lib/signals.ts');
+  const td = { positions: [{ typeId: 1, status: 'open' }, { typeId: 2, status: 'closed' }], watchlist: [{ typeId: 3 }],
+    orders: { a: { typeId: 4, state: 'open', isBuy: false }, b: { typeId: 5, state: 'open', isBuy: true }, c: { typeId: 6, state: 'closed', isBuy: true } } };
+  eq('suspicious markets are checked on positions, bids and the watchlist, not on what you only sell', trackedTypes(td).sort((a, b) => a - b), [1, 3, 5]);
 }
 const acts = ['Trading', 'Abyssal'];
 const series = byDay([{ t: Date.parse('2026-09-25T10:00:00Z'), activity: 'Trading', isk: 5 }, { t: Date.parse('2026-09-26T10:00:00Z'), activity: 'Abyssal', isk: 7 },
