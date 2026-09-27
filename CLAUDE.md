@@ -100,6 +100,19 @@ Don't re-derive or contradict these without new evidence.
   25%. CCP documents none of this. So a day's low is where the *bulk* of the day's trading got down to:
   "the low stayed above your bid" means most trading stayed above it, never "nothing sold lower". Say it that
   way in copy. The history is also region-wide (all of The Forge), not Jita alone.
+- **A book's live orders show which side trades.** Each order carries `volume_total` and `volume_remain`, so
+  what the sell orders have sold is what buyers took from listings, and what the buy orders have filled is what
+  sellers dumped into bids. Tested fairly on 27 September 2026 (the split read at the start, then compared with
+  what traded over the next 1.3 hours, 87 items that traded 20+ units): a median 0.17 from what traded, against
+  0.26 for history's guess (`buyerShare`) and 0.47 for an even split; better than history on 58 of 87, with no
+  lean (+0.003, history read 0.11 too few buyers). An earlier run, cut short by a crash at 1.45 hours, gave 0.19
+  against 0.46. **Blind spot:** an order placed for one unit can't show a partial sale; bought, it vanishes. A
+  side made mostly of single-unit orders can't show its trades (item 16423: 7 of 10 listings single units,
+  book read 0% buyers, history 69%), so `bookCanTell` sets the book aside there.
+- **Many module markets are sellers dumping into big standing bids.** Buy orders of hundreds to thousands of
+  units soak up loot and surplus while buyers rarely take the small listings above them (Heavy Afocal Laser I:
+  37 listings of median 2 units, 3 sold; 5 bids of median 1,000 units, 1,396 filled). History's day-range guess
+  read such items as 30–97% buyers; what traded in a six-hour watch was 0–7%.
 - **ESI's `average` may be the client's median price, not a true average** (an unanswered forum observation,
   not checked here). Nothing is built on the difference; it is a limit, not a fact.
 - **NPC market orders run for 365 days; a player's run for 90 at most.** So an item NPCs sell shows itself in
@@ -268,9 +281,19 @@ Don't re-derive or contradict these without new evidence.
   their side, a vanished order only if it was the best on its side), timed by ESI's own `Expires` (`stamp`)
   so the same snapshot read twice adds nothing, and gaps over 30 minutes or partial reads are skipped. Kept 14
   days per item and day in the cache store (`flow`). The pace blends that with the history guess as if the
-  guess were 24 hours of watching (`PRIOR_HOURS`), and the guess now uses the 14-day median day. Orders shows
-  "N h watched" or "history only" under the figure. No re-weighting of history alone helped (every variant was
-  off by 5–20× per item); measuring the side during the user's own play hours is the fix.
+  guess were 24 hours of watching (`PRIOR_HOURS`), and the guess is a typical day (`paceDay`) split by the
+  book where it can tell (`tradingSplit`). Orders shows "N h watched", "from the book" or "from history" under
+  the figure. No re-weighting of history alone helped (every variant was off by 5–20× per item).
+- **One buyer/seller split, everywhere** (`tradingSplit` in `split.ts`): what the app has watched each side of the
+  Jita book do (`flowStore`, fed by *any* repeated read of a book in `readBook`, so the Calculator, watchlist
+  signals, Loyalty pricing and order checks all add to it), then what the book's live orders have already sold
+  (`BookSold` on every book read, `bookCanTell`), then history's guess, then even. The watching is weighted as if
+  the prior were one typical day. Orders, Prospects, the Calculator, Loyalty, Hub arbitrage (from the hub's own
+  book), the Watchlist and Positions (through `snapshot`) use it, and the tips say which source spoke. Selling
+  times are judged on `paceDay`: the 14-day median day, or the 14-day calendar average when the item trades on
+  fewer than half its days (its median is 0, but it does sell). Checked on the user's 100 orders before shipping:
+  8 went from "leave it" to "move it", all module markets of the dumping kind above, where the queue ahead is
+  days, not hours; the morning watch agreed with the book for the four busy enough to score.
 - **Undercuts are shown, not modelled.** In the study 46 of 71 beaten orders were undercut again within six
   hours, and on busy items new stock arrived at the front ~1.9× as fast as the queue drained, so a queue is not
   fixed. But the undercut rate read from one book (units ahead placed after your last change, over the time
@@ -426,7 +449,8 @@ Don't re-derive or contradict these without new evidence.
   launchpad. Refining currently ranges 0.76×–1.57× across the products, so the answer genuinely
   differs per product and moves with the market.
 - **Every figure the redesign added is read, derived, or asked for — never invented.** The buy/sell split comes
-  from where each day's average sits between its low and high; training time from dogma and attributes; the
+  from what the book's orders have sold and what the app watched, or where each day's average sits between its
+  low and high when those can't tell; training time from dogma and attributes; the
   PushX cost, delivery days, hours spent per activity, Omega pack prices (only the 1-month 500 PLEX is assumed)
   and gank lines are the user's to enter, and a blank one shows as "–" rather than a stand-in. The rule
   thresholds that remain (competition pivot 60 orders, share clamped 0.3–1.5×, a wall being the *best* price
@@ -639,10 +663,11 @@ State these rather than letting them be discovered:
   hulls and the figure stays editable.
 - The colony panel's rendering of live data is **unverified**: it needs the planets scope and a
   character with planets. Its logic is unit-tested; the screen has never been seen with real data.
-- **The buy/sell split is a heuristic, and a weak one.** Where a day's average sits between its low and high was
-  a median 0.33 away from the split the books showed over six hours (some of that is the hour of day). Orders now
-  measures it (see "Clears in"), but the Calculator, Prospects, Loyalty and Hub arbitrage still use the guess
-  alone: their selling times can be several times too fast or too slow for a given item.
+- **The buy/sell split is an estimate.** The book's reading was a median 0.17 from what traded in the next hour
+  or so (history's guess 0.26), tested on items trading 20+ units in that time; thin items weren't in the test,
+  and a side of single-unit orders can't be read at all. The book reflects its orders' whole lives (a bid can be
+  weeks old) while a watch reflects the hours the app is open. Books cached before `sold` was kept fall back to
+  history until the next scan.
 - **"Clears in" assumes nobody undercuts you meanwhile**, and in practice most beaten orders get undercut again
   within hours. It also needs a day or so of the app watching an item before the measured split outweighs the
   guess, and it measures during the hours the app is open, which is the right bias for someone deciding now.

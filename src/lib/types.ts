@@ -1,3 +1,4 @@
+import type { BookSold, SplitFrom } from './split';
 import type { SkillKey } from './config';
 import type { RateStamp } from './fees';
 
@@ -87,8 +88,16 @@ export type MarketSnap = {
   topSells: BookLevel[];
   avgVol7: number | null;
   avgPrice7: number | null;
-  /** Share of volume that is buyers taking sells, from the last 30 days. Absent on older snapshots. */
+  /** Units a typical day (`paceDay`): what selling times are judged by. Absent on older snapshots. */
+  typicalVol?: number | null;
+  /** Share of volume that is buyers taking sells (`tradingSplit`). Absent on older snapshots. */
   buyerShare?: number;
+  /** Where `buyerShare` came from. */
+  splitFrom?: SplitFrom;
+  /** Hours this app has watched the book, when the split includes it. */
+  watchedH?: number;
+  /** What the live orders have already sold on each side. Absent on older snapshots. */
+  sold?: BookSold;
   /** NPCs sell this here, at a fixed price in unlimited supply. */
   npcSell?: boolean;
 };
@@ -177,6 +186,8 @@ export type Prospect = {
   share: number;
   /** Share of volume that is buyers taking sells, 0 to 1. */
   buyerShare: number;
+  /** Where that split came from. */
+  splitFrom?: SplitFrom;
   /** ISK that changes hands here a day, both sides: the median day's units at the 30-day average price. */
   traded: number;
   /** Of the last 14 days, how many the bulk of trading reached a bid one step above the best. Null without history for it. */

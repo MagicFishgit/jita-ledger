@@ -8,7 +8,8 @@ import { bidToPlace, BUSY_SHOWN, DEFAULT_FILTERS, expectedEdge, passesGate, pick
 import { cacheStore, getData } from './store';
 import { toast } from './toast';
 import { tickDown } from './tick';
-import { competitionShare, EVEN_SPLIT, MIN_DAYS, returnPerDay, throughput } from './split';
+import { competitionShare, MIN_DAYS, returnPerDay, throughput, tradingSplit, type BookSold } from './split';
+import { watchedFlow } from './flowStore';
 import { FILL_RARE } from './fills';
 import type { ScanRuns } from './prospects';
 import type { BookLevel, Prospect, ProspectFilters, ProspectStats } from './types';
@@ -45,7 +46,9 @@ const STATS_TTL = 24 * 3600_000;
 const BOOK_TTL = 60 * 60_000;
 
 type RawOrder = { type_id: number; location_id: number };
-export type Book = { at: string; bestBuy: number | null; bestSell: number | null; buyOrders: number; sellOrders: number; topBuys: BookLevel[]; topSells: BookLevel[]; npcSell?: boolean };
+export type Book = { at: string; bestBuy: number | null; bestSell: number | null; buyOrders: number; sellOrders: number; topBuys: BookLevel[]; topSells: BookLevel[]; npcSell?: boolean;
+  /** What the live orders had sold per side when read: who trades here. Absent on books cached before it was kept. */
+  sold?: BookSold };
 
 export type ScanCache = {
   sample?: { at: string; totalPages: number; sampledPages: number; minSampled: number; counts: Record<number, number> };
@@ -150,8 +153,10 @@ export function evaluate(
 
   // Only one side of the daily volume fills each of your orders: sellers dumping into bids fill your
   // buy, buyers taking listings fill your sell. And your share of each side shrinks the more orders
-  // you are queued among. The slower side is what limits how much you can push through.
-  const buyers = stats.buyerShare ?? EVEN_SPLIT;
+  // you are queued among. The slower side is what limits how much you can push through. Which side
+  // trades is read from what the live orders have sold, and what this app has watched, before history.
+  const split = tradingSplit({ history: stats.buyerShare, book: book.sold, watched: watchedFlow(stats.typeId), typicalDay: stats.unitsPerDay });
+  const buyers = split.share;
   const sellShare = competitionShare(settings.share, book.sellOrders);
   const unitsPerDay = throughput(stats.unitsPerDay, buyers, settings.share, book.buyOrders, book.sellOrders);
   // What you could realistically push through this item in a day, in ISK.
@@ -181,7 +186,7 @@ export function evaluate(
     // Profit spread over the days your money is actually tied up, so a fast small flip and a slow
     // big one can be compared at all.
     iskPerDay: c.net / Math.max(daysToFlip, MIN_DAYS), capital: c.spent,
-    share: sellShare, buyerShare: buyers,
+    share: sellShare, buyerShare: buyers, splitFrom: split.from,
     bidReach, buyRaised: raised,
     warnings: [
       ...warningsFor(stats, book, c.spreadPct, estOrders),

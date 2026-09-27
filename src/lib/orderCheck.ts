@@ -1,14 +1,14 @@
 import { useSyncExternalStore } from 'react';
-import { get, set } from 'idb-keyval';
 import { jitaOrders, marketHistory, tradedAtJita, type OrderLite } from './market';
-import { addFlow, bookFills, observedFlow, pace, pruneFlow, type FlowLog } from './flow';
-import { typicalDailyVolume } from './prospects';
+import { pace } from './flow';
+import { loadFlow, settleFlow, watchedFlow } from './flowStore';
+import { paceDay } from './prospects';
 import { computePosition } from './positions';
 import { rates } from './fees';
 import { adviseRelist, byUrgency, type Relist } from './relist';
-import { buyerShare, EVEN_SPLIT, sideVolume } from './split';
+import { buyerShare, sideVolume, tradingSplit, type BookSold, type SplitFrom } from './split';
 import { fillingNow, recentRange } from './fills';
-import { cacheStore, getData, type Data } from './store';
+import { getData, type Data } from './store';
 import type { Order } from './types';
 
 /**
@@ -34,19 +34,11 @@ export type CheckState = {
   changed: number | null;
   busy: { done: number; total: number } | null;
   failed: number;
-  /** What each book was seen doing between checks (`lib/flow.ts`), kept FLOW_DAYS. */
-  flow: FlowLog;
-  /** ESI's own Expires of each book read: two reads with the same one are the same snapshot. */
-  stamps: Record<number, number | null>;
+  /** What the live orders in each book have already sold, per side: the first guess at who trades. */
+  sold: Record<number, BookSold | undefined>;
 };
 
-let state: CheckState = { books: null, daily: {}, buyers: {}, lows: {}, checkedAt: null, bookFreshAt: null, changed: null, busy: null, failed: 0, flow: {}, stamps: {} };
-const FLOW_KEY = 'flow';
-/**
- * Saved with the log: the last ESI snapshot counted for each item. Every tab and the alerts check the same
- * books against the same snapshots, so an interval already counted is skipped rather than counted twice.
- */
-type FlowSaved = { log: FlowLog; ends: Record<number, number> };
+let state: CheckState = { books: null, daily: {}, buyers: {}, lows: {}, checkedAt: null, bookFreshAt: null, changed: null, busy: null, failed: 0, sold: {} };
 const listeners = new Set<() => void>();
 const setState = (p: Partial<CheckState>) => { state = { ...state, ...p }; listeners.forEach((l) => l()); };
 export function useOrderCheck(): CheckState {
@@ -80,9 +72,8 @@ async function runCheck(fresh: boolean): Promise<void> {
   if (!typeIds.length) { setState({ books: {}, checkedAt: new Date().toISOString() }); return; }
   setState({ busy: { done: 0, total: typeIds.length }, failed: 0 });
   const before = state.books;
-  const stampsBefore = state.stamps;
   const out: Record<number, OrderLite[]> = {};
-  const stamps: Record<number, number | null> = {};
+  const sold: Record<number, BookSold | undefined> = {};
   const vol: Record<number, number | null> = {};
   const buyers: Record<number, number> = {};
   const lows: Record<number, (number | null)[]> = {};
@@ -94,7 +85,7 @@ async function runCheck(fresh: boolean): Promise<void> {
         const r = await jitaOrders(id, fresh);
         if (before?.[id] && JSON.stringify(before[id]) !== JSON.stringify(r.orders)) moved++;
         out[id] = r.orders;
-        stamps[id] = r.partial ? null : r.stamp;
+        sold[id] = r.sold;
         if (r.expires != null) soonest = Math.min(soonest, r.expires);
       } catch { failed++; }
       // How fast the item moves, and which side of it fills you, decides whether a queue is worth waiting out.
@@ -102,31 +93,19 @@ async function runCheck(fresh: boolean): Promise<void> {
         const h = await marketHistory(id);
         // The typical day, not the week's average: one busy day (often your own buying) can make the
         // average several times the norm. Against what the books showed, the median was the closer.
-        vol[id] = typicalDailyVolume(h, 14);
+        vol[id] = paceDay(h);
         buyers[id] = buyerShare(h.slice(-30));
         lows[id] = recentRange(h).lows;
       } catch { vol[id] = null; }
       setState({ busy: { done: ++done, total: typeIds.length } });
     }
   }));
-  // What each book did since the last check: the sales on each side, and the undercuts. Read afresh each
-  // time, since another tab may have added to it.
-  const saved = (await get(FLOW_KEY, cacheStore).catch(() => undefined)) as FlowSaved | undefined;
-  let flow = saved?.log && typeof saved.log === 'object' ? saved.log : state.flow;
-  const ends = { ...(saved?.ends ?? {}) };
-  const t = Date.now();
-  for (const id of typeIds) {
-    const a = before?.[id], b = out[id], s0 = stampsBefore[id], s1 = stamps[id];
-    if (!a || !b || s0 == null || s1 == null || s1 <= s0) continue;
-    if (ends[id] != null && s0 < ends[id]) continue;
-    flow = addFlow(flow, id, t, (s1 - s0) / 3600_000, bookFills(a, b));
-    ends[id] = s1;
-  }
-  flow = pruneFlow(flow, t);
-  for (const id of Object.keys(ends)) if (!flow[Number(id)] && !typeIds.includes(Number(id))) delete ends[Number(id)];
-  set(FLOW_KEY, { log: flow, ends } satisfies FlowSaved, cacheStore).catch(() => undefined);
+  // Every book read above that had been read before this session added to the record of who traded
+  // (flowStore). Counted before the verdicts are drawn, so they use it.
+  await loadFlow();
+  await settleFlow();
   setState({
-    books: out, daily: vol, buyers, lows, flow, stamps,
+    books: out, daily: vol, buyers, lows, sold,
     bookFreshAt: Number.isFinite(soonest) ? soonest : null,
     changed: before ? moved : null,
     checkedAt: new Date().toISOString(),
@@ -177,13 +156,17 @@ export function verdicts(d: Data, check: CheckState, cost: Record<number, number
  * blended with what the checks have watched the Jita book do, trusted more the longer it has watched
  * (`pace` in `lib/flow.ts`). `watchedH` says how much watching there is behind it.
  */
-export function sidePace(check: CheckState, typeId: number, isBuy: boolean, now = Date.now()): { perDay: number | null; watchedH: number; undercutsPerH: number | null } {
+export function sidePace(check: CheckState, typeId: number, isBuy: boolean, now = Date.now()): { perDay: number | null; watchedH: number; undercutsPerH: number | null; splitFrom: SplitFrom } {
   const daily = check.daily[typeId];
-  const prior = daily != null ? sideVolume(daily, check.buyers[typeId] ?? EVEN_SPLIT, isBuy) : null;
-  const o = observedFlow(check.flow, typeId, now);
+  // The prior's split: what the live orders have sold, or history's guess. The watching is blended in
+  // below, by hours, since it also says how fast Jita itself trades.
+  const split = tradingSplit({ history: check.buyers[typeId], book: check.sold[typeId] });
+  const prior = daily != null ? sideVolume(daily, split.share, isBuy) : null;
+  const o = watchedFlow(typeId, now);
   return {
     perDay: pace(prior, isBuy ? o.buy : o.sell, o.h),
     watchedH: o.h,
+    splitFrom: split.from,
     undercutsPerH: o.h > 0 ? (isBuy ? o.newBuy : o.newSell) / o.h : null,
   };
 }

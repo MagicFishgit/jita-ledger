@@ -2,11 +2,12 @@ import { get, set } from 'idb-keyval';
 import { esi, esiAllPages } from './esi';
 import { GLOBAL_PLEX_MARKET, JITA_44, PLEX_TYPE, THE_FORGE } from './config';
 import { cacheStore } from './store';
-import { buyerShare } from './split';
+import { buyerShare, tradingSplit, type BookSold } from './split';
+import { loadFlow, recordRead, watchedFlow } from './flowStore';
 import type { BookLevel, HistRow, MarketSnap } from './types';
 import type { LpOffer } from './loyalty';
 import type { PlanetHead, RawColony } from './colony';
-import { recentAverages } from './prospects';
+import { paceDay, recentAverages } from './prospects';
 
 type IdsResponse = {
   inventory_types?: { id: number; name: string }[];
@@ -40,7 +41,21 @@ export async function resolveNames(ids: number[]): Promise<Record<number, string
   return out;
 }
 
-type RawMarketOrder = { order_id: number; is_buy_order: boolean; price: number; volume_remain: number; location_id: number; duration?: number };
+type RawMarketOrder = { order_id: number; is_buy_order: boolean; price: number; volume_remain: number; volume_total?: number; location_id: number; duration?: number };
+
+/** What the live orders have already sold, per side: which side of the book has been trading. */
+function soldFrom(orders: RawMarketOrder[]): BookSold {
+  const s: BookSold = { sell: 0, buy: 0, single: { sell: 0, buy: 0 }, orders: { sell: 0, buy: 0 } };
+  for (const o of orders) {
+    const total = o.volume_total ?? o.volume_remain;
+    const n = Math.max(0, total - o.volume_remain);
+    const side = o.is_buy_order ? 'buy' : 'sell';
+    s[side] += n;
+    s.orders![side]++;
+    if (total === 1) s.single![side]++;
+  }
+  return s;
+}
 
 /**
  * NPC market orders run for 365 days; a player's run for 90 at most. So an item NPCs sell shows itself
@@ -88,9 +103,9 @@ export async function jitaBook(typeId: number, force = false) {
  * amount of re-checking changes that, and the expiry is what lets the page say so instead of looking
  * broken.
  */
-export async function jitaOrders(typeId: number, force = false): Promise<{ orders: OrderLite[]; expires: number | null; stamp: number | null; partial: boolean }> {
+export async function jitaOrders(typeId: number, force = false): Promise<{ orders: OrderLite[]; expires: number | null; sold: BookSold | undefined }> {
   const e = await readBook(typeId, force);
-  return { orders: e.raw, expires: e.expires, stamp: e.stamp, partial: e.partial };
+  return { orders: e.raw, expires: e.expires, sold: e.snap.sold };
 }
 
 /**
@@ -122,9 +137,12 @@ async function readBook(typeId: number, force: boolean) {
     topBuys: levels(buys, 7),
     topSells: levels(sells, 7),
     npcSell: sells.some((o) => (o.duration ?? 0) >= NPC_DURATION),
+    sold: soldFrom(here),
   };
   const raw: OrderLite[] = here.map((o) => ({ id: o.order_id, isBuy: o.is_buy_order, price: o.price, volume: o.volume_remain }));
   const entry = { at: Date.now(), expires, stamp, partial, snap, raw };
+  // Read this book before in this session? What changed since is who traded, whichever page asked.
+  if (hit && !hit.partial && !partial) recordRead(typeId, { raw: hit.raw, stamp: hit.stamp }, { raw, stamp });
   bookCache.set(typeId, entry);
   return entry;
 }
@@ -205,6 +223,7 @@ export async function stationBook(typeId: number, regionId: number, stationId: n
     bestBuy: buys[0]?.price ?? null, bestSell: sells[0]?.price ?? null,
     buyOrders: buys.length, sellOrders: sells.length,
     topBuys: levels(buys, 5), topSells: levels(sells, 5),
+    sold: soldFrom(here),
   };
 }
 
@@ -226,9 +245,11 @@ export async function skillDogma(typeId: number): Promise<{ rank: number; primar
 export { recentAverages };
 
 export async function snapshot(typeId: number, force = false): Promise<MarketSnap> {
-  const [book, hist] = await Promise.all([jitaBook(typeId, force), marketHistory(typeId)]);
+  const [book, hist] = await Promise.all([jitaBook(typeId, force), marketHistory(typeId), loadFlow()]);
   const { avgVol, avgPrice } = recentAverages(hist, 7);
-  return { ...book, avgVol7: avgVol, avgPrice7: avgPrice, buyerShare: buyerShare(hist.slice(-30)) };
+  const typical = paceDay(hist);
+  const split = tradingSplit({ history: buyerShare(hist.slice(-30)), book: book.sold, watched: watchedFlow(typeId), typicalDay: typical });
+  return { ...book, avgVol7: avgVol, avgPrice7: avgPrice, typicalVol: typical, buyerShare: split.share, splitFrom: split.from, watchedH: split.watchedH };
 }
 
 type RawOffer = {

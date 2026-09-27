@@ -1,7 +1,9 @@
-import { jitaBook, loyaltyOffers, marketHistory, recentAverages, roughPricesShared } from './market';
+import { jitaBook, loyaltyOffers, marketHistory, roughPricesShared } from './market';
+import { paceDay } from './prospects';
+import { loadFlow, watchedFlow } from './flowStore';
 import { byIskPerLp, patientPrice, planFor, spendPlan, valueOffer, type LpOffer, type LpValue, type Quote } from './loyalty';
 import { marketBest } from './relist';
-import { buyerShare, EVEN_SPLIT, sideVolume } from './split';
+import { buyerShare, EVEN_SPLIT, sideVolume, tradingSplit, type BookSold } from './split';
 
 /**
  * Pricing a loyalty store, shared by the Loyalty page and the Wallet's net worth.
@@ -17,7 +19,7 @@ export type StorePricing = {
   quotes: Record<number, Quote>;
   /** Types priced against the live book rather than the rough average. */
   live: Set<number>;
-  /** Units a day each live-priced type trades. */
+  /** Units a typical day each live-priced type trades (`paceDay`). */
   vol: Record<number, number | null>;
   /** Share of each live-priced type's volume that is buyers taking listings: what fills a sell order. */
   buyers: Record<number, number>;
@@ -25,20 +27,24 @@ export type StorePricing = {
 
 /** Price types against the live Jita book and read their pace, into `p`. */
 async function priceTypes(ids: number[], p: StorePricing, onProgress?: (done: number, total: number) => void): Promise<void> {
+  await loadFlow();
   let next = 0, done = 0;
   await Promise.all(Array.from({ length: Math.min(4, ids.length) }, async () => {
     while (next < ids.length) {
       const id = ids[next++];
+      let sold: BookSold | undefined;
       try {
         const book = await jitaBook(id);
         // marketBest, not the raw best: one mispriced listing must not set the valuation.
         p.quotes[id] = { bestSell: marketBest(book.topSells, false), bestBuy: marketBest(book.topBuys, true) };
         p.live.add(id);
+        sold = book.sold;
       } catch { /* the rough price stands */ }
       try {
         const h = await marketHistory(id);
-        p.vol[id] = recentAverages(h, 7).avgVol;
-        p.buyers[id] = buyerShare(h.slice(-30));
+        p.vol[id] = paceDay(h);
+        // Who buys: what the live orders have sold and what this app has watched, before history's guess.
+        p.buyers[id] = tradingSplit({ history: buyerShare(h.slice(-30)), book: sold, watched: watchedFlow(id), typicalDay: p.vol[id] }).share;
       } catch { p.vol[id] = null; }
       onProgress?.(++done, ids.length);
     }

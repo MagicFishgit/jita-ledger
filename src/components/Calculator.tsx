@@ -11,7 +11,9 @@ import { update, useData } from '../lib/store';
 import { addToWatchlist, startPosition } from '../lib/actions';
 import { navigate, useNow, type Route } from '../lib/hooks';
 import { priceDown, priceUp, tickDown, tickUp } from '../lib/tick';
-import { buyerShare, competitionShare, returnPerDay, sideVolume } from '../lib/split';
+import { buyerShare, competitionShare, returnPerDay, sideVolume, SPLIT_SAID, tradingSplit, type TradingSplit } from '../lib/split';
+import { useFlow, watchedFlow } from '../lib/flowStore';
+import { paceDay } from '../lib/prospects';
 import { askReachDays, bidReachDays, FILL_RARE, FILL_WINDOW, reachedBid, recentRange } from '../lib/fills';
 import { toast } from '../lib/toast';
 import type { HistRow, MarketSnap } from '../lib/types';
@@ -21,11 +23,11 @@ import { cssVars, Guide, ItemIcon, PageHead, Seg, Tip } from './ui';
 
 /** Plain-English notes behind each field, shown in the tooltip over it. */
 const TIPS = {
-  item: 'Type the item’s name as it’s spelled in the game, then look it up. That fills in:\n\n• your buy and sell prices, from the Jita 4-4 order book;\n• the daily volume, from the past week of trading;\n• the item’s market panel, beside this.\n\nYou can skip it and type prices in by hand: the maths doesn’t need the name.',
+  item: 'Type the item’s name as it’s spelled in the game, then look it up. That fills in:\n\n• your buy and sell prices, from the Jita 4-4 order book;\n• the daily volume: a typical day of the last two weeks;\n• the item’s market panel, beside this.\n\nYou can skip it and type prices in by hand: the maths doesn’t need the name.',
   buy: 'What you’d offer per unit on your buy order.\n\n• Looking an item up fills in one step above the top buy: the smallest raise EVE accepts, which puts you first in line to be sold to.\n• Your buy-side broker fee is charged on it.',
   sell: 'What you’d ask per unit on your sell order.\n\n• Looking an item up fills in one step below the lowest sell: the smallest undercut EVE accepts, so buyers take yours first.\n• Your sell-side broker fee and the sales tax both come out of this price.',
   qty: 'How many units you plan to buy and then sell.\n\n• It scales the totals.\n• With daily volume, it sets your share of a day’s trade.\n• Broker fees have a 100 ISK minimum per order, so a very small quantity pays proportionally more.',
-  vol: 'Roughly how many units trade in a day: the 7-day average for The Forge.\n\n• It changes none of your profit figures.\n• It feeds “Share of daily volume” and how long the round trip takes.',
+  vol: 'Roughly how many units trade in a day across The Forge: the typical day of the last two weeks (the median, so one huge day doesn’t inflate it).\n\n• It changes none of your profit figures.\n• It feeds “Share of daily volume” and how long the round trip takes.',
   nBuy: 'How many times you expect to raise this buy order’s price after placing it.\n\n• Each change costs a fee on what’s left of the order, assumed to be half on average.\n• That fee is half the broker fee’s percentage, less with Advanced Broker Relations as Omega.\n\nLeave it at 0 if you’ll place the order once and wait.',
   nSell: 'How many times you expect to drop this sell order’s price after placing it.\n\n• Each change costs a fee on what’s left of the order.\n• Every one you add lowers the net profit and raises the break-even and target sell prices.',
 };
@@ -46,8 +48,8 @@ const T_FIG: Record<string, string> = {
   be: 'The sell price where you come out exactly level: it covers what you paid, both broker fees, the sales tax and any price changes you entered.',
   target: 'The lowest sell price that hits the target return you set in Settings.',
   maxBuy: 'The most you can pay per unit and still hit your target return.',
-  share: 'Your quantity against the Daily volume box — a 7-day average for the whole Forge region, so treat it as a rough guide to how long you’d wait to fill.',
-  trip: 'How long the whole trade takes, buying and then selling.\n\n• Your buy order fills only as fast as sellers dump into bids.\n• Your sell order fills only as fast as buyers take listings.\n• Daily volume counts both, so each side gets only its share, estimated from where each day’s average sits between its low and high.',
+  share: 'Your quantity against the Daily volume box — a typical day for the whole Forge region, so treat it as a rough guide to how long you’d wait to fill.',
+  trip: 'How long the whole trade takes, buying and then selling.\n\n• Your buy order fills only as fast as sellers dump into bids.\n• Your sell order fills only as fast as buyers take listings.\n• Daily volume counts both, so each side gets only its share: read from what the orders in the book have already sold on each side, or what this app has watched, before history’s guess.',
   perDay: 'Return divided by how many days your ISK is committed. A 6% trade that turns round in hours beats a 12% one that takes a week, because the money can go round again.',
   omega: 'The same trade at the rates your Omega skill plan would give you. The difference is what Omega would add per unit, before you pay for Omega itself.',
 };
@@ -107,12 +109,12 @@ export function Calculator({ route }: { route: Route }) {
           ...x,
           buy: Number.isFinite(buy) ? inputNum(buy) : x.buy,
           sell: Number.isFinite(sell) ? inputNum(sell) : x.sell,
-          vol: s.avgVol7 != null ? inputNum(Math.round(s.avgVol7)) : x.vol,
+          vol: (s.typicalVol ?? s.avgVol7) != null ? inputNum(Math.round((s.typicalVol ?? s.avgVol7)!)) : x.vol,
         }));
         const filled = [
           Number.isFinite(buy) ? `your buy order ${isk(buy - bb)} above the top buy` : null,
           Number.isFinite(sell) ? `your sell order ${isk(bs - sell)} below the lowest sell` : null,
-          s.avgVol7 != null ? 'the 7-day average volume' : null,
+          (s.typicalVol ?? s.avgVol7) != null ? 'a typical day’s volume' : null,
         ].filter(Boolean);
         setMsg({
           text: filled.length
@@ -159,7 +161,13 @@ export function Calculator({ route }: { route: Route }) {
   };
   const c = calc(tr, s);
   const asOmega = s.clone === 'alpha' ? calcWith(tr, omegaRates(s, { acc: s.planAcc, br: s.planBr, abr: s.planAbr }), s.target) : null;
-  const buyers = useMemo(() => buyerShare(hist.slice(-30)), [hist]);
+  // Who's trading: what the live orders have sold and what this app has watched, before history's guess.
+  const flow = useFlow();
+  const split = useMemo(() => tradingSplit({
+    history: hist.length ? buyerShare(hist.slice(-30)) : null,
+    book: snap?.sold, watched: snap ? watchedFlow(snap.typeId) : null, typicalDay: hist.length ? paceDay(hist) : null,
+  }), [hist, snap, flow]); // eslint-disable-line react-hooks/exhaustive-deps
+  const buyers = split.share;
   // Does the bulk of trading get down to the buy price typed in? Only said when it doesn't.
   const lows = useMemo(() => (hist.length ? recentRange(hist).lows : null), [hist]);
   const reach = lows && Number.isFinite(tr.buy) && tr.buy > 0 ? bidReachDays(lows, tr.buy) : null;
@@ -248,7 +256,7 @@ export function Calculator({ route }: { route: Route }) {
             </div>
           ) : (
             <Market
-              item={item} snap={snap} hist={hist} range={range} setRange={setRange} now={now} loading={loading} buyers={buyers}
+              item={item} snap={snap} hist={hist} range={range} setRange={setRange} now={now} loading={loading} buyers={buyers} split={split}
               onRefresh={() => load(item, false, true)}
               overlays={[
                 { price: tr.buy, label: 'Buy', color: 'var(--buy)' },
@@ -409,7 +417,7 @@ function Readout({ c, asOmega, target, rateKind, buyers, vol, baseShare, snap }:
 
 function Market(props: {
   item: { id: number; name: string }; snap: MarketSnap | null; hist: HistRow[]; range: number; setRange: (n: number) => void;
-  now: number; loading: boolean; buyers: number; onRefresh: () => void;
+  now: number; loading: boolean; buyers: number; split: TradingSplit; onRefresh: () => void;
   overlays: { price: number; label: string; color: string }[]; buy: number; sell: number;
 }) {
   const { item, snap, hist, range, now, buyers } = props;
@@ -492,7 +500,7 @@ function Market(props: {
             {hist.length > 0 && (
               <span
                 tabIndex={0} style={{ fontSize: 11.5, color: 'var(--acc2)', cursor: 'help' }} data-tip-title="Who’s trading"
-                data-tip={'How much of the daily volume is buyers taking sell orders, the only trades that fill your sell order.\n\n• Daily volume counts both kinds: buyers taking sells, and sellers dumping into buy orders.\n• The round-trip time uses this split.\n• Estimated from where each day’s average sits between its low and high.'}
+                data-tip={`How much of the daily volume is buyers taking sell orders, the only trades that fill your sell order.\n\n• Daily volume counts both kinds: buyers taking sells, and sellers dumping into buy orders.\n• The round-trip time uses this split.\n• This one is ${SPLIT_SAID[props.split.from]}${props.split.from === 'watched' ? ` (${Math.round(props.split.watchedH)} h of it)` : ''}.`}
               >~{pct(buyers, 0)} of volume is buyers taking sells</span>
             )}
           </span>

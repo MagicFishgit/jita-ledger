@@ -7,7 +7,8 @@ import { ago, isk, iskBig, iskSigned, pct, plainNum, units } from '../lib/format
 import { resolveNames } from '../lib/market';
 import { absorbable, BUSY_SHOWN, DEFAULT_FILTERS, FIRST_DIR, horizonSaid, horizonShort, HORIZONS, passesGate, SLOW_DAYS, snapHorizon, sortProspects, type Sort, type SortKey } from '../lib/prospects';
 import { clearScan, coverage, loadCache, rankProspects, runScan, stopScan, useScanState, type ScanCache } from '../lib/scan';
-import { COMPETITION_PIVOT } from '../lib/split';
+import { COMPETITION_PIVOT, SPLIT_SAID } from '../lib/split';
+import { useFlow } from '../lib/flowStore';
 import { update, useData } from '../lib/store';
 import { addToWatchlist, startPosition } from '../lib/actions';
 import { navigate, useNow } from '../lib/hooks';
@@ -89,7 +90,9 @@ export function Prospects() {
   // A deep run writes away every so often; pick those up so the table fills while it works.
   useEffect(() => { if (scan.saved > 0) reload(); }, [scan.saved, reload]);
 
-  const ranked = useMemo(() => (cache ? rankProspects(cache, d.settings, f) : []), [cache, d.settings, f]);
+  // What this app has watched the Jita books do feeds each item's buyer/seller split, so a newer record re-ranks.
+  const flow = useFlow();
+  const ranked = useMemo(() => (cache ? rankProspects(cache, d.settings, f) : []), [cache, d.settings, f, flow]); // eslint-disable-line react-hooks/exhaustive-deps
   const rows = useMemo(
     () => sortProspects(ranked, sort, nameOf, f.demoteFlagged),
     // nameOf closes over d.names, which is what actually changes the name ordering.
@@ -279,7 +282,7 @@ function Row({ p, name, open, onToggle, baseShare }: { p: Prospect; name: string
       l: 'Your share', v: pct(p.share, 1), c: p.share < base ? 'var(--acc2)' : 'var(--pos)',
       n: `${plainNum(baseShare)}% base, ${p.share < base ? 'cut' : p.share > base ? 'raised' : 'kept'} for ${units(p.sellOrders)} competing sellers (${COMPETITION_PIVOT} is even)`,
     },
-    { l: 'Who’s trading', v: `${pct(p.buyerShare, 0)} buyers`, n: 'Share of volume that is buyers taking sell orders — your sells only fill from these. Estimated from each day’s range.' },
+    { l: 'Who’s trading', v: `${pct(p.buyerShare, 0)} buyers`, n: `Share of volume that is buyers taking sell orders — your sells only fill from these. ${SPLIT_SAID[p.splitFrom ?? 'history'].charAt(0).toUpperCase() + SPLIT_SAID[p.splitFrom ?? 'history'].slice(1)}.` },
     { l: 'Position modelled', v: `${units(p.qty)} units`, n: `Flips in ${flip(p.daysToFlip)} at the slower side’s pace` },
   ];
   return (

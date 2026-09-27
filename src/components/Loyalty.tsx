@@ -30,7 +30,7 @@ const TIPS: Record<string, string> = {
   outlay: 'The loyalty points, the store’s own ISK price, and the cost of buying any items the offer demands first.',
   revenue: 'What the offer hands over, and what selling it would really net you after broker fee and sales tax.',
   profit: 'What is left once everything you paid is taken off what you got.',
-  days: 'How many of these change hands at Jita on an average day, and how long one purchase would take to sell.\n\n• A sell order only fills from buyers taking listings. The day’s count also includes sellers dumping into buy orders, so only the buyers’ part is used, estimated from where each day’s average sits between its low and high.\n• Of that, you get your share (Settings).',
+  days: 'How many of these change hands across The Forge on a typical day of the last two weeks, and how long one purchase would take to sell.\n\n• A sell order only fills from buyers taking listings. The day’s count also includes sellers dumping into buy orders, so only the buyers’ part is used: read from what the live orders have already sold on each side, and what this app has watched, before history’s guess.\n• Of that, you get your share (Settings).',
   total: 'How many times to buy this offer, capped by what can actually be sold inside the time you allowed.',
 };
 

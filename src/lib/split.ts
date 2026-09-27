@@ -8,7 +8,9 @@
  *
  * History doesn't say how the volume divided, but it does give each day's low, high and average. Sells
  * fill near the top of the day's range and bids near the bottom, so where the average sits between the
- * two says roughly which kind of trade dominated. That is a heuristic, stated as one wherever it is used.
+ * two says roughly which kind of trade dominated (`buyerShare`). That turned out to be a weak guess, so
+ * `tradingSplit` prefers two better sources when they exist: what the live orders in the book have
+ * already sold on each side, and what this app has watched each side of the Jita book do.
  */
 
 import type { HistRow } from './types';
@@ -55,6 +57,79 @@ export function buyerShare(rows: (Pick<HistRow, 'average' | 'highest' | 'lowest'
   }
   return all.length ? median(all.map(own)) : EVEN_SPLIT;
 }
+
+/**
+ * Units already sold from the live orders in a book, per side: `sell` is what buyers took from listings,
+ * `buy` what sellers dumped into bids. Every order carries its original size and what's left, so one read
+ * of the book shows which side has been trading, with no history needed.
+ */
+export type BookSold = {
+  sell: number;
+  buy: number;
+  /**
+   * How many of each side's orders were placed for a single unit. Such an order can't show a partial sale:
+   * bought, it simply vanishes. Absent on books read before this was kept.
+   */
+  single?: { sell: number; buy: number };
+  /** How many orders each side has. */
+  orders?: { sell: number; buy: number };
+};
+
+/**
+ * A side with more than this share of its orders placed for one unit can't show its sales in the book,
+ * since a single unit bought just vanishes. Item 16423 had 7 of 10 listings at one unit, so the book read
+ * its buyers as none at all while history's guess said 69%; the book isn't trusted there.
+ */
+export const MAX_SINGLE_SHARE = 0.5;
+
+/** Whether what a book's orders have sold can speak for both of its sides. */
+export function bookCanTell(b: BookSold): boolean {
+  if (!b.single || !b.orders) return true;
+  const side = (n: number, of: number) => of === 0 || n / of <= MAX_SINGLE_SHARE;
+  return side(b.single.sell, b.orders.sell) && side(b.single.buy, b.orders.buy);
+}
+
+/** Fewer units sold than this from the live orders, and the book says too little about who trades. */
+export const MIN_BOOK_SOLD = 20;
+
+export type SplitFrom = 'watched' | 'book' | 'history' | 'even';
+export type TradingSplit = { share: number; from: SplitFrom; watchedH: number };
+
+/**
+ * The share of trading that is buyers taking listings, from the best evidence at hand.
+ *
+ * Checked against six hours of the user's Jita books (September 2026) the guess from history (`buyerShare`)
+ * was a median 0.33 away from the split the books showed, while what the live orders had already sold was
+ * 0.16 away. So the book comes first when it has sold enough to say anything, history when it hasn't, and
+ * an even split with neither. What the app has watched the Jita book do (`lib/flow.ts`) is then blended in,
+ * weighted as if that prior were one typical day of trading: a day of watching counts as much as the prior.
+ */
+export function tradingSplit(ev: {
+  history?: number | null;
+  book?: BookSold | null;
+  watched?: { sell: number; buy: number; h: number } | null;
+  /** Units a typical day, which sets how much the watching is worth against the prior. */
+  typicalDay?: number | null;
+}): TradingSplit {
+  const b = ev.book;
+  const sold = b ? b.sell + b.buy : 0;
+  const prior: { s: number; from: SplitFrom } = b && sold >= MIN_BOOK_SOLD && bookCanTell(b) ? { s: b.sell / sold, from: 'book' }
+    : ev.history != null && Number.isFinite(ev.history) ? { s: ev.history, from: 'history' }
+      : { s: EVEN_SPLIT, from: 'even' };
+  const w = ev.watched;
+  const seen = w ? w.sell + w.buy : 0;
+  if (!w || !(seen > 0)) return { share: prior.s, from: prior.from, watchedH: w?.h ?? 0 };
+  const weight = ev.typicalDay != null && ev.typicalDay > 0 ? ev.typicalDay : MIN_BOOK_SOLD;
+  return { share: (w.sell + prior.s * weight) / (seen + weight), from: seen >= weight ? 'watched' : prior.from, watchedH: w.h };
+}
+
+/** Where a split came from, in words, for tips. */
+export const SPLIT_SAID: Record<SplitFrom, string> = {
+  watched: 'measured from what this app has watched sell on each side of the Jita book',
+  book: 'read from what the orders in the Jita book have already sold on each side',
+  history: 'guessed from where each day’s average sat between its low and high',
+  even: 'assumed even, with nothing to go on',
+};
 
 /** Units a day that reach your side: buyers for a sell order, sellers for a buy order. */
 export function sideVolume(unitsPerDay: number, buyers: number, isBuy: boolean): number {

@@ -52,6 +52,18 @@ export function typicalDailyVolume(rows: HistRow[], days = 14, now = Date.now())
 }
 
 /**
+ * Units a day to expect when judging how fast something sells: the typical day (median of 14), which
+ * against the Jita books was closer than the week's average (a median 0.82 of what traded, against 0.6).
+ * But an item that trades on fewer than half its days has a median of zero, and it does sell: then the
+ * 14-day average over calendar days stands in.
+ */
+export function paceDay(rows: HistRow[], now = Date.now()): number | null {
+  const typical = typicalDailyVolume(rows, 14, now);
+  if (typical == null) return null;
+  return typical > 0 ? typical : recentAverages(rows, 14, now).avgVol;
+}
+
+/**
  * Reduce ESI's daily history to the handful of numbers a screener needs.
  *
  * The window is the 30 complete days ending yesterday: today's history is still filling and

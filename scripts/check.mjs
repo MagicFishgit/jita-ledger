@@ -11,10 +11,10 @@ import { parsePlanetType, planetsFor, estimate, inBand, P0_PER_P1, sortSystems, 
 import { classify, readExtractor, contentsOf, readColony, byAttention, typesIn, valueOf } from '../src/lib/colony.ts';
 import { check, byUrgency as bySkillUrgency, readiness, injectorYield, SP_FLOOR, skillsOf, trainedOptions, HAULING_SKILLS } from '../src/lib/skills.ts';
 import { iskPerHour, RUN_MINUTES } from '../src/lib/abyssal.ts';
-import { buyerShare, sideVolume, competitionShare, roundTripDays, returnPerDay, EVEN_SPLIT, COMPETITION_MIN, COMPETITION_MAX } from '../src/lib/split.ts';
+import { buyerShare, sideVolume, competitionShare, roundTripDays, returnPerDay, EVEN_SPLIT, COMPETITION_MIN, COMPETITION_MAX, tradingSplit, MIN_BOOK_SOLD } from '../src/lib/split.ts';
 import { calcWith, RELIST_LEFT, breakEvenSell, breakEvenSpread } from '../src/lib/fees.ts';
 import { walkBids } from '../src/lib/relist.ts';
-import { isWall } from '../src/lib/prospects.ts';
+import { isWall, paceDay } from '../src/lib/prospects.ts';
 import { nearMisses, squeezed as isSqueezed } from '../src/lib/signals.ts';
 import { exportTax, PI_BASE, HIGHSEC_NPC_TAX } from '../src/lib/pi.ts';
 import { allocate } from '../src/lib/planner.ts';
@@ -1320,6 +1320,27 @@ console.log('\n--- measured pace: what the books did between checks ---');
   eq('  a day watched with no sale halves it rather than zeroing it', sidePaceBlend(240, 0, 24), 120);
   eq('  long watching converges on what was seen (576 a day)', Math.round(sidePaceBlend(240, 24000, 1000)), 568);
   eq('  no guess: watching alone once there’s six hours of it', [sidePaceBlend(null, 10, 5), sidePaceBlend(null, 12, 6)], [null, 48]);
+}
+console.log('\n--- who is trading: the best evidence first ---');
+{
+  eq('the book first, when its orders have sold enough', tradingSplit({ history: 0.9, book: { sell: 10, buy: 30 } }), { share: 0.25, from: 'book', watchedH: 0 });
+  eq('  a book that has sold too little leaves it to history', tradingSplit({ history: 0.9, book: { sell: 1, buy: MIN_BOOK_SOLD - 2 } }).from, 'history');
+  eq('  nothing at all: even', tradingSplit({}), { share: 0.5, from: 'even', watchedH: 0 });
+  // Item 16423: 7 of its 10 listings were single units, which vanish when bought, so the book showed no
+  // buyers at all. A side mostly of single units can't show its sales: history decides instead.
+  eq('  a sell side of single units can’t show its buyers: history', tradingSplit({ history: 0.69, book: { sell: 0, buy: 1354, single: { sell: 7, buy: 0 }, orders: { sell: 10, buy: 4 } } }).from, 'history');
+  eq('  multi-unit listings can: the book', tradingSplit({ history: 0.69, book: { sell: 0, buy: 1396, single: { sell: 17, buy: 0 }, orders: { sell: 37, buy: 5 } } }).from, 'book');
+  const w = tradingSplit({ history: 0.9, book: { sell: 10, buy: 30 }, watched: { sell: 90, buy: 10, h: 12 }, typicalDay: 100 });
+  eq('watching a typical day’s worth counts as much as the prior', w.share, (90 + 0.25 * 100) / 200);
+  eq('  and then speaks for itself', w.from, 'watched');
+  eq('  a little watching only nudges it', tradingSplit({ history: 0.9, book: { sell: 10, buy: 30 }, watched: { sell: 5, buy: 0, h: 1 }, typicalDay: 100 }).from, 'book');
+  eq('  hours with no trade say nothing about the split', tradingSplit({ history: 0.9, watched: { sell: 0, buy: 0, h: 6 }, typicalDay: 100 }), { share: 0.9, from: 'history', watchedH: 6 });
+  const day = (d, volume) => ({ date: d, average: 10, highest: 11, lowest: 9, volume, order_count: 1 });
+  const now = Date.parse('2026-09-27T12:00:00Z');
+  const busy = Array.from({ length: 14 }, (_, i) => day(new Date(now - (i + 1) * 86400_000).toISOString().slice(0, 10), i === 0 ? 1000 : 10));
+  eq('pace day: the median, so one huge day doesn’t count', paceDay(busy, now), 10);
+  const thin = [day('2026-09-26', 6), day('2026-09-22', 8), day('2026-09-18', 14)];
+  eq('  an item trading on under half its days still sells: the 14-day average', paceDay(thin, now), 2);
 }
 console.log('\n--- to do and results ---');
 {
