@@ -605,8 +605,10 @@ Don't re-derive or contradict these without new evidence.
   trading, and an item in no set is left out rather than guessed at.
 - **Net worth keeps one snapshot a day in this browser** (`Data.netWorth`), written by the Wallet page. ESI has no
   net-worth history, so the trend starts the first day the page is opened and says so.
-- **Alerts run only while a tab is open.** A web page can't watch anything once it is closed; Settings says so.
-  They reuse the pages' checks, respect quiet hours and don't repeat a finding within six hours.
+- **The browser's alerts run only while a tab is open**; a web page can't watch anything once it is closed. They
+  reuse the pages' checks, respect quiet hours and don't repeat a finding within six hours. With the app closed,
+  alert *mail* comes from the cloud instead (see "Alert mail comes from the cloud"): its test mail, sent from the
+  user's second character, arrived in game on 27 September 2026.
 - **Goals are five kinds, each measured from something the app reads** (`lib/goals.ts`): afford N of an item
   at the live price (units bought on the market since the goal was set come off what's left, so buying PLEX
   in small lots counts), hold N of an item (hangars plus sell orders), save ISK (wallet, wallet + orders, or
