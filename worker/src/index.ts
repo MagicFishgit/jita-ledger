@@ -7,6 +7,7 @@
  */
 import { AuthError, caller } from './auth';
 import { archive, noteJob } from './archive';
+import { flowFor, pricesFor, watchMarkets } from './market';
 import { dropLogin, EveError, keepLogin, type Purpose } from './eve';
 import { BadRequest, pull, push, status, type PushBody } from './sync';
 
@@ -88,8 +89,15 @@ async function esiCheck() {
 }
 
 export default {
-  /** The timer: every hour, the archive for every ledger that has a login kept for the cloud. */
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  /**
+   * The timers. Every five minutes the watched books are read (ESI's copy of a book lasts five); every hour,
+   * at seven past, the archive runs for every ledger that has a login kept for the cloud.
+   */
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (event.cron === '*/5 * * * *') {
+      ctx.waitUntil(watchMarkets(env.DB).then((r) => console.log('market watch', JSON.stringify(r))).catch((e) => console.error('market watch failed', e)));
+      return;
+    }
     const ledgers = (await env.DB.prepare(`SELECT char_id FROM keys WHERE purpose = 'main'`).all<{ char_id: number }>()).results;
     ctx.waitUntil((async () => {
       for (const l of ledgers) {
@@ -131,6 +139,16 @@ export default {
         return json({ dropped: purpose }, 200, c);
       }
       if (url.pathname === '/v1/jobs/archive' && request.method === 'POST') return json(await runArchive(env, who.charId), 200, c);
+      if (url.pathname === '/v1/jobs/market' && request.method === 'POST') return json(await watchMarkets(env.DB), 200, c);
+      if (url.pathname === '/v1/flow' && request.method === 'GET') {
+        const types = (url.searchParams.get('types') ?? '').split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0).slice(0, 500);
+        return json(await flowFor(env.DB, types), 200, c);
+      }
+      if (url.pathname === '/v1/prices' && request.method === 'GET') {
+        const type = Number(url.searchParams.get('type'));
+        const hours = Math.min(24 * 90, Number(url.searchParams.get('hours') ?? 24 * 14) || 24 * 14);
+        return json(await pricesFor(env.DB, type, hours), 200, c);
+      }
       if (url.pathname === '/v1/esi-check' && request.method === 'GET') return json(await esiCheck(), 200, c);
       return json({ error: 'Not found' }, 404, c);
     } catch (e) {

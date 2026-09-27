@@ -16,6 +16,6 @@ migrations_dir = "migrations"
 [observability]
 enabled = true
 
-# Background jobs. The archive runs hourly at seven past; the other jobs join this list as they're built.
+# Background jobs: the market watch every five minutes, the archive hourly at seven past.
 [triggers]
-crons = ["7 * * * *"]
+crons = ["*/5 * * * *", "7 * * * *"]

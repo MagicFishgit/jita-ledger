@@ -20,9 +20,19 @@ type Saved = { log: FlowLog; ends: Record<number, number> };
 const KEY = 'flow';
 
 let log: FlowLog = {};
+/**
+ * What the cloud watched, for the items it watches (every five minutes, all day: `worker/src/market.ts`).
+ * For any day it has, it replaces this browser's own count: the browser only saw some of those intervals,
+ * and adding the two would count the same trades twice.
+ */
+let cloudLog: FlowLog = {};
 let loaded = false;
+let version = 0;
 const listeners = new Set<() => void>();
-const emit = () => listeners.forEach((l) => l());
+const emit = () => { version++; listeners.forEach((l) => l()); };
+
+/** The cloud's watched counts, as fetched by the cloud sync. */
+export function setCloudFlow(next: FlowLog): void { cloudLog = next; emit(); }
 
 type Pending = { typeId: number; s0: number; s1: number; f: Fills; at: number };
 let pending: Pending[] = [];
@@ -77,10 +87,12 @@ export async function loadFlow(): Promise<void> {
 
 export const getFlow = (): FlowLog => log;
 
-/** Everything watched for one item over the last FLOW_DAYS. */
-export const watchedFlow = (typeId: number, now = Date.now()): FlowDay => observedFlow(log, typeId, now);
+/** Everything watched for one item over the last FLOW_DAYS: the cloud's days where it has them, this browser's otherwise. */
+export const watchedFlow = (typeId: number, now = Date.now()): FlowDay =>
+  observedFlow({ [typeId]: { ...(log[typeId] ?? {}), ...(cloudLog[typeId] ?? {}) } }, typeId, now);
 
-export function useFlow(): FlowLog {
+/** Re-renders when anything watched changes. The value is only a version number, for effect and memo deps. */
+export function useFlow(): number {
   useEffect(() => { loadFlow().catch(() => undefined); }, []);
-  return useSyncExternalStore((cb) => { listeners.add(cb); return () => listeners.delete(cb); }, getFlow);
+  return useSyncExternalStore((cb) => { listeners.add(cb); return () => listeners.delete(cb); }, () => version);
 }

@@ -825,7 +825,7 @@ function CloudPanel() {
       </div>
       {held && (
         <p className="note" style={{ margin: 0 }}>
-          {held.kinds.length ? held.kinds.map((k) => kindSaid(k.kind, k.n)).join(', ') : 'Nothing yet.'} Revision {units(held.rev)}.
+          {held.kinds.length ? `${held.kinds.map((k) => kindSaid(k.kind, k.n)).join(', ')}.` : 'Nothing yet.'} Revision {units(held.rev)}.
         </p>
       )}
       {esi && (

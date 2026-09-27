@@ -6,6 +6,7 @@ import { checkOrders, costBasis, jitaOpen, sidePace, useOrderCheck, verdicts } f
 import { rates, effectiveSkills, orderSlots } from '../lib/fees';
 import { tickDown } from '../lib/tick';
 import { competitionShare, SPLIT_SAID } from '../lib/split';
+import { useFlow } from '../lib/flowStore';
 import { loadCache, rankProspects } from '../lib/scan';
 import { DEFAULT_FILTERS } from '../lib/prospects';
 import { update, useData } from '../lib/store';
@@ -77,7 +78,9 @@ export function Orders() {
   const mine = useMemo(() => jitaOpen(d), [d.orders]); // eslint-disable-line react-hooks/exhaustive-deps
   const elsewhere = open.length - mine.length;
   const cost = useMemo(() => costBasis(d), [d.positions, d.txs, d.journal, d.orders, d.settings]); // eslint-disable-line react-hooks/exhaustive-deps
-  const all: Relist[] = useMemo(() => verdicts(d, check, cost), [d, check, cost]);
+  // The cloud's watched trade feeds each order's pace, so its arrival re-reads the verdicts.
+  const flowV = useFlow();
+  const all: Relist[] = useMemo(() => verdicts(d, check, cost), [d, check, cost, flowV]); // eslint-disable-line react-hooks/exhaustive-deps
   const rows = side === 'all' ? all : all.filter((x) => (side === 'buy' ? x.isBuy : !x.isBuy));
   const r = rates(d.settings);
   const slots = orderSlots(effectiveSkills(d.settings));

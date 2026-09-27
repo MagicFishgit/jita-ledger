@@ -1,4 +1,8 @@
-import type { OrderLite } from './market';
+/**
+ * One order in a book: the same shape as `OrderLite` in market.ts, written out so the cloud Worker can use
+ * this module without reaching the browser-only market code.
+ */
+export type OrderLite = { id: number; isBuy: boolean; price: number; volume: number };
 
 /**
  * How fast each side of a Jita book actually moves, measured from the order checks the app already makes.

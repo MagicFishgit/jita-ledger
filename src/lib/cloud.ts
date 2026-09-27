@@ -7,6 +7,8 @@ import {
 } from './cloudSync';
 import { dataStore, getData, isReady, onDataChange, update, type Data } from './store';
 import { sanitizeSettings } from './fees';
+import { setCloudFlow } from './flowStore';
+import type { FlowLog } from './flow';
 import { sanitizeAlerts, sanitizePrefs } from './prefs';
 
 /**
@@ -276,6 +278,27 @@ export type CloudBackground = {
   jobs: { job: string; lastRun: number; lastOk: number | null; lastError: string | null; detail: Record<string, unknown> | null }[];
 };
 
+/** Items the cloud watches for this ledger: open orders, open positions, the watchlist. */
+function watchedTypes(d: Data): number[] {
+  const s = new Set<number>();
+  for (const o of Object.values(d.orders)) if (o.state === 'open') s.add(o.typeId);
+  for (const p of d.positions) if (p.status === 'open') s.add(p.typeId);
+  for (const w of d.watchlist) s.add(w.typeId);
+  return [...s];
+}
+
+/** Fetches what the cloud has watched on your items, for the buyer/seller split and "Clears in". */
+async function refreshCloudFlow(): Promise<void> {
+  if (!state || !cloudEnabled()) return;
+  const types = watchedTypes(getData());
+  if (!types.length) return;
+  setCloudFlow(await call<FlowLog>(`/v1/flow?types=${types.join(',')}`));
+}
+
+/** An item's best prices hour by hour, as the cloud recorded them. */
+export const cloudPrices = (typeId: number, hours = 24 * 14) =>
+  call<{ hour: number; bestBuy: number | null; bestSell: number | null; buyUnits: number | null; sellUnits: number | null }[]>(`/v1/prices?type=${typeId}&hours=${hours}`);
+
 /** What the cloud holds for this character. */
 export const cloudSummary = () => call<{ rev: number; kinds: { kind: string; n: number; at: number }[]; docs: { key: string; at: number }[]; background: CloudBackground }>('/v1/status');
 
@@ -299,17 +322,20 @@ export function startCloud(): () => void {
     if (!alive) return;
     if (!cloudEnabled()) { setStatus({ phase: 'off' }); return; }
     setStatus({ phase: 'idle' });
-    syncCloudNow();
+    syncCloudNow().then(() => refreshCloudFlow()).catch(() => undefined);
   };
   begin();
   const offAuth = onAuthChange(() => { begin(); });
   const tick = setInterval(() => { if (document.visibilityState === 'visible' && state && cloudEnabled()) syncCloudNow(); }, PULL_EVERY);
+  // The cloud reads the books every five minutes; fetching its counts every ten keeps the pages close to it.
+  const flowTick = setInterval(() => { if (document.visibilityState === 'visible') refreshCloudFlow().catch(() => undefined); }, 10 * 60_000);
   const onVisible = () => { if (document.visibilityState === 'visible' && state && cloudEnabled()) syncCloudNow(); };
   document.addEventListener('visibilitychange', onVisible);
   return () => {
     alive = false;
     offChange(); offAuth();
     clearInterval(tick);
+    clearInterval(flowTick);
     document.removeEventListener('visibilitychange', onVisible);
     if (pushTimer) clearTimeout(pushTimer);
   };
