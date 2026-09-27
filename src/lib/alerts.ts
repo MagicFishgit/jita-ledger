@@ -75,6 +75,11 @@ const escapeMail = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
 const COL = { cyan: '5cd3f2', gold: 'f2b15c', green: '6ee7a8', red: 'ff6b7d', grey: '8095a8', white: 'ffffff' } as const;
 const col = (c: keyof typeof COL, s: string) => `<font color="#ff${COL[c]}">${s}</font>`;
 const sized = (z: number, s: string) => `<font size="${z}">${s}</font>`;
+/**
+ * Text sizes. The client's default mail text is small, and the user asked for it bigger: everything is
+ * wrapped in TEXT, and an inner size overrides it (nesting was confirmed by the first alert mails).
+ */
+const SIZE = { brand: 26, title: 20, text: 16, small: 13 } as const;
 /** A price as the market shows it, without the unit: 1,228,900 or 5.23, and no ".00" on a whole number. */
 const price = (n: number) => isk(n).replace(/ ISK$/, '').replace(/\.00$/, '');
 /** An amount of ISK, short when it's big and without ".00" when it's whole: 64,300 ISK, 14.81 M ISK. */
@@ -99,7 +104,7 @@ export function subjectPart(f: Finding, now = Date.now()): string {
 
 /** The body of one alert: what it is, what to do, then the facts behind it. */
 function section(f: Finding, market: (typeId: number) => string, now: number): string {
-  const head = (t: string, c: keyof typeof COL = 'gold') => `<br>${sized(14, col(c, `<b>${escapeMail(t.toUpperCase())}</b>`))}<br>`;
+  const head = (t: string, c: keyof typeof COL = 'gold') => `<br>${sized(SIZE.title, col(c, `<b>${escapeMail(t.toUpperCase())}</b>`))}<br>`;
   const advice = (c: keyof typeof COL, t: string) => `${col(c, `<b>RECOMMENDED: ${escapeMail(t)}</b>`)}<br>`;
   const itemLink = (f.typeId && f.name) ? `<a href="${market(f.typeId)}">${escapeMail(f.name)}</a>` : '';
   const o = f.order;
@@ -115,7 +120,7 @@ function section(f: Finding, market: (typeId: number) => string, now: number): s
       ? `${col('grey', 'Yours ')}${price(o.price)}${col('grey', ' · nobody else on your side')}<br>`
       : `${col('grey', 'Yours ')}${price(o.price)}${col('grey', ' · best now ')}${col(o.gap > 0 && o.verdict !== 'front' ? 'red' : 'white', price(o.best))}${o.gap > 0 && o.verdict !== 'front' ? col('grey', ` (beaten by ${price(o.gap)})`) : ''}<br>`);
     if (o.verdict === 'move') {
-      out.push(`${col('grey', 'Moving costs ')}${money(o.cost)}${col('grey', ` (${money(o.give)} lower price + ${money(o.fee)} fee) · `)}${money(o.atRisk)}${col('grey', ' at stake')}<br>`);
+      out.push(`${col('grey', 'Moving costs ')}${money(o.cost)}${col('grey', ` (${money(o.give)} ${o.isBuy ? 'higher' : 'lower'} price + ${money(o.fee)} fee) · `)}${money(o.atRisk)}${col('grey', ' at stake')}<br>`);
     }
     if (o.aheadUnits > 0) {
       out.push(col('grey', `Ahead of you: ${units(o.aheadOrders)} order${o.aheadOrders === 1 ? '' : 's'}, ${units(o.aheadUnits)} unit${o.aheadUnits === 1 ? '' : 's'} · ${Number.isFinite(o.hoursToFront) ? `${hoursSaid(o.hoursToFront)} to clear at the usual pace` : 'too little trading history to say how long that takes'}`) + '<br>');
@@ -180,13 +185,15 @@ export function alertMail(findings: Finding[], opts: { appUrl: string; keepMin: 
   const subject = `${MAIL_SUBJECT}: ${opts.test ? 'test — ' : ''}${parts.join(' · ')}${more ? ` · +${more} more` : ''}`.slice(0, 1000);
   const market = (typeId: number) => `${opts.appUrl}#orders?market=${typeId}`;
   const build = (shown: Finding[]) => [
-    `${sized(18, col('cyan', '<b>Jita Ledger</b>'))}<br>`,
+    `<font size="${SIZE.text}">`,
+    `${sized(SIZE.brand, col('cyan', '<b>Jita Ledger</b>'))}<br>`,
     ...shown.map((f) => section(f, market, now)),
     n > shown.length ? `<br>…and ${n - shown.length} more in the app.<br>` : '',
     findings.some((f) => f.kind === 'move' || f.kind === 'clearing')
       ? `<br><a href="${opts.appUrl}#orders">Open your orders in Jita Ledger</a><br>`
       : `<br><a href="${opts.appUrl}#tonight">Open Tonight’s run in Jita Ledger</a><br>`,
-    `<br><font color="#ff8095a8">${opts.keepMin == null ? 'Alert mails are kept' : `This mail is deleted after ${keepSaid(opts.keepMin)}, read or not`}. Change that, or turn mail alerts off, in Jita Ledger → Settings → Alerts.</font>`,
+    `<br>${sized(SIZE.small, col('grey', `${opts.keepMin == null ? 'Alert mails are kept' : `This mail is deleted after ${keepSaid(opts.keepMin)}, read or not`}. Change that, or turn mail alerts off, in Jita Ledger → Settings → Alerts.`))}`,
+    '</font>',
   ].join('');
   // ESI refuses a body over 10,000 characters. Whole alerts are left out rather than a tag cut in half.
   let count = Math.min(n, MAIL_MAX);

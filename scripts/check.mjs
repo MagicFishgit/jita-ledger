@@ -1586,7 +1586,7 @@ console.log('\n--- alert mail ---');
   eq('a burst is capped and summed up', big.body.includes('…and 25 more in the app.'), true);
   eq('  and stays under ESI’s 10,000 characters', big.body.length <= 10000, true);
   const huge = alertMail(Array.from({ length: 15 }, (_, i) => ({ ...move, key: 'h' + i, text: 'Hammerhead II ' + 'y'.repeat(900) })), { appUrl: '', keepMin: 4320 });
-  eq('long alerts are dropped whole to fit', huge.body.length <= 10000 && huge.body.endsWith('Settings → Alerts.</font>') && huge.body.includes('more in the app'), true);
+  eq('long alerts are dropped whole to fit', huge.body.length <= 10000 && huge.body.includes('Settings → Alerts.') && huge.body.endsWith('</font>') && huge.body.includes('more in the app'), true);
 
   // With the order check's facts, a mail says what to do and why.
   const facts = { verdict: 'move', isBuy: false, price: 1234000, best: 1229000, gap: 5000, newPrice: 1228900, volumeRemain: 12,
@@ -1601,6 +1601,9 @@ console.log('\n--- alert mail ---');
   eq('  the name is still the market link', rich.body.includes('<a href="u/#orders?market=2185">Hammerhead II</a>'), true);
   const buyUp = alertMail([{ ...move, order: { ...facts, isBuy: true } }], { appUrl: 'u/', keepMin: 30, now: at });
   eq('a buy order moves up', buyUp.body.includes('move your buy order up to'), true);
+  eq('  and costs a higher price, not a lower one', buyUp.body.includes('ISK higher price + ') && !buyUp.body.includes('lower price'), true);
+  eq('the whole mail is in the larger text size, closed at the end', rich.body.startsWith('<font size="16">') && rich.body.endsWith('</font>'), true);
+  eq('  with bigger titles', rich.body.includes('<font size="20"><font color="#fff2b15c"><b>ORDER WORTH MOVING'), true);
   const hold = alertMail([{ ...move, kind: 'clearing', title: 'Beaten but clearing', order: { ...facts, verdict: 'wait', why: 'Only 4 ahead of you, about 20 min at this item\'s pace', hoursToFront: Infinity } }], { appUrl: 'u/', keepMin: 30, now: at });
   eq('a hold says so, with the reason', hold.body.includes('RECOMMENDED: leave it where it is') && hold.body.includes('<i>Only 4 ahead of you'), true);
   eq('  and no cost of moving', hold.body.includes('Moving costs'), false);

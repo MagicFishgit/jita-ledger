@@ -357,7 +357,9 @@ Don't re-derive or contradict these without new evidence.
   price and the fee, what's at stake, the queue ahead and how long it takes to clear, or for PI the system
   (an in-game link), planet, product and end time. The subject leads with the same advice, since the inbox
   list and the new-mail notice show nothing else. The test mail is built from one of your real orders
-  against the live book, so it shows exactly what an alert about it would say.
+  against the live book, so it shows exactly what an alert about it would say. The client's default mail text
+  is small, so the whole body sits in `<font size="16">`, with titles at 20 and the brand at 26 (`SIZE` in
+  `alerts.ts`); an inner size overrides the outer one.
 - **Alerts can go by EVE mail, opt-in, always *to* the trading character and *from* a second one** (`lib/mailAlerts.ts`,
   builder `alertMail` in `alerts.ts`). The sender is a second login slot in `auth.ts` (`jita-ledger:mailer`,
   `loginMailer`, `getMailerToken`), asking only for send and organize mail. `handleCallback` tells the two
