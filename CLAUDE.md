@@ -309,6 +309,26 @@ Don't re-derive or contradict these without new evidence.
     says. History lags a day or two and an order repriced since isn't in it at all: the user's Datacore -
     Rocket Science buy at 83,230 was told to cancel ("reached on 2 of 14 days") with 4,133 of 10,000 already
     filled. Consumers read `Relist.unreached`, which carries the override, never `reach` directly.
+- **The app's own watching adds reach evidence, never removes it** (`recentRange(..., watched)`, `withWatchedLows`).
+  A day's low is the lower of ESI's trimmed one and the exact lowest price a Jita buy order visibly *shrank* at
+  while watched (a vanished order may have been cancelled, so it doesn't count); the window runs up to today when
+  today or yesterday was watched. A seller selling into bids hits the best one, so a fill at a price means the
+  top of the book was there. Orders, the Calculator, the cloud's alert checks and Prospects (at rank time, over
+  the scan's own days via `lowsEnd`) all use it.
+- **"Sell to bids" is a verdict on measured evidence only** (`sellIntoBid`, verdict `bid`). Many module markets
+  are sellers selling into big standing bids while buyers rarely take listings, so loot listed there waits for
+  months. After at least `BID_WATCH_H` (24) hours watched, if at the pace buyers took listings (one more sale than
+  seen, so a quiet day reads "at most one a day") the stock ahead plus yours takes over `LISTING_DAYS` (30, the
+  same as Prospects' "locks ISK for weeks"), the order says what the bids pay now after tax against what your
+  price would fetch. Never when your listing has sold since its price was set, never below what the stock cost,
+  never from history's guess. It replaces a move on that order (moving down a tick where listings don't sell only
+  burns a fee), goes on To do as "Sell into bids", and is not mailed: the user doesn't want loot mail.
+- **"Busy relisting" informs; it never hides or ranks** (`relistPace`, `BusyRelisting`). After `RELIST_MIN_H` (6)
+  hours watched, a side whose best price improved (someone undercut or outbid the front) every `BUSY_RELIST_MIN`
+  (30) minutes or more often gets a tag under the item's name on Orders and Prospects and a note in the
+  Calculator, with the rate and "price patiently, or expect to relist". The user asked for exactly this: bots are
+  everywhere, and a good trade shouldn't vanish because of them. Reads are five minutes apart, so "every 5 min"
+  is the floor. The Clears-in tip quotes the same rate instead of the old units-listed-at-the-front figure.
 - **"Clears in" is paced by what the Jita book was seen doing, not only by a guess from history** (`lib/flow.ts`,
   `sidePace` in `orderCheck.ts`). A six-hour study of the user's 71 beaten orders (27 September 2026, 03:44–09:44
   EVE time, 79 reads of each book ~5 minutes apart) found:

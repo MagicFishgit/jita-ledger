@@ -7,6 +7,8 @@ import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { iskBig } from '../lib/format';
 import { typeName } from '../lib/universe';
+import { relistPace, type RelistPace } from '../lib/flow';
+import { useFlow, watchedFlow } from '../lib/flowStore';
 
 const ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V'];
 
@@ -260,4 +262,22 @@ export function downloadBlob(filename: string, blob: Blob) {
 
 export function Muted({ children }: { children: ReactNode }) {
   return <span className="faint">{children}</span>;
+}
+
+/**
+ * "Busy relisting" under an item's name when the front is undercut (or outbid) every half hour or more often
+ * while the app watched it (`relistPace`). One side for an order; either side for an item. It only says so:
+ * a busy market can still be worth trading, patiently, so nothing is hidden or ranked lower for it.
+ */
+export function BusyRelisting({ typeId, isBuy }: { typeId: number; isBuy?: boolean }) {
+  useFlow();
+  const f = watchedFlow(typeId);
+  const sides = (isBuy == null ? [false, true] : [isBuy]).map((b) => relistPace(f, b)).filter((p) => p?.busy) as RelistPace[];
+  if (!sides.length) return null;
+  return (
+    <span className="sub" tabIndex={0} style={{ color: 'var(--acc2)' }} data-tip-title="Busy relisting"
+      data-tip={`${sides.map((p) => p.said).join(' ')}\n\nExpect to be undercut soon after you list or move. Pricing patiently, at a level that sells over time, usually beats chasing the front with a fee each time.`}>
+      Busy relisting
+    </span>
+  );
 }

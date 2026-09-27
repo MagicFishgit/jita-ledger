@@ -1732,6 +1732,13 @@ console.log('\n--- whether trading reaches a bid ---');
   const rr = F.recentRange(rows, 3, now);
   eq('the last days, oldest first, a day with no trades is null', rr.lows, [5, null, 6]);
   eq('  highs likewise', rr.highs, [9, null, 8]);
+  const w = { '2026-09-24': { buyLow: 4 }, '2026-09-25': { buyLow: 7, sellHigh: 11 }, '2026-09-26': { buyLow: 6.5, sellHigh: 8.5 } };
+  const rw = F.recentRange(rows, 3, now, w);
+  eq('a watched fill lower than ESI’s trimmed low counts; a higher one changes nothing', rw.lows, [4, 7, 6]);
+  eq('  a watched day ESI shows as empty is filled in', rw.highs, [9, 11, 8.5]);
+  const today = F.recentRange(rows, 3, now, { '2026-09-27': { buyLow: 3 } });
+  eq('  watching today moves the window up to today, ahead of ESI’s history', [today.end, today.lows], ['2026-09-27', [null, 6, 3]]);
+  eq('  and a scan’s kept lows take the fills watched since, over the same days', F.withWatchedLows([5, null, 6], '2026-09-26', w), [4, 7, 6]);
   eq('days the bulk of trading reached a bid', F.bidReachDays(scoopLows, 101.7 * M), 1);
   eq('  the scoop order at 99.79 M: none', F.bidReachDays(scoopLows, 99.79 * M), 0);
   eq('the bid reached on 7 of 14 days is the 7th lowest low', F.reachedBid(scoopLows), 104.9 * M);
@@ -2085,6 +2092,28 @@ console.log('\n--- long range ---');
   const days = bucketStarts(t0, t0 + 5 * D, 'day');
   eq('profit lands in the bucket it was made in', profitByBucket([calc], days, t0 + 5 * D), [0, 240, 0, 0, 360, 0]);
   eq('  and a window starting later leaves earlier profit out', profitByBucket([calc], days.slice(2), t0 + 5 * D), [0, 0, 360, 0]);
+}
+
+console.log('\n--- sell into the bids when buyers don\'t take listings ---');
+{
+  const { sellIntoBid, judgeOrder: judge, byUrgency: urgency, LISTING_DAYS } = await import('../src/lib/relist.ts');
+  const { DEFAULT_SETTINGS } = await import('../src/lib/fees.ts');
+  const quietDay = { h: 30, sell: 0, buy: 400, newSell: 0, newBuy: 0 };
+  const book = [{ id: 1, isBuy: false, price: 6000, volume: 500 }, { id: 9, isBuy: true, price: 5000, volume: 200 }, { id: 8, isBuy: true, price: 4000, volume: 1000 }];
+  const x = { gone: false, price: 6000, volumeRemain: 500, aheadUnits: 0 };
+  const loot = sellIntoBid({ isBuy: false }, x, { book, watched: quietDay }, 0.03);
+  eq('500 units nobody bought from listings in 30 h: sell into the bids', loot != null && loot.daysToSell > LISTING_DAYS, true);
+  eq('  the bids pay after tax only, walking down the book', Math.round(loot.proceeds), Math.round((200 * 5000 + 300 * 4000) * 0.97));
+  eq('  not before a day of watching', sellIntoBid({ isBuy: false }, x, { book, watched: { ...quietDay, h: 10 } }, 0.03), null);
+  eq('  not when your own listing has sold since its price was set', sellIntoBid({ isBuy: false, seen: [{ price: 6000, remain: 510 }] }, x, { book, watched: quietDay }, 0.03), null);
+  eq('  not for a few units that sell within the month', sellIntoBid({ isBuy: false }, { ...x, volumeRemain: 3 }, { book, watched: quietDay }, 0.03), null);
+  eq('  not when buyers do take listings', sellIntoBid({ isBuy: false }, x, { book, watched: { ...quietDay, sell: 400 } }, 0.03), null);
+  eq('  never below what the stock cost', sellIntoBid({ isBuy: false }, x, { book, watched: quietDay, avgCost: 5500 }, 0.03), null);
+  eq('  never for a buy order', sellIntoBid({ isBuy: true }, x, { book, watched: quietDay }, 0.03), null);
+  const o = { orderId: 1, typeId: 34, isBuy: false, price: 6000, volumeRemain: 500, locationId: 60003760 };
+  const v = judge(o, { book, perDay: 1, lows: null, txs: [], watched: quietDay }, DEFAULT_SETTINGS, Date.parse('2026-09-28T12:00:00Z'));
+  eq('the Orders verdict is "sell to bids", saying why in one sentence', [v.verdict, v.why.startsWith('Buyers barely take listings here: nobody bought from listings in the 30 h watched')], ['bid', true]);
+  eq('  it replaces the move on the same order, and sorts among other orders’ moves by ISK at stake', [v, { ...v, verdict: 'move', atRisk: v.atRisk * 2 }].sort(urgency)[0].verdict, 'move');
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

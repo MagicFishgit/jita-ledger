@@ -91,6 +91,9 @@ export const getFlow = (): FlowLog => log;
 export const watchedFlow = (typeId: number, now = Date.now()): FlowDay =>
   observedFlow({ [typeId]: { ...(log[typeId] ?? {}), ...(cloudLog[typeId] ?? {}) } }, typeId, now);
 
+/** Each watched day for one item, the cloud's where it has them: for the exact fill prices (`recentRange`). */
+export const watchedDays = (typeId: number): Record<string, FlowDay> => ({ ...(log[typeId] ?? {}), ...(cloudLog[typeId] ?? {}) });
+
 /** Re-renders when anything watched changes. The value is only a version number, for effect and memo deps. */
 export function useFlow(): number {
   useEffect(() => { loadFlow().catch(() => undefined); }, []);

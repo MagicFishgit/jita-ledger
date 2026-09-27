@@ -1,7 +1,8 @@
 import { tickDown, tickUp } from './tick';
 import { bidReachDays, fillingNow, FILL_RARE, FILL_TYPICAL, FILL_WINDOW, reachedBid } from './fills';
 import { rates, type Settings } from './fees';
-import type { OrderLite } from './flow';
+import type { FlowDay, OrderLite } from './flow';
+import { iskBig, units } from './format';
 
 /**
  * Whether one of your market orders is worth chasing.
@@ -21,7 +22,8 @@ export type Verdict =
   | 'wait'  // someone is, but they will be cleared out shortly
   | 'move'  // a real queue is ahead of you
   | 'loss'  // you could move, but the price it takes is not worth having
-  | 'dry';  // a buy that trading doesn't reach, and bidding where it does leaves too little: cancel it
+  | 'dry'   // a buy that trading doesn't reach, and bidding where it does leaves too little: cancel it
+  | 'bid';  // a sell buyers barely take listings for: selling into the standing bids beats waiting
 
 export type Relist = {
   orderId: number;
@@ -69,7 +71,75 @@ export type Relist = {
   reachAt: number | null;
   /** A buy the bulk of trading hasn't been getting down to, and that isn't visibly filling either. */
   unreached: boolean;
+  /** For the `bid` verdict: what selling into the standing bids now would get. */
+  intoBids?: IntoBids;
 };
+
+/**
+ * A listing that would take longer than this to sell is better sold into the bids: the same 30 days after which
+ * Prospects says a position "locks ISK for weeks".
+ */
+export const LISTING_DAYS = 30;
+/** Hours the app must have watched a book before it says buyers aren't taking listings there. */
+export const BID_WATCH_H = 24;
+
+export type IntoBids = {
+  /** ISK the bids would pay now, after sales tax (filling a bid costs no broker fee). */
+  proceeds: number;
+  /** Units the visible bids would take, and how many of yours would be left. */
+  units: number;
+  left: number;
+  /** The best bid. */
+  top: number;
+  /** Days your listing would take to sell at the pace buyers were seen taking listings. */
+  daysToSell: number;
+  watchedH: number;
+  /** Units bought from listings while watched. */
+  soldSeen: number;
+};
+
+/**
+ * Whether a sell order should be sold into the standing bids instead of left listed. Many markets are sellers
+ * selling into big buy orders while buyers rarely take listings (Heavy Afocal Laser I in the six-hour study: 3
+ * units bought from listings, 1,396 sold into bids), so loot listed there can wait for months.
+ *
+ * Said only on measured evidence: the app has watched the book at least BID_WATCH_H, and at the pace buyers
+ * took listings, the stock ahead of you and yours takes over LISTING_DAYS. The pace assumes one more sale than
+ * was seen, so a quiet day reads as "at most one a day", not "never". Never said when your own listing has
+ * sold since its price was set (whatever the count says), or when the bids pay less than the stock cost you.
+ */
+export function sellIntoBid(
+  o: { isBuy: boolean; seen?: { price: number; remain: number }[] },
+  x: Pick<Relist, 'gone' | 'price' | 'volumeRemain' | 'aheadUnits'>,
+  m: { book: OrderLite[]; watched?: FlowDay; avgCost?: number | null },
+  salesTax: number,
+): IntoBids | null {
+  if (o.isBuy || x.gone) return null;
+  const w = m.watched;
+  if (!w || !(w.h >= BID_WATCH_H)) return null;
+  // Your own listing selling at this price beats any count of the market.
+  const version = o.seen ? [...o.seen].reverse().find((v) => v.price === x.price) : undefined;
+  if (version && x.volumeRemain < version.remain) return null;
+  const bids = m.book.filter((b) => b.isBuy).map((b) => ({ price: b.price, volume: b.volume }));
+  if (!bids.length) return null;
+  const perDay = ((w.sell + 1) / w.h) * 24;
+  const daysToSell = (x.aheadUnits + x.volumeRemain) / perDay;
+  if (daysToSell <= LISTING_DAYS) return null;
+  const walk = walkBids(x.volumeRemain, bids, salesTax);
+  if (walk.sold <= 0) return null;
+  if (m.avgCost != null && walk.value / walk.sold < m.avgCost) return null;
+  return { proceeds: walk.value, units: walk.sold, left: walk.left, top: Math.max(...bids.map((b) => b.price)), daysToSell, watchedH: w.h, soldSeen: w.sell };
+}
+
+/** The plain sentence for a `bid` verdict: why, what the bids pay, and what the listing would if it sold. */
+export function intoBidsWhy(b: IntoBids, price: number, volumeRemain: number, salesTax: number): string {
+  const days = b.daysToSell > 365 ? 'over a year' : `about ${Math.round(b.daysToSell)} days`;
+  const seen = b.soldSeen < 1 ? 'nobody bought from listings' : `only ${units(Math.round(b.soldSeen))} bought from listings`;
+  const listed = price * b.units * (1 - salesTax);
+  return `Buyers barely take listings here: ${seen} in the ${Math.round(b.watchedH)} h watched, so yours would take ${days} to sell. `
+    + `Selling into the bids now gets ${iskBig(b.proceeds)}${b.left > 0 ? ` for ${units(b.units)} of your ${units(volumeRemain)} (the bids take no more)` : ''}, `
+    + `against ${iskBig(listed)} if ${b.left > 0 ? 'those' : 'it'} sold at your price`;
+}
 
 type Mine = { orderId: number; typeId: number; isBuy: boolean; price: number; volumeRemain: number };
 
@@ -159,9 +229,22 @@ export function marketBest(levels: PriceVolume[], isBuy: boolean, dailyVolume?: 
  */
 export function judgeOrder(
   o: Mine & { locationId: number; seen?: { issued: string; price: number; remain: number }[] },
-  m: { book: OrderLite[]; perDay: number | null; avgCost?: number | null; lows: (number | null)[] | null; txs: Parameters<typeof fillingNow>[2] },
+  m: { book: OrderLite[]; perDay: number | null; avgCost?: number | null; lows: (number | null)[] | null; txs: Parameters<typeof fillingNow>[2]; watched?: FlowDay },
   s: Settings,
   now = Date.now(),
+): Relist {
+  const x = adviseOrder(o, m, s, now);
+  // A listing buyers don't take is better sold into the bids: that beats moving it down a tick for a fee.
+  const t = rates(s).t;
+  const into = sellIntoBid(o, x, m, t);
+  return into ? { ...x, verdict: 'bid', intoBids: into, why: intoBidsWhy(into, x.price, x.volumeRemain, t) } : x;
+}
+
+function adviseOrder(
+  o: Mine & { locationId: number; seen?: { issued: string; price: number; remain: number }[] },
+  m: { book: OrderLite[]; perDay: number | null; avgCost?: number | null; lows: (number | null)[] | null; txs: Parameters<typeof fillingNow>[2] },
+  s: Settings,
+  now: number,
 ): Relist {
   const sells = m.book.filter((x) => !x.isBuy).map((x) => x.price);
   return adviseRelist(o, {
@@ -352,7 +435,7 @@ export function adviseRelist(
   };
 }
 
-const RANK: Record<Verdict, number> = { move: 0, dry: 1, loss: 2, wait: 3, front: 4 };
+const RANK: Record<Verdict, number> = { bid: 0, move: 0, dry: 1, loss: 2, wait: 3, front: 4 };
 
 /** What needs doing first: real relists, then the ISK at stake within each group. */
 export function byUrgency(a: Relist, b: Relist): number {

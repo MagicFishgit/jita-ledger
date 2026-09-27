@@ -9,8 +9,8 @@ import { cacheStore, getData } from './store';
 import { toast } from './toast';
 import { tickDown } from './tick';
 import { competitionShare, MIN_DAYS, returnPerDay, throughput, tradingSplit, type BookSold } from './split';
-import { watchedFlow } from './flowStore';
-import { FILL_RARE } from './fills';
+import { watchedDays, watchedFlow } from './flowStore';
+import { FILL_RARE, withWatchedLows } from './fills';
 import type { ScanRuns } from './prospects';
 import type { BookLevel, Prospect, ProspectFilters, ProspectStats } from './types';
 
@@ -143,7 +143,10 @@ export function evaluate(
   // the Busy markets view: on a market trading hundreds of thousands a day, even the small share of
   // trading ESI trims from its daily low is thousands of units, some of them sellers dumping into bids,
   // so a patient top bid does fill. It's priced at the top of the book there, and still flagged.
-  const placed = bidToPlace(bestBuy, stats.lows14);
+  // The exact fills the app has watched since the scan count too (`withWatchedLows`): an item the cloud watches
+  // is judged on Jita's own dumps, not only ESI's trimmed lows.
+  const lows = stats.lows14 && stats.lowsEnd ? withWatchedLows(stats.lows14, stats.lowsEnd, watchedDays(stats.typeId)) : stats.lows14;
+  const placed = bidToPlace(bestBuy, lows);
   const { bidReach } = placed;
   const buy = anyReturn ? placed.top : placed.buy;
   const raised = buy !== placed.top;

@@ -99,6 +99,7 @@ export function statsFrom(typeId: number, rows: HistRow[], now = Date.now()): Pr
     unitsPerDay > 0 && r.volume > SPIKE_VOLUME * unitsPerDay &&
     usualPrice > 0 && Math.abs(r.average / usualPrice - 1) > SPIKE_PRICE);
 
+  const lows = recentRange(rows, 14, now);
   return {
     typeId,
     at: new Date(now).toISOString(),
@@ -114,7 +115,8 @@ export function statsFrom(typeId: number, rows: HistRow[], now = Date.now()): Pr
     high30: Math.max(...w30.map((r) => r.highest)),
     spike,
     range7: recent.map((r) => (r.average > 0 ? (r.highest - r.lowest) / r.average : 0)),
-    lows14: recentRange(rows, 14, now).lows,
+    lows14: lows.lows,
+    lowsEnd: lows.end,
   };
 }
 

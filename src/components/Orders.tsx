@@ -1,19 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Ban, ChevronsUp, CircleDashed, CircleX, Crosshair, Hourglass, LayoutGrid, ListOrdered, MoveVertical, Repeat, Timer } from 'lucide-react';
+import { Ban, BanknoteArrowDown, ChevronsUp, CircleDashed, CircleX, Crosshair, Hourglass, LayoutGrid, ListOrdered, MoveVertical, Repeat, Timer } from 'lucide-react';
 import { ago, isk, iskBig, plainNum, units, until } from '../lib/format';
 import { useAuth, useNow, navigate } from '../lib/hooks';
 import { checkOrders, costBasis, jitaOpen, sidePace, useOrderCheck, verdicts } from '../lib/orderCheck';
 import { rates, effectiveSkills, orderSlots } from '../lib/fees';
 import { tickDown } from '../lib/tick';
 import { competitionShare, SPLIT_SAID } from '../lib/split';
-import { useFlow } from '../lib/flowStore';
+import { useFlow, watchedFlow } from '../lib/flowStore';
+import { relistPace } from '../lib/flow';
 import { loadCache, rankProspects } from '../lib/scan';
 import { DEFAULT_FILTERS } from '../lib/prospects';
 import { update, useData } from '../lib/store';
 import type { Relist, Verdict } from '../lib/relist';
 import { FILL_WINDOW } from '../lib/fills';
 import type { Prospect } from '../lib/types';
-import { canOpenInGame, NameInGame, OpenInGame, useTypeName } from './common';
+import { BusyRelisting, canOpenInGame, NameInGame, OpenInGame, useTypeName } from './common';
 import { cssVars, Empty, Guide, ItemIcon, Notice, PageHead, Seg, Th } from './ui';
 import { ScanFreshness } from './ScanFreshness';
 
@@ -48,6 +49,7 @@ const VERDICT: Record<Verdict, { label: string; c: string; Icon: typeof Ban }> =
   front: { label: 'In front', c: 'var(--acc)', Icon: ChevronsUp },
   loss: { label: 'Not worth it', c: 'var(--neg)', Icon: Ban },
   dry: { label: 'Cancel it', c: 'var(--neg)', Icon: CircleX },
+  bid: { label: 'Sell to bids', c: 'var(--acc2)', Icon: BanknoteArrowDown },
 };
 
 function rivalShape(orders: number, topShare: number, isBuy: boolean): string {
@@ -127,7 +129,7 @@ export function Orders() {
   const tips = tipsFor(side);
   const count = (v: Verdict) => all.filter((x) => x.verdict === v).length;
   // "Cancel it" only earns a card when there's something to cancel.
-  const tally = (['move', 'dry', 'wait', 'front', 'loss'] as Verdict[]).filter((v) => v !== 'dry' || count(v) > 0).map((v) => ({ v, n: count(v) }));
+  const tally = (['bid', 'move', 'dry', 'wait', 'front', 'loss'] as Verdict[]).filter((v) => (v !== 'dry' && v !== 'bid') || count(v) > 0).map((v) => ({ v, n: count(v) }));
   const worth = count('move'), holding = count('wait'), cancel = count('dry');
   const pct = check.busy ? (check.busy.done / Math.max(1, check.busy.total)) * 100 : 0;
 
@@ -259,7 +261,7 @@ export function Orders() {
                     const hot = x?.verdict === 'move';
                     return (
                       <tr key={o.orderId} className={'hover' + (hot ? ' hot' : x && x.verdict !== 'move' ? ' dim' : '')}>
-                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" /></span></td>
+                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" /></span><BusyRelisting typeId={o.typeId} isBuy={o.isBuy} /></td>
                         <td className="l lbl" style={{ color: o.isBuy ? 'var(--buy)' : 'var(--neg-t)', fontSize: 11.5 }}>{o.isBuy ? 'Buy' : 'Sell'}</td>
                         <td className="l">
                           {V && x ? (
@@ -279,12 +281,23 @@ export function Orders() {
                         <td data-tip={x ? (x.live ? 'Read from the live book just now' : 'From your last sync; ESI caches orders for twenty minutes') : undefined}>
                           {isk(x?.price ?? o.price)}{(!x || !x.live) && <span className="sub">from last sync</span>}
                         </td>
-                        <td>
-                          <span style={{ color: hot ? 'var(--pos)' : 'var(--cell)' }}>{x && Number.isFinite(x.newPrice) ? isk(x.newPrice) : '–'}</span>
-                          {x && x.cutPct > 0 && <span className="sub mono" style={{ color: x.cutPct >= 0.02 ? 'var(--neg)' : 'var(--label)' }}>{x.isBuy ? '+' : '−'}{(x.cutPct * 100).toFixed(x.cutPct < 0.1 ? 1 : 0)}%</span>}
-                        </td>
-                        <td data-tip={x && x.cost > 0 ? `${isk(x.give)} of margin plus a ${isk(x.fee)} fee` : undefined}>{x && x.cost > 0 ? iskBig(x.cost) : '–'}</td>
-                        <td>{units(x?.volumeRemain ?? o.volumeRemain)}{x && Number.isFinite(x.yourHours) && !x.unreached && <span className="sub">{hours(x.yourHours)} to {x.isBuy ? 'fill' : 'sell'}</span>}</td>
+                        {x?.intoBids ? (
+                          <>
+                            <td><span style={{ color: 'var(--acc2)' }}>{isk(x.intoBids.top)}</span><span className="sub">top bid</span></td>
+                            <td data-tip="What the standing buy orders pay for your stock now, after sales tax. Selling into a bid costs no broker fee.">{iskBig(x.intoBids.proceeds)}<span className="sub">you get</span></td>
+                          </>
+                        ) : (
+                          <>
+                            <td>
+                              <span style={{ color: hot ? 'var(--pos)' : 'var(--cell)' }}>{x && Number.isFinite(x.newPrice) ? isk(x.newPrice) : '–'}</span>
+                              {x && x.cutPct > 0 && <span className="sub mono" style={{ color: x.cutPct >= 0.02 ? 'var(--neg)' : 'var(--label)' }}>{x.isBuy ? '+' : '−'}{(x.cutPct * 100).toFixed(x.cutPct < 0.1 ? 1 : 0)}%</span>}
+                            </td>
+                            <td data-tip={x && x.cost > 0 ? `${isk(x.give)} of margin plus a ${isk(x.fee)} fee` : undefined}>{x && x.cost > 0 ? iskBig(x.cost) : '–'}</td>
+                          </>
+                        )}
+                        <td>{units(x?.volumeRemain ?? o.volumeRemain)}{x?.intoBids
+                          ? <span className="sub">{x.intoBids.daysToSell > 365 ? 'over a year' : hours(x.intoBids.daysToSell * 24)} listed</span>
+                          : x && Number.isFinite(x.yourHours) && !x.unreached && <span className="sub">{hours(x.yourHours)} to {x.isBuy ? 'fill' : 'sell'}</span>}</td>
                         <td>{iskBig((x?.price ?? o.price) * (x?.volumeRemain ?? o.volumeRemain))}</td>
                         <td style={{ color: 'var(--acc)' }}>{x && Number.isFinite(perSlot[x.orderId]) ? iskBig(perSlot[x.orderId]) : '–'}</td>
                         <td>
@@ -334,9 +347,9 @@ function PaceNote({ x, hours }: { x: Relist; hours: (h: number) => string }) {
   const basis = p.watchedH >= 1
     ? `${perDay} a day reaching you: ${who} at Jita over the ${Math.round(p.watchedH)} h this app has watched the book, blended with ${prior}.`
     : `${perDay} a day reaching you: ${prior}. The app hasn’t watched this book long enough to measure it yet.`;
-  const cuts = p.undercutsPerH != null && p.watchedH >= 1
-    ? `\n\nWhile watched, about ${units(Math.round(p.undercutsPerH))} units an hour were newly listed at the front of your side. This figure doesn’t count them.`
-    : '';
+  // How often the front was undercut while watched: the queue can grow again after you move.
+  const rp = relistPace(watchedFlow(x.typeId), x.isBuy);
+  const cuts = rp ? `\n\n${rp.said} This figure assumes nobody undercuts you meanwhile.` : '';
   return (
     <span tabIndex={0} data-tip={basis + cuts} data-tip-title="What this rests on">
       {hours(x.hoursToFront)}<span className="sub">{p.watchedH >= 1 ? `${Math.round(p.watchedH)} h watched` : p.splitFrom === 'book' ? 'from the book' : 'from history'}</span>

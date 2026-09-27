@@ -154,6 +154,8 @@ export type ProspectStats = {
    * got down to, for judging whether a bid will be reached (see fills.ts). Absent on older stats.
    */
   lows14?: (number | null)[];
+  /** The day `lows14` ends on, so the fills watched since can be folded in over the same days. */
+  lowsEnd?: string;
   /** The highest price anyone paid in the window. Nothing honest bids far above it. */
   high30?: number;
   /** A recent day traded several times the usual volume at an unusual price. */

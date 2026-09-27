@@ -138,7 +138,7 @@ export async function judgeAll(db: D1Database, charId: number, settings: Setting
     // there's no history.
     const watched: FlowDay = observedFlow({ [o.typeId]: flow[o.typeId] ?? {} }, o.typeId, now);
     const perDay = sidePaceOf({ daily: h ? paceDay(h, now) : null, buyers: h ? buyerShare(h.slice(-30)) : undefined, sold: book.sold, watched }, o.isBuy).perDay;
-    const x = judgeOrder(o, { book: book.orders, perDay, avgCost: costs[o.typeId], lows: h ? recentRange(h, undefined, now).lows : null, txs }, settings, now);
+    const x = judgeOrder(o, { book: book.orders, perDay, avgCost: costs[o.typeId], lows: h ? recentRange(h, undefined, now, flow[o.typeId]).lows : null, txs, watched }, settings, now);
     if (!x.gone) list.push(x);
   }
   return { list: list.sort(byUrgency), unread };

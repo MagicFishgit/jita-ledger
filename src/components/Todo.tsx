@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownWideNarrow, BellRing, Check, CheckCheck, CircleDollarSign, CircleX, GitPullRequestArrow, HardDriveDownload, Keyboard, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
+import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, Check, CheckCheck, CircleDollarSign, CircleX, GitPullRequestArrow, HardDriveDownload, Keyboard, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
 import { getAuth } from '../lib/auth';
 import { breakEvenSpread, rates } from '../lib/fees';
 import { ago, iskBig, units } from '../lib/format';
@@ -39,6 +39,7 @@ const DONE_SHOWN = 5;
 const LOOK: Record<TodoKind, { Icon: typeof Check; c: string }> = {
   move: { Icon: CircleDollarSign, c: 'var(--acc2)' },
   cancel: { Icon: CircleX, c: 'var(--neg)' },
+  bid: { Icon: BanknoteArrowDown, c: 'var(--acc2)' },
   close: { Icon: ListChecks, c: 'var(--pos)' },
   squeeze: { Icon: TrendingDown, c: 'var(--neg)' },
   piExpired: { Icon: Leaf, c: 'var(--neg)' },
@@ -118,6 +119,16 @@ export function Todo() {
     // Orders the book says are worth moving.
     for (const x of vs) {
       const action = { label: canOpenInGame() ? 'Open in game' : 'Open orders', typeId: x.typeId, route: 'orders' };
+      if (x.verdict === 'bid' && x.intoBids) {
+        // Buyers barely take listings: the stock is worth more in the wallet than waiting months in a slot.
+        out.push({
+          key: `order:${x.orderId}`, ver: `bid:${Number(x.intoBids.top.toPrecision(3))}`, kind: 'bid', source: 'orders', price: x.price, stake: x.intoBids.proceeds,
+          title: `${name(x.typeId)} sell order`,
+          detail: `${x.why}. Cancel the listing and sell into the bids.`,
+          action,
+        });
+        continue;
+      }
       if (x.verdict === 'dry') {
         // A buy trading doesn't reach, where reaching it leaves too little: the ISK is better freed.
         out.push({

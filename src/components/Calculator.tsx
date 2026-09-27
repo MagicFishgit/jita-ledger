@@ -12,7 +12,8 @@ import { addToWatchlist, startPosition } from '../lib/actions';
 import { navigate, useNow, type Route } from '../lib/hooks';
 import { priceDown, priceUp, tickDown, tickUp } from '../lib/tick';
 import { buyerShare, competitionShare, returnPerDay, sideVolume, SPLIT_SAID, tradingSplit, type TradingSplit } from '../lib/split';
-import { useFlow, watchedFlow } from '../lib/flowStore';
+import { useFlow, watchedDays, watchedFlow } from '../lib/flowStore';
+import { relistPace } from '../lib/flow';
 import { paceDay } from '../lib/prospects';
 import { askReachDays, bidReachDays, FILL_RARE, FILL_WINDOW, reachedBid, recentRange } from '../lib/fills';
 import { toast } from '../lib/toast';
@@ -170,7 +171,7 @@ export function Calculator({ route }: { route: Route }) {
   }), [hist, snap, flow]); // eslint-disable-line react-hooks/exhaustive-deps
   const buyers = split.share;
   // Does the bulk of trading get down to the buy price typed in? Only said when it doesn't.
-  const lows = useMemo(() => (hist.length ? recentRange(hist).lows : null), [hist]);
+  const lows = useMemo(() => (hist.length ? recentRange(hist, undefined, undefined, item ? watchedDays(item.id) : undefined).lows : null), [hist, item, flow]); // eslint-disable-line react-hooks/exhaustive-deps
   const reach = lows && Number.isFinite(tr.buy) && tr.buy > 0 ? bidReachDays(lows, tr.buy) : null;
   const reachAt = lows ? reachedBid(lows) : null;
   const set = (k: keyof Fields) => (v: string) => { setF((x) => ({ ...x, [k]: v })); setMsg(null); };
@@ -449,7 +450,7 @@ function Market(props: {
   // share of trades anyway, so "above every trade" was never quite true.
   const reality: { ok: boolean; t: string }[] = [];
   if (last7.length) {
-    const { lows, highs } = recentRange(hist);
+    const { lows, highs } = recentRange(hist, undefined, undefined, watchedDays(item.id));
     if (Number.isFinite(props.sell) && props.sell > 0) {
       const n = askReachDays(highs, props.sell);
       reality.push(n < FILL_RARE
@@ -463,6 +464,9 @@ function Market(props: {
         : { ok: true, t: `Trading got down to your buy at ${iskBig(props.buy)} on ${n} of the last ${FILL_WINDOW} days.` });
     }
   }
+  // How often the front is undercut while watched: a heads-up, never a reason against the trade.
+  const paces = [relistPace(watchedFlow(item.id), false), relistPace(watchedFlow(item.id), true)].filter((p) => p?.busy);
+  if (paces.length) reality.push({ ok: false, t: `Busy relisting. ${paces.map((p) => p!.said).join(' ')} Price patiently, or expect to relist.` });
 
   return (
     <>

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { jitaOrders, marketHistory, tradedAtJita, type OrderLite } from './market';
 import { sidePaceOf } from './flow';
-import { loadFlow, settleFlow, watchedFlow } from './flowStore';
+import { loadFlow, settleFlow, watchedDays, watchedFlow } from './flowStore';
 import { paceDay } from './prospects';
 import { computePosition } from './positions';
 import { byUrgency, judgeOrder, type Relist } from './relist';
@@ -94,7 +94,7 @@ async function runCheck(fresh: boolean): Promise<void> {
         // average several times the norm. Against what the books showed, the median was the closer.
         vol[id] = paceDay(h);
         buyers[id] = buyerShare(h.slice(-30));
-        lows[id] = recentRange(h).lows;
+        lows[id] = recentRange(h, undefined, undefined, watchedDays(id)).lows;
       } catch { vol[id] = null; }
       setState({ busy: { done: ++done, total: typeIds.length } });
     }
@@ -138,6 +138,7 @@ export function verdicts(d: Data, check: CheckState, cost: Record<number, number
       avgCost: cost[o.typeId],
       lows: check.lows?.[o.typeId] ?? null,
       txs,
+      watched: watchedFlow(o.typeId),
     }, d.settings))
     .sort(byUrgency);
 }

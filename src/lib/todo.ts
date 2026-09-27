@@ -15,7 +15,7 @@ import type { Verdict } from './relist';
  * is simply absent, and reading absent as done would tick the whole list off on every load.
  */
 
-export type TodoKind = 'move' | 'cancel' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup';
+export type TodoKind = 'move' | 'cancel' | 'bid' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup';
 
 /** Which read a finding came from, and so which read can say it has gone. */
 export type Source = 'orders' | 'colonies' | 'signals' | 'ledger';
@@ -69,11 +69,11 @@ export const WARNINGS: ReadonlySet<TodoKind> = new Set<TodoKind>(['scam', 'squee
  * measured --- they are there so a list of twelve relists reads as a quarter of an hour, not an evening.
  */
 export const MINUTES: Record<TodoKind, number> = {
-  move: 1, cancel: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1,
+  move: 1, cancel: 1, bid: 2, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1,
 };
 
 export const KIND_LABEL: Record<TodoKind, string> = {
-  move: 'Move order', cancel: 'Cancel order', close: 'Close position', squeeze: 'Margin squeeze', piExpired: 'PI expired',
+  move: 'Move order', cancel: 'Cancel order', bid: 'Sell into bids', close: 'Close position', squeeze: 'Margin squeeze', piExpired: 'PI expired',
   piEnding: 'PI ending', nearMiss: 'Trades your positions skipped', scam: 'Suspicious market', backup: 'Backup',
 };
 
@@ -171,7 +171,8 @@ export function judgeOrder(
   if (c.checkedAt == null || c.checkedAt <= e.seenAt || !c.bookRead || !c.v) return null;
   const v = c.v;
   if (v.gone) return 'It’s no longer in the market: it filled, expired or was cancelled.';
-  if (v.verdict === 'move' || v.verdict === 'dry') return null;
+  if (v.verdict === 'move' || v.verdict === 'dry' || v.verdict === 'bid') return null;
+  if (e.item.kind === 'bid') return 'Buyers are taking listings again, so it can stay listed.';
   const moved = e.item.price != null && v.price !== e.item.price;
   if (v.verdict === 'front') return moved ? `You moved it to ${isk(v.price)}, and it’s at the front.` : 'It’s at the front now: the orders ahead of it have gone.';
   if (moved) return `You moved it to ${isk(v.price)}. ${v.why}.`;

@@ -15,7 +15,7 @@ import { navigate, useNow } from '../lib/hooks';
 import { confirmAsk } from '../lib/confirm';
 import { toast } from '../lib/toast';
 import type { Prospect, ProspectFilters, ProspectWarning } from '../lib/types';
-import { OpenInGame, useTypeName } from './common';
+import { BusyRelisting, OpenInGame, useTypeName } from './common';
 import { Busy, Check, Chip, Empty, Expander, Flag, Guide, ItemIcon, PageHead, Seg, SortTh, Sparkline } from './ui';
 
 export const WARNING: Record<ProspectWarning, { short: string; why: string }> = {
@@ -293,6 +293,7 @@ function Row({ p, name, open, onToggle, baseShare }: { p: Prospect; name: string
             <ItemIcon id={p.typeId} />
             <span className="name ellipsis" style={{ maxWidth: 300 }}>{name}</span>
           </Expander>
+          <BusyRelisting typeId={p.typeId} />
         </td>
         <td className={p.roi >= 0 ? 'pos' : 'neg'} style={p.roi < 0 ? { color: 'var(--neg)' } : undefined}>{pct(p.roi, 1)}</td>
         <td style={{ color: p.roiPerDay >= 0 ? 'var(--acc)' : 'var(--neg)' }}>{pct(p.roiPerDay, 2)}</td>

@@ -29,20 +29,53 @@ export const FILL_RARE = 4;
 /** A bid reached on this many days (half the window) is where the app prices buying in. */
 export const FILL_TYPICAL = 7;
 
-/** Each day's low and high over the last `days` calendar days, oldest first, null where nothing traded. */
-export function recentRange(rows: Pick<HistRow, 'date' | 'lowest' | 'highest'>[], days = FILL_WINDOW, now = Date.now()): { lows: (number | null)[]; highs: (number | null)[] } {
+/**
+ * Per UTC day, what the app watched in the Jita book itself (`bookFills` in flow.ts): the lowest price a buy
+ * order visibly filled at, and the highest a sell order sold at. Exact, where ESI's day is trimmed.
+ */
+export type WatchedExtremes = Record<string, { buyLow?: number; sellHigh?: number }>;
+
+const lowest = (a: number | null, b: number | undefined) => (b == null ? a : a == null ? b : Math.min(a, b));
+const highest = (a: number | null, b: number | undefined) => (b == null ? a : a == null ? b : Math.max(a, b));
+
+/**
+ * Each day's low and high over the last `days` calendar days, oldest first, null where nothing traded, and the
+ * day the window ends on.
+ *
+ * With `watched`, a day's low is the lower of ESI's and the exact fill the app saw, and its high the higher:
+ * evidence is only ever added, so a watched fill can make a bid reached, never take a reach away. A seller
+ * selling into bids hits the best one, so a fill at a price means the top of the book was there and someone
+ * sold into it. The window also runs up to today when the app watched today or yesterday, since ESI's history
+ * is a day or two behind.
+ */
+export function recentRange(rows: Pick<HistRow, 'date' | 'lowest' | 'highest'>[], days = FILL_WINDOW, now = Date.now(), watched?: WatchedExtremes): { lows: (number | null)[]; highs: (number | null)[]; end: string } {
   // History runs a day or two behind: end on the latest day published if it's recent, else yesterday.
   const today = Date.parse(dayKey(now) + 'T00:00:00Z');
   const lastRow = rows.length ? Date.parse(rows[rows.length - 1].date + 'T00:00:00Z') : NaN;
-  const end = lastRow >= today - 2 * DAY && lastRow < today ? lastRow : today - DAY;
+  let end = lastRow >= today - 2 * DAY && lastRow < today ? lastRow : today - DAY;
+  for (const t of [today, today - DAY]) {
+    const w = watched?.[dayKey(t)];
+    if (w && (w.buyLow != null || w.sellHigh != null) && t > end) { end = t; break; }
+  }
   const byDay = new Map(rows.map((r) => [r.date, r]));
   const lows: (number | null)[] = [], highs: (number | null)[] = [];
   for (let i = days - 1; i >= 0; i--) {
-    const r = byDay.get(dayKey(end - i * DAY));
-    lows.push(r ? r.lowest : null);
-    highs.push(r ? r.highest : null);
+    const k = dayKey(end - i * DAY);
+    const r = byDay.get(k);
+    lows.push(lowest(r ? r.lowest : null, watched?.[k]?.buyLow));
+    highs.push(highest(r ? r.highest : null, watched?.[k]?.sellHigh));
   }
-  return { lows, highs };
+  return { lows, highs, end: dayKey(end) };
+}
+
+/**
+ * Lows worked out earlier (a scan's `lows14`, ending on `end`) with the fills watched since folded in, over the
+ * same days. Used where the lows were kept rather than read afresh.
+ */
+export function withWatchedLows(lows: (number | null)[], end: string, watched: WatchedExtremes | undefined): (number | null)[] {
+  if (!watched) return lows;
+  const e = Date.parse(end + 'T00:00:00Z');
+  return lows.map((l, i) => lowest(l, watched[dayKey(e - (lows.length - 1 - i) * DAY)]?.buyLow));
 }
 
 /** On how many of the days the bulk of trading got down to a bid at `price`. */

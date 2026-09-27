@@ -164,6 +164,35 @@ export function pace(prior: number | null, units: number, hours: number, w = PRI
   return ((units + (prior / 24) * w) / (hours + w)) * 24;
 }
 
+/** Hours an item must be watched before anything is said about how often it's undercut. */
+export const RELIST_MIN_H = 6;
+/** Undercut at least this often, in minutes, and a side is "busy relisting". */
+export const BUSY_RELIST_MIN = 30;
+
+export type RelistPace = { everyMin: number | null; watchedH: number; busy: boolean; said: string };
+
+const every = (min: number) => (min < 60 ? `${Math.max(5, Math.round(min))} min` : min < 48 * 60 ? `${Math.round(min / 60)} h` : `${Math.round(min / 1440)} days`);
+
+/**
+ * How often the front of one side was undercut (or outbid) while watched. Information only: it says nothing
+ * about whether a trade pays, so nothing is hidden or ranked lower for it. A busy side means expect to be
+ * undercut soon after you relist; pricing patiently, at a level that fills over time, beats chasing the front.
+ * Reads are five minutes apart, so the most it can say is "every 5 min".
+ */
+export function relistPace(f: FlowDay, isBuy: boolean): RelistPace | null {
+  if (!(f.h >= RELIST_MIN_H)) return null;
+  const n = (isBuy ? f.frontBuy : f.frontSell) ?? 0;
+  const everyMin = n > 0 ? (f.h * 60) / n : null;
+  const side = isBuy ? 'best bid' : 'best sell price';
+  return {
+    everyMin, watchedH: f.h,
+    busy: everyMin != null && everyMin <= BUSY_RELIST_MIN,
+    said: everyMin == null
+      ? `The ${side} wasn’t undercut in the ${Math.round(f.h)} h watched.`
+      : `The ${side} was ${isBuy ? 'outbid' : 'undercut'} about every ${every(everyMin)} over the ${Math.round(f.h)} h watched.`,
+  };
+}
+
 /**
  * Units a day that reach your side of an item: buyers taking listings for a sell, sellers dumping into
  * bids for a buy. The guess from history (the typical day, split by what the live orders have sold or by
