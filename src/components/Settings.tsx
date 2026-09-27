@@ -10,7 +10,9 @@ import { confirmAsk } from '../lib/confirm';
 import { isConfigured, login, loginMailer, logout, logoutMailer } from '../lib/auth';
 import { syncCharacter, useSyncState } from '../lib/sync';
 import { navigate, useAuth, useMailer, useNow, type Route } from '../lib/hooks';
-import { ALPHA_CAPS, REDIRECT_URI, SCOPE, SCOPE_INFO, SCOPES } from '../lib/config';
+import { ALPHA_CAPS, JITA_44, REDIRECT_URI, SCOPE, SCOPE_INFO, SCOPES } from '../lib/config';
+import { marketHistory } from '../lib/market';
+import { measureShare, MIN_SIDE_DAYS, sharedTypes, SHARE_DAYS, type ShareMeasure } from '../lib/share';
 import { ALERT_EVENTS, ALERT_SIZES, MAIL_KEEP, THEMES, TOAST_SECONDS } from '../lib/prefs';
 import { ALERT_LABELS, tidyEvery } from '../lib/alerts';
 import { testAlert, testMail, useAlertRunner, BACKUP_DAYS } from '../lib/alertsRunner';
@@ -40,6 +42,91 @@ function NumField(props: { id: string; label: string; value: number; hint?: stri
         style={{ height: 34 }}
       />
       {props.hint && <span className="hint" style={{ fontSize: 11.5, color: 'var(--faint)' }}>{props.hint}</span>}
+    </div>
+  );
+}
+
+/**
+ * One setting on a line: what it is and a plain hint on the left, a short number box with its unit on
+ * the right. The old full-width boxes put the number at the far end of the page from its label.
+ */
+function SetRow(props: { id: string; label: string; hint?: ReactNode; unit: string; value: number; onChange: (n: number) => void; action?: ReactNode }) {
+  const [text, setText] = useState(plainNum(props.value));
+  const [focused, setFocused] = useState(false);
+  return (
+    <div className="setrow">
+      <label htmlFor={props.id}>
+        <span className="sl">{props.label}</span>
+        {props.hint && <span className="sh">{props.hint}</span>}
+      </label>
+      <span className="sv">
+        {props.action}
+        <input
+          id={props.id} className="input num" inputMode="decimal" value={focused ? text : plainNum(props.value)}
+          onFocus={() => { setText(plainNum(props.value)); setFocused(true); }} onBlur={() => setFocused(false)}
+          onChange={(e) => { setText(e.target.value); const n = parseFloat(e.target.value.replace(/,/g, '').replace('%', '')); if (Number.isFinite(n)) props.onChange(n); }}
+        />
+        <span className="su">{props.unit}</span>
+      </span>
+    </div>
+  );
+}
+
+/** Measures your real share of the market from your wallet, and offers it as the setting. */
+function MeasureShare({ onUse }: { onUse: (pct: number) => void }) {
+  const d = useData();
+  const [busy, setBusy] = useState<{ done: number; total: number } | null>(null);
+  const [m, setM] = useState<ShareMeasure | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const run = async () => {
+    setErr(null); setM(null);
+    const txs = Object.values(d.txs);
+    const types = sharedTypes(txs, JITA_44);
+    if (!types.length) { setErr(`No trades in Jita 4-4 in the last ${SHARE_DAYS} days to measure from.`); return; }
+    setBusy({ done: 0, total: types.length });
+    const history: Record<number, Awaited<ReturnType<typeof marketHistory>>> = {};
+    let i = 0, done = 0;
+    await Promise.all(Array.from({ length: 4 }, async () => {
+      while (i < types.length) {
+        const id = types[i++];
+        try { history[id] = await marketHistory(id); } catch { /* measured from the rest */ }
+        setBusy({ done: ++done, total: types.length });
+      }
+    }));
+    setBusy(null);
+    setM(measureShare(txs, history, JITA_44));
+  };
+  const pc = (x: number | null) => (x == null ? '–' : `${(x * 100).toFixed(x < 0.1 ? 1 : 0)}%`);
+  return (
+    <div className="col" style={{ gap: 8, padding: '10px 0 12px', borderBottom: '1px solid var(--line-4)' }}>
+      <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+        <button type="button" className="btn sm" onClick={run} disabled={!!busy}>
+          <Percent aria-hidden="true" />{busy ? `Measuring ${busy.done} of ${busy.total}…` : 'Measure my share'}
+        </button>
+        <span className="note small">From your own Jita trades over the last {SHARE_DAYS} days.</span>
+      </div>
+      {err && <p className="note small" style={{ margin: 0 }}>{err}</p>}
+      {m && (m.suggested == null ? (
+        <p className="note small" style={{ margin: 0 }}>
+          {m.buyDays + m.sellDays === 0
+            ? 'None of your trades could be matched to a day of market history, so there’s nothing to measure yet.'
+            : `Only ${m.buyDays + m.sellDays} day${m.buyDays + m.sellDays === 1 ? '' : 's'} of trading to go on, too few to suggest a setting from. Measure again once you’ve traded more.`}
+        </p>
+      ) : (
+        <div className="notice" style={{ alignItems: 'center' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            On days you traded, your orders caught a median{' '}
+            {[
+              m.buyDays >= MIN_SIDE_DAYS ? <><b>{pc(m.buyMedian)}</b> of what sellers sold into bids ({units(m.buyDays)} days of buying)</> : null,
+              m.sellDays >= MIN_SIDE_DAYS ? <><b>{pc(m.sellMedian)}</b> of what buyers took from listings ({units(m.sellDays)} days of selling)</> : null,
+            ].filter(Boolean).reduce<ReactNode[]>((acc, x, i) => (i ? [...acc, ' and ', x] : [x]), [])}.
+            {' '}The app scales your setting up to 1.5× on markets with few orders, so <b>{m.suggested}%</b> reproduces that. Only days you traded are counted, so if anything this reads high.
+          </div>
+          <button type="button" className="btn primary sm" onClick={() => { onUse(m.suggested!); toast(`Share set to ${m.suggested}%.`); }} disabled={d.settings.share === m.suggested}>
+            {d.settings.share === m.suggested ? 'In use' : `Use ${m.suggested}%`}
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -288,27 +375,34 @@ function RatesTab() {
       <div style={grid2}>
         <section className="panel" aria-label="Rates" style={{ padding: 18, gap: 14, clipPath: 'none' }}>
           <div className="panel-title">Rates</div>
-          <NumField id="s-tax" label="Base sales tax %" value={s.taxBase} hint="Before Accounting. Check it against the game." onChange={(n) => set({ taxBase: n })} />
-          <NumField id="s-target" label="Target return %" value={s.target} hint="Used to judge each trade." onChange={(n) => set({ target: n })} />
-          <NumField id="s-share" label="Share of daily volume %" value={s.share} hint="Your guess at the share of one side of the volume you capture. It is scaled for how many orders you queue among." onChange={(n) => set({ share: n })} />
-          <NumField id="s-wait" label="Hours you’ll wait before relisting" value={s.waitHours} hint="Orders whose queue clears inside this are told to wait." onChange={(n) => set({ waitHours: n })} />
-          <Check bare checked={s.override} onChange={(on) => {
-            const cur = rates({ ...s, override: false });
-            set(on ? { override: true, brokerPct: +(cur.f * 100).toFixed(2), taxPct: +(cur.t * 100).toFixed(3) } : { override: false });
-          }}>Use my exact broker fee and sales tax from the game</Check>
-          {s.override && (
-            <div className="col" style={{ gap: 8, animation: 'unfold .3s ease-out' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 10 }}>
-                <NumField id="s-bp" label="Broker fee %" value={s.brokerPct} onChange={(n) => set({ brokerPct: n })} />
-                <NumField id="s-tp" label="Sales tax %" value={s.taxPct} onChange={(n) => set({ taxPct: n })} />
+          <div className="rates-grid">
+            <div className="col" style={{ gap: 0, minWidth: 0 }}>
+              <SetRow id="s-tax" label="Base sales tax" unit="%" value={s.taxBase} hint="Before your Accounting skill. Check it against the game." onChange={(n) => set({ taxBase: n })} />
+              <SetRow id="s-target" label="Target return" unit="%" value={s.target} hint="What you want each trade to make after fees and tax. Trades are judged against it." onChange={(n) => set({ target: n })} />
+              <SetRow id="s-share" label="Share of the market" unit="%" value={s.share}
+                hint="How much of the trading on your side your orders catch. Scaled up to 1.5× on markets with few orders, down on crowded ones." onChange={(n) => set({ share: n })} />
+              <MeasureShare onUse={(n) => set({ share: n })} />
+              <SetRow id="s-wait" label="Wait before relisting" unit="h" value={s.waitHours} hint="An order whose queue clears within this is told to wait rather than move." onChange={(n) => set({ waitHours: n })} />
+              <div style={{ padding: '12px 0 4px' }}>
+                <Check bare checked={s.override} onChange={(on) => {
+                  const cur = rates({ ...s, override: false });
+                  set(on ? { override: true, brokerPct: +(cur.f * 100).toFixed(2), taxPct: +(cur.t * 100).toFixed(3) } : { override: false });
+                }}>Use my exact broker fee and sales tax from the game</Check>
               </div>
-              <p style={{ fontSize: 11.5, color: 'var(--acc2)' }}>Update these when you switch between Alpha and Omega; exact rates don’t follow your clone state.</p>
+              {s.override && (
+                <div className="col" style={{ gap: 0, animation: 'unfold .3s ease-out' }}>
+                  <SetRow id="s-bp" label="Broker fee" unit="%" value={s.brokerPct} hint="As the game shows it, with your skills and standings." onChange={(n) => set({ brokerPct: n })} />
+                  <SetRow id="s-tp" label="Sales tax" unit="%" value={s.taxPct} hint="As the game shows it, after Accounting." onChange={(n) => set({ taxPct: n })} />
+                  <p style={{ fontSize: 11.5, color: 'var(--acc2)', margin: '8px 0 0' }}>Update these when you switch between Alpha and Omega; exact rates don’t follow your clone state.</p>
+                </div>
+              )}
             </div>
-          )}
-          <div style={{ padding: '12px 14px', background: 'color-mix(in oklab,var(--acc) 6%,rgba(2,7,12,.6))', border: '1px solid color-mix(in oklab,var(--acc) 25%,transparent)' }}>
-            {[['Rates as', s.override ? 'Exact' : alpha ? 'Alpha' : 'Omega'], ['Broker fee', pct(r.f)], ['Sales tax', pct(r.t)], ['Changing a price', `${pct(r.k)} of what’s left`], ['Break-even spread', pct(r.be, 1)]].map(([l, v]) => (
-              <div key={l} className="kv" style={{ padding: '4px 0' }}><span style={{ color: 'var(--dim)' }}>{l}</span><span className="v" style={{ color: 'var(--ink)', fontSize: 13 }}>{v}</span></div>
-            ))}
+            <div style={{ padding: '12px 14px', background: 'color-mix(in oklab,var(--acc) 6%,rgba(2,7,12,.6))', border: '1px solid color-mix(in oklab,var(--acc) 25%,transparent)' }}>
+              <div className="lbl" style={{ marginBottom: 6 }}>What you pay</div>
+              {[['Rates as', s.override ? 'Exact' : alpha ? 'Alpha' : 'Omega'], ['Broker fee', pct(r.f)], ['Sales tax', pct(r.t)], ['Changing a price', `${pct(r.k)} of what’s left`], ['Break-even spread', pct(r.be, 1)]].map(([l, v]) => (
+                <div key={l} className="kv" style={{ padding: '4px 0' }}><span style={{ color: 'var(--dim)' }}>{l}</span><span className="v" style={{ color: 'var(--ink)', fontSize: 13 }}>{v}</span></div>
+              ))}
+            </div>
           </div>
         </section>
       </div>

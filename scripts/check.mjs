@@ -1617,6 +1617,26 @@ console.log('\n--- whether trading reaches a bid ---');
   eq('  and a move to where trading reaches says why', moveMail.body.includes('Trading reached your bid on 0 of the last 14 days') && moveMail.body.includes('move your buy order up to 104,900,000 ISK'), true);
 }
 
+console.log('\n--- measuring your share ---');
+{
+  const S = await import('../src/lib/share.ts');
+  const J = 60003760, now = Date.parse('2026-09-27T12:00:00Z');
+  const day = (i) => new Date(now - i * 86400_000).toISOString().slice(0, 10);
+  // An item trading 1,000 a day, its days' averages midway (so half buyers, half sellers).
+  const hist = { 34: Array.from({ length: 30 }, (_, i) => ({ date: day(29 - i), lowest: 90, highest: 110, average: 100, volume: 1000, order_count: 50 })) };
+  const tx = (i, isBuy, qty) => ({ source: 'esi', typeId: 34, isBuy, qty, unitPrice: 100, date: day(i) + 'T12:00:00Z', locationId: J });
+  const trades = [...Array.from({ length: 6 }, (_, i) => tx(i + 1, true, 10)), ...Array.from({ length: 6 }, (_, i) => tx(i + 1, false, 30))];
+  const m = S.measureShare(trades, hist, J, now);
+  eq('buys: 10 of the 500 sellers sold a day is 2%', [m.buyDays, m.buyMedian], [6, 0.02]);
+  eq('  sells: 30 of 500 is 6%', [m.sellDays, m.sellMedian], [6, 0.06]);
+  eq('  suggested: halfway (4%), over the 1.5× the app gives a quiet market, to the half percent', m.suggested, 2.5);
+  eq('one day of buying is too little to suggest anything', S.measureShare([tx(1, true, 500)], hist, J, now).suggested, null);
+  const tenSells = Array.from({ length: 10 }, (_, i) => tx(i + 1, false, 30));
+  eq('  a thin side is left out of the suggestion', S.measureShare([...tenSells, tx(2, true, 400)], hist, J, now).suggested, S.suggestShare(null, 0.06));
+  eq('trades elsewhere, older than 30 days or typed in by hand don’t count', S.measureShare([{ ...tx(1, true, 10), locationId: 1 }, tx(40, true, 10), { ...tx(1, true, 10), source: 'manual' }], hist, J, now).buyDays, 0);
+  eq('the items to fetch: traded here lately, most ISK first', S.sharedTypes([tx(1, true, 1), { ...tx(1, true, 5), typeId: 35 }, { ...tx(1, true, 9), locationId: 2, typeId: 36 }], J, 60, now), [35, 34]);
+}
+
 console.log('\n--- horizon ---');
 {
   const { snapHorizon, HORIZONS } = await import('../src/lib/prospects.ts');
