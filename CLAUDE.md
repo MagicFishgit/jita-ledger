@@ -511,8 +511,9 @@ State these rather than letting them be discovered:
   dumps into bids live entirely in that trimmed tail looks unreached and can drop out of Prospects. Nobody can
   build a position on that tail, but a small, patient order might still fill there.
 - The reach count uses The Forge's history, not Jita's alone, and only buy orders are judged by it.
-- Prospects stats cached before `lows14` existed carry no lows until their 24-hour refresh: until then
-  those items are priced one step over the best bid and never flagged `unreached`.
+- A scan refreshes cached stats without `lows14`, and books without `npcSell`, as if they were stale, but only
+  for the items that scan reaches (the quick scan's 250 busiest candidates, 40 books). Anything older still on
+  screen is priced one step over the best bid and not flagged until a scan reaches it.
 - Loyalty prices only the best 40 offers against the live book; the rest of the table sits on a global
   average and is marked "rough price". Widening that is just more requests, not new logic.
 - Abyssal ISK-per-run only counts loot that has been **sold**. A good week looks flat until you list

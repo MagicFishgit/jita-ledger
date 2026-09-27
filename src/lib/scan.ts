@@ -257,7 +257,9 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
       .filter((id) => counts[id] >= want.minSampled)
       .sort((a, b) => counts[b] - counts[a]);
     const todo = candidates
-      .filter((id) => { const s = cache.stats[id]; return !s || now - Date.parse(s.at) > STATS_TTL; })
+      // Stats from before the 14-day lows were kept are stale too, or a scan today would price those items
+      // the old way for up to a day. A dead item has none to keep, so it isn't asked for again.
+      .filter((id) => { const s = cache.stats[id]; return !s || now - Date.parse(s.at) > STATS_TTL || (s.daysTraded > 0 && !s.lows14); })
       .slice(0, want.history);
 
     setState({
@@ -290,7 +292,8 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
     const share = settings.share / 100;
     const survivors = Object.values(cache.stats)
       .filter((s) => passesGate(s, filters))
-      .filter((s) => { const b = cache.books[s.typeId]; return !b || now - Date.parse(b.at) > BOOK_TTL; })
+      // Likewise a book read before NPC sellers were looked for.
+      .filter((s) => { const b = cache.books[s.typeId]; return !b || now - Date.parse(b.at) > BOOK_TTL || b.npcSell === undefined; })
       .map((s) => ({ s, edge: expectedEdge(s, be, share) }))
       .filter((x) => x.edge > 0)
       .sort((a, b) => b.edge - a.edge)
