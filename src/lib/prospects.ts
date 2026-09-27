@@ -167,16 +167,31 @@ export function scanFreshness(runs: ScanRuns | undefined, fallback: string | nul
   };
 }
 
-/** The horizons offered, in days. Null is "any": nothing is left out for being slow, and slow is flagged. */
-export const HORIZONS: (number | null)[] = [3, 7, 14, 30, null];
+/**
+ * The horizons offered, in days: 4 and 12 hours and a day for fast flips, then longer. Null is "any":
+ * nothing is left out for being slow, and slow is flagged. Speeds come from daily volume, so an hour
+ * horizon means "busy enough to flip this fast on an average day", not a promise it fills in 4 hours.
+ */
+export const HORIZONS: (number | null)[] = [4 / 24, 12 / 24, 1, 3, 7, 14, 30, null];
+
+/** A horizon as a person would say it: "4 hours", "a day", "3 days". */
+export function horizonSaid(days: number): string {
+  if (days < 1) { const h = Math.round(days * 24); return `${h} hour${h === 1 ? '' : 's'}`; }
+  return days === 1 ? 'a day' : `${+days.toFixed(1)} days`;
+}
+/** Short, for a button: "4 h", "1 d". */
+export const horizonShort = (days: number) => (days < 1 ? `${Math.round(days * 24)} h` : `${+days.toFixed(1)} d`);
 /** A position that takes longer than this to buy in and sell out ties ISK up for weeks, and says so. */
 export const SLOW_DAYS = 30;
 /** A saved horizon that isn't one of the choices (typed in before they existed) snaps to the nearest one. */
 export function snapHorizon(days: number | null | undefined): number | null {
   if (days === null) return null;
   if (days == null || !Number.isFinite(days) || days <= 0) return DEFAULT_FILTERS.horizonDays;
+  // Nearest by ratio, not difference: 5 days is nearer 7 than 3 in the way a person means it, and a
+  // tenth of a day must not snap to a day.
   const opts = HORIZONS.filter((h): h is number => h != null);
-  return opts.reduce((best, h) => (Math.abs(h - days) < Math.abs(best - days) ? h : best), opts[0]);
+  const off = (h: number) => Math.abs(Math.log(h / days));
+  return opts.reduce((best, h) => (off(h) < off(best) ? h : best), opts[0]);
 }
 
 export const DEFAULT_FILTERS: ProspectFilters = {

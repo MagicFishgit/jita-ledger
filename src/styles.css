@@ -433,6 +433,8 @@ input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.7); }
 .link-btn {
   background: none; border: 0; padding: 0; color: var(--acc); font-family: var(--f-head); font-size: 11px; font-weight: 600;
   letter-spacing: .08em; text-transform: uppercase; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; text-decoration: none;
+  /* In a line of text (a notice's link), centre on the line: inline-flex otherwise sits on its icon's edge. */
+  vertical-align: middle;
 }
 .link-btn:hover:not(:disabled) { color: #fff; }
 .link-btn:disabled { opacity: .5; }
@@ -560,7 +562,7 @@ input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.7); }
 
 /* notices */
 .notice { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; background: var(--inset); border: 1px solid var(--line-2); border-left: 3px solid var(--c, var(--acc)); font-size: 13px; color: var(--body); text-wrap: pretty; }
-.notice svg { width: 16px; height: 16px; flex: none; color: var(--c, var(--acc)); margin-top: 1px; }
+.notice > svg { width: 16px; height: 16px; flex: none; color: var(--c, var(--acc)); margin-top: 1px; }
 .notice.warn { --c: var(--acc2); }
 .notice.err { --c: var(--neg); }
 .notice.ok { --c: var(--pos); }

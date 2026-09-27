@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { ago, isk, iskBig, iskSigned, pct, plainNum, units } from '../lib/format';
 import { resolveNames } from '../lib/market';
-import { absorbable, BUSY_SHOWN, DEFAULT_FILTERS, FIRST_DIR, HORIZONS, passesGate, SLOW_DAYS, snapHorizon, sortProspects, type Sort, type SortKey } from '../lib/prospects';
+import { absorbable, BUSY_SHOWN, DEFAULT_FILTERS, FIRST_DIR, horizonSaid, horizonShort, HORIZONS, passesGate, SLOW_DAYS, snapHorizon, sortProspects, type Sort, type SortKey } from '../lib/prospects';
 import { clearScan, coverage, loadCache, rankProspects, runScan, stopScan, useScanState, type ScanCache } from '../lib/scan';
 import { COMPETITION_PIVOT } from '../lib/split';
 import { update, useData } from '../lib/store';
@@ -166,17 +166,17 @@ export function Prospects() {
         }} tip={`Show the ${BUSY_SHOWN} busiest markets by ISK traded a day instead, whatever they return, for dipping into a big thin-margin market on purpose.`}>Busy markets</Check>
         <div className="row" style={{ flexBasis: '100%', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <span className="lbl" style={{ fontSize: 10.5 }} data-tip-title="Out within" tabIndex={0}
-            data-tip={'How long you’re willing to have the ISK in one item, from buying in to selling out.\n\n• An item has to be able to take your ISK per item within this time, at your share of its trade, or it’s left out.\n• It doesn’t change the ranking: that’s return per day either way.\n\n“Any” leaves nothing out for being slow, and flags positions that take more than 30 days as “Locks ISK for weeks”.'}>
+            data-tip={'How long you’re willing to have the ISK in one item, from buying in to selling out.\n\n• An item has to be able to take your ISK per item within this time, at your share of its trade, or it’s left out.\n• It doesn’t change the ranking: that’s return per day either way.\n• The hour choices are for fast flips. Speeds come from daily volume, so they find items busy enough to flip that fast on an average day; trading within a day comes in bursts.\n\n“Any” leaves nothing out for being slow, and flags positions that take more than 30 days as “Locks ISK for weeks”.'}>
             Out within
           </span>
           {/* Seg takes numbers, so "any" travels as 0 and is stored as null. */}
           <Seg size="sm" label="Out within" value={f.horizonDays ?? 0} onChange={(v) => setF((x) => ({ ...x, horizonDays: v === 0 ? null : v }))}
-            options={HORIZONS.map((h) => ({ v: h ?? 0, label: h == null ? 'Any' : `${h} d` }))} />
+            options={HORIZONS.map((h) => ({ v: h ?? 0, label: h == null ? 'Any' : horizonShort(h) }))} />
           <span className="note small" style={{ flex: '1 1 260px' }}>
             {f.busy && <><b style={{ color: 'var(--acc2)' }}>Busy markets:</b> the {BUSY_SHOWN} busiest priced so far, by ISK traded a day, each at its real return. “Return ≥ %” doesn’t apply and a loss shows in red; each is sized to what it can take. </>}
             {f.horizonDays == null
               ? `Nothing is left out for being slow. Anything taking over ${SLOW_DAYS} days is flagged.`
-              : `${iskBig(f.budget)} in ${f.horizonDays} day${f.horizonDays === 1 ? '' : 's'} needs an item where your share of the trade comes to ${iskBig(f.budget / f.horizonDays)} a day.`}
+              : `${iskBig(f.budget)} in ${horizonSaid(f.horizonDays)} needs an item where your share of the trade comes to ${iskBig(f.budget / f.horizonDays)} a day.${f.horizonDays < 1 ? ' Speeds come from daily volume, so this finds items busy enough to flip that fast on an average day; within a day, trading comes in bursts.' : ''}`}
           </span>
         </div>
       </div>
@@ -217,7 +217,7 @@ export function Prospects() {
           ) : (
             <Empty icon={Telescope}>
               {biggest > 0 && biggest < f.budget
-                ? `Nothing scanned so far can absorb ${iskBig(f.budget)} within ${plainNum(f.horizonDays ?? 0)} day${f.horizonDays === 1 ? '' : 's'}. The busiest market found so far could take about ${iskBig(biggest)} in that time. Put in less, allow longer, or run a deep scan.`
+                ? `Nothing scanned so far can absorb ${iskBig(f.budget)} within ${horizonSaid(f.horizonDays ?? 0)}. The busiest market found so far could take about ${iskBig(biggest)} in that time. Put in less, allow longer, or run a deep scan.`
                 : biggest >= f.budget
                   ? `Some scanned items are busy enough to absorb ${iskBig(f.budget)}, but none of the ${units(cov.priced)} priced against the live book so far do. Scan again to price more of them, or loosen the other filters.`
                   : 'Nothing scanned so far clears these filters. Loosen the return or the trades a day, allow a longer horizon, or scan again to check more of the market.'}

@@ -1660,11 +1660,13 @@ console.log('\n--- how current the Prospects scan is ---');
 
 console.log('\n--- horizon ---');
 {
-  const { snapHorizon, HORIZONS } = await import('../src/lib/prospects.ts');
-  eq('the choices', HORIZONS, [3, 7, 14, 30, null]);
+  const { snapHorizon, HORIZONS, horizonSaid, horizonShort } = await import('../src/lib/prospects.ts');
+  eq('the choices: 4 h, 12 h, then days', HORIZONS, [4 / 24, 12 / 24, 1, 3, 7, 14, 30, null]);
   eq('"any" stays any', snapHorizon(null), null);
-  eq('a choice stays itself', snapHorizon(14), 14);
-  eq('a typed-in horizon snaps to the nearest choice', [snapHorizon(5), snapHorizon(10), snapHorizon(60)], [3, 7, 30]);
+  eq('a choice stays itself', [snapHorizon(14), snapHorizon(4 / 24)], [14, 4 / 24]);
+  eq('a typed-in horizon snaps to the nearest choice, by ratio', [snapHorizon(5), snapHorizon(10), snapHorizon(60), snapHorizon(0.1), snapHorizon(0.7)], [7, 14, 30, 4 / 24, 12 / 24]);
+  eq('said as a person would', [horizonSaid(4 / 24), horizonSaid(0.5), horizonSaid(1), horizonSaid(3)], ['4 hours', '12 hours', 'a day', '3 days']);
+  eq('  and short on a button', [horizonShort(4 / 24), horizonShort(1), horizonShort(30)], ['4 h', '1 d', '30 d']);
   eq('nothing saved is the default', [snapHorizon(undefined), snapHorizon(0)], [3, 3]);
 }
 

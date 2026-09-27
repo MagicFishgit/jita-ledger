@@ -320,12 +320,14 @@ Don't re-derive or contradict these without new evidence.
   since it's left running.
 - **Settings are one row each: name and hint, then a short number box with its unit** (`SetRow`). The old
   full-width fields put the number at the far end of the page from its label.
-- **The horizon is a choice of 3, 7, 14 or 30 days, or Any** (`HORIZONS`; Any is stored as `null`, since the
+- **The horizon is a choice of 4 h, 12 h, 1, 3, 7, 14 or 30 days, or Any** (`HORIZONS`; Any is stored as `null`, since the
   filters live in localStorage JSON where Infinity doesn't survive). It is a gate and a size cap, never a
   ranking input: ranking is return per day either way. Any leaves nothing out for being slow and flags a
   position that takes over `SLOW_DAYS` (30) to flip as "Locks ISK for weeks"; "Can take" says "no limit".
   An empty box meaning "unlimited" was considered and rejected: it would quietly bring back the locked-ISK
-  trap the reach work was built against. A saved typed-in horizon snaps to the nearest choice.
+  trap the reach work was built against. A saved typed-in horizon snaps to the nearest choice *by ratio*.
+  The hour choices are for fast flips and say their limit: speeds come from daily volume, so they find items
+  busy enough to flip that fast on an average day, not a promise of a fill inside 4 hours.
 - **Pages run full width** via `--page-max`, so wide tables don't need a scrollbar. Prose keeps its own
   measure.
 - **Loyalty ranks per point, not per ISK**, because points are the scarce thing. An offer's output is
@@ -501,6 +503,10 @@ Don't re-derive or contradict these without new evidence.
   went missing exactly this way — one anchor in this file moved and everything chaining off it
   cascaded — and it was caught only by grepping for the phrases afterwards. Use the Edit tool, or
   `assert anchor in s` before every replace, and grep for what you added once it is written.
+- **`.notice > svg`, not `.notice svg`.** The descendant rule sized, nudged and recoloured the icon inside
+  a link placed in a notice ("Open Prospects" sat off its text). A notice's own icon is always its direct
+  child. `.link-btn` also carries `vertical-align: middle`, since an inline-flex button in a line of text
+  otherwise sits on its icon's edge.
 - **A global CSS rule on a shared class reaches pages you aren't looking at.** `.chip` becoming
   `inline-flex`, `.kv .v` gaining `nowrap` and `.empty svg` (which enlarged every icon inside an empty state's
   button until narrowed to `.empty > svg`) all changed pages other than the one being built. Re-shoot the
