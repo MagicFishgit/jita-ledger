@@ -15,6 +15,7 @@ import { toast } from '../lib/toast';
 import { useEnsureNames, useTypeName } from './common';
 import { flip } from './Prospects';
 import { Busy, Empty, Guide, ItemIcon, NumChip, PageHead, Seg } from './ui';
+import { ScanFreshness } from './ScanFreshness';
 
 type Haul = 'pushx' | 'own' | 'courier';
 type Saved = { hub: string; haul: Haul; buy: BuyMode; quote: number | null; reward: number | null; delivery: number | null; sellDays: number | null; picked: Record<string, number[]> };
@@ -150,6 +151,7 @@ export function Arbitrage() {
         kicker="02c · Buy here, sell there" title="Hub arbitrage" wide
         lede="Items that sell for more in another trade hub than they cost in Jita, after both hubs’ fees, sales tax and getting them there. Build a shipment, price it with PushX, your own hauler or a public courier, and see what it really clears."
       />
+      <ScanFreshness what="the candidate list" />
       <div className="chipbar" data-rv="" style={{ gap: 16 }}>
         <span className="row tight"><span className="lbl">Sell in</span>
           <Seg label="Destination hub" value={s.hub} onChange={(v) => { set({ hub: v }); setData(loaded.get(v) ?? null); setGoing(null); }} options={HUBS.map((h) => ({ v: h.name, label: h.name }))} />

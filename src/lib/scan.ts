@@ -5,10 +5,12 @@ import { esi } from './esi';
 import { calc, rates, type Settings } from './fees';
 import { jitaBook, marketHistory } from './market';
 import { bidToPlace, BUSY_SHOWN, DEFAULT_FILTERS, expectedEdge, passesGate, pickPages, SLOW_DAYS, statsFrom, tradedPerDay, warningsFor } from './prospects';
-import { cacheStore } from './store';
+import { cacheStore, getData } from './store';
+import { toast } from './toast';
 import { tickDown } from './tick';
 import { competitionShare, EVEN_SPLIT, MIN_DAYS, returnPerDay, throughput } from './split';
 import { FILL_RARE } from './fills';
+import type { ScanRuns } from './prospects';
 import type { BookLevel, Prospect, ProspectFilters, ProspectStats } from './types';
 
 /**
@@ -47,6 +49,8 @@ export type Book = { at: string; bestBuy: number | null; bestSell: number | null
 
 export type ScanCache = {
   sample?: { at: string; totalPages: number; sampledPages: number; minSampled: number; counts: Record<number, number> };
+  /** When a quick and a deep scan last ran to the end. A stopped scan doesn't count. */
+  runs?: ScanRuns;
   stats: Record<number, ProspectStats>;
   books: Record<number, Book>;
 };
@@ -361,10 +365,17 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
         setState({ saved: state.saved + 1 });
       }
     });
+    // Only a scan that ran to the end is recorded as done: other pages judge their data by it.
+    if (!abort) cache.runs = { ...cache.runs, [depth]: new Date().toISOString() };
     await saveCache(cache);
     setState({ saved: state.saved + 1 });
 
     setState({ phase: 'done', message: '', candidates: candidates.length });
+    // A deep scan is left running, often for a long time, so it says when it has finished.
+    if (!abort && depth === 'deep') {
+      const text = `Deep scan finished: ${Object.keys(cache.stats).length.toLocaleString('en-US')} items checked, ${Object.keys(cache.books).length.toLocaleString('en-US')} priced against the live book.`;
+      toast(text, 'ok', { system: getData().alerts.browser ? { title: 'Jita Ledger · Deep scan finished', tag: 'deep-scan', heading: 'Deep scan finished' } : undefined });
+    }
   } catch (e) {
     setState({ phase: 'done', error: e instanceof Error ? e.message : String(e) });
   }

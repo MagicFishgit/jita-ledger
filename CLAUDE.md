@@ -310,6 +310,14 @@ Don't re-derive or contradict these without new evidence.
   between them, over the 1.5× a quiet market gets, to the half percent. Needs `MIN_SHARE_DAYS` (10) item-days
   and drops a side with under `MIN_SIDE_DAYS` (3): one day of buying suggested 66.5%. Only days you traded
   count, so it reads high, and says so. The user had 50% set; their wallet measured 1.2% on buys, 5.8% on sells.
+- **Pages that work from the Prospects scan say how old it is** (`ScanFreshness`, rule `scanFreshness`): the
+  Capital planner, Hub arbitrage, and the slot-swap suggestions on Orders. Nothing else refreshes that data,
+  and the user worried about acting on an old scan. The scan records when a quick and a deep scan last *ran
+  to the end* (`cache.runs`; a stopped scan doesn't count). Under 6 hours is a quiet line; over 6 an amber
+  warning; over a day a red one; each with when a deep scan last finished, flagged if never or over a week,
+  and a link to Prospects. Scans from before finishing times were kept are judged by the newest price in the
+  cache. A deep scan that finishes says so, as a system notification too when browser notifications are on,
+  since it's left running.
 - **Settings are one row each: name and hint, then a short number box with its unit** (`SetRow`). The old
   full-width fields put the number at the far end of the page from its label.
 - **The horizon is a choice of 3, 7, 14 or 30 days, or Any** (`HORIZONS`; Any is stored as `null`, since the

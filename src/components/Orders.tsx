@@ -14,6 +14,7 @@ import { FILL_WINDOW } from '../lib/fills';
 import type { Prospect } from '../lib/types';
 import { canOpenInGame, OpenInGame, useTypeName } from './common';
 import { cssVars, Empty, Guide, ItemIcon, Notice, PageHead, Seg, Th } from './ui';
+import { ScanFreshness } from './ScanFreshness';
 
 /**
  * Plain-English notes behind the "i" on each column, phrased for whichever side you are reading.
@@ -202,6 +203,7 @@ export function Orders() {
                     : `You’re using ${units(open.length)} of ${units(slots)} slots. These earn least per slot; swapping them is how a full book earns more.`}
                 </span>
               </div>
+              <ScanFreshness what="what to swap them for" compact />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,280px),1fr))', gap: 10 }}>
                 {weakest.map((x, i) => {
                   const b = better[i];

@@ -130,6 +130,43 @@ export function pickPages(total: number, want: number, rnd: () => number = Math.
   return [1, ...pool.slice(0, Math.max(0, Math.min(want, total) - 1))];
 }
 
+/** When a quick and a deep scan last ran to the end. */
+export type ScanRuns = { quick?: string; deep?: string };
+/** Scan data older than this is a bit stale: prices and volumes have moved. */
+export const SCAN_STALE_HOURS = 6;
+/** Older than this, it's old: trading history refreshes daily. */
+export const SCAN_OLD_HOURS = 24;
+/** A deep scan older than this, or none at all, is worth running again: it checks every candidate. */
+export const DEEP_STALE_DAYS = 7;
+
+export type ScanFreshness = {
+  level: 'none' | 'fresh' | 'stale' | 'old';
+  /** When the data was last refreshed by a finished scan, or by the last pricing for a scan from before this was kept. */
+  last: string | null;
+  lastDepth: 'quick' | 'deep' | null;
+  deepAt: string | null;
+  deepStale: boolean;
+};
+
+/**
+ * How current the Prospects data is, for the pages that work from it (the planner, hub arbitrage, the
+ * slot-swap suggestions on Orders). `fallback` is the newest price in the cache, for a scan run before
+ * finishing times were kept: better than calling it "never".
+ */
+export function scanFreshness(runs: ScanRuns | undefined, fallback: string | null, now = Date.now()): ScanFreshness {
+  const finished = [runs?.quick, runs?.deep].filter((x): x is string => !!x).sort();
+  const last = finished.pop() ?? fallback ?? null;
+  const hours = last ? (now - Date.parse(last)) / 3600_000 : null;
+  const level = hours == null ? 'none' : hours < SCAN_STALE_HOURS ? 'fresh' : hours < SCAN_OLD_HOURS ? 'stale' : 'old';
+  const deepAt = runs?.deep ?? null;
+  return {
+    level, last,
+    lastDepth: last && last === runs?.deep ? 'deep' : last && last === runs?.quick ? 'quick' : null,
+    deepAt,
+    deepStale: !deepAt || (now - Date.parse(deepAt)) / 86400_000 > DEEP_STALE_DAYS,
+  };
+}
+
 /** The horizons offered, in days. Null is "any": nothing is left out for being slow, and slow is flagged. */
 export const HORIZONS: (number | null)[] = [3, 7, 14, 30, null];
 /** A position that takes longer than this to buy in and sell out ties ISK up for weeks, and says so. */

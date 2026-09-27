@@ -1645,6 +1645,19 @@ console.log('\n--- busy markets ---');
   eq('the table sorts by it, busiest first', P.sortProspects([mk(1, 5), mk(2, 50), mk(3, 20)], { key: 'traded', dir: P.FIRST_DIR.traded }, String).map((p) => p.typeId), [2, 3, 1]);
 }
 
+console.log('\n--- how current the Prospects scan is ---');
+{
+  const P = await import('../src/lib/prospects.ts');
+  const now = Date.parse('2026-09-27T12:00:00Z');
+  const h = (n) => new Date(now - n * 3600_000).toISOString();
+  eq('no scan at all', P.scanFreshness(undefined, null, now).level, 'none');
+  eq('a quick scan an hour ago is fresh', [P.scanFreshness({ quick: h(1) }, null, now).level, P.scanFreshness({ quick: h(1) }, null, now).lastDepth], ['fresh', 'quick']);
+  eq('  over 6 hours is stale, over a day old', [P.scanFreshness({ quick: h(7) }, null, now).level, P.scanFreshness({ quick: h(30) }, null, now).level], ['stale', 'old']);
+  eq('the newest finished scan counts, of either depth', P.scanFreshness({ quick: h(30), deep: h(2) }, null, now).lastDepth, 'deep');
+  eq('no deep scan, or one over a week old, is worth running again', [P.scanFreshness({ quick: h(1) }, null, now).deepStale, P.scanFreshness({ deep: h(24 * 8) }, null, now).deepStale, P.scanFreshness({ deep: h(24 * 2) }, null, now).deepStale], [true, true, false]);
+  eq('a scan from before finishing times were kept is judged by its newest price', P.scanFreshness(undefined, h(10), now).level, 'stale');
+}
+
 console.log('\n--- horizon ---');
 {
   const { snapHorizon, HORIZONS } = await import('../src/lib/prospects.ts');

@@ -191,6 +191,9 @@ export function Prospects() {
             Checked {units(cov.checked)} of about {units(cov.candidates)} candidates, {units(cov.priced)} priced against the live book.
             {cov.pricedAt && <> Prices from <strong style={{ color: 'var(--body)' }}>{ago(cov.pricedAt, now)}</strong>; a scan refreshes any over an hour old.</>}
             {cov.priced === 0 ? ' A quick scan will price the best of them — it keeps the trading history already gathered.' : cov.checked < cov.candidates ? ' Scan again to widen the net.' : ''}
+            {' '}{cache?.runs?.deep
+              ? <>Last deep scan finished <strong style={{ color: 'var(--body)' }}>{ago(cache.runs.deep, now)}</strong>.</>
+              : <span style={{ color: 'var(--acc2)' }}>No deep scan has finished yet.</span>}
           </span>
           <button type="button" className="link-btn danger" onClick={async () => {
             if (!(await confirmAsk({ title: 'Clear these results?', body: 'Deletes only what the scan found. Your trades, positions and settings are untouched.', confirm: 'Clear results', danger: true }))) return;

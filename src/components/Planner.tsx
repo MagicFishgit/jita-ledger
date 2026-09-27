@@ -13,6 +13,7 @@ import type { ProspectFilters } from '../lib/types';
 import { useEnsureNames, useTypeName } from './common';
 import { flip } from './Prospects';
 import { Empty, Guide, ItemIcon, NumChip, PageHead, Panel, Tiles } from './ui';
+import { ScanFreshness } from './ScanFreshness';
 
 const KEY = 'jita-ledger:planner';
 const COLS = ['var(--acc)', '#a98bff', '#6ee7a8', 'var(--acc2)', '#ff8d9a', '#7aa6ff', '#eed79a', '#5fe0b5', '#ff9f6b', '#c7d2de'];
@@ -73,6 +74,7 @@ export function Planner() {
         kicker="02b · Put ISK to work" title="Capital planner" wide
         lede="Tell it how much ISK and how many order slots you have free, and it builds a mix from your Prospects — best payback first, never more than a market can take, and never too much in one item. Anything flagged as a wall, spike, fluke or escrow bait is left out."
       />
+      <ScanFreshness what="the plan" />
       <div className="chipbar" data-rv="">
         <span className="chipbar-title"><SlidersHorizontal aria-hidden="true" />Budget</span>
         <NumChip id="pl-isk" label="ISK to deploy" value={inp.isk} onChange={(v) => set({ isk: v })} width={130} decimals={0} placeholder="2b" tip="Free ISK you want working — not what’s already in orders" />
