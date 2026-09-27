@@ -4,7 +4,7 @@ import { JITA_44, THE_FORGE } from './config';
 import { esi } from './esi';
 import { calc, rates, type Settings } from './fees';
 import { jitaBook, marketHistory } from './market';
-import { bidToPlace, DEFAULT_FILTERS, expectedEdge, passesGate, pickPages, SLOW_DAYS, statsFrom, warningsFor } from './prospects';
+import { bidToPlace, BUSY_SHOWN, DEFAULT_FILTERS, expectedEdge, passesGate, pickPages, SLOW_DAYS, statsFrom, tradedPerDay, warningsFor } from './prospects';
 import { cacheStore } from './store';
 import { tickDown } from './tick';
 import { competitionShare, EVEN_SPLIT, MIN_DAYS, returnPerDay, throughput } from './split';
@@ -26,13 +26,14 @@ import type { BookLevel, Prospect, ProspectFilters, ProspectStats } from './type
  * takes minutes rather than seconds and is meant to be left running.
  */
 export type ScanDepth = 'quick' | 'deep';
-const DEPTH: Record<ScanDepth, { pages: number; history: number; books: number; minSampled: number }> = {
-  // Sized to stay usable: about a minute and a half, skimming the busiest books.
-  quick: { pages: 20, history: 250, books: 40, minSampled: 3 },
+const DEPTH: Record<ScanDepth, { pages: number; history: number; books: number; busy: number; minSampled: number }> = {
+  // Sized to stay usable: about a minute and a half, skimming the busiest books. `busy` is how many of
+  // the busiest markets by ISK traded are priced as well, whatever their margin, for the Busy markets view.
+  quick: { pages: 20, history: 250, books: 40, busy: 60, minSampled: 3 },
   // Runs to the end however long that takes. Three times the sample, a lower bar so quieter items
   // make the shortlist, and no cap on how many get checked --- a deep scan that stopped early and
   // asked to be run again is just a quick scan with extra steps.
-  deep: { pages: 60, history: Infinity, books: Infinity, minSampled: 2 },
+  deep: { pages: 60, history: Infinity, books: Infinity, busy: 100, minSampled: 2 },
 };
 
 /** How often to write progress away mid-run, so a long scan survives the tab closing. */
@@ -123,16 +124,25 @@ export function evaluate(
   settings: Settings,
   filters: ProspectFilters,
   estOrders: number,
+  /** Keep it whatever it returns, a loss included: the Busy markets view shows the real figure. */
+  anyReturn = false,
 ): Prospect | null {
   const { bestBuy, bestSell } = book;
   if (bestBuy == null || bestSell == null) return null;
   // NPCs sell it at a fixed price in unlimited supply: players rarely sell below that, so a bid doesn't
   // fill, and there's nothing cheaper to buy and resell. Neither side can be traded, so it isn't shown.
   if (book.npcSell) return null;
-  // Where the bulk of trading reaches, not merely one step above the best bid (see bidToPlace).
-  const { buy, bidReach, raised } = bidToPlace(bestBuy, stats.lows14);
+  // Where the bulk of trading reaches, not merely one step above the best bid (see bidToPlace). Except in
+  // the Busy markets view: on a market trading hundreds of thousands a day, even the small share of
+  // trading ESI trims from its daily low is thousands of units, some of them sellers dumping into bids,
+  // so a patient top bid does fill. It's priced at the top of the book there, and still flagged.
+  const placed = bidToPlace(bestBuy, stats.lows14);
+  const { bidReach } = placed;
+  const buy = anyReturn ? placed.top : placed.buy;
+  const raised = buy !== placed.top;
   const sell = tickDown(bestSell);
-  if (!Number.isFinite(buy) || !Number.isFinite(sell) || sell <= buy) return null;
+  // A buy at or above the sell is a loss, which the Busy markets view shows rather than hides.
+  if (!Number.isFinite(buy) || !Number.isFinite(sell) || (!anyReturn && sell <= buy)) return null;
 
   // Only one side of the daily volume fills each of your orders: sellers dumping into bids fill your
   // buy, buyers taking listings fill your sell. And your share of each side shrinks the more orders
@@ -155,13 +165,13 @@ export function evaluate(
   const daysToFlip = (qty * buy) / perDay;
 
   const c = calc({ buy, sell, qty }, settings);
-  if (!c.ok || c.net <= 0 || c.roi < filters.minRoi) return null;
+  if (!c.ok || (!anyReturn && (c.net <= 0 || c.roi < filters.minRoi))) return null;
 
   return {
     typeId: stats.typeId, stats, bestBuy, bestSell, buy, sell,
     buyOrders: book.buyOrders, sellOrders: book.sellOrders,
     topBuyVol: book.topBuys[0]?.volume ?? 0, topSellVol: book.topSells[0]?.volume ?? 0,
-    qty, net: c.net / qty, roi: c.roi, spreadPct: c.spreadPct,
+    qty, net: c.net / qty, roi: c.roi, spreadPct: c.spreadPct, traded: tradedPerDay(stats),
     canTake, daysToFlip,
     roiPerDay: returnPerDay(c.roi, daysToFlip),
     // Profit spread over the days your money is actually tied up, so a fast small flip and a slow
@@ -181,6 +191,21 @@ export function evaluate(
 export function rankProspects(cache: ScanCache, settings: Settings, filters: ProspectFilters): Prospect[] {
   const scale = cache.sample ? cache.sample.totalPages / Math.max(1, cache.sample.sampledPages) : 1;
   const out: Prospect[] = [];
+  if (filters.busy) {
+    // The busiest markets priced so far, by ISK traded a day, each at its real return, sized to what it
+    // can take in the horizon. For dipping into a big, thin-margin market on purpose.
+    // Walks down until BUSY_SHOWN can be shown: some near the top can't be (one unit costs more than
+    // your ISK per item, or NPCs sell it), and stopping at the first 40 showed 26.
+    const busiest = Object.values(cache.stats)
+      .filter((s) => passesGate(s, filters) && cache.books[s.typeId])
+      .sort((a, b) => tradedPerDay(b) - tradedPerDay(a));
+    for (const s of busiest) {
+      if (out.length >= BUSY_SHOWN) break;
+      const p = evaluate(s, cache.books[s.typeId], settings, { ...filters, partial: true }, (cache.sample?.counts[s.typeId] ?? 0) * scale, true);
+      if (p) out.push(p);
+    }
+    return out.sort((a, b) => b.traded - a.traded);
+  }
   for (const s of Object.values(cache.stats)) {
     if (!passesGate(s, filters)) continue;
     const book = cache.books[s.typeId];
@@ -304,6 +329,14 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
       .sort((a, b) => b.edge - a.edge)
       .slice(0, want.books)
       .map((x) => x.s);
+    // And the busiest markets by ISK traded, whatever their margin, so the Busy markets view has them.
+    const busiest = Object.values(cache.stats)
+      // One unit costing more than your ISK per item can't be shown, so it isn't worth a request.
+      .filter((s) => passesGate(s, filters) && s.unitsPerDay > 0 && s.avgPrice <= filters.budget && !survivors.includes(s))
+      .filter((s) => { const b = cache.books[s.typeId]; return !b || now - Date.parse(b.at) > BOOK_TTL || b.npcSell === undefined; })
+      .sort((a, b) => tradedPerDay(b) - tradedPerDay(a))
+      .slice(0, want.busy);
+    survivors.push(...busiest);
 
     setState({
       phase: 'pricing', done: 0, total: survivors.length,

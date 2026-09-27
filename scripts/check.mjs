@@ -1637,6 +1637,14 @@ console.log('\n--- measuring your share ---');
   eq('the items to fetch: traded here lately, most ISK first', S.sharedTypes([tx(1, true, 1), { ...tx(1, true, 5), typeId: 35 }, { ...tx(1, true, 9), locationId: 2, typeId: 36 }], J, 60, now), [35, 34]);
 }
 
+console.log('\n--- busy markets ---');
+{
+  const P = await import('../src/lib/prospects.ts');
+  eq('ISK traded a day is the median day’s units at the average price', P.tradedPerDay({ unitsPerDay: 800000, avgPrice: 20000 }), 16e9);
+  const mk = (typeId, traded) => ({ typeId, roi: 0, net: 0, iskPerDay: 0, capital: 0, canTake: 0, daysToFlip: 1, traded, warnings: [], stats: { tradesPerDay: 1, daysTraded: 30, unitsPerDay: 1 } });
+  eq('the table sorts by it, busiest first', P.sortProspects([mk(1, 5), mk(2, 50), mk(3, 20)], { key: 'traded', dir: P.FIRST_DIR.traded }, String).map((p) => p.typeId), [2, 3, 1]);
+}
+
 console.log('\n--- horizon ---');
 {
   const { snapHorizon, HORIZONS } = await import('../src/lib/prospects.ts');

@@ -295,6 +295,23 @@ Don't re-derive or contradict these without new evidence.
   there, so it hides an opportunity rather than inventing a bad trade, and that is the safe direction.
 - **Prospects sizes a position by what an item can absorb** (`units/day × share × price × horizon`),
   not by one day's volume. The budget is a target, not a cap.
+- **Busy markets is a separate view, not a looser filter** (`filters.busy`). It shows up to `BUSY_SHOWN` (100)
+  items by ISK traded a day (`tradedPerDay`: median day's units × 30-day average price), each at its real
+  return (`evaluate(..., anyReturn)`): a loss is shown in red, not hidden, and "Return ≥ %" doesn't apply.
+  Every scan prices the busiest markets as well as the best-margin ones (60 on a quick scan, 100 on a deep),
+  skipping any where one unit costs more than ISK per item. The view walks down the list until it has enough
+  it can show: stopping at the first 40 showed 26. It prices at the **top of the book**, not `bidToPlace`'s
+  realistic bid: on a market trading 890,000 nanites a day, the ~2% share of trades ESI trims from its daily
+  low is still thousands of units, some of them dumps into bids, so a patient top bid does fill there. The
+  `unreached` flag still shows. At the user's rates (1.3% broker, 3.375% tax) and 1 B per item, 45 of the 100
+  busiest were profitable; nanites made 0.69%.
+- **Share of the market can be measured** (`lib/share.ts`, "Measure my share" in Settings). Your Jita trades
+  over 30 days, per item-day, against that day's volume on your side; the median of each side, halfway
+  between them, over the 1.5× a quiet market gets, to the half percent. Needs `MIN_SHARE_DAYS` (10) item-days
+  and drops a side with under `MIN_SIDE_DAYS` (3): one day of buying suggested 66.5%. Only days you traded
+  count, so it reads high, and says so. The user had 50% set; their wallet measured 1.2% on buys, 5.8% on sells.
+- **Settings are one row each: name and hint, then a short number box with its unit** (`SetRow`). The old
+  full-width fields put the number at the far end of the page from its label.
 - **The horizon is a choice of 3, 7, 14 or 30 days, or Any** (`HORIZONS`; Any is stored as `null`, since the
   filters live in localStorage JSON where Infinity doesn't survive). It is a gate and a size cap, never a
   ranking input: ranking is return per day either way. Any leaves nothing out for being slow and flags a

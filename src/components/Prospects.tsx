@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { ago, isk, iskBig, iskSigned, pct, plainNum, units } from '../lib/format';
 import { resolveNames } from '../lib/market';
-import { absorbable, DEFAULT_FILTERS, FIRST_DIR, HORIZONS, passesGate, SLOW_DAYS, snapHorizon, sortProspects, type Sort, type SortKey } from '../lib/prospects';
+import { absorbable, BUSY_SHOWN, DEFAULT_FILTERS, FIRST_DIR, HORIZONS, passesGate, SLOW_DAYS, snapHorizon, sortProspects, type Sort, type SortKey } from '../lib/prospects';
 import { clearScan, coverage, loadCache, rankProspects, runScan, stopScan, useScanState, type ScanCache } from '../lib/scan';
 import { COMPETITION_PIVOT } from '../lib/split';
 import { update, useData } from '../lib/store';
@@ -26,7 +26,7 @@ export const WARNING: Record<ProspectWarning, { short: string; why: string }> = 
   falling: { short: 'Falling', why: 'The 30-day average price is more than 10% below the 90-day. You would be buying into a slide.' },
   crowded: { short: 'Crowded', why: 'Hundreds of listings against very few trades. You would be joining a queue, not a market.' },
   slow: { short: 'Locks ISK for weeks', why: `At your share of the trade, this position takes more than ${SLOW_DAYS} days to buy in and sell out.\n\nFine if you meant to hold it that long, but the ISK is tied up the whole time and the market can move against you meanwhile.` },
-  unreached: { short: 'Bids not reached', why: 'The bulk of trading hasn’t been getting down to the best bid: on fewer than 4 of the last 14 days did the day’s trading reach it.\n\nSellers here list and wait rather than sell into buy orders, so a bid at the top can sit for weeks with your ISK held in it. The prices shown assume you bid where trading did reach, on 7 of the last 14 days.\n\nESI’s daily low leaves out a small share of trades, so a few units may still sell lower. Not enough to build a position on.' },
+  unreached: { short: 'Bids not reached', why: 'The bulk of trading hasn’t been getting down to the best bid: on fewer than 4 of the last 14 days did the day’s trading reach it.\n\nSellers here list and wait rather than sell into buy orders, so a bid at the top can sit for weeks with your ISK held in it. The prices shown assume you bid where trading did reach, on 7 of the last 14 days (in Busy markets, the top of the book instead).\n\nESI’s daily low leaves out a small share of trades, so some units still sell lower: on a very busy market that can be thousands a day, which is why Busy markets prices at the top.' },
 };
 
 /** How long the money is in, in a unit that reads naturally. */
@@ -42,7 +42,7 @@ const COLUMNS: [SortKey, string, string?][] = [
   ['roiDay', 'Return / day', 'Return divided by the days your ISK is tied up. The default sort — it rewards items that turn round fast.'],
   ['canTake', 'Can take', 'ISK this item can absorb inside your horizon at your share of the side that fills slower. With “Any”, there’s no limit: see “Flips in” for how long it takes.'],
   ['flip', 'Flips in'], ['net', 'Profit / unit'], ['trades', 'Trades a day'], ['days', 'Days traded'],
-  ['volume', 'Volume, 30 d'], ['iskPerDay', 'ISK per day'], ['capital', 'ISK tied up'], ['flags', 'Flags'],
+  ['volume', 'Volume, 30 d'], ['traded', 'Traded a day', 'ISK that changes hands here on a typical day, both sides: the median day’s units at the 30-day average price.'], ['iskPerDay', 'ISK per day'], ['capital', 'ISK tied up'], ['flags', 'Flags'],
 ];
 
 type NumberFilter = 'budget' | 'minTrades' | 'minDays' | 'minRoi';
@@ -160,6 +160,10 @@ export function Prospects() {
             onBlur={() => key === 'budget' && setText((t) => ({ ...t, budget: Math.round(f.budget).toLocaleString('en-US') }))} />
         ))}
         <Check checked={f.demoteFlagged} onChange={(v) => setF((x) => ({ ...x, demoteFlagged: v }))} tip="Push flagged items down the list — the more flags, the further down">Push flagged down</Check>
+        <Check checked={!!f.busy} onChange={(v) => {
+          setF((x) => ({ ...x, busy: v }));
+          setSort((s) => (v ? { key: 'traded', dir: 'desc' } : s.key === 'traded' ? { key: 'roiDay', dir: 'desc' } : s));
+        }} tip={`Show the ${BUSY_SHOWN} busiest markets by ISK traded a day instead, whatever they return, for dipping into a big thin-margin market on purpose.`}>Busy markets</Check>
         <div className="row" style={{ flexBasis: '100%', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <span className="lbl" style={{ fontSize: 10.5 }} data-tip-title="Out within" tabIndex={0}
             data-tip={'How long you’re willing to have the ISK in one item, from buying in to selling out.\n\n• An item has to be able to take your ISK per item within this time, at your share of its trade, or it’s left out.\n• It doesn’t change the ranking: that’s return per day either way.\n\n“Any” leaves nothing out for being slow, and flags positions that take more than 30 days as “Locks ISK for weeks”.'}>
@@ -169,6 +173,7 @@ export function Prospects() {
           <Seg size="sm" label="Out within" value={f.horizonDays ?? 0} onChange={(v) => setF((x) => ({ ...x, horizonDays: v === 0 ? null : v }))}
             options={HORIZONS.map((h) => ({ v: h ?? 0, label: h == null ? 'Any' : `${h} d` }))} />
           <span className="note small" style={{ flex: '1 1 260px' }}>
+            {f.busy && <><b style={{ color: 'var(--acc2)' }}>Busy markets:</b> the {BUSY_SHOWN} busiest priced so far, by ISK traded a day, each at its real return. “Return ≥ %” doesn’t apply and a loss shows in red; each is sized to what it can take. </>}
             {f.horizonDays == null
               ? `Nothing is left out for being slow. Anything taking over ${SLOW_DAYS} days is flagged.`
               : `${iskBig(f.budget)} in ${f.horizonDays} day${f.horizonDays === 1 ? '' : 's'} needs an item where your share of the trade comes to ${iskBig(f.budget / f.horizonDays)} a day.`}
@@ -204,7 +209,9 @@ export function Prospects() {
             and works through every candidate it finds. Either way, results appear as they are found and are kept.
           </Empty>
         ) : !rows.length ? (
-          busy ? <Empty icon={Radar}>Scanning. Anything that clears your filters appears here as soon as it is priced.</Empty> : (
+          busy ? <Empty icon={Radar}>Scanning. Anything that clears your filters appears here as soon as it is priced.</Empty> : f.busy ? (
+            <Empty icon={Telescope}>No busy markets priced yet. Every scan now prices the busiest markets as well, so run a quick scan.</Empty>
+          ) : (
             <Empty icon={Telescope}>
               {biggest > 0 && biggest < f.budget
                 ? `Nothing scanned so far can absorb ${iskBig(f.budget)} within ${plainNum(f.horizonDays ?? 0)} day${f.horizonDays === 1 ? '' : 's'}. The busiest market found so far could take about ${iskBig(biggest)} in that time. Put in less, allow longer, or run a deep scan.`
@@ -281,15 +288,16 @@ function Row({ p, name, open, onToggle, baseShare }: { p: Prospect; name: string
             <span className="name ellipsis" style={{ maxWidth: 300 }}>{name}</span>
           </Expander>
         </td>
-        <td className="pos">{pct(p.roi, 1)}</td>
-        <td style={{ color: 'var(--acc)' }}>{pct(p.roiPerDay, 2)}</td>
+        <td className={p.roi >= 0 ? 'pos' : 'neg'} style={p.roi < 0 ? { color: 'var(--neg)' } : undefined}>{pct(p.roi, 1)}</td>
+        <td style={{ color: p.roiPerDay >= 0 ? 'var(--acc)' : 'var(--neg)' }}>{pct(p.roiPerDay, 2)}</td>
         <td data-tip={`${units(Math.round(s.unitsPerDay))} units trade here a day`}>{Number.isFinite(p.canTake) ? iskBig(p.canTake) : <span className="faint">no limit</span>}</td>
         <td>{flip(p.daysToFlip)}</td>
-        <td className="pos">{iskSigned(p.net)}</td>
+        <td className={p.net >= 0 ? 'pos' : 'neg'} style={p.net < 0 ? { color: 'var(--neg)' } : undefined}>{iskSigned(p.net)}</td>
         <td>{units(Math.round(s.tradesPerDay))}</td>
         <td style={{ color: 'var(--dim)' }}>{s.daysTraded} of 30</td>
         <td style={{ width: 110 }}><Sparkline values={s.spark} label={`Daily volume over 30 days, ${s.daysTraded} days with trades`} /></td>
-        <td className="pos">{iskBig(p.iskPerDay)}</td>
+        <td>{iskBig(p.traded)}</td>
+        <td className={p.iskPerDay >= 0 ? 'pos' : 'neg'} style={p.iskPerDay < 0 ? { color: 'var(--neg)' } : undefined}>{iskBig(p.iskPerDay)}</td>
         <td>{iskBig(p.capital)}</td>
         <td>
           {p.warnings.length

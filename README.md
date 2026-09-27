@@ -192,6 +192,12 @@ Fees depend on your clone state, because Alpha clones can't use some trade skill
   runs the checks, so nothing is raised or mailed twice. Alert mails delete themselves after a time
   you choose, from 30 minutes to a week, read or not; the app only deletes mails from you to you whose subject
   starts "Jita Ledger:", sent by you or your sending character. Like every alert, it only checks while a tab is open.
+- **Busy markets** (a switch on Prospects) shows the busiest markets by ISK traded a day instead, each at its
+  real return, a loss included, priced at the top of the book: for dipping into a big thin-margin market like
+  nanites on purpose. Raise ISK per item for these, since anything dearer than one unit is left out.
+- **Share of the market is measured, not guessed, if you let it.** Settings → Rates & fees → "Measure my
+  share" works out from your own Jita trades what share of each market your orders really caught, and offers
+  it as the setting. It only counts days you traded, so it reads a little high.
 - **A buy order only fills if sellers come down to it.** On many items (Hammerhead II, the Syndicate Gas Cloud
   Scoop) sellers list and wait, so the best bid sits below where anyone trades and the gap to the best ask is
   margin you can't take. The app counts, over the last 14 days, how often the bulk of trading reached a bid.

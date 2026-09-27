@@ -245,13 +245,18 @@ export function expectedEdge(
   return edge <= 0 ? 0 : edge * s.avgPrice * s.unitsPerDay * share;
 }
 
-export type SortKey = 'name' | 'roi' | 'roiDay' | 'canTake' | 'flip' | 'net' | 'trades' | 'days' | 'volume' | 'iskPerDay' | 'capital' | 'flags';
+export type SortKey = 'name' | 'roi' | 'roiDay' | 'canTake' | 'flip' | 'net' | 'trades' | 'days' | 'volume' | 'traded' | 'iskPerDay' | 'capital' | 'flags';
+
+/** ISK that changes hands in an item a day, both sides: the median day's units at the 30-day average price. */
+export const tradedPerDay = (s: Pick<ProspectStats, 'unitsPerDay' | 'avgPrice'>) => s.unitsPerDay * s.avgPrice;
+/** How many of the busiest markets the Busy markets view shows. */
+export const BUSY_SHOWN = 100;
 export type Sort = { key: SortKey; dir: 'asc' | 'desc' };
 
 /** Numbers read best biggest-first; a name reads best A to Z. */
 export const FIRST_DIR: Record<SortKey, 'asc' | 'desc'> = {
   name: 'asc', roi: 'desc', roiDay: 'desc', canTake: 'desc', net: 'desc', trades: 'desc', days: 'desc',
-  volume: 'desc', iskPerDay: 'desc', flags: 'asc',
+  volume: 'desc', traded: 'desc', iskPerDay: 'desc', flags: 'asc',
   // Less tied up for the same return is the better trade.
   capital: 'asc',
   // The only one where small is good: a fast flip beats a slow one.
@@ -262,6 +267,7 @@ type Sortable = {
   typeId: number;
   roi: number; net: number; iskPerDay: number; capital: number; canTake: number; daysToFlip: number;
   roiPerDay?: number;
+  traded?: number;
   warnings: unknown[];
   stats: { tradesPerDay: number; daysTraded: number; unitsPerDay: number };
 };
@@ -276,6 +282,7 @@ const valueOf = (p: Sortable, k: SortKey): number => {
     case 'trades': return p.stats.tradesPerDay;
     case 'days': return p.stats.daysTraded;
     case 'volume': return p.stats.unitsPerDay;
+    case 'traded': return p.traded ?? 0;
     case 'iskPerDay': return p.iskPerDay;
     case 'capital': return p.capital;
     case 'flags': return p.warnings.length;

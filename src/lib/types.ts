@@ -177,6 +177,8 @@ export type Prospect = {
   share: number;
   /** Share of volume that is buyers taking sells, 0 to 1. */
   buyerShare: number;
+  /** ISK that changes hands here a day, both sides: the median day's units at the 30-day average price. */
+  traded: number;
   /** Of the last 14 days, how many the bulk of trading reached a bid one step above the best. Null without history for it. */
   bidReach: number | null;
   /** True when `buy` was raised from one step above the best bid to where trading actually reached. */
@@ -197,6 +199,8 @@ export type ProspectFilters = {
   demoteFlagged: boolean;
   /** Keep items that can take only part of the budget, sized to what they can take. */
   partial?: boolean;
+  /** Show the busiest markets by ISK traded a day instead, whatever they return. */
+  busy?: boolean;
 };
 
 
