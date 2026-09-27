@@ -451,9 +451,11 @@ State these rather than letting them be discovered:
 - **PI does not model powergrid or CPU.** Command Center Upgrades governs how many extractor heads
   and factories physically fit; "1 factory per planet" does not check that you can fit it. The
   per-structure costs and per-level budgets are not in ESI.
-- Alert mails were seen in game once, sent from a second character: the ARGB `<font>` colours, `<b>` and the
-  links render as intended. Clicking the `showinfo:` name and the "Open its market in game" link through
-  the client's external-link prompt hasn't been reported on yet.
+- Alert mails were seen in game, sent from a second character: the ARGB `<font>` colours, `<b>` and the links
+  render as intended, the `showinfo:` name opens the item, and "Open its market in game" opens the market
+  window through the app (the client's external-link prompt can be told never to ask again). The cost is
+  focus: the OS brings the browser forward to open the link, and on a single monitor the game drops behind
+  it. A page can't hand focus back to another application, so the user tabs back in.
 - Deep Space Transports, Blockade Runners, Industrials and Jump Freighters get **no** skill cargo
   bonus, because their bonus attributes do not say which stat they modify. Their presets are bare
   hulls and the figure stays editable.
