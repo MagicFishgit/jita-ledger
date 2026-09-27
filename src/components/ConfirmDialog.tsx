@@ -47,6 +47,7 @@ export function ConfirmDialog() {
             {ask.body && <p>{ask.body}</p>}
             <div className="dlg-actions">
               <button type="button" className="no" autoFocus={danger} onClick={() => answer(false)}>Cancel</button>
+              {ask.alt && <button type="button" className="alt" onClick={() => answer('alt')}>{ask.alt}</button>}
               <button type="button" className="yes" autoFocus={!danger} onClick={() => answer(true)}>{ask.confirm ?? 'OK'}</button>
             </div>
           </div>

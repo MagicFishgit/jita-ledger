@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ChevronDown, Inbox, PartyPopper, PenLine, RefreshCw, Trash2 } from 'lucide-react';
-import { computePosition, vsMarketDetail, type PositionCalc } from '../lib/positions';
+import { ArrowLeft, ChevronDown, Inbox, PartyPopper, PenLine, RefreshCw, Trash2, Undo2 } from 'lucide-react';
+import { computePosition, finishedPosition, vsMarketDetail, type PositionCalc } from '../lib/positions';
 import { priceUp, tickDown } from '../lib/tick';
 import { marketBest, walkBids } from '../lib/relist';
-import { confirmAsk } from '../lib/confirm';
+import { chooseAsk, confirmAsk } from '../lib/confirm';
 import { breakEvenSell, rates } from '../lib/fees';
 import { isk, iskBig, iskBigSigned, parseISK, pct, rid, units } from '../lib/format';
 import { jitaOrders, marketHistory, snapshot, type OrderLite } from '../lib/market';
@@ -69,7 +69,8 @@ export function PositionDetail({ id }: { id: string }) {
   const r = rates(d.settings);
   const keep = 1 - r.f - r.t;
   const finished = pos.status === 'closed';
-  const allSold = pos.status === 'open' && c.bought > 0 && c.stock === 0;
+  // Nothing in stock and no order open on it: sold out, or backed out of before anything filled.
+  const fin = finishedPosition(pos, c, Object.values(d.orders));
   const near = nearMisses(pos, Object.values(d.txs), d.positions, new Set(d.nearDone), JITA_44);
 
   // What your trades imply you hold, against what you actually hold. A sell order keeps the goods
@@ -109,7 +110,7 @@ export function PositionDetail({ id }: { id: string }) {
     { l: 'Average sell price', v: isk(c.avgSell), n: c.sold ? vsNote(sellVs, false) : undefined },
     {
       l: 'Still to sell', v: `${units(c.stock)} units`,
-      n: c.stock > 0 ? `They cost you ${iskBig(c.costOfStock)}, ${isk(c.avgCost)} each including the fee on the buy` : 'Everything bought has sold',
+      n: c.stock > 0 ? `They cost you ${iskBig(c.costOfStock)}, ${isk(c.avgCost)} each including the fee on the buy` : c.bought > 0 ? 'Everything bought has sold' : 'Nothing was bought',
     },
   ];
   if (actual !== null) {
@@ -186,14 +187,52 @@ export function PositionDetail({ id }: { id: string }) {
     else if (match === 'included') patchPosition(pos!.id, (p) => ({ included: p.included.filter((e) => e !== tx.id) }));
     else patchPosition(pos!.id, (p) => ({ excluded: [...p.excluded, tx.id] }));
   }
-  const close = () => { patchPosition(pos.id, { status: 'closed', closedAt: new Date().toISOString() }); toast(`${name} position closed. Result locked in at ${iskBigSigned(c.realized)}.`); };
+  const close = async () => {
+    // Closing stops counting. Say what that means for stock still held and orders still running first.
+    const open = Object.values(d.orders).filter((o) => o.typeId === pos.typeId && o.state === 'open' && o.volumeRemain > 0 && (!pos.jitaOnly || o.locationId === JITA_44));
+    if (c.stock > 0 || open.length) {
+      const bits = [
+        c.stock > 0 && `The ${units(c.stock)} ${c.stock === 1 ? 'unit' : 'units'} still in stock (${iskBig(c.costOfStock)} at cost) aren’t counted as a gain or a loss. If you sell them later, those sales show on the Wallet as trades no position tracks.`,
+        open.length > 0 && `Your ${open.length === 1 ? 'order' : `${open.length} orders`} on it keep running in game, and anything that fills from now on isn’t counted here.`,
+      ].filter(Boolean);
+      const ok = await confirmAsk({
+        title: `Close with ${c.stock > 0 ? `${units(c.stock)} ${c.stock === 1 ? 'unit' : 'units'} still in stock` : `${open.length === 1 ? 'an order' : 'orders'} still open`}?`,
+        body: `Closing locks in ${iskBigSigned(c.realized)} from what has sold so far. ${bits.join(' ')} To count them here, keep it open until they’ve sold.`,
+        confirm: 'Close anyway',
+      });
+      if (!ok) return;
+    }
+    patchPosition(pos.id, { status: 'closed', closedAt: new Date().toISOString() });
+    toast(`${name} position closed. Result locked in at ${iskBigSigned(c.realized)}.`);
+  };
   const reopen = () => {
     const other = d.positions.find((p) => p.typeId === pos.typeId && p.status === 'open' && p.id !== pos.id);
     if (other) { toast(`Close your other open ${name} position first.`, 'warn'); return; }
     patchPosition(pos.id, { status: 'open', closedAt: undefined });
   };
-  async function remove() {
-    if (!(await confirmAsk({ title: `Delete the ${name} position?`, body: 'Your ESI trades stay in the app. Entries you added by hand for this position are deleted with it.', confirm: 'Delete position', danger: true }))) return;
+  const remove = async () => {
+    // Deleting is for a position that was a mistake. Say what it takes off the books, and offer to close
+    // instead: a backed-out position's fees vanished from Results this way before.
+    const counted = c.rows.filter((r) => r.match === 'auto' || r.match === 'included');
+    const trades = counted.filter((r) => r.tx.source === 'esi').length;
+    const manual = c.rows.filter((r) => r.tx.source === 'manual').length;
+    const hasResult = counted.length > 0 || c.brokerFees > 0 || c.realized !== 0;
+    const lose = [
+      hasResult && `its result (${iskBigSigned(c.realized)}${c.brokerFees > 0 ? `, including ${iskBig(c.brokerFees)} of broker fees` : ''}) drops out of Results and your trading profit`,
+      trades > 0 && `its ${units(trades)} ${trades === 1 ? 'trade' : 'trades'} from ESI stay in the app but become untracked, listed on the Wallet as trades no position tracks`,
+      manual > 0 && `the ${units(manual)} ${manual === 1 ? 'entry' : 'entries'} you added by hand are deleted with it`,
+    ].filter(Boolean) as string[];
+    const said = lose.length > 1 ? `${lose.slice(0, -1).join(', ')}, and ${lose[lose.length - 1]}` : lose[0];
+    const canClose = hasResult && pos.status === 'open';
+    const a = await chooseAsk({
+      title: `Delete the ${name} position?`,
+      body: hasResult
+        ? `Deleting it means ${said}. Delete is for a position that was a mistake: the wrong item, or a duplicate.${canClose ? ' If you sold out, liquidated or backed out of this trade, close it instead to keep its result.' : ''}`
+        : 'Nothing has happened on it yet (no trades and no fees), so deleting it takes nothing off your books.',
+      confirm: 'Delete position', danger: true, alt: canClose ? 'Close instead' : undefined,
+    });
+    if (a === 'alt') { await close(); return; }
+    if (a !== 'yes') return;
     update((x) => {
       const txs = { ...x.txs };
       Object.values(txs).forEach((t) => { if (t.positionId === pos!.id) delete txs[t.id]; });
@@ -201,7 +240,7 @@ export function PositionDetail({ id }: { id: string }) {
     });
     toast(`Deleted the ${name} position.`, 'info');
     navigate('positions');
-  }
+  };
   const pc = c.realized >= 0 ? 'var(--pos)' : 'var(--neg)';
 
   return (
@@ -226,7 +265,7 @@ export function PositionDetail({ id }: { id: string }) {
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 28, flexWrap: 'wrap' }}>
           <div style={{ textAlign: 'right' }}>
             <div className="mono" style={{ fontSize: 'clamp(30px,3vw,42px)', lineHeight: 1, color: pc, textShadow: `0 0 26px ${c.realized >= 0 ? 'rgba(110,231,168,.3)' : 'rgba(255,107,125,.3)'}` }}>{iskBigSigned(c.realized)}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--sec)', marginTop: 4 }}>{finished ? 'Final profit, after fees and tax' : `Profit on the ${units(c.sold)} sold so far, after their fees and tax`}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--sec)', marginTop: 4 }}>{c.bought === 0 && c.sold === 0 ? (c.realized < 0 ? 'Fees paid, with nothing bought or sold' : 'Nothing bought or sold yet') : finished ? 'Final profit, after fees and tax' : `Profit on the ${units(c.sold)} sold so far, after their fees and tax`}</div>
             {c.roi != null && <div className="mono" style={{ fontSize: 12.5, color: 'var(--dim)' }}>{c.roi >= 0 ? '+' : ''}{pct(c.roi, 1)} on what those units cost you</div>}
             {c.prepaidFees > 0 && <div style={{ fontSize: 12, color: 'var(--note)', marginTop: 2 }} data-tip={'Broker fees already paid for the part of your orders that hasn’t sold yet.\n\n• A fee is paid on a whole order when you place it.\n• The part for unsold units isn’t a loss on what has sold, so it’s set aside and comes off as those units sell.'} data-tip-title="Fees paid up front">+ {iskBig(c.prepaidFees)} of broker fees paid up front on your open orders</div>}
           </div>
@@ -242,11 +281,20 @@ export function PositionDetail({ id }: { id: string }) {
 
       <YourOrders pos={pos} book={book} bookTime={bookTime} />
 
-      {allSold && (
+      {fin === 'soldOut' && (
         <div className="notice ok" style={{ alignItems: 'center', background: 'rgba(110,231,168,.07)', border: '1px solid rgba(110,231,168,.35)' }}>
           <PartyPopper aria-hidden="true" />
-          <span style={{ flex: 1 }}>Everything you bought has sold.</span>
+          <span style={{ flex: 1 }}>Everything you bought has sold, and no order is open on it.</span>
           <button type="button" className="link-btn" style={{ color: 'var(--pos)', fontSize: 12 }} onClick={close}>Close the position to lock in the result</button>
+        </div>
+      )}
+      {fin === 'backedOut' && (
+        <div className="notice" style={{ alignItems: 'center' }}>
+          <Undo2 aria-hidden="true" />
+          <span style={{ flex: 1 }}>
+            Nothing was bought and no order is left on it{c.realized < 0 ? <>: backing out cost <b>{iskBig(-c.realized)}</b> in fees</> : ''}. Closing keeps that in your results; deleting would drop it.
+          </span>
+          <button type="button" className="link-btn" style={{ fontSize: 12 }} onClick={close}>Close the position</button>
         </div>
       )}
       {near.length > 0 && <NearMissBanner pos={pos} near={near} name={name} />}

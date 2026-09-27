@@ -719,6 +719,9 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .dlg-actions .yes:hover { filter: brightness(1.15); }
 .dlg-actions .no { height: 38px; padding: 0 18px; border: 1px solid var(--line-btn); background: transparent; color: #cfe3f1; font-family: var(--f-head); font-weight: 600; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
 .dlg-actions .no:hover { border-color: #fff; color: #fff; }
+/* The safer way to the same end, offered beside a destructive action: outlined in the accent, not red. */
+.dlg-actions .alt { height: 38px; padding: 0 18px; border: 1px solid var(--acc); background: color-mix(in oklab, var(--acc) 12%, transparent); color: var(--acc); font-family: var(--f-head); font-weight: 700; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+.dlg-actions .alt:hover { background: color-mix(in oklab, var(--acc) 22%, transparent); color: #fff; }
 .dlg.danger { --bd: rgba(255, 107, 125, .55); --glow: rgba(255, 107, 125, .14); --hb: rgba(255, 107, 125, .07); --dc: var(--neg); }
 
 .palette-veil { position: fixed; inset: 0; z-index: 65; display: flex; justify-content: center; align-items: flex-start; padding: 12vh 20px 20px; background: rgba(1, 4, 8, .6); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); animation: fadein .15s; }

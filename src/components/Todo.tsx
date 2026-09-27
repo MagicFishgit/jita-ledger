@@ -6,7 +6,7 @@ import { ago, iskBig, units } from '../lib/format';
 import { navigate, useAuth, useNow } from '../lib/hooks';
 import { openMarketWindow } from '../lib/market';
 import { checkOrders, costBasis, getOrderCheck, jitaOpen, useOrderCheck, verdicts } from '../lib/orderCheck';
-import { computePosition } from '../lib/positions';
+import { computePosition, finishedPosition } from '../lib/positions';
 import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
@@ -141,13 +141,19 @@ export function Todo() {
     const be2 = breakEvenSpread(r, 2);
     const txs = Object.values(d.txs);
     const nd = new Set(d.nearDone);
+    const orderList = Object.values(d.orders);
     for (const p of d.positions) {
       if (p.status !== 'open') continue;
       const c = computePosition(p, d, d.settings);
-      if (c.bought > 0 && c.stock <= 0 && c.sold > 0) {
+      // Finished: nothing in stock and no order open on it, whether it sold out or was backed out of.
+      const fin = finishedPosition(p, c, orderList);
+      if (fin) {
         out.push({
           key: `close:${p.id}`, ver: '', kind: 'close', source: 'ledger', stake: Math.abs(c.realized),
-          title: name(p.typeId), detail: `Every unit is sold, ${c.realized >= 0 ? 'for' : 'at'} ${iskBig(c.realized)}${c.realized >= 0 ? ' profit' : ' loss'}. Close it so later trades don’t land in it.`,
+          title: name(p.typeId),
+          detail: fin === 'soldOut'
+            ? `Every unit is sold, ${c.realized >= 0 ? 'for' : 'at'} ${iskBig(c.realized)}${c.realized >= 0 ? ' profit' : ' loss'}, and no order is open on it. Close it so later trades don’t land in it.`
+            : `Nothing was bought and no order is left on it${c.realized < 0 ? `: backing out cost ${iskBig(-c.realized)} in fees` : ''}. Close it to keep that in your results.`,
           action: { label: 'Open position', route: `positions/${p.id}` },
         });
       }

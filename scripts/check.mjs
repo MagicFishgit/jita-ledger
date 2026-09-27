@@ -1538,6 +1538,32 @@ console.log('\n--- a position: fees belong to the units they were paid for ---')
   eq('  and nothing is lost', Math.round(cashAfter + c3.costOfStock + c3.prepaidFees), Math.round(c3.realized));
 }
 
+console.log('\n--- a finished position: close it, don’t lose it ---');
+{
+  const { computePosition, finishedPosition } = await import('../src/lib/positions.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const S = sanitizeSettings({ override: true, brokerPct: 1.3, taxPct: 3.375 });
+  const JITA = 60003760;
+  const order = (id, typeId, isBuy, price, total, remain, state, issued) => ({ orderId: id, typeId, isBuy, price, volumeTotal: total, volumeRemain: remain, issued, state, locationId: JITA });
+  const pos = (typeId) => ({ id: 'p' + typeId, typeId, openedAt: '2026-09-26T00:00:00Z', status: 'open', jitaOnly: true, excluded: [], included: [] });
+  // The user's Syndicate Gas Cloud Scoop: a buy for 2 at 99.79 M, cancelled with nothing filled. The app first
+  // saw it just after a price change, whose 523,843 fee is in the journal to the second; the placing fee
+  // before that was never matched, so it is estimated at the broker rate. Together, the cost of backing out.
+  const scoop = { txs: {}, meta: {},
+    orders: { 7430171495: order(7430171495, 28788, true, 99790000, 2, 2, 'cancelled', '2026-09-26T16:28:52Z') },
+    journal: { f: { id: 'f', date: '2026-09-26T16:28:52Z', refType: 'brokers_fee', amount: -523843.05 } } };
+  const c = computePosition(pos(28788), scoop, S);
+  eq('backing out of an unfilled buy costs its fees: the price change, and the placing fee estimated', Math.round(c.realized), -Math.round(0.013 * 99790000 * 2 + 523843.05));
+  eq('  the price change is the journal’s own figure', [Math.round(c.relistFees), c.relistsEstimated, c.brokerEstimatedOrders], [523843, 0, 1]);
+  eq('  and the position is finished: backed out', finishedPosition(pos(28788), c, Object.values(scoop.orders)), 'backedOut');
+  const reopened = [...Object.values(scoop.orders), order(2, 28788, true, 99800000, 2, 2, 'open', '2026-09-27T10:00:00Z')];
+  eq('  not while another order on the item is open', finishedPosition(pos(28788), c, reopened), null);
+  eq('  and a closed one is never flagged', finishedPosition({ ...pos(28788), status: 'closed' }, c, Object.values(scoop.orders)), null);
+  eq('a position with nothing placed yet is not finished', finishedPosition(pos(34), { bought: 0, sold: 0, stock: 0, brokerFees: 0 }, []), null);
+  eq('sold out, or dumped into bids, with no order open', finishedPosition(pos(34), { bought: 10, sold: 10, stock: 0, brokerFees: 50 }, [order(1, 34, false, 5, 10, 0, 'closed', '2026-09-26T10:00:00Z')]), 'soldOut');
+  eq('stock left in the hangar is not finished', finishedPosition(pos(34), { bought: 10, sold: 4, stock: 6, brokerFees: 50 }, []), null);
+}
+
 console.log('\n--- goals ---');
 {
   const G = await import('../src/lib/goals.ts');

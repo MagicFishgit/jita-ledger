@@ -25,6 +25,24 @@ export function countedIn(pos: Position, tx: Tx): boolean {
   return m === 'auto' || m === 'included';
 }
 
+/**
+ * An open position with nothing left to do: no order open on the item, nothing in stock, and something did
+ * happen. Sold out and liquidated into bids read the same here (`soldOut`); a buy cancelled before anything
+ * filled is `backedOut`, and its placing fee is its whole result. Either way, closing it is what keeps that
+ * result: a deleted position's fees and trades drop out of Results. Only sold-out positions used to be
+ * flagged, so a backed-out one sat open until the user deleted it, taking the fee off the books with it.
+ */
+export type Finished = 'soldOut' | 'backedOut';
+export function finishedPosition(pos: Position, c: Pick<PositionCalc, 'bought' | 'sold' | 'stock' | 'brokerFees'>, orders: Order[]): Finished | null {
+  if (pos.status !== 'open') return null;
+  const mine = orders.filter((o) => o.typeId === pos.typeId && (!pos.jitaOnly || o.locationId === JITA_44));
+  if (mine.some((o) => o.state === 'open' && o.volumeRemain > 0)) return null;
+  if (c.stock > 0) return null;
+  if (c.bought > 0 || c.sold > 0) return 'soldOut';
+  const placed = mine.some((o) => ts(o.issued) >= ts(pos.openedAt));
+  return placed || c.brokerFees > 0 ? 'backedOut' : null;
+}
+
 /** ESI transactions that no position counts and that you haven't marked as personal. */
 export function unassigned(d: Data): Tx[] {
   const ignored = new Set(d.ignored);

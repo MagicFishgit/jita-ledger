@@ -327,6 +327,15 @@ Don't re-derive or contradict these without new evidence.
   units of genuinely cheap supply as a "mistake"; quantity is what separates a fat finger from a
   cheap seller. This needs only the live book, so it is the one guard that still works for an item
   with no trading history — which is exactly when the other two cannot fire.
+- **Close keeps a position's result; Delete erases it.** Closing stops counting from that moment and keeps the
+  profit or loss, fees included, in Results and trading profit; deleting drops the position, so its result leaves
+  the books and its ESI trades become untracked (the Wallet's "Trades no position tracks"). The user deleted a
+  Syndicate Gas Cloud Scoop position they had backed out of (a buy for 2 at 99.79 M, cancelled unfilled), which
+  quietly took its fees off Results. So: `finishedPosition` flags any open position with nothing in stock and no
+  order open on the item as `soldOut` or `backedOut` (not only sold-out ones, as before), on the To do list, the
+  Positions list ("Finished") and the position's own page; Delete says what it takes off the books and offers
+  **Close instead** (`chooseAsk`'s `alt`); Close warns first when stock or open orders remain, since later sales
+  won't count. Delete is for mistakes: the wrong item, a duplicate.
 - **A broker fee belongs to its order's units, not to the moment it was paid** (`computePosition`). A
   buy order's fee goes into the stock's cost; a sell order's fee is charged per unit as units sell; the
   share for units still waiting on an open order is `prepaidFees`, shown beside the profit rather than in

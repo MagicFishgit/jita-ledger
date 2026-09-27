@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { GitPullRequestArrow, Hourglass, Inbox, Layers, Lock, Play, Plus, RefreshCw, TrendingDown } from 'lucide-react';
-import { computePosition } from '../lib/positions';
+import { computePosition, finishedPosition } from '../lib/positions';
 import { ago, isk, iskBig, iskBigSigned, pct, units, until } from '../lib/format';
 import { useData } from '../lib/store';
 import { syncCharacter, useSyncState } from '../lib/sync';
@@ -47,7 +47,8 @@ export function Positions() {
   const realized = all.reduce((s, x) => s + x.c.realized, 0);
   const atCost = all.reduce((s, x) => s + x.c.costOfStock, 0);
   const openN = all.filter((x) => x.p.status === 'open').length;
-  const openOrders = Object.values(d.orders).filter((o) => o.state === 'open').length;
+  const orderList = useMemo(() => Object.values(d.orders), [d.orders]);
+  const openOrders = orderList.filter((o) => o.state === 'open').length;
   const slots = orderSlots(effectiveSkills(d.settings));
 
   function create(t: { id: number; name: string }) {
@@ -162,7 +163,14 @@ export function Positions() {
                           </span>
                         </span>
                       </td>
-                      <td className="l"><span className="status-tag" style={cssVars({ '--c': p.status === 'open' ? 'var(--acc)' : 'var(--label)' })}>{p.status === 'open' ? 'Open' : 'Closed'}</span></td>
+                      <td className="l">
+                        {finishedPosition(p, c, orderList) ? (
+                          <span className="status-tag" tabIndex={0} style={cssVars({ '--c': 'var(--acc2)' })} data-tip-title="Finished"
+                            data-tip={'Nothing left in stock and no order open on it: it sold out, or you backed out of it.\n\nOpen it and close it to lock in the result, fees included. Deleting it would drop them from Results.'}>Finished</span>
+                        ) : (
+                          <span className="status-tag" style={cssVars({ '--c': p.status === 'open' ? 'var(--acc)' : 'var(--label)' })}>{p.status === 'open' ? 'Open' : 'Closed'}</span>
+                        )}
+                      </td>
                       <td style={{ color: 'var(--dim)' }}>{fmtD(p.openedAt)}</td>
                       <td>{units(c.bought)}</td>
                       <td>{units(c.sold)}</td>
