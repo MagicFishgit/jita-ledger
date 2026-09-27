@@ -1342,6 +1342,39 @@ console.log('\n--- who is trading: the best evidence first ---');
   const thin = [day('2026-09-26', 6), day('2026-09-22', 8), day('2026-09-18', 14)];
   eq('  an item trading on under half its days still sells: the 14-day average', paceDay(thin, now), 2);
 }
+console.log('\n--- cloud sync: what changed, and applying what came down ---');
+{
+  const { diffRecords, applyPulled, everything, sharedDoc, docValue } = await import('../src/lib/cloudSync.ts');
+  const t1 = { id: 't1', qty: 1 }, t2 = { id: 't2', qty: 2 };
+  const before = { t1, t2 };
+  eq('an untouched map reports nothing', diffRecords('txs', before, before), { changed: [], removed: [] });
+  eq('a new record, a removed one', diffRecords('txs', before, { t1, t3: { id: 't3' } }), { changed: ['t3'], removed: ['t2'] });
+  eq('a rebuilt record with the same content is not a change', diffRecords('txs', before, { t1: { id: 't1', qty: 1 }, t2 }), { changed: [], removed: [] });
+  eq('an edited one is', diffRecords('txs', before, { t1: { id: 't1', qty: 5 }, t2 }).changed, ['t1']);
+  eq('positions go by their id', diffRecords('positions', [{ id: 'a', s: 1 }], [{ id: 'a', s: 2 }, { id: 'b' }]).changed, ['a', 'b']);
+  const data = {
+    txs: { t1 }, positions: [{ id: 'a', status: 'open' }, { id: 'b', status: 'open' }],
+    netWorth: [{ date: '2026-09-25', total: 1 }, { date: '2026-09-27', total: 3 }],
+    meta: { lastSeenAt: 'here', rateHistory: [1] }, prefs: { theme: 'Caldari', motion: 'Calm', perJump: 1 },
+  };
+  const patch = applyPulled(data, {
+    records: [
+      { k: 'txs', i: 't9', d: { id: 't9' } }, { k: 'txs', i: 't1', d: null },
+      { k: 'positions', i: 'b', d: { id: 'b', status: 'closed' } }, { k: 'positions', i: 'c', d: { id: 'c', status: 'open' } },
+      { k: 'positions', i: 'a', d: null },
+      { k: 'netWorth', i: '2026-09-26', d: { date: '2026-09-26', total: 2 } },
+    ],
+    docs: [{ key: 'meta', d: { lastSeenAt: 'other device', rateHistory: [1, 2] } }, { key: 'prefs', d: { theme: 'Amarr', motion: 'Full', perJump: 9 } }],
+  });
+  eq('records arrive and deletions travel', Object.keys(patch.txs), ['t9']);
+  eq('a changed position replaces its own, a new one goes first, a deleted one goes', patch.positions.map((p) => `${p.id}:${p.status}`), ['c:open', 'b:closed']);
+  eq('net worth stays in date order', patch.netWorth.map((p) => p.total), [1, 2, 3]);
+  eq('meta comes down, but this browser keeps its own visit', patch.meta, { lastSeenAt: 'here', rateHistory: [1, 2] });
+  eq('prefs come down, but this screen keeps its motion', patch.prefs, { theme: 'Amarr', motion: 'Calm', perJump: 9 });
+  eq('what goes up leaves this browser’s own fields out', [sharedDoc('meta', data.meta), docValue(data, 'prefs')], [{ rateHistory: [1] }, { theme: 'Caldari', perJump: 1 }]);
+  const all = everything({ ...data, journal: {}, orders: {}, names: {}, killmails: {}, tags: {}, goals: [], watchlist: [] });
+  eq('the first upload is every record and every doc there is', [all.records.map((r) => `${r.k}:${r.i}`), all.docs], [['txs:t1', 'positions:a', 'positions:b', 'netWorth:2026-09-25', 'netWorth:2026-09-27'], ['meta', 'prefs']]);
+}
 console.log('\n--- to do and results ---');
 {
   const it = (key, stake, kind = 'move', extra = {}) => ({ key, ver: '1', kind, source: 'orders', title: '', detail: '', stake, action: { label: '' }, ...extra });

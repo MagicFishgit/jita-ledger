@@ -17,6 +17,7 @@ import {
 import { PLANETS_SCOPE, readColonies, useColonies } from '../lib/colonyStore';
 import { readSignals, trackedTypes, useSignals } from '../lib/watch';
 import { BACKUP_DAYS } from '../lib/alertsRunner';
+import { cloudCovers, useCloud } from '../lib/cloud';
 import { JITA_44 } from '../lib/config';
 import { toast } from '../lib/toast';
 import { canOpenInGame, downloadText, useTypeName } from './common';
@@ -70,6 +71,7 @@ export function Todo() {
   const check = useOrderCheck();
   const sig = useSignals();
   const col = useColonies();
+  const inCloud = cloudCovers(useCloud());
   const [mem, setMem] = useState<Memory>(readMem);
   // Another tab on this page saves its own view of the session: take it, so the two don't overwrite each other.
   useEffect(() => {
@@ -211,7 +213,8 @@ export function Todo() {
       }
     }
     const last = d.meta.lastBackupAt ? Date.parse(d.meta.lastBackupAt) : null;
-    if ((Object.keys(d.txs).length || d.positions.length) && (last == null || now - last > BACKUP_DAYS * DAY)) {
+    // Nothing to back up by hand while the ledger is kept in the cloud.
+    if ((Object.keys(d.txs).length || d.positions.length) && !inCloud && (last == null || now - last > BACKUP_DAYS * DAY)) {
       out.push({
         key: 'backup', ver: '', kind: 'backup', source: 'ledger', stake: 0, title: 'Export a backup',
         detail: last == null ? 'You’ve never exported one. ESI only keeps 30 days of wallet history; this browser is the record.' : `The last one was ${Math.floor((now - last) / DAY)} days ago. ESI only keeps 30 days of wallet history.`,
@@ -219,7 +222,7 @@ export function Todo() {
       });
     }
     return out;
-  }, [d, vs, sig.signals, col.read, tracked, now]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [d, vs, sig.signals, col.read, tracked, now, inCloud]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fold each new build into the session: new findings are added, and findings a newer read no longer
   // shows are ticked off with what changed.
@@ -253,7 +256,7 @@ export function Todo() {
           return judgeSqueeze(e, { open: p?.status === 'open', stock: p ? computePosition(p, d, d.settings).stock : 0, signalAt: sig.signals[x.typeId!]?.at ?? null });
         }
         case 'scam': return judgeScam(e, { tracked: tracked.includes(x.typeId!), signalAt: sig.signals[x.typeId!]?.at ?? null });
-        default: return judgeLedger(e, { position: position(id) });
+        default: return judgeLedger(e, { position: position(id), inCloud });
       }
     };
     setMem((m) => { const next = remember(m, items, seenAt, judge, t); saveMem(next); return next; });

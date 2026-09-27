@@ -45,6 +45,8 @@ const KEYS: Key[] = [
 ];
 
 const idb = createStore('jita-ledger', 'kv');
+/** The ledger's own IndexedDB store, for state that lives beside the data (the cloud sync's place in it). */
+export const dataStore = idb;
 export const cacheStore = createStore('jita-ledger-cache', 'kv');
 
 const empty = (): Data => ({
@@ -109,14 +111,27 @@ export function getData(): Data { return data; }
 export function isReady(): boolean { return ready; }
 export function dataGeneration(): number { return generation; }
 
-export function update(patch: Partial<Data> | ((d: Data) => Partial<Data>)): void {
+/**
+ * Told of every change, with the data before and after it. The cloud sync listens here to know what to
+ * send; `origin` is 'cloud' when the change came down from the cloud, so it isn't sent straight back.
+ */
+type ChangeListener = (keys: Key[], before: Data, after: Data, origin: 'local' | 'cloud') => void;
+const changeListeners = new Set<ChangeListener>();
+export function onDataChange(fn: ChangeListener): () => void {
+  changeListeners.add(fn);
+  return () => { changeListeners.delete(fn); };
+}
+
+export function update(patch: Partial<Data> | ((d: Data) => Partial<Data>), opts: { origin?: 'local' | 'cloud' } = {}): void {
   const p = typeof patch === 'function' ? patch(data) : patch;
-  const before = data.meta;
+  const prev = data;
   data = { ...data, ...p };
   if (p.settings) data = stampRates(data);
-  (Object.keys(p) as Key[]).forEach(persist);
-  if (data.meta !== before) persist('meta');
+  const keys = Object.keys(p) as Key[];
+  if (data.meta !== prev.meta && !keys.includes('meta')) keys.push('meta');
+  keys.forEach(persist);
   emit();
+  changeListeners.forEach((l) => l(keys, prev, data, opts.origin ?? 'local'));
 }
 
 export function useData(): Data {

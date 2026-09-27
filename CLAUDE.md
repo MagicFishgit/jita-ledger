@@ -1,7 +1,8 @@
 # Jita Ledger
 
-A station-trading tool for EVE Online's Jita 4-4. No server: React + TypeScript + Vite, all state in
-IndexedDB, talking straight to ESI and EVE SSO. Deployed to GitHub Pages on every push to `main`.
+A station-trading tool for EVE Online's Jita 4-4. React + TypeScript + Vite, state in IndexedDB with a cloud copy
+in a Cloudflare Worker's D1 database (`worker/`), talking straight to ESI and EVE SSO. The site deploys to GitHub
+Pages on every push to `main`; the Worker deploys by hand (`npm run worker:deploy`).
 
 Pages: Wallet (home), To do (was Tonight's run; `#tonight` still lands there), Calculator, Prospects (find items), Watchlist, Capital planner, Hub
 arbitrage, Positions, Orders (which of mine are beaten), Results, Loyalty (spending LP), Side hustles
@@ -63,6 +64,28 @@ animate, so wait a second before a screenshot or it catches the warp mid-flight.
 a synthetic ledger (journal *with balances assigned in date order*, txs, orders, stock, killmails), serve it
 from `.playwright-mcp/` (Vite serves it; the folder is gitignored), `put` it into the `kv` store and reload —
 and back up the real store first and restore it after (`clear()` then `put`, or seeded-only keys linger).
+
+### The cloud (`worker/`)
+
+The app stays a static site on GitHub Pages; a Cloudflare Worker (`jita-ledger-cloud`, account
+`rudivisagiex@gmail.com`, `https://jita-ledger-cloud.jitaledger.workers.dev`) holds the ledger in a D1 database
+(`jita-ledger`, id `39bbd652-…`), so no browser holds the only copy.
+
+```
+npm run worker:deploy            # wrangler deploy (Wrangler is logged in on this machine via OAuth)
+npx wrangler d1 migrations apply jita-ledger --remote   # schema changes: add worker/migrations/000N_*.sql
+npx wrangler tail jita-ledger-cloud                      # live logs
+```
+
+`npm run build` type-checks the Worker too (`tsc -p worker`). Deploys of the Worker are by hand for now; the
+Pages workflow doesn't touch it.
+
+**Testing end to end without an EVE login:** `npm run worker:dev` runs the Worker locally on :8787 with a local
+D1 (`npx wrangler d1 migrations apply jita-ledger --local` first) and `DEV_AUTH_CHAR`, which makes the token
+`dev-token` stand for character 90000001 — honoured only for requests addressed to localhost, never set in
+`wrangler.toml`. Run the app with `VITE_CLOUD_URL=http://localhost:8787 VITE_CLOUD_DEV_TOKEN=dev-token npm run dev`
+and the Playwright browser syncs with it. Seeding a big ledger through `update(..., { origin: 'cloud' })` keeps
+it from being pushed.
 
 ## EVE facts that cost real research
 
@@ -492,6 +515,26 @@ Don't re-derive or contradict these without new evidence.
   for 12 hours, a warning (scam, squeeze) until it changes, so a new undercut reopens a skipped move. Done items
   stay listed 12 hours. The book cache in `market.ts` lets go at ESI's Expires rather than 5 minutes after our
   read, which had put a relist up to 10 minutes behind.
+- **The ledger syncs to the cloud record by record** (`lib/cloudSync.ts` pure, `lib/cloud.ts` I/O, `worker/src/sync.ts`).
+  Collections (txs, journal, orders, names, killmails, tags, positions, goals, watchlist, netWorth) go up one
+  record at a time, keyed by kind and ID, so two devices changing different things never collide; small whole
+  values (settings, meta, prefs, alerts, stock, skills, ignored, nearDone, unusualOk) go up as documents, newest
+  write wins. Fields that belong to one browser stay local (`LOCAL_FIELDS`: meta's visits, sync timers and alert
+  mail IDs; prefs' motion), as do `alertLog`. Every change is caught at `update()` (`onDataChange`), diffed by
+  record identity (JSON as a fallback), marked with a generation (so an edit made while a push is in flight isn't
+  dropped when it lands) and pushed 3 s later; unsent marks are saved beside the ledger (`cloud` in the data
+  store). Every push takes the character's next revision in the same D1 transaction as its writes; a pull returns
+  everything after the revision a browser last saw, paged by (rev, kind, id). A browser skips its own revisions
+  (`ownRevs`) and anything it still has unsent (local wins; its push is newer). **Pulled settings, prefs and alerts
+  go through the same sanitizers as disk**: a test document once reset the test browser's settings. **First sync**
+  pulls first, then pushes whatever the cloud didn't have: an empty cloud gets everything (the first upload), an
+  empty browser gets everything (the restore after a wipe or on a new PC). Clearing a browser doesn't touch the
+  cloud; its copy comes back on the next start unless sync is switched off in that browser. The Worker checks
+  EVE's RS256 access token against EVE's published keys (issuer, this app's client ID, expiry) and keys data by
+  the character in `sub`: being logged in to the app is being logged in to the cloud. D1 Time Travel can rewind
+  the database to any minute of the last 30 days (paid plan; 7 on free), which stands in for dated backups. While
+  the cloud copy is healthy (`cloudCovers`) the backup reminders (status bar, To do, alerts, Settings tab) stand
+  down.
 - **Pages that need the same live answer share one store**: `orderCheck` (your orders against the book),
   `watch` (squeeze and scam signals), `colonyStore` and the killmail pricer. Orders, To do and the
   alerts all read `orderCheck` rather than fetching the same books three times.

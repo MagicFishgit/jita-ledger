@@ -5,3 +5,6 @@ dist
 *.log
 .DS_Store
 .playwright-mcp
+
+# Wrangler local state: local D1 databases, caches and logs from `wrangler dev`
+worker/.wrangler

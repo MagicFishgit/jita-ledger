@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { getAuth } from './auth';
 import { ALERT_LABELS, shouldAlert, tidyEvery, type Finding, type OrderFacts } from './alerts';
 import { readColonies } from './colonyStore';
+import { cloudCovers } from './cloud';
 import { breakEvenSpread, rates } from './fees';
 import { iskBig } from './format';
 import { canMail, cleanupAlertMails, sendAlertMail } from './mailAlerts';
@@ -181,7 +182,8 @@ export async function runChecks(): Promise<void> {
     if (ev.backup) {
       const last = d.meta.lastBackupAt ? Date.parse(d.meta.lastBackupAt) : null;
       const hasData = Object.keys(d.txs).length > 0 || d.positions.length > 0;
-      if (hasData && (last == null || Date.now() - last > BACKUP_DAYS * DAY)) {
+      // Nothing to remind about while the ledger is kept in the cloud.
+      if (hasData && !cloudCovers() && (last == null || Date.now() - last > BACKUP_DAYS * DAY)) {
         findings.push({ kind: 'backup', key: `backup:${new Date().toISOString().slice(0, 10)}`, title: ALERT_LABELS.backup.label,
           text: last == null ? 'You have never exported a backup. ESI only keeps 30 days of wallet history.' : `Your last backup was ${Math.floor((Date.now() - last) / DAY)} days ago.` });
       }

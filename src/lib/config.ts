@@ -15,6 +15,9 @@ export const SSO_AUTHORIZE = 'https://login.eveonline.com/v2/oauth/authorize';
 export const SSO_TOKEN = import.meta.env.VITE_TOKEN_PROXY || 'https://login.eveonline.com/v2/oauth/token';
 export const SSO_REVOKE = 'https://login.eveonline.com/v2/oauth/revoke';
 
+/** The cloud copy of the ledger: the Worker in `worker/`. Point it at `wrangler dev` to test locally. */
+export const CLOUD_URL = (import.meta.env.VITE_CLOUD_URL as string | undefined) || 'https://jita-ledger-cloud.jitaledger.workers.dev';
+
 export const CLIENT_ID = import.meta.env.VITE_EVE_CLIENT_ID ?? '';
 // The callback URL registered on developers.eveonline.com must match this exactly,
 // e.g. https://magicfishgit.github.io/jita-ledger/

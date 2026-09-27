@@ -1,0 +1,17 @@
+# Jita Ledger's cloud Worker. The app itself stays on GitHub Pages; this holds the ledger in D1.
+name = "jita-ledger-cloud"
+main = "src/index.ts"
+compatibility_date = "2026-09-20"
+
+[vars]
+EVE_CLIENT_ID = "7acf615bd9f343be9511e10c1f8ecc82"
+ALLOWED_ORIGINS = "https://magicfishgit.github.io,http://localhost:5173"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "jita-ledger"
+database_id = "39bbd652-0717-417f-b6a4-ffbaeffb539a"
+migrations_dir = "migrations"
+
+[observability]
+enabled = true

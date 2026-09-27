@@ -1,9 +1,10 @@
-import { BellOff, BellRing, HardDriveDownload } from 'lucide-react';
+import { BellOff, BellRing, Cloud, HardDriveDownload } from 'lucide-react';
 import { useAlertRunner, BACKUP_DAYS } from '../../lib/alertsRunner';
 import { useAuth, useNow, navigate } from '../../lib/hooks';
 import { useOrderCheck } from '../../lib/orderCheck';
 import { useData } from '../../lib/store';
 import { useSyncState } from '../../lib/sync';
+import { cloudCovers, useCloud } from '../../lib/cloud';
 
 /** Each route and how long ESI holds it for, which is what the progress bars measure against. */
 const WINDOWS: { key: 'orders' | 'books' | 'transactions' | 'journal' | 'assets' | 'skills'; label: string; secs: number }[] = [
@@ -58,7 +59,10 @@ export function StatusBar() {
   const last = d.meta.lastBackupAt ? Date.parse(d.meta.lastBackupAt) : null;
   const hasData = Object.keys(d.txs).length > 0 || d.positions.length > 0;
   const backupDays = last == null ? null : Math.floor((now - last) / 86400_000);
-  const backupOld = hasData && (last == null || now - last > BACKUP_DAYS * 86400_000);
+  const cloud = useCloud();
+  const inCloud = cloudCovers(cloud);
+  // With the ledger in the cloud there is nothing to remind about; without it, the old reminder stands.
+  const backupOld = hasData && !inCloud && (last == null || now - last > BACKUP_DAYS * 86400_000);
 
   return (
     <footer className="statusbar">
@@ -81,7 +85,14 @@ export function StatusBar() {
           <span className="wide-only">{backupDays == null ? 'Never backed up' : `Last backup ${backupDays} days ago`}</span>
         </button>
       )}
-      <span className="fine">Your data stays in this browser · Market data from ESI · Not affiliated with CCP</span>
+      {inCloud && (
+        <button type="button" onClick={() => navigate('settings/data')} style={{ color: cloud.phase === 'working' ? 'var(--acc)' : 'var(--pos)' }}
+          title="Your ledger is kept in the cloud as well as this browser. Changes go up within seconds; other devices' come down every minute.">
+          <Cloud aria-hidden="true" />
+          <span className="wide-only">{cloud.phase === 'working' ? 'Syncing' : cloud.pending ? `${cloud.pending} changes to send` : 'Saved to cloud'}</span>
+        </button>
+      )}
+      <span className="fine">{inCloud ? 'Your ledger is kept in your cloud copy' : 'Your data stays in this browser'} · Market data from ESI · Not affiliated with CCP</span>
       <span className="keys wide-only"><span>Ctrl K search</span><span>Esc close</span></span>
     </footer>
   );

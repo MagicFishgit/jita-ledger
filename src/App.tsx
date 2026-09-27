@@ -8,6 +8,7 @@ import { bumpWarp, useMotion } from './lib/motion';
 import { THEMES } from './lib/prefs';
 import { priceKillmails } from './lib/killmails';
 import { startAlerts } from './lib/alertsRunner';
+import { startCloud } from './lib/cloud';
 import { marketParam, openFromLink, withoutMarket } from './lib/marketLink';
 import { setToastLife, toast } from './lib/toast';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -160,6 +161,8 @@ export function App() {
   useEffect(() => { if (sync.error) toast(`Sync failed: ${sync.error}`, 'err'); }, [sync.error]);
 
   useEffect(() => { if (ready) return startAlerts(); }, [ready]);
+  // The cloud copy of the ledger: sent as it changes, pulled every minute, restored into an empty browser.
+  useEffect(() => { if (ready) return startCloud(); }, [ready]);
 
   // A market link from an alert mail (`#orders?market=ID`): open that market in the client, once. The
   // request comes off the address first, so a reload or a failure halfway can't open it again; that

@@ -203,11 +203,11 @@ export function judgeScam(e: Entry, c: { tracked: boolean; signalAt: number | nu
 }
 
 /** Items built from your own ledger, which is always current: gone means dealt with. */
-export function judgeLedger(e: Entry, c: { position?: { status: string } | null }): string {
+export function judgeLedger(e: Entry, c: { position?: { status: string } | null; inCloud?: boolean }): string {
   switch (e.item.kind) {
     case 'close': return !c.position ? 'The position was removed.' : c.position.status !== 'open' ? 'You closed it.' : 'It isn’t finished after all: stock or an open order came back.';
     case 'nearMiss': return 'Dealt with: counted in or set aside.';
-    case 'backup': return 'You exported a backup.';
+    case 'backup': return c.inCloud ? 'Your ledger is kept in the cloud now.' : 'You exported a backup.';
     default: return 'It no longer needs doing.';
   }
 }

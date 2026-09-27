@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { get } from 'idb-keyval';
 import {
-  BellRing, Database, Download, GraduationCap, HardDriveDownload, LogIn, LogOut, Mail, Palette, Percent, RefreshCw, Send, Trash2, Upload, UserRound,
+  BellRing, Cloud, Database, Download, GraduationCap, HardDriveDownload, LogIn, LogOut, Mail, Palette, Percent, RefreshCw, Send, Trash2, Upload, UserRound,
 } from 'lucide-react';
 import { effectiveSkills, orderSlots, rates, RELIST_LEFT, sanitizeSettings, type Settings as S } from '../lib/fees';
 import { ago, iskBig, iskBigSigned, pct, plainNum, units } from '../lib/format';
@@ -18,6 +18,7 @@ import { ALERT_LABELS, tidyEvery } from '../lib/alerts';
 import { testAlert, testMail, useAlertRunner, BACKUP_DAYS } from '../lib/alertsRunner';
 import { useMotion, bumpWarp } from '../lib/motion';
 import { toast } from '../lib/toast';
+import { cloudCovers, cloudEnabled, cloudEsiCheck, cloudSummary, setCloudEnabled, syncCloudNow, useCloud } from '../lib/cloud';
 import type { AlertEvent, Motion, Theme } from '../lib/types';
 import { downloadText, LevelBoxes } from './common';
 import { CloneSwitch } from './Omega';
@@ -152,6 +153,7 @@ export function Settings({ route }: { route: Route }) {
   const last = d.meta.lastBackupAt ? Date.parse(d.meta.lastBackupAt) : null;
   const backupDays = last == null ? null : Math.floor((now - last) / 86400_000);
   const backupOld = last == null || now - last > BACKUP_DAYS * 86400_000;
+  const cloudOk = cloudCovers(useCloud());
   const motion = useMotion();
 
   const tabs: { k: Tab; label: string; Icon: typeof UserRound; sub: string; dot?: string }[] = [
@@ -160,12 +162,12 @@ export function Settings({ route }: { route: Route }) {
     { k: 'rates', label: 'Rates & fees', Icon: Percent, sub: `Broker ${pct(r.f)} · tax ${pct(r.t)}` },
     { k: 'alerts', label: 'Alerts', Icon: BellRing, sub: d.alerts.on ? `On · every ${d.alerts.interval} min` : 'Off', dot: d.alerts.on ? 'var(--pos)' : undefined },
     { k: 'appearance', label: 'Appearance', Icon: Palette, sub: `${d.prefs.theme} · motion ${motion.toLowerCase()}` },
-    { k: 'data', label: 'Your data', Icon: Database, sub: backupDays == null ? 'Never backed up' : `Last backup ${backupDays} day${backupDays === 1 ? '' : 's'} ago`, dot: backupOld ? 'var(--acc2)' : undefined },
+    { k: 'data', label: 'Your data', Icon: Database, sub: cloudOk ? 'Kept in the cloud' : backupDays == null ? 'Never backed up' : `Last backup ${backupDays} day${backupDays === 1 ? '' : 's'} ago`, dot: backupOld && !cloudOk ? 'var(--acc2)' : undefined },
   ];
 
   return (
     <div className="page">
-      <PageHead kicker="10 · Pilot configuration" title="Settings" lede="Your character, trade skills and rates. Everything is saved in this browser." />
+      <PageHead kicker="10 · Pilot configuration" title="Settings" lede={`Your character, trade skills and rates. Everything is saved in this browser${cloudOk ? ', and kept in the cloud' : ''}.`} />
       <div className="set-layout">
         <nav className="set-nav panel" aria-label="Settings sections" role="tablist" data-rv="" style={{ padding: 10, gap: 4 }}>
           {tabs.map((t) => (
@@ -737,8 +739,73 @@ function Appearance() {
   );
 }
 
+/**
+ * The cloud copy of the ledger: whether it's on, when it last saved and checked, and what it holds. The
+ * database keeps every change for 30 days and can be rewound to any minute in them, so the dated copies are
+ * the database's own history rather than files.
+ */
+const KIND_SAID: Record<string, [string, string]> = {
+  txs: ['trade', 'trades'], journal: ['journal entry', 'journal entries'], orders: ['order', 'orders'], names: ['item name', 'item names'],
+  killmails: ['killmail', 'killmails'], tags: ['trade tag', 'trade tags'], positions: ['position', 'positions'], goals: ['goal', 'goals'],
+  watchlist: ['watchlist item', 'watchlist items'], netWorth: ['net-worth day', 'net-worth days'],
+};
+const kindSaid = (kind: string, n: number) => { const w = KIND_SAID[kind] ?? [kind, kind]; return `${units(n)} ${n === 1 ? w[0] : w[1]}`; };
+function CloudPanel() {
+  const c = useCloud();
+  const now = useNow(30_000);
+  const [on, setOn] = useState(cloudEnabled);
+  const [held, setHeld] = useState<{ kinds: { kind: string; n: number }[]; rev: number } | null>(null);
+  const [esi, setEsi] = useState<{ url: string; status: number; ms: number; headers: Record<string, string> }[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const last = Math.max(c.lastPushAt ?? 0, c.lastPullAt ?? 0);
+  const covered = cloudCovers(c);
+  const line =
+    c.phase === 'off' ? 'Off in this browser. Your ledger lives only here until you turn it on.'
+      : c.phase === 'waiting' ? 'Log in with EVE to keep your ledger in the cloud.'
+        : c.phase === 'error' ? `The last attempt failed: ${c.error}. It tries again every minute.`
+          : c.phase === 'working' ? `${c.doing ?? 'Working'}…`
+            : last ? `In sync. Checked ${ago(new Date(last).toISOString(), now)}${c.pending ? `, ${units(c.pending)} change${c.pending === 1 ? '' : 's'} waiting to go up` : ''}.` : 'Connected.';
+  const run = async (label: string, job: () => Promise<void>) => {
+    setBusy(label);
+    try { await job(); } catch (e) { toast(e instanceof Error ? e.message : String(e), 'err'); } finally { setBusy(null); }
+  };
+  return (
+    <section className="panel" aria-label="Cloud copy" style={{ padding: 18, gap: 12, clipPath: 'none' }}>
+      <div className="panel-title">
+        Cloud copy
+        <Tip title="Cloud copy" text={'Your ledger is kept in the cloud as well as in this browser: trades, journal, orders, positions, goals, settings.\n\n• Every change goes up a few seconds after you make it, and anything changed on another device comes down every minute.\n• Log in on a new browser or PC and your ledger is there. Clear this browser and it comes back.\n• The cloud keeps every change for 30 days and can be rewound to any minute in them.\n\nIt’s stored in a Cloudflare database, and only your EVE login can read it.'} />
+      </div>
+      <p className="row tight" style={{ fontSize: 12.5, color: c.phase === 'error' ? 'var(--neg)' : covered ? 'var(--pos)' : 'var(--label)' }}>
+        <Cloud aria-hidden="true" style={{ width: 14, height: 14 }} />{line}
+      </p>
+      <div className="row" style={{ flexWrap: 'wrap', gap: 10 }}>
+        <Check checked={on} onChange={(v) => { setOn(v); setCloudEnabled(v); }} tip="Each browser can be switched off on its own; the cloud copy stays either way.">Keep this browser in sync</Check>
+        <button type="button" className="btn sm" disabled={!on || c.phase === 'waiting' || !!busy} onClick={() => run('sync', () => syncCloudNow())}><RefreshCw aria-hidden="true" />Sync now</button>
+        <button type="button" className="btn sm" disabled={!on || c.phase === 'waiting' || !!busy} onClick={() => run('held', async () => setHeld(await cloudSummary()))}><Database aria-hidden="true" />What’s in the cloud</button>
+        <button type="button" className="link-btn" disabled={!on || c.phase === 'waiting' || !!busy} onClick={() => run('esi', async () => setEsi(await cloudEsiCheck()))}>Check ESI from the cloud</button>
+      </div>
+      {held && (
+        <p className="note" style={{ margin: 0 }}>
+          {held.kinds.length ? held.kinds.map((k) => kindSaid(k.kind, k.n)).join(', ') : 'Nothing yet.'} Revision {units(held.rev)}.
+        </p>
+      )}
+      {esi && (
+        <div className="note" style={{ margin: 0 }}>
+          {esi.map((x) => (
+            <div key={x.url} className="mono" style={{ fontSize: 11.5 }}>
+              {x.status} in {x.ms} ms · {x.url.replace('https://esi.evetech.net', '')}{Object.keys(x.headers).length ? ` · ${Object.entries(x.headers).filter(([k]) => /limit|remain/i.test(k)).map(([k, v]) => `${k}: ${v}`).join(', ')}` : ''}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function DataTab() {
   const d = useData();
+  const cloud = useCloud();
+  const covered = cloudCovers(cloud);
   const now = useNow(60_000);
   const fileRef = useRef<HTMLInputElement>(null);
   const [scanBytes, setScanBytes] = useState<number | null>(null);
@@ -795,19 +862,24 @@ function DataTab() {
   return (
     <>
       <div style={grid2}>
+        <CloudPanel />
         <section className="panel" aria-label="Your data" style={{ padding: 18, gap: 12, clipPath: 'none' }}>
           <div className="panel-title">Your data</div>
-          <p style={{ fontSize: 12, color: 'var(--label)', textWrap: 'pretty' }}>ESI only returns about 30 days of wallet history and 90 days of order history, so this browser is your long-term record. Export a backup now and then.</p>
-          <p className="row tight" style={{ fontSize: 12.5, color: old ? 'var(--acc2)' : 'var(--pos)' }}>
+          <p style={{ fontSize: 12, color: 'var(--label)', textWrap: 'pretty' }}>
+            {covered
+              ? 'ESI only returns about 30 days of wallet history and 90 days of order history. Your ledger is kept in the cloud, so a backup file is optional: one to keep for yourself, or to move to a character the cloud doesn’t know.'
+              : 'ESI only returns about 30 days of wallet history and 90 days of order history, so this browser is your long-term record. Export a backup now and then, or keep a copy in the cloud.'}
+          </p>
+          <p className="row tight" style={{ fontSize: 12.5, color: covered ? 'var(--label)' : old ? 'var(--acc2)' : 'var(--pos)' }}>
             <HardDriveDownload aria-hidden="true" style={{ width: 14, height: 14 }} />
-            {days == null ? 'You have never exported a backup from this browser.' : `Last backup ${days} day${days === 1 ? '' : 's'} ago${old ? ' — time for another.' : '.'}`}
+            {days == null ? 'You have never exported a backup file from this browser.' : `Last backup file ${days} day${days === 1 ? '' : 's'} ago${old && !covered ? ' — time for another.' : '.'}`}
           </p>
           <div className="row">
             <button type="button" className="btn sm" onClick={doExport}><Download aria-hidden="true" />Export backup</button>
             <button type="button" className="btn sm" onClick={() => fileRef.current?.click()}><Upload aria-hidden="true" />Import backup</button>
             <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={onImport} />
             <button type="button" className="btn sm danger" onClick={async () => {
-              if (!(await confirmAsk({ title: 'Delete everything in this browser?', body: 'Every position, trade and setting goes. Export a backup first if you might want them back.', confirm: 'Delete everything', danger: true }))) return;
+              if (!(await confirmAsk({ title: 'Delete everything in this browser?', body: covered ? 'Every position, trade and setting goes from this browser. The cloud copy stays, and comes back here the next time you open the app logged in. Turn cloud sync off first if you want this browser to stay empty.' : 'Every position, trade and setting goes. Export a backup first if you might want them back.', confirm: 'Delete everything', danger: true }))) return;
               await clearAll();
               toast('Everything was deleted from this browser.', 'err');
             }}><Trash2 aria-hidden="true" />Delete all data</button>
@@ -825,7 +897,7 @@ function DataTab() {
               </div>
             ))}
           </div>
-          <p className="note">{fmt(sizes.reduce((t, x) => t + x.bytes, 0))} in total, measured as saved. Trades older than ESI’s 30 days exist only here.</p>
+          <p className="note">{fmt(sizes.reduce((t, x) => t + x.bytes, 0))} in total, measured as saved. {covered ? 'Trades older than ESI’s 30 days are kept here and in the cloud.' : 'Trades older than ESI’s 30 days exist only here.'}</p>
         </Card>
         <Card title="Backups">
           {!d.meta.backups?.length ? <p className="note">None exported from this browser yet.</p> : (
