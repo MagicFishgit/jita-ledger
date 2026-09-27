@@ -192,7 +192,8 @@ export function HourlyChart({ points, height = 170 }: { points: HourPoint[]; hei
       for (const p of points) {
         const v = get(p);
         if (v == null) { prev = null; continue; }
-        d += `${prev != null && p.hour - prev === 1 ? 'L' : 'M'}${X(p.hour).toFixed(1)} ${Y(v).toFixed(1)}`;
+        // A point after a gap starts afresh; the tiny step lets a lone hour show as a dot (round caps).
+        d += prev != null && p.hour - prev === 1 ? `L${X(p.hour).toFixed(1)} ${Y(v).toFixed(1)}` : `M${X(p.hour).toFixed(1)} ${Y(v).toFixed(1)}h0.1`;
         prev = p.hour;
       }
       return d;
@@ -214,8 +215,8 @@ export function HourlyChart({ points, height = 170 }: { points: HourPoint[]; hei
     <div className="chart-box cross" style={{ height, minHeight: height }} onMouseMove={move} onMouseLeave={() => setHover(null)}>
       <svg className="plot" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true">
         <path d="M0 50H600M0 100H600M0 150H600" stroke="rgba(130,185,225,.07)" strokeWidth={1} vectorEffect="non-scaling-stroke" fill="none" />
-        <path d={geo.ask} fill="none" stroke="var(--acc2)" strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
-        <path d={geo.bid} fill="none" stroke="var(--pos)" strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
+        <path d={geo.ask} fill="none" stroke="var(--acc2)" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        <path d={geo.bid} fill="none" stroke="var(--pos)" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
       </svg>
       {p && (
         <>

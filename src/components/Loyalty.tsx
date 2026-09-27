@@ -204,8 +204,9 @@ export function Loyalty() {
   useEffect(() => {
     if (!spentLp || !live.size) return;
     const rate = spendTotal / spentLp;
-    update((x) => ({ meta: { ...x.meta, lpRate: { ...x.meta.lpRate, [corp]: { rate, lp: spentLp, at: new Date().toISOString() } } } }));
-  }, [spendTotal, spentLp, live.size, corp]);
+    const types = [...new Set(spend.map((p) => p.typeId))];
+    update((x) => ({ meta: { ...x.meta, lpRate: { ...x.meta.lpRate, [corp]: { rate, lp: spentLp, at: new Date().toISOString(), types } } } }));
+  }, [spendTotal, spentLp, live.size, corp]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const corpName = (id: number) => d.names[id] ?? (id === CALDARI_NAVY ? 'Caldari Navy' : `Corporation #${id}`);
 

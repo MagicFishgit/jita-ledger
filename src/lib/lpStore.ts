@@ -99,7 +99,7 @@ export function sellPerDay(p: Pick<StorePricing, 'vol' | 'buyers'>, typeId: numb
   return v == null ? null : sideVolume(v, p.buyers[typeId] ?? EVEN_SPLIT, false);
 }
 
-export function storeRate(p: StorePricing, lp: number, r: { f: number; t: number }, horizonDays: number, sharePct: number): { rate: number; lp: number } | null {
+export function storeRate(p: StorePricing, lp: number, r: { f: number; t: number }, horizonDays: number, sharePct: number): { rate: number; lp: number; types: number[] } | null {
   const patient = (id: number) => (p.quotes[id] ? patientPrice(p.quotes[id], r.f, r.t) : null);
   const candidates = p.offers
     .map((o) => valueOffer(o, patient, lp))
@@ -110,5 +110,5 @@ export function storeRate(p: StorePricing, lp: number, r: { f: number; t: number
   const picks = spendPlan(candidates, lp);
   const spent = picks.reduce((t, x) => t + x.lpSpent, 0);
   if (!spent) return null;
-  return { rate: picks.reduce((t, x) => t + x.profit, 0) / spent, lp: spent };
+  return { rate: picks.reduce((t, x) => t + x.profit, 0) / spent, lp: spent, types: [...new Set(picks.map((x) => x.typeId))] };
 }

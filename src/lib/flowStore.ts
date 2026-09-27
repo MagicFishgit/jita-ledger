@@ -3,6 +3,7 @@ import { get, set } from 'idb-keyval';
 import { addFlow, bookFills, observedFlow, pruneFlow, type Fills, type FlowDay, type FlowLog } from './flow';
 import { cacheStore } from './store';
 import type { OrderLite } from './market';
+import type { HourBucket } from './rhythm';
 
 /**
  * What the Jita books were seen doing, shared by every page (`lib/flow.ts` has the rules).
@@ -33,6 +34,11 @@ const emit = () => { version++; listeners.forEach((l) => l()); };
 
 /** The cloud's watched counts, as fetched by the cloud sync. */
 export function setCloudFlow(next: FlowLog): void { cloudLog = next; emit(); }
+
+/** The cloud's hour-of-day counts per item (`rhythm.ts`), for when its buyers and sellers are about. */
+let cloudHod: Record<number, HourBucket[]> = {};
+export function setCloudHours(next: Record<number, HourBucket[]>): void { cloudHod = { ...cloudHod, ...next }; emit(); }
+export const watchedHours = (typeId: number): HourBucket[] => cloudHod[typeId] ?? [];
 
 type Pending = { typeId: number; s0: number; s1: number; f: Fills; at: number };
 let pending: Pending[] = [];

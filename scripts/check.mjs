@@ -2116,5 +2116,26 @@ console.log('\n--- sell into the bids when buyers don\'t take listings ---');
   eq('  it replaces the move on the same order, and sorts among other orders’ moves by ISK at stake', [v, { ...v, verdict: 'move', atRisk: v.atRisk * 2 }].sort(urgency)[0].verdict, 'move');
 }
 
+console.log('\n--- an item\'s daily rhythm ---');
+{
+  const { busyHours, busySaid, spreadAtHour } = await import('../src/lib/rhythm.ts');
+  const flat = Array.from({ length: 24 }, (_, hod) => ({ hod, h: 7, sell: 7, buy: 7, days: 7 }));
+  eq('an even day has no busy hours', busyHours(flat, 'sell'), null);
+  const evening = flat.map((b) => (b.hod >= 18 && b.hod < 22 ? { ...b, sell: 70 } : b));
+  const w = busyHours(evening, 'sell');
+  eq('buyers crowding 18-22 EVE time are found', [w?.from, w?.to, Math.round((w?.share ?? 0) * 100)], [18, 22, 67]);
+  eq('  and said in EVE time and yours', busySaid(w, 'sell', 2), 'Buyers take listings most between 18:00 and 22:00 EVE time (20:00–00:00 yours): 67% of it in those 4 hours.');
+  eq('  the window wraps past midnight', busyHours(flat.map((b) => (b.hod >= 22 || b.hod < 2 ? { ...b, buy: 70 } : b)), 'buy')?.from, 22);
+  eq('  nothing before a week of watching', busyHours(evening.map((b) => ({ ...b, days: 5 })), 'sell'), null);
+  eq('  nor on a handful of units', busyHours(evening.map((b) => ({ ...b, sell: b.hod === 19 ? 20 : 0 })), 'sell'), null);
+  const hourNow = Math.floor(Date.parse('2026-10-10T19:30:00Z') / 3600_000);
+  const pts = [];
+  for (let d = 9; d >= 1; d--) pts.push({ hour: hourNow - d * 24, bestBuy: 100, bestSell: 105 + (d % 3) });
+  pts.push({ hour: hourNow, bestBuy: 100, bestSell: 112 });
+  const sp = spreadAtHour(pts, Date.parse('2026-10-10T19:30:00Z'));
+  eq('the spread now against the median of the same hour on 9 earlier days', [Math.round(sp.now * 1000) / 10, Math.round(sp.usual * 1000) / 10, sp.days], [12, 6, 9]);
+  eq('  nothing with under a week of that hour', spreadAtHour(pts.slice(4), Date.parse('2026-10-10T19:30:00Z')), null);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

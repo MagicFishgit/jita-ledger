@@ -329,6 +329,17 @@ Don't re-derive or contradict these without new evidence.
   Calculator, with the rate and "price patiently, or expect to relist". The user asked for exactly this: bots are
   everywhere, and a good trade shouldn't vanish because of them. Reads are five minutes apart, so "every 5 min"
   is the floor. The Clears-in tip quotes the same rate instead of the old units-listed-at-the-front figure.
+- **The cloud watches what you'd buy, not only what you hold** (`pushWatch` in `cloud.ts`, the `watch` doc). The
+  browser sends the top 150 of its last Prospects scan ranked by your saved filters, filled from the Busy markets
+  view when the filters pass fewer (a strict filter set passed none on the test browser), plus the items the
+  loyalty spend plans sell (`lpRate[corp].types`). Sent only when the list changes, with the filters, for the
+  cloud's opportunity mail. The browser fetches the cloud's flow for those too, so Prospects ranks candidates on
+  measured buyer/seller flow (it reads `watchedFlow` at rank time) before any ISK goes in.
+- **An item's rhythm is said only after a week of watching** (`rhythm.ts`). Busy hours: the 4-hour window (UTC)
+  carrying at least 1.5× its even share of one side's trade, judged per hour watched, after 7 days and 30 units;
+  said in EVE time and the viewer's own ("Buyers take listings most between 18:00 and 22:00 EVE time (20:00–00:00
+  yours)") in the Calculator and the Clears-in tip. Spread now against the median of the same hour on 7+ earlier
+  days, under the Calculator's hourly chart. Nothing shows before then; there's no "collecting data" wording.
 - **"Clears in" is paced by what the Jita book was seen doing, not only by a guess from history** (`lib/flow.ts`,
   `sidePace` in `orderCheck.ts`). A six-hour study of the user's 71 beaten orders (27 September 2026, 03:44–09:44
   EVE time, 79 reads of each book ~5 minutes apart) found:

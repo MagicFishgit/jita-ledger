@@ -7,10 +7,14 @@ import {
 } from './cloudSync';
 import { dataStore, getData, isReady, onDataChange, update, type Data } from './store';
 import { sanitizeSettings } from './fees';
-import { setCloudFlow } from './flowStore';
+import { setCloudFlow, setCloudHours } from './flowStore';
+import type { HourBucket } from './rhythm';
 import type { FlowLog } from './flow';
 import { sanitizeAlerts, sanitizePrefs } from './prefs';
 import { costBasis } from './orderCheck';
+import { loadCache, rankProspects } from './scan';
+import { DEFAULT_FILTERS } from './prospects';
+import type { ProspectFilters } from './types';
 
 /**
  * Keeps the ledger in the cloud (the Worker in `worker/`), so no browser holds the only copy.
@@ -301,13 +305,55 @@ function watchedTypes(d: Data): number[] {
   return [...s];
 }
 
-/** Fetches what the cloud has watched on your items, for the buyer/seller split and "Clears in". */
+/** How many of the last scan's best candidates the cloud is asked to watch. */
+const CANDIDATES = 150;
+let watchAsked: number[] = [];
+let watchSent: string | null = null;
+
+/**
+ * Asks the cloud to watch more than what you hold: the best candidates from your last Prospects scan, ranked
+ * by your own saved filters, and the items your loyalty spend plans sell. Their buyer/seller split and pace
+ * are then measured before any ISK goes in. Sent only when the list changes; the filters go with it, for the
+ * cloud's opportunity mail.
+ */
+async function pushWatch(): Promise<void> {
+  if (!state || !cloudEnabled()) return;
+  const d = getData();
+  let saved: Partial<ProspectFilters> = {};
+  try { saved = JSON.parse(localStorage.getItem('jita-ledger:prospects') || 'null')?.f ?? {}; } catch { /* private window */ }
+  const filters: ProspectFilters = { ...DEFAULT_FILTERS, ...saved, busy: false, partial: false };
+  let candidates: number[] = [];
+  try {
+    const cache = await loadCache();
+    // Your filters first; strict ones can pass only a few, so the busiest markets (Prospects' Busy view)
+    // fill the rest: where the measured split matters most.
+    const picked = rankProspects(cache, d.settings, filters).map((p) => p.typeId);
+    const busy = picked.length < CANDIDATES ? rankProspects(cache, d.settings, { ...filters, busy: true }).map((p) => p.typeId) : [];
+    candidates = [...new Set([...picked, ...busy])].slice(0, CANDIDATES);
+  } catch { /* no scan yet */ }
+  const lp = Object.values(d.meta.lpRate ?? {}).flatMap((r) => r.types ?? []);
+  const types = [...new Set([...candidates, ...lp])];
+  watchAsked = types;
+  const body = JSON.stringify({ types, filters });
+  if (body === watchSent) return;
+  const res = await call<{ rev: number }>('/v1/push', { method: 'POST', body: JSON.stringify({ records: [], docs: [{ key: 'watch', d: { ...JSON.parse(body), at: new Date().toISOString() } }] }) });
+  ownRevs.add(res.rev);
+  watchSent = body;
+}
+
+/** Fetches what the cloud has watched on your items and candidates, for the buyer/seller split and "Clears in". */
 async function refreshCloudFlow(): Promise<void> {
   if (!state || !cloudEnabled()) return;
-  const types = watchedTypes(getData());
+  const types = [...new Set([...watchedTypes(getData()), ...watchAsked])].slice(0, 500);
   if (!types.length) return;
   setCloudFlow(await call<FlowLog>(`/v1/flow?types=${types.join(',')}`));
+  // When each held item's buyers and sellers are about: only what you hold, for the Orders tips.
+  const held = watchedTypes(getData()).slice(0, 500);
+  if (held.length) setCloudHours(await call<Record<number, HourBucket[]>>(`/v1/hours?types=${held.join(',')}`));
 }
+
+/** An item's trade by hour of day (UTC), as the cloud counted it. */
+export const cloudHours = (typeId: number) => call<Record<number, HourBucket[]>>(`/v1/hours?types=${typeId}`).then((r) => r[typeId] ?? []);
 
 /** An item's best prices hour by hour, as the cloud recorded them. */
 export const cloudPrices = (typeId: number, hours = 24 * 14) =>
@@ -362,7 +408,7 @@ export function startCloud(): () => void {
     if (!alive) return;
     if (!cloudEnabled()) { setStatus({ phase: 'off' }); return; }
     setStatus({ phase: 'idle' });
-    syncCloudNow().then(() => Promise.all([refreshCloudFlow(), cloudSummary(), pushCosts()])).catch(() => undefined);
+    syncCloudNow().then(() => pushWatch().catch(() => undefined)).then(() => Promise.all([refreshCloudFlow(), cloudSummary(), pushCosts()])).catch(() => undefined);
   };
   begin();
   const offAuth = onAuthChange(() => { begin(); });
@@ -371,7 +417,7 @@ export function startCloud(): () => void {
   // The same cadence for whether the cloud mails (another device may have handed it a sender) and the costs.
   const flowTick = setInterval(() => {
     if (document.visibilityState !== 'visible' || !state || !cloudEnabled()) return;
-    refreshCloudFlow().catch(() => undefined);
+    pushWatch().catch(() => undefined).then(() => refreshCloudFlow()).catch(() => undefined);
     cloudSummary().catch(() => undefined);
     pushCosts().catch(() => undefined);
   }, 10 * 60_000);

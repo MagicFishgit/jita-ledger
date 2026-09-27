@@ -144,7 +144,7 @@ export function Wallet() {
           const got = storeRate(p, b.points, r, 7, d.settings.share);
           const at = new Date().toISOString();
           // Nothing profitable is still an answer: those points are worth nothing to sell right now.
-          update((x) => ({ meta: { ...x.meta, lpRate: { ...x.meta.lpRate, [b.corporationId]: got ? { rate: got.rate, lp: got.lp, at } : { rate: 0, lp: 0, at } } } }));
+          update((x) => ({ meta: { ...x.meta, lpRate: { ...x.meta.lpRate, [b.corporationId]: got ? { rate: got.rate, lp: got.lp, at, types: got.types } : { rate: 0, lp: 0, at } } } }));
         } catch { /* tried again later */ }
       }
     })().finally(() => { if (alive) setLpPricing(false); });

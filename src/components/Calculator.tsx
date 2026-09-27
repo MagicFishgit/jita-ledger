@@ -20,7 +20,8 @@ import { toast } from '../lib/toast';
 import type { HistRow, MarketSnap } from '../lib/types';
 import { ItemSearch, OpenInGame } from './common';
 import { fmtDay, HistoryChart, HourlyChart, type HourPoint } from './charts';
-import { cloudPrices } from '../lib/cloud';
+import { cloudHours, cloudPrices } from '../lib/cloud';
+import { busyHours, busySaid, spreadAtHour, type HourBucket } from '../lib/rhythm';
 import { cssVars, Guide, ItemIcon, PageHead, Seg, Tip } from './ui';
 
 /** Plain-English notes behind each field, shown in the tooltip over it. */
@@ -425,12 +426,15 @@ function Market(props: {
   const { item, snap, hist, range, now, buyers } = props;
   // The cloud's hour-by-hour record of the Jita book, for items it watches. Nothing shows without it.
   const [hourly, setHourly] = useState<HourPoint[] | null>(null);
+  const [hod, setHod] = useState<HourBucket[]>([]);
   useEffect(() => {
     let alive = true;
-    setHourly(null);
+    setHourly(null); setHod([]);
     cloudPrices(item.id, 24 * 14).then((p) => { if (alive) setHourly(p); }).catch(() => undefined);
+    cloudHours(item.id).then((h) => { if (alive) setHod(h); }).catch(() => undefined);
     return () => { alive = false; };
   }, [item.id]);
+  const spreadNow = hourly ? spreadAtHour(hourly, now) : null;
   const hourSpan = hourly && hourly.length >= 2 ? hourly[hourly.length - 1].hour - hourly[0].hour : 0;
   const mv = snap ? Math.max(1, ...snap.topBuys.map((x) => x.volume), ...snap.topSells.map((x) => x.volume)) : 1;
   const bookAt = snap ? new Date(snap.fetchedAt) : null;
@@ -467,6 +471,12 @@ function Market(props: {
   // How often the front is undercut while watched: a heads-up, never a reason against the trade.
   const paces = [relistPace(watchedFlow(item.id), false), relistPace(watchedFlow(item.id), true)].filter((p) => p?.busy);
   if (paces.length) reality.push({ ok: false, t: `Busy relisting. ${paces.map((p) => p!.said).join(' ')} Price patiently, or expect to relist.` });
+  // When each side is about, once the cloud has a week of it.
+  const offset = -new Date().getTimezoneOffset() / 60;
+  for (const side of ['sell', 'buy'] as const) {
+    const w = busyHours(hod, side);
+    if (w) reality.push({ ok: true, t: busySaid(w, side, offset) });
+  }
 
   return (
     <>
@@ -565,6 +575,11 @@ function Market(props: {
               </span>
             </div>
             <HourlyChart points={hourly} />
+            {spreadNow && (
+              <span className="note small" style={{ margin: 0, color: spreadNow.now > spreadNow.usual * 1.2 ? 'var(--pos)' : 'var(--sec)' }}>
+                Spread now {pct(spreadNow.now, 1)}; usually {pct(spreadNow.usual, 1)} at this hour (the median of {spreadNow.days} days).
+              </span>
+            )}
           </div>
         )}
         {win.length > 0 && <p className="note small">First day shown: {fmtDay(Date.parse(win[0].date + 'T00:00:00Z'))}. ESI leaves out days nothing traded, so a gap in the band is a quiet day, not missing data.</p>}

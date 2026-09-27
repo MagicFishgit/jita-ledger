@@ -6,7 +6,8 @@ import { checkOrders, costBasis, jitaOpen, sidePace, useOrderCheck, verdicts } f
 import { rates, effectiveSkills, orderSlots } from '../lib/fees';
 import { tickDown } from '../lib/tick';
 import { competitionShare, SPLIT_SAID } from '../lib/split';
-import { useFlow, watchedFlow } from '../lib/flowStore';
+import { useFlow, watchedFlow, watchedHours } from '../lib/flowStore';
+import { busyHours, busySaid } from '../lib/rhythm';
 import { relistPace } from '../lib/flow';
 import { loadCache, rankProspects } from '../lib/scan';
 import { DEFAULT_FILTERS } from '../lib/prospects';
@@ -350,8 +351,12 @@ function PaceNote({ x, hours }: { x: Relist; hours: (h: number) => string }) {
   // How often the front was undercut while watched: the queue can grow again after you move.
   const rp = relistPace(watchedFlow(x.typeId), x.isBuy);
   const cuts = rp ? `\n\n${rp.said} This figure assumes nobody undercuts you meanwhile.` : '';
+  // When your side is most active, once there's a week of it: the time to be listed at the front.
+  const side = x.isBuy ? 'buy' : 'sell';
+  const busy = busyHours(watchedHours(x.typeId), side);
+  const when = busy ? `\n\n${busySaid(busy, side, -new Date().getTimezoneOffset() / 60)}` : '';
   return (
-    <span tabIndex={0} data-tip={basis + cuts} data-tip-title="What this rests on">
+    <span tabIndex={0} data-tip={basis + cuts + when} data-tip-title="What this rests on">
       {hours(x.hoursToFront)}<span className="sub">{p.watchedH >= 1 ? `${Math.round(p.watchedH)} h watched` : p.splitFrom === 'book' ? 'from the book' : 'from history'}</span>
     </span>
   );

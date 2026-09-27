@@ -255,7 +255,7 @@ export type Meta = {
   /** Last time killmails were read. */
   killmailsAt?: string;
   /** The best ISK per loyalty point last worked out on the Loyalty page, per corporation. */
-  lpRate?: Record<number, { rate: number; at: string; /** Points the plan could place at that rate. */ lp?: number }>;
+  lpRate?: Record<number, { rate: number; at: string; /** Points the plan could place at that rate. */ lp?: number; /** The items the plan sells, for the cloud to watch. */ types?: number[] }>;
   /** Loyalty point balances as last read. */
   lpBalances?: { corporationId: number; points: number }[];
   /** When ESI's cache next lets go, per route, as read from each response. For the status bar's timers. */
