@@ -7,7 +7,7 @@
  * watchlist entries on, so "Clears in", the buyer/seller split and the selling times rest on measured trade
  * instead of history's guess. It also keeps the best prices hour by hour, where ESI's history is daily.
  */
-import { bookFills, MAX_GAP_H, type OrderLite } from '../../src/lib/flow';
+import { bookFills, MAX_GAP_H, type FlowDay, type OrderLite } from '../../src/lib/flow';
 import { soldFrom, type BookSold } from '../../src/lib/split';
 
 const JITA_44 = 60003760;
@@ -18,15 +18,27 @@ const HEADERS = { 'X-Compatibility-Date': '2025-08-26', 'User-Agent': 'jita-ledg
 
 type Raw = { order_id: number; is_buy_order: boolean; price: number; volume_remain: number; volume_total?: number; location_id: number };
 
-/** Every item any ledger trades or watches: open Jita orders, open positions, the watchlist. */
+/** The most items one round reads. Each is one to a few ESI pages; the round's limits are far above this. */
+export const MAX_WATCHED = 400;
+
+/**
+ * Every item any ledger trades or watches: open Jita orders, open positions, the watchlist, and the items a
+ * browser asked to have watched (its `watch` doc: the best candidates from its last Prospects scan and its
+ * loyalty spend plan), so those are ranked on measured trade before any ISK goes in. What's held comes first;
+ * the asked-for list fills the rest up to MAX_WATCHED.
+ */
 export async function watchedTypes(db: D1Database): Promise<number[]> {
-  const rows = (await db.prepare(`
+  const held = (await db.prepare(`
     SELECT DISTINCT CAST(json_extract(data, '$.typeId') AS INTEGER) AS t FROM records
       WHERE kind = 'orders' AND data IS NOT NULL AND json_extract(data, '$.state') = 'open'
     UNION SELECT CAST(json_extract(data, '$.typeId') AS INTEGER) FROM records
       WHERE kind = 'positions' AND data IS NOT NULL AND json_extract(data, '$.status') = 'open'
     UNION SELECT CAST(id AS INTEGER) FROM records WHERE kind = 'watchlist' AND data IS NOT NULL`).all<{ t: number }>()).results;
-  return rows.map((r) => r.t).filter((t) => Number.isFinite(t) && t > 0);
+  const asked = (await db.prepare(`SELECT CAST(j.value AS INTEGER) AS t FROM docs, json_each(docs.data, '$.types') AS j WHERE docs.key = 'watch'`)
+    .all<{ t: number }>()).results;
+  const out = new Set<number>();
+  for (const r of [...held, ...asked]) if (Number.isFinite(r.t) && r.t > 0 && out.size < MAX_WATCHED) out.add(r.t);
+  return [...out];
 }
 
 /** One item's Jita book, every page, with ESI's Expires as the stamp of that snapshot. Null if any page failed. */
@@ -72,9 +84,17 @@ export async function watchMarkets(db: D1Database): Promise<WatchResult> {
   const hour = Math.floor(now / 3600_000);
   const setBook = db.prepare('INSERT INTO books (type_id, stamp, orders, at, sold) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(type_id) DO UPDATE SET stamp = excluded.stamp, orders = excluded.orders, at = excluded.at, sold = excluded.sold');
   const addFlow = db.prepare(`
-    INSERT INTO flow (type_id, day, h, sell, buy, new_sell, new_buy) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+    INSERT INTO flow (type_id, day, h, sell, buy, new_sell, new_buy, buy_low, sell_high, front_sell, front_buy, reprice_sell, reprice_buy)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
     ON CONFLICT(type_id, day) DO UPDATE SET h = h + excluded.h, sell = sell + excluded.sell, buy = buy + excluded.buy,
-      new_sell = new_sell + excluded.new_sell, new_buy = new_buy + excluded.new_buy`);
+      new_sell = new_sell + excluded.new_sell, new_buy = new_buy + excluded.new_buy,
+      buy_low = MIN(COALESCE(buy_low, excluded.buy_low), COALESCE(excluded.buy_low, buy_low)),
+      sell_high = MAX(COALESCE(sell_high, excluded.sell_high), COALESCE(excluded.sell_high, sell_high)),
+      front_sell = front_sell + excluded.front_sell, front_buy = front_buy + excluded.front_buy,
+      reprice_sell = reprice_sell + excluded.reprice_sell, reprice_buy = reprice_buy + excluded.reprice_buy`);
+  const addHour = db.prepare(`
+    INSERT INTO flow_hod (type_id, day, hod, h, sell, buy) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+    ON CONFLICT(type_id, day, hod) DO UPDATE SET h = h + excluded.h, sell = sell + excluded.sell, buy = buy + excluded.buy`);
   const setPrice = db.prepare(`
     INSERT INTO prices (type_id, hour, best_buy, best_sell, buy_units, sell_units) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
     ON CONFLICT(type_id, hour) DO UPDATE SET best_buy = excluded.best_buy, best_sell = excluded.best_sell,
@@ -95,7 +115,9 @@ export async function watchMarkets(db: D1Database): Promise<WatchResult> {
         if (hours <= MAX_GAP_H) {
           const f = bookFills(unpack(was.orders), book.orders);
           const day = new Date(book.stamp).toISOString().slice(0, 10);
-          stmts.push(addFlow.bind(typeId, day, hours, f.sell, f.buy, f.newSell, f.newBuy));
+          stmts.push(addFlow.bind(typeId, day, hours, f.sell, f.buy, f.newSell, f.newBuy, f.buyLow ?? null, f.sellHigh ?? null,
+            f.frontSell ?? 0, f.frontBuy ?? 0, f.repriceSell ?? 0, f.repriceBuy ?? 0));
+          stmts.push(addHour.bind(typeId, day, new Date(book.stamp).getUTCHours(), hours, f.sell, f.buy));
           result.counted++;
         }
       }
@@ -107,19 +129,46 @@ export async function watchMarkets(db: D1Database): Promise<WatchResult> {
       stmts.push(setPrice.bind(typeId, hour, bestBuy, bestSell, at(bids, bestBuy), at(asks, bestSell)));
     }
   }));
+  // Hour-of-day counts are only worth a few weeks; once an hour, the oldest go.
+  if (new Date(now).getUTCMinutes() < 5) stmts.push(db.prepare('DELETE FROM flow_hod WHERE day < ?1').bind(new Date(now - HOD_DAYS * 86400_000).toISOString().slice(0, 10)));
   for (let i = 0; i < stmts.length; i += 200) await db.batch(stmts.slice(i, i + 200));
   return result;
+}
+
+/** Days of hour-of-day counts kept. */
+export const HOD_DAYS = 28;
+
+/** Each item's trade by UTC hour of day, summed over the last `days` days: hours watched and units each side. */
+export async function hoursFor(db: D1Database, types: number[], days = HOD_DAYS) {
+  const since = new Date(Date.now() - (days - 1) * 86400_000).toISOString().slice(0, 10);
+  const out: Record<number, { hod: number; h: number; sell: number; buy: number; days: number }[]> = {};
+  for (let i = 0; i < types.length; i += 90) {
+    const part = types.slice(i, i + 90);
+    const rows = (await db.prepare(`SELECT type_id, hod, SUM(h) AS h, SUM(sell) AS sell, SUM(buy) AS buy, COUNT(DISTINCT day) AS days FROM flow_hod
+      WHERE day >= ?1 AND type_id IN (${part.map((_, n) => `?${n + 2}`).join(',')}) GROUP BY type_id, hod`)
+      .bind(since, ...part).all<{ type_id: number; hod: number; h: number; sell: number; buy: number; days: number }>()).results;
+    for (const r of rows) (out[r.type_id] ??= []).push({ hod: r.hod, h: r.h, sell: r.sell, buy: r.buy, days: r.days });
+  }
+  return out;
 }
 
 /** The watched trade for some items over the last `days` UTC days, shaped like the app's flow log. */
 export async function flowFor(db: D1Database, types: number[], days = 14) {
   const since = new Date(Date.now() - (days - 1) * 86400_000).toISOString().slice(0, 10);
-  const out: Record<number, Record<string, { h: number; sell: number; buy: number; newSell: number; newBuy: number }>> = {};
+  const out: Record<number, Record<string, FlowDay>> = {};
   for (let i = 0; i < types.length; i += 90) {
     const part = types.slice(i, i + 90);
-    const rows = (await db.prepare(`SELECT type_id, day, h, sell, buy, new_sell, new_buy FROM flow WHERE day >= ?1 AND type_id IN (${part.map((_, n) => `?${n + 2}`).join(',')})`)
-      .bind(since, ...part).all<{ type_id: number; day: string; h: number; sell: number; buy: number; new_sell: number; new_buy: number }>()).results;
-    for (const r of rows) (out[r.type_id] ??= {})[r.day] = { h: r.h, sell: r.sell, buy: r.buy, newSell: r.new_sell, newBuy: r.new_buy };
+    const rows = (await db.prepare(`SELECT type_id, day, h, sell, buy, new_sell, new_buy, buy_low, sell_high, front_sell, front_buy, reprice_sell, reprice_buy
+      FROM flow WHERE day >= ?1 AND type_id IN (${part.map((_, n) => `?${n + 2}`).join(',')})`)
+      .bind(since, ...part).all<{ type_id: number; day: string; h: number; sell: number; buy: number; new_sell: number; new_buy: number;
+        buy_low: number | null; sell_high: number | null; front_sell: number; front_buy: number; reprice_sell: number; reprice_buy: number }>()).results;
+    for (const r of rows) {
+      (out[r.type_id] ??= {})[r.day] = {
+        h: r.h, sell: r.sell, buy: r.buy, newSell: r.new_sell, newBuy: r.new_buy,
+        buyLow: r.buy_low ?? undefined, sellHigh: r.sell_high ?? undefined,
+        frontSell: r.front_sell, frontBuy: r.front_buy, repriceSell: r.reprice_sell, repriceBuy: r.reprice_buy,
+      };
+    }
   }
   return out;
 }

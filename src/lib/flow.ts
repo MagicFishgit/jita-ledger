@@ -32,6 +32,20 @@ export type Fills = {
   newSell: number;
   /** Units newly bid at or above the best bid. */
   newBuy: number;
+  /**
+   * The lowest price a buy order visibly filled at: one that shrank between the reads. Exact and Jita's own,
+   * where ESI's daily low is trimmed and region-wide. A vanished order doesn't count here: it may have been
+   * cancelled, and a false "trading reached this price" is the mistake the reach rule exists to prevent.
+   */
+  buyLow?: number;
+  /** The highest price a sell order visibly sold at, the same way. */
+  sellHigh?: number;
+  /** Times the best price improved on each side: someone undercut (or outbid) the front. */
+  frontSell?: number;
+  frontBuy?: number;
+  /** Orders that changed price under the same order ID: relisting. */
+  repriceSell?: number;
+  repriceBuy?: number;
 };
 
 /**
@@ -48,19 +62,31 @@ export function bookFills(prev: OrderLite[], cur: OrderLite[]): Fills {
     if (o.isBuy) bestBid = Math.max(bestBid, o.price);
     else bestAsk = Math.min(bestAsk, o.price);
   }
-  const f: Fills = { sell: 0, buy: 0, newSell: 0, newBuy: 0 };
+  const f: Fills = { sell: 0, buy: 0, newSell: 0, newBuy: 0, frontSell: 0, frontBuy: 0, repriceSell: 0, repriceBuy: 0 };
   for (const o of prev) {
     const c = now.get(o.id);
     const gone = c ? Math.max(0, o.volume - c.volume) : o.price === (o.isBuy ? bestBid : bestAsk) ? o.volume : 0;
     if (o.isBuy) f.buy += gone; else f.sell += gone;
+    // A partial fill is certain; it is at the price the order stood at before the read.
+    if (c && c.volume < o.volume) {
+      if (o.isBuy) f.buyLow = Math.min(f.buyLow ?? Infinity, o.price);
+      else f.sellHigh = Math.max(f.sellHigh ?? -Infinity, o.price);
+    }
   }
+  let newAsk = Infinity, newBid = -Infinity;
   for (const c of cur) {
+    if (c.isBuy) newBid = Math.max(newBid, c.price); else newAsk = Math.min(newAsk, c.price);
     const p = was.get(c.id);
+    if (p && p.price !== c.price) { if (c.isBuy) f.repriceBuy!++; else f.repriceSell!++; }
     if (p && p.price === c.price) continue;
     if (c.isBuy ? c.price >= bestBid : c.price <= bestAsk) {
       if (c.isBuy) f.newBuy += c.volume; else f.newSell += c.volume;
     }
   }
+  // The front improves only when an order is placed or repriced past it; buying out the best listing makes
+  // the next one the best, a worse price, which isn't counted.
+  if (Number.isFinite(bestAsk) && newAsk < bestAsk) f.frontSell = 1;
+  if (Number.isFinite(bestBid) && newBid > bestBid) f.frontBuy = 1;
   return f;
 }
 
@@ -89,9 +115,22 @@ export function addFlow(log: FlowLog, typeId: number, at: number, hours: number,
   if (!(hours > 0) || hours > MAX_GAP_H) return log;
   const days = { ...(log[typeId] ?? {}) };
   const k = dayOf(at);
-  const d = days[k] ?? { h: 0, sell: 0, buy: 0, newSell: 0, newBuy: 0 };
-  days[k] = { h: d.h + hours, sell: d.sell + f.sell, buy: d.buy + f.buy, newSell: d.newSell + f.newSell, newBuy: d.newBuy + f.newBuy };
+  days[k] = mergeDay(days[k], { ...f, h: hours });
   return { ...log, [typeId]: days };
+}
+
+const lower = (a: number | undefined, b: number | undefined) => (a == null ? b : b == null ? a : Math.min(a, b));
+const higher = (a: number | undefined, b: number | undefined) => (a == null ? b : b == null ? a : Math.max(a, b));
+
+/** Two readings of the same day added together: counts summed, the extremes kept. */
+export function mergeDay(a: FlowDay | undefined, b: FlowDay): FlowDay {
+  if (!a) return { ...b };
+  return {
+    h: a.h + b.h, sell: a.sell + b.sell, buy: a.buy + b.buy, newSell: a.newSell + b.newSell, newBuy: a.newBuy + b.newBuy,
+    buyLow: lower(a.buyLow, b.buyLow), sellHigh: higher(a.sellHigh, b.sellHigh),
+    frontSell: (a.frontSell ?? 0) + (b.frontSell ?? 0), frontBuy: (a.frontBuy ?? 0) + (b.frontBuy ?? 0),
+    repriceSell: (a.repriceSell ?? 0) + (b.repriceSell ?? 0), repriceBuy: (a.repriceBuy ?? 0) + (b.repriceBuy ?? 0),
+  };
 }
 
 export function pruneFlow(log: FlowLog, now: number): FlowLog {
@@ -107,10 +146,10 @@ export function pruneFlow(log: FlowLog, now: number): FlowLog {
 /** Everything watched for an item over the last FLOW_DAYS. */
 export function observedFlow(log: FlowLog, typeId: number, now: number): FlowDay {
   const oldest = dayOf(now - (FLOW_DAYS - 1) * 86400_000);
-  const t: FlowDay = { h: 0, sell: 0, buy: 0, newSell: 0, newBuy: 0 };
+  let t: FlowDay = { h: 0, sell: 0, buy: 0, newSell: 0, newBuy: 0 };
   for (const [k, d] of Object.entries(log[typeId] ?? {})) {
     if (k < oldest) continue;
-    t.h += d.h; t.sell += d.sell; t.buy += d.buy; t.newSell += d.newSell; t.newBuy += d.newBuy;
+    t = mergeDay(t, d);
   }
   return t;
 }

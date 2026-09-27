@@ -8,7 +8,7 @@
 import { AuthError, caller } from './auth';
 import { alertRound, previewRound, testRound } from './alerts';
 import { archive, noteJob, refreshOrders } from './archive';
-import { flowFor, pricesFor, watchMarkets } from './market';
+import { flowFor, hoursFor, pricesFor, watchMarkets } from './market';
 import { dropLogin, EveError, keepLogin, type Purpose } from './eve';
 import { BadRequest, pull, push, status, type PushBody } from './sync';
 
@@ -171,6 +171,10 @@ export default {
       if (url.pathname === '/v1/flow' && request.method === 'GET') {
         const types = (url.searchParams.get('types') ?? '').split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0).slice(0, 500);
         return json(await flowFor(env.DB, types), 200, c);
+      }
+      if (url.pathname === '/v1/hours' && request.method === 'GET') {
+        const types = (url.searchParams.get('types') ?? '').split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0).slice(0, 500);
+        return json(await hoursFor(env.DB, types), 200, c);
       }
       if (url.pathname === '/v1/prices' && request.method === 'GET') {
         const type = Number(url.searchParams.get('type'));
