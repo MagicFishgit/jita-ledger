@@ -12,7 +12,7 @@ import { update, useData } from '../lib/store';
 import type { Relist, Verdict } from '../lib/relist';
 import { FILL_WINDOW } from '../lib/fills';
 import type { Prospect } from '../lib/types';
-import { canOpenInGame, OpenInGame, useTypeName } from './common';
+import { canOpenInGame, NameInGame, OpenInGame, useTypeName } from './common';
 import { cssVars, Empty, Guide, ItemIcon, Notice, PageHead, Seg, Th } from './ui';
 import { ScanFreshness } from './ScanFreshness';
 
@@ -256,7 +256,7 @@ export function Orders() {
                     const hot = x?.verdict === 'move';
                     return (
                       <tr key={o.orderId} className={'hover' + (hot ? ' hot' : x && x.verdict !== 'move' ? ' dim' : '')}>
-                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><span className="name ellipsis">{name}</span></span></td>
+                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" /></span></td>
                         <td className="l lbl" style={{ color: o.isBuy ? 'var(--buy)' : 'var(--neg-t)', fontSize: 11.5 }}>{o.isBuy ? 'Buy' : 'Sell'}</td>
                         <td className="l">
                           {V && x ? (

@@ -156,7 +156,7 @@ export function Prospects() {
       <div className="chipbar" data-rv="">
         <span className="chipbar-title"><SlidersHorizontal aria-hidden="true" />Filters</span>
         {FILTER_FIELDS.map(({ key, label, hint }) => (
-          <Chip key={key} id={`p-${key}`} h34 label={label} tip={hint} value={text[key]} onChange={setField(key)}
+          <Chip key={key} id={`p-${key}`} h34 label={label} tip={hint} value={text[key]} onChange={setField(key)} width={key === 'budget' ? 160 : undefined}
             onBlur={() => key === 'budget' && setText((t) => ({ ...t, budget: Math.round(f.budget).toLocaleString('en-US') }))} />
         ))}
         <Check checked={f.demoteFlagged} onChange={(v) => setF((x) => ({ ...x, demoteFlagged: v }))} tip="Push flagged items down the list — the more flags, the further down">Push flagged down</Check>

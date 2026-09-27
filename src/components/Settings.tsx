@@ -500,7 +500,7 @@ function Alerts() {
               ))}
             </div>
           </div>
-          <div><NumChip label="Only if at least" width={120} decimals={0} value={a.minIsk} onChange={(n) => setA({ minIsk: n ?? 0 })} tip="Ignore orders with less ISK than this at stake. Applies to the order alerts only." /></div>
+          <div><NumChip label="Only if at least" width={150} decimals={0} value={a.minIsk} onChange={(n) => setA({ minIsk: n ?? 0 })} tip="Ignore orders with less ISK than this at stake. Applies to the order alerts only." /></div>
           <Check bare checked={a.browser} onChange={toggleBrowser} desc="Shows even when this tab isn’t in front. Your browser will ask first.">Also send browser notifications</Check>
           <Check bare checked={a.quiet} onChange={(v) => setA({ quiet: v })} desc="Hold alerts overnight">Quiet hours, 23:00–07:00 EVE</Check>
         </section>

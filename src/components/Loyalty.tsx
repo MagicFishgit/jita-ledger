@@ -237,7 +237,7 @@ export function Loyalty() {
         </label>
         <label htmlFor="lp-isk" className="chip h34" data-tip="Store ISK and any items an offer demands come out of this. Leave it empty for no limit.">
           <span className="cl">ISK to put in</span>
-          <input id="lp-isk" type="text" inputMode="decimal" value={iskText} placeholder="no limit" onChange={(e) => setIskText(e.target.value)} style={{ width: 120 }} />
+          <input id="lp-isk" type="text" inputMode="decimal" value={iskText} placeholder="no limit" onChange={(e) => setIskText(e.target.value)} style={{ width: 160 }} />
         </label>
         <Check checked={hideLosses} onChange={setHideLosses} tip="Most of a store’s offers lose money">Hide losing offers</Check>
       </div>

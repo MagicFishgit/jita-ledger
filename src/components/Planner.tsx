@@ -81,7 +81,7 @@ export function Planner() {
       <ScanFreshness what="the plan" />
       <div className="chipbar" data-rv="">
         <span className="chipbar-title"><SlidersHorizontal aria-hidden="true" />Budget</span>
-        <NumChip id="pl-isk" label="ISK to deploy" value={inp.isk} onChange={(v) => set({ isk: v })} width={130} decimals={0} placeholder="2b" tip="Free ISK you want working — not what’s already in orders" />
+        <NumChip id="pl-isk" label="ISK to deploy" value={inp.isk} onChange={(v) => set({ isk: v })} width={160} decimals={0} placeholder="2b" tip="Free ISK you want working — not what’s already in orders" />
         <NumChip id="pl-slots" label="Free slots" value={inp.slots} onChange={(v) => set({ slots: v })} width={60} decimals={0} tip={`Each item uses one buy and one sell order slot. You have ${totalSlots} and ${openOrders} are in use.`} />
         <NumChip id="pl-max" label="Max per item" value={inp.maxPct} onChange={(v) => set({ maxPct: v })} width={60} decimals={0} percent tip="Caps how much of the budget can go into one market" />
         <div className="row" style={{ flexBasis: '100%', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>

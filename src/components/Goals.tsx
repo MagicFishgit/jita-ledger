@@ -347,7 +347,7 @@ function GoalBuilder({ onDone }: { onDone: () => void }) {
         {kind === 'isk' && (
           <>
             <Seg label="Counting" value={measure} onChange={setMeasure} options={measureOptions} />
-            <NumChip label="Target" value={target} onChange={setTarget} width={110} decimals={0} placeholder="1.2b" />
+            <NumChip label="Target" value={target} onChange={setTarget} width={160} decimals={0} placeholder="1.2b" />
           </>
         )}
         {kind === 'earn' && (
@@ -356,7 +356,7 @@ function GoalBuilder({ onDone }: { onDone: () => void }) {
               { v: 'trading' as const, label: 'Trading profit', tipTitle: 'Trading profit', tip: 'What your positions made on the units they sold, after broker fees and sales tax.\n\nFor example: buy 100 at 1 M and sell them at 1.2 M. That’s 20 M before costs, about 13 M after fees and tax with the trade skills trained, less without them.' },
               { v: 'cashflow' as const, label: 'Net cash flow', tipTitle: 'Net cash flow', tip: 'All the ISK that came in minus all that went out, whatever it was for.\n\n• Buying stock counts as money out, even though you still own it.\n\nFor example: 800 M in from sales and bounties, 500 M out on stock and fees = +300 M.' },
             ]} />
-            <NumChip label="Target" value={target} onChange={setTarget} width={110} decimals={0} placeholder="1b" />
+            <NumChip label="Target" value={target} onChange={setTarget} width={160} decimals={0} placeholder="1b" />
             <Seg label="Period" value={period} onChange={setPeriod} options={[
               { v: 'month' as const, label: 'This month', tipTitle: 'This month', tip: 'Counts from the 1st of this month and ends on its last day. Example: set on the 20th, the profit you made since the 1st already counts.' },
               { v: 'now' as const, label: 'From today', tipTitle: 'From today', tip: 'Starts counting now, with no end unless you pick a date. Example: “make 1 B” counts only profit from today on.' },

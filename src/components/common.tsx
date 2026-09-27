@@ -164,19 +164,21 @@ const UI_SCOPE = SCOPE.ui;
  *
  * Renders nothing without the scope, since a button that cannot work is worse than no button.
  */
+async function openInGame(typeId: number, name: string): Promise<void> {
+  try {
+    await openMarketWindow(typeId);
+    toast(`Opened ${name}’s market window in your client. You’ll still need to switch to the game.`, 'info');
+  } catch (e) {
+    toast(`Couldn’t open the market window: ${e instanceof Error ? e.message : String(e)}`, 'err');
+  }
+}
+
 export function OpenInGame({ typeId, name, label = 'In game', variant = 'link' }: { typeId: number; name: string; label?: string; variant?: 'link' | 'btn' | 'dim' }) {
   const [busy, setBusy] = useState(false);
   if (!hasScope(UI_SCOPE)) return null;
   const go = async () => {
     setBusy(true);
-    try {
-      await openMarketWindow(typeId);
-      toast(`Opened ${name}’s market window in your client. You’ll still need to switch to the game.`, 'info');
-    } catch (e) {
-      toast(`Couldn’t open the market window: ${e instanceof Error ? e.message : String(e)}`, 'err');
-    } finally {
-      setBusy(false);
-    }
+    try { await openInGame(typeId, name); } finally { setBusy(false); }
   };
   if (variant === 'btn') {
     return (
@@ -192,6 +194,25 @@ export function OpenInGame({ typeId, name, label = 'In game', variant = 'link' }
       data-tip="Opens the market window in your EVE client. You’ll still need to switch to the game."
     >
       {busy ? 'Opening…' : label}
+    </button>
+  );
+}
+
+/**
+ * An item's name that opens its market window in the client when clicked, where the login allows it;
+ * plain text where it doesn't. For tables whose rows are items you act on in game.
+ */
+export function NameInGame({ typeId, name, className }: { typeId: number; name: string; className?: string }) {
+  const [busy, setBusy] = useState(false);
+  if (!hasScope(UI_SCOPE)) return <span className={className}>{name}</span>;
+  return (
+    <button
+      type="button" className={'name-btn' + (className ? ' ' + className : '')} disabled={busy}
+      onClick={async () => { setBusy(true); try { await openInGame(typeId, name); } finally { setBusy(false); } }}
+      aria-label={`${name}: open its market window in the EVE client`}
+      data-tip="Opens the market window in your EVE client. You’ll still need to switch to the game."
+    >
+      {name}
     </button>
   );
 }
