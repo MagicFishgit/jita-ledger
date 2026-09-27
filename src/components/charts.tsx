@@ -169,3 +169,70 @@ export function MiniLine({ values, color = 'var(--pos)', height = 70 }: { values
     </svg>
   );
 }
+
+export type HourPoint = { hour: number; bestBuy: number | null; bestSell: number | null; buyUnits: number | null; sellUnits: number | null };
+
+/**
+ * Jita's best bid and best ask hour by hour, as the cloud read them every five minutes. ESI's history is
+ * daily, so this is the only view of how an item moves within a day: when the ask gets undercut, when bids
+ * climb, how wide the spread runs overnight. A missing hour breaks the line rather than joining across it.
+ */
+export function HourlyChart({ points, height = 170 }: { points: HourPoint[]; height?: number }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const geo = useMemo(() => {
+    const ps = points.flatMap((p) => [p.bestBuy, p.bestSell]).filter((v): v is number => v != null && v > 0);
+    if (points.length < 2 || !ps.length) return null;
+    const W = 600, H = 200;
+    const from = points[0].hour, to = points[points.length - 1].hour;
+    const mn = Math.min(...ps), mx = Math.max(...ps);
+    const X = (h: number) => ((h - from) / Math.max(1, to - from)) * W;
+    const Y = (v: number) => H * 0.08 + (1 - (v - mn) / (mx - mn || 1)) * H * 0.82;
+    const path = (get: (p: HourPoint) => number | null) => {
+      let d = '', prev: number | null = null;
+      for (const p of points) {
+        const v = get(p);
+        if (v == null) { prev = null; continue; }
+        d += `${prev != null && p.hour - prev === 1 ? 'L' : 'M'}${X(p.hour).toFixed(1)} ${Y(v).toFixed(1)}`;
+        prev = p.hour;
+      }
+      return d;
+    };
+    return { W, H, X, Y, from, to, mn, mx, bid: path((p) => p.bestBuy), ask: path((p) => p.bestSell) };
+  }, [points]);
+  if (!geo) return null;
+  const move = (e: MouseEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const h = geo.from + ((e.clientX - r.left) / r.width) * (geo.to - geo.from);
+    let best = 0;
+    for (let i = 1; i < points.length; i++) if (Math.abs(points[i].hour - h) < Math.abs(points[best].hour - h)) best = i;
+    if (best !== hover) setHover(best);
+  };
+  const p = hover != null ? points[hover] : null;
+  const hx = p ? (geo.X(p.hour) / geo.W) * 100 : 0;
+  const when = (h: number) => `${fmtDay(h * 3600_000)} ${String(new Date(h * 3600_000).getUTCHours()).padStart(2, '0')}:00`;
+  return (
+    <div className="chart-box cross" style={{ height, minHeight: height }} onMouseMove={move} onMouseLeave={() => setHover(null)}>
+      <svg className="plot" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M0 50H600M0 100H600M0 150H600" stroke="rgba(130,185,225,.07)" strokeWidth={1} vectorEffect="non-scaling-stroke" fill="none" />
+        <path d={geo.ask} fill="none" stroke="var(--acc2)" strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
+        <path d={geo.bid} fill="none" stroke="var(--pos)" strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
+      </svg>
+      {p && (
+        <>
+          <div className="hover-x" style={{ left: `${hx}%` }} />
+          <div className="hover-card" style={{ left: hx < 65 ? `calc(${hx}% + 14px)` : `calc(${hx}% - 184px)` }}>
+            <div style={{ color: 'var(--label)' }}>{when(p.hour)} ET</div>
+            <div style={{ color: 'var(--acc2)' }}>ask {p.bestSell != null ? iskBig(p.bestSell) : '–'}</div>
+            <div style={{ color: 'var(--pos)' }}>bid {p.bestBuy != null ? iskBig(p.bestBuy) : '–'}</div>
+            {p.bestBuy != null && p.bestSell != null && <div style={{ color: 'var(--dim)' }}>spread {pct(p.bestSell / p.bestBuy - 1, 1)}</div>}
+            {(p.sellUnits != null || p.buyUnits != null) && <div style={{ color: 'var(--dim)' }}>{units(p.sellUnits ?? 0)} / {units(p.buyUnits ?? 0)} at best</div>}
+          </div>
+        </>
+      )}
+      <span className="ax" style={{ left: 8, top: 6 }}>{iskBig(geo.mx)}</span>
+      <span className="ax" style={{ left: 8, bottom: 20 }}>{iskBig(geo.mn)}</span>
+      <span className="ax f" style={{ left: 8, bottom: 4 }}>{when(geo.from)}</span>
+      <span className="ax f" style={{ right: 8, bottom: 4 }}>now</span>
+    </div>
+  );
+}

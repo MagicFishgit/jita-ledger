@@ -563,6 +563,9 @@ Don't re-derive or contradict these without new evidence.
   or changed, and keeps one net-worth point a day the Wallet's way; the market watch (`worker/src/market.ts`) does
   `bookFills` all day on every item any ledger has open orders, open positions or watchlist entries on, and the app
   merges that flow with its own (`setCloudFlow`, cloud wins per day).
+- **The cloud's hour-by-hour prices show on the Calculator** ("Jita, hour by hour": best bid and ask per hour
+  from `/v1/prices`, a missing hour breaking the line) for items the cloud watches. ESI's history is daily; this is
+  the only view inside a day. Nothing shows without the cloud or for items it doesn't watch.
 - **Alert mail comes from the cloud once it holds a sender** (`worker/src/alerts.ts`). It judges each open Jita order
   with `judgeOrder` on the book the watch just read (never one over 15 minutes old: a stalled watch skips, it doesn't
   guess), history cached in D1 until ESI's `Expires`, the cloud's flow, the user's cost basis (the `costs` doc: the
@@ -575,6 +578,20 @@ Don't re-derive or contradict these without new evidence.
   after six hours. While the cloud holds both logins (`cloudSendsMail`, from `/v1/status`, kept across reloads and
   re-read every 10 minutes) the browser neither mails nor tidies, so nothing arrives twice. Squeeze and
   suspicious-market alerts stay with an open app: they need signals the cloud doesn't keep.
+- **Results reads the long run** (`lib/longRange.ts`). Periods run to a year and All; past 90 days the bars are
+  weeks, past two years months (`unitFor`), and every average divides by the days the ledger actually covers, since
+  a year's per-day from 24 days of data understated it fifteenfold. "Every item you traded" works a position out for
+  every item (`computePosition` over all its trades, so fees and tax are matched as on Positions) and reports what
+  sold in the period with its return, its average sale and how long stock was held (first in, first out). Trades
+  tagged Personal are excluded, and an item whose every trade is Personal is left out whole: 31 such items (an
+  Apocalypse and fittings bought to fly, 2.01 M for the hull alone) otherwise showed as 4.8 M of "orders that sold
+  nothing", their fills excluded and their fees orphaned. Orders that sold nothing are said apart (the scoop's −3.18 M), because their fees over the
+  cost of what did sell made "−1151.5%". Items sold with no recorded buy (loot, store and planetary goods) are
+  counted by their activity, not here. "What kind of trading pays" groups the sold items by ESI category (looked up
+  once per item and kept), price per unit and time held. On the user's ledger it agrees with the positions-based
+  Trading line (−3.08 M both), as it should while all their trading sits in positions. `computePosition` now reads
+  trades from an index by item kept per `d.txs` version (`tradesFor`): identical on all 376 positions checked,
+  6× faster, and it no longer grows with items × trades.
 - **Pages that need the same live answer share one store**: `orderCheck` (your orders against the book),
   `watch` (squeeze and scam signals), `colonyStore` and the killmail pricer. Orders, To do and the
   alerts all read `orderCheck` rather than fetching the same books three times.
@@ -765,6 +782,9 @@ State these rather than letting them be discovered:
   guess, and it measures during the hours the app is open, which is the right bias for someone deciding now.
 - **Net worth values assets at CCP's rough global average**, which flatters anything hard to sell, and its
   trend exists only from the first day the Wallet page was opened in this browser.
+- **"Every item you traded" can't separate Personal sales from trading within one item.** Where an item has both,
+  the Personal trades are left out, but a sell order that filled them still has its fee charged to the trading as
+  spent: fees match orders by the second, and a trade doesn't say which order filled it.
 - **Results leaves out any trade whose item belongs to no activity set**, and counts LP-store goods as loyalty
   income only for the stores you currently hold points with.
 - **Hub arbitrage reads selling speed from the hub's whole region**, which is mostly but not only the hub.

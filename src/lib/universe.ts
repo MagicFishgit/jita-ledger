@@ -159,6 +159,22 @@ export const groupName = (id: number) => cached(`group:${id}`, async () => {
   return data.name;
 });
 
+/** An inventory group's category, such as Module or Charge. */
+const groupCategory = (id: number) => cached(`group-cat:${id}`, async () => {
+  const { data } = await esi<{ category_id: number }>(`/universe/groups/${id}/`);
+  return data.category_id;
+});
+const categoryName = (id: number) => cached(`category:${id}`, async () => {
+  const { data } = await esi<{ name: string }>(`/universe/categories/${id}/`);
+  return data.name;
+});
+
+/** The broad kind of an item: Ship, Module, Charge, Implant, Commodity... Kept for good, like the type. */
+export async function itemCategory(typeId: number): Promise<string> {
+  const t = await typeInfo(typeId);
+  return categoryName(await groupCategory(t.groupId));
+}
+
 /** Region and system for a station, for reading another hub's market. */
 export const stationPlace = (id: number) => cached(`stn-place:${id}`, async () => {
   const s = await station(id);

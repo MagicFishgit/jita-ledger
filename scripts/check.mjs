@@ -2025,5 +2025,50 @@ console.log('\n--- cloud alerts share the app\'s rules ---');
   eq('  and says gone when the book no longer has it', judgeOrder(o, { book: [book[1]], perDay: 100, lows: null, txs: [] }, DEFAULT_SETTINGS, now).gone, true);
 }
 
+console.log('\n--- long range ---');
+{
+  const { itemResult, isTrade, isUnbought, groupResults, inBandOrder, bandOf, PRICE_BANDS, HELD_BANDS, unitFor, bucketStarts, bucketIndex, profitByBucket } = await import('../src/lib/longRange.ts');
+  const D = 86400_000, t0 = Date.parse('2026-09-01T00:00:00Z');
+  const calc = {
+    typeId: 1,
+    buys: [{ t: t0, price: 100, qty: 10 }, { t: t0 + 2 * D, price: 120, qty: 10 }],
+    sells: [{ t: t0 + D, price: 150, qty: 5 }, { t: t0 + 4 * D, price: 160, qty: 10 }],
+    series: [{ t: t0, realized: 0 }, { t: t0 + D, realized: 240 }, { t: t0 + 4 * D, realized: 600 }],
+  };
+  const all = itemResult(calc, t0 - 1, t0 + 10 * D);
+  eq('all of it: profit from the series, units and money sold', [all.profit, all.sold, all.revenue], [600, 15, 2350]);
+  eq('  every unit had a buy before it', all.covered, 15);
+  // Average cost: 5 at 100, then 5 left at 100 + 10 at 120 = 113.33 each.
+  eq('  cost is average cost', Math.round(all.cost), 500 + 1133);
+  // FIFO: 5 held 1 day; then 5 from the first lot held 4 days, 5 from the second held 2.
+  eq('  held is first in, first out', all.heldDays, (5 * 1 + 5 * 4 + 5 * 2) / 15);
+  const late = itemResult(calc, t0 + 2 * D, t0 + 10 * D);
+  eq('a window takes only its own sales and profit', [late.profit, late.sold, late.covered], [360, 10, 10]);
+  eq('  but earlier sales still used up stock', late.heldDays, (5 * 4 + 5 * 2) / 10);
+  eq('a bought and resold item is a trade', isTrade(all), true);
+  const loot = itemResult({ typeId: 2, buys: [], sells: [{ t: t0, price: 5, qty: 100 }], series: [{ t: t0, realized: -20 }] }, t0 - 1, t0 + D);
+  eq('something sold but never bought is not', [isTrade(loot), isUnbought(loot), loot.covered, loot.heldDays], [false, true, 0, null]);
+  const fee = itemResult({ typeId: 3, buys: [{ t: t0, price: 1, qty: 1 }], sells: [], series: [{ t: t0 + D, realized: -50 }] }, t0, t0 + 2 * D);
+  eq('a fee on an item you bought counts, with nothing sold', isTrade(fee), true);
+  const bid = itemResult({ typeId: 4, buys: [], sells: [], ordered: true, series: [{ t: t0 + D, realized: -3_180_000 }] }, t0, t0 + 2 * D);
+  eq('  and so does the fee on a buy order that never filled', [isTrade(bid), bid.profit], [true, -3_180_000]);
+  const withFees = itemResult({ ...calc, series: [{ t: t0, realized: 0, avgCost: 101 }, { t: t0 + D, realized: 240, avgCost: 101 }, { t: t0 + 2 * D, realized: 240, avgCost: 114 }, { t: t0 + 4 * D, realized: 600, avgCost: null }] }, t0 - 1, t0 + 10 * D);
+  eq('  cost takes the Positions average, buy fees included', withFees.cost, 5 * 101 + 10 * 114);
+  eq('price and time bands', [bandOf(PRICE_BANDS, 9_999), bandOf(PRICE_BANDS, 10_000), bandOf(PRICE_BANDS, 2e8), bandOf(HELD_BANDS, 0.5), bandOf(HELD_BANDS, 30), bandOf(HELD_BANDS, null)],
+    ['Under 10 k', '10 k – 1 M', 'Over 100 M', 'Under a day', 'Longer', null]);
+  const g = groupResults([all, { ...all, typeId: 9, profit: -100, avgSell: 5 }], (r) => bandOf(PRICE_BANDS, r.avgSell));
+  eq('groups sum by key, best first', g.map((x) => [x.key, x.profit, x.items]), [['Under 10 k', 500, 2]]);
+  eq('  bands keep their own order', inBandOrder([{ key: 'Longer', profit: 1, cost: 0, revenue: 0, items: 1 }, { key: 'Under a day', profit: 9, cost: 0, revenue: 0, items: 1 }], HELD_BANDS).map((x) => x.key), ['Under a day', 'Longer']);
+  eq('days, weeks, months by length of period', [unitFor(90), unitFor(365), unitFor(1000)], ['day', 'week', 'month']);
+  const weeks = bucketStarts(Date.parse('2026-09-02T10:00:00Z'), Date.parse('2026-09-20T00:00:00Z'), 'week');
+  eq('weeks start on Monday, EVE time', weeks.map((t) => new Date(t).toISOString().slice(0, 10)), ['2026-08-31', '2026-09-07', '2026-09-14']);
+  const months = bucketStarts(Date.parse('2026-11-15T00:00:00Z'), Date.parse('2027-02-01T00:00:00Z'), 'month');
+  eq('months are calendar months, across a year end', months.map((t) => new Date(t).toISOString().slice(0, 7)), ['2026-11', '2026-12', '2027-01', '2027-02']);
+  eq('a moment finds its bucket', [bucketIndex(weeks, weeks[1]), bucketIndex(weeks, weeks[1] - 1), bucketIndex(weeks, weeks[0] - 1)], [1, 0, -1]);
+  const days = bucketStarts(t0, t0 + 5 * D, 'day');
+  eq('profit lands in the bucket it was made in', profitByBucket([calc], days, t0 + 5 * D), [0, 240, 0, 0, 360, 0]);
+  eq('  and a window starting later leaves earlier profit out', profitByBucket([calc], days.slice(2), t0 + 5 * D), [0, 0, 360, 0]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

@@ -103,11 +103,34 @@ export type PositionCalc = {
 
 type Ev = { t: number; kind: 'buy' | 'sell' | 'fee'; qty: number; price: number; fee: number; /** Buy fee carried into cost, or sell fee charged, per unit. */ unitFee?: number };
 
+/**
+ * The trades grouped by item, kept for one version of the ledger's trades. Results works a position out for
+ * every item ever traded; walking all the trades for each of them grows with items × trades, which a year of
+ * history makes seconds long.
+ */
+let txIndex: { txs: Data['txs']; byType: Map<number, Tx[]>; manual: Tx[] } | null = null;
+function tradesFor(pos: Position, d: Data): Tx[] {
+  if (txIndex?.txs !== d.txs) {
+    const byType = new Map<number, Tx[]>();
+    const manual: Tx[] = [];
+    for (const tx of Object.values(d.txs)) {
+      if (tx.source === 'manual') { manual.push(tx); continue; }
+      const list = byType.get(tx.typeId);
+      if (list) list.push(tx); else byType.set(tx.typeId, [tx]);
+    }
+    txIndex = { txs: d.txs, byType, manual };
+  }
+  // Every trade matchTx could count: this item's, manual ones (matched by position), and any included by hand.
+  const out = new Set<Tx>([...(txIndex.byType.get(pos.typeId) ?? []), ...txIndex.manual]);
+  for (const id of pos.included) { const tx = d.txs[id]; if (tx) out.add(tx); }
+  return [...out];
+}
+
 export function computePosition(pos: Position, d: Data, s: Settings): PositionCalc {
   const now = rates(s);
   // Estimates use the broker fee and sales tax you had at the time, so turning Omega doesn't rewrite old Alpha trades.
   const rAt = (iso: string) => rateAt(d.meta.rateHistory, ts(iso), now);
-  const all = Object.values(d.txs);
+  const all = tradesFor(pos, d);
   const rows: TxRow[] = [];
 
   const matches = feeMatchesFor(d, s);

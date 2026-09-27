@@ -18,7 +18,8 @@ import { askReachDays, bidReachDays, FILL_RARE, FILL_WINDOW, reachedBid, recentR
 import { toast } from '../lib/toast';
 import type { HistRow, MarketSnap } from '../lib/types';
 import { ItemSearch, OpenInGame } from './common';
-import { fmtDay, HistoryChart } from './charts';
+import { fmtDay, HistoryChart, HourlyChart, type HourPoint } from './charts';
+import { cloudPrices } from '../lib/cloud';
 import { cssVars, Guide, ItemIcon, PageHead, Seg, Tip } from './ui';
 
 /** Plain-English notes behind each field, shown in the tooltip over it. */
@@ -421,6 +422,15 @@ function Market(props: {
   overlays: { price: number; label: string; color: string }[]; buy: number; sell: number;
 }) {
   const { item, snap, hist, range, now, buyers } = props;
+  // The cloud's hour-by-hour record of the Jita book, for items it watches. Nothing shows without it.
+  const [hourly, setHourly] = useState<HourPoint[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setHourly(null);
+    cloudPrices(item.id, 24 * 14).then((p) => { if (alive) setHourly(p); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [item.id]);
+  const hourSpan = hourly && hourly.length >= 2 ? hourly[hourly.length - 1].hour - hourly[0].hour : 0;
   const mv = snap ? Math.max(1, ...snap.topBuys.map((x) => x.volume), ...snap.topSells.map((x) => x.volume)) : 1;
   const bookAt = snap ? new Date(snap.fetchedAt) : null;
   const win = hist.filter((h) => Date.parse(h.date + 'T00:00:00Z') >= now - range * 86400_000);
@@ -536,6 +546,21 @@ function Market(props: {
                 <div className="mono" style={{ fontSize: 13, color: col, marginTop: 2 }}>{v}</div>
               </div>
             ))}
+          </div>
+        )}
+        {hourly && hourly.length >= 2 && (
+          <div className="col" style={{ gap: 6, marginTop: 6 }}>
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span
+                className="hero-l" tabIndex={0} style={{ letterSpacing: '.16em', cursor: 'help' }} data-tip-title="Jita, hour by hour"
+                data-tip={'The best bid and best ask in Jita 4-4, as the cloud read the book every five minutes, kept hour by hour.\n\n• ESI’s history is one row a day; this shows the moves inside a day.\n• It is kept for items you have orders, positions or watchlist entries on, from when the cloud first watched them.'}
+              >Jita, hour by hour · {hourSpan >= 48 ? `${Math.round(hourSpan / 24)} days` : `${hourSpan} h`}</span>
+              <span className="legend">
+                <span><i style={{ width: 12, height: 2, background: 'var(--acc2)' }} />Best ask</span>
+                <span><i style={{ width: 12, height: 2, background: 'var(--pos)' }} />Best bid</span>
+              </span>
+            </div>
+            <HourlyChart points={hourly} />
           </div>
         )}
         {win.length > 0 && <p className="note small">First day shown: {fmtDay(Date.parse(win[0].date + 'T00:00:00Z'))}. ESI leaves out days nothing traded, so a gap in the band is a quiet day, not missing data.</p>}

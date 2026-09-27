@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarRange, Clock, Trophy } from 'lucide-react';
+import { CalendarRange, Clock, Layers, Trophy } from 'lucide-react';
 import { rates } from '../lib/fees';
-import { fmtShort, iskBig, iskBigSigned, pct } from '../lib/format';
+import { fmtDate, fmtShort, iskBig, iskBigSigned, pct, units } from '../lib/format';
 import { useNow } from '../lib/hooks';
 import { computePosition, countedIn } from '../lib/positions';
-import { attribute, byDay, perHour, totals, type DayEvent, type TypeSets } from '../lib/results';
+import { attribute, byBucket, perHour, totals, type DayEvent, type TypeSets } from '../lib/results';
+import { bandOf, bucketStarts, groupResults, HELD_BANDS, inBandOrder, isTrade, isUnbought, itemResult, PRICE_BANDS, profitByBucket, unitFor, type BucketUnit, type Group, type ItemCalc, type ItemResult } from '../lib/longRange';
+import { itemCategory } from '../lib/universe';
 import { loadTypeSets } from '../lib/attribution';
 import { classify } from '../lib/killmails';
 import { netLoss, type CombatActivity } from '../lib/combat';
@@ -16,7 +18,17 @@ import { flip } from './Prospects';
 import { Guide, NumChip, PageHead, Panel, Seg, Tiles } from './ui';
 
 const DAY = 86400_000;
-type Days = 7 | 30 | 90;
+/** 0 is everything the ledger holds. */
+type Days = 7 | 30 | 90 | 365 | 0;
+const PERIODS: { v: Days; label: string }[] = [{ v: 7, label: '7 days' }, { v: 30, label: '30 days' }, { v: 90, label: '90 days' }, { v: 365, label: '1 year' }, { v: 0, label: 'All' }];
+const dayStart = (t: number) => Date.parse(new Date(t).toISOString().slice(0, 10) + 'T00:00:00Z');
+const monthFmt = new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+const bucketSaid = (t: number, unit: BucketUnit) => (unit === 'day' ? fmtShort(t) : unit === 'week' ? `Week of ${fmtShort(t)}` : monthFmt.format(new Date(t)));
+/**
+ * A position over every trade ever made in an item, for the item-by-item view. Trades tagged Personal on the
+ * Wallet are left out, as they are there: selling your own things, or buying for yourself, isn't trading.
+ */
+const everything = (typeId: number, excluded: string[]) => ({ id: `all:${typeId}`, typeId, openedAt: '2003-05-06T00:00:00Z', status: 'open' as const, jitaOnly: false, excluded, included: [] });
 const COLOR: Record<Activity, string> = {
   Trading: 'var(--acc)', Loyalty: '#a98bff', Planets: '#6ee7a8', Hauling: 'var(--acc2)', Abyssal: '#ff8d9a', Combat: '#7aa6ff',
 };
@@ -34,9 +46,30 @@ export function Results() {
   const d = useData();
   const now = useNow(60_000);
   const name = useTypeName();
-  const [days, setDaysS] = useState<Days>(() => { try { const v = Number(localStorage.getItem('jita-ledger:results-days')); return (v === 7 || v === 30 || v === 90 ? v : 30) as Days; } catch { return 30; } });
+  const [days, setDaysS] = useState<Days>(() => {
+    try { const raw = localStorage.getItem('jita-ledger:results-days'); const v = Number(raw); return (raw != null && PERIODS.some((p) => p.v === v) ? v : 30) as Days; } catch { return 30; }
+  });
   const setDays = (v: Days) => { setDaysS(v); try { localStorage.setItem('jita-ledger:results-days', String(v)); } catch { /* private window */ } };
-  const since = now - days * DAY;
+  // "All" runs from the first thing the ledger holds.
+  const firstAt = useMemo(() => {
+    let t = Infinity;
+    for (const x of Object.values(d.txs)) t = Math.min(t, Date.parse(x.date));
+    for (const x of Object.values(d.journal)) t = Math.min(t, Date.parse(x.date));
+    return Number.isFinite(t) ? t : null;
+  }, [d.txs, d.journal]);
+  const firstTrade = useMemo(() => {
+    let t = Infinity;
+    for (const x of Object.values(d.txs)) if (x.source === 'esi') t = Math.min(t, Date.parse(x.date));
+    return Number.isFinite(t) ? t : null;
+  }, [d.txs]);
+  const ledgerDays = firstAt != null ? Math.max(1, Math.round((dayStart(now) - dayStart(firstAt)) / DAY) + 1) : null;
+  const span = days || (ledgerDays ?? 1);
+  // Averages divide by the days there is a ledger for: a year's figure from 24 days of data isn't a year's pace.
+  const covered = ledgerDays != null ? Math.min(span, ledgerDays) : span;
+  const unit = unitFor(span);
+  // Up to 90 days, a period is whole days ending today, as the bars are; longer ones run from this moment back.
+  const since = unit === 'day' ? dayStart(now) - (span - 1) * DAY : now - span * DAY;
+  const periodSaid = days === 0 ? (firstAt != null ? `since ${fmtShort(firstAt)}` : 'so far') : days === 365 ? 'a year' : `${days} days`;
 
   const corps = (d.meta.lpBalances ?? []).map((b) => b.corporationId);
   const [sets, setSets] = useState<TypeSets | null>(null);
@@ -79,14 +112,16 @@ export function Results() {
   }, [sets, d.txs, d.journal, d.positions, d.names, d.killmails, lossActs, posCalc, d.settings]);
 
   const acts = ACTIVITIES;
-  const series = byDay(events, days, now, acts);
+  const starts = bucketStarts(since, now, unit);
+  const series = byBucket(events, starts, since, now, acts);
+  const bars = series.length;
   const tot = totals(series, acts.length);
   const grand = tot.reduce((a, b) => a + b, 0);
   const hours = d.prefs.hours;
-  const ph = acts.map((a, k) => perHour(tot[k], hours[a], days));
+  const ph = acts.map((a, k) => perHour(tot[k], hours[a], covered));
   const hoursKnown = acts.filter((a) => (hours[a] ?? 0) > 0);
   const knownTotal = acts.reduce((t, a, k) => t + ((hours[a] ?? 0) > 0 ? tot[k] : 0), 0);
-  const knownHours = hoursKnown.reduce((t, a) => t + (hours[a] ?? 0) * (days / 7), 0);
+  const knownHours = hoursKnown.reduce((t, a) => t + (hours[a] ?? 0) * (covered / 7), 0);
   const overallPh = knownHours > 0 ? knownTotal / knownHours : null;
   const tradingK = acts.indexOf('Trading');
   // What is tied up in trading now: stock at cost and ISK held for buy orders.
@@ -97,9 +132,9 @@ export function Results() {
   const dayPos = series.map((s) => s.values.reduce((t, v) => t + Math.max(0, v), 0));
   const dayNeg = series.map((s) => s.values.reduce((t, v) => t + Math.min(0, v), 0));
   const top = Math.max(1, ...dayPos), bottom = Math.min(0, ...dayNeg);
-  const span = top - bottom;
-  const Y = (v: number) => 190 - ((v - bottom) / span) * 180;
-  const bw = (600 / days) * 0.72;
+  const range = top - bottom;
+  const Y = (v: number) => 190 - ((v - bottom) / range) * 180;
+  const bw = (600 / bars) * 0.72;
 
   // Best and worst, from positions' profit in the window and the ships lost in it.
   const posRows = posCalc.map(({ p, c }) => {
@@ -123,6 +158,75 @@ export function Results() {
       ? `${byHour[0].a} pays most per hour of your time${byOverall[0].a !== byHour[0].a ? `, but ${byOverall[0].a.toLowerCase()} pays most overall` : ', and most overall too'}.`
       : `${byOverall[0].a} made the most. Put in the hours a week you spend on each activity to see what each pays for your time.`;
 
+  // Every item ever bought and sold again, by the Positions rule, whether or not a position tracks it.
+  const itemCalcs = useMemo<ItemCalc[]>(() => {
+    const personal = new Map<number, string[]>();
+    for (const id of d.ignored) { const t = d.txs[id]; if (t) personal.set(t.typeId, [...(personal.get(t.typeId) ?? []), id]); }
+    const esiTxs = Object.values(d.txs).filter((t) => t.source === 'esi');
+    // An item whose every trade is Personal (a ship bought to fly, fittings for it) isn't trading at all: left
+    // out whole, or its buy orders' fees, with their fills left out, would read as orders that sold nothing.
+    const ignored = new Set(d.ignored);
+    const traded = new Set(esiTxs.filter((t) => !ignored.has(t.id)).map((t) => t.typeId));
+    const personalOnly = new Set([...personal.keys()].filter((id) => !traded.has(id)));
+    const bids = new Set(Object.values(d.orders).filter((o) => o.isBuy && !personalOnly.has(o.typeId)).map((o) => o.typeId));
+    const types = [...new Set([...traded, ...bids])];
+    return types.map((typeId) => {
+      const c = computePosition(everything(typeId, personal.get(typeId) ?? []), d, d.settings);
+      return { typeId, series: c.series, buys: c.buys, sells: c.sells, ordered: bids.has(typeId) };
+    });
+  }, [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored]); // eslint-disable-line react-hooks/exhaustive-deps
+  const itemRows = useMemo(() => itemCalcs.map((c) => itemResult(c, since - 1, now)), [itemCalcs, since, now]);
+  const tradeRows = itemRows.filter(isTrade);
+  const unbought = itemRows.filter(isUnbought);
+  const tradeSet = new Set(tradeRows.map((r) => r.typeId));
+  const tradeProfit = tradeRows.reduce((t, r) => t + r.profit, 0);
+  // Items that sold are what the table and the kinds compare; orders that sold nothing are said apart, since
+  // their fees against the cost of what did sell make a nonsense percentage.
+  const soldRows = tradeRows.filter((r) => r.sold > 0);
+  const feeRows = tradeRows.filter((r) => r.sold === 0).sort((a, b) => a.profit - b.profit);
+  const soldProfit = soldRows.reduce((t, r) => t + r.profit, 0);
+  const soldCost = soldRows.reduce((t, r) => t + r.cost, 0);
+  const feeTotal = feeRows.reduce((t, r) => t + r.profit, 0);
+  const tradeBars = profitByBucket(itemCalcs.filter((c) => tradeSet.has(c.typeId)), starts.map((t, i) => (i === 0 ? Math.max(t, since) : t)), now);
+  const tbTop = Math.max(0, ...tradeBars), tbBottom = Math.min(0, ...tradeBars);
+  const TY = (v: number) => 95 - ((v - tbBottom) / Math.max(1, tbTop - tbBottom)) * 88;
+  const [itemOrder, setItemOrder] = useState<'best' | 'worst'>('best');
+  const [allItems, setAllItems] = useState(false);
+  const shownItems = [...soldRows].sort((a, b) => (itemOrder === 'best' ? b.profit - a.profit : a.profit - b.profit)).slice(0, allItems ? undefined : 12);
+
+  // What kind of item: ESI's category (Module, Charge, Ship…), looked up once per item and kept for good.
+  const [cats, setCats] = useState<Record<number, string>>({});
+  const tradeKey = [...tradeSet].sort((a, b) => a - b).join(',');
+  useEffect(() => {
+    let alive = true;
+    const todo = [...tradeSet].filter((id) => !cats[id]);
+    if (!todo.length) return;
+    const found: Record<number, string> = {};
+    let i = 0;
+    const flush = () => { if (alive && Object.keys(found).length) setCats((c) => ({ ...c, ...found })); };
+    Promise.all(Array.from({ length: Math.min(6, todo.length) }, async () => {
+      while (i < todo.length) {
+        const id = todo[i++];
+        try { found[id] = await itemCategory(id); } catch { /* sorted another time */ }
+        if (i % 25 === 0) flush();
+      }
+    })).then(flush);
+    return () => { alive = false; };
+  }, [tradeKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sorting = soldRows.filter((r) => !cats[r.typeId]).length;
+  const byKind: { title: string; tip: string; groups: Group[] }[] = [
+    { title: 'Kind of item', tip: 'ESI’s category for each item: Module, Charge, Ship, Implant and so on.', groups: groupResults(soldRows, (r) => cats[r.typeId] ?? null) },
+    { title: 'Price per unit', tip: 'The average price each item sold for in the period.', groups: inBandOrder(groupResults(soldRows, (r) => bandOf(PRICE_BANDS, r.avgSell)), PRICE_BANDS) },
+    { title: 'Time held', tip: 'How long, on average, stock sat between buying and selling, oldest units sold first.', groups: inBandOrder(groupResults(soldRows, (r) => bandOf(HELD_BANDS, r.heldDays)), HELD_BANDS) },
+  ];
+  const kindVerdict = (() => {
+    const lead = byKind.map((k) => [...k.groups].sort((a, b) => b.profit - a.profit)[0]).filter((g): g is Group => !!g && g.profit > 0);
+    if (!soldRows.length) return null;
+    if (lead.length < 3) return soldProfit > 0 ? null : 'What sold in this period didn’t make money.';
+    const low = (k: string) => k.charAt(0).toLowerCase() + k.slice(1);
+    return `The biggest earners: the ${lead[0].key} category (${iskBigSigned(lead[0].profit)}), items selling for ${low(lead[1].key)} each (${iskBigSigned(lead[1].profit)}), and stock held ${low(lead[2].key)} (${iskBigSigned(lead[2].profit)}).`;
+  })();
+
   const setHours = (a: Activity, v: number | null) => update((x) => {
     const h = { ...x.prefs.hours };
     if (v == null || !(v > 0)) delete h[a]; else h[a] = v;
@@ -134,17 +238,17 @@ export function Results() {
       <PageHead
         kicker="07 · What actually pays" title="Results" wide
         lede="Everything you made, split by activity — and what each paid per hour of your time, so you know where your evenings are best spent."
-        actions={<Seg label="Period" value={days} onChange={setDays} options={([7, 30, 90] as Days[]).map((v) => ({ v, label: `${v} days` }))} />}
+        actions={<Seg label="Period" value={days} onChange={setDays} options={PERIODS} />}
       />
       {failed && <p className="note" style={{ color: 'var(--acc2)' }}>Couldn’t read the item groups from ESI, so only trading, hauling and bounties are counted. It tries again next visit.</p>}
       <Tiles min={190} items={[
-        { l: `Made in ${days} days`, v: iskBigSigned(grand), n: 'After every fee and tax', c: grand >= 0 ? 'var(--pos)' : 'var(--neg)' },
-        { l: 'Per day', v: iskBigSigned(grand / days), n: 'Averaged across the period' },
+        { l: days === 0 ? `Made ${periodSaid}` : `Made in ${periodSaid}`, v: iskBigSigned(grand), n: 'After every fee and tax', c: grand >= 0 ? 'var(--pos)' : 'var(--neg)' },
+        { l: 'Per day', v: iskBigSigned(grand / covered), n: covered < span ? `Averaged over the ${covered} day${covered === 1 ? '' : 's'} your ledger covers` : 'Averaged across the period' },
         { l: 'Per hour of your time', v: overallPh != null ? iskBigSigned(overallPh) : '–', n: overallPh != null ? `Across the ${hoursKnown.length} activit${hoursKnown.length === 1 ? 'y' : 'ies'} you gave hours for` : 'Put your hours in below', c: 'var(--acc)' },
-        { l: 'Return / day on capital', v: capital > 0 ? pct(tot[tradingK] / days / capital, 2) : '–', n: 'Trading profit ÷ ISK tied up in it now', c: 'var(--acc)' },
+        { l: 'Return / day on capital', v: capital > 0 ? pct(tot[tradingK] / covered / capital, 2) : '–', n: 'Trading profit ÷ ISK tied up in it now', c: 'var(--acc)' },
       ]} />
       <div className="g-440">
-        <Panel title="Profit per day" sub={
+        <Panel title={`Profit per ${unit}`} sub={
           <span className="row" style={{ gap: 12 }}>
             {acts.map((a) => <span key={a} className="row tight" style={{ fontSize: 12, color: 'var(--sec)' }}><span style={{ width: 9, height: 9, background: COLOR[a] }} />{a}</span>)}
           </span>
@@ -155,7 +259,7 @@ export function Results() {
               {bottom < 0 && <path d={`M0 ${Y(0)}H600`} stroke="rgba(130,185,225,.3)" vectorEffect="non-scaling-stroke" />}
               {series.map((s, i) => {
                 let up = 0, down = 0;
-                const x = (i * 600) / days + (600 / days - bw) / 2;
+                const x = (i * 600) / bars + (600 / bars - bw) / 2;
                 return acts.map((a, k) => {
                   const v = s.values[k];
                   if (!v) return null;
@@ -168,16 +272,16 @@ export function Results() {
               })}
             </svg>
             {series.map((s, i) => (
-              <span key={i} className="hit" style={{ position: 'absolute', top: 0, bottom: 0, left: `${(i / days) * 100}%`, width: `${100 / days}%` }}
-                data-tip-title={fmtShort(s.day)}
-                data-tip={s.values.some((v) => v) ? acts.map((a, k) => (s.values[k] ? `${a} ${iskBigSigned(s.values[k])}` : null)).filter(Boolean).join(' · ') : 'Nothing that day'} />
+              <span key={i} className="hit" style={{ position: 'absolute', top: 0, bottom: 0, left: `${(i / bars) * 100}%`, width: `${100 / bars}%` }}
+                data-tip-title={bucketSaid(s.day, unit)}
+                data-tip={s.values.some((v) => v) ? acts.map((a, k) => (s.values[k] ? `${a} ${iskBigSigned(s.values[k])}` : null)).filter(Boolean).join(' · ') : `Nothing that ${unit}`} />
             ))}
             <span className="ax" style={{ left: 8, top: 6 }}>{iskBig(top)}</span>
             {bottom < 0 && <span className="ax" style={{ left: 8, bottom: 20 }}>{iskBig(bottom)}</span>}
             <span className="ax f" style={{ left: 8, bottom: 4 }}>{fmtShort(series[0]?.day ?? since)}</span>
             <span className="ax f" style={{ right: 8, bottom: 4 }}>today</span>
           </div>
-          <p className="note small">Hover a day for what each activity made. Days below the line lost money — usually filaments bought before the loot was sold.</p>
+          <p className="note small">Hover a {unit} for what each activity made. Bars below the line lost money — usually filaments bought before the loot was sold.</p>
         </Panel>
         <Panel title="By activity">
           <div style={{ overflowX: 'auto' }}>
@@ -220,13 +324,118 @@ export function Results() {
           ))}
         </Panel>
       </div>
+      <Panel title="Every item you traded" sub={soldRows.length > 1 ? <Seg size="sm" label="Order" value={itemOrder} onChange={setItemOrder} options={[{ v: 'best', label: 'Best first' }, { v: 'worst', label: 'Worst first' }]} /> : undefined}>
+        <p className="note" style={{ margin: 0 }}>
+          {soldRows.length
+            ? <>{units(soldRows.length)} item{soldRows.length === 1 ? '' : 's'} you bought sold {days === 0 ? periodSaid : `in ${periodSaid}`}: <b style={{ color: soldProfit >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{iskBigSigned(soldProfit)}</b>{soldCost > 0 ? `, ${pct(soldProfit / soldCost, 1)} on what they cost` : ''}.</>
+            : 'Nothing you bought sold in this period.'}
+          {feeRows.length ? ` Orders on ${units(feeRows.length)} more item${feeRows.length === 1 ? '' : 's'} sold nothing and cost ${iskBig(-feeTotal)} in fees${soldRows.length ? `, so trading made ${iskBigSigned(tradeProfit)} all told` : ''}.` : ''}
+          {' '}Every trade counts, whether or not a position tracks it, except those you tagged Personal.
+          {firstTrade != null && firstTrade > since ? ` Your trades go back to ${fmtDate(firstTrade)}; longer periods fill in as the cloud keeps archiving past ESI’s 30 days.` : ''}
+        </p>
+        {tradeRows.length > 0 && bars > 1 && (
+          <div className="chart-box" style={{ height: 120 }}>
+            <svg className="plot" viewBox="0 0 600 100" preserveAspectRatio="none" aria-hidden="true">
+              {tbBottom < 0 && <path d={`M0 ${TY(0)}H600`} stroke="rgba(130,185,225,.3)" vectorEffect="non-scaling-stroke" />}
+              {tradeBars.map((v, i) => {
+                if (!v) return null;
+                const y1 = TY(Math.max(0, v)), y2 = TY(Math.min(0, v));
+                return <rect key={i} x={(i * 600) / bars + (600 / bars - bw) / 2} y={y1} width={bw} height={Math.max(0.5, y2 - y1)} fill={v > 0 ? 'var(--acc)' : 'var(--neg)'} opacity={0.85} />;
+              })}
+            </svg>
+            {tradeBars.map((v, i) => (
+              <span key={i} className="hit" style={{ position: 'absolute', top: 0, bottom: 0, left: `${(i / bars) * 100}%`, width: `${100 / bars}%` }}
+                data-tip-title={bucketSaid(starts[i], unit)} data-tip={v ? `Trading ${iskBigSigned(v)}` : 'Nothing sold'} />
+            ))}
+            {tbTop > 0 && <span className="ax" style={{ left: 8, top: 4 }}>{iskBig(tbTop)}</span>}
+            {tbBottom < 0 && <span className="ax" style={{ left: 8, bottom: 16 }}>{iskBig(tbBottom)}</span>}
+            <span className="ax f" style={{ left: 8, bottom: 2 }}>{bucketSaid(starts[0], unit)}</span>
+          </div>
+        )}
+        {soldRows.length > 0 && (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="tbl compact" style={{ minWidth: 640 }}>
+              <thead><tr>
+                <th scope="col" className="l">Item</th>
+                <th scope="col" data-tip="Realized in the period after every fee and tax, as the Positions page works it out.">Made</th>
+                <th scope="col" data-tip="Profit ÷ what the units sold had cost.">Return</th>
+                <th scope="col">Sold</th>
+                <th scope="col" data-tip="Average price per unit sold in the period.">Avg sale</th>
+                <th scope="col" data-tip="Average time from buying a unit to selling it, oldest units first.">Held</th>
+              </tr></thead>
+              <tbody>
+                {shownItems.map((r: ItemResult) => (
+                  <tr key={r.typeId}>
+                    <td className="l" style={{ whiteSpace: 'normal', fontFamily: 'var(--f-body)', fontSize: 13.5, color: 'var(--ink)' }}>{name(r.typeId)}{cats[r.typeId] ? <span style={{ color: 'var(--sec)', fontSize: 12 }}> · {cats[r.typeId]}</span> : null}</td>
+                    <td style={{ color: r.profit < 0 ? 'var(--neg-t)' : r.profit > 0 ? 'var(--pos)' : 'var(--figure)' }}>{iskBigSigned(r.profit)}</td>
+                    <td>{r.cost > 0 ? pct(r.profit / r.cost, 1) : '–'}</td>
+                    <td>{r.sold ? units(r.sold) : '–'}</td>
+                    <td>{r.avgSell != null ? iskBig(r.avgSell) : '–'}</td>
+                    <td>{r.heldDays != null ? flip(r.heldDays) : '–'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {soldRows.length > 12 && (
+          <button type="button" className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => setAllItems((v) => !v)}>{allItems ? 'Show the first 12' : `Show all ${units(soldRows.length)}`}</button>
+        )}
+        {feeRows.length > 0 && (
+          <p className="note small" style={{ margin: 0 }} data-tip="A buy order that was cancelled or expired before filling, or a listing that sold nothing, still paid its broker fee and any price-change fees. Worked out as on the Positions page.">
+            Sold nothing, cost fees: {feeRows.slice(0, 5).map((r) => `${name(r.typeId)} ${iskBigSigned(r.profit)}`).join(' · ')}{feeRows.length > 5 ? ` · and ${units(feeRows.length - 5)} more` : ''}.
+          </p>
+        )}
+        {unbought.length > 0 && (
+          <p className="note small" style={{ margin: 0 }}>
+            {units(unbought.length)} item{unbought.length === 1 ? ' was' : 's were'} sold with no recorded buy behind most of it ({iskBig(unbought.reduce((t, r) => t + r.revenue, 0))} in sales): loot, loyalty-store and planetary goods, gifts. Those are counted by their activity above, not here.
+          </p>
+        )}
+      </Panel>
+      {soldRows.length > 0 && (
+        <Panel title="What kind of trading pays" sub={sorting ? <span style={{ fontSize: 12, color: 'var(--sec)' }}>Sorting {units(sorting)} item{sorting === 1 ? '' : 's'} into kinds…</span> : undefined}>
+          {kindVerdict && <p className="note" style={{ margin: 0, color: 'var(--sec)' }}>{kindVerdict}</p>}
+          <div className="g-440" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,300px),1fr))' }}>
+            {byKind.map((k) => {
+              const mx = Math.max(1, ...k.groups.map((g) => Math.abs(g.profit)));
+              return (
+                <div key={k.title} style={{ minWidth: 0 }}>
+                  <div className="lbl" data-tip={k.tip} style={{ marginBottom: 6 }}>{k.title}</div>
+                  {!k.groups.length ? <p className="note small">Working it out…</p> : (
+                    <table className="tbl compact">
+                      <thead><tr><th scope="col" className="l">{k.title === 'Kind of item' ? 'Kind' : k.title === 'Price per unit' ? 'Price' : 'Held'}</th><th scope="col" className="l">Made</th><th scope="col">Return</th><th scope="col">Items</th></tr></thead>
+                      <tbody>
+                        {k.groups.map((g) => (
+                          <tr key={g.key}>
+                            <td className="l">{g.key}</td>
+                            <td className="l" style={{ width: '45%' }}>
+                              <span className="row tight" style={{ flexWrap: 'nowrap' }}>
+                                <span className="track" style={{ flex: 1 }}><span className="fill" style={{ width: `${(Math.abs(g.profit) / mx) * 100}%`, background: g.profit < 0 ? 'var(--neg)' : 'var(--acc)' }} /></span>
+                                <span style={{ fontSize: 12, color: g.profit < 0 ? 'var(--neg-t)' : 'var(--figure)' }}>{iskBigSigned(g.profit)}</span>
+                              </span>
+                            </td>
+                            <td>{g.cost > 0 ? pct(g.profit / g.cost, 1) : '–'}</td>
+                            <td>{units(g.items)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p className="note small" style={{ margin: 0 }}>The items that sold, grouped three ways. Return is profit on what the stock cost, so a kind with small profits on cheap stock can still be the better use of ISK.</p>
+        </Panel>
+      )}
       <Guide
         title="How to use Results"
         intro="Everything you made, split by activity, so you can see where your time is best spent."
         steps={[
-          { icon: CalendarRange, title: 'Pick a period', body: '7 days shows this week’s form, 90 days shows what really works — as far back as this browser has kept your wallet.' },
+          { icon: CalendarRange, title: 'Pick a period', body: '7 days shows this week’s form; a year or All shows what really works, as far back as your ledger goes. The cloud keeps it past ESI’s 30 days, so the long views fill in as you play.' },
           { icon: Clock, title: 'Look at per hour of your time', body: 'An activity that pays well but needs you at the keyboard may be worth less than one that runs while you’re away. Put in your hours a week; nothing is assumed until you do.' },
           { icon: Trophy, title: 'Learn from best and worst', body: 'Repeat what made the best list. Read why the worst lost before trying that kind of trade again.' },
+          { icon: Layers, title: 'See what kind of trading pays', body: 'Every item you bought and sold again, grouped by kind, price and how long you held it. Over months it shows whether cheap fast flips or slow expensive ones earn you more.' },
         ]}
       />
     </div>

@@ -10,6 +10,7 @@
 
 import { categoryOf } from './wallet';
 import type { Activity } from './types';
+import { bucketIndex } from './longRange';
 
 export type DayEvent = { t: number; activity: Activity; isk: number };
 
@@ -27,6 +28,22 @@ export function byDay(events: DayEvent[], days: number, now: number, activities:
     const k = activities.indexOf(e.activity);
     if (k < 0) continue;
     out[Math.round((d - first) / DAY)].values[k] += e.isk;
+  }
+  return out;
+}
+
+/**
+ * Totals per activity in each bucket (a day, week or month starting at each of `starts`, from
+ * `bucketStarts`), counting events from `since` to `now`. Long periods are charted by the week or month.
+ */
+export function byBucket(events: DayEvent[], starts: number[], since: number, now: number, activities: Activity[]): { day: number; values: number[] }[] {
+  const out = starts.map((t) => ({ day: t, values: activities.map(() => 0) }));
+  for (const e of events) {
+    if (e.t < since || e.t > now) continue;
+    const i = bucketIndex(starts, e.t);
+    const k = activities.indexOf(e.activity);
+    if (i < 0 || k < 0) continue;
+    out[i].values[k] += e.isk;
   }
   return out;
 }
