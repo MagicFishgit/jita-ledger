@@ -148,6 +148,14 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   would only sell into it, so the move is one step over the bid (100,100, the price that did sell). This applies to
   sells you're leaving too. Its `loss` check is on the price it moves to. More sells can now raise a "move" alert,
   including ones already at the front; the alert minimum still applies.
+- **Your other orders on an item are set apart when one is judged** (`judgeOrder`'s `yours`, `MarketContext.yours`).
+  The user asked whether to list stock in batches while its buy order is still filling (yes: the times overlap
+  instead of adding up, and Positions costs each sale at the average held then, fees per order). But every order
+  was judged against the whole book: a cheaper batch of yours read as a rival, so the other was told to undercut
+  your own listing for a relist fee, and "Sell to bids" walked every bid, your own buy order included, which is
+  trading with yourself. Now your others aren't rivals, best prices or bids to sell into; a cheaper listing of yours
+  still counts towards how long this one takes to sell (`yourHours`), and a sell is never moved under your own bid
+  either. Orders and the cloud's alert round both pass the IDs of your open orders.
 - **"Price just moved" keeps a spread across two price levels out of the planner** (`lastMove`, `MOVED` 0.5, flag
   `moved`). True Sansha traded around 3.6 M for weeks, then days spanning 3 M to 9 M, then a day at 7.0–7.55 M:
   both its bid (where it had traded) and its ask (where it had jumped to) counted as reached on those wide days.

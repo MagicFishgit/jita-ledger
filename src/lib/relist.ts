@@ -184,6 +184,12 @@ export type MarketContext = {
    * It's told to move only when trading stops reaching its price, never to get back in front.
    */
   leave?: boolean;
+  /**
+   * Your other orders on this item, left out of `book`: they aren't rivals to get in front of, nor bids to sell
+   * into (the user lists stock in batches while its buy order is still filling). A cheaper listing of yours still
+   * sells first, so its units count towards how long this one takes; and a sell is never moved under your own bid.
+   */
+  yours?: OrderLite[];
 };
 
 /**
@@ -254,21 +260,28 @@ export function marketBest(levels: PriceVolume[], isBuy: boolean, dailyVolume?: 
 export function judgeOrder(
   o: Mine & { locationId: number; seen?: { issued: string; price: number; remain: number }[] },
   m: { book: OrderLite[]; perDay: number | null; avgCost?: number | null; lows: (number | null)[] | null; txs: Parameters<typeof fillingNow>[2]; watched?: FlowDay;
-    highs?: (number | null)[] | null; leave?: boolean },
+    highs?: (number | null)[] | null; leave?: boolean;
+    /** The IDs of all your open orders (this one may be among them): the rest of yours on this item are set apart. */
+    yours?: number[] },
   s: Settings,
   now = Date.now(),
 ): Relist {
-  const x = adviseOrder(o, m, s, now);
-  // A listing buyers don't take is better sold into the bids: that beats moving it down a tick for a fee.
+  const ids = new Set(m.yours ?? []);
+  ids.delete(o.orderId);
+  const book = ids.size ? m.book.filter((b) => !ids.has(b.id)) : m.book;
+  const yours = ids.size ? m.book.filter((b) => ids.has(b.id)) : [];
+  const x = adviseOrder(o, { ...m, book, yours }, s, now);
+  // A listing buyers don't take is better sold into the bids: that beats moving it down a tick for a fee. Only
+  // others' bids: selling into your own buy order is trading with yourself.
   const t = rates(s).t;
-  const into = sellIntoBid(o, x, m, t);
+  const into = sellIntoBid(o, x, { ...m, book }, t);
   return into ? { ...x, verdict: 'bid', intoBids: into, why: intoBidsWhy(into, x.price, x.volumeRemain, t) } : x;
 }
 
 function adviseOrder(
   o: Mine & { locationId: number; seen?: { issued: string; price: number; remain: number }[] },
   m: { book: OrderLite[]; perDay: number | null; avgCost?: number | null; lows: (number | null)[] | null; txs: Parameters<typeof fillingNow>[2];
-    highs?: (number | null)[] | null; leave?: boolean },
+    highs?: (number | null)[] | null; leave?: boolean; yours?: OrderLite[] },
   s: Settings,
   now: number,
 ): Relist {
@@ -281,6 +294,7 @@ function adviseOrder(
     lows: m.lows,
     highs: m.highs,
     leave: m.leave,
+    yours: m.yours,
     targetReturn: s.target / 100,
     filling: fillingNow(o, m.book.find((x) => x.id === o.orderId)?.volume, m.txs, now),
   }, rates(s), s.waitHours, s.target / 100);
@@ -343,7 +357,9 @@ export function adviseRelist(
   // One big wall clears all at once and drops you straight to the front; a crowd of small orders
   // is a queue of people who will each undercut you again.
   const topRivalShare = aheadUnits > 0 ? Math.max(...ahead.map((o) => o.volume)) / aheadUnits : 0;
-  const yourHours = daily ? (volumeRemain / daily) * 24 : Infinity;
+  // Your own orders ahead of this one aren't a queue to jump, but their stock goes first.
+  const yoursAhead = (m.yours ?? []).filter((o) => o.isBuy === mine.isBuy && (mine.isBuy ? o.price > price : o.price < price)).reduce((n, o) => n + o.volume, 0);
+  const yourHours = daily ? ((volumeRemain + yoursAhead) / daily) * 24 : Infinity;
 
   // A buy only fills when sellers sell into it. When the bulk of trading hasn't been getting down to
   // your price, one step above the best bid may not be reached either (it wasn't, for the Syndicate Gas
@@ -367,7 +383,7 @@ export function adviseRelist(
   // Where trading reached may be under today's best bid when the market has since moved up (the membrane's fortnight
   // was mostly 55,000 before a buyer arrived at 100,000). A listing there would just sell into the bid, so the move
   // is to one step over it instead.
-  const bids = m.book.filter((o) => o.isBuy && o.id !== mine.orderId).map((o) => o.price);
+  const bids = [...m.book, ...(m.yours ?? [])].filter((o) => o.isBuy && o.id !== mine.orderId).map((o) => o.price);
   const bestBid = bids.length ? Math.max(...bids) : null;
   const overBid = !mine.isBuy && reachAt != null && bestBid != null && reachAt <= bestBid;
   // An ordinary buy goes to the front when the front is above where trading reaches; one you're leaving goes

@@ -2403,6 +2403,37 @@ console.log('\n--- sell into the bids when buyers don\'t take listings ---');
   eq('  it replaces the move on the same order, and sorts among other orders’ moves by ISK at stake', [v, { ...v, verdict: 'move', atRisk: v.atRisk * 2 }].sort(urgency)[0].verdict, 'move');
 }
 
+console.log('\n--- your other orders on an item are not rivals ---');
+{
+  // The user lists stock in batches while its buy order is still filling (28 September 2026).
+  const { judgeOrder: judge } = await import('../src/lib/relist.ts');
+  const { DEFAULT_SETTINGS } = await import('../src/lib/fees.ts');
+  const at = Date.parse('2026-09-28T12:00:00Z');
+  const O = (orderId, isBuy, price, volumeRemain) => ({ orderId, typeId: 34, isBuy, price, volumeRemain, locationId: 60003760 });
+  const L = (id, isBuy, price, volume) => ({ id, isBuy, price, volume });
+  const base = { perDay: 100, lows: null, txs: [] };
+  // Batch A at 100 and batch B at 102, both yours; a rival at 103 behind them.
+  const book = [L(21, false, 100, 50), L(22, false, 102, 50), L(23, false, 103, 500), L(31, true, 90, 1000), L(32, true, 80, 200)];
+  const alone = judge(O(22, false, 102, 50), { ...base, book }, DEFAULT_SETTINGS, at);
+  const known = judge(O(22, false, 102, 50), { ...base, book, yours: [21, 22, 31] }, DEFAULT_SETTINGS, at);
+  eq('without knowing it’s yours, your cheaper batch reads as a rival to undercut', [alone.beaten, alone.best], [true, 100]);
+  eq('  knowing, it isn’t: nothing of anyone else’s is ahead', [known.beaten, known.verdict, known.aheadUnits], [false, 'front', 0]);
+  eq('  but its stock sells first, so this one takes longer to sell', [Math.round(alone.yourHours), Math.round(known.yourHours)], [12, 24]);
+  const between = judge(O(22, false, 102, 50), { ...base, book: [...book, L(24, false, 101, 5)], yours: [21, 22, 31] }, DEFAULT_SETTINGS, at);
+  eq('  a rival between your batches is still one to get in front of, without undercutting yourself', [between.beaten, between.best, between.newPrice], [true, 101, 100.9]);
+  // Sell to bids: a quiet week, 500 units listed, and your own buy order the biggest bid.
+  const quiet = { h: 170, sell: 0, buy: 400, newSell: 0, newBuy: 0 };
+  const lot = judge(O(22, false, 102, 500), { ...base, book: [L(22, false, 102, 500), L(31, true, 90, 1000), L(32, true, 80, 200)], watched: quiet, yours: [22, 31] }, DEFAULT_SETTINGS, at);
+  eq('“Sell to bids” walks only others’ bids: your own buy order is trading with yourself', [lot.verdict, lot.intoBids?.units, lot.intoBids?.top], ['bid', 200, 80]);
+  const onlyYours = judge(O(22, false, 102, 500), { ...base, book: [L(22, false, 102, 500), L(31, true, 90, 1000)], watched: quiet, yours: [22, 31] }, DEFAULT_SETTINGS, at);
+  eq('  and with only your own bid, it says nothing about selling into bids', onlyYours.verdict === 'bid', false);
+  // The membrane with your own buy order the top bid: a sell is still never moved under it.
+  const mHighs = [55190, 55190, 55210, 55230, 55260, 55310, 55310, 55310, 55310, 55310, 55270, 150000, 100100, 100100];
+  const mBook = [L(7, false, 3_899_000, 1), L(8, false, 720_000, 2), L(10, true, 100_000, 462), L(11, true, 55_270, 4633)];
+  const sell = judge({ ...O(7, false, 3_899_000, 1), typeId: 16423 }, { ...base, perDay: 2, book: mBook, highs: mHighs, yours: [7, 10] }, DEFAULT_SETTINGS, at);
+  eq('  a sell isn’t moved under your own bid either: a listing there would sell to yourself', [sell.newPrice, sell.overBid], [100100, true]);
+}
+
 console.log('\n--- an item\'s daily rhythm ---');
 {
   const { busyHours, busySaid, spreadAtHour } = await import('../src/lib/rhythm.ts');

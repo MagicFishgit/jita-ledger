@@ -136,7 +136,9 @@ export function verdicts(d: Data, check: CheckState, cost: Record<number, number
   if (!check.books) return [];
   const txs = Object.values(d.txs);
   const leave = new Set(d.leave ?? []);
-  return jitaOpen(d)
+  const open = jitaOpen(d);
+  const yours = open.map((o) => o.orderId);
+  return open
     .filter((o) => check.books![o.typeId])
     .map((o) => judgeOrder(o, {
       book: check.books![o.typeId],
@@ -147,6 +149,7 @@ export function verdicts(d: Data, check: CheckState, cost: Record<number, number
       leave: leave.has(o.typeId),
       txs,
       watched: watchedFlow(o.typeId),
+      yours,
     }, d.settings))
     .sort(byUrgency);
 }

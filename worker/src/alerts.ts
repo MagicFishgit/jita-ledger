@@ -102,6 +102,8 @@ export async function judgeAll(db: D1Database, charId: number, settings: Setting
     .bind(charId, since).all<{ data: string }>()).results.map((r) => JSON.parse(r.data) as TxRecord);
 
   let unread = 0;
+  // Your other orders on an item aren't rivals or bids to sell into (judgeOrder).
+  const yours = mine.map((o) => o.orderId);
   const list: Relist[] = [];
   const pace: Record<number, number> = {};
   for (const o of mine) {
@@ -113,7 +115,7 @@ export async function judgeAll(db: D1Database, charId: number, settings: Setting
     const watched: FlowDay = observedFlow({ [o.typeId]: flow[o.typeId] ?? {} }, o.typeId, now);
     const perDay = sidePaceOf({ daily: h ? paceDay(h, now) : null, buyers: h ? buyerShare(h.slice(-30)) : undefined, sold: book.sold, watched }, o.isBuy).perDay;
     const range = h ? recentRange(h, undefined, now, flow[o.typeId]) : null;
-    const x = judgeOrder(o, { book: book.orders, perDay, avgCost: costs[o.typeId], lows: range?.lows ?? null, highs: range?.highs ?? null, leave: leave.has(o.typeId), txs, watched }, settings, now);
+    const x = judgeOrder(o, { book: book.orders, perDay, avgCost: costs[o.typeId], lows: range?.lows ?? null, highs: range?.highs ?? null, leave: leave.has(o.typeId), txs, watched, yours }, settings, now);
     if (!x.gone) list.push(x);
     // Left behind the front on purpose: the planner's pace for it (`throughput`), its side's trade at your share,
     // scaled for the orders it queues among and for how often trading reaches its price.
