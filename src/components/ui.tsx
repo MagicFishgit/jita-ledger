@@ -230,7 +230,7 @@ export function Chip(props: {
 
 /** A sortable table header cell. */
 export function SortTh<K extends string>(props: {
-  k: K; label: string; sort: { key: K; dir: 'asc' | 'desc' }; onSort: (k: K) => void; left?: boolean; tip?: string;
+  k: K; label: string; sort: { key: K; dir: 'asc' | 'desc' }; onSort: (k: K) => void; left?: boolean; tip?: string; title?: string;
 }) {
   const on = props.sort.key === props.k;
   return (
@@ -239,7 +239,7 @@ export function SortTh<K extends string>(props: {
         <button type="button" className="sort" onClick={() => props.onSort(props.k)}>
           {props.label}<span className="arrow" aria-hidden="true">{on ? (props.sort.dir === 'asc' ? '↑' : '↓') : '↕'}</span>
         </button>
-        {props.tip && <Tip text={props.tip} title={props.label} />}
+        {props.tip && <Tip text={props.tip} title={props.title ?? props.label} />}
       </span>
     </th>
   );

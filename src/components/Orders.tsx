@@ -14,11 +14,11 @@ import { relistPace } from '../lib/flow';
 import { loadCache, rankProspects } from '../lib/scan';
 import { DEFAULT_FILTERS } from '../lib/prospects';
 import { update, useData } from '../lib/store';
-import { FEE_TARGET, type Relist, type TooBig, type Verdict } from '../lib/relist';
+import { byUrgency, FEE_TARGET, type Relist, type TooBig, type Verdict } from '../lib/relist';
 import { FILL_WINDOW } from '../lib/fills';
 import type { Prospect } from '../lib/types';
 import { BusyRelisting, canOpenInGame, NameInGame, OpenInGame, useTypeName } from './common';
-import { cssVars, Empty, Guide, ItemIcon, Notice, PageHead, Seg, Th } from './ui';
+import { cssVars, Empty, Guide, ItemIcon, Notice, PageHead, Seg, SortTh } from './ui';
 import { ScanFreshness } from './ScanFreshness';
 
 /**
@@ -64,6 +64,28 @@ function rivalShape(orders: number, topShare: number, isBuy: boolean): string {
   return `${orders} ${who}s`;
 }
 
+/**
+ * The columns Orders sorts by. The user asked for every column to sort ascending or descending in one click, with
+ * the header in view down a long list (105 orders). The default is the verdict: most urgent first, as before.
+ */
+type OrderSortKey = 'item' | 'side' | 'verdict' | 'ahead' | 'clears' | 'price' | 'moveTo' | 'costs' | 'stock' | 'isk' | 'perSlot';
+type OrderSort = { key: OrderSortKey; dir: 'asc' | 'desc' };
+const ORDER_SORT_KEYS: OrderSortKey[] = ['item', 'side', 'verdict', 'ahead', 'clears', 'price', 'moveTo', 'costs', 'stock', 'isk', 'perSlot'];
+/** Words and the verdict read top to bottom on a first click; figures biggest first. */
+const ORDER_SORT_UP = new Set<OrderSortKey>(['item', 'side', 'verdict']);
+const ORDER_SORT_STORE = 'jita-ledger:orders-sort';
+const ORDER_COLUMNS: [OrderSortKey, string][] = [
+  ['ahead', 'Ahead of you'], ['clears', 'Clears in'], ['price', 'Your price'], ['moveTo', 'Move to'], ['costs', 'Costs you'], ['stock', 'Your stock'], ['isk', 'ISK in order'],
+];
+
+function loadOrderSort(): OrderSort {
+  try {
+    const s = JSON.parse(localStorage.getItem(ORDER_SORT_STORE) ?? 'null') as OrderSort | null;
+    if (s && ORDER_SORT_KEYS.includes(s.key) && (s.dir === 'asc' || s.dir === 'desc')) return s;
+  } catch { /* the default below */ }
+  return { key: 'verdict', dir: 'asc' };
+}
+
 function hours(h: number): string {
   if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`;
   if (h < 48) return `${Math.round(h)} h`;
@@ -79,6 +101,12 @@ export function Orders() {
   const now = useNow();
   const check = useOrderCheck();
   const [side, setSide] = useState<'all' | 'sell' | 'buy'>('all');
+  const [sort, setSort] = useState<OrderSort>(loadOrderSort);
+  const sortBy = (key: OrderSortKey) => setSort((s) => {
+    const next: OrderSort = s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: ORDER_SORT_UP.has(key) ? 'asc' : 'desc' };
+    try { localStorage.setItem(ORDER_SORT_STORE, JSON.stringify(next)); } catch { /* remembered for this visit only */ }
+    return next;
+  });
   const [better, setBetter] = useState<Prospect[]>([]);
 
   const open = useMemo(() => Object.values(d.orders).filter((o) => o.state === 'open' && o.volumeRemain > 0), [d.orders]);
@@ -119,6 +147,39 @@ export function Orders() {
     }
     return out;
   }, [all, check, cost, r.f, r.t, d.settings.share]);
+
+  // The list in the order asked for. A blank cell ("–") always sorts last, whichever way; ties keep the urgency order.
+  type Row = Relist | (typeof mine[number] & { unchecked: true });
+  const listed: Row[] = useMemo(() => {
+    const base: Row[] = checked ? rows : mine.filter((o) => side === 'all' || (side === 'buy' ? o.isBuy : !o.isBuy)).map((o) => ({ ...o, unchecked: true as const }));
+    const judged = (row: Row) => ('unchecked' in row ? null : row);
+    const value = (row: Row): number | string | null => {
+      const x = judged(row);
+      switch (sort.key) {
+        case 'item': return nameOf(row.typeId);
+        case 'side': return row.isBuy ? 'Buy' : 'Sell';
+        case 'verdict': return null;
+        case 'ahead': return x ? (x.beaten ? x.aheadUnits : 0) : null;
+        // "Rarely reached" and "barely trades" are the longest waits of all.
+        case 'clears': return x ? (x.unreached ? Infinity : !x.beaten ? 0 : Number.isFinite(x.hoursToFront) ? x.hoursToFront : Infinity) : null;
+        case 'price': return x?.price ?? row.price;
+        case 'moveTo': return x?.intoBids ? x.intoBids.top : x && !(x.left && x.verdict === 'wait') && Number.isFinite(x.newPrice) ? x.newPrice : null;
+        case 'costs': return x?.intoBids ? x.intoBids.proceeds : x && !(x.left && x.verdict === 'wait') && x.cost > 0 ? x.cost : null;
+        case 'stock': return x?.volumeRemain ?? row.volumeRemain;
+        case 'isk': return (x?.price ?? row.price) * (x?.volumeRemain ?? row.volumeRemain);
+        case 'perSlot': return x && Number.isFinite(perSlot[x.orderId]) ? perSlot[x.orderId] : null;
+      }
+    };
+    const sign = sort.dir === 'asc' ? 1 : -1;
+    const urgency = (a: Row, b: Row) => { const xa = judged(a), xb = judged(b); return xa && xb ? byUrgency(xa, xb) : 0; };
+    return [...base].sort((a, b) => {
+      if (sort.key === 'verdict') return sign * urgency(a, b);
+      const va = value(a), vb = value(b);
+      if (va == null || vb == null) return va == null && vb == null ? urgency(a, b) : va == null ? 1 : -1;
+      const c = typeof va === 'string' || typeof vb === 'string' ? String(va).localeCompare(String(vb)) : va === vb ? 0 : va < vb ? -1 : 1;
+      return sign * c || urgency(a, b);
+    });
+  }, [checked, rows, mine, side, sort, perSlot, nameOf]);
 
   // Items from the last scan that would earn more per slot, for the swap suggestions.
   useEffect(() => {
@@ -258,20 +319,22 @@ export function Orders() {
                 { v: 'buy', label: 'Buy orders', n: units((checked ? all : mine).filter((x) => x.isBuy).length) },
               ]} />
             </div>
-            <div className="tbl-scroll">
+            {/* Its own scroll box, capped to the screen: a sticky header sticks to its nearest scrolling box, which the
+                sideways scroll makes this one, so the header stays in view down a long list only if this box scrolls. */}
+            <div className="tbl-scroll capped">
               <table className="tbl" style={{ minWidth: 1360 }}>
                 <thead>
                   <tr>
-                    <Th left>Item</Th>
-                    <Th left tip={tips.Side}>Side</Th>
-                    <Th left tip={tips.Verdict}>Verdict</Th>
-                    {(['Ahead of you', 'Clears in', 'Your price', 'Move to', 'Costs you', 'Your stock', 'ISK in order'] as const).map((h) => <Th key={h} tip={tips[h]}>{h}</Th>)}
-                    <Th title="ISK per day per slot" tip={'Rough ISK a day this order earns for the order slot it takes.\n\n• Its margin at your rates, times how fast your side of the volume fills it at your share.\n• The lowest are the first to swap out when you run out of slots.'}>Per slot</Th>
+                    <SortTh k="item" label="Item" sort={sort} onSort={sortBy} left />
+                    <SortTh k="side" label="Side" sort={sort} onSort={sortBy} left tip={tips.Side} />
+                    <SortTh k="verdict" label="Verdict" sort={sort} onSort={sortBy} left tip={tips.Verdict} />
+                    {ORDER_COLUMNS.map(([k, h]) => <SortTh key={k} k={k} label={h} sort={sort} onSort={sortBy} tip={tips[h]} />)}
+                    <SortTh k="perSlot" label="Per slot" title="ISK per day per slot" sort={sort} onSort={sortBy} tip={'Rough ISK a day this order earns for the order slot it takes.\n\n• Its margin at your rates, times how fast your side of the volume fills it at your share.\n• The lowest are the first to swap out when you run out of slots.'} />
                     <th scope="col" style={{ color: 'var(--faint-2)' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(checked ? rows : mine.filter((o) => side === 'all' || (side === 'buy' ? o.isBuy : !o.isBuy)).map((o) => ({ ...o, unchecked: true as const }))).map((row, i) => {
+                  {listed.map((row, i) => {
                     const x = 'unchecked' in row ? null : (row as Relist);
                     const o = row as { orderId: number; typeId: number; isBuy: boolean; price: number; volumeRemain: number };
                     const name = nameOf(o.typeId);
@@ -286,7 +349,7 @@ export function Orders() {
                         <td className="l lbl" style={{ color: o.isBuy ? 'var(--buy)' : 'var(--neg-t)', fontSize: 11.5 }}>{o.isBuy ? 'Buy' : 'Sell'}</td>
                         <td className="l">
                           {V && x ? (
-                            <span className="flag" tabIndex={0} data-tip={x.why} data-tip-title={V.label} style={cssVars({ '--c': V.c, fontSize: 11, padding: '3px 9px', animation: `rise .4s ${i * 70}ms both` })}>
+                            <span className="flag" tabIndex={0} data-tip={x.why} data-tip-title={V.label} style={cssVars({ '--c': V.c, fontSize: 11, padding: '3px 9px', animation: `rise .4s ${Math.min(i, 10) * 70}ms both` })}>
                               <V.Icon aria-hidden="true" />{V.label}
                             </span>
                           ) : (
