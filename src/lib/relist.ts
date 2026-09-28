@@ -82,8 +82,13 @@ export type Relist = {
  * Prospects says a position "locks ISK for weeks".
  */
 export const LISTING_DAYS = 30;
-/** Hours the app must have watched a book before it says buyers aren't taking listings there. */
-export const BID_WATCH_H = 24;
+/**
+ * Hours the app must have watched a book before it says buyers aren't taking listings there: a week. It was a day
+ * until the user asked about an item that sells in bursts a couple of times a week, which a day between bursts
+ * reads as dead. Waiting costs little (the stock was already sitting); selling into the bids by mistake can't be
+ * undone. A week also catches the weekend, and is what an item's rhythm waits for (RHYTHM_MIN_DAYS).
+ */
+export const BID_WATCH_H = 7 * 24;
 
 export type IntoBids = {
   /** ISK the bids would pay now, after sales tax (filling a bid costs no broker fee). */
@@ -137,8 +142,9 @@ export function sellIntoBid(
 export function intoBidsWhy(b: IntoBids, price: number, volumeRemain: number, salesTax: number): string {
   const days = b.daysToSell > 365 ? 'over a year' : `about ${Math.round(b.daysToSell)} days`;
   const seen = b.soldSeen < 1 ? 'nobody bought from listings' : `only ${units(Math.round(b.soldSeen))} bought from listings`;
+  const watched = b.watchedH >= 48 ? `${Math.round(b.watchedH / 24)} days` : `${Math.round(b.watchedH)} h`;
   const listed = price * b.units * (1 - salesTax);
-  return `Buyers barely take listings here: ${seen} in the ${Math.round(b.watchedH)} h watched, so yours would take ${days} to sell. `
+  return `Buyers barely take listings here: ${seen} in the ${watched} watched, so yours would take ${days} to sell. `
     + `Selling into the bids now gets ${iskBig(b.proceeds)}${b.left > 0 ? ` for ${units(b.units)} of your ${units(volumeRemain)} (the bids take no more)` : ''}, `
     + `against ${iskBig(listed)} if ${b.left > 0 ? 'those' : 'it'} sold at your price`;
 }

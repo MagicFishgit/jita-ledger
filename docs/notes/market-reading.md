@@ -36,12 +36,19 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   the scan's own days via `lowsEnd`) all use it.
 - **"Sell to bids" is a verdict on measured evidence only** (`sellIntoBid`, verdict `bid`). Many module markets
   are sellers selling into big standing bids while buyers rarely take listings, so loot listed there waits for
-  months. After at least `BID_WATCH_H` (24) hours watched, if at the pace buyers took listings (one more sale than
-  seen, so a quiet day reads "at most one a day") the stock ahead plus yours takes over `LISTING_DAYS` (30, the
+  months. After at least `BID_WATCH_H` (a week, 168) hours watched, if at the pace buyers took listings (one more sale than
+  seen, so a quiet week reads "at most one a week") the stock ahead plus yours takes over `LISTING_DAYS` (30, the
   same as Prospects' "locks ISK for weeks"), the order says what the bids pay now after tax against what your
   price would fetch. Never when your listing has sold since its price was set, never below what the stock cost,
   never from history's guess. It replaces a move on that order (moving down a tick where listings don't sell only
-  burns a fee), goes on To do as "Sell into bids", and is not mailed: the user doesn't want loot mail.
+  burns a fee), goes on To do as "Sell into bids", and is not mailed: the user doesn't want loot mail. **The
+  minimum was 24 hours until 28 September 2026.** The user followed it on two items and agreed with it, but asked
+  what happens to an item that sells in bulk a couple of times a week: a day between bursts reads it as dead, and
+  the one-more-sale cushion is far too small to make up a missed burst. The watching itself already ran up to 14
+  days, re-judged every five minutes; only the floor was short. Waiting costs little (the verdict only speaks when
+  selling looks over 30 days away), a wrong sale into bids can't be undone, and a week catches the weekend, so a
+  week it is; the user will say if it should go back. Whether a day's read gets reversed by the week's hasn't been
+  measured: the cloud's hourly watching (`flow_hod`) only began on 27 September, so test it once there is a week.
 - **"Busy relisting" informs; it never hides or ranks** (`relistPace`, `BusyRelisting`). After `RELIST_MIN_H` (6)
   hours watched, a side whose best price improved (someone undercut or outbid the front) every `BUSY_RELIST_MIN`
   (30) minutes or more often gets a tag under the item's name on Orders and Prospects and a note in the

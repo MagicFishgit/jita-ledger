@@ -2359,13 +2359,15 @@ console.log('\n--- sell into the bids when buyers don\'t take listings ---');
 {
   const { sellIntoBid, judgeOrder: judge, byUrgency: urgency, LISTING_DAYS } = await import('../src/lib/relist.ts');
   const { DEFAULT_SETTINGS } = await import('../src/lib/fees.ts');
-  const quietDay = { h: 30, sell: 0, buy: 400, newSell: 0, newBuy: 0 };
+  const quietDay = { h: 170, sell: 0, buy: 400, newSell: 0, newBuy: 0 };
   const book = [{ id: 1, isBuy: false, price: 6000, volume: 500 }, { id: 9, isBuy: true, price: 5000, volume: 200 }, { id: 8, isBuy: true, price: 4000, volume: 1000 }];
   const x = { gone: false, price: 6000, volumeRemain: 500, aheadUnits: 0 };
   const loot = sellIntoBid({ isBuy: false }, x, { book, watched: quietDay }, 0.03);
-  eq('500 units nobody bought from listings in 30 h: sell into the bids', loot != null && loot.daysToSell > LISTING_DAYS, true);
+  eq('500 units nobody bought from listings in a week: sell into the bids', loot != null && loot.daysToSell > LISTING_DAYS, true);
   eq('  the bids pay after tax only, walking down the book', Math.round(loot.proceeds), Math.round((200 * 5000 + 300 * 4000) * 0.97));
-  eq('  not before a day of watching', sellIntoBid({ isBuy: false }, x, { book, watched: { ...quietDay, h: 10 } }, 0.03), null);
+  // An item selling in bursts a couple of times a week looks dead to a day between them (the user's worry).
+  eq('  not before a week of watching: a quiet day or three isn’t enough', [10, 30, 100, 167].map((h) => sellIntoBid({ isBuy: false }, x, { book, watched: { ...quietDay, h } }, 0.03)), [null, null, null, null]);
+  eq('  a week with bursts that would clear it within the month says nothing', sellIntoBid({ isBuy: false }, x, { book, watched: { ...quietDay, sell: 2 * 150 } }, 0.03), null);
   eq('  not when your own listing has sold since its price was set', sellIntoBid({ isBuy: false, seen: [{ price: 6000, remain: 510 }] }, x, { book, watched: quietDay }, 0.03), null);
   eq('  not for a few units that sell within the month', sellIntoBid({ isBuy: false }, { ...x, volumeRemain: 3 }, { book, watched: quietDay }, 0.03), null);
   eq('  not when buyers do take listings', sellIntoBid({ isBuy: false }, x, { book, watched: { ...quietDay, sell: 400 } }, 0.03), null);
@@ -2373,7 +2375,7 @@ console.log('\n--- sell into the bids when buyers don\'t take listings ---');
   eq('  never for a buy order', sellIntoBid({ isBuy: true }, x, { book, watched: quietDay }, 0.03), null);
   const o = { orderId: 1, typeId: 34, isBuy: false, price: 6000, volumeRemain: 500, locationId: 60003760 };
   const v = judge(o, { book, perDay: 1, lows: null, txs: [], watched: quietDay }, DEFAULT_SETTINGS, Date.parse('2026-09-28T12:00:00Z'));
-  eq('the Orders verdict is "sell to bids", saying why in one sentence', [v.verdict, v.why.startsWith('Buyers barely take listings here: nobody bought from listings in the 30 h watched')], ['bid', true]);
+  eq('the Orders verdict is "sell to bids", saying why in one sentence', [v.verdict, v.why.startsWith('Buyers barely take listings here: nobody bought from listings in the 7 days watched')], ['bid', true]);
   eq('  it replaces the move on the same order, and sorts among other orders’ moves by ISK at stake', [v, { ...v, verdict: 'move', atRisk: v.atRisk * 2 }].sort(urgency)[0].verdict, 'move');
 }
 
