@@ -2330,6 +2330,38 @@ console.log('\n--- the sniper ---');
   eq('  the body says what to do, and links the name to its market and the page', [m.body.includes('RECOMMENDED: buy the 24 at 15,000,000 ISK, relist at 20,380,000 ISK'), m.body.includes('href="https://x/#orders?market=40554"'), m.body.includes('#sniper')], [true, true, true]);
 }
 
+console.log('\n--- snipes you have taken ---');
+{
+  const Sd = await import('../src/lib/sniped.ts');
+  const J = 60003760;
+  const T = (id, date, qty, unitPrice, extra = {}) => ({ id, source: 'esi', typeId: 40554, date, isBuy: true, qty, unitPrice, locationId: J, ...extra });
+  const txs = [
+    T('a', '2026-09-28T01:20:00Z', 20, 15_000_000),                         // the Locust, bought from a listing
+    T('b', '2026-09-28T01:21:30Z', 4, 15_100_000),                          // a second cheap order, a minute later
+    T('c', '2026-09-26T10:00:00Z', 5, 19_000_000),                          // an ordinary buy two days before
+    T('d', '2026-09-25T10:00:00Z', 3, 14_000_000),                          // one of your bids filling
+    T('e', '2026-09-24T10:00:00Z', 1, 10_000_000, { isBuy: false }),        // a sale
+    T('f', '2026-09-23T10:00:00Z', 1, 9_000_000),                           // tagged Personal
+  ];
+  // Buying from a listing takes the ISK as escrow in the same second; a bid of yours filling doesn't.
+  const E = (id, date, amount) => ({ id, date, refType: 'market_escrow', amount });
+  const journal = [E('j1', '2026-09-28T01:20:00Z', -300_000_000), E('j2', '2026-09-28T01:21:30Z', -60_400_000), E('j3', '2026-09-26T10:00:00Z', -95_000_000),
+    E('j4', '2026-09-24T09:00:00Z', -42_000_000), E('j5', '2026-09-23T10:00:00Z', -9_000_000)];
+  const bought = Sd.instantBuys(txs, journal, new Set(['f']));
+  eq('  buys from listings only: not your bid filling, not a sale, not Personal', bought.map((t) => t.id).sort(), ['a', 'b', 'c']);
+  eq('  a same-second escrow for a different amount is a buy order placed, not a purchase', Sd.instantBuys([txs[0]], [E('x', '2026-09-28T01:20:00Z', -450_000_000)], new Set()).length, 0);
+  const groups = Sd.groupBuys(bought);
+  eq('  buys a minute apart are one snipe', groups.map((g) => [g.txIds, g.units, Math.round(g.avg)]), [[['c'], 5, 19_000_000], [['a', 'b'], 24, 15_016_667]]);
+  // Trading got up to about 20.4 M on half of the 14 days before.
+  const hist = Array.from({ length: 40 }, (_, i) => ({ date: new Date(Date.parse('2026-08-20T00:00:00Z') + i * 86400_000).toISOString().slice(0, 10), average: 20e6, lowest: 19e6, highest: 20.4e6 + (i % 3) * 1e5, volume: 18, order_count: 30 }));
+  const rate = () => ({ f: 0.01268, t: 0.03375 });
+  const seen = [{ typeId: 40554, lo: 15_000_000, hi: 15_100_000, firstSeen: Date.parse('2026-09-27T23:10:00Z'), lastSeen: Date.parse('2026-09-28T01:15:00Z') }];
+  const taken = Sd.judgeTaken(groups, () => hist, rate, seen);
+  eq('  the cheap one is a snipe, the ordinary buy is not', taken.map((x) => x.txIds), [['a', 'b']]);
+  eq('  how far under, what it looked like, and that the Sniper had shown it', [+(taken[0].under * 100).toFixed(1), Math.round(taken[0].expected / 1e5) / 10, taken[0].byTool], [26.7, 108.8, true]);
+  eq('  bought outside the sighting window, it was found by hand', Sd.judgeTaken(groups, () => hist, rate, [{ ...seen[0], lastSeen: Date.parse('2026-09-27T23:30:00Z') }])[0].byTool, false);
+}
+
 console.log('\n--- when the next full-market scan runs ---');
 {
   const { nextScanAt, dayBoundary } = await import('../worker/src/scanTimes.ts');

@@ -1,15 +1,134 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Calculator as CalcIcon, Clock, Crosshair, Eye, Hand, Mail, Repeat, ShieldAlert, SlidersHorizontal, Tag } from 'lucide-react';
-import { cloudEnabled, cloudSendsMail, cloudSnipes, useCloud } from '../lib/cloud';
-import { rates } from '../lib/fees';
-import { ago, isk, iskBig, pct, units, until } from '../lib/format';
+import { Calculator as CalcIcon, Clock, Copy, Crosshair, Eye, Hand, Mail, Repeat, ShieldAlert, SlidersHorizontal, Tag } from 'lucide-react';
+import { cloudEnabled, cloudSendsMail, cloudSightings, cloudSnipes, useCloud } from '../lib/cloud';
+import { rateAt, rates } from '../lib/fees';
+import { reachedAsk, recentRange } from '../lib/fills';
+import { ago, fmtDateTime, isk, iskBig, iskBigSigned, pct, units, until } from '../lib/format';
+import { marketHistory } from '../lib/market';
+import { computePosition } from '../lib/positions';
+import { groupBuys, instantBuys, judgeTaken, type Sighting } from '../lib/sniped';
+import { toast } from '../lib/toast';
+import type { HistRow, Position } from '../lib/types';
 import { navigate, useNow } from '../lib/hooks';
 import { sanitizeAlerts } from '../lib/prefs';
 import { DOUBT_SAID, judgeBids, judgeListings, type HeldBidRow, type SnipeRead, type SnipeRow } from '../lib/snipe';
 import { update, useData } from '../lib/store';
 import { OpenInGame, useEnsureNames, useTypeName } from './common';
 import { flip } from './Prospects';
-import { Empty, Flag, Guide, ItemIcon, NumChip, PageHead, Panel } from './ui';
+import { Empty, Flag, Guide, ItemIcon, NumChip, PageHead, Panel, Tiles } from './ui';
+
+/** A price as the game's price box takes it: digits, and cents only when there are cents. */
+const plainPrice = (p: number) => (Number.isInteger(p) ? String(p) : p.toFixed(2));
+async function copyPrice(p: number) {
+  try { await navigator.clipboard.writeText(plainPrice(p)); toast(`Copied ${plainPrice(p)}: paste it into the price box.`); }
+  catch { toast('Couldn’t copy: your browser refused. Type it carefully.', 'err'); }
+}
+
+/**
+ * The snipes you've taken, found in your wallet (sniped.ts), and what each made since: worked out like a position
+ * from the first buy on, with the real fees matched to your orders, but shown only here, never on Positions.
+ */
+function YourSnipes({ now }: { now: number }) {
+  const d = useData();
+  const name = useTypeName();
+  const cloud = useCloud();
+  const r = rates(d.settings);
+  const groups = useMemo(() => groupBuys(instantBuys(Object.values(d.txs), Object.values(d.journal), new Set(d.ignored))), [d.txs, d.journal, d.ignored]);
+  const types = useMemo(() => [...new Set(groups.map((g) => g.typeId))], [groups]);
+  const key = types.join(',');
+  const [hist, setHist] = useState<Record<number, HistRow[]> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const out: Record<number, HistRow[]> = {};
+      let i = 0;
+      await Promise.all(Array.from({ length: 6 }, async () => {
+        while (i < types.length) { const t = types[i++]; try { out[t] = await marketHistory(t); } catch { /* left out */ } }
+      }));
+      if (alive) setHist(out);
+    })();
+    return () => { alive = false; };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [seen, setSeen] = useState<Sighting[]>([]);
+  useEffect(() => {
+    if (!types.length || !cloudEnabled() || !cloud.started) return;
+    cloudSightings(types).then(setSeen).catch(() => undefined);
+  }, [key, cloud.started]); // eslint-disable-line react-hooks/exhaustive-deps
+  const taken = useMemo(() => (hist ? judgeTaken(groups, (t) => hist[t], (iso) => rateAt(d.meta.rateHistory, Date.parse(iso), r), seen) : []),
+    [groups, hist, seen, d.meta.rateHistory, r.f, r.t]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEnsureNames(taken.map((x) => x.typeId));
+  // One outcome per item, from its first snipe on, so two snipes of one item aren't counted twice.
+  const items = useMemo(() => {
+    const byType = new Map<number, typeof taken>();
+    for (const x of taken) byType.set(x.typeId, [...(byType.get(x.typeId) ?? []), x]);
+    return [...byType].map(([typeId, list]) => {
+      const first = list.reduce((a, b) => (Date.parse(a.at) < Date.parse(b.at) ? a : b));
+      const personal = Object.values(d.txs).filter((t) => t.typeId === typeId && d.ignored.includes(t.id)).map((t) => t.id);
+      const pos: Position = { id: `snipe:${typeId}`, typeId, openedAt: new Date(Date.parse(first.at) - 1000).toISOString(), status: 'open', jitaOnly: true, excluded: personal, included: [] };
+      const c = computePosition(pos, d, d.settings);
+      const rows = hist?.[typeId];
+      const fairNow = rows ? reachedAsk(recentRange(rows, undefined, now).highs) : null;
+      // If what's left sells where the item trades now, after fees: fees already paid on listed stock stay counted.
+      const rest = c.stock > 0 && fairNow ? c.stock * fairNow * (1 - r.f - r.t) - c.costOfStock : 0;
+      return {
+        typeId, list, latest: list[0], units: list.reduce((n, x) => n + x.units, 0), cost: list.reduce((n, x) => n + x.cost, 0),
+        expected: list.reduce((n, x) => n + x.expected, 0), byTool: list.some((x) => x.byTool),
+        bought: c.bought, sold: c.sold, avgSell: c.avgSell, stock: c.stock, realized: c.realized, prepaid: c.prepaidFees,
+        inTheEnd: c.realized - c.prepaidFees + rest, fairNow,
+      };
+    }).sort((a, b) => Date.parse(b.latest.at) - Date.parse(a.latest.at));
+  }, [taken, d, hist, now, r.f, r.t]);
+  const sum = (f: (x: (typeof items)[number]) => number) => items.reduce((n, x) => n + f(x), 0);
+  const worse = items.filter((x) => x.inTheEnd < x.expected * 0.5).length;
+
+  return (
+    <Panel title="Your snipes" sub="Found in your wallet: buys of yours from a listing in Jita at 5%+ under where the item traded, after fees, whether the Sniper found them or you did.">
+      {!hist ? <p className="note">Checking {units(groups.length)} of your buys from listings against market history…</p>
+        : !items.length ? <p className="note">No snipes in your wallet yet. A buy of yours from a listing in Jita, far enough under where the item traded to pay 5% after fees, counts. ESI hands wallet trades over up to an hour after you make them.</p>
+          : (
+            <>
+              <Tiles min={170} items={[
+                { l: 'Snipes taken', v: units(taken.length), n: `${units(sum((x) => (x.byTool ? x.list.length : 0)))} found by the Sniper`, c: 'var(--acc)' },
+                { l: 'ISK put in', v: iskBig(sum((x) => x.cost)), n: `Looked like ${iskBigSigned(sum((x) => x.expected))} after fees` },
+                { l: 'Made so far', v: iskBigSigned(sum((x) => x.realized)), n: 'On what has sold, after the fees on it', c: sum((x) => x.realized) >= 0 ? 'var(--pos)' : 'var(--neg-t)' },
+                { l: 'In the end', v: iskBigSigned(sum((x) => x.inTheEnd)), n: 'If what’s left sells where it trades now', c: sum((x) => x.inTheEnd) >= 0 ? 'var(--pos)' : 'var(--neg-t)' },
+              ]} />
+              {worse > 0 && <p className="note small" style={{ margin: 0, color: 'var(--acc2)' }}>{units(worse)} {worse === 1 ? 'is' : 'are'} heading for less than half what {worse === 1 ? 'it' : 'they'} looked like: a price that moved, or fees on the relist.</p>}
+              <div className="tbl-scroll">
+                <table className="tbl" style={{ minWidth: 980 }}>
+                  <thead><tr>
+                    <th scope="col" className="l">Item</th>
+                    <th scope="col">Sniped</th>
+                    <th scope="col" data-tip="Relisted where it had been trading, after your fees at the time">Looked like</th>
+                    <th scope="col" data-tip="Of what you've bought of it since the snipe">Sold</th>
+                    <th scope="col" data-tip="On what has sold, after the broker fees and tax on it, matched to your orders">Made so far</th>
+                    <th scope="col" data-tip="Broker fees already paid on stock still listed: charged as it sells">Fees on unsold</th>
+                    <th scope="col" data-tip="Made so far, less those fees, plus what's left if it sells where the item trades now">In the end</th>
+                  </tr></thead>
+                  <tbody>
+                    {items.map((x) => (
+                      <tr key={x.typeId} className="hover">
+                        <td className="l"><span className="cellrow"><ItemIcon id={x.typeId} /><span className="name ellipsis">{name(x.typeId)}</span>
+                          {x.byTool ? <Flag color="var(--acc)" title="Found by the Sniper" why="The cloud’s Sniper had shown this listing when you bought it.">Sniper</Flag>
+                            : <Flag color="var(--label)" title="Found by hand" why="The Sniper hadn’t shown it (or it was before the Sniper existed): you found this one yourself.">By hand</Flag>}
+                          {x.list.length > 1 && <span className="sub">{x.list.length} snipes</span>}</span></td>
+                        <td>{units(x.units)} at {isk(x.cost / x.units)}<span className="sub">{fmtDateTime(x.latest.at)} · {pct(x.latest.under, 0)} under</span></td>
+                        <td>{iskBigSigned(x.expected)}</td>
+                        <td>{units(x.sold)} of {units(x.bought)}{x.avgSell != null && <span className="sub">at {isk(x.avgSell)}</span>}</td>
+                        <td style={{ color: x.realized >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{iskBigSigned(x.realized)}</td>
+                        <td style={{ color: x.prepaid > 0 ? 'var(--acc2)' : 'var(--ghost)' }}>{x.prepaid > 0 ? iskBig(x.prepaid) : '–'}</td>
+                        <td style={{ color: x.inTheEnd >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{iskBigSigned(x.inTheEnd)}{x.stock > 0 && <span className="sub">{units(x.stock)} left{x.fairNow ? ` at ${isk(x.fairNow)}` : ''}</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="note small" style={{ margin: 0 }}>Each item is followed from its first snipe on, with every trade of it since, so buying or selling more of it the usual way counts here too. Buys tagged Personal are left out.</p>
+            </>
+          )}
+    </Panel>
+  );
+}
 
 /** The cloud reads the book a minute after each of ESI's refreshes: a minute after the one it read expires. */
 const NEXT_AFTER_MS = 90_000;
@@ -81,7 +200,13 @@ export function Sniper() {
               <td className="l"><span className="cellrow"><ItemIcon id={x.typeId} /><span className="name ellipsis">{name(x.typeId)}</span></span></td>
               <td>{listed(x)}</td>
               <td style={{ color: now - Date.parse(x.pricedAt) < 3600_000 ? 'var(--pos)' : 'var(--cell)' }}>{ago(x.pricedAt, now)}</td>
-              <td>{isk(x.resale)}<span className="sub">{x.resale < x.fair && x.nextAsk != null ? `next listing ${isk(x.nextAsk)}` : `trades to ${isk(x.fair)}`}</span></td>
+              <td>
+                <span className="cellrow" style={{ justifyContent: 'flex-end' }}>
+                  {isk(x.resale)}
+                  <button type="button" className="link-btn dim" aria-label={`Copy ${plainPrice(x.resale)}`} data-tip="Copy the price, to paste into the game rather than type it" onClick={() => copyPrice(x.resale)}><Copy aria-hidden="true" /></button>
+                </span>
+                <span className="sub">{x.resale < x.fair && x.nextAsk != null ? `next listing ${isk(x.nextAsk)}` : `trades to ${isk(x.fair)}`}</span>
+              </td>
               <td>{iskBig(x.cost)}</td>
               <td style={{ color: x.profit > 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{iskBig(x.profit)}<span className="sub">{pct(x.pct, 0)}</span></td>
               <td>{Number.isFinite(x.sellDays) ? flip(x.sellDays) : '–'}</td>
@@ -168,6 +293,7 @@ export function Sniper() {
                   <p className="note">Nothing clears your bar in this read. Mistakes come and go within minutes, and the cloud looks again every five.{small.length ? ` ${units(small.length)} smaller ones are below.` : ''}</p>
                 )}
               </Panel>
+              <YourSnipes now={now} />
 
               {small.length > 0 && (
                 <Panel title="Under your bar" sub="Nothing doubts these, but they make less than you asked for.">

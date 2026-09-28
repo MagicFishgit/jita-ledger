@@ -15,6 +15,7 @@ import { costBasis } from './orderCheck';
 import { adoptCloudScan, loadCache, mergeLiveBooks, rankProspects, scanBusy, type CloudScan } from './scan';
 import type { Book } from './evaluate';
 import type { SnipeRead } from './snipe';
+import type { Sighting } from './sniped';
 import { DEFAULT_FILTERS } from './prospects';
 import type { ProspectFilters } from './types';
 
@@ -433,6 +434,9 @@ async function refreshLiveBooks(): Promise<void> {
 
 /** The sniper's latest read of the whole book: mistake listings, and high bids for what you hold (src/lib/snipe.ts). */
 export const cloudSnipes = () => call<SnipeRead | null>('/v1/snipes');
+
+/** What the Sniper saw of these items in the last month: marks your buys of them as found by it. */
+export const cloudSightings = (types: number[]) => call<Sighting[]>(`/v1/snipes/seen?types=${types.slice(0, 500).join(',')}`);
 
 /** An item's trade by hour of day (UTC), as the cloud counted it. */
 export const cloudHours = (typeId: number) => call<Record<number, HourBucket[]>>(`/v1/hours?types=${typeId}`).then((r) => r[typeId] ?? []);

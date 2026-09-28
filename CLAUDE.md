@@ -266,6 +266,13 @@ Don't re-derive or contradict these without new evidence.
   the item behind a balance jump. Buy orders are escrowed when placed (`market_escrow`), so money in and out is
   read from transactions for trades and the two market ref_types are left out of the categories — counting both
   doubles every purchase.
+- **A purchase straight from a listing shows as a `market_escrow` in the same second, for exactly its cost; a buy
+  order of yours filling has no journal entry of its own** (it's paid from the escrow taken when the order was
+  placed). Checked on the user's journal on 28 September 2026: 61 of 399 buys had a same-second escrow for exactly
+  their value, none of their Datacore - Rocket Science bid's fills did, and there are no `market_transaction`
+  entries for purchases at all (all 3,663 were sales). A same-second escrow for a different amount is a buy order
+  placed that matched at once. This is how `instantBuys` tells a snipe from a fill; matching fills to your orders'
+  prices failed, because orders placed or repriced before their history was kept aren't known.
 - **Hauler capacities are read from ESI, not remembered.** A Charon holds **465,000** m³, not the
   1,100,000 once written here — that was an expanded fit passed off as the hull, and it would send
   someone to a contract they cannot pick up. For hulls with a fleet hangar the usable figure is cargo
@@ -539,6 +546,13 @@ Don't re-derive or contradict these without new evidence.
   The bar (default 10% and 5 M after fees, the user's choice) lives in the alert settings (`snipeMinIsk`,
   `snipeMinPct`) and drives both the page and the mail; alert kind `snipe` ("Mistake listing") is mailed by default,
   through `mailFindings`, which the alert round now shares. "Priced" is ESI's `issued`, which a price change moves.
+  **Snipes you take are found in your wallet** (`lib/sniped.ts`): a purchase from a listing in Jita (the escrow
+  fact above) at 5%+ under where the item had traded in the 14 days before, after your fees then; buys of one item
+  within 30 minutes are one snipe; the cloud's sightings (`snipe_seen`, 30 days) mark which the Sniper found. Each
+  item is followed like a position from its first snipe on (`computePosition` on a position that exists only on the
+  Sniper page, never on Positions, so nothing double-counts), so the real fees count: the user's first Sniper relist
+  was fat-fingered at 1,893,000 instead of 1,893 on 19,489 units, a ~468 M broker fee on a 20 M snipe, and "Your
+  snipes" shows that as it is. The Relist at price has a copy button so the price is pasted, not typed.
 - **"Place and leave" prices a plan behind the front on purpose** (`ProspectFilters.patient`, the planner's Pricing
   choice). The user's longer-term strategy is large orders in many items that fill over weeks, without the 0.01 war.
   Both sides are priced where the bulk of trading reached on half the last 14 days (`reachedBid` / `reachedAsk`, the

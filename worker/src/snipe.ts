@@ -28,12 +28,26 @@ const JITA_44 = 60003760;
 const NPC_DURATION = 365;
 /** At most this many listings in one mail: the rest are on the Sniper page. */
 const MAIL_LISTINGS = 8;
+/** How long a sighting is kept for marking your buys as found by the Sniper. */
+const SEEN_DAYS = 30;
 
 const inList = (n: number, from = 1) => Array.from({ length: n }, (_, i) => `?${i + from}`).join(',');
 
 async function docOf<T>(db: D1Database, charId: number, key: string): Promise<T | null> {
   const row = await db.prepare('SELECT data FROM docs WHERE char_id = ?1 AND key = ?2').bind(charId, key).first<{ data: string }>();
   return row ? (JSON.parse(row.data) as T) : null;
+}
+
+/** What the Sniper saw of some items in the last month, for marking buys of them as found by it. */
+export async function sightings(db: D1Database, types: number[]) {
+  const out: { typeId: number; lo: number; hi: number; firstSeen: number; lastSeen: number }[] = [];
+  for (let i = 0; i < types.length; i += 90) {
+    const part = types.slice(i, i + 90);
+    const rows = (await db.prepare(`SELECT type_id, lo, hi, first_seen, last_seen FROM snipe_seen WHERE type_id IN (${inList(part.length)})`).bind(...part)
+      .all<{ type_id: number; lo: number; hi: number; first_seen: number; last_seen: number }>()).results;
+    for (const r of rows) out.push({ typeId: r.type_id, lo: r.lo, hi: r.hi, firstSeen: r.first_seen, lastSeen: r.last_seen });
+  }
+  return out;
 }
 
 export async function lastSnipes(db: D1Database): Promise<SnipeRead | null> {
@@ -118,6 +132,13 @@ export async function sniperRound(env: Env, now = Date.now()) {
   }
   const read: SnipeRead = { at: new Date(now).toISOString(), expires: first.expires ?? null, pages: first.pages, listings, bids: kept };
   await db.prepare('INSERT INTO scan_meta (key, data) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET data = excluded.data').bind('snipes', JSON.stringify(read)).run();
+  // Every listing shown, remembered for a month: a buy of one is then marked as found by the Sniper.
+  const saw = db.prepare(`INSERT INTO snipe_seen (order_id, type_id, lo, hi, first_seen, last_seen) VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+    ON CONFLICT(order_id) DO UPDATE SET lo = excluded.lo, hi = excluded.hi, last_seen = excluded.last_seen`);
+  await db.batch([
+    ...listings.map((l) => saw.bind(l.orderIds[0], l.typeId, l.cheapest, l.top, now)),
+    db.prepare('DELETE FROM snipe_seen WHERE last_seen < ?1').bind(now - SEEN_DAYS * 86400_000),
+  ]);
 
   const mailed: Record<number, number> = {};
   for (const id of ledgers) {

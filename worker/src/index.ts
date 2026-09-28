@@ -8,7 +8,7 @@
 import { AuthError, caller } from './auth';
 import { alertRound, bookOf, judgeAll, previewRound, testRound, trackRecord, trackSummary } from './alerts';
 import { fullScan, markScanStarted, scanDue, scanStatus, scanStream } from './scan';
-import { lastSnipes, sniperRound } from './snipe';
+import { lastSnipes, sightings, sniperRound } from './snipe';
 
 /** One minute past each five: ESI refreshes The Forge's book at about :x0:30 and :x5:30. Also in wrangler.toml. */
 const SNIPER_CRON = '1-59/5 * * * *';
@@ -235,6 +235,10 @@ export default {
         return body ? new Response(body, { headers: { ...c, 'Content-Type': 'application/json' } }) : json(null, 200, c);
       }
       if (url.pathname === '/v1/scan/status' && request.method === 'GET') return json(await scanStatus(env.DB), 200, c);
+      if (url.pathname === '/v1/snipes/seen' && request.method === 'GET') {
+        const types = (url.searchParams.get('types') ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 500);
+        return json(await sightings(env.DB, types), 200, c);
+      }
       if (url.pathname === '/v1/snipes' && request.method === 'GET') {
         // Listings are the market's; bids are kept for what anyone holds, so each caller sees only its own items'.
         const read = await lastSnipes(env.DB);
