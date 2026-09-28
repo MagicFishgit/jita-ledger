@@ -138,7 +138,17 @@ export async function archive(env: Env, charId: number): Promise<ArchiveResult> 
   // Assets: a snapshot, replaced whole; pushed only when the counts moved.
   let stockTotal: Record<number, number> | undefined;
   if (has(scopes, S.assets)) {
-    const stock = countStock(await esiAll<RawAsset>(`/characters/${charId}/assets/`, { token }), JITA_44);
+    const raw = await esiAll<RawAsset>(`/characters/${charId}/assets/`, { token });
+    // Asset safety, as ESI reports it (being looked into, 28 September 2026): every asset flagged AssetSafety and
+    // everything inside one, so the parser is built on what ESI does rather than on a guess.
+    const safe = raw.filter((a) => a.location_flag === 'AssetSafety');
+    if (safe.length) {
+      const ids = new Set(safe.map((a) => a.item_id));
+      const inside = raw.filter((a) => ids.has(a.location_id));
+      const row = (a: RawAsset) => [a.location_flag, a.location_type, a.location_id, a.type_id, a.item_id, a.quantity].join(' ');
+      console.log('asset safety', JSON.stringify({ flagged: safe.length, inside: inside.length, sample: [...safe.slice(0, 5), ...inside.slice(0, 5)].map(row) }));
+    }
+    const stock = countStock(raw, JITA_44);
     stockTotal = stock.total;
     const prev = await doc<{ at?: string }>(db, charId, 'stock');
     const same = prev && JSON.stringify({ ...prev, at: '' }) === JSON.stringify({ ...stock, at: '' });
