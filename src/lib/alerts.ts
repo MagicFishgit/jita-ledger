@@ -251,9 +251,11 @@ function section(f: Finding, market: (typeId: number, calc?: boolean, name?: str
   }
   const z = f.snipe;
   if (z && itemLink) {
+    // What it's worth right after what it is, readable at a glance in the inbox (the user asked for "Mistake Listing -
+    // Potential Profit x"). A plain hyphen: a dash isn't among what the client was seen to draw.
     if (z.side === 'buy') {
       return [
-        head(f.title, 'green'),
+        head(`${f.title} - potential profit ${iskBig(z.profit)}`, 'green'),
         advice('green', `buy the ${units(z.units)} at ${z.cheapest === z.top ? price(z.cheapest) : `${price(z.cheapest)} to ${price(z.top)}`} ISK, relist at ${price(z.resale)} ISK`),
         `${itemLink}${col('grey', ' · ')}${money(z.profit)}${col('grey', ` after fees (${pct(z.pct, 0)}) · costs `)}${money(z.cost)}<br>`,
         col('grey', `Trading got up to ${price(z.fair)} on half the last 14 days${z.nextAsk != null ? `; next listing ${price(z.nextAsk)}` : ''}. ${z.orders === 1 ? 'One order' : `${z.orders} orders`}, priced ${hoursSaid((now - Date.parse(z.pricedAt)) / 3600_000).replace('about ', '')} ago.`) + '<br>',
@@ -261,7 +263,7 @@ function section(f: Finding, market: (typeId: number, calc?: boolean, name?: str
       ].join('');
     }
     return [
-      head(f.title, 'green'),
+      head(`${f.title} - ${iskBig(z.gain)} more than listing`, 'green'),
       advice('green', `sell ${units(z.qty)} into the bid at ${price(z.price)} ISK`),
       `${itemLink}${col('grey', ' · you get ')}${money(z.proceeds)}${col('grey', ' · ')}${money(z.gain)}${col('grey', ' more than listing where it trades')}<br>`,
       col('grey', `You hold ${units(z.held)} in Jita. Trading got up to ${price(z.fair)} on half the last 14 days.${z.minVolume > 1 ? ` The bid takes at least ${units(z.minVolume)} at a time.` : ''} Selling into a bid costs sales tax, no broker fee.`) + '<br>',

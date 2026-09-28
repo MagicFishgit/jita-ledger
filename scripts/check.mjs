@@ -2764,6 +2764,11 @@ console.log('\n--- the sniper ---');
   const m = mailOf([f], { appUrl: 'https://x/', keepMin: 30, now });
   eq('  the subject leads with the snipe and what it makes', m.subject, 'Jita Ledger: snipe Locust II, 106.25 M ISK');
   eq('  the body says what to do, and links the name to its market and the page', [m.body.includes('RECOMMENDED: buy the 24 at 15,000,000 ISK, relist at 20,380,000 ISK'), m.body.includes('href="https://x/open.html?market=40554~'), m.body.includes('#sniper')], [true, true, true]);
+  // The user asked for the profit right after the words, readable at a glance (28 September 2026).
+  eq('  the heading says what it makes', m.body.includes('MISTAKE LISTING - POTENTIAL PROFIT 106.25 M ISK'), true);
+  const hb = mailOf([{ kind: 'snipe', key: 'snipebid:9@1200000', title: 'High bid for what you hold', typeId: 34, name: 'Tritanium', isk: 546525, text: 'x',
+    snipe: { side: 'sell', qty: 5, price: 1.2e6, proceeds: 5.8e6, gain: 546525, held: 5, fair: 1e6, minVolume: 1 } }], { appUrl: 'https://x/', keepMin: 30, now });
+  eq('  so does a high bid\'s', hb.body.includes('HIGH BID FOR WHAT YOU HOLD - 546,525 ISK MORE THAN LISTING'), true);
 }
 
 console.log('\n--- snipes you have taken ---');
