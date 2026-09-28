@@ -26,6 +26,7 @@ import { Calculator } from './components/Calculator';
 import { Prospects } from './components/Prospects';
 import { Watchlist } from './components/Watchlist';
 import { Planner } from './components/Planner';
+import { Sniper } from './components/Sniper';
 import { Arbitrage } from './components/Arbitrage';
 import { Positions } from './components/Positions';
 import { PositionDetail } from './components/PositionDetail';
@@ -40,7 +41,7 @@ import { Notice } from './components/ui';
 import { PageBoundary } from './components/shell/PageBoundary';
 
 const RAIL_KEY = 'jita-ledger:rail';
-const PAGES = new Set<string>(['wallet', 'todo', 'calculator', 'prospects', 'watchlist', 'planner', 'arbitrage', 'positions', 'orders', 'results', 'loyalty', 'hustles', 'combat', 'omega', 'settings']);
+const PAGES = new Set<string>(['wallet', 'todo', 'calculator', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'positions', 'orders', 'results', 'loyalty', 'hustles', 'combat', 'omega', 'settings']);
 
 function readRail(): boolean {
   try {
@@ -254,6 +255,7 @@ export function App() {
               : page === 'prospects' ? <Prospects />
               : page === 'watchlist' ? <Watchlist />
               : page === 'planner' ? <Planner />
+              : page === 'sniper' ? <Sniper />
               : page === 'arbitrage' ? <Arbitrage />
               : page === 'positions' && detailId ? <PositionDetail id={detailId} />
               : page === 'positions' ? <Positions />

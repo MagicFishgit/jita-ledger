@@ -8,6 +8,10 @@
 import { AuthError, caller } from './auth';
 import { alertRound, bookOf, judgeAll, previewRound, testRound, trackRecord, trackSummary } from './alerts';
 import { fullScan, markScanStarted, scanDue, scanStatus, scanStream } from './scan';
+import { lastSnipes, sniperRound } from './snipe';
+
+/** One minute past each five: ESI refreshes The Forge's book at about :x0:30 and :x5:30. Also in wrangler.toml. */
+const SNIPER_CRON = '1-59/5 * * * *';
 import { sanitizeSettings, type Settings } from '../../src/lib/fees';
 import { archive, noteJob, refreshOrders } from './archive';
 import { flowFor, hoursFor, pricesFor, unpack, watchMarkets } from './market';
@@ -161,6 +165,11 @@ export default {
       ctx.waitUntil(fiveMinutes(env));
       return;
     }
+    // The sniper: a minute after each of ESI's five-minute refreshes of the book, so it reads a fresh one.
+    if (event.cron === SNIPER_CRON) {
+      ctx.waitUntil(sniperRound(env).then((r) => console.log('sniper', JSON.stringify(r))).catch((e) => console.error('sniper failed', e)));
+      return;
+    }
     // The day's full-market scan, just after ESI publishes the day's history.
     if (event.cron === '25 11 * * *') {
       ctx.waitUntil(runScan(env));
@@ -226,6 +235,13 @@ export default {
         return body ? new Response(body, { headers: { ...c, 'Content-Type': 'application/json' } }) : json(null, 200, c);
       }
       if (url.pathname === '/v1/scan/status' && request.method === 'GET') return json(await scanStatus(env.DB), 200, c);
+      if (url.pathname === '/v1/snipes' && request.method === 'GET') {
+        // Listings are the market's; bids are kept for what anyone holds, so each caller sees only its own items'.
+        const read = await lastSnipes(env.DB);
+        const stock = await env.DB.prepare(`SELECT data FROM docs WHERE char_id = ?1 AND key = 'stock'`).bind(who.charId).first<{ data: string }>();
+        const mine = new Set(Object.keys((stock ? JSON.parse(stock.data) : {})?.jita ?? {}).map(Number));
+        return json(read ? { ...read, bids: read.bids.filter((b) => mine.has(b.typeId)) } : null, 200, c);
+      }
       if (url.pathname === '/v1/books' && request.method === 'GET') {
         const types = (url.searchParams.get('types') ?? '').split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0).slice(0, 500);
         return json(await freshBooks(env.DB, types), 200, c);

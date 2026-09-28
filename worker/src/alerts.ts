@@ -257,7 +257,7 @@ export async function opportunities(db: D1Database, charId: number, settings: Se
 }
 
 /** Names for items a ledger may never have traded: its own names first, then ESI's. */
-async function namesAnywhere(db: D1Database, charId: number, ids: number[]): Promise<Record<number, string>> {
+export async function namesAnywhere(db: D1Database, charId: number, ids: number[]): Promise<Record<number, string>> {
   const out = await namesFor(db, charId, ids);
   const missing = ids.filter((id) => !out[id]);
   if (missing.length) {
@@ -368,22 +368,31 @@ export async function alertRound(env: Env, charId: number, now = Date.now(), jud
   }
   out.found = findings.length;
 
+  const sent = await mailFindings(env, charId, findings, cfg, now);
+  out.mailId = sent.mailId;
+  out.mailed = sent.mailed;
+  await noteJob(env.DB, charId, 'alerts', { ok: true, detail: { judged: out.judged, unread: out.unread, found: out.found, mailed: out.mailed } });
+  return out;
+}
+
+/**
+ * Mail whatever of `findings` the settings say to mail and hasn't gone out lately (the same order at the same price
+ * within "Remind me again after"), as one mail, and remember it. The alert round and the sniper both send through here.
+ */
+export async function mailFindings(env: Env, charId: number, findings: Finding[], cfg: AlertConfig, now = Date.now()): Promise<{ mailId: number | null; mailed: number }> {
   const logged = (await env.DB.prepare('SELECT key, kind, at, title, text FROM alert_log WHERE char_id = ?1 AND at > ?2').bind(charId, now - repeatMs(cfg))
     .all<{ key: string; kind: AlertLogEntry['kind']; at: number; title: string; text: string }>()).results
     .map((r): AlertLogEntry => ({ key: r.key, kind: r.kind, at: new Date(r.at).toISOString(), title: r.title, text: r.text }));
   const mail = findings.filter((f) => cfg.mailEv[f.kind] && shouldAlert({ ...f, key: mailKey(f) }, cfg, logged, now));
-  if (mail.length) {
-    out.mailId = await send(env, charId, mail, cfg);
-    out.mailed = mail.length;
-    const log = env.DB.prepare(`INSERT INTO alert_log (char_id, key, kind, at, title, text) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-      ON CONFLICT(char_id, key) DO UPDATE SET kind = excluded.kind, at = excluded.at, title = excluded.title, text = excluded.text`);
-    await env.DB.batch([
-      ...mail.map((f) => log.bind(charId, mailKey(f), f.kind, now, f.title, f.text)),
-      env.DB.prepare('DELETE FROM alert_log WHERE char_id = ?1 AND at < ?2').bind(charId, now - 7 * 86400_000),
-    ]);
-  }
-  await noteJob(env.DB, charId, 'alerts', { ok: true, detail: { judged: out.judged, unread: out.unread, found: out.found, mailed: out.mailed } });
-  return out;
+  if (!mail.length) return { mailId: null, mailed: 0 };
+  const mailId = await send(env, charId, mail, cfg);
+  const log = env.DB.prepare(`INSERT INTO alert_log (char_id, key, kind, at, title, text) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+    ON CONFLICT(char_id, key) DO UPDATE SET kind = excluded.kind, at = excluded.at, title = excluded.title, text = excluded.text`);
+  await env.DB.batch([
+    ...mail.map((f) => log.bind(charId, mailKey(f), f.kind, now, f.title, f.text)),
+    env.DB.prepare('DELETE FROM alert_log WHERE char_id = ?1 AND at < ?2').bind(charId, now - 7 * 86400_000),
+  ]);
+  return { mailId, mailed: mail.length };
 }
 
 /** What a round would judge and mail right now, sending nothing: for checking the cloud against the app. */

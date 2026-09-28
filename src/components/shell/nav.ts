@@ -1,10 +1,10 @@
 import {
-  ArrowLeftRight, BadgePercent, Calculator, ChartLine, ChartPie, Eye, Gem, Layers, ListChecks, ListOrdered, Radar,
+  ArrowLeftRight, BadgePercent, Calculator, ChartLine, ChartPie, Crosshair, Eye, Gem, Layers, ListChecks, ListOrdered, Radar,
   Rocket, Settings2, Swords, Wallet, type LucideIcon,
 } from 'lucide-react';
 
 export type PageKey =
-  | 'wallet' | 'todo' | 'calculator' | 'prospects' | 'watchlist' | 'planner' | 'arbitrage'
+  | 'wallet' | 'todo' | 'calculator' | 'prospects' | 'watchlist' | 'planner' | 'arbitrage' | 'sniper'
   | 'positions' | 'orders' | 'results' | 'loyalty' | 'hustles' | 'combat' | 'omega' | 'settings';
 
 export type NavItem = { key: PageKey; label: string; icon: LucideIcon };
@@ -16,7 +16,7 @@ export const NAV: NavGroup[] = [
     label: 'Market', items: [
       { key: 'calculator', label: 'Calculator', icon: Calculator }, { key: 'prospects', label: 'Prospects', icon: Radar },
       { key: 'watchlist', label: 'Watchlist', icon: Eye }, { key: 'planner', label: 'Capital planner', icon: ChartPie },
-      { key: 'arbitrage', label: 'Hub arbitrage', icon: ArrowLeftRight },
+      { key: 'arbitrage', label: 'Hub arbitrage', icon: ArrowLeftRight }, { key: 'sniper', label: 'Sniper', icon: Crosshair },
     ],
   },
   {

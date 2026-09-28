@@ -41,6 +41,10 @@ export const ALERT_LABELS: Record<AlertEvent, { label: string; what: string; tip
     label: 'Trade worth a look', what: 'A market the cloud watches opens up past your target: mailed by the cloud',
     tip: 'One of the items the cloud watches for you (the best from your last Prospects scan, and your loyalty plan’s items) newly clears your Prospects filters.\n\n• It has to pass with no warning flag, after at least 6 hours of the cloud watching its book.\n• Judged exactly as Prospects judges it: where trading reaches for the buy, one tick under the best sell, your fees, your horizon.\n• Mailed once when it newly qualifies, at most three to a mail. Only the cloud sends these.\n\nFor example: a module you don’t trade yet now makes 6% after fees in about a day. The mail says where to buy and list.',
   },
+  snipe: {
+    label: 'Mistake listing', what: 'Someone listed an item well under where it trades, or bids high for something you hold: mailed by the cloud',
+    tip: 'The cloud reads every order in The Forge every five minutes and looks for listings someone priced well under where the item trades. They’re worth buying out and relisting.\n\n• “Where it trades” is where the bulk of trading got up to on half the last 14 days. You relist a step under the next listing, never above that.\n• It has to clear your bar on the Sniper page, after your fees. Floods, items whose price just moved, thin histories and listings days old are left out.\n• A bid well over where the item trades, for something in your Jita hangar, is mailed too: selling into it beats listing.\n\nFor example: 10 listed at 500,000 on an item trading at 1,000,000, next listing 980,000. Buy the 10, relist at 979,900.',
+  },
   backup: {
     label: 'Backup overdue', what: 'Your last backup is more than two weeks old',
     tip: 'You haven’t exported a backup for more than 14 days.\n\n• Everything the app knows lives in this browser.\n• ESI only keeps 30 days of wallet history, so clearing the browser loses anything older.\n\nFor example: positions from two months ago can only come back from a backup. Export one in Settings → Your data.',
@@ -72,12 +76,17 @@ export type OppFacts = { buy: number; sell: number; roi: number; iskPerDay: numb
 /** A colony's extraction programme, as read from ESI. */
 export type PiFacts = { system: string; systemId: number; planetType: string; product: string | null; ends: number };
 
+/** A mistake listing (or a high bid for what you hold), as the Sniper judged it at your rates. */
+export type SnipeFacts =
+  | { side: 'buy'; units: number; cheapest: number; top: number; cost: number; resale: number; fair: number; nextAsk: number | null; profit: number; pct: number; pricedAt: string; orders: number; sellDays: number }
+  | { side: 'sell'; qty: number; held: number; price: number; proceeds: number; gain: number; fair: number; minVolume: number };
+
 export type Finding = {
   kind: AlertEvent; key: string; title: string; text: string; isk?: number;
   /** The item it's about, when there is one: `text` starts with its name, which a mail makes a link. */
   typeId?: number; name?: string;
   /** The detail behind the one-line text, for a mail that has room to say it. */
-  order?: OrderFacts; pi?: PiFacts; opp?: OppFacts;
+  order?: OrderFacts; pi?: PiFacts; opp?: OppFacts; snipe?: SnipeFacts;
 };
 
 export const orderFacts = (x: Relist): OrderFacts => ({
@@ -184,7 +193,8 @@ const price = (n: number) => isk(n).replace(/ ISK$/, '');
 const money = iskBig;
 const hoursSaid = (h: number) => (h < 1 ? 'under an hour' : h < 48 ? `about ${Math.round(h)} h` : `about ${Math.round(h / 24)} days`);
 
-const URGENCY: Record<AlertEvent, number> = { move: 0, pi: 1, scam: 2, squeeze: 3, clearing: 4, backup: 5, opportunity: 6 };
+// A mistake listing goes first: it's the one someone else can take while you read the rest.
+const URGENCY: Record<AlertEvent, number> = { snipe: -1, move: 0, pi: 1, scam: 2, squeeze: 3, clearing: 4, backup: 5, opportunity: 6 };
 
 /** A short phrase for the subject line, which is what the inbox list and the new-mail notice show. */
 export function subjectPart(f: Finding, now = Date.now()): string {
@@ -200,6 +210,7 @@ export function subjectPart(f: Finding, now = Date.now()): string {
   const p = f.pi;
   if (p) return p.ends <= now ? `PI stopped in ${p.system}` : `PI ends in ${hoursSaid((p.ends - now) / 3600_000).replace('about ', '')} in ${p.system}`;
   if (f.opp && f.name) return `look at ${f.name}, ${pct(f.opp.roi, 1)}`;
+  if (f.snipe && f.name) return f.snipe.side === 'buy' ? `snipe ${f.name}, ${iskBig(f.snipe.profit)}` : `sell ${f.name} into a high bid`;
   return f.title;
 }
 
@@ -218,6 +229,24 @@ function section(f: Finding, market: (typeId: number, calc?: boolean) => string,
       col('grey', `Up to ${units(q.qty)} (${iskBig(q.qty * q.buy)}) flips in ${hoursSaid(q.daysToFlip * 24).replace('about ', '')} at your share.`) + '<br>',
       col('grey', `Watched ${Math.round(q.watchedH)} h: ${units(Math.round(q.bought))} bought from listings, ${units(Math.round(q.dumped))} sold into bids.`) + '<br>',
       q.more ? `<br>${col('cyan', `${units(q.more)} more newly clear your filters: see Prospects.`)}<br>` : '',
+    ].join('');
+  }
+  const z = f.snipe;
+  if (z && itemLink) {
+    if (z.side === 'buy') {
+      return [
+        head(f.title, 'green'),
+        advice('green', `buy the ${units(z.units)} at ${z.cheapest === z.top ? price(z.cheapest) : `${price(z.cheapest)} to ${price(z.top)}`} ISK, relist at ${price(z.resale)} ISK`),
+        `${itemLink}${col('grey', ' · ')}${money(z.profit)}${col('grey', ` after fees (${pct(z.pct, 0)}) · costs `)}${money(z.cost)}<br>`,
+        col('grey', `Trading got up to ${price(z.fair)} on half the last 14 days${z.nextAsk != null ? `; next listing ${price(z.nextAsk)}` : ''}. ${z.orders === 1 ? 'One order' : `${z.orders} orders`}, priced ${hoursSaid((now - Date.parse(z.pricedAt)) / 3600_000).replace('about ', '')} ago.`) + '<br>',
+        col('grey', Number.isFinite(z.sellDays) ? `Relisted, it sells in ${hoursSaid(z.sellDays * 24).replace('about ', '')} at your share. It may already be gone: check the market first.` : 'It may already be gone: check the market first.') + '<br>',
+      ].join('');
+    }
+    return [
+      head(f.title, 'green'),
+      advice('green', `sell ${units(z.qty)} into the bid at ${price(z.price)} ISK`),
+      `${itemLink}${col('grey', ' · you get ')}${money(z.proceeds)}${col('grey', ' · ')}${money(z.gain)}${col('grey', ' more than listing where it trades')}<br>`,
+      col('grey', `You hold ${units(z.held)} in Jita. Trading got up to ${price(z.fair)} on half the last 14 days.${z.minVolume > 1 ? ` The bid takes at least ${units(z.minVolume)} at a time.` : ''} Selling into a bid costs sales tax, no broker fee.`) + '<br>',
     ].join('');
   }
   const o = f.order;
@@ -311,6 +340,8 @@ export function alertMail(findings: Finding[], opts: { appUrl: string; keepMin: 
       ? `<br><a href="${opts.appUrl}#orders">Open your orders in Jita Ledger</a><br>`
       : findings.every((f) => f.kind === 'opportunity')
         ? `<br><a href="${opts.appUrl}#prospects">Open Prospects in Jita Ledger</a><br>`
+        : findings.every((f) => f.kind === 'snipe')
+          ? `<br><a href="${opts.appUrl}#sniper">Open the Sniper in Jita Ledger</a><br>`
         : `<br><a href="${opts.appUrl}#todo">Open your to-do list in Jita Ledger</a><br>`,
     `<br>${sized(SIZE.small, col('grey', `${opts.keepMin == null ? 'Alert mails are kept' : `This mail is deleted after ${keepSaid(opts.keepMin)}, read or not`}. Change that, or turn mail alerts off, in Jita Ledger → Settings → Alerts.`))}`,
     '</font>',

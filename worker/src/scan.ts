@@ -43,7 +43,8 @@ const BUSIEST = 300;
  */
 const HISTORY_CAP = 22000;
 
-type RawOrder = { order_id: number; type_id: number; location_id: number; is_buy_order: boolean; price: number; volume_remain: number; volume_total: number; duration: number };
+export type RawOrder = { order_id: number; type_id: number; location_id: number; is_buy_order: boolean; price: number; volume_remain: number; volume_total: number; duration: number;
+  issued?: string; min_volume?: number; range?: string };
 type Agg = { buys: BookLevel[]; sells: BookLevel[]; buyOrders: number; sellOrders: number; sold: Required<BookSold>; npcSell: boolean };
 
 /** Adds an order to the best LEVELS levels on its side. A level dropped is worse than every level kept, and so is anything at its price later. */
@@ -74,10 +75,10 @@ function fold(aggs: Map<number, Agg>, o: RawOrder) {
   if (!o.is_buy_order && (o.duration ?? 0) >= NPC_DURATION) a.npcSell = true;
 }
 
-async function page(url: string): Promise<{ orders: RawOrder[]; pages: number }> {
+export async function page(url: string): Promise<{ orders: RawOrder[]; pages: number; expires?: string | null }> {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, { headers: HEADERS });
-    if (res.ok) return { orders: (await res.json()) as RawOrder[], pages: Number(res.headers.get('X-Pages') ?? 1) || 1 };
+    if (res.ok) return { orders: (await res.json()) as RawOrder[], pages: Number(res.headers.get('X-Pages') ?? 1) || 1, expires: res.headers.get('Expires') };
     await res.body?.cancel();
     if (attempt >= 2) throw new Error(`ESI ${res.status} on ${url}`);
     await new Promise((r) => setTimeout(r, 2000));

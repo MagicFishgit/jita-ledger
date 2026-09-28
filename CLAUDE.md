@@ -5,7 +5,7 @@ in a Cloudflare Worker's D1 database (`worker/`), talking straight to ESI and EV
 Pages on every push to `main`; the Worker deploys by hand (`npm run worker:deploy`).
 
 Pages: Wallet (home), To do (was Tonight's run; `#tonight` still lands there), Calculator, Prospects (find items), Watchlist, Capital planner, Hub
-arbitrage, Positions, Orders (which of mine are beaten), Results, Loyalty (spending LP), Side hustles
+arbitrage, Sniper (mistake listings), Positions, Orders (which of mine are beaten), Results, Loyalty (spending LP), Side hustles
 (Abyssal / Hauling / Planets / Injectors), Combat, Omega, Settings (tabbed: `settings/<tab>`). Inbox is gone:
 its job is the Wallet's "Trades no position tracks" table, and `#inbox` redirects to the Wallet.
 Planets is a four-step walkthrough and also reads your real colonies when the planets scope is granted.
@@ -520,6 +520,25 @@ Don't re-derive or contradict these without new evidence.
   The latest day's average more than 50% from the median of the days before it is a move, not a wobble; Prospects
   flags it and the planner and opportunity mail leave it out. Scans refresh stats that lack `highs14` or
   `lastMove`, and the planner says "Scan again before investing" while any of its items predate them.
+- **The Sniper finds mistake listings from the whole book, and doubts before it trusts** (`lib/snipe.ts` pure,
+  `worker/src/snipe.ts`, cron `1-59/5`). The user buys fat-fingered listings by hand and relists them; this looks
+  for them. ESI refreshes The Forge's book at about :x0:30 and :x5:30, so the sniper runs a minute after (reading a
+  book ~30 s old, not the ~4.5-minute-old one the */5 round sees), skips when `Expires` says nothing changed, keeps
+  each item's cheapest 30 Jita sells and best Jita bid, and judges only items whose cheap end has a gap that pays at
+  the best rates (3,565 of ~15,000 on the first read) against the daily scan's stats. Resale is one step under the
+  next listing, never above `reachedAsk`: thin books list far above anything that sells. **Researched on the live
+  book before building** (28 September 2026, 00:26 EVE): 196 listings 5%+ under where their item trades after fees,
+  61 worth 1 M+; the biggest on paper were floods, not mistakes (seven R.A.M. blueprints at exactly 296,000/382,000
+  against 600k–1M history, 11–20 days of trading, days old), so `doubts` sets aside a flood (> 3 days of the item's
+  trading), a price that just moved, a thin history (< 7 of 30 days), a listing priced > 24 h ago, and several sellers
+  at the cheap end; doubted ones are shown, never mailed. Persistence, same night: of 31 priced within the hour, 10
+  were gone 20 minutes later, 3 of the 4 worth 1 M+ were not, so five minutes is fast enough to matter; region-range
+  bids elsewhere in The Forge paying more than Jita's cheapest ask: 0 of 7,516, not pursued. A Jita bid above the
+  cheapest Jita ask can't persist (it matches), so the bid side is only "a bid well over where it trades, for what
+  you hold in Jita" (`judgeBids`, `min_volume` honoured), and `/v1/snipes` returns bids only for the caller's items.
+  The bar (default 10% and 5 M after fees, the user's choice) lives in the alert settings (`snipeMinIsk`,
+  `snipeMinPct`) and drives both the page and the mail; alert kind `snipe` ("Mistake listing") is mailed by default,
+  through `mailFindings`, which the alert round now shares. "Priced" is ESI's `issued`, which a price change moves.
 - **"Place and leave" prices a plan behind the front on purpose** (`ProspectFilters.patient`, the planner's Pricing
   choice). The user's longer-term strategy is large orders in many items that fill over weeks, without the 0.01 war.
   Both sides are priced where the bulk of trading reached on half the last 14 days (`reachedBid` / `reachedAsk`, the

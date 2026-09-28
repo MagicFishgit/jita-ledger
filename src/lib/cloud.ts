@@ -14,6 +14,7 @@ import { sanitizeAlerts, sanitizeLeave, sanitizePrefs } from './prefs';
 import { costBasis } from './orderCheck';
 import { adoptCloudScan, loadCache, mergeLiveBooks, rankProspects, scanBusy, type CloudScan } from './scan';
 import type { Book } from './evaluate';
+import type { SnipeRead } from './snipe';
 import { DEFAULT_FILTERS } from './prospects';
 import type { ProspectFilters } from './types';
 
@@ -429,6 +430,9 @@ async function refreshLiveBooks(): Promise<void> {
   if (!state || !cloudEnabled() || !watchAsked.length) return;
   await mergeLiveBooks(await call<Record<number, Book>>(`/v1/books?types=${watchAsked.slice(0, 500).join(',')}`));
 }
+
+/** The sniper's latest read of the whole book: mistake listings, and high bids for what you hold (src/lib/snipe.ts). */
+export const cloudSnipes = () => call<SnipeRead | null>('/v1/snipes');
 
 /** An item's trade by hour of day (UTC), as the cloud counted it. */
 export const cloudHours = (typeId: number) => call<Record<number, HourBucket[]>>(`/v1/hours?types=${typeId}`).then((r) => r[typeId] ?? []);

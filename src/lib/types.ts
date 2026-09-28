@@ -339,7 +339,7 @@ export type Prefs = {
   omegaPack: '1' | '3' | '6' | '12';
 };
 
-export type AlertEvent = 'move' | 'clearing' | 'squeeze' | 'pi' | 'scam' | 'backup' | 'opportunity';
+export type AlertEvent = 'move' | 'clearing' | 'squeeze' | 'pi' | 'scam' | 'backup' | 'opportunity' | 'snipe';
 export type AlertConfig = {
   on: boolean;
   browser: boolean;
@@ -357,6 +357,10 @@ export type AlertConfig = {
   mailKeepMin: number | null;
   /** Hours before the same alert comes again, notification or mail. */
   repeatH: number;
+  /** The Sniper's bar: a mistake listing (or a bid for what you hold) is worth it from this much ISK… */
+  snipeMinIsk: number;
+  /** …and this return after fees, in percent. */
+  snipeMinPct: number;
 };
 export type AlertLogEntry = { at: string; kind: AlertEvent; key: string; title: string; text: string; test?: boolean };
 

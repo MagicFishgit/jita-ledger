@@ -1935,7 +1935,8 @@ eq('alerts start off', sanitizeAlerts({}).on, false);
 eq('an odd interval falls back', sanitizeAlerts({ interval: 7 }).interval, 5);
 eq('remind again after 4 h unless you chose otherwise', [sanitizeAlerts({}).repeatH, sanitizeAlerts({ repeatH: 12 }).repeatH, sanitizeAlerts({ repeatH: 5 }).repeatH], [4, 12, 4]);
 eq('mail starts off', sanitizeAlerts({}).mail, false);
-eq('  and by mail only what you can act on in game, plus the cloud’s trades worth a look', Object.entries(sanitizeAlerts({}).mailEv).filter(([, v]) => v).map(([k]) => k), ['move', 'pi', 'opportunity']);
+eq('  and by mail only what you can act on in game, plus the cloud’s trades worth a look and mistake listings', Object.entries(sanitizeAlerts({}).mailEv).filter(([, v]) => v).map(([k]) => k), ['move', 'pi', 'opportunity', 'snipe']);
+eq('  the Sniper’s bar starts at 5 M and 10%, and keeps what you set', [sanitizeAlerts({}).snipeMinIsk, sanitizeAlerts({}).snipeMinPct, sanitizeAlerts({ snipeMinIsk: 2e7, snipeMinPct: 15 }).snipeMinIsk], [5e6, 10, 2e7]);
 eq('  a saved config from before opportunities gets them from the defaults', sanitizeAlerts({ ev: { move: true }, mailEv: { move: true } }).mailEv.opportunity, true);
 eq('mails are deleted after 3 days unless set', sanitizeAlerts({}).mailKeepMin, 4320);
 eq('"keep them" is kept as null', sanitizeAlerts({ mailKeepMin: null }).mailKeepMin, null);
@@ -2290,6 +2291,43 @@ console.log('\n--- place and leave: priced where trading reaches ---');
   const dead = judgeProspect(st, { ...book, bestBuy: 70, topBuys: [{ price: 70, volume: 5000 }] }, S, { ...fl, patient: true }, 40);
   eq('  with the front below where trading reaches, the bid is still where it reaches', dead.buy, pb);
   eq('  without the days to say where trading reaches, it is left out', judgeProspect({ ...st, lows14: undefined }, book, S, { ...fl, patient: true }, 40), null);
+}
+
+console.log('\n--- the sniper ---');
+{
+  const Sn = await import('../src/lib/snipe.ts');
+  const now = Date.parse('2026-09-28T01:00:00Z');
+  const ago = (min) => new Date(now - min * 60_000).toISOString();
+  // Trading got up to 1,000,000 on half the last 14 days; the item trades 20 a day on 30 of 30 days.
+  const highs = [1.02e6, 1e6, 1.01e6, 0.99e6, 1e6, 1.03e6, 1e6, 0.98e6, 1.04e6, 0.97e6, 1e6, 1.05e6, 0.96e6, 0.95e6];
+  const st = { highs14: highs, unitsPerDay: 20, daysTraded: 30, lastMove: 0.05 };
+  const O = (id, price, units, min = 5, total = units) => ({ id, price, units, total, issued: ago(min) });
+  const book = [O(1, 500_000, 10), O(2, 980_000, 10), O(3, 990_000, 10)];
+  const hit = Sn.findListing(34, book, false, st, now);
+  eq('  one listing at half price: buy the 10, relist a step under the next', [hit.orderIds, hit.units, hit.cost, hit.resale, hit.nextAsk, hit.doubts], [[1], 10, 5_000_000, 979_900, 980_000, []]);
+  eq('  a gap too small to pay after fees is nothing', Sn.findListing(34, [O(1, 960_000, 10), O(2, 980_000, 10)], false, st, now), null);
+  eq('  a flood (50 days of trading at the cheap price) is doubted', Sn.findListing(34, [O(1, 500_000, 1000), O(2, 980_000, 10)], false, st, now).doubts, ['flood']);
+  eq('  so is one priced three days ago and still there', Sn.findListing(34, [O(1, 500_000, 10, 3 * 1440), O(2, 980_000, 10)], false, st, now).doubts, ['stale']);
+  eq('  and one on an item whose price just moved', Sn.findListing(34, book, false, { ...st, lastMove: 0.8 }, now).doubts, ['moved']);
+  eq('  a book cut short with every kept order cheap is a flood, not a hit', Sn.findListing(34, [O(1, 500_000, 1), O(2, 500_000, 1)], true, st, now), null);
+  eq('  never relisted above where trading reaches, however dear the next listing', Sn.findListing(34, [O(1, 500_000, 10), O(2, 5_000_000, 1)], false, st, now).resale, 1_000_000);
+  const [row] = Sn.judgeListings([hit], { f: 0.01268, t: 0.03375 }, 5, Sn.SNIPE_DEFAULTS);
+  eq('  at your rates: profit, return, and days to resell at your share', [Math.round(row.profit), +(row.pct * 100).toFixed(1), row.sellDays], [4_344_032, 86.9, 10]);
+  eq('  under your 5 M it is not worth a mail; at a 1 M bar it is', [row.worth, Sn.judgeListings([hit], { f: 0.01268, t: 0.03375 }, 5, { minIsk: 1e6, minPct: 10 })[0].worth], [false, true]);
+  // A bid 10% over where the item trades, for something you hold.
+  const bid = Sn.findBid(34, { id: 9, price: 1_100_000, units: 50, minVolume: 1, issued: ago(10) }, st);
+  eq('  a bid well over where it trades is kept', [bid.price, bid.fair], [1_100_000, 1_000_000]);
+  eq('  an ordinary bid is not', Sn.findBid(34, { id: 9, price: 900_000, units: 50, minVolume: 1, issued: ago(10) }, st), null);
+  const held = Sn.judgeBids([bid], { f: 0.01268, t: 0.03375 }, { 34: 5 }, { minIsk: 1e5, minPct: 10 });
+  eq('  selling your 5 into it beats listing by', [held[0].qty, Math.round(held[0].gain), held[0].worth], [5, 546_525, true]);
+  eq('  a bid that wants more than you hold is left out', Sn.judgeBids([{ ...bid, minVolume: 10 }], { f: 0.01268, t: 0.03375 }, { 34: 5 }, Sn.SNIPE_DEFAULTS).length, 0);
+  // What the mail says: the advice first, the item's name linking to its market.
+  const { alertMail: mailOf } = await import('../src/lib/alerts.ts');
+  const f = { kind: 'snipe', key: 'snipe:1@15000000', title: 'Mistake listing', typeId: 40554, name: 'Locust II', isk: 106.25e6, text: 'x',
+    snipe: { side: 'buy', units: 24, cheapest: 15e6, top: 15e6, cost: 360e6, resale: 20.38e6, fair: 20.38e6, nextAsk: null, profit: 106.25e6, pct: 0.295, pricedAt: ago(120), orders: 1, sellDays: 22 } };
+  const m = mailOf([f], { appUrl: 'https://x/', keepMin: 30, now });
+  eq('  the subject leads with the snipe and what it makes', m.subject, 'Jita Ledger: snipe Locust II, 106.25 M ISK');
+  eq('  the body says what to do, and links the name to its market and the page', [m.body.includes('RECOMMENDED: buy the 24 at 15,000,000 ISK, relist at 20,380,000 ISK'), m.body.includes('href="https://x/#orders?market=40554"'), m.body.includes('#sniper')], [true, true, true]);
 }
 
 console.log('\n--- when the next full-market scan runs ---');
