@@ -1,6 +1,6 @@
-import { tickDown, tickUp } from './tick';
+import { priceUp, tickDown, tickUp } from './tick';
 import { askReachDays, bidReachDays, fillingNow, FILL_RARE, FILL_TYPICAL, FILL_WINDOW, reachedAsk, reachedBid } from './fills';
-import { rates, type Settings } from './fees';
+import { breakEvenSell, rates, type Settings } from './fees';
 import { RELIST_MIN_H, type FlowDay, type OrderLite } from './flow';
 import { iskBig, units } from './format';
 
@@ -86,6 +86,8 @@ export type Relist = {
   intoBids?: IntoBids;
   /** The order is so big that moving it costs more than a move wins (`tooBigToMove`). */
   tooBig?: TooBig;
+  /** A sell order whose own price, after the broker fee and sales tax, gets less than the stock cost you. */
+  underCost?: UnderCost;
 };
 
 /**
@@ -255,6 +257,22 @@ export function marketBest(levels: PriceVolume[], isBuy: boolean, dailyVolume?: 
   return ordered[ordered.length - 1].price;
 }
 
+/**
+ * A sell order priced so that each sale loses against what the stock cost: its price after the broker fee and sales
+ * tax (`net`) under the cost (`cost`), by `lossPerUnit`, `loss` over what's left, with the least price that breaks even.
+ * The user asked for this to be said plainly, "and consider correcting the price", whatever else the order is told:
+ * an order at the front or told to leave it could be losing on every sale with nothing said, and a price typed a digit
+ * short is exactly that.
+ */
+export type UnderCost = { net: number; cost: number; lossPerUnit: number; loss: number; breakEven: number };
+
+export function underCost(o: { isBuy: boolean }, x: Pick<Relist, 'price' | 'volumeRemain' | 'gone'>, avgCost: number | null | undefined, r: { f: number; t: number; k: number }): UnderCost | null {
+  if (o.isBuy || x.gone || avgCost == null || !(avgCost > 0)) return null;
+  const net = x.price * (1 - r.f - r.t);
+  if (!(net < avgCost)) return null;
+  return { net, cost: avgCost, lossPerUnit: avgCost - net, loss: (avgCost - net) * x.volumeRemain, breakEven: priceUp(breakEvenSell(avgCost, r, 0)) };
+}
+
 /** Warn when one price change costs at least this share of the profit it wins. */
 export const FEE_EATS = 0.5;
 /** The size suggested instead: one whose price change costs this share of what it wins. */
@@ -376,7 +394,8 @@ export function judgeOrder(
     ? (asks.length ? tickDown(Math.min(...asks)) * (1 - r.f - t) - x.price * (1 + r.f) : null)
     : m.avgCost != null ? x.price * (1 - r.f - t) - m.avgCost : others.length ? x.price * (1 - r.f - t) - Math.max(...others) * (1 + r.f) : null;
   const big = tooBigToMove(o, x, { perDay: m.perDay, watched: m.watched, margin }, r.k, now);
-  const judged = big ? { ...x, tooBig: big } : x;
+  const under = underCost(o, x, m.avgCost, r);
+  const judged = { ...x, ...(big ? { tooBig: big } : {}), ...(under ? { underCost: under } : {}) };
   const into = sellIntoBid(o, x, { ...m, book }, t);
   return into ? { ...judged, verdict: 'bid', intoBids: into, why: intoBidsWhy(into, x.price, x.volumeRemain, t) } : judged;
 }

@@ -2530,6 +2530,23 @@ console.log('\n--- a sniped item is never moved to a loss ---');
   eq('  with it: not worth it, it would sell under what the stock cost you', [guarded.verdict, guarded.why], ['loss', 'Matching them would sell under what the stock cost you']);
 }
 
+console.log('\n--- a sell priced under what it cost ---');
+{
+  const { underCost, judgeOrder: judge } = await import('../src/lib/relist.ts');
+  const { judgeUnderCost } = await import('../src/lib/todo.ts');
+  const { DEFAULT_SETTINGS } = await import('../src/lib/fees.ts');
+  const R = { f: 0.013, t: 0.03375, k: 0.0026 };
+  const u = underCost({ isBuy: false }, { price: 40000, volumeRemain: 10, gone: false }, 50000, R);
+  eq('listed at 40,000 against a 50,000 cost: each sale loses, and it breaks even at 52,460', [Math.round(u.net), Math.round(u.lossPerUnit), Math.round(u.loss), u.breakEven], [38130, 11870, 118700, 52460]);
+  eq('  nothing at or over break-even, for a buy, without a cost, or gone', [underCost({ isBuy: false }, { price: 52460, volumeRemain: 10, gone: false }, 50000, R), underCost({ isBuy: true }, { price: 40000, volumeRemain: 10, gone: false }, 50000, R), underCost({ isBuy: false }, { price: 40000, volumeRemain: 10, gone: false }, null, R), underCost({ isBuy: false }, { price: 40000, volumeRemain: 10, gone: true }, 50000, R)], [null, null, null, null]);
+  // Said whatever the order is told: here it's at the front, where the queue alone says nothing is wrong.
+  const x = judge({ orderId: 1, typeId: 34, isBuy: false, price: 40000, volumeRemain: 10, locationId: 60003760 }, { book: [{ id: 1, isBuy: false, price: 40000, volume: 10 }, { id: 2, isBuy: false, price: 60000, volume: 5 }], perDay: 5, lows: null, txs: [], avgCost: 50000 }, DEFAULT_SETTINGS, Date.parse('2026-09-28T20:00:00Z'));
+  eq('  an order at the front still says it', [x.verdict, x.underCost != null], ['front', true]);
+  const e = { key: 'under:1', item: { kind: 'underCost', price: 40000 }, seenAt: 1000 };
+  eq('To do ticks it off once a newer check shows it raised', judgeUnderCost(e, { open: true, checkedAt: 2000, bookRead: true, v: { gone: false, price: 53000 } }), 'You moved it to 53,000 ISK, over what it cost.');
+  eq('  but not on an older check, or while still under cost', [judgeUnderCost(e, { open: true, checkedAt: 500, bookRead: true, v: { gone: false, price: 53000 } }), judgeUnderCost(e, { open: true, checkedAt: 2000, bookRead: true, v: { gone: false, price: 40000, underCost: {} } })], [null, null]);
+}
+
 console.log('\n--- an item\'s daily rhythm ---');
 {
   const { busyHours, busySaid, spreadAtHour } = await import('../src/lib/rhythm.ts');

@@ -14,7 +14,7 @@ import { relistPace } from '../lib/flow';
 import { loadCache, rankProspects } from '../lib/scan';
 import { DEFAULT_FILTERS } from '../lib/prospects';
 import { update, useData } from '../lib/store';
-import { byUrgency, FEE_TARGET, type Relist, type TooBig, type Verdict } from '../lib/relist';
+import { byUrgency, FEE_TARGET, type Relist, type TooBig, type UnderCost, type Verdict } from '../lib/relist';
 import { FILL_WINDOW } from '../lib/fills';
 import type { Prospect } from '../lib/types';
 import { BusyRelisting, canOpenInGame, CopyPrice, NameInGame, OpenInGame, useTypeName } from './common';
@@ -377,9 +377,12 @@ export function Orders() {
                     const left = leaving.has(o.typeId);
                     // The price shown under Move to: what opening it in game copies, ready for the price box.
                     const moveTo = x && !x.intoBids && !heldBack && Number.isFinite(x.newPrice) ? x.newPrice : null;
+                    // What opening it in game copies: the break-even when it's priced under cost, never a move that's
+                    // "not worth it" (it would sell under cost), else the price to move to.
+                    const copyAt = x?.underCost ? x.underCost.breakEven : x?.verdict === 'loss' ? null : moveTo;
                     return (
                       <tr key={o.orderId} data-order={o.orderId} className={'hover' + (hot ? ' hot' : x && x.verdict !== 'move' ? ' dim' : '') + (flash.has(o.orderId) ? ' flash' : '')}>
-                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" copy={moveTo} /></span><BusyRelisting typeId={o.typeId} isBuy={o.isBuy} />{x?.tooBig && <TooBigTag t={x.tooBig} x={x} />}</td>
+                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" copy={copyAt} /></span><BusyRelisting typeId={o.typeId} isBuy={o.isBuy} />{x?.underCost && <UnderCostTag u={x.underCost} x={x} />}{x?.tooBig && <TooBigTag t={x.tooBig} x={x} />}</td>
                         <td className="l lbl" style={{ color: o.isBuy ? 'var(--buy)' : 'var(--neg-t)', fontSize: 11.5 }}>{o.isBuy ? 'Buy' : 'Sell'}</td>
                         <td className="l">
                           {V && x ? (
@@ -422,7 +425,7 @@ export function Orders() {
                         <td style={{ color: 'var(--acc)' }}>{x && Number.isFinite(perSlot[x.orderId]) ? iskBig(perSlot[x.orderId]) : '–'}</td>
                         <td>
                           <span className="acts">
-                            <OpenInGame typeId={o.typeId} name={name} copy={moveTo} />
+                            <OpenInGame typeId={o.typeId} name={name} copy={copyAt} />
                             <button type="button" className="link-btn dim" onClick={() => navigate(`calculator?type=${o.typeId}`)}>Calc</button>
                             <button type="button" className={'link-btn' + (left ? '' : ' dim')} style={left ? { color: 'var(--pos)' } : undefined}
                               data-tip={left
@@ -463,6 +466,20 @@ export function Orders() {
  * how long the app has watched this book, and how often someone has listed in front since. The watching
  * carries half the weight after about a day of it.
  */
+/** A sell order priced so every sale loses against what the stock cost (`underCost` in relist.ts). */
+function UnderCostTag({ u, x }: { u: UnderCost; x: Relist }) {
+  const tip = `Every unit this order sells loses money against what it cost you.\n\n`
+    + `• Listed at ${isk(x.price)}, a sale gets ${isk(Math.round(u.net))} after the broker fee and sales tax\n`
+    + `• Each unit cost you ${isk(Math.round(u.cost))}: ${isk(Math.round(u.lossPerUnit))} lost on each, ${iskBig(u.loss)} on the ${units(x.volumeRemain)} left\n`
+    + `• It breaks even at ${isk(u.breakEven)}\n\n`
+    + `Consider raising it: a price typed a digit short looks exactly like this. If you mean to sell at a loss to get out, leave it.`;
+  return (
+    <span className="sub" tabIndex={0} style={{ color: 'var(--neg)', fontWeight: 600 }} data-tip-title="Priced under cost" data-tip={tip}>
+      Priced under cost: breaks even at {isk(u.breakEven)}
+    </span>
+  );
+}
+
 /**
  * An order so big that moving it costs more than a move wins (`tooBigToMove`): the user's 50,000-unit Ghoul buy,
  * placed to sit and buy up over time, paid ~250,000 ISK a price change for ~40 units a change.

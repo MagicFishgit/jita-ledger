@@ -97,6 +97,18 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   still says nothing. A clipboard is the device's
   own: from the phone (the user's usual remote for this) the price lands on the phone, not the PC, unless the two
   share a clipboard.
+- **A sell priced under what it cost says so, whatever else it's told** (`underCost` in relist.ts, the "Priced under
+  cost: breaks even at X" tag on Orders, To do kind `underCost`). The user: "if I happen to price an item that would
+  lose money compared to what I buy it at it should clearly highlight and tell me that that is what I am doing and
+  consider correcting the price." Moves were already guarded against selling under cost, but an order's own price
+  wasn't: one at the front, or told to leave it, could lose on every sale with nothing said (a price typed a digit
+  short is exactly that). When its price after the broker fee and sales tax is under the cost (positions, or
+  `heldCost`), Orders tags it red with the loss per unit and in all, and the least price that breaks even; To do lists
+  it to correct, and opening it in game copies the break-even price (a "Not worth it" move is never copied). It ticks
+  off like an order item, on a newer check of the book. Not mailed yet.
+- **To do's Sell into bids items are judged like order items.** The dispatch listed move and cancel but not bid, so
+  a bid item fell to the default judge and was ticked "It no longer needs doing" the moment it went missing, before
+  the orders had even been checked.
 - **Pages that need the same live answer share one store**: `orderCheck` (your orders against the book),
   `watch` (squeeze and scam signals), `colonyStore` and the killmail pricer. Orders, To do and the
   alerts all read `orderCheck` rather than fetching the same books three times.

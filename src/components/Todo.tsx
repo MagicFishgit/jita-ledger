@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, Check, CheckCheck, CircleDollarSign, CircleX, GitPullRequestArrow, HardDriveDownload, Keyboard, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
 import { getAuth } from '../lib/auth';
 import { breakEvenSpread, rates } from '../lib/fees';
-import { ago, iskBig, units } from '../lib/format';
+import { ago, isk, iskBig, units } from '../lib/format';
 import { navigate, useAuth, useNow } from '../lib/hooks';
 import { openMarketWindow } from '../lib/market';
 import { checkOrders, costBasis, getOrderCheck, jitaOpen, useOrderCheck, verdicts } from '../lib/orderCheck';
@@ -11,7 +11,7 @@ import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, KIND_LABEL, MINUTES, remember, SESSION_MS, split, summarise, WARNINGS,
+  judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, KIND_LABEL, MINUTES, remember, SESSION_MS, split, summarise, WARNINGS,
   type Entry, type Memory, type TodoItem, type TodoKind,
 } from '../lib/todo';
 import { PLANETS_SCOPE, readColonies, useColonies } from '../lib/colonyStore';
@@ -40,6 +40,7 @@ const LOOK: Record<TodoKind, { Icon: typeof Check; c: string }> = {
   move: { Icon: CircleDollarSign, c: 'var(--acc2)' },
   cancel: { Icon: CircleX, c: 'var(--neg)' },
   bid: { Icon: BanknoteArrowDown, c: 'var(--acc2)' },
+  underCost: { Icon: TriangleAlert, c: 'var(--neg)' },
   close: { Icon: ListChecks, c: 'var(--pos)' },
   squeeze: { Icon: TrendingDown, c: 'var(--neg)' },
   piExpired: { Icon: Leaf, c: 'var(--neg)' },
@@ -119,6 +120,17 @@ export function Todo() {
     // Orders the book says are worth moving.
     for (const x of vs) {
       const action = { label: canOpenInGame() ? 'Open in game' : 'Open orders', typeId: x.typeId, route: `orders?show=${x.typeId}` };
+      // Priced so every sale loses against what it cost: said whatever else the order is told, with the least price
+      // that breaks even (copied when opened in game).
+      if (x.underCost) {
+        const u = x.underCost;
+        out.push({
+          key: `under:${x.orderId}`, ver: `under:${x.price}`, kind: 'underCost', source: 'orders', price: x.price, stake: u.loss,
+          title: `${name(x.typeId)} sell order`,
+          detail: `Listed at ${isk(x.price)}, each sale gets ${isk(Math.round(u.net))} after fees, ${isk(Math.round(u.lossPerUnit))} under the ${isk(Math.round(u.cost))} it cost you: ${iskBig(u.loss)} lost on the ${units(x.volumeRemain)} left. Consider raising it to at least ${isk(u.breakEven)}, where it breaks even.`,
+          action: { ...action, copy: u.breakEven },
+        });
+      }
       if (x.verdict === 'bid' && x.intoBids) {
         // Buyers barely take listings: the stock is worth more in the wallet than waiting months in a slot.
         out.push({
@@ -252,9 +264,20 @@ export function Todo() {
       const x = e.item;
       const id = idOf(x.key);
       switch (x.kind) {
-        case 'move': case 'cancel': {
+        // Sell into bids is an order item too: without it here, the default judge ticked it off the moment it went
+        // missing, even before the orders had been checked (absent is not done).
+        case 'move': case 'cancel': case 'bid': {
           const o = d.orders[Number(id)];
           return judgeOrder(e, {
+            open: !!o && o.state === 'open' && o.volumeRemain > 0,
+            checkedAt,
+            bookRead: !!o && !!check.books?.[o.typeId],
+            v: byOrder.get(Number(id)),
+          });
+        }
+        case 'underCost': {
+          const o = d.orders[Number(id)];
+          return judgeUnderCost(e, {
             open: !!o && o.state === 'open' && o.volumeRemain > 0,
             checkedAt,
             bookRead: !!o && !!check.books?.[o.typeId],

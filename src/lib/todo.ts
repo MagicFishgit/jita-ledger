@@ -15,7 +15,7 @@ import type { Verdict } from './relist';
  * is simply absent, and reading absent as done would tick the whole list off on every load.
  */
 
-export type TodoKind = 'move' | 'cancel' | 'bid' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup';
+export type TodoKind = 'move' | 'cancel' | 'bid' | 'underCost' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup';
 
 /** Which read a finding came from, and so which read can say it has gone. */
 export type Source = 'orders' | 'colonies' | 'signals' | 'ledger';
@@ -70,11 +70,11 @@ export const WARNINGS: ReadonlySet<TodoKind> = new Set<TodoKind>(['scam', 'squee
  * measured --- they are there so a list of twelve relists reads as a quarter of an hour, not an evening.
  */
 export const MINUTES: Record<TodoKind, number> = {
-  move: 1, cancel: 1, bid: 2, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1,
+  move: 1, cancel: 1, bid: 2, underCost: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1,
 };
 
 export const KIND_LABEL: Record<TodoKind, string> = {
-  move: 'Move order', cancel: 'Cancel order', bid: 'Sell into bids', close: 'Close position', squeeze: 'Margin squeeze', piExpired: 'PI expired',
+  move: 'Move order', cancel: 'Cancel order', bid: 'Sell into bids', underCost: 'Priced under cost', close: 'Close position', squeeze: 'Margin squeeze', piExpired: 'PI expired',
   piEnding: 'PI ending', nearMiss: 'Trades your positions skipped', scam: 'Suspicious market', backup: 'Backup',
 };
 
@@ -178,6 +178,18 @@ export function judgeOrder(
   if (v.verdict === 'front') return moved ? `You moved it to ${isk(v.price)}, and it’s at the front.` : 'It’s at the front now: the orders ahead of it have gone.';
   if (moved) return `You moved it to ${isk(v.price)}. ${v.why}.`;
   return v.verdict === 'wait' ? `Not worth moving now: ${lower(v.why)}.` : `Moving it no longer pays: ${lower(v.why)}.`;
+}
+
+/** A sell order priced under cost that no longer is: judged, like an order item, only on a newer check of its book. */
+export function judgeUnderCost(
+  e: Entry,
+  c: { open: boolean; checkedAt: number | null; bookRead: boolean; v?: { gone: boolean; price: number; underCost?: unknown } },
+): string | null {
+  if (!c.open) return 'The order has closed: it filled, expired or was cancelled.';
+  if (c.checkedAt == null || c.checkedAt <= e.seenAt || !c.bookRead || !c.v) return null;
+  if (c.v.gone) return 'It’s no longer in the market: it filled, expired or was cancelled.';
+  if (c.v.underCost) return null;
+  return e.item.price != null && c.v.price !== e.item.price ? `You moved it to ${isk(c.v.price)}, over what it cost.` : 'It no longer sells under what it cost.';
 }
 
 /** A PI item that has gone, judged only on a colony read newer than the one that showed it. */
