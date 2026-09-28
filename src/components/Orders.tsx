@@ -17,7 +17,7 @@ import { update, useData } from '../lib/store';
 import { byUrgency, FEE_TARGET, type Relist, type TooBig, type Verdict } from '../lib/relist';
 import { FILL_WINDOW } from '../lib/fills';
 import type { Prospect } from '../lib/types';
-import { BusyRelisting, canOpenInGame, NameInGame, OpenInGame, useTypeName } from './common';
+import { BusyRelisting, canOpenInGame, CopyPrice, NameInGame, OpenInGame, useTypeName } from './common';
 import { cssVars, Empty, Guide, ItemIcon, Notice, PageHead, Seg, SortTh } from './ui';
 import { ScanFreshness } from './ScanFreshness';
 
@@ -343,9 +343,11 @@ export function Orders() {
                     // Left behind the front on purpose: the price to get back in front isn't advice for it.
                     const heldBack = !!x?.left && x.verdict === 'wait';
                     const left = leaving.has(o.typeId);
+                    // The price shown under Move to: what opening it in game copies, ready for the price box.
+                    const moveTo = x && !x.intoBids && !heldBack && Number.isFinite(x.newPrice) ? x.newPrice : null;
                     return (
                       <tr key={o.orderId} className={'hover' + (hot ? ' hot' : x && x.verdict !== 'move' ? ' dim' : '')}>
-                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" /></span><BusyRelisting typeId={o.typeId} isBuy={o.isBuy} />{x?.tooBig && <TooBigTag t={x.tooBig} x={x} />}</td>
+                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" copy={moveTo} /></span><BusyRelisting typeId={o.typeId} isBuy={o.isBuy} />{x?.tooBig && <TooBigTag t={x.tooBig} x={x} />}</td>
                         <td className="l lbl" style={{ color: o.isBuy ? 'var(--buy)' : 'var(--neg-t)', fontSize: 11.5 }}>{o.isBuy ? 'Buy' : 'Sell'}</td>
                         <td className="l">
                           {V && x ? (
@@ -375,7 +377,7 @@ export function Orders() {
                         ) : (
                           <>
                             <td>
-                              <span style={{ color: hot ? 'var(--pos)' : 'var(--cell)' }}>{x && !heldBack && Number.isFinite(x.newPrice) ? isk(x.newPrice) : '–'}</span>
+                              <span style={{ color: hot ? 'var(--pos)' : 'var(--cell)' }}>{moveTo != null ? isk(moveTo) : '–'}</span>{moveTo != null && <CopyPrice price={moveTo} />}
                               {x && !heldBack && x.cutPct > 0 && <span className="sub mono" style={{ color: x.cutPct >= 0.02 ? 'var(--neg)' : 'var(--label)' }}>{x.isBuy ? '+' : '−'}{(x.cutPct * 100).toFixed(x.cutPct < 0.1 ? 1 : 0)}%</span>}
                             </td>
                             <td data-tip={x && !heldBack && x.cost > 0 ? `${isk(x.give)} of margin plus a ${isk(x.fee)} fee` : undefined}>{x && !heldBack && x.cost > 0 ? iskBig(x.cost) : '–'}</td>
@@ -388,7 +390,7 @@ export function Orders() {
                         <td style={{ color: 'var(--acc)' }}>{x && Number.isFinite(perSlot[x.orderId]) ? iskBig(perSlot[x.orderId]) : '–'}</td>
                         <td>
                           <span className="acts">
-                            <OpenInGame typeId={o.typeId} name={name} />
+                            <OpenInGame typeId={o.typeId} name={name} copy={moveTo} />
                             <button type="button" className="link-btn dim" onClick={() => navigate(`calculator?type=${o.typeId}`)}>Calc</button>
                             <button type="button" className={'link-btn' + (left ? '' : ' dim')} style={left ? { color: 'var(--pos)' } : undefined}
                               data-tip={left

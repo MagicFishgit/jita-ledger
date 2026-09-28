@@ -36,7 +36,8 @@ export type TodoItem = {
   /** The item whose signal it came from. */
   typeId?: number;
   /** Where the action button goes. */
-  action: { label: string; route?: string; typeId?: number; exportBackup?: boolean };
+  /** `copy`: a price opening it in game puts on the clipboard, ready for the price box. */
+  action: { label: string; route?: string; typeId?: number; exportBackup?: boolean; copy?: number };
 };
 
 export type Entry = {

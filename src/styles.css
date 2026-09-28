@@ -443,6 +443,8 @@ input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.7); }
 .link-btn:hover:not(:disabled) { color: #fff; }
 .link-btn:disabled { opacity: .5; }
 .link-btn svg { width: 13px; height: 13px; }
+/* Copy a price, beside it (CopyPrice): quiet until pointed at. */
+.copy-price { margin-left: 6px; vertical-align: -2px; }
 .link-btn.danger { color: var(--neg-l); }
 .link-btn.dim { color: var(--sec); }
 .icon-btn { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border: 1px solid var(--line-btn); background: transparent; color: #9fc3da; }

@@ -8,23 +8,16 @@ import { ago, fmtDateTime, isk, iskBig, iskBigSigned, pct, units, until } from '
 import { marketHistory } from '../lib/market';
 import { feeMatchesFor } from '../lib/positions';
 import { followSnipe, groupBuys, instantBuys, judgeTaken, type Sighting } from '../lib/sniped';
-import { toast } from '../lib/toast';
 import { JITA_44 } from '../lib/constants';
 import type { HistRow } from '../lib/types';
 import { navigate, useNow } from '../lib/hooks';
 import { sanitizeAlerts } from '../lib/prefs';
 import { DOUBT_SAID, judgeBids, judgeListings, type HeldBidRow, type SnipeRead, type SnipeRow } from '../lib/snipe';
 import { update, useData } from '../lib/store';
-import { OpenInGame, useEnsureNames, useTypeName } from './common';
+import { copyPrice, OpenInGame, plainPrice, useEnsureNames, useTypeName } from './common';
 import { flip } from './Prospects';
 import { Empty, Flag, Guide, ItemIcon, NumChip, PageHead, Panel, Tiles } from './ui';
 
-/** A price as the game's price box takes it: digits, and cents only when there are cents. */
-const plainPrice = (p: number) => (Number.isInteger(p) ? String(p) : p.toFixed(2));
-async function copyPrice(p: number) {
-  try { await navigator.clipboard.writeText(plainPrice(p)); toast(`Copied ${plainPrice(p)}: paste it into the price box.`); }
-  catch { toast('Couldn’t copy: your browser refused. Type it carefully.', 'err'); }
-}
 
 /**
  * The snipes you've taken, found in your wallet (sniped.ts), and what each made since, following only its own units

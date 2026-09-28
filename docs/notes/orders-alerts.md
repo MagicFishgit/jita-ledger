@@ -87,6 +87,14 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   again once they stop updating orders by hand. They found six hours too long, so it became the setting. While the cloud holds both logins (`cloudSendsMail`, from `/v1/status`, kept across reloads and
   re-read every 10 minutes) the browser neither mails nor tidies, so nothing arrives twice. Squeeze and
   suspicious-market alerts stay with an open app: they need signals the cloud doesn't keep.
+- **Opening an item in game from Orders or To do copies the price to move to** (`copyPrice`, `CopyPrice` and the
+  `copy` prop of `NameInGame` / `OpenInGame` in `common.tsx`; To do's `action.copy`). The user asked for it, with a
+  copy icon beside the price "like we have in sniping": the Sniper's copy button exists because a relist typed by hand
+  went in at 1,893,000 instead of 1,893. The copy happens before the market window is asked for, while the click still
+  counts (browsers only let a page copy in answer to one), in the game's price-box form (`plainPrice`: 100100, cents
+  only when there are cents), and says nothing unless it fails, as opening says nothing. A clipboard is the device's
+  own: from the phone (the user's usual remote for this) the price lands on the phone, not the PC, unless the two
+  share a clipboard.
 - **Pages that need the same live answer share one store**: `orderCheck` (your orders against the book),
   `watch` (squeeze and scam signals), `colonyStore` and the killmail pricer. Orders, To do and the
   alerts all read `orderCheck` rather than fetching the same books three times.

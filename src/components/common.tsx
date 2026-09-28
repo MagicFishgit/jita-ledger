@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { MonitorUp, Search } from 'lucide-react';
+import { Copy, MonitorUp, Search } from 'lucide-react';
 import { openMarketWindow, resolveNames, resolveType } from '../lib/market';
 import { hasScope } from '../lib/auth';
 import { SCOPE } from '../lib/config';
@@ -157,6 +157,38 @@ export function ItemSearch(props: {
 
 const UI_SCOPE = SCOPE.ui;
 
+/** A price as the game's price box takes it: digits, and cents only when there are cents. */
+export const plainPrice = (p: number) => (Number.isInteger(p) ? String(p) : p.toFixed(2));
+
+/**
+ * Copies a price for the game's price box, so it's pasted rather than typed: the user once typed 1,893,000 for
+ * 1,893 on a relist and paid a 468 M broker fee. Says so, unless `quiet` (opening an item in game copies its price
+ * without a word, as opening says nothing); a refusal always says so.
+ */
+export async function copyPrice(p: number, quiet = false): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(plainPrice(p));
+    if (!quiet) toast(`Copied ${plainPrice(p)}: paste it into the price box.`);
+  } catch {
+    toast('Couldn’t copy: your browser refused. Type it carefully.', 'err');
+  }
+}
+
+/** A small button that copies a price, beside where it's shown. */
+export function CopyPrice({ price }: { price: number }) {
+  return (
+    <button type="button" className="link-btn dim copy-price" aria-label={`Copy ${plainPrice(price)}`} data-tip="Copy the price, to paste into the game rather than type it"
+      onClick={(e) => { e.stopPropagation(); void copyPrice(price); }}>
+      <Copy aria-hidden="true" />
+    </button>
+  );
+}
+
+/** What an in-game link says it does, and the price it copies when there is one. */
+const inGameTip = (copy: number | null | undefined) => copy != null && Number.isFinite(copy)
+  ? `Opens the market window in your EVE client and copies ${plainPrice(copy)}, the price to move to, for the price box. You’ll still need to switch to the game.`
+  : 'Opens the market window in your EVE client. You’ll still need to switch to the game.';
+
 /**
  * Opens an item's market window in the running EVE client.
  *
@@ -166,7 +198,10 @@ const UI_SCOPE = SCOPE.ui;
  *
  * Renders nothing without the scope, since a button that cannot work is worse than no button.
  */
-async function openInGame(typeId: number): Promise<void> {
+async function openInGame(typeId: number, copy?: number | null): Promise<void> {
+  // The price to move to goes on the clipboard first, while the click still counts as one (browsers only let a page
+  // copy in answer to one), so it's ready to paste when the market window opens.
+  if (copy != null && Number.isFinite(copy)) void copyPrice(copy, true);
   // Said only when it fails: the window opening in the game is the answer, and the user found a message every
   // click annoying. The button says "Opening…" while it asks.
   try {
@@ -176,12 +211,12 @@ async function openInGame(typeId: number): Promise<void> {
   }
 }
 
-export function OpenInGame({ typeId, name, label = 'In game', variant = 'link' }: { typeId: number; name: string; label?: string; variant?: 'link' | 'btn' | 'dim' }) {
+export function OpenInGame({ typeId, name, label = 'In game', variant = 'link', copy }: { typeId: number; name: string; label?: string; variant?: 'link' | 'btn' | 'dim'; copy?: number | null }) {
   const [busy, setBusy] = useState(false);
   if (!hasScope(UI_SCOPE)) return null;
   const go = async () => {
     setBusy(true);
-    try { await openInGame(typeId); } finally { setBusy(false); }
+    try { await openInGame(typeId, copy); } finally { setBusy(false); }
   };
   if (variant === 'btn') {
     return (
@@ -194,7 +229,7 @@ export function OpenInGame({ typeId, name, label = 'In game', variant = 'link' }
     <button
       type="button" className={'link-btn' + (variant === 'dim' ? ' dim' : '')} disabled={busy} onClick={go}
       aria-label={`Open ${name}'s market window in the EVE client`}
-      data-tip="Opens the market window in your EVE client. You’ll still need to switch to the game."
+      data-tip={inGameTip(copy)}
     >
       {busy ? 'Opening…' : label}
     </button>
@@ -205,15 +240,15 @@ export function OpenInGame({ typeId, name, label = 'In game', variant = 'link' }
  * An item's name that opens its market window in the client when clicked, where the login allows it;
  * plain text where it doesn't. For tables whose rows are items you act on in game.
  */
-export function NameInGame({ typeId, name, className }: { typeId: number; name: string; className?: string }) {
+export function NameInGame({ typeId, name, className, copy }: { typeId: number; name: string; className?: string; copy?: number | null }) {
   const [busy, setBusy] = useState(false);
   if (!hasScope(UI_SCOPE)) return <span className={className}>{name}</span>;
   return (
     <button
       type="button" className={'name-btn' + (className ? ' ' + className : '')} disabled={busy}
-      onClick={async () => { setBusy(true); try { await openInGame(typeId); } finally { setBusy(false); } }}
+      onClick={async () => { setBusy(true); try { await openInGame(typeId, copy); } finally { setBusy(false); } }}
       aria-label={`${name}: open its market window in the EVE client`}
-      data-tip="Opens the market window in your EVE client. You’ll still need to switch to the game."
+      data-tip={inGameTip(copy)}
     >
       {name}
     </button>

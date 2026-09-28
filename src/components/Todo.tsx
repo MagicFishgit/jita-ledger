@@ -20,7 +20,7 @@ import { BACKUP_DAYS } from '../lib/alertsRunner';
 import { cloudCovers, useCloud } from '../lib/cloud';
 import { JITA_44 } from '../lib/config';
 import { toast } from '../lib/toast';
-import { canOpenInGame, downloadText, useTypeName } from './common';
+import { canOpenInGame, copyPrice, downloadText, useTypeName } from './common';
 import { cssVars, Empty, Guide, PageHead, Ring } from './ui';
 
 const DAY = 86400_000;
@@ -150,7 +150,7 @@ export function Todo() {
           : x.unreached
           ? `Trading rarely gets ${x.isBuy ? 'down to your bid' : 'up to your price'} (${x.reach} of the last ${FILL_WINDOW} days) — move to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, where it does, costs ${iskBig(x.cost)}.`
           : `Beaten by ${by} — move to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, costs ${iskBig(x.cost)}.`,
-        action,
+        action: { ...action, copy: x.newPrice },
       });
     }
     const be2 = breakEvenSpread(r, 2);
@@ -302,6 +302,8 @@ export function Todo() {
     }
     // A beaten order is fixed in the client: open its market window there when we can.
     if (x.action.typeId != null && canOpenInGame()) {
+      // The price to move to goes on the clipboard while the click still counts, ready for the price box.
+      if (x.action.copy != null && Number.isFinite(x.action.copy)) void copyPrice(x.action.copy, true);
       try {
         await openMarketWindow(x.action.typeId);
         setMem((m) => { if (!m[x.key]) return m; const next = { ...m, [x.key]: { ...m[x.key], openedAt: Date.now() } }; saveMem(next); return next; });
