@@ -1352,6 +1352,12 @@ console.log('\n--- who is trading: the best evidence first ---');
   // Item 16423: 7 of its 10 listings were single units, which vanish when bought, so the book showed no
   // buyers at all. A side mostly of single units can't show its sales: history decides instead.
   eq('  a sell side of single units can’t show its buyers: history', tradingSplit({ history: 0.69, book: { sell: 0, buy: 1354, single: { sell: 7, buy: 0 }, orders: { sell: 10, buy: 4 } } }).from, 'history');
+  // The Experimental ZW-4100 Torpedo Launcher (29 September 2026): its one Jita bid filled up and left the book, so the
+  // book showed 105 sold from listings and nothing into bids; the cloud had watched 57 bought from listings, 157 sold
+  // into bids. The book read 100% buyers and the blend 77.8%.
+  const zw = { sell: 105, buy: 0, single: { sell: 7, buy: 0 }, orders: { sell: 30, buy: 0 } };
+  eq('  a side with no orders can’t show what it sold: history, not the book', tradingSplit({ history: 0.6, book: zw }).from, 'history');
+  eq('    so the launcher reads ~50%, not 77.8%', [+tradingSplit({ history: 0.6, book: zw, watched: { sell: 57, buy: 157, h: 28.4 }, typicalDay: 493 }).share.toFixed(3), +tradingSplit({ history: 0.6, book: { ...zw, orders: { sell: 30, buy: 1 } }, watched: { sell: 57, buy: 157, h: 28.4 }, typicalDay: 493 }).share.toFixed(3)], [0.499, 0.778]);
   eq('  multi-unit listings can: the book', tradingSplit({ history: 0.69, book: { sell: 0, buy: 1396, single: { sell: 17, buy: 0 }, orders: { sell: 37, buy: 5 } } }).from, 'book');
   const w = tradingSplit({ history: 0.9, book: { sell: 10, buy: 30 }, watched: { sell: 90, buy: 10, h: 12 }, typicalDay: 100 });
   eq('watching a typical day’s worth counts as much as the prior', w.share, (90 + 0.25 * 100) / 200);

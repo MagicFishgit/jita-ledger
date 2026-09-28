@@ -77,6 +77,14 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   guess were 24 hours of watching (`PRIOR_HOURS`), and the guess is a typical day (`paceDay`) split by the
   book where it can tell (`tradingSplit`). Orders shows "N h watched", "from the book" or "from history" under
   the figure. No re-weighting of history alone helped (every variant was off by 5–20× per item).
+- **A book with an empty side can't say who trades** (`bookCanTell`). A filled-up order leaves the book with its fills,
+  so a side with no orders reads as having sold nothing. The Experimental ZW-4100 Torpedo Launcher (29 September
+  2026): its one Jita bid, which had taken three quarters of the trading, filled and went; the book read 100% buyers,
+  the cloud had watched 26%, and the Calculator's blend (77.8%) put ~380 buyers a day on listings the watch saw taken
+  ~49 a day ("Round trip takes 2 h"). Of 358 books the book is trusted on with 30+ units watched, it was the only one
+  with an empty side, 0.74 off where the rest were a median 0.14. Such a book is now set aside like one of single units;
+  the launcher reads ~50% (history's guess, 0.60, blended with the watch). History's guess is still poor on markets
+  that sell into bids, so the watching has to build up before the pace is right.
 - **One buyer/seller split, everywhere** (`tradingSplit` in `split.ts`): what the app has watched each side of the
   Jita book do (`flowStore`, fed by *any* repeated read of a book in `readBook`, so the Calculator, watchlist
   signals, Loyalty pricing and order checks all add to it), then what the book's live orders have already sold

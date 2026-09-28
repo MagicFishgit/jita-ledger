@@ -90,7 +90,8 @@ export function soldFrom(orders: { is_buy_order: boolean; volume_remain: number;
 }
 
 /**
- * A side with more than this share of its orders placed for one unit can't show its sales in the book,
+ * A side with more than this share of its orders placed for one unit can't show its sales in the book (nor can a side
+ * with no orders, `bookCanTell`),
  * since a single unit bought just vanishes. Item 16423 had 7 of 10 listings at one unit, so the book read
  * its buyers as none at all while history's guess said 69%; the book isn't trusted there.
  */
@@ -99,6 +100,13 @@ export const MAX_SINGLE_SHARE = 0.5;
 /** Whether what a book's orders have sold can speak for both of its sides. */
 export function bookCanTell(b: BookSold): boolean {
   if (!b.single || !b.orders) return true;
+  // A side with no orders at all can't show what it sold either: a buy order that filled up leaves the book, and its
+  // fills go with it. The Experimental ZW-4100 Torpedo Launcher (29 September 2026): the one Jita bid, which had taken
+  // three quarters of the trading, filled up and went, so the book read 100% buyers while the cloud had watched 26%;
+  // the Calculator blended that to 77% and put ~380 buyers a day on listings the watch saw taken ~49 a day. Of 358
+  // books the book is trusted on with 30+ units watched, it was the only one with an empty side, and 0.74 off where
+  // the rest were a median 0.14.
+  if (b.orders.sell === 0 || b.orders.buy === 0) return false;
   const side = (n: number, of: number) => of === 0 || n / of <= MAX_SINGLE_SHARE;
   return side(b.single.sell, b.orders.sell) && side(b.single.buy, b.orders.buy);
 }
