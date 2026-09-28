@@ -57,7 +57,16 @@ export type SafetyWrap = {
   stationId: number | null;
   /** Everything inside it, at any depth, by type. */
   items: Record<number, number>;
-  /** The name the game gives it: the lost structure's, like "K7D-II - Iserlohn Fortress". */
+  /**
+   * The same things as they're packed: the containers and ships lying in it, each with what's inside, and the rest
+   * loose by type. Absent on wraps read before they were kept (then everything shows loose).
+   */
+  holders?: SafetyHolder[];
+  loose?: Record<number, number>;
+  /**
+   * A name for it. The client shows the lost structure's ("K7D-II - Iserlohn Fortress"), but ESI has none to give:
+   * `/assets/names` answers "None" for a wrap (28 September 2026), so nothing fills this yet and it's carried if set.
+   */
   name?: string;
   /** When the cloud first saw it, and whether that's within the hour of it going in (so the countdown is known). */
   firstSeen?: string;
@@ -65,6 +74,43 @@ export type SafetyWrap = {
   /** When it was first seen delivered. */
   deliveredAt?: string;
 };
+
+/** Something in a wrap that holds other things: a container with what's in it, a ship with its fitting and cargo. */
+export type SafetyHolder = {
+  id: number;
+  typeId: number;
+  /** The name you gave it in game, when it has one. */
+  name?: string;
+  /** What's directly inside it and holds nothing itself, by type. */
+  items: Record<number, number>;
+  /** What's directly inside it and holds things in turn, like a container in a ship's cargo. */
+  holders?: SafetyHolder[];
+};
+
+/** Every container and ship in these wraps, at any depth. */
+export function safetyHolders(wraps: SafetyWrap[] | undefined): SafetyHolder[] {
+  const out: SafetyHolder[] = [];
+  const walk = (hs: SafetyHolder[] | undefined) => { for (const h of hs ?? []) { out.push(h); walk(h.holders); } };
+  for (const w of wraps ?? []) walk(w.holders);
+  return out;
+}
+
+/** Containers and ships in `next` that `prev` has no name for: the ones to ask ESI about (1,000 at most a call). */
+export function unnamedHolders(prev: SafetyWrap[] | undefined, next: SafetyWrap[] | undefined): number[] {
+  const named = new Set(safetyHolders(prev).filter((h) => h.name).map((h) => h.id));
+  return safetyHolders(next).filter((h) => !named.has(h.id)).map((h) => h.id).slice(0, 1000);
+}
+
+/** The wraps with names given to their containers and ships (from `/assets/names`); ESI's "None" is no name. */
+export function nameHolders(wraps: SafetyWrap[], names: Map<number, string>): SafetyWrap[] {
+  const named = (hs: SafetyHolder[] | undefined): SafetyHolder[] | undefined => hs?.map((h) => {
+    const n = names.get(h.id)?.trim();
+    const out: SafetyHolder = { ...h, ...(h.holders ? { holders: named(h.holders) } : {}) };
+    if (n && n !== 'None') out.name = n;
+    return out;
+  });
+  return wraps.map((w) => (w.holders ? { ...w, holders: named(w.holders) } : w));
+}
 
 /**
  * Carries forward what was learned about each wrap (its name, when it was first seen, when it was delivered) from
@@ -75,7 +121,10 @@ export function mergeSafety(prev: SafetyWrap[] | undefined, next: SafetyWrap[] |
   known?: Map<number, Pick<SafetyWrap, 'firstSeen' | 'startKnown' | 'deliveredAt'>>): SafetyWrap[] | undefined {
   if (!next) return undefined;
   const before = new Map((prev ?? []).map((w) => [w.id, w]));
-  return next.map((w) => {
+  // A container or ship keeps its item ID while it's in the wrap, and so the name it was given.
+  const renamed = new Set(safetyHolders(next).filter((h) => h.name).map((h) => h.id));
+  const holderNames = new Map(safetyHolders(prev).filter((h) => h.name && !renamed.has(h.id)).map((h) => [h.id, h.name!]));
+  return nameHolders(next, holderNames).map((w) => {
     const was = before.get(w.id), k = known?.get(w.id);
     const out: SafetyWrap = { ...w };
     const name = w.name ?? was?.name;
@@ -145,6 +194,20 @@ export function countStock(raw: RawAsset[], jitaId: number): StockRecord {
   for (const a of raw) if (a.location_type === 'item') inside.set(a.location_id, [...(inside.get(a.location_id) ?? []), a]);
   const safe = new Set<number>();
   const safety: SafetyWrap[] = [];
+  // What's directly in something, as packed: things holding things become holders, the rest is counted by type.
+  const packed = (id: number, seen: Set<number>) => {
+    const loose: Record<number, number> = {};
+    const holders: SafetyHolder[] = [];
+    for (const a of inside.get(id) ?? []) {
+      if (a.is_blueprint_copy || seen.has(a.item_id)) continue;
+      seen.add(a.item_id);
+      if (inside.has(a.item_id)) {
+        const p = packed(a.item_id, seen);
+        holders.push({ id: a.item_id, typeId: a.type_id, items: p.loose, ...(p.holders.length ? { holders: p.holders } : {}) });
+      } else loose[a.type_id] = (loose[a.type_id] ?? 0) + a.quantity;
+    }
+    return { loose, holders };
+  };
   for (const w of raw) {
     if (w.type_id !== ASSET_SAFETY_WRAP && w.location_flag !== 'AssetSafety') continue;
     if (safe.has(w.item_id)) continue;
@@ -159,7 +222,8 @@ export function countStock(raw: RawAsset[], jitaId: number): StockRecord {
       stack.push(...(inside.get(a.item_id) ?? []));
     }
     const waiting = w.location_flag === 'AssetSafety';
-    safety.push({ id: w.item_id, state: waiting ? 'waiting' : 'delivered', stationId: waiting ? null : w.location_id, items });
+    const { loose, holders } = packed(w.item_id, new Set([w.item_id]));
+    safety.push({ id: w.item_id, state: waiting ? 'waiting' : 'delivered', stationId: waiting ? null : w.location_id, items, holders, loose });
   }
   let inContainers = 0;
   for (const a of raw) {

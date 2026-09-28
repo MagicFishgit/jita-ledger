@@ -7,7 +7,7 @@
  * delivered: so the countdown comes from what the client shows, typed in once, or from when the cloud first saw
  * the wrap, when that was within the hour of it going in. Pure.
  */
-import type { SafetyWrap } from './esiRecords';
+import type { SafetyHolder, SafetyWrap } from './esiRecords';
 
 export const MANUAL_DAYS = 5;
 export const AUTO_DAYS = 20;
@@ -67,4 +67,25 @@ export function unpackCost(items: Record<number, number>, price: (typeId: number
     if (p != null && p > 0) value += p * q; else unpriced.push(Number(id));
   }
   return { value, auto: value * AUTO_FEE, manual: value * MANUAL_FEE, unpriced };
+}
+
+/**
+ * A container or ship with everything in it: what it's worth at these prices (itself included; anything without a
+ * price counts as nothing, as in `unpackCost`), how many things are inside it at any depth, and whether any price was
+ * found at all.
+ */
+export function holderWorth(h: SafetyHolder, price: (typeId: number) => number | null | undefined): { value: number; inside: number; priced: boolean } {
+  let value = 0, inside = 0, priced = false;
+  const own = price(h.typeId);
+  if (own != null && own > 0) { value += own; priced = true; }
+  for (const [id, q] of Object.entries(h.items)) {
+    inside += q;
+    const p = price(Number(id));
+    if (p != null && p > 0) { value += p * q; priced = true; }
+  }
+  for (const c of h.holders ?? []) {
+    const w = holderWorth(c, price);
+    value += w.value; inside += 1 + w.inside; priced ||= w.priced;
+  }
+  return { value, inside, priced };
 }

@@ -96,6 +96,10 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   can't be dated. Both writers of the stock record carry what was learned forward (`mergeSafety`). The cloud mails once
   per wrap when it registers it (kind `safety`, "Asset safety registered"): the game already says when things go into
   asset safety and when they're delivered, so the user asked for the mail to say the app has picked it up instead.
+  The list is **as packed**, since the user asked to open the station containers in it: each wrap keeps its ships and
+  containers (`holders`, at any depth, a can in a ship's cargo inside the ship) beside the flat count by type that the
+  fees and the mail use, and each opens to what's in it, worth counted with its contents. Their names come from
+  `/assets/names` in a call of their own, so a refusal can't lose the wrap's name too; ESI's "None" is no name.
 - **Net worth keeps one snapshot a day in this browser** (`Data.netWorth`), written by the Wallet page. ESI has no
   net-worth history, so the trend starts the first day the page is opened and says so.
 - **Goals are five kinds, each measured from something the app reads** (`lib/goals.ts`): afford N of an item

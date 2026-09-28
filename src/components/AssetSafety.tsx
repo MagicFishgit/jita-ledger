@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ShieldAlert } from 'lucide-react';
-import { formatCountdown, parseCountdown, safetyTimes, unpackCost } from '../lib/assetSafety';
-import type { SafetyWrap } from '../lib/esiRecords';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { ChevronRight, ShieldAlert } from 'lucide-react';
+import { AUTO_FEE, formatCountdown, holderWorth, parseCountdown, safetyTimes, unpackCost } from '../lib/assetSafety';
+import type { SafetyHolder, SafetyWrap } from '../lib/esiRecords';
 import { ago, fmtDateTime, iskBig, units } from '../lib/format';
 import { useNow } from '../lib/hooks';
 import { resolveNames } from '../lib/market';
@@ -37,6 +37,23 @@ export function AssetSafety({ d, rough }: { d: Data; rough: Record<number, numbe
   );
 }
 
+/** One line of a wrap's list: a stack of one item, or a container or ship with everything in it. */
+type Row = { key: string; typeId: number; q: number; v: number | null; h?: SafetyHolder; inside?: number };
+
+/** What's in something as packed, most valuable first: its containers and ships, and its loose items by type. */
+function rowsOf(loose: Record<number, number>, holders: SafetyHolder[] | undefined, price: (id: number) => number | undefined): Row[] {
+  const rows: Row[] = [];
+  for (const h of holders ?? []) {
+    const w = holderWorth(h, price);
+    rows.push({ key: `h${h.id}`, typeId: h.typeId, q: 1, v: w.priced ? w.value : null, h, inside: w.inside });
+  }
+  for (const [id, q] of Object.entries(loose)) {
+    const p = price(Number(id));
+    rows.push({ key: `t${id}`, typeId: Number(id), q, v: p != null ? p * q : null });
+  }
+  return rows.sort((a, b) => (b.v ?? -1) - (a.v ?? -1));
+}
+
 function Wrap({ w, d, rough, now, station }: { w: SafetyWrap; d: Data; rough: Record<number, number> | null; now: number; station: string | null }) {
   const name = useTypeName();
   const typed = d.safetyTimes[String(w.id)] ?? null;
@@ -44,10 +61,40 @@ function Wrap({ w, d, rough, now, station }: { w: SafetyWrap; d: Data; rough: Re
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState('');
   const [all, setAll] = useState(false);
+  const [open, setOpen] = useState<Set<number>>(() => new Set());
+  const price = (id: number) => rough?.[id];
   const cost = useMemo(() => unpackCost(w.items, (id) => rough?.[id]), [w.items, rough]);
-  const rows = useMemo(() => Object.entries(w.items).map(([id, q]) => ({ id: Number(id), q, v: rough?.[Number(id)] != null ? rough[Number(id)] * q : null }))
-    .sort((a, b) => (b.v ?? -1) - (a.v ?? -1)), [w.items, rough]);
-  const count = rows.reduce((n, r) => n + r.q, 0);
+  const rows = useMemo(() => rowsOf(w.loose ?? w.items, w.holders, (id) => rough?.[id]), [w.loose, w.items, w.holders, rough]);
+  const count = Object.values(w.items).reduce((n, q) => n + q, 0);
+  const packed = rows.some((r) => r.h);
+  const toggle = (id: number) => setOpen((was) => {
+    const next = new Set(was);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  // Containers and ships open to what's in them, a step in; loose items line up with the names beside a chevron.
+  const lines = (rs: Row[], depth: number, path = ''): ReactNode[] => rs.flatMap((r) => {
+    const pad = 16 + depth * 22 + (packed && !r.h ? 22 : 0);
+    const line = (
+      <tr key={path + r.key}>
+        <td className="l" style={{ whiteSpace: 'normal', paddingLeft: pad }}>
+          {r.h ? (
+            <button type="button" className="panel-toggle" aria-expanded={open.has(r.h.id)} onClick={() => toggle(r.h!.id)}>
+              <ChevronRight className="chev" aria-hidden="true" />
+              <span>
+                {r.h.name ?? name(r.typeId)}
+                <span className="faint">{r.h.name ? ` · ${name(r.typeId)}` : ''} · {units(r.inside ?? 0)} inside</span>
+              </span>
+            </button>
+          ) : name(r.typeId)}
+        </td>
+        <td>{units(r.q)}</td>
+        <td>{r.v != null ? iskBig(r.v) : '–'}</td>
+        <td style={{ color: 'var(--sec)' }}>{r.v != null ? iskBig(r.v * AUTO_FEE) : '–'}</td>
+      </tr>
+    );
+    return r.h && open.has(r.h.id) ? [line, ...lines(rowsOf(r.h.items, r.h.holders, price), depth + 1, `${path}${r.key}/`)] : [line];
+  });
   const save = () => {
     const ms = parseCountdown(text);
     if (ms == null) { toast('Type it as the game shows it, like 14d 7h 24m 32s.', 'warn'); return; }
@@ -70,7 +117,7 @@ function Wrap({ w, d, rough, now, station }: { w: SafetyWrap; d: Data; rough: Re
       {delivered ? (
         <p style={{ margin: 0 }}>
           Delivered to <b>{station ?? 'a station'}</b>{w.deliveredAt ? ` ${ago(w.deliveredAt, now)}` : ''}. Unpack it there: dragging items out of the wrap
-          costs 15% of each one’s estimate, about <b>{iskBig(cost.auto)}</b> for everything (it shows in your wallet as an asset safety fee).
+          costs 15% of each one’s estimate, about <b>{rough ? iskBig(cost.auto) : '…'}</b> for everything (it shows in your wallet as an asset safety fee).
         </p>
       ) : ask ? (
         <div className="col" style={{ gap: 8 }}>
@@ -106,21 +153,14 @@ function Wrap({ w, d, rough, now, station }: { w: SafetyWrap; d: Data; rough: Re
         <table className="tbl compact" style={{ minWidth: 360 }}>
           <thead><tr><th scope="col" className="l">Item</th><th scope="col">Qty</th><th scope="col">Worth</th><th scope="col">To unpack</th></tr></thead>
           <tbody>
-            {rows.slice(0, all ? undefined : 8).map((r) => (
-              <tr key={r.id}>
-                <td className="l" style={{ whiteSpace: 'normal' }}>{name(r.id)}</td>
-                <td>{units(r.q)}</td>
-                <td>{r.v != null ? iskBig(r.v) : '–'}</td>
-                <td style={{ color: 'var(--sec)' }}>{r.v != null ? iskBig(r.v * 0.15) : '–'}</td>
-              </tr>
-            ))}
+            {lines(rows.slice(0, all ? undefined : 8), 0)}
           </tbody>
         </table>
       </div>
       {rows.length > 8 && <button type="button" className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => setAll(!all)}>{all ? 'Show fewer' : `Show all ${units(rows.length)}`}</button>}
       <p className="note small" style={{ margin: 0 }}>
-        {units(count)} item{count === 1 ? '' : 's'}, worth about <b>{rough ? iskBig(cost.value) : '…'}</b> at CCP’s estimated prices{cost.unpriced.length ? ` (${units(cost.unpriced.length)} with no estimate count as nothing)` : ''}.
-        {' '}Unpacking after the automatic delivery costs 15% of each item’s estimate, about {iskBig(cost.auto)}; delivered by hand within the system, 0.5%, about {iskBig(cost.manual)}.
+        {units(count)} item{count === 1 ? '' : 's'}, worth about <b>{rough ? iskBig(cost.value) : '…'}</b> at CCP’s estimated prices{rough && cost.unpriced.length ? ` (${units(cost.unpriced.length)} with no estimate count as nothing)` : ''}.
+        {' '}Unpacking after the automatic delivery costs 15% of each item’s estimate, about {rough ? iskBig(cost.auto) : '…'}; delivered by hand within the system, 0.5%, about {rough ? iskBig(cost.manual) : '…'}.
         {w.firstSeen ? ` The app has tracked it since ${fmtDateTime(Date.parse(w.firstSeen))}.` : ''}
       </p>
     </div>

@@ -138,7 +138,14 @@ function large() {
     // Asset safety in all three states: waiting with no known countdown (as the user's was), waiting and dated
     // because the cloud saw it go in, and delivered.
     safety: [
-      { id: 1055765149463, state: 'waiting', stationId: null, items: { 2006: 1, 16233: 1, 17366: 2, 16236: 1, 2185: 5, 34: 12000 }, name: 'K7D-II - Iserlohn Fortress', firstSeen: iso(NOW - 6 * DAY), startKnown: false },
+      { id: 1055765149463, state: 'waiting', stationId: null, items: { 2006: 1, 16233: 1, 17366: 2, 16236: 1, 2185: 5, 34: 12000 }, name: 'K7D-II - Iserlohn Fortress', firstSeen: iso(NOW - 6 * DAY), startKnown: false,
+        // As packed: two station containers (one named), a ship with drones in its bay, and a ship lying loose.
+        holders: [
+          { id: 1044519007308, typeId: 17366, name: 'Minerals for the rebuild', items: { 34: 12000 } },
+          { id: 1044519007309, typeId: 17366, items: { 16236: 1 } },
+          { id: 1044914025438, typeId: 2006, items: { 2185: 5 } },
+        ],
+        loose: { 16233: 1 } },
       { id: 1055765149464, state: 'waiting', stationId: null, items: { 35: 800 }, name: 'Test Citadel With A Rather Long Name', firstSeen: iso(NOW - 2 * DAY), startKnown: true },
       { id: 1055765149465, state: 'delivered', stationId: AMARR, items: { 36: 50 }, firstSeen: iso(NOW - 21 * DAY), startKnown: true, deliveredAt: iso(NOW - 3600_000) },
     ],

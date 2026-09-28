@@ -1735,7 +1735,7 @@ console.log('\n--- does it come true: place and leave, the Sniper ---');
 
 console.log('\n--- asset safety ---');
 {
-  const { countStock, mergeSafety } = await import('../src/lib/esiRecords.ts');
+  const { countStock, mergeSafety, nameHolders, unnamedHolders } = await import('../src/lib/esiRecords.ts');
   const JITA = 60003760;
   // The user's wrap as ESI reported it (28 September 2026): the wrap flagged AssetSafety at location 2004, ships and
   // Station Containers inside it, and here a ship's fitting and a container's contents one level deeper.
@@ -1752,7 +1752,23 @@ console.log('\n--- asset safety ---');
     A(9005, 2046, 9004, 'HiSlot0', 'item'),                               // fitted to it
   ];
   const s = countStock(raw, JITA);
-  eq('the wrap: waiting, everything inside it at any depth', s.safety, [{ id: 1055765149463, state: 'waiting', stationId: null, items: { 2006: 1, 16233: 1, 17366: 1, 2185: 5, 3001: 1 } }]);
+  eq('the wrap: waiting, everything inside it at any depth', [s.safety.length, s.safety[0].id, s.safety[0].state, s.safety[0].stationId, s.safety[0].items], [1, 1055765149463, 'waiting', null, { 2006: 1, 16233: 1, 17366: 1, 2185: 5, 3001: 1 }]);
+  // The user asked to open the station containers in the list and see what's in them: kept as packed too.
+  eq('  and as packed: the ship and the container with what’s in them', s.safety[0].holders, [
+    { id: 1044914025438, typeId: 2006, items: { 3001: 1 } },
+    { id: 1044519007308, typeId: 17366, items: { 2185: 5 } },
+  ]);
+  eq('  a ship with nothing in it lies loose', s.safety[0].loose, { 16233: 1 });
+  const cargo = countStock([...raw, A(9010, 3465, 1044914025438, 'Cargo', 'item'), A(9011, 34, 9010, 'Unlocked', 'item', 700)], JITA);
+  eq('  a container in a ship’s cargo opens inside the ship', cargo.safety[0].holders[0], { id: 1044914025438, typeId: 2006, items: { 3001: 1 }, holders: [{ id: 9010, typeId: 3465, items: { 34: 700 } }] });
+  eq('  and still counts in the flat list', [cargo.safety[0].items[3465], cargo.safety[0].items[34]], [1, 700]);
+  eq('the containers and ships to ask names for', unnamedHolders(undefined, cargo.safety), [1044914025438, 9010, 1044519007308]);
+  const named = nameHolders(cargo.safety, new Map([[1044519007308, 'Minerals'], [9010, 'None'], [1044914025438, ' ']]));
+  eq('  named as you named them; ESI’s “None” and blanks are no name', [named[0].holders[0].name, named[0].holders[0].holders[0].name, named[0].holders[1].name], [undefined, undefined, 'Minerals']);
+  eq('  a name known already isn’t asked again', unnamedHolders(named, cargo.safety), [1044914025438, 9010]);
+  const kept = mergeSafety(named, cargo.safety);
+  eq('  and carries over to the next read', kept[0].holders[1].name, 'Minerals');
+  eq('  unless the next read brings a new one', mergeSafety(named, nameHolders(cargo.safety, new Map([[1044519007308, 'Ore']]))) [0].holders[1].name, 'Ore');
   eq('  its contents count as yours, the wrap itself doesn’t', [s.total[2006], s.total[2185], s.total[60]], [1, 5, undefined]);
   eq('  but not as inside ships and containers: only the Jita ship’s fitting is', s.nested, { 2046: 1 });
   eq('  nor as containers somewhere unknown', s.inContainers, 1);
@@ -1768,7 +1784,10 @@ console.log('\n--- asset safety ---');
 
   const { categoryOf: catOf } = await import('../src/lib/wallet.ts');
   eq('unpacking a delivered wrap is its own cost in the Wallet, not “Other”', catOf({ refType: 'asset_safety_recovery_tax', amount: -1_500_000 })?.label, 'Asset safety fee');
-  const { parseCountdown, formatCountdown, safetyTimes, unpackCost } = await import('../src/lib/assetSafety.ts');
+  const { parseCountdown, formatCountdown, safetyTimes, unpackCost, holderWorth } = await import('../src/lib/assetSafety.ts');
+  const hp = { 2006: 10e6, 3001: 1e6, 3465: 5000, 34: 4 };
+  eq('a ship with everything in it: itself, its fitting, a container and what’s in that', holderWorth(cargo.safety[0].holders[0], (id) => hp[id]), { value: 10e6 + 1e6 + 5000 + 2800, inside: 702, priced: true });
+  eq('  nothing priced says so', holderWorth({ id: 1, typeId: 999, items: { 998: 3 } }, () => undefined), { value: 0, inside: 3, priced: false });
   const D = 86400_000, H = 3600_000;
   eq('the countdown as the client shows it', parseCountdown('14d 7h 24m 32s'), 14 * D + 7 * H + 24 * 60_000 + 32_000);
   eq('  near enough is fine', [parseCountdown('14d 7h'), parseCountdown(' 3 h 5 m '), parseCountdown('2D')], [14 * D + 7 * H, 3 * H + 5 * 60_000, 2 * D]);

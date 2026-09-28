@@ -168,8 +168,11 @@ Don't re-derive or contradict these without new evidence.
 - **Asset safety, as ESI reports it** (the user's wrap, 28 September 2026): one item of type 60, *Asset Safety Wrap*
   (unpublished, so `/universe/ids` finds no type by that name), flagged `AssetSafety` at location 2004, type `other`:
   ESI doesn't say which system it's held for. Everything in it is listed inside it (`Hangar`, type `item`), ships with
-  their fittings and containers with their contents a level deeper. `/characters/{id}/assets/names` names the wrap
-  after the lost structure, as the client does ("K7D-II - Iserlohn Fortress"). **ESI has no delivery date anywhere**:
+  their fittings and containers with their contents a level deeper. **The wrap has no name in ESI**: the client titles it
+  after the lost structure ("K7D-II - Iserlohn Fortress"), but `/characters/{id}/assets/names` answered
+  `[{"item_id":…,"name":"None"}]` for it (the cloud's log, 17:07 UTC the same day), and nothing else in ESI names the
+  structure, since the wrap sits at location 2004. Containers and ships inside it keep their own item IDs and the same
+  call is asked for them; what it answers inside a wrap was not yet seen. **ESI has no delivery date anywhere**:
   its spec mentions asset safety only as that flag and the `asset_safety_recovery_tax` journal type. The rules (EVE
   University's summary of CCP's): after 5 days it can be delivered by hand to a station in the same system (0.5%);
   after 20 it goes automatically to the nearest low-sec station (from low or null) or high-sec (from high); either

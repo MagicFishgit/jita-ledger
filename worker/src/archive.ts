@@ -10,7 +10,7 @@
  */
 import { isDowntime } from '../../src/lib/watchdog';
 import {
-  countStock, mergeSafety, netWorthOf, toJournal, toOrder, toTx, withHistory,
+  countStock, mergeSafety, nameHolders, netWorthOf, unnamedHolders, toJournal, toOrder, toTx, withHistory,
   type OrderRecord, type RawAsset, type RawCharOrder, type RawJournal, type RawTx, type SafetyWrap, type StockRecord,
 } from '../../src/lib/esiRecords';
 import { esiAll, esiGet, esiPost, useLogin } from './eve';
@@ -143,21 +143,23 @@ export async function archive(env: Env, charId: number): Promise<ArchiveResult> 
     const stock = countStock(await esiAll<RawAsset>(`/characters/${charId}/assets/`, { token }), JITA_44);
     stockTotal = stock.total;
     const prev = await doc<StockRecord>(db, charId, 'stock');
-    // Asset safety: wraps named as the game names them (the lost structure's name), registered once by the cloud,
-    // which alone can date them, and what was learned carried forward. Newly registered ones are mailed below.
+    // Asset safety: wraps registered once by the cloud, which alone can date them, and what was learned carried
+    // forward. Newly registered ones are mailed below. The containers and ships in them are named as you named them;
+    // the wrap itself has no name in ESI ("None", not the lost structure's the client shows).
     const wraps = stock.safety ?? [];
-    const named = new Map((prev?.safety ?? []).filter((w) => w.name).map((w) => [w.id, w.name!]));
-    const unnamed = wraps.filter((w) => !named.has(w.id)).map((w) => w.id);
-    if (unnamed.length) {
+    let holderNames = new Map<number, string>();
+    const holders = unnamedHolders(prev?.safety, wraps);
+    if (holders.length) {
       try {
-        const got = await esiPost<{ item_id: number; name: string }[]>(`/characters/${charId}/assets/names/`, unnamed, token);
-        // Being checked (28 September 2026): whether ESI names a wrap after the lost structure, as the client shows it.
-        console.log('asset safety names', JSON.stringify(got));
-        for (const n of got) if (n.name && n.name !== 'None') named.set(n.item_id, n.name);
-      } catch (e) { console.log('asset safety names failed', e instanceof Error ? e.message : String(e)); }
+        const got = await esiPost<{ item_id: number; name: string }[]>(`/characters/${charId}/assets/names/`, holders, token);
+        holderNames = new Map(got.map((n) => [n.item_id, n.name]));
+        // Being checked: whether ESI names containers and ships inside a wrap (it gives the wrap itself "None").
+        console.log('asset safety container names', JSON.stringify(got.slice(0, 20)));
+      } catch (e) { console.log('asset safety container names failed', e instanceof Error ? e.message : String(e)); }
     }
-    const reg = await registerSafety(db, charId, wraps.map((w) => ({ ...w, ...(named.has(w.id) ? { name: named.get(w.id) } : {}) })));
-    stock.safety = mergeSafety(prev?.safety, wraps.map((w) => ({ ...w, ...(named.has(w.id) ? { name: named.get(w.id) } : {}) })), reg.known);
+    const withNames = nameHolders(wraps, holderNames);
+    const reg = await registerSafety(db, charId, withNames);
+    stock.safety = mergeSafety(prev?.safety, withNames, reg.known);
     freshWraps = reg.fresh;
     for (const w of wraps) for (const id of Object.keys(w.items)) typeIds.add(Number(id));
     const same = prev && JSON.stringify({ ...prev, at: '' }) === JSON.stringify({ ...stock, at: '' });
