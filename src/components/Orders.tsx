@@ -376,7 +376,10 @@ export function Orders() {
                     const heldBack = !!x?.left && x.verdict === 'wait';
                     const left = leaving.has(o.typeId);
                     // The price shown under Move to: what opening it in game copies, ready for the price box.
-                    const moveTo = x && !x.intoBids && !heldBack && Number.isFinite(x.newPrice) ? x.newPrice : null;
+                    // A move that would sell under cost ("Not worth it") is no price to move to: shown as "–", never copied. The
+                    // user saw 8,499,000 and 999,800 under Move to, with a copy icon, on two snipes it would sell at a loss.
+                    const underCostMove = x?.verdict === 'loss';
+                    const moveTo = x && !x.intoBids && !heldBack && !underCostMove && Number.isFinite(x.newPrice) ? x.newPrice : null;
                     // What opening it in game copies: the break-even when it's priced under cost, never a move that's
                     // "not worth it" (it would sell under cost), else the price to move to.
                     const copyAt = x?.underCost ? x.underCost.breakEven : x?.verdict === 'loss' ? null : moveTo;
@@ -413,9 +416,10 @@ export function Orders() {
                           <>
                             <td>
                               <span style={{ color: hot ? 'var(--pos)' : 'var(--cell)' }}>{moveTo != null ? isk(moveTo) : '–'}</span>{moveTo != null && <CopyPrice price={moveTo} />}
-                              {x && !heldBack && x.cutPct > 0 && <span className="sub mono" style={{ color: x.cutPct >= 0.02 ? 'var(--neg)' : 'var(--label)' }}>{x.isBuy ? '+' : '−'}{(x.cutPct * 100).toFixed(x.cutPct < 0.1 ? 1 : 0)}%</span>}
+                              {moveTo != null && x && x.cutPct > 0 && <span className="sub mono" style={{ color: x.cutPct >= 0.02 ? 'var(--neg)' : 'var(--label)' }}>{x.isBuy ? '+' : '−'}{(x.cutPct * 100).toFixed(x.cutPct < 0.1 ? 1 : 0)}%</span>}
+                              {underCostMove && Number.isFinite(x!.newPrice) && <span className="sub" style={{ color: 'var(--neg)' }} data-tip={`Getting in front at ${isk(x!.newPrice)} would sell under what it cost you. ${x!.why}.`}>under cost</span>}
                             </td>
-                            <td data-tip={x && !heldBack && x.cost > 0 ? `${isk(x.give)} of margin plus a ${isk(x.fee)} fee` : undefined}>{x && !heldBack && x.cost > 0 ? iskBig(x.cost) : '–'}</td>
+                            <td data-tip={x && !heldBack && !underCostMove && x.cost > 0 ? `${isk(x.give)} of margin plus a ${isk(x.fee)} fee` : undefined}>{x && !heldBack && !underCostMove && x.cost > 0 ? iskBig(x.cost) : '–'}</td>
                           </>
                         )}
                         <td>{units(x?.volumeRemain ?? o.volumeRemain)}{x?.intoBids
