@@ -172,7 +172,27 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   can win: everything reaching your side until someone else beats the front (your own moves while watched taken out).
   It says so once a change costs half of that (`FEE_EATS`), and suggests a size whose change costs a tenth
   (`FEE_TARGET`): ~4,500 units for the Ghoul. Nothing without a positive margin, or when nobody else beat the front.
-  Weakest slots' ISK a day doesn't subtract price-change fees.
+  Weakest slots' ISK a day doesn't subtract price-change fees. It first fired on 3-unit loot the market barely feeds (Blood Raider
+  Limited Ballistic Control: a change "won" 0.0045 of a unit at 0.0039 a day), where no size is the problem, so it now
+  needs a change to win at least one unit and the suggested size to at least halve the order; the suggestion is never
+  below what one change wins (on a thin margin, Rocket Science's, 10% is out of reach at any size). On the user's 105
+  open orders it went from 6 to 4, all real: the Ghoul, Rocket Science (~1.07 M a change for ~410 k won), PL-0 Scoped
+  Cargo Scanner (~160 k for ~8 units), Iridium Charge M (~198 k for ~220 k).
+- **A sell is never "leave it" at a price trading doesn't reach** (the override after the queue verdict in
+  `adviseRelist`). When the front is reached but your price isn't (fewer than `FILL_RARE` of 14 days, not filling),
+  and the queue says wait or loss, it moves to the highest price the bulk of trading got up to on `FILL_RARE` days
+  (`reachedAsk(highs, FILL_RARE)`): still reached, cheaper than chasing the front, marked `unreached`, so the Clears-in
+  column says "rarely reached". The user's Blood Raider Limited Ballistic Control: 3 at 172,700 read "Leave it" with
+  "2570 days" and "Too big to keep moving". The wait came from weighing a 21% cut to the front (107 k) against the
+  target spread over 771 days: two figures near nothing, since the model's pace was 0.0039 a day. That market sells
+  in bursts: most days ~15 dumped into 62,000 bids, then now and then someone sweeps the listings (338 units up to
+  149,900 on 13 September, 365 up to 170,500 on the 20th); `buyerShare` sets such one-sided days aside, so the pace
+  can't see them, but the highs do: 170,400 was reached on 4 days, 172,700 on none. Now it says "Nobody buys at your
+  price (reached on 0 of the last 14 days), but the bulk of trading got up to 170,400 on 4 of them, so list there
+  rather than chase the front at 137,200" (just "so list there" when that's within 1% of the front). Run over all
+  105 open orders against the cloud's own inputs before shipping: 95 unchanged, 9 loot sells from "Leave it" to a move
+  (Festival Launcher 9,979 → 2,005, reached on 9 days; Experimental SV-2000 64,820 → 10,490), all under the 5 M mail
+  minimum. Prices under 1,000 now keep their cents in these sentences (`priceText`).
 - **"Price just moved" keeps a spread across two price levels out of the planner** (`lastMove`, `MOVED` 0.5, flag
   `moved`). True Sansha traded around 3.6 M for weeks, then days spanning 3 M to 9 M, then a day at 7.0–7.55 M:
   both its bid (where it had traded) and its ask (where it had jumped to) counted as reached on those wide days.

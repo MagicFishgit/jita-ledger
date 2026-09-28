@@ -325,12 +325,19 @@ export function tooBigToMove(
     unitsPerChange = Math.min(x.volumeRemain, (m.perDay * (w.h / others)) / 24);
     from = 'model';
   }
+  // A change that wins less than a unit means the market barely feeds your side: that's no size's fault, and other
+  // advice covers it. The Blood Raider's 3 units read "too big" at a pace of 0.0039 a day.
+  if (!(unitsPerChange >= 1)) return null;
   const profitPerChange = unitsPerChange * m.margin;
   if (!(changeFee >= FEE_EATS * profitPerChange)) return null;
   const spanDays = first ? (now - Date.parse(first.issued)) / DAY_MS : 0;
   const ownPace = spanDays >= 1 && filled > 0 ? filled / spanDays : null;
   const daysToFill = ownPace ? x.volumeRemain / ownPace : m.perDay && m.perDay > 0 ? x.volumeRemain / m.perDay : Infinity;
-  const suggest = Math.max(1, Number(((FEE_TARGET * profitPerChange) / (k * x.price)).toPrecision(2)));
+  // At least what one change wins: smaller, and you'd be placing a new order every time you'd have moved one. On a
+  // thin margin (Datacore - Rocket Science: ~1,540 on 85,460) that's as low as the fee's share goes (~14%).
+  const suggest = Math.max(1, Number(Math.max((FEE_TARGET * profitPerChange) / (k * x.price), unitsPerChange).toPrecision(2)));
+  // Only when a smaller order would help: at least halving it.
+  if (!(suggest <= x.volumeRemain / 2)) return null;
   return {
     changeFee, unitsPerChange, profitPerChange, from, changes,
     daysToFill, paceFrom: ownPace ? 'own' : 'side',
@@ -418,6 +425,9 @@ export function weightedLevel(orders: PriceVolume[]): number {
   return sorted[sorted.length - 1].price;
 }
 
+/** A price in a sentence: whole ISK from 1,000 up (four significant figures leave no cents there), cents below. */
+const priceText = (p: number) => p.toLocaleString('en-US', { maximumFractionDigits: p < 1000 ? 2 : 0 });
+
 export function adviseRelist(
   mine: Mine,
   m: MarketContext,
@@ -474,8 +484,8 @@ export function adviseRelist(
   const sellReachAt = !mine.isBuy && m.highs ? reachedAsk(m.highs) : null;
   // Your own fills overrule the count: history lags and is trimmed, your order isn't. An ordinary sell on an item that
   // traded on too few days to say where trading reaches keeps its queue advice.
-  const unreached = frontReach != null && frontReach < FILL_RARE && !m.filling && !(ordinarySell && sellReachAt == null);
-  const reachAt = !unreached ? null : mine.isBuy ? reachedBid(m.lows!) : sellReachAt;
+  let unreached = frontReach != null && frontReach < FILL_RARE && !m.filling && !(ordinarySell && sellReachAt == null);
+  let reachAt = !unreached ? null : mine.isBuy ? reachedBid(m.lows!) : sellReachAt;
   // Where trading reached may be under today's best bid when the market has since moved up (the membrane's fortnight
   // was mostly 55,000 before a buyer arrived at 100,000). A listing there would just sell into the bid, so the move
   // is to one step over it instead.
@@ -485,15 +495,15 @@ export function adviseRelist(
   // An ordinary buy goes to the front when the front is above where trading reaches; one you're leaving goes
   // where trading reaches and stays behind the front, which is the point of leaving it. A sell goes where trading
   // reaches, which for an ordinary one is in front of everyone, since even the front wasn't reached.
-  const newPrice = unreached && reachAt != null
+  let newPrice = unreached && reachAt != null
     ? (mine.isBuy ? (!m.leave ? (!(oneStep >= reachAt) ? reachAt : oneStep) : reachAt) : overBid ? tickUp(bestBid!) : reachAt)
     : oneStep;
   const moves = (beaten || unreached) && Number.isFinite(newPrice);
-  const give = moves ? Math.abs(newPrice - price) * volumeRemain : 0;
-  const fee = moves ? Math.max(100, r.k * newPrice * volumeRemain) : 0;
-  const cost = give + fee;
+  let give = moves ? Math.abs(newPrice - price) * volumeRemain : 0;
+  let fee = moves ? Math.max(100, r.k * newPrice * volumeRemain) : 0;
+  let cost = give + fee;
   const atRisk = price * volumeRemain;
-  const cutPct = moves && price > 0 ? Math.abs(newPrice - price) / price : 0;
+  let cutPct = moves && price > 0 ? Math.abs(newPrice - price) / price : 0;
 
   // Would getting in front put you well outside where the bulk of the book sits? The live book
   // answers that on its own, so it holds even for an item we know nothing else about.
@@ -531,7 +541,7 @@ export function adviseRelist(
   } else if (unreached && !mine.isBuy) {
     // A sell trading doesn't get up to (for an ordinary one, not even at the front): say where it does, unless that's
     // under your cost.
-    const at = (p: number) => Math.round(p).toLocaleString('en-US');
+    const at = priceText;
     let said: string, there: string, sellNow = '';
     if (overBid) {
       // The market has moved up past where it used to trade: say it the way the user read it, and that selling into
@@ -572,7 +582,7 @@ export function adviseRelist(
     const ret = moves && sellNet != null ? sellNet / (newPrice * (1 + r.f)) - 1 : null;
     const target = m.targetReturn ?? 0;
     const said = `The bulk of trading reached your bid on ${reach} of the last ${FILL_WINDOW} days`;
-    const at = (p: number) => Math.round(p).toLocaleString('en-US');
+    const at = priceText;
     if (reachAt == null) {
       verdict = 'dry';
       why = `${said}, and the item traded on too few days for any bid to be reached reliably`;
@@ -600,13 +610,13 @@ export function adviseRelist(
     why =
       `The ${aheadUnits.toLocaleString('en-US')} unit${aheadUnits === 1 ? '' : 's'} ahead of you ${aheadUnits === 1 ? 'is' : 'are'} priced ` +
       `${pctText(Math.abs(level - newPrice) / level)} ${mine.isBuy ? 'above' : 'below'} where the rest of the book sits ` +
-      `(${Math.round(level).toLocaleString('en-US')}) \u2014 someone's mistake or a token dump, not the market`;
+      `(${priceText(level)}) \u2014 someone's mistake or a token dump, not the market`;
   } else if (waitingPaysDaily > targetDaily) {
     // The move is expensive relative to the waiting it saves. Cutting a third off a price to get in
     // front of a thin skim of cheap stock destroys far more than it brings forward.
     verdict = 'wait';
     why =
-      `Getting in front means moving ${pctText(cutPct)} to ${Math.round(newPrice).toLocaleString('en-US')}, ` +
+      `Getting in front means moving ${pctText(cutPct)} to ${priceText(newPrice)}, ` +
       `which costs ${Math.round(cost).toLocaleString('en-US')} ISK to save ${hrs(hoursToFront)} of waiting — ` +
       `holding your price is worth about ${pctText(waitingPaysDaily)} a day` +
       (tradeDays > 1
@@ -620,6 +630,36 @@ export function adviseRelist(
     why = Number.isFinite(hoursToFront)
       ? `${aheadUnits.toLocaleString('en-US')} ahead of you, about ${hrs(hoursToFront)} of waiting`
       : `${aheadUnits.toLocaleString('en-US')} ahead of you, and this item barely trades`;
+  }
+
+  // A sell trading doesn't get up to, behind a front it does: never "leave it", or give up as a loss, at a price no
+  // trading reaches. Move to the highest price the bulk of trading got up to on FILL_RARE days, which is still reached
+  // and costs less than chasing the front. The user's Blood Raider Limited Ballistic Control (28 September 2026): 3 at
+  // 172,700 told to leave it, "Clears in 2570 days", because moving 21% to the front cost more a day than the 5% target
+  // spread over 771 days, two figures near nothing. Buyers there sweep listings in bulk now and then (338 units up to
+  // 149,900 on 13 September, 365 up to 170,500 on the 20th) while sellers dump ~15 a day into 62,000 bids, a pace the
+  // model reads as next to nothing; trading reached 170,400 on 4 of the 14 days and their price on none.
+  if (ordinarySell && !gone && beaten && !unreached && !m.filling && reach != null && reach < FILL_RARE && (verdict === 'wait' || verdict === 'loss')) {
+    const up = reachedAsk(m.highs!, FILL_RARE);
+    if (up != null && up < price && up > oneStep) {
+      const at = priceText;
+      newPrice = up;
+      give = (price - up) * volumeRemain;
+      fee = Math.max(100, r.k * up * volumeRemain);
+      cost = give + fee;
+      cutPct = (price - up) / price;
+      unreached = true;
+      reachAt = up;
+      const said = `${reach === 0 ? 'Nobody buys at your price' : 'Buyers rarely pay your price'} (reached on ${reach} of the last ${FILL_WINDOW} days), but the bulk of trading got up to ${at(up)} on ${askReachDays(m.highs!, up)} of them`;
+      if (m.avgCost != null && netOfSale(up) < m.avgCost) {
+        verdict = 'loss';
+        why = `${said}, which would sell under what the stock cost you`;
+      } else {
+        verdict = 'move';
+        // A step or two over the front is the front, near enough: no chase to speak of.
+        why = up - oneStep > oneStep * 0.01 ? `${said}, so list there rather than chase the front at ${at(oneStep)}` : `${said}, so list there`;
+      }
+    }
   }
 
   // Left on purpose: behind the front is where it's meant to be. Only trading no longer reaching it (above) speaks.

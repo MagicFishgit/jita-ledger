@@ -2459,6 +2459,10 @@ console.log('\n--- an order too big to keep moving ---');
   const mineWatched = tooBigToMove({ isBuy: true, seen: [{ ...seen[0], issued: '2026-09-28T10:00:00Z' }, ...Array.from({ length: 2 }, (_, i) => ({ issued: `2026-09-28T1${i + 1}:00:00Z`, price: 2030, remain: 49400 }))] },
     { price: 2031, volumeRemain: 49062, gone: false }, { perDay: 881, watched: { ...watched, frontBuy: 2 }, margin }, k, now);
   eq('  nothing when only your own moves improved the front: nobody else is outbidding you', mineWatched, null);
+  // Datacore - Rocket Science, 4,924 left at 85,460 on a ~1,540 margin, 266 units won a change on its record.
+  const rs = tooBigToMove({ isBuy: true, seen: [{ issued: '2026-09-25T00:00:00Z', price: 83000, remain: 6000 }, ...[1, 2, 3].map((i) => ({ issued: `2026-09-2${5 + i}T00:00:00Z`, price: 83000 + i * 800, remain: 6000 - i * 266 }))] },
+    { price: 85460, volumeRemain: 4924, gone: false }, { perDay: 500, margin: 1540 }, k, Date.parse('2026-09-28T20:00:00Z'));
+  eq('  on a thin margin the size suggested is still at least what one change wins', [Math.round(rs.unitsPerChange), rs.suggest], [359, 360]);
   eq('a 1,000-unit order on the same market says nothing: a change costs about 5 k', tooBigToMove({ isBuy: true, seen }, { price: 2031, volumeRemain: 1000, gone: false }, { perDay: 881, margin }, k, now), null);
   eq('nothing without a margin to lose', tooBigToMove({ isBuy: true, seen }, { price: 2031, volumeRemain: 49062, gone: false }, { perDay: 881, margin: -5 }, k, now), null);
   eq('nothing for an order that’s gone', tooBigToMove({ isBuy: true, seen }, { price: 2031, volumeRemain: 49062, gone: true }, { perDay: 881, margin }, k, now), null);
@@ -2466,6 +2470,26 @@ console.log('\n--- an order too big to keep moving ---');
   const book = [{ id: 1, isBuy: true, price: 2031, volume: 49062 }, { id: 2, isBuy: true, price: 2030, volume: 4449 }, { id: 3, isBuy: false, price: 8193, volume: 5 }];
   const x = judge({ orderId: 1, typeId: 5141, isBuy: true, price: 2031, volumeRemain: 49062, locationId: 60003760, seen }, { book, perDay: 881, lows: null, txs: [] }, DEFAULT_SETTINGS, now);
   eq('  Orders carries it on the order', [x.tooBig != null, x.tooBig?.from], [true, 'own']);
+}
+
+console.log('\n--- never leave a sell at a price trading doesn\'t reach ---');
+{
+  const { adviseRelist, tooBigToMove } = await import('../src/lib/relist.ts');
+  const R = { k: 0.0026, f: 0.013, t: 0.03375 };
+  // The user's Blood Raider Limited Ballistic Control (28 September 2026): 3 listed at 172,700, 10 cheaper ahead,
+  // bids at ~62,000; buyers sweep listings in bulk now and then (up to 170,500 on the 20th), sellers dump into bids.
+  const highs = [62020, 62020, 170400, 62020, 170400, 170400, 170500, 62060, 170000, 62060, 62060, 62070, 62080, 62080];
+  const L = (id, isBuy, price, volume) => ({ id, isBuy, price, volume });
+  const book = [L(1, false, 137300, 1), L(2, false, 140100, 7), L(3, false, 160000, 2), L(5, false, 172700, 3), L(6, false, 172800, 5), L(7, false, 175400, 93), L(9, true, 62080, 95), L(10, true, 62070, 181)];
+  const mine = { orderId: 5, typeId: 23148, isBuy: false, price: 172700, volumeRemain: 3 };
+  const br = adviseRelist(mine, { book, dailyVolume: 0.0039, highs }, R, 1, 0.05);
+  eq('the Blood Raider: not “leave it” at a price trading reached on 0 of 14 days', [br.verdict, br.unreached, br.reach], ['move', true, 0]);
+  eq('  but to where trading got up to on 4 of them, not chasing the front 21% down', [br.newPrice, Math.round(br.cost)], [170400, 6900 + Math.round(0.0026 * 170400 * 3)]);
+  eq('  saying so', br.why, 'Nobody buys at your price (reached on 0 of the last 14 days), but the bulk of trading got up to 170,400 on 4 of them, so list there rather than chase the front at 137,200');
+  eq('  unless that sells under what it cost', adviseRelist(mine, { book, dailyVolume: 0.0039, highs, avgCost: 170000 }, R, 1, 0.05).verdict, 'loss');
+  eq('  a sell whose price is reached keeps its queue advice', adviseRelist({ ...mine, price: 170400 }, { book: book.map((o) => (o.id === 5 ? { ...o, price: 170400 } : o)), dailyVolume: 0.0039, highs }, R, 1, 0.05).unreached, false);
+  eq('  and “too big” says nothing for 3 units a market barely feeds: a change wins under a unit', tooBigToMove({ isBuy: false, seen: [] }, { price: 172700, volumeRemain: 3, gone: false },
+    { perDay: 0.0039, watched: { h: 28, sell: 0, buy: 37, newSell: 1, newBuy: 0, frontSell: 1 }, margin: 100000 }, 0.0026, Date.parse('2026-09-28T20:00:00Z')), null);
 }
 
 console.log('\n--- an item\'s daily rhythm ---');

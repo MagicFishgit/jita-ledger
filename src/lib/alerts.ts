@@ -307,8 +307,8 @@ function section(f: Finding, market: (typeId: number, calc?: boolean, name?: str
       ? `${col('grey', 'Yours ')}${price(o.price)}${col('grey', ' · nobody else on your side')}<br>`
       : `${col('grey', 'Yours ')}${price(o.price)}${col('grey', ' · best now ')}${col(o.gap > 0 && o.verdict !== 'front' ? 'red' : 'white', price(o.best))}${o.gap > 0 && o.verdict !== 'front' ? col('grey', ` (beaten by ${price(o.gap)})`) : ''}<br>`);
     if (o.verdict === 'move' && o.unreached) {
-      // Over the best bid, the order check's own sentence says it best, selling into that bid included.
-      out.push(col('grey', o.overBid ? `${escapeMail(o.why)}.` : `Trading reached your ${o.isBuy ? 'bid' : 'price'} on ${o.reach} of the last ${FILL_WINDOW} days. ${price(o.newPrice)} is where it did on half of them.`) + '<br>');
+      // For a sell, the order check's own sentence says it best: where trading reaches, or one step over the best bid.
+      out.push(col('grey', o.overBid || !o.isBuy ? `${escapeMail(o.why)}.` : `Trading reached your ${o.isBuy ? 'bid' : 'price'} on ${o.reach} of the last ${FILL_WINDOW} days. ${price(o.newPrice)} is where it did on half of them.`) + '<br>');
     }
     if (o.verdict === 'move') {
       out.push(`${col('grey', 'Moving costs ')}${money(o.cost)}${col('grey', ` (${money(o.give)} ${o.isBuy ? 'higher' : 'lower'} price + ${money(o.fee)} fee) · `)}${money(o.atRisk)}${col('grey', ' at stake')}<br>`);
