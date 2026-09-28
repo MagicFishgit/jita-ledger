@@ -117,12 +117,16 @@ export function Calculator({ route }: { route: Route }) {
         // cleared box is kept in the draft), so it takes your share of a typical day.
         const shareQty = day != null && day > 0 ? Math.max(1, Math.round(day * sharePct / 100)) : 1;
         const qtyFilled = !(parseISK(fRef.current.qty) > 0);
+        // A side with nothing to fill from is emptied, never left as it was: the box would still hold the item looked
+        // up before. The user opened an Experimental ZW-4100 Torpedo Launcher (no buy orders anywhere in The Forge)
+        // and got "Buy at 106,600,000" from the previous item, a 107.9 M loss per unit, and "trading got down to your
+        // buy at 106.6 M on 14 of 14 days".
         setF((x) => {
           return {
             ...x,
-            buy: Number.isFinite(buy) ? inputNum(buy) : x.buy,
-            sell: Number.isFinite(sell) ? inputNum(sell) : x.sell,
-            vol: day != null ? inputNum(Math.round(day)) : x.vol,
+            buy: Number.isFinite(buy) ? inputNum(buy) : '',
+            sell: Number.isFinite(sell) ? inputNum(sell) : '',
+            vol: day != null ? inputNum(Math.round(day)) : '',
             qty: qtyFilled ? String(shareQty) : x.qty,
           };
         });
@@ -132,11 +136,15 @@ export function Calculator({ route }: { route: Route }) {
           day != null ? 'a typical day’s volume' : null,
           qtyFilled ? `a quantity of ${units(shareQty)} (your ${sharePct}% share of a typical day)` : null,
         ].filter(Boolean);
-        setMsg({
-          text: filled.length
-            ? `Filled in: ${filled.join(', ')}. EVE order prices carry only four significant figures, so those are the smallest steps you can take here.`
-            : 'Jita 4-4 has no orders for this item right now.',
-        });
+        const empty = [
+          !Number.isFinite(buy) ? 'there are no buy orders in Jita 4-4, so type the price you’d bid' : null,
+          !Number.isFinite(sell) ? 'there are no sell orders in Jita 4-4, so type the price you’d list at' : null,
+        ].filter(Boolean);
+        const said = [
+          filled.length ? `Filled in: ${filled.join(', ')}.${Number.isFinite(buy) || Number.isFinite(sell) ? ' EVE order prices carry only four significant figures, so those are the smallest steps you can take here.' : ''}` : null,
+          empty.length === 2 ? 'Jita 4-4 has no orders for this item right now: type the prices yourself.' : empty.length ? `Left empty: ${empty[0]}.` : null,
+        ].filter(Boolean);
+        setMsg({ text: said.join(' ') });
       }
     } catch (e) {
       setMsg({ text: e instanceof Error ? e.message : String(e), err: true });
