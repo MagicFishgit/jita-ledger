@@ -5,10 +5,11 @@ import { rateAt, rates } from '../lib/fees';
 import { reachedAsk, recentRange } from '../lib/fills';
 import { ago, fmtDateTime, isk, iskBig, iskBigSigned, pct, units, until } from '../lib/format';
 import { marketHistory } from '../lib/market';
-import { computePosition } from '../lib/positions';
-import { groupBuys, instantBuys, judgeTaken, type Sighting } from '../lib/sniped';
+import { feeMatchesFor } from '../lib/positions';
+import { followSnipe, groupBuys, instantBuys, judgeTaken, type Sighting } from '../lib/sniped';
 import { toast } from '../lib/toast';
-import type { HistRow, Position } from '../lib/types';
+import { JITA_44 } from '../lib/constants';
+import type { HistRow } from '../lib/types';
 import { navigate, useNow } from '../lib/hooks';
 import { sanitizeAlerts } from '../lib/prefs';
 import { DOUBT_SAID, judgeBids, judgeListings, type HeldBidRow, type SnipeRead, type SnipeRow } from '../lib/snipe';
@@ -25,8 +26,9 @@ async function copyPrice(p: number) {
 }
 
 /**
- * The snipes you've taken, found in your wallet (sniped.ts), and what each made since: worked out like a position
- * from the first buy on, with the real fees matched to your orders, but shown only here, never on Positions.
+ * The snipes you've taken, found in your wallet (sniped.ts), and what each made since, following only its own units
+ * (`followSnipe`): the first sold after the snipe, the listing fees of your sell orders placed after it shared by
+ * units, and the sales tax matched to each sale. Shown only here, never on Positions.
  */
 function YourSnipes({ now }: { now: number }) {
   const d = useData();
@@ -59,27 +61,31 @@ function YourSnipes({ now }: { now: number }) {
   useEnsureNames(taken.map((x) => x.typeId));
   // One outcome per item, from its first snipe on, so two snipes of one item aren't counted twice.
   const items = useMemo(() => {
+    const matches = feeMatchesFor(d, d.settings);
+    const personal = new Set(d.ignored);
     const byType = new Map<number, typeof taken>();
     for (const x of taken) byType.set(x.typeId, [...(byType.get(x.typeId) ?? []), x]);
     return [...byType].map(([typeId, list]) => {
       const first = list.reduce((a, b) => (Date.parse(a.at) < Date.parse(b.at) ? a : b));
-      const personal = Object.values(d.txs).filter((t) => t.typeId === typeId && d.ignored.includes(t.id)).map((t) => t.id);
-      const pos: Position = { id: `snipe:${typeId}`, typeId, openedAt: new Date(Date.parse(first.at) - 1000).toISOString(), status: 'open', jitaOnly: true, excluded: personal, included: [] };
-      const c = computePosition(pos, d, d.settings);
+      const t0 = Date.parse(first.at);
+      const units = list.reduce((n, x) => n + x.units, 0), cost = list.reduce((n, x) => n + x.cost, 0);
+      const sales = Object.values(d.txs).filter((t) => t.typeId === typeId && !t.isBuy && t.source === 'esi' && (t.locationId == null || t.locationId === JITA_44) && !personal.has(t.id));
+      // Your sell orders placed since the snipe, with every fee matched to them (placing and price changes).
+      const listings = Object.values(d.orders)
+        .filter((o) => o.typeId === typeId && !o.isBuy && o.locationId === JITA_44 && Date.parse((o.seen?.[0] ?? o).issued) >= t0 - 60_000)
+        .map((o) => { const f = matches.byOrder.get(o.orderId); return { units: o.volumeTotal, fees: f ? f.placement.amount + f.relists.reduce((n, x) => n + x.amount, 0) : 0 }; });
       const rows = hist?.[typeId];
       const fairNow = rows ? reachedAsk(recentRange(rows, undefined, now).highs) : null;
-      // If what's left sells where the item trades now, after fees: fees already paid on listed stock stay counted.
-      const rest = c.stock > 0 && fairNow ? c.stock * fairNow * (1 - r.f - r.t) - c.costOfStock : 0;
+      const out = followSnipe({ units, cost, at: first.at }, sales, listings, (id) => matches.taxByTx.get(id), r, fairNow);
       return {
-        typeId, list, latest: list[0], units: list.reduce((n, x) => n + x.units, 0), cost: list.reduce((n, x) => n + x.cost, 0),
-        expected: list.reduce((n, x) => n + x.expected, 0), byTool: list.some((x) => x.byTool),
-        bought: c.bought, sold: c.sold, avgSell: c.avgSell, stock: c.stock, realized: c.realized, prepaid: c.prepaidFees,
-        inTheEnd: c.realized - c.prepaidFees + rest, fairNow,
+        typeId, list, latest: list[0], units, cost, expected: list.reduce((n, x) => n + x.expected, 0), byTool: list.some((x) => x.byTool),
+        ...out, fairNow,
       };
     }).sort((a, b) => Date.parse(b.latest.at) - Date.parse(a.latest.at));
   }, [taken, d, hist, now, r.f, r.t]);
   const sum = (f: (x: (typeof items)[number]) => number) => items.reduce((n, x) => n + f(x), 0);
-  const worse = items.filter((x) => x.inTheEnd < x.expected * 0.5).length;
+  const worse = items.filter((x) => x.inTheEnd != null && x.inTheEnd < x.expected * 0.5).length;
+  const endKnown = items.every((x) => x.inTheEnd != null);
 
   return (
     <Panel title="Your snipes" sub="Found in your wallet: buys of yours from a listing in Jita at 5%+ under where the item traded, after fees, whether the Sniper found them or you did.">
@@ -90,8 +96,8 @@ function YourSnipes({ now }: { now: number }) {
               <Tiles min={170} items={[
                 { l: 'Snipes taken', v: units(taken.length), n: `${units(sum((x) => (x.byTool ? x.list.length : 0)))} found by the Sniper`, c: 'var(--acc)' },
                 { l: 'ISK put in', v: iskBig(sum((x) => x.cost)), n: `Looked like ${iskBigSigned(sum((x) => x.expected))} after fees` },
-                { l: 'Made so far', v: iskBigSigned(sum((x) => x.realized)), n: 'On what has sold, after the fees on it', c: sum((x) => x.realized) >= 0 ? 'var(--pos)' : 'var(--neg-t)' },
-                { l: 'In the end', v: iskBigSigned(sum((x) => x.inTheEnd)), n: 'If what’s left sells where it trades now', c: sum((x) => x.inTheEnd) >= 0 ? 'var(--pos)' : 'var(--neg-t)' },
+                { l: 'Made so far', v: iskBigSigned(sum((x) => x.madeSoFar)), n: 'On sniped units sold, after the fees on them', c: sum((x) => x.madeSoFar) >= 0 ? 'var(--pos)' : 'var(--neg-t)' },
+                { l: 'In the end', v: iskBigSigned(sum((x) => x.inTheEnd ?? x.madeSoFar)), n: endKnown ? 'If what’s left sells where it trades now' : 'Where the price is known: some items have no history yet', c: sum((x) => x.inTheEnd ?? x.madeSoFar) >= 0 ? 'var(--pos)' : 'var(--neg-t)' },
               ]} />
               {worse > 0 && <p className="note small" style={{ margin: 0, color: 'var(--acc2)' }}>{units(worse)} {worse === 1 ? 'is' : 'are'} heading for less than half what {worse === 1 ? 'it' : 'they'} looked like: a price that moved, or fees on the relist.</p>}
               <div className="tbl-scroll">
@@ -100,9 +106,9 @@ function YourSnipes({ now }: { now: number }) {
                     <th scope="col" className="l">Item</th>
                     <th scope="col">Sniped</th>
                     <th scope="col" data-tip="Relisted where it had been trading, after your fees at the time">Looked like</th>
-                    <th scope="col" data-tip="Of what you've bought of it since the snipe">Sold</th>
-                    <th scope="col" data-tip="On what has sold, after the broker fees and tax on it, matched to your orders">Made so far</th>
-                    <th scope="col" data-tip="Broker fees already paid on stock still listed: charged as it sells">Fees on unsold</th>
+                    <th scope="col" data-tip="Of the units you sniped: the first sold after the snipe count as its own. Sales of stock you already had are shown apart and kept out of its profit.">Sold</th>
+                    <th scope="col" data-tip="On the sniped units that sold: the sales less their tax, their cost and their share of the listing fees">Made so far</th>
+                    <th scope="col" data-tip="Listing fees already paid for sniped units still unsold: charged as they sell">Fees on unsold</th>
                     <th scope="col" data-tip="Made so far, less those fees, plus what's left if it sells where the item trades now">In the end</th>
                   </tr></thead>
                   <tbody>
@@ -114,16 +120,17 @@ function YourSnipes({ now }: { now: number }) {
                           {x.list.length > 1 && <span className="sub">{x.list.length} snipes</span>}</span></td>
                         <td>{units(x.units)} at {isk(x.cost / x.units)}<span className="sub">{fmtDateTime(x.latest.at)} · {pct(x.latest.under, 0)} under</span></td>
                         <td>{iskBigSigned(x.expected)}</td>
-                        <td>{units(x.sold)} of {units(x.bought)}{x.avgSell != null && <span className="sub">at {isk(x.avgSell)}</span>}</td>
-                        <td style={{ color: x.realized >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{iskBigSigned(x.realized)}</td>
-                        <td style={{ color: x.prepaid > 0 ? 'var(--acc2)' : 'var(--ghost)' }}>{x.prepaid > 0 ? iskBig(x.prepaid) : '–'}</td>
-                        <td style={{ color: x.inTheEnd >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{iskBigSigned(x.inTheEnd)}{x.stock > 0 && <span className="sub">{units(x.stock)} left{x.fairNow ? ` at ${isk(x.fairNow)}` : ''}</span>}</td>
+                        <td>{units(x.soldUnits)} of {units(x.units)}
+                          {(x.avgSale != null || x.extraSold > 0) && <span className="sub">{[x.avgSale != null ? `at ${isk(x.avgSale)}` : '', x.extraSold > 0 ? `+${units(x.extraSold)} you already had` : ''].filter(Boolean).join(' · ')}</span>}</td>
+                        <td style={{ color: x.madeSoFar >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{iskBigSigned(x.madeSoFar)}</td>
+                        <td style={{ color: x.feesOnUnsold > 0 ? 'var(--acc2)' : 'var(--ghost)' }}>{x.feesOnUnsold > 0 ? iskBig(x.feesOnUnsold) : '–'}</td>
+                        <td style={{ color: (x.inTheEnd ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{x.inTheEnd != null ? iskBigSigned(x.inTheEnd) : '–'}{x.left > 0 && <span className="sub">{units(x.left)} left{x.fairNow ? ` at ${isk(x.fairNow)}` : ''}</span>}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <p className="note small" style={{ margin: 0 }}>Each item is followed from its first snipe on, with every trade of it since, so buying or selling more of it the usual way counts here too. Buys tagged Personal are left out.</p>
+              <p className="note small" style={{ margin: 0 }}>Only the units you sniped are followed: the first sold after a snipe count as its own, and listing fees are shared by units between them and anything of your own listed alongside. Buys tagged Personal are left out.</p>
             </>
           )}
     </Panel>

@@ -549,8 +549,11 @@ Don't re-derive or contradict these without new evidence.
   **Snipes you take are found in your wallet** (`lib/sniped.ts`): a purchase from a listing in Jita (the escrow
   fact above) at 5%+ under where the item had traded in the 14 days before, after your fees then; buys of one item
   within 30 minutes are one snipe; the cloud's sightings (`snipe_seen`, 30 days) mark which the Sniper found. Each
-  item is followed like a position from its first snipe on (`computePosition` on a position that exists only on the
-  Sniper page, never on Positions, so nothing double-counts), so the real fees count: the user's first Sniper relist
+  item is followed by its **own units only** (`followSnipe`): the first sold after the snipe count as its own, sales
+  beyond them show as "+N you already had", listing fees are those of sell orders placed after the snipe shared by
+  units, and sales tax is what was matched to each sale. It first used `computePosition` on a virtual position, which
+  follows every trade of the item: the user's C-IR Compact Guidance Disruptor read "10 of 3 sold" (7 were loot they
+  already had) and those 7 were costed at the snipe's price, crediting it with their profit. So the real fees count: the user's first Sniper relist
   was fat-fingered at 1,893,000 instead of 1,893 on 19,489 units, a ~468 M broker fee on a 20 M snipe, and "Your
   snipes" shows that as it is. The Relist at price has a copy button so the price is pasted, not typed.
 - **"Place and leave" prices a plan behind the front on purpose** (`ProspectFilters.patient`, the planner's Pricing

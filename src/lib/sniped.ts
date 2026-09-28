@@ -93,3 +93,59 @@ export function judgeTaken(groups: BuyGroup[], historyOf: (typeId: number) => Hi
   }
   return out.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }
+
+export type SnipeOutcome = {
+  /** Of the sniped units, how many have sold: the first sold after the snipe count as its own. */
+  soldUnits: number;
+  /** Their average sale price. */
+  avgSale: number | null;
+  /** Sold after the snipe beyond its own units: stock you already had, kept out of its profit. */
+  extraSold: number;
+  /** On the sniped units that sold: sales less their tax, their cost and their share of the listing fees. */
+  madeSoFar: number;
+  /** Listing fees already paid for sniped units still unsold. */
+  feesOnUnsold: number;
+  left: number;
+  /** Made so far, plus what's left sold where the item trades now, after fees; null when that price isn't known. */
+  inTheEnd: number | null;
+};
+
+/**
+ * What a snipe made, following only its own units. Positions follow every trade of an item, which for a snipe of
+ * something you also had (loot, usually) counted your own stock's sales as the snipe's and costed them at its price:
+ * "10 of 3 sold". Listing fees are those of your sell orders placed after the snipe, shared by units, so a listing
+ * of 3 sniped and 7 of your own carries 3/10 of its fee; sales tax is what was matched to each sale, or estimated.
+ */
+export function followSnipe(
+  s: { units: number; cost: number; at: string },
+  sales: { id: string; date: string; qty: number; unitPrice: number }[],
+  listings: { units: number; fees: number }[],
+  taxOf: (txId: string) => number | undefined,
+  r: { f: number; t: number },
+  fairNow: number | null,
+): SnipeOutcome {
+  const t0 = Date.parse(s.at);
+  let need = s.units, revenue = 0, tax = 0, soldUnits = 0, extraSold = 0;
+  for (const x of [...sales].filter((x) => Date.parse(x.date) >= t0).sort((a, b) => Date.parse(a.date) - Date.parse(b.date))) {
+    const take = Math.min(need, x.qty);
+    if (take > 0) {
+      revenue += take * x.unitPrice;
+      const paid = taxOf(x.id);
+      tax += paid != null ? (paid * take) / x.qty : take * x.unitPrice * r.t;
+      soldUnits += take;
+      need -= take;
+    }
+    extraSold += x.qty - take;
+  }
+  const listed = listings.reduce((n, o) => n + o.units, 0);
+  const fee = listed > 0 ? listings.reduce((n, o) => n + o.fees, 0) * Math.min(1, s.units / listed) : 0;
+  const share = s.units > 0 ? soldUnits / s.units : 0;
+  const madeSoFar = revenue - tax - s.cost * share - fee * share;
+  const left = s.units - soldUnits;
+  const feesOnUnsold = fee * (1 - share);
+  // What's left, sold where the item trades now: tax on the sale, and a listing fee unless one's already paid.
+  const inTheEnd = left <= 0 ? madeSoFar
+    : fairNow == null ? null
+      : madeSoFar + left * fairNow * (1 - r.t) - (s.cost * left) / s.units - Math.max(feesOnUnsold, left * fairNow * r.f);
+  return { soldUnits, avgSale: soldUnits ? revenue / soldUnits : null, extraSold, madeSoFar, feesOnUnsold, left, inTheEnd };
+}

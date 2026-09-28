@@ -2360,6 +2360,17 @@ console.log('\n--- snipes you have taken ---');
   eq('  the cheap one is a snipe, the ordinary buy is not', taken.map((x) => x.txIds), [['a', 'b']]);
   eq('  how far under, what it looked like, and that the Sniper had shown it', [+(taken[0].under * 100).toFixed(1), Math.round(taken[0].expected / 1e5) / 10, taken[0].byTool], [26.7, 108.8, true]);
   eq('  bought outside the sighting window, it was found by hand', Sd.judgeTaken(groups, () => hist, rate, [{ ...seen[0], lastSeen: Date.parse('2026-09-27T23:30:00Z') }])[0].byTool, false);
+  // The C-IR Compact Guidance Disruptor: 3 sniped at 3,609, then 10 sold at 7,787, 7 of them loot you already had.
+  const R = { f: 0.01268, t: 0.03375 };
+  const cir = Sd.followSnipe({ units: 3, cost: 3 * 3609, at: '2026-09-27T19:24:00Z' },
+    [{ id: 's1', date: '2026-09-27T20:00:00Z', qty: 10, unitPrice: 7787 }], [{ units: 10, fees: 987 }], () => undefined, R, 7800);
+  eq('  only the sniped units count as sold; the rest were yours already', [cir.soldUnits, cir.extraSold, cir.left], [3, 7, 0]);
+  eq('    and only they make its profit, with 3/10 of the listing fee', Math.round(cir.madeSoFar), Math.round(3 * 7787 * (1 - R.t) - 3 * 3609 - 987 * 0.3));
+  eq('  a sale before the snipe is not its own', Sd.followSnipe({ units: 3, cost: 10827, at: '2026-09-27T19:24:00Z' }, [{ id: 's0', date: '2026-09-27T18:00:00Z', qty: 5, unitPrice: 7787 }], [], () => undefined, R, 7800).soldUnits, 0);
+  // The fat finger: 19,489 bought at 749.50 and listed at 1,893,000, a 468 M fee, nothing sold yet.
+  const ff = Sd.followSnipe({ units: 19489, cost: 19489 * 749.5, at: '2026-09-28T01:20:00Z' }, [], [{ units: 19489, fees: 467.8e6 }], () => undefined, R, 1893);
+  eq('  a listing fee already paid waits on the unsold units, and counts in the end', [Math.round(ff.feesOnUnsold / 1e5) / 10, Math.round(ff.inTheEnd / 1e5) / 10], [467.8, -446.8]);
+  eq('  the real tax is used when it was matched to the sale', Math.round(Sd.followSnipe({ units: 2, cost: 100, at: '2026-09-27T10:00:00Z' }, [{ id: 'x', date: '2026-09-27T11:00:00Z', qty: 4, unitPrice: 100 }], [], (id) => (id === 'x' ? 20 : undefined), R, 100).madeSoFar), 200 - 10 - 100);
 }
 
 console.log('\n--- when the next full-market scan runs ---');
