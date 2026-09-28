@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from 'react';
 import { handleCallback } from './lib/auth';
 import { getData, initStore, update, useData } from './lib/store';
 import { syncCharacter, useSyncState } from './lib/sync';
@@ -20,25 +20,55 @@ import { TipLayer } from './components/shell/TipLayer';
 import { Toasts } from './components/shell/Toasts';
 import { Palette } from './components/shell/Palette';
 import { pageOf, type PageKey } from './components/shell/nav';
-import { Wallet } from './components/Wallet';
-import { Todo } from './components/Todo';
-import { Calculator } from './components/Calculator';
-import { Prospects } from './components/Prospects';
-import { Watchlist } from './components/Watchlist';
-import { Planner } from './components/Planner';
-import { Sniper } from './components/Sniper';
-import { Arbitrage } from './components/Arbitrage';
-import { Positions } from './components/Positions';
-import { PositionDetail } from './components/PositionDetail';
-import { Orders } from './components/Orders';
-import { Results } from './components/Results';
-import { Loyalty } from './components/Loyalty';
-import { SideHustles } from './components/SideHustles';
-import { Combat } from './components/Combat';
-import { Omega } from './components/Omega';
-import { Settings } from './components/Settings';
 import { Notice } from './components/ui';
 import { PageBoundary } from './components/shell/PageBoundary';
+
+/**
+ * Each page's code is fetched when it's first opened, so starting the app downloads the shell and the page you land
+ * on rather than all sixteen. Once the app is idle the rest are fetched in the background, so moving to another page
+ * is still instant.
+ */
+const loaders: (() => Promise<unknown>)[] = [];
+function page<P>(load: () => Promise<Record<string, unknown>>, name: string) {
+  const get = () => load().then((m) => {
+    try { sessionStorage.removeItem(RELOADED_KEY); } catch { /* storage blocked */ }
+    return { default: m[name] as ComponentType<P> };
+  }, (e) => {
+    // A deploy while the tab was open renames every page's file, so one not fetched yet is gone: load the new
+    // version of the app, once. A second failure is real and shows in the page's error box.
+    try {
+      if (!sessionStorage.getItem(RELOADED_KEY)) { sessionStorage.setItem(RELOADED_KEY, '1'); location.reload(); return new Promise<never>(() => {}); }
+    } catch { /* storage blocked: show the error */ }
+    throw e;
+  });
+  loaders.push(load);
+  return lazy(get);
+}
+const RELOADED_KEY = 'jita-ledger:reloaded-for-pages';
+const Wallet = page<object>(() => import('./components/Wallet'), 'Wallet');
+const Todo = page<object>(() => import('./components/Todo'), 'Todo');
+const Calculator = page<{ route: ReturnType<typeof useRoute> }>(() => import('./components/Calculator'), 'Calculator');
+const Prospects = page<object>(() => import('./components/Prospects'), 'Prospects');
+const Watchlist = page<object>(() => import('./components/Watchlist'), 'Watchlist');
+const Planner = page<object>(() => import('./components/Planner'), 'Planner');
+const Sniper = page<object>(() => import('./components/Sniper'), 'Sniper');
+const Arbitrage = page<object>(() => import('./components/Arbitrage'), 'Arbitrage');
+const Positions = page<object>(() => import('./components/Positions'), 'Positions');
+const PositionDetail = page<{ id: string }>(() => import('./components/PositionDetail'), 'PositionDetail');
+const Orders = page<object>(() => import('./components/Orders'), 'Orders');
+const Results = page<object>(() => import('./components/Results'), 'Results');
+const Loyalty = page<object>(() => import('./components/Loyalty'), 'Loyalty');
+const SideHustles = page<{ route: ReturnType<typeof useRoute> }>(() => import('./components/SideHustles'), 'SideHustles');
+const Combat = page<object>(() => import('./components/Combat'), 'Combat');
+const Omega = page<object>(() => import('./components/Omega'), 'Omega');
+const Settings = page<{ route: ReturnType<typeof useRoute> }>(() => import('./components/Settings'), 'Settings');
+
+/** Fetches every page's code once the app has settled, so a click never waits for a download. */
+function prefetchPages() {
+  const run = () => { for (const l of loaders) l().catch(() => undefined); };
+  const idle = (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+  if (idle) idle(run, { timeout: 5000 }); else setTimeout(run, 2000);
+}
 
 const RAIL_KEY = 'jita-ledger:rail';
 const PAGES = new Set<string>(['wallet', 'todo', 'calculator', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'positions', 'orders', 'results', 'loyalty', 'hustles', 'combat', 'omega', 'settings']);
@@ -168,6 +198,7 @@ export function App() {
   useEffect(() => { if (sync.error) toast(`Sync failed: ${sync.error}`, 'err'); }, [sync.error]);
 
   useEffect(() => { if (ready) return startAlerts(); }, [ready]);
+  useEffect(() => { if (ready) prefetchPages(); }, [ready]);
   // The cloud copy of the ledger: sent as it changes, pulled every minute, restored into an empty browser.
   useEffect(() => { if (ready) return startCloud(); }, [ready]);
 
@@ -248,6 +279,7 @@ export function App() {
               </div>
             )}
             <PageBoundary key={routeKey}>
+            <Suspense fallback={<div className="page" />}>
             {!ready ? null
               : page === 'wallet' ? <Wallet />
               : page === 'todo' ? <Todo />
@@ -266,6 +298,7 @@ export function App() {
               : page === 'combat' ? <Combat />
               : page === 'omega' ? <Omega />
               : <Settings route={route} />}
+            </Suspense>
             </PageBoundary>
           </div>
         </main>
