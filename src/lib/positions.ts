@@ -73,7 +73,8 @@ export function feeMatchesFor(d: Data, s: Settings): FeeMatches {
   return result;
 }
 
-export type TxRow = { tx: Tx; match: Exclude<Match, null>; fee: number; feeActual: boolean };
+/** `elsewhere`: in this position's days, but another position of the item counts it (see `ownerAt`). */
+export type TxRow = { tx: Tx; match: Exclude<Match, null> | 'elsewhere'; fee: number; feeActual: boolean };
 export type SeriesPoint = { t: number; stock: number; avgCost: number | null; realized: number };
 export type PricePoint = { t: number; price: number; qty: number };
 
@@ -82,7 +83,13 @@ export type PositionCalc = {
   bought: number; boughtValue: number; avgBuy: number | null;
   sold: number; soldValue: number; avgSell: number | null;
   stock: number; avgCost: number | null; costOfStock: number;
-  costOfSold: number; oversold: number;
+  costOfSold: number;
+  /**
+   * Units sold beyond what the position had bought by then: stock from before its start, loot, gifts. They have
+   * no recorded cost, so they're left out of the profit rather than given one: `oversoldValue` is what they sold
+   * for, `oversoldNet` that less their tax and their share of the listing fees.
+   */
+  oversold: number; oversoldValue: number; oversoldNet: number;
   brokerFees: number; brokerActualOrders: number; brokerEstimatedOrders: number;
   /** Price changes seen on this position's orders, what they cost, and how many of those fees were estimated. */
   priceChanges: number; relistFees: number; relistsEstimated: number;
@@ -103,7 +110,52 @@ export type PositionCalc = {
   firstT: number | null; lastT: number | null;
 };
 
-type Ev = { t: number; kind: 'buy' | 'sell' | 'fee'; qty: number; price: number; fee: number; /** Buy fee carried into cost, or sell fee charged, per unit. */ unitFee?: number };
+type Ev = {
+  t: number; kind: 'buy' | 'sell' | 'fee'; qty: number; price: number; fee: number;
+  /** Buy fee carried into cost, or sell fee charged, per unit. */ unitFee?: number;
+  /** A sale's own tax (and, entered by hand, its fees): charged on the units it covers. */ tax?: number;
+};
+
+/** The earlier-opened of two positions, which keeps what both would count. */
+const before = (a: Position, b: Position) => ts(a.openedAt) - ts(b.openedAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+const covers = (p: Position, t: number) => t >= ts(p.openedAt) && (!p.closedAt || t <= ts(p.closedAt));
+
+/**
+ * Which of an item's positions a moment belongs to: the one trading the item then, the earliest opened if
+ * several were (a position started "from today" after one closed at 14:53 covers the same morning). Between
+ * positions, or before the first, nobody's; `nextAfter` then gives the first opened after it.
+ */
+function ownerAt(list: Position[], t: number): Position | null {
+  let best: Position | null = null;
+  for (const p of list) if (covers(p, t) && (!best || before(p, best) < 0)) best = p;
+  return best;
+}
+function nextAfter(list: Position[], t: number): Position | null {
+  let best: Position | null = null;
+  for (const p of list) if (ts(p.openedAt) > t && (!best || before(p, best) < 0)) best = p;
+  return best;
+}
+
+/**
+ * The earliest a position of this item can start without covering days another one already counts: after the
+ * last one closed. The default start is today at 00:00, so closing a position and starting another the same day
+ * would otherwise count that morning's trades in both.
+ */
+export function startAfter(positions: Position[], typeId: number, wanted: string, self?: Position): string {
+  let at = wanted;
+  for (const p of positions) {
+    if (p.typeId !== typeId || !p.closedAt) continue;
+    // Moving an existing position's start: only the ones before it can be in the way.
+    if (self && (p.id === self.id || before(p, self) > 0)) continue;
+    if (ts(p.closedAt) > ts(at)) at = p.closedAt;
+  }
+  return at;
+}
+
+/** A position of the same item opened after this one: reopening this one would cover its days too. */
+export function laterPosition(pos: Position, positions: Position[]): Position | undefined {
+  return positions.find((p) => p.id !== pos.id && p.typeId === pos.typeId && before(pos, p) < 0);
+}
 
 /**
  * The trades grouped by item, kept for one version of the ledger's trades. Results works a position out for
@@ -136,8 +188,20 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
   const rows: TxRow[] = [];
 
   const matches = feeMatchesFor(d, s);
+  // The ledger's positions of this item, which share its trades and fees out between them. Only when this is one
+  // of them: Results works out every item with a position of its own over all time, which must see everything.
+  const mine = (d.positions ?? []).some((p) => p.id === pos.id);
+  const rivals = mine ? d.positions.filter((p) => p.id !== pos.id && p.typeId === pos.typeId) : [];
+  const family = [pos, ...rivals];
+  // A trade two positions would count is the one's that added it by hand, else the earlier-opened one's.
+  const takenElsewhere = (tx: Tx, m: Match) => rivals.some((r) => {
+    const rm = matchTx(r, tx);
+    if (rm === 'included') return m !== 'included' || before(r, pos) < 0;
+    return rm === 'auto' && m === 'auto' && before(r, pos) < 0;
+  });
 
   const events: Ev[] = [];
+  const counted: Tx[] = [];
   let manualFees = 0, salesTax = 0, taxActual = 0, taxEstimated = 0;
 
   for (const tx of all) {
@@ -153,21 +217,45 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
       const actual = matches.taxByTx.get(tx.id);
       if (actual != null) { fee = actual; feeActual = true; } else fee = r.t * value;
     }
+    if (m !== 'excluded' && takenElsewhere(tx, m)) { rows.push({ tx, match: 'elsewhere', fee, feeActual }); continue; }
     rows.push({ tx, match: m, fee, feeActual });
     if (m === 'excluded') continue;
-    events.push({ t: ts(tx.date), kind: tx.isBuy ? 'buy' : 'sell', qty: tx.qty, price: tx.unitPrice, fee: 0 });
+    counted.push(tx);
+    // A sale carries its own tax, so units sold with no recorded cost can leave it out with them.
+    const onSale = !tx.isBuy && fee > 0;
+    events.push({ t: ts(tx.date), kind: tx.isBuy ? 'buy' : 'sell', qty: tx.qty, price: tx.unitPrice, fee: 0, tax: onSale ? fee : 0 });
+    if (fee > 0 && !onSale) events.push({ t: ts(tx.date), kind: 'fee', qty: 0, price: 0, fee });
     if (fee > 0) {
-      events.push({ t: ts(tx.date), kind: 'fee', qty: 0, price: 0, fee });
       if (tx.source === 'manual') manualFees += fee;
       else { salesTax += fee; if (feeActual) taxActual++; else taxEstimated++; }
     }
   }
 
-  // Broker fees come from your orders for this item during the position.
-  const openT = ts(pos.openedAt), closeT = pos.closedAt ? ts(pos.closedAt) : Infinity;
-  const orders: Order[] = Object.values(d.orders).filter(
-    (o) => o.typeId === pos.typeId && (!pos.jitaOnly || o.locationId === JITA_44) && ts(o.issued) >= openT && ts(o.issued) <= closeT,
-  );
+  // Broker fees come from your orders for this item. A fee belongs to the position that was trading the item
+  // when it was charged (a placement when the order was placed, a price change when it was made: `issued` moves
+  // to the latest change, so it can't say when an order was placed). One charged before any position, on an order
+  // still working when this one started, is this one's too, less the share for units that filled before the start.
+  const openT = ts(pos.openedAt);
+  const orders: Order[] = Object.values(d.orders).filter((o) => o.typeId === pos.typeId && (!pos.jitaOnly || o.locationId === JITA_44));
+  const side = (list: Tx[], o: Order) => list.filter((t) => t.source === 'esi' && t.typeId === o.typeId && t.isBuy === o.isBuy && t.locationId === o.locationId);
+  /** Of the units a fee was charged on, what share is this position's; null when none. */
+  const shareOf = (o: Order, at: string, units: number): { counted: number; filled: number } | null => {
+    const t = ts(at);
+    const owner = ownerAt(family, t);
+    const covered = Math.max(1, units);
+    const filled = Math.max(0, Math.min(covered, covered - o.volumeRemain));
+    if (owner) return owner.id === pos.id ? { counted: 1, filled: filled / covered } : null;
+    const next = nextAfter(family, t);
+    if (next?.id !== pos.id) return null;
+    // Its fills are trades on its side at one of its prices: the ones before the start aren't this position's.
+    const prices = new Set([o.price, ...(o.seen ?? []).map((v) => v.price)]);
+    const fills = (list: Tx[]) => side(list, o).filter((x) => prices.has(x.unitPrice) && ts(x.date) >= t);
+    const pre = Math.min(filled, fills(all).filter((x) => ts(x.date) < openT).reduce((n, x) => n + x.qty, 0));
+    // Only while it's still working, or when this position counts some of what it filled since: a sell order
+    // placed 90 s before the user's position started had its fills excluded by hand, and isn't the position's.
+    if (o.state !== 'open' && (filled - pre <= 0 || !fills(counted).some((x) => ts(x.date) >= openT))) return null;
+    return { counted: (covered - pre) / covered, filled: (filled - pre) / covered };
+  };
   // A broker fee is charged on a whole order when it's placed, so it belongs to the units of that order,
   // not to the moment it was paid. Each order's fee is split per unit of the order:
   // - units that filled on a buy order carry their share into the cost of the stock;
@@ -178,36 +266,39 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
   let brokerFees = 0, brokerActualOrders = 0, brokerEstimatedOrders = 0, prepaidFees = 0;
   let priceChanges = 0, relistFees = 0, relistsEstimated = 0;
   const relistEvents: { t: number; amount: number }[] = [];
-  let buyFeePool = 0, sellFeePool = 0;
+  let buyFeePool = 0, sellFeePool = 0, firstFee: number | null = null;
+  // One fee's share: filled units carry theirs, waiting ones have it prepaid, never-filled ones on a closed order spent.
+  const charge = (o: Order, amount: number, sh: { counted: number; filled: number }, at: string) => {
+    const t = Math.max(ts(at), openT);
+    firstFee = firstFee == null ? t : Math.min(firstFee, t);
+    const counted = amount * sh.counted, filledShare = amount * sh.filled, unfilledShare = counted - filledShare;
+    brokerFees += counted;
+    if (o.state === 'open') prepaidFees += unfilledShare;
+    else if (unfilledShare > 0) events.push({ t, kind: 'fee', qty: 0, price: 0, fee: unfilledShare });
+    if (o.isBuy) buyFeePool += filledShare; else sellFeePool += filledShare;
+    return { t, counted };
+  };
   for (const o of orders) {
     const m = matches.byOrder.get(o.orderId);
-    const placed = m ? m.placement.amount : Math.max(100, rAt(o.issued).f * o.price * o.volumeTotal);
-    if (m?.placement.actual) brokerActualOrders++; else brokerEstimatedOrders++;
+    const placedAt = m?.placement.at ?? o.seen?.[0]?.issued ?? o.issued;
+    const placedSh = shareOf(o, placedAt, o.volumeTotal);
+    if (placedSh) {
+      const placed = m ? m.placement.amount : Math.max(100, rAt(placedAt).f * o.price * o.volumeTotal);
+      if (m?.placement.actual) brokerActualOrders++; else brokerEstimatedOrders++;
+      charge(o, placed, placedSh, placedAt);
+    }
     // A price change is a fee on the units left at the time, so it's split the same way as the
     // placing fee: units that fill afterwards carry their share, units still waiting have it prepaid,
     // and on an order that closed, the share of units that never filled is spent.
     for (const r of m?.relists ?? []) {
+      const sh = shareOf(o, r.at, r.remain);
+      if (!sh) continue;
+      const { t, counted } = charge(o, r.amount, sh, r.at);
       priceChanges++;
-      relistFees += r.amount;
-      relistEvents.push({ t: ts(r.at), amount: r.amount });
+      relistFees += counted;
+      relistEvents.push({ t, amount: counted });
       if (!r.actual) relistsEstimated++;
-      brokerFees += r.amount;
-      const at = Math.max(1, r.remain);
-      const filled = Math.max(0, Math.min(at, at - o.volumeRemain));
-      const filledShare = r.amount * (filled / at);
-      const unfilledShare = r.amount - filledShare;
-      if (o.state === 'open') prepaidFees += unfilledShare;
-      else if (unfilledShare > 0) events.push({ t: ts(r.at), kind: 'fee', qty: 0, price: 0, fee: unfilledShare });
-      if (o.isBuy) buyFeePool += filledShare; else sellFeePool += filledShare;
     }
-    brokerFees += placed;
-    const total = Math.max(1, o.volumeTotal);
-    const remain = Math.max(0, Math.min(total, o.volumeRemain));
-    const filledShare = placed * ((total - remain) / total);
-    const unfilledShare = placed - filledShare;
-    if (o.state === 'open') prepaidFees += unfilledShare;
-    else if (unfilledShare > 0) events.push({ t: ts(o.issued), kind: 'fee', qty: 0, price: 0, fee: unfilledShare });
-    if (o.isBuy) buyFeePool += filledShare; else sellFeePool += filledShare;
   }
 
   // Spread each side's filled share over the units the position counts on that side. If nothing on
@@ -216,9 +307,8 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
   const countedSells = events.filter((e) => e.kind === 'sell').reduce((n, e) => n + e.qty, 0);
   const buyFeeUnit = countedBuys > 0 ? buyFeePool / countedBuys : 0;
   const sellFeeUnit = countedSells > 0 ? sellFeePool / countedSells : 0;
-  const firstOrder = orders.length ? Math.min(...orders.map((o) => ts(o.issued))) : null;
-  if (!countedBuys && buyFeePool > 0) events.push({ t: firstOrder ?? Date.now(), kind: 'fee', qty: 0, price: 0, fee: buyFeePool });
-  if (!countedSells && sellFeePool > 0) events.push({ t: firstOrder ?? Date.now(), kind: 'fee', qty: 0, price: 0, fee: sellFeePool });
+  if (!countedBuys && buyFeePool > 0) events.push({ t: firstFee ?? Date.now(), kind: 'fee', qty: 0, price: 0, fee: buyFeePool });
+  if (!countedSells && sellFeePool > 0) events.push({ t: firstFee ?? Date.now(), kind: 'fee', qty: 0, price: 0, fee: sellFeePool });
   for (const e of events) {
     if (e.kind === 'buy') e.unitFee = buyFeeUnit;
     else if (e.kind === 'sell') e.unitFee = sellFeeUnit;
@@ -227,8 +317,9 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
   // Walk everything in time order using average cost.
   const order = { buy: 0, sell: 1, fee: 2 } as const;
   events.sort((a, b) => a.t - b.t || order[a.kind] - order[b.kind]);
-  let stock = 0, basis = 0, realized = 0, costOfSold = 0, oversold = 0, feeBasis = 0;
-  let bought = 0, boughtValue = 0, sold = 0, soldValue = 0, lastAvg: number | null = null;
+  let stock = 0, basis = 0, realized = 0, costOfSold = 0, feeBasis = 0;
+  let oversold = 0, oversoldValue = 0, oversoldNet = 0;
+  let bought = 0, boughtValue = 0, sold = 0, soldValue = 0;
   const series: SeriesPoint[] = [];
   const buys: PricePoint[] = [], sells: PricePoint[] = [];
   for (const e of events) {
@@ -236,17 +327,19 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
       const fee = e.qty * (e.unitFee ?? 0);
       stock += e.qty; basis += e.qty * e.price + fee; feeBasis += fee;
       bought += e.qty; boughtValue += e.qty * e.price;
-      lastAvg = basis / stock;
       buys.push({ t: e.t, price: e.price, qty: e.qty });
     } else if (e.kind === 'sell') {
-      const avg = stock > 0 ? basis / stock : lastAvg ?? e.price;
+      const avg = stock > 0 ? basis / stock : 0;
       const feeAvg = stock > 0 ? feeBasis / stock : 0;
       const covered = Math.min(e.qty, stock);
       const extra = e.qty - covered;
-      const cost = covered * avg + extra * (lastAvg ?? e.price);
-      oversold += extra;
+      // Units beyond the stock bought have no recorded cost: left out, with their tax and fee share, not
+      // costed at a guess (their own price made every such sale read as exactly nothing).
+      const unitCosts = (e.unitFee ?? 0) + (e.tax ?? 0) / e.qty;
+      const cost = covered * avg;
+      oversold += extra; oversoldValue += extra * e.price; oversoldNet += extra * (e.price - unitCosts);
       costOfSold += cost;
-      realized += e.qty * e.price - cost - e.qty * (e.unitFee ?? 0);
+      realized += covered * (e.price - unitCosts) - cost;
       stock -= covered; basis = stock * avg; feeBasis = stock * feeAvg;
       sold += e.qty; soldValue += e.qty * e.price;
       sells.push({ t: e.t, price: e.price, qty: e.qty });
@@ -265,7 +358,7 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
     bought, boughtValue, avgBuy: bought ? boughtValue / bought : null,
     sold, soldValue, avgSell: sold ? soldValue / sold : null,
     stock, avgCost: stock > 0 ? basis / stock : null, costOfStock: basis,
-    costOfSold, oversold,
+    costOfSold, oversold, oversoldValue, oversoldNet,
     brokerFees, brokerActualOrders, brokerEstimatedOrders, priceChanges, relistFees, relistsEstimated, relistEvents, prepaidFees, buyFeesInStock: feeBasis,
     salesTax, taxActual, taxEstimated, manualFees,
     realized, roi: costOfSold > 0 ? realized / costOfSold : null,

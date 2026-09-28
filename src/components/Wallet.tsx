@@ -610,6 +610,7 @@ function Untracked(props: { d: Data; txs: Tx[]; tagOf: (tx: Tx) => UntrackedTag;
   const start = (tx: Tx) => {
     const res = startPosition(tx.typeId, new Date(Date.parse(tx.date) - 1000).toISOString(), tx.locationId === JITA_44);
     if (res.existed) toast(`You already have an open position for ${name(tx.typeId)}. This trade may fall outside its dates.`, 'warn');
+    else if (res.movedTo) toast(`It starts ${res.movedTo.slice(0, 16).replace('T', ' ').replace(/-/g, '.')} EVE, when your last ${name(tx.typeId)} position closed, so this trade isn’t in it.`, 'warn');
     navigate(`positions/${res.id}`);
   };
   return (

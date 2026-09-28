@@ -1590,6 +1590,104 @@ console.log('\n--- a position: fees belong to the units they were paid for ---')
   eq('  and nothing is lost', Math.round(cashAfter + c3.costOfStock + c3.prepaidFees), Math.round(c3.realized));
 }
 
+console.log('\n--- positions: each trade and fee counted once, and no made-up costs ---');
+{
+  const { computePosition, startAfter, laterPosition } = await import('../src/lib/positions.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const S = sanitizeSettings({ override: true, brokerPct: 1.3, taxPct: 3.375 });
+  const JITA = 60003760, TYPE = 7;
+  const tx = (id, isBuy, qty, price, date) => ({ id, source: 'esi', typeId: TYPE, date, isBuy, qty, unitPrice: price, locationId: JITA });
+  const order = (id, isBuy, price, total, remain, state, issued, seen) => ({ orderId: id, typeId: TYPE, isBuy, price, volumeTotal: total, volumeRemain: remain, issued, state, locationId: JITA, ...(seen ? { seen } : {}) });
+  const fee = (id, date, amount) => ({ id, date, refType: 'brokers_fee', amount: -amount });
+  const P = (id, openedAt, closedAt) => ({ id, typeId: TYPE, openedAt, ...(closedAt ? { closedAt, status: 'closed' } : { status: 'open' }), jitaOnly: true, excluded: [], included: [] });
+  // What went in and out, against what the position says it made: nothing lost, nothing counted twice.
+  const cashOf = (c) => c.soldValue - c.boughtValue - c.brokerFees - c.salesTax;
+  const books = (c) => Math.round(cashOf(c) + c.costOfStock + c.prepaidFees - c.oversoldNet);
+
+  // Overlap. A position closed at 14:53 today and a new one started "from today" (00:00, the default) both
+  // cover the morning: the sale at 10:00 and the sell order placed at 09:00 belong to the first, which was
+  // trading the item then. Before this, both counted them and the totals had them twice.
+  const A = P('a', '2026-09-20T00:00:00Z', '2026-09-27T14:53:00Z'), B = P('b', '2026-09-27T00:00:00Z');
+  const ov = {
+    txs: {
+      b1: tx('b1', true, 10, 100, '2026-09-26T10:00:00Z'),
+      s1: tx('s1', false, 10, 150, '2026-09-27T10:00:00Z'),
+      b2: tx('b2', true, 5, 100, '2026-09-27T16:00:00Z'),
+    },
+    orders: {
+      1: order(1, true, 100, 10, 0, 'closed', '2026-09-26T09:00:00Z'),
+      2: order(2, false, 150, 10, 0, 'closed', '2026-09-27T09:00:00Z'),
+      3: order(3, true, 100, 5, 0, 'closed', '2026-09-27T15:30:00Z'),
+    },
+    journal: { f1: fee('f1', '2026-09-26T09:00:00Z', 100), f2: fee('f2', '2026-09-27T09:00:00Z', 100), f3: fee('f3', '2026-09-27T15:30:00Z', 100) },
+    meta: {}, positions: [A, B],
+  };
+  const cA = computePosition(A, ov, S), cB = computePosition(B, ov, S);
+  eq('overlap: the morning sale is the first position’s', [cA.sold, cB.sold], [10, 0]);
+  eq('  and so is the sell order placed that morning', [Math.round(cA.brokerFees), Math.round(cB.brokerFees)], [200, 100]);
+  eq('  the second shows the sale as another position’s', cB.rows.find((r) => r.tx.id === 's1')?.match, 'elsewhere');
+  const whole = { ...ov, positions: [P('c', '2026-09-20T00:00:00Z')] };
+  const cC = computePosition(whole.positions[0], whole, S);
+  // Each prices its own stock with its own fees, so their profits needn't add up to one position's; the ISK does.
+  eq('  the ISK in and out of the two is one position’s over the same days', Math.round(cashOf(cA) + cashOf(cB)), Math.round(cashOf(cC)));
+  eq('  and their fees to its fees', Math.round(cA.brokerFees + cB.brokerFees), Math.round(cC.brokerFees));
+  eq('  nothing lost on either', [books(cA), books(cB)], [Math.round(cA.realized), Math.round(cB.realized)]);
+  const all = { id: 'all:7', typeId: TYPE, openedAt: '2003-05-06T00:00:00Z', status: 'open', jitaOnly: false, excluded: [], included: [] };
+  const cAll = computePosition(all, ov, S);
+  eq('  Results’ every-trade walk still sees every trade', [cAll.bought, cAll.sold, Math.round(cAll.brokerFees)], [15, 10, 300]);
+  const handA = { ...A, included: [] }, handB = { ...B, included: ['s1'] };
+  const cHandA = computePosition(handA, { ...ov, positions: [handA, handB] }, S);
+  eq('  a trade added by hand goes where it was added', [cHandA.sold, computePosition(handB, { ...ov, positions: [handA, handB] }, S).sold], [0, 10]);
+
+  // New starts can't overlap: after the last close of the item, whatever date was asked for.
+  eq('a new start moves to after the last close', startAfter([A], TYPE, '2026-09-27T00:00:00Z'), '2026-09-27T14:53:00Z');
+  eq('  a start after it is left alone', startAfter([A], TYPE, '2026-09-28T00:00:00Z'), '2026-09-28T00:00:00Z');
+  eq('  other items don’t matter', startAfter([{ ...A, typeId: 8 }], TYPE, '2026-09-27T00:00:00Z'), '2026-09-27T00:00:00Z');
+  eq('  moving a start ignores the position itself', startAfter([A], TYPE, '2026-09-21T00:00:00Z', A), '2026-09-21T00:00:00Z');
+  eq('  and can’t move a later one back over an earlier one', startAfter([A, B], TYPE, '2026-09-19T00:00:00Z', B), '2026-09-27T14:53:00Z');
+  eq('reopening is blocked by a later position of the item', [laterPosition(A, [A, B])?.id, laterPosition(B, [A, B])], ['b', undefined]);
+
+  // A buy order placed the evening before the position's start (from 00:00, the default): 300 filled that
+  // evening, 700 after. Its placing fee was dropped entirely, though the 700 counted.
+  const pos2 = P('p2', '2026-09-26T00:00:00Z');
+  const early = {
+    txs: { e1: tx('e1', true, 300, 100, '2026-09-25T21:00:00Z'), e2: tx('e2', true, 700, 100, '2026-09-26T03:00:00Z') },
+    orders: { 9: order(9, true, 100, 1000, 0, 'closed', '2026-09-25T20:00:00Z') },
+    journal: { f: fee('f', '2026-09-25T20:00:00Z', 1300) }, meta: {}, positions: [pos2],
+  };
+  const cE = computePosition(pos2, early, S);
+  eq('an order placed before the start: the share for units filled since counts', Math.round(cE.brokerFees), 910);
+  eq('  in the cost of the stock', Math.round(cE.costOfStock), 70000 + 910);
+  eq('  nothing lost', books(cE), Math.round(cE.realized));
+  // The same order repriced after the start: `issued` moved into the window, and the whole placing fee counted.
+  const repriced = { ...early,
+    txs: { e1: early.txs.e1, e2: tx('e2', true, 700, 101, '2026-09-26T03:00:00Z') },
+    orders: { 9: order(9, true, 101, 1000, 0, 'closed', '2026-09-26T02:00:00Z', [
+      { issued: '2026-09-25T20:00:00Z', price: 100, remain: 1000 }, { issued: '2026-09-26T02:00:00Z', price: 101, remain: 700 }]) },
+    journal: { f: fee('f', '2026-09-25T20:00:00Z', 1300), r: fee('r', '2026-09-26T02:00:00Z', 500) } };
+  const cR = computePosition(pos2, repriced, S);
+  eq('  repriced after the start: the placing share, not the whole fee, plus the change', Math.round(cR.brokerFees), 910 + 500);
+  eq('  nothing lost', books(cR), Math.round(cR.realized));
+  const gone = { ...early, orders: { 9: order(9, true, 100, 1000, 700, 'cancelled', '2026-09-25T20:00:00Z') }, txs: { e1: early.txs.e1 } };
+  eq('  an order over before the start is none of its business', Math.round(computePosition(pos2, gone, S).brokerFees), 0);
+  // The user's own case: a sell order placed 90 s before the position started, all its sales excluded by hand.
+  const lootSell = { ...early, txs: { ...early.txs, s: tx('s', false, 11, 7790, '2026-09-26T05:00:00Z') },
+    orders: { ...early.orders, 10: order(10, false, 7790, 48, 0, 'expired', '2026-09-25T23:58:30Z') }, journal: { ...early.journal, g: fee('g', '2026-09-25T23:58:30Z', 5201) } };
+  eq('  nor one whose fills it doesn’t count', Math.round(computePosition({ ...pos2, excluded: ['s'] }, lootSell, S).brokerFees), 910);
+  eq('  but it is when it counts them', Math.round(computePosition(pos2, lootSell, S).brokerFees), 910 + 5201);
+
+  // Sold with no recorded buy: the units were costed at their own sale price, a made-up zero.
+  const pos3 = P('p3', '2026-09-26T00:00:00Z');
+  const loot = { txs: { s: tx('s', false, 10, 150, '2026-09-26T10:00:00Z') }, orders: {}, journal: {}, meta: {}, positions: [pos3] };
+  const cL = computePosition(pos3, loot, S);
+  eq('sold with no buy: left out of the profit, not given a cost', [cL.realized, cL.oversold, cL.oversoldValue], [0, 10, 1500]);
+  const mixed = { ...loot, txs: { b: tx('b', true, 5, 100, '2026-09-26T09:00:00Z'), s: tx('s', false, 8, 150, '2026-09-26T10:00:00Z') } };
+  const cM = computePosition(pos3, mixed, S);
+  eq('  of 8 sold with 5 bought, the 5 count, with their share of the tax', Math.round(cM.realized), Math.round(5 * 150 - 500 - 8 * 150 * 0.03375 * 5 / 8));
+  eq('  and the other 3 are said apart', [cM.oversold, cM.oversoldValue], [3, 450]);
+  eq('  nothing lost', books(cM), Math.round(cM.realized));
+}
+
 console.log('\n--- a finished position: close it, don’t lose it ---');
 {
   const { computePosition, finishedPosition } = await import('../src/lib/positions.ts');

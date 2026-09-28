@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ChevronDown, Inbox, PartyPopper, PenLine, RefreshCw, Trash2, Undo2 } from 'lucide-react';
-import { computePosition, finishedPosition, vsMarketDetail, type PositionCalc } from '../lib/positions';
+import { computePosition, finishedPosition, laterPosition, startAfter, vsMarketDetail, type PositionCalc } from '../lib/positions';
 import { priceUp, tickDown } from '../lib/tick';
 import { marketBest, walkBids } from '../lib/relist';
 import { chooseAsk, confirmAsk } from '../lib/confirm';
@@ -242,6 +242,12 @@ export function PositionDetail({ id }: { id: string }) {
     else if (match === 'included') patchPosition(pos!.id, (p) => ({ included: p.included.filter((e) => e !== tx.id) }));
     else patchPosition(pos!.id, (p) => ({ excluded: [...p.excluded, tx.id] }));
   }
+  // A start can't reach back over the days an earlier position of the item counts.
+  const setStart = (wanted: string) => {
+    const at = startAfter(d.positions, pos.typeId, wanted, pos);
+    patchPosition(pos.id, { openedAt: at });
+    if (at !== wanted) toast(`It starts ${fmtDT(at)} EVE instead, when your last ${name} position closed, so no trade counts in both.`, 'warn');
+  };
   const close = async () => {
     // Closing stops counting. Say what that means for stock still held and orders still running first.
     const open = Object.values(d.orders).filter((o) => o.typeId === pos.typeId && o.state === 'open' && o.volumeRemain > 0 && (!pos.jitaOnly || o.locationId === JITA_44));
@@ -263,6 +269,9 @@ export function PositionDetail({ id }: { id: string }) {
   const reopen = () => {
     const other = d.positions.find((p) => p.typeId === pos.typeId && p.status === 'open' && p.id !== pos.id);
     if (other) { toast(`Close your other open ${name} position first.`, 'warn'); return; }
+    // Open again, this one would cover the days a later one counts, and count those trades twice.
+    const later = laterPosition(pos, d.positions);
+    if (later) { toast(`A later ${name} position counts trades from ${fmtDT(later.openedAt)} EVE. Reopening this one would count them twice.`, 'warn'); return; }
     patchPosition(pos.id, { status: 'open', closedAt: undefined });
   };
   const remove = async () => {
@@ -320,7 +329,7 @@ export function PositionDetail({ id }: { id: string }) {
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 28, flexWrap: 'wrap' }}>
           <div style={{ textAlign: 'right' }}>
             <div className="mono" style={{ fontSize: 'clamp(30px,3vw,42px)', lineHeight: 1, color: pc, textShadow: `0 0 26px ${c.realized >= 0 ? 'rgba(110,231,168,.3)' : 'rgba(255,107,125,.3)'}` }}>{iskBigSigned(c.realized)}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--sec)', marginTop: 4 }}>{c.bought === 0 && c.sold === 0 ? (c.realized < 0 ? 'Fees paid, with nothing bought or sold' : 'Nothing bought or sold yet') : finished ? 'Final profit, after fees and tax' : `Profit on the ${units(c.sold)} sold so far, after their fees and tax`}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--sec)', marginTop: 4 }}>{c.bought === 0 && c.sold === 0 ? (c.realized < 0 ? 'Fees paid, with nothing bought or sold' : 'Nothing bought or sold yet') : finished ? 'Final profit, after fees and tax' : `Profit on the ${units(c.sold - c.oversold)} sold so far${c.oversold > 0 ? ' that it bought' : ''}, after their fees and tax`}</div>
             {c.roi != null && <div className="mono" style={{ fontSize: 12.5, color: 'var(--dim)' }}>{c.roi >= 0 ? '+' : ''}{pct(c.roi, 1)} on what those units cost you</div>}
             {c.prepaidFees > 0 && <div style={{ fontSize: 12, color: 'var(--note)', marginTop: 2 }} data-tip={'Broker fees already paid for the part of your orders that hasn’t sold yet.\n\n• A fee is paid on a whole order when you place it.\n• The part for unsold units isn’t a loss on what has sold, so it’s set aside and comes off as those units sell.'} data-tip-title="Fees paid up front">+ {iskBig(c.prepaidFees)} of broker fees paid up front on your open orders</div>}
           </div>
@@ -356,7 +365,8 @@ export function PositionDetail({ id }: { id: string }) {
       {c.oversold > 0 && (
         <div className="notice warn">
           You sold {units(c.oversold)} more units than this position bought. They were probably bought before its start date: move the
-          start date earlier, or count those purchases above. Until then they’re costed at your average buy price.
+          start date earlier, or count those purchases above. Until then they have no recorded cost, so their {iskBig(c.oversoldValue)} of
+          sales is left out of the profit rather than guessed at.
         </div>
       )}
 
@@ -395,15 +405,15 @@ export function PositionDetail({ id }: { id: string }) {
                 <thead><tr><Th left>Date</Th><Th left>Trade</Th><Th>Quantity</Th><Th>Price</Th><Th>Value</Th><Th>Tax and fees</Th><Th left>Counts</Th><th scope="col" style={{ color: 'var(--faint-2)' }}>Action</th></tr></thead>
                 <tbody>
                   {c.rows.map(({ tx, match, fee, feeActual }) => (
-                    <tr key={tx.id} className={'hover' + (match === 'excluded' ? ' dimmer' : '')}>
+                    <tr key={tx.id} className={'hover' + (match === 'excluded' || match === 'elsewhere' ? ' dimmer' : '')}>
                       <td className="l" style={{ color: 'var(--dim)' }}>{fmtDT(tx.date)}</td>
                       <td className="l lbl" style={{ color: tx.isBuy ? 'var(--buy)' : 'var(--neg-t)', fontSize: 11.5 }}>{tx.isBuy ? 'Buy' : 'Sell'}{tx.source === 'manual' ? ' (manual)' : ''}</td>
                       <td>{units(tx.qty)}</td>
                       <td>{isk(tx.unitPrice)}</td>
                       <td>{iskBig(tx.qty * tx.unitPrice)}</td>
                       <td style={{ color: 'var(--sec)' }}>{fee > 0 ? `${iskBig(fee)}${feeActual ? '' : ' est.'}` : '–'}</td>
-                      <td className="l txt" style={{ color: match === 'excluded' ? 'var(--neg)' : 'var(--dim)' }}>{match === 'excluded' ? 'No, excluded' : match === 'included' ? 'Yes, added by you' : 'Yes'}</td>
-                      <td><button type="button" className={'link-btn' + (tx.source === 'manual' ? ' danger' : '')} onClick={() => toggle(tx, match)}>{tx.source === 'manual' ? 'Delete' : match === 'excluded' ? 'Count it' : match === 'included' ? 'Remove' : 'Exclude'}</button></td>
+                      <td className="l txt" style={{ color: match === 'excluded' ? 'var(--neg)' : 'var(--dim)' }}>{match === 'excluded' ? 'No, excluded' : match === 'elsewhere' ? 'No, another position counts it' : match === 'included' ? 'Yes, added by you' : 'Yes'}</td>
+                      <td>{match !== 'elsewhere' && <button type="button" className={'link-btn' + (tx.source === 'manual' ? ' danger' : '')} onClick={() => toggle(tx, match)}>{tx.source === 'manual' ? 'Delete' : match === 'excluded' ? 'Count it' : match === 'included' ? 'Remove' : 'Exclude'}</button>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -417,7 +427,7 @@ export function PositionDetail({ id }: { id: string }) {
             <div className="field">
               <label htmlFor="ps-from">Count trades from <span style={{ color: 'var(--faint)', textTransform: 'none' }}>EVE time</span></label>
               <input id="ps-from" type="date" className="num" style={{ colorScheme: 'dark' }} value={pos.openedAt.slice(0, 10)}
-                onChange={(e) => e.target.value && patchPosition(pos.id, { openedAt: `${e.target.value}T00:00:00Z` })} />
+                onChange={(e) => e.target.value && setStart(`${e.target.value}T00:00:00Z`)} />
             </div>
             <Check bare checked={pos.jitaOnly} onChange={(v) => patchPosition(pos.id, { jitaOnly: v })}>Only count trades in Jita 4-4</Check>
           </section>

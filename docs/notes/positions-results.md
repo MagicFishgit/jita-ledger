@@ -32,7 +32,26 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   it; a closed order's unfilled share is spent. Charging fees when paid made a PL-0 Scoped Cargo Scanner
   position that had sold 5 of 2,039 read −1.05 M and "−2325% return", when those 5 had made money: the
   listing fee for all 2,039 had been charged against them. A test checks cash + stock at cost + prepaid
-  fees = realized.
+  fees = realized (less `oversoldNet`, below).
+- **Each trade and each fee belongs to one position: the one trading the item at that moment** (`ownerAt` in
+  `positions.ts`). Positions of one item whose days overlap used to both count the shared trades and fees, doubling
+  the all-positions totals, the Wallet's trading profit and Results' Trading line; the likeliest way in was closing
+  a position and starting another "from today" (00:00, the default) the same day. A trade two would count is the
+  one's that added it by hand, else the earlier-opened one's; the other lists it as "No, another position counts it".
+  A fee goes by when it was charged (the placement's time from the fee match, never `issued`, which a price change
+  moves: an order placed before the start and repriced inside it counted its whole placing fee). A fee charged before
+  any position, on an order still open or whose fills the position counts, is the next position's, less the share
+  for units that filled before its start (its side's trades at one of its prices in between). Fees on orders placed
+  before the start used to be dropped though their fills counted. The user's own case: a sell order placed 90 s
+  before their 5141 position started, its fills excluded by hand, so it stays out. Only the ledger's own positions
+  share things out: Results' every-trade walk (`all:` positions) still sees everything. New starts, moved starts
+  and reopening can't create an overlap (`startAfter`, `laterPosition`), and say so when they move a date.
+- **Units sold beyond what a position bought are left out of its profit, not given a cost** (`oversold`,
+  `oversoldValue`, `oversoldNet`). With no buy at all they were costed at their own sale price, so they read as
+  exactly nothing; after some buys, at the last average, a guess. Their revenue, tax and fee share are now said apart
+  on the position ("left out of the profit rather than guessed at"). On the user's ledger (28 September 2026) this
+  moved nothing on their five positions and took 104,465 ISK off Results' every-item Trading line, from three items
+  where more sold than was ever bought (one sold 2 of 4 units with no recorded buy, 676,200 ISK of sales).
 - **"What your standings are worth" prices your real trading at other standings** (`lib/standings.ts`, Rates & fees).
   Every broker charge is the broker rate × an order's value (a price change × (1 − the Advanced Broker Relations
   discount)), so each fee ÷ the rate paid that day is the trading behind it, and that total × any rate is what the

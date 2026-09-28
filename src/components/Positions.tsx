@@ -55,6 +55,7 @@ export function Positions() {
     const openedAt = from ? `${from}T00:00:00Z` : new Date().toISOString();
     const res = startPosition(t.id, openedAt, jitaOnly);
     if (res.existed) toast(`You already have an open position for ${t.name}.`, 'warn');
+    else if (res.movedTo) toast(`Counting starts ${res.movedTo.slice(0, 16).replace('T', ' ').replace(/-/g, '.')} EVE, when your last ${t.name} position closed, so no trade counts in both.`);
     navigate(`positions/${res.id}`);
   }
 

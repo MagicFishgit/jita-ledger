@@ -73,7 +73,7 @@ export function Omega() {
       realized += realizedBetween(c.series, from, now);
       stockAtCost += c.costOfStock;
       for (const row of c.rows) {
-        if (row.match === 'excluded' || row.tx.isBuy) continue;
+        if ((row.match !== 'auto' && row.match !== 'included') || row.tx.isBuy) continue;
         if (Date.parse(row.tx.date) >= from) sells.set(row.tx.id, row.tx.qty * row.tx.unitPrice);
       }
     }

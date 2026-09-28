@@ -143,10 +143,10 @@ export function Results() {
     const before = prior.length ? prior[prior.length - 1].realized : 0;
     const v = (inWin.length ? inWin[inWin.length - 1].realized : before) - before;
     const spanDays = c.firstT != null ? ((p.closedAt ? Date.parse(p.closedAt) : now) - c.firstT) / DAY : null;
-    return { n: name(p.typeId), v, d: `${c.roi != null ? `${pct(c.roi, 1)} return` : 'No return yet'}, ${p.status === 'open' ? 'still open' : spanDays != null ? flip(spanDays) : 'closed'}` };
+    return { id: p.id, n: name(p.typeId), v, d: `${c.roi != null ? `${pct(c.roi, 1)} return` : 'No return yet'}, ${p.status === 'open' ? 'still open' : spanDays != null ? flip(spanDays) : 'closed'}` };
   }).filter((x) => x.v !== 0);
   const lossRows = Object.values(d.killmails).filter((k) => k.kind === 'loss' && k.value && Date.parse(k.time) >= since)
-    .map((k) => ({ n: `${k.victim.shipTypeId ? name(k.victim.shipTypeId) : 'A ship'} lost`, v: -netLoss(k), d: `${lossActs[k.id] ?? 'Combat'}, ${fmtShort(k.time)} — after insurance` }));
+    .map((k) => ({ id: `loss:${k.id}`, n: `${k.victim.shipTypeId ? name(k.victim.shipTypeId) : 'A ship'} lost`, v: -netLoss(k), d: `${lossActs[k.id] ?? 'Combat'}, ${fmtShort(k.time)} — after insurance` }));
   const best = posRows.filter((x) => x.v > 0).sort((a, b) => b.v - a.v).slice(0, 3);
   const worst = [...posRows, ...lossRows].filter((x) => x.v < 0).sort((a, b) => a.v - b.v).slice(0, 3);
 
@@ -337,12 +337,12 @@ export function Results() {
       <div className="g-440" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,380px),1fr))' }}>
         <Panel title="Best">
           {!best.length ? <p className="note">No position made a profit in this window.</p> : best.map((b) => (
-            <div key={b.n} className="lrow"><span><span className="lt">{b.n}</span><span className="ls">{b.d}</span></span><span className="lv" style={{ color: 'var(--pos)' }}>{iskBigSigned(b.v)}</span></div>
+            <div key={b.id} className="lrow"><span><span className="lt">{b.n}</span><span className="ls">{b.d}</span></span><span className="lv" style={{ color: 'var(--pos)' }}>{iskBigSigned(b.v)}</span></div>
           ))}
         </Panel>
         <Panel title="Worst">
           {!worst.length ? <p className="note">Nothing lost money in this window.</p> : worst.map((b) => (
-            <div key={b.n + b.d} className="lrow"><span><span className="lt">{b.n}</span><span className="ls">{b.d}</span></span><span className="lv" style={{ color: 'var(--neg)' }}>{iskBigSigned(b.v)}</span></div>
+            <div key={b.id} className="lrow"><span><span className="lt">{b.n}</span><span className="ls">{b.d}</span></span><span className="lv" style={{ color: 'var(--neg)' }}>{iskBigSigned(b.v)}</span></div>
           ))}
         </Panel>
       </div>
