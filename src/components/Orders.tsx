@@ -296,7 +296,9 @@ export function Orders() {
                         <td>{x?.beaten ? <>{units(x.aheadUnits)}<span className="sub">{rivalShape(x.aheadOrders, x.topRivalShare, x.isBuy)}</span></> : '–'}</td>
                         <td style={{ color: x?.verdict === 'wait' ? 'var(--pos)' : 'var(--cell)' }}>
                           {x?.unreached
-                            ? <span data-tip={`The bulk of the day’s trading got down to your price on ${x.reach} of the last ${FILL_WINDOW} days. Sellers here list and wait, so the queue ahead isn’t what’s holding you back.`} data-tip-title="Rarely reached" tabIndex={0} style={{ color: 'var(--neg)' }}>rarely reached<span className="sub">{x.reach} of {FILL_WINDOW} days</span></span>
+                            ? <span data-tip={x.isBuy
+                              ? `The bulk of the day’s trading got down to your price on ${x.reach} of the last ${FILL_WINDOW} days. Sellers here list and wait, so the queue ahead isn’t what’s holding you back.`
+                              : `The bulk of the day’s trading got up to your price on ${x.reach} of the last ${FILL_WINDOW} days${x.beaten && !x.left ? ', and not to the front of the queue either' : ''}. Buyers here don’t pay that much, so the queue ahead isn’t what’s holding you back.`} data-tip-title="Rarely reached" tabIndex={0} style={{ color: 'var(--neg)' }}>rarely reached<span className="sub">{x.reach} of {FILL_WINDOW} days</span></span>
                             : !x?.beaten ? '–' : !Number.isFinite(x.hoursToFront) ? <span className="faint">barely trades</span> : <PaceNote x={x} hours={hours} />}
                         </td>
                         <td data-tip={x ? (x.live ? 'Read from the live book just now' : 'From your last sync; ESI caches orders for twenty minutes') : undefined}>

@@ -146,7 +146,7 @@ export function Todo() {
         key: `order:${x.orderId}`, ver: `move:${x.newPrice}`, kind: 'move', source: 'orders', price: x.price, stake: x.atRisk,
         title: `${name(x.typeId)} ${x.isBuy ? 'buy' : 'sell'} order`,
         detail: x.unreached
-          ? `Trading rarely gets down to your bid (${x.reach} of the last ${FILL_WINDOW} days) — move to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, where it does, costs ${iskBig(x.cost)}.`
+          ? `Trading rarely gets ${x.isBuy ? 'down to your bid' : 'up to your price'} (${x.reach} of the last ${FILL_WINDOW} days) — move to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, ${x.overBid ? 'one step over the best bid' : 'where it does'}, costs ${iskBig(x.cost)}.`
           : `Beaten by ${by} — move to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, costs ${iskBig(x.cost)}.`,
         action,
       });

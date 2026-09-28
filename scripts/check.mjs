@@ -2530,7 +2530,28 @@ console.log('\n--- place and leave: orders behind the front on purpose ---');
   eq('  and moves down to where trading gets up to once it no longer does', [high.verdict, high.newPrice, high.reach], ['move', 120, 0]);
   eq('    said the right way round', orderFindings([{ ...high, typeId: 34 }], () => 'Tritanium')[0].text.includes('sell order: trading rarely gets up to it'), true);
   eq('  unless that sells under what the stock cost', adviseRelist({ ...sell, price: 140 }, { book: [{ id: 5, isBuy: false, price: 140, volume: 1000 }, ...sbook.slice(1)], dailyVolume: 10_000, highs, leave: true, avgCost: 118 }, R, 2, 0.05).verdict, 'loss');
-  eq('  a sell you are not leaving is judged on the queue alone, as before', adviseRelist({ ...sell, price: 140 }, { book: [{ id: 5, isBuy: false, price: 140, volume: 1000 }, ...sbook.slice(1)], dailyVolume: 10_000, highs }, R, 2, 0.05).reach, null);
+  const plainHigh = adviseRelist({ ...sell, price: 140 }, { book: [{ id: 5, isBuy: false, price: 140, volume: 1000 }, ...sbook.slice(1)], dailyVolume: 10_000, highs }, R, 2, 0.05);
+  eq('  a sell you are not leaving, behind a front trading does reach, is judged on the queue as before', [plainHigh.unreached, plainHigh.newPrice, plainHigh.reach], [false, 109.9, 0]);
+
+  // Every sell, since 28 September 2026: the user's Compact Layered Energized Membrane, one unit listed at 3,899,000,
+  // 15 listings from 720,000 up ahead of it, the best bid 100,000; the fortnight's highs mostly the old 55,310, then
+  // 150,000 on the day a buyer arrived and 100,100 (a listing one step over the bid, bought) since.
+  const mHighs = [55190, 55190, 55210, 55230, 55260, 55310, 55310, 55310, 55310, 55310, 55270, 150000, 100100, 100100];
+  const mBook = [{ id: 7, isBuy: false, price: 3_899_000, volume: 1 }, { id: 8, isBuy: false, price: 720_000, volume: 2 }, { id: 9, isBuy: false, price: 900_000, volume: 5 },
+    { id: 10, isBuy: true, price: 100_000, volume: 462 }, { id: 11, isBuy: true, price: 55_270, volume: 4633 }];
+  const membrane = adviseRelist({ orderId: 7, typeId: 16423, isBuy: false, price: 3_899_000, volumeRemain: 1 }, { book: mBook, dailyVolume: 2, highs: mHighs }, R, 2, 0.05);
+  eq('an ordinary sell whose front isn’t reached either is moved to where trading reaches, not in front of the others', [membrane.verdict, membrane.unreached, membrane.reach], ['move', true, 0]);
+  eq('  never under the best bid: where it reached before the market moved up, 55,310, would sell into it, so one step over', [membrane.reachAt, membrane.newPrice, membrane.overBid], [55310, 100100, true]);
+  eq('  and says so', membrane.why, 'Getting in front at 719,900 wouldn’t sell: the bulk of trading got up there on 0 of the last 14 days. Where it did on 7 of them, 55,310, is under the best bid now (100,000), so one step over that: 100,100');
+  eq('  mailed the right way round', orderFindings([{ ...membrane }], () => 'Membrane')[0].text.includes('sell order: trading rarely gets up to it'), true);
+  const cheapest = adviseRelist({ orderId: 8, typeId: 16423, isBuy: false, price: 720_000, volumeRemain: 2 }, { book: mBook.filter((o) => o.id !== 7 && o.id !== 9), dailyVolume: 2, highs: mHighs }, R, 2, 0.05);
+  eq('  the cheapest listing too, which the queue alone called “at the front”', [cheapest.verdict, cheapest.newPrice, cheapest.why.startsWith('You’re the cheapest listing, but the bulk of trading got up to your price on 0')], ['move', 100100, true]);
+  const upHighs = mHighs.map((h) => (h < 100000 ? 150000 : h));
+  eq('  where trading reaches over the best bid is where it goes', [adviseRelist({ orderId: 7, typeId: 16423, isBuy: false, price: 3_899_000, volumeRemain: 1 }, { book: mBook, dailyVolume: 2, highs: upHighs }, R, 2, 0.05).newPrice, adviseRelist({ orderId: 7, typeId: 16423, isBuy: false, price: 3_899_000, volumeRemain: 1 }, { book: mBook, dailyVolume: 2, highs: upHighs }, R, 2, 0.05).overBid], [150000, undefined]);
+  eq('  not while your own listing is visibly selling', adviseRelist({ orderId: 7, typeId: 16423, isBuy: false, price: 3_899_000, volumeRemain: 1 }, { book: mBook, dailyVolume: 2, highs: mHighs, filling: true }, R, 2, 0.05).unreached, false);
+  const thin = [null, null, 60000, null, null, null, 61000, null, null, null, null, 59000, null, null];
+  eq('  an item traded on too few days to say where it reaches keeps its queue advice', adviseRelist({ orderId: 7, typeId: 16423, isBuy: false, price: 3_899_000, volumeRemain: 1 }, { book: mBook, dailyVolume: 2, highs: thin }, R, 2, 0.05).unreached, false);
+  eq('  and it won’t sell under what the stock cost', adviseRelist({ orderId: 7, typeId: 16423, isBuy: false, price: 3_899_000, volumeRemain: 1 }, { book: mBook, dailyVolume: 2, highs: mHighs, avgCost: 150_000 }, R, 2, 0.05).verdict, 'loss');
 }
 
 console.log('\n--- place and leave: priced where trading reaches ---');

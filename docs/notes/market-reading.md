@@ -134,6 +134,20 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   7th-highest daily high, and an item left with no margin drops out; Busy markets still prices at the top. Stats
   keep `highs14` for it. It was a stated limit ("only buy orders are judged") until the Capital planner's top
   pick turned out to be True Sansha EM Armor Hardener at "59% a flip".
+- **Every sell order on Orders is judged against the highs too**, not only ones you're leaving (`adviseRelist`,
+  since 28 September 2026). Before, an ordinary sell was judged on the queue alone, so a listing on a market whose
+  whole sell side sits above where anything trades was told to undercut the front. The user's Compact Layered
+  Energized Membrane (one unit at 3,899,000): a buyer arrived at 100,000 on 26 September (2,874 traded that day,
+  against a median 158, where the old bids paid 55,000), the sell side emptied, and loot sellers then listed against
+  nothing, from 4,998,000 down to 720,000; in a day of the cloud's watching 205 units were sold into the 100,000 bid
+  and 4 bought from listings, all at 100,100. So a sell is `unreached` when even the front (one step under the best
+  ask, or your price when you are the best) was reached on fewer than `FILL_RARE` of 14 days; then it moves to where
+  trading reached on 7 (`reachedAsk`), which is in front of everyone. Behind a front that is reached, the queue
+  decides as before, and an item traded on too few days to say keeps its queue advice. **Never under the best bid**
+  (`overBid`): the membrane's 7th-highest high was the old 55,310, under today's 100,000 bid, and a listing there
+  would only sell into it, so the move is one step over the bid (100,100, the price that did sell). This applies to
+  sells you're leaving too. Its `loss` check is on the price it moves to. More sells can now raise a "move" alert,
+  including ones already at the front; the alert minimum still applies.
 - **"Price just moved" keeps a spread across two price levels out of the planner** (`lastMove`, `MOVED` 0.5, flag
   `moved`). True Sansha traded around 3.6 M for weeks, then days spanning 3 M to 9 M, then a day at 7.0–7.55 M:
   both its bid (where it had traded) and its ask (where it had jumped to) counted as reached on those wide days.

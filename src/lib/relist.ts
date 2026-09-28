@@ -65,12 +65,21 @@ export type Relist = {
   waitingPaysDaily: number;
   verdict: Verdict;
   why: string;
-  /** For a buy, or a sell you're leaving: of the last 14 days, how many the bulk of trading reached your price. Null otherwise or without history. */
+  /** Of the last 14 days, how many the bulk of trading reached your price. Null without history. */
   reach: number | null;
   /** For an order trading doesn't reach: the price it did reach on 7 of those days. */
   reachAt: number | null;
-  /** A buy the bulk of trading hasn't been getting down to (or a sell you're leaving it hasn't got up to), and that isn't visibly filling either. */
+  /**
+   * An order trading doesn't reach, and that isn't visibly filling either: a buy the bulk of trading hasn't been
+   * getting down to; a sell you're leaving it hasn't got up to; any other sell when even the front of the queue is
+   * above where it gets (behind a front that is reached, getting in front is the answer, as ever).
+   */
   unreached: boolean;
+  /**
+   * For a sell trading doesn't reach: where it did on 7 days is at or under the best bid (the market has moved up
+   * since), so the move is to one step over that bid instead: a listing any lower would just sell into it.
+   */
+  overBid?: boolean;
   /** You're leaving this order where it is: it isn't told to get back in front. */
   left: boolean;
   /** For the `bid` verdict: what selling into the standing bids now would get. */
@@ -339,19 +348,33 @@ export function adviseRelist(
   // A buy only fills when sellers sell into it. When the bulk of trading hasn't been getting down to
   // your price, one step above the best bid may not be reached either (it wasn't, for the Syndicate Gas
   // Cloud Scoop the user bid on): the move worth making is to where trading does reach.
-  // A sell you're leaving gets the same test against the highs: left for weeks above where trading gets up to,
-  // it would sit unsold with nothing said. Other sells keep being judged on the queue alone.
+  // A sell is judged against the highs the same way. One you're leaving is told when trading stops getting up to its
+  // price. Any other sell is told only when even the front of the queue is above where trading gets, since getting in
+  // front is then no answer: the Compact Layered Energized Membrane (28 September 2026) had listings from 720,000 to
+  // 5,000,000 on a sell side emptied two days before, while the four units bought from listings in a day of watching
+  // went at 100,100, one step over the best bid. Behind a front that is reached, the queue decides, as ever.
   const reach = gone ? null
     : mine.isBuy ? (m.lows ? bidReachDays(m.lows, price) : null)
-      : m.leave && m.highs ? askReachDays(m.highs, price) : null;
-  // Your own fills overrule the count: history lags and is trimmed, your order isn't.
-  const unreached = reach != null && reach < FILL_RARE && !m.filling;
-  const reachAt = !unreached ? null : mine.isBuy ? reachedBid(m.lows!) : reachedAsk(m.highs!);
+      : m.highs ? askReachDays(m.highs, price) : null;
   const oneStep = beaten && best !== null ? (mine.isBuy ? tickUp(best) : tickDown(best)) : NaN;
+  const ordinarySell = !mine.isBuy && !m.leave;
+  const frontReach = ordinarySell && reach != null ? askReachDays(m.highs!, Number.isFinite(oneStep) ? oneStep : price) : reach;
+  const sellReachAt = !mine.isBuy && m.highs ? reachedAsk(m.highs) : null;
+  // Your own fills overrule the count: history lags and is trimmed, your order isn't. An ordinary sell on an item that
+  // traded on too few days to say where trading reaches keeps its queue advice.
+  const unreached = frontReach != null && frontReach < FILL_RARE && !m.filling && !(ordinarySell && sellReachAt == null);
+  const reachAt = !unreached ? null : mine.isBuy ? reachedBid(m.lows!) : sellReachAt;
+  // Where trading reached may be under today's best bid when the market has since moved up (the membrane's fortnight
+  // was mostly 55,000 before a buyer arrived at 100,000). A listing there would just sell into the bid, so the move
+  // is to one step over it instead.
+  const bids = m.book.filter((o) => o.isBuy && o.id !== mine.orderId).map((o) => o.price);
+  const bestBid = bids.length ? Math.max(...bids) : null;
+  const overBid = !mine.isBuy && reachAt != null && bestBid != null && reachAt <= bestBid;
   // An ordinary buy goes to the front when the front is above where trading reaches; one you're leaving goes
-  // where trading reaches and stays behind the front, which is the point of leaving it.
+  // where trading reaches and stays behind the front, which is the point of leaving it. A sell goes where trading
+  // reaches, which for an ordinary one is in front of everyone, since even the front wasn't reached.
   const newPrice = unreached && reachAt != null
-    ? (mine.isBuy && !m.leave ? (!(oneStep >= reachAt) ? reachAt : oneStep) : reachAt)
+    ? (mine.isBuy ? (!m.leave ? (!(oneStep >= reachAt) ? reachAt : oneStep) : reachAt) : overBid ? tickUp(bestBid!) : reachAt)
     : oneStep;
   const moves = (beaten || unreached) && Number.isFinite(newPrice);
   const give = moves ? Math.abs(newPrice - price) * volumeRemain : 0;
@@ -394,18 +417,26 @@ export function adviseRelist(
     verdict = 'front';
     why = 'This order is no longer in the book \u2014 it filled, expired or was cancelled';
   } else if (unreached && !mine.isBuy) {
-    // A sell you're leaving that trading no longer gets up to: say where it does, unless that's under your cost.
-    const said = `The bulk of trading got up to your price on ${reach} of the last ${FILL_WINDOW} days`;
+    // A sell trading doesn't get up to (for an ordinary one, not even at the front): say where it does, unless that's
+    // under your cost.
     const at = (p: number) => Math.round(p).toLocaleString('en-US');
+    const said = !ordinarySell
+      ? `The bulk of trading got up to your price on ${reach} of the last ${FILL_WINDOW} days`
+      : beaten
+        ? `Getting in front at ${at(oneStep)} wouldn’t sell: the bulk of trading got up there on ${frontReach} of the last ${FILL_WINDOW} days`
+        : `You’re the cheapest listing, but the bulk of trading got up to your price on ${reach} of the last ${FILL_WINDOW} days`;
+    const there = overBid
+      ? `Where it did on ${FILL_TYPICAL} of them, ${at(reachAt!)}, is under the best bid now (${at(bestBid!)}), so one step over that: ${at(newPrice)}`
+      : `At ${at(newPrice)} it did on ${FILL_TYPICAL} of them`;
     if (reachAt == null) {
       verdict = 'wait';
       why = `${said}, and the item traded on too few days to say where it does reach`;
-    } else if (m.avgCost != null && netOfSale(reachAt) < m.avgCost) {
+    } else if (m.avgCost != null && netOfSale(newPrice) < m.avgCost) {
       verdict = 'loss';
-      why = `${said}. It reached ${at(reachAt)} on ${FILL_TYPICAL} of them, which would sell under what the stock cost you`;
+      why = `${said}. ${there}, which would sell under what the stock cost you`;
     } else {
       verdict = 'move';
-      why = `${said}. At ${at(reachAt)} it did on ${FILL_TYPICAL} of them`;
+      why = `${said}. ${there}`;
     }
   } else if (unreached) {
     // Worth moving to where trading reaches only if selling on from there still makes your target.
@@ -483,6 +514,7 @@ export function adviseRelist(
     aheadUnits, aheadOrders: ahead.length, hoursToFront, topRivalShare, yourHours,
     cutPct, waitingPaysDaily,
     verdict, why, reach, reachAt, unreached, left,
+    ...(overBid && unreached ? { overBid: true } : {}),
   };
 }
 

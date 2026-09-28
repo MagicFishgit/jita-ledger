@@ -76,7 +76,7 @@ const BY_ISK: AlertEvent[] = ['move', 'clearing'];
 /** What the order check worked out about an order, which a mail spells out. */
 export type OrderFacts = Pick<Relist,
   'verdict' | 'isBuy' | 'price' | 'best' | 'gap' | 'newPrice' | 'volumeRemain' | 'give' | 'fee' | 'cost' | 'atRisk' | 'aheadUnits' | 'aheadOrders' | 'hoursToFront' | 'why'>
-  & Partial<Pick<Relist, 'reach' | 'reachAt' | 'unreached'>>;
+  & Partial<Pick<Relist, 'reach' | 'reachAt' | 'unreached' | 'overBid'>>;
 
 /** A trade the cloud found in the items it watches: what Prospects would say about it. */
 export type OppFacts = { buy: number; sell: number; roi: number; iskPerDay: number; qty: number; daysToFlip: number; watchedH: number; bought: number; dumped: number;
@@ -108,7 +108,7 @@ export type SafetyFacts = {
 export const orderFacts = (x: Relist): OrderFacts => ({
   verdict: x.verdict, isBuy: x.isBuy, price: x.price, best: x.best, gap: x.gap, newPrice: x.newPrice, volumeRemain: x.volumeRemain,
   give: x.give, fee: x.fee, cost: x.cost, atRisk: x.atRisk, aheadUnits: x.aheadUnits, aheadOrders: x.aheadOrders, hoursToFront: x.hoursToFront, why: x.why,
-  reach: x.reach, reachAt: x.reachAt, unreached: x.unreached,
+  reach: x.reach, reachAt: x.reachAt, unreached: x.unreached, ...(x.overBid ? { overBid: true } : {}),
 });
 
 /**
@@ -123,7 +123,7 @@ export function orderFindings(list: Relist[], name: (typeId: number) => string):
     if (x.verdict === 'move') {
       out.push({ kind: 'move', key: `move:${x.orderId}:${x.newPrice}`, isk: x.atRisk, title: ALERT_LABELS.move.label, typeId: x.typeId, name: n, order: orderFacts(x),
         text: x.unreached
-          ? `${n} ${side} order: trading rarely gets ${x.isBuy ? 'down' : 'up'} to it (${x.reach} of the last ${FILL_WINDOW} days) — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, where it does (costs ${iskBig(x.cost)}).`
+          ? `${n} ${side} order: trading rarely gets ${x.isBuy ? 'down' : 'up'} to it (${x.reach} of the last ${FILL_WINDOW} days) — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, ${x.overBid ? 'one step over the best bid' : 'where it does'} (costs ${iskBig(x.cost)}).`
           : `${n} ${side} order beaten — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK (costs ${iskBig(x.cost)}).` });
     } else if (x.verdict === 'dry') {
       // Replaces the advice to move, so it goes out as an order to act on, and is mailed like one.
@@ -307,7 +307,9 @@ function section(f: Finding, market: (typeId: number, calc?: boolean, name?: str
       ? `${col('grey', 'Yours ')}${price(o.price)}${col('grey', ' · nobody else on your side')}<br>`
       : `${col('grey', 'Yours ')}${price(o.price)}${col('grey', ' · best now ')}${col(o.gap > 0 && o.verdict !== 'front' ? 'red' : 'white', price(o.best))}${o.gap > 0 && o.verdict !== 'front' ? col('grey', ` (beaten by ${price(o.gap)})`) : ''}<br>`);
     if (o.verdict === 'move' && o.unreached) {
-      out.push(col('grey', `Trading reached your ${o.isBuy ? 'bid' : 'price'} on ${o.reach} of the last ${FILL_WINDOW} days. ${price(o.newPrice)} is where it did on half of them.`) + '<br>');
+      out.push(col('grey', `Trading reached your ${o.isBuy ? 'bid' : 'price'} on ${o.reach} of the last ${FILL_WINDOW} days. ${o.overBid
+        ? `Where it did on half of them is under today’s best bid, so ${price(o.newPrice)} is one step over that bid.`
+        : `${price(o.newPrice)} is where it did on half of them.`}`) + '<br>');
     }
     if (o.verdict === 'move') {
       out.push(`${col('grey', 'Moving costs ')}${money(o.cost)}${col('grey', ` (${money(o.give)} ${o.isBuy ? 'higher' : 'lower'} price + ${money(o.fee)} fee) · `)}${money(o.atRisk)}${col('grey', ' at stake')}<br>`);
