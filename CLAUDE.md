@@ -36,6 +36,13 @@ Actions run, and confirm the change is in the deployed bundle (`curl` the JS and
 you added; the app's entry file is `assets/main-*.js`, pages are separate files, and `version.json` names the live
 build). Minification renames identifiers, so grep for *copy*, not variable names.
 
+**`npm run deployed` after every push, and don't start the next change until it says "Shipped."** It waits for the
+Actions runs of HEAD (or a commit given: `npm run deployed -- abc1234`), prints the failing log of any that failed,
+passes a cancelled run only when a newer run of the same workflow succeeded with it (the Pages workflow cancels an
+older run when a newer push arrives, and builds `main`, so that's normal), and checks the live `version.json` names
+the commit or a newer one that includes it. The user asked for this on 28 September 2026 after seeing a cancelled run,
+so nothing is assumed shipped.
+
 Commit messages explain the reasoning, not just the change: what was wrong, why that was wrong, what
 the evidence was. Long is fine.
 
