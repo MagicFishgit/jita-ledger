@@ -8,7 +8,7 @@ import { navigate } from '../lib/hooks';
 import { loyaltyPoints, openMarketWindow, resolveNames } from '../lib/market';
 import {
   byIskPerLp, daysToClear, instantPrice, LAZY_DAYS, LAZY_WARN_DAYS, lazyPicks, notesFor, patientPrice, planFor, spendPlan, valueOffer,
-  type LpNote, type LpOffer, type LpPlan, type LpValue, type Quote, type UnitPrice,
+  type LazyPick, type LpNote, type LpOffer, type LpPick, type LpPlan, type LpValue, type Quote, type UnitPrice,
 } from '../lib/loyalty';
 import { median } from '../lib/prospects';
 import { PRICE_TOP, priceRest, priceStore, sellPerDay } from '../lib/lpStore';
@@ -184,15 +184,10 @@ export function Loyalty() {
    * 105 M and 175,000 Scourge Heavy Assault Missiles.
    */
   const byOffer = useMemo(() => new Map((offers ?? []).map((o) => [o.offerId, o])), [offers]);
-  const costLine = (offerId: number, v: LpValue, runs: number) => {
+  const handIn = (offerId: number, runs: number): HandIn => {
     const reqs = byOffer.get(offerId)?.requiredItems ?? [];
-    const parts = [`${units(runs * v.lpCost)} LP`];
-    if (v.iskCost > 0) parts.push(`${iskBig(runs * v.iskCost)} to the store`);
-    for (const r of reqs) {
-      const need = runs * r.quantity, have = d.stock?.jita[r.typeId] ?? 0;
-      parts.push(`${units(need)} ${nameOf(r.typeId)}${have >= need ? ' (you have them)' : have > 0 ? ` (you have ${units(have)})` : ''}`);
-    }
-    return <>{parts.join(' + ')}{v.itemsCost > 0 && <span style={{ color: 'var(--faint)' }}> · the items cost {iskBig(runs * v.itemsCost)} to buy</span>}</>;
+    const items = reqs.map((r) => ({ typeId: r.typeId, need: runs * r.quantity, have: d.stock?.jita[r.typeId] ?? 0 }));
+    return { items, haveAll: items.length > 0 && items.every((x) => x.have >= x.need) };
   };
 
   // All the points on one item, listed as one sell order and left alone.
@@ -281,84 +276,8 @@ export function Loyalty() {
           </p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-start' }}>
-          <div className="col" style={{ flex: '1 1 320px', minWidth: 0, gap: 14 }}>
-          <section data-rv="" style={{ minWidth: 0, position: 'relative', padding: 18, overflow: 'hidden', background: 'linear-gradient(160deg,color-mix(in oklab,var(--acc2) 12%,rgba(7,13,21,.92)),rgba(7,13,21,.92) 60%)', border: '1px solid color-mix(in oklab,var(--acc2) 35%,transparent)', clipPath: 'var(--cut)' }}>
-            <div className="hero-l" style={{ color: 'var(--acc2)' }}>
-              Spend it like this
-              <Tip title="Spend it like this" text={'How to spend your points for the most ISK:\n\n• the best rate first, as many times as its buyers will take in the days you allowed, at your share of the buyers taking listings;\n• then the next best, until the points or the ISK run out.\n\nOnly offers priced against the live Jita book, with a trading history to judge the pace by, are used.'} />
-            </div>
-            {!spend.length ? (
-              <p className="note" style={{ marginTop: 10 }}>{lp > 0 ? 'Nothing priced against the live book is worth taking with these points and this much ISK.' : 'Type how many points you have, or log in with the loyalty scope, and this becomes a plan.'}</p>
-            ) : (
-              <>
-                <div className="mono" style={{ fontSize: 34, color: 'var(--pos)', marginTop: 8, textShadow: '0 0 24px rgba(110,231,168,.3)' }}>{iskBig(spendTotal)}</div>
-                <p style={{ margin: '4px 0 14px', fontSize: 12.5, color: '#9fb3c5', textWrap: 'pretty' }}>
-                  {units(spentLp)} of {units(lp)} points across {spend.length} offer{spend.length === 1 ? '' : 's'} turns into about that much profit — {units(Math.round(spendTotal / spentLp))} ISK a point overall, selling over the next {plainNum(days)} days.
-                </p>
-                <p style={{ margin: '-8px 0 12px', fontSize: 12, color: 'var(--label)' }}>
-                  Uses {iskBig(spentIsk)}{Number.isFinite(iskCap) ? ` of the ${iskBig(iskCap)} you set aside` : ' up front'}
-                  {spentLp < lp * 0.95 ? `; ${units(lp - spentLp)} points wait for ${Number.isFinite(iskCap) ? 'more ISK or ' : ''}better offers.` : '.'}
-                </p>
-                <div className="col" style={{ gap: 10 }}>
-                  {spend.slice(0, 8).map((p, i) => (
-                    <div key={p.offerId} style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', gap: 10, alignItems: 'center' }}>
-                      <span className="mono" style={{ width: 22, height: 22, display: 'grid', placeItems: 'center', fontSize: 11, color: '#1a0f02', background: 'var(--acc2)', clipPath: 'var(--hex)' }}>{i + 1}</span>
-                      <div style={{ minWidth: 0 }}>
-                        <div className="ellipsis" style={{ fontSize: 13, color: 'var(--ink)' }}><b className="mono" style={{ color: 'var(--acc2)', fontWeight: 500 }}>{units(p.runs)}×</b> {nameOf(p.typeId)}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--label)' }}>{byOffer.get(p.offerId) ? costLine(p.offerId, all.find((x) => x.v.offerId === p.offerId)!.v, p.runs) : `${units(p.lpSpent)} LP + ${iskBig(p.iskSpent)}`} → you keep {iskBig(p.profit)}</div>
-                        <div className="track h3" style={{ marginTop: 4 }}><span className="fill" style={{ width: `${(p.lpSpent / Math.max(1, lp)) * 100}%`, background: 'var(--acc2)' }} /></div>
-                      </div>
-                      {canOpenInGame() && (
-                        <button type="button" className="icon-btn plain" aria-label={`Open ${nameOf(p.typeId)} in game`} onClick={() => openMarketWindow(p.typeId).then(() => toast(`Opened ${nameOf(p.typeId)}’s market window in your client.`, 'info')).catch((e) => toast(String(e.message ?? e), 'err'))}>
-                          <MonitorUp aria-hidden="true" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  {spend.length > 8 && <p className="note small">And {spend.length - 8} smaller ones in the table.</p>}
-                </div>
-              </>
-            )}
-          </section>
-
-          <section data-rv="" className="panel" aria-label="All on one item" style={{ padding: 18, gap: 10, clipPath: 'none' }}>
-            <div className="hero-l" style={{ color: 'var(--acc)' }}>
-              All on one item
-              <Tip title="All on one item" text={`The best few items to spend all your points on: one trip to the store, one sell order, left to sell in its own time.\n\n• All your points go on the one item, bought as many times as they cover, so they’re ranked by what that makes: your points times its ISK a point.\n• What keeps a pick reasonable is how long the whole pile takes to sell at your share of the buyers taking listings: within ${LAZY_DAYS} days first. Slower ones only fill in when there aren’t enough, anything over ${LAZY_WARN_DAYS} days is flagged, and nothing that would take months is suggested.\n• Offers under half the store’s typical rate per point are left out.\n• “You keep” is what the pile sells for after your broker fee and sales tax, less the store’s ISK and what the items it asks you to hand in cost to buy. Items you already have are counted at that price too: you could sell them instead.\n\nPrices are from the live Jita book; the time to sell is from the last week’s trading at your share (Settings).`} />
-            </div>
-            {!lazy.length ? (
-              <p className="note">{more ? 'Pricing the rest of the store; picks appear as it finishes.' : lp > 0 ? 'Nothing this store sells would sell within three months at your share, or your points don’t cover buying one.' : 'Nothing priced against the live book sells within three months at your share.'}</p>
-            ) : (
-              <div className="col" style={{ gap: 12 }}>
-                {lazy.map((p) => (
-                  <div key={p.v.offerId} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center' }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div className="ellipsis" style={{ fontSize: 13, color: 'var(--ink)' }}><b className="mono" style={{ color: 'var(--acc)', fontWeight: 500 }}>{units(p.units)}× </b>{nameOf(p.v.typeId)}</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--label)' }}>
-                        {p.runs > 1 ? `Buy it ${units(p.runs)} times: ` : 'Buy it once: '}{costLine(p.v.offerId, p.v, p.runs)}
-                      </div>
-                      <div style={{ fontSize: 11.5, color: 'var(--label)' }}>
-                        {Number.isFinite(p.listAt) ? `List at ${isk(p.listAt)}: sells for ${iskBig(p.runs * p.v.revenue)} after fees. ` : ''}You keep <b style={{ color: 'var(--pos)', fontWeight: 500 }}>{iskBig(p.profit)}</b> ({units(Math.round(p.v.iskPerLp))} a point) after {p.v.itemsCost > 0 ? 'the store’s ISK and the items' : 'the store’s ISK'}.
-                      </div>
-                      <div style={{ fontSize: 11.5, color: p.slow ? 'var(--acc2)' : 'var(--sec)' }}>
-                        {p.slow ? `Slow: about ${flip(p.sellDays)} to sell, at your share` : `Sells in about ${flip(p.sellDays)}, at your share`}
-                      </div>
-                    </div>
-                    {canOpenInGame() && (
-                      <button type="button" className="icon-btn plain" aria-label={`Open ${nameOf(p.v.typeId)} in game`} onClick={() => openMarketWindow(p.v.typeId).then(() => toast(`Opened ${nameOf(p.v.typeId)}’s market window in your client.`, 'info')).catch((e) => toast(String(e.message ?? e), 'err'))}>
-                        <MonitorUp aria-hidden="true" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-                {lp <= 0 && <p className="note small">Sized to one purchase each: type how many points you have to size them to all of them.</p>}
-              </div>
-            )}
-          </section>
-          </div>
-
-          <div data-rv="" className="col" style={{ flex: '3 1 640px', minWidth: 0 }}>
+        <div className="col" style={{ gap: 14 }}>
+          <div data-rv="" className="col" style={{ minWidth: 0 }}>
             <p style={{ fontSize: 12.5, color: 'var(--label)', textWrap: 'pretty' }}>
               {units(all.length)} offers valued, {units(profitable)} of them worth taking{lp > 0 && <> with {units(lp)} points</>}.
               {more ? ` ${more}` : live.size > 0 ? ` ${units(live.size)} items priced against the live Jita book; anything left on a global average is marked rough.` : ' All on a global average so far.'}
@@ -405,6 +324,10 @@ export function Loyalty() {
             </section>
             {rows.length > SHOW && !showAll && <p className="note small">Showing the top {SHOW} of {units(rows.length)}. Search above, or show them all.</p>}
           </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,520px),1fr))', gap: 14, alignItems: 'start' }}>
+            <SpendPlan spend={spend} total={spendTotal} spentLp={spentLp} spentIsk={spentIsk} lp={lp} days={days} iskCap={iskCap} all={all} handIn={handIn} nameOf={nameOf} />
+            <AllOnOne picks={lazy} lp={lp} more={more} handIn={handIn} nameOf={nameOf} />
+          </div>
         </div>
       )}
 
@@ -419,6 +342,158 @@ export function Loyalty() {
         habits={[{ icon: Tag, title: 'Worth listing vs sell now', body: 'Sell now dumps into buy orders instantly; listing pays more but takes time.' }]}
       />
     </div>
+  );
+}
+
+/** The items an offer asks you to hand in, for some purchases of it, and how many of each you hold in Jita. */
+type HandIn = { items: { typeId: number; need: number; have: number }[]; haveAll: boolean };
+
+/** The items to hand in, short: one named, several counted, the full list behind a tip. */
+function HandInCell({ h, cost, nameOf }: { h: HandIn; cost: number; nameOf: (id: number) => string }) {
+  if (!h.items.length) return <span style={{ color: 'var(--ghost)' }}>–</span>;
+  const list = h.items.map((x) => `• ${units(x.need)} × ${nameOf(x.typeId)}${x.have >= x.need ? ': you have them' : x.have > 0 ? `: you have ${units(x.have)}` : ''}`).join('\n');
+  const one = h.items.length === 1 ? h.items[0] : null;
+  return (
+    <span tabIndex={0} data-tip={`To hand in at the store:\n\n${list}\n\nBought at the cheapest Jita listings they cost ${iskBig(cost)}.`} data-tip-title="Items to hand in" style={{ display: 'inline-block', minWidth: 0 }}>
+      <span className="ellipsis" style={{ display: 'block', maxWidth: 220 }}>{one ? `${units(one.need)} × ${nameOf(one.typeId)}` : `${h.items.length} kinds of item`}</span>
+      <span className="sub" style={{ color: h.haveAll ? 'var(--pos)' : undefined }}>{h.haveAll ? 'you have them' : `${iskBig(cost)} to buy`}</span>
+    </span>
+  );
+}
+
+/**
+ * "Spend it like this": the plan as a short table, one row per offer, each cost in its own column (points, the
+ * store's ISK, the items to hand in), so nothing has to be read as a sentence.
+ */
+function SpendPlan(p: {
+  spend: LpPick[]; total: number; spentLp: number; spentIsk: number; lp: number; days: number; iskCap: number;
+  all: Row[]; handIn: (offerId: number, runs: number) => HandIn; nameOf: (id: number) => string;
+}) {
+  const byId = new Map(p.all.map((x) => [x.v.offerId, x.v]));
+  return (
+    <section data-rv="" aria-label="Spend it like this" style={{ minWidth: 0, position: 'relative', padding: 18, overflow: 'hidden', background: 'linear-gradient(160deg,color-mix(in oklab,var(--acc2) 12%,rgba(7,13,21,.92)),rgba(7,13,21,.92) 60%)', border: '1px solid color-mix(in oklab,var(--acc2) 35%,transparent)', clipPath: 'var(--cut)' }}>
+      <div className="hero-l" style={{ color: 'var(--acc2)' }}>
+        Spend it like this
+        <Tip title="Spend it like this" text={'How to spend your points for the most ISK:\n\n• the best rate first, as many times as its buyers will take in the days you allowed, at your share of the buyers taking listings;\n• then the next best, until the points or the ISK run out.\n\nOnly offers priced against the live Jita book, with a trading history to judge the pace by, are used. “You keep” is after your fees, the store’s ISK and the items it asks for.'} />
+      </div>
+      {!p.spend.length ? (
+        <p className="note" style={{ marginTop: 10 }}>{p.lp > 0 ? 'Nothing priced against the live book is worth taking with these points and this much ISK.' : 'Type how many points you have, or log in with the loyalty scope, and this becomes a plan.'}</p>
+      ) : (
+        <>
+          <div className="row" style={{ alignItems: 'baseline', gap: 12, flexWrap: 'wrap', margin: '8px 0 4px' }}>
+            <span className="mono" style={{ fontSize: 30, color: 'var(--pos)', textShadow: '0 0 24px rgba(110,231,168,.3)' }}>{iskBig(p.total)}</span>
+            <span style={{ fontSize: 12.5, color: 'var(--label)' }}>you keep, {units(Math.round(p.total / Math.max(1, p.spentLp)))} ISK a point</span>
+          </div>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+            <span className="flag plain" style={cssVars({ '--c': 'var(--acc2)' })}>{units(p.spentLp)} of {units(p.lp)} LP</span>
+            <span className="flag plain" style={cssVars({ '--c': 'var(--label)' })}>{iskBig(p.spentIsk)} up front{Number.isFinite(p.iskCap) ? ` of ${iskBig(p.iskCap)}` : ''}</span>
+            <span className="flag plain" style={cssVars({ '--c': 'var(--label)' })}>sells over {plainNum(p.days)} days</span>
+          </div>
+          <div className="tbl-scroll">
+            <table className="tbl" style={{ minWidth: 560 }}>
+              <thead><tr>
+                <th scope="col" className="l">Buy</th><th scope="col">Points</th>
+                <th scope="col" data-tip="The store’s own ISK price">To the store</th>
+                <th scope="col" className="l" data-tip="Items the store wants handed in with the points">Hand in</th>
+                <th scope="col" data-tip="After your broker fee and tax, the store’s ISK and the items">You keep</th>
+                <th scope="col"><span className="sr-only">Actions</span></th>
+              </tr></thead>
+              <tbody>
+                {p.spend.slice(0, 8).map((x) => {
+                  const v = byId.get(x.offerId);
+                  return (
+                    <tr key={x.offerId} className="hover">
+                      <td className="l"><span className="cellrow"><ItemIcon id={x.typeId} /><span className="ellipsis" style={{ maxWidth: 380 }}><b className="mono" style={{ color: 'var(--acc2)', fontWeight: 500 }}>{units(x.runs)}×</b> {p.nameOf(x.typeId)}</span></span></td>
+                      <td>{units(x.lpSpent)}</td>
+                      <td>{v && v.iskCost > 0 ? iskBig(x.runs * v.iskCost) : '–'}</td>
+                      <td className="l">{v ? <HandInCell h={p.handIn(x.offerId, x.runs)} cost={x.runs * v.itemsCost} nameOf={p.nameOf} /> : '–'}</td>
+                      <td style={{ color: 'var(--pos)' }}>{iskBig(x.profit)}</td>
+                      <td>{canOpenInGame() && (
+                        <button type="button" className="icon-btn plain" aria-label={`Open ${p.nameOf(x.typeId)} in game`} onClick={() => openMarketWindow(x.typeId).then(() => toast(`Opened ${p.nameOf(x.typeId)}’s market window in your client.`, 'info')).catch((e) => toast(String(e.message ?? e), 'err'))}>
+                          <MonitorUp aria-hidden="true" />
+                        </button>
+                      )}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {p.spend.length > 8 && <p className="note small">And {p.spend.length - 8} smaller ones in the table above.</p>}
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * "All on one item": a card per pick. The number that matters is what you keep; one bar shows where the sale goes
+ * (the store's ISK, the items handed in, and yours), and the costs sit in small chips rather than a sentence.
+ */
+function AllOnOne(p: { picks: LazyPick[]; lp: number; more: string | null; handIn: (offerId: number, runs: number) => HandIn; nameOf: (id: number) => string }) {
+  const SEG = { store: 'var(--acc2)', items: '#a98bff', yours: 'var(--pos)' };
+  return (
+    <section data-rv="" className="panel" aria-label="All on one item" style={{ padding: 18, gap: 12, clipPath: 'none' }}>
+      <div className="hero-l" style={{ color: 'var(--acc)' }}>
+        All on one item
+        <Tip title="All on one item" text={`The best few items to spend all your points on: one trip to the store, one sell order, left to sell in its own time.\n\n• All your points go on the one item, bought as many times as they cover, so they’re ranked by what that makes: your points times its ISK a point.\n• What keeps a pick reasonable is how long the whole pile takes to sell at your share of the buyers taking listings: within ${LAZY_DAYS} days first. Slower ones only fill in when there aren’t enough, anything over ${LAZY_WARN_DAYS} days is flagged, and nothing that would take months is suggested.\n• Offers under half the store’s typical rate per point are left out.\n• “You keep” is what the pile sells for after your broker fee and sales tax, less the store’s ISK and what the items it asks you to hand in cost to buy. Items you already have are counted at that price too: you could sell them instead.\n\nPrices are from the live Jita book; the time to sell is from the last week’s trading at your share (Settings).`} />
+      </div>
+      {!p.picks.length ? (
+        <p className="note">{p.more ? 'Pricing the rest of the store; picks appear as it finishes.' : p.lp > 0 ? 'Nothing this store sells would sell within three months at your share, or your points don’t cover buying one.' : 'Nothing priced against the live book sells within three months at your share.'}</p>
+      ) : (
+        <>
+          <div className="row" style={{ gap: 12, flexWrap: 'wrap', fontSize: 11.5, color: 'var(--label)' }}>
+            <span>Where the sale goes:</span>
+            <span><span style={{ color: SEG.yours }}>■</span> you keep</span>
+            <span><span style={{ color: SEG.store }}>■</span> the store’s ISK</span>
+            <span><span style={{ color: SEG.items }}>■</span> items handed in</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,250px),1fr))', gap: 10 }}>
+            {p.picks.map((x) => {
+              const sells = x.runs * x.v.revenue, store = x.runs * x.v.iskCost, items = x.runs * x.v.itemsCost;
+              const w = (n: number) => `${Math.max(0, (n / Math.max(1, sells)) * 100)}%`;
+              const h = p.handIn(x.v.offerId, x.runs);
+              return (
+                <div key={x.v.offerId} className="sub-box" style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
+                  <div className="row" style={{ gap: 8, alignItems: 'center', minWidth: 0 }}>
+                    <ItemIcon id={x.v.typeId} />
+                    <span className="ellipsis" style={{ fontSize: 13, color: 'var(--ink)', flex: 1, minWidth: 0 }}><b className="mono" style={{ color: 'var(--acc)', fontWeight: 500 }}>{units(x.units)}×</b> {p.nameOf(x.v.typeId)}</span>
+                    {canOpenInGame() && (
+                      <button type="button" className="icon-btn plain" aria-label={`Open ${p.nameOf(x.v.typeId)} in game`} onClick={() => openMarketWindow(x.v.typeId).then(() => toast(`Opened ${p.nameOf(x.v.typeId)}’s market window in your client.`, 'info')).catch((e) => toast(String(e.message ?? e), 'err'))}>
+                        <MonitorUp aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="row" style={{ alignItems: 'baseline', gap: 8 }}>
+                    <span className="mono" style={{ fontSize: 22, color: 'var(--pos)' }}>{iskBig(x.profit)}</span>
+                    <span style={{ fontSize: 11.5, color: 'var(--label)' }}>you keep · {units(Math.round(x.v.iskPerLp))} a point</span>
+                  </div>
+                  <div role="img" aria-label={`Sells for ${iskBig(sells)}: ${iskBig(x.profit)} yours, ${iskBig(store)} to the store, ${iskBig(items)} of items`}
+                    data-tip={`Sells for ${iskBig(sells)} after fees.\n\n• ${iskBig(x.profit)} is yours\n• ${iskBig(store)} is the store’s ISK\n• ${iskBig(items)} is the items you hand in`} data-tip-title="Where the sale goes" tabIndex={0}
+                    style={{ display: 'flex', height: 8, background: 'var(--track)', overflow: 'hidden' }}>
+                    <span style={{ width: w(x.profit), background: SEG.yours }} />
+                    <span style={{ width: w(store), background: SEG.store }} />
+                    <span style={{ width: w(items), background: SEG.items }} />
+                  </div>
+                  <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                    <span className="flag plain" style={cssVars({ '--c': 'var(--acc2)' })}>{units(x.lp)} LP</span>
+                    {h.items.length > 0 && (
+                      <span className="flag plain" style={cssVars({ '--c': h.haveAll ? 'var(--pos)' : '#a98bff', maxWidth: '100%', whiteSpace: 'normal' })} tabIndex={0}
+                        data-tip={`To hand in at the store:\n\n${h.items.map((i) => `• ${units(i.need)} × ${p.nameOf(i.typeId)}${i.have >= i.need ? ': you have them' : i.have > 0 ? `: you have ${units(i.have)}` : ''}`).join('\n')}\n\nBought at the cheapest Jita listings they cost ${iskBig(items)}.`} data-tip-title="Items to hand in">
+                        {h.haveAll ? 'Hand in: you have them' : `Hand in ${h.items.length === 1 ? `${units(h.items[0].need)} ${p.nameOf(h.items[0].typeId)}` : `${h.items.length} kinds of item`}`}
+                      </span>
+                    )}
+                    {Number.isFinite(x.listAt) && <span className="flag plain" style={cssVars({ '--c': 'var(--label)' })}>list at {isk(x.listAt)}</span>}
+                    <span className="flag plain" style={cssVars({ '--c': x.slow ? 'var(--acc2)' : 'var(--label)' })}>{x.slow ? 'slow: ' : ''}sells in ~{flip(x.sellDays)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {p.lp <= 0 && <p className="note small">Sized to one purchase each: type how many points you have to size them to all of them.</p>}
+        </>
+      )}
+    </section>
   );
 }
 
