@@ -63,6 +63,8 @@ export type SafetyWrap = {
    */
   holders?: SafetyHolder[];
   loose?: Record<number, number>;
+  /** What lies loose in it, blueprint copies included (absent on wraps read before copies were shown). */
+  contents?: SafetyStack[];
   /**
    * A name for it. The client shows the lost structure's ("K7D-II - Iserlohn Fortress"), but ESI has none to give:
    * `/assets/names` answers "None" for a wrap (28 September 2026), so nothing fills this yet and it's carried if set.
@@ -85,7 +87,32 @@ export type SafetyHolder = {
   items: Record<number, number>;
   /** What's directly inside it and holds things in turn, like a container in a ship's cargo. */
   holders?: SafetyHolder[];
+  /** Where it sits in the ship holding it ("Cargo hold"); absent in a container or loose in the wrap. */
+  bay?: string;
+  /**
+   * The same as `items` by where each sits in a ship (fitted, cargo hold, drone bay), with blueprint copies too:
+   * `items` leaves copies out, as every count does, and a container of nothing but copies read as empty. Absent on
+   * holders read before this was kept.
+   */
+  contents?: SafetyStack[];
 };
+
+/** One kind of thing lying in a wrap, container or ship: how many, where in a ship, and whether they're blueprint copies. */
+export type SafetyStack = { typeId: number; q: number; bay?: string; copy?: true };
+
+/**
+ * Where in a ship an ESI location flag puts something, as the game names it; none for a container's or a hangar's
+ * own flags. Charges loaded in a module share its slot, so they count as fitted too.
+ */
+export function bayOf(flag: string): string | undefined {
+  if (flag === 'Hangar' || flag === 'Unlocked' || flag === 'Locked' || flag === 'AssetSafety') return undefined;
+  if (/^(HiSlot|MedSlot|LoSlot|RigSlot|SubSystemSlot|ServiceSlot)/.test(flag)) return 'Fitted';
+  const named: Record<string, string> = { Cargo: 'Cargo hold', DroneBay: 'Drone bay', FleetHangar: 'Fleet hangar', ShipHangar: 'Ship maintenance bay', FighterBay: 'Fighter bay' };
+  if (named[flag]) return named[flag];
+  if (/^FighterTube/.test(flag)) return 'Fighter bay';
+  const words = flag.replace(/^Specialized/, '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 /** Every container and ship in these wraps, at any depth. */
 export function safetyHolders(wraps: SafetyWrap[] | undefined): SafetyHolder[] {
@@ -195,18 +222,31 @@ export function countStock(raw: RawAsset[], jitaId: number): StockRecord {
   const safe = new Set<number>();
   const safety: SafetyWrap[] = [];
   // What's directly in something, as packed: things holding things become holders, the rest is counted by type.
+  // Blueprint copies are listed (a container of nothing else read as empty) but kept out of `loose`, like every count.
   const packed = (id: number, seen: Set<number>) => {
     const loose: Record<number, number> = {};
     const holders: SafetyHolder[] = [];
+    const stacks = new Map<string, SafetyStack>();
     for (const a of inside.get(id) ?? []) {
-      if (a.is_blueprint_copy || seen.has(a.item_id)) continue;
+      if (seen.has(a.item_id)) continue;
       seen.add(a.item_id);
+      const bay = bayOf(a.location_flag);
       if (inside.has(a.item_id)) {
         const p = packed(a.item_id, seen);
-        holders.push({ id: a.item_id, typeId: a.type_id, items: p.loose, ...(p.holders.length ? { holders: p.holders } : {}) });
-      } else loose[a.type_id] = (loose[a.type_id] ?? 0) + a.quantity;
+        holders.push({
+          id: a.item_id, typeId: a.type_id, items: p.loose, contents: p.contents,
+          ...(p.holders.length ? { holders: p.holders } : {}), ...(bay ? { bay } : {}),
+        });
+        continue;
+      }
+      const copy = !!a.is_blueprint_copy;
+      if (!copy) loose[a.type_id] = (loose[a.type_id] ?? 0) + a.quantity;
+      const k = `${a.type_id}|${bay ?? ''}|${copy ? 1 : 0}`;
+      const s = stacks.get(k);
+      if (s) s.q += a.quantity;
+      else stacks.set(k, { typeId: a.type_id, q: a.quantity, ...(bay ? { bay } : {}), ...(copy ? { copy: true as const } : {}) });
     }
-    return { loose, holders };
+    return { loose, holders, contents: [...stacks.values()] };
   };
   for (const w of raw) {
     if (w.type_id !== ASSET_SAFETY_WRAP && w.location_flag !== 'AssetSafety') continue;
@@ -222,8 +262,8 @@ export function countStock(raw: RawAsset[], jitaId: number): StockRecord {
       stack.push(...(inside.get(a.item_id) ?? []));
     }
     const waiting = w.location_flag === 'AssetSafety';
-    const { loose, holders } = packed(w.item_id, new Set([w.item_id]));
-    safety.push({ id: w.item_id, state: waiting ? 'waiting' : 'delivered', stationId: waiting ? null : w.location_id, items, holders, loose });
+    const { loose, holders, contents } = packed(w.item_id, new Set([w.item_id]));
+    safety.push({ id: w.item_id, state: waiting ? 'waiting' : 'delivered', stationId: waiting ? null : w.location_id, items, holders, loose, contents });
   }
   let inContainers = 0;
   for (const a of raw) {

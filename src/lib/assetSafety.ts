@@ -71,18 +71,20 @@ export function unpackCost(items: Record<number, number>, price: (typeId: number
 
 /**
  * A container or ship with everything in it: what it's worth at these prices (itself included; anything without a
- * price counts as nothing, as in `unpackCost`), how many things are inside it at any depth, and whether any price was
+ * price counts as nothing, as in `unpackCost`, and blueprint copies have none), how many things are inside it at any
+ * depth (copies included), and whether any price was
  * found at all.
  */
 export function holderWorth(h: SafetyHolder, price: (typeId: number) => number | null | undefined): { value: number; inside: number; priced: boolean } {
   let value = 0, inside = 0, priced = false;
   const own = price(h.typeId);
   if (own != null && own > 0) { value += own; priced = true; }
+  // Blueprint copies count as things inside (listed in `contents`) but are worth nothing on the market.
   for (const [id, q] of Object.entries(h.items)) {
-    inside += q;
     const p = price(Number(id));
     if (p != null && p > 0) { value += p * q; priced = true; }
   }
+  inside += h.contents ? h.contents.reduce((n, s) => n + s.q, 0) : Object.values(h.items).reduce((n, q) => n + q, 0);
   for (const c of h.holders ?? []) {
     const w = holderWorth(c, price);
     value += w.value; inside += 1 + w.inside; priced ||= w.priced;

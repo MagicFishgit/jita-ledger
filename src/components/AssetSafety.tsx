@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChevronRight, ShieldAlert } from 'lucide-react';
 import { AUTO_FEE, formatCountdown, holderWorth, parseCountdown, safetyTimes, unpackCost } from '../lib/assetSafety';
-import type { SafetyHolder, SafetyWrap } from '../lib/esiRecords';
+import type { SafetyHolder, SafetyStack, SafetyWrap } from '../lib/esiRecords';
 import { ago, fmtDateTime, iskBig, units } from '../lib/format';
 import { useNow } from '../lib/hooks';
 import { resolveNames } from '../lib/market';
@@ -38,20 +38,29 @@ export function AssetSafety({ d, rough }: { d: Data; rough: Record<number, numbe
 }
 
 /** One line of a wrap's list: a stack of one item, or a container or ship with everything in it. */
-type Row = { key: string; typeId: number; q: number; v: number | null; h?: SafetyHolder; inside?: number };
+type Row = { key: string; typeId: number; q: number; v: number | null; h?: SafetyHolder; inside?: number; bay?: string; copy?: boolean };
 
-/** What's in something as packed, most valuable first: its containers and ships, and its loose items by type. */
-function rowsOf(loose: Record<number, number>, holders: SafetyHolder[] | undefined, price: (id: number) => number | undefined): Row[] {
+/** Where in a ship things are listed, in the game's order; any other bay after these, by name. */
+const BAYS = ['Fitted', 'Cargo hold', 'Drone bay', 'Fighter bay', 'Fleet hangar', 'Ship maintenance bay'];
+const bayRank = (b: string | undefined) => (b == null ? 99 : BAYS.includes(b) ? BAYS.indexOf(b) : 50);
+
+/**
+ * What's in something as packed, most valuable first: its containers and ships and its loose items (blueprint copies
+ * too, worth nothing on the market), grouped by where they sit when it's a ship. Reads older records without
+ * `contents` from the plain count by type.
+ */
+function rowsOf(contents: SafetyStack[] | undefined, loose: Record<number, number>, holders: SafetyHolder[] | undefined, price: (id: number) => number | undefined): Row[] {
   const rows: Row[] = [];
   for (const h of holders ?? []) {
     const w = holderWorth(h, price);
-    rows.push({ key: `h${h.id}`, typeId: h.typeId, q: 1, v: w.priced ? w.value : null, h, inside: w.inside });
+    rows.push({ key: `h${h.id}`, typeId: h.typeId, q: 1, v: w.priced ? w.value : null, h, inside: w.inside, bay: h.bay });
   }
-  for (const [id, q] of Object.entries(loose)) {
-    const p = price(Number(id));
-    rows.push({ key: `t${id}`, typeId: Number(id), q, v: p != null ? p * q : null });
+  const stacks = contents ?? Object.entries(loose).map(([id, q]) => ({ typeId: Number(id), q }) as SafetyStack);
+  for (const s of stacks) {
+    const p = s.copy ? undefined : price(s.typeId);
+    rows.push({ key: `t${s.typeId}|${s.bay ?? ''}|${s.copy ? 1 : 0}`, typeId: s.typeId, q: s.q, v: p != null ? p * s.q : null, bay: s.bay, copy: s.copy });
   }
-  return rows.sort((a, b) => (b.v ?? -1) - (a.v ?? -1));
+  return rows.sort((a, b) => bayRank(a.bay) - bayRank(b.bay) || (a.bay ?? '').localeCompare(b.bay ?? '') || (b.v ?? -1) - (a.v ?? -1));
 }
 
 function Wrap({ w, d, rough, now, station }: { w: SafetyWrap; d: Data; rough: Record<number, number> | null; now: number; station: string | null }) {
@@ -64,17 +73,32 @@ function Wrap({ w, d, rough, now, station }: { w: SafetyWrap; d: Data; rough: Re
   const [open, setOpen] = useState<Set<number>>(() => new Set());
   const price = (id: number) => rough?.[id];
   const cost = useMemo(() => unpackCost(w.items, (id) => rough?.[id]), [w.items, rough]);
-  const rows = useMemo(() => rowsOf(w.loose ?? w.items, w.holders, (id) => rough?.[id]), [w.loose, w.items, w.holders, rough]);
+  const rows = useMemo(() => rowsOf(w.contents, w.loose ?? w.items, w.holders, (id) => rough?.[id]), [w.contents, w.loose, w.items, w.holders, rough]);
   const count = Object.values(w.items).reduce((n, q) => n + q, 0);
+  const copies = useMemo(() => {
+    let n = 0;
+    const walk = (cs: SafetyStack[] | undefined, hs: SafetyHolder[] | undefined) => {
+      for (const s of cs ?? []) if (s.copy) n += s.q;
+      for (const h of hs ?? []) walk(h.contents, h.holders);
+    };
+    walk(w.contents, w.holders);
+    return n;
+  }, [w.contents, w.holders]);
   const packed = rows.some((r) => r.h);
   const toggle = (id: number) => setOpen((was) => {
     const next = new Set(was);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
-  // Containers and ships open to what's in them, a step in; loose items line up with the names beside a chevron.
-  const lines = (rs: Row[], depth: number, path = ''): ReactNode[] => rs.flatMap((r) => {
+  // Containers and ships open to what's in them, a step in; loose items line up with the names beside a chevron. A
+  // ship's things sit under where they are in it, as the game lists them: fitted, cargo hold, drone bay.
+  const lines = (rs: Row[], depth: number, path = ''): ReactNode[] => rs.flatMap((r, i) => {
     const pad = 16 + depth * 22 + (packed && !r.h ? 22 : 0);
+    const head = r.bay && r.bay !== rs[i - 1]?.bay ? (
+      <tr key={`${path}bay:${r.bay}`}>
+        <td className="l" colSpan={4} style={{ height: 30, paddingLeft: 16 + depth * 22 + 22, paddingTop: 10 }}><span className="lbl">{r.bay}</span></td>
+      </tr>
+    ) : null;
     const line = (
       <tr key={path + r.key}>
         <td className="l" style={{ whiteSpace: 'normal', paddingLeft: pad }}>
@@ -86,14 +110,15 @@ function Wrap({ w, d, rough, now, station }: { w: SafetyWrap; d: Data; rough: Re
                 <span className="faint">{r.h.name ? ` · ${name(r.typeId)}` : ''} · {units(r.inside ?? 0)} inside</span>
               </span>
             </button>
-          ) : name(r.typeId)}
+          ) : <>{name(r.typeId)}{r.copy && <span className="faint"> · copy</span>}</>}
         </td>
         <td>{units(r.q)}</td>
         <td>{r.v != null ? iskBig(r.v) : '–'}</td>
         <td style={{ color: 'var(--sec)' }}>{r.v != null ? iskBig(r.v * AUTO_FEE) : '–'}</td>
       </tr>
     );
-    return r.h && open.has(r.h.id) ? [line, ...lines(rowsOf(r.h.items, r.h.holders, price), depth + 1, `${path}${r.key}/`)] : [line];
+    const out = head ? [head, line] : [line];
+    return r.h && open.has(r.h.id) ? [...out, ...lines(rowsOf(r.h.contents, r.h.items, r.h.holders, price), depth + 1, `${path}${r.key}/`)] : out;
   });
   const save = () => {
     const ms = parseCountdown(text);
@@ -159,7 +184,7 @@ function Wrap({ w, d, rough, now, station }: { w: SafetyWrap; d: Data; rough: Re
       </div>
       {rows.length > 8 && <button type="button" className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => setAll(!all)}>{all ? 'Show fewer' : `Show all ${units(rows.length)}`}</button>}
       <p className="note small" style={{ margin: 0 }}>
-        {units(count)} item{count === 1 ? '' : 's'}, worth about <b>{rough ? iskBig(cost.value) : '…'}</b> at CCP’s estimated prices{rough && cost.unpriced.length ? ` (${units(cost.unpriced.length)} with no estimate count as nothing)` : ''}.
+        {units(count)} item{count === 1 ? '' : 's'}, worth about <b>{rough ? iskBig(cost.value) : '…'}</b> at CCP’s estimated prices{rough && cost.unpriced.length ? ` (${units(cost.unpriced.length)} with no estimate count as nothing)` : ''}{copies ? `, and ${units(copies)} blueprint cop${copies === 1 ? 'y' : 'ies'}, which have no market price` : ''}.
         {' '}Unpacking after the automatic delivery costs 15% of each item’s estimate, about {rough ? iskBig(cost.auto) : '…'}; delivered by hand within the system, 0.5%, about {rough ? iskBig(cost.manual) : '…'}.
         {w.firstSeen ? ` The app has tracked it since ${fmtDateTime(Date.parse(w.firstSeen))}.` : ''}
       </p>

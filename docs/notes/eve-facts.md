@@ -171,8 +171,13 @@ Don't re-derive or contradict these without new evidence.
   their fittings and containers with their contents a level deeper. **The wrap has no name in ESI**: the client titles it
   after the lost structure ("K7D-II - Iserlohn Fortress"), but `/characters/{id}/assets/names` answered
   `[{"item_id":…,"name":"None"}]` for it (the cloud's log, 17:07 UTC the same day), and nothing else in ESI names the
-  structure, since the wrap sits at location 2004. Containers and ships inside it keep their own item IDs and the same
-  call is asked for them; what it answers inside a wrap was not yet seen. **ESI has no delivery date anywhere**:
+  structure, since the wrap sits at location 2004. Containers and ships inside it keep their own item IDs, and the same
+  call **does** name those as the user named them ("Battle Chicken", "Equipment"). What's inside, from the raw rows
+  logged at 18:07 UTC (155 rows under the wrap): every ship keeps its flags, so fitted modules sit in `HiSlot0`…`RigSlot2`
+  (loaded charges share their gun's slot), the rest in `Cargo` and `DroneBay`; a container's contents are `Unlocked`;
+  blueprint copies are listed like anything else (`is_blueprint_copy`), and one container held nothing but five; a
+  ship with `is_singleton: false` is packaged and holds nothing (the user's Sigil). Nothing sat deeper than a ship's or
+  container's contents. **ESI has no delivery date anywhere**:
   its spec mentions asset safety only as that flag and the `asset_safety_recovery_tax` journal type. The rules (EVE
   University's summary of CCP's): after 5 days it can be delivered by hand to a station in the same system (0.5%);
   after 20 it goes automatically to the nearest low-sec station (from low or null) or high-sec (from high); either

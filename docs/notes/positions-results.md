@@ -100,6 +100,11 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   containers (`holders`, at any depth, a can in a ship's cargo inside the ship) beside the flat count by type that the
   fees and the mail use, and each opens to what's in it, worth counted with its contents. Their names come from
   `/assets/names` in a call of their own, so a refusal can't lose the wrap's name too; ESI's "None" is no name.
+  The first version showed the user's "Equipment" container as "0 inside": it held only blueprint copies, which every
+  count leaves out (a copy shares its original's price). So `contents` lists what lies in each thing with copies
+  marked (shown, "· copy", worth nothing, and counted apart in the note under the list), and a ship's things under
+  where they sit, as the game lists them (`bayOf`: Fitted, Cargo hold, Drone bay…). The user also asked about a Sigil
+  showing nothing: ESI sends it packaged, and a packaged ship holds nothing.
 - **Net worth keeps one snapshot a day in this browser** (`Data.netWorth`), written by the Wallet page. ESI has no
   net-worth history, so the trend starts the first day the page is opened and says so.
 - **Goals are five kinds, each measured from something the app reads** (`lib/goals.ts`): afford N of an item

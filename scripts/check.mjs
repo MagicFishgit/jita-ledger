@@ -1735,7 +1735,7 @@ console.log('\n--- does it come true: place and leave, the Sniper ---');
 
 console.log('\n--- asset safety ---');
 {
-  const { countStock, mergeSafety, nameHolders, unnamedHolders } = await import('../src/lib/esiRecords.ts');
+  const { countStock, mergeSafety, nameHolders, unnamedHolders, bayOf } = await import('../src/lib/esiRecords.ts');
   const JITA = 60003760;
   // The user's wrap as ESI reported it (28 September 2026): the wrap flagged AssetSafety at location 2004, ships and
   // Station Containers inside it, and here a ship's fitting and a container's contents one level deeper.
@@ -1755,12 +1755,35 @@ console.log('\n--- asset safety ---');
   eq('the wrap: waiting, everything inside it at any depth', [s.safety.length, s.safety[0].id, s.safety[0].state, s.safety[0].stationId, s.safety[0].items], [1, 1055765149463, 'waiting', null, { 2006: 1, 16233: 1, 17366: 1, 2185: 5, 3001: 1 }]);
   // The user asked to open the station containers in the list and see what's in them: kept as packed too.
   eq('  and as packed: the ship and the container with what’s in them', s.safety[0].holders, [
-    { id: 1044914025438, typeId: 2006, items: { 3001: 1 } },
-    { id: 1044519007308, typeId: 17366, items: { 2185: 5 } },
+    { id: 1044914025438, typeId: 2006, items: { 3001: 1 }, contents: [{ typeId: 3001, q: 1, bay: 'Fitted' }] },
+    { id: 1044519007308, typeId: 17366, items: { 2185: 5 }, contents: [{ typeId: 2185, q: 5 }] },
   ]);
-  eq('  a ship with nothing in it lies loose', s.safety[0].loose, { 16233: 1 });
+  eq('  a ship with nothing in it lies loose', [s.safety[0].loose, s.safety[0].contents], [{ 16233: 1 }, [{ typeId: 16233, q: 1 }]]);
   const cargo = countStock([...raw, A(9010, 3465, 1044914025438, 'Cargo', 'item'), A(9011, 34, 9010, 'Unlocked', 'item', 700)], JITA);
-  eq('  a container in a ship’s cargo opens inside the ship', cargo.safety[0].holders[0], { id: 1044914025438, typeId: 2006, items: { 3001: 1 }, holders: [{ id: 9010, typeId: 3465, items: { 34: 700 } }] });
+  eq('  a container in a ship’s cargo opens inside the ship, in its cargo hold', cargo.safety[0].holders[0], { id: 1044914025438, typeId: 2006, items: { 3001: 1 }, contents: [{ typeId: 3001, q: 1, bay: 'Fitted' }], holders: [{ id: 9010, typeId: 3465, items: { 34: 700 }, contents: [{ typeId: 34, q: 700 }], bay: 'Cargo hold' }] });
+  // The user's wrap as ESI sent it at 18:07 UTC: "Equipment", a Station Container holding five blueprint copies and
+  // nothing else, read as 0 inside, since copies are left out of every count; and ships' cargo and drones mixed in
+  // with their fitting. A packaged ship (is_singleton false, their Sigil) can hold nothing, and ESI lists nothing in it.
+  const theirs = countStock([
+    A(1055765149463, 60, 2004, 'AssetSafety', 'other'),
+    A(1044519007308, 17366, 1055765149463, 'Hangar', 'item'),
+    { ...A(1044860817684, 47971, 1044519007308, 'Unlocked', 'item'), is_blueprint_copy: true },
+    { ...A(1044884637797, 31032, 1044519007308, 'Unlocked', 'item'), is_blueprint_copy: true },
+    A(1044795389103, 16233, 1055765149463, 'Hangar', 'item'),
+    A(9101, 3001, 1044795389103, 'HiSlot0', 'item'), A(9102, 3001, 1044795389103, 'HiSlot1', 'item'),
+    A(9103, 12818, 1044795389103, 'HiSlot0', 'item', 8),                    // charges loaded in the gun
+    A(9104, 34, 1044795389103, 'Cargo', 'item', 4000), A(9105, 2185, 1044795389103, 'DroneBay', 'item', 5),
+    A(1049387784911, 19744, 1055765149463, 'Hangar', 'item'),
+  ], JITA);
+  const equip = theirs.safety[0].holders.find((h) => h.typeId === 17366);
+  eq('  a container of nothing but blueprint copies lists them, as copies', [equip.items, equip.contents], [{}, [{ typeId: 47971, q: 1, copy: true }, { typeId: 31032, q: 1, copy: true }]]);
+  eq('  but they still count for nothing in the flat list', [theirs.safety[0].items[47971], theirs.total[47971]], [undefined, undefined]);
+  const chicken = theirs.safety[0].holders.find((h) => h.typeId === 16233);
+  eq('  a ship’s things by where they sit: fitted (loaded charges too), cargo hold, drone bay', chicken.contents,
+    [{ typeId: 3001, q: 2, bay: 'Fitted' }, { typeId: 12818, q: 8, bay: 'Fitted' }, { typeId: 34, q: 4000, bay: 'Cargo hold' }, { typeId: 2185, q: 5, bay: 'Drone bay' }]);
+  eq('  the packaged Sigil lies loose, holding nothing', theirs.safety[0].loose, { 19744: 1 });
+  eq('ESI’s flags as the game names the bays', ['Hangar', 'Unlocked', 'LoSlot4', 'RigSlot0', 'SubSystemSlot2', 'Cargo', 'DroneBay', 'FighterTube2', 'SpecializedOreHold', 'FleetHangar', 'QuafeBay'].map(bayOf),
+    [undefined, undefined, 'Fitted', 'Fitted', 'Fitted', 'Cargo hold', 'Drone bay', 'Fighter bay', 'Ore hold', 'Fleet hangar', 'Quafe bay']);
   eq('  and still counts in the flat list', [cargo.safety[0].items[3465], cargo.safety[0].items[34]], [1, 700]);
   eq('the containers and ships to ask names for', unnamedHolders(undefined, cargo.safety), [1044914025438, 9010, 1044519007308]);
   const named = nameHolders(cargo.safety, new Map([[1044519007308, 'Minerals'], [9010, 'None'], [1044914025438, ' ']]));
@@ -1788,6 +1811,7 @@ console.log('\n--- asset safety ---');
   const hp = { 2006: 10e6, 3001: 1e6, 3465: 5000, 34: 4 };
   eq('a ship with everything in it: itself, its fitting, a container and what’s in that', holderWorth(cargo.safety[0].holders[0], (id) => hp[id]), { value: 10e6 + 1e6 + 5000 + 2800, inside: 702, priced: true });
   eq('  nothing priced says so', holderWorth({ id: 1, typeId: 999, items: { 998: 3 } }, () => undefined), { value: 0, inside: 3, priced: false });
+  eq('  blueprint copies count as inside, but for nothing', holderWorth(equip, (id) => ({ 17366: 30000, 47971: 9e6 })[id]), { value: 30000, inside: 2, priced: true });
   const D = 86400_000, H = 3600_000;
   eq('the countdown as the client shows it', parseCountdown('14d 7h 24m 32s'), 14 * D + 7 * H + 24 * 60_000 + 32_000);
   eq('  near enough is fine', [parseCountdown('14d 7h'), parseCountdown(' 3 h 5 m '), parseCountdown('2D')], [14 * D + 7 * H, 3 * H + 5 * 60_000, 2 * D]);
