@@ -156,6 +156,18 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   trading with yourself. Now your others aren't rivals, best prices or bids to sell into; a cheaper listing of yours
   still counts towards how long this one takes to sell (`yourHours`), and a sell is never moved under your own bid
   either. Orders and the cloud's alert round both pass the IDs of your open orders.
+- **"Too big to keep moving" warns when a price change costs more than it wins** (`tooBigToMove`, `Relist.tooBig`,
+  tag on Orders). A price change is charged on everything left on the order (`k` = broker fee × (1 − the ABR
+  discount), 0.26% at the user's skills, measured at 0.258–0.262% on their journal), but wins only what fills before
+  the front is beaten again. The user's Small Ghoul Compact Energy Nosferatu buy, 50,000 units placed early on "to
+  let the overly large order sit there and buy up over time": ~250,000 ISK a change on ~49,000 units left (a raise
+  also pays on the increase: 1,882 → 2,012 cost 333 k), ~42 units won a change on its record (416 over 10), 1.21 M
+  to place, about 6 M in fees for 937 units, 215 days to fill the rest at ~230 a day, ~100 M ISK in escrow. What a
+  change wins comes from the order's own recorded changes when it has 3 or more (`OWN_CHANGES_MIN`), else the most it
+  can win: everything reaching your side until someone else beats the front (your own moves while watched taken out).
+  It says so once a change costs half of that (`FEE_EATS`), and suggests a size whose change costs a tenth
+  (`FEE_TARGET`): ~4,500 units for the Ghoul. Nothing without a positive margin, or when nobody else beat the front.
+  Weakest slots' ISK a day doesn't subtract price-change fees.
 - **"Price just moved" keeps a spread across two price levels out of the planner** (`lastMove`, `MOVED` 0.5, flag
   `moved`). True Sansha traded around 3.6 M for weeks, then days spanning 3 M to 9 M, then a day at 7.0–7.55 M:
   both its bid (where it had traded) and its ask (where it had jumped to) counted as reached on those wide days.

@@ -14,7 +14,7 @@ import { relistPace } from '../lib/flow';
 import { loadCache, rankProspects } from '../lib/scan';
 import { DEFAULT_FILTERS } from '../lib/prospects';
 import { update, useData } from '../lib/store';
-import type { Relist, Verdict } from '../lib/relist';
+import { FEE_TARGET, type Relist, type TooBig, type Verdict } from '../lib/relist';
 import { FILL_WINDOW } from '../lib/fills';
 import type { Prospect } from '../lib/types';
 import { BusyRelisting, canOpenInGame, NameInGame, OpenInGame, useTypeName } from './common';
@@ -282,7 +282,7 @@ export function Orders() {
                     const left = leaving.has(o.typeId);
                     return (
                       <tr key={o.orderId} className={'hover' + (hot ? ' hot' : x && x.verdict !== 'move' ? ' dim' : '')}>
-                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" /></span><BusyRelisting typeId={o.typeId} isBuy={o.isBuy} /></td>
+                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" /></span><BusyRelisting typeId={o.typeId} isBuy={o.isBuy} />{x?.tooBig && <TooBigTag t={x.tooBig} x={x} />}</td>
                         <td className="l lbl" style={{ color: o.isBuy ? 'var(--buy)' : 'var(--neg-t)', fontSize: 11.5 }}>{o.isBuy ? 'Buy' : 'Sell'}</td>
                         <td className="l">
                           {V && x ? (
@@ -366,6 +366,28 @@ export function Orders() {
  * how long the app has watched this book, and how often someone has listed in front since. The watching
  * carries half the weight after about a day of it.
  */
+/**
+ * An order so big that moving it costs more than a move wins (`tooBigToMove`): the user's 50,000-unit Ghoul buy,
+ * placed to sit and buy up over time, paid ~250,000 ISK a price change for ~40 units a change.
+ */
+function TooBigTag({ t, x }: { t: TooBig; x: Relist }) {
+  const days = !Number.isFinite(t.daysToFill) ? 'no telling how long' : t.daysToFill > 365 ? 'over a year' : t.daysToFill < 2 ? hours(t.daysToFill * 24) : `${Math.round(t.daysToFill)} days`;
+  const wins = t.from === 'own'
+    ? `about ${units(Math.round(t.unitsPerChange))} units, ${iskBig(Math.round(t.profitPerChange))} of profit (your last ${t.changes} price changes)`
+    : `at most about ${units(Math.round(t.unitsPerChange))} units, ${iskBig(Math.round(t.profitPerChange))} of profit, if you held the front until the next ${x.isBuy ? 'outbid' : 'undercut'}`;
+  const tip = `A price change is charged on all ${units(x.volumeRemain)} left on this order, but only wins what ${x.isBuy ? 'fills' : 'sells'} before someone beats the front again.\n\n`
+    + `• One price change: about ${iskBig(Math.round(t.changeFee))}\n`
+    + `• What it wins: ${wins}\n`
+    + `• What’s left takes ${t.paceFrom === 'own' ? days : `at least ${days}`} to ${x.isBuy ? 'fill' : 'sell'}${t.paceFrom === 'own' ? ' at the pace it has' : ', even if everything reaching your side came to you'}, holding ${iskBig(Math.round(t.held))}${x.isBuy ? ' in escrow' : ''}\n\n`
+    + `For example: an order of about ${units(t.suggest)} would cost about ${iskBig(Math.round(t.suggestFee))} a price change, about ${Math.round(FEE_TARGET * 100)}% of what it wins. `
+    + `Cancelling is free and ${x.isBuy ? 'the escrow comes back at once' : 'the stock goes back to your hangar'}; place ${x.isBuy ? 'another' : 'the rest'} when it ${x.isBuy ? 'fills' : 'sells'}.`;
+  return (
+    <span className="sub" tabIndex={0} style={{ color: 'var(--neg)' }} data-tip-title="Too big to keep moving" data-tip={tip}>
+      Too big to keep moving
+    </span>
+  );
+}
+
 function PaceNote({ x, hours }: { x: Relist; hours: (h: number) => string }) {
   const check = useOrderCheck();
   const p = sidePace(check, x.typeId, x.isBuy);

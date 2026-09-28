@@ -1,7 +1,7 @@
 import { tickDown, tickUp } from './tick';
 import { askReachDays, bidReachDays, fillingNow, FILL_RARE, FILL_TYPICAL, FILL_WINDOW, reachedAsk, reachedBid } from './fills';
 import { rates, type Settings } from './fees';
-import type { FlowDay, OrderLite } from './flow';
+import { RELIST_MIN_H, type FlowDay, type OrderLite } from './flow';
 import { iskBig, units } from './format';
 
 /**
@@ -84,6 +84,8 @@ export type Relist = {
   left: boolean;
   /** For the `bid` verdict: what selling into the standing bids now would get. */
   intoBids?: IntoBids;
+  /** The order is so big that moving it costs more than a move wins (`tooBigToMove`). */
+  tooBig?: TooBig;
 };
 
 /**
@@ -253,6 +255,90 @@ export function marketBest(levels: PriceVolume[], isBuy: boolean, dailyVolume?: 
   return ordered[ordered.length - 1].price;
 }
 
+/** Warn when one price change costs at least this share of the profit it wins. */
+export const FEE_EATS = 0.5;
+/** The size suggested instead: one whose price change costs this share of what it wins. */
+export const FEE_TARGET = 0.1;
+/** Price changes an order needs on record before its own average stands for what a change wins. */
+export const OWN_CHANGES_MIN = 3;
+const DAY_MS = 86400_000;
+
+export type TooBig = {
+  /** What one price change costs: charged on everything left on the order. */
+  changeFee: number;
+  /** Units a change wins before the front is beaten again, and the profit on them. */
+  unitsPerChange: number;
+  profitPerChange: number;
+  /**
+   * Where the units per change come from: this order's own recorded price changes (`changes` of them), or the
+   * most a change can win, everything reaching your side until someone else beats the front.
+   */
+  from: 'own' | 'model';
+  changes: number;
+  /** Days for what's left to fill: at the pace this order has filled, or at least this many (everything reaching your side). */
+  daysToFill: number;
+  paceFrom: 'own' | 'side';
+  /** ISK the order holds: escrow for a buy, the listing's value for a sell. */
+  held: number;
+  /** A size whose price change costs FEE_TARGET of what it wins, and what a change would cost at that size. */
+  suggest: number;
+  suggestFee: number;
+};
+
+/**
+ * Whether an order is too big to keep moving. A price change is charged on everything left on the order, but wins
+ * only what fills before the next undercut, so an order far bigger than the market feeds it pays more to stay in
+ * front than staying there earns. The user's Small Ghoul Compact Energy Nosferatu buy (28 September 2026), 50,000
+ * units placed to "sit there and buy up over time": each change cost about 250,000 ISK, charged on ~49,000 units
+ * left, and won about 38 units (~217,000 ISK of profit at a ~5,750 margin); it filled ~230 a day, 215 days for the
+ * rest, with ~100 M ISK in escrow. Said whenever a change costs at least FEE_EATS of the profit it wins, with a size
+ * that would cost FEE_TARGET of it. Nothing is said without a positive margin (other verdicts cover that), or when
+ * nobody else has beaten the front in the hours watched (no change is needed).
+ */
+export function tooBigToMove(
+  o: { isBuy: boolean; seen?: { issued: string; price: number; remain: number }[] },
+  x: Pick<Relist, 'price' | 'volumeRemain' | 'gone'>,
+  m: { perDay: number | null; watched?: FlowDay; margin: number | null },
+  k: number,
+  now: number,
+): TooBig | null {
+  if (x.gone || !(x.volumeRemain > 0) || !(k > 0) || !(m.margin != null && m.margin > 0)) return null;
+  const changeFee = Math.max(100, k * x.price * x.volumeRemain);
+  const seen = o.seen ?? [];
+  const changes = Math.max(0, seen.length - 1);
+  const first = seen[0];
+  const filled = first ? Math.max(0, first.remain - x.volumeRemain) : 0;
+  let unitsPerChange: number;
+  let from: TooBig['from'];
+  if (changes >= OWN_CHANGES_MIN && filled > 0) {
+    unitsPerChange = filled / changes;
+    from = 'own';
+  } else {
+    // The most a change can win: all that reaches your side until someone else beats the front again. Your own
+    // moves while watched are taken out of the count of times the front improved.
+    const w = m.watched;
+    if (!w || !(w.h >= RELIST_MIN_H) || !(m.perDay != null && m.perDay > 0)) return null;
+    const fronts = (o.isBuy ? w.frontBuy : w.frontSell) ?? 0;
+    const yours = seen.slice(1).filter((v) => Date.parse(v.issued) >= now - w.h * 3600_000).length;
+    const others = fronts - yours;
+    if (!(others > 0)) return null;
+    unitsPerChange = Math.min(x.volumeRemain, (m.perDay * (w.h / others)) / 24);
+    from = 'model';
+  }
+  const profitPerChange = unitsPerChange * m.margin;
+  if (!(changeFee >= FEE_EATS * profitPerChange)) return null;
+  const spanDays = first ? (now - Date.parse(first.issued)) / DAY_MS : 0;
+  const ownPace = spanDays >= 1 && filled > 0 ? filled / spanDays : null;
+  const daysToFill = ownPace ? x.volumeRemain / ownPace : m.perDay && m.perDay > 0 ? x.volumeRemain / m.perDay : Infinity;
+  const suggest = Math.max(1, Number(((FEE_TARGET * profitPerChange) / (k * x.price)).toPrecision(2)));
+  return {
+    changeFee, unitsPerChange, profitPerChange, from, changes,
+    daysToFill, paceFrom: ownPace ? 'own' : 'side',
+    held: x.price * x.volumeRemain,
+    suggest, suggestFee: Math.max(100, k * x.price * suggest),
+  };
+}
+
 /**
  * One open order judged against its live book, the way the Orders page, To do, the alerts and the cloud's
  * alert mail all do: your side's pace, your cost, how far trading reaches, and your own fills.
@@ -273,9 +359,19 @@ export function judgeOrder(
   const x = adviseOrder(o, { ...m, book, yours }, s, now);
   // A listing buyers don't take is better sold into the bids: that beats moving it down a tick for a fee. Only
   // others' bids: selling into your own buy order is trading with yourself.
-  const t = rates(s).t;
+  const r = rates(s);
+  const t = r.t;
+  // What a unit makes, the way Orders counts a slot's earnings: a buy against listing it one step under the best
+  // ask, a sell against what the stock cost or else the best bid.
+  const asks = book.filter((b) => !b.isBuy && b.id !== o.orderId).map((b) => b.price);
+  const others = book.filter((b) => b.isBuy && b.id !== o.orderId).map((b) => b.price);
+  const margin = o.isBuy
+    ? (asks.length ? tickDown(Math.min(...asks)) * (1 - r.f - t) - x.price * (1 + r.f) : null)
+    : m.avgCost != null ? x.price * (1 - r.f - t) - m.avgCost : others.length ? x.price * (1 - r.f - t) - Math.max(...others) * (1 + r.f) : null;
+  const big = tooBigToMove(o, x, { perDay: m.perDay, watched: m.watched, margin }, r.k, now);
+  const judged = big ? { ...x, tooBig: big } : x;
   const into = sellIntoBid(o, x, { ...m, book }, t);
-  return into ? { ...x, verdict: 'bid', intoBids: into, why: intoBidsWhy(into, x.price, x.volumeRemain, t) } : x;
+  return into ? { ...judged, verdict: 'bid', intoBids: into, why: intoBidsWhy(into, x.price, x.volumeRemain, t) } : judged;
 }
 
 function adviseOrder(

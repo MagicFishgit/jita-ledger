@@ -2434,6 +2434,39 @@ console.log('\n--- your other orders on an item are not rivals ---');
   eq('  a sell isn’t moved under your own bid either: a listing there would sell to yourself', [sell.newPrice, sell.overBid], [100100, true]);
 }
 
+console.log('\n--- an order too big to keep moving ---');
+{
+  const { tooBigToMove, judgeOrder: judge, FEE_TARGET } = await import('../src/lib/relist.ts');
+  const { DEFAULT_SETTINGS } = await import('../src/lib/fees.ts');
+  // The user's Small Ghoul Compact Energy Nosferatu buy, as recorded (28 September 2026): 50,000 placed to sit and
+  // buy up over time, repriced 10 times since its history was kept, 49,062 left at 2,031, resale one step under 8,193.
+  const seen = [['2026-09-26T23:38:39Z', 1863, 49478], ['2026-09-27T09:01:47Z', 1868, 49331], ['2026-09-27T11:57:50Z', 1872, 49330],
+    ['2026-09-27T17:25:47Z', 1878, 49302], ['2026-09-27T17:42:34Z', 1876, 49302], ['2026-09-27T21:30:40Z', 1882, 49300],
+    ['2026-09-28T12:37:06Z', 2012, 49283], ['2026-09-28T13:42:45Z', 2016, 49281], ['2026-09-28T15:15:24Z', 2019, 49222],
+    ['2026-09-28T16:34:08Z', 2022, 49219], ['2026-09-28T17:46:09Z', 2028, 49158]].map(([issued, price, remain]) => ({ issued, price, remain }));
+  const now = Date.parse('2026-09-28T19:30:00Z');
+  const k = 0.0026, margin = 8192 * (1 - 0.013 - 0.03375) - 2031 * 1.013;
+  const ghoul = tooBigToMove({ isBuy: true, seen }, { price: 2031, volumeRemain: 49062, gone: false }, { perDay: 881, margin }, k, now);
+  eq('the Ghoul buy: each change charged on all 49,062 left, about 259 k', Math.round(ghoul.changeFee / 1000), 259);
+  eq('  and winning about 42 units a change on its own record (416 filled over 10 changes)', [ghoul.from, ghoul.changes, Math.round(ghoul.unitsPerChange)], ['own', 10, 42]);
+  eq('  so it warns, with the days to fill at its own pace and the escrow it holds', [ghoul.paceFrom, Math.round(ghoul.daysToFill), Math.round(ghoul.held / 1e6)], ['own', 216, 100]);
+  eq('  and a size whose change costs a tenth of what it wins', [ghoul.suggest, Math.round(ghoul.suggestFee / ghoul.profitPerChange * 100)], [4500, Math.round(FEE_TARGET * 100)]);
+  // Without its own record: the most a change can win, everything reaching the bids until someone else outbids it.
+  const watched = { h: 27, sell: 782, buy: 994, newSell: 0, newBuy: 0, frontBuy: 26 };
+  const fresh = tooBigToMove({ isBuy: true, seen: [seen[0]] }, { price: 2031, volumeRemain: 49062, gone: false }, { perDay: 881, watched, margin }, k, now);
+  eq('  a fresh order is judged on the most a change can win: 881 a day over the time between outbids', [fresh.from, Math.round(fresh.unitsPerChange)], ['model', 38]);
+  const mineWatched = tooBigToMove({ isBuy: true, seen: [{ ...seen[0], issued: '2026-09-28T10:00:00Z' }, ...Array.from({ length: 2 }, (_, i) => ({ issued: `2026-09-28T1${i + 1}:00:00Z`, price: 2030, remain: 49400 }))] },
+    { price: 2031, volumeRemain: 49062, gone: false }, { perDay: 881, watched: { ...watched, frontBuy: 2 }, margin }, k, now);
+  eq('  nothing when only your own moves improved the front: nobody else is outbidding you', mineWatched, null);
+  eq('a 1,000-unit order on the same market says nothing: a change costs about 5 k', tooBigToMove({ isBuy: true, seen }, { price: 2031, volumeRemain: 1000, gone: false }, { perDay: 881, margin }, k, now), null);
+  eq('nothing without a margin to lose', tooBigToMove({ isBuy: true, seen }, { price: 2031, volumeRemain: 49062, gone: false }, { perDay: 881, margin: -5 }, k, now), null);
+  eq('nothing for an order that’s gone', tooBigToMove({ isBuy: true, seen }, { price: 2031, volumeRemain: 49062, gone: true }, { perDay: 881, margin }, k, now), null);
+  // Through judgeOrder, the way Orders and the cloud see it.
+  const book = [{ id: 1, isBuy: true, price: 2031, volume: 49062 }, { id: 2, isBuy: true, price: 2030, volume: 4449 }, { id: 3, isBuy: false, price: 8193, volume: 5 }];
+  const x = judge({ orderId: 1, typeId: 5141, isBuy: true, price: 2031, volumeRemain: 49062, locationId: 60003760, seen }, { book, perDay: 881, lows: null, txs: [] }, DEFAULT_SETTINGS, now);
+  eq('  Orders carries it on the order', [x.tooBig != null, x.tooBig?.from], [true, 'own']);
+}
+
 console.log('\n--- an item\'s daily rhythm ---');
 {
   const { busyHours, busySaid, spreadAtHour } = await import('../src/lib/rhythm.ts');
