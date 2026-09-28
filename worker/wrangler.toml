@@ -2,6 +2,8 @@
 name = "jita-ledger-cloud"
 main = "src/index.ts"
 compatibility_date = "2026-09-20"
+# Not a secret (Cloudflare's own setup writes it here); it lets the deploy workflow need only an API token.
+account_id = "d3b77f9f0f495af24b22a10c0bb9cf84"
 
 [vars]
 EVE_CLIENT_ID = "7acf615bd9f343be9511e10c1f8ecc82"

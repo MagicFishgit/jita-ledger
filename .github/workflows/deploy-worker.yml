@@ -1,0 +1,59 @@
+name: Deploy the cloud Worker
+
+# The site deploys itself (deploy.yml); this does the same for the Cloudflare Worker whenever its code, or the app's
+# rules it runs (src/lib), change on main. It needs one repository secret, CLOUDFLARE_API_TOKEN: a token with
+# Workers Scripts: Edit and D1: Edit on the account in worker/wrangler.toml.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'worker/**'
+      - 'src/lib/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-worker.yml'
+  workflow_dispatch:
+
+# One deploy at a time, and never one cancelling another halfway through a migration.
+concurrency:
+  group: worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # The Worker runs the app's own rules: their tests, then the Worker's types, before anything goes out.
+      - run: npm run check
+      - run: npx tsc -p worker
+      # A deploy cuts off a run in progress. The daily full-market scan (11:25 UTC, a few minutes long, continued at
+      # :07 past each hour if it stopped at its time budget) is the one worth waiting for: the same test the Worker
+      # uses (scanDue), a run started in the last 20 minutes and not finished.
+      - name: Wait for a full-market scan in progress
+        working-directory: worker
+        run: |
+          for i in $(seq 1 60); do
+            running=$(npx wrangler d1 execute jita-ledger --remote --json --command \
+              "SELECT CASE WHEN COALESCE(last_ok, 0) < last_run AND last_run > (strftime('%s','now') * 1000 - 1200000) THEN 1 ELSE 0 END AS r FROM jobs WHERE char_id = 0 AND job = 'scan'" \
+              | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{const r=JSON.parse(s)[0].results[0];console.log(r?r.r:0)})")
+            if [ "$running" != "1" ]; then echo "No scan running."; exit 0; fi
+            echo "A full-market scan is running; checking again in 30 s."
+            sleep 30
+          done
+          echo "Still running after 30 minutes; deploying anyway (the next hourly check carries a stopped scan on)."
+      # Migrations first: the code being deployed may need them, and each one only adds, so the old code runs on.
+      - name: Apply database migrations
+        working-directory: worker
+        run: npx wrangler d1 migrations apply jita-ledger --remote
+      - name: Deploy
+        working-directory: worker
+        run: npx wrangler deploy

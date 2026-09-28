@@ -2,7 +2,7 @@
 
 A station-trading tool for EVE Online's Jita 4-4. React + TypeScript + Vite, state in IndexedDB with a cloud copy
 in a Cloudflare Worker's D1 database (`worker/`), talking straight to ESI and EVE SSO. The site deploys to GitHub
-Pages on every push to `main`; the Worker deploys by hand (`npm run worker:deploy`).
+Pages on every push to `main`; the Worker deploys from GitHub Actions too, when `worker/` or `src/lib/` changes.
 
 Pages: Wallet (home), To do (was Tonight's run; `#tonight` still lands there), Calculator, Prospects (find items), Watchlist, Capital planner, Hub
 arbitrage, Sniper (mistake listings), Positions, Orders (which of mine are beaten), Results, Loyalty (spending LP), Side hustles
@@ -74,13 +74,19 @@ The app stays a static site on GitHub Pages; a Cloudflare Worker (`jita-ledger-c
 (`jita-ledger`, id `39bbd652-…`), so no browser holds the only copy.
 
 ```
-npm run worker:deploy            # wrangler deploy (Wrangler is logged in on this machine via OAuth)
+npm run worker:deploy            # wrangler deploy by hand (Wrangler is logged in on this machine via OAuth)
 npx wrangler d1 migrations apply jita-ledger --remote   # schema changes: add worker/migrations/000N_*.sql
 npx wrangler tail jita-ledger-cloud                      # live logs
 ```
 
-`npm run build` type-checks the Worker too (`tsc -p worker`). Deploys of the Worker are by hand for now; the
-Pages workflow doesn't touch it. Apply a migration before deploying code that needs it.
+`npm run build` type-checks the Worker too (`tsc -p worker`). **The Worker deploys itself**
+(`.github/workflows/deploy-worker.yml`) on a push to `main` that touches `worker/`, `src/lib/`, the package files or
+the workflow: the logic tests, the Worker's types, a wait while a full-market scan is running (a deploy cuts a run
+off), every pending migration, then `wrangler deploy`. It uses the `CLOUDFLARE_API_TOKEN` repository secret (Workers
+Scripts: Edit and D1: Edit, made by the user on 28 September 2026) and the `account_id` in `wrangler.toml`. The site
+and the Worker deploy separately and in either order, so **a migration only adds** (old code must run on the new
+schema) **and the site must tolerate the Worker it's talking to being a version behind** (a field it doesn't have yet
+is null, never an error). `npm run worker:deploy` still works by hand from this machine.
 
 **The Worker runs the app's own rules**, imported straight from `src/lib`: `esiRecords`, `flow`, `split`, `relist`,
 `fills`, `fees`, `prefs`, `prospects`, `evaluate`, `alerts`, `colony`, `tick`, `format`, `constants`, `types`, `snipe`,
