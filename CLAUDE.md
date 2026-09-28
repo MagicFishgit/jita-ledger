@@ -53,7 +53,10 @@ That split is deliberate and worth keeping: **pure rules in `prospects.ts` / `re
 ### Browser checks
 
 Playwright. Seed IndexedDB directly (`jita-ledger` db, `kv` store, keys match `Data` in `store.ts`)
-to set up cases. Note `browser_navigate` to a URL differing only by `#hash` does **not** reload — call
+to set up cases. **Without a login the app shows only its landing page** (it's the owner's alone, see app-conventions),
+so also put a stand-in login for the owner in `localStorage['jita-ledger:auth']`: `{ accessToken, refreshToken,
+expiresAt, characterId: 95210486, characterName, scopes: [] }` (`scripts/pages.mjs` does). Running the app against a
+local Worker with `VITE_CLOUD_DEV_TOKEN` counts as the owner. Note `browser_navigate` to a URL differing only by `#hash` does **not** reload — call
 `location.reload()` when you need `initStore()` to re-run.
 
 Orders is behind an auth gate. Testing it means temporarily editing `{!auth ? (` to `{false && !auth ? (`.

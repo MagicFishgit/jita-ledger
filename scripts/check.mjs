@@ -1722,6 +1722,13 @@ console.log('\n--- does it come true: place and leave, the Sniper ---');
   eq('  nothing to say before a measurement suggests anything', shareOver({ ...measured, suggested: null }, 10), null);
 }
 
+console.log('\n--- a private ledger: the owner only ---');
+{
+  const { isOwner, OWNER_CHARS } = await import('../src/lib/constants.ts');
+  eq('the owner’s character is let in', [isOwner(95210486), OWNER_CHARS.includes(95210486)], [true, true]);
+  eq('  anyone else, or nobody, isn’t', [isOwner(12345), isOwner(null), isOwner(undefined)], [false, false, false]);
+}
+
 console.log('\n--- the light page a mail’s item link opens ---');
 {
   const { openLink, parseMarket } = await import('../src/lib/openLink.ts');

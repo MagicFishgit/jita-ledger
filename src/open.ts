@@ -9,7 +9,7 @@
  * the tab open and says why.
  */
 import { getAuth, hasScope } from './lib/auth';
-import { SCOPE } from './lib/config';
+import { isOwner, SCOPE } from './lib/config';
 import { esi } from './lib/esi';
 import { parseMarket } from './lib/openLink';
 
@@ -50,6 +50,7 @@ async function run() {
   const auth = getAuth();
   const name = nameOf(want.typeId, want.name);
   if (!auth) { show('err', `Can’t open the ${await name} market`, 'This browser isn’t logged in to Jita Ledger. Open it, log in, then click the link in the mail again.'); return; }
+  if (!isOwner(auth.characterId)) { show('err', 'This Jita Ledger is private', 'Only its owner’s character can use it.'); return; }
   if (!hasScope(SCOPE.ui)) { show('err', `Can’t open the ${await name} market`, 'Opening a market in game needs the “Open a window in your client” permission. Log out of Jita Ledger and in again to grant it.'); return; }
   show(null, `Opening the ${await name} market…`);
   try {

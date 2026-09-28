@@ -6,6 +6,7 @@
  * access token the app already has; `caller` checks it and everything is keyed by that character.
  */
 import { AuthError, caller } from './auth';
+import { isOwner } from '../../src/lib/constants';
 import { alertRound, bookOf, judgeAll, leaveSummary, previewRound, testRound, trackRecord, trackSummary } from './alerts';
 import { dailyChecks, shareSummary } from './checks';
 import { watchdog } from './watchdog';
@@ -217,9 +218,12 @@ export default {
     try {
       if (url.pathname === '/v1/health') return json({ ok: true }, 200, c);
       const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
-      const who = local && env.DEV_AUTH_CHAR && request.headers.get('Authorization') === 'Bearer dev-token'
+      const dev = !!(local && env.DEV_AUTH_CHAR && request.headers.get('Authorization') === 'Bearer dev-token');
+      const who = dev
         ? { charId: Number(env.DEV_AUTH_CHAR), name: 'Local test', scopes: [] }
         : await caller(request, env.EVE_CLIENT_ID);
+      // A private ledger: a genuine EVE login isn't enough, it has to be the owner's character (constants.ts).
+      if (!dev && !isOwner(who.charId)) return json({ error: 'This Jita Ledger is private: only its owner can use it.' }, 403, c);
       if (url.pathname === '/v1/push' && request.method === 'POST') {
         return json(await push(env.DB, who.charId, (await request.json()) as PushBody), 200, c);
       }

@@ -2,6 +2,17 @@
 
 Decisions worth not undoing. Conventions for wording, layout, tooltips, numbers and charts that apply on every page.
 
+- **The app is its owner's alone** (`OWNER_CHARS` / `isOwner` in `constants.ts`, `Landing.tsx`). The site is public
+  (GitHub Pages, and the repository is public), so on 28 September 2026 the user opened it logged out on their phone
+  and found every page there and working: a quick scan ran. Nothing of theirs was exposed (their data lives in their
+  browsers and behind the cloud's EVE login, and the cloud had only ever held their character), but the cloud
+  accepted **any** EVE character's login, so anyone could have read the Sniper's finds and the full scan or run their
+  own ledger on the owner's Cloudflare account. Now the Worker answers 403 to every character but the owner's (the
+  real lock; the local dev token is exempt), and the app shows anyone else a landing page and runs nothing behind it:
+  no sync, cloud, alerts, prefetch or market link. A character that logs in and isn't the owner is logged straight
+  out (token revoked) and told so. `open.html` refuses them too. `npm run check-pages` checks both: logged out, and
+  logged in as someone else, with a large ledger in the browser, only the landing shows and ESI gets no request. To
+  let an alt in, add its character ID.
 - **Confirmations use the platform `<dialog>`** (`lib/confirm.ts` + `ConfirmDialog.tsx`), not a
   library: focus trap, Escape and backdrop come free, and it's drawn in the app's own tokens.
   Destructive questions focus Cancel. No native `confirm()` anywhere.

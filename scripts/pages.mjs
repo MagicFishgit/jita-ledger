@@ -15,6 +15,10 @@ const BASE = `http://localhost:${PORT}/jita-ledger/`;
 // The cloud is somewhere nothing answers, so it fails fast rather than reaching the real one.
 process.env.VITE_CLOUD_URL = 'http://127.0.0.1:9';
 
+/** A stand-in login as the owner (constants.ts), so the pages show; one as anyone else, who must see only the landing. */
+const OWNER_AUTH = { accessToken: 'test', refreshToken: 'test', expiresAt: Date.now() + 86400_000, characterId: 95210486, characterName: 'Owner', scopes: [] };
+const STRANGER_AUTH = { ...OWNER_AUTH, characterId: 12345, characterName: 'Stranger' };
+
 const PAGES = [
   'wallet', 'todo', 'calculator', 'calculator?type=34', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper',
   'positions', 'positions/{first}', 'orders', 'results', 'loyalty',
@@ -187,8 +191,9 @@ try {
     });
     // Seed: the ledger into its store, nothing in the cache or localStorage, then load the app on it.
     await page.goto(BASE);
-    await page.evaluate(async (d) => {
+    await page.evaluate(async ([d, auth]) => {
       localStorage.clear(); sessionStorage.clear();
+      localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
       const open = (db) => new Promise((res, rej) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onerror = rej; q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
       for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', {}]]) {
         const h = await open(db);
@@ -196,7 +201,7 @@ try {
         await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
         h.close();
       }
-    }, data);
+    }, [data, OWNER_AUTH]);
     await page.reload();
     await page.waitForSelector('.page', { timeout: 20_000 });
     // The seed has to have reached the app, or every page below passes on an empty store.
@@ -221,6 +226,50 @@ try {
       process.stdout.write(unique.length ? `  FAIL ${name} #${hash}\n${unique.map((x) => `       ${x}`).join('\n')}\n` : `  ok   ${name} #${hash}\n`);
     }
     await page.close();
+  }
+  // The site is public: without the owner's login, only the landing page, with nothing of the ledger's in it and
+  // nothing run behind it (not one request to ESI), even with a ledger in this browser.
+  if (!only(process.env.LEDGER) && !only(process.env.PAGE)) {
+    for (const [who, auth] of [['logged out', null], ['someone else', STRANGER_AUTH]]) {
+      const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+      let esiCalls = 0;
+      await page.route('**/*', (route) => {
+        const u = route.request().url();
+        if (u.startsWith(`http://localhost:${PORT}/`)) return route.continue();
+        if (u.includes('esi.evetech.net')) esiCalls++;
+        return route.abort();
+      });
+      await page.goto(BASE);
+      await page.evaluate(async ([d, a]) => {
+        localStorage.clear(); sessionStorage.clear();
+        if (a) localStorage.setItem('jita-ledger:auth', JSON.stringify(a));
+        const h = await new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+        await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(d)) st.put(v, k); t.oncomplete = res; });
+        h.close();
+      }, [ALL.large, auth]);
+      await page.reload();
+      await page.waitForTimeout(2500);
+      esiCalls = 0;
+      for (const hash of ['wallet', 'orders', 'positions', 'prospects', 'settings/data']) {
+        await page.evaluate((h) => { location.hash = `#${h}`; }, hash);
+        await page.waitForTimeout(700);
+        const problems = [];
+        if (!(await page.locator('.landing').count())) problems.push('no landing page');
+        if (await page.locator('.page').count()) problems.push('a page of the app showed');
+        if (await page.locator('body', { hasText: PROOF.large }).count()) problems.push('the ledger showed');
+        checked++;
+        if (problems.length) failures.push({ ledger: who, page: hash, problems });
+        process.stdout.write(problems.length ? `  FAIL ${who} #${hash}\n${problems.map((x) => `       ${x}`).join('\n')}\n` : `  ok   ${who} #${hash}\n`);
+      }
+      const extra = [];
+      if (esiCalls) extra.push(`${esiCalls} requests to ESI while logged out`);
+      if (auth && !(await page.locator('.landing', { hasText: 'isn’t this ledger’s owner' }).count())) extra.push('no word that they were logged out');
+      if (auth && (await page.evaluate(() => localStorage.getItem('jita-ledger:auth')))) extra.push('their login was kept');
+      checked++;
+      if (extra.length) failures.push({ ledger: who, page: 'landing', problems: extra });
+      process.stdout.write(extra.length ? `  FAIL ${who}: ${extra.join('; ')}\n` : `  ok   ${who}: nothing ran${auth ? ', logged straight out' : ''}\n`);
+      await page.close();
+    }
   }
 } finally {
   await browser.close();

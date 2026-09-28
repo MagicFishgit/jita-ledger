@@ -976,3 +976,19 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .pill-tag { padding: 1px 6px; font-size: 11px; color: var(--dim); border: 1px solid var(--line-strong); white-space: nowrap; }
 .pick-btn { height: 28px; padding: 0 12px; border: 1px solid var(--acc); background: transparent; color: var(--acc); font-family: var(--f-head); font-weight: 600; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
 .pick-btn[aria-pressed='true'] { background: var(--acc); color: #03121a; }
+
+/* The landing page: what anyone who isn't the owner sees (Landing.tsx). */
+.landing { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: var(--bg); overflow: auto; }
+.landing-card {
+  position: relative; width: min(460px, 100%); display: flex; flex-direction: column; align-items: center; gap: 14px;
+  padding: 34px 28px 26px; text-align: center;
+  background: color-mix(in oklab, #07111b 88%, transparent); border: 1px solid var(--line-2); border-top: 2px solid var(--acc);
+}
+.landing-card h1 { margin: 2px 0 0; font-family: var(--f-head); font-size: 18px; font-weight: 600; color: var(--ink); letter-spacing: .02em; }
+.landing-card > p { margin: 0; color: var(--body); font-size: 14px; line-height: 1.5; text-wrap: pretty; }
+.landing-card > .notice { text-align: left; width: 100%; }
+.landing-card > .btn { margin-top: 6px; }
+.landing-mark { width: 54px; height: 54px; filter: drop-shadow(0 0 14px color-mix(in oklab, var(--acc) 45%, transparent)); }
+.landing-small { display: inline-flex; align-items: center; gap: 6px; font-size: 12px !important; color: var(--label) !important; }
+.landing-small svg { width: 13px; height: 13px; }
+.landing .boot-name { font-size: clamp(19px, 6.4vw, 28px); letter-spacing: .34em; padding-left: .34em; }

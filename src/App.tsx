@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from 'react';
-import { handleCallback } from './lib/auth';
+import { getAuth, handleCallback, logout } from './lib/auth';
+import { isOwner } from './lib/constants';
 import { getData, initStore, update, useData } from './lib/store';
 import { syncCharacter, useSyncState } from './lib/sync';
 import { dueForSync } from './lib/schedule';
@@ -21,6 +22,7 @@ import { Toasts } from './components/shell/Toasts';
 import { Palette } from './components/shell/Palette';
 import { pageOf, type PageKey } from './components/shell/nav';
 import { Notice } from './components/ui';
+import { Landing } from './components/Landing';
 import { PageBoundary } from './components/shell/PageBoundary';
 
 /**
@@ -70,6 +72,9 @@ function prefetchPages() {
   if (idle) idle(run, { timeout: 5000 }); else setTimeout(run, 2000);
 }
 
+/** Local testing against a local Worker stands in a character for the login; a real build never sets this. */
+const DEV_OWNER = !!import.meta.env.VITE_CLOUD_DEV_TOKEN;
+
 const RAIL_KEY = 'jita-ledger:rail';
 const PAGES = new Set<string>(['wallet', 'todo', 'calculator', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'positions', 'orders', 'results', 'loyalty', 'hustles', 'combat', 'omega', 'settings']);
 
@@ -85,9 +90,13 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [booted, setBooted] = useState(false);
   const [loginErr, setLoginErr] = useState<string | null>(null);
+  const [refused, setRefused] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(readRail);
   const [palette, setPalette] = useState(false);
   const auth = useAuth();
+  // The app is the owner's alone: anyone else gets the landing page, and nothing below runs for them.
+  const owner = DEV_OWNER || isOwner(auth?.characterId);
+  const live = ready && owner;
   const route = useRoute();
   const sync = useSyncState();
   const d = useData();
@@ -106,6 +115,9 @@ export function App() {
     (async () => {
       const cb = await handleCallback();
       if (cb.error) setLoginErr(cb.error);
+      // Only the owner's character may use this ledger: anyone else who logs in is logged straight out again.
+      const who = getAuth();
+      if (who && !isOwner(who.characterId)) { setRefused(who.characterName); await logout(); }
       // A login for the cloud's background jobs goes straight to the Worker; nothing stays here.
       if (cb.cloudKey) {
         keepCloudLogin(cb.cloudKey)
@@ -175,18 +187,18 @@ export function App() {
   // same cached body, and the old fixed 15-minute poll could land up to 15 minutes late on top of the
   // hour ESI holds wallet transactions for.
   useEffect(() => {
-    if (!ready || !auth) return;
+    if (!live || !auth) return;
     const tick = () => { if (dueForSync(getData().meta)) syncCharacter(); };
     tick();
     const id = setInterval(tick, 60_000);
     return () => clearInterval(id);
-  }, [ready, auth?.characterId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [live, auth?.characterId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A finished sync may have brought killmails that have never been priced. Price each one once.
   useEffect(() => {
-    if (!ready || sync.running) return;
+    if (!live || sync.running) return;
     if (Object.values(d.killmails).some((k) => !k.value)) priceKillmails().catch(() => undefined);
-  }, [ready, sync.running, d.killmails]);
+  }, [live, sync.running, d.killmails]);
 
   // Say what a finished sync brought, once, without a page having to.
   const lastAdded = useRef<number | null>(null);
@@ -197,23 +209,23 @@ export function App() {
   }, [sync.running, sync.lastAdded]);
   useEffect(() => { if (sync.error) toast(`Sync failed: ${sync.error}`, 'err'); }, [sync.error]);
 
-  useEffect(() => { if (ready) return startAlerts(); }, [ready]);
-  useEffect(() => { if (ready) prefetchPages(); }, [ready]);
+  useEffect(() => { if (live) return startAlerts(); }, [live]);
+  useEffect(() => { if (live) prefetchPages(); }, [live]);
   // The cloud copy of the ledger: sent as it changes, pulled every minute, restored into an empty browser.
-  useEffect(() => { if (ready) return startCloud(); }, [ready]);
+  useEffect(() => { if (live) return startCloud(); }, [live]);
 
   // A market link from an alert mail (`#orders?market=ID`): open that market in the client, once. The
   // request comes off the address first, so a reload or a failure halfway can't open it again; that
   // doesn't fire hashchange, so the ref is what stops React's second run in development.
   const marketDone = useRef<number | null>(null);
   useEffect(() => {
-    if (!ready) return;
+    if (!live) return;
     const id = marketParam(route.query);
     if (id == null || marketDone.current === id) return;
     marketDone.current = id;
     history.replaceState(null, '', withoutMarket(route.path, route.query));
     openFromLink(id).catch(() => undefined);
-  }, [ready, route]);
+  }, [live, route]);
 
   // Page transitions: the old page warps out before the hash changes, the new one warps in.
   useEffect(() => {
@@ -260,6 +272,15 @@ export function App() {
   const meta = pageOf(page);
   const crumbTitle = detailId ? d.names[d.positions.find((p) => p.id === detailId)?.typeId ?? -1] ?? 'Position' : meta.label;
   const mismatch = auth && d.meta.syncedCharacterId && d.meta.syncedCharacterId !== auth.characterId;
+
+  if (ready && !owner) {
+    return (
+      <>
+        <Landing refused={refused} error={loginErr} motion={motion} />
+        <Toasts size={d.prefs.alertSize} />
+      </>
+    );
+  }
 
   return (
     <>
