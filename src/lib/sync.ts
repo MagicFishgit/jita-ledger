@@ -64,6 +64,24 @@ function detectClone(all: RawSkill[], ids: Record<SkillKey, number>): 'alpha' | 
   return aboveCap ? 'omega' : undefined;
 }
 
+/**
+ * Just the wallet balance, which ESI refreshes every 2 minutes. The header shows it as your ISK in game, but a full
+ * sync only runs when orders (20 min) or trades (1 h) are due, so it could lag the game by up to an hour with nothing
+ * to say so: the user read 2,367,154 there while the cloud already held 17,888,941 from a newer sync, and took it
+ * for their overall value. Skipped while a full sync is running, which reads it anyway.
+ */
+export async function refreshBalance(): Promise<void> {
+  const auth = getAuth();
+  if (!auth || state.running || !hasScope(WALLET)) return;
+  const { data: balance } = await esi<number>(`/characters/${auth.characterId}/wallet/`, { auth: true });
+  if (!Number.isFinite(balance)) return;
+  // Unchanged and read in the last 10 minutes: nothing worth writing (every write goes to the cloud too).
+  const was = getData().meta;
+  if (was.walletBalance === balance && was.walletAt && Date.now() - Date.parse(was.walletAt) < 10 * 60_000) return;
+  const at = new Date().toISOString();
+  update((x) => ({ meta: { ...x.meta, walletBalance: balance, walletAt: at } }));
+}
+
 /** Pulls skills, standings, wallet transactions, the whole wallet journal and orders, and merges them into local storage. */
 export async function syncCharacter(): Promise<void> {
   const auth = getAuth();

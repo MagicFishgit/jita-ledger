@@ -63,8 +63,9 @@ export function TopBar({ group, title, onPalette }: { group: string; title: stri
           </button>
         ) : null}
         {auth && d.meta.walletBalance != null && (
-          <div className="wallet-top wide-only">
-            <div className="k">WALLET</div>
+          <div className="wallet-top wide-only" tabIndex={0} data-tip-title="Your wallet"
+            data-tip={`The ISK your character holds in game, as ESI last reported it${d.meta.walletAt ? ` (${ago(d.meta.walletAt, now)})` : ''}. It’s read every 2 minutes while the app is open, ESI’s own refresh.\n\nISK held in your buy orders’ escrow and what your listings are worth aren’t in it. The Wallet page has your net worth.`}>
+            <div className="k">WALLET{d.meta.walletAt ? ` · ${ago(d.meta.walletAt, now).toUpperCase()}` : ''}</div>
             <div className="v">{Math.round(d.meta.walletBalance).toLocaleString('en-US')} ISK</div>
           </div>
         )}

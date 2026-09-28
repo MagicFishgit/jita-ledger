@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type Comp
 import { getAuth, handleCallback, logout } from './lib/auth';
 import { isOwner } from './lib/constants';
 import { getData, initStore, update, useData } from './lib/store';
-import { syncCharacter, useSyncState } from './lib/sync';
+import { refreshBalance, syncCharacter, useSyncState } from './lib/sync';
 import { dueForSync } from './lib/schedule';
 import { onLeave, useAuth, useRoute } from './lib/hooks';
 import { bumpWarp, useMotion } from './lib/motion';
@@ -196,6 +196,16 @@ export function App() {
     tick();
     const id = setInterval(tick, 60_000);
     return () => clearInterval(id);
+  }, [live, auth?.characterId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The header's wallet is your ISK in game: ESI renews the balance every 2 minutes, so it's read that often while
+  // the tab is in view, apart from the full sync (orders and trades are due far less often).
+  useEffect(() => {
+    if (!live || !auth) return;
+    const tick = () => { if (document.visibilityState === 'visible') refreshBalance().catch(() => undefined); };
+    const id = setInterval(tick, 120_000);
+    document.addEventListener('visibilitychange', tick);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', tick); };
   }, [live, auth?.characterId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A finished sync may have brought killmails that have never been priced. Price each one once.
