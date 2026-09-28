@@ -6,6 +6,7 @@
  * from a hauling service, your own time, or a courier reward you choose --- so the page asks for it.
  */
 
+import { listingPrice } from './fills';
 import { tickDown, tickUp } from './tick';
 import { sideVolume } from './split';
 
@@ -36,6 +37,9 @@ export type HubQuote = {
   jitaBestBuy: number | null;
   jitaBestSell: number | null;
   hubBestSell: number | null;
+  /** The hub's best bid and the last 14 days' highs in its region, so a listing is priced where trading reaches. */
+  hubBestBuy?: number | null;
+  hubHighs?: (number | null)[] | null;
   hubUnitsPerDay: number | null;
   /** Share of the hub's volume that is buyers taking sells: who your listing there sells to. */
   hubBuyers: number;
@@ -44,7 +48,7 @@ export type HubQuote = {
 export type HubRow = HubQuote & {
   /** What one unit costs you in Jita, fee included when you place an order for it. */
   cost: number;
-  /** One step under the hub's cheapest listing: what you would list at. */
+  /** What you would list at: one step under the hub's cheapest listing when trading there gets up to it, else where it does (`listingPrice`). */
   listAt: number;
   /** Per unit, after the hub's broker fee and sales tax, before hauling. */
   gross: number;
@@ -65,7 +69,8 @@ export function priceHub(q: HubQuote, mode: BuyMode, r: { f: number; t: number }
     ? q.jitaBestSell
     : q.jitaBestBuy != null ? tickUp(q.jitaBestBuy) * (1 + r.f) : null;
   if (cost == null || !Number.isFinite(cost) || cost <= 0 || q.hubBestSell == null) return null;
-  const listAt = tickDown(q.hubBestSell);
+  // A sell side nothing trades near would invent a haul worth making: price where trading reaches instead.
+  const listAt = listingPrice(q.hubBestSell, q.hubBestBuy ?? null, q.hubHighs) ?? tickDown(q.hubBestSell);
   if (!Number.isFinite(listAt)) return null;
   const gross = listAt * (1 - r.f - r.t) - cost;
   if (gross <= 0) return null;

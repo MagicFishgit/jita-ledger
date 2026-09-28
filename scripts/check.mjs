@@ -2492,6 +2492,22 @@ console.log('\n--- never leave a sell at a price trading doesn\'t reach ---');
     { perDay: 0.0039, watched: { h: 28, sell: 0, buy: 37, newSell: 1, newBuy: 0, frontSell: 1 }, margin: 100000 }, 0.0026, Date.parse('2026-09-28T20:00:00Z')), null);
 }
 
+console.log('\n--- where a new listing sells, everywhere a listing is priced ---');
+{
+  const { listingPrice } = await import('../src/lib/fills.ts');
+  const { patientPrice } = await import('../src/lib/loyalty.ts');
+  const { priceHub } = await import('../src/lib/arbitrage.ts');
+  // The membrane (28 September 2026): cheapest listing 724,900, best bid 100,000, trading up to ~55,310 on half the fortnight.
+  const mem = [55190, 55190, 55210, 55230, 55260, 55310, 55310, 55310, 55310, 55310, 55270, 150000, 100100, 100100];
+  eq('a sell side nothing trades near: where trading reaches, never under one step over the bid', listingPrice(724900, 100000, mem), 100100);
+  eq('  trading reaching the front: one step under it, as before', listingPrice(101000, 100000, Array(14).fill(102000)), 100900);
+  eq('  where trading reaches above the bid: there', listingPrice(724900, 100000, Array(14).fill(150000)), 150000);
+  eq('  no history, or too little: one step under the cheapest listing', [listingPrice(724900, 100000, null), listingPrice(724900, 100000, [null, null, 60000, ...Array(11).fill(null)])], [724800, 724800]);
+  eq('Loyalty values the membrane where it sells, not at 724,800', [Math.round(patientPrice({ bestSell: 724900, bestBuy: 100000, highs: mem }, 0.013, 0.03375).net), Math.round(patientPrice({ bestSell: 724900, bestBuy: 100000 }, 0.013, 0.03375).net)], [Math.round(100100 * (1 - 0.013 - 0.03375)), Math.round(724800 * (1 - 0.013 - 0.03375))]);
+  const hub = { typeId: 16423, m3: 5, jitaBestBuy: 50000, jitaBestSell: 60000, hubBestSell: 724900, hubBestBuy: 100000, hubHighs: mem, hubUnitsPerDay: 100, hubBuyers: 0.5 };
+  eq('Hub arbitrage lists at the hub where trading reaches too', priceHub(hub, 'sells', { f: 0.013, t: 0.03375 }, 5, 7)?.listAt, 100100);
+}
+
 console.log('\n--- an item\'s daily rhythm ---');
 {
   const { busyHours, busySaid, spreadAtHour } = await import('../src/lib/rhythm.ts');
@@ -2695,6 +2711,15 @@ console.log('\n--- the sniper ---');
   const hit = Sn.findListing(34, book, false, st, now);
   eq('  one listing at half price: buy the 10, relist a step under the next', [hit.orderIds, hit.units, hit.cost, hit.resale, hit.nextAsk, hit.doubts], [[1], 10, 5_000_000, 979_900, 980_000, []]);
   eq('  a gap too small to pay after fees is nothing', Sn.findListing(34, [O(1, 960_000, 10), O(2, 980_000, 10)], false, st, now), null);
+  // Your own orders aren't snipes for you, or bids to sell into (the user's 100,100 membrane relist, 28 September 2026).
+  const bidRow = { typeId: 34, orderId: 77, price: 1.2e6, units: 5, minVolume: 1, fair: 1e6, issued: ago(5), doubts: [] };
+  const mineOut = Sn.notYours({ listings: [hit], bids: [bidRow] }, new Set([1, 77]));
+  eq('  your own cheap listing and your own bid are set aside', [mineOut.listings.length, mineOut.bids.length], [0, 0]);
+  eq('  someone else\'s stay', [Sn.notYours({ listings: [hit], bids: [bidRow] }, new Set([2, 78])).listings.length, Sn.notYours({ listings: [hit], bids: [bidRow] }, new Set([2, 78])).bids.length], [1, 1]);
+  // The membrane as listed: 100,100 against 724,900 next, trading up to ~55,310 on half the fortnight, or 100,100 once
+  // the new level has held a week. The resale is never above where trading reaches, so it's no snipe either way.
+  const mem = (h) => Sn.findListing(16423, [O(9, 100100, 1), O(10, 724900, 1), O(11, 725000, 1)], false, { highs14: h, unitsPerDay: 150, daysTraded: 30, lastMove: 0.8 }, now);
+  eq('  a listing one step over the best bid, as Orders advises, isn\'t a snipe', [mem([55190, 55190, 55210, 55230, 55260, 55310, 55310, 55310, 55310, 55310, 55270, 150000, 100100, 100100]), mem(Array(14).fill(100100))], [null, null]);
   eq('  a flood (50 days of trading at the cheap price) is doubted', Sn.findListing(34, [O(1, 500_000, 1000), O(2, 980_000, 10)], false, st, now).doubts, ['flood']);
   eq('  so is one priced three days ago and still there', Sn.findListing(34, [O(1, 500_000, 10, 3 * 1440), O(2, 980_000, 10)], false, st, now).doubts, ['stale']);
   eq('  and one on an item whose price just moved', Sn.findListing(34, book, false, { ...st, lastMove: 0.8 }, now).doubts, ['moved']);

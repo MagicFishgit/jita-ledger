@@ -1,6 +1,7 @@
 import { jitaBook, loyaltyOffers, marketHistory, roughPricesShared } from './market';
 import { paceDay } from './prospects';
-import { loadFlow, watchedFlow } from './flowStore';
+import { loadFlow, watchedDays, watchedFlow } from './flowStore';
+import { FILL_WINDOW, recentRange } from './fills';
 import { byIskPerLp, patientPrice, planFor, spendPlan, valueOffer, type LpOffer, type LpValue, type Quote } from './loyalty';
 import { marketBest } from './relist';
 import { buyerShare, EVEN_SPLIT, sideVolume, tradingSplit, type BookSold } from './split';
@@ -43,6 +44,8 @@ async function priceTypes(ids: number[], p: StorePricing, onProgress?: (done: nu
       try {
         const h = await marketHistory(id);
         p.vol[id] = paceDay(h);
+        // Its highs, so a listing is valued where trading reaches rather than one step under whatever is listed.
+        if (p.quotes[id] && p.live.has(id)) p.quotes[id] = { ...p.quotes[id], highs: recentRange(h, FILL_WINDOW, Date.now(), watchedDays(id)).highs };
         // Who buys: what the live orders have sold and what this app has watched, before history's guess.
         p.buyers[id] = tradingSplit({ history: buyerShare(h.slice(-30)), book: sold, watched: watchedFlow(id), typicalDay: p.vol[id] }).share;
       } catch { p.vol[id] = null; }

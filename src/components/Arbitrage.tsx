@@ -7,6 +7,7 @@ import { jitaBook, publicContracts, regionHistory, resolveIds, stationBook } fro
 import { paceDay } from '../lib/prospects';
 import { buyerShare, tradingSplit } from '../lib/split';
 import { marketBest } from '../lib/relist';
+import { FILL_WINDOW, recentRange } from '../lib/fills';
 import { loadCache } from '../lib/scan';
 import { update, useData } from '../lib/store';
 import { secureRoute, stationPlace, typeInfo, JITA_SYSTEM } from '../lib/universe';
@@ -90,6 +91,8 @@ export function Arbitrage() {
               jitaBestBuy: marketBest(jb.topBuys, true), jitaBestSell: marketBest(jb.topSells, false),
               // Listing at the hub is a price you act on, so one fat-fingered order can't set it.
               hubBestSell: marketBest(hub2.topSells, false),
+              hubBestBuy: marketBest(hub2.topBuys, true),
+              hubHighs: hist.length ? recentRange(hist, FILL_WINDOW, Date.now()).highs : null,
               hubUnitsPerDay: paceDay(hist),
               // Who buys at the hub: what its live orders have sold, before history's guess.
               hubBuyers: tradingSplit({ history: hist.length ? buyerShare(hist.slice(-30)) : null, book: hub2.sold }).share,

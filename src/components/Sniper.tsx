@@ -12,7 +12,7 @@ import { JITA_44 } from '../lib/constants';
 import type { HistRow } from '../lib/types';
 import { navigate, useNow } from '../lib/hooks';
 import { sanitizeAlerts } from '../lib/prefs';
-import { DOUBT_SAID, judgeBids, judgeListings, type HeldBidRow, type SnipeRead, type SnipeRow } from '../lib/snipe';
+import { DOUBT_SAID, judgeBids, judgeListings, notYours, type HeldBidRow, type SnipeRead, type SnipeRow } from '../lib/snipe';
 import { update, useData } from '../lib/store';
 import { copyPrice, OpenInGame, plainPrice, useEnsureNames, useTypeName } from './common';
 import { flip } from './Prospects';
@@ -165,8 +165,10 @@ export function Sniper() {
 
   const r = rates(d.settings);
   const bar = { minIsk: d.alerts.snipeMinIsk, minPct: d.alerts.snipeMinPct };
-  const rows = useMemo(() => (read ? judgeListings(read.listings, r, d.settings.share, bar) : []), [read, r.f, r.t, d.settings.share, bar.minIsk, bar.minPct]); // eslint-disable-line react-hooks/exhaustive-deps
-  const held = useMemo(() => (read ? judgeBids(read.bids, r, d.stock?.jita ?? {}, bar) : []), [read, r.f, r.t, d.stock, bar.minIsk, bar.minPct]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Your own orders aren't snipes for you, or bids to sell into (notYours).
+  const theirs = useMemo(() => (read ? notYours(read, new Set(Object.values(d.orders).filter((o) => o.state === 'open').map((o) => o.orderId))) : null), [read, d.orders]);
+  const rows = useMemo(() => (theirs ? judgeListings(theirs.listings, r, d.settings.share, bar) : []), [theirs, r.f, r.t, d.settings.share, bar.minIsk, bar.minPct]); // eslint-disable-line react-hooks/exhaustive-deps
+  const held = useMemo(() => (theirs ? judgeBids(theirs.bids, r, d.stock?.jita ?? {}, bar) : []), [theirs, r.f, r.t, d.stock, bar.minIsk, bar.minPct]); // eslint-disable-line react-hooks/exhaustive-deps
   const worth = rows.filter((x) => x.worth);
   const small = rows.filter((x) => !x.worth && !x.doubts.length);
   const doubted = rows.filter((x) => x.doubts.length);

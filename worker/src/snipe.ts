@@ -13,7 +13,7 @@ import { rates, sanitizeSettings, type Settings } from '../../src/lib/fees';
 import { iskBig } from '../../src/lib/format';
 import { sanitizeAlerts } from '../../src/lib/prefs';
 import {
-  BASE_RATES, findBid, findListing, judgeBids, judgeListings, KEEP_SELLS, SNIPE_FLOOR,
+  BASE_RATES, findBid, findListing, judgeBids, judgeListings, KEEP_SELLS, notYours, SNIPE_FLOOR,
   type SnipeBid, type SnipeListing, type SnipeOrder, type SnipeRead, type SnipeStats,
 } from '../../src/lib/snipe';
 import { tickDown } from '../../src/lib/tick';
@@ -199,8 +199,12 @@ async function mailLedger(env: Env, charId: number, read: SnipeRead, stock: Stoc
   const settings = sanitizeSettings(await docOf<Partial<Settings>>(env.DB, charId, 'settings'));
   const r = rates(settings);
   const bar = { minIsk: cfg.snipeMinIsk, minPct: cfg.snipeMinPct };
-  const rows = judgeListings(read.listings, r, settings.share, bar).filter((x) => x.worth).slice(0, MAIL_LISTINGS);
-  const heldRows = judgeBids(read.bids, r, stock?.jita ?? {}, bar).filter((x) => x.worth);
+  // Your own orders aren't snipes for you, or bids to sell into (notYours).
+  const open = (await env.DB.prepare(`SELECT id FROM records WHERE char_id = ?1 AND kind = 'orders' AND data IS NOT NULL AND json_extract(data, '$.state') = 'open'`)
+    .bind(charId).all<{ id: string }>()).results.map((x) => Number(x.id));
+  const theirs = notYours(read, new Set(open));
+  const rows = judgeListings(theirs.listings, r, settings.share, bar).filter((x) => x.worth).slice(0, MAIL_LISTINGS);
+  const heldRows = judgeBids(theirs.bids, r, stock?.jita ?? {}, bar).filter((x) => x.worth);
   if (!rows.length && !heldRows.length) return 0;
   const names = await namesAnywhere(env.DB, charId, [...rows.map((x) => x.typeId), ...heldRows.map((x) => x.typeId)]);
   const price = (p: number) => Math.round(p).toLocaleString('en-US');

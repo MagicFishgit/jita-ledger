@@ -132,6 +132,20 @@ export type SnipeRead = { at: string; expires: string | null; pages: number; lis
 
 export type SnipeRow = SnipeListing & { profit: number; pct: number; sellDays: number; worth: boolean };
 
+/**
+ * The read without your own orders: a cheap listing of yours isn't a snipe for you, and selling into your own buy
+ * order is trading with yourself. The book doesn't say whose an order is, so this takes the IDs of your open orders.
+ * Asked by the user (28 September 2026) after relisting a Compact Layered Energized Membrane at 100,100, one step over
+ * the best bid, with the next listing at 724,900: to anyone else that looks like a snipe.
+ */
+export function notYours(read: Pick<SnipeRead, 'listings' | 'bids'>, yours: Set<number>): { listings: SnipeListing[]; bids: SnipeBid[] } {
+  if (!yours.size) return { listings: read.listings, bids: read.bids };
+  return {
+    listings: read.listings.filter((l) => !l.orderIds.some((id) => yours.has(id))),
+    bids: read.bids.filter((b) => !yours.has(b.orderId)),
+  };
+}
+
 /** At your rates and share: what each listing makes, how long it takes to resell, and whether it clears your bar. */
 export function judgeListings(list: SnipeListing[], r: { f: number; t: number }, sharePct: number, bar: { minIsk: number; minPct: number }): SnipeRow[] {
   return list.map((x) => {

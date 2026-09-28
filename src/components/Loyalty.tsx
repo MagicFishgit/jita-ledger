@@ -12,7 +12,7 @@ import {
 } from '../lib/loyalty';
 import { median } from '../lib/prospects';
 import { PRICE_TOP, priceRest, priceStore, sellPerDay } from '../lib/lpStore';
-import { tickDown } from '../lib/tick';
+import { listingPrice } from '../lib/fills';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { OpenInGame, useTypeName, canOpenInGame } from './common';
@@ -195,7 +195,7 @@ export function Loyalty() {
     all.filter((x) => x.live && x.sellDay != null).map((x) => ({
       v: x.v,
       sideUnitsPerDay: x.sellDay,
-      listAt: tickDown(quotes[x.v.typeId]?.bestSell ?? NaN),
+      listAt: (() => { const q = quotes[x.v.typeId]; return q ? listingPrice(q.bestSell, q.bestBuy, q.highs) ?? NaN : NaN; })(),
     })),
     d.settings.share, lp,
   ), [all, quotes, lp, d.settings.share]);

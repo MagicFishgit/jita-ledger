@@ -7,6 +7,7 @@
  * actually be sold, which is the same question the Prospects page asks about any item.
  */
 
+import { listingPrice } from './fills';
 import { tickDown } from './tick';
 
 export type LpOffer = {
@@ -92,11 +93,13 @@ export function byIskPerLp(a: LpValue, b: LpValue): number {
 }
 
 /** The two sides of an item's Jita book, or a rough global average standing in for both. */
-export type Quote = { bestSell: number | null; bestBuy: number | null };
+/** `highs`: the last 14 days' highs, when read, so a listing is valued where trading reaches (`listingPrice`). */
+export type Quote = { bestSell: number | null; bestBuy: number | null; highs?: (number | null)[] | null };
 
 /**
  * What a unit is worth if you list it and wait --- one legal step under the cheapest genuine
- * listing, less your broker fee and sales tax. This is the number a station trader cares about,
+ * listing when trading gets up there, else where it does (`listingPrice`, when the quote has its
+ * highs), less your broker fee and sales tax. This is the number a station trader cares about,
  * because listing is what they do anyway.
  *
  * With no sell orders at all there is no ask to undercut, so the best bid stands in: an
@@ -104,7 +107,8 @@ export type Quote = { bestSell: number | null; bestBuy: number | null };
  */
 export function patientPrice(q: Quote, fee: number, tax: number): UnitPrice | null {
   if (q.bestSell != null && q.bestSell > 0) {
-    const ask = tickDown(q.bestSell);
+    // Where a listing sells: one step under the cheapest when trading gets up there, else where it does (listingPrice).
+    const ask = listingPrice(q.bestSell, q.bestBuy, q.highs) ?? tickDown(q.bestSell);
     return { net: (Number.isFinite(ask) ? ask : q.bestSell) * (1 - fee - tax), buy: q.bestSell };
   }
   if (q.bestBuy != null && q.bestBuy > 0) return { net: q.bestBuy * (1 - fee - tax), buy: q.bestBuy };

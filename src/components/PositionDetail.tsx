@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ChevronDown, Inbox, PartyPopper, PenLine, RefreshCw, Trash2, Undo2 } from 'lucide-react';
 import { computePosition, finishedPosition, laterPosition, startAfter, vsMarketDetail, type PositionCalc } from '../lib/positions';
-import { priceUp, tickDown } from '../lib/tick';
+import { priceUp, tickDown, tickUp } from '../lib/tick';
 import { marketBest, walkBids } from '../lib/relist';
 import { chooseAsk, confirmAsk } from '../lib/confirm';
 import { breakEvenSell, rates } from '../lib/fees';
@@ -163,8 +163,12 @@ export function PositionDetail({ id }: { id: string }) {
   const patient: Stat[] = [];
   if (highs && unitCost != null && keep > 0) {
     for (const [l, k, word] of [['List patiently', FILL_TYPICAL, 'half'], ['List safely', FILL_MOST, 'most']] as const) {
-      const price = reachedAsk(highs, k);
-      if (price == null) continue;
+      const got = reachedAsk(highs, k);
+      if (got == null) continue;
+      // Never under the best bid: after the market moves up, where trading got to over the fortnight can sit below
+      // what a buyer pays now (the membrane's 55,310 against a 100,000 bid), and a listing there would only sell into it.
+      const overBid = bestOtherBid != null && got <= bestOtherBid;
+      const price = overBid ? tickUp(bestOtherBid) : got;
       const reached = askReachDays(highs, price);
       const perUnit = price * keep - unitCost;
       const onStock = c.stock > 0 ? perUnit * c.stock : null;
@@ -179,7 +183,9 @@ export function PositionDetail({ id }: { id: string }) {
       ].filter(Boolean);
       patient.push({
         l, v: isk(price), c: good ? 'var(--pos)' : 'var(--neg)',
-        n: `${parts.join(' ')}${parts.length ? '. ' : ''}Trading got up to it on ${reached} of the last ${FILL_WINDOW} days${days != null ? `, so about ${flip(days)} at your share of buyers` : ''}.${below ? ' Today’s cheapest listing is above this price.' : ''}`,
+        n: overBid
+          ? `${parts.join(' ')}${parts.length ? '. ' : ''}Trading got up to ${isk(got)} on ${word} of the last ${FILL_WINDOW} days, under today’s best bid of ${isk(bestOtherBid!)}: one step over it is the least a listing should ask, and selling into that bid pays about the same now.`
+          : `${parts.join(' ')}${parts.length ? '. ' : ''}Trading got up to it on ${reached} of the last ${FILL_WINDOW} days${days != null ? `, so about ${flip(days)} at your share of buyers` : ''}.${below ? ' Today’s cheapest listing is above this price.' : ''}`,
         tip: `The price the bulk of each day’s trading got up to on ${word} of the last ${FILL_WINDOW} days (the ${k === FILL_TYPICAL ? '7th' : '11th'}-highest daily high), counting Jita sales the app watched. List here and leave it: it sells on the days the market comes up to it.\n\n• ${k === FILL_TYPICAL ? 'More profit, more waiting than the safer price.' : 'Reached on most days: less profit than the patient price, but it sells sooner and more surely.'}\n• Profit is after the broker fee and sales tax, against what the units cost you (or, before any fill, what your buy order pays).\n• The time is a rough guide: your share of buyers, on the days the market gets there.\n• ESI trims each day’s high, so this is where most trading got to; a few sales went higher.\n\nFor a big buy order you mean to fill slowly, this is the price to plan the resale at.`,
       });
     }

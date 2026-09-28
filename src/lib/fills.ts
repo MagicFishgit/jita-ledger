@@ -17,6 +17,7 @@
  * Pure: takes history rows, returns counts and prices.
  */
 
+import { tickDown, tickUp } from './tick';
 import type { HistRow, Order, Tx } from './types';
 
 const DAY = 86400_000;
@@ -144,4 +145,24 @@ export function reachedBid(lows: (number | null)[], k = FILL_TYPICAL): number | 
 export function reachedAsk(highs: (number | null)[], k = FILL_TYPICAL): number | null {
   const sorted = highs.filter((h): h is number => h != null).sort((a, b) => b - a);
   return sorted.length >= k ? sorted[k - 1] : null;
+}
+
+/**
+ * Where a new listing sells, the way Orders judges every sell since 28 September 2026: one step under the cheapest
+ * listing when the bulk of trading got up there on at least FILL_RARE of the last 14 days; otherwise where it got up
+ * to on half of them (`reachedAsk`), never under one step over the best bid, since a listing there would only sell into
+ * it. With no history, or too few days of it to say, one step under the cheapest listing, as before. The Compact
+ * Layered Energized Membrane is the case: listings from 720,000 to 5,000,000 on a sell side emptied two days before,
+ * while the units bought from listings went at 100,100, one step over a 100,000 bid; valuing it at 719,900 overstated
+ * it seven times.
+ */
+export function listingPrice(bestSell: number | null, bestBuy: number | null, highs: (number | null)[] | null | undefined): number | null {
+  if (bestSell == null || !(bestSell > 0)) return null;
+  const front = tickDown(bestSell);
+  if (!highs || !Number.isFinite(front)) return front;
+  if (askReachDays(highs, front) >= FILL_RARE) return front;
+  const at = reachedAsk(highs);
+  if (at == null) return front;
+  const floor = bestBuy != null && bestBuy > 0 ? tickUp(bestBuy) : 0;
+  return Math.min(front, Math.max(at, floor));
 }

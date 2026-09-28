@@ -153,6 +153,18 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   yours it takes when it can't take all; To do and the mail use the same sentence. This applies to
   sells you're leaving too. Its `loss` check is on the price it moves to. More sells can now raise a "move" alert,
   including ones already at the front; the alert minimum still applies.
+- **Every feature that prices a new listing uses `listingPrice` (fills.ts)**, the same rule as Orders: one step under
+  the cheapest listing when trading got up there on `FILL_RARE` of 14 days, else where it got up to on half of them,
+  never under one step over the best bid. The user asked, after the Orders refinements, whether the other features
+  needed them. Loyalty valued every offer's output at one step under the cheapest listing (`patientPrice`), and Hub
+  arbitrage listed at one step under the hub's (`priceHub`): on a sell side nothing trades near, like the membrane's
+  720,000–5,000,000 against trading at 100,100, both would have counted a price about seven times too high. Loyalty's
+  quotes now carry the highs its live pass already read for pace; arbitrage reads the hub region's. The position page's
+  "List patiently" / "List safely" (`reachedAsk`) are floored one step over the best bid too, saying so. The Sniper
+  never resold above `reachedAsk`, so a listing Orders suggests can't be a snipe; it now also leaves out your own orders
+  (`notYours`), page and mail, so your cheap listing isn't offered to you and your own bid isn't one to sell into.
+  The Calculator's prefilled sell price is still one step under the cheapest listing: it's a what-if you edit, and its
+  notes already count how often trading reached a price.
 - **Your other orders on an item are set apart when one is judged** (`judgeOrder`'s `yours`, `MarketContext.yours`).
   The user asked whether to list stock in batches while its buy order is still filling (yes: the times overlap
   instead of adding up, and Positions costs each sale at the average held then, fees per order). But every order
