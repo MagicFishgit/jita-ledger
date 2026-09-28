@@ -5,7 +5,7 @@
  * Pure.
  */
 import { calc, type Settings } from './fees';
-import { FILL_RARE, withWatchedHighs, withWatchedLows, type WatchedExtremes } from './fills';
+import { askReachDays, bidReachDays, FILL_RARE, FILL_WINDOW, reachedAsk, reachedBid, withWatchedHighs, withWatchedLows, type WatchedExtremes } from './fills';
 import type { FlowDay } from './flow';
 import { askToPlace, bidToPlace, SLOW_DAYS, tradedPerDay, warningsFor } from './prospects';
 import { competitionShare, MIN_DAYS, returnPerDay, throughput, tradingSplit, type BookSold } from './split';
@@ -48,13 +48,21 @@ export function judgeProspect(
   // is judged on Jita's own dumps, not only ESI's trimmed lows.
   const lows = stats.lows14 && stats.lowsEnd ? withWatchedLows(stats.lows14, stats.lowsEnd, watched?.days) : stats.lows14;
   const placed = bidToPlace(bestBuy, lows);
-  const { bidReach } = placed;
-  const buy = anyReturn ? placed.top : placed.buy;
-  const raised = buy !== placed.top;
   // The sell side the same way: where the bulk of trading gets up to, not merely one step under the best ask.
   const highs = stats.highs14 && stats.lowsEnd ? withWatchedHighs(stats.highs14, stats.lowsEnd, watched?.days) : stats.highs14;
   const asked = askToPlace(bestSell, highs);
-  const sell = anyReturn ? asked.top : asked.sell;
+  // Place and leave: both prices where trading reaches on half the days, wherever the front is. Not capped at the
+  // front: on the scoop and Hammerhead II the front bid sat below where trading reached, and it was the dead one.
+  // An item without the days to say where that is can't be priced this way and is left out, not priced at the front.
+  const patient = !!filters.patient && !anyReturn;
+  const patientBuy = patient && lows ? reachedBid(lows) : null;
+  const patientSell = patient && highs ? reachedAsk(highs) : null;
+  if (patient && (patientBuy == null || patientSell == null)) return null;
+  const buy = patient ? patientBuy! : anyReturn ? placed.top : placed.buy;
+  const sell = patient ? patientSell! : anyReturn ? asked.top : asked.sell;
+  const bidReach = patient ? bidReachDays(lows!, buy) : placed.bidReach;
+  const askReach = patient ? askReachDays(highs!, sell) : asked.askReach;
+  const raised = !patient && buy !== placed.top;
   // A buy at or above the sell is a loss, which the Busy markets view shows rather than hides.
   if (!Number.isFinite(buy) || !Number.isFinite(sell) || (!anyReturn && sell <= buy)) return null;
 
@@ -65,7 +73,8 @@ export function judgeProspect(
   const split = tradingSplit({ history: stats.buyerShare, book: book.sold, watched: watched?.flow, typicalDay: stats.unitsPerDay });
   const buyers = split.share;
   const sellShare = competitionShare(settings.share, book.sellOrders);
-  const unitsPerDay = throughput(stats.unitsPerDay, buyers, settings.share, book.buyOrders, book.sellOrders);
+  const unitsPerDay = throughput(stats.unitsPerDay, buyers, settings.share, book.buyOrders, book.sellOrders,
+    patient ? { buy: bidReach! / FILL_WINDOW, sell: askReach! / FILL_WINDOW } : undefined);
   // What you could realistically push through this item in a day, in ISK.
   const perDay = unitsPerDay * buy;
   if (!(perDay > 0)) return null;
@@ -94,11 +103,12 @@ export function judgeProspect(
     // big one can be compared at all.
     iskPerDay: c.net / Math.max(daysToFlip, MIN_DAYS), capital: c.spent,
     share: sellShare, buyerShare: buyers, splitFrom: split.from,
-    bidReach, buyRaised: raised, askReach: asked.askReach, sellLowered: sell !== asked.top,
+    bidReach, buyRaised: raised, askReach, sellLowered: !patient && sell !== asked.top, patient,
     warnings: [
       ...warningsFor(stats, book, c.spreadPct, estOrders),
-      ...(bidReach != null && bidReach < FILL_RARE ? ['unreached' as const] : []),
-      ...(asked.askReach != null && asked.askReach < FILL_RARE ? ['unreachedSell' as const] : []),
+      // Priced where trading reaches, a patient plan can't be "not reached".
+      ...(!patient && bidReach != null && bidReach < FILL_RARE ? ['unreached' as const] : []),
+      ...(!patient && askReach != null && askReach < FILL_RARE ? ['unreachedSell' as const] : []),
       ...(daysToFlip > SLOW_DAYS ? ['slow' as const] : []),
     ],
   };

@@ -1793,7 +1793,9 @@ console.log('\n--- whether trading reaches a bid ---');
     { date: '2026-09-22T00:00:00Z' }, { unitPrice: 85000 }, { locationId: 60008494 }, { typeId: 34 },
   ].map((x) => F.fillingNow({ ...dc, seen: undefined }, null, [{ source: 'esi', typeId: 20420, isBuy: true, unitPrice: 83230, date: '2026-09-27T00:43:47Z', locationId: J, ...x }], at27)), [false, false, false, false]);
   eq('  a version first seen after it had already filled proves nothing by itself', F.fillingNow({ ...dc, seen: [{ issued: 'x', price: 83230, remain: 5867 }] }, 5867, [], at27), false);
-  eq('  and a sell order is never judged this way', F.fillingNow({ ...dc, isBuy: false }, 1, [], at27), false);
+  // Sells the same way, for a listing you're leaving: one that shrinks at its price is being bought from.
+  eq('  a sell that has shrunk since its price was set is being reached too', F.fillingNow({ ...dc, isBuy: false }, 1, [], at27), true);
+  eq('  so is one you sold at or above lately, but not below it', [83230, 90000, 80000].map((p) => F.fillingNow({ ...dc, isBuy: false, seen: undefined }, null, [{ source: 'esi', typeId: 20420, isBuy: false, unitPrice: p, date: '2026-09-27T00:43:47Z', locationId: J }], at27)), [true, true, false]);
   const dcBook = [{ id: 11, isBuy: true, price: 83230, volume: 5867 }, { id: 12, isBuy: true, price: 83210, volume: 397 }, { id: 13, isBuy: false, price: 89230, volume: 19 }];
   const dcArgs = { book: dcBook, bestSell: 89230, lows: dcLows, targetReturn: 0.1 };
   eq('by history alone, the datacore buy would be told to cancel', advise(dc, dcArgs, RR2).verdict, 'dry');
@@ -2220,6 +2222,74 @@ console.log('\n--- where to list and wait ---');
   const highs = [97580, 99960, 99960, 97900, 97840, 97830, 97820, 88510, 92200, 92200, 97650, 89970, 96470, 94430];
   eq('the patient price: where trading got up to on half the days', [ra(highs, FILL_TYPICAL), ard(highs, ra(highs, FILL_TYPICAL))], [97650, 7]);
   eq('  the safer one: on most of them', [ra(highs, FILL_MOST), ard(highs, ra(highs, FILL_MOST))], [92200, 12]);
+}
+
+console.log('\n--- place and leave: orders behind the front on purpose ---');
+{
+  const { adviseRelist } = await import('../src/lib/relist.ts');
+  const { orderFindings } = await import('../src/lib/alerts.ts');
+  const R = { k: 0.0026, f: 0.013, t: 0.03375 };
+  // A patient buy at 90 behind a front at 100 on an item trading ~100: its bid is reached on 9 of 14 days.
+  const lows = [89, 92, 88, 95, 91, 87, 99, 93, 86, 96, 90, 94, 89, 97];
+  const buy = { orderId: 1, typeId: 34, isBuy: true, price: 90, volumeRemain: 1000 };
+  const book = [{ id: 1, isBuy: true, price: 90, volume: 1000 }, { id: 2, isBuy: true, price: 100, volume: 50_000 }, { id: 3, isBuy: false, price: 110, volume: 50_000 }];
+  const plain = adviseRelist(buy, { book, dailyVolume: 10_000, bestSell: 110, lows }, R, 2, 0.05);
+  const left = adviseRelist(buy, { book, dailyVolume: 10_000, bestSell: 110, lows, leave: true }, R, 2, 0.05);
+  eq('  an ordinary order behind the front is told to move', plain.verdict, 'move');
+  eq('  one you are leaving is told to wait, and says why', [left.verdict, left.left, left.why], ['wait', true, 'You’re leaving this one: the bulk of trading reached your bid on 6 of the last 14 days']);
+  eq('  and raises no alert', orderFindings([{ ...left, typeId: 34 }], () => 'Tritanium').length, 0);
+  // Trading moved up and away: the patient bid at 80 is reached on none of the days. That must be heard.
+  const away = adviseRelist({ ...buy, price: 80 }, { book: [{ id: 1, isBuy: true, price: 80, volume: 1000 }, ...book.slice(1)], dailyVolume: 10_000, bestSell: 110, lows, leave: true, targetReturn: 0.05 }, R, 2, 0.05);
+  eq('  but one trading no longer reaches is told to move to where it does, still behind the front', [away.verdict, away.unreached, away.newPrice], ['move', true, 91]);
+  eq('    an ordinary one in the same spot goes to the front, as before', adviseRelist({ ...buy, price: 80 }, { book: [{ id: 1, isBuy: true, price: 80, volume: 1000 }, ...book.slice(1)], dailyVolume: 10_000, bestSell: 110, lows, targetReturn: 0.01 }, R, 2, 0.05).newPrice, 100.1);
+  const mailed = orderFindings([{ ...away, typeId: 34 }], () => 'Tritanium');
+  eq('    and that is mailed like any move', [mailed.length, mailed[0].kind, mailed[0].text.includes('rarely gets down to it')], [1, 'move', true]);
+  // A patient sell at 120 over a front at 110; highs reach 120 on 7 of 14 days.
+  const highs = [118, 121, 119, 125, 117, 122, 116, 123, 120, 115, 124, 114, 126, 113];
+  const sell = { orderId: 5, typeId: 34, isBuy: false, price: 120, volumeRemain: 1000 };
+  const sbook = [{ id: 5, isBuy: false, price: 120, volume: 1000 }, { id: 3, isBuy: false, price: 110, volume: 50_000 }, { id: 2, isBuy: true, price: 100, volume: 50_000 }];
+  eq('  a sell you are leaving waits while trading reaches it', adviseRelist(sell, { book: sbook, dailyVolume: 10_000, highs, leave: true }, R, 2, 0.05).verdict, 'wait');
+  const high = adviseRelist({ ...sell, price: 140 }, { book: [{ id: 5, isBuy: false, price: 140, volume: 1000 }, ...sbook.slice(1)], dailyVolume: 10_000, highs, leave: true }, R, 2, 0.05);
+  eq('  and moves down to where trading gets up to once it no longer does', [high.verdict, high.newPrice, high.reach], ['move', 120, 0]);
+  eq('    said the right way round', orderFindings([{ ...high, typeId: 34 }], () => 'Tritanium')[0].text.includes('sell order: trading rarely gets up to it'), true);
+  eq('  unless that sells under what the stock cost', adviseRelist({ ...sell, price: 140 }, { book: [{ id: 5, isBuy: false, price: 140, volume: 1000 }, ...sbook.slice(1)], dailyVolume: 10_000, highs, leave: true, avgCost: 118 }, R, 2, 0.05).verdict, 'loss');
+  eq('  a sell you are not leaving is judged on the queue alone, as before', adviseRelist({ ...sell, price: 140 }, { book: [{ id: 5, isBuy: false, price: 140, volume: 1000 }, ...sbook.slice(1)], dailyVolume: 10_000, highs }, R, 2, 0.05).reach, null);
+}
+
+console.log('\n--- place and leave: priced where trading reaches ---');
+{
+  const { judgeProspect } = await import('../src/lib/evaluate.ts');
+  const Fl = await import('../src/lib/fills.ts');
+  const { DEFAULT_SETTINGS } = await import('../src/lib/fees.ts');
+  const { DEFAULT_FILTERS } = await import('../src/lib/prospects.ts');
+  const now = Date.parse('2026-09-28T00:00:00Z');
+  const hist = Array.from({ length: 30 }, (_, i) => {
+    const date = new Date(now - (30 - i) * 86400_000).toISOString().slice(0, 10);
+    return { date, average: 100, lowest: 88 + (i % 9), highest: 112 - (i % 8), volume: 20_000, order_count: 200 };
+  });
+  const st = statsFrom(34, hist, now);
+  const book = { at: new Date(now).toISOString(), bestBuy: 90, bestSell: 110, buyOrders: 20, sellOrders: 20, topBuys: [{ price: 90, volume: 5000 }], topSells: [{ price: 110, volume: 5000 }] };
+  const fl = { ...DEFAULT_FILTERS, budget: 1e12, horizonDays: 30, partial: true, minRoi: 0, minTrades: 0, minDays: 0 };
+  const S = { ...DEFAULT_SETTINGS, share: 10, br: 5, acc: 5, abr: 5, clone: 'omega' };
+  const front = judgeProspect(st, book, S, fl, 40);
+  const leave = judgeProspect(st, book, S, { ...fl, patient: true }, 40);
+  const pb = Fl.reachedBid(st.lows14), pa = Fl.reachedAsk(st.highs14);
+  const P = await import('../src/lib/prospects.ts');
+  eq('  at the front: as Prospects prices it', [front.buy, front.sell], [P.bidToPlace(90, st.lows14).buy, P.askToPlace(110, st.highs14).sell]);
+  eq('  place and leave: where trading reaches on half the days, both sides', [leave.buy, leave.sell, leave.patient], [pb, pa, true]);
+  // Units a day, each side scaled by how often trading reaches its price: between the two sides' slowdowns.
+  const rb = Fl.bidReachDays(st.lows14, pb) / 14, ra = Fl.askReachDays(st.highs14, pa) / 14;
+  const slower = (front.qty / front.daysToFlip) / (leave.qty / leave.daysToFlip);
+  eq('    slower, by how often trading gets to its prices', slower >= 1 / Math.max(rb, ra) - 1e-9 && slower <= 1 / Math.min(rb, ra) + 1e-9, true);
+  // A book whose front sits inside where trading happens: leaving it behind the front widens the margin.
+  const inside = { ...book, bestBuy: 95, bestSell: 105, topBuys: [{ price: 95, volume: 5000 }], topSells: [{ price: 105, volume: 5000 }] };
+  const f2 = judgeProspect(st, inside, S, fl, 40), l2 = judgeProspect(st, inside, S, { ...fl, patient: true }, 40);
+  eq('    behind a front inside the range, a wider margin', [l2.buy < f2.buy, l2.sell > f2.sell, l2.roi > f2.roi], [true, true, true]);
+  eq('    never flagged as not reached', leave.warnings.includes('unreached') || leave.warnings.includes('unreachedSell'), false);
+  // The scoop case: the front bid sits below where trading reaches. The patient bid is where it reaches, above the front.
+  const dead = judgeProspect(st, { ...book, bestBuy: 70, topBuys: [{ price: 70, volume: 5000 }] }, S, { ...fl, patient: true }, 40);
+  eq('  with the front below where trading reaches, the bid is still where it reaches', dead.buy, pb);
+  eq('  without the days to say where trading reaches, it is left out', judgeProspect({ ...st, lows14: undefined }, book, S, { ...fl, patient: true }, 40), null);
 }
 
 console.log('\n--- when the next full-market scan runs ---');

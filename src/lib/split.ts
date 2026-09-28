@@ -199,8 +199,14 @@ export function slotIskPerDay(netPerUnit: number, unitsPerDay: number, buyers: n
  * Units a day you can push through an item with both orders working: the slower of the two sides,
  * each at your share scaled for the orders queued on that side.
  */
-export function throughput(unitsPerDay: number, buyers: number, baseSharePct: number, buyOrders: number, sellOrders: number): number {
-  const unitsIn = sideVolume(unitsPerDay, buyers, true) * competitionShare(baseSharePct, buyOrders);
-  const unitsOut = sideVolume(unitsPerDay, buyers, false) * competitionShare(baseSharePct, sellOrders);
+export function throughput(unitsPerDay: number, buyers: number, baseSharePct: number, buyOrders: number, sellOrders: number,
+  /**
+   * For orders behind the front on purpose: the share of days trading reaches each price. It only fills on
+   * those days, so each side's pace is scaled by it. Rough: daily data can't say how deep each day's selling
+   * went, and the share of the queue is counted as if you were at the front.
+   */
+  reach?: { buy: number; sell: number }): number {
+  const unitsIn = sideVolume(unitsPerDay, buyers, true) * competitionShare(baseSharePct, buyOrders) * (reach?.buy ?? 1);
+  const unitsOut = sideVolume(unitsPerDay, buyers, false) * competitionShare(baseSharePct, sellOrders) * (reach?.sell ?? 1);
   return Math.min(unitsIn, unitsOut);
 }

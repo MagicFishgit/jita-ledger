@@ -128,6 +128,12 @@ export function sanitizeAlerts(a: Partial<AlertConfig> | null | undefined): Aler
   };
 }
 
+/** Items you're leaving orders on ("Place and leave"): type IDs, each once. */
+export function sanitizeLeave(v: unknown): number[] {
+  if (!Array.isArray(v)) return [];
+  return [...new Set(v.filter((x): x is number => Number.isInteger(x) && x > 0))];
+}
+
 /** The motion setting in force: yours if you chose one, otherwise what the system asks for. */
 export function effectiveMotion(chosen: Motion | undefined, reducedMotion: boolean): Motion {
   return chosen ?? (reducedMotion ? 'Calm' : 'Full');

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { createStore, get, set, del, keys } from 'idb-keyval';
 import { DEFAULT_SETTINGS, rates, sanitizeSettings, type Settings } from './fees';
-import { DEFAULT_ALERTS, DEFAULT_PREFS, sanitizeAlerts, sanitizePrefs } from './prefs';
+import { DEFAULT_ALERTS, DEFAULT_PREFS, sanitizeAlerts, sanitizeLeave, sanitizePrefs } from './prefs';
 import type {
   AlertConfig, AlertLogEntry, Goal, JournalEntry, Killmail, Meta, NetWorthPoint, Order, Position, Prefs,
   Stock, Tx, UntrackedTag, WatchItem,
@@ -37,11 +37,16 @@ export type Data = {
   netWorth: NetWorthPoint[];
   /** Unusual journal entries you have said were yours. */
   unusualOk: string[];
+  /**
+   * Items whose orders you're leaving where they are (the Capital planner's "Place and leave"): they're told to
+   * move only when trading stops reaching their price, never to get back in front. Type IDs.
+   */
+  leave: number[];
 };
 type Key = keyof Data;
 const KEYS: Key[] = [
   'settings', 'txs', 'journal', 'orders', 'positions', 'watchlist', 'names', 'ignored', 'stock', 'skills', 'meta',
-  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk',
+  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave',
 ];
 
 const idb = createStore('jita-ledger', 'kv');
@@ -53,7 +58,7 @@ const empty = (): Data => ({
   settings: { ...DEFAULT_SETTINGS },
   txs: {}, journal: {}, orders: {}, positions: [], watchlist: [], names: {}, ignored: [], meta: {},
   prefs: { ...DEFAULT_PREFS }, alerts: { ...DEFAULT_ALERTS }, alertLog: [], goals: [], tags: {}, nearDone: [],
-  killmails: {}, netWorth: [], unusualOk: [],
+  killmails: {}, netWorth: [], unusualOk: [], leave: [],
 });
 
 let data: Data = empty();
@@ -161,6 +166,7 @@ export async function importAll(json: string): Promise<void> {
   if (p.settings) p.settings = sanitizeSettings(p.settings);
   if (p.prefs) p.prefs = sanitizePrefs(p.prefs);
   if (p.alerts) p.alerts = sanitizeAlerts(p.alerts);
+  if (p.leave) p.leave = sanitizeLeave(p.leave);
   update(p);
 }
 

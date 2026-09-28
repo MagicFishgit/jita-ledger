@@ -26,6 +26,8 @@ export type CheckState = {
   buyers: Record<number, number>;
   /** Each item's last 14 days' lows, for whether trading reaches a buy at all. */
   lows: Record<number, (number | null)[]>;
+  /** And highs, for whether trading still gets up to a sell you're leaving. */
+  highs?: Record<number, (number | null)[]>;
   checkedAt: string | null;
   /** When ESI will next have a different book. Re-checking before then cannot show a relist. */
   bookFreshAt: number | null;
@@ -76,6 +78,7 @@ async function runCheck(fresh: boolean): Promise<void> {
   const vol: Record<number, number | null> = {};
   const buyers: Record<number, number> = {};
   const lows: Record<number, (number | null)[]> = {};
+  const highs: Record<number, (number | null)[]> = {};
   let failed = 0, done = 0, soonest = Infinity, moved = 0, i = 0;
   await Promise.all(Array.from({ length: Math.min(4, typeIds.length) }, async () => {
     while (i < typeIds.length) {
@@ -94,7 +97,9 @@ async function runCheck(fresh: boolean): Promise<void> {
         // average several times the norm. Against what the books showed, the median was the closer.
         vol[id] = paceDay(h);
         buyers[id] = buyerShare(h.slice(-30));
-        lows[id] = recentRange(h, undefined, undefined, watchedDays(id)).lows;
+        const range = recentRange(h, undefined, undefined, watchedDays(id));
+        lows[id] = range.lows;
+        highs[id] = range.highs;
       } catch { vol[id] = null; }
       setState({ busy: { done: ++done, total: typeIds.length } });
     }
@@ -104,7 +109,7 @@ async function runCheck(fresh: boolean): Promise<void> {
   await loadFlow();
   await settleFlow();
   setState({
-    books: out, daily: vol, buyers, lows, sold,
+    books: out, daily: vol, buyers, lows, highs, sold,
     bookFreshAt: Number.isFinite(soonest) ? soonest : null,
     changed: before ? moved : null,
     checkedAt: new Date().toISOString(),
@@ -130,6 +135,7 @@ export function costBasis(d: Data): Record<number, number> {
 export function verdicts(d: Data, check: CheckState, cost: Record<number, number>): Relist[] {
   if (!check.books) return [];
   const txs = Object.values(d.txs);
+  const leave = new Set(d.leave ?? []);
   return jitaOpen(d)
     .filter((o) => check.books![o.typeId])
     .map((o) => judgeOrder(o, {
@@ -137,6 +143,8 @@ export function verdicts(d: Data, check: CheckState, cost: Record<number, number
       perDay: sidePace(check, o.typeId, o.isBuy).perDay,
       avgCost: cost[o.typeId],
       lows: check.lows?.[o.typeId] ?? null,
+      highs: check.highs?.[o.typeId] ?? null,
+      leave: leave.has(o.typeId),
       txs,
       watched: watchedFlow(o.typeId),
     }, d.settings))

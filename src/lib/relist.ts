@@ -1,5 +1,5 @@
 import { tickDown, tickUp } from './tick';
-import { bidReachDays, fillingNow, FILL_RARE, FILL_TYPICAL, FILL_WINDOW, reachedBid } from './fills';
+import { askReachDays, bidReachDays, fillingNow, FILL_RARE, FILL_TYPICAL, FILL_WINDOW, reachedAsk, reachedBid } from './fills';
 import { rates, type Settings } from './fees';
 import type { FlowDay, OrderLite } from './flow';
 import { iskBig, units } from './format';
@@ -65,12 +65,14 @@ export type Relist = {
   waitingPaysDaily: number;
   verdict: Verdict;
   why: string;
-  /** For a buy: of the last 14 days, how many the bulk of trading reached your price. Null for a sell or without history. */
+  /** For a buy, or a sell you're leaving: of the last 14 days, how many the bulk of trading reached your price. Null otherwise or without history. */
   reach: number | null;
-  /** For a buy trading doesn't reach: the bid it did reach on 7 of those days. */
+  /** For an order trading doesn't reach: the price it did reach on 7 of those days. */
   reachAt: number | null;
-  /** A buy the bulk of trading hasn't been getting down to, and that isn't visibly filling either. */
+  /** A buy the bulk of trading hasn't been getting down to (or a sell you're leaving it hasn't got up to), and that isn't visibly filling either. */
   unreached: boolean;
+  /** You're leaving this order where it is: it isn't told to get back in front. */
+  left: boolean;
   /** For the `bid` verdict: what selling into the standing bids now would get. */
   intoBids?: IntoBids;
 };
@@ -158,8 +160,15 @@ export type MarketContext = {
   lows?: (number | null)[] | null;
   /** The return you want on a trade, as a fraction: what a bid moved to where trading reaches must still make. */
   targetReturn?: number;
-  /** Your own buy is visibly filling (fills.ts `fillingNow`), so trading reaches it whatever history says. */
+  /** Your own order is visibly filling (fills.ts `fillingNow`), so trading reaches it whatever history says. */
   filling?: boolean;
+  /** The last 14 days' highs, for judging whether trading reaches a sell you're leaving. */
+  highs?: (number | null)[] | null;
+  /**
+   * You placed this to leave (Capital planner's "Place and leave", or Orders): behind the front on purpose.
+   * It's told to move only when trading stops reaching its price, never to get back in front.
+   */
+  leave?: boolean;
 };
 
 /**
@@ -229,7 +238,8 @@ export function marketBest(levels: PriceVolume[], isBuy: boolean, dailyVolume?: 
  */
 export function judgeOrder(
   o: Mine & { locationId: number; seen?: { issued: string; price: number; remain: number }[] },
-  m: { book: OrderLite[]; perDay: number | null; avgCost?: number | null; lows: (number | null)[] | null; txs: Parameters<typeof fillingNow>[2]; watched?: FlowDay },
+  m: { book: OrderLite[]; perDay: number | null; avgCost?: number | null; lows: (number | null)[] | null; txs: Parameters<typeof fillingNow>[2]; watched?: FlowDay;
+    highs?: (number | null)[] | null; leave?: boolean },
   s: Settings,
   now = Date.now(),
 ): Relist {
@@ -242,7 +252,8 @@ export function judgeOrder(
 
 function adviseOrder(
   o: Mine & { locationId: number; seen?: { issued: string; price: number; remain: number }[] },
-  m: { book: OrderLite[]; perDay: number | null; avgCost?: number | null; lows: (number | null)[] | null; txs: Parameters<typeof fillingNow>[2] },
+  m: { book: OrderLite[]; perDay: number | null; avgCost?: number | null; lows: (number | null)[] | null; txs: Parameters<typeof fillingNow>[2];
+    highs?: (number | null)[] | null; leave?: boolean },
   s: Settings,
   now: number,
 ): Relist {
@@ -253,6 +264,8 @@ function adviseOrder(
     avgCost: m.avgCost,
     bestSell: sells.length ? Math.min(...sells) : null,
     lows: m.lows,
+    highs: m.highs,
+    leave: m.leave,
     targetReturn: s.target / 100,
     filling: fillingNow(o, m.book.find((x) => x.id === o.orderId)?.volume, m.txs, now),
   }, rates(s), s.waitHours, s.target / 100);
@@ -320,12 +333,20 @@ export function adviseRelist(
   // A buy only fills when sellers sell into it. When the bulk of trading hasn't been getting down to
   // your price, one step above the best bid may not be reached either (it wasn't, for the Syndicate Gas
   // Cloud Scoop the user bid on): the move worth making is to where trading does reach.
-  const reach = mine.isBuy && m.lows && !gone ? bidReachDays(m.lows, price) : null;
+  // A sell you're leaving gets the same test against the highs: left for weeks above where trading gets up to,
+  // it would sit unsold with nothing said. Other sells keep being judged on the queue alone.
+  const reach = gone ? null
+    : mine.isBuy ? (m.lows ? bidReachDays(m.lows, price) : null)
+      : m.leave && m.highs ? askReachDays(m.highs, price) : null;
   // Your own fills overrule the count: history lags and is trimmed, your order isn't.
   const unreached = reach != null && reach < FILL_RARE && !m.filling;
-  const reachAt = unreached ? reachedBid(m.lows!) : null;
+  const reachAt = !unreached ? null : mine.isBuy ? reachedBid(m.lows!) : reachedAsk(m.highs!);
   const oneStep = beaten && best !== null ? (mine.isBuy ? tickUp(best) : tickDown(best)) : NaN;
-  const newPrice = unreached && reachAt != null && !(oneStep >= reachAt) ? reachAt : oneStep;
+  // An ordinary buy goes to the front when the front is above where trading reaches; one you're leaving goes
+  // where trading reaches and stays behind the front, which is the point of leaving it.
+  const newPrice = unreached && reachAt != null
+    ? (mine.isBuy && !m.leave ? (!(oneStep >= reachAt) ? reachAt : oneStep) : reachAt)
+    : oneStep;
   const moves = (beaten || unreached) && Number.isFinite(newPrice);
   const give = moves ? Math.abs(newPrice - price) * volumeRemain : 0;
   const fee = moves ? Math.max(100, r.k * newPrice * volumeRemain) : 0;
@@ -366,6 +387,20 @@ export function adviseRelist(
   if (gone) {
     verdict = 'front';
     why = 'This order is no longer in the book \u2014 it filled, expired or was cancelled';
+  } else if (unreached && !mine.isBuy) {
+    // A sell you're leaving that trading no longer gets up to: say where it does, unless that's under your cost.
+    const said = `The bulk of trading got up to your price on ${reach} of the last ${FILL_WINDOW} days`;
+    const at = (p: number) => Math.round(p).toLocaleString('en-US');
+    if (reachAt == null) {
+      verdict = 'wait';
+      why = `${said}, and the item traded on too few days to say where it does reach`;
+    } else if (m.avgCost != null && netOfSale(reachAt) < m.avgCost) {
+      verdict = 'loss';
+      why = `${said}. It reached ${at(reachAt)} on ${FILL_TYPICAL} of them, which would sell under what the stock cost you`;
+    } else {
+      verdict = 'move';
+      why = `${said}. At ${at(reachAt)} it did on ${FILL_TYPICAL} of them`;
+    }
   } else if (unreached) {
     // Worth moving to where trading reaches only if selling on from there still makes your target.
     const sellNet = m.bestSell != null ? tickDown(m.bestSell) * (1 - r.f - r.t) : null;
@@ -422,6 +457,16 @@ export function adviseRelist(
       : `${aheadUnits.toLocaleString('en-US')} ahead of you, and this item barely trades`;
   }
 
+  // Left on purpose: behind the front is where it's meant to be. Only trading no longer reaching it (above) speaks.
+  const left = !!m.leave && !gone;
+  if (left && !unreached && (verdict === 'move' || verdict === 'wait' || verdict === 'loss')) {
+    verdict = 'wait';
+    const side = mine.isBuy ? 'bid' : 'price';
+    why = reach != null
+      ? `You’re leaving this one: the bulk of trading reached your ${side} on ${reach} of the last ${FILL_WINDOW} days`
+      : 'You’re leaving this one where it is';
+  }
+
   return {
     orderId: mine.orderId, typeId: mine.typeId, isBuy: mine.isBuy,
     price, volumeRemain, live: !!self, gone,
@@ -431,7 +476,7 @@ export function adviseRelist(
     atRisk,
     aheadUnits, aheadOrders: ahead.length, hoursToFront, topRivalShare, yourHours,
     cutPct, waitingPaysDaily,
-    verdict, why, reach, reachAt, unreached,
+    verdict, why, reach, reachAt, unreached, left,
   };
 }
 

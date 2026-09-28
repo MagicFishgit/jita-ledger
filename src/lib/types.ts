@@ -204,6 +204,8 @@ export type Prospect = {
   askReach?: number | null;
   /** True when `sell` was lowered from one step under the best ask to where trading actually reached. */
   sellLowered?: boolean;
+  /** Priced to place and leave (`ProspectFilters.patient`): both prices are where trading reaches on half the days. */
+  patient?: boolean;
   warnings: ProspectWarning[];
 };
 
@@ -222,6 +224,11 @@ export type ProspectFilters = {
   partial?: boolean;
   /** Show the busiest markets by ISK traded a day instead, whatever they return. */
   busy?: boolean;
+  /**
+   * Place and leave: buy where the bulk of trading reaches on half the last 14 days and sell where it gets up to
+   * on half of them, behind the front on purpose, paced by how often trading gets there. The Capital planner's.
+   */
+  patient?: boolean;
 };
 
 

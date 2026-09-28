@@ -88,6 +88,7 @@ export function Orders() {
   // The cloud's watched trade feeds each order's pace, so its arrival re-reads the verdicts.
   const flowV = useFlow();
   const all: Relist[] = useMemo(() => verdicts(d, check, cost), [d, check, cost, flowV]); // eslint-disable-line react-hooks/exhaustive-deps
+  const leaving = useMemo(() => new Set(d.leave), [d.leave]);
   const rows = side === 'all' ? all : all.filter((x) => (side === 'buy' ? x.isBuy : !x.isBuy));
   const r = rates(d.settings);
   const slots = orderSlots(effectiveSkills(d.settings));
@@ -264,6 +265,9 @@ export function Orders() {
                     const name = nameOf(o.typeId);
                     const V = x ? VERDICT[x.verdict] : null;
                     const hot = x?.verdict === 'move';
+                    // Left behind the front on purpose: the price to get back in front isn't advice for it.
+                    const heldBack = !!x?.left && x.verdict === 'wait';
+                    const left = leaving.has(o.typeId);
                     return (
                       <tr key={o.orderId} className={'hover' + (hot ? ' hot' : x && x.verdict !== 'move' ? ' dim' : '')}>
                         <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" /></span><BusyRelisting typeId={o.typeId} isBuy={o.isBuy} /></td>
@@ -294,10 +298,10 @@ export function Orders() {
                         ) : (
                           <>
                             <td>
-                              <span style={{ color: hot ? 'var(--pos)' : 'var(--cell)' }}>{x && Number.isFinite(x.newPrice) ? isk(x.newPrice) : '–'}</span>
-                              {x && x.cutPct > 0 && <span className="sub mono" style={{ color: x.cutPct >= 0.02 ? 'var(--neg)' : 'var(--label)' }}>{x.isBuy ? '+' : '−'}{(x.cutPct * 100).toFixed(x.cutPct < 0.1 ? 1 : 0)}%</span>}
+                              <span style={{ color: hot ? 'var(--pos)' : 'var(--cell)' }}>{x && !heldBack && Number.isFinite(x.newPrice) ? isk(x.newPrice) : '–'}</span>
+                              {x && !heldBack && x.cutPct > 0 && <span className="sub mono" style={{ color: x.cutPct >= 0.02 ? 'var(--neg)' : 'var(--label)' }}>{x.isBuy ? '+' : '−'}{(x.cutPct * 100).toFixed(x.cutPct < 0.1 ? 1 : 0)}%</span>}
                             </td>
-                            <td data-tip={x && x.cost > 0 ? `${isk(x.give)} of margin plus a ${isk(x.fee)} fee` : undefined}>{x && x.cost > 0 ? iskBig(x.cost) : '–'}</td>
+                            <td data-tip={x && !heldBack && x.cost > 0 ? `${isk(x.give)} of margin plus a ${isk(x.fee)} fee` : undefined}>{x && !heldBack && x.cost > 0 ? iskBig(x.cost) : '–'}</td>
                           </>
                         )}
                         <td>{units(x?.volumeRemain ?? o.volumeRemain)}{x?.intoBids
@@ -309,6 +313,13 @@ export function Orders() {
                           <span className="acts">
                             <OpenInGame typeId={o.typeId} name={name} />
                             <button type="button" className="link-btn dim" onClick={() => navigate(`calculator?type=${o.typeId}`)}>Calc</button>
+                            <button type="button" className={'link-btn' + (left ? '' : ' dim')} style={left ? { color: 'var(--pos)' } : undefined}
+                              data-tip={left
+                                ? `You’re leaving ${name}’s orders where they are: nothing tells you to get back in front, only if trading stops reaching their price. Click to go back to the usual advice.`
+                                : `Leave ${name}’s orders where they are, behind the front on purpose: no more “move it”, on this page, To do or in alert mail, unless trading stops reaching their price.`}
+                              onClick={() => update((d2) => ({ leave: left ? d2.leave.filter((t) => t !== o.typeId) : [...new Set([...d2.leave, o.typeId])] }))}>
+                              {left ? 'Leaving it' : 'Leave alone'}
+                            </button>
                           </span>
                         </td>
                       </tr>

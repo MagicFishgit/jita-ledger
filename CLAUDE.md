@@ -520,6 +520,23 @@ Don't re-derive or contradict these without new evidence.
   The latest day's average more than 50% from the median of the days before it is a move, not a wobble; Prospects
   flags it and the planner and opportunity mail leave it out. Scans refresh stats that lack `highs14` or
   `lastMove`, and the planner says "Scan again before investing" while any of its items predate them.
+- **"Place and leave" prices a plan behind the front on purpose** (`ProspectFilters.patient`, the planner's Pricing
+  choice). The user's longer-term strategy is large orders in many items that fill over weeks, without the 0.01 war.
+  Both sides are priced where the bulk of trading reached on half the last 14 days (`reachedBid` / `reachedAsk`, the
+  same as a position's "List patiently"), **wherever the front is**: not capped at one tick over the best bid, since
+  on the scoop and Hammerhead II the front bid sat below where trading reached and was the one that never filled.
+  Each side's pace is scaled by the share of days trading reached its price (`throughput(..., reach)`), which is
+  rough and says so. Items without the days to say where trading reaches are left out, never priced at the front.
+  The mix now shows Buy at and Sell at.
+- **Orders you're leaving aren't told to get back in front** (`Data.leave`, a synced doc of type IDs; `leave` in
+  `adviseRelist` / `judgeOrder`). Without this the first patient order would have been told to move by Orders, To do
+  and the cloud's mail within the hour. A left order behind the front is `wait` with "You're leaving this one", raises
+  no "beaten but clearing" alert, and shows no Move to / Costs you. What still speaks is trading no longer reaching
+  its price: a buy is moved to `reachedBid` (still behind the front, unlike an ordinary buy, which goes to the front
+  when that is above where trading reaches) or told to cancel; a **sell you're leaving** gets the same test against
+  the highs (`askReachDays`, moved to `reachedAsk`, or `loss` when that sells under cost), which other sells don't.
+  `fillingNow` now reads sells too (a listing that shrank at its price, or your own sale at or above it). Set from
+  the planner for a whole plan in one click, or per item on Orders ("Leave alone" / "Leaving it").
 - **The Capital planner starts from what you have now** (`walletIsk`, free slots from your open orders). It used to
   default to half the wallet and then keep whatever was first typed, for good: the user found 486 M against a
   972 M wallet. ISK (the wallet, rounded down to the million: escrow has already left it) and free slots are read

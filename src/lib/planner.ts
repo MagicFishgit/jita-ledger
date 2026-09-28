@@ -19,8 +19,8 @@ export const SLOTS_PER_ITEM = 2;
  * and left switched on in Prospects it was quietly feeding the planner a different list --- and always
  * sized to the planner's own ISK and horizon, with partial fills so every market's own limit counts.
  */
-export function plannerFilters(saved: Partial<ProspectFilters> | null | undefined, isk: number, horizonDays: number): ProspectFilters {
-  return { ...DEFAULT_FILTERS, ...(saved ?? {}), busy: false, budget: isk, horizonDays, partial: true };
+export function plannerFilters(saved: Partial<ProspectFilters> | null | undefined, isk: number, horizonDays: number, patient = false): ProspectFilters {
+  return { ...DEFAULT_FILTERS, ...(saved ?? {}), busy: false, budget: isk, horizonDays, partial: true, patient };
 }
 
 /** The planner's horizon choices: the Prospects ones, without "any", which a plan can't be sized to. */

@@ -117,13 +117,13 @@ export function fillingNow(
   txs: Pick<Tx, 'source' | 'typeId' | 'isBuy' | 'unitPrice' | 'date' | 'locationId'>[],
   now = Date.now(),
 ): boolean {
-  if (!o.isBuy) return false;
   const version = o.seen ? [...o.seen].reverse().find((v) => v.price === o.price) : undefined;
   if (version && (liveRemain ?? o.volumeRemain) < version.remain) return true;
   const since = now - OWN_FILL_DAYS * DAY;
-  return txs.some((t) => t.source === 'esi' && t.isBuy && t.typeId === o.typeId
+  // Yours on the same side at this price or better: a buy at or below it, a sale at or above it.
+  return txs.some((t) => t.source === 'esi' && t.isBuy === o.isBuy && t.typeId === o.typeId
     && (t.locationId == null || t.locationId === o.locationId)
-    && t.unitPrice <= o.price * (1 + 1e-9) && Date.parse(t.date) >= since);
+    && (o.isBuy ? t.unitPrice <= o.price * (1 + 1e-9) : t.unitPrice >= o.price * (1 - 1e-9)) && Date.parse(t.date) >= since);
 }
 
 /** On how many of the days the bulk of trading got up to an ask at `price`. The sell side of the same test. */

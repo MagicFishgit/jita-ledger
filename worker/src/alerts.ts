@@ -21,7 +21,7 @@ import { observedFlow, RELIST_MIN_H, sidePaceOf, type FlowDay, type OrderLite } 
 import { judgeProspect, type Book } from '../../src/lib/evaluate';
 import { predictionOutcome } from '../../src/lib/track';
 import { DEFAULT_FILTERS, passesGate, statsFrom } from '../../src/lib/prospects';
-import { sanitizeAlerts } from '../../src/lib/prefs';
+import { sanitizeAlerts, sanitizeLeave } from '../../src/lib/prefs';
 import { paceDay } from '../../src/lib/prospects';
 import { byUrgency, judgeOrder, type Relist } from '../../src/lib/relist';
 import { buyerShare, type BookSold } from '../../src/lib/split';
@@ -89,6 +89,8 @@ export async function judgeAll(db: D1Database, charId: number, settings: Setting
   const hist = await histories(db, types, now);
   const flow = await flowFor(db, types);
   const costs = (await doc<Record<string, number>>(db, charId, 'costs')) ?? {};
+  // Items you're leaving orders on (the planner's "Place and leave"): told to move only when trading stops reaching them.
+  const leave = new Set(sanitizeLeave(await doc<unknown>(db, charId, 'leave')));
   const since = new Date(now - OWN_FILL_MS).toISOString();
   const txs = (await db.prepare(`SELECT data FROM records WHERE char_id = ?1 AND kind = 'txs' AND data IS NOT NULL AND json_extract(data, '$.date') >= ?2`)
     .bind(charId, since).all<{ data: string }>()).results.map((r) => JSON.parse(r.data) as TxRecord);
@@ -103,7 +105,8 @@ export async function judgeAll(db: D1Database, charId: number, settings: Setting
     // there's no history.
     const watched: FlowDay = observedFlow({ [o.typeId]: flow[o.typeId] ?? {} }, o.typeId, now);
     const perDay = sidePaceOf({ daily: h ? paceDay(h, now) : null, buyers: h ? buyerShare(h.slice(-30)) : undefined, sold: book.sold, watched }, o.isBuy).perDay;
-    const x = judgeOrder(o, { book: book.orders, perDay, avgCost: costs[o.typeId], lows: h ? recentRange(h, undefined, now, flow[o.typeId]).lows : null, txs, watched }, settings, now);
+    const range = h ? recentRange(h, undefined, now, flow[o.typeId]) : null;
+    const x = judgeOrder(o, { book: book.orders, perDay, avgCost: costs[o.typeId], lows: range?.lows ?? null, highs: range?.highs ?? null, leave: leave.has(o.typeId), txs, watched }, settings, now);
     if (!x.gone) list.push(x);
   }
   return { list: list.sort(byUrgency), unread };

@@ -98,13 +98,14 @@ export function orderFindings(list: Relist[], name: (typeId: number) => string):
     if (x.verdict === 'move') {
       out.push({ kind: 'move', key: `move:${x.orderId}:${x.newPrice}`, isk: x.atRisk, title: ALERT_LABELS.move.label, typeId: x.typeId, name: n, order: orderFacts(x),
         text: x.unreached
-          ? `${n} buy order: trading rarely gets down to it (${x.reach} of the last ${FILL_WINDOW} days) — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, where it does (costs ${iskBig(x.cost)}).`
+          ? `${n} ${side} order: trading rarely gets ${x.isBuy ? 'down' : 'up'} to it (${x.reach} of the last ${FILL_WINDOW} days) — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, where it does (costs ${iskBig(x.cost)}).`
           : `${n} ${side} order beaten — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK (costs ${iskBig(x.cost)}).` });
     } else if (x.verdict === 'dry') {
       // Replaces the advice to move, so it goes out as an order to act on, and is mailed like one.
       out.push({ kind: 'move', key: `dry:${x.orderId}:${x.price}`, isk: x.atRisk, title: 'Buy order unlikely to fill', typeId: x.typeId, name: n, order: orderFacts(x),
         text: `${n} buy order: trading reached it on ${x.reach} of the last 14 days, and bidding where it does leaves too little margin. Consider cancelling it.` });
-    } else if (x.verdict === 'wait' && x.beaten) {
+    } else if (x.verdict === 'wait' && x.beaten && !x.left) {
+      // One you're leaving is behind the front on purpose: being beaten is the plan, not news.
       out.push({ kind: 'clearing', key: `clear:${x.orderId}:${x.best}`, isk: x.atRisk, title: ALERT_LABELS.clearing.label, typeId: x.typeId, name: n, order: orderFacts(x),
         text: `${n} ${side} order is beaten, but ${x.why.charAt(0).toLowerCase() + x.why.slice(1)}.` });
     }
@@ -234,7 +235,7 @@ function section(f: Finding, market: (typeId: number, calc?: boolean) => string,
       ? `${col('grey', 'Yours ')}${price(o.price)}${col('grey', ' · nobody else on your side')}<br>`
       : `${col('grey', 'Yours ')}${price(o.price)}${col('grey', ' · best now ')}${col(o.gap > 0 && o.verdict !== 'front' ? 'red' : 'white', price(o.best))}${o.gap > 0 && o.verdict !== 'front' ? col('grey', ` (beaten by ${price(o.gap)})`) : ''}<br>`);
     if (o.verdict === 'move' && o.unreached) {
-      out.push(col('grey', `Trading reached your bid on ${o.reach} of the last ${FILL_WINDOW} days. ${price(o.newPrice)} is where it did on half of them.`) + '<br>');
+      out.push(col('grey', `Trading reached your ${o.isBuy ? 'bid' : 'price'} on ${o.reach} of the last ${FILL_WINDOW} days. ${price(o.newPrice)} is where it did on half of them.`) + '<br>');
     }
     if (o.verdict === 'move') {
       out.push(`${col('grey', 'Moving costs ')}${money(o.cost)}${col('grey', ` (${money(o.give)} ${o.isBuy ? 'higher' : 'lower'} price + ${money(o.fee)} fee) · `)}${money(o.atRisk)}${col('grey', ' at stake')}<br>`);
