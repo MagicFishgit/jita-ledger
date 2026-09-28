@@ -8,6 +8,7 @@
 import { AuthError, caller } from './auth';
 import { alertRound, bookOf, judgeAll, leaveSummary, previewRound, testRound, trackRecord, trackSummary } from './alerts';
 import { dailyChecks, shareSummary } from './checks';
+import { watchdog } from './watchdog';
 import { fullScan, markScanStarted, scanDue, scanStatus, scanStream } from './scan';
 import { lastSnipes, sightings, sniperRound, snipeSummary } from './snipe';
 
@@ -64,6 +65,11 @@ async function fiveMinutes(env: Env) {
     } catch (e) {
       await noteJob(env.DB, id, 'alerts', { ok: false, error: e instanceof Error ? e.message : String(e) });
     }
+    // Anything the cloud does for this ledger failing twice in a row is mailed.
+    try {
+      const w = await watchdog(env, id);
+      if (w.mailed) console.log('watchdog', id, JSON.stringify(w));
+    } catch (e) { console.error('watchdog failed', id, e); }
   }
 }
 
@@ -168,7 +174,16 @@ export default {
     }
     // The sniper: a minute after each of ESI's five-minute refreshes of the book, so it reads a fresh one.
     if (event.cron === SNIPER_CRON) {
-      ctx.waitUntil(sniperRound(env).then((r) => console.log('sniper', JSON.stringify(r))).catch((e) => console.error('sniper failed', e)));
+      ctx.waitUntil(sniperRound(env).then(async (r) => {
+        console.log('sniper', JSON.stringify(r));
+        // A read that lost too much of the book is a failure; one skipped because the book hadn't changed isn't anything.
+        const skipped = (r as { skipped?: string }).skipped;
+        if (skipped) { if (/pages failed/.test(skipped)) await noteJob(env.DB, 0, 'sniper', { ok: false, error: skipped }); }
+        else await noteJob(env.DB, 0, 'sniper', { ok: true, detail: r });
+      }).catch(async (e) => {
+        console.error('sniper failed', e);
+        await noteJob(env.DB, 0, 'sniper', { ok: false, error: e instanceof Error ? e.message : String(e) });
+      }));
       return;
     }
     // The day's full-market scan, just after ESI publishes the day's history.
@@ -182,7 +197,14 @@ export default {
         try { await runArchive(env, l.char_id); } catch (e) { console.error('archive failed', l.char_id, e); }
       }
       // Once a day: the Sniper's listings and each ledger's share, checked against what happened.
-      try { console.log('daily checks', JSON.stringify(await dailyChecks(env))); } catch (e) { console.error('daily checks failed', e); }
+      try {
+        const r = await dailyChecks(env);
+        console.log('daily checks', JSON.stringify(r));
+        if (!('skipped' in r)) await noteJob(env.DB, 0, 'checks', { ok: true, detail: r });
+      } catch (e) {
+        console.error('daily checks failed', e);
+        await noteJob(env.DB, 0, 'checks', { ok: false, error: e instanceof Error ? e.message : String(e) });
+      }
       // The hourly run catches up a day's scan the daily one missed (or the first, after a deploy).
       await runScan(env);
     })());

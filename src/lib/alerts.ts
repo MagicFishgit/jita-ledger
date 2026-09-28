@@ -10,6 +10,7 @@ import { fmtDateTime, isk, iskBig, pct, units } from './format';
 import type { Colony } from './colony';
 import type { Relist } from './relist';
 import type { AlertConfig, AlertEvent, AlertLogEntry } from './types';
+import type { WatchFacts } from './watchdog';
 
 /**
  * Each alert's name, a one-line description, and `tip`: the plain-language explanation with an example
@@ -44,6 +45,10 @@ export const ALERT_LABELS: Record<AlertEvent, { label: string; what: string; tip
   snipe: {
     label: 'Mistake listing', what: 'Someone listed an item well under where it trades, or bids high for something you hold: mailed by the cloud',
     tip: 'The cloud reads every order in The Forge every five minutes and looks for listings someone priced well under where the item trades. They’re worth buying out and relisting.\n\n• “Where it trades” is where the bulk of trading got up to on half the last 14 days. You relist a step under the next listing, never above that.\n• It has to clear your bar on the Sniper page, after your fees. Floods, items whose price just moved, thin histories and listings days old are left out.\n• A bid well over where the item trades, for something in your Jita hangar, is mailed too: selling into it beats listing.\n\nFor example: 10 listed at 500,000 on an item trading at 1,000,000, next listing 980,000. Buy the 10, relist at 979,900.',
+  },
+  watchdog: {
+    label: 'Cloud job failing', what: 'Something the cloud does for you failed twice in a row: mailed by the cloud',
+    tip: 'The cloud copies your ledger, reads your orders, checks them for alerts, scans the market and runs the Sniper, with nobody watching. When one of those fails twice in a row, it mails you.\n\n• It says what failed, the error, what has stopped meanwhile, and what to do: usually nothing, since each job tries again on its own.\n• A login the cloud can no longer use needs you to hand it over again in Settings → Your data.\n• Mailed once when it starts, and again each day it keeps failing. EVE’s daily downtime doesn’t count.\n\nFor example: “Copying your ledger from ESI has failed 3 times in a row” with the error, while new trades aren’t copied to the cloud.',
   },
   backup: {
     label: 'Backup overdue', what: 'Your last backup is more than two weeks old',
@@ -86,7 +91,7 @@ export type Finding = {
   /** The item it's about, when there is one: `text` starts with its name, which a mail makes a link. */
   typeId?: number; name?: string;
   /** The detail behind the one-line text, for a mail that has room to say it. */
-  order?: OrderFacts; pi?: PiFacts; opp?: OppFacts; snipe?: SnipeFacts;
+  order?: OrderFacts; pi?: PiFacts; opp?: OppFacts; snipe?: SnipeFacts; watch?: WatchFacts;
 };
 
 export const orderFacts = (x: Relist): OrderFacts => ({
@@ -194,7 +199,7 @@ const money = iskBig;
 const hoursSaid = (h: number) => (h < 1 ? 'under an hour' : h < 48 ? `about ${Math.round(h)} h` : `about ${Math.round(h / 24)} days`);
 
 // A mistake listing goes first: it's the one someone else can take while you read the rest.
-const URGENCY: Record<AlertEvent, number> = { snipe: -1, move: 0, pi: 1, scam: 2, squeeze: 3, clearing: 4, backup: 5, opportunity: 6 };
+const URGENCY: Record<AlertEvent, number> = { snipe: -1, move: 0, watchdog: 0.5, pi: 1, scam: 2, squeeze: 3, clearing: 4, backup: 5, opportunity: 6 };
 
 /** A short phrase for the subject line, which is what the inbox list and the new-mail notice show. */
 export function subjectPart(f: Finding, now = Date.now()): string {
@@ -211,6 +216,7 @@ export function subjectPart(f: Finding, now = Date.now()): string {
   if (p) return p.ends <= now ? `PI stopped in ${p.system}` : `PI ends in ${hoursSaid((p.ends - now) / 3600_000).replace('about ', '')} in ${p.system}`;
   if (f.opp && f.name) return `look at ${f.name}, ${pct(f.opp.roi, 1)}`;
   if (f.snipe && f.name) return f.snipe.side === 'buy' ? `snipe ${f.name}, ${iskBig(f.snipe.profit)}` : `sell ${f.name} into a high bid`;
+  if (f.watch) return `cloud: ${f.watch.label.charAt(0).toLowerCase()}${f.watch.label.slice(1)} failing`;
   return f.title;
 }
 
@@ -247,6 +253,18 @@ function section(f: Finding, market: (typeId: number, calc?: boolean) => string,
       advice('green', `sell ${units(z.qty)} into the bid at ${price(z.price)} ISK`),
       `${itemLink}${col('grey', ' · you get ')}${money(z.proceeds)}${col('grey', ' · ')}${money(z.gain)}${col('grey', ' more than listing where it trades')}<br>`,
       col('grey', `You hold ${units(z.held)} in Jita. Trading got up to ${price(z.fair)} on half the last 14 days.${z.minVolume > 1 ? ` The bid takes at least ${units(z.minVolume)} at a time.` : ''} Selling into a bid costs sales tax, no broker fee.`) + '<br>',
+    ].join('');
+  }
+  const w = f.watch;
+  if (w) {
+    return [
+      head(f.title, 'red'),
+      w.login
+        ? advice('red', 'hand the cloud your login again: Jita Ledger → Settings → Your data')
+        : advice('white', `nothing yet: it tries again ${w.retry}`),
+      `${escapeMail(w.label)}${col('grey', ` has failed ${units(w.fails)} times in a row, since ${fmtDateTime(w.since)}.`)}<br>`,
+      w.error ? col('grey', `The last error: <i>${escapeMail(w.error)}</i>`) + '<br>' : '',
+      col('grey', `Until it works again, ${escapeMail(w.meanwhile)}.${w.login ? '' : ' If this mail comes again tomorrow, it hasn’t fixed itself.'}`) + '<br>',
     ].join('');
   }
   const o = f.order;

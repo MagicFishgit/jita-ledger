@@ -8,6 +8,7 @@
  * only what's new or changed, so browsers pull it like any other device's changes. Once a day it also keeps
  * a net-worth point, computed exactly as the Wallet page does.
  */
+import { isDowntime } from '../../src/lib/watchdog';
 import {
   countStock, netWorthOf, toJournal, toOrder, toTx, withHistory,
   type OrderRecord, type RawAsset, type RawCharOrder, type RawJournal, type RawTx,
@@ -195,10 +196,15 @@ export async function archive(env: Env, charId: number): Promise<ArchiveResult> 
 /** Records what a job did, for the Settings panel. */
 export async function noteJob(db: D1Database, charId: number, job: string, outcome: { ok: true; detail: unknown } | { ok: false; error: string }) {
   const now = Date.now();
+  // Failures in a row feed the watchdog (watchdog.ts), except in EVE's daily downtime, when ESI fails for everyone.
+  const counts = !outcome.ok && !isDowntime(now) ? 1 : 0;
   await db.prepare(`
-    INSERT INTO jobs (char_id, job, last_run, last_ok, last_error, detail) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+    INSERT INTO jobs (char_id, job, last_run, last_ok, last_error, detail, fails, failing_since) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, CASE WHEN ?7 = 1 THEN ?3 END)
     ON CONFLICT(char_id, job) DO UPDATE SET last_run = excluded.last_run,
       last_ok = COALESCE(excluded.last_ok, jobs.last_ok), last_error = excluded.last_error,
-      detail = COALESCE(excluded.detail, jobs.detail)`)
-    .bind(charId, job, now, outcome.ok ? now : null, outcome.ok ? null : outcome.error, outcome.ok ? JSON.stringify(outcome.detail) : null).run();
+      detail = COALESCE(excluded.detail, jobs.detail),
+      fails = CASE WHEN excluded.last_ok IS NOT NULL THEN 0 ELSE jobs.fails + ?7 END,
+      failing_since = CASE WHEN excluded.last_ok IS NOT NULL THEN NULL WHEN ?7 = 1 THEN COALESCE(jobs.failing_since, excluded.last_run) ELSE jobs.failing_since END,
+      warned = CASE WHEN excluded.last_ok IS NOT NULL THEN NULL ELSE jobs.warned END`)
+    .bind(charId, job, now, outcome.ok ? now : null, outcome.ok ? null : outcome.error, outcome.ok ? JSON.stringify(outcome.detail) : null, counts).run();
 }

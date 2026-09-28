@@ -30,6 +30,18 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
     Prospects and the planner say so (`ShareCheck`) when the setting is over twice what it suggests, since every size
     there is linear in it. The local copy of the user's ledger measured 7.7% on buys and 17.7% on sells (8.5%
     suggested, against their 6%), so nothing shows for them now.
+- **The cloud mails you when one of its jobs fails twice in a row** (`lib/watchdog.ts` pure, `worker/src/watchdog.ts`,
+  alert kind `watchdog`, "Cloud job failing", on and mailed by default). Its jobs (copying the ledger, reading
+  orders, alert checks, mail tidying, planets, the full scan, the Sniper, the daily checks) fail quietly while nobody
+  looks at Settings. `noteJob` keeps each job's failures in a row (`fails`, `failing_since`, migration 0010), cleared by
+  a success; failures in EVE's daily downtime (10:55–11:30 UTC) don't count, since ESI fails for everyone then and
+  the Sniper, running every five minutes, would otherwise mail every day. The five-minute round checks each ledger's
+  jobs and the shared ones (char 0) and mails at the second failure, then again each day it keeps failing (`warned`).
+  The mail says what failed, since when, the error, what has stopped meanwhile, and what to do: nothing when it
+  retries on its own, or hand the cloud your login again when the error says the login no longer works
+  (`loginError`). Tested locally: the orders job counted 1 then 2 (it retries once its last try is 20 minutes old,
+  so a lost login shows within about 40 minutes), and a Sniper success cleared a seeded streak. The mail can only be
+  sent in production. It can't report the mail itself failing, or a cron that stops firing.
 - **To do ticks itself off** (`lib/todo.ts`). The user plays without looking at it, and a list still
   demanding things already done is worse than none. Every finding has a stable `key` (what it's about:
   `order:ID`, `pi:pin`, `squeeze:position`, `scam:type:flag`, `backup`) and a `ver` (its state: the suggested

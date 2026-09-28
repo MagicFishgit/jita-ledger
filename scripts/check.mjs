@@ -1722,6 +1722,27 @@ console.log('\n--- does it come true: place and leave, the Sniper ---');
   eq('  nothing to say before a measurement suggests anything', shareOver({ ...measured, suggested: null }, 10), null);
 }
 
+console.log('\n--- the cloud watchdog ---');
+{
+  const { watchdogFinding, isDowntime, loginError } = await import('../src/lib/watchdog.ts');
+  const { alertMail } = await import('../src/lib/alerts.ts');
+  const T = Date.parse('2026-09-28T14:00:00Z'), H = 3600_000;
+  const row = { job: 'archive', fails: 2, failingSince: T - H, lastError: 'ESI 502', warned: null };
+  eq('one failure is ESI having a moment', watchdogFinding({ ...row, fails: 1 }, T), null);
+  const f = watchdogFinding(row, T);
+  eq('the second in a row is mailed', [f.kind, f.key], ['watchdog', `watchdog:archive:${T - H}`]);
+  eq('  not again the same day', watchdogFinding({ ...row, fails: 5, warned: T - 3 * H }, T), null);
+  eq('  but again a day on, still failing', watchdogFinding({ ...row, fails: 30, warned: T - 25 * H }, T)?.kind, 'watchdog');
+  eq('EVE’s downtime doesn’t count', [isDowntime(Date.parse('2026-09-28T11:05:00Z')), isDowntime(Date.parse('2026-09-28T10:50:00Z')), isDowntime(Date.parse('2026-09-28T11:31:00Z'))], [true, false, false]);
+  eq('a login the cloud can’t use is told apart', [loginError('invalid_grant'), loginError('ESI 502'), loginError(null)], [true, false, false]);
+  const m = alertMail([f], { appUrl: 'https://x/', keepMin: 60, now: T });
+  eq('the mail: its subject', m.subject, 'Jita Ledger: cloud: copying your ledger from ESI failing');
+  eq('  says to wait when it retries on its own', m.body.includes('RECOMMENDED: nothing yet: it tries again every hour'), true);
+  eq('  and what has stopped meanwhile', m.body.includes('new trades, journal entries and orders aren’t copied'), true);
+  const login = alertMail([watchdogFinding({ ...row, lastError: 'Token refresh failed: invalid_grant' }, T)], { appUrl: 'https://x/', keepMin: 60, now: T });
+  eq('  and to log in again when that is what is wrong', login.body.includes('RECOMMENDED: hand the cloud your login again'), true);
+}
+
 console.log('\n--- a finished position: close it, don’t lose it ---');
 {
   const { computePosition, finishedPosition } = await import('../src/lib/positions.ts');
@@ -2067,7 +2088,7 @@ eq('alerts start off', sanitizeAlerts({}).on, false);
 eq('an odd interval falls back', sanitizeAlerts({ interval: 7 }).interval, 5);
 eq('remind again after 4 h unless you chose otherwise', [sanitizeAlerts({}).repeatH, sanitizeAlerts({ repeatH: 12 }).repeatH, sanitizeAlerts({ repeatH: 5 }).repeatH], [4, 12, 4]);
 eq('mail starts off', sanitizeAlerts({}).mail, false);
-eq('  and by mail only what you can act on in game, plus the cloud’s trades worth a look and mistake listings', Object.entries(sanitizeAlerts({}).mailEv).filter(([, v]) => v).map(([k]) => k), ['move', 'pi', 'opportunity', 'snipe']);
+eq('  and by mail only what you can act on in game, plus the cloud’s trades worth a look, mistake listings and its own failures', Object.entries(sanitizeAlerts({}).mailEv).filter(([, v]) => v).map(([k]) => k), ['move', 'pi', 'opportunity', 'snipe', 'watchdog']);
 eq('  the Sniper’s bar starts at 5 M and 10%, and keeps what you set', [sanitizeAlerts({}).snipeMinIsk, sanitizeAlerts({}).snipeMinPct, sanitizeAlerts({ snipeMinIsk: 2e7, snipeMinPct: 15 }).snipeMinIsk], [5e6, 10, 2e7]);
 eq('  a saved config from before opportunities gets them from the defaults', sanitizeAlerts({ ev: { move: true }, mailEv: { move: true } }).mailEv.opportunity, true);
 eq('mails are deleted after 3 days unless set', sanitizeAlerts({}).mailKeepMin, 4320);
