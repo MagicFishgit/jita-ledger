@@ -1688,6 +1688,40 @@ console.log('\n--- positions: each trade and fee counted once, and no made-up co
   eq('  nothing lost', books(cM), Math.round(cM.realized));
 }
 
+console.log('\n--- does it come true: place and leave, the Sniper ---');
+{
+  const { leaveOutcome, leaveRatio, snipeOutcome, LEAVE_DAYS } = await import('../src/lib/track.ts');
+  const H = 3600_000, D = 24 * H, T0 = Date.parse('2026-09-28T12:00:00Z');
+  // A left bid for 1,000 expected to fill 100 a day.
+  const row = { at: T0, remain0: 1000, remain: 1000, seenAt: T0, pred: 100 };
+  eq('left order: still left at its price, undecided', leaveOutcome(row, { price: 50, volumeRemain: 900, left: true }, undefined, 50, T0 + 2 * D), null);
+  const moved = leaveOutcome({ ...row, remain: 700, seenAt: T0 + 3 * D }, { price: 51, volumeRemain: 700, left: true }, undefined, 50, T0 + 3 * D + H);
+  eq('  a new price closes it with what filled until then', moved, { outcome: 'checked', filled: 300, days: 3 });
+  eq('  which is exactly the pace expected', leaveRatio(moved, 100), 1);
+  eq('  under a day says nothing about a daily model', leaveOutcome({ ...row, remain: 990, seenAt: T0 + 5 * H }, { price: 51, volumeRemain: 990, left: true }, undefined, 50, T0 + 6 * H).outcome, 'void');
+  eq('  no longer left alone closes it too', leaveOutcome({ ...row, remain: 800, seenAt: T0 + 2 * D }, { price: 50, volumeRemain: 800, left: false }, undefined, 50, T0 + 2 * D).filled, 200);
+  eq('  after 14 days it is checked with what is left now', leaveOutcome(row, { price: 50, volumeRemain: 600, left: true }, undefined, 50, T0 + LEAVE_DAYS * D), { outcome: 'checked', filled: 400, days: LEAVE_DAYS });
+  eq('  gone from the book, record still open: undecided', leaveOutcome({ ...row, seenAt: T0 + 2 * D }, undefined, { state: 'open', volumeRemain: 1000 }, 50, T0 + 2 * D + H), null);
+  eq('  sold out: all of it, by the last time it was seen', leaveOutcome({ ...row, remain: 40, seenAt: T0 + 4 * D }, undefined, { state: 'closed', volumeRemain: 0 }, 50, T0 + 4 * D + H), { outcome: 'checked', filled: 1000, days: 4 });
+
+  // The Sniper said relist at 1,000 on the 28th. Days after that one count, up to seven.
+  const seen = Date.parse('2026-09-28T01:16:00Z');
+  const rows = [{ date: '2026-09-28', highest: 1200 }, { date: '2026-09-30', highest: 990 }, { date: '2026-10-02', highest: 1001 }];
+  eq('snipe: reached on the fourth day after (the day itself doesn’t count)', snipeOutcome(seen, 1000, rows, Date.parse('2026-10-03T12:00:00Z')), { outcome: 'reached', days: 4 });
+  eq('  not reached yet, and the week isn’t in: undecided', snipeOutcome(seen, 1100, rows, Date.parse('2026-10-03T12:00:00Z')), null);
+  eq('  not reached in the week: not', snipeOutcome(seen, 1100, rows, Date.parse('2026-10-07T12:00:00Z')), { outcome: 'not', days: null });
+  eq('  a high after the week doesn’t count', snipeOutcome(seen, 1100, [...rows, { date: '2026-10-06', highest: 2000 }], Date.parse('2026-10-07T12:00:00Z')).outcome, 'not');
+
+  const { leaveSaid, shareOver } = await import('../src/lib/track.ts');
+  eq('left orders: nothing said from four', leaveSaid({ checked: 4, medianRatio: 0.4, none: 0 }), null);
+  eq('  from five, the pace against what was expected', leaveSaid({ checked: 6, medianRatio: 0.42, none: 2 }),
+    'Checked on your left orders over 30 days: they filled at about 0.4× the pace the planner expects (the middle of 6; 2 filled nothing).');
+  eq('  close to it says so', leaveSaid({ checked: 5, medianRatio: 1.1, none: 0 }).includes('close to the pace'), true);
+  const measured = { day: '2026-09-28', buyMedian: 0.012, sellMedian: 0.058, buyDays: 20, sellDays: 40, suggested: 2.5, setting: 10 };
+  eq('share: a 10% setting against a measured 2.5% is 4× too big', shareOver(measured, 10), 4);
+  eq('  nothing to say before a measurement suggests anything', shareOver({ ...measured, suggested: null }, 10), null);
+}
+
 console.log('\n--- a finished position: close it, don’t lose it ---');
 {
   const { computePosition, finishedPosition } = await import('../src/lib/positions.ts');

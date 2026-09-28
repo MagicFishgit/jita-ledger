@@ -1,3 +1,4 @@
+import type { LeaveSummary, ShareSummary, SnipeSummary } from './track';
 import { useSyncExternalStore } from 'react';
 import { get, set } from 'idb-keyval';
 import { getAccessToken, getAuth, onAuthChange } from './auth';
@@ -51,8 +52,14 @@ export type CloudStatus = {
   rev: number;
   /** This browser's ledger has met the cloud's at least once: everything here is up there. */
   started: boolean;
-  /** How "Clears in" has done on your orders over 30 days, as the cloud checked it; null until fetched. */
-  track: { checked: number; within2x: number; medianRatio: number | null } | null;
+  /**
+   * What the cloud has checked against what happened, null until fetched: "Clears in" on your orders over 30 days,
+   * and (once its Worker has them) left orders' pace, the Sniper's listings, and your measured share.
+   */
+  track: {
+    checked: number; within2x: number; medianRatio: number | null;
+    leave?: LeaveSummary; snipes?: SnipeSummary; share?: ShareSummary | null;
+  } | null;
   /**
    * What the cloud's background side holds for this ledger (its logins, never the tokens, and what each
    * job last did), as of the last look. Kept across reloads so a tab knows at once whether the cloud mails.

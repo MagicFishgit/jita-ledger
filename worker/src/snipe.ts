@@ -17,8 +17,10 @@ import {
   type SnipeBid, type SnipeListing, type SnipeOrder, type SnipeRead, type SnipeStats,
 } from '../../src/lib/snipe';
 import { tickDown } from '../../src/lib/tick';
-import type { AlertConfig, Stock } from '../../src/lib/types';
+import { snipeOutcome } from '../../src/lib/track';
+import type { AlertConfig, HistRow, Stock } from '../../src/lib/types';
 import { mailFindings, namesAnywhere } from './alerts';
+import { eachHistory } from './hist';
 import { page, type RawOrder } from './scan';
 
 type Env = { DB: D1Database; EVE_CLIENT_ID: string; TOKEN_KEY: string; APP_URL: string };
@@ -132,11 +134,13 @@ export async function sniperRound(env: Env, now = Date.now()) {
   }
   const read: SnipeRead = { at: new Date(now).toISOString(), expires: first.expires ?? null, pages: first.pages, listings, bids: kept };
   await db.prepare('INSERT INTO scan_meta (key, data) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET data = excluded.data').bind('snipes', JSON.stringify(read)).run();
-  // Every listing shown, remembered for a month: a buy of one is then marked as found by the Sniper.
-  const saw = db.prepare(`INSERT INTO snipe_seen (order_id, type_id, lo, hi, first_seen, last_seen) VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+  // Every listing shown, remembered for a month: a buy of one is then marked as found by the Sniper. What it claimed
+  // (relist at `resale`) is kept as first shown, to be checked against what the item traded at afterwards.
+  const saw = db.prepare(`INSERT INTO snipe_seen (order_id, type_id, lo, hi, first_seen, last_seen, resale, clean, doubts, units)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, ?8, ?9)
     ON CONFLICT(order_id) DO UPDATE SET lo = excluded.lo, hi = excluded.hi, last_seen = excluded.last_seen`);
   await db.batch([
-    ...listings.map((l) => saw.bind(l.orderIds[0], l.typeId, l.cheapest, l.top, now)),
+    ...listings.map((l) => saw.bind(l.orderIds[0], l.typeId, l.cheapest, l.top, now, l.resale, l.doubts.length ? 0 : 1, l.doubts.join(','), l.units)),
     db.prepare('DELETE FROM snipe_seen WHERE last_seen < ?1').bind(now - SEEN_DAYS * 86400_000),
   ]);
 
@@ -145,6 +149,45 @@ export async function sniperRound(env: Env, now = Date.now()) {
     try { mailed[id] = await mailLedger(env, id, read, stocks.get(id) ?? null, now); } catch (e) { console.error('sniper mail failed', id, e); }
   }
   return { pages: first.pages, failed, candidates: candidates.length, listings: listings.length, clean: listings.filter((l) => !l.doubts.length).length, bids: kept.length, mailed };
+}
+
+/**
+ * The Sniper, checked: each listing it showed at least a day ago and not yet settled, against its item's daily
+ * history since (`snipeOutcome`): did trading get up to the relist price it gave within a week?
+ */
+export async function settleSnipes(db: D1Database, now = Date.now()): Promise<{ open: number; settled: number }> {
+  const open = (await db.prepare(`SELECT order_id, type_id, first_seen, resale FROM snipe_seen WHERE outcome IS NULL AND resale IS NOT NULL AND first_seen < ?1`)
+    .bind(now - 86400_000).all<{ order_id: number; type_id: number; first_seen: number; resale: number }>()).results;
+  if (!open.length) return { open: 0, settled: 0 };
+  const rows = new Map<number, HistRow[]>();
+  await eachHistory(db, [...new Set(open.map((r) => r.type_id))], now, (t, h) => rows.set(t, h), { cap: 400 });
+  const set = db.prepare('UPDATE snipe_seen SET outcome = ?2, reached_days = ?3 WHERE order_id = ?1');
+  const stmts: D1PreparedStatement[] = [];
+  for (const r of open) {
+    // Every item the Sniper judges had history; none now means the read failed, so it waits for the next day.
+    const h = rows.get(r.type_id);
+    if (!h) continue;
+    const o = snipeOutcome(r.first_seen, r.resale, h, now);
+    if (o) stmts.push(set.bind(r.order_id, o.outcome, o.days));
+  }
+  for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
+  return { open: open.length, settled: stmts.length };
+}
+
+type Tally = { n: number; reached: number };
+/** What the Sniper's listings of the last 30 days came to: clean ones, doubted ones, and each doubt on its own. */
+export async function snipeSummary(db: D1Database, now = Date.now()) {
+  const rows = (await db.prepare(`SELECT clean, doubts, outcome, reached_days FROM snipe_seen WHERE outcome IS NOT NULL AND first_seen > ?1`)
+    .bind(now - 30 * 86400_000).all<{ clean: number; doubts: string | null; outcome: string; reached_days: number | null }>()).results;
+  const tally = (list: typeof rows): Tally => ({ n: list.length, reached: list.filter((r) => r.outcome === 'reached').length });
+  const clean = rows.filter((r) => r.clean === 1);
+  const days = clean.filter((r) => r.reached_days != null).map((r) => r.reached_days!).sort((a, b) => a - b);
+  const byDoubt: Record<string, Tally> = {};
+  for (const d of ['flood', 'moved', 'thin', 'stale', 'several']) {
+    const t = tally(rows.filter((r) => (r.doubts ?? '').split(',').includes(d)));
+    if (t.n) byDoubt[d] = t;
+  }
+  return { clean: { ...tally(clean), medianDays: days.length ? days[days.length >> 1] : null }, doubted: tally(rows.filter((r) => r.clean === 0)), byDoubt };
 }
 
 /** Mails one ledger the listings and bids that clear its own bar, at its own rates. */

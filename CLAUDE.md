@@ -81,14 +81,16 @@ npx wrangler tail jita-ledger-cloud                      # live logs
 Pages workflow doesn't touch it. Apply a migration before deploying code that needs it.
 
 **The Worker runs the app's own rules**, imported straight from `src/lib`: `esiRecords`, `flow`, `split`, `relist`,
-`fills`, `fees`, `prefs`, `prospects`, `alerts`, `colony`, `tick`, `format`, `constants`, `types`. These must stay
+`fills`, `fees`, `prefs`, `prospects`, `evaluate`, `alerts`, `colony`, `tick`, `format`, `constants`, `types`, `snipe`,
+`track`, `share`. These must stay
 free of `./config`, `./store`, React and the DOM, even for a type import: `tsc -p worker` pulls in whatever they
 import. That is why `OrderLite` lives in `flow.ts`, `SkillKey` comes from `constants`, and `soldFrom`, `sidePaceOf`,
 `judgeOrder`, `orderFindings` and `piFindings` were moved out of the I/O modules.
 
 **Timers** (`[triggers]` in `wrangler.toml`): every five minutes `fiveMinutes` in `index.ts` refreshes each
 ledger's open orders when ESI's 20-minute copy has turned over, reads every watched book (`watchMarkets`), then
-runs each ledger's alert round, in that order in one chain; hourly at :07 the archive. **A newly added cron took
+runs each ledger's alert round, in that order in one chain; hourly at :07 the archive, then once a day after 12:00
+UTC the daily checks (`checks.ts`: the Sniper's listings settled, each ledger's share measured). **A newly added cron took
 26 minutes to fire** (registered 16:04:29, first run 16:30 on 27 September 2026; Cloudflare says up to 15) while
 the existing hourly one kept running. A cron more frequent than hourly gets 30 s of CPU whatever `cpu_ms`
 says (that applies to requests and the hourly one); the round uses about 0.2 s for ~130 items. The plan includes

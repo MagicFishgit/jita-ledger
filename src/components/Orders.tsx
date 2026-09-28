@@ -8,10 +8,8 @@ import { tickDown } from '../lib/tick';
 import { competitionShare, SPLIT_SAID } from '../lib/split';
 import { useFlow, watchedFlow, watchedHours } from '../lib/flowStore';
 import { busyHours, busySaid } from '../lib/rhythm';
-import { getCloudStatus } from '../lib/cloud';
-
-/** Predictions checked before the track record is quoted: a handful says little. */
-const TRACK_MIN = 5;
+import { getCloudStatus, useCloud } from '../lib/cloud';
+import { leaveSaid, TRACK_MIN } from '../lib/track';
 import { relistPace } from '../lib/flow';
 import { loadCache, rankProspects } from '../lib/scan';
 import { DEFAULT_FILTERS } from '../lib/prospects';
@@ -89,6 +87,8 @@ export function Orders() {
   const flowV = useFlow();
   const all: Relist[] = useMemo(() => verdicts(d, check, cost), [d, check, cost, flowV]); // eslint-disable-line react-hooks/exhaustive-deps
   const leaving = useMemo(() => new Set(d.leave), [d.leave]);
+  // How left orders have filled against the pace expected, once the cloud has checked enough of them.
+  const leaveRecord = leaveSaid(useCloud().track?.leave);
   const rows = side === 'all' ? all : all.filter((x) => (side === 'buy' ? x.isBuy : !x.isBuy));
   const r = rates(d.settings);
   const slots = orderSlots(effectiveSkills(d.settings));
@@ -315,7 +315,7 @@ export function Orders() {
                             <button type="button" className="link-btn dim" onClick={() => navigate(`calculator?type=${o.typeId}`)}>Calc</button>
                             <button type="button" className={'link-btn' + (left ? '' : ' dim')} style={left ? { color: 'var(--pos)' } : undefined}
                               data-tip={left
-                                ? `You’re leaving ${name}’s orders where they are: nothing tells you to get back in front, only if trading stops reaching their price. Click to go back to the usual advice.`
+                                ? `You’re leaving ${name}’s orders where they are: nothing tells you to get back in front, only if trading stops reaching their price. Click to go back to the usual advice.${leaveRecord ? `\n\n${leaveRecord}` : ''}`
                                 : `Leave ${name}’s orders where they are, behind the front on purpose: no more “move it”, on this page, To do or in alert mail, unless trading stops reaching their price.`}
                               onClick={() => update((d2) => ({ leave: left ? d2.leave.filter((t) => t !== o.typeId) : [...new Set([...d2.leave, o.typeId])] }))}>
                               {left ? 'Leaving it' : 'Leave alone'}

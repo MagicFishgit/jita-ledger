@@ -17,6 +17,7 @@ import { toast } from '../lib/toast';
 import type { Prospect, ProspectFilters, ProspectWarning } from '../lib/types';
 import { BusyRelisting, OpenInGame, useTypeName } from './common';
 import { Busy, Check, Chip, Empty, Expander, Flag, Guide, ItemIcon, PageHead, Seg, SortTh, Sparkline } from './ui';
+import { ShareCheck } from './ShareCheck';
 
 export const WARNING: Record<ProspectWarning, { short: string; why: string }> = {
   wall: { short: 'Wall', why: 'The best price on one side holds more than half the visible stock, and more than three days of what the item trades.\n\nWalls are often placed to make a spread look stable, then pulled once traders pile in behind them.' },
@@ -159,6 +160,8 @@ export function Prospects() {
           </>
         )}
       />
+
+      <ShareCheck what="What each item can take and how long a flip lasts" />
 
       <div className="chipbar" data-rv="">
         <span className="chipbar-title"><SlidersHorizontal aria-hidden="true" />Filters</span>

@@ -14,6 +14,9 @@ import { BusyRelisting, useEnsureNames, useTypeName } from './common';
 import { flip, WARNING } from './Prospects';
 import { Empty, Flag, Guide, ItemIcon, NumChip, PageHead, Panel, Seg, Tiles } from './ui';
 import { ScanFreshness } from './ScanFreshness';
+import { ShareCheck } from './ShareCheck';
+import { useCloud } from '../lib/cloud';
+import { leaveSaid } from '../lib/track';
 
 const KEY = 'jita-ledger:planner';
 /** ISK and slots typed in on this visit: they hold until the tab closes, then the planner follows the wallet again. */
@@ -36,6 +39,8 @@ function savedProspectFilters(): Partial<ProspectFilters> | null {
 
 export function Planner() {
   const d = useData();
+  // How left orders have filled against the pace this plan's pricing expects, once the cloud has checked enough.
+  const leaveRecord = leaveSaid(useCloud().track?.leave);
   const name = useTypeName();
   const scan = useScanState();
   const totalSlots = orderSlots(effectiveSkills(d.settings));
@@ -108,6 +113,7 @@ export function Planner() {
         lede="Tell it how much ISK and how many order slots you have free, and it builds a mix from your Prospects — best payback first, never more than a market can take, and never too much in one item. Anything flagged as a wall, spike, fluke, escrow bait or a price that just moved is left out."
       />
       <ScanFreshness what="the plan" />
+      <ShareCheck what="Each market’s limit" />
       <div className="chipbar" data-rv="">
         <span className="chipbar-title"><SlidersHorizontal aria-hidden="true" />Budget</span>
         <NumChip id="pl-isk" label="ISK to deploy" value={iskIn} onChange={(v) => override({ isk: v })} width={160} decimals={0} placeholder="2b"
@@ -236,6 +242,7 @@ export function Planner() {
                 </div>
                 <div className="note small" style={{ margin: 0 }}>
                   <b>Before you leave big orders for weeks:</b> if the price moves up and away, your bid is left behind and stops filling (the order check tells you where trading reaches now); if it falls, you fill fastest just as it gets cheaper; the ISK sits in escrow the whole time; and a buy order runs out after 90 days at most.
+                  {leaveRecord && <> {leaveRecord}</>}
                 </div>
               </div>
             )}

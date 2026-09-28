@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { get } from 'idb-keyval';
 import {
   BellRing, Cloud, Database, Download, GraduationCap, HardDriveDownload, LogIn, LogOut, Mail, Palette, Percent, Radar, RefreshCw, Send, Trash2, Upload, UserRound,
@@ -103,33 +103,37 @@ function MeasureShare({ onUse }: { onUse: (pct: number) => void }) {
     setM(measureShare(txs, history, JITA_44));
   };
   const pc = (x: number | null) => (x == null ? '–' : `${(x * 100).toFixed(x < 0.1 ? 1 : 0)}%`);
+  // The cloud measures the same thing every day; its latest shows until you measure here.
+  const daily = useCloud().track?.share;
+  const fromCloud = !m && !!daily;
+  const shown: ShareMeasure | null = m ?? (daily ? { buyDays: daily.buyDays, sellDays: daily.sellDays, buyMedian: daily.buyMedian, sellMedian: daily.sellMedian, suggested: daily.suggested, enough: daily.suggested != null } : null);
   return (
     <div className="col" style={{ gap: 8, padding: '10px 0 12px', borderBottom: '1px solid var(--line-4)' }}>
       <div className="row" style={{ gap: 10, alignItems: 'center' }}>
         <button type="button" className="btn sm" onClick={run} disabled={!!busy}>
           <Percent aria-hidden="true" />{busy ? `Measuring ${busy.done} of ${busy.total}…` : 'Measure my share'}
         </button>
-        <span className="note small">From your own Jita trades over the last {SHARE_DAYS} days.</span>
+        <span className="note small">From your own Jita trades over the last {SHARE_DAYS} days.{fromCloud ? ` The cloud measures it every day; this is its reading of ${daily!.day}.` : ''}</span>
       </div>
       {err && <p className="note small" style={{ margin: 0 }}>{err}</p>}
-      {m && (m.suggested == null ? (
+      {shown && (shown.suggested == null ? (
         <p className="note small" style={{ margin: 0 }}>
-          {m.buyDays + m.sellDays === 0
+          {shown.buyDays + shown.sellDays === 0
             ? 'None of your trades could be matched to a day of market history, so there’s nothing to measure yet.'
-            : `Only ${m.buyDays + m.sellDays} day${m.buyDays + m.sellDays === 1 ? '' : 's'} of trading to go on, too few to suggest a setting from. Measure again once you’ve traded more.`}
+            : `Only ${shown.buyDays + shown.sellDays} day${shown.buyDays + shown.sellDays === 1 ? '' : 's'} of trading to go on, too few to suggest a setting from. Measure again once you’ve traded more.`}
         </p>
       ) : (
         <div className="notice" style={{ alignItems: 'center' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             On days you traded, your orders caught a median{' '}
             {[
-              m.buyDays >= MIN_SIDE_DAYS ? <><b>{pc(m.buyMedian)}</b> of what sellers sold into bids ({units(m.buyDays)} days of buying)</> : null,
-              m.sellDays >= MIN_SIDE_DAYS ? <><b>{pc(m.sellMedian)}</b> of what buyers took from listings ({units(m.sellDays)} days of selling)</> : null,
-            ].filter(Boolean).reduce<ReactNode[]>((acc, x, i) => (i ? [...acc, ' and ', x] : [x]), [])}.
-            {' '}The app scales your setting up to 1.5× on markets with few orders, so <b>{m.suggested}%</b> reproduces that. Only days you traded are counted, so if anything this reads high.
+              shown.buyDays >= MIN_SIDE_DAYS ? <><b>{pc(shown.buyMedian)}</b> of what sellers sold into bids ({units(shown.buyDays)} days of buying)</> : null,
+              shown.sellDays >= MIN_SIDE_DAYS ? <><b>{pc(shown.sellMedian)}</b> of what buyers took from listings ({units(shown.sellDays)} days of selling)</> : null,
+            ].filter(Boolean).map((x, i) => <Fragment key={i}>{i ? ' and ' : ''}{x}</Fragment>)}.
+            {' '}The app scales your setting up to 1.5× on markets with few orders, so <b>{shown.suggested}%</b> reproduces that. Only days you traded are counted, so if anything this reads high.
           </div>
-          <button type="button" className="btn primary sm" onClick={() => { onUse(m.suggested!); toast(`Share set to ${m.suggested}%.`); }} disabled={d.settings.share === m.suggested}>
-            {d.settings.share === m.suggested ? 'In use' : `Use ${m.suggested}%`}
+          <button type="button" className="btn primary sm" onClick={() => { onUse(shown.suggested!); toast(`Share set to ${shown.suggested}%.`); }} disabled={d.settings.share === shown.suggested}>
+            {d.settings.share === shown.suggested ? 'In use' : `Use ${shown.suggested}%`}
           </button>
         </div>
       ))}

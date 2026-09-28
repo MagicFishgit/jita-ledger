@@ -11,6 +11,25 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   version voided every one of those, which would have counted each success as a void. Orders' Clears-in tip quotes it from 5 checked predictions up: "N of M
   reached the front within twice the time it said" (`/v1/track`, 30 days). Results' item table counts relists
   in the period and their whole fees; Made holds only the share for units that sold.
+- **Three more claims are checked the same way** (migration 0009, `lib/track.ts` pure, summaries on `/v1/track`,
+  each shown only from `TRACK_MIN` (5) checked, with no "collecting data" wording before). The user asked for the
+  guesses to be tested against what happened, like Clears in:
+  - **Place and leave** (`leave_track`): each left order's pace at its price, from the planner's own model (its
+    side's pace × `competitionShare` × reach/14), recorded in the five-minute round with what was left; closed at a
+    new price, when it stops being left alone, when its record closes, or after 14 days (`leaveOutcome`; under a
+    day is void, since the model is daily). Quoted as filled against expected on Orders' "Leaving it" tip and under
+    the planner's Place-and-leave note. On 28 September 2026 the user had no left orders, so it starts empty.
+  - **The Sniper** (`snipe_seen` gains `resale`, `clean`, `doubts`, `units`, written at first sight only): once a
+    day after 12:00 UTC (`dailyChecks` in `worker/src/checks.ts`, from the hourly job) each listing shown a day or
+    more ago is settled from its item's history: reached if a day's high after the sighting got to the relist price
+    within 7 days (`snipeOutcome`). The Sniper page's "Checked against what traded after" sets clean listings against
+    doubted ones and each doubt, which is the test of whether the doubts are right. Sightings before this change
+    carry no relist price and aren't checked.
+  - **Share** (`share_track`): the same `measureShare` as Settings' button, once a day per ledger from the cloud's
+    copy of its trades, beside the setting then. Settings shows the latest reading until you measure by hand, and
+    Prospects and the planner say so (`ShareCheck`) when the setting is over twice what it suggests, since every size
+    there is linear in it. The local copy of the user's ledger measured 7.7% on buys and 17.7% on sells (8.5%
+    suggested, against their 6%), so nothing shows for them now.
 - **To do ticks itself off** (`lib/todo.ts`). The user plays without looking at it, and a list still
   demanding things already done is worse than none. Every finding has a stable `key` (what it's about:
   `order:ID`, `pi:pin`, `squeeze:position`, `scam:type:flag`, `backup`) and a `ver` (its state: the suggested

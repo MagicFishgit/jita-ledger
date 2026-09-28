@@ -16,15 +16,15 @@ import { alertMail, isStaleAlertMail, mailKey, orderFacts, orderFindings, piFind
 import { readColony, type PlanetHead, type RawColony } from '../../src/lib/colony';
 import type { OrderRecord, TxRecord } from '../../src/lib/esiRecords';
 import { sanitizeSettings, type Settings } from '../../src/lib/fees';
-import { recentRange } from '../../src/lib/fills';
+import { FILL_WINDOW, recentRange } from '../../src/lib/fills';
 import { observedFlow, RELIST_MIN_H, sidePaceOf, type FlowDay, type OrderLite } from '../../src/lib/flow';
 import { judgeProspect, type Book } from '../../src/lib/evaluate';
-import { predictionOutcome } from '../../src/lib/track';
+import { leaveOutcome, leaveRatio, predictionOutcome, type LeaveOutcome } from '../../src/lib/track';
 import { DEFAULT_FILTERS, passesGate, statsFrom } from '../../src/lib/prospects';
 import { sanitizeAlerts, sanitizeLeave } from '../../src/lib/prefs';
 import { paceDay } from '../../src/lib/prospects';
 import { byUrgency, judgeOrder, type Relist } from '../../src/lib/relist';
-import { buyerShare, type BookSold } from '../../src/lib/split';
+import { buyerShare, competitionShare, type BookSold } from '../../src/lib/split';
 import type { AlertConfig, AlertLogEntry, BookLevel, Prospect, ProspectFilters } from '../../src/lib/types';
 import { noteJob } from './archive';
 import { esiDelete, esiGet, esiPost, useLogin, type Login } from './eve';
@@ -71,7 +71,13 @@ async function namesFor(db: D1Database, charId: number, ids: number[]): Promise<
  * Every open Jita order judged against the book the market watch last read, the way the Orders page judges
  * it. Orders whose book is missing or stale are left out and counted, never judged on old data.
  */
-export async function judgeAll(db: D1Database, charId: number, settings: Settings, now = Date.now()): Promise<{ list: Relist[]; unread: number }> {
+export type Judged = {
+  list: Relist[]; unread: number;
+  /** For each order you're leaving, the pace the planner's model expects it to fill at, in units a day. */
+  pace?: Record<number, number>;
+};
+
+export async function judgeAll(db: D1Database, charId: number, settings: Settings, now = Date.now()): Promise<Judged> {
   const mine = (await db.prepare(`SELECT data FROM records WHERE char_id = ?1 AND kind = 'orders' AND data IS NOT NULL AND json_extract(data, '$.state') = 'open'`)
     .bind(charId).all<{ data: string }>()).results
     .map((r) => JSON.parse(r.data) as OrderRecord)
@@ -97,6 +103,7 @@ export async function judgeAll(db: D1Database, charId: number, settings: Setting
 
   let unread = 0;
   const list: Relist[] = [];
+  const pace: Record<number, number> = {};
   for (const o of mine) {
     const book = books[o.typeId];
     if (!book) { unread++; continue; }
@@ -108,8 +115,14 @@ export async function judgeAll(db: D1Database, charId: number, settings: Setting
     const range = h ? recentRange(h, undefined, now, flow[o.typeId]) : null;
     const x = judgeOrder(o, { book: book.orders, perDay, avgCost: costs[o.typeId], lows: range?.lows ?? null, highs: range?.highs ?? null, leave: leave.has(o.typeId), txs, watched }, settings, now);
     if (!x.gone) list.push(x);
+    // Left behind the front on purpose: the planner's pace for it (`throughput`), its side's trade at your share,
+    // scaled for the orders it queues among and for how often trading reaches its price.
+    if (x.left && !x.gone && perDay && x.reach) {
+      const rivals = book.orders.filter((b) => b.isBuy === o.isBuy && b.id !== o.orderId).length;
+      pace[o.orderId] = perDay * competitionShare(settings.share, rivals) * (x.reach / FILL_WINDOW);
+    }
   }
-  return { list: list.sort(byUrgency), unread };
+  return { list: list.sort(byUrgency), unread, pace };
 }
 
 type RawPlanetHead = { planet_id: number; planet_type: string; solar_system_id: number; upgrade_level: number; num_pins: number; last_update: string };
@@ -271,7 +284,7 @@ export async function namesAnywhere(db: D1Database, charId: number, ids: number[
  * the order reaching the front (or selling out) resolves it, a new price or a cancel voids it, and one still not
  * at the front after TRACK_DAYS is late. Rounds whose books were stale leave predictions as they were.
  */
-export async function trackRecord(db: D1Database, charId: number, judged: { list: Relist[]; unread: number }, now = Date.now()): Promise<{ added: number; resolved: number }> {
+export async function trackRecord(db: D1Database, charId: number, judged: Judged, now = Date.now()): Promise<{ added: number; resolved: number }> {
   const stmts: D1PreparedStatement[] = [];
   const add = db.prepare('INSERT OR IGNORE INTO predictions (char_id, order_id, price, type_id, is_buy, at, hours, ahead) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)');
   let added = 0;
@@ -282,10 +295,19 @@ export async function trackRecord(db: D1Database, charId: number, judged: { list
   }
   const open = (await db.prepare('SELECT order_id, price, at FROM predictions WHERE char_id = ?1 AND outcome IS NULL').bind(charId)
     .all<{ order_id: number; price: number; at: number }>()).results;
+  // "Place and leave", checked: each left order's expected pace at its price, against what it fills.
+  const leaveAdd = db.prepare(`INSERT OR IGNORE INTO leave_track (char_id, order_id, price, type_id, is_buy, at, pred, remain0, remain, seen_at)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?6)`);
+  for (const x of judged.list) {
+    const pred = judged.pace?.[x.orderId];
+    if (pred && pred > 0) { stmts.push(leaveAdd.bind(charId, x.orderId, x.price, x.typeId, x.isBuy ? 1 : 0, now, pred, x.volumeRemain)); added++; }
+  }
+  const leaving = (await db.prepare('SELECT order_id, price, at, pred, remain0, remain, seen_at FROM leave_track WHERE char_id = ?1 AND outcome IS NULL').bind(charId)
+    .all<{ order_id: number; price: number; at: number; pred: number; remain0: number; remain: number; seen_at: number }>()).results;
   const byOrder = new Map(judged.list.map((x) => [x.orderId, x]));
   const resolve = db.prepare('UPDATE predictions SET outcome = ?4, resolved_at = ?5 WHERE char_id = ?1 AND order_id = ?2 AND price = ?3');
   let resolved = 0;
-  const gone = open.filter((p) => !byOrder.has(p.order_id)).map((p) => String(p.order_id));
+  const gone = [...new Set([...open, ...leaving].filter((p) => !byOrder.has(p.order_id)).map((p) => String(p.order_id)))];
   const records = new Map<string, { state: string; volumeRemain: number }>();
   for (let i = 0; i < gone.length; i += 90) {
     const part = gone.slice(i, i + 90);
@@ -296,6 +318,16 @@ export async function trackRecord(db: D1Database, charId: number, judged: { list
   for (const p of open) {
     const outcome = predictionOutcome(p, byOrder.get(p.order_id), records.get(String(p.order_id)), now);
     if (outcome) { stmts.push(resolve.bind(charId, p.order_id, p.price, outcome, now)); resolved++; }
+  }
+  const leaveDone = db.prepare('UPDATE leave_track SET outcome = ?4, filled = ?5, days = ?6, resolved_at = ?7 WHERE char_id = ?1 AND order_id = ?2 AND price = ?3');
+  const leaveSeen = db.prepare('UPDATE leave_track SET remain = ?4, seen_at = ?5 WHERE char_id = ?1 AND order_id = ?2 AND price = ?3');
+  for (const p of leaving) {
+    const x = byOrder.get(p.order_id);
+    const row = { at: p.at, remain0: p.remain0, remain: p.remain, seenAt: p.seen_at, pred: p.pred };
+    const o: LeaveOutcome | null = leaveOutcome(row, x && { price: x.price, volumeRemain: x.volumeRemain, left: x.left }, records.get(String(p.order_id)), p.price, now);
+    if (o) { stmts.push(leaveDone.bind(charId, p.order_id, p.price, o.outcome, o.filled, o.days, now)); resolved++; }
+    // Still at its price: note what's left, when it changes or hourly, so its end is known to within the hour.
+    else if (x && (x.volumeRemain !== p.remain || now - p.seen_at >= 3600_000)) stmts.push(leaveSeen.bind(charId, p.order_id, p.price, x.volumeRemain, now));
   }
   for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
   return { added, resolved };
@@ -308,6 +340,19 @@ export async function trackSummary(db: D1Database, charId: number, now = Date.no
   const ratios = rows.map((r) => (r.outcome === 'front' ? (r.resolved_at - r.at) / 3600_000 / r.hours : Infinity)).sort((a, b) => a - b);
   const within = ratios.filter((x) => x <= 2).length;
   return { checked: rows.length, within2x: within, medianRatio: ratios.length ? ratios[ratios.length >> 1] : null };
+}
+
+/** How "Place and leave" has done: left orders' fills against the pace expected, over the last 30 days. */
+export async function leaveSummary(db: D1Database, charId: number, now = Date.now()) {
+  const rows = (await db.prepare(`SELECT pred, filled, days FROM leave_track WHERE char_id = ?1 AND outcome = 'checked' AND resolved_at > ?2`)
+    .bind(charId, now - 30 * 86400_000).all<{ pred: number; filled: number; days: number }>()).results;
+  const ratios = rows.map((r) => leaveRatio({ outcome: 'checked', filled: r.filled, days: r.days }, r.pred)).filter((x): x is number => x != null).sort((a, b) => a - b);
+  const m = ratios.length >> 1;
+  return {
+    checked: ratios.length,
+    medianRatio: !ratios.length ? null : ratios.length % 2 ? ratios[m] : (ratios[m - 1] + ratios[m]) / 2,
+    none: rows.filter((r) => r.filled === 0).length,
+  };
 }
 
 export type AlertRound = { ran: boolean; judged: number; unread: number; found: number; mailed: number; mailId: number | null; tidied: number | null; why?: string };

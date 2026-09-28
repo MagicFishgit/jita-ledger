@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Calculator as CalcIcon, Clock, Copy, Crosshair, Eye, Hand, Mail, Repeat, ShieldAlert, SlidersHorizontal, Tag } from 'lucide-react';
 import { cloudEnabled, cloudSendsMail, cloudSightings, cloudSnipes, useCloud } from '../lib/cloud';
+import { TRACK_MIN } from '../lib/track';
 import { rateAt, rates } from '../lib/fees';
 import { reachedAsk, recentRange } from '../lib/fills';
 import { ago, fmtDateTime, isk, iskBig, iskBigSigned, pct, units, until } from '../lib/format';
@@ -324,6 +325,8 @@ export function Sniper() {
         </>
       )}
 
+      {on && <SnipeRecord />}
+
       <Guide
         title="How to snipe"
         intro={<>Someone lists 10 units at half price by mistake: you buy them and list them again at the going rate. The cloud finds these; <b style={{ color: 'var(--ink)' }}>you still have to be quicker than everyone else watching the market.</b></>}
@@ -337,5 +340,29 @@ export function Sniper() {
         ]}
       />
     </div>
+  );
+}
+
+/**
+ * The Sniper checked against what happened: a week after each listing it showed, did the item trade up to the
+ * relist price it gave? Clean listings against doubted ones, and each doubt on its own, which is the test of
+ * whether the doubts are right. Nothing shows until the cloud has settled enough of them.
+ */
+function SnipeRecord() {
+  const t = useCloud().track?.snipes;
+  if (!t || t.clean.n + t.doubted.n < TRACK_MIN) return null;
+  const share = (x: { n: number; reached: number }) => (x.n ? `${units(x.reached)} of ${units(x.n)} (${Math.round((x.reached / x.n) * 100)}%)` : 'none yet');
+  const doubts = Object.entries(t.byDoubt).filter(([k]) => k in DOUBT_SAID) as [keyof typeof DOUBT_SAID, { n: number; reached: number }][];
+  return (
+    <Panel title="Checked against what traded after" sub="Each listing shown in the last 30 days: did its item trade up to the relist price given, within a week?">
+      <div className="col" style={{ gap: 6, maxWidth: 560 }}>
+        <div className="kv"><span style={{ color: 'var(--body)' }}>Nothing doubted them</span><span className="v" style={{ color: 'var(--ink)' }}>{share(t.clean)}{t.clean.medianDays != null ? `, day ${t.clean.medianDays} typically` : ''}</span></div>
+        <div className="kv"><span style={{ color: 'var(--body)' }}>Doubted</span><span className="v" style={{ color: 'var(--ink)' }}>{share(t.doubted)}</span></div>
+        {doubts.map(([k, x]) => (
+          <div key={k} className="kv"><span style={{ color: 'var(--dim)', paddingLeft: 14 }}>{DOUBT_SAID[k].short}</span><span className="v">{share(x)}</span></div>
+        ))}
+      </div>
+      <p className="note small">A day counts when the bulk of its trading got up to the price (ESI trims each day’s extremes). The relist price is one step under the next listing, never above where trading reached on half the last 14 days. A listing with several doubts counts under each.</p>
+    </Panel>
   );
 }

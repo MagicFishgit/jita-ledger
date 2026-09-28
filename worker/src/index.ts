@@ -6,9 +6,10 @@
  * access token the app already has; `caller` checks it and everything is keyed by that character.
  */
 import { AuthError, caller } from './auth';
-import { alertRound, bookOf, judgeAll, previewRound, testRound, trackRecord, trackSummary } from './alerts';
+import { alertRound, bookOf, judgeAll, leaveSummary, previewRound, testRound, trackRecord, trackSummary } from './alerts';
+import { dailyChecks, shareSummary } from './checks';
 import { fullScan, markScanStarted, scanDue, scanStatus, scanStream } from './scan';
-import { lastSnipes, sightings, sniperRound } from './snipe';
+import { lastSnipes, sightings, sniperRound, snipeSummary } from './snipe';
 
 /** One minute past each five: ESI refreshes The Forge's book at about :x0:30 and :x5:30. Also in wrangler.toml. */
 const SNIPER_CRON = '1-59/5 * * * *';
@@ -180,6 +181,8 @@ export default {
       for (const l of ledgers) {
         try { await runArchive(env, l.char_id); } catch (e) { console.error('archive failed', l.char_id, e); }
       }
+      // Once a day: the Sniper's listings and each ledger's share, checked against what happened.
+      try { console.log('daily checks', JSON.stringify(await dailyChecks(env))); } catch (e) { console.error('daily checks failed', e); }
       // The hourly run catches up a day's scan the daily one missed (or the first, after a deploy).
       await runScan(env);
     })());
@@ -221,7 +224,14 @@ export default {
       if (url.pathname === '/v1/jobs/market' && request.method === 'POST') return json(await watchMarkets(env.DB), 200, c);
       if (url.pathname === '/v1/alerts/test' && request.method === 'POST') return json(await testRound(env, who.charId), 200, c);
       if (url.pathname === '/v1/alerts/preview' && request.method === 'GET') return json(await previewRound(env, who.charId), 200, c);
-      if (url.pathname === '/v1/track' && request.method === 'GET') return json(await trackSummary(env.DB, who.charId), 200, c);
+      if (url.pathname === '/v1/track' && request.method === 'GET') {
+        return json({
+          ...(await trackSummary(env.DB, who.charId)),
+          leave: await leaveSummary(env.DB, who.charId),
+          snipes: await snipeSummary(env.DB),
+          share: await shareSummary(env.DB, who.charId),
+        }, 200, c);
+      }
       if (url.pathname === '/v1/flow' && request.method === 'GET') {
         const types = (url.searchParams.get('types') ?? '').split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0).slice(0, 500);
         return json(await flowFor(env.DB, types), 200, c);
