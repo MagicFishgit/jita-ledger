@@ -140,7 +140,24 @@ export async function archive(env: Env, charId: number): Promise<ArchiveResult> 
   let stockTotal: Record<number, number> | undefined;
   let freshWraps: SafetyWrap[] = [];
   if (has(scopes, S.assets)) {
-    const stock = countStock(await esiAll<RawAsset>(`/characters/${charId}/assets/`, { token }), JITA_44);
+    const rawAssets = await esiAll<RawAsset>(`/characters/${charId}/assets/`, { token });
+    const stock = countStock(rawAssets, JITA_44);
+    // Being checked (28 September 2026): the user's wrap showed a Sigil and a Station Container with nothing in them
+    // and a container ("Equipment") holding only what the count skips. Every row in or under the wrap, as ESI sent
+    // it, and any row inside an item the list doesn't contain.
+    if (stock.safety?.length) {
+      const ids = new Set(rawAssets.map((a) => a.item_id));
+      const under = new Set(stock.safety.map((w) => w.id));
+      for (let grew = true; grew;) {
+        grew = false;
+        for (const a of rawAssets) if (under.has(a.location_id) && !under.has(a.item_id)) { under.add(a.item_id); grew = true; }
+      }
+      const rows = rawAssets.filter((a) => under.has(a.item_id) || under.has(a.location_id));
+      const orphans = rawAssets.filter((a) => a.location_type === 'item' && !ids.has(a.location_id));
+      console.log('asset safety rows', JSON.stringify({ rows: rows.length, orphans: orphans.length, total: rawAssets.length }));
+      for (let i = 0; i < rows.length; i += 60) console.log('asset safety rows part', JSON.stringify(rows.slice(i, i + 60)));
+      console.log('asset safety orphans', JSON.stringify(orphans.slice(0, 60)));
+    }
     stockTotal = stock.total;
     const prev = await doc<StockRecord>(db, charId, 'stock');
     // Asset safety: wraps registered once by the cloud, which alone can date them, and what was learned carried
