@@ -627,6 +627,11 @@ Don't re-derive or contradict these without new evidence.
   days first, slower ones filling in flagged past 30, nothing past 90. Offers under half the store's typical
   rate are left out. Ranking one purchase by ISK a point, the first attempt, filled it with 375-point items
   making under 1.2 M.
+- **An offer's cost is said the way the store charges it** (`costLine` in Loyalty.tsx): points, the store's own ISK,
+  and each item to hand in, named, with how many you hold in Jita, then what those items cost to buy; then what the
+  pile sells for after fees, and what you keep. "All on one item" and the spend plan used to say "LP + 115.59 M ISK
+  → 128.55 M": the store's 105 M and 175,000 Scourge Heavy Assault Missiles' 10.59 M lumped into one ISK figure, and a
+  profit shown where the user compared it with the game's sale total (231.8 M). The sums were right; the words weren't.
 - **Loyalty speaks of buying an offer, never "runs"**, which read like an industry job to the user: "buy it 83
   times", "each purchase", "times to buy". The code keeps `runs` as the field name.
 - **Liquidity notes are judged on one purchase, never on the plan.** A capped plan fills the horizon by

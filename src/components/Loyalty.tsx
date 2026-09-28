@@ -109,7 +109,8 @@ export function Loyalty() {
   // Names for everything on show. The Jita pass only names what it prices.
   useEffect(() => {
     if (!offers) return;
-    const missing = [...new Set(offers.map((o) => o.typeId))].filter((id) => !d.names[id]).slice(0, 500);
+    // The items an offer asks you to hand in are named too: the cost line says what they are.
+    const missing = [...new Set(offers.flatMap((o) => [o.typeId, ...o.requiredItems.map((r) => r.typeId)]))].filter((id) => !d.names[id]).slice(0, 500);
     if (!missing.length) return;
     let alive = true;
     resolveNames(missing).then((n) => { if (alive && Object.keys(n).length) update((x) => ({ names: { ...x.names, ...n } })); }).catch(() => undefined);
@@ -175,6 +176,24 @@ export function Loyalty() {
     return sort.dir === 'desc' ? sorted.reverse() : sorted;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [all, sort, hideLosses, d.names, q]);
+
+  /**
+   * What some purchases of an offer take, as the store charges it: the points, the store's own ISK, and the items to
+   * hand in, named, with what they'd cost to buy and how many you already hold in Jita. Lumping the store's ISK and
+   * the items' market value into one ISK figure made the user think the store would take 115.59 M ISK, when it took
+   * 105 M and 175,000 Scourge Heavy Assault Missiles.
+   */
+  const byOffer = useMemo(() => new Map((offers ?? []).map((o) => [o.offerId, o])), [offers]);
+  const costLine = (offerId: number, v: LpValue, runs: number) => {
+    const reqs = byOffer.get(offerId)?.requiredItems ?? [];
+    const parts = [`${units(runs * v.lpCost)} LP`];
+    if (v.iskCost > 0) parts.push(`${iskBig(runs * v.iskCost)} to the store`);
+    for (const r of reqs) {
+      const need = runs * r.quantity, have = d.stock?.jita[r.typeId] ?? 0;
+      parts.push(`${units(need)} ${nameOf(r.typeId)}${have >= need ? ' (you have them)' : have > 0 ? ` (you have ${units(have)})` : ''}`);
+    }
+    return <>{parts.join(' + ')}{v.itemsCost > 0 && <span style={{ color: 'var(--faint)' }}> · the items cost {iskBig(runs * v.itemsCost)} to buy</span>}</>;
+  };
 
   // All the points on one item, listed as one sell order and left alone.
   const lazy = useMemo(() => lazyPicks(
@@ -287,7 +306,7 @@ export function Loyalty() {
                       <span className="mono" style={{ width: 22, height: 22, display: 'grid', placeItems: 'center', fontSize: 11, color: '#1a0f02', background: 'var(--acc2)', clipPath: 'var(--hex)' }}>{i + 1}</span>
                       <div style={{ minWidth: 0 }}>
                         <div className="ellipsis" style={{ fontSize: 13, color: 'var(--ink)' }}><b className="mono" style={{ color: 'var(--acc2)', fontWeight: 500 }}>{units(p.runs)}×</b> {nameOf(p.typeId)}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--label)' }}>{units(p.lpSpent)} LP + {iskBig(p.iskSpent)} for {iskBig(p.profit)}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--label)' }}>{byOffer.get(p.offerId) ? costLine(p.offerId, all.find((x) => x.v.offerId === p.offerId)!.v, p.runs) : `${units(p.lpSpent)} LP + ${iskBig(p.iskSpent)}`} → you keep {iskBig(p.profit)}</div>
                         <div className="track h3" style={{ marginTop: 4 }}><span className="fill" style={{ width: `${(p.lpSpent / Math.max(1, lp)) * 100}%`, background: 'var(--acc2)' }} /></div>
                       </div>
                       {canOpenInGame() && (
@@ -306,7 +325,7 @@ export function Loyalty() {
           <section data-rv="" className="panel" aria-label="All on one item" style={{ padding: 18, gap: 10, clipPath: 'none' }}>
             <div className="hero-l" style={{ color: 'var(--acc)' }}>
               All on one item
-              <Tip title="All on one item" text={`The best few items to spend all your points on: one trip to the store, one sell order, left to sell in its own time.\n\n• All your points go on the one item, bought as many times as they cover, so they’re ranked by what that makes: your points times its ISK a point.\n• What keeps a pick reasonable is how long the whole pile takes to sell at your share of the buyers taking listings: within ${LAZY_DAYS} days first. Slower ones only fill in when there aren’t enough, anything over ${LAZY_WARN_DAYS} days is flagged, and nothing that would take months is suggested.\n• Offers under half the store’s typical rate per point are left out.\n\nPrices are from the live Jita book; the time to sell is from the last week’s trading at your share (Settings).`} />
+              <Tip title="All on one item" text={`The best few items to spend all your points on: one trip to the store, one sell order, left to sell in its own time.\n\n• All your points go on the one item, bought as many times as they cover, so they’re ranked by what that makes: your points times its ISK a point.\n• What keeps a pick reasonable is how long the whole pile takes to sell at your share of the buyers taking listings: within ${LAZY_DAYS} days first. Slower ones only fill in when there aren’t enough, anything over ${LAZY_WARN_DAYS} days is flagged, and nothing that would take months is suggested.\n• Offers under half the store’s typical rate per point are left out.\n• “You keep” is what the pile sells for after your broker fee and sales tax, less the store’s ISK and what the items it asks you to hand in cost to buy. Items you already have are counted at that price too: you could sell them instead.\n\nPrices are from the live Jita book; the time to sell is from the last week’s trading at your share (Settings).`} />
             </div>
             {!lazy.length ? (
               <p className="note">{more ? 'Pricing the rest of the store; picks appear as it finishes.' : lp > 0 ? 'Nothing this store sells would sell within three months at your share, or your points don’t cover buying one.' : 'Nothing priced against the live book sells within three months at your share.'}</p>
@@ -317,7 +336,10 @@ export function Loyalty() {
                     <div style={{ minWidth: 0 }}>
                       <div className="ellipsis" style={{ fontSize: 13, color: 'var(--ink)' }}><b className="mono" style={{ color: 'var(--acc)', fontWeight: 500 }}>{units(p.units)}× </b>{nameOf(p.v.typeId)}</div>
                       <div style={{ fontSize: 11.5, color: 'var(--label)' }}>
-                        {p.runs > 1 ? `Buy it ${units(p.runs)} times: ` : ''}{units(p.lp)} LP + {iskBig(p.isk)}{Number.isFinite(p.listAt) ? `, list at ${isk(p.listAt)}` : ''} → <b style={{ color: 'var(--pos)', fontWeight: 500 }}>{iskBig(p.profit)}</b> ({units(Math.round(p.v.iskPerLp))} a point)
+                        {p.runs > 1 ? `Buy it ${units(p.runs)} times: ` : 'Buy it once: '}{costLine(p.v.offerId, p.v, p.runs)}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: 'var(--label)' }}>
+                        {Number.isFinite(p.listAt) ? `List at ${isk(p.listAt)}: sells for ${iskBig(p.runs * p.v.revenue)} after fees. ` : ''}You keep <b style={{ color: 'var(--pos)', fontWeight: 500 }}>{iskBig(p.profit)}</b> ({units(Math.round(p.v.iskPerLp))} a point) after {p.v.itemsCost > 0 ? 'the store’s ISK and the items' : 'the store’s ISK'}.
                       </div>
                       <div style={{ fontSize: 11.5, color: p.slow ? 'var(--acc2)' : 'var(--sec)' }}>
                         {p.slow ? `Slow: about ${flip(p.sellDays)} to sell, at your share` : `Sells in about ${flip(p.sellDays)}, at your share`}
