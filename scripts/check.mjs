@@ -1722,6 +1722,17 @@ console.log('\n--- does it come true: place and leave, the Sniper ---');
   eq('  nothing to say before a measurement suggests anything', shareOver({ ...measured, suggested: null }, 10), null);
 }
 
+console.log('\n--- the light page a mail’s item link opens ---');
+{
+  const { openLink, parseMarket } = await import('../src/lib/openLink.ts');
+  const back = (u) => parseMarket(new URL(u).searchParams.get('market'));
+  eq('the link carries the ID and the name in one parameter, no &', openLink('https://x/jita-ledger/', 2185, 'Hammerhead II'), 'https://x/jita-ledger/open.html?market=2185~Hammerhead%20II');
+  eq('  and reads back as it went in', back(openLink('https://x/', 2185, 'Hammerhead II')), { typeId: 2185, name: 'Hammerhead II' });
+  eq('  names with quotes, tildes and ampersands survive', back(openLink('https://x/', 1, '\'Augmented\' A&B ~ C')), { typeId: 1, name: '\'Augmented\' A&B ~ C' });
+  eq('  no name is fine', [openLink('https://x/', 34), back(openLink('https://x/', 34))], ['https://x/open.html?market=34', { typeId: 34, name: null }]);
+  eq('  nonsense is nothing', [parseMarket('abc'), parseMarket(''), parseMarket(null), parseMarket('0')], [null, null, null, null]);
+}
+
 console.log('\n--- the cloud watchdog ---');
 {
   const { watchdogFinding, isDowntime, loginError } = await import('../src/lib/watchdog.ts');
@@ -2104,7 +2115,7 @@ console.log('\n--- alert mail ---');
   const pi = { kind: 'pi', key: 'k2', title: 'PI programme ending', text: 'Tama: an extraction programme ends in 3 h.' };
   const one = alertMail([move], { appUrl: 'https://x.test/jita-ledger/', keepMin: 4320 });
   eq('one alert: its title is the subject', one.subject, 'Jita Ledger: Order worth moving');
-  eq('  the item name opens its market, through the app', one.body.includes('<a href="https://x.test/jita-ledger/#orders?market=2185">Hammerhead II</a> sell order beaten'), true);
+  eq('  the item name opens its market, through the app', one.body.includes('<a href="https://x.test/jita-ledger/open.html?market=2185~Hammerhead%20II">Hammerhead II</a> sell order beaten'), true);
   eq('  and there is no second link for it', one.body.includes('Open its market in game') || one.body.includes('showinfo:'), false);
   eq('  the name is not repeated', one.body.split('Hammerhead II').length - 1, 1);
   eq('  an order alert links to the orders page', one.body.includes('https://x.test/jita-ledger/#orders'), true);
@@ -2122,7 +2133,7 @@ console.log('\n--- alert mail ---');
   const odd = { ...pi, text: 'A <b> & C', typeId: 5, name: 'Nope' };
   const oddBody = alertMail([odd], { appUrl: 'u/', keepMin: 4320 }).body;
   eq('text is escaped, and a name the text does not start with is not linked', oddBody.includes('A &lt;b&gt; &amp; C') && !oddBody.includes('>Nope</a>'), true);
-  eq('  but its market still gets a line of its own', oddBody.includes('<a href="u/#orders?market=5">Open its market in game</a>'), true);
+  eq('  but its market still gets a line of its own', oddBody.includes('<a href="u/open.html?market=5~Nope">Open its market in game</a>'), true);
   const many = Array.from({ length: 40 }, (_, i) => ({ ...move, key: 'm' + i, text: 'Hammerhead II ' + 'x'.repeat(400) }));
   const big = alertMail(many, { appUrl: '', keepMin: 4320 });
   eq('a burst is capped and summed up', big.body.includes('…and 25 more in the app.'), true);
@@ -2140,7 +2151,7 @@ console.log('\n--- alert mail ---');
   eq('  with yours against the best, and by how much', rich.body.includes('1,234,000') && rich.body.includes('1,229,000') && rich.body.includes('(beaten by 5,000)'), true);
   eq('  what moving costs, split', rich.body.includes('64,300 ISK') && rich.body.includes('61,200 ISK lower price + 3,100 ISK fee') && rich.body.includes('14.81 M ISK'), true);
   eq('  and the queue ahead', rich.body.includes('3 orders, 40 units') && rich.body.includes('about 6 h to clear'), true);
-  eq('  the name is still the market link', rich.body.includes('<a href="u/#orders?market=2185">Hammerhead II</a>'), true);
+  eq('  the name is still the market link', rich.body.includes('<a href="u/open.html?market=2185~Hammerhead%20II">Hammerhead II</a>'), true);
   const buyUp = alertMail([{ ...move, order: { ...facts, isBuy: true } }], { appUrl: 'u/', keepMin: 30, now: at });
   eq('a buy order moves up', buyUp.body.includes('move your buy order up to'), true);
   eq('  and costs a higher price, not a lower one', buyUp.body.includes('ISK higher price + ') && !buyUp.body.includes('lower price'), true);
@@ -2480,7 +2491,7 @@ console.log('\n--- the sniper ---');
     snipe: { side: 'buy', units: 24, cheapest: 15e6, top: 15e6, cost: 360e6, resale: 20.38e6, fair: 20.38e6, nextAsk: null, profit: 106.25e6, pct: 0.295, pricedAt: ago(120), orders: 1, sellDays: 22 } };
   const m = mailOf([f], { appUrl: 'https://x/', keepMin: 30, now });
   eq('  the subject leads with the snipe and what it makes', m.subject, 'Jita Ledger: snipe Locust II, 106.25 M ISK');
-  eq('  the body says what to do, and links the name to its market and the page', [m.body.includes('RECOMMENDED: buy the 24 at 15,000,000 ISK, relist at 20,380,000 ISK'), m.body.includes('href="https://x/#orders?market=40554"'), m.body.includes('#sniper')], [true, true, true]);
+  eq('  the body says what to do, and links the name to its market and the page', [m.body.includes('RECOMMENDED: buy the 24 at 15,000,000 ISK, relist at 20,380,000 ISK'), m.body.includes('href="https://x/open.html?market=40554~'), m.body.includes('#sniper')], [true, true, true]);
 }
 
 console.log('\n--- snipes you have taken ---');

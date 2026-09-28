@@ -111,11 +111,15 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   put anything inside the client, but a mail arrives there with the client's own blink. One mail per check
   holding everything raised, never one per alert. By default only `move` and `pi` are mailed, the two you can
   act on from inside the game. EVE mail has no link that opens a market window (`showinfo:` opens only the
-  info window), so an item's *name* links to `#orders?market=ID`. It was first a `showinfo:` link with a
+  info window), so an item's *name* links to a web page that asks ESI to. It was first a `showinfo:` link with a
   separate market link beneath; the user asked for one link on the name, since the market is where an alert
-  sends you. The client asks before following it, the browser opens the app, and `lib/marketLink.ts` calls
-  `openMarketWindow` once, having first taken `market` off the address with `replaceState` so a reload
-  can't repeat it. Nothing opens a market window unless someone clicked. ESI answers 204 whether or not
+  sends you. The client asks before following it and the browser opens the page. **Since 28 September 2026 that
+  page is `open.html`** (`src/open.ts`, link built by `openLink`): the user found loading the whole app, with its
+  animations, for one request heavy. It carries only the login and ESI code (1.9 KB plus a 13.3 KB shared chunk,
+  against ~450 KB of script and the fonts), opens the market, counts 3, 2, 1 and closes; anything wrong keeps the
+  tab open and says why. The link is `open.html?market=ID~Name` in one parameter, so no `&` reaches the mail's
+  markup and the page needn't look the name up. Older mails' `#orders?market=ID` still work through the app
+  (`lib/marketLink.ts`). Both take `market` off the address with `replaceState` so a reload can't repeat it. Nothing opens a market window unless someone clicked. ESI answers 204 whether or not
   the game is running, so the toast says the client was *asked*. Old alert mails are deleted after a chosen time (30 min to a week, or
   kept), read or not, on a cadence of a sixth of that time between 5 and 60 minutes (`tidyEvery`). Only mails
   **from you or your sender, with a subject starting `Jita Ledger:`** are ever touched (`isStaleAlertMail`); without

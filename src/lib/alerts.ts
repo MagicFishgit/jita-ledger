@@ -11,6 +11,7 @@ import type { Colony } from './colony';
 import type { Relist } from './relist';
 import type { AlertConfig, AlertEvent, AlertLogEntry } from './types';
 import type { WatchFacts } from './watchdog';
+import { openLink } from './openLink';
 
 /**
  * Each alert's name, a one-line description, and `tip`: the plain-language explanation with an example
@@ -221,11 +222,11 @@ export function subjectPart(f: Finding, now = Date.now()): string {
 }
 
 /** The body of one alert: what it is, what to do, then the facts behind it. */
-function section(f: Finding, market: (typeId: number, calc?: boolean) => string, now: number): string {
+function section(f: Finding, market: (typeId: number, calc?: boolean, name?: string) => string, now: number): string {
   const head = (t: string, c: keyof typeof COL = 'gold') => `<br>${sized(SIZE.title, col(c, `<b>${escapeMail(t.toUpperCase())}</b>`))}<br>`;
   const advice = (c: keyof typeof COL, t: string) => `${col(c, `<b>RECOMMENDED: ${escapeMail(t)}</b>`)}<br>`;
   // An opportunity opens in the Calculator, where the trade can be checked; everything else at its market.
-  const itemLink = (f.typeId && f.name) ? `<a href="${market(f.typeId, !!f.opp)}">${escapeMail(f.name)}</a>` : '';
+  const itemLink = (f.typeId && f.name) ? `<a href="${market(f.typeId, !!f.opp, f.name)}">${escapeMail(f.name)}</a>` : '';
   const q = f.opp;
   if (q && itemLink) {
     return [
@@ -311,7 +312,7 @@ function section(f: Finding, market: (typeId: number, calc?: boolean) => string,
   const text = escapeMail(f.text);
   const body = itemLink && f.text.startsWith(f.name!)
     ? `${itemLink}${text.slice(escapeMail(f.name!).length)}<br>`
-    : `${text}<br>${f.typeId ? `<a href="${market(f.typeId)}">Open its market in game</a><br>` : ''}`;
+    : `${text}<br>${f.typeId ? `<a href="${market(f.typeId, false, f.name)}">Open its market in game</a><br>` : ''}`;
   const worth = f.kind === 'backup' ? advice('green', 'export a backup in Jita Ledger → Settings → Your data')
     : f.kind === 'squeeze' || f.kind === 'scam' ? `${col('white', '<b>WORTH CHECKING before you trade more of it.</b>')}<br>` : '';
   return head(f.title) + worth + body;
@@ -329,7 +330,7 @@ export function keepSaid(min: number): string {
  * The EVE mail for one check's alerts: everything found at once in a single mail rather than one each.
  *
  * EVE mail takes a small set of HTML, and a mail link can open an item's info (`showinfo:`) but not its
- * market. So an item's name links to the app instead (`#orders?market=ID`), which asks ESI to open that
+ * market. So an item's name links to a small page of the app instead (`open.html`, see openLink.ts), which asks ESI to open that
  * market when it loads: the client follows the web link, the browser opens the app, the app opens the
  * window. One link, on the name, because the market is what an alert sends you to; the info window
  * alone was a detour. Colours are ARGB, as the client writes them.
@@ -348,7 +349,7 @@ export function alertMail(findings: Finding[], opts: { appUrl: string; keepMin: 
   }
   const more = n - parts.length;
   const subject = `${MAIL_SUBJECT}: ${opts.test ? 'test — ' : ''}${parts.join(' · ')}${more ? ` · +${more} more` : ''}`.slice(0, 1000);
-  const market = (typeId: number, calc = false) => (calc ? `${opts.appUrl}#calculator?type=${typeId}` : `${opts.appUrl}#orders?market=${typeId}`);
+  const market = (typeId: number, calc = false, name?: string) => (calc ? `${opts.appUrl}#calculator?type=${typeId}` : openLink(opts.appUrl, typeId, name));
   const build = (shown: Finding[]) => [
     `<font size="${SIZE.text}">`,
     `${sized(SIZE.brand, col('cyan', '<b>Jita Ledger</b>'))}<br>`,

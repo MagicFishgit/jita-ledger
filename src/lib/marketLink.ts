@@ -6,7 +6,9 @@ import { getData, update } from './store';
 import { toast } from './toast';
 
 /**
- * The link an alert mail puts on each item's name: `#orders?market=ID`.
+ * The link alert mails used to put on each item's name: `#orders?market=ID`. Mails now link to the light page
+ * (open.html, src/open.ts, openLink.ts), which does the same without loading the app; this keeps the links in
+ * mails sent before that working.
  *
  * EVE mail can't open a market window itself, but it can link to a web page, and the app can ask ESI to
  * open one. So the client hands the link to the browser, the app loads, and this opens the market. It
