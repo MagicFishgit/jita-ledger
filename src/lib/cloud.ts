@@ -112,6 +112,16 @@ function markRecord(k: RecordKey, id: string) { dirtyRecords.set(recKey(k, id), 
 function markDoc(k: DocKey) { dirtyDocs.set(k, ++gen); }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+/** Write the list of changes not yet sent, now rather than in half a second: before a reload the app makes itself. */
+export async function flushCloudState(): Promise<void> {
+  if (!saveTimer) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  if (!state) return;
+  const s: Saved = { ...state, dirty: { r: [...dirtyRecords.keys()], d: [...dirtyDocs.keys()] } };
+  await set(STATE_KEY, s, dataStore);
+}
+
 function save() {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {

@@ -23,6 +23,9 @@ import { Palette } from './components/shell/Palette';
 import { pageOf, type PageKey } from './components/shell/nav';
 import { Notice } from './components/ui';
 import { Landing } from './components/Landing';
+import { PullToRefresh } from './components/shell/PullToRefresh';
+import { startVersionCheck, useNewerVersion } from './lib/version';
+import { reloadApp } from './lib/reload';
 import { PageBoundary } from './components/shell/PageBoundary';
 
 /**
@@ -39,7 +42,7 @@ function page<P>(load: () => Promise<Record<string, unknown>>, name: string) {
     // A deploy while the tab was open renames every page's file, so one not fetched yet is gone: load the new
     // version of the app, once. A second failure is real and shows in the page's error box.
     try {
-      if (!sessionStorage.getItem(RELOADED_KEY)) { sessionStorage.setItem(RELOADED_KEY, '1'); location.reload(); return new Promise<never>(() => {}); }
+      if (!sessionStorage.getItem(RELOADED_KEY)) { sessionStorage.setItem(RELOADED_KEY, '1'); void reloadApp(); return new Promise<never>(() => {}); }
     } catch { /* storage blocked: show the error */ }
     throw e;
   });
@@ -97,6 +100,7 @@ export function App() {
   // The app is the owner's alone: anyone else gets the landing page, and nothing below runs for them.
   const owner = DEV_OWNER || isOwner(auth?.characterId);
   const live = ready && owner;
+  const newer = useNewerVersion();
   const route = useRoute();
   const sync = useSyncState();
   const d = useData();
@@ -209,6 +213,8 @@ export function App() {
   }, [sync.running, sync.lastAdded]);
   useEffect(() => { if (sync.error) toast(`Sync failed: ${sync.error}`, 'err'); }, [sync.error]);
 
+  // A newer version of the app going live: noticed, and loaded without interrupting anything (version.ts).
+  useEffect(() => startVersionCheck(), []);
   useEffect(() => { if (live) return startAlerts(); }, [live]);
   useEffect(() => { if (live) prefetchPages(); }, [live]);
   // The cloud copy of the ledger: sent as it changes, pulled every minute, restored into an empty browser.
@@ -293,6 +299,14 @@ export function App() {
         <main className="main">
           <div className="sweep" ref={sweep} aria-hidden="true" />
           <div className="content" ref={content} id="content" tabIndex={-1}>
+            {newer && (
+              <div style={{ marginBottom: 14 }}>
+                <Notice kind="info">
+                  A new version of Jita Ledger is out.{' '}
+                  <button type="button" className="link-btn" onClick={() => void reloadApp()}>Reload now</button>, or it loads by itself when you next leave this tab.
+                </Notice>
+              </div>
+            )}
             {loginErr && <div style={{ marginBottom: 14 }}><Notice kind="err">{loginErr}</Notice></div>}
             {mismatch && (
               <div style={{ marginBottom: 14 }}>
@@ -325,6 +339,7 @@ export function App() {
         </main>
         <StatusBar />
       </div>
+      <PullToRefresh target={content} />
       <TipLayer routeKey={routeKey} />
       <Toasts size={d.prefs.alertSize} />
       <Palette open={palette} onClose={() => setPalette(false)} />

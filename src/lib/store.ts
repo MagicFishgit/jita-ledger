@@ -112,6 +112,13 @@ function persist(k: Key) {
   timers[k] = setTimeout(() => { set(k, data[k], idb).catch((e) => console.error('Save failed', k, e)); }, 250);
 }
 
+/** Write every save still waiting its 250 ms, now: a reload the app makes itself shouldn't lose the last change. */
+export async function flushSaves(): Promise<void> {
+  const due = (Object.keys(timers) as Key[]).filter((k) => timers[k] != null);
+  for (const k of due) { clearTimeout(timers[k]); delete timers[k]; }
+  await Promise.all(due.map((k) => set(k, data[k], idb)));
+}
+
 export function getData(): Data { return data; }
 export function isReady(): boolean { return ready; }
 export function dataGeneration(): number { return generation; }

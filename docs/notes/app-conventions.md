@@ -13,6 +13,19 @@ Decisions worth not undoing. Conventions for wording, layout, tooltips, numbers 
   out (token revoked) and told so. `open.html` refuses them too. `npm run check-pages` checks both: logged out, and
   logged in as someone else, with a large ledger in the browser, only the landing shows and ESI gets no request. To
   let an alt in, add its character ID.
+- **An open app notices a new version, and phones can pull to reload** (`lib/version.ts`, `PullToRefresh.tsx`,
+  `lib/reload.ts`). After the owner-only lock went out, the user's phone kept showing the old, open app: GitHub
+  Pages lets browsers reuse the page for 10 minutes (`cache-control: max-age=600`), a new tab doesn't bypass that
+  (incognito did), and pull-to-refresh did nothing in any mobile browser, because the document never scrolls (a fixed
+  shell, pages scrolling inside `.content`) and browsers only offer the gesture on a document that does. Now each
+  build carries its ID (`__BUILD__`: the commit in CI) and the site serves it as `version.json`; the app reads that,
+  past every cache, every five minutes and when the tab comes back into view. A hidden tab reloads at once; one in
+  view shows "A new version of Jita Ledger is out. Reload now" and reloads when you next leave it. On touch screens,
+  pulling down from the top of the page (one finger, more down than sideways, not from inside something scrolled down
+  of its own) shows "Pull to reload" / "Release to reload" and reloads. Every reload the app makes goes through
+  `reloadApp`, which first writes the saves still waiting (the ledger holds each 250 ms, the cloud its unsent list
+  500 ms). Checked in an emulated phone against the production build: short pull nothing, long pull reloads, none
+  while scrolled down or swiping sideways; a newer version.json shows the notice in view and reloads on leaving.
 - **Confirmations use the platform `<dialog>`** (`lib/confirm.ts` + `ConfirmDialog.tsx`), not a
   library: focus trap, Escape and backdrop come free, and it's drawn in the app's own tokens.
   Destructive questions focus Cancel. No native `confirm()` anywhere.

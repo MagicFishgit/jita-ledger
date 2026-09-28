@@ -12,3 +12,5 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+/** This build's identity, set in vite.config.ts: the commit in CI, the build time otherwise. */
+declare const __BUILD__: string;

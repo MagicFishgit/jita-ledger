@@ -992,3 +992,14 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .landing-small { display: inline-flex; align-items: center; gap: 6px; font-size: 12px !important; color: var(--label) !important; }
 .landing-small svg { width: 13px; height: 13px; }
 .landing .boot-name { font-size: clamp(19px, 6.4vw, 28px); letter-spacing: .34em; padding-left: .34em; }
+
+/* Pull down to reload, on touch screens (PullToRefresh.tsx). Fixed, so it sits over the page rather than pushing it. */
+.ptr {
+  position: fixed; top: 0; left: 50%; z-index: 95; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px;
+  background: rgba(7, 17, 27, .96); border: 1px solid var(--line-2); border-radius: 20px; pointer-events: none;
+  font-family: var(--f-head); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--label);
+}
+.ptr.ready { color: var(--acc); border-color: color-mix(in oklab, var(--acc) 40%, transparent); }
+.ptr > svg { width: 15px; height: 15px; }
+/* A page scrolled from its top edge still bounces on its own; the pull indicator is what shows. */
+.content, .landing { overscroll-behavior-y: contain; }

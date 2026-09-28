@@ -32,7 +32,8 @@ caught by looking — a frozen countdown, `’` rendered literally, a table over
 
 **Work on a branch**, then `--ff-only` merge to `main`, delete the branch both sides, watch the
 Actions run, and confirm the change is in the deployed bundle (`curl` the JS and grep for a string
-you added). Minification renames identifiers, so grep for *copy*, not variable names.
+you added; the app's entry file is `assets/main-*.js`, pages are separate files, and `version.json` names the live
+build). Minification renames identifiers, so grep for *copy*, not variable names.
 
 Commit messages explain the reasoning, not just the change: what was wrong, why that was wrong, what
 the evidence was. Long is fine.

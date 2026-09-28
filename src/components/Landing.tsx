@@ -1,8 +1,12 @@
+import { useRef } from 'react';
 import { Lock, LogIn } from 'lucide-react';
 import { login } from '../lib/auth';
 import { toast } from '../lib/toast';
 import type { Motion } from '../lib/types';
+import { PullToRefresh } from './shell/PullToRefresh';
 import { Starfield } from './shell/Starfield';
+import { reloadApp } from '../lib/reload';
+import { useNewerVersion } from '../lib/version';
 import { Notice } from './ui';
 
 /**
@@ -11,8 +15,11 @@ import { Notice } from './ui';
  * the cloud refuses any other character too. A character that logs in and isn't the owner is logged straight out.
  */
 export function Landing({ refused, error, motion }: { refused: string | null; error: string | null; motion: Motion }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const newer = useNewerVersion();
   return (
-    <div className="landing">
+    <div className="landing" ref={ref}>
+      <PullToRefresh target={ref} />
       <div className="hud-nebula" aria-hidden="true" />
       <Starfield motion={motion} />
       <div className="hud-grid" aria-hidden="true" />
@@ -25,6 +32,7 @@ export function Landing({ refused, error, motion }: { refused: string | null; er
         <div className="boot-name">JITA LEDGER</div>
         <h1 id="landing-title">A private trading ledger for EVE Online</h1>
         <p>Station trading at Jita 4-4 for one pilot: orders, positions, alerts and market scans, kept in step with the game.</p>
+        {newer && <Notice kind="info">A new version is out. <button type="button" className="link-btn" onClick={() => void reloadApp()}>Reload now</button></Notice>}
         {refused && <Notice kind="err">{refused} isn’t this ledger’s owner, so you’ve been logged out. Nothing of yours was kept.</Notice>}
         {error && <Notice kind="err">{error}</Notice>}
         <button type="button" className="btn primary tall" onClick={() => login().catch((e) => toast(String(e.message ?? e), 'err'))}>
