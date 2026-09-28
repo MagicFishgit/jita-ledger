@@ -8,7 +8,7 @@ import { resolveNames } from '../lib/market';
 import { update, type Data } from '../lib/store';
 import { toast } from '../lib/toast';
 import { isStation } from '../lib/universe';
-import { useTypeName } from './common';
+import { useEnsureNames, useTypeName } from './common';
 import { Panel } from './ui';
 
 /**
@@ -19,6 +19,16 @@ import { Panel } from './ui';
 export function AssetSafety({ d, rough }: { d: Data; rough: Record<number, number> | null }) {
   const wraps = d.stock?.safety ?? [];
   const now = useNow(1000);
+  // Everything in a wrap gets a name, not only what you've traded: the user's five blueprint copies read "Item #47971".
+  const ids = useMemo(() => {
+    const out: number[] = [];
+    const walk = (hs: SafetyHolder[] | undefined) => {
+      for (const h of hs ?? []) { out.push(h.typeId, ...Object.keys(h.items).map(Number), ...(h.contents ?? []).map((c) => c.typeId)); walk(h.holders); }
+    };
+    for (const w of wraps) { out.push(...Object.keys(w.items).map(Number), ...(w.contents ?? []).map((c) => c.typeId)); walk(w.holders); }
+    return out;
+  }, [wraps]);
+  useEnsureNames(ids);
   const [names, setNames] = useState<Record<number, string>>({});
   const stationKey = wraps.map((w) => w.stationId).filter((id): id is number => id != null && isStation(id)).join(',');
   useEffect(() => {
