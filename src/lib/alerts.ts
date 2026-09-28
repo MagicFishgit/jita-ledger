@@ -47,6 +47,10 @@ export const ALERT_LABELS: Record<AlertEvent, { label: string; what: string; tip
     label: 'Mistake listing', what: 'Someone listed an item well under where it trades, or bids high for something you hold: mailed by the cloud',
     tip: 'The cloud reads every order in The Forge every five minutes and looks for listings someone priced well under where the item trades. They’re worth buying out and relisting.\n\n• “Where it trades” is where the bulk of trading got up to on half the last 14 days. You relist a step under the next listing, never above that.\n• It has to clear your bar on the Sniper page, after your fees. Floods, items whose price just moved, thin histories and listings days old are left out.\n• A bid well over where the item trades, for something in your Jita hangar, is mailed too: selling into it beats listing.\n\nFor example: 10 listed at 500,000 on an item trading at 1,000,000, next listing 980,000. Buy the 10, relist at 979,900.',
   },
+  safety: {
+    label: 'Asset safety registered', what: 'The app finds a wrap of your items in asset safety and starts tracking it: mailed by the cloud',
+    tip: 'When a structure holding your things is destroyed or you lose access to it, EVE puts them in asset safety. The game tells you that itself; this mail says Jita Ledger has picked the wrap up and is now tracking it.\n\n• It says what’s in it and roughly what that’s worth, at CCP’s estimated prices.\n• When the cloud saw it go in (it checks your assets hourly), it knows when it’s delivered: 20 days on, with delivery by hand in the same system from day 5. Otherwise it asks you to set the countdown the game shows, once, on the Wallet page.\n• Unpacking after the automatic delivery costs 15% of each item’s estimate; delivered by hand within the system, 0.5%.\n\nMailed once per wrap.',
+  },
   watchdog: {
     label: 'Cloud job failing', what: 'Something the cloud does for you failed twice in a row: mailed by the cloud',
     tip: 'The cloud copies your ledger, reads your orders, checks them for alerts, scans the market and runs the Sniper, with nobody watching. When one of those fails twice in a row, it mails you.\n\n• It says what failed, the error, what has stopped meanwhile, and what to do: usually nothing, since each job tries again on its own.\n• A login the cloud can no longer use needs you to hand it over again in Settings → Your data.\n• Mailed once when it starts, and again each day it keeps failing. EVE’s daily downtime doesn’t count.\n\nFor example: “Copying your ledger from ESI has failed 3 times in a row” with the error, while new trades aren’t copied to the cloud.',
@@ -92,7 +96,13 @@ export type Finding = {
   /** The item it's about, when there is one: `text` starts with its name, which a mail makes a link. */
   typeId?: number; name?: string;
   /** The detail behind the one-line text, for a mail that has room to say it. */
-  order?: OrderFacts; pi?: PiFacts; opp?: OppFacts; snipe?: SnipeFacts; watch?: WatchFacts;
+  order?: OrderFacts; pi?: PiFacts; opp?: OppFacts; snipe?: SnipeFacts; watch?: WatchFacts; safety?: SafetyFacts;
+};
+
+/** A wrap of your items the cloud has just registered in asset safety (see assetSafety.ts). */
+export type SafetyFacts = {
+  name: string; items: number; kinds: number; value: number; unpriced: number; autoFee: number; manualFee: number;
+  autoAt: number | null; manualAt: number | null;
 };
 
 export const orderFacts = (x: Relist): OrderFacts => ({
@@ -200,7 +210,7 @@ const money = iskBig;
 const hoursSaid = (h: number) => (h < 1 ? 'under an hour' : h < 48 ? `about ${Math.round(h)} h` : `about ${Math.round(h / 24)} days`);
 
 // A mistake listing goes first: it's the one someone else can take while you read the rest.
-const URGENCY: Record<AlertEvent, number> = { snipe: -1, move: 0, watchdog: 0.5, pi: 1, scam: 2, squeeze: 3, clearing: 4, backup: 5, opportunity: 6 };
+const URGENCY: Record<AlertEvent, number> = { snipe: -1, move: 0, watchdog: 0.5, pi: 1, scam: 2, squeeze: 3, clearing: 4, backup: 5, safety: 5.5, opportunity: 6 };
 
 /** A short phrase for the subject line, which is what the inbox list and the new-mail notice show. */
 export function subjectPart(f: Finding, now = Date.now()): string {
@@ -218,6 +228,7 @@ export function subjectPart(f: Finding, now = Date.now()): string {
   if (f.opp && f.name) return `look at ${f.name}, ${pct(f.opp.roi, 1)}`;
   if (f.snipe && f.name) return f.snipe.side === 'buy' ? `snipe ${f.name}, ${iskBig(f.snipe.profit)}` : `sell ${f.name} into a high bid`;
   if (f.watch) return `cloud: ${f.watch.label.charAt(0).toLowerCase()}${f.watch.label.slice(1)} failing`;
+  if (f.safety) return `asset safety registered: ${f.safety.name}`;
   return f.title;
 }
 
@@ -254,6 +265,19 @@ function section(f: Finding, market: (typeId: number, calc?: boolean, name?: str
       advice('green', `sell ${units(z.qty)} into the bid at ${price(z.price)} ISK`),
       `${itemLink}${col('grey', ' · you get ')}${money(z.proceeds)}${col('grey', ' · ')}${money(z.gain)}${col('grey', ' more than listing where it trades')}<br>`,
       col('grey', `You hold ${units(z.held)} in Jita. Trading got up to ${price(z.fair)} on half the last 14 days.${z.minVolume > 1 ? ` The bid takes at least ${units(z.minVolume)} at a time.` : ''} Selling into a bid costs sales tax, no broker fee.`) + '<br>',
+    ].join('');
+  }
+  const g = f.safety;
+  if (g) {
+    const when = g.autoAt != null
+      ? advice('white', `nothing to do: it’s delivered automatically around ${fmtDateTime(g.autoAt)}`)
+      : advice('gold', 'set its delivery countdown in Jita Ledger → Wallet');
+    return [
+      head(f.title, 'gold'),
+      when,
+      g.autoAt == null ? col('grey', 'The game shows it under Assets → Asset Safety. Type it in once and the app counts down from there.') + '<br>' : '',
+      `${escapeMail(g.name)}${col('grey', ` · ${units(g.items)} item${g.items === 1 ? '' : 's'} of ${units(g.kinds)} kind${g.kinds === 1 ? '' : 's'} · about `)}${money(g.value)}${col('grey', ' at CCP’s estimated prices')}<br>`,
+      col('grey', `Unpacking after the automatic delivery costs 15% of each item’s estimate: about ${iskBig(g.autoFee)}.${g.manualAt != null ? ` Delivered by hand within the system from ${fmtDateTime(g.manualAt)}, 0.5%: about ${iskBig(g.manualFee)}.` : ' Delivered by hand within the system from day 5, 0.5%: about ' + iskBig(g.manualFee) + '.'}${g.unpriced ? ` ${units(g.unpriced)} kind${g.unpriced === 1 ? ' has' : 's have'} no estimate and count as nothing.` : ''}`) + '<br>',
     ].join('');
   }
   const w = f.watch;
@@ -361,6 +385,8 @@ export function alertMail(findings: Finding[], opts: { appUrl: string; keepMin: 
         ? `<br><a href="${opts.appUrl}#prospects">Open Prospects in Jita Ledger</a><br>`
         : findings.every((f) => f.kind === 'snipe')
           ? `<br><a href="${opts.appUrl}#sniper">Open the Sniper in Jita Ledger</a><br>`
+        : findings.every((f) => f.kind === 'safety')
+          ? `<br><a href="${opts.appUrl}#wallet">Open your Wallet in Jita Ledger</a><br>`
         : `<br><a href="${opts.appUrl}#todo">Open your to-do list in Jita Ledger</a><br>`,
     `<br>${sized(SIZE.small, col('grey', `${opts.keepMin == null ? 'Alert mails are kept' : `This mail is deleted after ${keepSaid(opts.keepMin)}, read or not`}. Change that, or turn mail alerts off, in Jita Ledger → Settings → Alerts.`))}`,
     '</font>',

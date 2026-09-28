@@ -37,7 +37,7 @@ export const DEFAULT_PREFS: Prefs = {
   omegaPack: '1',
 };
 
-export const ALERT_EVENTS: AlertEvent[] = ['move', 'clearing', 'squeeze', 'pi', 'scam', 'backup', 'opportunity', 'snipe', 'watchdog'];
+export const ALERT_EVENTS: AlertEvent[] = ['move', 'clearing', 'squeeze', 'pi', 'scam', 'backup', 'opportunity', 'snipe', 'watchdog', 'safety'];
 
 export const DEFAULT_ALERTS: AlertConfig = {
   on: false,
@@ -45,10 +45,10 @@ export const DEFAULT_ALERTS: AlertConfig = {
   interval: 5,
   minIsk: 5_000_000,
   quiet: false,
-  ev: { move: true, clearing: false, squeeze: true, pi: true, scam: true, backup: true, opportunity: true, snipe: true, watchdog: true },
+  ev: { move: true, clearing: false, squeeze: true, pi: true, scam: true, backup: true, opportunity: true, snipe: true, watchdog: true, safety: true },
   mail: false,
   // By mail, only what you can act on from inside the game: an order to move, a colony to reset.
-  mailEv: { move: true, clearing: false, squeeze: false, pi: true, scam: false, backup: false, opportunity: true, snipe: true, watchdog: true },
+  mailEv: { move: true, clearing: false, squeeze: false, pi: true, scam: false, backup: false, opportunity: true, snipe: true, watchdog: true, safety: true },
   mailKeepMin: 3 * 1440,
   repeatH: 4,
   snipeMinIsk: 5_000_000,
@@ -130,6 +130,19 @@ export function sanitizeAlerts(a: Partial<AlertConfig> | null | undefined): Aler
     snipeMinIsk: clamp(num(x.snipeMinIsk, DEFAULT_ALERTS.snipeMinIsk), 0, 1e13),
     snipeMinPct: clamp(num(x.snipeMinPct, DEFAULT_ALERTS.snipeMinPct), 0, 1000),
   };
+}
+
+/** The asset safety countdowns you typed in, by wrap item ID: when it's delivered automatically, and when you typed it. */
+export type SafetyTimesDoc = Record<string, { autoAt: string; at: string }>;
+export function sanitizeSafetyTimes(v: unknown): SafetyTimesDoc {
+  const out: SafetyTimesDoc = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [id, x] of Object.entries(v as Record<string, unknown>)) {
+    const t = x as { autoAt?: unknown; at?: unknown } | null;
+    if (!/^\d+$/.test(id) || !t || typeof t.autoAt !== 'string' || !Number.isFinite(Date.parse(t.autoAt))) continue;
+    out[id] = { autoAt: t.autoAt, at: typeof t.at === 'string' && Number.isFinite(Date.parse(t.at)) ? t.at : t.autoAt };
+  }
+  return out;
 }
 
 /** Items you're leaving orders on ("Place and leave"): type IDs, each once. */

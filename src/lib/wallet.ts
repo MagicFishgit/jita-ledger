@@ -46,6 +46,7 @@ const OUT: Record<string, Category> = {
   skills: { key: 'skills', label: 'Skills', kind: 'Personal' },
   donation: { key: 'donationOut', label: 'Donations given', kind: 'Personal' },
   travel: { key: 'travel', label: 'Repairs & travel', kind: 'Personal' },
+  safety: { key: 'safety', label: 'Asset safety fee', kind: 'Personal' },
   contracts: { key: 'contractsOut', label: 'Contracts bought' },
   other: { key: 'otherOut', label: 'Other spending' },
 };
@@ -76,6 +77,8 @@ export function categoryOf(e: Pick<JournalEntry, 'refType' | 'amount'>): Categor
   if (has(['jump_clone_activation_fee', 'jump_clone_installation_fee', 'clone_activation', 'clone_transfer'], r)) return OUT.clones;
   if (r === 'skill_purchase') return OUT.skills;
   if (r === 'player_donation') return OUT.donation;
+  // What unpacking a wrap delivered out of asset safety costs: 15% of its items' estimate, or 0.5% within the system.
+  if (r === 'asset_safety_recovery_tax') return OUT.safety;
   if (has(['repair_bill', 'docking_fee', 'acceleration_gate_fee', 'structure_gate_jump', 'security_processing_fee'], r)) return OUT.travel;
   if (r.startsWith('contract_')) return OUT.contracts;
   return OUT.other;

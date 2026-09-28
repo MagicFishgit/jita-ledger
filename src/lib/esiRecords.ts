@@ -36,7 +36,59 @@ export type OrderRecord = {
 export type StockRecord = {
   at: string; jita: Record<number, number>; total: Record<number, number>; inContainers: number;
   byLocation?: Record<number, Record<number, number>>; nested?: Record<number, number>;
+  /** Wraps of your items in asset safety, or delivered and not yet unpacked. Absent on stock read before they were kept. */
+  safety?: SafetyWrap[];
 };
+
+/**
+ * The Asset Safety Wrap: when a structure holding your things is destroyed or you lose access to it, EVE puts them
+ * in one of these (type 60, unpublished, so ESI's name lookup doesn't find it). Seen on the user's assets on 28
+ * September 2026: the wrap flagged `AssetSafety` at location 2004 ("other": ESI doesn't say which system), and
+ * everything in it listed inside it, ships with their fittings and containers with their contents a level deeper.
+ */
+export const ASSET_SAFETY_WRAP = 60;
+
+export type SafetyWrap = {
+  /** The wrap's item ID. */
+  id: number;
+  /** Still in asset safety, or delivered to a station and waiting to be unpacked. */
+  state: 'waiting' | 'delivered';
+  /** Where it was delivered. */
+  stationId: number | null;
+  /** Everything inside it, at any depth, by type. */
+  items: Record<number, number>;
+  /** The name the game gives it: the lost structure's, like "K7D-II - Iserlohn Fortress". */
+  name?: string;
+  /** When the cloud first saw it, and whether that's within the hour of it going in (so the countdown is known). */
+  firstSeen?: string;
+  startKnown?: boolean;
+  /** When it was first seen delivered. */
+  deliveredAt?: string;
+};
+
+/**
+ * Carries forward what was learned about each wrap (its name, when it was first seen, when it was delivered) from
+ * the stock read before: the browser and the cloud both write the stock record whole, and neither may lose what the
+ * other found. `known` is the cloud's own record, which wins.
+ */
+export function mergeSafety(prev: SafetyWrap[] | undefined, next: SafetyWrap[] | undefined,
+  known?: Map<number, Pick<SafetyWrap, 'firstSeen' | 'startKnown' | 'deliveredAt'>>): SafetyWrap[] | undefined {
+  if (!next) return undefined;
+  const before = new Map((prev ?? []).map((w) => [w.id, w]));
+  return next.map((w) => {
+    const was = before.get(w.id), k = known?.get(w.id);
+    const out: SafetyWrap = { ...w };
+    const name = w.name ?? was?.name;
+    const firstSeen = k?.firstSeen ?? was?.firstSeen;
+    const startKnown = k?.startKnown ?? was?.startKnown;
+    const deliveredAt = w.state === 'delivered' ? (k?.deliveredAt ?? was?.deliveredAt) : undefined;
+    if (name) out.name = name;
+    if (firstSeen) out.firstSeen = firstSeen;
+    if (startKnown != null) out.startKnown = startKnown;
+    if (deliveredAt) out.deliveredAt = deliveredAt;
+    return out;
+  });
+}
 
 export function toTx(t: RawTx): TxRecord {
   return {
@@ -87,13 +139,37 @@ export function countStock(raw: RawAsset[], jitaId: number): StockRecord {
   const nested: Record<number, number> = {};
   const stations = new Set(raw.filter((a) => a.location_type === 'station').map((a) => a.location_id));
   const itemIds = new Set(raw.map((a) => a.item_id));
+  // Asset safety: each wrap and everything inside it, at any depth. They are yours and count in the total, but are
+  // told apart from ships and containers, and the wrap itself (worth nothing) isn't counted.
+  const inside = new Map<number, RawAsset[]>();
+  for (const a of raw) if (a.location_type === 'item') inside.set(a.location_id, [...(inside.get(a.location_id) ?? []), a]);
+  const safe = new Set<number>();
+  const safety: SafetyWrap[] = [];
+  for (const w of raw) {
+    if (w.type_id !== ASSET_SAFETY_WRAP && w.location_flag !== 'AssetSafety') continue;
+    if (safe.has(w.item_id)) continue;
+    const items: Record<number, number> = {};
+    const stack = [...(inside.get(w.item_id) ?? [])];
+    safe.add(w.item_id);
+    while (stack.length) {
+      const a = stack.pop()!;
+      if (safe.has(a.item_id)) continue;
+      safe.add(a.item_id);
+      if (!a.is_blueprint_copy) items[a.type_id] = (items[a.type_id] ?? 0) + a.quantity;
+      stack.push(...(inside.get(a.item_id) ?? []));
+    }
+    const waiting = w.location_flag === 'AssetSafety';
+    safety.push({ id: w.item_id, state: waiting ? 'waiting' : 'delivered', stationId: waiting ? null : w.location_id, items });
+  }
   let inContainers = 0;
   for (const a of raw) {
     // A blueprint copy shares its type with the original, so any price for it would be the
     // original's: one copy of a battleship blueprint would read as billions. Copies can't be sold on
     // the market at all, so they are not stock and are left out of every count.
     if (a.is_blueprint_copy) continue;
+    if (a.type_id === ASSET_SAFETY_WRAP) continue;
     total[a.type_id] = (total[a.type_id] ?? 0) + a.quantity;
+    if (safe.has(a.item_id)) continue;
     if (a.location_id === jitaId && a.location_flag === 'Hangar') {
       jita[a.type_id] = (jita[a.type_id] ?? 0) + a.quantity;
     }
@@ -107,7 +183,7 @@ export function countStock(raw: RawAsset[], jitaId: number): StockRecord {
       loc[a.type_id] = (loc[a.type_id] ?? 0) + a.quantity;
     }
   }
-  return { at: new Date().toISOString(), jita, total, inContainers, byLocation, nested };
+  return { at: new Date().toISOString(), jita, total, inContainers, byLocation, nested, safety };
 }
 
 /**

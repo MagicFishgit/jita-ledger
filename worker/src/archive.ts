@@ -10,10 +10,11 @@
  */
 import { isDowntime } from '../../src/lib/watchdog';
 import {
-  countStock, netWorthOf, toJournal, toOrder, toTx, withHistory,
-  type OrderRecord, type RawAsset, type RawCharOrder, type RawJournal, type RawTx,
+  countStock, mergeSafety, netWorthOf, toJournal, toOrder, toTx, withHistory,
+  type OrderRecord, type RawAsset, type RawCharOrder, type RawJournal, type RawTx, type SafetyWrap, type StockRecord,
 } from '../../src/lib/esiRecords';
 import { esiAll, esiGet, esiPost, useLogin } from './eve';
+import { mailSafety, registerSafety, safetyFindings } from './safety';
 import { push } from './sync';
 
 const JITA_44 = 60003760;
@@ -25,7 +26,7 @@ const S = {
   loyalty: 'esi-characters.read_loyalty.v1',
 };
 
-type Env = { DB: D1Database; EVE_CLIENT_ID: string; TOKEN_KEY: string };
+type Env = { DB: D1Database; EVE_CLIENT_ID: string; TOKEN_KEY: string; APP_URL: string };
 
 export type ArchiveResult = { trades: number; journal: number; orders: number; names: number; stock: boolean; netWorth: number | null };
 
@@ -137,20 +138,25 @@ export async function archive(env: Env, charId: number): Promise<ArchiveResult> 
 
   // Assets: a snapshot, replaced whole; pushed only when the counts moved.
   let stockTotal: Record<number, number> | undefined;
+  let freshWraps: SafetyWrap[] = [];
   if (has(scopes, S.assets)) {
-    const raw = await esiAll<RawAsset>(`/characters/${charId}/assets/`, { token });
-    // Asset safety, as ESI reports it (being looked into, 28 September 2026): every asset flagged AssetSafety and
-    // everything inside one, so the parser is built on what ESI does rather than on a guess.
-    const safe = raw.filter((a) => a.location_flag === 'AssetSafety');
-    if (safe.length) {
-      const ids = new Set(safe.map((a) => a.item_id));
-      const inside = raw.filter((a) => ids.has(a.location_id));
-      const row = (a: RawAsset) => [a.location_flag, a.location_type, a.location_id, a.type_id, a.item_id, a.quantity].join(' ');
-      console.log('asset safety', JSON.stringify({ flagged: safe.length, inside: inside.length, sample: [...safe.slice(0, 5), ...inside.slice(0, 5)].map(row) }));
-    }
-    const stock = countStock(raw, JITA_44);
+    const stock = countStock(await esiAll<RawAsset>(`/characters/${charId}/assets/`, { token }), JITA_44);
     stockTotal = stock.total;
-    const prev = await doc<{ at?: string }>(db, charId, 'stock');
+    const prev = await doc<StockRecord>(db, charId, 'stock');
+    // Asset safety: wraps named as the game names them (the lost structure's name), registered once by the cloud,
+    // which alone can date them, and what was learned carried forward. Newly registered ones are mailed below.
+    const wraps = stock.safety ?? [];
+    const named = new Map((prev?.safety ?? []).filter((w) => w.name).map((w) => [w.id, w.name!]));
+    const unnamed = wraps.filter((w) => !named.has(w.id)).map((w) => w.id);
+    if (unnamed.length) {
+      try {
+        for (const n of await esiPost<{ item_id: number; name: string }[]>(`/characters/${charId}/assets/names/`, unnamed, token)) if (n.name && n.name !== 'None') named.set(n.item_id, n.name);
+      } catch { /* unnamed until the next read */ }
+    }
+    const reg = await registerSafety(db, charId, wraps.map((w) => ({ ...w, ...(named.has(w.id) ? { name: named.get(w.id) } : {}) })));
+    stock.safety = mergeSafety(prev?.safety, wraps.map((w) => ({ ...w, ...(named.has(w.id) ? { name: named.get(w.id) } : {}) })), reg.known);
+    freshWraps = reg.fresh;
+    for (const w of wraps) for (const id of Object.keys(w.items)) typeIds.add(Number(id));
     const same = prev && JSON.stringify({ ...prev, at: '' }) === JSON.stringify({ ...stock, at: '' });
     if (!same) { docs.push({ key: 'stock', d: stock }); result.stock = true; }
   } else {
@@ -199,6 +205,16 @@ export async function archive(env: Env, charId: number): Promise<ArchiveResult> 
     for (let i = 0; i < Math.max(records.length, 1); i += 2000) {
       await push(db, charId, { records: records.slice(i, i + 2000), docs: i === 0 ? docs : [] });
     }
+  }
+
+  // A wrap just registered in asset safety: mailed once, with what's in it at CCP's estimated prices.
+  if (freshWraps.length) {
+    try {
+      const prices: Record<number, number> = {};
+      for (const p of (await esiGet<{ type_id: number; average_price?: number }[]>('/markets/prices/')).data) if (p.average_price) prices[p.type_id] = p.average_price;
+      const mailed = await mailSafety(env, charId, safetyFindings(freshWraps, (id) => prices[id]));
+      console.log('asset safety registered', charId, JSON.stringify({ wraps: freshWraps.map((w) => w.id), mailed }));
+    } catch (e) { console.error('asset safety mail failed', charId, e); }
   }
   return result;
 }

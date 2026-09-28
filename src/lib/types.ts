@@ -1,3 +1,4 @@
+import type { SafetyWrap } from './esiRecords';
 import type { BookSold, SplitFrom } from './split';
 import type { SkillKey } from './constants';
 import type { RateStamp } from './fees';
@@ -123,6 +124,8 @@ export type Stock = {
   byLocation?: Record<number, Record<number, number>>;
   /** Items inside ships and containers, counted apart for the same reason as `inContainers`. */
   nested?: Record<number, number>;
+  /** Wraps in asset safety, or delivered and not yet unpacked (esiRecords.ts). Absent on stock read before they were kept. */
+  safety?: SafetyWrap[];
 };
 
 /** What a scan learned about one item's trading, reduced from ESI's daily history. */
@@ -339,7 +342,7 @@ export type Prefs = {
   omegaPack: '1' | '3' | '6' | '12';
 };
 
-export type AlertEvent = 'move' | 'clearing' | 'squeeze' | 'pi' | 'scam' | 'backup' | 'opportunity' | 'snipe' | 'watchdog';
+export type AlertEvent = 'move' | 'clearing' | 'squeeze' | 'pi' | 'scam' | 'backup' | 'opportunity' | 'snipe' | 'watchdog' | 'safety';
 export type AlertConfig = {
   on: boolean;
   browser: boolean;

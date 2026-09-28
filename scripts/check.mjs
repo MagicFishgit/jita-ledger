@@ -1722,6 +1722,55 @@ console.log('\n--- does it come true: place and leave, the Sniper ---');
   eq('  nothing to say before a measurement suggests anything', shareOver({ ...measured, suggested: null }, 10), null);
 }
 
+console.log('\n--- asset safety ---');
+{
+  const { countStock, mergeSafety } = await import('../src/lib/esiRecords.ts');
+  const JITA = 60003760;
+  // The user's wrap as ESI reported it (28 September 2026): the wrap flagged AssetSafety at location 2004, ships and
+  // Station Containers inside it, and here a ship's fitting and a container's contents one level deeper.
+  const A = (item_id, type_id, location_id, location_flag, location_type, quantity = 1) => ({ item_id, type_id, location_id, location_flag, location_type, quantity });
+  const raw = [
+    A(1055765149463, 60, 2004, 'AssetSafety', 'other'),
+    A(1044914025438, 2006, 1055765149463, 'Hangar', 'item'),              // Omen
+    A(1044795389103, 16233, 1055765149463, 'Hangar', 'item'),             // Prophecy
+    A(1044519007308, 17366, 1055765149463, 'Hangar', 'item'),             // Station Container
+    A(9001, 2185, 1044519007308, 'Unlocked', 'item', 5),                  // five drones in the container
+    A(9002, 3001, 1044914025438, 'HiSlot0', 'item'),                      // a module fitted to the Omen
+    A(9003, 34, JITA, 'Hangar', 'station', 1000),                         // ordinary Jita stock
+    A(9004, 587, JITA, 'Hangar', 'station'),                              // a ship in Jita
+    A(9005, 2046, 9004, 'HiSlot0', 'item'),                               // fitted to it
+  ];
+  const s = countStock(raw, JITA);
+  eq('the wrap: waiting, everything inside it at any depth', s.safety, [{ id: 1055765149463, state: 'waiting', stationId: null, items: { 2006: 1, 16233: 1, 17366: 1, 2185: 5, 3001: 1 } }]);
+  eq('  its contents count as yours, the wrap itself doesn’t', [s.total[2006], s.total[2185], s.total[60]], [1, 5, undefined]);
+  eq('  but not as inside ships and containers: only the Jita ship’s fitting is', s.nested, { 2046: 1 });
+  eq('  nor as containers somewhere unknown', s.inContainers, 1);
+  eq('  and Jita stock is untouched', s.jita, { 34: 1000, 587: 1 });
+  const delivered = countStock(raw.map((a) => (a.item_id === 1055765149463 ? A(a.item_id, 60, 60008494, 'Hangar', 'station') : a)), JITA);
+  eq('delivered: the wrap in a station hangar', [delivered.safety[0].state, delivered.safety[0].stationId, delivered.byLocation[60008494]], ['delivered', 60008494, undefined]);
+  // What the cloud learned is carried forward by either writer; the cloud's own record wins.
+  const prev = [{ ...s.safety[0], name: 'K7D-II - Iserlohn Fortress', firstSeen: '2026-09-28T16:12:11Z', startKnown: false }];
+  eq('carried forward: the name, when first seen, whether its start is known', mergeSafety(prev, s.safety)[0], { ...s.safety[0], name: 'K7D-II - Iserlohn Fortress', firstSeen: '2026-09-28T16:12:11Z', startKnown: false });
+  const k = new Map([[1055765149463, { firstSeen: '2026-09-28T16:12:11Z', startKnown: false, deliveredAt: '2026-10-13T00:00:00Z' }]]);
+  eq('  a delivery date only once delivered', [mergeSafety(prev, s.safety, k)[0].deliveredAt, mergeSafety(prev, delivered.safety, k)[0].deliveredAt], [undefined, '2026-10-13T00:00:00Z']);
+  eq('  a stock read without wraps kept has none', mergeSafety(prev, undefined), undefined);
+
+  const { categoryOf: catOf } = await import('../src/lib/wallet.ts');
+  eq('unpacking a delivered wrap is its own cost in the Wallet, not “Other”', catOf({ refType: 'asset_safety_recovery_tax', amount: -1_500_000 })?.label, 'Asset safety fee');
+  const { parseCountdown, formatCountdown, safetyTimes, unpackCost } = await import('../src/lib/assetSafety.ts');
+  const D = 86400_000, H = 3600_000;
+  eq('the countdown as the client shows it', parseCountdown('14d 7h 24m 32s'), 14 * D + 7 * H + 24 * 60_000 + 32_000);
+  eq('  near enough is fine', [parseCountdown('14d 7h'), parseCountdown(' 3 h 5 m '), parseCountdown('2D')], [14 * D + 7 * H, 3 * H + 5 * 60_000, 2 * D]);
+  eq('  anything else isn’t one', [parseCountdown(''), parseCountdown('soon'), parseCountdown('14'), parseCountdown('14d then')], [null, null, null, null]);
+  eq('shown back the client’s way, zero units dropped from the front', [formatCountdown(14 * D + 7 * H + 24 * 60_000 + 32_000), formatCountdown(7 * H + 5_000), formatCountdown(-1)], ['14d 7h 24m 32s', '7h 0m 5s', '0s']);
+  const typedAt = '2026-10-12T23:36:00Z';
+  eq('typed: delivered then, and by hand from 15 days before', safetyTimes({ startKnown: false }, { autoAt: typedAt }), { autoAt: Date.parse(typedAt), manualAt: Date.parse(typedAt) - 15 * D, from: 'typed' });
+  eq('seen going in: 5 and 20 days from then', safetyTimes({ startKnown: true, firstSeen: '2026-10-01T00:00:00Z' }), { autoAt: Date.parse('2026-10-21T00:00:00Z'), manualAt: Date.parse('2026-10-06T00:00:00Z'), from: 'seen' });
+  eq('  seen but not going in: unknown', safetyTimes({ startKnown: false, firstSeen: '2026-10-01T00:00:00Z' }), { autoAt: null, manualAt: null, from: null });
+  eq('unpacking: 15% after the automatic delivery, 0.5% by hand, of CCP’s estimate', unpackCost({ 2006: 1, 3001: 2, 99: 1 }, (id) => ({ 2006: 1_000_000, 3001: 50_000 })[id]),
+    { value: 1_100_000, auto: 165_000, manual: 5_500, unpriced: [99] });
+}
+
 console.log('\n--- a private ledger: the owner only ---');
 {
   const { isOwner, OWNER_CHARS } = await import('../src/lib/constants.ts');
@@ -2106,7 +2155,7 @@ eq('alerts start off', sanitizeAlerts({}).on, false);
 eq('an odd interval falls back', sanitizeAlerts({ interval: 7 }).interval, 5);
 eq('remind again after 4 h unless you chose otherwise', [sanitizeAlerts({}).repeatH, sanitizeAlerts({ repeatH: 12 }).repeatH, sanitizeAlerts({ repeatH: 5 }).repeatH], [4, 12, 4]);
 eq('mail starts off', sanitizeAlerts({}).mail, false);
-eq('  and by mail only what you can act on in game, plus the cloud’s trades worth a look, mistake listings and its own failures', Object.entries(sanitizeAlerts({}).mailEv).filter(([, v]) => v).map(([k]) => k), ['move', 'pi', 'opportunity', 'snipe', 'watchdog']);
+eq('  and by mail only what you can act on in game, plus the cloud’s trades worth a look, mistake listings, its own failures and asset safety', Object.entries(sanitizeAlerts({}).mailEv).filter(([, v]) => v).map(([k]) => k), ['move', 'pi', 'opportunity', 'snipe', 'watchdog', 'safety']);
 eq('  the Sniper’s bar starts at 5 M and 10%, and keeps what you set', [sanitizeAlerts({}).snipeMinIsk, sanitizeAlerts({}).snipeMinPct, sanitizeAlerts({ snipeMinIsk: 2e7, snipeMinPct: 15 }).snipeMinIsk], [5e6, 10, 2e7]);
 eq('  a saved config from before opportunities gets them from the defaults', sanitizeAlerts({ ev: { move: true }, mailEv: { move: true } }).mailEv.opportunity, true);
 eq('mails are deleted after 3 days unless set', sanitizeAlerts({}).mailKeepMin, 4320);

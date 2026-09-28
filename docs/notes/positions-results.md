@@ -83,6 +83,19 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   profit, filaments against abyssal loot, PI goods less customs, LP-store goods less the store's ISK, courier
   rewards, bounties; ships lost charged to the activity they died in. A trade a position counts is always
   trading, and an item in no set is left out rather than guessed at.
+- **Asset safety is tracked, not guessed** (`assetSafety.ts`, `countStock`'s `safety`, `AssetSafety.tsx`,
+  `worker/src/safety.ts`, migration 0011). The user had a wrap waiting for delivery to low-sec and asked to see it
+  with a ticking timer, and whether the app copes with things arriving out of nowhere. It does: the wrap's contents
+  were always in `total` (net worth), so delivery moves value rather than creating it; they're now their own "In asset
+  safety" line instead of "Inside ships and containers", and unpacking's fee is "Asset safety fee" in the Wallet
+  instead of Other. The Wallet shows each wrap, what's in it at CCP's estimate, and what unpacking costs (15%, or 0.5%
+  by hand in the system). The countdown can't come from ESI: it's the client's, typed once ("14d 7h 24m 32s", kept
+  as an absolute time in the synced `safetyTimes` doc), or, for a wrap the cloud saw go in, 20 days from then. Only the
+  cloud can date one, since it reads the assets hourly: `safety_seen` registers each wrap once, with a row marking the
+  last read, so a wrap appearing within 150 minutes of it went in since (`startKnown`); one there on the first read
+  can't be dated. Both writers of the stock record carry what was learned forward (`mergeSafety`). The cloud mails once
+  per wrap when it registers it (kind `safety`, "Asset safety registered"): the game already says when things go into
+  asset safety and when they're delivered, so the user asked for the mail to say the app has picked it up instead.
 - **Net worth keeps one snapshot a day in this browser** (`Data.netWorth`), written by the Wallet page. ESI has no
   net-worth history, so the trend starts the first day the page is opened and says so.
 - **Goals are five kinds, each measured from something the app reads** (`lib/goals.ts`): afford N of an item

@@ -165,6 +165,17 @@ Don't re-derive or contradict these without new evidence.
   entries for purchases at all (all 3,663 were sales). A same-second escrow for a different amount is a buy order
   placed that matched at once. This is how `instantBuys` tells a snipe from a fill; matching fills to your orders'
   prices failed, because orders placed or repriced before their history was kept aren't known.
+- **Asset safety, as ESI reports it** (the user's wrap, 28 September 2026): one item of type 60, *Asset Safety Wrap*
+  (unpublished, so `/universe/ids` finds no type by that name), flagged `AssetSafety` at location 2004, type `other`:
+  ESI doesn't say which system it's held for. Everything in it is listed inside it (`Hangar`, type `item`), ships with
+  their fittings and containers with their contents a level deeper. `/characters/{id}/assets/names` names the wrap
+  after the lost structure, as the client does ("K7D-II - Iserlohn Fortress"). **ESI has no delivery date anywhere**:
+  its spec mentions asset safety only as that flag and the `asset_safety_recovery_tax` journal type. The rules (EVE
+  University's summary of CCP's): after 5 days it can be delivered by hand to a station in the same system (0.5%);
+  after 20 it goes automatically to the nearest low-sec station (from low or null) or high-sec (from high); either
+  way it arrives as the wrap, and dragging items out after an automatic delivery to another system costs 15% of each
+  one's estimated price. The client shows the countdown and the destination (Assets → Asset Safety); ESI shows
+  neither, and a delivered wrap's shape was not yet seen when this was written.
 - **Hauler capacities are read from ESI, not remembered.** A Charon holds **465,000** m³, not the
   1,100,000 once written here — that was an expanded fit passed off as the hull, and it would send
   someone to a contract they cannot pick up. For hulls with a fleet hangar the usable figure is cargo

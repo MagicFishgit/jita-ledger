@@ -8,7 +8,7 @@ import { sanitizeSettings, type Settings } from './fees';
 import { readKillmail, type RawKillmail } from './combat';
 import type { JournalEntry, Killmail, Meta, Order, Stock, Tx } from './types';
 import { mergeOrders } from './feeMatch';
-import { countStock, toJournal, toOrder, toTx, type RawAsset, type RawCharOrder, type RawJournal, type RawTx } from './esiRecords';
+import { countStock, mergeSafety, toJournal, toOrder, toTx, type RawAsset, type RawCharOrder, type RawJournal, type RawTx } from './esiRecords';
 
 const { wallet: WALLET, orders: ORDERS, skills: SKILLS, standings: STANDINGS, assets: ASSETS, loyalty: LOYALTY, killmails: KILLMAILS } = SCOPE;
 
@@ -187,6 +187,16 @@ export async function syncCharacter(): Promise<void> {
       try {
         const raw = await esiAllPages<RawAsset>(`/characters/${cid}/assets/`, { auth: true, onExpires: keep('assets') });
         fetched.stock = countStock(raw, JITA_44);
+        // Asset safety wraps carry the lost structure's name, which only this call gives.
+        const known = new Set((getData().stock?.safety ?? []).filter((w) => w.name).map((w) => w.id));
+        const unnamed = (fetched.stock.safety ?? []).filter((w) => !known.has(w.id)).map((w) => w.id);
+        if (unnamed.length) {
+          try {
+            const { data } = await esi<{ item_id: number; name: string }[]>(`/characters/${cid}/assets/names/`, { auth: true, method: 'POST', body: unnamed });
+            const names = new Map(data.filter((n) => n.name && n.name !== 'None').map((n) => [n.item_id, n.name]));
+            fetched.stock.safety = fetched.stock.safety!.map((w) => (names.has(w.id) ? { ...w, name: names.get(w.id) } : w));
+          } catch { /* named on a later sync */ }
+        }
         read.push('assets');
       } catch { /* stock is a cross-check, not the ledger: a failure here must not fail the sync */ }
     }
@@ -256,7 +266,8 @@ export async function syncCharacter(): Promise<void> {
       if (fetched.killmails && Object.keys(fetched.killmails).length) p.killmails = { ...cur.killmails, ...fetched.killmails };
       if (allSkills) p.skills = allSkills;
       // Replaced wholesale, not merged: it is a snapshot of what you hold right now.
-      if (fetched.stock) p.stock = fetched.stock;
+      // What the cloud learned about asset safety wraps (when each went in, its name) is kept, not overwritten.
+      if (fetched.stock) p.stock = { ...fetched.stock, safety: mergeSafety(cur.stock?.safety, fetched.stock.safety) };
       if (fromChar) p.settings = sanitizeSettings({ ...cur.settings, ...fromChar });
       return p;
     });

@@ -20,6 +20,7 @@ import {
 import type { JournalEntry, Position, Tx, UntrackedTag } from '../lib/types';
 import { AreaLine, MiniLine } from './charts';
 import { Goals } from './Goals';
+import { AssetSafety } from './AssetSafety';
 import { downloadBlob, downloadText, useTypeName } from './common';
 import { BarLine, cssVars, Empty, Figure, PageHead, Panel, Seg, Tiles } from './ui';
 
@@ -210,6 +211,7 @@ export function Wallet() {
             : !hasWallet ? 'Your login doesn’t include the wallet permission, so there is nothing to show. Settings says how to add it.'
               : 'Nothing synced yet. The first sync reads your journal and trades; it starts on its own.'}
         </Empty>
+        <AssetSafety d={d} rough={rough} />
       </div>
     );
   }
@@ -345,6 +347,8 @@ export function Wallet() {
         </Panel>
         <WhereItSits d={d} value={value} rough={rough} sellValue={sellValue} escrow={escrow} lp={lp} now={now} hasAssets={!!d.stock} />
       </div>
+
+      <AssetSafety d={d} rough={rough} />
 
       <Untracked d={d} txs={txList.filter((t) => !tracked.has(t.id) && Date.parse(t.date) >= since)} tagOf={tagOf} explicit={(id) => ignored.has(id) || id in d.tags} periodWords={periodWords} />
 
@@ -530,6 +534,14 @@ function WhereItSits(props: {
     rows.push({ k: `loc:${id}`, l: p.l, v, d: p.note ? `${p.note}. ${traded}` : traded, flag: idle ? 'Idle' : undefined, dest: id, named: p.named });
   }
   if (d.stock?.nested && Object.keys(d.stock.nested).length) rows.push({ k: 'nested', l: 'Inside ships and containers', v: rough ? value(d.stock.nested) : null, d: 'Fitted to ships or packed away' });
+  const wraps = d.stock?.safety ?? [];
+  if (wraps.length) {
+    const inWraps: Record<number, number> = {};
+    for (const w of wraps) for (const [id, q] of Object.entries(w.items)) inWraps[Number(id)] = (inWraps[Number(id)] ?? 0) + q;
+    const waiting = wraps.filter((w) => w.state === 'waiting').length;
+    rows.push({ k: 'safety', l: 'In asset safety', v: rough ? value(inWraps) : null, flag: 'Idle',
+      d: waiting ? `${units(wraps.length)} wrap${wraps.length === 1 ? '' : 's'}, ${waiting === wraps.length ? 'waiting to be delivered' : `${units(waiting)} waiting to be delivered`}: see below` : 'Delivered, waiting to be unpacked: see below' });
+  }
   for (const b of props.lp.filter((x) => x.points > 0)) {
     rows.push({
       k: `lp:${b.corporationId}`,
