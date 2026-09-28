@@ -1,0 +1,76 @@
+# Positions, fees and results
+
+Decisions worth not undoing. How a position, a fee and a period's results are worked out, and what the Wallet, goals and standings pages count.
+
+- **Close keeps a position's result; Delete erases it.** Closing stops counting from that moment and keeps the
+  profit or loss, fees included, in Results and trading profit; deleting drops the position, so its result leaves
+  the books and its ESI trades become untracked (the Wallet's "Trades no position tracks"). The user deleted a
+  Syndicate Gas Cloud Scoop position they had backed out of (a buy for 2 at 99.79 M, cancelled unfilled), which
+  quietly took its fees off Results. So: `finishedPosition` flags any open position with nothing in stock and no
+  order open on the item as `soldOut` or `backedOut` (not only sold-out ones, as before), on the To do list, the
+  Positions list ("Finished") and the position's own page; Delete says what it takes off the books and offers
+  **Close instead** (`chooseAsk`'s `alt`); Close warns first when stock or open orders remain, since later sales
+  won't count. Delete is for mistakes: the wrong item, a duplicate.
+- **A position says where to list and wait, not only what selling now would do** (`PositionDetail`: "List
+  patiently" and "List safely"). The user's question: I bought this, the market is down on what I paid, so what
+  price will it come back to if I just leave it listed? Patiently is the price the bulk of trading got up to on
+  half of the last 14 days (`reachedAsk`, the 7th-highest high, with watched Jita sales folded in); safely, on
+  most of them (`FILL_MOST`, 11). Each shows the profit if all the stock sells there, the margin on what an open
+  buy order is still filling (the resale to plan a slow, deliberate buy at, shown even before anything fills),
+  how many days trading got there, and a rough time at your share of buyers scaled by those days. On the user's
+  Rocket Science, down to 85 k against an 87,860 break-even: patiently 97,650, safely 92,200. "Average sell
+  price" became "Your average sale": it's your own sales, and it read like a market price. The cheapest seller to
+  undercut is judged on the whole book from others, like the chart: on the snapshot's five levels the token rule
+  called 727 units at 92,440 the market, which the whole book (19,000 a day trades) showed to be a skim. The
+  undercut's selling time is scaled by how often trading reached its price, like the patient ones: the Arbalest's
+  cheapest listing, 62,920 (a two-level market: bids filled near 24,600 daily, listings taken at 63–71 k on 4
+  days of 14), claimed 75 days, faster than a price reached on 7; it's about 310. "Sell to buyers right now" walks
+  others' bids only: the top bid was the user's own 3,910-unit buy order.
+- **A broker fee belongs to its order's units, not to the moment it was paid** (`computePosition`). A
+  buy order's fee goes into the stock's cost; a sell order's fee is charged per unit as units sell; the
+  share for units still waiting on an open order is `prepaidFees`, shown beside the profit rather than in
+  it; a closed order's unfilled share is spent. Charging fees when paid made a PL-0 Scoped Cargo Scanner
+  position that had sold 5 of 2,039 read −1.05 M and "−2325% return", when those 5 had made money: the
+  listing fee for all 2,039 had been charged against them. A test checks cash + stock at cost + prepaid
+  fees = realized.
+- **"What your standings are worth" prices your real trading at other standings** (`lib/standings.ts`, Rates & fees).
+  Every broker charge is the broker rate × an order's value (a price change × (1 − the Advanced Broker Relations
+  discount)), so each fee ÷ the rate paid that day is the trading behind it, and that total × any rate is what the
+  same trading costs there. It takes **every** broker fee the ledger holds, not a window: the user asked for all of
+  it as it builds up. The rate paid each day is **measured**, the median of fee ÷ order value over that day's
+  placements matched to their orders (`measuredRates`, at least 3, skipping 100 ISK minimums), because the kept
+  `rateHistory` starts with setup noise: the user's read 2.23% until their first sync at 18:51 on 24 September,
+  while their placements that day paid 1.331%; on 25–27 September they paid 1.328%, 1.306%, 1.298% as standings rose.
+  Trusting each match's order value instead was tried: most of the ISK (58.8 of 80.2 M) is in unmatched fees and a
+  few matches are wrong (implied rates of 7% and infinity), so one rate per day is sturdier. The chart's axis starts
+  at zero; the "you" dot shows only once standings are known (synced, or typed), never at an unsynced 0 and 0.
+- **Results reads the long run** (`lib/longRange.ts`). Periods run to a year and All; past 90 days the bars are
+  weeks, past two years months (`unitFor`), and every average divides by the days the ledger actually covers, since
+  a year's per-day from 24 days of data understated it fifteenfold. "Every item you traded" works a position out for
+  every item (`computePosition` over all its trades, so fees and tax are matched as on Positions) and reports what
+  sold in the period with its return, its average sale and how long stock was held (first in, first out). Trades
+  tagged Personal are excluded, and an item whose every trade is Personal is left out whole: 31 such items (an
+  Apocalypse and fittings bought to fly, 2.01 M for the hull alone) otherwise showed as 4.8 M of "orders that sold
+  nothing", their fills excluded and their fees orphaned. Orders that sold nothing are said apart (the scoop's −3.18 M), because their fees over the
+  cost of what did sell made "−1151.5%". Items sold with no recorded buy (loot, store and planetary goods) are
+  counted by their activity, not here. "What kind of trading pays" groups the sold items by ESI category (looked up
+  once per item and kept), price per unit and time held. On the user's ledger it agrees with the positions-based
+  Trading line (−3.08 M both), as it should while all their trading sits in positions. The same total shows in
+  "By activity" as **Every item traded**, a row under Trading and never added to the total: the user asked for
+  a second line rather than a change to what Trading counts, which stays tracked positions only. `computePosition` now reads
+  trades from an index by item kept per `d.txs` version (`tradesFor`): identical on all 376 positions checked,
+  6× faster, and it no longer grows with items × trades.
+- **Results attributes each ISK movement by one stated rule** (`attribute` in `results.ts`): positions' realized
+  profit, filaments against abyssal loot, PI goods less customs, LP-store goods less the store's ISK, courier
+  rewards, bounties; ships lost charged to the activity they died in. A trade a position counts is always
+  trading, and an item in no set is left out rather than guessed at.
+- **Net worth keeps one snapshot a day in this browser** (`Data.netWorth`), written by the Wallet page. ESI has no
+  net-worth history, so the trend starts the first day the page is opened and says so.
+- **Goals are five kinds, each measured from something the app reads** (`lib/goals.ts`): afford N of an item
+  at the live price (units bought on the market since the goal was set come off what's left, so buying PLEX
+  in small lots counts), hold N of an item (hangars plus sell orders), save ISK (wallet, wallet + orders, or
+  net worth), earn over a period (positions' realized profit or net cash flow), train a skill. Any can carry a
+  deadline, which turns the ETA into "needs X a day, going at Y". A reached goal is stamped once and stays
+  reached. Old `{ kind: 'wallet' | 'nw' }` goals are read as ISK goals.
+- **ESI has no PLEX vault endpoint** — none of its paths mention PLEX or a vault. A PLEX "hold" goal starts
+  from the count you give it and follows your market trades; PLEX from the store isn't visible.
