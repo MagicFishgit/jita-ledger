@@ -13,7 +13,8 @@ import { alertCard, appIcon } from './notifyArt';
 export type ToastKind = 'ok' | 'info' | 'warn' | 'err';
 /** A toast can also appear as a system notification, for when this tab isn't the one in front. */
 export type ToastSystem = { title: string; tag?: string; /** The alert's own name, for the picture. */ heading?: string };
-export type Toast = { id: string; text: string; kind: ToastKind; system?: ToastSystem };
+/** `lifeMs`: a quick confirmation's own short life, whatever the setting (the copied price on opening an item in game). */
+export type Toast = { id: string; text: string; kind: ToastKind; system?: ToastSystem; lifeMs?: number };
 export type ToastState = { list: Toast[]; lifeMs: number | null; paused: boolean };
 
 /** How long a toast stays when nothing else is set. */
@@ -68,16 +69,16 @@ function arm() {
   stop();
   const front = state.list[0];
   if (!front) { frontId = null; closeSystem(); return; }
-  if (front.id !== frontId) { frontId = front.id; remaining = state.lifeMs ?? Infinity; showSystem(front); }
-  if (state.paused || state.lifeMs == null) return;
+  if (front.id !== frontId) { frontId = front.id; remaining = front.lifeMs ?? state.lifeMs ?? Infinity; showSystem(front); }
+  if (state.paused || (state.lifeMs == null && front.lifeMs == null)) return;
   startedAt = Date.now();
   const id = front.id;
   timer = setTimeout(() => dismiss(id), remaining);
 }
 
-export function toast(text: string, kind: ToastKind = 'ok', opts: { system?: ToastSystem } = {}): void {
+export function toast(text: string, kind: ToastKind = 'ok', opts: { system?: ToastSystem; lifeMs?: number } = {}): void {
   const id = Math.random().toString(36).slice(2);
-  let list = [...state.list, { id, text, kind, system: opts.system }];
+  let list = [...state.list, { id, text, kind, system: opts.system, lifeMs: opts.lifeMs }];
   if (list.length > MAX_QUEUED) list = [list[0], ...list.slice(list.length - MAX_QUEUED + 1)];
   set({ list });
   if (list.length === 1) arm();

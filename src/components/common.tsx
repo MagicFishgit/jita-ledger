@@ -162,13 +162,15 @@ export const plainPrice = (p: number) => (Number.isInteger(p) ? String(p) : p.to
 
 /**
  * Copies a price for the game's price box, so it's pasted rather than typed: the user once typed 1,893,000 for
- * 1,893 on a relist and paid a 468 M broker fee. Says so, unless `quiet` (opening an item in game copies its price
- * without a word, as opening says nothing); a refusal always says so.
+ * 1,893 on a relist and paid a 468 M broker fee. Always says so: opening an item in game copies its suggested price
+ * and says only that (the user asked for "a quick notification pop that says suggested price copied", while opening
+ * itself stays silent). A refusal always says so.
  */
-export async function copyPrice(p: number, quiet = false): Promise<void> {
+export async function copyPrice(p: number, suggested = false): Promise<void> {
   try {
     await navigator.clipboard.writeText(plainPrice(p));
-    if (!quiet) toast(`Copied ${plainPrice(p)}: paste it into the price box.`);
+    if (suggested) toast(`Suggested price copied: ${plainPrice(p)}`, 'ok', { lifeMs: 2500 });
+    else toast(`Copied ${plainPrice(p)}: paste it into the price box.`);
   } catch {
     toast('Couldn’t copy: your browser refused. Type it carefully.', 'err');
   }

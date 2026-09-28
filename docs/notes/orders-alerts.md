@@ -92,7 +92,9 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   copy icon beside the price "like we have in sniping": the Sniper's copy button exists because a relist typed by hand
   went in at 1,893,000 instead of 1,893. The copy happens before the market window is asked for, while the click still
   counts (browsers only let a page copy in answer to one), in the game's price-box form (`plainPrice`: 100100, cents
-  only when there are cents), and says nothing unless it fails, as opening says nothing. A clipboard is the device's
+  only when there are cents). It says "Suggested price copied: 100100" in a toast that lives 2.5 s whatever the
+  toast setting (a toast can carry its own `lifeMs`): the user asked for "a quick notification pop"; opening itself
+  still says nothing. A clipboard is the device's
   own: from the phone (the user's usual remote for this) the price lands on the phone, not the PC, unless the two
   share a clipboard.
 - **Pages that need the same live answer share one store**: `orderCheck` (your orders against the book),
