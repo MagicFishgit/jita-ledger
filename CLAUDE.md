@@ -19,13 +19,15 @@ Seg, Check, NumChip, Guide…), `components/charts.tsx` (inline SVG charts) and 
 
 ```
 npm run check    # pure-logic tests, fast, no network
+npm run check-pages   # every page with an empty, a small and a large ledger, headless (LEDGER=, PAGE= to narrow)
 npm run build    # tsc --noEmit && vite build
 npm run dev      # http://localhost:5173/jita-ledger/
 npm run scan-live   # end-to-end funnel against real ESI (needs the resolver hook, so not bare node)
 ```
 
-**Verify before claiming.** `npm run check` and `npm run build` for every change, plus a browser
-check for anything with UI. Several bugs in this repo shipped past a green typecheck and were only
+**Verify before claiming.** `npm run check` and `npm run build` for every change, `npm run check-pages` for any
+change to a page (the deploy runs it too, and a failing page stops the deploy), plus a browser check for anything
+with UI. Several bugs in this repo shipped past a green typecheck and were only
 caught by looking — a frozen countdown, `’` rendered literally, a table overflowing its container.
 
 **Work on a branch**, then `--ff-only` merge to `main`, delete the branch both sides, watch the

@@ -29,6 +29,9 @@ jobs:
           # Set these under Settings > Secrets and variables > Actions > Variables.
           VITE_EVE_CLIENT_ID: ${{ vars.EVE_CLIENT_ID }}
           VITE_TOKEN_PROXY: ${{ vars.TOKEN_PROXY }}
+      # Every page, opened with an empty, a small and a large ledger: a page that crashes doesn't deploy.
+      - run: npx playwright-core install --with-deps --only-shell chromium
+      - run: npm run check-pages
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

@@ -43,6 +43,12 @@ Traps in the code, the tools and the browser that have cost time before.
   a ledger with trades but no journal (the state of anyone whose early syncs predate the full journal):
   the oldest entry was `Infinity` and formatting it threw. A rich synthetic ledger never shows that. Pages
   now render inside `PageBoundary`, so a failing page shows its error inside the shell instead of a blank app.
+  `npm run check-pages` (`scripts/pages.mjs`) now does this on every page and settings tab, with an empty, a small
+  and a large generated ledger (4,000 trades, 400 orders, 41 positions, two of them on one item), refusing every
+  request outside its own Vite server; a throw, the error boundary or any React warning fails it. The deploy workflow
+  runs it before publishing. Checked by planting a duplicate key on Omega and a throw on Combat: both failed, with
+  the message. It uses `playwright-core` pinned to 1.61.1, the version whose Chromium (1228) the Playwright MCP had
+  already downloaded here, so installing it fetched no browser.
 - **`browser_navigate` to the same URL with another `#hash` keeps the old document**, including modules an
   HMR update failed to replace — a page can run stale code while the file on disk is right. `location.reload()`
   after edits, and import the app's own module instance (its `?t=` URL from `performance`), not the bare path.

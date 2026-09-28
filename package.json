@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && tsc -p worker && vite build",
     "preview": "vite preview",
     "check": "node --import ./scripts/register.mjs scripts/check.mjs",
+    "check-pages": "node scripts/pages.mjs",
     "scan-live": "node --import ./scripts/register.mjs scripts/scan-live.mjs",
     "worker:deploy": "cd worker && wrangler deploy",
     "worker:dev": "cd worker && wrangler dev --port 8787 --var DEV_AUTH_CHAR:90000001"
@@ -24,6 +25,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.7.0",
+    "playwright-core": "1.61.1",
     "typescript": "^5.9.3",
     "vite": "^5.4.21",
     "wrangler": "^4.142.0"
