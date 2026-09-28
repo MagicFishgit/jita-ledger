@@ -39,6 +39,13 @@ Decisions worth not undoing. Conventions for wording, layout, tooltips, numbers 
 - **Opening an item in game says nothing when it works**: the window opening in the client is the answer, and the
   user found a message on every click annoying. Only a failure says so. (Alerts are what become system
   notifications, never these.)
+- **A link to one item's orders lands on them** (`orders?show=TYPE`, `focusOrders` in `Orders.tsx`, `tr.flash` in
+  `styles.css`). The user clicked a position's "Should I move them? See Orders" and landed at the top of 105 orders;
+  they asked for the order to scroll into view and flash "with a nice bright border outline". The page shows every
+  side, scrolls the first of that item's rows to the middle of the table, then (once the smooth scroll has mostly
+  arrived) outlines them in the accent colour, two pulses over 2.6 s, drawn as inset shadows on the cells since an
+  outline on a table row isn't drawn everywhere. `show` is taken off the address so a reload doesn't repeat it. Also
+  used by To do's "Open orders" (when opening in game can't) and by the item names in Weakest slots.
 - **Confirmations use the platform `<dialog>`** (`lib/confirm.ts` + `ConfirmDialog.tsx`), not a
   library: focus trap, Escape and backdrop come free, and it's drawn in the app's own tokens.
   Destructive questions focus Cancel. No native `confirm()` anywhere.

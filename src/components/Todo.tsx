@@ -118,7 +118,7 @@ export function Todo() {
     const out: TodoItem[] = [];
     // Orders the book says are worth moving.
     for (const x of vs) {
-      const action = { label: canOpenInGame() ? 'Open in game' : 'Open orders', typeId: x.typeId, route: 'orders' };
+      const action = { label: canOpenInGame() ? 'Open in game' : 'Open orders', typeId: x.typeId, route: `orders?show=${x.typeId}` };
       if (x.verdict === 'bid' && x.intoBids) {
         // Buyers barely take listings: the stock is worth more in the wallet than waiting months in a slot.
         out.push({

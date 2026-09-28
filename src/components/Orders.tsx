@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Ban, BanknoteArrowDown, ChevronRight, ChevronsUp, CircleDashed, CircleX, Crosshair, Hourglass, LayoutGrid, ListOrdered, MoveVertical, Repeat, Timer } from 'lucide-react';
 import { ago, isk, iskBig, plainNum, units, until } from '../lib/format';
-import { useAuth, useNow, navigate } from '../lib/hooks';
+import { useAuth, useNow, navigate, useRoute } from '../lib/hooks';
 import { checkOrders, costBasis, jitaOpen, sidePace, useOrderCheck, verdicts } from '../lib/orderCheck';
 import { rates, effectiveSkills, orderSlots } from '../lib/fees';
 import { tickDown } from '../lib/tick';
@@ -102,6 +102,25 @@ export function Orders() {
   const check = useOrderCheck();
   const [side, setSide] = useState<'all' | 'sell' | 'buy'>('all');
   const [sort, setSort] = useState<OrderSort>(loadOrderSort);
+  // Orders to bring into view and flash: from a link to one item's orders (`orders?show=TYPE`, a position's "Should I
+  // move them?"), or a Weakest slots entry. The user asked for the row to scroll into view and flash with a bright
+  // outline, since landing at the top of 105 orders left them hunting for it.
+  const route = useRoute();
+  const showType = Number(route.query.get('show')) || null;
+  const [flash, setFlash] = useState<Set<number>>(() => new Set());
+  const flashTimer = useRef<number | undefined>(undefined);
+  const focusOrders = (ids: number[], delay = 60) => {
+    if (!ids.length) return;
+    window.setTimeout(() => {
+      document.querySelector(`tr[data-order="${ids[0]}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      // The flash starts once the smooth scroll has mostly arrived, so it's seen, not spent on the way.
+      window.clearTimeout(flashTimer.current);
+      flashTimer.current = window.setTimeout(() => {
+        setFlash(new Set(ids));
+        flashTimer.current = window.setTimeout(() => setFlash(new Set()), 2600);
+      }, 450);
+    }, delay);
+  };
   const sortBy = (key: OrderSortKey) => setSort((s) => {
     const next: OrderSort = s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: ORDER_SORT_UP.has(key) ? 'asc' : 'desc' };
     try { localStorage.setItem(ORDER_SORT_STORE, JSON.stringify(next)); } catch { /* remembered for this visit only */ }
@@ -123,6 +142,19 @@ export function Orders() {
   const r = rates(d.settings);
   const slots = orderSlots(effectiveSkills(d.settings));
   const checked = !!check.checkedAt && all.length > 0;
+
+  // Arriving with `?show=TYPE`: once, when that item's orders are there to show (every side, so none is filtered out).
+  // Taken off the address so a reload doesn't do it again; the wait lets the page finish arriving first.
+  const shownFor = useRef<number | null>(null);
+  useEffect(() => {
+    if (!showType || shownFor.current === showType) return;
+    const ids = mine.filter((o) => o.typeId === showType).map((o) => o.orderId);
+    if (!ids.length) return;
+    shownFor.current = showType;
+    setSide('all');
+    history.replaceState(null, '', '#/orders');
+    focusOrders(ids, 500);
+  }, [showType, mine]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // What each slot earns a day: the margin on a unit, times the units your side fills for you.
   const perSlot = useMemo(() => {
@@ -294,7 +326,7 @@ export function Orders() {
                   const bv = b ? b.iskPerDay / 2 : null;
                   return (
                     <div key={x.orderId} className="inset-box col" style={{ gap: 4, padding: '10px 12px' }}>
-                      <div className="kv"><span style={{ color: 'var(--ink)' }}>{nameOf(x.typeId)} {x.isBuy ? 'buy' : 'sell'}</span><span className="v" style={{ color: 'var(--acc2)' }}>{iskBig(perSlot[x.orderId])}/day</span></div>
+                      <div className="kv"><button type="button" className="name-btn" style={{ color: 'var(--ink)' }} data-tip="Show it in the list below" onClick={() => focusOrders([x.orderId])}>{nameOf(x.typeId)} {x.isBuy ? 'buy' : 'sell'}</button><span className="v" style={{ color: 'var(--acc2)' }}>{iskBig(perSlot[x.orderId])}/day</span></div>
                       {b && bv != null ? (
                         <>
                           <div className="kv" style={{ fontSize: 12.5, color: 'var(--sec)' }}>
@@ -346,7 +378,7 @@ export function Orders() {
                     // The price shown under Move to: what opening it in game copies, ready for the price box.
                     const moveTo = x && !x.intoBids && !heldBack && Number.isFinite(x.newPrice) ? x.newPrice : null;
                     return (
-                      <tr key={o.orderId} className={'hover' + (hot ? ' hot' : x && x.verdict !== 'move' ? ' dim' : '')}>
+                      <tr key={o.orderId} data-order={o.orderId} className={'hover' + (hot ? ' hot' : x && x.verdict !== 'move' ? ' dim' : '') + (flash.has(o.orderId) ? ' flash' : '')}>
                         <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" copy={moveTo} /></span><BusyRelisting typeId={o.typeId} isBuy={o.isBuy} />{x?.tooBig && <TooBigTag t={x.tooBig} x={x} />}</td>
                         <td className="l lbl" style={{ color: o.isBuy ? 'var(--buy)' : 'var(--neg-t)', fontSize: 11.5 }}>{o.isBuy ? 'Buy' : 'Sell'}</td>
                         <td className="l">

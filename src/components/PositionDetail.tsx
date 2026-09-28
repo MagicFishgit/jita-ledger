@@ -453,7 +453,7 @@ function YourOrders({ pos, book, bookTime }: { pos: Position; book: OrderLite[] 
     <section className="panel" aria-label="Your orders" style={{ padding: '12px 16px', gap: 8 }}>
       <div className="panel-head">
         <span className="panel-title" style={{ fontSize: 12, letterSpacing: '.16em' }}>Your orders</span>
-        {mine.length > 0 && <button type="button" className="link-btn" onClick={() => navigate('orders')}>Should I move them? See Orders</button>}
+        {mine.length > 0 && <button type="button" className="link-btn" onClick={() => navigate(`orders?show=${pos.typeId}`)}>Should I move them? See Orders</button>}
       </div>
       {!mine.length ? (
         <p className="note small">No open orders for this item{d.meta.lastSync ? '' : ' — sync to see them'}. Anything still in stock isn’t listed for sale.</p>
