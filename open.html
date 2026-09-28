@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#02050a" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><polygon points='25,3 75,3 100,50 75,97 25,97 0,50' fill='%235cd3f2'/><polygon points='28,9 72,9 94,50 72,91 28,91 6,50' fill='%23050b12'/><text x='50' y='64' font-family='monospace' font-weight='700' font-size='38' fill='%235cd3f2' text-anchor='middle'>JL</text></svg>" />
+    <title>Opening in EVE · Jita Ledger</title>
+    <!-- The page a mail's item link opens: no app, no fonts, no animation. Just the one ESI call and a countdown. -->
+    <style>
+      :root { --bg: #02050a; --panel: #07111b; --line: #16283a; --ink: #e6f1fa; --body: #b9cbdb; --dim: #7f95a8; --acc: #5cd3f2; --ok: #6ee7a8; --err: #ff6b7d; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--bg); color: var(--body); font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+      body { display: grid; place-items: center; padding: 16px; }
+      main { width: min(440px, 100%); background: var(--panel); border: 1px solid var(--line); border-top: 2px solid var(--acc); padding: 22px 24px; }
+      main.ok { border-top-color: var(--ok); }
+      main.err { border-top-color: var(--err); }
+      .brand { font: 600 11px/1 ui-monospace, monospace; letter-spacing: .18em; color: var(--acc); text-transform: uppercase; }
+      h1 { margin: 10px 0 6px; font-size: 19px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+      p { margin: 0 0 6px; }
+      .dim { color: var(--dim); font-size: 13px; }
+      .count { font: 600 13px/1 ui-monospace, monospace; color: var(--dim); margin-top: 14px; }
+      .row { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 14px; }
+      a, button { font: inherit; font-size: 13px; color: var(--acc); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: none; }
+      a:hover, button:hover { text-decoration: underline; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <main id="box" aria-live="polite">
+      <div class="brand">Jita Ledger</div>
+      <h1 id="title">Opening in EVE…</h1>
+      <p id="detail"></p>
+      <p id="note" class="dim"></p>
+      <div id="count" class="count" hidden></div>
+      <div class="row">
+        <button id="keep" type="button" hidden>Keep this tab open</button>
+        <a id="app" href="./#orders">Open Jita Ledger</a>
+      </div>
+    </main>
+    <script type="module" src="/src/open.ts"></script>
+  </body>
+</html>

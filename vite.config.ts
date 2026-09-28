@@ -8,5 +8,7 @@ export default defineConfig({
   base: '/jita-ledger/',
   build: {
     chunkSizeWarningLimit: 800,
+    // Two pages: the app, and the light one a mail's item link opens (open.html, src/open.ts).
+    rollupOptions: { input: { main: 'index.html', open: 'open.html' } },
   },
 });
