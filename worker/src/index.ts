@@ -250,6 +250,13 @@ export default {
       if (url.pathname === '/v1/jobs/market' && request.method === 'POST') return json(await watchMarkets(env.DB), 200, c);
       if (url.pathname === '/v1/alerts/test' && request.method === 'POST') return json(await testRound(env, who.charId), 200, c);
       if (url.pathname === '/v1/alerts/preview' && request.method === 'GET') return json(await previewRound(env, who.charId), 200, c);
+      // What the cloud has mailed this ledger in the last week (one row per alert, at its latest mailing): the app's
+      // own alert log holds only what that browser raised, so a new phone read "0" while mail was going out.
+      if (url.pathname === '/v1/alerts/log' && request.method === 'GET') {
+        const rows = (await env.DB.prepare(`SELECT key, kind, at, title, text FROM alert_log WHERE char_id = ?1 AND at > ?2 ORDER BY at DESC LIMIT 200`)
+          .bind(who.charId, Date.now() - 7 * 86400_000).all<{ key: string; kind: string; at: number; title: string; text: string }>()).results;
+        return json(rows, 200, c);
+      }
       if (url.pathname === '/v1/track' && request.method === 'GET') {
         return json({
           ...(await trackSummary(env.DB, who.charId)),

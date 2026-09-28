@@ -26,6 +26,19 @@ Decisions worth not undoing. Conventions for wording, layout, tooltips, numbers 
   `reloadApp`, which first writes the saves still waiting (the ledger holds each 250 ms, the cloud its unsent list
   500 ms). Checked in an emulated phone against the production build: short pull nothing, long pull reloads, none
   while scrolled down or swiping sideways; a newer version.json shows the notice in view and reloads on leaving.
+- **Every page works at a phone's width** (390 px; the phone rules are the last block of `styles.css`, on purpose:
+  they override base rules of the same weight, which a later rule would win, and the first attempt at them sat
+  early in the file and half of it did nothing). Nothing may stick out past the screen's edge: rows, switch groups
+  and labels wrap, buttons grow to fit their words, the item search and number boxes take the row, the new-position
+  form stacks (with `flex-wrap: nowrap`: a wrapping column made every column as wide as its longest line), and a wide
+  table scrolls sideways inside its own box. `npm run check-phone` checks every page with all three ledgers and fails
+  anything past the edge, or cut off by a box that hides rather than scrolls; the deploy runs it too. What it can't
+  see, a value too long for its box or text spilling out of a button's height, was found by looking at every page,
+  four screenshots to a sheet (`SHOTS=dir` on the page check). Orders' Weakest slots folds away (folded by default
+  on a phone, remembered per browser).
+- **Opening an item in game says nothing when it works**: the window opening in the client is the answer, and the
+  user found a message on every click annoying. Only a failure says so. (Alerts are what become system
+  notifications, never these.)
 - **Confirmations use the platform `<dialog>`** (`lib/confirm.ts` + `ConfirmDialog.tsx`), not a
   library: focus trap, Escape and backdrop come free, and it's drawn in the app's own tokens.
   Destructive questions focus Cancel. No native `confirm()` anywhere.

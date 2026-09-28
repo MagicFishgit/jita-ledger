@@ -32,6 +32,8 @@ jobs:
       # Every page, opened with an empty, a small and a large ledger: a page that crashes doesn't deploy.
       - run: npx playwright-core install --with-deps --only-shell chromium
       - run: npm run check-pages
+      # The same at a phone's width, where nothing may stick out past the screen's edge.
+      - run: npm run check-phone
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

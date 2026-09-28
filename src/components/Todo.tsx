@@ -303,7 +303,6 @@ export function Todo() {
       try {
         await openMarketWindow(x.action.typeId);
         setMem((m) => { if (!m[x.key]) return m; const next = { ...m, [x.key]: { ...m[x.key], openedAt: Date.now() } }; saveMem(next); return next; });
-        toast('Opened in your client — switch to the game window.', 'info');
         return;
       } catch { /* fall through to the page */ }
     }

@@ -42,6 +42,13 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   (`loginError`). Tested locally: the orders job counted 1 then 2 (it retries once its last try is 20 minutes old,
   so a lost login shows within about 40 minutes), and a Sniper success cleared a seeded streak. The mail can only be
   sent in production. It can't report the mail itself failing, or a cron that stops firing.
+- **Every device shows the same mail picture** (Settings → Alerts). The user logged in on a phone and found the
+  panel asking them to log in a sending character, and "Alerts in the last 24 h" at 0, while the cloud was mailing
+  all day: the panel read only that browser's own sender login and its own alert log (`alertLog` stays local). Now,
+  while the cloud holds both logins, "Sent from" names the cloud's sender ("Nothing to log in here, on this device or
+  any other") and its test mail goes through the cloud; the card and "Recent alerts" add what the cloud mailed
+  (`GET /v1/alerts/log`, a week of `alert_log`, one row per alert at its latest mailing, marked "Mail"), and say how
+  many came from each. Each device still keeps its own list of the notifications it showed.
 - **To do ticks itself off** (`lib/todo.ts`). The user plays without looking at it, and a list still
   demanding things already done is worse than none. Every finding has a stable `key` (what it's about:
   `order:ID`, `pi:pin`, `squeeze:position`, `scam:type:flag`, `backup`) and a `ver` (its state: the suggested

@@ -168,6 +168,46 @@ const ALL = { empty: {}, small: small(), large: large() };
 const only = (v) => (v ? v.split(',') : null);
 const LEDGERS = Object.fromEntries(Object.entries(ALL).filter(([k]) => !only(process.env.LEDGER) || only(process.env.LEDGER).includes(k)));
 const SHOWN = PAGES.filter((p) => !only(process.env.PAGE) || only(process.env.PAGE).some((x) => p.startsWith(x)));
+/**
+ * `PHONE=1`: at a phone's width (390 px, touch) instead, where a page also fails if anything sticks out past the
+ * right edge of the screen. A table that scrolls sideways inside its own box is fine; only what the page can't show is not.
+ */
+const PHONE = process.env.PHONE === '1';
+/** `SHOTS=dir`: also save a screenshot of each page there, tall enough to see most of it, for looking over by eye. */
+const SHOTS = process.env.SHOTS;
+const VIEW = PHONE ? { viewport: { width: 390, height: SHOTS ? 2200 : 844 }, isMobile: true, hasTouch: true } : { viewport: { width: 1440, height: SHOTS ? 1800 : 900 } };
+
+/** What sticks out past the right edge of the page area, outermost first: a short description of each. */
+async function overflow(page) {
+  return page.evaluate(() => {
+    const content = document.querySelector('.content');
+    if (!content) return [];
+    const limit = content.getBoundingClientRect().right + 1;
+    const out = [];
+    const bad = new Set();
+    for (const el of content.querySelectorAll('*')) {
+      const r = el.getBoundingClientRect();
+      if (!r.width || r.right <= limit) continue;
+      // Inside a box that scrolls sideways and itself fits: the table-in-a-box case, which is fine on a phone. A box
+      // that only hides what sticks out is not: that content is cut off (Omega's comparison lost its Omega column).
+      let boxed = false, cut = false;
+      for (let p = el.parentElement; p && p !== content; p = p.parentElement) {
+        const x = getComputedStyle(p).overflowX;
+        if (p.getBoundingClientRect().right > limit) continue;
+        if (x === 'auto' || x === 'scroll') { boxed = true; break; }
+        if (x === 'hidden' || x === 'clip') { cut = true; break; }
+      }
+      if (boxed || getComputedStyle(el).position === 'fixed') continue;
+      if (cut && r.left >= limit) continue; // wholly outside and hidden: an off-screen piece of a carousel or a clipped decoration
+      bad.add(el);
+      if (bad.has(el.parentElement)) continue;
+      const cls = typeof el.className === 'string' && el.className ? '.' + el.className.trim().split(/\s+/).slice(0, 2).join('.') : '';
+      out.push(`${el.tagName.toLowerCase()}${cls} ${Math.round(r.right - limit)} px ${cut ? 'cut off' : 'over'}: “${(el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 50)}”`);
+    }
+    return out.slice(0, 6);
+  });
+}
+
 /** A name each ledger's Positions page must show, proving the seed reached the app. */
 const PROOF = { small: 'Hammerhead II', large: 'Test Item' };
 
@@ -180,7 +220,7 @@ const failures = [];
 let checked = 0;
 try {
   for (const [name, data] of Object.entries(LEDGERS)) {
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const page = await browser.newPage(VIEW);
     await page.route('**/*', (route) => (route.request().url().startsWith(`http://localhost:${PORT}/`) ? route.continue() : route.abort()));
     let problems = [];
     page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
@@ -220,6 +260,8 @@ try {
       const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
       if (boundary) problems.push(`error boundary: ${(await page.locator('.notice.err[role="alert"] pre').first().innerText().catch(() => '')).slice(0, 160)}`);
       if (!(await page.locator('.page').count())) problems.push('no page rendered');
+      if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out: ${o}`);
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}-${name}-${hash.replace(/[^a-z0-9]+/gi, '_')}.png` });
       checked++;
       const unique = [...new Set(problems)];
       if (unique.length) failures.push({ ledger: name, page: hash, problems: unique });

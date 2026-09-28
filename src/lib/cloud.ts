@@ -18,7 +18,7 @@ import type { Book } from './evaluate';
 import type { SnipeRead } from './snipe';
 import type { Sighting } from './sniped';
 import { DEFAULT_FILTERS } from './prospects';
-import type { ProspectFilters } from './types';
+import type { AlertEvent, ProspectFilters } from './types';
 
 /**
  * Keeps the ledger in the cloud (the Worker in `worker/`), so no browser holds the only copy.
@@ -477,6 +477,9 @@ async function refreshTrack(): Promise<void> {
   if (!state || !cloudEnabled()) return;
   setStatus({ track: await call<CloudStatus['track']>('/v1/track') });
 }
+
+/** The alerts the cloud has mailed in the last week, newest first: one per alert, at its latest mailing. */
+export const cloudAlertLog = () => call<{ key: string; kind: AlertEvent; at: number; title: string; text: string }[]>('/v1/alerts/log');
 
 /** A test alert mail sent by the cloud, from one of your real orders. */
 export const cloudTestMail = () => call<{ mailId: number; about: string }>('/v1/alerts/test', { method: 'POST' });

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Ban, BanknoteArrowDown, ChevronsUp, CircleDashed, CircleX, Crosshair, Hourglass, LayoutGrid, ListOrdered, MoveVertical, Repeat, Timer } from 'lucide-react';
+import { Ban, BanknoteArrowDown, ChevronRight, ChevronsUp, CircleDashed, CircleX, Crosshair, Hourglass, LayoutGrid, ListOrdered, MoveVertical, Repeat, Timer } from 'lucide-react';
 import { ago, isk, iskBig, plainNum, units, until } from '../lib/format';
 import { useAuth, useNow, navigate } from '../lib/hooks';
 import { checkOrders, costBasis, jitaOpen, sidePace, useOrderCheck, verdicts } from '../lib/orderCheck';
@@ -70,6 +70,8 @@ function hours(h: number): string {
   return `${Math.round(h / 24)} days`;
 }
 
+const WEAK_KEY = 'jita-ledger:weakest-open';
+
 export function Orders() {
   const d = useData();
   const auth = useAuth();
@@ -132,6 +134,13 @@ export function Orders() {
   }, [mine, d.settings]);
 
   const weakest = all.filter((x) => Number.isFinite(perSlot[x.orderId])).sort((a, b) => perSlot[a.orderId] - perSlot[b.orderId]).slice(0, 3);
+  // Folded away by default on a phone, where it pushed the orders themselves off the first screen; whichever way you
+  // leave it is kept in this browser.
+  const [weakOpen, setWeakOpen] = useState(() => {
+    try { const v = localStorage.getItem(WEAK_KEY); if (v != null) return v === '1'; } catch { /* private window */ }
+    return !window.matchMedia?.('(max-width: 640px)').matches;
+  });
+  const toggleWeak = () => setWeakOpen((o) => { try { localStorage.setItem(WEAK_KEY, o ? '0' : '1'); } catch { /* private window */ } return !o; });
   const tips = tipsFor(side);
   const count = (v: Verdict) => all.filter((x) => x.verdict === v).length;
   // "Cancel it" only earns a card when there's something to cancel.
@@ -206,16 +215,19 @@ export function Orders() {
           {checked && weakest.length > 0 && (
             <section className="panel" data-rv="" style={{ padding: '12px 16px', clipPath: 'none' }}>
               <div className="panel-head">
-                <span className="panel-title">Weakest slots</span>
+                <button type="button" className="panel-toggle" aria-expanded={weakOpen} onClick={toggleWeak}>
+                  <ChevronRight className="chev" aria-hidden="true" /><span className="panel-title">Weakest slots</span>
+                </button>
                 <span className="note small">
                   {/* Every open order takes a slot, wherever it is, so the count is all of them. */}
-                  {open.length < slots * 0.9
+                  {!weakOpen ? `${units(open.length)} of ${units(slots)} slots in use: the ${weakest.length} earning least per slot.`
+                    : open.length < slots * 0.9
                     ? `You’re using ${units(open.length)} of ${units(slots)} slots, so none needs freeing yet — but these earn least per slot, and are the first to swap when you get busy.`
                     : `You’re using ${units(open.length)} of ${units(slots)} slots. These earn least per slot; swapping them is how a full book earns more.`}
                 </span>
               </div>
-              <ScanFreshness what="what to swap them for" compact />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,280px),1fr))', gap: 10 }}>
+              {weakOpen && <ScanFreshness what="what to swap them for" compact />}
+              {weakOpen && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,280px),1fr))', gap: 10 }}>
                 {weakest.map((x, i) => {
                   const b = better[i];
                   const bv = b ? b.iskPerDay / 2 : null;
@@ -234,7 +246,7 @@ export function Orders() {
                     </div>
                   );
                 })}
-              </div>
+              </div>}
             </section>
           )}
 

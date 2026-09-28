@@ -426,6 +426,7 @@ export function Results() {
                 <div key={k.title} style={{ minWidth: 0 }}>
                   <div className="lbl" data-tip={k.tip} style={{ marginBottom: 6 }}>{k.title}</div>
                   {!k.groups.length ? <p className="note small">Working it out…</p> : (
+                    <div style={{ overflowX: 'auto' }}>
                     <table className="tbl compact">
                       <thead><tr><th scope="col" className="l">{k.title === 'Kind of item' ? 'Kind' : k.title === 'Price per unit' ? 'Price' : 'Held'}</th><th scope="col" className="l">Made</th><th scope="col">Return</th><th scope="col">Items</th></tr></thead>
                       <tbody>
@@ -444,6 +445,7 @@ export function Results() {
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   )}
                 </div>
               );

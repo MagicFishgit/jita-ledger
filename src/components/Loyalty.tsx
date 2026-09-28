@@ -409,7 +409,7 @@ function SpendPlan(p: {
                       <td className="l">{v ? <HandInCell h={p.handIn(x.offerId, x.runs)} cost={x.runs * v.itemsCost} nameOf={p.nameOf} /> : '–'}</td>
                       <td style={{ color: 'var(--pos)' }}>{iskBig(x.profit)}</td>
                       <td>{canOpenInGame() && (
-                        <button type="button" className="icon-btn plain" aria-label={`Open ${p.nameOf(x.typeId)} in game`} onClick={() => openMarketWindow(x.typeId).then(() => toast(`Opened ${p.nameOf(x.typeId)}’s market window in your client.`, 'info')).catch((e) => toast(String(e.message ?? e), 'err'))}>
+                        <button type="button" className="icon-btn plain" aria-label={`Open ${p.nameOf(x.typeId)} in game`} onClick={() => openMarketWindow(x.typeId).catch((e) => toast(`Couldn’t open the market window: ${String(e.message ?? e)}`, 'err'))}>
                           <MonitorUp aria-hidden="true" />
                         </button>
                       )}</td>
@@ -459,7 +459,7 @@ function AllOnOne(p: { picks: LazyPick[]; lp: number; more: string | null; handI
                     <ItemIcon id={x.v.typeId} />
                     <span className="ellipsis" style={{ fontSize: 13, color: 'var(--ink)', flex: 1, minWidth: 0 }}><b className="mono" style={{ color: 'var(--acc)', fontWeight: 500 }}>{units(x.units)}×</b> {p.nameOf(x.v.typeId)}</span>
                     {canOpenInGame() && (
-                      <button type="button" className="icon-btn plain" aria-label={`Open ${p.nameOf(x.v.typeId)} in game`} onClick={() => openMarketWindow(x.v.typeId).then(() => toast(`Opened ${p.nameOf(x.v.typeId)}’s market window in your client.`, 'info')).catch((e) => toast(String(e.message ?? e), 'err'))}>
+                      <button type="button" className="icon-btn plain" aria-label={`Open ${p.nameOf(x.v.typeId)} in game`} onClick={() => openMarketWindow(x.v.typeId).catch((e) => toast(`Couldn’t open the market window: ${String(e.message ?? e)}`, 'err'))}>
                         <MonitorUp aria-hidden="true" />
                       </button>
                     )}

@@ -128,7 +128,7 @@ export function ItemSearch(props: {
   };
 
   return (
-    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+    <div className="item-search" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
       <label htmlFor={inputId} className="chip search" data-tip={props.tip} data-tip-title={props.tipTitle} style={props.width ? { width: props.width } : undefined}>
         <Search aria-hidden="true" />
         <input
@@ -166,10 +166,11 @@ const UI_SCOPE = SCOPE.ui;
  *
  * Renders nothing without the scope, since a button that cannot work is worse than no button.
  */
-async function openInGame(typeId: number, name: string): Promise<void> {
+async function openInGame(typeId: number): Promise<void> {
+  // Said only when it fails: the window opening in the game is the answer, and the user found a message every
+  // click annoying. The button says "Opening…" while it asks.
   try {
     await openMarketWindow(typeId);
-    toast(`Opened ${name}’s market window in your client. You’ll still need to switch to the game.`, 'info');
   } catch (e) {
     toast(`Couldn’t open the market window: ${e instanceof Error ? e.message : String(e)}`, 'err');
   }
@@ -180,7 +181,7 @@ export function OpenInGame({ typeId, name, label = 'In game', variant = 'link' }
   if (!hasScope(UI_SCOPE)) return null;
   const go = async () => {
     setBusy(true);
-    try { await openInGame(typeId, name); } finally { setBusy(false); }
+    try { await openInGame(typeId); } finally { setBusy(false); }
   };
   if (variant === 'btn') {
     return (
@@ -210,7 +211,7 @@ export function NameInGame({ typeId, name, className }: { typeId: number; name: 
   return (
     <button
       type="button" className={'name-btn' + (className ? ' ' + className : '')} disabled={busy}
-      onClick={async () => { setBusy(true); try { await openInGame(typeId, name); } finally { setBusy(false); } }}
+      onClick={async () => { setBusy(true); try { await openInGame(typeId); } finally { setBusy(false); } }}
       aria-label={`${name}: open its market window in the EVE client`}
       data-tip="Opens the market window in your EVE client. You’ll still need to switch to the game."
     >

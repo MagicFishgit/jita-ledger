@@ -20,7 +20,7 @@ import { ALERT_LABELS, tidyEvery } from '../lib/alerts';
 import { testAlert, testMail, useAlertRunner, BACKUP_DAYS } from '../lib/alertsRunner';
 import { useMotion, bumpWarp } from '../lib/motion';
 import { toast } from '../lib/toast';
-import { cloudCovers, cloudEnabled, cloudEsiCheck, cloudSummary, cloudTestMail, dropCloudLogin, runCloudArchive, setCloudEnabled, syncCloudNow, useCloud, useCloudScanStatus } from '../lib/cloud';
+import { cloudAlertLog, cloudCovers, cloudEnabled, cloudEsiCheck, cloudSendsMail, cloudSummary, cloudTestMail, dropCloudLogin, runCloudArchive, setCloudEnabled, syncCloudNow, useCloud, useCloudScanStatus } from '../lib/cloud';
 import { loadCache, useScanState } from '../lib/scan';
 import type { ScanRuns } from '../lib/prospects';
 import type { AlertEvent, Motion, Theme } from '../lib/types';
@@ -548,8 +548,25 @@ function Alerts() {
   const setA = (patch: Partial<typeof a>) => update((x) => ({ alerts: { ...x.alerts, ...patch } }));
   const next = runner.lastRun == null ? a.interval * 60_000 : Math.max(0, runner.lastRun + a.interval * 60_000 - now);
   const mm = Math.floor(next / 60_000), ss = String(Math.floor((next % 60_000) / 1000)).padStart(2, '0');
+  // What the cloud mailed: this browser's own log holds only what it raised itself, so a new phone said "0" while
+  // mail was going out all day. Read every minute while this is open.
+  const [mailed, setMailed] = useState<Awaited<ReturnType<typeof cloudAlertLog>> | null>(null);
+  useEffect(() => {
+    if (!cloudEnabled()) return;
+    let alive = true;
+    const load = () => cloudAlertLog().then((r) => { if (alive) setMailed(r); }).catch(() => undefined);
+    void load();
+    const id = setInterval(load, 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+  const mailedDay = (mailed ?? []).filter((m) => now - m.at < 86400_000);
   const day = d.alertLog.filter((l) => !l.test && now - Date.parse(l.at) < 86400_000);
-  const counts = ALERT_EVENTS.map((k) => ({ k, n: day.filter((l) => l.kind === k).length }));
+  const counts = ALERT_EVENTS.map((k) => ({ k, n: day.filter((l) => l.kind === k).length + mailedDay.filter((m) => m.kind === k).length }));
+  const total = day.length + mailedDay.length;
+  const recent = [
+    ...d.alertLog.map((l) => ({ ...l, mail: false })),
+    ...(mailed ?? []).map((m) => ({ at: new Date(m.at).toISOString(), kind: m.kind, key: `cloud:${m.key}`, title: m.title, text: m.text, test: false, mail: true })),
+  ].sort((x, y) => y.at.localeCompare(x.at)).slice(0, 8);
   const mx = Math.max(1, ...counts.map((c) => c.n));
   const COL: Record<string, string> = { move: 'var(--acc2)', clearing: '#90a5b8', squeeze: 'var(--neg)', pi: 'var(--pos)', scam: 'var(--neg-l)', backup: 'var(--acc2)' };
   const z = d.prefs.alertSize;
@@ -622,7 +639,8 @@ function Alerts() {
       </div>
       <div style={gridC}>
         <Card title="Alerts in the last 24 h">
-          <div className="row" style={{ alignItems: 'baseline' }}><span className="mono" style={{ fontSize: 34, color: 'var(--acc)' }}>{day.length}</span><span style={{ fontSize: 13, color: 'var(--sec)' }}>raised by your settings</span></div>
+          <div className="row" style={{ alignItems: 'baseline' }}><span className="mono" style={{ fontSize: 34, color: 'var(--acc)' }}>{total}</span><span style={{ fontSize: 13, color: 'var(--sec)' }}>raised by your settings</span></div>
+          {mailed && <p className="note small" style={{ margin: '-6px 0 0' }}>{units(mailedDay.length)} mailed by the cloud, {units(day.length)} shown in this browser. Each device keeps its own list of what it showed; the mail is counted once, wherever you look.</p>}
           <div className="col" style={{ gap: 7 }}>
             {counts.map(({ k, n }) => (
               <div key={k} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr) 32px', gap: 10, alignItems: 'center', fontSize: 12.5, opacity: a.on && a.ev[k] ? 1 : 0.4 }}>
@@ -632,16 +650,16 @@ function Alerts() {
               </div>
             ))}
           </div>
-          <p className="note">{!a.on ? 'Alerts are off, so nothing is being raised.' : counts.find((c) => c.k === 'clearing')!.n > day.length / 2 ? '“Beaten but clearing” is most of that — it’s usually noise. Turning it off would quieten things.' : 'Raise “Only if at least” to cut the small ones further.'}</p>
+          <p className="note">{!a.on ? 'Alerts are off, so nothing is being raised.' : counts.find((c) => c.k === 'clearing')!.n > total / 2 ? '“Beaten but clearing” is most of that — it’s usually noise. Turning it off would quieten things.' : 'Raise “Only if at least” to cut the small ones further.'}</p>
         </Card>
         <Card title="Recent alerts">
-          {!d.alertLog.length ? <p className="note">None yet. They appear here as they are raised, test ones included.</p> : (
+          {!recent.length ? <p className="note">None yet. They appear here as they are raised, test ones included, and the cloud’s mails with them.</p> : (
             <div>
-              {d.alertLog.slice(0, 8).map((l) => (
+              {recent.map((l) => (
                 <div key={l.at + l.key} style={{ display: 'grid', gridTemplateColumns: '44px minmax(0,1fr)', gap: 10, alignItems: 'baseline', padding: '8px 0', borderBottom: '1px solid var(--line-4)' }}>
                   <span className="mono" style={{ fontSize: 11.5, color: 'var(--faint)' }}>{new Date(l.at).toISOString().slice(11, 16)}</span>
                   <span style={{ minWidth: 0 }}>
-                    <span className="lbl" style={{ display: 'block', color: COL[l.kind] }}>{l.test ? 'Test · ' : ''}{l.title}</span>
+                    <span className="lbl" style={{ display: 'block', color: COL[l.kind] }}>{l.test ? 'Test · ' : ''}{l.mail ? 'Mail · ' : ''}{l.title}</span>
                     <span style={{ display: 'block', fontSize: 13, color: 'var(--body)' }}>{l.text}</span>
                   </span>
                 </div>
@@ -696,7 +714,11 @@ function MailAlerts() {
   const has = (s: string) => !!auth?.scopes.includes(s);
   // A second character that can send, and isn't the one being mailed.
   const alt = mailer && auth && mailer.characterId !== auth.characterId && mailer.scopes.includes(SCOPE.mailSend) ? mailer : null;
-  const canSend = !!auth && (!!alt || has(SCOPE.mailSend)), canDelete = has(SCOPE.mailOrganize), canRead = has(SCOPE.mailRead);
+  // The cloud holding a sender does all the mailing, from any device: then no browser needs a sender of its own. The
+  // user logged their sender in again on a new phone because this panel only looked at the browser's own logins.
+  const cloud = useCloud();
+  const cloudSender = cloudSendsMail(cloud) ? cloud.background?.keys.find((k) => k.purpose === 'mailer') ?? null : null;
+  const canSend = !!auth && (!!cloudSender || !!alt || has(SCOPE.mailSend)), canDelete = has(SCOPE.mailOrganize), canRead = has(SCOPE.mailRead);
   const signInAlt = () => loginMailer().catch((e) => toast(e instanceof Error ? e.message : String(e), 'err'));
   const dropAlt = async () => {
     if (!(await confirmAsk({ title: 'Stop sending from this character?', body: `Alert mail will come from ${auth?.characterName ?? 'you'} to itself, which EVE only shows after you log in again. Nothing else changes.`, confirm: 'Stop', danger: true }))) return;
@@ -705,6 +727,16 @@ function MailAlerts() {
   };
   const sendTest = async () => {
     setSending(true);
+    if (cloudSender) {
+      try {
+        const r = await cloudTestMail();
+        toast(`The cloud sent a test mail from ${cloudSender.name}${r.about ? ` about ${r.about}` : ''}. It should arrive in game in a moment.`);
+      } catch (e) {
+        toast(`The cloud couldn’t send the test mail: ${e instanceof Error ? e.message : String(e)}`, 'err');
+      }
+      setSending(false);
+      return;
+    }
     const ok = await testMail();
     setSending(false);
     if (ok) toast('Test mail sent. It can take a minute to reach your inbox in game.');
@@ -726,7 +758,14 @@ function MailAlerts() {
       {auth && (
         <div>
           <div className="lbl" style={{ marginBottom: 6 }}>Sent from</div>
-          {alt ? (
+          {cloudSender ? (
+            <div className="row wide" style={{ alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 13, color: 'var(--body)', flex: 1, minWidth: 200 }}>
+                From <b>{cloudSender.name}</b> to <b>{auth.characterName}</b>, sent by the cloud whether or not any browser is open. Nothing to log in here, on this device or any other.
+              </span>
+              <button type="button" className="link-btn" onClick={() => navigate('settings/data')}>Change it in Your data</button>
+            </div>
+          ) : alt ? (
             <div className="row wide" style={{ alignItems: 'center', gap: 10 }}>
               <span style={{ fontSize: 13, color: 'var(--body)', flex: 1, minWidth: 200 }}>From <b>{alt.characterName}</b> to <b>{auth.characterName}</b>, so it arrives like any other mail.</span>
               <button type="button" className="btn sm" onClick={signInAlt}>Change</button>
@@ -800,7 +839,7 @@ function Appearance() {
           <div className="panel-title">Appearance</div>
           <div>
             <div className="lbl" style={{ marginBottom: 8 }}>Faction theme</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div className="theme-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               {(Object.entries(THEMES) as [Theme, [string, string]][]).map(([n, [c1, c2]]) => {
                 const on = d.prefs.theme === n;
                 return (
