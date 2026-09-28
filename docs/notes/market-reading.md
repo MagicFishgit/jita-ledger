@@ -145,7 +145,12 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   trading reached on 7 (`reachedAsk`), which is in front of everyone. Behind a front that is reached, the queue
   decides as before, and an item traded on too few days to say keeps its queue advice. **Never under the best bid**
   (`overBid`): the membrane's 7th-highest high was the old 55,310, under today's 100,000 bid, and a listing there
-  would only sell into it, so the move is one step over the bid (100,100, the price that did sell). This applies to
+  would only sell into it, so the move is one step over the bid (100,100, the price that did sell). Said the way the user
+  read it once they asked for plainer words: "Nobody buys at your price or even at the front, 719,900 (reached on 0
+  of the last 14 days). Where it used to trade, 55,310, is below today's best bid of 100,000, so list one step above
+  it at 100,100, or sell into that bid now for about the same" (a tick gained, ~0.26% paid to move: the bid is never
+  worse by more than that, and it's now). The sell-into clause names only someone else's bid, and says how many of
+  yours it takes when it can't take all; To do and the mail use the same sentence. This applies to
   sells you're leaving too. Its `loss` check is on the price it moves to. More sells can now raise a "move" alert,
   including ones already at the front; the alert minimum still applies.
 - **Your other orders on an item are set apart when one is judged** (`judgeOrder`'s `yours`, `MarketContext.yours`).

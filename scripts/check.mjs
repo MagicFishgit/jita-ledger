@@ -2432,6 +2432,7 @@ console.log('\n--- your other orders on an item are not rivals ---');
   const mBook = [L(7, false, 3_899_000, 1), L(8, false, 720_000, 2), L(10, true, 100_000, 462), L(11, true, 55_270, 4633)];
   const sell = judge({ ...O(7, false, 3_899_000, 1), typeId: 16423 }, { ...base, perDay: 2, book: mBook, highs: mHighs, yours: [7, 10] }, DEFAULT_SETTINGS, at);
   eq('  a sell isn’t moved under your own bid either: a listing there would sell to yourself', [sell.newPrice, sell.overBid], [100100, true]);
+  eq('  and it doesn’t suggest selling into that bid, which is yours', [sell.why.includes('sell into'), sell.why.endsWith('so list one step above it at 100,100')], [false, true]);
 }
 
 console.log('\n--- an order too big to keep moving ---');
@@ -2606,10 +2607,13 @@ console.log('\n--- place and leave: orders behind the front on purpose ---');
   const membrane = adviseRelist({ orderId: 7, typeId: 16423, isBuy: false, price: 3_899_000, volumeRemain: 1 }, { book: mBook, dailyVolume: 2, highs: mHighs }, R, 2, 0.05);
   eq('an ordinary sell whose front isn’t reached either is moved to where trading reaches, not in front of the others', [membrane.verdict, membrane.unreached, membrane.reach], ['move', true, 0]);
   eq('  never under the best bid: where it reached before the market moved up, 55,310, would sell into it, so one step over', [membrane.reachAt, membrane.newPrice, membrane.overBid], [55310, 100100, true]);
-  eq('  and says so', membrane.why, 'Getting in front at 719,900 wouldn’t sell: the bulk of trading got up there on 0 of the last 14 days. Where it did on 7 of them, 55,310, is under the best bid now (100,000), so one step over that: 100,100');
+  // Worded the way the user read it (28 September 2026), with selling into that bid now as the same-money option.
+  eq('  and says so plainly', membrane.why, 'Nobody buys at your price or even at the front, 719,900 (reached on 0 of the last 14 days). Where it used to trade, 55,310, is below today’s best bid of 100,000, so list one step above it at 100,100, or sell into that bid now for about the same');
+  const short = adviseRelist({ orderId: 7, typeId: 16423, isBuy: false, price: 3_899_000, volumeRemain: 600 }, { book: mBook.map((o) => (o.id === 7 ? { ...o, volume: 600 } : o)), dailyVolume: 2, highs: mHighs }, R, 2, 0.05);
+  eq('  a bid too small for all of yours says how much it takes', short.why.endsWith('or sell into the bids now for about the same (that one takes 462 of your 600)'), true);
   eq('  mailed the right way round', orderFindings([{ ...membrane }], () => 'Membrane')[0].text.includes('sell order: trading rarely gets up to it'), true);
   const cheapest = adviseRelist({ orderId: 8, typeId: 16423, isBuy: false, price: 720_000, volumeRemain: 2 }, { book: mBook.filter((o) => o.id !== 7 && o.id !== 9), dailyVolume: 2, highs: mHighs }, R, 2, 0.05);
-  eq('  the cheapest listing too, which the queue alone called “at the front”', [cheapest.verdict, cheapest.newPrice, cheapest.why.startsWith('You’re the cheapest listing, but the bulk of trading got up to your price on 0')], ['move', 100100, true]);
+  eq('  the cheapest listing too, which the queue alone called “at the front”', [cheapest.verdict, cheapest.newPrice, cheapest.why.startsWith('Nobody buys at your price (reached on 0 of the last 14 days). Where it used to trade')], ['move', 100100, true]);
   const upHighs = mHighs.map((h) => (h < 100000 ? 150000 : h));
   eq('  where trading reaches over the best bid is where it goes', [adviseRelist({ orderId: 7, typeId: 16423, isBuy: false, price: 3_899_000, volumeRemain: 1 }, { book: mBook, dailyVolume: 2, highs: upHighs }, R, 2, 0.05).newPrice, adviseRelist({ orderId: 7, typeId: 16423, isBuy: false, price: 3_899_000, volumeRemain: 1 }, { book: mBook, dailyVolume: 2, highs: upHighs }, R, 2, 0.05).overBid], [150000, undefined]);
   eq('  not while your own listing is visibly selling', adviseRelist({ orderId: 7, typeId: 16423, isBuy: false, price: 3_899_000, volumeRemain: 1 }, { book: mBook, dailyVolume: 2, highs: mHighs, filling: true }, R, 2, 0.05).unreached, false);

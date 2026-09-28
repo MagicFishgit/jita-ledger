@@ -532,14 +532,30 @@ export function adviseRelist(
     // A sell trading doesn't get up to (for an ordinary one, not even at the front): say where it does, unless that's
     // under your cost.
     const at = (p: number) => Math.round(p).toLocaleString('en-US');
-    const said = !ordinarySell
-      ? `The bulk of trading got up to your price on ${reach} of the last ${FILL_WINDOW} days`
-      : beaten
-        ? `Getting in front at ${at(oneStep)} wouldn’t sell: the bulk of trading got up there on ${frontReach} of the last ${FILL_WINDOW} days`
-        : `You’re the cheapest listing, but the bulk of trading got up to your price on ${reach} of the last ${FILL_WINDOW} days`;
-    const there = overBid
-      ? `Where it did on ${FILL_TYPICAL} of them, ${at(reachAt!)}, is under the best bid now (${at(bestBid!)}), so one step over that: ${at(newPrice)}`
-      : `At ${at(newPrice)} it did on ${FILL_TYPICAL} of them`;
+    let said: string, there: string, sellNow = '';
+    if (overBid) {
+      // The market has moved up past where it used to trade: say it the way the user read it, and that selling into
+      // that bid now pays about the same, straight away. Listing one step over a bid gains a tick (at most ~0.1% at
+      // four figures) and moving costs a price-change fee (~0.26%), so the bid is never worse by more than that.
+      const n = ordinarySell && beaten ? frontReach : reach;
+      said = `${n === 0 ? 'Nobody buys at your price' : 'Buyers rarely pay your price'}${ordinarySell && beaten ? ` or even at the front, ${at(oneStep)}` : ''} (reached on ${n} of the last ${FILL_WINDOW} days)`;
+      there = `Where it used to trade, ${at(reachAt!)}, is below today’s best bid of ${at(bestBid!)}, so list one step above it at ${at(newPrice)}`;
+      // Only someone else's bid: selling into your own buy order is trading with yourself.
+      const theirs = m.book.filter((o) => o.isBuy && o.id !== mine.orderId && o.price === bestBid);
+      const theirUnits = theirs.reduce((n2, o) => n2 + o.volume, 0);
+      if (theirUnits > 0) {
+        sellNow = theirUnits >= volumeRemain
+          ? ', or sell into that bid now for about the same'
+          : `, or sell into the bids now for about the same (that one takes ${units(theirUnits)} of your ${units(volumeRemain)})`;
+      }
+    } else {
+      said = !ordinarySell
+        ? `The bulk of trading got up to your price on ${reach} of the last ${FILL_WINDOW} days`
+        : beaten
+          ? `Getting in front at ${at(oneStep)} wouldn’t sell: the bulk of trading got up there on ${frontReach} of the last ${FILL_WINDOW} days`
+          : `You’re the cheapest listing, but the bulk of trading got up to your price on ${reach} of the last ${FILL_WINDOW} days`;
+      there = `At ${at(newPrice)} it did on ${FILL_TYPICAL} of them`;
+    }
     if (reachAt == null) {
       verdict = 'wait';
       why = `${said}, and the item traded on too few days to say where it does reach`;
@@ -548,7 +564,7 @@ export function adviseRelist(
       why = `${said}. ${there}, which would sell under what the stock cost you`;
     } else {
       verdict = 'move';
-      why = `${said}. ${there}`;
+      why = `${said}. ${there}${sellNow}`;
     }
   } else if (unreached) {
     // Worth moving to where trading reaches only if selling on from there still makes your target.
