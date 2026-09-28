@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Crosshair, FileSpreadsheet, Flame, HandCoins, Image as ImageIcon, MapPin, ShieldCheck, TriangleAlert, Wallet as WalletIcon,
+  ChevronRight, Crosshair, FileSpreadsheet, Flame, HandCoins, Image as ImageIcon, MapPin, ShieldCheck, TriangleAlert, Wallet as WalletIcon,
 } from 'lucide-react';
 import { JITA_44, SCOPE } from '../lib/config';
 import { fmtDate, fmtDateTime, fmtShort, iskBig, iskBigSigned, pct, units } from '../lib/format';
@@ -55,11 +55,52 @@ function readDays(): Days {
   return 30;
 }
 
-/** Top lines of a flow list, with the rest folded into one so a long tail doesn't swamp the panel. */
-function topLines(lines: Line[], n: number, label: string): Line[] {
-  if (lines.length <= n) return lines;
-  const rest = lines.slice(n - 1);
-  return [...lines.slice(0, n - 1), { key: 'rest', label: `${label} (${rest.length} kinds)`, amount: rest.reduce((t, l) => t + l.amount, 0), count: rest.reduce((t, l) => t + l.count, 0) }];
+/**
+ * One line of money in or out that opens to what's behind it: the kinds of journal entry it holds, each opening to
+ * the entries themselves, or the items its trades were in. The user wanted "Other income" and "Other spending" to show
+ * what they were rather than stay a lump, so every line can open, and nothing is folded into "everything else".
+ */
+function FlowLine({ l, sign, frac, color, kindColor }: { l: Line; sign: '+' | '−'; frac: number; color: string; kindColor?: string }) {
+  const [open, setOpen] = useState(false);
+  const [part, setPart] = useState<string | null>(null);
+  const name = useTypeName();
+  const label = l.parts.length ? (
+    <button type="button" className="panel-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <ChevronRight className="chev" aria-hidden="true" />{l.label}
+    </button>
+  ) : l.label;
+  return (
+    <div>
+      <BarLine label={label} value={`${sign}${iskBig(l.amount)}`} frac={frac} color={color} kind={l.kind} kindColor={kindColor} />
+      {open && (
+        <div className="flow-parts">
+          {l.parts.map((p) => (
+            <div key={p.key}>
+              <div className="kv">
+                {p.entries?.length ? (
+                  <button type="button" className="panel-toggle" aria-expanded={part === p.key} onClick={() => setPart(part === p.key ? null : p.key)}>
+                    <ChevronRight className="chev" aria-hidden="true" /><span>{p.label}</span>
+                  </button>
+                ) : <span>{p.typeId != null ? name(p.typeId) : p.label}</span>}
+                <span className="v">{units(p.count)}× · {sign}{iskBig(p.amount)}</span>
+              </div>
+              {part === p.key && p.entries && (
+                <div className="flow-entries">
+                  {p.entries.map((e) => (
+                    <div key={e.id} className="kv">
+                      <span><span className="mono faint">{fmtShort(Date.parse(e.date))}</span> {e.text || '–'}</span>
+                      <span className="v">{sign}{iskBig(e.amount)}</span>
+                    </div>
+                  ))}
+                  {p.count > p.entries.length && <p className="note small" style={{ margin: 0 }}>The {units(p.entries.length)} biggest of {units(p.count)}.</p>}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function Wallet() {
@@ -262,8 +303,8 @@ export function Wallet() {
     : null;
 
   // ---- Flows
-  const ins = topLines(f.ins, 7, 'Everything else');
-  const outs = topLines(f.outs, 7, 'Everything else');
+  const ins = f.ins;
+  const outs = f.outs;
   const fmax = Math.max(1, ins[0]?.amount ?? 0, outs[0]?.amount ?? 0);
   const net = f.inTotal - f.outTotal;
 
@@ -326,15 +367,14 @@ export function Wallet() {
             <div>
               <div className="kv" style={{ marginBottom: 8 }}><span className="lbl">Money in</span><span className="v" style={{ color: 'var(--pos)' }}>+{iskBig(f.inTotal)}</span></div>
               <div className="col" style={{ gap: 9 }}>
-                {ins.length ? ins.map((l) => <BarLine key={l.key} label={l.label} value={`+${iskBig(l.amount)}`} frac={l.amount / fmax} color={IN_COLOR[l.key] ?? '#adbfcf'} />) : <p className="note">Nothing came in.</p>}
+                {ins.length ? ins.map((l) => <FlowLine key={l.key} l={l} sign="+" frac={l.amount / fmax} color={IN_COLOR[l.key] ?? '#adbfcf'} />) : <p className="note">Nothing came in.</p>}
               </div>
             </div>
             <div>
               <div className="kv" style={{ marginBottom: 8 }}><span className="lbl">Money out</span><span className="v" style={{ color: 'var(--neg-t)' }}>−{iskBig(f.outTotal)}</span></div>
               <div className="col" style={{ gap: 9 }}>
                 {outs.length ? outs.map((l) => (
-                  <BarLine key={l.key} label={l.label} value={`−${iskBig(l.amount)}`} frac={l.amount / fmax} color={OUT_COLOR[l.key] ?? '#adbfcf'}
-                    kind={l.kind} kindColor={l.kind === 'Personal' ? '#ff8d9a' : '#90a5b8'} />
+                  <FlowLine key={l.key} l={l} sign="−" frac={l.amount / fmax} color={OUT_COLOR[l.key] ?? '#adbfcf'} kindColor={l.kind === 'Personal' ? '#ff8d9a' : '#90a5b8'} />
                 )) : <p className="note">Nothing went out.</p>}
               </div>
             </div>
@@ -553,7 +593,8 @@ function WhereItSits(props: {
     });
   }
   const sorted = rows.sort((a, b) => (b.v ?? -1) - (a.v ?? -1));
-  const shown = sorted.slice(0, 8);
+  const [allPlaces, setAllPlaces] = useState(false);
+  const shown = allPlaces ? sorted : sorted.slice(0, 8);
   const idleNames = shown.filter((r) => r.flag === 'Idle' && r.k.startsWith('loc:') && r.named).map((r) => r.l);
   const idleElsewhere = shown.some((r) => r.flag === 'Idle' && r.k.startsWith('loc:') && !r.named);
   const idleLp = shown.some((r) => r.flag === 'Idle' && r.k.startsWith('lp:'));
@@ -589,7 +630,11 @@ function WhereItSits(props: {
             <span className="lv">{r.v == null ? (rough || !props.hasAssets ? '–' : 'Pricing…') : iskBig(r.v)}</span>
           </div>
         ))}
-        {sorted.length > shown.length && <p className="note small" style={{ marginTop: 8 }}>And {sorted.length - shown.length} smaller places.</p>}
+        {sorted.length > 8 && (
+          <button type="button" className="link-btn" style={{ marginTop: 8 }} onClick={() => setAllPlaces(!allPlaces)}>
+            {allPlaces ? 'Show the biggest 8' : `Show all ${sorted.length}: ${sorted.length - shown.length} smaller place${sorted.length - shown.length === 1 ? '' : 's'}`}
+          </button>
+        )}
       </div>
       <p className="note">
         {!d.stock ? 'Hangars aren’t counted: that needs the assets permission.'

@@ -1004,6 +1004,20 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 /* A page scrolled from its top edge still bounces on its own; the pull indicator is what shows. */
 .content, .landing { overscroll-behavior-y: contain; }
 
+
+/* A panel whose title folds it away (Orders' Weakest slots). */
+.panel-toggle { display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; color: inherit; text-align: left; cursor: pointer; }
+.panel-toggle .chev { width: 14px; height: 14px; color: var(--acc); transition: transform .25s; flex: none; }
+.panel-toggle[aria-expanded='true'] .chev { transform: rotate(90deg); }
+
+/* A Wallet money line opened to what's behind it (FlowLine in Wallet.tsx). */
+.flow-parts { margin: 6px 0 2px 22px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.flow-parts .kv { gap: 12px; }
+.flow-parts .kv > span:first-child { color: var(--body); min-width: 0; overflow-wrap: anywhere; }
+.flow-parts .panel-toggle { font-size: 12.5px; color: var(--body); }
+.flow-entries { margin: 4px 0 6px 22px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--sec); }
+.flow-entries .kv > span:first-child { color: var(--sec); }
+
 /* Phones. Last in the file on purpose: these override base rules of the same weight, which a later rule would win. */
 @media (max-width: 640px) {
   /* Phones (checked at 390 px by `PHONE=1 npm run check-pages`): nothing may stick out past the screen's edge. Rows,
@@ -1028,8 +1042,3 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
   .theme-grid { grid-template-columns: minmax(0, 1fr) !important; }
   .newpos input { min-width: 0; max-width: 100%; }
 }
-
-/* A panel whose title folds it away (Orders' Weakest slots). */
-.panel-toggle { display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; color: inherit; text-align: left; cursor: pointer; }
-.panel-toggle .chev { width: 14px; height: 14px; color: var(--acc); transition: transform .25s; flex: none; }
-.panel-toggle[aria-expanded='true'] .chev { transform: rotate(90deg); }

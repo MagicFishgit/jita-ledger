@@ -87,7 +87,28 @@ export function categoryOf(e: Pick<JournalEntry, 'refType' | 'amount'>): Categor
 /** Running costs: the ones that recur whatever you are doing. */
 export const RUNNING = new Set(['rent', 'couriers', 'planets', 'clones']);
 
-export type Line = { key: string; label: string; amount: number; kind?: FlowKind; count: number };
+export type Line = {
+  key: string; label: string; amount: number; kind?: FlowKind; count: number;
+  /** What's behind it, biggest first: the kinds of journal entry it holds, or the items its trades were in. */
+  parts: Part[];
+};
+/** One kind of journal entry (`refType`, with its entries) or one item (`typeId`) inside a line. */
+export type Part = {
+  key: string; label: string; amount: number; count: number; typeId?: number; refType?: string;
+  /** The entries themselves, biggest first, for a kind of journal entry. At most PART_ENTRIES. */
+  entries?: { id: string; date: string; amount: number; text: string }[];
+};
+/** Entries kept per kind of journal entry, for opening a line up to the entries behind it. */
+export const PART_ENTRIES = 100;
+
+/** A journal entry kind in words: ESI's own name, readable ("player_trading" → "Player trading"), or a plainer one. */
+const REF_SAID: Record<string, string> = {
+  player_donation: 'Donations', bounty_prizes: 'Bounties', agent_mission_reward: 'Mission rewards', agent_mission_time_bonus_reward: 'Mission time bonuses',
+  ess_escrow_transfer: 'ESS payouts', insurance: 'Insurance payouts', brokers_fee: 'Broker fees', transaction_tax: 'Sales tax',
+  asset_safety_recovery_tax: 'Asset safety fee', contract_price: 'Contract prices', contract_reward: 'Courier rewards', lp_store: 'Loyalty store',
+  corporation_account_withdrawal: 'Corporation withdrawals', daily_goal_payouts: 'Daily goal payouts', skill_purchase: 'Skill books',
+};
+export const refSaid = (r: string) => REF_SAID[r] ?? (r.charAt(0).toUpperCase() + r.slice(1).replace(/_/g, ' '));
 
 /** How a trade counts in the flows: tracked trading, or something else. */
 export type TradeClass = { tracked: boolean; tag: UntrackedTag };
@@ -105,18 +126,23 @@ export function flows(
   since: number,
   until = Infinity,
 ): { ins: Line[]; outs: Line[]; inTotal: number; outTotal: number } {
-  const lines = new Map<string, Line>();
-  const add = (c: Category, amount: number) => {
-    const cur = lines.get(c.key) ?? { key: c.key, label: c.label, kind: c.kind, amount: 0, count: 0 };
+  const lines = new Map<string, Line & { byPart: Map<string, Part> }>();
+  const add = (c: Category, amount: number, part: Omit<Part, 'amount' | 'count' | 'entries'>, entry?: { id: string; date: string; text: string }) => {
+    const cur = lines.get(c.key) ?? { key: c.key, label: c.label, kind: c.kind, amount: 0, count: 0, parts: [], byPart: new Map() };
     cur.amount += amount;
     cur.count++;
+    const p = cur.byPart.get(part.key) ?? { ...part, amount: 0, count: 0, ...(entry ? { entries: [] } : {}) };
+    p.amount += amount;
+    p.count++;
+    if (entry) p.entries!.push({ ...entry, amount });
+    cur.byPart.set(part.key, p);
     lines.set(c.key, cur);
   };
   for (const e of journal) {
     const t = Date.parse(e.date);
     if (t < since || t >= until) continue;
     const c = categoryOf(e);
-    if (c) add(c, e.amount);
+    if (c) add(c, e.amount, { key: `ref:${e.refType}`, label: refSaid(e.refType), refType: e.refType }, { id: e.id, date: e.date, text: e.description ?? e.reason ?? '' });
   }
   for (const tx of txs) {
     const t = Date.parse(tx.date);
@@ -124,13 +150,22 @@ export function flows(
     const v = tx.qty * tx.unitPrice;
     const k = classOf(tx);
     const trading = k.tracked || k.tag === 'trading';
-    if (!tx.isBuy) add(trading ? { key: 'trading', label: 'Trading' } : { key: 'loot', label: 'Loot & other sales' }, v);
-    else if (k.tag === 'personal') add({ key: 'personal', label: 'Personal purchases', kind: 'Personal' }, -v);
-    else add(trading ? { key: 'stock', label: 'Stock bought to resell', kind: 'Business' } : { key: 'otherBuys', label: 'Other purchases' }, -v);
+    const item = { key: `type:${tx.typeId}`, label: '', typeId: tx.typeId };
+    if (!tx.isBuy) add(trading ? { key: 'trading', label: 'Trading' } : { key: 'loot', label: 'Loot & other sales' }, v, item);
+    else if (k.tag === 'personal') add({ key: 'personal', label: 'Personal purchases', kind: 'Personal' }, -v, item);
+    else add(trading ? { key: 'stock', label: 'Stock bought to resell', kind: 'Business' } : { key: 'otherBuys', label: 'Other purchases' }, -v, item);
   }
+  // Money out is shown as positive amounts, parts and entries alike; the biggest first everywhere.
+  const finish = (l: Line & { byPart: Map<string, Part> }, sign: 1 | -1): Line => {
+    const parts = [...l.byPart.values()].map((p) => ({
+      ...p, amount: p.amount * sign,
+      ...(p.entries ? { entries: p.entries.map((x) => ({ ...x, amount: x.amount * sign })).sort((a, b) => b.amount - a.amount).slice(0, PART_ENTRIES) } : {}),
+    })).sort((a, b) => b.amount - a.amount);
+    return { key: l.key, label: l.label, kind: l.kind, amount: l.amount * sign, count: l.count, parts };
+  };
   const all = [...lines.values()];
-  const ins = all.filter((l) => l.amount > 0).sort((a, b) => b.amount - a.amount);
-  const outs = all.filter((l) => l.amount < 0).map((l) => ({ ...l, amount: -l.amount })).sort((a, b) => b.amount - a.amount);
+  const ins = all.filter((l) => l.amount > 0).map((l) => finish(l, 1)).sort((a, b) => b.amount - a.amount);
+  const outs = all.filter((l) => l.amount < 0).map((l) => finish(l, -1)).sort((a, b) => b.amount - a.amount);
   return {
     ins, outs,
     inTotal: ins.reduce((t, l) => t + l.amount, 0),

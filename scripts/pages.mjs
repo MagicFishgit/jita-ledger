@@ -113,8 +113,9 @@ function large() {
   }
   for (let i = 0; i < 300; i++) {
     const t = NOW - Math.floor(r() * 60 * DAY);
-    const kind = pick(['bounty_prizes', 'agent_mission_reward', 'player_donation', 'contract_price', 'planetary_import_tax', 'insurance', 'contract_reward', 'lp_store']);
-    const amount = kind === 'planetary_import_tax' || kind === 'lp_store' ? -Math.round(r() * 5e6) : Math.round(r() * 3e7);
+    // Kinds the Wallet has no group for too, so "Other income" and "Other spending" have something to open.
+    const kind = pick(['bounty_prizes', 'agent_mission_reward', 'player_donation', 'contract_price', 'planetary_import_tax', 'insurance', 'contract_reward', 'lp_store', 'player_trading', 'kill_right_fee', 'asset_safety_recovery_tax', 'war_fee']);
+    const amount = ['planetary_import_tax', 'lp_store', 'asset_safety_recovery_tax', 'war_fee'].includes(kind) ? -Math.round(r() * 5e6) : Math.round(r() * 3e7);
     journal.push({ id: String(jid++), date: iso(t), refType: kind, amount, firstPartyId: 1000000 + Math.floor(r() * 50), secondPartyId: 95210486, description: kind });
   }
   const { journal: j, balance } = withBalances(journal, 5_000_000_000);

@@ -1221,6 +1221,17 @@ eq('money in adds bounties and sales', fl.inTotal, 1000 + 1000 + 500);
 eq('escrow is not spending', fl.outTotal, 50 + 500);
 eq('an untracked sale is loot, not trading', fl.ins.find((l) => l.key === 'loot').amount, 500);
 eq('a tracked buy is stock', fl.outs.find((l) => l.key === 'stock').amount, 500);
+const other = flows(
+  [J('o1', '2026-09-20T00:00:00Z', 'player_trading', 700, { description: 'Trade with Bob' }), J('o2', '2026-09-21T00:00:00Z', 'player_trading', 200, { description: 'Trade with Ann' }),
+    J('o3', '2026-09-21T00:00:00Z', 'kill_right_fee', 90), J('o4', '2026-09-22T00:00:00Z', 'asset_safety_recovery_tax', -40)],
+  [tx2('x', '2026-09-20T00:00:00Z', true, 2, 50, 35), tx2('y', '2026-09-21T00:00:00Z', true, 1, 300, 36), tx2('z', '2026-09-22T00:00:00Z', true, 1, 10, 35)],
+  () => ({ tracked: false, tag: 'other' }), Date.parse('2026-09-01T00:00:00Z'),
+);
+const otherIn = other.ins.find((l) => l.key === 'otherIn');
+eq('Other income opens to the kinds of entry behind it, biggest first', otherIn.parts.map((p) => [p.label, p.amount, p.count]), [['Player trading', 900, 2], ['Kill right fee', 90, 1]]);
+eq('  and each kind to its entries', otherIn.parts[0].entries.map((e) => [e.text, e.amount]), [['Trade with Bob', 700], ['Trade with Ann', 200]]);
+eq('money out’s parts are positive too', other.outs.find((l) => l.key === 'safety').parts[0].entries[0].amount, 40);
+eq('Other purchases opens to the items bought', other.outs.find((l) => l.key === 'otherBuys').parts.map((p) => [p.typeId, p.amount, p.count]), [[36, 300, 1], [35, 110, 2]]);
 const jr = [
   J('10', '2026-09-20T00:00:00Z', 'brokers_fee', -100, { contextId: 7 }), J('11', '2026-09-21T00:00:00Z', 'brokers_fee', -30, { contextId: 7 }),
   J('12', '2026-09-21T00:00:00Z', 'transaction_tax', -80), J('13', '2026-09-21T00:00:00Z', 'planetary_export_tax', -5),

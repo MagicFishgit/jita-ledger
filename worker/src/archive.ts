@@ -150,8 +150,11 @@ export async function archive(env: Env, charId: number): Promise<ArchiveResult> 
     const unnamed = wraps.filter((w) => !named.has(w.id)).map((w) => w.id);
     if (unnamed.length) {
       try {
-        for (const n of await esiPost<{ item_id: number; name: string }[]>(`/characters/${charId}/assets/names/`, unnamed, token)) if (n.name && n.name !== 'None') named.set(n.item_id, n.name);
-      } catch { /* unnamed until the next read */ }
+        const got = await esiPost<{ item_id: number; name: string }[]>(`/characters/${charId}/assets/names/`, unnamed, token);
+        // Being checked (28 September 2026): whether ESI names a wrap after the lost structure, as the client shows it.
+        console.log('asset safety names', JSON.stringify(got));
+        for (const n of got) if (n.name && n.name !== 'None') named.set(n.item_id, n.name);
+      } catch (e) { console.log('asset safety names failed', e instanceof Error ? e.message : String(e)); }
     }
     const reg = await registerSafety(db, charId, wraps.map((w) => ({ ...w, ...(named.has(w.id) ? { name: named.get(w.id) } : {}) })));
     stock.safety = mergeSafety(prev?.safety, wraps.map((w) => ({ ...w, ...(named.has(w.id) ? { name: named.get(w.id) } : {}) })), reg.known);
