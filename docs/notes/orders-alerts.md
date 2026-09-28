@@ -28,8 +28,8 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   - **Share** (`share_track`): the same `measureShare` as Settings' button, once a day per ledger from the cloud's
     copy of its trades, beside the setting then. Settings shows the latest reading until you measure by hand, and
     Prospects and the planner say so (`ShareCheck`) when the setting is over twice what it suggests, since every size
-    there is linear in it. The local copy of the user's ledger measured 7.7% on buys and 17.7% on sells (8.5%
-    suggested, against their 6%), so nothing shows for them now.
+    there is linear in it. Its first production run (13:07 UTC, 28 September 2026) measured the user's trades at
+    6.0% on buys (34 item-days) and 15.8% on sells (86), 7.5% suggested against their 6%, so nothing shows for them.
 - **The cloud mails you when one of its jobs fails twice in a row** (`lib/watchdog.ts` pure, `worker/src/watchdog.ts`,
   alert kind `watchdog`, "Cloud job failing", on and mailed by default). Its jobs (copying the ledger, reading
   orders, alert checks, mail tidying, planets, the full scan, the Sniper, the daily checks) fail quietly while nobody

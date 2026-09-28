@@ -34,6 +34,8 @@ Decisions worth not undoing. How the ledger lives in the cloud as well as the br
   or changed, and keeps one net-worth point a day the Wallet's way; the market watch (`worker/src/market.ts`) does
   `bookFills` all day on every item any ledger has open orders, open positions or watchlist entries on, and the app
   merges that flow with its own (`setCloudFlow`, cloud wins per day).
+- **Every job reports to `jobs`, and the Sniper does it every five minutes** (for the watchdog, see orders-alerts):
+  about 290 row writes a day for the Sniper on top of the per-ledger jobs, well inside the plan's 50 M a month.
 - **The cloud's hour-by-hour prices show on the Calculator** ("Jita, hour by hour": best bid and ask per hour
   from `/v1/prices`, a missing hour breaking the line) for items the cloud watches. ESI's history is daily; this is
   the only view inside a day. Nothing shows without the cloud or for items it doesn't watch.
