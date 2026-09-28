@@ -4,6 +4,9 @@ import { sidePaceOf } from './flow';
 import { loadFlow, settleFlow, watchedDays, watchedFlow } from './flowStore';
 import { paceDay } from './prospects';
 import { computePosition } from './positions';
+import { heldCost } from './heldCost';
+import { instantBuys } from './sniped';
+import { rates } from './fees';
 import { byUrgency, judgeOrder, type Relist } from './relist';
 import { buyerShare, type BookSold } from './split';
 import { recentRange } from './fills';
@@ -124,6 +127,21 @@ export function costBasis(d: Data): Record<number, number> {
     if (p.status !== 'open') continue;
     const avg = computePosition(p, d, d.settings).avgCost;
     if (avg != null) out[p.typeId] = avg;
+  }
+  // Stock no open position covers (a snipe, a buy made without a position): what your latest buys of it cost, so the
+  // guards against selling at a loss apply to it too (heldCost).
+  const listed = new Map<number, number>();
+  for (const o of jitaOpen(d)) if (!o.isBuy && out[o.typeId] == null) listed.set(o.typeId, (listed.get(o.typeId) ?? 0) + o.volumeRemain);
+  if (!listed.size) return out;
+  const personal = new Set(d.ignored);
+  const txs = Object.values(d.txs).filter((t) => t.isBuy && listed.has(t.typeId) && !personal.has(t.id));
+  const fromListing = new Set(instantBuys(txs, Object.values(d.journal), personal).map((t) => t.id));
+  const byType = new Map<number, typeof txs>();
+  for (const t of txs) byType.set(t.typeId, [...(byType.get(t.typeId) ?? []), t]);
+  const f = rates(d.settings).f;
+  for (const [typeId, onSale] of listed) {
+    const c = heldCost(byType.get(typeId) ?? [], onSale + (d.stock?.jita[typeId] ?? 0), fromListing, f);
+    if (c != null) out[typeId] = c;
   }
   return out;
 }

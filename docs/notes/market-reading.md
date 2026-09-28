@@ -153,6 +153,16 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   yours it takes when it can't take all; To do and the mail use the same sentence. This applies to
   sells you're leaving too. Its `loss` check is on the price it moves to. More sells can now raise a "move" alert,
   including ones already at the front; the alert minimum still applies.
+- **Stock no open position covers still has a cost** (`heldCost`, used by `costBasis` in orderCheck.ts). The guards
+  against selling at a loss (a move under cost is "Not worth it", selling into bids never under cost) read `avgCost`,
+  which came from open positions only; the Sniper's buys are followed on its page, never as positions, so a sniped item
+  had none. The user asked that a sniped item never be moved to a loss. Now an item with no open position is costed
+  at its latest buys, newest first, until they cover what's held (Jita hangar plus listed): a listing buy at its price,
+  a buy-order fill plus the broker fee, Personal trades left out; loot, with no buys, has no cost. The cloud reads the
+  same through the pushed `costs` doc. On the user's 102 sell orders (28 September 2026) only 2 had a cost before; 7
+  more got one, all bought from listings, and two went from "Leave it" to "Not worth it": Warrior I Blueprint (bought
+  at 999,900, the front a move to 999,800) and Frigoris Restrained Ice Harvester Upgrade (~8.6 M, move to 8,499,000).
+  The guard is "not under cost after fees", not a profit target.
 - **Every feature that prices a new listing uses `listingPrice` (fills.ts)**, the same rule as Orders: one step under
   the cheapest listing when trading got up there on `FILL_RARE` of 14 days, else where it got up to on half of them,
   never under one step over the best bid. The user asked, after the Orders refinements, whether the other features

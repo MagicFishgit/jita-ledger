@@ -2508,6 +2508,28 @@ console.log('\n--- where a new listing sells, everywhere a listing is priced ---
   eq('Hub arbitrage lists at the hub where trading reaches too', priceHub(hub, 'sells', { f: 0.013, t: 0.03375 }, 5, 7)?.listAt, 100100);
 }
 
+console.log('\n--- a sniped item is never moved to a loss ---');
+{
+  const { heldCost } = await import('../src/lib/heldCost.ts');
+  const { judgeOrder: judge } = await import('../src/lib/relist.ts');
+  const { DEFAULT_SETTINGS } = await import('../src/lib/fees.ts');
+  // Snipes aren't positions, so Orders had no cost for them (costBasis read open positions only).
+  const T = (id, date, qty, unitPrice) => ({ id, date, qty, unitPrice });
+  const snipe = [T('s1', '2026-09-27T10:00:00Z', 10, 50000)];
+  eq('a snipe of 10 at 50,000, from a listing: that is what the 10 held cost', heldCost(snipe, 10, new Set(['s1']), 0.013), 50000);
+  eq('  a fill of your own buy order paid the broker fee too', heldCost(snipe, 10, new Set(), 0.013), 50650);
+  eq('  newest buys first, as many as you hold', heldCost([T('a', '2026-09-01T00:00:00Z', 100, 10000), T('b', '2026-09-27T00:00:00Z', 5, 20000)], 8, new Set(['a', 'b']), 0), (5 * 20000 + 3 * 10000) / 8);
+  eq('  no buys (loot): no cost to fall under', heldCost([], 10, new Set(), 0.013), null);
+  // Listed at 70,000, the front at 45,000: getting in front would sell under the 50,000 it cost.
+  const book = [{ id: 1, isBuy: false, price: 70000, volume: 10 }, { id: 2, isBuy: false, price: 45000, volume: 3 }, { id: 3, isBuy: true, price: 30000, volume: 50 }];
+  const o = { orderId: 1, typeId: 5973, isBuy: false, price: 70000, volumeRemain: 10, locationId: 60003760 };
+  const now = Date.parse('2026-09-28T20:00:00Z');
+  const blind = judge(o, { book, perDay: 20, lows: null, txs: [] }, DEFAULT_SETTINGS, now);
+  const guarded = judge(o, { book, perDay: 20, lows: null, txs: [], avgCost: heldCost(snipe, 10, new Set(['s1']), 0.013) }, DEFAULT_SETTINGS, now);
+  eq('without its cost, Orders can\'t tell that the front is under what the snipe cost', [blind.verdict === 'loss', blind.newPrice], [false, 44990]);
+  eq('  with it: not worth it, it would sell under what the stock cost you', [guarded.verdict, guarded.why], ['loss', 'Matching them would sell under what the stock cost you']);
+}
+
 console.log('\n--- an item\'s daily rhythm ---');
 {
   const { busyHours, busySaid, spreadAtHour } = await import('../src/lib/rhythm.ts');

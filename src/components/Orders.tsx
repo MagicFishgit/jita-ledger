@@ -131,7 +131,7 @@ export function Orders() {
   const open = useMemo(() => Object.values(d.orders).filter((o) => o.state === 'open' && o.volumeRemain > 0), [d.orders]);
   const mine = useMemo(() => jitaOpen(d), [d.orders]); // eslint-disable-line react-hooks/exhaustive-deps
   const elsewhere = open.length - mine.length;
-  const cost = useMemo(() => costBasis(d), [d.positions, d.txs, d.journal, d.orders, d.settings]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cost = useMemo(() => costBasis(d), [d.positions, d.txs, d.journal, d.orders, d.settings, d.stock, d.ignored]); // eslint-disable-line react-hooks/exhaustive-deps
   // The cloud's watched trade feeds each order's pace, so its arrival re-reads the verdicts.
   const flowV = useFlow();
   const all: Relist[] = useMemo(() => verdicts(d, check, cost), [d, check, cost, flowV]); // eslint-disable-line react-hooks/exhaustive-deps
