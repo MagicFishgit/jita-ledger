@@ -184,6 +184,14 @@ Don't re-derive or contradict these without new evidence.
   way it arrives as the wrap, and dragging items out after an automatic delivery to another system costs 15% of each
   one's estimated price. The client shows the countdown and the destination (Assets → Asset Safety); ESI shows
   neither, and a delivered wrap's shape was not yet seen when this was written.
+- **The multi-item Sell window can import prices from the clipboard** (patch 23.01, June 2025: one line per item, its
+  name then its price; "Decimal Point" / "Decimal Comma" pick the decimal mark). Each line placed as an order takes an
+  order slot, and the duration applies to the whole window. Its **export**, checked on the user's own (29 September
+  2026), is one line per item: type ID, name, quantity, unit price, total, with decimal points and no thousands
+  separators (`4477  Small Gremlin Compact Energy Neutralizer  1  40000.0  40000.0`). A hangar copied in list view
+  (Ctrl+A, Ctrl+C) gives name and quantity per line. Pasted through chat, the tabs arrived as runs of spaces. Not yet
+  tested: what the import does with a selected item missing from the clipboard, and (CCP's support page says so,
+  players dispute it) whether a sell order priced under a higher bid fills at its own lower price.
 - **Hauler capacities are read from ESI, not remembered.** A Charon holds **465,000** m³, not the
   1,100,000 once written here — that was an expanded fit passed off as the hull, and it would send
   someone to a contract they cannot pick up. For hulls with a fleet hangar the usable figure is cargo

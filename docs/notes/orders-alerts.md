@@ -109,6 +109,19 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
 - **To do's Sell into bids items are judged like order items.** The dispatch listed move and cancel but not bid, so
   a bid item fell to the default judge and was ticked "It no longer needs doing" the moment it went missing, before
   the orders had even been checked.
+- **List loot prices a hangar of loot for the Sell window's import** (`lib/lootList.ts` pure, `Loot.tsx`, nav "List
+  loot"). The user had junk loot and didn't want to "just immediate bulk sell because that sells to buy orders and you
+  lose out money". Paste the hangar (list view, Ctrl+C) or the Sell window's export, or use the synced Jita hangar.
+  Each item is priced where a listing sells (`listingPrice`), set against what the bids pay now after tax
+  (`walkBids`), with your own orders taken out of the book; listing must beat the bids by your target and 1,000 ISK,
+  and a listing over a year from selling goes to the bids. The listings that gain most per day of a slot fill the free
+  order slots (slots from skills, less your open orders); the rest wait for a slot. Items with an open position, or a
+  sell order of yours already on them, are left out unless included: the user wants to "confidently sell loot and
+  when I want to, positions". The block copied is `name<TAB>price` per listing in the chosen decimal form; prices over
+  five minutes old say to price again. First version sent a slow item to the bids: 18 Small 'Hope' Hull Reconstructor I,
+  ~86 days listed but 1.29 M against 26 k in the bids, the best use of a slot per day in the lot; slow now only reads
+  as slow. On the user's 28 items it listed 12, sent 11 to the bids (listing one step over their bid gets less than
+  the bid after the broker fee) and held 5 for slots.
 - **Pages that need the same live answer share one store**: `orderCheck` (your orders against the book),
   `watch` (squeeze and scam signals), `colonyStore` and the killmail pricer. Orders, To do and the
   alerts all read `orderCheck` rather than fetching the same books three times.

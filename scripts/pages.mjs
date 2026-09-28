@@ -21,7 +21,7 @@ const STRANGER_AUTH = { ...OWNER_AUTH, characterId: 12345, characterName: 'Stran
 
 const PAGES = [
   'wallet', 'todo', 'calculator', 'calculator?type=34', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper',
-  'positions', 'positions/{first}', 'orders', 'results', 'loyalty',
+  'positions', 'positions/{first}', 'orders', 'loot', 'results', 'loyalty',
   'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/injectors', 'combat', 'omega',
   'settings/account', 'settings/skills', 'settings/rates', 'settings/alerts', 'settings/appearance', 'settings/data', 'settings/scan',
 ];

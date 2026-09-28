@@ -2553,6 +2553,43 @@ console.log('\n--- a sell priced under what it cost ---');
   eq('  but not on an older check, or while still under cost', [judgeUnderCost(e, { open: true, checkedAt: 500, bookRead: true, v: { gone: false, price: 53000 } }), judgeUnderCost(e, { open: true, checkedAt: 2000, bookRead: true, v: { gone: false, price: 40000, underCost: {} } })], [null, null]);
 }
 
+console.log('\n--- listing loot through the Sell window ---');
+{
+  const { parseLoot, judgeLoot, planLoot, importBlock, importPrice } = await import('../src/lib/lootList.ts');
+  // The user's own pastes (29 September 2026): the Sell window's export, and the hangar copied in list view. A paste
+  // through chat turned the tabs into runs of spaces, so both forms are tried with each.
+  const exported = '4477    Small Gremlin Compact Energy Neutralizer    1    40000.0    40000.0\n207\tMjolnir Heavy Missile\t200\t74.48\t14896.0\n25709    Upgraded \'Malkuth\' Heavy Assault Missile Launcher I    1    19120.0    19120.0';
+  eq('the Sell window export: type ID, name, quantity', parseLoot(exported).rows, [
+    { typeId: 4477, name: 'Small Gremlin Compact Energy Neutralizer', qty: 1 }, { typeId: 207, name: 'Mjolnir Heavy Missile', qty: 200 },
+    { typeId: 25709, name: "Upgraded 'Malkuth' Heavy Assault Missile Launcher I", qty: 1 }]);
+  const hangar = "YO-5000 Rapid Heavy Missile Launcher    1\nPositron Cord\t734\n'Stoic' Core Equalizer I    2\nPositron Cord    1,000\nTritanium\t\tMineral\n\n";
+  eq('a hangar copy: name and quantity (split stacks added up, an empty quantity is one)', parseLoot(hangar).rows, [
+    { typeId: null, name: 'YO-5000 Rapid Heavy Missile Launcher', qty: 1 }, { typeId: null, name: 'Positron Cord', qty: 1734 },
+    { typeId: null, name: "'Stoic' Core Equalizer I", qty: 2 }, { typeId: null, name: 'Tritanium', qty: 1 }]);
+  const R = { f: 0.0127, t: 0.03375 };
+  const L = (id, isBuy, price, volume) => ({ id, isBuy, price, volume });
+  const highs = Array(14).fill(110);
+  // Listings at 100 that trade up to 110; bids at 60: listing 50 units gains a lot over dumping.
+  const good = judgeLoot({ typeId: 1, name: 'Good Loot', qty: 50 }, { others: [L(1, false, 100, 20), L(2, true, 60, 500)], highs, perDay: 200, buyers: 0.6 }, R, 7.5, 0.05);
+  eq('worth listing: one step under the cheapest listing, well over the bids', [good.verdict, good.listAt], ['list', 99.99]);
+  // Bids almost as good as a listing: not worth a slot.
+  const close = judgeLoot({ typeId: 2, name: 'Close', qty: 50 }, { others: [L(1, false, 100, 20), L(2, true, 99, 500)], highs, perDay: 200, buyers: 0.6 }, R, 7.5, 0.05);
+  eq('bids nearly as good as listing: sell into them', close.verdict, 'bids');
+  // Buyers barely take listings: sell into the bids now.
+  // The user's Small 'Hope' Hull Reconstructor I: months to sell listed, but far more than the bids pay.
+  const slow = judgeLoot({ typeId: 3, name: 'Slow', qty: 18 }, { others: [L(1, false, 75000, 3), L(2, true, 1500, 900)], highs: Array(14).fill(80000), perDay: 3, buyers: 0.5 }, R, 7.5, 0.05);
+  eq('slow but worth far more listed: list it, and say it\'s slow', [slow.verdict, slow.why.endsWith('slow, but worth the slot')], ['list', true]);
+  const never = judgeLoot({ typeId: 3, name: 'Never', qty: 500 }, { others: [L(1, false, 100, 20), L(2, true, 60, 900)], highs, perDay: 0.2, buyers: 0.1 }, R, 7.5, 0.05);
+  eq('  over a year to sell: the bids', [never.verdict, never.why.startsWith('Listed at 100 ISK it would take')], ['bids', true]);
+  eq('no market at all: skip', judgeLoot({ typeId: 4, name: 'Nothing', qty: 5 }, { others: [], highs: null, perDay: null, buyers: 0.5 }, R, 7.5, 0.05).verdict, 'skip');
+  // Held items stay out unless included; the listings fill the free slots best first.
+  const held = judgeLoot({ typeId: 5, name: 'Held', qty: 50 }, { others: [L(1, false, 100, 20), L(2, true, 60, 500)], highs, perDay: 200, buyers: 0.6 }, R, 7.5, 0.05, 'position');
+  const plan = planLoot([good, held, { ...good, typeId: 6, name: 'Second', perSlotDay: 1 }], 1, new Set());
+  eq('an item with an open position is left out; one free slot goes to the best', plan.map((c) => c.verdict), ['list', 'held', 'noSlot']);
+  eq('  unless you include it', planLoot([held], 5, new Set([5]))[0].verdict, 'list');
+  eq('the import block: name, a tab, the price as the window reads it', [importBlock(plan, 'point'), importPrice(1234.5, 'comma'), importPrice(40000, 'point')], ['Good Loot\t99.99', '1234,50', '40000']);
+}
+
 console.log('\n--- an item\'s daily rhythm ---');
 {
   const { busyHours, busySaid, spreadAtHour } = await import('../src/lib/rhythm.ts');
