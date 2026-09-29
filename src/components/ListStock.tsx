@@ -12,6 +12,7 @@ import { toast } from '../lib/toast';
 import { typeKind } from '../lib/universe';
 import { useEnsureNames } from './common';
 import { Check, Flag, ItemIcon, Notice, Panel, Seg, Th } from './ui';
+import { SellWindowBanner } from './SellWindowBanner';
 
 const MARK_KEY = 'jita-ledger:loot-mark';
 
@@ -104,6 +105,7 @@ export function ListStock() {
     <div id="list-stock">
       <Panel title="List your stock in one paste" sub="What you bought that sits in your Jita hangar: positions’ fills, planner buys, snipes">
         <div className="col" style={{ gap: 12 }}>
+          <SellWindowBanner compact />
           {!calls ? (
             <>
               <p className="note" style={{ margin: 0 }}>

@@ -16,6 +16,7 @@ import { useEnsureNames } from './common';
 import { Check, Empty, Flag, Guide, ItemIcon, Notice, PageHead, Panel, Seg, SortTh, Th, Tiles } from './ui';
 import type { HistRow } from '../lib/types';
 import { TradeSkillsLine } from './SkillStrip';
+import { SellWindowBanner } from './SellWindowBanner';
 
 type Item = { typeId: number; name: string; qty: number };
 /** A hangar read's word on what's assembled or holding things, for setting aside what's in use. */
@@ -235,7 +236,9 @@ export function Loot() {
   return (
     <div className="page">
       <PageHead kicker="Loot" title="List loot"
-        lede="Price your loot where it actually sells, list the best of it through the game's Sell window in one paste, and sell the rest into the bids. Ships, snipes you still hold, items with an open position and items you already sell are left out unless you include them." />
+        lede="Price your loot where it actually sells, and see what's worth a listing and what's better sold into the bids. Ships, snipes you still hold, items with an open position and items you already sell are left out unless you include them." />
+
+      <SellWindowBanner />
 
       {!auth && <Notice kind="warn">Log in to read your orders and free order slots.</Notice>}
 

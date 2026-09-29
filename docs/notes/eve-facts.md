@@ -218,9 +218,21 @@ Don't re-derive or contradict these without new evidence.
   order slot, and the duration applies to the whole window. Its **export**, checked on the user's own (29 September
   2026), is one line per item: type ID, name, quantity, unit price, total, with decimal points and no thousands
   separators (`4477  Small Gremlin Compact Energy Neutralizer  1  40000.0  40000.0`). A hangar copied in list view
-  (Ctrl+A, Ctrl+C) gives name and quantity per line. Pasted through chat, the tabs arrived as runs of spaces. Not yet
-  tested: what the import does with a selected item missing from the clipboard, and (CCP's support page says so,
-  players dispute it) whether a sell order priced under a higher bid fills at its own lower price.
+  (Ctrl+A, Ctrl+C) gives name and quantity per line. Pasted through chat, the tabs arrived as runs of spaces.
+  **The import only prices rows already in the window; it never adds the items it names** (the user, in game, 29
+  September 2026). With three items in the window and prices for two, it priced the two and left the third, without a
+  word; a row left unpriced keeps the window's default, which for an order is the regional average (CCP's Phoebe dev
+  blog). So a paste can't pick the items: they have to be selected in the hangar first (right-click → Sell Items, or
+  dragged in; each row has an X to remove it). The Multibuy window's import does add items; the Sell window's doesn't.
+  Not yet tested: (CCP's support page says so, players dispute it) whether a sell order priced under a higher bid fills
+  at its own lower price, and whether it pays a broker fee.
+- **Inventory smart filters can't be written by an app.** Their criteria (the user's client, 29 September 2026):
+  Assembled, Blueprint copy, CPU usage, Clone State, Estimated unit price, Group, Meta group, Meta level, Name, Power
+  usage, Slot type, Stack size, Volume; Name takes Starts with / Does not start with / Is / Is not / Contains / Does not
+  contain; Match All or Any. Shared (drag the Share box into chat or mail), a filter is
+  `<a href="sharedSetting:e5983d9a1ea7d999e09cd742c820dd4678aaf5dc//1//2">Test</a>` (read through ESI from the user's
+  mail to themselves): a pointer to a copy the client uploaded to CCP's servers, not the criteria, so nothing outside
+  the client can make one. The official link-scheme list doesn't mention it.
 - **Hauler capacities are read from ESI, not remembered.** A Charon holds **465,000** m³, not the
   1,100,000 once written here — that was an expanded fit passed off as the hull, and it would send
   someone to a contract they cannot pick up. For hulls with a fleet hangar the usable figure is cargo

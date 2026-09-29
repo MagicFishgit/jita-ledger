@@ -581,6 +581,18 @@ input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.7); }
 .notice.err { --c: var(--neg); }
 .notice.ok { --c: var(--pos); }
 .notice code { font-family: var(--f-mono); font-size: 12px; color: var(--acc); }
+/* A tool that can't do its job yet, said before anything else on the page (SellWindowBanner.tsx). */
+.sell-banner { display: flex; gap: 16px; align-items: flex-start; padding: 18px 22px; background: color-mix(in oklab, var(--acc2) 9%, var(--panel));
+  border: 1px solid color-mix(in oklab, var(--acc2) 55%, transparent); border-left: 4px solid var(--acc2); color: var(--body); text-wrap: pretty; }
+.sell-banner > svg { width: 28px; height: 28px; flex: none; color: var(--acc2); margin-top: 2px; }
+.sell-banner-title { font-family: var(--f-head); font-size: 20px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--acc2); }
+.sell-banner p { margin: 6px 0 0; font-size: 14px; }
+.sell-banner ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; color: var(--sec); }
+.sell-banner ul b { color: var(--ink); font-weight: 500; }
+.sell-banner .sell-banner-foot { color: var(--label); font-size: 13px; }
+.sell-banner.compact { padding: 12px 14px; gap: 10px; font-size: 13px; }
+.sell-banner.compact > svg { width: 18px; height: 18px; margin-top: 1px; }
+.sell-banner.compact b { color: var(--acc2); font-weight: 600; }
 .msg { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; color: var(--c, #9fb3c5); animation: rise .3s ease-out; }
 .msg svg { width: 14px; height: 14px; flex: none; margin-top: 2px; }
 

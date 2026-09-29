@@ -142,6 +142,14 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
 - **To do's Sell into bids items are judged like order items.** The dispatch listed move and cancel but not bid, so
   a bid item fell to the default judge and was ticked "It no longer needs doing" the moment it went missing, before
   the orders had even been checked.
+- **List loot and List your stock say they're not usable at the moment** (`SellWindowBanner.tsx`, full on List loot,
+  compact on Positions' List your stock). The user tried the one-paste listing on 29 September 2026: the Sell window's
+  import only prices items already in the window (see eve-facts), so selecting the items in the hangar stays manual,
+  which was the whole point. An app-made filter link to select them was researched and ruled out (a filter link points
+  to a server-side copy). The user may ask CCP for the import to add the items it names, as Multibuy's does; the tools
+  stay, with the banner ("Not usable for listing at the moment"): the user still uses List loot to sort a pile of junk
+  loot into the few worth listing by hand and the rest to sell into the bids. Offered and declined for
+  now: a kept "Loot" filter with "Name is not" lines for trading stock, plus a list of rows to remove per pass.
 - **List loot prices a hangar of loot for the Sell window's import** (`lib/lootList.ts` pure, `Loot.tsx`, nav "List
   loot"). The user had junk loot and didn't want to "just immediate bulk sell because that sells to buy orders and you
   lose out money". Paste the hangar (list view, Ctrl+C) or the Sell window's export, or use the synced Jita hangar.
