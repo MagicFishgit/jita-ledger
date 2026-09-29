@@ -1303,7 +1303,12 @@ console.log('\n--- mining yields, from dogma ---');
 
 console.log('\n--- mining fits ---');
 {
-  const { oreFamily, mainFamily, crystalName, eftText, fitMultibuy, fittingBody, fitItems } = await import('../src/lib/miningFits.ts');
+  const { oreFamily, mainFamily, crystalName, eftText, fitMultibuy, fittingBody, fitItems, oreBase, gradeLabel, gradeRank, isMinedForm } = await import('../src/lib/miningFits.ts');
+  eq('an ore’s base, for every grade and form (ESI’s names, one with a trailing space)', ['Scordite II-Grade', 'Scordite 0-Grade ', 'Batch Compressed Scordite', 'Glistening Zeolites', 'Dark Ochre IV-Grade', 'Zuthrine'].map(oreBase), ['Scordite', 'Scordite', 'Scordite', 'Zeolites', 'Dark Ochre', null]);
+  eq('a grade’s label beside its base', [gradeLabel('Scordite', 'Scordite'), gradeLabel('Scordite 0-Grade ', 'Scordite'), gradeLabel('Brimful Zeolites', 'Zeolites')], ['Scordite', '0-Grade', 'Brimful']);
+  eq('grades run poorest first', ['IV-Grade', 'Scordite', 'II-Grade', '0-Grade', 'III-Grade'].sort((a, b) => gradeRank(a, 'Scordite') - gradeRank(b, 'Scordite')), ['0-Grade', 'Scordite', 'II-Grade', 'III-Grade', 'IV-Grade']);
+  eq('  and a moon ore’s: plain, Brimful, Glistening', ['Glistening', 'Zeolites', 'Brimful'].sort((a, b) => gradeRank(a, 'Zeolites') - gradeRank(b, 'Zeolites')), ['Zeolites', 'Brimful', 'Glistening']);
+  eq('compressed forms aren’t grades to mine', ['Scordite II-Grade', 'Compressed Scordite', 'Batch Compressed Scordite IV-Grade'].map(isMinedForm), [true, false, false]);
   const { MASTERY } = await import('../src/lib/miningMastery.ts');
   const { HULLS } = await import('../src/lib/miningTree.ts');
   eq('an ore’s crystal family, every grade and compressed form alike', ['Scordite', 'Compressed Massive Scordite', 'Dark Ochre III-Grade', 'Zeolites', 'Mercoxit', 'Tritanium'].map(oreFamily), ['Simple', 'Simple', 'Variegated', 'Ubiquitous Moon', 'Mercoxit', null]);

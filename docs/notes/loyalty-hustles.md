@@ -202,6 +202,17 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
   booster or hauler, the Skiff and Mackinaw are the solo high-sec exhumers. The research's first two requests sent a
   User-Agent naming the project and the user's contact details to ESI and zKillboard; later ones didn't, and a research
   prompt must say which User-Agent to send.
+  **Any ore and grade can be picked** (`ScalingUp` in Mining.tsx; `oreBase`, `gradeLabel`, `gradeRank`, `isMinedForm` in
+  miningFits.ts). The user, on seeing it priced for the ore mined most: "there should be a switch or a selector for
+  different ore and grades you can set so you can compare." An Ore select lists every asteroid and moon ore by crystal
+  family (47, resolved by name once; your mined ones marked; Mercoxit left out, since the fits' lasers can't mine it),
+  and a Grade row its grades poorest first (0-Grade, the plain ore, II-, III-, IV-Grade; Brimful and Glistening for
+  moon ore), read from the ore's inventory group: the market types named for it that aren't compressed. A moon ore's
+  group holds all four ores of its rarity, hence the name check, and ESI names Scordite 0-Grade with a trailing space,
+  which broke its "Compressed …" lookup until names were trimmed. The pick sets the crystals every fit loads and the ISK
+  a m³ behind Worth and payback (the page's own three-way pricing, now `priceOres`); the m³ a minute doesn't change. It
+  is kept in this browser, with "Back to <ore>, what you mine most". Checked against ESI: Kernite at Jita's 467.2 bid,
+  less 3.375% tax, over 1.2 m³ is the 376.19 a m³ shown.
   **Bonuses count only through their effect, for fitted items as for hulls.** A Drone Mining Augmentor carries the same
   434 (+10%) as a Mining Laser Upgrade, through a drone-only effect (623); counted by attribute it put the Retriever's
   Just in tier 10% high. Caught in review before shipping. Also found by looking: locked nodes were see-through (a lit

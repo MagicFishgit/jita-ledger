@@ -49,6 +49,12 @@ Traps in the code, the tools and the browser that have cost time before.
   runs it before publishing. Checked by planting a duplicate key on Omega and a throw on Combat: both failed, with
   the message. It uses `playwright-core` pinned to 1.61.1, the version whose Chromium (1228) the Playwright MCP had
   already downloaded here, so installing it fetched no browser.
+- **Restoring the test browser's IndexedDB while the app is open doesn't stick.** The app holds the ledger in memory
+  and writes a document back whenever it updates it, so a `put` made under it is overwritten: on 30 September 2026 a
+  restored `meta` got the stand-in skill queue back within a minute (the skills, which the app didn't touch, stayed
+  restored). Worse, the rewrite marks the document for the cloud (`cloud.dirty`), so the next real login in that browser
+  would push the stand-in data over the real cloud copy. Restore from a page on the same origin that isn't the app (an
+  image under `.playwright-mcp/` served by Vite), and take the seeded documents and records out of `cloud.dirty` too.
 - **`browser_navigate` to the same URL with another `#hash` keeps the old document**, including modules an
   HMR update failed to replace — a page can run stale code while the file on disk is right. `location.reload()`
   after edits, and import the app's own module instance (its `?t=` URL from `performance`), not the bare path.

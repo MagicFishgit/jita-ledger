@@ -35,7 +35,7 @@ export type Family = 'Simple' | 'Coherent' | 'Variegated' | 'Complex' | 'Abyssal
   | 'Ubiquitous Moon' | 'Common Moon' | 'Uncommon Moon' | 'Rare Moon' | 'Exceptional Moon';
 
 /** Which crystal family each ore takes, by the ore's base name (every grade and compressed form shares it). */
-const FAMILIES: [Family, string[]][] = [
+export const FAMILIES: [Family, string[]][] = [
   ['Simple', ['Veldspar', 'Scordite', 'Pyroxeres', 'Plagioclase', 'Mordunium']],
   ['Coherent', ['Hedbergite', 'Hemorphite', 'Jaspet', 'Kernite', 'Omber', 'Ytirium', 'Griemeer', 'Nocxite']],
   ['Variegated', ['Crokite', 'Dark Ochre', 'Gneiss', 'Kylixium']],
@@ -52,6 +52,31 @@ const FAMILIES: [Family, string[]][] = [
 export function oreFamily(oreName: string): Family | null {
   for (const [f, ores] of FAMILIES) if (ores.some((o) => new RegExp(`\\b${o}\\b`).test(oreName))) return f;
   return null;
+}
+
+/** The base ore an ore's name belongs to: "Scordite" for "Scordite II-Grade" or "Compressed Scordite", "Zeolites" for "Brimful Zeolites". */
+export function oreBase(oreName: string): string | null {
+  for (const [, ores] of FAMILIES) for (const o of ores) if (new RegExp(`\\b${o}\\b`).test(oreName)) return o;
+  return null;
+}
+
+/** A grade's short label beside its base: "II-Grade", "Brimful", or the base's own name for the plain ore. */
+export function gradeLabel(oreName: string, base: string): string {
+  return oreName === base ? base : oreName.replace(base, '').replace(/\s+/g, ' ').trim() || oreName;
+}
+
+/** A grade to offer: an ore as mined, not its compressed forms. */
+export const isMinedForm = (name: string) => !/\bCompressed\b/.test(name);
+
+/**
+ * Where a grade sits, poorest first: 0-Grade (the starter-space ore, fewer minerals), the plain ore, then II-, III- and
+ * IV-Grade; a moon ore's Brimful and Glistening. Anything else goes last.
+ */
+export function gradeRank(label: string, base: string): number {
+  if (label === base) return 0;
+  const g = /^(0|I{1,3}|IV)-Grade$/.exec(label.trim());
+  if (g) return g[1] === '0' ? -1 : g[1] === 'IV' ? 4 : g[1].length;
+  return label === 'Brimful' ? 1 : label === 'Glistening' ? 2 : 9;
 }
 
 /** The crystal's name in the game: "Simple Asteroid Mining Crystal Type A II", "Rare Moon Mining Crystal Type B I". */

@@ -33,11 +33,11 @@ type Loaded = {
   needs: { skill: number; level: number }[];
 };
 
-export function MasteryTiers({ hull, family, iskPerM3, fromRate, hullPrice }: {
+export function MasteryTiers({ hull, family, ore, iskPerM3, fromRate, hullPrice }: {
   hull: HullNode;
-  /** The crystal family to show: what you mine most. */
-  family: Family;
-  /** ISK a m³ of your own ore (or Scordite's until you've mined), for ISK an hour and payback. */
+  /** The crystal family to show, and the ore it's for: the one picked above the tree, else what you mine most. */
+  family: Family; ore: string;
+  /** ISK a m³ of that ore, for ISK an hour and payback. */
   iskPerM3: number | null;
   /** Your m³ a minute now (measured, or worked out for the ship you're in), for payback. */
   fromRate: number | null;
@@ -54,13 +54,13 @@ export function MasteryTiers({ hull, family, iskPerM3, fromRate, hullPrice }: {
         <Seg size="sm" label="Mastery tier" value={tier.key} onChange={setKey}
           options={TIER_ORDER.filter((k) => tiers.some((t) => t.key === k)).map((k) => ({ v: k, label: TIER_SAID[k] }))} />
       </div>
-      <TierView key={`${hull.id}:${tier.key}:${family}`} hull={hull} tier={tier} family={family} iskPerM3={iskPerM3} fromRate={fromRate} hullPrice={hullPrice} />
+      <TierView key={`${hull.id}:${tier.key}:${family}`} hull={hull} tier={tier} family={family} ore={ore} iskPerM3={iskPerM3} fromRate={fromRate} hullPrice={hullPrice} />
     </div>
   );
 }
 
-function TierView({ hull, tier, family, iskPerM3, fromRate, hullPrice }: {
-  hull: HullNode; tier: Tier; family: Family; iskPerM3: number | null; fromRate: number | null; hullPrice: number | null;
+function TierView({ hull, tier, family, ore, iskPerM3, fromRate, hullPrice }: {
+  hull: HullNode; tier: Tier; family: Family; ore: string; iskPerM3: number | null; fromRate: number | null; hullPrice: number | null;
 }) {
   const d = useData();
   const crystal = tier.crystal ? crystalName(family, tier.crystal.kind) : null;
@@ -191,7 +191,7 @@ function TierView({ hull, tier, family, iskPerM3, fromRate, hullPrice }: {
         <div className="lbl" style={{ marginBottom: 6 }}>What it asks you to train</div>
         {got ? <SkillNeeds needs={got.needs} /> : <p className="note small">Reading the fit’s skills…</p>}
       </div>
-      <p className="note small" style={{ margin: 0, color: 'var(--faint)' }}>Fit: {tier.source}. {crystal ? `Crystals for ${family} ore, what you mine most.` : ''}</p>
+      <p className="note small" style={{ margin: 0, color: 'var(--faint)' }}>Fit: {tier.source}. {crystal ? `Crystals: the ${family} kind, for ${ore}.` : ''}</p>
     </div>
   );
 }

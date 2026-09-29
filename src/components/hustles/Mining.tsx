@@ -9,16 +9,16 @@ import { fmtDateTime, fmtShort, isk, iskBig, units } from '../../lib/format';
 import { navigate, useAuth, useNow } from '../../lib/hooks';
 import { adjustedPricesShared, jitaBook, resolveIds } from '../../lib/market';
 import { bestWay, byDay, byOre, median, miningSessions, sessionStats, type MiningTick, type OreWorth, type Way } from '../../lib/mining';
-import { mainFamily, type Family } from '../../lib/miningFits';
+import { FAMILIES, gradeLabel, gradeRank, isMinedForm, oreBase, oreFamily } from '../../lib/miningFits';
 import { HULLS } from '../../lib/miningTree';
 import { stationTax, unitValue, yieldOf, type Materials, type Site } from '../../lib/reprocess';
 import { useData } from '../../lib/store';
-import { system, typeInfo } from '../../lib/universe';
+import { groupTypes, system, typeInfo } from '../../lib/universe';
 import { useEnsureNames, useTypeName } from '../common';
 import { SkillStrip } from '../SkillStrip';
 import { MasteryTiers } from './MasteryTiers';
 import { MiningTree } from './MiningTree';
-import { Empty, ItemIcon, Notice, Panel, Th, Tiles } from '../ui';
+import { Empty, ItemIcon, Notice, Panel, Seg, Th, Tiles } from '../ui';
 
 /**
  * Mining: what you mined and what it was worth, your sessions and ISK an hour, and the next step up. The user's plan
@@ -30,10 +30,43 @@ import { Empty, ItemIcon, Notice, Panel, Th, Tiles } from '../ui';
 
 const DAYS = 30;
 const WAY_SAID: Record<Way, string> = { raw: 'Sold as it is', compressed: 'Compressed', reprocessed: 'Reprocessed' };
-/** Scordite: the ladder's ISK per m³ before you've mined anything. It spawns in every high-sec system (EVE University). */
+/** Scordite: the ore Scaling up prices for before you've mined anything. It spawns in every high-sec system (EVE University). */
 const SCORDITE = 1228;
 
 type Bundle = { types: Record<string, Materials> };
+
+/**
+ * What each ore is worth three ways, after tax (lib/mining.ts `bestWay`): into its own Jita bids, compressed into
+ * the compressed form's bids ("Compressed " + its name, trimmed: ESI names Scordite 0-Grade with a trailing space), or
+ * reprocessed at your skills at Jita 4-4 and the minerals sold into their bids. With each ore's volume a unit.
+ */
+async function priceOres(types: number[], nameOf: (t: number) => string, skills: Record<number, number>, corp: Parameters<typeof stationTax>[0], tax: number) {
+  const [bundle, adjusted, station] = await Promise.all([
+    import('../../data/typeMaterials.json').then((m) => m.default as unknown as Bundle).catch(() => null),
+    adjustedPricesShared().catch(() => ({} as Record<number, number>)),
+    esi<{ reprocessing_efficiency?: number }>(`/universe/stations/${JITA_44}/`).then(({ data }) => data.reprocessing_efficiency ?? 0.5).catch(() => 0.5),
+  ]);
+  const site: Site = { kind: 'station', base: station, tax: stationTax(corp) };
+  const bid = new Map<number, number | null>();
+  const bidOf = async (t: number) => { if (!bid.has(t)) bid.set(t, (await jitaBook(t).catch(() => null))?.bestBuy ?? null); return bid.get(t) ?? null; };
+  const vols: Record<number, number> = {}, worth: Record<number, OreWorth> = {};
+  const compressed = (t: number) => `Compressed ${nameOf(t).trim()}`;
+  const compressedIds = await resolveIds([...new Set(types.map(compressed))]).then((x) => x.inventory_types ?? []).catch(() => []);
+  for (const t of types) {
+    vols[t] = (await typeInfo(t).catch(() => null))?.volume ?? 0;
+    const raw = await bidOf(t);
+    const cid = compressedIds.find((c) => c.name === compressed(t))?.id;
+    const comp = cid ? await bidOf(cid) : null;
+    const m = bundle?.types[String(t)];
+    let reprocessed: number | null = null;
+    if (m) {
+      for (const [mat] of m[1]) await bidOf(mat);
+      reprocessed = unitValue(m, yieldOf(m, skills, site), (id) => bid.get(id) ?? null, (id) => adjusted[id] ?? null, site.tax, tax);
+    }
+    worth[t] = { raw: raw != null ? raw * (1 - tax) : null, compressed: comp != null ? comp * (1 - tax) : null, reprocessed };
+  }
+  return { vols, worth };
+}
 
 export function Mining() {
   const d = useData();
@@ -47,14 +80,13 @@ export function Mining() {
   const since = new Date(now - (DAYS - 1) * 86400_000).toISOString().slice(0, 10);
   const recent = useMemo(() => Object.values(d.mining).filter((x) => x.date >= since), [d.mining, since]);
   const ores = useMemo(() => [...new Set(recent.map((x) => x.typeId))], [recent]);
-  useEnsureNames([...ores, SCORDITE]);
+  useEnsureNames(ores);
 
   // Volumes, and what each ore is worth three ways (lib/mining.ts bestWay).
   const [vol, setVol] = useState<Record<number, number>>({});
   const [worth, setWorth] = useState<Record<number, OreWorth>>({});
   const [pricing, setPricing] = useState(false);
-  // Unique: ESI's name lookup refuses a list with a name twice, and Scordite is both mined and the fallback.
-  const priced = [...new Set([...ores, SCORDITE])];
+  const priced = ores;
   // Priced once every name is known: a compressed form is found by name ("Compressed Scordite").
   const named = priced.every((t) => !!d.names[t]);
   const key = `${priced.join(',')}:${named}`;
@@ -62,32 +94,9 @@ export function Mining() {
     if (!named) return;
     let alive = true;
     setPricing(true);
-    (async () => {
-      const [bundle, adjusted, station] = await Promise.all([
-        import('../../data/typeMaterials.json').then((m) => m.default as unknown as Bundle).catch(() => null),
-        adjustedPricesShared().catch(() => ({} as Record<number, number>)),
-        esi<{ reprocessing_efficiency?: number }>(`/universe/stations/${JITA_44}/`).then(({ data }) => data.reprocessing_efficiency ?? 0.5).catch(() => 0.5),
-      ]);
-      const site: Site = { kind: 'station', base: station, tax: stationTax(d.settings.corp) };
-      const bid = new Map<number, number | null>();
-      const bidOf = async (t: number) => { if (!bid.has(t)) bid.set(t, (await jitaBook(t).catch(() => null))?.bestBuy ?? null); return bid.get(t) ?? null; };
-      const vols: Record<number, number> = {}, out: Record<number, OreWorth> = {};
-      const compressedIds = await resolveIds([...new Set(priced.map((t) => `Compressed ${name(t)}`))]).then((x) => x.inventory_types ?? []).catch(() => []);
-      for (const t of priced) {
-        vols[t] = (await typeInfo(t).catch(() => null))?.volume ?? 0;
-        const raw = await bidOf(t);
-        const cid = compressedIds.find((c) => c.name === `Compressed ${name(t)}`)?.id;
-        const comp = cid ? await bidOf(cid) : null;
-        const m = bundle?.types[String(t)];
-        let reprocessed: number | null = null;
-        if (m) {
-          for (const [mat] of m[1]) await bidOf(mat);
-          reprocessed = unitValue(m, yieldOf(m, d.skills ?? {}, site), (id) => bid.get(id) ?? null, (id) => adjusted[id] ?? null, site.tax, r.t);
-        }
-        out[t] = { raw: raw != null ? raw * (1 - r.t) : null, compressed: comp != null ? comp * (1 - r.t) : null, reprocessed };
-      }
-      if (alive) { setVol(vols); setWorth(out); setPricing(false); }
-    })().catch(() => { if (alive) setPricing(false); });
+    priceOres(priced, name, d.skills ?? {}, d.settings.corp, r.t)
+      .then(({ vols, worth: out }) => { if (alive) { setVol(vols); setWorth(out); setPricing(false); } })
+      .catch(() => { if (alive) setPricing(false); });
     return () => { alive = false; };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -111,9 +120,9 @@ export function Mining() {
   const measured = median(sessions.filter(({ st }) => st.minutes >= 20).map(({ st }) => st.m3PerMin));
   const iskPerHour = median(sessions.filter(({ st }) => st.minutes >= 20).map(({ st }) => st.iskPerHour));
 
-  // ISK a m³: what yours was worth, or Scordite's until there's some.
-  const iskPerM3 = total.m3 > 0 && total.isk > 0 ? total.isk / total.m3 : (worthOf(SCORDITE) != null && vol[SCORDITE] ? worthOf(SCORDITE)! / vol[SCORDITE] : null);
-  const perM3From = total.m3 > 0 && total.isk > 0 ? 'your own ore' : 'Scordite, until you’ve mined something';
+  // What Scaling up prices for until you pick another: the ore you mined most, or Scordite before you've mined any.
+  const mostMined = [...oreRows].sort((a, b) => b.units - a.units)[0]?.typeId ?? SCORDITE;
+  const minedBases = new Set(oreRows.map((o) => (d.names[o.typeId] ? oreBase(name(o.typeId)) : null)).filter((x): x is string => !!x));
 
   // The ship you're in, from ESI; else the one you've mined most in lately. Your pace in each, from sessions.
   const live = useRightNow();
@@ -129,7 +138,6 @@ export function Mining() {
     const m = median(xs);
     return m != null ? { m3PerMin: m, sessions: xs.length } : null;
   };
-  const family: Family = mainFamily(oreRows.map((o) => ({ name: name(o.typeId), units: o.units })));
 
   return (
     <div className="col" style={{ gap: 16 }}>
@@ -219,7 +227,7 @@ export function Mining() {
             )}
       </Panel>
 
-      <ScalingUp here={here} paceOf={paceOf} family={family} iskPerM3={iskPerM3} perM3From={perM3From} measured={measured} />
+      <ScalingUp here={here} paceOf={paceOf} measured={measured} mostMined={mostMined} minedBases={minedBases} />
     </div>
   );
 }
@@ -295,26 +303,111 @@ function Systems({ ids }: { ids: number[] }) {
   return <>{names.join(', ') || '…'}{ids.length > 3 ? ` and ${ids.length - 3} more` : ''}</>;
 }
 
+const ORE_KEY = 'jita-ledger:mining-ore';
+const readOre = (): number | null => { try { const v = Number(localStorage.getItem(ORE_KEY)); return v > 0 ? v : null; } catch { return null; } };
+const saveOre = (t: number | null) => { try { if (t == null) localStorage.removeItem(ORE_KEY); else localStorage.setItem(ORE_KEY, String(t)); } catch { /* the pick just isn't kept */ } };
+
+/** Every base ore's ID, resolved once by name. Mercoxit is left out: the fits' lasers can't mine it. */
+let baseIds: Promise<Record<string, number>> | null = null;
+function oreBaseIds(): Promise<Record<string, number>> {
+  baseIds ??= resolveIds(FAMILIES.filter(([f]) => f !== 'Mercoxit').flatMap(([, ores]) => ores))
+    .then((x) => Object.fromEntries((x.inventory_types ?? []).map((t) => [t.name, t.id])))
+    .catch((e) => { baseIds = null; throw e; });
+  return baseIds;
+}
+
+/**
+ * An ore's grades, poorest first, from its inventory group: the market types named for it that aren't a compressed form.
+ * A moon ore's group holds all four ores of its rarity, hence the name check.
+ */
+async function gradesOf(base: string, baseId: number): Promise<{ id: number; name: string }[]> {
+  const types = await groupTypes((await typeInfo(baseId)).groupId);
+  const infos = await Promise.all(types.map(async (id) => ({ id, info: await typeInfo(id).catch(() => null) })));
+  return infos.filter((x) => x.info && x.info.marketGroupId != null && isMinedForm(x.info.name) && oreBase(x.info.name) === base)
+    .map((x) => ({ id: x.id, name: x.info!.name }))
+    .sort((a, b) => gradeRank(gradeLabel(a.name.trim(), base), base) - gradeRank(gradeLabel(b.name.trim(), base), base) || a.id - b.id);
+}
+
 /**
  * Scaling up: every mining hull as a node in a flowchart (MiningTree), the one you're in glowing, and under the one you
  * open its mastery tiers (MasteryTiers). The user asked for "an interactive animated flowchart design so you can click on
  * nodes and it opens up" with every path, the new destroyers and all three exhumers, mining upgrades and crystals on each
  * ship, and tiers from "just able to hop into one to getting the max out of it" (29 September 2026).
  */
-function ScalingUp({ here, paceOf, family, iskPerM3, perM3From, measured }: {
+function ScalingUp({ here, paceOf, measured, mostMined, minedBases }: {
   here: number | null; paceOf: (hull: number) => { m3PerMin: number; sessions: number } | null;
-  family: Family; iskPerM3: number | null; perM3From: string; measured: number | null;
+  measured: number | null; mostMined: number; minedBases: Set<string>;
 }) {
+  const d = useData();
+  const name = useTypeName();
+  const r = rates(d.settings);
   const fromRate = (here != null ? paceOf(here)?.m3PerMin : null) ?? measured;
+
+  // The ore the tiers are priced for: yours to pick (kept in this browser), else the one you mine most.
+  const [chosen, setChosen] = useState<number | null>(readOre);
+  const ore = chosen ?? mostMined;
+  const choose = (t: number | null) => { setChosen(t); saveOre(t); };
+  useEnsureNames([ore, mostMined]);
+  const oreName = d.names[ore] ? name(ore).trim() : null;
+  const base = oreName ? oreBase(oreName) : null;
+  const family = (oreName ? oreFamily(oreName) : null) ?? 'Simple';
+
+  const [worth, setWorth] = useState<Record<number, { m3: number; worth: OreWorth }>>({});
+  useEffect(() => {
+    if (!oreName || worth[ore]) return;
+    let alive = true;
+    priceOres([ore], name, d.skills ?? {}, d.settings.corp, r.t)
+      .then(({ vols, worth: w }) => { if (alive) setWorth((x) => ({ ...x, [ore]: { m3: vols[ore], worth: w[ore] } })); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [ore, oreName]); // eslint-disable-line react-hooks/exhaustive-deps
+  const priced = worth[ore];
+  const best = priced ? bestWay(priced.worth) : null;
+  const iskPerM3 = best && priced.m3 > 0 ? best.perUnit / priced.m3 : null;
+
+  // Every ore by its family, and the grades of the one picked, from ESI.
+  const [ids, setIds] = useState<Record<string, number> | null>(null);
+  useEffect(() => { oreBaseIds().then(setIds).catch(() => setIds({})); }, []);
+  const [grades, setGrades] = useState<{ id: number; name: string }[]>([]);
+  useEffect(() => {
+    if (!base || !ids?.[base]) { setGrades([]); return; }
+    let alive = true;
+    gradesOf(base, ids[base]).then((g) => { if (alive) setGrades(g); }).catch(() => { if (alive) setGrades([]); });
+    return () => { alive = false; };
+  }, [base, ids]);
+
   return (
     <Panel title="Scaling up" sub="Every mining ship and the paths between them: click one to see what it takes, costs and mines">
       <p className="note small" style={{ margin: 0 }}>
         {here != null ? 'The ship you’re in glows; the paths out of it are your next steps. ' : 'Once you mine, the ship you’re in glows and the paths out of it light up. '}
         Lit ships you can fly now, a spark marks one your skill queue brings, a lock one that’s further off. Yields are worked out from ESI’s own figures for each hull, laser, crystal and upgrade, at your skills.
-        {iskPerM3 != null ? ` ISK an hour and payback are at ${isk(iskPerM3)} a m³, ${perM3From}.` : ''}
       </p>
+      <div className="row" style={{ gap: '8px 12px', flexWrap: 'wrap', alignItems: 'center' }}>
+        <label htmlFor="mine-ore" className="chip h34" data-tip-title="Ore to price the fits for"
+          data-tip={'Which crystals every fit loads, and what ISK an hour and payback are worked out at: a m³ of this ore sold the best of three ways in Jita now, after tax.\n\nThe m³ a minute doesn’t change: a crystal of the right kind mines any ore of its family alike.'}>
+          <span className="cl">Ore</span>
+          <select id="mine-ore" value={base ?? ''} onChange={(e) => { const id = ids?.[e.target.value]; if (id) choose(id); }} style={{ minWidth: 190 }}>
+            {!base && <option value="">{oreName ?? 'Loading…'}</option>}
+            {FAMILIES.filter(([f]) => f !== 'Mercoxit').map(([f, ores]) => (
+              <optgroup key={f} label={f.endsWith('Moon') ? `${f} ore` : `${f} ores`}>
+                {ores.filter((o) => ids?.[o] || o === base).map((o) => <option key={o} value={o}>{o}{minedBases.has(o) ? ' · you mine it' : ''}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+        {base && grades.length > 1 && (
+          <Seg size="sm" label="Grade" value={ore} onChange={(v) => choose(v)}
+            options={grades.map((g) => ({ v: g.id, label: gradeLabel(g.name.trim(), base) }))} />
+        )}
+        <span className="note small" style={{ margin: 0 }}>
+          {iskPerM3 != null && best ? `${isk(iskPerM3)} a m³ (${WAY_SAID[best.way].toLowerCase()}, after tax) · ${family} crystals` : oreName ? 'Pricing at Jita…' : ''}
+        </span>
+        {chosen != null && chosen !== mostMined && (
+          <button type="button" className="link-btn" onClick={() => choose(null)}>Back to {name(mostMined).trim()}{minedBases.size ? ', what you mine most' : ''}</button>
+        )}
+      </div>
       <MiningTree here={here} paceOf={paceOf}>
-        {(hull, price) => <MasteryTiers hull={hull} family={family} iskPerM3={iskPerM3} fromRate={fromRate} hullPrice={price} />}
+        {(hull, price) => <MasteryTiers hull={hull} family={family} ore={oreName ?? 'your ore'} iskPerM3={iskPerM3} fromRate={fromRate} hullPrice={price} />}
       </MiningTree>
       <SkillStrip title="Skills that raise your yield" lines={[
         { name: 'Mining', id: 3386, what: '+5% ore yield a level, in every ship.' },
