@@ -2635,6 +2635,14 @@ console.log('\n--- reprocessing ---');
   const w = R.outputWorth(R.reprocessOutput(zw, 1, 0.5), (id) => ({ 34: 3.7, 35: 16.33, 36: 49.95 })[id], (id) => ({ 34: 3.5, 35: 15, 36: 45 })[id], 0.05, 0.03375);
   eq('its worth: sold into the bids after sales tax, less 5% tax on the adjusted price', [Math.round(w.gross), Math.round(w.tax), Math.round(w.net)], [Math.round((1639 * 3.7 + 862 * 16.33 + 3 * 49.95) * 0.96625), Math.round(0.05 * (1639 * 3.5 + 862 * 15 + 3 * 45)), Math.round((1639 * 3.7 + 862 * 16.33 + 3 * 49.95) * 0.96625 - 0.05 * (1639 * 3.5 + 862 * 15 + 3 * 45))]);
   eq('yield by level of the skill that moves it', R.yieldByLevel(zw, {}, jita).levels.map((x) => +x.toFixed(2)), [0.5, 0.51, 0.52, 0.53, 0.54, 0.55]);
+  // The scanner: the ZW-4100 listed at 20,000 (10 units) and 21,500 (50 units), minerals as bid on 29 September.
+  const books = { 8001: { topSells: [{ price: 20000, volume: 10 }, { price: 21500, volume: 50 }, { price: 30000, volume: 5 }], topBuys: [] },
+    34: { topSells: [], topBuys: [{ price: 3.7, volume: 1e9 }] }, 35: { topSells: [], topBuys: [{ price: 16.33, volume: 1e9 }] }, 36: { topSells: [], topBuys: [{ price: 49.95, volume: 1e9 }] } };
+  const hits = R.scanUnderValue({ 8001: zw }, books, {}, jita, 'none', 0.03375, () => null, 1000);
+  const v50 = R.unitValue(zw, 0.5, (id) => books[id].topBuys[0].price, () => null, 0, 0.03375);
+  eq('the scanner: at 50% one unit fetches 19,606 after tax, under even the 20,000 listing, so nothing now', [Math.round(v50), hits[0]?.units, hits[0]?.profit], [19606, 0, 0]);
+  eq('  but it\'s listed for what Scrapmetal V unlocks: all 60 under 55%\'s value', [hits.length, hits[0]?.profitBest > 0, R.scanUnderValue({ 8001: zw }, books, { [R.SCRAPMETAL_PROCESSING]: 5 }, jita, 'none', 0.03375, () => null, 1000)[0]?.units], [1, true, 60]);
+  eq('  an item nothing is listed under at any yield is left out', R.scanUnderValue({ 8001: zw }, { ...books, 8001: { topSells: [{ price: 40000, volume: 5 }], topBuys: [] } }, {}, jita, 'none', 0.03375, () => null, 1000).length, 0);
 }
 
 console.log('\n--- an item\'s daily rhythm ---');

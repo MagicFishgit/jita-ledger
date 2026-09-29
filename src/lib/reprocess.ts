@@ -92,3 +92,57 @@ export function yieldByLevel(m: Materials, skills: Record<number, number>, site:
   const skill = m[2] ?? SCRAPMETAL_PROCESSING;
   return { skill, levels: [0, 1, 2, 3, 4, 5].map((l) => yieldOf(m, { ...skills, [skill]: l }, site, implant)) };
 }
+
+/** An item listed under what its output fetches, from the cached books (the cloud's daily full scan). */
+export type ScanHit = {
+  typeId: number;
+  /** The cheapest listing, and what one unit's output fetches after sales tax and reprocessing tax, at your yield. */
+  ask: number;
+  value: number;
+  /** Units listed under that value (whole batches), and what buying and reprocessing them makes. */
+  units: number;
+  profit: number;
+  /** The same at the best yield the skill that moves it gives (Scrapmetal Processing, or the ore's own skill, at V). */
+  valueBest: number;
+  profitBest: number;
+};
+
+/** What one unit's output fetches at a yield: in the bids after sales tax, less the reprocessing tax. */
+export function unitValue(m: Materials, y: number, bid: (id: number) => number | null | undefined, adjusted: (id: number) => number | null | undefined, taxRate: number, salesTax: number): number {
+  const w = outputWorth(reprocessOutput(m, m[0], y), bid, adjusted, taxRate, salesTax);
+  return w.net / m[0];
+}
+
+/**
+ * Every item listed under what its output fetches (the ZW-4100 case), from books: each listing level under the value,
+ * in whole batches, what buying and reprocessing it makes. Items making less than `minProfit` even at the best yield
+ * are left out. Most profitable at your yield first.
+ */
+export function scanUnderValue(
+  types: Record<string, Materials>,
+  books: Record<number, { topSells: { price: number; volume: number }[]; topBuys: { price: number; volume: number }[] }>,
+  skills: Record<number, number>, site: Site, implant: Implant, salesTax: number,
+  adjusted: (id: number) => number | null | undefined, minProfit: number,
+): ScanHit[] {
+  const bid = (id: number) => books[id]?.topBuys?.[0]?.price ?? null;
+  const out: ScanHit[] = [];
+  for (const [key, m] of Object.entries(types)) {
+    const id = Number(key);
+    const sells = books[id]?.topSells;
+    if (!sells?.length) continue;
+    const y = yieldOf(m, skills, site, implant);
+    const best = yieldByLevel(m, skills, site, implant).levels[5];
+    const value = unitValue(m, y, bid, adjusted, site.tax, salesTax);
+    const valueBest = unitValue(m, best, bid, adjusted, site.tax, salesTax);
+    const walk = (v: number) => {
+      let units = 0, profit = 0;
+      for (const s of sells) { if (s.price >= v) break; units += s.volume; profit += (v - s.price) * s.volume; }
+      const whole = Math.floor(units / m[0]) * m[0];
+      return { units: whole, profit: units > 0 ? profit * (whole / units) : 0 };
+    };
+    const now = walk(value), top = walk(valueBest);
+    if (top.profit < minProfit) continue;
+    out.push({ typeId: id, ask: sells[0].price, value, units: now.units, profit: now.profit, valueBest, profitBest: top.profit });
+  }
+  return out.sort((a, b) => b.profit - a.profit || b.profitBest - a.profitBest);
+}

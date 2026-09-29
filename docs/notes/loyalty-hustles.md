@@ -97,3 +97,10 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
   the cheapest Jita listings, sells the output into Jita's bids after sales tax, and tabulates profit by level of the
   skill that moves it. On 29 September 2026, 100 ZW-4100s at the user's untrained 50%: −108 k; +92 k at Scrapmetal V.
   The implant is chosen by hand: reading it needs a scope the app doesn't ask for (esi-clones.read_implants.v1).
+  Its scanner (`scanUnderValue`) runs every item that reprocesses against the books the cloud's daily full scan left in
+  the browser: what one unit's output fetches at your yield (in the scan's own Jita bids, after sales tax and the
+  reprocessing tax), each listing level under that in whole batches, and the same at the best yield the moving skill
+  gives. On 29 September 2026: 6,451 such items had a book; 6 made 100 k or more at the best yield, 2 at the user's
+  50% (a 250mm Compressed Coil Gun I, +283 k for 29; a J5 Enduring Warp Disruptor), and Inferno Torpedoes +3.2 M only
+  at Scrapmetal V: reprocessors keep most prices at mineral value. The finds are leads: clicking the Coil Gun into the
+  item check, against the live book, its cheap listings had already sold (−240 k).

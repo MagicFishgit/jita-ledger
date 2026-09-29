@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Factory, FlaskConical, Recycle } from 'lucide-react';
+import { Factory, FlaskConical, Radar, Recycle } from 'lucide-react';
 import { esi } from '../lib/esi';
 import { rates } from '../lib/fees';
 import { isk, iskBig, pct, units } from '../lib/format';
 import { adjustedPricesShared, jitaOrders } from '../lib/market';
 import {
-  IMPLANTS, METALLURGY, outputWorth, REPROCESSING, REPROCESSING_EFFICIENCY, reprocessOutput, SCRAPMETAL_PROCESSING, stationTax, yieldByLevel, yieldOf,
-  type Implant, type Materials, type Site,
+  IMPLANTS, METALLURGY, outputWorth, REPROCESSING, REPROCESSING_EFFICIENCY, reprocessOutput, SCRAPMETAL_PROCESSING, scanUnderValue, stationTax, yieldByLevel, yieldOf,
+  type Implant, type Materials, type ScanHit, type Site,
 } from '../lib/reprocess';
+import { loadCache } from '../lib/scan';
 import { useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { ItemSearch, useEnsureNames, useTypeName } from './common';
 import { Empty, Guide, Notice, PageHead, Panel, Seg, Tiles } from './ui';
+import { ScanFreshness } from './ScanFreshness';
 
 type Bundle = { build: number; released: string | null; types: Record<string, Materials> };
 type Place = { kind: 'station' } | { kind: 'structure'; structure: 'athanor' | 'tatara' | 'other'; rig: 'none' | 't1' | 't2'; sec: 'high' | 'low' | 'null'; taxPct: number };
@@ -37,6 +39,8 @@ export function Reprocess() {
   const [implant, setImplantState] = useState<Implant>(() => read<Implant>(IMPLANT_KEY, 'none'));
   const setPlace = (p: Place) => { setPlaceState(p); keep(PLACE_KEY, p); };
   const setImplant = (i: Implant) => { setImplantState(i); keep(IMPLANT_KEY, i); };
+  // An item picked from the scanner, for the item check.
+  const [picked, setPicked] = useState<{ id: number; name: string; qty: number; n: number } | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -90,8 +94,10 @@ export function Reprocess() {
             {lv(SCRAPMETAL_PROCESSING) === 0 && <p className="note small" style={{ margin: 0 }}>Scrapmetal Processing needs Reprocessing Efficiency V (you have {lv(REPROCESSING_EFFICIENCY)}) and Metallurgy V (you have {lv(METALLURGY)}).</p>}
           </div>
         </Panel>
-        <ItemCheck bundle={bundle} site={site} implant={implant} skills={skills} salesTax={r.t} name={name} />
+        <ItemCheck bundle={bundle} site={site} implant={implant} skills={skills} salesTax={r.t} name={name} picked={picked} />
       </div>
+
+      <Scanner bundle={bundle} site={site} implant={implant} skills={skills} salesTax={r.t} name={name} onPick={setPicked} />
 
       <Guide title="How to use Reprocessing" intro="Find what's worth buying to break down, and where to break it down."
         steps={[
@@ -103,9 +109,10 @@ export function Reprocess() {
   );
 }
 
-function ItemCheck({ bundle, site, implant, skills, salesTax, name }: { bundle: Bundle | null; site: Site; implant: Implant; skills: Record<number, number>; salesTax: number; name: (id: number) => string }) {
+function ItemCheck({ bundle, site, implant, skills, salesTax, name, picked }: { bundle: Bundle | null; site: Site; implant: Implant; skills: Record<number, number>; salesTax: number; name: (id: number) => string; picked: { id: number; name: string; qty: number; n: number } | null }) {
   const [item, setItem] = useState<{ id: number; name: string } | null>(null);
   const [qtyText, setQtyText] = useState('1');
+  useEffect(() => { if (picked) { setItem({ id: picked.id, name: picked.name }); setQtyText(String(Math.max(1, picked.qty))); } }, [picked?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   const [asks, setAsks] = useState<{ price: number; volume: number }[] | null>(null);
   const [bids, setBids] = useState<Record<number, number | null>>({});
   const [adjusted, setAdjusted] = useState<Record<number, number>>({});
@@ -188,6 +195,64 @@ function ItemCheck({ bundle, site, implant, skills, salesTax, name }: { bundle: 
               <p className="note small" style={{ margin: 0 }}>Each material is rounded down per batch, the careful reading. The tax is charged on CCP’s adjusted price, which can differ from Jita’s. The book moves: check the prices in game before buying in bulk.</p>
             </>
           )}
+      </div>
+    </Panel>
+  );
+}
+
+/**
+ * Items listed under what their output fetches (lib/reprocess.ts scanUnderValue), from the books the cloud's daily full
+ * scan left in this browser: every one of the 7,760 items that reprocess, at your yield here and at the best the skill
+ * that moves it gives. Leads, not orders: the books are up to a day old.
+ */
+function Scanner({ bundle, site, implant, skills, salesTax, name, onPick }: {
+  bundle: Bundle | null; site: Site; implant: Implant; skills: Record<number, number>; salesTax: number; name: (id: number) => string;
+  onPick: (p: { id: number; name: string; qty: number; n: number }) => void;
+}) {
+  const [hits, setHits] = useState<ScanHit[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [books, setBooks] = useState(0);
+  useEnsureNames((hits ?? []).slice(0, 60).map((h) => h.typeId));
+  const run = async () => {
+    if (!bundle) return;
+    setBusy(true);
+    try {
+      const [cache, adj] = await Promise.all([loadCache(), adjustedPricesShared().catch(() => ({} as Record<number, number>))]);
+      setBooks(Object.keys(cache.books).length);
+      setHits(scanUnderValue(bundle.types, cache.books, skills, site, implant, salesTax, (id) => adj[id], 100_000));
+    } catch (e) { toast(e instanceof Error ? e.message : String(e), 'err'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <Panel title="Listed under what it breaks down into" sub="Every item that reprocesses, against the Jita books from your last full scan">
+      <div className="col" style={{ gap: 10 }}>
+        <ScanFreshness what="these finds" compact />
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button type="button" className="btn primary" disabled={busy || !bundle} onClick={() => void run()}><Radar aria-hidden="true" />{busy ? 'Scanning…' : hits ? 'Scan again' : 'Scan the market'}</button>
+          {hits && <span className="note small" style={{ margin: 0 }}>{units(books)} books read; {units(hits.filter((h) => h.profit > 0).length)} pay at your yield here, {units(hits.filter((h) => h.profit <= 0).length)} more only at a better one. 100,000 ISK or more each.</span>}
+        </div>
+        {hits && (hits.length ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="tbl compact" style={{ minWidth: 720 }}>
+              <thead><tr>
+                <th scope="col" className="l">Item</th><th scope="col">Cheapest listing</th>
+                <th scope="col" data-tip="What one unit's output fetches in the Jita bids after sales tax, less the reprocessing tax, at your yield here">A unit breaks into</th>
+                <th scope="col">Listed under it</th><th scope="col">Makes now</th>
+                <th scope="col" data-tip="If the skill that moves it (Scrapmetal Processing, or the ore's own) were at V">At the best yield</th>
+              </tr></thead>
+              <tbody>{hits.slice(0, 60).map((h) => (
+                <tr key={h.typeId} className="hover">
+                  <td className="l"><button type="button" className="name-btn" data-tip="Check it above, with the units listed under its value"
+                    onClick={() => onPick({ id: h.typeId, name: name(h.typeId), qty: h.units || 1, n: Date.now() })}>{name(h.typeId)}</button></td>
+                  <td>{isk(h.ask)}</td><td>{isk(Math.round(h.value))}</td><td>{units(h.units)}</td>
+                  <td style={{ color: h.profit > 0 ? 'var(--pos)' : 'var(--cell)' }}>{h.profit > 0 ? iskBig(Math.round(h.profit)) : '–'}</td>
+                  <td style={{ color: 'var(--acc2)' }}>{iskBig(Math.round(h.profitBest))}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        ) : <p className="note">Nothing is listed under what it breaks down into, by 100,000 ISK or more, in this scan.</p>)}
+        <p className="note small" style={{ margin: 0 }}>Leads, not orders: the books are from the last full scan (up to a day old) and those listings may be gone. Check an item above against the live book before buying. The minerals are priced at the Jita bids in the same scan.</p>
       </div>
     </Panel>
   );
