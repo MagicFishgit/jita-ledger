@@ -79,6 +79,8 @@ a:hover { color: #fff; }
 input, select, button, textarea { font: inherit; color: inherit; }
 input::placeholder, textarea::placeholder { color: var(--faint-2); }
 select option { background: var(--thead); color: var(--body); }
+/* A group's heading in a dropdown: drawn white with pale text by Windows browsers unless set (the mining ore picker). */
+select optgroup { background: var(--thead); color: var(--acc); font-style: normal; font-weight: 600; }
 button { cursor: pointer; }
 button:disabled { cursor: default; }
 h1, h2, h3, p { margin: 0; }
