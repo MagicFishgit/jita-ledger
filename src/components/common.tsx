@@ -6,7 +6,7 @@ import { SCOPE } from '../lib/config';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { iskBig } from '../lib/format';
-import { typeName } from '../lib/universe';
+import { typeKind, typeName } from '../lib/universe';
 import { relistPace, type RelistPace } from '../lib/flow';
 import { useFlow, watchedFlow } from '../lib/flowStore';
 
@@ -279,6 +279,20 @@ export function useEnsureNames(ids: number[]) {
       .then((rows) => keep(Object.fromEntries(rows.filter((r): r is readonly [number, string] => !!r && !!r[1])))));
     return () => { live = false; };
   }, [key]);
+}
+
+/** Which of these types are ships, from ESI's type and group (kept for good once read); empty until known. */
+export function useShipTypes(ids: number[]): ReadonlySet<number> {
+  const key = [...new Set(ids)].sort((a, b) => a - b).join(',');
+  const [ships, setShips] = useState<ReadonlySet<number>>(() => new Set());
+  useEffect(() => {
+    if (!key) return;
+    let live = true;
+    Promise.all(key.split(',').map(Number).map((id) => typeKind(id).then((k) => (k.ship ? id : null)).catch(() => null)))
+      .then((r) => { if (live) setShips(new Set(r.filter((x): x is number => x != null))); });
+    return () => { live = false; };
+  }, [key]);
+  return ships;
 }
 
 export function downloadText(filename: string, text: string, type = 'application/json') {

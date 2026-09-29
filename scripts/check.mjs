@@ -1768,6 +1768,9 @@ console.log('\n--- asset safety ---');
   // List loot reads the Jita hangar: the user's fitted Jackdaw and their Station Vault Containers with things in them
   // came up as loot to list (29 September 2026). They still count as stock; `holding` says which can't be sold as they are.
   eq('a fitted ship in the Jita hangar is stock, and marked as holding things', [s.jita[587], s.holding], [1, { 587: 1 }]);
+  // The user's Station Vault Containers: "I am using those". Assembled ones are counted apart (ESI's is_singleton).
+  const vaults = countStock([{ ...A(9020, 17367, JITA, 'Hangar', 'station'), is_singleton: true }, A(9021, 17367, JITA, 'Hangar', 'station')], JITA);
+  eq('  an assembled container is stock, and counted as assembled; a packaged one isn’t', [vaults.jita[17367], vaults.assembled], [2, { 17367: 1 }]);
   const cargo = countStock([...raw, A(9010, 3465, 1044914025438, 'Cargo', 'item'), A(9011, 34, 9010, 'Unlocked', 'item', 700)], JITA);
   eq('  a container in a ship’s cargo opens inside the ship, in its cargo hold', cargo.safety[0].holders[0], { id: 1044914025438, typeId: 2006, items: { 3001: 1 }, contents: [{ typeId: 3001, q: 1, bay: 'Fitted' }], holders: [{ id: 9010, typeId: 3465, items: { 34: 700 }, contents: [{ typeId: 34, q: 700 }], bay: 'Cargo hold' }] });
   // The user's wrap as ESI sent it at 18:07 UTC: "Equipment", a Station Container holding five blueprint copies and
@@ -2604,6 +2607,31 @@ console.log('\n--- listing loot through the Sell window ---');
     Math.round(tot.bids.isk) === Math.round(good.bidsNet + close.bidsNet + dump.bidsNet), tot.bids.items,
     Math.round(tot.plan.isk) === Math.round(good.listNet + close.bidsNet + dump.bidsNet), tot.plan.waiting,
   ], [true, 2, 1, true, 3, true, 0]);
+  // Snipes still held are left out like ships: the user's Caldari Navy Uranium Charge S came up as loot to list.
+  const { snipesHeld } = await import('../src/lib/sniped.ts');
+  const held2 = snipesHeld([{ typeId: 21, at: '2026-09-27T10:00:00Z', units: 100 }, { typeId: 22, at: '2026-09-20T10:00:00Z', units: 5 }, { typeId: 21, at: '2026-09-28T10:00:00Z', units: 20 }],
+    [{ typeId: 21, date: '2026-09-27T12:00:00Z', qty: 30, isBuy: false }, { typeId: 21, date: '2026-09-26T12:00:00Z', qty: 500, isBuy: false }, { typeId: 22, date: '2026-09-21T00:00:00Z', qty: 5, isBuy: false }]);
+  eq('snipes still held: bought less sold since the first, nothing for one sold out', [...held2.entries()], [[21, { units: 90, at: '2026-09-27T10:00:00Z' }]]);
+  const sniped = judgeLoot({ typeId: 21, name: 'Sniped', qty: 50 }, { others: [L(1, false, 100, 20), L(2, true, 60, 500)], highs, perDay: 200, buyers: 0.6 }, R, 7.5, 0.05, 'sniped');
+  eq('  left out, and says why; in again once included', [planLoot([sniped], 5, new Set())[0].verdict, planLoot([sniped], 5, new Set())[0].why.startsWith('You sniped it'), planLoot([sniped], 5, new Set([21]))[0].verdict], ['held', true, 'list']);
+}
+
+console.log('\n--- purchases made in one go ---');
+{
+  const { multibuys, fittedShips, autoTag } = await import('../src/lib/wallet.ts');
+  // The user's Jackdaw (29 September 2026): the hull and its fitting bought through the Multibuy window in one second.
+  const at = '2026-09-29T00:10:51Z';
+  const B = (id, typeId, qty, unitPrice, date = at) => ({ id, source: 'esi', typeId, date, isBuy: true, qty, unitPrice, locationId: 60003760 });
+  const fit = [B('1', 34828, 1, 65360000), B('2', 2404, 5, 783400), B('3', 27361, 1000, 758.8), B('4', 2281, 2, 1828000)];
+  const txs = [...fit, B('5', 34, 1000, 4, '2026-09-29T00:12:00Z'), { ...B('6', 35, 5, 10), isBuy: false }, B('7', 36, 1, 5, '2026-09-29T01:00:00Z'), B('8', 36, 1, 5, '2026-09-29T01:00:00Z'), B('9', 36, 1, 5, '2026-09-29T01:00:00Z')];
+  const groups = multibuys(txs);
+  eq('buys of several items in one second are one multibuy; a sale, a lone buy, or one item three times aren’t', groups.map((g) => [g.txIds, g.typeIds.length, g.value]), [[['1', '2', '3', '4'], 4, 65360000 + 3917000 + 758800 + 3656000]]);
+  const fitted = fittedShips(groups, (t) => t === 34828);
+  eq('  with a ship in it, it’s a fit to fly: guessed Personal', [autoTag(fit[1], new Set(), fitted), autoTag(txs[4], new Set(), fitted)], ['personal', 'other']);
+  eq('  without one, no guess', fittedShips(groups, () => false).size, 0);
+  // Two of the user's seven multibuys straddled a second (23:08:04–05); a gap over two seconds is two purchases.
+  const split = multibuys([B('a', 1, 1, 1, '2026-09-28T23:08:04Z'), B('b', 2, 1, 1, '2026-09-28T23:08:04Z'), B('c', 3, 1, 1, '2026-09-28T23:08:05Z'), B('d', 4, 1, 1, '2026-09-28T23:08:05Z'), B('e', 5, 1, 1, '2026-09-28T23:08:09Z')]);
+  eq('  a multibuy across a second boundary is one; one three seconds later isn’t in it', split.map((g) => g.txIds), [['a', 'b', 'c', 'd']]);
 }
 
 console.log('\n--- a fee a GM refunded counts as nothing ---');

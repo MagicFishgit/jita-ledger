@@ -133,6 +133,17 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   a dozen with the rest behind "and N more". Three more tiles, which the user asked for, say what everything not left
   out comes to listed where it sells, sold into the bids now, and as the plan splits it (`lootTotals`); and Clear resets
   the page.
+  **Then, the same night:** the user couldn't find the control to include ships (a per-row button in the last column),
+  so every kind left out has a switch in its own panel, off each time the page opens ("Include ships (4)", "Include
+  snipes you still hold (1)", positions, your listings), and each row a tick box in a column beside the verdict that
+  overrides its kind. **Snipes you still hold are a kind** (`snipesHeld`): the user's sniped Caldari Navy Uranium
+  Charge S came up to list as loot; it's found as the Sniper page finds snipes (`instantBuys`, `groupBuys`,
+  `judgeTaken` on the history the page reads anyway), less what sold since. **Assembled containers are in use** ("that
+  is just wrong because I am using those"): the stock record counts assembled units (`assembled`, ESI's `is_singleton`),
+  and a hangar read sets aside assembled items in `IN_USE_CATEGORIES` (containers are category 2, Celestial; also
+  deployables, starbase parts, structures). A blueprint original is assembled too and isn't in those, so it stays. A
+  sync from before `assembled` was kept can't say, so every container is taken to be in use. The table sorts on every
+  column and keeps its header in view, like Orders (`jita-ledger:loot-sort`).
 - **Pages that need the same live answer share one store**: `orderCheck` (your orders against the book),
   `watch` (squeeze and scam signals), `colonyStore` and the killmail pricer. Orders, To do and the
   alerts all read `orderCheck` rather than fetching the same books three times.

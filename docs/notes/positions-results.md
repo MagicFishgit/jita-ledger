@@ -117,6 +117,18 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   +4.45 M, Fees & tax −208.66 M. While there, a raise's expected fee gained the broker fee on the increase
   (`matchFees`): the Ghoul's raise paid 333 k against ~254 k for its plain changes, and without it a big raise was
   matched to a smaller fee in the same second.
+- **Purchases made in one go are one row in "Trades no position tracks"** (`multibuys`, `fittedShips`, `autoTag`'s
+  `fitted` in `wallet.ts`; `useShipTypes`). The user bought a fitted Jackdaw through the Multibuy window (29 September
+  2026, 18 purchases, 135,358,716.45 ISK to the cent) and asked whether the app handled it properly and completely. It
+  did (each purchase read as bought from a listing, none as a snipe, nothing on Orders or To do, net worth with the ship
+  and fitting inside it), except the Wallet: 18 rows, two clicks each to mark Personal, and until then 135 M of "Other
+  purchases" and nothing in the runway. Now buys each within `MULTIBUY_GAP_MS` (2 s) of the last, at least 3 of 2+
+  items, are one row that opens to its purchases, with one tag for all; two of the user's seven multibuys straddled a
+  second, so it isn't "the same second". One with a ship in it (ESI category 6, looked up once and kept) is guessed
+  Personal, "a fit to fly, most likely", which the Wallet's flows and runway count at once. **A guess counts only in the
+  Wallet**, as the loot guess always has: Results, the cost of stock (`heldCost`) and the snipe finder read only what you
+  marked, so the row offers **Confirm**, which marks every purchase in it. On the user's ledger: 5 multibuys, two with a
+  ship (the Jackdaw, and 20 purchases for 321 M on 24 September).
 - **Net worth keeps one snapshot a day in this browser** (`Data.netWorth`), written by the Wallet page. ESI has no
   net-worth history, so the trend starts the first day the page is opened and says so.
 - **Goals are five kinds, each measured from something the app reads** (`lib/goals.ts`): afford N of an item

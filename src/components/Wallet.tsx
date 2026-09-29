@@ -15,13 +15,14 @@ import { toast } from '../lib/toast';
 import { isStation, isStructure, isSystem, structureInfo, system, type StructureRead } from '../lib/universe';
 import { isAbyssalSystem, netLoss } from '../lib/combat';
 import {
-  autoTag, balanceAt, balanceSeries, csvCell, describeRef, feeLeak, flows, nextTag, RUNNING, runwayDays, unusual, type Line, type TradeClass,
+  autoTag, balanceAt, balanceSeries, csvCell, describeRef, feeLeak, fittedShips, flows, multibuys, nextTag, RUNNING, runwayDays, unusual,
+  type Line, type Multibuy, type TradeClass,
 } from '../lib/wallet';
 import type { JournalEntry, Position, Tx, UntrackedTag } from '../lib/types';
 import { AreaLine, MiniLine } from './charts';
 import { Goals } from './Goals';
 import { AssetSafety } from './AssetSafety';
-import { downloadBlob, downloadText, useTypeName } from './common';
+import { downloadBlob, downloadText, useShipTypes, useTypeName } from './common';
 import { BarLine, cssVars, Empty, Figure, PageHead, Panel, Seg, Tiles } from './ui';
 import { nettedJournal, refundsIn } from '../lib/refunds';
 
@@ -125,11 +126,16 @@ export function Wallet() {
   const posSeries = useMemo(() => d.positions.map((p) => ({ p, series: computePosition(p, d, d.settings).series })),
     [d.positions, d.txs, d.journal, d.orders, d.settings]); // eslint-disable-line react-hooks/exhaustive-deps
   const ignored = useMemo(() => new Set(d.ignored), [d.ignored]);
-  const tagOf = (tx: Tx): UntrackedTag => (ignored.has(tx.id) ? 'personal' : d.tags[tx.id] ?? autoTag(tx, everBought));
+  // Purchases made in one go (the Multibuy window, a fitting's "Buy all") are one row; one with a ship in it is a fit
+  // to fly, guessed Personal until you say otherwise (wallet.ts, `multibuys`).
+  const multis = useMemo(() => multibuys(txList), [txList]);
+  const ships = useShipTypes(useMemo(() => multis.flatMap((g) => g.typeIds), [multis]));
+  const fitted = useMemo(() => fittedShips(multis, (t) => ships.has(t)), [multis, ships]);
+  const tagOf = (tx: Tx): UntrackedTag => (ignored.has(tx.id) ? 'personal' : d.tags[tx.id] ?? autoTag(tx, everBought, fitted));
   const classOf = (tx: Tx): TradeClass => ({ tracked: tracked.has(tx.id), tag: tagOf(tx) });
 
-  const f = useMemo(() => flows(journal, txList, classOf, since), [journal, txList, tracked, ignored, d.tags, since]); // eslint-disable-line react-hooks/exhaustive-deps
-  const f30 = useMemo(() => flows(journal, txList, classOf, now - 30 * DAY), [journal, txList, tracked, ignored, d.tags, Math.floor(now / 3600_000)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const f = useMemo(() => flows(journal, txList, classOf, since), [journal, txList, tracked, ignored, d.tags, fitted, since]); // eslint-disable-line react-hooks/exhaustive-deps
+  const f30 = useMemo(() => flows(journal, txList, classOf, now - 30 * DAY), [journal, txList, tracked, ignored, d.tags, fitted, Math.floor(now / 3600_000)]); // eslint-disable-line react-hooks/exhaustive-deps
   const series = useMemo(() => balanceSeries(journal, since), [journal, since]);
   const wallet = d.meta.walletBalance ?? series[series.length - 1]?.balance ?? null;
   const startBal = useMemo(() => balanceAt(journal, since), [journal, since]);
@@ -398,7 +404,8 @@ export function Wallet() {
 
       <AssetSafety d={d} rough={rough} />
 
-      <Untracked d={d} txs={txList.filter((t) => !tracked.has(t.id) && Date.parse(t.date) >= since)} tagOf={tagOf} explicit={(id) => ignored.has(id) || id in d.tags} periodWords={periodWords} />
+      <Untracked d={d} txs={txList.filter((t) => !tracked.has(t.id) && Date.parse(t.date) >= since)} tagOf={tagOf} explicit={(id) => ignored.has(id) || id in d.tags}
+        multis={multis} ships={ships} periodWords={periodWords} />
 
       <div className="g-300">
         <Panel title="The fee leak">
@@ -656,18 +663,36 @@ function WhereItSits(props: {
   );
 }
 
-function Untracked(props: { d: Data; txs: Tx[]; tagOf: (tx: Tx) => UntrackedTag; explicit: (id: string) => boolean; periodWords: string }) {
+/** A row of "Trades no position tracks": one trade, or purchases made in one go. */
+type UntrackedRow = { kind: 'tx'; tx: Tx; at: string } | { kind: 'multi'; g: Multibuy; txs: Tx[]; at: string };
+
+function Untracked(props: { d: Data; txs: Tx[]; tagOf: (tx: Tx) => UntrackedTag; explicit: (id: string) => boolean; multis: Multibuy[]; ships: ReadonlySet<number>; periodWords: string }) {
   const { d, txs, tagOf } = props;
   const name = useTypeName();
   const [all, setAll] = useState(false);
-  const rows = [...txs].sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+  const [openMulti, setOpenMulti] = useState<Set<string>>(() => new Set());
+  // A multibuy is one row while at least two of its purchases are here; each opens to its purchases.
+  const rows = useMemo(() => {
+    const here = new Map(txs.map((t) => [t.id, t]));
+    const out: UntrackedRow[] = [];
+    for (const g of props.multis) {
+      const ts = g.txIds.map((id) => here.get(id)).filter((t): t is Tx => !!t);
+      if (ts.length < 2) continue;
+      ts.forEach((t) => here.delete(t.id));
+      out.push({ kind: 'multi', g, txs: ts.sort((a, b) => b.qty * b.unitPrice - a.qty * a.unitPrice), at: g.at });
+    }
+    for (const tx of here.values()) out.push({ kind: 'tx', tx, at: tx.date });
+    return out.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  }, [txs, props.multis]);
   const shown = all ? rows : rows.slice(0, 8);
-  const setTag = (tx: Tx, tag: UntrackedTag) => update((x) => {
+  const setTags = (list: Tx[], tag: UntrackedTag) => update((x) => {
+    const ids = new Set(list.map((t) => t.id));
     const tags = { ...x.tags };
-    delete tags[tx.id];
-    if (tag !== 'personal') tags[tx.id] = tag;
-    return { tags, ignored: tag === 'personal' ? [...x.ignored.filter((i) => i !== tx.id), tx.id] : x.ignored.filter((i) => i !== tx.id) };
+    for (const id of ids) { delete tags[id]; if (tag !== 'personal') tags[id] = tag; }
+    const rest = x.ignored.filter((i) => !ids.has(i));
+    return { tags, ignored: tag === 'personal' ? [...rest, ...ids] : rest };
   });
+  const setTag = (tx: Tx, tag: UntrackedTag) => setTags([tx], tag);
   const why = (tx: Tx, tag: UntrackedTag) => {
     if (props.explicit(tx.id)) return tag === 'personal' ? 'You marked it personal' : 'You said what it was';
     return tag === 'loot' ? 'Sold without ever buying one — loot or a drop' : 'No position counts it';
@@ -678,6 +703,25 @@ function Untracked(props: { d: Data; txs: Tx[]; tagOf: (tx: Tx) => UntrackedTag;
     else if (res.movedTo) toast(`It starts ${res.movedTo.slice(0, 16).replace('T', ' ').replace(/-/g, '.')} EVE, when your last ${name(tx.typeId)} position closed, so this trade isn’t in it.`, 'warn');
     navigate(`positions/${res.id}`);
   };
+  const txRow = (tx: Tx, inGroup = false) => {
+    const tag = tagOf(tx);
+    const look = TAG_LOOK[tag];
+    const hasOpen = d.positions.some((p) => p.typeId === tx.typeId && p.status === 'open');
+    return (
+      <tr key={tx.id} className="hover">
+        <td className="l" style={inGroup ? { paddingLeft: 40 } : undefined}><span className="name" style={{ fontWeight: 400, fontSize: 13.5 }}>{name(tx.typeId)}</span></td>
+        <td className="l" style={{ color: 'var(--sec)', fontFamily: 'var(--f-body)' }}>{tx.isBuy ? 'Bought' : 'Sold'} <span style={{ color: 'var(--faint)' }}>{fmtShort(tx.date)}</span></td>
+        <td>{units(tx.qty)}</td>
+        <td className="l" style={{ color: 'var(--note)', fontFamily: 'var(--f-body)', whiteSpace: 'normal' }}>{inGroup && !props.explicit(tx.id) ? '' : why(tx, tag)}</td>
+        <td style={{ color: tx.isBuy ? 'var(--neg-t)' : 'var(--pos)' }}>{tx.isBuy ? '−' : '+'}{iskBig(tx.qty * tx.unitPrice)}</td>
+        <td className="l">
+          <button type="button" className="tag-btn" style={cssVars({ '--c': look.c })} onClick={() => setTag(tx, nextTag(tag))}
+            data-tip="Click to change what this counts as: loot sale, personal, trading, or other.">{tx.isBuy ? look.buy : look.sell}</button>
+        </td>
+        <td>{!inGroup && (tag === 'trading' || tag === 'other') && !hasOpen && <button type="button" className="link-btn" onClick={() => start(tx)}>Start a position</button>}</td>
+      </tr>
+    );
+  };
   return (
     <Panel title="Trades no position tracks" sub="Sorted automatically. Click a tag if it guessed wrong." label="Untracked trades">
       {!rows.length ? <p className="note">Every trade {props.periodWords} is counted by a position.</p> : (
@@ -685,24 +729,47 @@ function Untracked(props: { d: Data; txs: Tx[]; tagOf: (tx: Tx) => UntrackedTag;
           <table className="tbl compact" style={{ minWidth: 720 }}>
             <thead><tr><th scope="col" className="l">Item</th><th scope="col" className="l">Trade</th><th scope="col">Qty</th><th scope="col" className="l">Why it’s here</th><th scope="col">Value</th><th scope="col" className="l">Counts as</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>
-              {shown.map((tx) => {
-                const tag = tagOf(tx);
-                const look = TAG_LOOK[tag];
-                const hasOpen = d.positions.some((p) => p.typeId === tx.typeId && p.status === 'open');
-                return (
-                  <tr key={tx.id} className="hover">
-                    <td className="l"><span className="name" style={{ fontWeight: 400, fontSize: 13.5 }}>{name(tx.typeId)}</span></td>
-                    <td className="l" style={{ color: 'var(--sec)', fontFamily: 'var(--f-body)' }}>{tx.isBuy ? 'Bought' : 'Sold'} <span style={{ color: 'var(--faint)' }}>{fmtShort(tx.date)}</span></td>
-                    <td>{units(tx.qty)}</td>
-                    <td className="l" style={{ color: 'var(--note)', fontFamily: 'var(--f-body)', whiteSpace: 'normal' }}>{why(tx, tag)}</td>
-                    <td style={{ color: tx.isBuy ? 'var(--neg-t)' : 'var(--pos)' }}>{tx.isBuy ? '−' : '+'}{iskBig(tx.qty * tx.unitPrice)}</td>
-                    <td className="l">
-                      <button type="button" className="tag-btn" style={cssVars({ '--c': look.c })} onClick={() => setTag(tx, nextTag(tag))}
-                        data-tip="Click to change what this counts as: loot sale, personal, trading, or other.">{tx.isBuy ? look.buy : look.sell}</button>
+              {shown.flatMap((r) => {
+                if (r.kind === 'tx') return [txRow(r.tx)];
+                const tags = [...new Set(r.txs.map(tagOf))];
+                const tag = tags.length === 1 ? tags[0] : null;
+                const guessed = r.txs.every((t) => !props.explicit(t.id));
+                const ship = r.txs.find((t) => props.ships.has(t.typeId));
+                const open = openMulti.has(r.g.key);
+                const value = r.txs.reduce((v, t) => v + t.qty * t.unitPrice, 0);
+                const look = tag ? TAG_LOOK[tag] : null;
+                return [
+                  <tr key={r.g.key} className="hover">
+                    <td className="l" style={{ whiteSpace: 'normal' }}>
+                      <button type="button" className="panel-toggle" aria-expanded={open}
+                        onClick={() => setOpenMulti((s) => { const n = new Set(s); if (n.has(r.g.key)) n.delete(r.g.key); else n.add(r.g.key); return n; })}>
+                        <ChevronRight className="chev" aria-hidden="true" />
+                        <span className="name" style={{ fontWeight: 400, fontSize: 13.5 }}>
+                          {ship ? `${name(ship.typeId)} and its fitting` : `${units(r.txs.length)} items in one go`}
+                          <span className="faint"> · {units(r.txs.length)} purchases</span>
+                        </span>
+                      </button>
                     </td>
-                    <td>{(tag === 'trading' || tag === 'other') && !hasOpen && <button type="button" className="link-btn" onClick={() => start(tx)}>Start a position</button>}</td>
-                  </tr>
-                );
+                    <td className="l" style={{ color: 'var(--sec)', fontFamily: 'var(--f-body)' }}>Bought <span style={{ color: 'var(--faint)' }}>{fmtShort(r.at)}</span></td>
+                    <td>–</td>
+                    <td className="l" style={{ color: 'var(--note)', fontFamily: 'var(--f-body)', whiteSpace: 'normal' }}>
+                      {!guessed ? 'You said what they were' : ship ? 'Bought in one go with a ship: a fit to fly, most likely' : 'Bought in one go (the Multibuy window, or a fitting’s Buy all)'}
+                    </td>
+                    <td style={{ color: 'var(--neg-t)' }}>−{iskBig(value)}</td>
+                    <td className="l">
+                      <span className="row tight" style={{ gap: 8, flexWrap: 'nowrap' }}>
+                        <button type="button" className="tag-btn" style={cssVars({ '--c': look?.c ?? 'var(--sec)' })} onClick={() => setTags(r.txs, nextTag(tag ?? 'other'))}
+                          data-tip="Click to change what all of these count as: loot, personal, trading, or other. Open the row to set one on its own.">{look ? look.buy : 'Mixed'}</button>
+                        {guessed && tag && (
+                          <button type="button" className="link-btn" onClick={() => setTags(r.txs, tag)}
+                            data-tip={`Keep the guess: marks all ${r.txs.length} as ${look!.buy.toLowerCase()} for good, so every page counts them that way, not only the Wallet.`}>Confirm</button>
+                        )}
+                      </span>
+                    </td>
+                    <td />
+                  </tr>,
+                  ...(open ? r.txs.map((t) => txRow(t, true)) : []),
+                ];
               })}
             </tbody>
           </table>

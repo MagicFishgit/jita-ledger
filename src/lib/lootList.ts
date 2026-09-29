@@ -6,7 +6,8 @@
  * against what the bids would pay for it now, and only the ones that gain most per slot are listed; the rest are sold
  * into bids or skipped. Items with an open position, or already on a sell order of yours, are left out unless you
  * include them: the user wants to "confidently sell loot and when I want to, positions". So are ships: "the risk of it
- * is too high for how expensive they can get", unless included one by one. Pure.
+ * is too high for how expensive they can get", and snipes you still hold; each kind has a switch, each item its own.
+ * Containers, deployables and structures that are assembled are in use, and a hangar read sets them aside. Pure.
  */
 import { listingPrice, reachedAsk } from './fills';
 import type { OrderLite } from './flow';
@@ -62,13 +63,20 @@ export type LootMarket = {
 };
 
 export type LootVerdict = 'list' | 'bids' | 'skip' | 'noSlot' | 'held';
-export type LootHeld = 'position' | 'listed' | 'ship' | 'unchecked';
+export type LootHeld = 'position' | 'listed' | 'ship' | 'sniped' | 'unchecked';
+
+/**
+ * Categories whose assembled items are in use, not loot: containers (Celestial), deployables, starbase parts and
+ * structures. Ships are left out on their own rule. A blueprint original is assembled too, and stays: it sells.
+ */
+export const IN_USE_CATEGORIES: ReadonlySet<number> = new Set([2, 22, 23, 65]);
 
 /** Why an item is left out, and how to put it back. */
 export const HELD_WHY: Record<LootHeld, string> = {
   position: 'You have an open position on it: include it to sell it here',
   listed: 'You already have a sell order on it: include it to list more',
   ship: 'A ship: left out, since one wrong price on a hull costs too much. Include it to sell it here',
+  sniped: 'You sniped it and still hold some: left out so a snipe isn’t sold off as loot. Include it to sell it here',
   unchecked: 'Whether it’s a ship couldn’t be checked, so it’s left out: include it if it isn’t one',
 };
 

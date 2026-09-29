@@ -19,7 +19,7 @@ export type RawCharOrder = {
   order_id: number; type_id: number; is_buy_order?: boolean; price: number;
   volume_total: number; volume_remain: number; issued: string; state?: string; location_id: number; escrow?: number;
 };
-export type RawAsset = { item_id: number; type_id: number; quantity: number; location_id: number; location_flag: string; location_type: string; is_blueprint_copy?: boolean };
+export type RawAsset = { item_id: number; type_id: number; quantity: number; location_id: number; location_flag: string; location_type: string; is_blueprint_copy?: boolean; is_singleton?: boolean };
 
 export type TxRecord = {
   id: string; source: 'esi'; typeId: number; date: string; isBuy: boolean; qty: number; unitPrice: number; locationId: number;
@@ -40,6 +40,8 @@ export type StockRecord = {
   safety?: SafetyWrap[];
   /** Units in `jita` that hold other things (a fitted ship, a container with things in it): not for sale as they are. */
   holding?: Record<number, number>;
+  /** Units in `jita` that are assembled (ESI's `is_singleton`): a container or ship in use, or a blueprint original. */
+  assembled?: Record<number, number>;
 };
 
 /**
@@ -216,6 +218,7 @@ export function countStock(raw: RawAsset[], jitaId: number): StockRecord {
   const byLocation: Record<number, Record<number, number>> = {};
   const nested: Record<number, number> = {};
   const holding: Record<number, number> = {};
+  const assembled: Record<number, number> = {};
   const stations = new Set(raw.filter((a) => a.location_type === 'station').map((a) => a.location_id));
   const itemIds = new Set(raw.map((a) => a.item_id));
   // Asset safety: each wrap and everything inside it, at any depth. They are yours and count in the total, but are
@@ -280,6 +283,7 @@ export function countStock(raw: RawAsset[], jitaId: number): StockRecord {
     if (a.location_id === jitaId && a.location_flag === 'Hangar') {
       jita[a.type_id] = (jita[a.type_id] ?? 0) + a.quantity;
       if (inside.has(a.item_id)) holding[a.type_id] = (holding[a.type_id] ?? 0) + a.quantity;
+      if (a.is_singleton) assembled[a.type_id] = (assembled[a.type_id] ?? 0) + a.quantity;
     }
     if (a.location_type === 'item' && !stations.has(a.location_id)) inContainers += a.quantity;
     // Inside something you own (a ship, a can): counted apart. A structure's hangar is also an
@@ -291,7 +295,7 @@ export function countStock(raw: RawAsset[], jitaId: number): StockRecord {
       loc[a.type_id] = (loc[a.type_id] ?? 0) + a.quantity;
     }
   }
-  return { at: new Date().toISOString(), jita, total, inContainers, byLocation, nested, safety, holding };
+  return { at: new Date().toISOString(), jita, total, inContainers, byLocation, nested, safety, holding, assembled };
 }
 
 /**

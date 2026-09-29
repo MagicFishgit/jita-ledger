@@ -221,10 +221,47 @@ export function feeLeak(journal: JournalEntry[], since: number, relistIds: Set<s
 }
 
 /** A trade no position counts gets a guess at what it was, which you can correct. */
-export function autoTag(tx: Tx, everBought: Set<number>): UntrackedTag {
+export function autoTag(tx: Tx, everBought: Set<number>, fitted: ReadonlySet<string> = new Set()): UntrackedTag {
   // Something you sold without ever having bought it came from somewhere else: loot, drops, salvage.
   if (!tx.isBuy && !everBought.has(tx.typeId)) return 'loot';
+  // A ship bought in one go with its modules is a fit to fly (see `multibuys`).
+  if (tx.isBuy && fitted.has(tx.id)) return 'personal';
   return 'other';
+}
+
+/** Several purchases in the same second: the Multibuy window, or a saved fitting's "Buy all". */
+export type Multibuy = { key: string; at: string; txIds: string[]; typeIds: number[]; value: number };
+/** A multibuy has at least this many purchases, each within MULTIBUY_GAP_MS of the one before. */
+export const MULTIBUY_MIN = 3;
+export const MULTIBUY_GAP_MS = 2000;
+
+/**
+ * Purchases made in one go. The user bought a fitted Jackdaw from a saved fitting through the Multibuy window: 18
+ * purchases in one second (29 September 2026, 135,358,716.45 ISK), each its own row in "Trades no position tracks",
+ * each needing two clicks to mark Personal. They're one decision, so the Wallet shows them as one row with one tag,
+ * and one that includes a ship (`fittedShips`) is guessed to be a fit to fly: Personal, until you say otherwise. A
+ * multibuy can straddle a second: two of the user's seven landed across 23:08:04–05 and 16:24:48–49.
+ */
+export function multibuys(txs: Tx[], min = MULTIBUY_MIN): Multibuy[] {
+  const buys = txs.filter((t) => t.isBuy).sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+  const bursts: Tx[][] = [];
+  for (const t of buys) {
+    const cur = bursts[bursts.length - 1];
+    if (cur && Date.parse(t.date) - Date.parse(cur[cur.length - 1].date) <= MULTIBUY_GAP_MS) cur.push(t);
+    else bursts.push([t]);
+  }
+  const out: Multibuy[] = [];
+  for (const ts of bursts) {
+    const typeIds = [...new Set(ts.map((t) => t.typeId))];
+    if (ts.length < min || typeIds.length < 2) continue;
+    out.push({ key: `multi:${ts[0].date}`, at: ts[0].date, txIds: ts.map((t) => t.id), typeIds, value: ts.reduce((s, t) => s + t.qty * t.unitPrice, 0) });
+  }
+  return out.sort((a, b) => b.at.localeCompare(a.at));
+}
+
+/** The purchases in multibuys that include a ship: a fitted ship bought to fly. */
+export function fittedShips(groups: Multibuy[], isShip: (typeId: number) => boolean): Set<string> {
+  return new Set(groups.filter((g) => g.typeIds.some(isShip)).flatMap((g) => g.txIds));
 }
 
 export const TAG_ORDER: UntrackedTag[] = ['loot', 'personal', 'trading', 'other'];

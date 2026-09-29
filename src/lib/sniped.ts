@@ -149,3 +149,23 @@ export function followSnipe(
       : madeSoFar + left * fairNow * (1 - r.t) - (s.cost * left) / s.units - Math.max(feesOnUnsold, left * fairNow * r.f);
   return { soldUnits, avgSale: soldUnits ? revenue / soldUnits : null, extraSold, madeSoFar, feesOnUnsold, left, inTheEnd };
 }
+
+/**
+ * The items you sniped and haven't sold all of yet: each snipe's units less what sold of the item since the first
+ * one, the snipe's own units selling first (as `followSnipe` counts them). For List loot, which leaves them out
+ * unless included: the user's Caldari Navy Uranium Charge S, sniped, came up there as loot to list.
+ */
+export function snipesHeld(taken: Pick<Taken, 'typeId' | 'at' | 'units'>[], sales: Pick<Tx, 'typeId' | 'date' | 'qty' | 'isBuy'>[]): Map<number, { units: number; at: string }> {
+  const out = new Map<number, { units: number; at: string }>();
+  const byType = new Map<number, { units: number; at: string }>();
+  for (const s of taken) {
+    const was = byType.get(s.typeId);
+    byType.set(s.typeId, was ? { units: was.units + s.units, at: was.at < s.at ? was.at : s.at } : { units: s.units, at: s.at });
+  }
+  for (const [typeId, s] of byType) {
+    const t0 = Date.parse(s.at);
+    const sold = sales.filter((x) => !x.isBuy && x.typeId === typeId && Date.parse(x.date) >= t0).reduce((n, x) => n + x.qty, 0);
+    if (s.units - sold > 0) out.set(typeId, { units: s.units - sold, at: s.at });
+  }
+  return out;
+}

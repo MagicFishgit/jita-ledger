@@ -135,6 +135,8 @@ export type Stock = {
   safety?: SafetyWrap[];
   /** Units in `jita` that hold other things (a fitted ship, a container with things in it). Absent on older syncs. */
   holding?: Record<number, number>;
+  /** Units in `jita` that are assembled: a container or ship in use, or a blueprint original. Absent on older syncs. */
+  assembled?: Record<number, number>;
 };
 
 /** What a scan learned about one item's trading, reduced from ESI's daily history. */
