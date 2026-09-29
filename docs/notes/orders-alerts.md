@@ -122,6 +122,17 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   ~86 days listed but 1.29 M against 26 k in the bids, the best use of a slot per day in the lot; slow now only reads
   as slow. On the user's 28 items it listed 12, sent 11 to the bids (listing one step over their bid gets less than
   the bid after the broker fee) and held 5 for slots.
+  **Ships are left out too, unless included one by one** (`HELD_WHY.ship`, category 6 from ESI's type and group,
+  `typeKind`, kept for good): the user's first hangar read offered their fitted Jackdaw, a Malediction and a Nereus, and
+  they asked for ships out of the tool, since "the risk of it is too high for how expensive they can get", with a
+  control to override. An item whose type couldn't be read is left out the same way (`unchecked`). Things holding other
+  things (a fitted ship, a container with things in it) are set aside from a hangar read entirely: the stock record
+  marks them (`holding`, from assets whose `item_id` other assets sit in), since they can't be sold as they are. That
+  first read also showed dozens of "Item #…" (the hangar read took names only from the ledger's cache; they now come
+  from the same type lookup) and the items to select as one long comma-separated paragraph, now a wrapped list showing
+  a dozen with the rest behind "and N more". Three more tiles, which the user asked for, say what everything not left
+  out comes to listed where it sells, sold into the bids now, and as the plan splits it (`lootTotals`); and Clear resets
+  the page.
 - **Pages that need the same live answer share one store**: `orderCheck` (your orders against the book),
   `watch` (squeeze and scam signals), `colonyStore` and the killmail pricer. Orders, To do and the
   alerts all read `orderCheck` rather than fetching the same books three times.

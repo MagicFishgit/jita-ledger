@@ -133,6 +133,8 @@ export type Stock = {
   nested?: Record<number, number>;
   /** Wraps in asset safety, or delivered and not yet unpacked (esiRecords.ts). Absent on stock read before they were kept. */
   safety?: SafetyWrap[];
+  /** Units in `jita` that hold other things (a fitted ship, a container with things in it). Absent on older syncs. */
+  holding?: Record<number, number>;
 };
 
 /** What a scan learned about one item's trading, reduced from ESI's daily history. */

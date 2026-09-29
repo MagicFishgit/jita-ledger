@@ -38,6 +38,8 @@ export type StockRecord = {
   byLocation?: Record<number, Record<number, number>>; nested?: Record<number, number>;
   /** Wraps of your items in asset safety, or delivered and not yet unpacked. Absent on stock read before they were kept. */
   safety?: SafetyWrap[];
+  /** Units in `jita` that hold other things (a fitted ship, a container with things in it): not for sale as they are. */
+  holding?: Record<number, number>;
 };
 
 /**
@@ -213,6 +215,7 @@ export function countStock(raw: RawAsset[], jitaId: number): StockRecord {
   const total: Record<number, number> = {};
   const byLocation: Record<number, Record<number, number>> = {};
   const nested: Record<number, number> = {};
+  const holding: Record<number, number> = {};
   const stations = new Set(raw.filter((a) => a.location_type === 'station').map((a) => a.location_id));
   const itemIds = new Set(raw.map((a) => a.item_id));
   // Asset safety: each wrap and everything inside it, at any depth. They are yours and count in the total, but are
@@ -276,6 +279,7 @@ export function countStock(raw: RawAsset[], jitaId: number): StockRecord {
     if (safe.has(a.item_id)) continue;
     if (a.location_id === jitaId && a.location_flag === 'Hangar') {
       jita[a.type_id] = (jita[a.type_id] ?? 0) + a.quantity;
+      if (inside.has(a.item_id)) holding[a.type_id] = (holding[a.type_id] ?? 0) + a.quantity;
     }
     if (a.location_type === 'item' && !stations.has(a.location_id)) inContainers += a.quantity;
     // Inside something you own (a ship, a can): counted apart. A structure's hangar is also an
@@ -287,7 +291,7 @@ export function countStock(raw: RawAsset[], jitaId: number): StockRecord {
       loc[a.type_id] = (loc[a.type_id] ?? 0) + a.quantity;
     }
   }
-  return { at: new Date().toISOString(), jita, total, inContainers, byLocation, nested, safety };
+  return { at: new Date().toISOString(), jita, total, inContainers, byLocation, nested, safety, holding };
 }
 
 /**

@@ -5,7 +5,8 @@
  * taking one. So each item is priced where a listing actually sells (`listingPrice`, the rule Orders uses), set
  * against what the bids would pay for it now, and only the ones that gain most per slot are listed; the rest are sold
  * into bids or skipped. Items with an open position, or already on a sell order of yours, are left out unless you
- * include them: the user wants to "confidently sell loot and when I want to, positions". Pure.
+ * include them: the user wants to "confidently sell loot and when I want to, positions". So are ships: "the risk of it
+ * is too high for how expensive they can get", unless included one by one. Pure.
  */
 import { listingPrice, reachedAsk } from './fills';
 import type { OrderLite } from './flow';
@@ -61,6 +62,15 @@ export type LootMarket = {
 };
 
 export type LootVerdict = 'list' | 'bids' | 'skip' | 'noSlot' | 'held';
+export type LootHeld = 'position' | 'listed' | 'ship' | 'unchecked';
+
+/** Why an item is left out, and how to put it back. */
+export const HELD_WHY: Record<LootHeld, string> = {
+  position: 'You have an open position on it: include it to sell it here',
+  listed: 'You already have a sell order on it: include it to list more',
+  ship: 'A ship: left out, since one wrong price on a hull costs too much. Include it to sell it here',
+  unchecked: 'Whether it’s a ship couldn’t be checked, so it’s left out: include it if it isn’t one',
+};
 
 export type LootCall = {
   typeId: number;
@@ -78,8 +88,9 @@ export type LootCall = {
   perSlotDay: number | null;
   verdict: LootVerdict;
   why: string;
-  /** Left out unless you include it: you hold a position on it, or already have a sell order on it. */
-  held?: 'position' | 'listed';
+  /** Left out unless you include it: you hold a position on it, already have a sell order on it, it's a ship, or
+   * whether it's a ship couldn't be checked. */
+  held?: LootHeld;
 };
 
 /**
@@ -107,7 +118,7 @@ export function judgeLoot(
   r: { f: number; t: number },
   sharePct: number,
   target: number,
-  held?: 'position' | 'listed',
+  held?: LootHeld,
 ): LootCall {
   const base = { typeId: row.typeId, name: row.name, qty: row.qty, listAt: null, listNet: null, days: null, bidsNet: 0, bidsUnits: 0, gain: null, perSlotDay: null };
   if (!m) return { ...base, verdict: 'skip', why: 'Its Jita market couldn’t be read' };
@@ -149,10 +160,38 @@ export function judgeLoot(
  * (`held`) stay out unless included, whatever they'd make.
  */
 export function planLoot(calls: LootCall[], freeSlots: number, included: Set<number>): LootCall[] {
-  const out = calls.map((c) => (c.held && !included.has(c.typeId) ? { ...c, verdict: 'held' as const, why: c.held === 'position' ? 'You have an open position on it: include it to sell it here' : 'You already have a sell order on it: include it to list more' } : c));
+  const out = calls.map((c) => (c.held && !included.has(c.typeId) ? { ...c, verdict: 'held' as const, why: HELD_WHY[c.held] } : c));
   const listing = out.filter((c) => c.verdict === 'list').sort((a, b) => (b.perSlotDay ?? 0) - (a.perSlotDay ?? 0));
   const room = new Set(listing.slice(0, Math.max(0, freeSlots)).map((c) => c.typeId));
   return out.map((c) => (c.verdict === 'list' && !room.has(c.typeId) ? { ...c, verdict: 'noSlot' as const, why: `${c.why}. No free order slot for it` } : c));
+}
+
+export type LootTotals = {
+  /** Everything not left out, listed where it sells: after the broker fee and sales tax, how many items (a slot each),
+   * the longest any takes to sell, and how many have no listing price (nobody lists them and there's no history). */
+  listed: { isk: number; items: number; slowest: number | null; unpriced: number };
+  /** Everything not left out, sold into the bids now after sales tax, and how many the bids can't take in full. */
+  bids: { isk: number; items: number; short: number };
+  /** The plan as drawn: its listings when they sell, and what goes into the bids now. Items waiting for a slot aren't in it. */
+  plan: { isk: number; listed: number; bids: number; waiting: number };
+};
+
+/**
+ * What the loot comes to all listed, all sold into the bids, and as the plan splits it. The user asked to see the
+ * totals "if all valid items were sold at listing sell price or sold to buy orders" beside the plan.
+ */
+export function lootTotals(calls: LootCall[]): LootTotals {
+  const live = calls.filter((c) => c.verdict !== 'held');
+  const priced = live.filter((c) => c.listNet != null && c.listNet > 0);
+  const slow = priced.map((c) => c.days).filter((d): d is number => d != null);
+  const bid = live.filter((c) => c.bidsUnits > 0);
+  const list = live.filter((c) => c.verdict === 'list'), toBids = live.filter((c) => c.verdict === 'bids');
+  const listIsk = list.reduce((t, c) => t + (c.listNet ?? 0), 0), bidsIsk = toBids.reduce((t, c) => t + c.bidsNet, 0);
+  return {
+    listed: { isk: priced.reduce((t, c) => t + c.listNet!, 0), items: priced.length, slowest: slow.length ? Math.max(...slow) : null, unpriced: live.filter((c) => c.listAt == null).length },
+    bids: { isk: bid.reduce((t, c) => t + c.bidsNet, 0), items: bid.length, short: bid.filter((c) => c.bidsUnits < c.qty).length },
+    plan: { isk: listIsk + bidsIsk, listed: listIsk, bids: bidsIsk, waiting: live.filter((c) => c.verdict === 'noSlot').length },
+  };
 }
 
 /** A price as the Sell window's import takes it: no thousands separators, cents only when there are cents. */

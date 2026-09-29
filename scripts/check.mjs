@@ -1765,6 +1765,9 @@ console.log('\n--- asset safety ---');
     { id: 1044519007308, typeId: 17366, items: { 2185: 5 }, contents: [{ typeId: 2185, q: 5 }] },
   ]);
   eq('  a ship with nothing in it lies loose', [s.safety[0].loose, s.safety[0].contents], [{ 16233: 1 }, [{ typeId: 16233, q: 1 }]]);
+  // List loot reads the Jita hangar: the user's fitted Jackdaw and their Station Vault Containers with things in them
+  // came up as loot to list (29 September 2026). They still count as stock; `holding` says which can't be sold as they are.
+  eq('a fitted ship in the Jita hangar is stock, and marked as holding things', [s.jita[587], s.holding], [1, { 587: 1 }]);
   const cargo = countStock([...raw, A(9010, 3465, 1044914025438, 'Cargo', 'item'), A(9011, 34, 9010, 'Unlocked', 'item', 700)], JITA);
   eq('  a container in a ship’s cargo opens inside the ship, in its cargo hold', cargo.safety[0].holders[0], { id: 1044914025438, typeId: 2006, items: { 3001: 1 }, contents: [{ typeId: 3001, q: 1, bay: 'Fitted' }], holders: [{ id: 9010, typeId: 3465, items: { 34: 700 }, contents: [{ typeId: 34, q: 700 }], bay: 'Cargo hold' }] });
   // The user's wrap as ESI sent it at 18:07 UTC: "Equipment", a Station Container holding five blueprint copies and
@@ -2555,7 +2558,7 @@ console.log('\n--- a sell priced under what it cost ---');
 
 console.log('\n--- listing loot through the Sell window ---');
 {
-  const { parseLoot, judgeLoot, planLoot, importBlock, importPrice } = await import('../src/lib/lootList.ts');
+  const { parseLoot, judgeLoot, planLoot, importBlock, importPrice, lootTotals } = await import('../src/lib/lootList.ts');
   // The user's own pastes (29 September 2026): the Sell window's export, and the hangar copied in list view. A paste
   // through chat turned the tabs into runs of spaces, so both forms are tried with each.
   const exported = '4477    Small Gremlin Compact Energy Neutralizer    1    40000.0    40000.0\n207\tMjolnir Heavy Missile\t200\t74.48\t14896.0\n25709    Upgraded \'Malkuth\' Heavy Assault Missile Launcher I    1    19120.0    19120.0';
@@ -2588,6 +2591,19 @@ console.log('\n--- listing loot through the Sell window ---');
   eq('an item with an open position is left out; one free slot goes to the best', plan.map((c) => c.verdict), ['list', 'held', 'noSlot']);
   eq('  unless you include it', planLoot([held], 5, new Set([5]))[0].verdict, 'list');
   eq('the import block: name, a tab, the price as the window reads it', [importBlock(plan, 'point'), importPrice(1234.5, 'comma'), importPrice(40000, 'point')], ['Good Loot\t99.99', '1234,50', '40000']);
+  // Ships stay out unless included one by one: "the risk of it is too high for how expensive they can get".
+  const ship = judgeLoot({ typeId: 7, name: 'Jackdaw', qty: 1 }, { others: [L(1, false, 40e6, 3), L(2, true, 30e6, 2)], highs: Array(14).fill(41e6), perDay: 5, buyers: 0.5 }, R, 7.5, 0.05, 'ship');
+  const withShip = planLoot([good, ship], 5, new Set());
+  eq('a ship is left out, and says why', [withShip[1].verdict, withShip[1].why.startsWith('A ship')], ['held', true]);
+  eq('  unless you include it', planLoot([ship], 5, new Set([7]))[0].verdict, 'list');
+  // The user asked for what it all comes to listed, and in the bids, beside the plan.
+  const dump = judgeLoot({ typeId: 8, name: 'Dump', qty: 10 }, { others: [L(1, true, 50, 100)], highs: null, perDay: null, buyers: 0.5 }, R, 7.5, 0.05);
+  const tot = lootTotals(planLoot([good, close, dump, ship], 1, new Set()));
+  eq('totals: everything listed, everything in the bids, the plan; the ship left out of all three', [
+    Math.round(tot.listed.isk) === Math.round(good.listNet + close.listNet), tot.listed.items, tot.listed.unpriced,
+    Math.round(tot.bids.isk) === Math.round(good.bidsNet + close.bidsNet + dump.bidsNet), tot.bids.items,
+    Math.round(tot.plan.isk) === Math.round(good.listNet + close.bidsNet + dump.bidsNet), tot.plan.waiting,
+  ], [true, 2, 1, true, 3, true, 0]);
 }
 
 console.log('\n--- a fee a GM refunded counts as nothing ---');

@@ -164,6 +164,14 @@ const groupCategory = (id: number) => cached(`group-cat:${id}`, async () => {
   const { data } = await esi<{ category_id: number }>(`/universe/groups/${id}/`);
   return data.category_id;
 });
+/** Category 6 is Ship: every hull, from a rookie ship to a titan. */
+export const SHIP_CATEGORY = 6;
+
+/** An item's name as ESI gives it (English, as the client's are) and whether it's a ship. Kept for good, like the type. */
+export async function typeKind(typeId: number): Promise<{ name: string; ship: boolean }> {
+  const t = await typeInfo(typeId);
+  return { name: t.name, ship: (await groupCategory(t.groupId)) === SHIP_CATEGORY };
+}
 const categoryName = (id: number) => cached(`category:${id}`, async () => {
   const { data } = await esi<{ name: string }>(`/universe/categories/${id}/`);
   return data.name;

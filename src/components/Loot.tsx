@@ -1,20 +1,28 @@
 import { useMemo, useState } from 'react';
-import { ClipboardCopy, ClipboardPaste, PackageOpen, RefreshCw, Tags, Warehouse } from 'lucide-react';
+import { ClipboardCopy, ClipboardPaste, Eraser, PackageOpen, RefreshCw, Tags, Warehouse } from 'lucide-react';
 import { effectiveSkills, orderSlots, rates } from '../lib/fees';
 import { FILL_WINDOW, recentRange } from '../lib/fills';
 import { loadFlow, watchedDays, watchedFlow } from '../lib/flowStore';
 import { ago, isk, iskBig, units } from '../lib/format';
 import { useAuth, useNow } from '../lib/hooks';
-import { importBlock, judgeLoot, parseLoot, planLoot, type LootCall, type LootMarket, type LootRow } from '../lib/lootList';
+import { HELD_WHY, importBlock, judgeLoot, lootTotals, parseLoot, planLoot, type LootCall, type LootHeld, type LootMarket, type LootRow } from '../lib/lootList';
 import { jitaOrders, marketHistory, resolveIds } from '../lib/market';
 import { jitaOpen } from '../lib/orderCheck';
 import { paceDay } from '../lib/prospects';
 import { buyerShare, tradingSplit } from '../lib/split';
-import { useData } from '../lib/store';
+import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
+import { typeKind } from '../lib/universe';
+import { useEnsureNames } from './common';
 import { Empty, Flag, Guide, ItemIcon, Notice, PageHead, Panel, Seg, Tiles } from './ui';
 
 type Item = { typeId: number; name: string; qty: number };
+
+/** Runs `fn` over `xs`, `n` at a time. */
+async function pool<T>(xs: T[], n: number, fn: (x: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(n, xs.length) }, async () => { while (next < xs.length) await fn(xs[next++]); }));
+}
 const MARK_KEY = 'jita-ledger:loot-mark';
 
 const VERDICT: Record<LootCall['verdict'], { label: string; c: string }> = {
@@ -38,7 +46,11 @@ export function Loot() {
   const [items, setItems] = useState<Item[]>([]);
   const [unknown, setUnknown] = useState<string[]>([]);
   const [markets, setMarkets] = useState<Record<number, LootMarket | null>>({});
-  const [busy, setBusy] = useState<{ done: number; total: number } | null>(null);
+  const [busy, setBusy] = useState<{ step: string; done: number; total: number } | null>(null);
+  // Ships (and anything not yet checked for being one) are left out unless included; things holding other things
+  // (a fitted ship, a container with things in it) can't be sold as they are, so a hangar read sets them aside.
+  const [kinds, setKinds] = useState<Record<number, 'ship' | 'unchecked'>>({});
+  const [aside, setAside] = useState<Item[]>([]);
   const [readAt, setReadAt] = useState<number | null>(null);
   const [included, setIncluded] = useState<Set<number>>(() => new Set());
   const [mark, setMarkState] = useState<'point' | 'comma'>(() => { try { return localStorage.getItem(MARK_KEY) === 'comma' ? 'comma' : 'point'; } catch { return 'point'; } });
@@ -50,15 +62,16 @@ export function Loot() {
   const free = Math.max(0, slots - openOrders.length);
   // Left out unless included: an open position, or a sell order of yours already on it.
   const heldFor = useMemo(() => {
-    const m = new Map<number, 'position' | 'listed'>();
+    const m = new Map<number, LootHeld>();
     for (const o of jitaOpen(d)) if (!o.isBuy) m.set(o.typeId, 'listed');
     for (const p of d.positions) if (p.status === 'open') m.set(p.typeId, 'position');
+    for (const [id, k] of Object.entries(kinds)) m.set(Number(id), k);
     return m;
-  }, [d.positions, d.orders]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [d.positions, d.orders, kinds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const read = async (rows: LootRow[]) => {
     if (!rows.length) { toast('Nothing to read there. Paste the hangar (list view, Ctrl+C) or the Sell window’s export.', 'warn'); return; }
-    setBusy({ done: 0, total: rows.length });
+    setBusy({ step: 'Reading', done: 0, total: rows.length });
     try {
       // Names to type IDs, for a hangar paste: ESI names things in English, as the client's names are.
       const need = [...new Set(rows.filter((x) => x.typeId == null).map((x) => x.name))];
@@ -75,15 +88,27 @@ export function Loot() {
         const was = merged.get(id);
         merged.set(id, was ? { ...was, qty: was.qty + x.qty } : { typeId: id, name: x.name, qty: x.qty });
       }
-      const list = [...merged.values()];
-      setItems(list); setUnknown(missing); setBusy({ done: 0, total: list.length });
+      // Which are ships, and the names a hangar read lacks, from ESI's type (kept for good once read).
+      const kind: Record<number, 'ship' | 'unchecked'> = {};
+      const names: Record<number, string> = {};
+      let checked = 0;
+      await pool([...merged.values()], 8, async (it) => {
+        try {
+          const k = await typeKind(it.typeId);
+          if (k.ship) kind[it.typeId] = 'ship';
+          if (!d.names[it.typeId]) names[it.typeId] = k.name;
+          if (!it.name) it.name = k.name;
+        } catch { kind[it.typeId] = 'unchecked'; }
+        setBusy({ step: 'Checking', done: ++checked, total: merged.size });
+      });
+      if (Object.keys(names).length) update((x) => ({ names: { ...x.names, ...names } }));
+      const list = [...merged.values()].map((it) => (it.name ? it : { ...it, name: `Item #${it.typeId}` }));
+      setItems(list); setUnknown(missing); setKinds(kind); setBusy({ step: 'Pricing', done: 0, total: list.length });
       await loadFlow();
       const mine = new Set(openOrders.map((o) => o.orderId));
       const out: Record<number, LootMarket | null> = {};
-      let next = 0, done = 0;
-      await Promise.all(Array.from({ length: Math.min(4, list.length) }, async () => {
-        while (next < list.length) {
-          const it = list[next++];
+      let done = 0;
+      await pool(list, 4, async (it) => {
           try {
             const [book, h] = await Promise.all([jitaOrders(it.typeId), marketHistory(it.typeId).catch(() => [])]);
             const perDay = h.length ? paceDay(h) : null;
@@ -95,9 +120,8 @@ export function Loot() {
               buyers: tradingSplit({ history: h.length ? buyerShare(h.slice(-30)) : null, book: book.sold, watched: watchedFlow(it.typeId), typicalDay: perDay }).share,
             };
           } catch { out[it.typeId] = null; }
-          setBusy({ done: ++done, total: list.length });
-        }
-      }));
+          setBusy({ step: 'Pricing', done: ++done, total: list.length });
+      });
       setMarkets(out); setReadAt(Date.now());
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'err');
@@ -106,8 +130,20 @@ export function Loot() {
     }
   };
 
-  const fromPaste = () => { const p = parseLoot(text); if (p.bad.length) toast(`${units(p.bad.length)} line${p.bad.length === 1 ? '' : 's'} didn’t read as an item and quantity.`, 'warn'); void read(p.rows); };
-  const fromHangar = () => void read(Object.entries(d.stock?.jita ?? {}).filter(([, q]) => q > 0).map(([id, q]) => ({ typeId: Number(id), name: d.names[Number(id)] ?? `Item #${id}`, qty: q })));
+  const fromPaste = () => { const p = parseLoot(text); if (p.bad.length) toast(`${units(p.bad.length)} line${p.bad.length === 1 ? '' : 's'} didn’t read as an item and quantity.`, 'warn'); setAside([]); void read(p.rows); };
+  const fromHangar = () => {
+    const holding = d.stock?.holding ?? {};
+    const rows: LootRow[] = [];
+    const set: Item[] = [];
+    for (const [key, q] of Object.entries(d.stock?.jita ?? {})) {
+      const id = Number(key), name = d.names[id] ?? '', h = Math.min(q, holding[id] ?? 0);
+      if (h > 0) set.push({ typeId: id, name: name || `Item #${id}`, qty: h });
+      if (q - h > 0) rows.push({ typeId: id, name, qty: q - h });
+    }
+    setAside(set);
+    void read(rows);
+  };
+  const clear = () => { setText(''); setItems([]); setUnknown([]); setMarkets({}); setReadAt(null); setIncluded(new Set()); setKinds({}); setAside([]); };
 
   const calls = useMemo(() => planLoot(items.map((it) => judgeLoot(it, markets[it.typeId] ?? null, r, d.settings.share, d.settings.target / 100, heldFor.get(it.typeId))), free, included),
     [items, markets, r.f, r.t, d.settings.share, d.settings.target, heldFor, free, included]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -118,6 +154,8 @@ export function Loot() {
     return [...calls].sort((a, b) => rank[a.verdict] - rank[b.verdict] || (b.perSlotDay ?? b.bidsNet) - (a.perSlotDay ?? a.bidsNet));
   }, [calls]);
   const stale = readAt != null && now - readAt > 5 * 60_000;
+  const totals = useMemo(() => lootTotals(calls), [calls]);
+  const daysSaid = (n: number) => (n < 1 ? `${Math.max(1, Math.round(n * 24))} h` : n > 365 ? 'over a year' : `${Math.round(n)} d`);
 
   const copy = async () => {
     const block = importBlock(listed, mark);
@@ -142,12 +180,14 @@ export function Loot() {
           <textarea id="loot-paste" className="num" rows={6} value={text} onChange={(e) => setText(e.target.value)}
             placeholder={'Positron Cord\t734\nScoped Compounds\t39\n…'} style={{ width: '100%', fontFamily: 'var(--f-mono)', resize: 'vertical' }} />
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" className="btn primary" disabled={!!busy || !text.trim()} onClick={fromPaste}><ClipboardPaste aria-hidden="true" />{busy ? `Pricing ${busy.done} of ${busy.total}…` : 'Price these'}</button>
+            <button type="button" className="btn primary" disabled={!!busy || !text.trim()} onClick={fromPaste}><ClipboardPaste aria-hidden="true" />{busy ? `${busy.step} ${busy.done} of ${busy.total}…` : 'Price these'}</button>
             <button type="button" className="btn" disabled={!!busy || !d.stock} onClick={fromHangar}
               data-tip="What your last sync saw loose in your Jita hangar. Items inside containers aren't in it: paste those from the game."><Warehouse aria-hidden="true" />Use my Jita hangar</button>
             {readAt != null && <button type="button" className="btn" disabled={!!busy} onClick={() => void read(items)}><RefreshCw aria-hidden="true" />Price again</button>}
+            {(text || items.length > 0 || aside.length > 0) && <button type="button" className="btn" disabled={!!busy} onClick={clear}><Eraser aria-hidden="true" />Clear</button>}
           </div>
-          {unknown.length > 0 && <p className="note small" style={{ margin: 0 }}>Not found by name: {unknown.join(', ')}.</p>}
+          {unknown.length > 0 && <Names label="Not found by name" items={unknown.map((name) => ({ name }))} />}
+          {aside.length > 0 && <Names label="Set aside: they hold other things, so they can’t be sold as they are" items={aside} />}
         </div>
       </Panel>
 
@@ -160,7 +200,18 @@ export function Loot() {
               tip: `Your ${units(slots)} order slots, ${units(openOrders.length)} in use. The listings that gain most over the bids per day of the slot go first.` },
             { l: 'Sell into bids', v: units(toBids.length), n: toBids.length ? `${iskBig(toBids.reduce((t, c) => t + c.bidsNet, 0))} now, after tax` : '–', c: 'var(--acc)' },
             { l: 'Waiting for a slot', v: units(noSlot.length), n: noSlot.length ? 'Worth listing if you free a slot (Orders: Weakest slots)' : '–', c: 'var(--acc2)' },
-            { l: 'Skip / left out', v: `${units(skipped.length)} / ${units(held.length)}`, n: held.length ? 'Left out: an open position or your own listing' : '–' },
+            { l: 'Skip / left out', v: `${units(skipped.length)} / ${units(held.length)}`, n: held.length ? 'Left out: ships, open positions and your own listings (Include puts one back)' : '–' },
+          ]} />
+          <Tiles items={[
+            { l: 'Everything listed', v: iskBig(totals.listed.isk), c: 'var(--pos)',
+              n: totals.listed.items ? `${units(totals.listed.items)} listing${totals.listed.items === 1 ? '' : 's'} for your ${units(free)} free slot${free === 1 ? '' : 's'}${totals.listed.slowest != null ? `; the slowest sells in ${daysSaid(totals.listed.slowest)}` : ''}` : 'Nothing to list',
+              tip: `What everything not left out comes to listed where it sells, after the broker fee and sales tax, once it has all sold. Each listing takes an order slot, and slow items take months.${totals.listed.unpriced ? ` ${units(totals.listed.unpriced)} with no listing price (nobody lists them and there's no history) aren't in it.` : ''}` },
+            { l: 'Everything into the bids', v: iskBig(totals.bids.isk), c: 'var(--acc)',
+              n: totals.bids.short ? `now, after tax; the bids can't take all of ${units(totals.bids.short)}` : 'now, after tax',
+              tip: 'What the standing Jita bids pay for everything not left out, right now, after sales tax. No broker fee and no slots, but the least it can fetch.' },
+            { l: 'This plan', v: iskBig(totals.plan.isk),
+              n: `${iskBig(totals.plan.listed)} listed + ${iskBig(totals.plan.bids)} in the bids${totals.plan.waiting ? `; ${units(totals.plan.waiting)} waiting for a slot not counted` : ''}`,
+              tip: 'The listings above when they sell, plus what the bids pay now for the items going there. Items waiting for a slot are in neither.' },
           ]} />
 
           <Panel title="In game" sub={readAt != null ? `Priced ${ago(new Date(readAt).toISOString(), now)}${stale ? ': the book has moved since, price again before you sell' : ''}` : undefined}>
@@ -170,7 +221,8 @@ export function Loot() {
                 <b style={{ color: 'var(--ink)' }}><Tags aria-hidden="true" style={{ width: 14, height: 14, verticalAlign: -2, color: 'var(--pos)' }} /> List these {units(listed.length)}</b>
                 {listed.length ? (
                   <>
-                    <p className="note small" style={{ margin: 0 }}>Select them in your hangar and press Sell, pick a duration, then Import prices from clipboard ({mark === 'point' ? 'Decimal Point' : 'Decimal Comma'}): {listed.map((c) => c.name).join(', ')}.</p>
+                    <p className="note small" style={{ margin: 0 }}>Select them in your hangar and press Sell, pick a duration, then Import prices from clipboard ({mark === 'point' ? 'Decimal Point' : 'Decimal Comma'}).</p>
+                    <Names items={listed} />
                     <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
                       <button type="button" className="btn primary" onClick={() => void copy()}><ClipboardCopy aria-hidden="true" />Copy prices for the Sell window</button>
                       <Seg label="Number format" size="sm" value={mark} onChange={setMark} options={[{ v: 'point', label: 'Decimal point' }, { v: 'comma', label: 'Decimal comma' }]} />
@@ -181,7 +233,8 @@ export function Loot() {
               {toBids.length > 0 && (
                 <div className="col" style={{ gap: 6 }}>
                   <b style={{ color: 'var(--ink)' }}>Sell these {units(toBids.length)} into the bids</b>
-                  <p className="note small" style={{ margin: 0 }}>Select them, press Sell and choose Immediate: the window prices each at the bids, with no broker fee. {toBids.map((c) => c.name).join(', ')}.</p>
+                  <p className="note small" style={{ margin: 0 }}>Select them, press Sell and choose Immediate: the window prices each at the bids, with no broker fee.</p>
+                  <Names items={[...toBids].sort((a, b) => b.bidsNet - a.bidsNet)} />
                 </div>
               )}
             </div>
@@ -212,7 +265,7 @@ export function Loot() {
                         <td>{c.days != null ? (c.days < 1 ? `${Math.max(1, Math.round(c.days * 24))} h` : c.days > 365 ? 'over a year' : `${Math.round(c.days)} d`) : '–'}</td>
                         <td className="l">{heldFor.has(c.typeId)
                           ? <button type="button" className={'link-btn' + (included.has(c.typeId) ? '' : ' dim')} onClick={() => toggle(c.typeId)}
-                              data-tip={heldFor.get(c.typeId) === 'position' ? 'You hold an open position on it, so it is left out. Include it to sell it here.' : 'You already have a sell order on it, so it is left out. Include it to list more.'}>
+                              data-tip={`${HELD_WHY[heldFor.get(c.typeId)!]}.`}>
                               {included.has(c.typeId) ? 'Included' : 'Include'}
                             </button>
                           : <span className="faint">–</span>}</td>
@@ -232,6 +285,29 @@ export function Loot() {
           { icon: Tags, title: 'List the best', body: 'The items that gain most over the bids per day of a slot fill your free order slots. Copy their prices, select them in game, Sell, then Import prices from clipboard.' },
           { icon: PackageOpen, title: 'Dump the rest', body: 'What isn’t worth a slot goes into the bids: select it, Sell, Immediate.' },
         ]} />
+    </div>
+  );
+}
+
+/** Items as a wrapped list of names, the first dozen shown and the rest behind a toggle: the loot runs to hundreds. */
+function Names({ label, items, max = 12 }: { label?: string; items: { typeId?: number; name: string; qty?: number }[]; max?: number }) {
+  const d = useData();
+  const [all, setAll] = useState(false);
+  useEnsureNames(items.flatMap((x) => (x.typeId != null ? [x.typeId] : [])));
+  const shown = all ? items : items.slice(0, max);
+  return (
+    <div className="col" style={{ gap: 6 }}>
+      {label && <span className="note small">{label} ({units(items.length)})</span>}
+      <div className="loot-names">
+        {shown.map((x, i) => (
+          <span key={x.typeId ?? `${x.name}-${i}`} className="loot-name">
+            {x.typeId != null && <ItemIcon id={x.typeId} size="sm" />}
+            <span className="ellipsis">{x.typeId != null ? d.names[x.typeId] ?? x.name : x.name}</span>
+            {x.qty != null && <span className="faint num">×{units(x.qty)}</span>}
+          </span>
+        ))}
+        {items.length > max && <button type="button" className="link-btn" onClick={() => setAll((v) => !v)}>{all ? 'Show fewer' : `and ${units(items.length - max)} more`}</button>}
+      </div>
     </div>
   );
 }

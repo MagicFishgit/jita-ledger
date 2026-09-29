@@ -1044,6 +1044,10 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
   100% { box-shadow: none; background: transparent; }
 }
 
+/* List loot: items to select in game, as a wrapped list of names. */
+.loot-names { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.loot-name { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; padding: 3px 8px 3px 4px; background: var(--field); border: 1px solid var(--line); font-size: 12.5px; color: var(--body); }
+
 /* Phones. Last in the file on purpose: these override base rules of the same weight, which a later rule would win. */
 @media (max-width: 640px) {
   /* Phones (checked at 390 px by `PHONE=1 npm run check-pages`): nothing may stick out past the screen's edge. Rows,
