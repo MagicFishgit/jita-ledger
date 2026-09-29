@@ -3,6 +3,7 @@ import { getAuth, hasScope } from './auth';
 import { esi, esiAllPages } from './esi';
 import { ALPHA_CAPS, JITA_44, NPC_FALLBACK_IDS, NPC_NAMES, SCOPE, SKILL_FALLBACK_IDS, SKILL_NAMES, type SkillKey } from './config';
 import { parseSafetyNotice, withNotices } from './assetSafety';
+import { isStation, isStructure, structureInfo } from './universe';
 import { loyaltyPoints, resolveIds, resolveNames } from './market';
 import { dataGeneration, getData, update, type Data } from './store';
 import { sanitizeSettings, type Settings } from './fees';
@@ -224,6 +225,23 @@ export async function syncCharacter(): Promise<void> {
         }
         read.push('assets');
       } catch { /* stock is a cross-check, not the ledger: a failure here must not fail the sync */ }
+    }
+    // Industry jobs not yet delivered, with their facilities named, for To do (todo.ts, judgeIndustry).
+    if (hasScope(SCOPE.industry)) {
+      try {
+        const { data } = await esi<{ job_id: number; activity_id: number; blueprint_type_id: number; product_type_id?: number; runs: number; end_date: string; status: string; station_id: number; facility_id: number }[]>(`/characters/${cid}/industry/jobs/`, { auth: true });
+        const jobs = data.filter((j) => j.status === 'active' || j.status === 'ready' || j.status === 'paused').map((j) => ({
+          jobId: j.job_id, activity: j.activity_id, blueprintTypeId: j.blueprint_type_id, productTypeId: j.product_type_id ?? null, runs: j.runs,
+          end: j.end_date, status: j.status, stationId: j.station_id ?? j.facility_id,
+        }));
+        const places: Record<number, string> = { ...(d.meta.industry?.places ?? {}) };
+        const unknown = [...new Set(jobs.map((j) => j.stationId))].filter((id) => !places[id]);
+        const stations = unknown.filter(isStation);
+        if (stations.length) Object.assign(places, await resolveNames(stations).catch(() => ({})));
+        for (const id of unknown.filter(isStructure)) { const s = await structureInfo(id).catch(() => null); if (s?.status === 'found') places[id] = s.name; }
+        metaPatch.industry = { at: new Date().toISOString(), jobs, places };
+        read.push('industry');
+      } catch { /* To do goes without */ }
     }
     // EVE's notification when things went into asset safety: the dates to the second, the structure and the destination.
     // Only with the notifications permission, and only worth asking while a wrap waits.

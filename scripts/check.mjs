@@ -2785,6 +2785,15 @@ console.log('\n--- blueprints and their contracts ---');
     [['saysOriginal', 'saysResearch'], ['notJita']]);
 }
 
+console.log('\n--- industry jobs to deliver ---');
+{
+  const { judgeIndustry, jobWaiting } = await import('../src/lib/todo.ts');
+  const now = Date.parse('2026-09-29T12:00:00Z');
+  eq('a job waits to be delivered: marked ready, or active past its end', [jobWaiting({ status: 'ready', end: '2026-10-01T00:00:00Z' }, now), jobWaiting({ status: 'active', end: '2026-09-29T11:00:00Z' }, now), jobWaiting({ status: 'active', end: '2026-09-29T13:00:00Z' }, now)], [true, true, false]);
+  const e = { item: { key: 'industry:60003760', ver: '11.12', kind: 'industry', source: 'industry', title: '', detail: '', stake: 0, action: { label: '' } }, seenAt: 1000, lastAt: 1000 };
+  eq('ticked off only on a newer read with none of them waiting', [judgeIndustry(e, { readAt: 500, waiting: new Set() }), judgeIndustry(e, { readAt: 2000, waiting: new Set([12]) }), judgeIndustry(e, { readAt: 2000, waiting: new Set([99]) })], [null, null, 'All delivered.']);
+}
+
 console.log('\n--- what the skill queue is about to do ---');
 {
   const { tradeSkillsComing } = await import('../src/lib/skillQueue.ts');

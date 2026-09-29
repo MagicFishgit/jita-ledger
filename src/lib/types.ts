@@ -281,6 +281,11 @@ export type Meta = {
   attributes?: { intelligence: number; memory: number; perception: number; willpower: number; charisma: number };
   /** Every skill's trained skill points, by type ID, so training time counts what is already in. */
   skillSp?: Record<number, number>;
+  /**
+   * Your industry jobs not yet delivered, as last synced (esi-industry.read_character_jobs.v1), with when that read was
+   * and the facilities' names, for To do's "ready to deliver".
+   */
+  industry?: { at: string; jobs: IndustryJob[]; places: Record<number, string> };
   /** The skill queue as last synced, in order: each skill, the level it trains to, when (null while paused). */
   skillQueue?: { skillId: number; level: number; finish: string | null }[];
   /** Last time killmails were read. */
@@ -418,3 +423,9 @@ export type Goal = GoalBase & (
 export type NetWorthPoint = { date: string; total: number; wallet: number; /** Wallet plus escrow and stock in sell orders. Absent on older points. */ liquid?: number };
 
 export type UntrackedTag = 'loot' | 'personal' | 'trading' | 'other';
+
+/** An industry job as ESI lists it, trimmed: what, where, how many runs, when it ends, and its state. */
+export type IndustryJob = {
+  jobId: number; activity: number; blueprintTypeId: number; productTypeId: number | null; runs: number;
+  end: string; status: string; stationId: number;
+};

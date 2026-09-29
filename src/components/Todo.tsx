@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, Check, CheckCheck, CircleDollarSign, CircleX, GitPullRequestArrow, HardDriveDownload, Keyboard, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
+import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, Check, CheckCheck, CircleDollarSign, CircleX, Factory, GitPullRequestArrow, HardDriveDownload, Keyboard, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
 import { getAuth } from '../lib/auth';
 import { breakEvenSpread, rates } from '../lib/fees';
 import { ago, isk, iskBig, units } from '../lib/format';
@@ -11,16 +11,17 @@ import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, KIND_LABEL, MINUTES, remember, SESSION_MS, split, summarise, WARNINGS,
+  judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, KIND_LABEL, MINUTES, remember, SESSION_MS, split, summarise, WARNINGS,
   type Entry, type Memory, type TodoItem, type TodoKind,
 } from '../lib/todo';
+import type { IndustryJob } from '../lib/types';
 import { PLANETS_SCOPE, readColonies, useColonies } from '../lib/colonyStore';
 import { readSignals, trackedTypes, useSignals } from '../lib/watch';
 import { BACKUP_DAYS } from '../lib/alertsRunner';
 import { cloudCovers, useCloud } from '../lib/cloud';
 import { JITA_44 } from '../lib/config';
 import { toast } from '../lib/toast';
-import { canOpenInGame, copyPrice, downloadText, useTypeName } from './common';
+import { canOpenInGame, copyPrice, downloadText, useEnsureNames, useTypeName } from './common';
 import { cssVars, Empty, Guide, PageHead, Ring } from './ui';
 
 const DAY = 86400_000;
@@ -48,7 +49,11 @@ const LOOK: Record<TodoKind, { Icon: typeof Check; c: string }> = {
   nearMiss: { Icon: GitPullRequestArrow, c: 'var(--acc)' },
   scam: { Icon: ShieldAlert, c: 'var(--neg-l)' },
   backup: { Icon: HardDriveDownload, c: 'var(--acc2)' },
+  industry: { Icon: Factory, c: 'var(--acc)' },
 };
+
+/** Industry activities by ESI's activity_id, as the Industry window names them. */
+const ACTIVITY: Record<number, string> = { 1: 'Manufacturing', 3: 'TE research', 4: 'ME research', 5: 'Copying', 8: 'Invention', 9: 'Reaction', 11: 'Reaction' };
 
 function readMem(): Memory {
   try {
@@ -88,6 +93,8 @@ export function Todo() {
 
   const hasOrders = jitaOpen(d).length > 0;
   const tracked = useMemo(() => trackedTypes(d), [d.positions, d.orders, d.watchlist]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Industry jobs make things you may never have traded: name them.
+  useEnsureNames((d.meta.industry?.jobs ?? []).map((j) => j.productTypeId ?? j.blueprintTypeId));
   const canPlanets = (auth?.scopes ?? []).includes(PLANETS_SCOPE);
   const vs = useMemo(() => verdicts(d, check, costBasis(d)), [d, check]);
 
@@ -238,6 +245,18 @@ export function Todo() {
         });
       }
     }
+    // Industry jobs finished and waiting to be delivered, one item per facility.
+    const byPlace = new Map<number, IndustryJob[]>();
+    for (const j of d.meta.industry?.jobs ?? []) if (jobWaiting(j, now)) byPlace.set(j.stationId, [...(byPlace.get(j.stationId) ?? []), j]);
+    for (const [place, jobs] of byPlace) {
+      const what = jobs.map((j) => `${ACTIVITY[j.activity] ?? 'Job'}: ${name(j.productTypeId ?? j.blueprintTypeId)}${j.runs > 1 ? ` ×${units(j.runs)}` : ''}`);
+      out.push({
+        key: `industry:${place}`, ver: jobs.map((j) => j.jobId).sort((a, b) => a - b).join('.'), kind: 'industry', source: 'industry', stake: 0,
+        title: `${units(jobs.length)} industry job${jobs.length === 1 ? '' : 's'} ready at ${d.meta.industry?.places[place] ?? 'a facility'}`,
+        detail: `${what.slice(0, 4).join(' · ')}${what.length > 4 ? ` and ${units(what.length - 4)} more` : ''}. Deliver them in the Industry window (Jobs, Deliver).`,
+        action: { label: 'Blueprints', route: 'blueprints' },
+      });
+    }
     const last = d.meta.lastBackupAt ? Date.parse(d.meta.lastBackupAt) : null;
     // Nothing to back up by hand while the ledger is kept in the cloud.
     if ((Object.keys(d.txs).length || d.positions.length) && !inCloud && (last == null || now - last > BACKUP_DAYS * DAY)) {
@@ -256,8 +275,9 @@ export function Todo() {
     const t = Date.now();
     const checkedAt = check.checkedAt ? Date.parse(check.checkedAt) : null;
     const readAt = col.read ? Date.parse(col.read.at) : null;
+    const industryAt = d.meta.industry ? Date.parse(d.meta.industry.at) : null;
     const seenAt = (x: TodoItem) =>
-      x.source === 'orders' ? checkedAt ?? t : x.source === 'colonies' ? readAt ?? t : x.source === 'signals' ? sig.signals[x.typeId!]?.at ?? t : t;
+      x.source === 'orders' ? checkedAt ?? t : x.source === 'colonies' ? readAt ?? t : x.source === 'signals' ? sig.signals[x.typeId!]?.at ?? t : x.source === 'industry' ? industryAt ?? t : t;
     const byOrder = new Map(vs.map((v) => [v.orderId, v]));
     const position = (id: string) => d.positions.find((p) => p.id === id) ?? null;
     const judge = (e: Entry): string | null | false => {
@@ -293,6 +313,7 @@ export function Todo() {
           return judgeSqueeze(e, { open: p?.status === 'open', stock: p ? computePosition(p, d, d.settings).stock : 0, signalAt: sig.signals[x.typeId!]?.at ?? null });
         }
         case 'scam': return judgeScam(e, { tracked: tracked.includes(x.typeId!), signalAt: sig.signals[x.typeId!]?.at ?? null });
+        case 'industry': return judgeIndustry(e, { readAt: industryAt, waiting: new Set((d.meta.industry?.jobs ?? []).filter((j) => jobWaiting(j, t)).map((j) => j.jobId)) });
         default: return judgeLedger(e, { position: position(id), inCloud });
       }
     };

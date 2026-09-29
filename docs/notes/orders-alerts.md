@@ -106,6 +106,11 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   `heldCost`), Orders tags it red with the loss per unit and in all, and the least price that breaks even; To do lists
   it to correct, and opening it in game copies the break-even price (a "Not worth it" move is never copied). It ticks
   off like an order item, on a newer check of the book. Not mailed yet.
+- **Industry jobs waiting to be delivered go on To do** (kind `industry`, source `industry`, `judgeIndustry`, scope
+  `esi-industry.read_character_jobs.v1`, registered 29 September 2026). The sync keeps the jobs not yet delivered with
+  when they were read and their facilities' names (`meta.industry`); a job is waiting when it's `ready` or `active` past
+  its end (`jobWaiting`), and they're listed one item per facility, the job IDs in its `ver`. It ticks off only on a
+  newer read with none of them waiting ("All delivered."), like every other item: absent is not done.
 - **To do's Sell into bids items are judged like order items.** The dispatch listed move and cancel but not bid, so
   a bid item fell to the default judge and was ticked "It no longer needs doing" the moment it went missing, before
   the orders had even been checked.
