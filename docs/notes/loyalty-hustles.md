@@ -48,6 +48,23 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
 - **The whole skill map is synced, not just the seven trade skills.** `Data.skills` holds every
   trained level, because the hustle pages ask about hauling, tanking and planet skills and the
   skills response already contains all of them.
+- **Skills show where a page uses them, with the queue** (`lib/skillStatus.ts` pure, `SkillStrip.tsx`: `SkillStrip`,
+  `SkillPips`, `TradeSkillsLine`, `useTrainTimes`; the queue as synced since 29 September 2026 keeps each entry's start
+  and skill points). The user asked for "your current skills under anything that can use skills", with subtle
+  animations. Each skill shows five pips (trained filled, the level in training filling at its real progress through
+  the level, queued ones dashed), what the next level does on that page from the page's own formula, and where it
+  stands: "Training IV: 2 d 4 h left", "Queued: IV, done 2 Oct", "Not queued: IV takes 1 d 12 h" (points already in it,
+  at your attributes). A skill not in ESI's list was never injected (ESI lists injected ones at level 0: 39 of the
+  user's 210 skills), and one whose prerequisites you lack says so ("Needs Wholesale V and Marketing IV first", dogma
+  182–184 with levels 277–279, `skillDogma`'s `req`) rather than a time it can't train in. Queues synced before the start
+  was kept train their first unfinished entry, begun when the one before it finished. Where: Reprocessing (Scrapmetal,
+  Reprocessing, Efficiency, Simple Ore, Metallurgy until Scrapmetal is trained; its by-level table marks the level in
+  training), the hustle panels (time to the level the page wants), Settings → Skills & slots (the boxes and Train next),
+  Orders and List loot (one line: the next trade skill the queue finishes and what it changes, or the best payback),
+  Blueprints (Contracting: one contract and four more a level, 21 at V, from ESI's own description, against how many you
+  have out). The pips fill once as they appear and the training one breathes; Off motion and reduced motion still both.
+  The range skills (Marketing, Procurement, Daytrading, Visibility) aren't weighed: they matter only away from the
+  order's station. Combat's "can you fly this fit" was offered and declined ("at this point we are rebuilding the game").
 - **Interplanetary Consolidation fills in the PI planet count** (one, plus one per level) until the
   user types over it. A skill that exactly determines a field should populate that field.
 - **Abyssal loot is recognised by market group *and* by name**, and any type you have traded that

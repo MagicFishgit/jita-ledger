@@ -889,6 +889,9 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .lvl-boxes button.on { background: var(--acc); border-color: var(--acc); box-shadow: 0 0 10px color-mix(in oklab, var(--acc) 50%, transparent); }
 .lvl-boxes button.over { background: repeating-linear-gradient(45deg, var(--acc2) 0 3px, rgba(242, 177, 92, .15) 3px 6px); border-color: var(--acc2); box-shadow: none; }
 .lvl-boxes[aria-disabled='true'] button { cursor: default; }
+.lvl-boxes button.run { position: relative; overflow: hidden; border-color: var(--acc); }
+.lvl-boxes button.run::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--p) * 100%); background: var(--acc); animation: pipbreathe 2.8s ease-in-out infinite; }
+.lvl-boxes button.q { border-style: dashed; border-color: color-mix(in oklab, var(--acc) 60%, transparent); }
 .mini-lvl { display: inline-flex; gap: 3px; }
 .mini-lvl i { width: 10px; height: 10px; border: 1px solid var(--bd, rgba(130, 185, 225, .2)); background: var(--bg2, rgba(2, 7, 12, .7)); display: inline-block; }
 .theme-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--bd); background: var(--bgc); text-align: left; color: var(--lc); }
@@ -1048,11 +1051,39 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .loot-names { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .loot-name { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; padding: 3px 8px 3px 4px; background: var(--field); border: 1px solid var(--line); font-size: 12.5px; color: var(--body); }
 
+/* Skills where a page uses them (SkillStrip.tsx): five pips, the level in training filling, queued ones dashed. The pips
+   fill once as they appear and the training one breathes slowly; the Off motion setting and reduced motion still both. */
+.skill-pips { display: inline-flex; gap: 3px; flex: none; }
+.skill-pips i { position: relative; display: inline-block; width: 14px; height: 9px; overflow: hidden; border: 1px solid rgba(130, 185, 225, .22); background: rgba(2, 7, 12, .7); }
+.skill-pips i.on { background: var(--acc); border-color: var(--acc); box-shadow: 0 0 6px color-mix(in oklab, var(--acc) 45%, transparent);
+  transform-origin: left; animation: pipin .45s cubic-bezier(.2, .7, .2, 1) both; animation-delay: calc(var(--n) * 70ms); }
+.skill-pips i.run { border-color: var(--acc); }
+.skill-pips i.run::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--p) * 100%); background: var(--acc); animation: pipbreathe 2.8s ease-in-out infinite; }
+.skill-pips i.q { border-style: dashed; border-color: color-mix(in oklab, var(--acc) 60%, transparent); }
+.skill-pips i.want { background: color-mix(in oklab, var(--acc2) 30%, transparent); border-color: var(--acc2); }
+@keyframes pipin { from { transform: scaleX(0); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes pipbreathe { 0%, 100% { opacity: .55; } 50% { opacity: .95; } }
+@media (prefers-reduced-motion: reduce) { .skill-pips i, .skill-pips i::after, .lvl-boxes button.run::after { animation: none; } }
+.skill-strip { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--line-2); background: rgba(2, 7, 12, .35); min-width: 0; }
+.skill-strip > .lbl { margin-bottom: 4px; }
+.skill-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 14px; align-items: center; padding: 7px 0; font-size: 12.5px; }
+.skill-row + .skill-row { border-top: 1px solid var(--line-4); }
+.skill-row .sk-head { display: flex; gap: 8px 10px; align-items: center; flex-wrap: wrap; min-width: 0; }
+.skill-row .sk-name { color: var(--ink); }
+.skill-row .sk-what { grid-column: 1 / -1; }
+.skill-row .sk-lvl { font-family: var(--f-mono); font-size: 11.5px; color: var(--sec); }
+.skill-row .sk-what { color: var(--sec); text-wrap: pretty; min-width: 0; }
+.skill-row .sk-what b { color: var(--ink); font-weight: 500; }
+.skill-row .sk-q { font-size: 12px; white-space: nowrap; text-align: right; }
+.skill-note { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; color: var(--label); }
+.skill-note b { color: var(--ink); font-weight: 500; }
+
 /* Phones. Last in the file on purpose: these override base rules of the same weight, which a later rule would win. */
 @media (max-width: 640px) {
   /* Phones (checked at 390 px by `PHONE=1 npm run check-pages`): nothing may stick out past the screen's edge. Rows,
      switch groups and labels wrap; fixed-width boxes give way; wide tables scroll inside their own box. */
   .head-actions, .row, .seg-label { min-width: 0; max-width: 100%; }
+  .skill-row .sk-q { grid-column: 1 / -1; text-align: left; white-space: normal; }
   .seg-label { flex-wrap: wrap; }
   .btn { white-space: normal; height: auto; min-height: 36px; padding-top: 6px; padding-bottom: 6px; line-height: 1.25; text-align: center; max-width: 100%; }
   .btn.tall { height: auto; min-height: 38px; }

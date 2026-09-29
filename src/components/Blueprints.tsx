@@ -13,6 +13,9 @@ import { toast } from '../lib/toast';
 import { isStation, isStructure, structureInfo } from '../lib/universe';
 import { copyPrice, plainPrice, useEnsureNames, useTypeName } from './common';
 import { Empty, Flag, Guide, ItemIcon, Notice, PageHead, Panel, SortTh, Th, Tiles } from './ui';
+import { SkillStrip } from './SkillStrip';
+import { useData } from '../lib/store';
+import { contractsAllowed } from '../lib/skillStatus';
 
 type Row = {
   key: string; kind: BpKind; unused: boolean; count: number;
@@ -35,6 +38,7 @@ const kindSaid = (k: BpKind, unused: boolean) =>
  * a live scanner: nothing runs until pressed.
  */
 export function Blueprints() {
+  const d = useData();
   const auth = useAuth();
   const now = useNow(60_000);
   const name = useTypeName();
@@ -141,6 +145,8 @@ export function Blueprints() {
   const sortBy = (key: SortKey) => setSort((x) => (x.key === key ? { key, dir: x.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'item' ? 'asc' : 'desc' }));
 
   const priced = rows.filter((r) => listAt(r).price != null);
+  // Your contracts out now, from the last read of them (Contracting caps how many; lib/contracts.ts).
+  const outstanding = d.meta.contracts && auth ? d.meta.contracts.list.filter((c) => c.status === 'outstanding' && c.issuer === auth.characterId).length : null;
   const total = rows.reduce((n, r) => n + r.count, 0);
   const open = async (id: number) => {
     try { await openContractWindow(id); } catch (e) { toast(e instanceof Error ? e.message : String(e), 'err'); }
@@ -187,6 +193,13 @@ export function Blueprints() {
                   { l: 'Sold lately', v: units(rows.filter((r) => (r.quote?.sold ?? 0) > 0).length), n: 'kinds with some gone before expiry in 3 days', tip: 'A contract that vanished before it expired, and whose blueprint didn’t come back from the same seller at a new price: most likely sold, though a seller who cancelled and kept it looks the same.' },
                   { l: 'Nothing to compare', v: units(rows.length - priced.length), n: 'kinds nobody lists in The Forge' },
                 ]} />
+              )}
+              {market && priced.length > 0 && (
+                <SkillStrip lines={[{
+                  name: 'Contracting',
+                  what: (have) => `How many contracts you can have out at once: ${units(contractsAllowed(have))}${outstanding != null ? `, ${units(outstanding)} out now` : ''}, against ${units(priced.length)} kind${priced.length === 1 ? '' : 's'} worth listing.`,
+                  next: (l) => `${units(contractsAllowed(l))} at once`,
+                }]} />
               )}
               <section className="panel flush" data-rv="">
                 <div className="tbl-scroll capped">

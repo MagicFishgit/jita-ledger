@@ -1,4 +1,5 @@
 import type { ContractItem, MyContract } from './contracts';
+import type { QueuedLevel } from './skillStatus';
 import type { JoinedJob } from './freelance';
 import type { SafetyWrap } from './esiRecords';
 import type { BookSold, SplitFrom } from './split';
@@ -296,7 +297,7 @@ export type Meta = {
   /** The freelance jobs you've joined, as last read (freelanceStore.ts), for the Wallet, Results and the Freelance tab. */
   freelance?: { at: string; jobs: JoinedJob[] };
   /** The skill queue as last synced, in order: each skill, the level it trains to, when (null while paused). */
-  skillQueue?: { skillId: number; level: number; finish: string | null }[];
+  skillQueue?: QueuedLevel[];
   /** Last time killmails were read. */
   killmailsAt?: string;
   /** The best ISK per loyalty point last worked out on the Loyalty page, per corporation. */

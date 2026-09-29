@@ -2940,6 +2940,50 @@ console.log('\n--- what the skill queue is about to do ---');
   eq('  worked out from skills, not typed-in figures; slots by 16 a Wholesale level', [+(got[0].effects[0].before * 100).toFixed(3) > +(got[1].effects[0].after * 100).toFixed(3), got[2].effects[0].after - got[2].effects[0].before], [true, 16]);
 }
 
+console.log('\n--- where a skill stands in the queue ---');
+{
+  const { skillStatus, progressOf, trainSaid, contractsAllowed, queuedTo } = await import('../src/lib/skillStatus.ts');
+  const T = Date.parse('2026-09-29T12:00:00Z'), H = 3600_000;
+  // Accounting (16622) III trained, IV training (started 2 h ago, 2 h to go, 10% of the level's points in it when it
+  // started), V queued behind it.
+  const q = [
+    { skillId: 16622, level: 4, start: new Date(T - 2 * H).toISOString(), finish: new Date(T + 2 * H).toISOString(), trainingStartSp: 45255 + 0.1 * (256000 - 45255), levelStartSp: 45255, levelEndSp: 256000 },
+    { skillId: 16622, level: 5, start: new Date(T + 2 * H).toISOString(), finish: new Date(T + 30 * H).toISOString() },
+    { skillId: 3443, level: 2, start: new Date(T - 9 * H).toISOString(), finish: new Date(T - H).toISOString() },
+  ];
+  const s = skillStatus(16622, 3, q, T);
+  eq('the level training now, and how far through it', [s.have, s.training?.level, Math.round(s.training.progress * 100)], [3, 4, 55]);
+  eq('  the one queued behind it', s.queued.map((x) => x.level), [5]);
+  eq('  and where it ends up', queuedTo(s), 5);
+  eq('a level finished since the sync reads as trained', skillStatus(3443, 1, q, T).have, 2);
+  eq('a skill not in the queue', skillStatus(3444, 2, q, T), { have: 2, training: null, queued: [] });
+  eq('a paused queue trains nothing now', skillStatus(16622, 3, q.map((x) => ({ ...x, finish: null })), T).training, null);
+  eq('  but still lists what is queued', skillStatus(16622, 3, q.map((x) => ({ ...x, finish: null })), T).queued.map((x) => x.level), [4, 5]);
+  eq('progress from time alone when an older sync kept no points', progressOf({ skillId: 1, level: 1, finish: null }, T - H, T + 3 * H, T), 0.25);
+  eq('a training time as the game says it', [trainSaid(40 * 60_000), trainSaid(5 * H + 20 * 60_000), trainSaid(3 * 24 * H + 4 * H), trainSaid(2 * 24 * H)], ['40 min', '5 h 20 min', '3 d 4 h', '2 d']);
+  eq('Contracting: one contract, four more a level, 21 at V', [0, 1, 3, 5].map(contractsAllowed), [1, 5, 13, 21]);
+  // The user's own queue as synced before the start was kept: finish dates only. The first unfinished entry trains.
+  const old = [
+    { skillId: 3895, level: 5, finish: new Date(T - H).toISOString() },
+    { skillId: 3328, level: 4, finish: new Date(T + 30 * H).toISOString() },
+    { skillId: 16595, level: 4, finish: new Date(T + 50 * H).toISOString() },
+  ];
+  const o = skillStatus(3328, 3, old, T);
+  eq('an older sync: the first unfinished entry is the one training, begun when the one before it finished', [o.training?.level, Math.round(o.training.progress * 100)], [4, 3]);
+  eq('  the next is only queued', [skillStatus(16595, 3, old, T).training, skillStatus(16595, 3, old, T).queued.map((x) => x.level)], [null, [4]]);
+  eq('  and without an entry before it, how far through is unknown', skillStatus(3328, 3, old.slice(1), T).training?.progress, null);
+
+  const { queueSaid } = await import('../src/lib/skillStatus.ts');
+  const idle = { have: 0, training: null, queued: [] };
+  const name = (id) => ({ 16596: 'Wholesale', 16598: 'Marketing' })[id];
+  eq('said: training', queueSaid(s, null, T).text, 'Training IV: 2 h left');
+  eq('  queued', queueSaid(skillStatus(16595, 3, old, T), null, T).tone, 'queued');
+  eq('  a skill whose prerequisites you lack says so, not a time it can’t train in (Tycoon)', queueSaid(idle, { to: 1, days: 50 / 1440, injected: false, needs: [{ id: 16596, level: 5 }, { id: 16598, level: 4 }] }, T, name).text, 'Needs Wholesale V and Marketing IV first');
+  eq('  a skillbook not injected', queueSaid(idle, { to: 1, days: 17 / 1440, injected: false, needs: [] }, T).text, 'Skillbook not injected; I takes 17 min once it is');
+  eq('  otherwise the time to the level wanted', queueSaid({ have: 2, training: null, queued: [] }, { to: 4, days: 1.5, injected: true, needs: [] }, T).text, 'Not queued: IV takes 1 d 12 h');
+  eq('  and nothing to do at V', queueSaid({ have: 5, training: null, queued: [] }, null, T).tone, 'max');
+}
+
 console.log('\n--- purchases made in one go ---');
 {
   const { multibuys, fittedShips, autoTag } = await import('../src/lib/wallet.ts');

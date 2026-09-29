@@ -5,7 +5,11 @@ import { SCOPE } from '../../lib/config';
 import { byUrgency, check, readiness, skillsOf, trainedOptions, type Checked, type Need } from '../../lib/skills';
 import { resolveIds } from '../../lib/market';
 import { cacheStore, useData } from '../../lib/store';
-import { cssVars, Tip } from '../ui';
+import { Tip } from '../ui';
+import { useNow } from '../../lib/hooks';
+import { skillStatus } from '../../lib/skillStatus';
+import { queueSaid, SkillPips, useTrainTimes } from '../SkillStrip';
+import { useEnsureNames, useTypeName } from '../common';
 
 const SKILLS_SCOPE = SCOPE.skills;
 const CACHE = 'skill-ids';
@@ -48,10 +52,21 @@ export function SkillPanel({ title, needs, note }: { title: string; needs: Need[
   const ids = useSkillIds(needs.flatMap(skillsOf));
   const canRead = hasScope(SKILLS_SCOPE);
 
+  const now = useNow(60_000);
   const checked = useMemo(
     () => needs.map((n) => check(n, (name) => ids[name] ?? null, d.skills)).sort(byUrgency),
     [needs, ids, d.skills],
   );
+  // Where each stands in the queue. A racial line follows the race in training, else the one queued, else the best.
+  const status = useMemo(() => new Map(checked.map((c) => {
+    const opts = c.options.filter((o) => o.typeId != null).map((o) => ({ o, s: skillStatus(o.typeId, o.have, d.meta.skillQueue, now) }));
+    const pick = opts.find((x) => x.s.training) ?? opts.find((x) => x.s.queued.length) ?? opts.find((x) => x.o.typeId === c.best?.typeId) ?? opts[0];
+    return [c.name, pick ?? null] as const;
+  })), [checked, d.meta.skillQueue, now]);
+  // Time to the level this page wants, not just the next one.
+  const train = useTrainTimes(checked.flatMap((c) => { const x = status.get(c.name); return x ? [{ id: x.o.typeId, have: x.s.have, to: c.level }] : []; }));
+  useEnsureNames(Object.values(train).flatMap((t) => t.needs.map((n) => n.id)));
+  const typeName = useTypeName();
   const r = readiness(checked);
   const next = checked.find((c) => c.status !== 'met' && !c.optional);
 
@@ -91,13 +106,16 @@ export function SkillPanel({ title, needs, note }: { title: string; needs: Need[
                     <td className="l">
                       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ width: 7, height: 7, borderRadius: '50%', background: DOT[c.status], boxShadow: `0 0 6px ${DOT[c.status]}` }} aria-hidden="true" />
-                        <span className="mini-lvl" aria-hidden="true">
-                          {[1, 2, 3, 4, 5].map((i) => (
-                            <i key={i} style={cssVars({ width: 14, '--bg2': i <= c.have ? 'var(--acc)' : i <= c.level ? 'color-mix(in oklab,var(--acc2) 30%,transparent)' : 'rgba(2,7,12,.7)', '--bd': i <= c.have ? 'var(--acc)' : i <= c.level ? 'var(--acc2)' : 'rgba(130,185,225,.2)' })} />
-                          ))}
-                        </span>
+                        {(() => { const st = status.get(c.name); return st ? <SkillPips s={st.s} want={c.level} /> : <SkillPips s={{ have: c.have, training: null, queued: [] }} want={c.level} />; })()}
                         <span className="sr-only">{c.status === 'met' ? 'trained' : c.status === 'partial' ? 'partly trained' : c.status === 'missing' ? 'not trained' : 'unknown'}</span>
                       </span>
+                      {(() => {
+                        const st = status.get(c.name);
+                        if (!st || c.status === 'unknown') return null;
+                        const q = queueSaid(st.s, st.o.typeId != null ? train[st.o.typeId] : null, now, typeName);
+                        if (q.tone === 'max' || (q.tone === 'idle' && c.status === 'met')) return null;
+                        return <span className="sub" style={{ display: 'block', marginTop: 3, whiteSpace: 'normal', color: q.tone === 'run' ? 'var(--acc)' : undefined }}>{c.anyOf && st.o.name !== c.name ? `${st.o.name.split(' ')[0]}: ` : ''}{q.text}</span>;
+                      })()}
                     </td>
                     <td className="l wrap" style={{ fontSize: 12.5, color: 'var(--sec)', paddingTop: 8, paddingBottom: 8 }}>{c.why}</td>
                   </tr>

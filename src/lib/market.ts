@@ -220,15 +220,22 @@ export async function stationBook(typeId: number, regionId: number, stationId: n
 }
 
 /** A skill's rank and training attributes, from its dogma. Static, so kept for good. */
-export async function skillDogma(typeId: number): Promise<{ rank: number; primary: number; secondary: number } | null> {
-  const key = `skill-dogma:${typeId}`;
-  const hit = (await get(key, cacheStore).catch(() => undefined)) as { rank: number; primary: number; secondary: number } | undefined;
+/**
+ * A skill's rank and attributes (for training time) and the skills it needs first: dogma 182–184 name them and 277–279
+ * their levels (Tycoon: Wholesale V, Marketing IV; Scrapmetal Processing: Reprocessing Efficiency V, Metallurgy V).
+ */
+export async function skillDogma(typeId: number): Promise<{ rank: number; primary: number; secondary: number; req: [number, number][] } | null> {
+  // "2": entries cached before the prerequisites were kept lack them.
+  const key = `skill-dogma2:${typeId}`;
+  const hit = (await get(key, cacheStore).catch(() => undefined)) as { rank: number; primary: number; secondary: number; req: [number, number][] } | undefined;
   if (hit) return hit;
   const { data } = await esi<{ dogma_attributes?: { attribute_id: number; value: number }[] }>(`/universe/types/${typeId}/`);
   const a = (id: number) => data.dogma_attributes?.find((x) => x.attribute_id === id)?.value;
   const rank = a(275), primary = a(180), secondary = a(181);
   if (rank == null || primary == null || secondary == null) return null;
-  const out = { rank, primary, secondary };
+  const req = ([[182, 277], [183, 278], [184, 279]] as const).map(([s, l]) => [a(s), a(l)] as const)
+    .filter((x): x is readonly [number, number] => x[0] != null && x[1] != null).map(([s, l]) => [s, l] as [number, number]);
+  const out = { rank, primary, secondary, req };
   await set(key, out, cacheStore).catch(() => undefined);
   return out;
 }

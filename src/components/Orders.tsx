@@ -20,6 +20,7 @@ import type { Prospect } from '../lib/types';
 import { BusyRelisting, canOpenInGame, CopyPrice, NameInGame, OpenInGame, useTypeName } from './common';
 import { cssVars, Empty, Guide, ItemIcon, Notice, PageHead, Seg, SortTh } from './ui';
 import { ScanFreshness } from './ScanFreshness';
+import { TradeSkillsLine } from './SkillStrip';
 
 /**
  * Plain-English notes behind the "i" on each column, phrased for whichever side you are reading.
@@ -301,6 +302,7 @@ export function Orders() {
             {elsewhere > 0 && ` ${units(elsewhere)} more ${elsewhere > 1 ? 'are' : 'is'} in other stations and can’t be checked here.`}
             {check.failed > 0 && ` ${units(check.failed)} couldn’t be read from ESI — check again.`}
           </p>
+          <TradeSkillsLine />
           {!canOpenInGame() && (
             <Notice kind="warn">Your login predates the “In game” button. Add <code>esi-ui.open_window.v1</code> to your application on developers.eveonline.com, then log out and in again, and each row will open that item’s market window in your client.</Notice>
           )}

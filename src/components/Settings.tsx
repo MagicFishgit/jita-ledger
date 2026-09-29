@@ -14,7 +14,8 @@ import { syncCharacter, useSyncState } from '../lib/sync';
 import { navigate, useAuth, useMailer, useNow, type Route } from '../lib/hooks';
 import { tradeSkillsComing } from '../lib/skillQueue';
 import { errorPredatesLogin, scopesMissing } from '../lib/watchdog';
-import { ALPHA_CAPS, JITA_44, OPTIONAL_SCOPES, REDIRECT_URI, SCOPE, SCOPE_INFO, SCOPES } from '../lib/config';
+import { useTradeQueue } from './SkillStrip';
+import { ALPHA_CAPS, JITA_44, OPTIONAL_SCOPES, REDIRECT_URI, SCOPE, SCOPE_INFO, SCOPES, type SkillKey } from '../lib/config';
 import { marketHistory } from '../lib/market';
 import { measureShare, MIN_SIDE_DAYS, sharedTypes, SHARE_DAYS, type ShareMeasure } from '../lib/share';
 import { ALERT_EVENTS, ALERT_SIZES, MAIL_KEEP, REPEAT_HOURS, THEMES, TOAST_SECONDS } from '../lib/prefs';
@@ -369,6 +370,8 @@ function Skills() {
   const used = Object.values(d.orders).filter((o) => o.state === 'open').length;
   const { rows, perDay } = useSkillPayback(d);
   const next = rows.filter((x) => perDay(x) > 0).slice(0, 2);
+  const tq = useTradeQueue();
+  const qOf = (k: SkillKey) => (tq[k]?.text ? tq[k] : undefined);
 
   return (
     <>
@@ -379,22 +382,23 @@ function Skills() {
             {locked ? `Trained levels, filled from ${auth!.characterName} on each sync. ` : 'Set the levels you’ve trained. '}
             {alpha && 'Striped boxes are trained but locked while you’re Alpha; they switch on when you go Omega.'}
           </p>
-          <LevelBoxes label="Accounting" help={`Cuts sales tax by 11% per level.${alpha ? ' Omega only.' : ''}`} value={s.acc} cap={cap('acc')} disabled={locked} onChange={(n) => set({ acc: n })} />
-          <LevelBoxes label="Broker Relations" help={`Cuts the broker fee by 0.3 points per level.${alpha ? ' Alpha can use up to level II.' : ''}`} value={s.br} cap={cap('br')} disabled={locked} onChange={(n) => set({ br: n })} />
-          <LevelBoxes label="Advanced Broker Relations" help={`Cuts the fee for changing an order’s price.${alpha ? ' Omega only.' : ''}`} value={s.abr} cap={cap('abr')} disabled={locked} onChange={(n) => set({ abr: n })} />
+          <LevelBoxes label="Accounting" help={`Cuts sales tax by 11% per level.${alpha ? ' Omega only.' : ''}`} value={s.acc} cap={cap('acc')} disabled={locked} onChange={(n) => set({ acc: n })} queue={qOf('acc')} />
+          <LevelBoxes label="Broker Relations" help={`Cuts the broker fee by 0.3 points per level.${alpha ? ' Alpha can use up to level II.' : ''}`} value={s.br} cap={cap('br')} disabled={locked} onChange={(n) => set({ br: n })} queue={qOf('br')} />
+          <LevelBoxes label="Advanced Broker Relations" help={`Cuts the fee for changing an order’s price.${alpha ? ' Omega only.' : ''}`} value={s.abr} cap={cap('abr')} disabled={locked} onChange={(n) => set({ abr: n })} queue={qOf('abr')} />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 10 }}>
             <NumField id="s-fac" label="Caldari State standing" value={s.faction} disabled={locked} onChange={(n) => set({ faction: n })} />
             <NumField id="s-corp" label="Caldari Navy standing" value={s.corp} disabled={locked} onChange={(n) => set({ corp: n })} />
           </div>
           <p style={{ margin: '-4px 0 0', fontSize: 11.5, color: 'var(--faint)' }}>Base standing from 0 to 10. Skills that boost standings don’t lower the broker fee.</p>
+          <p style={{ margin: '-4px 0 0', fontSize: 11.5, color: 'var(--faint)' }}>Marketing, Procurement, Daytrading and Visibility aren’t here: they set how far from an order’s station you can place or change it (Daytrading, changing it from elsewhere), which the app doesn’t weigh. Docked in Jita 4-4 they change nothing.</p>
         </section>
         <section className="panel" aria-label="Order slots" style={{ padding: 18, gap: 14, clipPath: 'none' }}>
           <div className="panel-head"><span className="panel-title">Order slots</span><span className="mono" style={{ fontSize: 26, color: 'var(--acc)' }}>{slots}</span></div>
           <p style={{ margin: '-8px 0 0', fontSize: 12, color: 'var(--label)' }}>How many buy and sell orders you can have open at once. You start with 5.</p>
-          <LevelBoxes label="Trade" help={`4 more orders per level.${alpha ? ' Alpha can use up to level III.' : ''}`} value={s.trade} cap={cap('trade')} disabled={locked} onChange={(n) => set({ trade: n })} />
-          <LevelBoxes label="Retail" help={`8 more orders per level.${alpha ? ' Omega only.' : ''}`} value={s.retail} cap={cap('retail')} disabled={locked} onChange={(n) => set({ retail: n })} />
-          <LevelBoxes label="Wholesale" help={`16 more orders per level.${alpha ? ' Omega only.' : ''}`} value={s.wholesale} cap={cap('wholesale')} disabled={locked} onChange={(n) => set({ wholesale: n })} />
-          <LevelBoxes label="Tycoon" help={`32 more orders per level.${alpha ? ' Omega only.' : ''}`} value={s.tycoon} cap={cap('tycoon')} disabled={locked} onChange={(n) => set({ tycoon: n })} />
+          <LevelBoxes label="Trade" help={`4 more orders per level.${alpha ? ' Alpha can use up to level III.' : ''}`} value={s.trade} cap={cap('trade')} disabled={locked} onChange={(n) => set({ trade: n })} queue={qOf('trade')} />
+          <LevelBoxes label="Retail" help={`8 more orders per level.${alpha ? ' Omega only.' : ''}`} value={s.retail} cap={cap('retail')} disabled={locked} onChange={(n) => set({ retail: n })} queue={qOf('retail')} />
+          <LevelBoxes label="Wholesale" help={`16 more orders per level.${alpha ? ' Omega only.' : ''}`} value={s.wholesale} cap={cap('wholesale')} disabled={locked} onChange={(n) => set({ wholesale: n })} queue={qOf('wholesale')} />
+          <LevelBoxes label="Tycoon" help={`32 more orders per level.${alpha ? ' Omega only.' : ''}`} value={s.tycoon} cap={cap('tycoon')} disabled={locked} onChange={(n) => set({ tycoon: n })} queue={qOf('tycoon')} />
         </section>
       </div>
       <div style={gridC}>
@@ -408,7 +412,7 @@ function Skills() {
             <div>
               {next.map((x) => (
                 <div key={x.key} className="lrow">
-                  <span><span className="lt">{x.name} <span style={{ color: 'var(--sec)' }}>{ROMAN[x.cur]} → {ROMAN[x.next]}</span></span><span className="ls">{x.days != null ? `${x.days.toFixed(1)} days of training` : 'Training time unknown'}</span></span>
+                  <span><span className="lt">{x.name} <span style={{ color: 'var(--sec)' }}>{ROMAN[x.cur]} → {ROMAN[x.next]}</span></span><span className="ls" style={tq[x.key]?.run ? { color: 'var(--acc)' } : undefined}>{tq[x.key]?.run || tq[x.key]?.queued.length ? tq[x.key]!.text : x.days != null ? `${x.days.toFixed(1)} days of training` : 'Training time unknown'}</span></span>
                   <span className="lv" style={{ color: 'var(--pos)' }}>+{iskBig(x.gain ?? 0)} / mo</span>
                 </div>
               ))}

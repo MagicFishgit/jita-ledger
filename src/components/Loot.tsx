@@ -15,6 +15,7 @@ import { typeKind } from '../lib/universe';
 import { useEnsureNames } from './common';
 import { Check, Empty, Flag, Guide, ItemIcon, Notice, PageHead, Panel, Seg, SortTh, Th, Tiles } from './ui';
 import type { HistRow } from '../lib/types';
+import { TradeSkillsLine } from './SkillStrip';
 
 type Item = { typeId: number; name: string; qty: number };
 /** A hangar read's word on what's assembled or holding things, for setting aside what's in use. */
@@ -295,6 +296,7 @@ export function Loot() {
                     </div>
                   </>
                 ) : <p className="note small" style={{ margin: 0 }}>{free === 0 ? 'No free order slots: free some on Orders (Weakest slots), or sell into the bids.' : 'Nothing here gains enough over the bids to be worth a slot.'}</p>}
+                {(free === 0 || noSlot.length > 0) && <TradeSkillsLine slotsOnly />}
               </div>
               {toBids.length > 0 && (
                 <div className="col" style={{ gap: 6 }}>

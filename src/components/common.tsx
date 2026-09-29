@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { Copy, MonitorUp, Search } from 'lucide-react';
 import { openMarketWindow, resolveNames, resolveType } from '../lib/market';
 import { hasScope } from '../lib/auth';
@@ -13,8 +13,15 @@ import { useFlow, watchedFlow } from '../lib/flowStore';
 const ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V'];
 
 /** Skill level picker. `cap` marks levels you've trained but can't use as Alpha. */
-export function LevelBoxes(props: { label: string; help?: string; value: number; cap?: number | null; disabled?: boolean; onChange: (n: number) => void }) {
-  const { label, help, value, disabled, onChange } = props;
+/**
+ * `queue`: where the skill stands in your training (SkillStrip's `queueSaid`), shown under the level, with the box in
+ * training filling and queued ones dashed.
+ */
+export function LevelBoxes(props: {
+  label: string; help?: string; value: number; cap?: number | null; disabled?: boolean; onChange: (n: number) => void;
+  queue?: { text: string; run: boolean; training: { level: number; progress: number } | null; queued: number[] };
+}) {
+  const { label, help, value, disabled, onChange, queue } = props;
   const cap = props.cap ?? null;
   const id = useId();
   const set = (n: number) => { if (!disabled) onChange(Math.min(5, Math.max(0, n))); };
@@ -36,6 +43,7 @@ export function LevelBoxes(props: { label: string; help?: string; value: number;
       <span>
         <span className="ln" id={id}>{label}</span>
         <span className="lt" style={{ display: 'block', color: capped ? 'var(--acc2)' : 'var(--sec)' }}>{text}</span>
+        {queue && <span className="lt" style={{ display: 'block', color: queue.run ? 'var(--acc)' : 'var(--faint)' }}>{queue.text}</span>}
       </span>
       <div
         className="lvl-boxes" role="slider" tabIndex={disabled ? -1 : 0}
@@ -45,10 +53,12 @@ export function LevelBoxes(props: { label: string; help?: string; value: number;
         {[1, 2, 3, 4, 5].map((n) => {
           const on = n <= value;
           const over = cap !== null && n > cap && on;
+          const run = !on && queue?.training?.level === n;
           return (
             <button
               key={n} type="button" tabIndex={-1} title={`Level ${ROMAN[n]}`} aria-hidden="true"
-              className={over ? 'over' : on ? 'on' : ''} onClick={() => set(value === n ? n - 1 : n)}
+              className={over ? 'over' : on ? 'on' : run ? 'run' : !on && queue?.queued.includes(n) ? 'q' : ''} onClick={() => set(value === n ? n - 1 : n)}
+              style={run ? ({ '--p': queue!.training!.progress } as CSSProperties) : undefined}
             />
           );
         })}

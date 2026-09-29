@@ -15,6 +15,9 @@ import { getAuth, hasScope } from '../lib/auth';
 import { SCOPE } from '../lib/config';
 import { structureInfo, system } from '../lib/universe';
 import { useData } from '../lib/store';
+import { useNow } from '../lib/hooks';
+import { skillStatus, trainSaid } from '../lib/skillStatus';
+import { ROMAN, SkillStrip } from './SkillStrip';
 import { toast } from '../lib/toast';
 import { ItemSearch, useEnsureNames, useTypeName } from './common';
 import { Empty, Guide, Notice, PageHead, Panel, Seg, Tiles } from './ui';
@@ -63,6 +66,8 @@ export function Reprocess() {
   const modYield = yieldOf([1, []], skills, site, implant);
   const veldspar = bundle?.types['1230'];
   const oreYield = veldspar ? yieldOf(veldspar, skills, site, implant) : null;
+  // The skill Veldspar names for itself (Simple Ore Processing), from the bundled data.
+  const SIMPLE_ORE = veldspar?.[2] ?? 60377;
 
   return (
     <div className="page">
@@ -94,10 +99,21 @@ export function Reprocess() {
             <Tiles min={150} items={[
               { l: 'Modules, charges, ships', v: pct(modYield, 1), n: `Scrapmetal Processing ${lv(SCRAPMETAL_PROCESSING)}: 55% at V, anywhere`,
                 tip: 'Only Scrapmetal Processing moves what modules, charges and ships give: rigs, structures, security and implants don’t. It needs Reprocessing Efficiency V and Metallurgy V first.' },
-              { l: 'Ore (Veldspar here)', v: oreYield != null ? pct(oreYield, 1) : '…', n: `Reprocessing ${lv(REPROCESSING)} · Efficiency ${lv(REPROCESSING_EFFICIENCY)} · Simple Ore ${lv(60377)}`,
+              { l: 'Ore (Veldspar here)', v: oreYield != null ? pct(oreYield, 1) : '…', n: `Reprocessing ${lv(REPROCESSING)} · Efficiency ${lv(REPROCESSING_EFFICIENCY)} · Simple Ore ${lv(SIMPLE_ORE)}`,
                 tip: 'Ore gets base × (1 + 3% Reprocessing) × (1 + 2% Reprocessing Efficiency) × (1 + 2% its own processing skill) × (1 + implant). A structure with a reprocessing rig adds to the base, more in low and null-sec.' },
             ]} />
             {lv(SCRAPMETAL_PROCESSING) === 0 && <p className="note small" style={{ margin: 0 }}>Scrapmetal Processing needs Reprocessing Efficiency V (you have {lv(REPROCESSING_EFFICIENCY)}) and Metallurgy V (you have {lv(METALLURGY)}).</p>}
+            <SkillStrip lines={[
+              { name: 'Scrapmetal Processing', id: SCRAPMETAL_PROCESSING, what: 'Modules, charges and ships: +2% a level, anywhere.',
+                next: (l) => `${pct(modYield, 1)} → ${pct(yieldOf([1, []], { ...skills, [SCRAPMETAL_PROCESSING]: l }, site, implant), 1)}` },
+              { name: 'Reprocessing', id: REPROCESSING, what: 'Ore: +3% a level.',
+                next: (l) => (veldspar && oreYield != null ? `Veldspar ${pct(oreYield, 1)} → ${pct(yieldOf(veldspar, { ...skills, [REPROCESSING]: l }, site, implant), 1)}` : null) },
+              { name: 'Reprocessing Efficiency', id: REPROCESSING_EFFICIENCY, what: 'Ore: +2% a level. V is needed for Scrapmetal Processing.',
+                next: (l) => (veldspar && oreYield != null ? `Veldspar ${pct(oreYield, 1)} → ${pct(yieldOf(veldspar, { ...skills, [REPROCESSING_EFFICIENCY]: l }, site, implant), 1)}` : null) },
+              { name: 'Simple Ore Processing', id: SIMPLE_ORE, what: 'The ores that name it, Veldspar among them: +2% a level. Each ore family has its own.',
+                next: (l) => (veldspar && oreYield != null ? `Veldspar ${pct(oreYield, 1)} → ${pct(yieldOf(veldspar, { ...skills, [SIMPLE_ORE]: l }, site, implant), 1)}` : null) },
+              ...(lv(SCRAPMETAL_PROCESSING) === 0 ? [{ name: 'Metallurgy', id: METALLURGY, what: 'V is needed for Scrapmetal Processing.' }] : []),
+            ]} />
           </div>
         </Panel>
         <ItemCheck bundle={bundle} site={site} implant={implant} skills={skills} salesTax={r.t} name={name} picked={picked} />
@@ -155,6 +171,10 @@ function ItemCheck({ bundle, site, implant, skills, salesTax, name, picked }: { 
     const levels = byLevel.levels.map((ly) => { const w = outputWorth(reprocessOutput(m, qty, ly), (id) => bids[id], (id) => adjusted[id], site.tax, salesTax); return { y: ly, net: w.net, profit: w.net - cost }; });
     return { y, out, worth, cost, short: left > 0 ? left : 0, profit: worth.net - cost, levels, skill: byLevel.skill };
   }, [m, asks, bids, adjusted, qty, skills, site.kind, site.tax, implant, JSON.stringify(site)]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Where the skill that moves this item stands in your training, for the by-level table.
+  const d = useData();
+  const now = useNow(60_000);
+  const moving = skillStatus(calc?.skill ?? null, calc ? skills[calc.skill] ?? 0 : 0, d.meta.skillQueue, now);
 
   return (
     <Panel title="Check an item" sub="What it breaks down into here, at your skills">
@@ -190,8 +210,8 @@ function ItemCheck({ bundle, site, implant, skills, salesTax, name, picked }: { 
                 <table className="tbl compact" style={{ minWidth: 360 }}>
                   <thead><tr><th scope="col" className="l">{name(calc.skill)}</th><th scope="col">Yield</th><th scope="col" data-tip="What the output fetches in the bids after sales tax, less the reprocessing tax">Fetches</th><th scope="col">Profit</th></tr></thead>
                   <tbody>{calc.levels.map((l, i) => (
-                    <tr key={i} className={i === (skills[calc.skill] ?? 0) ? 'open' : undefined}>
-                      <td className="l">{i}{i === (skills[calc.skill] ?? 0) ? ' (yours)' : ''}</td><td>{pct(l.y, 1)}</td><td>{iskBig(Math.round(l.net))}</td>
+                    <tr key={i} className={i === moving.have ? 'open' : undefined}>
+                      <td className="l">{ROMAN[i]}{i === moving.have ? ' (yours)' : moving.training?.level === i ? ` (training, ${trainSaid(moving.training.finish - now)} left)` : moving.queued.some((q) => q.level === i) ? ' (queued)' : ''}</td><td>{pct(l.y, 1)}</td><td>{iskBig(Math.round(l.net))}</td>
                       <td style={{ color: l.profit >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{iskBig(Math.round(l.profit))}</td>
                     </tr>
                   ))}</tbody>
