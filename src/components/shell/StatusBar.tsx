@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { BellOff, BellRing, Cloud, HardDriveDownload } from 'lucide-react';
 import { useAlertRunner, BACKUP_DAYS } from '../../lib/alertsRunner';
 import { useAuth, useNow, navigate } from '../../lib/hooks';
@@ -21,6 +22,23 @@ function clock(ms: number): string {
   const m = Math.floor(s / 60);
   if (m >= 60) return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
   return `${m}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/**
+ * One countdown in the strip: a fixed-width box (the user saw the strip jitter as the digits changed width, most when
+ * two timers ticked together), a pulse over its last five seconds, and a flash when it starts again.
+ */
+function Countdown({ ms }: { ms: number | null }) {
+  const prev = useRef<number | null>(null);
+  const [resetAt, setResetAt] = useState(0);
+  useEffect(() => {
+    // A jump up is the timer starting over: the data refreshed, or the check ran.
+    if (ms != null && prev.current != null && ms > prev.current + 2000) setResetAt(Date.now());
+    prev.current = ms;
+  }, [ms]);
+  const soon = ms != null && ms > 0 && ms <= 5000;
+  // Keyed on the reset, so the flash plays once each time and not again on the next tick.
+  return <span key={resetAt} className={`cd${soon ? ' soon' : resetAt ? ' flash' : ''}`}>{ms == null ? '—' : clock(ms)}</span>;
 }
 
 /**
@@ -48,13 +66,13 @@ export function StatusBar() {
   });
   const ord = at('orders'), trd = at('transactions');
   const refresh = sync.running ? 'now'
-    : `orders ${ord ? clock(Math.max(0, ord - now)) : '—'} · trades ${trd ? clock(Math.max(0, trd - now)) : '—'}`;
+    : <>orders <Countdown ms={ord ? Math.max(0, ord - now) : null} /> · trades <Countdown ms={trd ? Math.max(0, trd - now) : null} /></>;
 
   const al = d.alerts;
   const next = runner.lastRun == null ? al.interval * 60_000 : Math.max(0, runner.lastRun + al.interval * 60_000 - now);
   const alertText = !al.on ? 'Alerts off'
     : !runner.leader ? 'Alerts in another tab'
-    : (window.innerWidth >= 1200 && runner.watching ? `Watching ${runner.watching} orders · next check ` : 'Next check ') + clock(next);
+    : <>{window.innerWidth >= 1200 && runner.watching ? `Watching ${runner.watching} orders · next check ` : 'Next check '}<Countdown ms={next} /></>;
 
   const last = d.meta.lastBackupAt ? Date.parse(d.meta.lastBackupAt) : null;
   const hasData = Object.keys(d.txs).length > 0 || d.positions.length > 0;

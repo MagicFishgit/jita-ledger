@@ -254,6 +254,14 @@ input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.7); }
 .statusbar svg { width: 12px; height: 12px; flex: none; }
 .statusbar .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c, var(--pos)); box-shadow: 0 0 8px var(--c, var(--pos)); flex: none; }
 .statusbar .item { display: flex; align-items: center; gap: 7px; }
+/* Countdowns keep one width whatever the digits (StatusBar's Countdown), pulse over their last five seconds and flash
+   when they start again. */
+.statusbar .cd { display: inline-block; min-width: calc(5ch + 1.1em); text-align: right; font-variant-numeric: tabular-nums; padding: 0 2px; }
+.statusbar .cd.soon { animation: cdsoon 1s ease-in-out infinite; }
+.statusbar .cd.flash { animation: cdflash 1.4s ease-out; }
+@keyframes cdsoon { 50% { color: #fff; text-shadow: 0 0 8px var(--acc); } }
+@keyframes cdflash { 0% { color: #fff; background: color-mix(in oklab, var(--acc) 45%, transparent); box-shadow: 0 0 12px var(--acc); } 100% { background: transparent; box-shadow: none; } }
+@media (prefers-reduced-motion: reduce) { .statusbar .cd { animation: none; } }
 .statusbar .fine { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .statusbar .keys { margin-left: auto; display: flex; gap: 14px; flex: none; }
 

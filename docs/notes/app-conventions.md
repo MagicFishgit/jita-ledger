@@ -36,6 +36,12 @@ Decisions worth not undoing. Conventions for wording, layout, tooltips, numbers 
   see, a value too long for its box or text spilling out of a button's height, was found by looking at every page,
   four screenshots to a sheet (`SHOTS=dir` on the page check). Orders' Weakest slots folds away (folded by default
   on a phone, remembered per browser).
+- **Countdowns keep one width** (`Countdown` in `StatusBar.tsx`, `.statusbar .cd`). The user saw the status bar jitter as
+  its timers ticked, most when two changed together: Chakra Petch's digits aren't one width, and 10:00 → 9:59 drops a
+  character. Each countdown is a right-aligned box one five-character time wide, with tabular digits (measured: both
+  boxes stay 44.9 px from 11:02 down to 0:02, the item's edge doesn't move). As they asked, it pulses over its last five
+  seconds and flashes once when it starts again (a jump up: the data refreshed or the check ran), keyed on the reset so
+  the flash plays once. Off motion and reduced motion still both.
 - **Opening an item in game says nothing when it works**: the window opening in the client is the answer, and the
   user found a message on every click annoying. Only a failure says so. (Alerts are what become system
   notifications, never these.)

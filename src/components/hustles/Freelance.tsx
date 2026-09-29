@@ -220,7 +220,7 @@ function JobTable({ title, sub, rows, name, now, inJob, copy, go, elsewhere }: {
             <thead><tr>
               <Th left>Job</Th><Th left>Deliver</Th>
               <Th tip="What the job pays per unit, and the range of prices the units cost from the cheapest Jita listings">Pays / costs</Th>
-              <Th tip="What you can deliver: bought while a unit costs less than the reward, up to your cap on the job and what it still wants">Units</Th>
+              <Th tip={'How many you can deliver: the smallest of three limits, and the line under the number says which one it is.\n\n• Needed: what the job still wants.\n• Your cap: the most one player may deliver, when the job sets one.\n• Under the reward: how many Jita sells for less than the job pays a unit; past that, buying costs more than it pays.'}>Units</Th>
               <Th tip="The rewards less what buying them costs. No broker fee or tax on buying from listings. Before the haul.">Profit</Th>
               <Th tip="What you’d carry">m³</Th>
               <Th left tip="The nearest office you can reach in high-sec, and the high-sec route from Jita">Deliver to</Th>
@@ -240,7 +240,7 @@ function JobTable({ title, sub, rows, name, now, inJob, copy, go, elsewhere }: {
                     {r.job.item.kind === 'group' && <span className="sub">{r.types.length === 1 ? 'any of its group: the only one under the reward' : `${units(r.types.length)} of its group under the reward`}</span>}
                   </td>
                   <td>{isk(r.job.perUnit)}<span className="sub" data-tip={`Average ${isk(r.cost / r.units)}`}>costs {r.low === r.high ? isk(r.low) : `${isk(r.low)}–${isk(r.high)}`}</span></td>
-                  <td>{units(r.units)}<span className="sub">{r.limit === 'player' ? 'your cap' : r.limit === 'left' ? 'all it wants' : 'all listed under it'}</span></td>
+                  <td>{units(r.units)}<span className="sub">{r.limit === 'player' ? 'your cap on the job' : r.limit === 'left' ? 'all the job still needs' : 'all Jita sells under the reward'}</span></td>
                   <td style={{ color: 'var(--pos)' }}>{iskBig(r.profit)}<span className="sub">{r.office.jumps ? `${iskBig(r.profit / r.office.jumps)} a jump` : ''}</span></td>
                   <td>{r.m3 != null ? units(Math.ceil(r.m3)) : '–'}</td>
                   <td className="l" style={{ whiteSpace: 'normal', minWidth: 180 }}>
