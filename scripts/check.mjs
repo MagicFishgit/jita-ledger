@@ -2617,6 +2617,26 @@ console.log('\n--- a fee a GM refunded counts as nothing ---');
   eq('the order keeps the fee matched, at nothing, not an estimate in its place', [m.relists.length, m.relists[0]?.amount, m.relists[0]?.actual], [1, 0, true]);
 }
 
+console.log('\n--- reprocessing ---');
+{
+  const R = await import('../src/lib/reprocess.ts');
+  const { default: bundle } = await import('../src/data/typeMaterials.json', { with: { type: 'json' } });
+  const zw = bundle.types[8001], veld = bundle.types[1230];
+  eq('the bundle: the ZW-4100 as the SDE has it, Veldspar in 100s naming Simple Ore Processing', [zw, veld[0], veld[2]], [[1, [[34, 3278], [35, 1725], [36, 7]]], 100, 60377]);
+  const jita = { kind: 'station', base: 0.5, tax: R.stationTax(7.04) };
+  const all5 = { [R.REPROCESSING]: 5, [R.REPROCESSING_EFFICIENCY]: 5, [R.SCRAPMETAL_PROCESSING]: 5, 60377: 5 };
+  eq('modules: half at a station, 55% at Scrapmetal V, the same at a Tatara', [R.yieldOf(zw, {}, jita), R.yieldOf(zw, all5, jita), R.yieldOf(zw, all5, { kind: 'structure', structure: 'tatara', rig: 't2', sec: 'null', tax: 0 })].map((x) => +x.toFixed(4)), [0.5, 0.55, 0.55]);
+  const t2 = (sec) => ({ kind: 'structure', structure: 'tatara', rig: 't2', sec, tax: 0 });
+  eq('ore at max skills and RX-804: 72.4% at an NPC station, 80.9% / 85.8% / 90.6% at a T2 Tatara in high / low / null',
+    [R.yieldOf(veld, all5, jita, 'rx804'), R.yieldOf(veld, all5, t2('high'), 'rx804'), R.yieldOf(veld, all5, t2('low'), 'rx804'), R.yieldOf(veld, all5, t2('null'), 'rx804')].map((x) => +(x * 100).toFixed(1)), [72.4, 80.9, 85.8, 90.6]);
+  eq('the tax at an NPC station: 5% at 0 standing, 2.75% at 3, none at the user\'s 7.04', [R.stationTax(0), R.stationTax(3), R.stationTax(7.04)].map((x) => +x.toFixed(4)), [0.05, 0.0275, 0]);
+  eq('one ZW-4100 at 55%: whole units of each, rounded down', R.reprocessOutput(zw, 1, 0.55).out, [[34, 1802], [35, 948], [36, 3]]);
+  eq('250 Veldspar: two batches of 100, 50 left over', [R.reprocessOutput(veld, 250, 0.5).batches, R.reprocessOutput(veld, 250, 0.5).left, R.reprocessOutput(veld, 250, 0.5).out], [2, 50, [[34, 400]]]);
+  const w = R.outputWorth(R.reprocessOutput(zw, 1, 0.5), (id) => ({ 34: 3.7, 35: 16.33, 36: 49.95 })[id], (id) => ({ 34: 3.5, 35: 15, 36: 45 })[id], 0.05, 0.03375);
+  eq('its worth: sold into the bids after sales tax, less 5% tax on the adjusted price', [Math.round(w.gross), Math.round(w.tax), Math.round(w.net)], [Math.round((1639 * 3.7 + 862 * 16.33 + 3 * 49.95) * 0.96625), Math.round(0.05 * (1639 * 3.5 + 862 * 15 + 3 * 45)), Math.round((1639 * 3.7 + 862 * 16.33 + 3 * 49.95) * 0.96625 - 0.05 * (1639 * 3.5 + 862 * 15 + 3 * 45))]);
+  eq('yield by level of the skill that moves it', R.yieldByLevel(zw, {}, jita).levels.map((x) => +x.toFixed(2)), [0.5, 0.51, 0.52, 0.53, 0.54, 0.55]);
+}
+
 console.log('\n--- an item\'s daily rhythm ---');
 {
   const { busyHours, busySaid, spreadAtHour } = await import('../src/lib/rhythm.ts');
