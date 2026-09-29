@@ -35,6 +35,20 @@ const RIG = { none: 0, t1: 1, t2: 3 } as const;
 const SEC = { high: 1, low: 1.06, null: 1.12 } as const;
 const STRUCTURE = { athanor: 0.02, tatara: 0.055, other: 0 } as const;
 
+/** Upwell refineries by type ID: the Athanor (35835) and the Tatara (35836); any other structure is "other". */
+export const REFINERY_TYPES: Record<number, 'athanor' | 'tatara'> = { 35835: 'athanor', 35836: 'tatara' };
+
+/**
+ * A structure found by name as a place to refine: its kind from its type, its band from its system's security (0.45 and
+ * up shows as 0.5, high-sec; above 0 low-sec; the rest, wormholes included, null-sec for a rig's bonus).
+ */
+export function siteFromStructure(typeId: number | undefined, security: number | null): { structure: 'athanor' | 'tatara' | 'other'; sec: 'high' | 'low' | 'null' } {
+  return {
+    structure: (typeId != null && REFINERY_TYPES[typeId]) || 'other',
+    sec: security == null ? 'high' : security >= 0.45 ? 'high' : security > 0 ? 'low' : 'null',
+  };
+}
+
 /** An NPC station's tax at your standing with its owner: 5% at 0, none from 6.67 up. */
 export function stationTax(standing: number): number {
   return Math.max(0, Math.min(0.05, 0.05 - 0.0075 * Math.max(0, standing)));

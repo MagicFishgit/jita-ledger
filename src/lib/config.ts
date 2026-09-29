@@ -51,6 +51,7 @@ export const SCOPE = {
   contracts: 'esi-contracts.read_character_contracts.v1', // your contracts: couriers to deliver, and what contracts you sold or bought held
   fittingsRead: 'esi-fittings.read_fittings.v1', // your saved fittings, priced at today's Jita prices on Combat
   fittingsWrite: 'esi-fittings.write_fittings.v1', // save a lost ship's fit in game, so its Buy All re-buys it
+  search: 'esi-search.search_structures.v1', // find a structure by name, for where you refine
 } as const;
 export const SCOPES: string[] = Object.values(SCOPE);
 
@@ -161,6 +162,11 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
     label: 'Your freelance jobs',
     unlocks: 'Side hustles → Freelance shows the jobs you’ve joined, how much you’ve delivered, and what’s left of your share.',
     without: 'The Freelance tab still finds jobs, but can’t say which you’re in.',
+  },
+  'esi-search.search_structures.v1': {
+    label: 'Structure search',
+    unlocks: 'Reprocessing finds the structure you refine at by name, and fills in whether it’s an Athanor or a Tatara and its security.',
+    without: 'You set the structure’s type and security by hand.',
   },
   'esi-fittings.read_fittings.v1': {
     label: 'Read fittings',

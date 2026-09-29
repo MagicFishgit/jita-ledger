@@ -61,7 +61,7 @@ export const isSystem = (locationId: number) => locationId >= 30_000_000 && loca
  * Names can change, so a found structure is kept for a day, not for good; a refusal for an hour.
  */
 export type StructureRead =
-  | { status: 'found'; name: string; systemId: number }
+  | { status: 'found'; name: string; systemId: number; typeId?: number }
   | { status: 'unchecked' | 'refused' | 'failed' };
 
 const structureMem = new Map<number, { at: number; read: StructureRead }>();
@@ -73,8 +73,8 @@ export async function structureInfo(id: number): Promise<StructureRead> {
   if (hit && hit.read.status !== 'failed' && Date.now() - hit.at < ttl) return hit.read;
   let read: StructureRead;
   try {
-    const { data } = await esi<{ name: string; solar_system_id: number }>(`/universe/structures/${id}/`, { auth: true });
-    read = { status: 'found', name: data.name, systemId: data.solar_system_id };
+    const { data } = await esi<{ name: string; solar_system_id: number; type_id?: number }>(`/universe/structures/${id}/`, { auth: true });
+    read = { status: 'found', name: data.name, systemId: data.solar_system_id, ...(data.type_id ? { typeId: data.type_id } : {}) };
   } catch (e) {
     read = { status: e instanceof EsiError && e.status === 403 ? 'refused' : 'failed' };
   }
