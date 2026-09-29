@@ -147,6 +147,42 @@ export function costBasis(d: Data): Record<number, number> {
 }
 
 /**
+ * What each item loose in your Jita hangar cost you, for "List your stock": an open position's average cost, else your
+ * latest buys (`heldCost`) over what you hold (hangar plus listed), Personal trades left out. Loot, never bought, isn't
+ * in it. `bought` is how many of the units held your buys cover (all of them for a position), so a mix of bought and
+ * looted units of one item can say so: it's costed at what the bought ones cost.
+ */
+export function hangarCosts(d: Data): Map<number, { cost: number; bought: number; held: number }> {
+  const out = new Map<number, { cost: number; bought: number; held: number }>();
+  const jita = d.stock?.jita ?? {};
+  const types = Object.keys(jita).map(Number).filter((t) => jita[t] > 0);
+  if (!types.length) return out;
+  const listed = new Map<number, number>();
+  for (const o of jitaOpen(d)) if (!o.isBuy) listed.set(o.typeId, (listed.get(o.typeId) ?? 0) + o.volumeRemain);
+  const pos = new Map<number, number>();
+  for (const p of d.positions) {
+    if (p.status !== 'open' || !jita[p.typeId]) continue;
+    const avg = computePosition(p, d, d.settings).avgCost;
+    if (avg != null && avg > 0) pos.set(p.typeId, avg);
+  }
+  const want = new Set(types.filter((t) => !pos.has(t)));
+  const personal = new Set(d.ignored);
+  const txs = Object.values(d.txs).filter((t) => t.isBuy && want.has(t.typeId) && !personal.has(t.id));
+  const fromListing = new Set(instantBuys(txs, Object.values(d.journal), personal).map((t) => t.id));
+  const byType = new Map<number, typeof txs>();
+  for (const t of txs) byType.set(t.typeId, [...(byType.get(t.typeId) ?? []), t]);
+  const f = rates(d.settings).f;
+  for (const t of types) {
+    const held = jita[t] + (listed.get(t) ?? 0);
+    if (pos.has(t)) { out.set(t, { cost: pos.get(t)!, bought: held, held }); continue; }
+    const buys = byType.get(t) ?? [];
+    const c = heldCost(buys, held, fromListing, f);
+    if (c != null) out.set(t, { cost: c, bought: Math.min(held, buys.reduce((n, b) => n + b.qty, 0)), held });
+  }
+  return out;
+}
+
+/**
  * Verdicts for every checked order. The queue ahead is timed against your side of the volume only:
  * a sell order is reached by buyers taking listings, a buy order by sellers dumping into bids.
  */

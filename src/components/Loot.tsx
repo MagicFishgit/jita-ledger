@@ -1,16 +1,14 @@
 import { useMemo, useState } from 'react';
 import { ClipboardCopy, ClipboardPaste, Eraser, PackageOpen, RefreshCw, Tags, Warehouse } from 'lucide-react';
 import { effectiveSkills, orderSlots, rateAt, rates } from '../lib/fees';
-import { FILL_WINDOW, recentRange } from '../lib/fills';
-import { loadFlow, watchedDays, watchedFlow } from '../lib/flowStore';
+import { loadFlow } from '../lib/flowStore';
+import { pool, readLootMarket } from '../lib/lootMarket';
 import { ago, isk, iskBig, units } from '../lib/format';
 import { useAuth, useNow } from '../lib/hooks';
 import { HELD_WHY, IN_USE_CATEGORIES, importBlock, judgeLoot, lootTotals, parseLoot, planLoot, type LootCall, type LootHeld, type LootMarket, type LootRow } from '../lib/lootList';
-import { jitaOrders, marketHistory, resolveIds } from '../lib/market';
+import { resolveIds } from '../lib/market';
 import { jitaOpen } from '../lib/orderCheck';
-import { paceDay } from '../lib/prospects';
 import { groupBuys, instantBuys, judgeTaken, snipesHeld } from '../lib/sniped';
-import { buyerShare, tradingSplit } from '../lib/split';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { typeKind } from '../lib/universe';
@@ -67,11 +65,6 @@ function lootCompare(sort: LootSort) {
   };
 }
 
-/** Runs `fn` over `xs`, `n` at a time. */
-async function pool<T>(xs: T[], n: number, fn: (x: T) => Promise<void>): Promise<void> {
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(n, xs.length) }, async () => { while (next < xs.length) await fn(xs[next++]); }));
-}
 const MARK_KEY = 'jita-ledger:loot-mark';
 
 const VERDICT: Record<LootCall['verdict'], { label: string; c: string }> = {
@@ -179,16 +172,9 @@ export function Loot() {
       let done = 0;
       await pool(list, 4, async (it) => {
           try {
-            const [book, h] = await Promise.all([jitaOrders(it.typeId), marketHistory(it.typeId).catch(() => [])]);
-            hist[it.typeId] = h;
-            const perDay = h.length ? paceDay(h) : null;
-            out[it.typeId] = {
-              // Your own orders aren't the market you'd list into.
-              others: book.orders.filter((o) => !mine.has(o.id)),
-              highs: h.length ? recentRange(h, FILL_WINDOW, Date.now(), watchedDays(it.typeId)).highs : null,
-              perDay,
-              buyers: tradingSplit({ history: h.length ? buyerShare(h.slice(-30)) : null, book: book.sold, watched: watchedFlow(it.typeId), typicalDay: perDay }).share,
-            };
+            const got = await readLootMarket(it.typeId, mine);
+            hist[it.typeId] = got.history;
+            out[it.typeId] = got.market;
           } catch { out[it.typeId] = null; }
           setBusy({ step: 'Pricing', done: ++done, total: list.length });
       });

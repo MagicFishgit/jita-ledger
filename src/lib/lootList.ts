@@ -13,7 +13,8 @@ import { listingPrice, reachedAsk } from './fills';
 import type { OrderLite } from './flow';
 import { walkBids } from './relist';
 import { competitionShare, sideVolume } from './split';
-import { tickUp } from './tick';
+import { priceUp, tickUp } from './tick';
+import { breakEvenSell } from './fees';
 
 /** One item pasted in, or read from the hangar. `typeId` is null until a name is looked up. */
 export type LootRow = { typeId: number | null; name: string; qty: number };
@@ -202,6 +203,43 @@ export function lootTotals(calls: LootCall[]): LootTotals {
   };
 }
 
+/**
+ * Stock you bought (a position's, a planner buy's, a snipe's), priced for the same Sell-window paste. The user agreed
+ * to the research's first idea: the paste that lists loot, for "stock from filled positions, planner plans and snipes".
+ * Priced as Orders prices a new listing (`listingPrice`), never under break-even: a listing price under what the stock
+ * cost after the broker fee and sales tax is flagged `under`, left unticked, and listed at break-even if ticked.
+ */
+export type StockCall = {
+  typeId: number; name: string; qty: number;
+  /** What a unit cost you, and the least listing price that gets it back after fees. */
+  cost: number; breakEven: number;
+  /** Where a listing sells now; null when nobody lists it and there's no history to say. */
+  listAt: number | null;
+  /** The price the paste uses: `listAt`, or break-even when that's under it. */
+  price: number | null;
+  /** What all of it makes over its cost at `price`, after fees, and roughly how long it takes to sell. */
+  profit: number | null;
+  days: number | null;
+  under: boolean;
+  why: string;
+};
+
+export function judgeStock(row: { typeId: number; name: string; qty: number }, m: LootMarket | null, cost: number, r: { f: number; t: number; k: number }, sharePct: number): StockCall {
+  const loot = judgeLoot(row, m, r, sharePct, 0);
+  // The broker fee is at least 100 ISK an order, which a small one's break-even has to cover too.
+  let be = breakEvenSell(cost, r, 0);
+  if (Number.isFinite(be) && r.f * be * row.qty < 100) be = (cost * row.qty + 100) / (row.qty * (1 - r.t));
+  const breakEven = priceUp(be);
+  const base = { typeId: row.typeId, name: row.name, qty: row.qty, cost, breakEven, listAt: loot.listAt, days: loot.days };
+  if (loot.listAt == null || !Number.isFinite(breakEven)) return { ...base, price: null, profit: null, under: false, why: m ? 'Nobody lists it in Jita and there’s no history to price a listing' : 'Its Jita market couldn’t be read' };
+  const under = loot.listAt < breakEven;
+  const price = under ? breakEven : loot.listAt;
+  const profit = price * row.qty * (1 - r.t) - Math.max(100, r.f * price * row.qty) - cost * row.qty;
+  return { ...base, price, profit, under, why: under
+    ? `Where it sells now, ${isk(loot.listAt)}, is under what it cost: it breaks even at ${isk(breakEven)}. Tick it to list there anyway`
+    : `Lists at ${isk(loot.listAt)}, over its break-even of ${isk(breakEven)}` };
+}
+
 /** A price as the Sell window's import takes it: no thousands separators, cents only when there are cents. */
 export function importPrice(p: number, mark: 'point' | 'comma'): string {
   const s = Number.isInteger(p) ? String(p) : p.toFixed(2);
@@ -210,5 +248,10 @@ export function importPrice(p: number, mark: 'point' | 'comma'): string {
 
 /** The clipboard block for "Import prices from clipboard": one line per listing, its name, a tab, its price. */
 export function importBlock(calls: LootCall[], mark: 'point' | 'comma'): string {
-  return calls.filter((c) => c.verdict === 'list' && c.listAt != null).map((c) => `${c.name}\t${importPrice(c.listAt!, mark)}`).join('\n');
+  return priceBlock(calls.filter((c) => c.verdict === 'list' && c.listAt != null).map((c) => ({ name: c.name, price: c.listAt! })), mark);
+}
+
+/** The same block from any names and prices. */
+export function priceBlock(rows: { name: string; price: number }[], mark: 'point' | 'comma'): string {
+  return rows.map((c) => `${c.name}\t${importPrice(c.price, mark)}`).join('\n');
 }

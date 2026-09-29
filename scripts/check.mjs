@@ -2561,7 +2561,7 @@ console.log('\n--- a sell priced under what it cost ---');
 
 console.log('\n--- listing loot through the Sell window ---');
 {
-  const { parseLoot, judgeLoot, planLoot, importBlock, importPrice, lootTotals } = await import('../src/lib/lootList.ts');
+  const { parseLoot, judgeLoot, planLoot, importBlock, importPrice, lootTotals, judgeStock, priceBlock } = await import('../src/lib/lootList.ts');
   // The user's own pastes (29 September 2026): the Sell window's export, and the hangar copied in list view. A paste
   // through chat turned the tabs into runs of spaces, so both forms are tried with each.
   const exported = '4477    Small Gremlin Compact Energy Neutralizer    1    40000.0    40000.0\n207\tMjolnir Heavy Missile\t200\t74.48\t14896.0\n25709    Upgraded \'Malkuth\' Heavy Assault Missile Launcher I    1    19120.0    19120.0';
@@ -2607,6 +2607,18 @@ console.log('\n--- listing loot through the Sell window ---');
     Math.round(tot.bids.isk) === Math.round(good.bidsNet + close.bidsNet + dump.bidsNet), tot.bids.items,
     Math.round(tot.plan.isk) === Math.round(good.listNet + close.bidsNet + dump.bidsNet), tot.plan.waiting,
   ], [true, 2, 1, true, 3, true, 0]);
+  // Stock you bought, for the same paste: priced as Orders prices a new listing, never under break-even.
+  const RK = { f: 0.0127, t: 0.03375, k: 0.0026 };
+  const mkt = { others: [L(1, false, 100, 20), L(2, true, 60, 500)], highs, perDay: 200, buyers: 0.6 };
+  const ok = judgeStock({ typeId: 1, name: 'Bought', qty: 10 }, mkt, 80, RK, 7.5);
+  eq('bought stock lists one step under the cheapest listing, over its break-even, with its profit after fees', [ok.price, ok.under, ok.breakEven, Math.round(ok.profit)],
+    [99.99, false, 93.15, Math.round(99.99 * 10 * (1 - 0.03375) - Math.max(100, 0.0127 * 99.99 * 10) - 800)]);
+  const dear = judgeStock({ typeId: 1, name: 'Dear', qty: 10 }, mkt, 97, RK, 7.5);
+  eq('  bought dearer than it sells now: flagged, and priced at break-even, never under', [dear.under, dear.listAt, dear.price, dear.why.startsWith('Where it sells now')], [true, 99.99, 110.8, true]);
+  const small = judgeStock({ typeId: 1, name: 'Small', qty: 3 }, { others: [L(1, false, 1500, 5)], highs: Array(14).fill(1600), perDay: 50, buyers: 0.5 }, 1494, RK, 7.5);
+  eq('  a small order’s break-even covers the 100 ISK minimum broker fee, so it never shows a loss', [small.breakEven, small.profit >= 0], [1581, true]);
+  eq('  nothing to price it from: no price', judgeStock({ typeId: 1, name: 'None', qty: 1 }, { others: [], highs: null, perDay: null, buyers: 0.5 }, 50, RK, 7.5).price, null);
+  eq('  the block, as the Sell window takes it', priceBlock([{ name: 'Bought', price: 99.99 }, { name: 'Dear', price: 103 }], 'comma'), 'Bought\t99,99\nDear\t103');
   // Snipes still held are left out like ships: the user's Caldari Navy Uranium Charge S came up as loot to list.
   const { snipesHeld } = await import('../src/lib/sniped.ts');
   const held2 = snipesHeld([{ typeId: 21, at: '2026-09-27T10:00:00Z', units: 100 }, { typeId: 22, at: '2026-09-20T10:00:00Z', units: 5 }, { typeId: 21, at: '2026-09-28T10:00:00Z', units: 20 }],

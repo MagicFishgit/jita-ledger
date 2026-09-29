@@ -13,6 +13,7 @@ import { readSignals, useSignals } from '../lib/watch';
 import { toast } from '../lib/toast';
 import { ItemSearch, useTypeName } from './common';
 import { nearSummary } from './NearMisses';
+import { ListStock } from './ListStock';
 import { Check, cssVars, Empty, Guide, ItemIcon, PageHead, Seg, Sparkline, Th } from './ui';
 
 const todayUTC = () => new Date().toISOString().slice(0, 10);
@@ -203,6 +204,8 @@ export function Positions() {
           </div>
         )}
       </section>
+
+      <ListStock />
 
       <Guide
         title="How to use Positions"

@@ -93,6 +93,10 @@ function YourSnipes({ now }: { now: number }) {
                 { l: 'Made so far', v: iskBigSigned(sum((x) => x.madeSoFar)), n: 'On sniped units sold, after the fees on them', c: sum((x) => x.madeSoFar) >= 0 ? 'var(--pos)' : 'var(--neg-t)' },
                 { l: 'In the end', v: iskBigSigned(sum((x) => x.inTheEnd ?? x.madeSoFar)), n: endKnown ? 'If what’s left sells where it trades now' : 'Where the price is known: some items have no history yet', c: sum((x) => x.inTheEnd ?? x.madeSoFar) >= 0 ? 'var(--pos)' : 'var(--neg-t)' },
               ]} />
+              <p className="note small" style={{ margin: 0 }}>
+                Sniped stock in your Jita hangar can be listed in one paste, never under what it cost:{' '}
+                <button type="button" className="link-btn" onClick={() => navigate('positions?list=stock')}>List your stock (Positions)</button>
+              </p>
               {worse > 0 && <p className="note small" style={{ margin: 0, color: 'var(--acc2)' }}>{units(worse)} {worse === 1 ? 'is' : 'are'} heading for less than half what {worse === 1 ? 'it' : 'they'} looked like: a price that moved, or fees on the relist.</p>}
               <div className="tbl-scroll">
                 <table className="tbl" style={{ minWidth: 980 }}>

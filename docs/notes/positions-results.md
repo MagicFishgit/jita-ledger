@@ -129,6 +129,18 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   Wallet**, as the loot guess always has: Results, the cost of stock (`heldCost`) and the snipe finder read only what you
   marked, so the row offers **Confirm**, which marks every purchase in it. On the user's ledger: 5 multibuys, two with a
   ship (the Jackdaw, and 20 purchases for 321 M on 24 September).
+- **"List your stock in one paste" lists what you bought through the Sell window** (`ListStock.tsx` on Positions,
+  `judgeStock` in lootList.ts, `hangarCosts` in orderCheck.ts, `readLootMarket`). The user agreed to the research's
+  first idea: List loot's paste for "stock from filled positions, planner plans and snipes". The hangar is unlisted
+  stock by definition (a sell order holds its own goods), and stock with a cost (an open position's average, else your
+  latest buys, `heldCost`, Personal left out) is stock you bought; loot, never bought, stays List loot's. Each item is
+  priced as Orders prices a new listing (`listingPrice`) and never under break-even: one that sells under what it
+  cost now is unticked, flagged, and priced at break-even if ticked. Break-even covers the broker fee's 100 ISK
+  minimum, or a small order read "−39.66 ISK" at it. A mix of bought and looted units says "bought 1 of 3" and is
+  costed at the bought ones'. Ships, and containers and the like in use, are left out, as on List loot. Linked from
+  the Sniper's "Your snipes" and the Capital planner (`positions?list=stock`). On the user's hangar (29 September
+  2026): 11 bought items, 3 of them ships; 4 ticked for 21.75 M over cost (the sniped Uranium Charge S +21.33 M), and
+  the Jackdaw fit's spare scripts unticked, since they now sell under what they cost.
 - **Net worth keeps one snapshot a day in this browser** (`Data.netWorth`), written by the Wallet page. ESI has no
   net-worth history, so the trend starts the first day the page is opened and says so.
 - **Goals are five kinds, each measured from something the app reads** (`lib/goals.ts`): afford N of an item

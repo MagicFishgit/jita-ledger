@@ -246,6 +246,10 @@ export function Planner() {
                 </div>
               </div>
             )}
+            <p className="note small" style={{ margin: 0 }}>
+              Once the buys fill, list what’s in your Jita hangar in one paste, never under what it cost:{' '}
+              <button type="button" className="link-btn" onClick={() => navigate('positions?list=stock')}>List your stock (Positions)</button>
+            </p>
             <p className="note small">Each market’s limit is your share of its slower side over the horizon ({d.settings.share}% of volume, scaled for how many orders you queue among), at the prices the last scan found (the banner above says how old). {patient ? 'Priced to place and leave: each order fills only on the days trading reaches it, so its pace is scaled by how often that was. That’s rough: daily figures can’t show how deep each day’s trading went. Items without the history to say where trading reaches are left out.' : 'An item flagged “Bids not reached” is priced where trading actually reaches, not at the best bid.'} Check each in the Calculator before placing anything.</p>
           </Panel>
         </>
