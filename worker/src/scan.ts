@@ -20,6 +20,7 @@ import type { BookLevel } from '../../src/lib/types';
 import { HEADERS } from './eve';
 import { eachHistory } from './hist';
 import { dayBoundary, nextScanAt } from './scanTimes';
+import { noteRate } from './rate';
 
 const THE_FORGE = 10000002;
 const JITA_44 = 60003760;
@@ -78,6 +79,7 @@ function fold(aggs: Map<number, Agg>, o: RawOrder) {
 export async function page(url: string): Promise<{ orders: RawOrder[]; pages: number; expires?: string | null }> {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, { headers: HEADERS });
+    noteRate(res.headers);
     if (res.ok) return { orders: (await res.json()) as RawOrder[], pages: Number(res.headers.get('X-Pages') ?? 1) || 1, expires: res.headers.get('Expires') };
     await res.body?.cancel();
     if (attempt >= 2) throw new Error(`ESI ${res.status} on ${url}`);

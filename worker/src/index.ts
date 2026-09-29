@@ -20,6 +20,7 @@ import { archive, noteJob, refreshOrders } from './archive';
 import { flowFor, hoursFor, pricesFor, unpack, watchMarkets } from './market';
 import { dropLogin, EveError, keepLogin, type Purpose } from './eve';
 import { BadRequest, pull, push, status, type PushBody } from './sync';
+import { rateReport } from './rate';
 
 export interface Env {
   DB: D1Database;
@@ -51,6 +52,8 @@ async function fiveMinutes(env: Env) {
     }
   }
   try { console.log('market watch', JSON.stringify(await watchMarkets(env.DB))); } catch (e) { console.error('market watch failed', e); }
+  // ESI's rate limits are counted per IP; whether the Worker's is shared with anyone else shows here (rate.ts).
+  console.log('esi rate limit', JSON.stringify(rateReport()));
   for (const id of ledgers) {
     // Each ledger's orders judged once: the track record checks "Clears in" against what happened, and the
     // alerts mail what's worth it.
@@ -176,7 +179,7 @@ export default {
     // The sniper: a minute after each of ESI's five-minute refreshes of the book, so it reads a fresh one.
     if (event.cron === SNIPER_CRON) {
       ctx.waitUntil(sniperRound(env).then(async (r) => {
-        console.log('sniper', JSON.stringify(r));
+        console.log('sniper', JSON.stringify(r), 'esi rate limit', JSON.stringify(rateReport()));
         // A read that lost too much of the book is a failure; one skipped because the book hadn't changed isn't anything.
         const skipped = (r as { skipped?: string }).skipped;
         if (skipped) { if (/pages failed/.test(skipped)) await noteJob(env.DB, 0, 'sniper', { ok: false, error: skipped }); }

@@ -2616,6 +2616,23 @@ console.log('\n--- listing loot through the Sell window ---');
   eq('  left out, and says why; in again once included', [planLoot([sniped], 5, new Set())[0].verdict, planLoot([sniped], 5, new Set())[0].why.startsWith('You sniped it'), planLoot([sniped], 5, new Set([21]))[0].verdict], ['held', true, 'list']);
 }
 
+console.log('\n--- when ESI’s copy lets go ---');
+{
+  const { cacheUntil, rateLimitOf } = await import('../src/lib/cacheHeaders.ts');
+  const H = (o) => ({ get: (k) => o[Object.keys(o).find((x) => x.toLowerCase() === k.toLowerCase())] ?? null });
+  const now = Date.parse('2026-09-29T07:47:00Z');
+  // A market book as ESI sent it on 29 September 2026: public, Expires three seconds after its Date.
+  eq('Expires as a time-to-live off ESI’s own Date, whatever our clock says', cacheUntil(H({ 'Cache-Control': 'public', Date: 'Tue, 29 Sep 2026 07:46:56 GMT', Expires: 'Tue, 29 Sep 2026 07:46:59 GMT' }), now), now + 3000);
+  // Routes CCP moves to caches cleared by events: "the Expires header is no longer meaningful".
+  eq('  a max-age wins over Expires, less any Age', cacheUntil(H({ 'Cache-Control': 'private, max-age=120', Age: '20', Expires: 'Tue, 29 Sep 2026 09:00:00 GMT', Date: 'Tue, 29 Sep 2026 07:46:56 GMT' }), now), now + 100_000);
+  eq('  no-cache, no-store or a spent max-age name no time, so the caller’s fallback applies', [
+    cacheUntil(H({ 'Cache-Control': 'no-cache', Expires: 'Tue, 29 Sep 2026 09:00:00 GMT' }), now), cacheUntil(H({ 'Cache-Control': 'private, no-store' }), now),
+    cacheUntil(H({ 'Cache-Control': 'max-age=10', Age: '30' }), now), cacheUntil(H({}), now)], [null, null, null, null]);
+  eq('  s-maxage isn’t max-age', cacheUntil(H({ 'Cache-Control': 's-maxage=60', Date: 'Tue, 29 Sep 2026 07:46:56 GMT', Expires: 'Tue, 29 Sep 2026 07:46:59 GMT' }), now), now + 3000);
+  eq('the market-order rate limit as ESI states it', rateLimitOf(H({ 'X-Ratelimit-Group': 'market-order', 'X-Ratelimit-Limit': '12000/15m', 'X-Ratelimit-Remaining': '11752' })), { group: 'market-order', remaining: 11752, limit: '12000/15m' });
+  eq('  and nothing on a route without one', rateLimitOf(H({ Expires: 'x' })), null);
+}
+
 console.log('\n--- purchases made in one go ---');
 {
   const { multibuys, fittedShips, autoTag } = await import('../src/lib/wallet.ts');

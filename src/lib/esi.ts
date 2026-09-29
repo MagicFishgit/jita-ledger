@@ -1,4 +1,5 @@
 import { ESI_BASE, ESI_COMPAT_DATE } from './config';
+import { cacheUntil } from './cacheHeaders';
 import { getAccessToken } from './auth';
 
 export class EsiError extends Error {
@@ -62,14 +63,10 @@ export async function esi<T>(path: string, opts: Opts = {}): Promise<{ data: T; 
       }
       if (res.ok) {
         const p = res.headers.get('X-Pages');
-        // Expires and Date come off the same server clock, so their difference is a true
-        // time-to-live. Comparing ESI's Expires against ours directly would be wrong by however
-        // far the browser's clock has drifted.
+        // When ESI's copy lets go: Cache-Control first, then Expires as a time-to-live off ESI's own Date, so a drifted
+        // browser clock can't move it (cacheHeaders.ts). Null when ESI names no time; callers fall back.
         const exp = Date.parse(res.headers.get('Expires') ?? '');
-        const svr = Date.parse(res.headers.get('Date') ?? '');
-        const expires = !Number.isFinite(exp) ? null
-          : Number.isFinite(svr) ? Date.now() + (exp - svr)
-          : exp;
+        const expires = cacheUntil(res.headers);
         // Some routes answer 204 with no body at all (the /ui/ ones), so don't demand JSON.
         const text = await res.text();
         // `stamp` is ESI's own Expires, on its clock: two answers with the same one are the same snapshot.

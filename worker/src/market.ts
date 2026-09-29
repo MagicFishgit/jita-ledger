@@ -9,6 +9,7 @@
  */
 import { bookFills, MAX_GAP_H, type FlowDay, type OrderLite } from '../../src/lib/flow';
 import { soldFrom, type BookSold } from '../../src/lib/split';
+import { noteRate } from './rate';
 
 const JITA_44 = 60003760;
 const THE_FORGE = 10000002;
@@ -49,6 +50,7 @@ async function readBook(typeId: number): Promise<{ orders: OrderLite[]; stamp: n
   let pages = 1, stamp = NaN;
   for (let p = 1; p <= Math.min(pages, 20); p++) {
     const res = await fetch(`${base}&page=${p}`, { headers: HEADERS });
+    noteRate(res.headers);
     if (!res.ok) { await res.body?.cancel(); return null; }
     if (p === 1) {
       pages = Number(res.headers.get('X-Pages') ?? 1) || 1;

@@ -5,6 +5,8 @@
  */
 import type { HistRow } from '../../src/lib/types';
 import { HEADERS } from './eve';
+import { cacheUntil } from '../../src/lib/cacheHeaders';
+import { noteRate } from './rate';
 
 const THE_FORGE = 10000002;
 const PLEX = 44992;
@@ -59,12 +61,13 @@ export async function eachHistory(
       const t = fetchList[next++];
       try {
         const res = await fetch(`https://esi.evetech.net/markets/${t === PLEX ? PLEX_MARKET : THE_FORGE}/history/?type_id=${t}`, { headers: HEADERS });
+        noteRate(res.headers);
         if (!res.ok) throw new Error(String(res.status));
         const rows = ((await res.json()) as HistRow[]).slice(-HIST_ROWS);
-        const exp = Date.parse(res.headers.get('Expires') ?? '');
+        const exp = cacheUntil(res.headers);
         use(t, rows);
         fetched++;
-        stmts.push(set.bind(t, Number.isFinite(exp) ? exp : now + 3600_000, JSON.stringify(rows)));
+        stmts.push(set.bind(t, exp ?? now + 3600_000, JSON.stringify(rows)));
         if (stmts.length >= 100) await flush();
       } catch {
         failed++;

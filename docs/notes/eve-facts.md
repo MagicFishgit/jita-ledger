@@ -17,6 +17,19 @@ Don't re-derive or contradict these without new evidence.
   touching orders. Automating the client is input automation: 30-day ban, then permanent. The only
   market write is `POST /ui/openwindow/marketdetails`, which opens a window and nothing more.
 - **A web page can't focus another application**, so "open in game" can't raise the client.
+- **ESI is moving routes off `Expires`** (CCP, 27 January 2026: on routes whose cache is cleared by events, "the
+  `Expires` header is no longer meaningful… use the `Cache-Control` header"). Only skills and the skill queue so far,
+  "more routes" to come; market routes still answer `cache-control: public` with Expires on the old cycle, checked 29
+  September 2026. So `cacheUntil` (`cacheHeaders.ts`) reads a max-age first, takes no-cache as "no time named" (the
+  caller's fallback: the sync's 15 minutes, the book cache's own bounds), and only then Expires − Date. Book snapshots
+  are still told apart by Expires (`stamp`), which will need ETag instead if markets move.
+  https://developers.eveonline.com/blog/smarter-caching-when-events-drive-invalidation
+- **Market order reads are rate limited per IP since 24 February 2026**: group `market-order`, 12,000 tokens per 15
+  minutes, a 2xx costing 2, a 304 1, a 4xx 5, a 5xx nothing; `X-Ratelimit-Group`, `-Limit`, `-Remaining`, `-Used` on
+  every answer. The cloud logs the lowest `Remaining` it saw each round ("esi rate limit" in `wrangler tail`), since
+  whether Cloudflare's outbound IP is shared with other ESI users is unknown. The Sniper reads ~405 pages every five
+  minutes (~2,400 tokens per 15 minutes), the watch ~150 books.
+  https://developers.eveonline.com/blog/market-orders-rate-limit-rolls-out-on-february-24-2026
 - **`publicData` grants nothing** — zero ESI endpoints require it; it isn't even an ESI scope.
 - **Order book pages are shuffled with respect to type**, so sampling N random pages is an unbiased
   sample of the market. This is what makes Prospects affordable.
