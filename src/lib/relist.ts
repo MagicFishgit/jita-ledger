@@ -497,7 +497,15 @@ export function adviseRelist(
   const reach = gone ? null
     : mine.isBuy ? (m.lows ? bidReachDays(m.lows, price) : null)
       : m.highs ? askReachDays(m.highs, price) : null;
-  const oneStep = beaten && best !== null ? (mine.isBuy ? tickUp(best) : tickDown(best)) : NaN;
+  // The front worth getting in front of: the best price that is the market, skipping a token or a fat finger priced
+  // far from where the book sits (`marketBest`), when real stock sits behind it. The user's Small Focused Afocal Laser I
+  // (29 September 2026): 16 at 21,950 told to move to 5,002, −77%, because one unit listed at 5,003 (one tick over the
+  // 5,002 bid, 20 minutes old) sat in front of 432 at 21,930. The guard against chasing a mistake weighed all 434 units
+  // ahead together, so the token passed as real supply while the move was aimed at it. When only tokens are ahead,
+  // that guard (`chasingOutlier`) still answers, as before.
+  const front = beaten && best !== null ? marketBest(rivals, mine.isBuy, m.dailyVolume && m.dailyVolume > 0 ? m.dailyVolume : null) : best;
+  const realFront = front !== null && front !== best && (mine.isBuy ? front > price : front < price) ? front : best;
+  const oneStep = beaten && realFront !== null ? (mine.isBuy ? tickUp(realFront) : tickDown(realFront)) : NaN;
   const ordinarySell = !mine.isBuy && !m.leave;
   const frontReach = ordinarySell && reach != null ? askReachDays(m.highs!, Number.isFinite(oneStep) ? oneStep : price) : reach;
   const sellReachAt = !mine.isBuy && m.highs ? reachedAsk(m.highs) : null;

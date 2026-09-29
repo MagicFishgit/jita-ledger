@@ -128,6 +128,14 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   units of genuinely cheap supply as a "mistake"; quantity is what separates a fat finger from a
   cheap seller. This needs only the live book, so it is the one guard that still works for an item
   with no trading history — which is exactly when the other two cannot fire.
+- **A move aims at the real front, not a token in front of it** (`realFront` in `adviseRelist`, from `marketBest`). The
+  guard against chasing a mistake weighed every unit ahead together, so a token passed as real supply whenever real
+  stock sat behind it, and the move was aimed at the token. The user's Small Focused Afocal Laser I (29 September 2026):
+  16 at 21,950 told to "Move it" to 5,002 (−77%) because one unit had been listed 20 minutes earlier at 5,003, a tick
+  over the 5,002 bid, in front of 432 at 21,930; the bulk of trading had got up to ~21,950 on 6 of the 14 days. Now the
+  move is to one step under the real front (21,920), and with only tokens ahead the old guard answers ("someone's
+  mistake or a token dump"). The token's units still count as ahead in "Clears in". On the user's 86 open Jita orders
+  12 changed target, all towards the real front: an 11.39 M sell had been told to go to 8.6 M, one at 3,787 to 221.
 - **"Is that cheap listing a token?" also asks how much the item trades in a day.** Share of the book
   alone was fooled on PL-0: one 9,909-unit order at 45,000 made 161 real units at 30,040 look like 1% of
   the side, so the app suggested 34,770. Stock worth at least a quarter of a typical day's trading is real

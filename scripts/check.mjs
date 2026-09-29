@@ -427,6 +427,23 @@ const r2 = adviseRelist({ orderId: 4, typeId: 1, isBuy: false, price: 7160, volu
   { book: moved, dailyVolume: 800 }, R);
 if (/mistake or a token dump/.test(r2.why)) { failed++; console.log(`  FAIL real move called an outlier: ${r2.why}`); }
 eq('a repriced market is chased, not ignored', r2.verdict, 'move');
+// A token in front of real stock: the move is to the real front, not the token. The user's Small Focused Afocal Laser I
+// (29 September 2026): 16 at 21,950, one unit listed at 5,003 (a tick over the 5,002 bid) ahead of 432 at 21,930.
+{
+  const afocal = [
+    o(10, false, 5003, 1), o(11, false, 21930, 432), o(12, false, 21940, 1), o(13, false, 21950, 16), o(14, false, 21960, 211),
+    o(15, false, 21970, 146), o(16, false, 21990, 5), o(17, false, 22000, 136), o(18, false, 24380, 501),
+    o(20, true, 5002, 428), o(21, true, 5001, 298), o(22, true, 5000, 8288),
+  ];
+  // Its highs, 14 September to 27 September: the bulk of trading got up to ~21,950 on 6 of them.
+  const highs = [21970, 2092, 12100, 21970, 21970, 5001, 21960, 21960, 20990, 20980, 20000, 20000, 5000, 21950];
+  const a = adviseRelist({ orderId: 13, typeId: 6717, isBuy: false, price: 21950, volumeRemain: 16 }, { book: afocal, dailyVolume: 7.2, highs }, R);
+  eq('a token in front of real stock: move to one step under the real front, not the token', [a.newPrice, a.verdict], [21920, 'move']);
+  if (/5,00\d/.test(a.why)) { failed++; console.log(`  FAIL the token is still the target: ${a.why}`); }
+  // Only the token ahead: the guard against chasing a mistake answers, as before.
+  const alone = adviseRelist({ orderId: 11, typeId: 6717, isBuy: false, price: 21930, volumeRemain: 432 }, { book: afocal, dailyVolume: 7.2, highs }, R);
+  eq('  only the token ahead: wait, it’s someone’s mistake or a token', [alone.verdict, /mistake or a token dump/.test(alone.why)], ['wait', true]);
+}
 eq('  and it is a small cut', Math.round(r2.cutPct * 1000) / 10, 2.2);
 eq('  to save days, not minutes', Math.round(r2.hoursToFront), 72);
 
