@@ -84,3 +84,16 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
   12 hours old, valued at what the spend plan would make and only for as many points as the markets take.
   Waiting for someone to open the Loyalty page left points at "0.00 ISK" in net worth; an unpriced balance
   now says "Pricing…" or "Not priced yet", never a zero.
+- **Reprocessing is a page of its own** (`lib/reprocess.ts` pure, `Reprocess.tsx`, `src/data/typeMaterials.json`). The
+  user asked for it after the Experimental ZW-4100 Torpedo Launcher turned out to trade at its minerals' value. ESI has
+  no type materials, so they're bundled from CCP's SDE (build 3552227, 28 September 2026; `scripts/type-materials.mjs`
+  rebuilds them): 7,760 market types, 470 KB, a chunk of its own that only the page loads. Yields follow EVE
+  University: modules, charges and ships only ever get Scrapmetal Processing (55% at V, anywhere, so a structure only
+  wins on tax); ore gets Reprocessing, Reprocessing Efficiency, its own processing skill (the ore names it, dogma 790)
+  and an implant, on a base of the NPC station's own (0.5 at Jita 4-4, from ESI) or a structure's rig, security and
+  Athanor/Tatara bonus. Output is whole batches, each material rounded down per batch (the careful reading; not
+  confirmed which way the game rounds). Tax: 5% at 0 standing with an NPC station's owner, none from 6.67 (the user's
+  7.04 with Caldari Navy: 0% at Jita 4-4), a structure's typed in; on CCP's adjusted prices. The item check buys from
+  the cheapest Jita listings, sells the output into Jita's bids after sales tax, and tabulates profit by level of the
+  skill that moves it. On 29 September 2026, 100 ZW-4100s at the user's untrained 50%: −108 k; +92 k at Scrapmetal V.
+  The implant is chosen by hand: reading it needs a scope the app doesn't ask for (esi-clones.read_implants.v1).

@@ -20,7 +20,7 @@ const OWNER_AUTH = { accessToken: 'test', refreshToken: 'test', expiresAt: Date.
 const STRANGER_AUTH = { ...OWNER_AUTH, characterId: 12345, characterName: 'Stranger' };
 
 const PAGES = [
-  'wallet', 'todo', 'calculator', 'calculator?type=34', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper',
+  'wallet', 'todo', 'calculator', 'calculator?type=34', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'reprocess',
   'positions', 'positions/{first}', 'orders', 'loot', 'results', 'loyalty',
   'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/injectors', 'combat', 'omega',
   'settings/account', 'settings/skills', 'settings/rates', 'settings/alerts', 'settings/appearance', 'settings/data', 'settings/scan',

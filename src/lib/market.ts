@@ -280,6 +280,24 @@ export function roughPricesShared(): Promise<Record<number, number>> {
   return rough.p;
 }
 
+let adjusted: { at: number; p: Promise<Record<number, number>> } | null = null;
+/**
+ * CCP's adjusted price for every type (/markets/prices/, no login), which the reprocessing tax is charged on. Fetched
+ * at most once an hour.
+ */
+export function adjustedPricesShared(): Promise<Record<number, number>> {
+  if (!adjusted || Date.now() - adjusted.at > 3600_000) {
+    const p = esi<{ type_id: number; adjusted_price?: number }[]>('/markets/prices/').then(({ data }) => {
+      const out: Record<number, number> = {};
+      for (const x of data) if (x.adjusted_price) out[x.type_id] = x.adjusted_price;
+      return out;
+    });
+    adjusted = { at: Date.now(), p };
+    p.catch(() => { adjusted = null; });
+  }
+  return adjusted.p;
+}
+
 /** Loyalty points held with each corporation. */
 export async function loyaltyPoints(characterId: number): Promise<{ corporationId: number; points: number }[]> {
   const { data } = await esi<{ corporation_id: number; loyalty_points: number }[]>(
