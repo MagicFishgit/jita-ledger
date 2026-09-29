@@ -103,6 +103,12 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   (the synced `notSnipes` doc of trade IDs, `instantBuys`' fourth argument): a purchase bought cheap but not as a snipe
   (to use, or for a job) leaves Your snipes and List loot's snipes kind, beside its name, with "It was a snipe" under
   Not snipes to put it back. Cost-of-stock still reads it as bought from a listing (orderCheck passes no list).
+  **Bought in one go with other items is never a snipe** (`notSnipeIds`, the Wallet's `multibuys` rule: 3+ purchases of
+  2+ items, each within 2 s of the last). The user marked five not snipes and asked whether they were fitting buys: two
+  were (a 1MN Y-S8 Compact Afterburner and a Salvager I, bought with 8 other items across 23:08:04–05 on 28 September and
+  now inside a ship); the others were a SKIN (activated, so never held), a guidance disruptor and some Scorch L, each
+  bought alone, which no rule can tell from a snipe. On their ledger the rule also took out a Warp Core Stabilizer II
+  bought with five other items (8.67 M), and nothing else: none of the 15 real snipes had another item within minutes.
 - **"Place and leave" prices a plan behind the front on purpose** (`ProspectFilters.patient`, the planner's Pricing
   choice). The user's longer-term strategy is large orders in many items that fill over weeks, without the 0.01 war.
   Both sides are priced where the bulk of trading reached on half the last 14 days (`reachedBid` / `reachedAsk`, the

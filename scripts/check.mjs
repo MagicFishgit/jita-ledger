@@ -3323,6 +3323,13 @@ console.log('\n--- snipes you have taken ---');
   eq('  one you said wasn’t a snipe goes no further', Sd.instantBuys(txs, journal, new Set(['f']), new Set(['b'])).map((t) => t.id).sort(), ['a', 'c']);
   const { sanitizeNotSnipes } = await import('../src/lib/prefs.ts');
   eq('  the list keeps trade IDs only, once each', sanitizeNotSnipes(['a', 'a', 3, '', null, 'b']), ['a', 'b']);
+  // A fitting's Buy All: 10 items across 23:08:04-05 (the user's, 28 September 2026). None of it is a snipe; two cheap
+  // listings of one item a second apart still are.
+  const fit = [0, 300, 600, 900, 1200].map((ms, i) => T('fit' + i, new Date(Date.parse('2026-09-28T23:08:04Z') + ms).toISOString(), 1, 25_760, { typeId: 6001 + i }));
+  const same = [T('s1', '2026-09-28T02:00:00Z', 5, 1000), T('s2', '2026-09-28T02:00:01Z', 5, 1001), T('s3', '2026-09-28T02:00:02Z', 5, 1002)];
+  const skip = Sd.notSnipeIds([...fit, ...same, txs[0]], ['c']);
+  eq('  bought in one go with other items: not a snipe', fit.every((t) => skip.has(t.id)), true);
+  eq('  but several listings of one item in a row still can be, and a lone buy is judged as ever', [same.some((t) => skip.has(t.id)), skip.has('a'), skip.has('c')], [false, false, true]);
   const groups = Sd.groupBuys(bought);
   eq('  buys a minute apart are one snipe', groups.map((g) => [g.txIds, g.units, Math.round(g.avg)]), [[['c'], 5, 19_000_000], [['a', 'b'], 24, 15_016_667]]);
   // Trading got up to about 20.4 M on half of the 14 days before.

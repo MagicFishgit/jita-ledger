@@ -7,7 +7,7 @@ import { reachedAsk, recentRange } from '../lib/fills';
 import { ago, fmtDateTime, isk, iskBig, iskBigSigned, pct, units, until } from '../lib/format';
 import { marketHistory } from '../lib/market';
 import { feeMatchesFor } from '../lib/positions';
-import { followSnipe, groupBuys, instantBuys, judgeTaken, type Sighting } from '../lib/sniped';
+import { followSnipe, groupBuys, instantBuys, judgeTaken, notSnipeIds, type Sighting } from '../lib/sniped';
 import { JITA_44 } from '../lib/constants';
 import type { HistRow } from '../lib/types';
 import { navigate, useNow } from '../lib/hooks';
@@ -30,7 +30,7 @@ function YourSnipes({ now }: { now: number }) {
   const name = useTypeName();
   const cloud = useCloud();
   const r = rates(d.settings);
-  const groups = useMemo(() => groupBuys(instantBuys(Object.values(d.txs), Object.values(d.journal), new Set(d.ignored), new Set(d.notSnipes))), [d.txs, d.journal, d.ignored, d.notSnipes]);
+  const groups = useMemo(() => groupBuys(instantBuys(Object.values(d.txs), Object.values(d.journal), new Set(d.ignored), notSnipeIds(Object.values(d.txs), d.notSnipes))), [d.txs, d.journal, d.ignored, d.notSnipes]);
   const types = useMemo(() => [...new Set(groups.map((g) => g.typeId))], [groups]);
   const key = types.join(',');
   const [hist, setHist] = useState<Record<number, HistRow[]> | null>(null);
@@ -136,7 +136,7 @@ function YourSnipes({ now }: { now: number }) {
                   </tbody>
                 </table>
               </div>
-              <p className="note small" style={{ margin: 0 }}>Only the units you sniped are followed: the first sold after a snipe count as its own, and listing fees are shared by units between them and anything of your own listed alongside. Buys tagged Personal, and ones you said weren’t snipes, are left out.</p>
+              <p className="note small" style={{ margin: 0 }}>Only the units you sniped are followed: the first sold after a snipe count as its own, and listing fees are shared by units between them and anything of your own listed alongside. Left out: buys tagged Personal, ones you said weren’t snipes, and anything bought in one go with other items (a fitting’s Buy All, the Multibuy window).</p>
             </>
           )}
       <NotSnipes />

@@ -9,6 +9,7 @@ import { JITA_44 } from './constants';
 import { reachedAsk, recentRange } from './fills';
 import { SNIPE_FLOOR } from './snipe';
 import type { HistRow, JournalEntry, Tx } from './types';
+import { multibuys } from './wallet';
 
 /** Buys of one item within this many minutes of each other are one snipe: several cheap orders bought out. */
 export const GROUP_MIN = 30;
@@ -39,6 +40,18 @@ export function instantBuys(txs: Tx[], journal: JournalEntry[], personal: Set<st
   const near = (a: number, b: number) => Math.abs(a - b) <= Math.max(1, b * 1e-6);
   // Ones you said weren't snipes are still bought from a listing, but go no further (the Sniper's "Not a snipe").
   return buys.filter((t) => !notSnipes.has(t.id) && (escrow.get(second(t.date)) ?? []).some((a) => near(a, t.qty * t.unitPrice) || near(a, bySecond.get(second(t.date))!)));
+}
+
+/**
+ * The purchases the snipe finder leaves out: those you said weren't snipes, and anything bought in one go with other
+ * items (the Wallet's multibuy rule: 3+ purchases of 2+ items, each within 2 s of the last). The fitting window's Buy
+ * All and the Multibuy window buy a shopping list, cheap or not. The user marked five "Not a snipe" on 29 September
+ * 2026 and asked whether they were fitting buys: two were (a 1MN Y-S8 Compact Afterburner and a Salvager I, bought with
+ * 8 other items across 23:08:04–05 and now inside a ship), and none of their 18 real snipes had another item within
+ * minutes of it.
+ */
+export function notSnipeIds(txs: Tx[], notSnipes: Iterable<string>): Set<string> {
+  return new Set([...notSnipes, ...multibuys(txs).flatMap((g) => g.txIds)]);
 }
 
 export type BuyGroup = { id: string; typeId: number; at: string; txIds: string[]; units: number; cost: number; avg: number; prices: number[] };
