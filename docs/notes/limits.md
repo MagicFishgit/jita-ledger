@@ -60,5 +60,9 @@ State these rather than letting them be discovered:
   It prices about 40 candidates (the busiest from the last scan, plus positions and watchlist) — not the market.
 - **Combat's "Does PvP pay?" is a ceiling**: everything that dropped from your kills, whether or not you looted
   it, against what PvP cost you.
+- **A mining fit's yield "at your skills" on a hull you can't fly yet** counts your yield skills and none of the hull's
+  own (a Hulk at Mining I reads 1,185 m³ a minute, 3,177 at all V). It's what the fit would do the day you could undock
+  in it with nothing else trained, and payback over what you mine now is measured against that. Boosts, drones and heat
+  are in no yield figure; the Porpoise, Orca and Rorqual mine only with drones and say so.
 - **The Wallet's unusual-activity check is a prompt, not a detector**: new donors, large donations out, and big
   contracts at hours with under 2% of your journal activity.

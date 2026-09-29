@@ -193,15 +193,20 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
   **The fits** came from a research pass on 29 September 2026: EVE Workbench's API (top 15 by votes and the 10 newest per
   hull, with votes and dates) against what zKillboard's last 400 losses of each hull carried, EVE University and forum
   yield threads as a cross-check. Each tier names its source. All 185 names (items, charges, crystals of every family,
-  skills) resolved in ESI before shipping, and a check keeps every fit within its hull's slots. Mostly pre-Catalyst
-  fits were used only where nothing newer existed, and say so. No tiers for the Rorqual (no fit published since Catalyst;
+  skills) resolved in ESI before shipping, and a check keeps every fit within its hull's slots. A fit from before Catalyst
+  was used only where nothing newer existed, and its source says so. No tiers for the Rorqual (no fit published since Catalyst;
   its losses' commonest modules are in its note) or the Perseverance (none popular). What the research found worth
   knowing: the Pioneer mines about a third more than a Venture for ~3 M; the Outrider is a booster and escape hull, not a
   yield step; ORE Strip Miners (~189 M each) mine less than Modulated Strip Miner II with Type A II but leave no residue
   and burn no crystals, which is why the Mackinaw's Max uses them; there is no ore-yield rig; Covetor and Hulk want a
   booster or hauler, the Skiff and Mackinaw are the solo high-sec exhumers. The research's first two requests sent a
-  User-Agent naming the project and the user's email to ESI and zKillboard; later ones didn't, and a research prompt must
-  say which User-Agent to send.
+  User-Agent naming the project and the user's contact details to ESI and zKillboard; later ones didn't, and a research
+  prompt must say which User-Agent to send.
+  **Bonuses count only through their effect, for fitted items as for hulls.** A Drone Mining Augmentor carries the same
+  434 (+10%) as a Mining Laser Upgrade, through a drone-only effect (623); counted by attribute it put the Retriever's
+  Just in tier 10% high. Caught in review before shipping. Also found by looking: locked nodes were see-through (a lit
+  path struck through "Outrider"), the chart's nodes overlapped under ~950 px (it now scrolls sideways under 1,180), and
+  "gold" in the copy, since the accents change with the theme (the copy names the marks instead).
 - **Reprocessing is a page of its own** (`lib/reprocess.ts` pure, `Reprocess.tsx`, `src/data/typeMaterials.json`). The
   user asked for it after the Experimental ZW-4100 Torpedo Launcher turned out to trade at its minerals' value. ESI has
   no type materials, so they're bundled from CCP's SDE (build 3552227, 28 September 2026; `scripts/type-materials.mjs`

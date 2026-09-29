@@ -310,7 +310,7 @@ function ScalingUp({ here, paceOf, family, iskPerM3, perM3From, measured }: {
     <Panel title="Scaling up" sub="Every mining ship and the paths between them: click one to see what it takes, costs and mines">
       <p className="note small" style={{ margin: 0 }}>
         {here != null ? 'The ship you’re in glows; the paths out of it are your next steps. ' : 'Once you mine, the ship you’re in glows and the paths out of it light up. '}
-        Green can be flown now, gold is coming in your skill queue. Yields are worked out from ESI’s own figures for each hull, laser, crystal and upgrade, at your skills.
+        Lit ships you can fly now, a spark marks one your skill queue brings, a lock one that’s further off. Yields are worked out from ESI’s own figures for each hull, laser, crystal and upgrade, at your skills.
         {iskPerM3 != null ? ` ISK an hour and payback are at ${isk(iskPerM3)} a m³, ${perM3From}.` : ''}
       </p>
       <MiningTree here={here} paceOf={paceOf}>

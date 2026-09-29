@@ -2,7 +2,7 @@
  * What a mining fit pulls a minute, worked out from ESI's own dogma rather than copied from a guide: the laser's amount
  * and cycle (77, 73), the hull's bonuses and the skill each scales with, the crystal (yield ×782, cycle ×3161, residue
  * +3160 / +3159 by its effect's own operators, checked 29 September 2026), each Mining Laser Upgrade and implant (+434%,
- * not stacking-penalised: ESI marks 434 stackable), and your Mining and Astrogeology (+5% a level each, 434 on the
+ * not stacking-penalised: ESI marks 434 stackable; only through the effects that reach lasers), and your Mining and Astrogeology (+5% a level each, 434 on the
  * skills). Critical hits add their expected share (chance 5967 × bonus 5969: 1% × 200% is +2%; the Consortium Issues
  * raise the chance half again). Residue is ore the rock loses, not ore you lose: shown beside the yield, never taken off
  * it. Crits and residue moved in the Catalyst expansion (18 November 2025): Mining Precision +10% crit chance a level,
@@ -60,6 +60,17 @@ const A = {
   critChanceBonus: 6049, critSizeBonus: 6050, wasteChanceBonus: 6053,
 } as const;
 
+/**
+ * The effects through which a fitted item's bonus reaches a mining laser. An item's attribute counts only with one of
+ * them, as a hull's does: a Drone Mining Augmentor carries the same 434 (+10%) as a Mining Laser Upgrade but applies it to
+ * drones (effect 623), and a Deep Core Mining Optimization rig to Mercoxit alone (5069). ESI, 29 September 2026.
+ */
+const ITEM_EFFECTS: Record<number, number[]> = {
+  [A.yieldBonus]: [1882, 391], // Mining Laser Upgrades; the Michi and Highwall implants
+  [A.iceCycle]: [1190, 2479], // the ice rig and Yeti implant; Ice Harvester Upgrades
+  [A.critChanceBonus]: [12759], [A.critSizeBonus]: [12760], [A.wasteChanceBonus]: [12761], // survey chipsets
+};
+
 /** Modulated lasers take crystals (they name a charge group); others ignore one. */
 export const takesCrystal = (laser: TypeDogma) => laser.attrs[604] != null;
 export const isIceLaser = (laser: TypeDogma) => laser.attrs[A.reqSkill] === SKILL.iceHarvesting;
@@ -91,7 +102,9 @@ export function fitYield(
   const lvl = (s: number) => Math.max(0, Math.min(5, skills[s] ?? 0));
   const factor = (on: Target) => HULL_RULES.filter((r) => r.on === on && hull.effects.includes(r.effect) && hull.attrs[r.attr] != null)
     .reduce((m, r) => m * (r.per === 'times' ? hull.attrs[r.attr] : 1 + (hull.attrs[r.attr] * (r.per === 'role' ? 1 : lvl(r.per))) / 100), 1);
-  const percent = (items: TypeDogma[], attr: number) => items.reduce((m, x) => m * (1 + (x.attrs[attr] ?? 0) / 100), 1);
+  const percent = (items: TypeDogma[], attr: number) => items
+    .filter((x) => x.effects.some((e) => ITEM_EFFECTS[attr]?.includes(e)))
+    .reduce((m, x) => m * (1 + (x.attrs[attr] ?? 0) / 100), 1);
   const skillPct = (s: number, attr: number) => 1 + ((skillDogma[s]?.attrs[attr] ?? 0) * lvl(s)) / 100;
   const cr = crystal && takesCrystal(laser) && !ice ? crystal : null;
 

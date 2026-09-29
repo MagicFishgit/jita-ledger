@@ -1130,22 +1130,23 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 /* The mining tree (hustles/MiningTree.tsx): hulls as nodes over curved paths; the paths out of your ship flow, your
    node glows, and a clicked node opens underneath. Off motion and reduced motion still it all. */
 .mtree-wrap { display: flex; flex-direction: column; gap: 14px; }
-.mtree { position: relative; width: 100%; aspect-ratio: 7 / 3.4; min-height: 380px; }
+.mtree-scroll { overflow-x: auto; }
+.mtree { position: relative; width: 100%; min-width: 1180px; aspect-ratio: 7 / 3.4; min-height: 380px; }
 .mtree-edges { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .mtree-edge { fill: none; stroke: var(--line-3); stroke-width: 1.5; }
 .mtree-edge.open { stroke: color-mix(in oklab, var(--acc) 45%, transparent); }
 .mtree-edge.lit { stroke: var(--acc); stroke-width: 2; stroke-dasharray: 6 6; animation: mtreeflow 1.6s linear infinite; }
 @keyframes mtreeflow { to { stroke-dashoffset: -12; } }
-.mtree-node { position: absolute; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 8px; width: 13%; min-width: 118px; padding: 6px 10px 6px 6px;
-  background: var(--panel); border: 1px solid var(--line-2); color: var(--sec); text-align: left; transition: border-color .2s, box-shadow .2s, transform .2s; }
+.mtree-node { position: absolute; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 8px; width: 13%; min-width: 118px; padding: 6px 16px 6px 6px;
+  background: var(--panel), #08111b; border: 1px solid var(--line-2); color: var(--sec); text-align: left; transition: border-color .2s, box-shadow .2s, transform .2s; }
 .mtree-node:hover { transform: translate(-50%, -50%) scale(1.04); border-color: var(--acc); }
 .mtree-node img { flex: none; background: #0b1622; }
-.mtree-name { font-family: var(--f-head); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; line-height: 1.2; min-width: 0; }
-.mtree-mark { width: 13px; height: 13px; margin-left: auto; flex: none; color: var(--acc); }
+.mtree-name { font-family: var(--f-head); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; line-height: 1.2; min-width: 0; }
+.mtree-node .mtree-mark { position: absolute; top: 4px; right: 4px; width: 11px; height: 11px; color: var(--acc); }
 .mtree-node.flyable { border-color: color-mix(in oklab, var(--pos) 60%, transparent); color: var(--ink); }
 .mtree-node.close { border-color: var(--acc2); color: var(--ink); }
 .mtree-node.close .mtree-mark { color: var(--acc2); }
-.mtree-node.locked { opacity: .6; }
+.mtree-node.locked > * { opacity: .55; }
 .mtree-node.locked .mtree-mark { color: var(--faint); }
 .mtree-node.here { border-color: var(--acc); color: var(--ink); box-shadow: 0 0 0 1px var(--acc), 0 0 16px color-mix(in oklab, var(--acc) 45%, transparent); animation: mtreeglow 2.8s ease-in-out infinite; }
 @keyframes mtreeglow { 50% { box-shadow: 0 0 0 1px var(--acc), 0 0 26px color-mix(in oklab, var(--acc) 65%, transparent); } }
@@ -1173,7 +1174,7 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
      switch groups and labels wrap; fixed-width boxes give way; wide tables scroll inside their own box. */
   .head-actions, .row, .seg-label { min-width: 0; max-width: 100%; }
   .skill-row .sk-q { grid-column: 1 / -1; text-align: left; white-space: normal; }
-  .mtree { display: none; }
+  .mtree-scroll { display: none; }
   .mtree-list { display: flex; }
   .seg-label { flex-wrap: wrap; }
   .btn { white-space: normal; height: auto; min-height: 36px; padding-top: 6px; padding-bottom: 6px; line-height: 1.25; text-align: center; max-width: 100%; }

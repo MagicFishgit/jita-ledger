@@ -100,33 +100,35 @@ export function MiningTree({ here, paceOf, children }: {
   );
   return (
     <div className="mtree-wrap">
-      <div className="mtree" role="group" aria-label="Mining ships">
-        <svg className="mtree-edges" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-          {EDGES.map(([a, b]) => {
-            const A = byId.get(a)!, B = byId.get(b)!;
-            const x1 = x(A), y1 = y(A), x2 = x(B), y2 = y(B), mid = (x1 + x2) / 2;
-            const lit = a === from && states[b] !== 'here';
-            return <path key={`${a}-${b}`} className={'mtree-edge' + (lit ? ' lit' : '') + (states[a] !== 'locked' && states[b] !== 'locked' ? ' open' : '')}
-              d={`M${x1} ${y1} C${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`} vectorEffect="non-scaling-stroke" />;
+      <div className="mtree-scroll">
+        <div className="mtree" role="group" aria-label="Mining ships">
+          <svg className="mtree-edges" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            {EDGES.map(([a, b]) => {
+              const A = byId.get(a)!, B = byId.get(b)!;
+              const x1 = x(A), y1 = y(A), x2 = x(B), y2 = y(B), mid = (x1 + x2) / 2;
+              const lit = a === from && states[b] !== 'here';
+              return <path key={`${a}-${b}`} className={'mtree-edge' + (lit ? ' lit' : '') + (states[a] !== 'locked' && states[b] !== 'locked' ? ' open' : '')}
+                d={`M${x1} ${y1} C${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`} vectorEffect="non-scaling-stroke" />;
+            })}
+          </svg>
+          {[...new Set(HULLS.map((h) => h.lane))].map((lane) => {
+            const first = HULLS.filter((h) => h.lane === lane).sort((a, b) => a.col - b.col)[0];
+            return <span key={lane} className="mtree-lane" style={{ left: `${(first.col / COLS) * 100}%`, top: `${(first.row / ROWS) * 100}%` }}>{LANE_SAID[lane]}</span>;
           })}
-        </svg>
-        {[...new Set(HULLS.map((h) => h.lane))].map((lane) => {
-          const first = HULLS.filter((h) => h.lane === lane).sort((a, b) => a.col - b.col)[0];
-          return <span key={lane} className="mtree-lane" style={{ left: `${(first.col / COLS) * 100}%`, top: `${(first.row / ROWS) * 100}%` }}>{LANE_SAID[lane]}</span>;
-        })}
-        {HULLS.map((h) => {
-          const st = states[h.id];
-          const pace = paceOf(h.id);
-          return (
-            <button key={h.id} type="button" className={`mtree-node ${st}${open === h.id ? ' sel' : ''}`} style={{ left: `${x(h)}%`, top: `${y(h)}%` }}
-              aria-expanded={open === h.id} onClick={() => setOpen(open === h.id ? null : h.id)}
-              data-tip-title={name(h.id)} data-tip={`${h.role}\n\n${STATE_SAID[st]}${st === 'locked' && info[h.id] ? `: ${missing(h)} skill${missing(h) === 1 ? '' : 's'} to train` : ''}.${pace ? ` Your pace in it: ${units(Math.round(pace.m3PerMin))} m³ a minute.` : ''}`}>
-              <img src={`https://images.evetech.net/types/${h.id}/render?size=64`} alt="" width={32} height={32} onError={(e) => (e.currentTarget.style.visibility = 'hidden')} />
-              <span className="mtree-name">{name(h.id)}</span>
-              {st === 'here' ? <MapPin className="mtree-mark" aria-label="You’re in it" /> : st === 'locked' ? <Lock className="mtree-mark" aria-label="Not yet" /> : st === 'close' ? <Sparkles className="mtree-mark" aria-label="Coming in your queue" /> : null}
-            </button>
-          );
-        })}
+          {HULLS.map((h) => {
+            const st = states[h.id];
+            const pace = paceOf(h.id);
+            return (
+              <button key={h.id} type="button" className={`mtree-node ${st}${open === h.id ? ' sel' : ''}`} style={{ left: `${x(h)}%`, top: `${y(h)}%` }}
+                aria-expanded={open === h.id} onClick={() => setOpen(open === h.id ? null : h.id)}
+                data-tip-title={name(h.id)} data-tip={`${h.role}\n\n${STATE_SAID[st]}${st === 'locked' && info[h.id] ? `: ${missing(h)} skill${missing(h) === 1 ? '' : 's'} to train` : ''}.${pace ? ` Your pace in it: ${units(Math.round(pace.m3PerMin))} m³ a minute.` : ''}`}>
+                <img src={`https://images.evetech.net/types/${h.id}/render?size=64`} alt="" width={32} height={32} onError={(e) => (e.currentTarget.style.visibility = 'hidden')} />
+                <span className="mtree-name">{name(h.id)}</span>
+                {st === 'here' ? <MapPin className="mtree-mark" aria-label="You’re in it" /> : st === 'locked' ? <Lock className="mtree-mark" aria-label="Not yet" /> : st === 'close' ? <Sparkles className="mtree-mark" aria-label="Coming in your queue" /> : null}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* On a phone the chart is a list: the same hulls, lane by lane. */}
