@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, Check, CheckCheck, CircleDollarSign, CircleX, Factory, Truck, GitPullRequestArrow, HardDriveDownload, Keyboard, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
-import { getAuth } from '../lib/auth';
+import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, Check, CheckCheck, CircleDollarSign, CircleX, CloudAlert, Factory, Truck, GitPullRequestArrow, HardDriveDownload, Keyboard, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
+import { getAuth, loginForCloud, loginMailerForCloud } from '../lib/auth';
 import { breakEvenSpread, rates } from '../lib/fees';
 import { ago, fmtDateTime, isk, iskBig, units } from '../lib/format';
 import { navigate, useAuth, useNow } from '../lib/hooks';
@@ -11,7 +11,7 @@ import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  judgeCourierJob, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, KIND_LABEL, MINUTES, remember, SESSION_MS, split, summarise, WARNINGS,
+  judgeCloudLogin, judgeCourierJob, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, KIND_LABEL, MINUTES, remember, SESSION_MS, split, summarise, WARNINGS,
   type Entry, type Memory, type TodoItem, type TodoKind,
 } from '../lib/todo';
 import type { IndustryJob } from '../lib/types';
@@ -19,6 +19,7 @@ import { couriersDue } from '../lib/contracts';
 import { PLANETS_SCOPE, readColonies, useColonies } from '../lib/colonyStore';
 import { readSignals, trackedTypes, useSignals } from '../lib/watch';
 import { BACKUP_DAYS } from '../lib/alertsRunner';
+import { LOGIN_STOPS } from '../lib/watchdog';
 import { cloudCovers, useCloud } from '../lib/cloud';
 import { JITA_44 } from '../lib/config';
 import { toast } from '../lib/toast';
@@ -50,6 +51,7 @@ const LOOK: Record<TodoKind, { Icon: typeof Check; c: string }> = {
   nearMiss: { Icon: GitPullRequestArrow, c: 'var(--acc)' },
   scam: { Icon: ShieldAlert, c: 'var(--neg-l)' },
   backup: { Icon: HardDriveDownload, c: 'var(--acc2)' },
+  cloudLogin: { Icon: CloudAlert, c: 'var(--neg)' },
   industry: { Icon: Factory, c: 'var(--acc)' },
   courier: { Icon: Truck, c: 'var(--acc2)' },
 };
@@ -80,7 +82,8 @@ export function Todo() {
   const check = useOrderCheck();
   const sig = useSignals();
   const col = useColonies();
-  const inCloud = cloudCovers(useCloud());
+  const cloud = useCloud();
+  const inCloud = cloudCovers(cloud);
   const [mem, setMem] = useState<Memory>(readMem);
   // Another tab on this page saves its own view of the session: take it, so the two don't overwrite each other.
   useEffect(() => {
@@ -273,6 +276,17 @@ export function Todo() {
         action: { label: 'Blueprints', route: 'blueprints' },
       });
     }
+    // A cloud login EVE refused stops everything the cloud does with it, with nobody looking at Settings.
+    for (const k of cloud.background?.keys ?? []) {
+      if (!k.refusedAt) continue;
+      const main = k.purpose === 'main';
+      out.push({
+        key: `cloudLogin:${k.purpose}`, ver: String(k.refusedAt), kind: 'cloudLogin', source: 'cloud', stake: 0,
+        title: main ? 'Hand the cloud your login again' : `Hand the cloud ${k.name}’s login again`,
+        detail: `EVE has refused the cloud’s login for ${k.name} since ${fmtDateTime(k.refusedAt)}${k.refused ? ` (${k.refused})` : ''}. Until you do, ${LOGIN_STOPS[k.purpose]}.`,
+        action: { label: 'Log in for the cloud', cloudLogin: k.purpose },
+      });
+    }
     const last = d.meta.lastBackupAt ? Date.parse(d.meta.lastBackupAt) : null;
     // Nothing to back up by hand while the ledger is kept in the cloud.
     if ((Object.keys(d.txs).length || d.positions.length) && !inCloud && (last == null || now - last > BACKUP_DAYS * DAY)) {
@@ -283,7 +297,7 @@ export function Todo() {
       });
     }
     return out;
-  }, [d, vs, sig.signals, col.read, tracked, now, inCloud]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fold each new build into the session: new findings are added, and findings a newer read no longer
   // shows are ticked off with what changed.
@@ -294,7 +308,7 @@ export function Todo() {
     const industryAt = d.meta.industry ? Date.parse(d.meta.industry.at) : null;
     const contractsAt = d.meta.contracts ? Date.parse(d.meta.contracts.at) : null;
     const seenAt = (x: TodoItem) =>
-      x.source === 'orders' ? checkedAt ?? t : x.source === 'colonies' ? readAt ?? t : x.source === 'signals' ? sig.signals[x.typeId!]?.at ?? t : x.source === 'industry' ? industryAt ?? t : x.source === 'contracts' ? contractsAt ?? t : t;
+      x.source === 'orders' ? checkedAt ?? t : x.source === 'colonies' ? readAt ?? t : x.source === 'signals' ? sig.signals[x.typeId!]?.at ?? t : x.source === 'industry' ? industryAt ?? t : x.source === 'contracts' ? contractsAt ?? t : x.source === 'cloud' ? cloud.backgroundAt ?? t : t;
     const byOrder = new Map(vs.map((v) => [v.orderId, v]));
     const position = (id: string) => d.positions.find((p) => p.id === id) ?? null;
     const judge = (e: Entry): string | null | false => {
@@ -331,6 +345,10 @@ export function Todo() {
         }
         case 'scam': return judgeScam(e, { tracked: tracked.includes(x.typeId!), signalAt: sig.signals[x.typeId!]?.at ?? null });
         case 'courier': return judgeCourierJob(e, { readAt: contractsAt, status: d.meta.contracts?.list.find((c) => String(c.id) === id)?.status ?? null });
+        case 'cloudLogin': {
+          const k = cloud.background?.keys.find((z) => z.purpose === id);
+          return judgeCloudLogin(e, { readAt: cloud.backgroundAt, kept: !!k, refused: !!k?.refusedAt });
+        }
         case 'industry': return judgeIndustry(e, { readAt: industryAt, waiting: new Set((d.meta.industry?.jobs ?? []).filter((j) => jobWaiting(j, t)).map((j) => j.jobId)) });
         default: return judgeLedger(e, { position: position(id), inCloud });
       }
@@ -352,6 +370,7 @@ export function Todo() {
   });
 
   async function act(x: TodoItem) {
+    if (x.action.cloudLogin) { if (x.action.cloudLogin === 'main') loginForCloud(); else loginMailerForCloud(); return; }
     if (x.action.exportBackup) {
       // Exporting moves the last-backup time, and that alone ticks this off.
       const text = await exportAll();

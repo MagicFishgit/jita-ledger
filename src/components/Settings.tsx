@@ -13,6 +13,7 @@ import { askedScopes, isConfigured, login, loginForCloud, loginMailer, loginMail
 import { syncCharacter, useSyncState } from '../lib/sync';
 import { navigate, useAuth, useMailer, useNow, type Route } from '../lib/hooks';
 import { tradeSkillsComing } from '../lib/skillQueue';
+import { errorPredatesLogin, scopesMissing } from '../lib/watchdog';
 import { ALPHA_CAPS, JITA_44, OPTIONAL_SCOPES, REDIRECT_URI, SCOPE, SCOPE_INFO, SCOPES } from '../lib/config';
 import { marketHistory } from '../lib/market';
 import { measureShare, MIN_SIDE_DAYS, sharedTypes, SHARE_DAYS, type ShareMeasure } from '../lib/share';
@@ -986,6 +987,18 @@ function CloudPanel() {
   const sender = bg?.keys.find((k) => k.purpose === 'mailer');
   const archiveJob = bg?.jobs.find((j) => j.job === 'archive');
   const alertsJob = bg?.jobs.find((j) => j.job === 'alerts');
+  // A login error from before the login last worked is old news (the ledger copy runs only at :07), and permissions this
+  // browser's login has that the cloud's lacks mean the cloud's is about to stop, or has.
+  const archiveStale = !!archiveJob && !!watcher && errorPredatesLogin(archiveJob, [watcher]);
+  const alertsStale = !!alertsJob && !!watcher && errorPredatesLogin(alertsJob, [watcher, ...(sender ? [sender] : [])]);
+  const auth = useAuth();
+  const missing = scopesMissing(auth?.scopes ?? [], watcher?.scopeNames);
+  const stopWatchEl = () => (
+    <button type="button" className="link-btn" disabled={!!busy} onClick={() => run('stop', async () => {
+      if (!(await confirmAsk({ title: 'Stop keeping watch?', body: 'The cloud forgets its EVE login and stops reading your wallet while the app is closed. Your ledger in the cloud stays.', confirm: 'Stop' }))) return;
+      await dropCloudLogin('main'); await refreshBg();
+    })}>Stop</button>
+  );
   const [esi, setEsi] = useState<{ url: string; status: number; ms: number; headers: Record<string, string> }[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const last = Math.max(c.lastPushAt ?? 0, c.lastPullAt ?? 0);
@@ -1026,11 +1039,29 @@ function CloudPanel() {
               <p className="note" style={{ margin: 0 }}>Off. Your ledger only updates while a browser has the app open.</p>
               <button type="button" className="btn sm primary" style={{ alignSelf: 'flex-start' }} onClick={() => loginForCloud()}><Cloud aria-hidden="true" />Let the cloud keep watch</button>
             </>
+          ) : watcher.refusedAt ? (
+            <>
+              <p className="note" style={{ margin: 0, color: 'var(--neg)' }}>
+                {`On, as ${watcher.name}, but EVE has refused its login since ${fmtDateTime(watcher.refusedAt)}${watcher.refused ? ` (${watcher.refused})` : ''}. `}
+                Nothing the cloud does with it works until you hand it over again: copying your ledger, reading your orders and planets, and the alerts about them.
+              </p>
+              <div className="row" style={{ gap: 10 }}>
+                <button type="button" className="btn sm primary" onClick={() => loginForCloud()}><Cloud aria-hidden="true" />Hand the cloud your login again</button>
+                {stopWatchEl()}
+              </div>
+            </>
           ) : (
             <>
-              <p className="note" style={{ margin: 0, color: archiveJob?.lastError ? 'var(--neg)' : 'var(--pos)' }}>
+              {missing.length > 0 && (
+                <p className="note" style={{ margin: 0, color: 'var(--acc2)' }}>
+                  {`You’re logged in here with ${missing.length === 1 ? 'a permission' : `${units(missing.length)} permissions`} the cloud’s login doesn’t have. Logging in again with new permissions stops the login the cloud holds (EVE replaces the character’s grant for the app), so hand it over again. `}
+                  <button type="button" className="link-btn" onClick={() => loginForCloud()}>Hand the cloud your login again</button>
+                </p>
+              )}
+              <p className="note" style={{ margin: 0, color: archiveJob?.lastError && !archiveStale ? 'var(--neg)' : 'var(--pos)' }}>
                 {`On, as ${watcher.name}. `}
                 {!archiveJob ? 'The first hourly run is due soon.'
+                  : archiveJob.lastError && archiveStale ? `The login works again (${fmtDateTime(watcher.at)}); the last run, at ${fmtDateTime(archiveJob.lastRun)}, was before that and failed. The next runs at 7 past the hour, or run it now.`
                   : archiveJob.lastError ? `The last run failed: ${archiveJob.lastError}.`
                     : `Last run ${ago(new Date(archiveJob.lastRun).toISOString(), now)}${archiveJob.detail ? `: ${[
                       ['trades', 'new trade'], ['journal', 'journal entry'], ['orders', 'order change'], ['names', 'name'],
@@ -1040,10 +1071,7 @@ function CloudPanel() {
                 <button type="button" className="btn sm" disabled={!!busy} onClick={() => run('archive', async () => { const r = await runCloudArchive(); toast(`Archived: ${units(r.trades)} new trades, ${units(r.journal)} journal entries, ${units(r.orders)} order changes.`); await syncCloudNow(); await refreshBg(); })}>
                   <RefreshCw aria-hidden="true" />{busy === 'archive' ? 'Running…' : 'Run it now'}
                 </button>
-                <button type="button" className="link-btn" disabled={!!busy} onClick={() => run('stop', async () => {
-                  if (!(await confirmAsk({ title: 'Stop keeping watch?', body: 'The cloud forgets its EVE login and stops reading your wallet while the app is closed. Your ledger in the cloud stays.', confirm: 'Stop' }))) return;
-                  await dropCloudLogin('main'); await refreshBg();
-                })}>Stop</button>
+                {stopWatchEl()}
               </div>
             </>
           )}
@@ -1062,14 +1090,17 @@ function CloudPanel() {
             </>
           ) : (
             <>
-              <p className="note" style={{ margin: 0, color: alertsJob?.lastError ? 'var(--neg)' : !alerts.on || !alerts.mail ? 'var(--acc2)' : 'var(--pos)' }}>
+              <p className="note" style={{ margin: 0, color: sender.refusedAt || (alertsJob?.lastError && !alertsStale) ? 'var(--neg)' : !alerts.on || !alerts.mail ? 'var(--acc2)' : 'var(--pos)' }}>
                 {`From ${sender.name} to ${watcher.name}. `}
-                {!alerts.on || !alerts.mail ? 'Alerts or alert mail are switched off under Alerts, so nothing is sent.'
+                {sender.refusedAt ? `EVE has refused ${sender.name}’s login since ${fmtDateTime(sender.refusedAt)}${sender.refused ? ` (${sender.refused})` : ''}, so no alert mail can be sent until you hand it over again.`
+                  : !alerts.on || !alerts.mail ? 'Alerts or alert mail are switched off under Alerts, so nothing is sent.'
                   : !alertsJob ? 'The first check is due within five minutes.'
+                    : alertsJob.lastError && alertsStale ? `The logins work again; the last check, at ${fmtDateTime(alertsJob.lastRun)}, was before that and failed. The next is within five minutes.`
                     : alertsJob.lastError ? `The last check failed: ${alertsJob.lastError}.`
                       : `Last check ${ago(new Date(alertsJob.lastRun).toISOString(), now)}: ${units(Number(alertsJob.detail?.judged ?? 0))} orders judged, ${Number(alertsJob.detail?.mailed ?? 0) ? `${units(Number(alertsJob.detail?.mailed))} alert${Number(alertsJob.detail?.mailed) === 1 ? '' : 's'} mailed` : 'nothing new to mail'}.`}
               </p>
               <div className="row" style={{ gap: 10 }}>
+                {sender.refusedAt && <button type="button" className="btn sm primary" onClick={() => loginMailerForCloud()}><Cloud aria-hidden="true" />Hand the cloud {sender.name}’s login again</button>}
                 <button type="button" className="btn sm" disabled={!!busy} onClick={() => run('cloudmail', async () => {
                   const r = await cloudTestMail();
                   toast(`The cloud sent a test mail${r.about ? ` about ${r.about}` : ''}. It should arrive in game in a moment.`);

@@ -227,6 +227,7 @@ export function subjectPart(f: Finding, now = Date.now()): string {
   if (p) return p.ends <= now ? `PI stopped in ${p.system}` : `PI ends in ${hoursSaid((p.ends - now) / 3600_000).replace('about ', '')} in ${p.system}`;
   if (f.opp && f.name) return `look at ${f.name}, ${pct(f.opp.roi, 1)}`;
   if (f.snipe && f.name) return f.snipe.side === 'buy' ? `snipe ${f.name}, ${iskBig(f.snipe.profit)}` : `sell ${f.name} into a high bid`;
+  if (f.watch?.lost) return `hand the cloud your login again`;
   if (f.watch) return `cloud: ${f.watch.label.charAt(0).toLowerCase()}${f.watch.label.slice(1)} failing`;
   if (f.safety) return `asset safety registered: ${f.safety.name}`;
   return f.title;
@@ -283,6 +284,15 @@ function section(f: Finding, market: (typeId: number, calc?: boolean, name?: str
     ].join('');
   }
   const w = f.watch;
+  if (w?.lost) {
+    return [
+      head(f.title, 'red'),
+      advice('red', `hand the cloud your login for ${w.lost.name} again: Jita Ledger → Settings → Your data`),
+      col('grey', `EVE refused it at ${fmtDateTime(w.since)}${w.error ? `: <i>${escapeMail(w.error)}</i>` : ''}.`) + '<br>',
+      col('grey', 'That happens when EVE replaces the character’s grant for the app, as logging in to it with a new set of permissions does, or when the app is removed from the character’s third-party applications.') + '<br>',
+      col('grey', `Until then, ${escapeMail(w.meanwhile)}. This is the only mail about it today, whatever else stops.`) + '<br>',
+    ].join('');
+  }
   if (w) {
     return [
       head(f.title, 'red'),

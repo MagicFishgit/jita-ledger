@@ -15,10 +15,10 @@ import type { Verdict } from './relist';
  * is simply absent, and reading absent as done would tick the whole list off on every load.
  */
 
-export type TodoKind = 'move' | 'cancel' | 'bid' | 'underCost' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry' | 'courier';
+export type TodoKind = 'move' | 'cancel' | 'bid' | 'underCost' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry' | 'courier' | 'cloudLogin';
 
 /** Which read a finding came from, and so which read can say it has gone. */
-export type Source = 'orders' | 'colonies' | 'signals' | 'ledger' | 'industry' | 'contracts';
+export type Source = 'orders' | 'colonies' | 'signals' | 'ledger' | 'industry' | 'contracts' | 'cloud';
 
 export type TodoItem = {
   /** What it's about, stable for as long as the finding lasts: `order:123`, `pi:456`, `backup`. */
@@ -37,7 +37,8 @@ export type TodoItem = {
   typeId?: number;
   /** Where the action button goes. */
   /** `copy`: a price opening it in game puts on the clipboard, ready for the price box. */
-  action: { label: string; route?: string; typeId?: number; exportBackup?: boolean; copy?: number };
+  /** `cloudLogin`: which of the cloud's logins to hand over again. */
+  action: { label: string; route?: string; typeId?: number; exportBackup?: boolean; copy?: number; cloudLogin?: 'main' | 'mailer' };
 };
 
 export type Entry = {
@@ -70,12 +71,13 @@ export const WARNINGS: ReadonlySet<TodoKind> = new Set<TodoKind>(['scam', 'squee
  * measured --- they are there so a list of twelve relists reads as a quarter of an hour, not an evening.
  */
 export const MINUTES: Record<TodoKind, number> = {
-  move: 1, cancel: 1, bid: 2, underCost: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1, industry: 1, courier: 10,
+  move: 1, cancel: 1, bid: 2, underCost: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1, industry: 1, courier: 10, cloudLogin: 1,
 };
 
 export const KIND_LABEL: Record<TodoKind, string> = {
   move: 'Move order', cancel: 'Cancel order', bid: 'Sell into bids', underCost: 'Priced under cost', close: 'Close position', squeeze: 'Margin squeeze', piExpired: 'PI expired',
   piEnding: 'PI ending', nearMiss: 'Trades your positions skipped', scam: 'Suspicious market', backup: 'Backup', industry: 'Industry jobs to deliver', courier: 'Courier to deliver',
+  cloudLogin: 'Cloud login',
 };
 
 /**
@@ -242,6 +244,16 @@ export function judgeScam(e: Entry, c: { tracked: boolean; signalAt: number | nu
   if (c.signalAt == null || c.signalAt <= e.seenAt) return null;
   const flag = e.item.key.split(':').pop();
   return flag === 'wall' ? 'The wall has gone.' : flag === 'escrow' ? 'The bait bid has gone.' : 'The odd day has dropped out of the recent history.';
+}
+
+/**
+ * A cloud login EVE refused, gone from the list: done once a read of the cloud newer than the one that showed it finds
+ * the login working (absent is not done). If the login was dropped instead, there's nothing left to hand over.
+ */
+export function judgeCloudLogin(e: Entry, c: { readAt: number | null; kept: boolean; refused: boolean }): string | null | false {
+  if (c.readAt == null || c.readAt <= e.seenAt) return null;
+  if (!c.kept) return false;
+  return c.refused ? null : 'The cloud has your login again.';
 }
 
 /** Items built from your own ledger, which is always current: gone means dealt with. */

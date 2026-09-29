@@ -66,9 +66,11 @@ export type CloudStatus = {
    * job last did), as of the last look. Kept across reloads so a tab knows at once whether the cloud mails.
    */
   background: CloudBackground | null;
+  /** When `background` was last read from the cloud in this tab (null while it's only what was saved on disk). */
+  backgroundAt: number | null;
 };
 
-let status: CloudStatus = { phase: 'off', doing: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, rev: 0, started: false, background: null, track: null };
+let status: CloudStatus = { phase: 'off', doing: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, rev: 0, started: false, background: null, backgroundAt: null, track: null };
 const listeners = new Set<() => void>();
 const setStatus = (p: Partial<CloudStatus>) => { status = { ...status, ...p }; listeners.forEach((l) => l()); };
 export function useCloud(): CloudStatus {
@@ -317,7 +319,11 @@ export const dropCloudLogin = (purpose: 'main' | 'mailer') => call(`/v1/keys?pur
 export const runCloudArchive = () => call<{ trades: number; journal: number; orders: number; names: number; stock: boolean; netWorth: number | null }>('/v1/jobs/archive', { method: 'POST' });
 
 export type CloudBackground = {
-  keys: { purpose: 'main' | 'mailer'; charId: number; name: string; scopes: number; at: number }[];
+  /**
+   * `at`: when the login last worked (handed over, or refreshed). `refusedAt`: since when EVE has refused it, and
+   * `refused` what it said. `scopeNames`: its permissions. The last three are missing from a Worker a version behind.
+   */
+  keys: { purpose: 'main' | 'mailer'; charId: number; name: string; scopes: number; at: number; refusedAt?: number | null; refused?: string | null; scopeNames?: string[] }[];
   jobs: { job: string; lastRun: number; lastOk: number | null; lastError: string | null; detail: Record<string, unknown> | null }[];
 };
 
@@ -473,7 +479,7 @@ export type CloudSummary = { rev: number; kinds: { kind: string; n: number; at: 
 export async function cloudSummary(): Promise<CloudSummary> {
   const s = await call<CloudSummary>('/v1/status');
   if (state) { state.bg = s.background; save(); }
-  setStatus({ background: s.background });
+  setStatus({ background: s.background, backgroundAt: Date.now() });
   return s;
 }
 

@@ -9,7 +9,8 @@ import { bumpWarp, useMotion } from './lib/motion';
 import { THEMES } from './lib/prefs';
 import { priceKillmails } from './lib/killmails';
 import { startAlerts } from './lib/alertsRunner';
-import { keepCloudLogin, startCloud } from './lib/cloud';
+import { cloudSummary, keepCloudLogin, runCloudArchive, startCloud } from './lib/cloud';
+import { units } from './lib/format';
 import { marketParam, openFromLink, withoutMarket } from './lib/marketLink';
 import { setToastLife, toast } from './lib/toast';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -127,8 +128,20 @@ export function App() {
       if (who && !isOwner(who.characterId)) { setRefused(who.characterName); await logout(); }
       // A login for the cloud's background jobs goes straight to the Worker; nothing stays here.
       if (cb.cloudKey) {
+        const main = cb.cloudKey.purpose === 'main';
         keepCloudLogin(cb.cloudKey)
-          .then((k) => toast(cb.cloudKey!.purpose === 'main' ? `The cloud now keeps watch as ${k.name}, with this app closed too.` : `The cloud will send alert mail from ${k.name}.`))
+          .then(async (k) => {
+            if (!main) { toast(`The cloud will send alert mail from ${k.name}.`); return; }
+            // Run the ledger copy straight away rather than at 7 past the hour: it proves the login end to end, and
+            // replaces the error an earlier login left on it (and on the orders read) with what happens now.
+            try {
+              const r = await runCloudArchive();
+              toast(`The cloud now keeps watch as ${k.name}, with this app closed too. It has just read your ledger: ${r.trades || r.journal || r.orders ? `${units(r.trades)} new trades, ${units(r.journal)} journal entries, ${units(r.orders)} order changes` : 'nothing new'}.`);
+            } catch (e) {
+              toast(`The cloud keeps watch as ${k.name}, but its first read failed: ${e instanceof Error ? e.message : String(e)}`, 'err');
+            }
+            await cloudSummary().catch(() => undefined);
+          })
           .catch((e) => toast(`The cloud couldn’t keep that login: ${e instanceof Error ? e.message : String(e)}`, 'err'));
       }
       await initStore();

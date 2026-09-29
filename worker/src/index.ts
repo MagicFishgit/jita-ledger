@@ -120,9 +120,10 @@ async function runArchive(env: Env, charId: number) {
 
 /** What the background side holds for a ledger: its logins (never the tokens) and what each job last did. */
 async function background(env: Env, charId: number) {
-  const keys = (await env.DB.prepare('SELECT purpose, token_char_id AS charId, token_char_name AS name, scopes, updated_at AS at FROM keys WHERE char_id = ?1')
-    .bind(charId).all<{ purpose: string; charId: number; name: string; scopes: string; at: number }>()).results
-    .map((k) => ({ ...k, scopes: k.scopes.split(' ').filter(Boolean).length }));
+  // `at` is the last time the login worked (handed over, or refreshed); `refusedAt` when EVE started refusing it.
+  const keys = (await env.DB.prepare('SELECT purpose, token_char_id AS charId, token_char_name AS name, scopes, updated_at AS at, refused_at AS refusedAt, refused FROM keys WHERE char_id = ?1')
+    .bind(charId).all<{ purpose: string; charId: number; name: string; scopes: string; at: number; refusedAt: number | null; refused: string | null }>()).results
+    .map((k) => ({ ...k, scopes: k.scopes.split(' ').filter(Boolean).length, scopeNames: k.scopes.split(' ').filter(Boolean) }));
   const jobs = (await env.DB.prepare('SELECT job, last_run AS lastRun, last_ok AS lastOk, last_error AS lastError, detail FROM jobs WHERE char_id = ?1')
     .bind(charId).all<{ job: string; lastRun: number; lastOk: number | null; lastError: string | null; detail: string | null }>()).results
     .map((j) => ({ ...j, detail: j.detail ? JSON.parse(j.detail) : null }));

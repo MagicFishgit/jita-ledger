@@ -1928,6 +1928,36 @@ console.log('\n--- the cloud watchdog ---');
   eq('  and what has stopped meanwhile', m.body.includes('new trades, journal entries and orders aren’t copied'), true);
   const login = alertMail([watchdogFinding({ ...row, lastError: 'Token refresh failed: invalid_grant' }, T)], { appUrl: 'https://x/', keepMin: 60, now: T });
   eq('  and to log in again when that is what is wrong', login.body.includes('RECOMMENDED: hand the cloud your login again'), true);
+
+  // A refused login is one mail (29 September 2026: three came over two hours, one per job, for one refused login).
+  const { loginLostFinding, errorPredatesLogin, scopesMissing, LOGIN_GRACE_MS } = await import('../src/lib/watchdog.ts');
+  const refused = { purpose: 'main', name: 'FIREDASH Visagie', since: T - 30 * 60_000, reason: 'Invalid refresh token. Character grant missing/expired.', warned: null };
+  const lost = loginLostFinding(refused, T);
+  eq('a refused login is mailed once it has lasted', [lost?.key, lost?.title], [`watchdog:login:main:${T - 30 * 60_000}`, 'Cloud lost your login']);
+  eq('  not in its first minutes: every round tries again', loginLostFinding({ ...refused, since: T - LOGIN_GRACE_MS + 60_000 }, T), null);
+  eq('  not during EVE’s downtime', loginLostFinding({ ...refused, since: Date.parse('2026-09-28T10:30:00Z') }, Date.parse('2026-09-28T11:10:00Z')), null);
+  eq('  not again the same day', loginLostFinding({ ...refused, warned: T - 3 * H }, T), null);
+  eq('  but again a day on', loginLostFinding({ ...refused, warned: T - 25 * H }, T)?.kind, 'watchdog');
+  eq('  never the sender’s: it couldn’t send the mail that says so', loginLostFinding({ ...refused, purpose: 'mailer' }, T), null);
+  const lm = alertMail([lost], { appUrl: 'https://x/', keepMin: 60, now: T });
+  eq('  its subject says what to do', lm.subject, 'Jita Ledger: hand the cloud your login again');
+  eq('  its body names the login, what EVE said and what has stopped', [
+    lm.body.includes('RECOMMENDED: hand the cloud your login for FIREDASH Visagie again'), lm.body.includes('Character grant missing/expired'), lm.body.includes('your ledger isn’t copied from ESI'),
+  ], [true, true, true]);
+  eq('the error the cloud now gives is a login error', loginError('EVE refused the cloud’s login for FIREDASH Visagie (Invalid refresh token.); hand the cloud your login again'), true);
+  const job = { lastRun: T - H, lastError: 'EVE refused the login (Invalid refresh token.); log in for the cloud again' };
+  eq('a login error from before the login worked again is old news', errorPredatesLogin(job, [{ at: T - 10 * 60_000, refusedAt: null }]), true);
+  eq('  not while the login is still refused', errorPredatesLogin(job, [{ at: T - 10 * 60_000, refusedAt: T - 5 * 60_000 }]), false);
+  eq('  not when the login last worked before the failure', errorPredatesLogin(job, [{ at: T - 2 * H, refusedAt: null }]), false);
+  eq('  and never for an error that isn’t about the login', errorPredatesLogin({ ...job, lastError: 'ESI 502' }, [{ at: T, refusedAt: null }]), false);
+  eq('permissions the app has that the cloud lacks', scopesMissing(['a', 'b', 'c'], ['a', 'c']), ['b']);
+  eq('  nothing said when the Worker doesn’t report them', scopesMissing(['a'], undefined), []);
+
+  const { judgeCloudLogin } = await import('../src/lib/todo.ts');
+  const e = { item: { key: 'cloudLogin:main' }, seenAt: T, lastAt: T };
+  eq('To do: a refused login isn’t done because it went missing', judgeCloudLogin(e, { readAt: T, kept: true, refused: false }), null);
+  eq('  done on a newer read that finds it working', judgeCloudLogin(e, { readAt: T + 60_000, kept: true, refused: false }), 'The cloud has your login again.');
+  eq('  and just gone when the login was dropped instead', judgeCloudLogin(e, { readAt: T + 60_000, kept: false, refused: false }), false);
 }
 
 console.log('\n--- a finished position: close it, don’t lose it ---');

@@ -14,7 +14,8 @@ export type Purpose = 'main' | 'mailer';
 export type Login = { access: string; charId: number; name: string; scopes: string[] };
 
 export class EveError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  /** `reason`: what EVE's login said, when it refused a refresh token. */
+  constructor(public status: number, message: string, public reason?: string) { super(message); }
 }
 
 function claims(access: string): { charId: number; name: string; scopes: string[]; exp: number } {
@@ -34,7 +35,10 @@ export async function refresh(refreshToken: string, clientId: string): Promise<{
     body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: clientId }).toString(),
   });
   const body = (await res.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; error_description?: string; error?: string };
-  if (!res.ok || !body.access_token) throw new EveError(res.status, `EVE refused the login (${body.error_description ?? body.error ?? res.status}); log in for the cloud again`);
+  if (!res.ok || !body.access_token) {
+    const reason = body.error_description ?? body.error ?? String(res.status);
+    throw new EveError(res.status, `EVE refused the login (${reason}); log in for the cloud again`, reason);
+  }
   return { access: body.access_token, refresh: body.refresh_token ?? refreshToken };
 }
 
@@ -50,7 +54,7 @@ export async function keepLogin(env: Env, ledgerChar: number, purpose: Purpose, 
     INSERT INTO keys (char_id, purpose, token_char_id, token_char_name, scopes, refresh_enc, updated_at, access_enc, access_exp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
     ON CONFLICT(char_id, purpose) DO UPDATE SET token_char_id = excluded.token_char_id, token_char_name = excluded.token_char_name,
       scopes = excluded.scopes, refresh_enc = excluded.refresh_enc, updated_at = excluded.updated_at,
-      access_enc = excluded.access_enc, access_exp = excluded.access_exp`)
+      access_enc = excluded.access_enc, access_exp = excluded.access_exp, refused_at = NULL, refused = NULL, refused_warned = NULL`)
     .bind(ledgerChar, purpose, who.charId, who.name, who.scopes.join(' '), await seal(env.TOKEN_KEY, t.refresh), Date.now(), await seal(env.TOKEN_KEY, t.access), who.exp).run();
   return asLogin(t.access);
 }
@@ -75,14 +79,27 @@ export async function dropLogin(env: Env, ledgerChar: number, purpose: Purpose):
  * token that often would rotate it nearly three hundred times a day for nothing.
  */
 export async function useLogin(env: Env, ledgerChar: number, purpose: Purpose): Promise<Login | null> {
-  const row = await env.DB.prepare('SELECT refresh_enc, access_enc, access_exp FROM keys WHERE char_id = ?1 AND purpose = ?2')
-    .bind(ledgerChar, purpose).first<{ refresh_enc: string; access_enc: string | null; access_exp: number | null }>();
+  const row = await env.DB.prepare('SELECT refresh_enc, access_enc, access_exp, token_char_name FROM keys WHERE char_id = ?1 AND purpose = ?2')
+    .bind(ledgerChar, purpose).first<{ refresh_enc: string; access_enc: string | null; access_exp: number | null; token_char_name: string | null }>();
   if (!row) return null;
   if (row.access_enc && (row.access_exp ?? 0) > Date.now() + 120_000) {
     try { return asLogin(await open(env.TOKEN_KEY, row.access_enc)); } catch { /* refresh below */ }
   }
-  const t = await refresh(await open(env.TOKEN_KEY, row.refresh_enc), env.EVE_CLIENT_ID);
-  await env.DB.prepare('UPDATE keys SET refresh_enc = ?3, updated_at = ?4, access_enc = ?5, access_exp = ?6 WHERE char_id = ?1 AND purpose = ?2')
+  let t: { access: string; refresh: string };
+  try {
+    t = await refresh(await open(env.TOKEN_KEY, row.refresh_enc), env.EVE_CLIENT_ID);
+  } catch (e) {
+    // A 400 or 401 from EVE's login is a refusal (invalid_grant: "Character grant missing/expired"), not a hiccup:
+    // only handing the login over again fixes it. Kept on the login, so Settings, To do and the watchdog can say which
+    // one it is, once, rather than every job that needs it failing in its own words.
+    if (e instanceof EveError && (e.status === 400 || e.status === 401)) {
+      await env.DB.prepare('UPDATE keys SET refused_at = COALESCE(refused_at, ?3), refused = ?4 WHERE char_id = ?1 AND purpose = ?2')
+        .bind(ledgerChar, purpose, Date.now(), e.reason ?? e.message).run();
+      throw new EveError(e.status, `EVE refused the cloud’s login for ${row.token_char_name ?? (purpose === 'main' ? 'your character' : 'your sender')} (${e.reason ?? e.status}); hand the cloud your login again`, e.reason);
+    }
+    throw e;
+  }
+  await env.DB.prepare('UPDATE keys SET refresh_enc = ?3, updated_at = ?4, access_enc = ?5, access_exp = ?6, refused_at = NULL, refused = NULL, refused_warned = NULL WHERE char_id = ?1 AND purpose = ?2')
     .bind(ledgerChar, purpose, await seal(env.TOKEN_KEY, t.refresh), Date.now(), await seal(env.TOKEN_KEY, t.access), claims(t.access).exp).run();
   return asLogin(t.access);
 }

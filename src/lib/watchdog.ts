@@ -33,10 +33,14 @@ export const JOB_SAID: Record<string, { label: string; retry: string; meanwhile:
 };
 
 /** An error that means the cloud's login no longer works: only logging in again fixes it. */
-export const loginError = (e: string | null) => !!e && /invalid_grant|invalid_token|refresh|unauthori[sz]ed|\b401\b|revoked|no login/i.test(e);
+export const loginError = (e: string | null) => !!e && /invalid_grant|invalid_token|refresh|unauthori[sz]ed|\b401\b|revoked|no login|refused the/i.test(e);
 
 export type JobRow = { job: string; fails: number; failingSince: number | null; lastError: string | null; warned: number | null };
-export type WatchFacts = { job: string; label: string; fails: number; since: number; error: string | null; retry: string; meanwhile: string; login: boolean };
+export type WatchFacts = {
+  job: string; label: string; fails: number; since: number; error: string | null; retry: string; meanwhile: string; login: boolean;
+  /** Set when the mail is about a login EVE refused, rather than one job failing: whose it is. */
+  lost?: { purpose: 'main' | 'mailer'; name: string };
+};
 
 /** The mail for a job failing WATCH_FAILS times or more in a row, when one is due: at the streak's start, then daily. */
 export function watchdogFinding(j: JobRow, now: number): Finding | null {
@@ -50,3 +54,54 @@ export function watchdogFinding(j: JobRow, now: number): Finding | null {
     watch: { job: j.job, label: said.label, fails: j.fails, since: j.failingSince, error: j.lastError, retry: said.retry, meanwhile: said.meanwhile, login },
   };
 }
+
+/** How long a refusal has to last before it's mailed: every round tries again, so it has been refused at least twice. */
+export const LOGIN_GRACE_MS = 10 * 60_000;
+
+/** What stops while each login is refused. */
+export const LOGIN_STOPS: Record<'main' | 'mailer', string> = {
+  main: 'your ledger isn’t copied from ESI, your orders and planets aren’t read, so nothing about them is mailed, and old alert mail isn’t tidied',
+  mailer: 'no alert mail can be sent',
+};
+
+export type RefusedLogin = { purpose: 'main' | 'mailer'; name: string | null; since: number; reason: string | null; warned: number | null };
+
+/**
+ * The mail for a refused login, when one is due: once it has lasted `LOGIN_GRACE_MS` outside EVE's downtime, then
+ * daily. A refused login stops every job that needs it at once, so it's one mail, not one per job as each fails twice:
+ * the user's trading login stopped on 29 September 2026 and three mails came over two hours, one each for the alert
+ * checks, the orders and the ledger copy. The refusal is kept on the login (`keys.refused_at`); a refresh that works, or
+ * the login handed over again, clears it. Only the trading login's is mailed: a refused sender can't send the mail that
+ * would say so, so that one shows only in the app (Settings, To do).
+ */
+export function loginLostFinding(k: RefusedLogin, now: number): Finding | null {
+  if (k.purpose !== 'main') return null;
+  if (now - k.since < LOGIN_GRACE_MS || isDowntime(now)) return null;
+  if (k.warned != null && now - k.warned < REWARN_H * 3600_000) return null;
+  const name = k.name ?? 'your character';
+  const label = `The cloud’s login for ${name}`;
+  return {
+    kind: 'watchdog', key: `watchdog:login:${k.purpose}:${k.since}`, title: 'Cloud lost your login',
+    text: `EVE refused the cloud’s login for ${name}${k.reason ? ` (${k.reason})` : ''}. Hand it your login again: Settings → Your data.`,
+    watch: {
+      job: 'login', label, fails: 0, since: k.since, error: k.reason, retry: 'every few minutes', meanwhile: LOGIN_STOPS[k.purpose], login: true,
+      lost: { purpose: k.purpose, name },
+    },
+  };
+}
+
+/**
+ * A job's login error from before its login last worked (handed over again, or refreshed since): Settings showed
+ * "EVE refused the login" in red for up to an hour after the user had handed the cloud a new one, because the ledger
+ * copy only runs at :07. `keys` are the logins the job uses.
+ */
+export function errorPredatesLogin(job: { lastRun: number; lastError: string | null }, keys: { at: number; refusedAt?: number | null }[]): boolean {
+  return loginError(job.lastError) && keys.length > 0 && keys.every((k) => !k.refusedAt && k.at > job.lastRun);
+}
+
+/**
+ * Permissions the app's own login has that the cloud's doesn't. Logging in to the app with a new set of permissions
+ * replaces the character's grant, and the cloud's older login stops working (29 September 2026), but the cloud only
+ * finds out when its cached access token runs out, up to twenty minutes later. This says so at once.
+ */
+export const scopesMissing = (app: string[], cloud: string[] | undefined): string[] => (cloud ? app.filter((s) => !cloud.includes(s)) : []);

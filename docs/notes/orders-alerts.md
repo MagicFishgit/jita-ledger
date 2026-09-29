@@ -42,6 +42,21 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   (`loginError`). Tested locally: the orders job counted 1 then 2 (it retries once its last try is 20 minutes old,
   so a lost login shows within about 40 minutes), and a Sniper success cleared a seeded streak. The mail can only be
   sent in production. It can't report the mail itself failing, or a cron that stops firing.
+  **A login EVE refuses is one mail, and the app says so everywhere** (migration 0012, `keys.refused_at`/`refused`/
+  `refused_warned`; `loginLostFinding`, `errorPredatesLogin`, `scopesMissing` in `lib/watchdog.ts`). On 29 September 2026
+  the user logged in to the app again to accept new permissions; the cloud's login stopped ("Character grant
+  missing/expired") and three mails came over two hours, one per job as each failed twice (alert checks 11:35, orders
+  12:06, ledger copy 13:11). They then handed the login over again, and Settings still showed the old error in red: the
+  ledger copy only runs at :07, and Settings had no button for it anyway (only Stop, then keep watch again). Now
+  `useLogin` marks a login refused on a 400/401 from EVE's token endpoint (a refresh that works, or the login handed
+  over, clears it), and its error names whose login it is. The watchdog sends one "Cloud lost your login" mail once
+  the refusal has lasted 10 minutes outside downtime, then daily, and drops the per-job mails a refusal explains. The
+  sender's login refused can't be mailed (it would send the mail), so that one shows only in the app. Settings shows a
+  refused login in red with **Hand the cloud your login again** (the sender's too); an error from before the login last
+  worked is said as old ("the last run was before that"); and when this browser's login has permissions the cloud's
+  lacks, it says the cloud's is about to stop, since the cloud only finds out when its cached access token runs out.
+  Handing the main login over runs the ledger copy at once, which proves it and clears the orders job too. To do lists
+  a refused login (kind `cloudLogin`, source `cloud`), ticked off on a newer read of the cloud's status.
 - **Every device shows the same mail picture** (Settings → Alerts). The user logged in on a phone and found the
   panel asking them to log in a sending character, and "Alerts in the last 24 h" at 0, while the cloud was mailing
   all day: the panel read only that browser's own sender login and its own alert log (`alertLog` stays local). Now,

@@ -39,6 +39,13 @@ Don't re-derive or contradict these without new evidence.
   that doesn't exist, gets the sign-in page all the same (probed 29 September 2026), so a new scope in `SCOPES` would
   refuse every new login until it's ticked at developers.eveonline.com. New ones start in `OPTIONAL_SCOPES`, asked for
   only once switched on in Settings, with "Stop asking" if the login refuses.
+- **Logging in with a different set of permissions stops the logins issued before it.** 29 September 2026: the cloud's
+  login for the user's character, handed over with the 14 permissions the app then asked for, last refreshed at 10:45
+  UTC; the user then logged in to the app again to accept the new ones (23); every refresh of the cloud's token after
+  that got a 400, "Invalid refresh token. Character grant missing/expired." The login handed over again at 13:25, with
+  the same 23, worked. Two logins of one character with the *same* set have lived side by side since 27 September (the
+  browser's and the cloud's). So adding a scope to `SCOPES` means handing the cloud its login again after the next
+  login; Settings says so when the sets differ (`scopesMissing`). The time of the relog itself wasn't recorded.
 - **`publicData` grants nothing** — zero ESI endpoints require it; it isn't even an ESI scope.
 - **Order book pages are shuffled with respect to type**, so sampling N random pages is an unbiased
   sample of the market. This is what makes Prospects affordable.
