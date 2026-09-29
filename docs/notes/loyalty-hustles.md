@@ -213,6 +213,27 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
   a m³ behind Worth and payback (the page's own three-way pricing, now `priceOres`); the m³ a minute doesn't change. It
   is kept in this browser, with "Back to <ore>, what you mine most". Checked against ESI: Kernite at Jita's 467.2 bid,
   less 3.375% tax, over 1.2 m³ is the 376.19 a m³ shown.
+  **Mercoxit has its fits** (`mercoxitTier`, `DEEP_CORE`, `DEEP_CORE_RIG` in miningFits.ts; `MercoxitNote` in
+  MasteryTiers.tsx). It was first left out of the picker, since no fit's lasers could mine it; the user asked for it for
+  going back to null-sec. Picking Mercoxit (or its II/III-Grade) turns each fit that mines ore into its Mercoxit version:
+  its lasers swapped for deep-core ones like for like (Modulated Strip Miner II, Strip Miner I or ORE Strip Miner to
+  Modulated Deep Core Strip Miner II; Miner I/II, EP-S or ORE Miner to Modulated Deep Core Miner II), loaded with
+  Mercoxit Type A crystals (A II where the fit had tech II crystals), and the Medium Deep Core Mining Optimization rig in
+  place of a shield reinforcer, else a field extender, when the calibration still fits (never a processor rig, which the
+  fit's CPU may need). That is how miners do it: the research's saved pulls show deep-core strip miners on 30 Procurers,
+  28 Skiffs, 23 Mackinaws and 10 Retrievers of each hull's last 400 losses, Mercoxit Type A II the crystal most loaded
+  (21 Procurers, 15 Mackinaws), the deep-core rig on 51 Mackinaws, and EVE Workbench's newest Skiff fit carrying two
+  deep-core strip miners and 80 Mercoxit crystals in its cargo for the swap. From ESI (30 September 2026): the deep-core
+  strip miner mines 80 a cycle to the Modulated Strip Miner II's 120, at the same 60 CPU and 12 powergrid (a Strip Miner
+  I's 10 powergrid, an ORE Strip Miner's 50 CPU; a Modulated Deep Core Miner II 80 and 3 against EP-S 65, Miner I 60);
+  it needs Mining V and Deep Core Mining II, and takes Mercoxit or ordinary crystals. There's only a Medium deep-core
+  rig, 250 of a hull's 400 calibration, +16% for lasers that need Deep Core Mining (effect 5069; the yield counts it only
+  on those). Mercoxit is 40 m³ a unit, and its gas-cloud chance is 5% (the ore's 522), cut a tenth a level by Deep Core
+  Mining (543). The page says what the swap changed, when the lasers need more CPU or powergrid than the fit's own (the
+  app doesn't fit ships, so it says to check in game), where the rig went or why it didn't fit, and the gas-cloud chance
+  at your skill; Max adds Deep Core Mining V. Ice fits and boosters say they have no Mercoxit version. On the user's skills
+  a Solid Procurer on Mercoxit reads 572 m³ a minute (959 at all V), with the rig in place of its EM reinforcer; a Solid
+  Hulk has no room for the rig beside its processor rig.
   **Bonuses count only through their effect, for fitted items as for hulls.** A Drone Mining Augmentor carries the same
   434 (+10%) as a Mining Laser Upgrade, through a drone-only effect (623); counted by attribute it put the Retriever's
   Just in tier 10% high. Caught in review before shipping. Also found by looking: locked nodes were see-through (a lit

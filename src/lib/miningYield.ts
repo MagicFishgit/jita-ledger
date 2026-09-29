@@ -22,7 +22,7 @@ type HullRule = { effect: number; attr: number; on: Target; per: number | 'role'
 export const SKILL = {
   mining: 3386, astrogeology: 3410, iceHarvesting: 16281,
   miningFrigate: 32918, expeditionFrigates: 33856, miningDestroyer: 89241, miningBarge: 17940, exhumers: 22551,
-  miningPrecision: 90727, miningExploitation: 90728,
+  miningPrecision: 90727, miningExploitation: 90728, deepCoreMining: 11395,
 } as const;
 
 /** Every skill the yield reads at V: the ceiling a fit is shown against. */
@@ -66,6 +66,7 @@ const A = {
  * drones (effect 623), and a Deep Core Mining Optimization rig to Mercoxit alone (5069). ESI, 29 September 2026.
  */
 const ITEM_EFFECTS: Record<number, number[]> = {
+  // (and 5069, the Deep Core Mining Optimization rig, for lasers that need Deep Core Mining: see `fitYield`)
   [A.yieldBonus]: [1882, 391], // Mining Laser Upgrades; the Michi and Highwall implants
   [A.iceCycle]: [1190, 2479], // the ice rig and Yeti implant; Ice Harvester Upgrades
   [A.critChanceBonus]: [12759], [A.critSizeBonus]: [12760], [A.wasteChanceBonus]: [12761], // survey chipsets
@@ -102,8 +103,11 @@ export function fitYield(
   const lvl = (s: number) => Math.max(0, Math.min(5, skills[s] ?? 0));
   const factor = (on: Target) => HULL_RULES.filter((r) => r.on === on && hull.effects.includes(r.effect) && hull.attrs[r.attr] != null)
     .reduce((m, r) => m * (r.per === 'times' ? hull.attrs[r.attr] : 1 + (hull.attrs[r.attr] * (r.per === 'role' ? 1 : lvl(r.per))) / 100), 1);
+  // The deep-core rig's +16% reaches only lasers that need Deep Core Mining (its effect 5069 says so), the ones that mine Mercoxit.
+  const deepCore = [182, 183, 184].some((k) => laser.attrs[k] === SKILL.deepCoreMining);
+  const reaches = (attr: number) => [...(ITEM_EFFECTS[attr] ?? []), ...(attr === A.yieldBonus && deepCore ? [5069] : [])];
   const percent = (items: TypeDogma[], attr: number) => items
-    .filter((x) => x.effects.some((e) => ITEM_EFFECTS[attr]?.includes(e)))
+    .filter((x) => x.effects.some((e) => reaches(attr).includes(e)))
     .reduce((m, x) => m * (1 + (x.attrs[attr] ?? 0) / 100), 1);
   const skillPct = (s: number, attr: number) => 1 + ((skillDogma[s]?.attrs[attr] ?? 0) * lvl(s)) / 100;
   const cr = crystal && takesCrystal(laser) && !ice ? crystal : null;

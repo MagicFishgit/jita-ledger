@@ -1290,6 +1290,10 @@ console.log('\n--- mining yields, from dogma ---');
   eq('  and Mining Laser Upgrades don’t touch ice', fitYield(hulk, iceH2, 2, null, [mlu2], all5, skillDogma).cycle, 200 * 0.7 * 0.85 * 0.8 * 0.75);
   const droneRig = T(32043, 778, { 434: 10, 293: -10 }, [623, 2713, 6763]), mercRig = T(32817, 1232, { 434: 16 }, [5069]);
   eq('a bonus counts only through an effect that reaches lasers: drone and Mercoxit rigs carry 434 too', fitYield(hulk, msm2, 2, null, [droneRig, mercRig], all5, skillDogma).perCycle, fitYield(hulk, msm2, 2, null, [], all5, skillDogma).perCycle);
+  const mdcsm2 = T(24305, 483, { 77: 80, 73: 45000, 182: 3386, 183: 11395, 604: 663, 605: 482, 5967: 0.01, 5969: 2, 3154: 34, 3153: 1 });
+  const mercA2 = T(18608, 663, { 782: 1.8, 3161: 1, 3160: 3.6, 3159: 0 });
+  near('  but the Mercoxit rig reaches deep-core lasers: +16%', fitYield(hulk, mdcsm2, 2, mercA2, [mercRig], all5, skillDogma).perCycle / fitYield(hulk, mdcsm2, 2, mercA2, [], all5, skillDogma).perCycle, 1.16, 1e-12);
+  near('a Hulk on Mercoxit at all V, two deep-core strip miners on Type A II, three MLU II: 80 × 1.8 × … a laser', fitYield(hulk, mdcsm2, 2, mercA2, [mlu2, mlu2, mlu2], all5, skillDogma).perCycle, 80 * 1.8 * 1.15 * 1.3 * 1.5625 * 1.09 ** 3, 1e-9);
   // Catalyst's crits: Mining Precision 90727 (6049 = 10 a level), Mining Exploitation 90728 (6050 = 5 a level), chipsets.
   const crits = { ...skillDogma, 90727: T(90727, 1218, { 6049: 10 }), 90728: T(90728, 1218, { 6050: 5 }) };
   const chip2 = T(2333, 49, { 6049: 20, 6050: 20, 6053: -20 }, [12759, 12760, 12761]);
@@ -1303,7 +1307,20 @@ console.log('\n--- mining yields, from dogma ---');
 
 console.log('\n--- mining fits ---');
 {
-  const { oreFamily, mainFamily, crystalName, eftText, fitMultibuy, fittingBody, fitItems, oreBase, gradeLabel, gradeRank, isMinedForm } = await import('../src/lib/miningFits.ts');
+  const { oreFamily, mainFamily, crystalName, eftText, fitMultibuy, fittingBody, fitItems, oreBase, gradeLabel, gradeRank, isMinedForm, mercoxitTier, DEEP_CORE_RIG } = await import('../src/lib/miningFits.ts');
+  // Calibration from ESI (30 September 2026): the deep-core rig 250 of a hull's 400.
+  const cal = { [DEEP_CORE_RIG]: 250, 'Medium EM Shield Reinforcer II': 75, 'Medium Core Defense Field Extender II': 75, 'Medium Core Defense Field Extender I': 50, 'Medium Processor Overclocking Unit II': 300 };
+  const rigCost = (n) => cal[n] ?? null;
+  const proc = { key: 'solid', what: '', high: [{ name: 'Modulated Strip Miner II', qty: 2 }], mid: [], low: [], rigs: [{ name: 'Medium Core Defense Field Extender II', qty: 2 }, { name: 'Medium EM Shield Reinforcer II' }], crystal: { kind: 'B II', spares: 2 }, train: [], source: '' };
+  const m = mercoxitTier(proc, rigCost, 400, true);
+  eq('Mercoxit: strip miners swap for deep-core ones, crystals to Type A of the same tech', [m.tier.high, m.tier.crystal, m.swapped], [[{ name: 'Modulated Deep Core Strip Miner II', qty: 2 }], { kind: 'A II', spares: 2 }, [['Modulated Strip Miner II', 'Modulated Deep Core Strip Miner II']]]);
+  eq('  the deep-core rig takes a shield reinforcer’s place when the calibration fits (75 + 75 + 250)', [m.rig, m.tier.rigs], [{ added: true, replaced: 'Medium EM Shield Reinforcer II' }, [{ name: 'Medium Core Defense Field Extender II', qty: 2 }, { name: DEEP_CORE_RIG, qty: 1 }]]);
+  const hulk = { ...proc, rigs: [{ name: 'Medium Processor Overclocking Unit II' }, { name: 'Medium Core Defense Field Extender II' }] };
+  eq('  never in place of a processor rig, and not past 400 calibration (300 + 250)', mercoxitTier(hulk, rigCost, 400, true).rig, { added: false, why: 'noRoom' });
+  eq('  small hulls have no deep-core rig to take', mercoxitTier({ ...proc, high: [{ name: 'Miner II', qty: 3 }], rigs: [] }, rigCost, 400, false).rig, { added: false, why: 'size' });
+  eq('  a starting fit without crystals gets Type A I; Miner IIs become Modulated Deep Core Miner IIs', ((x) => [x.tier.high[0].name, x.tier.crystal.kind])(mercoxitTier({ ...proc, high: [{ name: 'Miner II', qty: 3 }], crystal: undefined }, rigCost, 400, false)), ['Modulated Deep Core Miner II', 'A I']);
+  eq('  no version for a fit with no ore lasers (ice, a booster)', [mercoxitTier({ ...proc, high: [{ name: 'Ice Harvester II', qty: 2 }] }, rigCost, 400, true), mercoxitTier({ ...proc, high: [{ name: 'Mining Foreman Burst II' }] }, rigCost, 400, true)], [null, null]);
+  eq('  the Max tier adds Deep Core Mining V against gas clouds', mercoxitTier({ ...proc, key: 'max', train: [['Exhumers', 5]] }, rigCost, 400, true).tier.train, [['Exhumers', 5], ['Deep Core Mining', 5]]);
   eq('an ore’s base, for every grade and form (ESI’s names, one with a trailing space)', ['Scordite II-Grade', 'Scordite 0-Grade ', 'Batch Compressed Scordite', 'Glistening Zeolites', 'Dark Ochre IV-Grade', 'Zuthrine'].map(oreBase), ['Scordite', 'Scordite', 'Scordite', 'Zeolites', 'Dark Ochre', null]);
   eq('a grade’s label beside its base', [gradeLabel('Scordite', 'Scordite'), gradeLabel('Scordite 0-Grade ', 'Scordite'), gradeLabel('Brimful Zeolites', 'Zeolites')], ['Scordite', '0-Grade', 'Brimful']);
   eq('grades run poorest first', ['IV-Grade', 'Scordite', 'II-Grade', '0-Grade', 'III-Grade'].sort((a, b) => gradeRank(a, 'Scordite') - gradeRank(b, 'Scordite')), ['0-Grade', 'Scordite', 'II-Grade', 'III-Grade', 'IV-Grade']);
@@ -1312,7 +1329,7 @@ console.log('\n--- mining fits ---');
   const { MASTERY } = await import('../src/lib/miningMastery.ts');
   const { HULLS } = await import('../src/lib/miningTree.ts');
   eq('an ore’s crystal family, every grade and compressed form alike', ['Scordite', 'Compressed Massive Scordite', 'Dark Ochre III-Grade', 'Zeolites', 'Mercoxit', 'Tritanium'].map(oreFamily), ['Simple', 'Simple', 'Variegated', 'Ubiquitous Moon', 'Mercoxit', null]);
-  eq('crystals are named the game’s way', [crystalName('Simple', 'A II'), crystalName('Rare Moon', 'B I'), crystalName('Mercoxit', 'A II')], ['Simple Asteroid Mining Crystal Type A II', 'Rare Moon Mining Crystal Type B I', null]);
+  eq('crystals are named the game’s way', [crystalName('Simple', 'A II'), crystalName('Rare Moon', 'B I'), crystalName('Mercoxit', 'A II')], ['Simple Asteroid Mining Crystal Type A II', 'Rare Moon Mining Crystal Type B I', 'Mercoxit Asteroid Mining Crystal Type A II']);
   eq('the family is what most of your ore takes; Simple before you’ve mined', [mainFamily([{ name: 'Scordite', units: 10 }, { name: 'Kernite', units: 50 }, { name: 'Omber', units: 20 }]), mainFamily([])], ['Coherent', 'Simple']);
   const t = { key: 'solid', what: '', high: [{ name: 'Modulated Strip Miner II', qty: 2 }], mid: [{ name: 'Mining Survey Chipset II' }], low: [{ name: 'Mining Laser Upgrade II', qty: 3 }], rigs: [{ name: 'Medium Core Defense Field Extender II' }], drones: [{ name: 'Mining Drone II', qty: 5 }], crystal: { kind: 'B II', spares: 2 }, train: [], source: '' };
   const c = 'Simple Asteroid Mining Crystal Type B II';

@@ -80,9 +80,66 @@ export function gradeRank(label: string, base: string): number {
 }
 
 /** The crystal's name in the game: "Simple Asteroid Mining Crystal Type A II", "Rare Moon Mining Crystal Type B I". */
-export function crystalName(family: Family, kind: CrystalKind): string | null {
-  if (family === 'Mercoxit') return null;
+export function crystalName(family: Family, kind: CrystalKind): string {
   return `${family}${family.endsWith('Moon') ? '' : ' Asteroid'} Mining Crystal Type ${kind}`;
+}
+
+/**
+ * Mercoxit takes deep-core lasers, and the fits' own swap for them like for like (ESI, 30 September 2026): a Modulated
+ * Deep Core Strip Miner II takes a Modulated Strip Miner II's 60 CPU and 12 powergrid (a Strip Miner I's 60 and 10, an
+ * ORE Strip Miner's 50 and 10); a Modulated Deep Core Miner II takes 80 and 3 (Miner II 80 and 4, EP-S 65 and 3, Miner I
+ * 60 and 2). That's how miners do it: EVE Workbench's newest Skiff fit carries two deep-core strip miners and 80 Mercoxit
+ * crystals in its cargo for the swap.
+ */
+export const DEEP_CORE: Record<string, string> = {
+  'Modulated Strip Miner II': 'Modulated Deep Core Strip Miner II', 'Strip Miner I': 'Modulated Deep Core Strip Miner II',
+  'ORE Strip Miner': 'Modulated Deep Core Strip Miner II',
+  'Miner II': 'Modulated Deep Core Miner II', 'Miner I': 'Modulated Deep Core Miner II', 'ORE Miner': 'Modulated Deep Core Miner II',
+  'EP-S Gaussian Scoped Mining Laser': 'Modulated Deep Core Miner II',
+};
+const isDeepCore = (name: string) => /^Modulated Deep Core /.test(name);
+/** +16% on lasers that need Deep Core Mining, 250 of a hull's 400 calibration; there is no small or large one. */
+export const DEEP_CORE_RIG = 'Medium Deep Core Mining Optimization I';
+
+export type MercoxitFit = {
+  tier: Tier;
+  /** The lasers swapped, old name to new. */
+  swapped: [string, string][];
+  /** The deep-core rig: in place of `replaced`, no room beside the fit's rigs, or not made for this hull's rig size. */
+  rig: { added: true; replaced: string } | { added: false; why: 'noRoom' | 'size' };
+};
+
+/**
+ * A tier's Mercoxit version: its ore lasers swapped for deep-core ones, loaded with Mercoxit Type A crystals (what the
+ * Mercoxit miners lost on zKillboard carry: Type A II on 21 Procurers and 15 Mackinaws of their last 400, Type B II on 5
+ * Outriders; A leaves least residue on a scarce rock), tech II where the tier's own crystals were, and the deep-core
+ * rig in place of a tank rig (a shield reinforcer before a field extender, never a processor rig, which the fit's CPU may
+ * lean on) when the calibration still fits. Null for a fit with no ore lasers (ice, or a booster with none).
+ */
+export function mercoxitTier(t: Tier, rigCost: (name: string) => number | null, calibration: number, mediumRigs: boolean): MercoxitFit | null {
+  const swapped = t.high.filter((x) => DEEP_CORE[x.name]).map((x): [string, string] => [x.name, DEEP_CORE[x.name]]);
+  if (!swapped.length && !t.high.some((x) => isDeepCore(x.name))) return null;
+  const high = t.high.map((x) => (DEEP_CORE[x.name] ? { ...x, name: DEEP_CORE[x.name] } : x));
+  const crystal = { kind: (t.crystal?.kind.endsWith('II') ? 'A II' : 'A I') as CrystalKind, spares: t.crystal?.spares ?? 2 };
+  let rigs = t.rigs;
+  let rig: MercoxitFit['rig'] = { added: false, why: mediumRigs ? 'noRoom' : 'size' };
+  if (mediumRigs && !t.rigs.some((x) => x.name === DEEP_CORE_RIG)) {
+    const flat = t.rigs.flatMap((x) => Array.from({ length: n(x) }, () => x.name));
+    const order = [/Shield Reinforcer/, /Core Defense Field Extender/].flatMap((re) => flat.map((nm, i) => (re.test(nm) ? i : -1)).filter((i) => i >= 0));
+    const cost = (nm: string) => rigCost(nm);
+    for (const i of order) {
+      const rest = flat.filter((_, j) => j !== i);
+      const costs = [...rest, DEEP_CORE_RIG].map(cost);
+      if (costs.some((c) => c == null)) continue;
+      if ((costs as number[]).reduce((a, b) => a + b, 0) > calibration) continue;
+      rig = { added: true, replaced: flat[i] };
+      const next = [...rest, DEEP_CORE_RIG];
+      rigs = [...new Set(next)].map((name) => ({ name, qty: next.filter((x) => x === name).length }));
+      break;
+    }
+  }
+  const train: [string, number][] = t.key === 'max' ? [...t.train, ['Deep Core Mining', 5]] : t.train;
+  return { tier: { ...t, high, crystal, rigs, train }, swapped, rig };
 }
 
 /**

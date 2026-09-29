@@ -307,10 +307,10 @@ const ORE_KEY = 'jita-ledger:mining-ore';
 const readOre = (): number | null => { try { const v = Number(localStorage.getItem(ORE_KEY)); return v > 0 ? v : null; } catch { return null; } };
 const saveOre = (t: number | null) => { try { if (t == null) localStorage.removeItem(ORE_KEY); else localStorage.setItem(ORE_KEY, String(t)); } catch { /* the pick just isn't kept */ } };
 
-/** Every base ore's ID, resolved once by name. Mercoxit is left out: the fits' lasers can't mine it. */
+/** Every base ore's ID, resolved once by name. */
 let baseIds: Promise<Record<string, number>> | null = null;
 function oreBaseIds(): Promise<Record<string, number>> {
-  baseIds ??= resolveIds(FAMILIES.filter(([f]) => f !== 'Mercoxit').flatMap(([, ores]) => ores))
+  baseIds ??= resolveIds(FAMILIES.flatMap(([, ores]) => ores))
     .then((x) => Object.fromEntries((x.inventory_types ?? []).map((t) => [t.name, t.id])))
     .catch((e) => { baseIds = null; throw e; });
   return baseIds;
@@ -388,7 +388,7 @@ function ScalingUp({ here, paceOf, measured, mostMined, minedBases }: {
           <span className="cl">Ore</span>
           <select id="mine-ore" value={base ?? ''} onChange={(e) => { const id = ids?.[e.target.value]; if (id) choose(id); }} style={{ minWidth: 190 }}>
             {!base && <option value="">{oreName ?? 'Loading…'}</option>}
-            {FAMILIES.filter(([f]) => f !== 'Mercoxit').map(([f, ores]) => (
+            {FAMILIES.map(([f, ores]) => (
               <optgroup key={f} label={f.endsWith('Moon') ? `${f} ore` : `${f} ores`}>
                 {ores.filter((o) => ids?.[o] || o === base).map((o) => <option key={o} value={o}>{o}{minedBases.has(o) ? ' · you mine it' : ''}</option>)}
               </optgroup>
@@ -407,7 +407,7 @@ function ScalingUp({ here, paceOf, measured, mostMined, minedBases }: {
         )}
       </div>
       <MiningTree here={here} paceOf={paceOf}>
-        {(hull, price) => <MasteryTiers hull={hull} family={family} ore={oreName ?? 'your ore'} iskPerM3={iskPerM3} fromRate={fromRate} hullPrice={price} />}
+        {(hull, price) => <MasteryTiers hull={hull} family={family} ore={oreName ?? 'your ore'} oreId={ore} iskPerM3={iskPerM3} fromRate={fromRate} hullPrice={price} />}
       </MiningTree>
       <SkillStrip title="Skills that raise your yield" lines={[
         { name: 'Mining', id: 3386, what: '+5% ore yield a level, in every ship.' },
