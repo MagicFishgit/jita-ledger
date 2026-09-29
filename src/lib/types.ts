@@ -37,6 +37,13 @@ export type JournalEntry = {
   secondPartyId?: number;
   description?: string;
   reason?: string;
+  /**
+   * Set only in the netted view (refunds.ts), never stored: a fee a GM refunded, or the refund, reads as zero and keeps
+   * its original amount here; `refundId` / `refundOf` name the other half of the pair.
+   */
+  refunded?: number;
+  refundId?: string;
+  refundOf?: string;
 };
 
 export type Order = {

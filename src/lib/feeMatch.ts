@@ -53,7 +53,9 @@ function pick(list: JournalEntry[] | undefined, claimed: Set<string>, expected: 
   let best: JournalEntry | null = null;
   for (const e of list ?? []) {
     if (claimed.has(e.id)) continue;
-    if (!best || Math.abs(Math.abs(e.amount) - expected) < Math.abs(Math.abs(best.amount) - expected)) best = e;
+    // By the amount charged, or for a fee a GM refunded (zero in the netted journal), the amount it was.
+    const size = (x: JournalEntry) => Math.abs(x.refunded ?? x.amount);
+    if (!best || Math.abs(size(e) - expected) < Math.abs(size(best) - expected)) best = e;
   }
   return best;
 }
@@ -82,14 +84,21 @@ export function matchFees(journal: JournalEntry[], orders: Order[], txs: Tx[], r
     versions.forEach((v, i) => {
       const r = rateAt(v.issued);
       const full = Math.max(100, r.f * v.price * o.volumeTotal);
-      const change = Math.max(100, r.k * v.price * v.remain);
+      // Raising a price also pays the broker fee on the increase, on every unit left: the user's Ghoul bid raised from
+      // 1,882 to 2,012 paid 333 k where its other changes paid ~254 k, and their fat-fingered relist from 1,893 to
+      // 1,893,000 paid 467.7 M. Without it, a big raise was matched to a smaller fee in the same second.
+      const prev = i > 0 ? versions[i - 1] : null;
+      const raise = prev && v.price > prev.price ? r.f * (v.price - prev.price) * v.remain : 0;
+      const change = Math.max(100, r.k * v.price * v.remain + raise);
       // The first version seen is usually the placement, but if the app first saw the order after its
       // price had already been changed, it's a change: the fee's size tells the two apart.
       const expectPlacement = i === 0;
       const e = pick(fees.get(second(v.issued)), claimed, expectPlacement ? full : change);
       if (e) claimed.add(e.id);
       const amount = e ? Math.abs(e.amount) : expectPlacement ? full : change;
-      const isPlacement = expectPlacement && (!e || amount >= PLACEMENT_SHARE * r.f * v.price * o.volumeTotal);
+      // A refunded fee charges nothing but is told apart by what it was.
+      const size = e ? Math.abs(e.refunded ?? e.amount) : amount;
+      const isPlacement = expectPlacement && (!e || size >= PLACEMENT_SHARE * r.f * v.price * o.volumeTotal);
       const fee: OrderFee = { at: v.issued, amount, actual: !!e, remain: v.remain, journalId: e?.id, value: v.price * (isPlacement ? o.volumeTotal : v.remain) };
       if (isPlacement) placement = fee;
       else { relists.push(fee); if (e) relistIds.add(e.id); }

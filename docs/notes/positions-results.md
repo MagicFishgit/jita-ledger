@@ -105,6 +105,18 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   marked (shown, "· copy", worth nothing, and counted apart in the note under the list), and a ship's things under
   where they sit, as the game lists them (`bayOf`: Fitted, Cargo hold, Drone bay…). The user also asked about a Sigil
   showing nothing: ESI sends it packaged, and a packaged ship holds nothing.
+- **A fee a GM refunded counts as nothing, everywhere** (`refunds.ts`: `refundPairs`, `nettedJournal`). The user's
+  fat-fingered Sniper listing (19,489 Caldari Navy Uranium Charge S placed at 1,893,000 instead of 1,893) paid a
+  467,749,600.65 ISK placing fee on 28 September 2026; CCP support refunded exactly that the same evening as a
+  `gm_cash_transfer` from Caldari Navy, "Ticket #2734940". Counted as they came, the fee stayed on the snipe, in Results
+  and in what standings are worth (~36 billion ISK of phantom trading), and the refund was "Other income". Now a GM
+  transfer for exactly a fee's amount, from the party it was paid to, within 30 days, pairs with the latest such fee;
+  in the view figures use, both read zero. The fee keeps its original amount (`refunded`) so fee matching still tells
+  a placing fee from a change and doesn't estimate one in its place. The stored journal is untouched; the Wallet says
+  what was left out. Checked on the user's ledger: the order's placing fee reads 0 (467,749,601 before), Other income
+  +4.45 M, Fees & tax −208.66 M. While there, a raise's expected fee gained the broker fee on the increase
+  (`matchFees`): the Ghoul's raise paid 333 k against ~254 k for its plain changes, and without it a big raise was
+  matched to a smaller fee in the same second.
 - **Net worth keeps one snapshot a day in this browser** (`Data.netWorth`), written by the Wallet page. ESI has no
   net-worth history, so the trend starts the first day the page is opened and says so.
 - **Goals are five kinds, each measured from something the app reads** (`lib/goals.ts`): afford N of an item

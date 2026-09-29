@@ -35,7 +35,8 @@ export function brokerFeesPaid(journal: Record<string, JournalEntry>, now: numbe
   measured: Map<string, number> = new Map()): FeesPaid {
   let paid = 0, base = 0, count = 0, exact = 0, from: string | null = null;
   for (const e of Object.values(journal)) {
-    if (e.refType !== 'brokers_fee') continue;
+    // A fee a GM refunded (zero in the netted journal) was no trading.
+    if (e.refType !== 'brokers_fee' || e.amount === 0) continue;
     paid += -e.amount;
     const day = measured.get(e.date.slice(0, 10));
     if (day != null) exact++;

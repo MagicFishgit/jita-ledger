@@ -2590,6 +2590,33 @@ console.log('\n--- listing loot through the Sell window ---');
   eq('the import block: name, a tab, the price as the window reads it', [importBlock(plan, 'point'), importPrice(1234.5, 'comma'), importPrice(40000, 'point')], ['Good Loot\t99.99', '1234,50', '40000']);
 }
 
+console.log('\n--- a fee a GM refunded counts as nothing ---');
+{
+  const { refundPairs, withRefunds } = await import('../src/lib/refunds.ts');
+  const { matchFees } = await import('../src/lib/feeMatch.ts');
+  const { brokerFeesPaid } = await import('../src/lib/standings.ts');
+  const { categoryOf } = await import('../src/lib/wallet.ts');
+  // The user's own entries (28 September 2026): the fat-fingered relist's fee, and CCP's refund of it.
+  const fee = { id: '26087466253', date: '2026-09-28T01:24:26Z', refType: 'brokers_fee', amount: -467749600.65, firstPartyId: 95210486, secondPartyId: 1000035, description: 'Market order commission to broker authorized by: FIREDASH Visagie' };
+  const gm = { id: '26090617268', date: '2026-09-28T22:54:39Z', refType: 'gm_cash_transfer', amount: 467749600.65, firstPartyId: 1000035, secondPartyId: 95210486, description: 'GM [18706980] issued transaction between Caldari Navy and FIREDASH Visagie', reason: 'Ticket #2734940' };
+  const other = { id: 'x1', date: '2026-09-28T01:24:26Z', refType: 'brokers_fee', amount: -1200, secondPartyId: 1000035 };
+  const pairs = refundPairs([fee, gm, other]);
+  eq('the refund pairs with the fee it returns, to the cent', pairs.map((p) => [p.feeId, p.refundId, p.reason]), [['26087466253', '26090617268', 'Ticket #2734940']]);
+  eq('  not a transfer of another amount, from another party, before the fee, or over 30 days after', [
+    refundPairs([fee, { ...gm, amount: 467749600 }]).length, refundPairs([fee, { ...gm, firstPartyId: 1000132 }]).length,
+    refundPairs([{ ...fee, date: '2026-09-29T00:00:00Z' }, gm]).length, refundPairs([fee, { ...gm, date: '2026-11-01T00:00:00Z' }]).length], [0, 0, 0, 0]);
+  const net = withRefunds({ [fee.id]: fee, [gm.id]: gm, [other.id]: other });
+  eq('both read as nothing, the fee keeping what it was; others untouched', [net[fee.id].amount, net[fee.id].refunded, net[gm.id].amount, net[other.id].amount], [0, -467749600.65, 0, -1200]);
+  eq('  so the Wallet counts neither as income or a cost', [categoryOf(net[gm.id]), categoryOf(net[fee.id])], [null, null]);
+  eq('  and what standings are worth leaves it out', Math.round(brokerFeesPaid(net, Date.parse('2026-09-29T00:00:00Z'), () => 0.013).paid), 1200);
+  // The order that paid it: placed at 1,893, fat-fingered to 1,893,000, all 19,489 still on it.
+  const order = { orderId: 7, typeId: 34, isBuy: false, price: 1893000, volumeTotal: 19489, volumeRemain: 19489, issued: fee.date, state: 'cancelled', locationId: 60003760,
+    seen: [{ issued: '2026-09-28T01:20:30Z', price: 1893, remain: 19489 }, { issued: fee.date, price: 1893000, remain: 19489 }] };
+  const rate = () => ({ f: 0.0133, t: 0.036, k: 0.00266, d: 0.8, be: 0 });
+  const m = matchFees(Object.values(net), [order], [], rate).byOrder.get(7);
+  eq('the order keeps the fee matched, at nothing, not an estimate in its place', [m.relists.length, m.relists[0]?.amount, m.relists[0]?.actual], [1, 0, true]);
+}
+
 console.log('\n--- an item\'s daily rhythm ---');
 {
   const { busyHours, busySaid, spreadAtHour } = await import('../src/lib/rhythm.ts');

@@ -7,6 +7,7 @@ import { monthlyGain, trainingDays, type Pace } from '../lib/training';
 import { SKILL_FALLBACK_IDS, type SkillKey } from '../lib/config';
 import type { Data } from '../lib/store';
 import { iskBig } from '../lib/format';
+import { nettedJournal } from '../lib/refunds';
 
 const DAY = 86400_000;
 
@@ -19,7 +20,7 @@ export function recentPace(d: Data): Pace {
     // Every market sale is taxed, tracked by a position or not.
     sales: Object.values(d.txs).filter((t) => !t.isBuy && t.source === 'esi' && Date.parse(t.date) >= from).reduce((a, t) => a + t.qty * t.unitPrice, 0),
     ordersPlaced: Object.values(d.orders).filter((o) => Date.parse(o.issued) >= from).reduce((a, o) => a + o.price * o.volumeTotal, 0),
-    relistFees: feeLeak(Object.values(d.journal), from, feeMatchesFor(d, d.settings).relistIds).relists,
+    relistFees: feeLeak(Object.values(nettedJournal(d.journal)), from, feeMatchesFor(d, d.settings).relistIds).relists,
   };
 }
 

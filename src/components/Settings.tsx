@@ -29,6 +29,7 @@ import { downloadText, LevelBoxes } from './common';
 import { CloneSwitch } from './Omega';
 import { useSkillPayback } from './payback';
 import { Check, cssVars, Notice, NumChip, PageHead, Seg, Tip } from './ui';
+import { nettedJournal } from '../lib/refunds';
 
 type Tab = 'account' | 'skills' | 'rates' | 'alerts' | 'appearance' | 'data' | 'scan';
 const TABS: Tab[] = ['account', 'skills', 'rates', 'alerts', 'appearance', 'data', 'scan'];
@@ -395,7 +396,7 @@ function StandingsWorth() {
   // the rate on record.
   const matches = feeMatchesFor(d, s);
   const measured = useMemo(() => measuredRates(matches.byOrder, d.journal), [matches, d.journal]);
-  const fp = useMemo(() => brokerFeesPaid(d.journal, now, (iso) => rateAt(d.meta.rateHistory, Date.parse(iso), r).f, measured),
+  const fp = useMemo(() => brokerFeesPaid(nettedJournal(d.journal), now, (iso) => rateAt(d.meta.rateHistory, Date.parse(iso), r).f, measured),
     [d.journal, d.meta.rateHistory, r.f, now, measured]); // eslint-disable-line react-hooks/exhaustive-deps
   const days = [...measured.keys()].sort();
   const w = useMemo(() => standingsWorth(fp.base, br, s.faction, s.corp), [fp.base, br, s.faction, s.corp]);

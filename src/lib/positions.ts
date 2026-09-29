@@ -3,6 +3,7 @@ import { rateAt, rates, type Settings } from './fees';
 import type { Data } from './store';
 import { matchFees, type FeeMatches } from './feeMatch';
 import type { HistRow, Order, Position, Tx } from './types';
+import { nettedJournal } from './refunds';
 
 const ts = (iso: string) => Date.parse(iso);
 
@@ -68,7 +69,8 @@ export function feeMatchesFor(d: Data, s: Settings): FeeMatches {
     // The discount on price changes comes from Advanced Broker Relations, which isn't in the rate history.
     return { f: r.f, t: r.t, k: (1 - now.d) * r.f };
   };
-  const result = matchFees(Object.values(d.journal), Object.values(d.orders), Object.values(d.txs), rateAtIso);
+  // Fees a GM refunded count as nothing (refunds.ts).
+  const result = matchFees(Object.values(nettedJournal(d.journal)), Object.values(d.orders), Object.values(d.txs), rateAtIso);
   matchCache = { journal: d.journal, orders: d.orders, txs: d.txs, hist: d.meta.rateHistory, k: now.k, result };
   return result;
 }

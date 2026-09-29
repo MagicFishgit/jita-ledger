@@ -3,7 +3,7 @@ import {
   ChevronRight, Crosshair, FileSpreadsheet, Flame, HandCoins, Image as ImageIcon, MapPin, ShieldCheck, TriangleAlert, Wallet as WalletIcon,
 } from 'lucide-react';
 import { JITA_44, SCOPE } from '../lib/config';
-import { fmtDate, fmtDateTime, fmtShort, iskBig, iskBigSigned, pct, units } from '../lib/format';
+import { fmtDate, fmtDateTime, fmtShort, isk, iskBig, iskBigSigned, pct, units } from '../lib/format';
 import { navigate, useAuth, useNow } from '../lib/hooks';
 import { resolveNames, roughPricesShared, setDestination } from '../lib/market';
 import { priceStore, storeRate } from '../lib/lpStore';
@@ -23,6 +23,7 @@ import { Goals } from './Goals';
 import { AssetSafety } from './AssetSafety';
 import { downloadBlob, downloadText, useTypeName } from './common';
 import { BarLine, cssVars, Empty, Figure, PageHead, Panel, Seg, Tiles } from './ui';
+import { nettedJournal, refundsIn } from '../lib/refunds';
 
 const DAY = 86400_000;
 /** How old a loyalty-point valuation can get before the Wallet prices the store again. */
@@ -111,7 +112,9 @@ export function Wallet() {
   const [days, setDaysState] = useState<Days>(readDays);
   const setDays = (v: Days) => { setDaysState(v); try { localStorage.setItem(DAYS_KEY, String(v)); } catch { /* private window */ } };
   const since = days === 1 ? now - DAY : startOfUtcDay(now) - (days - 1) * DAY;
-  const journal = useMemo(() => Object.values(d.journal), [d.journal]);
+  // Fees a GM refunded, and the refunds, count as nothing (refunds.ts); the note under the flows says so.
+  const journal = useMemo(() => Object.values(nettedJournal(d.journal)), [d.journal]);
+  const refunds = useMemo(() => refundsIn(d.journal), [d.journal]);
   const txList = useMemo(() => Object.values(d.txs).filter((t) => t.source === 'esi'), [d.txs]);
   const hasWallet = (auth?.scopes ?? []).includes(WALLET_SCOPE);
 
@@ -384,6 +387,11 @@ export function Wallet() {
             <span className="v" style={{ fontSize: 16, color: net >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{iskBigSigned(net)}</span>
           </div>
           <p className="note small">Everything that moved ISK is in the journal, so nothing is missing here. Trades are read from your transactions, which name the item; buy-order escrow is left out so a purchase isn’t counted twice. Anything you picked up rather than paid for — loot, salvage, ore — only shows once you sell it.</p>
+          {refunds.length > 0 && (
+            <p className="note small" style={{ margin: 0 }}>
+              {refunds.map((p) => `A GM refunded ${isk(p.amount)} of ${p.refType === 'brokers_fee' ? 'broker fees' : 'sales tax'} on ${fmtShort(Date.parse(p.refundAt))}${p.reason ? ` (${p.reason})` : ''}`).join('; ')}: {refunds.length === 1 ? 'the fee and the refund are' : 'those fees and refunds are'} both left out of these figures, and everywhere else a fee counts.
+            </p>
+          )}
         </Panel>
         <WhereItSits d={d} value={value} rough={rough} sellValue={sellValue} escrow={escrow} lp={lp} now={now} hasAssets={!!d.stock} />
       </div>

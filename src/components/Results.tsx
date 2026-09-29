@@ -16,6 +16,7 @@ import type { Activity } from '../lib/types';
 import { useEnsureNames, useTypeName } from './common';
 import { flip } from './Prospects';
 import { Guide, NumChip, PageHead, Panel, Seg, Tiles } from './ui';
+import { nettedJournal } from '../lib/refunds';
 
 const DAY = 86400_000;
 /** 0 is everything the ledger holds. */
@@ -108,7 +109,7 @@ export function Results() {
     const losses = Object.values(d.killmails)
       .filter((k) => k.kind === 'loss' && k.value && lossActs[k.id])
       .map((k) => ({ t: Date.parse(k.time), activity: LOSS_ACTIVITY[lossActs[k.id]], isk: netLoss(k) }));
-    return attribute({ txs, journal: Object.values(d.journal), tracked, realized, losses, sets: { ...sets, abyssLoot }, salesTax: rates(d.settings).t });
+    return attribute({ txs, journal: Object.values(nettedJournal(d.journal)), tracked, realized, losses, sets: { ...sets, abyssLoot }, salesTax: rates(d.settings).t });
   }, [sets, d.txs, d.journal, d.positions, d.names, d.killmails, lossActs, posCalc, d.settings]);
 
   const acts = ACTIVITIES;
