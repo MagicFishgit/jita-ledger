@@ -7,7 +7,7 @@ import { reachedAsk, recentRange } from '../lib/fills';
 import { ago, fmtDateTime, isk, iskBig, iskBigSigned, pct, units, until } from '../lib/format';
 import { marketHistory } from '../lib/market';
 import { feeMatchesFor } from '../lib/positions';
-import { followSnipe, groupBuys, instantBuys, judgeTaken, notSnipeIds, type Sighting } from '../lib/sniped';
+import { followSnipe, groupBuys, instantBuys, judgeTaken, notFitted, notSnipeIds, type Sighting } from '../lib/sniped';
 import { JITA_44 } from '../lib/constants';
 import type { HistRow } from '../lib/types';
 import { navigate, useNow } from '../lib/hooks';
@@ -51,8 +51,8 @@ function YourSnipes({ now }: { now: number }) {
     if (!types.length || !cloudEnabled() || !cloud.started) return;
     cloudSightings(types).then(setSeen).catch(() => undefined);
   }, [key, cloud.started]); // eslint-disable-line react-hooks/exhaustive-deps
-  const taken = useMemo(() => (hist ? judgeTaken(groups, (t) => hist[t], (iso) => rateAt(d.meta.rateHistory, Date.parse(iso), r), seen) : []),
-    [groups, hist, seen, d.meta.rateHistory, r.f, r.t]); // eslint-disable-line react-hooks/exhaustive-deps
+  const taken = useMemo(() => (hist ? notFitted(judgeTaken(groups, (t) => hist[t], (iso) => rateAt(d.meta.rateHistory, Date.parse(iso), r), seen), d.stock?.fitted) : []),
+    [groups, hist, seen, d.meta.rateHistory, r.f, r.t, d.stock?.fitted]); // eslint-disable-line react-hooks/exhaustive-deps
   useEnsureNames(taken.map((x) => x.typeId));
   // One outcome per item, from its first snipe on, so two snipes of one item aren't counted twice.
   const items = useMemo(() => {
@@ -136,7 +136,7 @@ function YourSnipes({ now }: { now: number }) {
                   </tbody>
                 </table>
               </div>
-              <p className="note small" style={{ margin: 0 }}>Only the units you sniped are followed: the first sold after a snipe count as its own, and listing fees are shared by units between them and anything of your own listed alongside. Left out: buys tagged Personal, ones you said weren’t snipes, and anything bought in one go with other items (a fitting’s Buy All, the Multibuy window).</p>
+              <p className="note small" style={{ margin: 0 }}>Only the units you sniped are followed: the first sold after a snipe count as its own, and listing fees are shared by units between them and anything of your own listed alongside. Left out: buys tagged Personal, ones you said weren’t snipes, anything bought in one go with other items (a fitting’s Buy All, the Multibuy window), and anything now fitted to one of your ships.</p>
             </>
           )}
       <NotSnipes />

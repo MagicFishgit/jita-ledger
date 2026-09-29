@@ -140,6 +140,8 @@ export type Stock = {
   holding?: Record<number, number>;
   /** Units in `jita` that are assembled: a container or ship in use, or a blueprint original. Absent on older syncs. */
   assembled?: Record<number, number>;
+  /** Units fitted to one of your ships, charges in guns included (esiRecords.ts). Absent on older syncs. */
+  fitted?: Record<number, number>;
 };
 
 /** What a scan learned about one item's trading, reduced from ESI's daily history. */

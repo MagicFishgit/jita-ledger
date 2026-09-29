@@ -109,6 +109,11 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   now inside a ship); the others were a SKIN (activated, so never held), a guidance disruptor and some Scorch L, each
   bought alone, which no rule can tell from a snipe. On their ledger the rule also took out a Warp Core Stabilizer II
   bought with five other items (8.67 M), and nothing else: none of the 15 real snipes had another item within minutes.
+  **Nor is anything now fitted to one of your ships** (`notFitted`, the stock record's `fitted`: units in a high, mid,
+  low, rig, subsystem or service slot of any ship you own, charges loaded in guns included). The user's rule: "if an item
+  is fit to a ship either quickly or later then it wasn't a snipe". It takes as many fitted as the snipe bought, so a
+  module you already flew and then sniped more of to sell, or a few charges loaded from a big ammo snipe, don't clear it.
+  Assets are read hourly by the cloud and on each sync, so a fit shows within the hour.
 - **"Place and leave" prices a plan behind the front on purpose** (`ProspectFilters.patient`, the planner's Pricing
   choice). The user's longer-term strategy is large orders in many items that fill over weeks, without the 0.01 war.
   Both sides are priced where the bulk of trading reached on half the last 14 days (`reachedBid` / `reachedAsk`, the

@@ -8,7 +8,7 @@ import { useAuth, useNow } from '../lib/hooks';
 import { HELD_WHY, IN_USE_CATEGORIES, importBlock, judgeLoot, lootTotals, parseLoot, planLoot, type LootCall, type LootHeld, type LootMarket, type LootRow } from '../lib/lootList';
 import { resolveIds } from '../lib/market';
 import { jitaOpen } from '../lib/orderCheck';
-import { groupBuys, instantBuys, judgeTaken, notSnipeIds, snipesHeld } from '../lib/sniped';
+import { groupBuys, instantBuys, judgeTaken, notFitted, notSnipeIds, snipesHeld } from '../lib/sniped';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { typeKind } from '../lib/universe';
@@ -182,7 +182,7 @@ export function Loot() {
       // Snipes you still hold: your listing buys judged as the Sniper page judges them, on the history just read.
       const ids = new Set(list.map((it) => it.typeId));
       const taken = judgeTaken(snipeGroups.filter((g) => ids.has(g.typeId) && hist[g.typeId]?.length), (t) => hist[t], (iso) => rateAt(d.meta.rateHistory, Date.parse(iso), r));
-      for (const id of snipesHeld(taken, Object.values(d.txs)).keys()) if (!kind[id]) kind[id] = 'sniped';
+      for (const id of snipesHeld(notFitted(taken, d.stock?.fitted), Object.values(d.txs)).keys()) if (!kind[id]) kind[id] = 'sniped';
       setKinds({ ...kind });
       setMarkets(out); setReadAt(Date.now());
     } catch (e) {

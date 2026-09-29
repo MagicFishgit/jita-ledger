@@ -54,6 +54,16 @@ export function notSnipeIds(txs: Tx[], notSnipes: Iterable<string>): Set<string>
   return new Set([...notSnipes, ...multibuys(txs).flatMap((g) => g.txIds)]);
 }
 
+/**
+ * Snipes whose item is now fitted to one of your ships, as many units as were bought or more: bought to fly, not to
+ * sell, however cheap. The user's rule (29 September 2026): "if an item is fit to a ship either quickly or later then it
+ * wasn't a snipe". A module you already flew and then sniped more of to sell reads as fitted too, which is why it takes
+ * as many fitted as the snipe bought; a few charges loaded from a big ammo snipe don't.
+ */
+export function notFitted<T extends { typeId: number; units: number }>(taken: T[], fitted: Record<number, number> | undefined): T[] {
+  return fitted ? taken.filter((x) => (fitted[x.typeId] ?? 0) < x.units) : taken;
+}
+
 export type BuyGroup = { id: string; typeId: number; at: string; txIds: string[]; units: number; cost: number; avg: number; prices: number[] };
 
 /** Buys of the same item close together, as one snipe each. */

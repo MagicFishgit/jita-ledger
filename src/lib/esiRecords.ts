@@ -42,6 +42,11 @@ export type StockRecord = {
   holding?: Record<number, number>;
   /** Units in `jita` that are assembled (ESI's `is_singleton`): a container or ship in use, or a blueprint original. */
   assembled?: Record<number, number>;
+  /**
+   * Units fitted to one of your ships (a high, mid, low, rig, subsystem or service slot), anywhere, charges loaded in a
+   * gun included: what was bought to fly, not to sell (the Sniper leaves such buys out). Absent on older reads.
+   */
+  fitted?: Record<number, number>;
 };
 
 /**
@@ -233,6 +238,7 @@ export function countStock(raw: RawAsset[], jitaId: number): StockRecord {
   const nested: Record<number, number> = {};
   const holding: Record<number, number> = {};
   const assembled: Record<number, number> = {};
+  const fitted: Record<number, number> = {};
   const stations = new Set(raw.filter((a) => a.location_type === 'station').map((a) => a.location_id));
   const itemIds = new Set(raw.map((a) => a.item_id));
   // Asset safety: each wrap and everything inside it, at any depth. They are yours and count in the total, but are
@@ -293,6 +299,7 @@ export function countStock(raw: RawAsset[], jitaId: number): StockRecord {
     if (a.is_blueprint_copy) continue;
     if (a.type_id === ASSET_SAFETY_WRAP) continue;
     total[a.type_id] = (total[a.type_id] ?? 0) + a.quantity;
+    if (a.location_type === 'item' && bayOf(a.location_flag) === 'Fitted') fitted[a.type_id] = (fitted[a.type_id] ?? 0) + a.quantity;
     if (safe.has(a.item_id)) continue;
     if (a.location_id === jitaId && a.location_flag === 'Hangar') {
       jita[a.type_id] = (jita[a.type_id] ?? 0) + a.quantity;
@@ -309,7 +316,7 @@ export function countStock(raw: RawAsset[], jitaId: number): StockRecord {
       loc[a.type_id] = (loc[a.type_id] ?? 0) + a.quantity;
     }
   }
-  return { at: new Date().toISOString(), jita, total, inContainers, byLocation, nested, safety, holding, assembled };
+  return { at: new Date().toISOString(), jita, total, inContainers, byLocation, nested, safety, holding, assembled, fitted };
 }
 
 /**

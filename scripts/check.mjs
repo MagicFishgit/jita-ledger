@@ -1794,6 +1794,7 @@ console.log('\n--- asset safety ---');
   // List loot reads the Jita hangar: the user's fitted Jackdaw and their Station Vault Containers with things in them
   // came up as loot to list (29 September 2026). They still count as stock; `holding` says which can't be sold as they are.
   eq('a fitted ship in the Jita hangar is stock, and marked as holding things', [s.jita[587], s.holding], [1, { 587: 1 }]);
+  eq('  what’s fitted to a ship is counted, in the wrap or not; what’s in a container isn’t', s.fitted, { 3001: 1, 2046: 1 });
   // The user's Station Vault Containers: "I am using those". Assembled ones are counted apart (ESI's is_singleton).
   const vaults = countStock([{ ...A(9020, 17367, JITA, 'Hangar', 'station'), is_singleton: true }, A(9021, 17367, JITA, 'Hangar', 'station')], JITA);
   eq('  an assembled container is stock, and counted as assembled; a packaged one isn’t', [vaults.jita[17367], vaults.assembled], [2, { 17367: 1 }]);
@@ -3330,6 +3331,11 @@ console.log('\n--- snipes you have taken ---');
   const skip = Sd.notSnipeIds([...fit, ...same, txs[0]], ['c']);
   eq('  bought in one go with other items: not a snipe', fit.every((t) => skip.has(t.id)), true);
   eq('  but several listings of one item in a row still can be, and a lone buy is judged as ever', [same.some((t) => skip.has(t.id)), skip.has('a'), skip.has('c')], [false, false, true]);
+  // "If an item is fit to a ship either quickly or later then it wasn't a snipe" (the user, 29 September 2026).
+  const snipes = [{ typeId: 6001, units: 1 }, { typeId: 25861, units: 1 }, { typeId: 23013, units: 19_489 }, { typeId: 5321, units: 3 }];
+  eq('  a snipe whose item is fitted to one of your ships is left out; a few charges loaded from a big ammo snipe don’t count',
+    Sd.notFitted(snipes, { 6001: 1, 25861: 2, 23013: 200, 5321: 1 }).map((x) => x.typeId), [23013, 5321]);
+  eq('  and nothing changes before assets say what’s fitted', Sd.notFitted(snipes, undefined).length, 4);
   const groups = Sd.groupBuys(bought);
   eq('  buys a minute apart are one snipe', groups.map((g) => [g.txIds, g.units, Math.round(g.avg)]), [[['c'], 5, 19_000_000], [['a', 'b'], 24, 15_016_667]]);
   // Trading got up to about 20.4 M on half of the 14 days before.
