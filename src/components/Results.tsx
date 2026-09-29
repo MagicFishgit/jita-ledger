@@ -12,6 +12,7 @@ import { classify } from '../lib/killmails';
 import { netLoss, type CombatActivity } from '../lib/combat';
 import { update, useData } from '../lib/store';
 import { ACTIVITIES } from '../lib/prefs';
+import { isFreelanceTrade } from '../lib/freelance';
 import type { Activity } from '../lib/types';
 import { useEnsureNames, useTypeName } from './common';
 import { flip } from './Prospects';
@@ -31,7 +32,7 @@ const bucketSaid = (t: number, unit: BucketUnit) => (unit === 'day' ? fmtShort(t
  */
 const everything = (typeId: number, excluded: string[]) => ({ id: `all:${typeId}`, typeId, openedAt: '2003-05-06T00:00:00Z', status: 'open' as const, jitaOnly: false, excluded, included: [] });
 const COLOR: Record<Activity, string> = {
-  Trading: 'var(--acc)', Loyalty: '#a98bff', Planets: '#6ee7a8', Hauling: 'var(--acc2)', Abyssal: '#ff8d9a', Combat: '#7aa6ff',
+  Trading: 'var(--acc)', Loyalty: '#a98bff', Planets: '#6ee7a8', Hauling: 'var(--acc2)', Abyssal: '#ff8d9a', Combat: '#7aa6ff', Freelance: '#f5b86b',
 };
 const WHAT: Record<Activity, string> = {
   Trading: 'Realized profit from your positions',
@@ -40,6 +41,7 @@ const WHAT: Record<Activity, string> = {
   Hauling: 'Courier rewards, less haulers lost',
   Abyssal: 'Abyssal loot sold, less filaments bought and ships lost',
   Combat: 'Bounties and missions, less ships lost',
+  Freelance: 'Freelance job rewards, less everything bought for the jobs (stock not yet delivered included; the Freelance tab shows profit on what’s delivered)',
 };
 const LOSS_ACTIVITY: Record<CombatActivity, Activity> = { Abyssal: 'Abyssal', Hauling: 'Hauling', PvP: 'Combat', PvE: 'Combat' };
 
@@ -109,8 +111,11 @@ export function Results() {
     const losses = Object.values(d.killmails)
       .filter((k) => k.kind === 'loss' && k.value && lossActs[k.id])
       .map((k) => ({ t: Date.parse(k.time), activity: LOSS_ACTIVITY[lossActs[k.id]], isk: netLoss(k) }));
-    return attribute({ txs, journal: Object.values(nettedJournal(d.journal)), tracked, realized, losses, sets: { ...sets, abyssLoot }, salesTax: rates(d.settings).t });
-  }, [sets, d.txs, d.journal, d.positions, d.names, d.killmails, lossActs, posCalc, d.settings]);
+    const jobs = d.meta.freelance?.jobs ?? [];
+    const personal = new Set(d.ignored);
+    const freelance = (tx: { id: string; typeId: number; date: string }) => !personal.has(tx.id) && isFreelanceTrade(jobs, tx);
+    return attribute({ txs, journal: Object.values(nettedJournal(d.journal)), tracked, realized, losses, sets: { ...sets, abyssLoot }, freelance, salesTax: rates(d.settings).t });
+  }, [sets, d.txs, d.journal, d.positions, d.names, d.killmails, lossActs, posCalc, d.settings, d.meta.freelance, d.ignored]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const acts = ACTIVITIES;
   const starts = bucketStarts(since, now, unit);

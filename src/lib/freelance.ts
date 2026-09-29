@@ -10,16 +10,15 @@
  * still wanted, and a per-player cap on 38 of the 381 (343 have none). You accept a job in game before delivering.
  * Pure.
  */
-import type { Endpoint } from './courier';
 
 export type RawFreelanceJob = {
   id: string; name: string; state: string;
   progress?: { current: number; desired: number };
   reward?: { initial: number; remaining: number };
-  details?: { expires?: string; creator?: { character?: { id: number; name: string }; corporation?: { id: number; name: string } } };
+  details?: { expires?: string; created?: string; creator?: { character?: { id: number; name: string }; corporation?: { id: number; name: string } } };
   configuration?: { method?: string; parameters?: Record<string, Record<string, Record<string, { values?: { value_type: string; values: string[] }[] }>>> };
   contribution?: { reward_per_contribution?: number; contribution_per_participant_limit?: number; submission_multiplier?: number };
-  access_and_visibility?: { acl_protected?: boolean };
+  access_and_visibility?: { acl_protected?: boolean; broadcast_locations?: { id: number; name?: string }[] };
 };
 
 export type DeliverJob = {
@@ -36,6 +35,11 @@ export type DeliverJob = {
   item: { kind: 'type' | 'group'; ids: number[] };
   /** Where it's delivered: the job's offices, a station or a player structure. */
   to: { kind: 'station' | 'structure'; id: number }[];
+  /**
+   * The solar systems it's broadcast in. The game lists a job only within 5 jumps of one of them (the Opportunities
+   * window: "Lists all Freelance Jobs broadcasted within 5 jumps"), so that's where you can accept it.
+   */
+  broadcast: number[];
 };
 
 /** A job read, or null when it isn't an open "Deliver" job this can judge. */
@@ -60,16 +64,21 @@ export function readDeliverJob(j: RawFreelanceJob): DeliverJob | null {
     corp: j.details?.creator?.corporation?.name ?? '', corpId: j.details?.creator?.corporation?.id ?? null,
     expires: j.details?.expires ?? null, perUnit, unitsLeft, perPlayer: cap != null && cap > 0 ? cap : null,
     item: { kind, ids }, to,
+    broadcast: (j.access_and_visibility?.broadcast_locations ?? []).map((b) => b.id).filter((id) => id > 0),
   };
 }
 
 export type DeliverCall = {
   job: DeliverJob;
-  /** The item to buy: the job's, or the one in its group that makes the most. */
+  /** The item bought most of; `types` has each item in a group job's buy. */
   typeId: number;
+  types: { typeId: number; units: number; cost: number }[];
   /** Units bought from the cheapest Jita listings while each costs less than the reward, up to what you may deliver. */
   units: number;
   cost: number;
+  /** The cheapest and dearest price paid: "costs 11.79" read as one price when it was the average of 11.76 to 11.79. */
+  low: number;
+  high: number;
   pay: number;
   profit: number;
   /** What stopped it at `units`: your cap on the job, what the job still wants, or the listings under the reward. */
@@ -81,53 +90,145 @@ export type DeliverCall = {
  * unit costs less than the job pays, up to your cap and what it still wants. Null when nothing listed is under the reward.
  */
 export function priceDeliver(job: DeliverJob, typeId: number, sells: { price: number; volume: number }[]): DeliverCall | null {
-  const cap = Math.min(job.perPlayer ?? Infinity, job.unitsLeft);
-  let units = 0, cost = 0;
-  for (const s of [...sells].sort((a, b) => a.price - b.price)) {
-    if (s.price >= job.perUnit || units >= cap) break;
-    const take = Math.min(s.volume, cap - units);
-    units += take;
-    cost += take * s.price;
-  }
-  if (units <= 0) return null;
-  const limit = units < cap ? 'listed' : job.perPlayer != null && job.perPlayer <= job.unitsLeft ? 'player' : 'left';
-  return { job, typeId, units, cost, pay: units * job.perUnit, profit: units * job.perUnit - cost, limit };
+  return bestDeliver(job, [typeId], () => sells);
 }
 
-/** The best way to fill a job: its item, or of a group's items the one that makes the most. */
+/**
+ * The best way to fill a job: the cheapest listings of every item it takes, cheapest first. A group job takes any item
+ * in its group one unit apiece, so its cheapest listings may be of several items; this first took only the one item
+ * that made most, and would have missed raw Scordite under the reward beside the compressed kind.
+ */
 export function bestDeliver(job: DeliverJob, typeIds: number[], sellsOf: (typeId: number) => { price: number; volume: number }[] | undefined): DeliverCall | null {
-  let best: DeliverCall | null = null;
-  for (const t of typeIds) {
-    const c = priceDeliver(job, t, sellsOf(t) ?? []);
-    if (c && (!best || c.profit > best.profit)) best = c;
+  const cap = Math.min(job.perPlayer ?? Infinity, job.unitsLeft);
+  const lots = typeIds.flatMap((t) => (sellsOf(t) ?? []).map((s) => ({ typeId: t, price: s.price, volume: s.volume }))).sort((a, b) => a.price - b.price);
+  const by = new Map<number, { typeId: number; units: number; cost: number }>();
+  let units = 0, cost = 0, low = Infinity, high = 0;
+  for (const s of lots) {
+    if (s.price >= job.perUnit || units >= cap) break;
+    const take = Math.min(s.volume, cap - units);
+    if (take <= 0) continue;
+    units += take;
+    cost += take * s.price;
+    low = Math.min(low, s.price);
+    high = Math.max(high, s.price);
+    const t = by.get(s.typeId) ?? { typeId: s.typeId, units: 0, cost: 0 };
+    t.units += take; t.cost += take * s.price;
+    by.set(s.typeId, t);
   }
-  return best;
+  if (units <= 0) return null;
+  const types = [...by.values()].sort((a, b) => b.units - a.units);
+  const limit = units < cap ? 'listed' : job.perPlayer != null && job.perPlayer <= job.unitsLeft ? 'player' : 'left';
+  return { job, typeId: types[0].typeId, types, units, cost, low, high, pay: units * job.perUnit, profit: units * job.perUnit - cost, limit };
+}
+
+/** A job's office as the tab judges it: where it is, whether ESI would describe it, and how it's reached from Jita. */
+export type Office = {
+  id: number; name: string | null; systemId: number | null; security: number | null;
+  /** A structure ESI wouldn't describe (you may not be able to dock), or one it wasn't asked about. */
+  unseen: 'cantSee' | 'unchecked' | null;
+  jumps: number | null; anyJumps: number | null; throughGank: boolean; aroundExtra: number | null;
+};
+
+/**
+ * Which of a job's offices to deliver to: one you can see before one you can't, high-sec reachable on a high-sec route
+ * before anything else, then the fewest jumps, then round the gank systems. The tab first took the first office listed:
+ * the user's Scordite job named Sankkasen, 5 jumps out, when it also took deliveries 3 or 4 jumps from Jita.
+ */
+export function bestOffice(offices: Office[]): Office | null {
+  const rank = (o: Office) => [o.unseen ? 1 : 0, o.jumps == null ? 1 : 0, o.jumps ?? o.anyJumps ?? 999, o.throughGank ? 1 : 0];
+  return [...offices].sort((a, b) => { const x = rank(a), y = rank(b); for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; })[0] ?? null;
+}
+
+/** Where you can accept a job: within 5 jumps (any route) of one of its broadcast systems, the nearest named. */
+export const BROADCAST_JUMPS = 5;
+export function whereToAccept(broadcast: number[], anyJumps: (system: number) => number | null): { fromJita: boolean; nearest: number | null; jumps: number | null } {
+  let nearest: number | null = null, jumps: number | null = null;
+  for (const b of broadcast) {
+    const d = anyJumps(b);
+    if (d != null && (jumps == null || d < jumps)) { jumps = d; nearest = b; }
+  }
+  return { fromJita: jumps != null && jumps <= BROADCAST_JUMPS, nearest, jumps };
 }
 
 export type DeliverFlag = 'cantSee' | 'unchecked' | 'lowsec' | 'noRoute' | 'gank' | 'expiring';
 
 /**
  * What to know before taking it: a delivery point you may not be able to dock at (a structure ESI won't describe to
- * you, or one it wasn't asked about), one below high-sec or with no high-sec route from Jita, a route through the gank
- * systems, and a job that ends within a day.
+ * you, or one it wasn't asked about), one below high-sec or with no high-sec route from Jita, a high-sec route that can
+ * only run through Uedama or Sivala (one that can go round them just costs the extra jumps, said beside it), and a job
+ * that ends within a day. The filters the user asked to have on by default hide the first three kinds.
  */
-export function deliverFlags(dest: Endpoint, jumps: number | null, throughGank: boolean, expires: string | null, now: number): DeliverFlag[] {
+export function deliverFlags(o: Office, expires: string | null, now: number): DeliverFlag[] {
   const out: DeliverFlag[] = [];
-  if (dest.kind === 'structure' && dest.systemId == null) out.push(dest.unchecked ? 'unchecked' : 'cantSee');
-  if (dest.security != null && dest.security < 0.45) out.push('lowsec');
-  if (dest.systemId != null && jumps == null) out.push('noRoute');
-  if (throughGank) out.push('gank');
+  if (o.unseen) out.push(o.unseen);
+  if (o.security != null && o.security < 0.45) out.push('lowsec');
+  if (o.systemId != null && o.jumps == null) out.push('noRoute');
+  if (o.throughGank && o.aroundExtra == null) out.push('gank');
   if (expires && Date.parse(expires) - now < 86400_000) out.push('expiring');
   return out;
 }
 
-/** A job you've joined, from /characters/{id}/freelance-jobs and its participation: how much you've delivered. */
-export type MyJob = { id: string; name: string; state: string; delivered: number; standing: string; perUnit: number | null; perPlayer: number | null; expires: string | null };
+/** The kinds of flag each default-on filter hides. */
+export const FILTER_HIDES = { highsec: ['lowsec', 'noRoute'], gank: ['gank'], dock: ['cantSee', 'unchecked'] } as const;
+
+/** A job you've joined, as kept for your records: what it takes, what it pays, when it began, how much you've delivered. */
+export type JoinedJob = {
+  id: string; name: string; state: string; standing: string; perUnit: number; perPlayer: number | null;
+  types: number[]; created: string | null; expires: string | null; delivered: number;
+};
+
+/** The job a reward is for: its journal entry's reason reads "project_id=<job id>:project_name=<name>". */
+export const rewardJob = (reason: string | undefined): string | null => /project_id=([0-9a-f-]{36})/i.exec(reason ?? '')?.[1] ?? null;
+
+export type JobLedger = {
+  rewards: number; payments: number;
+  /** What you bought of the items it takes since it began, and what you sold of them (leftovers, a mistake). */
+  bought: number; cost: number; sold: number; revenue: number;
+  /** Delivered, as the rewards say (each paid at the job's rate). */
+  delivered: number;
+  /** Profit on what's delivered so far: rewards, less the delivered units at your average cost, plus any leftovers sold. */
+  profit: number;
+  /** Bought and not yet delivered or sold, at your average cost. */
+  heldUnits: number; heldCost: number;
+};
 
 /**
- * What's left of your share on a job you're in: your cap less what you've delivered (null when there's no cap), and
- * what you've earned from it so far.
+ * Each job you've done, in ISK: the rewards your journal says it paid, and what the items it takes cost you. The user
+ * bought 38,132,412 Compressed Scordite 0-Grade for a job paying 17 each and asked what it cost and what it made; the
+ * rewards landed as "Other income" and the buys as untracked purchases, nothing tying them together. A trade counts for
+ * a job when its item is one the job takes and it's after the job began (to the latest-begun such job you're in),
+ * unless a position counts it or you tagged it Personal. Pure.
  */
-export function myShare(j: Pick<MyJob, 'delivered' | 'perUnit' | 'perPlayer'>): { left: number | null; earned: number | null } {
-  return { left: j.perPlayer != null ? Math.max(0, j.perPlayer - j.delivered) : null, earned: j.perUnit != null ? j.delivered * j.perUnit : null };
+export function jobLedgers(jobs: JoinedJob[], journal: { date: string; refType: string; amount: number; reason?: string }[],
+  txs: { id: string; typeId: number; date: string; isBuy: boolean; qty: number; unitPrice: number }[], skip: ReadonlySet<string>): Map<string, JobLedger> {
+  const out = new Map<string, JobLedger>(jobs.map((j) => [j.id, { rewards: 0, payments: 0, bought: 0, cost: 0, sold: 0, revenue: 0, delivered: 0, profit: 0, heldUnits: 0, heldCost: 0 }]));
+  for (const e of journal) {
+    if (e.refType !== 'freelance_jobs_reward') continue;
+    const l = out.get(rewardJob(e.reason) ?? '');
+    if (l) { l.rewards += e.amount; l.payments++; }
+  }
+  const began = (j: JoinedJob) => (j.created ? Date.parse(j.created) : 0);
+  for (const t of txs) {
+    if (skip.has(t.id)) continue;
+    const at = Date.parse(t.date);
+    const j = jobs.filter((x) => x.types.includes(t.typeId) && began(x) <= at).sort((a, b) => began(b) - began(a))[0];
+    if (!j) continue;
+    const l = out.get(j.id)!;
+    if (t.isBuy) { l.bought += t.qty; l.cost += t.qty * t.unitPrice; } else { l.sold += t.qty; l.revenue += t.qty * t.unitPrice; }
+  }
+  for (const j of jobs) {
+    const l = out.get(j.id)!;
+    l.delivered = j.perUnit > 0 ? Math.round(l.rewards / j.perUnit) : j.delivered;
+    const avg = l.bought > 0 ? l.cost / l.bought : 0;
+    l.profit = l.rewards - avg * Math.min(l.delivered, l.bought) + (l.revenue - avg * l.sold);
+    l.heldUnits = Math.max(0, l.bought - l.delivered - l.sold);
+    l.heldCost = l.heldUnits * avg;
+  }
+  return out;
+}
+
+/** A trade for one of your freelance jobs: an item a job you've joined takes, traded after the job began. */
+export function isFreelanceTrade(jobs: Pick<JoinedJob, 'types' | 'created'>[], tx: { typeId: number; date: string }): boolean {
+  const at = Date.parse(tx.date);
+  return jobs.some((j) => j.types.includes(tx.typeId) && (!j.created || Date.parse(j.created) <= at));
 }

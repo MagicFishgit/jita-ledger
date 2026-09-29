@@ -73,6 +73,8 @@ export type AttributionInput = {
   /** What each ship lost cost after insurance, and what you were doing. */
   losses: { t: number; activity: Activity; isk: number }[];
   sets: TypeSets;
+  /** A trade for one of your freelance jobs (freelance.ts isFreelanceTrade), not tagged Personal. */
+  freelance?: (tx: { id: string; typeId: number; date: string }) => boolean;
   /** Used only for a sale whose tax the journal doesn't show. */
   salesTax: number;
 };
@@ -95,6 +97,8 @@ export function attribute(inp: AttributionInput): DayEvent[] {
     const gross = tx.qty * tx.unitPrice;
     const net = tx.isBuy ? -gross : gross - (taxByTx.get(tx.id) ?? gross * inp.salesTax);
     const { filaments, abyssLoot, pi, lpGoods } = inp.sets;
+    // Freelance: the items bought for a job, and any sold again, against its rewards below.
+    if (inp.freelance?.(tx)) { out.push({ t, activity: 'Freelance', isk: net }); continue; }
     if (filaments.has(tx.typeId) ? tx.isBuy : abyssLoot.has(tx.typeId) && !tx.isBuy) out.push({ t, activity: 'Abyssal', isk: net });
     else if (pi.has(tx.typeId) && !tx.isBuy) out.push({ t, activity: 'Planets', isk: net });
     else if (lpGoods.has(tx.typeId) && !tx.isBuy) out.push({ t, activity: 'Loyalty', isk: net });
@@ -104,6 +108,7 @@ export function attribute(inp: AttributionInput): DayEvent[] {
     if (e.refType.startsWith('planetary_') && e.refType.endsWith('_tax')) out.push({ t, activity: 'Planets', isk: e.amount });
     else if (e.refType === 'lp_store') out.push({ t, activity: 'Loyalty', isk: e.amount });
     else if (e.refType === 'contract_reward' && e.amount > 0) out.push({ t, activity: 'Hauling', isk: e.amount });
+    else if (e.refType === 'freelance_jobs_reward') out.push({ t, activity: 'Freelance', isk: e.amount });
     else if (categoryOf(e)?.key === 'bounties') out.push({ t, activity: 'Combat', isk: e.amount });
   }
   for (const l of inp.losses) out.push({ t: l.t, activity: l.activity, isk: -l.isk });

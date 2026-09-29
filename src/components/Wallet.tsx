@@ -24,6 +24,7 @@ import { Goals } from './Goals';
 import { AssetSafety } from './AssetSafety';
 import { downloadBlob, downloadText, useEnsureNames, useShipTypes, useTypeName } from './common';
 import { contractSaid, type ContractItem } from '../lib/contracts';
+import { isFreelanceTrade } from '../lib/freelance';
 import { BarLine, cssVars, Empty, Figure, PageHead, Panel, Seg, Tiles } from './ui';
 import { nettedJournal, refundsIn } from '../lib/refunds';
 
@@ -37,10 +38,10 @@ type Days = 1 | 7 | 30 | 90;
 const DAYS_KEY = 'jita-ledger:wallet-days';
 
 const IN_COLOR: Record<string, string> = {
-  trading: 'var(--acc)', contracts: 'var(--acc2)', loot: '#eed79a', bounties: '#ff8d9a', courier: '#a98bff', insurance: '#90a5b8', donation: '#6ee7a8',
+  freelance: '#f5b86b', freelanceSales: '#f5b86b', trading: 'var(--acc)', contracts: 'var(--acc2)', loot: '#eed79a', bounties: '#ff8d9a', courier: '#a98bff', insurance: '#90a5b8', donation: '#6ee7a8',
 };
 const OUT_COLOR: Record<string, string> = {
-  stock: 'var(--acc)', personal: '#ff8d9a', fees: 'var(--acc2)', couriers: '#a98bff', rent: '#90a5b8', clones: '#90a5b8', skills: '#ff8d9a', travel: '#ff8d9a', lp: '#a98bff',
+  freelanceBuys: '#f5b86b', stock: 'var(--acc)', personal: '#ff8d9a', fees: 'var(--acc2)', couriers: '#a98bff', rent: '#90a5b8', clones: '#90a5b8', skills: '#ff8d9a', travel: '#ff8d9a', lp: '#a98bff',
 };
 const TAG_LOOK: Record<UntrackedTag, { sell: string; buy: string; c: string }> = {
   loot: { sell: 'Loot sale', buy: 'Loot', c: '#eed79a' },
@@ -135,10 +136,13 @@ export function Wallet() {
   const ships = useShipTypes(useMemo(() => multis.flatMap((g) => g.typeIds), [multis]));
   const fitted = useMemo(() => fittedShips(multis, (t) => ships.has(t)), [multis, ships]);
   const tagOf = (tx: Tx): UntrackedTag => (ignored.has(tx.id) ? 'personal' : d.tags[tx.id] ?? autoTag(tx, everBought, fitted));
-  const classOf = (tx: Tx): TradeClass => ({ tracked: tracked.has(tx.id), tag: tagOf(tx) });
+  // Trades for a freelance job you've joined (its items, after it began) count under Freelance unless you said otherwise.
+  const joined = d.meta.freelance?.jobs ?? [];
+  const freelance = (tx: Tx) => !ignored.has(tx.id) && !(tx.id in d.tags) && isFreelanceTrade(joined, tx);
+  const classOf = (tx: Tx): TradeClass => ({ tracked: tracked.has(tx.id), tag: tagOf(tx), freelance: freelance(tx) });
 
-  const f = useMemo(() => flows(journal, txList, classOf, since), [journal, txList, tracked, ignored, d.tags, fitted, since]); // eslint-disable-line react-hooks/exhaustive-deps
-  const f30 = useMemo(() => flows(journal, txList, classOf, now - 30 * DAY), [journal, txList, tracked, ignored, d.tags, fitted, Math.floor(now / 3600_000)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const f = useMemo(() => flows(journal, txList, classOf, since), [journal, txList, tracked, ignored, d.tags, fitted, d.meta.freelance, since]); // eslint-disable-line react-hooks/exhaustive-deps
+  const f30 = useMemo(() => flows(journal, txList, classOf, now - 30 * DAY), [journal, txList, tracked, ignored, d.tags, fitted, d.meta.freelance, Math.floor(now / 3600_000)]); // eslint-disable-line react-hooks/exhaustive-deps
   const series = useMemo(() => balanceSeries(journal, since), [journal, since]);
   const wallet = d.meta.walletBalance ?? series[series.length - 1]?.balance ?? null;
   const startBal = useMemo(() => balanceAt(journal, since), [journal, since]);
@@ -408,7 +412,7 @@ export function Wallet() {
       <AssetSafety d={d} rough={rough} />
 
       <Untracked d={d} txs={txList.filter((t) => !tracked.has(t.id) && Date.parse(t.date) >= since)} tagOf={tagOf} explicit={(id) => ignored.has(id) || id in d.tags}
-        multis={multis} ships={ships} periodWords={periodWords} />
+        multis={multis} ships={ships} freelance={freelance} periodWords={periodWords} />
 
       <div className="g-300">
         <Panel title="The fee leak">
@@ -669,7 +673,7 @@ function WhereItSits(props: {
 /** A row of "Trades no position tracks": one trade, or purchases made in one go. */
 type UntrackedRow = { kind: 'tx'; tx: Tx; at: string } | { kind: 'multi'; g: Multibuy; txs: Tx[]; at: string };
 
-function Untracked(props: { d: Data; txs: Tx[]; tagOf: (tx: Tx) => UntrackedTag; explicit: (id: string) => boolean; multis: Multibuy[]; ships: ReadonlySet<number>; periodWords: string }) {
+function Untracked(props: { d: Data; txs: Tx[]; tagOf: (tx: Tx) => UntrackedTag; explicit: (id: string) => boolean; multis: Multibuy[]; ships: ReadonlySet<number>; freelance: (tx: Tx) => boolean; periodWords: string }) {
   const { d, txs, tagOf } = props;
   const name = useTypeName();
   const [all, setAll] = useState(false);
@@ -715,11 +719,11 @@ function Untracked(props: { d: Data; txs: Tx[]; tagOf: (tx: Tx) => UntrackedTag;
         <td className="l" style={inGroup ? { paddingLeft: 40 } : undefined}><span className="name" style={{ fontWeight: 400, fontSize: 13.5 }}>{name(tx.typeId)}</span></td>
         <td className="l" style={{ color: 'var(--sec)', fontFamily: 'var(--f-body)' }}>{tx.isBuy ? 'Bought' : 'Sold'} <span style={{ color: 'var(--faint)' }}>{fmtShort(tx.date)}</span></td>
         <td>{units(tx.qty)}</td>
-        <td className="l" style={{ color: 'var(--note)', fontFamily: 'var(--f-body)', whiteSpace: 'normal' }}>{inGroup && !props.explicit(tx.id) ? '' : why(tx, tag)}</td>
+        <td className="l" style={{ color: 'var(--note)', fontFamily: 'var(--f-body)', whiteSpace: 'normal' }}>{inGroup && !props.explicit(tx.id) ? '' : props.freelance(tx) ? `${tx.isBuy ? 'Bought' : 'Sold'} for a freelance job you’re in: counted under Freelance` : why(tx, tag)}</td>
         <td style={{ color: tx.isBuy ? 'var(--neg-t)' : 'var(--pos)' }}>{tx.isBuy ? '−' : '+'}{iskBig(tx.qty * tx.unitPrice)}</td>
         <td className="l">
-          <button type="button" className="tag-btn" style={cssVars({ '--c': look.c })} onClick={() => setTag(tx, nextTag(tag))}
-            data-tip="Click to change what this counts as: loot sale, personal, trading, or other.">{tx.isBuy ? look.buy : look.sell}</button>
+          <button type="button" className="tag-btn" style={cssVars({ '--c': props.freelance(tx) ? '#f5b86b' : look.c })} onClick={() => setTag(tx, nextTag(tag))}
+            data-tip="Click to change what this counts as: loot sale, personal, trading, or other.">{props.freelance(tx) ? 'Freelance' : tx.isBuy ? look.buy : look.sell}</button>
         </td>
         <td>{!inGroup && (tag === 'trading' || tag === 'other') && !hasOpen && <button type="button" className="link-btn" onClick={() => start(tx)}>Start a position</button>}</td>
       </tr>

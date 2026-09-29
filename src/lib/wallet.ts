@@ -32,6 +32,7 @@ const IN: Record<string, Category> = {
   courier: { key: 'courier', label: 'Courier rewards' },
   donation: { key: 'donation', label: 'Donations received' },
   insurance: { key: 'insurance', label: 'Insurance' },
+  freelance: { key: 'freelance', label: 'Freelance rewards' },
   other: { key: 'otherIn', label: 'Other income' },
 };
 
@@ -58,6 +59,7 @@ export function categoryOf(e: Pick<JournalEntry, 'refType' | 'amount'>): Categor
   const r = e.refType;
   if (NEUTRAL.has(r) || e.amount === 0) return null;
   if (e.amount > 0) {
+    if (r === 'freelance_jobs_reward') return IN.freelance;
     if (has(['bounty_prizes', 'bounty_prize', 'agent_mission_reward', 'agent_mission_time_bonus_reward', 'ess_escrow_transfer',
       'mission_reward', 'mission_completion', 'corporate_reward_payout', 'daily_challenge_reward', 'milestone_reward_payment',
       'project_discovery_reward', 'season_challenge_reward', 'resource_wars_reward', 'opportunity_reward', 'agents_preward'], r)) return IN.bounty;
@@ -110,8 +112,8 @@ const REF_SAID: Record<string, string> = {
 };
 export const refSaid = (r: string) => REF_SAID[r] ?? (r.charAt(0).toUpperCase() + r.slice(1).replace(/_/g, ' '));
 
-/** How a trade counts in the flows: tracked trading, or something else. */
-export type TradeClass = { tracked: boolean; tag: UntrackedTag };
+/** How a trade counts in the flows: tracked trading, or something else. `freelance`: bought or sold for a freelance job. */
+export type TradeClass = { tracked: boolean; tag: UntrackedTag; freelance?: boolean };
 
 /**
  * Money in and money out over a window, grouped.
@@ -153,7 +155,8 @@ export function flows(
     const k = classOf(tx);
     const trading = k.tracked || k.tag === 'trading';
     const item = { key: `type:${tx.typeId}`, label: '', typeId: tx.typeId };
-    if (!tx.isBuy) add(trading ? { key: 'trading', label: 'Trading' } : { key: 'loot', label: 'Loot & other sales' }, v, item);
+    if (!k.tracked && k.freelance && k.tag !== 'personal') add(tx.isBuy ? { key: 'freelanceBuys', label: 'Bought for freelance jobs', kind: 'Business' } : { key: 'freelanceSales', label: 'Freelance items sold again' }, tx.isBuy ? -v : v, item);
+    else if (!tx.isBuy) add(trading ? { key: 'trading', label: 'Trading' } : { key: 'loot', label: 'Loot & other sales' }, v, item);
     else if (k.tag === 'personal') add({ key: 'personal', label: 'Personal purchases', kind: 'Personal' }, -v, item);
     else add(trading ? { key: 'stock', label: 'Stock bought to resell', kind: 'Business' } : { key: 'otherBuys', label: 'Other purchases' }, -v, item);
   }

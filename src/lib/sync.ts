@@ -5,6 +5,7 @@ import { ALPHA_CAPS, JITA_44, NPC_FALLBACK_IDS, NPC_NAMES, SCOPE, SKILL_FALLBACK
 import { parseSafetyNotice, withNotices } from './assetSafety';
 import { isStation, isStructure, structureInfo } from './universe';
 import { couriersDue, itemsToRead, readContracts, type ContractItem, type RawContract } from './contracts';
+import { readJoinedJobs } from './freelanceStore';
 import { loyaltyPoints, resolveIds, resolveNames } from './market';
 import { dataGeneration, getData, update, type Data } from './store';
 import { sanitizeSettings, type Settings } from './fees';
@@ -248,6 +249,11 @@ export async function syncCharacter(): Promise<void> {
         metaPatch.contracts = { at: new Date().toISOString(), list, items: Object.fromEntries(keepIds.map((id) => [id, items[id]])), places };
         read.push('contracts');
       } catch { /* the Wallet and To do go without */ }
+    }
+    // The freelance jobs you've joined, for the Wallet and Results to count their rewards against what their items cost.
+    if (hasScope(SCOPE.freelance)) {
+      try { metaPatch.freelance = { at: new Date().toISOString(), jobs: await readJoinedJobs(cid) }; read.push('freelance'); }
+      catch { /* read on a later sync */ }
     }
     // Industry jobs not yet delivered, with their facilities named, for To do (todo.ts, judgeIndustry).
     if (hasScope(SCOPE.industry)) {

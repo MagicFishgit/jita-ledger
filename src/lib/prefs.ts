@@ -20,7 +20,7 @@ export const TOAST_SECONDS: { value: number | null; label: string }[] = [
   { value: 5, label: '5 s' }, { value: 10, label: '10 s' }, { value: 20, label: '20 s' }, { value: 60, label: '1 min' }, { value: null, label: 'Until closed' },
 ];
 
-export const ACTIVITIES: Activity[] = ['Trading', 'Loyalty', 'Planets', 'Hauling', 'Abyssal', 'Combat'];
+export const ACTIVITIES: Activity[] = ['Trading', 'Loyalty', 'Planets', 'Hauling', 'Abyssal', 'Combat', 'Freelance'];
 
 export const DEFAULT_PREFS: Prefs = {
   theme: 'Caldari',

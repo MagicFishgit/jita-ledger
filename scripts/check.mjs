@@ -2718,15 +2718,25 @@ console.log('\n--- freelance jobs to deliver to ---');
   const o = priceDeliver(ore, 1224, [{ price: 18, volume: 50000 }, { price: 20.5, volume: 10000 }, { price: 21, volume: 99999 }]);
   eq('  uncapped: only what’s listed under the reward', [o.units, o.limit, Math.round(o.profit)], [60000, 'listed', Math.round(50000 * 3 + 10000 * 0.5)]);
   eq('  nothing listed under it: nothing to do', priceDeliver(ore, 1224, [{ price: 25, volume: 10 }]), null);
-  eq('  a group job takes the item in it that makes the most', bestDeliver(ore, [1, 2], (t) => (t === 1 ? [{ price: 20, volume: 10 }] : [{ price: 19, volume: 10 }])).typeId, 2);
+  // A group job takes any of its items one apiece: the cheapest listings of all of them, cheapest first.
+  const g = bestDeliver(ore, [1, 2], (t) => (t === 1 ? [{ price: 20, volume: 10 }, { price: 22, volume: 99 }] : [{ price: 19, volume: 10 }]));
+  eq('  a group job buys every item under the reward, cheapest first, with the price range', [g.units, g.types.map((x) => [x.typeId, x.units]), g.low, g.high], [20, [[2, 10], [1, 10]], 19, 20]);
+  const { bestOffice, whereToAccept, FILTER_HIDES } = await import('../src/lib/freelance.ts');
+  const O = (id, extra) => ({ id, name: String(id), systemId: 1, security: 0.9, unseen: null, jumps: 5, anyJumps: 5, throughGank: false, aroundExtra: null, ...extra });
+  eq('the office to deliver to: one you can see, on a high-sec route, fewest jumps, round the gank systems', [
+    bestOffice([O(1, { jumps: 5 }), O(2, { jumps: 3 }), O(3, { jumps: 2, unseen: 'cantSee' }), O(4, { jumps: null, anyJumps: 1, security: 0.2 })]).id,
+    bestOffice([O(1, { jumps: 3, throughGank: true, aroundExtra: 2 }), O(2, { jumps: 3 })]).id,
+  ], [2, 2]);
+  eq('where to accept: within 5 jumps of a broadcast system, the nearest named', [whereToAccept([10, 11], (s) => (s === 10 ? 9 : 4)), whereToAccept([10], () => 7), whereToAccept([], () => 1)],
+    [{ fromJita: true, nearest: 11, jumps: 4 }, { fromJita: false, nearest: 10, jumps: 7 }, { fromJita: false, nearest: null, jumps: null }]);
   const now = Date.parse('2026-10-04T12:00:00Z');
-  const { myShare } = await import('../src/lib/freelance.ts');
-  eq('your share of a job you’re in: what’s left of your cap, and what you’ve earned', [myShare({ delivered: 4, perUnit: 1000000, perPlayer: 10 }), myShare({ delivered: 40000, perUnit: 21, perPlayer: null })],
-    [{ left: 6, earned: 4000000 }, { left: null, earned: 840000 }]);
-  eq('flags: a structure ESI won’t describe, low-sec, no safe route, gank systems, ending within a day', [
-    deliverFlags({ kind: 'structure', systemId: null, security: null, name: null }, null, false, null, now),
-    deliverFlags({ kind: 'station', systemId: 1, security: 0.3, name: 'x' }, null, true, '2026-10-05T09:00:00Z', now),
-  ], [['cantSee'], ['lowsec', 'noRoute', 'gank', 'expiring']]);
+  eq('flags: a structure ESI won’t describe, low-sec, no high-sec route, gank systems only when there’s no way round, ending within a day', [
+    deliverFlags(O(1, { unseen: 'cantSee', systemId: null, jumps: null }), null, now),
+    deliverFlags(O(1, { security: 0.3, jumps: null }), '2026-10-05T09:00:00Z', now),
+    deliverFlags(O(1, { throughGank: true, aroundExtra: 3 }), null, now),
+    deliverFlags(O(1, { throughGank: true, aroundExtra: null }), null, now),
+  ], [['cantSee'], ['lowsec', 'noRoute', 'expiring'], [], ['gank']]);
+  eq('  and what the default filters hide', FILTER_HIDES, { highsec: ['lowsec', 'noRoute'], gank: ['gank'], dock: ['cantSee', 'unchecked'] });
 }
 
 console.log('\n--- blueprints and their contracts ---');
@@ -2792,6 +2802,47 @@ console.log('\n--- blueprints and their contracts ---');
     [{ price: 1134000000, where: 'market' }, { price: 1.1e9, where: 'contract' }, { price: 1.1e9, where: 'contract' }]);
   eq('a title that claims what the contract isn’t', [scamFlags({ copy: true, me: 9, te: 18, title: '10/20 Fully Researched BPO', stationId: 60003760 }), scamFlags({ copy: false, me: 10, te: 20, title: 'ME10 TE20', stationId: 60008494 })],
     [['saysOriginal', 'saysResearch'], ['notJita']]);
+}
+
+console.log('\n--- what each freelance job made ---');
+{
+  const { jobLedgers, rewardJob } = await import('../src/lib/freelance.ts');
+  // The user's Scordite job (29 September 2026): 38,132,412 bought at 11.76–11.79, then 813,258 at 21.96 by mistake and
+  // relisted; three rewards so far.
+  const id = 'b11ad07b-2c43-4136-8be1-fa88aedae466';
+  const job = { id, name: 'ISK Scordite best ISK for delivery', state: 'Active', standing: 'Committed', perUnit: 17, perPlayer: null, types: [92374, 1228], created: '2026-09-14T00:00:00Z', expires: null, delivered: 0 };
+  const reason = `project_id=${id}:project_name=ISK Scordite best ISK for delivery`;
+  eq('a reward names its job', rewardJob(reason), id);
+  const J = (amount) => ({ date: '2026-09-29T11:40:00Z', refType: 'freelance_jobs_reward', amount, reason });
+  const T = (tid, qty, unitPrice, isBuy = true, typeId = 92374) => ({ id: tid, typeId, date: '2026-09-29T11:30:00Z', isBuy, qty, unitPrice });
+  const l = jobLedgers([job], [J(231057235.19), J(255106158.37), J(90780000), { date: 'x', refType: 'bounty_prizes', amount: 5, reason }],
+    [T('a', 4909800, 11.76), T('b', 361663, 11.77), T('c', 32860949, 11.79), T('d', 813258, 21.96), T('p', 5, 1, true, 34), T('x', 99, 1)], new Set(['x'])).get(id);
+  const { isFreelanceTrade } = await import('../src/lib/freelance.ts');
+  eq('a freelance trade: an item a joined job takes, after it began', [isFreelanceTrade([{ types: [92374], created: '2026-09-14T00:00:00Z' }], { typeId: 92374, date: '2026-09-29T11:21:34Z' }),
+    isFreelanceTrade([{ types: [92374], created: '2026-09-30T00:00:00Z' }], { typeId: 92374, date: '2026-09-29T11:21:34Z' }), isFreelanceTrade([{ types: [92374], created: null }], { typeId: 34, date: 'x' })], [true, false, false]);
+  eq('its rewards, payments, what its items cost, delivered at its rate', [Math.round(l.rewards), l.payments, l.bought, Math.round(l.cost), l.delivered], [576943394, 3, 38945670, Math.round(4909800 * 11.76 + 361663 * 11.77 + 32860949 * 11.79 + 813258 * 21.96), 33937847]);
+  const avg = l.cost / l.bought;
+  eq('  profit on what’s delivered, and what’s bought and not yet delivered at average cost', [Math.round(l.profit), l.heldUnits, Math.round(l.heldCost)], [Math.round(576943393.56 - avg * 33937847), 38945670 - 33937847, Math.round((38945670 - 33937847) * avg)]);
+  const { categoryOf, flows } = await import('../src/lib/wallet.ts');
+  const { attribute } = await import('../src/lib/results.ts');
+  eq('the Wallet: a reward is Freelance rewards, not Other income', categoryOf({ refType: 'freelance_jobs_reward', amount: 1 }).label, 'Freelance rewards');
+  const fl = flows([], [T('a', 100, 12)], () => ({ tracked: false, tag: 'other', freelance: true }), 0);
+  eq('  and the items bought for it are their own line, not Other purchases', fl.outs.map((l) => [l.key, Math.round(l.amount)]), [['freelanceBuys', 1200]]);
+  const ev = attribute({ txs: [T('a', 100, 12)], journal: [J(1700)], tracked: new Set(), realized: [], losses: [], sets: { filaments: new Set(), abyssLoot: new Set(), pi: new Set(), lpGoods: new Set() }, freelance: () => true, salesTax: 0.03 });
+  eq('Results: Freelance is the rewards less what the items cost', ev.map((e) => [e.activity, Math.round(e.isk)]), [['Freelance', -1200], ['Freelance', 1700]]);
+  eq('  a trade before the job began, or tagged Personal, isn’t its', jobLedgers([{ ...job, created: '2026-09-30T00:00:00Z' }], [], [T('a', 10, 11)], new Set()).get(id).bought, 0);
+}
+
+console.log('\n--- jumps across the stargates ---');
+{
+  const { jumpsFrom, reachFrom, routeTo } = await import('../src/lib/jumps.ts');
+  // A little map: Jita (1) – A (2, high) – Uedama (3, high) – B (4, high); Jita – L (5, low) – B; A – C (6, high) – D (7) – B.
+  const g = { 1: [0.95, 'Jita', [2, 5]], 2: [0.8, 'A', [1, 3, 6]], 3: [0.5, 'Uedama', [2, 4]], 4: [0.7, 'B', [3, 5, 7]], 5: [0.3, 'L', [1, 4]], 6: [0.9, 'C', [2, 7]], 7: [0.6, 'D', [6, 4]], 8: [0.9, 'Island', []] };
+  const any = jumpsFrom(g, 1);
+  eq('jumps any way', [any.get(4), any.get(8)], [2, undefined]);
+  const r = reachFrom(g, 1, ['Uedama', 'Sivala']);
+  eq('B: 3 jumps in high-sec through Uedama, 4 round it; 2 through low-sec', routeTo(r, 4), { jumps: 3, anyJumps: 2, throughGank: true, aroundExtra: 1 });
+  eq('  L itself: no high-sec route', routeTo(r, 5).jumps, null);
 }
 
 console.log('\n--- a lost ship as a fitting ---');

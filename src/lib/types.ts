@@ -1,4 +1,5 @@
 import type { ContractItem, MyContract } from './contracts';
+import type { JoinedJob } from './freelance';
 import type { SafetyWrap } from './esiRecords';
 import type { BookSold, SplitFrom } from './split';
 import type { SkillKey } from './constants';
@@ -292,6 +293,8 @@ export type Meta = {
    * exchanges you were in (read once each, they don't change), and courier destinations' names.
    */
   contracts?: { at: string; list: MyContract[]; items: Record<number, ContractItem[]>; places: Record<number, string> };
+  /** The freelance jobs you've joined, as last read (freelanceStore.ts), for the Wallet, Results and the Freelance tab. */
+  freelance?: { at: string; jobs: JoinedJob[] };
   /** The skill queue as last synced, in order: each skill, the level it trains to, when (null while paused). */
   skillQueue?: { skillId: number; level: number; finish: string | null }[];
   /** Last time killmails were read. */
@@ -341,7 +344,7 @@ export type Killmail = {
 
 export type Theme = 'Caldari' | 'Amarr' | 'Gallente' | 'Minmatar';
 export type Motion = 'Full' | 'Calm' | 'Off';
-export type Activity = 'Trading' | 'Loyalty' | 'Planets' | 'Hauling' | 'Abyssal' | 'Combat';
+export type Activity = 'Trading' | 'Loyalty' | 'Planets' | 'Hauling' | 'Abyssal' | 'Combat' | 'Freelance';
 
 /** How the app looks and a few choices that belong to you rather than to a page. */
 export type Prefs = {

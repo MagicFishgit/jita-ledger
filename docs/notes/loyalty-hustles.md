@@ -109,6 +109,29 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
   `/characters/{id}/freelance-jobs` and each job's `/participation` (`contributed`, `Committed`/`Kicked`/`Resigned`) when
   it opens, and lists them with what's left of your cap and what you've earned (`myShare`). In the finder a job you're
   in says so, and a capped one counts only what's left of your share.
+  **Second version, after the user's Scordite job** (29 September 2026: 38,132,412 Compressed Scordite 0-Grade bought at
+  11.76–11.79, delivered 3–4 jumps out for 17 each, 576.94 M in rewards so far, ~170 M profit on what's delivered):
+  - **What's been done shows in ISK** (`jobLedgers`, `freelanceStore.ts`, `meta.freelance`): each reward's journal
+    reason names its job (`project_id=<id>`), and trades of the items a joined job takes, after it began, not in a
+    position or tagged Personal, are its spend. The tab's "Your jobs" shows rewards, spent, profit on what's delivered
+    (at average cost) and what's bought and not yet delivered. The Wallet has "Freelance rewards" (they were Other
+    income) and "Bought for freelance jobs" (they were Other purchases); Results has a Freelance activity (rewards less
+    everything bought, stock included, so it reads lower than the tab's profit until the stock is delivered).
+  - **A group job buys every item under the reward** (`bestDeliver`): it first took only the one item that made most.
+    The price shown is the range paid (11.76–11.79), since "costs 11.79" was read as one price when it was the average.
+  - **Where you can accept it**: the game lists a job only within 5 jumps of a system it's broadcast in
+    (`broadcast_locations`); the finder splits jobs you can accept from Jita from ones you'd accept elsewhere, naming
+    the nearest broadcast system (`whereToAccept`). You still buy in Jita.
+  - **The nearest office** (`bestOffice`): the tab took the first listed (Sankkasen, 5 jumps) when the job also took
+    deliveries 3–4 jumps out.
+  - **Filters on by default**, as the user asked: high-sec all the way (no low or null at the end or on the route),
+    avoid Uedama and Sivala (only when the high-sec route can't go round; one that can says the extra jumps), only
+    offices you can dock at. Each says how many it hides. Most out-of-range jobs they checked went to null-sec.
+  - **Distances come from CCP's stargate map**, bundled (`src/data/universeGraph.json`, 5,268 systems with gates, 281 KB,
+    its own chunk; `scripts/universe-graph.mjs`), walked by `jumps.ts`: any route, high-sec only, and high-sec avoiding
+    the gank systems, all from Jita at once, instead of one ESI route call per office and broadcast system.
+  The m³ was questioned: CCP's data and ESI both give 0.0015 m³ a unit of Compressed Scordite 0-Grade (0.15 raw, 0.19
+  the old Batch Compressed), so 38.13 M units are 57,199 m³ on the game's own figures.
 - **Reprocessing is a page of its own** (`lib/reprocess.ts` pure, `Reprocess.tsx`, `src/data/typeMaterials.json`). The
   user asked for it after the Experimental ZW-4100 Torpedo Launcher turned out to trade at its minerals' value. ESI has
   no type materials, so they're bundled from CCP's SDE (build 3552227, 28 September 2026; `scripts/type-materials.mjs`
