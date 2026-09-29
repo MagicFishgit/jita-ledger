@@ -67,6 +67,28 @@ export const SESSION_MS = 12 * 3600_000;
 export const WARNINGS: ReadonlySet<TodoKind> = new Set<TodoKind>(['scam', 'squeeze']);
 
 /**
+ * What an item wants from you: something to do, in game or here, or a warning to know about. The user asked to sift
+ * the list for what needs acting on and look at the rest when they want (29 September 2026).
+ */
+export type TodoFilter = 'all' | 'act' | 'info';
+export const needs = (k: TodoKind): 'act' | 'info' => (WARNINGS.has(k) ? 'info' : 'act');
+export const inFilter = (k: TodoKind, f: TodoFilter): boolean => f === 'all' || needs(k) === f;
+
+/**
+ * Ticks every one of `keys` still open by hand, as its box would: a chore for 12 hours, a warning until it changes.
+ * Items already done or ticked, or no longer remembered, are left as they are.
+ */
+export function tickAll(m: Memory, keys: string[], now: number): Memory {
+  const next = { ...m };
+  for (const k of keys) {
+    const cur = next[k];
+    if (!cur || cur.done || cur.ticked) continue;
+    next[k] = { ...cur, ticked: { ver: cur.item.ver, at: now } };
+  }
+  return next;
+}
+
+/**
  * Roughly how long each kind of task takes at the keyboard, for the total at the top. These are not
  * measured --- they are there so a list of twelve relists reads as a quarter of an hour, not an evening.
  */

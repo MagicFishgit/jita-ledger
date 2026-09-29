@@ -1959,6 +1959,13 @@ console.log('\n--- the cloud watchdog ---');
   eq('To do: a refused login isn’t done because it went missing', judgeCloudLogin(e, { readAt: T, kept: true, refused: false }), null);
   eq('  done on a newer read that finds it working', judgeCloudLogin(e, { readAt: T + 60_000, kept: true, refused: false }), 'The cloud has your login again.');
   eq('  and just gone when the login was dropped instead', judgeCloudLogin(e, { readAt: T + 60_000, kept: false, refused: false }), false);
+  const { needs, inFilter, tickAll } = await import('../src/lib/todo.ts');
+  eq('To do filter: warnings are for information, everything else needs action', ['move', 'scam', 'squeeze', 'backup', 'cloudLogin', 'piEnding'].map(needs), ['act', 'info', 'info', 'act', 'act', 'act']);
+  eq('  all shows both', [inFilter('scam', 'all'), inFilter('move', 'act'), inFilter('move', 'info')], [true, true, false]);
+  const mem = { a: { item: { key: 'a', ver: '1' }, seenAt: T, lastAt: T }, b: { item: { key: 'b', ver: '2' }, seenAt: T, lastAt: T, done: { at: T, how: 'x' } }, c: { item: { key: 'c', ver: '3' }, seenAt: T, lastAt: T, ticked: { ver: '3', at: T - 5 } } };
+  const ticked = tickAll(mem, ['a', 'b', 'c', 'z'], T + 1);
+  eq('  mark all ticks what’s open as its box would, and leaves the done, the already ticked and the unknown alone',
+    [ticked.a.ticked, ticked.b.ticked, ticked.c.ticked.at, 'z' in ticked], [{ ver: '1', at: T + 1 }, undefined, T - 5, false]);
 }
 
 console.log('\n--- a finished position: close it, don’t lose it ---');

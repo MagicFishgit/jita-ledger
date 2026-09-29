@@ -81,6 +81,13 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   stay listed 12 hours. The book cache in `market.ts` lets go at ESI's Expires rather than 5 minutes after our
   read, which had put a relist up to 10 minutes behind. A judge can also answer `false`: the item goes unticked,
   neither open nor done. That is what a suspicious-market warning does when its item leaves the set it covers.
+- **To do can be sifted** (`needs`, `inFilter`, `tickAll` in `lib/todo.ts`; the filter per browser in
+  `jita-ledger:todo-filter`). The user: "Some of the stuff is just informational but some like moving orders requires an
+  actual action. I would like to be able to sift through for example just ones that require actions and then go look at
+  the others... or press a mark all as done". All / Needs action / For information, with counts: warnings (a suspicious
+  market, a squeeze) are information, everything else is something to do. "Mark all as done" ticks what's shown as each
+  box would (a chore comes back after 12 hours if it still needs doing, a warning when it changes), leaving items being
+  re-checked alone; ticked ones can be unticked from Done.
 - **Suspicious-market warnings cover what you put ISK into**: open positions, open buy orders and the watchlist
   (`trackedTypes` in `signals.ts`), not items you only sell. The user's 118 loot items on sell orders filled To do
   with walls and spikes they didn't care about. A spike or escrow bait traps a buyer, and the queue ahead of a

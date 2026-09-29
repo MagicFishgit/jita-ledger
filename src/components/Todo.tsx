@@ -11,8 +11,8 @@ import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  judgeCloudLogin, judgeCourierJob, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, KIND_LABEL, MINUTES, remember, SESSION_MS, split, summarise, WARNINGS,
-  type Entry, type Memory, type TodoItem, type TodoKind,
+  inFilter, judgeCloudLogin, judgeCourierJob, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
+  type Entry, type Memory, type TodoFilter, type TodoItem, type TodoKind,
 } from '../lib/todo';
 import type { IndustryJob } from '../lib/types';
 import { couriersDue } from '../lib/contracts';
@@ -24,10 +24,12 @@ import { cloudCovers, useCloud } from '../lib/cloud';
 import { JITA_44 } from '../lib/config';
 import { toast } from '../lib/toast';
 import { canOpenInGame, copyPrice, downloadText, useEnsureNames, useTypeName } from './common';
-import { cssVars, Empty, Guide, PageHead, Ring } from './ui';
+import { cssVars, Empty, Guide, PageHead, Ring, Seg } from './ui';
 
 const DAY = 86400_000;
 const MEM_KEY = 'jita-ledger:todo';
+/** Which items the list shows: all, needing action, or for information. Per browser. */
+const FILTER_KEY = 'jita-ledger:todo-filter';
 /** Where the old page kept its ticks. Read once more, only to be removed. */
 const OLD_KEY = 'jita-ledger:tonight-done';
 /** ESI keeps its copy of a market book for five minutes, so a relist can't show sooner than that. */
@@ -359,7 +361,17 @@ export function Todo() {
   const present = useMemo(() => new Set(items.map((x) => x.key)), [items]);
   const view = useMemo(() => split(mem, present), [mem, present]);
   const sum = summarise(view);
-  const open = view.open;
+  // Needs action, or for information (warnings), or all: remembered in this browser.
+  const [filter, setFilterState] = useState<TodoFilter>(() => { try { const v = localStorage.getItem(FILTER_KEY); return v === 'act' || v === 'info' ? v : 'all'; } catch { return 'all'; } });
+  const setFilter = (f: TodoFilter) => { setFilterState(f); setSel(0); try { localStorage.setItem(FILTER_KEY, f); } catch { /* per browser only */ } };
+  const counts = { all: view.open.length, act: view.open.filter((o) => needs(o.e.item.kind) === 'act').length, info: view.open.filter((o) => needs(o.e.item.kind) === 'info').length };
+  const open = view.open.filter((o) => inFilter(o.e.item.kind, filter));
+  const markAll = () => {
+    const keys = open.filter((o) => !o.checking).map((o) => o.e.item.key);
+    if (!keys.length) return;
+    setMem((m) => { const next = tickAll(m, keys, Date.now()); saveMem(next); return next; });
+    toast(`Marked ${units(keys.length)} done. Any that still need doing come back: a chore after 12 hours, a warning when it changes.`);
+  };
 
   const toggle = (key: string) => setMem((m) => {
     const cur = m[key];
@@ -447,8 +459,22 @@ export function Todo() {
             </Empty>
           ) : (
             <>
+              {view.open.length > 0 && (
+                <div className="tn-filter">
+                  <Seg label="Show" size="sm" value={filter} onChange={setFilter} options={[
+                    { v: 'all', label: <>All <span className="tn-count">{units(counts.all)}</span></> },
+                    { v: 'act', label: <>Needs action <span className="tn-count">{units(counts.act)}</span></>, tip: 'Something to do: move or cancel an order, sell into bids, reset a colony, deliver a job, close a position, and the like.' },
+                    { v: 'info', label: <>For information <span className="tn-count">{units(counts.info)}</span></>, tip: 'Warnings to know about, nothing to click: a suspicious market, a margin being squeezed.' },
+                  ]} />
+                  <button type="button" className="link-btn" disabled={!open.some((o) => !o.checking)} onClick={markAll}
+                    data-tip="Ticks everything shown, as each box would. Most things tick themselves off anyway once the data shows them done.">
+                    <CheckCheck aria-hidden="true" />Mark all{filter === 'all' ? '' : ' shown'} as done
+                  </button>
+                </div>
+              )}
               {!open.length && (
-                <p className="tn-clear"><CheckCheck aria-hidden="true" />{loading ? 'Nothing left so far — still checking.' : 'Nothing left to do.'}</p>
+                <p className="tn-clear"><CheckCheck aria-hidden="true" />{loading ? 'Nothing left so far — still checking.'
+                  : view.open.length ? (filter === 'act' ? 'Nothing needs acting on.' : 'No warnings.') : 'Nothing left to do.'}</p>
               )}
               {open.map(({ e, checking }, i) => {
                 const x = e.item;
