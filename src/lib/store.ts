@@ -3,6 +3,7 @@ import { createStore, get, set, del, keys } from 'idb-keyval';
 import { DEFAULT_SETTINGS, rates, sanitizeSettings, type Settings } from './fees';
 import { DEFAULT_ALERTS, DEFAULT_PREFS, sanitizeAlerts, sanitizeLeave, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes, type SafetyTimesDoc } from './prefs';
 import { sanitizePlans, type TradePlan } from './plans';
+import type { MiningRecord } from './mining';
 import type {
   AlertConfig, AlertLogEntry, Goal, JournalEntry, Killmail, Meta, NetWorthPoint, Order, Position, Prefs,
   Stock, Tx, UntrackedTag, WatchItem,
@@ -47,13 +48,15 @@ export type Data = {
   notSnipes: string[];
   /** Capital planner mixes you started: what to buy, and the positions following them (plans.ts). Newest first. */
   plans: TradePlan[];
+  /** Your mining ledger, kept past ESI's 30 days: one record per character, day, system and ore (mining.ts). */
+  mining: Record<string, MiningRecord>;
   /** The asset safety countdowns you typed in (from the game's Assets → Asset Safety), by wrap. */
   safetyTimes: SafetyTimesDoc;
 };
 type Key = keyof Data;
 const KEYS: Key[] = [
   'settings', 'txs', 'journal', 'orders', 'positions', 'watchlist', 'names', 'ignored', 'stock', 'skills', 'meta',
-  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'safetyTimes', 'notSnipes', 'plans',
+  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'safetyTimes', 'notSnipes', 'plans', 'mining',
 ];
 
 const idb = createStore('jita-ledger', 'kv');
@@ -65,7 +68,7 @@ const empty = (): Data => ({
   settings: { ...DEFAULT_SETTINGS },
   txs: {}, journal: {}, orders: {}, positions: [], watchlist: [], names: {}, ignored: [], meta: {},
   prefs: { ...DEFAULT_PREFS }, alerts: { ...DEFAULT_ALERTS }, alertLog: [], goals: [], tags: {}, nearDone: [],
-  killmails: {}, netWorth: [], unusualOk: [], leave: [], safetyTimes: {}, notSnipes: [], plans: [],
+  killmails: {}, netWorth: [], unusualOk: [], leave: [], safetyTimes: {}, notSnipes: [], plans: [], mining: {},
 });
 
 let data: Data = empty();

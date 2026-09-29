@@ -1215,6 +1215,22 @@ eq('  with slots to spare, best return per day first as before', [plan2.ranked, 
     ['Placed: 50,000 at 7.', null, false]);
 }
 
+console.log('\n--- the mining ledger ---');
+{
+  const { readMining, miningKey, miningTicks, miningSnapshot, miningSessions } = await import('../src/lib/mining.ts');
+  const raw = [{ date: '2026-09-29', solar_system_id: 30000142, type_id: 1228, quantity: 12000 }, { date: '2026-09-29', solar_system_id: 30000142, type_id: 1230, quantity: 0 }];
+  const recs = readMining(raw, 95210486);
+  eq('ledger rows become records, keyed by the character that mined', [recs.length, miningKey(recs[0])], [1, '95210486:2026-09-29:30000142:1228']);
+  const T = Date.parse('2026-09-29T19:00:00Z'), M = 60_000;
+  eq('the first read is only a baseline', miningTicks(null, recs, T), []);
+  const later = [{ ...recs[0], qty: 15500 }, { charId: 95210486, date: '2026-09-29', systemId: 30000142, typeId: 17463, qty: 800 }];
+  eq('then what grew since, a new ore included', miningTicks(miningSnapshot(recs), later, T + 10 * M).map((t) => [t.typeId, t.qty]), [[1228, 3500], [17463, 800]]);
+  eq('  a row that shrank says nothing', miningTicks({ [miningKey(recs[0])]: 20000 }, recs, T), []);
+  const tick = (min, typeId, qty) => ({ at: T + min * M, systemId: 30000142, typeId, qty });
+  const s = miningSessions([tick(0, 1228, 3000), tick(10, 1228, 3100), tick(20, 17463, 900), tick(80, 1228, 2000), tick(90, 1228, 2500)]);
+  eq('ticks within 25 minutes of each other are one session; an hour apart, two', s.map((x) => [(x.end - x.start) / M, x.byType]), [[30, { 1228: 6100, 17463: 900 }], [20, { 1228: 4500 }]]);
+}
+
 console.log('\n--- hub arbitrage ---');
 const q = { typeId: 1, m3: 10, jitaBestBuy: 900, jitaBestSell: 1000, hubBestSell: 1300, hubUnitsPerDay: 1000, hubBuyers: 0.5 };
 let hub = priceHub(q, 'sells', { f: 0.015, t: 0.0338 }, 10, 7);

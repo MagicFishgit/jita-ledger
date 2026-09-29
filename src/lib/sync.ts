@@ -13,6 +13,7 @@ import { readKillmail, type RawKillmail } from './combat';
 import type { JournalEntry, Killmail, Meta, Order, Stock, Tx } from './types';
 import { mergeOrders } from './feeMatch';
 import { countStock, mergeSafety, nameHolders, unnamedHolders, toJournal, toOrder, toTx, type RawAsset, type RawCharOrder, type RawJournal, type RawTx, type SafetyNotice } from './esiRecords';
+import { miningKey, readMining, type MiningRecord, type RawMining } from './mining';
 
 const { wallet: WALLET, orders: ORDERS, skills: SKILLS, standings: STANDINGS, assets: ASSETS, loyalty: LOYALTY, killmails: KILLMAILS } = SCOPE;
 
@@ -163,7 +164,7 @@ export async function syncCharacter(): Promise<void> {
     let added = 0;
     const fetched: {
       txs?: Record<string, Tx>; journal?: Record<string, JournalEntry>; orders?: Record<string, Order>;
-      names?: Record<number, string>; stock?: Stock; killmails?: Record<string, Killmail>;
+      names?: Record<number, string>; stock?: Stock; killmails?: Record<string, Killmail>; mining?: Record<string, MiningRecord>;
     } = {};
     if (hasScope(WALLET)) {
       setState({ message: 'Reading wallet balance…' });
@@ -262,6 +263,14 @@ export async function syncCharacter(): Promise<void> {
       try { metaPatch.freelance = { at: new Date().toISOString(), jobs: await readJoinedJobs(cid) }; read.push('freelance'); }
       catch { /* read on a later sync */ }
     }
+    // The mining ledger (mining.ts): 30 days from ESI, kept as records so they outlive them.
+    if (hasScope(SCOPE.mining)) {
+      try {
+        const raw = await esiAllPages<RawMining>(`/characters/${cid}/mining/`, { auth: true });
+        fetched.mining = Object.fromEntries(readMining(raw, cid).map((r) => [miningKey(r), r]));
+        read.push('mining');
+      } catch { /* read on a later sync */ }
+    }
     // Industry jobs not yet delivered, with their facilities named, for To do (todo.ts, judgeIndustry).
     if (hasScope(SCOPE.industry)) {
       try {
@@ -353,6 +362,12 @@ export async function syncCharacter(): Promise<void> {
       if (fetched.orders) p.orders = mergeOrders(cur.orders, fetched.orders);
       if (fetched.names) p.names = { ...cur.names, ...fetched.names };
       if (fetched.killmails && Object.keys(fetched.killmails).length) p.killmails = { ...cur.killmails, ...fetched.killmails };
+      // A day's row grows as you mine; a row unchanged keeps its record, so nothing is pushed again for it.
+      if (fetched.mining && Object.keys(fetched.mining).length) {
+        const m = { ...cur.mining };
+        for (const [k, r] of Object.entries(fetched.mining)) if (m[k]?.qty !== r.qty) m[k] = r;
+        p.mining = m;
+      }
       if (allSkills) p.skills = allSkills;
       // Replaced wholesale, not merged: it is a snapshot of what you hold right now.
       // What the cloud learned about asset safety wraps (when each went in, its name) is kept, not overwritten.

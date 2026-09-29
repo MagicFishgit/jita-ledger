@@ -52,6 +52,7 @@ export const SCOPE = {
   fittingsRead: 'esi-fittings.read_fittings.v1', // your saved fittings, priced at today's Jita prices on Combat
   fittingsWrite: 'esi-fittings.write_fittings.v1', // save a lost ship's fit in game, so its Buy All re-buys it
   search: 'esi-search.search_structures.v1', // find a structure by name, for where you refine
+  mining: 'esi-industry.read_character_mining.v1', // your mining ledger: what you mined, where, and when, for Mining
 } as const;
 export const SCOPES: string[] = Object.values(SCOPE);
 
@@ -182,6 +183,11 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
     label: 'Your contracts',
     unlocks: 'To do lists courier contracts you’ve accepted with their deadline and the collateral at stake, and the Wallet names what the item exchanges you sold or bought held.',
     without: 'Couriers you’ve accepted aren’t tracked, and contract ISK shows without what it was for.',
+  },
+  'esi-industry.read_character_mining.v1': {
+    label: 'Mining ledger',
+    unlocks: 'Side hustles → Mining: what you mined by day, ore and system, what it was worth, your sessions and ISK an hour (the cloud reads it every 10 minutes), and the next step up.',
+    without: 'Mining shows nothing: EVE keeps your ledger for 30 days and the app can’t read it.',
   },
   'esi-industry.read_character_jobs.v1': {
     label: 'Industry jobs',

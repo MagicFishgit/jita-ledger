@@ -30,6 +30,7 @@ export const JOB_SAID: Record<string, { label: string; retry: string; meanwhile:
   scan: { label: 'The daily full-market scan', retry: 'every hour', meanwhile: 'Prospects and the planner work from the last scan that finished' },
   sniper: { label: 'The Sniper', retry: 'every five minutes', meanwhile: 'no mistake listings are found or mailed' },
   checks: { label: 'The daily checks', retry: 'every hour', meanwhile: 'the Sniper’s and your share’s records aren’t brought up to date' },
+  mining: { label: 'Reading your mining ledger', retry: 'every 10 minutes', meanwhile: 'mining isn’t turned into sessions, and nothing mined past ESI’s 30 days is kept by the cloud' },
 };
 
 /** An error that means the cloud's login no longer works: only logging in again fixes it. */

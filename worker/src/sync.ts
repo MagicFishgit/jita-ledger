@@ -8,7 +8,7 @@
  */
 
 export const RECORD_KINDS = new Set([
-  'txs', 'journal', 'orders', 'names', 'killmails', 'tags', 'positions', 'goals', 'watchlist', 'netWorth',
+  'txs', 'journal', 'orders', 'names', 'killmails', 'tags', 'positions', 'goals', 'watchlist', 'netWorth', 'mining',
 ]);
 // `costs` and `watch` are docs only the cloud reads: the browser's cost basis per item, for the alert checks,
 // and the items it asks to have watched (Prospects candidates, loyalty outputs), with the filters to judge them by.

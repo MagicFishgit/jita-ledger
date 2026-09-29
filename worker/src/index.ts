@@ -10,6 +10,7 @@ import { isOwner } from '../../src/lib/constants';
 import { alertRound, bookOf, judgeAll, leaveSummary, previewRound, testRound, trackRecord, trackSummary } from './alerts';
 import { dailyChecks, shareSummary } from './checks';
 import { watchdog } from './watchdog';
+import { miningTicksFor, readMiningRound } from './mining';
 import { fullScan, markScanStarted, scanDue, scanStatus, scanStream } from './scan';
 import { lastSnipes, sightings, sniperRound, snipeSummary } from './snipe';
 
@@ -50,6 +51,10 @@ async function fiveMinutes(env: Env) {
   for (const id of ledgers) {
     try { await refreshOrders(env, id); } catch (e) {
       await noteJob(env.DB, id, 'orders', { ok: false, error: e instanceof Error ? e.message : String(e) });
+    }
+    // The mining ledger, every ten minutes: sessions and records (mining.ts). Only with the mining permission.
+    try { await readMiningRound(env, id); } catch (e) {
+      await noteJob(env.DB, id, 'mining', { ok: false, error: e instanceof Error ? e.message : String(e) });
     }
   }
   try { console.log('market watch', JSON.stringify(await watchMarkets(env.DB))); } catch (e) { console.error('market watch failed', e); }
@@ -252,6 +257,10 @@ export default {
         return json({ dropped: purpose }, 200, c);
       }
       if (url.pathname === '/v1/jobs/archive' && request.method === 'POST') return json(await runArchive(env, who.charId), 200, c);
+      // The mining ledger's ticks (what grew between the cloud's reads), for the app's sessions.
+      if (url.pathname === '/v1/mining/ticks' && request.method === 'GET') {
+        return json(await miningTicksFor(env.DB, who.charId, Number(url.searchParams.get('days') ?? 30) || 30), 200, c);
+      }
       if (url.pathname === '/v1/jobs/market' && request.method === 'POST') return json(await watchMarkets(env.DB), 200, c);
       if (url.pathname === '/v1/alerts/test' && request.method === 'POST') return json(await testRound(env, who.charId), 200, c);
       if (url.pathname === '/v1/alerts/preview' && request.method === 'GET') return json(await previewRound(env, who.charId), 200, c);
