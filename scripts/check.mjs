@@ -2690,6 +2690,33 @@ console.log('\n--- when ESI’s copy lets go ---');
   eq('  and nothing on a route without one', rateLimitOf(H({ Expires: 'x' })), null);
 }
 
+console.log('\n--- freelance jobs to deliver to ---');
+{
+  const { readDeliverJob, priceDeliver, bestDeliver, deliverFlags } = await import('../src/lib/freelance.ts');
+  // The Game Masters job as ESI gave it (29 September 2026): 1,000,000 ISK per Dairy Products, 10 per player.
+  const gm = { id: 'x', name: 'FC Jotunn loves his Milk', state: 'Active', progress: { current: 1720, desired: 10000 }, reward: { initial: 10e9, remaining: 8.28e9 },
+    details: { expires: '2026-10-05T09:00:00Z', creator: { corporation: { id: 216121397, name: 'Game Masters' } } },
+    configuration: { method: 'DeliverItem', parameters: { corporation_item_delivery: { corporation_item_delivery: {
+      item_type: { values: [{ value_type: 'item_type', values: ['3717'] }] }, corporation_office_location: { values: [{ value_type: 'station', values: ['60012256'] }] } } } } },
+    contribution: { max_committed_participants: 10000, contribution_per_participant_limit: 10, reward_per_contribution: 1000000, submission_multiplier: 1 } };
+  const job = readDeliverJob(gm);
+  eq('a Deliver job read: what, where, per unit, how many left, the cap', [job.item, job.to, job.perUnit, job.unitsLeft, job.perPlayer, job.corp], [{ kind: 'type', ids: [3717] }, [{ kind: 'station', id: 60012256 }], 1000000, 8280, 10, 'Game Masters']);
+  eq('  not a job of another kind, or one with nothing left to pay', [readDeliverJob({ ...gm, configuration: { ...gm.configuration, method: 'KillNPC' } }), readDeliverJob({ ...gm, reward: { initial: 1, remaining: 500000 } })], [null, null]);
+  const d = priceDeliver(job, 3717, [{ price: 10990, volume: 4 }, { price: 11500, volume: 100 }]);
+  eq('  buy the cheapest listings up to your cap: 10 units, ~110 k, for 10 M', [d.units, Math.round(d.cost), d.pay, Math.round(d.profit), d.limit], [10, 4 * 10990 + 6 * 11500, 10000000, 10000000 - (4 * 10990 + 6 * 11500), 'player']);
+  // An uncapped ore job: only the listings under the reward are worth buying.
+  const ore = { ...job, perUnit: 21, perPlayer: null, unitsLeft: 14_000_000 };
+  const o = priceDeliver(ore, 1224, [{ price: 18, volume: 50000 }, { price: 20.5, volume: 10000 }, { price: 21, volume: 99999 }]);
+  eq('  uncapped: only what’s listed under the reward', [o.units, o.limit, Math.round(o.profit)], [60000, 'listed', Math.round(50000 * 3 + 10000 * 0.5)]);
+  eq('  nothing listed under it: nothing to do', priceDeliver(ore, 1224, [{ price: 25, volume: 10 }]), null);
+  eq('  a group job takes the item in it that makes the most', bestDeliver(ore, [1, 2], (t) => (t === 1 ? [{ price: 20, volume: 10 }] : [{ price: 19, volume: 10 }])).typeId, 2);
+  const now = Date.parse('2026-10-04T12:00:00Z');
+  eq('flags: a structure ESI won’t describe, low-sec, no safe route, gank systems, ending within a day', [
+    deliverFlags({ kind: 'structure', systemId: null, security: null, name: null }, null, false, null, now),
+    deliverFlags({ kind: 'station', systemId: 1, security: 0.3, name: 'x' }, null, true, '2026-10-05T09:00:00Z', now),
+  ], [['cantSee'], ['lowsec', 'noRoute', 'gank', 'expiring']]);
+}
+
 console.log('\n--- purchases made in one go ---');
 {
   const { multibuys, fittedShips, autoTag } = await import('../src/lib/wallet.ts');

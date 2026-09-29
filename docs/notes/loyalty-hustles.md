@@ -84,6 +84,20 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
   12 hours old, valued at what the spend plan would make and only for as many points as the markets take.
   Waiting for someone to open the Loyalty page left points at "0.00 ISK" in net worth; an unpriced balance
   now says "Pricing…" or "Not priced yet", never a zero.
+- **Freelance is a side hustle: jobs paying more for an item than Jita sells it for** (`lib/freelance.ts` pure,
+  `hustles/Freelance.tsx`). The research found a Game Masters job paying 1,000,000 ISK a Dairy Products (~11,000 in Jita,
+  10 per player, until 5 October 2026), and the user put it under Side hustles. ESI (29 September 2026): GET
+  `/freelance-jobs` newest first, `limit` up to 100, paged back with the `before` cursor (491 open, 381 "DeliverItem");
+  GET `/freelance-jobs/{id}` for what's wanted (`item_type` or `item_group`), where (`station` or `structure`), the reward
+  per unit, the pool left, what's still wanted, and a per-player cap (38 of 381 set one). The route answers
+  `cache-control: max-age=0, must-revalidate`, one of CCP's event-cleared routes. Each job is priced by buying the
+  cheapest live Jita listings while a unit costs less than the reward, up to your cap and what it still wants; a group
+  job takes whichever of its items makes most. The last full scan only says which items have no Jita sellers, to skip
+  them. Each delivery point is looked up as Hauling does (`endpoint`, a high-sec route from Jita), flagged when it's a
+  structure ESI won't describe or wasn't asked about, below high-sec, with no high-sec route, through Uedama/Sivala, or
+  ending within a day. The first run: 491 jobs, 348 wanting an item, 68 paying more than Jita, the best Scordite
+  buybacks (~40–200 M, tens of millions of units). A job has to be accepted in game first (Opportunities → Freelance
+  Jobs); ESI has no window for it, so the row copies the job's name to search for, and sets the destination.
 - **Reprocessing is a page of its own** (`lib/reprocess.ts` pure, `Reprocess.tsx`, `src/data/typeMaterials.json`). The
   user asked for it after the Experimental ZW-4100 Torpedo Launcher turned out to trade at its minerals' value. ESI has
   no type materials, so they're bundled from CCP's SDE (build 3552227, 28 September 2026; `scripts/type-materials.mjs`

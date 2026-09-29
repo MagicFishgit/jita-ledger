@@ -153,6 +153,12 @@ export const typeInfo = (id: number) => cached(`type:${id}`, async () => {
   } satisfies TypeInfo;
 });
 
+/** The types in an inventory group, such as every grade of an ore. Kept for good, like the group. */
+export const groupTypes = (id: number) => cached(`group-types:${id}`, async () => {
+  const { data } = await esi<{ types?: number[] }>(`/universe/groups/${id}/`);
+  return data.types ?? [];
+});
+
 /** An inventory group's name, such as "Deep Space Transport". */
 export const groupName = (id: number) => cached(`group:${id}`, async () => {
   const { data } = await esi<{ name: string }>(`/universe/groups/${id}/`);
