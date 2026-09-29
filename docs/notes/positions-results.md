@@ -147,6 +147,12 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   the Sniper's "Your snipes" and the Capital planner (`positions?list=stock`). On the user's hangar (29 September
   2026): 11 bought items, 3 of them ships; 4 ticked for 21.75 M over cost (the sniped Uranium Charge S +21.33 M), and
   the Jackdaw fit's spare scripts unticked, since they now sell under what they cost.
+- **Rates & fees says what the skill queue is about to do** (`lib/skillQueue.ts`, scope `esi-skills.read_skillqueue.v1`,
+  registered 29 September 2026). The sync keeps the queue in order (`meta.skillQueue`); each trade skill in it that
+  raises a level you have is shown with what it changes when it finishes, worked out from skills and standings (not
+  typed-in fees, which say so): sales tax for Accounting, broker fee for Broker Relations, the price-change discount
+  for Advanced Broker Relations, order slots for Trade, Retail, Wholesale and Tycoon. Levels queued one after another
+  build on each other. The app already followed a finished level on the next sync; this is the preview.
 - **Net worth keeps one snapshot a day in this browser** (`Data.netWorth`), written by the Wallet page. ESI has no
   net-worth history, so the trend starts the first day the page is opened and says so.
 - **Goals are five kinds, each measured from something the app reads** (`lib/goals.ts`): afford N of an item

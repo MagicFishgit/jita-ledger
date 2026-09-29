@@ -281,6 +281,8 @@ export type Meta = {
   attributes?: { intelligence: number; memory: number; perception: number; willpower: number; charisma: number };
   /** Every skill's trained skill points, by type ID, so training time counts what is already in. */
   skillSp?: Record<number, number>;
+  /** The skill queue as last synced, in order: each skill, the level it trains to, when (null while paused). */
+  skillQueue?: { skillId: number; level: number; finish: string | null }[];
   /** Last time killmails were read. */
   killmailsAt?: string;
   /** The best ISK per loyalty point last worked out on the Loyalty page, per corporation. */

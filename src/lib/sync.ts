@@ -113,6 +113,13 @@ export async function syncCharacter(): Promise<void> {
       if (data.total_sp != null) metaPatch.totalSp = data.total_sp;
       read.push('skills');
       keep('skills')(skillsAt);
+      // The queue, for what a trade skill about to finish will do to your fees and slots (skillQueue.ts).
+      if (hasScope(SCOPE.skillqueue)) {
+        try {
+          const { data: q } = await esi<{ skill_id: number; finished_level: number; finish_date?: string; queue_position: number }[]>(`/characters/${cid}/skillqueue/`, { auth: true });
+          metaPatch.skillQueue = [...q].sort((a, b) => a.queue_position - b.queue_position).map((x) => ({ skillId: x.skill_id, level: x.finished_level, finish: x.finish_date ?? null }));
+        } catch { /* the queue is a preview; the sync does not hang on it */ }
+      }
       try {
         const { data: at } = await esi<Meta['attributes']>(`/characters/${cid}/attributes/`, { auth: true });
         if (at) metaPatch.attributes = { intelligence: at.intelligence, memory: at.memory, perception: at.perception, willpower: at.willpower, charisma: at.charisma };

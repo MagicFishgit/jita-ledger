@@ -2785,6 +2785,23 @@ console.log('\n--- blueprints and their contracts ---');
     [['saysOriginal', 'saysResearch'], ['notJita']]);
 }
 
+console.log('\n--- what the skill queue is about to do ---');
+{
+  const { tradeSkillsComing } = await import('../src/lib/skillQueue.ts');
+  const { DEFAULT_SETTINGS } = await import('../src/lib/fees.ts');
+  const ids = { acc: 16622, br: 3446, abr: 16597, trade: 3443, retail: 3444, wholesale: 16596, tycoon: 18580 };
+  const s = { ...DEFAULT_SETTINGS, clone: 'omega', acc: 3, br: 4, abr: 4, trade: 5, retail: 5, wholesale: 3, tycoon: 0, override: true, brokerPct: 9, taxPct: 9 };
+  const now = Date.parse('2026-09-29T12:00:00Z');
+  const got = tradeSkillsComing([
+    { skillId: 16622, level: 4, finish: '2026-09-30T10:00:00Z' }, { skillId: 16622, level: 5, finish: '2026-10-04T10:00:00Z' },
+    { skillId: 3339, level: 5, finish: '2026-10-05T00:00:00Z' }, { skillId: 16596, level: 4, finish: null }, { skillId: 3446, level: 4, finish: '2026-10-06T00:00:00Z' },
+    { skillId: 16597, level: 5, finish: '2026-09-28T00:00:00Z' },
+  ], ids, s, now);
+  eq('trade skills coming: Accounting IV then V build on each other, a slot skill paused, nothing for other skills, a level held or already done',
+    got.map((c) => [c.name, c.level, c.effects.map((e) => e.what)]), [['Accounting', 4, ['tax']], ['Accounting', 5, ['tax']], ['Wholesale', 4, ['slots']]]);
+  eq('  worked out from skills, not typed-in figures; slots by 16 a Wholesale level', [+(got[0].effects[0].before * 100).toFixed(3) > +(got[1].effects[0].after * 100).toFixed(3), got[2].effects[0].after - got[2].effects[0].before], [true, 16]);
+}
+
 console.log('\n--- purchases made in one go ---');
 {
   const { multibuys, fittedShips, autoTag } = await import('../src/lib/wallet.ts');

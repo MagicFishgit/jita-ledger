@@ -12,6 +12,7 @@ import { confirmAsk } from '../lib/confirm';
 import { askedScopes, isConfigured, login, loginForCloud, loginMailer, loginMailerForCloud, logout, logoutMailer, setAsked } from '../lib/auth';
 import { syncCharacter, useSyncState } from '../lib/sync';
 import { navigate, useAuth, useMailer, useNow, type Route } from '../lib/hooks';
+import { tradeSkillsComing } from '../lib/skillQueue';
 import { ALPHA_CAPS, JITA_44, OPTIONAL_SCOPES, REDIRECT_URI, SCOPE, SCOPE_INFO, SCOPES } from '../lib/config';
 import { marketHistory } from '../lib/market';
 import { measureShare, MIN_SIDE_DAYS, sharedTypes, SHARE_DAYS, type ShareMeasure } from '../lib/share';
@@ -494,6 +495,34 @@ function StandingsWorth() {
   );
 }
 
+/** What the trade skills in your queue will change when they finish (skillQueue.ts). */
+function ComingSkills() {
+  const d = useData();
+  const now = useNow(60_000);
+  const coming = tradeSkillsComing(d.meta.skillQueue ?? [], d.meta.skillIds ?? {}, d.settings, now);
+  if (!coming.length) return null;
+  const said = (e: { what: 'tax' | 'broker' | 'relist' | 'slots'; before: number; after: number }) =>
+    e.what === 'slots' ? `order slots ${e.before} → ${e.after}`
+      : `${e.what === 'tax' ? 'sales tax' : e.what === 'broker' ? 'broker fee' : 'a price change'} ${(e.before * 100).toFixed(e.what === 'tax' ? 3 : 2)}% → ${(e.after * 100).toFixed(e.what === 'tax' ? 3 : 2)}%`;
+  const when = (iso: string | null) => {
+    if (!iso) return 'once your queue runs again (it’s paused)';
+    const h = (Date.parse(iso) - now) / 3600_000;
+    return `${h < 48 ? `in ${Math.max(1, Math.round(h))} h` : `in ${Math.round(h / 24)} days`} (${fmtDateTime(Date.parse(iso))})`;
+  };
+  return (
+    <div className="notice" style={{ margin: 0 }}>
+      <GraduationCap aria-hidden="true" />
+      <div>
+        <b>Coming up in your skill queue</b>
+        {coming.map((c) => (
+          <div key={`${c.key}${c.level}`} style={{ fontSize: 13 }}>{c.name} {['', 'I', 'II', 'III', 'IV', 'V'][c.level]}, {when(c.finish)}: {c.effects.map(said).join(', ')}.</div>
+        ))}
+        {d.settings.override && <div className="note small" style={{ margin: '4px 0 0' }}>Your fees are typed in, so they won’t change on their own: update them when it finishes.</div>}
+      </div>
+    </div>
+  );
+}
+
 function RatesTab() {
   const d = useData();
   const s = d.settings;
@@ -512,6 +541,7 @@ function RatesTab() {
       <div style={grid2}>
         <section className="panel" aria-label="Rates" style={{ padding: 18, gap: 14, clipPath: 'none' }}>
           <div className="panel-title">Rates</div>
+          <ComingSkills />
           <div className="rates-grid">
             <div className="col" style={{ gap: 0, minWidth: 0 }}>
               <SetRow id="s-tax" label="Base sales tax" unit="%" value={s.taxBase} hint="Before your Accounting skill. Check it against the game." onChange={(n) => set({ taxBase: n })} />
