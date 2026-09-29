@@ -21,7 +21,7 @@ export function readMining(raw: RawMining[], charId: number): MiningRecord[] {
  * first read is only a baseline (nothing can be said about when it was mined); a row that shrank (ESI correcting
  * itself) says nothing either.
  */
-export type MiningTick = { at: number; systemId: number; typeId: number; qty: number };
+export type MiningTick = { at: number; systemId: number; typeId: number; qty: number; shipTypeId?: number | null };
 
 export function miningTicks(prev: Record<string, number> | null, now: MiningRecord[], at: number): MiningTick[] {
   if (!prev) return [];
@@ -46,6 +46,8 @@ export type MiningSession = {
   start: number; end: number;
   /** Units by ore, and the systems it was in. */
   byType: Record<number, number>; systems: number[];
+  /** The ship it was mined in, when the cloud could read it: the one most ticks were in. */
+  ship: number | null;
 };
 
 /**
@@ -56,16 +58,20 @@ export type MiningSession = {
 export function miningSessions(ticks: MiningTick[], every = READ_EVERY_MS, gap = SESSION_GAP_MS): MiningSession[] {
   const sorted = [...ticks].sort((a, b) => a.at - b.at);
   const out: MiningSession[] = [];
+  const ships: Record<number, number>[] = [];
   let cur: MiningSession | null = null;
   for (const t of sorted) {
     if (!cur || t.at - cur.end > gap) {
-      cur = { start: t.at - every, end: t.at, byType: {}, systems: [] };
+      cur = { start: t.at - every, end: t.at, byType: {}, systems: [], ship: null };
       out.push(cur);
+      ships.push({});
     }
     cur.end = t.at;
     cur.byType[t.typeId] = (cur.byType[t.typeId] ?? 0) + t.qty;
     if (!cur.systems.includes(t.systemId)) cur.systems.push(t.systemId);
+    if (t.shipTypeId) { const s = ships[ships.length - 1]; s[t.shipTypeId] = (s[t.shipTypeId] ?? 0) + t.qty; }
   }
+  out.forEach((s, i) => { const top = Object.entries(ships[i]).sort((a, b) => b[1] - a[1])[0]; s.ship = top ? Number(top[0]) : null; });
   return out;
 }
 

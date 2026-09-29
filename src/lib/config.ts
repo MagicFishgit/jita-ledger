@@ -53,6 +53,9 @@ export const SCOPE = {
   fittingsWrite: 'esi-fittings.write_fittings.v1', // save a lost ship's fit in game, so its Buy All re-buys it
   search: 'esi-search.search_structures.v1', // find a structure by name, for where you refine
   mining: 'esi-industry.read_character_mining.v1', // your mining ledger: what you mined, where, and when, for Mining
+  shipType: 'esi-location.read_ship_type.v1', // the ship you're in, so each mining session knows its hull
+  location: 'esi-location.read_location.v1', // the system you're in, for Mining's "right now"
+  online: 'esi-location.read_online.v1', // whether you're logged in, for Mining's "right now"
 } as const;
 export const SCOPES: string[] = Object.values(SCOPE);
 
@@ -183,6 +186,21 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
     label: 'Your contracts',
     unlocks: 'To do lists courier contracts you’ve accepted with their deadline and the collateral at stake, and the Wallet names what the item exchanges you sold or bought held.',
     without: 'Couriers you’ve accepted aren’t tracked, and contract ISK shows without what it was for.',
+  },
+  'esi-location.read_ship_type.v1': {
+    label: 'Current ship',
+    unlocks: 'Mining knows which ship each session was mined in (the cloud reads it with your ledger every 10 minutes), so every hull on the ladder shows your own pace in it, and says which one you’re in now.',
+    without: 'Sessions have no ship, and the ladder can only use published yields for each hull.',
+  },
+  'esi-location.read_location.v1': {
+    label: 'Location',
+    unlocks: 'Mining shows the system you’re in right now.',
+    without: 'Mining doesn’t say where you are.',
+  },
+  'esi-location.read_online.v1': {
+    label: 'Online status',
+    unlocks: 'Mining shows whether you’re logged in right now.',
+    without: 'Mining doesn’t say whether you’re online.',
   },
   'esi-industry.read_character_mining.v1': {
     label: 'Mining ledger',

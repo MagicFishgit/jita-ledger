@@ -496,7 +496,7 @@ async function refreshTrack(): Promise<void> {
 export const cloudAlertLog = () => call<{ key: string; kind: AlertEvent; at: number; title: string; text: string }[]>('/v1/alerts/log');
 
 /** What the cloud saw your mining ledger grow by between its reads (about ten minutes each), for sessions (mining.ts). */
-export const cloudMiningTicks = (days = 30) => call<{ at: number; systemId: number; typeId: number; qty: number }[]>(`/v1/mining/ticks?days=${days}`);
+export const cloudMiningTicks = (days = 30) => call<{ at: number; systemId: number; typeId: number; qty: number; shipTypeId?: number | null }[]>(`/v1/mining/ticks?days=${days}`);
 
 /** A test alert mail sent by the cloud, from one of your real orders. */
 export const cloudTestMail = () => call<{ mailId: number; about: string }>('/v1/alerts/test', { method: 'POST' });

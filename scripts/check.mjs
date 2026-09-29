@@ -1230,6 +1230,8 @@ console.log('\n--- the mining ledger ---');
   const s = miningSessions([tick(0, 1228, 3000), tick(10, 1228, 3100), tick(20, 17463, 900), tick(80, 1228, 2000), tick(90, 1228, 2500)]);
   eq('ticks within 25 minutes of each other are one session; an hour apart, two', s.map((x) => [(x.end - x.start) / M, x.byType]), [[30, { 1228: 6100, 17463: 900 }], [20, { 1228: 4500 }]]);
 
+  const sh = miningSessions([{ ...tick(0, 1228, 3000), shipTypeId: 17478 }, { ...tick(10, 1228, 3100), shipTypeId: 17478 }, { ...tick(20, 1228, 500), shipTypeId: 32880 }, tick(90, 1228, 100)]);
+  eq('a session knows its ship: the one most was mined in; none when the cloud couldn’t read it', sh.map((x) => x.ship), [17478, null]);
   const { bestWay, byDay, byOre, sessionStats, median, paybackHours, RUNGS } = await import('../src/lib/mining.ts');
   eq('an ore is valued the best of three ways', [bestWay({ raw: 10, compressed: 11.5, reprocessed: 9 }), bestWay({ raw: null, compressed: null, reprocessed: null })], [{ way: 'compressed', perUnit: 11.5 }, null]);
   const vol = (t) => (t === 1228 ? 0.15 : 0.15), worth = (t) => (t === 1228 ? 12 : 13);

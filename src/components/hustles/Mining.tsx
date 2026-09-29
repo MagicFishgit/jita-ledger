@@ -105,7 +105,7 @@ export function Mining() {
     cloudMiningTicks(DAYS).then(setTicks).catch(() => setTicks(null));
   }, [cloud.started]);
   const sessions = useMemo(() => (ticks ? miningSessions(ticks).map((s) => ({ s, st: sessionStats(s, volumeOf, worthOf) })).reverse() : []), [ticks, vol, worth]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEnsureNames(sessions.flatMap(({ s }) => Object.keys(s.byType).map(Number)));
+  useEnsureNames(sessions.flatMap(({ s }) => [...Object.keys(s.byType).map(Number), ...(s.ship ? [s.ship] : [])]));
   // Only sessions long enough to say something: a single read is ten minutes of guesswork.
   const measured = median(sessions.filter(({ st }) => st.minutes >= 20).map(({ st }) => st.m3PerMin));
   const iskPerHour = median(sessions.filter(({ st }) => st.minutes >= 20).map(({ st }) => st.iskPerHour));
@@ -127,6 +127,8 @@ export function Mining() {
             then hand the cloud your login again (Settings → Your data) so it can follow your sessions with the app closed.
           </Notice>
         ) : null}
+
+      <RightNow />
 
       <Tiles min={170} items={[
         { l: `Mined, ${DAYS} days`, v: `${units(Math.round(total.m3))} m³`, n: `${units(total.units)} units on ${units(minedDays)} day${minedDays === 1 ? '' : 's'}`, c: 'var(--acc)' },
@@ -180,11 +182,12 @@ export function Mining() {
             : (
               <div className="tbl-scroll">
                 <table className="tbl" style={{ minWidth: 760 }}>
-                  <thead><tr><Th left>When</Th><Th>Length</Th><Th>m³</Th><Th>m³ a minute</Th><Th>Worth</Th><Th>ISK an hour</Th><Th left>Ore</Th></tr></thead>
+                  <thead><tr><Th left>When</Th><Th left tip="The ship most of it was mined in, read by the cloud with your ledger">Ship</Th><Th>Length</Th><Th>m³</Th><Th>m³ a minute</Th><Th>Worth</Th><Th>ISK an hour</Th><Th left>Ore</Th></tr></thead>
                   <tbody>
                     {sessions.slice(0, 20).map(({ s, st }) => (
                       <tr key={s.start}>
                         <td className="l">{fmtDateTime(s.start)}</td>
+                        <td className="l">{s.ship ? name(s.ship) : <span className="faint">–</span>}</td>
                         <td>{st.minutes >= 60 ? `${Math.floor(st.minutes / 60)} h ${Math.round(st.minutes % 60)} min` : `${Math.round(st.minutes)} min`}</td>
                         <td>{units(Math.round(st.m3))}</td>
                         <td>{units(Math.round(st.m3PerMin))}</td>
@@ -201,6 +204,38 @@ export function Mining() {
 
       <Ladder measured={measured} iskPerM3={iskPerM3} perM3From={perM3From} />
     </div>
+  );
+}
+
+/**
+ * Where you are right now, read live when the page opens (ESI caches the ship and location 5 seconds, online a minute):
+ * the ship you're in, the system, and whether you're logged in. Needs the location permissions; says nothing without.
+ */
+function RightNow() {
+  const auth = useAuth();
+  const name = useTypeName();
+  const [now, setNow] = useState<{ ship: number | null; system: string | null; online: boolean | null } | null>(null);
+  useEffect(() => {
+    if (!auth || !(hasScope(SCOPE.shipType) || hasScope(SCOPE.location) || hasScope(SCOPE.online))) return;
+    let alive = true;
+    (async () => {
+      const cid = auth.characterId;
+      const [ship, loc, on] = await Promise.all([
+        hasScope(SCOPE.shipType) ? esi<{ ship_type_id: number }>(`/characters/${cid}/ship/`, { auth: true }).then((r) => r.data.ship_type_id).catch(() => null) : null,
+        hasScope(SCOPE.location) ? esi<{ solar_system_id: number }>(`/characters/${cid}/location/`, { auth: true }).then((r) => system(r.data.solar_system_id)).then((x) => `${x.name} ${x.security.toFixed(1)}`).catch(() => null) : null,
+        hasScope(SCOPE.online) ? esi<{ online: boolean }>(`/characters/${cid}/online/`, { auth: true }).then((r) => r.data.online).catch(() => null) : null,
+      ]);
+      if (alive) setNow({ ship, system: loc, online: on });
+    })();
+    return () => { alive = false; };
+  }, [auth?.characterId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEnsureNames(now?.ship ? [now.ship] : []);
+  if (!now || (now.ship == null && now.system == null && now.online == null)) return null;
+  return (
+    <p className="row tight" style={{ margin: 0, fontSize: 13, color: 'var(--sec)', gap: 8 }}>
+      <span className="dot" aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: now.online ? 'var(--pos)' : 'var(--faint)', boxShadow: now.online ? '0 0 6px var(--pos)' : 'none' }} />
+      <span>Right now: {now.online == null ? '' : now.online ? 'online' : 'offline'}{now.ship ? `${now.online != null ? ', ' : ''}in a ${name(now.ship)}` : ''}{now.system ? ` in ${now.system}` : ''}.</span>
+    </p>
   );
 }
 
