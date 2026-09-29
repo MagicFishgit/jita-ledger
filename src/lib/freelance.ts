@@ -120,3 +120,14 @@ export function deliverFlags(dest: Endpoint, jumps: number | null, throughGank: 
   if (expires && Date.parse(expires) - now < 86400_000) out.push('expiring');
   return out;
 }
+
+/** A job you've joined, from /characters/{id}/freelance-jobs and its participation: how much you've delivered. */
+export type MyJob = { id: string; name: string; state: string; delivered: number; standing: string; perUnit: number | null; perPlayer: number | null; expires: string | null };
+
+/**
+ * What's left of your share on a job you're in: your cap less what you've delivered (null when there's no cap), and
+ * what you've earned from it so far.
+ */
+export function myShare(j: Pick<MyJob, 'delivered' | 'perUnit' | 'perPlayer'>): { left: number | null; earned: number | null } {
+  return { left: j.perPlayer != null ? Math.max(0, j.perPlayer - j.delivered) : null, earned: j.perUnit != null ? j.delivered * j.perUnit : null };
+}

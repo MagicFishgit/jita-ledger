@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Briefcase, Copy, MapPin } from 'lucide-react';
 import { SCOPE } from '../../lib/config';
 import { esi } from '../../lib/esi';
 import { ago, isk, iskBig, units } from '../../lib/format';
-import { bestDeliver, deliverFlags, readDeliverJob, type DeliverCall, type DeliverFlag, type RawFreelanceJob } from '../../lib/freelance';
+import { bestDeliver, deliverFlags, myShare, readDeliverJob, type DeliverCall, type DeliverFlag, type MyJob, type RawFreelanceJob } from '../../lib/freelance';
+import { getAuth, hasScope } from '../../lib/auth';
 import { useAuth, useNow } from '../../lib/hooks';
 import { pool } from '../../lib/lootMarket';
 import { jitaOrders, setDestination } from '../../lib/market';
@@ -50,6 +51,32 @@ export function Freelance() {
   const [all, setAll] = useState(false);
   useEnsureNames((rows ?? []).map((r) => r.typeId));
   const canDest = (auth?.scopes ?? []).includes(SCOPE.waypoint);
+  // The jobs you've joined, read when the tab opens: what you've delivered, and what's left of your share.
+  const [mine, setMine] = useState<MyJob[] | null>(null);
+  const canMine = hasScope(SCOPE.freelance);
+  useEffect(() => {
+    const a = getAuth();
+    if (!a || !canMine) return;
+    let live = true;
+    (async () => {
+      const { data } = await esi<{ freelance_jobs: { id: string; name: string; state: string }[] }>(`/characters/${a.characterId}/freelance-jobs`, { auth: true });
+      const out: MyJob[] = [];
+      await pool(data.freelance_jobs ?? [], 4, async (j) => {
+        const [part, detail] = await Promise.all([
+          esi<{ contributed: number; state: string }>(`/characters/${a.characterId}/freelance-jobs/${j.id}/participation`, { auth: true }).then((r) => r.data).catch(() => null),
+          esi<RawFreelanceJob>(`/freelance-jobs/${j.id}`).then((r) => r.data).catch(() => null),
+        ]);
+        out.push({
+          id: j.id, name: j.name, state: j.state, delivered: part?.contributed ?? 0, standing: part?.state ?? 'Unspecified',
+          perUnit: detail?.contribution?.reward_per_contribution ?? null, perPlayer: detail?.contribution?.contribution_per_participant_limit ?? null,
+          expires: detail?.details?.expires ?? null,
+        });
+      });
+      if (live) setMine(out.sort((x, y) => (x.state === 'Active' ? 0 : 1) - (y.state === 'Active' ? 0 : 1) || x.name.localeCompare(y.name)));
+    })().catch(() => { if (live) setMine([]); });
+    return () => { live = false; };
+  }, [canMine]);
+  const inJob = useMemo(() => new Map((mine ?? []).filter((j) => j.standing === 'Committed').map((j) => [j.id, j])), [mine]);
 
   const find = async () => {
     setBusy('Reading the job board…');
@@ -69,7 +96,11 @@ export function Freelance() {
         try { jobs.push((await esi<RawFreelanceJob>(`/freelance-jobs/${j.id}`)).data); } catch { /* one job unread */ }
         setBusy(`Reading ${++done} of ${raw.length} jobs…`);
       });
-      const deliver = jobs.map(readDeliverJob).filter((j): j is NonNullable<typeof j> => j != null);
+      // A job you're in counts only what's left of your share.
+      const deliver = jobs.map(readDeliverJob).filter((j): j is NonNullable<typeof j> => j != null).map((j) => {
+        const m = inJob.get(j.id);
+        return m && j.perPlayer != null ? { ...j, perPlayer: Math.max(0, j.perPlayer - m.delivered) } : j;
+      }).filter((j) => j.perPlayer == null || j.perPlayer > 0);
       // What each job takes: its item, or every item in its group.
       setBusy('Looking up what they want…');
       const typesOf = new Map<string, number[]>();
@@ -133,6 +164,29 @@ export function Freelance() {
         </p>
         <button type="button" className="btn primary tall" disabled={!!busy} onClick={() => void find()}><Briefcase aria-hidden="true" />{busy ?? (rows ? 'Look again' : 'Find jobs')}</button>
       </div>
+      {canMine && mine && mine.length > 0 && (
+        <div className="col" style={{ gap: 6 }}>
+          <b style={{ color: 'var(--ink)' }}>Your jobs</b>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="tbl compact" style={{ minWidth: 640 }}>
+              <thead><tr><Th left>Job</Th><Th left>State</Th><Th>Delivered</Th><Th tip="What’s left of your cap on the job; – when it sets none">Left for you</Th><Th tip="What you’ve delivered, at the job’s reward per unit">Earned</Th><Th>Ends</Th></tr></thead>
+              <tbody>{mine.map((j) => {
+                const s = myShare(j);
+                return (
+                  <tr key={j.id}>
+                    <td className="l"><span className="name">{j.name}</span></td>
+                    <td className="l">{j.state === 'Active' ? (j.standing === 'Committed' ? 'In it' : j.standing) : j.state}</td>
+                    <td>{units(j.delivered)}</td>
+                    <td>{s.left != null ? units(s.left) : '–'}</td>
+                    <td style={{ color: s.earned ? 'var(--pos)' : undefined }}>{s.earned != null ? iskBig(s.earned) : '–'}</td>
+                    <td>{j.expires ? ends(j.expires, now) : '–'}</td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+          </div>
+        </div>
+      )}
       {stats && (
         <p className="note small" style={{ margin: 0 }}>
           {units(stats.jobs)} open jobs, {units(stats.deliver)} wanting an item; {units(stats.under)} of those pay no more than Jita sells it for, or want
@@ -157,7 +211,7 @@ export function Freelance() {
                 <tr key={r.job.id} className="hover">
                   <td className="l" style={{ whiteSpace: 'normal', minWidth: 180 }}>
                     <span className="name">{r.job.name}</span>
-                    <span className="sub">{r.job.corp}{r.job.corp === 'Game Masters' ? ' (CCP)' : ''}</span>
+                    <span className="sub">{r.job.corp}{r.job.corp === 'Game Masters' ? ' (CCP)' : ''}{inJob.has(r.job.id) ? ` · you’re in it, ${units(inJob.get(r.job.id)!.delivered)} delivered` : ''}</span>
                   </td>
                   <td className="l" style={{ whiteSpace: 'normal' }}>{name(r.typeId)}{r.job.item.kind === 'group' && <span className="sub">any of its group: this pays most</span>}</td>
                   <td>{isk(r.job.perUnit)}<span className="sub">costs {isk(r.cost / r.units)}</span></td>

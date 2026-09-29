@@ -98,6 +98,10 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
   ending within a day. The first run: 491 jobs, 348 wanting an item, 68 paying more than Jita, the best Scordite
   buybacks (~40–200 M, tens of millions of units). A job has to be accepted in game first (Opportunities → Freelance
   Jobs); ESI has no window for it, so the row copies the job's name to search for, and sets the destination.
+  **Your jobs** (scope `esi-characters.read_freelance_jobs.v1`, registered 29 September 2026): the tab reads
+  `/characters/{id}/freelance-jobs` and each job's `/participation` (`contributed`, `Committed`/`Kicked`/`Resigned`) when
+  it opens, and lists them with what's left of your cap and what you've earned (`myShare`). In the finder a job you're
+  in says so, and a capped one counts only what's left of your share.
 - **Reprocessing is a page of its own** (`lib/reprocess.ts` pure, `Reprocess.tsx`, `src/data/typeMaterials.json`). The
   user asked for it after the Experimental ZW-4100 Torpedo Launcher turned out to trade at its minerals' value. ESI has
   no type materials, so they're bundled from CCP's SDE (build 3552227, 28 September 2026; `scripts/type-materials.mjs`

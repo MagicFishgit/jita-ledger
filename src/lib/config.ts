@@ -45,6 +45,7 @@ export const SCOPE = {
   mailOrganize: 'esi-mail.organize_mail.v1', // delete old alert mails
   notifications: 'esi-characters.read_notifications.v1', // EVE's notifications: when your things went into asset safety, and when they're delivered
   blueprints: 'esi-characters.read_blueprints.v1', // your blueprints, with ME, TE and runs, for pricing them
+  freelance: 'esi-characters.read_freelance_jobs.v1', // the freelance jobs you've joined, and how much you've delivered
 } as const;
 export const SCOPES: string[] = Object.values(SCOPE);
 
@@ -150,6 +151,11 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
     label: 'Blueprints',
     unlocks: 'The Blueprints page: every blueprint you hold, with ME, TE and runs, priced against The Forge’s blueprint contracts.',
     without: 'The Blueprints page can’t read what you hold.',
+  },
+  'esi-characters.read_freelance_jobs.v1': {
+    label: 'Your freelance jobs',
+    unlocks: 'Side hustles → Freelance shows the jobs you’ve joined, how much you’ve delivered, and what’s left of your share.',
+    without: 'The Freelance tab still finds jobs, but can’t say which you’re in.',
   },
   'esi-characters.read_loyalty.v1': {
     label: 'Loyalty points',

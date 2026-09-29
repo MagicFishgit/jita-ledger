@@ -2711,6 +2711,9 @@ console.log('\n--- freelance jobs to deliver to ---');
   eq('  nothing listed under it: nothing to do', priceDeliver(ore, 1224, [{ price: 25, volume: 10 }]), null);
   eq('  a group job takes the item in it that makes the most', bestDeliver(ore, [1, 2], (t) => (t === 1 ? [{ price: 20, volume: 10 }] : [{ price: 19, volume: 10 }])).typeId, 2);
   const now = Date.parse('2026-10-04T12:00:00Z');
+  const { myShare } = await import('../src/lib/freelance.ts');
+  eq('your share of a job you’re in: what’s left of your cap, and what you’ve earned', [myShare({ delivered: 4, perUnit: 1000000, perPlayer: 10 }), myShare({ delivered: 40000, perUnit: 21, perPlayer: null })],
+    [{ left: 6, earned: 4000000 }, { left: null, earned: 840000 }]);
   eq('flags: a structure ESI won’t describe, low-sec, no safe route, gank systems, ending within a day', [
     deliverFlags({ kind: 'structure', systemId: null, security: null, name: null }, null, false, null, now),
     deliverFlags({ kind: 'station', systemId: 1, security: 0.3, name: 'x' }, null, true, '2026-10-05T09:00:00Z', now),
