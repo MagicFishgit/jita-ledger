@@ -46,6 +46,16 @@ export const SCOPE = {
 } as const;
 export const SCOPES: string[] = Object.values(SCOPE);
 
+/**
+ * Permissions asked for only once switched on in Settings. EVE's login refuses a scope that isn't ticked on the
+ * application at developers.eveonline.com, and checks only after you sign in (a made-up scope gets the sign-in page too,
+ * checked 29 September 2026), so adding one to SCOPES would refuse every new login until it was ticked there.
+ */
+export const OPTIONAL_SCOPE = {
+  notifications: 'esi-characters.read_notifications.v1', // EVE's notifications: when your things went into asset safety, and when they're delivered
+} as const;
+export const OPTIONAL_SCOPES: string[] = Object.values(OPTIONAL_SCOPE);
+
 
 // Resolved by name at sync time; these are fallbacks.
 export const NPC_NAMES = { faction: 'Caldari State', corp: 'Caldari Navy' };
@@ -128,6 +138,11 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
     label: 'Killmails',
     unlocks: 'The Combat page: your kills and losses, each priced at Jita on the day it happened, with the fit and a refit at today’s prices. Also the ships lost on the Wallet page, and the hauling gank line learning from your own losses.',
     without: 'Combat has nothing to show, and ship losses are missing from the Wallet and Results.',
+  },
+  'esi-characters.read_notifications.v1': {
+    label: 'Notifications',
+    unlocks: 'The asset safety countdown straight from EVE: the notification sent when your things went into asset safety names the structure, where they’ll be delivered, and when (by hand, and automatically).',
+    without: 'The countdown comes from what you type in, or from when the cloud saw the wrap go in.',
   },
   'esi-characters.read_loyalty.v1': {
     label: 'Loyalty points',

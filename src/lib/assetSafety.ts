@@ -5,9 +5,10 @@
  * costs 15% of each item's estimated price; by hand within the system, 0.5% (EVE University's summary of CCP's
  * rules, checked 28 September 2026). ESI lists the wrap and what's in it, but not when it goes in or when it's
  * delivered: so the countdown comes from what the client shows, typed in once, or from when the cloud first saw
- * the wrap, when that was within the hour of it going in. Pure.
+ * the wrap, when that was within the hour of it going in, or, with the notifications permission, from the notification
+ * EVE sends when things go in (`parseSafetyNotice`), which has the dates to the second. Pure.
  */
-import type { SafetyHolder, SafetyWrap } from './esiRecords';
+import type { SafetyHolder, SafetyNotice, SafetyWrap } from './esiRecords';
 
 export const MANUAL_DAYS = 5;
 export const AUTO_DAYS = 20;
@@ -41,12 +42,14 @@ export type SafetyTimes = {
   /** When it's delivered automatically, and from when it can be delivered by hand; null when unknown. */
   autoAt: number | null;
   manualAt: number | null;
-  /** Where that came from: the countdown you typed, or the cloud having seen it go in. */
-  from: 'typed' | 'seen' | null;
+  /** Where that came from: EVE's notification, the countdown you typed, or the cloud having seen it go in. */
+  from: 'notice' | 'typed' | 'seen' | null;
 };
 
-/** The wrap's dates: from the countdown you typed if any, else from when the cloud saw it go in, else unknown. */
-export function safetyTimes(w: Pick<SafetyWrap, 'firstSeen' | 'startKnown'>, typed?: { autoAt: string } | null): SafetyTimes {
+/** The wrap's dates: from EVE's notification, else the countdown you typed, else when the cloud saw it go in. */
+export function safetyTimes(w: Pick<SafetyWrap, 'firstSeen' | 'startKnown' | 'notice'>, typed?: { autoAt: string } | null): SafetyTimes {
+  const na = Date.parse(w.notice?.autoAt ?? ''), nm = Date.parse(w.notice?.manualAt ?? '');
+  if (Number.isFinite(na) && Number.isFinite(nm)) return { autoAt: na, manualAt: nm, from: 'notice' };
   if (typed && Number.isFinite(Date.parse(typed.autoAt))) {
     const autoAt = Date.parse(typed.autoAt);
     return { autoAt, manualAt: autoAt - (AUTO_DAYS - MANUAL_DAYS) * DAY, from: 'typed' };
@@ -56,6 +59,68 @@ export function safetyTimes(w: Pick<SafetyWrap, 'firstSeen' | 'startKnown'>, typ
     return { autoAt: start + AUTO_DAYS * DAY, manualAt: start + MANUAL_DAYS * DAY, from: 'seen' };
   }
   return { autoAt: null, manualAt: null, from: null };
+}
+
+/** Windows FILETIME (100 ns ticks since 1601), which the notification's timestamps are in, as a JavaScript time. */
+export const fromFiletime = (ticks: number): number => ticks / 10_000 - 11_644_473_600_000;
+
+/**
+ * EVE's `StructureItemsMovedToSafety` notification, read. Its text is YAML (fields as the goesi library declares them):
+ * assetSafetyFullTimestamp and assetSafetyMinimumTimestamp in FILETIME ticks, newStationID, solarsystemID, structureID,
+ * structureLink (the structure's name, in a showinfo link), isCorpOwned. A corporation's wrap isn't one of your assets,
+ * and anything that doesn't read as a date this century is refused rather than guessed at.
+ */
+export function parseSafetyNotice(n: { type: string; timestamp: string; text?: string }): SafetyNotice | null {
+  if (n.type !== 'StructureItemsMovedToSafety' || !n.text) return null;
+  const field = (k: string) => {
+    const m = new RegExp(String.raw`^${k}:[ \t]*(?:&\w+[ \t]+)?(.*)$`, 'm').exec(n.text!);
+    return m ? m[1].trim().replace(/^'(.*)'$/, '$1').replace(/^"(.*)"$/, '$1') : null;
+  };
+  if (field('isCorpOwned') === 'true') return null;
+  const full = Number(field('assetSafetyFullTimestamp')), min = Number(field('assetSafetyMinimumTimestamp'));
+  if (!(full > 0)) return null;
+  const autoAt = fromFiletime(full);
+  const manualAt = min > 0 ? fromFiletime(min) : autoAt - (AUTO_DAYS - MANUAL_DAYS) * DAY;
+  if (!(autoAt > Date.UTC(2003, 0, 1) && autoAt < Date.UTC(2100, 0, 1))) return null;
+  const num = (k: string) => { const v = Number(field(k)); return Number.isFinite(v) && v > 0 ? v : undefined; };
+  const link = field('structureLink') ?? '';
+  const structure = (/>([^<]+)</.exec(link)?.[1] ?? (/[<>]/.test(link) ? '' : link)).trim() || undefined;
+  const out: SafetyNotice = { at: n.timestamp, manualAt: new Date(manualAt).toISOString(), autoAt: new Date(autoAt).toISOString() };
+  const structureId = num('structureID'), systemId = num('solarsystemID'), stationId = num('newStationID');
+  if (structureId) out.structureId = structureId;
+  if (structure) out.structure = structure;
+  if (systemId) out.systemId = systemId;
+  if (stationId) out.stationId = stationId;
+  return out;
+}
+
+/**
+ * Notices paired with the wraps waiting for delivery. ESI doesn't say which wrap a notice is about (the wrap sits at
+ * location 2004 with no name), so: one still to be delivered (not past its date by more than two days) per waiting wrap
+ * without one, in the order they went in (item IDs rise over time, as notices do) when the counts match; else only a
+ * wrap the cloud saw appear within three hours after a notice. A wrap keeps its notice, and takes the structure's name.
+ */
+export function withNotices(wraps: SafetyWrap[] | undefined, notices: SafetyNotice[], now: number): SafetyWrap[] | undefined {
+  if (!wraps?.length || !notices.length) return wraps;
+  const has = new Set(wraps.flatMap((w) => (w.notice ? [w.notice.at] : [])));
+  const live = notices.filter((n) => !has.has(n.at) && Date.parse(n.autoAt) > now - 2 * DAY).sort((a, b) => a.at.localeCompare(b.at));
+  const waiting = wraps.filter((w) => w.state === 'waiting' && !w.notice).sort((a, b) => a.id - b.id);
+  const pairs = new Map<number, SafetyNotice>();
+  if (waiting.length && waiting.length === live.length) waiting.forEach((w, i) => pairs.set(w.id, live[i]));
+  else {
+    const used = new Set<SafetyNotice>();
+    for (const w of waiting) {
+      if (!w.firstSeen) continue;
+      const seen = Date.parse(w.firstSeen);
+      const n = live.find((x) => !used.has(x) && seen - Date.parse(x.at) >= 0 && seen - Date.parse(x.at) <= 3 * 3600_000);
+      if (n) { pairs.set(w.id, n); used.add(n); }
+    }
+  }
+  if (!pairs.size) return wraps;
+  return wraps.map((w) => {
+    const n = pairs.get(w.id);
+    return n ? { ...w, notice: n, ...(w.name || !n.structure ? {} : { name: n.structure }) } : w;
+  });
 }
 
 /** What the wrap's items are worth at CCP's estimated prices, and what unpacking them costs either way. */

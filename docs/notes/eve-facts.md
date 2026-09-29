@@ -30,6 +30,15 @@ Don't re-derive or contradict these without new evidence.
   whether Cloudflare's outbound IP is shared with other ESI users is unknown. The Sniper reads ~405 pages every five
   minutes (~2,400 tokens per 15 minutes), the watch ~150 books.
   https://developers.eveonline.com/blog/market-orders-rate-limit-rolls-out-on-february-24-2026
+- **EVE's notifications carry what the asset list doesn't** (`esi-characters.read_notifications.v1`, GET
+  `/characters/{id}/notifications/`): type `StructureItemsMovedToSafety` has YAML text with `assetSafetyFullTimestamp` and
+  `assetSafetyMinimumTimestamp` in Windows FILETIME ticks (100 ns since 1601), `newStationID`, `solarsystemID`,
+  `structureID` (a YAML anchor, `&id001 …`) and `structureLink` (the structure's name in a showinfo link), per the goesi
+  library's declaration. How long ESI keeps an old notification is unknown.
+- **EVE's login checks scopes only after you sign in.** A request for a scope the application doesn't have, or one
+  that doesn't exist, gets the sign-in page all the same (probed 29 September 2026), so a new scope in `SCOPES` would
+  refuse every new login until it's ticked at developers.eveonline.com. New ones start in `OPTIONAL_SCOPES`, asked for
+  only once switched on in Settings, with "Stop asking" if the login refuses.
 - **`publicData` grants nothing** — zero ESI endpoints require it; it isn't even an ESI scope.
 - **Order book pages are shuffled with respect to type**, so sampling N random pages is an unbiased
   sample of the market. This is what makes Prospects affordable.

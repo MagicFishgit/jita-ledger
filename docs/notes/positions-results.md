@@ -105,6 +105,12 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   marked (shown, "· copy", worth nothing, and counted apart in the note under the list), and a ship's things under
   where they sit, as the game lists them (`bayOf`: Fitted, Cargo hold, Drone bay…). The user also asked about a Sigil
   showing nothing: ESI sends it packaged, and a packaged ship holds nothing.
+  **EVE's own notification now dates the wrap** (`parseSafetyNotice`, `withNotices`, the optional notifications
+  permission): the research found `StructureItemsMovedToSafety` carries the dates, the structure's name and the
+  destination. The browser's sync reads notifications while a wrap waits and pairs each still-live notice with a wrap
+  (one each in the order they went in when the counts match, else by the cloud having seen the wrap appear within
+  three hours); the wrap keeps it (`notice`, carried by `mergeSafety` in both writers) and takes the structure's name,
+  and its dates win over a typed countdown ("From EVE’s notification when it went in"), with the destination named.
 - **A fee a GM refunded counts as nothing, everywhere** (`refunds.ts`: `refundPairs`, `nettedJournal`). The user's
   fat-fingered Sniper listing (19,489 Caldari Navy Uranium Charge S placed at 1,893,000 instead of 1,893) paid a
   467,749,600.65 ISK placing fee on 28 September 2026; CCP support refunded exactly that the same evening as a

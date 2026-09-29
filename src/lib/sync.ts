@@ -1,14 +1,15 @@
 import { useSyncExternalStore } from 'react';
 import { getAuth, hasScope } from './auth';
 import { esi, esiAllPages } from './esi';
-import { ALPHA_CAPS, JITA_44, NPC_FALLBACK_IDS, NPC_NAMES, SCOPE, SKILL_FALLBACK_IDS, SKILL_NAMES, type SkillKey } from './config';
+import { ALPHA_CAPS, JITA_44, NPC_FALLBACK_IDS, NPC_NAMES, OPTIONAL_SCOPE, SCOPE, SKILL_FALLBACK_IDS, SKILL_NAMES, type SkillKey } from './config';
+import { parseSafetyNotice, withNotices } from './assetSafety';
 import { loyaltyPoints, resolveIds, resolveNames } from './market';
 import { dataGeneration, getData, update, type Data } from './store';
 import { sanitizeSettings, type Settings } from './fees';
 import { readKillmail, type RawKillmail } from './combat';
 import type { JournalEntry, Killmail, Meta, Order, Stock, Tx } from './types';
 import { mergeOrders } from './feeMatch';
-import { countStock, mergeSafety, nameHolders, unnamedHolders, toJournal, toOrder, toTx, type RawAsset, type RawCharOrder, type RawJournal, type RawTx } from './esiRecords';
+import { countStock, mergeSafety, nameHolders, unnamedHolders, toJournal, toOrder, toTx, type RawAsset, type RawCharOrder, type RawJournal, type RawTx, type SafetyNotice } from './esiRecords';
 
 const { wallet: WALLET, orders: ORDERS, skills: SKILLS, standings: STANDINGS, assets: ASSETS, loyalty: LOYALTY, killmails: KILLMAILS } = SCOPE;
 
@@ -217,6 +218,16 @@ export async function syncCharacter(): Promise<void> {
         read.push('assets');
       } catch { /* stock is a cross-check, not the ledger: a failure here must not fail the sync */ }
     }
+    // EVE's notification when things went into asset safety: the dates to the second, the structure and the destination.
+    // Only with the notifications permission, and only worth asking while a wrap waits.
+    let notices: SafetyNotice[] = [];
+    if (hasScope(OPTIONAL_SCOPE.notifications) && (fetched.stock?.safety ?? d.stock?.safety ?? []).some((w) => w.state === 'waiting')) {
+      try {
+        const { data } = await esi<{ type: string; timestamp: string; text?: string }[]>(`/characters/${cid}/notifications/`, { auth: true });
+        notices = data.map(parseSafetyNotice).filter((n): n is SafetyNotice => n != null);
+        read.push('notifications');
+      } catch { /* the countdown falls back to what's typed or seen */ }
+    }
 
     if (hasScope(LOYALTY)) {
       try {
@@ -284,7 +295,11 @@ export async function syncCharacter(): Promise<void> {
       if (allSkills) p.skills = allSkills;
       // Replaced wholesale, not merged: it is a snapshot of what you hold right now.
       // What the cloud learned about asset safety wraps (when each went in, its name) is kept, not overwritten.
-      if (fetched.stock) p.stock = { ...fetched.stock, safety: mergeSafety(cur.stock?.safety, fetched.stock.safety) };
+      if (fetched.stock) p.stock = { ...fetched.stock, safety: withNotices(mergeSafety(cur.stock?.safety, fetched.stock.safety), notices, Date.now()) };
+      else if (notices.length && cur.stock?.safety) {
+        const safety = withNotices(cur.stock.safety, notices, Date.now());
+        if (safety !== cur.stock.safety) p.stock = { ...cur.stock, safety };
+      }
       if (fromChar) p.settings = sanitizeSettings({ ...cur.settings, ...fromChar });
       return p;
     });

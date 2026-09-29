@@ -1826,6 +1826,34 @@ console.log('\n--- asset safety ---');
   eq('  blueprint copies count as inside, but for nothing', holderWorth(equip, (id) => ({ 17366: 30000, 47971: 9e6 })[id]), { value: 30000, inside: 2, priced: true });
   const D = 86400_000, H = 3600_000;
   eq('the countdown as the client shows it', parseCountdown('14d 7h 24m 32s'), 14 * D + 7 * H + 24 * 60_000 + 32_000);
+  {
+    // EVE's notification when things go into asset safety, as the goesi library declares its fields (YAML, FILETIME).
+    const { parseSafetyNotice, withNotices, fromFiletime } = await import('../src/lib/assetSafety.ts');
+    const { mergeSafety } = await import('../src/lib/esiRecords.ts');
+    const ft = (iso) => (Date.parse(iso) + 11_644_473_600_000) * 10_000;
+    eq('FILETIME ticks as a time', new Date(fromFiletime(ft('2026-10-18T09:30:00Z'))).toISOString(), '2026-10-18T09:30:00.000Z');
+    const text = ['assetSafetyDurationFull: 1728000000000', 'assetSafetyDurationMinimum: 432000000000', `assetSafetyFullTimestamp: ${ft('2026-10-18T09:30:00Z')}`,
+      `assetSafetyMinimumTimestamp: ${ft('2026-10-03T09:30:00Z')}`, 'isCorpOwned: false', 'newStationID: 60012526', 'solarsystemID: 30002659',
+      'structureID: &id001 1035466617946', "structureLink: '<a href=\"showinfo:35832//1035466617946\">K7D-II - Iserlohn Fortress</a>'",
+      'structureShowInfoData:', '- showinfo', '- 35832', '- *id001', 'structureTypeID: 35832'].join('\n');
+    const note = parseSafetyNotice({ type: 'StructureItemsMovedToSafety', timestamp: '2026-09-28T09:30:00Z', text });
+    eq('the notice read: when, the structure, the system, the destination', note, { at: '2026-09-28T09:30:00Z', manualAt: '2026-10-03T09:30:00.000Z', autoAt: '2026-10-18T09:30:00.000Z',
+      structureId: 1035466617946, structure: 'K7D-II - Iserlohn Fortress', systemId: 30002659, stationId: 60012526 });
+    eq('  not another kind, a corporation’s, or one without dates', [parseSafetyNotice({ type: 'StructureItemsDelivered', timestamp: 'x', text }),
+      parseSafetyNotice({ type: 'StructureItemsMovedToSafety', timestamp: 'x', text: text.replace('isCorpOwned: false', 'isCorpOwned: true') }),
+      parseSafetyNotice({ type: 'StructureItemsMovedToSafety', timestamp: 'x', text: 'isCorpOwned: false' })], [null, null, null]);
+    const wrap = (id, extra = {}) => ({ id, state: 'waiting', stationId: null, items: {}, ...extra });
+    const now = Date.parse('2026-09-29T10:00:00Z');
+    const one = withNotices([wrap(5)], [note], now);
+    eq('one wrap waiting, one notice: paired, and the wrap takes the structure’s name', [one[0].notice.autoAt, one[0].name], ['2026-10-18T09:30:00.000Z', 'K7D-II - Iserlohn Fortress']);
+    eq('  which the dates then come from', safetyTimes(one[0], { autoAt: '2026-10-01T00:00:00Z' }), { autoAt: Date.parse('2026-10-18T09:30:00Z'), manualAt: Date.parse('2026-10-03T09:30:00Z'), from: 'notice' });
+    const later = { ...note, at: '2026-09-29T08:00:00Z', structure: 'Other' };
+    eq('  two and two: in the order they went in', withNotices([wrap(9), wrap(3)], [later, note], now).map((w) => [w.id, w.name]), [[9, 'Other'], [3, 'K7D-II - Iserlohn Fortress']]);
+    eq('  two wraps, one notice: only the one the cloud saw appear within three hours after it',
+      withNotices([wrap(3, { firstSeen: '2026-09-20T00:00:00Z' }), wrap(9, { firstSeen: '2026-09-28T11:07:00Z' })], [note], now).map((w) => w.name ?? null), [null, 'K7D-II - Iserlohn Fortress']);
+    eq('  a notice long past its date, or a delivered wrap, pairs with nothing', [withNotices([wrap(5)], [{ ...note, autoAt: '2026-09-01T00:00:00Z' }], now)[0].notice, withNotices([wrap(5, { state: 'delivered' })], [note], now)[0].notice], [undefined, undefined]);
+    eq('  and the next read of your assets keeps it', mergeSafety(one, [wrap(5)])[0].notice?.structure, 'K7D-II - Iserlohn Fortress');
+  }
   eq('  near enough is fine', [parseCountdown('14d 7h'), parseCountdown(' 3 h 5 m '), parseCountdown('2D')], [14 * D + 7 * H, 3 * H + 5 * 60_000, 2 * D]);
   eq('  anything else isn’t one', [parseCountdown(''), parseCountdown('soon'), parseCountdown('14'), parseCountdown('14d then')], [null, null, null, null]);
   eq('shown back the client’s way, zero units dropped from the front', [formatCountdown(14 * D + 7 * H + 24 * 60_000 + 32_000), formatCountdown(7 * H + 5_000), formatCountdown(-1)], ['14d 7h 24m 32s', '7h 0m 5s', '0s']);

@@ -1,4 +1,4 @@
-import { CLIENT_ID, REDIRECT_URI, SCOPE, SCOPES, SSO_AUTHORIZE, SSO_REVOKE, SSO_TOKEN } from './config';
+import { CLIENT_ID, OPTIONAL_SCOPES, REDIRECT_URI, SCOPE, SCOPES, SSO_AUTHORIZE, SSO_REVOKE, SSO_TOKEN } from './config';
 
 export type Auth = {
   accessToken: string;
@@ -86,11 +86,25 @@ async function startLogin(purpose: Purpose, scopes: string[]): Promise<void> {
   window.location.assign(`${SSO_AUTHORIZE}?${q.toString()}`);
 }
 
-export const login = () => startLogin('main', SCOPES);
+/** The optional permissions this browser asks for at login, once switched on in Settings (config.ts, OPTIONAL_SCOPES). */
+const ASK_KEY = 'jita-ledger:ask-scopes';
+export function askedScopes(): string[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(ASK_KEY) ?? '[]');
+    return Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string' && OPTIONAL_SCOPES.includes(s)) : [];
+  } catch { return []; }
+}
+export function setAsked(scope: string, on: boolean): void {
+  const next = new Set(askedScopes());
+  if (on) next.add(scope); else next.delete(scope);
+  try { localStorage.setItem(ASK_KEY, JSON.stringify([...next])); } catch { /* this visit only */ }
+}
+
+export const login = () => startLogin('main', [...SCOPES, ...askedScopes()]);
 /** Log in the character that will send alert mail. EVE's login page asks which character. */
 export const loginMailer = () => startLogin('mailer', MAILER_SCOPES);
 /** A login for the cloud's background jobs, with the same permissions as the trading login. */
-export const loginForCloud = () => startLogin('cloud', SCOPES);
+export const loginForCloud = () => startLogin('cloud', [...SCOPES, ...askedScopes()]);
 /** A login for the cloud to send alert mail from the second character. */
 export const loginMailerForCloud = () => startLogin('cloud-mailer', MAILER_SCOPES);
 

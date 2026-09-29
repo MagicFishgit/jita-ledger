@@ -30,7 +30,7 @@ export function AssetSafety({ d, rough }: { d: Data; rough: Record<number, numbe
   }, [wraps]);
   useEnsureNames(ids);
   const [names, setNames] = useState<Record<number, string>>({});
-  const stationKey = wraps.map((w) => w.stationId).filter((id): id is number => id != null && isStation(id)).join(',');
+  const stationKey = wraps.flatMap((w) => [w.stationId, w.notice?.stationId]).filter((id): id is number => id != null && isStation(id)).join(',');
   useEffect(() => {
     if (!stationKey) return;
     let alive = true;
@@ -41,7 +41,8 @@ export function AssetSafety({ d, rough }: { d: Data; rough: Record<number, numbe
   return (
     <Panel title="In asset safety" sub="Your things from a structure you lost, waiting to be delivered and unpacked">
       <div className="col" style={{ gap: 16 }}>
-        {wraps.map((w) => <Wrap key={w.id} w={w} d={d} rough={rough} now={now} station={w.stationId != null ? names[w.stationId] ?? null : null} />)}
+        {wraps.map((w) => <Wrap key={w.id} w={w} d={d} rough={rough} now={now} station={w.stationId != null ? names[w.stationId] ?? null : null}
+          dest={w.notice?.stationId != null ? names[w.notice.stationId] ?? null : null} />)}
       </div>
     </Panel>
   );
@@ -73,7 +74,7 @@ function rowsOf(contents: SafetyStack[] | undefined, loose: Record<number, numbe
   return rows.sort((a, b) => bayRank(a.bay) - bayRank(b.bay) || (a.bay ?? '').localeCompare(b.bay ?? '') || (b.v ?? -1) - (a.v ?? -1));
 }
 
-function Wrap({ w, d, rough, now, station }: { w: SafetyWrap; d: Data; rough: Record<number, number> | null; now: number; station: string | null }) {
+function Wrap({ w, d, rough, now, station, dest }: { w: SafetyWrap; d: Data; rough: Record<number, number> | null; now: number; station: string | null; dest: string | null }) {
   const name = useTypeName();
   const typed = d.safetyTimes[String(w.id)] ?? null;
   const t = safetyTimes(w, typed);
@@ -171,15 +172,15 @@ function Wrap({ w, d, rough, now, station }: { w: SafetyWrap; d: Data; rough: Re
           <div className="row" style={{ alignItems: 'baseline', gap: 12 }}>
             <span className="mono" style={{ fontSize: 'clamp(19px, 5.4vw, 26px)', color: 'var(--ink)', whiteSpace: 'nowrap' }}>{t.autoAt! > now ? formatCountdown(t.autoAt! - now) : 'Due now'}</span>
             <span style={{ fontSize: 13, color: 'var(--sec)' }}>
-              {t.autoAt! > now ? `until it’s delivered automatically, around ${fmtDateTime(t.autoAt!)}` : 'It should show as delivered at the next check of your assets.'}
+              {t.autoAt! > now ? `until it’s delivered automatically${dest ? ` to ${dest}` : ''}, ${t.from === 'notice' ? '' : 'around '}${fmtDateTime(t.autoAt!)}` : 'It should show as delivered at the next check of your assets.'}
             </span>
           </div>
           <span className="note small" style={{ margin: 0 }}>
-            {t.from === 'typed' ? 'From the countdown you typed in. ' : 'Counted from when the cloud saw it go in, within a couple of hours. '}
+            {t.from === 'notice' ? `From EVE’s notification when it went in, ${fmtDateTime(Date.parse(w.notice!.at))}. ` : t.from === 'typed' ? 'From the countdown you typed in. ' : 'Counted from when the cloud saw it go in, within a couple of hours. '}
             {t.manualAt! <= now
               ? 'You can have it delivered by hand to a station in the same system now (Deliver To… in the game), for 0.5% instead of 15%.'
               : `Delivery by hand to a station in the same system opens ${fmtDateTime(t.manualAt!)}, for 0.5% instead of 15%.`}
-            {' '}<button type="button" className="link-btn" onClick={() => { setEditing(true); setText(''); }}>Change</button>
+            {t.from !== 'notice' && <>{' '}<button type="button" className="link-btn" onClick={() => { setEditing(true); setText(''); }}>Change</button></>}
           </span>
         </div>
       )}

@@ -52,6 +52,16 @@ export type StockRecord = {
  */
 export const ASSET_SAFETY_WRAP = 60;
 
+/**
+ * What EVE's "items moved to safety" notification says about a wrap (assetSafety.ts, `parseSafetyNotice`): when it
+ * went in, the lost structure's name, the system, where it will be delivered, and when it can be delivered by hand and
+ * automatically. Needs the notifications permission; ESI has these dates nowhere else.
+ */
+export type SafetyNotice = {
+  at: string; manualAt: string; autoAt: string;
+  structureId?: number; structure?: string; systemId?: number; stationId?: number;
+};
+
 export type SafetyWrap = {
   /** The wrap's item ID. */
   id: number;
@@ -74,6 +84,8 @@ export type SafetyWrap = {
    * `/assets/names` answers "None" for a wrap (28 September 2026), so nothing fills this yet and it's carried if set.
    */
   name?: string;
+  /** EVE's notification about it, paired by the browser's sync and carried forward by both writers. */
+  notice?: SafetyNotice;
   /** When the cloud first saw it, and whether that's within the hour of it going in (so the countdown is known). */
   firstSeen?: string;
   startKnown?: boolean;
@@ -162,6 +174,8 @@ export function mergeSafety(prev: SafetyWrap[] | undefined, next: SafetyWrap[] |
     const firstSeen = k?.firstSeen ?? was?.firstSeen;
     const startKnown = k?.startKnown ?? was?.startKnown;
     const deliveredAt = w.state === 'delivered' ? (k?.deliveredAt ?? was?.deliveredAt) : undefined;
+    const notice = w.notice ?? was?.notice;
+    if (notice) out.notice = notice;
     if (name) out.name = name;
     if (firstSeen) out.firstSeen = firstSeen;
     if (startKnown != null) out.startKnown = startKnown;

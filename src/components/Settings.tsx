@@ -9,10 +9,10 @@ import { feeMatchesFor } from '../lib/positions';
 import { ago, fmtDate, fmtDateTime, iskBig, iskBigSigned, pct, plainNum, units, until } from '../lib/format';
 import { cacheStore, clearAll, exportAll, importAll, parseBackup, update, useData } from '../lib/store';
 import { confirmAsk } from '../lib/confirm';
-import { isConfigured, login, loginForCloud, loginMailer, loginMailerForCloud, logout, logoutMailer } from '../lib/auth';
+import { askedScopes, isConfigured, login, loginForCloud, loginMailer, loginMailerForCloud, logout, logoutMailer, setAsked } from '../lib/auth';
 import { syncCharacter, useSyncState } from '../lib/sync';
 import { navigate, useAuth, useMailer, useNow, type Route } from '../lib/hooks';
-import { ALPHA_CAPS, JITA_44, REDIRECT_URI, SCOPE, SCOPE_INFO, SCOPES } from '../lib/config';
+import { ALPHA_CAPS, JITA_44, OPTIONAL_SCOPES, REDIRECT_URI, SCOPE, SCOPE_INFO, SCOPES } from '../lib/config';
 import { marketHistory } from '../lib/market';
 import { measureShare, MIN_SIDE_DAYS, sharedTypes, SHARE_DAYS, type ShareMeasure } from '../lib/share';
 import { ALERT_EVENTS, ALERT_SIZES, MAIL_KEEP, REPEAT_HOURS, THEMES, TOAST_SECONDS } from '../lib/prefs';
@@ -214,6 +214,8 @@ function Account() {
   const [imgOk, setImgOk] = useState(true);
   const granted = auth?.scopes ?? [];
   const missing = SCOPES.filter((sc) => !granted.includes(sc));
+  const [asked, setAskedState] = useState<string[]>(askedScopes);
+  const ask = (sc: string, on: boolean) => { setAsked(sc, on); setAskedState(askedScopes()); };
   const s = d.settings;
   const detected = d.meta.cloneDetected
     ? `Read from ${auth?.characterName ?? 'your character'}’s skills on the last sync.`
@@ -282,6 +284,42 @@ function Account() {
                       <code style={{ display: 'block', fontFamily: 'var(--f-mono)', fontSize: 10.5, color: 'var(--faint-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sc}</code>
                       <span style={{ fontSize: 12, color: 'var(--label)' }}>{info?.unlocks}</span>
                       {granted.length > 0 && !has && info && <span style={{ display: 'block', fontSize: 12, color: 'var(--acc2)' }}>Without it: {info.without}</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="lbl" style={{ fontSize: 11, letterSpacing: '.18em', margin: '14px 0 6px' }}>Optional</div>
+            <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--label)', textWrap: 'pretty' }}>
+              Asked for only once you switch it on here. Tick it on your application at developers.eveonline.com first: EVE’s login refuses a permission
+              the application doesn’t have, and only says so after you sign in.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,300px),1fr))', gap: 4 }}>
+              {OPTIONAL_SCOPES.map((sc) => {
+                const info = SCOPE_INFO[sc];
+                const has = granted.includes(sc), on = asked.includes(sc);
+                const dot = has ? 'var(--pos)' : on ? 'var(--acc2)' : 'var(--faint)';
+                return (
+                  <div key={sc} style={{ display: 'flex', gap: 10, padding: '8px 10px', background: 'rgba(2,7,12,.4)', borderLeft: `2px solid ${dot}` }}>
+                    <span style={{ width: 7, height: 7, marginTop: 6, borderRadius: '50%', flex: 'none', background: dot, boxShadow: `0 0 6px ${dot}` }} aria-hidden="true" />
+                    <div style={{ minWidth: 0 }} className="col tight">
+                      <div className="row tight"><b style={{ fontSize: 13, fontWeight: 600, color: 'var(--figure)' }}>{info?.label ?? sc}</b>{has && <span className="flag plain" style={{ fontSize: 10, color: 'var(--pos)' }}>granted</span>}</div>
+                      <code style={{ display: 'block', fontFamily: 'var(--f-mono)', fontSize: 10.5, color: 'var(--faint-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sc}</code>
+                      <span style={{ fontSize: 12, color: 'var(--label)' }}>{info?.unlocks}</span>
+                      <span className="row tight" style={{ gap: 10, flexWrap: 'wrap', marginTop: 4 }}>
+                        {!on ? (
+                          <button type="button" className="btn sm" onClick={() => ask(sc, true)}>Ask for it at login</button>
+                        ) : !has ? (
+                          <>
+                            <span style={{ fontSize: 12, color: 'var(--acc2)' }}>Asked for at your next login.</span>
+                            {auth && <button type="button" className="btn sm primary" onClick={() => login().catch((e) => toast(String(e.message ?? e), 'err'))}><LogIn aria-hidden="true" />Log in again</button>}
+                            <button type="button" className="link-btn dim" onClick={() => ask(sc, false)}
+                              data-tip="If EVE’s login refused it (not ticked on your application), stop asking so logging in works as before.">Stop asking</button>
+                          </>
+                        ) : (
+                          <button type="button" className="link-btn dim" onClick={() => ask(sc, false)} data-tip="Your next login won’t ask for it, so the app stops using it then.">Stop asking</button>
+                        )}
+                      </span>
                     </div>
                   </div>
                 );
