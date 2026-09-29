@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarCheck, ChevronRight, ClipboardCopy, Clock, Crosshair, MapPin, Zap } from 'lucide-react';
+import { BookmarkPlus, CalendarCheck, ChevronRight, ClipboardCopy, Clock, Crosshair, MapPin, Wrench, Zap } from 'lucide-react';
+import { getAuth, hasScope } from '../lib/auth';
+import { esi } from '../lib/esi';
+import { typeKind } from '../lib/universe';
+import { pool } from '../lib/lootMarket';
 import { fmtDate, iskBig, iskBigSigned, pct, units } from '../lib/format';
 import { useAuth, useNow } from '../lib/hooks';
-import { CARGO_FLAGS, combatStats, gankLineFor, isAbyssalSystem, multibuy, netLoss, type CombatActivity } from '../lib/combat';
+import { CARGO_FLAGS, combatStats, fittingFromLoss, gankLineFor, isAbyssalSystem, multibuy, netLoss, type CombatActivity, type FittingItem } from '../lib/combat';
 import { classify, usePricingState } from '../lib/killmails';
 import { jitaBook, resolveNames } from '../lib/market';
 import { marketBest } from '../lib/relist';
@@ -167,7 +171,76 @@ export function Combat() {
           {Object.keys(hulls).length > 0 && <p className="note small">Only players count: dying to rats says nothing about gankers.</p>}
         </Panel>
       </div>
+      {hasScope(SCOPE.fittingsRead) && <SavedFits />}
     </div>
+  );
+}
+
+type SavedFit = { fitting_id: number; name: string; ship_type_id: number; items: FittingItem[] };
+
+/**
+ * Your saved fittings, priced at today's Jita prices on a button (esi-fittings.read_fittings.v1): the hull and every
+ * item at the cheapest listing that's the market (marketBest, as the refit list prices), with a Multibuy list for each.
+ */
+function SavedFits() {
+  const name = useTypeName();
+  const [fits, setFits] = useState<SavedFit[] | null>(null);
+  const [prices, setPrices] = useState<Record<number, number | null>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  useEnsureNames((fits ?? []).flatMap((f) => [f.ship_type_id, ...f.items.map((i) => i.type_id)]));
+  const read = async () => {
+    const a = getAuth();
+    if (!a) return;
+    setBusy('Reading your fittings…');
+    try {
+      const { data } = await esi<SavedFit[]>(`/characters/${a.characterId}/fittings/`, { auth: true });
+      const types = [...new Set(data.flatMap((f) => [f.ship_type_id, ...f.items.map((i) => i.type_id)]))];
+      const out: Record<number, number | null> = {};
+      let done = 0;
+      await pool(types, 6, async (t) => {
+        try { out[t] = marketBest((await jitaBook(t)).topSells, false); } catch { out[t] = null; }
+        setBusy(`Pricing ${++done} of ${types.length} items…`);
+      });
+      setPrices(out); setFits(data);
+    } catch (e) { toast(e instanceof Error ? e.message : String(e), 'err'); }
+    finally { setBusy(null); }
+  };
+  const lines = (f: SavedFit) => {
+    const m = new Map<number, number>([[f.ship_type_id, 1]]);
+    for (const i of f.items) m.set(i.type_id, (m.get(i.type_id) ?? 0) + i.quantity);
+    return [...m.entries()].map(([typeId, qty]) => ({ typeId, qty }));
+  };
+  const cost = (f: SavedFit) => lines(f).reduce((t, l) => t + (prices[l.typeId] ?? 0) * l.qty, 0);
+  const missing = (f: SavedFit) => lines(f).filter((l) => prices[l.typeId] == null).length;
+  const copy = (f: SavedFit) => {
+    const text = multibuy(lines(f).map((l) => ({ name: name(l.typeId), qty: l.qty })));
+    navigator.clipboard.writeText(text).then(() => toast('Copied. Paste it into the multibuy window in game.'), () => toast('Your browser wouldn’t let the page copy.', 'err'));
+  };
+  return (
+    <Panel title="Your saved fittings" sub="What buying each one costs in Jita today">
+      <div className="col" style={{ gap: 10 }}>
+        <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+          <button type="button" className="btn" disabled={!!busy} onClick={() => void read()}><Wrench aria-hidden="true" />{fits ? 'Price them again' : 'Price my saved fits'}</button>
+          {busy && <span className="note small" style={{ margin: 0 }}>{busy}</span>}
+        </div>
+        {fits && (fits.length ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="tbl compact" style={{ minWidth: 560 }}>
+              <thead><tr><th scope="col" className="l">Fitting</th><th scope="col" className="l">Ship</th><th scope="col">Items</th><th scope="col" data-tip="The hull and every item at the cheapest Jita listing that is the market">Costs now</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+              <tbody>{[...fits].sort((x, y) => cost(y) - cost(x)).map((f) => (
+                <tr key={f.fitting_id}>
+                  <td className="l"><span className="name">{f.name}</span></td>
+                  <td className="l">{name(f.ship_type_id)}</td>
+                  <td>{units(f.items.reduce((n, i) => n + i.quantity, 0))}</td>
+                  <td>{iskBig(cost(f))}{missing(f) > 0 && <span className="sub">{units(missing(f))} not listed</span>}</td>
+                  <td><button type="button" className="link-btn dim" onClick={() => copy(f)}><ClipboardCopy aria-hidden="true" />Multibuy</button></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        ) : <p className="note">No saved fittings on this character.</p>)}
+      </div>
+    </Panel>
   );
 }
 
@@ -225,6 +298,22 @@ function Detail({ k, where }: { k: Killmail; where: string }) {
   const nowT = today ? fit.reduce((t, f) => t + (today[f.typeId] ?? 0) * f.qty, 0) : null;
   const unpricedNow = today ? fit.filter((f) => today[f.typeId] == null).length : 0;
   const text = multibuy(fit.map((f) => ({ name: name(f.typeId), qty: f.qty })));
+  // Saving it as a fitting in game: charges loaded in guns go to the cargo, told apart by their category (8, Charge).
+  const [saving, setSaving] = useState(false);
+  const saveFit = async () => {
+    const a = getAuth();
+    if (!a || !k.victim.shipTypeId) return;
+    setSaving(true);
+    try {
+      const cats = new Map<number, number>();
+      await pool([...new Set(k.items.map((i) => i.typeId))], 6, async (t) => { try { cats.set(t, (await typeKind(t)).category); } catch { /* treated as a module */ } });
+      const body = fittingFromLoss(k, name(k.victim.shipTypeId), where, (t) => cats.get(t) === 8);
+      if (!body) return;
+      await esi<{ fitting_id: number }>(`/characters/${a.characterId}/fittings/`, { auth: true, method: 'POST', body });
+      toast(`Saved as “${body.name}” in your fittings. In game: the fitting window, Personal, then Buy All.`);
+    } catch (e) { toast(e instanceof Error ? e.message : String(e), 'err'); }
+    finally { setSaving(false); }
+  };
   const totalDmg = k.attackers.reduce((t, a) => t + a.damage, 0) || 1;
   const person = (p: KillParty) => (p.characterId ? people[p.characterId] ?? '…' : p.factionId ? people[p.factionId] ?? 'NPC' : 'NPC');
   const org = (p: KillParty) => [p.corporationId ? people[p.corporationId] : null, p.allianceId ? people[p.allianceId] : null].filter(Boolean).join(' · ') || '—';
@@ -308,9 +397,13 @@ function Detail({ k, where }: { k: Killmail; where: string }) {
             </div>
             {unpricedNow > 0 && <p className="note small">{unpricedNow} item{unpricedNow === 1 ? ' has' : 's have'} no sell orders in Jita right now and {unpricedNow === 1 ? 'isn’t' : 'aren’t'} in the total.</p>}
             <pre style={{ margin: 0, padding: 10, maxHeight: 180, overflow: 'auto', background: 'rgba(0,0,0,.35)', border: '1px solid var(--line-3)', fontFamily: 'var(--f-mono)', fontSize: 11.5, color: 'var(--sec)', whiteSpace: 'pre-wrap' }}>{text}</pre>
-            <button type="button" className="btn primary sm" style={{ alignSelf: 'flex-start' }} onClick={() => navigator.clipboard.writeText(text).then(() => toast('Copied. Paste it into the multibuy window in game.'), () => toast('Your browser wouldn’t let the page copy. Select the list and copy it by hand.', 'warn'))}>
-              <ClipboardCopy aria-hidden="true" />Copy for multibuy
-            </button>
+            <span className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="btn primary sm" onClick={() => navigator.clipboard.writeText(text).then(() => toast('Copied. Paste it into the multibuy window in game.'), () => toast('Your browser wouldn’t let the page copy. Select the list and copy it by hand.', 'warn'))}>
+                <ClipboardCopy aria-hidden="true" />Copy for multibuy
+              </button>
+              {hasScope(SCOPE.fittingsWrite) && <button type="button" className="btn sm" disabled={saving} onClick={() => void saveFit()}
+                data-tip="Adds this fit to your fittings in game, so the fitting window’s Buy All re-buys it. It never changes or deletes a fitting."><BookmarkPlus aria-hidden="true" />{saving ? 'Saving…' : 'Save this fit in game'}</button>}
+            </span>
           </div>
         </div>
       )}

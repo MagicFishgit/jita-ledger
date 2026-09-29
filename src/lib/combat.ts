@@ -212,3 +212,54 @@ export function gankLineFor(
 export function multibuy(lines: { name: string; qty: number }[]): string {
   return lines.filter((l) => l.qty > 0).map((l) => `${l.name} x${l.qty}`).join('\n');
 }
+
+/**
+ * A killmail's inventory flag (a number) as the fittings API names the slot: 11–18 low, 19–26 mid, 27–34 high, 92–99
+ * rigs, 125–132 subsystems, 164–171 service slots, 87 the drone bay, 158 the fighter bay, 5 the cargo hold. Anything else
+ * (fleet hangar, ore hold…) isn't part of a fit. The API takes RigSlot0–2 and SubSystemSlot0–3 only.
+ */
+export function fitSlot(flag: number): string | null {
+  if (flag >= 11 && flag <= 18) return `LoSlot${flag - 11}`;
+  if (flag >= 19 && flag <= 26) return `MedSlot${flag - 19}`;
+  if (flag >= 27 && flag <= 34) return `HiSlot${flag - 27}`;
+  if (flag >= 92 && flag <= 94) return `RigSlot${flag - 92}`;
+  if (flag >= 125 && flag <= 128) return `SubSystemSlot${flag - 125}`;
+  if (flag >= 164 && flag <= 171) return `ServiceSlot${flag - 164}`;
+  if (flag === 87) return 'DroneBay';
+  if (flag === 158) return 'FighterBay';
+  if (flag === 5) return 'Cargo';
+  return null;
+}
+
+export type FittingItem = { flag: string; quantity: number; type_id: number };
+
+/**
+ * A lost ship as a fitting to save in game (POST /characters/{id}/fittings), so its fitting window's Buy All re-buys it:
+ * modules, rigs and subsystems in their slots, drones in the drone bay, and what was in the cargo hold. A charge loaded in
+ * a gun shares the gun's slot on a killmail, and a fitting holds one module a slot, so `isCharge` (from the item's
+ * category) moves charges to the cargo. The name is cut to the 50 characters a fitting takes.
+ */
+export function fittingFromLoss(k: Pick<Killmail, 'items' | 'victim' | 'time'>, shipName: string, place: string, isCharge: (typeId: number) => boolean):
+  { name: string; description: string; ship_type_id: number; items: FittingItem[] } | null {
+  if (!k.victim.shipTypeId) return null;
+  const items = new Map<string, FittingItem>();
+  const taken = new Set<string>();
+  for (const i of k.items) {
+    const slot = fitSlot(i.flag);
+    const qty = i.dropped + i.destroyed;
+    if (!slot || qty <= 0) continue;
+    const moduleSlot = /Slot\d$/.test(slot);
+    const flag = moduleSlot && (isCharge(i.typeId) || taken.has(slot)) ? 'Cargo' : slot;
+    if (moduleSlot && flag === slot) taken.add(slot);
+    const key = `${flag}|${i.typeId}`;
+    const cur = items.get(key);
+    if (cur) cur.quantity += qty; else items.set(key, { flag, quantity: qty, type_id: i.typeId });
+  }
+  const day = k.time.slice(0, 10);
+  return {
+    name: `${shipName} (lost ${day})`.slice(0, 50),
+    description: `Saved by Jita Ledger from your loss of this ship on ${day} in ${place}.`.slice(0, 500),
+    ship_type_id: k.victim.shipTypeId,
+    items: [...items.values()],
+  };
+}

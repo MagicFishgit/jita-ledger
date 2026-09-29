@@ -49,6 +49,8 @@ export const SCOPE = {
   skillqueue: 'esi-skills.read_skillqueue.v1', // what's training, so a trade skill about to finish shows what it does to fees
   industry: 'esi-industry.read_character_jobs.v1', // your industry jobs, so finished ones show on To do to deliver
   contracts: 'esi-contracts.read_character_contracts.v1', // your contracts: couriers to deliver, and what contracts you sold or bought held
+  fittingsRead: 'esi-fittings.read_fittings.v1', // your saved fittings, priced at today's Jita prices on Combat
+  fittingsWrite: 'esi-fittings.write_fittings.v1', // save a lost ship's fit in game, so its Buy All re-buys it
 } as const;
 export const SCOPES: string[] = Object.values(SCOPE);
 
@@ -159,6 +161,16 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
     label: 'Your freelance jobs',
     unlocks: 'Side hustles → Freelance shows the jobs you’ve joined, how much you’ve delivered, and what’s left of your share.',
     without: 'The Freelance tab still finds jobs, but can’t say which you’re in.',
+  },
+  'esi-fittings.read_fittings.v1': {
+    label: 'Read fittings',
+    unlocks: 'Combat prices your saved fittings at today’s Jita prices, each with a Multibuy list.',
+    without: 'Your saved fittings aren’t priced.',
+  },
+  'esi-fittings.write_fittings.v1': {
+    label: 'Save fittings',
+    unlocks: 'Combat can save a lost ship’s fit into your fittings in game, so the fitting window’s Buy All re-buys it. It only ever adds a fitting.',
+    without: 'A lost fit can still be copied as a Multibuy list.',
   },
   'esi-contracts.read_character_contracts.v1': {
     label: 'Your contracts',

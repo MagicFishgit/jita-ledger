@@ -2794,6 +2794,25 @@ console.log('\n--- blueprints and their contracts ---');
     [['saysOriginal', 'saysResearch'], ['notJita']]);
 }
 
+console.log('\n--- a lost ship as a fitting ---');
+{
+  const { fitSlot, fittingFromLoss } = await import('../src/lib/combat.ts');
+  eq('killmail flags as the fittings API names slots', [11, 18, 19, 27, 34, 92, 125, 87, 5, 90, 158].map(fitSlot), ['LoSlot0', 'LoSlot7', 'MedSlot0', 'HiSlot0', 'HiSlot7', 'RigSlot0', 'SubSystemSlot0', 'DroneBay', 'Cargo', null, 'FighterBay']);
+  // A Jackdaw's fit: two launchers with charges loaded in them, a script in its guidance computer, drones, cargo ammo.
+  const k = { time: '2026-09-29T10:00:00Z', victim: { shipTypeId: 34828, damage: 0 }, items: [
+    { typeId: 2404, flag: 27, destroyed: 1, dropped: 0 }, { typeId: 27361, flag: 27, destroyed: 20, dropped: 0 },
+    { typeId: 2404, flag: 28, destroyed: 0, dropped: 1 }, { typeId: 27361, flag: 28, destroyed: 20, dropped: 0 },
+    { typeId: 35790, flag: 11, destroyed: 1, dropped: 0 }, { typeId: 35795, flag: 11, destroyed: 1, dropped: 0 },
+    { typeId: 2488, flag: 87, destroyed: 2, dropped: 0 }, { typeId: 27361, flag: 5, destroyed: 0, dropped: 900 }, { typeId: 34, flag: 134, destroyed: 5, dropped: 0 },
+  ] };
+  const f = fittingFromLoss(k, 'Jackdaw', 'Uedama', (t) => t === 27361 || t === 35795);
+  eq('modules in their slots; loaded charges and a script to the cargo with the rest; drones kept; an ore hold left out', f.items, [
+    { flag: 'HiSlot0', quantity: 1, type_id: 2404 }, { flag: 'Cargo', quantity: 940, type_id: 27361 }, { flag: 'HiSlot1', quantity: 1, type_id: 2404 },
+    { flag: 'LoSlot0', quantity: 1, type_id: 35790 }, { flag: 'Cargo', quantity: 1, type_id: 35795 }, { flag: 'DroneBay', quantity: 2, type_id: 2488 },
+  ]);
+  eq('  named with the day it was lost, within a fitting’s 50 characters', [f.name, f.ship_type_id], ['Jackdaw (lost 2026-09-29)', 34828]);
+}
+
 console.log('\n--- your contracts ---');
 {
   const { readContracts, couriersDue, itemsToRead, contractSaid } = await import('../src/lib/contracts.ts');

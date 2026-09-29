@@ -77,6 +77,13 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
 - **A killmail that couldn't be fully priced is left unpriced and retried**, never stored with the missing
   items at zero: its value is kept for good. ESI's 400 for an untradable type (a capsule) is a real "no
   price"; any other failure is a retry.
+- **A lost fit can be saved in game, and saved fits are priced** (`fittingFromLoss`, `fitSlot` in combat.ts; scopes
+  `esi-fittings.write_fittings.v1` and `read_fittings.v1`, registered 29 September 2026). A killmail's inventory flags
+  are numbers (11–18 low, 19–26 mid, 27–34 high, 92–94 rigs, 125–128 subsystems, 87 drones, 5 cargo), the fittings API
+  takes names (LoSlot0…, only RigSlot0–2 and SubSystemSlot0–3). A charge loaded in a gun shares the gun's flag and a
+  fitting holds one module a slot, so charges (category 8, from ESI's type) go to the cargo. "Save this fit in game" only
+  ever adds a fitting ("Jackdaw (lost 2026-09-27)"), for the fitting window's Buy All. Saved fittings are priced on a
+  button at the cheapest Jita listing that's the market (`marketBest`), each with a Multibuy list.
 - **Killmails are priced once, from market history on the day, and never re-priced.** A loss in March cost
   March's prices. Refits use today's Jita book because that is what you'd pay now; the two are shown side by side.
 - **The Wallet prices loyalty points itself** (`lib/lpStore.ts`, shared with the Loyalty page): the same
