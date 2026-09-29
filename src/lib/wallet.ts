@@ -96,7 +96,7 @@ export type Line = {
 export type Part = {
   key: string; label: string; amount: number; count: number; typeId?: number; refType?: string;
   /** The entries themselves, biggest first, for a kind of journal entry. At most PART_ENTRIES. */
-  entries?: { id: string; date: string; amount: number; text: string }[];
+  entries?: { id: string; date: string; amount: number; text: string; contract?: number }[];
 };
 /** Entries kept per kind of journal entry, for opening a line up to the entries behind it. */
 export const PART_ENTRIES = 100;
@@ -127,7 +127,7 @@ export function flows(
   until = Infinity,
 ): { ins: Line[]; outs: Line[]; inTotal: number; outTotal: number } {
   const lines = new Map<string, Line & { byPart: Map<string, Part> }>();
-  const add = (c: Category, amount: number, part: Omit<Part, 'amount' | 'count' | 'entries'>, entry?: { id: string; date: string; text: string }) => {
+  const add = (c: Category, amount: number, part: Omit<Part, 'amount' | 'count' | 'entries'>, entry?: { id: string; date: string; text: string; contract?: number }) => {
     const cur = lines.get(c.key) ?? { key: c.key, label: c.label, kind: c.kind, amount: 0, count: 0, parts: [], byPart: new Map() };
     cur.amount += amount;
     cur.count++;
@@ -142,7 +142,9 @@ export function flows(
     const t = Date.parse(e.date);
     if (t < since || t >= until) continue;
     const c = categoryOf(e);
-    if (c) add(c, e.amount, { key: `ref:${e.refType}`, label: refSaid(e.refType), refType: e.refType }, { id: e.id, date: e.date, text: e.description ?? e.reason ?? '' });
+    // A contract's entries carry its ID, so the Wallet can name what it held (contracts.ts).
+    const contract = e.contextIdType === 'contract_id' && e.contextId ? e.contextId : undefined;
+    if (c) add(c, e.amount, { key: `ref:${e.refType}`, label: refSaid(e.refType), refType: e.refType }, { id: e.id, date: e.date, text: e.description ?? e.reason ?? '', ...(contract ? { contract } : {}) });
   }
   for (const tx of txs) {
     const t = Date.parse(tx.date);

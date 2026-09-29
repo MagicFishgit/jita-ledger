@@ -4,6 +4,7 @@ import { esi, esiAllPages } from './esi';
 import { ALPHA_CAPS, JITA_44, NPC_FALLBACK_IDS, NPC_NAMES, SCOPE, SKILL_FALLBACK_IDS, SKILL_NAMES, type SkillKey } from './config';
 import { parseSafetyNotice, withNotices } from './assetSafety';
 import { isStation, isStructure, structureInfo } from './universe';
+import { couriersDue, itemsToRead, readContracts, type ContractItem, type RawContract } from './contracts';
 import { loyaltyPoints, resolveIds, resolveNames } from './market';
 import { dataGeneration, getData, update, type Data } from './store';
 import { sanitizeSettings, type Settings } from './fees';
@@ -225,6 +226,28 @@ export async function syncCharacter(): Promise<void> {
         }
         read.push('assets');
       } catch { /* stock is a cross-check, not the ledger: a failure here must not fail the sync */ }
+    }
+    // Your contracts: couriers to deliver (To do), and the items of item exchanges you sold or bought (the Wallet).
+    if (hasScope(SCOPE.contracts)) {
+      try {
+        const list = readContracts(await esiAllPages<RawContract>(`/characters/${cid}/contracts/`, { auth: true }));
+        const prev = d.meta.contracts;
+        const items: Record<number, ContractItem[]> = { ...(prev?.items ?? {}) };
+        for (const id of itemsToRead(list, cid, items)) {
+          try {
+            const { data } = await esi<{ type_id: number; quantity: number; is_included: boolean }[]>(`/characters/${cid}/contracts/${id}/items/`, { auth: true });
+            items[id] = data.map((i) => ({ typeId: i.type_id, qty: i.quantity, included: i.is_included }));
+          } catch { /* read on a later sync */ }
+        }
+        // Keep the newest 500 contracts' items: a contract's journal entries stay findable, the doc stays small.
+        const keepIds = Object.keys(items).map(Number).sort((a, b) => b - a).slice(0, 500);
+        const places: Record<number, string> = { ...(prev?.places ?? {}) };
+        const dests = [...new Set(couriersDue(list, cid).flatMap((c) => [c.contract.end, c.contract.start]).filter((x): x is number => x != null))].filter((id) => !places[id]);
+        if (dests.filter(isStation).length) Object.assign(places, await resolveNames(dests.filter(isStation)).catch(() => ({})));
+        for (const id of dests.filter(isStructure)) { const s = await structureInfo(id).catch(() => null); if (s?.status === 'found') places[id] = s.name; }
+        metaPatch.contracts = { at: new Date().toISOString(), list, items: Object.fromEntries(keepIds.map((id) => [id, items[id]])), places };
+        read.push('contracts');
+      } catch { /* the Wallet and To do go without */ }
     }
     // Industry jobs not yet delivered, with their facilities named, for To do (todo.ts, judgeIndustry).
     if (hasScope(SCOPE.industry)) {

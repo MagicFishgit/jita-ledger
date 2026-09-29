@@ -22,7 +22,8 @@ import type { JournalEntry, Position, Tx, UntrackedTag } from '../lib/types';
 import { AreaLine, MiniLine } from './charts';
 import { Goals } from './Goals';
 import { AssetSafety } from './AssetSafety';
-import { downloadBlob, downloadText, useShipTypes, useTypeName } from './common';
+import { downloadBlob, downloadText, useEnsureNames, useShipTypes, useTypeName } from './common';
+import { contractSaid, type ContractItem } from '../lib/contracts';
 import { BarLine, cssVars, Empty, Figure, PageHead, Panel, Seg, Tiles } from './ui';
 import { nettedJournal, refundsIn } from '../lib/refunds';
 
@@ -62,10 +63,12 @@ function readDays(): Days {
  * the entries themselves, or the items its trades were in. The user wanted "Other income" and "Other spending" to show
  * what they were rather than stay a lump, so every line can open, and nothing is folded into "everything else".
  */
-function FlowLine({ l, sign, frac, color, kindColor }: { l: Line; sign: '+' | '−'; frac: number; color: string; kindColor?: string }) {
+function FlowLine({ l, sign, frac, color, kindColor, contractItems }: { l: Line; sign: '+' | '−'; frac: number; color: string; kindColor?: string; contractItems?: Record<number, ContractItem[]> }) {
   const [open, setOpen] = useState(false);
   const [part, setPart] = useState<string | null>(null);
   const name = useTypeName();
+  // What a contract held, when your contracts are read: "3× Rifter Blueprint" beside its ISK.
+  useEnsureNames(open && contractItems ? l.parts.flatMap((p) => (p.entries ?? []).flatMap((e) => (e.contract ? contractItems[e.contract] ?? [] : []).map((i) => i.typeId))) : []);
   const label = l.parts.length ? (
     <button type="button" className="panel-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
       <ChevronRight className="chev" aria-hidden="true" />{l.label}
@@ -90,7 +93,7 @@ function FlowLine({ l, sign, frac, color, kindColor }: { l: Line; sign: '+' | '�
                 <div className="flow-entries">
                   {p.entries.map((e) => (
                     <div key={e.id} className="kv">
-                      <span><span className="mono faint">{fmtShort(Date.parse(e.date))}</span> {e.text || '–'}</span>
+                      <span><span className="mono faint">{fmtShort(Date.parse(e.date))}</span> {(e.contract && contractSaid(contractItems?.[e.contract], name)) || e.text || '–'}</span>
                       <span className="v">{sign}{iskBig(e.amount)}</span>
                     </div>
                   ))}
@@ -376,14 +379,14 @@ export function Wallet() {
             <div>
               <div className="kv" style={{ marginBottom: 8 }}><span className="lbl">Money in</span><span className="v" style={{ color: 'var(--pos)' }}>+{iskBig(f.inTotal)}</span></div>
               <div className="col" style={{ gap: 9 }}>
-                {ins.length ? ins.map((l) => <FlowLine key={l.key} l={l} sign="+" frac={l.amount / fmax} color={IN_COLOR[l.key] ?? '#adbfcf'} />) : <p className="note">Nothing came in.</p>}
+                {ins.length ? ins.map((l) => <FlowLine key={l.key} l={l} sign="+" frac={l.amount / fmax} color={IN_COLOR[l.key] ?? '#adbfcf'} contractItems={d.meta.contracts?.items} />) : <p className="note">Nothing came in.</p>}
               </div>
             </div>
             <div>
               <div className="kv" style={{ marginBottom: 8 }}><span className="lbl">Money out</span><span className="v" style={{ color: 'var(--neg-t)' }}>−{iskBig(f.outTotal)}</span></div>
               <div className="col" style={{ gap: 9 }}>
                 {outs.length ? outs.map((l) => (
-                  <FlowLine key={l.key} l={l} sign="−" frac={l.amount / fmax} color={OUT_COLOR[l.key] ?? '#adbfcf'} kindColor={l.kind === 'Personal' ? '#ff8d9a' : '#90a5b8'} />
+                  <FlowLine key={l.key} l={l} sign="−" frac={l.amount / fmax} color={OUT_COLOR[l.key] ?? '#adbfcf'} kindColor={l.kind === 'Personal' ? '#ff8d9a' : '#90a5b8'} contractItems={d.meta.contracts?.items} />
                 )) : <p className="note">Nothing went out.</p>}
               </div>
             </div>

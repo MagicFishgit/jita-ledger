@@ -48,6 +48,7 @@ export const SCOPE = {
   freelance: 'esi-characters.read_freelance_jobs.v1', // the freelance jobs you've joined, and how much you've delivered
   skillqueue: 'esi-skills.read_skillqueue.v1', // what's training, so a trade skill about to finish shows what it does to fees
   industry: 'esi-industry.read_character_jobs.v1', // your industry jobs, so finished ones show on To do to deliver
+  contracts: 'esi-contracts.read_character_contracts.v1', // your contracts: couriers to deliver, and what contracts you sold or bought held
 } as const;
 export const SCOPES: string[] = Object.values(SCOPE);
 
@@ -158,6 +159,11 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
     label: 'Your freelance jobs',
     unlocks: 'Side hustles → Freelance shows the jobs you’ve joined, how much you’ve delivered, and what’s left of your share.',
     without: 'The Freelance tab still finds jobs, but can’t say which you’re in.',
+  },
+  'esi-contracts.read_character_contracts.v1': {
+    label: 'Your contracts',
+    unlocks: 'To do lists courier contracts you’ve accepted with their deadline and the collateral at stake, and the Wallet names what the item exchanges you sold or bought held.',
+    without: 'Couriers you’ve accepted aren’t tracked, and contract ISK shows without what it was for.',
   },
   'esi-industry.read_character_jobs.v1': {
     label: 'Industry jobs',

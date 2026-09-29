@@ -2794,6 +2794,26 @@ console.log('\n--- blueprints and their contracts ---');
     [['saysOriginal', 'saysResearch'], ['notJita']]);
 }
 
+console.log('\n--- your contracts ---');
+{
+  const { readContracts, couriersDue, itemsToRead, contractSaid } = await import('../src/lib/contracts.ts');
+  const { judgeCourierJob } = await import('../src/lib/todo.ts');
+  const me = 95210486;
+  const C = (id, type, status, issuer, acceptor, extra = {}) => ({ contract_id: id, type, status, issuer_id: issuer, acceptor_id: acceptor, assignee_id: 0, date_issued: '2026-09-27T00:00:00Z', date_expired: '2026-10-10T00:00:00Z', for_corporation: false, ...extra });
+  const list = readContracts([
+    C(1, 'courier', 'in_progress', 7, me, { date_accepted: '2026-09-28T10:00:00Z', days_to_complete: 3, collateral: 500e6, reward: 20e6, end_location_id: 60008494 }),
+    C(2, 'courier', 'finished', 7, me, { date_accepted: '2026-09-20T10:00:00Z', days_to_complete: 3 }),
+    C(3, 'item_exchange', 'finished', me, 8, { price: 12e6 }), C(4, 'item_exchange', 'outstanding', me, 0), C(5, 'item_exchange', 'finished', 8, me),
+    C(6, 'courier', 'in_progress', me, 9, { date_accepted: '2026-09-28T10:00:00Z', days_to_complete: 1 }),
+  ]);
+  eq('couriers you accepted and haven’t delivered, due at accepted + days to complete', couriersDue(list, me).map((c) => [c.contract.id, new Date(c.due).toISOString()]), [[1, '2026-10-01T10:00:00.000Z']]);
+  eq('item exchanges finished with you on either side, whose items aren’t known yet', itemsToRead(list, me, { 5: [] }), [3]);
+  eq('what a contract held, given then asked', contractSaid([{ typeId: 1, qty: 3, included: true }, { typeId: 2, qty: 1, included: false }], (t) => (t === 1 ? 'Rifter Blueprint' : 'Tritanium')), '3× Rifter Blueprint; asking 1× Tritanium');
+  const e = { item: { key: 'courier:1', ver: '', kind: 'courier', source: 'contracts', title: '', detail: '', stake: 0, action: { label: '' } }, seenAt: 1000, lastAt: 1000 };
+  eq('a courier ticks off on a newer read: delivered, or failed with the collateral lost', [judgeCourierJob(e, { readAt: 500, status: 'finished' }), judgeCourierJob(e, { readAt: 2000, status: 'in_progress' }), judgeCourierJob(e, { readAt: 2000, status: 'finished' }), judgeCourierJob(e, { readAt: 2000, status: 'failed' })],
+    [null, null, 'Delivered.', 'It failed: the collateral went to the issuer.']);
+}
+
 console.log('\n--- industry jobs to deliver ---');
 {
   const { judgeIndustry, jobWaiting } = await import('../src/lib/todo.ts');

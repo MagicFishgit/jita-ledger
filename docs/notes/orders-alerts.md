@@ -111,6 +111,12 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   when they were read and their facilities' names (`meta.industry`); a job is waiting when it's `ready` or `active` past
   its end (`jobWaiting`), and they're listed one item per facility, the job IDs in its `ver`. It ticks off only on a
   newer read with none of them waiting ("All delivered."), like every other item: absent is not done.
+- **Couriers you've accepted go on To do** (kind `courier`, source `contracts`, `judgeCourierJob`, `lib/contracts.ts`, scope
+  `esi-contracts.read_character_contracts.v1`, registered 29 September 2026): due at accepted + days to complete, with the
+  reward, the collateral at stake (its ISK, for ordering) and the volume; "Overdue" past it. Ticked off on a newer read of
+  your contracts: "Delivered.", or "It failed: the collateral went to the issuer." The same read keeps the items of item
+  exchanges you sold or bought (read once each, the newest 500 kept), and the Wallet's contract entries (which carry the
+  contract as `context_id`) say what they held ("2× Rattlesnake Blueprint") instead of "Contract price".
 - **To do's Sell into bids items are judged like order items.** The dispatch listed move and cancel but not bid, so
   a bid item fell to the default judge and was ticked "It no longer needs doing" the moment it went missing, before
   the orders had even been checked.

@@ -15,10 +15,10 @@ import type { Verdict } from './relist';
  * is simply absent, and reading absent as done would tick the whole list off on every load.
  */
 
-export type TodoKind = 'move' | 'cancel' | 'bid' | 'underCost' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry';
+export type TodoKind = 'move' | 'cancel' | 'bid' | 'underCost' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry' | 'courier';
 
 /** Which read a finding came from, and so which read can say it has gone. */
-export type Source = 'orders' | 'colonies' | 'signals' | 'ledger' | 'industry';
+export type Source = 'orders' | 'colonies' | 'signals' | 'ledger' | 'industry' | 'contracts';
 
 export type TodoItem = {
   /** What it's about, stable for as long as the finding lasts: `order:123`, `pi:456`, `backup`. */
@@ -70,12 +70,12 @@ export const WARNINGS: ReadonlySet<TodoKind> = new Set<TodoKind>(['scam', 'squee
  * measured --- they are there so a list of twelve relists reads as a quarter of an hour, not an evening.
  */
 export const MINUTES: Record<TodoKind, number> = {
-  move: 1, cancel: 1, bid: 2, underCost: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1, industry: 1,
+  move: 1, cancel: 1, bid: 2, underCost: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1, industry: 1, courier: 10,
 };
 
 export const KIND_LABEL: Record<TodoKind, string> = {
   move: 'Move order', cancel: 'Cancel order', bid: 'Sell into bids', underCost: 'Priced under cost', close: 'Close position', squeeze: 'Margin squeeze', piExpired: 'PI expired',
-  piEnding: 'PI ending', nearMiss: 'Trades your positions skipped', scam: 'Suspicious market', backup: 'Backup', industry: 'Industry jobs to deliver',
+  piEnding: 'PI ending', nearMiss: 'Trades your positions skipped', scam: 'Suspicious market', backup: 'Backup', industry: 'Industry jobs to deliver', courier: 'Courier to deliver',
 };
 
 /**
@@ -210,6 +210,16 @@ export function judgeIndustry(e: Entry, c: { readAt: number | null; waiting: Rea
   if (c.readAt == null || c.readAt <= e.seenAt) return null;
   const ids = e.item.ver.split('.').map(Number).filter((n) => n > 0);
   return ids.some((id) => c.waiting.has(id)) ? null : ids.length === 1 ? 'Delivered.' : 'All delivered.';
+}
+
+/**
+ * A courier you accepted, ticked off once a newer read of your contracts shows it no longer in progress: delivered, or
+ * failed (the collateral is lost). The item's key holds the contract ID.
+ */
+export function judgeCourierJob(e: Entry, c: { readAt: number | null; status: string | null }): string | null {
+  if (c.readAt == null || c.readAt <= e.seenAt) return null;
+  if (c.status === 'in_progress') return null;
+  return c.status === 'failed' ? 'It failed: the collateral went to the issuer.' : c.status === 'finished' || c.status === 'finished_contractor' ? 'Delivered.' : 'It’s no longer in progress.';
 }
 
 /** An industry job that has finished and waits to be delivered: marked ready, or active past its end. */
