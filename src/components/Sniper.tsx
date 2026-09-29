@@ -176,6 +176,12 @@ export function Sniper() {
   const worth = rows.filter((x) => x.worth);
   const small = rows.filter((x) => !x.worth && !x.doubts.length);
   const doubted = rows.filter((x) => x.doubts.length);
+  // Which half of the bar holds each clean listing back: the user found the two controls seemed "to be fighting for the
+  // same things". Both are floors on profit, one in ISK and one on what buying it out costs, and both must hold.
+  const underIsk = (x: SnipeRow) => x.profit < bar.minIsk, underPct = (x: SnipeRow) => x.pct * 100 < bar.minPct;
+  const clean = rows.filter((x) => !x.doubts.length);
+  const shortIsk = clean.filter((x) => underIsk(x) && !underPct(x)).length, shortPct = clean.filter((x) => !underIsk(x) && underPct(x)).length;
+  const shortBoth = clean.filter((x) => underIsk(x) && underPct(x)).length;
   useEnsureNames([...rows.map((x) => x.typeId), ...held.map((x) => x.typeId)]);
   const setBar = (p: Partial<typeof bar>) => update((x) => ({ alerts: sanitizeAlerts({ ...x.alerts, snipeMinIsk: p.minIsk ?? x.alerts.snipeMinIsk, snipeMinPct: p.minPct ?? x.alerts.snipeMinPct }) }));
   const mailing = cloudSendsMail() && d.alerts.on && d.alerts.mail && d.alerts.ev.snipe && d.alerts.mailEv.snipe;
@@ -272,9 +278,9 @@ export function Sniper() {
           <div className="chipbar" data-rv="">
             <span className="chipbar-title"><SlidersHorizontal aria-hidden="true" />Your bar</span>
             <NumChip id="sn-isk" label="Profit at least" value={bar.minIsk} onChange={(v) => setBar({ minIsk: v ?? 0 })} width={140} decimals={0} placeholder="5m"
-              tip={'The least a snipe must make after your fees to count, and to be mailed.\n\n• The same bar applies to bids for what you hold: how much more selling into one gets than listing.'} />
+              tip={'The least a snipe must make after your fees to count, and to be mailed. It keeps out small change that isn’t worth the clicks.\n\n• Return at least must hold as well: both are floors, and a snipe has to clear both.\n• The same bar applies to bids for what you hold: how much more selling into one gets than listing.'} />
             <NumChip id="sn-pct" label="Return at least" value={bar.minPct} onChange={(v) => setBar({ minPct: v ?? 0 })} width={60} decimals={1} percent
-              tip="Profit as a share of what buying it out costs, after your fees" />
+              tip={'Profit as a share of what buying it out costs, after your fees. It keeps out big buys on a thin edge, where a price a few percent off where it really trades wipes the profit out.\n\n• Profit at least must hold as well: both are floors, and a snipe has to clear both.'} />
             <span className="note small" style={{ margin: 0 }}>
               {read === undefined ? 'Asking the cloud…'
                 : error ? `Couldn’t reach the cloud: ${error}.`
@@ -282,6 +288,11 @@ export function Sniper() {
                     : <>Read {ago(read.at, now)}, all {units(read.pages)} pages of The Forge’s book.{nextRead && until(nextRead, now) ? ` Next read ${until(nextRead, now)}.` : ''}</>}
             </span>
           </div>
+          <p className="note small" style={{ margin: 0 }}>
+            A snipe counts when it clears both: at least {iskBig(bar.minIsk)} profit <b>and</b> at least {bar.minPct}% of what buying it out costs.
+            {bar.minPct > 0 && bar.minIsk > 0 && ` So the ISK decides for anything costing under ${iskBig(bar.minIsk / (bar.minPct / 100))}, and the % above that.`}
+            {read && clean.length > 0 && ` In this read, of ${units(clean.length)} listing${clean.length === 1 ? '' : 's'} without doubts: ${units(worth.length)} clear both, ${units(shortIsk)} fall short on the ISK alone, ${units(shortPct)} on the % alone, ${units(shortBoth)} on both.`}
+          </p>
           <p className="row tight" style={{ fontSize: 12.5, color: mailing ? 'var(--pos)' : 'var(--label)', margin: 0 }}>
             <Mail aria-hidden="true" style={{ width: 14, height: 14, flex: 'none' }} />
             <span>
