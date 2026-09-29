@@ -38,7 +38,9 @@ function Countdown({ ms }: { ms: number | null }) {
   }, [ms]);
   const soon = ms != null && ms > 0 && ms <= 5000;
   // Keyed on the reset, so the flash plays once each time and not again on the next tick.
-  return <span key={resetAt} className={`cd${soon ? ' soon' : resetAt ? ' flash' : ''}`}>{ms == null ? '—' : clock(ms)}</span>;
+  // No time known: a plain dash, not one padded out to a countdown's width.
+  if (ms == null) return <span>—</span>;
+  return <span key={resetAt} className={`cd${soon ? ' soon' : resetAt ? ' flash' : ''}`}>{clock(ms)}</span>;
 }
 
 /**

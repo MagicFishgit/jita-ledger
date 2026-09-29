@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BookmarkPlus, CalendarCheck, ChevronRight, ClipboardCopy, Clock, Crosshair, MapPin, Wrench, Zap } from 'lucide-react';
+import { BookmarkPlus, CalendarCheck, ChevronRight, ClipboardCopy, Clock, Crosshair, ExternalLink, MapPin, Wrench, Zap } from 'lucide-react';
 import { getAuth, hasScope } from '../lib/auth';
 import { esi } from '../lib/esi';
 import { typeKind } from '../lib/universe';
 import { pool } from '../lib/lootMarket';
 import { fmtDate, iskBig, iskBigSigned, pct, units } from '../lib/format';
 import { useAuth, useNow } from '../lib/hooks';
-import { CARGO_FLAGS, combatStats, fittingFromLoss, gankLineFor, isAbyssalSystem, multibuy, netLoss, type CombatActivity, type FittingItem } from '../lib/combat';
+import { CARGO_FLAGS, combatStats, finalBlow, fittingFromLoss, fleetShips, gankLineFor, isAbyssalSystem, multibuy, netLoss, type CombatActivity, type FittingItem } from '../lib/combat';
 import { classify, usePricingState } from '../lib/killmails';
 import { jitaBook, resolveNames } from '../lib/market';
 import { marketBest } from '../lib/relist';
@@ -129,7 +129,8 @@ export function Combat() {
                                 <span className="flag" style={{ fontSize: 10, color: loss ? 'var(--neg)' : 'var(--pos)', borderColor: loss ? 'var(--neg)' : 'var(--pos)' }}>{loss ? 'Loss' : 'Kill'}</span>
                                 <span className="name">{k.victim.shipTypeId ? name(k.victim.shipTypeId) : 'Unknown ship'}</span>
                               </span>
-                              <span className="sub">{loss ? (k.value ? (k.insurance ? `Fit ${iskBig(k.value.total)}, insurance ${iskBig(k.insurance)}` : `Fit ${iskBig(k.value.total)}, no insurance`) : 'Being priced') : `${k.attackers.length} attacker${k.attackers.length === 1 ? '' : 's'}`}</span>
+                              <span className="sub">{loss ? (k.value ? (k.insurance ? `Fit ${iskBig(k.value.total)}, insurance ${iskBig(k.insurance)}` : `Fit ${iskBig(k.value.total)}, no insurance`) : 'Being priced') : `${k.attackers.length} attacker${k.attackers.length === 1 ? '' : 's'}`}
+                                {loss && (() => { const f = finalBlow(k.attackers); return f?.shipTypeId ? ` · final blow from a ${name(f.shipTypeId)}${k.attackers.length > 1 ? `, ${units(k.attackers.length)} on the kill` : ''}` : ''; })()}</span>
                             </span>
                           </span>
                         </td>
@@ -315,6 +316,12 @@ function Detail({ k, where }: { k: Killmail; where: string }) {
     finally { setSaving(false); }
   };
   const totalDmg = k.attackers.reduce((t, a) => t + a.damage, 0) || 1;
+  // The 12 who did most damage, and the final blow always, first when it isn't one of them.
+  const shownAttackers = useMemo(() => {
+    const top = [...k.attackers].sort((a, b) => b.damage - a.damage).slice(0, 12);
+    const fb = finalBlow(k.attackers);
+    return fb && !top.includes(fb) ? [fb, ...top] : top;
+  }, [k]);
   const person = (p: KillParty) => (p.characterId ? people[p.characterId] ?? '…' : p.factionId ? people[p.factionId] ?? 'NPC' : 'NPC');
   const org = (p: KillParty) => [p.corporationId ? people[p.corporationId] : null, p.allianceId ? people[p.allianceId] : null].filter(Boolean).join(' · ') || '—';
 
@@ -325,6 +332,8 @@ function Detail({ k, where }: { k: Killmail; where: string }) {
         <span className="row tight"><MapPin aria-hidden="true" style={{ width: 13, height: 13, color: 'var(--acc)' }} />{where}</span>
         <span className="row tight"><Zap aria-hidden="true" style={{ width: 13, height: 13, color: 'var(--acc)' }} />{units(k.victim.damage)} damage {loss ? 'taken' : 'dealt in total'}</span>
         {k.value && <span className="row tight" style={{ color: 'var(--acc2)' }}><CalendarCheck aria-hidden="true" style={{ width: 13, height: 13 }} />Priced at Jita on {fmtDate(k.value.priceDate)}{k.value.priceDate !== k.time.slice(0, 10) ? ', the nearest day anything traded' : ', the day it happened'}</span>}
+        <a className="row tight link-btn" href={`https://zkillboard.com/kill/${k.id}/`} target="_blank" rel="noopener noreferrer" data-tip="This killmail on zKillboard, which also lists the fights around it">
+          <ExternalLink aria-hidden="true" style={{ width: 13, height: 13 }} />zKillboard</a>
       </div>
       {k.value && k.value.unpriced.length > 0 && <p className="note small">{k.value.unpriced.length} item{k.value.unpriced.length === 1 ? '' : 's'} had no Jita trades near the day and count for nothing: {k.value.unpriced.slice(0, 4).map(name).join(', ')}{k.value.unpriced.length > 4 ? '…' : ''}.</p>}
       <div className="party" style={{ gridTemplateColumns: '34px minmax(0,1fr) auto', background: 'rgba(2,7,12,.5)', padding: '10px 12px' }}>
@@ -340,14 +349,22 @@ function Detail({ k, where }: { k: Killmail; where: string }) {
         </span>
       </div>
       <div>
-        <div className="lbl" style={{ marginBottom: 6 }}>Involved · {k.attackers.length}</div>
+        <div className="lbl" style={{ marginBottom: 6 }}>Involved · {units(k.attackers.length)}</div>
+        {k.attackers.length > 3 && (() => {
+          // A fleet gank can put hundreds on one killmail: the ships, counted, say more than a list of each.
+          const f = fleetShips(k.attackers);
+          return <p className="note small" style={{ margin: '0 0 8px' }}>Ships: {f.ships.map((x) => `${units(x.n)} ${name(x.typeId)}`).join(', ')}{f.rest ? `, and ${units(f.rest)} in other ships` : ''}{f.unknown ? `; ${units(f.unknown)} without a ship on record` : ''}.</p>;
+        })()}
+        <p className="note small" style={{ margin: '0 0 8px' }}>A killmail records each attacker’s ship and the weapon they used, not their fit. A pilot’s zKillboard page shows their own losses, and those show how they fit their ships.</p>
         <div style={{ overflowX: 'auto', border: '1px solid var(--line-3)' }}>
           <div style={{ minWidth: 640, padding: '0 12px' }}>
-            {[...k.attackers].sort((a, b) => b.damage - a.damage).slice(0, 12).map((a, i) => (
+            {shownAttackers.map((a, i) => (
               <div key={i} className="party">
                 {a.characterId ? <img src={`https://images.evetech.net/characters/${a.characterId}/portrait?size=64`} alt="" /> : <span className="ini">NPC</span>}
                 <span style={{ minWidth: 0 }}>
-                  <span className="row tight" style={{ fontSize: 13.5, color: 'var(--ink)' }}>{person(a)}{a.finalBlow && <span className="flag" style={{ fontSize: 9.5, color: 'var(--acc2)', borderColor: 'var(--acc2)' }}>Final blow</span>}</span>
+                  <span className="row tight" style={{ fontSize: 13.5, color: 'var(--ink)' }}>{person(a)}{a.finalBlow && <span className="flag" style={{ fontSize: 9.5, color: 'var(--acc2)', borderColor: 'var(--acc2)' }}>Final blow</span>}
+                    {a.characterId && <a className="link-btn dim" href={`https://zkillboard.com/character/${a.characterId}/`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                      data-tip="Their kills and losses on zKillboard. Their losses show the fits they fly.">zKill</a>}</span>
                   <span className="ellipsis" style={{ display: 'block', fontSize: 12, color: 'var(--note)' }}>{org(a)}</span>
                 </span>
                 <span className="opt" style={{ minWidth: 0 }}>
@@ -361,7 +378,7 @@ function Detail({ k, where }: { k: Killmail; where: string }) {
                 <span className="mono" data-tip="Security status" style={{ textAlign: 'right', fontSize: 12, color: a.security != null && a.security < 0 ? '#ff8d9a' : '#6ee7a8' }}>{a.security != null ? a.security.toFixed(1) : ''}</span>
               </div>
             ))}
-            {k.attackers.length > 12 && <p className="note small" style={{ padding: '8px 0' }}>And {k.attackers.length - 12} more.</p>}
+            {k.attackers.length > shownAttackers.length && <p className="note small" style={{ padding: '8px 0' }}>And {units(k.attackers.length - shownAttackers.length)} more.</p>}
           </div>
         </div>
       </div>

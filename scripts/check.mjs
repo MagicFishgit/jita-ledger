@@ -2902,6 +2902,18 @@ console.log('\n--- a lost ship as a fitting ---');
   eq('  named with the day it was lost, within a fitting’s 50 characters', [f.name, f.ship_type_id], ['Jackdaw (lost 2026-09-29)', 34828]);
 }
 
+console.log('\n--- who killed you ---');
+{
+  const { finalBlow, fleetShips } = await import('../src/lib/combat.ts');
+  const A = (shipTypeId, damage, finalBlow = false) => ({ shipTypeId, damage, finalBlow, characterId: 1 });
+  const gank = [A(17480, 900), A(17480, 1200, true), A(17480, 800), A(16242, 600), A(16242, 500), A(24690, 3000), { damage: 10 }];
+  eq('the final blow is the one the killmail marks, not the most damage', finalBlow(gank).damage, 1200);
+  eq('  without a mark, the most damage', finalBlow([A(1, 5), A(2, 9)]).shipTypeId, 2);
+  eq('  and nobody on an empty list', finalBlow([]), null);
+  eq('a fleet: ships counted, most common first, the rest and the unknown apart',
+    fleetShips(gank, 2), { ships: [{ typeId: 17480, n: 3 }, { typeId: 16242, n: 2 }], rest: 1, unknown: 1 });
+}
+
 console.log('\n--- your contracts ---');
 {
   const { readContracts, couriersDue, itemsToRead, contractSaid } = await import('../src/lib/contracts.ts');

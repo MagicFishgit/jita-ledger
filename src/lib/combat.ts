@@ -263,3 +263,24 @@ export function fittingFromLoss(k: Pick<Killmail, 'items' | 'victim' | 'time'>, 
     items: [...items.values()],
   };
 }
+
+/** Who landed the final blow: the attacker the killmail marks, else whoever did most damage. */
+export function finalBlow(attackers: KillParty[]): KillParty | null {
+  return attackers.find((a) => a.finalBlow) ?? [...attackers].sort((a, b) => b.damage - a.damage)[0] ?? null;
+}
+
+/**
+ * The ships that were on a kill, most common first, at most `max` kinds and a count of the rest: a fleet gank can put
+ * hundreds on one killmail, and a list of each is no use. A killmail records each attacker's ship and weapon, never
+ * their fit.
+ */
+export function fleetShips(attackers: KillParty[], max = 6): { ships: { typeId: number; n: number }[]; rest: number; unknown: number } {
+  const count = new Map<number, number>();
+  let unknown = 0;
+  for (const a of attackers) {
+    if (a.shipTypeId) count.set(a.shipTypeId, (count.get(a.shipTypeId) ?? 0) + 1);
+    else unknown++;
+  }
+  const all = [...count].map(([typeId, n]) => ({ typeId, n })).sort((a, b) => b.n - a.n || a.typeId - b.typeId);
+  return { ships: all.slice(0, max), rest: all.slice(max).reduce((t, x) => t + x.n, 0), unknown };
+}

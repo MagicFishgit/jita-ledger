@@ -101,6 +101,14 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
   fitting holds one module a slot, so charges (category 8, from ESI's type) go to the cargo. "Save this fit in game" only
   ever adds a fitting ("Jackdaw (lost 2026-09-27)"), for the fitting window's Buy All. Saved fittings are priced on a
   button at the cheapest Jita listing that's the market (`marketBest`), each with a Multibuy list.
+- **Who killed you, without listing a whole fleet** (`finalBlow`, `fleetShips` in combat.ts). The user asked for "the ship
+  and fit of the pilot who killed you", careful that "a fleet gank can go up to thousands of people". A killmail records
+  each attacker's ship and the weapon they used, never their fit, so the page says so and links zKillboard: the kill
+  (`zkillboard.com/kill/{id}/`) and each pilot (`/character/{id}/`), whose own losses show how they fit their ships. A
+  loss's row says what landed the final blow and how many were on the kill; the detail counts the ships (at most six
+  kinds, the rest summed) above the 12 who did most damage, and always lists the final blow, first when it isn't among
+  them: in a 40-pilot test gank it had done 2%. The cloud held no killmails for the user on 29 September 2026, so this
+  was checked on a synthetic one.
 - **Killmails are priced once, from market history on the day, and never re-priced.** A loss in March cost
   March's prices. Refits use today's Jita book because that is what you'd pay now; the two are shown side by side.
 - **The Wallet prices loyalty points itself** (`lib/lpStore.ts`, shared with the Loyalty page): the same
