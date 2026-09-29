@@ -1352,7 +1352,7 @@ eq('losses outside the gank systems teach nothing', Object.keys(learnedGankLines
 eq('the lower of yours and learned is used', gankLineFor('Deep Space Transport', { 'Deep Space Transport': 1e9 }, learned, true).line, 20);
 eq('unless learning is off', gankLineFor('Deep Space Transport', { 'Deep Space Transport': 1e9 }, learned, false).line, 1e9);
 eq('no line at all when neither exists', gankLineFor('Freighter', {}, {}, true).line, null);
-eq('multibuy is name x qty per line', multibuy([{ name: 'Gila', qty: 1 }, { name: 'Hammerhead II', qty: 5 }]), 'Gila x1\nHammerhead II x5');
+eq('multibuy is “Name N” per line, as the Multibuy import’s tooltip gives it', multibuy([{ name: 'Gila', qty: 1 }, { name: 'Hammerhead II', qty: 5 }]), 'Gila 1\nHammerhead II 5');
 
 console.log('\n--- gank bait ---');
 {

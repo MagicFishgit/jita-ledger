@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Briefcase, Copy, MapPin } from 'lucide-react';
+import { Briefcase, Copy, MapPin, ShoppingCart } from 'lucide-react';
 import { SCOPE } from '../../lib/config';
 import { esi } from '../../lib/esi';
 import { ago, isk, iskBig, units } from '../../lib/format';
@@ -19,8 +19,9 @@ import { update, useData } from '../../lib/store';
 import { toast } from '../../lib/toast';
 import { endpoint, groupTypes, JITA_SYSTEM, typeInfo } from '../../lib/universe';
 import { GANK_SYSTEMS } from '../../lib/arbitrage';
-import { useEnsureNames, useTypeName } from '../common';
+import { useEnsureNames, useTypeName, copyMultibuy } from '../common';
 import { Check, Flag, Th } from '../ui';
+import { multibuy } from '../../lib/combat';
 
 const FLAG: Record<DeliverFlag, { short: string; why: string }> = {
   cantSee: { short: 'Can’t see it', why: 'The delivery point is a player structure ESI won’t describe to you, which usually means you can’t dock there. Check in game before buying anything for it.' },
@@ -258,6 +259,8 @@ function JobTable({ title, sub, rows, name, now, inJob, copy, go, elsewhere }: {
                   <td>
                     <span className="acts">
                       <button type="button" className="link-btn dim" onClick={() => copy(r.job.name)} data-tip="Copy the job’s name, to search for it in game"><Copy aria-hidden="true" />Name</button>
+                      <button type="button" className="link-btn dim" onClick={() => void copyMultibuy(multibuy(r.types.map((t) => ({ name: name(t.typeId), qty: t.units }))), r.types.length, r.cost)}
+                        data-tip={`Copy what to buy for this job for the Multibuy window: ${r.types.map((t) => `${name(t.typeId)} ×${big(t.units)}`).join(', ')}, about ${iskBig(r.cost)} at the listings just read. Multibuy buys from the cheapest listings at once, with no price limit, so check its total before you press Buy.`}><ShoppingCart aria-hidden="true" />Multibuy</button>
                       {go && <button type="button" className="link-btn dim" onClick={() => go(r.office.id)} data-tip="Set the delivery office as your destination in game"><MapPin aria-hidden="true" />Route</button>}
                     </span>
                   </td>

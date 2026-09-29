@@ -182,7 +182,7 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
   `/universe/structures/{id}` (now keeping its `type_id`) and its system: an Athanor (35835) or Tatara (35836) sets the
   structure, 0.45 and up is high-sec, above 0 low, the rest null. Rig and tax aren't in ESI and stay the user's.
   **Multibuy copies** (the research's Multibuy idea, for Reprocessing only, as the user chose): the item check copies
-  what it priced as "Name xN" (whole batches only: 1,050 Plagioclase III-Grade copies as 1,000), and the scanner the
+  what it priced as "Name N" (whole batches only: 1,050 Plagioclase III-Grade copies as 1,000), and the scanner the
   finds that pay at your yield, each with the units listed under its value. Multibuy buys from the cheapest sellers in
   your system, which is what the check priced. **Graded ores are separate types in the SDE** (asked 29 September 2026,
   "Plagioclase III-Grade"): Plagioclase, II-, III- and IV-Grade give 175/70, 184/74, 193/77 and 201/81 Tritanium and

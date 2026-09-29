@@ -149,6 +149,14 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   Plans panel with each plan's bought, sold, profit and stock, and a filter to its positions; removing a plan leaves the
   positions. Checked end to end in a test browser on the cloud's real scan (13,442 items): a 998.97 M plan of 5 items,
   5 positions, the checklist, the Positions filter and To do.
+- **Multibuy lists where buying at the ask is the point** (`copyMultibuy` in common.tsx, `multibuy` in combat.ts): each
+  Freelance job copies what to buy for it (every item under the reward, per item), and Hub arbitrage copies the shipment
+  when buying from sell orders now (not for a buy order, which Multibuy can't place). The Sniper was left out on purpose:
+  the user wants to be deliberately careful there. Multibuy buys from the cheapest listings at once with no price limit,
+  so every copy says what it came to at the listings just read, to check against the window's total before Buy. Lines
+  are "Name N", the format the import's own tooltip gives ("Veldspar 4" / "4 Veldspar", the user's client, 29 September
+  2026); they were "Name xN", which the tooltip doesn't list. A name still loading ("Item #123") refuses the copy rather
+  than hand the game a line it can't match.
 - **The Capital planner starts from what you have now** (`walletIsk`, free slots from your open orders). It used to
   default to half the wallet and then keep whatever was first typed, for good: the user found 486 M against a
   972 M wallet. ISK (the wallet, rounded down to the million: escrow has already left it) and free slots are read

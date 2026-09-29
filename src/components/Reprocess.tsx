@@ -19,7 +19,7 @@ import { useNow } from '../lib/hooks';
 import { skillStatus, trainSaid } from '../lib/skillStatus';
 import { ROMAN, SkillStrip } from './SkillStrip';
 import { toast } from '../lib/toast';
-import { ItemSearch, useEnsureNames, useTypeName } from './common';
+import { copyMultibuy, ItemSearch, useEnsureNames, useTypeName } from './common';
 import { Empty, Guide, Notice, PageHead, Panel, Seg, Tiles } from './ui';
 import { ScanFreshness } from './ScanFreshness';
 
@@ -239,12 +239,6 @@ function ItemCheck({ bundle, site, implant, skills, salesTax, name, picked }: { 
   );
 }
 
-/** Puts a Multibuy list on the clipboard ("Name xN" per line, as the game's own Multibuy export writes it). */
-async function copyMultibuy(block: string, lines: number): Promise<void> {
-  if (!block) return;
-  try { await navigator.clipboard.writeText(block); toast(`Copied ${units(lines)} line${lines === 1 ? '' : 's'} for Multibuy: Import from clipboard in the Multibuy window.`); }
-  catch { toast('Your browser wouldn’t let the page copy.', 'err'); }
-}
 
 /**
  * Find the structure you refine at by name (esi-search.search_structures.v1): ESI searches the structures you can see,

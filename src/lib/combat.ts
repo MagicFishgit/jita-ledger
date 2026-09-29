@@ -208,9 +208,13 @@ export function gankLineFor(
   return { line: set, from: 'yours' };
 }
 
-/** A fitting in the multibuy format the game pastes: one "Name xN" per line. */
+/**
+ * A list for the Multibuy window's "Import from clipboard": one "Name N" per line, the format its own tooltip gives
+ * ("Veldspar 4", or "4 Veldspar"; seen in the user's client, 29 September 2026). It was "Name xN" until then, which the
+ * tooltip doesn't list.
+ */
 export function multibuy(lines: { name: string; qty: number }[]): string {
-  return lines.filter((l) => l.qty > 0).map((l) => `${l.name} x${l.qty}`).join('\n');
+  return lines.filter((l) => l.qty > 0).map((l) => `${l.name} ${l.qty}`).join('\n');
 }
 
 /**

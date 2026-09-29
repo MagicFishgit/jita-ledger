@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CalendarClock, Check, MapPin, Package, PackageCheck, RefreshCw, Scale, Search, Skull, Truck } from 'lucide-react';
+import { CalendarClock, Check, MapPin, Package, PackageCheck, RefreshCw, Scale, Search, Skull, Truck, ShoppingCart } from 'lucide-react';
 import { rates } from '../lib/fees';
 import { isk, iskBig, iskBigSigned, iskSigned, pct, units } from '../lib/format';
 import { navigate } from '../lib/hooks';
@@ -14,10 +14,11 @@ import { secureRoute, stationPlace, typeInfo, JITA_SYSTEM } from '../lib/univers
 import { GANK_SYSTEMS, goingRate, HUBS, priceHub, shipment, type BuyMode, type HubQuote } from '../lib/arbitrage';
 import { JITA_44, THE_FORGE } from '../lib/config';
 import { toast } from '../lib/toast';
-import { useEnsureNames, useTypeName } from './common';
+import { useEnsureNames, useTypeName, copyMultibuy } from './common';
 import { flip } from './Prospects';
 import { Busy, Empty, Guide, ItemIcon, NumChip, PageHead, Seg } from './ui';
 import { ScanFreshness } from './ScanFreshness';
+import { multibuy } from '../lib/combat';
 
 type Haul = 'pushx' | 'own' | 'courier';
 type Saved = { hub: string; haul: Haul; buy: BuyMode; quote: number | null; reward: number | null; delivery: number | null; sellDays: number | null; picked: Record<string, number[]> };
@@ -258,6 +259,13 @@ export function Arbitrage() {
                 )}
                 <p className="note small">What you’ll offer on a public courier contract. Cheaper than PushX, but it may sit untaken — and you’re trusting a stranger with the collateral.</p>
               </div>
+            )}
+            {s.buy === 'sells' && chosen.length > 0 && (
+              <button type="button" className="btn sm" style={{ alignSelf: 'flex-start' }}
+                onClick={() => void copyMultibuy(multibuy(chosen.map((x) => ({ name: name(x.typeId), qty: x.lot }))), chosen.length, ship.collateral)}
+                data-tip={'Copies the shipment for the Multibuy window (in Jita: Multibuy, Import from clipboard), which buys it all at once from the cheapest listings.\n\n• It has no price limit, so check its total against the one here before you press Buy: a book that moved shows there.\n• Only for buying from sell orders now; a buy order can’t go through Multibuy.'}>
+                <ShoppingCart aria-hidden="true" />Copy the shipment for Multibuy
+              </button>
             )}
             <NumChip label="Delivery, days" value={s.delivery} onChange={(v) => set({ delivery: v })} width={60} decimals={1} tip="How long until it’s listed at the hub. Added to selling time for the return per day." />
             <div>

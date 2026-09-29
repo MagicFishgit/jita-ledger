@@ -171,6 +171,22 @@ const UI_SCOPE = SCOPE.ui;
 export const plainPrice = (p: number) => (Number.isInteger(p) ? String(p) : p.toFixed(2));
 
 /**
+ * Puts a Multibuy list on the clipboard ("Name N" per line, as the Multibuy import's own tooltip gives it), for the
+ * Multibuy window's "Import from clipboard". Multibuy buys at once from the cheapest listings, with no price limit
+ * (CCP: "multibuy only offers immediate buys"), so `about`, what the app priced it at, is said too: the window's total
+ * should be close to it, and a book that moved since shows there before you press Buy.
+ */
+export async function copyMultibuy(block: string, lines: number, about?: number): Promise<void> {
+  if (!block) return;
+  // A name still loading reads "Item #123", which the game can't match: better no list than a line it drops.
+  if (/^Item #\d+ /m.test(block)) { toast('Some item names haven’t loaded yet: try again in a moment.', 'warn'); return; }
+  try {
+    await navigator.clipboard.writeText(block);
+    toast(`Copied ${lines.toLocaleString('en-US')} line${lines === 1 ? '' : 's'} for Multibuy: Import from clipboard in the Multibuy window.${about ? ` It came to about ${iskBig(about)} at the listings just read: check the window’s total before you press Buy.` : ''}`);
+  } catch { toast('Your browser wouldn’t let the page copy.', 'err'); }
+}
+
+/**
  * Copies a price for the game's price box, so it's pasted rather than typed: the user once typed 1,893,000 for
  * 1,893 on a relist and paid a 468 M broker fee. Always says so: opening an item in game copies its suggested price
  * and says only that (the user asked for "a quick notification pop that says suggested price copied", while opening
