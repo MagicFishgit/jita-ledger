@@ -525,7 +525,9 @@ export function adviseRelist(
   let newPrice = unreached && reachAt != null
     ? (mine.isBuy ? (!m.leave ? (!(oneStep >= reachAt) ? reachAt : oneStep) : reachAt) : overBid ? tickUp(bestBid!) : reachAt)
     : oneStep;
-  const moves = (beaten || unreached) && Number.isFinite(newPrice);
+  // A move to the price you're already at isn't one: the user's Motley Compound (29 September 2026) sat at 4,001, one
+  // step over the 4,000 bid everything traded at, and was told to "Move it" to 4,001.
+  const moves = (beaten || unreached) && Number.isFinite(newPrice) && newPrice !== price;
   let give = moves ? Math.abs(newPrice - price) * volumeRemain : 0;
   let fee = moves ? Math.max(100, r.k * newPrice * volumeRemain) : 0;
   let cost = give + fee;
@@ -596,6 +598,10 @@ export function adviseRelist(
     if (reachAt == null) {
       verdict = 'wait';
       why = `${said}, and the item traded on too few days to say where it does reach`;
+    } else if (overBid && newPrice === price) {
+      // Already one step over the best bid: as low as a listing goes without selling into it. Nothing to move.
+      verdict = 'wait';
+      why = `${said}. You’re already one step over today’s best bid of ${at(bestBid!)}, as low as a listing goes without selling into it: buyers here mostly sell into the bids rather than take listings, so it may wait${sellNow ? `. If you want it gone, ${sellNow.replace(/^, or /, '')}` : ''}`;
     } else if (m.avgCost != null && netOfSale(newPrice) < m.avgCost) {
       verdict = 'loss';
       why = `${said}. ${there}, which would sell under what the stock cost you`;

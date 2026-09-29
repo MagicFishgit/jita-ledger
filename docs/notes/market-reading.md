@@ -128,6 +128,13 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   units of genuinely cheap supply as a "mistake"; quantity is what separates a fat finger from a
   cheap seller. This needs only the live book, so it is the one guard that still works for an item
   with no trading history — which is exactly when the other two cannot fire.
+- **Already one step over the best bid, there's nowhere to move** (`adviseRelist`: `moves` needs a new price, and the
+  sell-unreached branch waits). The user's Motley Compound (29 September 2026): 27 at 4,001 over a 4,000 bid, where
+  every day's trading sat at the bid, was told to "Move it" to 4,001; Sheen Compound likewise at 2,101. The rule moves an
+  unreached sell to where trading reaches, or one step over the best bid when that's lower, which is where these
+  already were. Now it waits and says so ("as low as a listing goes without selling into it: buyers here mostly sell
+  into the bids…; if you want it gone, sell into that bid now for about the same"), and Orders shows no Move to. 6 of the
+  user's 84 Jita sells. Lustering Alloy, told to go from 13,970 to 7,501, was right: 13 of 14 days traded at the bid.
 - **A move aims at the real front, not a token in front of it** (`realFront` in `adviseRelist`, from `marketBest`). The
   guard against chasing a mistake weighed every unit ahead together, so a token passed as real supply whenever real
   stock sat behind it, and the move was aimed at the token. The user's Small Focused Afocal Laser I (29 September 2026):

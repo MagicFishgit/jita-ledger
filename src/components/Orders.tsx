@@ -195,7 +195,7 @@ export function Orders() {
         // "Rarely reached" and "barely trades" are the longest waits of all.
         case 'clears': return x ? (x.unreached ? Infinity : !x.beaten ? 0 : Number.isFinite(x.hoursToFront) ? x.hoursToFront : Infinity) : null;
         case 'price': return x?.price ?? row.price;
-        case 'moveTo': return x?.intoBids ? x.intoBids.top : x && !(x.left && x.verdict === 'wait') && Number.isFinite(x.newPrice) ? x.newPrice : null;
+        case 'moveTo': return x?.intoBids ? x.intoBids.top : x && !(x.left && x.verdict === 'wait') && Number.isFinite(x.newPrice) && x.newPrice !== x.price ? x.newPrice : null;
         case 'costs': return x?.intoBids ? x.intoBids.proceeds : x && !(x.left && x.verdict === 'wait') && x.cost > 0 ? x.cost : null;
         case 'stock': return x?.volumeRemain ?? row.volumeRemain;
         case 'isk': return (x?.price ?? row.price) * (x?.volumeRemain ?? row.volumeRemain);
@@ -379,7 +379,8 @@ export function Orders() {
                     // A move that would sell under cost ("Not worth it") is no price to move to: shown as "–", never copied. The
                     // user saw 8,499,000 and 999,800 under Move to, with a copy icon, on two snipes it would sell at a loss.
                     const underCostMove = x?.verdict === 'loss';
-                    const moveTo = x && !x.intoBids && !heldBack && !underCostMove && Number.isFinite(x.newPrice) ? x.newPrice : null;
+                    // Your own price is no price to move to (the user's Motley Compound was told to move 4,001 to 4,001).
+                    const moveTo = x && !x.intoBids && !heldBack && !underCostMove && Number.isFinite(x.newPrice) && x.newPrice !== x.price ? x.newPrice : null;
                     // What opening it in game copies: the break-even when it's priced under cost, never a move that's
                     // "not worth it" (it would sell under cost), else the price to move to.
                     const copyAt = x?.underCost ? x.underCost.breakEven : x?.verdict === 'loss' ? null : moveTo;

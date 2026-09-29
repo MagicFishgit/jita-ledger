@@ -427,6 +427,15 @@ const r2 = adviseRelist({ orderId: 4, typeId: 1, isBuy: false, price: 7160, volu
   { book: moved, dailyVolume: 800 }, R);
 if (/mistake or a token dump/.test(r2.why)) { failed++; console.log(`  FAIL real move called an outlier: ${r2.why}`); }
 eq('a repriced market is chased, not ignored', r2.verdict, 'move');
+// Already one step over the best bid, with trading only at the bid: nothing to move to. The user's Motley Compound
+// (29 September 2026): 27 at 4,001 over a 4,000 bid, told to "Move it" to 4,001.
+{
+  const motley = [o(30, false, 4001, 27), o(31, false, 7000, 36), o(32, false, 7500, 1498), o(33, true, 4000, 1995), o(34, true, 3501, 9581)];
+  // Its highs, 15 to 28 September: at the bid every day but two.
+  const highs = [3501, 5000, 2500, 2500, 2500, 2500, 2510, 3000, 7546, 3001, 4000, 4000, 4000, 4000];
+  const m = adviseRelist({ orderId: 30, typeId: 11733, isBuy: false, price: 4001, volumeRemain: 27 }, { book: motley, dailyVolume: 3, highs }, R);
+  eq('one step over the bid already, trading only at the bid: wait, not a move to the same price', [m.verdict, /already one step over today’s best bid of 4,000/.test(m.why), /sell into that bid now/.test(m.why)], ['wait', true, true]);
+}
 // A token in front of real stock: the move is to the real front, not the token. The user's Small Focused Afocal Laser I
 // (29 September 2026): 16 at 21,950, one unit listed at 5,003 (a tick over the 5,002 bid) ahead of 432 at 21,930.
 {
