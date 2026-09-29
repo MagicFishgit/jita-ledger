@@ -131,6 +131,13 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   the highs (`askReachDays`, moved to `reachedAsk`, or `loss` when that sells under cost), which other sells don't.
   `fillingNow` now reads sells too (a listing that shrank at its price, or your own sale at or above it). Set from
   the planner for a whole plan in one click, or per item on Orders ("Leave alone" / "Leaving it").
+- **When order slots run out before the ISK, the planner fills by ISK a day** (`allocate`, `Plan.ranked`/`other`). It
+  filled best return per day first, which is right while slots are spare, but with few free slots a small market paying
+  4% a day on the 20 M it can take earns less than a big one at 2% on 150 M, and most of the ISK sat idle. The user asked
+  that it "fill the given slots" intelligently (29 September 2026). Now, when the slots run out first, the mix is also
+  filled by what each item makes a day, and whichever earns more a day is kept; the page says which and what the other
+  would have made. Test: 1 B, 10 slots, six small and six big markets: 750 M in the five big ones for 5 M a day, where
+  best return first put 100 M in the small ones for 1.33 M.
 - **The Capital planner starts from what you have now** (`walletIsk`, free slots from your open orders). It used to
   default to half the wallet and then keep whatever was first typed, for good: the user found 486 M against a
   972 M wallet. ISK (the wallet, rounded down to the million: escrow has already left it) and free slots are read

@@ -1178,6 +1178,15 @@ plan2 = allocate([pr(1, 0.02, 100, 1e9)], { isk: 1_000_000, slots: 10, horizonDa
 eq('the per-item cap holds', plan2.rows[0].isk, 250_000);
 eq('  and the rest is idle', plan2.idle, 750_000);
 eq('  because the markets ran out', plan2.limit, 'markets');
+// Out of slots with ISK idle: five small markets at 4% a flip that take 20 M each lose to five big ones at 2% that take
+// 150 M each (the user asked the planner to "fill the given slots" intelligently, 29 September 2026).
+const small = [1, 2, 3, 4, 5, 6].map((i) => pr(i, 0.04, 100, 20e6 / 3, [], 4));
+const big = [11, 12, 13, 14, 15, 16].map((i) => pr(i, 0.02, 100, 150e6 / 3, [], 2));
+plan2 = allocate([...small, ...big], { isk: 1e9, slots: 10, horizonDays: 3, maxShare: 1 });
+eq('slots short: the mix is filled by ISK a day when that earns more', [plan2.ranked, plan2.rows.map((r) => r.p.typeId).sort((a, b) => a - b), Math.round(plan2.deployed / 1e6)], ['isk', [11, 12, 13, 14, 15], 750]);
+eq('  and earns more than best return first would have', Math.round(plan2.perDay / 1e3), 5000);
+plan2 = allocate([...small, ...big], { isk: 1e9, slots: 40, horizonDays: 3, maxShare: 1 });
+eq('  with slots to spare, best return per day first as before', [plan2.ranked, plan2.rows[0].p.typeId], ['return', 1]);
 
 console.log('\n--- hub arbitrage ---');
 const q = { typeId: 1, m3: 10, jitaBestBuy: 900, jitaBestSell: 1000, hubBestSell: 1300, hubUnitsPerDay: 1000, hubBuyers: 0.5 };

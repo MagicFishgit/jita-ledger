@@ -110,7 +110,7 @@ export function Planner() {
     <div className="page">
       <PageHead
         kicker="02b · Put ISK to work" title="Capital planner" wide
-        lede="Tell it how much ISK and how many order slots you have free, and it builds a mix from your Prospects — best payback first, never more than a market can take, and never too much in one item. Anything flagged as a wall, spike, fluke, escrow bait or a price that just moved is left out."
+        lede="Tell it how much ISK and how many order slots you have free, and it builds a mix from your Prospects — best payback first (or, when free slots run out before the ISK, the markets that make the most a day), never more than a market can take, and never too much in one item. Anything flagged as a wall, spike, fluke, escrow bait or a price that just moved is left out."
       />
       <ScanFreshness what="the plan" />
       <ShareCheck what="Each market’s limit" />
@@ -172,6 +172,13 @@ export function Planner() {
             { l: 'Slots used', v: `${plan.slotsUsed} of ${slots}`, n: 'One buy and one sell each' },
           ]} />
           <Panel title="The mix" sub={`Chosen from ${units(pool)} items that pass your Prospects filters${excluded ? `, ${excluded} left out for a warning flag` : ''}.`}>
+            {plan.other != null && plan.rows.length > 0 && (
+              <p className="note small" style={{ margin: '0 0 10px' }}>
+                {plan.ranked === 'isk'
+                  ? `Order slots run out before the ISK does, so each pair goes to the markets that make the most ISK a day, not the best return: ${iskBig(plan.perDay)} a day, against ${iskBig(plan.other)} filling best return first.`
+                  : `Order slots run out before the ISK does. Filling by best return first still makes the most a day: ${iskBig(plan.perDay)}, against ${iskBig(plan.other)} going for the biggest markets.`}
+              </p>
+            )}
             {!plan.rows.length ? (
               <p className="note">Nothing fits. {slots < SLOTS_PER_ITEM ? `You need at least ${SLOTS_PER_ITEM} free slots for one item.` : 'No scanned market can take a meaningful share of this budget at your share of its volume. Try a longer horizon, or a deep scan on Prospects.'}</p>
             ) : (
