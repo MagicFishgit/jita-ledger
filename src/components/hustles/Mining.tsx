@@ -8,23 +8,24 @@ import { rates } from '../../lib/fees';
 import { fmtDateTime, fmtShort, isk, iskBig, units } from '../../lib/format';
 import { navigate, useAuth, useNow } from '../../lib/hooks';
 import { adjustedPricesShared, jitaBook, resolveIds } from '../../lib/market';
-import {
-  bestWay, byDay, byOre, median, miningSessions, paybackHours, RUNGS, sessionStats,
-  type MiningTick, type OreWorth, type Rung, type Way,
-} from '../../lib/mining';
+import { bestWay, byDay, byOre, median, miningSessions, sessionStats, type MiningTick, type OreWorth, type Way } from '../../lib/mining';
+import { mainFamily, type Family } from '../../lib/miningFits';
+import { HULLS } from '../../lib/miningTree';
 import { stationTax, unitValue, yieldOf, type Materials, type Site } from '../../lib/reprocess';
 import { useData } from '../../lib/store';
-import { system, typeInfo, typeRequirements } from '../../lib/universe';
+import { system, typeInfo } from '../../lib/universe';
 import { useEnsureNames, useTypeName } from '../common';
-import { SkillNeeds, SkillStrip } from '../SkillStrip';
+import { SkillStrip } from '../SkillStrip';
+import { MasteryTiers } from './MasteryTiers';
+import { MiningTree } from './MiningTree';
 import { Empty, ItemIcon, Notice, Panel, Th, Tiles } from '../ui';
 
 /**
  * Mining: what you mined and what it was worth, your sessions and ISK an hour, and the next step up. The user's plan
  * (29 September 2026): a solo side income on days they feel like mining, growing later into a multiboxed fleet. The
  * ledger is ESI's (lib/mining.ts; kept past its 30 days as records), sessions are the cloud's ten-minute reads of it, and
- * every price is Jita's now. Nothing is estimated that could be read: yields on the ladder are EVE University's published
- * figures, said as such, until your own sessions measure yours.
+ * every price is Jita's now. Nothing is estimated that could be read: the ship you're in is ESI's, and yields are worked
+ * out from ESI's dogma for each hull and fit (lib/miningYield.ts) beside what your own sessions measured.
  */
 
 const DAYS = 30;
@@ -46,7 +47,7 @@ export function Mining() {
   const since = new Date(now - (DAYS - 1) * 86400_000).toISOString().slice(0, 10);
   const recent = useMemo(() => Object.values(d.mining).filter((x) => x.date >= since), [d.mining, since]);
   const ores = useMemo(() => [...new Set(recent.map((x) => x.typeId))], [recent]);
-  useEnsureNames([...ores, ...RUNGS.flatMap((g) => [g.ship, ...g.alternatives.map((a) => a.typeId), ...(g.module ? [g.module.typeId] : [])])]);
+  useEnsureNames([...ores, SCORDITE]);
 
   // Volumes, and what each ore is worth three ways (lib/mining.ts bestWay).
   const [vol, setVol] = useState<Record<number, number>>({});
@@ -114,6 +115,22 @@ export function Mining() {
   const iskPerM3 = total.m3 > 0 && total.isk > 0 ? total.isk / total.m3 : (worthOf(SCORDITE) != null && vol[SCORDITE] ? worthOf(SCORDITE)! / vol[SCORDITE] : null);
   const perM3From = total.m3 > 0 && total.isk > 0 ? 'your own ore' : 'Scordite, until you’ve mined something';
 
+  // The ship you're in, from ESI; else the one you've mined most in lately. Your pace in each, from sessions.
+  const live = useRightNow();
+  const mining = new Set(HULLS.map((h) => h.id));
+  const here = useMemo(() => {
+    if (live?.ship != null && mining.has(live.ship)) return live.ship;
+    const by = new Map<number, number>();
+    for (const { s, st } of sessions) if (s.ship != null && mining.has(s.ship)) by.set(s.ship, (by.get(s.ship) ?? 0) + st.m3);
+    return [...by.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  }, [live?.ship, sessions]); // eslint-disable-line react-hooks/exhaustive-deps
+  const paceOf = (hull: number) => {
+    const xs = sessions.filter(({ s, st }) => s.ship === hull && st.minutes >= 20).map(({ st }) => st.m3PerMin);
+    const m = median(xs);
+    return m != null ? { m3PerMin: m, sessions: xs.length } : null;
+  };
+  const family: Family = mainFamily(oreRows.map((o) => ({ name: name(o.typeId), units: o.units })));
+
   return (
     <div className="col" style={{ gap: 16 }}>
       <p style={{ margin: 0, fontSize: 14, color: 'var(--body)', textWrap: 'pretty' }}>
@@ -128,7 +145,7 @@ export function Mining() {
           </Notice>
         ) : null}
 
-      <RightNow />
+      <RightNow now={live} />
 
       <Tiles min={170} items={[
         { l: `Mined, ${DAYS} days`, v: `${units(Math.round(total.m3))} m³`, n: `${units(total.units)} units on ${units(minedDays)} day${minedDays === 1 ? '' : 's'}`, c: 'var(--acc)' },
@@ -202,7 +219,7 @@ export function Mining() {
             )}
       </Panel>
 
-      <Ladder measured={measured} iskPerM3={iskPerM3} perM3From={perM3From} />
+      <ScalingUp here={here} paceOf={paceOf} family={family} iskPerM3={iskPerM3} perM3From={perM3From} measured={measured} />
     </div>
   );
 }
@@ -211,10 +228,11 @@ export function Mining() {
  * Where you are right now, read live when the page opens (ESI caches the ship and location 5 seconds, online a minute):
  * the ship you're in, the system, and whether you're logged in. Needs the location permissions; says nothing without.
  */
-function RightNow() {
+type Live = { ship: number | null; system: string | null; online: boolean | null };
+
+function useRightNow(): Live | null {
   const auth = useAuth();
-  const name = useTypeName();
-  const [now, setNow] = useState<{ ship: number | null; system: string | null; online: boolean | null } | null>(null);
+  const [now, setNow] = useState<Live | null>(null);
   useEffect(() => {
     if (!auth || !(hasScope(SCOPE.shipType) || hasScope(SCOPE.location) || hasScope(SCOPE.online))) return;
     let alive = true;
@@ -229,6 +247,11 @@ function RightNow() {
     })();
     return () => { alive = false; };
   }, [auth?.characterId]); // eslint-disable-line react-hooks/exhaustive-deps
+  return now;
+}
+
+function RightNow({ now }: { now: Live | null }) {
+  const name = useTypeName();
   useEnsureNames(now?.ship ? [now.ship] : []);
   if (!now || (now.ship == null && now.system == null && now.online == null)) return null;
   return (
@@ -272,91 +295,34 @@ function Systems({ ids }: { ids: number[] }) {
   return <>{names.join(', ') || '…'}{ids.length > 3 ? ` and ${ids.length - 3} more` : ''}</>;
 }
 
-type RungInfo = { rung: Rung; needs: { skill: number; level: number }[]; cost: number | null; flyable: boolean };
-
 /**
- * The ladder: where you are and what's next. Each rung's ship and mining modules priced at the cheapest Jita listings,
- * the skills they need (from ESI) with your levels and queue, and how many hours of mining the step pays back in, at
- * your measured pace when there is one and at ISK a m³ of your own ore.
+ * Scaling up: every mining hull as a node in a flowchart (MiningTree), the one you're in glowing, and under the one you
+ * open its mastery tiers (MasteryTiers). The user asked for "an interactive animated flowchart design so you can click on
+ * nodes and it opens up" with every path, the new destroyers and all three exhumers, mining upgrades and crystals on each
+ * ship, and tiers from "just able to hop into one to getting the max out of it" (29 September 2026).
  */
-function Ladder({ measured, iskPerM3, perM3From }: { measured: number | null; iskPerM3: number | null; perM3From: string }) {
-  const d = useData();
-  const name = useTypeName();
-  const [info, setInfo] = useState<RungInfo[] | null>(null);
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      const out: RungInfo[] = [];
-      for (const rung of RUNGS) {
-        const [shipReq, modReq] = await Promise.all([typeRequirements(rung.ship).catch(() => []), rung.module ? typeRequirements(rung.module.typeId).catch(() => []) : Promise.resolve([])]);
-        const needs = [...shipReq, ...modReq].reduce<{ skill: number; level: number }[]>((acc, n) => {
-          const cur = acc.find((x) => x.skill === n.skill);
-          if (cur) cur.level = Math.max(cur.level, n.level); else acc.push({ ...n });
-          return acc;
-        }, []);
-        const [hull, mod] = await Promise.all([jitaBook(rung.ship).catch(() => null), rung.module ? jitaBook(rung.module.typeId).catch(() => null) : Promise.resolve(null)]);
-        const cost = hull?.bestSell != null ? hull.bestSell + (rung.module ? (mod?.bestSell ?? NaN) * rung.module.count : 0) : null;
-        out.push({ rung, needs, cost: cost != null && Number.isFinite(cost) ? cost : null, flyable: false });
-      }
-      if (alive) setInfo(out);
-    })().catch(() => undefined);
-    return () => { alive = false; };
-  }, []);
-  const rows = (info ?? []).map((x) => ({ ...x, flyable: !!d.skills && x.needs.every((n) => (d.skills![n.skill] ?? 0) >= n.level) }));
-  // Where you are: the highest rung you can fly and fit (the fleet rung is a goal, not a ship you mine in).
-  const at = rows.filter((x) => x.rung.key !== 'fleet' && x.flyable).pop() ?? null;
-  const fromRate = measured ?? at?.rung.m3PerMin ?? 0;
-  const atIndex = at ? RUNGS.indexOf(at.rung) : -1;
-
+function ScalingUp({ here, paceOf, family, iskPerM3, perM3From, measured }: {
+  here: number | null; paceOf: (hull: number) => { m3PerMin: number; sessions: number } | null;
+  family: Family; iskPerM3: number | null; perM3From: string; measured: number | null;
+}) {
+  const fromRate = (here != null ? paceOf(here)?.m3PerMin : null) ?? measured;
   return (
-    <Panel title="Scaling up" sub="From a Venture to a boosted fleet: what each step takes, costs, and pays back in">
-      <div className="ladder-bar" aria-label="Where you are on the ladder">
-        {RUNGS.map((g, i) => (
-          <span key={g.key} className={'ladder-step' + (i <= atIndex ? ' done' : '') + (i === atIndex ? ' here' : '')}>
-            <span className="dot" aria-hidden="true" />{g.title}
-          </span>
-        ))}
-      </div>
+    <Panel title="Scaling up" sub="Every mining ship and the paths between them: click one to see what it takes, costs and mines">
       <p className="note small" style={{ margin: 0 }}>
-        {at ? `You can fly and fit the ${name(at.rung.ship)} now.` : 'You can’t fly any of these yet: the Venture is the first step.'}
-        {' '}{measured != null ? `Your measured pace is ${units(Math.round(measured))} m³ a minute (the middle of your sessions).` : at?.rung.m3PerMin ? `Until the cloud times your sessions, the figures are EVE University’s for an average pilot.` : ''}
-        {iskPerM3 != null ? ` Payback is at ${isk(iskPerM3)} a m³, ${perM3From}.` : ''}
+        {here != null ? 'The ship you’re in glows; the paths out of it are your next steps. ' : 'Once you mine, the ship you’re in glows and the paths out of it light up. '}
+        Green can be flown now, gold is coming in your skill queue. Yields are worked out from ESI’s own figures for each hull, laser, crystal and upgrade, at your skills.
+        {iskPerM3 != null ? ` ISK an hour and payback are at ${isk(iskPerM3)} a m³, ${perM3From}.` : ''}
       </p>
-      {!info ? <p className="note">Reading ships, modules and their skills…</p> : (
-        <div className="ladder">
-          {rows.map((x, i) => {
-            const pay = i > atIndex && x.cost != null && iskPerM3 != null && x.rung.m3PerMin != null ? paybackHours(x.cost, fromRate, x.rung.m3PerMin, iskPerM3) : null;
-            return (
-              <div key={x.rung.key} className={'ladder-card' + (i === atIndex ? ' here' : '') + (i < atIndex ? ' done' : '')}>
-                <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'nowrap' }}>
-                  <ItemIcon id={x.rung.ship} />
-                  <span style={{ minWidth: 0 }}>
-                    <span className="lbl" style={{ display: 'block' }}>{i === atIndex ? 'You are here' : i < atIndex ? 'Behind you' : i === atIndex + 1 ? 'Next' : 'Later'}</span>
-                    <span style={{ fontSize: 15, color: 'var(--ink)' }}>{x.rung.title}</span>
-                  </span>
-                </div>
-                <p className="note small" style={{ margin: 0 }}>{x.rung.what}</p>
-                <div className="kv-mini">
-                  <span>Costs</span><b>{x.cost != null ? iskBig(x.cost) : '–'}</b>
-                  {x.rung.module && <><span>Fit</span><b>{x.rung.module.count} × {name(x.rung.module.typeId)}</b></>}
-                  <span>Yield</span><b>{x.rung.m3PerMin != null ? `~${units(x.rung.m3PerMin)} m³/min` : '–'}</b>
-                  {pay != null && <><span>Pays back</span><b style={{ color: 'var(--pos)' }}>{pay < 1 ? 'under an hour' : `${units(Math.round(pay))} h of mining`}</b></>}
-                </div>
-                {x.rung.source && <p className="note small" style={{ margin: 0, color: 'var(--faint)' }}>{x.rung.source}</p>}
-                <SkillNeeds needs={x.needs} />
-                {x.rung.alternatives.length > 0 && <p className="note small" style={{ margin: 0 }}>Or {x.rung.alternatives.map((a) => a.why).join('; or ')}.</p>}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <MiningTree here={here} paceOf={paceOf}>
+        {(hull, price) => <MasteryTiers hull={hull} family={family} iskPerM3={iskPerM3} fromRate={fromRate} hullPrice={price} />}
+      </MiningTree>
       <SkillStrip title="Skills that raise your yield" lines={[
         { name: 'Mining', id: 3386, what: '+5% ore yield a level, in every ship.' },
         { name: 'Astrogeology', id: 3410, what: '+5% ore yield a level. Needs Mining IV; Astrogeology III opens the barges.' },
         { name: 'Mining Barge', id: 17940, what: 'The barges’ own bonus a level; V opens the exhumers.' },
         { name: 'Exhumers', id: 22551, what: 'The exhumers’ own bonus a level.' },
       ]} />
-      <p className="note small" style={{ margin: 0 }}><Gem aria-hidden="true" style={{ width: 13, height: 13, verticalAlign: '-2px' }} /> Costs are the hull and its mining modules at the cheapest Jita listings now; tank, rigs and drones aren’t in them. A fleet on several accounts is where this goes next: the app will follow each account’s mining.</p>
+      <p className="note small" style={{ margin: 0 }}><Gem aria-hidden="true" style={{ width: 13, height: 13, verticalAlign: '-2px' }} /> A fleet on several accounts is where this goes next: the app will follow each account’s mining.</p>
     </Panel>
   );
 }

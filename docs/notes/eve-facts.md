@@ -233,6 +233,22 @@ Don't re-derive or contradict these without new evidence.
   `<a href="sharedSetting:e5983d9a1ea7d999e09cd742c820dd4678aaf5dc//1//2">Test</a>` (read through ESI from the user's
   mail to themselves): a pointer to a copy the client uploaded to CCP's servers, not the criteria, so nothing outside
   the client can make one. The official link-scheme list doesn't mention it.
+- **Mining yields follow from dogma, and ESI serves all of it** (read 29 September 2026, `lib/miningYield.ts`). A laser's
+  amount (77) and cycle (73); since Catalyst (18 November 2025) cycles are four times shorter (lasers 15 s, strip miners
+  45 s) and amounts a quarter, so m³ a minute didn't change. Hull bonuses are effects, and **an attribute without its
+  effect does nothing**: the Prospect carries the Venture's `miningAmountMultiplier` (207) = 2 but not effect 5058 that
+  applies it (EVE Workbench's figures agree). Per-level bonuses scale by the skill the effect names (Mining Frigate,
+  Expedition Frigates, Mining Destroyer, Mining Barge, Exhumers), role bonuses don't. Mining and Astrogeology +5% a level
+  each and every Mining Laser Upgrade and yield implant (434) multiply, with no stacking penalty (ESI marks 434
+  stackable). A crystal multiplies the amount before everything else (782, operator preMul) and the cycle (3161), and
+  **adds** its residue points (3160, 3159, operator modAdd): Modulated Strip Miner II's 34% becomes 37.6% with Type A II,
+  64% with B II, 93% at 29× the volume with C II. Survey chipsets, the Mining Precision (+10% crit chance a level) and
+  Mining Exploitation (+5% crit size a level) skills are post-percent: a chipset's "−20% residue" is 34% × 0.8, not 14%.
+  A crit adds the cycle's yield again twice over (5969 = 2) at a 1% chance (5967), raised half again on the Consortium
+  Issues. Residue is ore the rock loses, not yours. Ice harvesters take one 1,000 m³ block a cycle; only the cycle moves
+  (780: Ice Harvesting, upgrades, the ice rig, the Yeti implant, the hull), and Mining Laser Upgrades don't apply to ice,
+  which needs Ice Harvesting rather than Mining. Crystals are named by family ("Simple Asteroid Mining Crystal Type B II",
+  "Rare Moon Mining Crystal Type A I"); the old per-ore crystals are unpublished.
 - **Hauler capacities are read from ESI, not remembered.** A Charon holds **465,000** m³, not the
   1,100,000 once written here — that was an expanded fit passed off as the hull, and it would send
   someone to a contract they cannot pick up. For hulls with a fleet hangar the usable figure is cargo

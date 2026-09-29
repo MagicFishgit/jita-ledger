@@ -147,47 +147,6 @@ export function median(xs: number[]): number | null {
 
 // --- Scaling up --------------------------------------------------------------------------------------------------------
 
-/**
- * The ladder, for a solo miner in high-sec who means to grow into a fleet. Each rung's ship, the mining module it fits
- * and how many, and a yield where EVE University publishes one (for an average-skilled pilot; its Mining page, May 2026):
- * Venture with two Miner I about 250 m³ a minute, Retriever with two Strip Miner I about 840, a Hulk mining solo about
- * 1,600. Where none is published the rung has none, rather than a guess. The skills each needs come from ESI (the ship's
- * and module's own requirements), the prices from Jita.
- */
-export type RungKey = 'venture' | 'barge' | 'exhumer' | 'fleet';
-export type Rung = {
-  key: RungKey; title: string;
-  /** The ship this rung is priced on, and others that fill the same rung. */
-  ship: number; alternatives: { typeId: number; why: string }[];
-  module: { typeId: number; count: number } | null;
-  /** m³ a minute for an average pilot, with where the figure is from; null when nobody publishes one. */
-  m3PerMin: number | null; source: string | null;
-  what: string;
-};
-
-export const RUNGS: Rung[] = [
-  {
-    key: 'venture', title: 'Venture', ship: 32880, alternatives: [{ typeId: 89240, why: 'the Pioneer, a mining destroyer: more yield and hold, little more training' }],
-    module: { typeId: 483, count: 2 }, m3PerMin: 250, source: 'EVE University, an average pilot with two Miner I',
-    what: 'The mining frigate: cheap, quick to train, a small ore hold. Where everyone starts.',
-  },
-  {
-    key: 'barge', title: 'Retriever', ship: 17478, alternatives: [{ typeId: 17480, why: 'the Procurer, for a tank that survives gankers' }, { typeId: 17476, why: 'the Covetor, for yield with a small hold' }],
-    module: { typeId: 17482, count: 2 }, m3PerMin: 840, source: 'EVE University, an average pilot with two Strip Miner I',
-    what: 'A mining barge: several times a Venture, and the Retriever’s 27,500 m³ hold means fewer trips to the station.',
-  },
-  {
-    key: 'exhumer', title: 'Hulk', ship: 22544, alternatives: [{ typeId: 22546, why: 'the Skiff, the tanky one, safer solo in high-sec' }, { typeId: 22548, why: 'the Mackinaw, a 31,500 m³ hold for long unattended runs' }],
-    module: { typeId: 17912, count: 2 }, m3PerMin: 1600, source: 'EVE University, a Hulk mining solo',
-    what: 'The tech II barges. The Hulk mines most and is a ganker’s favourite; solo in high-sec the Skiff or Mackinaw often pays better for staying alive.',
-  },
-  {
-    key: 'fleet', title: 'A boosted fleet', ship: 42244, alternatives: [{ typeId: 28606, why: 'the Orca: bigger boosts, a 150,000 m³ ore hold and a fleet hangar' }],
-    module: null, m3PerMin: null, source: null,
-    what: 'A Porpoise or Orca boosting and compressing for barges on your other accounts. EVE University puts a boosted fleet at 15 to 20 M ISK an hour or more. Following several accounts is the app’s next step for mining.',
-  },
-];
-
 /** Hours of mining a step pays for itself in: what it costs over what it adds an hour. Null when it adds nothing. */
 export function paybackHours(cost: number, fromM3PerMin: number, toM3PerMin: number, iskPerM3: number): number | null {
   const gain = (toM3PerMin - fromM3PerMin) * 60 * iskPerM3;

@@ -164,6 +164,23 @@ export const typeRequirements = (id: number) => cached(`type-req:${id}`, async (
     .filter((x): x is readonly [number, number] => x[0] != null && x[1] != null).map(([skill, level]) => ({ skill, level }));
 });
 
+/** A type's dogma, attributes by ID and its effects: what the mining yields are worked out from (lib/miningYield.ts). Kept for good. */
+export const typeDogma = (id: number) => cached(`dogma:${id}`, async () => {
+  const { data } = await esi<{ group_id: number; dogma_attributes?: { attribute_id: number; value: number }[]; dogma_effects?: { effect_id: number }[] }>(`/universe/types/${id}/`);
+  return {
+    id, group: data.group_id,
+    attrs: Object.fromEntries((data.dogma_attributes ?? []).map((x) => [x.attribute_id, x.value])) as Record<number, number>,
+    effects: (data.dogma_effects ?? []).map((x) => x.effect_id),
+  };
+});
+
+/** A hull's slots and holds, from its dogma: what the mining tree shows about each ship. */
+export const hullStats = async (id: number) => {
+  const { attrs } = await typeDogma(id);
+  const a = (k: number) => attrs[k] ?? 0;
+  return { high: a(14), mid: a(13), low: a(12), rigs: a(1137), turrets: a(102), oreHold: a(1556) };
+};
+
 /** The types in an inventory group, such as every grade of an ore. Kept for good, like the group. */
 export const groupTypes = (id: number) => cached(`group-types:${id}`, async () => {
   const { data } = await esi<{ types?: number[] }>(`/universe/groups/${id}/`);

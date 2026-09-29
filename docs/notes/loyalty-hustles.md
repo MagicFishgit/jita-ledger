@@ -168,13 +168,40 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
   one unit for one at a hundredth of the volume), or reprocessed at your yield at Jita 4-4. In the first test run,
   Compressed Scordite fetched 18.36 against 16.43 as mined. ESI's name lookup refuses a list with a name twice ("'names'
   items are not all unique"), which is how Scordite, both mined and the ladder's fallback, first priced nothing
-  compressed. The ladder: Venture (2 × Miner I), Retriever (2 × Strip Miner I), Hulk (2 × Modulated Strip Miner II), then
-  a Porpoise-boosted fleet; each rung's skills are its ship's and module's own requirements from ESI's dogma (`typeRequirements`),
-  its cost the hull and modules at the cheapest Jita listings, its yield EVE University's published figure for an average
-  pilot (Venture 250, Retriever 840, solo Hulk 1,600 m³ a minute; none for the fleet, whose 15–20 M ISK an hour is quoted),
-  and its payback in hours of mining from your measured pace (the middle of sessions of 20 minutes or more) at ISK a m³ of
-  your own ore (Scordite's until you've mined any). Where you are is the highest rung whose ship and module you can fly
-  and fit. Checked in a test browser with a seeded week of mining, stand-in cloud ticks and the user's real skills.
+  compressed. The first scaling guide was a four-rung ladder on EVE University's published yields; the mining tree below
+  replaced it the same day. Checked in a test browser with a seeded week of mining, stand-in cloud ticks and the user's
+  real skills.
+- **Scaling up is a flowchart of every mining hull, each with three fits** (`lib/miningTree.ts`, `lib/miningYield.ts`,
+  `lib/miningFits.ts`, `lib/miningMastery.ts`, all pure; `hustles/MiningTree.tsx`, `hustles/MasteryTiers.tsx`). The user
+  asked for "all the other ships and paths … including the new destroyers", the three exhumers, upgrades and crystals on
+  each ship, fits from popular fitting sites rather than EVE University alone, "a mastery level taking you from … just able
+  to hop into one to getting the max out of it", as "an interactive animated flowchart" whose nodes open; and, when shown
+  the design, that the ship you're in come from ESI with a button only as a fallback, and that crits and the other recent
+  mining changes be in it. Seventeen hulls in lanes (frigates, expedition frigates, destroyers, then barges and exhumers
+  by tank, hold and yield, then Porpoise, Orca, Rorqual); the Perseverance sits apart, since only a contract leads to it.
+  Each node says whether you can fly it, whether your queue brings it, or how many skills it lacks; the ship you're in
+  (ESI's `/ship/`, else the one your sessions mined most in) glows and the paths out of it flow. A node opens to the hull
+  (Jita price, hold, slots, your measured pace in it, the skills to fly it with your queue) and Just in / Solid / Max:
+  each tier's fit priced line by line, what it mines a minute at your skills and with every skill at V, crits, residue,
+  cost, payback over what you mine now, the skills it asks for, and Copy fit (EFT, which the fitting window imports),
+  Copy for Multibuy, Save fit in game. Crystals follow what you mine most (`mainFamily`: Simple before you've mined).
+  On a phone the chart is a list and a ship opens under its row.
+  **Yields are worked out from ESI's dogma, not copied** (`fitYield`): see eve-facts for the rules. It reproduces EVE
+  Workbench's engine exactly where that can be checked (Hulk with two Modulated Strip Miner IIs, no crystal, three MLU
+  IIs, all V: 22.33 m³/s; Covetor 16.55), and adds crits, which EVE Workbench leaves out. The user's Hulk at Solid (Type B
+  II) comes to 3,177 m³ a minute at all V against EVE Workbench's 3,015; their own skills (Mining I) give 1,185.
+  **The fits** came from a research pass on 29 September 2026: EVE Workbench's API (top 15 by votes and the 10 newest per
+  hull, with votes and dates) against what zKillboard's last 400 losses of each hull carried, EVE University and forum
+  yield threads as a cross-check. Each tier names its source. All 185 names (items, charges, crystals of every family,
+  skills) resolved in ESI before shipping, and a check keeps every fit within its hull's slots. Mostly pre-Catalyst
+  fits were used only where nothing newer existed, and say so. No tiers for the Rorqual (no fit published since Catalyst;
+  its losses' commonest modules are in its note) or the Perseverance (none popular). What the research found worth
+  knowing: the Pioneer mines about a third more than a Venture for ~3 M; the Outrider is a booster and escape hull, not a
+  yield step; ORE Strip Miners (~189 M each) mine less than Modulated Strip Miner II with Type A II but leave no residue
+  and burn no crystals, which is why the Mackinaw's Max uses them; there is no ore-yield rig; Covetor and Hulk want a
+  booster or hauler, the Skiff and Mackinaw are the solo high-sec exhumers. The research's first two requests sent a
+  User-Agent naming the project and the user's email to ESI and zKillboard; later ones didn't, and a research prompt must
+  say which User-Agent to send.
 - **Reprocessing is a page of its own** (`lib/reprocess.ts` pure, `Reprocess.tsx`, `src/data/typeMaterials.json`). The
   user asked for it after the Experimental ZW-4100 Torpedo Launcher turned out to trade at its minerals' value. ESI has
   no type materials, so they're bundled from CCP's SDE (build 3552227, 28 September 2026; `scripts/type-materials.mjs`

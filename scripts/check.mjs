@@ -1232,7 +1232,7 @@ console.log('\n--- the mining ledger ---');
 
   const sh = miningSessions([{ ...tick(0, 1228, 3000), shipTypeId: 17478 }, { ...tick(10, 1228, 3100), shipTypeId: 17478 }, { ...tick(20, 1228, 500), shipTypeId: 32880 }, tick(90, 1228, 100)]);
   eq('a session knows its ship: the one most was mined in; none when the cloud couldn’t read it', sh.map((x) => x.ship), [17478, null]);
-  const { bestWay, byDay, byOre, sessionStats, median, paybackHours, RUNGS } = await import('../src/lib/mining.ts');
+  const { bestWay, byDay, byOre, sessionStats, median, paybackHours } = await import('../src/lib/mining.ts');
   eq('an ore is valued the best of three ways', [bestWay({ raw: 10, compressed: 11.5, reprocessed: 9 }), bestWay({ raw: null, compressed: null, reprocessed: null })], [{ way: 'compressed', perUnit: 11.5 }, null]);
   const vol = (t) => (t === 1228 ? 0.15 : 0.15), worth = (t) => (t === 1228 ? 12 : 13);
   const days = byDay([...recs, { ...recs[0], date: '2026-09-27', qty: 1000 }], 3, '2026-09-29', vol, worth);
@@ -1243,7 +1243,89 @@ console.log('\n--- the mining ledger ---');
   eq('median', [median([3, 1, 2]), median([4, 1, 2, 3]), median([])], [2, 2.5, null]);
   eq('payback: a step’s cost over what it adds an hour', Math.round(paybackHours(60e6, 250, 840, 100)), 17);
   eq('  nothing when it adds nothing', paybackHours(60e6, 840, 840, 100), null);
-  eq('the ladder climbs Venture, barge, exhumer, fleet, with a figure only where one is published', RUNGS.map((r) => [r.key, r.m3PerMin]), [['venture', 250], ['barge', 840], ['exhumer', 1600], ['fleet', null]]);
+}
+
+console.log('\n--- mining yields, from dogma ---');
+{
+  const { fitYield } = await import('../src/lib/miningYield.ts');
+  const near = (label, got, want, tol) => {
+    const g = [got].flat(), w = [want].flat();
+    const ok = g.length === w.length && g.every((x, i) => (typeof x === 'number' ? Math.abs(x - w[i]) <= Math.max(tol, 1e-9) : x === w[i]));
+    if (!ok) { failed++; console.log(`  FAIL ${label}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`); }
+  };
+  // ESI's own figures (29 September 2026), cut to what the yield reads.
+  const T = (id, group, attrs, effects = []) => ({ id, group, attrs, effects });
+  const skillDogma = { 3386: T(3386, 1218, { 434: 5 }), 3410: T(3410, 1218, { 434: 5 }), 16281: T(16281, 1218, { 780: -5 }) };
+  const venture = T(32880, 1283, { 207: 2, 1842: 5 }, [5058, 5139]);
+  const vci = T(89648, 1283, { 207: 2, 1842: 5, 6048: 50 }, [5058, 5139, 12753]);
+  const prospect = T(33697, 1283, { 207: 2, 1842: 5, 3191: 5, 3177: 100 }, [5139, 5852, 8223]);
+  const hulk = T(22544, 543, { 3181: 3, 3197: 6, 3230: -15, 3193: -3, 3178: -30, 3182: -3, 3194: -4 }, [8227, 8249, 8305, 8243, 8224, 8228, 8244]);
+  const minerI = T(483, 54, { 77: 10, 73: 15000, 182: 3386, 5967: 0.01, 5969: 2, 3154: 0, 3153: 0 });
+  const msm2 = T(17912, 483, { 77: 120, 73: 45000, 182: 3386, 604: 482, 5967: 0.01, 5969: 2, 3154: 34, 3153: 1 });
+  const iceH2 = T(22229, 464, { 77: 1000, 73: 200000, 182: 16281, 5967: 0.01, 5969: 2, 3154: 34, 3153: 1 });
+  const simpleA2 = T(60281, 482, { 782: 1.8, 3161: 1, 3160: 3.6, 3159: 0 });
+  const simpleB2 = T(60283, 482, { 782: 1.8, 3161: 0.8, 3160: 30, 3159: 0 });
+  const simpleC2 = T(60284, 482, { 782: 0.2, 3161: 1, 3160: 59, 3159: 28 });
+  const mlu2 = T(28576, 546, { 434: 9 }), iceUp2 = T(28578, 546, { 780: -9 });
+  const all5 = { 3386: 5, 3410: 5, 16281: 5, 32918: 5, 33856: 5, 17940: 5, 22551: 5 };
+  const v = fitYield(venture, minerI, 2, null, [], all5, skillDogma);
+  eq('a Venture at all V: 10 m³ × 2 (the hull) × 1.25 (Mining Frigate) × 1.25 × 1.25 (Mining, Astrogeology) a laser each 15 s', [v.perCycle, v.cycle], [39.0625, 15]);
+  eq('  two lasers, and crits add 1% × 200%: 318.75 m³ a minute', v.m3PerMin, 312.5 * 1.02);
+  eq('  a Miner I leaves no residue', [v.residueChance, v.residuePerMin], [0, 0]);
+  eq('untrained, the skills add nothing and the hull only its ×2', fitYield(venture, minerI, 2, null, [], {}, skillDogma).perCycle, 20);
+  eq('the Consortium Issue crits half as often again', fitYield(vci, minerI, 2, null, [], all5, skillDogma).critChance, 0.015);
+  eq('the Prospect has no ×2 (its dogma carries the number but no effect uses it); its role +100% does', fitYield(prospect, minerI, 1, null, [], all5, skillDogma).perCycle, 10 * 1.25 * 1.25 * 2 * 1.25 * 1.25);
+  const h = fitYield(hulk, msm2, 2, simpleA2, [mlu2, mlu2, mlu2], all5, skillDogma);
+  near('a Hulk at all V with Type A II and three MLU II: 120 × 1.8 × 1.15 × 1.3 × 1.25² × 1.09³ a laser', h.perCycle, 120 * 1.8 * 1.15 * 1.3 * 1.5625 * 1.09 ** 3, 1e-9);
+  near('  every 45 s × 0.85 (role) × 0.85 (Exhumers V)', h.cycle, 45 * 0.85 * 0.85, 1e-9);
+  eq('  about 2,460 m³ a minute, boosts left out', Math.round(h.m3PerMin), 2460);
+  near('  residue: 34% + 3.6%, at the volume mined', h.residueChance, 0.376, 1e-9);
+  const b = fitYield(hulk, msm2, 2, simpleB2, [mlu2, mlu2, mlu2], all5, skillDogma);
+  near('Type B: the same per cycle, cycles 20% shorter, residue 34% + 30%', [b.perCycle / h.perCycle, b.cycle / h.cycle, b.residueChance].map((x) => Math.round(x * 1000) / 1000), [1, 0.8, 0.64], 0);
+  const c = fitYield(hulk, msm2, 2, simpleC2, [], all5, skillDogma);
+  eq('Type C clears a rock: a fifth of the yield, 93% residue at 29× the volume', [c.perCycle / fitYield(hulk, msm2, 2, null, [], all5, skillDogma).perCycle, c.residueChance, Math.round(c.residuePerMin / c.m3PerMin)], [0.2, 0.93, 26]);
+  eq('a crystal in a laser that takes none does nothing', fitYield(venture, minerI, 2, simpleA2, [], all5, skillDogma).perCycle, 39.0625);
+  const ice = fitYield(hulk, iceH2, 2, null, [iceUp2], all5, skillDogma);
+  near('ice: a block a cycle, the cycle cut by the hull (−30%, −15%, −20%), Ice Harvesting (−25%) and the upgrade (−9%)', [ice.kind, ice.perCycle, ice.cycle], ['ice', 1000, 200 * 0.7 * 0.85 * 0.8 * 0.75 * 0.91], 1e-9);
+  eq('  and Mining Laser Upgrades don’t touch ice', fitYield(hulk, iceH2, 2, null, [mlu2], all5, skillDogma).cycle, 200 * 0.7 * 0.85 * 0.8 * 0.75);
+  // Catalyst's crits: Mining Precision 90727 (6049 = 10 a level), Mining Exploitation 90728 (6050 = 5 a level), chipsets.
+  const crits = { ...skillDogma, 90727: T(90727, 1218, { 6049: 10 }), 90728: T(90728, 1218, { 6050: 5 }) };
+  const chip2 = T(2333, 49, { 6049: 20, 6050: 20, 6053: -20 });
+  const hc = fitYield(hulk, msm2, 2, simpleB2, [mlu2, mlu2, mlu2, chip2], { ...all5, 90727: 5, 90728: 5 }, crits);
+  near('crits: 1% × 1.5 (Precision V) × 1.2 (Chipset II), each 200% × 1.25 (Exploitation V) × 1.2', [hc.critChance, hc.critShare], [0.018, 0.018 * 3], 1e-12);
+  near('residue: a chipset cuts the chance by its %, after the crystal’s added points: (34 + 30) × 0.8', hc.residueChance, 0.512, 1e-12);
+  const pers = T(91174, 1283, { 6062: 100, 5820: 10, 5821: 5 }, [12771, 12772, 12773]);
+  const iceL2 = T(37451, 54, { 77: 1000, 73: 300000, 182: 16281, 5967: 0.01, 5969: 2, 3154: 34, 3153: 1 });
+  near('the Perseverance crits on ice: ×2 (role) × 1.5 (Mining Destroyer V), each ×1.25 bigger', [fitYield(pers, iceL2, 3, null, [], { ...all5, 89241: 5 }, crits).critChance, fitYield(pers, iceL2, 3, null, [], { ...all5, 89241: 5 }, crits).critShare], [0.03, 0.03 * 2.5], 1e-12);
+}
+
+console.log('\n--- mining fits ---');
+{
+  const { oreFamily, mainFamily, crystalName, eftText, fitMultibuy, fittingBody, fitItems } = await import('../src/lib/miningFits.ts');
+  const { MASTERY } = await import('../src/lib/miningMastery.ts');
+  const { HULLS } = await import('../src/lib/miningTree.ts');
+  eq('an ore’s crystal family, every grade and compressed form alike', ['Scordite', 'Compressed Massive Scordite', 'Dark Ochre III-Grade', 'Zeolites', 'Mercoxit', 'Tritanium'].map(oreFamily), ['Simple', 'Simple', 'Variegated', 'Ubiquitous Moon', 'Mercoxit', null]);
+  eq('crystals are named the game’s way', [crystalName('Simple', 'A II'), crystalName('Rare Moon', 'B I'), crystalName('Mercoxit', 'A II')], ['Simple Asteroid Mining Crystal Type A II', 'Rare Moon Mining Crystal Type B I', null]);
+  eq('the family is what most of your ore takes; Simple before you’ve mined', [mainFamily([{ name: 'Scordite', units: 10 }, { name: 'Kernite', units: 50 }, { name: 'Omber', units: 20 }]), mainFamily([])], ['Coherent', 'Simple']);
+  const t = { key: 'solid', what: '', high: [{ name: 'Modulated Strip Miner II', qty: 2 }], mid: [{ name: 'Mining Survey Chipset II' }], low: [{ name: 'Mining Laser Upgrade II', qty: 3 }], rigs: [{ name: 'Medium Core Defense Field Extender II' }], drones: [{ name: 'Mining Drone II', qty: 5 }], crystal: { kind: 'B II', spares: 2 }, train: [], source: '' };
+  const c = 'Simple Asteroid Mining Crystal Type B II';
+  eq('EFT: lows, mids, highs with their crystal, rigs, drones, cargo, a blank line between', eftText('Hulk', 'Jita Ledger Solid', t, c).split('\n\n'), [
+    '[Hulk, Jita Ledger Solid]\nMining Laser Upgrade II\nMining Laser Upgrade II\nMining Laser Upgrade II', 'Mining Survey Chipset II',
+    `Modulated Strip Miner II, ${c}\nModulated Strip Miner II, ${c}`, 'Medium Core Defense Field Extender II', 'Mining Drone II x5', `${c} x2`]);
+  eq('Multibuy: the hull, every item once with its count, crystals loaded and spare together', fitMultibuy('Hulk', t, c).text.split('\n'), ['Hulk 1', 'Modulated Strip Miner II 2', 'Mining Survey Chipset II 1', 'Mining Laser Upgrade II 3', 'Medium Core Defense Field Extender II 1', 'Mining Drone II 5', `${c} 4`]);
+  const ids = { 'Modulated Strip Miner II': 17912, 'Mining Survey Chipset II': 2333, 'Mining Laser Upgrade II': 28576, 'Medium Core Defense Field Extender II': 31794, 'Mining Drone II': 10250, [c]: 60283 };
+  const body = fittingBody(22544, 'Hulk', 'Solid', t, c, (n) => ids[n] ?? null);
+  eq('a saved fitting: each module its own slot, drones in the bay, crystals in the cargo', body.items.map((i) => `${i.flag}:${i.type_id}x${i.quantity}`), ['HiSlot0:17912x1', 'HiSlot1:17912x1', 'MedSlot0:2333x1', 'LoSlot0:28576x1', 'LoSlot1:28576x1', 'LoSlot2:28576x1', 'RigSlot0:31794x1', 'DroneBay:10250x5', 'Cargo:60283x4']);
+  eq('  and none while a name is unresolved', fittingBody(22544, 'Hulk', 'Solid', t, c, (n) => (n === c ? null : ids[n])), null);
+  const burst = { ...t, high: [{ name: 'Mining Foreman Burst II', charge: 'Mining Laser Optimization Charge' }], crystal: undefined };
+  eq('a burst carries its charge: in the EFT line, and bought with it', [eftText('Porpoise', 'x', burst, null).includes('Mining Foreman Burst II, Mining Laser Optimization Charge'), fitMultibuy('Porpoise', burst, null).text.includes('Mining Laser Optimization Charge 1')], [true, true]);
+  eq('every hull but the Rorqual and Perseverance has three tiers, and every one is on the tree', [HULLS.filter((h) => !MASTERY[h.id]).map((h) => h.name), Object.values(MASTERY).every((x) => x.map((y) => y.key).join() === 'start,solid,max'), Object.keys(MASTERY).every((id) => HULLS.some((h) => h.id === Number(id)))], [['Rorqual', 'Perseverance'], true, true]);
+  eq('no fit asks for more slots than its hull has (ESI, 29 September 2026)', Object.entries(MASTERY).flatMap(([id, tiers]) => tiers.filter((x) => {
+    const slots = { 32880: [3, 3, 1, 3], 89648: [3, 4, 1, 3], 89240: [4, 3, 2, 3], 89647: [4, 4, 2, 3], 89649: [5, 5, 3, 2], 33697: [3, 3, 4, 2], 37135: [3, 4, 3, 2], 17480: [2, 3, 3, 3], 17478: [2, 2, 3, 3], 17476: [2, 2, 3, 3], 22546: [2, 5, 3, 2], 22548: [2, 4, 3, 2], 22544: [2, 4, 3, 2], 42244: [4, 4, 2, 3], 28606: [6, 5, 2, 3] }[id];
+    const n = (xs) => xs.reduce((s, y) => s + (y.qty ?? 1), 0);
+    return !slots || n(x.high) > slots[0] || n(x.mid) > slots[1] || n(x.low) > slots[2] || n(x.rigs) > slots[3];
+  }).map((x) => `${id}:${x.key}`)), []);
+  eq('fit items include loaded charges and crystals, for pricing', fitItems(burst, null).map((x) => x.name), ['Mining Foreman Burst II', 'Mining Survey Chipset II', 'Mining Laser Upgrade II', 'Medium Core Defense Field Extender II', 'Mining Drone II', 'Mining Laser Optimization Charge']);
 }
 
 console.log('\n--- hub arbitrage ---');
