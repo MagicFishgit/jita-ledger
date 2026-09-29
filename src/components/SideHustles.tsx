@@ -1,9 +1,9 @@
-import { Briefcase, ChartLine, Globe, Syringe, Tornado, Truck } from 'lucide-react';
+import { Briefcase, ChartLine, Globe, Pickaxe, Tornado, Truck } from 'lucide-react';
 import { navigate, type Route } from '../lib/hooks';
 import { Abyssal } from './hustles/Abyssal';
 import { Courier } from './hustles/Courier';
 import { Planets } from './hustles/Planets';
-import { Injectors } from './hustles/Injectors';
+import { Mining } from './hustles/Mining';
 import { Freelance } from './hustles/Freelance';
 import { Guide, PageHead } from './ui';
 
@@ -11,21 +11,23 @@ import { Guide, PageHead } from './ui';
  * Things to do with the hours between relists.
  *
  * Each one earns in a different currency of effort: abyssals want your attention, hauling wants a
- * safe route and a big hold, planets want nothing at all once they are running, and injectors want
- * only the capital you already have sitting in Jita.
+ * safe route and a big hold, planets want nothing at all once they are running, and mining wants your time in a
+ * belt and pays in ore.
  */
 const TABS = [
   { key: 'abyssal', label: 'Abyssal', blurb: 'Filament costs and what your runs have really paid', icon: Tornado },
   { key: 'courier', label: 'Hauling', blurb: 'Public courier contracts with the traps filtered out', icon: Truck },
   { key: 'planets', label: 'Planets', blurb: 'Where to put PI, and what it would bring in', icon: Globe },
-  { key: 'injectors', label: 'Injectors', blurb: 'The extractor-to-injector spread, netted', icon: Syringe },
+  { key: 'mining', label: 'Mining', blurb: 'What you mined, your ISK an hour, and the next step up', icon: Pickaxe },
   { key: 'freelance', label: 'Freelance', blurb: 'Jobs paying more for an item than Jita sells it for', icon: Briefcase },
 ] as const;
 
 type Key = (typeof TABS)[number]['key'];
 
 export function SideHustles({ route }: { route: Route }) {
-  const sub = (TABS.find((t) => t.key === route.path[1])?.key ?? 'abyssal') as Key;
+  // Injectors was here until 29 September 2026: an old link lands on Mining, which replaced it.
+  const asked = route.path[1] === 'injectors' ? 'mining' : route.path[1];
+  const sub = (TABS.find((t) => t.key === asked)?.key ?? 'abyssal') as Key;
 
   return (
     <div className="page">
@@ -42,7 +44,7 @@ export function SideHustles({ route }: { route: Route }) {
         ))}
       </nav>
       <section className="panel" data-rv="" key={sub} style={{ padding: '18px 20px', gap: 16, animation: 'rise .38s cubic-bezier(.2,.8,.2,1)' }}>
-        {sub === 'abyssal' ? <Abyssal /> : sub === 'courier' ? <Courier /> : sub === 'planets' ? <Planets /> : sub === 'freelance' ? <Freelance /> : <Injectors />}
+        {sub === 'abyssal' ? <Abyssal /> : sub === 'courier' ? <Courier /> : sub === 'planets' ? <Planets /> : sub === 'freelance' ? <Freelance /> : <Mining />}
       </section>
       <Guide
         title="How to use Side hustles"
@@ -51,7 +53,7 @@ export function SideHustles({ route }: { route: Route }) {
           { icon: Tornado, title: 'Abyssal', body: 'Filament costs are known; loot is not. The page measures what your own runs have paid from your wallet.' },
           { icon: Truck, title: 'Hauling', body: 'Keep Safe only on. Every hidden contract failed a check for a reason — the notes say which.' },
           { icon: Globe, title: 'Planets', body: 'Work down the steps. Choosing a system adds its tax, trip home and how many colonies fit.' },
-          { icon: Syringe, title: 'Injectors', body: 'You’re really selling skill points. Only do it with a character you’ve stopped training.' },
+          { icon: Pickaxe, title: 'Mining', body: 'Mine, and the cloud times your sessions. The ladder says what the next ship costs and how many hours of mining pay for it.' },
           { icon: Briefcase, title: 'Freelance', body: 'Buy in Jita what a job pays more for, haul it, deliver it. Accept the job in game first.' },
         ]}
         habits={[{ icon: ChartLine, title: 'Compare in Results', body: 'Results shows each hustle’s ISK per hour next to trading.' }]}

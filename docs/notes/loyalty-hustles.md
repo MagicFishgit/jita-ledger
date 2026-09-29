@@ -157,6 +157,24 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
     the gank systems, all from Jita at once, instead of one ESI route call per office and broadcast system.
   The m³ was questioned: CCP's data and ESI both give 0.0015 m³ a unit of Compressed Scordite 0-Grade (0.15 raw, 0.19
   the old Batch Compressed), so 38.13 M units are 57,199 m³ on the game's own figures.
+- **Mining replaced Injectors** (`lib/mining.ts` pure, `hustles/Mining.tsx`, `worker/src/mining.ts`, migration 0013; the
+  mining records kind; scope `esi-industry.read_character_mining.v1`). The user found the Injectors tab useless and asked
+  for a Mining Ledger with a guide to scale up: a solo side income now, a multiboxed fleet later, so every mining record
+  and tick carries the character that mined it. ESI's ledger is one row per day, system and ore, 30 days, cached 10
+  minutes; the browser's sync and the cloud keep it as records past that. The cloud reads it every ten minutes and keeps
+  what grew between reads as ticks; runs of ticks under 25 minutes apart are sessions, timed to about ten minutes either
+  way (ESI's cache), with m³ a minute and ISK an hour. Each ore is valued the best of three ways after tax: its own Jita
+  bid, its compressed form's bid ("Compressed " + its name resolves for plain and graded ores alike; compression keeps
+  one unit for one at a hundredth of the volume), or reprocessed at your yield at Jita 4-4. In the first test run,
+  Compressed Scordite fetched 18.36 against 16.43 as mined. ESI's name lookup refuses a list with a name twice ("'names'
+  items are not all unique"), which is how Scordite, both mined and the ladder's fallback, first priced nothing
+  compressed. The ladder: Venture (2 × Miner I), Retriever (2 × Strip Miner I), Hulk (2 × Modulated Strip Miner II), then
+  a Porpoise-boosted fleet; each rung's skills are its ship's and module's own requirements from ESI's dogma (`typeRequirements`),
+  its cost the hull and modules at the cheapest Jita listings, its yield EVE University's published figure for an average
+  pilot (Venture 250, Retriever 840, solo Hulk 1,600 m³ a minute; none for the fleet, whose 15–20 M ISK an hour is quoted),
+  and its payback in hours of mining from your measured pace (the middle of sessions of 20 minutes or more) at ISK a m³ of
+  your own ore (Scordite's until you've mined any). Where you are is the highest rung whose ship and module you can fly
+  and fit. Checked in a test browser with a seeded week of mining, stand-in cloud ticks and the user's real skills.
 - **Reprocessing is a page of its own** (`lib/reprocess.ts` pure, `Reprocess.tsx`, `src/data/typeMaterials.json`). The
   user asked for it after the Experimental ZW-4100 Torpedo Launcher turned out to trade at its minerals' value. ESI has
   no type materials, so they're bundled from CCP's SDE (build 3552227, 28 September 2026; `scripts/type-materials.mjs`

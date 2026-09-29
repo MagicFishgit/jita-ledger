@@ -9,7 +9,7 @@ import { parseFilament, byTier, runsFrom, TIERS } from '../src/lib/abyssal.ts';
 import { judgeCourier, byRewardPerJump, byUsefulness, roundTrips, tally, HAULERS, effectiveCapacity, hullClassOf } from '../src/lib/courier.ts';
 import { parsePlanetType, planetsFor, estimate, inBand, P0_PER_P1, sortSystems, rankProducts, refineVerdict, RAW_PER_HOUR, MADE_PER_HOUR, BASIC_FACTORY, P1_PER_P2, setupSteps, P1_TO_P0 } from '../src/lib/pi.ts';
 import { classify, readExtractor, contentsOf, readColony, byAttention, typesIn, valueOf } from '../src/lib/colony.ts';
-import { check, byUrgency as bySkillUrgency, readiness, injectorYield, SP_FLOOR, skillsOf, trainedOptions, HAULING_SKILLS } from '../src/lib/skills.ts';
+import { check, byUrgency as bySkillUrgency, readiness, skillsOf, trainedOptions, HAULING_SKILLS } from '../src/lib/skills.ts';
 import { iskPerHour, RUN_MINUTES } from '../src/lib/abyssal.ts';
 import { buyerShare, sideVolume, competitionShare, roundTripDays, returnPerDay, EVEN_SPLIT, COMPETITION_MIN, COMPETITION_MAX, tradingSplit, MIN_BOOK_SOLD } from '../src/lib/split.ts';
 import { calcWith, RELIST_LEFT, breakEvenSell, breakEvenSpread } from '../src/lib/fees.ts';
@@ -1229,6 +1229,19 @@ console.log('\n--- the mining ledger ---');
   const tick = (min, typeId, qty) => ({ at: T + min * M, systemId: 30000142, typeId, qty });
   const s = miningSessions([tick(0, 1228, 3000), tick(10, 1228, 3100), tick(20, 17463, 900), tick(80, 1228, 2000), tick(90, 1228, 2500)]);
   eq('ticks within 25 minutes of each other are one session; an hour apart, two', s.map((x) => [(x.end - x.start) / M, x.byType]), [[30, { 1228: 6100, 17463: 900 }], [20, { 1228: 4500 }]]);
+
+  const { bestWay, byDay, byOre, sessionStats, median, paybackHours, RUNGS } = await import('../src/lib/mining.ts');
+  eq('an ore is valued the best of three ways', [bestWay({ raw: 10, compressed: 11.5, reprocessed: 9 }), bestWay({ raw: null, compressed: null, reprocessed: null })], [{ way: 'compressed', perUnit: 11.5 }, null]);
+  const vol = (t) => (t === 1228 ? 0.15 : 0.15), worth = (t) => (t === 1228 ? 12 : 13);
+  const days = byDay([...recs, { ...recs[0], date: '2026-09-27', qty: 1000 }], 3, '2026-09-29', vol, worth);
+  eq('by day: the last days, oldest first, a quiet day at zero', days.map((d) => [d.date, d.units, Math.round(d.isk)]), [['2026-09-27', 1000, 12000], ['2026-09-28', 0, 0], ['2026-09-29', 12000, 144000]]);
+  eq('by ore: worth first, with its systems and days', byOre([...recs, { ...recs[0], date: '2026-09-27', qty: 1000, systemId: 30000144 }], vol, worth).map((o) => [o.typeId, o.units, o.systems.length, o.days]), [[1228, 13000, 2, 2]]);
+  const st = sessionStats(s[0], vol, worth);
+  eq('a session’s pace: m³ a minute and ISK an hour', [Math.round(st.minutes), Math.round(st.m3PerMin), Math.round(st.iskPerHour)], [30, 35, 169800]);
+  eq('median', [median([3, 1, 2]), median([4, 1, 2, 3]), median([])], [2, 2.5, null]);
+  eq('payback: a step’s cost over what it adds an hour', Math.round(paybackHours(60e6, 250, 840, 100)), 17);
+  eq('  nothing when it adds nothing', paybackHours(60e6, 840, 840, 100), null);
+  eq('the ladder climbs Venture, barge, exhumer, fleet, with a figure only where one is published', RUNGS.map((r) => [r.key, r.m3PerMin]), [['venture', 250], ['barge', 840], ['exhumer', 1600], ['fleet', null]]);
 }
 
 console.log('\n--- hub arbitrage ---');

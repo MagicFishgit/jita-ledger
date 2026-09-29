@@ -153,6 +153,17 @@ export const typeInfo = (id: number) => cached(`type:${id}`, async () => {
   } satisfies TypeInfo;
 });
 
+/**
+ * The skills an item needs, from its dogma (182–184 name them, 277–279 their levels): what flying a ship or fitting a
+ * module takes. Kept for good.
+ */
+export const typeRequirements = (id: number) => cached(`type-req:${id}`, async () => {
+  const { data } = await esi<{ dogma_attributes?: { attribute_id: number; value: number }[] }>(`/universe/types/${id}/`);
+  const a = (k: number) => data.dogma_attributes?.find((x) => x.attribute_id === k)?.value;
+  return ([[182, 277], [183, 278], [184, 279]] as const).map(([s, l]) => [a(s), a(l)] as const)
+    .filter((x): x is readonly [number, number] => x[0] != null && x[1] != null).map(([skill, level]) => ({ skill, level }));
+});
+
 /** The types in an inventory group, such as every grade of an ore. Kept for good, like the group. */
 export const groupTypes = (id: number) => cached(`group-types:${id}`, async () => {
   const { data } = await esi<{ types?: number[] }>(`/universe/groups/${id}/`);

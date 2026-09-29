@@ -6,7 +6,7 @@ Pages on every push to `main`; the Worker deploys from GitHub Actions too, when 
 
 Pages: Wallet (home), To do (was Tonight's run; `#tonight` still lands there), Calculator, Prospects (find items), Watchlist, Capital planner, Hub
 arbitrage, Sniper (mistake listings), Positions, Orders (which of mine are beaten), Results, Loyalty (spending LP), Side hustles
-(Abyssal / Hauling / Planets / Injectors), Combat, Omega, Settings (tabbed: `settings/<tab>`). Inbox is gone:
+(Abyssal / Hauling / Planets / Mining / Freelance), Combat, Omega, Settings (tabbed: `settings/<tab>`). Inbox is gone:
 its job is the Wallet's "Trades no position tracks" table, and `#inbox` redirects to the Wallet.
 Planets is a four-step walkthrough and also reads your real colonies when the planets scope is granted.
 

@@ -125,28 +125,3 @@ export const PI_SKILLS: Need[] = [
   { name: 'Remote Sensing', level: 3, why: 'Survey planets from further away, so you can plan without flying to each one.', optional: true },
 ];
 
-export const TRADE_SKILLS: Need[] = [
-  { name: 'Accounting', level: 5, why: 'Cuts sales tax, which comes off every injector you sell. The best ISK-per-hour skill in the game for a trader.' },
-  { name: 'Broker Relations', level: 5, why: 'Cuts the broker fee on both the buy order and the sell order.' },
-  { name: 'Advanced Broker Relations', level: 4, why: 'Cuts the fee for changing an order, which is what relisting costs you.', optional: true },
-  { name: 'Trade', level: 4, why: 'Order slots. You cannot work a spread you have no room to place.' },
-  { name: 'Retail', level: 4, why: 'More order slots.', optional: true },
-  { name: 'Wholesale', level: 3, why: 'More order slots again, once retail runs out.', optional: true },
-];
-
-/**
- * Injector yield falls as the buyer's own skill points rise, which is why the price does not track
- * the raw point count. You cannot extract below five million either, so the first five million are
- * not yours to sell.
- */
-export const SP_FLOOR = 5_000_000;
-export const INJECTOR_YIELD: { upTo: number; points: number }[] = [
-  { upTo: 5_000_000, points: 500_000 },
-  { upTo: 50_000_000, points: 400_000 },
-  { upTo: 80_000_000, points: 300_000 },
-  { upTo: Infinity, points: 150_000 },
-];
-
-export function injectorYield(totalSp: number): number {
-  return INJECTOR_YIELD.find((t) => totalSp < t.upTo)?.points ?? 150_000;
-}

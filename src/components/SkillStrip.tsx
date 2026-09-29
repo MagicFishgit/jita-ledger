@@ -172,3 +172,33 @@ export function TradeSkillsLine({ slotsOnly = false }: { slotsOnly?: boolean }) 
     </p>
   );
 }
+
+/**
+ * Skills a thing needs, each at a level (a ship to fly, a module to fit): your level against it, and where it stands in
+ * your queue, or what's missing first. For the mining ladder's rungs.
+ */
+export function SkillNeeds({ needs }: { needs: { skill: number; level: number }[] }) {
+  const d = useData();
+  const now = useNow(60_000);
+  const name = useTypeName();
+  useEnsureNames(needs.map((n) => n.skill));
+  const rows = needs.map((n) => ({ n, s: skillStatus(n.skill, d.skills?.[n.skill] ?? 0, d.meta.skillQueue, now) }));
+  const train = useTrainTimes(rows.map(({ n, s }) => ({ id: n.skill, have: s.have, to: n.level })));
+  useEnsureNames(Object.values(train).flatMap((t) => t.needs.map((x) => x.id)));
+  if (!d.skills) return null;
+  return (
+    <div className="skill-needs">
+      {rows.map(({ n, s }) => {
+        const met = s.have >= n.level;
+        const q = queueSaid(s, train[n.skill], now, name);
+        return (
+          <div key={n.skill} className="skill-need">
+            <span className="sk-name">{name(n.skill)} {ROMAN[n.level]}</span>
+            <SkillPips s={s} want={n.level} />
+            <span className="sk-q" style={{ color: met ? 'var(--pos)' : TONE[q.tone] }}>{met ? `Trained (${ROMAN[s.have]})` : q.text}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
