@@ -11,7 +11,7 @@ import { sanitizeSettings } from './fees';
 import { setCloudFlow, setCloudHours } from './flowStore';
 import type { HourBucket } from './rhythm';
 import type { FlowLog } from './flow';
-import { sanitizeAlerts, sanitizeLeave, sanitizePrefs, sanitizeSafetyTimes } from './prefs';
+import { sanitizeAlerts, sanitizeLeave, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes } from './prefs';
 import { costBasis } from './orderCheck';
 import { adoptCloudScan, loadCache, mergeLiveBooks, rankProspects, scanBusy, type CloudScan } from './scan';
 import type { Book } from './evaluate';
@@ -242,6 +242,7 @@ async function pullNow(): Promise<Map<string, Set<string>>> {
         if (p.alerts) p.alerts = sanitizeAlerts(p.alerts);
         if (p.leave) p.leave = sanitizeLeave(p.leave);
         if (p.safetyTimes) p.safetyTimes = sanitizeSafetyTimes(p.safetyTimes);
+        if (p.notSnipes) p.notSnipes = sanitizeNotSnipes(p.notSnipes);
         return p;
       }, { origin: 'cloud' });
     }

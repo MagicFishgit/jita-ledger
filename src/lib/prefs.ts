@@ -146,6 +146,12 @@ export function sanitizeSafetyTimes(v: unknown): SafetyTimesDoc {
 }
 
 /** Items you're leaving orders on ("Place and leave"): type IDs, each once. */
+/** Purchases you said weren't snipes (the Sniper's "Not a snipe"): trade IDs. */
+export function sanitizeNotSnipes(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return [...new Set(v.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length < 64))].slice(-5000);
+}
+
 export function sanitizeLeave(v: unknown): number[] {
   if (!Array.isArray(v)) return [];
   return [...new Set(v.filter((x): x is number => Number.isInteger(x) && x > 0))];

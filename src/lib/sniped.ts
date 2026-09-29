@@ -25,8 +25,10 @@ export const SEEN_SLACK_MIN = 10;
  * are no `market_transaction` entries for purchases at all: all 3,663 were sales.) Telling fills apart by your
  * orders' prices was tried first and failed: orders placed or repriced before the app kept their history aren't
  * known, so their fills read as purchases, and the Rocket Science bid came out as nine snipes.
+ *
+ * `notSnipes`: trades you said weren't snipes. Left out after the matching, since a second's buys are paid together.
  */
-export function instantBuys(txs: Tx[], journal: JournalEntry[], personal: Set<string>): Tx[] {
+export function instantBuys(txs: Tx[], journal: JournalEntry[], personal: Set<string>, notSnipes: ReadonlySet<string> = new Set()): Tx[] {
   const second = (iso: string) => iso.slice(0, 19);
   const escrow = new Map<string, number[]>();
   for (const e of journal) if (e.refType === 'market_escrow' && e.amount < 0) escrow.set(second(e.date), [...(escrow.get(second(e.date)) ?? []), -e.amount]);
@@ -35,7 +37,8 @@ export function instantBuys(txs: Tx[], journal: JournalEntry[], personal: Set<st
   const bySecond = new Map<string, number>();
   for (const t of buys) bySecond.set(second(t.date), (bySecond.get(second(t.date)) ?? 0) + t.qty * t.unitPrice);
   const near = (a: number, b: number) => Math.abs(a - b) <= Math.max(1, b * 1e-6);
-  return buys.filter((t) => (escrow.get(second(t.date)) ?? []).some((a) => near(a, t.qty * t.unitPrice) || near(a, bySecond.get(second(t.date))!)));
+  // Ones you said weren't snipes are still bought from a listing, but go no further (the Sniper's "Not a snipe").
+  return buys.filter((t) => !notSnipes.has(t.id) && (escrow.get(second(t.date)) ?? []).some((a) => near(a, t.qty * t.unitPrice) || near(a, bySecond.get(second(t.date))!)));
 }
 
 export type BuyGroup = { id: string; typeId: number; at: string; txIds: string[]; units: number; cost: number; avg: number; prices: number[] };

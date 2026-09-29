@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { createStore, get, set, del, keys } from 'idb-keyval';
 import { DEFAULT_SETTINGS, rates, sanitizeSettings, type Settings } from './fees';
-import { DEFAULT_ALERTS, DEFAULT_PREFS, sanitizeAlerts, sanitizeLeave, sanitizePrefs, sanitizeSafetyTimes, type SafetyTimesDoc } from './prefs';
+import { DEFAULT_ALERTS, DEFAULT_PREFS, sanitizeAlerts, sanitizeLeave, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes, type SafetyTimesDoc } from './prefs';
 import type {
   AlertConfig, AlertLogEntry, Goal, JournalEntry, Killmail, Meta, NetWorthPoint, Order, Position, Prefs,
   Stock, Tx, UntrackedTag, WatchItem,
@@ -42,13 +42,15 @@ export type Data = {
    * move only when trading stops reaching their price, never to get back in front. Type IDs.
    */
   leave: number[];
+  /** Purchases you said weren't snipes, though bought from a listing well under where the item traded: trade IDs. */
+  notSnipes: string[];
   /** The asset safety countdowns you typed in (from the game's Assets → Asset Safety), by wrap. */
   safetyTimes: SafetyTimesDoc;
 };
 type Key = keyof Data;
 const KEYS: Key[] = [
   'settings', 'txs', 'journal', 'orders', 'positions', 'watchlist', 'names', 'ignored', 'stock', 'skills', 'meta',
-  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'safetyTimes',
+  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'safetyTimes', 'notSnipes',
 ];
 
 const idb = createStore('jita-ledger', 'kv');
@@ -60,7 +62,7 @@ const empty = (): Data => ({
   settings: { ...DEFAULT_SETTINGS },
   txs: {}, journal: {}, orders: {}, positions: [], watchlist: [], names: {}, ignored: [], meta: {},
   prefs: { ...DEFAULT_PREFS }, alerts: { ...DEFAULT_ALERTS }, alertLog: [], goals: [], tags: {}, nearDone: [],
-  killmails: {}, netWorth: [], unusualOk: [], leave: [], safetyTimes: {},
+  killmails: {}, netWorth: [], unusualOk: [], leave: [], safetyTimes: {}, notSnipes: [],
 });
 
 let data: Data = empty();
@@ -178,6 +180,7 @@ export async function importAll(json: string): Promise<void> {
   if (p.alerts) p.alerts = sanitizeAlerts(p.alerts);
   if (p.leave) p.leave = sanitizeLeave(p.leave);
   if (p.safetyTimes) p.safetyTimes = sanitizeSafetyTimes(p.safetyTimes);
+  if (p.notSnipes) p.notSnipes = sanitizeNotSnipes(p.notSnipes);
   update(p);
 }
 

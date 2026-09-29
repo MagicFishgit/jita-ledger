@@ -14,6 +14,7 @@ import { navigate, useNow } from '../lib/hooks';
 import { sanitizeAlerts } from '../lib/prefs';
 import { DOUBT_SAID, judgeBids, judgeListings, notYours, type HeldBidRow, type SnipeRead, type SnipeRow } from '../lib/snipe';
 import { update, useData } from '../lib/store';
+import { toast } from '../lib/toast';
 import { copyPrice, OpenInGame, plainPrice, useEnsureNames, useTypeName } from './common';
 import { flip } from './Prospects';
 import { Empty, Flag, Guide, ItemIcon, NumChip, PageHead, Panel, Tiles } from './ui';
@@ -29,7 +30,7 @@ function YourSnipes({ now }: { now: number }) {
   const name = useTypeName();
   const cloud = useCloud();
   const r = rates(d.settings);
-  const groups = useMemo(() => groupBuys(instantBuys(Object.values(d.txs), Object.values(d.journal), new Set(d.ignored))), [d.txs, d.journal, d.ignored]);
+  const groups = useMemo(() => groupBuys(instantBuys(Object.values(d.txs), Object.values(d.journal), new Set(d.ignored), new Set(d.notSnipes))), [d.txs, d.journal, d.ignored, d.notSnipes]);
   const types = useMemo(() => [...new Set(groups.map((g) => g.typeId))], [groups]);
   const key = types.join(',');
   const [hist, setHist] = useState<Record<number, HistRow[]> | null>(null);
@@ -89,9 +90,14 @@ function YourSnipes({ now }: { now: number }) {
             <>
               <Tiles min={170} items={[
                 { l: 'Snipes taken', v: units(taken.length), n: `${units(sum((x) => (x.byTool ? x.list.length : 0)))} found by the Sniper`, c: 'var(--acc)' },
-                { l: 'ISK put in', v: iskBig(sum((x) => x.cost)), n: `Looked like ${iskBigSigned(sum((x) => x.expected))} after fees` },
-                { l: 'Made so far', v: iskBigSigned(sum((x) => x.madeSoFar)), n: 'On sniped units sold, after the fees on them', c: sum((x) => x.madeSoFar) >= 0 ? 'var(--pos)' : 'var(--neg-t)' },
-                { l: 'In the end', v: iskBigSigned(sum((x) => x.inTheEnd ?? x.madeSoFar)), n: endKnown ? 'If what’s left sells where it trades now' : 'Where the price is known: some items have no history yet', c: sum((x) => x.inTheEnd ?? x.madeSoFar) >= 0 ? 'var(--pos)' : 'var(--neg-t)' },
+                { l: 'Paid for them', v: iskBig(sum((x) => x.cost)), n: `Looked like ${iskBigSigned(sum((x) => x.expected))} profit after fees` },
+                { l: 'Profit so far', v: iskBigSigned(sum((x) => x.madeSoFar)), n: 'On sniped units sold, after the fees on them', c: sum((x) => x.madeSoFar) >= 0 ? 'var(--pos)' : 'var(--neg-t)' },
+                // The user read "In the end +255.56 M" beside "ISK put in 1.25 B" as what would come back: it's profit on
+                // top, so what comes back is said too.
+                { l: 'Profit in the end', v: iskBigSigned(sum((x) => x.inTheEnd ?? x.madeSoFar)),
+                  n: `About ${iskBig(sum((x) => x.cost + (x.inTheEnd ?? x.madeSoFar)))} back for the ${iskBig(sum((x) => x.cost))}${endKnown ? ', if what’s left sells where it trades now' : ', where the price is known'}`,
+                  tip: 'Profit, not what comes back: what the sniped units sold for less their cost, sales tax and listing fees, plus what’s left if it sells where the item trades now (after tax, and a listing fee unless one is paid already). What comes back is that plus what you paid.',
+                  c: sum((x) => x.inTheEnd ?? x.madeSoFar) >= 0 ? 'var(--pos)' : 'var(--neg-t)' },
               ]} />
               <p className="note small" style={{ margin: 0 }}>
                 Sniped stock in your Jita hangar can be listed in one paste, never under what it cost:{' '}
@@ -105,9 +111,9 @@ function YourSnipes({ now }: { now: number }) {
                     <th scope="col">Sniped</th>
                     <th scope="col" data-tip="Relisted where it had been trading, after your fees at the time">Looked like</th>
                     <th scope="col" data-tip="Of the units you sniped: the first sold after the snipe count as its own. Sales of stock you already had are shown apart and kept out of its profit.">Sold</th>
-                    <th scope="col" data-tip="On the sniped units that sold: the sales less their tax, their cost and their share of the listing fees">Made so far</th>
+                    <th scope="col" data-tip="On the sniped units that sold: the sales less their tax, their cost and their share of the listing fees">Profit so far</th>
                     <th scope="col" data-tip="Listing fees already paid for sniped units still unsold: charged as they sell">Fees on unsold</th>
-                    <th scope="col" data-tip="Made so far, less those fees, plus what's left if it sells where the item trades now">In the end</th>
+                    <th scope="col" data-tip="Profit so far, less those fees, plus what's left if it sells where the item trades now">Profit in the end</th>
                   </tr></thead>
                   <tbody>
                     {items.map((x) => (
@@ -115,7 +121,9 @@ function YourSnipes({ now }: { now: number }) {
                         <td className="l"><span className="cellrow"><ItemIcon id={x.typeId} /><span className="name ellipsis">{name(x.typeId)}</span>
                           {x.byTool ? <Flag color="var(--acc)" title="Found by the Sniper" why="The cloud’s Sniper had shown this listing when you bought it.">Sniper</Flag>
                             : <Flag color="var(--label)" title="Found by hand" why="The Sniper hadn’t shown it (or it was before the Sniper existed): you found this one yourself.">By hand</Flag>}
-                          {x.list.length > 1 && <span className="sub">{x.list.length} snipes</span>}</span></td>
+                          {x.list.length > 1 && <span className="sub">{x.list.length} snipes</span>}
+                          <button type="button" className="link-btn dim" data-tip="It was bought cheap, but not as a snipe (to use, or for a job). It leaves Your snipes, and List loot stops setting it aside as one. It can be put back under Not snipes."
+                            onClick={() => markNotSnipe(x.list.flatMap((g) => g.txIds), name(x.typeId))}>Not a snipe</button></span></td>
                         <td>{units(x.units)} at {isk(x.cost / x.units)}<span className="sub">{fmtDateTime(x.latest.at)} · {pct(x.latest.under, 0)} under</span></td>
                         <td>{iskBigSigned(x.expected)}</td>
                         <td>{units(x.soldUnits)} of {units(x.units)}
@@ -128,10 +136,50 @@ function YourSnipes({ now }: { now: number }) {
                   </tbody>
                 </table>
               </div>
-              <p className="note small" style={{ margin: 0 }}>Only the units you sniped are followed: the first sold after a snipe count as its own, and listing fees are shared by units between them and anything of your own listed alongside. Buys tagged Personal are left out.</p>
+              <p className="note small" style={{ margin: 0 }}>Only the units you sniped are followed: the first sold after a snipe count as its own, and listing fees are shared by units between them and anything of your own listed alongside. Buys tagged Personal, and ones you said weren’t snipes, are left out.</p>
             </>
           )}
+      <NotSnipes />
     </Panel>
+  );
+}
+
+/** Marks purchases as not snipes (a synced list of trade IDs), saying so with the way back. */
+function markNotSnipe(txIds: string[], what: string) {
+  update((x) => ({ notSnipes: [...new Set([...x.notSnipes, ...txIds])] }));
+  toast(`${what} is no longer counted as a snipe. It’s under “Not snipes” if you change your mind.`);
+}
+
+/** Purchases you said weren't snipes, by item, each with the way back. */
+function NotSnipes() {
+  const d = useData();
+  const name = useTypeName();
+  const byType = useMemo(() => {
+    const m = new Map<number, { ids: string[]; units: number; cost: number; at: string }>();
+    for (const id of d.notSnipes) {
+      const t = d.txs[id];
+      if (!t) continue;
+      const cur = m.get(t.typeId) ?? { ids: [], units: 0, cost: 0, at: t.date };
+      cur.ids.push(id); cur.units += t.qty; cur.cost += t.qty * t.unitPrice; if (t.date > cur.at) cur.at = t.date;
+      m.set(t.typeId, cur);
+    }
+    return [...m].sort((a, b) => b[1].at.localeCompare(a[1].at));
+  }, [d.notSnipes, d.txs]);
+  useEnsureNames(byType.map(([id]) => id));
+  if (!byType.length) return null;
+  return (
+    <details className="sub-box">
+      <summary className="lbl" style={{ cursor: 'pointer' }}>Not snipes ({units(byType.length)})</summary>
+      <div className="col" style={{ gap: 6, marginTop: 8 }}>
+        {byType.map(([typeId, x]) => (
+          <div key={typeId} className="row" style={{ gap: 10, flexWrap: 'wrap', fontSize: 13 }}>
+            <ItemIcon id={typeId} /><span style={{ color: 'var(--ink)' }}>{name(typeId)}</span>
+            <span className="note small" style={{ margin: 0 }}>{units(x.units)} for {iskBig(x.cost)}, {fmtDateTime(x.at)}</span>
+            <button type="button" className="link-btn" onClick={() => update((y) => ({ notSnipes: y.notSnipes.filter((id) => !x.ids.includes(id)) }))}>It was a snipe</button>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 

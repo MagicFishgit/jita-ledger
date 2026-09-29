@@ -3320,6 +3320,9 @@ console.log('\n--- snipes you have taken ---');
   const bought = Sd.instantBuys(txs, journal, new Set(['f']));
   eq('  buys from listings only: not your bid filling, not a sale, not Personal', bought.map((t) => t.id).sort(), ['a', 'b', 'c']);
   eq('  a same-second escrow for a different amount is a buy order placed, not a purchase', Sd.instantBuys([txs[0]], [E('x', '2026-09-28T01:20:00Z', -450_000_000)], new Set()).length, 0);
+  eq('  one you said wasn’t a snipe goes no further', Sd.instantBuys(txs, journal, new Set(['f']), new Set(['b'])).map((t) => t.id).sort(), ['a', 'c']);
+  const { sanitizeNotSnipes } = await import('../src/lib/prefs.ts');
+  eq('  the list keeps trade IDs only, once each', sanitizeNotSnipes(['a', 'a', 3, '', null, 'b']), ['a', 'b']);
   const groups = Sd.groupBuys(bought);
   eq('  buys a minute apart are one snipe', groups.map((g) => [g.txIds, g.units, Math.round(g.avg)]), [[['c'], 5, 19_000_000], [['a', 'b'], 24, 15_016_667]]);
   // Trading got up to about 20.4 M on half of the 14 days before.

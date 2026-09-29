@@ -95,6 +95,14 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   already had) and those 7 were costed at the snipe's price, crediting it with their profit. So the real fees count: the user's first Sniper relist
   was fat-fingered at 1,893,000 instead of 1,893 on 19,489 units, a ~468 M broker fee on a 20 M snipe, and "Your
   snipes" shows that as it is. The Relist at price has a copy button so the price is pasted, not typed.
+  **"In the end" is profit, and says what comes back** (29 September 2026). The user read "ISK put in 1.25 B" beside
+  "In the end +255.56 M" as getting 255 M back ("there is no way that I am going to get that little back") and
+  suspected the refunded fat-finger fee. Recomputed from their ledger outside the page, every figure matched (1.25 B,
+  +291.05 M, +83.58 M, +255.56 M) and the Uranium Charge's listing fees were 595 k, not 468 M. So the tiles now say
+  Paid for them, Profit so far and Profit in the end, the last with "About 1.51 B back for the 1.25 B". **Not a snipe**
+  (the synced `notSnipes` doc of trade IDs, `instantBuys`' fourth argument): a purchase bought cheap but not as a snipe
+  (to use, or for a job) leaves Your snipes and List loot's snipes kind, beside its name, with "It was a snipe" under
+  Not snipes to put it back. Cost-of-stock still reads it as bought from a listing (orderCheck passes no list).
 - **"Place and leave" prices a plan behind the front on purpose** (`ProspectFilters.patient`, the planner's Pricing
   choice). The user's longer-term strategy is large orders in many items that fill over weeks, without the 0.01 war.
   Both sides are priced where the bulk of trading reached on half the last 14 days (`reachedBid` / `reachedAsk`, the

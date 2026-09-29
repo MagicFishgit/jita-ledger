@@ -120,7 +120,7 @@ export function Loot() {
     return m;
   }, [d.positions, d.orders, kinds]); // eslint-disable-line react-hooks/exhaustive-deps
   // Your buys from listings, as the Sniper page groups them, for telling which items you sniped.
-  const snipeGroups = useMemo(() => groupBuys(instantBuys(Object.values(d.txs), Object.values(d.journal), new Set(d.ignored))), [d.txs, d.journal, d.ignored]);
+  const snipeGroups = useMemo(() => groupBuys(instantBuys(Object.values(d.txs), Object.values(d.journal), new Set(d.ignored), new Set(d.notSnipes))), [d.txs, d.journal, d.ignored, d.notSnipes]);
 
   const read = async (rows: LootRow[], hangar: HangarMarks | null = null, again = false) => {
     if (!rows.length) { toast('Nothing to read there. Paste the hangar (list view, Ctrl+C) or the Sell window’s export.', 'warn'); return; }
