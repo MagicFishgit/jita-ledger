@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Factory, FlaskConical, Radar, Recycle } from 'lucide-react';
+import { ClipboardCopy, Factory, FlaskConical, Radar, Recycle } from 'lucide-react';
+import { multibuy } from '../lib/combat';
 import { esi } from '../lib/esi';
 import { rates } from '../lib/fees';
 import { isk, iskBig, pct, units } from '../lib/format';
@@ -191,6 +192,19 @@ function ItemCheck({ bundle, site, implant, skills, salesTax, name, picked }: { 
                   ))}</tbody>
                 </table>
               </div>
+              {(() => {
+                // Whole batches only: what's left under a batch doesn't reprocess. Multibuy buys from the cheapest
+                // sellers in the system you're in, which is what "Buying them" priced.
+                const buy = Math.floor((qty - calc.short) / m[0]) * m[0];
+                return (
+                  <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button type="button" className="btn" disabled={buy <= 0} onClick={() => void copyMultibuy(multibuy([{ name: item.name, qty: buy }]), 1)}>
+                      <ClipboardCopy aria-hidden="true" />Copy {units(buy)} for Multibuy
+                    </button>
+                    <span className="note small" style={{ margin: 0 }}>In Jita: the Multibuy window, Import from clipboard, then Buy. It buys from the cheapest sellers in your system, as priced here.</span>
+                  </div>
+                );
+              })()}
               {calc.worth.unpriced.length > 0 && <p className="note small" style={{ margin: 0 }}>No Jita bid for {calc.worth.unpriced.map(name).join(', ')}: counted as nothing.</p>}
               <p className="note small" style={{ margin: 0 }}>Each material is rounded down per batch, the careful reading. The tax is charged on CCP’s adjusted price, which can differ from Jita’s. The book moves: check the prices in game before buying in bulk.</p>
             </>
@@ -198,6 +212,13 @@ function ItemCheck({ bundle, site, implant, skills, salesTax, name, picked }: { 
       </div>
     </Panel>
   );
+}
+
+/** Puts a Multibuy list on the clipboard ("Name xN" per line, as the game's own Multibuy export writes it). */
+async function copyMultibuy(block: string, lines: number): Promise<void> {
+  if (!block) return;
+  try { await navigator.clipboard.writeText(block); toast(`Copied ${units(lines)} line${lines === 1 ? '' : 's'} for Multibuy: Import from clipboard in the Multibuy window.`); }
+  catch { toast('Your browser wouldn’t let the page copy.', 'err'); }
 }
 
 /**
@@ -229,6 +250,12 @@ function Scanner({ bundle, site, implant, skills, salesTax, name, onPick }: {
         <ScanFreshness what="these finds" compact />
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <button type="button" className="btn primary" disabled={busy || !bundle} onClick={() => void run()}><Radar aria-hidden="true" />{busy ? 'Scanning…' : hits ? 'Scan again' : 'Scan the market'}</button>
+          {hits && hits.some((h) => h.profit > 0 && h.units > 0) && (
+            <button type="button" className="btn" data-tip="Every find that pays at your yield here, each with the units listed under its value, as Multibuy imports them. Check them against the live book first: the scan is up to a day old."
+              onClick={() => { const pay = hits.filter((h) => h.profit > 0 && h.units > 0); void copyMultibuy(multibuy(pay.map((h) => ({ name: name(h.typeId), qty: h.units }))), pay.length); }}>
+              <ClipboardCopy aria-hidden="true" />Copy the ones that pay for Multibuy
+            </button>
+          )}
           {hits && <span className="note small" style={{ margin: 0 }}>{units(books)} books read; {units(hits.filter((h) => h.profit > 0).length)} pay at your yield here, {units(hits.filter((h) => h.profit <= 0).length)} more only at a better one. 100,000 ISK or more each.</span>}
         </div>
         {hits && (hits.length ? (

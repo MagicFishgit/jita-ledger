@@ -104,3 +104,10 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
   50% (a 250mm Compressed Coil Gun I, +283 k for 29; a J5 Enduring Warp Disruptor), and Inferno Torpedoes +3.2 M only
   at Scrapmetal V: reprocessors keep most prices at mineral value. The finds are leads: clicking the Coil Gun into the
   item check, against the live book, its cheap listings had already sold (−240 k).
+  **Multibuy copies** (the research's Multibuy idea, for Reprocessing only, as the user chose): the item check copies
+  what it priced as "Name xN" (whole batches only: 1,050 Plagioclase III-Grade copies as 1,000), and the scanner the
+  finds that pay at your yield, each with the units listed under its value. Multibuy buys from the cheapest sellers in
+  your system, which is what the check priced. **Graded ores are separate types in the SDE** (asked 29 September 2026,
+  "Plagioclase III-Grade"): Plagioclase, II-, III- and IV-Grade give 175/70, 184/74, 193/77 and 201/81 Tritanium and
+  Mexallon per 100, each with Compressed and Batch Compressed forms, all naming Simple Ore Processing; the bundle has all
+  of them and ESI resolves the names, so nothing needed changing.
