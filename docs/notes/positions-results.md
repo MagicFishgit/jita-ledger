@@ -153,6 +153,15 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   typed-in fees, which say so): sales tax for Accounting, broker fee for Broker Relations, the price-change discount
   for Advanced Broker Relations, order slots for Trade, Retail, Wholesale and Tycoon. Levels queued one after another
   build on each other. The app already followed a finished level on the next sync; this is the preview.
+- **Omega's "Could trading pay for it?" counts every item, as Results' "Every item traded" does** (`everyItemCalcs` in
+  `components/everyItem.ts`, shared with Results). It counted realized profit on tracked positions only: 17.77 M of the
+  user's last 30 days (29 September 2026), which they took for a stale or broken figure, against 92.13 M over the 30
+  items they bought and sold. A month of Omega (500 PLEX at 4.91 M) is 2.46 B, so it covered about 4%, which is true. The
+  Alpha savings estimate reads every Jita sale and order the same way. Freelance and the rest aren't trading: the card
+  says Results has them. The 3-month pack's box said "PLEX for 3 months" with a placeholder cut to "from the"; it's now
+  "3-month pack, in PLEX" with "whole pack", and the line above says where the store shows it. The skill payback table
+  shows the queue ("Queued: V, done 23 Oct") and missing prerequisites (Tycoon "Needs Wholesale V and Marketing IV
+  first", not "0.0 days").
 - **Net worth keeps one snapshot a day in this browser** (`Data.netWorth`), written by the Wallet page. ESI has no
   net-worth history, so the trend starts the first day the page is opened and says so.
 - **Goals are five kinds, each measured from something the app reads** (`lib/goals.ts`): afford N of an item

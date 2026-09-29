@@ -5,6 +5,7 @@ import { fmtDate, fmtShort, iskBig, iskBigSigned, pct, units } from '../lib/form
 import { useNow } from '../lib/hooks';
 import { computePosition, countedIn } from '../lib/positions';
 import { attribute, byBucket, perHour, totals, type DayEvent, type TypeSets } from '../lib/results';
+import { everyItemCalcs } from './everyItem';
 import { bandOf, bucketStarts, groupResults, HELD_BANDS, inBandOrder, isTrade, isUnbought, itemResult, PRICE_BANDS, profitByBucket, unitFor, type BucketUnit, type Group, type ItemCalc, type ItemResult } from '../lib/longRange';
 import { itemCategory } from '../lib/universe';
 import { loadTypeSets } from '../lib/attribution';
@@ -30,7 +31,6 @@ const bucketSaid = (t: number, unit: BucketUnit) => (unit === 'day' ? fmtShort(t
  * A position over every trade ever made in an item, for the item-by-item view. Trades tagged Personal on the
  * Wallet are left out, as they are there: selling your own things, or buying for yourself, isn't trading.
  */
-const everything = (typeId: number, excluded: string[]) => ({ id: `all:${typeId}`, typeId, openedAt: '2003-05-06T00:00:00Z', status: 'open' as const, jitaOnly: false, excluded, included: [] });
 const COLOR: Record<Activity, string> = {
   Trading: 'var(--acc)', Loyalty: '#a98bff', Planets: '#6ee7a8', Hauling: 'var(--acc2)', Abyssal: '#ff8d9a', Combat: '#7aa6ff', Freelance: '#f5b86b',
 };
@@ -165,22 +165,7 @@ export function Results() {
       : `${byOverall[0].a} made the most. Put in the hours a week you spend on each activity to see what each pays for your time.`;
 
   // Every item ever bought and sold again, by the Positions rule, whether or not a position tracks it.
-  const itemCalcs = useMemo<ItemCalc[]>(() => {
-    const personal = new Map<number, string[]>();
-    for (const id of d.ignored) { const t = d.txs[id]; if (t) personal.set(t.typeId, [...(personal.get(t.typeId) ?? []), id]); }
-    const esiTxs = Object.values(d.txs).filter((t) => t.source === 'esi');
-    // An item whose every trade is Personal (a ship bought to fly, fittings for it) isn't trading at all: left
-    // out whole, or its buy orders' fees, with their fills left out, would read as orders that sold nothing.
-    const ignored = new Set(d.ignored);
-    const traded = new Set(esiTxs.filter((t) => !ignored.has(t.id)).map((t) => t.typeId));
-    const personalOnly = new Set([...personal.keys()].filter((id) => !traded.has(id)));
-    const bids = new Set(Object.values(d.orders).filter((o) => o.isBuy && !personalOnly.has(o.typeId)).map((o) => o.typeId));
-    const types = [...new Set([...traded, ...bids])];
-    return types.map((typeId) => {
-      const c = computePosition(everything(typeId, personal.get(typeId) ?? []), d, d.settings);
-      return { typeId, series: c.series, buys: c.buys, sells: c.sells, ordered: bids.has(typeId), relists: c.relistEvents };
-    });
-  }, [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored]); // eslint-disable-line react-hooks/exhaustive-deps
+  const itemCalcs = useMemo<ItemCalc[]>(() => everyItemCalcs(d), [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored]); // eslint-disable-line react-hooks/exhaustive-deps
   const itemRows = useMemo(() => itemCalcs.map((c) => itemResult(c, since - 1, now)), [itemCalcs, since, now]);
   const tradeRows = itemRows.filter(isTrade);
   const unbought = itemRows.filter(isUnbought);

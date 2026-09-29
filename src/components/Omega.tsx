@@ -2,16 +2,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { Gem, GraduationCap, RefreshCw, Scale } from 'lucide-react';
 import { effectiveSkills, omegaRates, orderSlots, rates, sanitizeSettings, type Rates, type Settings as S } from '../lib/fees';
 import { ago, iskBig, iskBigSigned, pct, share, units } from '../lib/format';
-import { computePosition, countedIn, realizedBetween } from '../lib/positions';
+import { computePosition } from '../lib/positions';
+import { isTrade, itemResult } from '../lib/longRange';
 import { jitaBook } from '../lib/market';
 import { update, useData } from '../lib/store';
-import { useAuth, useNow } from '../lib/hooks';
+import { navigate, useAuth, useNow } from '../lib/hooks';
 import { JITA_44, PLEX_TYPE } from '../lib/config';
 import { bumpWarp } from '../lib/motion';
 import { toast } from '../lib/toast';
 import { LevelBoxes } from './common';
 import { cssVars, Guide, NumChip, PageHead, Seg } from './ui';
 import { useSkillPayback } from './payback';
+import { everyItemCalcs } from './everyItem';
+import { useTradeQueue } from './SkillStrip';
 
 const DAY = 86400_000;
 const ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V'];
@@ -63,34 +66,30 @@ export function Omega() {
   const rNow = rates(s);
   const rPlan = omegaRates(s, plan);
 
-  // The last 30 days of trading, across all positions.
+  // The last 30 days of trading: every item you bought and sold, tracked by a position or not, as Results' "Every item
+  // traded" counts it. It counted positions only, which read 17.77 M of the user's 92.13 M (29 September 2026).
+  const calcs = useMemo(() => everyItemCalcs(d), [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored]); // eslint-disable-line react-hooks/exhaustive-deps
   const pace = useMemo(() => {
     const now = Date.now(), from = now - 30 * DAY;
-    let realized = 0, stockAtCost = 0;
-    const sells = new Map<string, number>();
-    for (const p of d.positions) {
-      const c = computePosition(p, d, s);
-      realized += realizedBetween(c.series, from, now);
-      stockAtCost += c.costOfStock;
-      for (const row of c.rows) {
-        if ((row.match !== 'auto' && row.match !== 'included') || row.tx.isBuy) continue;
-        if (Date.parse(row.tx.date) >= from) sells.set(row.tx.id, row.tx.qty * row.tx.unitPrice);
-      }
-    }
-    const types = new Set(d.positions.map((p) => p.typeId));
+    const rows = calcs.map((c) => itemResult(c, from - 1, now)).filter(isTrade);
+    const realized = rows.reduce((t, r) => t + r.profit, 0);
+    let stockAtCost = 0;
+    for (const p of d.positions) stockAtCost += computePosition(p, d, s).costOfStock;
+    // What the same trades would have paid at other rates: every Jita sale, and every Jita order placed, in the 30 days.
+    const personal = new Set(d.ignored);
+    const sellValue = Object.values(d.txs).filter((t) => !t.isBuy && t.source === 'esi' && !personal.has(t.id) && (t.locationId == null || t.locationId === JITA_44) && Date.parse(t.date) >= from)
+      .reduce((a, t) => a + t.qty * t.unitPrice, 0);
     let orderValue = 0, escrow = 0;
     for (const o of Object.values(d.orders)) {
       if (o.state === 'open' && o.isBuy) escrow += o.escrow ?? o.price * o.volumeRemain;
-      if (!types.has(o.typeId) || o.locationId !== JITA_44 || Date.parse(o.issued) < from) continue;
-      if (d.positions.some((p) => p.typeId === o.typeId && Date.parse(o.issued) >= Date.parse(p.openedAt))) orderValue += o.price * o.volumeTotal;
+      if (o.locationId === JITA_44 && Date.parse(o.issued) >= from) orderValue += o.price * o.volumeTotal;
     }
-    const sellValue = [...sells.values()].reduce((a, b) => a + b, 0);
-    return { realized, stockAtCost, sellValue, orderValue, escrow };
-  }, [d, s]);
+    return { realized, items: rows.length, stockAtCost, sellValue, orderValue, escrow };
+  }, [calcs, d, s]);
 
   const savings = pace.sellValue * Math.max(0, rNow.t - rPlan.t) + pace.orderValue * Math.max(0, rNow.f - rPlan.f);
   const asOmega = pace.realized + savings;
-  const hasTrades = d.positions.some((p) => Object.values(d.txs).some((t) => countedIn(p, t)));
+  const hasTrades = pace.items > 0;
 
   const alphaS = { ...s, clone: 'alpha' as const, override: false };
   const omegaS = { ...s, clone: 'omega' as const, override: false };
@@ -102,6 +101,8 @@ export function Omega() {
 
   // Skill payback: what the next level of each trade skill would have saved on the same 30 days.
   const { rows: ranked, perDay } = useSkillPayback(d);
+  // Where each stands in your queue, and a level whose prerequisites you lack says so (SkillStrip.tsx).
+  const tq = useTradeQueue();
 
   const packPlex = d.prefs.omegaPacks;
   const pack = d.prefs.omegaPack;
@@ -155,11 +156,11 @@ export function Omega() {
               {pack === '1'
                 ? 'Paying month by month. Longer packs cost less per month, if you know you’ll stay.'
                 : !packTotal
-                  ? `The ${pack}-month pack’s PLEX price changes with store sales and isn’t in any API. Type it from the store below and this works out the monthly cost.`
+                  ? `Type what the ${pack}-month pack costs in PLEX, the whole pack, as the New Eden Store shows it (Omega). It changes with store sales and isn’t in any API; this works out the monthly cost from it.`
                   : `${units(packTotal)} PLEX up front, ${units(Math.round(packTotal / Number(pack)))} a month${plexPrice ? ` — ${iskBig((monthly - packTotal / Number(pack)) * plexPrice)} a month ${monthly - packTotal / Number(pack) >= 0 ? 'cheaper' : 'dearer'} than paying monthly. You need ${iskBig(packTotal * plexPrice)} at once` : ''}.`}
             </p>
             {pack !== '1' && (
-              <NumChip label={`PLEX for ${pack} months`} width={90} decimals={0} value={packPlex[pack]} placeholder="from the store"
+              <NumChip label={`${pack}-month pack, in PLEX`} width={110} decimals={0} value={packPlex[pack]} placeholder="whole pack"
                 onChange={(n) => { update((x) => ({ prefs: { ...x.prefs, omegaPacks: { ...x.prefs.omegaPacks, [pack]: n && n > 0 ? n : null } } })); if (n && n > 0) set({ plexPerMonth: Math.round(n / Number(pack)) }); }} />
             )}
           </div>
@@ -193,12 +194,12 @@ export function Omega() {
           <section className="panel" aria-label="Trading pace" data-rv="" style={{ clipPath: 'none' }}>
             <div className="panel-title">Could trading pay for it?</div>
             {!hasTrades ? (
-              <p className="note">Once your positions have some sales, this shows your last 30 days of profit against the cost of Omega.</p>
+              <p className="note">Once you’ve bought and sold something in the last 30 days, this shows the profit against the cost of Omega.</p>
             ) : (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12, marginTop: 2 }}>
                   {[
-                    { l: 'Realized profit, last 30 days', v: iskBigSigned(pace.realized), c: pace.realized >= 0 ? 'var(--pos)' : 'var(--neg)', n: monthCost && pace.realized > 0 ? `${share(pace.realized / monthCost)} of a month of Omega` : '' },
+                    { l: 'Trading profit, last 30 days', v: iskBigSigned(pace.realized), c: pace.realized >= 0 ? 'var(--pos)' : 'var(--neg)', n: `${units(pace.items)} item${pace.items === 1 ? '' : 's'} you bought and sold, tracked or not${monthCost && pace.realized > 0 ? `: ${share(pace.realized / monthCost)} of a month of Omega` : ''}` },
                     ...(alpha ? [
                       { l: 'Fees Omega would have saved', v: iskBig(savings), c: 'var(--figure)', n: 'Same trades at your plan’s rates' },
                       { l: 'The same 30 days as Omega', v: iskBigSigned(asOmega), c: asOmega >= 0 ? 'var(--pos)' : 'var(--neg)', n: monthCost && asOmega > 0 ? `${share(asOmega / monthCost)} of a month of Omega` : '' },
@@ -219,7 +220,8 @@ export function Omega() {
                           : asOmega > 0 ? `At your last 30 days’ pace, trading as Omega would cover ${share(asOmega / monthCost)} of the subscription.` : 'Your last 30 days of trading didn’t make a profit yet, even at Omega rates.'
                         : pace.realized >= monthCost ? `Your last 30 days of trading covered Omega with ${iskBig(pace.realized - monthCost)} to spare.`
                           : pace.realized > 0 ? `Your last 30 days of trading covered ${share(pace.realized / monthCost)} of a month of Omega.` : 'Your last 30 days of trading didn’t make a profit yet.'}
-                      {' '}That’s a look back, not a forecast. Price-change fees aren’t in the savings estimate.
+                      {' '}That’s a look back, not a forecast. Price-change fees aren’t in the savings estimate. It counts trading only, as Results’ “Every item traded” does:{' '}
+                      <button type="button" className="link-btn" onClick={() => navigate('results')}>Results</button> has Freelance, loot and the rest.
                     </p>
                   </>
                 )}
@@ -279,7 +281,7 @@ export function Omega() {
                   <tr key={x.key} style={{ opacity: maxed ? 0.5 : 1 }}>
                     <td className="l"><span className="row tight" style={{ flexWrap: 'nowrap' }}><span className="name" style={{ fontWeight: 400 }}>{x.name}</span>{i === 0 && pd > 0 && <span className="lbl" style={{ padding: '1px 7px', fontSize: 10, letterSpacing: '.08em', color: '#03121a', background: 'var(--pos)' }}>Train next</span>}</span></td>
                     <td className="l" style={{ color: 'var(--sec)' }}>{maxed ? `${ROMAN[x.cur]} · maxed` : `${ROMAN[x.cur]} → ${ROMAN[x.next]}`}</td>
-                    <td>{maxed ? '—' : x.days == null ? '–' : `${x.days.toFixed(1)} days`}</td>
+                    <td className="wrap" style={tq[x.key]?.run ? { color: 'var(--acc)' } : undefined}>{maxed ? '—' : tq[x.key]?.text && !/^Not queued/.test(tq[x.key]!.text) ? tq[x.key]!.text : x.days == null ? '–' : `${x.days.toFixed(1)} days`}</td>
                     <td style={{ color: x.gain && x.gain > 0 ? 'var(--pos)' : '#90a5b8' }}>{maxed ? '—' : x.gain == null ? 'depends' : x.gain > 0 ? `${iskBig(x.gain)} / mo` : 'nothing yet'}</td>
                     <td style={{ color: 'var(--acc)' }}>{pd > 0 ? `${iskBig(pd)} per training day` : maxed ? '' : '—'}</td>
                     <td className="l wrap txt" style={{ color: 'var(--note)', paddingTop: 8, paddingBottom: 8 }}>{x.why}</td>
