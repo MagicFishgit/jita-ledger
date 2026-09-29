@@ -21,6 +21,7 @@ import { flowFor, hoursFor, pricesFor, unpack, watchMarkets } from './market';
 import { dropLogin, EveError, keepLogin, type Purpose } from './eve';
 import { BadRequest, pull, push, status, type PushBody } from './sync';
 import { rateReport } from './rate';
+import { blueprintMarket } from './blueprints';
 
 export interface Env {
   DB: D1Database;
@@ -281,6 +282,11 @@ export default {
         return body ? new Response(body, { headers: { ...c, 'Content-Type': 'application/json' } }) : json(null, 200, c);
       }
       if (url.pathname === '/v1/scan/status' && request.method === 'GET') return json(await scanStatus(env.DB), 200, c);
+      if (url.pathname === '/v1/blueprints/market' && request.method === 'POST') {
+        const body = (await request.json()) as { types?: unknown };
+        const types = Array.isArray(body.types) ? body.types.map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 5000) : [];
+        return json(await blueprintMarket(types, who.charId), 200, c);
+      }
       if (url.pathname === '/v1/snipes/seen' && request.method === 'GET') {
         const types = (url.searchParams.get('types') ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 500);
         return json(await sightings(env.DB, types), 200, c);

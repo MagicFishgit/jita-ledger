@@ -144,6 +144,11 @@ export async function openMarketWindow(typeId: number): Promise<void> {
   await esi<void>('/ui/openwindow/marketdetails/', { auth: true, method: 'POST', query: { type_id: typeId } });
 }
 
+/** Opens a contract's window in the running EVE client (the only contract thing ESI does). */
+export async function openContractWindow(contractId: number): Promise<void> {
+  await esi<void>('/ui/openwindow/contract/', { auth: true, method: 'POST', query: { contract_id: contractId } });
+}
+
 /**
  * Make a station, structure or solar system your autopilot destination in the client, replacing any
  * route already set. It plots the route; it doesn't fly anything.

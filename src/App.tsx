@@ -62,6 +62,7 @@ const Positions = page<object>(() => import('./components/Positions'), 'Position
 const PositionDetail = page<{ id: string }>(() => import('./components/PositionDetail'), 'PositionDetail');
 const Orders = page<object>(() => import('./components/Orders'), 'Orders');
 const Loot = page<object>(() => import('./components/Loot'), 'Loot');
+const Blueprints = page<object>(() => import('./components/Blueprints'), 'Blueprints');
 const Reprocess = page<object>(() => import('./components/Reprocess'), 'Reprocess');
 const Results = page<object>(() => import('./components/Results'), 'Results');
 const Loyalty = page<object>(() => import('./components/Loyalty'), 'Loyalty');
@@ -81,7 +82,7 @@ function prefetchPages() {
 const DEV_OWNER = !!import.meta.env.VITE_CLOUD_DEV_TOKEN;
 
 const RAIL_KEY = 'jita-ledger:rail';
-const PAGES = new Set<string>(['wallet', 'todo', 'calculator', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'reprocess', 'positions', 'orders', 'loot', 'results', 'loyalty', 'hustles', 'combat', 'omega', 'settings']);
+const PAGES = new Set<string>(['wallet', 'todo', 'calculator', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'reprocess', 'positions', 'orders', 'loot', 'blueprints', 'results', 'loyalty', 'hustles', 'combat', 'omega', 'settings']);
 
 function readRail(): boolean {
   try {
@@ -341,6 +342,7 @@ export function App() {
               : page === 'positions' ? <Positions />
               : page === 'orders' ? <Orders />
               : page === 'loot' ? <Loot />
+              : page === 'blueprints' ? <Blueprints />
               : page === 'results' ? <Results />
               : page === 'loyalty' ? <Loyalty />
               : page === 'hustles' ? <SideHustles route={route} />

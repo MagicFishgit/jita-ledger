@@ -144,11 +144,12 @@ export function Busy({ title, done, total, left, sub }: { title: ReactNode; done
 }
 
 /** An item's icon from the image server, or nothing if it fails to load. */
-export function ItemIcon({ id, size = 'md', render }: { id: number; size?: 'sm' | 'md' | 'lg'; render?: boolean }) {
+/** An item's icon. A blueprint has none at `icon` (400): its picture is `bp` for an original, `bpc` for a copy. */
+export function ItemIcon({ id, size = 'md', render, bp }: { id: number; size?: 'sm' | 'md' | 'lg'; render?: boolean; bp?: 'bp' | 'bpc' }) {
   const [ok, setOk] = useState(true);
   useEffect(() => setOk(true), [id]);
   if (!id) return null;
-  const url = `https://images.evetech.net/types/${id}/${render ? 'render' : 'icon'}?size=64`;
+  const url = `https://images.evetech.net/types/${id}/${bp ?? (render ? 'render' : 'icon')}?size=64`;
   return (
     <span className={'ticon' + (size === 'md' ? '' : ' ' + size)} aria-hidden="true" style={ok ? { backgroundImage: `url(${url})` } : undefined}>
       {/* A hidden probe so a missing icon leaves a plain square rather than a broken-image glyph. */}

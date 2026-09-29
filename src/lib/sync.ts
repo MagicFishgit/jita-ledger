@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { getAuth, hasScope } from './auth';
 import { esi, esiAllPages } from './esi';
-import { ALPHA_CAPS, JITA_44, NPC_FALLBACK_IDS, NPC_NAMES, OPTIONAL_SCOPE, SCOPE, SKILL_FALLBACK_IDS, SKILL_NAMES, type SkillKey } from './config';
+import { ALPHA_CAPS, JITA_44, NPC_FALLBACK_IDS, NPC_NAMES, SCOPE, SKILL_FALLBACK_IDS, SKILL_NAMES, type SkillKey } from './config';
 import { parseSafetyNotice, withNotices } from './assetSafety';
 import { loyaltyPoints, resolveIds, resolveNames } from './market';
 import { dataGeneration, getData, update, type Data } from './store';
@@ -221,7 +221,7 @@ export async function syncCharacter(): Promise<void> {
     // EVE's notification when things went into asset safety: the dates to the second, the structure and the destination.
     // Only with the notifications permission, and only worth asking while a wrap waits.
     let notices: SafetyNotice[] = [];
-    if (hasScope(OPTIONAL_SCOPE.notifications) && (fetched.stock?.safety ?? d.stock?.safety ?? []).some((w) => w.state === 'waiting')) {
+    if (hasScope(SCOPE.notifications) && (fetched.stock?.safety ?? d.stock?.safety ?? []).some((w) => w.state === 'waiting')) {
       try {
         const { data } = await esi<{ type: string; timestamp: string; text?: string }[]>(`/characters/${cid}/notifications/`, { auth: true });
         notices = data.map(parseSafetyNotice).filter((n): n is SafetyNotice => n != null);

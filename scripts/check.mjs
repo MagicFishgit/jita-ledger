@@ -2717,6 +2717,71 @@ console.log('\n--- freelance jobs to deliver to ---');
   ], [['cantSee'], ['lowsec', 'noRoute', 'gank', 'expiring']]);
 }
 
+console.log('\n--- blueprints and their contracts ---');
+{
+  const { untar, csvFields, blueprintContracts, TarSink, TAR_DONE, vanishedSince } = await import('../src/lib/bpContracts.ts');
+  const { readBlueprints, comparables, quoteBlueprint, scamFlags, tidy } = await import('../src/lib/blueprints.ts');
+  // A tar made here: ustar headers (name, size in octal), each file padded to 512 bytes.
+  const tar = (files) => {
+    const parts = [];
+    for (const [name, text] of files) {
+      const body = new TextEncoder().encode(text), h = new Uint8Array(512);
+      h.set(new TextEncoder().encode(name)); h.set(new TextEncoder().encode(body.length.toString(8).padStart(11, '0') + '\0'), 124);
+      parts.push(h, body, new Uint8Array((512 - (body.length % 512)) % 512));
+    }
+    parts.push(new Uint8Array(1024));
+    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0)); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; } return out;
+  };
+  // The snapshot's columns, as EVE Ref wrote them on 29 September 2026.
+  const contracts = 'collateral,contract_id,date_expired,date_issued,days_to_complete,end_location_id,issuer_corporation_id,issuer_id,price,reward,start_location_id,title,type,volume,http_last_modified,region_id,station_id,system_id,constellation_id,for_corporation,buyout\n'
+    + '0,1,2026-10-10T00:00:00Z,2026-09-20T00:00:00Z,0,60003760,1,11,5000000,0,60003760,"10x ""Rifter"", cheap",item_exchange,0.1,x,10000002,60003760,30000142,1,,\n'
+    + '0,2,2026-10-10T00:00:00Z,2026-09-20T00:00:00Z,0,60003760,1,12,9000000,0,60003760,mixed,item_exchange,0.1,x,10000002,60003760,30000142,1,,\n'
+    + '0,3,2026-10-10T00:00:00Z,2026-09-20T00:00:00Z,0,60003760,1,13,0,20000000,60003760,WTB,item_exchange,0.1,x,10000002,60003760,30000142,1,,\n'
+    + '0,4,2026-10-10T00:00:00Z,2026-09-20T00:00:00Z,0,60008494,1,14,7000000,0,60008494,elsewhere,item_exchange,0.1,x,10000043,60008494,30002187,1,,\n'
+    + '0,5,2026-10-10T00:00:00Z,2026-09-20T00:00:00Z,0,60003760,1,15,800000000,0,60003760,Rifter BPO,item_exchange,0.01,x,10000002,60003760,30000142,1,,\n';
+  const items = 'is_blueprint_copy,is_included,item_id,material_efficiency,quantity,record_id,runs,time_efficiency,type_id,http_last_modified,contract_id\n'
+    + 'true,true,100,10,1,1,10,20,691,x,1\ntrue,true,101,10,1,2,10,20,691,x,1\n'
+    + 'true,true,102,10,1,3,10,20,691,x,2\n"",true,103,,5,4,,,34,x,2\n'
+    + '"",false,104,0,1,5,,0,691,x,3\n'
+    + 'true,true,105,10,1,6,10,20,691,x,4\n'
+    + '"",true,106,10,1,7,,20,691,x,5\n';
+  const files = untar(tar([['meta.json', '{"scrape_end":"2026-09-29T09:30:43Z"}'], ['contracts.csv', contracts], ['contract_items.csv', items]]));
+  eq('the snapshot’s files out of the tar', [...files.keys()], ['meta.json', 'contracts.csv', 'contract_items.csv']);
+  eq('a CSV field with commas and doubled quotes', csvFields('1,"10x ""Rifter"", cheap",x'), ['1', '10x "Rifter", cheap', 'x']);
+  const got = blueprintContracts(files, { region: 10000002, now: Date.parse('2026-09-29T00:00:00Z') });
+  eq('blueprint-only sales in The Forge: not a bundle with minerals, a WTB, or another region', got.contracts.map((c) => c.id), [1, 5]);
+  eq('  a copy with its runs; an original without', [got.contracts[0].items[0], got.contracts[1].items[0].runs, got.at], [{ typeId: 691, copy: true, me: 10, te: 20, runs: 10, qty: 1, itemId: 100 }, null, '2026-09-29T09:30:43Z']);
+  // The sink the cloud decodes into: only the files wanted, stopping once they're in.
+  const sink = new TarSink(['contracts.csv']);
+  let stopped = false;
+  try { for (const b of tar([['meta.json', '{}'], ['contracts.csv', 'a,b\n1,2\n'], ['contract_bids.csv', 'never read']])) sink.writeByte(b); } catch (e) { stopped = e === TAR_DONE; }
+  eq('  the sink keeps what’s wanted and stops once it has it', [stopped, [...sink.files.keys()], new TextDecoder().decode(sink.files.get('contracts.csv'))], [true, ['contracts.csv'], 'a,b\n1,2\n']);
+  // Vanished before expiry: gone, not expired, not relisted by the same seller (a reprice).
+  const C = (id, issuer, itemId, expires = '2026-10-10T00:00:00Z') => ({ id, price: 1, issued: 'x', expires, stationId: 60003760, issuer, title: '', items: [{ typeId: 691, copy: true, me: 10, te: 20, runs: 10, qty: 1, itemId }] });
+  const older = [C(1, 11, 100), C(2, 12, 200), C(3, 13, 300), C(4, 14, 400, '2026-09-28T00:00:00Z'), C(5, 15, 500)];
+  const newer = [C(1, 11, 100), C(9, 12, 200), C(8, 99, 300)];
+  eq('vanished before expiry: not still listed, repriced by its seller, or expired; bought and relisted by another counts', vanishedSince(older, newer, Date.parse('2026-09-29T00:00:00Z')).map((c) => c.id), [3, 5]);
+  // Pricing a blueprint you hold.
+  eq('your blueprints read: a copy, an original, a stack of unused originals', readBlueprints([
+    { item_id: 1, type_id: 691, location_id: 7, location_flag: 'Hangar', quantity: -2, runs: 10, material_efficiency: 10, time_efficiency: 20 },
+    { item_id: 2, type_id: 691, location_id: 7, location_flag: 'Hangar', quantity: -1, runs: -1, material_efficiency: 10, time_efficiency: 20 },
+    { item_id: 3, type_id: 691, location_id: 7, location_flag: 'Hangar', quantity: 3, runs: -1, material_efficiency: 0, time_efficiency: 0 },
+  ]).map((b) => [b.copy, b.runs, b.count, b.unused]), [[true, 10, 1, false], [false, null, 1, false], [false, null, 3, true]]);
+  const K = (runs, each, extra = {}) => ({ typeId: 691, copy: true, me: 10, te: 20, runs, contractId: Math.round(each), each, count: 1, stationId: 60003760, title: '', issued: 'x', ...extra });
+  const q = quoteBlueprint({ typeId: 691, copy: true, me: 10, te: 20, runs: 10 }, [K(10, 2e6), K(10, 2.2e6), K(10, 2.4e6), K(10, 9e6)], [K(10, 1.9e6), K(10, 2.1e6)]);
+  eq('exact comparables: asks, what sold, and the price to list at (what sold, under the median ask)', [q.basis, q.asks, Math.round(q.low), Math.round(q.median), q.sold, q.suggest], ['exact', 4, 2150000, 2300000, 2, 2000000]);
+  const r = quoteBlueprint({ typeId: 691, copy: true, me: 10, te: 20, runs: 10 }, [K(1, 300000), K(1, 320000), K(5, 1.2e6)], []);
+  eq('  other runs scaled by runs^0.79, nothing sold: the cheapest quarter of asks', [r.basis, Math.round(r.cheapest.scaled), r.suggest], ['runs', Math.round(300000 * 10 ** 0.79), tidy(Math.min(...[300000 * 10 ** 0.79, 320000 * 10 ** 0.79, 1.2e6 * 2 ** 0.79].sort((a, b) => a - b).slice(0, 2).map((x, i, a) => a[0] + (a[1] - a[0]) * 0.5)))]);
+  eq('  nothing like it: no price', quoteBlueprint({ typeId: 1, copy: true, me: 0, te: 0, runs: 1 }, [], []).suggest, null);
+  const { unusedPrice } = await import('../src/lib/blueprints.ts');
+  const researched = { basis: 'research', suggest: 3.2e9 };
+  eq('an unused original: one step under the market’s cheapest listing, not researched ones’ 3.2 B; an exact contract match can undercut it; no listing, the contracts',
+    [unusedPrice(researched, 1.135e9), unusedPrice({ basis: 'exact', suggest: 1.1e9 }, 1.135e9), unusedPrice({ basis: 'exact', suggest: 1.1e9 }, null)],
+    [{ price: 1134000000, where: 'market' }, { price: 1.1e9, where: 'contract' }, { price: 1.1e9, where: 'contract' }]);
+  eq('a title that claims what the contract isn’t', [scamFlags({ copy: true, me: 9, te: 18, title: '10/20 Fully Researched BPO', stationId: 60003760 }), scamFlags({ copy: false, me: 10, te: 20, title: 'ME10 TE20', stationId: 60008494 })],
+    [['saysOriginal', 'saysResearch'], ['notJita']]);
+}
+
 console.log('\n--- purchases made in one go ---');
 {
   const { multibuys, fittedShips, autoTag } = await import('../src/lib/wallet.ts');

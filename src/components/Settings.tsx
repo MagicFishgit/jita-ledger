@@ -289,6 +289,7 @@ function Account() {
                 );
               })}
             </div>
+            {OPTIONAL_SCOPES.length > 0 && <>
             <div className="lbl" style={{ fontSize: 11, letterSpacing: '.18em', margin: '14px 0 6px' }}>Optional</div>
             <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--label)', textWrap: 'pretty' }}>
               Asked for only once you switch it on here. Tick it on your application at developers.eveonline.com first: EVE’s login refuses a permission
@@ -325,6 +326,7 @@ function Account() {
                 );
               })}
             </div>
+            </>}
           </div>
           <div>
             <div className="lbl" style={{ fontSize: 11, letterSpacing: '.18em', marginBottom: 6 }}>Clone state</div>

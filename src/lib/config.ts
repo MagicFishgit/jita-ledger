@@ -43,17 +43,19 @@ export const SCOPE = {
   mailSend: 'esi-mail.send_mail.v1', // alerts as an EVE mail to yourself, for when you're in the game
   mailRead: 'esi-mail.read_mail.v1', // find old alert mails, to tidy them away
   mailOrganize: 'esi-mail.organize_mail.v1', // delete old alert mails
+  notifications: 'esi-characters.read_notifications.v1', // EVE's notifications: when your things went into asset safety, and when they're delivered
+  blueprints: 'esi-characters.read_blueprints.v1', // your blueprints, with ME, TE and runs, for pricing them
 } as const;
 export const SCOPES: string[] = Object.values(SCOPE);
 
 /**
  * Permissions asked for only once switched on in Settings. EVE's login refuses a scope that isn't ticked on the
  * application at developers.eveonline.com, and checks only after you sign in (a made-up scope gets the sign-in page too,
- * checked 29 September 2026), so adding one to SCOPES would refuse every new login until it was ticked there.
+ * checked 29 September 2026), so adding one to SCOPES would refuse every new login until it was ticked there. Empty
+ * while every scope the app uses is registered (the user ticked them all on 29 September 2026); notifications started
+ * here.
  */
-export const OPTIONAL_SCOPE = {
-  notifications: 'esi-characters.read_notifications.v1', // EVE's notifications: when your things went into asset safety, and when they're delivered
-} as const;
+export const OPTIONAL_SCOPE = {} as const;
 export const OPTIONAL_SCOPES: string[] = Object.values(OPTIONAL_SCOPE);
 
 
@@ -143,6 +145,11 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
     label: 'Notifications',
     unlocks: 'The asset safety countdown straight from EVE: the notification sent when your things went into asset safety names the structure, where they’ll be delivered, and when (by hand, and automatically).',
     without: 'The countdown comes from what you type in, or from when the cloud saw the wrap go in.',
+  },
+  'esi-characters.read_blueprints.v1': {
+    label: 'Blueprints',
+    unlocks: 'The Blueprints page: every blueprint you hold, with ME, TE and runs, priced against The Forge’s blueprint contracts.',
+    without: 'The Blueprints page can’t read what you hold.',
   },
   'esi-characters.read_loyalty.v1': {
     label: 'Loyalty points',

@@ -1,11 +1,11 @@
 import {
   ArrowLeftRight, BadgePercent, Calculator, ChartLine, ChartPie, Crosshair, Eye, Gem, Layers, ListChecks, ListOrdered, PackageOpen, Radar, Recycle,
-  Rocket, Settings2, Swords, Wallet, type LucideIcon,
+  Rocket, ScrollText, Settings2, Swords, Wallet, type LucideIcon,
 } from 'lucide-react';
 
 export type PageKey =
   | 'wallet' | 'todo' | 'calculator' | 'prospects' | 'watchlist' | 'planner' | 'arbitrage' | 'sniper' | 'reprocess'
-  | 'positions' | 'orders' | 'loot' | 'results' | 'loyalty' | 'hustles' | 'combat' | 'omega' | 'settings';
+  | 'positions' | 'orders' | 'loot' | 'blueprints' | 'results' | 'loyalty' | 'hustles' | 'combat' | 'omega' | 'settings';
 
 export type NavItem = { key: PageKey; label: string; icon: LucideIcon };
 export type NavGroup = { label: string; items: NavItem[] };
@@ -23,7 +23,8 @@ export const NAV: NavGroup[] = [
   {
     label: 'Ledger', items: [
       { key: 'positions', label: 'Positions', icon: Layers }, { key: 'orders', label: 'Orders', icon: ListOrdered },
-      { key: 'loot', label: 'List loot', icon: PackageOpen }, { key: 'results', label: 'Results', icon: ChartLine },
+      { key: 'loot', label: 'List loot', icon: PackageOpen }, { key: 'blueprints', label: 'Blueprints', icon: ScrollText },
+      { key: 'results', label: 'Results', icon: ChartLine },
     ],
   },
   { label: 'Earn', items: [{ key: 'loyalty', label: 'Loyalty', icon: BadgePercent }, { key: 'hustles', label: 'Side hustles', icon: Rocket }] },

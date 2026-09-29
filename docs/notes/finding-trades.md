@@ -126,3 +126,21 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   trap the reach work was built against. A saved typed-in horizon snaps to the nearest choice *by ratio*.
   The hour choices are for fast flips and say their limit: speeds come from daily volume, so they find items
   busy enough to flip that fast on an average day, not a promise of a fill inside 4 hours.
+- **Blueprints are priced against The Forge's blueprint contracts, on demand** (`Blueprints.tsx`, `lib/blueprints.ts`,
+  `lib/bpContracts.ts`, `worker/src/blueprints.ts`, `worker/src/vendor/bunzip.ts`). The user collected blueprints in
+  containers and deleted or forgot them because pricing them in game meant sifting too much data; they wanted it on a
+  button, not a live scanner. ESI's contract list doesn't say what a contract holds (~20,000 item calls for The Forge),
+  so the cloud fetches EVE Ref's public snapshot (every region's public contracts from ESI, items with ME/TE/runs,
+  twice an hour, 6.2 MB tar.bz2; their server sends no CORS header, so the browser can't) and the one nearest three
+  days ago, unpacks each with an adapted seek-bzip (MIT, Uint8Array instead of Node's Buffer) into a `TarSink` that
+  keeps only the contracts and items files in buffers of exact size and stops there (the first try, one growing buffer
+  for all 58 MB, peaked near 320 MB against the Worker's 128), and returns the contracts selling only blueprints that
+  hold the kinds asked about, plus those that vanished before expiry (`vanishedSince`: a relist by the same seller is
+  a reprice and left out). Measured: 1.2 s to unpack, 0.65 s to parse, ~7 s for both snapshots end to end; 15,190
+  Forge blueprint-only contracts; 2,768 vanished in three days. Each kind you hold (item, copy or original, ME, TE,
+  runs) is set against the same kind's asks (a copy's other runs scaled by runs^0.79: 10 runs asked ~6.1× one), and
+  lists at what sold (two or more, never over the middle ask) or else the cheapest quarter of asks. **An unused
+  original is priced by the market** (`unusedPrice`): the first check put three unused Raven Blueprints at 3.2 B each
+  against researched originals, when NPCs sell them at ~1.13 B. The cheapest comparable opens in game
+  (`/ui/openwindow/contract`), flagged when its title claims what its item isn't (EVE University: never trust a title).
+  Blueprint pictures are `images.evetech.net/types/{id}/bp` or `/bpc`; `/icon` answers 400 for them.

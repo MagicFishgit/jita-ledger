@@ -16,6 +16,7 @@ import { costBasis } from './orderCheck';
 import { adoptCloudScan, loadCache, mergeLiveBooks, rankProspects, scanBusy, type CloudScan } from './scan';
 import type { Book } from './evaluate';
 import type { SnipeRead } from './snipe';
+import type { BpContract } from './bpContracts';
 import type { Sighting } from './sniped';
 import { DEFAULT_FILTERS } from './prospects';
 import type { AlertEvent, ProspectFilters } from './types';
@@ -452,6 +453,9 @@ async function refreshLiveBooks(): Promise<void> {
 
 /** The sniper's latest read of the whole book: mistake listings, and high bids for what you hold (src/lib/snipe.ts). */
 export const cloudSnipes = () => call<SnipeRead | null>('/v1/snipes');
+/** The Forge's contracts holding these blueprints, now and vanished over three days, from EVE Ref's snapshot (on demand). */
+export const cloudBlueprintMarket = (types: number[]) =>
+  call<{ at: string | null; since: string | null; current: BpContract[]; vanished: BpContract[] }>('/v1/blueprints/market', { method: 'POST', body: JSON.stringify({ types }) });
 
 /** What the Sniper saw of these items in the last month: marks your buys of them as found by it. */
 export const cloudSightings = (types: number[]) => call<Sighting[]>(`/v1/snipes/seen?types=${types.slice(0, 500).join(',')}`);
