@@ -15,6 +15,7 @@ import { ItemSearch, useTypeName } from './common';
 import { nearSummary } from './NearMisses';
 import { ListStock } from './ListStock';
 import { Check, cssVars, Empty, Guide, ItemIcon, PageHead, Seg, Sparkline, Th } from './ui';
+import { PlanGroups } from './PlanStart';
 
 const todayUTC = () => new Date().toISOString().slice(0, 10);
 const fmtD = (iso: string) => iso.slice(0, 10).replace(/-/g, '.');
@@ -24,6 +25,8 @@ export function Positions() {
   const auth = useAuth();
   const nameOf = useTypeName();
   const [filter, setFilter] = useState<'open' | 'closed' | 'all'>('open');
+  // One plan's positions only (the Capital planner's "Start this plan"), or all.
+  const [planShown, setPlanShown] = useState<string | null>(null);
   const [from, setFrom] = useState(todayUTC);
   const [jitaOnly, setJitaOnly] = useState(true);
   const sync = useSyncState();
@@ -44,7 +47,8 @@ export function Positions() {
   const openTypes = useMemo(() => [...new Set(d.positions.filter((p) => p.status === 'open').map((p) => p.typeId))], [d.positions]);
   useEffect(() => { if (openTypes.length) readSignals(openTypes).catch(() => undefined); }, [openTypes]);
 
-  const shown = all.filter(({ p }) => filter === 'all' || p.status === filter);
+  const inPlan = planShown ? new Set(d.plans.find((x) => x.id === planShown)?.items.map((i) => i.positionId) ?? []) : null;
+  const shown = all.filter(({ p }) => (inPlan ? inPlan.has(p.id) : filter === 'all' || p.status === filter));
   const realized = all.reduce((s, x) => s + x.c.realized, 0);
   const atCost = all.reduce((s, x) => s + x.c.costOfStock, 0);
   const openN = all.filter((x) => x.p.status === 'open').length;
@@ -116,6 +120,8 @@ export function Positions() {
         </div>
       </div>
 
+      <PlanGroups shown={planShown} onShow={setPlanShown} />
+
       <section className="panel flush" data-rv="" style={{ flex: 1, minHeight: 240 }}>
         <div className="panel-bar">
           <Seg label="Show" value={filter} onChange={setFilter} size="md" options={[
@@ -123,7 +129,7 @@ export function Positions() {
             { v: 'closed', label: 'Closed', n: units(all.filter((x) => x.p.status === 'closed').length) },
             { v: 'all', label: 'All', n: units(all.length) },
           ]} />
-          <span className="note small">Click a row to open the position</span>
+          <span className="note small">{inPlan ? <>Showing one plan’s positions. <button type="button" className="link-btn" onClick={() => setPlanShown(null)}>Show all</button></> : 'Click a row to open the position'}</span>
         </div>
         {!shown.length ? (
           <Empty icon={Layers} action={!all.length ? <button type="button" className="btn primary" onClick={() => document.getElementById('p-from')?.focus()}><Plus aria-hidden="true" />Start one above</button> : undefined}>

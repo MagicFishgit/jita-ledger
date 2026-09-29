@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, Check, CheckCheck, CircleDollarSign, CircleX, CloudAlert, Factory, Truck, GitPullRequestArrow, HardDriveDownload, Keyboard, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
+import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, Check, CheckCheck, CircleDollarSign, CircleX, CloudAlert, Factory, Truck, GitPullRequestArrow, HardDriveDownload, Keyboard, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, ShoppingCart, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
 import { getAuth, loginForCloud, loginMailerForCloud } from '../lib/auth';
 import { breakEvenSpread, rates } from '../lib/fees';
 import { ago, fmtDateTime, isk, iskBig, units } from '../lib/format';
@@ -11,7 +11,7 @@ import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  inFilter, judgeCloudLogin, judgeCourierJob, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
+  inFilter, judgeCloudLogin, judgeCourierJob, judgePlaceBuy, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
   type Entry, type Memory, type TodoFilter, type TodoItem, type TodoKind,
 } from '../lib/todo';
 import type { IndustryJob } from '../lib/types';
@@ -20,6 +20,7 @@ import { PLANETS_SCOPE, readColonies, useColonies } from '../lib/colonyStore';
 import { readSignals, trackedTypes, useSignals } from '../lib/watch';
 import { BACKUP_DAYS } from '../lib/alertsRunner';
 import { LOGIN_STOPS } from '../lib/watchdog';
+import { placedOrder } from '../lib/plans';
 import { cloudCovers, useCloud } from '../lib/cloud';
 import { JITA_44 } from '../lib/config';
 import { toast } from '../lib/toast';
@@ -53,6 +54,7 @@ const LOOK: Record<TodoKind, { Icon: typeof Check; c: string }> = {
   nearMiss: { Icon: GitPullRequestArrow, c: 'var(--acc)' },
   scam: { Icon: ShieldAlert, c: 'var(--neg-l)' },
   backup: { Icon: HardDriveDownload, c: 'var(--acc2)' },
+  placeBuy: { Icon: ShoppingCart, c: 'var(--acc)' },
   cloudLogin: { Icon: CloudAlert, c: 'var(--neg)' },
   industry: { Icon: Factory, c: 'var(--acc)' },
   courier: { Icon: Truck, c: 'var(--acc2)' },
@@ -101,7 +103,7 @@ export function Todo() {
   const hasOrders = jitaOpen(d).length > 0;
   const tracked = useMemo(() => trackedTypes(d), [d.positions, d.orders, d.watchlist]); // eslint-disable-line react-hooks/exhaustive-deps
   // Industry jobs make things you may never have traded: name them.
-  useEnsureNames((d.meta.industry?.jobs ?? []).map((j) => j.productTypeId ?? j.blueprintTypeId));
+  useEnsureNames([...(d.meta.industry?.jobs ?? []).map((j) => j.productTypeId ?? j.blueprintTypeId), ...d.plans.flatMap((p) => p.items.map((i) => i.typeId))]);
   const canPlanets = (auth?.scopes ?? []).includes(PLANETS_SCOPE);
   const vs = useMemo(() => verdicts(d, check, costBasis(d)), [d, check]);
 
@@ -278,6 +280,19 @@ export function Todo() {
         action: { label: 'Blueprints', route: 'blueprints' },
       });
     }
+    // A started plan's buy orders not placed yet (the Capital planner's "Start this plan"), for a week.
+    for (const p of d.plans) {
+      if (now - Date.parse(p.at) > 7 * DAY) continue;
+      for (const i of p.items) {
+        if (placedOrder(i, p, Object.values(d.orders))) continue;
+        out.push({
+          key: `plan:${p.id}:${i.typeId}`, ver: '1', kind: 'placeBuy', source: 'ledger', stake: i.units * i.buyAt, typeId: i.typeId,
+          title: `Place a buy order: ${units(i.units)} × ${name(i.typeId)} at ${isk(i.buyAt)}`,
+          detail: `Part of ${p.name}. Open it in game (the price is copied), press Place Buy Order, paste the price, quantity ${units(i.units)}.`,
+          action: { label: 'Open', typeId: i.typeId, copy: i.buyAt, route: 'planner' },
+        });
+      }
+    }
     // A cloud login EVE refused stops everything the cloud does with it, with nobody looking at Settings.
     for (const k of cloud.background?.keys ?? []) {
       if (!k.refusedAt) continue;
@@ -347,6 +362,13 @@ export function Todo() {
         }
         case 'scam': return judgeScam(e, { tracked: tracked.includes(x.typeId!), signalAt: sig.signals[x.typeId!]?.at ?? null });
         case 'courier': return judgeCourierJob(e, { readAt: contractsAt, status: d.meta.contracts?.list.find((c) => String(c.id) === id)?.status ?? null });
+        case 'placeBuy': {
+          const [, planId, typeId] = x.key.split(':');
+          const p = d.plans.find((z) => z.id === planId);
+          const it = p?.items.find((z) => String(z.typeId) === typeId);
+          const o = p && it ? placedOrder(it, p, Object.values(d.orders)) : null;
+          return judgePlaceBuy(e, { plan: !!p && !!it && t - Date.parse(p.at) <= 7 * DAY, placed: o ? { units: o.volumeTotal, price: o.price } : null });
+        }
         case 'cloudLogin': {
           const k = cloud.background?.keys.find((z) => z.purpose === id);
           return judgeCloudLogin(e, { readAt: cloud.backgroundAt, kept: !!k, refused: !!k?.refusedAt });

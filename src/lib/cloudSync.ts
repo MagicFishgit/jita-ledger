@@ -19,7 +19,7 @@ export const RECORD_KEYS = {
 export type RecordKey = keyof typeof RECORD_KEYS;
 
 /** Whole values synced as one document each. */
-export const DOC_KEYS = ['settings', 'meta', 'prefs', 'alerts', 'stock', 'skills', 'ignored', 'nearDone', 'unusualOk', 'leave', 'safetyTimes', 'notSnipes'] as const;
+export const DOC_KEYS = ['settings', 'meta', 'prefs', 'alerts', 'stock', 'skills', 'ignored', 'nearDone', 'unusualOk', 'leave', 'safetyTimes', 'notSnipes', 'plans'] as const;
 export type DocKey = (typeof DOC_KEYS)[number];
 
 /**

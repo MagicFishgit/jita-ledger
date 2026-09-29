@@ -12,7 +12,7 @@ export const RECORD_KINDS = new Set([
 ]);
 // `costs` and `watch` are docs only the cloud reads: the browser's cost basis per item, for the alert checks,
 // and the items it asks to have watched (Prospects candidates, loyalty outputs), with the filters to judge them by.
-export const DOC_KEYS = new Set(['settings', 'meta', 'prefs', 'alerts', 'stock', 'skills', 'ignored', 'nearDone', 'unusualOk', 'costs', 'watch', 'leave', 'safetyTimes', 'notSnipes']);
+export const DOC_KEYS = new Set(['settings', 'meta', 'prefs', 'alerts', 'stock', 'skills', 'ignored', 'nearDone', 'unusualOk', 'costs', 'watch', 'leave', 'safetyTimes', 'notSnipes', 'plans']);
 
 /** D1 takes a bound string up to 2 MB; records go up in chunks well under that. */
 const CHUNK_BYTES = 900_000;

@@ -17,6 +17,7 @@ import { ScanFreshness } from './ScanFreshness';
 import { ShareCheck } from './ShareCheck';
 import { useCloud } from '../lib/cloud';
 import { leaveSaid } from '../lib/track';
+import { PlacingChecklist, StartPlanButton } from './PlanStart';
 
 const KEY = 'jita-ledger:planner';
 /** ISK and slots typed in on this visit: they hold until the tab closes, then the planner follows the wallet again. */
@@ -147,6 +148,8 @@ export function Planner() {
           </span>
         </p>
       )}
+      <PlacingChecklist />
+
       {slots < SLOTS_PER_ITEM * 3 && (
         <p className="row tight" style={{ fontSize: 13, color: 'var(--acc2)', margin: 0 }}>
           <LayoutGrid aria-hidden="true" style={{ width: 14, height: 14, flex: 'none' }} />
@@ -232,6 +235,7 @@ export function Planner() {
             {plan.idle > isk * 0.05 ? (
               <p className="row tight" style={{ fontSize: 13, color: 'var(--acc2)' }}><Info aria-hidden="true" style={{ width: 14, height: 14, flex: 'none' }} /><span><b>{iskBig(plan.idle)}</b> left idle. {idleWhy}</span></p>
             ) : plan.rows.length > 0 && <p className="note small">Nearly everything is working.</p>}
+            <StartPlanButton plan={plan} days={days} patient={patient} />
             {patient && plan.rows.length > 0 && (
               <div className="sub-box" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
                 <div className="row" style={{ flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
@@ -254,7 +258,7 @@ export function Planner() {
               </div>
             )}
             <p className="note small" style={{ margin: 0 }}>
-              Once the buys fill, list what’s in your Jita hangar in one paste, never under what it cost:{' '}
+              Once the buys fill, price what’s in your Jita hangar to list, never under what it cost:{' '}
               <button type="button" className="link-btn" onClick={() => navigate('positions?list=stock')}>List your stock (Positions)</button>
             </p>
             <p className="note small">Each market’s limit is your share of its slower side over the horizon ({d.settings.share}% of volume, scaled for how many orders you queue among), at the prices the last scan found (the banner above says how old). {patient ? 'Priced to place and leave: each order fills only on the days trading reaches it, so its pace is scaled by how often that was. That’s rough: daily figures can’t show how deep each day’s trading went. Items without the history to say where trading reaches are left out.' : 'An item flagged “Bids not reached” is priced where trading actually reaches, not at the best bid.'} Check each in the Calculator before placing anything.</p>

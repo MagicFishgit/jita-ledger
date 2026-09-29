@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { createStore, get, set, del, keys } from 'idb-keyval';
 import { DEFAULT_SETTINGS, rates, sanitizeSettings, type Settings } from './fees';
 import { DEFAULT_ALERTS, DEFAULT_PREFS, sanitizeAlerts, sanitizeLeave, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes, type SafetyTimesDoc } from './prefs';
+import { sanitizePlans, type TradePlan } from './plans';
 import type {
   AlertConfig, AlertLogEntry, Goal, JournalEntry, Killmail, Meta, NetWorthPoint, Order, Position, Prefs,
   Stock, Tx, UntrackedTag, WatchItem,
@@ -44,13 +45,15 @@ export type Data = {
   leave: number[];
   /** Purchases you said weren't snipes, though bought from a listing well under where the item traded: trade IDs. */
   notSnipes: string[];
+  /** Capital planner mixes you started: what to buy, and the positions following them (plans.ts). Newest first. */
+  plans: TradePlan[];
   /** The asset safety countdowns you typed in (from the game's Assets → Asset Safety), by wrap. */
   safetyTimes: SafetyTimesDoc;
 };
 type Key = keyof Data;
 const KEYS: Key[] = [
   'settings', 'txs', 'journal', 'orders', 'positions', 'watchlist', 'names', 'ignored', 'stock', 'skills', 'meta',
-  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'safetyTimes', 'notSnipes',
+  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'safetyTimes', 'notSnipes', 'plans',
 ];
 
 const idb = createStore('jita-ledger', 'kv');
@@ -62,7 +65,7 @@ const empty = (): Data => ({
   settings: { ...DEFAULT_SETTINGS },
   txs: {}, journal: {}, orders: {}, positions: [], watchlist: [], names: {}, ignored: [], meta: {},
   prefs: { ...DEFAULT_PREFS }, alerts: { ...DEFAULT_ALERTS }, alertLog: [], goals: [], tags: {}, nearDone: [],
-  killmails: {}, netWorth: [], unusualOk: [], leave: [], safetyTimes: {}, notSnipes: [],
+  killmails: {}, netWorth: [], unusualOk: [], leave: [], safetyTimes: {}, notSnipes: [], plans: [],
 });
 
 let data: Data = empty();
@@ -84,6 +87,8 @@ export async function initStore(): Promise<void> {
   data.prefs = sanitizePrefs(data.prefs);
   data.alerts = sanitizeAlerts(data.alerts);
   data.safetyTimes = sanitizeSafetyTimes(data.safetyTimes);
+  data.notSnipes = sanitizeNotSnipes(data.notSnipes);
+  data.plans = sanitizePlans(data.plans);
   if (!data.meta.rateHistory?.length) {
     // Assume today's rates applied to everything before the first recorded change.
     const r = rates(data.settings);
@@ -181,6 +186,7 @@ export async function importAll(json: string): Promise<void> {
   if (p.leave) p.leave = sanitizeLeave(p.leave);
   if (p.safetyTimes) p.safetyTimes = sanitizeSafetyTimes(p.safetyTimes);
   if (p.notSnipes) p.notSnipes = sanitizeNotSnipes(p.notSnipes);
+  if (p.plans) p.plans = sanitizePlans(p.plans);
   update(p);
 }
 

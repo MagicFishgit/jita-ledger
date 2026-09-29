@@ -1188,6 +1188,33 @@ eq('  and earns more than best return first would have', Math.round(plan2.perDay
 plan2 = allocate([...small, ...big], { isk: 1e9, slots: 40, horizonDays: 3, maxShare: 1 });
 eq('  with slots to spare, best return per day first as before', [plan2.ranked, plan2.rows[0].p.typeId], ['return', 1]);
 
+{
+  // Starting a plan: the game can't place several buy orders at once, so a plan is positions plus a checklist.
+  const { newPlan, placedOrder, planProgress, sanitizePlans } = await import('../src/lib/plans.ts');
+  const { judgePlaceBuy } = await import('../src/lib/todo.ts');
+  const at = '2026-09-29T18:00:00Z';
+  const made = [];
+  const tp = newPlan([{ p: { typeId: 34, buy: 3.5, sell: 3.9 }, units: 1_000_000 }, { p: { typeId: 35, buy: 7, sell: 8 }, units: 50_000 }],
+    { id: 'p1', at, deployed: 3.85e6, horizonDays: 3, patient: true, name: 'Test plan' }, (t) => { made.push(t); return 'pos' + t; });
+  eq('a started plan: each item’s bid, quantity and target, with its position', [tp.items.map((i) => [i.typeId, i.buyAt, i.units, i.sellAt, i.positionId]), made],
+    [[[34, 3.5, 1_000_000, 3.9, 'pos34'], [35, 7, 50_000, 8, 'pos35']], [34, 35]]);
+  const O = (orderId, typeId, isBuy, issued, extra = {}) => ({ orderId, typeId, isBuy, price: 3.5, volumeTotal: 1_000_000, volumeRemain: 1_000_000, issued, state: 'open', locationId: 60003760, ...extra });
+  const orders = [
+    O(1, 34, true, '2026-09-29T18:04:00Z'),
+    O(2, 35, true, '2026-09-28T10:00:00Z'),                                                            // placed before the plan
+    O(3, 35, false, '2026-09-29T18:10:00Z'),                                                           // a sell, not a buy
+    O(4, 35, true, '2026-09-29T18:30:00Z', { locationId: 60008494 }),                                  // in Amarr
+  ];
+  eq('placed: a buy for the item in Jita since the plan started', [placedOrder(tp.items[0], tp, orders)?.orderId, placedOrder(tp.items[1], tp, orders)], [1, null]);
+  eq('  an order repriced since but placed before doesn’t count', placedOrder(tp.items[1], tp, [O(5, 35, true, '2026-09-29T18:20:00Z', { seen: [{ issued: '2026-09-28T09:00:00Z', price: 7, remain: 1 }] })]), null);
+  eq('  progress', [planProgress(tp, orders).placed, planProgress(tp, orders).of, planProgress(tp, orders).waiting.map((i) => i.typeId)], [1, 2, [35]]);
+  eq('plans from disk: malformed ones are dropped', sanitizePlans([tp, { id: 'x' }, null, { ...tp, id: 'p2', items: [{ typeId: 'no' }] }]).map((p) => p.id), ['p1']);
+  const e = { item: { key: 'plan:p1:35' }, seenAt: Date.parse(at), lastAt: Date.parse(at) };
+  eq('To do: a plan’s order ticks off once placed, waits while not, and goes when the plan does',
+    [judgePlaceBuy(e, { plan: true, placed: { units: 50_000, price: 7 } }), judgePlaceBuy(e, { plan: true, placed: null }), judgePlaceBuy(e, { plan: false, placed: null })],
+    ['Placed: 50,000 at 7.', null, false]);
+}
+
 console.log('\n--- hub arbitrage ---');
 const q = { typeId: 1, m3: 10, jitaBestBuy: 900, jitaBestSell: 1000, hubBestSell: 1300, hubUnitsPerDay: 1000, hubBuyers: 0.5 };
 let hub = priceHub(q, 'sells', { f: 0.015, t: 0.0338 }, 10, 7);

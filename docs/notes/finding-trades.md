@@ -138,6 +138,17 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   filled by what each item makes a day, and whichever earns more a day is kept; the page says which and what the other
   would have made. Test: 1 B, 10 slots, six small and six big markets: 750 M in the five big ones for 5 M a day, where
   best return first put 100 M in the small ones for 1.33 M.
+- **"Start this plan" turns a mix into positions and a placing checklist** (`lib/plans.ts` pure: `newPlan`,
+  `placedOrder`, `planProgress`; `PlanStart.tsx`; the synced `plans` doc; To do kind `placeBuy`). The user wanted to place
+  a plan's buy orders "in one go" by import or API, since Multibuy has an import. Researched on 29 September 2026: ESI
+  places no orders, and Multibuy only buys at once from listings at the ask ("multibuy only offers immediate buys", CCP),
+  which would throw away the margin the plan is priced on (patient bids where trading reaches). So one click: a position
+  for every item (or the one already open), grouped as one plan; "Leave alone" for a Place-and-leave plan; and a checklist
+  on the planner and in To do where each item opens in game with its price copied, its quantity one more click, and ticks
+  off once a buy order for it in Jita 4-4, first placed after the plan started, shows in your orders. Positions has a
+  Plans panel with each plan's bought, sold, profit and stock, and a filter to its positions; removing a plan leaves the
+  positions. Checked end to end in a test browser on the cloud's real scan (13,442 items): a 998.97 M plan of 5 items,
+  5 positions, the checklist, the Positions filter and To do.
 - **The Capital planner starts from what you have now** (`walletIsk`, free slots from your open orders). It used to
   default to half the wallet and then keep whatever was first typed, for good: the user found 486 M against a
   972 M wallet. ISK (the wallet, rounded down to the million: escrow has already left it) and free slots are read
