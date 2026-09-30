@@ -4003,5 +4003,33 @@ console.log('\n--- what a ledger earned (income.ts) ---');
   eq('    bounties still count', b.Combat, 7000);
 }
 
+console.log('\n--- an alt\'s copy as a ledger (altLedger.ts) ---');
+{
+  const { altLedger } = await import('../src/lib/altLedger.ts');
+  const { applyAltPull, emptyAlt } = await import('../src/lib/roster.ts');
+  const { SKILL_FALLBACK_IDS } = await import('../src/lib/constants.ts');
+  const saved = {
+    rev: 4, records: {
+      txs: { 1: { id: '1', source: 'esi', typeId: 34, date: '2026-09-29T10:00:00Z', isBuy: false, qty: 100, unitPrice: 5, locationId: 60003760 } },
+      netWorth: { '2026-09-28': { date: '2026-09-28', total: 2e8, wallet: 1e8 }, '2026-09-29': { date: '2026-09-29', total: 3e8, wallet: 1e8 } },
+      mining: { 'a': { charId: 900001, date: '2026-09-29', systemId: 30000142, typeId: 1230, qty: 5000 } },
+    },
+    docs: { meta: { cloneDetected: 'alpha', walletBalance: 1e8 }, skills: { [SKILL_FALLBACK_IDS.acc]: 3, [SKILL_FALLBACK_IDS.br]: 2 } },
+  };
+  const d = altLedger(saved);
+  eq('  its trades, journal and mining are its own', [Object.keys(d.txs), Object.keys(d.journal), Object.keys(d.mining)], [['1'], [], ['a']]);
+  eq('  its net-worth points, oldest first', d.netWorth.map((p) => p.date), ['2026-09-28', '2026-09-29']);
+  eq('  its trade skills set its fees', [d.settings.acc, d.settings.br, d.settings.trade], [3, 2, 0]);
+  eq('  its clone state as read', d.settings.clone, 'alpha');
+  eq('  standings 0, and nothing of a position, tag or Personal mark', [d.settings.faction, d.settings.corp, d.positions.length, Object.keys(d.tags).length, d.ignored.length], [0, 0, 0, 0, 0]);
+  eq('  no killmails: the cloud doesn\'t read an alt\'s', Object.keys(d.killmails).length, 0);
+  eq('    set by hand, when the skills can\'t tell', altLedger({ ...saved, docs: { ...saved.docs, meta: {} } }, 'alpha').settings.clone, 'alpha');
+  eq('    not known either way: taken as Omega (the same when nothing is past the caps)', altLedger({ ...saved, docs: { ...saved.docs, meta: {} } }).settings.clone, 'omega');
+  eq('  the same copy gives the same object (worked out once a revision)', altLedger(saved) === d, true);
+  const next = applyAltPull(saved, { rev: 5, next: null, records: [], docs: [] });
+  eq('    a new revision gives a new one', altLedger(next) === d, false);
+  eq('  an alt with nothing read is an empty ledger with Omega fees', [Object.keys(altLedger(emptyAlt()).txs).length, altLedger(emptyAlt()).settings.clone], [0, 'omega']);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

@@ -10,6 +10,11 @@ export const SKILL_NAMES = {
 } as const;
 export type SkillKey = keyof typeof SKILL_NAMES;
 
+// Resolved by name at sync time; these are fallbacks (an alt's copy has no resolved IDs, so it reads these).
+export const SKILL_FALLBACK_IDS: Record<SkillKey, number> = {
+  acc: 16622, br: 3446, abr: 16597, trade: 3443, retail: 3444, wholesale: 16596, tycoon: 18580,
+};
+
 /**
  * Highest level an Alpha clone can use (EVE University wiki, Clone states, Feb 2026).
  * Accounting, Advanced Broker Relations, Retail, Wholesale and Tycoon are Omega only.

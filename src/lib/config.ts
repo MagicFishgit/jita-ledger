@@ -4,7 +4,6 @@ export const APP_NAME = 'Jita Ledger';
 
 // The pure constants live in ./constants so logic that needs them can be tested without Vite.
 export * from './constants';
-import type { SkillKey } from './constants';
 
 export const ESI_BASE = 'https://esi.evetech.net';
 // ESI pins response formats to a compatibility date. See
@@ -73,9 +72,6 @@ export const OPTIONAL_SCOPES: string[] = Object.values(OPTIONAL_SCOPE);
 // Resolved by name at sync time; these are fallbacks.
 export const NPC_NAMES = { faction: 'Caldari State', corp: 'Caldari Navy' };
 export const NPC_FALLBACK_IDS = { faction: 500001, corp: 1000035 };
-export const SKILL_FALLBACK_IDS: Record<SkillKey, number> = {
-  acc: 16622, br: 3446, abr: 16597, trade: 3443, retail: 3444, wholesale: 16596, tycoon: 18580,
-};
 
 
 /**
