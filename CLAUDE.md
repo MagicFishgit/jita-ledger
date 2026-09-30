@@ -21,6 +21,7 @@ Seg, Check, NumChip, Guide…), `components/charts.tsx` (inline SVG charts) and 
 npm run check    # pure-logic tests, then the Worker's own code on an in-memory D1 stand-in; fast, no network
 npm run check-pages   # every page with an empty, a small and a large ledger, headless (LEDGER=, PAGE= to narrow)
 npm run check-phone   # the same at 390 px, failing anything past the screen's edge (SHOTS=dir saves screenshots)
+npm run check-income  # the main's income figures against a recording, and alts proven not to touch the main's ledger
 npm run build    # tsc --noEmit && vite build
 npm run dev      # http://localhost:5173/jita-ledger/
 npm run scan-live   # end-to-end funnel against real ESI (needs the resolver hook, so not bare node)

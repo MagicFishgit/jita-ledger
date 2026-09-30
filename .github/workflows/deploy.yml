@@ -34,6 +34,7 @@ jobs:
       - run: npm run check-pages
       # The same at a phone's width, where nothing may stick out past the screen's edge.
       - run: npm run check-phone
+      - run: npm run check-income
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

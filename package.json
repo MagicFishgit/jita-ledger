@@ -10,6 +10,7 @@
     "check": "node --import ./scripts/register.mjs scripts/check.mjs && node --disable-warning=ExperimentalWarning --import ./scripts/register.mjs scripts/check-worker.mjs",
     "check-pages": "node scripts/pages.mjs",
     "check-phone": "PHONE=1 node scripts/pages.mjs",
+    "check-income": "node scripts/income.mjs",
     "scan-live": "node --import ./scripts/register.mjs scripts/scan-live.mjs",
     "worker:deploy": "cd worker && wrangler deploy",
     "worker:dev": "cd worker && wrangler dev --port 8787 --var DEV_AUTH_CHAR:90000001",
