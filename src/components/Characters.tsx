@@ -1,18 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Cloud, CloudOff, RefreshCw, Trash2, UserPlus, Users } from 'lucide-react';
-import { askedScopes, loginAltForCloud } from '../lib/auth';
+import { askedScopes, hasScope, loginAltForCloud } from '../lib/auth';
+import { altLedger } from '../lib/altLedger';
 import { refreshAlts, useAlts } from '../lib/altStore';
 import { cloudAlts, cloudEnabled, cloudRemoveAlt, setCloudEnabled } from '../lib/cloud';
-import { SCOPE_INFO, SCOPES } from '../lib/config';
+import { SCOPE, SCOPE_INFO, SCOPES } from '../lib/config';
 import { chooseAsk } from '../lib/confirm';
-import { ago, fmtDate, fmtDateTime, iskBig } from '../lib/format';
+import { ago, fmtDate, fmtDateTime, iskBig, iskBigSigned, units } from '../lib/format';
 import { useAuth, useNow } from '../lib/hooks';
-import { altFacts, charFacts, failingJobs, idleQueueSaid, lastRead, loginState, type CharFacts, type CloneState, type RosterEntry } from '../lib/roster';
+import type { IncomeRow } from '../lib/income';
+import { minedTotal, type MiningRecord } from '../lib/mining';
+import { altFacts, charFacts, emptyAlt, failingJobs, idleQueueSaid, lastRead, loginState, type CharFacts, type CloneState, type RosterEntry } from '../lib/roster';
 import { ROMAN, trainSaid } from '../lib/skillStatus';
-import { update, useData } from '../lib/store';
+import { update, useData, type Data } from '../lib/store';
 import { toast } from '../lib/toast';
+import { PERIOD_DAYS, periodStart, type Days } from '../lib/wallet';
+import { useCharIncome, useMinedWorth } from './charIncome';
 import { useEnsureNames, useTypeName } from './common';
-import { Empty, Flag, Notice, PageHead, Panel, Tiles, Tip, type TileData } from './ui';
+import { Empty, Flag, Notice, PageHead, Panel, Seg, Tiles, Tip, type TileData } from './ui';
 
 /**
  * Your characters: the one logged in here, and the alts the cloud reads for you (docs/notes/characters.md). An alt
@@ -23,6 +28,65 @@ import { Empty, Flag, Notice, PageHead, Panel, Tiles, Tip, type TileData } from 
 const CLONE_SAID: Record<CloneState, string> = { alpha: 'Alpha', omega: 'Omega', unknown: 'Can’t tell' };
 const CLOUD_OFF = 'The cloud copy is switched off in this browser, and the cloud is what reads other characters.';
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** The period Earned and Mined cover, kept per browser; the Wallet's periods and its rule for where one starts. */
+const DAYS_KEY = 'jita-ledger:chars-days';
+function readDays(): Days {
+  try { const v = Number(localStorage.getItem(DAYS_KEY)); if ((PERIOD_DAYS as number[]).includes(v)) return v as Days; } catch { /* private window */ }
+  return 7;
+}
+/** Ores are priced for the longest period, whichever is shown, so switching periods doesn't price them again. */
+const LONGEST = PERIOD_DAYS[PERIOD_DAYS.length - 1];
+const dateOf = (t: number) => new Date(t).toISOString().slice(0, 10);
+/** One empty copy for every alt not pulled yet, so altLedger's answer for it is worked out once, not on every render. */
+const NO_ALT = emptyAlt();
+
+type MinedWorth = ReturnType<typeof useMinedWorth>;
+
+/**
+ * What the character earned in the period, by the Wallet's rules: yours is the Wallet's "All income" for the same period.
+ * "–" with why while the item groups are read, and for an alt the cloud hasn't read.
+ */
+function earnedTile(inc: ReturnType<typeof useCharIncome>, period: string, alt: boolean, notRead: boolean): TileData {
+  if (notRead) return { l: 'Earned', v: '–', n: 'Not read yet', tip: 'The cloud hasn’t read this character’s wallet yet, so what it earned isn’t known.' };
+  const tip = earnedTip(inc.rows, period, alt, inc.failed);
+  if (!inc.ready) return { l: 'Earned', v: '–', n: 'Reading which items belong to which activity…', tip };
+  if (!inc.rows.length) return { l: 'Earned', v: '–', n: `Nothing earned in ${period}`, tip };
+  return { l: 'Earned', v: iskBigSigned(inc.earned), n: `In the last ${period}`, c: inc.earned >= 0 ? 'var(--pos)' : 'var(--neg)', tip };
+}
+
+function earnedTip(rows: IncomeRow[], period: string, alt: boolean, failed: boolean): string {
+  const parts = [alt
+    ? `Everything it earned in the last ${period}, by the Wallet’s rules, from its own trades and journal.`
+    : `Everything you earned in the last ${period}: the Wallet’s “All income” for the same period, by the same rules.`];
+  if (rows.length) parts.push(rows.map((r) => `• ${r.said}: ${iskBigSigned(r.isk)}`).join('\n'));
+  if (alt) {
+    parts.push('What it leaves out:\n\n'
+      + '• Ships it lost: the cloud doesn’t read an alt’s killmails.\n'
+      + '• What it bought for freelance jobs: an alt’s jobs aren’t read, so a job’s reward counts in full, with nothing set against it.\n'
+      + '• Ore it hauled to you and you sold: that’s yours when you sell it.');
+  }
+  if (failed) parts.push('ESI’s item groups couldn’t be read, so abyssal, planets, loyalty and things never bought aren’t counted.');
+  return parts.join('\n\n');
+}
+
+const MINED_TIP = 'What the ore mined is worth now, at your own valuation.\n\n'
+  + '• The Mining tab’s: the best of selling it raw, compressed or reprocessed at your skills, after tax.\n'
+  + '• Beside what was earned, never added to it: ore becomes ISK when it’s sold, and then it counts where it’s sold.';
+
+/**
+ * What the character mined in the period, at today's prices: never 0 ISK for ore that couldn't be priced. `unread`: why
+ * its mining isn't known (an alt not read yet, or your mining ledger never read), so none mined isn't claimed.
+ */
+function minedTile(recs: MiningRecord[], w: MinedWorth, period: string, unread: string | null): TileData {
+  if (unread) return { l: 'Mined', v: '–', n: unread, tip: MINED_TIP };
+  if (!recs.length) return { l: 'Mined', v: '–', n: `Nothing mined in ${period}`, tip: MINED_TIP };
+  const t = minedTotal(recs, w.volumeOf, w.worthOf);
+  const amount = t.m3 != null ? `${units(Math.round(t.m3))} m³` : `${units(t.units)} units`;
+  const state = w.pricing && t.priced < t.ores ? 'pricing at Jita…'
+    : t.priced ? `${t.priced} of ${t.ores} ore${t.ores === 1 ? '' : 's'} priced` : 'not priced';
+  return { l: 'Mined', v: t.priced ? iskBig(t.isk) : '–', n: `${amount}, ${state}`, tip: MINED_TIP };
+}
 
 /**
  * Wallet, net worth and the skill in training: a figure, or "–" with why, never a zero for "not known". `entry`: an
@@ -53,6 +117,18 @@ function tiles(f: CharFacts, now: number, skill: (id: number) => string, entry?:
 
 function Card(props: {
   id: number; name: string; facts: CharFacts; now: number; skill: (id: number) => string;
+  /** The character's ledger: yours, or an alt's copy as altLedger builds it (read-only). */
+  ledger: Data;
+  /** Its mining records in the period, and what each ore is worth. */
+  mined: MiningRecord[]; worth: MinedWorth;
+  /** Where the period starts, and how it's said ("7 days", "24 hours"). */
+  since: number; period: string;
+  /** An alt the cloud hasn't read anything for: no skills and no records. */
+  notRead?: boolean;
+  /** Why its mining isn't known, when it isn't (beyond an alt not read yet). */
+  miningUnread?: string;
+  /** What it earned, for the all-characters total: null while not known. */
+  onEarned: (id: number, isk: number | null) => void;
   /** The alt's roster entry; absent for the character logged in here. */
   entry?: RosterEntry;
   /** A clone state set by hand (an alt's) or in Settings (the main's), for one ESI can't tell apart. */
@@ -60,8 +136,13 @@ function Card(props: {
   onClone?: (v: 'alpha' | 'omega' | undefined) => void;
   onHandOver?: () => void; onRemove?: () => void; busy?: boolean; cloudOff?: boolean;
 }) {
-  const { id, name, facts, now, entry } = props;
+  const { id, name, facts, now, entry, onEarned } = props;
   const [imgOk, setImgOk] = useState(true);
+  const income = useCharIncome(props.ledger, props.since, now);
+  // Reported up for the all-characters total only when it changes: the page's state holds it, so an effect keyed on the
+  // value (not on every render) keeps the two from setting each other in a loop.
+  const known = !props.notRead && income.ready;
+  useEffect(() => { onEarned(id, known ? income.earned : null); }, [id, known, income.earned, onEarned]);
   const login = entry ? loginState(entry, [...SCOPES, ...askedScopes()]) : null;
   const failing = entry ? failingJobs(entry) : [];
   const read = entry ? lastRead(entry) : null;
@@ -101,7 +182,11 @@ function Card(props: {
           )}
         </div>
       </div>
-      <Tiles inset min={170} items={tiles(facts, now, props.skill, entry)} />
+      <Tiles inset min={170} items={[
+        ...tiles(facts, now, props.skill, entry),
+        earnedTile(income, props.period, !!entry, !!props.notRead),
+        minedTile(props.mined, props.worth, props.period, props.notRead ? 'Not read yet' : props.miningUnread ?? null),
+      ]} />
       {entry && !unread && facts.clone === 'unknown' && props.onClone && (
         <div className="row tight">
           <span className="note small">Alpha or Omega?</span>
@@ -146,13 +231,37 @@ export function Characters() {
     return () => window.removeEventListener('pageshow', back);
   }, []);
 
+  const [days, setDaysState] = useState<Days>(readDays);
+  const setDays = (v: Days) => { setDaysState(v); try { localStorage.setItem(DAYS_KEY, String(v)); } catch { /* private window */ } };
+  const since = periodStart(days, now);
+  const period = days === 1 ? '24 hours' : `${days} days`;
+  // Mining records are one a day, so the period takes whole days: every record from the day it starts.
+  const fromDate = dateOf(since), pricedFrom = dateOf(periodStart(LONGEST, now));
+
+  const mainId = auth?.characterId ?? 0;
   const mine = charFacts({ ...d.meta, cloneSince: undefined }, d.netWorth, now);
-  const others = alts.roster.map((entry) => ({ entry, facts: altFacts(alts.alts[entry.charId] ?? { rev: 0, records: {}, docs: {} }, now) }));
+  const myMining = useMemo(() => Object.values(d.mining).filter((r) => r.charId === mainId), [d.mining, mainId]);
+  const others = alts.roster.map((entry) => {
+    const saved = alts.alts[entry.charId] ?? NO_ALT;
+    const facts = altFacts(saved, now);
+    const byHand = d.chars[String(entry.charId)]?.clone;
+    // The alt's copy as a ledger, the same object until its revision moves (altLedger), so its income is worked out once.
+    const ledger = altLedger(saved, byHand);
+    const nothing = !Object.values(saved.records).some((r) => Object.keys(r ?? {}).length);
+    return { entry, facts, byHand, ledger, mining: Object.values(ledger.mining), notRead: facts.totalSp == null && nothing };
+  });
   const everyone = [mine, ...others.map((o) => o.facts)];
+  const worth = useMinedWorth([myMining, ...others.map((o) => o.mining)].flat().filter((r) => r.date >= pricedFrom).map((r) => r.typeId));
+
+  // Each card's Earned, as it reports it: null while not known (being worked out, or an alt not read yet).
+  const [earnedBy, setEarnedBy] = useState<Record<number, number | null>>({});
+  const onEarned = useCallback((id: number, v: number | null) => setEarnedBy((x) => (x[id] === v ? x : { ...x, [id]: v })), []);
   useEnsureNames([...everyone.flatMap((f) => (f.training ? [f.training.skillId] : [])), ...alts.roster.flatMap((r) => (r.ship ? [r.ship] : []))]);
   const skill = useTypeName();
 
   const known = (pick: (f: CharFacts) => number | null) => everyone.map(pick).filter((x): x is number => x != null);
+  // Only the characters on the page: an alt removed meanwhile leaves its last figure behind, and it isn't counted.
+  const earnedAll = [mainId, ...others.map((o) => o.entry.charId)].map((id) => earnedBy[id]).filter((x): x is number => x != null);
   const wallets = known((f) => f.wallet), worths = known((f) => f.netWorth?.total ?? null);
   const sum = (xs: number[]) => xs.reduce((t, x) => t + x, 0);
   const total: TileData[] = [
@@ -164,6 +273,11 @@ export function Characters() {
     {
       l: 'All net worth', v: worths.length ? iskBig(sum(worths)) : '–', n: `${worths.length} of ${everyone.length} have a daily point`,
       tip: 'Each character’s newest daily net-worth point, added up.\n\n• A point is wallet, escrow, stock on sell orders and everything held, at CCP’s rough average prices.\n• The points can be from different days: each card says its own.\n• Your own ledger’s net worth, live, is on the Wallet page and is not changed by this.',
+    },
+    {
+      l: 'Earned, all characters', v: earnedAll.length ? iskBigSigned(sum(earnedAll)) : '–', n: `In the last ${period}: ${earnedAll.length} of ${everyone.length} counted`,
+      c: earnedAll.length ? (sum(earnedAll) >= 0 ? 'var(--pos)' : 'var(--neg)') : undefined,
+      tip: `What every character earned in the last ${period}, added up.\n\n• Each by the Wallet’s rules, as on its card: yours is the Wallet’s “All income”.\n• An alt’s leaves out ships it lost, and counts a freelance reward without what was bought for the job: the cloud reads neither for an alt.\n• A character not read yet, or still being worked out, adds nothing, and the count under the figure says how many did.`,
     },
   ];
 
@@ -229,7 +343,7 @@ export function Characters() {
     <div className="page">
       <PageHead kicker="Pilot" title="Characters"
         lede="The character logged in here, and the ones on your other accounts that the cloud reads for you. Each keeps its own wallet, skills and mining under its own name; none of it enters this ledger."
-        actions={<>{alts.busy && <span className="note small"><RefreshCw aria-hidden="true" style={{ width: 12, height: 12, verticalAlign: '-2px' }} /> Reading…</span>}{!empty && addHint}{add}</>} />
+        actions={<><Seg label="Period" value={days} onChange={setDays} options={PERIOD_DAYS.map((v) => ({ v, label: v === 1 ? '24 hours' : `${v} days` }))} />{alts.busy && <span className="note small"><RefreshCw aria-hidden="true" style={{ width: 12, height: 12, verticalAlign: '-2px' }} /> Reading…</span>}{!empty && addHint}{add}</>} />
 
       {!cloudOn && (
         <Notice kind="warn" icon={CloudOff}>
@@ -251,10 +365,13 @@ export function Characters() {
 
       <Tiles items={total} min={220} />
 
-      <Card id={auth?.characterId ?? 0} name={auth?.characterName ?? 'Your character'} facts={mine} now={now} skill={skill} byHand={d.settings.clone} />
-      {others.map(({ entry, facts }) => (
+      <Card id={mainId} name={auth?.characterName ?? 'Your character'} facts={mine} now={now} skill={skill} byHand={d.settings.clone}
+        ledger={d} mined={myMining.filter((r) => r.date >= fromDate)} worth={worth} since={since} period={period} onEarned={onEarned}
+        miningUnread={!myMining.length && !hasScope(SCOPE.mining) ? 'Needs the Mining ledger permission' : undefined} />
+      {others.map(({ entry, facts, byHand, ledger, mining, notRead }) => (
         <Card key={entry.charId} id={entry.charId} name={entry.name ?? `Character ${entry.charId}`} facts={facts} now={now} skill={skill} entry={entry} busy={busy} cloudOff={!cloudOn}
-          byHand={d.chars[String(entry.charId)]?.clone} onClone={(v) => setClone(entry, v)} onHandOver={handOver} onRemove={() => remove(entry)} />
+          ledger={ledger} mined={mining.filter((r) => r.date >= fromDate)} worth={worth} since={since} period={period} notRead={notRead} onEarned={onEarned}
+          byHand={byHand} onClone={(v) => setClone(entry, v)} onHandOver={handOver} onRemove={() => remove(entry)} />
       ))}
       {empty && (
         <Panel>

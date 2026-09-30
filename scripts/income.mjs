@@ -2,7 +2,8 @@
 // and Results in a browser whose clock is fixed at that time and whose ESI answers only the item groups (canned, so
 // every activity has a figure), and compares what "All income against play" and "By activity" say with
 // scripts/income-golden.json. `RECORD=1` writes that file instead. It was recorded before the income sum moved out of
-// the Wallet (stage 2b of several characters), so the move, and anything after it, can't drift unseen.
+// the Wallet (stage 2b of several characters), so the move, and anything after it, can't drift unseen. The Characters
+// page's Earned for the main is checked against the Wallet's "All income" at each period too.
 process.env.FIXED_NOW ??= '2026-09-30T15:00:00Z';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'vite';
@@ -80,6 +81,34 @@ async function figures(page) {
   await page.waitForTimeout(2500);
   out.results = await panelRows(page, 'By activity');
   return out;
+}
+
+/**
+ * The Characters page's Earned for the character logged in is the Wallet's "All income" for the same period: the same
+ * function on the same ledger, with the same start (lib/wallet.ts periodStart). Read from the first card once it has
+ * stopped changing (it says "–" while the item groups are read). Returns a line for each period.
+ */
+async function charactersAgree(page, got) {
+  const lines = [];
+  for (const days of [1, 7, 30, 90]) {
+    await page.evaluate((v) => { localStorage.setItem('jita-ledger:chars-days', String(v)); location.hash = '#todo'; }, days);
+    await page.waitForTimeout(500);
+    await page.evaluate(() => { location.hash = '#characters'; });
+    const tile = page.locator('section.panel', { has: page.locator('.pilot') }).first().locator('.tile', { hasText: 'Earned' });
+    await tile.waitFor({ timeout: 10_000 });
+    let last = null, card = null;
+    for (let i = 0; i < 20; i++) {
+      await page.waitForTimeout(1000);
+      const v = (await tile.locator('.tile-v').innerText()).trim();
+      if (v === last && v !== '–') { card = v; break; }
+      last = v;
+    }
+    const wallet = (got[`wallet ${days}`] ?? []).find((r) => r.startsWith('All income '))?.slice('All income '.length) ?? null;
+    lines.push(card != null && card === wallet
+      ? `  ok   characters ${days}: the main's Earned is the Wallet's All income (${card})`
+      : `  FAIL characters ${days}: the main's Earned reads ${card ?? last}, the Wallet's All income ${wallet}`);
+  }
+  return lines;
 }
 
 /**
@@ -190,6 +219,8 @@ let failed = 0;
 try {
   const page = await open(browser, large(), {});
   const got = await figures(page);
+  // Read before the page closes, said after the recording's lines.
+  const agree = process.env.RECORD === '1' ? [] : await charactersAgree(page, got);
   await page.close();
   if (process.env.RECORD === '1') {
     writeFileSync(GOLDEN, JSON.stringify(got, null, 2) + '\n');
@@ -202,11 +233,12 @@ try {
       const a = JSON.stringify(got[k]), b = JSON.stringify(want[k]);
       if (a !== b) { failed++; console.log(`  FAIL ${k}\n       recorded ${b}\n       now      ${a}`); } else console.log(`  ok   ${k}`);
     }
+    for (const line of agree) { if (line.startsWith('  FAIL')) failed++; console.log(line); }
   }
   failed += await isolation(browser);
 } finally {
   await browser.close();
   await server.close();
 }
-console.log(failed ? `\n${failed} failures: the main's income figures moved, or an alt reached the main's ledger` : '\nthe main\'s income figures are as recorded');
+console.log(failed ? `\n${failed} failures: the main's income figures moved, the Characters page disagrees with the Wallet, or an alt reached the main's ledger` : '\nthe main\'s income figures are as recorded');
 process.exit(failed ? 1 : 0);
