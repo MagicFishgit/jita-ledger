@@ -44,7 +44,13 @@ Decisions worth not undoing. How the ledger lives in the cloud as well as the br
   wipe drops the unsent list and the saved state, and a first sync starts at once, so the cloud's copy comes straight
   back down (the dialog says so; with sync switched off it stays empty). Pushes, pulls and first syncs in flight stop
   when `dataGeneration()` moves under them: a pull from before the wipe that moved the revision on would make the first
-  sync after it start past most of the ledger.
+  sync after it start past most of the ledger. **Until that first sync, the cloud's copy wins** (`wiped`, saved at once
+  so a reload keeps it): a sync normally lets what's waiting here beat what comes down, but after a wipe what's here
+  was written by the ESI sync onto an empty ledger (settings rebuilt from the defaults with only the character's own
+  fields, orders without their price history), and with the cloud unreachable at the wipe it would have finished first
+  and gone up over the cloud's. Checked the same way: with the local Worker stopped, a wipe, a settings change and a
+  record written, a reload, then the Worker started: the cloud's settings and record came down and the cloud kept its
+  own. Only a wipe sets it: a browser that never met the cloud (sync switched on late) still keeps what it has.
 - **Every job reports to `jobs`, and the Sniper does it every five minutes** (for the watchdog, see orders-alerts):
   about 290 row writes a day for the Sniper on top of the per-ledger jobs, well inside the plan's 50 M a month.
 - **The cloud's hour-by-hour prices show on the Calculator** ("Jita, hour by hour": best bid and ask per hour

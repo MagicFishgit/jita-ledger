@@ -42,7 +42,7 @@ const PULL_EVERY = 60_000;
 /** Records per push request. Well under the Worker's limits even for large killmails. */
 const PUSH_CHUNK = 1500;
 
-type Saved = { charId: number; rev: number; started: boolean; dirty: { r: string[]; d: string[] }; bg?: CloudBackground | null };
+type Saved = { charId: number; rev: number; started: boolean; dirty: { r: string[]; d: string[] }; bg?: CloudBackground | null; wiped?: boolean };
 
 export type CloudStatus = {
   phase: 'off' | 'waiting' | 'idle' | 'working' | 'error';
@@ -105,7 +105,11 @@ export function cloudEnabled(): boolean {
 const dirtyRecords = new Map<string, number>();
 const dirtyDocs = new Map<DocKey, number>();
 let gen = 0;
-let state: { charId: number; rev: number; started: boolean; bg?: CloudBackground | null } | null = null;
+/**
+ * `wiped`: "Delete all data" emptied this browser and it hasn't met the cloud since. Its first sync then lets the cloud's
+ * copy win over anything written here meanwhile (see the onClearAll hook below).
+ */
+let state: { charId: number; rev: number; started: boolean; bg?: CloudBackground | null; wiped?: boolean } | null = null;
 /** Revisions this browser pushed: pulling them back would only re-apply what's already here. */
 const ownRevs = new Set<number>();
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -229,8 +233,11 @@ async function pushNow(): Promise<void> {
 
 type PullPage = { rev: number; next: string | null; records: (Pulled['records'][number] & { r: number })[]; docs: (Pulled['docs'][number] & { r: number })[] };
 
-/** Everything changed since the last pull, applied here. Returns the IDs that came down, per kind. */
-async function pullNow(): Promise<Map<string, Set<string>>> {
+/**
+ * Everything changed since the last pull, applied here. Returns the IDs that came down, per kind. `cloudWins`: what
+ * came down replaces what's waiting to go up (the first sync after a wipe), instead of the other way round.
+ */
+async function pullNow(cloudWins = false): Promise<Map<string, Set<string>>> {
   const seen = new Map<string, Set<string>>();
   if (!state) return seen;
   const wipe = dataGeneration();
@@ -244,8 +251,8 @@ async function pullNow(): Promise<Map<string, Set<string>>> {
     // first sync that brings the cloud's copy back start past most of it.
     if (dataGeneration() !== wipe) return seen;
     // Local changes not yet sent win: they'll be pushed, and that push is newer.
-    const records = page.records.filter((r) => !ownRevs.has(r.r) && !dirtyRecords.has(`${r.k}|${r.i}`));
-    const docs = page.docs.filter((x) => !ownRevs.has(x.r) && !dirtyDocs.has(x.key as DocKey));
+    const records = page.records.filter((r) => !ownRevs.has(r.r) && (cloudWins || !dirtyRecords.has(`${r.k}|${r.i}`)));
+    const docs = page.docs.filter((x) => !ownRevs.has(x.r) && (cloudWins || !dirtyDocs.has(x.key as DocKey)));
     for (const r of page.records) { if (!seen.has(r.k)) seen.set(r.k, new Set()); seen.get(r.k)!.add(r.i); }
     for (const x of page.docs) { if (!seen.has('doc')) seen.set('doc', new Set()); seen.get('doc')!.add(x.key); }
     if (records.length || docs.length) {
@@ -263,6 +270,11 @@ async function pullNow(): Promise<Map<string, Set<string>>> {
         if (p.chars) p.chars = sanitizeChars(p.chars);
         return p;
       }, { origin: 'cloud' });
+      // Applied over what was waiting here, so that no longer goes up.
+      if (cloudWins) {
+        for (const r of records) dirtyRecords.delete(`${r.k}|${r.i}`);
+        for (const x of docs) dirtyDocs.delete(x.key as DocKey);
+      }
     }
     if (++pages > 1) setStatus({ phase: 'working', doing: `Bringing your ledger down (${(pages * 2000).toLocaleString('en-US')} records so far)` });
     if (!page.next) { state.rev = page.rev; break; }
@@ -280,13 +292,14 @@ async function pullNow(): Promise<Map<string, Set<string>>> {
 async function firstSync(): Promise<void> {
   setStatus({ phase: 'working', doing: 'Comparing with the cloud' });
   const wipe = dataGeneration();
-  const seen = await pullNow();
+  const seen = await pullNow(!!state!.wiped);
   // Wiped meanwhile: the pull stopped short, so this browser hasn't met the cloud yet. The sync after the wipe starts over.
   if (dataGeneration() !== wipe) return;
   const all = everything(getData());
   for (const r of all.records) if (!seen.get(r.k)?.has(r.i)) markRecord(r.k, r.i);
   for (const k of all.docs) if (!seen.get('doc')?.has(k)) markDoc(k);
   state!.started = true;
+  state!.wiped = false;
   save();
   await pushNow();
   setStatus({ started: true, phase: 'idle', doing: null });
@@ -296,7 +309,7 @@ async function loadState(charId: number) {
   const saved = (await get(STATE_KEY, dataStore).catch(() => undefined)) as Saved | undefined;
   ownRevs.clear();
   if (saved && saved.charId === charId) {
-    state = { charId, rev: saved.rev, started: saved.started, bg: saved.bg ?? null };
+    state = { charId, rev: saved.rev, started: saved.started, bg: saved.bg ?? null, wiped: saved.wiped };
     for (const key of saved.dirty.r) if (!dirtyRecords.has(key)) dirtyRecords.set(key, ++gen);
     for (const k of saved.dirty.d) if (isDocKey(k) && !dirtyDocs.has(k)) dirtyDocs.set(k, ++gen);
   } else {
@@ -320,9 +333,14 @@ onClearAll(async () => {
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
   if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
   dirtyRecords.clear(); dirtyDocs.clear(); ownRevs.clear();
-  if (state) state = { charId: state.charId, rev: 0, started: false, bg: state.bg ?? null };
   setStatus({ rev: 0, pending: 0, started: false });
-  await del(STATE_KEY, dataStore).catch(() => undefined);
+  if (state) {
+    // Saved at once, over the key the wipe deleted, so a reload before the first sync still knows. Until then, anything
+    // written here (the ESI sync refilling trades, orders without their price history, settings rebuilt from defaults)
+    // loses to the cloud's copy: the browser was just emptied, so nothing in it is worth more than the cloud's.
+    state = { charId: state.charId, rev: 0, started: false, bg: state.bg ?? null, wiped: true };
+    await set(STATE_KEY, { ...state, dirty: { r: [], d: [] } } satisfies Saved, dataStore).catch(() => undefined);
+  } else await del(STATE_KEY, dataStore).catch(() => undefined);
   // Once the wipe has finished (this runs inside it, before the ledger in memory is emptied).
   setTimeout(() => { syncCloudNow().catch(() => undefined); }, 0);
 });
