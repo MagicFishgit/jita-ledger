@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Calculator as CalcIcon, Clock, Copy, Crosshair, Eye, Hand, Mail, Repeat, ShieldAlert, SlidersHorizontal, Tag } from 'lucide-react';
+import { Calculator as CalcIcon, Clock, Copy, Crosshair, Eye, EyeOff, Hand, Mail, Repeat, ShieldAlert, SlidersHorizontal, Tag } from 'lucide-react';
 import { cloudEnabled, cloudSendsMail, cloudSightings, cloudSnipes, useCloud } from '../lib/cloud';
 import { TRACK_MIN } from '../lib/track';
 import { rateAt, rates } from '../lib/fees';
@@ -18,6 +18,7 @@ import { toast } from '../lib/toast';
 import { copyPrice, OpenInGame, plainPrice, useEnsureNames, useTypeName } from './common';
 import { flip } from './Prospects';
 import { Empty, Flag, Guide, ItemIcon, NumChip, PageHead, Panel, Tiles } from './ui';
+import { Figures, Points } from './Facts';
 
 
 /**
@@ -136,7 +137,10 @@ function YourSnipes({ now }: { now: number }) {
                   </tbody>
                 </table>
               </div>
-              <p className="note small" style={{ margin: 0 }}>Only the units you sniped are followed: the first sold after a snipe count as its own, and listing fees are shared by units between them and anything of your own listed alongside. Left out: buys tagged Personal, ones you said weren’t snipes, anything bought in one go with other items (a fitting’s Buy All, the Multibuy window), and anything now fitted to one of your ships.</p>
+              <Points compact items={[
+                { kind: 'info', icon: Crosshair, lead: 'Followed', text: 'only the units you sniped: the first sold after a snipe are its own, and listing fees are shared by units.' },
+                { kind: 'info', icon: EyeOff, lead: 'Left out', text: 'buys tagged Personal, ones you said weren’t snipes, anything bought with other items at once, and anything now fitted to a ship.' },
+              ]} />
             </>
           )}
       <NotSnipes />
@@ -336,11 +340,21 @@ export function Sniper() {
                     : <>Read {ago(read.at, now)}, all {units(read.pages)} pages of The Forge’s book.{nextRead && until(nextRead, now) ? ` Next read ${until(nextRead, now)}.` : ''}</>}
             </span>
           </div>
-          <p className="note small" style={{ margin: 0 }}>
-            A snipe counts when it clears both: at least {iskBig(bar.minIsk)} profit <b>and</b> at least {bar.minPct}% of what buying it out costs.
-            {bar.minPct > 0 && bar.minIsk > 0 && ` So the ISK decides for anything costing under ${iskBig(bar.minIsk / (bar.minPct / 100))}, and the % above that.`}
-            {read && clean.length > 0 && ` In this read, of ${units(clean.length)} listing${clean.length === 1 ? '' : 's'} without doubts: ${units(worth.length)} clear both, ${units(shortIsk)} fall short on the ISK alone, ${units(shortPct)} on the % alone, ${units(shortBoth)} on both.`}
-          </p>
+          <Points compact items={[
+            { kind: 'info', icon: SlidersHorizontal, lead: 'A snipe counts', text: <>when it clears both: at least {iskBig(bar.minIsk)} profit <b>and</b> {bar.minPct}% of what buying it out costs.</> },
+            ...(bar.minPct > 0 && bar.minIsk > 0 ? [{ kind: 'tip' as const, lead: 'So', text: `the ISK decides for anything costing under ${iskBig(bar.minIsk / (bar.minPct / 100))}, and the % above that.` }] : []),
+          ]} />
+          {read && clean.length > 0 && (
+            <div className="col" style={{ gap: 4 }}>
+              <span className="lbl">This read’s {units(clean.length)} listing{clean.length === 1 ? '' : 's'} without doubts</span>
+              <Figures items={[
+                { key: 'both', value: units(worth.length), label: 'clear both' },
+                { key: 'isk', value: units(shortIsk), label: 'short on the ISK alone' },
+                { key: 'pct', value: units(shortPct), label: 'short on the % alone' },
+                { key: 'neither', value: units(shortBoth), label: 'short on both' },
+              ]} />
+            </div>
+          )}
           <p className="row tight" style={{ fontSize: 12.5, color: mailing ? 'var(--pos)' : 'var(--label)', margin: 0 }}>
             <Mail aria-hidden="true" style={{ width: 14, height: 14, flex: 'none' }} />
             <span>
@@ -420,7 +434,11 @@ function SnipeRecord() {
           <div key={k} className="kv"><span style={{ color: 'var(--dim)', paddingLeft: 14 }}>{DOUBT_SAID[k].short}</span><span className="v">{share(x)}</span></div>
         ))}
       </div>
-      <p className="note small">A day counts when the bulk of its trading got up to the price (ESI trims each day’s extremes). The relist price is one step under the next listing, never above where trading reached on half the last 14 days. A listing with several doubts counts under each.</p>
+      <Points compact items={[
+        { kind: 'info', lead: 'A day counts', text: 'when the bulk of its trading got up to the price (ESI trims each day’s extremes).' },
+        { kind: 'info', lead: 'The relist price', text: 'one step under the next listing, never above where trading reached on half the last 14 days.' },
+        { kind: 'info', lead: 'Several doubts', text: 'a listing with several counts under each.' },
+      ]} />
     </Panel>
   );
 }

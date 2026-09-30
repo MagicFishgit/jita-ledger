@@ -10,6 +10,7 @@ import { toast } from '../lib/toast';
 import { isStation } from '../lib/universe';
 import { useEnsureNames, useTypeName } from './common';
 import { Panel } from './ui';
+import { Figures } from './Facts';
 
 /**
  * Your items in asset safety: each wrap, what's in it and roughly what that's worth, a countdown to its automatic
@@ -194,11 +195,13 @@ function Wrap({ w, d, rough, now, station, dest }: { w: SafetyWrap; d: Data; rou
         </table>
       </div>
       {rows.length > 8 && <button type="button" className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => setAll(!all)}>{all ? 'Show fewer' : `Show all ${units(rows.length)}`}</button>}
-      <p className="note small" style={{ margin: 0 }}>
-        {units(count)} item{count === 1 ? '' : 's'}, worth about <b>{rough ? iskBig(cost.value) : '…'}</b> at CCP’s estimated prices{rough && cost.unpriced.length ? ` (${units(cost.unpriced.length)} with no estimate count as nothing)` : ''}{copies ? `, and ${units(copies)} blueprint cop${copies === 1 ? 'y' : 'ies'}, which have no market price` : ''}.
-        {' '}Unpacking after the automatic delivery costs 15% of each item’s estimate, about {rough ? iskBig(cost.auto) : '…'}; delivered by hand within the system, 0.5%, about {rough ? iskBig(cost.manual) : '…'}.
-        {w.firstSeen ? ` The app has tracked it since ${fmtDateTime(Date.parse(w.firstSeen))}.` : ''}
-      </p>
+      <Figures items={[
+        { key: 'n', value: units(count), label: `item${count === 1 ? '' : 's'}${copies ? `, and ${units(copies)} blueprint cop${copies === 1 ? 'y' : 'ies'} (no market price)` : ''}` },
+        { key: 'worth', value: rough ? iskBig(cost.value) : '…', label: `at CCP’s estimates${rough && cost.unpriced.length ? `; ${units(cost.unpriced.length)} with none count as nothing` : ''}` },
+        { key: 'auto', value: rough ? iskBig(cost.auto) : '…', label: 'to unpack after the automatic delivery (15%)' },
+        { key: 'hand', value: rough ? iskBig(cost.manual) : '…', label: 'delivered by hand in the system (0.5%)' },
+      ]} />
+      {w.firstSeen && <span className="note small" style={{ margin: 0 }}>Tracked since {fmtDateTime(Date.parse(w.firstSeen))}.</span>}
     </div>
   );
 }

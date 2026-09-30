@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { get } from 'idb-keyval';
 import {
-  BellRing, Cloud, Database, Download, GraduationCap, HardDriveDownload, LogIn, LogOut, Mail, Palette, Percent, Radar, RefreshCw, Send, Trash2, Upload, UserRound,
+  Bell, BellRing, Cloud, Database, Download, Eye, GraduationCap, HardDriveDownload, LogIn, LogOut, Mail, MessageSquare, MousePointerClick, Palette, Percent, Radar, RefreshCw, Send, ShieldCheck, Trash2, Upload, UserRound,
 } from 'lucide-react';
 import { effectiveSkills, orderSlots, rateAt, rates, RELIST_LEFT, sanitizeSettings, type Settings as S } from '../lib/fees';
 import { brokerFeesPaid, measuredRates, standingsWorth } from '../lib/standings';
@@ -32,6 +32,7 @@ import { downloadText, LevelBoxes } from './common';
 import { CloneSwitch } from './Omega';
 import { useSkillPayback } from './payback';
 import { Check, cssVars, Notice, NumChip, PageHead, Seg, Tip } from './ui';
+import { Points } from './Facts';
 import { nettedJournal } from '../lib/refunds';
 
 type Tab = 'account' | 'skills' | 'rates' | 'alerts' | 'appearance' | 'data' | 'scan';
@@ -259,10 +260,11 @@ function Account() {
             </>
           ) : (
             <>
-              <p style={{ fontSize: 13.5 }}>
-                Log in to fill in your skills, standings and clone state and to track your trades. Everything it asks for is read-only — ESI has no way to place,
-                change or cancel an order, so nothing here can trade for you. The one exception writes nothing: opening a market window in your client.
-              </p>
+              <Points items={[
+                { kind: 'info', icon: UserRound, lead: 'Log in', text: 'to fill in your skills, standings and clone state, and to track your trades.' },
+                { kind: 'good', icon: ShieldCheck, lead: 'Read-only', text: 'ESI can’t place, change or cancel an order, so nothing here can trade for you.' },
+                { kind: 'info', icon: MousePointerClick, lead: 'The one exception', text: 'opens a market window in your client, and writes nothing.' },
+              ]} />
               <div><button type="button" className="btn primary" onClick={() => login().catch((e) => toast(String(e.message ?? e), 'err'))}><LogIn aria-hidden="true" />Log in with EVE Online</button></div>
             </>
           )}
@@ -294,10 +296,12 @@ function Account() {
             </div>
             {OPTIONAL_SCOPES.length > 0 && <>
             <div className="lbl" style={{ fontSize: 11, letterSpacing: '.18em', margin: '14px 0 6px' }}>Optional</div>
-            <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--label)', textWrap: 'pretty' }}>
-              Asked for only once you switch it on here. Tick it on your application at developers.eveonline.com first: EVE’s login refuses a permission
-              the application doesn’t have, and only says so after you sign in.
-            </p>
+            <div style={{ margin: '0 0 10px' }}>
+              <Points compact items={[
+                { kind: 'info', lead: 'Asked for', text: 'only once you switch it on here.' },
+                { kind: 'warn', lead: 'Tick it first', text: 'on your application at developers.eveonline.com: EVE’s login refuses one it doesn’t have, and says so only after you sign in.' },
+              ]} />
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,300px),1fr))', gap: 4 }}>
               {OPTIONAL_SCOPES.map((sc) => {
                 const info = SCOPE_INFO[sc];
@@ -390,7 +394,9 @@ function Skills() {
             <NumField id="s-corp" label="Caldari Navy standing" value={s.corp} disabled={locked} onChange={(n) => set({ corp: n })} />
           </div>
           <p style={{ margin: '-4px 0 0', fontSize: 11.5, color: 'var(--faint)' }}>Base standing from 0 to 10. Skills that boost standings don’t lower the broker fee.</p>
-          <p style={{ margin: '-4px 0 0', fontSize: 11.5, color: 'var(--faint)' }}>Marketing, Procurement, Daytrading and Visibility aren’t here: they set how far from an order’s station you can place or change it (Daytrading, changing it from elsewhere), which the app doesn’t weigh. Docked in Jita 4-4 they change nothing.</p>
+          <p style={{ margin: '-4px 0 0', fontSize: 11.5, color: 'var(--faint)' }}>
+            <span data-tip="Marketing, Procurement, Daytrading and Visibility set how far from an order’s station you can place or change it (Daytrading, changing it from elsewhere), which the app doesn’t weigh. Docked in Jita 4-4 they change nothing." style={{ textDecoration: 'underline dotted', cursor: 'help' }}>Range skills aren’t here</span>: docked in Jita 4-4 they change nothing.
+          </p>
         </section>
         <section className="panel" aria-label="Order slots" style={{ padding: 18, gap: 14, clipPath: 'none' }}>
           <div className="panel-head"><span className="panel-title">Order slots</span><span className="mono" style={{ fontSize: 26, color: 'var(--acc)' }}>{slots}</span></div>
@@ -747,7 +753,10 @@ function Alerts() {
           <div className="toast" style={cssVars({ '--c': 'var(--acc2)', position: 'relative', maxWidth: `${Math.round(340 * Math.min(z, 1.6))}px`, animation: 'none', '--tf': `${(13 * z).toFixed(1)}px`, '--ti': `${Math.round(17 * z)}px`, '--tg': `${Math.round(12 * z)}px`, '--tp': `${Math.round(12 * z)}px ${Math.round(14 * z)}px ${Math.round(14 * z)}px` })}>
             <BellRing aria-hidden="true" /><span className="tmsg">Hammerhead II sell order beaten — worth moving (costs 2.14 M). An example; your own alerts use your orders.</span>
           </div>
-          <p className="note">In-app alerts slide in at the bottom right and stay {d.prefs.toastSeconds == null ? 'until you close them' : `for ${TOAST_SECONDS.find((o) => o.value === d.prefs.toastSeconds)?.label ?? `${d.prefs.toastSeconds} s`}`}. When several arrive together they wait behind each other and come forward one at a time. With browser notifications on, the same text also appears as a system notification while this tab is in the background.</p>
+          <Points items={[
+            { kind: 'info', icon: MessageSquare, lead: 'In the app', text: `alerts slide in at the bottom right and stay ${d.prefs.toastSeconds == null ? 'until you close them' : `for ${TOAST_SECONDS.find((o) => o.value === d.prefs.toastSeconds)?.label ?? `${d.prefs.toastSeconds} s`}`}; several at once come forward one at a time.` },
+            { kind: 'info', icon: Bell, lead: 'Browser notifications', text: 'show the same text as a system notification while this tab is in the background.' },
+          ]} />
           <div className="row" style={{ gap: 10 }}>
             <button type="button" className="btn primary" onClick={testAlert}><Send aria-hidden="true" />Send a test alert</button>
             {a.browser && (
@@ -757,7 +766,7 @@ function Alerts() {
               </button>
             )}
           </div>
-          {a.browser && <p className="note small">Your system draws those notifications, so it decides their look. The app gives them its icon and, where the system shows pictures (Chrome on Windows and Android), a picture of the alert in the app’s style.</p>}
+          {a.browser && <p className="note small">Your system draws those notifications and decides their look. <span data-tip="The app gives them its icon and, where the system shows pictures (Chrome on Windows and Android), a picture of the alert in the app’s style." style={{ textDecoration: 'underline dotted', cursor: 'help' }}>What the app adds</span></p>}
         </Card>
       </div>
     </>
@@ -849,9 +858,11 @@ function MailAlerts() {
             </div>
           ) : (
             <div className="col" style={{ gap: 8 }}>
-              <p style={{ margin: 0, fontSize: 12.5, color: 'var(--body)', textWrap: 'pretty' }}>
-                Mail {auth.characterName} sends itself reaches the inbox but EVE doesn’t tell the game, so it only shows after you log in again. Send it from another of your characters instead and it arrives like any other mail. Any character works, on this account or another. It doesn’t need to be online, and it only gets permission to send mail and delete what it sent.
-              </p>
+              <Points items={[
+                { kind: 'warn', lead: 'Mail to itself', text: `from ${auth.characterName} reaches the inbox, but the game only shows it after you log in again.` },
+                { kind: 'good', icon: Send, lead: 'From another character', text: 'it arrives like any other mail: any of yours, on this account or another, online or not.' },
+                { kind: 'info', icon: ShieldCheck, lead: 'Its permissions', text: 'only to send mail and delete what it sent.' },
+              ]} />
               <div className="row" style={{ gap: 10, alignItems: 'center' }}>
                 <button type="button" className="btn sm" onClick={signInAlt}><LogIn aria-hidden="true" />Log in a character to send from</button>
                 <span className="note small">EVE’s login page asks which character. Pick the other one, not {auth.characterName}.</span>
@@ -860,9 +871,12 @@ function MailAlerts() {
           )}
         </div>
       )}
-      <p style={{ margin: '-4px 0 0', fontSize: 12, color: 'var(--note)', textWrap: 'pretty' }}>
-        In the mail, click an item’s name to open its market in game: EVE hands the link to your browser, and this app opens the market window. Nothing opens on its own. Quiet hours and “Only if at least” apply here too. The app checks while a tab is open; once the cloud holds a sending character (Settings → Your data), it checks and mails all day instead. If your character charges for mail from strangers (CSPA), add the sending character as a contact.
-      </p>
+      <Points compact items={[
+        { kind: 'info', icon: MousePointerClick, lead: 'Item names', text: 'in a mail open the item’s market in game: EVE hands the link to your browser and the app opens the window. Nothing opens on its own.' },
+        { kind: 'info', lead: 'Quiet hours', text: 'and “Only if at least” apply to mail too.' },
+        { kind: 'good', icon: Cloud, lead: 'All day', text: 'once the cloud holds a sending character (Settings → Your data); until then, while a tab is open.' },
+        { kind: 'tip', lead: 'CSPA', text: 'if your character charges strangers for mail, add the sending character as a contact.' },
+      ]} />
       <div>
         <div className="lbl" style={{ marginBottom: 8 }}>Mail me about</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,220px),1fr))', gap: '10px 24px', opacity: a.mail ? 1 : 0.45 }}>
@@ -885,7 +899,7 @@ function MailAlerts() {
         <p className="note small" style={{ marginTop: 8, textWrap: 'pretty' }}>
           {a.mailKeepMin == null ? 'Alert mails stay in your inbox until you delete them.'
             : !canDelete ? <>Deleting needs the <b>Delete EVE mail</b> permission, which this login doesn’t have. Until it does, alert mails stay.</>
-              : <>Deleted whether you’ve read them or not, checked every {Math.round(tidyEvery(a.mailKeepMin) / 60_000)} minutes while the app is open. Only the app’s own alert mails go: {canRead ? `from ${alt ? `${alt.characterName} or yourself` : 'yourself'}, with a subject starting “Jita Ledger:”${alt ? `, and ${alt.characterName}’s sent copy with them` : ''}.` : 'the ones this browser sent. With the Read EVE mail headers permission it could also find ones sent from another browser.'}</>}
+              : <>Deleted read or not, checked every {Math.round(tidyEvery(a.mailKeepMin) / 60_000)} minutes while the app is open. <span data-tip={`Only the app’s own alert mails go: ${canRead ? `from ${alt ? `${alt.characterName} or yourself` : 'yourself'}, with a subject starting “Jita Ledger:”${alt ? `, and ${alt.characterName}’s sent copy with them` : ''}.` : 'the ones this browser sent. With the Read EVE mail headers permission it could also find ones sent from another browser.'}`} style={{ textDecoration: 'underline dotted', cursor: 'help' }}>Only its own</span>.</>}
           {a.mailKeepMin != null && canDelete && d.meta.mailCleanAt ? ` Last tidied ${ago(d.meta.mailCleanAt, now)}${pending ? `; ${pending} sent from here still ${pending === 1 ? 'waits' : 'wait'} ${pending === 1 ? 'its' : 'their'} turn` : ''}.` : ''}
         </p>
       </div>
@@ -959,7 +973,11 @@ function Appearance() {
               <path d="M0 34 H200" stroke="var(--acc2)" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
             </svg>
           </div>
-          <p className="note">Accent colour for actions and charts, second colour for warnings and your price lines. Profit and loss colours never change, so they always mean the same thing. The preview figures are an illustration, not your data.</p>
+          <Points compact items={[
+            { kind: 'info', icon: Palette, lead: 'Accent', text: 'actions and charts; the second colour, warnings and your price lines.' },
+            { kind: 'good', lead: 'Profit and loss', text: 'keep their colours whatever the theme, so they always mean the same.' },
+            { kind: 'info', icon: Eye, lead: 'The preview', text: 'is an illustration, not your data.' },
+          ]} />
         </Card>
       </div>
     </>
@@ -1058,7 +1076,7 @@ function CloudPanel() {
             <>
               {missing.length > 0 && (
                 <p className="note" style={{ margin: 0, color: 'var(--acc2)' }}>
-                  {`You’re logged in here with ${missing.length === 1 ? 'a permission' : `${units(missing.length)} permissions`} the cloud’s login doesn’t have. Logging in again with new permissions stops the login the cloud holds (EVE replaces the character’s grant for the app), so hand it over again. `}
+                  {`You’re logged in here with ${missing.length === 1 ? 'a permission' : `${units(missing.length)} permissions`} the cloud’s login lacks, and logging in with new ones stops the cloud’s login: hand it over again. `}
                   <button type="button" className="link-btn" onClick={() => loginForCloud()}>Hand the cloud your login again</button>
                 </p>
               )}

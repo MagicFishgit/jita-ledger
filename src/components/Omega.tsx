@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Gem, GraduationCap, RefreshCw, Scale } from 'lucide-react';
+import { Gem, GraduationCap, History, RefreshCw, Scale } from 'lucide-react';
 import { effectiveSkills, omegaRates, orderSlots, rates, sanitizeSettings, type Rates, type Settings as S } from '../lib/fees';
 import { ago, iskBig, iskBigSigned, pct, share, units } from '../lib/format';
 import { computePosition } from '../lib/positions';
@@ -12,6 +12,7 @@ import { bumpWarp } from '../lib/motion';
 import { toast } from '../lib/toast';
 import { LevelBoxes } from './common';
 import { cssVars, Guide, NumChip, PageHead, Seg } from './ui';
+import { Points } from './Facts';
 import { useSkillPayback } from './payback';
 import { everyItemCalcs } from './everyItem';
 import { useTradeQueue } from './SkillStrip';
@@ -220,9 +221,12 @@ export function Omega() {
                           : asOmega > 0 ? `At your last 30 days’ pace, trading as Omega would cover ${share(asOmega / monthCost)} of the subscription.` : 'Your last 30 days of trading didn’t make a profit yet, even at Omega rates.'
                         : pace.realized >= monthCost ? `Your last 30 days of trading covered Omega with ${iskBig(pace.realized - monthCost)} to spare.`
                           : pace.realized > 0 ? `Your last 30 days of trading covered ${share(pace.realized / monthCost)} of a month of Omega.` : 'Your last 30 days of trading didn’t make a profit yet.'}
-                      {' '}That’s a look back, not a forecast. Price-change fees aren’t in the savings estimate. It counts trading only, as Results’ “Every item traded” does:{' '}
-                      <button type="button" className="link-btn" onClick={() => navigate('results')}>Results</button> has Freelance, loot and the rest.
                     </p>
+                    <Points compact items={[
+                      { kind: 'info', icon: History, lead: 'A look back', text: 'not a forecast.' },
+                      { kind: 'info', lead: 'Trading only', text: <>as Results’ “Every item traded” counts it; <button type="button" className="link-btn" onClick={() => navigate('results')}>Results</button> has freelance, loot and the rest.</> },
+                      { kind: 'info', lead: 'Price-change fees', text: 'aren’t in the savings estimate.' },
+                    ]} />
                   </>
                 )}
               </>

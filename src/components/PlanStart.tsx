@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Check, ClipboardList, Copy, Play, X } from 'lucide-react';
+import { Check, ChevronRight, ClipboardList, Copy, Play, Smartphone, X } from 'lucide-react';
 import { startPosition } from '../lib/actions';
 import { confirmAsk } from '../lib/confirm';
 import { fmtShort, isk, iskBig, iskBigSigned, rid, units } from '../lib/format';
@@ -11,6 +11,7 @@ import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { CopyPrice, NameInGame, useEnsureNames, useTypeName } from './common';
 import { ItemIcon } from './ui';
+import { Points } from './Facts';
 
 /**
  * Starting a Capital planner mix, and following it. The game can't place several buy orders at once (Multibuy only buys
@@ -59,7 +60,7 @@ export function StartPlanButton({ plan, days, patient }: { plan: Plan; days: num
   return (
     <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
       <button type="button" className="btn primary" onClick={() => void start()}><Play aria-hidden="true" />Start this plan</button>
-      <span className="note small" style={{ margin: 0 }}>Opens a position for each item, grouped as one plan, and a checklist for placing the buy orders. The game can’t place them all at once, so each one is: open in game (price copied), paste, quantity, done.</span>
+      <span className="note small" style={{ margin: 0 }}>A position for each item, grouped as one plan, and a checklist for its buy orders: the game can’t place them all at once.</span>
     </div>
   );
 }
@@ -83,9 +84,15 @@ export function PlacingChecklist() {
               <span className="mono" style={{ color: 'var(--acc)' }}>{units(prog.placed)} of {units(prog.of)} placed</span>
             </div>
             <div className="track h10"><span className="fill" style={{ width: `${(prog.placed / Math.max(1, prog.of)) * 100}%` }} /></div>
-            <p className="note small" style={{ margin: 0 }}>
-              For each: open it in game (its price is copied), press <b>Place Buy Order</b>, paste the price, copy and paste the quantity, set the duration{p.patient ? ' (these are to leave, so a long one)' : ''}. It ticks off once the order shows in your orders; ESI holds them for up to 20 minutes. From the phone, the copies land on the phone: place them from the PC.
-            </p>
+            <div className="ladder" aria-label="For each item">
+              {['Open it in game (price copied)', 'Place Buy Order', 'Paste the price', 'Paste the quantity', p.patient ? 'A long duration' : 'Set the duration'].map((x, i) => (
+                <span key={x} className="step">{i > 0 && <ChevronRight aria-hidden="true" />}<span>{x}</span></span>
+              ))}
+            </div>
+            <Points compact items={[
+              { kind: 'good', lead: 'Ticks off', text: 'once the order shows in your orders; ESI holds them for up to 20 minutes.' },
+              { kind: 'warn', icon: Smartphone, lead: 'On the phone', text: 'the copies land on the phone: place them from the PC.' },
+            ]} />
             <div className="tbl-scroll">
               <table className="tbl" style={{ minWidth: 640 }}>
                 <thead><tr><th scope="col" className="l">Item</th><th scope="col">Quantity</th><th scope="col">Buy at</th><th scope="col">In escrow</th><th scope="col" className="l">Placed</th></tr></thead>

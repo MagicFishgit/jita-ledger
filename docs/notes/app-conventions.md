@@ -37,11 +37,14 @@ Decisions worth not undoing. Conventions for wording, layout, tooltips, numbers 
   - a figure from research is a tile whose tip names its source and date, under a line saying they aren't live, since a
     bare "221 lost" reads as today's;
   - lib files hold the words (`Point`, `Stat` in `lib/shipTree.ts`), components the icons.
-  The same goes for a page's own text (swept on Side hustles and Reprocessing, 30 September 2026): an intro is a lead line
+  The same goes for a page's own text (swept on Side hustles and Reprocessing, then Settings, Wallet, Sniper, Omega, Results,
+  Orders, Loyalty, the Planner, To do, Blueprints, Combat and asset safety, 30 September 2026): an intro is a lead line
   and three or four points; a "how it's worked out" footnote is a few words with the detail in its tip; a sequence is a
   ladder of steps (`.ladder`: Hauling's race ladder, Planets' four steps); a count or sum is a tile (`Figures`); a tree's
   marks get a legend (`TreeLegend`); a list of items is chips with their icons (drops, a colony's stored goods); and who
-  can go into a pocket is drawn (one cruiser, two destroyers, three frigates, with the loot each gets).
+  can go into a pocket is drawn (one cruiser, two destroyers, three frigates, with the loot each gets). A status line stays a sentence
+  (one per state, short): only its counts become tiles (Orders: worth moving, to cancel, beaten but clearing). A chart's
+  legend names its marks; a note beside it says only what the legend can't (the position chart's dot size and hover).
 - **A ship tree's paths never run behind a ship they don't join** (`edgeShape`, `treeProblems` in `lib/shipTree.ts`,
   tested for all three trees). ShipTree drew each path as one S from centre to centre, which on a long drop cut across the
   corners of the ships beside it: the shipped Mining tree's Venture → Venture Consortium Issue clipped the Pioneer, and the

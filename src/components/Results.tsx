@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { CalendarRange, Clock, Layers, Trophy } from 'lucide-react';
+import { CalendarRange, Clock, History, Layers, Trophy } from 'lucide-react';
 import { fmtDate, fmtShort, iskBig, iskBigSigned, pct, units } from '../lib/format';
 import { useNow } from '../lib/hooks';
 import { byBucket, perHour, totals } from '../lib/results';
@@ -13,6 +13,7 @@ import type { Activity } from '../lib/types';
 import { useTypeName } from './common';
 import { flip } from './Prospects';
 import { Guide, NumChip, PageHead, Panel, Seg, Tiles } from './ui';
+import { Figures, Points } from './Facts';
 import { ACTIVITY_COLOR, ACTIVITY_WHAT, useActivityEvents } from './activityEvents';
 
 const DAY = 86400_000;
@@ -266,7 +267,11 @@ export function Results() {
             </table>
           </div>
           <p className="note" style={{ color: 'var(--sec)' }}>{verdict}</p>
-          <p className="note small">Each activity is counted by one rule — hover its name to see it. A trade a position counts is always trading; anything else goes to the activity its item belongs to, and items that belong to none are left out rather than guessed at. Every item traded counts your trades whether a position tracks them or not, and is shown beside Trading rather than added to the total.</p>
+          <Points compact items={[
+            { kind: 'info', lead: 'One rule each', text: 'hover an activity’s name to see it.' },
+            { kind: 'info', lead: 'Trading', text: 'is any trade a position counts; anything else goes to its item’s activity, and an item in none is left out, not guessed.' },
+            { kind: 'info', lead: 'Every item traded', text: 'counts your trades with or without a position: shown beside Trading, not added to the total.' },
+          ]} />
         </Panel>
       </div>
       <div className="g-440" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,380px),1fr))' }}>
@@ -282,14 +287,20 @@ export function Results() {
         </Panel>
       </div>
       <Panel title="Every item you traded" sub={soldRows.length > 1 ? <Seg size="sm" label="Order" value={itemOrder} onChange={setItemOrder} options={[{ v: 'best', label: 'Best first' }, { v: 'worst', label: 'Worst first' }]} /> : undefined}>
-        <p className="note" style={{ margin: 0 }}>
-          {soldRows.length
-            ? <>{units(soldRows.length)} item{soldRows.length === 1 ? '' : 's'} you bought sold {days === 0 ? periodSaid : `in ${periodSaid}`}: <b style={{ color: soldProfit >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{iskBigSigned(soldProfit)}</b>{soldCost > 0 ? `, ${pct(soldProfit / soldCost, 1)} on what they cost` : ''}.</>
-            : 'Nothing you bought sold in this period.'}
-          {feeRows.length ? ` Orders on ${units(feeRows.length)} more item${feeRows.length === 1 ? '' : 's'} sold nothing and cost ${iskBig(-feeTotal)} in fees${soldRows.length ? `, so trading made ${iskBigSigned(tradeProfit)} all told` : ''}.` : ''}
-          {' '}Every trade counts, whether or not a position tracks it, except those you tagged Personal.
-          {firstTrade != null && firstTrade > since ? ` Your trades go back to ${fmtDate(firstTrade)}; longer periods fill in as the cloud keeps archiving past ESI’s 30 days.` : ''}
-        </p>
+        {soldRows.length || feeRows.length ? (
+          <Figures items={[
+            ...(soldRows.length ? [
+              { key: 'sold', value: units(soldRows.length), label: `item${soldRows.length === 1 ? '' : 's'} you bought sold ${days === 0 ? periodSaid : `in ${periodSaid}`}` },
+              { key: 'made', value: <span style={{ color: soldProfit >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{iskBigSigned(soldProfit)}</span>, label: `made on them${soldCost > 0 ? `, ${pct(soldProfit / soldCost, 1)} on what they cost` : ''}` },
+            ] : []),
+            ...(feeRows.length ? [{ key: 'fees', value: units(feeRows.length), label: `more had orders that sold nothing: ${iskBig(-feeTotal)} in fees` }] : []),
+            ...(soldRows.length && feeRows.length ? [{ key: 'all', value: <span style={{ color: tradeProfit >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{iskBigSigned(tradeProfit)}</span>, label: 'trading all told' }] : []),
+          ]} />
+        ) : <p className="note" style={{ margin: 0 }}>Nothing you bought sold in this period.</p>}
+        <Points compact items={[
+          { kind: 'info', lead: 'Every trade', text: 'counts, with or without a position, except those you tagged Personal.' },
+          ...(firstTrade != null && firstTrade > since ? [{ kind: 'info' as const, icon: History, lead: 'Back to', text: `${fmtDate(firstTrade)}: longer periods fill in as the cloud archives past ESI’s 30 days.` }] : []),
+        ]} />
         {tradeRows.length > 0 && bars > 1 && (
           <div className="chart-box" style={{ height: 120 }}>
             <svg className="plot" viewBox="0 0 600 100" preserveAspectRatio="none" aria-hidden="true">

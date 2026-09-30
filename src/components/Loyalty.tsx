@@ -18,6 +18,7 @@ import { toast } from '../lib/toast';
 import { OpenInGame, useTypeName, canOpenInGame } from './common';
 import { flip } from './Prospects';
 import { Check, cssVars, Expander, Guide, ItemIcon, Notice, PageHead, SortTh, Tip } from './ui';
+import { Figures } from './Facts';
 
 const LOYALTY_SCOPE = SCOPE.loyalty;
 /** How many of the best-looking offers get real Jita prices rather than a global average. */
@@ -278,10 +279,13 @@ export function Loyalty() {
       ) : (
         <div className="col" style={{ gap: 14 }}>
           <div data-rv="" className="col" style={{ minWidth: 0 }}>
-            <p style={{ fontSize: 12.5, color: 'var(--label)', textWrap: 'pretty' }}>
-              {units(all.length)} offers valued, {units(profitable)} of them worth taking{lp > 0 && <> with {units(lp)} points</>}.
-              {more ? ` ${more}` : live.size > 0 ? ` ${units(live.size)} items priced against the live Jita book; anything left on a global average is marked rough.` : ' All on a global average so far.'}
-              {best && <> Best rate: <b style={{ color: 'var(--figure)' }}>{units(Math.round(best.v.iskPerLp))} ISK per point on {nameOf(best.v.typeId)}</b>.</>}
+            <Figures items={[
+              { key: 'all', value: units(all.length), label: 'offers valued' },
+              { key: 'worth', value: units(profitable), label: `worth taking${lp > 0 ? ` with ${units(lp)} points` : ''}` },
+              ...(best ? [{ key: 'best', value: <span style={{ color: 'var(--pos)' }}>{units(Math.round(best.v.iskPerLp))} ISK</span>, label: `a point, the best: ${nameOf(best.v.typeId)}` }] : []),
+            ]} />
+            <p style={{ margin: '6px 0 0', fontSize: 12.5, color: 'var(--label)', textWrap: 'pretty' }}>
+              {more ? more : live.size > 0 ? `${units(live.size)} items priced against the live Jita book; anything left on a global average is marked rough.` : 'All on a global average so far.'}
             </p>
             <div className="row" style={{ gap: 10, alignItems: 'center' }}>
               <label className="chip h34" style={{ flex: '0 1 320px' }}>

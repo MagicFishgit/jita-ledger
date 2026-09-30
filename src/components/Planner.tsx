@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Calculator as CalcIcon, Gauge, Hourglass, Info, Layers, LayoutGrid, ListChecks, Pause, Radar, RefreshCw, Scale, Shield, ShieldAlert, SlidersHorizontal, TrendingUp, Wallet,
+  CalendarClock, Calculator as CalcIcon, Gauge, Hourglass, Info, Layers, LayoutGrid, ListChecks, Lock, Pause, Radar, RefreshCw, Scale, Shield, ShieldAlert, SlidersHorizontal, TrendingDown, TrendingUp, Wallet,
 } from 'lucide-react';
 import { effectiveSkills, orderSlots } from '../lib/fees';
 import { isk as iskFmt, iskBig, pct, units } from '../lib/format';
@@ -13,6 +13,7 @@ import type { ProspectFilters } from '../lib/types';
 import { BusyRelisting, useEnsureNames, useTypeName } from './common';
 import { flip, WARNING } from './Prospects';
 import { Empty, Flag, Guide, ItemIcon, NumChip, PageHead, Panel, Seg, Tiles } from './ui';
+import { Points } from './Facts';
 import { ScanFreshness } from './ScanFreshness';
 import { ShareCheck } from './ShareCheck';
 import { useCloud } from '../lib/cloud';
@@ -143,7 +144,7 @@ export function Planner() {
         <p className="row tight" style={{ fontSize: 13, color: 'var(--acc2)', margin: 0 }}>
           <Radar aria-hidden="true" style={{ width: 14, height: 14, flex: 'none' }} />
           <span>
-            Scan again before investing: {units(unchecked)} of these items were scanned before the plan checked sell prices and sudden price moves, so their margins may be ones trading can’t reach. A quick scan is enough.{' '}
+            <b>Scan again before investing:</b> {units(unchecked)} of these items predate the plan’s checks on sell prices and sudden moves, so their margins may be out of reach. A quick scan is enough.{' '}
             <button type="button" className="link-btn" onClick={() => navigate('prospects')}>Open Prospects</button>
           </span>
         </p>
@@ -251,9 +252,15 @@ export function Planner() {
                     </>
                   )}
                 </div>
-                <div className="note small" style={{ margin: 0 }}>
-                  <b>Before you leave big orders for weeks:</b> if the price moves up and away, your bid is left behind and stops filling (the order check tells you where trading reaches now); if it falls, you fill fastest just as it gets cheaper; the ISK sits in escrow the whole time; and a buy order runs out after 90 days at most.
-                  {leaveRecord && <> {leaveRecord}</>}
+                <div className="col" style={{ gap: 6 }}>
+                  <b style={{ fontSize: 12.5, color: 'var(--ink)' }}>Before you leave big orders for weeks</b>
+                  <Points compact items={[
+                    { kind: 'warn', icon: TrendingUp, lead: 'Price rises', text: 'your bid is left behind and stops filling; the order check says where trading reaches now.' },
+                    { kind: 'warn', icon: TrendingDown, lead: 'Price falls', text: 'you fill fastest just as it gets cheaper.' },
+                    { kind: 'info', icon: Lock, lead: 'Escrow', text: 'the ISK sits there the whole time.' },
+                    { kind: 'info', icon: CalendarClock, lead: '90 days', text: 'the most a buy order runs.' },
+                  ]} />
+                  {leaveRecord && <span className="note small" style={{ margin: 0 }}>{leaveRecord}</span>}
                 </div>
               </div>
             )}
@@ -261,7 +268,12 @@ export function Planner() {
               Once the buys fill, price what’s in your Jita hangar to list, never under what it cost:{' '}
               <button type="button" className="link-btn" onClick={() => navigate('positions?list=stock')}>List your stock (Positions)</button>
             </p>
-            <p className="note small">Each market’s limit is your share of its slower side over the horizon ({d.settings.share}% of volume, scaled for how many orders you queue among), at the prices the last scan found (the banner above says how old). {patient ? 'Priced to place and leave: each order fills only on the days trading reaches it, so its pace is scaled by how often that was. That’s rough: daily figures can’t show how deep each day’s trading went. Items without the history to say where trading reaches are left out.' : 'An item flagged “Bids not reached” is priced where trading actually reaches, not at the best bid.'} Check each in the Calculator before placing anything.</p>
+            <Points compact items={[
+              { kind: 'info', icon: Scale, lead: 'Each market’s limit', text: `your share of its slower side over the horizon (${d.settings.share}% of volume, scaled for how many orders you queue among), at the last scan’s prices.` },
+              patient ? { kind: 'info', lead: 'Place and leave', text: 'each order fills only on days trading reaches it, so its pace is scaled by how often that was: rough, and items without that history are left out.' }
+                : { kind: 'info', lead: '“Bids not reached”', text: 'an item flagged so is priced where trading actually reaches, not at the best bid.' },
+              { kind: 'tip', icon: CalcIcon, lead: 'Before placing', text: 'check each in the Calculator.' },
+            ]} />
           </Panel>
         </>
       )}

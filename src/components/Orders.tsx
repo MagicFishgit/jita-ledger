@@ -19,6 +19,7 @@ import { FILL_WINDOW } from '../lib/fills';
 import type { Prospect } from '../lib/types';
 import { BusyRelisting, canOpenInGame, CopyPrice, NameInGame, OpenInGame, useTypeName } from './common';
 import { cssVars, Empty, Guide, ItemIcon, Notice, PageHead, Seg, SortTh } from './ui';
+import { Figures } from './Facts';
 import { ScanFreshness } from './ScanFreshness';
 import { TradeSkillsLine } from './SkillStrip';
 
@@ -288,20 +289,28 @@ export function Orders() {
             </div>
           </div>
 
-          <p data-rv="" style={{ fontSize: 12.5, color: 'var(--label)', textWrap: 'pretty' }}>
-            {units(mine.length)} order{mine.length > 1 ? 's' : ''} in Jita 4-4, from your last sync ({ago(d.meta.lastSync, now)}).
-            {check.checkedAt
-              ? ` Prices checked ${ago(check.checkedAt, now)}: ${worth || cancel ? `${[worth ? `${units(worth)} worth moving` : '', cancel ? `${units(cancel)} to cancel` : '', holding ? `${units(holding)} beaten but clearing on their own` : ''].filter(Boolean).join(', ')}.` : holding ? `nothing worth moving — ${units(holding)} beaten, but the stock ahead should clear shortly.` : 'you are in front on all of them.'}`
-              : ' Check prices to see which are worth moving.'}
+          {/* What the check found, as tiles; when and how fresh, as one line under them. */}
+          <div data-rv="" className="col" style={{ gap: 6 }}>
+          <Figures items={[
+            { key: 'n', value: units(mine.length), label: `order${mine.length > 1 ? 's' : ''} in Jita 4-4, synced ${ago(d.meta.lastSync, now)}` },
+            ...(check.checkedAt ? (worth || cancel || holding ? [
+              ...(worth ? [{ key: 'move', value: <span style={{ color: 'var(--acc)' }}>{units(worth)}</span>, label: 'worth moving' }] : []),
+              ...(cancel ? [{ key: 'cancel', value: <span style={{ color: 'var(--neg)' }}>{units(cancel)}</span>, label: 'to cancel' }] : []),
+              ...(holding ? [{ key: 'hold', value: units(holding), label: worth || cancel ? 'beaten but clearing on their own' : 'beaten, but the stock ahead should clear shortly' }] : []),
+            ] : [{ key: 'front', value: <span style={{ color: 'var(--pos)' }}>All</span>, label: 'in front' }]) : []),
+            ...(elsewhere > 0 ? [{ key: 'else', value: units(elsewhere), label: `in other stations: can’t be checked here` }] : []),
+          ]} />
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--label)', textWrap: 'pretty' }}>
+            {check.checkedAt ? `Prices checked ${ago(check.checkedAt, now)}.` : 'Check prices to see which are worth moving.'}
             {check.checkedAt && check.changed !== null && (check.changed > 0
               ? ` ${units(check.changed)} ${check.changed === 1 ? 'book' : 'books'} moved since the last check.`
               : check.bookFreshAt && check.bookFreshAt > Date.now()
                 ? ` Nothing had changed — ESI holds the order book for five minutes, so a relist made in game shows up ${until(new Date(check.bookFreshAt).toISOString(), now) ?? 'shortly'}.`
                 : ' Nothing had changed since the last check.')}
             {until(d.meta.nextSyncAt, now) && ` Your own order list refreshes ${until(d.meta.nextSyncAt, now)}.`}
-            {elsewhere > 0 && ` ${units(elsewhere)} more ${elsewhere > 1 ? 'are' : 'is'} in other stations and can’t be checked here.`}
             {check.failed > 0 && ` ${units(check.failed)} couldn’t be read from ESI — check again.`}
           </p>
+          </div>
           <TradeSkillsLine />
           {!canOpenInGame() && (
             <Notice kind="warn">Your login predates the “In game” button. Add <code>esi-ui.open_window.v1</code> to your application on developers.eveonline.com, then log out and in again, and each row will open that item’s market window in your client.</Notice>

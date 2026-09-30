@@ -26,6 +26,7 @@ import { JITA_44 } from '../lib/config';
 import { toast } from '../lib/toast';
 import { canOpenInGame, copyPrice, downloadText, useEnsureNames, useTypeName } from './common';
 import { cssVars, Empty, Guide, PageHead, Ring, Seg } from './ui';
+import { Points } from './Facts';
 
 const DAY = 86400_000;
 const MEM_KEY = 'jita-ledger:todo';
@@ -592,9 +593,13 @@ export function Todo() {
               <RotateCcw aria-hidden="true" />Start afresh
             </button>
           </div>
-          <p className="note small">
-            Things tick themselves off when a newer read of the data no longer shows them. ESI refreshes a market every 5 minutes and your colonies every 10, so a change made in game takes up to that long to show. Finished items stay listed for {SESSION_MS / 3600_000} hours. Minutes are a rough guide per kind of task, not measured. At stake is the order’s value, the stock a squeeze puts at risk, or a day of a colony’s output.
-          </p>
+          <Points compact items={[
+            { kind: 'good', lead: 'Ticks itself off', text: 'when a newer read of the data no longer shows it.' },
+            { kind: 'info', lead: 'Up to 5 minutes', text: 'for a change made in game to show (a market; colonies, 10).' },
+            { kind: 'info', lead: 'Finished', text: `stays listed for ${SESSION_MS / 3600_000} hours.` },
+            { kind: 'info', lead: 'Minutes', text: 'a rough guide per kind of task, not measured.' },
+            { kind: 'info', lead: 'At stake', text: 'the order’s value, the stock a squeeze puts at risk, or a day of a colony’s output.' },
+          ]} />
         </aside>
       </div>
       <Guide

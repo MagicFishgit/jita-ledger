@@ -13,6 +13,7 @@ import { toast } from '../lib/toast';
 import { isStation, isStructure, structureInfo } from '../lib/universe';
 import { copyPrice, plainPrice, useEnsureNames, useTypeName } from './common';
 import { Empty, Flag, Guide, ItemIcon, Notice, PageHead, Panel, SortTh, Th, Tiles } from './ui';
+import { Points } from './Facts';
 import { SkillStrip } from './SkillStrip';
 import { useData } from '../lib/store';
 import { contractsAllowed } from '../lib/skillStatus';
@@ -256,11 +257,13 @@ export function Blueprints() {
                 </div>
               </section>
               {market && (
-                <p className="note small" style={{ margin: 0 }}>
-                  Contracts from EVE Ref’s public snapshot of every region’s contracts (docs.everef.net, from ESI, twice an hour), as of {market.at ? ago(market.at, now) : '–'}
-                  {market.since ? `, set against ${ago(market.since, now)}` : ''}. Only contracts selling one kind of blueprint and nothing else count, your own left out. A copy with other runs is scaled by
-                  runs^0.79 (10 runs ask about 6.1× one run). A contract that vanished may have been cancelled, not sold. Never trust a contract’s title: a flag says when the cheapest one’s claims don’t match its item.
-                </p>
+                <Points compact items={[
+                  { kind: 'info', lead: 'Contracts', text: `from EVE Ref’s public snapshot of every region’s (docs.everef.net, from ESI, twice an hour), as of ${market.at ? ago(market.at, now) : '–'}${market.since ? `, set against ${ago(market.since, now)}` : ''}.` },
+                  { kind: 'info', lead: 'Counted', text: 'only contracts selling one kind of blueprint and nothing else, your own left out.' },
+                  { kind: 'info', lead: 'Other runs', text: 'a copy with other runs is scaled by runs^0.79: 10 runs ask about 6.1× one.' },
+                  { kind: 'warn', lead: 'Vanished', text: 'a contract that vanished may have been cancelled, not sold.' },
+                  { kind: 'warn', lead: 'Titles', text: 'never trust one: a flag says when the cheapest contract’s claims don’t match its item.' },
+                ]} />
               )}
             </>
           )}

@@ -18,6 +18,7 @@ import type { KillParty, Killmail } from '../lib/types';
 import { useEnsureNames, useTypeName } from './common';
 import { useLearnedGankLines } from './gank';
 import { Busy, Check, Empty, PageHead, Panel, Seg, Tiles } from './ui';
+import { Points } from './Facts';
 
 const DAY = 86400_000;
 const KILLMAIL_SCOPE = SCOPE.killmails;
@@ -156,7 +157,10 @@ export function Combat() {
               </div>
             ))}
           </div>
-          <p className="note">These losses are charged to the activity they happened in, so Results and Side hustles show what each really earns once dying is included. An abyssal pocket is its own system; a hauler lost is a hauling loss whoever shot it.</p>
+          <Points compact items={[
+            { kind: 'info', lead: 'Charged', text: 'to the activity they happened in, so Results and Side hustles show what each earns once dying is included.' },
+            { kind: 'info', lead: 'Which activity', text: 'an abyssal pocket is its own system; a hauler lost is a hauling loss, whoever shot it.' },
+          ]} />
         </Panel>
         <Panel title="Learn from losses">
           <Check bare checked={d.prefs.learnFromLosses} onChange={(v) => update((x) => ({ prefs: { ...x.prefs, learnFromLosses: v } }))} desc="Lowers the gank line when you’ve been ganked">Adjust hauling risk from my losses</Check>

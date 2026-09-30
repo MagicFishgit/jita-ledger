@@ -27,6 +27,7 @@ import { contractSaid, type ContractItem } from '../lib/contracts';
 import { isFreelanceTrade } from '../lib/freelance';
 import { BarLine, cssVars, Empty, Figure, PageHead, Panel, Seg, Tiles, Tip } from './ui';
 import { ACTIVITY_COLOR, ACTIVITY_WHAT, useActivityEvents } from './activityEvents';
+import { Points } from './Facts';
 import { everyItemCalcs } from './everyItem';
 import { isTrade, isUnbought, itemResult } from '../lib/longRange';
 import { ACTIVITIES } from '../lib/prefs';
@@ -405,7 +406,11 @@ export function Wallet() {
             <span className="lbl">Net cash flow</span>
             <span className="v" style={{ fontSize: 16, color: net >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{iskBigSigned(net)}</span>
           </div>
-          <p className="note small">Everything that moved ISK is in the journal, so nothing is missing here. Trades are read from your transactions, which name the item; buy-order escrow is left out so a purchase isn’t counted twice. Anything you picked up rather than paid for — loot, salvage, ore — only shows once you sell it.</p>
+          <Points compact items={[
+            { kind: 'good', lead: 'Complete', text: 'everything that moved ISK is in the journal.' },
+            { kind: 'info', lead: 'Trades', text: 'read from your transactions, which name the item; buy-order escrow is left out so no purchase counts twice.' },
+            { kind: 'warn', lead: 'Picked up, not bought', text: 'loot, salvage and ore show only once you sell them.' },
+          ]} />
           {refunds.length > 0 && (
             <p className="note small" style={{ margin: 0 }}>
               {refunds.map((p) => `A GM refunded ${isk(p.amount)} of ${p.refType === 'brokers_fee' ? 'broker fees' : 'sales tax'} on ${fmtShort(Date.parse(p.refundAt))}${p.reason ? ` (${p.reason})` : ''}`).join('; ')}: {refunds.length === 1 ? 'the fee and the refund are' : 'those fees and refunds are'} both left out of these figures, and everywhere else a fee counts.
@@ -422,7 +427,10 @@ export function Wallet() {
 
       <div className="g-300">
         <Panel title="The fee leak">
-          <Figure value={`−${iskBig(leak.total)}`} sub={tradingIn > 0 ? `${pct(leak.total / tradingIn, 1)} of your trading income ${periodWords}` : `${periodWords}, with no trading income to set it against`} color="var(--acc2)" />
+          <Figure value={`−${iskBig(leak.total)}`} sub={tradingIn > 0 && leak.total <= tradingIn ? `${pct(leak.total / tradingIn, 1)} of your trading income ${periodWords}`
+            // Past 100% a share reads as nonsense ("71170.1%"): fees are paid on every order, loot's too, while trading income
+            // is what positions' sales brought in.
+            : tradingIn > 0 ? `${periodWords}: more than the ${iskBig(tradingIn)} your positions’ sales brought in` : `${periodWords}, with no trading income to set it against`} color="var(--acc2)" />
           <div className="col" style={{ gap: 7 }}>
             {leakRows.map(([l, v]) => (
               <div key={l} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr) minmax(64px,auto)', gap: 10, alignItems: 'center', fontSize: 12.5 }}>
@@ -432,7 +440,7 @@ export function Wallet() {
               </div>
             ))}
           </div>
-          <p className="note small">Price changes are split out because they’re the fee people most underestimate. They’re the fees matched to a change in one of your orders’ prices, by the second they were charged; changes the app didn’t see (before it kept order history, or two between syncs) sit in broker fees.</p>
+          <p className="note small">Price changes are split out: they’re the fee most underestimated. <span data-tip="The fees matched to a change in one of your orders’ prices, by the second they were charged. Changes the app didn’t see (before it kept order history, or two between syncs) sit in broker fees." style={{ textDecoration: 'underline dotted', cursor: 'help' }}>How they’re found</span></p>
           <button type="button" className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => navigate('omega')}>Which skills would cut this — Skill payback</button>
         </Panel>
         <Panel title="Trading against play">

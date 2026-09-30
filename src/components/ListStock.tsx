@@ -108,11 +108,12 @@ export function ListStock() {
           <SellWindowBanner compact />
           {!calls ? (
             <>
-              <p className="note" style={{ margin: 0 }}>
-                {units(waiting.length)} item{waiting.length === 1 ? '' : 's'} you bought {waiting.length === 1 ? 'is' : 'are'} loose in your Jita hangar, not listed
-                ({waiting.slice(0, 6).map(([id]) => name(id)).join(', ')}{waiting.length > 6 ? `, and ${units(waiting.length - 6)} more` : ''}).
-                Price them where a listing sells now, never under what they cost, and list them all through the Sell window in one paste.
-              </p>
+              <p className="note" style={{ margin: 0 }}>{units(waiting.length)} item{waiting.length === 1 ? '' : 's'} you bought {waiting.length === 1 ? 'is' : 'are'} loose in your Jita hangar, not listed:</p>
+              <div className="bonuses">
+                {waiting.slice(0, 6).map(([id]) => <span key={id} className="bonus drop"><ItemIcon id={id} size="sm" />{name(id)}</span>)}
+                {waiting.length > 6 && <span className="bonus drop">and {units(waiting.length - 6)} more</span>}
+              </div>
+              <p className="note small" style={{ margin: 0 }}>Price them where a listing sells now, never under what they cost, and list them all through the Sell window in one paste.</p>
               <div className="row" style={{ gap: 8 }}>
                 <button type="button" className="btn primary" disabled={!!busy} onClick={() => void price()}><Tags aria-hidden="true" />{busy ? `Pricing ${busy.done} of ${busy.total}…` : 'Price them'}</button>
               </div>

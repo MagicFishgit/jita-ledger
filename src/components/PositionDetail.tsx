@@ -558,7 +558,8 @@ function Charts({ pos, c, hist, marks }: { pos: Position; c: PositionCalc; hist:
     <div data-rv="" className="g-440" style={{ gap: 14 }}>
       <section className="panel" aria-label="Your prices against the market" style={{ gap: 0 }}>
         <div className="panel-title" style={{ fontSize: 12, letterSpacing: '.16em' }}>Your prices against the market</div>
-        <p className="note small" style={{ margin: '4px 0 10px' }}>Each dot is one of your trades; bigger means more units. The grey line is what the item traded at on average each day. Dotted lines are your open orders; short bars at the right are today’s best prices from others. Hover a dot for the trade.</p>
+        {/* The legend under the chart names every mark; this says only what it can't. */}
+        <p className="note small" style={{ margin: '4px 0 10px' }}>A bigger dot is more units; hover one for the trade.</p>
         <div className="chart-box" style={{ height: 240, background: 'rgba(2,7,12,.4)' }}>
           <svg className="plot" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
             <path d="M0 60H800M0 120H800M0 180H800" stroke="rgba(130,185,225,.07)" vectorEffect="non-scaling-stroke" fill="none" />
