@@ -13,7 +13,7 @@ import {
   countStock, mergeSafety, nameHolders, netWorthOf, unnamedHolders, toJournal, toOrder, toTx, withHistory,
   type OrderRecord, type RawAsset, type RawCharOrder, type RawJournal, type RawTx, type SafetyWrap, type StockRecord,
 } from '../../src/lib/esiRecords';
-import { esiAll, esiGet, esiPost, useLogin } from './eve';
+import { esiAll, esiGet, esiPost, readerLogin, stillKept, useLogin, type Reader } from './eve';
 import { mailSafety, registerSafety, safetyFindings } from './safety';
 import { push } from './sync';
 
@@ -28,7 +28,11 @@ const S = {
 
 type Env = { DB: D1Database; EVE_CLIENT_ID: string; TOKEN_KEY: string; APP_URL: string };
 
-export type ArchiveResult = { trades: number; journal: number; orders: number; names: number; stock: boolean; netWorth: number | null };
+export type ArchiveResult = {
+  trades: number; journal: number; orders: number; names: number; stock: boolean; netWorth: number | null;
+  /** The wallet balance and loyalty points this read saw, for an alt's sheet (sheet.ts); absent without the permission. */
+  wallet?: number | null; lp?: { corporationId: number; points: number }[] | null;
+};
 
 async function ids(db: D1Database, charId: number, kind: string): Promise<Set<string>> {
   const rows = (await db.prepare('SELECT id FROM records WHERE char_id = ?1 AND kind = ?2 AND data IS NOT NULL').bind(charId, kind).all<{ id: string }>()).results;
@@ -85,11 +89,28 @@ export async function refreshOrders(env: Env, charId: number): Promise<number | 
   return r.changed.length;
 }
 
-export async function archive(env: Env, charId: number): Promise<ArchiveResult> {
-  const login = await useLogin(env, charId, 'main');
+/** CCP's rough price for every type, in one request: what net worth and an asset-safety wrap are valued at. */
+export async function roughPrices(): Promise<Record<number, number>> {
+  const prices: Record<number, number> = {};
+  for (const p of (await esiGet<{ type_id: number; average_price?: number }[]>('/markets/prices/')).data) if (p.average_price) prices[p.type_id] = p.average_price;
+  return prices;
+}
+
+/**
+ * `who` says whose login is used and whose data it is (eve.ts, Reader): everything below is read for, and filed
+ * under, `who.char`. For an alt two things a ledger gets are left out: the asset-safety mail (its first read would
+ * mail the main about every wrap the alt has) and the `orders` job row (nothing refreshes or judges an alt's orders).
+ * `opts.prices`: CCP's rough prices when the caller already has them (an hour's alts share one fetch).
+ */
+export async function archive(env: Env, who: Reader, opts: { prices?: Record<number, number> } = {}): Promise<ArchiveResult> {
+  const login = await readerLogin(env, who);
   if (!login) throw new Error('No login kept for the cloud');
   const { access: token, scopes } = login;
+  const charId = who.char;
+  const alt = who.char !== who.ledger;
   const db = env.DB;
+  let rough = opts.prices;
+  const prices = async () => (rough ??= await roughPrices());
   const records: { k: string; i: string; d: unknown }[] = [];
   const docs: { key: string; d: unknown }[] = [];
   const result: ArchiveResult = { trades: 0, journal: 0, orders: 0, names: 0, stock: false, netWorth: null };
@@ -128,7 +149,7 @@ export async function archive(env: Env, charId: number): Promise<ArchiveResult> 
   let orders: OrderRecord[] = [];
   if (has(scopes, S.orders)) {
     const r = await readOrders(db, charId, token, true);
-    await noteJob(db, charId, 'orders', { ok: true, detail: { orders: r.changed.length } });
+    if (!alt) await noteJob(db, charId, 'orders', { ok: true, detail: { orders: r.changed.length } });
     records.push(...r.changed);
     result.orders = r.changed.length;
     for (const o of r.all) typeIds.add(o.typeId);
@@ -156,7 +177,8 @@ export async function archive(env: Env, charId: number): Promise<ArchiveResult> 
       } catch (e) { console.log('asset safety container names failed', e instanceof Error ? e.message : String(e)); }
     }
     const withNames = nameHolders(wraps, holderNames);
-    const reg = await registerSafety(db, charId, withNames);
+    // For an alt, only while it's still on the roster: this writes safety_seen before the push below is reached.
+    const reg = alt && !(await stillKept(db, who)) ? { known: new Map(), fresh: [] } : await registerSafety(db, charId, withNames);
     stock.safety = mergeSafety(prev?.safety, withNames, reg.known);
     freshWraps = reg.fresh;
     for (const w of wraps) for (const id of Object.keys(w.items)) typeIds.add(Number(id));
@@ -188,13 +210,13 @@ export async function archive(env: Env, charId: number): Promise<ArchiveResult> 
   // Net worth, once a day, the Wallet page's way: kept when today has no point or it moved over 0.5%.
   if (has(scopes, S.wallet)) {
     const { data: wallet } = await esiGet<number>(`/characters/${charId}/wallet/`, { token });
-    const prices: Record<number, number> = {};
-    for (const p of (await esiGet<{ type_id: number; average_price?: number }[]>('/markets/prices/')).data) if (p.average_price) prices[p.type_id] = p.average_price;
     const lp = has(scopes, S.loyalty)
       ? (await esiGet<{ corporation_id: number; loyalty_points: number }[]>(`/characters/${charId}/loyalty/points/`, { token })).data.map((b) => ({ corporationId: b.corporation_id, points: b.loyalty_points }))
       : [];
+    result.wallet = wallet;
+    result.lp = has(scopes, S.loyalty) ? lp : null;
     const meta = await doc<{ lpRate?: Record<number, { rate: number; lp?: number | null }> }>(db, charId, 'meta');
-    const nw = netWorthOf({ wallet, orders, stockTotal, roughPrices: prices, lp, lpRate: meta?.lpRate });
+    const nw = netWorthOf({ wallet, orders, stockTotal, roughPrices: await prices(), lp, lpRate: meta?.lpRate });
     const today = new Date().toISOString().slice(0, 10);
     const row = await db.prepare(`SELECT data FROM records WHERE char_id = ?1 AND kind = 'netWorth' AND id = ?2`).bind(charId, today).first<{ data: string | null }>();
     const cur = row?.data ? (JSON.parse(row.data) as { total: number }) : null;
@@ -204,18 +226,19 @@ export async function archive(env: Env, charId: number): Promise<ArchiveResult> 
     }
   }
 
-  if (records.length || docs.length) {
+  // Removed while this ran (an alt taken off the roster): nothing of it goes back in.
+  if ((records.length || docs.length) && (await stillKept(db, who))) {
     for (let i = 0; i < Math.max(records.length, 1); i += 2000) {
       await push(db, charId, { records: records.slice(i, i + 2000), docs: i === 0 ? docs : [] });
     }
   }
 
-  // A wrap just registered in asset safety: mailed once, with what's in it at CCP's estimated prices.
-  if (freshWraps.length) {
+  // A wrap just registered in asset safety: mailed once, with what's in it at CCP's estimated prices. A ledger's
+  // only: the mail goes to the character it's read for, and an alt is never mailed.
+  if (freshWraps.length && !alt) {
     try {
-      const prices: Record<number, number> = {};
-      for (const p of (await esiGet<{ type_id: number; average_price?: number }[]>('/markets/prices/')).data) if (p.average_price) prices[p.type_id] = p.average_price;
-      const mailed = await mailSafety(env, charId, safetyFindings(freshWraps, (id) => prices[id]));
+      const at = await prices();
+      const mailed = await mailSafety(env, charId, safetyFindings(freshWraps, (id) => at[id]));
       console.log('asset safety registered', charId, JSON.stringify({ wraps: freshWraps.map((w) => w.id), mailed }));
     } catch (e) { console.error('asset safety mail failed', charId, e); }
   }

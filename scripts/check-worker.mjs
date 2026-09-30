@@ -150,5 +150,122 @@ console.log('\n--- mining: whose login, whose data ---');
   }
 }
 
+/** ESI's answers for one character: a trade, a journal entry, an open order, a hangar item, a wrap in asset safety. */
+function esiFor(char, over = {}) {
+  const c = `/characters/${char}`;
+  const MINING = 3386, BARGE = 17940;
+  return [
+    [`${c}/wallet/transactions/`, [{ transaction_id: 11, date: '2026-10-01T10:00:00Z', is_buy: false, quantity: 100, type_id: VELDSPAR, unit_price: 20, location_id: 60003760 }]],
+    [`${c}/wallet/journal/`, [{ id: 21, date: '2026-10-01T10:00:00Z', ref_type: 'market_transaction', amount: 2000, balance: 5000, context_id: 11, first_party_id: 1, second_party_id: char }]],
+    [`${c}/orders/`, [{ order_id: 31, type_id: SCORDITE, price: 30, volume_total: 10, volume_remain: 10, issued: '2026-10-01T09:00:00Z', location_id: 60003760 }]],
+    [`${c}/orders/history/`, []],
+    [`${c}/assets/`, [
+      { item_id: 5001, type_id: 60, quantity: 1, location_id: 2004, location_flag: 'AssetSafety', location_type: 'other', is_singleton: true },
+      { item_id: 5002, type_id: VELDSPAR, quantity: 100, location_id: 5001, location_flag: 'Hangar', location_type: 'item' },
+      { item_id: 5003, type_id: SCORDITE, quantity: 10, location_id: 60003760, location_flag: 'Hangar', location_type: 'station' },
+    ]],
+    [new RegExp(`^POST ${c}/assets/names/$`), []],
+    [/^POST \/universe\/names\/$/, [{ id: VELDSPAR, name: 'Veldspar' }, { id: SCORDITE, name: 'Scordite' }]],
+    ['/markets/prices/', [{ type_id: VELDSPAR, average_price: 20 }, { type_id: SCORDITE, average_price: 30 }]],
+    [`${c}/loyalty/points/`, [{ corporation_id: 1000035, loyalty_points: 1234 }]],
+    [`${c}/wallet/`, over.wallet ?? 5000],
+    [`${c}/skills/`, { total_sp: 900000, skills: over.skills ?? [
+      { skill_id: MINING, trained_skill_level: 5, active_skill_level: 4, skillpoints_in_skill: 256000 },
+      { skill_id: BARGE, trained_skill_level: 3, active_skill_level: 0, skillpoints_in_skill: 32000 },
+    ] }],
+    [`${c}/skillqueue/`, [{ skill_id: MINING, finished_level: 5, queue_position: 0, finish_date: '2026-10-03T00:00:00Z', start_date: '2026-10-01T00:00:00Z' }]],
+    [`${c}/attributes/`, { intelligence: 20, memory: 21, perception: 22, willpower: 23, charisma: 19 }],
+    [new RegExp(`^POST /characters/${SENDER}/mail/$`), 777],
+  ];
+}
+
+console.log('\n--- an alt\'s full read ---');
+{
+  const { archive } = await import('../worker/src/archive.ts');
+  const { readAlt, altReaders, rosterOf, onRoster, isAlt } = await import('../worker/src/alts.ts');
+  const { altReader, ledgerReader } = await import('../worker/src/eve.ts');
+  const docOf = (db, char, key) => { const r = db.rows('SELECT data FROM docs WHERE char_id = ? AND key = ?', char, key)[0]; return r ? JSON.parse(r.data) : null; };
+  const kinds = (db, char) => Object.fromEntries(db.rows('SELECT kind, COUNT(*) AS n FROM records WHERE char_id = ? GROUP BY kind', char).map((r) => [r.kind, r.n]));
+
+  // The main, as it has always been copied, with alert mail on and a sender: the case where an alt's read must stay silent.
+  const withSender = async () => {
+    const x = await ledgerWithAlt();
+    await keepKey(x.db, MAIN, 'mailer', SENDER, 'Postmaster', SCOPES);
+    const { push } = await import('../worker/src/sync.ts');
+    await push(x.db, MAIN, { records: [], docs: [{ key: 'alerts', d: { on: true, mail: true, quiet: false } }] });
+    return x;
+  };
+  {
+    const { db, env } = await withSender();
+    const f = stubFetch(esiFor(MAIN));
+    const r = await archive(env, ledgerReader(MAIN));
+    f.restore();
+    eq('  the main\'s copy: a trade, a journal entry, an order, as before', [r.trades, r.journal, r.orders, r.stock], [1, 1, 1, true]);
+    eq('    its records are under the main', kinds(db, MAIN), { journal: 1, names: 2, netWorth: 1, orders: 1, txs: 1 });
+    eq('    it notes its orders read', db.rows(`SELECT job FROM jobs WHERE char_id = ? ORDER BY job`, MAIN).map((x) => x.job), ['orders']);
+    eq('    it hands back the wallet and the points it read', [r.wallet, r.lp], [5000, [{ corporationId: 1000035, points: 1234 }]]);
+  }
+
+  {
+    const { db, env } = await withSender();
+    const before = under(db, MAIN);
+    const f = stubFetch(esiFor(ALT));
+    const r = await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  an alt\'s read: the same kinds, under the alt', kinds(db, ALT), { journal: 1, names: 2, netWorth: 1, orders: 1, txs: 1 });
+    eq('    nothing of it under the main', under(db, MAIN), before);
+    eq('    its jobs are the copy and the sheet, not an orders read', db.rows('SELECT job FROM jobs WHERE char_id = ? ORDER BY job', ALT).map((x) => x.job), ['archive', 'sheet']);
+    eq('    its wrap is registered', db.rows('SELECT wrap_id FROM safety_seen WHERE char_id = ? AND wrap_id != 0', ALT).map((x) => x.wrap_id), [5001]);
+    eq('    and the main is not mailed about it', f.calls.filter((c) => c.method === 'POST' && /\/mail\//.test(c.path)).length, 0);
+    eq('    ESI was asked about the alt only', f.calls.filter((c) => /^\/characters\//.test(c.path)).every((c) => c.path.startsWith(`/characters/${ALT}/`)), true);
+    const meta = docOf(db, ALT, 'meta');
+    eq('    its sheet: usable below trained is Alpha', [r.clone, meta.cloneDetected], ['alpha', 'alpha']);
+    eq('    only the capped skills are listed as active', meta.activeSkills, { 3386: 4, 17940: 0 });
+    eq('    wallet, points, queue and attributes are there', [meta.walletBalance, meta.lpBalances, meta.skillQueue.length, meta.attributes.memory, meta.totalSp], [5000, [{ corporationId: 1000035, points: 1234 }], 1, 21, 900000]);
+    eq('    the first read can\'t say since when', meta.cloneSince ?? null, null);
+    eq('    its skills are the trained levels', docOf(db, ALT, 'skills'), { 3386: 5, 17940: 3 });
+  }
+
+  // Omega again: the cloud saw the change, so it can say since when. And a read that changes nothing pushes nothing.
+  {
+    const { db, env } = await withSender();
+    let f = stubFetch(esiFor(ALT));
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    const rev1 = db.rows('SELECT rev FROM revs WHERE char_id = ?', ALT)[0].rev;
+    f = stubFetch(esiFor(ALT));
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  a read that finds nothing new pushes nothing', db.rows('SELECT rev FROM revs WHERE char_id = ?', ALT)[0].rev, rev1);
+    f = stubFetch(esiFor(ALT, { skills: [{ skill_id: 3386, trained_skill_level: 5, active_skill_level: 5 }, { skill_id: 17940, trained_skill_level: 3, active_skill_level: 3 }] }));
+    const r = await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    const meta = docOf(db, ALT, 'meta');
+    eq('  upgraded: a skill past Alpha\'s cap is usable, so Omega', [r.clone, meta.cloneDetected, meta.activeSkills], ['omega', 'omega', {}]);
+    eq('    and the change is dated', typeof meta.cloneSince, 'string');
+  }
+
+  // Removed while the copy was running.
+  {
+    const { db, env } = await withSender();
+    const routes = esiFor(ALT);
+    routes[0] = [`/characters/${ALT}/wallet/transactions/`, () => { db.run('DELETE FROM keys WHERE purpose = ?', `alt:${ALT}`); return []; }];
+    const f = stubFetch(routes);
+    await readAlt(env, altReader(MAIN, ALT)).catch(() => undefined);
+    f.restore();
+    eq('  an alt removed mid-read gets no records, documents or jobs', [kinds(db, ALT), db.rows('SELECT COUNT(*) AS n FROM docs WHERE char_id = ?', ALT)[0].n, db.rows('SELECT COUNT(*) AS n FROM jobs WHERE char_id = ?', ALT)[0].n], [{}, 0, 0]);
+  }
+
+  // The roster.
+  {
+    const { db } = await ledgerWithAlt();
+    db.run('INSERT INTO alts (char_id, ledger, name, added_at, removed_at) VALUES (?, ?, ?, ?, ?)', 900002, MAIN, 'Gone', 1, 2);
+    eq('  the roster is the alts not removed', (await rosterOf(db, MAIN)).map((a) => [a.charId, a.name]), [[ALT, 'Miner Two']]);
+    eq('  on the roster: an alt of this ledger, not removed', [await onRoster(db, MAIN, ALT), await onRoster(db, MAIN, 900002), await onRoster(db, 123, ALT)], [true, false, false]);
+    eq('  an alt is an alt, removed or not', [await isAlt(db, ALT), await isAlt(db, 900002), await isAlt(db, MAIN)], [true, true, false]);
+    eq('  the alts to read are the ones with a login', await altReaders(db), [{ ledger: MAIN, purpose: `alt:${ALT}`, char: ALT }]);
+  }
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

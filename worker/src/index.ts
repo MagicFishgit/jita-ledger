@@ -114,7 +114,7 @@ async function runScan(env: Env) {
 /** Run the archive for one ledger and note how it went. */
 async function runArchive(env: Env, charId: number) {
   try {
-    const detail = await archive(env, charId);
+    const detail = await archive(env, ledgerReader(charId));
     await noteJob(env.DB, charId, 'archive', { ok: true, detail });
     return detail;
   } catch (e) {
