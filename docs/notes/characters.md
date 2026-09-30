@@ -41,7 +41,10 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
 - **This browser's own mail sender, picked while adding a character, is handed over as the sender** (`handOverAs`).
   With no sender in the cloud, the Worker can't know it (`sortLogin` gets no mailer) and added it as an alt: read hourly,
   counted in the wallets, and then logged out of this browser by the sender check. The toast still says what was
-  asked for, and the rule above takes out the stopped browser sender.
+  asked for, and the rule above takes out the stopped browser sender. **Except a character already in `chars`**, on the
+  roster or taken off it: then it's being added (back) as an alt, which is what "Add a character" asked. Sent as the
+  sender, one still on the roster would be refused by the Worker, which marks that alt's working login refused. This
+  is the one place `chars` rather than the live roster decides, on purpose: here a removed alt coming back is an alt.
 - **The browser's sender check reads the live roster, and only a roster read in this session** (App.tsx, `rosterLive` in
   the alt store). A sender logged in to this browser that the cloud reads as an alt is logged out, which revokes it at
   EVE, with a message. It reads the roster as the cloud has it, never `chars`, which keeps characters taken off the

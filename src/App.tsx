@@ -152,6 +152,8 @@ export function App() {
         const asked = key.purpose;
         // This browser's own mail sender, picked on EVE's page while adding a character, is handed over as the sender:
         // a sender that comes back is kept as the sender, never added as an alt. The words still say what was asked.
+        // Unless it's already one of your characters (`chars`, which keeps ones taken off the roster too): then it's
+        // being added (back) as an alt, and sent as the sender the cloud would refuse it and mark its alt login refused.
         const sent = handOverAs(asked, key.charId, getMailer()?.characterId, String(key.charId) in getData().chars);
         const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
         const closed = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
