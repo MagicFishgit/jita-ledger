@@ -51,7 +51,8 @@ pages identical with and without alts; and no way, by construction, for an alt's
 - An alt's login is a `keys` row `(char_id = the main, purpose = 'alt:<altId>', token_char_id = altId)`. `purpose`
   is already free text and part of the key, so any number fit with no change to the table's shape, and every
   existing `purpose = 'main'` query keeps meaning "a full ledger".
-- Migration `0016`: `ALTER TABLE keys ADD COLUMN sender INTEGER` (1 on the alt that sends alert mail). It only adds.
+- Migration `0016` only adds: `keys.sender INTEGER` (1 on the alt that sends alert mail) and
+  `mining_state.ship_type_id INTEGER` (the hull at the last mining read, for an alt's "right now").
 - **Handing one over**: `loginAltForCloud()` in `auth.ts` (PKCE purpose `cloud-alt`, the main's scope set:
   `SCOPES` plus any asked optional ones). The refresh token goes to `POST /v1/keys` with `purpose: 'alt'` and is
   never stored in the browser. The Worker refreshes it once to prove it, then:
@@ -73,7 +74,8 @@ pages identical with and without alts; and no way, by construction, for an alt's
 - **Removing**: `DELETE /v1/alts/<id>?data=keep|delete` revokes the login at EVE and drops the row. `delete` also
   removes the alt's rows from `records`, `docs`, `revs`, `jobs`, `mining_state`, `mining_ticks` and `safety_seen`.
   Kept data is unreachable until the character is added again.
-- **Scale**: up to about ten alts. Each adds one mining read every ten minutes and one full read an hour.
+- **Scale**: up to twelve alts, the number the hourly reads below can cover. Each adds one mining read every ten
+  minutes and one full read an hour.
 
 ### 2. What the cloud reads, and where it goes
 
@@ -82,15 +84,22 @@ Everything read for an alt is stored under `char_id = altId`, in the same kinds 
 - **A reader is told whose login and whose data**: the jobs take `{ ledger, purpose, char }` instead of one
   `charId` (`useLogin(env, ledger, purpose)` for the token, `char` for ESI paths and for `push`). For a main all
   three are what they are today.
-- **Hourly, after the ledgers' own copies** (`archive`, unchanged in what it reads): wallet trades and journal,
-  orders and order history, assets (`stock`, asset safety wraps registered but not mailed), loyalty points, item
-  names, one net-worth point a day. `/markets/prices/` is fetched once for the round and shared.
-- **Hourly, new, alts only** (`sheet.ts`): `/skills/`, `/skillqueue/`, `/attributes/`, `/wallet/`. Written as the
+- **When alts are read**: in the five-minute round, after every ledger's orders, the market watch, the alerts and
+  the watchdog, so nothing of the main's waits on an alt. Each round reads every alt's mining that is due, then
+  **at most one alt's hourly read: the one read longest ago, if that was over an hour ago**. Twelve rounds an hour
+  cover twelve alts. The hourly cron (archives, daily checks, the scan's catch-up with its 11-minute budget inside
+  the 15-minute limit, Abyss Tracker) is left exactly as it is: alt reads placed there would run ahead of a scan
+  whose budget doesn't know they happened.
+- **The hourly read** (`archive`, unchanged in what it reads): wallet trades and journal, orders and order history,
+  assets (`stock`, asset safety wraps registered but not mailed), loyalty points, item names, one net-worth point
+  a day.
+- **With it, new, alts only** (`sheet.ts`): `/skills/`, `/skillqueue/`, `/attributes/`, `/wallet/`. Written as the
   alt's `skills` doc (trained levels, the main's shape) and `meta` doc with the main's field names: `walletBalance`,
   `walletAt`, `totalSp`, `skillSp`, `skillQueue`, `attributes`, `lpBalances`, `cloneDetected`, and new `cloneSince`
   and `activeSkills` (only the skills whose usable level is below trained).
 - **Every ten minutes** (`readMiningRound`, as for a main): the mining ledger and the ship it's in, as `mining`
-  records and `mining_ticks` under the alt's ID.
+  records and `mining_ticks` under the alt's ID. The ship is also kept on `mining_state` whether or not anything
+  was mined, and `GET /v1/alts` returns it with the time of that read.
 - **Not done for an alt**: the twenty-minute orders refresh, order judging, alerts and alert mail, opportunity
   mail, the track record, share measuring, the Sniper's bids, asset-safety mail. `watchMarkets` leaves out
   characters that are alts, so their sell orders don't add watched books.
@@ -134,17 +143,26 @@ Everything read for an alt is stored under `char_id = altId`, in the same kinds 
   - when the cloud last read it; its login (working, refused, permissions missing);
   - Add a character, Hand the cloud this login again, Send alert mail from this character, Remove (asks keep or
     delete, through the app's confirm dialog).
-  - The add button says that EVE's login page shows the account you're signed in to there, and how to pick a
-    character on another account.
+  - The add button says what EVE's login does: it remembers the account you last signed in with, so for a
+    character on another account, sign out on EVE's login page first and sign in with that account. Not in a
+    private window: the login has to come back to this tab, which holds the other half of it (the PKCE verifier,
+    in `sessionStorage`).
 - **Mining tab**: a character filter (All, or one) kept per browser; a per-character table with fleet totals;
   sessions say who mined. "Scaling up" gets "Show for", and the tree marks what that character can fly from its
   own usable skills and queue.
+- **"Right now" for an alt comes from the cloud, not from ESI live**: the browser has no alt token, so
+  `useRightNow` (location, online, ship, read with the main's login) stays the main's. For an alt, the Mining tab
+  and the tree's lit hull use the ship at the cloud's last ten-minute read, "mining now" when its ledger grew in
+  that read or the one before, and say how old it is ("as of 14:20"). Where an alt is, and whether it's logged in,
+  aren't read.
 - **Wallet**: the net-worth tile gains "All characters", linking to the Characters page.
 - **Your characters, as the main's ledger knows them**: `prefs.chars`, a synced map of character ID to
   `{ name, clone? }`, written when an alt is added, dropped when its data is deleted, `clone` being the choice made
   by hand. It is the only thing about an alt the main's ledger holds: who is yours, never a record of theirs. It
   means the rules below work on any device before the alt store has loaded, and a removed alt whose data was kept
-  still counts as yours.
+  still counts as yours. The cloud's roster is the truth: every read of `GET /v1/alts` adds any alt missing from
+  `prefs.chars` and corrects names, so a hand-over whose write here failed is put right on the next read. Nothing
+  is removed by that read; only deleting an alt's data takes it out.
 - **Transfers between your own characters**: a journal entry whose `refType` is `player_donation` or starts with
   `contract_`, and whose two parties are the main and a character in `prefs.chars`, is "Between your characters" in
   the Wallet's categories. It counts as neither income nor spending there, in Results or in "All income against
@@ -182,7 +200,8 @@ Everything read for an alt is stored under `char_id = altId`, in the same kinds 
 Each is its own branch, verified and shipped (`npm run deployed`) before the next.
 
 1. **Cloud**: migration 0016, alt hand-over and the sender rule, the readers told whose login and whose data,
-   `sheet.ts`, `alphaCaps.ts`, the alt routes, the watchdog naming characters, the market watch excluding alts.
+   `sheet.ts`, `alphaCaps.ts`, alt reads in the five-minute round, the alt routes, the watchdog naming characters,
+   the market watch excluding alts.
 2. **Browser**: `roster.ts`, `altStore.ts`, the Characters page with add, hand over again, sender and remove.
 3. **Mining** across characters, and the tree per character.
 4. **Wallet** total, transfers between characters, To do, Settings.
