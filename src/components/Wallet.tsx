@@ -25,7 +25,11 @@ import { AssetSafety } from './AssetSafety';
 import { downloadBlob, downloadText, useEnsureNames, useShipTypes, useTypeName } from './common';
 import { contractSaid, type ContractItem } from '../lib/contracts';
 import { isFreelanceTrade } from '../lib/freelance';
-import { BarLine, cssVars, Empty, Figure, PageHead, Panel, Seg, Tiles } from './ui';
+import { BarLine, cssVars, Empty, Figure, PageHead, Panel, Seg, Tiles, Tip } from './ui';
+import { ACTIVITY_COLOR, ACTIVITY_WHAT, useActivityEvents } from './activityEvents';
+import { everyItemCalcs } from './everyItem';
+import { isTrade, isUnbought, itemResult } from '../lib/longRange';
+import { ACTIVITIES } from '../lib/prefs';
 import { nettedJournal, refundsIn } from '../lib/refunds';
 
 const DAY = 86400_000;
@@ -337,6 +341,8 @@ export function Wallet() {
   const profit = posSeries.reduce((t, x) => t + realizedBetween(x.series, since, now), 0);
   const play = f.outs.filter((l) => l.kind === 'Personal').reduce((t, l) => t + l.amount, 0);
   const left = profit - play;
+  // ---- All income against play: every activity counted as Results counts it, and sales no activity counts.
+  const acts = useActivityEvents();
 
   // ---- Runway: personal spending plus the running costs, over the last 30 days.
   const burn30 = f30.outs.filter((l) => l.kind === 'Personal' || RUNNING.has(l.key)).reduce((t, l) => t + l.amount, 0);
@@ -446,6 +452,7 @@ export function Wallet() {
             {' '}Profit is what your positions realized {periodWords}; play is everything marked Personal.
           </p>
         </Panel>
+        <AllIncome d={d} acts={acts} play={play} since={since} now={now} periodWords={periodWords} />
         <Panel title="Runway">
           <Figure value={runway == null ? '–' : !Number.isFinite(runway) ? 'No spending' : `${units(Math.round(runway))} days`} sub="of spending covered" color="var(--acc)" />
           <div className="track h10"><span className="fill" style={{ width: `${runway == null ? 0 : Math.min(100, (runway / 365) * 100)}%` }} /></div>
@@ -976,6 +983,74 @@ function Report(props: {
         ))}
       </div>
       <p className="note small">From the 1st of {monthName} to now. Top earner is the position that realized the most profit this month.</p>
+    </Panel>
+  );
+}
+
+/**
+ * Everything you earned against what you spent on play: the user's ask beside "Trading against play", which counts only
+ * positions ("I have other income as well", 30 September 2026). Trading is every item bought and sold again, by its
+ * profit, as Results' "Every item traded" counts it (positions, snipes and the rest); each other activity by Results' own
+ * rules; and what was sold but never bought (loot, ore, datacores) by what it sold for after tax. An item an activity counts (filaments, abyssal
+ * loot, planetary and loyalty-store goods) is that activity's alone, so nothing is counted twice. Play is the same
+ * Personal spending as beside.
+ */
+function AllIncome({ d, acts, play, since, now, periodWords }: { d: Data; acts: ReturnType<typeof useActivityEvents>; play: number; since: number; now: number; periodWords: string }) {
+  const calcs = useMemo(() => everyItemCalcs(d), [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored]); // eslint-disable-line react-hooks/exhaustive-deps
+  const items = useMemo(() => calcs.map((c) => itemResult(c, since - 1, now)), [calcs, since, now]);
+  const inWindow = (t: number) => t >= since && t <= now;
+  const sets = acts.typeSets;
+  const activityItem = (id: number) => !!sets && (sets.filaments.has(id) || sets.abyssLoot.has(id) || sets.pi.has(id) || sets.lpGoods.has(id));
+  const trading = items.filter((r) => isTrade(r) && !activityItem(r.typeId)).reduce((t, r) => t + r.profit, 0);
+  const neverBought = new Set(items.filter((r) => isUnbought(r) && !activityItem(r.typeId)).map((r) => r.typeId));
+  const loot = acts.others.filter((e) => inWindow(e.t) && neverBought.has(e.typeId)).reduce((t, e) => t + e.isk, 0);
+  const rows = [
+    { key: 'trading', said: 'Trading, every item', color: ACTIVITY_COLOR.Trading, isk: trading,
+      tip: 'Every item you bought and sold again, by its profit: positions, snipes and anything traded without one, as Results’ “Every item traded” counts it. Personal trades are left out.' },
+    ...ACTIVITIES.filter((a) => a !== 'Trading').map((a) => ({ key: a as string, said: a as string, color: ACTIVITY_COLOR[a], tip: ACTIVITY_WHAT[a], isk: acts.events.filter((e) => e.activity === a && inWindow(e.t)).reduce((t, e) => t + e.isk, 0) })),
+    { key: 'loot', said: 'Sold, never bought', color: '#adbfcf', isk: loot,
+      tip: 'Things you sold that you never bought: loot, salvage, ore, datacores, gifts, by what they sold for after sales tax. Abyssal loot, planetary and loyalty-store goods count with their activities, and Personal sales are left out. Something bought before the app’s records begin would count here too.' },
+  ].filter((r) => Math.abs(r.isk) >= 1).sort((a, b) => b.isk - a.isk);
+  const earned = rows.reduce((t, r) => t + r.isk, 0);
+  const left = earned - play;
+  const plus = rows.filter((r) => r.isk > 0);
+  const scale = Math.max(1, plus.reduce((t, r) => t + r.isk, 0), play);
+  return (
+    <Panel title={<span className="row tight" style={{ gap: 6 }}>All income against play<Tip title="All income against play" text={'Everything you earned, against what you spent on play.\n\n• Trading is every item you bought and sold again, by its profit, not only your positions.\n• Each other activity is counted as on Results: freelance rewards less what the jobs cost, abyssal loot less filaments and ships lost, bounties less ships lost.\n• What you sold but never bought (loot, ore, datacores) counts by what it sold for, after tax.\n• Play is everything marked Personal, as in Trading against play.'} /></span>}>
+      {!acts.ready ? <p className="note">Reading which items belong to which activity…</p> : (
+        <>
+          <div className="col" style={{ gap: 6 }}>
+            {rows.length ? rows.map((r) => (
+              <div key={r.key} className="kv" style={{ fontSize: 13.5 }} data-tip={r.tip} data-tip-title={r.said}>
+                <span className="row tight" style={{ color: 'var(--body)', gap: 7 }}><span aria-hidden="true" style={{ width: 9, height: 9, background: r.color, flex: 'none' }} />{r.said}</span>
+                <span className="v" style={{ color: r.isk >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{iskBigSigned(r.isk)}</span>
+              </div>
+            )) : <p className="note" style={{ margin: 0 }}>Nothing earned {periodWords}.</p>}
+            <div className="kv" style={{ fontSize: 13.5, borderTop: '1px solid var(--line-3)', paddingTop: 6 }}><span style={{ color: 'var(--ink)' }}>All income</span><span className="v" style={{ color: earned >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{iskBigSigned(earned)}</span></div>
+            <div className="kv" style={{ fontSize: 13.5 }}><span style={{ color: 'var(--body)' }}>Spent on play</span><span className="v" style={{ color: '#ff8d9a' }}>−{iskBig(play)}</span></div>
+            <div className="kv" style={{ fontSize: 13.5 }}><span style={{ color: 'var(--body)' }}>What’s left</span><span className="v" style={{ color: 'var(--acc)' }}>{iskBigSigned(left)}</span></div>
+          </div>
+          {/* What came in, by source, above what play took, on one scale. */}
+          <div className="col" style={{ gap: 4 }} aria-hidden="true">
+            <div className="row tight" style={{ gap: 8 }}>
+              <span className="lbl" style={{ width: 46, flex: 'none' }}>In</span>
+              <div style={{ flex: 1, display: 'flex', height: 12, background: 'var(--track)' }}>
+                {plus.map((r) => <span key={r.key} data-tip={`${r.said}: ${iskBigSigned(r.isk)}`} style={{ width: `${(r.isk / scale) * 100}%`, background: r.color }} />)}
+              </div>
+            </div>
+            <div className="row tight" style={{ gap: 8 }}>
+              <span className="lbl" style={{ width: 46, flex: 'none' }}>Play</span>
+              <div style={{ flex: 1, height: 12, background: 'var(--track)' }}><span style={{ display: 'block', height: '100%', width: `${(play / scale) * 100}%`, background: '#ff8d9a' }} /></div>
+            </div>
+          </div>
+          <p className="note" style={{ margin: 0 }}>
+            {earned <= 0 ? (play > 0 ? 'Nothing earned more than it cost in this window, so play is coming out of savings.' : 'Nothing earned in this window.')
+              : play <= earned ? `Everything you do pays for your flying, with ${iskBig(left)} left over.`
+                : `You spent ${iskBig(play - earned)} more on play than you earned.`}
+            {acts.failed ? ' The item groups couldn’t be read from ESI, so abyssal, planets, loyalty and things never bought aren’t counted; it tries again next visit.' : ''}
+          </p>
+        </>
+      )}
     </Panel>
   );
 }

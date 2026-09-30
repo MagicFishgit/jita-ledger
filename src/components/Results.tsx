@@ -1,24 +1,19 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { CalendarRange, Clock, Layers, Trophy } from 'lucide-react';
-import { rates } from '../lib/fees';
 import { fmtDate, fmtShort, iskBig, iskBigSigned, pct, units } from '../lib/format';
 import { useNow } from '../lib/hooks';
-import { computePosition, countedIn } from '../lib/positions';
-import { attribute, byBucket, perHour, totals, type DayEvent, type TypeSets } from '../lib/results';
+import { byBucket, perHour, totals } from '../lib/results';
 import { everyItemCalcs } from './everyItem';
 import { bandOf, bucketStarts, groupResults, HELD_BANDS, inBandOrder, isTrade, isUnbought, itemResult, PRICE_BANDS, profitByBucket, unitFor, type BucketUnit, type Group, type ItemCalc, type ItemResult } from '../lib/longRange';
 import { itemCategory } from '../lib/universe';
-import { loadTypeSets } from '../lib/attribution';
-import { classify } from '../lib/killmails';
-import { netLoss, type CombatActivity } from '../lib/combat';
+import { netLoss } from '../lib/combat';
 import { update, useData } from '../lib/store';
 import { ACTIVITIES } from '../lib/prefs';
-import { isFreelanceTrade } from '../lib/freelance';
 import type { Activity } from '../lib/types';
-import { useEnsureNames, useTypeName } from './common';
+import { useTypeName } from './common';
 import { flip } from './Prospects';
 import { Guide, NumChip, PageHead, Panel, Seg, Tiles } from './ui';
-import { nettedJournal } from '../lib/refunds';
+import { ACTIVITY_COLOR, ACTIVITY_WHAT, useActivityEvents } from './activityEvents';
 
 const DAY = 86400_000;
 /** 0 is everything the ledger holds. */
@@ -31,19 +26,8 @@ const bucketSaid = (t: number, unit: BucketUnit) => (unit === 'day' ? fmtShort(t
  * A position over every trade ever made in an item, for the item-by-item view. Trades tagged Personal on the
  * Wallet are left out, as they are there: selling your own things, or buying for yourself, isn't trading.
  */
-const COLOR: Record<Activity, string> = {
-  Trading: 'var(--acc)', Loyalty: '#a98bff', Planets: '#6ee7a8', Hauling: 'var(--acc2)', Abyssal: '#ff8d9a', Combat: '#7aa6ff', Freelance: '#f5b86b',
-};
-const WHAT: Record<Activity, string> = {
-  Trading: 'Realized profit from your positions',
-  Loyalty: 'Loyalty-store goods sold, less the ISK the store took',
-  Planets: 'Planetary goods sold, less customs tax',
-  Hauling: 'Courier rewards, less haulers lost',
-  Abyssal: 'Abyssal loot sold, less filaments bought and ships lost',
-  Combat: 'Bounties and missions, less ships lost',
-  Freelance: 'Freelance job rewards, less everything bought for the jobs (stock not yet delivered included; the Freelance tab shows profit on what’s delivered)',
-};
-const LOSS_ACTIVITY: Record<CombatActivity, Activity> = { Abyssal: 'Abyssal', Hauling: 'Hauling', PvP: 'Combat', PvE: 'Combat' };
+const COLOR = ACTIVITY_COLOR;
+const WHAT = ACTIVITY_WHAT;
 
 export function Results() {
   const d = useData();
@@ -74,48 +58,8 @@ export function Results() {
   const since = unit === 'day' ? dayStart(now) - (span - 1) * DAY : now - span * DAY;
   const periodSaid = days === 0 ? (firstAt != null ? `since ${fmtShort(firstAt)}` : 'so far') : days === 365 ? 'a year' : `${days} days`;
 
-  const corps = (d.meta.lpBalances ?? []).map((b) => b.corporationId);
-  const [sets, setSets] = useState<TypeSets | null>(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    loadTypeSets(corps).then((s) => { if (alive) setSets(s); }).catch(() => { if (alive) setFailed(true); });
-    return () => { alive = false; };
-  }, [corps.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Mutaplasmids have no market group of their own, so they need names before they can be recognised.
-  const traded = useMemo(() => [...new Set(Object.values(d.txs).map((t) => t.typeId))], [d.txs]);
-  useEnsureNames(traded);
-
-  const [lossActs, setLossActs] = useState<Record<number, CombatActivity>>({});
-  const lossKey = Object.values(d.killmails).filter((k) => k.kind === 'loss').map((k) => k.id).join(',');
-  useEffect(() => {
-    let alive = true;
-    classify(Object.values(d.killmails).filter((k) => k.kind === 'loss')).then((m) => { if (alive) setLossActs(m); }).catch(() => undefined);
-    return () => { alive = false; };
-  }, [lossKey]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const posCalc = useMemo(() => d.positions.map((p) => ({ p, c: computePosition(p, d, d.settings) })), [d.positions, d.txs, d.journal, d.settings]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const events = useMemo<DayEvent[]>(() => {
-    if (!sets) return [];
-    const txs = Object.values(d.txs).filter((t) => t.source === 'esi');
-    const tracked = new Set(txs.filter((t) => d.positions.some((p) => countedIn(p, t))).map((t) => t.id));
-    const abyssLoot = new Set(sets.abyssLoot);
-    for (const [id, n] of Object.entries(d.names)) if (/Mutaplasmid$/.test(n)) abyssLoot.add(Number(id));
-    const realized: { t: number; isk: number }[] = [];
-    for (const { c } of posCalc) {
-      let prev = 0;
-      for (const s of c.series) { if (s.realized !== prev) realized.push({ t: s.t, isk: s.realized - prev }); prev = s.realized; }
-    }
-    const losses = Object.values(d.killmails)
-      .filter((k) => k.kind === 'loss' && k.value && lossActs[k.id])
-      .map((k) => ({ t: Date.parse(k.time), activity: LOSS_ACTIVITY[lossActs[k.id]], isk: netLoss(k) }));
-    const jobs = d.meta.freelance?.jobs ?? [];
-    const personal = new Set(d.ignored);
-    const freelance = (tx: { id: string; typeId: number; date: string }) => !personal.has(tx.id) && isFreelanceTrade(jobs, tx);
-    return attribute({ txs, journal: Object.values(nettedJournal(d.journal)), tracked, realized, losses, sets: { ...sets, abyssLoot }, freelance, salesTax: rates(d.settings).t });
-  }, [sets, d.txs, d.journal, d.positions, d.names, d.killmails, lossActs, posCalc, d.settings, d.meta.freelance, d.ignored]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Every ISK movement attributed to an activity, as the Wallet's "All income against play" counts it too.
+  const { events, failed, posCalc, lossActs } = useActivityEvents();
 
   const acts = ACTIVITIES;
   const starts = bucketStarts(since, now, unit);
@@ -234,7 +178,7 @@ export function Results() {
         lede="Everything you made, split by activity — and what each paid per hour of your time, so you know where your evenings are best spent."
         actions={<Seg label="Period" value={days} onChange={setDays} options={PERIODS} />}
       />
-      {failed && <p className="note" style={{ color: 'var(--acc2)' }}>Couldn’t read the item groups from ESI, so only trading, hauling and bounties are counted. It tries again next visit.</p>}
+      {failed && <p className="note" style={{ color: 'var(--acc2)' }}>Couldn’t read the item groups from ESI, so only trading, hauling, freelance and bounties are counted. It tries again next visit.</p>}
       <Tiles min={190} items={[
         { l: days === 0 ? `Made ${periodSaid}` : `Made in ${periodSaid}`, v: iskBigSigned(grand), n: 'After every fee and tax', c: grand >= 0 ? 'var(--pos)' : 'var(--neg)' },
         { l: 'Per day', v: iskBigSigned(grand / covered), n: covered < span ? `Averaged over the ${covered} day${covered === 1 ? '' : 's'} your ledger covers` : 'Averaged across the period' },

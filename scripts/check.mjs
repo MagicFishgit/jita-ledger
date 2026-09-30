@@ -26,7 +26,7 @@ import { readKillmail, priceOnDay, valueKillmail, activityOf, matchInsurance, le
 import { orderTodo, remember, split, summarise, judgeOrder, judgePi, judgeScam, SESSION_MS } from '../src/lib/todo.ts';
 import { fmtDateTime } from '../src/lib/format.ts';
 import { bookFills, addFlow, observedFlow, pruneFlow, pace as sidePaceBlend, MAX_GAP_H } from '../src/lib/flow.ts';
-import { byDay, totals, perHour, attribute } from '../src/lib/results.ts';
+import { byDay, totals, perHour, attribute, otherSales } from '../src/lib/results.ts';
 import { sanitizePrefs, sanitizeAlerts, effectiveMotion } from '../src/lib/prefs.ts';
 
 let failed = 0;
@@ -1796,6 +1796,14 @@ eq('per hour over the period', perHour(700, 7, 7), 100);
   eq('combat: bounties', by('Combat'), 300);
   eq('a trade a position counts is never double-counted', ev.some((e) => e.isk === 777 || e.isk === 777 * 0.9), false);
   eq('an item belonging to nothing is left out', ev.some((e) => e.isk === 4500), false);
+  // The Wallet's "All income against play" adds the sales no activity counts (loot, ore), which the user asked for: "I have
+  // other income as well" (30 September 2026).
+  const inp = {
+    txs: [T('a', 1, true, 2, 100), T('b', 2, false, 1, 1000), T('e', 9, false, 1, 5000), T('f', 9, false, 1, 777), T('g', 9, false, 1, 300), T('h', 1, false, 1, 50), T('i', 9, true, 1, 60)],
+    journal: [{ date: '2026-09-20T11:00:00Z', refType: 'transaction_tax', amount: -150, contextId: 'e' }],
+    tracked: new Set(['f']), realized: [], losses: [], sets, salesTax: 0.1,
+  };
+  eq('other sales: what no position or activity counts, after tax (the journal’s, else the rate)', otherSales(inp, new Set(['g'])).map((x) => x.isk), [5000 - 150, 50 - 5]);
 }
 
 console.log('\n--- recent averages over calendar days ---');

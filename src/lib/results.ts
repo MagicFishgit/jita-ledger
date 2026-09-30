@@ -84,12 +84,18 @@ export type AttributionInput = {
  * position counts goes to the activity its item belongs to; one that belongs to none is left out
  * rather than guessed at.
  */
-export function attribute(inp: AttributionInput): DayEvent[] {
-  const out: DayEvent[] = [];
+/** The sales tax the journal charged each trade, by transaction ID. */
+function taxesByTx(journal: AttributionInput['journal']): Map<string, number> {
   const taxByTx = new Map<string, number>();
-  for (const e of inp.journal) {
+  for (const e of journal) {
     if (e.refType === 'transaction_tax' && e.contextId != null) taxByTx.set(String(e.contextId), (taxByTx.get(String(e.contextId)) ?? 0) + Math.abs(e.amount));
   }
+  return taxByTx;
+}
+
+export function attribute(inp: AttributionInput): DayEvent[] {
+  const out: DayEvent[] = [];
+  const taxByTx = taxesByTx(inp.journal);
   for (const r of inp.realized) if (r.isk) out.push({ t: r.t, activity: 'Trading', isk: r.isk });
   for (const tx of inp.txs) {
     if (inp.tracked.has(tx.id)) continue;
@@ -112,5 +118,25 @@ export function attribute(inp: AttributionInput): DayEvent[] {
     else if (categoryOf(e)?.key === 'bounties') out.push({ t, activity: 'Combat', isk: e.amount });
   }
   for (const l of inp.losses) out.push({ t: l.t, activity: l.activity, isk: -l.isk });
+  return out;
+}
+
+/**
+ * Sales that no position and no activity counts, after sales tax: loot from missions and exploration, ore, anything in no
+ * set, and resales of things bought outside a position. `attribute` leaves them out rather than guess; the Wallet's "All
+ * income against play" takes from these the items never bought (loot, ore: income whole) and counts the rest by their
+ * profit instead. Sales marked Personal and freelance trades are left out, and loot of an activity's own (abyssal,
+ * planetary, loyalty-store goods) is that activity's.
+ */
+export function otherSales(inp: AttributionInput, personal: Set<string>): { t: number; isk: number; typeId: number }[] {
+  const taxByTx = taxesByTx(inp.journal);
+  const { abyssLoot, pi, lpGoods } = inp.sets;
+  const out: { t: number; isk: number; typeId: number }[] = [];
+  for (const tx of inp.txs) {
+    if (tx.isBuy || inp.tracked.has(tx.id) || personal.has(tx.id) || inp.freelance?.(tx)) continue;
+    if (abyssLoot.has(tx.typeId) || pi.has(tx.typeId) || lpGoods.has(tx.typeId)) continue;
+    const gross = tx.qty * tx.unitPrice;
+    out.push({ t: Date.parse(tx.date), isk: gross - (taxByTx.get(tx.id) ?? gross * inp.salesTax), typeId: tx.typeId });
+  }
   return out;
 }

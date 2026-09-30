@@ -162,6 +162,21 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   "3-month pack, in PLEX" with "whole pack", and the line above says where the store shows it. The skill payback table
   shows the queue ("Queued: V, done 23 Oct") and missing prerequisites (Tycoon "Needs Wholesale V and Marketing IV
   first", not "0.0 days").
+- **"All income against play" sits beside "Trading against play" on the Wallet** (`AllIncome` in Wallet.tsx; the shared
+  `useActivityEvents` in `components/activityEvents.ts`, which Results now uses too; `otherSales` in results.ts). The user:
+  the trading card "only tracks trading via positions but I have other income as well" (30 September 2026). It counts
+  everything you earned in the window, each thing once:
+  - trading as every item bought and sold again, by its profit (Results' "Every item traded": positions, snipes, the rest);
+  - each other activity by Results' rules (freelance rewards less what the jobs cost, abyssal loot less filaments and ships
+    lost, bounties less ships lost, and so on);
+  - what was sold but never bought (loot, salvage, ore, datacores, gifts) by what it sold for after tax: an item bought
+    and resold counts by its profit, never its sale value, which the first version got wrong (it read +981 M of "other
+    sales" on the user's ledger copy, snipe resales among them);
+  - items an activity counts (filaments, abyssal loot, planetary and loyalty-store goods) left to that activity.
+  Play is the same Personal spending as beside. On the user's ledger copy (to 27 September): never bought +973.81 M (led
+  by 213.5 M of Datacore - High Energy Physics), combat +172.83 M, abyssal +1.81 M, every item −6.36 M; 366.5 M on play.
+  Without ESI's item groups only trading, hauling, freelance and bounties count, and both pages now say so (Results said
+  it counted those, but counted nothing).
 - **Net worth keeps one snapshot a day in this browser** (`Data.netWorth`), written by the Wallet page. ESI has no
   net-worth history, so the trend starts the first day the page is opened and says so.
 - **Goals are five kinds, each measured from something the app reads** (`lib/goals.ts`): afford N of an item
