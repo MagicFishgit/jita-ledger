@@ -52,9 +52,18 @@ async function load(): Promise<void> {
 
 let loaded: Promise<void> | null = null;
 let running: Promise<void> | null = null;
-/** Read the roster, and pull each alt whose revision has moved. One at a time: a second call joins the first. */
+/** A call that came while a read was running: what it wants to see may have changed after that read started. */
+let again = false;
+/**
+ * Read the roster, and pull each alt whose revision has moved. One at a time: a call that arrives during a read
+ * joins it, and asks for one more read after it, so a change made since that read began (an alt just added) shows
+ * now rather than on the next tick. The promise settles after that last read.
+ */
 export function refreshAlts(): Promise<void> {
-  running ??= read().finally(() => { running = null; });
+  if (running) { again = true; return running; }
+  running = (async () => {
+    do { again = false; await read(); } while (again);
+  })().finally(() => { running = null; again = false; });
   return running;
 }
 

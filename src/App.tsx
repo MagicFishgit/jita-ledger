@@ -10,7 +10,7 @@ import { THEMES } from './lib/prefs';
 import { priceKillmails } from './lib/killmails';
 import { startAlerts } from './lib/alertsRunner';
 import { cloudAltRead, cloudSummary, keepCloudLogin, runCloudArchive, startCloud } from './lib/cloud';
-import { refreshAlts, startAlts } from './lib/altStore';
+import { refreshAlts, startAlts, useAlts } from './lib/altStore';
 import { units } from './lib/format';
 import { marketParam, openFromLink, withoutMarket } from './lib/marketLink';
 import { setToastLife, toast } from './lib/toast';
@@ -105,6 +105,17 @@ export function App() {
   // The app is the owner's alone: anyone else gets the landing page, and nothing below runs for them.
   const owner = DEV_OWNER || isOwner(auth?.characterId);
   const live = ready && owner;
+  // A sender logged in to THIS browser that the cloud reads as one of your characters (on the live roster): it can't be
+  // both. EVE allows a character one set of permissions, and whichever login came later stopped the other. Read from
+  // the roster as the cloud has it, never from `chars`, which remembers characters taken off it.
+  const alts = useAlts();
+  useEffect(() => {
+    if (!live) return;
+    const sender = getMailer();
+    if (!sender || !alts.roster.some((r) => r.charId === sender.characterId)) return;
+    logoutMailer().catch(() => undefined);
+    setLoginErr(`${sender.characterName} is one of the characters the cloud reads for you, so it can’t also be logged in here as the mail sender: EVE allows a character one set of permissions, and the later login stops the earlier. It has been logged out here. If its card on the Characters page says its login was refused, hand it over again there.`);
+  }, [live, alts.roster]); // eslint-disable-line react-hooks/exhaustive-deps
   const newer = useNewerVersion();
   const route = useRoute();
   const sync = useSyncState();
@@ -128,14 +139,6 @@ export function App() {
       const who = getAuth();
       if (who && !isOwner(who.characterId)) { setRefused(who.characterName); await logout(); }
       await initStore();
-      // A sender logged in to THIS browser that is one of the characters the cloud reads: it can't be both. EVE allows
-      // a character one set of permissions, and whichever login came later stopped the other. Checked here, where the
-      // list of your characters is loaded; the login itself comes back before the store has.
-      const sender = getMailer();
-      if (sender && getData().chars[String(sender.characterId)]) {
-        await logoutMailer();
-        setLoginErr(`${sender.characterName} is one of the characters the cloud reads for you, so it can’t also be logged in here as the mail sender: EVE allows a character one set of permissions, and the later login stops the earlier. It has been logged out here. If its card on the Characters page says its login was refused, hand it over again there.`);
-      }
       // A login for the cloud's background jobs goes straight to the Worker; nothing stays here. After the store has
       // loaded, since an alt's hand-over ends by writing which characters are yours.
       if (cb.cloudKey) {
@@ -164,7 +167,7 @@ export function App() {
             }
             // The main's login: run the ledger copy straight away rather than at 7 past the hour. It proves the login
             // end to end, and replaces the error an earlier login left on it (and on the orders read) with what happens now.
-            if (slip) toast(`That was ${k.name}, your main, not another character. Nothing was added; the cloud’s login for it was renewed, and it keeps watch as ${k.name}.${slip}`, 'warn');
+            if (slip) toast(`That was ${k.name}, your main, not another character. Nothing was added, and the cloud keeps watch as ${k.name} with this login (if you had stopped it, it runs again).${slip}`, 'warn');
             try {
               const r = await runCloudArchive();
               if (!slip) toast(`The cloud now keeps watch as ${k.name}, with this app closed too. It has just read your ledger: ${r.trades || r.journal || r.orders ? `${units(r.trades)} new trades, ${units(r.journal)} journal entries, ${units(r.orders)} order changes` : 'nothing new'}.`);
