@@ -169,6 +169,12 @@ export function update(patch: Partial<Data> | ((d: Data) => Partial<Data>), opts
  * Adds characters the cloud's roster lists to `chars`, and corrects their names. The only way the alt store
  * (altStore.ts) reaches this ledger: it hands over who is yours, and nothing else it holds. Never removes one: a
  * character taken off the roster is still yours, and what you sent it stays a transfer.
+ *
+ * Applied as a change from the cloud, which it is (its roster), so it is never pushed: `chars` goes up only when you
+ * edit it (a clone state set by hand), carrying every character this device knows. Pushed on every roster read, a
+ * device whose ledger hadn't caught up with the cloud's (a new one before its first sync, or one just wiped) would
+ * have sent a list built from the roster alone over the cloud's, dropping characters taken off the roster and clone
+ * states set by hand.
  */
 export function mergeChars(found: { charId: number; name: string | null }[]): void {
   const next: CharsDoc = { ...data.chars };
@@ -178,7 +184,7 @@ export function mergeChars(found: { charId: number; name: string | null }[]): vo
     const name = f.name ?? next[id]?.name ?? `Character ${f.charId}`;
     if (next[id]?.name !== name) { next[id] = { ...next[id], name }; changed = true; }
   }
-  if (changed) update({ chars: next });
+  if (changed) update({ chars: next }, { origin: 'cloud' });
 }
 
 /** Run when everything is wiped (clearAll): for state kept beside the ledger, like the alts' copy. */
