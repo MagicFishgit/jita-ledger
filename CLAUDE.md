@@ -132,29 +132,38 @@ Your data → Send a test mail).
 
 ## Notes by topic
 
-Everything learned the hard way lives in `docs/notes/`, one file per topic, each imported below so it is read with
-this file. Read the one for the area you are changing before you change it, and add to it when you learn something:
-what was wrong, the evidence, and what to do instead.
+Everything learned the hard way lives in `docs/notes/`, one file per topic. Read the one for the area you are changing
+before you change it, and add to it when you learn something: what was wrong, the evidence, and what to do instead.
 
-- `eve-facts.md`: EVE and ESI facts that cost real research. Don't re-derive or contradict these without new evidence.
+**Only five of them are in context when a session starts.** Instruction files loaded at the start share a budget of
+150,000 characters; on 30 September 2026 this file and all eleven notes, every one imported here, came to 206,800 and
+Claude Code warned. The notes only grow, so nothing was cut from them. What changed is when each is loaded.
+
+Loaded when you read a file it covers (`.claude/rules/<topic>.md`: a `paths:` list and an import of the note). A
+session that hasn't read such a file doesn't have the note, so **Read it yourself before designing, researching or
+answering in its area**:
+
+- `eve-facts.md` (anything under `src/`, `worker/` or `scripts/`): EVE and ESI facts that cost real research. Don't
+  re-derive or contradict these without new evidence.
 - `market-reading.md`: how books, prices and paces are judged (reach, the buyer/seller split, Clears in, relist advice).
 - `finding-trades.md`: Prospects, the Capital planner, the full-market scan, the Sniper, Place and leave.
 - `orders-alerts.md`: To do, browser notifications, in-game mail.
 - `positions-results.md`: positions, fees, Results, the Wallet, goals, standings.
+- `loyalty-hustles.md`: Loyalty, Abyssal, Hauling, Planets, Mining, Freelance, Reprocessing, skills, Combat.
+
+Always loaded, imported below, because they apply to any change:
+
 - `cloud.md`: the cloud copy of the ledger and what the cloud does with its logins.
-- `loyalty-hustles.md`: Loyalty, Abyssal, Hauling, Planets, skills, Combat.
 - `app-conventions.md`: wording, layout, tooltips, numbers and charts.
 - `gotchas.md`: traps in the code and tools that have cost time.
 - `known-bugs.md`: verified bugs not yet fixed.
 - `limits.md`: honest limits of the model, to state rather than let be discovered.
 
-@docs/notes/eve-facts.md
-@docs/notes/market-reading.md
-@docs/notes/finding-trades.md
-@docs/notes/orders-alerts.md
-@docs/notes/positions-results.md
+Keeping it that way: a new source file goes in its topic's `paths:`; a new note gets a rule of its own rather than an
+import here; and a rule's frontmatter has to stay valid YAML, since one that doesn't parse is loaded at the start like
+an import. `/context` lists what a session has loaded.
+
 @docs/notes/cloud.md
-@docs/notes/loyalty-hustles.md
 @docs/notes/app-conventions.md
 @docs/notes/gotchas.md
 @docs/notes/known-bugs.md
