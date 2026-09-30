@@ -2,13 +2,13 @@ import type { LeaveSummary, ShareSummary, SnipeSummary } from './track';
 import type { AltPage, RosterEntry } from './roster';
 import type { TrackerCell, TrackerFitDetail } from './abyssTracker';
 import { useSyncExternalStore } from 'react';
-import { get, set } from 'idb-keyval';
+import { del, get, set } from 'idb-keyval';
 import { getAccessToken, getAuth, onAuthChange } from './auth';
 import { CLOUD_URL } from './config';
 import {
   applyPulled, asMap, diffRecords, docValue, everything, isDocKey, isRecordKey, sharedDoc, type DocKey, type Pulled, type RecordKey,
 } from './cloudSync';
-import { dataStore, getData, isReady, onDataChange, update, type Data } from './store';
+import { dataGeneration, dataStore, getData, isReady, onClearAll, onDataChange, update, type Data } from './store';
 import { sanitizeSettings } from './fees';
 import { setCloudFlow, setCloudHours } from './flowStore';
 import type { HourBucket } from './rhythm';
@@ -192,6 +192,7 @@ function run(job: () => Promise<void>): Promise<void> {
 
 async function pushNow(): Promise<void> {
   if (!state || !pendingCount()) return;
+  const wipe = dataGeneration();
   const d = getData();
   const recs = [...dirtyRecords.entries()];
   const docs = [...dirtyDocs.entries()];
@@ -214,6 +215,9 @@ async function pushNow(): Promise<void> {
         docs: withDocs.map(([k]) => ({ key: k, d: docValue(d, k) })),
       }),
     });
+    // "Delete all data" meanwhile: what's left to send was read from a ledger that is gone, and the list it came off is
+    // this browser's old one. Stop here.
+    if (dataGeneration() !== wipe) return;
     ownRevs.add(res.rev);
     // Only what hasn't changed again since it was read goes off the list.
     for (const [key, g] of part) if (dirtyRecords.get(key) === g) dirtyRecords.delete(key);
@@ -229,12 +233,16 @@ type PullPage = { rev: number; next: string | null; records: (Pulled['records'][
 async function pullNow(): Promise<Map<string, Set<string>>> {
   const seen = new Map<string, Set<string>>();
   if (!state) return seen;
+  const wipe = dataGeneration();
   let after: string | null = null;
   let pages = 0;
   for (;;) {
     const q = new URLSearchParams({ since: String(state.rev) });
     if (after) q.set('after', after);
     const page: PullPage = await call<PullPage>(`/v1/pull?${q}`);
+    // "Delete all data" meanwhile: this pull was for the ledger that's gone, and moving the revision on would make the
+    // first sync that brings the cloud's copy back start past most of it.
+    if (dataGeneration() !== wipe) return seen;
     // Local changes not yet sent win: they'll be pushed, and that push is newer.
     const records = page.records.filter((r) => !ownRevs.has(r.r) && !dirtyRecords.has(`${r.k}|${r.i}`));
     const docs = page.docs.filter((x) => !ownRevs.has(x.r) && !dirtyDocs.has(x.key as DocKey));
@@ -271,7 +279,10 @@ async function pullNow(): Promise<Map<string, Set<string>>> {
  */
 async function firstSync(): Promise<void> {
   setStatus({ phase: 'working', doing: 'Comparing with the cloud' });
+  const wipe = dataGeneration();
   const seen = await pullNow();
+  // Wiped meanwhile: the pull stopped short, so this browser hasn't met the cloud yet. The sync after the wipe starts over.
+  if (dataGeneration() !== wipe) return;
   const all = everything(getData());
   for (const r of all.records) if (!seen.get(r.k)?.has(r.i)) markRecord(r.k, r.i);
   for (const k of all.docs) if (!seen.get('doc')?.has(k)) markDoc(k);
@@ -295,6 +306,26 @@ async function loadState(charId: number) {
   }
   setStatus({ rev: state.rev, pending: pendingCount(), started: state.started, background: state.bg ?? null });
 }
+
+/**
+ * "Delete all data" empties this browser; the cloud's copy stays and comes straight back down. What the sync knew about
+ * this browser goes with the ledger. Its unsent changes, sent afterwards, would be read from the emptied ledger, i.e. as
+ * removals of the cloud's rows; and "already met the cloud at revision N", saved again by the next pull, meant the next
+ * start pulled only what was newer, so the ledger never came back (both reproduced on a local Worker, 30 September 2026:
+ * a name edited just before the wipe was deleted in the cloud, and after a minute and a reload the ledger stayed empty
+ * with default settings, which the next settings change would have pushed over the cloud's). So the sync forgets them
+ * and meets the cloud again as a new browser: everything comes down, and nothing here overwrites it.
+ */
+onClearAll(async () => {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+  dirtyRecords.clear(); dirtyDocs.clear(); ownRevs.clear();
+  if (state) state = { charId: state.charId, rev: 0, started: false, bg: state.bg ?? null };
+  setStatus({ rev: 0, pending: 0, started: false });
+  await del(STATE_KEY, dataStore).catch(() => undefined);
+  // Once the wipe has finished (this runs inside it, before the ledger in memory is emptied).
+  setTimeout(() => { syncCloudNow().catch(() => undefined); }, 0);
+});
 
 /** Push anything waiting and pull what's new, now. */
 export function syncCloudNow(): Promise<void> {

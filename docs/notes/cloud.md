@@ -34,6 +34,17 @@ Decisions worth not undoing. How the ledger lives in the cloud as well as the br
   or changed, and keeps one net-worth point a day the Wallet's way; the market watch (`worker/src/market.ts`) does
   `bookFills` all day on every item any ledger has open orders, open positions or watchlist entries on, and the app
   merges that flow with its own (`setCloudFlow`, cloud wins per day).
+- **"Delete all data" makes the sync meet the cloud again as a new browser** (`onClearAll` hook in `lib/cloud.ts`). The
+  sync's state lives in the ledger's own IndexedDB store (`STATE_KEY`), but its copy in memory outlived the wipe: the
+  next minute's pull saved "already met the cloud at revision N" back, so after a reload only what was newer came down
+  and the ledger stayed empty, with default settings the next settings change would have pushed over the cloud's; and
+  changes still waiting to go up were read from the emptied ledger and sent as removals. Both reproduced on a local
+  Worker (30 September 2026: a name edited just before the wipe was deleted in the cloud; after a tick and a reload the
+  ledger was empty, target back to 5). Found by reading during the multi-character reviews; it predates them. Now the
+  wipe drops the unsent list and the saved state, and a first sync starts at once, so the cloud's copy comes straight
+  back down (the dialog says so; with sync switched off it stays empty). Pushes, pulls and first syncs in flight stop
+  when `dataGeneration()` moves under them: a pull from before the wipe that moved the revision on would make the first
+  sync after it start past most of the ledger.
 - **Every job reports to `jobs`, and the Sniper does it every five minutes** (for the watchdog, see orders-alerts):
   about 290 row writes a day for the Sniper on top of the per-ledger jobs, well inside the plan's 50 M a month.
 - **The cloud's hour-by-hour prices show on the Calculator** ("Jita, hour by hour": best bid and ask per hour

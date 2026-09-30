@@ -1332,9 +1332,9 @@ function DataTab() {
             <button type="button" className="btn sm" onClick={() => fileRef.current?.click()}><Upload aria-hidden="true" />Import backup</button>
             <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={onImport} />
             <button type="button" className="btn sm danger" onClick={async () => {
-              if (!(await confirmAsk({ title: 'Delete everything in this browser?', body: covered ? 'Every position, trade and setting goes from this browser. The cloud copy stays, and comes back here the next time you open the app logged in. Turn cloud sync off first if you want this browser to stay empty.' : 'Every position, trade and setting goes. Export a backup first if you might want them back.', confirm: 'Delete everything', danger: true }))) return;
+              if (!(await confirmAsk({ title: 'Delete everything in this browser?', body: covered ? 'Every position, trade and setting goes from this browser. The cloud copy stays and comes straight back down, so this starts the browser afresh from the cloud. Turn cloud sync off first if you want this browser to stay empty.' : 'Every position, trade and setting goes. Export a backup first if you might want them back.', confirm: 'Delete everything', danger: true }))) return;
               await clearAll();
-              toast('Everything was deleted from this browser.', 'err');
+              toast(covered ? 'Everything was deleted from this browser. The cloud’s copy is coming back down.' : 'Everything was deleted from this browser.', 'err');
             }}><Trash2 aria-hidden="true" />Delete all data</button>
           </div>
         </section>
