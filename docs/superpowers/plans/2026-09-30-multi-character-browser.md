@@ -1274,6 +1274,7 @@ Notes for whoever types this in:
 - `Flag`, `Tiles`, `Panel`, `Notice`, `Empty` and `PageHead` are in `src/components/ui.tsx`; read their props there. If `tsc` rejects a prop (for instance `Notice`'s `icon`), match the component as it is rather than changing it.
 - "Hand the cloud this login again" uses the same flow as adding: EVE's page picks the character, and the Worker replaces that character's login. Its card can't force which character is picked; the toast on return names who came back.
 - The `_was` in `setClone` is unused on purpose (the rest-sibling pattern `worker/src/eve.ts` uses for `_exp`).
+- The main's card hands `d.meta` to `charFacts`, whose `MetaLike.skillQueue` asks only for `skillId`, `level` and `finish`. The store's queue entries carry more fields, which is fine. If `tsc` objects all the same, widen `MetaLike` in `roster.ts` to accept them; don't change `Meta` or cast at the call.
 
 - [ ] **Step 4: Run the page check, at both widths**
 
@@ -1283,7 +1284,7 @@ Expected: `npm run check` passes in full (the alt store is imported by `App.tsx`
 
 - [ ] **Step 5: Look at it**
 
-Run `npm run dev`, open `http://localhost:5173/jita-ledger/` in a Playwright browser, and seed as the page check does: the stand-in owner login in `localStorage['jita-ledger:auth']`, then the three-alt roster in IndexedDB `jita-ledger-alts` / `kv` (the `altStoreOf(ALTS.large)` shape from `scripts/pages.mjs`), then `location.reload()` and go to `#characters`. Wait a second before each screenshot (pages animate in). Check by eye, at 1440 px and at 390 px:
+Run `VITE_CLOUD_URL=http://127.0.0.1:9 npm run dev` (the cloud address defaults to the production Worker; pointed at a port nothing answers on, as the page check does, the stand-in login's fake token never reaches it), open `http://localhost:5173/jita-ledger/` in a Playwright browser, and seed as the page check does: the stand-in owner login in `localStorage['jita-ledger:auth']`, then the three-alt roster in IndexedDB `jita-ledger-alts` / `kv` (the `altStoreOf(ALTS.large)` shape from `scripts/pages.mjs`), then `location.reload()` and go to `#characters`. Wait a second before each screenshot (pages animate in). Check by eye, at 1440 px and at 390 px:
 
 - three tiles, then four cards: the one logged in here, Miner Two (Alpha, a wallet, a net-worth point with its date, a skill in training), Miner Three ("Can't tell" with the two buttons, and "Its mining read is failing: …"), Hauler Four (every figure "–", "Login refused", "The cloud hasn't read it yet", a primary "Hand the cloud this login again");
 - the notice that the cloud couldn't be reached, with how old what's shown is (the dev server has no cloud);
