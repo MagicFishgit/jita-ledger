@@ -14,7 +14,8 @@ import { useTypeName } from './common';
 import { flip } from './Prospects';
 import { Guide, NumChip, PageHead, Panel, Seg, Tiles } from './ui';
 import { Figures, Points } from './Facts';
-import { ACTIVITY_COLOR, ACTIVITY_WHAT, useActivityEvents } from './activityEvents';
+import { ACTIVITY_COLOR, useActivityEvents } from './activityEvents';
+import { ACTIVITY_WHAT } from '../lib/income';
 
 const DAY = 86400_000;
 /** 0 is everything the ledger holds. */

@@ -18,7 +18,7 @@ import {
   autoTag, balanceAt, balanceSeries, csvCell, describeRef, feeLeak, fittedShips, flows, multibuys, nextTag, RUNNING, runwayDays, unusual,
   type Line, type Multibuy, type TradeClass,
 } from '../lib/wallet';
-import type { JournalEntry, Position, Tx, UntrackedTag } from '../lib/types';
+import type { Activity, JournalEntry, Position, Tx, UntrackedTag } from '../lib/types';
 import { AreaLine, MiniLine } from './charts';
 import { Goals } from './Goals';
 import { AssetSafety } from './AssetSafety';
@@ -26,11 +26,10 @@ import { downloadBlob, downloadText, useEnsureNames, useShipTypes, useTypeName }
 import { contractSaid, type ContractItem } from '../lib/contracts';
 import { isFreelanceTrade } from '../lib/freelance';
 import { BarLine, cssVars, Empty, Figure, PageHead, Panel, Seg, Tiles, Tip } from './ui';
-import { ACTIVITY_COLOR, ACTIVITY_WHAT, useActivityEvents } from './activityEvents';
+import { ACTIVITY_COLOR, useActivityEvents } from './activityEvents';
 import { Points } from './Facts';
 import { everyItemCalcs } from '../lib/everyItem';
-import { isTrade, isUnbought, itemResult } from '../lib/longRange';
-import { ACTIVITIES } from '../lib/prefs';
+import { incomeRows } from '../lib/income';
 import { nettedJournal, refundsIn } from '../lib/refunds';
 
 const DAY = 86400_000;
@@ -1005,21 +1004,8 @@ function Report(props: {
  */
 function AllIncome({ d, acts, play, since, now, periodWords }: { d: Data; acts: ReturnType<typeof useActivityEvents>; play: number; since: number; now: number; periodWords: string }) {
   const calcs = useMemo(() => everyItemCalcs(d), [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored]); // eslint-disable-line react-hooks/exhaustive-deps
-  const items = useMemo(() => calcs.map((c) => itemResult(c, since - 1, now)), [calcs, since, now]);
-  const inWindow = (t: number) => t >= since && t <= now;
-  const sets = acts.typeSets;
-  const activityItem = (id: number) => !!sets && (sets.filaments.has(id) || sets.abyssLoot.has(id) || sets.pi.has(id) || sets.lpGoods.has(id));
-  const trading = items.filter((r) => isTrade(r) && !activityItem(r.typeId)).reduce((t, r) => t + r.profit, 0);
-  const neverBought = new Set(items.filter((r) => isUnbought(r) && !activityItem(r.typeId)).map((r) => r.typeId));
-  const loot = acts.others.filter((e) => inWindow(e.t) && neverBought.has(e.typeId)).reduce((t, e) => t + e.isk, 0);
-  const rows = [
-    { key: 'trading', said: 'Trading, every item', color: ACTIVITY_COLOR.Trading, isk: trading,
-      tip: 'Every item you bought and sold again, by its profit: positions, snipes and anything traded without one, as Results’ “Every item traded” counts it. Personal trades are left out.' },
-    ...ACTIVITIES.filter((a) => a !== 'Trading').map((a) => ({ key: a as string, said: a as string, color: ACTIVITY_COLOR[a], tip: ACTIVITY_WHAT[a], isk: acts.events.filter((e) => e.activity === a && inWindow(e.t)).reduce((t, e) => t + e.isk, 0) })),
-    { key: 'loot', said: 'Sold, never bought', color: '#adbfcf', isk: loot,
-      tip: 'Things you sold that you never bought: loot, salvage, ore, datacores, gifts, by what they sold for after sales tax. Abyssal loot, planetary and loyalty-store goods count with their activities, and Personal sales are left out. Something bought before the app’s records begin would count here too.' },
-  ].filter((r) => Math.abs(r.isk) >= 1).sort((a, b) => b.isk - a.isk);
-  const earned = rows.reduce((t, r) => t + r.isk, 0);
+  const { rows, earned } = useMemo(() => incomeRows(calcs, acts, since, now), [calcs, acts, since, now]);
+  const colorOf = (key: string) => (key === 'trading' ? ACTIVITY_COLOR.Trading : key === 'loot' ? '#adbfcf' : ACTIVITY_COLOR[key as Activity]);
   const left = earned - play;
   const plus = rows.filter((r) => r.isk > 0);
   const scale = Math.max(1, plus.reduce((t, r) => t + r.isk, 0), play);
@@ -1030,7 +1016,7 @@ function AllIncome({ d, acts, play, since, now, periodWords }: { d: Data; acts: 
           <div className="col" style={{ gap: 6 }}>
             {rows.length ? rows.map((r) => (
               <div key={r.key} className="kv" style={{ fontSize: 13.5 }} data-tip={r.tip} data-tip-title={r.said}>
-                <span className="row tight" style={{ color: 'var(--body)', gap: 7 }}><span aria-hidden="true" style={{ width: 9, height: 9, background: r.color, flex: 'none' }} />{r.said}</span>
+                <span className="row tight" style={{ color: 'var(--body)', gap: 7 }}><span aria-hidden="true" style={{ width: 9, height: 9, background: colorOf(r.key), flex: 'none' }} />{r.said}</span>
                 <span className="v" style={{ color: r.isk >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{iskBigSigned(r.isk)}</span>
               </div>
             )) : <p className="note" style={{ margin: 0 }}>Nothing earned {periodWords}.</p>}
@@ -1043,7 +1029,7 @@ function AllIncome({ d, acts, play, since, now, periodWords }: { d: Data; acts: 
             <div className="row tight" style={{ gap: 8 }}>
               <span className="lbl" style={{ width: 46, flex: 'none' }}>In</span>
               <div style={{ flex: 1, display: 'flex', height: 12, background: 'var(--track)' }}>
-                {plus.map((r) => <span key={r.key} data-tip={`${r.said}: ${iskBigSigned(r.isk)}`} style={{ width: `${(r.isk / scale) * 100}%`, background: r.color }} />)}
+                {plus.map((r) => <span key={r.key} data-tip={`${r.said}: ${iskBigSigned(r.isk)}`} style={{ width: `${(r.isk / scale) * 100}%`, background: colorOf(r.key) }} />)}
               </div>
             </div>
             <div className="row tight" style={{ gap: 8 }}>

@@ -10,11 +10,16 @@ import type { TypeSets } from './results';
  */
 export const PI_GROUPS = [1333, 1334, 1335, 1336, 1337];
 
-let cached: { key: string; p: Promise<TypeSets> } | null = null;
+/**
+ * One answer per set of loyalty stores, so the main's and an alt's (whose stores differ) don't evict each other when
+ * both are shown. A load that fails is forgotten, so the next asks again.
+ */
+const cached = new Map<string, Promise<TypeSets>>();
 
 export function loadTypeSets(corps: number[]): Promise<TypeSets> {
   const key = [...corps].sort().join(',');
-  if (cached?.key === key) return cached.p;
+  const hit = cached.get(key);
+  if (hit) return hit;
   const p = (async () => {
     const [filaments, loot, pi, offers] = await Promise.all([
       groupTypes(FILAMENT_GROUPS),
@@ -27,7 +32,7 @@ export function loadTypeSets(corps: number[]): Promise<TypeSets> {
       lpGoods: new Set(offers.flat().map((o) => o.typeId)),
     };
   })();
-  cached = { key, p };
-  p.catch(() => { cached = null; });
+  cached.set(key, p);
+  p.catch(() => { if (cached.get(key) === p) cached.delete(key); });
   return p;
 }

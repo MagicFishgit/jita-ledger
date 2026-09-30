@@ -3953,5 +3953,55 @@ console.log('\n--- which characters are yours ---');
   eq('    and one training says neither', R.idleQueueSaid(f), null);
 }
 
+console.log('\n--- what a ledger earned (income.ts) ---');
+{
+  const { activityEvents, incomeRows } = await import('../src/lib/income.ts');
+  const { everyItemCalcs } = await import('../src/lib/everyItem.ts');
+  const { emptyData } = await import('../src/lib/emptyData.ts');
+  const T0 = Date.parse('2026-09-20T00:00:00Z');
+  const at = (h) => new Date(T0 + h * 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const tx = (id, typeId, h, isBuy, qty, unitPrice) => [id, { id, source: 'esi', typeId, date: at(h), isBuy, qty, unitPrice, locationId: 60003760 }];
+  const d = {
+    ...emptyData(),
+    txs: Object.fromEntries([
+      tx('a1', 100, 0, true, 10, 1000), tx('a2', 100, 24, false, 10, 1500),   // traded: bought 10,000, sold 15,000
+      tx('l1', 200, 48, false, 5, 2000),                                      // loot: never bought, sold 10,000
+      tx('f1', 300, 1, true, 1, 50000),                                       // a filament bought
+      tx('y1', 400, 60, false, 1, 80000),                                     // abyssal loot sold
+    ]),
+    journal: Object.fromEntries([
+      ['j1', { id: 'j1', date: at(24), refType: 'transaction_tax', amount: -500, contextId: 'a2' }],
+      ['j2', { id: 'j2', date: at(48), refType: 'transaction_tax', amount: -300, contextId: 'l1' }],
+      ['j3', { id: 'j3', date: at(60), refType: 'transaction_tax', amount: -2000, contextId: 'y1' }],
+      ['j4', { id: 'j4', date: at(30), refType: 'bounty_prizes', amount: 7000 }],
+    ]),
+  };
+  const sets = { filaments: new Set([300]), abyssLoot: new Set([400]), pi: new Set(), lpGoods: new Set() };
+  const acts = activityEvents(d, sets, false, {}, []);
+  const since = T0, now = T0 + 5 * 86400_000;
+  const { rows, earned } = incomeRows(everyItemCalcs(d), acts, since, now);
+  const by = Object.fromEntries(rows.map((r) => [r.key, r.isk]));
+  // Trading is every item bought and sold again by its profit, counted once: the activity events hold no Trading here
+  // (no positions), and the row isn't added to them. Its tax is the 7.5% estimate (1,125), not the journal's 500: a
+  // position claims a tax by second and size (feeMatch.ts, within half of what the rate expects), and 500 is 625 off at
+  // the empty ledger's Accounting 0. So 15,000 − 10,000 − 1,125, as the Wallet counted it before income.ts. Abyssal and
+  // loot take their tax by transaction ID (results.ts), so the journal's figures stand there.
+  eq('  trading, every item, by its profit', Math.round(by.trading), 15000 - 10000 - 1125);
+  eq('  abyssal: loot sold after tax, less the filament', Math.round(by.Abyssal), 80000 - 2000 - 50000);
+  eq('  combat: the bounty', by.Combat, 7000);
+  eq('  sold, never bought: the loot after its tax', Math.round(by.loot), 10000 - 300);
+  eq('  all income is the rows added up', Math.round(earned), 3875 + 28000 + 7000 + 9700);
+  // The window's first millisecond counts, the one before it doesn't (the Wallet's inWindow and itemResult's since − 1).
+  const late = incomeRows(everyItemCalcs(d), acts, T0 + 48 * 3600_000, now);
+  eq('    from the loot sale\'s own millisecond: it counts', Math.round(Object.fromEntries(late.rows.map((r) => [r.key, r.isk])).loot), 9700);
+  const later = incomeRows(everyItemCalcs(d), acts, T0 + 48 * 3600_000 + 1, now);
+  eq('    one millisecond after it: it doesn\'t', Object.fromEntries(later.rows.map((r) => [r.key, r.isk])).loot, undefined);
+  // Without the item groups, only what needs none counts, and nothing is "sold, never bought".
+  const bare = activityEvents(d, null, true, {}, []);
+  const b = Object.fromEntries(incomeRows(everyItemCalcs(d), bare, since, now).rows.map((r) => [r.key, r.isk]));
+  eq('  without the item groups: no abyssal, no loot row', [b.Abyssal, b.loot], [undefined, undefined]);
+  eq('    bounties still count', b.Combat, 7000);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
