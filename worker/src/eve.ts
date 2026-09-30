@@ -10,7 +10,12 @@ const TOKEN_URL = 'https://login.eveonline.com/v2/oauth/token';
 const ESI = 'https://esi.evetech.net';
 export const HEADERS = { 'X-Compatibility-Date': '2025-08-26', 'User-Agent': 'jita-ledger-cloud (github.com/MagicFishgit/jita-ledger)', Accept: 'application/json' };
 
-export type Purpose = 'main' | 'mailer';
+/**
+ * What a kept login is for: the ledger's own character (`main`), the character its alert mail is sent from
+ * (`mailer`), or one of its alts (`alt:<its character ID>`, migration 0016).
+ */
+export type Purpose = 'main' | 'mailer' | `alt:${number}`;
+export const altPurpose = (altId: number): Purpose => `alt:${Math.trunc(altId)}`;
 export type Login = { access: string; charId: number; name: string; scopes: string[] };
 
 // Fields spelled out, not constructor parameter properties: Node's type stripping, which the tests run on, takes
@@ -103,13 +108,39 @@ export async function useLogin(env: Env, ledgerChar: number, purpose: Purpose): 
     if (e instanceof EveError && (e.status === 400 || e.status === 401)) {
       await env.DB.prepare('UPDATE keys SET refused_at = COALESCE(refused_at, ?3), refused = ?4 WHERE char_id = ?1 AND purpose = ?2')
         .bind(ledgerChar, purpose, Date.now(), e.reason ?? e.message).run();
-      throw new EveError(e.status, `EVE refused the cloud’s login for ${row.token_char_name ?? (purpose === 'main' ? 'your character' : 'your sender')} (${e.reason ?? e.status}); hand the cloud your login again`, e.reason);
+      const whose = row.token_char_name ?? (purpose === 'main' ? 'your character' : purpose === 'mailer' ? 'your sender' : 'one of your characters');
+      throw new EveError(e.status, `EVE refused the cloud’s login for ${whose} (${e.reason ?? e.status}); hand the cloud ${purpose === 'main' || purpose === 'mailer' ? 'your' : 'that'} login again`, e.reason);
     }
     throw e;
   }
   await env.DB.prepare('UPDATE keys SET refresh_enc = ?3, updated_at = ?4, access_enc = ?5, access_exp = ?6, refused_at = NULL, refused = NULL, refused_warned = NULL WHERE char_id = ?1 AND purpose = ?2')
     .bind(ledgerChar, purpose, await seal(env.TOKEN_KEY, t.refresh), Date.now(), await seal(env.TOKEN_KEY, t.access), claims(t.access).exp).run();
   return asLogin(t.access);
+}
+
+/**
+ * Whose login a reader uses, and whose data it reads and writes. For a ledger the two are one character. For an alt
+ * the login is kept under the main's ledger and the data is the alt's own: only `useLogin` takes `ledger` and
+ * `purpose`; every ESI path, every table, `push` and `noteJob` take `char`. The readers were written when the two
+ * were always equal (readMiningRound bound some tables by its argument and others by the login's character), so a
+ * reader asks for its login through `readerLogin`, which refuses a mismatch before anything is read.
+ */
+export type Reader = { ledger: number; purpose: Purpose; char: number };
+export const ledgerReader = (charId: number): Reader => ({ ledger: charId, purpose: 'main', char: charId });
+export const altReader = (ledger: number, altId: number): Reader => ({ ledger, purpose: altPurpose(altId), char: altId });
+
+/** The reader's login, or null when none is kept. Throws when the login isn't the character the reader writes for. */
+export async function readerLogin(env: Env, who: Reader): Promise<Login | null> {
+  if ((who.purpose === 'main') !== (who.char === who.ledger)) throw new Error(`A reader for character ${who.char} under ledger ${who.ledger} has the wrong purpose (${who.purpose})`);
+  if (who.purpose !== 'main' && who.purpose !== altPurpose(who.char)) throw new Error(`A reader for character ${who.char} has the wrong purpose (${who.purpose})`);
+  const login = await useLogin(env, who.ledger, who.purpose);
+  if (login && login.charId !== who.char) throw new Error(`The login kept as ${who.purpose} is character ${login.charId}, not ${who.char}`);
+  return login;
+}
+
+/** Whether the reader's login is still kept: checked before writing, so an alt removed mid-read gets no rows back. */
+export async function stillKept(db: D1Database, who: Reader): Promise<boolean> {
+  return !!(await db.prepare('SELECT 1 AS y FROM keys WHERE char_id = ?1 AND purpose = ?2').bind(who.ledger, who.purpose).first());
 }
 
 /** One ESI GET. `token` for authenticated routes. Returns the body and how many pages there are. */

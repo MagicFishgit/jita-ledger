@@ -3791,6 +3791,12 @@ console.log('\n--- several characters: clone state, and whose login came back --
   eq('    one that was removed from the roster can', sortLogin('mailer', 2, 1, 7, false), { as: 'mailer' });
   eq('    and the main can\'t mail itself, as before', sortLogin('mailer', 1, 1, null, false), { refuse: 'isMain' });
   eq('  the main\'s login has to be the main, as before', [sortLogin('main', 1, 1, null, false), sortLogin('main', 2, 1, null, false)], [{ as: 'main' }, { refuse: 'notMain' }]);
+
+  const { isBaseline, SESSION_GAP_MS } = await import('../src/lib/mining.ts');
+  const T = Date.parse('2026-10-01T15:00:00Z');
+  eq('  a mining snapshot ten minutes old is compared with', isBaseline(T - 10 * 60_000, T), false);
+  eq('    one older than a session gap is only a baseline', isBaseline(T - SESSION_GAP_MS - 1, T), true);
+  eq('    and so is there being none', isBaseline(null, T), true);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

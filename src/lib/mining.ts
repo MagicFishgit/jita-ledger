@@ -41,6 +41,14 @@ export const READ_EVERY_MS = 10 * 60_000;
 /** Ticks this far apart or more belong to different sessions: one quiet read is a break, two are a new session. */
 export const SESSION_GAP_MS = 25 * 60_000;
 
+/**
+ * Whether the stored snapshot is too old to compare with. What grew since it could have been mined at any time in
+ * between, and a tick says "mined in the ten minutes before this read": after a refused login or a removed and
+ * re-added character, one read would otherwise turn a day's mining into a single tick, which the sessions then show
+ * as ten minutes of impossible yield. Such a read only sets a new baseline.
+ */
+export const isBaseline = (prevAt: number | null | undefined, now: number): boolean => prevAt == null || now - prevAt > SESSION_GAP_MS;
+
 export type MiningSession = {
   /** When mining started (up to a read before the first tick) and the last read that saw any. */
   start: number; end: number;

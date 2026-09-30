@@ -19,7 +19,7 @@ const SNIPER_CRON = '1-59/5 * * * *';
 import { sanitizeSettings, type Settings } from '../../src/lib/fees';
 import { archive, noteJob, refreshOrders } from './archive';
 import { flowFor, hoursFor, pricesFor, unpack, watchMarkets } from './market';
-import { dropLogin, EveError, keepLogin, type Purpose } from './eve';
+import { dropLogin, EveError, keepLogin, ledgerReader, type Purpose } from './eve';
 import { BadRequest, pull, push, status, type PushBody } from './sync';
 import { rateReport } from './rate';
 import { blueprintMarket } from './blueprints';
@@ -54,7 +54,7 @@ async function fiveMinutes(env: Env) {
       await noteJob(env.DB, id, 'orders', { ok: false, error: e instanceof Error ? e.message : String(e) });
     }
     // The mining ledger, every ten minutes: sessions and records (mining.ts). Only with the mining permission.
-    try { await readMiningRound(env, id); } catch (e) {
+    try { await readMiningRound(env, ledgerReader(id)); } catch (e) {
       await noteJob(env.DB, id, 'mining', { ok: false, error: e instanceof Error ? e.message : String(e) });
     }
   }
