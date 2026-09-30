@@ -3762,5 +3762,36 @@ console.log('\n--- what standings are worth in broker fees ---');
   eq('  already at 10 on both: no cases above you', standingsWorth(1e6, 5, 10, 10).cases.map((c) => c.key), ['none', 'you']);
 }
 
+console.log('\n--- several characters: clone state, and whose login came back ---');
+{
+  const { ALPHA_SKILL_CAPS } = await import('../src/lib/alphaCaps.ts');
+  const { ALPHA_CAPS } = await import('../src/lib/constants.ts');
+  const { cloneState, usableSkills, sortLogin } = await import('../src/lib/roster.ts');
+  const MINING = 3386, BARGE = 17940, BROKER = 3446, TRADE = 3443, ACCOUNTING = 16622;
+  eq('  175 skills an Alpha can use', Object.keys(ALPHA_SKILL_CAPS).length, 175);
+  eq('  Mining to IV, and Mining Barge not at all', [ALPHA_SKILL_CAPS[MINING], ALPHA_SKILL_CAPS[BARGE] ?? 0], [4, 0]);
+  // The trade caps the app has used since before this list (constants.ts) agree with CCP's.
+  eq('  the trade skills\' caps agree with the ones the fees already use', [ALPHA_SKILL_CAPS[BROKER], ALPHA_SKILL_CAPS[TRADE], ALPHA_SKILL_CAPS[ACCOUNTING] ?? 0], [ALPHA_CAPS.br, ALPHA_CAPS.trade, ALPHA_CAPS.acc]);
+
+  const sk = (id, trained, active = trained) => ({ id, trained, active });
+  eq('  a skill usable below its trained level: Alpha, for certain', cloneState([sk(MINING, 5, 4), sk(BARGE, 3, 0)], ALPHA_SKILL_CAPS), 'alpha');
+  eq('  a skill usable above Alpha\'s cap: Omega', cloneState([sk(MINING, 5), sk(BROKER, 2)], ALPHA_SKILL_CAPS), 'omega');
+  eq('  a skill Alpha can\'t use at all, usable: Omega', cloneState([sk(BARGE, 1)], ALPHA_SKILL_CAPS), 'omega');
+  eq('  nothing past Alpha\'s limits: ESI can\'t tell', cloneState([sk(MINING, 4), sk(BROKER, 2), sk(BARGE, 0)], ALPHA_SKILL_CAPS), 'unknown');
+  eq('  no skills read: can\'t tell', cloneState([], ALPHA_SKILL_CAPS), 'unknown');
+  eq('  what it can use: the trained level, or the active one where they differ', usableSkills({ [MINING]: 5, [BARGE]: 3, [BROKER]: 2 }, { [MINING]: 4, [BARGE]: 0 }), { [MINING]: 4, [BARGE]: 0, [BROKER]: 2 });
+  eq('    and the trained levels when nothing is capped', usableSkills({ [MINING]: 5 }), { [MINING]: 5 });
+
+  // EVE's page picks the character, so the cloud sorts out who came back. Main 1, mail sender 7, an alt 2.
+  eq('  adding an alt, and an alt came back', sortLogin('alt', 2, 1, 7, false), { as: 'alt' });
+  eq('    an alt handed over again', sortLogin('alt', 2, 1, 7, true), { as: 'alt' });
+  eq('    the main came back: kept as the main\'s login', sortLogin('alt', 1, 1, 7, false), { as: 'main' });
+  eq('    the mail sender came back: kept as the sender\'s', sortLogin('alt', 7, 1, 7, false), { as: 'mailer' });
+  eq('  a sender login that is an alt can\'t be kept', sortLogin('mailer', 2, 1, 7, true), { refuse: 'isAlt' });
+  eq('    one that was removed from the roster can', sortLogin('mailer', 2, 1, 7, false), { as: 'mailer' });
+  eq('    and the main can\'t mail itself, as before', sortLogin('mailer', 1, 1, null, false), { refuse: 'isMain' });
+  eq('  the main\'s login has to be the main, as before', [sortLogin('main', 1, 1, null, false), sortLogin('main', 2, 1, null, false)], [{ as: 'main' }, { refuse: 'notMain' }]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
