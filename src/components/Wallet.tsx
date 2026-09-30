@@ -15,8 +15,8 @@ import { toast } from '../lib/toast';
 import { isStation, isStructure, isSystem, structureInfo, system, type StructureRead } from '../lib/universe';
 import { isAbyssalSystem, netLoss } from '../lib/combat';
 import {
-  autoTag, balanceAt, balanceSeries, csvCell, describeRef, feeLeak, fittedShips, flows, multibuys, nextTag, RUNNING, runwayDays, unusual,
-  type Line, type Multibuy, type TradeClass,
+  autoTag, balanceAt, balanceSeries, csvCell, describeRef, feeLeak, fittedShips, flows, multibuys, nextTag, PERIOD_DAYS, periodStart, RUNNING, runwayDays,
+  startOfUtcDay, unusual, type Days, type Line, type Multibuy, type TradeClass,
 } from '../lib/wallet';
 import type { Activity, JournalEntry, Position, Tx, UntrackedTag } from '../lib/types';
 import { AreaLine, MiniLine } from './charts';
@@ -38,7 +38,6 @@ const LP_STALE = 12 * 3600_000;
 /** Stores tried this session, so a failing one isn't hammered on every visit. */
 const lpTried = new Map<number, number>();
 const WALLET_SCOPE = SCOPE.wallet, KILLMAIL_SCOPE = SCOPE.killmails;
-type Days = 1 | 7 | 30 | 90;
 const DAYS_KEY = 'jita-ledger:wallet-days';
 
 const IN_COLOR: Record<string, string> = {
@@ -54,7 +53,6 @@ const TAG_LOOK: Record<UntrackedTag, { sell: string; buy: string; c: string }> =
   other: { sell: 'Other sale', buy: 'Other buy', c: '#adbfcf' },
 };
 
-const startOfUtcDay = (t: number) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
 const dayKey = (t: number) => new Date(t).toISOString().slice(0, 10);
 const hhmm = (iso: string) => new Date(iso).toISOString().slice(11, 16);
 
@@ -120,7 +118,7 @@ export function Wallet() {
   const name = useTypeName();
   const [days, setDaysState] = useState<Days>(readDays);
   const setDays = (v: Days) => { setDaysState(v); try { localStorage.setItem(DAYS_KEY, String(v)); } catch { /* private window */ } };
-  const since = days === 1 ? now - DAY : startOfUtcDay(now) - (days - 1) * DAY;
+  const since = periodStart(days, now);
   // Fees a GM refunded, and the refunds, count as nothing (refunds.ts); the note under the flows says so.
   const journal = useMemo(() => Object.values(nettedJournal(d.journal)), [d.journal]);
   const refunds = useMemo(() => refundsIn(d.journal), [d.journal]);
@@ -503,7 +501,7 @@ function WalletHead({ days, setDays }: { days: Days; setDays: (d: Days) => void 
     <PageHead
       kicker="00 · Home" title="Wallet" wide
       lede="Where your ISK comes from, where it goes, and what you’re really worth. Built from your wallet journal, which records the balance after every single entry."
-      actions={<Seg label="Period" value={days} onChange={setDays} options={([1, 7, 30, 90] as Days[]).map((v) => ({ v, label: v === 1 ? '24 hours' : `${v} days` }))} />}
+      actions={<Seg label="Period" value={days} onChange={setDays} options={PERIOD_DAYS.map((v) => ({ v, label: v === 1 ? '24 hours' : `${v} days` }))} />}
     />
   );
 }

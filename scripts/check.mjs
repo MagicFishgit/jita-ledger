@@ -4043,5 +4043,12 @@ console.log('\n--- what a set of mining records comes to (minedTotal) ---');
   eq('  nothing mined', minedTotal([], () => 1, () => 1), { units: 0, m3: 0, isk: 0, priced: 0, ores: 0 });
 }
 
+console.log('\n--- the Wallet\'s period, shared with the Characters page (periodStart) ---');
+{
+  const { periodStart } = await import('../src/lib/wallet.ts');
+  const now = Date.parse('2026-09-30T15:00:00Z');
+  eq('  the period: 24 hours back, or whole UTC days', [periodStart(1, now), periodStart(7, now)].map((t) => new Date(t).toISOString()), ['2026-09-29T15:00:00.000Z', '2026-09-24T00:00:00.000Z']);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

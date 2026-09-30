@@ -15,6 +15,20 @@
 
 import type { JournalEntry, Tx, UntrackedTag } from './types';
 
+const DAY = 86400_000;
+
+/** The periods the Wallet (and the Characters page, by the same rule) can show. */
+export type Days = 1 | 7 | 30 | 90;
+export const PERIOD_DAYS: Days[] = [1, 7, 30, 90];
+
+export const startOfUtcDay = (t: number) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
+
+/**
+ * Where a period starts: 24 hours back, or whole UTC days (EVE time) with today the last of them, so "7 days" on the
+ * 30th at 15:00 starts at 00:00 on the 24th.
+ */
+export const periodStart = (days: Days, now: number): number => (days === 1 ? now - DAY : startOfUtcDay(now) - (days - 1) * DAY);
+
 export type FlowKind = 'Business' | 'Personal';
 export type Category = { key: string; label: string; kind?: FlowKind };
 
