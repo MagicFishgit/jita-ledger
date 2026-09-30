@@ -63,10 +63,10 @@ function randomString(n = 32): string {
 }
 
 /**
- * Which login a redirect was for. The two `cloud` ones never stay in this browser: their refresh token is
+ * Which login a redirect was for. The three `cloud` ones never stay in this browser: their refresh token is
  * handed to the cloud Worker, which keeps it (encrypted) to read ESI and send mail while no tab is open.
  */
-type Purpose = 'main' | 'mailer' | 'cloud' | 'cloud-mailer';
+type Purpose = 'main' | 'mailer' | 'cloud' | 'cloud-mailer' | 'cloud-alt';
 
 async function startLogin(purpose: Purpose, scopes: string[]): Promise<void> {
   if (!isConfigured()) throw new Error('No EVE client ID is set. See the README.');
@@ -107,6 +107,13 @@ export const loginMailer = () => startLogin('mailer', MAILER_SCOPES);
 export const loginForCloud = () => startLogin('cloud', [...SCOPES, ...askedScopes()]);
 /** A login for the cloud to send alert mail from the second character. */
 export const loginMailerForCloud = () => startLogin('cloud-mailer', MAILER_SCOPES);
+/**
+ * A login for the cloud to read another of your characters with (an alt: docs/notes/characters.md). The same
+ * permissions as the trading login, so the cloud's readers work on it unchanged. EVE's page picks the character: it
+ * asks for an account, then which of its characters, and remembers the account last used. The cloud sorts out who
+ * came back.
+ */
+export const loginAltForCloud = () => startLogin('cloud-alt', [...SCOPES, ...askedScopes()]);
 
 function decodeJwt(token: string): Record<string, unknown> {
   const part = token.split('.')[1] ?? '';
@@ -158,7 +165,7 @@ async function tokenRequest(body: Record<string, string>): Promise<TokenResponse
 }
 
 /** Call once on startup. Returns true when it finished a login redirect. */
-export async function handleCallback(): Promise<{ handled: boolean; error?: string; cloudKey?: { purpose: 'main' | 'mailer'; refreshToken: string; name: string } }> {
+export async function handleCallback(): Promise<{ handled: boolean; error?: string; cloudKey?: { purpose: 'main' | 'mailer' | 'alt'; refreshToken: string; name: string; charId: number } }> {
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code');
   const state = params.get('state');
@@ -175,9 +182,11 @@ export async function handleCallback(): Promise<{ handled: boolean; error?: stri
     const t = await tokenRequest({ grant_type: 'authorization_code', code: code!, client_id: CLIENT_ID, code_verifier: saved.verifier });
     const got = toAuth(t);
     clean();
-    // For the cloud: hand the refresh token on, and keep nothing here.
-    if (saved.purpose === 'cloud' || saved.purpose === 'cloud-mailer') {
-      return { handled: true, cloudKey: { purpose: saved.purpose === 'cloud' ? 'main' : 'mailer', refreshToken: got.refreshToken, name: got.characterName } };
+    // For the cloud: hand the refresh token on, and keep nothing here. An alt's above all: a purpose this didn't
+    // know would fall through to the trading login's slot below, and the owner check would then log the owner out.
+    if (saved.purpose === 'cloud' || saved.purpose === 'cloud-mailer' || saved.purpose === 'cloud-alt') {
+      const purpose = saved.purpose === 'cloud' ? 'main' : saved.purpose === 'cloud-mailer' ? 'mailer' : 'alt';
+      return { handled: true, cloudKey: { purpose, refreshToken: got.refreshToken, name: got.characterName, charId: got.characterId } };
     }
     if (saved.purpose === 'mailer') {
       // The same character would be mailing itself, which is the thing this login exists to avoid.

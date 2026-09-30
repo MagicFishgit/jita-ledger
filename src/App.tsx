@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from 'react';
-import { getAuth, handleCallback, logout } from './lib/auth';
+import { getAuth, getMailer, handleCallback, logout, logoutMailer } from './lib/auth';
 import { isOwner } from './lib/constants';
 import { getData, initStore, update, useData } from './lib/store';
 import { refreshBalance, syncCharacter, useSyncState } from './lib/sync';
@@ -9,7 +9,8 @@ import { bumpWarp, useMotion } from './lib/motion';
 import { THEMES } from './lib/prefs';
 import { priceKillmails } from './lib/killmails';
 import { startAlerts } from './lib/alertsRunner';
-import { cloudSummary, keepCloudLogin, runCloudArchive, startCloud } from './lib/cloud';
+import { cloudAltRead, cloudSummary, keepCloudLogin, runCloudArchive, startCloud } from './lib/cloud';
+import { refreshAlts, startAlts } from './lib/altStore';
 import { units } from './lib/format';
 import { marketParam, openFromLink, withoutMarket } from './lib/marketLink';
 import { setToastLife, toast } from './lib/toast';
@@ -126,25 +127,55 @@ export function App() {
       // Only the owner's character may use this ledger: anyone else who logs in is logged straight out again.
       const who = getAuth();
       if (who && !isOwner(who.characterId)) { setRefused(who.characterName); await logout(); }
-      // A login for the cloud's background jobs goes straight to the Worker; nothing stays here.
+      await initStore();
+      // A sender logged in to THIS browser that is one of the characters the cloud reads: it can't be both. EVE allows
+      // a character one set of permissions, and whichever login came later stopped the other. Checked here, where the
+      // list of your characters is loaded; the login itself comes back before the store has.
+      const sender = getMailer();
+      if (sender && getData().chars[String(sender.characterId)]) {
+        await logoutMailer();
+        setLoginErr(`${sender.characterName} is one of the characters the cloud reads for you, so it can’t also be logged in here as the mail sender: EVE allows a character one set of permissions, and the later login stops the earlier. It has been logged out here. If its card on the Characters page says its login was refused, hand it over again there.`);
+      }
+      // A login for the cloud's background jobs goes straight to the Worker; nothing stays here. After the store has
+      // loaded, since an alt's hand-over ends by writing which characters are yours.
       if (cb.cloudKey) {
-        const main = cb.cloudKey.purpose === 'main';
+        const asked = cb.cloudKey.purpose;
+        const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
         keepCloudLogin(cb.cloudKey)
           .then(async (k) => {
-            if (!main) { toast(`The cloud will send alert mail from ${k.name}.`); return; }
-            // Run the ledger copy straight away rather than at 7 past the hour: it proves the login end to end, and
-            // replaces the error an earlier login left on it (and on the orders read) with what happens now.
+            // What it was kept as. EVE's page picks the character, so an alt's hand-over can come back as the main or
+            // the sender; a Worker a version behind doesn't say, and keeps only what was asked for.
+            const as = k.as ?? asked;
+            const slip = asked === 'alt' && as !== 'alt' ? ' To add a character on another account, sign out on EVE’s login page first, then sign in with that account.' : '';
+            if (as === 'mailer') {
+              toast(slip ? `That was ${k.name}, your mail sender, not another character. Nothing was added, and it still sends your alert mail.${slip}` : `The cloud will send alert mail from ${k.name}.`, slip ? 'warn' : 'ok');
+              return;
+            }
+            if (as === 'alt') {
+              toast(`${k.name} is now one of your characters. The cloud is reading it for the first time…`);
+              try {
+                const r = await cloudAltRead(k.charId);
+                toast(`The cloud has read ${k.name}: ${units(r.trades)} trades, ${units(r.journal)} journal entries, ${units(r.orders)} orders${r.clone ? `, ${r.clone === 'alpha' ? 'Alpha' : r.clone === 'omega' ? 'Omega' : 'clone state not told apart'}` : ''}. It reads it every hour from now, and its mining every ten minutes.`);
+              } catch (e) {
+                toast(`The cloud keeps ${k.name}’s login, but its first read failed: ${said(e)}`, 'err');
+              }
+              await refreshAlts().catch(() => undefined);
+              return;
+            }
+            // The main's login: run the ledger copy straight away rather than at 7 past the hour. It proves the login
+            // end to end, and replaces the error an earlier login left on it (and on the orders read) with what happens now.
+            if (slip) toast(`That was ${k.name}, your main, not another character. Nothing was added; the cloud’s login for it was renewed, and it keeps watch as ${k.name}.${slip}`, 'warn');
             try {
               const r = await runCloudArchive();
-              toast(`The cloud now keeps watch as ${k.name}, with this app closed too. It has just read your ledger: ${r.trades || r.journal || r.orders ? `${units(r.trades)} new trades, ${units(r.journal)} journal entries, ${units(r.orders)} order changes` : 'nothing new'}.`);
+              if (!slip) toast(`The cloud now keeps watch as ${k.name}, with this app closed too. It has just read your ledger: ${r.trades || r.journal || r.orders ? `${units(r.trades)} new trades, ${units(r.journal)} journal entries, ${units(r.orders)} order changes` : 'nothing new'}.`);
             } catch (e) {
-              toast(`The cloud keeps watch as ${k.name}, but its first read failed: ${e instanceof Error ? e.message : String(e)}`, 'err');
+              toast(`The cloud keeps watch as ${k.name}, but its first read failed: ${said(e)}`, 'err');
             }
             await cloudSummary().catch(() => undefined);
           })
-          .catch((e) => toast(`The cloud couldn’t keep that login: ${e instanceof Error ? e.message : String(e)}`, 'err'));
+          .catch((e) => toast(
+            `The cloud couldn’t keep that login: ${said(e)}${asked === 'mailer' && /one of your characters/.test(said(e)) ? ' To send mail from that character instead, remove it on the Characters page first, then log it in as the sender.' : ''}`, 'err'));
       }
-      await initStore();
       // "Since your last visit" is measured from when the app was last open, not from this minute.
       const seen = getData().meta.lastSeenAt;
       update((x) => ({ meta: { ...x.meta, prevVisitAt: seen && Date.now() - Date.parse(seen) > 10 * 60_000 ? seen : x.meta.prevVisitAt, lastSeenAt: new Date().toISOString() } }));
@@ -245,6 +276,8 @@ export function App() {
   useEffect(() => { if (live) prefetchPages(); }, [live]);
   // The cloud copy of the ledger: sent as it changes, pulled every minute, restored into an empty browser.
   useEffect(() => { if (live) return startCloud(); }, [live]);
+  // The alts' copy: the roster and each alt's rows, read from the cloud into a database of their own (altStore.ts).
+  useEffect(() => { if (live) return startAlts(); }, [live]);
 
   // A market link from an alert mail (`#orders?market=ID`): open that market in the client, once. The
   // request comes off the address first, so a reload or a failure halfway can't open it again; that
