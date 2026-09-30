@@ -152,7 +152,7 @@ export function App() {
         const asked = key.purpose;
         // This browser's own mail sender, picked on EVE's page while adding a character, is handed over as the sender:
         // a sender that comes back is kept as the sender, never added as an alt. The words still say what was asked.
-        const sent = handOverAs(asked, key.charId, getMailer()?.characterId);
+        const sent = handOverAs(asked, key.charId, getMailer()?.characterId, String(key.charId) in getData().chars);
         const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
         const closed = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
         // EVE stops a character's earlier logins that carry a different set of permissions, at its own login page

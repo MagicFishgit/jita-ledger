@@ -3796,6 +3796,7 @@ console.log('\n--- several characters: clone state, and whose login came back --
   const { handOverAs, stoppedBy } = await import('../src/lib/roster.ts');
   eq('  adding a character, and this browser\'s mail sender came back: sent as the sender', handOverAs('alt', 7, 7), 'mailer');
   eq('    anyone else, or no sender here: sent as an alt', [handOverAs('alt', 2, 7), handOverAs('alt', 2, null), handOverAs('alt', 2, undefined)], ['alt', 'alt', 'alt']);
+  eq('    the sender that is already one of your characters: added back as an alt, not refused as a sender', handOverAs('alt', 7, 7, true), 'alt');
   eq('    the main\'s and the sender\'s own hand-overs are sent as asked', [handOverAs('main', 7, 7), handOverAs('mailer', 7, 7)], ['main', 'mailer']);
   // EVE stops a character's earlier logins with a different set of permissions: which of this browser's it stopped.
   const heldLogin = { characterId: 1, scopes: ['a', 'b'] };

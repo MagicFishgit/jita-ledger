@@ -50,10 +50,12 @@ export function sortLogin(asked: Asked, char: number, ledger: number, mailer: nu
 /**
  * The purpose a login handed to the cloud is sent with. This browser's own mail sender, picked on EVE's page while
  * adding a character, goes as the sender: a sender that comes back is kept as the sender, never added as an alt (and
- * the cloud can't know this browser's sender unless it holds one itself).
+ * the cloud can't know this browser's sender unless it holds one itself). Unless that character is already one of your
+ * characters (`chars`, which keeps removed ones too): then it's being added back, and the cloud would refuse it as a
+ * sender and mark its alt login refused.
  */
-export function handOverAs(asked: Asked, char: number, browserSender: number | null | undefined): Asked {
-  return asked === 'alt' && browserSender != null && char === browserSender ? 'mailer' : asked;
+export function handOverAs(asked: Asked, char: number, browserSender: number | null | undefined, knownAlt = false): Asked {
+  return asked === 'alt' && !knownAlt && browserSender != null && char === browserSender ? 'mailer' : asked;
 }
 
 /**
