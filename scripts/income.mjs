@@ -53,7 +53,16 @@ async function open(browser, ledger, altStore) {
 async function panelRows(page, title) {
   const panel = page.locator('.panel', { has: page.locator('.panel-title', { hasText: title }) }).first();
   await panel.waitFor({ timeout: 10_000 });
-  return (await panel.locator('.kv, tr').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  // Read once the rows have stopped changing (the panel says "Reading…" until the item groups arrive), within 20 s.
+  const read = async () => (await panel.locator('.kv, tr').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  let last = null;
+  for (let i = 0; i < 20; i++) {
+    const rows = await read();
+    if (rows.length && JSON.stringify(rows) === JSON.stringify(last)) return rows;
+    last = rows;
+    await page.waitForTimeout(1000);
+  }
+  return last;
 }
 
 /** The Wallet's "All income against play" at each period, and Results' "By activity". */
@@ -79,13 +88,39 @@ async function figures(page) {
  * unreachable). Compared: the ledger as the app holds it after every page below has been opened, less `names` (a page's
  * lookup may add an item name, a game fact) and `chars`; and what the Wallet, Results and Positions say.
  */
+/**
+ * A page's text once it has stopped changing: the same on two reads a second apart, within 20 s. A busy machine renders
+ * the same page later, not differently, and a read taken mid-render (the item groups still "Reading…") failed the
+ * comparison on 1 October 2026 while four runs on a quiet machine passed.
+ */
+async function settled(page) {
+  let last = null;
+  for (let i = 0; i < 40; i++) {
+    const text = (await page.locator('.page').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (text && text === last) return text;
+    last = text;
+    await page.waitForTimeout(1000);
+  }
+  return last;
+}
+
+/**
+ * JSON with every object's keys in sorted order: the ledgers are compared as values. The app writes a document's fields
+ * in whatever order its updates land (`meta` gained `rateHistory` before `lastSeenAt` in one run and after in another),
+ * which a string comparison read as a difference.
+ */
+const canonical = (json) => JSON.stringify(JSON.parse(json), (_k, v) => (v && typeof v === 'object' && !Array.isArray(v)
+  ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+  : v));
+
 async function snapshot(page) {
   const out = {};
   for (const hash of ['wallet', 'results', 'positions', 'characters', 'hustles/mining']) {
     await page.evaluate((h) => { location.hash = `#${h}`; }, hash);
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(1000);
+    const text = await settled(page);
     // Characters and Mining are opened so any path they have into the ledger runs; their own text differs by design.
-    if (hash !== 'characters' && hash !== 'hustles/mining') out[hash] = (await page.locator('.page').innerText()).replace(/\s+/g, ' ');
+    if (hash !== 'characters' && hash !== 'hustles/mining') out[hash] = text;
   }
   out.ledger = await page.evaluate(async () => {
     // The app's own instance of the store, by the URL it loaded it from, or the import makes a second, empty one.
@@ -95,7 +130,7 @@ async function snapshot(page) {
     const { names: _n, chars: _c, ...rest } = getData();
     if (!Object.keys(rest.txs ?? {}).length) throw new Error('the store imported is empty: a second instance');
     return JSON.stringify(rest);
-  });
+  }).then(canonical);
   return out;
 }
 
