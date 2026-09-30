@@ -51,6 +51,10 @@ Decisions worth not undoing. How the ledger lives in the cloud as well as the br
   and gone up over the cloud's. Checked the same way: with the local Worker stopped, a wipe, a settings change and a
   record written, a reload, then the Worker started: the cloud's settings and record came down and the cloud kept its
   own. Only a wipe sets it: a browser that never met the cloud (sync switched on late) still keeps what it has.
+  **Not covered**: a wipe while logged out (the sync has no state then, so there's nothing to mark) and a brand-new
+  browser both meet the cloud with the ordinary rule, so if the cloud is unreachable at that first start and the ESI sync
+  finishes first, its default-based settings can still go up over the cloud's. That race predates the fix and needs the
+  cloud down at exactly that moment.
 - **Every job reports to `jobs`, and the Sniper does it every five minutes** (for the watchdog, see orders-alerts):
   about 290 row writes a day for the Sniper on top of the per-ledger jobs, well inside the plan's 50 M a month.
 - **The cloud's hour-by-hour prices show on the Calculator** ("Jita, hour by hour": best bid and ask per hour

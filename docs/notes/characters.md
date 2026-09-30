@@ -120,3 +120,11 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
   from the roster's own read ("The cloud couldn't be reached just now").
 - **Stage 2a is the Characters page with the roster, and ends with a real alt being read.** What each character
   earned and mined (stage 2b), Mining across characters (3) and the Wallet's total and transfers (4) follow.
+- **The first real alt** (30 September 2026, 21:12 UTC): the owner added FannySchmeller (2122193260) from the Characters
+  page and it came back as the alt (`POST /v1/keys`, then `/read`, then the pull, all in about 13 s; no exception). Its
+  first read, about ten seconds: 36 trades, 83 journal entries, 30 orders, 164 names, stock and one net-worth point
+  (1.05 B), all under its own ID; the sheet found 98 skills, 6.3 M SP and a 17-level queue, and read it as Omega from its
+  skills. The next five-minute round read its mining (10 ledger rows, `alts mining {"alts":1,"read":1,"failed":0}`), none
+  under the main. The main's and the sender's logins kept working and the main's alerts, orders and archive jobs stayed
+  ok. The one row of the main's that names the alt is the main's own `player_donation` of 100 M to it at 15:47 UTC,
+  hours before: the main's data, which stage 4 counts as a transfer.
