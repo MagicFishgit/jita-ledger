@@ -418,5 +418,49 @@ console.log('\n--- handing a login over, and the alt routes ---');
   }
 }
 
+console.log('\n--- when alts are read ---');
+{
+  const worker = (await import('../worker/src/index.ts')).default;
+  const { altsMining } = await import('../worker/src/alts.ts');
+  const run = async (env, cron) => { const waits = []; await worker.scheduled({ cron }, env, { waitUntil: (p) => waits.push(p) }); await Promise.all(waits); };
+
+  {
+    const { db, env } = await ledgerWithAlt();
+    const f = stubFetch([[`/characters/${ALT}/mining/`, mined(300)], [`/characters/${ALT}/ship/`, { ship_type_id: VENTURE }]]);
+    const r = await altsMining(env, T0);
+    f.restore();
+    eq('  the alts\' mining round reads each alt with a login', [r, under(db, ALT)], [{ alts: 1, read: 1, failed: 0 }, { [`records:${ALT}`]: 1, [`revs:${ALT}`]: 1, [`jobs:${ALT}`]: 1, [`mining_state:${ALT}`]: 1 }]);
+  }
+
+  // A failing alt is noted under the alt and doesn't stop the next.
+  {
+    const { db, env } = await ledgerWithAlt();
+    await keepKey(db, MAIN, 'alt:900002', 900002, 'Miner Three', SCOPES);
+    db.run('INSERT INTO alts (char_id, ledger, name, added_at) VALUES (?, ?, ?, ?)', 900002, MAIN, 'Miner Three', Date.now() + 1);
+    const f = stubFetch([
+      [`/characters/${ALT}/mining/`, new Response(JSON.stringify({ error: 'boom' }), { status: 500 })],
+      ['/characters/900002/mining/', mined(50)], ['/characters/900002/ship/', { ship_type_id: VENTURE }],
+    ]);
+    const r = await altsMining(env, T0);
+    f.restore();
+    eq('  one alt failing doesn\'t stop the next', r, { alts: 2, read: 1, failed: 1 });
+    eq('    and the failure is noted under that alt', db.rows('SELECT char_id AS c, last_error IS NOT NULL AS bad FROM jobs ORDER BY char_id'), [{ c: ALT, bad: 1 }, { c: 900002, bad: 0 }]);
+  }
+  // The cron, last: before it is matched by name it falls through to the hourly archive and the full-market scan.
+  {
+    const { db, env } = await ledgerWithAlt();
+    // A second alt whose login is gone: on the roster, nothing to read it with.
+    db.run('INSERT INTO alts (char_id, ledger, name, added_at) VALUES (?, ?, ?, ?)', 900002, MAIN, 'No Login', Date.now());
+    const f = stubFetch([...esiFor(ALT), ...esiFor(MAIN)]);
+    await run(env, '37 * * * *');
+    f.restore();
+    const asked = (char) => f.calls.filter((c) => c.path.startsWith(`/characters/${char}/`)).length;
+    eq('  the :37 cron reads the alts, and not the main', [asked(ALT) > 0, asked(MAIN), asked(900002)], [true, 0, 0]);
+    eq('    each alt\'s copy and sheet are noted', db.rows('SELECT job FROM jobs WHERE char_id = ? ORDER BY job', ALT).map((x) => x.job), ['archive', 'sheet']);
+    eq('    CCP\'s prices are fetched once for the round', f.calls.filter((c) => c.path === '/markets/prices/').length, 1);
+    eq('    nothing is noted for the main', db.rows('SELECT COUNT(*) AS n FROM jobs WHERE char_id = ?', MAIN)[0].n, 0);
+  }
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

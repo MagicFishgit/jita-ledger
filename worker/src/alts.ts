@@ -6,8 +6,9 @@
  * an alt's. The `alts` table (migration 0016) is the roster. Alts are found through it, never by matching a purpose.
  */
 import type { CloneState } from '../../src/lib/roster';
-import { archive, noteJob, type ArchiveResult } from './archive';
+import { archive, noteJob, roughPrices, type ArchiveResult } from './archive';
 import { altPurpose, altReader, dropLogin, stillKept, type Reader } from './eve';
+import { readMiningRound } from './mining';
 import { readSheet } from './sheet';
 
 type Env = { DB: D1Database; EVE_CLIENT_ID: string; TOKEN_KEY: string; APP_URL: string };
@@ -64,6 +65,34 @@ export async function readAlt(env: Env, who: Reader, prices?: Record<number, num
     await note(env.DB, who, 'sheet', { ok: false, error: said(e) });
     throw e;
   }
+}
+
+/**
+ * Every alt's full read, one after another: the `37 * * * *` cron. A cron of its own because the hourly one carries
+ * the full-market scan, whose 11-minute budget inside the 15-minute limit doesn't know alt reads ran ahead of it, and
+ * the five-minute round has 30 s of CPU and the main's alerts to get through. One alt failing doesn't stop the next;
+ * its failure is its own job row, which the watchdog mails by character.
+ */
+export async function altsHourly(env: Env): Promise<{ alts: number; read: number; failed: number }> {
+  const readers = await altReaders(env.DB);
+  if (!readers.length) return { alts: 0, read: 0, failed: 0 };
+  // CCP's rough prices, once for the round. Without them each read fetches its own.
+  const prices = await roughPrices().catch(() => undefined);
+  let read = 0, failed = 0;
+  for (const who of readers) {
+    try { await readAlt(env, who, prices); read++; } catch (e) { failed++; console.error('alt read failed', who.char, e); }
+  }
+  return { alts: readers.length, read, failed };
+}
+
+/** Every alt's mining ledger, when its ten minutes are up: run at the end of the five-minute round. */
+export async function altsMining(env: Env, now = Date.now()): Promise<{ alts: number; read: number; failed: number }> {
+  const readers = await altReaders(env.DB);
+  let read = 0, failed = 0;
+  for (const who of readers) {
+    try { if ((await readMiningRound(env, who, now)) != null) read++; } catch (e) { failed++; await note(env.DB, who, 'mining', { ok: false, error: said(e) }); }
+  }
+  return { alts: readers.length, read, failed };
 }
 
 /** The roster as the app shows it: each alt's login (never the token), its jobs, its revision, and its ship when last read. */

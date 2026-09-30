@@ -16,11 +16,13 @@ import { lastSnipes, sightings, sniperRound, snipeSummary } from './snipe';
 
 /** One minute past each five: ESI refreshes The Forge's book at about :x0:30 and :x5:30. Also in wrangler.toml. */
 const SNIPER_CRON = '1-59/5 * * * *';
+/** The alts' hourly read, on a cron of their own (alts.ts, altsHourly). Also in wrangler.toml. */
+const ALTS_CRON = '37 * * * *';
 import { sanitizeSettings, type Settings } from '../../src/lib/fees';
 import { archive, noteJob, refreshOrders } from './archive';
 import { flowFor, hoursFor, pricesFor, unpack, watchMarkets } from './market';
 import { altReader, dropLogin, EveError, keepHandedOver, ledgerReader } from './eve';
-import { altsStatus, altTicks, isAlt, onRoster, readAlt, removeAlt } from './alts';
+import { altsHourly, altsMining, altsStatus, altTicks, isAlt, onRoster, readAlt, removeAlt } from './alts';
 import { BadRequest, pull, push, status, type PushBody } from './sync';
 import { rateReport } from './rate';
 import { blueprintMarket } from './blueprints';
@@ -83,6 +85,8 @@ async function fiveMinutes(env: Env) {
       if (w.mailed) console.log('watchdog', id, JSON.stringify(w));
     } catch (e) { console.error('watchdog failed', id, e); }
   }
+  // Last, so nothing of a ledger's waits on an alt: each alt's mining, when its ten minutes are up.
+  try { const r = await altsMining(env); if (r.read || r.failed) console.log('alts mining', JSON.stringify(r)); } catch (e) { console.error('alts mining failed', e); }
 }
 
 /** The watched books for some items, as book summaries, when read in the last 15 minutes: live prices for a scan. */
@@ -199,6 +203,11 @@ export default {
         console.error('sniper failed', e);
         await noteJob(env.DB, 0, 'sniper', { ok: false, error: e instanceof Error ? e.message : String(e) });
       }));
+      return;
+    }
+    // The alts' full reads. Matched by name: anything unmatched below is taken for the hourly archive.
+    if (event.cron === ALTS_CRON) {
+      ctx.waitUntil(altsHourly(env).then((r) => console.log('alts hourly', JSON.stringify(r))).catch((e) => console.error('alts hourly failed', e)));
       return;
     }
     // The day's full-market scan, just after ESI publishes the day's history.
