@@ -44,7 +44,7 @@ export function ConfirmDialog() {
           </div>
           <div className="dlg-body">
             <h2 id="confirm-title">{ask.title}</h2>
-            {ask.body && <p>{ask.body}</p>}
+            {ask.body && ask.body.split(/\n\s*\n/).map((para, i) => <p key={i}>{para}</p>)}
             <div className="dlg-actions">
               <button type="button" className="no" autoFocus={danger} onClick={() => answer(false)}>Cancel</button>
               {ask.alt && <button type="button" className="alt" onClick={() => answer('alt')}>{ask.alt}</button>}

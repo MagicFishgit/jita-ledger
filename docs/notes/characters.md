@@ -52,7 +52,8 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
   of its own, `jita-ledger-alts`, only when the alt's revision has moved: one roster request a minute, not one per alt.
 - **What keeps an alt's rows out of the ledger is that the alt store can't write to it.** From `store.ts` it imports
   `mergeChars`, `dataGeneration` and `onClearAll`, never `update`; and only `App.tsx` and `Characters.tsx` import the
-  alt store. Two tests in `scripts/check.mjs` read the source and fail if either changes. A later page that needs
+  alt store. The Characters page writes `chars` (a clone state set by hand) and the public type names it looks up
+  (skills, hulls), nothing of an alt's. Two tests in `scripts/check.mjs` read the source and fail if either changes. A later page that needs
   alt data is added to that list on purpose, in the commit that makes it read it.
 - **`chars` is the one thing about an alt the main's ledger holds**: a synced document of its own, ID to name, and a
   clone state set by hand. Only the roster read writes it (`mergeChars`), it never removes one, and an imported backup
