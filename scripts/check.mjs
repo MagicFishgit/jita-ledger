@@ -3886,7 +3886,9 @@ console.log('\n--- which characters are yours ---');
   eq('  and the queue ends with its last', f.queueEnds, '2026-10-05T15:00:00Z');
   eq('  its clone state, and since when', [f.clone, f.cloneSince], ['alpha', '2026-09-29T10:00:00Z']);
   const none = R.charFacts(undefined, [], NOW2);
-  eq('  a character nothing has been read for: nothing, not zeros', none, { wallet: null, walletAt: null, netWorth: null, clone: 'unknown', cloneSince: null, training: null, queueEnds: null, totalSp: null });
+  eq('  a character nothing has been read for: nothing, not zeros', none, { wallet: null, walletAt: null, netWorth: null, clone: 'unknown', cloneSince: null, training: null, queueEnds: null, queueKnown: false, totalSp: null });
+  eq('  a queue read and empty is known to be empty; one not read isn\'t', [R.charFacts({ skillQueue: [] }, [], NOW2).queueKnown, R.charFacts({ walletBalance: 5 }, [], NOW2).queueKnown], [true, false]);
+  eq('    and a queue that has all finished was read', R.charFacts({ skillQueue: [{ skillId: 1, level: 1, finish: '2026-09-01T00:00:00Z' }] }, [], NOW2).queueKnown, true);
   eq('  a queue that has all finished is no training', R.charFacts({ skillQueue: [{ skillId: 1, level: 1, finish: '2026-09-01T00:00:00Z' }] }, [], NOW2).training, null);
   eq('  a paused queue (no finish time) still names its skill', R.charFacts({ skillQueue: [{ skillId: 9, level: 2, finish: null }] }, [], NOW2).training, { skillId: 9, level: 2, finish: null });
   eq('  an alt\'s facts come from its stored copy', R.altFacts({ rev: 3, records: { netWorth: { '2026-10-01': { date: '2026-10-01', total: 5 } } }, docs: { meta: { walletBalance: 7 } } }, NOW2).netWorth, { date: '2026-10-01', total: 5 });
@@ -3917,7 +3919,11 @@ console.log('\n--- which characters are yours ---');
   const walk = (dir) => fs2.readdirSync(new URL(dir, import.meta.url), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${dir}${e.name}/`) : /\.(ts|tsx)$/.test(e.name) ? [`${dir}${e.name}`] : []));
   const users = walk('../src/').filter((p) => /(from\s*|import\s*\(\s*)['"][^'"]*\/altStore['"]/.test(src(p))).map((p) => p.replace('../src/', '')).sort();
   eq('  and only the shell and the Characters page read the alt store', users, ['App.tsx', 'components/Characters.tsx']);
-  eq('  an alt with nothing read yet: nothing, not zeros', R.altFacts(R.emptyAlt(), NOW2), { wallet: null, walletAt: null, netWorth: null, clone: 'unknown', cloneSince: null, training: null, queueEnds: null, totalSp: null });
+  eq('  an alt with nothing read yet: nothing, not zeros', R.altFacts(R.emptyAlt(), NOW2), { wallet: null, walletAt: null, netWorth: null, clone: 'unknown', cloneSince: null, training: null, queueEnds: null, queueKnown: false, totalSp: null });
+  const readEmpty = R.altFacts({ rev: 1, records: {}, docs: { meta: { skillQueue: [] } } }, NOW2);
+  eq('    an alt whose queue was read empty: known, and "Nothing in the queue"', [readEmpty.training, readEmpty.queueKnown, R.idleQueueSaid(readEmpty)], [null, true, 'Nothing in the queue']);
+  eq('    one whose queue wasn\'t read says so, never that it\'s empty', R.idleQueueSaid(R.altFacts(R.emptyAlt(), NOW2)), 'Not read yet');
+  eq('    and one training says neither', R.idleQueueSaid(f), null);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

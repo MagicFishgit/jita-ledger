@@ -134,6 +134,8 @@ export type CharFacts = {
   /** The first level the queue hasn't finished (`finish` null while the queue is paused), and when the queue ends. */
   training: { skillId: number; level: number; finish: string | null } | null;
   queueEnds: string | null;
+  /** The queue has been read: with no training, it's known to be empty rather than not read. */
+  queueKnown: boolean;
   totalSp: number | null;
 };
 
@@ -154,9 +156,13 @@ export function charFacts(meta: MetaLike | undefined, points: { date: string; to
     clone: m.cloneDetected ?? 'unknown', cloneSince: m.cloneSince ?? null,
     training: first ? { skillId: first.skillId, level: first.level, finish: first.finish ?? null } : null,
     queueEnds: left.length ? left[left.length - 1].finish ?? null : null,
+    queueKnown: m.skillQueue !== undefined,
     totalSp: m.totalSp ?? null,
   };
 }
+
+/** What a card's Training tile says with nothing training: an empty queue only when it was read. Null while one trains. */
+export const idleQueueSaid = (f: CharFacts): string | null => (f.training ? null : f.queueKnown ? 'Nothing in the queue' : 'Not read yet');
 
 export const altFacts = (saved: AltSaved, now: number): CharFacts =>
   charFacts(saved.docs.meta as MetaLike | undefined, Object.values(saved.records.netWorth ?? {}) as { date: string; total: number }[], now);

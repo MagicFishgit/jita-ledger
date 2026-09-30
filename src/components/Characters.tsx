@@ -7,12 +7,12 @@ import { SCOPE_INFO, SCOPES } from '../lib/config';
 import { chooseAsk } from '../lib/confirm';
 import { ago, fmtDate, fmtDateTime, iskBig } from '../lib/format';
 import { useAuth, useNow } from '../lib/hooks';
-import { altFacts, charFacts, failingJobs, lastRead, loginState, type CharFacts, type CloneState, type RosterEntry } from '../lib/roster';
+import { altFacts, charFacts, failingJobs, idleQueueSaid, lastRead, loginState, type CharFacts, type CloneState, type RosterEntry } from '../lib/roster';
 import { ROMAN, trainSaid } from '../lib/skillStatus';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { useEnsureNames, useTypeName } from './common';
-import { Empty, Flag, Notice, PageHead, Panel, Tiles, type TileData } from './ui';
+import { Empty, Flag, Notice, PageHead, Panel, Tiles, Tip, type TileData } from './ui';
 
 /**
  * Your characters: the one logged in here, and the alts the cloud reads for you (docs/notes/characters.md). An alt
@@ -24,14 +24,21 @@ const CLONE_SAID: Record<CloneState, string> = { alpha: 'Alpha', omega: 'Omega',
 const CLOUD_OFF = 'The cloud copy is switched off in this browser, and the cloud is what reads other characters.';
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-/** Wallet, net worth and the skill in training: a figure, or "–" with why, never a zero for "not known". */
-function tiles(f: CharFacts, now: number, skill: (id: number) => string, live: boolean): TileData[] {
+/**
+ * Wallet, net worth and the skill in training: a figure, or "–" with why, never a zero for "not known". `entry`: an
+ * alt's roster entry, whose wallet is as of the cloud's last read of its sheet; absent for the character logged in here.
+ */
+function tiles(f: CharFacts, now: number, skill: (id: number) => string, entry?: RosterEntry): TileData[] {
   const t = f.training;
+  // An alt's wallet is read with its sheet, hourly. Its meta's walletAt isn't that time: the cloud pushes the sheet,
+  // with walletAt set to now, whenever anything else in it moves, and not when only the time would.
+  const sheetAt = entry?.jobs.find((j) => j.job === 'sheet')?.lastOk ?? null;
+  const readAt = entry ? (sheetAt != null ? new Date(sheetAt).toISOString() : null) : f.walletAt;
   return [
     {
       l: 'Wallet', v: f.wallet != null ? iskBig(f.wallet) : '–',
-      n: f.wallet == null ? 'Not read yet' : !f.walletAt ? 'Time not known' : live ? `Read ${ago(f.walletAt, now)}` : `As last changed, ${ago(f.walletAt, now)}`,
-      tip: live ? 'The ISK this character holds in game, read every 2 minutes while the app is open.' : 'The ISK this character held when the cloud last read it. The cloud reads it every hour; the time is when the balance last changed.',
+      n: f.wallet == null ? 'Not read yet' : readAt ? `Read ${ago(readAt, now)}` : 'Time not known',
+      tip: entry ? 'The ISK this character held when the cloud last read it. The cloud reads it every hour, and the time under the figure is that read.' : 'The ISK this character holds in game, read every 2 minutes while the app is open.',
     },
     {
       l: 'Net worth', v: f.netWorth ? iskBig(f.netWorth.total) : '–', n: f.netWorth ? `The ${fmtDate(f.netWorth.date)} point` : 'No daily point yet',
@@ -39,7 +46,7 @@ function tiles(f: CharFacts, now: number, skill: (id: number) => string, live: b
     },
     {
       l: 'Training', v: t ? `${skill(t.skillId)} ${ROMAN[t.level] ?? t.level}` : '–',
-      n: !t ? 'Nothing in the queue' : !t.finish ? 'The queue is paused' : `Done in ${trainSaid(Date.parse(t.finish) - now)}${f.queueEnds && f.queueEnds !== t.finish ? `; the queue ends ${fmtDate(f.queueEnds)}` : ''}`,
+      n: !t ? idleQueueSaid(f) : !t.finish ? 'The queue is paused' : `Done in ${trainSaid(Date.parse(t.finish) - now)}${f.queueEnds && f.queueEnds !== t.finish ? `; the queue ends ${fmtDate(f.queueEnds)}` : ''}`,
     },
   ];
 }
@@ -94,7 +101,7 @@ function Card(props: {
           )}
         </div>
       </div>
-      <Tiles inset min={170} items={tiles(facts, now, props.skill, !entry)} />
+      <Tiles inset min={170} items={tiles(facts, now, props.skill, entry)} />
       {entry && !unread && facts.clone === 'unknown' && props.onClone && (
         <div className="row tight">
           <span className="note small">Alpha or Omega?</span>
@@ -106,7 +113,9 @@ function Card(props: {
       )}
       {entry && (
         <p className="note small">
-          {read ? `The cloud read it ${ago(new Date(read).toISOString(), now)}.` : 'The cloud hasn’t read it yet: its first full read runs when it’s added, then hourly at 37 minutes past.'}
+          {login?.state === 'refused' || login?.state === 'none'
+            ? `${read ? `The cloud last read it ${ago(new Date(read).toISOString(), now)}. Nothing more is read` : 'The cloud hasn’t read it, and nothing is read'} until its login is handed over again.`
+            : read ? `The cloud read it ${ago(new Date(read).toISOString(), now)}.` : 'The cloud hasn’t read it yet: its first full read runs when it’s added, then hourly at 37 minutes past.'}
           {entry.ship && entry.shipAt ? ` In ${props.skill(entry.ship)} at its mining read ${ago(new Date(entry.shipAt).toISOString(), now)}.` : ''}
           {failing.map((j) => ` ${j.job === 'mining' ? 'Its mining read' : j.job === 'sheet' ? 'Its skills read' : 'Its wallet and assets read'} is failing: ${j.lastError}.`).join('')}
         </p>
@@ -201,18 +210,26 @@ export function Characters() {
   });
 
   const add = (
-    <button type="button" className="btn primary" disabled={busy || !cloudOn || !auth} onClick={handOver}
-      data-tip-title="Adding a character"
-      data-tip={'EVE’s login asks for an account, then which of its characters, and remembers the account you used last.\n\n• For a character on another account, sign out on EVE’s login page first, then sign in with that account.\n• If it offers your main and your mail character, you’re still signed in to your main account.\n• Not in a private window: the login has to come back to this tab.\n\nThe login goes straight to the cloud. Nothing of it is kept in this browser.'}>
+    <button type="button" className="btn primary" disabled={busy || !cloudOn || !auth} onClick={handOver}>
       <UserPlus aria-hidden="true" />Add a character
     </button>
+  );
+  // Said beside the button, not only in a tip: on a phone a tap on the button goes to EVE before any tip could show,
+  // and signing out there first is what keeps EVE from handing back the main or the mail character instead.
+  const empty = alts.ready && !others.length && cloudOn && !alts.behind && (alts.rosterAt != null || !alts.error);
+  const addHint = (
+    <span className="note small" style={{ whiteSpace: 'normal' }}>
+      On another account? Sign out on EVE’s login page first.{' '}
+      <Tip title="Adding a character"
+        text={'EVE’s login asks for an account, then which of its characters, and remembers the account you used last.\n\n• For a character on another account, sign out on EVE’s login page first, then sign in with that account.\n• If it offers your main and your mail character, you’re still signed in to your main account.\n• Not in a private window: the login has to come back to this tab.\n\nThe login goes straight to the cloud. Nothing of it is kept in this browser.'} />
+    </span>
   );
 
   return (
     <div className="page">
       <PageHead kicker="Pilot" title="Characters"
         lede="The character logged in here, and the ones on your other accounts that the cloud reads for you. Each keeps its own wallet, skills and mining under its own name; none of it enters this ledger."
-        actions={<>{alts.busy && <span className="note small"><RefreshCw aria-hidden="true" style={{ width: 12, height: 12, verticalAlign: '-2px' }} /> Reading…</span>}{add}</>} />
+        actions={<>{alts.busy && <span className="note small"><RefreshCw aria-hidden="true" style={{ width: 12, height: 12, verticalAlign: '-2px' }} /> Reading…</span>}{!empty && addHint}{add}</>} />
 
       {!cloudOn && (
         <Notice kind="warn" icon={CloudOff}>
@@ -239,9 +256,9 @@ export function Characters() {
         <Card key={entry.charId} id={entry.charId} name={entry.name ?? `Character ${entry.charId}`} facts={facts} now={now} skill={skill} entry={entry} busy={busy} cloudOff={!cloudOn}
           byHand={d.chars[String(entry.charId)]?.clone} onClone={(v) => setClone(entry, v)} onHandOver={handOver} onRemove={() => remove(entry)} />
       ))}
-      {alts.ready && !others.length && cloudOn && !alts.behind && (alts.rosterAt != null || !alts.error) && (
+      {empty && (
         <Panel>
-          <Empty icon={Users} action={add}>
+          <Empty icon={Users} action={<>{add}<p>{addHint}</p></>}>
             No other characters yet. Add one and the cloud reads its wallet, assets, skills and mining every hour, with this app closed too.
           </Empty>
         </Panel>
