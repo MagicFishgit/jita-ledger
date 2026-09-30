@@ -1,4 +1,5 @@
 import type { LeaveSummary, ShareSummary, SnipeSummary } from './track';
+import type { AltPage, RosterEntry } from './roster';
 import type { TrackerCell, TrackerFitDetail } from './abyssTracker';
 import { useSyncExternalStore } from 'react';
 import { get, set } from 'idb-keyval';
@@ -171,7 +172,12 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers: { ...(init.headers ?? {}), Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
   });
   const body = await res.json().catch(() => ({})) as T & { error?: string };
-  if (!res.ok) throw new Error(body.error ?? `The cloud answered ${res.status}`);
+  if (!res.ok) {
+    // The status rides on the error: a 404 from a route the Worker doesn't have yet means it's a version behind.
+    const err = new Error(body.error ?? `The cloud answered ${res.status}`) as Error & { status?: number };
+    err.status = res.status;
+    throw err;
+  }
   return body;
 }
 
@@ -307,18 +313,36 @@ export function setCloudEnabled(on: boolean) {
   if (on) { setStatus({ phase: state ? 'idle' : 'waiting' }); syncCloudNow(); } else setStatus({ phase: 'off', doing: null });
 }
 
+/** What the cloud kept a handed-over login as. `as` is missing from a Worker a version behind: then it is `purpose`. */
+export type KeptLogin = { purpose: string; as?: 'main' | 'mailer' | 'alt'; charId: number; name: string };
+
 /**
- * Hands a login to the cloud for its background jobs. The Worker refreshes it once to prove it works,
- * checks it's the right character (the trading one for 'main', the other one for 'mailer'), and keeps it
- * encrypted. This browser keeps nothing.
+ * Hands a login to the cloud for its background jobs. The Worker refreshes it once to prove it works and keeps it
+ * encrypted; this browser keeps nothing. For an alt, EVE's page picks the character, so the answer says what it was
+ * kept as: the main's login or the sender's when one of those came back, and nothing is added (Worker: keepHandedOver).
  */
-export async function keepCloudLogin(k: { purpose: 'main' | 'mailer'; refreshToken: string }): Promise<{ name: string }> {
-  const res = await call<{ kept: { name: string } }>('/v1/keys', { method: 'POST', body: JSON.stringify(k) });
+export async function keepCloudLogin(k: { purpose: 'main' | 'mailer' | 'alt'; refreshToken: string }): Promise<KeptLogin> {
+  const res = await call<{ kept: KeptLogin }>('/v1/keys', { method: 'POST', body: JSON.stringify({ purpose: k.purpose, refreshToken: k.refreshToken }) });
   return res.kept;
 }
 
 /** Stops a background login, at the Worker and at EVE. */
 export const dropCloudLogin = (purpose: 'main' | 'mailer') => call(`/v1/keys?purpose=${purpose}`, { method: 'DELETE' });
+
+// Alts: the owner's other characters, read by the cloud and filed under their own IDs (docs/notes/characters.md).
+// These routes are new paths: a Worker a version behind answers 404 (the error's `status`).
+
+/** The roster: each alt's login (never the token), its jobs, its revision, its ship when last read. */
+export const cloudAlts = () => call<RosterEntry[]>('/v1/alts');
+/** One page of an alt's cloud copy changed since a revision. */
+export const cloudAltPull = (altId: number, since: number, after: string | null) =>
+  call<AltPage>(`/v1/alts/${altId}/pull?since=${since}${after ? `&after=${encodeURIComponent(after)}` : ''}`);
+/** Runs an alt's full read now instead of at :37: right after adding one, it proves the login end to end. */
+export const cloudAltRead = (altId: number) =>
+  call<{ trades: number; journal: number; orders: number; clone: string | null }>(`/v1/alts/${altId}/read`, { method: 'POST' });
+/** Takes an alt off the roster; its login is revoked at EVE. `keep` leaves what was read, `delete` removes it. */
+export const cloudRemoveAlt = (altId: number, data: 'keep' | 'delete') =>
+  call<{ removed: number; data: string }>(`/v1/alts/${altId}?data=${data}`, { method: 'DELETE' });
 
 /** Runs the archive now instead of waiting for the hour. */
 export const runCloudArchive = () => call<{ trades: number; journal: number; orders: number; names: number; stock: boolean; netWorth: number | null }>('/v1/jobs/archive', { method: 'POST' });

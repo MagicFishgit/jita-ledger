@@ -3830,6 +3830,64 @@ console.log('\n--- which characters are yours ---');
   const base = { settings: {}, meta: {}, prefs: {}, chars: {} };
   eq('  one that comes down replaces the one here', applyPulled(base, { records: [], docs: [{ key: 'chars', d: { 900001: { name: 'Miner Two' } } }] }).chars, { 900001: { name: 'Miner Two' } });
   eq('  and goes up with a first upload', everything({ chars: { 900001: { name: 'Miner Two' } } }).docs.includes('chars'), true);
+
+  const R = await import('../src/lib/roster.ts');
+  const NOW2 = Date.parse('2026-10-01T15:00:00Z');
+  const H = 3600_000;
+
+  // An alt's pull, a page at a time.
+  const page1 = { rev: 7, next: '5|txs|b', records: [{ k: 'txs', i: 'a', d: { q: 1 } }, { k: 'txs', i: 'b', d: { q: 2 } }], docs: [{ key: 'meta', d: { walletBalance: 5 } }] };
+  const page2 = { rev: 7, next: null, records: [{ k: 'txs', i: 'a', d: null }, { k: 'mining', i: 'm', d: { qty: 3 } }], docs: [] };
+  const half = R.applyAltPull(R.emptyAlt(), page1);
+  eq('  a pull\'s first page is kept, and the revision waits for the last', [half.rev, Object.keys(half.records.txs), half.docs.meta], [0, ['a', 'b'], { walletBalance: 5 }]);
+  const whole = R.applyAltPull(half, page2);
+  eq('    the last page moves it, removes what was removed, and adds the rest', [whole.rev, Object.keys(whole.records.txs), Object.keys(whole.records.mining)], [7, ['b'], ['m']]);
+  eq('    and what was stored before isn\'t changed in place', Object.keys(half.records.txs), ['a', 'b']);
+
+  // What a card shows.
+  const meta = {
+    walletBalance: 4_200_000, walletAt: '2026-10-01T14:00:00Z', totalSp: 1_200_000, cloneDetected: 'alpha', cloneSince: '2026-09-29T10:00:00Z',
+    skillQueue: [
+      { skillId: 3386, level: 3, finish: '2026-10-01T10:00:00Z' },
+      { skillId: 3386, level: 4, finish: '2026-10-02T15:00:00Z' },
+      { skillId: 3380, level: 4, finish: '2026-10-05T15:00:00Z' },
+    ],
+  };
+  const points = [{ date: '2026-09-30', total: 11e6 }, { date: '2026-10-01', total: 12e6 }, { date: '2026-09-29', total: 9e6 }];
+  const f = R.charFacts(meta, points, NOW2);
+  eq('  a card\'s wallet, and when it was read', [f.wallet, f.walletAt], [4_200_000, '2026-10-01T14:00:00Z']);
+  eq('  its net worth is the newest daily point, with its date', f.netWorth, { date: '2026-10-01', total: 12e6 });
+  eq('  the skill in training is the first the queue hasn\'t finished', f.training, { skillId: 3386, level: 4, finish: '2026-10-02T15:00:00Z' });
+  eq('  and the queue ends with its last', f.queueEnds, '2026-10-05T15:00:00Z');
+  eq('  its clone state, and since when', [f.clone, f.cloneSince], ['alpha', '2026-09-29T10:00:00Z']);
+  const none = R.charFacts(undefined, [], NOW2);
+  eq('  a character nothing has been read for: nothing, not zeros', none, { wallet: null, walletAt: null, netWorth: null, clone: 'unknown', cloneSince: null, training: null, queueEnds: null, totalSp: null });
+  eq('  a queue that has all finished is no training', R.charFacts({ skillQueue: [{ skillId: 1, level: 1, finish: '2026-09-01T00:00:00Z' }] }, [], NOW2).training, null);
+  eq('  a paused queue (no finish time) still names its skill', R.charFacts({ skillQueue: [{ skillId: 9, level: 2, finish: null }] }, [], NOW2).training, { skillId: 9, level: 2, finish: null });
+  eq('  an alt\'s facts come from its stored copy', R.altFacts({ rev: 3, records: { netWorth: { '2026-10-01': { date: '2026-10-01', total: 5 } } }, docs: { meta: { walletBalance: 7 } } }, NOW2).netWorth, { date: '2026-10-01', total: 5 });
+
+  // The roster entry: when it was last read, and the state of its login.
+  const entry = {
+    charId: 900001, name: 'Miner Two', addedAt: NOW2 - 5 * 24 * H, scopes: ['a', 'b'], at: NOW2 - H, refusedAt: null, refused: null, rev: 3, ship: 32880, shipAt: NOW2 - 600_000,
+    jobs: [
+      { job: 'archive', lastRun: NOW2 - H, lastOk: NOW2 - H, lastError: null },
+      { job: 'sheet', lastRun: NOW2 - H / 2, lastOk: NOW2 - H / 2, lastError: null },
+      { job: 'mining', lastRun: NOW2 - 600_000, lastOk: NOW2 - 2 * H, lastError: 'ESI 502' },
+    ],
+  };
+  eq('  last read: the newer of its copy and its sheet', R.lastRead(entry), NOW2 - H / 2);
+  eq('    never, before either has run', R.lastRead({ ...entry, jobs: [] }), null);
+  eq('  a job that failed since it last worked is failing', R.failingJobs(entry).map((j) => j.job), ['mining']);
+  eq('  a login with every permission asked for', R.loginState(entry, ['a', 'b']), { state: 'working', missing: [] });
+  eq('    one lacking some names them', R.loginState(entry, ['a', 'b', 'c']), { state: 'working', missing: ['c'] });
+  eq('    one EVE refused', R.loginState({ ...entry, refusedAt: NOW2 - H, refused: 'invalid_grant' }, ['a']).state, 'refused');
+  eq('    none kept', R.loginState({ ...entry, at: null, scopes: [] }, ['a']).state, 'none');
+
+  // Alt data has no path into the main's ledger.
+  const fs2 = await import('node:fs');
+  const src = (p) => fs2.readFileSync(new URL(p, import.meta.url), 'utf8');
+  const fromStore = /import\s*\{([^}]*)\}\s*from\s*'\.\/store'/.exec(src('../src/lib/altStore.ts'));
+  eq('  the alt store takes three things from the ledger\'s store, and update is not one', fromStore[1].split(',').map((x) => x.trim()).sort(), ['dataGeneration', 'mergeChars', 'onClearAll']);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

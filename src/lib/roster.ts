@@ -46,3 +46,95 @@ export function sortLogin(asked: Asked, char: number, ledger: number, mailer: nu
   if (char === mailer) return { as: 'mailer' };
   return { as: 'alt' };
 }
+
+// --- In the browser: the roster as the cloud lists it, and an alt's copy ------------------------------------------
+
+/** One alt as the cloud's roster lists it (GET /v1/alts): its login (never the token), its jobs, its ship when last read. */
+export type RosterEntry = {
+  charId: number; name: string | null; addedAt: number;
+  /** The permissions its login carries; `at`: when the login last worked (null: none kept). */
+  scopes: string[]; at: number | null; refusedAt: number | null; refused: string | null;
+  /** The newest revision of its cloud copy: the browser pulls only when this has moved. */
+  rev: number;
+  ship: number | null; shipAt: number | null;
+  jobs: { job: string; lastRun: number; lastOk: number | null; lastError: string | null }[];
+};
+
+/** An alt's cloud copy as this browser keeps it: its records by kind and ID, its documents, the revision reached. */
+export type AltSaved = { rev: number; records: Record<string, Record<string, unknown>>; docs: Record<string, unknown> };
+export const emptyAlt = (): AltSaved => ({ rev: 0, records: {}, docs: {} });
+
+/** One page of GET /v1/alts/<id>/pull. `next` is the cursor for the page after it, null on the last. */
+export type AltPage = { rev: number; next: string | null; records: { k: string; i: string; d: unknown }[]; docs: { key: string; d: unknown }[] };
+
+/**
+ * An alt's copy with one page of a pull applied. The revision moves only with the last page (`next` null): a pull cut
+ * off halfway is then asked for again from the revision it started at, and the pages already applied are applied
+ * again, which changes nothing. Returns a new copy; the one passed in is left as it was.
+ */
+export function applyAltPull(saved: AltSaved, page: AltPage): AltSaved {
+  const records = { ...saved.records };
+  const copied = new Set<string>();
+  for (const r of page.records) {
+    if (!copied.has(r.k)) { records[r.k] = { ...(records[r.k] ?? {}) }; copied.add(r.k); }
+    if (r.d == null) delete records[r.k][r.i]; else records[r.k][r.i] = r.d;
+  }
+  const docs = { ...saved.docs };
+  for (const x of page.docs) docs[x.key] = x.d;
+  return { rev: page.next ? saved.rev : page.rev, records, docs };
+}
+
+/** What a character's card shows. Null where nothing has been read: a card never shows a zero for "not known". */
+export type CharFacts = {
+  wallet: number | null; walletAt: string | null;
+  /** The newest daily net-worth point, with its date. */
+  netWorth: { date: string; total: number } | null;
+  clone: CloneState; cloneSince: string | null;
+  /** The first level the queue hasn't finished (`finish` null while the queue is paused), and when the queue ends. */
+  training: { skillId: number; level: number; finish: string | null } | null;
+  queueEnds: string | null;
+  totalSp: number | null;
+};
+
+type MetaLike = {
+  walletBalance?: number; walletAt?: string; totalSp?: number; cloneDetected?: 'alpha' | 'omega'; cloneSince?: string;
+  skillQueue?: { skillId: number; level: number; finish: string | null }[];
+};
+
+/** A character's card facts from its `meta` document and its net-worth points: the main's or an alt's alike. */
+export function charFacts(meta: MetaLike | undefined, points: { date: string; total: number }[], now: number): CharFacts {
+  const m = meta ?? {};
+  const latest = [...points].sort((a, b) => a.date.localeCompare(b.date)).pop() ?? null;
+  const left = (m.skillQueue ?? []).filter((q) => !q.finish || Date.parse(q.finish) > now);
+  const first = left[0];
+  return {
+    wallet: m.walletBalance ?? null, walletAt: m.walletAt ?? null,
+    netWorth: latest ? { date: latest.date, total: latest.total } : null,
+    clone: m.cloneDetected ?? 'unknown', cloneSince: m.cloneSince ?? null,
+    training: first ? { skillId: first.skillId, level: first.level, finish: first.finish ?? null } : null,
+    queueEnds: left.length ? left[left.length - 1].finish ?? null : null,
+    totalSp: m.totalSp ?? null,
+  };
+}
+
+export const altFacts = (saved: AltSaved, now: number): CharFacts =>
+  charFacts(saved.docs.meta as MetaLike | undefined, Object.values(saved.records.netWorth ?? {}) as { date: string; total: number }[], now);
+
+/** When the cloud last read an alt in full: the newer of its copy (`archive`) and its sheet. Null before either has run. */
+export function lastRead(e: RosterEntry): number | null {
+  const at = Math.max(0, ...e.jobs.filter((j) => j.job === 'archive' || j.job === 'sheet').map((j) => j.lastOk ?? 0));
+  return at || null;
+}
+
+/** The jobs that have failed since they last worked. */
+export const failingJobs = (e: RosterEntry) => e.jobs.filter((j) => j.lastError && (j.lastOk ?? 0) < j.lastRun);
+
+/**
+ * The state of an alt's login: refused by EVE, none kept, or working. `missing`: the permissions the app asks for
+ * today that this login was handed over without (it keeps working; what needs them doesn't, until it's handed over again).
+ */
+export function loginState(e: RosterEntry, wanted: string[]): { state: 'working' | 'refused' | 'none'; missing: string[] } {
+  if (e.refusedAt != null) return { state: 'refused', missing: [] };
+  if (e.at == null) return { state: 'none', missing: [] };
+  return { state: 'working', missing: wanted.filter((s) => !e.scopes.includes(s)) };
+}
