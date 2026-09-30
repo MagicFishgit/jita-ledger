@@ -2,16 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { Calculator, Coins, Gem, History, Pickaxe, Timer, TrendingUp } from 'lucide-react';
 import { hasScope } from '../../lib/auth';
 import { cloudEnabled, cloudMiningTicks, useCloud } from '../../lib/cloud';
-import { JITA_44, SCOPE } from '../../lib/config';
-import { esi } from '../../lib/esi';
+import { SCOPE } from '../../lib/config';
 import { rates } from '../../lib/fees';
 import { fmtDateTime, fmtShort, isk, iskBig, units } from '../../lib/format';
 import { navigate, useAuth, useNow } from '../../lib/hooks';
-import { adjustedPricesShared, jitaBook, resolveIds } from '../../lib/market';
+import { resolveIds } from '../../lib/market';
 import { bestWay, byDay, byOre, median, miningSessions, sessionStats, type MiningTick, type OreWorth, type Way } from '../../lib/mining';
 import { FAMILIES, gradeLabel, gradeRank, isMinedForm, oreBase, oreFamily } from '../../lib/miningFits';
 import { HULLS } from '../../lib/miningTree';
-import { stationTax, unitValue, yieldOf, type Materials, type Site } from '../../lib/reprocess';
+import { priceOres } from '../../lib/orePricing';
 import { useData } from '../../lib/store';
 import { groupTypes, system, typeInfo } from '../../lib/universe';
 import { useEnsureNames, useTypeName } from '../common';
@@ -35,41 +34,6 @@ const DAYS = 30;
 const WAY_SAID: Record<Way, string> = { raw: 'Sold as it is', compressed: 'Compressed', reprocessed: 'Reprocessed' };
 /** Scordite: the ore Scaling up prices for before you've mined anything. It spawns in every high-sec system (EVE University). */
 const SCORDITE = 1228;
-
-type Bundle = { types: Record<string, Materials> };
-
-/**
- * What each ore is worth three ways, after tax (lib/mining.ts `bestWay`): into its own Jita bids, compressed into
- * the compressed form's bids ("Compressed " + its name, trimmed: ESI names Scordite 0-Grade with a trailing space), or
- * reprocessed at your skills at Jita 4-4 and the minerals sold into their bids. With each ore's volume a unit.
- */
-async function priceOres(types: number[], nameOf: (t: number) => string, skills: Record<number, number>, corp: Parameters<typeof stationTax>[0], tax: number) {
-  const [bundle, adjusted, station] = await Promise.all([
-    import('../../data/typeMaterials.json').then((m) => m.default as unknown as Bundle).catch(() => null),
-    adjustedPricesShared().catch(() => ({} as Record<number, number>)),
-    esi<{ reprocessing_efficiency?: number }>(`/universe/stations/${JITA_44}/`).then(({ data }) => data.reprocessing_efficiency ?? 0.5).catch(() => 0.5),
-  ]);
-  const site: Site = { kind: 'station', base: station, tax: stationTax(corp) };
-  const bid = new Map<number, number | null>();
-  const bidOf = async (t: number) => { if (!bid.has(t)) bid.set(t, (await jitaBook(t).catch(() => null))?.bestBuy ?? null); return bid.get(t) ?? null; };
-  const vols: Record<number, number> = {}, worth: Record<number, OreWorth> = {};
-  const compressed = (t: number) => `Compressed ${nameOf(t).trim()}`;
-  const compressedIds = await resolveIds([...new Set(types.map(compressed))]).then((x) => x.inventory_types ?? []).catch(() => []);
-  for (const t of types) {
-    vols[t] = (await typeInfo(t).catch(() => null))?.volume ?? 0;
-    const raw = await bidOf(t);
-    const cid = compressedIds.find((c) => c.name === compressed(t))?.id;
-    const comp = cid ? await bidOf(cid) : null;
-    const m = bundle?.types[String(t)];
-    let reprocessed: number | null = null;
-    if (m) {
-      for (const [mat] of m[1]) await bidOf(mat);
-      reprocessed = unitValue(m, yieldOf(m, skills, site), (id) => bid.get(id) ?? null, (id) => adjusted[id] ?? null, site.tax, tax);
-    }
-    worth[t] = { raw: raw != null ? raw * (1 - tax) : null, compressed: comp != null ? comp * (1 - tax) : null, reprocessed };
-  }
-  return { vols, worth };
-}
 
 export function Mining() {
   const d = useData();
