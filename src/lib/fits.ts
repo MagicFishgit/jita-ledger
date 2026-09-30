@@ -33,7 +33,12 @@ export type Tier = {
 const n = (x: FitItem) => x.qty ?? 1;
 const modulated = (name: string) => /^Modulated /.test(name);
 
-/** The fit in EFT form, which the game's fitting window imports (Import from clipboard) and every fitting tool reads. */
+/**
+ * The fit in EFT form, which the game's fitting window imports (Import from clipboard) and every fitting tool reads.
+ * Implants and boosters are left out on purpose: a fitting can't hold them (ESI's saved-fitting flags are slots, the drone
+ * and fighter bays and cargo; CCP's import notes put only charges and ice products in the cargo), and what the client does
+ * with such a line is documented nowhere, so writing them could only risk the paste. Multibuy carries them.
+ */
 export function eftText(hull: string, label: string, t: Tier, crystal: string | null): string {
   const each = (xs: FitItem[], charge?: (x: FitItem) => string | null) => xs.flatMap((x) => Array.from({ length: n(x) }, () => {
     const c = charge?.(x) ?? x.charge;

@@ -58,6 +58,12 @@ Traps in the code, the tools and the browser that have cost time before.
 - **`browser_navigate` to the same URL with another `#hash` keeps the old document**, including modules an
   HMR update failed to replace — a page can run stale code while the file on disk is right. `location.reload()`
   after edits, and import the app's own module instance (its `?t=` URL from `performance`), not the bare path.
+- **A cache that only remembers finished answers asks twice when two ask at once.** `cached` in `universe.ts` did, and
+  every `/universe/types/{id}` lookup (`typeInfo`, `typeRequirements`, `typeDogma`, `typeDescription`, `typeName`) read
+  the type on its own: opening Hauling sent two or three requests for each of its 36 hulls (the tree's dogma, ShipTree's
+  stats and skills, at the same moment). Now `cached` shares a lookup in flight and the type lookups share one read
+  (`rawType`): 36 requests for 36 hulls, counted in a browser on 30 September 2026. Anything new that caches should do
+  the same.
 - **`SCOPE_INFO` in `config.ts` is the single answer to "what do I need to enable".** Settings lists
   every scope, its exact ESI name, what it unlocks and what breaks without it, logged in or not ---
   a scope registered on the application but granted before it was added is simply absent, with no

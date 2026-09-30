@@ -105,26 +105,31 @@ export function TrackerFitView({ fit, tier, weather }: { fit: FitRef; tier: numb
   const [detail, setDetail] = useState<TrackerFitDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cats, setCats] = useState<Record<string, number> | null>(null);
+  const [ids, setIds] = useState<Record<string, number>>({});
   const [hullPrice, setHullPrice] = useState<number | null>(null);
   useEffect(() => {
     if (!cloudEnabled()) return;
     let alive = true;
-    setDetail(null); setError(null); setCats(null); setHullPrice(null);
+    setDetail(null); setError(null); setCats(null); setIds({}); setHullPrice(null);
     cloudAbyssFit(fit.id).then((x) => { if (alive) setDetail(x); }).catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)); });
     jitaBook(fit.shipId).then((b) => { if (alive) setHullPrice(b.bestSell ?? null); }).catch(() => undefined);
     return () => { alive = false; };
   }, [fit.id, fit.shipId]);
   const parsed = useMemo(() => (detail ? parseEft(detail.eft) : null), [detail]);
-  // What follows the rigs is sorted by its category, read from ESI.
+  // Every name in the fit resolved once: what follows the rigs is sorted by its category (ESI), and the fit's pricing
+  // reuses the IDs rather than asking again.
   useEffect(() => {
     if (!parsed) return;
     let alive = true;
     (async () => {
-      const names = [...new Set(parsed.rest.map((x) => x.name))];
-      const ids = names.length ? await resolveIds(names).catch(() => null) : null;
+      const names = [...new Set([...parsed.low, ...parsed.mid, ...parsed.high, ...parsed.rigs].flatMap((x) => (x.charge ? [x.name, x.charge] : [x.name])).concat(parsed.rest.map((x) => x.name)))];
+      const res = names.length ? await resolveIds(names).catch(() => null) : null;
+      const found: Record<string, number> = {};
+      for (const t of res?.inventory_types ?? []) found[t.name] = t.id;
+      const rest = new Set(parsed.rest.map((x) => x.name));
       const out: Record<string, number> = {};
-      await Promise.all((ids?.inventory_types ?? []).map(async (t) => { const k = await typeKind(t.id).catch(() => null); if (k) out[t.name] = k.category; }));
-      if (alive) setCats(out);
+      await Promise.all((res?.inventory_types ?? []).filter((t) => rest.has(t.name)).map(async (t) => { const k = await typeKind(t.id).catch(() => null); if (k) out[t.name] = k.category; }));
+      if (alive) { setIds(found); setCats(out); }
     })();
     return () => { alive = false; };
   }, [parsed]);
@@ -136,12 +141,12 @@ export function TrackerFitView({ fit, tier, weather }: { fit: FitRef; tier: numb
   if (error) return <p className="note small" style={{ margin: 0, color: 'var(--neg-l)' }}>Couldn’t read that fit: {error}. It’s {link}.</p>;
   if (detail && !parsed) return <p className="note small" style={{ margin: 0, color: 'var(--neg-l)' }}>Abyss Tracker’s copy of that fit isn’t in a form the page can read. It’s {link}.</p>;
   if (!detail || !tierFit) return <p className="note small" style={{ margin: 0 }}>Reading the fit from Abyss Tracker…</p>;
-  return <TrackerFitBody fit={fit} detail={detail} tierFit={tierFit} hullPrice={hullPrice} tier={tier} weather={weather} />;
+  return <TrackerFitBody fit={fit} detail={detail} tierFit={tierFit} ids={ids} hullPrice={hullPrice} tier={tier} weather={weather} />;
 }
 
-function TrackerFitBody({ fit, detail, tierFit, hullPrice, tier, weather }: { fit: FitRef; detail: TrackerFitDetail; tierFit: Tier; hullPrice: number | null; tier: number; weather: number }) {
+function TrackerFitBody({ fit, detail, tierFit, ids, hullPrice, tier, weather }: { fit: FitRef; detail: TrackerFitDetail; tierFit: Tier; ids: Record<string, number>; hullPrice: number | null; tier: number; weather: number }) {
   const now = useNow(60_000);
-  const data = useFitData(fit.shipId, tierFit, null);
+  const data = useFitData(fit.shipId, tierFit, null, { ids });
   const { total, unpriced } = fitCosts(tierFit, null, data, hullPrice);
   const here = detail.perf?.cells.find((c) => c.tier === tier && c.weather === weather) ?? null;
   const cellSaid = (t: number, w: number) => `T${t} ${TIERS[t]} ${TRACKER_WEATHER[w]}`;

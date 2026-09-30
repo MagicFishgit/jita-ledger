@@ -31,6 +31,8 @@ export async function refreshAbyss(db: D1Database, now = Date.now()): Promise<{ 
     if (now - (at.get(`${tier}:${weather}`) ?? 0) > CELL_AGE) due.push([tier, weather]);
   }
   due.sort((a, b) => (at.get(`${a[0]}:${a[1]}`) ?? 0) - (at.get(`${b[0]}:${b[1]}`) ?? 0));
+  // A fit is kept a week; one nobody has opened since is read afresh when next asked for, so it goes.
+  await db.prepare(`DELETE FROM abyss_fits WHERE at < ?1`).bind(now - FIT_AGE).run();
   let read = 0, failedInARow = 0;
   let error: string | null = null;
   for (const [tier, weather] of due) {

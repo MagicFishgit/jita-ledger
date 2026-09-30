@@ -29,8 +29,9 @@ export type FitData = {
 /**
  * A fit's items: IDs by name, the cheapest Jita listing of each, their dogma and the skills they need (with the tier's own
  * `train` list); the hull's dogma; and dogma for any other names or types the page reads (`dogmaNames`, `dogmaIds`).
+ * IDs the page already has (`ids`) aren't looked up again.
  */
-export function useFitData(hullId: number, fit: Tier, crystal: string | null, more?: { dogmaNames?: string[]; dogmaIds?: number[] }): FitData | null {
+export function useFitData(hullId: number, fit: Tier, crystal: string | null, more?: { dogmaNames?: string[]; dogmaIds?: number[]; ids?: Record<string, number> }): FitData | null {
   const [got, setGot] = useState<FitData | null>(null);
   useEffect(() => {
     let alive = true;
@@ -39,8 +40,11 @@ export function useFitData(hullId: number, fit: Tier, crystal: string | null, mo
       const items = fitItems(fit, crystal);
       const dogmaOnly = (more?.dogmaNames ?? []).filter((nm) => !items.some((x) => x.name === nm));
       const names = [...new Set([...items.map((x) => x.name), ...(fit.implants ?? []), ...fit.train.map(([s]) => s), ...dogmaOnly])];
-      const res = await resolveIds(names).catch(() => null);
+      // Names the page already resolved (an Abyss fit sorts its cargo by them) aren't asked for again.
       const ids: Record<string, number> = {};
+      for (const nm of names) if (more?.ids?.[nm] != null) ids[nm] = more.ids[nm];
+      const unknown = names.filter((nm) => ids[nm] == null);
+      const res = unknown.length ? await resolveIds(unknown).catch(() => null) : null;
       for (const x of res?.inventory_types ?? []) ids[x.name] = x.id;
       const price: Record<string, number | null> = {};
       const dogma: Record<number, TypeDogma> = {};
@@ -116,8 +120,10 @@ export function FitActions({ hullId, hullName, label, fit, crystal, data, total 
   hullId: number; hullName: string; label: string; fit: Tier; crystal: string | null; data: FitData | null; total: number | null;
 }) {
   const [saving, setSaving] = useState(false);
+  // A fitting has nowhere to hold implants or boosters (see eftText), so the copy and the saved fit say they're left out.
+  const leftOut = fit.implants?.length ? ' Its implants and boosters aren’t in it: a fitting can’t hold them. Copy for Multibuy has them.' : '';
   const copyFit = async () => {
-    try { await navigator.clipboard.writeText(eftText(hullName, label, fit, crystal)); toast('Fit copied. In game: the fitting window, Import & Export, Import from clipboard.'); }
+    try { await navigator.clipboard.writeText(eftText(hullName, label, fit, crystal)); toast(`Fit copied. In game: the fitting window, Import & Export, Import from clipboard.${leftOut}`); }
     catch { toast('Your browser wouldn’t let the page copy.', 'err'); }
   };
   const saveFit = async () => {
@@ -128,14 +134,16 @@ export function FitActions({ hullId, hullName, label, fit, crystal, data, total 
     setSaving(true);
     try {
       await esi<{ fitting_id: number }>(`/characters/${a.characterId}/fittings/`, { auth: true, method: 'POST', body });
-      toast(`Saved as “${body.name}” in your fittings. In game: the fitting window, Personal.`);
+      toast(`Saved as “${body.name}” in your fittings. In game: the fitting window, Personal.${leftOut}`);
     } catch (e) { toast(e instanceof Error ? e.message : String(e), 'err'); }
     finally { setSaving(false); }
   };
   const mb = fitMultibuy(hullName, fit, crystal);
   return (
     <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-      <button type="button" className="btn sm" onClick={() => void copyFit()}><ClipboardCopy aria-hidden="true" /> Copy fit</button>
+      <button type="button" className="btn sm" onClick={() => void copyFit()}
+        data-tip={fit.implants?.length ? 'The fit as EFT text, which the game’s fitting window imports.\n\nIts implants and boosters are left out: a fitting has no place for them (ESI’s saved fittings take slots, the drone and fighter bays and cargo, and the import puts only charges and ice in the cargo), and what the game does with such a line isn’t documented. Copy for Multibuy has them.' : undefined}>
+        <ClipboardCopy aria-hidden="true" /> Copy fit</button>
       <button type="button" className="btn sm" disabled={!data} onClick={() => void copyMultibuy(mb.text, mb.lines, total ?? undefined)}><ShoppingCart aria-hidden="true" /> Copy for Multibuy</button>
       {hasScope(SCOPE.fittingsWrite) && <button type="button" className="btn sm" disabled={!data || saving} onClick={() => void saveFit()}><Save aria-hidden="true" /> {saving ? 'Saving…' : 'Save fit in game'}</button>}
     </div>

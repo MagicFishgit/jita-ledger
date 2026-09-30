@@ -1427,6 +1427,11 @@ console.log('\n--- mining fits ---');
   eq('EFT: lows, mids, highs with their crystal, rigs, drones, cargo, a blank line between', eftText('Hulk', 'Jita Ledger Solid', t, c).split('\n\n'), [
     '[Hulk, Jita Ledger Solid]\nMining Laser Upgrade II\nMining Laser Upgrade II\nMining Laser Upgrade II', 'Mining Survey Chipset II',
     `Modulated Strip Miner II, ${c}\nModulated Strip Miner II, ${c}`, 'Medium Core Defense Field Extender II', 'Mining Drone II x5', `${c} x2`]);
+  // A fitting can't hold implants or boosters, and what the game's import does with such a line isn't documented: Copy
+  // fit leaves them out, Multibuy has them (30 September 2026).
+  const withImplants = { ...t, implants: ["Inherent Implants 'Highwall' Mining MX-1003", 'Synth Blue Pill Booster'] };
+  eq('EFT: implants and boosters are left out, and only them', eftText('Hulk', 'Jita Ledger Solid', withImplants, c), eftText('Hulk', 'Jita Ledger Solid', t, c));
+  eq('  Multibuy has them', fitMultibuy('Hulk', withImplants, c).text.split('\n').slice(-2), ["Inherent Implants 'Highwall' Mining MX-1003 1", 'Synth Blue Pill Booster 1']);
   eq('Multibuy: the hull, every item once with its count, crystals loaded and spare together', fitMultibuy('Hulk', t, c).text.split('\n'), ['Hulk 1', 'Modulated Strip Miner II 2', 'Mining Survey Chipset II 1', 'Mining Laser Upgrade II 3', 'Medium Core Defense Field Extender II 1', 'Mining Drone II 5', `${c} 4`]);
   const ids = { 'Modulated Strip Miner II': 17912, 'Mining Survey Chipset II': 2333, 'Mining Laser Upgrade II': 28576, 'Medium Core Defense Field Extender II': 31794, 'Mining Drone II': 10250, [c]: 60283 };
   const body = fittingBody(22544, 'Hulk', 'Solid', t, c, (n) => ids[n] ?? null);

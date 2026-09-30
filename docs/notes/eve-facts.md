@@ -284,6 +284,14 @@ Don't re-derive or contradict these without new evidence.
   frigates on three (EVE University, CCP's patch notes). The main loot can scales with filaments used (about 3× for frigates,
   2× for destroyers); the side cans don't. The weathers' strengths aren't in ESI or the static data (the wiki: penalties
   30/50% at T0–T3, 50/70% at T4–T6, bonus +50%), so the app quotes them as the wiki's (`WEATHER_STRENGTH`).
+- **A fitting can't hold implants or boosters, and the import's handling of them isn't documented** (researched 30
+  September 2026). ESI's saved-fitting item flags are the slots, `DroneBay`, `FighterBay` and `Cargo`, nothing for an
+  implant; CCP's note on the clipboard import (Oceanus, 2016) says "only charges and ice products can be imported in the
+  cargo"; CCP's current developer page on EFT lists hull, lows, mids, highs, rigs, subsystems, services, drones, cargo and
+  says nothing of implants. Pyfa writes implants and boosters as their own sections after the drones, and Abyss Tracker's
+  EFT carries them, but no source says whether the client skips such a line or refuses the paste. So Copy fit and Save fit
+  leave them out and say so (the Copy fit tip, the toast), and Multibuy carries them. Pasting a fit with an implant line
+  in game would settle it; it would only matter for a copy meant for pyfa.
 - **Frigate pockets pay more than cruiser pockets**: Abyss Tracker's median loot a pocket is 2.0–2.9× a cruiser's at every
   tier (330 M against 121 M at T6), about the same per ship once split three ways. zKillboard can say a lost ship's tier only
   when a tier-named NPC is on the mail (270 of 1,847), and its weather never.

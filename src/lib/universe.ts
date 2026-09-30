@@ -15,15 +15,44 @@ import { parsePlanetType, type PiPlanet } from './pi';
  */
 
 const mem = new Map<string, unknown>();
+/**
+ * Lookups still on their way. Two asks for one thing at the same moment share one: only finished answers were remembered,
+ * so a tree's 36 hulls, read by the tree and by ShipTree at once, went to ESI twice each.
+ */
+const pending = new Map<string, Promise<unknown>>();
 
 async function cached<T>(key: string, fn: () => Promise<T>): Promise<T> {
   if (mem.has(key)) return mem.get(key) as T;
-  const hit = (await get(key, cacheStore).catch(() => undefined)) as T | undefined;
-  if (hit !== undefined) { mem.set(key, hit); return hit; }
-  const val = await fn();
-  mem.set(key, val);
-  await set(key, val, cacheStore).catch(() => undefined);
-  return val;
+  const going = pending.get(key) as Promise<T> | undefined;
+  if (going) return going;
+  const p = (async () => {
+    const hit = (await get(key, cacheStore).catch(() => undefined)) as T | undefined;
+    if (hit !== undefined) { mem.set(key, hit); return hit; }
+    const val = await fn();
+    mem.set(key, val);
+    await set(key, val, cacheStore).catch(() => undefined);
+    return val;
+  })();
+  pending.set(key, p);
+  try { return await p; } finally { pending.delete(key); }
+}
+
+type RawType = {
+  name: string; group_id: number; market_group_id?: number; volume?: number; packaged_volume?: number; description?: string;
+  dogma_attributes?: { attribute_id: number; value: number }[]; dogma_effects?: { effect_id: number }[];
+};
+/**
+ * `/universe/types/{id}` once for every type lookup below that misses its cache at the same moment: a hull's skills and its
+ * stats are kept apart but read together. Only while in flight: each lookup keeps what it needs from the answer.
+ */
+const rawTypes = new Map<number, Promise<RawType>>();
+function rawType(id: number): Promise<RawType> {
+  let p = rawTypes.get(id);
+  if (!p) {
+    p = esi<RawType>(`/universe/types/${id}/`).then((r) => r.data).finally(() => rawTypes.delete(id));
+    rawTypes.set(id, p);
+  }
+  return p;
 }
 
 export type SystemInfo = { systemId: number; name: string; security: number; planetIds: number[] };
@@ -146,7 +175,7 @@ export type TypeInfo = { name: string; groupId: number; marketGroupId: number | 
 
 /** Static facts about an item type. They do not change, so they are kept for good. */
 export const typeInfo = (id: number) => cached(`type:${id}`, async () => {
-  const { data } = await esi<{ name: string; group_id: number; market_group_id?: number; volume?: number; packaged_volume?: number }>(`/universe/types/${id}/`);
+  const data = await rawType(id);
   return {
     name: data.name, groupId: data.group_id, marketGroupId: data.market_group_id ?? null,
     volume: data.volume ?? 0, packagedVolume: data.packaged_volume ?? null,
@@ -158,7 +187,7 @@ export const typeInfo = (id: number) => cached(`type:${id}`, async () => {
  * module takes. Kept for good.
  */
 export const typeRequirements = (id: number) => cached(`type-req:${id}`, async () => {
-  const { data } = await esi<{ dogma_attributes?: { attribute_id: number; value: number }[] }>(`/universe/types/${id}/`);
+  const data = await rawType(id);
   const a = (k: number) => data.dogma_attributes?.find((x) => x.attribute_id === k)?.value;
   return ([[182, 277], [183, 278], [184, 279]] as const).map(([s, l]) => [a(s), a(l)] as const)
     .filter((x): x is readonly [number, number] => x[0] != null && x[1] != null).map(([skill, level]) => ({ skill, level }));
@@ -166,13 +195,13 @@ export const typeRequirements = (id: number) => cached(`type-req:${id}`, async (
 
 /** A type's description, the game's own text (a filament's weather and restrictions are written there). Kept for good. */
 export const typeDescription = (id: number) => cached(`desc:${id}`, async () => {
-  const { data } = await esi<{ description?: string }>(`/universe/types/${id}/`);
+  const data = await rawType(id);
   return data.description ?? '';
 });
 
 /** A type's dogma, attributes by ID and its effects: what the mining yields are worked out from (lib/miningYield.ts). Kept for good. */
 export const typeDogma = (id: number) => cached(`dogma:${id}`, async () => {
-  const { data } = await esi<{ group_id: number; dogma_attributes?: { attribute_id: number; value: number }[]; dogma_effects?: { effect_id: number }[] }>(`/universe/types/${id}/`);
+  const data = await rawType(id);
   return {
     id, group: data.group_id,
     attrs: Object.fromEntries((data.dogma_attributes ?? []).map((x) => [x.attribute_id, x.value])) as Record<number, number>,
@@ -245,7 +274,7 @@ export const planet = (id: number) => cached(`planet:${id}`, async () => {
 });
 
 export const typeName = (id: number) => cached(`typename:${id}`, async () => {
-  const { data } = await esi<{ name: string }>(`/universe/types/${id}/`);
+  const data = await rawType(id);
   return data.name;
 });
 

@@ -46,4 +46,6 @@ Decisions worth not undoing. How the ledger lives in the cloud as well as the br
   `GET /v1/abyss/fit?id=` reads a fit's EFT and performance the first time it's asked for and keeps it a week
   (`abyss_fits`); `POST /v1/jobs/abyss` runs the refresh by hand. Until the first hourly run after a deploy the page says
   the cloud hasn't read that cell yet, and a cloud a version behind says it couldn't read them, rather than "Reading…"
-  for good (`TrackerState`).
+  for good (`TrackerState`). **Its failures aren't a watched job**: the user chose (30 September 2026) not to be mailed when Abyss Tracker is down,
+  since it's someone else's site and the page says how old its figures are. A cell that keeps failing is passed over, and
+  three failures in a row end the round. Fits kept over a week are deleted each hour; one asked for again is read afresh.
