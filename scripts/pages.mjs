@@ -22,7 +22,7 @@ const STRANGER_AUTH = { ...OWNER_AUTH, characterId: 12345, characterName: 'Stran
 const PAGES = [
   'wallet', 'todo', 'calculator', 'calculator?type=34', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'reprocess',
   'positions', 'positions/{first}', 'orders', 'loot', 'blueprints', 'results', 'loyalty',
-  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/mining', 'hustles/freelance', 'combat', 'omega',
+  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/mining', 'hustles/freelance', 'combat', 'characters', 'omega',
   'settings/account', 'settings/skills', 'settings/rates', 'settings/alerts', 'settings/appearance', 'settings/data', 'settings/scan',
 ];
 
@@ -180,6 +180,43 @@ function large() {
 }
 
 const ALL = { empty: {}, small: small(), large: large() };
+
+// ---- Alts ---------------------------------------------------------------------------------------------------
+
+/**
+ * An alt as the browser keeps it (src/lib/altStore.ts): its roster entry, and the rows pulled for it. Three kinds,
+ * by `i`: 0 read and well (an Alpha, mid-queue); 1 with a job failing and its clone state not told apart; 2 just
+ * added and refused, with nothing read yet, so every figure on its card is "not known".
+ */
+function alt(charId, name, i) {
+  const day = iso(NOW - DAY).slice(0, 10);
+  const ok = (job, ago) => ({ job, lastRun: NOW - ago, lastOk: NOW - ago, lastError: null });
+  const entry = {
+    charId, name, addedAt: NOW - (5 - i) * DAY, scopes: [], at: NOW - 3600_000, refusedAt: i === 2 ? NOW - 7200_000 : null, refused: i === 2 ? 'invalid_grant' : null,
+    rev: i === 2 ? 0 : 3, ship: i === 2 ? null : 32880, shipAt: i === 2 ? null : NOW - 600_000,
+    jobs: i === 2 ? [] : [ok('archive', 1800_000), ok('sheet', 1700_000),
+      i === 1 ? { job: 'mining', lastRun: NOW - 600_000, lastOk: NOW - 7200_000, lastError: 'ESI 502 on /characters/900002/mining/' } : ok('mining', 600_000)],
+  };
+  const saved = i === 2 ? { rev: 0, records: {}, docs: {} } : {
+    rev: 3,
+    records: { netWorth: { [day]: { date: day, total: 12.5e6 * (i + 1), wallet: 4.2e6 * (i + 1) } } },
+    docs: {
+      meta: {
+        walletBalance: 4.2e6 * (i + 1), walletAt: iso(NOW - 1700_000), totalSp: 1.2e6,
+        ...(i === 0 ? { cloneDetected: 'alpha', cloneSince: iso(NOW - 2 * DAY), activeSkills: { 3386: 4 } } : {}),
+        skillQueue: [{ skillId: 3386, level: 4, finish: iso(NOW + 2 * DAY), start: iso(NOW - DAY) }, { skillId: 3380, level: 4, finish: iso(NOW + 6 * DAY) }],
+      },
+      skills: { 3386: 3, 3380: 3 },
+    },
+  };
+  return { entry, saved };
+}
+const ALTS = { empty: [], small: [alt(900001, 'Miner Two', 0)], large: [alt(900001, 'Miner Two', 0), alt(900002, 'Miner Three', 1), alt(900003, 'Hauler Four', 2)] };
+/** The alt store's database as it would be on disk: the roster as last read, and each alt's copy. */
+const altStoreOf = (list) => Object.fromEntries([['roster', { at: NOW - 60_000, list: list.map((a) => a.entry) }], ...list.map((a) => [`alt:${a.entry.charId}`, a.saved])]);
+/** Which characters are yours, as the ledger itself holds it. */
+const charsOf = (list) => Object.fromEntries(list.map((a) => [a.entry.charId, { name: a.entry.name }]));
+for (const [name, list] of Object.entries(ALTS)) if (list.length) ALL[name].chars = charsOf(list);
 // `LEDGER=large PAGE=results npm run check-pages` runs just those (comma-separated), for working on one.
 const only = (v) => (v ? v.split(',') : null);
 const LEDGERS = Object.fromEntries(Object.entries(ALL).filter(([k]) => !only(process.env.LEDGER) || only(process.env.LEDGER).includes(k)));
@@ -247,17 +284,17 @@ try {
     });
     // Seed: the ledger into its store, nothing in the cache or localStorage, then load the app on it.
     await page.goto(BASE);
-    await page.evaluate(async ([d, auth]) => {
+    await page.evaluate(async ([d, auth, alts]) => {
       localStorage.clear(); sessionStorage.clear();
       localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
       const open = (db) => new Promise((res, rej) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onerror = rej; q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
-      for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', {}]]) {
+      for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', {}], ['jita-ledger-alts', alts]]) {
         const h = await open(db);
         if (!h.objectStoreNames.contains('kv')) continue;
         await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
         h.close();
       }
-    }, [data, OWNER_AUTH]);
+    }, [data, OWNER_AUTH, altStoreOf(ALTS[name] ?? [])]);
     await page.reload();
     await page.waitForSelector('.page', { timeout: 20_000 });
     // The seed has to have reached the app, or every page below passes on an empty store.
@@ -265,6 +302,12 @@ try {
       await page.evaluate(() => { location.hash = '#positions'; });
       await page.waitForTimeout(1000);
       if (!(await page.locator('.page', { hasText: PROOF[name] }).count())) failures.push({ ledger: name, page: 'positions', problems: [`the ${name} ledger didn't load: no “${PROOF[name]}”`] });
+    }
+    // And the alts' seed has to have reached the Characters page, or it passes on an empty roster.
+    if (ALTS[name]?.length) {
+      await page.evaluate(() => { location.hash = '#characters'; });
+      await page.waitForTimeout(1000);
+      if (!(await page.locator('.page', { hasText: ALTS[name][0].entry.name }).count())) failures.push({ ledger: name, page: 'characters', problems: [`the ${name} ledger's alts didn't load: no “${ALTS[name][0].entry.name}”`] });
     }
     const first = data.positions?.[0]?.id;
     for (const p of SHOWN) {
@@ -298,23 +341,26 @@ try {
         return route.abort();
       });
       await page.goto(BASE);
-      await page.evaluate(async ([d, a]) => {
+      await page.evaluate(async ([d, a, alts]) => {
         localStorage.clear(); sessionStorage.clear();
         if (a) localStorage.setItem('jita-ledger:auth', JSON.stringify(a));
-        const h = await new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
-        await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(d)) st.put(v, k); t.oncomplete = res; });
-        h.close();
-      }, [ALL.large, auth]);
+        for (const [db, put] of [['jita-ledger', d], ['jita-ledger-alts', alts]]) {
+          const h = await new Promise((res) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+          await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
+          h.close();
+        }
+      }, [ALL.large, auth, altStoreOf(ALTS.large)]);
       await page.reload();
       await page.waitForTimeout(2500);
       esiCalls = 0;
-      for (const hash of ['wallet', 'orders', 'positions', 'prospects', 'settings/data']) {
+      for (const hash of ['wallet', 'orders', 'positions', 'prospects', 'characters', 'settings/data']) {
         await page.evaluate((h) => { location.hash = `#${h}`; }, hash);
         await page.waitForTimeout(700);
         const problems = [];
         if (!(await page.locator('.landing').count())) problems.push('no landing page');
         if (await page.locator('.page').count()) problems.push('a page of the app showed');
         if (await page.locator('body', { hasText: PROOF.large }).count()) problems.push('the ledger showed');
+        if (await page.locator('body', { hasText: ALTS.large[0].entry.name }).count()) problems.push('an alt showed');
         checked++;
         if (problems.length) failures.push({ ledger: who, page: hash, problems });
         process.stdout.write(problems.length ? `  FAIL ${who} #${hash}\n${problems.map((x) => `       ${x}`).join('\n')}\n` : `  ok   ${who} #${hash}\n`);

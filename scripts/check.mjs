@@ -3888,6 +3888,10 @@ console.log('\n--- which characters are yours ---');
   const src = (p) => fs2.readFileSync(new URL(p, import.meta.url), 'utf8');
   const fromStores = [...src('../src/lib/altStore.ts').matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\/store'/g)].flatMap((m) => m[1].split(',').map((x) => x.trim()).filter(Boolean)).sort();
   eq('  the alt store takes three things from the ledger\'s store, and update is not one', fromStores, ['dataGeneration', 'mergeChars', 'onClearAll']);
+  // Alt data reaches a page only on purpose: a page that starts reading the alt store is added here in the commit that makes it.
+  const walk = (dir) => fs2.readdirSync(new URL(dir, import.meta.url), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${dir}${e.name}/`) : /\.(ts|tsx)$/.test(e.name) ? [`${dir}${e.name}`] : []));
+  const users = walk('../src/').filter((p) => /from\s*'[^']*\/altStore'/.test(src(p))).map((p) => p.replace('../src/', '')).sort();
+  eq('  and only the shell and the Characters page read the alt store', users, ['App.tsx', 'components/Characters.tsx']);
   eq('  an alt with nothing read yet: nothing, not zeros', R.altFacts(R.emptyAlt(), NOW2), { wallet: null, walletAt: null, netWorth: null, clone: 'unknown', cloneSince: null, training: null, queueEnds: null, totalSp: null });
 }
 

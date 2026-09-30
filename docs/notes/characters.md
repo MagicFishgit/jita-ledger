@@ -45,5 +45,21 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
 - **Removing an alt** drops its mining snapshot and job rows either way (a re-add starts from a fresh baseline with no
   old failing streak) and never its `revs` row (a revision that restarted would let a device holding the old one miss
   what follows).
-- **Stage 1 is the cloud side only, and ships dark**: no page can add an alt until stage 2. The browser (the Characters page, the alt store), Mining across
-  characters and the Wallet's transfers are stages 2 to 4 of the spec.
+- **The browser never holds an alt's login, and its copy of an alt is read-only** (`lib/altStore.ts`, the Characters
+  page). "Add a character" asks EVE for a login with the purpose `cloud-alt`; `handleCallback` hands its refresh token
+  on for the Worker and stores nothing (a purpose it didn't know fell through to the trading login's slot, where the
+  owner check would have logged the owner out). What the cloud holds for each alt is pulled into an IndexedDB database
+  of its own, `jita-ledger-alts`, only when the alt's revision has moved: one roster request a minute, not one per alt.
+- **What keeps an alt's rows out of the ledger is that the alt store can't write to it.** From `store.ts` it imports
+  `mergeChars`, `dataGeneration` and `onClearAll`, never `update`; and only `App.tsx` and `Characters.tsx` import the
+  alt store. Two tests in `scripts/check.mjs` read the source and fail if either changes. A later page that needs
+  alt data is added to that list on purpose, in the commit that makes it read it.
+- **`chars` is the one thing about an alt the main's ledger holds**: a synced document of its own, ID to name, and a
+  clone state set by hand. Only the roster read writes it (`mergeChars`), it never removes one, and an imported backup
+  without it leaves the present one. Not a field of `prefs`: `sanitizePrefs` would drop it on an older version's save.
+- **A card never shows a zero for "not known"** (`charFacts`): an alt just added has no wallet, net-worth point or
+  queue yet, and each reads "–" with why. An alt's net worth is its newest daily point and says its date; its wallet
+  time is when the balance last changed, since the cloud pushes the sheet only when something other than a timestamp
+  moved. When it was last read comes from its jobs (`lastRead`).
+- **Stage 2a is the Characters page with the roster, and ends with a real alt being read.** What each character
+  earned and mined (stage 2b), Mining across characters (3) and the Wallet's total and transfers (4) follow.

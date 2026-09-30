@@ -1,11 +1,11 @@
 import {
   ArrowLeftRight, BadgePercent, Calculator, ChartLine, ChartPie, Crosshair, Eye, Gem, Layers, ListChecks, ListOrdered, PackageOpen, Radar, Recycle,
-  Rocket, ScrollText, Settings2, Swords, Wallet, type LucideIcon,
+  Rocket, ScrollText, Settings2, Swords, Users, Wallet, type LucideIcon,
 } from 'lucide-react';
 
 export type PageKey =
   | 'wallet' | 'todo' | 'calculator' | 'prospects' | 'watchlist' | 'planner' | 'arbitrage' | 'sniper' | 'reprocess'
-  | 'positions' | 'orders' | 'loot' | 'blueprints' | 'results' | 'loyalty' | 'hustles' | 'combat' | 'omega' | 'settings';
+  | 'positions' | 'orders' | 'loot' | 'blueprints' | 'results' | 'loyalty' | 'hustles' | 'combat' | 'characters' | 'omega' | 'settings';
 
 export type NavItem = { key: PageKey; label: string; icon: LucideIcon };
 export type NavGroup = { label: string; items: NavItem[] };
@@ -28,7 +28,12 @@ export const NAV: NavGroup[] = [
     ],
   },
   { label: 'Earn', items: [{ key: 'loyalty', label: 'Loyalty', icon: BadgePercent }, { key: 'hustles', label: 'Side hustles', icon: Rocket }] },
-  { label: 'Pilot', items: [{ key: 'combat', label: 'Combat', icon: Swords }, { key: 'omega', label: 'Omega', icon: Gem }, { key: 'settings', label: 'Settings', icon: Settings2 }] },
+  {
+    label: 'Pilot', items: [
+      { key: 'combat', label: 'Combat', icon: Swords }, { key: 'characters', label: 'Characters', icon: Users },
+      { key: 'omega', label: 'Omega', icon: Gem }, { key: 'settings', label: 'Settings', icon: Settings2 },
+    ],
+  },
 ];
 
 export const ALL_PAGES = NAV.flatMap((g) => g.items.map((i) => ({ ...i, group: g.label })));
