@@ -1367,6 +1367,14 @@ console.log('\n--- ship trees ---');
   eq('the Abyssal tree likewise', treeProblems(abyss.ABYSS_SHIPS, abyss.ABYSS_EDGES), []);
   eq('every Abyssal ship has its fits, and every fit its ship on the tree', [abyss.ABYSS_SHIPS.filter((s) => !abyss.ABYSS_TIERS[s.id]?.length).map((s) => s.name), Object.keys(abyss.ABYSS_TIERS).filter((id) => !abyss.ABYSS_SHIPS.some((s) => s.id === Number(id)))], [[], []]);
   eq('every Abyssal fit is an Abyss Tracker fit ID, each once', ((ids) => [ids.filter((x) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(x)), ids.length - new Set(ids).size])(Object.values(abyss.ABYSS_TIERS).flat().map((t) => t.id)), [[], 0]);
+  // The notes were a paragraph each, which the user found "really hard to read or understand at a glance" (30 September
+  // 2026): they're points now, and these keep them from growing back into paragraphs.
+  const pts = abyss.ABYSS_SHIPS.flatMap((sh) => (sh.points ?? []).map((p) => ({ ship: sh.name, ...p })));
+  eq('every Abyssal ship has points and no paragraph note', abyss.ABYSS_SHIPS.filter((sh) => !sh.points?.length || sh.note).map((sh) => sh.name), []);
+  eq('  each point a line: 140 characters at most, a quote 180', pts.filter((p) => p.text.length > (p.kind === 'quote' ? 180 : 140)).map((p) => `${p.ship}: ${p.text.slice(0, 40)}…`), []);
+  eq('  every research figure names its source and year: they aren’t live', abyss.ABYSS_SHIPS.flatMap((sh) => (sh.stats ?? []).filter((x) => !/\b20\d\d\b/.test(x.source)).map((x) => `${sh.name}: ${x.label}`)), []);
+  eq('  and the hauling classes’ gank points stay a line each', Object.values(haul.GANK_BY_CLASS).flatMap((g) => g.points).filter((p) => p.text.length > 140).map((p) => p.text.slice(0, 40)), []);
+  eq('  no straight quotes or apostrophes in them (the app writes ’ and “ ”)', pts.filter((p) => /['"]/.test(p.text + (p.lead ?? ''))).map((p) => p.ship), []);
   eq('the Abyssal tree fits its grid: seven tiers across, nine lines down', abyss.ABYSS_SHIPS.filter((s) => s.col < 0 || s.col > 6 || s.row < 0 || s.row > 8).map((s) => s.name), []);
 }
 

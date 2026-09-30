@@ -7,7 +7,7 @@
  * boost; the Bowhead carries assembled ships). Holds and skills are read from ESI at run time, never written here. Pure.
  */
 
-import type { TreeNode } from './shipTree';
+import type { Point, TreeNode } from './shipTree';
 
 export type HaulLane = 'amarr' | 'caldari' | 'gallente' | 'minmatar' | 'special' | 'upwell' | 'ore';
 export type HaulNode = TreeNode & { name: string; lane: HaulLane };
@@ -75,12 +75,34 @@ export const HAUL_LOSSES: Record<number, { lost: number; ganked: number }> = {
   81008: { lost: 124, ganked: 11 }, 654: { lost: 105, ganked: 15 }, 651: { lost: 69, ganked: 13 },
 };
 
-/** What the ganked of each class carried and how many came for them (zKillboard, same 91 days): the median. */
-export const GANK_BY_CLASS: Record<number, { attackers: number; cargo: string; where: string }> = {
-  28: { attackers: 1, cargo: '506 M', where: 'Jita 4-4’s undock above all (one Tornado each, median cargo 672 M there); Josekorn, Sivala, Uedama' },
-  1202: { attackers: 1, cargo: '29 M', where: 'Jita 4-4’s undock: 393 of them, shot blind since a Blockade Runner can’t be cargo-scanned (43% carried under 10 M)' },
-  380: { attackers: 7, cargo: '1.81 B', where: 'Juunigaishi, Sivala, Uedama, Deltole; in The Forge a DST was twelve times as likely to die to a war as to a gank' },
-  941: { attackers: 7.5, cargo: '36 M', where: 'Uedama and mining belts: mostly killed mining, not hauling' },
-  513: { attackers: 46, cargo: '1.50 B', where: 'Uedama (359 of 446), then Jita’s gates (Perimeter, Sobaseki, New Caldari); 70 carried under 10 M, 65 of those in Uedama' },
-  902: { attackers: 53, cargo: '236 M', where: 'Uedama, Jita, Sivala' },
+/** Where the figures below come from. */
+export const GANK_SOURCE = 'zKillboard, high-sec losses 1 July to 29 September 2026';
+
+/**
+ * What the ganked of each class carried and how many came for them (zKillboard, same 91 days): the median, and where and
+ * how it happens, a point each.
+ */
+export const GANK_BY_CLASS: Record<number, { attackers: number; cargo: string; points: Point[] }> = {
+  28: { attackers: 1, cargo: '506 M', points: [
+    { kind: 'warn', lead: 'Where', text: 'Jita 4-4’s undock above all, then Josekorn, Sivala and Uedama.' },
+    { kind: 'info', lead: 'At Jita', text: 'One Tornado each, for a median 672 M of cargo.' },
+  ] },
+  1202: { attackers: 1, cargo: '29 M', points: [
+    { kind: 'warn', lead: 'Where', text: 'Jita 4-4’s undock: 393 of them.' },
+    { kind: 'info', lead: 'Shot blind', text: 'It can’t be cargo-scanned, so gankers guess: 43% of those ganked carried under 10 M.' },
+  ] },
+  380: { attackers: 7, cargo: '1.81 B', points: [
+    { kind: 'warn', lead: 'Where', text: 'Juunigaishi, Sivala, Uedama and Deltole.' },
+    { kind: 'info', lead: 'Wars', text: 'In The Forge a DST was twelve times as likely to die to a war as to a gank.' },
+  ] },
+  941: { attackers: 7.5, cargo: '36 M', points: [
+    { kind: 'warn', lead: 'Where', text: 'Uedama and the mining belts: mostly killed mining, not hauling.' },
+  ] },
+  513: { attackers: 46, cargo: '1.50 B', points: [
+    { kind: 'warn', lead: 'Where', text: 'Uedama above all (359 of 446), then Jita’s gates: Perimeter, Sobaseki, New Caldari.' },
+    { kind: 'warn', lead: 'Empty', text: '70 carried under 10 M, 65 of them in Uedama: an empty freighter isn’t safe there.' },
+  ] },
+  902: { attackers: 53, cargo: '236 M', points: [
+    { kind: 'warn', lead: 'Where', text: 'Uedama, Jita and Sivala.' },
+  ] },
 };

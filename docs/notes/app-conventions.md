@@ -26,6 +26,18 @@ Decisions worth not undoing. Conventions for wording, layout, tooltips, numbers 
   `reloadApp`, which first writes the saves still waiting (the ledger holds each 250 ms, the cloud its unsent list
   500 ms). Checked in an emulated phone against the production build: short pull nothing, long pull reloads, none
   while scrolled down or swiping sideways; a newer version.json shows the notice in view and reloads on leaving.
+- **Facts are drawn to be read at a glance, not written as a paragraph** (`components/Facts.tsx`: `Points`, `Bonuses`,
+  `Stats`, `ResistBars`). The user, on an Abyssal ship's note (a 900-character paragraph of bonuses, resists, run counts,
+  quotes and loss figures): "really hard to read or understand at a glance… use iconography or graphics, whatever you need"
+  (30 September 2026). So:
+  - a point is a line: an icon for its kind (suits it, keep out of, weak spot, tip, careful, a fit author's words, worth
+    knowing), a bold lead word (a weather, "EM", "Max") and one clause, 140 characters at most (a quote 180), tested;
+  - a hull's bonuses are chips; its resists are bars read from ESI's dogma, never typed out, with each layer's weak spot
+    outlined; where it's run is a grid of weathers by tiers, not "Dark T3–T6 · Exotic T1–T2";
+  - a figure from research is a tile whose tip names its source and date, under a line saying they aren't live, since a
+    bare "221 lost" reads as today's;
+  - lib files hold the words (`Point`, `Stat` in `lib/shipTree.ts`), components the icons.
+  Paragraphs elsewhere follow the tooltip rule below: what the thing is in a line, then bullets for how it's worked out.
 - **A ship tree's paths never run behind a ship they don't join** (`edgeShape`, `treeProblems` in `lib/shipTree.ts`,
   tested for all three trees). ShipTree drew each path as one S from centre to centre, which on a long drop cut across the
   corners of the ships beside it: the shipped Mining tree's Venture → Venture Consortium Issue clipped the Pioneer, and the

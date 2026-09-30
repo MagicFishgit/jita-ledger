@@ -1,13 +1,14 @@
 import { useState, type ReactNode } from 'react';
-import { TIERS } from '../../lib/abyssal';
+import { TIERS, WEATHERS, type Weather } from '../../lib/abyssal';
 import { ABYSS_EDGES, ABYSS_LANES, ABYSS_SHIPS, ABYSS_TIERS, type AbyssNode } from '../../lib/abyssShips';
-import { TRACKER_WEATHER, type TrackerCell } from '../../lib/abyssTracker';
+import { TRACKER_WEATHER, trackerWeather, type TrackerCell } from '../../lib/abyssTracker';
 import { isAbyssalSystem, netLoss } from '../../lib/combat';
 import { iskBig, units } from '../../lib/format';
 import { useData } from '../../lib/store';
 import { ShipTree } from '../ShipTree';
 import { Seg } from '../ui';
 import { TrackerFitView, type FitRef, type TrackerState } from './AbyssTracker';
+import { WEATHER_ICON } from './AbyssMatrix';
 
 /**
  * The Abyssal tree (ShipTree with lib/abyssShips.ts): the ships that run the Abyss, by the tier each is first run at and
@@ -61,22 +62,61 @@ export function AbyssTree({ here, tracker, tier, weather }: {
   const lost = Object.values(d.killmails).filter((k) => k.kind === 'loss' && isAbyssalSystem(k.systemId));
   return (
     <ShipTree label="Abyssal ships" nodes={ABYSS_SHIPS} edges={ABYSS_EDGES} lanes={ABYSS_LANES} cols={7} rows={9} here={here}
-      picked={picked} pickedSaid={`Among the most run at ${cellSaid}`}
+      picked={picked} pickedSaid={`Among the most run at ${cellSaid}`} resists
+      iconOf={(p) => ((WEATHERS as readonly string[]).includes(p.lead ?? '') ? WEATHER_ICON[p.lead as Weather] : undefined)}
+      about={(h) => (tracker.status === 'ok' && cells.length ? <WeatherTiers cells={hullCells(cells, h.id)} tier={tier} weather={weather} /> : null)}
       nodeTip={(h) => { const xs = hullCells(cells, h.id); return xs.length ? `On Abyss Tracker’s most-run lists: ${cellsSaid(xs)}.` : null; }}
       facts={(h) => {
         const xs = hullCells(cells, h.id);
         const mine = lost.filter((k) => k.victim.shipTypeId === h.id);
         const out: [string, ReactNode][] = [];
-        if (tracker.status === 'ok' && cells.length) {
-          out.push(['Among the most run', xs.length
-            ? `${cellsSaid(xs)} (${units(xs.reduce((t, x) => t + x.runs, 0))} runs logged on its fits there)`
-            : 'On none of Abyss Tracker’s most-run lists']);
-        }
+        if (tracker.status === 'ok' && cells.length && !xs.length) out.push(['Among the most run', 'On none of Abyss Tracker’s most-run lists']);
         out.push(['Your losses in it', mine.length ? `${units(mine.length)} in the Abyss, ${iskBig(mine.reduce((t, k) => t + netLoss(k), 0))} net of insurance (your killmails)` : 'None in the Abyss']);
         return out;
       }}>
       {(h) => <AbyssFits hull={h} cells={cells} tier={tier} weather={weather} />}
     </ShipTree>
+  );
+}
+
+/**
+ * Where a hull is among the most run, as a grid: weathers down, tiers across, each square as bright as the runs logged on
+ * its fits there (on a log scale, since they run from a handful to tens of thousands), the tier and weather picked on the
+ * grid above outlined. Replaces "Dark T3–T6 · Exotic T1–T2", which had to be read.
+ */
+function WeatherTiers({ cells, tier, weather }: { cells: { tier: number; weather: number; runs: number }[]; tier: number; weather: number }) {
+  if (!cells.length) return null;
+  const max = Math.max(...cells.map((c) => c.runs));
+  const runsAt = (t: number, w: number) => cells.find((c) => c.tier === t && c.weather === w)?.runs ?? 0;
+  const total = cells.reduce((t, c) => t + c.runs, 0);
+  return (
+    <div>
+      <span className="lbl">Among the most run (Abyss Tracker)</span>
+      <table className="wt-grid">
+        <thead><tr><th><span className="sr-only">Weather</span></th>{TIERS.map((_, t) => <th key={t} scope="col">T{t}</th>)}</tr></thead>
+        <tbody>
+          {WEATHERS.map((w) => {
+            const Icon = WEATHER_ICON[w], wi = trackerWeather(w);
+            return (
+              <tr key={w}>
+                <th scope="row"><Icon aria-hidden="true" />{w}</th>
+                {TIERS.map((name, t) => {
+                  const n = runsAt(t, wi);
+                  const shade = n ? 0.25 + 0.75 * (Math.log(n + 1) / Math.log(max + 1)) : 0;
+                  const said = `T${t} ${name} ${w}: ${n ? `${units(n)} runs logged on its fits` : 'not on the most-run list'}`;
+                  return (
+                    <td key={t} className={(n ? 'on' : '') + (t === tier && wi === weather ? ' picked' : '')} data-tip={said}>
+                      <span style={{ opacity: n ? shade : undefined }} /><span className="sr-only">{said}</span>
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <span className="note small" style={{ margin: '6px 0 0', display: 'block' }}>{units(total)} runs logged on its fits in these; the outlined square is the one picked above.</span>
+    </div>
   );
 }
 

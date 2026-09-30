@@ -268,6 +268,10 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
     tracker's losses are too low, a trio is logged under one hull). T2 is the thinnest tier (skip it, the data says), and
     T6 Firestorm has no cruiser answer: frigate trios own it. T6 Gamma's most-run fit is a 331 M Vagabond whose author
     doesn't recommend it; its label says "as flown". No fit has been checked in a fitting tool against today's game.
+  **The ship notes are points now** (30 September 2026): each ship's paragraph became bonuses, points by kind and research
+  figures with their sources, written by hand in `abyssShips.ts`; its resists come from ESI as bars and where it's run from
+  Abyss Tracker as a grid, so neither is typed into the text any more. Hauling's gank lines went the same way
+  (`GANK_BY_CLASS` points, loss and gank figures as tiles). See app-conventions.
   **No pilot's name is kept or shown.** The cloud stores a cell's figures and fit summaries only (`compactCell`: no run
   lists), and fit authors' names were taken out of the ship notes; fit titles show as Abyss Tracker shows them.
 - **Hauling has its tree and fits** (`lib/haulTree.ts`, `lib/haulFits.ts`, `lib/cargo.ts`, pure; `HaulingTree.tsx`,

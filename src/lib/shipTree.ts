@@ -12,7 +12,23 @@ export type TreeNode = {
   role: string;
   /** Only where it makes sense: a limit, a warning, where to find it. */
   note?: string;
+  /** The hull's bonuses, each as a chip ("10% kinetic and thermal missile damage a level"). */
+  bonuses?: string[];
+  /** What to know about it, a line each, drawn with an icon for its kind: read at a glance, where a note is a paragraph. */
+  points?: Point[];
+  /** Figures from research, each with where and when it was measured: they aren't live. */
+  stats?: Stat[];
 };
+
+/**
+ * A point about a ship: what it's good in (`good`), what to keep it out of (`avoid`), its weak spot (`hole`), a tip, a
+ * caution (`warn`), a fit author's own words (`quote`, `lead` naming the fit), or a plain fact (`info`). `lead` is the word
+ * it's about (a weather, "EM", "Max"); `text` one clause. Kept short on purpose: a test caps them.
+ */
+export type PointKind = 'good' | 'avoid' | 'hole' | 'tip' | 'warn' | 'quote' | 'info';
+export type Point = { kind: PointKind; lead?: string; text: string };
+/** A research figure: the number, what it counts, and its source with the date. */
+export type Stat = { value: string; label: string; source: string };
 
 export type NodeState = 'here' | 'flyable' | 'close' | 'locked';
 

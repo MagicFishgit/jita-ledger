@@ -26,7 +26,9 @@ export async function resolveType(name: string): Promise<{ id: number; name: str
   return t ? { id: t.id, name: t.name } : null;
 }
 
+/** Names to IDs in one call. None asked, none answered: ESI refuses an empty list with a 400 (the Mining page sent one). */
 export async function resolveIds(names: string[]): Promise<IdsResponse> {
+  if (!names.length) return {};
   const { data } = await esi<IdsResponse>('/universe/ids/', { method: 'POST', body: names });
   return data;
 }

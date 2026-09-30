@@ -6,7 +6,8 @@
  * three frigate lines (frigates run three to a pocket, for three filaments' loot) and the Deacon that keeps a trio alive,
  * the destroyers (two to a pocket), and the cruisers: a Gila trunk, then a row for each weather's specialists. The
  * fits are Abyss Tracker's, by its fit ID: the page reads each one whole, with its measured runs, survival and ISK an
- * hour, through the cloud (lib/abyssTracker.ts). Generated from the research's notes; pure.
+ * hour, through the cloud (lib/abyssTracker.ts). Each ship's bonuses, points and research figures were written by hand
+ * from the research's notes (30 September 2026) to be read at a glance: edit them here, don't regenerate over them. Pure.
  */
 
 import type { TierKey } from './fits';
@@ -23,55 +24,237 @@ export const ABYSS_LANES: Record<AbyssLane, string> = {
 
 export const ABYSS_SHIPS: AbyssNode[] = [
   { id: 597, name: 'Punisher', col: 0, row: 0, lane: 'laser', role: 'Frigate. Used for T0 Electrical and Firestorm.',
-    note: 'Armor, lasers, cap-light turrets (10%/level less laser activation cost) and 4%/level armor resists: the Amarr frigate that shrugs off T0\'s Devoted Hunter. Base armor EM 50/Th 35/Kin 25/Exp 20: the EM penalty of Electrical lands on its best resist, and Electrical\'s double cap regen feeds two small repairers; Firestorm\'s thermal penalty hits a 35% thermal, covered by a multispectrum membrane in the Solid fit. Not for Dark (turret range penalty). EVE University\'s own T0 Punisher (auth fit 303, tracker fit ID 16624, 112 DPS, 65 EHP/s, 3 M, 500k SP) was not readable (auth.eveuniversity.org/fittings answers with its login page, checked 30 Sep 2026); its skill plan is on https://wiki.eveuniversity.org/Abyssal_Community_Fits. Next step there: the Retribution.' },
+    bonuses: ['10% less laser capacitor use a level', '4% armour resists a level'],
+    points: [
+      { kind: 'good', lead: 'Electrical', text: 'Its EM penalty lands on the Punisher’s best armour resist, and double cap regen feeds two small repairers.' },
+      { kind: 'good', lead: 'Firestorm', text: 'The thermal penalty hits a weaker resist; the Solid fit covers it with a multispectrum membrane.' },
+      { kind: 'good', lead: 'Tranquil', text: 'Shrugs off the Devoted Hunter that T0 pockets send.' },
+      { kind: 'avoid', lead: 'Dark', text: 'Lasers are turrets, and Dark shortens turret range.' },
+    ] },
   { id: 593, name: 'Tristan', col: 0, row: 2, lane: 'drone', role: 'Frigate. Used for T0 Electrical and Dark.',
-    note: 'A drone frigate (10%/level drone HP and tracking): the drones do the work, so Dark\'s turret penalty matters less than for a gunboat, though uniwiki warns Dark shortens drone turrets too. The Just-in fit is step 1 of an Alpha-to-Omega track published on Abyss Tracker (its note says so); EVE University\'s Community Fits page links an \'A2O Day0 Tristan (Step I)\' at tracker fit 2996, probably the same line, not checked. The uniwiki page for the track is gone (wckg.net links a Wayback copy). Shield-tanked Tristans carry the frigate\'s 0% shield EM hole into Electrical: the fit covers it with a Multispectrum Shield Hardener I and flies at range. 18 of its 588 T0 Electrical runs were logged as losses (3%); among the T0 fits here only the Kestrel \'Alpha Friendly\' is higher (15 of 227 in T0 Dark, 7%).' },
+    bonuses: ['10% drone hit points and tracking a level'],
+    points: [
+      { kind: 'good', lead: 'Dark', text: 'The drones do the damage, so Dark’s turret penalty matters less than for a gunboat (it shortens drone guns too).' },
+      { kind: 'hole', lead: 'EM', text: 'A shield Tristan has none; in Electrical its fit covers it with a Multispectrum Shield Hardener and fights at range.' },
+      { kind: 'info', lead: 'Just in', text: 'Step 1 of an Alpha-to-Omega track published on Abyss Tracker.' },
+    ],
+    stats: [
+      { value: '3%', label: 'of its T0 Electrical runs logged lost (18 of 588)', source: 'Abyss Tracker, runs its users logged, read 30 September 2026' },
+    ] },
   { id: 602, name: 'Kestrel', col: 0, row: 1, lane: 'missile', role: 'Frigate. Used for T0 Dark.',
-    note: 'Light missiles/rockets with 5%/level damage and 10%/level missile velocity: missiles ignore Dark\'s turret-range penalty and enjoy its +50% velocity, so the Kestrel is the Dark T0 boat (EVE University\'s T0 Kestrel is also Dark: 82 DPS, 4.4 M, 800k SP). Shield tank with the usual 0% EM hole; Dark has no resist penalty. The \'Alpha Friendly\' fit was flown into T1 Dark too, where 15 of 93 runs were logged as losses (16%): a T0 fit.' },
+    bonuses: ['5% missile damage a level', '10% missile velocity a level'],
+    points: [
+      { kind: 'good', lead: 'Dark', text: 'Missiles ignore Dark’s turret-range penalty and gain its +50% velocity: the T0 Dark boat.' },
+      { kind: 'hole', lead: 'EM', text: 'Shield-tanked with the usual 0% EM; Dark has no resist penalty to make it worse.' },
+      { kind: 'warn', lead: 'Tranquil only', text: 'Its “Alpha Friendly” fit, flown into T1 Dark, lost 15 of 93 logged runs (16%).' },
+      { kind: 'info', lead: 'EVE University', text: 'Its own T0 Kestrel is a Dark one too: 82 DPS, 4.4 M, 800k skill points.' },
+    ] },
   { id: 32876, name: 'Corax', col: 1, row: 3, lane: 'destroyer', role: 'Destroyer. Used for T0 Exotic, Dark, Gamma (two per pocket; runs are per 2-filament pocket).',
-    note: 'Caldari destroyer with 5%/level kinetic light-missile damage, so it lines up with Exotic\'s kinetic resist penalty on the NPCs; Dark suits any missile boat. Destroyer pockets pay 2× a cruiser\'s loot but the uniwiki FAQ calls frigates the better T0 earner (3×). Tracker medians for a destroyer pocket at T0: 1.4–1.6 M.' },
+    bonuses: ['5% kinetic light missile damage a level'],
+    points: [
+      { kind: 'good', lead: 'Exotic', text: 'Its kinetic bonus lines up with Exotic’s kinetic resist penalty on the enemies.' },
+      { kind: 'good', lead: 'Dark', text: 'A missile boat, so Dark’s turret-range penalty doesn’t touch it.' },
+      { kind: 'info', lead: 'Two a pocket', text: 'A destroyer pocket pays about 2× a cruiser’s loot; frigates get 3×, so EVE University calls them the better T0 earner.' },
+    ],
+    stats: [
+      { value: '1.4–1.6 M', label: 'median loot, a T0 destroyer pocket', source: 'Abyss Tracker, runs its users logged, read 30 September 2026' },
+    ] },
   { id: 16240, name: 'Catalyst', col: 0, row: 3, lane: 'destroyer', role: 'Destroyer. Used for T0 Firestorm.',
-    note: 'Blaster destroyer; the only destroyer fit in a T0 top list (Firestorm, 207 runs, 0 logged losses). Its author: \'This ship fares best in Firestorm, and may survive in Exotic\' and needs about 18 h of training on a fresh character.' },
+    points: [
+      { kind: 'good', lead: 'Firestorm', text: 'The only destroyer on a T0 most-run list: 207 runs, none logged lost.' },
+      { kind: 'quote', lead: '“T0 Abyss Mk.5 HighCap Meta4”', text: 'This ship fares best in Firestorm, and may survive in Exotic.' },
+      { kind: 'tip', lead: 'Training', text: 'About 18 hours on a fresh character, by its fit’s note.' },
+    ] },
   { id: 17703, name: 'Imperial Navy Slicer', col: 1, row: 0, lane: 'laser', role: 'Frigate. Used for T0 Electrical/Firestorm, T1 Electrical.',
-    note: '25%/level small energy turret damage and 10%/level optimal: a laser sniper frigate for Electrical (double cap regen) and Firestorm. Alpha-flyable. 628 runs on its two top fits, 0 logged losses.' },
+    bonuses: ['25% small energy turret damage a level', '10% optimal range a level'],
+    points: [
+      { kind: 'good', lead: 'Electrical', text: 'A laser sniper, and Electrical’s double cap regen keeps its lasers firing.' },
+      { kind: 'good', lead: 'Firestorm', text: 'The other weather its most-run fits are flown in.' },
+      { kind: 'tip', lead: 'Alpha', text: 'Flyable on an Alpha clone.' },
+    ],
+    stats: [
+      { value: '628', label: 'runs on its two most-run fits, none logged lost', source: 'Abyss Tracker, runs its users logged, read 30 September 2026' },
+    ] },
   { id: 17619, name: 'Caldari Navy Hookbill', col: 1, row: 1, lane: 'missile', role: 'Frigate. Used for T0 Exotic/Dark, T1 Dark.',
-    note: '25%/level kinetic and 20%/level other light missile/rocket damage: the cheapest strong missile frigate, Alpha-flyable, the uniwiki FAQ\'s T1 pick for Alpha/low SP with the Worm. Exotic suits its kinetic bonus; Dark suits missiles. The Solid fit is an Abyssal Lurkers Alpha T1 Dark rocket fit: 850 T1 Dark runs, 15 logged losses. The newest fit in this list (Book Nook, June 2026, \'Cradle of War\').' },
+    bonuses: ['25% kinetic light missile and rocket damage a level', '20% other missile damage a level'],
+    points: [
+      { kind: 'good', lead: 'Exotic', text: 'Its kinetic bonus lines up with Exotic’s kinetic penalty.' },
+      { kind: 'good', lead: 'Dark', text: 'Missiles, so Dark’s turret penalty doesn’t touch it.' },
+      { kind: 'tip', lead: 'Alpha', text: 'The cheapest strong missile frigate, Alpha-flyable: EVE University’s T1 pick for low skill points, with the Worm.' },
+      { kind: 'info', lead: 'Solid', text: 'An Abyssal Lurkers Alpha T1 Dark rocket fit: 850 T1 Dark runs, 15 logged lost.' },
+      { kind: 'info', lead: 'Just in', text: 'The newest fit on the tree (June 2026).' },
+    ] },
   { id: 17930, name: 'Worm', col: 1, row: 2, lane: 'drone', role: 'Frigate. Used for T0–T1 Exotic, T1 Electrical/Gamma; T2 Exotic at a cost.',
-    note: 'Gila\'s little sister: 10%/level kinetic+thermal missile damage, 4%/level shield resists, +300% light drone damage/HP. Kinetic missiles plus Exotic\'s kinetic penalty make T1 Exotic its home (4,202 top-fit runs). Shield EM hole (base 0%) is covered with an EM Shield Reinforcer in every fit. The Just-in fit is step 3 of an Alpha-to-Omega track published on Abyss Tracker (T1 Electrical: 31 of 740 runs logged lost, 4%). The Max fit\'s own author says it is only safe in T1; its T2 Exotic runs: 25 of 325 lost (8%). wckg: worms \'can do SOME\' T5 trios.' },
+    bonuses: ['10% kinetic and thermal missile damage a level', '4% shield resists a level', '+300% light drone damage and hit points'],
+    points: [
+      { kind: 'good', lead: 'Exotic', text: 'Kinetic missiles meet Exotic’s kinetic penalty: T1 Exotic is its home.' },
+      { kind: 'hole', lead: 'EM', text: 'The shield has none; every fit carries an EM Shield Reinforcer.' },
+      { kind: 'info', lead: 'Just in', text: 'Step 3 of an Alpha-to-Omega track published on Abyss Tracker: 31 of 740 T1 Electrical runs logged lost (4%).' },
+      { kind: 'warn', lead: 'Max', text: 'Its own author says it’s only safe in T1: 25 of its 325 T2 Exotic runs were logged lost (8%).' },
+      { kind: 'info', lead: 'Trios', text: 'Wiki Circa Kismeteer: Worms “can do SOME” T5 trios.' },
+    ],
+    stats: [
+      { value: '4,202', label: 'T1 Exotic runs on its most-run fits', source: 'Abyss Tracker, runs its users logged, read 30 September 2026' },
+    ] },
   { id: 11393, name: 'Retribution', col: 2, row: 0, lane: 'laser', role: 'Assault Frigate. Used for T1–T2 Electrical solo; T4–T6 Firestorm (and Electrical) in a trio with a Deacon.',
-    note: 'Laser AF (5%/level RoF and damage, 10%/level optimal, cap cost cut). T2 armor resists EM 50/Th 35/Kin 62/Exp 80: thermal is the hole, which is exactly what Firestorm penalises, so the Firestorm fits stack thermal hardeners/coatings and Thermal Armor Reinforcer rigs (the zKill losses show the same: Coreli A-Type Thermal Coating 157, Small Thermal Armor Reinforcer II 123 of 363). Electrical\'s EM penalty hits a 50% EM and doubles cap for lasers and reps. Lasers are turrets, so never Dark. The trio: 2 Retributions + 1 Deacon (zKill: 21 such trios and 41 Deacon+Retribution pairs died together in nine days; the T6 Electrical Deacon fit\'s note: \'Requires two Retributions fits and a Deacon fit like this\'). The Max \'Tank T5/T6\' author: \'Can do T5 with nearly 100% success rate. T6 have a guaranteed death scenario: 3x Deepwatcher rooms and possible bad Leshak rooms with too many neuts/Damps.\' The most-died hull in the Abyss in the zKill window (363).' },
+    bonuses: ['5% laser rate of fire and damage a level', '10% optimal range a level', 'Lasers use less capacitor'],
+    points: [
+      { kind: 'good', lead: 'Firestorm', text: 'At T4–T6 in a trio: two Retributions and a Deacon.' },
+      { kind: 'good', lead: 'Electrical', text: 'The EM penalty hits a 50% resist, and double cap feeds lasers and repairers. Solo at T1–T2.' },
+      { kind: 'hole', lead: 'Thermal', text: 'Its weakest armour resist and the one Firestorm penalises: those fits stack thermal hardeners, coatings and rigs.' },
+      { kind: 'avoid', lead: 'Dark', text: 'Lasers are turrets.' },
+      { kind: 'quote', lead: '“Tank T5/T6”', text: 'Can do T5 with nearly 100% success rate. T6 have a guaranteed death scenario: 3x Deepwatcher rooms and possible bad Leshak rooms with too many neuts/Damps.' },
+    ],
+    stats: [
+      { value: '363', label: 'lost in 9 days, the most of any hull', source: 'zKillboard, ships lost in the Abyss, 21–29 September 2026' },
+      { value: '21', label: 'trios of two Retributions and a Deacon lost together', source: 'zKillboard, ships lost in the Abyss, 21–29 September 2026' },
+      { value: '157 of 363', label: 'losses carried a thermal coating', source: 'zKillboard, ships lost in the Abyss, 21–29 September 2026' },
+    ] },
   { id: 37457, name: 'Deacon', col: 4, row: 1, lane: 'logi', role: 'Logistics Frigate. Used for the third ship of a Retribution trio, T4–T6 Firestorm/Electrical.',
-    note: 'Remote armor repair frigate (10%/level RAR amount, 5%/level duration/cap, 7.5%/level armor HP, +600% RAR falloff). No tracker top list shows it because a run is recorded under one pilot\'s hull, but zKill shows it in 114 deaths in nine days, almost always beside Retributions. Its fits on the tracker are few (28 in all) and lightly run (55 and 21 runs).' },
+    bonuses: ['10% remote armour repair amount a level', '5% repair duration and capacitor a level', '7.5% armour hit points a level', '+600% remote repair falloff'],
+    points: [
+      { kind: 'info', lead: 'The trio', text: 'The third ship beside two Retributions, T4–T6 Firestorm and Electrical.' },
+      { kind: 'info', lead: 'Not on the lists', text: 'A pocket’s run is logged under one pilot’s ship, so no most-run list shows it; its own fits are few (28) and lightly run.' },
+    ],
+    stats: [
+      { value: '114', label: 'lost in 9 days, nearly always beside Retributions', source: 'zKillboard, ships lost in the Abyss, 21–29 September 2026' },
+    ] },
   { id: 11379, name: 'Hawk', col: 2, row: 1, lane: 'missile', role: 'Assault Frigate. Used for Dark at every tier T1–T6 (trio or one pilot in a 3-filament pocket); T1–T2 Exotic.',
-    note: 'Missile AF with a 7.5%/level shield-booster bonus. Missiles are untouched by Dark\'s turret penalty and gain from its +50% velocity, and the NPCs\' turrets miss from their shortened range: the Hawk owns Dark frigate pockets. T2 shield resists EM 0/Th 80/Kin 70/Exp 50: the EM hole gets a Small EM Shield Reinforcer II in every fit (and in 217 of 315 zKill losses); Dark has no resist penalty to make it worse. The highest logged death rates of any main hull: \'T6 Dark AB RR\' 68 of 411, \'Throwaway\' 75 of 1,193 at T5 (6%); its author: \'Do T5s if you want to keep your sanity, T6s if you are a pure tryhard.\' Boosters in the Max-tier fits (Blue Pill, Crash, Pyrolancea) are part of the fit. 2nd most-died hull on zKill (315).' },
+    bonuses: ['7.5% shield booster amount a level'],
+    points: [
+      { kind: 'good', lead: 'Dark', text: 'Missiles ignore Dark’s turret penalty and gain its +50% velocity, while the enemies’ turrets miss: it owns Dark frigate pockets.' },
+      { kind: 'hole', lead: 'EM', text: 'The shield has none: every fit carries a Small EM Shield Reinforcer II (217 of its 315 losses did).' },
+      { kind: 'warn', lead: 'Deaths', text: 'The highest logged death rates of any main hull: “T6 Dark AB RR” lost 68 of 411 runs, “Throwaway” 75 of 1,193 at T5.' },
+      { kind: 'quote', lead: '“Throwaway”', text: 'Do T5s if you want to keep your sanity, T6s if you are a pure tryhard.' },
+      { kind: 'tip', lead: 'Boosters', text: 'The Max fits count their boosters (Blue Pill, Crash, Pyrolancea) as part of the fit.' },
+    ],
+    stats: [
+      { value: '315', label: 'lost in 9 days, 2nd of any hull', source: 'zKillboard, ships lost in the Abyss, 21–29 September 2026' },
+    ] },
   { id: 11365, name: 'Vengeance', col: 5, row: 0, lane: 'laser', role: 'Assault Frigate. Used for Dark trios (T5–T6), T0–T1 blitzing.',
-    note: 'The Amarr missile AF (armor, 4%/level armor resists, cap regen). Invisible on the tracker\'s top lists but 104 deaths on zKill in nine days, 11 of them as Vengeance trios and 15 as pairs. The tracker\'s own Vengeance fits are few (31) and lightly run; \'T5D cheap\' (Dark) logged 13 losses in 100 runs. Armor profile as the Retribution (thermal hole).' },
+    bonuses: ['4% armour resists a level'],
+    points: [
+      { kind: 'good', lead: 'Dark', text: 'Flown in Dark trios at T5–T6, and to blitz T0–T1.' },
+      { kind: 'hole', lead: 'Thermal', text: 'Armour like the Retribution’s: thermal is the weak resist.' },
+      { kind: 'info', lead: 'Not on the lists', text: 'A pocket’s run is logged under one pilot’s ship; its own fits are few (31) and lightly run.' },
+      { kind: 'warn', lead: '“T5D cheap”', text: 'Logged 13 losses in 100 Dark runs.' },
+    ],
+    stats: [
+      { value: '104', label: 'lost in 9 days (11 as trios, 15 as pairs)', source: 'zKillboard, ships lost in the Abyss, 21–29 September 2026' },
+    ] },
   { id: 52250, name: 'Nergal', col: 5, row: 2, lane: 'drone', role: 'Assault Frigate. Used for T5–T6 Firestorm (and T1 Firestorm).',
-    note: 'Light Entropic Disintegrator frigate (ramping thermal/explosive damage), armor EM 50/Th 75/Kin 25/Exp 65 plus 4%/level: its thermal resist is high, so Firestorm\'s thermal penalty hurts it least of any small hull, and the penalty raises its own thermal damage on the NPCs (my reading of the resist and weather data, not a quoted source). \'Tank T6\': 825 T6 Firestorm runs, 0 logged losses, 342 M average per pocket. Hull 318 M (ESI average).' },
+    bonuses: ['4% armour resists a level'],
+    points: [
+      { kind: 'good', lead: 'Firestorm', text: 'Its thermal resist is high, so the thermal penalty hurts it least of any small hull (the research’s reading).' },
+      { kind: 'info', lead: 'Weapon', text: 'A Light Entropic Disintegrator: thermal and explosive damage that ramps up on one target.' },
+    ],
+    stats: [
+      { value: '825', label: 'T6 Firestorm runs on “Tank T6”, none logged lost', source: 'Abyss Tracker, runs its users logged, read 30 September 2026' },
+      { value: '342 M', label: 'average loot a pocket there', source: 'Abyss Tracker, runs its users logged, read 30 September 2026' },
+    ] },
   { id: 34828, name: 'Jackdaw', col: 4, row: 3, lane: 'destroyer', role: 'Tactical Destroyer. Used for T4–T5 Dark, as a duo (2 destroyers, 2 filaments).',
-    note: 'The one destroyer with real high-tier numbers: 1,424 T4 Dark and 414 T5 Dark runs on its top fits. Light missiles (Dark), Defense mode\'s +33.3% shield resists, and the EM hole (base 0%) covered by EM rigs. wckg says destroyer pockets are \'so uncertain\' that it no longer suggests them. zKill: 36 Jackdaws died in nine days (4 as pairs), median loss 379 M.' },
+    bonuses: ['Defense mode: +33.3% shield resists'],
+    points: [
+      { kind: 'good', lead: 'Dark', text: 'Light missiles, and the one destroyer with real high-tier numbers.' },
+      { kind: 'hole', lead: 'EM', text: 'The shield has none; its fits cover it with EM rigs.' },
+      { kind: 'info', lead: 'Two a pocket', text: 'Flown as a duo: two destroyers on two filaments.' },
+      { kind: 'warn', lead: 'Destroyers', text: 'Wiki Circa Kismeteer calls destroyer pockets “so uncertain” that it no longer suggests them.' },
+    ],
+    stats: [
+      { value: '1,424', label: 'T4 Dark runs on its most-run fits (414 at T5)', source: 'Abyss Tracker, runs its users logged, read 30 September 2026' },
+      { value: '36', label: 'lost in 9 days, median 379 M', source: 'zKillboard, ships lost in the Abyss, 21–29 September 2026' },
+    ] },
   { id: 17715, name: 'Gila', col: 3, row: 4, lane: 'cruiser', role: 'Cruiser. Used for T2–T6 Exotic, Electrical, Gamma; T3–T5 Firestorm; almost never Dark.',
-    note: 'The trunk of the cruiser line: 10%/level kinetic and thermal missile damage, 4%/level shield resists, +500% medium drone damage (+250% HP). 30.4% of the tracker\'s front-page \'most popular hulls\', 72 of the 201 top-list fits and 65,577 runs on them. Kinetic missiles and drones line up with Exotic\'s kinetic penalty; Gamma\'s +50% shield HP makes passive-regen fits work; Electrical\'s double cap runs an active booster. Its shield EM hole (base 0%) is why nearly every fit carries an EM Shield Reinforcer and a Multispectrum Shield Hardener (zKill: 137 of 221 losses carried the hardener). Dark is avoided (drone range). The Povertila is the most-run fit in the tracker: 18,895 runs; its note: \'Runs T4 exotic, electrical, and gamma with no drugs or implants. Runs T5 exotic with Standard Blue Pill and Hardshell II.\' The ePLEX-T4 fit is step 5 of an Alpha-to-Omega track published on Abyss Tracker. 3rd most-died hull on zKill (221, median loss 527 M).' },
+    bonuses: ['10% kinetic and thermal missile damage a level', '4% shield resists a level', '+500% medium drone damage', '+250% drone hit points'],
+    points: [
+      { kind: 'good', lead: 'Exotic', text: 'Kinetic missiles and drones meet Exotic’s kinetic penalty.' },
+      { kind: 'good', lead: 'Gamma', text: 'Gamma’s +50% shield hit points make passive-regen fits work.' },
+      { kind: 'good', lead: 'Electrical', text: 'Double capacitor regeneration runs an active shield booster.' },
+      { kind: 'avoid', lead: 'Dark', text: 'Its drones lose range.' },
+      { kind: 'hole', lead: 'EM', text: 'The shield has none: nearly every fit carries an EM Shield Reinforcer and a Multispectrum Shield Hardener.' },
+      { kind: 'quote', lead: '“Povertila”', text: 'Runs T4 exotic, electrical, and gamma with no drugs or implants. Runs T5 exotic with Standard Blue Pill and Hardshell II.' },
+      { kind: 'info', lead: 'Just in', text: 'The ePLEX-T4 fit is step 5 of an Alpha-to-Omega track published on Abyss Tracker.' },
+    ],
+    stats: [
+      { value: '30.4%', label: 'of the most popular hulls', source: 'Abyss Tracker’s front page, 30 September 2026' },
+      { value: '65,577', label: 'runs on its 72 most-run fits', source: 'Abyss Tracker, runs its users logged, read 30 September 2026' },
+      { value: '18,895', label: 'runs on the Povertila, the most-run fit', source: 'Abyss Tracker, runs its users logged, read 30 September 2026' },
+      { value: '221', label: 'lost in 9 days, 3rd of any hull (median 527 M)', source: 'zKillboard, ships lost in the Abyss, 21–29 September 2026' },
+    ] },
   { id: 11993, name: 'Cerberus', col: 4, row: 5, lane: 'dark', role: 'Heavy Assault Cruiser. Used for T4–T6 Dark; T5 Exotic.',
-    note: 'Missile HAC (HAM/HM/RLML rate of fire, 7.5%/level shield booster): the cruiser for Dark, as the Hawk is the frigate. Shield EM 0/Th 80/Kin 70/Exp 50: EM Shield Reinforcer II on 13 of 20 zKill losses. The most-run T6 Dark top fit (\'T6 Dark\', 1,022 runs) could not be read: the tracker answered \'Failed to get fit\' (probably private). \'Double web\' author: \'after 300 runs… I really like the Cerberus in T4 Darks… Although a T4 dark Muninn may be more optimised\'.' },
+    bonuses: ['Missile rate of fire (heavy assault, heavy, rapid light)', '7.5% shield booster amount a level'],
+    points: [
+      { kind: 'good', lead: 'Dark', text: 'The cruiser for Dark, as the Hawk is the frigate: missiles don’t mind it.' },
+      { kind: 'hole', lead: 'EM', text: 'The shield has none: 13 of its 20 losses carried an EM Shield Reinforcer II.' },
+      { kind: 'warn', lead: 'Unreadable', text: 'The most-run T6 Dark fit (“T6 Dark”, 1,022 runs) couldn’t be read: Abyss Tracker answered “Failed to get fit”.' },
+      { kind: 'quote', lead: '“#1 T4 Dark Double web”', text: 'after 300 runs… I really like the Cerberus in T4 Darks… Although a T4 dark Muninn may be more optimised' },
+    ] },
   { id: 12019, name: 'Sacrilege', col: 3, row: 5, lane: 'dark', role: 'Heavy Assault Cruiser. Used for T3–T4 Dark.',
-    note: 'Armor missile HAC (5%/level armor resists). Armor EM 50/Th 35/Kin 62/Exp 80 (thermal hole; Dark has none). Dark T3–T4 only in the data (1,153 runs).' },
+    bonuses: ['5% armour resists a level'],
+    points: [
+      { kind: 'good', lead: 'Dark', text: 'T3–T4 Dark only, in the data.' },
+      { kind: 'hole', lead: 'Thermal', text: 'Its weak armour resist; Dark brings no resist penalty.' },
+    ],
+    stats: [
+      { value: '1,153', label: 'Dark runs on its most-run fits', source: 'Abyss Tracker, runs its users logged, read 30 September 2026' },
+    ] },
   { id: 54732, name: 'Stormbringer', col: 4, row: 6, lane: 'electrical', role: 'Cruiser. Used for T4–T6 Electrical.',
-    note: 'Vorton Projector cruiser: EM/kinetic arcing damage that chains between targets within range; 6%/level shield resists on shield EM 20/Th 20/Kin 50/Exp 50. It owns the EM-penalty weather: Vorton charges deal EM and kinetic, EM the larger part (SDE: ElectroPunch Ultra M 402 EM / 379 kin, GalvaSurge Condenser Pack M 500 / 151), so Electrical\'s EM penalty on the NPCs raises its damage, and the double cap regen feeds its shield booster (my reading of the charge data and the weather table, not a quoted source). Fits cost 1.9–3.7 B; hull 579 M (ESI average). The fastest median runs in the high tiers (9:00–11:43).' },
+    bonuses: ['6% shield resists a level'],
+    points: [
+      { kind: 'good', lead: 'Electrical', text: 'Its mostly-EM Vorton damage gains from Electrical’s EM penalty, and double cap feeds its booster (the research’s reading).' },
+      { kind: 'info', lead: 'Weapon', text: 'Vorton projectors: arcing EM and kinetic damage that chains between targets in range.' },
+      { kind: 'tip', lead: 'Speed', text: 'The fastest median runs in the high tiers: 9:00 to 11:43.' },
+      { kind: 'warn', lead: 'Cost', text: 'Its fits cost 1.9–3.7 B.' },
+    ] },
   { id: 52252, name: 'Ikitursa', col: 4, row: 7, lane: 'fire', role: 'Heavy Assault Cruiser. Used for T3–T5 Firestorm.',
-    note: 'Heavy Entropic Disintegrator HAC; armor EM 50/Th 75/Kin 25/Exp 65: like the Nergal, a thermal-resistant hull for the thermal-penalty weather. \'Ikitursa T5 Fire 1.1\': 1,039 T5 Firestorm runs, 0 logged losses. Nobody has it on a T6 top list (T6 Firestorm: 13 runs, 1 lost).' },
+    points: [
+      { kind: 'good', lead: 'Firestorm', text: 'Like the Nergal, a hull with a high thermal resist for the thermal-penalty weather.' },
+      { kind: 'info', lead: 'Weapon', text: 'A Heavy Entropic Disintegrator.' },
+      { kind: 'warn', lead: 'T6', text: 'On no T6 most-run list: T6 Firestorm logged 13 runs, 1 lost.' },
+    ],
+    stats: [
+      { value: '1,039', label: 'T5 Firestorm runs on “Ikitursa T5 Fire 1.1”, none logged lost', source: 'Abyss Tracker, runs its users logged, read 30 September 2026' },
+    ] },
   { id: 11999, name: 'Vagabond', col: 4, row: 8, lane: 'gamma', role: 'Heavy Assault Cruiser. Used for T4 and T6 Gamma.',
-    note: 'Autocannon HAC with a 7.5%/level shield-booster bonus; shield EM 75/Th 60/Kin 40/Exp 50, so Gamma\'s explosive penalty lands on a 50% resist (Explosive Shield Reinforcer in its losses). The surprise of the data: T6 Gamma\'s most-run fit is a Vagabond (\'!WTF P2\', 2,960 runs, 0 logged losses, 331 M) whose author writes \'You will die in that ship, Trust me… This paper thin buffer will break before you even notice. I do not recommand using this fit.\' A streamer\'s challenge fit; read the zero with that in mind.' },
+    bonuses: ['7.5% shield booster amount a level'],
+    points: [
+      { kind: 'good', lead: 'Gamma', text: 'Run at T4 and T6; its losses carry an Explosive Shield Reinforcer for Gamma’s explosive penalty.' },
+      { kind: 'warn', lead: '“!WTF P2”', text: 'T6 Gamma’s most-run fit (2,960 runs, none logged lost, 331 M) is a streamer’s challenge fit: read the zero with that in mind.' },
+      { kind: 'quote', lead: '“!WTF P2”', text: 'You will die in that ship, Trust me… This paper thin buffer will break before you even notice. I do not recommand using this fit.' },
+    ] },
   { id: 12005, name: 'Ishtar', col: 5, row: 8, lane: 'gamma', role: 'Heavy Assault Cruiser. Used for T5–T6 Gamma.',
-    note: 'Drone HAC (heavy and sentry drone bonuses). Shield-tanked with an X-Large booster in Gamma: shield EM 0/Th 60/Kin 85/Exp 50 (Gamma hits the 50% explosive). The priciest fits in this list: 4.1 B and 17.9 B (the T6 one with a full High-grade Crystal implant set); 612 M/h measured in T6 Gamma. The T5 fit\'s author: \'Mid-grade crystals Alpha > Epsilon mandatory.\' zKill: 35 died in nine days, median 355 M.' },
+    bonuses: ['Heavy and sentry drone bonuses'],
+    points: [
+      { kind: 'good', lead: 'Gamma', text: 'T5–T6, shield-tanked with an X-Large booster.' },
+      { kind: 'warn', lead: 'Cost', text: 'The priciest fits on the tree: 4.1 B, and 17.9 B for the T6 one with a full High-grade Crystal set.' },
+      { kind: 'quote', lead: '“T5 Gamma”', text: 'Mid-grade crystals Alpha > Epsilon mandatory.' },
+    ],
+    stats: [
+      { value: '612 M', label: 'an hour, measured in T6 Gamma', source: 'Abyss Tracker, runs its users logged, read 30 September 2026' },
+      { value: '35', label: 'lost in 9 days, median 355 M', source: 'zKillboard, ships lost in the Abyss, 21–29 September 2026' },
+    ] },
   { id: 621, name: 'Caracal', col: 1, row: 4, lane: 'cruiser', role: 'Cruiser. Used for T1–T2 Gamma.',
-    note: 'The cheap T1 cruiser option on a T1 Gamma top list; 7 of 181 runs logged lost. The uniwiki FAQ: a T1 cruiser earns about what a T0 frigate does.' },
+    points: [
+      { kind: 'good', lead: 'Gamma', text: 'The cheap Tech I cruiser on a T1 Gamma most-run list: 7 of 181 runs logged lost.' },
+      { kind: 'info', lead: 'Earnings', text: 'EVE University: a Tech I cruiser earns about what a T0 frigate does.' },
+    ] },
   { id: 17843, name: 'Vexor Navy Issue', col: 2, row: 8, lane: 'gamma', role: 'Cruiser. Used for T2 Gamma and Firestorm.',
-    note: 'Drone/hybrid navy cruiser, the T2 cruiser alternative to the Gila. Author of both: single-purpose fits (\'for T4+ use Ishtar instead\').' },
+    points: [
+      { kind: 'info', lead: 'Instead of a Gila', text: 'The drone and hybrid navy cruiser, the T2 alternative to the Gila.' },
+      { kind: 'good', lead: 'Gamma', text: 'A single-purpose T2 Gamma fit.' },
+      { kind: 'good', lead: 'Firestorm', text: 'A single-purpose T2 Firestorm fit, with blasters.' },
+      { kind: 'quote', lead: 'Both fits', text: 'for T4+ use Ishtar instead' },
+    ] },
   { id: 12023, name: 'Deimos', col: 3, row: 7, lane: 'fire', role: 'Heavy Assault Cruiser. Used for T3 Exotic.',
-    note: 'Blaster armor HAC: a 328 M \'facetank\' for T3 Exotic (245 runs, 0 lost); shield/armor kinetic resist 85/84 covers Exotic\'s kinetic penalty.' },
+    points: [
+      { kind: 'good', lead: 'Exotic', text: 'A 328 M “facetank” for T3 Exotic: 245 runs, none logged lost.' },
+      { kind: 'info', lead: 'Resists', text: 'Its fit’s kinetic resists (85% shield, 84% armour) cover Exotic’s kinetic penalty.' },
+    ] },
   { id: 17709, name: 'Omen Navy Issue', col: 2, row: 6, lane: 'electrical', role: 'Cruiser. Used for T2 Electrical.',
-    note: 'Laser navy cruiser; 115 T2 Electrical runs. Its 2 T3 runs were both logged lost.' },
+    points: [
+      { kind: 'good', lead: 'Electrical', text: '115 T2 Electrical runs.' },
+      { kind: 'warn', lead: 'T3', text: 'Its 2 T3 runs were both logged lost.' },
+    ] },
 ];
 
 /**

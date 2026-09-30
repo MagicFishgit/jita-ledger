@@ -1,14 +1,16 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ChevronRight, Crosshair, Lock, MapPin, Sparkles } from 'lucide-react';
+import { ChevronRight, Crosshair, Lock, MapPin, Sparkles, type LucideIcon } from 'lucide-react';
 import { iskBig } from '../lib/format';
 import { useNow } from '../lib/hooks';
 import { jitaBook } from '../lib/market';
-import { edgeShape, nodeState, type NodeState, type TreeNode } from '../lib/shipTree';
+import type { TypeDogma } from '../lib/miningYield';
+import { edgeShape, nodeState, type NodeState, type Point, type Stat, type TreeNode } from '../lib/shipTree';
 import { skillStatus } from '../lib/skillStatus';
 import { useData } from '../lib/store';
-import { hullStats, typeRequirements } from '../lib/universe';
+import { hullStats, typeDogma, typeRequirements } from '../lib/universe';
 import { useEnsureNames, useTypeName } from './common';
 import { SkillNeeds } from './SkillStrip';
+import { Bonuses, Points, ResistBars, Stats } from './Facts';
 
 /**
  * A progression tree as a flowchart (Mining, Abyssal, Hauling): every hull a node, every path an arrow, left to right by
@@ -20,12 +22,12 @@ import { SkillNeeds } from './SkillStrip';
  * rows open under themselves.
  */
 
-type HullInfo = { needs: { skill: number; level: number }[]; stats: Awaited<ReturnType<typeof hullStats>> | null; price: number | null };
+type HullInfo = { needs: { skill: number; level: number }[]; stats: Awaited<ReturnType<typeof hullStats>> | null; price: number | null; dogma: TypeDogma | null };
 export type HullStats = Awaited<ReturnType<typeof hullStats>>;
 
 const STATE_SAID: Record<NodeState, string> = { here: 'You’re in it', flyable: 'You can fly it', close: 'Coming in your queue', locked: 'Not yet' };
 
-export function ShipTree<N extends TreeNode>({ label, nodes, edges, lanes, cols, rows, here, picked, pickedSaid, nodeTip, facts, children }: {
+export function ShipTree<N extends TreeNode>({ label, nodes, edges, lanes, cols, rows, here, picked, pickedSaid, nodeTip, facts, resists, about, iconOf, pointsOf, statsOf, children }: {
   /** What the chart is, for screen readers ("Mining ships"). */
   label: string;
   nodes: N[]; edges: [number, number][]; lanes: Record<string, string>;
@@ -39,6 +41,15 @@ export function ShipTree<N extends TreeNode>({ label, nodes, edges, lanes, cols,
   nodeTip?: (n: N) => string | null;
   /** The page's own facts about a hull, shown after its price and slots. */
   facts?: (n: N, stats: HullStats | null) => [string, ReactNode][];
+  /** Draw each hull's base resists (Abyssal, Hauling: where its tank decides things). */
+  resists?: boolean;
+  /** The page's own picture of a hull, beside its points (Abyssal: where it's most run). */
+  about?: (n: N) => ReactNode;
+  /** An icon for a point whose lead the page knows (a weather's own). */
+  iconOf?: (p: Point) => LucideIcon | undefined;
+  /** Points and research figures the page adds to a hull's own (Hauling: how its kind gets ganked). */
+  pointsOf?: (n: N) => Point[];
+  statsOf?: (n: N) => Stat[];
   /** What opens under a hull's details, given its Jita price. */
   children: (n: N, price: number | null) => ReactNode;
 }) {
@@ -54,10 +65,10 @@ export function ShipTree<N extends TreeNode>({ label, nodes, edges, lanes, cols,
     (async () => {
       const out: Record<number, HullInfo> = {};
       await Promise.all(nodes.map(async (h) => {
-        const [needs, stats, book] = await Promise.all([
-          typeRequirements(h.id).catch(() => []), hullStats(h.id).catch(() => null), jitaBook(h.id).catch(() => null),
+        const [needs, stats, book, dogma] = await Promise.all([
+          typeRequirements(h.id).catch(() => []), hullStats(h.id).catch(() => null), jitaBook(h.id).catch(() => null), typeDogma(h.id).catch(() => null),
         ]);
-        out[h.id] = { needs, stats, price: book?.bestSell ?? null };
+        out[h.id] = { needs, stats, price: book?.bestSell ?? null, dogma };
       }));
       if (alive) setInfo(out);
     })();
@@ -98,8 +109,24 @@ export function ShipTree<N extends TreeNode>({ label, nodes, edges, lanes, cols,
           <span className="note small" style={{ display: 'block', margin: 0 }}>{openHull.role}</span>
         </span>
       </div>
-      {/* The note runs the full width under the picture: beside it, a long one made a narrow column on a phone. */}
-      {openHull.note && <p className="note small" style={{ margin: 0 }}>{openHull.note}</p>}
+      {openHull.bonuses?.length ? <Bonuses items={openHull.bonuses} /> : null}
+      {(() => {
+        // What to know about the hull, beside its resists and the page's own picture of it; a plain note where there are
+        // no points. The note runs the full width under the picture: beside it, a long one made a narrow column on a phone.
+        const dg = info[openHull.id]?.dogma;
+        const own = about?.(openHull) ?? null;
+        const side = [resists && dg ? <div key="res"><span className="lbl">Resists, the bare hull</span><ResistBars dogma={dg} /></div> : null, own ? <Fragment key="about">{own}</Fragment> : null].filter(Boolean);
+        const points = [...(openHull.points ?? []), ...(pointsOf?.(openHull) ?? [])];
+        const main = points.length ? <Points items={points} iconOf={iconOf} /> : openHull.note ? <p className="note small" style={{ margin: 0 }}>{openHull.note}</p> : null;
+        if (!side.length) return main;
+        // With nothing to say beside them, the resists and the page's picture take the width themselves.
+        if (!main) return <div className="about-side">{side}</div>;
+        return <div className="about-grid">{main}<div className="about-side">{side}</div></div>;
+      })()}
+      {(() => {
+        const stats = [...(openHull.stats ?? []), ...(statsOf?.(openHull) ?? [])];
+        return stats.length ? <Stats items={stats} /> : null;
+      })()}
       <div className="kv-mini" style={{ maxWidth: 560 }}>
         <span>Hull at Jita</span><b>{info[openHull.id]?.price != null ? iskBig(info[openHull.id].price!) : '–'}</b>
         {info[openHull.id]?.stats && <><span>Slots</span><b>{info[openHull.id].stats!.high} high{info[openHull.id].stats!.turrets > 0 ? ` (${info[openHull.id].stats!.turrets} for turrets)` : ''}, {info[openHull.id].stats!.mid} mid, {info[openHull.id].stats!.low} low, {info[openHull.id].stats!.rigs} rigs</b></>}

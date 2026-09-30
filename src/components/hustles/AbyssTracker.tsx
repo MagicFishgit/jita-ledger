@@ -171,7 +171,24 @@ function TrackerFitBody({ fit, detail, tierFit, ids, hullPrice, tier, weather }:
         {fit.ehpK != null && <><span>Abyss Tracker’s figures</span><b>{(fit.dps ?? 0) >= 1 ? `${Math.round(fit.dps!)} DPS` : 'no DPS figure (its engine gave none)'}, {fit.ehpK.toFixed(1)}k EHP{fit.speed ? `, ${units(Math.round(fit.speed))} m/s` : ''}</b></>}
       </div>
       {detail.perf && detail.perf.cells.length > (here ? 1 : 0) && (
-        <p className="note small" style={{ margin: 0 }}>{here ? 'Also run at' : 'Run at'}: {detail.perf.cells.filter((c) => !(c.tier === tier && c.weather === weather)).slice(0, 6).map((c) => `${cellSaid(c.tier, c.weather)} (${units(c.runs)}, ${pct(c.survival / 100, 0)} survived)`).join('; ')}.</p>
+        <div>
+          <span className="lbl" style={{ display: 'block', marginBottom: 6 }}>{here ? 'Also run at' : 'Where it’s run'}</span>
+          <div className="tbl-scroll" style={{ border: '1px solid var(--line-3)', maxWidth: 560 }}>
+            <table className="tbl compact">
+              <thead><tr><th scope="col" className="l">Tier and weather</th><th scope="col">Runs</th><th scope="col">Survived</th><th scope="col">Made an hour</th></tr></thead>
+              <tbody>
+                {detail.perf.cells.filter((c) => !(c.tier === tier && c.weather === weather)).slice(0, 6).map((c) => (
+                  <tr key={`${c.tier}:${c.weather}`}>
+                    <td className="l">{cellSaid(c.tier, c.weather)}</td>
+                    <td>{units(c.runs)}</td>
+                    <td style={{ color: c.survival < 95 ? 'var(--acc2)' : undefined }}>{pct(c.survival / 100, 0)}</td>
+                    <td>{c.iskPerHour != null ? iskBig(c.iskPerHour) : <span className="faint">–</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
       <FitGrid fit={tierFit} crystal={null} data={data} />
       <FitActions hullId={fit.shipId} hullName={fit.shipName} label={`Abyss ${(fit.name || cellSaid(tier, weather)).slice(0, 36)}`} fit={tierFit} crystal={null} data={data} total={total} />

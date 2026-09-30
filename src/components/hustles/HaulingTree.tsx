@@ -3,7 +3,7 @@ import { Truck } from 'lucide-react';
 import { bareEhp, CARGO_FIVE, generalSpace, holdsFor, holdsSaid } from '../../lib/cargo';
 import type { HullClass } from '../../lib/courier';
 import { units } from '../../lib/format';
-import { GANK_BY_CLASS, HAUL_EDGES, HAUL_HULLS, HAUL_LANES, HAUL_LOSSES, type HaulNode } from '../../lib/haulTree';
+import { GANK_BY_CLASS, GANK_SOURCE, HAUL_EDGES, HAUL_HULLS, HAUL_LANES, HAUL_LOSSES, type HaulNode } from '../../lib/haulTree';
 import type { TypeDogma } from '../../lib/miningYield';
 import { useData } from '../../lib/store';
 import { typeDogma } from '../../lib/universe';
@@ -36,22 +36,27 @@ export function HaulingTree({ here, onUse, children }: {
   }, []);
   const skills = d.skills ?? {};
   return (
-    <ShipTree label="Hauling ships" nodes={HAUL_HULLS} edges={HAUL_EDGES} lanes={HAUL_LANES} cols={6} rows={7} here={here}
+    <ShipTree label="Hauling ships" nodes={HAUL_HULLS} edges={HAUL_EDGES} lanes={HAUL_LANES} cols={6} rows={7} here={here} resists
       nodeTip={(h) => { const dg = dogma[h.id]; return dg ? `Couriers can use ${units(Math.round(generalSpace(holdsFor(dg, [], skills))))} m³ at your skills.` : null; }}
+      pointsOf={(h) => { const dg = dogma[h.id]; return (dg && GANK_BY_CLASS[dg.group]?.points) || []; }}
+      statsOf={(h) => {
+        // zKillboard's record of the hull, and of its kind when ganked: research figures, with their source.
+        const loss = HAUL_LOSSES[h.id], dg = dogma[h.id], gank = dg ? GANK_BY_CLASS[dg.group] : undefined;
+        return [
+          ...(loss ? [{ value: units(loss.lost), label: 'lost in high-sec, July to September', source: GANK_SOURCE }, { value: units(loss.ganked), label: 'of them ganked', source: `${GANK_SOURCE}: a pilot on the mail was killed by CONCORD there soon after` }] : []),
+          ...(gank ? [{ value: String(gank.attackers), label: 'attackers on a gank of its kind (median)', source: GANK_SOURCE }, { value: gank.cargo, label: 'carried by the ganked (median)', source: GANK_SOURCE }] : []),
+        ];
+      }}
       facts={(h) => {
         const dg = dogma[h.id];
         if (!dg) return [['Holds', 'Reading…']];
         const mine = holdsFor(dg, [], skills), top = holdsFor(dg, [], CARGO_FIVE);
-        const loss = HAUL_LOSSES[h.id];
-        const gank = GANK_BY_CLASS[dg.group];
         const out: [string, ReactNode][] = [
           ['Holds at your skills', holdsSaid(mine)],
           ...(holdsSaid(top) !== holdsSaid(mine) ? [['With every skill at V', holdsSaid(top)] as [string, ReactNode]] : []),
           ['A courier package can use', `${units(Math.round(generalSpace(mine)))} m³ (cargo${mine.fleet ? ' and fleet hangar' : ''}), before expanders and rigs`],
           ['Bare hull', `${units(Math.round(bareEhp(dg)))} EHP against even damage, no skills or modules`],
         ];
-        if (loss) out.push(['High-sec, Jul–Sep 2026', `${units(loss.lost)} lost, ${units(loss.ganked)} of them ganked (zKillboard)`]);
-        if (gank) out.push(['When its kind is ganked', `a median ${gank.attackers} attacker ship${gank.attackers === 1 ? '' : 's'}, carrying ${gank.cargo}; ${gank.where}`]);
         return out;
       }}>
       {(h, price) => {
