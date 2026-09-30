@@ -120,7 +120,9 @@ async function runScan(env: Env) {
 async function runArchive(env: Env, charId: number) {
   try {
     const detail = await archive(env, ledgerReader(charId));
-    await noteJob(env.DB, charId, 'archive', { ok: true, detail });
+    // The wallet and points are for an alt's sheet; they don't belong in the job's detail, which /v1/status serves.
+    const { wallet: _wallet, lp: _lp, ...noted } = detail;
+    await noteJob(env.DB, charId, 'archive', { ok: true, detail: noted });
     return detail;
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
@@ -276,9 +278,11 @@ export default {
         return json({ kept: { purpose: kept.as, as: kept.as, charId: kept.login.charId, name: kept.login.name, scopes: kept.login.scopes.length } }, 200, c);
       }
       if (url.pathname === '/v1/keys' && request.method === 'DELETE') {
-        const purpose = url.searchParams.get('purpose') === 'mailer' ? 'mailer' : 'main';
-        await dropLogin(env, who.charId, purpose);
-        return json({ dropped: purpose }, 200, c);
+        const asked = url.searchParams.get('purpose');
+        // Only the two logins this route has ever dropped. Anything else used to fall through to the main's.
+        if (asked !== 'main' && asked !== 'mailer') throw new BadRequest('Say which login to drop: main or mailer');
+        await dropLogin(env, who.charId, asked);
+        return json({ dropped: asked }, 200, c);
       }
       // Alts (alts.ts): the owner's other characters, read by the cloud. New paths, so a Worker a version behind
       // answers 404 and can never hand the main's ledger back as an alt's; each checks the alt is on the caller's roster.

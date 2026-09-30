@@ -80,6 +80,7 @@ console.log('\n--- mining: whose login, whose data ---');
     let qty = 1000;
     const f = stubFetch([[`/characters/${MAIN}/mining/`, () => mined(qty)], [`/characters/${MAIN}/ship/`, { ship_type_id: VENTURE }]]);
     eq('  the main\'s first read is a baseline: no ticks', await readMiningRound(env, ledgerReader(MAIN), T0), 0);
+    eq('    and it already keeps the hull it was in', db.rows('SELECT ship_type_id AS ship FROM mining_state'), [{ ship: VENTURE }]);
     qty = 1600;
     eq('    ten minutes on, what grew is one tick', await readMiningRound(env, ledgerReader(MAIN), T0 + 10 * MIN), 1);
     eq('    a read before ESI\'s ten minutes are up isn\'t made', await readMiningRound(env, ledgerReader(MAIN), T0 + 12 * MIN), null);
@@ -148,6 +149,32 @@ console.log('\n--- mining: whose login, whose data ---');
     f.restore();
     eq('    gets no rows back', counts(db), {});
   }
+
+  // The gate is for alts. A main whose login is dropped mid-read ("Stop keeping watch") has that read's rows, as before.
+  {
+    const { db, env } = await ledgerWithAlt();
+    const f = stubFetch([
+      [`/characters/${MAIN}/mining/`, () => { db.run('DELETE FROM keys WHERE purpose = ?', 'main'); return mined(700); }],
+      [`/characters/${MAIN}/ship/`, { ship_type_id: VENTURE }],
+    ]);
+    eq('  a main whose login is dropped mid-read is still read', await readMiningRound(env, ledgerReader(MAIN), T0), 0);
+    f.restore();
+    eq('    and its rows are written', counts(db), { [`records:${MAIN}`]: 1, [`revs:${MAIN}`]: 1, [`jobs:${MAIN}`]: 1, [`mining_state:${MAIN}`]: 1 });
+  }
+
+  // The records go up before the snapshot moves: what changed is measured against the snapshot, so one that moved
+  // ahead of a failed push would never send those rows again.
+  {
+    const { db, env } = await ledgerWithAlt();
+    // The second write fails: with the snapshot first that is the records' push, after the snapshot moved.
+    const real = db.batch; let calls = 0;
+    db.batch = async (l) => { if (++calls === 2) throw new Error('D1 down'); return real(l); };
+    const f = stubFetch([[`/characters/${ALT}/mining/`, mined(700)], [`/characters/${ALT}/ship/`, { ship_type_id: VENTURE }]]);
+    await rejects('  a read whose write fails', () => readMiningRound(env, altReader(MAIN, ALT), T0), /D1 down/);
+    await readMiningRound(env, altReader(MAIN, ALT), T0 + 10 * MIN);
+    f.restore();
+    eq('    and the next read still sends the records', db.rows(`SELECT COUNT(*) AS n FROM records WHERE kind = 'mining' AND char_id = ?`, ALT)[0].n, 1);
+  }
 }
 
 /** ESI's answers for one character: a trade, a journal entry, an open order, a hangar item, a wrap in asset safety. */
@@ -204,6 +231,18 @@ console.log('\n--- an alt\'s full read ---');
     eq('    its records are under the main', kinds(db, MAIN), { journal: 1, names: 2, netWorth: 1, orders: 1, txs: 1 });
     eq('    it notes its orders read', db.rows(`SELECT job FROM jobs WHERE char_id = ? ORDER BY job`, MAIN).map((x) => x.job), ['orders']);
     eq('    it hands back the wallet and the points it read', [r.wallet, r.lp], [5000, [{ corporationId: 1000035, points: 1234 }]]);
+    eq('    and its wrap in asset safety is still mailed, once', f.calls.filter((c) => c.method === 'POST' && c.path === `/characters/${SENDER}/mail/`).length, 1);
+  }
+
+  // The push gate is for alts: a main whose login is dropped mid-read has that read's records, as before.
+  {
+    const { db, env } = await ledgerWithAlt();
+    const routes = esiFor(MAIN);
+    routes[0] = [`/characters/${MAIN}/wallet/transactions/`, () => { db.run('DELETE FROM keys WHERE purpose = ?', 'main'); return esiFor(MAIN)[0][1]; }];
+    const f = stubFetch(routes);
+    await archive(env, ledgerReader(MAIN));
+    f.restore();
+    eq('  a main whose login is dropped mid-copy still gets its records', kinds(db, MAIN), { journal: 1, names: 2, netWorth: 1, orders: 1, txs: 1 });
   }
 
   {
@@ -224,6 +263,7 @@ console.log('\n--- an alt\'s full read ---');
     eq('    wallet, points, queue and attributes are there', [meta.walletBalance, meta.lpBalances, meta.skillQueue.length, meta.attributes.memory, meta.totalSp], [5000, [{ corporationId: 1000035, points: 1234 }], 1, 21, 900000]);
     eq('    the first read can\'t say since when', meta.cloneSince ?? null, null);
     eq('    its skills are the trained levels', docOf(db, ALT, 'skills'), { 3386: 5, 17940: 3 });
+    eq('    the copy\'s job detail doesn\'t carry the wallet or the points', Object.keys(JSON.parse(db.rows(`SELECT detail FROM jobs WHERE char_id = ? AND job = 'archive'`, ALT)[0].detail)).filter((k) => k === 'wallet' || k === 'lp'), []);
   }
 
   // Omega again: the cloud saw the change, so it can say since when. And a read that changes nothing pushes nothing.
@@ -254,6 +294,19 @@ console.log('\n--- an alt\'s full read ---');
     await readAlt(env, altReader(MAIN, ALT)).catch(() => undefined);
     f.restore();
     eq('  an alt removed mid-read gets no records, documents or jobs', [kinds(db, ALT), db.rows('SELECT COUNT(*) AS n FROM docs WHERE char_id = ?', ALT)[0].n, db.rows('SELECT COUNT(*) AS n FROM jobs WHERE char_id = ?', ALT)[0].n], [{}, 0, 0]);
+    eq('    nor a wrap registered, a revision or anything else under it', under(db, ALT), {});
+  }
+
+  // Removed after the copy, while the sheet is being read: the copy's rows stand, the sheet writes nothing.
+  {
+    const { db, env } = await withSender();
+    const routes = esiFor(ALT);
+    routes[routes.findIndex((r) => r[0] === `/characters/${ALT}/skills/`)] = [`/characters/${ALT}/skills/`, () => { db.run('DELETE FROM keys WHERE purpose = ?', `alt:${ALT}`); return { total_sp: 1, skills: [] }; }];
+    const f = stubFetch(routes);
+    await readAlt(env, altReader(MAIN, ALT)).catch(() => undefined);
+    f.restore();
+    eq('  an alt removed while its sheet is read keeps the copy\'s records', kinds(db, ALT), { journal: 1, names: 2, netWorth: 1, orders: 1, txs: 1 });
+    eq('    but the sheet wrote no skills or meta, and noted no sheet job', [docOf(db, ALT, 'skills'), docOf(db, ALT, 'meta'), db.rows(`SELECT job FROM jobs WHERE char_id = ? AND job = 'sheet'`, ALT)], [null, null, []]);
   }
 
   // The roster.
@@ -348,6 +401,46 @@ console.log('\n--- handing a login over, and the alt routes ---');
     eq('  an unknown purpose is refused', (await ask(env, 'POST', '/v1/keys', { purpose: 'owner', refreshToken: 'x' })).status, 400);
   }
 
+  // The archive job's detail is what the copy did, not the sheet's wallet and points.
+  {
+    const { db, env } = await ledgerWithAlt();
+    env.DEV_AUTH_CHAR = String(MAIN);
+    const f = stubFetch(esiFor(MAIN));
+    const r = await ask(env, 'POST', '/v1/jobs/archive');
+    f.restore();
+    const detail = JSON.parse(db.rows(`SELECT detail FROM jobs WHERE char_id = ? AND job = 'archive'`, MAIN)[0].detail);
+    eq('  the main\'s archive job: noted without the wallet and points', [Object.keys(detail).filter((k) => k === 'wallet' || k === 'lp'), detail.trades], [[], 1]);
+    eq('    the route\'s own answer keeps them', r.body.wallet, 5000);
+  }
+
+  // Dropping a login names which.
+  {
+    const { db, env } = await fresh();
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', SCOPES);
+    const f = stubFetch(eve(SENDER, 'Postmaster'));
+    const bad = [(await ask(env, 'DELETE', `/v1/keys?purpose=alt:${ALT}`)).status, (await ask(env, 'DELETE', '/v1/keys')).status, (await ask(env, 'DELETE', '/v1/keys?purpose=mailr')).status];
+    eq('  dropping an alt\'s login, no login or a typo: refused', bad, [400, 400, 400]);
+    eq('    and nothing was dropped', keysOf(db), [`alt:${ALT}=${ALT}`, `mailer=${SENDER}`, `main=${MAIN}`]);
+    const r = await ask(env, 'DELETE', '/v1/keys?purpose=mailer');
+    f.restore();
+    eq('  dropping the sender still works, and leaves the main', [r.status, keysOf(db)], [200, [`alt:${ALT}=${ALT}`, `main=${MAIN}`]]);
+    const r2 = await ask(env, 'DELETE', '/v1/keys?purpose=main');
+    eq('  and so does the main, when asked for by name', [r2.status, keysOf(db)], [200, [`alt:${ALT}=${ALT}`]]);
+  }
+
+  // The two halves of handing an alt over land together.
+  {
+    const { db, env } = await fresh();
+    const { keepHandedOver } = await import('../worker/src/eve.ts');
+    const real = db.batch;
+    db.batch = async () => { throw new Error('D1 down'); };
+    const f = stubFetch(eve(ALT, 'Miner Two'));
+    await rejects('  a hand-over whose write fails', () => keepHandedOver(env, MAIN, 'alt', 'x'), /D1 down/);
+    f.restore();
+    db.batch = real;
+    eq('    leaves no login without its roster row', [keysOf(db), db.rows('SELECT COUNT(*) AS n FROM alts')[0].n], [[`mailer=${SENDER}`, `main=${MAIN}`], 0]);
+  }
+
   // What an app version behind sees, and what the alt routes give.
   {
     const { db, env } = await ledgerWithAlt();
@@ -363,6 +456,7 @@ console.log('\n--- handing a login over, and the alt routes ---');
     const status = await ask(env, 'GET', '/v1/status');
     eq('  /v1/status lists only the main\'s and the sender\'s logins', status.body.background.keys.map((k) => k.purpose), ['main']);
     const list = (await ask(env, 'GET', '/v1/alts')).body;
+    eq('  the main\'s job list holds none of the alt\'s', status.body.background.jobs, []);
     eq('  /v1/alts: the roster', list.map((a) => [a.charId, a.name, a.rev, a.ship, a.shipAt, a.refusedAt]), [[ALT, 'Miner Two', 1, VENTURE, T0, null]]);
     eq('    with its permissions and its jobs', [list[0].scopes.length, list[0].jobs.map((j) => j.job)], [SCOPES.length, ['mining']]);
     const pulled = (await ask(env, 'GET', `/v1/alts/${ALT}/pull?since=0`)).body;
@@ -406,6 +500,22 @@ console.log('\n--- handing a login over, and the alt routes ---');
     eq('    and the main is untouched', db.rows('SELECT COUNT(*) AS n FROM keys WHERE purpose = ?', 'main')[0].n, 1);
   }
 
+  // Removing deletes by character ID: never a ledger's own, however it is called.
+  {
+    const { removeAlt } = await import('../worker/src/alts.ts');
+    const { push } = await import('../worker/src/sync.ts');
+    const { db, env } = await ledgerWithAlt();
+    env.DEV_AUTH_CHAR = String(MAIN);
+    await push(db, MAIN, { records: [{ k: 'txs', i: 'main-trade', d: {} }], docs: [{ key: 'stock', d: {} }] });
+    db.run('INSERT INTO jobs (char_id, job, last_run) VALUES (?, ?, ?)', MAIN, 'archive', T0);
+    const before = counts(db);
+    await rejects('  removing the ledger itself, straight', () => removeAlt(env, MAIN, MAIN, 'delete'), /is not an alt of/);
+    await rejects('  removing a character that isn\'t on the roster', () => removeAlt(env, MAIN, 12345, 'delete'), /is not an alt of/);
+    eq('    the main\'s rows are all still there', [counts(db), db.rows('SELECT COUNT(*) AS n FROM keys')[0].n], [before, 2]);
+    eq('  through the route: not found', (await ask(env, 'DELETE', `/v1/alts/${MAIN}?data=delete`)).status, 404);
+    eq('    and the main\'s rows are still there', counts(db), before);
+  }
+
   // A refusal that a later refresh clears: what two jobs refreshing one login at once would leave behind.
   {
     const db = d1();
@@ -415,6 +525,29 @@ console.log('\n--- handing a login over, and the alt routes ---');
     const login = await useLogin(env, MAIN, `alt:${ALT}`);
     f.restore();
     eq('  a refused login that then refreshes is no longer refused', [login.charId, db.rows('SELECT refused_at AS r, refused FROM keys')[0]], [ALT, { r: null, refused: null }]);
+  }
+
+  // The loser of that race: EVE refuses the token it tried, but the row already holds the winner's rotated one.
+  {
+    const db = d1();
+    const env = testEnv(db);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', SCOPES, { expired: true });
+    const { seal } = await import('../worker/src/crypto.ts');
+    const { TOKEN_KEY } = await import('./d1.mjs');
+    let f = stubFetch([[/^POST \/v2\/oauth\/token$/, async () => {
+      db.run('UPDATE keys SET refresh_enc = ?', await seal(TOKEN_KEY, 'rotated-by-the-other-job'));
+      return new Response(JSON.stringify({ error: 'invalid_grant', error_description: 'Invalid refresh token' }), { status: 400 });
+    }]]);
+    await rejects('  a refresh EVE refuses', () => useLogin(env, MAIN, `alt:${ALT}`), /EVE refused/);
+    f.restore();
+    eq('    is not marked when the row already holds a newer token', db.rows('SELECT refused_at AS r FROM keys')[0].r, null);
+
+    const db2 = d1();
+    await keepKey(db2, MAIN, `alt:${ALT}`, ALT, 'Miner Two', SCOPES, { expired: true });
+    f = stubFetch([[/^POST \/v2\/oauth\/token$/, new Response(JSON.stringify({ error: 'invalid_grant', error_description: 'Invalid refresh token' }), { status: 400 })]]);
+    await rejects('  and one that is refused with the row unchanged', () => useLogin(testEnv(db2), MAIN, `alt:${ALT}`), /EVE refused/);
+    f.restore();
+    eq('    is marked', [db2.rows('SELECT refused_at IS NOT NULL AS r, refused FROM keys')[0]], [{ r: 1, refused: 'Invalid refresh token' }]);
   }
 }
 
@@ -527,6 +660,8 @@ console.log('\n--- an alt is never a ledger ---');
   await push(db, MAIN, { records: [{ k: 'orders', i: '1', d: open(34) }, { k: 'watchlist', i: '36', d: { typeId: 36 } }], docs: [] });
   await push(db, ALT, { records: [{ k: 'orders', i: '2', d: open(VELDSPAR) }], docs: [] });
   await push(db, 900002, { records: [{ k: 'orders', i: '3', d: open(SCORDITE) }], docs: [] });
+  // An alt's open position and its watch list count for nothing either.
+  await push(db, ALT, { records: [{ k: 'positions', i: 'p', d: { typeId: 35, status: 'open' } }], docs: [{ key: 'watch', d: { types: [37] } }] });
   eq('  the market watch reads the main\'s items, not an alt\'s, removed or not', (await watchedTypes(db)).sort((a, b) => a - b), [34, 36]);
 
   await push(db, MAIN, { records: [], docs: [{ key: 'chars', d: { [ALT]: { name: 'Miner Two' } } }] });

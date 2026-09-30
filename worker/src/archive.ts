@@ -227,7 +227,7 @@ export async function archive(env: Env, who: Reader, opts: { prices?: Record<num
   }
 
   // Removed while this ran (an alt taken off the roster): nothing of it goes back in.
-  if ((records.length || docs.length) && (await stillKept(db, who))) {
+  if ((records.length || docs.length) && (!alt || (await stillKept(db, who)))) {
     for (let i = 0; i < Math.max(records.length, 1); i += 2000) {
       await push(db, charId, { records: records.slice(i, i + 2000), docs: i === 0 ? docs : [] });
     }

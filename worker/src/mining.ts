@@ -39,7 +39,15 @@ export async function readMiningRound(env: Env, who: Reader, now = Date.now()): 
     ? await esiGet<{ ship_type_id: number }>(`/characters/${char}/ship/`, { token: login.access }).then((r) => r.data.ship_type_id).catch(() => null)
     : null;
   const ticks = miningTicks(prev, rows, now);
-  if (!(await stillKept(db, who))) return null;
+  // Only an alt can be taken off while it is read; a ledger whose login is dropped has that read's rows, as it always did.
+  if (who.char !== who.ledger && !(await stillKept(db, who))) return null;
+  // Rows that grew (or are new) go up as records, like the app's own sync makes them. The first read sends them all;
+  // so does one after a gap, measured against the stored snapshot whatever its age: the records are the ledger itself.
+  // Before the snapshot moves: what changed is measured against it, so a push that failed after it had moved would
+  // never be sent again. push upserts, so a batch that fails after it just repeats it next read.
+  const stored = state ? (JSON.parse(state.data) as Record<string, number>) : null;
+  const changed = rows.filter((r) => !stored || stored[miningKey(r)] !== r.qty);
+  if (changed.length) await push(db, char, { records: changed.map((r) => ({ k: 'mining', i: miningKey(r), d: r })), docs: [] });
   const stmts = [
     db.prepare(`INSERT INTO mining_state (char_id, at, data, ship_type_id) VALUES (?1, ?2, ?3, ?4)
       ON CONFLICT(char_id) DO UPDATE SET at = excluded.at, data = excluded.data, ship_type_id = excluded.ship_type_id`)
@@ -48,11 +56,6 @@ export async function readMiningRound(env: Env, who: Reader, now = Date.now()): 
     db.prepare('DELETE FROM mining_ticks WHERE char_id = ?1 AND at < ?2').bind(char, now - KEEP_MS),
   ];
   await db.batch(stmts);
-  // Rows that grew (or are new) go up as records, like the app's own sync makes them. The first read sends them all;
-  // so does one after a gap, measured against the stored snapshot whatever its age: the records are the ledger itself.
-  const stored = state ? (JSON.parse(state.data) as Record<string, number>) : null;
-  const changed = rows.filter((r) => !stored || stored[miningKey(r)] !== r.qty);
-  if (changed.length) await push(db, char, { records: changed.map((r) => ({ k: 'mining', i: miningKey(r), d: r })), docs: [] });
   await noteJob(db, char, 'mining', { ok: true, detail: { rows: rows.length, ticks: ticks.length, pushed: changed.length } });
   return ticks.length;
 }

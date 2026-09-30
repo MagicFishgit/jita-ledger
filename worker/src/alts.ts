@@ -52,7 +52,9 @@ export async function readAlt(env: Env, who: Reader, prices?: Record<number, num
   let copied: ArchiveResult;
   try {
     copied = await archive(env, who, { prices });
-    await note(env.DB, who, 'archive', { ok: true, detail: copied });
+    // The wallet and points go to the sheet below, not into the job's detail.
+    const { wallet: _wallet, lp: _lp, ...noted } = copied;
+    await note(env.DB, who, 'archive', { ok: true, detail: noted });
   } catch (e) {
     await note(env.DB, who, 'archive', { ok: false, error: said(e) });
     throw e;
@@ -90,7 +92,7 @@ export async function altsMining(env: Env, now = Date.now()): Promise<{ alts: nu
   const readers = await altReaders(env.DB);
   let read = 0, failed = 0;
   for (const who of readers) {
-    try { if ((await readMiningRound(env, who, now)) != null) read++; } catch (e) { failed++; await note(env.DB, who, 'mining', { ok: false, error: said(e) }); }
+    try { if ((await readMiningRound(env, who, now)) != null) read++; } catch (e) { failed++; await note(env.DB, who, 'mining', { ok: false, error: said(e) }).catch(() => undefined); }
   }
   return { alts: readers.length, read, failed };
 }
@@ -130,6 +132,8 @@ export async function altTicks(db: D1Database, ledger: number, days: number, now
  * old one miss everything after a re-add.
  */
 export async function removeAlt(env: Env, ledger: number, altId: number, data: 'keep' | 'delete'): Promise<void> {
+  // Deletes by character ID: never for anything but an alt on this ledger's roster, whoever calls it.
+  if (altId === ledger || !(await onRoster(env.DB, ledger, altId))) throw new Error(`Character ${altId} is not an alt of ${ledger}`);
   await dropLogin(env, ledger, altPurpose(altId));
   const db = env.DB;
   const gone = (table: string) => db.prepare(`DELETE FROM ${table} WHERE char_id = ?1`).bind(altId);

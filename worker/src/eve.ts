@@ -93,17 +93,19 @@ export async function keepHandedOver(env: Env, ledger: number, asked: Asked, ref
     throw new EveError(400, `That was ${who.name}, one of your characters, not your mail sender. EVE allows a character one set of permissions, so that login has stopped the one the cloud reads ${who.name} with. Hand ${who.name} over again on the Characters page.`);
   }
   const purpose: Purpose = sorted.as === 'alt' ? altPurpose(who.charId) : sorted.as;
-  await db.prepare(`
+  // The login and its roster row land together: a login with no row would be live, sealed and listed nowhere.
+  const stmts = [db.prepare(`
     INSERT INTO keys (char_id, purpose, token_char_id, token_char_name, scopes, refresh_enc, updated_at, access_enc, access_exp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
     ON CONFLICT(char_id, purpose) DO UPDATE SET token_char_id = excluded.token_char_id, token_char_name = excluded.token_char_name,
       scopes = excluded.scopes, refresh_enc = excluded.refresh_enc, updated_at = excluded.updated_at,
       access_enc = excluded.access_enc, access_exp = excluded.access_exp, refused_at = NULL, refused = NULL, refused_warned = NULL`)
-    .bind(ledger, purpose, who.charId, who.name, who.scopes.join(' '), await seal(env.TOKEN_KEY, t.refresh), Date.now(), await seal(env.TOKEN_KEY, t.access), who.exp).run();
+    .bind(ledger, purpose, who.charId, who.name, who.scopes.join(' '), await seal(env.TOKEN_KEY, t.refresh), Date.now(), await seal(env.TOKEN_KEY, t.access), who.exp)];
   if (sorted.as === 'alt') {
-    await db.prepare(`INSERT INTO alts (char_id, ledger, name, added_at) VALUES (?1, ?2, ?3, ?4)
+    stmts.push(db.prepare(`INSERT INTO alts (char_id, ledger, name, added_at) VALUES (?1, ?2, ?3, ?4)
       ON CONFLICT(char_id) DO UPDATE SET ledger = excluded.ledger, name = excluded.name, removed_at = NULL`)
-      .bind(who.charId, ledger, who.name, Date.now()).run();
+      .bind(who.charId, ledger, who.name, Date.now()));
   }
+  await db.batch(stmts);
   return { as: sorted.as, login: asLogin(t.access) };
 }
 
@@ -135,8 +137,10 @@ export async function useLogin(env: Env, ledgerChar: number, purpose: Purpose): 
     // only handing the login over again fixes it. Kept on the login, so Settings, To do and the watchdog can say which
     // one it is, once, rather than every job that needs it failing in its own words.
     if (e instanceof EveError && (e.status === 400 || e.status === 401)) {
-      await env.DB.prepare('UPDATE keys SET refused_at = COALESCE(refused_at, ?3), refused = ?4 WHERE char_id = ?1 AND purpose = ?2')
-        .bind(ledgerChar, purpose, Date.now(), e.reason ?? e.message).run();
+      // Only if the row still holds the token that was tried: another job may have refreshed it a moment ago, and its
+      // rotated token works.
+      await env.DB.prepare('UPDATE keys SET refused_at = COALESCE(refused_at, ?3), refused = ?4 WHERE char_id = ?1 AND purpose = ?2 AND refresh_enc = ?5')
+        .bind(ledgerChar, purpose, Date.now(), e.reason ?? e.message, row.refresh_enc).run();
       const whose = row.token_char_name ?? (purpose === 'main' ? 'your character' : purpose === 'mailer' ? 'your sender' : 'one of your characters');
       throw new EveError(e.status, `EVE refused the cloud’s login for ${whose} (${e.reason ?? e.status}); hand the cloud ${purpose === 'main' || purpose === 'mailer' ? 'your' : 'that'} login again`, e.reason);
     }

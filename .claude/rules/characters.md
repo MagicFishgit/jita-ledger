@@ -3,6 +3,7 @@ paths:
   - "worker/src/{alts,sheet}.ts"
   - "src/lib/{roster,alphaCaps}.ts"
   - "scripts/{d1,check-worker,alpha-caps}.mjs"
+  - "worker/src/{eve,archive,mining,index,watchdog,market}.ts"
 ---
 
 # Several characters

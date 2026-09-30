@@ -14,9 +14,16 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
 - **A reader is told whose login it uses and whose data it writes** (`Reader` in `worker/src/eve.ts`). Only `useLogin`
   takes the ledger and the purpose; every ESI path, table, `push` and `noteJob` take `char`; `readerLogin` refuses
   before anything is read when the login isn't that character's. `readMiningRound` was written when the two were one
-  character and bound some tables by its argument and others by the login's: refactored naively it pushed an alt's
+  character and bound some tables by its argument and others by the login's: refactored naively it would push an alt's
   mining into the main's records. `scripts/check-worker.mjs` runs each reader for an alt against real SQL and checks
   the main's rows are untouched.
+- **The main's path through the readers is as it was.** `stillKept` gates an alt's writes only: a ledger whose login
+  is dropped mid-read still has that read's rows written, as before. The `archive` job's detail doesn't carry the
+  wallet and points `archive` hands the sheet. And `useLogin` marks a login refused only if the row still holds the
+  token it tried, so two jobs refreshing one login at once can't leave a working login marked refused.
+- **Mining pushes its records before it advances the snapshot.** What changed is measured against the stored
+  snapshot, so a push that failed after the snapshot moved was never sent again, and for an alt the cloud is the
+  only writer.
 - **EVE's page picks the character, so the cloud sorts out who came back** (`sortLogin` in `lib/roster.ts`,
   `keepHandedOver`). Adding an alt while still signed in to the main account at EVE offers the main and the mail
   character; either, picked by mistake, is kept as its own login and nothing is added. A sender login that turns out
@@ -38,5 +45,5 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
 - **Removing an alt** drops its mining snapshot and job rows either way (a re-add starts from a fresh baseline with no
   old failing streak) and never its `revs` row (a revision that restarted would let a device holding the old one miss
   what follows).
-- **Stage 1 shipped dark**: the cloud side only. The browser (the Characters page, the alt store), Mining across
+- **Stage 1 is the cloud side only, and ships dark**: no page can add an alt until stage 2. The browser (the Characters page, the alt store), Mining across
   characters and the Wallet's transfers are stages 2 to 4 of the spec.
