@@ -46,6 +46,21 @@ Don't re-derive or contradict these without new evidence.
   the same 23, worked. Two logins of one character with the *same* set have lived side by side since 27 September (the
   browser's and the cloud's). So adding a scope to `SCOPES` means handing the cloud its login again after the next
   login; Settings says so when the sets differ (`scopesMissing`). The time of the relog itself wasn't recorded.
+- **That rule is per character, not per account, and EVE enforces it at its own login page.** The mail character, on
+  the same account as the main, kept its two-permission login through the main's relog on 29 September 2026. And the
+  earlier login is already stopped by the time the app or the Worker is handed the new one, so refusing a login
+  afterwards protects nothing: a wrong character picked on EVE's chooser has to be kept as what it is
+  (characters.md).
+- **An account holds up to three characters, and EVE's login asks for the account, then which of its characters.** It
+  remembers the account last used, so logging in a character on another account means signing out on EVE's page first.
+- **An Alpha account can't be in game at the same time as any other account** (the user, 30 September 2026).
+- **Alpha's skill limits are in CCP's static data, not ESI**: `cloneGrades.jsonl` (build 3561556, 30 September 2026)
+  has four grades, one a race, each the same 175 skills at the same levels (Mining IV, Broker Relations II, Trade III;
+  Accounting and Mining Barge absent, so not usable at all). ESI's skills answer gives a trained and an active level,
+  which differ only while Alpha caps a skill; a character with nothing past the limits can't be told apart.
+- **A `player_donation` journal entry has the giver as `first_party_id` and the receiver as `second_party_id`**
+  (the user's journal, 30 September 2026: two entries, the main second on both). It held no contract payment between
+  characters to check the same of.
 - **`publicData` grants nothing** — zero ESI endpoints require it; it isn't even an ESI scope.
 - **Order book pages are shuffled with respect to type**, so sampling N random pages is an unbiased
   sample of the market. This is what makes Prospects affordable.

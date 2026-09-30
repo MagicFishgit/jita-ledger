@@ -11,8 +11,8 @@ Decisions worth not undoing. Conventions for wording, layout, tooltips, numbers 
   real lock; the local dev token is exempt), and the app shows anyone else a landing page and runs nothing behind it:
   no sync, cloud, alerts, prefetch or market link. A character that logs in and isn't the owner is logged straight
   out (token revoked) and told so. `open.html` refuses them too. `npm run check-pages` checks both: logged out, and
-  logged in as someone else, with a large ledger in the browser, only the landing shows and ESI gets no request. To
-  let an alt in, add its character ID.
+  logged in as someone else, with a large ledger in the browser, only the landing shows and ESI gets no request. **Never add an alt to `OWNER_CHARS`**: a character let in is a ledger of its own in the one browser store, and the
+  first cloud sync would push the main's ledger under its ID. Alts are read by the cloud (see characters.md).
 - **An open app notices a new version, and phones can pull to reload** (`lib/version.ts`, `PullToRefresh.tsx`,
   `lib/reload.ts`). After the owner-only lock went out, the user's phone kept showing the old, open app: GitHub
   Pages lets browsers reuse the page for 10 minutes (`cache-control: max-age=600`), a new tab doesn't bypass that

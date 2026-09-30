@@ -18,7 +18,7 @@ Seg, Check, NumChip, Guide…), `components/charts.tsx` (inline SVG charts) and 
 ## Working here
 
 ```
-npm run check    # pure-logic tests, fast, no network
+npm run check    # pure-logic tests, then the Worker's own code on an in-memory D1 stand-in; fast, no network
 npm run check-pages   # every page with an empty, a small and a large ledger, headless (LEDGER=, PAGE= to narrow)
 npm run check-phone   # the same at 390 px, failing anything past the screen's edge (SHOTS=dir saves screenshots)
 npm run build    # tsc --noEmit && vite build
@@ -109,8 +109,8 @@ import. That is why `OrderLite` lives in `flow.ts`, `SkillKey` comes from `const
 
 **Timers** (`[triggers]` in `wrangler.toml`): every five minutes `fiveMinutes` in `index.ts` refreshes each
 ledger's open orders when ESI's 20-minute copy has turned over, reads every watched book (`watchMarkets`), then
-runs each ledger's alert round, in that order in one chain; hourly at :07 the archive, then once a day after 12:00
-UTC the daily checks (`checks.ts`: the Sniper's listings settled, each ledger's share measured). **A newly added cron took
+runs each ledger's alert round, then each alt's mining, in that order in one chain; hourly at :07 the archive, then
+once a day after 12:00 UTC the daily checks; hourly at :37 every alt's full read (`altsHourly`) (`checks.ts`: the Sniper's listings settled, each ledger's share measured). **A newly added cron took
 26 minutes to fire** (registered 16:04:29, first run 16:30 on 27 September 2026; Cloudflare says up to 15) while
 the existing hourly one kept running. A cron more frequent than hourly gets 30 s of CPU whatever `cpu_ms`
 says (that applies to requests and the hourly one); the round uses about 0.2 s for ~130 items. The plan includes
@@ -150,6 +150,7 @@ answering in its area**:
 - `orders-alerts.md`: To do, browser notifications, in-game mail.
 - `positions-results.md`: positions, fees, Results, the Wallet, goals, standings.
 - `loyalty-hustles.md`: Loyalty, Abyssal, Hauling, Planets, Mining, Freelance, Reprocessing, skills, Combat.
+- `characters.md`: alts, and how they are kept apart from the main (whose login, whose data; the roster).
 
 Always loaded, imported below, because they apply to any change:
 

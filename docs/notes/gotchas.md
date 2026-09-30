@@ -2,6 +2,11 @@
 
 Traps in the code, the tools and the browser that have cost time before.
 
+- **The Worker's code is tested in `npm run check`, so it must stay loadable by Node's type stripping**
+  (`scripts/check-worker.mjs` on `scripts/d1.mjs`: SQLite in memory from the real migrations, `fetch` stubbed). No
+  constructor parameter properties (`constructor(public status: number)`), no enums, no namespaces: one in any file
+  stops every Worker module that imports it loading, with "TypeScript parameter property is not supported in
+  strip-only mode". The stand-in is SQLite, not D1: a new migration still gets `wrangler d1 migrations apply --local`.
 - **Editing any file the Worker imports kills a scheduled run in `wrangler dev`**, and that includes the app's
   `src/lib` modules it shares (`prospects.ts`, `evaluate.ts`, …). The reload ends the run without an error or a log
   line, so it looks exactly like a hang: the first local full scan "stopped" at 700 items two minutes after

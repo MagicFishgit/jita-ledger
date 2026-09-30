@@ -23,19 +23,21 @@ type Raw = { order_id: number; is_buy_order: boolean; price: number; volume_rema
 export const MAX_WATCHED = 400;
 
 /**
- * Every item any ledger trades or watches: open Jita orders, open positions, the watchlist, and the items a
+ * Every item any ledger trades or watches (a ledger: never an alt, which is only read): open Jita orders, open positions, the watchlist, and the items a
  * browser asked to have watched (its `watch` doc: the best candidates from its last Prospects scan and its
  * loyalty spend plan), so those are ranked on measured trade before any ISK goes in. What's held comes first;
  * the asked-for list fills the rest up to MAX_WATCHED.
  */
 export async function watchedTypes(db: D1Database): Promise<number[]> {
+  // Ledgers only. An alt's orders are kept like a ledger's, under its own ID, but nothing judges them, and its sell
+  // orders would add books to read every five minutes; one removed with its data kept leaves orders open for good.
   const held = (await db.prepare(`
     SELECT DISTINCT CAST(json_extract(data, '$.typeId') AS INTEGER) AS t FROM records
-      WHERE kind = 'orders' AND data IS NOT NULL AND json_extract(data, '$.state') = 'open'
+      WHERE kind = 'orders' AND data IS NOT NULL AND json_extract(data, '$.state') = 'open' AND char_id NOT IN (SELECT char_id FROM alts)
     UNION SELECT CAST(json_extract(data, '$.typeId') AS INTEGER) FROM records
-      WHERE kind = 'positions' AND data IS NOT NULL AND json_extract(data, '$.status') = 'open'
-    UNION SELECT CAST(id AS INTEGER) FROM records WHERE kind = 'watchlist' AND data IS NOT NULL`).all<{ t: number }>()).results;
-  const asked = (await db.prepare(`SELECT CAST(j.value AS INTEGER) AS t FROM docs, json_each(docs.data, '$.types') AS j WHERE docs.key = 'watch'`)
+      WHERE kind = 'positions' AND data IS NOT NULL AND json_extract(data, '$.status') = 'open' AND char_id NOT IN (SELECT char_id FROM alts)
+    UNION SELECT CAST(id AS INTEGER) FROM records WHERE kind = 'watchlist' AND data IS NOT NULL AND char_id NOT IN (SELECT char_id FROM alts)`).all<{ t: number }>()).results;
+  const asked = (await db.prepare(`SELECT CAST(j.value AS INTEGER) AS t FROM docs, json_each(docs.data, '$.types') AS j WHERE docs.key = 'watch' AND docs.char_id NOT IN (SELECT char_id FROM alts)`)
     .all<{ t: number }>()).results;
   const out = new Set<number>();
   for (const r of [...held, ...asked]) if (Number.isFinite(r.t) && r.t > 0 && out.size < MAX_WATCHED) out.add(r.t);
