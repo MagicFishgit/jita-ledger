@@ -98,6 +98,8 @@ export function large() {
     const amount = ['planetary_import_tax', 'lp_store', 'asset_safety_recovery_tax', 'war_fee'].includes(kind) ? -Math.round(r() * 5e6) : Math.round(r() * 3e7);
     journal.push({ id: String(jid++), date: iso(t), refType: kind, amount, firstPartyId: 1000000 + Math.floor(r() * 50), secondPartyId: 95210486, description: kind });
   }
+  // Freelance rewards (Results' and the Wallet's Freelance lines): two inside the week, one older than a month.
+  for (const [d, amount] of [[2, 12_000_000], [5, 7_500_000], [40, 3_000_000]]) journal.push({ id: String(jid++), date: iso(NOW - d * DAY), refType: 'freelance_jobs_reward', amount, firstPartyId: 1000999, secondPartyId: 95210486, description: 'freelance_jobs_reward' });
   const { journal: j, balance } = withBalances(journal, 5_000_000_000);
   const traded = [...new Set(Object.values(txs).map((t) => t.typeId))];
   const positions = [];

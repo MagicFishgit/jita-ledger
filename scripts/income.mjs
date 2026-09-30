@@ -37,7 +37,7 @@ async function open(browser, ledger, altStore) {
   await page.evaluate(async ([d, auth, alts]) => {
     localStorage.clear(); sessionStorage.clear();
     localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
-    const openDb = (db) => new Promise((res, rej) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onerror = rej; q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+    const openDb = (db) => new Promise((res, rej) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onerror = rej; q.onupgradeneeded = () => { if (!q.result.objectStoreNames.contains('kv')) q.result.createObjectStore('kv'); }; });
     for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', {}], ['jita-ledger-alts', alts]]) {
       const h = await openDb(db);
       await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
@@ -99,17 +99,44 @@ async function snapshot(page) {
   return out;
 }
 
+/** Confirms the alts reached the browser, or the comparison would pass with nothing to compare. Returns what's missing. */
+async function altsLoaded(page) {
+  const missing = [];
+  await page.evaluate(() => { location.hash = '#characters'; });
+  await page.waitForTimeout(2500);
+  const text = await page.locator('.page').innerText();
+  for (const a of ALTS.large) if (!text.includes(a.entry.name)) missing.push(`${a.entry.name} is not on the Characters page`);
+  const saved = await page.evaluate(() => new Promise((res) => {
+    const q = indexedDB.open('jita-ledger-alts');
+    q.onerror = () => res(null);
+    q.onsuccess = () => {
+      const h = q.result;
+      if (!h.objectStoreNames.contains('kv')) return res(null);
+      const g = h.transaction('kv').objectStore('kv').get('alt:900001');
+      g.onsuccess = () => res(g.result ?? null); g.onerror = () => res(null);
+    };
+  }));
+  const r = saved?.records ?? {};
+  for (const k of ['txs', 'journal', 'mining']) if (!Object.keys(r[k] ?? {}).length) missing.push(`alt:900001 holds no ${k}`);
+  if (!Object.values(r.mining ?? {}).every((m) => m.charId === 900001) || !Object.keys(r.mining ?? {}).length) missing.push('alt:900001 mining records are not its own');
+  return missing;
+}
+
 /** Runs the comparison: the ledger with and without alts in this browser. */
 async function isolation(browser) {
   const L = { ...large(), chars: {} };
   const snaps = [];
+  let loaded = [];
   for (const store of [{}, altStoreOf(ALTS.large)]) {
     const page = await open(browser, L, store);
     snaps.push(await snapshot(page));
+    if (Object.keys(store).length) loaded = await altsLoaded(page);
     await page.close();
   }
   const [without, withAlts] = snaps;
   let bad = 0;
+  for (const m of loaded) { bad++; console.log(`  FAIL isolation: the alts didn't load: ${m}`); }
+  if (!loaded.length) console.log('  ok   alts loaded (names on the Characters page, records in jita-ledger-alts)');
   for (const k of Object.keys(without)) {
     if (without[k] === withAlts[k]) continue;
     bad++;
@@ -133,6 +160,8 @@ try {
     writeFileSync(GOLDEN, JSON.stringify(got, null, 2) + '\n');
     console.log(`recorded ${Object.keys(got).length} sets of figures to scripts/income-golden.json`);
   } else {
+    // The recording pins the app as it renders today, quirks included ("Spent on play −0 ISK"). A deliberate change to
+    // the Wallet's or Results' wording or formatting means re-recording with RECORD=1 in the same commit, saying why.
     const want = JSON.parse(readFileSync(GOLDEN, 'utf8'));
     for (const k of Object.keys(want)) {
       const a = JSON.stringify(got[k]), b = JSON.stringify(want[k]);
