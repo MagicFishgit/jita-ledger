@@ -3886,8 +3886,9 @@ console.log('\n--- which characters are yours ---');
   // Alt data has no path into the main's ledger.
   const fs2 = await import('node:fs');
   const src = (p) => fs2.readFileSync(new URL(p, import.meta.url), 'utf8');
-  const fromStore = /import\s*\{([^}]*)\}\s*from\s*'\.\/store'/.exec(src('../src/lib/altStore.ts'));
-  eq('  the alt store takes three things from the ledger\'s store, and update is not one', fromStore[1].split(',').map((x) => x.trim()).sort(), ['dataGeneration', 'mergeChars', 'onClearAll']);
+  const fromStores = [...src('../src/lib/altStore.ts').matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\/store'/g)].flatMap((m) => m[1].split(',').map((x) => x.trim()).filter(Boolean)).sort();
+  eq('  the alt store takes three things from the ledger\'s store, and update is not one', fromStores, ['dataGeneration', 'mergeChars', 'onClearAll']);
+  eq('  an alt with nothing read yet: nothing, not zeros', R.altFacts(R.emptyAlt(), NOW2), { wallet: null, walletAt: null, netWorth: null, clone: 'unknown', cloneSince: null, training: null, queueEnds: null, totalSp: null });
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

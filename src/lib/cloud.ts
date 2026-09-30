@@ -8,7 +8,7 @@ import { CLOUD_URL } from './config';
 import {
   applyPulled, asMap, diffRecords, docValue, everything, isDocKey, isRecordKey, sharedDoc, type DocKey, type Pulled, type RecordKey,
 } from './cloudSync';
-import { dataStore, getData, isReady, onDataChange, update, type Data } from './store';
+import { dataGeneration, dataStore, getData, isReady, onDataChange, update, type Data } from './store';
 import { sanitizeSettings } from './fees';
 import { setCloudFlow, setCloudHours } from './flowStore';
 import type { HourBucket } from './rhythm';
@@ -106,6 +106,15 @@ const dirtyRecords = new Map<string, number>();
 const dirtyDocs = new Map<DocKey, number>();
 let gen = 0;
 let state: { charId: number; rev: number; started: boolean; bg?: CloudBackground | null } | null = null;
+/** The ledger's wipe generation at which this browser's ledger last matched the cloud's copy (null: not known to). */
+let currentGen: number | null = null;
+
+/**
+ * This browser's ledger holds what the cloud holds: its first sync has run, and nothing was wiped since. Until then
+ * a change written for the cloud from something other than the user (the alt store's list of your characters) would
+ * push a partial document over the cloud's.
+ */
+export const cloudLedgerCurrent = (): boolean => !!state?.started && currentGen === dataGeneration();
 /** Revisions this browser pushed: pulling them back would only re-apply what's already here. */
 const ownRevs = new Set<number>();
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -276,6 +285,7 @@ async function firstSync(): Promise<void> {
   for (const r of all.records) if (!seen.get(r.k)?.has(r.i)) markRecord(r.k, r.i);
   for (const k of all.docs) if (!seen.get('doc')?.has(k)) markDoc(k);
   state!.started = true;
+  currentGen = dataGeneration();
   save();
   await pushNow();
   setStatus({ started: true, phase: 'idle', doing: null });
@@ -286,11 +296,13 @@ async function loadState(charId: number) {
   ownRevs.clear();
   if (saved && saved.charId === charId) {
     state = { charId, rev: saved.rev, started: saved.started, bg: saved.bg ?? null };
+    currentGen = saved.started ? dataGeneration() : null;
     for (const key of saved.dirty.r) if (!dirtyRecords.has(key)) dirtyRecords.set(key, ++gen);
     for (const k of saved.dirty.d) if (isDocKey(k) && !dirtyDocs.has(k)) dirtyDocs.set(k, ++gen);
   } else {
     // Another character, or never synced: start from nothing and let the first sync sort it out.
     state = { charId, rev: 0, started: false, bg: null };
+    currentGen = null;
     dirtyRecords.clear(); dirtyDocs.clear();
   }
   setStatus({ rev: state.rev, pending: pendingCount(), started: state.started, background: state.bg ?? null });

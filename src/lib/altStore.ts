@@ -9,7 +9,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import { clear, createStore, del, get, keys, set } from 'idb-keyval';
-import { cloudAltPull, cloudAlts, cloudEnabled } from './cloud';
+import { cloudAltPull, cloudAlts, cloudEnabled, cloudLedgerCurrent } from './cloud';
 import { applyAltPull, emptyAlt, type AltSaved, type RosterEntry } from './roster';
 import { dataGeneration, mergeChars, onClearAll } from './store';
 
@@ -50,6 +50,7 @@ async function load(): Promise<void> {
   setState({ ready: true, roster: saved?.list ?? [], rosterAt: saved?.at ?? null, alts });
 }
 
+let loaded: Promise<void> | null = null;
 let running: Promise<void> | null = null;
 /** Read the roster, and pull each alt whose revision has moved. One at a time: a second call joins the first. */
 export function refreshAlts(): Promise<void> {
@@ -59,10 +60,19 @@ export function refreshAlts(): Promise<void> {
 
 async function read(): Promise<void> {
   if (!cloudEnabled()) return;
+  // Without the stored copy every alt would look new and be pulled from revision 0.
+  if (loaded) await loaded;
   const gen = dataGeneration();
   setState({ busy: true });
   try {
-    const roster = await cloudAlts();
+    let roster: RosterEntry[];
+    try {
+      roster = await cloudAlts();
+    } catch (e) {
+      // Only the roster's own 404 says the Worker is a version behind; an alt's pull can 404 when it was just removed.
+      if ((e as { status?: number }).status === 404) setState({ behind: true });
+      throw e;
+    }
     // Everything was wiped while this was in flight: putting the roster back would undo it.
     if (dataGeneration() !== gen) return;
     const alts = { ...state.alts };
@@ -71,30 +81,41 @@ async function read(): Promise<void> {
       delete alts[id];
       await del(altKey(id), db).catch(() => undefined);
     }
+    if (dataGeneration() !== gen) return;
+    const at = Date.now();
+    await set(ROSTER, { at, list: roster }, db).catch(() => undefined);
+    if (dataGeneration() !== gen) return;
+    // The roster and what is held show at once: one alt whose pull keeps failing leaves the others current.
+    setState({ roster, rosterAt: at, alts: { ...alts }, behind: false });
+    // Who is yours, and nothing else, reaches the ledger, and only while the ledger holds what the cloud holds: after
+    // Delete all data, or on a new device before its first sync, the list would push a partial `chars` over the cloud's.
+    if (cloudLedgerCurrent()) mergeChars(roster.map((r) => ({ charId: r.charId, name: r.name })));
     for (const r of roster) {
       let saved = alts[r.charId] ?? emptyAlt();
       if (saved.rev === r.rev) continue;
       // A revision below the one held can't be pulled from: start that alt's copy again.
       if (r.rev < saved.rev) saved = emptyAlt();
       let after: string | null = null;
+      let first: number | null = null;
       for (;;) {
         const page = await cloudAltPull(r.charId, saved.rev, after);
+        first ??= page.rev;
         saved = applyAltPull(saved, page);
         if (!page.next) break;
         after = page.next;
       }
+      // The documents come with the first page only, and each page re-reads the newest revision: keep the first page's,
+      // so a document written while the later pages were read is sent next time (records applied twice change nothing).
+      saved = { ...saved, rev: first ?? saved.rev };
       if (dataGeneration() !== gen) return;
       alts[r.charId] = saved;
       await set(altKey(r.charId), saved, db).catch(() => undefined);
+      if (dataGeneration() !== gen) return;
+      setState({ alts: { ...alts } });
     }
-    const at = Date.now();
-    await set(ROSTER, { at, list: roster }, db).catch(() => undefined);
-    setState({ roster, rosterAt: at, alts, error: null, behind: false });
-    // Who is yours, and nothing else, reaches the ledger.
-    mergeChars(roster.map((r) => ({ charId: r.charId, name: r.name })));
+    setState({ error: null });
   } catch (e) {
-    const status = (e as { status?: number }).status;
-    setState({ error: e instanceof Error ? e.message : String(e), behind: status === 404 });
+    setState({ error: e instanceof Error ? e.message : String(e) });
   } finally {
     setState({ busy: false });
   }
@@ -107,7 +128,8 @@ onClearAll(async () => {
 
 /** Loads what's stored, reads the cloud, and keeps reading while the tab is in view. Returns the stop function. */
 export function startAlts(): () => void {
-  load().then(() => refreshAlts()).catch(() => undefined);
+  loaded = load();
+  loaded.then(() => refreshAlts()).catch(() => undefined);
   const tick = setInterval(() => { if (document.visibilityState === 'visible') refreshAlts().catch(() => undefined); }, EVERY_MS);
   const onVisible = () => { if (document.visibilityState === 'visible') refreshAlts().catch(() => undefined); };
   document.addEventListener('visibilitychange', onVisible);
