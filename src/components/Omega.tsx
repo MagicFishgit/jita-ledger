@@ -14,7 +14,7 @@ import { LevelBoxes } from './common';
 import { cssVars, Guide, NumChip, PageHead, Seg } from './ui';
 import { Points } from './Facts';
 import { useSkillPayback } from './payback';
-import { everyItemCalcs } from './everyItem';
+import { everyItemCalcs } from '../lib/everyItem';
 import { useTradeQueue } from './SkillStrip';
 
 const DAY = 86400_000;

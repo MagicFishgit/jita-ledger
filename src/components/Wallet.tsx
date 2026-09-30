@@ -28,7 +28,7 @@ import { isFreelanceTrade } from '../lib/freelance';
 import { BarLine, cssVars, Empty, Figure, PageHead, Panel, Seg, Tiles, Tip } from './ui';
 import { ACTIVITY_COLOR, ACTIVITY_WHAT, useActivityEvents } from './activityEvents';
 import { Points } from './Facts';
-import { everyItemCalcs } from './everyItem';
+import { everyItemCalcs } from '../lib/everyItem';
 import { isTrade, isUnbought, itemResult } from '../lib/longRange';
 import { ACTIVITIES } from '../lib/prefs';
 import { nettedJournal, refundsIn } from '../lib/refunds';

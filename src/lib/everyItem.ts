@@ -1,9 +1,12 @@
-import { computePosition } from '../lib/positions';
-import type { ItemCalc } from '../lib/longRange';
-import type { Data } from '../lib/store';
+import { computePosition } from './positions';
+import type { ItemCalc } from './longRange';
+import type { Data } from './store';
 
 /** A position that follows every trade of an item, whenever it was, less the ones you tagged Personal. */
 export const everything = (typeId: number, excluded: string[]) => ({ id: `all:${typeId}`, typeId, openedAt: '2003-05-06T00:00:00Z', status: 'open' as const, jitaOnly: false, excluded, included: [] });
+
+/** One ledger's answer, kept while the inputs it read are the same objects (the store replaces what changes). */
+const memo = new WeakMap<object, { key: unknown[]; calcs: ItemCalc[] }>();
 
 /**
  * Every item you traded, worked out as a position over all its trades (lib/longRange.ts reads a period from each):
@@ -11,6 +14,15 @@ export const everything = (typeId: number, excluded: string[]) => ({ id: `all:${
  * of the user's 30 days, against 92.13 M over every item, 29 September 2026).
  */
 export function everyItemCalcs(d: Data): ItemCalc[] {
+  const key = [d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored];
+  const hit = memo.get(d.txs);
+  if (hit && hit.key.every((k, i) => k === key[i])) return hit.calcs;
+  const calcs = computeEveryItem(d);
+  memo.set(d.txs, { key, calcs });
+  return calcs;
+}
+
+function computeEveryItem(d: Data): ItemCalc[] {
   const personal = new Map<number, string[]>();
   for (const id of d.ignored) { const t = d.txs[id]; if (t) personal.set(t.typeId, [...(personal.get(t.typeId) ?? []), id]); }
   const esiTxs = Object.values(d.txs).filter((t) => t.source === 'esi');

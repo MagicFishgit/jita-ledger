@@ -3,7 +3,7 @@ import { CalendarRange, Clock, History, Layers, Trophy } from 'lucide-react';
 import { fmtDate, fmtShort, iskBig, iskBigSigned, pct, units } from '../lib/format';
 import { useNow } from '../lib/hooks';
 import { byBucket, perHour, totals } from '../lib/results';
-import { everyItemCalcs } from './everyItem';
+import { everyItemCalcs } from '../lib/everyItem';
 import { bandOf, bucketStarts, groupResults, HELD_BANDS, inBandOrder, isTrade, isUnbought, itemResult, PRICE_BANDS, profitByBucket, unitFor, type BucketUnit, type Group, type ItemCalc, type ItemResult } from '../lib/longRange';
 import { itemCategory } from '../lib/universe';
 import { netLoss } from '../lib/combat';
