@@ -1,9 +1,10 @@
 import { useSyncExternalStore } from 'react';
 import { createStore, get, set, del, keys } from 'idb-keyval';
-import { DEFAULT_SETTINGS, rates, sanitizeSettings, type Settings } from './fees';
-import { DEFAULT_ALERTS, DEFAULT_PREFS, mergeCharsDoc, sanitizeAlerts, sanitizeChars, sanitizeLeave, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes, type CharsDoc, type SafetyTimesDoc } from './prefs';
+import { rates, sanitizeSettings, type Settings } from './fees';
+import { mergeCharsDoc, sanitizeAlerts, sanitizeChars, sanitizeLeave, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes, type CharsDoc, type SafetyTimesDoc } from './prefs';
 import { sanitizePlans, type TradePlan } from './plans';
 import type { MiningRecord } from './mining';
+import { emptyData } from './emptyData';
 import type {
   AlertConfig, AlertLogEntry, Goal, JournalEntry, Killmail, Meta, NetWorthPoint, Order, Position, Prefs,
   Stock, Tx, UntrackedTag, WatchItem,
@@ -69,12 +70,8 @@ const idb = createStore('jita-ledger', 'kv');
 export const dataStore = idb;
 export const cacheStore = createStore('jita-ledger-cache', 'kv');
 
-const empty = (): Data => ({
-  settings: { ...DEFAULT_SETTINGS },
-  txs: {}, journal: {}, orders: {}, positions: [], watchlist: [], names: {}, ignored: [], meta: {},
-  prefs: { ...DEFAULT_PREFS }, alerts: { ...DEFAULT_ALERTS }, alertLog: [], goals: [], tags: {}, nearDone: [],
-  killmails: {}, netWorth: [], unusualOk: [], leave: [], safetyTimes: {}, notSnipes: [], plans: [], mining: {}, chars: {},
-});
+/** The empty ledger lives in emptyData.ts, which tests and an alt's copy can load without this store. */
+const empty = emptyData;
 
 let data: Data = empty();
 let ready = false;
