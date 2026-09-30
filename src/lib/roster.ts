@@ -47,6 +47,26 @@ export function sortLogin(asked: Asked, char: number, ledger: number, mailer: nu
   return { as: 'alt' };
 }
 
+/**
+ * The purpose a login handed to the cloud is sent with. This browser's own mail sender, picked on EVE's page while
+ * adding a character, goes as the sender: a sender that comes back is kept as the sender, never added as an alt (and
+ * the cloud can't know this browser's sender unless it holds one itself).
+ */
+export function handOverAs(asked: Asked, char: number, browserSender: number | null | undefined): Asked {
+  return asked === 'alt' && browserSender != null && char === browserSender ? 'mailer' : asked;
+}
+
+/**
+ * Whether a login this browser holds was stopped by one that just came back: the same character, with a different set
+ * of permissions. EVE stops a character's earlier logins that carry a different set, at its own login page
+ * (docs/notes/eve-facts.md); the order the permissions are listed in doesn't matter.
+ */
+export function stoppedBy(held: { characterId: number; scopes: string[] } | null | undefined, came: { charId: number; scopes: string[] }): boolean {
+  if (!held || held.characterId !== came.charId) return false;
+  const a = new Set(held.scopes), b = new Set(came.scopes);
+  return a.size !== b.size || [...b].some((s) => !a.has(s));
+}
+
 // --- In the browser: the roster as the cloud lists it, and an alt's copy ------------------------------------------
 
 /** One alt as the cloud's roster lists it (GET /v1/alts): its login (never the token), its jobs, its ship when last read. */

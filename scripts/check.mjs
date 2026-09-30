@@ -3792,6 +3792,18 @@ console.log('\n--- several characters: clone state, and whose login came back --
   eq('    and the main can\'t mail itself, as before', sortLogin('mailer', 1, 1, null, false), { refuse: 'isMain' });
   eq('  the main\'s login has to be the main, as before', [sortLogin('main', 1, 1, null, false), sortLogin('main', 2, 1, null, false)], [{ as: 'main' }, { refuse: 'notMain' }]);
 
+  // This browser's own sender, picked while adding a character, goes to the cloud as the sender, not as an alt.
+  const { handOverAs, stoppedBy } = await import('../src/lib/roster.ts');
+  eq('  adding a character, and this browser\'s mail sender came back: sent as the sender', handOverAs('alt', 7, 7), 'mailer');
+  eq('    anyone else, or no sender here: sent as an alt', [handOverAs('alt', 2, 7), handOverAs('alt', 2, null), handOverAs('alt', 2, undefined)], ['alt', 'alt', 'alt']);
+  eq('    the main\'s and the sender\'s own hand-overs are sent as asked', [handOverAs('main', 7, 7), handOverAs('mailer', 7, 7)], ['main', 'mailer']);
+  // EVE stops a character's earlier logins with a different set of permissions: which of this browser's it stopped.
+  const heldLogin = { characterId: 1, scopes: ['a', 'b'] };
+  eq('  a login here for the same character, with the same set in another order: not stopped', stoppedBy(heldLogin, { charId: 1, scopes: ['b', 'a'] }), false);
+  eq('    with a set that grew, or shrank: stopped', [stoppedBy(heldLogin, { charId: 1, scopes: ['a', 'b', 'c'] }), stoppedBy(heldLogin, { charId: 1, scopes: ['a'] })], [true, true]);
+  eq('    the same count, different permissions: stopped', stoppedBy(heldLogin, { charId: 1, scopes: ['a', 'c'] }), true);
+  eq('    another character, or no login here: nothing stopped', [stoppedBy(heldLogin, { charId: 2, scopes: ['a'] }), stoppedBy(null, { charId: 1, scopes: [] })], [false, false]);
+
   const { isBaseline, SESSION_GAP_MS } = await import('../src/lib/mining.ts');
   const T = Date.parse('2026-10-01T15:00:00Z');
   eq('  a mining snapshot ten minutes old is compared with', isBaseline(T - 10 * 60_000, T), false);

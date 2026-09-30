@@ -164,8 +164,15 @@ async function tokenRequest(body: Record<string, string>): Promise<TokenResponse
   return res.json();
 }
 
+/**
+ * A login for the cloud, as it came back. `scopes`: the permissions EVE granted it, so the app can tell whether this
+ * browser's own login for the same character was just stopped (EVE stops a character's earlier logins that carry a
+ * different set). Only `purpose` and `refreshToken` go to the Worker.
+ */
+export type CloudKey = { purpose: 'main' | 'mailer' | 'alt'; refreshToken: string; name: string; charId: number; scopes: string[] };
+
 /** Call once on startup. Returns true when it finished a login redirect. */
-export async function handleCallback(): Promise<{ handled: boolean; error?: string; cloudKey?: { purpose: 'main' | 'mailer' | 'alt'; refreshToken: string; name: string; charId: number } }> {
+export async function handleCallback(): Promise<{ handled: boolean; error?: string; cloudKey?: CloudKey }> {
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code');
   const state = params.get('state');
@@ -186,7 +193,7 @@ export async function handleCallback(): Promise<{ handled: boolean; error?: stri
     // know would fall through to the trading login's slot below, and the owner check would then log the owner out.
     if (saved.purpose === 'cloud' || saved.purpose === 'cloud-mailer' || saved.purpose === 'cloud-alt') {
       const purpose = saved.purpose === 'cloud' ? 'main' : saved.purpose === 'cloud-mailer' ? 'mailer' : 'alt';
-      return { handled: true, cloudKey: { purpose, refreshToken: got.refreshToken, name: got.characterName, charId: got.characterId } };
+      return { handled: true, cloudKey: { purpose, refreshToken: got.refreshToken, name: got.characterName, charId: got.characterId, scopes: got.scopes } };
     }
     if (saved.purpose === 'mailer') {
       // The same character would be mailing itself, which is the thing this login exists to avoid.
@@ -196,6 +203,15 @@ export async function handleCallback(): Promise<{ handled: boolean; error?: stri
       }
       write(mailer, got);
       return { handled: true };
+    }
+    // Only the trading login itself reaches its slot (undefined: a login started before purposes were kept). Anything
+    // else, a purpose added later and not handled above, is revoked rather than taking the owner's place, where the
+    // owner check could log the owner out. `unhandled` stops the build when a new purpose isn't handled here.
+    if (saved.purpose !== 'main' && saved.purpose !== undefined) {
+      const unhandled: never = saved.purpose;
+      void unhandled;
+      await revoke(got);
+      return { handled: true, error: 'That login came back for something this version of the app doesn’t know. Nothing was changed; try again.' };
     }
     writeAuth(got);
     return { handled: true };

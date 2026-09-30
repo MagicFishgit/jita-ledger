@@ -11,6 +11,7 @@ import { priceKillmails } from './lib/killmails';
 import { startAlerts } from './lib/alertsRunner';
 import { cloudAltRead, cloudSummary, keepCloudLogin, runCloudArchive, startCloud } from './lib/cloud';
 import { refreshAlts, startAlts, useAltRoster, useRosterLive } from './lib/altStore';
+import { handOverAs, stoppedBy } from './lib/roster';
 import { units } from './lib/format';
 import { marketParam, openFromLink, withoutMarket } from './lib/marketLink';
 import { setToastLife, toast } from './lib/toast';
@@ -147,16 +148,33 @@ export function App() {
       // A login for the cloud's background jobs goes straight to the Worker; nothing stays here. After the store has
       // loaded, since an alt's hand-over ends by writing which characters are yours.
       if (cb.cloudKey) {
-        const asked = cb.cloudKey.purpose;
+        const key = cb.cloudKey;
+        const asked = key.purpose;
+        // This browser's own mail sender, picked on EVE's page while adding a character, is handed over as the sender:
+        // a sender that comes back is kept as the sender, never added as an alt. The words still say what was asked.
+        const sent = handOverAs(asked, key.charId, getMailer()?.characterId);
         const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
-        keepCloudLogin(cb.cloudKey)
+        const closed = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
+        // EVE stops a character's earlier logins that carry a different set of permissions, at its own login page
+        // (eve-facts). A login this browser holds for the character that came back, with another set, is now dead.
+        // Judged on the logins as they were when this one came back: a refresh on the way can already have dropped one.
+        const mainStopped = stoppedBy(getAuth(), key), senderStopped = stoppedBy(getMailer(), key);
+        const mainLost = (name: string) => (mainStopped ? ` EVE has also stopped this browser’s own login for ${name}, since it was given a different set of permissions: log in again here.` : '');
+        keepCloudLogin({ purpose: sent, refreshToken: key.refreshToken })
           .then(async (k) => {
             // What it was kept as. EVE's page picks the character, so an alt's hand-over can come back as the main or
-            // the sender; a Worker a version behind doesn't say, and keeps only what was asked for.
-            const as = k.as ?? asked;
+            // the sender; a Worker a version behind doesn't say, and keeps only what was sent.
+            const as = k.as ?? sent;
             const slip = asked === 'alt' && as !== 'alt' ? ' To add a character on another account, sign out on EVE’s login page first, then sign in with that account.' : '';
             if (as === 'mailer') {
-              toast(slip ? `That was ${k.name}, your mail sender, not another character. Nothing was added, and it still sends your alert mail.${slip}` : `The cloud will send alert mail from ${k.name}.`, slip ? 'warn' : 'ok');
+              // The sender's own login here (two permissions) was stopped by this one: taken out, so Settings doesn't show
+              // a dead login. Revoking a login EVE has already stopped does no harm.
+              let dropped = '';
+              if (senderStopped) {
+                await logoutMailer().catch(() => undefined);
+                dropped = ' Its own login in this browser was stopped by EVE, so it’s been taken out here; the cloud sends your alert mail from it.';
+              }
+              toast(slip ? `That was ${k.name}, your mail sender, not another character. Nothing was added, and it still sends your alert mail.${dropped}${slip}` : `The cloud will send alert mail from ${k.name}.${dropped}`, slip ? 'warn' : 'ok');
               return;
             }
             if (as === 'alt') {
@@ -172,17 +190,20 @@ export function App() {
             }
             // The main's login: run the ledger copy straight away rather than at 7 past the hour. It proves the login
             // end to end, and replaces the error an earlier login left on it (and on the orders read) with what happens now.
-            if (slip) toast(`That was ${k.name}, your main, not another character. Nothing was added, and the cloud keeps watch as ${k.name} with this login (if you had stopped it, it runs again).${slip}`, 'warn');
+            // When this browser's own login for the main was just stopped, whichever message shows says so; the login
+            // itself is left alone here, and the app finds out on its next refresh as before.
+            const lost = mainLost(k.name);
+            if (slip) toast(`That was ${k.name}, your main, not another character. Nothing was added, and the cloud keeps watch as ${k.name} with this login (if you had stopped it, it runs again).${lost}${slip}`, 'warn');
             try {
               const r = await runCloudArchive();
-              if (!slip) toast(`The cloud now keeps watch as ${k.name}, with this app closed too. It has just read your ledger: ${r.trades || r.journal || r.orders ? `${units(r.trades)} new trades, ${units(r.journal)} journal entries, ${units(r.orders)} order changes` : 'nothing new'}.`);
+              if (!slip) toast(`The cloud now keeps watch as ${k.name}, with this app closed too. It has just read your ledger: ${r.trades || r.journal || r.orders ? `${units(r.trades)} new trades, ${units(r.journal)} journal entries, ${units(r.orders)} order changes` : 'nothing new'}.${lost}`, lost ? 'warn' : 'ok');
             } catch (e) {
-              toast(`The cloud keeps watch as ${k.name}, but its first read failed: ${said(e)}`, 'err');
+              toast(`The cloud keeps watch as ${k.name}, but its first read failed: ${slip || !lost ? said(e) : `${closed(said(e))}${lost}`}`, 'err');
             }
             await cloudSummary().catch(() => undefined);
           })
           .catch((e) => toast(
-            `The cloud couldn’t keep that login: ${said(e)}${asked === 'mailer' && /one of your characters/.test(said(e)) ? ' To send mail from that character instead, remove it on the Characters page first, then log it in as the sender.' : ''}`, 'err'));
+            `The cloud couldn’t keep that login: ${mainLost(key.name) ? closed(said(e)) : said(e)}${asked === 'mailer' && /one of your characters/.test(said(e)) ? ' To send mail from that character instead, remove it on the Characters page first, then log it in as the sender.' : ''}${mainLost(key.name)}`, 'err'));
       }
       // "Since your last visit" is measured from when the app was last open, not from this minute.
       const seen = getData().meta.lastSeenAt;
