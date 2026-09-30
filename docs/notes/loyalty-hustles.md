@@ -198,7 +198,7 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
   its losses' commonest modules are in its note) or the Perseverance (none popular). What the research found worth
   knowing: the Pioneer mines about a third more than a Venture for ~3 M; the Outrider is a booster and escape hull, not a
   yield step; ORE Strip Miners (~189 M each) mine less than Modulated Strip Miner II with Type A II but leave no residue
-  and burn no crystals, which is why the Mackinaw's Max uses them; there is no ore-yield rig; Covetor and Hulk want a
+  and burn no crystals, which is why the Mackinaw's no-residue alternative uses them; there is no ore-yield rig; Covetor and Hulk want a
   booster or hauler, the Skiff and Mackinaw are the solo high-sec exhumers. The research's first two requests sent a
   User-Agent naming the project and the user's contact details to ESI and zKillboard; later ones didn't, and a research
   prompt must say which User-Agent to send.
@@ -234,6 +234,20 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
   at your skill; Max adds Deep Core Mining V. Ice fits and boosters say they have no Mercoxit version. On the user's skills
   a Solid Procurer on Mercoxit reads 572 m³ a minute (959 at all V), with the rig in place of its EM reinforcer; a Solid
   Hulk has no room for the rig beside its processor rig.
+  **ISK an hour was checked by hand** (30 September 2026, the user asked): on 39 fits over 11 hulls and five ores, every
+  figure was m³ a minute × 60 × ISK a m³, and the ISK a m³ matched live Jita bids from ESI to the cent (Kernite 467.6 ×
+  (1 − tax) ÷ 1.2 m³). Two tier ladders didn't climb, and were fixed:
+  - **The Mackinaw's Max was its no-residue fit** (two ORE Strip Miners: 799 m³ a minute against the Solid's 1,119). Max is
+    now the Solid with both yield implants and every skill at V, like the Hulk's; the ORE Strip Miner fit is a fourth
+    choice, "No residue" (`key: 'alt'` with a `label`).
+  - **On Mercoxit the Hulk's Solid and Max mined less than its Just in**: their Tech II processor rig takes 300 of 400
+    calibration, so the deep-core rig (+16%) had no room. The swap now tries, in turn, a tank rig; the processor rig when
+    the CPU fits without it; and stepping a Tech II processor rig down to Tech I (150) with a tank rig making way, each
+    CPU-checked with every skill at V (`fitCpu`; see eve-facts). The Hulk's Solid and Max now take the third; the page says
+    what the fit uses and has, and when your own skills leave it short.
+  **A full ore hold** shows beside ISK an hour: the hold at your skills (Mining Barge and Exhumers grow the Retriever's and
+  Mackinaw's, lib/cargo.ts; the tree's Ore hold says it too), worth that many m³ of the ore picked, and how long the fit
+  takes to fill it.
   **Bonuses count only through their effect, for fitted items as for hulls.** A Drone Mining Augmentor carries the same
   434 (+10%) as a Mining Laser Upgrade, through a drone-only effect (623); counted by attribute it put the Retriever's
   Just in tier 10% high. Caught in review before shipping. Also found by looking: locked nodes were see-through (a lit

@@ -41,6 +41,8 @@ export const CARGO_RULES: { effect: number; bonus: number; hold: HoldKey; skill:
   { effect: 5479, bonus: 813, hold: 'mineral', skill: 3340 }, { effect: 8199, bonus: 3157, hold: 'ice', skill: 3340 }, // Kryos
   { effect: 5478, bonus: 813, hold: 'pi', skill: 3340 }, // Epithal
   { effect: 8323, bonus: 3241, hold: 'ore', skill: 3340 }, // Miasmos
+  { effect: 5067, bonus: 3187, hold: 'ore', skill: 17940 }, // Mining Barge: +5% a level (Retriever, Mackinaw)
+  { effect: 8251, bonus: 3198, hold: 'ore', skill: 22551 }, // Exhumers: +2.5% a level (Mackinaw)
   { effect: 12050, bonus: 5647, hold: 'infrastructure', skill: 81032 }, // Squall, Deluge, Torrent
   { effect: 12057, bonus: 5649, hold: 'infrastructure', skill: 81044 }, // Avalanche
   { effect: 5874, bonus: 807, hold: 'fleet', skill: 19719 }, // Transport Ships: a Deep Space Transport's fleet hangar

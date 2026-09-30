@@ -336,6 +336,18 @@ export function isWall(levels: BookLevel[], unitsPerDay?: number): boolean {
 }
 
 /**
+ * A book side without your own orders in it (levels are by price, so each of yours comes off its price's level): a wall of
+ * yours, or a bid of yours above what the item trades at, is no trap for you. The user's Small Ghoul Compact Energy
+ * Nosferatu buy order (4,438 left at 2,229, the best bid) was called a wall and put on To do as a suspicious market
+ * (30 September 2026).
+ */
+export function withoutOwn(levels: BookLevel[], own: { price: number; volume: number }[]): BookLevel[] {
+  const left = new Map<number, number>();
+  for (const o of own) left.set(o.price, (left.get(o.price) ?? 0) + o.volume);
+  return levels.map((l) => ({ ...l, volume: l.volume - Math.min(l.volume, left.get(l.price) ?? 0) })).filter((l) => l.volume > 0);
+}
+
+/**
  * Roughly what an item could pay in a day, before we spend a request on its live book.
  *
  * An item can only pay if it habitually moves further in a day than the fees cost to get in

@@ -335,14 +335,23 @@ function ScalingUp({ here, paceOf, measured, mostMined, minedBases }: {
   const family = (oreName ? oreFamily(oreName) : null) ?? 'Simple';
 
   const [worth, setWorth] = useState<Record<number, { m3: number; worth: OreWorth }>>({});
+  // A read that priced it no way at all (ESI down: every bid failed) isn't kept, or it would say "Pricing at Jita…" for
+  // good: it says so, with Try again (it did during the daily downtime, 30 September 2026).
+  const [failed, setFailed] = useState<Record<number, boolean>>({});
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     if (!oreName || worth[ore]) return;
     let alive = true;
     priceOres([ore], name, d.skills ?? {}, d.settings.corp, r.t)
-      .then(({ vols, worth: w }) => { if (alive) setWorth((x) => ({ ...x, [ore]: { m3: vols[ore], worth: w[ore] } })); })
-      .catch(() => undefined);
+      .then(({ vols, worth: w }) => {
+        if (!alive) return;
+        const ok = !!w[ore] && !!bestWay(w[ore]);
+        setFailed((x) => ({ ...x, [ore]: !ok }));
+        if (ok) setWorth((x) => ({ ...x, [ore]: { m3: vols[ore], worth: w[ore] } }));
+      })
+      .catch(() => { if (alive) setFailed((x) => ({ ...x, [ore]: true })); });
     return () => { alive = false; };
-  }, [ore, oreName]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ore, oreName, retry]); // eslint-disable-line react-hooks/exhaustive-deps
   const priced = worth[ore];
   const best = priced ? bestWay(priced.worth) : null;
   const iskPerM3 = best && priced.m3 > 0 ? best.perUnit / priced.m3 : null;
@@ -380,7 +389,9 @@ function ScalingUp({ here, paceOf, measured, mostMined, minedBases }: {
             options={grades.map((g) => ({ v: g.id, label: gradeLabel(g.name.trim(), base) }))} />
         )}
         <span className="note small" style={{ margin: 0 }}>
-          {iskPerM3 != null && best ? `${isk(iskPerM3)} a m³ (${WAY_SAID[best.way].toLowerCase()}, after tax) · ${family} crystals` : oreName ? 'Pricing at Jita…' : ''}
+          {iskPerM3 != null && best ? `${isk(iskPerM3)} a m³ (${WAY_SAID[best.way].toLowerCase()}, after tax) · ${family} crystals`
+            : oreName && failed[ore] ? <>Couldn’t price it at Jita just now. <button type="button" className="link-btn" onClick={() => { setFailed((x) => ({ ...x, [ore]: false })); setRetry((n) => n + 1); }}>Try again</button></>
+              : oreName ? 'Pricing at Jita…' : ''}
         </span>
         {chosen != null && chosen !== mostMined && (
           <button type="button" className="link-btn" onClick={() => choose(null)}>Back to {name(mostMined).trim()}{minedBases.size ? ', what you mine most' : ''}</button>

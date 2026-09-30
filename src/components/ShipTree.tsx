@@ -53,7 +53,7 @@ export function ShipTree<N extends TreeNode>({ label, nodes, edges, lanes, cols,
   /** A line for a node's tooltip, after its state. */
   nodeTip?: (n: N) => string | null;
   /** The page's own facts about a hull, shown after its price and slots. */
-  facts?: (n: N, stats: HullStats | null) => [string, ReactNode][];
+  facts?: (n: N, stats: HullStats | null, dogma: TypeDogma | null) => [string, ReactNode][];
   /** Draw each hull's base resists (Abyssal, Hauling: where its tank decides things). */
   resists?: boolean;
   /** The page's own picture of a hull, beside its points (Abyssal: where it's most run). */
@@ -143,7 +143,7 @@ export function ShipTree<N extends TreeNode>({ label, nodes, edges, lanes, cols,
       <div className="kv-mini" style={{ maxWidth: 560 }}>
         <span>Hull at Jita</span><b>{info[openHull.id]?.price != null ? iskBig(info[openHull.id].price!) : '–'}</b>
         {info[openHull.id]?.stats && <><span>Slots</span><b>{info[openHull.id].stats!.high} high{info[openHull.id].stats!.turrets > 0 ? ` (${info[openHull.id].stats!.turrets} for turrets)` : ''}, {info[openHull.id].stats!.mid} mid, {info[openHull.id].stats!.low} low, {info[openHull.id].stats!.rigs} rigs</b></>}
-        {(facts?.(openHull, info[openHull.id]?.stats ?? null) ?? []).map(([k, v]) => <Fragment key={k}><span>{k}</span><b>{v}</b></Fragment>)}
+        {(facts?.(openHull, info[openHull.id]?.stats ?? null, info[openHull.id]?.dogma ?? null) ?? []).map(([k, v]) => <Fragment key={k}><span>{k}</span><b>{v}</b></Fragment>)}
       </div>
       <div>
         <div className="lbl" style={{ marginBottom: 6 }}>To fly it</div>

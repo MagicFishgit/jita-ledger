@@ -284,6 +284,17 @@ Don't re-derive or contradict these without new evidence.
   frigates on three (EVE University, CCP's patch notes). The main loot can scales with filaments used (about 3× for frigates,
   2× for destroyers); the side cans don't. The weathers' strengths aren't in ESI or the static data (the wiki: penalties
   30/50% at T0–T3, 50/70% at T4–T6, bonus +50%), so the app quotes them as the wiki's (`WEATHER_STRENGTH`).
+- **A mining fit's CPU, from ESI's dogma** (read 30 September 2026, `lib/fitCpu.ts`). CPU output is the hull's (48; a
+  Hulk, Mackinaw, Skiff or Procurer 310, a Retriever 260, a Covetor 240), +5% a level of CPU Management (its 424), times
+  each processor rig's 424 (Medium Processor Overclocking Unit I +7.1% for 150 calibration, II +9.6% for 300; effect 397).
+  Each Mining Laser Upgrade raises the CPU of every module needing Mining (the lasers) by its 1082, 12.5% for a II (effect
+  2444, one after another); Mining Upgrades cuts that penalty 5% a level (927, effect 2456) and not the upgrades' own 40 CPU,
+  whatever its description suggests. So a Hulk with two deep-core strip miners, three upgrades, two Multispectrum Shield
+  Hardener IIs, a survey chipset and a shield extender needs 412 tf at V: 387.5 without a processor rig, 415 with a Tech I,
+  424.7 with a Tech II.
+- **Two barge bonuses grow the ore hold** (ESI, 30 September 2026): Mining Barge +5% a level on the Retriever and Mackinaw
+  (effect 5067, attribute 3187), Exhumers +2.5% a level on the Mackinaw (8251, 3198). A Retriever holds 34,375 m³ at V, a
+  Mackinaw 44,297. No module grows an ore hold.
 - **A fitting can't hold implants or boosters, and the import's handling of them isn't documented** (researched 30
   September 2026). ESI's saved-fitting item flags are the slots, `DroneBay`, `FighterBay` and `Cargo`, nothing for an
   implant; CCP's note on the clipboard import (Oceanus, 2016) says "only charges and ice products can be imported in the

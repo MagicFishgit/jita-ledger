@@ -10,8 +10,10 @@ import { useData } from '../../lib/store';
 import { typeDogma } from '../../lib/universe';
 import { fitCosts, FitActions, FitGrid, FitSkills, useFitData } from '../FitParts';
 import { Seg } from '../ui';
-import { Points } from '../Facts';
-import { ArrowRightLeft, Gem } from 'lucide-react';
+import { Points, type PointLike } from '../Facts';
+import { ArrowRightLeft, Cpu, Gem } from 'lucide-react';
+import { CARGO_FIVE, holdsFor } from '../../lib/cargo';
+import { CPU_MANAGEMENT, fitCpu, MINING_UPGRADES } from '../../lib/fitCpu';
 
 /**
  * A hull's mastery tiers, under its node in the mining tree: the fit, what it costs at Jita, what it asks you to train,
@@ -20,7 +22,17 @@ import { ArrowRightLeft, Gem } from 'lucide-react';
  */
 
 const LASER_GROUPS = new Set([54, 464, 483]);
-const TIER_ORDER: TierKey[] = ['start', 'solid', 'max'];
+const TIER_ORDER: TierKey[] = ['start', 'solid', 'max', 'alt'];
+/** How long, said the short way: "about 12 minutes", "about 1 h 5 min". */
+const minutesSaid = (m: number) => (m < 60 ? `about ${Math.max(1, Math.round(m))} minute${Math.round(m) === 1 ? '' : 's'}` : `about ${Math.floor(m / 60)} h ${Math.round(m % 60)} min`);
+/** The skills a fit's CPU turns on, all at V: what a Mercoxit version is checked against. */
+const CPU_FIVE: Record<number, number> = { [CPU_MANAGEMENT]: 5, [MINING_UPGRADES]: 5 };
+/** A fit's modules (one entry a unit) and rigs, by their dogma, or null while any is unread. */
+function fitDogma(t: Tier, idOf: (name: string) => number | undefined, dogmaOf: (id: number) => TypeDogma | undefined) {
+  const each = (xs: FitItem[]) => xs.flatMap((x) => Array.from({ length: x.qty ?? 1 }, () => { const id = idOf(x.name); return id ? dogmaOf(id) : undefined; }));
+  const modules = each([...t.high, ...t.mid, ...t.low]), rigs = each(t.rigs);
+  return modules.every(Boolean) && rigs.every(Boolean) ? { modules: modules as TypeDogma[], rigs: rigs as TypeDogma[] } : null;
+}
 
 type Loaded = {
   ids: Record<string, number>;
@@ -53,14 +65,28 @@ export function MasteryTiers({ hull, family, ore, oreId, iskPerM3, fromRate, hul
     let alive = true;
     (async () => {
       const hd = await typeDogma(hull.id);
-      const rigNames = [...new Set([...tiers.flatMap((t) => t.rigs.map((x) => x.name)), DEEP_CORE_RIG])];
-      const res = await resolveIds(rigNames).catch(() => null);
-      const cost: Record<string, number> = {};
+      // Every rig's calibration (a Tech II processor rig's Tech I too, for stepping it down) and every module's CPU, for
+      // the rig the Mercoxit version can take (lib/miningFits.ts, lib/fitCpu.ts).
+      const rigNames = tiers.flatMap((t) => t.rigs.map((x) => x.name));
+      const names = [...new Set([...rigNames, ...rigNames.filter((nm) => /Processor Overclocking Unit II$/.test(nm)).map((nm) => nm.replace(/ II$/, ' I')), DEEP_CORE_RIG,
+        ...tiers.flatMap((t) => [...t.high, ...t.mid, ...t.low].map((x) => x.name)), ...Object.values(DEEP_CORE)])];
+      const [res, cpuSkills] = await Promise.all([resolveIds(names).catch(() => null), Promise.all([CPU_MANAGEMENT, MINING_UPGRADES].map((id) => typeDogma(id).catch(() => undefined)))]);
+      const ids: Record<string, number> = {}, dogma: Record<number, TypeDogma> = {};
       await Promise.all((res?.inventory_types ?? []).map(async (x) => {
+        ids[x.name] = x.id;
         const dg = await typeDogma(x.id).catch(() => null);
-        if (dg?.attrs[1153] != null) cost[x.name] = dg.attrs[1153];
+        if (dg) dogma[x.id] = dg;
       }));
-      const out = Object.fromEntries(tiers.map((t) => [t.key, mercoxitTier(t, (nm) => cost[nm] ?? null, hd.attrs[1132] ?? 0, hd.attrs[1547] === 2)]));
+      const cost = (nm: string) => (ids[nm] ? dogma[ids[nm]]?.attrs[1153] ?? null : null);
+      const skillDogma = { [CPU_MANAGEMENT]: cpuSkills[0], [MINING_UPGRADES]: cpuSkills[1] };
+      // Whether a fit still has the CPU for its modules, with every skill it turns on at V.
+      const cpuFits = (t: Tier) => {
+        const f = fitDogma(t, (nm) => ids[nm], (id) => dogma[id]);
+        if (!f) return null;
+        const c = fitCpu(hd, f.modules, f.rigs, CPU_FIVE, skillDogma);
+        return c.need <= c.output;
+      };
+      const out = Object.fromEntries(tiers.map((t) => [t.key, mercoxitTier(t, cost, hd.attrs[1132] ?? 0, hd.attrs[1547] === 2, cpuFits)]));
       if (alive) setMercs(out);
     })().catch(() => { if (alive) setMercs({}); });
     return () => { alive = false; };
@@ -72,7 +98,7 @@ export function MasteryTiers({ hull, family, ore, oreId, iskPerM3, fromRate, hul
       <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <span className="lbl">Mastery</span>
         <Seg size="sm" label="Mastery tier" value={tier.key} onChange={setKey}
-          options={TIER_ORDER.filter((k) => tiers.some((t) => t.key === k)).map((k) => ({ v: k, label: TIER_SAID[k] }))} />
+          options={TIER_ORDER.filter((k) => tiers.some((t) => t.key === k)).map((k) => ({ v: k, label: tiers.find((t) => t.key === k)?.label ?? TIER_SAID[k] }))} />
       </div>
       {merc && !mercs ? <p className="note small">Working out the Mercoxit fits…</p> : (
         <>
@@ -95,7 +121,7 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
   const d = useData();
   const crystal = tier.crystal ? crystalName(family, tier.crystal.kind) : null;
   const oldLasers = useMemo(() => (merc ? merc.swapped.map(([old]) => old) : []), [merc]);
-  const data = useFitData(hull.id, tier, crystal, { dogmaNames: oldLasers, dogmaIds: YIELD_SKILLS });
+  const data = useFitData(hull.id, tier, crystal, { dogmaNames: oldLasers, dogmaIds: [...YIELD_SKILLS, CPU_MANAGEMENT, MINING_UPGRADES] });
   // Mercoxit's gas-cloud chance: the ore's own (522) and what Deep Core Mining takes off it a level (543).
   const [cloud, setCloud] = useState<Loaded['cloud']>(null);
   useEffect(() => {
@@ -125,17 +151,23 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
   const ceiling = yieldAt(ALL_FIVE);
   const { fitCost, total, unpriced } = fitCosts(tier, crystal, data, hullPrice);
   const pay = total != null && mine && mine.kind === 'ore' && iskPerM3 != null && fromRate != null ? paybackHours(total, fromRate, mine.m3PerMin, iskPerM3) : null;
-  const label = `Jita Ledger ${TIER_SAID[tier.key]}`;
+  const label = `Jita Ledger ${tier.label ?? TIER_SAID[tier.key]}`;
+  // The ore hold at your skills and at V (lib/cargo.ts: Mining Barge and Exhumers grow the Retriever's and Mackinaw's).
+  const hullD = got?.dogma[hull.id];
+  const hold = hullD ? holdsFor(hullD, [], d.skills ?? {}).ore ?? 0 : 0;
+  const holdV = hullD ? holdsFor(hullD, [], CARGO_FIVE).ore ?? 0 : 0;
 
   return (
     <div className="col" style={{ gap: 12 }}>
-      {merc && base ? <MercoxitNote merc={merc} base={base} got={got} /> : <p className="note small" style={{ margin: 0 }}>{tier.what}</p>}
+      {merc && base ? <MercoxitNote merc={merc} base={base} got={got} hullId={hull.id} skills={d.skills ?? {}} /> : <p className="note small" style={{ margin: 0 }}>{tier.what}</p>}
       <div className="kv-mini" style={{ maxWidth: 620 }}>
         <span>Mines</span>
         <b>{!got ? 'Working it out…' : !mine ? 'Only with its drones, which aren’t worked out here: what it’s for is the boosts and compression it gives a fleet.' : mine.kind === 'ice'
           ? `a block of ice every ${Math.round(mine.cycle / mine.lasers)} s (${units(Math.round((3600 / mine.cycle) * mine.lasers))} an hour) at your skills${ceiling && Math.round(ceiling.cycle) < Math.round(mine.cycle) ? `, every ${Math.round(ceiling.cycle / ceiling.lasers)} s with every skill at V` : ''}`
           : `${units(Math.round(mine.m3PerMin))} m³ a minute at your skills${ceiling && Math.round(ceiling.m3PerMin) > Math.round(mine.m3PerMin) ? `, ${units(Math.round(ceiling.m3PerMin))} with every skill at V` : ''}`}</b>
         {mine?.kind === 'ore' && iskPerM3 != null && <><span>Worth</span><b style={{ color: 'var(--pos)' }}>about {iskBig(mine.m3PerMin * 60 * iskPerM3)} an hour</b></>}
+        {mine?.kind === 'ore' && hold > 0 && <><span data-tip="The ore hold at your skills (Mining Barge and Exhumers grow some), full of this ore, at the same ISK a m³ as the hour; and how long this fit takes to fill it at your skills.">A full ore hold</span>
+          <b>{units(Math.round(hold))} m³{holdV > hold + 0.5 ? ` (${units(Math.round(holdV))} at V)` : ''}{iskPerM3 != null ? <>, worth about <span style={{ color: 'var(--pos)' }}>{iskBig(hold * iskPerM3)}</span></> : ''}; fills in {minutesSaid(hold / mine.m3PerMin)}</b></>}
         {mine && mine.critShare > 0 && <><span data-tip="Every cycle has a chance to crit, which adds the cycle’s yield again twice over. Worked out from the laser’s and hull’s dogma.">Critical hits</span><b>{Math.round(mine.critChance * 1000) / 10}% of cycles, +{Math.round(mine.critShare * 1000) / 10}% on average</b></>}
         {merc && got?.cloud && (() => {
           const at = (lvl: number) => Math.max(0, got.cloud!.base * (1 + (got.cloud!.perLevel * lvl) / 100));
@@ -161,10 +193,10 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
 }
 
 /**
- * What the Mercoxit version changed: the lasers, whether they take more CPU or powergrid than the fit's own (ESI's figures;
- * the app doesn't fit ships, so it says to check in game), and the deep-core rig.
+ * What the Mercoxit version changed: the lasers, whether they take more CPU or powergrid than the fit's own (ESI's figures),
+ * the deep-core rig, and where the rig cost CPU, what the fit uses and has at V and at your skills (lib/fitCpu.ts).
  */
-function MercoxitNote({ merc, base, got }: { merc: MercoxitFit; base: Tier; got: Loaded | null }) {
+function MercoxitNote({ merc, base, got, hullId, skills }: { merc: MercoxitFit; base: Tier; got: Loaded | null; hullId: number; skills: Record<number, number> }) {
   const fit = (nm: string) => { const dg = got?.ids[nm] ? got.dogma[got.ids[nm]] : undefined; return dg ? { cpu: dg.attrs[50] ?? 0, pg: dg.attrs[30] ?? 0 } : null; };
   let cpu = 0, pg = 0, known = !!got;
   for (const x of base.high) {
@@ -175,6 +207,21 @@ function MercoxitNote({ merc, base, got }: { merc: MercoxitFit; base: Tier; got:
     cpu += (b.cpu - a.cpu) * (x.qty ?? 1); pg += (b.pg - a.pg) * (x.qty ?? 1);
   }
   const more = [cpu > 0 ? `${units(cpu)} more CPU` : '', pg > 0 ? `${units(pg)} more powergrid` : ''].filter(Boolean).join(' and ');
+  // Where the rig change cost CPU: what the fit uses and has, with every skill at V (it fits: that's why it was made) and
+  // at yours.
+  const cpuAt = (sk: Record<number, number>) => {
+    if (!got || !merc.rig.added || !merc.rig.cpu) return null;
+    const hd = got.dogma[hullId];
+    const f = hd ? fitDogma(merc.tier, (nm) => got.ids[nm], (id) => got.dogma[id]) : null;
+    return hd && f ? fitCpu(hd, f.modules, f.rigs, sk, { [CPU_MANAGEMENT]: got.dogma[CPU_MANAGEMENT], [MINING_UPGRADES]: got.dogma[MINING_UPGRADES] }) : null;
+  };
+  const atV = cpuAt(CPU_FIVE), atYours = cpuAt(skills);
+  const tf = (c: { need: number; output: number }) => `${units(Math.round(c.need))} of ${units(Math.round(c.output))} tf`;
+  const rigPoint: PointLike = !merc.rig.added
+    ? (merc.rig.why === 'noRoom' ? { kind: 'warn', lead: 'Rig', text: `No room for the ${DEEP_CORE_RIG} (250 of the hull’s 400 calibration) beside this fit’s rigs, and the CPU won’t spare its processor rig.` }
+      : { kind: 'info', lead: 'Rig', text: 'There’s no deep-core rig for a small hull.' })
+    : merc.rig.downgraded ? { kind: 'good', lead: 'Rig', text: `The ${DEEP_CORE_RIG} (+16% on deep-core lasers) in place of the ${merc.rig.replaced}, with the ${merc.rig.downgraded} stepped down to Tech I to make room (150 + 250 of 400 calibration)${atV ? `: CPU ${tf(atV)} with every skill at V` : ''}.` }
+      : { kind: 'good', lead: 'Rig', text: `The ${DEEP_CORE_RIG} (+16% on deep-core lasers) in place of the ${merc.rig.replaced}${atV ? `: CPU ${tf(atV)} with every skill at V` : ''}.` };
   const swaps = [...new Map(merc.swapped.map(([a, b]) => [a, b])).entries()];
   return (
     <div className="col" style={{ gap: 6, borderLeft: '2px solid var(--acc)', paddingLeft: 10 }}>
@@ -184,9 +231,8 @@ function MercoxitNote({ merc, base, got }: { merc: MercoxitFit; base: Tier; got:
         { kind: 'info', icon: Gem, lead: 'Crystals', text: 'Mercoxit Type A, the kind lost Mercoxit miners carry.' },
         ...(known ? [more ? { kind: 'warn' as const, lead: 'Fitting', text: `They take ${more} than the fit’s own: check it fits in the fitting window.` }
           : { kind: 'good' as const, lead: 'Fitting', text: 'No more CPU or powergrid than the fit’s own.' }] : []),
-        merc.rig.added ? { kind: 'good', lead: 'Rig', text: `The ${DEEP_CORE_RIG} (+16% on deep-core lasers) in place of a ${merc.rig.replaced}.` }
-          : merc.rig.why === 'noRoom' ? { kind: 'warn', lead: 'Rig', text: `No room for the ${DEEP_CORE_RIG} (250 of the hull’s 400 calibration) without dropping the processor rig.` }
-            : { kind: 'info', lead: 'Rig', text: 'There’s no deep-core rig for a small hull.' },
+        rigPoint,
+        ...(atYours && atYours.need > atYours.output ? [{ kind: 'warn' as const, icon: Cpu, lead: 'Your CPU', text: `${tf(atYours)} at your skills: short by ${units(Math.ceil(atYours.need - atYours.output))}. CPU Management and Mining Upgrades close it.` }] : []),
       ]} />
     </div>
   );

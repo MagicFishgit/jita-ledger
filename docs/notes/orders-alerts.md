@@ -88,6 +88,10 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   market, a squeeze) are information, everything else is something to do. "Mark all as done" ticks what's shown as each
   box would (a chore comes back after 12 hours if it still needs doing, a warning when it changes), leaving items being
   re-checked alone; ticked ones can be unticked from Done.
+- **Suspicious-market warnings are judged without your own orders** (`withoutOwn` in prospects.ts, applied in watch.ts). The
+  user's Small Ghoul Compact Energy Nosferatu bid, 4,438 left at 2,229 at the front of a ~230-a-day market, was called "a
+  wall. Don't queue behind it" on To do (30 September 2026): it was their own order. Your Jita 4-4 orders come off their
+  price's level before the wall and escrow-bait checks, so your big order is no wall to you and your high bid no bait.
 - **Suspicious-market warnings cover what you put ISK into**: open positions, open buy orders and the watchlist
   (`trackedTypes` in `signals.ts`), not items you only sell. The user's 118 loot items on sell orders filled To do
   with walls and spikes they didn't care about. A spike or escrow bait traps a buyer, and the queue ahead of a

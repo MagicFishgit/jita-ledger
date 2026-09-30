@@ -6,8 +6,9 @@
 
 import { multibuy } from './combat';
 
-export type TierKey = 'start' | 'solid' | 'max';
-export const TIER_SAID: Record<TierKey, string> = { start: 'Just in', solid: 'Solid', max: 'Max' };
+/** Just in, Solid, Max, and an alternative to one of them (`label` says what: the Mackinaw's no-residue fit). */
+export type TierKey = 'start' | 'solid' | 'max' | 'alt';
+export const TIER_SAID: Record<TierKey, string> = { start: 'Just in', solid: 'Solid', max: 'Max', alt: 'Alternative' };
 
 /** A fitted item, how many, and the charge loaded in each (a command burst's). */
 export type FitItem = { name: string; qty?: number; charge?: string };
@@ -16,6 +17,8 @@ export type CrystalKind = 'A I' | 'A II' | 'B I' | 'B II' | 'C I' | 'C II';
 
 export type Tier = {
   key: TierKey;
+  /** Its name where the key's own won't do (an alternative's). */
+  label?: string;
   /** What this tier is about, in a line or two. */
   what: string;
   high: FitItem[]; mid: FitItem[]; low: FitItem[]; rigs: FitItem[]; drones?: FitItem[];

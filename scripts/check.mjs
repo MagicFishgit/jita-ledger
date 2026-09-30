@@ -14,7 +14,7 @@ import { iskPerHour, RUN_MINUTES } from '../src/lib/abyssal.ts';
 import { buyerShare, sideVolume, competitionShare, roundTripDays, returnPerDay, EVEN_SPLIT, COMPETITION_MIN, COMPETITION_MAX, tradingSplit, MIN_BOOK_SOLD } from '../src/lib/split.ts';
 import { calcWith, RELIST_LEFT, breakEvenSell, breakEvenSpread } from '../src/lib/fees.ts';
 import { walkBids } from '../src/lib/relist.ts';
-import { isWall, paceDay } from '../src/lib/prospects.ts';
+import { isWall, paceDay, withoutOwn } from '../src/lib/prospects.ts';
 import { nearMisses, squeezed as isSqueezed } from '../src/lib/signals.ts';
 import { exportTax, PI_BASE, HIGHSEC_NPC_TAX } from '../src/lib/pi.ts';
 import { allocate } from '../src/lib/planner.ts';
@@ -1111,6 +1111,11 @@ eq('  and only what sold is valued', w.value, 10 * 100 + 5 * 95 + 5 * 90);
 console.log('\n--- suspicious markets ---');
 eq('the front holding most of the side and days of volume is a wall', isWall([{ price: 1, volume: 900 }, { price: 2, volume: 100 }], 100), true);
 eq('an even book is not', isWall([{ price: 1, volume: 500 }, { price: 2, volume: 500 }], 100), false);
+// The user's Small Ghoul Compact Energy Nosferatu bids (30 September 2026): their own 4,438 at 2,229 at the front, a market
+// of ~230 a day. Their own order made the wall; taken off, the book is ordinary.
+const ghoul = [{ price: 2229, volume: 4438 }, { price: 2228, volume: 91 }, { price: 2227, volume: 942 }, { price: 2226, volume: 495 }, { price: 2224, volume: 281 }, { price: 2223, volume: 1 }];
+eq('your own order is no wall to you: taken off its price’s level first', [isWall(ghoul, 230), isWall(withoutOwn(ghoul, [{ price: 2229, volume: 4438 }]), 230), withoutOwn(ghoul, [{ price: 2229, volume: 4438 }])[0].price], [true, false, 2228]);
+eq('  only your share comes off a level others are on too', withoutOwn([{ price: 5, volume: 300 }], [{ price: 5, volume: 100 }]), [{ price: 5, volume: 200 }]);
 eq('a single level cannot be judged', isWall([{ price: 1, volume: 900 }], 100), false);
 eq('a big order deeper in the book is just a big order', isWall([{ price: 1, volume: 50 }, { price: 2, volume: 900 }, { price: 3, volume: 50 }], 100), false);
 eq('a big front on a market that clears it in a day is just supply', isWall([{ price: 1, volume: 900 }, { price: 2, volume: 100 }], 1000), false);
@@ -1339,6 +1344,25 @@ console.log('\n--- hauling holds, from dogma ---');
   const badger = T(648, { 263: 1440, 265: 750, 9: 2060, 271: 1, 272: 0.5, 273: 0.6, 274: 0.8, 267: 0.5, 268: 0.9, 269: 0.75, 270: 0.55, 113: 0.67, 111: 0.67, 109: 0.67, 110: 0.67 });
   eq('a bare hull’s EHP against even damage: each layer over its mean resonance (the Badger: about 6,172)', Math.round(bareEhp(badger)), 6172);
   eq('an Epithal: +10% a level to the planetary hold only; expanders never reach a specialised hold', ((h) => [h.cargo, h.pi, h.commandCenter])(holdsFor(epithal, [ech2], { 3340: 5 })), [550 * 1.275, 67500, 6000]);
+  // Mining hulls' ore holds (ESI, 30 September 2026): Mining Barge +5% a level (effect 5067, 3187) on the Retriever and
+  // Mackinaw, Exhumers +2.5% a level (8251, 3198) on the Mackinaw.
+  const retriever = { id: 17478, group: 463, attrs: { 1556: 27500, 3187: 5 }, effects: [5067] };
+  const mackinaw = { id: 22548, group: 543, attrs: { 1556: 31500, 3187: 5, 3198: 2.5 }, effects: [5067, 8251] };
+  eq('ore holds: a Retriever at Mining Barge V holds 34,375 m³, a Mackinaw at both V 44,297', [holdsFor(retriever, [], { 17940: 5 }).ore, Math.round(holdsFor(mackinaw, [], { 17940: 5, 22551: 5 }).ore)], [34375, 44297]);
+  const { fitCpu } = await import('../src/lib/fitCpu.ts');
+  // A Hulk's Solid fit on Mercoxit, from ESI's dogma (30 September 2026): two deep-core strip miners (60 CPU, needing Mining),
+  // three Mining Laser Upgrade IIs (40 CPU, a 12.5% penalty on the lasers, needing Mining Upgrades), two Multispectrum
+  // Shield Hardener IIs (44), a Mining Survey Chipset II (12), a Medium Shield Extender II (35).
+  const cpuHull = { id: 22544, group: 543, attrs: { 48: 310 }, effects: [] };
+  const laserD = { id: 24305, group: 483, attrs: { 50: 60, 182: 3386 }, effects: [] };
+  const mluD = { id: 28576, group: 546, attrs: { 50: 40, 1082: 12.5, 182: 22578 }, effects: [] };
+  const mods = [laserD, laserD, mluD, mluD, mluD, { attrs: { 50: 44 } }, { attrs: { 50: 44 } }, { attrs: { 50: 12 } }, { attrs: { 50: 35 } }].map((x) => ({ id: 0, group: 0, effects: [], ...x }));
+  const procII = { id: 4399, group: 781, attrs: { 424: 9.6 }, effects: [] }, procI = { id: 4395, group: 781, attrs: { 424: 7.1 }, effects: [] };
+  const sk = { 3426: { attrs: { 424: 5 } }, 22578: { attrs: { 927: -5 } } };
+  const five = { 3426: 5, 22578: 5 };
+  near('CPU: the lasers carry every upgrade’s penalty, cut by Mining Upgrades (120 × 1.09375³ + 3 × 40 + 135 = 412)', fitCpu(cpuHull, mods, [], five, sk).need, 412.0, 0.1);
+  eq('  what the hull has at CPU Management V: none, a Tech I processor rig, a Tech II (387.5, 415.0, 424.7)', [fitCpu(cpuHull, mods, [], five, sk).output, fitCpu(cpuHull, mods, [procI], five, sk).output, fitCpu(cpuHull, mods, [procII], five, sk).output].map((x) => +x.toFixed(1)), [387.5, 415, 424.7]);
+  eq('  so the Solid Hulk can’t lose its processor rig, but can step it down to Tech I', [fitCpu(cpuHull, mods, [], five, sk).need <= 387.5, fitCpu(cpuHull, mods, [procI], five, sk).need <= fitCpu(cpuHull, mods, [procI], five, sk).output], [false, true]);
 }
 
 console.log('\n--- hauling fits ---');
@@ -1415,7 +1439,17 @@ console.log('\n--- mining fits ---');
   eq('Mercoxit: strip miners swap for deep-core ones, crystals to Type A of the same tech', [m.tier.high, m.tier.crystal, m.swapped], [[{ name: 'Modulated Deep Core Strip Miner II', qty: 2 }], { kind: 'A II', spares: 2 }, [['Modulated Strip Miner II', 'Modulated Deep Core Strip Miner II']]]);
   eq('  the deep-core rig takes a shield reinforcer’s place when the calibration fits (75 + 75 + 250)', [m.rig, m.tier.rigs], [{ added: true, replaced: 'Medium EM Shield Reinforcer II' }, [{ name: 'Medium Core Defense Field Extender II', qty: 2 }, { name: DEEP_CORE_RIG, qty: 1 }]]);
   const hulk = { ...proc, rigs: [{ name: 'Medium Processor Overclocking Unit II' }, { name: 'Medium Core Defense Field Extender II' }] };
-  eq('  never in place of a processor rig, and not past 400 calibration (300 + 250)', mercoxitTier(hulk, rigCost, 400, true).rig, { added: false, why: 'noRoom' });
+  eq('  without a CPU check, never in place of a processor rig, and not past 400 calibration (300 + 250)', mercoxitTier(hulk, rigCost, 400, true).rig, { added: false, why: 'noRoom' });
+  // The user's Hulk on Mercoxit (30 September 2026): Solid and Max kept their Tech II processor rig and mined less than
+  // Just in. With a CPU check, the processor rig steps down to Tech I (150) to make room (150 + 250 of 400).
+  cal['Medium Processor Overclocking Unit I'] = 150;
+  // As on the Hulk: the CPU fits with a processor rig of either tech, not without one.
+  const stepped = mercoxitTier(hulk, rigCost, 400, true, (t) => t.rigs.some((x) => /Processor/.test(x.name)));
+  eq('  when the CPU needs a processor rig, the Tech II one steps down to Tech I and the field extender makes way', [stepped.rig, stepped.tier.rigs],
+    [{ added: true, replaced: 'Medium Core Defense Field Extender II', downgraded: 'Medium Processor Overclocking Unit II', cpu: true }, [{ name: 'Medium Processor Overclocking Unit I', qty: 1 }, { name: DEEP_CORE_RIG, qty: 1 }]]);
+  eq('  and it doesn’t when the CPU wouldn’t fit', mercoxitTier(hulk, rigCost, 400, true, () => false).rig, { added: false, why: 'noRoom' });
+  eq('  a processor rig goes whole when the CPU fits without it and the calibration allows', mercoxitTier({ ...proc, rigs: [{ name: 'Medium Processor Overclocking Unit II' }] }, rigCost, 400, true, () => true).rig, { added: true, replaced: 'Medium Processor Overclocking Unit II', cpu: true });
+  eq('  a tank rig still goes first, with no CPU asked (75 + 75 + 250)', mercoxitTier(proc, rigCost, 400, true, () => false).rig, { added: true, replaced: 'Medium EM Shield Reinforcer II' });
   eq('  small hulls have no deep-core rig to take', mercoxitTier({ ...proc, high: [{ name: 'Miner II', qty: 3 }], rigs: [] }, rigCost, 400, false).rig, { added: false, why: 'size' });
   eq('  a starting fit without crystals gets Type A I; Miner IIs become Modulated Deep Core Miner IIs', ((x) => [x.tier.high[0].name, x.tier.crystal.kind])(mercoxitTier({ ...proc, high: [{ name: 'Miner II', qty: 3 }], crystal: undefined }, rigCost, 400, false)), ['Modulated Deep Core Miner II', 'A I']);
   eq('  no version for a fit with no ore lasers (ice, a booster)', [mercoxitTier({ ...proc, high: [{ name: 'Ice Harvester II', qty: 2 }] }, rigCost, 400, true), mercoxitTier({ ...proc, high: [{ name: 'Mining Foreman Burst II' }] }, rigCost, 400, true)], [null, null]);
@@ -1447,7 +1481,12 @@ console.log('\n--- mining fits ---');
   eq('  and none while a name is unresolved', fittingBody(22544, 'Hulk', 'Solid', t, c, (n) => (n === c ? null : ids[n])), null);
   const burst = { ...t, high: [{ name: 'Mining Foreman Burst II', charge: 'Mining Laser Optimization Charge' }], crystal: undefined };
   eq('a burst carries its charge: in the EFT line, and bought with it', [eftText('Porpoise', 'x', burst, null).includes('Mining Foreman Burst II, Mining Laser Optimization Charge'), fitMultibuy('Porpoise', burst, null).text.includes('Mining Laser Optimization Charge 1')], [true, true]);
-  eq('every hull but the Rorqual and Perseverance has three tiers, and every one is on the tree', [HULLS.filter((h) => !MASTERY[h.id]).map((h) => h.name), Object.values(MASTERY).every((x) => x.map((y) => y.key).join() === 'start,solid,max'), Object.keys(MASTERY).every((id) => HULLS.some((h) => h.id === Number(id)))], [['Rorqual', 'Perseverance'], true, true]);
+  eq('every hull but the Rorqual and Perseverance has three tiers (and at most a labelled alternative), and every one is on the tree', [HULLS.filter((h) => !MASTERY[h.id]).map((h) => h.name), Object.values(MASTERY).every((x) => /^start,solid,max(,alt)?$/.test(x.map((y) => y.key).join()) && x.every((y) => y.key !== 'alt' || !!y.label)), Object.keys(MASTERY).every((id) => HULLS.some((h) => h.id === Number(id)))], [['Rorqual', 'Perseverance'], true, true]);
+  // The Mackinaw's Max mined less than its Solid (ORE Strip Miners, 799 against 1,119 m³ a minute): the most it can mine is
+  // Max now, and the no-residue fit is its alternative (30 September 2026).
+  const mack = MASTERY[22548];
+  eq('the Mackinaw’s Max is its Solid with both yield implants; the ORE Strip Miner fit is its no-residue alternative', [mack.find((t) => t.key === 'max').high, mack.find((t) => t.key === 'max').crystal.kind, mack.find((t) => t.key === 'max').implants.length, mack.find((t) => t.key === 'alt').label, mack.find((t) => t.key === 'alt').high[0].name],
+    [mack.find((t) => t.key === 'solid').high, 'B II', 2, 'No residue', 'ORE Strip Miner']);
   eq('no fit asks for more slots than its hull has (ESI, 29 September 2026)', Object.entries(MASTERY).flatMap(([id, tiers]) => tiers.filter((x) => {
     const slots = { 32880: [3, 3, 1, 3], 89648: [3, 4, 1, 3], 89240: [4, 3, 2, 3], 89647: [4, 4, 2, 3], 89649: [5, 5, 3, 2], 33697: [3, 3, 4, 2], 37135: [3, 4, 3, 2], 17480: [2, 3, 3, 3], 17478: [2, 2, 3, 3], 17476: [2, 2, 3, 3], 22546: [2, 5, 3, 2], 22548: [2, 4, 3, 2], 22544: [2, 4, 3, 2], 42244: [4, 4, 2, 3], 28606: [6, 5, 2, 3] }[id];
     const n = (xs) => xs.reduce((s, y) => s + (y.qty ?? 1), 0);

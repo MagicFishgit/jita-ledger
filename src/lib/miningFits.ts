@@ -85,40 +85,60 @@ export type MercoxitFit = {
   tier: Tier;
   /** The lasers swapped, old name to new. */
   swapped: [string, string][];
-  /** The deep-core rig: in place of `replaced`, no room beside the fit's rigs, or not made for this hull's rig size. */
-  rig: { added: true; replaced: string } | { added: false; why: 'noRoom' | 'size' };
+  /**
+   * The deep-core rig: in place of `replaced` (a tank rig, or the processor rig when the CPU still fits without it), with
+   * a Tech II processor rig stepped down to Tech I to make room (`downgraded`) where that's what it takes; `cpu` when the
+   * change lowered the CPU there is, so it was checked. Else no room beside the fit's rigs, or no rig for this hull's size.
+   */
+  rig: { added: true; replaced: string; downgraded?: string; cpu?: boolean } | { added: false; why: 'noRoom' | 'size' };
 };
+
+const PROCESSOR = /Processor Overclocking Unit/;
+const TANK = [/Shield Reinforcer/, /Core Defense Field Extender/];
 
 /**
  * A tier's Mercoxit version: its ore lasers swapped for deep-core ones, loaded with Mercoxit Type A crystals (what the
  * Mercoxit miners lost on zKillboard carry: Type A II on 21 Procurers and 15 Mackinaws of their last 400, Type B II on 5
- * Outriders; A leaves least residue on a scarce rock), tech II where the tier's own crystals were, and the deep-core
- * rig in place of a tank rig (a shield reinforcer before a field extender, never a processor rig, which the fit's CPU may
- * lean on) when the calibration still fits. Null for a fit with no ore lasers (ice, or a booster with none).
+ * Outriders; A leaves least residue on a scarce rock), tech II where the tier's own crystals were, and the deep-core rig
+ * (+16%) where it fits, trying in turn: in place of a tank rig (a shield reinforcer before a field extender); in place of
+ * the processor rig; or, since a Tech II processor rig takes 300 of a hull's 400 calibration, in place of a tank rig with
+ * the processor rig stepped down to Tech I (150). The last two lower the CPU there is, so they need `cpuFits` to say the
+ * fit still has the CPU (lib/fitCpu.ts, with every skill at V; the page says what your own skills make of it). The user's
+ * Hulk showed why: its Solid and Max fits kept their Tech II processor rig and mined less on Mercoxit than its Just in
+ * (30 September 2026). Null for a fit with no ore lasers (ice, or a booster with none).
  */
-export function mercoxitTier(t: Tier, rigCost: (name: string) => number | null, calibration: number, mediumRigs: boolean): MercoxitFit | null {
+export function mercoxitTier(t: Tier, rigCost: (name: string) => number | null, calibration: number, mediumRigs: boolean,
+  cpuFits?: (tier: Tier) => boolean | null): MercoxitFit | null {
   const swapped = t.high.filter((x) => DEEP_CORE[x.name]).map((x): [string, string] => [x.name, DEEP_CORE[x.name]]);
   if (!swapped.length && !t.high.some((x) => isDeepCore(x.name))) return null;
   const high = t.high.map((x) => (DEEP_CORE[x.name] ? { ...x, name: DEEP_CORE[x.name] } : x));
   const crystal = { kind: (t.crystal?.kind.endsWith('II') ? 'A II' : 'A I') as CrystalKind, spares: t.crystal?.spares ?? 2 };
+  const train: [string, number][] = t.key === 'max' ? [...t.train, ['Deep Core Mining', 5]] : t.train;
+  const group = (xs: string[]) => [...new Set(xs)].map((name) => ({ name, qty: xs.filter((x) => x === name).length }));
   let rigs = t.rigs;
   let rig: MercoxitFit['rig'] = { added: false, why: mediumRigs ? 'noRoom' : 'size' };
   if (mediumRigs && !t.rigs.some((x) => x.name === DEEP_CORE_RIG)) {
     const flat = t.rigs.flatMap((x) => Array.from({ length: n(x) }, () => x.name));
-    const order = [/Shield Reinforcer/, /Core Defense Field Extender/].flatMap((re) => flat.map((nm, i) => (re.test(nm) ? i : -1)).filter((i) => i >= 0));
-    const cost = (nm: string) => rigCost(nm);
-    for (const i of order) {
-      const rest = flat.filter((_, j) => j !== i);
-      const costs = [...rest, DEEP_CORE_RIG].map(cost);
-      if (costs.some((c) => c == null)) continue;
-      if ((costs as number[]).reduce((a, b) => a + b, 0) > calibration) continue;
-      rig = { added: true, replaced: flat[i] };
-      const next = [...rest, DEEP_CORE_RIG];
-      rigs = [...new Set(next)].map((name) => ({ name, qty: next.filter((x) => x === name).length }));
+    const at = (re: RegExp) => flat.map((nm, i) => (re.test(nm) ? i : -1)).filter((i) => i >= 0);
+    const tank = TANK.flatMap(at);
+    type Try = { rigs: string[]; replaced: string; downgraded?: string; cpu?: boolean };
+    const tries: Try[] = [
+      ...tank.map((i): Try => ({ rigs: [...flat.filter((_, j) => j !== i), DEEP_CORE_RIG], replaced: flat[i] })),
+      ...at(PROCESSOR).map((i): Try => ({ rigs: [...flat.filter((_, j) => j !== i), DEEP_CORE_RIG], replaced: flat[i], cpu: true })),
+      ...at(PROCESSOR).filter((i) => / II$/.test(flat[i])).flatMap((p) => tank.map((i): Try => ({
+        rigs: [...flat.map((nm, j) => (j === p ? nm.replace(/ II$/, ' I') : nm)).filter((_, j) => j !== i), DEEP_CORE_RIG],
+        replaced: flat[i], downgraded: flat[p], cpu: true,
+      }))),
+    ];
+    for (const x of tries) {
+      const costs = x.rigs.map(rigCost);
+      if (costs.some((c) => c == null) || (costs as number[]).reduce((a, b) => a + b, 0) > calibration) continue;
+      if (x.cpu && cpuFits?.({ ...t, high, crystal, rigs: group(x.rigs), train }) !== true) continue;
+      rigs = group(x.rigs);
+      rig = { added: true, replaced: x.replaced, ...(x.downgraded ? { downgraded: x.downgraded } : {}), ...(x.cpu ? { cpu: true } : {}) };
       break;
     }
   }
-  const train: [string, number][] = t.key === 'max' ? [...t.train, ['Deep Core Mining', 5]] : t.train;
   return { tier: { ...t, high, crystal, rigs, train }, swapped, rig };
 }
 

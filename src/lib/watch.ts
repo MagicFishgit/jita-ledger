@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react';
 import { jitaBook, marketHistory } from './market';
-import { statsFrom, warningsFor } from './prospects';
+import { statsFrom, warningsFor, withoutOwn } from './prospects';
+import { JITA_44 } from './constants';
+import { getData } from './store';
 import type { ProspectStats, ProspectWarning } from './types';
 
 /**
@@ -35,9 +37,15 @@ export async function readSignals(typeIds: number[], maxAgeMs = 30 * 60_000): Pr
     while (i < todo.length) {
       const id = todo[i++];
       try {
-        const [hist, book] = await Promise.all([marketHistory(id), jitaBook(id)]);
+        const [hist, full] = await Promise.all([marketHistory(id), jitaBook(id)]);
         const stats = statsFrom(id, hist);
-        const spread = book.bestBuy && book.bestSell ? (book.bestSell - book.bestBuy) / book.bestBuy : 0;
+        // Judged on everyone else's orders: yours in Jita 4-4 come off the book first (withoutOwn), or your own big order
+        // reads as a wall, and your own high bid as escrow bait.
+        const own = Object.values(getData().orders).filter((o) => o.state === 'open' && o.typeId === id && o.locationId === JITA_44);
+        const mine = (buy: boolean) => own.filter((o) => o.isBuy === buy).map((o) => ({ price: o.price, volume: o.volumeRemain }));
+        const book = { ...full, topBuys: withoutOwn(full.topBuys, mine(true)), topSells: withoutOwn(full.topSells, mine(false)) };
+        const bestBuy = book.topBuys[0]?.price ?? null, bestSell = book.topSells[0]?.price ?? null;
+        const spread = bestBuy && bestSell ? (bestSell - bestBuy) / bestBuy : 0;
         const flags = stats ? warningsFor(stats, book, spread, 0).filter((w) => SCAM_FLAGS.includes(w)) : [];
         got[id] = { stats, flags, at: Date.now() };
       } catch { /* tried again next time */ }
