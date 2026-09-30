@@ -2701,3 +2701,65 @@ The `:37` cron is new: Cloudflare took 26 minutes to first fire the last new one
 - [ ] **Step 7: Say what shipped and what hasn't**
 
 Report to the user: stage 1 is live and dark (no alt can be added until stage 2's Characters page); the main's jobs were watched through a round and are unchanged; what the tests cover and the two things only a real alt will prove (EVE's login, and ESI read as an alt). Then write the stage 2 plan.
+
+---
+
+## After shipping (30 September 2026)
+
+Stage 1 shipped as `f9fd2b7..5f32c3b`: eight task commits, each reviewed on its own, then a whole-branch review, one
+fix commit (`a3d8478`) and a follow-up (`5f32c3b`). What changed against this plan's text, and what is carried on.
+
+**Where the shipped code differs from the tasks above** (the whole-branch review's fixes; `docs/notes/characters.md`
+has the reasons):
+
+- `stillKept` gates an alt's writes only, in `archive` and `readMiningRound`. The tasks gated the main too.
+- `readMiningRound` pushes its records before it advances the snapshot.
+- `keepHandedOver` writes the `keys` row and the `alts` row in one batch.
+- `removeAlt` refuses anything that isn't an alt on the ledger's roster.
+- `useLogin` marks a login refused only if the row still holds the token it tried.
+- `DELETE /v1/keys` answers 400 to anything but `purpose=main` or `purpose=mailer` (it used to treat anything else
+  as the main's).
+- The `archive` job's detail doesn't carry `wallet` and `lp`.
+- `scripts/check-worker.mjs` replaces the global `fetch` with a guard: a test that reaches the network fails the run.
+
+**For the stage 2 plan** (the browser):
+
+- An alt's stored `meta.walletAt` only advances when something else changed, so "as of" on the Characters page comes
+  from the `sheet` job's `lastOk` in `GET /v1/alts`, not from `walletAt`. `Meta` in `src/lib/types.ts` needs
+  `cloneSince` and `activeSkills`.
+- An alt removed with its data kept can't have that data deleted later except by adding it again and then deleting:
+  it's off the roster, so its route answers 404. The Remove dialog has to say so.
+- With no sender kept yet, the mail character picked while adding an alt is stored as an alt, and a later sender
+  hand-over for it is refused with "hand it over again on the Characters page", where the remedy is to remove it
+  from the roster first. Word that case, or have the add flow ask.
+- With the main's watch stopped, an alt hand-over that comes back as the main re-creates the `main` row and the
+  main's cloud jobs resume. The toast has to say so.
+- `POST /v1/keys` answers `kept: { purpose, as, charId, name, scopes }`; `as` is what it was kept as.
+
+**Left as they are, on purpose:**
+
+- A refused `main` or `mailer` hand-over isn't revoked at EVE: whether revoking one login ends a same-permission
+  sibling login of that character isn't known.
+- A failed `/ship/` read blanks the stored hull for that read: a kept hull would carry the time of a read that
+  didn't see it.
+- A refused main or sender login no longer quiets login-looking failures of the shared jobs (scan, sniper, checks):
+  they use no login.
+
+**Small things not done** (none changes behaviour today):
+
+- `scripts/d1.mjs` `now()` treats only `SELECT`/`WITH` as returning rows (an `INSERT … RETURNING` in a batch wouldn't).
+- `scripts/alpha-caps.mjs` checks only that grades agree on a skill's level, not that they list the same skills, and
+  doesn't validate the build number.
+- `usableSkills` returns the caller's own object when nothing is capped.
+- `Reader.purpose` admits `'mailer'` at the type level; a malformed `Reader` is refused only when a read is due.
+- `stillKept`-then-write isn't atomic: a removal landing between them leaves rows under the alt's own ID (never the
+  main's); after `data=delete` those rows belong to an ID no longer in `alts`.
+- `readSheet` reports `pushed` even when nothing was pushed, fetches the login a second time, and duplicates
+  `archive.ts`'s `doc` helper.
+- `altsStatus` runs one `jobs` query per alt; `isAlt` adds one read to every authenticated request.
+- `altsHourly` doesn't log a failed `roughPrices()`.
+- The `alts` upsert would re-home an alt already on another ledger's roster (not reachable with one owner).
+- `watchdog.ts` `kind()` takes any unknown purpose for an alt's.
+- No test for `POST /v1/alts/<id>/read` through the route, for a re-added alt's revision carrying on, for paging an
+  alt's pull, or for `altTicks`' ledger filter.
+- The main's archive test prints `asset safety registered …` into the run's output.
