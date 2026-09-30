@@ -171,9 +171,26 @@ export function sanitizeChars(v: unknown): CharsDoc {
   for (const [id, x] of Object.entries(v as Record<string, unknown>)) {
     const c = x as { name?: unknown; clone?: unknown } | null;
     if (!/^\d{1,15}$/.test(id) || !c || typeof c !== 'object' || typeof c.name !== 'string' || !c.name.trim()) continue;
-    out[id] = { name: c.name.slice(0, 64), ...(c.clone === 'alpha' || c.clone === 'omega' ? { clone: c.clone } : {}) };
+    out[id] = { name: c.name.trim().slice(0, 64), ...(c.clone === 'alpha' || c.clone === 'omega' ? { clone: c.clone } : {}) };
   }
   return out;
+}
+
+/**
+ * The characters the cloud's roster lists, added to `chars`, with their names corrected. Never removes one: a
+ * character taken off the roster is still yours, and what you sent it stays a transfer. A clone state set by hand is
+ * kept through a rename. A name the roster doesn't know keeps the one held, or is "Character {id}". Null when nothing
+ * changed, so nothing is written.
+ */
+export function mergeCharsDoc(chars: CharsDoc, found: { charId: number; name: string | null }[]): CharsDoc | null {
+  const next: CharsDoc = { ...chars };
+  let changed = false;
+  for (const f of found) {
+    const id = String(f.charId);
+    const name = f.name ?? next[id]?.name ?? `Character ${f.charId}`;
+    if (next[id]?.name !== name) { next[id] = { ...next[id], name }; changed = true; }
+  }
+  return changed ? next : null;
 }
 
 /** The motion setting in force: yours if you chose one, otherwise what the system asks for. */

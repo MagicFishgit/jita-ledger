@@ -3838,6 +3838,18 @@ console.log('\n--- which characters are yours ---');
   eq('  what isn\'t one is left out', sanitizeChars({ abc: { name: 'x' }, 900002: { name: '' }, 900003: null, 900004: 'Miner', 900005: { name: 'Kept' } }), { 900005: { name: 'Kept' } });
   eq('  nothing, an array or a string is no characters', [sanitizeChars(null), sanitizeChars([1]), sanitizeChars('x')], [{}, {}, {}]);
   eq('  a long name is cut, not refused', sanitizeChars({ 1: { name: 'x'.repeat(100) } })[1].name.length, 64);
+  eq('  a name is kept trimmed', sanitizeChars({ 1: { name: '  Miner Two \n' } })[1].name, 'Miner Two');
+
+  // The roster's merge into chars (store.ts mergeChars writes what this returns, as a change from the cloud).
+  const { mergeCharsDoc } = await import('../src/lib/prefs.ts');
+  const held = { 900001: { name: 'Miner Two', clone: 'alpha' }, 900009: { name: 'Gone Off The Roster' } };
+  eq('  the roster adds a character it lists', mergeCharsDoc(held, [{ charId: 900002, name: 'Miner Three' }]), { ...held, 900002: { name: 'Miner Three' } });
+  eq('    renames one, keeping a clone state set by hand', mergeCharsDoc(held, [{ charId: 900001, name: 'Miner Two Renamed' }])[900001], { name: 'Miner Two Renamed', clone: 'alpha' });
+  eq('    never removes one it no longer lists', Object.keys(mergeCharsDoc(held, [{ charId: 900002, name: 'Miner Three' }])).includes('900009'), true);
+  eq('    a name it doesn\'t know keeps the one held', mergeCharsDoc(held, [{ charId: 900001, name: null }, { charId: 900002, name: 'Miner Three' }])[900001].name, 'Miner Two');
+  eq('    or, for one not held, is "Character {id}"', mergeCharsDoc({}, [{ charId: 900003, name: null }]), { 900003: { name: 'Character 900003' } });
+  eq('    nothing changed: null, so nothing is written', [mergeCharsDoc(held, [{ charId: 900001, name: 'Miner Two' }, { charId: 900009, name: null }]), mergeCharsDoc(held, [])], [null, null]);
+  eq('    and what was held isn\'t changed in place', Object.keys(held), ['900001', '900009']);
   eq('  it is a synced document', [isDocKey('chars'), DOC_KEYS.includes('chars')], [true, true]);
   const base = { settings: {}, meta: {}, prefs: {}, chars: {} };
   eq('  one that comes down replaces the one here', applyPulled(base, { records: [], docs: [{ key: 'chars', d: { 900001: { name: 'Miner Two' } } }] }).chars, { 900001: { name: 'Miner Two' } });
@@ -3913,8 +3925,22 @@ console.log('\n--- which characters are yours ---');
   // Alt data has no path into the main's ledger.
   const fs2 = await import('node:fs');
   const src = (p) => fs2.readFileSync(new URL(p, import.meta.url), 'utf8');
-  const fromStores = [...src('../src/lib/altStore.ts').matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]\.\/store['"]/g)].flatMap((m) => m[1].split(',').map((x) => x.trim()).filter(Boolean)).sort();
+  // Every static import of './store' in the alt store, by its clause: named names are listed, a default or namespace
+  // import (which would reach update: `import * as S`, then S.update) fails, and `import type` is allowed (it can't call
+  // anything). A dynamic import('./store') fails too.
+  const altSrc = src('../src/lib/altStore.ts');
+  const STORE = String.raw`['"]\.\/store(?:\.[jt]s)?['"]`;
+  const clauses = [...altSrc.matchAll(new RegExp(String.raw`\bimport\s*(type\b\s*)?([^'";]*?)\s*from\s*${STORE}`, 'g'))];
+  const fromStores = clauses.filter((m) => !m[1]).flatMap((m) => {
+    const named = /\{([^}]*)\}/.exec(m[2]);
+    return named ? named[1].split(',').map((x) => x.trim()).filter((x) => x && !/^type\s/.test(x)) : [];
+  }).sort();
+  const wholeStore = [
+    ...clauses.filter((m) => !m[1] && m[2].replace(/\{[^}]*\}/, '').replace(/,/g, '').trim()).map((m) => m[0]),
+    ...[...altSrc.matchAll(new RegExp(String.raw`\bimport\s*\(\s*${STORE}\s*\)`, 'g'))].map((m) => m[0]),
+  ];
   eq('  the alt store takes three things from the ledger\'s store, and update is not one', fromStores, ['dataGeneration', 'mergeChars', 'onClearAll']);
+  eq('    and never the whole store (a default or namespace import, or a dynamic one)', wholeStore, []);
   // Alt data reaches a page only on purpose: a page that starts reading the alt store is added here in the commit that makes it.
   const walk = (dir) => fs2.readdirSync(new URL(dir, import.meta.url), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${dir}${e.name}/`) : /\.(ts|tsx)$/.test(e.name) ? [`${dir}${e.name}`] : []));
   const users = walk('../src/').filter((p) => /(from\s*|import\s*\(\s*)['"][^'"]*\/altStore['"]/.test(src(p))).map((p) => p.replace('../src/', '')).sort();

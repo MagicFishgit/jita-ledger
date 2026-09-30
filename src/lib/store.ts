@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { createStore, get, set, del, keys } from 'idb-keyval';
 import { DEFAULT_SETTINGS, rates, sanitizeSettings, type Settings } from './fees';
-import { DEFAULT_ALERTS, DEFAULT_PREFS, sanitizeAlerts, sanitizeChars, sanitizeLeave, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes, type CharsDoc, type SafetyTimesDoc } from './prefs';
+import { DEFAULT_ALERTS, DEFAULT_PREFS, mergeCharsDoc, sanitizeAlerts, sanitizeChars, sanitizeLeave, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes, type CharsDoc, type SafetyTimesDoc } from './prefs';
 import { sanitizePlans, type TradePlan } from './plans';
 import type { MiningRecord } from './mining';
 import type {
@@ -177,14 +177,8 @@ export function update(patch: Partial<Data> | ((d: Data) => Partial<Data>), opts
  * states set by hand.
  */
 export function mergeChars(found: { charId: number; name: string | null }[]): void {
-  const next: CharsDoc = { ...data.chars };
-  let changed = false;
-  for (const f of found) {
-    const id = String(f.charId);
-    const name = f.name ?? next[id]?.name ?? `Character ${f.charId}`;
-    if (next[id]?.name !== name) { next[id] = { ...next[id], name }; changed = true; }
-  }
-  if (changed) update({ chars: next }, { origin: 'cloud' });
+  const next = mergeCharsDoc(data.chars, found);
+  if (next) update({ chars: next }, { origin: 'cloud' });
 }
 
 /** Run when everything is wiped (clearAll): for state kept beside the ledger, like the alts' copy. */
@@ -237,7 +231,9 @@ export async function clearAll(): Promise<void> {
   await Promise.all(ks.map((k) => del(k, idb)));
   const cks = await keys(cacheStore);
   await Promise.all(cks.map((k) => del(k, cacheStore)));
-  await Promise.all([...clearHooks].map((h) => h()));
+  // Settled, not all: a hook that fails must not leave the stored ledger wiped and the one in memory full, where the
+  // next update() would write it back.
+  await Promise.allSettled([...clearHooks].map(async (h) => h()));
   data = empty();
   emit();
 }
