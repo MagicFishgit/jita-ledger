@@ -23,6 +23,15 @@ const TABLES = ['records', 'docs', 'revs', 'jobs', 'mining_state', 'mining_ticks
 const counts = (db) => Object.fromEntries(TABLES.flatMap((t) => db.rows(`SELECT char_id AS c, COUNT(*) AS n FROM ${t} GROUP BY char_id`).map((r) => [`${t}:${r.c}`, r.n])));
 const under = (db, char) => Object.fromEntries(Object.entries(counts(db)).filter(([k]) => k.endsWith(`:${char}`)));
 
+// No test reaches the network: anything not answered by a stub (stubFetch) is a failure, not a request. stubFetch
+// puts back whatever was here when it was called, so this stays in place between tests.
+globalThis.fetch = async (input) => {
+  failed++;
+  const url = input instanceof Request ? input.url : String(input);
+  console.log(`  FAIL a test reached the network: ${url}`);
+  return new Response(JSON.stringify({ error: 'no network in tests' }), { status: 599 });
+};
+
 console.log('--- every Worker module loads in the test runner ---');
 {
   // Node strips types and nothing more: a parameter property or an enum anywhere stops the file loading.
@@ -422,9 +431,9 @@ console.log('\n--- handing a login over, and the alt routes ---');
     eq('  dropping an alt\'s login, no login or a typo: refused', bad, [400, 400, 400]);
     eq('    and nothing was dropped', keysOf(db), [`alt:${ALT}=${ALT}`, `mailer=${SENDER}`, `main=${MAIN}`]);
     const r = await ask(env, 'DELETE', '/v1/keys?purpose=mailer');
-    f.restore();
     eq('  dropping the sender still works, and leaves the main', [r.status, keysOf(db)], [200, [`alt:${ALT}=${ALT}`, `main=${MAIN}`]]);
     const r2 = await ask(env, 'DELETE', '/v1/keys?purpose=main');
+    f.restore();
     eq('  and so does the main, when asked for by name', [r2.status, keysOf(db)], [200, [`alt:${ALT}=${ALT}`]]);
   }
 
