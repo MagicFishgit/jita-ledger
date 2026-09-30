@@ -29,6 +29,28 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
   character; either, picked by mistake, is kept as its own login and nothing is added. A sender login that turns out
   to be an alt is refused, its alt's login marked refused at once. The main's and the sender's own flows are unchanged:
   the user asked for care with logins.
+- **The app says when EVE has just stopped this browser's own login** (`stoppedBy` in `lib/roster.ts`, App.tsx; the
+  final review, 30 September 2026). EVE stops a character's earlier logins that carry a different set of permissions,
+  at its own page (eve-facts), so a cloud login that comes back as a character this browser also holds a login for,
+  with another set, has killed that one. The callback keeps the granted scopes (only purpose and refresh token go to the
+  Worker) and compares them as sets. Kept as the main, with this browser's main on another set: the toast adds "EVE has
+  also stopped this browser's own login for X … log in again here", and the login is left for the next refresh to find,
+  as before. Without it the owner was logged out minutes after adding an alt, with no reason given, when an app release
+  or an optional permission had changed the set since they last logged in. Kept as the sender, with this browser's
+  sender on another set: that login is dead, so it is taken out here (`logoutMailer`) and the toast says so.
+- **This browser's own mail sender, picked while adding a character, is handed over as the sender** (`handOverAs`).
+  With no sender in the cloud, the Worker can't know it (`sortLogin` gets no mailer) and added it as an alt: read hourly,
+  counted in the wallets, and then logged out of this browser by the sender check. The toast still says what was
+  asked for, and the rule above takes out the stopped browser sender.
+- **The browser's sender check reads the live roster, and only a roster read in this session** (App.tsx, `rosterLive` in
+  the alt store). A sender logged in to this browser that the cloud reads as an alt is logged out, which revokes it at
+  EVE, with a message. It reads the roster as the cloud has it, never `chars`, which keeps characters taken off the
+  roster: after removing X (the remedy the app suggests) and logging X in as the sender, a check on `chars` revoked the
+  new login and said X was one of the characters the cloud reads, which was false. And it waits until the roster has
+  been read from the cloud since the app opened: the copy on disk may be from before X was taken off.
+- **Only the trading login reaches the trading login's slot** (`handleCallback`): the purposes `main` and none (a login
+  started before purposes were kept). Any other is revoked with an error, and a `never` check fails the build when a new
+  purpose isn't handled, since a purpose that fell through there would take the owner's place.
 - **Alts are read hourly on a cron of their own** (`37 * * * *`, `altsHourly`) and their mining every ten minutes at the
   end of the five-minute round. Not on the `:07` cron: the full-market scan's 11-minute budget doesn't know alt reads
   ran ahead of it. Not in the five-minute round: 30 s of CPU.
@@ -50,17 +72,48 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
   on for the Worker and stores nothing (a purpose it didn't know fell through to the trading login's slot, where the
   owner check would have logged the owner out). What the cloud holds for each alt is pulled into an IndexedDB database
   of its own, `jita-ledger-alts`, only when the alt's revision has moved: one roster request a minute, not one per alt.
+  The shell reads the roster alone (`useAltRoster`), and a read equal to the last keeps the same array, so the pages
+  aren't drawn again at every step of a read.
+- **An alt deleted and added again starts its copy afresh** (`altCopyFor` in `lib/roster.ts`, final review, 30 September
+  2026). "Remove and delete" deletes an alt's rows in the cloud outright, with no removal left to pull, and keeps its
+  revision; a device that missed the removal and the re-add (a phone in the background, an app closed) pulled only what
+  came after its old revision and kept every row the owner had asked to delete. The Worker writes a new `alts` row, with
+  a new `added_at`, on a re-add after a delete, and keeps the row and its `added_at` on one after "keep" (whose rows are
+  still valid). So each copy keeps the roster's `addedAt`, and a different one, or a revision below the one held, starts
+  a fresh copy, decided before a matching revision is skipped. A copy stored before `addedAt` was kept is kept, not
+  pulled again, and takes the roster's at once.
 - **What keeps an alt's rows out of the ledger is that the alt store can't write to it.** From `store.ts` it imports
   `mergeChars`, `dataGeneration` and `onClearAll`, never `update`; and only `App.tsx` and `Characters.tsx` import the
   alt store. The Characters page writes `chars` (a clone state set by hand) and the public type names it looks up
-  (skills, hulls), nothing of an alt's. Two tests in `scripts/check.mjs` read the source and fail if either changes. A later page that needs
-  alt data is added to that list on purpose, in the commit that makes it read it.
+  (skills, hulls), nothing of an alt's. Two tests in `scripts/check.mjs` read the source and fail if either changes;
+  the first reads every import clause from `./store`, so a default, namespace (`import * as S`, then `S.update`) or
+  dynamic import fails it, while `import type` passes. A later page that needs alt data is added to that list on
+  purpose, in the commit that makes it read it. They are tripwires: a helper module calling `update` for the alt store
+  wouldn't show, which is why stage 2b starts with a test that the main's figures don't move when an alt is pulled.
 - **`chars` is the one thing about an alt the main's ledger holds**: a synced document of its own, ID to name, and a
-  clone state set by hand. Only the roster read writes it (`mergeChars`), it never removes one, and an imported backup
-  without it leaves the present one. Not a field of `prefs`: `sanitizePrefs` would drop it on an older version's save.
+  clone state set by hand. Two things write it: the roster read (`mergeChars`, whose rule is `mergeCharsDoc` in
+  `prefs.ts`: it adds and renames, never removes one, and keeps a hand-set clone through a rename) and the Characters
+  page's Alpha/Omega buttons. An imported backup without it leaves the present one. Not a field of `prefs`:
+  `sanitizePrefs` would drop it on an older version's save.
+- **The roster's merge into `chars` is applied as a change from the cloud and never pushed** (`update(…, { origin:
+  'cloud' })`). Pushed on every roster read, a device whose ledger hadn't caught up with the cloud's (a new one before
+  its first sync, one just wiped) would have sent a list built from the roster alone over the cloud's, dropping
+  characters taken off the roster and clone states set by hand. A "ledger is current" gate on the push was tried first
+  and dropped: after "Delete all data" without a reload, a token refresh re-runs the cloud sync's start, which re-arms
+  its state on the emptied ledger (and that state is unreliable after a wipe anyway: known-bugs), so the gate turned true
+  on an empty ledger. `chars` goes up only when you edit it (a clone state), carrying every character the device knows.
 - **A card never shows a zero for "not known"** (`charFacts`): an alt just added has no wallet, net-worth point or
-  queue yet, and each reads "–" with why. An alt's net worth is its newest daily point and says its date; its wallet
-  time is when the balance last changed, since the cloud pushes the sheet only when something other than a timestamp
-  moved. When it was last read comes from its jobs (`lastRead`).
+  queue yet, and each reads "–" with why; the Training tile says "Nothing in the queue" only when the queue was read
+  (`queueKnown`), else "Not read yet". An alt's net worth is its newest daily point and says its date. **An alt's wallet
+  says when the cloud last read it**: the `sheet` job's `lastOk` from the roster (the wallet is read by `archive` and
+  handed to the sheet in the same run), never the meta doc's `walletAt`. The cloud's sheet blanks only `walletAt`
+  before comparing (`settled`), so it pushes the meta doc, with `walletAt` set to now, whenever anything else in it
+  moves (a queue level finishing, LP, attributes) and not when only the time would: `walletAt` is neither when the
+  balance changed nor when it was last read. (This note said "when the balance last changed" until the final review.)
+  The main's wallet time is its own `walletAt`, from the browser's sync, which is when it was read. When an alt was last
+  read in full comes from its jobs (`lastRead`).
+- **A refused alt, or one with no login, doesn't promise reads**: its card says nothing more is read until its login is
+  handed over again. One alt's failing pull is said with its name ("Reading Miner Two failed: …", `failedAlt`), apart
+  from the roster's own read ("The cloud couldn't be reached just now").
 - **Stage 2a is the Characters page with the roster, and ends with a real alt being read.** What each character
   earned and mined (stage 2b), Mining across characters (3) and the Wallet's total and transfers (4) follow.
