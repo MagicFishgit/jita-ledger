@@ -60,9 +60,30 @@ export type RosterEntry = {
   jobs: { job: string; lastRun: number; lastOk: number | null; lastError: string | null }[];
 };
 
-/** An alt's cloud copy as this browser keeps it: its records by kind and ID, its documents, the revision reached. */
-export type AltSaved = { rev: number; records: Record<string, Record<string, unknown>>; docs: Record<string, unknown> };
+/**
+ * An alt's cloud copy as this browser keeps it: its records by kind and ID, its documents, the revision reached.
+ * `addedAt`: when the roster says this alt was added, as it said when the copy was made (missing from a copy made
+ * before it was kept).
+ */
+export type AltSaved = { rev: number; records: Record<string, Record<string, unknown>>; docs: Record<string, unknown>; addedAt?: number };
 export const emptyAlt = (): AltSaved => ({ rev: 0, records: {}, docs: {} });
+
+/**
+ * The copy to pull an alt's changes onto: the one held, or a fresh one when the held copy can't be built on.
+ *
+ * - A roster revision below the one held can't be pulled from.
+ * - A different `addedAt` is a different stay on the roster. "Remove and delete" deletes the alt's rows outright,
+ *   with no removal left to pull, and keeps its revision, so a device that missed the removal and the re-add would
+ *   pull only what came after and keep every deleted row. A re-add after "keep" keeps its `addedAt`, and its rows.
+ * - A held copy with no `addedAt` predates it being kept: unknown, so it's kept (not every alt pulled again on the
+ *   first load) and takes the roster's.
+ *
+ * Returns the held copy itself when nothing about it changes, so the caller knows there is nothing to save.
+ */
+export function altCopyFor(held: AltSaved | undefined, entry: { rev: number; addedAt: number }): AltSaved {
+  if (!held || entry.rev < held.rev || (held.addedAt != null && held.addedAt !== entry.addedAt)) return { ...emptyAlt(), addedAt: entry.addedAt };
+  return held.addedAt === entry.addedAt ? held : { ...held, addedAt: entry.addedAt };
+}
 
 /** One page of GET /v1/alts/<id>/pull. `next` is the cursor for the page after it, null on the last. */
 export type AltPage = { rev: number; next: string | null; records: { k: string; i: string; d: unknown }[]; docs: { key: string; d: unknown }[] };
@@ -81,7 +102,7 @@ export function applyAltPull(saved: AltSaved, page: AltPage): AltSaved {
   }
   const docs = { ...saved.docs };
   for (const x of page.docs) docs[x.key] = x.d;
-  return { rev: page.next ? saved.rev : page.rev, records, docs };
+  return { ...saved, rev: page.next ? saved.rev : page.rev, records, docs };
 }
 
 /** What a character's card shows. Null where nothing has been read: a card never shows a zero for "not known". */

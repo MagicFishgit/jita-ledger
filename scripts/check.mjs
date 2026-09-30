@@ -3843,6 +3843,19 @@ console.log('\n--- which characters are yours ---');
   const whole = R.applyAltPull(half, page2);
   eq('    the last page moves it, removes what was removed, and adds the rest', [whole.rev, Object.keys(whole.records.txs), Object.keys(whole.records.mining)], [7, ['b'], ['m']]);
   eq('    and what was stored before isn\'t changed in place', Object.keys(half.records.txs), ['a', 'b']);
+  eq('    a pull keeps when the copy\'s alt was added', R.applyAltPull({ ...R.emptyAlt(), addedAt: 5 }, page2).addedAt, 5);
+
+  // Which copy an alt's pull builds on. The Worker deletes an alt's rows outright on "Remove and delete" and keeps its
+  // revision; a re-add after that is a new roster row with a new addedAt, one after "keep" the same row and addedAt.
+  const heldCopy = { rev: 7, records: { txs: { b: { q: 2 } } }, docs: { meta: { walletBalance: 5 } }, addedAt: 100 };
+  eq('  the same stay on the roster: the copy held, itself', R.altCopyFor(heldCopy, { rev: 9, addedAt: 100 }) === heldCopy, true);
+  eq('  deleted and added again (a new addedAt): a fresh copy, from revision 0', R.altCopyFor(heldCopy, { rev: 9, addedAt: 200 }), { rev: 0, records: {}, docs: {}, addedAt: 200 });
+  eq('    even when the revision happens to match', R.altCopyFor(heldCopy, { rev: 7, addedAt: 200 }).rev, 0);
+  const legacy = { rev: 7, records: { txs: { b: { q: 2 } } }, docs: {} };
+  const adopted = R.altCopyFor(legacy, { rev: 9, addedAt: 100 });
+  eq('  a copy from before addedAt was kept: kept, and takes the roster\'s', [adopted.rev, Object.keys(adopted.records.txs), adopted.addedAt, adopted === legacy], [7, ['b'], 100, false]);
+  eq('  a revision below the one held: a fresh copy', R.altCopyFor(heldCopy, { rev: 3, addedAt: 100 }), { rev: 0, records: {}, docs: {}, addedAt: 100 });
+  eq('  nothing held: a fresh copy with the roster\'s addedAt', R.altCopyFor(undefined, { rev: 3, addedAt: 100 }), { rev: 0, records: {}, docs: {}, addedAt: 100 });
 
   // What a card shows.
   const meta = {

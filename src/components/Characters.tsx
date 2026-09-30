@@ -226,6 +226,11 @@ export function Characters() {
           The cloud couldn’t be reached just now ({alts.error}).{alts.rosterAt ? ` What’s below is as read ${ago(new Date(alts.rosterAt).toISOString(), now)}.` : ''}
         </Notice>
       )}
+      {cloudOn && alts.failedAlt && !alts.behind && (
+        <Notice kind="warn">
+          Reading {alts.failedAlt.name ?? `Character ${alts.failedAlt.charId}`} failed: {alts.failedAlt.message}{/[.!?]$/.test(alts.failedAlt.message) ? '' : '.'}
+        </Notice>
+      )}
 
       <Tiles items={total} min={220} />
 

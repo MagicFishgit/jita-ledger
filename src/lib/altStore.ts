@@ -10,7 +10,7 @@
 import { useSyncExternalStore } from 'react';
 import { clear, createStore, del, get, keys, set } from 'idb-keyval';
 import { cloudAltPull, cloudAlts, cloudEnabled } from './cloud';
-import { applyAltPull, emptyAlt, type AltSaved, type RosterEntry } from './roster';
+import { altCopyFor, applyAltPull, type AltSaved, type RosterEntry } from './roster';
 import { dataGeneration, mergeChars, onClearAll } from './store';
 
 const db = createStore('jita-ledger-alts', 'kv');
@@ -25,19 +25,34 @@ export type AltsState = {
   roster: RosterEntry[];
   /** When the roster was last read from the cloud (from disk after a reload: what's shown may be that old). */
   rosterAt: number | null;
+  /**
+   * The roster was read from the cloud in this session. False while it's only what was on disk, and after a wipe:
+   * anything that acts on it (logging a login out) waits for this.
+   */
+  rosterLive: boolean;
   alts: Record<number, AltSaved>;
+  /** The roster's own read failed (the cloud out of reach, or it refused). */
   error: string | null;
+  /** The last alt whose pull failed in the last round, with what went wrong; the others were read. */
+  failedAlt: { charId: number; name: string | null; message: string } | null;
   /** The Worker answered "not found": it is a version behind and doesn't know alts yet. */
   behind: boolean;
   busy: boolean;
 };
 
-let state: AltsState = { ready: false, roster: [], rosterAt: null, alts: {}, error: null, behind: false, busy: false };
+let state: AltsState = { ready: false, roster: [], rosterAt: null, rosterLive: false, alts: {}, error: null, failedAlt: null, behind: false, busy: false };
 const listeners = new Set<() => void>();
 const setState = (p: Partial<AltsState>) => { state = { ...state, ...p }; listeners.forEach((l) => l()); };
 // One subscribe function for good: an inline one is new each render, and React would resubscribe every time.
 const subscribe = (cb: () => void) => { listeners.add(cb); return () => { listeners.delete(cb); }; };
 export const useAlts = (): AltsState => useSyncExternalStore(subscribe, () => state);
+/**
+ * The roster alone, for the app shell: it changes only when a read brings a different one (a new read equal to the
+ * last keeps the same array), so the shell and every page under it aren't drawn again at each step of a read.
+ */
+export const useAltRoster = (): RosterEntry[] => useSyncExternalStore(subscribe, () => state.roster);
+/** Whether the roster was read from the cloud in this session (`rosterLive`). */
+export const useRosterLive = (): boolean => useSyncExternalStore(subscribe, () => state.rosterLive);
 
 async function load(): Promise<void> {
   const saved = (await get(ROSTER, db).catch(() => undefined)) as { at: number; list: RosterEntry[] } | undefined;
@@ -94,40 +109,49 @@ async function read(): Promise<void> {
     const at = Date.now();
     await set(ROSTER, { at, list: roster }, db).catch(() => undefined);
     if (dataGeneration() !== gen) return;
-    // The roster and what is held show at once: one alt whose pull keeps failing leaves the others current.
-    setState({ roster, rosterAt: at, alts: { ...alts }, behind: false });
-    // One alt's failing pull doesn't stop the others; the round's error is the last failure's.
-    let failed: string | null = null;
+    // The roster and what is held show at once: one alt whose pull keeps failing leaves the others current. A roster
+    // equal to the one shown keeps its array, so what draws from the roster alone isn't drawn again for nothing.
+    const same = JSON.stringify(roster) === JSON.stringify(state.roster);
+    setState({ roster: same ? state.roster : roster, rosterAt: at, rosterLive: true, alts: { ...alts }, error: null, behind: false });
+    // One alt's failing pull doesn't stop the others; the round keeps the last failure, and which alt it was.
+    let failed: AltsState['failedAlt'] = null;
     for (const r of roster) {
       try {
-        let saved = alts[r.charId] ?? emptyAlt();
-        if (saved.rev === r.rev) continue;
-        // A revision below the one held can't be pulled from: start that alt's copy again.
-        if (r.rev < saved.rev) saved = emptyAlt();
-        let after: string | null = null;
-        let first: number | null = null;
-        for (;;) {
-          const page = await cloudAltPull(r.charId, saved.rev, after);
-          first ??= page.rev;
-          saved = applyAltPull(saved, page);
-          if (!page.next) break;
-          after = page.next;
+        const held = alts[r.charId];
+        // Decided before anything is skipped: a copy from before a delete and re-add is started again even when the
+        // revision happens to match.
+        let saved = altCopyFor(held, r);
+        if (saved.rev !== r.rev) {
+          let after: string | null = null;
+          let first: number | null = null;
+          for (;;) {
+            const page = await cloudAltPull(r.charId, saved.rev, after);
+            first ??= page.rev;
+            saved = applyAltPull(saved, page);
+            if (!page.next) break;
+            after = page.next;
+          }
+          // The documents come with the first page only, and each page re-reads the newest revision: keep the first
+          // page's, so a document written while the later pages were read is sent next time (records applied twice
+          // change nothing).
+          saved = { ...saved, rev: first ?? saved.rev };
         }
-        // The documents come with the first page only, and each page re-reads the newest revision: keep the first page's,
-        // so a document written while the later pages were read is sent next time (records applied twice change nothing).
-        saved = { ...saved, rev: first ?? saved.rev };
+        // Nothing pulled, reset or learned (the copy is the one held): nothing to save.
+        if (saved === held) continue;
         if (dataGeneration() !== gen) return;
         alts[r.charId] = saved;
         await set(altKey(r.charId), saved, db).catch(() => undefined);
         if (dataGeneration() !== gen) return;
         setState({ alts: { ...alts } });
       } catch (e) {
-        failed = e instanceof Error ? e.message : String(e);
+        failed = { charId: r.charId, name: r.name, message: e instanceof Error ? e.message : String(e) };
       }
     }
+    // Everything was wiped while the last pull was in flight (its failure caught above): nothing goes back.
+    if (dataGeneration() !== gen) return;
     // Who is yours, and nothing else, reaches the ledger. It is applied as from the cloud and never pushed (mergeChars).
     mergeChars(roster.map((r) => ({ charId: r.charId, name: r.name })));
-    setState({ error: failed });
+    setState({ failedAlt: failed });
   } catch (e) {
     setState({ error: e instanceof Error ? e.message : String(e) });
   } finally {
@@ -137,7 +161,7 @@ async function read(): Promise<void> {
 
 onClearAll(async () => {
   await clear(db).catch(() => undefined);
-  setState({ roster: [], rosterAt: null, alts: {}, error: null, behind: false });
+  setState({ roster: [], rosterAt: null, rosterLive: false, alts: {}, error: null, failedAlt: null, behind: false });
 });
 
 /** Loads what's stored, reads the cloud, and keeps reading while the tab is in view. Returns the stop function. */

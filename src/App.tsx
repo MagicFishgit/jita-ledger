@@ -10,7 +10,7 @@ import { THEMES } from './lib/prefs';
 import { priceKillmails } from './lib/killmails';
 import { startAlerts } from './lib/alertsRunner';
 import { cloudAltRead, cloudSummary, keepCloudLogin, runCloudArchive, startCloud } from './lib/cloud';
-import { refreshAlts, startAlts, useAlts } from './lib/altStore';
+import { refreshAlts, startAlts, useAltRoster, useRosterLive } from './lib/altStore';
 import { units } from './lib/format';
 import { marketParam, openFromLink, withoutMarket } from './lib/marketLink';
 import { setToastLife, toast } from './lib/toast';
@@ -108,15 +108,19 @@ export function App() {
   const live = ready && owner;
   // A sender logged in to THIS browser that the cloud reads as one of your characters (on the live roster): it can't be
   // both. EVE allows a character one set of permissions, and whichever login came later stopped the other. Read from
-  // the roster as the cloud has it, never from `chars`, which remembers characters taken off it.
-  const alts = useAlts();
+  // the roster as the cloud has it, never from `chars`, which remembers characters taken off it; and only from a
+  // roster read from the cloud in this session, since logging out revokes the login at EVE, and the copy on disk may be
+  // from before the character was taken off the roster. The shell reads only the roster, so it isn't drawn again at
+  // every step of an alt's read.
+  const roster = useAltRoster();
+  const rosterLive = useRosterLive();
   useEffect(() => {
-    if (!live) return;
+    if (!live || !rosterLive) return;
     const sender = getMailer();
-    if (!sender || !alts.roster.some((r) => r.charId === sender.characterId)) return;
+    if (!sender || !roster.some((r) => r.charId === sender.characterId)) return;
     logoutMailer().catch(() => undefined);
     setLoginErr(`${sender.characterName} is one of the characters the cloud reads for you, so it can’t also be logged in here as the mail sender: EVE allows a character one set of permissions, and the later login stops the earlier. It has been logged out here. If its card on the Characters page says its login was refused, hand it over again there.`);
-  }, [live, alts.roster]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [live, rosterLive, roster]); // eslint-disable-line react-hooks/exhaustive-deps
   const newer = useNewerVersion();
   const route = useRoute();
   const sync = useSyncState();
