@@ -3797,6 +3797,23 @@ console.log('\n--- several characters: clone state, and whose login came back --
   eq('  a mining snapshot ten minutes old is compared with', isBaseline(T - 10 * 60_000, T), false);
   eq('    one older than a session gap is only a baseline', isBaseline(T - SESSION_GAP_MS - 1, T), true);
   eq('    and so is there being none', isBaseline(null, T), true);
+  const { watchdogFinding, loginLostFinding } = await import('../src/lib/watchdog.ts');
+  const job = { job: 'mining', fails: 3, failingSince: T - 3600_000, lastError: 'ESI 502', warned: null };
+  const mine = watchdogFinding(job, T), theirs = watchdogFinding(job, T, { charId: 900001, name: 'Miner Two' });
+  eq('  the main\'s failing job is worded and keyed as before', [mine.key, /^Reading your mining ledger has failed 3 times/.test(mine.text)], [`watchdog:mining:${job.failingSince}`, true]);
+  eq('  an alt\'s names the character, in its key and its words', [theirs.key, /^Reading Miner Two’s mining ledger has failed 3 times/.test(theirs.text), /Miner Two/.test(theirs.watch.meanwhile)], [`watchdog:900001:mining:${job.failingSince}`, true, true]);
+  eq('    and says whose login it is when the error looks like one', [watchdogFinding({ ...job, lastError: 'ESI 401' }, T, { charId: 900001, name: 'Miner Two' }).watch.alt, mine.watch.alt ?? null], ['Miner Two', null]);
+  eq('    a job with no wording of its own still names it', /for Miner Two/.test(watchdogFinding({ ...job, job: 'novel' }, T, { charId: 900001, name: 'Miner Two' }).text), true);
+  const refused = { name: 'Miner Two', since: T - 20 * 60_000, reason: 'invalid_grant', warned: null };
+  const lostAlt = loginLostFinding({ ...refused, purpose: 'alt', charId: 900001 }, T);
+  eq('  an alt\'s refused login is mailed, by name', [lostAlt.key, lostAlt.title, /Hand Miner Two over again/.test(lostAlt.text), lostAlt.watch.lost], [`watchdog:login:alt:900001:${refused.since}`, 'Cloud lost Miner Two’s login', true, { purpose: 'alt', name: 'Miner Two' }]);
+  eq('  the main\'s is keyed and titled as before', [loginLostFinding({ ...refused, purpose: 'main', name: 'Main' }, T).key, loginLostFinding({ ...refused, purpose: 'main', name: 'Main' }, T).title], [`watchdog:login:main:${refused.since}`, 'Cloud lost your login']);
+  eq('  the sender\'s can\'t be mailed, as before', loginLostFinding({ ...refused, purpose: 'mailer' }, T), null);
+  const { alertMail } = await import('../src/lib/alerts.ts');
+  const mail = alertMail([lostAlt], { appUrl: 'https://app.test/', keepMin: null });
+  eq('  the mail says where to hand an alt over', [/Miner Two/.test(mail.subject), /Characters/.test(mail.body), /Settings → Your data/.test(mail.body)], [true, true, false]);
+  const jobMail = alertMail([watchdogFinding({ ...job, lastError: 'ESI 401' }, T, { charId: 900001, name: 'Miner Two' })], { appUrl: 'https://app.test/', keepMin: null });
+  eq('    and an alt\'s job that needs its login says whose, not "your"', [/hand the cloud Miner Two’s login again: Jita Ledger → Characters/.test(jobMail.body), /your login again/.test(jobMail.body)], [true, false]);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

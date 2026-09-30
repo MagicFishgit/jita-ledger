@@ -462,5 +462,60 @@ console.log('\n--- when alts are read ---');
   }
 }
 
+console.log('\n--- the watchdog, by character ---');
+{
+  const { watchdog } = await import('../worker/src/watchdog.ts');
+  const { push } = await import('../worker/src/sync.ts');
+  const setUp = async () => {
+    const { db, env } = await ledgerWithAlt();
+    await keepKey(db, MAIN, 'mailer', SENDER, 'Postmaster', SCOPES);
+    await push(db, MAIN, { records: [], docs: [{ key: 'alerts', d: { on: true, mail: true, quiet: false } }] });
+    return { db, env };
+  };
+  const failing = (db, char, job, error) => db.run('INSERT INTO jobs (char_id, job, last_run, last_error, fails, failing_since) VALUES (?, ?, ?, ?, ?, ?)', char, job, T0, error, 3, T0 - 30 * MIN);
+  const mailBody = (f) => { const c = f.calls.find((x) => x.method === 'POST' && x.path === `/characters/${SENDER}/mail/`); return c ? JSON.parse(c.body) : null; };
+
+  // An alt's login refused: its own job mail is quieted, the main's is not.
+  {
+    const { db, env } = await setUp();
+    db.run('UPDATE keys SET refused_at = ?, refused = ? WHERE purpose = ?', T0 - 20 * MIN, 'invalid_grant', `alt:${ALT}`);
+    failing(db, ALT, 'mining', 'EVE refused the cloud’s login for Miner Two (invalid_grant); hand the cloud that login again');
+    failing(db, MAIN, 'archive', 'ESI 401 on /characters/95210486/wallet/');
+    const f = stubFetch([[new RegExp(`^POST /characters/${SENDER}/mail/$`), 555]]);
+    const r = await watchdog(env, MAIN, T0);
+    f.restore();
+    const m = mailBody(f);
+    eq('  one mail, to the main', [r.mailed, m?.recipients?.[0]?.recipient_id], [2, MAIN]);
+    eq('    it says the alt\'s login was lost, by name', /Cloud lost Miner Two’s login/i.test(m?.body ?? ''), true);
+    eq('    and still says the main\'s own job is failing', /Copying your ledger from ESI/.test(m?.body ?? ''), true);
+    eq('    the alt\'s job, explained by its login, isn\'t mailed as well', /Reading Miner Two’s mining ledger/.test(m?.body ?? ''), false);
+    eq('    the refusal is marked warned on the alt\'s login', db.rows('SELECT refused_warned AS w FROM keys WHERE purpose = ?', `alt:${ALT}`)[0].w, T0);
+  }
+
+  // The main's login refused: the alt's failing job is still mailed.
+  {
+    const { db, env } = await setUp();
+    db.run('UPDATE keys SET refused_at = ?, refused = ? WHERE purpose = ?', T0 - 20 * MIN, 'invalid_grant', 'main');
+    failing(db, MAIN, 'archive', 'EVE refused the cloud’s login for Main (invalid_grant); hand the cloud your login again');
+    failing(db, ALT, 'mining', 'ESI 401 on /characters/900001/mining/');
+    const f = stubFetch([[new RegExp(`^POST /characters/${SENDER}/mail/$`), 556]]);
+    await watchdog(env, MAIN, T0);
+    f.restore();
+    const m = mailBody(f);
+    eq('  the main\'s lost login quiets the main\'s jobs, not the alt\'s', [/Cloud lost your login/i.test(m?.body ?? ''), /Copying your ledger from ESI/.test(m?.body ?? ''), /Reading Miner Two’s mining ledger/.test(m?.body ?? '')], [true, false, true]);
+  }
+
+  // An alt no longer on the roster isn't mailed about.
+  {
+    const { db, env } = await setUp();
+    db.run('UPDATE alts SET removed_at = ? WHERE char_id = ?', T0, ALT);
+    failing(db, ALT, 'mining', 'ESI 502');
+    const f = stubFetch([[new RegExp(`^POST /characters/${SENDER}/mail/$`), 557]]);
+    const r = await watchdog(env, MAIN, T0);
+    f.restore();
+    eq('  a removed alt\'s old job row is nobody\'s', [r.failing, mailBody(f)], [0, null]);
+  }
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

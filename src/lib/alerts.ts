@@ -227,7 +227,7 @@ export function subjectPart(f: Finding, now = Date.now()): string {
   if (p) return p.ends <= now ? `PI stopped in ${p.system}` : `PI ends in ${hoursSaid((p.ends - now) / 3600_000).replace('about ', '')} in ${p.system}`;
   if (f.opp && f.name) return `look at ${f.name}, ${pct(f.opp.roi, 1)}`;
   if (f.snipe && f.name) return f.snipe.side === 'buy' ? `snipe ${f.name}, ${iskBig(f.snipe.profit)}` : `sell ${f.name} into a high bid`;
-  if (f.watch?.lost) return `hand the cloud your login again`;
+  if (f.watch?.lost) return f.watch.lost.purpose === 'alt' ? `hand the cloud ${f.watch.lost.name}’s login again` : `hand the cloud your login again`;
   if (f.watch) return `cloud: ${f.watch.label.charAt(0).toLowerCase()}${f.watch.label.slice(1)} failing`;
   if (f.safety) return `asset safety registered: ${f.safety.name}`;
   return f.title;
@@ -287,7 +287,9 @@ function section(f: Finding, market: (typeId: number, calc?: boolean, name?: str
   if (w?.lost) {
     return [
       head(f.title, 'red'),
-      advice('red', `hand the cloud your login for ${w.lost.name} again: Jita Ledger → Settings → Your data`),
+      advice('red', w.lost.purpose === 'alt'
+        ? `hand the cloud ${w.lost.name}’s login again: Jita Ledger → Characters`
+        : `hand the cloud your login for ${w.lost.name} again: Jita Ledger → Settings → Your data`),
       col('grey', `EVE refused it at ${fmtDateTime(w.since)}${w.error ? `: <i>${escapeMail(w.error)}</i>` : ''}.`) + '<br>',
       col('grey', 'That happens when EVE replaces the character’s grant for the app, as logging in to it with a new set of permissions does, or when the app is removed from the character’s third-party applications.') + '<br>',
       col('grey', `Until then, ${escapeMail(w.meanwhile)}. This is the only mail about it today, whatever else stops.`) + '<br>',
@@ -297,7 +299,7 @@ function section(f: Finding, market: (typeId: number, calc?: boolean, name?: str
     return [
       head(f.title, 'red'),
       w.login
-        ? advice('red', 'hand the cloud your login again: Jita Ledger → Settings → Your data')
+        ? advice('red', w.alt ? `hand the cloud ${w.alt}’s login again: Jita Ledger → Characters` : 'hand the cloud your login again: Jita Ledger → Settings → Your data')
         : advice('white', `nothing yet: it tries again ${w.retry}`),
       `${escapeMail(w.label)}${col('grey', ` has failed ${units(w.fails)} times in a row, since ${fmtDateTime(w.since)}.`)}<br>`,
       w.error ? col('grey', `The last error: <i>${escapeMail(w.error)}</i>`) + '<br>' : '',
