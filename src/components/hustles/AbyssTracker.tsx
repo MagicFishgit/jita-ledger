@@ -48,7 +48,7 @@ export const trackerCellOf = (t: TrackerState, tier: number, weather: number) =>
 function trackerGap(t: TrackerState, cell: TrackerCell | null): string | null {
   if (t.status === 'off') return 'Abyss Tracker’s figures come through the cloud copy, which isn’t on in this browser (Settings → Your data).';
   if (t.status === 'loading') return 'Reading Abyss Tracker’s figures from the cloud…';
-  if (t.status === 'failed') return `Couldn’t read Abyss Tracker’s figures from the cloud: ${t.error}. If the cloud was updated in the last hour, they come with its next hourly run.`;
+  if (t.status === 'failed') return `Couldn’t read Abyss Tracker’s figures from the cloud: ${t.error}. A cloud that answers “Not found” is a version behind, and they come once it’s updated; otherwise try again later.`;
   if (!cell) return 'The cloud hasn’t read this tier and weather from Abyss Tracker yet. It reads them once an hour, at 7 past, when a day old, so they’ll be here after its next run.';
   return null;
 }
@@ -109,7 +109,7 @@ export function TrackerFitView({ fit, tier, weather }: { fit: FitRef; tier: numb
   useEffect(() => {
     if (!cloudEnabled()) return;
     let alive = true;
-    setDetail(null); setError(null); setCats(null);
+    setDetail(null); setError(null); setCats(null); setHullPrice(null);
     cloudAbyssFit(fit.id).then((x) => { if (alive) setDetail(x); }).catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)); });
     jitaBook(fit.shipId).then((b) => { if (alive) setHullPrice(b.bestSell ?? null); }).catch(() => undefined);
     return () => { alive = false; };
@@ -134,13 +134,15 @@ export function TrackerFitView({ fit, tier, weather }: { fit: FitRef; tier: numb
   const link = <a href={`https://abysstracker.com/fit/${fit.id}`} target="_blank" rel="noopener noreferrer">on Abyss Tracker</a>;
   if (!cloudEnabled()) return <p className="note small" style={{ margin: 0 }}>The fit comes from Abyss Tracker through the cloud copy, which isn’t on in this browser (Settings → Your data). It’s {link}.</p>;
   if (error) return <p className="note small" style={{ margin: 0, color: 'var(--neg-l)' }}>Couldn’t read that fit: {error}. It’s {link}.</p>;
+  if (detail && !parsed) return <p className="note small" style={{ margin: 0, color: 'var(--neg-l)' }}>Abyss Tracker’s copy of that fit isn’t in a form the page can read. It’s {link}.</p>;
   if (!detail || !tierFit) return <p className="note small" style={{ margin: 0 }}>Reading the fit from Abyss Tracker…</p>;
   return <TrackerFitBody fit={fit} detail={detail} tierFit={tierFit} hullPrice={hullPrice} tier={tier} weather={weather} />;
 }
 
 function TrackerFitBody({ fit, detail, tierFit, hullPrice, tier, weather }: { fit: FitRef; detail: TrackerFitDetail; tierFit: Tier; hullPrice: number | null; tier: number; weather: number }) {
+  const now = useNow(60_000);
   const data = useFitData(fit.shipId, tierFit, null);
-  const { total } = fitCosts(tierFit, null, data, hullPrice);
+  const { total, unpriced } = fitCosts(tierFit, null, data, hullPrice);
   const here = detail.perf?.cells.find((c) => c.tier === tier && c.weather === weather) ?? null;
   const cellSaid = (t: number, w: number) => `T${t} ${TIERS[t]} ${TRACKER_WEATHER[w]}`;
   return (
@@ -160,7 +162,7 @@ function TrackerFitBody({ fit, detail, tierFit, hullPrice, tier, weather }: { fi
           {here.breakEvenRuns != null && <><span data-tip="Abyss Tracker’s count of runs at this tier and weather whose median profit pays for the fit.">Pays for itself</span><b>{here.breakEvenRuns <= 1 ? 'in its first run' : `in about ${units(here.breakEvenRuns)} runs`}</b></>}
         </> : <><span>At {cellSaid(tier, weather)}</span><b>Not run there, in what Abyss Tracker has</b></>}
         {detail.perf?.medianRunTime && <><span>A run takes</span><b>{detail.perf.medianRunTime} (median, everywhere it ran)</b></>}
-        <span>Costs</span><b>{total != null ? `${iskBig(total)} at Jita now` : data ? '–' : '…'}{fit.cost ? ` (Abyss Tracker: ${iskBig(fit.cost)})` : ''}</b>
+        <span>Costs</span><b style={{ whiteSpace: 'normal' }}>{total != null ? `${iskBig(total)} at Jita now` : data ? `–${unpriced.length ? ` (no Jita listing for ${unpriced.join(', ')})` : ''}` : '…'}{fit.cost ? ` (Abyss Tracker: ${iskBig(fit.cost)})` : ''}</b>
         {fit.ehpK != null && <><span>Abyss Tracker’s figures</span><b>{(fit.dps ?? 0) >= 1 ? `${Math.round(fit.dps!)} DPS` : 'no DPS figure (its engine gave none)'}, {fit.ehpK.toFixed(1)}k EHP{fit.speed ? `, ${units(Math.round(fit.speed))} m/s` : ''}</b></>}
       </div>
       {detail.perf && detail.perf.cells.length > (here ? 1 : 0) && (
@@ -169,7 +171,7 @@ function TrackerFitBody({ fit, detail, tierFit, hullPrice, tier, weather }: { fi
       <FitGrid fit={tierFit} crystal={null} data={data} />
       <FitActions hullId={fit.shipId} hullName={fit.shipName} label={`Abyss ${(fit.name || cellSaid(tier, weather)).slice(0, 36)}`} fit={tierFit} crystal={null} data={data} total={total} />
       <FitSkills data={data} />
-      <p className="note small" style={{ margin: 0, color: 'var(--faint)' }}>Fit: {tierFit.source}; read {ago(new Date(detail.at).toISOString(), Date.now())}. The cargo is what its pilot carries (ammunition, filaments); Multibuy takes it all, so trim what you don’t need.</p>
+      <p className="note small" style={{ margin: 0, color: 'var(--faint)' }}>Fit: {tierFit.source}; read {ago(new Date(detail.at).toISOString(), now)}. The cargo is what its pilot carries (ammunition, filaments); Multibuy takes it all, so trim what you don’t need.</p>
     </section>
   );
 }

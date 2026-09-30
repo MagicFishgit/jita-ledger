@@ -7,6 +7,7 @@
  * Read 30 September 2026 from ESI and CCP's static data (which skill each bonus follows, its "traits"). Pure.
  */
 
+import { units } from './format';
 import type { TypeDogma } from './miningYield';
 
 export type HoldKey = 'cargo' | 'fleet' | 'ore' | 'mineral' | 'ice' | 'gas' | 'ammo' | 'pi' | 'commandCenter' | 'infrastructure' | 'shipBay' | 'fuel';
@@ -84,6 +85,10 @@ export function holdsFor(hull: TypeDogma, modules: TypeDogma[], skills: Record<n
   }
   return out;
 }
+
+/** Each hold with room in it, as one line: "Cargo 7,250 m³ · Fleet hangar 62,500 m³". */
+export const holdsSaid = (h: Holds) => (Object.entries(h) as [HoldKey, number][]).filter(([, v]) => v > 0)
+  .map(([k, v]) => `${HOLD_SAID[k].replace(/ hold$/, '')} ${units(Math.round(v))} m³`).join(' · ');
 
 /** What a courier package can use: the cargo hold and any fleet hangar. */
 export const generalSpace = (h: Holds) => GENERAL_HOLDS.reduce((t, k) => t + (h[k] ?? 0), 0);

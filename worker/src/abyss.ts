@@ -6,6 +6,7 @@
  */
 
 import { compactCell, compactPerformance, type TrackerCell, type TrackerFitDetail } from '../../src/lib/abyssTracker';
+import { BadRequest } from './sync';
 
 const API = 'https://webapi.abysstracker.com';
 const HEADERS = { 'User-Agent': 'jita-ledger (hobby tool)', Accept: 'application/json' };
@@ -30,10 +31,12 @@ export async function refreshAbyss(db: D1Database, now = Date.now()): Promise<{ 
     if (now - (at.get(`${tier}:${weather}`) ?? 0) > CELL_AGE) due.push([tier, weather]);
   }
   due.sort((a, b) => (at.get(`${a[0]}:${a[1]}`) ?? 0) - (at.get(`${b[0]}:${b[1]}`) ?? 0));
-  let read = 0;
+  let read = 0, failedInARow = 0;
+  let error: string | null = null;
   for (const [tier, weather] of due) {
     try {
       const result = await get(`/Overview/GetOverviewData?tier=${tier}&weather=${weather}`);
+      failedInARow = 0;
       if (result) {
         const cell = compactCell(tier, weather, Date.now(), result);
         await db.prepare(`INSERT INTO abyss_cells (tier, weather, at, json) VALUES (?1, ?2, ?3, ?4)
@@ -41,12 +44,15 @@ export async function refreshAbyss(db: D1Database, now = Date.now()): Promise<{ 
         read++;
       }
     } catch (e) {
-      // A third party being down leaves yesterday's figures standing; the page says how old they are.
-      return { read, error: e instanceof Error ? e.message : String(e) };
+      // A third party being down leaves yesterday's figures standing; the page says how old they are. One cell failing
+      // is passed over (it's the oldest, so it comes first next hour and would otherwise hold every other cell back for
+      // good); three in a row is the site being down, so the rest wait for the next hour.
+      error ??= e instanceof Error ? e.message : String(e);
+      if (++failedInARow >= 3) break;
     }
     await pause(800);
   }
-  return { read, error: null };
+  return { read, error };
 }
 
 export async function abyssCells(db: D1Database): Promise<TrackerCell[]> {
@@ -56,16 +62,20 @@ export async function abyssCells(db: D1Database): Promise<TrackerCell[]> {
 
 /** A fit's EFT and performance, from the week's copy or Abyss Tracker. The ID is Abyss Tracker's (a GUID). */
 export async function abyssFit(db: D1Database, id: string, now = Date.now()): Promise<TrackerFitDetail> {
-  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Not an Abyss Tracker fit ID');
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new BadRequest('Not an Abyss Tracker fit ID');
   const row = await db.prepare(`SELECT at, json FROM abyss_fits WHERE id = ?1`).bind(id).first<{ at: number; json: string }>();
   if (row && now - row.at < FIT_AGE) return JSON.parse(row.json) as TrackerFitDetail;
   const eft = await get(`/Fit/GetEftById?id=${id}&type=eft`);
   await pause(300);
-  const perf = await get(`/Fit/GetPerformanceById?id=${id}`).catch(() => null);
+  let missed = false;
+  const perf = await get(`/Fit/GetPerformanceById?id=${id}`).catch(() => { missed = true; return null; });
   await pause(300);
-  const tts = await get(`/Fit/GetTierTypeStats?fitId=${id}`).catch(() => null);
+  const tts = await get(`/Fit/GetTierTypeStats?fitId=${id}`).catch(() => { missed = true; return null; });
   const detail: TrackerFitDetail = { id, at: now, eft: String(eft?.eft ?? ''), perf: compactPerformance(perf, tts) };
   if (!detail.eft) throw new Error('Abyss Tracker gave no fit for that ID');
+  // A fit whose performance reads failed isn't kept, either of them: without the survival figures (GetTierTypeStats) it
+  // would say "not run there" everywhere for a week over one bad answer. It's asked again next time.
+  if (missed) return detail;
   await db.prepare(`INSERT INTO abyss_fits (id, at, json) VALUES (?1, ?2, ?3) ON CONFLICT (id) DO UPDATE SET at = excluded.at, json = excluded.json`)
     .bind(id, now, JSON.stringify(detail)).run();
   return detail;

@@ -86,7 +86,7 @@ export function fittingBody(hullId: number, hull: string, label: string, t: Tier
   if (items.some((x) => !Number.isFinite(x.type_id))) return null;
   return {
     name: `${hull} ${label}`.slice(0, 50),
-    description: `Saved by Jita Ledger: the ${label} mining fit for the ${hull}.`.slice(0, 500),
+    description: `Saved by Jita Ledger: the ${label} fit for the ${hull}.`.slice(0, 500),
     ship_type_id: hullId, items,
   };
 }

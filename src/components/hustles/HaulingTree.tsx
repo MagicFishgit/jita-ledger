@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Truck } from 'lucide-react';
-import { bareEhp, CARGO_FIVE, generalSpace, HOLD_SAID, holdsFor, type HoldKey, type Holds } from '../../lib/cargo';
+import { bareEhp, CARGO_FIVE, generalSpace, holdsFor, holdsSaid } from '../../lib/cargo';
 import type { HullClass } from '../../lib/courier';
 import { units } from '../../lib/format';
 import { GANK_BY_CLASS, HAUL_EDGES, HAUL_HULLS, HAUL_LANES, HAUL_LOSSES, type HaulNode } from '../../lib/haulTree';
@@ -18,7 +18,6 @@ import { ShipTree } from '../ShipTree';
 /** ESI's hauling groups and the finder's hull classes, which its gank lines are kept by. */
 export const CLASS_OF_GROUP: Record<number, HullClass> = { 28: 'Industrial', 1202: 'Blockade Runner', 380: 'Deep Space Transport', 941: 'Orca', 513: 'Freighter', 902: 'Jump Freighter' };
 
-const holdsSaid = (h: Holds) => (Object.entries(h) as [HoldKey, number][]).filter(([, v]) => v > 0).map(([k, v]) => `${HOLD_SAID[k].replace(/ hold$/, '')} ${units(Math.round(v))} m³`).join(' · ');
 
 export function HaulingTree({ here, onUse, children }: {
   here: number | null;

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ExternalLink, Truck } from 'lucide-react';
-import { CARGO_FIVE, generalSpace, HOLD_SAID, holdsFor, structureFor, type HoldKey, type Holds } from '../../lib/cargo';
+import { CARGO_FIVE, generalSpace, holdsFor, holdsSaid, structureFor } from '../../lib/cargo';
 import type { HullClass } from '../../lib/courier';
 import { iskBig, units } from '../../lib/format';
 import { HAUL_FITS } from '../../lib/haulFits';
@@ -18,7 +18,6 @@ import { CLASS_OF_GROUP } from './HaulingTree';
  */
 
 const RULE_ISK_PER_EHP = 3000;
-const holdsSaid = (h: Holds) => (Object.entries(h) as [HoldKey, number][]).filter(([, v]) => v > 0).map(([k, v]) => `${HOLD_SAID[k].replace(/ hold$/, '')} ${units(Math.round(v))} m³`).join(' · ');
 
 export function HaulFits({ hull, price, dogma, onUse }: {
   hull: HaulNode; price: number | null; dogma: TypeDogma | null;
@@ -45,7 +44,7 @@ function HaulFitView({ hull, fit, price, dogma, onUse }: {
 }) {
   const d = useData();
   const data = useFitData(hull.id, fit, null);
-  const { total, fitCost } = fitCosts(fit, null, data, price);
+  const { total, fitCost, unpriced } = fitCosts(fit, null, data, price);
   // Every fitted module and rig's dogma, one entry a unit, for the cargo engine.
   const modules = useMemo(() => (data ? [...fit.high, ...fit.mid, ...fit.low, ...fit.rigs]
     .flatMap((x) => Array.from({ length: x.qty ?? 1 }, () => data.dogma[data.ids[x.name]])).filter(Boolean) : []), [data, fit]);
@@ -53,7 +52,11 @@ function HaulFitView({ hull, fit, price, dogma, onUse }: {
   const top = dogma && data ? holdsFor(dogma, modules, CARGO_FIVE) : null;
   const space = mine ? generalSpace(mine) : null;
   const rule = fit.ehpK != null ? fit.ehpK * 1000 * RULE_ISK_PER_EHP : null;
-  const modulesValue = fitCost;
+  // The rule counts the fitted modules, which can drop to a ganker: not the rigs (destroyed with the ship), not the
+  // drones or what the fit carries. Unknown until every module has a Jita price.
+  const fittedModules = [...fit.high, ...fit.mid, ...fit.low];
+  const modulesUnpriced = data ? fittedModules.filter((x) => data.price[x.name] == null).map((x) => x.name) : [];
+  const modulesValue = data && !modulesUnpriced.length ? fittedModules.reduce((t, x) => t + data.price[x.name]! * (x.qty ?? 1), 0) : null;
   return (
     <section className="col" style={{ gap: 12 }}>
       <p className="note small" style={{ margin: 0 }}>{fit.what}</p>
@@ -65,8 +68,8 @@ function HaulFitView({ hull, fit, price, dogma, onUse }: {
         <span data-tip="EVE Workbench’s own figure, at its own skill and implant assumptions (the API doesn’t say which).">EHP</span>
         <b>{fit.ehpK != null ? `${units(Math.round(fit.ehpK * 1000))} (EVE Workbench)` : 'Not worked out by EVE Workbench (an older fit)'}</b>
         {rule != null && <><span data-tip="EVE University, “Hauling” (revised 16 July 2026): keep the cargo plus the fitted modules (not the rigs) under about 3,000 ISK per EHP; 4–6 M per 1k EHP if you know your route and don’t autopilot. A guide, not a guarantee: zKillboard shows empty freighters ganked in Uedama.">Carry under about</span>
-          <b>{iskBig(Math.max(0, rule - (modulesValue ?? 0)))} of cargo, by EVE University’s rule of thumb</b></>}
-        <span>Costs</span><b>{total != null ? `${iskBig(total)} (hull ${iskBig(price!)}, fit ${iskBig(fitCost!)})` : data ? '–' : '…'}</b>
+          <b style={{ whiteSpace: 'normal' }}>{modulesValue != null ? `${iskBig(Math.max(0, rule - modulesValue))} of cargo, by EVE University’s rule of thumb` : data ? `– (no Jita listing for ${modulesUnpriced.join(', ')})` : '…'}</b></>}
+        <span>Costs</span><b style={{ whiteSpace: 'normal' }}>{total != null ? `${iskBig(total)} (hull ${iskBig(price!)}, fit ${iskBig(fitCost!)})` : data ? `–${unpriced.length ? ` (no Jita listing for ${unpriced.join(', ')})` : ''}` : '…'}</b>
       </div>
       {space != null && space > 0 && (
         <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
