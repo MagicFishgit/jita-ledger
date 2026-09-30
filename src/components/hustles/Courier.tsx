@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { CircleCheck, Skull, SlidersHorizontal, Truck } from 'lucide-react';
 import {
   byUsefulness, effectiveCapacity, HAULERS, judgeCourier, ORE_NOTE, roundTrips, tally, UNSAFE,
-  type CourierContract, type CourierFlag, type Endpoint,
+  type CourierContract, type CourierFlag, type Endpoint, type HullClass,
 } from '../../lib/courier';
 import { gankLineFor } from '../../lib/combat';
 import { iskBig, parseISK, units } from '../../lib/format';
@@ -12,9 +12,13 @@ import { THE_FORGE } from '../../lib/config';
 import { update, useData } from '../../lib/store';
 import { toast } from '../../lib/toast';
 import { HAULING_SKILLS } from '../../lib/skills';
-import { Check, cssVars, NumChip, Th, Tip } from '../ui';
+import { Check, cssVars, NumChip, Panel, Th, Tip } from '../ui';
 import { SkillPanel, useSkillIds } from './SkillPanel';
 import { useLearnedGankLines } from '../gank';
+import { HaulingTree } from './HaulingTree';
+import { HaulFits } from './HaulFits';
+import { useRightNow } from './rightNow';
+import { HAUL_HULLS } from '../../lib/haulTree';
 
 const FLAG: Record<CourierFlag, { short: string; why: string }> = {
   endUnknown: { short: 'Can’t see destination', why: 'The delivery point is a player structure that ESI won’t describe without docking access.\n\nThis is the classic hauling scam: you fly the cargo out, find you can’t dock, and the collateral is theirs. Never take one of these.' },
@@ -37,6 +41,9 @@ type Raw = { c: CourierContract; start: Endpoint; end: Endpoint; jumps: number |
 export function Courier() {
   const d = useData();
   const skillIds = useSkillIds(HAULERS.flatMap((h) => (h.bonuses ?? []).flatMap((b) => b.anyOf)));
+  // The ship you're in, when it's one that hauls: it glows on the tree.
+  const live = useRightNow();
+  const inHauler = live?.ship != null && HAUL_HULLS.some((h) => h.id === live.ship) ? live.ship : null;
   const levelOf = useCallback((name: string) => d.skills?.[skillIds[name] ?? -1] ?? 0, [d.skills, skillIds]);
   // What was fetched, kept separate from what it means. Judging happens at render against the
   // current limits, so changing your hauler re-reads the whole list instead of needing a rescan.
@@ -51,7 +58,9 @@ export function Courier() {
   const withSkills = useMemo(() => HAULERS.map((h) => ({ ...h, ...effectiveCapacity(h, levelOf) })), [levelOf]);
   const maxVolume = parseISK(vol) || 0;
   const chosen = withSkills.find((h) => h.m3 === maxVolume) ?? null;
-  const hull: string = chosen?.cls ?? 'Custom';
+  // A hull handed over from the tree below: its class keeps its gank line until the figure is changed by hand.
+  const [picked, setPicked] = useState<{ m3: number; cls: HullClass | null } | null>(null);
+  const hull: string = chosen?.cls ?? (picked && picked.m3 === maxVolume ? picked.cls : null) ?? 'Custom';
   const gank = gankLineFor(hull, d.prefs.gankLines, learned, d.prefs.learnFromLosses);
   const limits = { maxVolume, maxCollateral: parseISK(coll) || 0, minRewardPerJump: d.prefs.perJump };
 
@@ -97,6 +106,14 @@ export function Courier() {
   const shown = rows.filter((v) => !safeOnly || v.safe);
   const unsafeCount = rows.filter((v) => !v.safe).length;
   const short = (n: string | null) => n?.split(' ')[0] ?? '?';
+
+  // A hull or fit handed over from the tree: its courier space at your skills, and its class for gank lines.
+  const pickHull = (m3: number, cls: HullClass | null, name: string) => {
+    setVol(m3.toLocaleString('en-US'));
+    setPicked({ m3, cls });
+    toast(`The contract finder now takes ${name}’s ${m3.toLocaleString('en-US')} m³${cls ? `, and a ${cls}’s gank line` : ''}.`);
+    document.querySelector('.content')?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const setLine = (n: number | null) => {
     update((x) => {
@@ -221,6 +238,15 @@ export function Courier() {
           )}
         </>
       )}
+
+      <Panel title="Scaling up" sub="Every ship that hauls and the paths between them: click one for its holds at your skills, how its kind gets ganked, and its fits">
+        <p className="note small" style={{ margin: 0 }}>
+          Each race climbs the same ladder, left to right: a small and a big Tech I industrial, a Blockade Runner or a Deep Space Transport, a freighter, a jump freighter. Holds are worked out from ESI’s own figures at your skills; the loss records are zKillboard’s for high-sec, July to September 2026.
+        </p>
+        <HaulingTree here={inHauler} onUse={pickHull}>
+          {(h, price, dg) => <HaulFits hull={h} price={price} dogma={dg} onUse={pickHull} />}
+        </HaulingTree>
+      </Panel>
 
       <SkillPanel title="Skills this wants" needs={HAULING_SKILLS}
         note="Evasive Maneuvering is the one to train first and the one people skip. Align time is what decides whether a gank has time to land, and it costs nothing to fly a ship that aligns quickly." />

@@ -43,6 +43,72 @@ export function parseFilament(typeId: number, name: string): Filament | null {
   };
 }
 
+/**
+ * What a filament's own description says (ESI's `description`, the game's text): which ships it pulls in, the weather's
+ * penalty and bonus ("reduce explosive resistance", "enhance ship shield strength"), how long before the pocket collapses,
+ * where it can't be opened, and where opening it flags you suspect. Checked 30 September 2026 across the tiers: the
+ * suspect flag starts at Raging (0.8), then Chaotic (0.8, 0.7), then Cataclysmic (0.8 to 0.6). Null where the text says
+ * nothing, never a guess.
+ */
+export type FilamentFacts = {
+  ships: string | null; penalty: string | null; bonus: string | null; minutes: number | null;
+  cannotOpenIn: string[]; suspectIn: string[];
+};
+
+export function filamentFacts(description: string): FilamentFacts {
+  const d = description.replace(/\s+/g, ' ');
+  const secs = (re: RegExp) => { const m = re.exec(d); return m ? m[1].split(/,\s*|\s+or\s+/).map((x) => x.trim()).filter(Boolean) : []; };
+  const effect = /will <b>([^<]+)<\/b> but <b>([^<]+)<\/b>/.exec(d);
+  const minutes = /After <b>(?:<color=[^>]+>)?(\d+) minutes/.exec(d);
+  return {
+    ships: /pull an? <b>([^<]+)<\/b>/.exec(d)?.[1] ?? null,
+    penalty: effect?.[1] ?? null, bonus: effect?.[2] ?? null,
+    minutes: minutes ? Number(minutes[1]) : null,
+    cannotOpenIn: secs(/Cannot be activated in ([\d.,\sor]+?) systems/),
+    suspectIn: secs(/flagged as suspect if activated in ([\d.,\sor]+?) systems/),
+  };
+}
+
+/**
+ * What the game's text gets wrong, and what's true instead (research of 30 September 2026). Every filament's description
+ * still says it takes "a Tech I or Tech II Cruiser", and Tranquil's that it can't be opened in 1.0 or 0.9: stale.
+ */
+export const ENTRY = {
+  said: 'One cruiser (Tech I, Tech II, Navy or pirate; not a Strategic Cruiser), or up to two destroyers (two filaments, Tactical Destroyers allowed), or up to three frigates (three filaments). The loot scales with the filaments used: a three-frigate pocket’s cache holds about three times a cruiser’s.',
+  source: 'EVE University, “Abyssal Deadspace” (17 September 2026); two destroyers since Depths of the Abyss (15 September 2020). The filament’s own text still says only “Tech I or Tech II Cruiser”.',
+};
+
+/**
+ * Where a tier opens: Tranquil anywhere since patch 23.02 (2026; 24.01, 28 September 2026, fixed higher tiers opening in
+ * 0.9); the rest not in 1.0 or 0.9; the suspect flag from the filament's own text, which matches CCP's table of 4
+ * November 2022 (0.8: T4 and up; 0.7: T5 and up; 0.6: T6).
+ */
+export function whereItOpens(tierIndex: number, suspectIn: string[]): string {
+  const where = tierIndex === 0 ? 'Anywhere, 1.0 and 0.9 included (since patch 23.02; the filament’s own text still says otherwise)' : 'Not in 1.0 or 0.9 systems';
+  return suspectIn.length ? `${where}; opening it in ${suspectIn.join(', ')} flags you suspect` : where;
+}
+
+/** How strong the weather is: rolled per pocket, not in ESI (the weather types carry no dogma). EVE University, September 2026. */
+export const WEATHER_STRENGTH = 'The penalty is 30% or 50% at T0–T3 and 50% or 70% at T4–T6, rolled per pocket; the bonus is +50% (for capacitor, half the recharge time). It applies to the enemies too.';
+
+/** How each weather plays, from EVE University's guide (September 2026), in brief. */
+export const WEATHER_PLAY: Record<Weather, string> = {
+  Dark: 'No resist hole: turrets and drones lose range (missiles don’t), and so do the enemies’ turrets, so it takes less tank but more damage. Fly missiles.',
+  Electrical: 'The easiest weather: twice the capacitor recharge carries active tanks. The EM hole hurts shield tanks against Angels and Sanshas.',
+  Exotic: 'The kinetic hole is usually a help: most shield tanks’ holes are EM and thermal. The scan resolution bonus barely matters.',
+  Firestorm: 'Usually the hardest: +50% armour goes mostly to the armour-heavy enemies, so every kill takes longer; the thermal hole hurts too.',
+  Gamma: '+50% shield suits passive shield regeneration fits (Gila, Vagabond, Ishtar); the enemies’ shields barely regenerate. The explosive hole is armour tanks’ usual one.',
+};
+
+/**
+ * EVE University's rule of thumb per tier for a cruiser (FAQ, edited 11 February 2026): the damage and the tank (EHP a
+ * second) a clear takes. Frigates less; Dark about 30% less tank. T2 "not very popular... we do not recommend running T2s".
+ */
+export const TIER_CHECK: { dps: number; ehps: number }[] = [
+  { dps: 100, ehps: 50 }, { dps: 150, ehps: 150 }, { dps: 300, ehps: 300 }, { dps: 450, ehps: 450 },
+  { dps: 600, ehps: 600 }, { dps: 750, ehps: 750 }, { dps: 850, ehps: 950 },
+];
+
 /** Sorted the way the ladder reads: easiest first, then by weather. */
 export function byTier(a: Filament, b: Filament): number {
   return a.tierIndex - b.tierIndex || WEATHERS.indexOf(a.weather) - WEATHERS.indexOf(b.weather);

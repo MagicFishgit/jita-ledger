@@ -844,24 +844,27 @@ const freighter = HAULERS.find((h) => /^Freighter/.test(h.name));
 const none = () => 0;
 eq('an untrained pilot gets the bare hull', effectiveCapacity(freighter, none).m3, 465000);
 eq('  and nothing is claimed for them', effectiveCapacity(freighter, none).from.length, 0);
-// freighterBonusC1 and C2 are both 5, tied to the two skills a freighter requires. Both compound.
+const byName = (re) => HAULERS.find((h) => re.test(h.name));
+const at5 = (...skills) => (s) => (skills.includes(s) ? 5 : 0);
+eq('a Charon at Caldari Freighter V holds 581,250; Advanced Spaceship Command moves agility, not cargo', effectiveCapacity(freighter, at5('Caldari Freighter', 'Advanced Spaceship Command')).m3, 581250);
+eq('an Orca at Industrial Command Ships V: its 30,000 cargo grows, its 40,000 fleet hangar doesn’t', effectiveCapacity(byName(/^Orca/), at5('Industrial Command Ships')).m3, 77500);
+eq('a Bustard at Transport Ships V: its fleet hangar grows to 62,500 beside the 5,000 cargo', effectiveCapacity(byName(/^Deep/), at5('Transport Ships')).m3, 67500);
+eq('a Rhea at Caldari Freighter V: 180,000', effectiveCapacity(byName(/^Jump/), at5('Caldari Freighter')).m3, 180000);
+// A freighter's only cargo bonus is its racial Freighter skill's (ESI, 30 September 2026: freighterBonusC1 moves velocity,
+// Advanced Spaceship Command agility). It used to be counted twice.
 const allV = (n) => (n === 'Caldari Freighter' || n === 'Advanced Spaceship Command' ? 5 : 0);
-eq('both freighter bonuses apply at V', effectiveCapacity(freighter, allV).m3, Math.round(465000 * 1.25 * 1.25));
-eq('  naming the skills doing the work', effectiveCapacity(freighter, allV).from.length, 2);
-// Any race satisfies the racial half, same as the skills panel.
-eq('a Gallente freighter pilot gets the same', effectiveCapacity(freighter, (n) => (n === 'Gallente Freighter' ? 5 : 0)).m3, Math.round(465000 * 1.25));
+eq('one freighter bonus at V, not two', effectiveCapacity(freighter, allV).m3, Math.round(465000 * 1.25));
+eq('  naming the skill doing the work', effectiveCapacity(freighter, allV).from.map((x) => x.skill), ['Caldari Freighter']);
+// The preset is a Charon: another race's Freighter skill flies another race's freighter (the Hauling tree has them all).
+eq('a Gallente freighter pilot gets nothing for a Charon', effectiveCapacity(freighter, (n) => (n === 'Gallente Freighter' ? 5 : 0)).m3, 465000);
 // Part-trained is part of the bonus, not all or nothing.
 eq('three levels give three levels of bonus', effectiveCapacity(freighter, (n) => (n === 'Caldari Freighter' ? 3 : 0)).m3, Math.round(465000 * 1.15));
-// The Orca's bonus attribute names the stat, so it is applied; the classes whose attributes do not
-// say what they modify get nothing rather than a guess.
-const orca = HAULERS.find((h) => /^Orca/.test(h.name));
-eq('the Orca bonus applies', effectiveCapacity(orca, (n) => (n === 'Industrial Command Ships' ? 5 : 0)).m3, Math.round(70000 * 1.25));
 const dst = HAULERS.find((h) => /^Deep Space/.test(h.name));
-eq('a class with no verified cargo bonus is left alone', effectiveCapacity(dst, () => 5).m3, dst.m3);
+eq('a DST’s fleet hangar bonus applies to the hangar alone', effectiveCapacity(dst, () => 5).m3, 5000 + 62500);
 // A freighter pilot should see contracts an untrained one cannot take.
-const bigHaul = { contractId: 9, reward: 50_000_000, collateral: 0, volume: 600_000, daysToComplete: 5, dateExpired: '2026-10-30T00:00:00Z', startId: 1, endId: 2, title: '' };
+const bigHaul = { contractId: 9, reward: 50_000_000, collateral: 0, volume: 550_000, daysToComplete: 5, dateExpired: '2026-10-30T00:00:00Z', startId: 1, endId: 2, title: '' };
 const trainedLimits = { ...LIM, maxVolume: effectiveCapacity(freighter, allV).m3 };
-has('600,000 m3 is too big for a bare freighter', judgeCourier(bigHaul, stn(0.9), stn(0.8), 10, { ...LIM, maxVolume: 465000 }, NOWC).flags, 'tooBig');
+has('550,000 m3 is too big for a bare freighter', judgeCourier(bigHaul, stn(0.9), stn(0.8), 10, { ...LIM, maxVolume: 465000 }, NOWC).flags, 'tooBig');
 eq('  but not for a trained one', judgeCourier(bigHaul, stn(0.9), stn(0.8), 10, trainedLimits, NOWC).takeable, true);
 
 console.log('\n--- planets ---');
@@ -1303,6 +1306,94 @@ console.log('\n--- mining yields, from dogma ---');
   const pers = T(91174, 1283, { 6062: 100, 5820: 10, 5821: 5 }, [12771, 12772, 12773]);
   const iceL2 = T(37451, 54, { 77: 1000, 73: 300000, 182: 16281, 5967: 0.01, 5969: 2, 3154: 34, 3153: 1 });
   near('the Perseverance crits on ice: ×2 (role) × 1.5 (Mining Destroyer V), each ×1.25 bigger', [fitYield(pers, iceL2, 3, null, [], { ...all5, 89241: 5 }, crits).critChance, fitYield(pers, iceL2, 3, null, [], { ...all5, 89241: 5 }, crits).critShare], [0.03, 0.03 * 2.5], 1e-12);
+}
+
+console.log('\n--- hauling holds, from dogma ---');
+{
+  const { holdsFor, generalSpace, structureFor } = await import('../src/lib/cargo.ts');
+  const near = (label, got, want, tol) => {
+    const g = [got].flat(), w = [want].flat();
+    if (!(g.length === w.length && g.every((x, i) => Math.abs(x - w[i]) <= tol))) { failed++; console.log(`  FAIL ${label}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`); }
+  };
+  const T = (id, attrs, effects = []) => ({ id, group: 0, attrs, effects });
+  // ESI's figures (30 September 2026), cut to what the holds read.
+  const iteron = T(657, { 38: 5800, 496: 5, 9: 970 }, [726, 729]);
+  const ech2 = T(1319, { 149: 1.275, 150: 0.77 }, [59, 3046, 3047]);
+  const rig = T(31119, { 614: 15 }, [836, 2712]);
+  const bulk = T(1335, { 149: 0.89, 150: 1.25 }, [59, 60, 657]);
+  eq('an Iteron Mark V: 5,800 × 1.25 at Gallente Hauler V', holdsFor(iteron, [], { 3340: 5 }).cargo, 7250);
+  near('  five Expanded Cargohold IIs (×1.275 each, no stacking penalty) and three cargo rigs (+15% each)', holdsFor(iteron, [ech2, ech2, ech2, ech2, ech2, rig, rig, rig], { 3340: 5 }).cargo, 7250 * 1.275 ** 5 * 1.15 ** 3, 1e-6);
+  near('  its structure: 970 × 0.77 an expander, × 1.25 a bulkhead', [structureFor(iteron, [ech2, ech2]), structureFor(iteron, [bulk])], [970 * 0.77 * 0.77, 970 * 1.25], 1e-9);
+  const charon = T(20185, { 38: 465000, 888: 5, 889: 5 }, [1615, 1669, 1673, 5901]);
+  eq('a Charon at Caldari Freighter V holds 581,250: its only cargo bonus is the racial Freighter one (C1 moves velocity; Advanced Spaceship Command, agility)', holdsFor(charon, [], { 20526: 5, 20342: 5 }).cargo, 581250);
+  const bustard = T(12731, { 38: 5000, 912: 50000, 807: 5 }, [730, 5874]);
+  eq('a Bustard: Transport Ships V grows the fleet hangar, not the cargo; a package can use both', ((h) => [h.cargo, h.fleet, generalSpace(h)])(holdsFor(bustard, [], { 19719: 5 })), [5000, 62500, 67500]);
+  const orca = T(28606, { 38: 30000, 912: 40000, 1556: 150000, 3211: 5, 3212: 5 }, [8278, 8279]);
+  eq('an Orca at Industrial Command Ships V: cargo and ore hold grow, the fleet hangar doesn’t', ((h) => [h.cargo, h.fleet, h.ore, generalSpace(h)])(holdsFor(orca, [], { 29637: 5 })), [37500, 40000, 187500, 77500]);
+  const epithal = T(655, { 38: 550, 1653: 45000, 1646: 6000, 813: 10 }, [729, 5478]);
+  const trans = { id: 33900, group: 773, attrs: { 327: 25, 1138: -10 }, effects: [392, 5868] };
+  eq('a Transverse Bulkhead rig costs 10% cargo, 5% at Armor Rigging V', [holdsFor(orca, [trans], { 29637: 5 }).cargo, holdsFor(orca, [trans], { 29637: 5, 26253: 5 }).cargo], [37500 * 0.9, 37500 * 0.95]);
+  eq('  and never touches the fleet hangar', holdsFor(orca, [trans, trans, trans], { 29637: 5 }).fleet, 40000);
+  const { bareEhp } = await import('../src/lib/cargo.ts');
+  // The Badger's HP and resonances from ESI; the research's no-skill uniform EHP for it was 6,172.
+  const badger = T(648, { 263: 1440, 265: 750, 9: 2060, 271: 1, 272: 0.5, 273: 0.6, 274: 0.8, 267: 0.5, 268: 0.9, 269: 0.75, 270: 0.55, 113: 0.67, 111: 0.67, 109: 0.67, 110: 0.67 });
+  eq('a bare hull’s EHP against even damage: each layer over its mean resonance (the Badger: about 6,172)', Math.round(bareEhp(badger)), 6172);
+  eq('an Epithal: +10% a level to the planetary hold only; expanders never reach a specialised hold', ((h) => [h.cargo, h.pi, h.commandCenter])(holdsFor(epithal, [ech2], { 3340: 5 })), [550 * 1.275, 67500, 6000]);
+}
+
+console.log('\n--- hauling fits ---');
+{
+  const { HAUL_FITS } = await import('../src/lib/haulFits.ts');
+  const { HAUL_HULLS } = await import('../src/lib/haulTree.ts');
+  // Each hull's high, mid, low and rig slots (ESI, 30 September 2026).
+  const SLOTS = {"648":[2,6,4,3],"649":[2,5,4,3],"650":[2,5,5,3],"651":[3,4,3,3],"652":[2,4,5,3],"653":[2,5,5,3],"654":[2,4,4,3],"655":[2,4,4,3],"656":[2,4,4,3],"657":[2,4,5,3],"1944":[2,3,6,3],"2863":[0,0,4,0],"12729":[2,4,2,2],"12731":[2,6,3,2],"12733":[2,2,4,2],"12735":[2,3,3,2],"12743":[2,3,3,2],"12745":[2,3,6,2],"12747":[2,5,4,2],"12753":[2,2,7,2],"19744":[2,4,6,3],"20183":[0,0,3,0],"20185":[0,0,3,0],"20187":[0,0,3,0],"20189":[0,0,3,0],"28606":[6,5,2,3],"28844":[0,0,3,0],"28846":[0,0,3,0],"28848":[0,0,3,0],"28850":[0,0,3,0],"34328":[0,3,3,3],"42244":[4,4,2,3],"81008":[4,5,3,3],"81040":[6,3,3,0],"81046":[4,4,2,2],"81047":[4,6,3,2]};
+  const n = (xs) => xs.reduce((t, x) => t + (x.qty ?? 1), 0);
+  eq('no hauling fit uses more slots than its hull has', Object.entries(HAUL_FITS).flatMap(([id, fits]) => fits.filter((f) => { const s = SLOTS[id]; return !s || n(f.high) > s[0] || n(f.mid) > s[1] || n(f.low) > s[2] || n(f.rigs) > s[3]; }).map((f) => `${id}: ${f.purpose}`)), []);
+  eq('every hull with fits is on the tree', Object.keys(HAUL_FITS).filter((id) => !HAUL_HULLS.some((h) => h.id === Number(id))), []);
+}
+
+console.log('\n--- ship trees ---');
+{
+  const { treeProblems, edgeShape } = await import('../src/lib/shipTree.ts');
+  const mining = await import('../src/lib/miningTree.ts');
+  const haul = await import('../src/lib/haulTree.ts');
+  const abyss = await import('../src/lib/abyssShips.ts');
+  eq('a path one row down bends across the whole gap between columns, as it always did', edgeShape({ col: 0, row: 0 }, { col: 1, row: 1 }), { x1: 0.5, y1: 0.5, x2: 1.5, y2: 1.5, m: 1, xa: 0.5, xb: 1.5 });
+  eq('  three rows down it bends within a third of that, clear of the nodes beside it', ((e) => [e.xa, e.xb].map((x) => +x.toFixed(3)))(edgeShape({ col: 0, row: 3 }, { col: 1, row: 0 })), [0.833, 1.167]);
+  eq('a path drawn straight through a node is caught', treeProblems([{ id: 1, col: 0, row: 0, lane: 'a', role: '' }, { id: 2, col: 1, row: 0, lane: 'a', role: '' }, { id: 3, col: 2, row: 0, lane: 'a', role: '' }], [[1, 3]]), ['path 1 → 3 runs behind 2']);
+  eq('  and two nodes in one place, and a path to nowhere', treeProblems([{ id: 1, col: 0, row: 0, lane: 'a', role: '' }, { id: 2, col: 0, row: 0, lane: 'a', role: '' }], [[1, 9]]), ['1 and 2 both at 0,0', 'path 1 → 9 names a node that isn\'t there']);
+  eq('the mining tree: no path runs behind a ship it doesn’t join', treeProblems(mining.HULLS, mining.EDGES), []);
+  eq('the hauling tree likewise', treeProblems(haul.HAUL_HULLS, haul.HAUL_EDGES), []);
+  eq('the Abyssal tree likewise', treeProblems(abyss.ABYSS_SHIPS, abyss.ABYSS_EDGES), []);
+  eq('every Abyssal ship has its fits, and every fit its ship on the tree', [abyss.ABYSS_SHIPS.filter((s) => !abyss.ABYSS_TIERS[s.id]?.length).map((s) => s.name), Object.keys(abyss.ABYSS_TIERS).filter((id) => !abyss.ABYSS_SHIPS.some((s) => s.id === Number(id)))], [[], []]);
+  eq('every Abyssal fit is an Abyss Tracker fit ID, each once', ((ids) => [ids.filter((x) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(x)), ids.length - new Set(ids).size])(Object.values(abyss.ABYSS_TIERS).flat().map((t) => t.id)), [[], 0]);
+  eq('the Abyssal tree fits its grid: seven tiers across, nine lines down', abyss.ABYSS_SHIPS.filter((s) => s.col < 0 || s.col > 6 || s.row < 0 || s.row > 8).map((s) => s.name), []);
+}
+
+console.log('\n--- EFT fits ---');
+{
+  const { parseEft, eftToTier } = await import('../src/lib/eft.ts');
+  // A Cerberus fit as Abyss Tracker gave it (30 September 2026), the empty sections included.
+  const eft = "[Cerberus, rezdrhgds]\nCaldari Navy Ballistic Control System\nCaldari Navy Ballistic Control System\nCaldari Navy Ballistic Control System\nAssault Damage Control II\n\nThukker Large Cap Battery\nPith X-Type Large Shield Booster\nFederation Navy Stasis Webifier\nFederation Navy Stasis Webifier\nCorelum C-Type 10MN Afterburner\n\nHeavy Assault Missile Launcher II, Scourge Rage Heavy Assault Missile\nHeavy Assault Missile Launcher II, Scourge Rage Heavy Assault Missile\n\nMedium Ancillary Current Router I\nMedium EM Shield Reinforcer II\n\n\nHornet I x3\n\n\nAgency 'Hardshell' TB3 Dose I\nSynth Blue Pill Booster\n\n\nCaldari Navy Scourge Heavy Assault Missile x3000\nRaging Dark Filament x4\n";
+  const p = parseEft(eft);
+  eq('EFT: a drone listed twice is one line, summed', eftToTier(parseEft('[Gila, x]\n\n\n\n\nInfiltrator II x2\nInfiltrator II x5\n'), () => 18, { key: 'solid', what: '', source: '' }).drones, [{ name: 'Infiltrator II', qty: 7 }]);
+  eq('EFT: the hull and name, and each slot section in order, repeats counted', [p.hull, p.name, p.low.map((x) => [x.name, x.qty]), p.mid.length, p.rigs.map((x) => x.name)], ['Cerberus', 'rezdrhgds', [['Caldari Navy Ballistic Control System', 3], ['Assault Damage Control II', 1]], 4, ['Medium Ancillary Current Router I', 'Medium EM Shield Reinforcer II']]);
+  eq('  a module’s loaded charge after its comma', p.high, [{ name: 'Heavy Assault Missile Launcher II', qty: 2, charge: 'Scourge Rage Heavy Assault Missile' }]);
+  eq('  what follows the rigs, with its counts', p.rest, [{ name: 'Hornet I', qty: 3 }, { name: "Agency 'Hardshell' TB3 Dose I", qty: 1 }, { name: 'Synth Blue Pill Booster', qty: 1 }, { name: 'Caldari Navy Scourge Heavy Assault Missile', qty: 3000 }, { name: 'Raging Dark Filament', qty: 4 }]);
+  const cats = { 'Hornet I': 18, "Agency 'Hardshell' TB3 Dose I": 20, 'Synth Blue Pill Booster': 20, 'Caldari Navy Scourge Heavy Assault Missile': 8, 'Raging Dark Filament': 17 };
+  const t = eftToTier(p, (n) => cats[n] ?? null, { key: 'solid', what: '', source: '' });
+  eq('  sorted by category: drones, boosters with the implants, the rest to the cargo', [t.drones, t.implants, t.cargo.map((x) => x.name)], [[{ name: 'Hornet I', qty: 3 }], ["Agency 'Hardshell' TB3 Dose I", 'Synth Blue Pill Booster'], ['Caldari Navy Scourge Heavy Assault Missile', 'Raging Dark Filament']]);
+  eq('  empty slots and offline marks are dropped; no header is no fit', [parseEft('[Worm, x]\n[Empty Low slot]\nDamage Control II /OFFLINE').low, parseEft('Damage Control II')], [[{ name: 'Damage Control II', qty: 1 }], null]);
+}
+
+console.log('\n--- abyssal filaments ---');
+{
+  const { filamentFacts } = await import('../src/lib/abyssal.ts');
+  // ESI's own text for Cataclysmic Gamma and Tranquil Electrical (30 September 2026), cut to what's read.
+  const cat = 'This Abyssal Filament will pull a <b>Tech I or Tech II Cruiser</b> into a pocket of Abyssal Deadspace experiencing <b>cataclysmic local environmental destabilization</b>, and bathed in the radioactive afterglow of a gamma-ray burst that will <b>reduce explosive resistance</b> but <b>enhance ship shield strength</b>.\n\n<b><color=yellow>Restrictions:</color></b>  Cannot be activated in 1.0 or 0.9 systems. Capsuleer will be flagged as suspect if activated in 0.8, 0.7 or 0.6 systems. \n\n<b><color=yellow>Warning:</color></b> Abyssal Deadspace is a particularly harsh and unforgiving environment. ... After <b><color=yellow>20 minutes</color></b> catastrophic collapse';
+  eq('a filament’s own text: its ships, the weather’s penalty and bonus, the timer, where it can’t open and where it flags you', filamentFacts(cat), { ships: 'Tech I or Tech II Cruiser', penalty: 'reduce explosive resistance', bonus: 'enhance ship shield strength', minutes: 20, cannotOpenIn: ['1.0', '0.9'], suspectIn: ['0.8', '0.7', '0.6'] });
+  const calm = 'will pull a <b>Tech I or Tech II Cruiser</b> into a pocket ... that will <b>reduce EM resistance</b> but <b>enhance ship capacitor recharging</b>. <b><color=yellow>Restrictions:</color></b> Cannot be activated in 1.0 or 0.9 systems.';
+  eq('  no suspect flag below Raging, and nothing claimed that the text doesn’t say', filamentFacts(calm), { ships: 'Tech I or Tech II Cruiser', penalty: 'reduce EM resistance', bonus: 'enhance ship capacitor recharging', minutes: null, cannotOpenIn: ['1.0', '0.9'], suspectIn: [] });
 }
 
 console.log('\n--- mining fits ---');

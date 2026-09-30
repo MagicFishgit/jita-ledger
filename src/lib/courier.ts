@@ -163,8 +163,10 @@ export function byUsefulness(a: CourierVerdict, b: CourierVerdict): number {
 export type HaulerBonus = {
   /** Any one of these skills; the best trained level counts. */
   anyOf: string[];
-  /** Percent of base cargo added per level. */
+  /** Percent added per level. */
   perLevel: number;
+  /** The part of the capacity it grows, when not all of it: a DST's fleet hangar, an Orca's cargo hold. */
+  onM3?: number;
 };
 
 /** Hull classes as ESI's inventory groups name them, so a lost ship can be matched to one. */
@@ -174,33 +176,31 @@ export type HullClass = 'Industrial' | 'Blockade Runner' | 'Deep Space Transport
 export function hullClassOf(group: string | null): HullClass | null {
   if (!group) return null;
   if (group === 'Industrial Command Ship') return 'Orca';
+  // ESI renamed group 28 from "Industrial" to "Hauler" (checked 30 September 2026); both are the T1 haulers.
+  if (group === 'Hauler') return 'Industrial';
   return (['Industrial', 'Blockade Runner', 'Deep Space Transport', 'Jump Freighter', 'Freighter'] as const).find((c) => c === group) ?? null;
 }
 
+/**
+ * One real hull per class, with ESI's own rules (30 September 2026; the Hauling tree below the finder has every hull and
+ * its fits). Until then these over-counted: a freighter got Advanced Spaceship Command's 5% a level too (it moves agility,
+ * not cargo: a Charon at V is 581,250, not 726,563), the Orca's bonus was put on its fleet hangar (it grows the cargo hold
+ * only: 77,500 at V, not 87,500), and a DST's fleet-hangar bonus and a jump freighter's cargo bonus were missing.
+ */
 export const HAULERS: { name: string; cls: HullClass; m3: number; bonuses?: HaulerBonus[] }[] = [
-  { name: 'Industrial — Iteron Mark V, Badger, Wreathe, Sigil', cls: 'Industrial', m3: 5800 },
-  { name: 'Blockade Runner — Crane, Viator, Prowler, Prorator', cls: 'Blockade Runner', m3: 4300 },
-  { name: 'Deep Space Transport — Bustard, Mastodon, Occator, Impel', cls: 'Deep Space Transport', m3: 55000 },
-  {
-    name: 'Orca (ORE, Industrial Command Ships)', cls: 'Orca', m3: 70000,
-    bonuses: [{ anyOf: ['Industrial Command Ships'], perLevel: 5 }],
-  },
-  { name: 'Jump Freighter — Rhea, Anshar, Ark, Nomad', cls: 'Jump Freighter', m3: 144000 },
-  {
-    name: 'Freighter — Charon, Obelisk, Providence, Fenrir', cls: 'Freighter', m3: 465000,
-    bonuses: [
-      { anyOf: ['Amarr Freighter', 'Caldari Freighter', 'Gallente Freighter', 'Minmatar Freighter'], perLevel: 5 },
-      { anyOf: ['Advanced Spaceship Command'], perLevel: 5 },
-    ],
-  },
+  { name: 'Industrial — Tayra, the biggest Tech I hauler', cls: 'Industrial', m3: 7300, bonuses: [{ anyOf: ['Caldari Hauler'], perLevel: 5 }] },
+  { name: 'Blockade Runner — Crane', cls: 'Blockade Runner', m3: 4300, bonuses: [{ anyOf: ['Caldari Hauler'], perLevel: 5 }] },
+  { name: 'Deep Space Transport — Bustard, cargo and fleet hangar', cls: 'Deep Space Transport', m3: 55000, bonuses: [{ anyOf: ['Transport Ships'], perLevel: 5, onM3: 50000 }] },
+  { name: 'Orca — cargo and fleet hangar', cls: 'Orca', m3: 70000, bonuses: [{ anyOf: ['Industrial Command Ships'], perLevel: 5, onM3: 30000 }] },
+  { name: 'Jump Freighter — Rhea', cls: 'Jump Freighter', m3: 144000, bonuses: [{ anyOf: ['Caldari Freighter'], perLevel: 5 }] },
+  { name: 'Freighter — Charon', cls: 'Freighter', m3: 465000, bonuses: [{ anyOf: ['Caldari Freighter'], perLevel: 5 }] },
 ];
 
 /**
  * What that hull holds for *you*, rather than for a pilot who has trained nothing.
  *
- * A Charon at Advanced Spaceship Command V and its racial Freighter V carries 1.5625 times its base
- * --- the difference between seeing a 600,000 m3 contract as impossible and as an evening's work.
- * Bonuses compound rather than add, which is how EVE applies them.
+ * A Charon at Caldari Freighter V carries 1.25 times its base, 581,250 m3. Bonuses compound rather than add, which is
+ * how EVE applies them; one that grows only part of the space (`onM3`) grows only that part.
  */
 export function effectiveCapacity(
   hauler: { m3: number; bonuses?: HaulerBonus[] },
@@ -213,7 +213,8 @@ export function effectiveCapacity(
       .map((skill) => ({ skill, level: levelOf(skill) }))
       .sort((x, y) => y.level - x.level)[0];
     if (!best || best.level <= 0) continue;
-    m3 *= 1 + (b.perLevel / 100) * best.level;
+    if (b.onM3 != null) m3 += b.onM3 * (b.perLevel / 100) * best.level;
+    else m3 *= 1 + (b.perLevel / 100) * best.level;
     from.push({ ...best, perLevel: b.perLevel });
   }
   return { m3: Math.round(m3), from };

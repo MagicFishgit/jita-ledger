@@ -26,6 +26,14 @@ Decisions worth not undoing. Conventions for wording, layout, tooltips, numbers 
   `reloadApp`, which first writes the saves still waiting (the ledger holds each 250 ms, the cloud its unsent list
   500 ms). Checked in an emulated phone against the production build: short pull nothing, long pull reloads, none
   while scrolled down or swiping sideways; a newer version.json shows the notice in view and reloads on leaving.
+- **A ship tree's paths never run behind a ship they don't join** (`edgeShape`, `treeProblems` in `lib/shipTree.ts`,
+  tested for all three trees). ShipTree drew each path as one S from centre to centre, which on a long drop cut across the
+  corners of the ships beside it: the shipped Mining tree's Venture → Venture Consortium Issue clipped the Pioneer, and the
+  Abyssal tree's first layout ran Gila → Vagabond behind Cerberus, which reads as Gila → Cerberus → Vagabond. Now a path
+  runs straight out, bends within the gap between columns (tighter the more rows it drops), and runs straight in, and the
+  check walks each path against every other ship's box, so moving a node that breaks it fails `npm run check`. A lane's
+  name wraps within its column, clear of the paths between columns. A ship's long note sits under its picture, full
+  width; beside it, it made a narrow column on a phone.
 - **Every page works at a phone's width** (390 px; the phone rules are the last block of `styles.css`, on purpose:
   they override base rules of the same weight, which a later rule would win, and the first attempt at them sat
   early in the file and half of it did nothing). Nothing may stick out past the screen's edge: rows, switch groups

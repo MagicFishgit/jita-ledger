@@ -254,8 +254,36 @@ Don't re-derive or contradict these without new evidence.
   someone to a contract they cannot pick up. For hulls with a fleet hangar the usable figure is cargo
   **plus** hangar, since a courier package travels in either; that is why a Deep Space Transport with
   a 3,900 m³ hold is the standard ship for 50,000 m³ contracts.
-- **Only two cargo bonuses are applied, because only they name the stat they move.**
-  `freighterBonusC1`/`C2` on a freighter (both 5, tied to the racial Freighter skill and Advanced
-  Spaceship Command, compounding — a Charon at both V holds 726,563 m³) and
-  `industrialCommandBonusShipCargoCapacity` on the Orca. Other classes carry bonus attributes whose
-  target stat the data does not state; nothing is assumed for those.
+- **Every hold bonus is read by the effect that applies it, and each moves one hold** (`lib/cargo.ts`, `CARGO_RULES`: effect,
+  its bonus attribute, the hold it grows, the skill it follows per CCP's static data's traits; checked 30 September 2026). What
+  was written here before was wrong on both counts: **a freighter's only cargo bonus is its racial Freighter skill's**, +5% a
+  level, so a Charon at Caldari Freighter V holds **581,250** m³, not 726,563 (that compounded `freighterBonusC1`, which moves
+  velocity, and Advanced Spaceship Command, which moves agility); and the other classes' bonuses do say what they move, once
+  read by effect. **The Orca's Industrial Command Ships bonus grows its cargo hold and ore hold, never its 40,000 m³ fleet
+  hangar** (a package can use 77,500 m³ at V). **Transport Ships grows a Deep Space Transport's fleet hangar**, not its cargo
+  (a Bustard's 50,000 to 62,500). Expanded Cargoholds (×1.275 for a II), cargo rigs (+15% for a I) and Reinforced Bulkheads
+  reach the cargo hold only, without a stacking penalty; a Transverse Bulkhead rig's −10% cargo drawback shrinks 10% a level
+  with its rigging skill (−5% at Armor Rigging V). Specialised holds (ore, planetary, mineral, infrastructure…) take only
+  their own goods and no expanders.
+- **ESI renamed group 28 from "Industrial" to "Hauler"** (seen 30 September 2026), the way the skills became *Caldari
+  Hauler*. `hullClassOf` and Combat's `HAULER_GROUPS` take both names; a check on the group *name* would have lost every
+  Tech I industrial.
+- **Abyss Tracker (abysstracker.com, built by the EVE Workbench team) has a public API with no CORS header**
+  (`webapi.abysstracker.com`, read 30 September 2026; `abyss.eve-nt.uk` is the same app on IPv6 only). Its enums: tiers 0
+  Tranquil to 6 Cataclysmic; weathers **0 Electrical, 1 Dark, 2 Exotic, 3 Firestorm, 4 Gamma**. `/Overview/GetOverviewData?
+  tier=&weather=` gives a cell's run count, median loot per pocket by hull size with a band, drop rates and its most-run fits
+  (`totalEhp` in **thousands**); `/Fit/GetEftById?id=&type=eft` a fit's EFT; `/Fit/GetPerformanceById` and
+  `/Fit/GetTierTypeStats?fitId=` its runs, survival and ISK per cell. Fit pages are `abysstracker.com/fit/{id}`, a cell's
+  `info-page/{tier}/{weather}`; per-ship pages don't exist ("Not implemented yet!" in its code). **A pocket's run is logged
+  under one pilot's hull**, so a trio's Deacon and Vengeance never reach a most-run list though zKillboard has them as the
+  4th and 5th most-lost abyssal hulls (21–29 September 2026). **Its logged losses are far too low**: the Gila's top fits log
+  0.7% lost, while zKillboard shows about 25 Gilas lost in the Abyss a day. Compare fits with them; never price risk.
+- **A filament's in-game description is stale; its dogma isn't.** Weather is attribute 2760 and tier 2761 on the filament.
+  The descriptions still say Tranquil can't be opened in 1.0 or 0.9 and "Tech I or Tech II Cruiser" only; since patch 23.02
+  (May–June 2026) Tranquil opens anywhere in high-sec, and a pocket takes one cruiser, two destroyers on two filaments or three
+  frigates on three (EVE University, CCP's patch notes). The main loot can scales with filaments used (about 3× for frigates,
+  2× for destroyers); the side cans don't. The weathers' strengths aren't in ESI or the static data (the wiki: penalties
+  30/50% at T0–T3, 50/70% at T4–T6, bonus +50%), so the app quotes them as the wiki's (`WEATHER_STRENGTH`).
+- **Frigate pockets pay more than cruiser pockets**: Abyss Tracker's median loot a pocket is 2.0–2.9× a cruiser's at every
+  tier (330 M against 121 M at T6), about the same per ship once split three ways. zKillboard can say a lost ship's tier only
+  when a tier-named NPC is on the mail (270 of 1,847), and its weather never.

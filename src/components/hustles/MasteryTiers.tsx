@@ -1,21 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ClipboardCopy, Save, ShoppingCart } from 'lucide-react';
-import { getAuth, hasScope } from '../../lib/auth';
-import { SCOPE } from '../../lib/config';
-import { esi } from '../../lib/esi';
 import { isk, iskBig, units } from '../../lib/format';
-import { jitaBook, resolveIds } from '../../lib/market';
+import { resolveIds } from '../../lib/market';
 import { paybackHours } from '../../lib/mining';
 import { MASTERY } from '../../lib/miningMastery';
-import { crystalName, DEEP_CORE, DEEP_CORE_RIG, eftText, fitItems, fitMultibuy, fittingBody, mercoxitTier, TIER_SAID, type Family, type FitItem, type MercoxitFit, type Tier, type TierKey } from '../../lib/miningFits';
+import { crystalName, DEEP_CORE, DEEP_CORE_RIG, mercoxitTier, TIER_SAID, type Family, type FitItem, type MercoxitFit, type Tier, type TierKey } from '../../lib/miningFits';
 import type { HullNode } from '../../lib/miningTree';
 import { ALL_FIVE, fitYield, SKILL, YIELD_SKILLS, type FitYield, type TypeDogma } from '../../lib/miningYield';
 import { useData } from '../../lib/store';
-import { typeDogma, typeRequirements } from '../../lib/universe';
-import { copyMultibuy } from '../common';
-import { SkillNeeds } from '../SkillStrip';
-import { toast } from '../../lib/toast';
-import { ItemIcon, Seg } from '../ui';
+import { typeDogma } from '../../lib/universe';
+import { fitCosts, FitActions, FitGrid, FitSkills, useFitData } from '../FitParts';
+import { Seg } from '../ui';
 
 /**
  * A hull's mastery tiers, under its node in the mining tree: the fit, what it costs at Jita, what it asks you to train,
@@ -98,49 +92,19 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
 }) {
   const d = useData();
   const crystal = tier.crystal ? crystalName(family, tier.crystal.kind) : null;
-  const items = useMemo(() => fitItems(tier, crystal), [tier, crystal]);
-  const [got, setGot] = useState<Loaded | null>(null);
+  const oldLasers = useMemo(() => (merc ? merc.swapped.map(([old]) => old) : []), [merc]);
+  const data = useFitData(hull.id, tier, crystal, { dogmaNames: oldLasers, dogmaIds: YIELD_SKILLS });
+  // Mercoxit's gas-cloud chance: the ore's own (522) and what Deep Core Mining takes off it a level (543).
+  const [cloud, setCloud] = useState<Loaded['cloud']>(null);
   useEffect(() => {
+    if (!merc) { setCloud(null); return; }
     let alive = true;
-    (async () => {
-      const oldLasers = merc ? merc.swapped.map(([old]) => old) : [];
-      const names = [...new Set([...items.map((x) => x.name), ...(tier.implants ?? []), ...tier.train.map(([s]) => s), ...oldLasers])];
-      const res = await resolveIds(names).catch(() => null);
-      const ids: Record<string, number> = {};
-      for (const x of res?.inventory_types ?? []) ids[x.name] = x.id;
-      const price: Record<string, number | null> = {};
-      const dogma: Record<number, TypeDogma> = {};
-      const reqs: { skill: number; level: number }[] = [];
-      await Promise.all(names.map(async (nm) => {
-        const id = ids[nm];
-        if (!id) return;
-        const isSkill = tier.train.some(([s]) => s === nm);
-        if (oldLasers.includes(nm) && !items.some((x) => x.name === nm)) { const dg = await typeDogma(id).catch(() => null); if (dg) dogma[id] = dg; return; }
-        if (!isSkill) {
-          const [book, dg, req] = await Promise.all([jitaBook(id).catch(() => null), typeDogma(id).catch(() => null), typeRequirements(id).catch(() => [])]);
-          price[nm] = book?.bestSell ?? null;
-          if (dg) dogma[id] = dg;
-          reqs.push(...req);
-        }
-      }));
-      const [hd, ...sk] = await Promise.all([typeDogma(hull.id), ...YIELD_SKILLS.map((s) => typeDogma(s))]);
-      dogma[hull.id] = hd;
-      for (const s of sk) dogma[s.id] = s;
-      for (const [s, level] of tier.train) if (ids[s]) reqs.push({ skill: ids[s], level });
-      const needs = reqs.reduce<{ skill: number; level: number }[]>((acc, x) => {
-        const cur = acc.find((y) => y.skill === x.skill);
-        if (cur) cur.level = Math.max(cur.level, x.level); else acc.push({ ...x });
-        return acc;
-      }, []).sort((a, b) => b.level - a.level);
-      let cloud: Loaded['cloud'] = null;
-      if (merc) {
-        const [ore, dcm] = await Promise.all([typeDogma(oreId).catch(() => null), typeDogma(SKILL.deepCoreMining).catch(() => null)]);
-        if (ore?.attrs[522] != null) cloud = { base: ore.attrs[522], perLevel: dcm?.attrs[543] ?? 0 };
-      }
-      if (alive) setGot({ ids, price, dogma, needs, cloud });
-    })().catch(() => undefined);
+    Promise.all([typeDogma(oreId).catch(() => null), typeDogma(SKILL.deepCoreMining).catch(() => null)]).then(([o, dcm]) => {
+      if (alive) setCloud(o?.attrs[522] != null ? { base: o.attrs[522], perLevel: dcm?.attrs[543] ?? 0 } : null);
+    });
     return () => { alive = false; };
-  }, [hull.id, tier, crystal]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [merc, oreId]);
+  const got: Loaded | null = data ? { ...data, cloud } : null;
 
   // What it mines: the fit's lasers (the first kind in the highs), everything else fitted and the implants as extras.
   const yieldAt = (skills: Record<number, number>): FitYield | null => {
@@ -157,43 +121,9 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
   };
   const mine = yieldAt(d.skills ?? {});
   const ceiling = yieldAt(ALL_FIVE);
-  const fitCost = got ? items.reduce((t, x) => t + (got.price[x.name] ?? NaN) * (x.qty ?? 1), 0) + (tier.implants ?? []).reduce((t, i) => t + (got.price[i] ?? NaN), 0) : null;
-  const unpriced = got ? [...items.map((x) => x.name), ...(tier.implants ?? [])].filter((nm) => got.price[nm] == null) : [];
-  const total = fitCost != null && Number.isFinite(fitCost) && hullPrice != null ? fitCost + hullPrice : null;
+  const { fitCost, total, unpriced } = fitCosts(tier, crystal, data, hullPrice);
   const pay = total != null && mine && mine.kind === 'ore' && iskPerM3 != null && fromRate != null ? paybackHours(total, fromRate, mine.m3PerMin, iskPerM3) : null;
   const label = `Jita Ledger ${TIER_SAID[tier.key]}`;
-
-  const copyFit = async () => {
-    try { await navigator.clipboard.writeText(eftText(hull.name, label, tier, crystal)); toast('Fit copied. In game: the fitting window, Import & Export, Import from clipboard.'); }
-    catch { toast('Your browser wouldn’t let the page copy.', 'err'); }
-  };
-  const [saving, setSaving] = useState(false);
-  const saveFit = async () => {
-    const a = getAuth();
-    if (!a || !got) return;
-    const body = fittingBody(hull.id, hull.name, TIER_SAID[tier.key], tier, crystal, (nm) => got.ids[nm] ?? null);
-    if (!body) { toast('Some items in this fit couldn’t be found in ESI, so it wasn’t saved.', 'err'); return; }
-    setSaving(true);
-    try {
-      await esi<{ fitting_id: number }>(`/characters/${a.characterId}/fittings/`, { auth: true, method: 'POST', body });
-      toast(`Saved as “${body.name}” in your fittings. In game: the fitting window, Personal.`);
-    } catch (e) { toast(e instanceof Error ? e.message : String(e), 'err'); }
-    finally { setSaving(false); }
-  };
-  const mb = fitMultibuy(hull.name, tier, crystal);
-
-  const slot = (title: string, xs: { name: string; qty?: number }[]) => xs.length > 0 && (
-    <div className="fit-slot">
-      <span className="lbl">{title}</span>
-      {xs.map((x, i) => (
-        <span key={`${x.name}-${i}`} className="fit-line">
-          {got?.ids[x.name] ? <ItemIcon id={got.ids[x.name]} /> : <span style={{ width: 22 }} />}
-          <span className="nm">{(x.qty ?? 1) > 1 ? `${x.qty} × ` : ''}{x.name}{crystal && /^Modulated /.test(x.name) ? <span className="sub">loaded with {crystal}</span> : null}</span>
-          <span className="pr">{got ? (got.price[x.name] != null ? iskBig(got.price[x.name]! * (x.qty ?? 1)) : '–') : ''}</span>
-        </span>
-      ))}
-    </div>
-  );
 
   return (
     <div className="col" style={{ gap: 12 }}>
@@ -220,24 +150,9 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
         Worked out from ESI’s figures for the hull, lasers, crystal and upgrades. Boosts, drones and heat aren’t in it; a fleet’s Mining Foreman burst shortens every cycle further.
         {iskPerM3 != null ? ` ISK an hour is at ${isk(iskPerM3)} a m³.` : ''}
       </p>
-      <div className="fit-grid">
-        {slot('High', tier.high)}
-        {slot('Mid', tier.mid)}
-        {slot('Low', tier.low)}
-        {slot('Rigs', tier.rigs)}
-        {slot('Drones', tier.drones ?? [])}
-        {crystal && tier.crystal && slot('Cargo', [{ name: crystal, qty: tier.crystal.spares }])}
-        {tier.implants?.length ? slot('Implants', tier.implants.map((i) => ({ name: i }))) : null}
-      </div>
-      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <button type="button" className="btn sm" onClick={() => void copyFit()}><ClipboardCopy aria-hidden="true" /> Copy fit</button>
-        <button type="button" className="btn sm" disabled={!got} onClick={() => void copyMultibuy(mb.text, mb.lines, total ?? undefined)}><ShoppingCart aria-hidden="true" /> Copy for Multibuy</button>
-        {hasScope(SCOPE.fittingsWrite) && <button type="button" className="btn sm" disabled={!got || saving} onClick={() => void saveFit()}><Save aria-hidden="true" /> {saving ? 'Saving…' : 'Save fit in game'}</button>}
-      </div>
-      <div>
-        <div className="lbl" style={{ marginBottom: 6 }}>What it asks you to train</div>
-        {got ? <SkillNeeds needs={got.needs} /> : <p className="note small">Reading the fit’s skills…</p>}
-      </div>
+      <FitGrid fit={tier} crystal={crystal} data={data} />
+      <FitActions hullId={hull.id} hullName={hull.name} label={label} fit={tier} crystal={crystal} data={data} total={total} />
+      <FitSkills data={data} />
       <p className="note small" style={{ margin: 0, color: 'var(--faint)' }}>Fit: {tier.source}. {crystal ? `Crystals: the ${family} kind, for ${ore}.` : ''}</p>
     </div>
   );

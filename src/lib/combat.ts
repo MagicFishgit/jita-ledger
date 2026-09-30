@@ -103,7 +103,7 @@ export function valueKillmail(
 export const isAbyssalSystem = (systemId: number) => systemId >= 32000000 && systemId < 33000000;
 
 /** Inventory groups whose ships exist to carry cargo. Matched on the group's name, read from ESI. */
-export const HAULER_GROUPS = ['Industrial', 'Deep Space Transport', 'Blockade Runner', 'Freighter', 'Jump Freighter', 'Industrial Command Ship'];
+export const HAULER_GROUPS = ['Hauler', 'Industrial', 'Deep Space Transport', 'Blockade Runner', 'Freighter', 'Jump Freighter', 'Industrial Command Ship'];
 
 export type CombatActivity = 'Abyssal' | 'Hauling' | 'PvP' | 'PvE';
 

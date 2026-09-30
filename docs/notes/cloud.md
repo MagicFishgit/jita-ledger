@@ -39,3 +39,11 @@ Decisions worth not undoing. How the ledger lives in the cloud as well as the br
 - **The cloud's hour-by-hour prices show on the Calculator** ("Jita, hour by hour": best bid and ask per hour
   from `/v1/prices`, a missing hour breaking the line) for items the cloud watches. ESI's history is daily; this is
   the only view inside a day. Nothing shows without the cloud or for items it doesn't watch.
+- **The cloud reads Abyss Tracker for the Abyssal page** (`worker/src/abyss.ts`, migration 0015; `lib/abyssTracker.ts` is
+  shared). Its API sends no CORS header, so the browser can't. The hourly job (7 past, after the scan, whose time budget it mustn't take from) reads every tier and
+  weather whose copy is over 20 hours old, one request at a time 800 ms apart (all 35 took 54 s locally), with a
+  User-Agent naming only the project, and keeps each as its figures (`abyss_cells`). `GET /v1/abyss` returns them all;
+  `GET /v1/abyss/fit?id=` reads a fit's EFT and performance the first time it's asked for and keeps it a week
+  (`abyss_fits`); `POST /v1/jobs/abyss` runs the refresh by hand. Until the first hourly run after a deploy the page says
+  the cloud hasn't read that cell yet, and a cloud a version behind says it couldn't read them, rather than "Reading…"
+  for good (`TrackerState`).

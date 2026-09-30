@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ExternalLink, Tornado } from 'lucide-react';
 import {
   ABYSSAL_LINKS, byTier, iskPerHour, parseFilament, RUN_MINUTES, runsFrom, TIERS, WEATHERS,
@@ -15,11 +15,22 @@ import { toast } from '../../lib/toast';
 import { OpenInGame, useTypeName } from '../common';
 import { cssVars, Seg, Th, Tip } from '../ui';
 import { SkillPanel } from './SkillPanel';
+import { AbyssCell, AbyssMatrix, type Cell } from './AbyssMatrix';
+import { TrackerFitView, TrackerPanel, trackerCellOf, useTracker } from './AbyssTracker';
+import { AbyssTree } from './AbyssTree';
+import { useRightNow } from './rightNow';
+import { ABYSS_SHIPS } from '../../lib/abyssShips';
+import { trackerWeather, type TrackerFit } from '../../lib/abyssTracker';
 import { ABYSSAL_SKILLS } from '../../lib/skills';
 
 type Quote = { f: Filament; cost: number | null; flipNet: number | null; perDay: number | null };
 const WINDOW_DAYS = 30;
 const DAY = 86400_000;
+const CELL_KEY = 'jita-ledger:abyss-cell';
+const readCell = (): Cell | null => {
+  try { const c = JSON.parse(localStorage.getItem(CELL_KEY) ?? 'null'); return c && TIERS.includes(c.tier) && WEATHERS.includes(c.weather) ? c : null; } catch { return null; }
+};
+const saveCell = (c: Cell) => { try { localStorage.setItem(CELL_KEY, JSON.stringify(c)); } catch { /* the pick just isn't kept */ } };
 
 export function Abyssal() {
   const d = useData();
@@ -79,7 +90,11 @@ export function Abyssal() {
     }
   }, [r.f, r.t, d.names, d.txs]);
 
+  // Prices on opening: the grid is the page. The button re-reads them.
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const filamentMap = useMemo(() => new Map((quotes ?? []).map((q) => [q.f.typeId, q.f])), [quotes]);
+  // Every filament you've bought, all time: the runs you've started, per cell.
+  const runsAll = useMemo(() => Object.fromEntries(runsFrom(Object.values(d.txs), filamentMap, new Set(), 0, r.t).byFilament.map((x) => [x.f.typeId, x.runs])), [d.txs, filamentMap, r.t]);
   const stats = useMemo(() => runsFrom(Object.values(d.txs), filamentMap, lootTypes, Date.now() - WINDOW_DAYS * DAY, r.t), [d.txs, filamentMap, lootTypes, r.t]);
   // Ships lost inside a pocket are part of what running them costs.
   const lost = useMemo(() => Object.values(d.killmails).filter((k) => k.kind === 'loss' && isAbyssalSystem(k.systemId) && Date.parse(k.time) >= Date.now() - WINDOW_DAYS * DAY), [d.killmails]);
@@ -90,6 +105,20 @@ export function Abyssal() {
   const minutes = stats.topFilament ? RUN_MINUTES[stats.topFilament.tier] : 18;
   const perHour = stats.perRun != null ? iskPerHour(stats.perRun, minutes) : null;
   const sign = (x: number | null) => ((x ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)');
+  // The cell picked on the grid: yours to choose (kept in this browser), else the filament you run most.
+  const [picked, setPicked] = useState<Cell | null>(readCell);
+  const cell: Cell | null = picked ?? (stats.topFilament ? { tier: stats.topFilament.tier, weather: stats.topFilament.weather } : quotes ? { tier: 'Tranquil', weather: 'Dark' } : null);
+  const pick = (c: Cell) => { setPicked(c); saveCell(c); };
+  const cellQuote = cell ? (quotes ?? []).find((q) => q.f.tier === cell.tier && q.f.weather === cell.weather) ?? null : null;
+  // Abyss Tracker, through the cloud: every cell's summary, and the fit opened from the picked one.
+  const tracker = useTracker();
+  const tIdx = (c: Cell) => TIERS.indexOf(c.tier);
+  const trackerCell = (c: Cell) => trackerCellOf(tracker, tIdx(c), trackerWeather(c.weather));
+  // The ship you're in, when it's one that runs the Abyss.
+  const live = useRightNow();
+  const here = live?.ship != null && ABYSS_SHIPS.some((s) => s.id === live.ship) ? live.ship : null;
+  const [trackerFit, setTrackerFit] = useState<TrackerFit | null>(null);
+  useEffect(() => { setTrackerFit(null); }, [cell?.tier, cell?.weather]);
 
   return (
     <>
@@ -155,6 +184,32 @@ export function Abyssal() {
               </div>
             )}
           </div>
+
+          <div className="col" style={{ gap: 12 }}>
+            <div className="panel-title">Tier and weather</div>
+            <p className="note small" style={{ margin: 0 }}>Every filament by how hard it is and what its weather does, with what it costs at Jita and how many you’ve run. Pick one to see what the game says about it and what runs it.</p>
+            <AbyssMatrix quotes={quotes} runs={runsAll} cell={cell} onCell={pick}
+              cellNote={(c) => { const t = trackerCell(c); return t?.cruiser ? `cruiser ${iskBig(t.cruiser.median)}` : null; }} />
+            {cellQuote && cell && (
+              <AbyssCell q={cellQuote} runs={runsAll[cellQuote.f.typeId] ?? 0}>
+                <TrackerPanel tracker={tracker} tier={tIdx(cell)} weather={trackerWeather(cell.weather)} fitId={trackerFit?.id ?? null} onPickFit={setTrackerFit} />
+                {trackerFit && <TrackerFitView fit={trackerFit} tier={tIdx(cell)} weather={trackerWeather(cell.weather)} />}
+              </AbyssCell>
+            )}
+          </div>
+
+          {cell && (
+            <div className="col" style={{ gap: 12 }}>
+              <div className="panel-title">Ships and fits, and what comes next</div>
+              <p className="note small" style={{ margin: 0 }}>
+                The ships that run the Abyss, left to right by the tier each is first run at: frigates three to a pocket (three
+                filaments’ loot), destroyers two, then the cruisers, the Gila and each weather’s specialists.
+                {' '}The ones marked with a crosshair are among the most run at {cell.tier} {cell.weather}, the cell picked above.
+                {here != null ? ' The ship you’re in glows; the paths out of it are your next steps.' : ''} Click a ship for its fits.
+              </p>
+              <AbyssTree here={here} tracker={tracker} tier={tIdx(cell)} weather={trackerWeather(cell.weather)} />
+            </div>
+          )}
 
           <div className="row wide">
             <Seg label="Which weather to show" value={weather} onChange={setWeather} size="md" options={[{ v: 'all' as const, label: 'All' }, ...WEATHERS.map((w) => ({ v: w, label: w }))]} />

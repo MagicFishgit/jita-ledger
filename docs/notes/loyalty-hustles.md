@@ -239,6 +239,52 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
   Just in tier 10% high. Caught in review before shipping. Also found by looking: locked nodes were see-through (a lit
   path struck through "Outrider"), the chart's nodes overlapped under ~950 px (it now scrolls sideways under 1,180), and
   "gold" in the copy, since the accents change with the theme (the copy names the marks instead).
+- **Abyssal is tier by weather, the ships that run it, and their fits** (`lib/abyssShips.ts`, `lib/abyssTracker.ts`,
+  `lib/eft.ts`, all pure; `hustles/AbyssMatrix.tsx`, `AbyssTracker.tsx`, `AbyssTree.tsx`; `worker/src/abyss.ts`, migration
+  0015). The user, having seen Mining's tree: "the same upgrade treatment to Abysall and Hauling… by difficulty tier and
+  then weather type and then the fits that specialize for those and progression" (29 September 2026). Three layers:
+  - **The grid**: tiers down, weathers across, one filament a cell, with its Jita price, how many you've run, and the
+    median cruiser loot there. Picking a cell (kept per browser, else what you run most) shows what the filament does
+    (its weather's effects from its description; who can go and where it opens from sourced rules, since those parts of
+    the description are stale), and what Abyss Tracker's players logged there:
+    runs, median loot a pocket by hull size, what drops most, and the fits most run there. A fit opens whole: its EFT read
+    by the cloud and parsed (`parseEft`, `eftToTier`: lows, mids, highs by position, the rest by ESI category, a drone or
+    cargo line given twice summed), priced at Jita now, Copy fit, Copy for Multibuy, Save fit in game, the skills it asks,
+    and what it measured at that cell (runs, survival, ISK a run and an hour, runs to pay for itself) and where else it ran.
+    Prices load on opening: the grid is the page.
+  - **The tree** (25 hulls): columns are the tier a ship is first run at (T0–T6); rows are the three frigate lines
+    (frigates run three to a pocket), the Deacon that keeps a Retribution trio alive, the destroyers (two to a pocket),
+    the Gila trunk, then a row per weather's specialists (Dark: Sacrilege, Cerberus; Electrical: Omen Navy Issue,
+    Stormbringer; Exotic and Firestorm: Deimos, Ikitursa; Gamma: Vexor Navy Issue, Vagabond, Ishtar). Within a weather's
+    row the arrows are steps up in tier, not a skill path. Ships among the most run at the picked cell carry a crosshair
+    (Raging Dark: Hawk, Jackdaw, Sacrilege, Cerberus). A ship opens to the cells whose most-run lists it's on ("Dark T1–T6 ·
+    Exotic T1–T2"), your own abyssal losses in it, and its fits as Just in (the cheapest, easiest fit the logged runs show
+    working), Solid and Max, each an Abyss Tracker fit read whole as above. The ship you're in glows (`useRightNow`, now in
+    `hustles/rightNow.ts` and shared with Mining and Hauling).
+  - **The research** (30 September 2026, `.playwright-mcp/research/abyssal/draft.md`): all 35 of Abyss Tracker's cells,
+    201 most-run fits with their performance, 63 read module by module; zKillboard's abyssal losses for nine days; EVE
+    University, Wiki Circa Kismeteer, CCP's patch notes and static data. 677 of 727 item names resolved in ESI; the other
+    50 are unpublished NPC and weather types. What it found is in eve-facts (frigate pockets out-earn cruisers, the
+    tracker's losses are too low, a trio is logged under one hull). T2 is the thinnest tier (skip it, the data says), and
+    T6 Firestorm has no cruiser answer: frigate trios own it. T6 Gamma's most-run fit is a 331 M Vagabond whose author
+    doesn't recommend it; its label says "as flown". No fit has been checked in a fitting tool against today's game.
+  **No pilot's name is kept or shown.** The cloud stores a cell's figures and fit summaries only (`compactCell`: no run
+  lists), and fit authors' names were taken out of the ship notes; fit titles show as Abyss Tracker shows them.
+- **Hauling has its tree and fits** (`lib/haulTree.ts`, `lib/haulFits.ts`, `lib/cargo.ts`, pure; `HaulingTree.tsx`,
+  `HaulFits.tsx`). Every hull that hauls: each race's ladder (small and big Tech I, Blockade Runner, Deep Space Transport,
+  freighter, jump freighter), the one-goods specialists and Primae, Upwell's line and ORE's (Porpoise, Orca, Bowhead).
+  A hull opens to its holds at your skills and at V (worked out from ESI's dogma: see eve-facts), what a courier package
+  can use, the bare hull's EHP, zKillboard's high-sec record for it (July–September 2026: losses and how many were
+  ganked, with no denominator, so never a chance of dying) and how its class gets ganked (median attackers and cargo, and
+  where). **Use for the contracts above** hands its space and class to the contract finder. Its fits (84 for 32 hulls,
+  from EVE Workbench, by purpose) show the holds with their expanders, rigs and bulkheads, EVE Workbench's EHP, and what
+  EVE University's rule of thumb lets it carry (cargo plus fitted modules under about 3,000 ISK per EHP), with the same
+  copy, Multibuy and save buttons; a test keeps each within its hull's slots. **Building it found the finder's presets
+  wrong**: a freighter was given Advanced Spaceship Command's bonus, the Orca's bonus was applied to its fleet hangar, a
+  Deep Space Transport's fleet hangar and a jump freighter's cargo got none, and each class's preset lumped four races'
+  hulls whose holds differ. They're now one real hull a class (Tayra, Crane, Bustard, Orca, Rhea, Charon) with ESI's rules.
+  ESI's renaming of group 28 to "Hauler" had also quietly dropped Tech I industrials from learned gank lines and hauling
+  losses.
 - **Reprocessing is a page of its own** (`lib/reprocess.ts` pure, `Reprocess.tsx`, `src/data/typeMaterials.json`). The
   user asked for it after the Experimental ZW-4100 Torpedo Launcher turned out to trade at its minerals' value. ESI has
   no type materials, so they're bundled from CCP's SDE (build 3552227, 28 September 2026; `scripts/type-materials.mjs`

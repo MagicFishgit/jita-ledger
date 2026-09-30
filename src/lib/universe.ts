@@ -164,6 +164,12 @@ export const typeRequirements = (id: number) => cached(`type-req:${id}`, async (
     .filter((x): x is readonly [number, number] => x[0] != null && x[1] != null).map(([skill, level]) => ({ skill, level }));
 });
 
+/** A type's description, the game's own text (a filament's weather and restrictions are written there). Kept for good. */
+export const typeDescription = (id: number) => cached(`desc:${id}`, async () => {
+  const { data } = await esi<{ description?: string }>(`/universe/types/${id}/`);
+  return data.description ?? '';
+});
+
 /** A type's dogma, attributes by ID and its effects: what the mining yields are worked out from (lib/miningYield.ts). Kept for good. */
 export const typeDogma = (id: number) => cached(`dogma:${id}`, async () => {
   const { data } = await esi<{ group_id: number; dogma_attributes?: { attribute_id: number; value: number }[]; dogma_effects?: { effect_id: number }[] }>(`/universe/types/${id}/`);

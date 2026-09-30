@@ -66,3 +66,11 @@ State these rather than letting them be discovered:
   are in no yield figure; the Porpoise, Orca and Rorqual mine only with drones and say so.
 - **The Wallet's unusual-activity check is a prompt, not a detector**: new donors, large donations out, and big
   contracts at hours with under 2% of your journal activity.
+- **Abyss Tracker is what its users log**: it leans to dedicated runners, its losses are far under what zKillboard shows,
+  a trio's run is logged under one hull, and its DPS, EHP and cost come from its own engine at all V. A ship's "most run"
+  totals add up only its fits on the most-run lists, not every run in it. Where a ship sits on the Abyssal tree and which
+  cells it suits come from what players run there, not from a simulation of the fit against the pocket.
+- **No fit on the Abyssal or Hauling trees has been checked in a fitting tool against today's game.** Items that stopped
+  existing would fail to price or save; ones whose stats changed wouldn't show it. Abyss Tracker's fits migrated from the
+  old tracker all say they were uploaded on 29 March 2024; their real age is older. A hauling fit's EHP is EVE Workbench's,
+  at skills it doesn't state.

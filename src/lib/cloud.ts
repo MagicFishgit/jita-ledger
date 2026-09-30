@@ -1,4 +1,5 @@
 import type { LeaveSummary, ShareSummary, SnipeSummary } from './track';
+import type { TrackerCell, TrackerFitDetail } from './abyssTracker';
 import { useSyncExternalStore } from 'react';
 import { get, set } from 'idb-keyval';
 import { getAccessToken, getAuth, onAuthChange } from './auth';
@@ -497,6 +498,11 @@ export const cloudAlertLog = () => call<{ key: string; kind: AlertEvent; at: num
 
 /** What the cloud saw your mining ledger grow by between its reads (about ten minutes each), for sessions (mining.ts). */
 export const cloudMiningTicks = (days = 30) => call<{ at: number; systemId: number; typeId: number; qty: number; shipTypeId?: number | null }[]>(`/v1/mining/ticks?days=${days}`);
+
+/** Abyss Tracker's summaries of every tier and weather, as the cloud last read them (daily). Empty until its first read. */
+export const cloudAbyss = () => call<TrackerCell[]>('/v1/abyss');
+/** One Abyss Tracker fit: its EFT and measured performance, read by the cloud when first asked for and kept a week. */
+export const cloudAbyssFit = (id: string) => call<TrackerFitDetail>(`/v1/abyss/fit?id=${encodeURIComponent(id)}`);
 
 /** A test alert mail sent by the cloud, from one of your real orders. */
 export const cloudTestMail = () => call<{ mailId: number; about: string }>('/v1/alerts/test', { method: 'POST' });

@@ -9,17 +9,11 @@
  * (`typeRequirements`), never written here. Pure.
  */
 
+import type { TreeNode } from './shipTree';
+
 export type Lane = 'frigate' | 'expedition' | 'destroyer' | 'tank' | 'hold' | 'yield' | 'command';
 
-export type HullNode = {
-  id: number; name: string;
-  /** Column (left to right: how far along) and row (which lane) in the chart. */
-  col: number; row: number; lane: Lane;
-  /** What it's for, in a line. */
-  role: string;
-  /** Only where it makes sense: the Rorqual can't enter high-sec; the Endurance is built for ice. */
-  note?: string;
-};
+export type HullNode = TreeNode & { name: string; lane: Lane };
 
 export const HULLS: HullNode[] = [
   { id: 32880, name: 'Venture', col: 0, row: 3, lane: 'frigate', role: 'Where everyone starts: cheap, quick to train, a small ore hold.' },
@@ -57,19 +51,4 @@ export const LANE_SAID: Record<Lane, string> = {
   tank: 'Tank: survive', hold: 'Hold: fewer trips', yield: 'Yield: most m³', command: 'Boosts and fleets',
 };
 
-export type NodeState = 'here' | 'flyable' | 'close' | 'locked';
-
-/**
- * A hull's state for you: `here` when it's the ship you're in (or mined most in lately), `flyable` when every skill it
- * needs is trained, `close` when the missing ones are in your queue, else `locked`.
- */
-export function nodeState(
-  needs: { skill: number; level: number }[] | undefined, skills: Record<number, number> | undefined,
-  queued: (skill: number, level: number) => boolean, isHere: boolean,
-): NodeState {
-  if (isHere) return 'here';
-  if (!needs || !skills) return 'locked';
-  const missing = needs.filter((n) => (skills[n.skill] ?? 0) < n.level);
-  if (!missing.length) return 'flyable';
-  return missing.every((n) => queued(n.skill, n.level)) ? 'close' : 'locked';
-}
+export { nodeState, type NodeState } from './shipTree';

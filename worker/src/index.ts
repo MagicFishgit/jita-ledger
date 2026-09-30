@@ -23,6 +23,7 @@ import { dropLogin, EveError, keepLogin, type Purpose } from './eve';
 import { BadRequest, pull, push, status, type PushBody } from './sync';
 import { rateReport } from './rate';
 import { blueprintMarket } from './blueprints';
+import { abyssCells, abyssFit, refreshAbyss } from './abyss';
 
 export interface Env {
   DB: D1Database;
@@ -217,7 +218,14 @@ export default {
         await noteJob(env.DB, 0, 'checks', { ok: false, error: e instanceof Error ? e.message : String(e) });
       }
       // The hourly run catches up a day's scan the daily one missed (or the first, after a deploy).
-      await runScan(env);
+      try {
+        await runScan(env);
+      } finally {
+        // Then Abyss Tracker's figures for the Abyssal page: whatever is over 20 hours old, one request at a time (about a
+        // minute for all 35). After the scan, so it never takes from the scan's time budget; each is saved as it's read,
+        // so a run cut short carries on the next hour.
+        try { console.log('abyss tracker', JSON.stringify(await refreshAbyss(env.DB))); } catch (e) { console.error('abyss tracker failed', e); }
+      }
     })());
   },
 
@@ -292,6 +300,10 @@ export default {
         return body ? new Response(body, { headers: { ...c, 'Content-Type': 'application/json' } }) : json(null, 200, c);
       }
       if (url.pathname === '/v1/scan/status' && request.method === 'GET') return json(await scanStatus(env.DB), 200, c);
+      // Abyss Tracker, read by the cloud for the Abyssal page: every tier and weather, and one fit when it's opened.
+      if (url.pathname === '/v1/abyss' && request.method === 'GET') return json(await abyssCells(env.DB), 200, c);
+      if (url.pathname === '/v1/jobs/abyss' && request.method === 'POST') return json(await refreshAbyss(env.DB), 200, c);
+      if (url.pathname === '/v1/abyss/fit' && request.method === 'GET') return json(await abyssFit(env.DB, url.searchParams.get('id') ?? ''), 200, c);
       if (url.pathname === '/v1/blueprints/market' && request.method === 'POST') {
         const body = (await request.json()) as { types?: unknown };
         const types = Array.isArray(body.types) ? body.types.map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 5000) : [];

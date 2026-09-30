@@ -1133,7 +1133,7 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
    node glows, and a clicked node opens underneath. Off motion and reduced motion still it all. */
 .mtree-wrap { display: flex; flex-direction: column; gap: 14px; }
 .mtree-scroll { overflow-x: auto; }
-.mtree { position: relative; width: 100%; min-width: 1180px; aspect-ratio: 7 / 3.4; min-height: 380px; }
+.mtree { position: relative; width: 100%; min-height: 380px; } /* min-width and aspect-ratio come from ShipTree's grid */
 .mtree-edges { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .mtree-edge { fill: none; stroke: var(--line-3); stroke-width: 1.5; }
 .mtree-edge.open { stroke: color-mix(in oklab, var(--acc) 45%, transparent); }
@@ -1153,6 +1153,9 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .mtree-node.here { border-color: var(--acc); color: var(--ink); box-shadow: 0 0 0 1px var(--acc), 0 0 16px color-mix(in oklab, var(--acc) 45%, transparent); animation: mtreeglow 2.8s ease-in-out infinite; }
 @keyframes mtreeglow { 50% { box-shadow: 0 0 0 1px var(--acc), 0 0 26px color-mix(in oklab, var(--acc) 65%, transparent); } }
 .mtree-node.sel { outline: 2px solid var(--acc); outline-offset: 2px; }
+.mtree-node.pick { box-shadow: 0 0 0 1px var(--acc2), 0 0 12px color-mix(in oklab, var(--acc2) 35%, transparent); }
+.mtree-node .mtree-pick { position: absolute; bottom: 4px; right: 4px; width: 11px; height: 11px; color: var(--acc2); }
+.mtree-row.pick { box-shadow: inset 3px 0 0 var(--acc2); }
 .mtree-lane { position: absolute; padding: 4px 0 0 4px; font-family: var(--f-head); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); pointer-events: none; }
 .mtree-list { display: none; flex-direction: column; gap: 6px; }
 .mtree-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line-2); text-align: left; color: var(--sec); }
@@ -1163,7 +1166,33 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .mtree-row .mtree-name, .mtree-row .sub { display: block; }
 .mtree-detail { display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid var(--acc); background: rgba(2, 7, 12, .45); animation: unfold .35s ease-out; min-width: 0; }
 @media (prefers-reduced-motion: reduce) { .mtree-edge.lit, .mtree-node.here { animation: none; } }
-.fit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px 18px; }
+/* The Abyssal grid (hustles/AbyssMatrix.tsx): tiers down, weathers across, one filament a cell. */
+.abyss-grid-wrap { border: 1px solid var(--line-3); }
+.abyss-grid { width: 100%; min-width: 620px; border-collapse: collapse; }
+.abyss-grid th { font-family: var(--f-head); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--sec); font-weight: 600; padding: 8px 10px; background: var(--thead); text-align: center; white-space: nowrap; }
+.abyss-grid th svg { width: 13px; height: 13px; vertical-align: -2px; margin-right: 5px; color: var(--acc); }
+.abyss-grid tbody th { text-align: left; }
+.abyss-grid .t-num { display: inline-block; width: 22px; color: var(--acc); }
+.abyss-grid td { padding: 3px; border-top: 1px solid var(--line-3); }
+.abyss-cell { width: 100%; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 5px 4px;
+  background: transparent; border: 1px solid transparent; color: var(--body); font-family: var(--f-mono); font-size: 12.5px; transition: border-color .15s, background .15s; }
+.abyss-cell:hover { border-color: color-mix(in oklab, var(--acc) 50%, transparent); background: color-mix(in oklab, var(--acc) 5%, transparent); }
+.abyss-cell.sel { border-color: var(--acc); background: color-mix(in oklab, var(--acc) 10%, transparent); }
+.abyss-cell.mine .c-cost { color: var(--ink); }
+.abyss-cell .c-mine { font-size: 10.5px; color: var(--pos); font-family: var(--f-body); }
+.abyss-cell .c-note { font-size: 10.5px; color: var(--sec); font-family: var(--f-body); }
+.tracker-fits { display: flex; flex-direction: column; gap: 4px; }
+.tracker-fit { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto auto 14px; align-items: center; gap: 10px; padding: 6px 8px; text-align: left;
+  background: transparent; border: 1px solid var(--line-3); color: var(--body); font-size: 12.5px; }
+.tracker-fit:hover { border-color: color-mix(in oklab, var(--acc) 50%, transparent); }
+.tracker-fit.sel { border-color: var(--acc); background: color-mix(in oklab, var(--acc) 7%, transparent); }
+.tracker-fit .tf-name { min-width: 0; display: flex; flex-direction: column; }
+.tracker-fit .tf-name .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tracker-fit .tf-num { font-family: var(--f-mono); font-size: 12px; white-space: nowrap; }
+.tracker-fit .chev { width: 14px; height: 14px; }
+.abyss-fit { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border: 1px solid var(--acc); background: rgba(2, 7, 12, .45); animation: unfold .3s ease-out; min-width: 0; }
+.abyss-cell-detail { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid var(--line-2); border-left: 2px solid var(--acc); background: rgba(2, 7, 12, .35); animation: unfold .3s ease-out; min-width: 0; }
+.fit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 10px 18px; }
 .fit-slot { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .fit-line { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--body); min-width: 0; }
 .fit-line .nm { flex: 1; min-width: 0; }
@@ -1177,6 +1206,8 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
   .head-actions, .row, .seg-label { min-width: 0; max-width: 100%; }
   .skill-row .sk-q { grid-column: 1 / -1; text-align: left; white-space: normal; }
   .mtree-scroll { display: none; }
+  .tracker-fit { grid-template-columns: 24px minmax(0, 1fr) 14px; }
+  .tracker-fit .tf-num { grid-column: 2; }
   .mtree-list { display: flex; }
   .seg-label { flex-wrap: wrap; }
   .btn { white-space: normal; height: auto; min-height: 36px; padding-top: 6px; padding-bottom: 6px; line-height: 1.25; text-align: center; max-width: 100%; }
@@ -1196,4 +1227,8 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
   .chip input { padding: 0 8px; }
   .theme-grid { grid-template-columns: minmax(0, 1fr) !important; }
   .newpos input { min-width: 0; max-width: 100%; }
+  /* A ship's and a fit's figures, two boxes deep: each figure under its name, full width, rather than a narrow column. */
+  .mtree-detail .kv-mini, .abyss-fit .kv-mini { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .mtree-detail .kv-mini b, .abyss-fit .kv-mini b { text-align: left; margin-bottom: 6px; }
+  .abyss-fit { padding: 12px 10px; }
 }
