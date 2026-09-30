@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { createStore, get, set, del, keys } from 'idb-keyval';
 import { DEFAULT_SETTINGS, rates, sanitizeSettings, type Settings } from './fees';
-import { DEFAULT_ALERTS, DEFAULT_PREFS, sanitizeAlerts, sanitizeLeave, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes, type SafetyTimesDoc } from './prefs';
+import { DEFAULT_ALERTS, DEFAULT_PREFS, sanitizeAlerts, sanitizeChars, sanitizeLeave, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes, type CharsDoc, type SafetyTimesDoc } from './prefs';
 import { sanitizePlans, type TradePlan } from './plans';
 import type { MiningRecord } from './mining';
 import type {
@@ -52,11 +52,16 @@ export type Data = {
   mining: Record<string, MiningRecord>;
   /** The asset safety countdowns you typed in (from the game's Assets → Asset Safety), by wrap. */
   safetyTimes: SafetyTimesDoc;
+  /**
+   * Which characters are yours besides this one: alts the cloud reads (prefs.ts, CharsDoc). Who they are, never a
+   * record of theirs: an alt's data lives in a database of its own (altStore.ts).
+   */
+  chars: CharsDoc;
 };
 type Key = keyof Data;
 const KEYS: Key[] = [
   'settings', 'txs', 'journal', 'orders', 'positions', 'watchlist', 'names', 'ignored', 'stock', 'skills', 'meta',
-  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'safetyTimes', 'notSnipes', 'plans', 'mining',
+  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'safetyTimes', 'notSnipes', 'plans', 'mining', 'chars',
 ];
 
 const idb = createStore('jita-ledger', 'kv');
@@ -68,7 +73,7 @@ const empty = (): Data => ({
   settings: { ...DEFAULT_SETTINGS },
   txs: {}, journal: {}, orders: {}, positions: [], watchlist: [], names: {}, ignored: [], meta: {},
   prefs: { ...DEFAULT_PREFS }, alerts: { ...DEFAULT_ALERTS }, alertLog: [], goals: [], tags: {}, nearDone: [],
-  killmails: {}, netWorth: [], unusualOk: [], leave: [], safetyTimes: {}, notSnipes: [], plans: [], mining: {},
+  killmails: {}, netWorth: [], unusualOk: [], leave: [], safetyTimes: {}, notSnipes: [], plans: [], mining: {}, chars: {},
 });
 
 let data: Data = empty();
@@ -92,6 +97,7 @@ export async function initStore(): Promise<void> {
   data.safetyTimes = sanitizeSafetyTimes(data.safetyTimes);
   data.notSnipes = sanitizeNotSnipes(data.notSnipes);
   data.plans = sanitizePlans(data.plans);
+  data.chars = sanitizeChars(data.chars);
   if (!data.meta.rateHistory?.length) {
     // Assume today's rates applied to everything before the first recorded change.
     const r = rates(data.settings);
@@ -159,6 +165,29 @@ export function update(patch: Partial<Data> | ((d: Data) => Partial<Data>), opts
   changeListeners.forEach((l) => l(keys, prev, data, opts.origin ?? 'local'));
 }
 
+/**
+ * Adds characters the cloud's roster lists to `chars`, and corrects their names. The only way the alt store
+ * (altStore.ts) reaches this ledger: it hands over who is yours, and nothing else it holds. Never removes one: a
+ * character taken off the roster is still yours, and what you sent it stays a transfer.
+ */
+export function mergeChars(found: { charId: number; name: string | null }[]): void {
+  const next: CharsDoc = { ...data.chars };
+  let changed = false;
+  for (const f of found) {
+    const id = String(f.charId);
+    const name = f.name ?? next[id]?.name ?? `Character ${f.charId}`;
+    if (next[id]?.name !== name) { next[id] = { ...next[id], name }; changed = true; }
+  }
+  if (changed) update({ chars: next });
+}
+
+/** Run when everything is wiped (clearAll): for state kept beside the ledger, like the alts' copy. */
+const clearHooks = new Set<() => Promise<void> | void>();
+export function onClearAll(fn: () => Promise<void> | void): () => void {
+  clearHooks.add(fn);
+  return () => { clearHooks.delete(fn); };
+}
+
 export function useData(): Data {
   return useSyncExternalStore((cb) => { listeners.add(cb); return () => listeners.delete(cb); }, () => data);
 }
@@ -183,6 +212,9 @@ export async function importAll(json: string): Promise<void> {
   const base = empty();
   const p: Partial<Data> = {};
   for (const k of KEYS) (p as Record<string, unknown>)[k] = incoming[k] !== undefined ? incoming[k] : base[k];
+  // Which characters are yours is about the cloud's roster, not about this ledger's trades: a backup from before
+  // there were any says nothing of them, and must not turn past transfers to them back into donations.
+  if (incoming.chars === undefined) delete p.chars; else p.chars = sanitizeChars(p.chars);
   if (p.settings) p.settings = sanitizeSettings(p.settings);
   if (p.prefs) p.prefs = sanitizePrefs(p.prefs);
   if (p.alerts) p.alerts = sanitizeAlerts(p.alerts);
@@ -199,6 +231,7 @@ export async function clearAll(): Promise<void> {
   await Promise.all(ks.map((k) => del(k, idb)));
   const cks = await keys(cacheStore);
   await Promise.all(cks.map((k) => del(k, cacheStore)));
+  await Promise.all([...clearHooks].map((h) => h()));
   data = empty();
   emit();
 }

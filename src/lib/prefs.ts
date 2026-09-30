@@ -157,6 +157,25 @@ export function sanitizeLeave(v: unknown): number[] {
   return [...new Set(v.filter((x): x is number => Number.isInteger(x) && x > 0))];
 }
 
+/**
+ * Which characters are yours besides the one logged in: alts the cloud reads (docs/notes/characters.md). A character's
+ * ID to its name, and a clone state set by hand for one ESI can't tell apart. It is the only thing about an alt the
+ * main's ledger holds: who is yours, never a record of theirs. It is a document of its own, not a field of `prefs`:
+ * sanitizePrefs keeps only the fields it knows, so an app version behind would have dropped it on its next save.
+ */
+export type CharsDoc = Record<string, { name: string; clone?: 'alpha' | 'omega' }>;
+
+export function sanitizeChars(v: unknown): CharsDoc {
+  const out: CharsDoc = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [id, x] of Object.entries(v as Record<string, unknown>)) {
+    const c = x as { name?: unknown; clone?: unknown } | null;
+    if (!/^\d{1,15}$/.test(id) || !c || typeof c !== 'object' || typeof c.name !== 'string' || !c.name.trim()) continue;
+    out[id] = { name: c.name.slice(0, 64), ...(c.clone === 'alpha' || c.clone === 'omega' ? { clone: c.clone } : {}) };
+  }
+  return out;
+}
+
 /** The motion setting in force: yours if you chose one, otherwise what the system asks for. */
 export function effectiveMotion(chosen: Motion | undefined, reducedMotion: boolean): Motion {
   return chosen ?? (reducedMotion ? 'Calm' : 'Full');

@@ -3816,5 +3816,21 @@ console.log('\n--- several characters: clone state, and whose login came back --
   eq('    and an alt\'s job that needs its login says whose, not "your"', [/hand the cloud Miner Two’s login again: Jita Ledger → Characters/.test(jobMail.body), /your login again/.test(jobMail.body)], [true, false]);
 }
 
+console.log('\n--- which characters are yours ---');
+{
+  const { sanitizeChars } = await import('../src/lib/prefs.ts');
+  const { isDocKey, applyPulled, everything, DOC_KEYS } = await import('../src/lib/cloudSync.ts');
+  eq('  a character is an ID and a name', sanitizeChars({ 900001: { name: 'Miner Two' } }), { 900001: { name: 'Miner Two' } });
+  eq('    with a clone state, when you set one by hand', sanitizeChars({ 900001: { name: 'Miner Two', clone: 'alpha' } }), { 900001: { name: 'Miner Two', clone: 'alpha' } });
+  eq('    an unknown clone state is dropped, the character kept', sanitizeChars({ 900001: { name: 'Miner Two', clone: 'gamma' } }), { 900001: { name: 'Miner Two' } });
+  eq('  what isn\'t one is left out', sanitizeChars({ abc: { name: 'x' }, 900002: { name: '' }, 900003: null, 900004: 'Miner', 900005: { name: 'Kept' } }), { 900005: { name: 'Kept' } });
+  eq('  nothing, an array or a string is no characters', [sanitizeChars(null), sanitizeChars([1]), sanitizeChars('x')], [{}, {}, {}]);
+  eq('  a long name is cut, not refused', sanitizeChars({ 1: { name: 'x'.repeat(100) } })[1].name.length, 64);
+  eq('  it is a synced document', [isDocKey('chars'), DOC_KEYS.includes('chars')], [true, true]);
+  const base = { settings: {}, meta: {}, prefs: {}, chars: {} };
+  eq('  one that comes down replaces the one here', applyPulled(base, { records: [], docs: [{ key: 'chars', d: { 900001: { name: 'Miner Two' } } }] }).chars, { 900001: { name: 'Miner Two' } });
+  eq('  and goes up with a first upload', everything({ chars: { 900001: { name: 'Miner Two' } } }).docs.includes('chars'), true);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
