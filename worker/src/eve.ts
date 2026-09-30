@@ -13,9 +13,17 @@ export const HEADERS = { 'X-Compatibility-Date': '2025-08-26', 'User-Agent': 'ji
 export type Purpose = 'main' | 'mailer';
 export type Login = { access: string; charId: number; name: string; scopes: string[] };
 
+// Fields spelled out, not constructor parameter properties: Node's type stripping, which the tests run on, takes
+// only syntax it can erase (scripts/check-worker.mjs).
 export class EveError extends Error {
-  /** `reason`: what EVE's login said, when it refused a refresh token. */
-  constructor(public status: number, message: string, public reason?: string) { super(message); }
+  status: number;
+  /** What EVE's login said, when it refused a refresh token. */
+  reason?: string;
+  constructor(status: number, message: string, reason?: string) {
+    super(message);
+    this.status = status;
+    this.reason = reason;
+  }
 }
 
 function claims(access: string): { charId: number; name: string; scopes: string[]; exp: number } {
