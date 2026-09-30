@@ -19,7 +19,8 @@ const SNIPER_CRON = '1-59/5 * * * *';
 import { sanitizeSettings, type Settings } from '../../src/lib/fees';
 import { archive, noteJob, refreshOrders } from './archive';
 import { flowFor, hoursFor, pricesFor, unpack, watchMarkets } from './market';
-import { dropLogin, EveError, keepLogin, ledgerReader, type Purpose } from './eve';
+import { altReader, dropLogin, EveError, keepHandedOver, ledgerReader } from './eve';
+import { altsStatus, altTicks, isAlt, onRoster, readAlt, removeAlt } from './alts';
 import { BadRequest, pull, push, status, type PushBody } from './sync';
 import { rateReport } from './rate';
 import { blueprintMarket } from './blueprints';
@@ -127,7 +128,9 @@ async function runArchive(env: Env, charId: number) {
 /** What the background side holds for a ledger: its logins (never the tokens) and what each job last did. */
 async function background(env: Env, charId: number) {
   // `at` is the last time the login worked (handed over, or refreshed); `refusedAt` when EVE started refusing it.
-  const keys = (await env.DB.prepare('SELECT purpose, token_char_id AS charId, token_char_name AS name, scopes, updated_at AS at, refused_at AS refusedAt, refused FROM keys WHERE char_id = ?1')
+  // The main's and the sender's only. An alt's login is on /v1/alts: an app version behind turns every refused login
+  // listed here, other than the main's, into "log in a sender", which for an alt is the login that stops its own.
+  const keys = (await env.DB.prepare(`SELECT purpose, token_char_id AS charId, token_char_name AS name, scopes, updated_at AS at, refused_at AS refusedAt, refused FROM keys WHERE char_id = ?1 AND purpose IN ('main', 'mailer')`)
     .bind(charId).all<{ purpose: string; charId: number; name: string; scopes: string; at: number; refusedAt: number | null; refused: string | null }>()).results
     .map((k) => ({ ...k, scopes: k.scopes.split(' ').filter(Boolean).length, scopeNames: k.scopes.split(' ').filter(Boolean) }));
   const jobs = (await env.DB.prepare('SELECT job, last_run AS lastRun, last_ok AS lastOk, last_error AS lastError, detail FROM jobs WHERE char_id = ?1')
@@ -242,6 +245,8 @@ export default {
         : await caller(request, env.EVE_CLIENT_ID);
       // A private ledger: a genuine EVE login isn't enough, it has to be the owner's character (constants.ts).
       if (!dev && !isOwner(who.charId)) return json({ error: 'This Jita Ledger is private: only its owner can use it.' }, 403, c);
+      // An alt is read by the cloud and never logs in: as a caller it could push a ledger over its own cloud copy.
+      if (await isAlt(env.DB, who.charId)) return json({ error: 'This character is read by the cloud as one of its owner’s characters; it doesn’t log in to Jita Ledger.' }, 403, c);
       if (url.pathname === '/v1/push' && request.method === 'POST') {
         return json(await push(env.DB, who.charId, (await request.json()) as PushBody), 200, c);
       }
@@ -254,15 +259,38 @@ export default {
       }
       if (url.pathname === '/v1/keys' && request.method === 'POST') {
         const body = (await request.json()) as { purpose?: string; refreshToken?: string };
-        const purpose = body.purpose === 'mailer' ? 'mailer' : body.purpose === 'main' ? 'main' : null;
-        if (!purpose || !body.refreshToken) throw new BadRequest('Say which login this is and send its refresh token');
-        const kept = await keepLogin(env, who.charId, purpose as Purpose, body.refreshToken);
-        return json({ kept: { purpose, charId: kept.charId, name: kept.name, scopes: kept.scopes.length } }, 200, c);
+        const asked = body.purpose === 'mailer' || body.purpose === 'main' || body.purpose === 'alt' ? body.purpose : null;
+        if (!asked || !body.refreshToken) throw new BadRequest('Say which login this is and send its refresh token');
+        // `as` is what it was kept as: EVE's page picks the character, so an alt hand-over can come back as the
+        // main or the sender (eve.ts, keepHandedOver). `purpose` repeats it for an app version behind.
+        const kept = await keepHandedOver(env, who.charId, asked, body.refreshToken);
+        return json({ kept: { purpose: kept.as, as: kept.as, charId: kept.login.charId, name: kept.login.name, scopes: kept.login.scopes.length } }, 200, c);
       }
       if (url.pathname === '/v1/keys' && request.method === 'DELETE') {
         const purpose = url.searchParams.get('purpose') === 'mailer' ? 'mailer' : 'main';
         await dropLogin(env, who.charId, purpose);
         return json({ dropped: purpose }, 200, c);
+      }
+      // Alts (alts.ts): the owner's other characters, read by the cloud. New paths, so a Worker a version behind
+      // answers 404 and can never hand the main's ledger back as an alt's; each checks the alt is on the caller's roster.
+      if (url.pathname === '/v1/alts' && request.method === 'GET') return json(await altsStatus(env.DB, who.charId), 200, c);
+      if (url.pathname === '/v1/alts/mining/ticks' && request.method === 'GET') {
+        return json(await altTicks(env.DB, who.charId, Number(url.searchParams.get('days') ?? 30) || 30), 200, c);
+      }
+      const alt = /^\/v1\/alts\/(\d{1,15})(?:\/(pull|read))?$/.exec(url.pathname);
+      if (alt) {
+        const altId = Number(alt[1]);
+        if (!(await onRoster(env.DB, who.charId, altId))) return json({ error: 'That character isn’t one of yours.' }, 404, c);
+        if (alt[2] === 'pull' && request.method === 'GET') {
+          const since = Number(url.searchParams.get('since') ?? 0) || 0;
+          return json(await pull(env.DB, altId, since, url.searchParams.get('after')), 200, c);
+        }
+        if (alt[2] === 'read' && request.method === 'POST') return json(await readAlt(env, altReader(who.charId, altId)), 200, c);
+        if (!alt[2] && request.method === 'DELETE') {
+          const data = url.searchParams.get('data') === 'delete' ? 'delete' : 'keep';
+          await removeAlt(env, who.charId, altId, data);
+          return json({ removed: altId, data }, 200, c);
+        }
       }
       if (url.pathname === '/v1/jobs/archive' && request.method === 'POST') return json(await runArchive(env, who.charId), 200, c);
       // The mining ledger's ticks (what grew between the cloud's reads), for the app's sessions.

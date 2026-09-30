@@ -267,5 +267,156 @@ console.log('\n--- an alt\'s full read ---');
   }
 }
 
+console.log('\n--- handing a login over, and the alt routes ---');
+{
+  const worker = (await import('../worker/src/index.ts')).default;
+  const { useLogin } = await import('../worker/src/eve.ts');
+  /** A request as the main, the way a local test stands a character in for the login (DEV_AUTH_CHAR). */
+  const ask = async (env, method, path, body) => {
+    const res = await worker.fetch(new Request(`http://localhost${path}`, {
+      method, headers: { Authorization: 'Bearer dev-token', ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined,
+    }), env);
+    return { status: res.status, body: await res.json() };
+  };
+  /** EVE's login answering a refresh with a token for `char`; and its revoke. */
+  const eve = (char, name) => [
+    [/^POST \/v2\/oauth\/token$/, { access_token: fakeToken(char, name, SCOPES), refresh_token: `rotated-${char}` }],
+    [/^POST \/v2\/oauth\/revoke$/, {}],
+  ];
+  const fresh = async () => {
+    const db = d1();
+    await keepKey(db, MAIN, 'main', MAIN, 'Main', SCOPES);
+    await keepKey(db, MAIN, 'mailer', SENDER, 'Postmaster', ['esi-mail.send_mail.v1', 'esi-mail.organize_mail.v1']);
+    return { db, env: testEnv(db, { DEV_AUTH_CHAR: String(MAIN) }) };
+  };
+  const keysOf = (db) => db.rows('SELECT purpose, token_char_id AS c FROM keys WHERE char_id = ? ORDER BY purpose', MAIN).map((k) => `${k.purpose}=${k.c}`);
+
+  // Adding an alt: the three characters EVE's page might hand back.
+  {
+    const { db, env } = await fresh();
+    let f = stubFetch(eve(ALT, 'Miner Two'));
+    let r = await ask(env, 'POST', '/v1/keys', { purpose: 'alt', refreshToken: 'x' });
+    f.restore();
+    eq('  an alt came back: kept as an alt', [r.status, r.body.kept.as, r.body.kept.charId, r.body.kept.name], [200, 'alt', ALT, 'Miner Two']);
+    eq('    its login sits under the main\'s ledger, beside the two that were there', keysOf(db), [`alt:${ALT}=${ALT}`, `mailer=${SENDER}`, `main=${MAIN}`]);
+    eq('    and it is on the roster', db.rows('SELECT char_id AS c, ledger AS l, name, removed_at AS gone FROM alts'), [{ c: ALT, l: MAIN, name: 'Miner Two', gone: null }]);
+
+    f = stubFetch(eve(MAIN, 'Main'));
+    r = await ask(env, 'POST', '/v1/keys', { purpose: 'alt', refreshToken: 'x' });
+    f.restore();
+    eq('  the main came back: kept as the main\'s login, nothing added', [r.body.kept.as, keysOf(db).length, db.rows('SELECT COUNT(*) AS n FROM alts')[0].n], ['main', 3, 1]);
+
+    f = stubFetch(eve(SENDER, 'Postmaster'));
+    r = await ask(env, 'POST', '/v1/keys', { purpose: 'alt', refreshToken: 'x' });
+    f.restore();
+    eq('  the mail sender came back: kept as the sender\'s login, nothing added', [r.body.kept.as, keysOf(db), db.rows('SELECT COUNT(*) AS n FROM alts')[0].n], ['mailer', [`alt:${ALT}=${ALT}`, `mailer=${SENDER}`, `main=${MAIN}`], 1]);
+    eq('    with the permissions it came back with, so mail carries on', db.rows(`SELECT scopes FROM keys WHERE purpose = 'mailer'`)[0].scopes.includes('esi-mail.send_mail.v1'), true);
+  }
+
+  // The reverse slip: a sender login that turns out to be an alt.
+  {
+    const { db, env } = await fresh();
+    let f = stubFetch(eve(ALT, 'Miner Two'));
+    await ask(env, 'POST', '/v1/keys', { purpose: 'alt', refreshToken: 'x' });
+    const r = await ask(env, 'POST', '/v1/keys', { purpose: 'mailer', refreshToken: 'y' });
+    f.restore();
+    eq('  a sender login that is an alt is refused, saying what happened', [r.status, /one of your characters, not your mail sender/.test(r.body.error), /Hand Miner Two over again/.test(r.body.error)], [400, true, true]);
+    eq('    the real sender is left alone', keysOf(db).includes(`mailer=${SENDER}`), true);
+    eq('    the alt\'s login is marked refused at once', db.rows('SELECT refused_at IS NOT NULL AS r FROM keys WHERE purpose = ?', `alt:${ALT}`)[0].r, 1);
+    eq('    and the login that can\'t be kept is revoked at EVE', f.calls.some((c) => c.path === '/v2/oauth/revoke'), true);
+
+    // Once removed from the roster, the same character may be the sender.
+    f = stubFetch(eve(ALT, 'Miner Two'));
+    await ask(env, 'DELETE', `/v1/alts/${ALT}?data=keep`);
+    const r2 = await ask(env, 'POST', '/v1/keys', { purpose: 'mailer', refreshToken: 'y' });
+    f.restore();
+    eq('  a character removed from the roster can be the sender', [r2.status, r2.body.kept.as, keysOf(db)], [200, 'mailer', [`mailer=${ALT}`, `main=${MAIN}`]]);
+  }
+
+  // The main's and the sender's own hand-overs, as before.
+  {
+    const { db, env } = await fresh();
+    let f = stubFetch(eve(ALT, 'Miner Two'));
+    const r = await ask(env, 'POST', '/v1/keys', { purpose: 'main', refreshToken: 'x' });
+    f.restore();
+    eq('  a main login that isn\'t the main is refused, as before', [r.status, /not the character whose ledger this is/.test(r.body.error)], [400, true]);
+    f = stubFetch(eve(MAIN, 'Main'));
+    const r2 = await ask(env, 'POST', '/v1/keys', { purpose: 'mailer', refreshToken: 'x' });
+    f.restore();
+    eq('  the main can\'t be its own sender, as before', [r2.status, /the sender has to be your other character/.test(r2.body.error)], [400, true]);
+    eq('    and nothing changed', keysOf(db), [`mailer=${SENDER}`, `main=${MAIN}`]);
+    eq('  an unknown purpose is refused', (await ask(env, 'POST', '/v1/keys', { purpose: 'owner', refreshToken: 'x' })).status, 400);
+  }
+
+  // What an app version behind sees, and what the alt routes give.
+  {
+    const { db, env } = await ledgerWithAlt();
+    env.DEV_AUTH_CHAR = String(MAIN);
+    const { push } = await import('../worker/src/sync.ts');
+    await push(db, ALT, { records: [{ k: 'txs', i: 'alt-trade', d: { typeId: VELDSPAR } }], docs: [{ key: 'meta', d: { walletBalance: 5000 } }] });
+    await push(db, MAIN, { records: [{ k: 'txs', i: 'main-trade', d: { typeId: SCORDITE } }], docs: [] });
+    db.run('INSERT INTO mining_state (char_id, at, data, ship_type_id) VALUES (?, ?, ?, ?)', ALT, T0, '{}', VENTURE);
+    db.run('INSERT INTO mining_ticks (char_id, at, system_id, type_id, qty, ship_type_id) VALUES (?, ?, ?, ?, ?, ?)', ALT, Date.now() - MIN, SYSTEM, VELDSPAR, 400, VENTURE);
+    db.run('INSERT INTO mining_ticks (char_id, at, system_id, type_id, qty, ship_type_id) VALUES (?, ?, ?, ?, ?, ?)', MAIN, Date.now() - MIN, SYSTEM, VELDSPAR, 999, VENTURE);
+    db.run('INSERT INTO jobs (char_id, job, last_run, last_ok) VALUES (?, ?, ?, ?)', ALT, 'mining', T0, T0);
+
+    const status = await ask(env, 'GET', '/v1/status');
+    eq('  /v1/status lists only the main\'s and the sender\'s logins', status.body.background.keys.map((k) => k.purpose), ['main']);
+    const list = (await ask(env, 'GET', '/v1/alts')).body;
+    eq('  /v1/alts: the roster', list.map((a) => [a.charId, a.name, a.rev, a.ship, a.shipAt, a.refusedAt]), [[ALT, 'Miner Two', 1, VENTURE, T0, null]]);
+    eq('    with its permissions and its jobs', [list[0].scopes.length, list[0].jobs.map((j) => j.job)], [SCOPES.length, ['mining']]);
+    const pulled = (await ask(env, 'GET', `/v1/alts/${ALT}/pull?since=0`)).body;
+    eq('  an alt\'s pull is the alt\'s ledger', [pulled.records.map((x) => x.i), pulled.docs.map((x) => x.key), pulled.rev], [['alt-trade'], ['meta'], 1]);
+    eq('  the main\'s pull is the main\'s', (await ask(env, 'GET', '/v1/pull?since=0')).body.records.map((x) => x.i), ['main-trade']);
+    const ticks = (await ask(env, 'GET', '/v1/alts/mining/ticks?days=30')).body;
+    eq('  the alts\' ticks carry their character, and leave the main\'s out', ticks.map((t) => [t.charId, t.qty]), [[ALT, 400]]);
+
+    eq('  a character not on the roster: not found', [(await ask(env, 'GET', '/v1/alts/12345/pull?since=0')).status, (await ask(env, 'GET', `/v1/alts/${MAIN}/pull?since=0`)).status], [404, 404]);
+    eq('  an ID that isn\'t a number: not found', [(await ask(env, 'GET', '/v1/alts/abc/pull')).status, (await ask(env, 'GET', '/v1/alts/1;DROP/pull')).status], [404, 404]);
+    eq('  a caller that is an alt is refused everything', (await ask({ ...env, DEV_AUTH_CHAR: String(ALT) }, 'GET', '/v1/status')).status, 403);
+  }
+
+  // Removing: what is kept and what goes.
+  {
+    const make = async () => {
+      const x = await ledgerWithAlt();
+      x.env.DEV_AUTH_CHAR = String(MAIN);
+      const { push } = await import('../worker/src/sync.ts');
+      await push(x.db, ALT, { records: [{ k: 'txs', i: 't', d: {} }], docs: [{ key: 'meta', d: {} }] });
+      x.db.run('INSERT INTO mining_state (char_id, at, data) VALUES (?, ?, ?)', ALT, T0, '{}');
+      x.db.run('INSERT INTO mining_ticks (char_id, at, system_id, type_id, qty) VALUES (?, ?, ?, ?, ?)', ALT, T0, SYSTEM, VELDSPAR, 1);
+      x.db.run('INSERT INTO jobs (char_id, job, last_run, fails) VALUES (?, ?, ?, ?)', ALT, 'mining', T0, 5);
+      x.db.run('INSERT INTO safety_seen (char_id, wrap_id, first_seen, start_known) VALUES (?, ?, ?, ?)', ALT, 0, T0, 1);
+      return x;
+    };
+    let { db, env } = await make();
+    let f = stubFetch(eve(ALT, 'Miner Two'));
+    eq('  removing an alt', (await ask(env, 'DELETE', `/v1/alts/${ALT}?data=keep`)).body, { removed: ALT, data: 'keep' });
+    f.restore();
+    eq('    its login is revoked and dropped', [f.calls.some((c) => c.path === '/v2/oauth/revoke'), db.rows('SELECT COUNT(*) AS n FROM keys WHERE purpose LIKE ?', 'alt:%')[0].n], [true, 0]);
+    eq('    keeping its data: records stay, the mining baseline and old job streaks go', under(db, ALT), { [`records:${ALT}`]: 1, [`docs:${ALT}`]: 1, [`revs:${ALT}`]: 1, [`mining_ticks:${ALT}`]: 1, [`safety_seen:${ALT}`]: 1 });
+    eq('    it is off the roster but still known as an alt', [(await ask(env, 'GET', '/v1/alts')).body, db.rows('SELECT removed_at IS NOT NULL AS gone FROM alts')[0].gone], [[], 1]);
+    eq('    and its data can\'t be reached', (await ask(env, 'GET', `/v1/alts/${ALT}/pull?since=0`)).status, 404);
+
+    ({ db, env } = await make());
+    f = stubFetch(eve(ALT, 'Miner Two'));
+    await ask(env, 'DELETE', `/v1/alts/${ALT}?data=delete`);
+    f.restore();
+    eq('  deleting its data: only its revision is left, so it never restarts', [under(db, ALT), db.rows('SELECT COUNT(*) AS n FROM alts')[0].n], [{ [`revs:${ALT}`]: 1 }, 0]);
+    eq('    and the main is untouched', db.rows('SELECT COUNT(*) AS n FROM keys WHERE purpose = ?', 'main')[0].n, 1);
+  }
+
+  // A refusal that a later refresh clears: what two jobs refreshing one login at once would leave behind.
+  {
+    const db = d1();
+    const env = testEnv(db);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', SCOPES, { expired: true, refusedAt: T0, refused: 'invalid_grant' });
+    const f = stubFetch(eve(ALT, 'Miner Two'));
+    const login = await useLogin(env, MAIN, `alt:${ALT}`);
+    f.restore();
+    eq('  a refused login that then refreshes is no longer refused', [login.charId, db.rows('SELECT refused_at AS r, refused FROM keys')[0]], [ALT, { r: null, refused: null }]);
+  }
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

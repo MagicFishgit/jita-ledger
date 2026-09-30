@@ -5,6 +5,7 @@
  * is needed to refresh it). Refreshing may hand back a new refresh token, so the newest is always stored.
  */
 import { open, seal } from './crypto';
+import { sortLogin, type Asked } from '../../src/lib/roster';
 
 const TOKEN_URL = 'https://login.eveonline.com/v2/oauth/token';
 const ESI = 'https://esi.evetech.net';
@@ -57,19 +58,53 @@ export async function refresh(refreshToken: string, clientId: string): Promise<{
 
 type Env = { DB: D1Database; EVE_CLIENT_ID: string; TOKEN_KEY: string };
 
-/** Keep a login for a ledger, after proving it works by refreshing it once. */
-export async function keepLogin(env: Env, ledgerChar: number, purpose: Purpose, refreshToken: string): Promise<Login> {
+/** Revoke a refresh token at EVE, best effort: the Worker no longer has it either way. */
+export async function revoke(env: Env, refreshToken: string): Promise<void> {
+  try {
+    await fetch('https://login.eveonline.com/v2/oauth/revoke', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token_type_hint: 'refresh_token', token: refreshToken, client_id: env.EVE_CLIENT_ID }).toString(),
+    });
+  } catch { /* gone from here regardless */ }
+}
+
+/**
+ * Keep a login handed over for a ledger, after proving it works by refreshing it once. `asked` is what the app asked
+ * EVE for; which character it turned out to be decides what it's kept as (roster.ts, sortLogin): EVE's page picks the
+ * character, and has already stopped that character's earlier logins, so a wrong pick while adding an alt is kept as
+ * the main's or the sender's login. It is a working one, and may be the only one left.
+ */
+export async function keepHandedOver(env: Env, ledger: number, asked: Asked, refreshToken: string): Promise<{ as: Asked; login: Login }> {
   const t = await refresh(refreshToken, env.EVE_CLIENT_ID);
   const who = claims(t.access);
-  if (purpose === 'main' && who.charId !== ledgerChar) throw new EveError(400, `That login is ${who.name}, not the character whose ledger this is`);
-  if (purpose === 'mailer' && who.charId === ledgerChar) throw new EveError(400, `${who.name} is the character alerts go to; the sender has to be your other character`);
-  await env.DB.prepare(`
+  const db = env.DB;
+  const mailer = await db.prepare(`SELECT token_char_id AS id FROM keys WHERE char_id = ?1 AND purpose = 'mailer'`).bind(ledger).first<{ id: number }>();
+  const onRoster = !!(await db.prepare('SELECT 1 AS y FROM alts WHERE char_id = ?1 AND ledger = ?2 AND removed_at IS NULL').bind(who.charId, ledger).first());
+  const sorted = sortLogin(asked, who.charId, ledger, mailer?.id ?? null, onRoster);
+  if ('refuse' in sorted) {
+    if (sorted.refuse === 'notMain') throw new EveError(400, `That login is ${who.name}, not the character whose ledger this is`);
+    if (sorted.refuse === 'isMain') throw new EveError(400, `${who.name} is the character alerts go to; the sender has to be your other character`);
+    // A sender login for one of your characters. EVE has already stopped the login the cloud reads it with, and this
+    // one (two permissions) can't read for it: say so now rather than let the next read find out, and don't leave a
+    // live login the cloud won't use.
+    await db.prepare('UPDATE keys SET refused_at = COALESCE(refused_at, ?3), refused = ?4 WHERE char_id = ?1 AND purpose = ?2')
+      .bind(ledger, altPurpose(who.charId), Date.now(), 'stopped by a sender login for the same character').run();
+    await revoke(env, t.refresh);
+    throw new EveError(400, `That was ${who.name}, one of your characters, not your mail sender. EVE allows a character one set of permissions, so that login has stopped the one the cloud reads ${who.name} with. Hand ${who.name} over again on the Characters page.`);
+  }
+  const purpose: Purpose = sorted.as === 'alt' ? altPurpose(who.charId) : sorted.as;
+  await db.prepare(`
     INSERT INTO keys (char_id, purpose, token_char_id, token_char_name, scopes, refresh_enc, updated_at, access_enc, access_exp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
     ON CONFLICT(char_id, purpose) DO UPDATE SET token_char_id = excluded.token_char_id, token_char_name = excluded.token_char_name,
       scopes = excluded.scopes, refresh_enc = excluded.refresh_enc, updated_at = excluded.updated_at,
       access_enc = excluded.access_enc, access_exp = excluded.access_exp, refused_at = NULL, refused = NULL, refused_warned = NULL`)
-    .bind(ledgerChar, purpose, who.charId, who.name, who.scopes.join(' '), await seal(env.TOKEN_KEY, t.refresh), Date.now(), await seal(env.TOKEN_KEY, t.access), who.exp).run();
-  return asLogin(t.access);
+    .bind(ledger, purpose, who.charId, who.name, who.scopes.join(' '), await seal(env.TOKEN_KEY, t.refresh), Date.now(), await seal(env.TOKEN_KEY, t.access), who.exp).run();
+  if (sorted.as === 'alt') {
+    await db.prepare(`INSERT INTO alts (char_id, ledger, name, added_at) VALUES (?1, ?2, ?3, ?4)
+      ON CONFLICT(char_id) DO UPDATE SET ledger = excluded.ledger, name = excluded.name, removed_at = NULL`)
+      .bind(who.charId, ledger, who.name, Date.now()).run();
+  }
+  return { as: sorted.as, login: asLogin(t.access) };
 }
 
 export async function dropLogin(env: Env, ledgerChar: number, purpose: Purpose): Promise<void> {
@@ -77,13 +112,7 @@ export async function dropLogin(env: Env, ledgerChar: number, purpose: Purpose):
   await env.DB.prepare('DELETE FROM keys WHERE char_id = ?1 AND purpose = ?2').bind(ledgerChar, purpose).run();
   if (!row) return;
   // Revoke it at EVE too, best effort: the Worker no longer has it either way.
-  try {
-    const token = await open(env.TOKEN_KEY, row.refresh_enc);
-    await fetch('https://login.eveonline.com/v2/oauth/revoke', {
-      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ token_type_hint: 'refresh_token', token, client_id: env.EVE_CLIENT_ID }).toString(),
-    });
-  } catch { /* gone from here regardless */ }
+  try { await revoke(env, await open(env.TOKEN_KEY, row.refresh_enc)); } catch { /* a token that won't open is gone already */ }
 }
 
 /**

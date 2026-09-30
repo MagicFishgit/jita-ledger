@@ -7,7 +7,7 @@
  */
 import type { CloneState } from '../../src/lib/roster';
 import { archive, noteJob, type ArchiveResult } from './archive';
-import { altReader, stillKept, type Reader } from './eve';
+import { altPurpose, altReader, dropLogin, stillKept, type Reader } from './eve';
 import { readSheet } from './sheet';
 
 type Env = { DB: D1Database; EVE_CLIENT_ID: string; TOKEN_KEY: string; APP_URL: string };
@@ -64,4 +64,48 @@ export async function readAlt(env: Env, who: Reader, prices?: Record<number, num
     await note(env.DB, who, 'sheet', { ok: false, error: said(e) });
     throw e;
   }
+}
+
+/** The roster as the app shows it: each alt's login (never the token), its jobs, its revision, and its ship when last read. */
+export async function altsStatus(db: D1Database, ledger: number) {
+  const rows = (await db.prepare(`SELECT a.char_id AS charId, a.name AS name, a.added_at AS addedAt, k.scopes AS scopes, k.updated_at AS at,
+        k.refused_at AS refusedAt, k.refused AS refused, (SELECT rev FROM revs WHERE char_id = a.char_id) AS rev, m.ship_type_id AS ship, m.at AS shipAt
+      FROM alts a
+      LEFT JOIN keys k ON k.char_id = a.ledger AND k.purpose = 'alt:' || a.char_id
+      LEFT JOIN mining_state m ON m.char_id = a.char_id
+      WHERE a.ledger = ?1 AND a.removed_at IS NULL ORDER BY a.added_at, a.char_id`).bind(ledger)
+    .all<{ charId: number; name: string | null; addedAt: number; scopes: string | null; at: number | null; refusedAt: number | null; refused: string | null; rev: number | null; ship: number | null; shipAt: number | null }>()).results;
+  const out = [];
+  for (const r of rows) {
+    const jobs = (await db.prepare('SELECT job, last_run AS lastRun, last_ok AS lastOk, last_error AS lastError FROM jobs WHERE char_id = ?1 ORDER BY job').bind(r.charId)
+      .all<{ job: string; lastRun: number; lastOk: number | null; lastError: string | null }>()).results;
+    out.push({ ...r, scopes: (r.scopes ?? '').split(' ').filter(Boolean), rev: r.rev ?? 0, jobs });
+  }
+  return out;
+}
+
+/** Every alt's ticks of the last `days`, each with its character: sessions are built one character at a time. */
+export async function altTicks(db: D1Database, ledger: number, days: number, now = Date.now()) {
+  return (await db.prepare(`SELECT t.char_id AS charId, t.at AS at, t.system_id AS systemId, t.type_id AS typeId, t.qty AS qty, t.ship_type_id AS shipTypeId
+      FROM mining_ticks t JOIN alts a ON a.char_id = t.char_id
+      WHERE a.ledger = ?1 AND a.removed_at IS NULL AND t.at > ?2 ORDER BY t.at`)
+    .bind(ledger, now - Math.min(90, Math.max(1, days)) * 86400_000)
+    .all<{ charId: number; at: number; systemId: number; typeId: number; qty: number; shipTypeId: number | null }>()).results;
+}
+
+/**
+ * Take an alt off the roster: its login is revoked at EVE and dropped. Either way its mining snapshot and its job
+ * rows go, so a later re-add starts from a fresh baseline and no old failing streak. `keep` leaves what was read,
+ * unreachable until the character is added again, and the alt stays known as one (it is never a ledger of its own).
+ * `delete` removes it all. Its revision row stays in both: a revision that restarted would let a device holding the
+ * old one miss everything after a re-add.
+ */
+export async function removeAlt(env: Env, ledger: number, altId: number, data: 'keep' | 'delete'): Promise<void> {
+  await dropLogin(env, ledger, altPurpose(altId));
+  const db = env.DB;
+  const gone = (table: string) => db.prepare(`DELETE FROM ${table} WHERE char_id = ?1`).bind(altId);
+  const stmts = [gone('mining_state'), gone('jobs')];
+  if (data === 'delete') stmts.push(gone('records'), gone('docs'), gone('mining_ticks'), gone('safety_seen'), db.prepare('DELETE FROM alts WHERE char_id = ?1 AND ledger = ?2').bind(altId, ledger));
+  else stmts.push(db.prepare('UPDATE alts SET removed_at = ?3 WHERE char_id = ?1 AND ledger = ?2').bind(altId, ledger, Date.now()));
+  await db.batch(stmts);
 }
