@@ -4031,5 +4031,17 @@ console.log('\n--- an alt\'s copy as a ledger (altLedger.ts) ---');
   eq('  an alt with nothing read is an empty ledger with Omega fees', [Object.keys(altLedger(emptyAlt()).txs).length, altLedger(emptyAlt()).settings.clone], [0, 'omega']);
 }
 
+console.log('\n--- what a set of mining records comes to (minedTotal) ---');
+{
+  const { minedTotal } = await import('../src/lib/mining.ts');
+  const r = (typeId, qty) => ({ charId: 900001, date: '2026-09-29', systemId: 30000142, typeId, qty });
+  const vol = { 1228: 0.15, 1230: 0.1 }, worth = { 1228: 16, 1230: null };
+  const got = minedTotal([r(1228, 1000), r(1228, 500), r(1230, 2000)], (t) => vol[t] ?? null, (t) => worth[t] ?? null);
+  eq('  units, m³, and ISK over what could be priced', [got.units, Math.round(got.m3), got.isk, got.priced, got.ores], [3500, 425, 24000, 1, 2]);
+  const noVol = minedTotal([r(9999, 10)], () => null, () => null);
+  eq('  an ore with no known volume: m³ not known, never 0', [noVol.m3, noVol.isk, noVol.priced], [null, 0, 0]);
+  eq('  nothing mined', minedTotal([], () => 1, () => 1), { units: 0, m3: 0, isk: 0, priced: 0, ores: 0 });
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

@@ -160,3 +160,22 @@ export function paybackHours(cost: number, fromM3PerMin: number, toM3PerMin: num
   const gain = (toM3PerMin - fromM3PerMin) * 60 * iskPerM3;
   return gain > 0 && cost > 0 ? cost / gain : null;
 }
+
+/**
+ * What a set of mining records comes to: units, m³ and ISK at the valuation given. An ore with no known volume makes
+ * the m³ unknown rather than short; one with no price adds nothing to the ISK, and `priced` of `ores` says how many
+ * were. The Characters page's "Mined" is this: an estimate beside what was earned, never part of it.
+ */
+export function minedTotal(records: MiningRecord[], volumeOf: (t: number) => number | null, worthOf: (t: number) => number | null) {
+  const by = new Map<number, number>();
+  for (const r of records) by.set(r.typeId, (by.get(r.typeId) ?? 0) + r.qty);
+  let units = 0, m3: number | null = 0, isk = 0, priced = 0;
+  for (const [t, q] of by) {
+    units += q;
+    const v = volumeOf(t);
+    m3 = m3 == null || v == null ? null : m3 + q * v;
+    const w = worthOf(t);
+    if (w != null) { isk += q * w; priced++; }
+  }
+  return { units, m3, isk, priced, ores: by.size };
+}
