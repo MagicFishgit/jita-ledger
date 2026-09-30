@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Tornado } from 'lucide-react';
+import { ArrowRight, Ban, Crosshair, ExternalLink, MapPin, MousePointerClick, Tornado, Users, Wallet } from 'lucide-react';
 import {
   ABYSSAL_LINKS, byTier, iskPerHour, parseFilament, RUN_MINUTES, runsFrom, TIERS, WEATHERS,
   type Filament, type Weather,
@@ -15,6 +15,7 @@ import { toast } from '../../lib/toast';
 import { OpenInGame, useTypeName } from '../common';
 import { cssVars, Seg, Th, Tip } from '../ui';
 import { SkillPanel } from './SkillPanel';
+import { Points } from '../Facts';
 import { AbyssCell, AbyssMatrix, type Cell } from './AbyssMatrix';
 import { TrackerFitView, TrackerPanel, trackerCellOf, useTracker } from './AbyssTracker';
 import { AbyssTree } from './AbyssTree';
@@ -123,13 +124,20 @@ export function Abyssal() {
   return (
     <>
       <div className="intro-row">
-        <p>No API will tell you what a filament drops — ESI has no loot tables at all, so any “expected reward” here would be a number someone made up. What can be known is what every filament costs, and what <b>your</b> runs have actually paid, which your wallet already records.</p>
+        <div className="col" style={{ gap: 8, minWidth: 0 }}>
+          <p style={{ margin: 0 }}>What every filament costs, what <b>your</b> runs have paid, and what other players run and make.</p>
+          <Points compact items={[
+            { kind: 'info', icon: Ban, lead: 'No loot tables', text: 'ESI has none, so nothing here guesses what a filament drops.' },
+            { kind: 'good', icon: Wallet, lead: 'Your runs', text: 'measured from your wallet: filaments bought, loot sold, ships lost.' },
+            { kind: 'info', icon: Users, lead: 'Other players', text: 'Abyss Tracker’s logged runs and fits at each tier and weather, read by the cloud.' },
+          ]} />
+        </div>
         <button type="button" className="btn primary tall" disabled={!!busy} onClick={load}><Tornado aria-hidden="true" />{quotes ? 'Check again' : 'Price the filaments'}</button>
       </div>
       {busy && <div className="busy-row" role="status"><span className="spinner keep-motion" /><span className="bt">{busy}</span></div>}
 
       {!quotes ? (
-        !busy && <div className="dashed-empty"><p>Nothing priced yet. This reads the five filament market groups, prices every tier against the live Jita book, and then works out what your own runs have returned from transactions already synced. A few seconds.</p></div>
+        !busy && <div className="dashed-empty"><p>Nothing priced yet: pricing reads every filament at Jita and your runs from your wallet, in a few seconds.</p></div>
       ) : (
         <>
           <div className="g-300" style={{ gap: 14, animation: 'rise .4s ease-out' }}>
@@ -201,12 +209,12 @@ export function Abyssal() {
           {cell && (
             <div className="col" style={{ gap: 12 }}>
               <div className="panel-title">Ships and fits, and what comes next</div>
-              <p className="note small" style={{ margin: 0 }}>
-                The ships that run the Abyss, left to right by the tier each is first run at: frigates three to a pocket (three
-                filaments’ loot), destroyers two, then the cruisers, the Gila and each weather’s specialists.
-                {' '}The ones marked with a crosshair are among the most run at {cell.tier} {cell.weather}, the cell picked above.
-                {here != null ? ' The ship you’re in glows; the paths out of it are your next steps.' : ''} Click a ship for its fits.
-              </p>
+              <Points compact items={[
+                { kind: 'info', icon: ArrowRight, lead: 'Left to right', text: 'by the tier each ship is first run at: frigates three to a pocket, destroyers two, cruisers alone.' },
+                { kind: 'tip', icon: Crosshair, lead: 'Crosshair', text: `among the most run at ${cell.tier} ${cell.weather}, picked above.` },
+                ...(here != null ? [{ kind: 'good' as const, icon: MapPin, lead: 'Glowing', text: 'the ship you’re in; the paths out of it are your next steps.' }] : []),
+                { kind: 'info', icon: MousePointerClick, lead: 'Click a ship', text: 'for its fits, its resists and where it’s run.' },
+              ]} />
               <AbyssTree here={here} tracker={tracker} tier={tIdx(cell)} weather={trackerWeather(cell.weather)} />
             </div>
           )}
@@ -246,7 +254,7 @@ export function Abyssal() {
       )}
 
       <SkillPanel title="Skills this wants" needs={ABYSSAL_SKILLS}
-        note="Hull and weapon skills depend on what you fly, so they are not listed here — these are the support skills every abyssal fit leans on whatever the hull. Tiers above Raging punish a thin tank far more than they reward a fat gun." />
+        note="The support skills every abyssal fit leans on; hull and weapon skills depend on what you fly. Above Raging, tank matters more than guns." />
 
       <div>
         <div className="panel-title" style={{ marginBottom: 8 }}>Worth having open</div>

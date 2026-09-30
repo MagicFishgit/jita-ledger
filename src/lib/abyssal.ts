@@ -73,6 +73,13 @@ export function filamentFacts(description: string): FilamentFacts {
  * What the game's text gets wrong, and what's true instead (research of 30 September 2026). Every filament's description
  * still says it takes "a Tech I or Tech II Cruiser", and Tranquil's that it can't be opened in 1.0 or 0.9: stale.
  */
+/** Who can go into a pocket, as the page draws it: how many ships of which size, and how the loot scales with them. */
+export const ENTRY_OPTIONS = [
+  { n: 1, hull: 'cruiser', loot: 1, note: 'Tech I, Tech II, Navy or pirate; not a Strategic Cruiser' },
+  { n: 2, hull: 'destroyers', loot: 2, note: 'Two filaments; Tactical Destroyers allowed' },
+  { n: 3, hull: 'frigates', loot: 3, note: 'Three filaments' },
+] as const;
+
 export const ENTRY = {
   said: 'One cruiser (Tech I, Tech II, Navy or pirate; not a Strategic Cruiser), or up to two destroyers (two filaments, Tactical Destroyers allowed), or up to three frigates (three filaments). The loot scales with the filaments used: a three-frigate pocket’s cache holds about three times a cruiser’s.',
   source: 'EVE University, “Abyssal Deadspace” (17 September 2026); two destroyers since Depths of the Abyss (15 September 2020). The filament’s own text still says only “Tech I or Tech II Cruiser”.',

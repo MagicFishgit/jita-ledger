@@ -11,6 +11,7 @@ import { jitaBook, resolveIds } from '../../lib/market';
 import { typeKind } from '../../lib/universe';
 import { fitCosts, FitActions, FitGrid, FitSkills, useFitData } from '../FitParts';
 import { ItemIcon } from '../ui';
+import { Figures } from '../Facts';
 
 /**
  * Abyss Tracker's figures on the Abyssal page: for the tier and weather picked, the runs players logged there, the
@@ -53,7 +54,7 @@ function trackerGap(t: TrackerState, cell: TrackerCell | null): string | null {
   return null;
 }
 
-const HULL_SAID = { frigate: 'Frigates, a pocket of three filaments', destroyer: 'Destroyers, a pocket of two', cruiser: 'A cruiser, one filament' } as const;
+const HULL_SAID = { frigate: 'a frigate pocket (three filaments)', destroyer: 'a destroyer pocket (two)', cruiser: 'a cruiser pocket (one)' } as const;
 
 export function TrackerPanel({ tracker, tier, weather, onPickFit, fitId }: { tracker: TrackerState; tier: number; weather: number; onPickFit: (f: TrackerFit | null) => void; fitId: string | null }) {
   const now = useNow(60_000);
@@ -63,16 +64,21 @@ export function TrackerPanel({ tracker, tier, weather, onPickFit, fitId }: { tra
   return (
     <div className="col" style={{ gap: 10 }}>
       <div className="lbl">What players logged here (Abyss Tracker)</div>
-      <div className="kv-mini" style={{ maxWidth: 640 }}>
-        <span>Runs logged</span><b>{units(cell.runs)}, all time</b>
-        {(['frigate', 'destroyer', 'cruiser'] as const).map((k) => cell[k] && (
-          <span key={k} style={{ display: 'contents' }}>
-            <span data-tip="The median loot a pocket, with Abyss Tracker’s band around it. Loot isn’t profit: the filament and any ship lost come off it.">{HULL_SAID[k]}</span>
-            <b>{iskBig(cell[k]!.median)} a pocket <span className="faint">({iskBig(cell[k]!.low)}–{iskBig(cell[k]!.high)})</span></b>
-          </span>
-        ))}
-        {cell.drops.length > 0 && <><span>Drops most often</span><b style={{ whiteSpace: 'normal' }}>{cell.drops.slice(0, 3).map((x) => `${x.name} (${Math.round(x.rate)}% of runs)`).join(', ')}</b></>}
-      </div>
+      <Figures items={[
+        { key: 'runs', value: units(cell.runs), label: 'runs logged, all time' },
+        ...(['frigate', 'destroyer', 'cruiser'] as const).filter((k) => cell[k]).map((k) => ({
+          key: k, value: iskBig(cell[k]!.median), label: `${HULL_SAID[k]}, median (${iskBig(cell[k]!.low)}–${iskBig(cell[k]!.high)})`,
+          tip: 'The median loot a pocket, with Abyss Tracker’s band around it. Loot isn’t profit: the filament and any ship lost come off it.',
+        })),
+      ]} />
+      {cell.drops.length > 0 && (
+        <div>
+          <span className="lbl" style={{ display: 'block', marginBottom: 6 }}>Drops most often</span>
+          <div className="bonuses">
+            {cell.drops.slice(0, 4).map((x) => <span key={x.typeId} className="bonus drop"><ItemIcon id={x.typeId} size="sm" />{x.name}<b>{Math.round(x.rate)}%</b></span>)}
+          </div>
+        </div>
+      )}
       {cell.fits.length > 0 && (
         <>
           <div className="lbl" style={{ marginTop: 4 }}>The fits most run here</div>
@@ -90,8 +96,8 @@ export function TrackerPanel({ tracker, tier, weather, onPickFit, fitId }: { tra
         </>
       )}
       <p className="note small" style={{ margin: 0, color: 'var(--faint)' }}>
-        <a href={`https://abysstracker.com/info-page/${cell.tier}/${cell.weather}`} target="_blank" rel="noopener noreferrer">Abyss Tracker</a>, read by the cloud {ago(new Date(cell.at).toISOString(), now)}. Runs are logged by the players who use it, so it leans to dedicated runners and deaths go under-reported;
-        frigate and destroyer figures are for the whole pocket. DPS, EHP and cost are its own, at all skills V.
+        <a href={`https://abysstracker.com/info-page/${cell.tier}/${cell.weather}`} target="_blank" rel="noopener noreferrer">Abyss Tracker</a>, read by the cloud {ago(new Date(cell.at).toISOString(), now)}.{' '}
+        <span data-tip={'What its users log, not every run:\n\n• It leans to dedicated runners, and deaths go under-reported (zKillboard shows far more).\n• Frigate and destroyer figures are for the whole pocket, all its ships.\n• DPS, EHP and cost are its own engine’s, at all skills V.'} style={{ textDecoration: 'underline dotted', cursor: 'help' }}>What it counts</span>
       </p>
     </div>
   );

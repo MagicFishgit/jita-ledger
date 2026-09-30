@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Briefcase, Copy, MapPin, ShoppingCart } from 'lucide-react';
+import { Briefcase, Coins, Copy, MapPin, Radio, Route, ShoppingCart } from 'lucide-react';
 import { SCOPE } from '../../lib/config';
 import { esi } from '../../lib/esi';
 import { ago, isk, iskBig, units } from '../../lib/format';
@@ -21,6 +21,7 @@ import { endpoint, groupTypes, JITA_SYSTEM, typeInfo } from '../../lib/universe'
 import { GANK_SYSTEMS } from '../../lib/arbitrage';
 import { useEnsureNames, useTypeName, copyMultibuy } from '../common';
 import { Check, Flag, Th } from '../ui';
+import { Figures, Points } from '../Facts';
 import { multibuy } from '../../lib/combat';
 
 const FLAG: Record<DeliverFlag, { short: string; why: string }> = {
@@ -171,11 +172,14 @@ export function Freelance() {
   return (
     <>
       <div className="intro-row">
-        <p>
-          Freelance jobs that pay more for an item than Jita sells it for: buy it here, haul it, deliver it. Each job pays a fixed reward per unit from a pool
-          its owner funded up front. The game lists a job only within 5 jumps of a system it’s broadcast in, so that’s where you accept it (a few at a time,
-          Opportunities → Freelance Jobs); you can still buy everything in Jita.
-        </p>
+        <div className="col" style={{ gap: 8, minWidth: 0 }}>
+          <p style={{ margin: 0 }}>Jobs that pay more for an item than Jita sells it for: <b>buy it here, haul it, deliver it.</b></p>
+          <Points compact items={[
+            { kind: 'info', icon: Coins, lead: 'Paid per unit', text: 'a fixed reward from a pool its owner funded up front.' },
+            { kind: 'info', icon: Radio, lead: 'Accept it', text: 'within 5 jumps of a system it’s broadcast in (Opportunities → Freelance Jobs).' },
+            { kind: 'tip', icon: ShoppingCart, lead: 'Buy in Jita', text: 'whichever system you accept it from.' },
+          ]} />
+        </div>
         <button type="button" className="btn primary tall" disabled={!!busy} onClick={() => void find()}><Briefcase aria-hidden="true" />{busy ?? (rows ? 'Look again' : 'Find jobs')}</button>
       </div>
 
@@ -189,18 +193,23 @@ export function Freelance() {
         </div>
       )}
       {stats && (
-        <p className="note small" style={{ margin: 0 }}>
-          {units(stats.jobs)} open jobs, {units(stats.deliver)} wanting an item; {units(stats.under)} of those pay no more than Jita sells it for, or want
-          something nobody lists there. Priced against the live Jita book, {ago(new Date(stats.at).toISOString(), now)}.
-        </p>
+        <div className="col" style={{ gap: 4 }}>
+          <Figures items={[
+            { key: 'jobs', value: units(stats.jobs), label: 'open jobs' },
+            { key: 'want', value: units(stats.deliver), label: 'want an item' },
+            { key: 'under', value: units(stats.under), label: 'of those pay no more than Jita, or want something nobody lists' },
+          ]} />
+          <span className="note small" style={{ margin: 0 }}>Priced against the live Jita book {ago(new Date(stats.at).toISOString(), now)}.</span>
+        </div>
       )}
       {rows && <JobTable title="Accept from Jita" sub="Broadcast within 5 jumps of Jita: accept it here, buy, haul, deliver" rows={fromJita} name={name} now={now} inJob={inJob} copy={copy} go={canDest ? go : null} />}
       {rows && <JobTable title="Accept elsewhere" sub="Not listed in Jita: accept it within 5 jumps of the system named, and still buy everything in Jita" rows={elsewhere} name={name} now={now} inJob={inJob} copy={copy} go={canDest ? go : null} elsewhere />}
-      <p className="note small" style={{ margin: 0 }}>
-        The profit is before the trip: weigh it against the jumps. A reward is paid per unit delivered from the job’s own pool, so a nearly empty pool or a
-        cap per player limits what you can deliver, and both are counted. A job with several offices is priced to the nearest one you can reach in high-sec.
-        Distances come from CCP’s stargate map. Prices move: check the Jita book before buying in bulk.
-      </p>
+      <Points compact items={[
+        { kind: 'warn', icon: Route, lead: 'Before the trip', text: 'the profit leaves out your time: weigh it against the jumps.' },
+        { kind: 'info', lead: 'Pool and cap', text: 'a nearly empty pool or a cap per player limits what you can deliver; both are counted.' },
+        { kind: 'info', icon: MapPin, lead: 'Nearest office', text: 'a job with several is priced to the nearest you can reach in high-sec, on CCP’s stargate map.' },
+        { kind: 'tip', lead: 'Prices move', text: 'check the Jita book before buying in bulk.' },
+      ]} />
     </>
   );
 }

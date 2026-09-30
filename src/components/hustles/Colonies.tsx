@@ -6,7 +6,8 @@ import { iskBig, units } from '../../lib/format';
 import { useNow } from '../../lib/hooks';
 import { PLANETS_SCOPE, readColonies, useColonies } from '../../lib/colonyStore';
 import { useTypeName } from '../common';
-import { cssVars, Notice, Th, Tip } from '../ui';
+import { cssVars, ItemIcon, Notice, Th, Tip } from '../ui';
+import { Points } from '../Facts';
 
 export const COLONY_WARNING: Record<ColonyWarning, { short: string; why: string; bad: boolean }> = {
   expired: { short: 'Programme ended', bad: true, why: 'An extraction programme has run out.\n\nThe colony looks fine from the outside and the factories finish what’s left, then it earns nothing until you reset the heads. This is the most common way PI money is quietly lost.' },
@@ -61,7 +62,13 @@ export function Colonies() {
   return (
     <div className="sub-box col" style={{ gap: 12 }}>
       <div className="intro-row">
-        <p>Your own colonies, read from the game. The figures below are measured rather than assumed — the only estimate left is that an extraction programme’s output tails off as it runs, so the per-hour rate is the top of the range.</p>
+        <div className="col" style={{ gap: 8, minWidth: 0 }}>
+          <p style={{ margin: 0 }}>Your own colonies, read from the game.</p>
+          <Points compact items={[
+            { kind: 'good', lead: 'Measured', text: 'every figure below comes from the game, not assumed.' },
+            { kind: 'warn', lead: 'Per hour', text: 'is the top of the range: an extraction programme’s output tails off as it runs.' },
+          ]} />
+        </div>
         <button type="button" className="btn primary tall" disabled={!!busy} onClick={() => readColonies(0)}><Globe aria-hidden="true" />{read ? 'Check again' : 'Read my colonies'}</button>
       </div>
       {busy && <div className="busy-row" role="status"><span className="spinner keep-motion" /><span className="bt">{busy}</span></div>}
@@ -148,12 +155,15 @@ export function Colonies() {
                                 ))}
                               </div>
                               {c.stored.length > 0 && (
-                                <p style={{ margin: '10px 0 0', fontSize: 12.5, color: '#9fb3c5' }}>
-                                  <b style={{ color: 'var(--figure)' }}>Waiting to be collected:</b> {c.stored.slice(0, 8).map((x) => `${units(x.amount)} × ${nameOf(x.typeId)}`).join(', ')}
-                                  {c.stored.length > 8 && ` and ${c.stored.length - 8} more`}{storedValue > 0 && ` — ${iskBig(storedValue)} at Jita, before you haul it there.`}
-                                </p>
+                                <div style={{ margin: '10px 0 0' }}>
+                                  <span className="lbl" style={{ display: 'block', marginBottom: 6 }}>Waiting to be collected{storedValue > 0 ? `: ${iskBig(storedValue)} at Jita, before you haul it there` : ''}</span>
+                                  <div className="bonuses">
+                                    {c.stored.slice(0, 8).map((x) => <span key={x.typeId} className="bonus drop"><ItemIcon id={x.typeId} size="sm" />{nameOf(x.typeId)}<b style={{ color: 'var(--figure)' }}>{units(x.amount)}</b></span>)}
+                                    {c.stored.length > 8 && <span className="bonus drop">and {c.stored.length - 8} more</span>}
+                                  </div>
+                                </div>
                               )}
-                              {c.warnings.map((w) => <p key={w} style={{ margin: '6px 0 0', fontSize: 12.5, color: '#9fb3c5' }}><b style={{ color: 'var(--acc2)' }}>{COLONY_WARNING[w].short}.</b> {COLONY_WARNING[w].why}</p>)}
+                              {c.warnings.length > 0 && <div style={{ margin: '8px 0 0' }}><Points compact items={c.warnings.map((w) => ({ kind: 'warn' as const, lead: COLONY_WARNING[w].short, text: COLONY_WARNING[w].why }))} /></div>}
                             </div>
                           </td>
                         </tr>

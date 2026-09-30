@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
-import { CircleCheck, Skull, SlidersHorizontal, Truck } from 'lucide-react';
+import { Calculator, ChevronRight, CircleCheck, EyeOff, Skull, SlidersHorizontal, Truck } from 'lucide-react';
 import {
-  byUsefulness, effectiveCapacity, HAULERS, judgeCourier, ORE_NOTE, roundTrips, tally, UNSAFE,
+  byUsefulness, effectiveCapacity, HAULERS, judgeCourier, roundTrips, tally, UNSAFE,
   type CourierContract, type CourierFlag, type Endpoint, type HullClass,
 } from '../../lib/courier';
 import { gankLineFor } from '../../lib/combat';
@@ -17,6 +17,8 @@ import { SkillPanel, useSkillIds } from './SkillPanel';
 import { useLearnedGankLines } from '../gank';
 import { HaulingTree } from './HaulingTree';
 import { HaulFits } from './HaulFits';
+import { Figures, Points } from '../Facts';
+import { TreeLegend } from '../ShipTree';
 import { useRightNow } from './rightNow';
 import { HAUL_HULLS } from '../../lib/haulTree';
 
@@ -126,7 +128,15 @@ export function Courier() {
   return (
     <>
       <div className="intro-row">
-        <p>Public courier contracts in The Forge, with the bait taken out. A contract is only called safe if both ends are stations that can actually be looked up, both sit in high-sec, and ESI can find a route that never leaves high-sec. Anything that fails one of those is hidden by default and labelled with why.</p>
+        <div className="col" style={{ gap: 8, minWidth: 0 }}>
+          <p style={{ margin: 0 }}>Public courier contracts in The Forge, with the bait taken out. <b>Safe</b> means all three:</p>
+          <Points compact items={[
+            { kind: 'good', lead: 'Both ends', text: 'are stations ESI can look up.' },
+            { kind: 'good', lead: 'High-sec', text: 'at both ends.' },
+            { kind: 'good', lead: 'A route', text: 'that never leaves high-sec, from ESI.' },
+            { kind: 'info', icon: EyeOff, lead: 'The rest', text: 'is hidden by default, each labelled with why.' },
+          ]} />
+        </div>
         <button type="button" className="btn primary tall" disabled={!!busy} onClick={load}><Truck aria-hidden="true" />{raw ? 'Check again' : 'Find contracts'}</button>
       </div>
 
@@ -160,19 +170,23 @@ export function Courier() {
             : `Gank line for a ${hull === 'Custom' ? 'custom hold' : hull}: about ${iskBig(gank.line)} of collateral through Uedama or Sivala${gank.from === 'learned' ? ' — lowered by your own loss there, from your killmails' : ''}.`}
         </span>
       </div>
-      <p className="note small">{ORE_NOTE}</p>
+      <Points compact items={[
+        { kind: 'good', lead: 'Orca', text: 'ORE’s hauler: 70,000 m³ of general cargo, in the list above.' },
+        { kind: 'avoid', lead: 'Bowhead', text: 'its big bay takes assembled ships only, and its cargo hold is 4,000 m³, smaller than a Badger’s.' },
+      ]} />
 
       {busy && <div className="busy-row" role="status"><span className="spinner keep-motion" /><span className="bt">{busy}</span></div>}
 
       {!raw ? (
-        !busy && <div className="dashed-empty"><p>Nothing checked yet. This reads every public contract in The Forge, keeps the courier ones, resolves both endpoints, and asks ESI for a high-sec-only route between them. Courier contracts are a small slice of the total, so expect a short list rather than a long one.</p></div>
+        !busy && <div className="dashed-empty"><p>Nothing checked yet: finding reads every public contract in The Forge, keeps the couriers and checks each one’s ends and route. Couriers are a small slice, so expect a short list.</p></div>
       ) : (
         <>
-          <p style={{ fontSize: 12.5, color: 'var(--label)' }}>
-            {units(shown.length)} of {units(rows.length)} courier contracts shown, from {units(scanned)} public contracts in The Forge.
-            {unsafeCount > 0 && ` ${units(unsafeCount)} failed the safety checks${safeOnly ? ' and are hidden' : ''}.`}{' '}
-            <b style={{ color: 'var(--figure)' }}>{units(rows.filter((v) => v.takeable).length)}</b> are ones you could leave with now, and those are listed first.
-          </p>
+          <Figures items={[
+            { key: 'take', value: units(rows.filter((v) => v.takeable).length), label: 'you could leave with now, listed first' },
+            { key: 'shown', value: `${units(shown.length)} of ${units(rows.length)}`, label: 'courier contracts shown' },
+            ...(unsafeCount > 0 ? [{ key: 'unsafe', value: units(unsafeCount), label: `failed the safety checks${safeOnly ? ', hidden' : ''}` }] : []),
+            { key: 'read', value: units(scanned), label: 'public contracts read in The Forge' },
+          ]} />
           {(run.count > 1 || trips.length > 0) && (
             <div className="g-300" style={{ gap: 14, animation: 'rise .4s ease-out' }}>
               {run.count > 1 && (
@@ -240,9 +254,14 @@ export function Courier() {
       )}
 
       <Panel title="Scaling up" sub="Every ship that hauls and the paths between them: click one for its holds at your skills, how its kind gets ganked, and its fits">
-        <p className="note small" style={{ margin: 0 }}>
-          Each race climbs the same ladder, left to right: a small and a big Tech I industrial, a Blockade Runner or a Deep Space Transport, a freighter, a jump freighter. Holds are worked out from ESI’s own figures at your skills; the loss records are zKillboard’s for high-sec, July to September 2026.
-        </p>
+        {/* Each race's ladder, drawn, then the chart's legend. */}
+        <div className="ladder" aria-label="Each race’s ladder, left to right">
+          {['Small industrial', 'Big industrial', 'Blockade Runner or Deep Space Transport', 'Freighter', 'Jump freighter'].map((x, i) => (
+            <span key={x} className="step">{i > 0 && <ChevronRight aria-hidden="true" />}<span>{x}</span></span>
+          ))}
+        </div>
+        <TreeLegend inShip={inHauler != null ? 'The ship you’re in; its paths out are your next steps' : 'The ship you’re in, when it hauls'}
+          extra={<span data-tip="Holds are worked out from ESI’s own figures at your skills; the loss records are zKillboard’s for high-sec, July to September 2026."><Calculator aria-hidden="true" />Holds at your skills, from ESI</span>} />
         <HaulingTree here={inHauler} onUse={pickHull}>
           {(h, price, dg) => <HaulFits hull={h} price={price} dogma={dg} onUse={pickHull} />}
         </HaulingTree>

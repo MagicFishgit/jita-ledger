@@ -10,6 +10,8 @@ import { useData } from '../../lib/store';
 import { typeDogma } from '../../lib/universe';
 import { fitCosts, FitActions, FitGrid, FitSkills, useFitData } from '../FitParts';
 import { Seg } from '../ui';
+import { Points } from '../Facts';
+import { ArrowRightLeft, Gem } from 'lucide-react';
 
 /**
  * A hull's mastery tiers, under its node in the mining tree: the fit, what it costs at Jita, what it asks you to train,
@@ -147,8 +149,8 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
         {pay != null && <><span>Pays back</span><b style={{ color: 'var(--pos)' }}>{pay < 1 ? 'in under an hour' : `in ${units(Math.round(pay))} h of mining`} over what you mine now</b></>}
       </div>
       <p className="note small" style={{ margin: 0, color: 'var(--faint)' }}>
-        Worked out from ESI’s figures for the hull, lasers, crystal and upgrades. Boosts, drones and heat aren’t in it; a fleet’s Mining Foreman burst shortens every cycle further.
-        {iskPerM3 != null ? ` ISK an hour is at ${isk(iskPerM3)} a m³.` : ''}
+        <span data-tip="Worked out from ESI’s figures for the hull, lasers, crystal and upgrades. Boosts, drones and heat aren’t in it; a fleet’s Mining Foreman burst shortens every cycle further." style={{ textDecoration: 'underline dotted', cursor: 'help' }}>From ESI’s figures, without boosts</span>
+        {iskPerM3 != null ? `; ISK an hour at ${isk(iskPerM3)} a m³.` : '.'}
       </p>
       <FitGrid fit={tier} crystal={crystal} data={data} />
       <FitActions hullId={hull.id} hullName={hull.name} label={label} fit={tier} crystal={crystal} data={data} total={total} />
@@ -172,15 +174,20 @@ function MercoxitNote({ merc, base, got }: { merc: MercoxitFit; base: Tier; got:
     if (!a || !b) { known = false; continue; }
     cpu += (b.cpu - a.cpu) * (x.qty ?? 1); pg += (b.pg - a.pg) * (x.qty ?? 1);
   }
-  const lasers = [...new Map(merc.swapped.map(([a, b]) => [a, b])).entries()].map(([a, b]) => `${a} → ${b}`).join('; ');
   const more = [cpu > 0 ? `${units(cpu)} more CPU` : '', pg > 0 ? `${units(pg)} more powergrid` : ''].filter(Boolean).join(' and ');
+  const swaps = [...new Map(merc.swapped.map(([a, b]) => [a, b])).entries()];
   return (
-    <p className="note small" style={{ margin: 0, borderLeft: '2px solid var(--acc)', paddingLeft: 10 }}>
-      <b>Mercoxit version of this fit.</b> Mercoxit takes deep-core lasers, so they’re swapped like for like{lasers ? `: ${lasers}` : ''}, loaded with Mercoxit Type A crystals, the kind lost Mercoxit miners carry.
-      {known ? (more ? ` They take ${more} than the fit’s own: check it fits in the fitting window.` : ' They take no more CPU or powergrid than the fit’s own.') : ''}
-      {merc.rig.added ? ` The ${DEEP_CORE_RIG} (+16% on deep-core lasers) takes the place of a ${merc.rig.replaced}.`
-        : merc.rig.why === 'noRoom' ? ` No room for the ${DEEP_CORE_RIG} (+16% on deep-core lasers, 250 of the hull’s 400 calibration) beside this fit’s rigs without dropping its processor rig.`
-          : ' There’s no deep-core rig for a small hull.'}
-    </p>
+    <div className="col" style={{ gap: 6, borderLeft: '2px solid var(--acc)', paddingLeft: 10 }}>
+      <b style={{ fontSize: 13, color: 'var(--ink)' }}>The Mercoxit version of this fit</b>
+      <Points compact items={[
+        ...swaps.map(([a, b]) => ({ kind: 'info' as const, icon: ArrowRightLeft, lead: 'Lasers', text: `${a} → ${b}: Mercoxit takes deep-core lasers.` })),
+        { kind: 'info', icon: Gem, lead: 'Crystals', text: 'Mercoxit Type A, the kind lost Mercoxit miners carry.' },
+        ...(known ? [more ? { kind: 'warn' as const, lead: 'Fitting', text: `They take ${more} than the fit’s own: check it fits in the fitting window.` }
+          : { kind: 'good' as const, lead: 'Fitting', text: 'No more CPU or powergrid than the fit’s own.' }] : []),
+        merc.rig.added ? { kind: 'good', lead: 'Rig', text: `The ${DEEP_CORE_RIG} (+16% on deep-core lasers) in place of a ${merc.rig.replaced}.` }
+          : merc.rig.why === 'noRoom' ? { kind: 'warn', lead: 'Rig', text: `No room for the ${DEEP_CORE_RIG} (250 of the hull’s 400 calibration) without dropping the processor rig.` }
+            : { kind: 'info', lead: 'Rig', text: 'There’s no deep-core rig for a small hull.' },
+      ]} />
+    </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Atom, Flame, Moon, Radiation, Zap } from 'lucide-react';
-import { ENTRY, filamentFacts, TIER_CHECK, TIERS, WEATHER_PLAY, WEATHER_STRENGTH, WEATHERS, whereItOpens, type Filament, type FilamentFacts, type Tier, type Weather } from '../../lib/abyssal';
+import { Atom, Flame, Info, MapPin, Moon, Radiation, Rocket, Timer, Zap } from 'lucide-react';
+import { ENTRY, ENTRY_OPTIONS, filamentFacts, TIER_CHECK, TIERS, WEATHER_PLAY, WEATHER_STRENGTH, WEATHERS, type Filament, type FilamentFacts, type Tier, type Weather } from '../../lib/abyssal';
+import { Figures, Points, type PointLike } from '../Facts';
 import { isk, iskBig, units } from '../../lib/format';
 import { typeDescription } from '../../lib/universe';
 import { OpenInGame } from '../common';
@@ -85,19 +86,35 @@ export function AbyssCell({ q, runs, children }: { q: FilamentQuote; runs: numbe
         </span>
         <OpenInGame typeId={q.f.typeId} name={q.f.name} />
       </div>
-      <div className="kv-mini" style={{ maxWidth: 640 }}>
-        {facts?.penalty && <><span data-tip={WEATHER_STRENGTH}>The weather</span><b><span style={{ color: 'var(--neg-l)' }}>{cap(facts.penalty)}</span>, <span style={{ color: 'var(--pos)' }}>{facts.bonus}</span></b></>}
-        <span data-tip={ENTRY.source}>Who goes</span><b style={{ whiteSpace: 'normal' }}>{ENTRY.said}</b>
-        {facts?.minutes != null && <><span>Timer</span><b>{facts.minutes} minutes for the whole pocket, three rooms; the ship and pod die when it runs out</b></>}
-        {facts && <><span>Where</span><b style={{ whiteSpace: 'normal' }}>{whereItOpens(q.f.tierIndex, facts.suspectIn)}</b></>}
-        <span data-tip="EVE University’s rule of thumb for a cruiser (FAQ, February 2026): frigates need less, and Dark about 30% less tank.">Takes about</span><b>{TIER_CHECK[q.f.tierIndex].dps} DPS and {TIER_CHECK[q.f.tierIndex].ehps} EHP a second of tank, for a cruiser</b>
-        <span>Costs</span><b>{q.cost != null ? isk(q.cost) : '–'}{q.flipNet != null ? `; a run must beat ${isk(q.flipNet)}, what selling it would net` : ''}</b>
-        <span>Traded a day</span><b>{q.perDay != null ? units(Math.round(q.perDay)) : '–'}</b>
-        <span>You’ve run it</span><b>{runs ? `${units(runs)} time${runs === 1 ? '' : 's'} (filaments you bought)` : 'Not yet'}</b>
+      {/* What it does: the weather, where it opens, the timer; then who can go, drawn; then the figures. */}
+      {facts ? <Points items={[
+        ...(facts.penalty ? [{ kind: 'warn', icon: I, lead: q.f.weather, tip: WEATHER_STRENGTH, text: <><span style={{ color: 'var(--neg-l)' }}>{cap(facts.penalty)}</span>; <span style={{ color: 'var(--pos)' }}>{facts.bonus}</span>.</> } as PointLike] : []),
+        { kind: 'tip', lead: 'How it plays', text: WEATHER_PLAY[q.f.weather] },
+        { kind: 'info', icon: MapPin, lead: 'Opens', text: q.f.tierIndex === 0 ? 'Anywhere, 1.0 and 0.9 included.' : 'Not in 1.0 or 0.9 systems.',
+          tip: q.f.tierIndex === 0 ? 'Since patch 23.02; the filament’s own text still says otherwise.' : undefined },
+        ...(facts.suspectIn.length ? [{ kind: 'warn', lead: 'Suspect', text: `Opening it in ${facts.suspectIn.join(', ')} flags you suspect.` } as PointLike] : []),
+        ...(facts.minutes != null ? [{ kind: 'warn', icon: Timer, lead: `${facts.minutes} minutes`, text: 'for all three rooms; ship and pod die when it runs out.' } as PointLike] : []),
+      ]} /> : <p className="note small" style={{ margin: 0 }}>Reading the filament’s own text…</p>}
+      <div>
+        <span className="lbl" style={{ display: 'block', marginBottom: 6 }} data-tip={ENTRY.source}>Who can go</span>
+        <div className="entry-opts">
+          {ENTRY_OPTIONS.map((o) => (
+            <div key={o.hull} className="entry-opt" data-tip={o.note}>
+              <span className="ships" aria-hidden="true">{Array.from({ length: o.n }, (_, i) => <Rocket key={i} />)}</span>
+              <b>{o.n} {o.hull}</b>
+              <span>loot ×{o.loot}</span>
+            </div>
+          ))}
+        </div>
       </div>
-      <p className="note small" style={{ margin: 0 }}><b>{q.f.weather}:</b> {WEATHER_PLAY[q.f.weather]} {WEATHER_STRENGTH}</p>
-      {!facts && <p className="note small" style={{ margin: 0 }}>Reading the filament’s own text…</p>}
-      {facts && <p className="note small" style={{ margin: 0, color: 'var(--faint)' }}>The weather, timer and suspect rule are the filament’s own text in the game (ESI); who goes and where Tranquil opens are EVE University’s and CCP’s, since the game’s text is out of date there; strengths and the rule of thumb are EVE University’s.</p>}
+      <Figures items={[
+        { value: `${TIER_CHECK[q.f.tierIndex].dps} DPS`, label: `and ${TIER_CHECK[q.f.tierIndex].ehps} EHP a second of tank, for a cruiser`, tip: 'EVE University’s rule of thumb for a cruiser (FAQ, February 2026): frigates need less, and Dark about 30% less tank.' },
+        { value: q.cost != null ? isk(q.cost) : '–', label: 'a filament at Jita' },
+        ...(q.flipNet != null ? [{ value: isk(q.flipNet), label: 'a run must beat: what selling it would net', tip: 'After the broker fee and sales tax: the loot has to beat this, or selling the filament paid better.' }] : []),
+        { value: q.perDay != null ? units(Math.round(q.perDay)) : '–', label: 'traded a day' },
+        { value: runs ? units(runs) : 'None', label: runs === 1 ? 'run by you' : 'run by you (filaments you bought)' },
+      ]} />
+      {facts && <p className="note small" style={{ margin: 0, color: 'var(--faint)' }}><Info aria-hidden="true" style={{ width: 12, height: 12, verticalAlign: '-1px' }} /> <span data-tip="The weather, timer and suspect rule are the filament’s own text in the game (ESI). Who goes and where Tranquil opens are EVE University’s and CCP’s, since the game’s text is out of date there. Strengths and the rule of thumb are EVE University’s.">Where these come from</span></p>}
       {children}
     </section>
   );

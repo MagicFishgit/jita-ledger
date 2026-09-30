@@ -220,11 +220,6 @@ export function effectiveCapacity(
   return { m3: Math.round(m3), from };
 }
 
-export const ORE_NOTE =
-  'ORE builds industrials too, but only one of them helps here. The Orca carries 70,000 m3 of general '
-  + 'cargo and is in the list above. The Bowhead is not: its enormous bay takes assembled ships only, '
-  + 'and its actual cargo hold is 4,000 m3 — smaller than a Badger.';
-
 /**
  * A job to take out and one to bring back.
  *

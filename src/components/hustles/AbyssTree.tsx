@@ -7,6 +7,8 @@ import { iskBig, units } from '../../lib/format';
 import { useData } from '../../lib/store';
 import { ShipTree } from '../ShipTree';
 import { Seg } from '../ui';
+import { Points } from '../Facts';
+import { Signal, Users } from 'lucide-react';
 import { TrackerFitView, type FitRef, type TrackerState } from './AbyssTracker';
 import { WEATHER_ICON } from './AbyssMatrix';
 
@@ -136,11 +138,10 @@ function AbyssFits({ hull, cells, tier, weather }: { hull: AbyssNode; cells: Tra
         <span className="lbl">Fits</span>
         <Seg size="sm" label="Fit" value={k} onChange={setI} options={ladder.map((x, n) => ({ v: n, label: x.label, tip: x.name }))} />
       </div>
-      <p className="note small" style={{ margin: 0 }}>
-        Just in is the cheapest, easiest fit the logged runs show working; Solid is the step up; Max the most it takes. Each is a
-        fit players log their runs with on Abyss Tracker, taken from its most-run lists; the figures are for the tier and
-        weather picked on the grid.
-      </p>
+      <Points compact items={[
+        { kind: 'info', icon: Signal, lead: 'Just in, Solid, Max', text: 'the cheapest fit the logged runs show working, the step up, the most it takes.' },
+        { kind: 'info', icon: Users, lead: 'Played', text: 'fits players log their runs with on Abyss Tracker; figures for the tier and weather picked.' },
+      ]} />
       <TrackerFitView key={t.id} fit={ref} tier={tier} weather={weather} />
     </div>
   );

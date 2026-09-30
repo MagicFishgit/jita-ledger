@@ -22,6 +22,19 @@ import { Bonuses, Points, ResistBars, Stats } from './Facts';
  * rows open under themselves.
  */
 
+/** The chart's marks, as a legend under its panel's title: the ship you're in, lit, coming in your queue, further off. */
+export function TreeLegend({ inShip, extra }: { inShip: ReactNode; extra?: ReactNode }) {
+  return (
+    <div className="tree-legend">
+      <span><MapPin aria-hidden="true" />{inShip}</span>
+      <span><span className="sw flyable" aria-hidden="true" />Lit: you can fly it</span>
+      <span><Sparkles aria-hidden="true" style={{ color: 'var(--acc2)' }} />Your skill queue brings it</span>
+      <span><Lock aria-hidden="true" style={{ color: 'var(--faint)' }} />Further off</span>
+      {extra}
+    </div>
+  );
+}
+
 type HullInfo = { needs: { skill: number; level: number }[]; stats: Awaited<ReturnType<typeof hullStats>> | null; price: number | null; dogma: TypeDogma | null };
 export type HullStats = Awaited<ReturnType<typeof hullStats>>;
 

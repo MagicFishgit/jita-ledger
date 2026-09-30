@@ -211,10 +211,6 @@ export const SECURITY_NOTE =
   + 'client, so this orders systems by where to look rather than putting a number on it. Against that, '
   + '0.5 systems are where gankers wait for haulers, so the output still has to get home.';
 
-export const HIGHSEC_TAX_NOTE =
-  'High-sec customs offices are NPC-run and take a much bigger cut than the player-owned ones in low '
-  + 'and null. That tax, more than the extraction rate, is why the same planets pay less here.';
-
 export type PlanetSort = 'yield' | 'near' | 'safe';
 
 export const PLANET_SORTS: { key: PlanetSort; label: string; hint: string }[] = [

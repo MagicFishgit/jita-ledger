@@ -21,6 +21,7 @@ import { ROMAN, SkillStrip } from './SkillStrip';
 import { toast } from '../lib/toast';
 import { copyMultibuy, ItemSearch, useEnsureNames, useTypeName } from './common';
 import { Empty, Guide, Notice, PageHead, Panel, Seg, Tiles } from './ui';
+import { Points } from './Facts';
 import { ScanFreshness } from './ScanFreshness';
 
 type Bundle = { build: number; released: string | null; types: Record<string, Materials> };
@@ -231,7 +232,11 @@ function ItemCheck({ bundle, site, implant, skills, salesTax, name, picked }: { 
                 );
               })()}
               {calc.worth.unpriced.length > 0 && <p className="note small" style={{ margin: 0 }}>No Jita bid for {calc.worth.unpriced.map(name).join(', ')}: counted as nothing.</p>}
-              <p className="note small" style={{ margin: 0 }}>Each material is rounded down per batch, the careful reading. The tax is charged on CCP’s adjusted price, which can differ from Jita’s. The book moves: check the prices in game before buying in bulk.</p>
+              <Points compact items={[
+                { kind: 'info', lead: 'Rounded down', text: 'each material per batch, the careful reading.' },
+                { kind: 'info', lead: 'Tax', text: 'on CCP’s adjusted price, which can differ from Jita’s.' },
+                { kind: 'tip', lead: 'Prices move', text: 'check them in game before buying in bulk.' },
+              ]} />
             </>
           )}
       </div>
@@ -348,7 +353,11 @@ function Scanner({ bundle, site, implant, skills, salesTax, name, onPick }: {
             </table>
           </div>
         ) : <p className="note">Nothing is listed under what it breaks down into, by 100,000 ISK or more, in this scan.</p>)}
-        <p className="note small" style={{ margin: 0 }}>Leads, not orders: the books are from the last full scan (up to a day old) and those listings may be gone. Check an item above against the live book before buying. The minerals are priced at the Jita bids in the same scan.</p>
+        <Points compact items={[
+          { kind: 'warn', lead: 'Leads, not orders', text: 'the books are the last full scan’s (up to a day old); those listings may be gone.' },
+          { kind: 'tip', lead: 'Before buying', text: 'check an item above against the live book.' },
+          { kind: 'info', lead: 'Minerals', text: 'priced at the Jita bids in the same scan.' },
+        ]} />
       </div>
     </Panel>
   );

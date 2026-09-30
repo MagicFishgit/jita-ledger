@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ArrowRight, ExternalLink, Factory, Globe, Lock, MapPin, Package, Pickaxe, Search } from 'lucide-react';
+import { ArrowRight, ExternalLink, Factory, Globe, Landmark, ListOrdered, Lock, MapPin, Package, Pickaxe, Scale, Search } from 'lucide-react';
 import {
-  ADVANCED_FACTORY, BASIC_FACTORY, estimate, exportTax, HIGHSEC, HIGHSEC_NPC_TAX, HIGHSEC_TAX_NOTE, inBand, MADE_PER_HOUR,
+  ADVANCED_FACTORY, BASIC_FACTORY, estimate, exportTax, HIGHSEC, HIGHSEC_NPC_TAX, inBand, MADE_PER_HOUR,
   P0_PER_P1, P0_TO_P1, P1_PER_P2, P1_TO_P0, PI_BASE, PI_LINKS, PLANET_RESOURCES, PLANET_SORTS, PLANET_TYPES,
   rankProducts, RAW_PER_HOUR, refineVerdict, SECURITY_NOTE, setupSteps, sortSystems,
   type Band, type PiPlanet, type PlanetSort, type PlanetType, type ProductPick,
@@ -15,6 +15,7 @@ import { update, useData } from '../../lib/store';
 import { toast } from '../../lib/toast';
 import { PI_SKILLS } from '../../lib/skills';
 import { cssVars, NumChip, Seg, Th, Tip } from '../ui';
+import { Points } from '../Facts';
 import { SkillPanel, useSkillIds } from './SkillPanel';
 import { Colonies } from './Colonies';
 import { ColonyDiagram } from './PiDiagram';
@@ -153,16 +154,23 @@ export function Planets() {
     <>
       <Colonies />
 
-      <p style={{ fontSize: 13, color: '#9fb3c5', maxWidth: '72ch' }}>
-        Planets earn while you do nothing else, which is what makes them the right companion to a wall of market orders. Work down the steps:
-        what to make, where to make it, what it comes to, and how to build it.
-      </p>
+      <div className="col" style={{ gap: 8 }}>
+        <p style={{ margin: 0, fontSize: 13.5, color: 'var(--body-2)', maxWidth: '72ch' }}>Planets earn while you do nothing else: the right companion to a wall of market orders. Work down the steps:</p>
+        <div className="ladder" aria-label="The steps">
+          {['1 What to make', '2 Where to make it', '3 What it comes to', '4 How to build it'].map((x, i) => (
+            <span key={x} className="step">{i > 0 && <ArrowRight aria-hidden="true" />}<span>{x}</span></span>
+          ))}
+        </div>
+      </div>
 
       <Step n={1} title="Pick what to make" done={!!product}>
-        <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--label)', maxWidth: '80ch' }}>
-          Every refined product costs the same {P0_PER_P1} units of raw material each, so the best one to make is the one worth most once refined — but
-          the raw sells too, and for several products that is the better trade. Ranked on what a thousand units of extraction turns into, net of your fees.
-        </p>
+        <div style={{ margin: '0 0 12px' }}>
+          <Points compact items={[
+            { kind: 'info', icon: Scale, lead: 'Same cost', text: `every refined product takes ${P0_PER_P1} units of raw a unit.` },
+            { kind: 'tip', lead: 'The best', text: 'is the one worth most once refined, unless the raw sells for more: for several products it does.' },
+            { kind: 'info', icon: ListOrdered, lead: 'Ranked', text: 'on what 1,000 units of extraction turn into, net of your fees.' },
+          ]} />
+        </div>
         <div className="row" style={{ marginBottom: 12 }}>
           <button type="button" className="btn primary tall" disabled={pricing} onClick={priceAll}><Search aria-hidden="true" />{pricing ? 'Pricing all 15…' : picks ? 'Price again' : 'Find the best product'}</button>
           {picks && product && <span style={{ fontSize: 13, color: '#9fb3c5' }}>Making <b style={{ color: 'var(--ink)' }}>{product}</b> from <b style={{ color: 'var(--ink)' }}>{p0}</b></span>}
@@ -355,9 +363,13 @@ export function Planets() {
             ) : (
               <p className="row tight" style={{ margin: '12px 0 0', fontSize: 12.5, color: '#9fb3c5' }}><ArrowRight aria-hidden="true" style={{ width: 14, height: 14, color: 'var(--acc)' }} />Choose a system in step 2 to add its customs tax, the trip home and how many colonies fit.</p>
             )}
-            <p className="note small" style={{ marginTop: 12 }}>
-              Customs offices tax everything that leaves a planet — on a fixed base value per product, not its market price — which is why cheap raw costs almost nothing to export and refined goods cost more. {HIGHSEC_TAX_NOTE}
-            </p>
+            <div style={{ marginTop: 12 }}>
+              <Points compact items={[
+                { kind: 'info', icon: Landmark, lead: 'Customs', text: 'tax what leaves a planet on a fixed base value per product, not its market price.' },
+                { kind: 'tip', lead: 'So', text: 'cheap raw costs almost nothing to export; refined goods cost more.' },
+                { kind: 'warn', lead: 'High-sec', text: 'NPC customs take a much bigger cut than player-owned ones in low and null: that, more than extraction, is why planets pay less here.' },
+              ]} />
+            </div>
           </>
         )}
       </Step>
@@ -365,11 +377,15 @@ export function Planets() {
       <Step n={4} title="Build it">
         {!product ? <Locked>Pick a product and this becomes instructions for that product.</Locked> : (
           <>
-            <p style={{ margin: '0 0 12px', fontSize: 12.5, color: '#9fb3c5' }}>
-              {refine
-                ? `Refining ${p0} into ${product} pays ${est.uplift > 0 ? `${est.uplift.toFixed(2)}×` : 'more'}, so this layout includes factories. Build it in this order — the survey comes before anything is placed.`
-                : `${p0} is worth more sold as it comes out than refined into ${product}, so this layout has no factories at all: extractor straight to launchpad. Simpler to build, cheaper in powergrid, and it pays better today.`}
-            </p>
+            <div style={{ margin: '0 0 12px' }}>
+              <Points compact items={refine ? [
+                { kind: 'good', icon: Factory, lead: 'Refine', text: `${p0} into ${product} pays ${est.uplift > 0 ? `${est.uplift.toFixed(2)}×` : 'more'}, so this layout has factories.` },
+                { kind: 'info', icon: ListOrdered, lead: 'In order', text: 'build it as numbered below: the survey comes before anything is placed.' },
+              ] : [
+                { kind: 'good', icon: Package, lead: 'Sell it raw', text: `${p0} is worth more as it comes out than refined into ${product}.` },
+                { kind: 'info', lead: 'No factories', text: 'extractor straight to launchpad: simpler, cheaper in powergrid, and it pays better today.' },
+              ]} />
+            </div>
             <ColonyDiagram raw={p0} product={product} refine={refine} />
             <ol style={{ listStyle: 'none', margin: '12px 0 0', padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
               {steps.map((s, i) => (
@@ -382,12 +398,14 @@ export function Planets() {
             </ol>
             <div style={{ marginTop: 12, padding: '12px 14px', background: 'color-mix(in oklab,var(--acc2) 6%,rgba(2,7,12,.6))', border: '1px solid color-mix(in oklab,var(--acc2) 30%,transparent)' }}>
               <div className="panel-title" style={{ color: 'var(--acc2)' }}>Going one step further</div>
-              <p style={{ margin: '6px 0 0', fontSize: 12.5, color: '#9fb3c5', textWrap: 'pretty' }}>
-                An Advanced Industry Facility turns {ADVANCED_FACTORY.eachPerCycle} units each of two different refined goods into {ADVANCED_FACTORY.madePerCycle} of a
-                processed one every hour — {P1_PER_P2} refined units per processed unit. One planet extracts one raw material, so a processed chain means a second
-                planet or hauling the other input in. Which pairs make what is listed in the factory itself, and this page does not guess at recipes it cannot read.
-                {chosen?.p1Price != null && ` As a yardstick, ${P1_PER_P2} × ${product} is ${iskBig(P1_PER_P2 * chosen.p1Price)} of input, so a processed good has to beat that.`}
-              </p>
+              <div style={{ marginTop: 8 }}>
+                <Points compact items={[
+                  { kind: 'info', icon: Factory, lead: 'Advanced facility', text: `${ADVANCED_FACTORY.eachPerCycle} each of two refined goods → ${ADVANCED_FACTORY.madePerCycle} processed, every hour: ${P1_PER_P2} refined a unit.` },
+                  { kind: 'warn', icon: Globe, lead: 'Two inputs', text: 'one planet extracts one raw material, so a processed chain needs a second planet or hauling one input in.' },
+                  { kind: 'info', lead: 'Recipes', text: 'which pairs make what is listed in the factory itself; the page doesn’t guess.' },
+                  ...(chosen?.p1Price != null ? [{ kind: 'tip' as const, lead: 'Yardstick', text: `${P1_PER_P2} × ${product} is ${iskBig(P1_PER_P2 * chosen.p1Price)} of input: a processed good has to beat that.` }] : []),
+                ]} />
+              </div>
             </div>
           </>
         )}
@@ -410,11 +428,13 @@ export function Planets() {
             </div>
           ))}
         </div>
-        <p className="note small" style={{ marginTop: 10 }}>
-          The factory ratios here ({BASIC_FACTORY.rawPerCycle.toLocaleString()} raw → {BASIC_FACTORY.madePerCycle} refined every {BASIC_FACTORY.cycleMinutes} minutes) and the customs
-          base values are fixed game values rather than anything ESI serves. The {BASIC_FACTORY.cycleMinutes}-minute cycle is confirmed from ESI’s own schematic data.
-          Rich or poor ground is not in ESI at all, so nothing here puts a number on it.
-        </p>
+        <div style={{ marginTop: 10 }}>
+          <Points compact items={[
+            { kind: 'info', icon: Factory, lead: 'A factory', text: `${BASIC_FACTORY.rawPerCycle.toLocaleString()} raw → ${BASIC_FACTORY.madePerCycle} refined every ${BASIC_FACTORY.cycleMinutes} minutes: a fixed game value, its cycle confirmed in ESI’s schematics.` },
+            { kind: 'info', icon: Landmark, lead: 'Customs base values', text: 'fixed game values, not served by ESI.' },
+            { kind: 'warn', lead: 'Rich ground', text: 'isn’t in ESI at all, so nothing here puts a number on it.' },
+          ]} />
+        </div>
       </div>
 
       <div>

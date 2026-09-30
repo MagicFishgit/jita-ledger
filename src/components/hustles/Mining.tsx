@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Gem, Pickaxe } from 'lucide-react';
+import { Calculator, Coins, Gem, History, Pickaxe, Timer, TrendingUp } from 'lucide-react';
 import { hasScope } from '../../lib/auth';
 import { cloudEnabled, cloudMiningTicks, useCloud } from '../../lib/cloud';
 import { JITA_44, SCOPE } from '../../lib/config';
@@ -20,6 +20,8 @@ import { MasteryTiers } from './MasteryTiers';
 import { MiningTree } from './MiningTree';
 import { useRightNow, type Live } from './rightNow';
 import { Empty, ItemIcon, Notice, Panel, Seg, Th, Tiles } from '../ui';
+import { Points } from '../Facts';
+import { TreeLegend } from '../ShipTree';
 
 /**
  * Mining: what you mined and what it was worth, your sessions and ISK an hour, and the next step up. The user's plan
@@ -142,10 +144,15 @@ export function Mining() {
 
   return (
     <div className="col" style={{ gap: 16 }}>
-      <p style={{ margin: 0, fontSize: 14, color: 'var(--body)', textWrap: 'pretty' }}>
-        What you mined and what it was worth, sold the best of three ways; your sessions and ISK an hour; and the next step up,
-        with what it costs and how many hours of mining pay for it. Your mining ledger comes from EVE, which keeps 30 days; the app keeps it from then on.
-      </p>
+      <div className="col" style={{ gap: 8 }}>
+        <p style={{ margin: 0, fontSize: 14, color: 'var(--body)', textWrap: 'pretty' }}>What you mined and what it was worth, your sessions, and the next step up.</p>
+        <Points compact items={[
+          { kind: 'good', icon: Coins, lead: 'Worth', text: 'each ore sold the best of three ways (as it is, compressed or reprocessed), after tax.' },
+          { kind: 'info', icon: Timer, lead: 'Sessions', text: 'how long you mined and ISK an hour, from the cloud’s reads every ten minutes.' },
+          { kind: 'tip', icon: TrendingUp, lead: 'Scaling up', text: 'every mining ship, what it costs and how many hours of mining pay for it.' },
+          { kind: 'info', icon: History, lead: 'Kept', text: 'EVE keeps 30 days of your mining ledger; the app keeps it from then on.' },
+        ]} />
+      </div>
       {!auth ? <Notice kind="warn">Log in to read your mining ledger.</Notice>
         : !canRead ? (
           <Notice kind="warn">
@@ -353,10 +360,8 @@ function ScalingUp({ here, paceOf, measured, mostMined, minedBases }: {
 
   return (
     <Panel title="Scaling up" sub="Every mining ship and the paths between them: click one to see what it takes, costs and mines">
-      <p className="note small" style={{ margin: 0 }}>
-        {here != null ? 'The ship you’re in glows; the paths out of it are your next steps. ' : 'Once you mine, the ship you’re in glows and the paths out of it light up. '}
-        Lit ships you can fly now, a spark marks one your skill queue brings, a lock one that’s further off. Yields are worked out from ESI’s own figures for each hull, laser, crystal and upgrade, at your skills.
-      </p>
+      <TreeLegend inShip={here != null ? 'The ship you’re in; its paths out are your next steps' : 'The ship you’re in, once you mine'}
+        extra={<span data-tip="Worked out from ESI’s own figures for each hull, laser, crystal and upgrade, at your skills."><Calculator aria-hidden="true" />Yields at your skills, from ESI</span>} />
       <div className="row" style={{ gap: '8px 12px', flexWrap: 'wrap', alignItems: 'center' }}>
         <label htmlFor="mine-ore" className="chip h34" data-tip-title="Ore to price the fits for"
           data-tip={'Which crystals every fit loads, and what ISK an hour and payback are worked out at: a m³ of this ore sold the best of three ways in Jita now, after tax.\n\nThe m³ a minute doesn’t change: a crystal of the right kind mines any ore of its family alike.'}>

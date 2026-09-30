@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { Ban, ChevronsUp, CircleCheck, Info, Lightbulb, Quote, ShieldAlert, TriangleAlert } from 'lucide-react';
 import type { TypeDogma } from '../lib/miningYield';
@@ -20,15 +21,21 @@ export const POINT_KIND: Record<PointKind, { icon: LucideIcon; color: string; sa
   info: { icon: Info, color: 'var(--sec)', said: 'Worth knowing' },
 };
 
-/** Points a line each: the kind's icon (or the page's own for a lead it knows, a weather's), the lead in bold, the clause. */
-export function Points({ items, iconOf }: { items: Point[]; iconOf?: (p: Point) => LucideIcon | undefined }) {
+/** A point with page content in it (a figure, a link), for pages that build their points as they render. */
+export type PointLike = { kind: PointKind; lead?: ReactNode; text: ReactNode; icon?: LucideIcon; tip?: string };
+
+/**
+ * Points a line each: the kind's icon (or the point's own, or the page's for a lead it knows: a weather's), the lead in
+ * bold, the clause. `compact` sets them tighter, for a card.
+ */
+export function Points({ items, iconOf, compact }: { items: (Point | PointLike)[]; iconOf?: (p: Point) => LucideIcon | undefined; compact?: boolean }) {
   return (
-    <ul className="points">
+    <ul className={'points' + (compact ? ' compact' : '')}>
       {items.map((p, i) => {
         const k = POINT_KIND[p.kind];
-        const Icon = iconOf?.(p) ?? k.icon;
+        const Icon = ('icon' in p && p.icon) || (typeof p.lead === 'string' && typeof p.text === 'string' ? iconOf?.(p as Point) : undefined) || k.icon;
         return (
-          <li key={i} className={'pt ' + p.kind} style={cssVars({ '--c': k.color })}>
+          <li key={i} className={'pt ' + p.kind} style={cssVars({ '--c': k.color })} data-tip={'tip' in p ? p.tip : undefined}>
             <Icon aria-hidden="true" />
             <span><span className="sr-only">{k.said}: </span>{p.lead && <b>{p.lead}</b>}{p.lead && ' '}{p.kind === 'quote' ? <q>{p.text}</q> : p.text}</span>
           </li>
@@ -47,17 +54,24 @@ export function Bonuses({ items }: { items: string[] }) {
   );
 }
 
-/** Research figures: each its number and what it counts, with its source and date in its tip, and a line saying they aren't live. */
+/** Figures as tiles: each its number and what it counts, with how it's worked out in its tip. */
+export function Figures({ items }: { items: { value: ReactNode; label: ReactNode; tip?: string; key?: string }[] }) {
+  return (
+    <div className="stats">
+      {items.map((s, i) => (
+        <span key={s.key ?? i} className={'stat' + (s.tip ? '' : ' plain')} tabIndex={s.tip ? 0 : undefined} data-tip={s.tip}>
+          <b>{s.value}</b><span>{s.label}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Research figures: each with its source and date in its tip, and a line saying they aren't live. */
 export function Stats({ items }: { items: Stat[] }) {
   return (
     <div className="col" style={{ gap: 6 }}>
-      <div className="stats">
-        {items.map((s) => (
-          <span key={s.label} className="stat" tabIndex={0} data-tip={`${s.source}.`} data-tip-title={`${s.value} ${s.label}`}>
-            <b>{s.value}</b><span>{s.label}</span>
-          </span>
-        ))}
-      </div>
+      <Figures items={items.map((s) => ({ key: s.label, value: s.value, label: s.label, tip: `${s.source}.` }))} />
       <span className="note small" style={{ margin: 0, color: 'var(--faint)' }}>From research, not live: each figure’s tip says where and when it was measured.</span>
     </div>
   );
