@@ -192,4 +192,7 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
     Scaling up follows the filter's character (the main for All): kept, it stayed on one alt while the tiles showed
     another, on every later visit too (the controller's ruling; missing until the final review).
   - The page check's large ledger has the main's own mining too (`scripts/ledgers.mjs`), so the tab adds the main to
-    the alts there; mining isn't income, and the income recording didn't move.
+    the alts there; mining isn't income, and the income recording didn't move. It also opens the tab from kept choices
+    (`MINING_CASES` in `scripts/pages.mjs`): the Alpha alt picked and shown, then a hull open; the refused alt shown; a
+    kept character gone. Each must draw text only that path draws: until the final review the deploy never drew an
+    alt's pilot, so a throw there would have shipped.

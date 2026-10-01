@@ -77,6 +77,22 @@ async function overflow(page) {
 /** A name each ledger's Positions page must show, proving the seed reached the app. */
 const PROOF = { small: 'Hammerhead II', large: 'Test Item' };
 
+/**
+ * The Mining tab under an alt, on the large ledger: its filter and Show for kept in this browser, as a visit leaves them,
+ * so the deploy draws what the plain visit never does (it always shows the main): an Alpha alt's pilot, with a hull open
+ * so its tiers draw too; an alt whose login was refused and nothing read; and a kept character no longer on the roster.
+ * Each must show text only that path draws (`proof`), or it would pass on the main's pilot: the roster loads after the
+ * page first draws, and until then the tab falls back to the main.
+ */
+const MINING_CASES = [
+  { label: 'Miner Two picked and shown', keep: { 'mining-char': '900001', 'mining-show': '900001' },
+    proof: ['What Miner Two mined', 'Yields at Miner Two’s skills', 'Trained to V; Alpha uses IV: Omega opens it', 'Alpha can’t use it: Omega opens it'] },
+  { label: 'Miner Two shown, the Procurer open', open: 17480, proof: ['Miner Two’s pace in it', 'From ESI’s figures, without boosts'] },
+  { label: 'Hauler Four shown, refused and never read', keep: { 'mining-show': '900003' },
+    proof: ['What your characters mined', 'Not read: EVE refused Hauler Four’s login', 'Its login was refused: hand it over again on the Characters page'] },
+  { label: 'a kept character no longer on the roster', keep: { 'mining-char': '999999' }, proof: ['What your characters mined', 'Yields at your skills'] },
+];
+
 // ---- Run ----------------------------------------------------------------------------------------------------
 
 const server = await createServer({ server: { port: PORT, strictPort: true }, logLevel: 'error' });
@@ -124,6 +140,18 @@ try {
       await page.waitForTimeout(1000);
       if (!(await page.locator('.page', { hasText: ALTS[name][0].entry.name }).count())) failures.push({ ledger: name, page: 'characters', problems: [`the ${name} ledger's alts didn't load: no “${ALTS[name][0].entry.name}”`] });
     }
+    /** One page load judged: a throw or React warning since `problems` was cleared, the error boundary, no page, past the edge. */
+    const judge = async (label) => {
+      const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+      if (boundary) problems.push(`error boundary: ${(await page.locator('.notice.err[role="alert"] pre').first().innerText().catch(() => '')).slice(0, 160)}`);
+      if (!(await page.locator('.page').count())) problems.push('no page rendered');
+      if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out: ${o}`);
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}-${name}-${label.replace(/[^a-z0-9]+/gi, '_')}.png` });
+      checked++;
+      const unique = [...new Set(problems)];
+      if (unique.length) failures.push({ ledger: name, page: label, problems: unique });
+      process.stdout.write(unique.length ? `  FAIL ${name} #${label}\n${unique.map((x) => `       ${x}`).join('\n')}\n` : `  ok   ${name} #${label}\n`);
+    };
     const first = data.positions?.[0]?.id;
     for (const p of SHOWN) {
       if (p.includes('{first}') && !first) continue;
@@ -131,15 +159,30 @@ try {
       problems = [];
       await page.evaluate((h) => { location.hash = `#${h}`; }, hash);
       await page.waitForTimeout(1500);
-      const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
-      if (boundary) problems.push(`error boundary: ${(await page.locator('.notice.err[role="alert"] pre').first().innerText().catch(() => '')).slice(0, 160)}`);
-      if (!(await page.locator('.page').count())) problems.push('no page rendered');
-      if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out: ${o}`);
-      if (SHOTS) await page.screenshot({ path: `${SHOTS}-${name}-${hash.replace(/[^a-z0-9]+/gi, '_')}.png` });
-      checked++;
-      const unique = [...new Set(problems)];
-      if (unique.length) failures.push({ ledger: name, page: hash, problems: unique });
-      process.stdout.write(unique.length ? `  FAIL ${name} #${hash}\n${unique.map((x) => `       ${x}`).join('\n')}\n` : `  ok   ${name} #${hash}\n`);
+      await judge(hash);
+    }
+    if (name === 'large' && SHOWN.includes('hustles/mining')) {
+      for (const c of MINING_CASES) {
+        problems = [];
+        if (c.keep) {
+          // Kept as a visit leaves them, then the tab opened afresh (it reads them as it mounts): another page first,
+          // since setting the hash it already has wouldn't draw it again.
+          await page.evaluate((keep) => {
+            for (const k of ['mining-char', 'mining-show']) localStorage.removeItem(`jita-ledger:${k}`);
+            for (const [k, v] of Object.entries(keep)) localStorage.setItem(`jita-ledger:${k}`, v);
+            location.hash = '#settings/appearance';
+          }, c.keep);
+          await page.waitForTimeout(500);
+          await page.evaluate(() => { location.hash = '#hustles/mining'; });
+        } else {
+          // A hull opened in the tree (the list on a phone), where the alt's tiers draw.
+          await page.locator(`${PHONE ? '.mtree-row' : '.mtree-node'}:has(img[src*="/types/${c.open}/"])`).first().click().catch((e) => problems.push(`couldn't open the hull: ${e.message.split('\n')[0]}`));
+        }
+        await page.waitForTimeout(1500);
+        for (const t of c.proof) if (!(await page.locator('.page', { hasText: t }).count())) problems.push(`not drawn: no “${t}”`);
+        await judge(`hustles/mining (${c.label})`);
+      }
+      await page.evaluate(() => { for (const k of ['mining-char', 'mining-show']) localStorage.removeItem(`jita-ledger:${k}`); });
     }
     await page.close();
   }
