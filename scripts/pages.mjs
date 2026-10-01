@@ -374,7 +374,10 @@ try {
   // ESI answers these two items' books (nothing else); without this the deploy never drew "Keep it", the plan's chip
   // or the red tag. Both widths, as the run's (PHONE).
   if (SHOWN.includes('orders') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('plan'))) {
-    const M = 1e6, PX = 47466, TRIT = 34, JITA = 60003760, ID = 7433389018;
+    const M = 1e6, PX = 47466, TRIT = 34, KEY = 89156, JITA = 60003760, ID = 7433389018;
+    // The plan started an hour ago, so its checklist shows on any day the check runs: the Key's 15 placed five minutes
+    // before it, after its position opened (Task 3's case), and Praxis not yet placed for it.
+    const planAt = Date.now() - 3600_000, iso = (t) => new Date(t).toISOString();
     const seen = [['00:42:35', 206.3], ['08:39:24', 206.7], ['11:22:15', 207.1]].map(([t, p]) => ({ issued: `2026-09-30T${t}Z`, price: p * M, remain: 1 }));
     const books = {
       [PX]: [[ID, 1, 207.1 * M, 1], [9001, 1, 208.3 * M, 4], [9002, 1, 200 * M, 5], [9003, 0, 225 * M, 2], [9004, 0, 230 * M, 10]],
@@ -382,14 +385,16 @@ try {
     };
     const ledger = {
       settings: { acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, tycoon: 0, clone: 'omega', faction: 3.6289558729999998, corp: 7.039647095, taxBase: 7.5, target: 5, share: 7.5, waitHours: 3 },
-      plans: [{ id: 'mundr0gwk1vekg', name: '30 Sept · 991.64 M ISK in 4 items', at: '2026-09-30T00:41:37.568Z', isk: 991640000, horizonDays: 7, patient: false,
-        items: [{ typeId: PX, buyAt: 206.3 * M, units: 1, sellAt: 226 * M, positionId: 'px' }] }],
-      positions: [{ id: 'px', typeId: PX, openedAt: '2026-09-30T00:41:37.568Z', status: 'open', jitaOnly: true, excluded: [], included: [] }],
+      plans: [{ id: 'mundr0gwk1vekg', name: '30 Sept · 991.64 M ISK in 4 items', at: iso(planAt), isk: 991640000, horizonDays: 7, patient: false,
+        items: [{ typeId: PX, buyAt: 206.3 * M, units: 1, sellAt: 226 * M, positionId: 'px' }, { typeId: KEY, buyAt: 24.95 * M, units: 16, sellAt: 35.99 * M, positionId: 'key' }] }],
+      positions: [{ id: 'px', typeId: PX, openedAt: iso(planAt), status: 'open', jitaOnly: true, excluded: [], included: [] },
+        { id: 'key', typeId: KEY, openedAt: iso(planAt - 6 * 60_000), status: 'open', jitaOnly: true, excluded: [], included: [] }],
       orders: {
         [ID]: { orderId: ID, typeId: PX, isBuy: true, price: 207.1 * M, volumeTotal: 1, volumeRemain: 1, issued: seen[2].issued, state: 'open', locationId: JITA, seen },
         1: { orderId: 1, typeId: TRIT, isBuy: true, price: 4.5, volumeTotal: 1_000_000, volumeRemain: 800_000, issued: '2026-10-01T08:00:00Z', state: 'open', locationId: JITA },
+        7433386979: { orderId: 7433386979, typeId: KEY, isBuy: true, price: 24.95 * M, volumeTotal: 15, volumeRemain: 15, issued: iso(planAt - 5 * 60_000), state: 'open', locationId: JITA },
       },
-      names: { [PX]: 'Praxis', [TRIT]: 'Tritanium' },
+      names: { [PX]: 'Praxis', [TRIT]: 'Tritanium', [KEY]: 'Vigilance Resonance Key' },
       meta: { walletBalance: 1e9, lastSync: new Date(Date.now() - 600_000).toISOString() },
     };
     const page = await browser.newPage(VIEW);
@@ -427,14 +432,24 @@ try {
     if (!(await page.locator(`tr[data-order="${ID}"] .flag`, { hasText: 'Plan' }).count())) problems.push('not drawn: no “Plan” chip on Praxis');
     if (!(await page.locator('tr[data-order="1"]', { hasText: 'Pays more than it resells for' }).count())) problems.push('not drawn: no “Pays more than it resells for” on the Tritanium buy');
     if (!(await page.locator('.stat', { hasText: 'keep it: raising would cut below' }).locator('button').count())) problems.push('not drawn: no Keep it count beside “worth moving”');
-    const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    let boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
     if (boundary) problems.push('error boundary');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out: ${o}`);
     if (SHOTS) await page.screenshot({ path: `${SHOTS}-plan-orders.png` });
+    // The plan's checklist on the planner: the Key's order from before the plan counted, never a nudge to replace it.
+    await page.evaluate(() => { location.hash = '#planner'; });
+    await page.waitForTimeout(1500);
+    const placing = (await page.locator('#placing').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!placing.includes('Already placed: 15 of 16 (before the plan)')) problems.push(`not drawn: the checklist's “Already placed: 15 of 16 (before the plan)” (${placing.slice(0, 120)})`);
+    if (!placing.includes('EVE can’t change an order’s quantity')) problems.push('not drawn: the checklist’s note on the 1 more');
+    boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary on the planner');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on the planner: ${o}`);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-plan-checklist.png` });
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'plan', page: 'orders', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL plan #orders\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (Keep it, the plan chip, a buy over its resale)\n');
+    process.stdout.write(unique.length ? `  FAIL plan #orders\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (Keep it, the plan chip, a buy over its resale) and #planner (the checklist)\n');
     await page.close();
   }
   // The site is public: without the owner's login, only the landing page, with nothing of the ledger's in it and

@@ -20,7 +20,7 @@ import { PLANETS_SCOPE, readColonies, useColonies } from '../lib/colonyStore';
 import { readSignals, trackedTypes, useSignals } from '../lib/watch';
 import { BACKUP_DAYS } from '../lib/alertsRunner';
 import { LOGIN_STOPS } from '../lib/watchdog';
-import { placedOrder } from '../lib/plans';
+import { placedOrder, planPlacement } from '../lib/plans';
 import { useAltRoster, useRosterAt, useRosterLive } from '../lib/altStore';
 import { loginState } from '../lib/roster';
 import { cloudCovers, useCloud } from '../lib/cloud';
@@ -388,8 +388,9 @@ export function Todo() {
           const [, planId, typeId] = x.key.split(':');
           const p = d.plans.find((z) => z.id === planId);
           const it = p?.items.find((z) => String(z.typeId) === typeId);
-          const o = p && it ? placedOrder(it, p, Object.values(d.orders), d.positions) : null;
-          return judgePlaceBuy(e, { plan: !!p && !!it && t - Date.parse(p.at) <= 7 * DAY, placed: o ? { units: o.volumeTotal, price: o.price } : null });
+          const pl = p && it ? planPlacement(it, p, Object.values(d.orders), d.positions) : null;
+          // Every order counted for the item, summed: "Placed: 1 at …" for a top-up of an earlier 15 read as one unit.
+          return judgePlaceBuy(e, { plan: !!p && !!it && t - Date.parse(p.at) <= 7 * DAY, placed: pl ? { units: pl.units, price: pl.order.price } : null });
         }
         case 'cloudLogin': {
           if (x.key.startsWith('cloudLogin:alt:')) {

@@ -696,6 +696,12 @@ console.log('\n--- the alert round judges a plan\'s order by its plan (Praxis, 3
   eq('  a plan whose position closed is no plan', [closed.x?.verdict, closed.x?.plan], ['move', undefined]);
   const odd = await judged(ledger({ plans: { not: 'a list' } }));
   eq('  a plans doc it can\'t read is no plan, never an error', [odd.x?.verdict, odd.found], ['move', ['move']]);
+  // A positions row that doesn't parse, or parses to nothing, is skipped; the plan's own position still counts.
+  const broken = ledger({ plans: [plan] });
+  broken.run('INSERT INTO records (char_id, kind, id, data, rev, updated_at) VALUES (?, ?, ?, ?, 1, 0)', MAIN, 'positions', 'bad', '{not json');
+  broken.run('INSERT INTO records (char_id, kind, id, data, rev, updated_at) VALUES (?, ?, ?, ?, 1, 0)', MAIN, 'positions', 'nul', 'null');
+  const survived = await judged(broken);
+  eq('  a broken positions row is skipped, never the round', [survived.x?.verdict, survived.x?.plan?.planId], ['loss', plan.id]);
 }
 
 console.log('\n--- an alt is never a ledger ---');

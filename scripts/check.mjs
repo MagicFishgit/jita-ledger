@@ -1225,18 +1225,36 @@ eq('  with slots to spare, best return per day first as before', [plan2.ranked, 
     const V = (orderId, issued, extra = {}) => O(orderId, 89156, true, issued, { price: 24_950_000, volumeTotal: 15, volumeRemain: 15, ...extra });
     const early = V(10, '2026-09-30T00:36:15Z');
     const pl = planPlacement(vi, vp, [early], pos);
-    eq('placed before the plan, after its position opened: counted, 15 of 16', [pl?.order.orderId, pl?.before, placementNote(vi, pl).lead], [10, true, 'Already placed: 15 of 16 (before the plan)']);
+    eq('placed before the plan, after its position opened: counted, 15 of 16', [pl?.order.orderId, pl?.before, pl?.units, placementNote(vi, pl).lead], [10, 15, 15, 'Already placed: 15 of 16 (before the plan)']);
     eq('  short of the plan: says EVE can’t change a quantity, never to replace it', placementNote(vi, pl).short, 'EVE can’t change an order’s quantity: the 1 more is a new order with its own fee, or leave it at 15.');
     eq('  covering the plan: nothing more said', placementNote({ units: 15 }, pl).short, null);
     eq('  an order from the day before isn’t', planPlacement(vi, vp, [V(11, '2026-09-29T00:36:15Z')], pos), null);
     eq('  placed before the position opened isn’t', planPlacement(vi, vp, [V(12, '2026-09-30T00:30:00Z')], pos), null);
     eq('  with no position before the plan, an hour counts and 61 minutes doesn’t',
-      [planPlacement(vi, vp, [V(13, '2026-09-30T23:45:00Z')], [])?.order.orderId, planPlacement({ ...vi, positionId: null }, vp, [V(14, '2026-09-30T00:00:00Z')], [])?.order.orderId, planPlacement({ ...vi, positionId: null }, vp, [V(15, '2026-09-29T23:40:00Z')], [])],
+      [planPlacement(vi, vp, [V(13, '2026-09-29T23:45:00Z')], [])?.order.orderId, planPlacement({ ...vi, positionId: null }, vp, [V(14, '2026-09-30T00:00:00Z')], [])?.order.orderId, planPlacement({ ...vi, positionId: null }, vp, [V(15, '2026-09-29T23:40:00Z')], [])],
       [13, 14, null]);
     eq('  a cancelled earlier order isn’t placed', planPlacement(vi, vp, [V(16, '2026-09-30T00:36:15Z', { state: 'cancelled' })], pos), null);
-    const late = V(17, '2026-09-30T00:44:02Z', { volumeTotal: 16, volumeRemain: 16 });
+    // The final review's reproductions (1 October 2026): one order's units alone read "1 of 16 placed … the 15 more is a
+    // new order" after the 1 more was placed as the note advised, and "6 of 16" for a plan placed in two batches.
+    const late = V(17, '2026-09-30T00:44:02Z', { volumeTotal: 1, volumeRemain: 1 });
     const both = planPlacement(vi, vp, [early, late], pos);
-    eq('  one before and one after: counted once, the after one, not marked before', [both.order.orderId, both.before, placementNote(vi, both).lead, placementNote(vi, both).short], [17, false, '16 of 16 placed', null]);
+    eq('  15 before and the 1 more since: 16 of 16, nothing more said', [both.order.orderId, both.units, both.before, placementNote(vi, both).lead, placementNote(vi, both).short], [17, 16, 15, '16 of 16 placed (15 before the plan)', null]);
+    const batches = [V(20, '2026-09-30T00:44:00Z', { volumeTotal: 10, volumeRemain: 10 }), V(21, '2026-09-30T01:00:00Z', { volumeTotal: 6, volumeRemain: 6 })];
+    const two = planPlacement(vi, vp, batches, pos);
+    eq('  10 and then 6 since the plan: 16 of 16, the newer shown', [two.order.orderId, two.units, placementNote(vi, two).lead, placementNote(vi, two).short], [21, 16, '16 of 16 placed', null]);
+    const gone = V(22, '2026-09-30T01:10:00Z', { state: 'cancelled' });
+    eq('  a cancelled order since the plan that bought nothing isn’t counted', [planPlacement(vi, vp, [gone], pos), planPlacement(vi, vp, [...batches, gone], pos).units], [null, 16]);
+    // A before-plan order that filled leaves your open orders (expired, or closed from the history read): it still counts,
+    // so the checklist and To do don't ask for it again inside the plan's week.
+    const filled = (state) => V(23, '2026-09-30T00:36:15Z', { state, volumeRemain: 0 });
+    const plan1 = { ...vp, id: 'v', name: 'v', isk: 0, horizonDays: 7, patient: false, items: [vi] };
+    for (const st of ['expired', 'closed']) {
+      eq(`  filled before the plan (${st}): still placed, 15 of 16, and To do doesn’t ask again`,
+        [placementNote(vi, planPlacement(vi, vp, [filled(st)], pos)).lead, planProgress(plan1, [filled(st)], pos).placed, placedOrder(vi, vp, [filled(st)], pos)?.orderId],
+        ['Already placed: 15 of 16 (before the plan)', 1, 23]);
+    }
+    eq('  cancelled after buying some: counted, units were bought', planPlacement(vi, vp, [V(24, '2026-09-30T00:36:15Z', { state: 'cancelled', volumeRemain: 5 })], pos)?.units, 15);
+    eq('  To do says the units summed', judgePlaceBuy({ item: { key: 'plan:v:89156' } }, { plan: true, placed: { units: both.units, price: both.order.price } }), 'Placed: 16 at 24,950,000.');
     eq('  progress counts it, so To do’s item ticks off too', [planProgress({ ...vp, id: 'v', name: 'v', isk: 0, horizonDays: 3, patient: false, items: [vi] }, [V(18, '2026-09-29T21:00:00Z')], [{ id: 'v', typeId: 89156, openedAt: '2026-09-29T20:00:00Z' }]).placed, planProgress({ ...vp, id: 'v', name: 'v', isk: 0, horizonDays: 3, patient: false, items: [vi] }, [V(18, '2026-09-29T21:00:00Z')], []).placed], [1, 0]);
   }
   eq('plans from disk: malformed ones are dropped', sanitizePlans([tp, { id: 'x' }, null, { ...tp, id: 'p2', items: [{ typeId: 'no' }] }]).map((p) => p.id), ['p1']);

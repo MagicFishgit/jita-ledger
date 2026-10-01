@@ -55,18 +55,31 @@ const SLACK_MS = 2 * 60_000;
 export const BEFORE_PLAN_MS = 60 * 60_000;
 
 export type Placement = {
+  /** Every order counted for the item, newest first: those placed since the plan, then the one placed before it. */
+  orders: Order[];
+  /** The newest of them, whose price the checklist shows. */
   order: Order;
-  /** Placed before the plan started (inside the slack, it counts as since). */
-  before: boolean;
+  /** Units placed for the item, summed over `orders`, and how many of them were on the order placed before the plan. */
+  units: number;
+  before: number;
 };
 
 const placedAt = (o: Order) => Date.parse((o.seen?.[0] ?? o).issued);
+/**
+ * An order counts as placed unless it was cancelled with nothing filled. A filled one leaves your open orders (the sync
+ * keeps it as expired or closed), and counting only open ones ticked a plan's item off and then asked for it again once
+ * its bid filled, inside the week the plan is for (final review, 1 October 2026). A cancelled one that bought something
+ * counts: units were bought.
+ */
+const counts = (o: Order) => o.state === 'open' || o.volumeRemain < o.volumeTotal;
 
 /**
- * The buy order you placed for a plan item: a buy for the item in Jita 4-4. Placed since the plan started (its first
- * version is when it was placed; a price change moves `issued`), the newest if there are several, and that one first.
- * Failing that, an open one placed before the plan: after the item's position opened when that position predates the
- * plan (the order was placed for it), else within `BEFORE_PLAN_MS` of the plan. Counted once whatever else is open.
+ * The buy orders you placed for a plan item: buys for the item in Jita 4-4 that count (`counts`). Every one placed since
+ * the plan started (its first version is when it was placed; a price change moves `issued`), newest first; and the newest
+ * one placed before the plan: after the item's position opened when that position predates the plan (the order was placed
+ * for it), else within `BEFORE_PLAN_MS` of the plan. Their units are summed: one order's alone told the user, with 15
+ * placed before a plan for 16 and the 1 more placed since as the note advised, that "1 of 16" was placed and "the 15
+ * more" was a new order with its own fee, the duplicate this exists to stop.
  */
 export function planPlacement(
   item: PlanItem, plan: Pick<TradePlan, 'at'>, orders: Order[],
@@ -74,14 +87,15 @@ export function planPlacement(
 ): Placement | null {
   const planAt = Date.parse(plan.at);
   const from = planAt - SLACK_MS;
-  const mine = orders.filter((o) => o.isBuy && o.typeId === item.typeId && o.locationId === JITA_44);
-  const since = mine.filter((o) => placedAt(o) >= from).sort((a, b) => placedAt(b) - placedAt(a))[0];
-  if (since) return { order: since, before: false };
+  const mine = orders.filter((o) => o.isBuy && o.typeId === item.typeId && o.locationId === JITA_44 && counts(o));
+  const since = mine.filter((o) => placedAt(o) >= from).sort((a, b) => placedAt(b) - placedAt(a));
   const pos = positions.find((x) => x.id === item.positionId && x.typeId === item.typeId);
   const opened = pos ? Date.parse(pos.openedAt) : NaN;
   const start = Number.isFinite(opened) && opened < planAt ? opened : planAt - BEFORE_PLAN_MS;
-  const earlier = mine.filter((o) => o.state === 'open' && placedAt(o) >= start && placedAt(o) < from).sort((a, b) => placedAt(b) - placedAt(a))[0];
-  return earlier ? { order: earlier, before: true } : null;
+  const earlier = mine.filter((o) => placedAt(o) >= start && placedAt(o) < from).sort((a, b) => placedAt(b) - placedAt(a))[0];
+  const all = earlier ? [...since, earlier] : since;
+  if (!all.length) return null;
+  return { orders: all, order: all[0], units: all.reduce((n, o) => n + o.volumeTotal, 0), before: earlier?.volumeTotal ?? 0 };
 }
 
 export function placedOrder(item: PlanItem, plan: Pick<TradePlan, 'at'>, orders: Order[], positions?: Pick<Position, 'id' | 'typeId' | 'openedAt'>[]): Order | null {
@@ -89,14 +103,17 @@ export function placedOrder(item: PlanItem, plan: Pick<TradePlan, 'at'>, orders:
 }
 
 /**
- * What the checklist says of a placed order: the lead ("Already placed: 15 of 16 (before the plan)") and, when it covers
- * fewer units than the plan, why it isn't replaced: EVE can't change an order's quantity, so the rest is a new order with
- * its own fee, or the order stays as it is. Never a nudge to cancel and place again.
+ * What the checklist says of what's placed: the lead ("Already placed: 15 of 16 (before the plan)", "16 of 16 placed (15
+ * before the plan)") and, when it all covers fewer units than the plan, why it isn't replaced: EVE can't change an
+ * order's quantity, so the rest is a new order with its own fee, or the orders stay as they are. Never a nudge to cancel
+ * and place again.
  */
 export function placementNote(item: Pick<PlanItem, 'units'>, pl: Placement): { lead: string; short: string | null } {
   const n = (x: number) => x.toLocaleString('en-US');
-  const have = pl.order.volumeTotal;
-  const lead = pl.before ? `Already placed: ${n(have)} of ${n(item.units)} (before the plan)` : `${n(have)} of ${n(item.units)} placed`;
+  const have = pl.units;
+  const lead = pl.before >= have ? `Already placed: ${n(have)} of ${n(item.units)} (before the plan)`
+    : pl.before > 0 ? `${n(have)} of ${n(item.units)} placed (${n(pl.before)} before the plan)`
+      : `${n(have)} of ${n(item.units)} placed`;
   const more = item.units - have;
   const short = more > 0
     ? `EVE can’t change an order’s quantity: the ${n(more)} more is a new order with its own fee, or leave it at ${n(have)}.`

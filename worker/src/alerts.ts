@@ -103,8 +103,11 @@ export async function judgeAll(db: D1Database, charId: number, settings: Setting
   const plans = sanitizePlans(await doc<unknown>(db, charId, 'plans'));
   const positions = plans.length
     ? (await db.prepare(`SELECT data FROM records WHERE char_id = ?1 AND kind = 'positions' AND data IS NOT NULL`).bind(charId).all<{ data: string }>()).results
-      .map((r) => JSON.parse(r.data) as { id?: unknown; typeId?: unknown; status?: unknown })
-      .filter((p): p is { id: string; typeId: number; status: 'open' | 'closed' } => typeof p.id === 'string' && typeof p.typeId === 'number' && (p.status === 'open' || p.status === 'closed'))
+      // A row that doesn't parse, or isn't a position, is skipped: never the whole round.
+      .map((r): unknown => { try { return JSON.parse(r.data); } catch { return null; } })
+      .filter((p): p is { id: string; typeId: number; status: 'open' | 'closed' } => !!p && typeof p === 'object'
+        && typeof (p as { id?: unknown }).id === 'string' && typeof (p as { typeId?: unknown }).typeId === 'number'
+        && ((p as { status?: unknown }).status === 'open' || (p as { status?: unknown }).status === 'closed'))
     : [];
   const targets = planTargets(plans, positions, rates(settings));
   const since = new Date(now - OWN_FILL_MS).toISOString();

@@ -7,7 +7,7 @@ import { ago, isk, iskBig, iskSigned, pct, plainNum, units } from '../lib/format
 import { resolveNames } from '../lib/market';
 import { absorbable, BUSY_SHOWN, DEFAULT_FILTERS, FIRST_DIR, horizonSaid, horizonShort, HORIZONS, passesGate, RUN_UP, RUN_UP_BEFORE, RUN_UP_DAYS, SLOW_DAYS, snapHorizon, sortProspects, type Sort, type SortKey } from '../lib/prospects';
 import { FILL_RARE, FILL_WINDOW, RECENT_DAYS, RECENT_TYPICAL } from '../lib/fills';
-import { RESERVE_RATIO } from '../lib/evaluate';
+import { RESERVE_RATIO, RESERVE_WATCH_H } from '../lib/evaluate';
 import { clearScan, coverage, loadCache, rankProspects, runScan, stopScan, useScanState, type ScanCache } from '../lib/scan';
 import { COMPETITION_PIVOT, SPLIT_SAID } from '../lib/split';
 import { useFlow } from '../lib/flowStore';
@@ -68,7 +68,7 @@ export function raisesKept(p: Pick<Prospect, 'raiseReserve' | 'qty' | 'capital'>
 }
 
 /** The why of the raises kept back: the lead, then how it's worked out. */
-export const raisesWhy = (said: string) => `${said}.\n\n• The watch of its Jita book saw at least ${RESERVE_RATIO === 2 ? 'twice' : `${RESERVE_RATIO} times`} as many units newly placed at the front as filled there, over a day or more: you’d typically be beaten before you fill, and move.\n• Each price change costs the broker fee less your Advanced Broker Relations discount, on the order’s whole value. That much is already off the return and the ranking.`;
+export const raisesWhy = (said: string) => `${said}.\n\n• The watch of its Jita book saw at least ${RESERVE_RATIO === 2 ? 'twice' : `${RESERVE_RATIO} times`} as many units newly placed at the front as filled there, over a day or more: you’d typically be beaten before you fill, and move.\n• Each price change costs the broker fee less your Advanced Broker Relations discount, on the order’s whole value. That much is already off the return and the ranking.\n• Only a book watched ${RESERVE_WATCH_H} hours or more is judged: an item whose book wasn’t carries no raises, which flatters its return by about 1%.`;
 
 /** How long the money is in, in a unit that reads naturally. */
 export function flip(days: number): string {
