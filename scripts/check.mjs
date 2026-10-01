@@ -3853,6 +3853,42 @@ console.log('\n--- an order knows its plan, and a buy is never raised into a los
   eq('a bid three times the book\'s', /priced 3\.0 times where the rest of the book sits \(100\)/.test(gap(300)), true);
   eq('  and five hundred times it', /priced over 100 times where the rest of the book sits/.test(gap(50_000)), true);
   eq('  a sell\'s gap stays a share', /priced 29% below/.test(adviseRelist(fatMine, { book: fatBook }, R).why), true);
+
+  // Where an item trades, for the token guard, is anchored on history when it can say (the coordinator's ruling, 1
+  // October 2026): halfway between the fortnight's median low and median high. A flood far from trading can't move it.
+  const { tradedLevel } = await import('../src/lib/relist.ts');
+  const rangeOf = (t) => recentRange(ob.hist[t], 14, keyAt);
+  for (const [t, perDay, name] of [[6635, 40, 'Dual Modulated Light Energy Beam I'], [5141, 300, 'Small Ghoul Compact Energy Nosferatu']]) {
+    const mineO = { ...ob.mine[t], state: 'open' };
+    const rg = rangeOf(t);
+    const judged = (lows, highs) => judgeOne(mineO, { book: lite(ob[t]), perDay, lows, highs, txs: [], yours: [mineO.orderId] }, S, keyAt);
+    const withH = judged(rg.lows, rg.highs), bookOnly = judged(null, null);
+    eq(`${name}: by the book alone a flood of high listings made its front a token`, /token dump/.test(bookOnly.why), true);
+    eq(`  anchored on where it traded, it isn't one`, [/token dump/.test(withH.why), tradedLevel(rg.lows, rg.highs) != null], [false, true]);
+  }
+  eq('the Dual Modulated Light Energy Beam I traded around 144,000, not 599,100', Math.round(tradedLevel(rangeOf(6635).lows, rangeOf(6635).highs) / 1000), 144);
+  // The Key's buy, round 1's case, is the same with its history.
+  const kr = rangeOf(KEY);
+  const kh = keyJudge(lite(ob[KEY].step5), { lows: kr.lows, highs: kr.highs });
+  eq('the Key\'s buy with its history: still moves to 25.24 M, no token', [kh.verdict, kh.newPrice, /token dump/.test(kh.why)], ['move', 25.24 * M, false]);
+  eq('  and at the review, still a short queue', keyJudge(lite(ob[KEY].review), { lows: kr.lows, highs: kr.highs }).why, 'Only 1 ahead of you, about 2 h at this item\'s pace');
+  // The token case still reads as one with history: the Small Focused Afocal Laser I, one unit at 5,003 over a 5,002 bid
+  // ahead of 432 at 21,930, trading up to ~21,950 on 6 of 14 days and down to the 5,000 bids on most.
+  const afBook = [
+    o(10, false, 5003, 1), o(11, false, 21930, 432), o(12, false, 21940, 1), o(13, false, 21950, 16), o(14, false, 21960, 211),
+    o(15, false, 21970, 146), o(16, false, 21990, 5), o(17, false, 22000, 136), o(18, false, 24380, 501),
+    o(20, true, 5002, 428), o(21, true, 5001, 298), o(22, true, 5000, 8288),
+  ];
+  const afHighs = [21970, 2092, 12100, 21970, 21970, 5001, 21960, 21960, 20990, 20980, 20000, 20000, 5000, 21950];
+  const afLows = [5000, 2000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000];
+  const af = adviseRelist({ orderId: 11, typeId: 6717, isBuy: false, price: 21930, volumeRemain: 432 }, { book: afBook, dailyVolume: 7.2, highs: afHighs, lows: afLows }, R);
+  eq('the Afocal\'s token, with history: still a token', [af.verdict, /token dump/.test(af.why), /where it has traded \(12,993/.test(af.why)], ['wait', true, true]);
+  // Without the days to say (fewer than FILL_RARE traded on either side), the book decides, as before.
+  eq('too few traded days: the book decides', [tradedLevel([5000, 5000, 5000], afHighs), /where the rest of the book sits/.test(adviseRelist({ orderId: 11, typeId: 6717, isBuy: false, price: 21930, volumeRemain: 432 }, { book: afBook, dailyVolume: 7.2, highs: afHighs, lows: [5000, 5000, 5000] }, R).why)], [null, true]);
+  eq('  and with no history at all', /where the rest of the book sits/.test(adviseRelist(fatMine, { book: fatBook }, R).why), true);
+  // A bid far over where the item trades still reads as one, its gap never absurd.
+  const bait = adviseRelist({ orderId: 1, typeId: 34, isBuy: true, price: 100, volumeRemain: 1000 }, { book: [o(1, true, 100, 1000), o(2, true, 50_000, 1)], lows: Array(14).fill(95), highs: Array(14).fill(110) }, R);
+  eq('an escrow-bait bid, history says 102.5: a token, "over 100 times"', [bait.verdict, /priced over 100 times where it has traded \(102\.5/.test(bait.why)], ['wait', true]);
 }
 
 console.log('\n--- the sniper ---');

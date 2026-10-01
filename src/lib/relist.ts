@@ -528,7 +528,8 @@ function adviseOrder(
  * A sell side stays weighed by units: the same failure shows there, a flood of listings far above where the item trades
  * (the user's Dual Modulated Light Energy Beam I: 3 units at 168,000-168,600 "72% below where the rest of the book sits
  * (599,100)"), but by ISK it would be worse, and neither units over price nor a band around your own price fixed every
- * case, so it waits for a ruling.
+ * case. The token guard in `adviseRelist` now takes its level from history when it can (`tradedLevel`), which fixes it
+ * there on both sides; `marketBest`'s sell side, with no history to hand, still reads the book by units.
  */
 export function weightedLevel(orders: PriceVolume[], by: 'units' | 'isk' = 'units'): number {
   if (!orders.length) return 0;
@@ -542,6 +543,26 @@ export function weightedLevel(orders: PriceVolume[], by: 'units' | 'isk' = 'unit
     if (seen >= total / 2) return o.price;
   }
   return sorted[sorted.length - 1].price;
+}
+
+/**
+ * Where an item trades, for the guard against chasing a token: halfway between the median of the last 14 days' lows and
+ * the median of their highs (over the days that traded, at least FILL_RARE of each), or null when history can't say,
+ * and the book decides. The coordinator's ruling (1 October 2026), after the book's own centre was dragged far from the
+ * market by orders nobody trades with: bids of 0.02 ISK for 100,000 units on the buy side, and on the sell side a flood
+ * of listings far above where the item sells (the user's Dual Modulated Light Energy Beam I: 3 units at 168,000-168,600
+ * read as "72% below where the rest of the book sits (599,100)" when the fortnight traded between about 121,000 and
+ * 165,000). A level history sets can't be moved by a flood either way, and an escrow-bait bid can't become the market.
+ */
+export function tradedLevel(lows: (number | null)[] | null | undefined, highs: (number | null)[] | null | undefined): number | null {
+  const median = (xs: (number | null)[] | null | undefined) => {
+    const v = (xs ?? []).filter((x): x is number => x != null && x > 0).sort((a, b) => a - b);
+    if (v.length < FILL_RARE) return null;
+    const m = v.length >> 1;
+    return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+  };
+  const lo = median(lows), hi = median(highs);
+  return lo != null && hi != null ? (lo + hi) / 2 : null;
 }
 
 /**
@@ -646,9 +667,11 @@ export function adviseRelist(
   const atRisk = price * volumeRemain;
   let cutPct = moves && price > 0 ? Math.abs(newPrice - price) / price : 0;
 
-  // Would getting in front put you well outside where the bulk of the book sits? The live book
-  // answers that on its own, so it holds even for an item we know nothing else about.
-  const level = weightedLevel([...rivals, { id: mine.orderId, isBuy: mine.isBuy, price, volume: volumeRemain }], mine.isBuy ? 'isk' : 'units');
+  // Would getting in front put you well outside where the item trades? Where trading has been, when history can say
+  // (`tradedLevel`), since a flood of orders far from it can't move that; otherwise where the bulk of the book sits,
+  // which the live book answers on its own, so it holds even for an item we know nothing else about.
+  const traded = tradedLevel(m.lows, m.highs);
+  const level = traded ?? weightedLevel([...rivals, { id: mine.orderId, isBuy: mine.isBuy, price, volume: volumeRemain }], mine.isBuy ? 'isk' : 'units');
   const sideVolume = rivals.reduce((n, o) => n + o.volume, 0) + volumeRemain;
   const chasingOutlier =
     moves && level > 0 &&
@@ -784,8 +807,11 @@ export function adviseRelist(
     verdict = 'wait';
     why =
       `The ${aheadUnits.toLocaleString('en-US')} unit${aheadUnits === 1 ? '' : 's'} ahead of you ${aheadUnits === 1 ? 'is' : 'are'} priced ` +
-      `${outlierGap(newPrice, level, mine.isBuy, pctText)} where the rest of the book sits ` +
-      `(${priceText(level)}) \u2014 someone's mistake or a token dump, not the market`;
+      `${outlierGap(newPrice, level, mine.isBuy, pctText)} ` +
+      (traded != null
+        ? `where it has traded (${priceText(level)}, between the last ${FILL_WINDOW} days’ typical low and high)`
+        : `where the rest of the book sits (${priceText(level)})`) +
+      ` \u2014 someone's mistake or a token dump, not the market`;
   } else if (waitingPaysDaily > targetDaily) {
     // The move is expensive relative to the waiting it saves. Cutting a third off a price to get in
     // front of a thin skim of cheap stock destroys far more than it brings forward.
