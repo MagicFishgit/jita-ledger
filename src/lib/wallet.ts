@@ -131,8 +131,18 @@ const REF_SAID: Record<string, string> = {
 };
 export const refSaid = (r: string) => REF_SAID[r] ?? (r.charAt(0).toUpperCase() + r.slice(1).replace(/_/g, ' '));
 
+/**
+ * One kind of journal entry (donations, contract prices, direct trades) moved between your own characters: what came
+ * in (`in`) and what went out (`out`), each positive; `amount` is both together, the order parts are listed in. Its
+ * entries keep their own sign (out is negative) and both parties, so each can say who sent it to whom.
+ */
+export type BetweenPart = {
+  key: string; label: string; refType: string; amount: number; count: number; in: number; out: number;
+  /** Biggest first, either way. At most PART_ENTRIES. */
+  entries: { id: string; date: string; amount: number; text: string; first: number; second: number }[];
+};
 /** ISK that moved between your own characters in a window: what came in, what went out, how many entries. */
-export type Between = { in: number; out: number; count: number; parts: Part[] };
+export type Between = { in: number; out: number; count: number; parts: BetweenPart[] };
 
 /** How a trade counts in the flows: tracked trading, or something else. `freelance`: bought or sold for a freelance job. */
 export type TradeClass = { tracked: boolean; tag: UntrackedTag; freelance?: boolean };
@@ -173,9 +183,13 @@ export function flows(
       if (e.amount > 0) between.in += e.amount; else between.out += -e.amount;
       between.count++;
       const key = `ref:${e.refType}`;
-      const p = between.parts.find((x) => x.key === key) ?? (between.parts.push({ key, label: refSaid(e.refType), amount: 0, count: 0, refType: e.refType }), between.parts[between.parts.length - 1]);
+      let p = between.parts.find((x) => x.key === key);
+      if (!p) between.parts.push(p = { key, label: refSaid(e.refType), refType: e.refType, amount: 0, count: 0, in: 0, out: 0, entries: [] });
       p.amount += Math.abs(e.amount);
+      if (e.amount > 0) p.in += e.amount; else p.out += -e.amount;
       p.count++;
+      // ownTransfer only says yes with both parties set.
+      p.entries.push({ id: e.id, date: e.date, amount: e.amount, text: e.description ?? e.reason ?? '', first: e.firstPartyId!, second: e.secondPartyId! });
       continue;
     }
     // A contract's entries carry its ID, so the Wallet can name what it held (contracts.ts).
@@ -209,7 +223,12 @@ export function flows(
     ins, outs,
     inTotal: ins.reduce((t, l) => t + l.amount, 0),
     outTotal: outs.reduce((t, l) => t + l.amount, 0),
-    between: { ...between, parts: between.parts.sort((a, b) => b.amount - a.amount) },
+    between: {
+      ...between,
+      parts: between.parts
+        .map((p) => ({ ...p, entries: p.entries.sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)).slice(0, PART_ENTRIES) }))
+        .sort((a, b) => b.amount - a.amount),
+    },
   };
 }
 

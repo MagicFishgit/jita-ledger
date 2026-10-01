@@ -5,6 +5,7 @@ import { activityEvents, type LossActs } from '../lib/income';
 import { computePosition } from '../lib/positions';
 import type { TypeSets } from '../lib/results';
 import { useData, type Data } from '../lib/store';
+import { useAuth } from '../lib/hooks';
 import type { Activity } from '../lib/types';
 import { useEnsureNames } from './common';
 
@@ -13,15 +14,21 @@ import { useEnsureNames } from './common';
  * income against play": this reads what the rules need (the item groups that say which activity a trade is, positions'
  * realized profit, ships lost by what they were doing) and hands it in. Also the sales no activity counts (`others`), which
  * only the Wallet adds. The main's ledger unless one is given.
+ *
+ * Whose ledger it is (`charId`) builds the set of your characters (the ledger's own `chars` and that character), so a
+ * courier reward between two of them isn't Hauling income. Without a ledger it's the logged-in character's; with one,
+ * the caller says whose (an alt's copy holds no `chars`, so for an alt the set is the alt alone). Absent: as before.
  */
 
 export const ACTIVITY_COLOR: Record<Activity, string> = {
   Trading: 'var(--acc)', Loyalty: '#a98bff', Planets: '#6ee7a8', Hauling: 'var(--acc2)', Abyssal: '#ff8d9a', Combat: '#7aa6ff', Freelance: '#f5b86b',
 };
 
-export function useActivityEvents(ledger?: Data) {
+export function useActivityEvents(ledger?: Data, charId?: number) {
   const live = useData();
+  const auth = useAuth();
   const d = ledger ?? live;
+  const who = ledger ? charId : auth?.characterId;
   const corps = (d.meta.lpBalances ?? []).map((b) => b.corporationId);
   const [sets, setSets] = useState<TypeSets | null>(null);
   const [failed, setFailed] = useState(false);
@@ -45,7 +52,7 @@ export function useActivityEvents(ledger?: Data) {
 
   const posCalc = useMemo(() => d.positions.map((p) => ({ p, c: computePosition(p, d, d.settings) })), [d.positions, d.txs, d.journal, d.settings]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const acts = useMemo(() => activityEvents(d, sets, failed, lossActs, posCalc), [sets, failed, d.txs, d.journal, d.positions, d.names, d.killmails, lossActs, posCalc, d.settings, d.meta.freelance, d.ignored]); // eslint-disable-line react-hooks/exhaustive-deps
+  const acts = useMemo(() => activityEvents(d, sets, failed, lossActs, posCalc, who), [sets, failed, d.txs, d.journal, d.positions, d.names, d.killmails, lossActs, posCalc, d.settings, d.meta.freelance, d.ignored, d.chars, who]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ready = !!sets || failed;
   /**

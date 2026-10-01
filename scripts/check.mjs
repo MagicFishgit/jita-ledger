@@ -4223,6 +4223,11 @@ console.log('\n--- transfers between your characters ---');
   eq('  a missing party is not', ownTransfer({ refType: 'player_donation', firstPartyId: 1 }, mine), false);
   eq('  a bounty between yours is not', ownTransfer(e('bounty_prizes', 1, 2), mine), false);
   eq('  without the set is not', ownTransfer(e('player_donation', 1, 2), undefined), false);
+  // CCP writes some entries with one party twice (the user's journal: 132 escrow releases and one sale to themselves).
+  // The Wallet now always passes the set, and with no alts it is just the main, so a contract entry written that way
+  // would have become "Between your characters" for someone with one character.
+  eq('  one character on both sides is not', ownTransfer(e('contract_reward_deposited', 1, 1), mine), false);
+  eq('  nor with only the main in the set', ownTransfer(e('player_donation', 1, 1), ownIds(1, {})), false);
   const don = { id: 'd', date: '2026-09-30T10:00:00Z', refType: 'player_donation', amount: -100e6, firstPartyId: 1, secondPartyId: 2 };
   const inn = { id: 'i', date: '2026-09-30T11:00:00Z', refType: 'player_donation', amount: 5e6, firstPartyId: 9, secondPartyId: 1 };
   const sk = { id: 's', date: '2026-09-30T12:00:00Z', refType: 'skill_purchase', amount: -2e6 };
@@ -4244,6 +4249,12 @@ console.log('\n--- transfers between your characters ---');
   eq('  flows without: between is empty', o.between, { in: 0, out: 0, count: 0, parts: [] });
   const back = { ...don, id: 'b', amount: 40e6, firstPartyId: 2, secondPartyId: 1 };
   eq('  between.in counts what an alt sent you', flows([back], [], classOf, since, Infinity, mine).between.in, 40e6);
+  // The Wallet's line opens to its kinds and their entries, each way readable: a part says what went and what came
+  // back, and each entry keeps its own sign and both its characters.
+  const both = flows([don, back, { ...don, id: 'c', refType: 'contract_price', amount: -3e6 }], [], classOf, since, Infinity, mine).between;
+  eq('  between: totals each way', [both.in, both.out, both.count], [40e6, 103e6, 3]);
+  eq('  between: a part per kind, each way apart', both.parts.map((p) => [p.key, p.in, p.out, p.count, p.amount]), [['ref:player_donation', 40e6, 100e6, 2, 140e6], ['ref:contract_price', 0, 3e6, 1, 3e6]]);
+  eq('  between: entries signed, biggest first, naming both parties', both.parts[0].entries.map((x) => [x.id, x.amount, x.first, x.second]), [['d', -100e6, 1, 2], ['b', 40e6, 2, 1]]);
   const big = { ...don, id: 'big', amount: -100e6 };
   eq('  unusual without the set flags the 100 M donation', unusual([big], since).map((u) => u.kind), ['donationOut']);
   eq('  unusual with the set does not', unusual([big], since, undefined, mine), []);

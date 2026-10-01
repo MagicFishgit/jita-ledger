@@ -218,7 +218,9 @@ export function ownIds(mainId: number | null | undefined, chars: Record<string, 
 
 /**
  * A donation, direct trade or contract entry whose two parties are both yours: ISK moving between your own
- * characters, not income or spending. Fails safe: a missing party, or either not yours, is not a transfer.
+ * characters, not income or spending. Fails safe: a missing party, or either not yours, is not a transfer; nor is an
+ * entry naming one character on both sides, which CCP writes for some of a character's own entries (132 of
+ * the 202 escrow releases in the user's journal, and a sale to themselves), so the set holding only the main never makes one.
  */
 export function ownTransfer(
   e: { refType: string; firstPartyId?: number | null; secondPartyId?: number | null },
@@ -226,5 +228,6 @@ export function ownTransfer(
 ): boolean {
   if (!mine) return false;
   if (e.refType !== 'player_donation' && e.refType !== 'player_trading' && !e.refType.startsWith('contract_')) return false;
-  return e.firstPartyId != null && e.secondPartyId != null && mine.has(e.firstPartyId) && mine.has(e.secondPartyId);
+  return e.firstPartyId != null && e.secondPartyId != null && e.firstPartyId !== e.secondPartyId
+    && mine.has(e.firstPartyId) && mine.has(e.secondPartyId);
 }

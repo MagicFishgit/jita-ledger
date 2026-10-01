@@ -16,8 +16,9 @@ import { isStation, isStructure, isSystem, structureInfo, system, type Structure
 import { isAbyssalSystem, netLoss } from '../lib/combat';
 import {
   autoTag, balanceAt, balanceSeries, csvCell, describeRef, feeLeak, fittedShips, flows, multibuys, nextTag, PERIOD_DAYS, periodStart, RUNNING, runwayDays,
-  startOfUtcDay, unusual, type Days, type Line, type Multibuy, type TradeClass,
+  startOfUtcDay, unusual, type Between, type Days, type Line, type Multibuy, type TradeClass,
 } from '../lib/wallet';
+import { ownIds } from '../lib/roster';
 import type { Activity, JournalEntry, Position, Tx, UntrackedTag } from '../lib/types';
 import { AreaLine, MiniLine } from './charts';
 import { Goals } from './Goals';
@@ -111,6 +112,67 @@ function FlowLine({ l, sign, frac, color, kindColor, contractItems }: { l: Line;
   );
 }
 
+/**
+ * ISK moved between your own characters in the window, apart from money in and money out and in neither total: what
+ * this character sent the others and what it received from them. It opens like the lines above, to the kinds of entry
+ * and then the entries, each signed (out is minus) and naming both characters. Direction is read from the amount, which
+ * on this journal is this character's side, never from the order of the parties (EVE's order is confirmed for
+ * donations only).
+ */
+function BetweenLine({ b, mainId, charName }: { b: Between; mainId: number | null; charName: (id: number) => string }) {
+  const [open, setOpen] = useState(false);
+  const [part, setPart] = useState<string | null>(null);
+  // Each way on a line of its own, so the figures stack rather than run past a phone's edge.
+  const figs = (count: number, out: number, back: number) => [{ k: 'out', v: out, said: `−${iskBig(out)}` }, { k: 'in', v: back, said: `+${iskBig(back)}` }]
+    .filter((x) => x.v > 0).map((x, i) => <span key={x.k}>{i ? x.said : `${units(count)}× · ${x.said}`}</span>);
+  const who = (e: Between['parts'][number]['entries'][number]) => {
+    const other = e.first === mainId ? e.second : e.second === mainId ? e.first : null;
+    if (other == null) return `${charName(e.first)} and ${charName(e.second)}`;
+    return e.amount < 0 ? `${charName(mainId!)} → ${charName(other)}` : `${charName(other)} → ${charName(mainId!)}`;
+  };
+  return (
+    <div className="between-line">
+      <div className="kv">
+        <span className="row tight" style={{ gap: 6, minWidth: 0, flexWrap: 'nowrap' }}>
+          <button type="button" className="panel-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+            <ChevronRight className="chev" aria-hidden="true" />Between your characters
+          </button>
+          <Tip title="Between your characters" text={'ISK moved between your own characters: not income, not spending.\n\n• Sent to an alt is still yours.\n• Each entry names both characters.\n• Left out of both totals above, net cash flow, play, the runway and goals.'} />
+        </span>
+        <span className="v between-figs">
+          {b.out > 0 && <span>{iskBig(b.out)} sent</span>}
+          {b.in > 0 && <span>{iskBig(b.in)} received</span>}
+        </span>
+      </div>
+      {open && (
+        <div className="flow-parts">
+          {b.parts.map((p) => (
+            <div key={p.key}>
+              <div className="kv">
+                <button type="button" className="panel-toggle" aria-expanded={part === p.key} onClick={() => setPart(part === p.key ? null : p.key)}>
+                  <ChevronRight className="chev" aria-hidden="true" /><span>{p.label}</span>
+                </button>
+                <span className="v between-figs">{figs(p.count, p.out, p.in)}</span>
+              </div>
+              {part === p.key && (
+                <div className="flow-entries">
+                  {p.entries.map((e) => (
+                    <div key={e.id} className="kv">
+                      <span data-tip={e.text || undefined}><span className="mono faint">{fmtShort(Date.parse(e.date))}</span> {who(e)}</span>
+                      <span className="v">{e.amount < 0 ? `−${iskBig(-e.amount)}` : `+${iskBig(e.amount)}`}</span>
+                    </div>
+                  ))}
+                  {p.count > p.entries.length && <p className="note small" style={{ margin: 0 }}>The {units(p.entries.length)} biggest of {units(p.count)}.</p>}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Wallet() {
   const d = useData();
   const auth = useAuth();
@@ -143,8 +205,12 @@ export function Wallet() {
   const freelance = (tx: Tx) => !ignored.has(tx.id) && !(tx.id in d.tags) && isFreelanceTrade(joined, tx);
   const classOf = (tx: Tx): TradeClass => ({ tracked: tracked.has(tx.id), tag: tagOf(tx), freelance: freelance(tx) });
 
-  const f = useMemo(() => flows(journal, txList, classOf, since), [journal, txList, tracked, ignored, d.tags, fitted, d.meta.freelance, since]); // eslint-disable-line react-hooks/exhaustive-deps
-  const f30 = useMemo(() => flows(journal, txList, classOf, now - 30 * DAY), [journal, txList, tracked, ignored, d.tags, fitted, d.meta.freelance, Math.floor(now / 3600_000)]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Your characters: this one and every one the cloud has read (removed ones too, so past transfers stay transfers).
+  // ISK moving between two of them is neither money in nor money out anywhere on this page (roster.ts `ownTransfer`).
+  const mine = useMemo(() => ownIds(auth?.characterId, d.chars), [auth?.characterId, d.chars]);
+  const charName = (id: number) => (id === auth?.characterId ? auth?.characterName : d.chars[id]?.name) || `Character ${id}`;
+  const f = useMemo(() => flows(journal, txList, classOf, since, Infinity, mine), [journal, txList, tracked, ignored, d.tags, fitted, d.meta.freelance, since, mine]); // eslint-disable-line react-hooks/exhaustive-deps
+  const f30 = useMemo(() => flows(journal, txList, classOf, now - 30 * DAY, Infinity, mine), [journal, txList, tracked, ignored, d.tags, fitted, d.meta.freelance, Math.floor(now / 3600_000), mine]); // eslint-disable-line react-hooks/exhaustive-deps
   const series = useMemo(() => balanceSeries(journal, since), [journal, since]);
   const wallet = d.meta.walletBalance ?? series[series.length - 1]?.balance ?? null;
   const startBal = useMemo(() => balanceAt(journal, since), [journal, since]);
@@ -257,7 +323,7 @@ export function Wallet() {
   // What a goal counts as earned: trading profit from positions, or net cash flow, between two moments.
   const earned = (source: 'trading' | 'cashflow', from: number, to: number) => {
     if (source === 'trading') return posSeries.reduce((t, x) => t + realizedBetween(x.series, from, to), 0);
-    const f = flows(journal, txList, classOf, from, to);
+    const f = flows(journal, txList, classOf, from, to, mine);
     return f.inTotal - f.outTotal;
   };
 
@@ -282,7 +348,7 @@ export function Wallet() {
   const bySold = new Map<number, { v: number; n: number }>();
   for (const t of todaySales) { const c = bySold.get(t.typeId) ?? { v: 0, n: 0 }; c.v += t.qty * t.unitPrice; c.n++; bySold.set(t.typeId, c); }
   const topSold = [...bySold.entries()].sort((a, b) => b[1].v - a[1].v)[0];
-  const fToday = flows(journal, [], classOf, today0);
+  const fToday = flows(journal, [], classOf, today0, Infinity, mine);
   const topCost = fToday.outs[0];
   const prev = d.meta.prevVisitAt;
   const prevBal = prev ? balanceAt(journal, Date.parse(prev)) : null;
@@ -307,7 +373,7 @@ export function Wallet() {
       const tx = d.txs[String(e.contextId)];
       if (tx) return `${tx.isBuy ? 'Bought' : 'Sold'} ${units(tx.qty)} × ${name(tx.typeId)}`;
     }
-    return describeRef(e.refType);
+    return describeRef(e.refType, e, mine);
   };
   const events = bigOnes.map((e) => ({
     t: Date.parse(e.date), v: e.balance as number, color: e.amount < 0 ? 'var(--neg)' : 'var(--pos)',
@@ -399,6 +465,7 @@ export function Wallet() {
               </div>
             </div>
           </div>
+          {f.between.count > 0 && <BetweenLine b={f.between} mainId={auth?.characterId ?? null} charName={charName} />}
           <div className="kv" style={{ padding: '10px 12px', background: 'rgba(2,7,12,.5)', border: '1px solid var(--line-3)', alignItems: 'baseline' }}>
             <span className="lbl">Net cash flow</span>
             <span className="v" style={{ fontSize: 16, color: net >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{iskBigSigned(net)}</span>
@@ -488,10 +555,10 @@ export function Wallet() {
           </div>
         </Panel>
         <ShipsLost d={d} now={now} hasScope={(auth?.scopes ?? []).includes(KILLMAIL_SCOPE)} />
-        <Unusual d={d} journal={journal} now={now} />
+        <Unusual d={d} journal={journal} now={now} mine={mine} />
       </div>
 
-      <Report journal={journal} txList={txList} classOf={classOf} m0={m0} now={now} monthName={monthName} describe={describe} characterName={auth?.characterName ?? null} posSeries={posSeries} />
+      <Report journal={journal} txList={txList} classOf={classOf} mine={mine} m0={m0} now={now} monthName={monthName} describe={describe} characterName={auth?.characterName ?? null} posSeries={posSeries} />
     </div>
   );
 }
@@ -838,8 +905,9 @@ function ShipsLost({ d, now, hasScope }: { d: Data; now: number; hasScope: boole
   );
 }
 
-function Unusual({ d, journal, now }: { d: Data; journal: JournalEntry[]; now: number }) {
-  const list = useMemo(() => unusual(journal, now - 30 * DAY), [journal, Math.floor(now / 3600_000)]); // eslint-disable-line react-hooks/exhaustive-deps
+function Unusual({ d, journal, now, mine }: { d: Data; journal: JournalEntry[]; now: number; mine: Set<number> }) {
+  // Your own characters are never a new donor, a large donation out or an odd-hour contract.
+  const list = useMemo(() => unusual(journal, now - 30 * DAY, undefined, mine), [journal, Math.floor(now / 3600_000), mine]); // eslint-disable-line react-hooks/exhaustive-deps
   const shown = list.filter((u) => !d.unusualOk.includes(u.id));
   const [open, setOpen] = useState<string | null>(null);
   const [names, setNames] = useState<Record<number, string>>({});
@@ -898,19 +966,19 @@ function Unusual({ d, journal, now }: { d: Data; journal: JournalEntry[]; now: n
 }
 
 function Report(props: {
-  journal: JournalEntry[]; txList: Tx[]; classOf: (tx: Tx) => TradeClass; m0: number; now: number; monthName: string;
+  journal: JournalEntry[]; txList: Tx[]; classOf: (tx: Tx) => TradeClass; mine: Set<number>; m0: number; now: number; monthName: string;
   describe: (e: JournalEntry) => string; characterName: string | null;
   posSeries: { p: Position; series: SeriesPoint[] }[];
 }) {
-  const { journal, txList, classOf, m0, now, monthName } = props;
+  const { journal, txList, classOf, mine, m0, now, monthName } = props;
   const name = useTypeName();
-  const fm = flows(journal, txList, classOf, m0);
+  const fm = flows(journal, txList, classOf, m0, Infinity, mine);
   const net = fm.inTotal - fm.outTotal;
   // Weeks of the month from the 1st, so the last one may be short.
   const weeks: { from: number; to: number; net: number }[] = [];
   for (let s = m0; s < now; s += 7 * DAY) {
     const to = Math.min(s + 7 * DAY, now);
-    const w = flows(journal, txList, classOf, s, to);
+    const w = flows(journal, txList, classOf, s, to, mine);
     weeks.push({ from: s, to, net: w.inTotal - w.outTotal });
   }
   const best = weeks.length > 1 ? [...weeks].sort((a, b) => b.net - a.net)[0] : null;

@@ -18,7 +18,7 @@ const SEED_PAGE = `${BASE}src/lib/constants.ts`;
 process.env.VITE_CLOUD_URL = 'http://127.0.0.1:9';
 
 
-import { NOW, DAY, iso, small, large, ALTS, altStoreOf, charsOf, ownerAuth, strangerAuth } from './ledgers.mjs';
+import { NOW, DAY, iso, small, large, ALTS, altStoreOf, charsOf, ownerAuth, strangerAuth, withBalances } from './ledgers.mjs';
 
 const PAGES = [
   'wallet', 'todo', 'calculator', 'calculator?type=34', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'reprocess',
@@ -30,6 +30,24 @@ const PAGES = [
 const ALL = { empty: {}, small: small(), large: large() };
 
 for (const [name, list] of Object.entries(ALTS)) if (list.length) ALL[name].chars = charsOf(list);
+
+/**
+ * ISK sent to the first alt and some back from the last (a donation each way, and a contract price on the large ledger),
+ * so the Wallet draws its "Between your characters" line and the phone check measures it at 390 px. Added here only:
+ * check-income's ledger holds no characters, and as donations to strangers these would move the play it records.
+ */
+function withTransfers(journal, list) {
+  const main = ownerAuth().characterId, first = list[0].entry.charId, last = list[list.length - 1].entry.charId;
+  const old = Object.values(journal).sort((a, b) => a.date.localeCompare(b.date));
+  const start = old.length ? old[0].balance - old[0].amount : 1e9;
+  const sent = [
+    { id: 'move-out', date: iso(NOW - 2 * DAY), refType: 'player_donation', amount: -100_000_000, firstPartyId: main, secondPartyId: first, description: 'Owner deposited cash into an alt’s account' },
+    { id: 'move-back', date: iso(NOW - DAY), refType: 'player_donation', amount: 20_250_000, firstPartyId: last, secondPartyId: main, description: 'An alt deposited cash into Owner’s account' },
+    ...(list.length > 1 ? [{ id: 'move-contract', date: iso(NOW - 3 * DAY), refType: 'contract_price', amount: -45_500_000, firstPartyId: main, secondPartyId: list[1].entry.charId, description: 'Contract price' }] : []),
+  ];
+  return withBalances([...old.map(({ balance: _b, ...e }) => e), ...sent], start).journal;
+}
+for (const [name, list] of Object.entries(ALTS)) if (list.length) ALL[name].journal = withTransfers(ALL[name].journal, list);
 // `LEDGER=large PAGE=results npm run check-pages` runs just those (comma-separated), for working on one.
 const only = (v) => (v ? v.split(',') : null);
 const LEDGERS = Object.fromEntries(Object.entries(ALL).filter(([k]) => !only(process.env.LEDGER) || only(process.env.LEDGER).includes(k)));

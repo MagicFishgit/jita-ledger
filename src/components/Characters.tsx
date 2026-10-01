@@ -147,7 +147,7 @@ function Card(props: {
 }) {
   const { id, name, facts, now, entry, onEarned } = props;
   const [imgOk, setImgOk] = useState(true);
-  const income = useCharIncome(props.ledger, props.since, props.incomeNow);
+  const income = useCharIncome(props.ledger, props.since, props.incomeNow, id);
   // Reported up for the all-characters total only when it changes: the page's state holds it, so an effect keyed on the
   // value (not on every render) keeps the two from setting each other in a loop.
   const known = !props.earnedUnread && income.ready;

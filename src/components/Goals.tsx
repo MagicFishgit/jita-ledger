@@ -354,7 +354,7 @@ function GoalBuilder({ onDone }: { onDone: () => void }) {
           <>
             <Seg label="Counting" value={source} onChange={setSource} options={[
               { v: 'trading' as const, label: 'Trading profit', tipTitle: 'Trading profit', tip: 'What your positions made on the units they sold, after broker fees and sales tax.\n\nFor example: buy 100 at 1 M and sell them at 1.2 M. That’s 20 M before costs, about 13 M after fees and tax with the trade skills trained, less without them.' },
-              { v: 'cashflow' as const, label: 'Net cash flow', tipTitle: 'Net cash flow', tip: 'All the ISK that came in minus all that went out, whatever it was for.\n\n• Buying stock counts as money out, even though you still own it.\n\nFor example: 800 M in from sales and bounties, 500 M out on stock and fees = +300 M.' },
+              { v: 'cashflow' as const, label: 'Net cash flow', tipTitle: 'Net cash flow', tip: 'All the ISK that came in minus all that went out, whatever it was for.\n\n• Buying stock counts as money out, even though you still own it.\n• ISK moved between your own characters counts neither way: it’s still yours.\n\nFor example: 800 M in from sales and bounties, 500 M out on stock and fees = +300 M.' },
             ]} />
             <NumChip label="Target" value={target} onChange={setTarget} width={160} decimals={0} placeholder="1b" />
             <Seg label="Period" value={period} onChange={setPeriod} options={[

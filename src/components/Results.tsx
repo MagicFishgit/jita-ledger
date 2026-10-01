@@ -60,7 +60,9 @@ export function Results() {
   const since = unit === 'day' ? dayStart(now) - (span - 1) * DAY : now - span * DAY;
   const periodSaid = days === 0 ? (firstAt != null ? `since ${fmtShort(firstAt)}` : 'so far') : days === 365 ? 'a year' : `${days} days`;
 
-  // Every ISK movement attributed to an activity, as the Wallet's "All income against play" counts it too.
+  // Every ISK movement attributed to an activity, as the Wallet's "All income against play" counts it too. The hook
+  // takes the logged-in character and the ledger's `chars` as your characters, so a courier reward one of them paid
+  // another isn't Hauling.
   const { events, failed, posCalc, lossActs } = useActivityEvents();
 
   const acts = ACTIVITIES;
