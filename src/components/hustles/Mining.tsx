@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Calculator, Coins, Gem, History, Pickaxe, Timer, TrendingUp } from 'lucide-react';
+import { useAlts } from '../../lib/altStore';
 import { hasScope } from '../../lib/auth';
 import { cloudEnabled, cloudMiningTicks, useCloud } from '../../lib/cloud';
 import { SCOPE } from '../../lib/config';
@@ -17,6 +18,7 @@ import { useEnsureNames, useTypeName } from '../common';
 import { SkillStrip } from '../SkillStrip';
 import { MasteryTiers } from './MasteryTiers';
 import { MiningTree } from './MiningTree';
+import { useMiningFleet } from './miningFleet';
 import { useRightNow, type Live } from './rightNow';
 import { Empty, ItemIcon, Notice, Panel, Seg, Th, Tiles } from '../ui';
 import { Points } from '../Facts';
@@ -41,6 +43,9 @@ export function Mining() {
   const now = useNow(60_000);
   const name = useTypeName();
   const cloud = useCloud();
+  // Every character's mining; Task 4 draws it. Read here because this is the page allowed to read the alt store.
+  const alts = useAlts();
+  useMiningFleet(DAYS, alts);
   const r = rates(d.settings);
   const canRead = hasScope(SCOPE.mining);
   const today = new Date(now).toISOString().slice(0, 10);

@@ -86,8 +86,9 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
   a fresh copy, decided before a matching revision is skipped. A copy stored before `addedAt` was kept is kept, not
   pulled again, and takes the roster's at once.
 - **What keeps an alt's rows out of the ledger is that the alt store can't write to it.** From `store.ts` it imports
-  `mergeChars`, `dataGeneration` and `onClearAll`, never `update`; and only `App.tsx` and `Characters.tsx` import the
-  alt store. The Characters page writes `chars` (a clone state set by hand) and the public type names it looks up
+  `mergeChars`, `dataGeneration` and `onClearAll`, never `update`; and only `App.tsx`, `Characters.tsx` and `hustles/Mining.tsx` import the
+  alt store (Mining joined in stage 3: it shows each character's mining; it calls `useAlts()` and hands the value to
+  `useMiningFleet` in `miningFleet.ts`, which doesn't import the store itself). The Characters page writes `chars` (a clone state set by hand) and the public type names it looks up
   (skills, hulls), nothing of an alt's. Two tests in `scripts/check.mjs` read the source and fail if either changes;
   the first reads every import clause from `./store`, so a default, namespace (`import * as S`, then `S.update`) or
   dynamic import fails it, while `import type` passes. A later page that needs alt data is added to that list on

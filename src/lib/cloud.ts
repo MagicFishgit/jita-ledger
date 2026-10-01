@@ -573,6 +573,9 @@ export const cloudAlertLog = () => call<{ key: string; kind: AlertEvent; at: num
 /** What the cloud saw your mining ledger grow by between its reads (about ten minutes each), for sessions (mining.ts). */
 export const cloudMiningTicks = (days = 30) => call<{ at: number; systemId: number; typeId: number; qty: number; shipTypeId?: number | null }[]>(`/v1/mining/ticks?days=${days}`);
 
+/** The same for every alt on the roster, each tick tagged with its character. A Worker a version behind answers 404 (the error's `status`). */
+export const cloudAltTicks = (days = 30) => call<{ at: number; systemId: number; typeId: number; qty: number; shipTypeId?: number | null; charId: number }[]>(`/v1/alts/mining/ticks?days=${days}`);
+
 /** Abyss Tracker's summaries of every tier and weather, as the cloud last read them (daily). Empty until its first read. */
 export const cloudAbyss = () => call<TrackerCell[]>('/v1/abyss');
 /** One Abyss Tracker fit: its EFT and measured performance, read by the cloud when first asked for and kept a week. */
