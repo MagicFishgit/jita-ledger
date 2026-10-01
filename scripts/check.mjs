@@ -1258,6 +1258,9 @@ eq('  with slots to spare, best return per day first as before', [plan2.ranked, 
     // A plan reusing a position opened weeks before: a bid from then, filled long since, isn't placed for this plan.
     eq('  a position opened weeks before the plan: its old filled bid doesn’t count',
       planPlacement(vi, vp, [V(25, '2026-09-10T12:00:00Z', { state: 'expired', volumeRemain: 0 })], [{ id: 'v', typeId: 89156, openedAt: '2026-09-10T11:00:00Z' }]), null);
+    // The day's edge: a position opened 25 hours before the plan gets only the hour, so its bid from 24.5 hours before doesn't count.
+    eq('  a position opened just over a day before: only the hour',
+      planPlacement(vi, vp, [V(26, '2026-09-29T00:11:37Z')], [{ id: 'v', typeId: 89156, openedAt: '2026-09-28T23:41:37Z' }]), null);
     eq('  progress counts it, so To do’s item ticks off too', [planProgress({ ...vp, id: 'v', name: 'v', isk: 0, horizonDays: 3, patient: false, items: [vi] }, [V(18, '2026-09-29T21:00:00Z')], [{ id: 'v', typeId: 89156, openedAt: '2026-09-29T20:00:00Z' }]).placed, planProgress({ ...vp, id: 'v', name: 'v', isk: 0, horizonDays: 3, patient: false, items: [vi] }, [V(18, '2026-09-29T21:00:00Z')], []).placed], [1, 0]);
   }
   eq('plans from disk: malformed ones are dropped', sanitizePlans([tp, { id: 'x' }, null, { ...tp, id: 'p2', items: [{ typeId: 'no' }] }]).map((p) => p.id), ['p1']);
