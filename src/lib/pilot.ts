@@ -36,9 +36,9 @@ function usableOf(trained: Record<number, number>, active: Record<number, number
  * (`d.skills`, the same object), queue, skill points, attributes and the clone setting. `usable: true` is an alt's copy:
  * the levels it can use (an Alpha's capped ones at their active level), and an empty skills doc read as not read yet,
  * since altLedger fills an unread one in as {} and every character has skills; drawn as trained-nothing, it would show
- * every ship locked.
+ * every ship locked. It reads only the skills, meta and settings, so a caller can memo on those three.
  */
-export function pilotFrom(d: Data, who: { charId: number | null; name: string; isMain: boolean }, usable: boolean): Pilot {
+export function pilotFrom(d: Pick<Data, 'skills' | 'meta' | 'settings'>, who: { charId: number | null; name: string; isMain: boolean }, usable: boolean): Pilot {
   const m = d.meta;
   const skills = !usable ? d.skills
     : d.skills && Object.keys(d.skills).length ? usableOf(d.skills, m.activeSkills) : undefined;
@@ -47,3 +47,19 @@ export function pilotFrom(d: Data, who: { charId: number | null; name: string; i
     skills, skillQueue: m.skillQueue, skillSp: m.skillSp, attributes: m.attributes, alpha: d.settings.clone === 'alpha',
   };
 }
+
+/**
+ * Whose, in a sentence: "your" for the main, "Miner Two’s" for an alt. The skill components say whose skills a figure is
+ * at through this, so Scaling up shown for an alt doesn't say "at your skills" under the alt's figures.
+ */
+export const whose = (p: Pick<Pilot, 'isMain' | 'name'>): string => (p.isMain ? 'your' : `${p.name}’s`);
+/** The same at the start of a sentence: "Your", "Miner Two’s". */
+export const whoseStart = (p: Pick<Pilot, 'isMain' | 'name'>): string => (p.isMain ? 'Your' : `${p.name}’s`);
+/** Who, as a sentence's subject: "you" for the main, the alt's name ("Miner Two can fly it"). */
+export const who = (p: Pick<Pilot, 'isMain' | 'name'>): string => (p.isMain ? 'you' : p.name);
+
+/**
+ * An alt whose skills the cloud hasn't read yet: its figures can't be worked out at its skills, and its tree isn't drawn
+ * as trained-nothing. The main's unread skills are drawn as they always were (every other page unchanged).
+ */
+export const skillsUnread = (p: Pick<Pilot, 'isMain' | 'skills'>): boolean => !p.isMain && !p.skills;

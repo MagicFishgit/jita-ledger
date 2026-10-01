@@ -4091,6 +4091,11 @@ console.log('\n--- whose skills a tree reads: the pilot (pilot.ts) ---');
   // altLedger fills an unread skills doc in as {}: a character always has skills, so that is "not read", never "untrained".
   const unread = pilotFrom(altLedger(emptyAlt()), who, true);
   eq('  an alt whose skills the cloud hasn\'t read: not read, rather than nothing trained', [unread.skills === undefined, unread.skillQueue === undefined, unread.alpha], [true, true, false]);
+
+  // Scaling up shown for an alt says whose skills a figure is at; every other page says "your", as it always has.
+  const { whose, whoseStart, who: whoOf, skillsUnread } = await import('../src/lib/pilot.ts');
+  eq('  whose skills, for the main and an alt', [whose(p), whoseStart(p), whoOf(p), whose(a), whoseStart(a), whoOf(a)], ['your', 'Your', 'you', 'Miner Two’s', 'Miner Two’s', 'Miner Two']);
+  eq('  skills not read: an alt with none says so; the main is drawn as it always was', [skillsUnread(unread), skillsUnread(a), skillsUnread(pilotFrom(emptyData(), me, false))], [true, false, false]);
 }
 
 console.log('\n--- the alts the income check seeds earn by their journal (scripts/ledgers.mjs) ---');
