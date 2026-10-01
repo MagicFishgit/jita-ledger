@@ -172,20 +172,39 @@ export const CANNED_SETS = {
 };
 
 /**
+ * The sales tax alts 0 and 1 pay, as their journal shows it. Both have Accounting V trained (`skills`), but alt 0 is an
+ * Alpha, and Accounting is Omega only (constants.ts ALPHA_CAPS), so it pays the full 7.5%; alt 1, its clone state not
+ * told apart and so taken as Omega (lib/altLedger.ts), pays 7.5% less 55%.
+ */
+export const ALT_TAX = [0.075, 0.075 * (1 - 0.11 * 5)];
+const ACCOUNTING = 16622;
+
+/**
  * What alts 0 and 1 did on their own account: a buy and a resale of one item, a sale of something never bought, the
  * tax and a bounty for them, and mining of three ores over the last week. All under their own character. The main's
  * figures must not move because of any of it (scripts/income.mjs, "isolation"). Alt 2 has read nothing.
+ *
+ * Their figures come from their journal, not from estimates: each sale's tax is what the alt pays (`ALT_TAX`), so the
+ * fee match (lib/feeMatch.ts, by second and within half of what the rate predicts) claims it for the item resold; and
+ * each journal row of a sale names it by `contextId`, which is how the tax on the thing never bought is found
+ * (results.ts, by transaction ID). ESI's own tax rows carried no context ID when that was checked (eve-facts), so this
+ * is kinder than ESI there. Trade IDs are ESI's transaction IDs as strings (lib/esiRecords.ts), so a `contextId` finds
+ * its trade. The final review found the alts' 3.37% rows rejected against the 7.5% an Accounting-less alt is
+ * predicted to pay, and contextIds that named no trade, so their Earned ran on estimates alone.
  */
 function ownWork(charId, i) {
   if (i > 1) return {};
   const at = (d) => iso(NOW - d * DAY);
-  const tx = (id, typeId, d, isBuy, qty, unitPrice) => [id, { id, charId, source: 'esi', typeId, date: at(d), isBuy, qty, unitPrice, locationId: JITA }];
+  const tx = (n, typeId, d, isBuy, qty, unitPrice) => { const id = String(charId * 100 + n); return [id, { id, charId, source: 'esi', typeId, date: at(d), isBuy, qty, unitPrice, locationId: JITA }]; };
+  const txs = Object.fromEntries([tx(1, 2185, 3, true, 20, 700000), tx(2, 2185, 2, false, 15, 820000), tx(3, 20420, 1, false, 40, 1500000)]);
+  const sale = (n) => ({ contextId: charId * 100 + n });
   const p = `${charId}-`;
-  const txs = Object.fromEntries([tx(`${p}1`, 2185, 3, true, 20, 700000), tx(`${p}2`, 2185, 2, false, 15, 820000), tx(`${p}3`, 20420, 1, false, 40, 1500000)]);
   const j = (id, d, refType, amount, extra = {}) => [id, { id, charId, date: at(d), refType, amount, balance: 0, ...extra }];
+  // To the cent, as ESI gives an amount.
+  const tax = (gross) => -Math.round(gross * ALT_TAX[i] * 100) / 100;
   const journal = Object.fromEntries([
-    j(`${p}j1`, 2, 'market_transaction', 15 * 820000, { contextId: 2 }), j(`${p}j2`, 2, 'transaction_tax', -15 * 820000 * 0.0337),
-    j(`${p}j3`, 1, 'market_transaction', 40 * 1500000, { contextId: 3 }), j(`${p}j4`, 1, 'transaction_tax', -40 * 1500000 * 0.0337),
+    j(`${p}j1`, 2, 'market_transaction', 15 * 820000, sale(2)), j(`${p}j2`, 2, 'transaction_tax', tax(15 * 820000), sale(2)),
+    j(`${p}j3`, 1, 'market_transaction', 40 * 1500000, sale(3)), j(`${p}j4`, 1, 'transaction_tax', tax(40 * 1500000), sale(3)),
     j(`${p}j5`, 1, 'bounty_prizes', 8_000_000),
   ]);
   const mining = {};
@@ -219,7 +238,7 @@ export function alt(charId, name, i) {
         ...(i === 0 ? { cloneDetected: 'alpha', cloneSince: iso(NOW - 2 * DAY), activeSkills: { 3386: 4 } } : {}),
         skillQueue: [{ skillId: 3386, level: 4, finish: iso(NOW + 2 * DAY), start: iso(NOW - DAY) }, { skillId: 3380, level: 4, finish: iso(NOW + 6 * DAY) }],
       },
-      skills: { 3386: 3, 3380: 3 },
+      skills: { 3386: 3, 3380: 3, [ACCOUNTING]: 5 },
     },
   };
   return { entry, saved };

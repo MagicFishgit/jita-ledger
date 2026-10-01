@@ -4031,6 +4031,35 @@ console.log('\n--- an alt\'s copy as a ledger (altLedger.ts) ---');
   eq('  an alt with nothing read is an empty ledger with Omega fees', [Object.keys(altLedger(emptyAlt()).txs).length, altLedger(emptyAlt()).settings.clone], [0, 'omega']);
 }
 
+console.log('\n--- the alts the income check seeds earn by their journal (scripts/ledgers.mjs) ---');
+{
+  // The final review found their 3.37% tax rows rejected against the 7.5% an alt without Accounting is predicted to pay,
+  // and journal rows naming no trade, so the isolation run's alt figures were estimates that never read their journal.
+  const { ALTS, ALT_TAX, NOW: LNOW } = await import('./ledgers.mjs');
+  const { altLedger } = await import('../src/lib/altLedger.ts');
+  const { rates } = await import('../src/lib/fees.ts');
+  const { matchFees } = await import('../src/lib/feeMatch.ts');
+  const { activityEvents, incomeRows } = await import('../src/lib/income.ts');
+  const { everyItemCalcs } = await import('../src/lib/everyItem.ts');
+  const none = { filaments: new Set(), abyssLoot: new Set(), pi: new Set(), lpGoods: new Set() };
+  // By hand: 15 resold at 820,000 of 20 bought at 700,000, less its tax; 40 never bought sold at 1.5 M, less its tax;
+  // an 8 M bounty. The Alpha pays 7.5% whatever it trained (Accounting is Omega only), the other 3.375% at Accounting V.
+  const byHand = (t) => (15 * 820000 - 15 * 700000 - 15 * 820000 * t) + 40 * 1500000 * (1 - t) + 8_000_000;
+  for (const [i, a] of ALTS.large.slice(0, 2).entries()) {
+    const d = altLedger(a.saved);
+    const r = rates(d.settings);
+    eq(`  ${a.entry.name}: the tax its skills and clone state predict is what its journal charged`, r.t, ALT_TAX[i]);
+    const journal = Object.values(d.journal);
+    const sales = Object.values(d.txs).filter((t) => !t.isBuy);
+    const taxOf = (t) => Math.abs(journal.find((e) => e.refType === 'transaction_tax' && String(e.contextId) === t.id)?.amount ?? NaN);
+    const m = matchFees(journal, Object.values(d.orders), Object.values(d.txs), () => r);
+    eq('    each sale\'s tax is claimed from the journal (by second and size)', sales.map((t) => m.taxByTx.get(t.id)), sales.map(taxOf));
+    eq('    each sale\'s journal rows name it', journal.filter((e) => e.contextId != null).every((e) => d.txs[String(e.contextId)]?.isBuy === false), true);
+    const { earned } = incomeRows(everyItemCalcs(d), activityEvents(d, none, false, {}, []), LNOW - 10 * DAY, LNOW);
+    eq(`    what it earned (${a.entry.name === 'Miner Two' ? '+64.38 M' : '+67.36 M'} on its card)`, Math.round(earned), Math.round(byHand(ALT_TAX[i])));
+  }
+}
+
 console.log('\n--- what a set of mining records comes to (minedTotal) ---');
 {
   const { minedTotal } = await import('../src/lib/mining.ts');

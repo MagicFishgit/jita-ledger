@@ -12,6 +12,8 @@ import { chromium } from 'playwright-core';
 
 const PORT = 5188;
 const BASE = `http://localhost:${PORT}/jita-ledger/`;
+/** Where the browser stores are seeded from: the app's origin, but not the app. */
+const SEED_PAGE = `${BASE}src/lib/constants.ts`;
 // The cloud is somewhere nothing answers, so it fails fast rather than reaching the real one.
 process.env.VITE_CLOUD_URL = 'http://127.0.0.1:9';
 
@@ -93,8 +95,10 @@ try {
       const t = m.text();
       if (/^Warning: /.test(t)) problems.push(`React: ${t.split('\n')[0].replace(/%s/g, '').slice(0, 160)}`);
     });
-    // Seed: the ledger into its store, nothing in the cache or localStorage, then load the app on it.
-    await page.goto(BASE);
+    // Seed: the ledger into its store, nothing in the cache or localStorage, then load the app on it. Written from a
+    // page on the app's origin that isn't the app (Vite serves a module as it is): under the open app, the ledger it
+    // holds in memory could be written back over the seed (docs/notes/gotchas.md).
+    await page.goto(SEED_PAGE);
     await page.evaluate(async ([d, auth, alts]) => {
       localStorage.clear(); sessionStorage.clear();
       localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
@@ -106,7 +110,7 @@ try {
         h.close();
       }
     }, [data, ownerAuth(), altStoreOf(ALTS[name] ?? [])]);
-    await page.reload();
+    await page.goto(BASE);
     await page.waitForSelector('.page', { timeout: 20_000 });
     // The seed has to have reached the app, or every page below passes on an empty store.
     if (PROOF[name]) {
@@ -151,7 +155,7 @@ try {
         if (u.includes('esi.evetech.net')) esiCalls++;
         return route.abort();
       });
-      await page.goto(BASE);
+      await page.goto(SEED_PAGE);
       await page.evaluate(async ([d, a, alts]) => {
         localStorage.clear(); sessionStorage.clear();
         if (a) localStorage.setItem('jita-ledger:auth', JSON.stringify(a));
@@ -161,7 +165,7 @@ try {
           h.close();
         }
       }, [ALL.large, auth, altStoreOf(ALTS.large)]);
-      await page.reload();
+      await page.goto(BASE);
       await page.waitForTimeout(2500);
       esiCalls = 0;
       for (const hash of ['wallet', 'orders', 'positions', 'prospects', 'characters', 'settings/data']) {
