@@ -1,8 +1,8 @@
 import { CARGO_FIVE, holdsFor } from '../../lib/cargo';
 import { units } from '../../lib/format';
-import { useData } from '../../lib/store';
 import { EDGES, HULLS, LANE_SAID, type HullNode } from '../../lib/miningTree';
 import { ShipTree } from '../ShipTree';
+import { usePilot } from '../pilot';
 
 /**
  * The mining tree (ShipTree with the mining hulls): each hull's ore hold and your own measured pace in it, and its mastery
@@ -16,14 +16,14 @@ export function MiningTree({ here, paceOf, children }: {
   /** What opens under a hull's details: its mastery tiers, given the hull's Jita price. */
   children: (hull: HullNode, price: number | null) => React.ReactNode;
 }) {
-  const d = useData();
+  const pilot = usePilot();
   return (
     <ShipTree label="Mining ships" nodes={HULLS} edges={EDGES} lanes={LANE_SAID} cols={7} rows={5} here={here}
       nodeTip={(h) => { const p = paceOf(h.id); return p ? `Your pace in it: ${units(Math.round(p.m3PerMin))} m³ a minute.` : null; }}
       facts={(h, stats, dg) => {
         const p = paceOf(h.id);
-        // The ore hold at your skills: Mining Barge and Exhumers grow the Retriever's and Mackinaw's (lib/cargo.ts).
-        const hold = dg ? holdsFor(dg, [], d.skills ?? {}).ore ?? 0 : stats?.oreHold ?? 0;
+        // The ore hold at the pilot's skills: Mining Barge and Exhumers grow the Retriever's and Mackinaw's (lib/cargo.ts).
+        const hold = dg ? holdsFor(dg, [], pilot.skills ?? {}).ore ?? 0 : stats?.oreHold ?? 0;
         const holdV = dg ? holdsFor(dg, [], CARGO_FIVE).ore ?? 0 : hold;
         return [
           ...(hold > 0 ? [['Ore hold', `${units(Math.round(hold))} m³ at your skills${holdV > hold + 0.5 ? `, ${units(Math.round(holdV))} at V` : ''}`] as [string, string]] : []),

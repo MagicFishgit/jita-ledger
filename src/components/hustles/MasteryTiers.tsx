@@ -6,9 +6,9 @@ import { MASTERY } from '../../lib/miningMastery';
 import { crystalName, DEEP_CORE, DEEP_CORE_RIG, mercoxitTier, TIER_SAID, type Family, type FitItem, type MercoxitFit, type Tier, type TierKey } from '../../lib/miningFits';
 import type { HullNode } from '../../lib/miningTree';
 import { ALL_FIVE, fitYield, SKILL, YIELD_SKILLS, type FitYield, type TypeDogma } from '../../lib/miningYield';
-import { useData } from '../../lib/store';
 import { typeDogma } from '../../lib/universe';
 import { fitCosts, FitActions, FitGrid, FitSkills, useFitData } from '../FitParts';
+import { usePilot } from '../pilot';
 import { Seg } from '../ui';
 import { Points, type PointLike } from '../Facts';
 import { ArrowRightLeft, Cpu, Gem } from 'lucide-react';
@@ -118,7 +118,7 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
   /** A Mercoxit version, and the tier it was made from. */
   base?: Tier; merc?: MercoxitFit;
 }) {
-  const d = useData();
+  const pilot = usePilot();
   const crystal = tier.crystal ? crystalName(family, tier.crystal.kind) : null;
   const oldLasers = useMemo(() => (merc ? merc.swapped.map(([old]) => old) : []), [merc]);
   const data = useFitData(hull.id, tier, crystal, { dogmaNames: oldLasers, dogmaIds: [...YIELD_SKILLS, CPU_MANAGEMENT, MINING_UPGRADES] });
@@ -147,19 +147,19 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
     const skillDogma = Object.fromEntries(YIELD_SKILLS.map((s) => [s, got.dogma[s]]));
     return fitYield(hullD, laser, laserItem.qty ?? 1, cr, extras, skills, skillDogma);
   };
-  const mine = yieldAt(d.skills ?? {});
+  const mine = yieldAt(pilot.skills ?? {});
   const ceiling = yieldAt(ALL_FIVE);
   const { fitCost, total, unpriced } = fitCosts(tier, crystal, data, hullPrice);
   const pay = total != null && mine && mine.kind === 'ore' && iskPerM3 != null && fromRate != null ? paybackHours(total, fromRate, mine.m3PerMin, iskPerM3) : null;
   const label = `Jita Ledger ${tier.label ?? TIER_SAID[tier.key]}`;
   // The ore hold at your skills and at V (lib/cargo.ts: Mining Barge and Exhumers grow the Retriever's and Mackinaw's).
   const hullD = got?.dogma[hull.id];
-  const hold = hullD ? holdsFor(hullD, [], d.skills ?? {}).ore ?? 0 : 0;
+  const hold = hullD ? holdsFor(hullD, [], pilot.skills ?? {}).ore ?? 0 : 0;
   const holdV = hullD ? holdsFor(hullD, [], CARGO_FIVE).ore ?? 0 : 0;
 
   return (
     <div className="col" style={{ gap: 12 }}>
-      {merc && base ? <MercoxitNote merc={merc} base={base} got={got} hullId={hull.id} skills={d.skills ?? {}} /> : <p className="note small" style={{ margin: 0 }}>{tier.what}</p>}
+      {merc && base ? <MercoxitNote merc={merc} base={base} got={got} hullId={hull.id} skills={pilot.skills ?? {}} /> : <p className="note small" style={{ margin: 0 }}>{tier.what}</p>}
       <div className="kv-mini" style={{ maxWidth: 620 }}>
         <span>Mines</span>
         <b>{!got ? 'Working it out…' : !mine ? 'Only with its drones, which aren’t worked out here: what it’s for is the boosts and compression it gives a fleet.' : mine.kind === 'ice'
@@ -171,7 +171,7 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
         {mine && mine.critShare > 0 && <><span data-tip="Every cycle has a chance to crit, which adds the cycle’s yield again twice over. Worked out from the laser’s and hull’s dogma.">Critical hits</span><b>{Math.round(mine.critChance * 1000) / 10}% of cycles, +{Math.round(mine.critShare * 1000) / 10}% on average</b></>}
         {merc && got?.cloud && (() => {
           const at = (lvl: number) => Math.max(0, got.cloud!.base * (1 + (got.cloud!.perLevel * lvl) / 100));
-          const lvl = d.skills?.[SKILL.deepCoreMining] ?? 0;
+          const lvl = pilot.skills?.[SKILL.deepCoreMining] ?? 0;
           return <><span data-tip="Mining Mercoxit can release a toxic gas cloud that damages your ship. The chance is the ore’s own (ESI), and Deep Core Mining cuts it by a tenth a level.">Gas clouds</span>
             <b>{Math.round(at(lvl) * 1000) / 10}% chance at your Deep Core Mining {lvl}{lvl < 5 ? `, ${Math.round(at(5) * 1000) / 10}% at V` : ''}</b></>;
         })()}

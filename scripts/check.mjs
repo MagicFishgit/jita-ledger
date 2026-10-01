@@ -4048,6 +4048,51 @@ console.log('\n--- an alt\'s copy as a ledger (altLedger.ts) ---');
   eq('  an alt with nothing read is an empty ledger with Omega fees', [Object.keys(altLedger(emptyAlt()).txs).length, altLedger(emptyAlt()).settings.clone], [0, 'omega']);
 }
 
+console.log('\n--- whose skills a tree reads: the pilot (pilot.ts) ---');
+{
+  // Every page reads the main as it always has (the store's own objects, so memos and effects keyed on them don't move);
+  // Mining's Scaling up can be handed an alt, which reads what it can use, its own queue and its own clone state.
+  const { pilotFrom } = await import('../src/lib/pilot.ts');
+  const { altLedger } = await import('../src/lib/altLedger.ts');
+  const { emptyAlt } = await import('../src/lib/roster.ts');
+  const { emptyData } = await import('../src/lib/emptyData.ts');
+  const MINING = 3386, BARGE = 17940, ASTRO = 3410;
+  const queue = [{ skillId: ASTRO, level: 4, finish: '2026-10-02T10:00:00Z' }];
+  const attributes = { intelligence: 20, memory: 20, perception: 20, willpower: 20, charisma: 19 };
+  const main = { ...emptyData(), skills: { [MINING]: 5, [BARGE]: 3 }, meta: { skillQueue: queue, skillSp: { [MINING]: 256000 }, attributes } };
+  main.settings = { ...main.settings, clone: 'omega' }; // a new ledger starts as Alpha (DEFAULT_SETTINGS)
+  const me = { charId: 95210486, name: 'The Main', isMain: true };
+  const p = pilotFrom(main, me, false);
+  eq('  the main: the store\'s own skills, queue, skill points and attributes', [p.skills === main.skills, p.skillQueue === main.meta.skillQueue, p.skillSp === main.meta.skillSp, p.attributes === main.meta.attributes], [true, true, true, true]);
+  eq('    who it is, as given', [p.charId, p.name, p.isMain], [95210486, 'The Main', true]);
+  eq('    Alpha as the settings say', [p.alpha, pilotFrom({ ...main, settings: { ...main.settings, clone: 'alpha' } }, me, false).alpha], [false, true]);
+  eq('    skills not read yet stay not read', pilotFrom(emptyData(), me, false).skills === undefined, true);
+  const bare = { ...emptyData(), skills: {} };
+  eq('    an empty map is passed on as it is: the main\'s path doesn\'t change', pilotFrom(bare, me, false).skills === bare.skills, true);
+
+  // An Alpha alt trained to Mining V and Mining Barge III can use Mining IV and no Mining Barge (lib/alphaCaps.ts).
+  const saved = {
+    rev: 3, records: {},
+    docs: {
+      meta: { cloneDetected: 'alpha', activeSkills: { [MINING]: 4, [BARGE]: 0 }, skillQueue: queue, attributes },
+      skills: { [MINING]: 5, [BARGE]: 3, [ASTRO]: 3 },
+    },
+  };
+  const alt = altLedger(saved);
+  const who = { charId: 900001, name: 'Miner Two', isMain: false };
+  const a = pilotFrom(alt, who, true);
+  eq('  an Alpha alt: the levels it can use, not the ones it trained', a.skills, { [MINING]: 4, [BARGE]: 0, [ASTRO]: 3 });
+  eq('    its own queue and attributes, and Alpha from its settings', [a.skillQueue === alt.meta.skillQueue, a.attributes === alt.meta.attributes, a.alpha], [true, true, true]);
+  eq('    who it is, as given', [a.charId, a.name, a.isMain], [900001, 'Miner Two', false]);
+  // A new object on every call would re-run every effect keyed on the skills on every render, which re-renders.
+  eq('    the same copy gives the same skills object each time', pilotFrom(alt, who, true).skills === a.skills, true);
+  const omega = altLedger({ ...saved, docs: { ...saved.docs, meta: { cloneDetected: 'omega', skillQueue: queue } } });
+  eq('  an Omega alt, nothing capped: its trained levels as they are', [pilotFrom(omega, who, true).skills === omega.skills, pilotFrom(omega, who, true).alpha], [true, false]);
+  // altLedger fills an unread skills doc in as {}: a character always has skills, so that is "not read", never "untrained".
+  const unread = pilotFrom(altLedger(emptyAlt()), who, true);
+  eq('  an alt whose skills the cloud hasn\'t read: not read, rather than nothing trained', [unread.skills === undefined, unread.skillQueue === undefined, unread.alpha], [true, true, false]);
+}
+
 console.log('\n--- the alts the income check seeds earn by their journal (scripts/ledgers.mjs) ---');
 {
   // The final review found their 3.37% tax rows rejected against the 7.5% an alt without Accounting is predicted to pay,

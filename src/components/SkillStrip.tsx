@@ -10,6 +10,7 @@ import { useData } from '../lib/store';
 import { trainingDays } from '../lib/training';
 import { useSkillIds } from './hustles/SkillPanel';
 import { useEnsureNames, useTypeName } from './common';
+import { usePilot } from './pilot';
 import { cssVars, Tip } from './ui';
 
 /**
@@ -40,31 +41,32 @@ const TONE: Record<ReturnType<typeof queueSaid>['tone'], string> = { run: 'var(-
  * Prerequisites are read only for a skill not yet injected: injecting it needed them.
  */
 export function useTrainTimes(items: { id: number | null; have: number; to?: number }[]): Record<number, Train> {
-  const d = useData();
-  const alpha = d.settings.clone === 'alpha';
-  const attrs = d.meta.attributes;
+  const pilot = usePilot();
+  const alpha = pilot.alpha;
+  const attrs = pilot.attributes;
+  const skills = pilot.skills, sp = pilot.skillSp;
   const key = items.map((x) => `${x.id}:${x.have}:${x.to ?? ''}`).join(',');
   const [out, setOut] = useState<Record<number, Train>>({});
   useEffect(() => {
-    if (!d.skills) return;
+    if (!skills) return;
     let alive = true;
     (async () => {
       const next: Record<number, Train> = {};
       for (const x of items) {
         if (x.id == null || x.have >= 5) continue;
         const to = Math.max(x.have + 1, Math.min(5, x.to ?? 0));
-        const injected = d.skills![x.id] != null;
+        const injected = skills[x.id] != null;
         const dg = await skillDogma(x.id).catch(() => null);
         next[x.id] = {
           to, injected,
-          days: dg && attrs ? trainingDays(dg, attrs, d.meta.skillSp?.[x.id] ?? 0, to, alpha) : null,
-          needs: !injected && dg ? dg.req.filter(([id, lvl]) => (d.skills![id] ?? 0) < lvl).map(([id, level]) => ({ id, level })) : [],
+          days: dg && attrs ? trainingDays(dg, attrs, sp?.[x.id] ?? 0, to, alpha) : null,
+          needs: !injected && dg ? dg.req.filter(([id, lvl]) => (skills[id] ?? 0) < lvl).map(([id, level]) => ({ id, level })) : [],
         };
       }
       if (alive) setOut(next);
     })();
     return () => { alive = false; };
-  }, [key, attrs, d.meta.skillSp, d.skills, alpha]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, attrs, sp, skills, alpha]); // eslint-disable-line react-hooks/exhaustive-deps
   return out;
 }
 
@@ -76,18 +78,18 @@ export type SkillLine = { name: string; id?: number; what: string | ((have: numb
  * about skills the app simply hasn't seen.
  */
 export function SkillStrip({ title = 'Your skills here', lines, note }: { title?: string; lines: SkillLine[]; note?: string }) {
-  const d = useData();
+  const pilot = usePilot();
   const now = useNow(60_000);
   const byName = useSkillIds(lines.filter((l) => l.id == null).map((l) => l.name));
   const rows = useMemo(() => lines.map((l) => {
     const id = l.id ?? byName[l.name] ?? null;
-    return { l, id, s: skillStatus(id, id != null ? d.skills?.[id] ?? 0 : 0, d.meta.skillQueue, now) };
-  }), [lines, byName, d.skills, d.meta.skillQueue, now]);
+    return { l, id, s: skillStatus(id, id != null ? pilot.skills?.[id] ?? 0 : 0, pilot.skillQueue, now) };
+  }), [lines, byName, pilot.skills, pilot.skillQueue, now]);
   const train = useTrainTimes(rows.map((r) => ({ id: r.id, have: r.s.have })));
   const reqIds = Object.values(train).flatMap((t) => t.needs.map((n) => n.id));
   useEnsureNames(reqIds);
   const name = useTypeName();
-  if (!d.skills) return null;
+  if (!pilot.skills) return null;
   return (
     <div className="skill-strip">
       <div className="lbl" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -178,14 +180,14 @@ export function TradeSkillsLine({ slotsOnly = false }: { slotsOnly?: boolean }) 
  * your queue, or what's missing first. For the mining ladder's rungs.
  */
 export function SkillNeeds({ needs }: { needs: { skill: number; level: number }[] }) {
-  const d = useData();
+  const pilot = usePilot();
   const now = useNow(60_000);
   const name = useTypeName();
   useEnsureNames(needs.map((n) => n.skill));
-  const rows = needs.map((n) => ({ n, s: skillStatus(n.skill, d.skills?.[n.skill] ?? 0, d.meta.skillQueue, now) }));
+  const rows = needs.map((n) => ({ n, s: skillStatus(n.skill, pilot.skills?.[n.skill] ?? 0, pilot.skillQueue, now) }));
   const train = useTrainTimes(rows.map(({ n, s }) => ({ id: n.skill, have: s.have, to: n.level })));
   useEnsureNames(Object.values(train).flatMap((t) => t.needs.map((x) => x.id)));
-  if (!d.skills) return null;
+  if (!pilot.skills) return null;
   return (
     <div className="skill-needs">
       {rows.map(({ n, s }) => {

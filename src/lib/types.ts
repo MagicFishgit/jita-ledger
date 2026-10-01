@@ -287,6 +287,11 @@ export type Meta = {
   /** Every skill's trained skill points, by type ID, so training time counts what is already in. */
   skillSp?: Record<number, number>;
   /**
+   * An alt's skills that Alpha caps below their trained level, at the level it can use (ESI's `active_skill_level`).
+   * Only the cloud's sheet writes it, for an alt (worker/src/sheet.ts); the pilot reads it (lib/pilot.ts, usableSkills).
+   */
+  activeSkills?: Record<number, number>;
+  /**
    * Your industry jobs not yet delivered, as last synced (esi-industry.read_character_jobs.v1), with when that read was
    * and the facilities' names, for To do's "ready to deliver".
    */

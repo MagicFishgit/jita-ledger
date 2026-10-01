@@ -10,6 +10,7 @@ import type { TypeDogma } from '../lib/miningYield';
 import { toast } from '../lib/toast';
 import { typeDogma, typeRequirements } from '../lib/universe';
 import { copyMultibuy } from './common';
+import { usePilot } from './pilot';
 import { SkillNeeds } from './SkillStrip';
 import { ItemIcon } from './ui';
 
@@ -115,10 +116,14 @@ export function FitGrid({ fit, crystal, data }: { fit: Tier; crystal: string | n
   );
 }
 
-/** Copy fit (EFT), Copy for Multibuy, Save fit in game. `label` names the fitting ("Jita Ledger Solid"). */
+/**
+ * Copy fit (EFT), Copy for Multibuy, Save fit in game. `label` names the fitting ("Jita Ledger Solid"). Saving goes to the
+ * logged-in character's fittings, so it's offered only when the page is shown for that character, never for an alt.
+ */
 export function FitActions({ hullId, hullName, label, fit, crystal, data, total }: {
   hullId: number; hullName: string; label: string; fit: Tier; crystal: string | null; data: FitData | null; total: number | null;
 }) {
+  const pilot = usePilot();
   const [saving, setSaving] = useState(false);
   // A fitting has nowhere to hold implants or boosters (see eftText), so the copy and the saved fit say they're left out.
   const leftOut = fit.implants?.length ? ' Its implants and boosters aren’t in it: a fitting can’t hold them. Copy for Multibuy has them.' : '';
@@ -145,7 +150,7 @@ export function FitActions({ hullId, hullName, label, fit, crystal, data, total 
         data-tip={fit.implants?.length ? 'The fit as EFT text, which the game’s fitting window imports.\n\nIts implants and boosters are left out: a fitting has no place for them (ESI’s saved fittings take slots, the drone and fighter bays and cargo, and the import puts only charges and ice in the cargo), and what the game does with such a line isn’t documented. Copy for Multibuy has them.' : undefined}>
         <ClipboardCopy aria-hidden="true" /> Copy fit</button>
       <button type="button" className="btn sm" disabled={!data} onClick={() => void copyMultibuy(mb.text, mb.lines, total ?? undefined)}><ShoppingCart aria-hidden="true" /> Copy for Multibuy</button>
-      {hasScope(SCOPE.fittingsWrite) && <button type="button" className="btn sm" disabled={!data || saving} onClick={() => void saveFit()}><Save aria-hidden="true" /> {saving ? 'Saving…' : 'Save fit in game'}</button>}
+      {hasScope(SCOPE.fittingsWrite) && pilot.isMain && <button type="button" className="btn sm" disabled={!data || saving} onClick={() => void saveFit()}><Save aria-hidden="true" /> {saving ? 'Saving…' : 'Save fit in game'}</button>}
     </div>
   );
 }

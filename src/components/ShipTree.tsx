@@ -6,9 +6,9 @@ import { jitaBook } from '../lib/market';
 import type { TypeDogma } from '../lib/miningYield';
 import { edgeShape, nodeState, type NodeState, type Point, type Stat, type TreeNode } from '../lib/shipTree';
 import { skillStatus } from '../lib/skillStatus';
-import { useData } from '../lib/store';
 import { hullStats, typeDogma, typeRequirements } from '../lib/universe';
 import { useEnsureNames, useTypeName } from './common';
+import { usePilot } from './pilot';
 import { SkillNeeds } from './SkillStrip';
 import { Bonuses, Points, ResistBars, Stats } from './Facts';
 
@@ -66,7 +66,7 @@ export function ShipTree<N extends TreeNode>({ label, nodes, edges, lanes, cols,
   /** What opens under a hull's details, given its Jita price. */
   children: (n: N, price: number | null) => ReactNode;
 }) {
-  const d = useData();
+  const pilot = usePilot();
   const now = useNow(60_000);
   const name = useTypeName();
   const [info, setInfo] = useState<Record<number, HullInfo>>({});
@@ -89,18 +89,18 @@ export function ShipTree<N extends TreeNode>({ label, nodes, edges, lanes, cols,
   }, [ids]); // eslint-disable-line react-hooks/exhaustive-deps
   // A missing skill counts as coming when your queue takes it to the level needed.
   const queued = (skill: number, level: number) => {
-    const s = skillStatus(skill, d.skills?.[skill] ?? 0, d.meta.skillQueue, now);
+    const s = skillStatus(skill, pilot.skills?.[skill] ?? 0, pilot.skillQueue, now);
     return Math.max(s.have, s.training?.level ?? 0, ...s.queued.map((q) => q.level)) >= level;
   };
-  const states = useMemo(() => Object.fromEntries(nodes.map((h) => [h.id, nodeState(info[h.id]?.needs, d.skills, queued, h.id === here)])) as Record<number, NodeState>,
-    [info, d.skills, d.meta.skillQueue, here, now, ids]); // eslint-disable-line react-hooks/exhaustive-deps
+  const states = useMemo(() => Object.fromEntries(nodes.map((h) => [h.id, nodeState(info[h.id]?.needs, pilot.skills, queued, h.id === here)])) as Record<number, NodeState>,
+    [info, pilot.skills, pilot.skillQueue, here, now, ids]); // eslint-disable-line react-hooks/exhaustive-deps
   const x = (h: N) => ((h.col + 0.5) / cols) * 100;
   const y = (h: N) => ((h.row + 0.5) / rows) * 100;
   const byId = new Map(nodes.map((h) => [h.id, h]));
   // The paths out of where you are glow: the next steps.
   const from = here ?? nodes.filter((h) => states[h.id] === 'flyable').sort((a, b) => b.col - a.col)[0]?.id ?? null;
   const openHull = open != null ? byId.get(open) ?? null : null;
-  const missing = (h: N) => (info[h.id]?.needs ?? []).filter((n) => (d.skills?.[n.skill] ?? 0) < n.level).length;
+  const missing = (h: N) => (info[h.id]?.needs ?? []).filter((n) => (pilot.skills?.[n.skill] ?? 0) < n.level).length;
   // On a phone the chart is a list, and a ship opens right under its row rather than below all of them.
   const [phone, setPhone] = useState(() => typeof matchMedia === 'function' && matchMedia('(max-width: 640px)').matches);
   useEffect(() => {
