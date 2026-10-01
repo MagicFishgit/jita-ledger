@@ -59,8 +59,11 @@ Don't re-derive or contradict these without new evidence.
   Accounting and Mining Barge absent, so not usable at all). ESI's skills answer gives a trained and an active level,
   which differ only while Alpha caps a skill; a character with nothing past the limits can't be told apart.
 - **A `player_donation` journal entry has the giver as `first_party_id` and the receiver as `second_party_id`**
-  (the user's journal, 30 September 2026: two entries, the main second on both). It held no contract payment between
-  characters to check the same of.
+  (the user's journal, 30 September 2026: two entries, the main second on both). **A courier reward names the Secure
+  Commerce Commission (1000132), the contract's escrow, as payer, not the issuer**: the journal's one `contract_reward`
+  (28 September 2026, contract 235889568, +200,000 ISK, entry 26090577567). The issuer's side
+  (`contract_reward_deposited`), a `contract_price` and a `player_trading` between two characters haven't been seen, so
+  only a donation is known to name both characters.
 - **`publicData` grants nothing** — zero ESI endpoints require it; it isn't even an ESI scope.
 - **Order book pages are shuffled with respect to type**, so sampling N random pages is an unbiased
   sample of the market. This is what makes Prospects affordable.

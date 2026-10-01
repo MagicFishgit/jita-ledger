@@ -76,7 +76,10 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
   owner check would have logged the owner out). What the cloud holds for each alt is pulled into an IndexedDB database
   of its own, `jita-ledger-alts`, only when the alt's revision has moved: one roster request a minute, not one per alt.
   The shell reads the roster alone (`useAltRoster`), and a read equal to the last keeps the same array, so the pages
-  aren't drawn again at every step of a read.
+  aren't drawn again at every step of a read. The Wallet and To do read only the fields they use (`useAltCopies`,
+  `useRosterAt`, `useRosterLive`), and a read that pulls nothing keeps the copies' object: on `useAlts()` both were drawn
+  again two or three times a read; now the Wallet isn't, and To do once or twice for the read time (counted in a browser,
+  1 October 2026).
 - **An alt deleted and added again starts its copy afresh** (`altCopyFor` in `lib/roster.ts`, final review, 30 September
   2026). "Remove and delete" deletes an alt's rows in the cloud outright, with no removal left to pull, and keeps its
   revision; a device that missed the removal and the re-add (a phone in the background, an app closed) pulled only what
@@ -94,7 +97,10 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
   `useMiningFleet` in `miningFleet.ts`, which doesn't import the store itself. The Wallet joined in stage 4 for its
   "All characters" line beside the net worth: the main's total plus each alt's newest daily point, shown on the page
   inside `data-alts` and never added to `nwParts`, `nwTotal` or what the Wallet saves to `netWorth`; `check-income`'s
-  isolation check leaves `[data-alts]` out of the Wallet's text and still compares the ledger). The Characters page writes `chars` (a clone state set by hand) and the public type names it looks up
+  isolation check leaves `[data-alts]` out of the Wallet's text and still compares the ledger. Its tip gives each alt's
+  last read (`lastRead`): ISK sent to an alt leaves the main's total at once and reaches the alt's point at the cloud's
+  next hourly read, which rewrites the day's point when it moves 0.5%, so the line can dip for up to an hour. The
+  Characters page's All net worth adds the main's last saved point instead, so the two can differ; both tips say so). The Characters page writes `chars` (a clone state set by hand) and the public type names it looks up
   (skills, hulls), nothing of an alt's. Two tests in `scripts/check.mjs` read the source and fail if either changes;
   the first reads every import clause from `./store`, so a default, namespace (`import * as S`, then `S.update`) or
   dynamic import fails it, while `import type` passes. A later page that needs alt data is added to that list on
@@ -112,6 +118,15 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
   and dropped: after "Delete all data" without a reload, a token refresh re-runs the cloud sync's start, which re-arms
   its state on the emptied ledger (and that state is unreliable after a wipe anyway: known-bugs), so the gate turned true
   on an empty ledger. `chars` goes up only when you edit it (a clone state), carrying every character the device knows.
+- **ISK moved between two of your characters is a transfer** (stage 4: `ownTransfer` and `ownIds` in `lib/roster.ts`, the
+  optional `mine` on `categoryOf`, `describeRef`, `flows`, `unusual` and `attribute`; without it each answers as before).
+  Yours are the main and every character in `chars`, removed ones too, so past transfers stay transfers (limits.md: a
+  sold one stays yours). A donation, direct trade or contract counts only when it names two *distinct* parties, both
+  yours: CCP writes some of a character's own entries with it on both sides (132 of the user's 202 escrow releases, and a
+  sale to themselves), which a set of the main alone would otherwise make transfers. Only donations are known to name
+  both (eve-facts). The Wallet shows them once, as "Between your characters", and nothing it sums counts them
+  (positions-results). A Characters card's set is the same family, for an alt plus itself, so a contract between two of
+  yours would read the same on every card.
 - **A card never shows a zero for "not known"** (`charFacts`): an alt just added has no wallet, net-worth point or
   queue yet, and each reads "–" with why; the Training tile says "Nothing in the queue" only when the queue was read
   (`queueKnown`), else "Not read yet". An alt's net worth is its newest daily point and says its date. **An alt's wallet
@@ -126,8 +141,8 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
   handed over again. One alt's failing pull is said with its name ("Reading Miner Two failed: …", `failedAlt`), apart
   from the roster's own read ("The cloud couldn't be reached just now").
 - **Stage 2a is the Characters page with the roster, and ends with a real alt being read.** What each character
-  earned and mined (stage 2b) and Mining across characters (stage 3) came next; the Wallet's total and transfers (4)
-  follow.
+  earned and mined (stage 2b) and Mining across characters (stage 3) came next, then the Wallet's total, transfers and
+  To do (4).
 - **The first real alt** (30 September 2026, 21:12 UTC): the owner added FannySchmeller (2122193260) from the Characters
   page and it came back as the alt (`POST /v1/keys`, then `/read`, then the pull, all in about 13 s; no exception). Its
   first read, about ten seconds: 36 trades, 83 journal entries, 30 orders, 164 names, stock and one net-worth point

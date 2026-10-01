@@ -53,7 +53,9 @@ Traps in the code, the tools and the browser that have cost time before.
   request outside its own Vite server; a throw, the error boundary or any React warning fails it. The deploy workflow
   runs it before publishing. Checked by planting a duplicate key on Omega and a throw on Combat: both failed, with
   the message. It uses `playwright-core` pinned to 1.61.1, the version whose Chromium (1228) the Playwright MCP had
-  already downloaded here, so installing it fetched no browser.
+  already downloaded here, so installing it fetched no browser. A hook below a page's early return for an empty ledger
+  throws only when the ledger fills under the open page (a first sync), which none of those loads does; the Wallet's
+  did (stage 4), so the check also fills the Wallet while it's open.
 - **Restoring the test browser's IndexedDB while the app is open doesn't stick.** The app holds the ledger in memory
   and writes a document back whenever it updates it, so a `put` made under it is overwritten: on 30 September 2026 a
   restored `meta` got the stand-in skill queue back within a minute (the skills, which the app didn't touch, stayed

@@ -178,6 +178,12 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   by 213.5 M of Datacore - High Energy Physics), combat +172.83 M, abyssal +1.81 M, every item −6.36 M; 366.5 M on play.
   Without ESI's item groups only trading, hauling, freelance and bounties count, and both pages now say so (Results said
   it counted those, but counted nothing).
+- **ISK moved between your own characters is neither earned nor spent** (stage 4 of several characters, 1 October 2026;
+  the rule is in characters.md). The owner's 100 M to FannySchmeller on 30 September read as 100 M of play. Now play,
+  the runway's burn, running costs, the day's biggest cost, the month's report, cash-flow goals and the unusual-activity
+  list leave it out, and the Wallet shows it once, as "Between your characters" under money in and out (`check-income`
+  proves those figures equal with and without transfers). What reads the balance still moves with it, on purpose, since
+  the main's wallet did change: Wallet today, Since your last visit, the balance line, net worth and its daily point.
 - **Net worth keeps one snapshot a day in this browser** (`Data.netWorth`), written by the Wallet page. ESI has no
   net-worth history, so the trend starts the first day the page is opened and says so.
 - **Goals are five kinds, each measured from something the app reads** (`lib/goals.ts`): afford N of an item

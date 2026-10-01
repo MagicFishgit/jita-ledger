@@ -78,3 +78,11 @@ State these rather than letting them be discovered:
   percent of a row wouldn't show there; the exact sums are pinned by the hand-worked tests in `scripts/check.mjs`.
 - **An alt's Earned leaves out ships it lost and what it bought for freelance jobs**, since the cloud reads neither for
   an alt, and it's as of the cloud's last read of it. Its card's tip says so.
+- **A courier contract between two of your characters isn't a transfer**: the hauler's reward names the Secure Commerce
+  Commission (eve-facts), so it's Hauling income, which the Characters page's Earned for all characters counts, and the
+  issuer's side is a running cost ("Couriers & contract fees") unless it names both characters (not yet seen).
+- **Contract and direct-trade transfers between your characters rest on the both-parties rule alone**: no real
+  `contract_price` or `player_trading` entry between two characters has been seen.
+- **A character taken off the roster stays yours for good** (`chars` keeps it, so past transfers stay transfers). One
+  sold to another player keeps reading as yours: their ISK to you is "Between your characters", not money in, and the
+  unusual-activity list never calls them a new donor.
