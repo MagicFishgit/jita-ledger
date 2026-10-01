@@ -6,6 +6,7 @@ paths:
   - "worker/src/{eve,archive,mining,index,watchdog,market}.ts"
   - "src/lib/{altStore,altLedger,pilot}.ts"
   - "src/components/{Characters.tsx,charIncome.ts,pilot.tsx}"
+  - "src/components/hustles/{Mining.tsx,miningFleet.ts}"
   - "scripts/{income,ledgers}.mjs"
 ---
 

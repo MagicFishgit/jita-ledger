@@ -120,7 +120,8 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
   handed over again. One alt's failing pull is said with its name ("Reading Miner Two failed: …", `failedAlt`), apart
   from the roster's own read ("The cloud couldn't be reached just now").
 - **Stage 2a is the Characters page with the roster, and ends with a real alt being read.** What each character
-  earned and mined (stage 2b), Mining across characters (3) and the Wallet's total and transfers (4) follow.
+  earned and mined (stage 2b) and Mining across characters (stage 3) came next; the Wallet's total and transfers (4)
+  follow.
 - **The first real alt** (30 September 2026, 21:12 UTC): the owner added FannySchmeller (2122193260) from the Characters
   page and it came back as the alt (`POST /v1/keys`, then `/read`, then the pull, all in about 13 s; no exception). Its
   first read, about ten seconds: 36 trades, 83 journal entries, 30 orders, 164 names, stock and one net-worth point
@@ -158,3 +159,31 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
   document's fields in whatever order its updates land), pages read mid-render (now read once settled), and seeding
   IndexedDB while the app was open (now from a page on the same origin that isn't the app; docs/notes/gotchas.md). A
   deliberate change to the Wallet's or Results' wording means re-recording with `RECORD=1` in the same commit.
+- **Mining across characters** (stage 3: `sessionsByCharacter`, `perCharacter`, `altRightNow` in `lib/mining.ts`;
+  `lib/pilot.ts`, `components/pilot.tsx`; `hustles/miningFleet.ts`, `hustles/Mining.tsx`). The tab reads every character's
+  records (the main's from the ledger, an alt's from its pulled copy through `altLedger`) and ticks (`/v1/mining/ticks`,
+  tagged as the main's, and `/v1/alts/mining/ticks`), and writes nothing of an alt's anywhere.
+  - **Sessions are built one character at a time.** Two characters mining at once are read in the same rounds, so their
+    ticks interleave; built together they'd be one session with both ores summed and a doubled pace.
+  - **Whose skills a component shows is a pilot** (`usePilot`): the main, from the store, everywhere, exactly as those
+    components read it before, unless a `PilotProvider` hands it another. Only Scaling up is wrapped, for the character
+    "Show for" picks, so an alt chosen there can't reach the Abyssal tree, Hauling or Settings. An alt's pilot is the
+    levels it can use (an Alpha's capped skills at their active level, `meta.activeSkills`), its own queue and attributes,
+    and Alpha's half-speed training. An empty skills doc is "not read" (`skillsUnread`): its tree is drawn neither
+    flyable nor locked and its tiers are at V, saying so, since worked out at no skills they'd read as the alt's own. The
+    words go through the pilot too (`whose`, `who`: "at Miner Two's skills", "Miner Two can fly it"); for the main every
+    string is as it was. Save fit in game is the main's alone: it saves to the logged-in character's fittings.
+  - **An alt's right now is the cloud's**: its ship at its last mining read, "mining" when its ledger grew in that read
+    or the one before (and only when the alts' ticks were read), always "as of" the read's time, and in the past tense
+    past a session's gap ("Was in a Venture as of …"), since a refused login's last read stays. Where an alt is and
+    whether it's logged in aren't read; `useRightNow` stays the main's.
+  - **Its ore is valued the main's way** (your skills, standing and tax), as on the Characters page.
+  - **Nothing not known reads as a zero**: an alt whose mining the cloud hasn't read says "Not read yet" across its row,
+    a tick read that failed is "–" rather than no sessions, and a Worker a version behind (404 on the alt route) is one
+    line under Sessions, never an error. `useMiningFleet` says `loading` until the first read after the cloud comes on
+    answers, so no such line flashes, and clears the ticks when the cloud is switched off.
+  - **The filter and "Show for" are kept per browser** (`jita-ledger:mining-char`, `jita-ledger:mining-show`). One naming
+    a character no longer on the roster falls back (All; the filter's character, else the main) without overwriting
+    what's kept, since the roster loads after the page first draws.
+  - The page check's large ledger has the main's own mining too (`scripts/ledgers.mjs`), so the tab adds the main to
+    the alts there; mining isn't income, and the income recording didn't move.
