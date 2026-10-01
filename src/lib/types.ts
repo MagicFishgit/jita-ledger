@@ -1,6 +1,6 @@
 import type { ContractItem, MyContract } from './contracts';
 import type { QueuedLevel } from './skillStatus';
-import type { CorpTax, JoinedJob } from './freelance';
+import type { CorpSpan, CorpTax, JoinedJob } from './freelance';
 import type { SafetyWrap } from './esiRecords';
 import type { BookSold, SplitFrom } from './split';
 import type { SkillKey } from './constants';
@@ -327,8 +327,13 @@ export type Meta = {
    * exchanges you were in (read once each, they don't change), and courier destinations' names.
    */
   contracts?: { at: string; list: MyContract[]; items: Record<number, ContractItem[]>; places: Record<number, string> };
-  /** The freelance jobs you've joined, as last read (freelanceStore.ts), for the Wallet, Results and the Freelance tab. */
-  freelance?: { at: string; jobs: JoinedJob[] };
+  /**
+   * Every freelance job you took part in (freelanceStore.ts `readJobHistory`): each one a reward in the journal names and
+   * each on ESI's joined list, never replaced by the current list, for the Wallet, Results and the Freelance tab; and the
+   * corporations you were in while they paid, for working out a reward's tax when the journal doesn't give it. Kept in
+   * this browser only (cloudSync.ts LOCAL_META): every browser rebuilds it from the journal and ESI.
+   */
+  freelance?: { at: string; jobs: JoinedJob[]; corps?: CorpSpan[] };
   /**
    * Your corporation and its tax rate as last read (public, no permission; freelance.ts `readCorp`). Rewards and bounties
    * are paid after it, so the Freelance finder prices a job after it. Absent until a sync has read it.

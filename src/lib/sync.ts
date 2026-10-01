@@ -5,8 +5,8 @@ import { ALPHA_CAPS, JITA_44, NPC_FALLBACK_IDS, NPC_NAMES, SCOPE, SKILL_FALLBACK
 import { parseSafetyNotice, withNotices } from './assetSafety';
 import { isStation, isStructure, structureInfo } from './universe';
 import { couriersDue, itemsToRead, readContracts, type ContractItem, type RawContract } from './contracts';
-import { readJoinedJobs } from './freelanceStore';
-import { readCorp, type RawCorp } from './freelance';
+import { readCorpSpans, readJobHistory, untaxedSince } from './freelanceStore';
+import { readCorp, withRead, type CorpSpan, type JoinedJob, type RawCorpFounded } from './freelance';
 import { loyaltyPoints, resolveIds, resolveNames } from './market';
 import { dataGeneration, getData, update, type Data } from './store';
 import { sanitizeSettings, type Settings } from './fees';
@@ -259,25 +259,35 @@ export async function syncCharacter(): Promise<void> {
         read.push('contracts');
       } catch { /* the Wallet and To do go without */ }
     }
-    // The freelance jobs you've joined, for the Wallet and Results to count their rewards against what their items cost.
-    if (hasScope(SCOPE.freelance)) {
-      try { metaPatch.freelance = { at: new Date().toISOString(), jobs: await readJoinedJobs(cid) }; read.push('freelance'); }
-      catch { /* read on a later sync */ }
-    }
     // Your corporation and its tax rate, both public, so read whatever was granted: rewards are paid after the tax, and
     // the Freelance finder prices a job after it. The corporation comes from the affiliation lookup, a POST (never kept in
     // the browser's cache) that ESI holds an hour at most: /characters/{id}/ answers `max-age=86400`, which would show the
     // corporation you left for a day. The rate is asked for afresh (a conditional request), so a change shows on the next
     // sync after ESI's own copy lets go. On a failure the last one read stays.
+    let corpNow: { id: number; body: RawCorpFounded } | null = null;
     try {
       const { data: aff } = await esi<{ character_id: number; corporation_id: number }[]>('/characters/affiliation/', { method: 'POST', body: [cid] });
       const mine = aff.find((a) => a.character_id === cid);
       if (mine) {
-        const { data: co } = await esi<RawCorp>(`/corporations/${mine.corporation_id}/`, { fresh: true });
+        const { data: co } = await esi<RawCorpFounded>(`/corporations/${mine.corporation_id}/`, { fresh: true });
         const corp = readCorp(mine, co, new Date().toISOString());
-        if (corp) { metaPatch.corp = corp; read.push('corporation'); }
+        if (corp) { metaPatch.corp = corp; corpNow = { id: corp.id, body: co }; read.push('corporation'); }
       }
     } catch { /* the finder keeps the last rate read, or says it isn't read yet */ }
+    // Every freelance job you took part in: each a reward in the journal names (public details, read once a job is done),
+    // and each on ESI's joined list with the permission. Merged into what's kept, never replaced by the current list,
+    // which holds only the jobs running (freelanceStore.ts). When a reward's tax isn't in the journal, the corporations you
+    // were in since then, to work it out from (freelance.ts readReward).
+    let freelanceRead: { at: string; jobs: JoinedJob[]; corps?: CorpSpan[] } | null = null;
+    try {
+      const journalNow = fetched.journal ? { ...d.journal, ...fetched.journal } : d.journal;
+      const jobs = await readJobHistory(cid, Object.values(journalNow), d.meta.freelance?.jobs ?? [], hasScope(SCOPE.freelance));
+      const since = untaxedSince(Object.values(journalNow));
+      const kept = d.meta.corp ? { id: d.meta.corp.id, body: { name: d.meta.corp.name, tax_rate: d.meta.corp.taxRate } } : null;
+      const corps = since != null ? await readCorpSpans(cid, since, corpNow ?? kept).catch(() => undefined) : undefined;
+      freelanceRead = { at: new Date().toISOString(), jobs, ...(corps ? { corps } : {}) };
+      read.push('freelance');
+    } catch { /* read on a later sync */ }
     // The mining ledger (mining.ts): 30 days from ESI, kept as records so they outlive them.
     if (hasScope(SCOPE.mining)) {
       try {
@@ -370,6 +380,8 @@ export async function syncCharacter(): Promise<void> {
       added = fetched.txs ? Object.keys(fetched.txs).filter((id) => !cur.txs[id]).length : 0;
       const log = [{ at: metaPatch.lastSync!, what: read.join(', ') || 'nothing permitted', ok: true, added }, ...(cur.meta.syncLog ?? [])].slice(0, 12);
       const p: Partial<Data> = { meta: { ...cur.meta, ...metaPatch, syncLog: log } };
+      // Merged into what the store holds now: a job the Freelance tab found meanwhile stays.
+      if (freelanceRead) p.meta!.freelance = withRead(cur.meta.freelance, freelanceRead);
       if (fetched.txs) p.txs = { ...cur.txs, ...fetched.txs };
       if (fetched.journal) p.journal = { ...cur.journal, ...fetched.journal };
       // Each order keeps the versions seen before, so a price change shows up as its own event with the

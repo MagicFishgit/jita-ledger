@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { Briefcase, Coins, Copy, MapPin, Radio, Route, ShoppingCart } from 'lucide-react';
 import { SCOPE } from '../../lib/config';
 import { esi } from '../../lib/esi';
-import { ago, isk, iskBig, units } from '../../lib/format';
+import { ago, fmtDateTime, fmtShort, isk, iskBig, units } from '../../lib/format';
 import {
-  afterTax, bestDeliver, bestOffice, deliverFlags, FILTER_HIDES, jobLedgers, readDeliverJob, whereToAccept,
-  type CorpTax, type DeliverCall, type DeliverFlag, type DeliverJob, type JoinedJob, type Office, type RawFreelanceJob,
+  afterTax, bestDeliver, bestOffice, deliverFlags, FILTER_HIDES, jobHistory, readDeliverJob, taxPct, whereToAccept,
+  type CorpTax, type DeliverCall, type DeliverFlag, type DeliverJob, type JobRow, type JoinedJob, type Office, type RawFreelanceJob, type RewardRead,
 } from '../../lib/freelance';
-import { readJoinedJobs } from '../../lib/freelanceStore';
+import { refreshJobHistory } from '../../lib/freelanceStore';
+import { rates } from '../../lib/fees';
 import { getAuth, hasScope } from '../../lib/auth';
 import { useAuth, useNow } from '../../lib/hooks';
 import { reachFrom, routeTo, type Graph, type Reach } from '../../lib/jumps';
@@ -15,12 +16,12 @@ import { pool } from '../../lib/lootMarket';
 import { jitaOrders, setDestination } from '../../lib/market';
 import { countedIn } from '../../lib/positions';
 import { loadCache } from '../../lib/scan';
-import { update, useData } from '../../lib/store';
+import { useData } from '../../lib/store';
 import { toast } from '../../lib/toast';
 import { endpoint, groupTypes, JITA_SYSTEM, typeInfo } from '../../lib/universe';
 import { GANK_SYSTEMS } from '../../lib/arbitrage';
 import { useEnsureNames, useTypeName, copyMultibuy } from '../common';
-import { Check, Flag, Th } from '../ui';
+import { Check, Flag, Th, Tip } from '../ui';
 import { Figures, Points } from '../Facts';
 import { multibuy } from '../../lib/combat';
 
@@ -87,21 +88,16 @@ export function Freelance() {
   useEnsureNames((rows ?? []).flatMap((r) => r.types.map((t) => t.typeId)));
   const canDest = (auth?.scopes ?? []).includes(SCOPE.waypoint);
 
-  // The jobs you've joined, read fresh when the tab opens (and kept for the Wallet and Results).
+  // Every job you took part in, read again when the tab opens (the journal's rewards name them; the joined list needs
+  // the freelance permission) and kept for the Wallet and Results, merged with what's kept, never replacing it.
   const canMine = hasScope(SCOPE.freelance);
-  const [mine, setMine] = useState<JoinedJob[] | null>(d.meta.freelance?.jobs ?? null);
   useEffect(() => {
     const a = getAuth();
-    if (!a || !canMine) return;
-    let live = true;
-    readJoinedJobs(a.characterId).then((jobs) => {
-      if (!live) return;
-      setMine(jobs);
-      update((x) => ({ meta: { ...x.meta, freelance: { at: new Date().toISOString(), jobs } } }));
-    }).catch(() => undefined);
-    return () => { live = false; };
+    if (!a) return;
+    refreshJobHistory(a.characterId, canMine).catch(() => undefined);
   }, [canMine]);
-  const inJob = useMemo(() => new Map((mine ?? []).filter((j) => j.standing === 'Committed' && j.state === 'Active').map((j) => [j.id, j])), [mine]);
+  const mine = d.meta.freelance?.jobs;
+  const inJob = useMemo(() => new Map((mine ?? []).filter((j) => j.standing === 'Committed' && j.state === 'Active' && j.joined !== false).map((j) => [j.id, j])), [mine]);
 
   const find = async () => {
     setBusy('Reading the job board…');
@@ -207,7 +203,7 @@ export function Freelance() {
         <button type="button" className="btn primary tall" disabled={!!busy} onClick={() => void find()}><Briefcase aria-hidden="true" />{busy ?? (rows ? 'Look again' : 'Find jobs')}</button>
       </div>
 
-      {canMine && mine && mine.length > 0 && <YourJobs jobs={mine} now={now} />}
+      <JobHistory now={now} />
 
       {rows && (
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
@@ -313,52 +309,152 @@ function JobTable({ title, sub, rows, name, now, inJob, copy, go, corp, elsewher
   );
 }
 
+/** Why a payment's units, and so its tax, aren't known, in words. */
+const WHY: Record<NonNullable<RewardRead['why']>, string> = {
+  rate: 'ESI won’t describe the job, so what it paid a unit isn’t known',
+  history: 'your journal doesn’t give its tax, and the corporations you were in then haven’t been read',
+  fits: 'your journal doesn’t give its tax, and it doesn’t come out exact at the rate of the corporation you were in then (or comes out exact at two)',
+};
+
+/** Each payment, its tax and how it's known, at most a dozen: a tip. */
+function paymentLines(row: JobRow): string {
+  const shown = row.rewards.slice(-12);
+  const lines = shown.map((r) => {
+    const head = `• ${fmtDateTime(r.at)}: ${isk(r.amount)}`;
+    if (r.units == null) return `${head}, tax not recorded: ${WHY[r.why ?? 'fits']}.`;
+    const rate = r.rate != null ? taxPct(r.rate) : '?';
+    return `${head} for ${units(r.units)} units, after ${rate}${r.how === 'esi' ? ' (from your journal)' : ` (${r.corp ? `${r.corp}’s, ` : ''}worked out)`}`;
+  });
+  const lead = row.rewards.length > 12 ? `Its last 12 payments of ${units(row.rewards.length)}, each after your corporation’s tax:` : 'Each payment, after your corporation’s tax:';
+  const ex = shown.find((r) => r.how === 'derived' && r.units != null && r.rate != null);
+  const worked = ex ? `\n\nWorked out where your journal doesn’t give the tax: the rate of the corporation ESI says you were in then, and only when the payment comes out a whole number of units at it (${units(ex.units)} × ${isk(row.job.perUnit)} less ${taxPct(ex.rate!)} is exactly ${ex.amount.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ISK).` : '';
+  return `${lead}\n\n${lines.join('\n')}${worked}`;
+}
+
+const when = (row: JobRow, now: number) => {
+  const j = row.job;
+  if (j.state === 'Active') return { main: j.created ? `since ${fmtShort(j.created)}` : 'running', sub: j.expires ? `ends ${ends(j.expires, now)}` : '' };
+  if (j.created && j.finished) return { main: fmtShort(j.created) === fmtShort(j.finished) ? fmtShort(j.finished) : `${fmtShort(j.created)} – ${fmtShort(j.finished)}`, sub: j.state };
+  const last = row.rewards[row.rewards.length - 1];
+  return { main: last ? `paid ${fmtShort(last.at)}` : '–', sub: j.described === false ? '' : j.state };
+};
+
 /**
- * The jobs you've done, in ISK: rewards from your journal (each names its job), what the items cost you, profit on what's
- * delivered, and what's bought and not yet delivered (jobLedgers). Trades a position counts, or tagged Personal, aren't
- * a job's.
+ * Every job you did (freelance.ts jobHistory): what it paid, the tax taken, the units delivered, what the ones you bought
+ * cost, what's left over and the profit, running jobs first, newest first, with a total. The user asked for the tab to
+ * be where you see the runs you did, their cost and the profit made. Trades a position counts, or tagged, aren't a job's,
+ * as on the Wallet.
  */
-function YourJobs({ jobs, now }: { jobs: JoinedJob[]; now: number }) {
+function JobHistory({ now }: { now: number }) {
   const d = useData();
-  const types = useMemo(() => new Set(jobs.flatMap((j) => j.types)), [jobs]);
-  const ledgers = useMemo(() => {
-    const txs = Object.values(d.txs).filter((t) => types.has(t.typeId));
-    const skip = new Set([...d.ignored, ...txs.filter((t) => d.positions.some((p) => countedIn(p, t))).map((t) => t.id)]);
-    return jobLedgers(jobs, Object.values(d.journal), txs, skip);
-  }, [jobs, d.txs, d.journal, d.ignored, d.positions, types]);
-  const sum = (f: (l: NonNullable<ReturnType<typeof ledgers.get>>) => number) => jobs.reduce((t, j) => t + f(ledgers.get(j.id)!), 0);
+  const jobs = d.meta.freelance?.jobs;
+  const corps = d.meta.freelance?.corps;
+  const hist = useMemo(() => {
+    const takes = new Set((jobs ?? []).flatMap((j) => j.types));
+    const txs = Object.values(d.txs).filter((t) => t.source === 'esi' && takes.has(t.typeId));
+    const skip = new Set([...d.ignored, ...txs.filter((t) => t.id in d.tags || d.positions.some((p) => countedIn(p, t))).map((t) => t.id)]);
+    return jobHistory({ jobs: jobs ?? [], journal: Object.values(d.journal), txs, skip, corps, salesTax: rates(d.settings).t });
+  }, [jobs, corps, d.txs, d.journal, d.ignored, d.tags, d.positions, d.settings]);
+  const { rows, total } = hist;
+  if (!rows.length) return null;
+  const running = rows.filter((r) => r.job.state === 'Active').length;
   return (
-    <div className="col" style={{ gap: 6 }}>
-      <b style={{ color: 'var(--ink)' }}>Your jobs <span className="faint" style={{ fontWeight: 400 }}>· {iskBig(sum((l) => l.profit))} profit so far</span></b>
+    <div className="col fl-history" style={{ gap: 6 }}>
+      <b style={{ color: 'var(--ink)' }}>Every job you did <span className="faint" style={{ fontWeight: 400 }}>· {units(rows.length)}{running ? `, ${units(running)} running` : ''}</span></b>
+      <Figures items={[
+        { key: 'paid', value: iskBig(total.received), label: 'paid to you', tip: 'Every reward your journal names a job for, after your corporation’s tax.' },
+        { key: 'tax', value: iskBig(total.tax), label: total.taxUnknown ? `tax taken, ${units(total.taxUnknown)} payment${total.taxUnknown === 1 ? '’s' : 's’'} not recorded` : 'tax taken',
+          tip: 'What your corporation took from the rewards before they reached your wallet: from your journal, or worked out from the corporation ESI says you were in then. Each job’s tax has its payments in its tip.' },
+        { key: 'profit', value: iskBig(total.profit), label: total.unknown ? `profit, ${units(total.unknown)} job${total.unknown === 1 ? '' : 's'} not counted` : 'profit',
+          tip: 'The rewards, less what the delivered units you bought cost, plus anything bought for a job and sold again. Units delivered from stock you didn’t buy for the job have no cost here. A job whose units aren’t known isn’t counted.' },
+        { key: 'held', value: total.held ? iskBig(total.heldCost) : '–', label: total.held ? `bought, not delivered (${units(total.held)} units)` : 'bought, not delivered',
+          tip: 'Bought while a job ran and never delivered or sold, at what it cost: still yours, so not in the profit.' },
+      ]} />
       <div style={{ overflowX: 'auto' }}>
-        <table className="tbl compact" style={{ minWidth: 900 }}>
+        <table className="tbl compact flh-table">
           <thead><tr>
-            <Th left>Job</Th><Th left>State</Th><Th tip="Delivered, as the rewards paid at the job’s rate say">Delivered</Th>
-            <Th tip="The rewards your journal says the job paid">Rewards</Th>
-            <Th tip="What you bought of the items it takes since it began (not counted by a position, not tagged Personal)">Spent</Th>
-            <Th tip="Rewards, less the delivered units at your average cost, plus anything of it you sold again">Profit so far</Th>
-            <Th tip="Bought and not yet delivered or sold, at your average cost">Still holding</Th>
-            <Th tip="What’s left of your cap on the job; – when it sets none">Left for you</Th><Th>Ends</Th>
+            <Th left tip="Who posted it, and when it began and was done (EVE time), or since when it runs and when it ends">Job</Th>
+            <th scope="col" className="flh-wide"><span className="th">Delivered<Tip title="Delivered" text={'Units delivered, as the rewards say: each reward and its tax ÷ what the job pays a unit before tax.\n\n• The tax from your journal when it gives one; else worked out from your corporation then.\n• – when a payment’s tax can’t be told: its tip says why.'} /></span></th>
+            <th scope="col" className="flh-wide"><span className="th">Rewards<Tip title="Rewards" text="The rewards your journal says the job paid, after your corporation’s tax" /></span></th>
+            <th scope="col" className="flh-wide"><span className="th">Tax<Tip title="Tax" text={'What your corporation took before each reward reached your wallet.\n\n• From your journal when it gives the tax.\n• Worked out when it doesn’t: the rate of the corporation ESI’s history says you were in then, only when the reward comes out a whole number of units at it.\n• Not recorded otherwise: no rate is assumed.'} /></span></th>
+            <th scope="col" className="flh-wide"><span className="th">Cost<Tip title="Cost" text={'What the delivered units you bought cost. Each delivery takes what you bought most recently before it, of the items the job takes, while it ran, and a purchase counts once, even when two jobs ran at once.\n\n• Units delivered beyond that came from stock you didn’t buy for it (mined, contracted from another character, looted, bought before it began): they have no cost here, and it says how many.'} /></span></th>
+            <th scope="col" className="flh-wide"><span className="th">Left over<Tip title="Left over" text="Bought while it ran and not delivered or sold, at what it cost. Kept with the job paid next after the purchase." /></span></th>
+            <th scope="col" className="flh-wide"><span className="th">Profit<Tip title="Profit" text="The rewards, less what the delivered units you bought cost, plus anything bought for it and sold again (after sales tax)" /></span></th>
           </tr></thead>
-          <tbody>{jobs.map((j) => {
-            const l = ledgers.get(j.id)!;
-            const left = j.perPlayer != null ? Math.max(0, j.perPlayer - j.delivered) : null;
-            return (
-              <tr key={j.id}>
-                <td className="l" style={{ whiteSpace: 'normal', minWidth: 200 }}><span className="name">{j.name}</span></td>
-                <td className="l">{j.state === 'Active' ? (j.standing === 'Committed' ? 'In it' : j.standing) : j.state}</td>
-                <td>{units(Math.max(l.delivered, j.delivered))}</td>
-                <td style={{ color: l.rewards ? 'var(--pos)' : undefined }}>{l.rewards ? iskBig(l.rewards) : '–'}<span className="sub">{l.payments ? `${units(l.payments)} payment${l.payments === 1 ? '' : 's'}` : ''}</span></td>
-                <td>{l.cost ? iskBig(l.cost) : '–'}<span className="sub">{l.bought ? `${big(l.bought)} bought` : ''}{l.sold ? `, ${big(l.sold)} sold again` : ''}</span></td>
-                <td style={{ color: l.profit >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{l.rewards || l.cost ? iskBig(l.profit) : '–'}</td>
-                <td>{l.heldUnits ? <>{big(l.heldUnits)}<span className="sub">{iskBig(l.heldCost)} at cost</span></> : '–'}</td>
-                <td>{left != null ? units(left) : '–'}</td>
-                <td>{j.expires ? ends(j.expires, now) : '–'}</td>
-              </tr>
-            );
-          })}</tbody>
+          <tbody>{rows.map((r) => <JobLine key={r.job.id} r={r} now={now} />)}</tbody>
+          <tfoot><tr>
+            <td className="l">All {units(rows.length)}
+              <div className="flh-phone">
+                <b style={{ color: total.profit >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>Profit {iskBig(total.profit)}{total.unknown ? `, ${units(total.unknown)} not counted` : ''}</b>
+                <span>{units(total.delivered)} delivered · {iskBig(total.received)} paid · {iskBig(total.tax)} tax · {iskBig(total.cost)} cost{total.held ? ` · ${units(total.held)} left over` : ''}</span>
+              </div>
+            </td>
+            <td className="flh-wide">{units(total.delivered)}{total.unknown > 0 && <span className="sub">{units(total.unknown)} not known</span>}</td>
+            <td className="flh-wide">{iskBig(total.received)}</td>
+            <td className="flh-wide">{iskBig(total.tax)}{total.taxUnknown > 0 && <span className="sub">{units(total.taxUnknown)} not recorded</span>}</td>
+            <td className="flh-wide">{iskBig(total.cost)}{total.fromStock > 0 && <span className="sub">{units(total.fromStock)} not bought for it</span>}</td>
+            <td className="flh-wide">{total.held ? <>{units(total.held)}<span className="sub">{iskBig(total.heldCost)} at cost</span></> : '–'}</td>
+            <td className="flh-wide" style={{ color: total.profit >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{iskBig(total.profit)}</td>
+          </tr></tfoot>
         </table>
       </div>
     </div>
+  );
+}
+
+/** A price without its unit, for the lines under a figure: "11.76–11.91". */
+const bare = (n: number | null) => isk(n).replace(/ ISK$/, '');
+
+/** One job's line. On a phone (styles.css, `.flh-table`) only the job and its profit keep a column; the rest folds under the name. */
+function JobLine({ r, now }: { r: JobRow; now: number }) {
+  const w = when(r, now);
+  const left = r.job.state === 'Active' && r.job.perPlayer != null ? Math.max(0, r.job.perPlayer - r.job.delivered) : null;
+  const allUnknown = r.rewards.length > 0 && r.taxUnknown === r.rewards.length;
+  const taxSaid = !r.rewards.length ? '–' : allUnknown ? 'Not recorded' : iskBig(r.tax);
+  const taxSub = !r.rewards.length ? '' : allUnknown ? 'tip says why' : [
+    [...new Set(r.rewards.filter((x) => x.rate != null).map((x) => taxPct(x.rate!)))].join(', '),
+    r.rewards.some((x) => x.how === 'derived') ? 'worked out' : 'from your journal',
+    r.taxUnknown ? `${units(r.taxUnknown)} not recorded` : '',
+  ].filter(Boolean).join(' · ');
+  const range = r.low == null ? '' : r.low === r.high ? bare(r.low) : `${bare(r.low)}–${bare(r.high)}`;
+  const stock = r.fromStock > 0 ? `${units(r.fromStock)} from stock you didn’t buy for it: no cost counted` : '';
+  const unsure = r.unsure ? 'may be off: a job taking the same items has a payment whose units aren’t known' : '';
+  const tax = (cls?: string) => r.rewards.length
+    ? <span className={cls} tabIndex={0} data-tip={paymentLines(r)} data-tip-title={`${r.job.name}: its payments`}>{taxSaid}{cls ? (taxSub ? ` (${taxSub})` : '') : <span className="sub">{taxSub}</span>}</span>
+    : <>–</>;
+  return (
+    <tr>
+      <td className="l flh-job">
+        <span className="name">{r.job.name}</span>
+        <span className="sub">{r.job.described === false ? 'ESI won’t describe it: its rewards are all that’s known'
+          : [r.job.by?.character, r.job.by?.corp].filter(Boolean).join(' · ')}</span>
+        <span className="sub">{w.main}{w.sub ? ` · ${w.sub}` : ''}{left != null ? ` · ${units(left)} left for you` : ''}</span>
+        {r.job.state === 'Active' && <span className="flags"><Flag color="var(--pos)" title="Running" why={r.job.joined !== false ? 'Still taking deliveries, and on your list of joined jobs.' : 'Still taking deliveries.'}>Running</Flag></span>}
+        <div className="flh-phone">
+          <b style={{ color: r.profit == null ? undefined : r.profit >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{r.profit == null ? 'Profit not known: units not known' : `Profit ${iskBig(r.profit)}`}{r.sold > 0 ? `, with ${units(r.sold)} sold again for ${iskBig(r.revenue)}` : ''}</b>
+          <span>{r.delivered != null ? `${units(r.delivered)} delivered` : 'Delivered: not known'}{r.job.perUnit > 0 ? ` at ${bare(r.job.perUnit)} a unit` : ''}</span>
+          <span>{r.received ? `${iskBig(r.received)} paid in ${units(r.rewards.length)} payment${r.rewards.length === 1 ? '' : 's'}` : 'Nothing paid yet'} · tax {tax('flh-tax')}</span>
+          {r.delivered != null && <span>Cost {iskBig(r.cost)}{range ? ` at ${range} a unit` : ''}</span>}
+          {stock && <span style={{ color: 'var(--acc2)' }}>{stock}</span>}
+          {unsure && <span style={{ color: 'var(--acc2)' }}>{unsure}</span>}
+          {r.held > 0 && <span>Left over: {units(r.held)}, {iskBig(r.heldCost)} at cost</span>}
+        </div>
+      </td>
+      <td className="flh-wide">{units(r.delivered)}<span className="sub">{r.job.perUnit > 0 ? `at ${bare(r.job.perUnit)} a unit` : 'rate a unit not known'}</span></td>
+      <td className="flh-wide" style={{ color: r.received ? 'var(--pos)' : undefined }}>{r.received ? iskBig(r.received) : '–'}<span className="sub">{r.rewards.length ? `${units(r.rewards.length)} payment${r.rewards.length === 1 ? '' : 's'}` : 'none yet'}</span></td>
+      <td className="flh-wide">{tax()}</td>
+      <td className="flh-wide flh-cost">
+        {r.delivered == null ? '–' : iskBig(r.cost)}
+        {r.delivered != null && range && <span className="sub">at {range} a unit</span>}
+        {stock && <span className="sub" style={{ color: 'var(--acc2)' }}>{stock}</span>}
+        {unsure && <span className="sub" style={{ color: 'var(--acc2)' }}>{unsure}</span>}
+      </td>
+      <td className="flh-wide">{r.held ? <>{units(r.held)}<span className="sub">{iskBig(r.heldCost)} at cost</span></> : '–'}</td>
+      <td className="flh-wide flh-profit" style={{ color: r.profit == null ? undefined : r.profit >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>
+        {r.profit == null ? '–' : iskBig(r.profit)}
+        {r.profit == null && r.rewards.length > 0 && <span className="sub">units not known</span>}
+        {r.sold > 0 && <span className="sub">{units(r.sold)} sold again for {iskBig(r.revenue)}</span>}
+      </td>
+    </tr>
   );
 }

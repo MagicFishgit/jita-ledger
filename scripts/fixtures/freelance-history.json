@@ -1,0 +1,1062 @@
+{
+ "_about": "The user’s six freelance jobs (1 October 2026). jobs: GET /freelance-jobs/{id} with X-Compatibility-Date 2026-08-18, description left out. txs and journal: the main’s D1 records of kind txs (ore bought) and journal (freelance_jobs_reward), read-only. groups: /universe/groups/{id} types (457 Kernite, 460 Scordite, 462 Veldspar). corpHistory: GET /characters/95210486/corporationhistory/ (ESI’s copy from 1 Oct 01:43, so before TEMP TAX HAVEN; trimmed to its last two entries; the older one is never read since it ended before any reward). corps: GET /corporations/{id}/ with the app’s compatibility date, trimmed to what the rules read.",
+ "jobs": [
+  {
+   "id": "b11ad07b-2c43-4136-8be1-fa88aedae466",
+   "name": "ISK Scordite best ISK for delivery",
+   "state": "Completed",
+   "last_modified": "2026-10-01T10:18:52.969Z",
+   "progress": {
+    "current": 150000000,
+    "desired": 150000000
+   },
+   "reward": {
+    "initial": 2550000000,
+    "remaining": 0
+   },
+   "details": {
+    "career": "Industrialist",
+    "created": "2026-09-14T17:57:40.66Z",
+    "finished": "2026-10-01T10:18:53.021Z",
+    "expires": "2026-12-14T18:00:00Z",
+    "creator": {
+     "character": {
+      "id": 96818831,
+      "name": "Demetris Skallien"
+     },
+     "corporation": {
+      "id": 98694382,
+      "name": "Uroboros Tribe"
+     }
+    }
+   },
+   "configuration": {
+    "version": 1,
+    "parameters": {
+     "corporation_item_delivery": {
+      "corporation_item_delivery": {
+       "item_type": {
+        "values": [
+         {
+          "value_type": "item_group",
+          "values": [
+           "460"
+          ]
+         }
+        ]
+       },
+       "corporation_office_location": {
+        "values": [
+         {
+          "value_type": "station",
+          "values": [
+           "60004162",
+           "60003004",
+           "60002707",
+           "60003397"
+          ]
+         }
+        ]
+       }
+      }
+     }
+    },
+    "method": "DeliverItem"
+   },
+   "contribution": {
+    "max_committed_participants": 10000,
+    "reward_per_contribution": 17,
+    "submission_multiplier": 1
+   },
+   "access_and_visibility": {
+    "acl_protected": false,
+    "broadcast_locations": [
+     {
+      "id": 30000137,
+      "name": "Eskunen"
+     },
+     {
+      "id": 30002783,
+      "name": "Sankkasen"
+     },
+     {
+      "id": 30002789,
+      "name": "Kaaputenen"
+     },
+     {
+      "id": 30000129,
+      "name": "Unpas"
+     }
+    ]
+   }
+  },
+  {
+   "id": "a13f2971-a371-4eb0-947a-4b02a9d7edc2",
+   "name": "Veldspar Delivery Service",
+   "state": "Completed",
+   "last_modified": "2026-10-01T10:00:16.784Z",
+   "progress": {
+    "current": 180000000,
+    "desired": 180000000
+   },
+   "reward": {
+    "initial": 1800000000,
+    "remaining": 0
+   },
+   "details": {
+    "career": "Industrialist",
+    "created": "2026-09-06T22:15:20.854Z",
+    "finished": "2026-10-01T10:00:16.829Z",
+    "expires": "2026-12-06T22:15:00Z",
+    "creator": {
+     "character": {
+      "id": 2123147363,
+      "name": "Eclipse Forgewrighter"
+     },
+     "corporation": {
+      "id": 98799838,
+      "name": "Phivak TradingCorp."
+     }
+    }
+   },
+   "configuration": {
+    "version": 1,
+    "parameters": {
+     "corporation_item_delivery": {
+      "corporation_item_delivery": {
+       "item_type": {
+        "values": [
+         {
+          "value_type": "item_group",
+          "values": [
+           "462"
+          ]
+         }
+        ]
+       },
+       "corporation_office_location": {
+        "values": [
+         {
+          "value_type": "station",
+          "values": [
+           "60001483",
+           "60015027"
+          ]
+         },
+         {
+          "value_type": "structure",
+          "values": [
+           "1044752365771",
+           "1049982731184"
+          ]
+         }
+        ]
+       }
+      }
+     }
+    },
+    "method": "DeliverItem"
+   },
+   "contribution": {
+    "max_committed_participants": 10000,
+    "reward_per_contribution": 10,
+    "submission_multiplier": 1
+   },
+   "access_and_visibility": {
+    "acl_protected": false,
+    "broadcast_locations": [
+     {
+      "id": 30000144,
+      "name": "Perimeter"
+     },
+     {
+      "id": 30030141,
+      "name": "Uitra"
+     },
+     {
+      "id": 30000119,
+      "name": "Itamo"
+     }
+    ]
+   }
+  },
+  {
+   "id": "b050742a-481c-4929-ad87-366599b14cc6",
+   "name": "Mothhat Scordite",
+   "state": "Completed",
+   "last_modified": "2026-10-01T10:37:40.616Z",
+   "progress": {
+    "current": 20000000,
+    "desired": 20000000
+   },
+   "reward": {
+    "initial": 340000000,
+    "remaining": 0
+   },
+   "details": {
+    "career": "Industrialist",
+    "created": "2026-09-26T01:20:12.74Z",
+    "finished": "2026-10-01T10:37:40.66Z",
+    "expires": "2026-10-03T01:15:00Z",
+    "creator": {
+     "character": {
+      "id": 94741529,
+      "name": "Alexander Otium"
+     },
+     "corporation": {
+      "id": 98576146,
+      "name": "Mothhat"
+     }
+    }
+   },
+   "configuration": {
+    "version": 1,
+    "parameters": {
+     "corporation_item_delivery": {
+      "corporation_item_delivery": {
+       "item_type": {
+        "values": [
+         {
+          "value_type": "item_group",
+          "values": [
+           "460"
+          ]
+         }
+        ]
+       },
+       "corporation_office_location": {
+        "values": [
+         {
+          "value_type": "structure",
+          "values": [
+           "1055217568500"
+          ]
+         }
+        ]
+       }
+      }
+     }
+    },
+    "method": "DeliverItem"
+   },
+   "contribution": {
+    "max_committed_participants": 10000,
+    "reward_per_contribution": 17,
+    "submission_multiplier": 1
+   },
+   "access_and_visibility": {
+    "acl_protected": false,
+    "broadcast_locations": [
+     {
+      "id": 30002644,
+      "name": "Ambeke"
+     }
+    ]
+   }
+  },
+  {
+   "id": "98750873-3cd7-4b65-b9c2-2f2ed0d8d23c",
+   "name": "/!\\ Mining Kernite",
+   "state": "Completed",
+   "last_modified": "2026-10-01T19:29:57.8Z",
+   "progress": {
+    "current": 2000000,
+    "desired": 2000000
+   },
+   "reward": {
+    "initial": 800000000,
+    "remaining": 0
+   },
+   "details": {
+    "career": "Industrialist",
+    "created": "2026-10-01T17:52:01.802Z",
+    "finished": "2026-10-01T19:29:57.872Z",
+    "expires": "2026-10-15T17:45:00Z",
+    "creator": {
+     "character": {
+      "id": 2123998846,
+      "name": "Galine Bro"
+     },
+     "corporation": {
+      "id": 98823496,
+      "name": "Nova Genesis Aventure"
+     }
+    }
+   },
+   "configuration": {
+    "version": 1,
+    "parameters": {
+     "corporation_item_delivery": {
+      "corporation_item_delivery": {
+       "item_type": {
+        "values": [
+         {
+          "value_type": "item_group",
+          "values": [
+           "457"
+          ]
+         }
+        ]
+       },
+       "corporation_office_location": {
+        "values": [
+         {
+          "value_type": "station",
+          "values": [
+           "60003373"
+          ]
+         },
+         {
+          "value_type": "structure",
+          "values": [
+           "1031084757448",
+           "1031058135975",
+           "1029209158478"
+          ]
+         }
+        ]
+       }
+      }
+     }
+    },
+    "method": "DeliverItem"
+   },
+   "contribution": {
+    "max_committed_participants": 10000,
+    "reward_per_contribution": 400,
+    "submission_multiplier": 1
+   },
+   "access_and_visibility": {
+    "acl_protected": false,
+    "broadcast_locations": [
+     {
+      "id": 30000144,
+      "name": "Perimeter"
+     },
+     {
+      "id": 30002754,
+      "name": "Alikara"
+     },
+     {
+      "id": 30002053,
+      "name": "Hek"
+     },
+     {
+      "id": 30002526,
+      "name": "Frarn"
+     }
+    ]
+   }
+  },
+  {
+   "id": "348b49ee-d66f-4ae4-b98e-eb05961781d2",
+   "name": "..::Buy Back::.. Scordite - all type ✓",
+   "state": "Completed",
+   "last_modified": "2026-10-01T20:15:25.778Z",
+   "progress": {
+    "current": 20000000,
+    "desired": 20000000
+   },
+   "reward": {
+    "initial": 332000000,
+    "remaining": 0
+   },
+   "details": {
+    "career": "Industrialist",
+    "created": "2026-10-01T17:49:50.745Z",
+    "finished": "2026-10-01T20:15:25.832Z",
+    "expires": "2026-10-08T17:45:00Z",
+    "creator": {
+     "character": {
+      "id": 2117690774,
+      "name": "didek916"
+     },
+     "corporation": {
+      "id": 98697448,
+      "name": "The Dead Woods"
+     }
+    }
+   },
+   "configuration": {
+    "version": 1,
+    "parameters": {
+     "corporation_item_delivery": {
+      "corporation_item_delivery": {
+       "item_type": {
+        "values": [
+         {
+          "value_type": "item_group",
+          "values": [
+           "460"
+          ]
+         }
+        ]
+       },
+       "corporation_office_location": {
+        "values": [
+         {
+          "value_type": "station",
+          "values": [
+           "60000409"
+          ]
+         },
+         {
+          "value_type": "structure",
+          "values": [
+           "1041388175181"
+          ]
+         }
+        ]
+       }
+      }
+     }
+    },
+    "method": "DeliverItem"
+   },
+   "contribution": {
+    "max_committed_participants": 10000,
+    "reward_per_contribution": 16.6,
+    "submission_multiplier": 1
+   },
+   "access_and_visibility": {
+    "acl_protected": false,
+    "broadcast_locations": [
+     {
+      "id": 30001394,
+      "name": "Korama"
+     },
+     {
+      "id": 30000131,
+      "name": "Nomaa"
+     },
+     {
+      "id": 30002764,
+      "name": "Hatakani"
+     },
+     {
+      "id": 30045324,
+      "name": "Onnamon"
+     },
+     {
+      "id": 30001421,
+      "name": "Otalieto"
+     },
+     {
+      "id": 30100067,
+      "name": "Hotak"
+     },
+     {
+      "id": 30001427,
+      "name": "Yoma"
+     },
+     {
+      "id": 30001400,
+      "name": "Litiura"
+     },
+     {
+      "id": 30001403,
+      "name": "Piak"
+     },
+     {
+      "id": 30002783,
+      "name": "Sankkasen"
+     }
+    ]
+   }
+  },
+  {
+   "id": "5a528bf4-1bcf-4425-b626-d15061f87e60",
+   "name": "..::Buy Back::.. Scordite - all type ✓",
+   "state": "Completed",
+   "last_modified": "2026-10-01T20:37:15.265Z",
+   "progress": {
+    "current": 20000000,
+    "desired": 20000000
+   },
+   "reward": {
+    "initial": 330000000,
+    "remaining": 0
+   },
+   "details": {
+    "career": "Industrialist",
+    "created": "2026-10-01T20:17:14.492Z",
+    "finished": "2026-10-01T20:37:15.326Z",
+    "expires": "2026-10-08T20:15:00Z",
+    "creator": {
+     "character": {
+      "id": 2117690774,
+      "name": "didek916"
+     },
+     "corporation": {
+      "id": 98697448,
+      "name": "The Dead Woods"
+     }
+    }
+   },
+   "configuration": {
+    "version": 1,
+    "parameters": {
+     "corporation_item_delivery": {
+      "corporation_item_delivery": {
+       "item_type": {
+        "values": [
+         {
+          "value_type": "item_group",
+          "values": [
+           "460"
+          ]
+         }
+        ]
+       },
+       "corporation_office_location": {
+        "values": [
+         {
+          "value_type": "station",
+          "values": [
+           "60000409"
+          ]
+         },
+         {
+          "value_type": "structure",
+          "values": [
+           "1041388175181"
+          ]
+         }
+        ]
+       }
+      }
+     }
+    },
+    "method": "DeliverItem"
+   },
+   "contribution": {
+    "max_committed_participants": 10000,
+    "reward_per_contribution": 16.5,
+    "submission_multiplier": 1
+   },
+   "access_and_visibility": {
+    "acl_protected": false,
+    "broadcast_locations": [
+     {
+      "id": 30000131,
+      "name": "Nomaa"
+     },
+     {
+      "id": 30045324,
+      "name": "Onnamon"
+     },
+     {
+      "id": 30002764,
+      "name": "Hatakani"
+     },
+     {
+      "id": 30001421,
+      "name": "Otalieto"
+     },
+     {
+      "id": 30100067,
+      "name": "Hotak"
+     },
+     {
+      "id": 30001394,
+      "name": "Korama"
+     },
+     {
+      "id": 30001427,
+      "name": "Yoma"
+     },
+     {
+      "id": 30001400,
+      "name": "Litiura"
+     },
+     {
+      "id": 30001403,
+      "name": "Piak"
+     },
+     {
+      "id": 30002783,
+      "name": "Sankkasen"
+     }
+    ]
+   }
+  }
+ ],
+ "txs": [
+  {
+   "id": "6882388421",
+   "source": "esi",
+   "typeId": 20,
+   "date": "2026-09-27T22:22:48Z",
+   "isBuy": true,
+   "qty": 8000,
+   "unitPrice": 513.5,
+   "locationId": 60003760
+  },
+  {
+   "id": "6883243779",
+   "source": "esi",
+   "typeId": 92374,
+   "date": "2026-09-29T12:03:02Z",
+   "isBuy": true,
+   "qty": 813258,
+   "unitPrice": 21.96,
+   "locationId": 60003760
+  },
+  {
+   "id": "6883233640",
+   "source": "esi",
+   "typeId": 92374,
+   "date": "2026-09-29T11:35:22Z",
+   "isBuy": true,
+   "qty": 22860949,
+   "unitPrice": 11.79,
+   "locationId": 60003760
+  },
+  {
+   "id": "6883230456",
+   "source": "esi",
+   "typeId": 92374,
+   "date": "2026-09-29T11:25:04Z",
+   "isBuy": true,
+   "qty": 5000000,
+   "unitPrice": 11.79,
+   "locationId": 60003760
+  },
+  {
+   "id": "6883230416",
+   "source": "esi",
+   "typeId": 92374,
+   "date": "2026-09-29T11:24:51Z",
+   "isBuy": true,
+   "qty": 5000000,
+   "unitPrice": 11.79,
+   "locationId": 60003760
+  },
+  {
+   "id": "6883230066",
+   "source": "esi",
+   "typeId": 92374,
+   "date": "2026-09-29T11:23:31Z",
+   "isBuy": true,
+   "qty": 361663,
+   "unitPrice": 11.77,
+   "locationId": 60003760
+  },
+  {
+   "id": "6883229627",
+   "source": "esi",
+   "typeId": 92374,
+   "date": "2026-09-29T11:21:34Z",
+   "isBuy": true,
+   "qty": 4909800,
+   "unitPrice": 11.76,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884368194",
+   "source": "esi",
+   "typeId": 92372,
+   "date": "2026-10-01T09:58:16Z",
+   "isBuy": true,
+   "qty": 39093373,
+   "unitPrice": 7.52,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884365568",
+   "source": "esi",
+   "typeId": 92372,
+   "date": "2026-10-01T09:49:56Z",
+   "isBuy": true,
+   "qty": 60000000,
+   "unitPrice": 7.52,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884378505",
+   "source": "esi",
+   "typeId": 92374,
+   "date": "2026-10-01T10:32:03Z",
+   "isBuy": true,
+   "qty": 16185590,
+   "unitPrice": 11.91,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884371646",
+   "source": "esi",
+   "typeId": 92374,
+   "date": "2026-10-01T10:08:25Z",
+   "isBuy": true,
+   "qty": 46914809,
+   "unitPrice": 11.91,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884663266",
+   "source": "esi",
+   "typeId": 92374,
+   "date": "2026-10-01T20:07:04Z",
+   "isBuy": true,
+   "qty": 14716401,
+   "unitPrice": 11.91,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884663264",
+   "source": "esi",
+   "typeId": 92374,
+   "date": "2026-10-01T20:07:04Z",
+   "isBuy": true,
+   "qty": 5283599,
+   "unitPrice": 11.9,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884641843",
+   "source": "esi",
+   "typeId": 62537,
+   "date": "2026-10-01T19:27:55Z",
+   "isBuy": true,
+   "qty": 1351841,
+   "unitPrice": 187.8,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884641560",
+   "source": "esi",
+   "typeId": 62537,
+   "date": "2026-10-01T19:27:23Z",
+   "isBuy": true,
+   "qty": 198357,
+   "unitPrice": 182.7,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884641502",
+   "source": "esi",
+   "typeId": 62537,
+   "date": "2026-10-01T19:27:13Z",
+   "isBuy": true,
+   "qty": 65070,
+   "unitPrice": 182.6,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884641317",
+   "source": "esi",
+   "typeId": 62537,
+   "date": "2026-10-01T19:27:03Z",
+   "isBuy": true,
+   "qty": 38839,
+   "unitPrice": 182,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884641202",
+   "source": "esi",
+   "typeId": 62537,
+   "date": "2026-10-01T19:26:54Z",
+   "isBuy": true,
+   "qty": 21385,
+   "unitPrice": 181,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884641165",
+   "source": "esi",
+   "typeId": 62537,
+   "date": "2026-10-01T19:26:47Z",
+   "isBuy": true,
+   "qty": 66101,
+   "unitPrice": 180.5,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884641146",
+   "source": "esi",
+   "typeId": 62537,
+   "date": "2026-10-01T19:26:39Z",
+   "isBuy": true,
+   "qty": 19385,
+   "unitPrice": 180.4,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884641093",
+   "source": "esi",
+   "typeId": 62537,
+   "date": "2026-10-01T19:26:31Z",
+   "isBuy": true,
+   "qty": 489,
+   "unitPrice": 180.3,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884640889",
+   "source": "esi",
+   "typeId": 62537,
+   "date": "2026-10-01T19:26:13Z",
+   "isBuy": true,
+   "qty": 238533,
+   "unitPrice": 180,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884676460",
+   "source": "esi",
+   "typeId": 92374,
+   "date": "2026-10-01T20:30:20Z",
+   "isBuy": true,
+   "qty": 3814410,
+   "unitPrice": 11.91,
+   "locationId": 60003760
+  },
+  {
+   "id": "6884676459",
+   "source": "esi",
+   "typeId": 92374,
+   "date": "2026-10-01T20:30:20Z",
+   "isBuy": true,
+   "qty": 16185590,
+   "unitPrice": 11.9,
+   "locationId": 60003760
+  }
+ ],
+ "journal": [
+  {
+   "id": "26092034024",
+   "date": "2026-09-29T11:47:26Z",
+   "refType": "freelance_jobs_reward",
+   "amount": 90780000,
+   "contextId": 98694382,
+   "contextIdType": "corporation_id",
+   "balance": 1376014693.8999,
+   "firstPartyId": 1000413,
+   "secondPartyId": 95210486,
+   "description": "-",
+   "reason": "project_id=b11ad07b-2c43-4136-8be1-fa88aedae466:project_name=ISK Scordite best ISK for delivery"
+  },
+  {
+   "id": "26092017341",
+   "date": "2026-09-29T11:40:05Z",
+   "refType": "freelance_jobs_reward",
+   "amount": 255106158.37,
+   "contextId": 98694382,
+   "contextIdType": "corporation_id",
+   "balance": 1275590655.7124,
+   "firstPartyId": 1000413,
+   "secondPartyId": 95210486,
+   "description": "-",
+   "reason": "project_id=b11ad07b-2c43-4136-8be1-fa88aedae466:project_name=ISK Scordite best ISK for delivery"
+  },
+  {
+   "id": "26091997022",
+   "date": "2026-09-29T11:30:18Z",
+   "refType": "freelance_jobs_reward",
+   "amount": 231057235.19,
+   "contextId": 98694382,
+   "contextIdType": "corporation_id",
+   "balance": 1280443287.9399,
+   "firstPartyId": 1000413,
+   "secondPartyId": 95210486,
+   "description": "-",
+   "reason": "project_id=b11ad07b-2c43-4136-8be1-fa88aedae466:project_name=ISK Scordite best ISK for delivery"
+  },
+  {
+   "id": "26098695939",
+   "date": "2026-10-01T10:00:23Z",
+   "refType": "freelance_jobs_reward",
+   "amount": 358611019.7,
+   "contextId": 98799838,
+   "contextIdType": "corporation_id",
+   "balance": 686985504.4634,
+   "firstPartyId": 1000413,
+   "secondPartyId": 95210486,
+   "description": "-",
+   "reason": "project_id=a13f2971-a371-4eb0-947a-4b02a9d7edc2:project_name=Veldspar Delivery Service"
+  },
+  {
+   "id": "26098684443",
+   "date": "2026-10-01T09:54:45Z",
+   "refType": "freelance_jobs_reward",
+   "amount": 523320000,
+   "contextId": 98799838,
+   "contextIdType": "corporation_id",
+   "balance": 619144989.3234,
+   "firstPartyId": 1000413,
+   "secondPartyId": 95210486,
+   "description": "-",
+   "reason": "project_id=a13f2971-a371-4eb0-947a-4b02a9d7edc2:project_name=Veldspar Delivery Service"
+  },
+  {
+   "id": "26098766520",
+   "date": "2026-10-01T10:37:43Z",
+   "refType": "freelance_jobs_reward",
+   "amount": 244887976.7,
+   "contextId": 98576146,
+   "contextIdType": "corporation_id",
+   "balance": 894214933.9122,
+   "firstPartyId": 1000413,
+   "secondPartyId": 95210486,
+   "description": "-",
+   "reason": "project_id=b050742a-481c-4929-ad87-366599b14cc6:project_name=Mothhat Scordite"
+  },
+  {
+   "id": "26098732630",
+   "date": "2026-10-01T10:18:55Z",
+   "refType": "freelance_jobs_reward",
+   "amount": 116725060.17,
+   "contextId": 98694382,
+   "contextIdType": "corporation_id",
+   "balance": 842098518.8822,
+   "firstPartyId": 1000413,
+   "secondPartyId": 95210486,
+   "description": "-",
+   "reason": "project_id=b11ad07b-2c43-4136-8be1-fa88aedae466:project_name=ISK Scordite best ISK for delivery"
+  },
+  {
+   "id": "26098720419",
+   "date": "2026-10-01T10:12:08Z",
+   "refType": "freelance_jobs_reward",
+   "amount": 593096000,
+   "contextId": 98694382,
+   "contextIdType": "corporation_id",
+   "balance": 721733372.7247,
+   "firstPartyId": 1000413,
+   "secondPartyId": 95210486,
+   "description": "-",
+   "reason": "project_id=b11ad07b-2c43-4136-8be1-fa88aedae466:project_name=ISK Scordite best ISK for delivery"
+  },
+  {
+   "id": "26100300463",
+   "date": "2026-10-01T19:30:03Z",
+   "refType": "freelance_jobs_reward",
+   "amount": 712000000,
+   "contextId": 98823496,
+   "contextIdType": "corporation_id",
+   "balance": 1760440233.7573,
+   "firstPartyId": 1000413,
+   "secondPartyId": 95210486,
+   "description": "-",
+   "reason": "project_id=98750873-3cd7-4b65-b9c2-2f2ed0d8d23c:project_name=/!\\\\ Mining Kernite"
+  },
+  {
+   "id": "26100497054",
+   "date": "2026-10-01T20:37:21Z",
+   "refType": "freelance_jobs_reward",
+   "amount": 330000000,
+   "contextId": 98697448,
+   "contextIdType": "corporation_id",
+   "balance": 1979735843.5613,
+   "firstPartyId": 1000413,
+   "secondPartyId": 95210486,
+   "description": "-",
+   "reason": "project_id=5a528bf4-1bcf-4425-b626-d15061f87e60:project_name=..::Buy Back::.. Scordite - all type \\u2713"
+  },
+  {
+   "id": "26100436303",
+   "date": "2026-10-01T20:15:31Z",
+   "refType": "freelance_jobs_reward",
+   "amount": 332000000,
+   "contextId": 98697448,
+   "contextIdType": "corporation_id",
+   "balance": 1866515067.2738,
+   "firstPartyId": 1000413,
+   "secondPartyId": 95210486,
+   "description": "-",
+   "reason": "project_id=348b49ee-d66f-4ae4-b98e-eb05961781d2:project_name=..::Buy Back::.. Scordite - all type \\u2713"
+  }
+ ],
+ "groups": {
+  "457": [
+   20,
+   17452,
+   17453,
+   28409,
+   28410,
+   28411,
+   28620,
+   46683,
+   46699,
+   62536,
+   62537,
+   62538,
+   62539
+  ],
+  "460": [
+   1228,
+   17463,
+   17464,
+   28427,
+   28428,
+   28429,
+   46687,
+   46703,
+   62520,
+   62521,
+   62522,
+   62523,
+   92373,
+   92374
+  ],
+  "462": [
+   1230,
+   17470,
+   17471,
+   27028,
+   28430,
+   28431,
+   28432,
+   28617,
+   46689,
+   46705,
+   62516,
+   62517,
+   62518,
+   62519,
+   90421,
+   90422,
+   90426,
+   92371,
+   92372
+  ]
+ },
+ "corpHistory": [
+  {
+   "corporation_id": 1000044,
+   "record_id": 64702728,
+   "start_date": "2025-05-30T01:17:00Z"
+  },
+  {
+   "corporation_id": 98169165,
+   "record_id": 48824753,
+   "start_date": "2018-11-21T09:52:00Z"
+  }
+ ],
+ "corps": {
+  "1000044": {
+   "state": "active",
+   "type": "npc_owned",
+   "name": "School of Applied Knowledge",
+   "ticker": "SAK",
+   "tax_rates": {
+    "isk": 11,
+    "loyalty_point": 0
+   }
+  },
+  "98845591": {
+   "state": "active",
+   "type": "player_owned",
+   "name": "TEMP TAX HAVEN",
+   "ticker": "ABAAA",
+   "date_founded": "2026-10-01T19:39:23Z",
+   "ceo_id": 95210486,
+   "creator_id": 95210486,
+   "tax_rates": {
+    "isk": 0,
+    "loyalty_point": 0
+   }
+  }
+ }
+}

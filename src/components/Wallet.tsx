@@ -206,7 +206,8 @@ export function Wallet() {
   const ships = useShipTypes(useMemo(() => multis.flatMap((g) => g.typeIds), [multis]));
   const fitted = useMemo(() => fittedShips(multis, (t) => ships.has(t)), [multis, ships]);
   const tagOf = (tx: Tx): UntrackedTag => (ignored.has(tx.id) ? 'personal' : d.tags[tx.id] ?? autoTag(tx, everBought, fitted));
-  // Trades for a freelance job you've joined (its items, after it began) count under Freelance unless you said otherwise.
+  // Trades for a freelance job you did (its items, while it ran; freelance.ts isFreelanceTrade, over every job you took
+  // part in, finished ones too) count under Freelance unless you said otherwise.
   const joined = d.meta.freelance?.jobs ?? [];
   const freelance = (tx: Tx) => !ignored.has(tx.id) && !(tx.id in d.tags) && isFreelanceTrade(joined, tx);
   const classOf = (tx: Tx): TradeClass => ({ tracked: tracked.has(tx.id), tag: tagOf(tx), freelance: freelance(tx) });
@@ -853,7 +854,7 @@ function Untracked(props: { d: Data; txs: Tx[]; tagOf: (tx: Tx) => UntrackedTag;
         <td className="l" style={inGroup ? { paddingLeft: 40 } : undefined}><span className="name" style={{ fontWeight: 400, fontSize: 13.5 }}>{name(tx.typeId)}</span></td>
         <td className="l" style={{ color: 'var(--sec)', fontFamily: 'var(--f-body)' }}>{tx.isBuy ? 'Bought' : 'Sold'} <span style={{ color: 'var(--faint)' }}>{fmtShort(tx.date)}</span></td>
         <td>{units(tx.qty)}</td>
-        <td className="l" style={{ color: 'var(--note)', fontFamily: 'var(--f-body)', whiteSpace: 'normal' }}>{inGroup && !props.explicit(tx.id) ? '' : props.freelance(tx) ? `${tx.isBuy ? 'Bought' : 'Sold'} for a freelance job you’re in: counted under Freelance` : why(tx, tag)}</td>
+        <td className="l" style={{ color: 'var(--note)', fontFamily: 'var(--f-body)', whiteSpace: 'normal' }}>{inGroup && !props.explicit(tx.id) ? '' : props.freelance(tx) ? `${tx.isBuy ? 'Bought' : 'Sold'} during a freelance job of yours that takes it: counted under Freelance` : why(tx, tag)}</td>
         <td style={{ color: tx.isBuy ? 'var(--neg-t)' : 'var(--pos)' }}>{tx.isBuy ? '−' : '+'}{iskBig(tx.qty * tx.unitPrice)}</td>
         <td className="l">
           <button type="button" className="tag-btn" style={cssVars({ '--c': props.freelance(tx) ? '#f5b86b' : look.c })} onClick={() => setTag(tx, nextTag(tag))}

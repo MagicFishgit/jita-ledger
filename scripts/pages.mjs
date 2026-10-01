@@ -452,6 +452,70 @@ try {
     process.stdout.write(unique.length ? `  FAIL plan #orders\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (Keep it, the plan chip, a buy over its resale) and #planner (the checklist)\n');
     await page.close();
   }
+  // Every freelance job you did (the user's six, 1 October 2026), rebuilt as a browser that never saw them does: only the
+  // journal's rewards and the ore bought are seeded, ESI answers the jobs' public details and the ore groups from the
+  // fixture, and one reward names a job ESI won't describe (404). The corporations you were in are seeded, as a sync
+  // would have read them, so the tax is worked out. Without this the deploy never drew the history. Both widths.
+  if (SHOWN.includes('hustles/freelance') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('freelance'))) {
+    const fs = await import('node:fs');
+    const fx = JSON.parse(fs.readFileSync(new URL('./fixtures/freelance-history.json', import.meta.url), 'utf8'));
+    const GONE = 'deadbeef-0000-4000-8000-000000000000';
+    const journal = Object.fromEntries([...fx.journal, { id: '26090000001', date: '2026-09-28T08:00:00Z', refType: 'freelance_jobs_reward', amount: 5_000_000, balance: 1e9,
+      firstPartyId: 1000413, secondPartyId: 95210486, description: '-', reason: `project_id=${GONE}:project_name=Old \\u2713 job` }].map((e) => [e.id, e]));
+    const ledger = {
+      txs: Object.fromEntries(fx.txs.map((t) => [t.id, t])), journal,
+      meta: { walletBalance: 1979735843.56, lastSync: new Date(Date.now() - 600_000).toISOString(),
+        freelance: { at: '2026-10-01T21:00:00Z', jobs: [], corps: [
+          { id: 1000044, name: 'School of Applied Knowledge', start: '2025-05-30T01:17:00Z', taxRate: 0.11 },
+          { id: 98845591, name: 'TEMP TAX HAVEN', start: '2026-10-01T19:39:23Z', taxRate: 0 }] } },
+    };
+    const details = Object.fromEntries(fx.jobs.map((j) => [j.id, j]));
+    const page = await browser.newPage(VIEW);
+    let asked = 0;
+    await page.route('**/*', (route) => {
+      const url = new URL(route.request().url());
+      if (route.request().url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
+      if (url.hostname !== 'esi.evetech.net') return route.abort();
+      const json = (status, body) => route.fulfill({ status, contentType: 'application/json', headers: { 'cache-control': 'max-age=0, must-revalidate' }, body: JSON.stringify(body) });
+      let m = /^\/freelance-jobs\/([0-9a-f-]{36})\/?$/.exec(url.pathname);
+      if (m) { asked++; return details[m[1]] ? json(200, details[m[1]]) : json(404, { error: 'Not found' }); }
+      m = /^\/universe\/groups\/(\d+)\/$/.exec(url.pathname);
+      if (m && fx.groups[m[1]]) return json(200, { group_id: Number(m[1]), name: 'Ore', types: fx.groups[m[1]] });
+      return route.abort();
+    });
+    const problems = [];
+    page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
+    page.on('console', (m) => { if (m.type() === 'error' && /^Warning: /.test(m.text())) problems.push(`React: ${m.text().split('\n')[0].replace(/%s/g, '').slice(0, 160)}`); });
+    await page.goto(SEED_PAGE);
+    await page.evaluate(async ([d, auth]) => {
+      localStorage.clear(); sessionStorage.clear();
+      localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
+      for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', {}], ['jita-ledger-alts', {}]]) {
+        const h = await new Promise((res) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+        if (!h.objectStoreNames.contains('kv')) { h.close(); continue; }
+        await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
+        h.close();
+      }
+    }, [ledger, ownerAuth()]);
+    await page.goto(`${BASE}#hustles/freelance`);
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    await page.waitForSelector('.fl-history', { timeout: 20_000 }).catch(() => problems.push('not drawn: no history panel'));
+    await page.waitForTimeout(2000);
+    const text = (await page.locator('.fl-history').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    // The six jobs' figures, worked out by hand (scripts/check.mjs), and the job ESI won't describe.
+    for (const t of ['Every job you did', '/!\\ Mining Kernite', '..::Buy Back::.. Scordite - all type ✓', 'Galine Bro', '813,258', '17.86 M ISK at cost', '1.01 B ISK', '278.58 M ISK',
+      '993.87 M ISK', '386.31 M ISK', 'worked out', 'Old ✓ job', 'ESI won’t describe it']) if (!text.includes(t)) problems.push(`not drawn: “${t}”`);
+    if (asked < 6) problems.push(`ESI was asked for ${asked} jobs' details, not the seven the journal names`);
+    const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out: ${o}`);
+    if (SHOTS) { await page.locator('.fl-history').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-freelance-history.png` }); }
+    checked++;
+    const unique = [...new Set(problems)];
+    if (unique.length) failures.push({ ledger: 'freelance', page: 'hustles/freelance', problems: unique });
+    process.stdout.write(unique.length ? `  FAIL freelance #hustles/freelance\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   freelance #hustles/freelance (every job you did, rebuilt from the journal)\n');
+    await page.close();
+  }
   // The site is public: without the owner's login, only the landing page, with nothing of the ledger's in it and
   // nothing run behind it (not one request to ESI), even with a ledger in this browser.
   if (!only(process.env.LEDGER) && !only(process.env.PAGE)) {

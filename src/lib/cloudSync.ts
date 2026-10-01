@@ -25,8 +25,11 @@ export type DocKey = (typeof DOC_KEYS)[number];
 /**
  * Meta fields that belong to this browser, not the ledger: when it was last open, when its own next sync is
  * due, the alert mails it sent. Syncing them would have two devices overwrite each other's visits.
+ * And your freelance history (`freelance`): each browser rebuilds it from the journal, which syncs record by record, and
+ * from ESI, and adds to it without dropping a job; as one newest-wins document, one device's write could drop a job
+ * another had just found.
  */
-export const LOCAL_META = ['lastSeenAt', 'prevVisitAt', 'nextSyncAt', 'tradesFreshAt', 'lastSyncError', 'alertMails', 'mailCleanAt'] as const;
+export const LOCAL_META = ['lastSeenAt', 'prevVisitAt', 'nextSyncAt', 'tradesFreshAt', 'lastSyncError', 'alertMails', 'mailCleanAt', 'freelance'] as const;
 
 /** Fields of a doc that stay in this browser: meta's visits and mail, and how much motion this screen wants. */
 export const LOCAL_FIELDS: Partial<Record<DocKey, readonly string[]>> = { meta: LOCAL_META, prefs: ['motion'] };

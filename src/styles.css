@@ -1272,6 +1272,15 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .fit-line .nm .sub { display: block; }
 .fit-line .pr { color: var(--sec); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
+/* Every freelance job you did (hustles/Freelance.tsx): on a phone only the job keeps a column, its profit and the rest
+   folded under its name, so nothing needs scrolling sideways. */
+.flh-table { min-width: 900px; }
+.flh-table td.flh-job { white-space: normal; min-width: 210px; }
+.flh-table td.flh-cost { white-space: normal; min-width: 150px; }
+.flh-table td.flh-profit { white-space: normal; min-width: 120px; }
+.flh-table td.flh-job .sub, .flh-table td.flh-cost .sub, .flh-table td.flh-profit .sub { white-space: normal; }
+.flh-table .flh-phone { display: none; }
+
 /* The best-ore panel (hustles/BestOre.tsx): where it's found and the best way move under the name on a phone. */
 .bo-table { min-width: 900px; }
 .bo-phone, .bo-table .bo-phone, .bo-table .bo-phone-td { display: none; }
@@ -1316,6 +1325,13 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
   .res-n { width: auto; text-align: left; }
   .res-key .k-full { display: none; }
   .res-key .k-short { display: inline; }
+  /* Every freelance job you did: the job alone keeps a column, its profit and figures folded under its name. */
+  .flh-table { min-width: 0; }
+  .flh-table .flh-wide { display: none; }
+  .flh-table .flh-phone { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; font-family: var(--f-body); font-size: 12px; color: var(--note); white-space: normal; }
+  .flh-table .flh-phone b { font-weight: 500; font-size: 12.5px; }
+  .flh-table td.flh-job { min-width: 0; }
+  .flh-table .flh-tax { border-bottom: 1px dotted var(--faint); }
   /* The best-ore panel: #, the ore (where it's found and the best way under its name), and ISK a m³ with ISK an hour
      under it, all in view without scrolling sideways: inside Side hustles' panel the table has about 230 px at 390. */
   .bo-table { min-width: 0; }

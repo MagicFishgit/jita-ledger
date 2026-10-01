@@ -3274,23 +3274,14 @@ console.log('\n--- blueprints and their contracts ---');
 
 console.log('\n--- what each freelance job made ---');
 {
-  const { jobLedgers, rewardJob } = await import('../src/lib/freelance.ts');
-  // The user's Scordite job (29 September 2026): 38,132,412 bought at 11.76–11.79, then 813,258 at 21.96 by mistake and
-  // relisted; three rewards so far.
+  const { rewardJob, isFreelanceTrade } = await import('../src/lib/freelance.ts');
   const id = 'b11ad07b-2c43-4136-8be1-fa88aedae466';
-  const job = { id, name: 'ISK Scordite best ISK for delivery', state: 'Active', standing: 'Committed', perUnit: 17, perPlayer: null, types: [92374, 1228], created: '2026-09-14T00:00:00Z', expires: null, delivered: 0 };
   const reason = `project_id=${id}:project_name=ISK Scordite best ISK for delivery`;
   eq('a reward names its job', rewardJob(reason), id);
   const J = (amount) => ({ date: '2026-09-29T11:40:00Z', refType: 'freelance_jobs_reward', amount, reason });
   const T = (tid, qty, unitPrice, isBuy = true, typeId = 92374) => ({ id: tid, typeId, date: '2026-09-29T11:30:00Z', isBuy, qty, unitPrice });
-  const l = jobLedgers([job], [J(231057235.19), J(255106158.37), J(90780000), { date: 'x', refType: 'bounty_prizes', amount: 5, reason }],
-    [T('a', 4909800, 11.76), T('b', 361663, 11.77), T('c', 32860949, 11.79), T('d', 813258, 21.96), T('p', 5, 1, true, 34), T('x', 99, 1)], new Set(['x'])).get(id);
-  const { isFreelanceTrade } = await import('../src/lib/freelance.ts');
   eq('a freelance trade: an item a joined job takes, after it began', [isFreelanceTrade([{ types: [92374], created: '2026-09-14T00:00:00Z' }], { typeId: 92374, date: '2026-09-29T11:21:34Z' }),
     isFreelanceTrade([{ types: [92374], created: '2026-09-30T00:00:00Z' }], { typeId: 92374, date: '2026-09-29T11:21:34Z' }), isFreelanceTrade([{ types: [92374], created: null }], { typeId: 34, date: 'x' })], [true, false, false]);
-  eq('its rewards, payments, what its items cost, delivered at its rate', [Math.round(l.rewards), l.payments, l.bought, Math.round(l.cost), l.delivered], [576943394, 3, 38945670, Math.round(4909800 * 11.76 + 361663 * 11.77 + 32860949 * 11.79 + 813258 * 21.96), 33937847]);
-  const avg = l.cost / l.bought;
-  eq('  profit on what’s delivered, and what’s bought and not yet delivered at average cost', [Math.round(l.profit), l.heldUnits, Math.round(l.heldCost)], [Math.round(576943393.56 - avg * 33937847), 38945670 - 33937847, Math.round((38945670 - 33937847) * avg)]);
   const { categoryOf, flows } = await import('../src/lib/wallet.ts');
   const { attribute } = await import('../src/lib/results.ts');
   eq('the Wallet: a reward is Freelance rewards, not Other income', categoryOf({ refType: 'freelance_jobs_reward', amount: 1 }).label, 'Freelance rewards');
@@ -3298,7 +3289,138 @@ console.log('\n--- what each freelance job made ---');
   eq('  and the items bought for it are their own line, not Other purchases', fl.outs.map((l) => [l.key, Math.round(l.amount)]), [['freelanceBuys', 1200]]);
   const ev = attribute({ txs: [T('a', 100, 12)], journal: [J(1700)], tracked: new Set(), realized: [], losses: [], sets: { filaments: new Set(), abyssLoot: new Set(), pi: new Set(), lpGoods: new Set() }, freelance: () => true, salesTax: 0.03 });
   eq('Results: Freelance is the rewards less what the items cost', ev.map((e) => [e.activity, Math.round(e.isk)]), [['Freelance', -1200], ['Freelance', 1700]]);
-  eq('  a trade before the job began, or tagged Personal, isn’t its', jobLedgers([{ ...job, created: '2026-09-30T00:00:00Z' }], [], [T('a', 10, 11)], new Set()).get(id).bought, 0);
+}
+
+console.log('\n--- every freelance job you did (the user’s six, 1 October 2026) ---');
+{
+  const fsF = await import('node:fs');
+  const F = JSON.parse(fsF.readFileSync(new URL('./fixtures/freelance-history.json', import.meta.url), 'utf8'));
+  const { jobFromDetail, jobHistory, isFreelanceTrade, readReward, corpSpans, corpsAt, rewardJobName, mergeJobs, stubJob, jobEnd } = await import('../src/lib/freelance.ts');
+  const { flows } = await import('../src/lib/wallet.ts');
+  const ME = 95210486;
+  const typesOf = (raw) => {
+    const it = raw.configuration.parameters.corporation_item_delivery.corporation_item_delivery.item_type.values[0];
+    return it.value_type === 'item_group' ? it.values.flatMap((g) => F.groups[g]) : it.values.map(Number);
+  };
+  const jobs = F.jobs.map((r) => jobFromDetail(r, typesOf(r)));
+  const ISK = 'b11ad07b-2c43-4136-8be1-fa88aedae466', VELD = 'a13f2971-a371-4eb0-947a-4b02a9d7edc2', MOTH = 'b050742a-481c-4929-ad87-366599b14cc6',
+    KERN = '98750873-3cd7-4b65-b9c2-2f2ed0d8d23c', BB1 = '348b49ee-d66f-4ae4-b98e-eb05961781d2', BB2 = '5a528bf4-1bcf-4425-b626-d15061f87e60';
+  const k = jobs.find((j) => j.id === KERN);
+  eq('a finished job read from ESI’s details: its rate before tax, when it ran, who posted it, what it takes',
+    [k.perUnit, k.created, k.finished, k.by, k.state, k.item, k.types.includes(62537), k.progress], [400, '2026-10-01T17:52:01.802Z', '2026-10-01T19:29:57.872Z', { character: 'Galine Bro', corp: 'Nova Genesis Aventure' }, 'Completed', { kind: 'group', ids: [457] }, true, { current: 2000000, desired: 2000000 }]);
+  eq('a reward’s job name as ESI escapes it in the reason', [rewardJobName(F.journal.find((e) => e.reason.includes(KERN)).reason), rewardJobName(F.journal.find((e) => e.reason.includes(BB1)).reason), rewardJobName('x'), rewardJobName('project_id=x:project_name=a \\\\ b')],
+    ['/!\\ Mining Kernite', '..::Buy Back::.. Scordite - all type ✓', null, 'a \\ b']);
+
+  // The corporations you were in: ESI's history (a day behind on 1 October: still School of Applied Knowledge) and the one
+  // you're in now, TEMP TAX HAVEN, which you founded at 19:39:23, after the Kernite reward and before the Buy Backs.
+  const bodies = new Map(Object.entries(F.corps).map(([id, b]) => [Number(id), b]));
+  const since = Date.parse('2026-09-29T11:30:18Z');
+  const now = { id: 98845591, body: F.corps[98845591] };
+  const spans = corpSpans(ME, F.corpHistory, since, bodies, now);
+  eq('the corporations you were in since the first reward: the history’s, then the one you founded, from when you founded it', spans,
+    [{ id: 1000044, name: 'School of Applied Knowledge', start: '2025-05-30T01:17:00Z', taxRate: 0.11 }, { id: 98845591, name: 'TEMP TAX HAVEN', start: '2026-10-01T19:39:23Z', taxRate: 0 }]);
+  const behind = corpSpans(ME, F.corpHistory, since, bodies, { id: 98845591, body: { ...F.corps[98845591], creator_id: 1 } });
+  eq('  one you didn’t found, not in the history yet: joined when, not known', behind[1].start, null);
+  eq('  the history caught up: as it says', corpSpans(ME, [...F.corpHistory, { corporation_id: 98845591, start_date: '2026-10-01T19:40:00Z' }], since, bodies, now).map((x) => [x.id, x.start]),
+    [[1000044, '2025-05-30T01:17:00Z'], [98845591, '2026-10-01T19:40:00Z']]);
+  eq('  at a time after the history’s last entry while it’s behind: either corporation', [corpsAt(behind, Date.parse('2026-10-01T19:30:03Z')).map((x) => x.id), corpsAt(spans, Date.parse('2026-10-01T19:30:03Z')).map((x) => x.id), corpsAt(spans, Date.parse('2026-10-01T20:15:31Z')).map((x) => x.id), corpsAt(spans, Date.parse('2020-01-01T00:00:00Z'))],
+    [[1000044, 98845591], [1000044], [98845591], []]);
+
+  // The real anchors, as the user's ledger says (worked out by hand: each job's own purchases, lot by lot).
+  const want = {
+    [BB2]: { received: 330_000_000, tax: 0, delivered: 20_000_000, cost: 238_038_144.10, held: 0, profit: 91_961_855.90 },
+    [BB1]: { received: 332_000_000, tax: 0, delivered: 20_000_000, cost: 238_147_164.01, held: 0, profit: 93_852_835.99 },
+    [KERN]: { received: 712_000_000, tax: 88_000_000, delivered: 2_000_000, cost: 371_389_119.90, held: 0, profit: 340_610_880.10 },
+    [MOTH]: { received: 244_887_976.7, tax: 30_267_053.3, delivered: 16_185_590, cost: 192_770_376.90, held: 0, profit: 52_117_599.80 },
+    // 4,909,800 × 11.76 + 361,663 × 11.77 + 10,000,000 × 11.79 + 22,860,949 × 11.79 on 29 Sep, 46,914,809 × 11.91 on 1 Oct.
+    // The 813,258 bought at 21.96 at 12:03:02 on 29 Sep went onto a sell order 44 s later and is still there: never delivered.
+    [ISK]: { received: 1_286_764_453.73, tax: 159_038_303.27, delivered: 85_047_221, cost: 1_008_181_985.41, held: 813_258, profit: 278_582_468.32 },
+    [VELD]: { received: 881_931_019.7, tax: 109_002_710.3, delivered: 99_093_373, cost: 745_182_164.96, held: 0, profit: 136_748_854.74 },
+  };
+  const pick = (r) => ({ received: Math.round(r.received * 100) / 100, tax: r.tax, delivered: r.delivered, cost: r.cost, held: r.held, profit: r.profit });
+  const skip = new Set();
+  // As the journal gives the tax, if ESI does: each reward's tax is its units at the job's rate less what it paid.
+  const unitsOf = { '26092034024': 6_000_000, '26092017341': 16_860_949, '26091997022': 15_271_463, '26098695939': 40_293_373, '26098684443': 58_800_000, '26098766520': 16_185_590,
+    '26098732630': 7_714_809, '26098720419': 39_200_000, '26100300463': 2_000_000, '26100497054': 20_000_000, '26100436303': 20_000_000 };
+  const per = Object.fromEntries(jobs.map((j) => [j.id, j.perUnit]));
+  const taxed = F.journal.map((e) => ({ ...e, tax: Math.round((unitsOf[e.id] * per[e.reason.slice(11, 47)] - e.amount) * 100) / 100 }));
+  const exact = jobHistory({ jobs, journal: taxed, txs: F.txs, skip });
+  eq('with the journal’s tax: newest first, each job’s rewards, tax, units, cost, leftover and profit', exact.rows.map((r) => [r.job.id, pick(r)]), Object.entries(want));
+  eq('  every reward’s tax from the journal', exact.rows.flatMap((r) => r.rewards.map((x) => x.how)).every((h) => h === 'esi'), true);
+  eq('  the total row', [exact.total.received, exact.total.tax, exact.total.delivered, exact.total.cost, exact.total.held, exact.total.heldCost, exact.total.profit, exact.total.unknown],
+    [3_787_583_450.13, 386_308_066.87, 242_326_184, 2_793_708_955.28, 813_258, 17_859_145.68, 993_874_494.85, 0]);
+  const isk = exact.rows.find((r) => r.job.id === ISK);
+  eq('  the leftover stays with the job paid next after it: ISK Scordite, at what it cost', [isk.heldCost, isk.low, isk.high, isk.fromStock], [17_859_145.68, 11.76, 11.91, 0]);
+  // Four Scordite jobs ran over each other between 29 September and 1 October: each purchase is taken once.
+  const scordLots = F.txs.filter((t) => t.typeId === 92374).reduce((s, t) => s + t.qty * t.unitPrice, 0);
+  const scordRows = exact.rows.filter((r) => [ISK, MOTH, BB1, BB2].includes(r.job.id));
+  eq('  overlapping Scordite jobs count each purchase once: their cost and leftover add up to what was bought', Math.round(scordRows.reduce((s, r) => s + r.cost + r.heldCost, 0) * 100), Math.round(scordLots * 100));
+
+  // Without the journal's tax: worked out from the corporation you were in then, only where the reward is exact at its rate.
+  const derived = jobHistory({ jobs, journal: F.journal, txs: F.txs, skip, corps: spans });
+  eq('without it: the same figures, worked out from School of Applied Knowledge’s 11% and TEMP TAX HAVEN’s 0%', derived.rows.map((r) => [r.job.id, pick(r)]), Object.entries(want));
+  eq('  each says how, and whose rate', derived.rows.map((r) => [...new Set(r.rewards.map((x) => `${x.how} ${x.corp} ${x.rate}`))]),
+    [['derived TEMP TAX HAVEN 0'], ['derived TEMP TAX HAVEN 0'], ['derived School of Applied Knowledge 0.11'], ['derived School of Applied Knowledge 0.11'], ['derived School of Applied Knowledge 0.11'], ['derived School of Applied Knowledge 0.11']]);
+  const none = jobHistory({ jobs, journal: F.journal, txs: F.txs, skip });
+  eq('  with no corporation history read: no rate is assumed, the tax is not recorded and the units not known; the rewards still show',
+    none.rows.map((r) => [r.received > 0, r.tax, r.taxUnknown, r.delivered, r.profit, r.rewards[0].why]), none.rows.map((r) => [true, 0, r.rewards.length, null, null, 'history']));
+  // Arithmetic alone can't tell: 593,096,000 is a whole number of units at 0% (34,888,000) as well as at 11% (39,200,000).
+  const stale = jobHistory({ jobs, journal: F.journal, txs: F.txs, skip, corps: behind });
+  const read = (id) => stale.rows.find((r) => r.job.id === ISK).rewards.find((x) => x.id === id);
+  eq('  while ESI’s history is behind: a reward exact at only one of the two rates is worked out; one exact at both is not recorded',
+    [read('26092017341').how, read('26092017341').rate, read('26098720419').how, read('26098720419').why, stale.rows.find((r) => r.job.id === KERN).delivered, stale.rows.find((r) => r.job.id === BB1).delivered],
+    ['derived', 0.11, null, 'fits', null, 20_000_000]);
+  eq('  a reward that fits no rate of the corporation then isn’t forced', readReward({ date: '2026-09-29T11:40:05Z', amount: 255106158.37 }, { ...jobs[0], perUnit: 16 }, spans).why, 'fits');
+  eq('  a finished job’s deliveries can’t pass what everyone delivered to it', readReward({ date: '2026-10-01T20:15:31Z', amount: 415_000_000 }, jobs.find((j) => j.id === BB1), spans).why, 'fits');
+
+  // The Wallet: those purchases are freelance; a purchase after its job finished, or before one began, isn't.
+  const T = (id, date, typeId = 92374) => ({ id, typeId, date, isBuy: true, qty: 1000, unitPrice: 11.9 });
+  eq('the Wallet’s rule: purchases while a job ran are its, even once it’s finished; after it finished, or before it began, not',
+    [isFreelanceTrade(jobs, T('a', '2026-09-29T12:03:02Z')), isFreelanceTrade(jobs, T('b', '2026-10-01T20:30:20Z')), isFreelanceTrade(jobs, T('c', '2026-10-01T21:00:00Z')),
+      isFreelanceTrade(jobs, T('d', '2026-09-27T22:22:48Z', 20)), isFreelanceTrade(jobs, T('e', '2026-10-01T10:05:00Z', 92372)), isFreelanceTrade(jobs, T('f', '2026-10-01T09:58:16Z', 92372))],
+    [true, true, false, false, false, true]);
+  const fixtureBuys = F.txs.filter((t) => t.isBuy);
+  const wallet = flows([], fixtureBuys, (tx) => ({ tracked: false, tag: 'other', freelance: isFreelanceTrade(jobs, tx) }), 0);
+  const notKernite = fixtureBuys.filter((t) => t.typeId !== 20).reduce((s, t) => s + t.qty * t.unitPrice, 0);
+  eq('  the user’s ore purchases are "Bought for freelance jobs", all but the Kernite from 27 September, before that job', wallet.outs.map((l) => [l.label, Math.round(l.amount)]),
+    [['Bought for freelance jobs', Math.round(notKernite)], ['Other purchases', 8000 * 513.5]]);
+  eq('  a job’s window ends when it finished: Veldspar at 10:00:16 on 1 October', jobEnd(jobs.find((j) => j.id === VELD)), Date.parse('2026-10-01T10:00:16.829Z'));
+  const after = jobHistory({ jobs, journal: taxed, txs: [...F.txs, { ...T('late', '2026-10-01T21:00:00Z'), qty: 500_000 }], skip });
+  eq('  and in the history: a purchase after every Scordite job finished is no job’s leftover', after.total.held, 813_258);
+
+  // Delivered from stock not bought for it (mined, contracted from the alt, bought before it began): said apart, never costed at 0.
+  const short = jobHistory({ jobs, journal: taxed, txs: F.txs, skip: new Set(['6884676459']) }).rows.find((r) => r.job.id === BB2);
+  eq('units delivered beyond what you bought for it: from stock you didn’t buy, with no cost', [short.fromBought, short.fromStock, short.cost, short.profit],
+    [3_814_410, 16_185_590, 45_429_623.1, Math.round((330_000_000 - 45_429_623.1) * 100) / 100]);
+  const mined = jobHistory({ jobs: jobs.filter((j) => j.id === VELD), journal: taxed.filter((e) => e.reason.includes(VELD)), txs: [], skip }).rows[0];
+  eq('  all of it, when nothing was bought', [mined.delivered, mined.fromBought, mined.fromStock, mined.cost, mined.profit], [99_093_373, 0, 99_093_373, 0, 881_931_019.7]);
+
+  // A job ESI won't describe: its rewards still show, under the name the reward gives, and nothing is guessed.
+  const gone = 'deadbeef-0000-4000-8000-000000000000';
+  const lost = jobHistory({ jobs, journal: [...taxed, { id: '1', date: '2026-09-30T08:00:00Z', refType: 'freelance_jobs_reward', amount: 5_000_000, reason: `project_id=${gone}:project_name=Old \\u2713 job` }], txs: F.txs, skip });
+  const g = lost.rows.find((r) => r.job.id === gone);
+  eq('a job ESI won’t describe still lists its rewards, and claims nothing else', [g.job.name, g.job.described, g.received, g.delivered, g.profit, g.rewards[0].why, lost.total.unknown, lost.total.received],
+    ['Old ✓ job', false, 5_000_000, null, null, 'rate', 1, 3_787_583_450.13 + 5_000_000]);
+  eq('  nor does one kept as a stub', jobHistory({ jobs: [stubJob(KERN, 'x')], journal: taxed.filter((e) => e.reason.includes(KERN)), txs: F.txs, skip }).rows.map((r) => [r.received, r.tax, r.delivered, r.held]), [[712_000_000, 88_000_000, null, 0]]);
+
+  // A sale of something bought for a job: from its own item's purchases, for the latest-begun job running then.
+  const sale = { id: 's1', typeId: 92374, date: '2026-09-30T12:00:00Z', isBuy: false, qty: 813_258, unitPrice: 21.9 };
+  const sold = jobHistory({ jobs, journal: [...taxed, { date: sale.date, refType: 'transaction_tax', amount: -600_000, contextId: 's1' }], txs: [...F.txs, sale], skip });
+  const m = sold.rows.find((r) => r.job.id === MOTH);
+  eq('  sold again: what it fetched after the journal’s tax, less what it cost, in that job’s profit', [m.sold, m.revenue, m.soldCost, m.profit, sold.total.held],
+    [813_258, Math.round((813_258 * 21.9 - 600_000) * 100) / 100, 17_859_145.68, Math.round((52_117_599.8 + 813_258 * 21.9 - 600_000 - 17_859_145.68) * 100) / 100, 0]);
+
+  // Kept: nothing dropped, and a job ESI won't describe this time keeps what was read before.
+  const merged = mergeJobs(jobs.slice(0, 3), [stubJob(ISK, 'x'), jobs[3]]);
+  eq('the history after a read keeps every job, and a stub never replaces what was read', [merged.length, merged.find((j) => j.id === ISK).perUnit, merged.find((j) => j.id === ISK).described], [4, 17, true]);
+  const { withRead } = await import('../src/lib/freelance.ts');
+  // What the sync once did: ESI's joined list held only the job running, and replaced the list with it.
+  const running = { ...jobs[0], id: 'aaaaaaaa-0000-4000-8000-000000000000', state: 'Active', finished: null, joined: true };
+  const kept = withRead({ at: 'before', jobs, corps: spans }, { at: 'now', jobs: [running] });
+  eq('  a read holding only the job running keeps every finished one, running first, and the corporations', [kept.at, kept.jobs.length, kept.jobs[0].id, kept.corps.length], ['now', 7, running.id, 2]);
+  const { sharedDoc, applyPulled } = await import('../src/lib/cloudSync.ts');
+  eq('  it stays in this browser: never sent to the cloud, and a pulled meta doesn’t replace it', [sharedDoc('meta', { freelance: { jobs }, walletBalance: 1 }), applyPulled({ meta: { freelance: { at: 'here', jobs } } }, { records: [], docs: [{ key: 'meta', d: { freelance: { at: 'there', jobs: [] }, walletBalance: 2 } }] }).meta.freelance.at],
+    [{ walletBalance: 1 }, 'here']);
 }
 
 console.log('\n--- jumps across the stargates ---');

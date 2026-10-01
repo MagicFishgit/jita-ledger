@@ -15,7 +15,11 @@ export type RawFreelanceJob = {
   id: string; name: string; state: string;
   progress?: { current: number; desired: number };
   reward?: { initial: number; remaining: number };
-  details?: { expires?: string; created?: string; creator?: { character?: { id: number; name: string }; corporation?: { id: number; name: string } } };
+  /**
+   * `finished` is there once it's done (a finished job answers only when sent the app's X-Compatibility-Date: `state`
+   * "Completed", read on 1 October 2026).
+   */
+  details?: { expires?: string; created?: string; finished?: string; creator?: { character?: { id: number; name: string }; corporation?: { id: number; name: string } } };
   configuration?: { method?: string; parameters?: Record<string, Record<string, Record<string, { values?: { value_type: string; values: string[] }[] }>>> };
   contribution?: { reward_per_contribution?: number; contribution_per_participant_limit?: number; submission_multiplier?: number };
   access_and_visibility?: { acl_protected?: boolean; broadcast_locations?: { id: number; name?: string }[] };
@@ -218,64 +222,405 @@ export function deliverFlags(o: Office, expires: string | null, now: number): De
 /** The kinds of flag each default-on filter hides. */
 export const FILTER_HIDES = { highsec: ['lowsec', 'noRoute'], gank: ['gank'], dock: ['cantSee', 'unchecked'] } as const;
 
-/** A job you've joined, as kept for your records: what it takes, what it pays, when it began, how much you've delivered. */
+
+/**
+ * A job you took part in, as kept for your records: every job a reward in your journal names, and every one ESI lists
+ * as joined (freelanceStore.ts `readJobHistory`). The sync once replaced the list with ESI's joined jobs, which hold
+ * only the one running: three finished jobs' purchases became "Other purchases" and left the tab. Kept in
+ * `meta.freelance`, which stays in each browser (cloudSync.ts LOCAL_META): each rebuilds it from the journal, which
+ * syncs record by record, and from ESI's public job details, so no newest-wins document can drop another device's job.
+ * The fields after `delivered` came later; a job kept before them has none.
+ */
 export type JoinedJob = {
-  id: string; name: string; state: string; standing: string; perUnit: number; perPlayer: number | null;
-  types: number[]; created: string | null; expires: string | null; delivered: number;
+  id: string; name: string;
+  /** ESI's state: Active, Completed, Expired…; "Unknown" for a job ESI wouldn't describe. */
+  state: string;
+  /** Your part in it, from ESI's participation: Committed, Kicked, Resigned; "Unspecified" when not read. */
+  standing: string;
+  /** What it pays a unit before your corporation's tax; 0 when not known. */
+  perUnit: number; perPlayer: number | null;
+  /** The items it takes (a group's looked up); none when not known. */
+  types: number[]; created: string | null; expires: string | null;
+  /** What ESI's participation says you've delivered; 0 when not read. */
+  delivered: number;
+  /** When it was done (`details.finished`); null while it runs. */
+  finished?: string | null;
+  /** Who posted it: the character and their corporation. */
+  by?: { character?: string; corp?: string };
+  /** Everyone's deliveries to it, and what it wanted, as last read. */
+  progress?: { current: number; desired: number };
+  /** False for a job ESI wouldn't describe (gone, or failing when asked): it's known by its rewards alone. */
+  described?: boolean;
+  /** On ESI's list of the jobs you've joined, at the last read of it. */
+  joined?: boolean;
+  /** What it asks for, as it puts it: one item, or any item of a group. */
+  item?: { kind: 'type' | 'group'; ids: number[] };
 };
+
+/**
+ * A job as kept, from its public details (`types`: what it takes, a group's items looked up) and, for a job on your
+ * joined list, what ESI's participation says. A job counting other than one unit per contribution (none seen) gets no
+ * rate a unit: its units would be guessed.
+ */
+export function jobFromDetail(raw: RawFreelanceJob, types: number[], part: { standing?: string; delivered?: number; joined?: boolean } = {}): JoinedJob {
+  const it = raw.configuration?.parameters?.corporation_item_delivery?.corporation_item_delivery?.item_type?.values?.[0];
+  const ids = (it?.values ?? []).map(Number).filter((n) => Number.isFinite(n) && n > 0);
+  const kind = it?.value_type === 'item_group' ? 'group' : it?.value_type === 'item_type' ? 'type' : null;
+  const cap = raw.contribution?.contribution_per_participant_limit;
+  const one = (raw.contribution?.submission_multiplier ?? 1) === 1;
+  return {
+    id: raw.id, name: raw.name, state: raw.state, standing: part.standing ?? 'Unspecified',
+    perUnit: one ? raw.contribution?.reward_per_contribution ?? 0 : 0, perPlayer: cap != null && cap > 0 ? cap : null,
+    types, created: raw.details?.created ?? null, expires: raw.details?.expires ?? null, delivered: part.delivered ?? 0,
+    finished: raw.details?.finished ?? null,
+    by: { character: raw.details?.creator?.character?.name, corp: raw.details?.creator?.corporation?.name },
+    ...(raw.progress ? { progress: { current: raw.progress.current, desired: raw.progress.desired } } : {}),
+    described: true, joined: !!part.joined,
+    ...(kind ? { item: { kind, ids } } : {}),
+  };
+}
+
+/** A job known only by a reward naming it: ESI wouldn't describe it, or hasn't been asked yet. */
+export const stubJob = (id: string, name: string): JoinedJob => ({
+  id, name, state: 'Unknown', standing: 'Unspecified', perUnit: 0, perPlayer: null, types: [], created: null, expires: null, delivered: 0, finished: null, described: false,
+});
 
 /** The job a reward is for: its journal entry's reason reads "project_id=<job id>:project_name=<name>". */
 export const rewardJob = (reason: string | undefined): string | null => /project_id=([0-9a-f-]{36})/i.exec(reason ?? '')?.[1] ?? null;
 
-export type JobLedger = {
-  rewards: number; payments: number;
-  /** What you bought of the items it takes since it began, and what you sold of them (leftovers, a mistake). */
-  bought: number; cost: number; sold: number; revenue: number;
-  /** Delivered, as the rewards say (each paid at the job's rate). */
-  delivered: number;
-  /** Profit on what's delivered so far: rewards, less the delivered units at your average cost, plus any leftovers sold. */
-  profit: number;
-  /** Bought and not yet delivered or sold, at your average cost. */
-  heldUnits: number; heldCost: number;
-};
+/**
+ * The job's name as a reward's reason gives it. ESI escapes it there: the user's "/!\ Mining Kernite" reads
+ * "/!\\ Mining Kernite", and "…all type ✓" reads "…all type ✓", as six characters (D1, 1 October 2026).
+ */
+export function rewardJobName(reason: string | undefined): string | null {
+  const m = /project_name=(.*)$/s.exec(reason ?? '');
+  if (!m) return null;
+  return m[1].replace(/\\(\\|u([0-9a-fA-F]{4}))/g, (_: string, x: string, hex?: string) => (hex ? String.fromCharCode(parseInt(hex, 16)) : x));
+}
+
+const jobTime = (j: JoinedJob) => Date.parse(j.finished ?? j.created ?? '') || 0;
+/** Running first, then the rest; newest first in each. */
+export const sortJobs = (jobs: JoinedJob[]) =>
+  [...jobs].sort((a, b) => (a.state === 'Active' ? 0 : 1) - (b.state === 'Active' ? 0 : 1) || jobTime(b) - jobTime(a) || a.name.localeCompare(b.name));
 
 /**
- * Each job you've done, in ISK: the rewards your journal says it paid, and what the items it takes cost you. The user
- * bought 38,132,412 Compressed Scordite 0-Grade for a job paying 17 each and asked what it cost and what it made; the
- * rewards landed as "Other income" and the buys as untracked purchases, nothing tying them together. A trade counts for
- * a job when its item is one the job takes and it's after the job began (to the latest-begun such job you're in),
- * unless a position counts it or you tagged it Personal. Pure.
+ * What's kept after a read: every job either list knew, each as the newer read has it, except that a job ESI wouldn't
+ * describe this time keeps what was read of it before. Nothing is dropped: the list is your history.
  */
-export function jobLedgers(jobs: JoinedJob[], journal: { date: string; refType: string; amount: number; reason?: string }[],
-  txs: { id: string; typeId: number; date: string; isBuy: boolean; qty: number; unitPrice: number }[], skip: ReadonlySet<string>): Map<string, JobLedger> {
-  const out = new Map<string, JobLedger>(jobs.map((j) => [j.id, { rewards: 0, payments: 0, bought: 0, cost: 0, sold: 0, revenue: 0, delivered: 0, profit: 0, heldUnits: 0, heldCost: 0 }]));
-  for (const e of journal) {
-    if (e.refType !== 'freelance_jobs_reward') continue;
-    const l = out.get(rewardJob(e.reason) ?? '');
-    if (l) { l.rewards += e.amount; l.payments++; }
+export function mergeJobs(had: JoinedJob[], read: JoinedJob[]): JoinedJob[] {
+  const out = new Map(had.map((j) => [j.id, j]));
+  for (const j of read) {
+    const old = out.get(j.id);
+    out.set(j.id, j.described === false && old && old.described !== false ? { ...old, joined: j.joined ?? old.joined } : j);
   }
-  const began = (j: JoinedJob) => (j.created ? Date.parse(j.created) : 0);
-  for (const t of txs) {
-    if (skip.has(t.id)) continue;
-    const at = Date.parse(t.date);
-    const j = jobs.filter((x) => x.types.includes(t.typeId) && began(x) <= at).sort((a, b) => began(b) - began(a))[0];
-    if (!j) continue;
-    const l = out.get(j.id)!;
-    if (t.isBuy) { l.bought += t.qty; l.cost += t.qty * t.unitPrice; } else { l.sold += t.qty; l.revenue += t.qty * t.unitPrice; }
-  }
-  for (const j of jobs) {
-    const l = out.get(j.id)!;
-    l.delivered = j.perUnit > 0 ? Math.round(l.rewards / j.perUnit) : j.delivered;
-    const avg = l.bought > 0 ? l.cost / l.bought : 0;
-    l.profit = l.rewards - avg * Math.min(l.delivered, l.bought) + (l.revenue - avg * l.sold);
-    l.heldUnits = Math.max(0, l.bought - l.delivered - l.sold);
-    l.heldCost = l.heldUnits * avg;
+  return sortJobs([...out.values()]);
+}
+
+/** `meta.freelance` after a read: the jobs merged into what's kept (nothing dropped), the corporations as read, else as they were. */
+export function withRead(cur: { at: string; jobs: JoinedJob[]; corps?: CorpSpan[] } | undefined, read: { at: string; jobs: JoinedJob[]; corps?: CorpSpan[] }) {
+  const corps = read.corps ?? cur?.corps;
+  return { at: read.at, jobs: mergeJobs(cur?.jobs ?? [], read.jobs), ...(corps ? { corps } : {}) };
+}
+
+/**
+ * When a job stopped taking deliveries: when it finished; else, for a job done whose finish wasn't read (one kept before
+ * it was), when it expired; else not yet.
+ */
+export function jobEnd(j: { finished?: string | null; expires?: string | null; state?: string }): number {
+  if (j.finished) return Date.parse(j.finished);
+  return j.state !== 'Active' && j.expires ? Date.parse(j.expires) : Infinity;
+}
+
+/**
+ * A trade for one of your freelance jobs: an item a job you took part in takes, traded while it ran (from its start to
+ * its finish). A purchase after a job finished (ore to refine, a mistake) isn't the job's. The jobs are your history,
+ * so a finished job's purchases still count: they were "Other purchases" once it left ESI's joined list.
+ */
+export function isFreelanceTrade(jobs: { types: number[]; created: string | null; finished?: string | null; expires?: string | null; state?: string }[], tx: { typeId: number; date: string }): boolean {
+  const at = Date.parse(tx.date);
+  return jobs.some((j) => j.types.includes(tx.typeId) && (!j.created || Date.parse(j.created) <= at) && at <= jobEnd(j));
+}
+
+/**
+ * A corporation the character was in from `start` (ESI's public corporation history), with its ISK tax as ESI gives it
+ * now. `start` null: the corporation you're in now (the affiliation lookup) when ESI's history doesn't list it yet (it's
+ * held a day: on 1 October 2026 it still ended with School of Applied Knowledge hours after the user founded TEMP TAX
+ * HAVEN), so joined at a time not known, after the last dated one.
+ */
+export type CorpSpan = { id: number; name?: string; start: string | null; taxRate: number | null };
+
+/** `/corporations/{id}/` with what says when you joined one you founded. */
+export type RawCorpFounded = RawCorp & { creator_id?: number; date_founded?: string };
+
+/**
+ * The corporations you were in from `since` on, from ESI's public corporation history (`history`, as ESI gives it) and
+ * each corporation's answer (`bodies`), for working out a reward's tax when the journal doesn't give it. ESI holds the
+ * history a day, so a corporation just joined isn't in it: `current` (the affiliation read and its answer) is added then,
+ * starting the moment you founded it when you did (its `creator_id` is you, `date_founded` when), else at a time not
+ * known. Pure.
+ */
+export function corpSpans(characterId: number, history: { corporation_id: number; start_date: string }[], since: number,
+  bodies: ReadonlyMap<number, RawCorpFounded | null>, current: { id: number; body: RawCorpFounded } | null): CorpSpan[] {
+  const dated = [...history].sort((a, b) => Date.parse(a.start_date) - Date.parse(b.start_date));
+  const span = (id: number, start: string | null): CorpSpan => {
+    const body = id === current?.id ? current.body : bodies.get(id);
+    return { id, ...(body?.name ? { name: body.name } : {}), start, taxRate: corpRate(body) };
+  };
+  const out = historyFrom(dated, since).map((h) => span(h.corporation_id, h.start_date));
+  const last = dated[dated.length - 1];
+  if (current && last?.corporation_id !== current.id) {
+    const b = current.body;
+    const founded = b.creator_id === characterId && b.date_founded && (!last || Date.parse(b.date_founded) > Date.parse(last.start_date)) ? b.date_founded : null;
+    out.push(span(current.id, founded));
   }
   return out;
 }
 
-/** A trade for one of your freelance jobs: an item a job you've joined takes, traded after the job began. */
-export function isFreelanceTrade(jobs: Pick<JoinedJob, 'types' | 'created'>[], tx: { typeId: number; date: string }): boolean {
-  const at = Date.parse(tx.date);
-  return jobs.some((j) => j.types.includes(tx.typeId) && (!j.created || Date.parse(j.created) <= at));
+/** The history entries a span list needs: the last to start by `since`, and every one after it. */
+export function historyFrom(history: { corporation_id: number; start_date: string }[], since: number) {
+  const dated = [...history].sort((a, b) => Date.parse(a.start_date) - Date.parse(b.start_date));
+  let from = 0;
+  for (let k = 0; k < dated.length; k++) if (Date.parse(dated[k].start_date) <= since) from = k;
+  return dated.slice(from);
+}
+
+/** The corporations you may have been in at `t`: one, or two when `t` falls after the history's last entry and it's behind. */
+export function corpsAt(spans: CorpSpan[], t: number): CorpSpan[] {
+  const dated = spans.filter((s) => s.start != null).sort((a, b) => Date.parse(a.start!) - Date.parse(b.start!));
+  let i = -1;
+  for (let k = 0; k < dated.length; k++) if (Date.parse(dated[k].start!) <= t) i = k;
+  if (i < 0) return [];
+  const at = dated[i];
+  return [at, ...(i === dated.length - 1 ? spans.filter((s) => s.start == null && s.id !== at.id) : [])];
+}
+
+/** A freelance reward as the history reads it. */
+export type RewardRead = {
+  id?: string; at: string; amount: number;
+  /** The units it paid for: null when its tax isn't recorded and can't be worked out, or the job's rate isn't known. */
+  units: number | null;
+  /** The tax taken before it reached the wallet, and its rate: null when not recorded. */
+  tax: number | null; rate: number | null;
+  /**
+   * How the tax is known: ESI's journal gives it (`esi`), or it's worked out (`derived`): the corporation you were in
+   * then, by ESI's corporation history, charges a rate at which this reward is a whole number of units to the cent.
+   */
+  how: 'esi' | 'derived' | null;
+  /** The corporation a worked-out rate is that of. */
+  corp?: string;
+  /**
+   * Why its units aren't known: the job's rate a unit isn't (`rate`), no corporation history covers it (`history`), or
+   * it's a whole number of units at none, or at more than one, of the rates you may have paid (`fits`).
+   */
+  why?: 'rate' | 'history' | 'fits';
+};
+
+const cents = (x: number) => Math.round(x * 100) / 100;
+/** `amount` as a whole number of units at `net` a unit, to the cent, and no more than `most`: the units, or null. */
+function wholeUnits(amount: number, net: number, most: number): number | null {
+  if (!(net > 0)) return null;
+  const u = Math.round(amount / net);
+  return u > 0 && u <= most && Math.abs(u * net - amount) <= 0.005 + 1e-6 ? u : null;
+}
+
+/**
+ * What one reward paid for. With ESI's `tax` on the entry, exact: the units are (amount + tax) ÷ the job's rate. Without
+ * it (an entry stored before the tax was kept and older than ESI's 30 days, or ESI not giving one), the rate is never
+ * assumed: arithmetic alone can't tell, since 593,096,000 is a whole number of units at 0%, 2%, 11%, 20% and more (at 17
+ * a unit), and even 255,106,158.37 is at 11%, 39% and 51%. So it's worked out only from the corporation ESI's history
+ * says you were in then, at its rate, when the reward is whole to the cent there and no more than everyone delivered to
+ * the job; while the history is behind your current corporation, both corporations' rates are tried, and two that fit
+ * leave it not recorded.
+ */
+export function readReward(e: { id?: string; date: string; amount: number; tax?: number }, job: JoinedJob, spans: CorpSpan[]): RewardRead {
+  const base = { ...(e.id ? { id: e.id } : {}), at: e.date, amount: e.amount };
+  const per = job.perUnit;
+  if (e.tax != null && Number.isFinite(e.tax)) {
+    const tax = Math.abs(e.tax), gross = e.amount + tax;
+    return { ...base, tax, rate: gross > 0 ? tax / gross : null, how: 'esi', units: per > 0 ? Math.round(gross / per) : null, ...(per > 0 ? {} : { why: 'rate' as const }) };
+  }
+  const none = { units: null, tax: null, rate: null, how: null };
+  if (!(per > 0)) return { ...base, ...none, why: 'rate' };
+  const may = corpsAt(spans, Date.parse(e.date));
+  if (!may.length || may.some((c) => c.taxRate == null)) return { ...base, ...none, why: 'history' };
+  // A finished job's deliveries from everyone bound yours.
+  const most = job.state !== 'Active' && job.progress ? job.progress.current : Infinity;
+  const fits = new Map<number, { units: number; corp: CorpSpan }>();
+  for (const c of may) {
+    const u = wholeUnits(e.amount, per * (1 - c.taxRate!), most);
+    if (u != null && !fits.has(c.taxRate!)) fits.set(c.taxRate!, { units: u, corp: c });
+  }
+  if (fits.size !== 1) return { ...base, ...none, why: 'fits' };
+  const [[rate, f]] = [...fits];
+  return { ...base, units: f.units, tax: cents(f.units * per - e.amount), rate, how: 'derived', ...(f.corp.name ? { corp: f.corp.name } : {}) };
+}
+
+/** One job in your history, in ISK. */
+export type JobRow = {
+  job: JoinedJob;
+  /** Its rewards, oldest first. */
+  rewards: RewardRead[];
+  received: number;
+  /** Tax over the rewards whose tax is known, and how many rewards' tax isn't. */
+  tax: number; taxUnknown: number;
+  /** Units delivered, as the rewards say: null while any reward's units aren't known. */
+  delivered: number | null;
+  /**
+   * Of the delivered units, those that came from what you bought while it ran, what they cost (and the cheapest and
+   * dearest), and those that didn't: mined, contracted from another character, looted, or bought before it began. Those
+   * have no cost here, and the tab says so.
+   */
+  fromBought: number; cost: number; low: number | null; high: number | null; fromStock: number;
+  /** Bought while it ran and not delivered or sold: units and what they cost. */
+  held: number; heldCost: number;
+  /** Sold again: units, what they fetched after sales tax, and what they cost. */
+  sold: number; revenue: number; soldCost: number;
+  /** The rewards, less what the delivered units you bought cost, plus what selling them again made. Null while delivered isn't known. */
+  profit: number | null;
+  /** A job taking the same items has a reward whose units aren't known, so which purchases were whose may be off. */
+  unsure: boolean;
+  /** When it was last active: finished, else its last reward, else begun. */
+  at: number;
+};
+export type HistoryTotal = {
+  jobs: number; received: number; tax: number; taxUnknown: number; delivered: number; fromStock: number;
+  cost: number; held: number; heldCost: number; profit: number;
+  /** Jobs whose units, and so profit, aren't known: left out of `delivered` and `profit`. */
+  unknown: number;
+};
+
+type Tx = { id: string; typeId: number; date: string; isBuy: boolean; qty: number; unitPrice: number };
+/** Two trade IDs in the order ESI issued them (numbers as strings). */
+const idOrder = (a: string, b: string) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * Every job you did, in ISK: what each paid (your journal's rewards, each naming its job), the tax taken, the units
+ * delivered, what the ones you bought cost, what's left over, and the profit; with a total.
+ *
+ * Which purchase was for which job (the user's Scordite jobs overlapped: four ran between 29 September and 1 October,
+ * each taking every kind of Scordite): each delivery takes what you bought most recently before it, of the items its job
+ * takes, while it ran, and a purchase is taken once. That is how freelance hauling goes (buy, haul, deliver), and the
+ * user's own ledger shows it: 813,258 Compressed Scordite bought at 21.96 on 29 September at 12:03:02, after that day's
+ * deliveries, went straight onto a sell order at 21.96 (order 7432972978, 12:03:46, still open in full) and was never
+ * delivered. First in, first out would have delivered it into the 1 October rewards and left cheaper units over. Units a
+ * delivery needs beyond what's left to take came from stock you didn't buy for it, and are said apart, never costed at
+ * 0. What's bought and not delivered stays with the job paid next after it (else the latest begun that could take it);
+ * a sale takes from the purchases of its own item, for the latest-begun job running then. Trades in `skip` (a position
+ * counts them, or you tagged them) are no job's, as on the Wallet. Pure.
+ */
+export function jobHistory(inp: {
+  jobs: JoinedJob[];
+  journal: { id?: string; date: string; refType: string; amount: number; reason?: string; tax?: number; contextId?: number }[];
+  txs: Tx[]; skip: ReadonlySet<string>; corps?: CorpSpan[];
+  /** Your sales tax rate, for a sale whose tax the journal doesn't show. */
+  salesTax?: number;
+}): { rows: JobRow[]; total: HistoryTotal } {
+  const byId = new Map(inp.jobs.map((j) => [j.id, j]));
+  const rewards = new Map<string, RewardRead[]>();
+  const taxOf = new Map<string, number>();
+  for (const e of inp.journal) {
+    if (e.refType === 'transaction_tax' && e.contextId != null) taxOf.set(String(e.contextId), (taxOf.get(String(e.contextId)) ?? 0) + Math.abs(e.amount));
+    if (e.refType !== 'freelance_jobs_reward') continue;
+    const id = rewardJob(e.reason);
+    if (!id) continue;
+    if (!byId.has(id)) byId.set(id, stubJob(id, rewardJobName(e.reason) ?? ''));
+    const list = rewards.get(id) ?? [];
+    list.push(readReward(e, byId.get(id)!, inp.corps ?? []));
+    rewards.set(id, list);
+  }
+  for (const list of rewards.values()) list.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  const jobs = [...byId.values()];
+  const takes = jobs.filter((j) => j.types.length > 0);
+  const began = (j: JoinedJob) => (j.created ? Date.parse(j.created) : -Infinity);
+  const inWindow = (j: JoinedJob, t: number) => began(j) <= t && t <= jobEnd(j);
+
+  type Lot = { id: string; t: number; typeId: number; price: number; left: number };
+  const lots: Lot[] = [];
+  const sales: Tx[] = [];
+  for (const tx of inp.txs) {
+    if (inp.skip.has(tx.id) || !isFreelanceTrade(takes, tx)) continue;
+    if (tx.isBuy) lots.push({ id: tx.id, t: Date.parse(tx.date), typeId: tx.typeId, price: tx.unitPrice, left: tx.qty });
+    else sales.push(tx);
+  }
+  lots.sort((a, b) => a.t - b.t || idOrder(a.id, b.id));
+  /** The newest purchases first, up to `want`, of those `ok` lets a use at `t` take. */
+  const draw = (t: number, ok: (l: Lot) => boolean, want: number) => {
+    let got = 0, cost = 0, low = Infinity, high = -Infinity;
+    for (let k = lots.length - 1; k >= 0 && got < want; k--) {
+      const l = lots[k];
+      if (l.left <= 0 || l.t > t || !ok(l)) continue;
+      const take = Math.min(l.left, want - got);
+      l.left -= take; got += take; cost += take * l.price;
+      low = Math.min(low, l.price); high = Math.max(high, l.price);
+    }
+    return { got, cost, low, high };
+  };
+
+  const rowOf = new Map<string, JobRow>();
+  for (const j of jobs) {
+    const rs = rewards.get(j.id) ?? [];
+    const unknownUnits = rs.some((r) => r.units == null);
+    rowOf.set(j.id, {
+      job: j, rewards: rs, received: rs.reduce((s, r) => s + r.amount, 0),
+      tax: cents(rs.reduce((s, r) => s + (r.tax ?? 0), 0)), taxUnknown: rs.filter((r) => r.tax == null).length,
+      delivered: unknownUnits ? null : rs.reduce((s, r) => s + (r.units ?? 0), 0),
+      fromBought: 0, cost: 0, low: null, high: null, fromStock: 0, held: 0, heldCost: 0, sold: 0, revenue: 0, soldCost: 0, profit: null, unsure: false,
+      at: j.finished ? Date.parse(j.finished) : rs.length ? Date.parse(rs[rs.length - 1].at) : j.created ? Date.parse(j.created) : 0,
+    });
+  }
+
+  // Deliveries and sales in the order they happened (a sale first within a second).
+  type Use = { t: number; job: JoinedJob; units: number } | { t: number; sale: Tx };
+  const uses: Use[] = [];
+  for (const j of takes) for (const r of rewards.get(j.id) ?? []) if (r.units != null && r.units > 0) uses.push({ t: Date.parse(r.at), job: j, units: r.units });
+  for (const s of sales) {
+    const t = Date.parse(s.date);
+    const j = takes.filter((x) => x.types.includes(s.typeId) && inWindow(x, t)).sort((a, b) => began(b) - began(a))[0];
+    if (j) uses.push({ t, sale: s });
+  }
+  uses.sort((a, b) => a.t - b.t || ('sale' in a ? 0 : 1) - ('sale' in b ? 0 : 1));
+  for (const u of uses) {
+    if ('sale' in u) {
+      const s = u.sale;
+      const j = takes.filter((x) => x.types.includes(s.typeId) && inWindow(x, u.t)).sort((a, b) => began(b) - began(a))[0];
+      const row = rowOf.get(j.id)!;
+      const d = draw(u.t, (l) => l.typeId === s.typeId && l.t >= began(j), s.qty);
+      const gross = s.qty * s.unitPrice;
+      row.sold += s.qty; row.revenue += gross - (taxOf.get(s.id) ?? gross * (inp.salesTax ?? 0)); row.soldCost += d.cost;
+      continue;
+    }
+    const row = rowOf.get(u.job.id)!;
+    const d = draw(u.t, (l) => u.job.types.includes(l.typeId) && inWindow(u.job, l.t), u.units);
+    row.fromBought += d.got; row.cost += d.cost; row.fromStock += u.units - d.got;
+    if (d.got > 0) { row.low = Math.min(row.low ?? Infinity, d.low); row.high = Math.max(row.high ?? -Infinity, d.high); }
+  }
+
+  // What's left over stays with the job paid next after it was bought, else the latest begun that could take it.
+  const nextPaid = (j: JoinedJob, t: number) => (rewards.get(j.id) ?? []).map((r) => Date.parse(r.at)).filter((x) => x >= t).sort((a, b) => a - b)[0] ?? Infinity;
+  for (const l of lots) {
+    if (l.left <= 0) continue;
+    const could = takes.filter((j) => j.types.includes(l.typeId) && inWindow(j, l.t));
+    const j = could.sort((a, b) => nextPaid(a, l.t) - nextPaid(b, l.t) || began(b) - began(a))[0];
+    if (!j) continue;
+    const row = rowOf.get(j.id)!;
+    row.held += l.left; row.heldCost += l.left * l.price;
+  }
+
+  const unknownTypes = new Set(takes.filter((j) => rowOf.get(j.id)!.delivered == null).flatMap((j) => j.types));
+  for (const row of rowOf.values()) {
+    row.cost = cents(row.cost); row.heldCost = cents(row.heldCost); row.revenue = cents(row.revenue); row.soldCost = cents(row.soldCost);
+    row.unsure = row.delivered != null && row.job.types.some((t) => unknownTypes.has(t));
+    row.profit = row.delivered == null ? null : cents(row.received - row.cost + row.revenue - row.soldCost);
+  }
+  // A job kept before `joined` was (always from the joined list) counts as joined.
+  const rows = [...rowOf.values()].filter((r) => r.rewards.length > 0 || r.job.joined !== false || r.held > 0 || r.sold > 0)
+    .sort((a, b) => (a.job.state === 'Active' ? 0 : 1) - (b.job.state === 'Active' ? 0 : 1) || b.at - a.at || a.job.name.localeCompare(b.job.name));
+  const sum = (f: (r: JobRow) => number) => rows.reduce((s, r) => s + f(r), 0);
+  const total: HistoryTotal = {
+    jobs: rows.length, received: cents(sum((r) => r.received)), tax: cents(sum((r) => r.tax)), taxUnknown: sum((r) => r.taxUnknown),
+    delivered: sum((r) => r.delivered ?? 0), fromStock: sum((r) => r.fromStock), cost: cents(sum((r) => r.cost)),
+    held: sum((r) => r.held), heldCost: cents(sum((r) => r.heldCost)), profit: cents(sum((r) => r.profit ?? 0)),
+    unknown: rows.filter((r) => r.delivered == null).length,
+  };
+  return { rows, total };
 }
