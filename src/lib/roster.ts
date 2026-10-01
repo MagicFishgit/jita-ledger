@@ -207,3 +207,24 @@ export function loginState(e: RosterEntry, wanted: string[]): { state: 'working'
   if (e.at == null) return { state: 'none', missing: [] };
   return { state: 'working', missing: wanted.filter((s) => !e.scopes.includes(s)) };
 }
+
+/** Your characters' IDs: the main and every character in `chars` (removed ones too: past transfers stay transfers). */
+export function ownIds(mainId: number | null | undefined, chars: Record<string, unknown>): Set<number> {
+  const ids = new Set<number>();
+  if (mainId != null) ids.add(mainId);
+  for (const k of Object.keys(chars ?? {})) { const n = Number(k); if (Number.isFinite(n)) ids.add(n); }
+  return ids;
+}
+
+/**
+ * A donation, direct trade or contract entry whose two parties are both yours: ISK moving between your own
+ * characters, not income or spending. Fails safe: a missing party, or either not yours, is not a transfer.
+ */
+export function ownTransfer(
+  e: { refType: string; firstPartyId?: number | null; secondPartyId?: number | null },
+  mine: Set<number> | undefined,
+): boolean {
+  if (!mine) return false;
+  if (e.refType !== 'player_donation' && e.refType !== 'player_trading' && !e.refType.startsWith('contract_')) return false;
+  return e.firstPartyId != null && e.secondPartyId != null && mine.has(e.firstPartyId) && mine.has(e.secondPartyId);
+}

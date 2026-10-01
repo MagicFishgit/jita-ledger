@@ -6,6 +6,7 @@ import { countedIn, type PositionCalc } from './positions';
 import { nettedJournal } from './refunds';
 import { attribute, otherSales, type DayEvent, type TypeSets } from './results';
 import { isTrade, isUnbought, itemResult, type ItemCalc } from './longRange';
+import { ownIds } from './roster';
 import { ACTIVITIES } from './prefs';
 import type { Activity } from './types';
 
@@ -41,7 +42,7 @@ export type Acts = { events: DayEvent[]; others: { t: number; isk: number; typeI
  * `failed` when ESI couldn't say), positions' realized profit (`posCalc`), ships lost by what they were doing
  * (`lossActs`), freelance trades.
  */
-export function activityEvents(d: Data, sets: TypeSets | null, failed: boolean, lossActs: LossActs, posCalc: { c: PositionCalc }[]): Acts {
+export function activityEvents(d: Data, sets: TypeSets | null, failed: boolean, lossActs: LossActs, posCalc: { c: PositionCalc }[], charId?: number): Acts {
   // Without the item groups (ESI failed), only what needs none is counted: positions, courier rewards, freelance, bounties.
   // Every sale would look like an "other sale" then, so there are none.
   const have = sets ?? (failed ? { filaments: new Set<number>(), abyssLoot: new Set<number>(), pi: new Set<number>(), lpGoods: new Set<number>() } : null);
@@ -61,7 +62,7 @@ export function activityEvents(d: Data, sets: TypeSets | null, failed: boolean, 
   const jobs = d.meta.freelance?.jobs ?? [];
   const personal = new Set(d.ignored);
   const freelance = (tx: { id: string; typeId: number; date: string }) => !personal.has(tx.id) && isFreelanceTrade(jobs, tx);
-  const inp = { txs, journal: Object.values(nettedJournal(d.journal)), tracked, realized, losses, sets: { ...have, abyssLoot }, freelance, salesTax: rates(d.settings).t };
+  const inp = { txs, journal: Object.values(nettedJournal(d.journal)), tracked, realized, losses, sets: { ...have, abyssLoot }, freelance, salesTax: rates(d.settings).t, ...(charId != null ? { mine: ownIds(charId, d.chars) } : {}) };
   if (!sets) return { events: attribute(inp).filter((e) => WITHOUT_SETS.has(e.activity)), others: [], typeSets: null };
   return { events: attribute(inp), others: otherSales(inp, personal), typeSets: inp.sets };
 }

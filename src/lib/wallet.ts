@@ -14,6 +14,7 @@
  */
 
 import type { JournalEntry, Tx, UntrackedTag } from './types';
+import { ownTransfer } from './roster';
 
 const DAY = 86400_000;
 
@@ -29,7 +30,7 @@ export const startOfUtcDay = (t: number) => { const d = new Date(t); return Date
  */
 export const periodStart = (days: Days, now: number): number => (days === 1 ? now - DAY : startOfUtcDay(now) - (days - 1) * DAY);
 
-export type FlowKind = 'Business' | 'Personal';
+export type FlowKind = 'Business' | 'Personal' | 'Transfer';
 export type Category = { key: string; label: string; kind?: FlowKind };
 
 /** Journal entries that move ISK between your own pockets, or that trades already account for. */
@@ -66,12 +67,16 @@ const OUT: Record<string, Category> = {
   other: { key: 'otherOut', label: 'Other spending' },
 };
 
+/** ISK moving between your own characters: neither income nor spending. */
+export const BETWEEN: Category = { key: 'between', label: 'Between your characters', kind: 'Transfer' };
+
 const has = (list: string[], r: string) => list.includes(r);
 
 /** Which group a journal entry belongs in, or null when trades or your own transfers cover it. */
-export function categoryOf(e: Pick<JournalEntry, 'refType' | 'amount'>): Category | null {
+export function categoryOf(e: Pick<JournalEntry, 'refType' | 'amount' | 'firstPartyId' | 'secondPartyId'> | { refType: string; amount: number }, mine?: Set<number>): Category | null {
   const r = e.refType;
   if (NEUTRAL.has(r) || e.amount === 0) return null;
+  if (mine && ownTransfer(e, mine)) return BETWEEN;
   if (e.amount > 0) {
     if (r === 'freelance_jobs_reward') return IN.freelance;
     if (has(['bounty_prizes', 'bounty_prize', 'agent_mission_reward', 'agent_mission_time_bonus_reward', 'ess_escrow_transfer',
@@ -126,6 +131,9 @@ const REF_SAID: Record<string, string> = {
 };
 export const refSaid = (r: string) => REF_SAID[r] ?? (r.charAt(0).toUpperCase() + r.slice(1).replace(/_/g, ' '));
 
+/** ISK that moved between your own characters in a window: what came in, what went out, how many entries. */
+export type Between = { in: number; out: number; count: number; parts: Part[] };
+
 /** How a trade counts in the flows: tracked trading, or something else. `freelance`: bought or sold for a freelance job. */
 export type TradeClass = { tracked: boolean; tag: UntrackedTag; freelance?: boolean };
 
@@ -141,7 +149,9 @@ export function flows(
   classOf: (tx: Tx) => TradeClass,
   since: number,
   until = Infinity,
-): { ins: Line[]; outs: Line[]; inTotal: number; outTotal: number } {
+  mine?: Set<number>,
+): { ins: Line[]; outs: Line[]; inTotal: number; outTotal: number; between: Between } {
+  const between: Between = { in: 0, out: 0, count: 0, parts: [] };
   const lines = new Map<string, Line & { byPart: Map<string, Part> }>();
   const add = (c: Category, amount: number, part: Omit<Part, 'amount' | 'count' | 'entries'>, entry?: { id: string; date: string; text: string; contract?: number }) => {
     const cur = lines.get(c.key) ?? { key: c.key, label: c.label, kind: c.kind, amount: 0, count: 0, parts: [], byPart: new Map() };
@@ -157,7 +167,17 @@ export function flows(
   for (const e of journal) {
     const t = Date.parse(e.date);
     if (t < since || t >= until) continue;
-    const c = categoryOf(e);
+    const c = categoryOf(e, mine);
+    if (c === BETWEEN) {
+      // Moving between your characters: never income or spending, so it stays out of the lines and totals.
+      if (e.amount > 0) between.in += e.amount; else between.out += -e.amount;
+      between.count++;
+      const key = `ref:${e.refType}`;
+      const p = between.parts.find((x) => x.key === key) ?? (between.parts.push({ key, label: refSaid(e.refType), amount: 0, count: 0, refType: e.refType }), between.parts[between.parts.length - 1]);
+      p.amount += Math.abs(e.amount);
+      p.count++;
+      continue;
+    }
     // A contract's entries carry its ID, so the Wallet can name what it held (contracts.ts).
     const contract = e.contextIdType === 'contract_id' && e.contextId ? e.contextId : undefined;
     if (c) add(c, e.amount, { key: `ref:${e.refType}`, label: refSaid(e.refType), refType: e.refType }, { id: e.id, date: e.date, text: e.description ?? e.reason ?? '', ...(contract ? { contract } : {}) });
@@ -189,6 +209,7 @@ export function flows(
     ins, outs,
     inTotal: ins.reduce((t, l) => t + l.amount, 0),
     outTotal: outs.reduce((t, l) => t + l.amount, 0),
+    between: { ...between, parts: between.parts.sort((a, b) => b.amount - a.amount) },
   };
 }
 
@@ -302,7 +323,7 @@ export type Unusual = { id: string; kind: 'donationIn' | 'donationOut' | 'oddHou
  *
  * These are prompts, not verdicts, and each can be dismissed.
  */
-export function unusual(journal: JournalEntry[], since: number, opts = { donationIn: 1e6, donationOut: 10e6, oddHour: 100e6 }): Unusual[] {
+export function unusual(journal: JournalEntry[], since: number, opts = { donationIn: 1e6, donationOut: 10e6, oddHour: 100e6 }, mine?: Set<number>): Unusual[] {
   const sorted = [...journal].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
   const seen = new Set<number>();
   const hours = new Array(24).fill(0);
@@ -312,7 +333,7 @@ export function unusual(journal: JournalEntry[], since: number, opts = { donatio
   for (const e of sorted) {
     const t = Date.parse(e.date);
     const other = e.amount > 0 ? e.firstPartyId : e.secondPartyId;
-    if (t >= since) {
+    if (t >= since && !ownTransfer(e, mine)) {
       if (e.refType === 'player_donation' && e.amount >= opts.donationIn && other != null && !seen.has(other)) {
         out.push({ id: e.id, kind: 'donationIn', entry: e });
       } else if (e.refType === 'player_donation' && -e.amount >= opts.donationOut) {
@@ -328,7 +349,8 @@ export function unusual(journal: JournalEntry[], since: number, opts = { donatio
 }
 
 /** Plain words for a journal type, for the balance chart's dots and anything else that names one. */
-export function describeRef(refType: string): string {
+export function describeRef(refType: string, e?: JournalEntry, mine?: Set<number>): string {
+  if (e && mine && ownTransfer(e, mine)) return BETWEEN.label;
   const c = categoryOf({ refType, amount: 1 }) ?? categoryOf({ refType, amount: -1 });
   const words = refType.replace(/_/g, ' ');
   if (refType === 'market_transaction') return 'Market trade';

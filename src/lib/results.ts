@@ -9,6 +9,7 @@
  */
 
 import { categoryOf } from './wallet';
+import { ownTransfer } from './roster';
 import type { Activity } from './types';
 import { bucketIndex } from './longRange';
 
@@ -65,7 +66,7 @@ export type TypeSets = { filaments: Set<number>; abyssLoot: Set<number>; pi: Set
 
 export type AttributionInput = {
   txs: { id: string; typeId: number; date: string; isBuy: boolean; qty: number; unitPrice: number }[];
-  journal: { date: string; refType: string; amount: number; contextId?: number }[];
+  journal: { date: string; refType: string; amount: number; contextId?: number; firstPartyId?: number; secondPartyId?: number }[];
   /** Trades a position counts. Those are trading, whatever the item. */
   tracked: Set<string>;
   /** Each change in a position's realized profit, when it happened. */
@@ -75,6 +76,8 @@ export type AttributionInput = {
   sets: TypeSets;
   /** A trade for one of your freelance jobs (freelance.ts isFreelanceTrade), not tagged Personal. */
   freelance?: (tx: { id: string; typeId: number; date: string }) => boolean;
+  /** Your characters' IDs: ISK moving between them is not an activity's income. Absent: nothing is a transfer. */
+  mine?: Set<number>;
   /** Used only for a sale whose tax the journal doesn't show. */
   salesTax: number;
 };
@@ -110,6 +113,7 @@ export function attribute(inp: AttributionInput): DayEvent[] {
     else if (lpGoods.has(tx.typeId) && !tx.isBuy) out.push({ t, activity: 'Loyalty', isk: net });
   }
   for (const e of inp.journal) {
+    if (ownTransfer(e, inp.mine)) continue;
     const t = Date.parse(e.date);
     if (e.refType.startsWith('planetary_') && e.refType.endsWith('_tax')) out.push({ t, activity: 'Planets', isk: e.amount });
     else if (e.refType === 'lp_store') out.push({ t, activity: 'Loyalty', isk: e.amount });
