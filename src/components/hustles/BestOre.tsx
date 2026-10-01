@@ -94,6 +94,8 @@ export function BestOre({ pace, onPick, minedBases }: {
       .then(({ vols, worth, failed }) => {
         if (!alive.current) return;
         const lost = new Set(failed);
+        // "Read at" only when something was: a run that priced nothing isn't a reading of Jita's bids.
+        if (types.some((t) => worth[t] && bestWay(worth[t]))) setReadAt(Date.now());
         setPrices((x) => {
           const y = { ...x };
           for (const t of types) {
@@ -107,7 +109,6 @@ export function BestOre({ pace, onPick, minedBases }: {
       .finally(() => {
         if (!alive.current) return;
         setBusy((b) => { const y = new Set(b); for (const t of types) y.delete(t); return y; });
-        setReadAt(Date.now());
       });
   };
 
@@ -182,7 +183,7 @@ export function BestOre({ pace, onPick, minedBases }: {
       case 'fitIsOre': return `${fit[0].toUpperCase()}${fit.slice(1)} mines ore, not ice: open an ice fit in Scaling up${ICE_HULLS.length ? ` (the ${ICE_HULLS.join(' or ')})` : ''}.`;
       case 'fitIsMercoxit': return `Scaling up shows ${fit}’s Mercoxit version, with deep-core lasers: pick another ore there for this one’s pace.`;
       case 'needMercoxit': return 'Mercoxit takes deep-core lasers: click its name to pick it in Scaling up, which shows each fit’s Mercoxit version.';
-      case 'notMeasured': return `${whoseStart(pilot)} sessions haven’t measured a pace on ${KIND_SAID[kind]}: open a ship in Scaling up below.`;
+      case 'notMeasured': return `${whoseStart(pilot)} sessions haven’t measured a pace on ${KIND_SAID[kind]}: open a ship in Scaling up below${kind === 'mercoxit' ? ', with Mercoxit picked there' : ''}.`;
     }
   };
 
