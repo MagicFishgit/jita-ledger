@@ -1,6 +1,6 @@
 import type { ContractItem, MyContract } from './contracts';
 import type { QueuedLevel } from './skillStatus';
-import type { JoinedJob } from './freelance';
+import type { CorpTax, JoinedJob } from './freelance';
 import type { SafetyWrap } from './esiRecords';
 import type { BookSold, SplitFrom } from './split';
 import type { SkillKey } from './constants';
@@ -40,6 +40,13 @@ export type JournalEntry = {
   secondPartyId?: number;
   description?: string;
   reason?: string;
+  /**
+   * The tax ESI says was taken from this entry, and the corporation that took it (esiRecords.ts): a reward or bounty
+   * your corporation taxed. Absent where ESI gives none, and on entries stored before it was kept: "not recorded",
+   * never a rate assumed.
+   */
+  tax?: number;
+  taxReceiverId?: number;
   /**
    * Set only in the netted view (refunds.ts), never stored: a fee a GM refunded, or the refund, reads as zero and keeps
    * its original amount here; `refundId` / `refundOf` name the other half of the pair.
@@ -322,6 +329,11 @@ export type Meta = {
   contracts?: { at: string; list: MyContract[]; items: Record<number, ContractItem[]>; places: Record<number, string> };
   /** The freelance jobs you've joined, as last read (freelanceStore.ts), for the Wallet, Results and the Freelance tab. */
   freelance?: { at: string; jobs: JoinedJob[] };
+  /**
+   * Your corporation and its tax rate as last read (public, no permission; freelance.ts `readCorp`). Rewards and bounties
+   * are paid after it, so the Freelance finder prices a job after it. Absent until a sync has read it.
+   */
+  corp?: CorpTax;
   /** The skill queue as last synced, in order: each skill, the level it trains to, when (null while paused). */
   skillQueue?: QueuedLevel[];
   /** Last time killmails were read. */

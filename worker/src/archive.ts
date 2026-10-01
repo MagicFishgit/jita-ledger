@@ -10,8 +10,8 @@
  */
 import { isDowntime } from '../../src/lib/watchdog';
 import {
-  countStock, mergeSafety, nameHolders, netWorthOf, unnamedHolders, toJournal, toOrder, toTx, withHistory,
-  type OrderRecord, type RawAsset, type RawCharOrder, type RawJournal, type RawTx, type SafetyWrap, type StockRecord,
+  countStock, journalGainedTax, mergeSafety, nameHolders, netWorthOf, unnamedHolders, toJournal, toOrder, toTx, withHistory,
+  type JournalRecord, type OrderRecord, type RawAsset, type RawCharOrder, type RawJournal, type RawTx, type SafetyWrap, type StockRecord,
 } from '../../src/lib/esiRecords';
 import { esiAll, esiGet, esiPost, readerLogin, stillKept, useLogin, type Reader } from './eve';
 import { mailSafety, registerSafety, safetyFindings } from './safety';
@@ -38,6 +38,17 @@ async function ids(db: D1Database, charId: number, kind: string): Promise<Set<st
   const rows = (await db.prepare('SELECT id FROM records WHERE char_id = ?1 AND kind = ?2 AND data IS NOT NULL').bind(charId, kind).all<{ id: string }>()).results;
   return new Set(rows.map((r) => r.id));
 }
+/** The stored records of one kind with these IDs, read 90 at a time (D1 binds at most 100 parameters). */
+async function storedRecords<T>(db: D1Database, charId: number, kind: string, idsList: string[]): Promise<Map<string, T>> {
+  const out = new Map<string, T>();
+  for (let i = 0; i < idsList.length; i += 90) {
+    const part = idsList.slice(i, i + 90);
+    const rows = (await db.prepare(`SELECT id, data FROM records WHERE char_id = ?1 AND kind = ?2 AND id IN (${part.map((_, n) => `?${n + 3}`).join(',')})`)
+      .bind(charId, kind, ...part).all<{ id: string; data: string | null }>()).results;
+    for (const r of rows) if (r.data) out.set(r.id, JSON.parse(r.data) as T);
+  }
+  return out;
+}
 async function doc<T>(db: D1Database, charId: number, key: string): Promise<T | null> {
   const row = await db.prepare('SELECT data FROM docs WHERE char_id = ?1 AND key = ?2').bind(charId, key).first<{ data: string }>();
   return row ? (JSON.parse(row.data) as T) : null;
@@ -55,14 +66,7 @@ export async function readOrders(db: D1Database, charId: number, token: string, 
   const fetched = new Map<string, OrderRecord>();
   for (const o of hist) fetched.set(String(o.order_id), toOrder(o, 'closed'));
   for (const o of open) fetched.set(String(o.order_id), toOrder(o, 'open'));
-  const stored = new Map<string, OrderRecord>();
-  const idsList = [...fetched.keys()];
-  for (let i = 0; i < idsList.length; i += 90) {
-    const part = idsList.slice(i, i + 90);
-    const rows = (await db.prepare(`SELECT id, data FROM records WHERE char_id = ?1 AND kind = 'orders' AND id IN (${part.map((_, n) => `?${n + 2}`).join(',')})`)
-      .bind(charId, ...part).all<{ id: string; data: string | null }>()).results;
-    for (const r of rows) if (r.data) stored.set(r.id, JSON.parse(r.data));
-  }
+  const stored = await storedRecords<OrderRecord>(db, charId, 'orders', [...fetched.keys()]);
   const changed: { k: string; i: string; d: unknown }[] = [];
   for (const [id, o] of fetched) {
     const merged = withHistory(stored.get(id), o);
@@ -137,9 +141,19 @@ export async function archive(env: Env, who: Reader, opts: { prices?: Record<num
       fromId = minId - 1;
     }
     const knownJ = await ids(db, charId, 'journal');
+    // An entry already held is pushed again only when ESI now gives a tax its record lacks (journalGainedTax): records
+    // stored before the tax was kept. Only those few are read back, as the orders are.
+    const taxed: RawJournal[] = [];
     for (const j of await esiAll<RawJournal>(`/characters/${charId}/wallet/journal/`, { token })) {
-      if (knownJ.has(String(j.id))) continue;
+      if (knownJ.has(String(j.id))) { if (j.tax != null || j.tax_receiver_id != null) taxed.push(j); continue; }
       records.push({ k: 'journal', i: String(j.id), d: toJournal(j) });
+      result.journal++;
+    }
+    const stored = await storedRecords<JournalRecord>(db, charId, 'journal', taxed.map((j) => String(j.id)));
+    for (const j of taxed) {
+      const next = toJournal(j);
+      if (!journalGainedTax(stored.get(next.id), next)) continue;
+      records.push({ k: 'journal', i: next.id, d: next });
       result.journal++;
     }
   }

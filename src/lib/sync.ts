@@ -6,6 +6,7 @@ import { parseSafetyNotice, withNotices } from './assetSafety';
 import { isStation, isStructure, structureInfo } from './universe';
 import { couriersDue, itemsToRead, readContracts, type ContractItem, type RawContract } from './contracts';
 import { readJoinedJobs } from './freelanceStore';
+import { readCorp } from './freelance';
 import { loyaltyPoints, resolveIds, resolveNames } from './market';
 import { dataGeneration, getData, update, type Data } from './store';
 import { sanitizeSettings, type Settings } from './fees';
@@ -263,6 +264,20 @@ export async function syncCharacter(): Promise<void> {
       try { metaPatch.freelance = { at: new Date().toISOString(), jobs: await readJoinedJobs(cid) }; read.push('freelance'); }
       catch { /* read on a later sync */ }
     }
+    // Your corporation and its tax rate, both public, so read whatever was granted: rewards are paid after the tax, and
+    // the Freelance finder prices a job after it. The corporation comes from the affiliation lookup, a POST (never kept in
+    // the browser's cache) that ESI holds an hour at most: /characters/{id}/ answers `max-age=86400`, which would show the
+    // corporation you left for a day. The rate is asked for afresh (a conditional request), so a change shows on the next
+    // sync after ESI's own copy lets go. On a failure the last one read stays.
+    try {
+      const { data: aff } = await esi<{ character_id: number; corporation_id: number }[]>('/characters/affiliation/', { method: 'POST', body: [cid] });
+      const mine = aff.find((a) => a.character_id === cid);
+      if (mine) {
+        const { data: co } = await esi<{ name: string; ticker: string; tax_rate: number }>(`/corporations/${mine.corporation_id}/`, { fresh: true });
+        const corp = readCorp(mine, co, new Date().toISOString());
+        if (corp) { metaPatch.corp = corp; read.push('corporation'); }
+      }
+    } catch { /* the finder keeps the last rate read, or says it isn't read yet */ }
     // The mining ledger (mining.ts): 30 days from ESI, kept as records so they outlive them.
     if (hasScope(SCOPE.mining)) {
       try {

@@ -14,6 +14,8 @@ export type RawJournal = {
   id: number; date: string; ref_type: string; amount?: number; balance?: number;
   context_id?: number; context_id_type?: string;
   first_party_id?: number; second_party_id?: number; description?: string; reason?: string;
+  /** ESI: "only applies to tax related transactions". The tax taken, and the corporation that took it. */
+  tax?: number; tax_receiver_id?: number;
 };
 export type RawCharOrder = {
   order_id: number; type_id: number; is_buy_order?: boolean; price: number;
@@ -27,6 +29,12 @@ export type TxRecord = {
 export type JournalRecord = {
   id: string; date: string; refType: string; amount: number; contextId?: number; contextIdType?: string; balance?: number;
   firstPartyId?: number; secondPartyId?: number; description?: string; reason?: string;
+  /**
+   * What ESI says was taken from this entry as tax, and who took it (a reward or bounty your corporation taxed: the
+   * user's freelance rewards arrive as 89% of the job's rate, the NPC corporation's 11% withheld before the wallet).
+   * Only on entries ESI gives one for, and never on entries stored before it was kept.
+   */
+  tax?: number; taxReceiverId?: number;
 };
 export type OrderVersion = { issued: string; price: number; remain: number };
 export type OrderRecord = {
@@ -202,7 +210,19 @@ export function toJournal(j: RawJournal): JournalRecord {
     contextId: j.context_id, contextIdType: j.context_id_type, balance: j.balance,
     firstPartyId: j.first_party_id, secondPartyId: j.second_party_id,
     description: j.description, reason: j.reason || undefined,
+    tax: j.tax, taxReceiverId: j.tax_receiver_id,
   };
+}
+
+/**
+ * Whether a journal entry read again from ESI says more about its tax than the record stored for it: an entry stored
+ * before the tax was kept gains it on the next read. Journal entries never change in ESI, so the cloud's archive pushes
+ * only new ones; without this a reward it already held would never get its tax. Compared field by field, not as JSON:
+ * the browser and the cloud write a record's keys in their own order.
+ */
+export function journalGainedTax(stored: Pick<JournalRecord, 'tax' | 'taxReceiverId'> | undefined, next: Pick<JournalRecord, 'tax' | 'taxReceiverId'>): boolean {
+  if (next.tax == null && next.taxReceiverId == null) return false;
+  return stored?.tax !== next.tax || stored?.taxReceiverId !== next.taxReceiverId;
 }
 
 export function toOrder(o: RawCharOrder, fallbackState: string): OrderRecord {

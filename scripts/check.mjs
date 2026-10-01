@@ -3114,6 +3114,28 @@ console.log('\n--- when ESI’s copy lets go ---');
   eq('  and nothing on a route without one', rateLimitOf(H({ Expires: 'x' })), null);
 }
 
+console.log('\n--- the journal keeps each entry’s tax ---');
+{
+  const { toJournal, journalGainedTax } = await import('../src/lib/esiRecords.ts');
+  const { diffRecords } = await import('../src/lib/cloudSync.ts');
+  // A freelance reward as ESI's journal gives it: the user's 593,096,000 is 39,200,000 units × 17 × 0.89, the NPC
+  // corporation's 11% withheld before the wallet. `tax` and `tax_receiver_id` "only apply to tax related transactions".
+  const raw = { id: 23001, date: '2026-10-01T10:37:40Z', ref_type: 'freelance_jobs_reward', amount: 593_096_000, balance: 1e9, first_party_id: 1000125, second_party_id: 95210486,
+    description: 'Freelance job reward', reason: 'project_id=0b6c6e0e-8b7f-4d39-9f43-6a1d9f4cbb11:project_name=Mothhat Scordite' };
+  const taxed = toJournal({ ...raw, tax: 73_304_000, tax_receiver_id: 1000125 });
+  eq('a journal row with tax and tax_receiver_id keeps both', [taxed.tax, taxed.taxReceiverId], [73_304_000, 1000125]);
+  eq('  a row without them gains nothing (the record stays as it was)', JSON.stringify(toJournal(raw)).includes('tax'), false);
+  eq('  a 0% tax is kept as 0, not dropped', toJournal({ ...raw, tax: 0, tax_receiver_id: 98845591 }).tax, 0);
+  // The browser's sync puts each entry read over the one held ({ ...cur.journal, ...fetched.journal }); the cloud copy
+  // pushes what diffRecords calls changed. An entry stored before the tax was kept is changed by gaining it.
+  const before = { 23001: toJournal(raw), 23002: toJournal({ ...raw, id: 23002, ref_type: 'market_escrow', reason: undefined }) };
+  const after = { ...before, 23001: taxed, 23002: toJournal({ ...raw, id: 23002, ref_type: 'market_escrow', reason: undefined }) };
+  eq('  the sync’s merge takes the entry that gained its tax, and the cloud copy sends it', diffRecords('journal', before, after), { changed: ['23001'], removed: [] });
+  eq('the cloud’s archive: an entry gaining a tax is sent again; one unchanged, or with none to give, isn’t',
+    [journalGainedTax(toJournal(raw), taxed), journalGainedTax(taxed, taxed), journalGainedTax(toJournal(raw), toJournal(raw)), journalGainedTax(undefined, taxed), journalGainedTax(taxed, toJournal({ ...raw, tax: 0, tax_receiver_id: 98845591 }))],
+    [true, false, false, true, true]);
+}
+
 console.log('\n--- freelance jobs to deliver to ---');
 {
   const { readDeliverJob, priceDeliver, bestDeliver, deliverFlags } = await import('../src/lib/freelance.ts');
@@ -3136,6 +3158,30 @@ console.log('\n--- freelance jobs to deliver to ---');
   // A group job takes any of its items one apiece: the cheapest listings of all of them, cheapest first.
   const g = bestDeliver(ore, [1, 2], (t) => (t === 1 ? [{ price: 20, volume: 10 }, { price: 22, volume: 99 }] : [{ price: 19, volume: 10 }]));
   eq('  a group job buys every item under the reward, cheapest first, with the price range', [g.units, g.types.map((x) => [x.typeId, x.units]), g.low, g.high], [20, [[2, 10], [1, 10]], 19, 20]);
+  // After your corporation's tax (the user's numbers, 1 October 2026): a job paying 17 a unit, Compressed Scordite at
+  // 11.79 in Jita. Under an NPC corporation's 11% a unit pays 15.13, so a listing at 15.50 is a loss, not a buy.
+  const scord = { ...job, perUnit: 17, perPlayer: null, unitsLeft: 50_000_000 };
+  const book = [{ price: 11.79, volume: 1_000_000 }, { price: 15.5, volume: 100_000 }];
+  const t11 = priceDeliver(scord, 62516, book, 0.11), t0 = priceDeliver(scord, 62516, book, 0);
+  eq('after an 11% tax: what a unit pays you', t11.net, 15.13);
+  eq('  the rewards after it', t11.pay, 1_000_000 * 15.13);
+  eq('  the tax taken from them', t11.taxed, 1_000_000 * 17 * 0.11);
+  eq('  the profit: 3.34 M on a million units', t11.profit, 3_340_000);
+  eq('  only the listings under 15.13 are bought', [t11.units, t11.high, t11.taxRate], [1_000_000, 11.79, 0.11]);
+  eq('at 0%: the profit is the whole margin, 5.21 M', t0.profit, 5_210_000 + 100_000 * (17 - 15.5));
+  eq('  and the listing at 15.50 is worth buying', [t0.units, t0.high, t0.net, t0.taxed], [1_100_000, 15.5, 17, 0]);
+  eq('  with no rate given, it prices at the job’s own rate', priceDeliver(scord, 62516, book).profit, t0.profit);
+  eq('  a tax that leaves nothing under the reward: nothing to do', priceDeliver(scord, 62516, [{ price: 15.2, volume: 9 }], 0.11), null);
+  const { readCorp, afterTax, taxPct } = await import('../src/lib/freelance.ts');
+  const AT = '2026-10-01T21:00:00Z';
+  // ESI's answers as given on 1 October 2026: the affiliation lookup, then the corporation (tax_rate is a fraction).
+  eq('your corporation from ESI’s two answers', readCorp({ character_id: 95210486, corporation_id: 98845591 }, { name: 'TEMP TAX HAVEN', ticker: 'ABAAA', tax_rate: 0.000, member_count: 1 }, AT),
+    { id: 98845591, name: 'TEMP TAX HAVEN', ticker: 'ABAAA', taxRate: 0, at: AT });
+  eq('  an NPC corporation at 11%', readCorp({ corporation_id: 1000009 }, { name: 'Caldari Provisions', ticker: 'CP', tax_rate: 0.11 }, AT).taxRate, 0.11);
+  eq('  no rate, no corporation or no name: not read, never 0%', [readCorp({ corporation_id: 1 }, { name: 'X', ticker: 'X' }, AT), readCorp(null, { name: 'X', ticker: 'X', tax_rate: 0 }, AT), readCorp({ corporation_id: 1 }, { ticker: 'X', tax_rate: 0 }, AT), readCorp({ corporation_id: 1 }, null, AT)], [null, null, null, null]);
+  eq('the rate in words, naming the corporation', [afterTax({ name: 'TEMP TAX HAVEN', taxRate: 0 }), afterTax({ name: 'Caldari Provisions', taxRate: 0.11 }), afterTax(null), afterTax(undefined)],
+    ['after TEMP TAX HAVEN’s 0% tax', 'after Caldari Provisions’s 11% tax', 'before tax: your corporation’s tax not read yet', 'before tax: your corporation’s tax not read yet']);
+  eq('  a rate as the game shows it', [taxPct(0.11), taxPct(0), taxPct(0.075), taxPct(0.1)], ['11%', '0%', '7.5%', '10%']);
   const { bestOffice, whereToAccept, FILTER_HIDES } = await import('../src/lib/freelance.ts');
   const O = (id, extra) => ({ id, name: String(id), systemId: 1, security: 0.9, unseen: null, jumps: 5, anyJumps: 5, throughGank: false, aroundExtra: null, ...extra });
   eq('the office to deliver to: one you can see, on a high-sec route, fewest jumps, round the gank systems', [

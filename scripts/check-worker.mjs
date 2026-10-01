@@ -243,6 +243,31 @@ console.log('\n--- an alt\'s full read ---');
     eq('    and its wrap in asset safety is still mailed, once', f.calls.filter((c) => c.method === 'POST' && c.path === `/characters/${SENDER}/mail/`).length, 1);
   }
 
+  // A journal entry the cloud already holds, read again with a tax ESI now gives (records kept before the tax was): the
+  // archive skipped every entry it held, so it never sent one; now it sends that entry once, and then nothing.
+  {
+    const { db, env } = await ledgerWithAlt();
+    let f = stubFetch(esiFor(MAIN));
+    await archive(env, ledgerReader(MAIN));
+    f.restore();
+    const rev = () => db.rows('SELECT rev FROM revs WHERE char_id = ?', MAIN)[0].rev;
+    const stored = () => JSON.parse(db.rows(`SELECT data FROM records WHERE char_id = ? AND kind = 'journal' AND id = '21'`, MAIN)[0].data);
+    const rev1 = rev();
+    eq('  a journal entry held without a tax', stored().tax ?? null, null);
+    const routes = esiFor(MAIN);
+    const j = routes.findIndex((r) => r[0] === `/characters/${MAIN}/wallet/journal/`);
+    routes[j] = [routes[j][0], routes[j][1].map((x) => ({ ...x, tax: 220, tax_receiver_id: 1000125 }))];
+    f = stubFetch(routes);
+    const r = await archive(env, ledgerReader(MAIN));
+    f.restore();
+    eq('    read again with its tax: sent again, carrying it', [r.journal, stored().tax, stored().taxReceiverId, rev() > rev1], [1, 220, 1000125, true]);
+    const rev2 = rev();
+    f = stubFetch(routes);
+    const r3 = await archive(env, ledgerReader(MAIN));
+    f.restore();
+    eq('    and a read after that sends nothing more', [r3.journal, rev()], [0, rev2]);
+  }
+
   // The push gate is for alts: a main whose login is dropped mid-read has that read's records, as before.
   {
     const { db, env } = await ledgerWithAlt();

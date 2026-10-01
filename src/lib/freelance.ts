@@ -79,7 +79,13 @@ export type DeliverCall = {
   /** The cheapest and dearest price paid: "costs 11.79" read as one price when it was the average of 11.76 to 11.79. */
   low: number;
   high: number;
+  /** The tax rate it was priced after (a fraction; 0 when your corporation's isn't known, which the tab says). */
+  taxRate: number;
+  /** What one unit pays you after that tax, and so the dearest listing worth buying. */
+  net: number;
+  /** The rewards after tax, and the tax taken from them. */
   pay: number;
+  taxed: number;
   profit: number;
   /** What stopped it at `units`: your cap on the job, what the job still wants, or the listings under the reward. */
   limit: 'player' | 'left' | 'listed';
@@ -87,10 +93,11 @@ export type DeliverCall = {
 
 /**
  * What delivering an item to a job makes: buy the cheapest Jita listings (no broker fee or tax on a purchase) while a
- * unit costs less than the job pays, up to your cap and what it still wants. Null when nothing listed is under the reward.
+ * unit costs less than the job pays after your corporation's tax, up to your cap and what it still wants. Null when
+ * nothing listed is under that.
  */
-export function priceDeliver(job: DeliverJob, typeId: number, sells: { price: number; volume: number }[]): DeliverCall | null {
-  return bestDeliver(job, [typeId], () => sells);
+export function priceDeliver(job: DeliverJob, typeId: number, sells: { price: number; volume: number }[], tax = 0): DeliverCall | null {
+  return bestDeliver(job, [typeId], () => sells, tax);
 }
 
 /**
@@ -98,13 +105,16 @@ export function priceDeliver(job: DeliverJob, typeId: number, sells: { price: nu
  * in its group one unit apiece, so its cheapest listings may be of several items; this first took only the one item
  * that made most, and would have missed raw Scordite under the reward beside the compressed kind.
  */
-export function bestDeliver(job: DeliverJob, typeIds: number[], sellsOf: (typeId: number) => { price: number; volume: number }[] | undefined): DeliverCall | null {
+export function bestDeliver(job: DeliverJob, typeIds: number[], sellsOf: (typeId: number) => { price: number; volume: number }[] | undefined, tax = 0): DeliverCall | null {
   const cap = Math.min(job.perPlayer ?? Infinity, job.unitsLeft);
+  // Your corporation takes its tax before the reward reaches the wallet (the user's rewards were 89% of the job's rate
+  // under an NPC corporation's 11%), so a listing is worth buying only under what a unit pays after it.
+  const net = job.perUnit * (1 - tax);
   const lots = typeIds.flatMap((t) => (sellsOf(t) ?? []).map((s) => ({ typeId: t, price: s.price, volume: s.volume }))).sort((a, b) => a.price - b.price);
   const by = new Map<number, { typeId: number; units: number; cost: number }>();
   let units = 0, cost = 0, low = Infinity, high = 0;
   for (const s of lots) {
-    if (s.price >= job.perUnit || units >= cap) break;
+    if (s.price >= net || units >= cap) break;
     const take = Math.min(s.volume, cap - units);
     if (take <= 0) continue;
     units += take;
@@ -118,8 +128,30 @@ export function bestDeliver(job: DeliverJob, typeIds: number[], sellsOf: (typeId
   if (units <= 0) return null;
   const types = [...by.values()].sort((a, b) => b.units - a.units);
   const limit = units < cap ? 'listed' : job.perPlayer != null && job.perPlayer <= job.unitsLeft ? 'player' : 'left';
-  return { job, typeId: types[0].typeId, types, units, cost, low, high, pay: units * job.perUnit, profit: units * job.perUnit - cost, limit };
+  const pay = units * net;
+  return { job, typeId: types[0].typeId, types, units, cost, low, high, taxRate: tax, net, pay, taxed: units * job.perUnit - pay, profit: pay - cost, limit };
 }
+
+/** Your corporation and its tax rate, as ESI gives them: what the finder prices a job after. */
+export type CorpTax = { id: number; name: string; ticker: string; taxRate: number; at: string };
+
+/**
+ * `meta.corp` from ESI's two public answers: the character's corporation (`corporation_id`, from POST
+ * /characters/affiliation/) and that corporation (`/corporations/{id}/`: `name`, `ticker`, `tax_rate`, a fraction).
+ * Null when either lacks what it needs: an unread rate must never become 0%.
+ */
+export function readCorp(char: { corporation_id?: number } | null | undefined, corp: { name?: string; ticker?: string; tax_rate?: number } | null | undefined, at: string): CorpTax | null {
+  const id = char?.corporation_id, rate = corp?.tax_rate;
+  if (!id || !(id > 0) || !corp?.name || rate == null || !Number.isFinite(rate) || rate < 0 || rate > 1) return null;
+  return { id, name: corp.name, ticker: corp.ticker ?? '', taxRate: rate, at };
+}
+
+/** A tax rate as the game shows it: "11%", "0%", "7.5%". */
+export const taxPct = (rate: number) => `${Math.round(rate * 1000) / 10}%`;
+
+/** What the finder's profit is after, in words: "after TEMP TAX HAVEN’s 0% tax", or that the rate isn't known yet. */
+export const afterTax = (corp: Pick<CorpTax, 'name' | 'taxRate'> | null | undefined) =>
+  corp ? `after ${corp.name}’s ${taxPct(corp.taxRate)} tax` : 'before tax: your corporation’s tax not read yet';
 
 /** A job's office as the tab judges it: where it is, whether ESI would describe it, and how it's reached from Jita. */
 export type Office = {

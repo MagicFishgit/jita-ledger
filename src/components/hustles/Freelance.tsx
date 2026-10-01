@@ -4,8 +4,8 @@ import { SCOPE } from '../../lib/config';
 import { esi } from '../../lib/esi';
 import { ago, isk, iskBig, units } from '../../lib/format';
 import {
-  bestDeliver, bestOffice, deliverFlags, FILTER_HIDES, jobLedgers, readDeliverJob, whereToAccept,
-  type DeliverCall, type DeliverFlag, type JoinedJob, type Office, type RawFreelanceJob,
+  afterTax, bestDeliver, bestOffice, deliverFlags, FILTER_HIDES, jobLedgers, readDeliverJob, whereToAccept,
+  type CorpTax, type DeliverCall, type DeliverFlag, type DeliverJob, type JoinedJob, type Office, type RawFreelanceJob,
 } from '../../lib/freelance';
 import { readJoinedJobs } from '../../lib/freelanceStore';
 import { getAuth, hasScope } from '../../lib/auth';
@@ -40,7 +40,12 @@ const ends = (iso: string, now: number) => {
 };
 const big = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e8 ? 0 : 1)}M` : units(n));
 
-type Row = DeliverCall & { office: Office; offices: number; flags: DeliverFlag[]; m3: number | null; accept: { fromJita: boolean; near: string | null; jumps: number | null } };
+type Accept = { fromJita: boolean; near: string | null; jumps: number | null };
+type Row = DeliverCall & { office: Office; offices: number; flags: DeliverFlag[]; m3: number | null; accept: Accept };
+/** A job worth a look before tax, with where it's delivered and accepted: priced at render, after the tax read then. */
+type Cand = { job: DeliverJob; typeIds: number[]; office: Office; offices: number; flags: DeliverFlag[]; accept: Accept };
+/** What a look at the board found: the candidates, the Jita books they were priced on, and each item's m³ a unit. */
+type Found = { cands: Cand[]; books: Map<number, { price: number; volume: number }[]>; vol: Map<number, number | null>; jobs: number; deliver: number; at: number };
 
 let graphP: Promise<Graph> | null = null;
 /** The stargate map (src/data/universeGraph.json, a chunk of its own), loaded once. */
@@ -49,17 +54,34 @@ const loadGraph = () => (graphP ??= import('../../data/universeGraph.json').then
 /**
  * Freelance "Deliver" jobs that pay more for an item than Jita sells it for (lib/freelance.ts), and the ones you've
  * done with what they cost and paid. Every open job is read from ESI and priced against the live Jita book (a group job
- * across all its items); each is delivered to its nearest office and split by where it can be accepted (within 5 jumps
- * of a system it's broadcast in), with distances worked out on the stargate map (jumps.ts).
+ * across all its items) after your corporation's tax as the last sync read it; each is delivered to its nearest office and
+ * split by where it can be accepted (within 5 jumps of a system it's broadcast in), with distances worked out on the
+ * stargate map (jumps.ts).
  */
 export function Freelance() {
   const d = useData();
   const auth = useAuth();
   const now = useNow(60_000);
   const name = useTypeName();
-  const [rows, setRows] = useState<Row[] | null>(null);
-  const [stats, setStats] = useState<{ jobs: number; deliver: number; under: number; at: number } | null>(null);
+  const [found, setFound] = useState<Found | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Your corporation's tax, as the last sync read it. Each job is priced after it at render, so a sync that reads a new
+  // corporation or rate re-prices what's shown without looking again (courier contracts are judged the same way).
+  const corp: CorpTax | null = d.meta.corp ?? null;
+  const rate = corp?.taxRate ?? 0;
+  const rows = useMemo<Row[] | null>(() => {
+    if (!found) return null;
+    const out: Row[] = [];
+    for (const c of found.cands) {
+      const call = bestDeliver(c.job, c.typeIds, (t) => found.books.get(t), rate);
+      if (!call || call.profit <= 0) continue;
+      let m3 = 0, known = true;
+      for (const t of call.types) { const v = found.vol.get(t.typeId); if (v == null) known = false; else m3 += v * t.units; }
+      out.push({ ...call, office: c.office, offices: c.offices, flags: c.flags, m3: known ? m3 : null, accept: c.accept });
+    }
+    return out.sort((a, b) => b.profit - a.profit);
+  }, [found, rate]);
+  const stats = found && rows ? { jobs: found.jobs, deliver: found.deliver, under: found.deliver - rows.length, at: found.at } : null;
   // The user's defaults: high-sec all the way, round the gank systems, and only offices you can dock at.
   const [only, setOnly] = useState({ highsec: true, gank: true, dock: true });
   useEnsureNames((rows ?? []).flatMap((r) => r.types.map((t) => t.typeId)));
@@ -122,12 +144,14 @@ export function Freelance() {
         try { books.set(t, (await jitaOrders(t)).orders.filter((o) => !o.isBuy)); } catch { /* left unpriced */ }
         setBusy(`Reading ${++done} of ${need.length} Jita books…`);
       });
+      // Every job that pays before tax: the rate is applied at render, and it can only take jobs away.
       const priced = deliver.map((j) => bestDeliver(j, typesOf.get(j.id) ?? [], (t) => books.get(t))).filter((c): c is DeliverCall => c != null && c.profit > 0);
       // Where to deliver and where to accept, on the stargate map.
       setBusy('Finding where they’re delivered…');
       const graph = await loadGraph();
       const reach: Reach = reachFrom(graph, JITA_SYSTEM, GANK_SYSTEMS);
-      const out: Row[] = [];
+      const cands: Cand[] = [];
+      const vol = new Map<number, number | null>();
       await pool(priced, 4, async (c) => {
         const offices: Office[] = [];
         for (const t of c.job.to) {
@@ -137,18 +161,18 @@ export function Freelance() {
         }
         const office = bestOffice(offices)!;
         const acc = whereToAccept(c.job.broadcast, (s) => reach.any.get(s) ?? null);
-        let m3 = 0, known = true;
+        // Every item bought before tax: after it, a job buys the same items or fewer.
         for (const t of c.types) {
+          if (vol.has(t.typeId)) continue;
           const info = await typeInfo(t.typeId).catch(() => null);
-          if (info) m3 += (info.packagedVolume ?? info.volume) * t.units; else known = false;
+          vol.set(t.typeId, info ? info.packagedVolume ?? info.volume : null);
         }
-        out.push({
-          ...c, office, offices: offices.length, flags: deliverFlags(office, c.job.expires, Date.now()), m3: known ? m3 : null,
+        cands.push({
+          job: c.job, typeIds: typesOf.get(c.job.id) ?? [], office, offices: offices.length, flags: deliverFlags(office, c.job.expires, Date.now()),
           accept: { fromJita: acc.fromJita, near: acc.nearest != null ? graph[acc.nearest]?.[1] ?? null : null, jumps: acc.jumps },
         });
       });
-      setRows(out.sort((a, b) => b.profit - a.profit));
-      setStats({ jobs: jobs.length, deliver: deliver.length, under: deliver.length - priced.length, at: Date.now() });
+      setFound({ cands, books, vol, jobs: jobs.length, deliver: deliver.length, at: Date.now() });
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'err');
     } finally {
@@ -197,13 +221,13 @@ export function Freelance() {
           <Figures items={[
             { key: 'jobs', value: units(stats.jobs), label: 'open jobs' },
             { key: 'want', value: units(stats.deliver), label: 'want an item' },
-            { key: 'under', value: units(stats.under), label: 'of those pay no more than Jita, or want something nobody lists' },
+            { key: 'under', value: units(stats.under), label: `of those pay no more than Jita${corp ? ' after tax' : ''}, or want something nobody lists` },
           ]} />
-          <span className="note small" style={{ margin: 0 }}>Priced against the live Jita book {ago(new Date(stats.at).toISOString(), now)}.</span>
+          <span className="note small" style={{ margin: 0 }}>Priced against the live Jita book {ago(new Date(stats.at).toISOString(), now)}. Profits are {afterTax(corp)}.</span>
         </div>
       )}
-      {rows && <JobTable title="Accept from Jita" sub="Broadcast within 5 jumps of Jita: accept it here, buy, haul, deliver" rows={fromJita} name={name} now={now} inJob={inJob} copy={copy} go={canDest ? go : null} />}
-      {rows && <JobTable title="Accept elsewhere" sub="Not listed in Jita: accept it within 5 jumps of the system named, and still buy everything in Jita" rows={elsewhere} name={name} now={now} inJob={inJob} copy={copy} go={canDest ? go : null} elsewhere />}
+      {rows && <JobTable title="Accept from Jita" sub="Broadcast within 5 jumps of Jita: accept it here, buy, haul, deliver" rows={fromJita} name={name} now={now} inJob={inJob} copy={copy} go={canDest ? go : null} corp={corp} />}
+      {rows && <JobTable title="Accept elsewhere" sub="Not listed in Jita: accept it within 5 jumps of the system named, and still buy everything in Jita" rows={elsewhere} name={name} now={now} inJob={inJob} copy={copy} go={canDest ? go : null} corp={corp} elsewhere />}
       <Points compact items={[
         { kind: 'warn', icon: Route, lead: 'Before the trip', text: 'the profit leaves out your time: weigh it against the jumps.' },
         { kind: 'info', lead: 'Pool and cap', text: 'a nearly empty pool or a cap per player limits what you can deliver; both are counted.' },
@@ -214,9 +238,9 @@ export function Freelance() {
   );
 }
 
-function JobTable({ title, sub, rows, name, now, inJob, copy, go, elsewhere }: {
+function JobTable({ title, sub, rows, name, now, inJob, copy, go, corp, elsewhere }: {
   title: string; sub: string; rows: Row[]; name: (id: number) => string; now: number; inJob: Map<string, JoinedJob>;
-  copy: (text: string) => void; go: ((id: number) => void) | null; elsewhere?: boolean;
+  copy: (text: string) => void; go: ((id: number) => void) | null; corp: CorpTax | null; elsewhere?: boolean;
 }) {
   const [all, setAll] = useState(false);
   const list = all ? rows : rows.slice(0, 15);
@@ -229,9 +253,11 @@ function JobTable({ title, sub, rows, name, now, inJob, copy, go, elsewhere }: {
           <table className="tbl compact" style={{ minWidth: 1060 }}>
             <thead><tr>
               <Th left>Job</Th><Th left>Deliver</Th>
-              <Th tip="What the job pays per unit, and the range of prices the units cost from the cheapest Jita listings">Pays / costs</Th>
-              <Th tip={'How many you can deliver: the smallest of three limits, and the line under the number says which one it is.\n\n• Needed: what the job still wants.\n• Your cap: the most one player may deliver, when the job sets one.\n• Under the reward: how many Jita sells for less than the job pays a unit; past that, buying costs more than it pays.'}>Units</Th>
-              <Th tip="The rewards less what buying them costs. No broker fee or tax on buying from listings. Before the haul.">Profit</Th>
+              <Th tip="What the job pays per unit, before your corporation’s tax, and the range of prices the units cost from the cheapest Jita listings">Pays / costs</Th>
+              <Th tip={'How many you can deliver: the smallest of three limits, and the line under the number says which one it is.\n\n• Needed: what the job still wants.\n• Your cap: the most one player may deliver, when the job sets one.\n• Under the reward: how many Jita sells for less than a unit pays after your corporation’s tax; past that, buying costs more than it pays.'}>Units</Th>
+              <Th tip={corp
+                ? `The rewards ${afterTax(corp)}, less what buying the units costs. Before the haul.\n\n• Your corporation takes its tax before a reward reaches your wallet; the rate is the one ESI gives for ${corp.name}, read on each sync.\n• No broker fee or tax on buying from listings.`
+                : `The rewards less what buying the units costs, ${afterTax(null)}. Before the haul.\n\n• Your corporation takes its tax before a reward reaches your wallet; the next sync reads its rate.\n• No broker fee or tax on buying from listings.`}>Profit</Th>
               <Th tip="What you’d carry">m³</Th>
               <Th left tip="The nearest office you can reach in high-sec, and the high-sec route from Jita">Deliver to</Th>
               {elsewhere && <Th left tip="The nearest system it’s broadcast in: be within 5 jumps of it to accept">Accept near</Th>}
@@ -249,9 +275,12 @@ function JobTable({ title, sub, rows, name, now, inJob, copy, go, elsewhere }: {
                     {r.types.length === 1 ? name(r.typeId) : r.types.slice(0, 3).map((t) => `${name(t.typeId)} ×${big(t.units)}`).join(', ')}
                     {r.job.item.kind === 'group' && <span className="sub">{r.types.length === 1 ? 'any of its group: the only one under the reward' : `${units(r.types.length)} of its group under the reward`}</span>}
                   </td>
-                  <td>{isk(r.job.perUnit)}<span className="sub" data-tip={`Average ${isk(r.cost / r.units)}`}>costs {r.low === r.high ? isk(r.low) : `${isk(r.low)}–${isk(r.high)}`}</span></td>
+                  <td><span data-tip={`${isk(r.net)} a unit to you ${afterTax(corp)}`}>{isk(r.job.perUnit)}</span><span className="sub" data-tip={`Average ${isk(r.cost / r.units)}`}>costs {r.low === r.high ? isk(r.low) : `${isk(r.low)}–${isk(r.high)}`}</span></td>
                   <td>{units(r.units)}<span className="sub">{r.limit === 'player' ? 'your cap on the job' : r.limit === 'left' ? 'all the job still needs' : 'all Jita sells under the reward'}</span></td>
-                  <td style={{ color: 'var(--pos)' }}>{iskBig(r.profit)}<span className="sub">{r.office.jumps ? `${iskBig(r.profit / r.office.jumps)} a jump` : ''}</span></td>
+                  <td style={{ color: 'var(--pos)', whiteSpace: 'normal', minWidth: 150 }}>{iskBig(r.profit)}
+                    <span className="sub" style={{ whiteSpace: 'normal' }}>{afterTax(corp)}</span>
+                    {r.office.jumps ? <span className="sub">{iskBig(r.profit / r.office.jumps)} a jump</span> : null}
+                  </td>
                   <td>{r.m3 != null ? units(Math.ceil(r.m3)) : '–'}</td>
                   <td className="l" style={{ whiteSpace: 'normal', minWidth: 180 }}>
                     {r.office.name ?? 'A player structure'}
