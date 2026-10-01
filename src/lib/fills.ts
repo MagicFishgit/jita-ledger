@@ -148,6 +148,68 @@ export function reachedAsk(highs: (number | null)[], k = FILL_TYPICAL): number |
 }
 
 /**
+ * The last few days of the fourteen, which a price has to be reached on too. A fortnight can hold two price levels:
+ * the user's first plan (30 September 2026) bid 270.7 M for a Caldari Navy Missile Guidance Computer whose lows had
+ * reached that on 5 of the 14 days, all in mid-September when it traded at 260-310 M; since the 25th it had traded at
+ * 359-375 M, and its bid sat unfilled. Praxis's 206.3 M bid was reached on 4 of the 14 and none of the last 5: it
+ * filled only after three raises to 208.4 M, and the trade lost 1.02 M.
+ */
+export const RECENT_DAYS = 5;
+/** Reached on fewer of the last RECENT_DAYS than this, a price isn't where the item trades lately. */
+export const RECENT_MIN = 2;
+/** The price reached on this many of the last RECENT_DAYS (the 3rd-lowest low, the 3rd-highest high) is where recent trading reaches. */
+export const RECENT_TYPICAL = 3;
+
+/** The last RECENT_DAYS of a fortnight's lows or highs (newest last), or null when fewer than RECENT_TYPICAL of them traded: too few to say. */
+function recentOf(xs: (number | null)[]): (number | null)[] | null {
+  const recent = xs.slice(-RECENT_DAYS);
+  return recent.filter((x) => x != null).length >= RECENT_TYPICAL ? recent : null;
+}
+
+/** On how many of the last RECENT_DAYS the bulk of trading got down to a bid; null when too few of them traded to say. */
+export function recentBidReach(lows: (number | null)[], price: number): number | null {
+  const r = recentOf(lows);
+  return r ? bidReachDays(r, price) : null;
+}
+
+/** On how many of the last RECENT_DAYS the bulk of trading got up to an ask; null when too few of them traded to say. */
+export function recentAskReach(highs: (number | null)[], price: number): number | null {
+  const r = recentOf(highs);
+  return r ? askReachDays(r, price) : null;
+}
+
+/** The lowest bid recent trading reached on RECENT_TYPICAL of the last RECENT_DAYS. */
+export function recentBid(lows: (number | null)[]): number | null {
+  const r = recentOf(lows);
+  return r ? reachedBid(r, RECENT_TYPICAL) : null;
+}
+
+/** The highest ask recent trading got up to on RECENT_TYPICAL of the last RECENT_DAYS. */
+export function recentAsk(highs: (number | null)[]): number | null {
+  const r = recentOf(highs);
+  return r ? reachedAsk(r, RECENT_TYPICAL) : null;
+}
+
+const higherOf = (a: number | null, b: number | null) => (a == null ? b : b == null ? a : Math.max(a, b));
+const lowerOf = (a: number | null, b: number | null) => (a == null ? b : b == null ? a : Math.min(a, b));
+
+/**
+ * A bid trading reaches on both windows: the higher of where it reached on half the fortnight (`reachedBid`) and on
+ * RECENT_TYPICAL of the last RECENT_DAYS (`recentBid`), whichever can be said.
+ */
+export const bidBothWindows = (lows: (number | null)[]): number | null => higherOf(reachedBid(lows), recentBid(lows));
+/** An ask trading reaches on both windows: the lower of the two. */
+export const askBothWindows = (highs: (number | null)[]): number | null => lowerOf(reachedAsk(highs), recentAsk(highs));
+
+/**
+ * Place and leave's bid: where trading reaches on half the fortnight, raised to where it reached lately when that's
+ * higher. Null without the days to say where it reaches on the fortnight: such an item isn't priced this way.
+ */
+export const patientBid = (lows: (number | null)[]): number | null => (reachedBid(lows) == null ? null : bidBothWindows(lows));
+/** Place and leave's ask: where trading got up to on half the fortnight, lowered to where it got lately when that's lower. */
+export const patientAsk = (highs: (number | null)[]): number | null => (reachedAsk(highs) == null ? null : askBothWindows(highs));
+
+/**
  * Where a new listing sells, the way Orders judges every sell since 28 September 2026: one step under the cheapest
  * listing when the bulk of trading got up there on at least FILL_RARE of the last 14 days; otherwise where it got up
  * to on half of them (`reachedAsk`), never under one step over the best bid, since a listing there would only sell into

@@ -2455,10 +2455,11 @@ console.log('\n--- whether trading reaches a bid ---');
   eq('the sell side counts days trading got up to an ask', F.askReachDays([10, null, 12, 9], 10), 2);
 
   const scoop = bidToPlace(101.6 * M, scoopLows);
-  eq('Prospects prices the scoop’s buy where trading reached, not one step over the best bid', [scoop.top, scoop.buy, scoop.bidReach, scoop.raised], [101.7 * M, 104.9 * M, 1, true]);
+  // Reached on 7 of the 14 days at 104.9 M; on 3 of the last 5 (103.7, 105.0, 99.99, 107.8, 110.5) only at 105.0 M.
+  eq('Prospects prices the scoop’s buy where trading reached on both windows, not one step over the best bid', [scoop.top, scoop.buy, scoop.bidReach, scoop.raised, scoop.window], [101.7 * M, 105 * M, 1, true, 'fortnight']);
   const busy = bidToPlace(100, [99, 98, 100, 97, 99, 98, 99, 100, 98, 97, 99, 98, 99, 98]);
   eq('  a bid trading reaches every day stays one step over the best', [busy.buy, busy.raised], [100.1, false]);
-  eq('  without the lows, nothing is claimed', bidToPlace(100, undefined), { top: 100.1, buy: 100.1, bidReach: null, raised: false });
+  eq('  without the lows, nothing is claimed', bidToPlace(100, undefined), { top: 100.1, buy: 100.1, bidReach: null, recentReach: null, window: null, raised: false });
 
   // A day that traded only near the ask says nothing about dumping. Ten two-sided days at an even
   // split, then twenty quiet days trading high in the week's range with their average at their own low.
@@ -3481,7 +3482,7 @@ console.log('\n--- the sell side judged like the buy side ---');
   eq('  so the 59% flip that bought at 4.36 M and sold at 7.4 M leaves no margin at all', a.sell < b.buy, true);
   const busy = askToPlace(25_690, [25_700, 25_660, 25_900, 25_800, 25_720, 25_680, 25_750, 25_710, 25_700, 25_690, 25_900, 25_880, 25_700, 25_760]);
   eq('an ask trading gets up to on most days stays one step under the best', [busy.lowered, busy.sell], [false, 25_680]);
-  eq('without highs nothing is claimed', askToPlace(100, null), { top: 99.99, sell: 99.99, askReach: null, lowered: false });
+  eq('without highs nothing is claimed', askToPlace(100, null), { top: 99.99, sell: 99.99, askReach: null, recentReach: null, window: null, lowered: false });
   eq('the highest sale watched since a scan counts over the same days', withWatchedHighs([5, null, 6], '2026-09-26', { '2026-09-25': { sellHigh: 9 } }), [5, 9, 6]);
 }
 
@@ -3601,6 +3602,109 @@ console.log('\n--- place and leave: priced where trading reaches ---');
   const dead = judgeProspect(st, { ...book, bestBuy: 70, topBuys: [{ price: 70, volume: 5000 }] }, S, { ...fl, patient: true }, 40);
   eq('  with the front below where trading reaches, the bid is still where it reaches', dead.buy, pb);
   eq('  without the days to say where trading reaches, it is left out', judgeProspect({ ...st, lows14: undefined }, book, S, { ...fl, patient: true }, 40), null);
+}
+
+console.log('\n--- the planner prices from recent days (the user\'s first plan, 30 September 2026) ---');
+{
+  const fs3 = await import('node:fs');
+  const fx = JSON.parse(fs3.readFileSync(new URL('./fixtures/plan-review.json', import.meta.url), 'utf8'));
+  const P = await import('../src/lib/prospects.ts');
+  const Fl = await import('../src/lib/fills.ts');
+  const { judgeProspect } = await import('../src/lib/evaluate.ts');
+  const { PLANNER_EXCLUDES: ex, plannerFilters } = await import('../src/lib/planner.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const M = 1e6;
+  // The cloud's full scan the plan was priced from ran at 11:30 UTC on 29 September, with history to the 28th.
+  const scanAt = Date.parse('2026-09-29T11:30:00Z');
+  const st = (t) => P.statsFrom(t, fx[t].rows, scanAt);
+  // The user's own settings (the synced document): broker 1.25% from skills and standings, tax 3.375%, share 7.5%.
+  const S = sanitizeSettings({ acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, tycoon: 0, clone: 'omega', faction: 3.6289558729999998, corp: 7.039647095, taxBase: 7.5, override: false, target: 5, share: 7.5 });
+  const fl = plannerFilters(null, 1e9, 7);
+  const book = (bid, ask) => ({ at: new Date(scanAt).toISOString(), bestBuy: bid, bestSell: ask, buyOrders: 20, sellOrders: 30, topBuys: [{ price: bid, volume: 1 }], topSells: [{ price: ask, volume: 1 }] });
+  eq('the recent window: 5 days, reached on 2 of them', [Fl.RECENT_DAYS, Fl.RECENT_MIN], [5, 2]);
+
+  // Caldari Navy Missile Guidance Computer: its lows at or under 270.7 M on 5 of the 14 days, mid-September, when it
+  // traded 260-310 M; since 25 September at 359-375 M, with one dip.
+  const gc = st(94063);
+  eq('  the Guidance Computer\'s 14 days end on 28 September', gc.lowsEnd, '2026-09-28');
+  const gcBid = P.bidToPlace(270.6 * M, gc.lows14);
+  eq('the Guidance Computer\'s front bid, 270.7 M, is reached on 5 of 14 days but only 1 of the last 5', [gcBid.top, gcBid.bidReach, gcBid.recentReach], [270.7 * M, 5, 1]);
+  eq('  so it is raised to where trading reached lately (3 of the last 5 days), and says the recent window decided', [gcBid.buy, gcBid.raised, gcBid.window], [369.5 * M, true, 'recent']);
+  eq('  over its 359.9 M ask: it drops out of the planner rather than being priced from the older level', judgeProspect(gc, book(270.6 * M, 360 * M), S, fl, 50), null);
+  eq('  a recent reach count is that window\'s alone', Fl.recentBidReach(gc.lows14, 270.7 * M), 1);
+
+  // Praxis: the plan bought at 206.3 M and sold at 226 M. Its ask is reached on both windows; its bid wasn't reached
+  // lately (0 of the last 5 days on ESI's lows), and the user had to raise it three times to 208.4 M before it filled.
+  const px = st(47466);
+  const pxAsk = P.askToPlace(226.1 * M, px.highs14);
+  eq('Praxis\'s ask, 226 M, is reached on 4 of 14 days and 4 of the last 5: left where it is', [pxAsk.sell, pxAsk.askReach, pxAsk.recentReach, pxAsk.lowered, pxAsk.window], [226 * M, 4, 4, false, null]);
+  const pxBid = P.bidToPlace(206.2 * M, px.lows14);
+  eq('  its bid, 206.3 M, on 4 of 14 but none of the last 5: raised to 210.5 M, reached on 3 of the last 5', [pxBid.bidReach, pxBid.recentReach, pxBid.buy, pxBid.window], [4, 0, 210.5 * M, 'recent']);
+  // The cloud watched bids fill at 207.1 M on the 27th and 204.0 M on the 28th: one more recent day, still under 2.
+  const watchedPx = { '2026-09-27': { buyLow: 207.1 * M }, '2026-09-28': { buyLow: 204 * M } };
+  const pxW = P.bidToPlace(206.2 * M, Fl.withWatchedLows(px.lows14, px.lowsEnd, watchedPx));
+  eq('  with the fills the cloud watched, still reached on only 1 of the last 5', [pxW.recentReach, pxW.buy], [1, 210.5 * M]);
+  eq('  at 210.5 M against 226 M it misses the 3% the planner asks: left out, where the plan expected +3.2%', judgeProspect(px, book(206.2 * M, 226.1 * M), S, fl, 50, false, { days: watchedPx }), null);
+  const pxAny = judgeProspect(px, book(206.2 * M, 226.1 * M), S, { ...fl, minRoi: 0 }, 50, false, { days: watchedPx });
+  eq('  priced anyway, it is flagged as not reached lately', [pxAny.buy, pxAny.bidWindow, pxAny.bidRecent, pxAny.warnings.includes('unreached')], [210.5 * M, 'recent', 1, true]);
+
+  // A market reached on both windows keeps its front.
+  const flat = Array.from({ length: 14 }, () => 100);
+  eq('a bid reached on every day stays one step over the best', [P.bidToPlace(99.99, flat).buy, P.bidToPlace(99.99, flat).window], [100, null]);
+  // Too few recent days traded to say where recent trading reaches: the fortnight alone decides, as before.
+  const sparse = [95, 96, 94, 95, 97, 93, 96, 95, 94, 96, null, 99, null, null];
+  eq('  with under 3 of the last 5 days traded, the recent window doesn\'t decide', [P.bidToPlace(95.99, sparse).recentReach, P.bidToPlace(95.99, sparse).window, P.bidToPlace(95.99, sparse).buy], [null, null, 96]);
+
+  // Place and leave takes the recent window too: the higher bid and the lower ask of the two windows.
+  const lows = [90, 90, 90, 90, 90, 90, 90, 90, 90, 95, 96, 97, 98, 99];
+  eq('place and leave: the bid reached on half the fortnight and 3 of the last 5', [Fl.reachedBid(lows), Fl.recentBid(lows), Fl.patientBid(lows)], [90, 97, 97]);
+  const highs = [120, 120, 120, 120, 120, 120, 120, 120, 120, 110, 109, 108, 107, 106];
+  eq('  and the ask', [Fl.reachedAsk(highs), Fl.recentAsk(highs), Fl.patientAsk(highs)], [120, 108, 108]);
+
+  // Vigilance Resonance Key: about 21-23 M through August and early September, then 28 M, then 36-45 M from the 24th.
+  const vk = st(89156);
+  eq('the Vigilance Resonance Key ran up: its last 3 days average 60% over the month before them', [Math.round(vk.runUp * 100), Math.round(vk.runUpBase / 1e4) / 100], [60, 22.89]);
+  const shape = { buyOrders: 20, sellOrders: 30, topBuys: [{ price: 1, volume: 1 }], topSells: [{ price: 2, volume: 1 }] };
+  eq('  flagged as a run-up, and the planner leaves it out', [vk.runUp > P.RUN_UP, P.warningsFor(vk, shape, 0.1, 40).includes('runUp'), ex.includes('runUp')], [true, true, true]);
+  for (const t of [47466, 33140, 94063]) {
+    const s = st(t);
+    eq(`  ${fx[t].name} did not (${Math.round(s.runUp * 100)}%)`, [s.runUp < P.RUN_UP, P.warningsFor(s, shape, 0.1, 40).includes('runUp')], [true, false]);
+  }
+  eq('  a run-up is worked out only when the latest day is recent; otherwise it is 0, never absent', P.statsFrom(89156, fx[89156].rows, Date.parse('2026-10-08T12:00:00Z')).runUp, 0);
+  eq('  stats from before it was kept claim nothing', P.warningsFor({ ...vk, runUp: undefined }, shape, 0.1, 40).includes('runUp'), false);
+}
+
+console.log('\n--- a busy market\'s raises are kept back ---');
+{
+  const { judgeProspect, RAISES_RESERVED, RESERVE_WATCH_H } = await import('../src/lib/evaluate.ts');
+  const { DEFAULT_SETTINGS, rates } = await import('../src/lib/fees.ts');
+  const { DEFAULT_FILTERS } = await import('../src/lib/prospects.ts');
+  const now = Date.parse('2026-09-28T00:00:00Z');
+  // A steady market trading between 90 and 110 every day: both fronts reached on every day.
+  const hist = Array.from({ length: 30 }, (_, i) => ({ date: new Date(now - (30 - i) * 86400_000).toISOString().slice(0, 10), average: 100, lowest: 90, highest: 110, volume: 20_000, order_count: 200 }));
+  const st = statsFrom(34, hist, now);
+  const book = { at: new Date(now).toISOString(), bestBuy: 95, bestSell: 105, buyOrders: 20, sellOrders: 20, topBuys: [{ price: 95, volume: 5000 }], topSells: [{ price: 105, volume: 5000 }] };
+  const fl = { ...DEFAULT_FILTERS, budget: 1e9, horizonDays: 30, partial: true, minRoi: 0, minTrades: 0, minDays: 0 };
+  const S = { ...DEFAULT_SETTINGS, share: 10, br: 5, acc: 5, abr: 5, clone: 'omega' };
+  const { k } = rates(S);
+  eq('two raises a side, after a day of watching', [RAISES_RESERVED, RESERVE_WATCH_H], [2, 24]);
+  // Praxis's shape in the cloud's watch: more new bids at the front than sold into bids, more new listings than bought.
+  const busy = { h: 30, sell: 37, buy: 12, newSell: 74, newBuy: 30 };
+  const p = judgeProspect(st, book, S, fl, 40, false, { flow: busy });
+  const short = judgeProspect(st, book, S, fl, 40, false, { flow: { ...busy, h: 10 } });
+  eq('more units newly placed at the front than filled, on both sides, over 24+ hours: 2 raises a side', [p.raiseReserve?.buy, p.raiseReserve?.sell], [2, 2]);
+  eq('  each a change fee on the order\'s value', p.raiseReserve.isk, 2 * k * p.buy + 2 * k * p.sell);
+  eq('  the same prices and size without them', [short.buy, short.sell, short.qty], [p.buy, p.sell, p.qty]);
+  eq('  and its return drops by those 4 change fees', short.roi - p.roi, (2 * k * p.buy + 2 * k * p.sell) * p.qty / p.capital);
+  eq('  as does what it makes a day', short.iskPerDay > p.iskPerDay && short.roiPerDay > p.roiPerDay, true);
+  const quiet = judgeProspect(st, book, S, fl, 40, false, { flow: { ...busy, newBuy: 5 } });
+  eq('fewer new bids than sold into bids: none kept back on the buy side', [quiet.raiseReserve?.buy, quiet.raiseReserve?.sell], [0, 2]);
+  eq('watched only 10 hours: none', short.raiseReserve, undefined);
+  eq('nothing new placed on either side: none', judgeProspect(st, book, S, fl, 40, false, { flow: { h: 30, sell: 0, buy: 0, newSell: 0, newBuy: 0 } }).raiseReserve, undefined);
+  eq('a plan placed to be left alone keeps none: it isn\'t moved', judgeProspect(st, book, S, { ...fl, patient: true }, 40, false, { flow: busy }).raiseReserve, undefined);
+  // The reserve comes off before "Return ≥ %": a thin margin that only the raises eat is left out.
+  const roiFree = short.roi;
+  eq('  before the return filter', judgeProspect(st, book, S, { ...fl, minRoi: roiFree - (short.roi - p.roi) / 2 }, 40, false, { flow: busy }), null);
 }
 
 console.log('\n--- the sniper ---');

@@ -1,6 +1,6 @@
 import type { BookLevel, HistRow, ProspectFilters, ProspectStats, ProspectWarning } from './types';
 import { buyerShare } from './split';
-import { askReachDays, bidReachDays, FILL_RARE, reachedAsk, reachedBid, recentRange } from './fills';
+import { askBothWindows, askReachDays, bidBothWindows, bidReachDays, FILL_RARE, recentAskReach, recentBidReach, recentRange, RECENT_MIN } from './fills';
 import { tickDown, tickUp } from './tick';
 
 const DAY = 86400_000;
@@ -107,6 +107,17 @@ export function statsFrom(typeId: number, rows: HistRow[], now = Date.now()): Pr
   const before = sorted.slice(-14, -1).map((r) => r.average);
   const usualBefore = before.length >= 5 ? median(before) : 0;
   const lastMove = latest && within(latest, 3) && usualBefore > 0 ? latest.average / usualBefore - 1 : 0;
+  // The last few days against the month before them: a climb over several days, which `lastMove` (the latest day
+  // alone against the fortnight, which the climb is already part of) misses. Volume-weighted over the days, against
+  // the median day's average over the RUN_UP_BEFORE days before them. 0, never absent, when it can't be said.
+  const latestT = latest ? Date.parse(latest.date + 'T00:00:00Z') : NaN;
+  const ago = (r: HistRow) => (latestT - Date.parse(r.date + 'T00:00:00Z')) / DAY;
+  const lastDays = rows.filter((r) => ago(r) >= 0 && ago(r) < RUN_UP_DAYS);
+  const monthBefore = rows.filter((r) => ago(r) >= RUN_UP_DAYS && ago(r) < RUN_UP_DAYS + RUN_UP_BEFORE).map((r) => r.average);
+  const runUpBase = monthBefore.length >= 5 ? median(monthBefore) : 0;
+  const lastVol = lastDays.reduce((t, r) => t + r.volume, 0);
+  const lastAvg = lastVol > 0 ? lastDays.reduce((t, r) => t + r.volume * r.average, 0) / lastVol : 0;
+  const runUp = latest && within(latest, 3) && runUpBase > 0 && lastAvg > 0 ? lastAvg / runUpBase - 1 : 0;
   return {
     typeId,
     at: new Date(now).toISOString(),
@@ -126,6 +137,8 @@ export function statsFrom(typeId: number, rows: HistRow[], now = Date.now()): Pr
     lowsEnd: lows.end,
     highs14: lows.highs,
     lastMove,
+    runUp,
+    runUpBase,
   };
 }
 
@@ -135,6 +148,18 @@ export function statsFrom(typeId: number, rows: HistRow[], now = Date.now()): Pr
  * old level and selling at the new, with both prices "reached" on days that traded from 3 M to 9 M.
  */
 export const MOVED = 0.5;
+
+/**
+ * The last RUN_UP_DAYS days' average this far over the median day of the RUN_UP_BEFORE days before them: the price
+ * has run up, and a spread priced off the climb is gone when it falls back. The Vigilance Resonance Key traded about
+ * 21-23 M through August and early September, then 28 M, then 36-45 M from 24 September: the user's first plan put
+ * 40% of its ISK in at 24.96 M to sell at 35.99 M, an ask reached only on the climb's days. By 1 October the best ask
+ * was 29.93 M. `lastMove` (the latest day alone) read +28% that morning, under MOVED. Upward only: a fall is caught by
+ * the ask's recent reach (askToPlace).
+ */
+export const RUN_UP = 0.5;
+export const RUN_UP_DAYS = 3;
+export const RUN_UP_BEFORE = 30;
 
 /** A day counts as a spike when it trades this many times the usual volume... */
 export const SPIKE_VOLUME = 5;
@@ -257,32 +282,47 @@ export function passesGate(
 }
 
 /**
- * The bid you'd actually place. One legal step above the best, unless the bulk of trading hasn't been
- * getting down there (reached on fewer than FILL_RARE of the last 14 days): then it's where trading did
- * reach on half of them. A best bid nobody sells into is not a price you can buy at. Without the lows
- * (stats cached before they were kept) it's the step above the best, and nothing is claimed.
+ * Which window said a price at the front isn't reached: the fortnight (fewer than FILL_RARE of the last 14 days) or,
+ * the fortnight being fine, the last few days (fewer than RECENT_MIN of the last RECENT_DAYS). Null: the front is
+ * reached on both, or nothing can be said.
  */
-export function bidToPlace(bestBuy: number, lows?: (number | null)[] | null): { top: number; buy: number; bidReach: number | null; raised: boolean } {
+export type ReachWindow = 'fortnight' | 'recent' | null;
+
+/**
+ * The bid you'd actually place. One legal step above the best, if the bulk of trading has been getting down there on
+ * at least FILL_RARE of the last 14 days *and* RECENT_MIN of the last RECENT_DAYS. Otherwise it's where trading did
+ * reach on both: the higher of the bid reached on half the fortnight and the one reached on 3 of the last 5 days
+ * (`bidBothWindows`). A best bid nobody sells into is not a price you can buy at, and one only an older price level
+ * reached isn't either (fills.ts, RECENT_DAYS). `window` says which test the front failed, so a flag can say "not
+ * reached lately" rather than "not reached". Without the lows (stats cached before they were kept) it's the step
+ * above the best, and nothing is claimed; with too few recent days traded to say, the fortnight decides alone.
+ */
+export function bidToPlace(bestBuy: number, lows?: (number | null)[] | null): { top: number; buy: number; bidReach: number | null; recentReach: number | null; window: ReachWindow; raised: boolean } {
   const top = tickUp(bestBuy);
   const bidReach = lows ? bidReachDays(lows, top) : null;
-  const reached = lows && bidReach != null && bidReach < FILL_RARE ? reachedBid(lows) : null;
+  const recentReach = lows ? recentBidReach(lows, top) : null;
+  const window: ReachWindow = bidReach == null ? null : bidReach < FILL_RARE ? 'fortnight' : recentReach != null && recentReach < RECENT_MIN ? 'recent' : null;
+  const reached = lows && window ? bidBothWindows(lows) : null;
   const buy = reached != null && reached > top ? reached : top;
-  return { top, buy, bidReach, raised: buy !== top };
+  return { top, buy, bidReach, recentReach, window, raised: buy !== top };
 }
 
 /**
- * The ask you'd actually list at, the other half of the same test. One legal step under the best ask, unless the
- * bulk of trading hasn't been getting up there (reached on fewer than FILL_RARE of the last 14 days): then it's
- * where trading did reach on half of them. An ask nobody buys at is not a price you can sell at. True Sansha EM
- * Armor Hardener, a month around 3.4 M with one day at 7 M, showed a 59% flip buying where it had traded and
- * selling where it had just jumped to; neither side would fill. Without the highs it's the step under the best.
+ * The ask you'd actually list at, the other half of the same test. One legal step under the best ask, if the bulk of
+ * trading has been getting up there on FILL_RARE of the last 14 days and RECENT_MIN of the last RECENT_DAYS;
+ * otherwise where it did on both, the lower of the two windows' asks (`askBothWindows`). An ask nobody buys at is not
+ * a price you can sell at. True Sansha EM Armor Hardener, a month around 3.4 M with one day at 7 M, showed a 59% flip
+ * buying where it had traded and selling where it had just jumped to; neither side would fill. Without the highs it's
+ * the step under the best.
  */
-export function askToPlace(bestSell: number, highs?: (number | null)[] | null): { top: number; sell: number; askReach: number | null; lowered: boolean } {
+export function askToPlace(bestSell: number, highs?: (number | null)[] | null): { top: number; sell: number; askReach: number | null; recentReach: number | null; window: ReachWindow; lowered: boolean } {
   const top = tickDown(bestSell);
   const askReach = highs ? askReachDays(highs, top) : null;
-  const reached = highs && askReach != null && askReach < FILL_RARE ? reachedAsk(highs) : null;
+  const recentReach = highs ? recentAskReach(highs, top) : null;
+  const window: ReachWindow = askReach == null ? null : askReach < FILL_RARE ? 'fortnight' : recentReach != null && recentReach < RECENT_MIN ? 'recent' : null;
+  const reached = highs && window ? askBothWindows(highs) : null;
   const sell = reached != null && reached < top ? reached : top;
-  return { top, sell, askReach, lowered: sell !== top };
+  return { top, sell, askReach, recentReach, window, lowered: sell !== top };
 }
 
 export type BookShape = {
@@ -295,7 +335,7 @@ export type BookShape = {
  * than folded into the score, because whether they matter depends on how you trade.
  */
 export function warningsFor(
-  stats: Pick<ProspectStats, 'dailyRange' | 'trend' | 'tradesPerDay'> & Partial<Pick<ProspectStats, 'high30' | 'spike' | 'unitsPerDay' | 'lastMove'>>,
+  stats: Pick<ProspectStats, 'dailyRange' | 'trend' | 'tradesPerDay'> & Partial<Pick<ProspectStats, 'high30' | 'spike' | 'unitsPerDay' | 'lastMove' | 'runUp'>>,
   book: BookShape,
   spreadPct: number,
   estOrders: number,
@@ -318,6 +358,8 @@ export function warningsFor(
   // A recent day far busier than usual at an unusual price: someone may be moving it to lure traders in.
   if (stats.spike) out.push('spike');
   if (stats.lastMove != null && Math.abs(stats.lastMove) > MOVED) out.push('moved');
+  // Absent on stats from before it was kept: nothing is claimed (the planner says to scan again).
+  if (stats.runUp != null && stats.runUp > RUN_UP) out.push('runUp');
   return out;
 }
 

@@ -179,6 +179,13 @@ export type ProspectStats = {
   highs14?: (number | null)[];
   /** The latest day's average against the median of the days before it, as a fraction: a price that just moved. */
   lastMove?: number;
+  /**
+   * The last 3 days' average price against the median day of the 30 before them, less 1: a price that has run up
+   * (prospects.ts, RUN_UP). 0 when it can't be said; absent on stats from before it was kept.
+   */
+  runUp?: number;
+  /** That median day's average, the month the run-up is measured against. Absent on older stats. */
+  runUpBase?: number;
   /** The highest price anyone paid in the window. Nothing honest bids far above it. */
   high30?: number;
   /** A recent day traded several times the usual volume at an unusual price. */
@@ -187,7 +194,7 @@ export type ProspectStats = {
   range7?: number[];
 };
 
-export type ProspectWarning = 'thin' | 'fluke' | 'falling' | 'crowded' | 'wall' | 'escrow' | 'spike' | 'moved' | 'unreached' | 'unreachedSell' | 'slow';
+export type ProspectWarning = 'thin' | 'fluke' | 'falling' | 'crowded' | 'wall' | 'escrow' | 'spike' | 'moved' | 'runUp' | 'unreached' | 'unreachedSell' | 'slow';
 
 /** A candidate that cleared the gate, priced against the live book. */
 export type Prospect = {
@@ -223,6 +230,18 @@ export type Prospect = {
   askReach?: number | null;
   /** True when `sell` was lowered from one step under the best ask to where trading actually reached. */
   sellLowered?: boolean;
+  /** Of the last 5 days, how many reached a bid one step above the best; null when too few traded to say. Absent on a patient plan. */
+  bidRecent?: number | null;
+  /** Which window found the front bid not reached: the fortnight, or the last few days ("not reached lately"). */
+  bidWindow?: 'fortnight' | 'recent';
+  /** The same for the ask. */
+  askRecent?: number | null;
+  askWindow?: 'fortnight' | 'recent';
+  /**
+   * Price changes kept back per side, and what they cost a unit, when the watch of the item's Jita book shows you'd
+   * typically be beaten before you fill (evaluate.ts, RAISES_RESERVED). Already taken off `net`, `roi` and what follows.
+   */
+  raiseReserve?: { buy: number; sell: number; isk: number };
   /** Priced to place and leave (`ProspectFilters.patient`): both prices are where trading reaches on half the days. */
   patient?: boolean;
   warnings: ProspectWarning[];

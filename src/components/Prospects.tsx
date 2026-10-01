@@ -5,7 +5,8 @@ import {
 } from 'lucide-react';
 import { ago, isk, iskBig, iskSigned, pct, plainNum, units } from '../lib/format';
 import { resolveNames } from '../lib/market';
-import { absorbable, BUSY_SHOWN, DEFAULT_FILTERS, FIRST_DIR, horizonSaid, horizonShort, HORIZONS, passesGate, SLOW_DAYS, snapHorizon, sortProspects, type Sort, type SortKey } from '../lib/prospects';
+import { absorbable, BUSY_SHOWN, DEFAULT_FILTERS, FIRST_DIR, horizonSaid, horizonShort, HORIZONS, passesGate, RUN_UP, RUN_UP_BEFORE, RUN_UP_DAYS, SLOW_DAYS, snapHorizon, sortProspects, type Sort, type SortKey } from '../lib/prospects';
+import { FILL_RARE, FILL_WINDOW, RECENT_DAYS, RECENT_TYPICAL } from '../lib/fills';
 import { clearScan, coverage, loadCache, rankProspects, runScan, stopScan, useScanState, type ScanCache } from '../lib/scan';
 import { COMPETITION_PIVOT, SPLIT_SAID } from '../lib/split';
 import { useFlow } from '../lib/flowStore';
@@ -29,9 +30,44 @@ export const WARNING: Record<ProspectWarning, { short: string; why: string }> = 
   crowded: { short: 'Crowded', why: 'Hundreds of listings against very few trades. You would be joining a queue, not a market.' },
   slow: { short: 'Locks ISK for weeks', why: `At your share of the trade, this position takes more than ${SLOW_DAYS} days to buy in and sell out.\n\nFine if you meant to hold it that long, but the ISK is tied up the whole time and the market can move against you meanwhile.` },
   moved: { short: 'Price just moved', why: 'The latest day traded more than 50% away from the two weeks before it. The spread straddles the old price and the new one: a bid where it used to trade won’t fill if the new level holds, and an ask at the new level won’t sell if it falls back.\n\nWait a few days for the market to settle before trading it. The Capital planner leaves these out.' },
-  unreachedSell: { short: 'Sells not reached', why: 'The bulk of trading hasn’t been getting up to the best ask: on fewer than 4 of the last 14 days did the day’s trading reach it.\n\nBuyers here haven’t been paying that much, often because the price has just jumped. The prices shown assume you list where trading did reach, on 7 of the last 14 days (in Busy markets, the top of the book instead), so the margin is what trading supports, not what the best ask promises.' },
-  unreached: { short: 'Bids not reached', why: 'The bulk of trading hasn’t been getting down to the best bid: on fewer than 4 of the last 14 days did the day’s trading reach it.\n\nSellers here list and wait rather than sell into buy orders, so a bid at the top can sit for weeks with your ISK held in it. The prices shown assume you bid where trading did reach, on 7 of the last 14 days (in Busy markets, the top of the book instead).\n\nESI’s daily low leaves out a small share of trades, so some units still sell lower: on a very busy market that can be thousands a day, which is why Busy markets prices at the top.' },
+  runUp: { short: 'Ran up lately', why: `The last ${RUN_UP_DAYS} days averaged more than ${pct(RUN_UP, 0)} over the median day of the ${RUN_UP_BEFORE} before them: the price has run up.\n\nA spread priced off the climb is gone when it falls back, and an ask looks reached only because of the climb’s days. “Price just moved” looks at the latest day alone; this looks at the last few.\n\nWait for it to settle before trading it. The Capital planner leaves these out.` },
+  unreachedSell: { short: 'Sells not reached', why: `The bulk of trading hasn’t been getting up to the best ask: on fewer than ${FILL_RARE} of the last ${FILL_WINDOW} days did the day’s trading reach it.\n\nBuyers here haven’t been paying that much, often because the price has just jumped. The prices shown assume you list where trading did reach, on half of the last ${FILL_WINDOW} days and ${RECENT_TYPICAL} of the last ${RECENT_DAYS} (in Busy markets, the top of the book instead), so the margin is what trading supports, not what the best ask promises.` },
+  unreached: { short: 'Bids not reached', why: `The bulk of trading hasn’t been getting down to the best bid: on fewer than ${FILL_RARE} of the last ${FILL_WINDOW} days did the day’s trading reach it.\n\nSellers here list and wait rather than sell into buy orders, so a bid at the top can sit for weeks with your ISK held in it. The prices shown assume you bid where trading did reach, on half of the last ${FILL_WINDOW} days and ${RECENT_TYPICAL} of the last ${RECENT_DAYS} (in Busy markets, the top of the book instead).\n\nESI’s daily low leaves out a small share of trades, so some units still sell lower: on a very busy market that can be thousands a day, which is why Busy markets prices at the top.` },
 };
+
+/**
+ * A flag's reason for one item: the run-up with its two figures, and "not reached lately" when the fortnight reached
+ * the front but the last few days didn't. Otherwise the flag's own reason.
+ */
+export function warningWhy(w: ProspectWarning, p: Pick<Prospect, 'stats' | 'bidReach' | 'bidRecent' | 'bidWindow' | 'askReach' | 'askRecent' | 'askWindow'>): string {
+  const s = p.stats;
+  if (w === 'runUp' && s.runUp != null && s.runUpBase != null && s.runUpBase > 0) {
+    return `The last ${RUN_UP_DAYS} days averaged ${iskBig(s.runUpBase * (1 + s.runUp))}, ${pct(s.runUp, 0)} over the median day of the ${RUN_UP_BEFORE} before them, ${iskBig(s.runUpBase)}: the price has run up.\n\n${WARNING.runUp.why.split('\n\n').slice(1).join('\n\n')}`;
+  }
+  if (w === 'unreached' && p.bidWindow === 'recent') {
+    return `The bulk of trading got down to the best bid on ${p.bidReach} of the last ${FILL_WINDOW} days, but on ${p.bidRecent ? `only ${p.bidRecent}` : 'none'} of the last ${RECENT_DAYS}: not lately.\n\nThe price has moved up since those days, so a bid at the top would sit. The prices shown assume you bid where trading did reach on both, half of the last ${FILL_WINDOW} days and ${RECENT_TYPICAL} of the last ${RECENT_DAYS} (in Busy markets, the top of the book instead).`;
+  }
+  if (w === 'unreachedSell' && p.askWindow === 'recent') {
+    return `The bulk of trading got up to the best ask on ${p.askReach ?? 0} of the last ${FILL_WINDOW} days, but on ${p.askRecent ? `only ${p.askRecent}` : 'none'} of the last ${RECENT_DAYS}: not lately.\n\nBuyers have stopped paying that much, often as a climb falls back. The prices shown assume you list where trading did get up to on both, half of the last ${FILL_WINDOW} days and ${RECENT_TYPICAL} of the last ${RECENT_DAYS} (in Busy markets, the top of the book instead).`;
+  }
+  return WARNING[w].why;
+}
+
+/**
+ * The raises kept back on an item (evaluate.ts, RAISES_RESERVED): how many, where, and what they take off the return.
+ * `said` is the tip's lead, "2 raises a side kept back: −0.98%". Null without any.
+ */
+export function raisesKept(p: Pick<Prospect, 'raiseReserve' | 'qty' | 'capital'>): { said: string; count: string; cut: string } | null {
+  const r = p.raiseReserve;
+  if (!r || !(r.buy > 0 || r.sell > 0)) return null;
+  const cut = pct(-(r.isk * p.qty) / Math.max(p.capital, 1), 2);
+  const n = Math.max(r.buy, r.sell);
+  const count = `${n} raise${n === 1 ? '' : 's'} ${r.buy > 0 && r.sell > 0 ? 'a side' : r.buy > 0 ? 'on the buy side' : 'on the sell side'}`;
+  return { said: `${count} kept back: ${cut}`, count, cut };
+}
+
+/** The why of the raises kept back: the lead, then how it's worked out. */
+export const raisesWhy = (said: string) => `${said}.\n\n• The watch of its Jita book saw at least as many units newly placed at the front as filled there, over a day or more: you’d typically be beaten before you fill, and move.\n• Each price change costs the broker fee less your Advanced Broker Relations discount, on the order’s whole value. That much is already off the return and the ranking.`;
 
 /** How long the money is in, in a unit that reads naturally. */
 export function flip(days: number): string {
@@ -263,7 +299,7 @@ export function Prospects() {
           { icon: Radar, title: 'Scan first', body: 'A quick scan skims the busiest markets in about a minute and a half. A deep scan samples three times as much — run it when you have time and leave it going.' },
           { icon: SlidersHorizontal, title: 'Set filters to your wallet', body: 'ISK per item and horizon are the key two: only items whose turnover can absorb that much in that time are shown. Bigger budgets mean fewer, busier markets.' },
           { icon: ArrowDownWideNarrow, title: 'Sort by return per day', body: 'That’s the default for a reason — it rewards items that turn round quickly, which is what compounds.' },
-          { icon: FlagIcon, title: 'Read the flags', body: 'Thin, Fluke, Falling, Crowded, Wall, Spike and Escrow bait each have a reason on hover. Flagged items are pushed down the list by default.' },
+          { icon: FlagIcon, title: 'Read the flags', body: 'Thin, Fluke, Falling, Crowded, Wall, Spike, Ran up lately and Escrow bait each have a reason on hover. Flagged items are pushed down the list by default.' },
           { icon: ChevronRight, title: 'Open a row before trading', body: 'The detail shows competition, your modelled share and who’s trading. Then check it in the Calculator.' },
         ]}
         habits={[
@@ -278,10 +314,11 @@ export function Prospects() {
 function Row({ p, name, open, onToggle, baseShare }: { p: Prospect; name: string; open: boolean; onToggle: () => void; baseShare: number }) {
   const s = p.stats;
   const base = baseShare / 100;
+  const raises = raisesKept(p);
   const det: { l: string; v: string; n: string; c?: string }[] = [
     { l: 'Your prices', v: `${isk(p.buy)} buy · ${isk(p.sell)} sell`,
       n: p.buyRaised
-        ? `The buy is where trading reached on 7 of the last 14 days. One step above the best bid (${isk(p.bestBuy)}) was reached on ${p.bidReach} of them.`
+        ? `The buy is where trading reached on half the last ${FILL_WINDOW} days and ${RECENT_TYPICAL} of the last ${RECENT_DAYS}. One step above the best bid (${isk(p.bestBuy)}) was reached on ${p.bidReach} of the ${FILL_WINDOW}${p.bidRecent != null ? ` and ${p.bidRecent} of the last ${RECENT_DAYS}` : ''}.`
         : `One legal step inside ${isk(p.bestBuy)} / ${isk(p.bestSell)}` },
     { l: 'Spread', v: pct(p.spreadPct, 1), n: `Usually ${pct(s.dailyRange, 1)} in a day` },
     { l: 'Competition', v: `${units(p.buyOrders)} buy, ${units(p.sellOrders)} sell`, n: `${units(p.topSellVol)} units at the best sell` },
@@ -293,6 +330,8 @@ function Row({ p, name, open, onToggle, baseShare }: { p: Prospect; name: string
     },
     { l: 'Who’s trading', v: `${pct(p.buyerShare, 0)} buyers`, n: `Share of volume that is buyers taking sell orders — your sells only fill from these. ${SPLIT_SAID[p.splitFrom ?? 'history'].charAt(0).toUpperCase() + SPLIT_SAID[p.splitFrom ?? 'history'].slice(1)}.` },
     { l: 'Position modelled', v: `${units(p.qty)} units`, n: `Flips in ${flip(p.daysToFlip)} at the slower side’s pace` },
+    ...(raises ? [{ l: 'Raises kept back', v: raises.count, c: 'var(--acc2)',
+      n: `${raises.cut} off the return: its Jita book sees as much stock newly placed at the front as fills there, so you’d be beaten before you fill` }] : []),
   ];
   return (
     <>
@@ -317,7 +356,7 @@ function Row({ p, name, open, onToggle, baseShare }: { p: Prospect; name: string
         <td>{iskBig(p.capital)}</td>
         <td>
           {p.warnings.length
-            ? <span className="flags">{p.warnings.map((w) => <Flag key={w} why={WARNING[w].why} title={WARNING[w].short}>{WARNING[w].short}</Flag>)}</span>
+            ? <span className="flags">{p.warnings.map((w) => <Flag key={w} why={warningWhy(w, p)} title={WARNING[w].short}>{WARNING[w].short}</Flag>)}</span>
             : <span style={{ color: 'var(--ghost)' }}>–</span>}
         </td>
         <td>
@@ -342,7 +381,7 @@ function Row({ p, name, open, onToggle, baseShare }: { p: Prospect; name: string
                   </div>
                 ))}
               </div>
-              {p.warnings.map((w) => <p key={w} style={{ margin: '8px 0 0', fontSize: 12.5, color: '#9fb3c5' }}><b className="warn">{WARNING[w].short}.</b> {WARNING[w].why}</p>)}
+              {p.warnings.map((w) => <p key={w} style={{ margin: '8px 0 0', fontSize: 12.5, color: '#9fb3c5' }}><b className="warn">{WARNING[w].short}.</b> {warningWhy(w, p)}</p>)}
             </div>
           </td>
         </tr>

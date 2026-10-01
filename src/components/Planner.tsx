@@ -9,9 +9,10 @@ import { allocate, PLANNER_EXCLUDES, PLANNER_HORIZONS, plannerFilters, SLOTS_PER
 import { horizonSaid, horizonShort, snapHorizon } from '../lib/prospects';
 import { loadCache, rankProspects, useScanState, type ScanCache } from '../lib/scan';
 import { update, useData } from '../lib/store';
+import { useFlow } from '../lib/flowStore';
 import type { ProspectFilters } from '../lib/types';
 import { BusyRelisting, useEnsureNames, useTypeName } from './common';
-import { flip, WARNING } from './Prospects';
+import { flip, raisesKept, raisesWhy, WARNING, warningWhy } from './Prospects';
 import { Empty, Flag, Guide, ItemIcon, NumChip, PageHead, Panel, Seg, Tiles } from './ui';
 import { Points } from './Facts';
 import { ScanFreshness } from './ScanFreshness';
@@ -81,15 +82,19 @@ export function Planner() {
 
   const isk = iskIn ?? 0, slots = slotsIn, days = inp.days ?? 3, maxShare = Math.max(0, Math.min(100, inp.maxPct ?? 100)) / 100;
   const patient = !!inp.patient;
+  // What was watched of each book (the split, the fills since the scan, the raises kept back) is read as the plan is
+  // worked out, so a newer record, or the first read of it, works the plan out again. Without it the plan depended on
+  // whether another page had loaded the record first.
+  const flow = useFlow();
   const { plan, pool, excluded, unchecked } = useMemo(() => {
     if (!cache || !isk) return { plan: null, pool: 0, excluded: 0, unchecked: 0 };
     // Every market's own limit, not just those that could take the whole budget.
     const list = rankProspects(cache, d.settings, plannerFilters(savedProspectFilters(), isk, days, patient));
     const bad = list.filter((p) => p.warnings.some((w) => PLANNER_EXCLUDES.includes(w))).length;
-    // Items scanned before the sell side and price jumps were judged: their spread hasn't been checked for either.
-    const old = list.filter((p) => p.stats.lastMove === undefined || !p.stats.highs14).length;
+    // Items scanned before the sell side, price jumps and run-ups were judged: their spread hasn't been checked for them.
+    const old = list.filter((p) => p.stats.lastMove === undefined || !p.stats.highs14 || p.stats.runUp === undefined).length;
     return { plan: allocate(list, { isk, slots, horizonDays: days, maxShare }), pool: list.length, excluded: bad, unchecked: old };
-  }, [cache, d.settings, isk, slots, days, maxShare, patient]);
+  }, [cache, d.settings, isk, slots, days, maxShare, patient, flow]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEnsureNames(plan?.rows.map((a) => a.p.typeId) ?? []);
   // What you already have working in each item, so the mix doesn't quietly double you up.
@@ -112,7 +117,7 @@ export function Planner() {
     <div className="page">
       <PageHead
         kicker="02b · Put ISK to work" title="Capital planner" wide
-        lede="Tell it how much ISK and how many order slots you have free, and it builds a mix from your Prospects — best payback first (or, when free slots run out before the ISK, the markets that make the most a day), never more than a market can take, and never too much in one item. Anything flagged as a wall, spike, fluke, escrow bait or a price that just moved is left out."
+        lede="Tell it how much ISK and how many order slots you have free, and it builds a mix from your Prospects — best payback first (or, when free slots run out before the ISK, the markets that make the most a day), never more than a market can take, and never too much in one item. Anything flagged as a wall, spike, fluke, escrow bait, a price that just moved or one that ran up lately is left out."
       />
       <ScanFreshness what="the plan" />
       <ShareCheck what="Each market’s limit" />
@@ -144,7 +149,7 @@ export function Planner() {
         <p className="row tight" style={{ fontSize: 13, color: 'var(--acc2)', margin: 0 }}>
           <Radar aria-hidden="true" style={{ width: 14, height: 14, flex: 'none' }} />
           <span>
-            <b>Scan again before investing:</b> {units(unchecked)} of these items predate the plan’s checks on sell prices and sudden moves, so their margins may be out of reach. A quick scan is enough.{' '}
+            <b>Scan again before investing:</b> {units(unchecked)} of these items predate the plan’s checks on sell prices, sudden moves and run-ups, so their margins may be out of reach. A quick scan is enough.{' '}
             <button type="button" className="link-btn" onClick={() => navigate('prospects')}>Open Prospects</button>
           </span>
         </p>
@@ -224,7 +229,12 @@ export function Planner() {
                           <td>{flip(a.days)}</td>
                           <td style={{ color: 'var(--pos)' }}>{iskBig(a.perDay)}</td>
                           <td style={{ color: 'var(--acc)' }}>{pct(a.perDay / a.isk, 2)}</td>
-                          <td>{a.p.warnings.length ? <span className="flags">{a.p.warnings.map((w) => <Flag key={w} why={WARNING[w].why} title={WARNING[w].short}>{WARNING[w].short}</Flag>)}</span> : <span style={{ color: 'var(--ghost)' }}>–</span>}</td>
+                          <td>{a.p.warnings.length || raisesKept(a.p) ? (
+                            <span className="flags">
+                              {a.p.warnings.map((w) => <Flag key={w} why={warningWhy(w, a.p)} title={WARNING[w].short}>{WARNING[w].short}</Flag>)}
+                              {raisesKept(a.p) && <Flag color="var(--acc2)" title="Raises kept back" why={raisesWhy(raisesKept(a.p)!.said)}>Raises kept back</Flag>}
+                            </span>
+                          ) : <span style={{ color: 'var(--ghost)' }}>–</span>}</td>
                           <td><button type="button" className="link-btn" onClick={() => navigate(`calculator?type=${a.p.typeId}`)}><CalcIcon aria-hidden="true" />Calc</button></td>
                         </tr>
                       ))}
@@ -271,7 +281,7 @@ export function Planner() {
             <Points compact items={[
               { kind: 'info', icon: Scale, lead: 'Each market’s limit', text: `your share of its slower side over the horizon (${d.settings.share}% of volume, scaled for how many orders you queue among), at the last scan’s prices.` },
               patient ? { kind: 'info', lead: 'Place and leave', text: 'each order fills only on days trading reaches it, so its pace is scaled by how often that was: rough, and items without that history are left out.' }
-                : { kind: 'info', lead: '“Bids not reached”', text: 'an item flagged so is priced where trading actually reaches, not at the best bid.' },
+                : { kind: 'info', lead: '“Bids not reached”', text: 'an item flagged so is priced where trading actually reaches, over the fortnight and lately, not at the best bid.' },
               { kind: 'tip', icon: CalcIcon, lead: 'Before placing', text: 'check each in the Calculator.' },
             ]} />
           </Panel>
@@ -302,7 +312,7 @@ export function Planner() {
           { icon: CalcIcon, title: 'Check each item before you buy', body: 'Click Calc on any row. The Calculator shows the order book, whether your prices sit inside recent trading, and your break-even.' },
           { icon: Layers, title: 'Start one position per item', body: 'Once the buy orders are placed, start a position for each item so your fills are tracked from the first unit. That’s how Results can later tell you what worked.', color: '#6ee7a8' },
           { icon: RefreshCw, title: 'Re-run it as things fill', body: 'As orders fill and ISK comes back, run the planner again with what’s free. The best items change daily.', color: 'var(--acc2)' },
-          { icon: ShieldAlert, title: 'Trust the flags', body: 'Items marked Wall, Spike, Fluke, Escrow bait or Price just moved are left out on purpose. Others, like Bids not reached, Sells not reached or Thin, stay in but show in the Flags column, priced where trading actually reaches: hover one before you commit.', color: '#ff8d9a' },
+          { icon: ShieldAlert, title: 'Trust the flags', body: 'Items marked Wall, Spike, Fluke, Escrow bait, Price just moved or Ran up lately are left out on purpose. Others, like Bids not reached, Sells not reached or Thin, stay in but show in the Flags column, priced where trading actually reaches: hover one before you commit. Raises kept back means the return already allows for being beaten and moving.', color: '#ff8d9a' },
           { icon: ListChecks, title: 'Let To do handle the upkeep', body: 'Once the orders are placed, the daily work is moving the ones that get beaten. The To do list and the undercut alerts tell you which.' },
           { icon: Scale, title: 'Spread beats size', body: 'Ten modest markets are safer than two big ones at the same expected profit. When unsure, lower the cap per item.', color: '#a98bff' },
         ]}

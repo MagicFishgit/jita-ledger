@@ -4,8 +4,8 @@
  * item exactly as Prospects does; the watched data is passed in rather than read from the browser's store.
  * Pure.
  */
-import { calc, type Settings } from './fees';
-import { askReachDays, bidReachDays, FILL_RARE, FILL_WINDOW, reachedAsk, reachedBid, withWatchedHighs, withWatchedLows, type WatchedExtremes } from './fills';
+import { calc, rates, type Settings } from './fees';
+import { askReachDays, bidReachDays, FILL_WINDOW, patientAsk, patientBid, withWatchedHighs, withWatchedLows, type WatchedExtremes } from './fills';
 import type { FlowDay } from './flow';
 import { askToPlace, bidToPlace, SLOW_DAYS, tradedPerDay, warningsFor } from './prospects';
 import { competitionShare, MIN_DAYS, returnPerDay, throughput, tradingSplit, type BookSold } from './split';
@@ -14,6 +14,34 @@ import type { BookLevel, Prospect, ProspectFilters, ProspectStats } from './type
 export type Book = { at: string; bestBuy: number | null; bestSell: number | null; buyOrders: number; sellOrders: number; topBuys: BookLevel[]; topSells: BookLevel[]; npcSell?: boolean;
   /** What the live orders had sold per side when read: who trades here. Absent on books cached before it was kept. */
   sold?: BookSold };
+
+/**
+ * Price changes kept back on a side whose orders you'd typically be beaten on before they fill. Praxis, in the user's
+ * first plan (30 September 2026): Orders told them to raise its bid three times (206.3 → 206.7 → 207.1 → 208.4 M),
+ * 1.58 M of change fees on top of the 2.58 M placing fee, and a trade planned at +3.2% lost 1.02 M. The cloud had
+ * watched 25-36 units newly bid at the front a day against 7-19 sold into bids, and 51-112 new listings against 25-45
+ * bought from them.
+ */
+export const RAISES_RESERVED = 2;
+/** Hours of watching the item's Jita book before its pace of undercuts is trusted for this. */
+export const RESERVE_WATCH_H = 24;
+
+/**
+ * The raises a busy side will cost, from what was watched (`watched.flow`): RAISES_RESERVED on a side where at least
+ * as many units were newly placed at or beyond the front as filled there (`newBuy ≥ buy` for bids, `newSell ≥ sell`
+ * for asks) over RESERVE_WATCH_H hours or more; something has to have been placed, or there's nothing to go on. Each
+ * change costs the change fee (`k`, the broker fee less the Advanced Broker Relations discount) on the whole order's
+ * value, since you're beaten before you fill, at least the broker's 100 ISK. Per unit, over `qty`. Undefined when
+ * neither side keeps any.
+ */
+export function raisesKeptBack(flow: Pick<FlowDay, 'h' | 'buy' | 'sell' | 'newBuy' | 'newSell'> | undefined, k: number, buy: number, sell: number, qty: number): { buy: number; sell: number; isk: number } | undefined {
+  if (!flow || !(flow.h >= RESERVE_WATCH_H) || !(qty > 0)) return undefined;
+  const nb = flow.newBuy > 0 && flow.newBuy >= flow.buy ? RAISES_RESERVED : 0;
+  const ns = flow.newSell > 0 && flow.newSell >= flow.sell ? RAISES_RESERVED : 0;
+  if (!nb && !ns) return undefined;
+  const fee = (price: number) => Math.max(100, k * price * qty);
+  return { buy: nb, sell: ns, isk: (nb * fee(buy) + ns * fee(sell)) / qty };
+}
 
 /**
  * Price a candidate against the live book, through the trader's own fees and skills.
@@ -53,10 +81,11 @@ export function judgeProspect(
   const asked = askToPlace(bestSell, highs);
   // Place and leave: both prices where trading reaches on half the days, wherever the front is. Not capped at the
   // front: on the scoop and Hammerhead II the front bid sat below where trading reached, and it was the dead one.
+  // Lately too: the bid raised and the ask lowered to where the last few days reached, when that's further in.
   // An item without the days to say where that is can't be priced this way and is left out, not priced at the front.
   const patient = !!filters.patient && !anyReturn;
-  const patientBuy = patient && lows ? reachedBid(lows) : null;
-  const patientSell = patient && highs ? reachedAsk(highs) : null;
+  const patientBuy = patient && lows ? patientBid(lows) : null;
+  const patientSell = patient && highs ? patientAsk(highs) : null;
   if (patient && (patientBuy == null || patientSell == null)) return null;
   const buy = patient ? patientBuy! : anyReturn ? placed.top : placed.buy;
   const sell = patient ? patientSell! : anyReturn ? asked.top : asked.sell;
@@ -90,25 +119,38 @@ export function judgeProspect(
   const daysToFlip = (qty * buy) / perDay;
 
   const c = calc({ buy, sell, qty }, settings);
-  if (!c.ok || (!anyReturn && (c.net <= 0 || c.roi < filters.minRoi))) return null;
+  if (!c.ok) return null;
+  // The raises a busy market will cost, off the margin before "Return ≥ %" and the ranking. Not on a plan placed to be
+  // left alone: Orders doesn't move those.
+  const reserve = patient ? undefined : raisesKeptBack(watched?.flow, rates(settings).k, buy, sell, qty);
+  const net = c.net - (reserve ? reserve.isk * qty : 0);
+  const roi = net / c.spent;
+  if (!anyReturn && (net <= 0 || roi < filters.minRoi)) return null;
 
   return {
     typeId: stats.typeId, stats, bestBuy, bestSell, buy, sell,
     buyOrders: book.buyOrders, sellOrders: book.sellOrders,
     topBuyVol: book.topBuys[0]?.volume ?? 0, topSellVol: book.topSells[0]?.volume ?? 0,
-    qty, net: c.net / qty, roi: c.roi, spreadPct: c.spreadPct, traded: tradedPerDay(stats),
+    qty, net: net / qty, roi, spreadPct: c.spreadPct, traded: tradedPerDay(stats),
     canTake, daysToFlip,
-    roiPerDay: returnPerDay(c.roi, daysToFlip),
+    roiPerDay: returnPerDay(roi, daysToFlip),
     // Profit spread over the days your money is actually tied up, so a fast small flip and a slow
     // big one can be compared at all.
-    iskPerDay: c.net / Math.max(daysToFlip, MIN_DAYS), capital: c.spent,
+    iskPerDay: net / Math.max(daysToFlip, MIN_DAYS), capital: c.spent,
     share: sellShare, buyerShare: buyers, splitFrom: split.from,
     bidReach, buyRaised: raised, askReach, sellLowered: !patient && sell !== asked.top, patient,
+    ...(!patient ? {
+      bidRecent: placed.recentReach, askRecent: asked.recentReach,
+      ...(placed.window ? { bidWindow: placed.window } : {}),
+      ...(asked.window ? { askWindow: asked.window } : {}),
+    } : {}),
+    ...(reserve ? { raiseReserve: reserve } : {}),
     warnings: [
       ...warningsFor(stats, book, c.spreadPct, estOrders),
-      // Priced where trading reaches, a patient plan can't be "not reached".
-      ...(!patient && bidReach != null && bidReach < FILL_RARE ? ['unreached' as const] : []),
-      ...(!patient && askReach != null && askReach < FILL_RARE ? ['unreachedSell' as const] : []),
+      // Priced where trading reaches, a patient plan can't be "not reached". A front reached on the fortnight but not
+      // lately (the last few days) is flagged too, and says so (`bidWindow`).
+      ...(!patient && placed.window ? ['unreached' as const] : []),
+      ...(!patient && asked.window ? ['unreachedSell' as const] : []),
       ...(daysToFlip > SLOW_DAYS ? ['slow' as const] : []),
     ],
   };

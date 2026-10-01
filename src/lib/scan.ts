@@ -225,6 +225,9 @@ async function pool<T>(items: T[], fn: (t: T) => Promise<void>) {
   }));
 }
 
+/** Stats carrying everything the rules now judge: the 14-day lows and highs, a sudden move and a run-up. */
+const statsCurrent = (s: ProspectStats) => !!s.lows14 && !!s.highs14 && s.lastMove !== undefined && s.runUp !== undefined;
+
 /** A stats record for an item ESI has no recent history for, so we don't ask again tomorrow. */
 const dead = (typeId: number): ProspectStats => ({
   typeId, at: new Date().toISOString(), daysTraded: 0, tradesPerDay: 0, unitsPerDay: 0,
@@ -265,8 +268,9 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
       .sort((a, b) => counts[b] - counts[a]);
     const todo = candidates
       // Stats from before the 14-day lows were kept are stale too, or a scan today would price those items
-      // the old way for up to a day. A dead item has none to keep, so it isn't asked for again.
-      .filter((id) => { const s = cache.stats[id]; return !s || now - Date.parse(s.at) > STATS_TTL || (s.daysTraded > 0 && (!s.lows14 || !s.highs14 || s.lastMove === undefined)); })
+      // the old way for up to a day; likewise the highs, a sudden move and a run-up. A dead item has none to keep,
+      // so it isn't asked for again.
+      .filter((id) => { const s = cache.stats[id]; return !s || now - Date.parse(s.at) > STATS_TTL || (s.daysTraded > 0 && !statsCurrent(s)); })
       .slice(0, want.history);
 
     setState({
@@ -326,7 +330,7 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
         // The liquidity pass refreshes the most-listed items and these are the best-margin ones --- mostly
         // different --- so without this only a handful of the priced items (5 of 42 in a test) had them.
         // The highs likewise, for the sell side.
-        const [book, hist] = await Promise.all([jitaBook(s.typeId), s.lows14 && s.highs14 && s.lastMove !== undefined ? null : marketHistory(s.typeId)]);
+        const [book, hist] = await Promise.all([jitaBook(s.typeId), statsCurrent(s) ? null : marketHistory(s.typeId)]);
         cache.books[s.typeId] = { at: new Date().toISOString(), ...book };
         if (hist) cache.stats[s.typeId] = statsFrom(s.typeId, hist) ?? dead(s.typeId);
       } catch {

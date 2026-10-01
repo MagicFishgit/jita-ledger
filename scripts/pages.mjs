@@ -88,6 +88,50 @@ async function overflow(page) {
 const PROOF = { small: 'Hammerhead II', large: 'Test Item' };
 
 /**
+ * A scan for the large ledger, so Prospects and the Capital planner draw rows and their flags rather than an empty
+ * state: four items (fake IDs), judged at the app's default rates (Alpha, 3% broker, 7.5% tax).
+ * - 990101: both fronts reached on every day, and a watch of its book that sees more stock placed at each front than
+ *   fills there: the planner keeps two raises a side back ("Raises kept back").
+ * - 990102: its front bid reached on 9 of 14 days but none of the last 5 ("Bids not reached", not lately).
+ * - 990103: ran up 80% over the month before: flagged on Prospects ("Ran up lately"), left out of the planner.
+ * - 990104: stats from before the run-up was kept: the planner says to scan again, and no flag is claimed.
+ */
+function planScan(now) {
+  const day = (i) => new Date(now - i * 86400_000).toISOString().slice(0, 10);
+  const lowsEnd = day(1);
+  const M = 1e6;
+  const stats = (typeId, lows14, highs14, extra = {}) => ({
+    typeId, at: new Date(now - 3600_000).toISOString(), daysTraded: 30, tradesPerDay: 60, unitsPerDay: 600, spikiness: 0.04,
+    dailyRange: 0.3, trend: 0, avgPrice: 1.2 * M, spark: Array(30).fill(600), buyerShare: 0.5, high30: 1.6 * M, spike: false,
+    range7: Array(7).fill(0.3), lows14, lowsEnd, highs14, lastMove: 0, runUp: 0, runUpBase: 1.2 * M, ...extra,
+  });
+  const flat = (x) => Array(14).fill(x);
+  const book = (typeId, bid, ask) => ({ at: new Date(now - 600_000).toISOString(), bestBuy: bid, bestSell: ask, buyOrders: 30, sellOrders: 30,
+    topBuys: [{ price: bid, volume: 40 }, { price: bid - 1000, volume: 40 }], topSells: [{ price: ask, volume: 40 }, { price: ask + 1000, volume: 40 }], npcSell: false });
+  const items = {
+    990101: [stats(990101, flat(1 * M), flat(1.4 * M)), book(990101, 1 * M, 1.4 * M)],
+    990102: [stats(990102, [...Array(9).fill(1 * M), 1.1 * M, 1.12 * M, 1.1 * M, 1.11 * M, 1.13 * M], flat(1.5 * M)), book(990102, 1 * M, 1.5 * M)],
+    990103: [stats(990103, flat(1 * M), flat(1.4 * M), { runUp: 0.8, runUpBase: 0.8 * M }), book(990103, 1 * M, 1.4 * M)],
+    990104: [stats(990104, flat(1 * M), flat(1.4 * M), { runUp: undefined, runUpBase: undefined }), book(990104, 1 * M, 1.4 * M)],
+  };
+  const busy = { h: 15, sell: 18, buy: 6, newSell: 37, newBuy: 15, frontSell: 2, frontBuy: 2, repriceSell: 0, repriceBuy: 0 };
+  return {
+    prospects: {
+      stats: Object.fromEntries(Object.entries(items).map(([t, [st]]) => [t, st])),
+      books: Object.fromEntries(Object.entries(items).map(([t, [, b]]) => [t, b])),
+      sample: { at: new Date(now - 3600_000).toISOString(), totalPages: 400, sampledPages: 400, minSampled: 1, counts: { 990101: 60, 990102: 60, 990103: 60, 990104: 60 } },
+      runs: { cloud: new Date(now - 3600_000).toISOString() },
+    },
+    flow: { log: { 990101: { [day(1)]: busy, [day(0)]: busy } }, ends: {} },
+  };
+}
+/** What the large ledger's Prospects and planner must draw from that scan, and what the planner's mix must not hold. */
+const PLAN_PROOF = {
+  prospects: { drawn: ['Ran up lately', 'Bids not reached'] },
+  planner: { drawn: ['Raises kept back', 'Bids not reached'], note: 'Scan again before investing', absent: ['Ran up lately'] },
+};
+
+/**
  * The Mining tab under an alt, on the large ledger: its filter and Show for kept in this browser, as a visit leaves them,
  * so the deploy draws what the plain visit never does (it always shows the main): an Alpha alt's pilot, with a hull open
  * so its tiers draw too; an alt whose login was refused and nothing read; and a kept character no longer on the roster.
@@ -169,17 +213,22 @@ try {
     // page on the app's origin that isn't the app (Vite serves a module as it is): under the open app, the ledger it
     // holds in memory could be written back over the seed (docs/notes/gotchas.md).
     await page.goto(SEED_PAGE);
-    await page.evaluate(async ([d, auth, alts]) => {
+    await page.evaluate(async ([d, auth, alts, scan]) => {
       localStorage.clear(); sessionStorage.clear();
       localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
+      if (scan) {
+        // Prospects sized to what the scan's items can take; the planner given ISK and slots (the large ledger's 400 orders fill its own).
+        localStorage.setItem('jita-ledger:prospects', JSON.stringify({ f: { budget: 1e7, horizonDays: 3, minTrades: 5, minDays: 20, minRoi: 0.03, maxSpikiness: 0.5, demoteFlagged: true }, sort: { key: 'roiDay', dir: 'desc' } }));
+        sessionStorage.setItem('jita-ledger:planner-session', JSON.stringify({ isk: 1e9, slots: 10 }));
+      }
       const open = (db) => new Promise((res, rej) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onerror = rej; q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
-      for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', {}], ['jita-ledger-alts', alts]]) {
+      for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', scan ?? {}], ['jita-ledger-alts', alts]]) {
         const h = await open(db);
         if (!h.objectStoreNames.contains('kv')) continue;
         await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
         h.close();
       }
-    }, [data, ownerAuth(), altStoreOf(ALTS[name] ?? [])]);
+    }, [data, ownerAuth(), altStoreOf(ALTS[name] ?? []), name === 'large' ? planScan(Date.now()) : null]);
     await page.goto(BASE);
     await page.waitForSelector('.page', { timeout: 20_000 });
     // The seed has to have reached the app, or every page below passes on an empty store.
@@ -230,6 +279,12 @@ try {
         if (!(await page.locator('.panel-title', { hasText: 'Best ore to mine' }).count())) problems.push('not drawn: no “Best ore to mine” panel');
         if (!(await page.locator('[role="group"][aria-label="Where it’s found"] button', { hasText: 'Null-sec' }).count())) problems.push('not drawn: no place selector on the best-ore panel');
         if (!(await page.locator('.page', { hasText: 'Couldn’t read the ores’ names from ESI just now' }).count())) problems.push('not drawn: the best-ore panel doesn’t say it couldn’t price');
+      }
+      // The large ledger's scan must reach Prospects and the planner with its flags, or both pass on an empty state.
+      if (name === 'large' && PLAN_PROOF[hash]) {
+        for (const t of PLAN_PROOF[hash].drawn) if (!(await page.locator('.page table .flag', { hasText: t }).count())) problems.push(`not drawn: no “${t}” flag`);
+        for (const t of PLAN_PROOF[hash].absent ?? []) if (await page.locator('.page table', { hasText: t }).count()) problems.push(`in the table, and shouldn’t be: “${t}”`);
+        if (PLAN_PROOF[hash].note && !(await page.locator('.page', { hasText: PLAN_PROOF[hash].note }).count())) problems.push(`not drawn: no “${PLAN_PROOF[hash].note}”`);
       }
       await judge(hash);
     }
