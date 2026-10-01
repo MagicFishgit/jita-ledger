@@ -116,17 +116,21 @@ export function Mining() {
   const [vol, setVol] = useState<Record<number, number>>({});
   const [worth, setWorth] = useState<Record<number, OreWorth>>({});
   const [pricing, setPricing] = useState(false);
-  // Priced once every name is known: a compressed form is found by name ("Compressed Scordite").
-  const named = ores.every((t) => !!d.names[t]);
-  const key = `${ores.join(',')}:${named}`;
+  // An ore is priced once it has a name: a compressed form is found by name ("Compressed Scordite"). The named ones are
+  // priced, not all or none: with every character's ores in the set, one alt ore whose name never came would otherwise
+  // leave yours unpriced too (what stage 2b found and fixed on the Characters page, components/charIncome.ts).
+  const named = useMemo(() => ores.filter((t) => !!d.names[t]), [ores, d.names]);
+  const key = named.join(',');
   useEffect(() => {
-    if (!named) return;
+    if (!named.length) return;
     let alive = true;
     setPricing(true);
-    priceOres(ores, name, d.skills ?? {}, d.settings.corp, r.t)
-      .then(({ vols, worth: out }) => { if (alive) { setVol(vols); setWorth(out); setPricing(false); } })
+    priceOres(named, name, d.skills ?? {}, d.settings.corp, r.t)
+      // Kept beside what was priced before, so an ore that leaves the set and comes back is still known meanwhile.
+      .then(({ vols, worth: out }) => { if (alive) { setVol((x) => ({ ...x, ...vols })); setWorth((x) => ({ ...x, ...out })); setPricing(false); } })
       .catch(() => { if (alive) setPricing(false); });
-    return () => { alive = false; };
+    // A run cut off by a new set of ores isn't pricing any more.
+    return () => { alive = false; setPricing(false); };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A volume ESI couldn't give is not known (null), never 0 m³.
