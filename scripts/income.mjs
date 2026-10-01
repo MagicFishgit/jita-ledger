@@ -134,7 +134,14 @@ async function charactersAgree(page, got, empty) {
 async function settled(page) {
   let last = null;
   for (let i = 0; i < 40; i++) {
-    const text = (await page.locator('.page').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    // The Wallet's "All characters" line (data-alts) differs with alts by design: it adds each alt's own net worth beside the
+    // main's. It is left out of the text compared here; that it never reaches the main's net worth or the ledger is what the
+    // rest of this check (and the ledger comparison, unchanged) proves.
+    const text = (await page.locator('.page').evaluate((el) => {
+      const c = el.cloneNode(true);
+      c.querySelectorAll('[data-alts]').forEach((n) => n.remove());
+      return c.innerText ?? c.textContent;
+    }).catch(() => '')).replace(/\s+/g, ' ');
     if (text && text === last) return text;
     last = text;
     await page.waitForTimeout(1000);

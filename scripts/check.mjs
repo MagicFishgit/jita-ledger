@@ -3950,7 +3950,7 @@ console.log('\n--- which characters are yours ---');
   // Alt data reaches a page only on purpose: a page that starts reading the alt store is added here in the commit that makes it.
   const walk = (dir) => fs2.readdirSync(new URL(dir, import.meta.url), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${dir}${e.name}/`) : /\.(ts|tsx)$/.test(e.name) ? [`${dir}${e.name}`] : []));
   const users = walk('../src/').filter((p) => /(from\s*|import\s*\(\s*)['"][^'"]*\/altStore['"]/.test(src(p))).map((p) => p.replace('../src/', '')).sort();
-  eq('  and only the shell, the Characters page and the Mining tab read the alt store', users, ['App.tsx', 'components/Characters.tsx', 'components/hustles/Mining.tsx']);
+  eq('  and only the shell, the Characters page, the Mining tab and the Wallet read the alt store', users, ['App.tsx', 'components/Characters.tsx', 'components/Wallet.tsx', 'components/hustles/Mining.tsx']);
   eq('  an alt with nothing read yet: nothing, not zeros', R.altFacts(R.emptyAlt(), NOW2), { wallet: null, walletAt: null, netWorth: null, clone: 'unknown', cloneSince: null, training: null, queueEnds: null, queueKnown: false, totalSp: null });
   const readEmpty = R.altFacts({ rev: 1, records: {}, docs: { meta: { skillQueue: [] } } }, NOW2);
   eq('    an alt whose queue was read empty: known, and "Nothing in the queue"', [readEmpty.training, readEmpty.queueKnown, R.idleQueueSaid(readEmpty)], [null, true, 'Nothing in the queue']);

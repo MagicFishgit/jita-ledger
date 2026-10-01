@@ -32,8 +32,14 @@ import { Points } from './Facts';
 import { everyItemCalcs } from '../lib/everyItem';
 import { incomeRows } from '../lib/income';
 import { nettedJournal, refundsIn } from '../lib/refunds';
+import { altLedger } from '../lib/altLedger';
+import { useAlts } from '../lib/altStore';
+import { emptyAlt } from '../lib/roster';
 
 const DAY = 86400_000;
+/** One empty copy for every alt not pulled yet, so altLedger's answer for it is worked out once, not on every render. */
+const NO_ALT = emptyAlt();
+type AltPoint = { charId: number; name: string; date: string; total: number } | { charId: number; name: string; date: null; total: null };
 /** How old a loyalty-point valuation can get before the Wallet prices the store again. */
 const LP_STALE = 12 * 3600_000;
 /** Stores tried this session, so a failing one isn't hammered on every visit. */
@@ -277,6 +283,18 @@ export function Wallet() {
     return () => { alive = false; };
   }, [lpKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---- "All characters": the main's live total plus each alt's newest daily point. Worked out here, above the empty
+  // state like every hook, and handed to the Net worth panel only to be shown: it is never part of nwParts, nwTotal,
+  // the liquid figure or what is saved to netWorth below (the alt store can't write to the ledger; this keeps the
+  // figure from being written there by the Wallet either).
+  const altsState = useAlts();
+  const altPoints: AltPoint[] = useMemo(() => altsState.roster.map((entry) => {
+    const ledger = altLedger(altsState.alts[entry.charId] ?? NO_ALT, d.chars[String(entry.charId)]?.clone);
+    const p = ledger.netWorth[ledger.netWorth.length - 1];
+    const name = entry.name ?? `Character ${entry.charId}`;
+    return p ? { charId: entry.charId, name, date: p.date, total: p.total } : { charId: entry.charId, name, date: null, total: null };
+  }), [altsState.roster, altsState.alts, d.chars]);
+
   const lpHeld = lp.some((b) => b.points > 0);
   const lpUnpriced = lp.some((b) => b.points > 0 && b.rate == null);
   const nwParts: { l: string; v: number; c: string; text?: string }[] = [
@@ -447,7 +465,7 @@ export function Wallet() {
           <p className="note">{events.length ? 'Hover a dot to see what moved the balance.' : 'Nothing large moved the balance in this window.'} The line is the balance ESI records after every journal entry, not a reconstruction.</p>
         </Panel>
         <NetWorth parts={nwParts} total={nwTotal} ready={nwReady} points={nwPoints} base={nwBase} periodWords={periodWords} growPerDay={nwGrowPerDay} windowStart={startOfUtcDay(since)}
-          hasAssets={!!d.stock} unpricedLp={lp.filter((b) => b.rate == null && b.points > 0).length} lpHeld={lpHeld} />
+          hasAssets={!!d.stock} unpricedLp={lp.filter((b) => b.rate == null && b.points > 0).length} lpHeld={lpHeld} altPoints={altPoints} />
       </div>
 
       <div className="g-440">
@@ -578,7 +596,7 @@ function WalletHead({ days, setDays }: { days: Days; setDays: (d: Days) => void 
 
 function NetWorth(props: {
   parts: { l: string; v: number; c: string; text?: string }[]; total: number; ready: boolean; points: { date: string; total: number }[]; base: { date: string; total: number } | null;
-  periodWords: string; growPerDay: number | null; hasAssets: boolean; unpricedLp: number; windowStart: number; lpHeld: boolean;
+  periodWords: string; growPerDay: number | null; hasAssets: boolean; unpricedLp: number; windowStart: number; lpHeld: boolean; altPoints: AltPoint[];
 }) {
   const { parts, total, ready, points, base } = props;
   const change = ready && base ? total - base.total : null;
@@ -604,12 +622,40 @@ function NetWorth(props: {
           </div>
         ))}
       </div>
+      <AllCharacters mainTotal={ready ? total : null} alts={props.altPoints} />
       <p className="note">
         Buying stock lowers your wallet but not your net worth — this is the number that shows real growth.
         {props.hasAssets ? ' Assets use CCP’s rough average prices, which flatter anything hard to sell; blueprint copies are left out.' : ' Assets aren’t counted: that needs the assets permission.'}
         {props.lpHeld && ' Loyalty points count at what the Loyalty page’s spend plan would make from them after fees, and only as many as the markets can take; they’re re-priced every twelve hours.'}
       </p>
     </Panel>
+  );
+}
+
+/**
+ * Beside the net worth, never part of it: the main's total plus each alt's newest daily point. Marked `data-alts`, so
+ * the income check's isolation comparison leaves it out (it differs with alts by design). Hidden with no alts.
+ */
+function AllCharacters({ mainTotal, alts }: { mainTotal: number | null; alts: AltPoint[] }) {
+  if (!alts.length) return null;
+  const counted = alts.filter((a) => a.total != null);
+  const sum = mainTotal == null ? null : mainTotal + counted.reduce((t, a) => t + (a.total ?? 0), 0);
+  const of = alts.length + 1, n = counted.length + (mainTotal != null ? 1 : 0);
+  const tip = 'The main’s net worth now, plus the newest daily net-worth point of each character the cloud reads.\n\n'
+    + '• Each character’s point is its own date, so they are not all from one moment: '
+    + ['Yours: now', ...alts.map((a) => `${a.name}: ${a.date ? fmtShort(a.date) : 'not read yet, adds nothing'}`)].join('; ') + '\n'
+    + '• Assets are at CCP’s rough average prices, which flatter anything hard to sell\n'
+    + '• It is never part of your net worth above, its trend or what the app saves';
+  return (
+    <div data-alts style={{ padding: '8px 0', borderBottom: '1px solid var(--line-4)' }}>
+      <div className="kv">
+        <span className="row tight" style={{ color: 'var(--body)' }}>All characters<Tip text={tip} title="All characters" /></span>
+        <span className="v" style={{ color: sum == null ? 'var(--note)' : 'var(--sec)' }}>{sum == null ? '–' : iskBig(sum)}</span>
+      </div>
+      <div style={{ color: 'var(--note)', fontSize: 12, marginTop: 2, overflowWrap: 'anywhere' }}>
+        {n} of {of} counted{mainTotal == null ? ', yours is still pricing' : ''}{n < of && mainTotal != null ? ': a character not read yet adds nothing' : ''}
+      </div>
+    </div>
   );
 }
 
