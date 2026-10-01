@@ -377,7 +377,7 @@ function PriceCells({ t, kind, prices, busy, figures, hourOf, whyNot, named }: {
     const text = said === 'Pricing…' ? said : <>– <span className="txt">{said}</span></>;
     return (
       <>
-        <td className="l faint bo-wide">–</td>
+        <td className="l faint bo-wide">{said === 'Pricing…' ? '' : '–'}</td>
         <td colSpan={2} className="faint bo-wide" style={{ textAlign: 'center', whiteSpace: 'normal' }}>{text}</td>
         <td className="faint bo-phone-td" style={{ whiteSpace: 'normal' }}>{text}</td>
       </>
