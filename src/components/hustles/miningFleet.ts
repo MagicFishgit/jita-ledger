@@ -41,8 +41,10 @@ const NO_ALT = emptyAlt();
 
 export function useMiningFleet(days: number, alts: FleetAlts): {
   chars: FleetChar[];
-  /** Every character's ticks, tagged; null with the cloud off, or until the main's first read has answered. */
+  /** Every character's ticks that have been read, tagged; null with the cloud off, or until a read has brought some. */
   ticks: CharTick[] | null;
+  /** What the read of your own ticks said ('behind' never: the main's route is as old as sessions). */
+  mainTicks: AltTicks;
   altTicks: AltTicks;
 } {
   const d = useData();
@@ -82,22 +84,28 @@ export function useMiningFleet(days: number, alts: FleetAlts): {
   const on = cloudEnabled() && cloud.started;
   const [mine, setMine] = useState<CharTick[] | null>(null);
   const [theirs, setTheirs] = useState<CharTick[]>([]);
+  const [mainTicks, setMainTicks] = useState<AltTicks>(on ? 'loading' : 'off');
   const [altTicks, setAltTicks] = useState<AltTicks>(on ? 'loading' : 'off');
   useEffect(() => {
     // The cloud switched off: what it said before isn't kept, or the tab would go on showing sessions it can't read.
-    if (!on) { setMine(null); setTheirs([]); setAltTicks('off'); return; }
+    if (!on) { setMine(null); setTheirs([]); setMainTicks('off'); setAltTicks('off'); return; }
     let alive = true;
     // Only the first read after the cloud came on is "loading": a later one (a roster revision moved) keeps what the
-    // last said until it answers, so no line flashes.
-    setAltTicks((s) => (s === 'off' ? 'loading' : s));
-    // The main's failing keeps what it had, else none: sessions are then the alts' alone, and none is said as none seen.
-    cloudMiningTicks(days).then((t) => { if (alive) setMine(t.map((x) => ({ ...x, charId: mainId }))); }).catch(() => { if (alive) setMine((m) => m ?? []); });
+    // last said until it answers, so no line flashes; and a later one failing keeps what the last one read.
+    const first = (s: AltTicks): AltTicks => (s === 'off' ? 'loading' : s);
+    const failed = (s: AltTicks): AltTicks => (s === 'ok' ? s : 'failed');
+    setMainTicks(first);
+    setAltTicks(first);
+    cloudMiningTicks(days)
+      .then((t) => { if (alive) { setMine(t.map((x) => ({ ...x, charId: mainId }))); setMainTicks('ok'); } })
+      .catch(() => { if (alive) setMainTicks(failed); });
     cloudAltTicks(days)
       .then((t) => { if (alive) { setTheirs(t); setAltTicks('ok'); } })
-      .catch((e: Error & { status?: number }) => { if (alive) { setTheirs([]); setAltTicks(e.status === 404 ? 'behind' : 'failed'); } });
+      // A Worker a version behind has no alt route: none, and said once. Any other failure keeps what was read.
+      .catch((e: Error & { status?: number }) => { if (alive) { if (e.status === 404) { setTheirs([]); setAltTicks('behind'); } else setAltTicks(failed); } });
     return () => { alive = false; };
   }, [on, days, mainId, revKey]);
 
-  const ticks = useMemo(() => (on && mine ? [...mine, ...theirs] : null), [on, mine, theirs]);
-  return { chars, ticks, altTicks };
+  const ticks = useMemo(() => (on && (mine || altTicks === 'ok') ? [...(mine ?? []), ...theirs] : null), [on, mine, theirs, altTicks]);
+  return { chars, ticks, mainTicks, altTicks };
 }

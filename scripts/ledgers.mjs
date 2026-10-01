@@ -145,9 +145,17 @@ export function large() {
     };
   }
   const netWorth = Array.from({ length: 30 }, (_, i) => ({ date: iso(NOW - (29 - i) * DAY).slice(0, 10), total: 8e9 + i * 5e7, wallet: 5e9 + i * 2e7, liquid: 6e9 + i * 3e7 }));
+  // The main's own mining, beside the alts' (ALTS below), so the Mining tab has every character's to add up: one ore the
+  // ledger names (34) and two it doesn't (Scordite, Veldspar), so the unpriced path is drawn too. Mining isn't income:
+  // nothing the income check records reads it.
+  const mining = {};
+  for (const [typeId, d, qty] of [[34, 1, 12000], [1228, 3, 24000], [1230, 3, 8000], [1228, 8, 30000]]) {
+    const date = iso(NOW - d * DAY).slice(0, 10), charId = 95210486;
+    mining[`${charId}:${date}:30000142:${typeId}`] = { charId, date, systemId: 30000142, typeId, qty };
+  }
   const ids = Object.keys(txs);
   return {
-    names, txs, journal: j, orders, positions, stock, killmails, netWorth,
+    names, txs, journal: j, orders, positions, stock, killmails, netWorth, mining,
     watchlist: types.slice(0, 10).map((typeId) => ({ typeId, addedAt: iso(NOW - 5 * DAY) })),
     goals: [
       { id: 'g1', label: 'Save 10 B', createdAt: iso(NOW - 20 * DAY), kind: 'isk', measure: 'wallet', target: 1e10 },
