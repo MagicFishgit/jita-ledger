@@ -5,6 +5,9 @@
 // `disputed` rather than picking a side. The belt tables are by region quarter and null-sec security class, so `where`
 // says that in words; it shows in a table cell, and anything longer is in `detail` for the row's tip.
 
+import { median } from './mining';
+import { oreBase } from './miningFits';
+
 export type Place = 'highsec' | 'lowsec' | 'nullsec' | 'pochven' | 'wormhole' | 'moon' | 'ice';
 
 export const PLACES: { key: Place; label: string }[] = [
@@ -262,4 +265,93 @@ export function rankOres(rows: OreRow[], place: Place): OreRow[] {
     if (x == null || y == null) return x == null && y == null ? (a.base < b.base ? -1 : a.base > b.base ? 1 : 0) : x == null ? 1 : -1;
     return y - x || (a.base < b.base ? -1 : a.base > b.base ? 1 : 0);
   });
+}
+
+// --- ISK an hour: which pace a row can take ------------------------------------------------------------------------------
+
+/**
+ * What mines a row, for its pace: ordinary ore (asteroid or moon: one fit's lasers mine them all), Mercoxit (deep-core
+ * lasers only) or ice (an ice harvester, a block a cycle). A crystal of one kind mines every family alike (ESI, 1 October
+ * 2026: Type A II is 1.8× yield, 1.0× cycle and 3.6 residue points for Simple, Complex, Abyssal and Rare Moon; Type B II
+ * 1.8×, 0.8×, 30 for Simple, Variegated and Ubiquitous Moon), so one ore fit's m³ a minute holds for every ore but Mercoxit.
+ */
+export type OreKind = 'ore' | 'mercoxit' | 'ice';
+
+/** A row's kind, by its base (an ice type is its own base); null for a name the table doesn't know. */
+export function kindOfBase(base: string): OreKind | null {
+  const o = ORE_WHERE[base];
+  return !o ? null : o.kind === 'ice' ? 'ice' : base === 'Mercoxit' ? 'mercoxit' : 'ore';
+}
+
+/** A mined type's kind by its name ("Scordite II-Grade", "Brimful Zeolites", "Clear Icicle"); null when it isn't one. */
+export function kindOfName(name: string): OreKind | null {
+  const n = name.trim();
+  if (ORE_WHERE[n]?.kind === 'ice') return 'ice';
+  const b = oreBase(n);
+  return b ? kindOfBase(b) : null;
+}
+
+/**
+ * A session's kind from its ores' names: the one kind they all are, else null (two kinds in one session, or a name not
+ * read yet): its pace says nothing certain about either.
+ */
+export function sessionKind(names: (string | null | undefined)[]): OreKind | null {
+  const kinds = new Set(names.map((n) => (n ? kindOfName(n) : null)));
+  if (kinds.size !== 1) return null;
+  return [...kinds][0];
+}
+
+/** The tier Scaling up shows: its m³ a minute at the shown character's skills, and what it can mine. */
+export type FitPace = {
+  from: 'fit';
+  /** "Hulk", "Solid", and whose skills it's at: "at your skills", "at Miner Two’s skills", "with every skill at V". */
+  hull: string; tier: string; at: string;
+  /** Null while it's worked out, or for a fit that mines only with its drones (`drones`). */
+  m3PerMin: number | null; drones: boolean;
+  /** An ice harvester's fit; the Mercoxit version of a fit (deep-core lasers). */
+  ice: boolean; mercoxit: boolean;
+};
+/** What sessions measured, one kind at a time: in the ship the pilot is in when it has any there, else in any. */
+export type MeasuredPace = { m3PerMin: number; sessions: number; ship: number | null };
+export type Measured = { from: 'measured'; by: Partial<Record<OreKind, MeasuredPace>> };
+export type Pace = FitPace | Measured;
+
+/** Why a row has no ISK an hour; the words are the panel's. */
+export type NoPace = 'none' | 'loading' | 'drones' | 'fitIsIce' | 'fitIsOre' | 'fitIsMercoxit' | 'needMercoxit' | 'notMeasured';
+export type RowPace = { m3PerMin: number } | { m3PerMin: null; why: NoPace };
+
+/**
+ * The m³ a minute a row of `kind` is worked out at, or why there's none: a fit mines only its own kind (an ore fit no ice,
+ * an ice fit no ore, Mercoxit only its deep-core version, which then speaks for no other ore), and a measured pace only
+ * the kind its sessions mined. Never a pace the row's ore can't be mined at.
+ */
+export function paceFor(kind: OreKind, pace: Pace | null): RowPace {
+  const no = (why: NoPace): RowPace => ({ m3PerMin: null, why });
+  if (!pace) return no('none');
+  if (pace.from === 'measured') {
+    const m = pace.by[kind];
+    return m ? { m3PerMin: m.m3PerMin } : no('notMeasured');
+  }
+  if (pace.ice !== (kind === 'ice')) return no(pace.ice ? 'fitIsIce' : 'fitIsOre');
+  if (kind === 'mercoxit' && !pace.mercoxit) return no('needMercoxit');
+  if (kind === 'ore' && pace.mercoxit) return no('fitIsMercoxit');
+  if (pace.m3PerMin == null) return no(pace.drones ? 'drones' : 'loading');
+  return { m3PerMin: pace.m3PerMin };
+}
+
+/**
+ * The pace sessions measured for each kind: the middle of that kind's sessions in `here` (the ship the pilot is in) when
+ * there are any, else of all its sessions; the sessions given are the ones long enough to say a pace. Sessions whose
+ * kind isn't known are left out.
+ */
+export function measuredByKind(sessions: { ship: number | null; kind: OreKind | null; m3PerMin: number }[], here: number | null): Partial<Record<OreKind, MeasuredPace>> {
+  const out: Partial<Record<OreKind, MeasuredPace>> = {};
+  for (const kind of ['ore', 'mercoxit', 'ice'] as OreKind[]) {
+    const all = sessions.filter((s) => s.kind === kind);
+    const inHere = here != null ? all.filter((s) => s.ship === here) : [];
+    const use = inHere.length ? inHere : all;
+    const m = median(use.map((s) => s.m3PerMin));
+    if (m != null) out[kind] = { m3PerMin: m, sessions: use.length, ship: inHere.length ? here : null };
+  }
+  return out;
 }

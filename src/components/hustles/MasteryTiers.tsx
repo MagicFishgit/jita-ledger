@@ -5,6 +5,7 @@ import { paybackHours } from '../../lib/mining';
 import { MASTERY } from '../../lib/miningMastery';
 import { crystalName, DEEP_CORE, DEEP_CORE_RIG, mercoxitTier, TIER_SAID, type Family, type FitItem, type MercoxitFit, type Tier, type TierKey } from '../../lib/miningFits';
 import type { HullNode } from '../../lib/miningTree';
+import type { FitPace } from '../../lib/oreWhere';
 import { ALL_FIVE, fitYield, SKILL, YIELD_SKILLS, type FitYield, type TypeDogma } from '../../lib/miningYield';
 import { typeDogma } from '../../lib/universe';
 import { fitCosts, FitActions, FitGrid, FitSkills, useFitData } from '../FitParts';
@@ -45,7 +46,7 @@ type Loaded = {
   cloud: { base: number; perLevel: number } | null;
 };
 
-export function MasteryTiers({ hull, family, ore, oreId, iskPerM3, fromRate, hullPrice }: {
+export function MasteryTiers({ hull, family, ore, oreId, iskPerM3, fromRate, hullPrice, onPace }: {
   hull: HullNode;
   /** The crystal family to show, and the ore it's for: the one picked above the tree, else what you mine most. */
   family: Family; ore: string; oreId: number;
@@ -54,7 +55,13 @@ export function MasteryTiers({ hull, family, ore, oreId, iskPerM3, fromRate, hul
   /** Your m³ a minute now (measured, or worked out for the ship you're in), for payback. */
   fromRate: number | null;
   hullPrice: number | null;
+  /**
+   * Hears the shown tier's pace (its m³ a minute at the pilot's skills, and what it can mine), and null once no tier is
+   * shown: the best-ore panel works ISK an hour out at it. A stable function, or the report runs on every render.
+   */
+  onPace?: (p: FitPace | null) => void;
 }) {
+  const pilot = usePilot();
   const tiers = MASTERY[hull.id] ?? [];
   const [key, setKey] = useState<TierKey>(tiers.find((t) => t.key === 'solid')?.key ?? tiers[0]?.key ?? 'start');
   const tier = tiers.find((t) => t.key === key) ?? tiers[0];
@@ -93,6 +100,14 @@ export function MasteryTiers({ hull, family, ore, oreId, iskPerM3, fromRate, hul
     })().catch(() => { if (alive) setMercs({}); });
     return () => { alive = false; };
   }, [hull.id, merc]); // eslint-disable-line react-hooks/exhaustive-deps
+  // While the Mercoxit versions are worked out no tier is drawn, so the pace is said to be coming (the tier's own view
+  // says what it is once drawn); none is said once the hull closes.
+  const tierSaid = tier ? tier.label ?? TIER_SAID[tier.key] : null;
+  const atSkills = skillsUnread(pilot) ? 'with every skill at V' : `at ${whose(pilot)} skills`;
+  useEffect(() => {
+    if (onPace && tierSaid && merc && !mercs) onPace({ from: 'fit', hull: hull.name, tier: tierSaid, at: atSkills, m3PerMin: null, drones: false, ice: false, mercoxit: true });
+  }, [onPace, tierSaid, merc, mercs, hull.name, atSkills]);
+  useEffect(() => () => onPace?.(null), [onPace]);
   if (!tier) return null;
   const m = merc && mercs ? mercs[tier.key] ?? null : null;
   return (
@@ -108,15 +123,16 @@ export function MasteryTiers({ hull, family, ore, oreId, iskPerM3, fromRate, hul
             ? 'No Mercoxit version: this fit mines ice. Mercoxit takes deep-core lasers.'
             : 'No Mercoxit version to make: this fit boosts rather than mines, and boosts a Mercoxit fleet the same.'}</p>}
           <TierView key={`${hull.id}:${tier.key}:${family}:${m ? 'merc' : ''}`} hull={hull} tier={m?.tier ?? tier} base={m ? tier : undefined} merc={m ?? undefined}
-            family={family} ore={ore} oreId={oreId} iskPerM3={iskPerM3} fromRate={fromRate} hullPrice={hullPrice} />
+            family={family} ore={ore} oreId={oreId} iskPerM3={iskPerM3} fromRate={fromRate} hullPrice={hullPrice} onPace={onPace} />
         </>
       )}
     </div>
   );
 }
 
-function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRate, hullPrice }: {
+function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRate, hullPrice, onPace }: {
   hull: HullNode; tier: Tier; family: Family; ore: string; oreId: number; iskPerM3: number | null; fromRate: number | null; hullPrice: number | null;
+  onPace?: (p: FitPace | null) => void;
   /** A Mercoxit version, and the tier it was made from. */
   base?: Tier; merc?: MercoxitFit;
 }) {
@@ -163,6 +179,14 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
   const holdV = hullD ? holdsFor(hullD, [], CARGO_FIVE).ore ?? 0 : 0;
   const hold = unread ? holdV : hullD ? holdsFor(hullD, [], pilot.skills ?? {}).ore ?? 0 : 0;
   const minesNow = pilot.isMain ? 'you mine' : `${pilot.name} mines`;
+  // What this tier mines, for the best-ore panel: its m³ a minute as the Mines line says it, and whether it's ice or the
+  // Mercoxit version. Before the fit is read, whether it's ice comes from its lasers' names, as MasteryTiers' note does.
+  const tierSaid = tier.label ?? TIER_SAID[tier.key];
+  const paceM3 = mine?.m3PerMin ?? null;
+  const ice = mine ? mine.kind === 'ice' : tier.high.some((x) => /Ice/.test(x.name));
+  useEffect(() => {
+    onPace?.({ from: 'fit', hull: hull.name, tier: tierSaid, at: atSkills, m3PerMin: paceM3, drones: !!got && !mine, ice, mercoxit: !!merc });
+  }, [onPace, hull.name, tierSaid, atSkills, paceM3, !!got && !mine, ice, !!merc]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="col" style={{ gap: 12 }}>

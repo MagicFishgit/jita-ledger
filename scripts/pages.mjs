@@ -180,6 +180,13 @@ try {
         const refused = ALTS[name].find((x) => x.entry.refusedAt != null).entry;
         if (!(await page.locator('.page', { hasText: `Hand the cloud ${refused.name}’s login again` }).count())) problems.push(`not drawn: no To do item for ${refused.name}’s refused login`);
       }
+      // The best-ore panel must draw with its place selector, and say plainly that it couldn't price: every request
+      // outside this server is refused here, so ESI never names the ores (never a zero, never "Pricing…" for good).
+      if (hash === 'hustles/mining') {
+        if (!(await page.locator('.panel-title', { hasText: 'Best ore to mine' }).count())) problems.push('not drawn: no “Best ore to mine” panel');
+        if (!(await page.locator('[role="group"][aria-label="Where it’s found"] button', { hasText: 'Null-sec' }).count())) problems.push('not drawn: no place selector on the best-ore panel');
+        if (!(await page.locator('.page', { hasText: 'Couldn’t read the ores’ names from ESI just now' }).count())) problems.push('not drawn: the best-ore panel doesn’t say it couldn’t price');
+      }
       await judge(hash);
     }
     if (name === 'large' && SHOWN.includes('hustles/mining')) {

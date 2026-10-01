@@ -102,6 +102,9 @@ export function bestWay(w: OreWorth): { way: Way; perUnit: number } | null {
   return best;
 }
 
+/** Each way said in a table: "best: sold as it is". */
+export const WAY_SAID: Record<Way, string> = { raw: 'Sold as it is', compressed: 'Compressed', reprocessed: 'Reprocessed' };
+
 export type DayTotal = { date: string; units: number; m3: number; isk: number };
 
 /** Each of the last `days` days (oldest first, today last), with what was mined and its worth; a day without mining is zero. */

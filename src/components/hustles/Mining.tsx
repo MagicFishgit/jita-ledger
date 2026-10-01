@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Calculator, Coins, History, Pickaxe, Timer, TrendingUp, Users } from 'lucide-react';
 import { useAlts } from '../../lib/altStore';
 import { hasScope } from '../../lib/auth';
@@ -7,21 +7,22 @@ import { SCOPE } from '../../lib/config';
 import { rates } from '../../lib/fees';
 import { fmtDateTime, fmtShort, isk, iskBig, units } from '../../lib/format';
 import { navigate, useAuth, useNow } from '../../lib/hooks';
-import { resolveIds } from '../../lib/market';
 import {
-  altRightNow, bestWay, byDay, byOre, median, minedTotal, perCharacter, sessionsByCharacter, sessionStats, SESSION_GAP_MS,
+  altRightNow, bestWay, byDay, byOre, median, minedTotal, perCharacter, sessionsByCharacter, sessionStats, SESSION_GAP_MS, WAY_SAID,
   type CharSession, type CharTick, type MiningRecord, type OreWorth, type SessionStats, type Way,
 } from '../../lib/mining';
-import { FAMILIES, gradeLabel, gradeRank, isMinedForm, oreBase, oreFamily } from '../../lib/miningFits';
+import { FAMILIES, gradeLabel, oreBase, oreFamily } from '../../lib/miningFits';
 import { HULLS } from '../../lib/miningTree';
-import { priceOres } from '../../lib/orePricing';
+import { gradesOf, oreBaseIds, priceOres } from '../../lib/orePricing';
+import { kindOfName, measuredByKind, sessionKind, type FitPace, type Measured } from '../../lib/oreWhere';
 import { skillsUnread, unreadNote, whose } from '../../lib/pilot';
 import { useData } from '../../lib/store';
-import { groupTypes, system, typeInfo } from '../../lib/universe';
+import { system } from '../../lib/universe';
 import { useMinedWorth } from '../charIncome';
 import { useEnsureNames, useTypeName } from '../common';
 import { PilotProvider, usePilot } from '../pilot';
 import { SkillStrip } from '../SkillStrip';
+import { BestOre } from './BestOre';
 import { MasteryTiers } from './MasteryTiers';
 import { MiningTree } from './MiningTree';
 import { useMiningFleet, type AltTicks, type FleetChar } from './miningFleet';
@@ -44,7 +45,6 @@ import { TreeLegend } from '../ShipTree';
  */
 
 const DAYS = 30;
-const WAY_SAID: Record<Way, string> = { raw: 'Sold as it is', compressed: 'Compressed', reprocessed: 'Reprocessed' };
 /** Scordite: the ore Scaling up prices for before you've mined anything. It spawns in every high-sec system (EVE University). */
 const SCORDITE = 1228;
 const MINING_HULLS = new Set(HULLS.map((h) => h.id));
@@ -173,6 +173,24 @@ export function Mining() {
     return [...by.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? SCORDITE;
   }, [shownRecent]);
   const minedBases = new Set([...new Set(shownRecent.map((x) => x.typeId))].map((t) => (d.names[t] || altNames.some((n) => n[t]) ? oreBase(oreName(t)) : null)).filter((x): x is string => !!x));
+  // The same for the best-ore panel, with the ice it mined by its own name (an ice type is its own row there).
+  const minedRows = new Set([...minedBases, ...[...new Set(shownRecent.map((x) => x.typeId))].flatMap((t) => {
+    const n = d.names[t] ?? altNames.find((m) => m[t])?.[t];
+    return n && kindOfName(n) === 'ice' ? [n.trim()] : [];
+  })]);
+  // The ore Scaling up prices for, kept in this browser: here rather than in Scaling up, so the best-ore panel can pick one.
+  const [chosenOre, setChosenOre] = useState<number | null>(readOre);
+  const chooseOre = (t: number | null) => { setChosenOre(t); saveOre(t); };
+  const scaling = useRef<HTMLDivElement>(null);
+  const pickOre = (t: number) => { chooseOre(t); scaling.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  // ISK an hour on the best-ore panel: the tier open in Scaling up (MasteryTiers reports it), else what the shown
+  // character's sessions measured, one kind of ore at a time, since an ice session's pace says nothing about ore.
+  const [tierPace, setTierPace] = useState<FitPace | null>(null);
+  const measuredBy = useMemo(() => measuredByKind(shownSessions.filter(({ st }) => st.minutes >= LONG_MIN).map(({ s, st }) => ({
+    ship: s.ship, m3PerMin: st.m3PerMin,
+    kind: sessionKind(Object.keys(s.byType).map((t) => d.names[Number(t)] ?? altNames.find((m) => m[Number(t)])?.[Number(t)])),
+  })), here), [shownSessions, here, d.names, altNames]);
+  const measuredPace: Measured | null = Object.keys(measuredBy).length ? { from: 'measured', by: measuredBy } : null;
   useEnsureNames(chars.flatMap((c) => (c.entry?.ship ? [c.entry.ship] : [])));
   const inShip = shown.isMain
     ? (here != null ? 'The ship you’re in; its paths out are your next steps' : 'The ship you’re in, once you mine')
@@ -338,8 +356,11 @@ export function Mining() {
       </Panel>
 
       <PilotProvider value={shown.pilot}>
-        <ScalingUp here={here} paceOf={paceOf} measured={measured} mostMined={mostMined} minedBases={minedBases} inShip={inShip}
-          chars={chars} shownId={shown.charId} onShow={chooseShow} />
+        <BestOre pace={tierPace ?? measuredPace} onPick={pickOre} minedBases={minedRows} />
+        <div ref={scaling} style={{ scrollMarginTop: 12 }}>
+          <ScalingUp here={here} paceOf={paceOf} measured={measured} mostMined={mostMined} minedBases={minedBases} inShip={inShip}
+            chars={chars} shownId={shown.charId} onShow={chooseShow} chosen={chosenOre} choose={chooseOre} onPace={setTierPace} />
+        </div>
       </PilotProvider>
     </div>
   );
@@ -535,27 +556,6 @@ const ORE_KEY = 'jita-ledger:mining-ore';
 const readOre = (): number | null => { try { const v = Number(localStorage.getItem(ORE_KEY)); return v > 0 ? v : null; } catch { return null; } };
 const saveOre = (t: number | null) => { try { if (t == null) localStorage.removeItem(ORE_KEY); else localStorage.setItem(ORE_KEY, String(t)); } catch { /* the pick just isn't kept */ } };
 
-/** Every base ore's ID, resolved once by name. */
-let baseIds: Promise<Record<string, number>> | null = null;
-function oreBaseIds(): Promise<Record<string, number>> {
-  baseIds ??= resolveIds(FAMILIES.flatMap(([, ores]) => ores))
-    .then((x) => Object.fromEntries((x.inventory_types ?? []).map((t) => [t.name, t.id])))
-    .catch((e) => { baseIds = null; throw e; });
-  return baseIds;
-}
-
-/**
- * An ore's grades, poorest first, from its inventory group: the market types named for it that aren't a compressed form.
- * A moon ore's group holds all four ores of its rarity, hence the name check.
- */
-async function gradesOf(base: string, baseId: number): Promise<{ id: number; name: string }[]> {
-  const types = await groupTypes((await typeInfo(baseId)).groupId);
-  const infos = await Promise.all(types.map(async (id) => ({ id, info: await typeInfo(id).catch(() => null) })));
-  return infos.filter((x) => x.info && x.info.marketGroupId != null && isMinedForm(x.info.name) && oreBase(x.info.name) === base)
-    .map((x) => ({ id: x.id, name: x.info!.name }))
-    .sort((a, b) => gradeRank(gradeLabel(a.name.trim(), base), base) - gradeRank(gradeLabel(b.name.trim(), base), base) || a.id - b.id);
-}
-
 /**
  * Scaling up: every mining hull as a node in a flowchart (MiningTree), the one you're in glowing, and under the one you
  * open its mastery tiers (MasteryTiers). The user asked for "an interactive animated flowchart design so you can click on
@@ -566,13 +566,17 @@ async function gradesOf(base: string, baseId: number): Promise<{ id: number; nam
  * tree and the tiers, its ship, its pace and the ore it mines most. The ore's worth stays yours (your skills, standing
  * and tax), whoever mines it.
  */
-function ScalingUp({ here, paceOf, measured, mostMined, minedBases, inShip, chars, shownId, onShow }: {
+function ScalingUp({ here, paceOf, measured, mostMined, minedBases, inShip, chars, shownId, onShow, chosen, choose, onPace }: {
   here: number | null; paceOf: (hull: number) => { m3PerMin: number; sessions: number } | null;
   measured: number | null; mostMined: number; minedBases: Set<string>;
   /** What the legend says the lit ship is, for whoever it's shown for. */
   inShip: string;
   /** Who it can be shown for, and who it is. */
   chars: FleetChar[]; shownId: number; onShow: (charId: number) => void;
+  /** The ore picked to price for (kept in this browser by the page, which the best-ore panel can set), or null for the one mined most. */
+  chosen: number | null; choose: (t: number | null) => void;
+  /** Hears the open tier's pace, for the best-ore panel's ISK an hour. */
+  onPace: (p: FitPace | null) => void;
 }) {
   const d = useData();
   const name = useTypeName();
@@ -582,9 +586,7 @@ function ScalingUp({ here, paceOf, measured, mostMined, minedBases, inShip, char
   const mines = pilot.isMain ? 'you mine' : `${pilot.name} mines`;
 
   // The ore the tiers are priced for: yours to pick (kept in this browser), else the one you mine most.
-  const [chosen, setChosen] = useState<number | null>(readOre);
   const ore = chosen ?? mostMined;
-  const choose = (t: number | null) => { setChosen(t); saveOre(t); };
   useEnsureNames([ore, mostMined]);
   const oreName = d.names[ore] ? name(ore).trim() : null;
   const base = oreName ? oreBase(oreName) : null;
@@ -659,7 +661,7 @@ function ScalingUp({ here, paceOf, measured, mostMined, minedBases, inShip, char
         )}
       </div>
       <MiningTree here={here} paceOf={paceOf}>
-        {(hull, price) => <MasteryTiers hull={hull} family={family} ore={oreName ?? 'your ore'} oreId={ore} iskPerM3={iskPerM3} fromRate={fromRate} hullPrice={price} />}
+        {(hull, price) => <MasteryTiers hull={hull} family={family} ore={oreName ?? 'your ore'} oreId={ore} iskPerM3={iskPerM3} fromRate={fromRate} hullPrice={price} onPace={onPace} />}
       </MiningTree>
       <SkillStrip title={`Skills that raise ${whose(pilot)} yield`} lines={[
         { name: 'Mining', id: 3386, what: '+5% ore yield a level, in every ship.' },
