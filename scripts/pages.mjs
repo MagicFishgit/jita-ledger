@@ -102,7 +102,50 @@ const MINING_CASES = [
   { label: 'Hauler Four shown, refused and never read', keep: { 'mining-show': '900003' },
     proof: ['What your characters mined', 'Not read: EVE refused Hauler Four’s login', 'Its login was refused: hand it over again on the Characters page'] },
   { label: 'a kept character no longer on the roster', keep: { 'mining-char': '999999' }, proof: ['What your characters mined', 'Yields at your skills'] },
+  // The best-ore panel priced: ESI answers for two ores from fixtures, so the deploy draws a priced row and an opened one,
+  // not only the "couldn't read the names" state every other load draws (final review, M8).
+  { label: 'the best-ore panel priced, Scordite opened', esi: true, proof: ['Best ore to mine'] },
 ];
+
+/**
+ * Two ores and a grade answering from ESI, with fake IDs (99xxxx) so the bundled materials stay out of it: priced as they
+ * are and compressed. Anything else ESI is asked falls through to the refusal.
+ */
+const ORE_FIXTURE = {
+  types: {
+    990001: { name: 'Scordite', group: 990100, volume: 0.15, bid: 20 },
+    990002: { name: 'Scordite II-Grade', group: 990100, volume: 0.15, bid: 24 },
+    990003: { name: 'Compressed Scordite', group: 990101, volume: 0.0015, bid: 26 },
+    990004: { name: 'Veldspar', group: 990102, volume: 0.1, bid: 15 },
+  },
+  groups: { 990100: [990001, 990002] },
+};
+async function answerOres(route) {
+  const req = route.request();
+  const url = new URL(req.url());
+  if (url.hostname !== 'esi.evetech.net') return route.fallback();
+  const json = (body, headers = {}) => route.fulfill({ status: 200, contentType: 'application/json', headers: { expires: new Date(Date.now() + 300_000).toUTCString(), ...headers }, body: JSON.stringify(body) });
+  const p = url.pathname;
+  if (p === '/universe/ids/' && req.method() === 'POST') {
+    const names = JSON.parse(req.postData() ?? '[]');
+    const hits = Object.entries(ORE_FIXTURE.types).filter(([, t]) => names.includes(t.name)).map(([id, t]) => ({ id: Number(id), name: t.name }));
+    return json(hits.length ? { inventory_types: hits } : {});
+  }
+  let m = /^\/universe\/types\/(\d+)\/$/.exec(p);
+  if (m && ORE_FIXTURE.types[m[1]]) { const t = ORE_FIXTURE.types[m[1]]; return json({ type_id: Number(m[1]), name: t.name, group_id: t.group, market_group_id: 1, volume: t.volume, published: true }); }
+  m = /^\/universe\/groups\/(\d+)\/$/.exec(p);
+  if (m && ORE_FIXTURE.groups[m[1]]) return json({ group_id: Number(m[1]), name: 'Fixture ore', types: ORE_FIXTURE.groups[m[1]] });
+  const t = p === '/markets/10000002/orders/' ? ORE_FIXTURE.types[url.searchParams.get('type_id')] : null;
+  if (t) return json([{ order_id: 1, type_id: Number(url.searchParams.get('type_id')), location_id: 60003760, is_buy_order: true, price: t.bid, volume_remain: 1000, volume_total: 1000, issued: '2026-10-01T00:00:00Z', duration: 90, min_volume: 1, range: 'station' }], { 'x-pages': '1' });
+  if (p === '/markets/prices/') return json([]);
+  if (p === '/universe/stations/60003760/') return json({ station_id: 60003760, name: 'Jita IV - Moon 4 - Caldari Navy Assembly Plant', reprocessing_efficiency: 0.5 });
+  return route.fallback();
+}
+/** A row of the best-ore table by its name: its cells' text, or null. */
+const oreRow = (page, name) => page.evaluate((nm) => {
+  const tr = [...document.querySelectorAll('table.bo-table tbody tr')].find((r) => [...r.querySelectorAll('.name')].some((x) => x.textContent.trim() === nm));
+  return tr ? [...tr.children].map((td) => td.innerText.replace(/\s+/g, ' ').trim()) : null;
+}, name);
 
 // ---- Run ----------------------------------------------------------------------------------------------------
 
@@ -193,14 +236,15 @@ try {
     if (name === 'large' && SHOWN.includes('hustles/mining')) {
       for (const c of MINING_CASES) {
         problems = [];
-        if (c.keep) {
+        if (c.esi) await page.route('**/*', answerOres);
+        if (c.keep || c.esi) {
           // Kept as a visit leaves them, then the tab opened afresh (it reads them as it mounts): another page first,
           // since setting the hash it already has wouldn't draw it again.
           await page.evaluate((keep) => {
             for (const k of ['mining-char', 'mining-show']) localStorage.removeItem(`jita-ledger:${k}`);
             for (const [k, v] of Object.entries(keep)) localStorage.setItem(`jita-ledger:${k}`, v);
             location.hash = '#settings/appearance';
-          }, c.keep);
+          }, c.keep ?? {});
           await page.waitForTimeout(500);
           await page.evaluate(() => { location.hash = '#hustles/mining'; });
         } else {
@@ -209,6 +253,17 @@ try {
         }
         await page.waitForTimeout(1500);
         for (const t of c.proof) if (!(await page.locator('.page', { hasText: t }).count())) problems.push(`not drawn: no “${t}”`);
+        if (c.esi) {
+          // A priced figure on Scordite's row, then its grades opened and the II-Grade priced.
+          const priced = (cells) => !!cells && cells.some((x) => /^\d[\d,.]* ISK/.test(x));
+          const scordite = await oreRow(page, 'Scordite');
+          if (!priced(scordite)) problems.push(`the best-ore panel drew no priced Scordite: ${JSON.stringify(scordite)}`);
+          await page.locator('table.bo-table button.expander[aria-label^="Scordite:"]').click().catch((e) => problems.push(`couldn't open Scordite: ${e.message.split('\n')[0]}`));
+          await page.waitForTimeout(1500);
+          const grade = await oreRow(page, 'Scordite II-Grade');
+          if (!priced(grade)) problems.push(`the best-ore panel drew no priced Scordite II-Grade when opened: ${JSON.stringify(grade)}`);
+          await page.unroute('**/*', answerOres);
+        }
         await judge(`hustles/mining (${c.label})`);
       }
       await page.evaluate(() => { for (const k of ['mining-char', 'mining-show']) localStorage.removeItem(`jita-ledger:${k}`); });
