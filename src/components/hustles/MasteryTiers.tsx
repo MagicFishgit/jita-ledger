@@ -107,7 +107,7 @@ export function MasteryTiers({ hull, family, ore, oreId, iskPerM3, fromRate, hul
   // An ice fit has no Mercoxit version, so it's said as ice from the start (its lasers' names, as the note below reads them).
   const iceTier = !!tier?.high.some((x) => /Ice/.test(x.name));
   useEffect(() => {
-    if (onPace && tierSaid && merc && !mercs) onPace({ from: 'fit', hull: hull.name, tier: tierSaid, at: atSkills, m3PerMin: null, drones: false, ice: iceTier, mercoxit: !iceTier });
+    if (onPace && tierSaid && merc && !mercs) onPace({ from: 'fit', hull: hull.name, tier: tierSaid, at: atSkills, m3PerMin: null, drones: false, unread: false, ice: iceTier, mercoxit: !iceTier });
   }, [onPace, tierSaid, merc, mercs, hull.name, atSkills, iceTier]);
   useEffect(() => () => onPace?.(null), [onPace]);
   if (!tier) return null;
@@ -167,11 +167,21 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
     const skillDogma = Object.fromEntries(YIELD_SKILLS.map((s) => [s, got.dogma[s]]));
     return fitYield(hullD, laser, laserItem.qty ?? 1, cr, extras, skills, skillDogma);
   };
+  // Whether ESI gave every figure the yield is worked out from: the hull's, each fitted item's and implant's, the crystal's,
+  // and the yield skills'. useFitData keeps going past a lookup that failed, so a missing hull or laser used to come out
+  // as no yield, said as "only with its drones" (every day in EVE's downtime), and a missing mid or crystal as a lower
+  // yield with nothing said.
+  const known = (nm: string) => { const id = got?.ids[nm]; return id != null && !!got?.dogma[id]; };
+  const fitRead = !!got && !!got.dogma[hull.id] && [...tier.high, ...tier.mid, ...tier.low, ...tier.rigs].every((x) => known(x.name))
+    && (tier.implants ?? []).every(known) && (!crystal || known(crystal)) && YIELD_SKILLS.every((sk) => !!got.dogma[sk]);
+  const fitUnread = !!got && !fitRead;
+  // Mines only with its drones: every high read, and none a mining laser (the Porpoise's, Orca's and Rorqual's tiers).
+  const dronesOnly = fitRead && !tier.high.some((x) => LASER_GROUPS.has(got!.dogma[got!.ids[x.name]]?.group));
   // An alt whose skills the cloud hasn't read: everything is at V, and says so. Worked out at no skills, its figures would
   // read as the alt's own.
   const unread = skillsUnread(pilot);
-  const ceiling = yieldAt(ALL_FIVE);
-  const mine = unread ? ceiling : yieldAt(pilot.skills ?? {});
+  const ceiling = fitRead ? yieldAt(ALL_FIVE) : null;
+  const mine = !fitRead ? null : unread ? ceiling : yieldAt(pilot.skills ?? {});
   const atSkills = unread ? 'with every skill at V' : `at ${whose(pilot)} skills`;
   const { fitCost, total, unpriced } = fitCosts(tier, crystal, data, hullPrice);
   const pay = !unread && total != null && mine && mine.kind === 'ore' && iskPerM3 != null && fromRate != null ? paybackHours(total, fromRate, mine.m3PerMin, iskPerM3) : null;
@@ -187,8 +197,8 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
   const paceM3 = mine?.m3PerMin ?? null;
   const ice = mine ? mine.kind === 'ice' : tier.high.some((x) => /Ice/.test(x.name));
   useEffect(() => {
-    onPace?.({ from: 'fit', hull: hull.name, tier: tierSaid, at: atSkills, m3PerMin: paceM3, drones: !!got && !mine, ice, mercoxit: !!merc });
-  }, [onPace, hull.name, tierSaid, atSkills, paceM3, !!got && !mine, ice, !!merc]); // eslint-disable-line react-hooks/exhaustive-deps
+    onPace?.({ from: 'fit', hull: hull.name, tier: tierSaid, at: atSkills, m3PerMin: paceM3, drones: dronesOnly, unread: fitUnread, ice, mercoxit: !!merc });
+  }, [onPace, hull.name, tierSaid, atSkills, paceM3, dronesOnly, fitUnread, ice, !!merc]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="col" style={{ gap: 12 }}>
@@ -196,7 +206,8 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
       {unread && <p className="note small" style={{ margin: 0 }}>{unreadNote(pilot)}{pilot.lost ? '. These are' : ', so these are'} with every skill at V.</p>}
       <div className="kv-mini" style={{ maxWidth: 620 }}>
         <span>Mines</span>
-        <b>{!got ? 'Working it out…' : !mine ? 'Only with its drones, which aren’t worked out here: what it’s for is the boosts and compression it gives a fleet.' : mine.kind === 'ice'
+        <b>{!got ? 'Working it out…' : fitUnread ? 'Couldn’t read this fit’s figures from ESI just now: close the ship and open it again to try again.'
+          : !mine ? 'Only with its drones, which aren’t worked out here: what it’s for is the boosts and compression it gives a fleet.' : mine.kind === 'ice'
           ? `a block of ice every ${Math.round(mine.cycle / mine.lasers)} s (${units(Math.round((3600 / mine.cycle) * mine.lasers))} an hour) ${atSkills}${!unread && ceiling && Math.round(ceiling.cycle) < Math.round(mine.cycle) ? `, every ${Math.round(ceiling.cycle / ceiling.lasers)} s with every skill at V` : ''}`
           : `${units(Math.round(mine.m3PerMin))} m³ a minute ${atSkills}${!unread && ceiling && Math.round(ceiling.m3PerMin) > Math.round(mine.m3PerMin) ? `, ${units(Math.round(ceiling.m3PerMin))} with every skill at V` : ''}`}</b>
         {mine?.kind === 'ore' && iskPerM3 != null && <><span>Worth</span><b style={{ color: 'var(--pos)' }}>about {iskBig(mine.m3PerMin * 60 * iskPerM3)} an hour</b></>}

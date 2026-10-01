@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, ChevronRight, Coins, Gauge, MapPin } from 'lucide-react';
+import { ArrowDown, BookOpen, ChevronRight, Coins, Gauge, MapPin } from 'lucide-react';
 import { rates } from '../../lib/fees';
 import { isk, iskBig, units } from '../../lib/format';
 import { bestWay, WAY_SAID, type OreWorth } from '../../lib/mining';
@@ -8,7 +8,7 @@ import { MASTERY } from '../../lib/miningMastery';
 import { HULLS } from '../../lib/miningTree';
 import { gradesOf, priceOres } from '../../lib/orePricing';
 import {
-  kindOfBase, ORE_WHERE, ORE_WHERE_SOURCE, paceFor, PLACES, rankOres,
+  kindOfBase, ORE_WHERE, ORE_WHERE_SOURCE, paceFor, PLACES, rankedBy, rankOres,
   type Found, type How, type NoPace, type OreKind, type Pace, type Place,
 } from '../../lib/oreWhere';
 import { whose, whoseStart } from '../../lib/pilot';
@@ -164,8 +164,13 @@ export function BestOre({ ids, onRetryIds, pace, onPick, minedBases }: {
       const kind = kindOfBase(b)!;
       return { base: b, iskPerM3: f?.perM3 ?? null, iskPerHour: hourOf(kind, f?.perM3 ?? null).isk };
     });
-    return rankOres(base, place);
+    return { ranked: rankOres(base, place), by: rankedBy(base, place) };
   }, [place, prices, ids, pace]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Which column ranks the table, marked on its header; a row without that figure is listed after, unnumbered.
+  const by = rows.by;
+  const rankMark = (col: 'hour' | 'm3') => (by === col
+    ? <ArrowDown aria-label="Ranked by this, best first" data-tip={col === 'hour' ? 'Ranked by this, best first: every ore here has a pace.' : 'Ranked by this, best first. ISK an hour would rank them the same wherever one fit’s pace covers them all.'} style={{ width: 12, height: 12, color: 'var(--acc)' }} />
+    : null);
 
   const mines = pilot.isMain ? 'you mine it' : `${pilot.name} mines it`;
   // Whose pace and which fit, for the column's header.
@@ -177,6 +182,7 @@ export function BestOre({ ids, onRetryIds, pace, onPick, minedBases }: {
     switch (why) {
       case 'none': return 'No pace to work it out at: open a ship in Scaling up below, and ISK an hour follows its fit.';
       case 'loading': return 'Working out the fit’s pace…';
+      case 'unread': return `Couldn’t read ${fit}’s figures from ESI just now: close the ship in Scaling up and open it again.`;
       case 'drones': return `${fit[0].toUpperCase()}${fit.slice(1)} mines only with its drones, which aren’t worked out here.`;
       case 'fitIsIce': return `${fit[0].toUpperCase()}${fit.slice(1)} harvests ice, not ${KIND_SAID[kind]}: open an ore fit in Scaling up for its pace.`;
       case 'fitIsOre': return `${fit[0].toUpperCase()}${fit.slice(1)} mines ore, not ice: open an ice fit in Scaling up${ICE_HULLS.length ? ` (the ${ICE_HULLS.join(' or ')})` : ''}.`;
@@ -219,14 +225,14 @@ export function BestOre({ ids, onRetryIds, pace, onPick, minedBases }: {
             <th scope="col" className="l"><span className="th">Ore</span></th>
             <th scope="col" className="l"><span className="th">Found here<Tip title="Found here" text={'Where in this kind of space it’s found, and how.\n\n• From EVE University’s Asteroids and ore, Moon mining and Ice harvesting pages and CCP’s patch notes, read 1 October 2026: ESI doesn’t say.\n• Hover where it’s found for the detail and the page it comes from; a flag marks where the sources disagree.'} /></span></th>
             <th scope="col" className="l"><span className="th">Best way<Tip title="Best way" text={'Of three ways to sell it at Jita 4-4, after tax, whichever fetches most.\n\n• As it is: into its own bids.\n• Compressed: its compressed form into its bids. Compressing keeps one unit for one at a hundredth of the volume; it takes a Porpoise, an Orca or a structure.\n• Reprocessed: at your skills at Jita 4-4, the minerals into their bids, after the station’s tax.'} /></span></th>
-            <th scope="col"><span className="th">ISK a m³<Tip title="ISK a m³" text="What a cubic metre of it fetches the best way, after tax: what fills an ore hold best." /></span></th>
+            <th scope="col"><span className="th">{rankMark('m3')}ISK a m³<Tip title="ISK a m³" text="What a cubic metre of it fetches the best way, after tax: what fills an ore hold best." /></span></th>
             <th scope="col">
-              <span className="th">ISK an hour<Tip title="ISK an hour" text={`A m³ of it at the pace Scaling up shows, for an hour.\n\n• With a ship open there: its tier’s m³ a minute at that character’s skills, from ESI’s figures, without boosts.\n• One ore fit’s pace holds for every ore but Mercoxit: a crystal of one kind mines every family alike (ESI’s figures for each family’s crystals agree).\n• An ore fit mines no ice and an ice fit no ore; Mercoxit takes deep-core lasers, so it has a pace only with Mercoxit picked there.\n• With no ship open: what ${whose(pilot)} sessions measured, on the same kind of ore.`} /></span>
+              <span className="th">{rankMark('hour')}ISK an hour<Tip title="ISK an hour" text={`A m³ of it at the pace Scaling up shows, for an hour.\n\n• With a ship open there: its tier’s m³ a minute at that character’s skills, from ESI’s figures, without boosts.\n• One ore fit’s pace holds for every ore but Mercoxit: a crystal of one kind mines every family alike (ESI’s figures for each family’s crystals agree).\n• An ore fit mines no ice and an ice fit no ore; Mercoxit takes deep-core lasers, so it has a pace only with Mercoxit picked there.\n• With no ship open: what ${whose(pilot)} sessions measured, on the same kind of ore.`} /></span>
               <span className="sub" style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>{paceSaid}</span>
             </th>
           </tr></thead>
           <tbody>
-            {rows.map((r, i) => {
+            {rows.ranked.map((r, i) => {
               const o = ORE_WHERE[r.base];
               const kind = kindOfBase(r.base)!;
               const id = idOf(r.base);
@@ -236,7 +242,7 @@ export function BestOre({ ids, onRetryIds, pace, onPick, minedBases }: {
               return (
                 <Fragment key={r.base}>
                   <tr className={isOpen ? 'open' : undefined}>
-                    <td className="l faint">{i + 1}</td>
+                    <td className="l faint">{(by === 'hour' ? r.iskPerHour : r.iskPerM3) != null ? i + 1 : '–'}</td>
                     <td className="l">
                       <span className="cellrow">
                         {kind !== 'ice' ? (

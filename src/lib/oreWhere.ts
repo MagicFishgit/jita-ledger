@@ -257,12 +257,22 @@ export const ORE_WHERE_SOURCE: { name: string; url: string; read: string; caveat
 export type OreRow = { base: string; iskPerM3: number | null; iskPerHour: number | null };
 
 /**
+ * Which figure `rankOres` ranks a place's rows by: ISK an hour when every row found there has one, else ISK a m³. With one
+ * fit's pace for every ore that's the same order, so a row without an hour (Mercoxit, an unpriced one) only changes
+ * which column the panel marks.
+ */
+export function rankedBy(rows: OreRow[], place: Place): 'hour' | 'm3' {
+  const here = rows.filter((r) => ORE_WHERE[r.base]?.found.some((x) => x.place === place));
+  return here.length > 0 && here.every((r) => r.iskPerHour != null) ? 'hour' : 'm3';
+}
+
+/**
  * The rows found in `place`, best first: by ISK an hour when every one of them has it, else by ISK a m³. Rows
  * with no figure for the one used come last, in name order; ties go to the name.
  */
 export function rankOres(rows: OreRow[], place: Place): OreRow[] {
   const here = rows.filter((r) => ORE_WHERE[r.base]?.found.some((x) => x.place === place));
-  const byHour = here.length > 0 && here.every((r) => r.iskPerHour != null);
+  const byHour = rankedBy(rows, place) === 'hour';
   const val = (r: OreRow) => (byHour ? r.iskPerHour : r.iskPerM3);
   return here.slice().sort((a, b) => {
     const x = val(a);
@@ -311,8 +321,11 @@ export type FitPace = {
   from: 'fit';
   /** "Hulk", "Solid", and whose skills it's at: "at your skills", "at Miner Two’s skills", "with every skill at V". */
   hull: string; tier: string; at: string;
-  /** Null while it's worked out, or for a fit that mines only with its drones (`drones`). */
-  m3PerMin: number | null; drones: boolean;
+  /**
+   * Null while it's worked out, for a fit that mines only with its drones (`drones`: every high slot read, none a laser),
+   * or for one whose figures ESI couldn't give just now (`unread`: the hull's, or a fitted item's, or a yield skill's).
+   */
+  m3PerMin: number | null; drones: boolean; unread: boolean;
   /** An ice harvester's fit; the Mercoxit version of a fit (deep-core lasers). */
   ice: boolean; mercoxit: boolean;
 };
@@ -322,7 +335,7 @@ export type Measured = { from: 'measured'; by: Partial<Record<OreKind, MeasuredP
 export type Pace = FitPace | Measured;
 
 /** Why a row has no ISK an hour; the words are the panel's. */
-export type NoPace = 'none' | 'loading' | 'drones' | 'fitIsIce' | 'fitIsOre' | 'fitIsMercoxit' | 'needMercoxit' | 'notMeasured';
+export type NoPace = 'none' | 'loading' | 'unread' | 'drones' | 'fitIsIce' | 'fitIsOre' | 'fitIsMercoxit' | 'needMercoxit' | 'notMeasured';
 export type RowPace = { m3PerMin: number } | { m3PerMin: null; why: NoPace };
 
 /**
@@ -337,10 +350,13 @@ export function paceFor(kind: OreKind, pace: Pace | null): RowPace {
     const m = pace.by[kind];
     return m ? { m3PerMin: m.m3PerMin } : no('notMeasured');
   }
+  // A fit that can't be read, or mines only with drones, says so for every row: what it can mine isn't the question.
+  if (pace.unread) return no('unread');
+  if (pace.drones) return no('drones');
   if (pace.ice !== (kind === 'ice')) return no(pace.ice ? 'fitIsIce' : 'fitIsOre');
   if (kind === 'mercoxit' && !pace.mercoxit) return no('needMercoxit');
   if (kind === 'ore' && pace.mercoxit) return no('fitIsMercoxit');
-  if (pace.m3PerMin == null) return no(pace.drones ? 'drones' : 'loading');
+  if (pace.m3PerMin == null) return no('loading');
   return { m3PerMin: pace.m3PerMin };
 }
 

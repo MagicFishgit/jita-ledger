@@ -4322,6 +4322,10 @@ console.log('\n--- best ore by where it\'s found ---');
   eq('  rank: unpriced rows last, by name', rankOres([row('Veldspar', null, null), row('Scordite', 5, null), row('Plagioclase', null, null)], 'highsec').map((r) => r.base), ['Scordite', 'Plagioclase', 'Veldspar']);
   eq('  rank: an ore not found in the place is left out', rankOres([row('Veldspar', 2, 90), row('Hedbergite', 9, 99)], 'highsec').map((r) => r.base), ['Veldspar']);
   eq('  rank: an unknown base is left out', rankOres([row('Nonsense', 2, 90)], 'highsec'), []);
+  const { rankedBy } = await import('../src/lib/oreWhere.ts');
+  eq('  ranked by the hour when every row has one', rankedBy([row('Scordite', 1, 50), row('Veldspar', 2, 90), row('Hedbergite', 9, null)], 'highsec'), 'hour');
+  eq('  else by the m3', rankedBy([row('Scordite', 5, null), row('Veldspar', 2, 90)], 'highsec'), 'm3');
+  eq('  and by the m3 with no rows', rankedBy([], 'pochven'), 'm3');
 
   // ISK an hour: a row takes only a pace its ore can be mined at.
   const { kindOfBase, kindOfName, sessionKind, paceFor, measuredByKind } = await import('../src/lib/oreWhere.ts');
@@ -4330,7 +4334,7 @@ console.log('\n--- best ore by where it\'s found ---');
   eq('  a session of one kind is that kind', sessionKind(['Scordite', 'Veldspar II-Grade']), 'ore');
   eq('  ore and ice in one session say nothing', sessionKind(['Scordite', 'Glare Crust']), null);
   eq('  an ore whose name isn\'t read yet says nothing', sessionKind(['Scordite', null]), null);
-  const fit = (o) => ({ from: 'fit', hull: 'Hulk', tier: 'Solid', at: 'at your skills', m3PerMin: 1185, drones: false, ice: false, mercoxit: false, ...o });
+  const fit = (o) => ({ from: 'fit', hull: 'Hulk', tier: 'Solid', at: 'at your skills', m3PerMin: 1185, drones: false, unread: false, ice: false, mercoxit: false, ...o });
   eq('  no pace at all: open a ship', paceFor('ore', null), { m3PerMin: null, why: 'none' });
   eq('  an ore fit mines ore', paceFor('ore', fit()), { m3PerMin: 1185 });
   eq('  an ore fit mines no ice', paceFor('ice', fit()), { m3PerMin: null, why: 'fitIsOre' });
@@ -4341,6 +4345,9 @@ console.log('\n--- best ore by where it\'s found ---');
   eq('  and speaks for no other ore', paceFor('ore', fit({ mercoxit: true, m3PerMin: 572 })), { m3PerMin: null, why: 'fitIsMercoxit' });
   eq('  a fit still worked out is loading, never a zero', paceFor('ore', fit({ m3PerMin: null })), { m3PerMin: null, why: 'loading' });
   eq('  a drones-only fit says so', paceFor('ore', fit({ m3PerMin: null, drones: true })), { m3PerMin: null, why: 'drones' });
+  // A booster tier with Mercoxit picked (no Mercoxit version) once told the Mercoxit row to pick Mercoxit.
+  eq('  drones-only before Mercoxit and ice', [paceFor('mercoxit', fit({ m3PerMin: null, drones: true })), paceFor('ice', fit({ m3PerMin: null, drones: true }))].map((p) => p.why), ['drones', 'drones']);
+  eq('  a fit ESI couldn\'t read says so, never "drones"', [paceFor('ore', fit({ m3PerMin: null, unread: true })), paceFor('ice', fit({ m3PerMin: null, unread: true })), paceFor('mercoxit', fit({ m3PerMin: null, unread: true }))].map((p) => p.why), ['unread', 'unread', 'unread']);
   const by = measuredByKind([
     { ship: 17480, kind: 'ore', m3PerMin: 500 }, { ship: 17480, kind: 'ore', m3PerMin: 700 }, { ship: 32880, kind: 'ore', m3PerMin: 100 },
     { ship: 37135, kind: 'ice', m3PerMin: 1800 }, { ship: 32880, kind: null, m3PerMin: 9999 },
