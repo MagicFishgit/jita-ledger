@@ -23,10 +23,11 @@ export const ACTIVITY_WHAT: Record<Activity, string> = {
   Abyssal: 'Abyssal loot sold, less filaments bought and ships lost',
   Combat: 'Bounties and missions, less ships lost',
   Freelance: 'Freelance job rewards, less everything bought for the jobs (stock not yet delivered included; the Freelance tab shows profit on what’s delivered)',
+  Rewards: 'Daily goal payouts, AIR career program rewards and CCP’s other rewards for playing (challenges, milestones, opportunities), less any tax on them',
 };
 const LOSS_ACTIVITY: Record<CombatActivity, Activity> = { Abyssal: 'Abyssal', Hauling: 'Hauling', PvP: 'Combat', PvE: 'Combat' };
 /** The activities counted without ESI's item groups. */
-const WITHOUT_SETS = new Set<Activity>(['Trading', 'Hauling', 'Freelance', 'Combat']);
+const WITHOUT_SETS = new Set<Activity>(['Trading', 'Hauling', 'Freelance', 'Combat', 'Rewards']);
 
 /** What each ship lost was doing, by killmail ID (killmails.ts classify). */
 export type LossActs = Record<number, CombatActivity>;

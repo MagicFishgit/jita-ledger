@@ -4,11 +4,12 @@
  * Every figure is attributed from your own records by a stated rule: trading from your positions'
  * realized profit, abyssal running from filaments bought against loot sold, hauling from courier
  * rewards, planets from sales of planetary goods less customs tax, loyalty from sales of loyalty-store
- * goods less the ISK the store took, and combat from bounties and missions. Ships lost are charged to
+ * goods less the ISK the store took, combat from bounties and missions, and rewards from what CCP pays
+ * for playing (daily goals, the AIR career program; `REWARDS` in wallet.ts). Ships lost are charged to
  * the activity they were lost in. None of it is estimated.
  */
 
-import { categoryOf } from './wallet';
+import { categoryOf, REWARDS, REWARDS_TAX } from './wallet';
 import { ownTransfer } from './roster';
 import type { Activity } from './types';
 import { bucketIndex } from './longRange';
@@ -119,6 +120,7 @@ export function attribute(inp: AttributionInput): DayEvent[] {
     else if (e.refType === 'lp_store') out.push({ t, activity: 'Loyalty', isk: e.amount });
     else if (e.refType === 'contract_reward' && e.amount > 0) out.push({ t, activity: 'Hauling', isk: e.amount });
     else if (e.refType === 'freelance_jobs_reward') out.push({ t, activity: 'Freelance', isk: e.amount });
+    else if (REWARDS.has(e.refType) || e.refType === REWARDS_TAX) out.push({ t, activity: 'Rewards', isk: e.amount });
     else if (categoryOf(e)?.key === 'bounties') out.push({ t, activity: 'Combat', isk: e.amount });
   }
   for (const l of inp.losses) out.push({ t: l.t, activity: l.activity, isk: -l.isk });

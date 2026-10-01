@@ -2,11 +2,12 @@
   "wallet 1": [
     "Sold, never bought +119.26 M ISK",
     "Combat +2.44 M ISK",
+    "Rewards +445,000 ISK",
     "Loyalty −2.91 M ISK",
     "Trading, every item −1.56 B ISK",
-    "All income −1.45 B ISK",
+    "All income −1.44 B ISK",
     "Spent on play −0 ISK",
-    "What’s left −1.45 B ISK"
+    "What’s left −1.44 B ISK"
   ],
   "wallet 7": [
     "Sold, never bought +1.92 B ISK",
@@ -14,6 +15,7 @@
     "Freelance +19.5 M ISK",
     "Hauling +12.61 M ISK",
     "Loyalty +1.37 M ISK",
+    "Rewards +520,000 ISK",
     "Planets −325,178 ISK",
     "Abyssal −187.72 M ISK",
     "Trading, every item −6.92 B ISK",
@@ -28,6 +30,7 @@
     "Planets +46.84 M ISK",
     "Freelance +19.5 M ISK",
     "Loyalty +10.3 M ISK",
+    "Rewards +520,000 ISK",
     "Abyssal −618.94 M ISK",
     "Trading, every item −41.48 B ISK",
     "All income −37.32 B ISK",
@@ -42,8 +45,9 @@
     "Hauling +273.78 M ISK",
     "Loyalty +45.07 M ISK",
     "Freelance +22.5 M ISK",
+    "Rewards +920,000 ISK",
     "Trading, every item −44.05 B ISK",
-    "All income −24.92 B ISK",
+    "All income −24.91 B ISK",
     "Spent on play −68.3 M ISK",
     "What’s left −24.98 B ISK"
   ],
@@ -56,6 +60,7 @@
     "Hauling +142.68 M ISK Hours a week on hauling –",
     "Abyssal −618.94 M ISK Hours a week on abyssal –",
     "Combat +308.67 M ISK Hours a week on combat –",
-    "Freelance +19.5 M ISK Hours a week on freelance –"
+    "Freelance +19.5 M ISK Hours a week on freelance –",
+    "Rewards +520,000 ISK With any play –"
   ]
 }

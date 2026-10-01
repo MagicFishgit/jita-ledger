@@ -48,6 +48,7 @@ const IN: Record<string, Category> = {
   donation: { key: 'donation', label: 'Donations received' },
   insurance: { key: 'insurance', label: 'Insurance' },
   freelance: { key: 'freelance', label: 'Freelance rewards' },
+  rewards: { key: 'rewards', label: 'Goals & AIR rewards' },
   other: { key: 'otherIn', label: 'Other income' },
 };
 
@@ -72,6 +73,19 @@ export const BETWEEN: Category = { key: 'between', label: 'Between your characte
 
 const has = (list: string[], r: string) => list.includes(r);
 
+/**
+ * ISK CCP pays for playing rather than for one activity: daily goals, the AIR career program, and the challenges,
+ * milestones, opportunities and campaign objectives before and beside them (ESI's ref types, read from its spec on
+ * 1 October 2026). Income for any character; Results counts them as the Rewards activity, net of their tax.
+ */
+export const REWARDS = new Set([
+  'daily_goal_payouts', 'air_career_program_reward', 'daily_challenge_reward', 'season_challenge_reward',
+  'milestone_reward_payment', 'achievement_milestone_reward', 'achievement_category_milestone_reward',
+  'opportunity_reward', 'campaign_objective_isk_reward',
+]);
+/** The tax a corporation takes from a daily goal payout: a fee on the Wallet, netted from Rewards in Results. */
+export const REWARDS_TAX = 'daily_goal_payouts_tax';
+
 /** Which group a journal entry belongs in, or null when trades or your own transfers cover it. */
 export function categoryOf(e: Pick<JournalEntry, 'refType' | 'amount' | 'firstPartyId' | 'secondPartyId'>, mine?: Set<number>): Category | null {
   const r = e.refType;
@@ -79,16 +93,17 @@ export function categoryOf(e: Pick<JournalEntry, 'refType' | 'amount' | 'firstPa
   if (mine && ownTransfer(e, mine)) return BETWEEN;
   if (e.amount > 0) {
     if (r === 'freelance_jobs_reward') return IN.freelance;
+    if (REWARDS.has(r)) return IN.rewards;
     if (has(['bounty_prizes', 'bounty_prize', 'agent_mission_reward', 'agent_mission_time_bonus_reward', 'ess_escrow_transfer',
-      'mission_reward', 'mission_completion', 'corporate_reward_payout', 'daily_challenge_reward', 'milestone_reward_payment',
-      'project_discovery_reward', 'season_challenge_reward', 'resource_wars_reward', 'opportunity_reward', 'agents_preward'], r)) return IN.bounty;
+      'mission_reward', 'mission_completion', 'corporate_reward_payout', 'project_discovery_reward', 'resource_wars_reward',
+      'agents_preward'], r)) return IN.bounty;
     if (r === 'contract_reward') return IN.courier;
     if (r.startsWith('contract_')) return IN.contracts;
     if (r === 'player_donation') return IN.donation;
     if (r === 'insurance') return IN.insurance;
     return IN.other;
   }
-  if (r === 'brokers_fee' || r === 'transaction_tax') return OUT.fees;
+  if (r === 'brokers_fee' || r === 'transaction_tax' || r === REWARDS_TAX) return OUT.fees;
   if (has(['contract_reward_deposited', 'contract_brokers_fee', 'contract_sales_tax', 'contract_deposit_sales_tax'], r)) return OUT.couriers;
   if (r === 'office_rental_fee') return OUT.rent;
   if (r.startsWith('planetary_')) return OUT.planets;
@@ -128,6 +143,7 @@ const REF_SAID: Record<string, string> = {
   ess_escrow_transfer: 'ESS payouts', insurance: 'Insurance payouts', brokers_fee: 'Broker fees', transaction_tax: 'Sales tax',
   asset_safety_recovery_tax: 'Asset safety fee', contract_price: 'Contract prices', contract_reward: 'Courier rewards', lp_store: 'Loyalty store',
   corporation_account_withdrawal: 'Corporation withdrawals', daily_goal_payouts: 'Daily goal payouts', skill_purchase: 'Skill books',
+  air_career_program_reward: 'AIR career program rewards', daily_goal_payouts_tax: 'Tax on daily goal payouts',
 };
 export const refSaid = (r: string) => REF_SAID[r] ?? (r.charAt(0).toUpperCase() + r.slice(1).replace(/_/g, ' '));
 

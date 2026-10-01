@@ -100,6 +100,8 @@ export function large() {
   }
   // Freelance rewards (Results' and the Wallet's Freelance lines): two inside the week, one older than a month.
   for (const [d, amount] of [[2, 12_000_000], [5, 7_500_000], [40, 3_000_000]]) journal.push({ id: String(jid++), date: iso(NOW - d * DAY), refType: 'freelance_jobs_reward', amount, firstPartyId: 1000999, secondPartyId: 95210486, description: 'freelance_jobs_reward' });
+  // Daily goal payouts and AIR rewards (the Rewards line): today, inside the week and older than a month.
+  for (const [d, refType, amount] of [[0, 'daily_goal_payouts', 445_000], [3, 'air_career_program_reward', 75_000], [45, 'daily_goal_payouts', 400_000]]) journal.push({ id: String(jid++), date: iso(NOW - d * DAY - 3_600_000), refType, amount, firstPartyId: 1000418, secondPartyId: 95210486, description: refType });
   const { journal: j, balance } = withBalances(journal, 5_000_000_000);
   const traded = [...new Set(Object.values(txs).map((t) => t.typeId))];
   const positions = [];

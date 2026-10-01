@@ -3997,6 +3997,11 @@ console.log('\n--- what a ledger earned (income.ts) ---');
       ['j2', { id: 'j2', date: at(48), refType: 'transaction_tax', amount: -300, contextId: 'l1' }],
       ['j3', { id: 'j3', date: at(60), refType: 'transaction_tax', amount: -2000, contextId: 'y1' }],
       ['j4', { id: 'j4', date: at(30), refType: 'bounty_prizes', amount: 7000 }],
+      // A day's goal payout and an AIR reward, as the user's own (445,000 and 75,000 on 30 September 2026), and a
+      // corporation's tax on the payout, which no NPC corporation takes: made up, to show it nets.
+      ['j5', { id: 'j5', date: at(36), refType: 'daily_goal_payouts', amount: 445000 }],
+      ['j6', { id: 'j6', date: at(36), refType: 'daily_goal_payouts_tax', amount: -44500 }],
+      ['j7', { id: 'j7', date: at(40), refType: 'air_career_program_reward', amount: 75000 }],
     ]),
   };
   const sets = { filaments: new Set([300]), abyssLoot: new Set([400]), pi: new Set(), lpGoods: new Set() };
@@ -4016,8 +4021,9 @@ console.log('\n--- what a ledger earned (income.ts) ---');
   eq('  trading, every item, by its profit', Math.round(by.trading), Math.round(15000 - 10000 - estimated));
   eq('  abyssal: loot sold after tax, less the filament', Math.round(by.Abyssal), 80000 - 2000 - 50000);
   eq('  combat: the bounty', by.Combat, 7000);
+  eq('  rewards: the goal payout and the AIR reward, less the tax on the payout', by.Rewards, 445000 - 44500 + 75000);
   eq('  sold, never bought: the loot after its tax', Math.round(by.loot), 10000 - 300);
-  eq('  all income is the rows added up', Math.round(earned), 3875 + 28000 + 7000 + 9700);
+  eq('  all income is the rows added up', Math.round(earned), 3875 + 28000 + 7000 + 475500 + 9700);
   // The window's first millisecond counts, the one before it doesn't (the Wallet's inWindow and itemResult's since − 1).
   const late = incomeRows(everyItemCalcs(d), acts, T0 + 48 * 3600_000, now);
   eq('    from the loot sale\'s own millisecond: it counts', Math.round(Object.fromEntries(late.rows.map((r) => [r.key, r.isk])).loot), 9700);
@@ -4028,6 +4034,13 @@ console.log('\n--- what a ledger earned (income.ts) ---');
   const b = Object.fromEntries(incomeRows(everyItemCalcs(d), bare, since, now).rows.map((r) => [r.key, r.isk]));
   eq('  without the item groups: no abyssal, no loot row', [b.Abyssal, b.loot], [undefined, undefined]);
   eq('    bounties still count', b.Combat, 7000);
+  eq('    and rewards, which need none', b.Rewards, 475500);
+  const { categoryOf } = await import('../src/lib/wallet.ts');
+  const said = (refType, amount = 1) => categoryOf({ refType, amount })?.label;
+  eq('  the Wallet: goals and AIR rewards are their own line, not Other income',
+    ['daily_goal_payouts', 'air_career_program_reward', 'daily_challenge_reward', 'opportunity_reward'].map((r) => said(r)), Array(4).fill('Goals & AIR rewards'));
+  eq('    bounties and missions stay where they were', ['bounty_prizes', 'agent_mission_reward'].map((r) => said(r)), ['Bounties & missions', 'Bounties & missions']);
+  eq('    and the tax on a payout is a fee', said('daily_goal_payouts_tax', -1), 'Fees & tax');
 }
 
 console.log('\n--- an alt\'s copy as a ledger (altLedger.ts) ---');

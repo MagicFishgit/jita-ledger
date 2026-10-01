@@ -183,7 +183,7 @@ export function Results() {
         lede="Everything you made, split by activity — and what each paid per hour of your time, so you know where your evenings are best spent."
         actions={<Seg label="Period" value={days} onChange={setDays} options={PERIODS} />}
       />
-      {failed && <p className="note" style={{ color: 'var(--acc2)' }}>Couldn’t read the item groups from ESI, so only trading, hauling, freelance and bounties are counted. It tries again next visit.</p>}
+      {failed && <p className="note" style={{ color: 'var(--acc2)' }}>Couldn’t read the item groups from ESI, so only trading, hauling, freelance, bounties and rewards are counted. It tries again next visit.</p>}
       <Tiles min={190} items={[
         { l: days === 0 ? `Made ${periodSaid}` : `Made in ${periodSaid}`, v: iskBigSigned(grand), n: 'After every fee and tax', c: grand >= 0 ? 'var(--pos)' : 'var(--neg)' },
         { l: 'Per day', v: iskBigSigned(grand / covered), n: covered < span ? `Averaged over the ${covered} day${covered === 1 ? '' : 's'} your ledger covers` : 'Averaged across the period' },
@@ -245,7 +245,9 @@ export function Results() {
                           <span style={{ fontSize: 12, color: tot[k] < 0 ? 'var(--neg-t)' : 'var(--figure)' }}>{tot[k] ? iskBigSigned(tot[k]) : '–'}</span>
                         </span>
                       </td>
-                      <td><NumChip label={`Hours a week on ${a.toLowerCase()}`} hideLabel value={hours[a] ?? null} onChange={(v) => setHours(a, v)} width={56} decimals={1} placeholder="–" /></td>
+                      {a === 'Rewards'
+                        ? <td className="note small" data-tip="Daily goals and AIR rewards come with whatever you play, so they have no hours of their own and no ISK an hour.">With any play</td>
+                        : <td><NumChip label={`Hours a week on ${a.toLowerCase()}`} hideLabel value={hours[a] ?? null} onChange={(v) => setHours(a, v)} width={56} decimals={1} placeholder="–" /></td>}
                       <td style={{ color: ph[k] != null && overallPh != null && ph[k]! > overallPh ? 'var(--pos)' : 'var(--figure)' }}>{ph[k] == null ? '–' : iskBigSigned(ph[k])}</td>
                     </tr>
                     {a === 'Trading' && (

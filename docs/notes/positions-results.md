@@ -178,6 +178,15 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   by 213.5 M of Datacore - High Energy Physics), combat +172.83 M, abyssal +1.81 M, every item −6.36 M; 366.5 M on play.
   Without ESI's item groups only trading, hauling, freelance and bounties count, and both pages now say so (Results said
   it counted those, but counted nothing).
+- **Daily goals and AIR rewards are income, for every character** (`REWARDS` in wallet.ts, the Rewards activity; the user,
+  1 October 2026: "air rewards and goal payouts should count as income for any character including my main"). They were
+  "Other income" on the Wallet and nowhere in Results, All income or a card's Earned: in D1 that day, 16 goal payouts
+  (7.12 M) and 14 AIR rewards (687,500) on the main since 24 September, one of each (445,000, 75,000) on FannySchmeller.
+  Now the Wallet has a "Goals & AIR rewards" line and Results a Rewards activity, which counts without ESI's item groups
+  and asks no hours (they come with whatever you play). The set is ESI's ref types for what CCP pays for playing, read
+  from its spec: daily goals, the AIR career program, and the older challenges, milestones, opportunities and campaign
+  objectives, four of which were "Bounties & missions" and so Combat (none in the user's journal). A corporation's tax on
+  a payout (`daily_goal_payouts_tax`) is a fee on the Wallet and nets in Rewards.
 - **ISK moved between your own characters is neither earned nor spent** (stage 4 of several characters, 1 October 2026;
   the rule is in characters.md). The owner's 100 M to FannySchmeller on 30 September read as 100 M of play. Now play,
   the runway's burn, running costs, the day's biggest cost, the month's report, cash-flow goals and the unusual-activity

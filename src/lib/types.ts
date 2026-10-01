@@ -352,7 +352,7 @@ export type Killmail = {
 
 export type Theme = 'Caldari' | 'Amarr' | 'Gallente' | 'Minmatar';
 export type Motion = 'Full' | 'Calm' | 'Off';
-export type Activity = 'Trading' | 'Loyalty' | 'Planets' | 'Hauling' | 'Abyssal' | 'Combat' | 'Freelance';
+export type Activity = 'Trading' | 'Loyalty' | 'Planets' | 'Hauling' | 'Abyssal' | 'Combat' | 'Freelance' | 'Rewards';
 
 /** How the app looks and a few choices that belong to you rather than to a page. */
 export type Prefs = {

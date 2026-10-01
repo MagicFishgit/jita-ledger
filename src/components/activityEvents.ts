@@ -24,7 +24,7 @@ import { useEnsureNames } from './common';
  */
 
 export const ACTIVITY_COLOR: Record<Activity, string> = {
-  Trading: 'var(--acc)', Loyalty: '#a98bff', Planets: '#6ee7a8', Hauling: 'var(--acc2)', Abyssal: '#ff8d9a', Combat: '#7aa6ff', Freelance: '#f5b86b',
+  Trading: 'var(--acc)', Loyalty: '#a98bff', Planets: '#6ee7a8', Hauling: 'var(--acc2)', Abyssal: '#ff8d9a', Combat: '#7aa6ff', Freelance: '#f5b86b', Rewards: '#e9e37a',
 };
 
 export function useActivityEvents(ledger?: Data, mine?: Set<number>) {
