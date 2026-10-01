@@ -10,7 +10,7 @@ import { useData } from '../lib/store';
 import { trainingDays } from '../lib/training';
 import { useSkillIds } from './hustles/SkillPanel';
 import { useEnsureNames, useTypeName } from './common';
-import { alphaCap, skillsUnread, whoseStart } from '../lib/pilot';
+import { alphaCap, skillsUnread, unreadNote, whoseStart } from '../lib/pilot';
 import { usePilot } from './pilot';
 import { cssVars, Tip } from './ui';
 
@@ -78,8 +78,9 @@ export function useTrainTimes(items: { id: number | null; have: number; to?: num
 export type SkillLine = { name: string; id?: number; what: string | ((have: number) => string); next?: (level: number) => string | null };
 
 /**
- * A page's skills, one row each. Nothing shows until the skills have been read: a row of zeros would say "untrained"
- * about skills the app simply hasn't seen.
+ * A page's skills, one row each. No rows until the skills have been read: a row of zeros would say "untrained" about
+ * skills the app simply hasn't seen. Shown for an alt whose skills the cloud hasn't read, it says so under its heading,
+ * as the skills under "To fly it" do, rather than vanishing; for the main it shows nothing, as it always has.
  */
 export function SkillStrip({ title, lines, note }: { title?: string; lines: SkillLine[]; note?: string }) {
   const pilot = usePilot();
@@ -96,7 +97,14 @@ export function SkillStrip({ title, lines, note }: { title?: string; lines: Skil
   const reqIds = Object.values(train).flatMap((t) => t.needs.map((n) => n.id));
   useEnsureNames(reqIds);
   const name = useTypeName();
-  if (!pilot.skills) return null;
+  if (!pilot.skills) {
+    return skillsUnread(pilot) ? (
+      <div className="skill-strip">
+        <div className="lbl">{heading}</div>
+        <p className="note small" style={{ margin: 0 }}>{unreadNote(pilot)}.</p>
+      </div>
+    ) : null;
+  }
   return (
     <div className="skill-strip">
       <div className="lbl" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -198,7 +206,7 @@ export function SkillNeeds({ needs }: { needs: { skill: number; level: number }[
   const train = useTrainTimes(rows.map(({ n, s }) => ({ id: n.skill, have: s.have, to: n.level })));
   useEnsureNames(Object.values(train).flatMap((t) => t.needs.map((x) => x.id)));
   // An alt whose skills the cloud hasn't read says so, rather than nothing under "To fly it".
-  if (!pilot.skills) return skillsUnread(pilot) ? <p className="note small" style={{ margin: 0 }}>Not read yet: {pilot.name}’s skills come with the cloud’s first read.</p> : null;
+  if (!pilot.skills) return skillsUnread(pilot) ? <p className="note small" style={{ margin: 0 }}>{unreadNote(pilot)}.</p> : null;
   return (
     <div className="skill-needs">
       {rows.map(({ n, s }) => {

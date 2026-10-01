@@ -258,7 +258,10 @@ Decisions worth not undoing. Loyalty points, Abyssal runs, hauling contracts, pl
   in 30 days, its worth, days, sessions, ISK an hour and right now, and the fleet's total; sessions say who mined; and
   Scaling up has "Show for", its tree, tiers and skill strip at that character's skills, with its ship, pace and
   most-mined ore. The closing line promising a fleet "later" went. So did two zeros that stood for not known: "0 m³"
-  for ore whose volume wasn't read, and "0 ISK" for ore not priced yet.
+  for ore whose volume wasn't read, and "0 ISK" for ore not priced yet. Ticks are read once a visit, then the main's when
+  its own records grow (their count and units: the ESI sync rebuilds the records object on every read) and the alts'
+  when a roster revision moves; the main's used to be re-read only on an alt's revision. Ore is priced as on the
+  Characters page (`useMinedWorth`, with each alt's pulled names), only ores not yet priced when a new one is named.
 - **Abyssal is tier by weather, the ships that run it, and their fits** (`lib/abyssShips.ts`, `lib/abyssTracker.ts`,
   `lib/eft.ts`, all pure; `hustles/AbyssMatrix.tsx`, `AbyssTracker.tsx`, `AbyssTree.tsx`; `worker/src/abyss.ts`, migration
   0015). The user, having seen Mining's tree: "the same upgrade treatment to Abysall and Hauling… by difficulty tier and

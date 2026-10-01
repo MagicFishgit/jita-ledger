@@ -182,11 +182,14 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
     whether it's logged in aren't read; `useRightNow` stays the main's.
   - **Its ore is valued the main's way** (your skills, standing and tax), as on the Characters page.
   - **Nothing not known reads as a zero**: an alt whose mining the cloud hasn't read says "Not read yet" across its row,
-    a tick read that failed is "–" rather than no sessions, and a Worker a version behind (404 on the alt route) is one
-    line under Sessions, never an error. `useMiningFleet` says `loading` until the first read after the cloud comes on
+    or, with its login refused or none kept, to hand it over again (the pilot's `lost`): "Not read yet" never resolves
+    there. A tick read that failed is "–" rather than no sessions, and a Worker a version behind (404 on the alt route) is
+    one line under Sessions, never an error; neither reads as "No sessions seen" or "Once the cloud has seen X mine". `useMiningFleet` says `loading` until the first read after the cloud comes on
     answers, so no such line flashes, and clears the ticks when the cloud is switched off.
   - **The filter and "Show for" are kept per browser** (`jita-ledger:mining-char`, `jita-ledger:mining-show`). One naming
     a character no longer on the roster falls back (All; the filter's character, else the main) without overwriting
-    what's kept, since the roster loads after the page first draws.
+    what's kept, since the roster loads after the page first draws. **Picking in the filter lets go of Show for**, so
+    Scaling up follows the filter's character (the main for All): kept, it stayed on one alt while the tiles showed
+    another, on every later visit too (the controller's ruling; missing until the final review).
   - The page check's large ledger has the main's own mining too (`scripts/ledgers.mjs`), so the tab adds the main to
     the alts there; mining isn't income, and the income recording didn't move.

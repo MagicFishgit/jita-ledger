@@ -28,8 +28,10 @@ export function useCharIncome(d: Data, since: number, now: number) {
  * own copy (`names`, which the cloud pushes with its trades). The named ones are priced, not all or none: one ore
  * whose name never came used to leave every character's Mined unpriced for the rest of the visit (the final review of
  * stage 2b). An ore ESI never names stays unpriced, and the tile counts it so. `pricing` while names are still being
- * looked up or prices read. Priced again only when the set of named ores changes. A volume ESI couldn't give reads as
- * not known (null), never 0 m³.
+ * looked up or prices read. When the set of named ores changes, only those not yet priced some way are read (a new
+ * name used to price every named ore again). A volume ESI couldn't give reads as not known (null), never 0 m³. The
+ * Mining tab uses it too, with every alt's names, so an alt's ore is priced there as it is here; `worth` is each ore's
+ * three ways, for its table.
  */
 export function useMinedWorth(types: number[], names: Record<number, string>[] = []) {
   const d = useData();
@@ -43,10 +45,12 @@ export function useMinedWorth(types: number[], names: Record<number, string>[] =
   const [pricing, setPricing] = useState(false);
   const key = named.join(',');
   useEffect(() => {
-    if (!named.length) return;
+    // What's priced some way already stays; one that priced no way (its bids unread) is tried again.
+    const todo = named.filter((t) => !(worth[t] && bestWay(worth[t])));
+    if (!todo.length) return;
     let alive = true;
     setPricing(true);
-    priceOres(named, (t) => nameOf(t) ?? '', d.skills ?? {}, d.settings.corp, rates(d.settings).t)
+    priceOres(todo, (t) => nameOf(t) ?? '', d.skills ?? {}, d.settings.corp, rates(d.settings).t)
       // Kept beside what was priced before, so an ore that leaves the set and comes back is still known meanwhile.
       .then(({ vols, worth: out }) => { if (alive) { setVol((x) => ({ ...x, ...vols })); setWorth((x) => ({ ...x, ...out })); setPricing(false); } })
       .catch(() => { if (alive) setPricing(false); });
@@ -58,6 +62,6 @@ export function useMinedWorth(types: number[], names: Record<number, string>[] =
   return useMemo(() => ({
     volumeOf: (t: number): number | null => vol[t] || null,
     worthOf: (t: number): number | null => (worth[t] ? bestWay(worth[t])?.perUnit ?? null : null),
-    pricing: busy,
+    pricing: busy, worth: worth as Readonly<Record<number, OreWorth>>,
   }), [vol, worth, busy]);
 }

@@ -22,6 +22,11 @@ export type Pilot = {
    * Undefined for the main, whose path is as it always was, and for an alt nothing caps.
    */
   capped?: Record<number, Capped>;
+  /**
+   * For an alt the cloud can't read (its login refused by EVE, or none kept): a first read isn't coming, so what isn't
+   * read says to hand the login over again rather than "Not read yet", which would never resolve.
+   */
+  lost?: 'refused' | 'none';
 };
 /** A skill Alpha caps: the level trained, and the level Alpha uses (0: Alpha can't use it at all). */
 export type Capped = { trained: number; active: number };
@@ -89,3 +94,9 @@ export const who = (p: Pick<Pilot, 'isMain' | 'name'>): string => (p.isMain ? 'y
  * as trained-nothing. The main's unread skills are drawn as they always were (every other page unchanged).
  */
 export const skillsUnread = (p: Pick<Pilot, 'isMain' | 'skills'>): boolean => !p.isMain && !p.skills;
+
+/** Why an unread alt's skills aren't shown, as a clause: its first read still to come, or its login to hand over again. */
+export const unreadNote = (p: Pick<Pilot, 'name' | 'lost'>): string => (
+  p.lost === 'refused' ? `Not read: EVE refused ${p.name}’s login; hand it over again on the Characters page`
+    : p.lost === 'none' ? `Not read: the cloud holds no login for ${p.name}; hand one over on the Characters page`
+      : `Not read yet: ${p.name}’s skills come with the cloud’s first read`);

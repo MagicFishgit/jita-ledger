@@ -8,7 +8,7 @@ import { edgeShape, nodeState, type NodeState, type Point, type Stat, type TreeN
 import { skillStatus } from '../lib/skillStatus';
 import { hullStats, typeDogma, typeRequirements } from '../lib/universe';
 import { useEnsureNames, useTypeName } from './common';
-import { alphaCap, skillsUnread, who, whose, whoseStart, type Pilot } from '../lib/pilot';
+import { alphaCap, skillsUnread, unreadNote, who, whose, whoseStart, type Pilot } from '../lib/pilot';
 import { usePilot } from './pilot';
 import { SkillNeeds } from './SkillStrip';
 import { Bonuses, Points, ResistBars, Stats } from './Facts';
@@ -36,7 +36,7 @@ export function TreeLegend({ inShip, extra }: { inShip: ReactNode; extra?: React
   return (
     <div className="tree-legend">
       <span><MapPin aria-hidden="true" />{inShip}</span>
-      {skillsUnread(pilot) ? <span><Lock aria-hidden="true" style={{ color: 'var(--faint)' }} />Not read yet: {pilot.name}’s skills come with the cloud’s first read</span> : (
+      {skillsUnread(pilot) ? <span><Lock aria-hidden="true" style={{ color: 'var(--faint)' }} />{unreadNote(pilot)}</span> : (
         <>
           <span><span className="sw flyable" aria-hidden="true" />Lit: {who(pilot)} can fly it</span>
           <span><Sparkles aria-hidden="true" style={{ color: 'var(--acc2)' }} />{whoseStart(pilot)} skill queue brings it</span>

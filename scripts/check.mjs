@@ -4111,6 +4111,10 @@ console.log('\n--- whose skills a tree reads: the pilot (pilot.ts) ---');
   const { whose, whoseStart, who: whoOf, skillsUnread } = await import('../src/lib/pilot.ts');
   eq('  whose skills, for the main and an alt', [whose(p), whoseStart(p), whoOf(p), whose(a), whoseStart(a), whoOf(a)], ['your', 'Your', 'you', 'Miner Two’s', 'Miner Two’s', 'Miner Two']);
   eq('  skills not read: an alt with none says so; the main is drawn as it always was', [skillsUnread(unread), skillsUnread(a), skillsUnread(pilotFrom(emptyData(), me, false))], [true, false, false]);
+  // A refused login, or none, won't bring a first read: "Not read yet" would never resolve.
+  const { unreadNote } = await import('../src/lib/pilot.ts');
+  eq('  why not read: a first read to come, or a login to hand over again', [unreadNote(unread), unreadNote({ ...unread, lost: 'refused' }), unreadNote({ ...unread, lost: 'none' })],
+    ['Not read yet: Miner Two’s skills come with the cloud’s first read', 'Not read: EVE refused Miner Two’s login; hand it over again on the Characters page', 'Not read: the cloud holds no login for Miner Two; hand one over on the Characters page']);
 }
 
 console.log('\n--- the alts the income check seeds earn by their journal (scripts/ledgers.mjs) ---');
@@ -4184,6 +4188,11 @@ console.log('\n--- mining across characters ---');
   const at = (x) => [{ at: x }];
   eq('right now: a tick at the read that saw the ship', altRightNow({ ship: 17478, shipAt: S }, at(S)), { ship: 17478, at: S, mining: true });
   eq('  one in the read before it counts too', altRightNow({ ship: 17478, shipAt: S }, at(S - READ_EVERY_MS)).mining, true);
+  // The read before can sit a little over ten minutes back (the round's mining step runs after the rest), or fifteen
+  // after a skipped round: up to one and a half reads counts, past it doesn't.
+  eq('  the read before, a little late (11 min back), counts', altRightNow({ ship: 17478, shipAt: S }, at(S - 1.1 * READ_EVERY_MS)).mining, true);
+  eq('  and after a skipped round (15 min back)', altRightNow({ ship: 17478, shipAt: S }, at(S - 1.5 * READ_EVERY_MS)).mining, true);
+  eq('  but not past that (16 min back)', altRightNow({ ship: 17478, shipAt: S }, at(S - 1.6 * READ_EVERY_MS)).mining, false);
   eq('  two reads back does not', altRightNow({ ship: 17478, shipAt: S }, at(S - 2 * READ_EVERY_MS - 1)).mining, false);
   eq('  no ticks: not mining, ship still said', altRightNow({ ship: 17478, shipAt: S }, []), { ship: 17478, at: S, mining: false });
   eq('  never read: nothing is said', altRightNow({ ship: null, shipAt: null }, at(S)), { ship: null, at: null, mining: false });

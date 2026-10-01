@@ -8,7 +8,7 @@ import type { HullNode } from '../../lib/miningTree';
 import { ALL_FIVE, fitYield, SKILL, YIELD_SKILLS, type FitYield, type TypeDogma } from '../../lib/miningYield';
 import { typeDogma } from '../../lib/universe';
 import { fitCosts, FitActions, FitGrid, FitSkills, useFitData } from '../FitParts';
-import { skillsUnread, whose, whoseStart } from '../../lib/pilot';
+import { skillsUnread, unreadNote, whose, whoseStart } from '../../lib/pilot';
 import { usePilot } from '../pilot';
 import { Seg } from '../ui';
 import { Points, type PointLike } from '../Facts';
@@ -167,7 +167,7 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
   return (
     <div className="col" style={{ gap: 12 }}>
       {merc && base ? <MercoxitNote merc={merc} base={base} got={got} hullId={hull.id} skills={unread ? null : pilot.skills ?? {}} /> : <p className="note small" style={{ margin: 0 }}>{tier.what}</p>}
-      {unread && <p className="note small" style={{ margin: 0 }}>Not read yet: {pilot.name}’s skills come with the cloud’s first read, so these are with every skill at V.</p>}
+      {unread && <p className="note small" style={{ margin: 0 }}>{unreadNote(pilot)}{pilot.lost ? '. These are' : ', so these are'} with every skill at V.</p>}
       <div className="kv-mini" style={{ maxWidth: 620 }}>
         <span>Mines</span>
         <b>{!got ? 'Working it out…' : !mine ? 'Only with its drones, which aren’t worked out here: what it’s for is the boosts and compression it gives a fleet.' : mine.kind === 'ice'

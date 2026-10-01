@@ -6,7 +6,7 @@ import { SCOPE, SCOPES } from '../../lib/config';
 import { useAuth } from '../../lib/hooks';
 import type { CharTick, MiningRecord } from '../../lib/mining';
 import { type Pilot, pilotFrom } from '../../lib/pilot';
-import { altReadState, emptyAlt, type AltSaved, type RosterEntry } from '../../lib/roster';
+import { altReadState, emptyAlt, loginState, type AltSaved, type RosterEntry } from '../../lib/roster';
 import { useData } from '../../lib/store';
 
 /**
@@ -24,6 +24,11 @@ export type FleetChar = {
   /** An alt's roster entry (its login, jobs, ship at the last mining read); none for the main. */
   entry?: RosterEntry;
   /**
+   * An alt's own type names, pulled with its copy (altLedger), so its ore is priced and named here as on the Characters
+   * page even while ESI's name lookup fails; none for the main, whose names are the store's.
+   */
+  names?: Record<number, string>;
+  /**
    * Whether its mining has been read (`altReadState` for an alt; for the main, its records or the permission), so a
    * character never read shows "Not read yet" rather than zeros. `permission`: its login lacks the Mining ledger one.
    */
@@ -38,6 +43,13 @@ export type FleetAlts = { roster: RosterEntry[]; alts: Record<number, AltSaved> 
 
 /** One empty copy for every alt not pulled yet, so altLedger's answer for it is worked out once, not on every render. */
 const NO_ALT = emptyAlt();
+
+/**
+ * Only the first read after the cloud came on is "loading": a later one (the ticks may have grown) keeps what the last
+ * said until it answers, so no line flashes; and a later one failing keeps what the last one read.
+ */
+const first = (s: AltTicks): AltTicks => (s === 'off' ? 'loading' : s);
+const failed = (s: AltTicks): AltTicks => (s === 'ok' ? s : 'failed');
 
 export function useMiningFleet(days: number, alts: FleetAlts): {
   chars: FleetChar[];
@@ -69,17 +81,22 @@ export function useMiningFleet(days: number, alts: FleetAlts): {
       const saved = alts.alts[entry.charId] ?? NO_ALT;
       const ledger = altLedger(saved, known[String(entry.charId)]?.clone);
       const name = entry.name ?? known[String(entry.charId)]?.name ?? `Character ${entry.charId}`;
+      // A login refused, or none kept: nothing more is read, so what isn't read says so (Pilot's `lost`).
+      const login = loginState(entry, wanted).state;
       return {
-        charId: entry.charId, name, isMain: false, entry,
+        charId: entry.charId, name, isMain: false, entry, names: ledger.names,
         records: Object.values(ledger.mining),
-        pilot: pilotFrom(ledger, { charId: entry.charId, name, isMain: false }, true),
+        pilot: { ...pilotFrom(ledger, { charId: entry.charId, name, isMain: false }, true), lost: login === 'working' ? undefined : login },
         mining: altReadState(saved, entry, wanted, SCOPE.mining).mining,
       };
     });
     return [main, ...others];
   }, [mainId, mainName, myMining, mainPilot, canRead, known, alts.roster, alts.alts]);
 
-  // Ticks are read once a visit and again when a roster revision moves: the key, never the objects, drives the effect.
+  // Ticks are read once a visit, and again when they may have grown: the main's when its mining records do (the cloud
+  // pushes what its ten-minute read found, and the ESI sync adds its own), the alts' when a roster revision moves. Keys,
+  // never the objects, drive the effects: the ESI sync rebuilds the records object each time it reads, grown or not.
+  const mineKey = useMemo(() => `${myMining.length}:${myMining.reduce((n, r) => n + r.qty, 0)}`, [myMining]);
   const revKey = alts.roster.map((e) => `${e.charId}:${e.rev}`).join(',');
   const on = cloudEnabled() && cloud.started;
   const [mine, setMine] = useState<CharTick[] | null>(null);
@@ -88,23 +105,24 @@ export function useMiningFleet(days: number, alts: FleetAlts): {
   const [altTicks, setAltTicks] = useState<AltTicks>(on ? 'loading' : 'off');
   useEffect(() => {
     // The cloud switched off: what it said before isn't kept, or the tab would go on showing sessions it can't read.
-    if (!on) { setMine(null); setTheirs([]); setMainTicks('off'); setAltTicks('off'); return; }
+    if (!on) { setMine(null); setMainTicks('off'); return; }
     let alive = true;
-    // Only the first read after the cloud came on is "loading": a later one (a roster revision moved) keeps what the
-    // last said until it answers, so no line flashes; and a later one failing keeps what the last one read.
-    const first = (s: AltTicks): AltTicks => (s === 'off' ? 'loading' : s);
-    const failed = (s: AltTicks): AltTicks => (s === 'ok' ? s : 'failed');
     setMainTicks(first);
-    setAltTicks(first);
     cloudMiningTicks(days)
       .then((t) => { if (alive) { setMine(t.map((x) => ({ ...x, charId: mainId }))); setMainTicks('ok'); } })
       .catch(() => { if (alive) setMainTicks(failed); });
+    return () => { alive = false; };
+  }, [on, days, mainId, mineKey]);
+  useEffect(() => {
+    if (!on) { setTheirs([]); setAltTicks('off'); return; }
+    let alive = true;
+    setAltTicks(first);
     cloudAltTicks(days)
       .then((t) => { if (alive) { setTheirs(t); setAltTicks('ok'); } })
       // A Worker a version behind has no alt route: none, and said once. Any other failure keeps what was read.
       .catch((e: Error & { status?: number }) => { if (alive) { if (e.status === 404) { setTheirs([]); setAltTicks('behind'); } else setAltTicks(failed); } });
     return () => { alive = false; };
-  }, [on, days, mainId, revKey]);
+  }, [on, days, revKey]);
 
   const ticks = useMemo(() => (on && (mine || altTicks === 'ok') ? [...(mine ?? []), ...theirs] : null), [on, mine, theirs, altTicks]);
   return { chars, ticks, mainTicks, altTicks };

@@ -212,10 +212,12 @@ export function perCharacter(records: MiningRecord[], volumeOf: (t: number) => n
 /**
  * An alt's right-now from the cloud: the ship at its last mining read, and whether its ledger grew in that read or the one
  * before. `at` is that read's time however old it is, since the page says how old; where the alt is and whether it is
- * logged in aren't read.
+ * logged in aren't read. "The one before" reaches back one and a half reads: the cloud reads once ten minutes have
+ * passed, on a five-minute round whose mining step comes after the rest, so the read before can sit a little over ten
+ * minutes back, or fifteen after a skipped round, and a window of exactly one read missed it.
  */
 export function altRightNow(entry: { ship: number | null; shipAt: number | null }, ticks: { at: number }[], every = READ_EVERY_MS): { ship: number | null; at: number | null; mining: boolean } {
   if (entry.shipAt == null) return { ship: null, at: null, mining: false };
-  const from = entry.shipAt - every;
+  const from = entry.shipAt - every * 1.5;
   return { ship: entry.ship, at: entry.shipAt, mining: ticks.some((t) => t.at >= from) };
 }

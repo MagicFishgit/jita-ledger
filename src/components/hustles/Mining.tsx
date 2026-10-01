@@ -15,9 +15,10 @@ import {
 import { FAMILIES, gradeLabel, gradeRank, isMinedForm, oreBase, oreFamily } from '../../lib/miningFits';
 import { HULLS } from '../../lib/miningTree';
 import { priceOres } from '../../lib/orePricing';
-import { skillsUnread, whose } from '../../lib/pilot';
+import { skillsUnread, unreadNote, whose } from '../../lib/pilot';
 import { useData } from '../../lib/store';
 import { groupTypes, system, typeInfo } from '../../lib/universe';
+import { useMinedWorth } from '../charIncome';
 import { useEnsureNames, useTypeName } from '../common';
 import { PilotProvider, usePilot } from '../pilot';
 import { SkillStrip } from '../SkillStrip';
@@ -49,6 +50,8 @@ const SCORDITE = 1228;
 const MINING_HULLS = new Set(HULLS.map((h) => h.id));
 /** Sessions this long or longer say something about a pace: a single read is ten minutes of guesswork. */
 const LONG_MIN = 20;
+/** Why an ore's worth is "–": it's priced once its name is known (its compressed form is found by name) and Jita's bids read. */
+const NOT_PRICED = 'Not priced yet: its name or Jita’s bids couldn’t be read just now.';
 
 /** The filter and Scaling up's "Show for", kept per browser. */
 const CHAR_KEY = 'jita-ledger:mining-char';
@@ -63,6 +66,7 @@ function readKept(key: string): number | 'all' | null {
   } catch { return null; }
 }
 const keep = (key: string, v: number | 'all') => { try { localStorage.setItem(key, String(v)); } catch { /* the pick just isn't kept */ } };
+const forget = (key: string) => { try { localStorage.removeItem(key); } catch { /* nothing to forget */ } };
 
 const hm = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
 /** A read's time: "14:20 ET" today (EVE time), with the day when it's older, since an alt's last read can be days old. */
@@ -79,8 +83,13 @@ function mostMinedIn(rows: Row[]): number | null {
   return [...by.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 }
 
-/** Why a character's mining isn't known, or null when it is. */
-const unreadSaid = (c: FleetChar): string | null => (c.mining === 'read' ? null : c.mining === 'permission' ? 'Needs the Mining ledger permission' : 'Not read yet');
+/**
+ * Why a character's mining isn't known, or null when it is. An alt whose login was refused, or that has none, won't be
+ * read until it's handed over again: "Not read yet" would promise a first read that never comes.
+ */
+const unreadSaid = (c: FleetChar): string | null => (c.mining === 'read' ? null : c.mining === 'permission' ? 'Needs the Mining ledger permission'
+  : c.pilot.lost === 'refused' ? 'Its login was refused: hand it over again on the Characters page'
+    : c.pilot.lost === 'none' ? 'The cloud holds no login for it: hand one over on the Characters page' : 'Not read yet');
 
 export function Mining() {
   const d = useData();
@@ -93,7 +102,6 @@ export function Mining() {
   const { chars } = fleet;
   const main = chars[0];
   const many = chars.length > 1;
-  const r = rates(d.settings);
   const canRead = hasScope(SCOPE.mining);
   const today = new Date(now).toISOString().slice(0, 10);
   const since = new Date(now - (DAYS - 1) * 86400_000).toISOString().slice(0, 10);
@@ -102,7 +110,10 @@ export function Mining() {
   // isn't overwritten meanwhile, since the roster loads after the page draws.
   const [keptFilter, setKeptFilter] = useState(() => readKept(CHAR_KEY));
   const filter: number | 'all' = typeof keptFilter === 'number' && chars.some((c) => c.charId === keptFilter) ? keptFilter : 'all';
-  const chooseFilter = (v: number | 'all') => { setKeptFilter(v); keep(CHAR_KEY, v); };
+  // Scaling up's "Show for", kept apart from the filter. Picking someone in the filter is choosing whom to look at, so it
+  // lets go of the kept Show for: Scaling up follows the filter's character (the main for All) until picked again.
+  const [keptShow, setKeptShow] = useState(() => { const v = readKept(SHOW_KEY); return typeof v === 'number' ? v : null; });
+  const chooseFilter = (v: number | 'all') => { setKeptFilter(v); keep(CHAR_KEY, v); setKeptShow(null); forget(SHOW_KEY); };
   const filtered = filter === 'all' ? null : chars.find((c) => c.charId === filter) ?? null;
 
   const recentOf = useMemo(() => new Map(chars.map((c) => [c.charId, c.records.filter((x) => x.date >= since)])), [chars, since]);
@@ -110,34 +121,15 @@ export function Mining() {
   const recent = useMemo(() => (filter === 'all' ? allRecent : recentOf.get(filter) ?? []), [filter, allRecent, recentOf]);
   // Every character's ores are priced at once, so changing the filter doesn't price them again.
   const ores = useMemo(() => [...new Set(allRecent.map((x) => x.typeId))].sort((a, b) => a - b), [allRecent]);
-  useEnsureNames(ores);
-
-  // Volumes, and what each ore is worth three ways (lib/mining.ts bestWay), at your own skills, standing and tax.
-  const [vol, setVol] = useState<Record<number, number>>({});
-  const [worth, setWorth] = useState<Record<number, OreWorth>>({});
-  const [pricing, setPricing] = useState(false);
-  // An ore is priced once it has a name: a compressed form is found by name ("Compressed Scordite"). The named ones are
-  // priced, not all or none: with every character's ores in the set, one alt ore whose name never came would otherwise
-  // leave yours unpriced too (what stage 2b found and fixed on the Characters page, components/charIncome.ts).
-  const named = useMemo(() => ores.filter((t) => !!d.names[t]), [ores, d.names]);
-  const key = named.join(',');
-  useEffect(() => {
-    if (!named.length) return;
-    let alive = true;
-    setPricing(true);
-    priceOres(named, name, d.skills ?? {}, d.settings.corp, r.t)
-      // Kept beside what was priced before, so an ore that leaves the set and comes back is still known meanwhile.
-      .then(({ vols, worth: out }) => { if (alive) { setVol((x) => ({ ...x, ...vols })); setWorth((x) => ({ ...x, ...out })); setPricing(false); } })
-      .catch(() => { if (alive) setPricing(false); });
-    // A run cut off by a new set of ores isn't pricing any more.
-    return () => { alive = false; setPricing(false); };
-  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // A volume ESI couldn't give is not known (null), never 0 m³.
-  const val = useMemo(() => ({
-    volumeOf: (t: number): number | null => vol[t] || null,
-    worthOf: (t: number): number | null => (worth[t] ? bestWay(worth[t])?.perUnit ?? null : null),
-  }), [vol, worth]);
+  // Volumes, and what each ore is worth three ways (lib/mining.ts bestWay), at your own skills, standing and tax: the
+  // Characters page's own pricing (useMinedWorth), with each alt's pulled names beside yours, so an alt's ore is priced
+  // here whenever it is there, even while ESI's name lookup fails, and an ore that never got a name leaves the rest
+  // priced. A volume ESI couldn't give is not known (null), never 0 m³.
+  const altNames = useMemo(() => chars.flatMap((c) => (c.names ? [c.names] : [])), [chars]);
+  const val = useMinedWorth(ores, altNames);
+  const { worth, pricing } = val;
+  /** An ore's name: yours, else the one an alt's copy holds (no lookup is made for those). */
+  const oreName = (t: number) => d.names[t] ?? altNames.find((n) => n[t])?.[t] ?? name(t);
   const days = useMemo(() => byDay(recent, DAYS, today, val.volumeOf, val.worthOf), [recent, today, val]);
   const oreRows = useMemo(() => byOre(recent, val.volumeOf, val.worthOf), [recent, val]);
   const total = useMemo(() => minedTotal(recent, val.volumeOf, val.worthOf), [recent, val]);
@@ -159,7 +151,6 @@ export function Mining() {
   const nameOf = (id: number) => chars.find((c) => c.charId === id)?.name ?? `Character ${id}`;
 
   // Scaling up, for one character: kept, else the filter's character, else you.
-  const [keptShow, setKeptShow] = useState(() => { const v = readKept(SHOW_KEY); return typeof v === 'number' ? v : null; });
   const shown = chars.find((c) => c.charId === keptShow) ?? filtered ?? main;
   const chooseShow = (v: number) => { setKeptShow(v); keep(SHOW_KEY, v); };
   const live = useRightNow();
@@ -181,18 +172,34 @@ export function Mining() {
     for (const x of shownRecent) by.set(x.typeId, (by.get(x.typeId) ?? 0) + x.qty);
     return [...by.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? SCORDITE;
   }, [shownRecent]);
-  const minedBases = new Set([...new Set(shownRecent.map((x) => x.typeId))].map((t) => (d.names[t] ? oreBase(name(t)) : null)).filter((x): x is string => !!x));
+  const minedBases = new Set([...new Set(shownRecent.map((x) => x.typeId))].map((t) => (d.names[t] || altNames.some((n) => n[t]) ? oreBase(oreName(t)) : null)).filter((x): x is string => !!x));
   useEnsureNames(chars.flatMap((c) => (c.entry?.ship ? [c.entry.ship] : [])));
   const inShip = shown.isMain
     ? (here != null ? 'The ship you’re in; its paths out are your next steps' : 'The ship you’re in, once you mine')
     : here != null && here === altShip && shown.entry?.shipAt != null ? `${shown.name}’s ship at the cloud’s last read, as of ${asOf(shown.entry.shipAt, now)}; its paths out are its next steps`
       : here != null ? `The ship ${shown.name} mined most in lately; its paths out are its next steps`
-        : `${shown.name}’s ship, once the cloud sees it mine`;
+        : shown.pilot.lost ? `${shown.name}’s ship, once its login is handed over again` : `${shown.name}’s ship, once the cloud sees it mine`;
 
   const whoMined = filtered ? (filtered.isMain ? 'you' : filtered.name) : many ? 'your characters' : 'you';
   const unreadCount = chars.filter((c) => c.mining !== 'read').length;
   // Why the figures shown aren't known: the character picked, or, with All, every one of them.
   const unread = filtered ? unreadSaid(filtered) : unreadCount === chars.length ? unreadSaid(main) : null;
+  // Why no pace can be said for whom the tab shows, when it's the tick reads rather than no mining: still reading, a read
+  // that failed, or a Worker a version behind (alts only). Never "once the cloud has seen you mine" for those.
+  const { mainTicks, altTicks } = fleet;
+  const ticksWhy = ((): string | null => {
+    if (!cloudEnabled()) return null;
+    // On, but this browser hasn't synced with the cloud yet (its first sync, or the cloud out of reach): nothing is asked.
+    if (mainTicks === 'off') return 'Once this browser has synced with the cloud';
+    const mainOn = !filtered || filtered.isMain, altsOn = many && (!filtered || !filtered.isMain);
+    if ((mainOn && mainTicks === 'loading') || (altsOn && altTicks === 'loading')) return 'Reading sessions from the cloud…';
+    const mainBad = mainOn && mainTicks === 'failed', altBad = altsOn && altTicks === 'failed';
+    if (mainBad && altBad) return 'Sessions couldn’t be read from the cloud just now';
+    if (mainBad) return 'Your sessions couldn’t be read from the cloud just now';
+    if (altBad) return filtered ? `${filtered.name}’s sessions couldn’t be read from the cloud just now` : 'Other characters’ sessions couldn’t be read just now';
+    if (altsOn && altTicks === 'behind') return filtered ? `The cloud can’t show ${filtered.name}’s sessions yet: it’s a version behind` : 'The cloud can’t show other characters’ sessions yet: it’s a version behind';
+    return null;
+  })();
 
   return (
     <div className="col" style={{ gap: 16 }}>
@@ -218,7 +225,7 @@ export function Mining() {
 
       {many && (
         <Panel title="Your characters" sub={`The last ${DAYS} days, each character’s own ledger, its ore valued your way`}>
-          <CharTable chars={chars} recent={allRecent} val={val} pricing={pricing} sessions={allSessions} ticks={fleet.ticks} mainTicks={fleet.mainTicks} altTicks={fleet.altTicks} live={live} now={now} />
+          <CharTable chars={chars} recent={allRecent} val={val} pricing={pricing} sessions={allSessions} ticks={fleet.ticks} mainTicks={mainTicks} altTicks={altTicks} live={live} now={now} />
         </Panel>
       )}
 
@@ -237,14 +244,14 @@ export function Mining() {
           tip: 'What it would fetch now.\n\n• Each ore the best of three ways: as it is, compressed, or reprocessed at Jita 4-4, after tax.\n• At your own skills, standing and tax, whoever mined it.',
         },
         { l: 'Best day', v: best ? iskBig(best.isk) : '–', n: unread ?? (best ? fmtShort(best.date) : total.units ? notPriced : 'Nothing mined yet') },
-        { l: 'ISK an hour', v: iskPerHour != null ? iskBig(iskPerHour) : '–', n: iskPerHour != null ? `The middle of ${units(long.length)} sessions` : unread ?? `Once the cloud has seen ${whoMined} mine`,
-          tip: 'Measured, not assumed: the cloud reads each character’s mining ledger every 10 minutes and times each session from what grew between reads. Good to about ten minutes either way, which is ESI’s cache.' },
+        { l: 'ISK an hour', v: iskPerHour != null ? iskBig(iskPerHour) : '–', n: iskPerHour != null ? `The middle of ${units(long.length)} sessions` : unread ?? ticksWhy ?? `Once the cloud has seen ${whoMined} mine`,
+          tip: `Measured, not assumed: the cloud reads ${many ? 'each character’s' : 'your'} mining ledger every 10 minutes and times each session from what grew between reads. Good to about ten minutes either way, which is ESI’s cache.` },
       ]} />
 
       <Panel title={filtered && !filtered.isMain ? `What ${filtered.name} mined` : filter === 'all' && many ? 'What your characters mined' : 'What you mined'} sub={`The last ${DAYS} days, at today’s best price for each ore`}>
         {!recent.length ? (
           <Empty icon={Pickaxe}>{filtered && !filtered.isMain
-            ? (filtered.mining === 'unread' ? `Not read yet: the cloud hasn’t read ${filtered.name}’s mining ledger.`
+            ? (filtered.mining === 'unread' ? (filtered.pilot.lost ? `The cloud hasn’t read ${filtered.name}’s mining ledger, and won’t until its login is handed over again on the Characters page.` : `Not read yet: the cloud hasn’t read ${filtered.name}’s mining ledger.`)
               : filtered.mining === 'permission' ? `${filtered.name}’s login was handed to the cloud without the Mining ledger permission: hand it over again from the Characters page.`
                 : `Nothing mined by ${filtered.name} in the last ${DAYS} days.`)
             : canRead ? `Nothing mined in the last ${DAYS} days. It shows here after your next sync, or within 10 minutes of mining when the cloud holds the permission.` : 'Nothing to show until the app can read your mining ledger.'}</Empty>
@@ -267,11 +274,11 @@ export function Mining() {
                     const m3Known = val.volumeOf(o.typeId) != null;
                     return (
                       <tr key={o.typeId}>
-                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><span className="name">{name(o.typeId)}</span></span>{b && <span className="sub">best: {WAY_SAID[b.way].toLowerCase()}</span>}</td>
+                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><span className="name">{oreName(o.typeId)}</span></span>{b && <span className="sub">best: {WAY_SAID[b.way].toLowerCase()}</span>}</td>
                         <td>{units(o.units)}</td>
                         <td>{m3Known ? units(Math.round(o.m3)) : '–'}</td>
                         {cell('raw')}{cell('compressed')}{cell('reprocessed')}
-                        <td style={{ color: 'var(--pos)' }}>{b ? iskBig(o.isk) : '–'}</td>
+                        <td style={{ color: 'var(--pos)' }}>{b ? iskBig(o.isk) : <span className="faint" data-tip={pricing ? 'Pricing at Jita…' : NOT_PRICED}>–</span>}</td>
                         <td>{b && o.m3 > 0 ? isk(o.isk / o.m3) : '–'}</td>
                         <td className="l"><Systems ids={o.systems} /><span className="sub">{units(o.days)} day{o.days === 1 ? '' : 's'}</span></td>
                       </tr>
@@ -286,11 +293,18 @@ export function Mining() {
 
       <Panel title="Sessions" sub={many ? 'When each character mined and how fast, from the cloud’s reads of its ledger' : 'When you mined and how fast, from the cloud’s reads of your ledger'}>
         {!cloudEnabled() ? <p className="note">Sessions come from the cloud, which reads your ledger every 10 minutes whether or not the app is open. Turn on the cloud copy (Settings → Your data).</p>
-          : !fleet.ticks && (fleet.mainTicks === 'loading' || fleet.altTicks === 'loading') ? <p className="note">Reading sessions from the cloud…</p>
+          : mainTicks === 'off' ? <p className="note">Sessions show once this browser has synced with the cloud.</p>
+          : !fleet.ticks && (mainTicks === 'loading' || altTicks === 'loading') ? <p className="note">Reading sessions from the cloud…</p>
+            // None shown: "none seen" only when the read of whom the tab shows answered, never for one still coming, failed
+            // or a version behind (a "none" for "not known").
             : !sessions.length ? <p className="note">{filtered && !filtered.isMain
-              ? `No sessions seen for ${filtered.name} yet. Each time it mines shows here within 10 minutes of the cloud reading its ledger.`
-              : fleet.mainTicks === 'failed' ? 'Your sessions couldn’t be read from the cloud just now.'
-                : 'No sessions seen yet. Once the cloud holds the Mining ledger permission, each time you mine shows here within 10 minutes: when, how long, how much, and ISK an hour.'}</p>
+              ? (altTicks === 'loading' ? 'Reading sessions from the cloud…'
+                : altTicks === 'failed' ? `${filtered.name}’s sessions couldn’t be read from the cloud just now.`
+                  : altTicks === 'behind' ? `The cloud isn’t ready to show ${filtered.name}’s sessions yet: its Worker is a version behind this app.`
+                    : `No sessions seen for ${filtered.name} yet. Each time it mines shows here within 10 minutes of the cloud reading its ledger.`)
+              : mainTicks === 'failed' ? 'Your sessions couldn’t be read from the cloud just now.'
+                : mainTicks === 'loading' || (many && !filtered && altTicks === 'loading') ? 'Reading sessions from the cloud…'
+                  : 'No sessions seen yet. Once the cloud holds the Mining ledger permission, each time you mine shows here within 10 minutes: when, how long, how much, and ISK an hour.'}</p>
               : (
                 <div className="tbl-scroll">
                   <table className="tbl" style={{ minWidth: many ? 860 : 760 }}>
@@ -317,7 +331,10 @@ export function Mining() {
                   </table>
                 </div>
               )}
-        {many && cloudEnabled() && (filtered == null || !filtered.isMain) && <AltTicksLine state={fleet.altTicks} />}
+        {/* Others' sessions shown while yours couldn't be read: said, not left to look like none. */}
+        {cloudEnabled() && !filtered && sessions.length > 0 && mainTicks === 'failed' && <p className="note small" style={{ margin: 0 }}>Your sessions couldn’t be read from the cloud just now.</p>}
+        {/* With an alt picked and none shown, the note above says why already. */}
+        {many && cloudEnabled() && !filtered && <AltTicksLine state={altTicks} />}
       </Panel>
 
       <PilotProvider value={shown.pilot}>
@@ -357,7 +374,10 @@ function CharTable({ chars, recent, val, pricing, sessions, ticks, mainTicks, al
   const knownSessions = sessions.filter(({ s }) => knownChars.some((c) => c.charId === s.charId));
   const read = chars.filter((c) => c.mining === 'read');
   const mined = (t: { units: number; m3: number | null }) => (t.m3 != null ? `${units(Math.round(t.m3))} m³` : `${units(t.units)} units`);
-  const worthSaid = (t: { isk: number; priced: number; ores: number }) => (t.priced ? iskBig(t.isk) : pricing ? 'Pricing…' : '–');
+  // Not priced is "–" with why; partly priced says how many of its ores.
+  const worthSaid = (t: { isk: number; priced: number; ores: number }, bold = false) => (t.priced
+    ? <>{bold ? <b>{iskBig(t.isk)}</b> : iskBig(t.isk)}{t.priced < t.ores && <span className="sub">{t.priced} of {t.ores} ores priced</span>}</>
+    : pricing ? 'Pricing…' : <>–<span className="sub">Not priced yet</span></>);
   const pace = (rows: Row[]) => { const m = median(longOf(rows).map(({ st }) => st.iskPerHour)); return m != null ? iskBig(m) : '–'; };
   return (
     <div className="tbl-scroll">
@@ -385,7 +405,7 @@ function CharTable({ chars, recent, val, pricing, sessions, ticks, mainTicks, al
                 ) : (
                   <>
                     <td>{mined(t)}{t.m3 != null && <span className="sub">{units(t.units)} units</span>}</td>
-                    <td style={{ color: t.priced ? 'var(--pos)' : undefined }}>{worthSaid(t)}{t.priced > 0 && t.priced < t.ores && <span className="sub">{t.priced} of {t.ores} ores priced</span>}</td>
+                    <td style={{ color: t.priced ? 'var(--pos)' : undefined }}>{worthSaid(t)}</td>
                     <td>{units(t.days)}</td>
                     <td>{known(c) ? units(rows.length) : '–'}</td>
                     <td style={{ color: 'var(--pos)' }}>{known(c) ? pace(rows) : '–'}</td>
@@ -396,16 +416,16 @@ function CharTable({ chars, recent, val, pricing, sessions, ticks, mainTicks, al
             );
           })}
           <tr className="total">
-            <td className="l"><b>All {chars.length}</b>{read.length < chars.length && <span className="sub">{read.length} of {chars.length} read</span>}</td>
+            <td className="l"><b>All {chars.length}</b>{read.length < chars.length && <span className="sub">mining read for {read.length} of {chars.length}</span>}</td>
             {recent.length ? (
               <>
                 <td><b>{mined(all)}</b>{all.m3 != null && <span className="sub">{units(all.units)} units</span>}</td>
-                <td style={{ color: all.priced ? 'var(--pos)' : undefined }}><b>{worthSaid(all)}</b></td>
+                <td style={{ color: all.priced ? 'var(--pos)' : undefined }}>{worthSaid(all, true)}</td>
                 <td>{units(allDays)}</td>
               </>
             ) : <td colSpan={3} className="faint" style={{ textAlign: 'center' }}>{read.length ? `Nothing mined in ${DAYS} days` : 'Not read yet'}</td>}
-            <td>{knownChars.length ? units(knownSessions.length) : '–'}{knownChars.length > 0 && knownChars.length < chars.length && <span className="sub">{knownChars.length} of {chars.length} read</span>}</td>
-            <td style={{ color: 'var(--pos)' }}>{knownChars.length ? pace(knownSessions) : '–'}</td>
+            <td>{knownChars.length ? units(knownSessions.length) : '–'}{knownChars.length > 0 && knownChars.length < chars.length && <span className="sub">sessions read for {knownChars.length} of {chars.length}</span>}</td>
+            <td style={{ color: 'var(--pos)' }}><span data-tip="The middle session of any one character, not the fleet’s combined hour.">{knownChars.length ? pace(knownSessions) : '–'}</span></td>
             <td />
           </tr>
         </tbody>
@@ -414,14 +434,30 @@ function CharTable({ chars, recent, val, pricing, sessions, ticks, mainTicks, al
   );
 }
 
-/** Your right now, read live from ESI as the page opened (useRightNow): online or not, and the ship. */
+/**
+ * Your right now, read live from ESI as the page opened (useRightNow): online or not, and the ship. "Reading…" while
+ * that read is out; "–" says whether the permissions are missing or ESI didn't answer.
+ */
 function MainNow({ now }: { now: Live | null }) {
   const name = useTypeName();
+  const auth = useAuth();
   useEnsureNames(now?.ship ? [now.ship] : []);
-  if (!now || (now.ship == null && now.online == null)) return <span className="faint" data-tip="Needs the location permissions, read live from ESI">–</span>;
+  // The ship and online permissions are what this cell shows; useRightNow reads nothing without one of the three.
+  const asked = !!auth && (hasScope(SCOPE.shipType) || hasScope(SCOPE.online));
+  if (!now && asked) return <span className="faint">Reading…</span>;
+  if (!now || (now.ship == null && now.online == null)) return <span className="faint" data-tip={asked ? 'ESI didn’t answer just now: it’s read live when the page opens.' : 'Needs the location permissions, read live from ESI'}>–</span>;
   const on = now.online == null ? null : now.online ? 'Online' : 'Offline';
   return <>{on}{now.ship ? `${on ? ', in' : 'In'} ${aShip(name(now.ship))}` : ''}{now.system ? <span className="sub">{now.system}</span> : null}</>;
 }
+
+/** Why whether an alt was mining isn't said, by what the read of the alts' ticks said. */
+const TICKS_SAID: Record<AltTicks, string | null> = {
+  ok: null,
+  loading: '• Whether it was mining is still being read from the cloud.',
+  off: '• Whether it was mining comes from the cloud, and this browser isn’t synced with it.',
+  behind: '• Whether it was mining isn’t known: the cloud’s Worker is a version behind this app.',
+  failed: '• Whether it was mining isn’t known just now: its sessions couldn’t be read.',
+};
 
 /**
  * An alt's right now, from the cloud: its ship at its last mining read and whether its ledger grew in that read or the
@@ -431,7 +467,9 @@ function MainNow({ now }: { now: Live | null }) {
 function AltNow({ c, ticks, altTicks, now, name }: { c: FleetChar; ticks: CharTick[] | null; altTicks: AltTicks; now: number; name: (t: number) => string }) {
   const e = c.entry!;
   const rn = altRightNow(e, (ticks ?? []).filter((t) => t.charId === c.charId));
-  if (rn.at == null || rn.ship == null) return <span className="faint" data-tip="The cloud hasn’t read its ship yet: it does with its mining ledger, every ten minutes.">–</span>;
+  if (rn.at == null || rn.ship == null) {
+    return <span className="faint" data-tip={c.pilot.lost ? 'Its ship isn’t read: the cloud has no working login for it. Hand it over again on the Characters page.' : 'The cloud hasn’t read its ship yet: it does with its mining ledger, every ten minutes.'}>–</span>;
+  }
   const fresh = now - rn.at <= SESSION_GAP_MS;
   // Whether it was mining is known only when the alts' ticks were read.
   const mining = altTicks === 'ok' && rn.mining;
@@ -442,7 +480,7 @@ function AltNow({ c, ticks, altTicks, now, name }: { c: FleetChar; ticks: CharTi
     '',
     '• Its ship at that read; “mining” when its ledger grew in that read or the one before.',
     '• Where it is, and whether it’s logged in, aren’t read.',
-    ...(altTicks !== 'ok' ? ['• Whether it was mining isn’t known just now: its sessions couldn’t be read.'] : []),
+    ...(TICKS_SAID[altTicks] ? [TICKS_SAID[altTicks]!] : []),
     ...(e.refusedAt != null ? ['• EVE refused its login, so the cloud stopped reading it: this is as of its last read.'] : []),
   ].join('\n');
   return <span data-tip={tip} style={{ color: fresh ? undefined : 'var(--sec)' }}>{text}</span>;
@@ -593,7 +631,7 @@ function ScalingUp({ here, paceOf, measured, mostMined, minedBases, inShip, char
       <div className="row" style={{ gap: '8px 12px', flexWrap: 'wrap', alignItems: 'center' }}>
         {chars.length > 1 && (
           <Seg size="sm" label="Show for" value={shownId} onChange={onShow}
-            options={chars.map((c) => ({ v: c.charId, label: c.name, tip: c.isMain ? 'Your skills, ship and pace' : `${c.name}’s skills, ship and pace, as the cloud last read them`, tipTitle: `Show for ${c.name}` }))} />
+            options={chars.map((c) => ({ v: c.charId, label: c.name, tip: c.isMain ? 'Your skills, ship and pace' : skillsUnread(c.pilot) ? `${unreadNote(c.pilot)}.` : `${c.name}’s skills, ship and pace, as the cloud last read them`, tipTitle: `Show for ${c.name}` }))} />
         )}
         <label htmlFor="mine-ore" className="chip h34" data-tip-title="Ore to price the fits for"
           data-tip={'Which crystals every fit loads, and what ISK an hour and payback are worked out at: a m³ of this ore sold the best of three ways in Jita now, after tax.\n\nThe m³ a minute doesn’t change: a crystal of the right kind mines any ore of its family alike.'}>
