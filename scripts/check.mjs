@@ -4090,6 +4090,41 @@ console.log('\n--- what a set of mining records comes to (minedTotal) ---');
   eq('  nothing mined', minedTotal([], () => 1, () => 1), { units: 0, m3: 0, isk: 0, priced: 0, ores: 0 });
 }
 
+console.log('\n--- mining across characters ---');
+{
+  const { sessionsByCharacter, miningSessions, perCharacter, altRightNow, READ_EVERY_MS } = await import('../src/lib/mining.ts');
+  const M = 60_000, T = Date.parse('2026-09-30T12:00:00Z');
+  const tk = (charId, min, typeId, qty) => ({ charId, at: T + min * M, systemId: 30000142, typeId, qty });
+  // A reads at 0, 20, 40 and B at 10, 30: each is 20 minutes between its own ticks (one session), 10 between all of them
+  const ticks = [tk(900001, 0, 1228, 100), tk(900002, 10, 1230, 50), tk(900001, 20, 1228, 100), tk(900002, 30, 1230, 50), tk(900001, 40, 1228, 100)];
+  const by = sessionsByCharacter(ticks);
+  eq('two characters mining at once are two sessions, each with its own ore and start', by.map((s) => [s.charId, s.start - T, s.end - T, s.byType]),
+    [[900001, -10 * M, 40 * M, { 1228: 300 }], [900002, 0, 30 * M, { 1230: 100 }]]);
+  const merged = miningSessions(ticks);
+  eq('  without the character the same ticks are one session with both ores (the bug this prevents)', [merged.length, merged[0].byType], [1, { 1228: 300, 1230: 100 }]);
+  eq('  sessions come back in start order, whatever order the ticks came in', sessionsByCharacter([...ticks].reverse()).map((s) => s.charId), [900001, 900002]);
+  eq('  no ticks, no sessions', sessionsByCharacter([]), []);
+
+  const r = (charId, date, typeId, qty) => ({ charId, date, systemId: 30000142, typeId, qty });
+  const vol = { 1228: 0.15, 1230: 0.1 }, worth = { 1228: 16, 1230: 5 };
+  const per = perCharacter([r(900001, '2026-09-28', 1228, 1000), r(900001, '2026-09-29', 1228, 500), r(900001, '2026-09-29', 1230, 100), r(900002, '2026-09-29', 1230, 2000), r(900003, '2026-09-29', 9999, 10)],
+    (t) => vol[t] ?? null, (t) => worth[t] ?? null);
+  const a = per.get(900001), b = per.get(900002), c = per.get(900003);
+  eq('each character’s units, m³, ISK and distinct days', [a.units, Math.round(a.m3 * 100) / 100, a.isk, a.priced, a.ores, a.days], [1600, 235, 24500, 2, 2, 2]);
+  eq('  another’s are its own', [b.units, Math.round(b.m3), b.isk, b.days], [2000, 200, 10000, 1]);
+  eq('  an ore of unknown volume makes only that character’s m³ not known', [typeof b.m3, c.m3, c.isk, c.priced, c.days], ['number', null, 0, 0, 1]);
+  eq('  nobody mined, nobody listed', perCharacter([], () => 1, () => 1).size, 0);
+
+  const S = T + 5 * 60 * M;
+  const at = (x) => [{ at: x }];
+  eq('right now: a tick at the read that saw the ship', altRightNow({ ship: 17478, shipAt: S }, at(S)), { ship: 17478, at: S, mining: true });
+  eq('  one in the read before it counts too', altRightNow({ ship: 17478, shipAt: S }, at(S - READ_EVERY_MS)).mining, true);
+  eq('  two reads back does not', altRightNow({ ship: 17478, shipAt: S }, at(S - 2 * READ_EVERY_MS - 1)).mining, false);
+  eq('  no ticks: not mining, ship still said', altRightNow({ ship: 17478, shipAt: S }, []), { ship: 17478, at: S, mining: false });
+  eq('  never read: nothing is said', altRightNow({ ship: null, shipAt: null }, at(S)), { ship: null, at: null, mining: false });
+  eq('  read hours ago, still mining as of then, the time is that of the read', altRightNow({ ship: 17478, shipAt: S - 6 * 3600_000 }, at(S - 6 * 3600_000)), { ship: 17478, at: S - 6 * 3600_000, mining: true });
+}
+
 console.log('\n--- the Wallet\'s period, shared with the Characters page (periodStart) ---');
 {
   const { periodStart } = await import('../src/lib/wallet.ts');

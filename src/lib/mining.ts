@@ -179,3 +179,43 @@ export function minedTotal(records: MiningRecord[], volumeOf: (t: number) => num
   }
   return { units, m3, isk, priced, ores: by.size };
 }
+
+// --- Across characters -------------------------------------------------------------------------------------------------
+
+export type CharTick = MiningTick & { charId: number };
+export type CharSession = MiningSession & { charId: number };
+
+/**
+ * Sessions built one character at a time, then all of them in start order. Two characters mining at once read their
+ * ledgers in the same rounds, so their ticks interleave a read apart: built together they would be one session with both
+ * ores summed and a doubled pace.
+ */
+export function sessionsByCharacter(ticks: CharTick[], every = READ_EVERY_MS, gap = SESSION_GAP_MS): CharSession[] {
+  const by = new Map<number, CharTick[]>();
+  for (const t of ticks) { const l = by.get(t.charId); if (l) l.push(t); else by.set(t.charId, [t]); }
+  const out: CharSession[] = [];
+  for (const [charId, list] of by) for (const s of miningSessions(list, every, gap)) out.push({ ...s, charId });
+  return out.sort((a, b) => a.start - b.start || a.charId - b.charId);
+}
+
+export type CharTotals = { units: number; m3: number | null; isk: number; priced: number; ores: number; days: number };
+
+/** Each character's mining: `minedTotal` plus the days it mined on. */
+export function perCharacter(records: MiningRecord[], volumeOf: (t: number) => number | null, worthOf: (t: number) => number | null): Map<number, CharTotals> {
+  const by = new Map<number, MiningRecord[]>();
+  for (const r of records) { const l = by.get(r.charId); if (l) l.push(r); else by.set(r.charId, [r]); }
+  const out = new Map<number, CharTotals>();
+  for (const [charId, list] of by) out.set(charId, { ...minedTotal(list, volumeOf, worthOf), days: new Set(list.map((r) => r.date)).size });
+  return out;
+}
+
+/**
+ * An alt's right-now from the cloud: the ship at its last mining read, and whether its ledger grew in that read or the one
+ * before. `at` is that read's time however old it is, since the page says how old; where the alt is and whether it is
+ * logged in aren't read.
+ */
+export function altRightNow(entry: { ship: number | null; shipAt: number | null }, ticks: { at: number }[], every = READ_EVERY_MS): { ship: number | null; at: number | null; mining: boolean } {
+  if (entry.shipAt == null) return { ship: null, at: null, mining: false };
+  const from = entry.shipAt - every;
+  return { ship: entry.ship, at: entry.shipAt, mining: ticks.some((t) => t.at >= from) };
+}
