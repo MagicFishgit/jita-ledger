@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/lib/{loyalty,lpStore,abyssShips,abyssTracker,abyssal,eft,cargo,haulFits,haulTree,courier,jumps,mining,miningFits,miningMastery,miningTree,miningYield,fitCpu,fits,shipTree,freelance,freelanceStore,combat,killmails,reprocess,colony,colonyStore,pi,skills,skillStatus}.ts"
+  - "src/lib/{loyalty,lpStore,abyssShips,abyssTracker,abyssal,eft,cargo,haulFits,haulTree,courier,jumps,mining,miningFits,miningMastery,miningTree,miningYield,orePricing,fitCpu,fits,shipTree,freelance,freelanceStore,combat,killmails,reprocess,colony,colonyStore,pi,skills,skillStatus}.ts"
   - "src/components/{Loyalty,SideHustles,Combat,Reprocess,ShipTree,SkillStrip,FitParts,Facts}.tsx"
   - "src/components/gank.ts"
   - "src/components/hustles/**/*"

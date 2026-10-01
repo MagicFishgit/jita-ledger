@@ -4,8 +4,9 @@ paths:
   - "src/lib/{roster,alphaCaps}.ts"
   - "scripts/{d1,check-worker,alpha-caps}.mjs"
   - "worker/src/{eve,archive,mining,index,watchdog,market}.ts"
-  - "src/lib/altStore.ts"
-  - "src/components/Characters.tsx"
+  - "src/lib/{altStore,altLedger}.ts"
+  - "src/components/{Characters.tsx,charIncome.ts}"
+  - "scripts/{income,ledgers}.mjs"
 ---
 
 # Several characters

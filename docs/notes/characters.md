@@ -128,3 +128,32 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
   under the main. The main's and the sender's logins kept working and the main's alerts, orders and archive jobs stayed
   ok. The one row of the main's that names the alt is the main's own `player_donation` of 100 M to it at 15:47 UTC,
   hours before: the main's data, which stage 4 counts as a transfer.
+  The owner confirmed in game that it is Omega, as the cloud read it: `cloneState` right on its first real character.
+- **What each character earned and mined** (stage 2b, `lib/income.ts`, `lib/altLedger.ts`, `components/charIncome.ts`).
+  The Wallet's "All income against play" became a pure function of a ledger (`activityEvents`, `incomeRows`), and an
+  alt's pulled copy becomes a ledger (`altLedger`: its own trades, journal, orders, names, net worth and mining; fees
+  from its own trade skills and clone state with standings 0; an unknown clone taken as Omega). The same rules then run
+  on each card. **Earned** is that sum for the period; for an alt it leaves out ships it lost (its killmails aren't
+  read) and what it bought for freelance jobs (its jobs aren't read, so a reward counts in full), and it's up to the
+  cloud's last read of it. **Mined** is beside it, never added: the ore at the main's own valuation (the Mining tab's
+  `priceOres`, now `lib/orePricing.ts`), with how many ores were priced; mining is recorded by day, so "24 hours" says
+  "since yesterday". The all-characters total counts only cards whose figure is known and says how many.
+- **A card says "Not read yet" until that part was read** (`altReadState`): Earned once the alt has trades or journal
+  rows or its `archive` job has succeeded, Mined once it has mining rows or its `mining` job has; an alt whose login
+  lacks the mining permission says so, as the main's card does. Saying "Nothing earned" for an alt whose wallet read
+  never succeeded would be a zero for not known.
+- **An alt's income is worked out once a revision.** `altLedger` returns the same object for the same pulled copy,
+  `everyItemCalcs` and the hook's memos key on it, and the income takes a minute-rounded clock, so the minute's roster
+  read and the page's ticking don't redo it. `loadTypeSets` keeps one answer per set of loyalty stores, so the main's and
+  an alt's don't evict each other. Every cache the main and the alts share is keyed by object identity, so the main's
+  pages can't be handed an alt's result (the final review traced each one).
+- **`npm run check-income` is the proof, and runs in the deploy** (`scripts/income.mjs`, `scripts/ledgers.mjs`). It
+  records the main's income figures (the Wallet's "All income" at all four periods, Results' "By activity") at a fixed
+  clock with ESI's item groups stubbed, recorded before any code moved, so the move couldn't drift; checks the main's
+  Characters card says the Wallet's figure; and proves isolation: with alts that trade and mine in the browser, the
+  main's Wallet, Results and Positions read the same before and after the Characters page has worked out every alt's
+  income (it fails if an alt's Earned never appears), and the same as with no alts, and the main's ledger (less names
+  and chars) is equal as a value. What made it flaky, and the fix: the ledger compared as a JSON string (the app writes a
+  document's fields in whatever order its updates land), pages read mid-render (now read once settled), and seeding
+  IndexedDB while the app was open (now from a page on the same origin that isn't the app; docs/notes/gotchas.md). A
+  deliberate change to the Wallet's or Results' wording means re-recording with `RECORD=1` in the same commit.

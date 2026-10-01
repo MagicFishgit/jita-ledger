@@ -154,7 +154,7 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   for Advanced Broker Relations, order slots for Trade, Retail, Wholesale and Tycoon. Levels queued one after another
   build on each other. The app already followed a finished level on the next sync; this is the preview.
 - **Omega's "Could trading pay for it?" counts every item, as Results' "Every item traded" does** (`everyItemCalcs` in
-  `components/everyItem.ts`, shared with Results). It counted realized profit on tracked positions only: 17.77 M of the
+  `lib/everyItem.ts`, shared with Results). It counted realized profit on tracked positions only: 17.77 M of the
   user's last 30 days (29 September 2026), which they took for a stale or broken figure, against 92.13 M over the 30
   items they bought and sold. A month of Omega (500 PLEX at 4.91 M) is 2.46 B, so it covered about 4%, which is true. The
   Alpha savings estimate reads every Jita sale and order the same way. Freelance and the rest aren't trading: the card
@@ -162,7 +162,8 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   "3-month pack, in PLEX" with "whole pack", and the line above says where the store shows it. The skill payback table
   shows the queue ("Queued: V, done 23 Oct") and missing prerequisites (Tycoon "Needs Wholesale V and Marketing IV
   first", not "0.0 days").
-- **"All income against play" sits beside "Trading against play" on the Wallet** (`AllIncome` in Wallet.tsx; the shared
+- **"All income against play" sits beside "Trading against play" on the Wallet** (`AllIncome` in Wallet.tsx, its sum in
+  `lib/income.ts` since stage 2b of several characters, pinned by `npm run check-income`; the shared
   `useActivityEvents` in `components/activityEvents.ts`, which Results now uses too; `otherSales` in results.ts). The user:
   the trading card "only tracks trading via positions but I have other income as well" (30 September 2026). It counts
   everything you earned in the window, each thing once:

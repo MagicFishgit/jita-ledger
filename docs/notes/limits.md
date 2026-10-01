@@ -74,3 +74,7 @@ State these rather than letting them be discovered:
   existing would fail to price or save; ones whose stats changed wouldn't show it. Abyss Tracker's fits migrated from the
   old tracker all say they were uploaded on 29 March 2024; their real age is older. A hauling fit's EHP is EVE Workbench's,
   at skills it doesn't state.
+- **The income recording compares figures as the pages show them** ("−41.48 B ISK"), so a drift under about half a
+  percent of a row wouldn't show there; the exact sums are pinned by the hand-worked tests in `scripts/check.mjs`.
+- **An alt's Earned leaves out ships it lost and what it bought for freelance jobs**, since the cloud reads neither for
+  an alt, and it's as of the cloud's last read of it. Its card's tip says so.

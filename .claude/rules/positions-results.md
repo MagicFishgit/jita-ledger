@@ -1,8 +1,8 @@
 ---
 paths:
-  - "src/lib/{positions,feeMatch,fees,results,wallet,longRange,standings,goals,refunds,assetSafety,skillQueue,attribution,heldCost,training}.ts"
+  - "src/lib/{positions,feeMatch,fees,results,wallet,longRange,standings,goals,refunds,assetSafety,skillQueue,attribution,heldCost,training,income,everyItem,emptyData}.ts"
   - "src/components/{Positions,PositionDetail,Results,Wallet,Goals,AssetSafety,ListStock,Omega}.tsx"
-  - "src/components/{everyItem,activityEvents,payback}.ts"
+  - "src/components/{activityEvents,payback}.ts"
   - "worker/src/safety.ts"
 ---
 
