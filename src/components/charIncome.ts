@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { everyItemCalcs } from '../lib/everyItem';
 import { rates } from '../lib/fees';
 import { incomeRows } from '../lib/income';
@@ -35,6 +35,9 @@ export function useCharIncome(d: Data, since: number, now: number, mine?: Set<nu
  * Mining tab uses it too, with every alt's names, so an alt's ore is priced there as it is here; `worth` is each ore's
  * three ways, for its table.
  */
+const RETRY_MS = 2 * 60_000;
+const RETRIES = 4;
+
 export function useMinedWorth(types: number[], names: Record<number, string>[] = []) {
   const d = useData();
   const sorted = [...new Set(types)].sort((a, b) => a - b);
@@ -45,25 +48,44 @@ export function useMinedWorth(types: number[], names: Record<number, string>[] =
   const [vol, setVol] = useState<Record<number, number>>({});
   const [worth, setWorth] = useState<Record<number, OreWorth>>({});
   const [pricing, setPricing] = useState(false);
+  // Ores something couldn't be read for (priceOres' `failed`: a book, a mineral's book, a volume): their figures are what
+  // could be read, so they're priced again, never kept as their worth for the visit.
+  const [failed, setFailed] = useState<ReadonlySet<number>>(() => new Set());
+  const [retry, setRetry] = useState(0);
   const key = named.join(',');
   useEffect(() => {
-    // What's priced some way already stays; one that priced no way (its bids unread) is tried again.
-    const todo = named.filter((t) => !(worth[t] && bestWay(worth[t])));
+    // What's priced in full stays; one priced no way (its bids unread), or from reads that missed something, is tried again.
+    const todo = named.filter((t) => !(worth[t] && bestWay(worth[t])) || failed.has(t));
     if (!todo.length) return;
     let alive = true;
     setPricing(true);
     priceOres(todo, (t) => nameOf(t) ?? '', d.skills ?? {}, d.settings.corp, rates(d.settings).t)
       // Kept beside what was priced before, so an ore that leaves the set and comes back is still known meanwhile.
-      .then(({ vols, worth: out }) => { if (alive) { setVol((x) => ({ ...x, ...vols })); setWorth((x) => ({ ...x, ...out })); setPricing(false); } })
+      .then(({ vols, worth: out, failed: lost }) => {
+        if (!alive) return;
+        setVol((x) => ({ ...x, ...vols })); setWorth((x) => ({ ...x, ...out }));
+        setFailed((x) => { const y = new Set(x); for (const t of todo) { if (lost.includes(t)) y.add(t); else y.delete(t); } return y; });
+        setPricing(false);
+      })
       .catch(() => { if (alive) setPricing(false); });
     // A run cut off by a new set of ores isn't pricing any more.
     return () => { alive = false; setPricing(false); };
-  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, retry]); // eslint-disable-line react-hooks/exhaustive-deps
+  // What couldn't be read is tried again on its own, 2, 4, 8 and 16 minutes on (ESI's daily downtime runs about half an
+  // hour), then only when the set of ores changes: never a poll.
+  const tries = useRef(0);
+  useEffect(() => {
+    if (!failed.size || tries.current >= RETRIES) return;
+    const t = setTimeout(() => { tries.current++; setRetry((n) => n + 1); }, RETRY_MS * 2 ** tries.current);
+    return () => clearTimeout(t);
+  }, [failed]);
 
   const busy = pricing || looking;
   return useMemo(() => ({
     volumeOf: (t: number): number | null => vol[t] || null,
     worthOf: (t: number): number | null => (worth[t] ? bestWay(worth[t])?.perUnit ?? null : null),
     pricing: busy, worth: worth as Readonly<Record<number, OreWorth>>,
-  }), [vol, worth, busy]);
+    /** Ores something couldn't be read for just now: a way that's "–" may only be unread. */
+    failed,
+  }), [vol, worth, busy, failed]);
 }

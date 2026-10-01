@@ -39,9 +39,9 @@ function limiter(n: number) {
  * The types are priced side by side, each book read once for the whole call however many ores ask for it (a mineral
  * every ore reprocesses into is one read, shared while it's still in flight), at most `BOOKS_AT_ONCE` at a time.
  * `failed` lists the types something couldn't be read for: a book, its volume, its compressed form's name, the
- * materials bundle or the prices the reprocessing tax is charged on. Such a type's figures are what could be read, so
- * they can be low (a mineral not read counts as nothing in the reprocessed figure): say so and offer to try again,
- * never pass them off as its worth. `fresh` reads every book past the caches, for someone asking to price again.
+ * materials bundle or the prices the reprocessing tax is charged on. Such a type's figures are what could be read (a
+ * way whose book wasn't read is null, the reprocessed figure too when a mineral's wasn't), so its best way may be
+ * lower than its worth: say so and offer to try again, never pass them off as its worth. `fresh` reads every book past the caches, for someone asking to price again.
  */
 export async function priceOres(types: number[], nameOf: (t: number) => string, skills: Record<number, number>, corp: Parameters<typeof stationTax>[0], tax: number, opts: { fresh?: boolean } = {}) {
   let adjustedFailed = false;
@@ -76,10 +76,12 @@ export async function priceOres(types: number[], nameOf: (t: number) => string, 
     const cid = compressedIds.find((c) => c.name === compressed(t))?.id;
     const m = bundle?.types[String(t)];
     const [raw, comp] = await Promise.all([bidOf(t), cid ? bidOf(cid) : Promise.resolve(null), ...(m ? m[1].map(([mat]) => bidOf(mat)) : [])]);
-    const reprocessed = m ? unitValue(m, yieldOf(m, skills, site), (id) => bid.get(id) ?? null, (id) => adjusted[id] ?? null, site.tax, tax) : null;
+    // A mineral whose book wasn't read counts as nothing in the reprocessed figure, and unread adjusted prices as no tax:
+    // either way the figure isn't its worth, so it's none (and the type failed), never an understated one or "0 ISK".
+    const short = !!m && (m[1].some(([mat]) => unread.has(mat)) || (adjustedFailed && site.tax > 0));
+    const reprocessed = m && !short ? unitValue(m, yieldOf(m, skills, site), (id) => bid.get(id) ?? null, (id) => adjusted[id] ?? null, site.tax, tax) : null;
     worth[t] = { raw: raw != null ? raw * (1 - tax) : null, compressed: comp != null ? comp * (1 - tax) : null, reprocessed };
-    const lost = !info || namesFailed || !bundle || unread.has(t) || (cid != null && unread.has(cid))
-      || (!!m && (m[1].some(([mat]) => unread.has(mat)) || (adjustedFailed && site.tax > 0)));
+    const lost = !info || namesFailed || !bundle || unread.has(t) || (cid != null && unread.has(cid)) || short;
     if (lost) failed.add(t);
   }));
   return { vols, worth, failed: types.filter((t) => failed.has(t)) };

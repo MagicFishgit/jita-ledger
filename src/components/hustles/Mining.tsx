@@ -311,7 +311,17 @@ export function Mining() {
                 <tbody>
                   {oreRows.map((o) => {
                     const w = worth[o.typeId], b = w ? bestWay(w) : null;
-                    const cell = (way: Way) => <td style={{ color: b?.way === way ? 'var(--pos)' : 'var(--sec)' }}>{w?.[way] != null ? isk(w[way]!) : '–'}</td>;
+                    // A way with no figure, or none above zero, is "–" with why: never "0 ISK", or a negative reprocessed
+                    // figure (the station's tax with no mineral read), for one not known.
+                    const cell = (way: Way) => {
+                      const v = w?.[way];
+                      if (v != null && v > 0) return <td style={{ color: b?.way === way ? 'var(--pos)' : 'var(--sec)' }}>{isk(v)}</td>;
+                      const why = !w ? undefined
+                        : val.failed.has(o.typeId) && v == null ? (way === 'reprocessed' ? 'Jita’s bids for its minerals couldn’t all be read just now.' : 'Its bids couldn’t be read from Jita just now.')
+                          : v != null ? 'Reprocessed, it fetches nothing after the station’s tax.'
+                            : way === 'reprocessed' ? 'It doesn’t reprocess.' : way === 'raw' ? 'No bid for it in Jita.' : 'No compressed form, or no bid for it in Jita.';
+                      return <td className="faint" data-tip={why}>–</td>;
+                    };
                     const m3Known = val.volumeOf(o.typeId) != null;
                     return (
                       <tr key={o.typeId}>
