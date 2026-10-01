@@ -18,7 +18,7 @@ import {
   autoTag, balanceAt, balanceSeries, csvCell, describeRef, feeLeak, fittedShips, flows, multibuys, nextTag, PERIOD_DAYS, periodStart, RUNNING, runwayDays,
   startOfUtcDay, unusual, type Between, type Days, type Line, type Multibuy, type TradeClass,
 } from '../lib/wallet';
-import { ownIds } from '../lib/roster';
+import { emptyAlt, lastRead, ownIds } from '../lib/roster';
 import type { Activity, JournalEntry, Position, Tx, UntrackedTag } from '../lib/types';
 import { AreaLine, MiniLine } from './charts';
 import { Goals } from './Goals';
@@ -33,13 +33,13 @@ import { everyItemCalcs } from '../lib/everyItem';
 import { incomeRows } from '../lib/income';
 import { nettedJournal, refundsIn } from '../lib/refunds';
 import { altLedger } from '../lib/altLedger';
-import { useAlts } from '../lib/altStore';
-import { emptyAlt } from '../lib/roster';
+import { useAltCopies, useAltRoster } from '../lib/altStore';
 
 const DAY = 86400_000;
 /** One empty copy for every alt not pulled yet, so altLedger's answer for it is worked out once, not on every render. */
 const NO_ALT = emptyAlt();
-type AltPoint = { charId: number; name: string; date: string; total: number } | { charId: number; name: string; date: null; total: null };
+/** An alt's newest daily point, if it has one, and when the cloud last read it in full (`lastRead`), if ever. */
+type AltPoint = { charId: number; name: string; readAt: number | null } & ({ date: string; total: number } | { date: null; total: null });
 /** How old a loyalty-point valuation can get before the Wallet prices the store again. */
 const LP_STALE = 12 * 3600_000;
 /** Stores tried this session, so a failing one isn't hammered on every visit. */
@@ -287,13 +287,16 @@ export function Wallet() {
   // state like every hook, and handed to the Net worth panel only to be shown: it is never part of nwParts, nwTotal,
   // the liquid figure or what is saved to netWorth below (the alt store can't write to the ledger; this keeps the
   // figure from being written there by the Wallet either).
-  const altsState = useAlts();
-  const altPoints: AltPoint[] = useMemo(() => altsState.roster.map((entry) => {
-    const ledger = altLedger(altsState.alts[entry.charId] ?? NO_ALT, d.chars[String(entry.charId)]?.clone);
+  // Only the roster and the copies: each keeps its object through a read that changed nothing, so the page isn't drawn
+  // again at every step of the minute's read (useAlts() would be).
+  const roster = useAltRoster();
+  const copies = useAltCopies();
+  const altPoints: AltPoint[] = useMemo(() => roster.map((entry) => {
+    const ledger = altLedger(copies[entry.charId] ?? NO_ALT, d.chars[String(entry.charId)]?.clone);
     const p = ledger.netWorth[ledger.netWorth.length - 1];
-    const name = entry.name ?? `Character ${entry.charId}`;
-    return p ? { charId: entry.charId, name, date: p.date, total: p.total } : { charId: entry.charId, name, date: null, total: null };
-  }), [altsState.roster, altsState.alts, d.chars]);
+    const who = { charId: entry.charId, name: entry.name ?? `Character ${entry.charId}`, readAt: lastRead(entry) };
+    return p ? { ...who, date: p.date, total: p.total } : { ...who, date: null, total: null };
+  }), [roster, copies, d.chars]);
 
   const lpHeld = lp.some((b) => b.points > 0);
   const lpUnpriced = lp.some((b) => b.points > 0 && b.rate == null);
@@ -641,9 +644,12 @@ function AllCharacters({ mainTotal, alts }: { mainTotal: number | null; alts: Al
   const counted = alts.filter((a) => a.total != null);
   const sum = mainTotal == null ? null : mainTotal + counted.reduce((t, a) => t + (a.total ?? 0), 0);
   const of = alts.length + 1, n = counted.length + (mainTotal != null ? 1 : 0);
+  // Each alt as of the cloud's last full read of it, which is when its point last had the chance to move.
+  const asOf = (a: AltPoint) => (a.total == null ? 'not read yet, adds nothing' : a.readAt ? `as read ${fmtDateTime(a.readAt)}` : `its point of ${fmtShort(a.date)}`);
   const tip = 'The main’s net worth now, plus the newest daily net-worth point of each character the cloud reads.\n\n'
-    + '• Each character’s point is its own date, so they are not all from one moment: '
-    + ['Yours: now', ...alts.map((a) => `${a.name}: ${a.date ? fmtShort(a.date) : 'not read yet, adds nothing'}`)].join('; ') + '\n'
+    + '• Each character is as it was last read, so they are not all from one moment: '
+    + ['Yours: now', ...alts.map((a) => `${a.name}: ${asOf(a)}`)].join('; ') + '\n'
+    + '• ISK just sent to an alt leaves your figure at once and reaches the alt’s at the cloud’s next read, so the total can dip for up to an hour\n'
     + '• Assets are at CCP’s rough average prices, which flatter anything hard to sell\n'
     + '• It is never part of your net worth above, its trend or what the app saves';
   return (

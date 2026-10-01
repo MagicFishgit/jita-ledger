@@ -73,7 +73,7 @@ export const BETWEEN: Category = { key: 'between', label: 'Between your characte
 const has = (list: string[], r: string) => list.includes(r);
 
 /** Which group a journal entry belongs in, or null when trades or your own transfers cover it. */
-export function categoryOf(e: Pick<JournalEntry, 'refType' | 'amount' | 'firstPartyId' | 'secondPartyId'> | { refType: string; amount: number }, mine?: Set<number>): Category | null {
+export function categoryOf(e: Pick<JournalEntry, 'refType' | 'amount' | 'firstPartyId' | 'secondPartyId'>, mine?: Set<number>): Category | null {
   const r = e.refType;
   if (NEUTRAL.has(r) || e.amount === 0) return null;
   if (mine && ownTransfer(e, mine)) return BETWEEN;

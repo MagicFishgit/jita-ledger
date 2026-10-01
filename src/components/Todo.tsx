@@ -21,7 +21,7 @@ import { readSignals, trackedTypes, useSignals } from '../lib/watch';
 import { BACKUP_DAYS } from '../lib/alertsRunner';
 import { LOGIN_STOPS } from '../lib/watchdog';
 import { placedOrder } from '../lib/plans';
-import { useAlts } from '../lib/altStore';
+import { useAltRoster, useRosterAt, useRosterLive } from '../lib/altStore';
 import { loginState } from '../lib/roster';
 import { cloudCovers, useCloud } from '../lib/cloud';
 import { JITA_44 } from '../lib/config';
@@ -90,7 +90,10 @@ export function Todo() {
   const sig = useSignals();
   const col = useColonies();
   const cloud = useCloud();
-  const alts = useAlts();
+  // The roster's fields one at a time: the whole alt store would draw the page again at every step of the minute's read.
+  const roster = useAltRoster();
+  const rosterAt = useRosterAt();
+  const rosterLive = useRosterLive();
   const inCloud = cloudCovers(cloud);
   const [mem, setMem] = useState<Memory>(readMem);
   // Another tab on this page saves its own view of the session: take it, so the two don't overwrite each other.
@@ -310,19 +313,18 @@ export function Todo() {
     }
     // An alt whose login EVE refused, or that has none: one item each, from the roster as last read (from disk, if this session hasn't
     // read it yet: it ticks off only on a live read, see judgeAltLogin). Its button opens the Characters page, where that alt's login is
-    // handed over again; never the main's or the sender's.
-    {
-      for (const a of alts.roster) {
-        const st = loginState(a, []).state;
-        if (st === 'working') continue;
-        const who = a.name ?? `Character ${a.charId}`;
-        out.push({
-          key: `cloudLogin:alt:${a.charId}`, ver: st === 'refused' ? String(a.refusedAt) : 'none', kind: 'cloudLogin', source: 'roster', stake: 0,
-          title: `Hand the cloud ${who}’s login again`,
-          detail: `The cloud reads nothing for ${who}: no wallet, skills or mining. ${st === 'refused' ? `EVE has refused its login since ${fmtDateTime(a.refusedAt!)}${a.refused ? ` (${a.refused})` : ''}.` : 'It holds no login for them.'} Open Characters and hand it over again.`,
-          action: { label: 'Characters', route: 'characters' },
-        });
-      }
+    // handed over again; never the main's or the sender's. One with no login kept isn't told "again": it may never have had one.
+    for (const a of roster) {
+      const st = loginState(a, []).state;
+      if (st === 'working') continue;
+      const who = a.name ?? `Character ${a.charId}`;
+      const refused = st === 'refused';
+      out.push({
+        key: `cloudLogin:alt:${a.charId}`, ver: refused ? String(a.refusedAt) : 'none', kind: 'cloudLogin', source: 'roster', stake: 0,
+        title: refused ? `Hand the cloud ${who}’s login again` : `Hand the cloud ${who}’s login`,
+        detail: `The cloud reads nothing for ${who}: no wallet, skills or mining. ${refused ? `EVE has refused its login since ${fmtDateTime(a.refusedAt!)}${a.refused ? ` (${a.refused})` : ''}. Open Characters and hand it over again.` : 'It holds no login for them. Open Characters and hand it over.'}`,
+        action: { label: 'Characters', route: 'characters' },
+      });
     }
     const last = d.meta.lastBackupAt ? Date.parse(d.meta.lastBackupAt) : null;
     // Nothing to back up by hand while the ledger is kept in the cloud.
@@ -334,7 +336,7 @@ export function Todo() {
       });
     }
     return out;
-  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background, alts.roster]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background, roster]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fold each new build into the session: new findings are added, and findings a newer read no longer
   // shows are ticked off with what changed.
@@ -345,7 +347,7 @@ export function Todo() {
     const industryAt = d.meta.industry ? Date.parse(d.meta.industry.at) : null;
     const contractsAt = d.meta.contracts ? Date.parse(d.meta.contracts.at) : null;
     const seenAt = (x: TodoItem) =>
-      x.source === 'orders' ? checkedAt ?? t : x.source === 'colonies' ? readAt ?? t : x.source === 'signals' ? sig.signals[x.typeId!]?.at ?? t : x.source === 'industry' ? industryAt ?? t : x.source === 'contracts' ? contractsAt ?? t : x.source === 'cloud' ? cloud.backgroundAt ?? t : x.source === 'roster' ? alts.rosterAt ?? t : t;
+      x.source === 'orders' ? checkedAt ?? t : x.source === 'colonies' ? readAt ?? t : x.source === 'signals' ? sig.signals[x.typeId!]?.at ?? t : x.source === 'industry' ? industryAt ?? t : x.source === 'contracts' ? contractsAt ?? t : x.source === 'cloud' ? cloud.backgroundAt ?? t : x.source === 'roster' ? rosterAt ?? t : t;
     const byOrder = new Map(vs.map((v) => [v.orderId, v]));
     const position = (id: string) => d.positions.find((p) => p.id === id) ?? null;
     const judge = (e: Entry): string | null | false => {
@@ -391,8 +393,8 @@ export function Todo() {
         }
         case 'cloudLogin': {
           if (x.key.startsWith('cloudLogin:alt:')) {
-            const a = alts.roster.find((z) => String(z.charId) === x.key.slice('cloudLogin:alt:'.length));
-            return judgeAltLogin(e, { live: alts.rosterLive, readAt: alts.rosterAt, state: a ? loginState(a, []).state : null });
+            const a = roster.find((z) => String(z.charId) === x.key.slice('cloudLogin:alt:'.length));
+            return judgeAltLogin(e, { live: rosterLive, readAt: rosterAt, state: a ? loginState(a, []).state : null });
           }
           const k = cloud.background?.keys.find((z) => z.purpose === id);
           return judgeCloudLogin(e, { readAt: cloud.backgroundAt, kept: !!k, refused: !!k?.refusedAt });

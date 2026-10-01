@@ -1045,7 +1045,7 @@ function CloudPanel() {
         <Cloud aria-hidden="true" style={{ width: 14, height: 14 }} />{line}
       </p>
       <p className="note" style={{ margin: 0 }}>
-        Your other characters are read by the cloud too, each with a login of its own: <button type="button" className="link-btn" onClick={() => navigate('characters')}>Characters</button>.
+        Other characters of yours can be read by the cloud too: <button type="button" className="link-btn" onClick={() => navigate('characters')}>Characters</button>.
       </p>
       <div className="row" style={{ flexWrap: 'wrap', gap: 10 }}>
         <Check checked={on} onChange={(v) => { setOn(v); setCloudEnabled(v); }} tip="Each browser can be switched off on its own; the cloud copy stays either way.">Keep this browser in sync</Check>

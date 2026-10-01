@@ -53,6 +53,14 @@ export const useAlts = (): AltsState => useSyncExternalStore(subscribe, () => st
 export const useAltRoster = (): RosterEntry[] => useSyncExternalStore(subscribe, () => state.roster);
 /** Whether the roster was read from the cloud in this session (`rosterLive`). */
 export const useRosterLive = (): boolean => useSyncExternalStore(subscribe, () => state.rosterLive);
+/** When the roster was last read (`rosterAt`): it moves with every read, about once a minute. */
+export const useRosterAt = (): number | null => useSyncExternalStore(subscribe, () => state.rosterAt);
+/**
+ * Each alt's copy, by character: the same object until a pull brings something or an alt leaves the roster, so a page
+ * that draws from the copies (the Wallet's All characters line) isn't drawn again at each step of a read that changed
+ * nothing. The Characters page and the Mining tab show the read's progress too, and take `useAlts()`.
+ */
+export const useAltCopies = (): Record<number, AltSaved> => useSyncExternalStore(subscribe, () => state.alts);
 
 async function load(): Promise<void> {
   const saved = (await get(ROSTER, db).catch(() => undefined)) as { at: number; list: RosterEntry[] } | undefined;
@@ -100,9 +108,11 @@ async function read(): Promise<void> {
     // Everything was wiped while this was in flight: putting the roster back would undo it.
     if (dataGeneration() !== gen) return;
     const alts = { ...state.alts };
+    let dropped = false;
     for (const id of Object.keys(alts).map(Number)) {
       if (roster.some((r) => r.charId === id)) continue;
       delete alts[id];
+      dropped = true;
       await del(altKey(id), db).catch(() => undefined);
     }
     if (dataGeneration() !== gen) return;
@@ -110,9 +120,10 @@ async function read(): Promise<void> {
     await set(ROSTER, { at, list: roster }, db).catch(() => undefined);
     if (dataGeneration() !== gen) return;
     // The roster and what is held show at once: one alt whose pull keeps failing leaves the others current. A roster
-    // equal to the one shown keeps its array, so what draws from the roster alone isn't drawn again for nothing.
+    // equal to the one shown keeps its array, so what draws from the roster alone isn't drawn again for nothing; the
+    // copies likewise keep their object unless an alt left (a pull below replaces it only when it brought something).
     const same = JSON.stringify(roster) === JSON.stringify(state.roster);
-    setState({ roster: same ? state.roster : roster, rosterAt: at, rosterLive: true, alts: { ...alts }, error: null, behind: false });
+    setState({ roster: same ? state.roster : roster, rosterAt: at, rosterLive: true, alts: dropped ? { ...alts } : state.alts, error: null, behind: false });
     // One alt's failing pull doesn't stop the others; the round keeps the last failure, and which alt it was.
     let failed: AltsState['failedAlt'] = null;
     for (const r of roster) {

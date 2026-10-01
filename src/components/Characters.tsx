@@ -10,7 +10,7 @@ import { ago, fmtDate, fmtDateTime, iskBig, iskBigSigned, units } from '../lib/f
 import { useAuth, useNow } from '../lib/hooks';
 import type { IncomeRow } from '../lib/income';
 import { minedTotal, type MiningRecord } from '../lib/mining';
-import { altFacts, altReadState, charFacts, emptyAlt, failingJobs, idleQueueSaid, jobOk, lastRead, loginState, type CharFacts, type CloneState, type RosterEntry } from '../lib/roster';
+import { altFacts, altReadState, charFacts, emptyAlt, failingJobs, idleQueueSaid, jobOk, lastRead, loginState, ownIds, type CharFacts, type CloneState, type RosterEntry } from '../lib/roster';
 import { ROMAN, trainSaid } from '../lib/skillStatus';
 import { update, useData, type Data } from '../lib/store';
 import { toast } from '../lib/toast';
@@ -125,6 +125,11 @@ function Card(props: {
   id: number; name: string; facts: CharFacts; now: number; skill: (id: number) => string;
   /** The character's ledger: yours, or an alt's copy as altLedger builds it (read-only). */
   ledger: Data;
+  /**
+   * Your characters, for leaving out ISK moved between two of them (lib/roster.ts `ownTransfer`): the same family on
+   * every card (the main and every character in `chars`; for an alt, itself too), so such an entry reads alike on each.
+   */
+  mine: Set<number>;
   /** Its mining records in the period, and what each ore is worth. */
   mined: MiningRecord[]; worth: MinedWorth;
   /**
@@ -147,7 +152,7 @@ function Card(props: {
 }) {
   const { id, name, facts, now, entry, onEarned } = props;
   const [imgOk, setImgOk] = useState(true);
-  const income = useCharIncome(props.ledger, props.since, props.incomeNow, id);
+  const income = useCharIncome(props.ledger, props.since, props.incomeNow, props.mine);
   // Reported up for the all-characters total only when it changes: the page's state holds it, so an effect keyed on the
   // value (not on every render) keeps the two from setting each other in a loop.
   const known = !props.earnedUnread && income.ready;
@@ -252,6 +257,11 @@ export function Characters() {
   const fromDate = dateOf(since), pricedFrom = dateOf(periodStart(LONGEST, incomeNow));
 
   const mainId = auth?.characterId ?? 0;
+  // Your characters, as the Wallet builds them (no 0 without a login), and for each alt the same family plus itself (it is
+  // in `chars` once the roster has been merged; added here so a card drawn before that agrees). Worked out once per change:
+  // a new set would work every card's income out again.
+  const family = useMemo(() => ownIds(auth?.characterId, d.chars), [auth?.characterId, d.chars]);
+  const families = useMemo(() => new Map(alts.roster.map((e) => [e.charId, new Set([...family, e.charId])])), [family, alts.roster]);
   const mine = charFacts({ ...d.meta, cloneSince: undefined }, d.netWorth, now);
   const myMining = useMemo(() => Object.values(d.mining).filter((r) => r.charId === mainId), [d.mining, mainId]);
   const wanted = [...SCOPES, ...askedScopes()];
@@ -289,7 +299,7 @@ export function Characters() {
     },
     {
       l: 'All net worth', v: worths.length ? iskBig(sum(worths)) : '–', n: `${worths.length} of ${everyone.length} have a daily point`,
-      tip: 'Each character’s newest daily net-worth point, added up.\n\n• A point is wallet, escrow, stock on sell orders and everything held, at CCP’s rough average prices.\n• The points can be from different days: each card says its own.\n• Your own ledger’s net worth, live, is on the Wallet page and is not changed by this.',
+      tip: 'Each character’s newest daily net-worth point, added up.\n\n• A point is wallet, escrow, stock on sell orders and everything held, at CCP’s rough average prices.\n• The points can be from different days: each card says its own.\n• Yours is the newest point this browser saved. The Wallet’s All characters line adds your live net worth instead, so the two can differ.\n• Your own net worth on the Wallet page is not changed by either.',
     },
     {
       l: 'Earned, all characters', v: earnedAll.length ? iskBigSigned(sum(earnedAll)) : '–', n: `In the last ${period}: ${earnedAll.length} of ${everyone.length} counted`,
@@ -383,11 +393,11 @@ export function Characters() {
       <Tiles items={total} min={220} />
 
       <Card id={mainId} name={auth?.characterName ?? 'Your character'} facts={mine} now={now} skill={skill} byHand={d.settings.clone}
-        ledger={d} mined={myMining.filter((r) => r.date >= fromDate)} worth={worth} since={since} period={period} incomeNow={incomeNow} oneDay={days === 1} onEarned={onEarned}
+        ledger={d} mine={family} mined={myMining.filter((r) => r.date >= fromDate)} worth={worth} since={since} period={period} incomeNow={incomeNow} oneDay={days === 1} onEarned={onEarned}
         miningUnread={!myMining.length && !hasScope(SCOPE.mining) ? 'Needs the Mining ledger permission' : undefined} />
       {others.map(({ entry, facts, byHand, ledger, mining, earnedUnread, miningUnread }) => (
         <Card key={entry.charId} id={entry.charId} name={entry.name ?? `Character ${entry.charId}`} facts={facts} now={now} skill={skill} entry={entry} busy={busy} cloudOff={!cloudOn}
-          ledger={ledger} mined={mining.filter((r) => r.date >= fromDate)} worth={worth} since={since} period={period} incomeNow={incomeNow} oneDay={days === 1}
+          ledger={ledger} mine={families.get(entry.charId) ?? family} mined={mining.filter((r) => r.date >= fromDate)} worth={worth} since={since} period={period} incomeNow={incomeNow} oneDay={days === 1}
           earnedUnread={earnedUnread} miningUnread={miningUnread} onEarned={onEarned}
           byHand={byHand} onClone={(v) => setClone(entry, v)} onHandOver={handOver} onRemove={() => remove(entry)} />
       ))}

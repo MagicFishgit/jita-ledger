@@ -13,11 +13,11 @@ import { useEnsureNames } from './common';
  * altLedger builds it. Worked out once for each ledger object and window: an alt's ledger is the same object until its
  * revision moves, so a page re-rendering doesn't redo it. Give it `since` and `now` rounded to the minute (the
  * Characters page redraws every 30 seconds for its other times, and a rolling 24 hours moves its start with `now`).
- * `charId`: whose ledger it is, so entries naming two of your characters are left out as they are for the Wallet (the
- * main's card then agrees with it).
+ * `mine`: your characters (the same family on every card), so entries naming two of them are left out as they are for
+ * the Wallet (the main's card then agrees with it). Pass one set per family, not a new one each render.
  */
-export function useCharIncome(d: Data, since: number, now: number, charId?: number) {
-  const acts = useActivityEvents(d, charId);
+export function useCharIncome(d: Data, since: number, now: number, mine?: Set<number>) {
+  const acts = useActivityEvents(d, mine);
   const calcs = useMemo(() => everyItemCalcs(d), [d]);
   const out = useMemo(() => incomeRows(calcs, acts, since, now), [calcs, acts, since, now]);
   return { ready: acts.ready, failed: acts.failed, earned: out.earned, rows: out.rows };
