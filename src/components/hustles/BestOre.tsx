@@ -9,7 +9,7 @@ import { HULLS } from '../../lib/miningTree';
 import { gradesOf, oreBaseIds, priceOres } from '../../lib/orePricing';
 import {
   kindOfBase, ORE_WHERE, ORE_WHERE_SOURCE, paceFor, PLACES, rankOres,
-  type How, type NoPace, type OreKind, type Pace, type Place,
+  type Found, type How, type NoPace, type OreKind, type Pace, type Place,
 } from '../../lib/oreWhere';
 import { whose, whoseStart } from '../../lib/pilot';
 import { useData } from '../../lib/store';
@@ -45,6 +45,8 @@ const SOURCE_OF: Record<'asteroid' | 'moon' | 'ice', (typeof ORE_WHERE_SOURCE)[n
 /** The hulls Scaling up has ice fits for, read from the fits themselves. */
 const ICE_HULLS = HULLS.filter((h) => (MASTERY[h.id] ?? []).some((t) => t.high.some((x) => /Ice/.test(x.name)))).map((h) => h.name);
 const KIND_SAID: Record<OreKind, string> = { ore: 'ore', mercoxit: 'Mercoxit', ice: 'ice' };
+/** Where, beside its tag: "Sov upgrade: Pyerite Prospecting Array" under the Sov upgrade tag says it twice, so the tag's words go. */
+const whereSaid = (x: Found) => x.where.replace(new RegExp(`^${HOW_SAID[x.how]}: `), '');
 
 const hm = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
 
@@ -254,7 +256,7 @@ export function BestOre({ pace, onPick, minedBases }: {
                       {o.found.filter((x) => x.place === place).map((x, k) => (
                         <span key={k} style={{ display: 'block' }} data-tip-title={`${r.base}: ${HOW_SAID[x.how].toLowerCase()}`}
                           data-tip={[x.detail ?? '', `From ${src.name}, read ${src.read}.`, ...(o.disputed ? [`The sources disagree: ${o.disputed}`] : [])].filter(Boolean).join('\n\n')}>
-                          <b style={{ fontWeight: 500, color: 'var(--ink)' }}>{HOW_SAID[x.how]}</b> <span className="txt">{x.where}</span>
+                          <span className="lbl" style={{ marginRight: 6 }}>{HOW_SAID[x.how]}</span><span className="txt">{whereSaid(x)}</span>
                         </span>
                       ))}
                       {o.disputed && <span className="flags" style={{ justifyContent: 'flex-start', marginTop: 4 }}><Flag why={o.disputed} title="Sources disagree" color="var(--acc2)">Sources disagree</Flag></span>}
