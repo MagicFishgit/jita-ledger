@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/lib/{abyssShips,abyssTracker,abyssal,eft,cargo,haulFits,haulTree,courier,mining,miningFits,miningMastery,miningTree,miningYield,orePricing,fitCpu,fits,shipTree,combat,killmails}.ts"
+  - "src/lib/{abyssShips,abyssTracker,abyssal,eft,cargo,haulFits,haulTree,courier,mining,miningFits,miningMastery,miningTree,miningYield,orePricing,oreWhere,fitCpu,fits,shipTree,combat,killmails}.ts"
   - "src/components/{Combat,ShipTree,FitParts,Facts}.tsx"
   - "src/components/gank.ts"
   - "src/components/hustles/{AbyssMatrix.tsx,AbyssTracker.tsx,AbyssTree.tsx,Abyssal.tsx,Courier.tsx,HaulFits.tsx,HaulingTree.tsx,MasteryTiers.tsx,Mining.tsx,MiningTree.tsx}"

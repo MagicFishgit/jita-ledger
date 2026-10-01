@@ -4289,5 +4289,36 @@ console.log('\n--- transfers between your characters ---');
   eq('  attribute: not with it', attribute({ ...inp, mine }), []);
 }
 
+console.log('\n--- best ore by where it\'s found ---');
+{
+  const { ORE_WHERE, PLACES, rankOres, ORE_WHERE_SOURCE } = await import('../src/lib/oreWhere.ts');
+  const { FAMILIES } = await import('../src/lib/miningFits.ts');
+  const keys = new Set(PLACES.map((p) => p.key));
+  eq('  places in display order', PLACES.map((p) => p.label), ['High-sec', 'Low-sec', 'Null-sec', 'Pochven', 'Wormholes', 'Moons', 'Ice']);
+  const missing = FAMILIES.flatMap(([, ores]) => ores).filter((o) => !ORE_WHERE[o] || ORE_WHERE[o].found.length === 0);
+  eq('  every base ore has somewhere it is found', missing, []);
+  const badPlace = Object.entries(ORE_WHERE).filter(([, o]) => o.found.some((x) => !keys.has(x.place) || !x.where)).map(([k]) => k);
+  eq('  every found place is a place, with words', badPlace, []);
+  const at = (o, place) => ORE_WHERE[o].found.filter((x) => x.place === place).map((x) => x.how);
+  eq('  Veldspar: a high-sec belt', at('Veldspar', 'highsec'), ['belt']);
+  eq('  Veldspar: null-sec only by sov upgrade', at('Veldspar', 'nullsec'), ['sov']);
+  eq('  Kernite: high-sec only as rare anomalies', at('Kernite', 'highsec'), ['rare']);
+  eq('  Kernite: a low-sec belt', at('Kernite', 'lowsec'), ['belt']);
+  eq('  Spodumain: Pochven only', ORE_WHERE.Spodumain.found.map((x) => x.place), ['pochven']);
+  eq('  Mordunium carries its patch-note dispute', typeof ORE_WHERE.Mordunium.disputed, 'string');
+  eq('  the four ubiquitous moon ores are disputed (high-sec)', ['Zeolites', 'Sylvite', 'Bitumens', 'Coesite'].map((o) => typeof ORE_WHERE[o].disputed), ['string', 'string', 'string', 'string']);
+  eq('  the other moon ores are not', ['Cobaltite', 'Xenotime'].map((o) => ORE_WHERE[o].disputed), [undefined, undefined]);
+  eq('  moon ores are drilled, place moon', ['Zeolites', 'Xenotime'].map((o) => ORE_WHERE[o].found.map((x) => `${x.place}/${x.how}`)), [['moon/drill'], ['moon/drill']]);
+  eq('  Gelidus and Krystallos are disputed (low-sec)', ['Gelidus', 'Krystallos', 'Glare Crust'].map((o) => typeof ORE_WHERE[o].disputed), ['string', 'string', 'undefined']);
+  eq('  ice is keyed by full name and found on ice belts', ORE_WHERE['Enriched Clear Icicle'].found.map((x) => `${x.place}/${x.how}`), ['ice/ice belt']);
+  eq('  sources carry a read date and a url', ORE_WHERE_SOURCE.every((s) => s.read === '1 October 2026' && s.url.startsWith('https://')), true);
+  const row = (base, iskPerM3, iskPerHour) => ({ base, iskPerM3, iskPerHour });
+  eq('  rank: by ISK an hour, ties by name', rankOres([row('Scordite', 1, 50), row('Veldspar', 2, 90), row('Plagioclase', 3, 50)], 'highsec').map((r) => r.base), ['Veldspar', 'Plagioclase', 'Scordite']);
+  eq('  rank: one row with no pace falls back to ISK a m3', rankOres([row('Scordite', 5, null), row('Veldspar', 2, 90), row('Plagioclase', 3, 10)], 'highsec').map((r) => r.base), ['Scordite', 'Plagioclase', 'Veldspar']);
+  eq('  rank: unpriced rows last, by name', rankOres([row('Veldspar', null, null), row('Scordite', 5, null), row('Plagioclase', null, null)], 'highsec').map((r) => r.base), ['Scordite', 'Plagioclase', 'Veldspar']);
+  eq('  rank: an ore not found in the place is left out', rankOres([row('Veldspar', 2, 90), row('Hedbergite', 9, 99)], 'highsec').map((r) => r.base), ['Veldspar']);
+  eq('  rank: an unknown base is left out', rankOres([row('Nonsense', 2, 90)], 'highsec'), []);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
