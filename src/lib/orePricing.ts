@@ -17,14 +17,17 @@ type Bundle = { types: Record<string, Materials> };
  */
 const BOOKS_AT_ONCE = 8;
 
-/** At most `n` of the jobs handed to it running at once; the rest wait their turn, in order. */
+/**
+ * At most `n` of the jobs handed to it running at once; the rest wait their turn, in order. A finishing job hands its
+ * slot straight to the next one waiting: freed and taken a microtask apart, a caller arriving in between took it too.
+ */
 function limiter(n: number) {
   let active = 0;
   const waiting: (() => void)[] = [];
   return async <T>(job: () => Promise<T>): Promise<T> => {
     if (active >= n) await new Promise<void>((r) => waiting.push(r));
-    active++;
-    try { return await job(); } finally { active--; waiting.shift()?.(); }
+    else active++;
+    try { return await job(); } finally { const next = waiting.shift(); if (next) next(); else active--; }
   };
 }
 

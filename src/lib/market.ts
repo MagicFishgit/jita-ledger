@@ -108,9 +108,29 @@ const BOOK_MAX = 5 * 60_000;
 const bookFresh = (hit: { at: number; expires: number | null }, now = Date.now()) =>
   now < Math.min(hit.at + BOOK_MAX, Math.max(hit.at + BOOK_MIN, hit.expires ?? hit.at + BOOK_MAX));
 
-async function readBook(typeId: number, force: boolean) {
+type BookEntry = NonNullable<ReturnType<typeof bookCache.get>>;
+/**
+ * Reads in flight, by type and whether forced, so two pages (or two ores priced at once) asking for one book share a
+ * request: the cache only holds finished answers, and opening the Mining tab priced the minerals three times over (the
+ * best-ore panel, Scaling up and the ore table at once). A forced read is never handed an ordinary one in flight, which
+ * may be answered from the cache it was asked to go past; an ordinary read may take a forced one, which is fresher.
+ */
+const booksInFlight = new Map<string, Promise<BookEntry>>();
+
+function readBook(typeId: number, force: boolean): Promise<BookEntry> {
   const hit = bookCache.get(typeId);
-  if (!force && hit && bookFresh(hit)) return hit;
+  if (!force && hit && bookFresh(hit)) return Promise.resolve(hit);
+  const key = `${typeId}:${force ? 'forced' : ''}`;
+  const going = booksInFlight.get(key) ?? (force ? undefined : booksInFlight.get(`${typeId}:forced`));
+  if (going) return going;
+  const p = fetchAndKeep(typeId, force, hit);
+  booksInFlight.set(key, p);
+  const done = () => { if (booksInFlight.get(key) === p) booksInFlight.delete(key); };
+  p.then(done, done);
+  return p;
+}
+
+async function fetchAndKeep(typeId: number, force: boolean, hit: BookEntry | undefined): Promise<BookEntry> {
   // A forced read is someone asking again on purpose, so go past the browser's copy of it.
   const { orders, expires, stamp, partial } = await fetchBook(typeId, force);
   const here = orders.filter((o) => atJita(typeId, o.location_id));
