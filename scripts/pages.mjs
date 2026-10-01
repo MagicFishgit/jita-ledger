@@ -18,7 +18,7 @@ const SEED_PAGE = `${BASE}src/lib/constants.ts`;
 process.env.VITE_CLOUD_URL = 'http://127.0.0.1:9';
 
 
-import { NOW, DAY, iso, small, large, ALTS, altStoreOf, charsOf, ownerAuth, strangerAuth, withBalances } from './ledgers.mjs';
+import { small, large, ALTS, altStoreOf, charsOf, ownerAuth, strangerAuth, withTransfers } from './ledgers.mjs';
 
 const PAGES = [
   'wallet', 'todo', 'calculator', 'calculator?type=34', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'reprocess',
@@ -32,24 +32,12 @@ const ALL = { empty: {}, small: small(), large: large() };
 for (const [name, list] of Object.entries(ALTS)) if (list.length) ALL[name].chars = charsOf(list);
 
 /**
- * ISK sent to the first alt and some back from the last (a donation each way, and a contract price on the large ledger),
- * so the Wallet draws its "Between your characters" line and the phone check measures it at 390 px. Added here only:
- * check-income's ledger holds no characters, and as donations to strangers these would move the play it records. The
- * contract price is synthetic, there for a second kind of part: no contract entry between two characters has been seen
- * in real data, so its parties here aren't evidence of how EVE writes one.
+ * ISK sent to the first alt and some back from the last (a donation each way, and a contract price on the large ledger:
+ * ledgers.mjs `withTransfers`), so the Wallet draws its "Between your characters" line and the phone check measures it
+ * at 390 px. The income check's recording holds no characters, and as donations to strangers these would move the play
+ * it records; it proves the Wallet's figures equal with and without them on a ledger of its own. `MOVED`: the ledgers
+ * given transfers, whose Wallet must draw the line, where a ledger without one must not.
  */
-function withTransfers(journal, list) {
-  const main = ownerAuth().characterId, first = list[0].entry.charId, last = list[list.length - 1].entry.charId;
-  const old = Object.values(journal).sort((a, b) => a.date.localeCompare(b.date));
-  const start = old.length ? old[0].balance - old[0].amount : 1e9;
-  const sent = [
-    { id: 'move-out', date: iso(NOW - 2 * DAY), refType: 'player_donation', amount: -100_000_000, firstPartyId: main, secondPartyId: first, description: 'Owner deposited cash into an alt’s account' },
-    { id: 'move-back', date: iso(NOW - DAY), refType: 'player_donation', amount: 20_250_000, firstPartyId: last, secondPartyId: main, description: 'An alt deposited cash into Owner’s account' },
-    ...(list.length > 1 ? [{ id: 'move-contract', date: iso(NOW - 3 * DAY), refType: 'contract_price', amount: -45_500_000, firstPartyId: main, secondPartyId: list[1].entry.charId, description: 'Contract price' }] : []),
-  ];
-  return withBalances([...old.map(({ balance: _b, ...e }) => e), ...sent], start).journal;
-}
-/** The ledgers given transfers: their Wallet must draw the line, and a ledger without one must not. */
 const MOVED = new Set();
 for (const [name, list] of Object.entries(ALTS)) if (list.length) { ALL[name].journal = withTransfers(ALL[name].journal, list); MOVED.add(name); }
 // `LEDGER=large PAGE=results npm run check-pages` runs just those (comma-separated), for working on one.
@@ -217,6 +205,50 @@ try {
       }
       await page.evaluate(() => { for (const k of ['mining-char', 'mining-show']) localStorage.removeItem(`jita-ledger:${k}`); });
     }
+    await page.close();
+  }
+  // The Wallet open on an empty ledger that then fills under it, as a first sync or a restore does. A hook placed after
+  // the page's early return for an empty ledger runs only once there is something to show, so React throws as the ledger
+  // fills ("Rendered more hooks than during the previous render"); opened on a full ledger, or an empty one that stays
+  // empty, the page never shows it. Filled through the app's own store (`update`, as from the cloud so nothing is
+  // pushed), never IndexedDB under the open app (docs/notes/gotchas.md). Desktop only: the bug doesn't depend on width.
+  if (!PHONE && SHOWN.includes('wallet') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('empty'))) {
+    const page = await browser.newPage(VIEW);
+    await page.route('**/*', (route) => (route.request().url().startsWith(`http://localhost:${PORT}/`) ? route.continue() : route.abort()));
+    const problems = [];
+    page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
+    page.on('console', (m) => { if (m.type() === 'error' && /^Warning: /.test(m.text())) problems.push(`React: ${m.text().split('\n')[0].replace(/%s/g, '').slice(0, 160)}`); });
+    await page.goto(SEED_PAGE);
+    await page.evaluate(async (auth) => {
+      localStorage.clear(); sessionStorage.clear();
+      localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
+      const open = (db) => new Promise((res, rej) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onerror = rej; q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+      for (const db of ['jita-ledger', 'jita-ledger-cache', 'jita-ledger-alts']) {
+        const h = await open(db);
+        if (!h.objectStoreNames.contains('kv')) continue;
+        await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); t.objectStore('kv').clear(); t.oncomplete = res; });
+        h.close();
+      }
+    }, ownerAuth());
+    await page.goto(`${BASE}#wallet`);
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    await page.waitForTimeout(1000);
+    const flowsDrawn = () => page.locator('.page', { hasText: 'Where it came from, where it went' }).count();
+    if (await flowsDrawn()) problems.push('didn’t open on the empty Wallet: it already shows flows');
+    await page.evaluate(async (d) => {
+      // The app's own instance of the store, by the URL it loaded it from: importing another would fill an empty copy.
+      const url = performance.getEntriesByType('resource').map((e) => e.name).find((n) => /\/src\/lib\/store\.ts(\?|$)/.test(n)) ?? `${location.origin}/jita-ledger/src/lib/store.ts`;
+      const { update } = await import(url);
+      update(d, { origin: 'cloud' });
+    }, small());
+    await page.waitForTimeout(1500);
+    const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push(`error boundary: ${(await page.locator('.notice.err[role="alert"] pre').first().innerText().catch(() => '')).slice(0, 160)}`);
+    else if (!(await flowsDrawn())) problems.push('the ledger never reached the open Wallet: it still shows no flows, so this proved nothing');
+    checked++;
+    const unique = [...new Set(problems)];
+    if (unique.length) failures.push({ ledger: 'empty, then filled', page: 'wallet', problems: unique });
+    process.stdout.write(unique.length ? `  FAIL empty, then filled #wallet\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   empty, then filled #wallet\n');
     await page.close();
   }
   // The site is public: without the owner's login, only the landing page, with nothing of the ledger's in it and

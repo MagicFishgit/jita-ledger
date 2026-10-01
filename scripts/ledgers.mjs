@@ -261,3 +261,23 @@ export const ALTS = { empty: [], small: [alt(900001, 'Miner Two', 0)], large: [a
 export const altStoreOf = (list) => Object.fromEntries([['roster', { at: NOW - 60_000, list: list.map((a) => a.entry) }], ...list.map((a) => [`alt:${a.entry.charId}`, a.saved])]);
 /** Which characters are yours, as the ledger itself holds it. */
 export const charsOf = (list) => Object.fromEntries(list.map((a) => [a.entry.charId, { name: a.entry.name }]));
+
+/**
+ * A journal with ISK moved between the owner and its alts (`list`, shaped as ALTS): 100 M sent to the first alt, 20.25 M
+ * back from the last, and with two alts or more a 45.5 M contract price to the second, then any `extra` entries; the
+ * balances assigned again in date order from where the journal started, as `withBalances` does. The contract price is
+ * synthetic, there for a second kind of part: no contract entry between two characters has been seen in real data
+ * (docs/notes/eve-facts.md), so its parties here aren't evidence of how EVE writes one.
+ */
+export function withTransfers(journal, list, extra = []) {
+  const main = ownerAuth().characterId, first = list[0].entry.charId, last = list[list.length - 1].entry.charId;
+  const old = Object.values(journal).sort((a, b) => a.date.localeCompare(b.date));
+  const start = old.length ? old[0].balance - old[0].amount : 1e9;
+  const sent = [
+    { id: 'move-out', date: iso(NOW - 2 * DAY), refType: 'player_donation', amount: -100_000_000, firstPartyId: main, secondPartyId: first, description: 'Owner deposited cash into an alt’s account' },
+    { id: 'move-back', date: iso(NOW - DAY), refType: 'player_donation', amount: 20_250_000, firstPartyId: last, secondPartyId: main, description: 'An alt deposited cash into Owner’s account' },
+    ...(list.length > 1 ? [{ id: 'move-contract', date: iso(NOW - 3 * DAY), refType: 'contract_price', amount: -45_500_000, firstPartyId: main, secondPartyId: list[1].entry.charId, description: 'Contract price' }] : []),
+    ...extra,
+  ];
+  return withBalances([...old.map(({ balance: _b, ...e }) => e), ...sent], start).journal;
+}

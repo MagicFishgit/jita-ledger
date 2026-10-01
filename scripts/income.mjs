@@ -8,7 +8,7 @@ process.env.FIXED_NOW ??= '2026-09-30T15:00:00Z';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'vite';
 import { chromium } from 'playwright-core';
-const { NOW, large, ownerAuth, CANNED_SETS, ALTS, altStoreOf } = await import('./ledgers.mjs');
+const { NOW, DAY, iso, large, ownerAuth, CANNED_SETS, ALTS, altStoreOf, charsOf, withTransfers } = await import('./ledgers.mjs');
 
 const PORT = 5189;
 const BASE = `http://localhost:${PORT}/jita-ledger/`;
@@ -311,6 +311,75 @@ async function isolation(browser) {
   return bad;
 }
 
+/**
+ * The Wallet's figures that ISK moved between your characters must not move (`mine` on every `flows`, `unusual` and
+ * goal call in Wallet.tsx), each read as the page shows it: money in and out, net cash flow, the day's biggest cost,
+ * play (both panels), the runway, running costs, the month's report, the unusual-activity list and a cash-flow goal.
+ * What reads the balance (Wallet today, Since your last visit, the balance line, net worth) moves on purpose and isn't
+ * here. Stage 4's final review proved each call passes the set by reading only; the recording can't, since its ledger
+ * holds no characters.
+ */
+const panel = (title) => (p) => p.locator('.panel', { has: p.locator('.panel-title', { hasText: title }) });
+const CASH_GOAL = { id: 'gcash', label: 'Net 100 T', createdAt: iso(NOW - 20 * DAY), kind: 'earn', source: 'cashflow', target: 1e14, from: iso(NOW - 20 * DAY) };
+const WALLET_FIGURES = [
+  ['Money in', (p) => p.locator('.kv', { has: p.locator('.lbl', { hasText: /^Money in$/ }) })],
+  ['Money out', (p) => p.locator('.kv', { has: p.locator('.lbl', { hasText: /^Money out$/ }) })],
+  ['Net cash flow', (p) => p.locator('.kv', { has: p.locator('.lbl', { hasText: /^Net cash flow$/ }) })],
+  ['Biggest cost today', (p) => p.locator('.tile', { has: p.locator('.tile-l', { hasText: 'Biggest cost today' }) })],
+  ['Trading against play', panel('Trading against play')],
+  ['All income against play', panel('All income against play')],
+  ['Runway', panel(/^Runway$/)],
+  ['Running costs', panel('Running costs')],
+  ['the month’s report', panel(/ report$/)],
+  ['Unusual activity', panel('Unusual activity')],
+  ['the cash-flow goal', (p) => p.locator('.goal', { has: p.locator('.goal-name', { hasText: CASH_GOAL.label }) })],
+];
+
+/**
+ * The same ledger, its `chars` holding the alts, with and without ISK moved between the owner and them (ledgers.mjs
+ * `withTransfers`, balances assigned again in date order, plus one sent today that's more than everything else spent
+ * today, so the day's biggest cost would name it if counted). Every figure in WALLET_FIGURES must read the same on both,
+ * and the line "Between your characters" must be drawn only with the transfers in (else `chars` never reached the page
+ * and the comparison proves nothing). Returns the number of failures.
+ */
+async function transfers(browser) {
+  const list = ALTS.large;
+  const ledger = () => { const L = large(); return { ...L, chars: charsOf(list), goals: [...L.goals, CASH_GOAL] }; };
+  const without = ledger(), moved = ledger();
+  const today0 = Date.parse(iso(NOW).slice(0, 10));
+  const spentToday = Object.values(moved.journal).filter((e) => Date.parse(e.date) >= today0 && e.amount < 0).reduce((t, e) => t - e.amount, 0);
+  moved.journal = withTransfers(moved.journal, list, [{
+    id: 'move-today', date: iso(Math.max(today0, NOW - 3600_000)), refType: 'player_donation', amount: -(Math.ceil(spentToday / 1e8) * 1e8 + 1e8),
+    firstPartyId: ownerAuth().characterId, secondPartyId: list[0].entry.charId, description: 'Owner deposited cash into an alt’s account',
+  }]);
+  const read = {};
+  for (const [k, L] of [['without', without], ['with', moved]]) {
+    const page = await open(browser, L, {});
+    await page.evaluate(() => { location.hash = '#todo'; });
+    await page.waitForTimeout(500);
+    await page.evaluate(() => { location.hash = '#wallet'; });
+    await settled(page);
+    const out = { between: await page.locator('.between-line').count() };
+    for (const [label, at] of WALLET_FIGURES) out[label] = (await at(page).first().innerText({ timeout: 5000 }).catch(() => null))?.replace(/\s+/g, ' ').trim() ?? null;
+    read[k] = out;
+    await page.close();
+  }
+  let bad = 0;
+  const fail = (m) => { bad++; console.log(`  FAIL transfers: ${m}`); };
+  if (!read.with.between) fail('no “Between your characters” on the Wallet with the transfers in: the ledger’s characters didn’t reach the page (then the figures below prove nothing), or the period’s flows no longer get them');
+  if (read.without.between) fail('“Between your characters” drawn with no transfer in the ledger');
+  for (const [label] of WALLET_FIGURES) {
+    const a = read.with[label], b = read.without[label];
+    if (a == null || b == null) { fail(`${label} isn’t on the Wallet ${a == null ? 'with' : 'without'} the transfers`); continue; }
+    if (a === b) continue;
+    let d = 0; while (d < a.length && a[d] === b[d]) d++;
+    const at = (x) => `${d > 60 ? '…' : ''}${x.slice(Math.max(0, d - 60), d + 80)}${x.length > d + 80 ? '…' : ''}`;
+    fail(`${label} moved with ISK sent between your characters, so a Wallet figure counts a transfer:\n       with the transfers    “${at(a)}”\n       without them          “${at(b)}”`);
+  }
+  if (!bad) console.log(`  ok   transfers between your characters move none of the Wallet's ${WALLET_FIGURES.length} figures compared (the balance's own excepted)`);
+  return bad;
+}
+
 const server = await createServer({ server: { port: PORT, strictPort: true }, logLevel: 'error' });
 await server.listen();
 const browser = await chromium.launch();
@@ -335,9 +404,10 @@ try {
     for (const line of agree) { if (line.startsWith('  FAIL')) failed++; console.log(line); }
   }
   failed += await isolation(browser);
+  failed += await transfers(browser);
 } finally {
   await browser.close();
   await server.close();
 }
-console.log(failed ? `\n${failed} failures: the main's income figures moved, the Characters page disagrees with the Wallet, or an alt reached the main's ledger` : '\nthe main\'s income figures are as recorded');
+console.log(failed ? `\n${failed} failures: the main's income figures moved, the Characters page disagrees with the Wallet, an alt reached the main's ledger, or a transfer between your characters moved a Wallet figure` : '\nthe main\'s income figures are as recorded');
 process.exit(failed ? 1 : 0);
