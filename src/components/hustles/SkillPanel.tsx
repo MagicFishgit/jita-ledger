@@ -4,7 +4,8 @@ import { hasScope } from '../../lib/auth';
 import { SCOPE } from '../../lib/config';
 import { byUrgency, check, readiness, skillsOf, trainedOptions, type Checked, type Need } from '../../lib/skills';
 import { resolveIds } from '../../lib/market';
-import { cacheStore, useData } from '../../lib/store';
+import { cacheStore } from '../../lib/store';
+import { usePilot } from '../pilot';
 import { Tip } from '../ui';
 import { useNow } from '../../lib/hooks';
 import { skillStatus } from '../../lib/skillStatus';
@@ -48,21 +49,23 @@ const ROMAN = ['–', 'I', 'II', 'III', 'IV', 'V'];
 const DOT: Record<Checked['status'], string> = { met: 'var(--pos)', partial: 'var(--acc2)', missing: 'var(--neg)', unknown: 'var(--faint)' };
 
 export function SkillPanel({ title, needs, note }: { title: string; needs: Need[]; note?: string }) {
-  const d = useData();
+  // Levels and queue from the same pilot as the training times (useTrainTimes reads it), so under a provider the panel
+  // can't show the main's levels with an alt's times. With none, the pilot is the main from the store, as before.
+  const pilot = usePilot();
   const ids = useSkillIds(needs.flatMap(skillsOf));
   const canRead = hasScope(SKILLS_SCOPE);
 
   const now = useNow(60_000);
   const checked = useMemo(
-    () => needs.map((n) => check(n, (name) => ids[name] ?? null, d.skills)).sort(byUrgency),
-    [needs, ids, d.skills],
+    () => needs.map((n) => check(n, (name) => ids[name] ?? null, pilot.skills)).sort(byUrgency),
+    [needs, ids, pilot.skills],
   );
   // Where each stands in the queue. A racial line follows the race in training, else the one queued, else the best.
   const status = useMemo(() => new Map(checked.map((c) => {
-    const opts = c.options.filter((o) => o.typeId != null).map((o) => ({ o, s: skillStatus(o.typeId, o.have, d.meta.skillQueue, now) }));
+    const opts = c.options.filter((o) => o.typeId != null).map((o) => ({ o, s: skillStatus(o.typeId, o.have, pilot.skillQueue, now) }));
     const pick = opts.find((x) => x.s.training) ?? opts.find((x) => x.s.queued.length) ?? opts.find((x) => x.o.typeId === c.best?.typeId) ?? opts[0];
     return [c.name, pick ?? null] as const;
-  })), [checked, d.meta.skillQueue, now]);
+  })), [checked, pilot.skillQueue, now]);
   // Time to the level this page wants, not just the next one.
   const train = useTrainTimes(checked.flatMap((c) => { const x = status.get(c.name); return x ? [{ id: x.o.typeId, have: x.s.have, to: c.level }] : []; }));
   useEnsureNames(Object.values(train).flatMap((t) => t.needs.map((n) => n.id)));
@@ -76,7 +79,7 @@ export function SkillPanel({ title, needs, note }: { title: string; needs: Need[
         {title}
         <Tip title={title} text={'Read from your character, not guessed.\n\n• The levels shown are what’s worth having, not the bare minimum to undock.\n• That gap is usually the difference between doing this once and doing it again and again.'} />
       </div>
-      {!d.skills ? (
+      {!pilot.skills ? (
         <p className="note" style={{ margin: '6px 0 0' }}>
           {canRead ? 'No skills read yet. Press Sync at the top of the page and this fills in.' : 'Log in with the skills permission and this shows what you have trained against what each one needs.'}
         </p>

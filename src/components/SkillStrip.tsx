@@ -113,7 +113,10 @@ export function SkillStrip({ title = 'Your skills here', lines, note }: { title?
   );
 }
 
-/** The trade skills' queue state, for Settings' level boxes: keyed like the settings (acc, br, trade…). */
+/**
+ * The trade skills' queue state, for Settings' level boxes: keyed like the settings (acc, br, trade…). The main's alone:
+ * its levels come from the settings and the store, and it's never drawn under a PilotProvider (trade is the main's).
+ */
 export function useTradeQueue(): Partial<Record<SkillKey, { text: string; run: boolean; training: { level: number; progress: number } | null; queued: number[] }>> {
   const d = useData();
   const now = useNow(60_000);
