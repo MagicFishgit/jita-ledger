@@ -135,14 +135,29 @@ export function bestDeliver(job: DeliverJob, typeIds: number[], sellsOf: (typeId
 /** Your corporation and its tax rate, as ESI gives them: what the finder prices a job after. */
 export type CorpTax = { id: number; name: string; ticker: string; taxRate: number; at: string };
 
+/** `/corporations/{id}/` as ESI answers it: the shape changed with the compatibility date (see `corpRate`). */
+export type RawCorp = { name?: string; ticker?: string; tax_rate?: number; tax_rates?: { isk?: number; loyalty_point?: number } };
+
+/**
+ * A corporation's ISK tax as a fraction, from `/corporations/{id}/`, or null when it doesn't say. The answer depends on
+ * the compatibility date sent: with the app's (2026-08-18) ESI gives `tax_rates: { isk: 11.0, loyalty_point: 0.0 }`, in
+ * percent, and no `tax_rate`; without one, or with 2025-08-26, it gives `tax_rate: 0.11`, a fraction (both read on
+ * 1 October 2026, School of Applied Knowledge and TEMP TAX HAVEN). Reading only `tax_rate` read nothing in the app.
+ */
+export function corpRate(corp: RawCorp | null | undefined): number | null {
+  const pct = corp?.tax_rates?.isk;
+  const rate = pct != null ? pct / 100 : corp?.tax_rate;
+  return rate == null || !Number.isFinite(rate) || rate < 0 || rate > 1 ? null : rate;
+}
+
 /**
  * `meta.corp` from ESI's two public answers: the character's corporation (`corporation_id`, from POST
- * /characters/affiliation/) and that corporation (`/corporations/{id}/`: `name`, `ticker`, `tax_rate`, a fraction).
+ * /characters/affiliation/) and that corporation (`/corporations/{id}/`: `name`, `ticker`, and its tax: `corpRate`).
  * Null when either lacks what it needs: an unread rate must never become 0%.
  */
-export function readCorp(char: { corporation_id?: number } | null | undefined, corp: { name?: string; ticker?: string; tax_rate?: number } | null | undefined, at: string): CorpTax | null {
-  const id = char?.corporation_id, rate = corp?.tax_rate;
-  if (!id || !(id > 0) || !corp?.name || rate == null || !Number.isFinite(rate) || rate < 0 || rate > 1) return null;
+export function readCorp(char: { corporation_id?: number } | null | undefined, corp: RawCorp | null | undefined, at: string): CorpTax | null {
+  const id = char?.corporation_id, rate = corpRate(corp);
+  if (!id || !(id > 0) || !corp?.name || rate == null) return null;
   return { id, name: corp.name, ticker: corp.ticker ?? '', taxRate: rate, at };
 }
 

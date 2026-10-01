@@ -6,7 +6,7 @@ import { parseSafetyNotice, withNotices } from './assetSafety';
 import { isStation, isStructure, structureInfo } from './universe';
 import { couriersDue, itemsToRead, readContracts, type ContractItem, type RawContract } from './contracts';
 import { readJoinedJobs } from './freelanceStore';
-import { readCorp } from './freelance';
+import { readCorp, type RawCorp } from './freelance';
 import { loyaltyPoints, resolveIds, resolveNames } from './market';
 import { dataGeneration, getData, update, type Data } from './store';
 import { sanitizeSettings, type Settings } from './fees';
@@ -273,7 +273,7 @@ export async function syncCharacter(): Promise<void> {
       const { data: aff } = await esi<{ character_id: number; corporation_id: number }[]>('/characters/affiliation/', { method: 'POST', body: [cid] });
       const mine = aff.find((a) => a.character_id === cid);
       if (mine) {
-        const { data: co } = await esi<{ name: string; ticker: string; tax_rate: number }>(`/corporations/${mine.corporation_id}/`, { fresh: true });
+        const { data: co } = await esi<RawCorp>(`/corporations/${mine.corporation_id}/`, { fresh: true });
         const corp = readCorp(mine, co, new Date().toISOString());
         if (corp) { metaPatch.corp = corp; read.push('corporation'); }
       }

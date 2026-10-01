@@ -3178,6 +3178,13 @@ console.log('\n--- freelance jobs to deliver to ---');
   eq('your corporation from ESI’s two answers', readCorp({ character_id: 95210486, corporation_id: 98845591 }, { name: 'TEMP TAX HAVEN', ticker: 'ABAAA', tax_rate: 0.000, member_count: 1 }, AT),
     { id: 98845591, name: 'TEMP TAX HAVEN', ticker: 'ABAAA', taxRate: 0, at: AT });
   eq('  an NPC corporation at 11%', readCorp({ corporation_id: 1000009 }, { name: 'Caldari Provisions', ticker: 'CP', tax_rate: 0.11 }, AT).taxRate, 0.11);
+  // What the app is actually sent: with its X-Compatibility-Date (2026-08-18) ESI answers `tax_rates` in percent and no
+  // `tax_rate` (both bodies as read on 1 October 2026). Reading only `tax_rate`, every sync read no corporation.
+  const { corpRate } = await import('../src/lib/freelance.ts');
+  const sak = { state: 'active', type: 'npc_owned', name: 'School of Applied Knowledge', ticker: 'SAK', member_count: 1695771, tax_rates: { isk: 11.0, loyalty_point: 0.0 }, war_eligible: false };
+  const temp = { state: 'active', type: 'player_owned', name: 'TEMP TAX HAVEN', ticker: 'ABAAA', date_founded: '2026-10-01T19:39:23Z', ceo_id: 95210486, creator_id: 95210486, member_count: 1, tax_rates: { isk: 0.0, loyalty_point: 0.0 } };
+  eq('  ESI’s answer under the app’s compatibility date: tax_rates.isk, in percent', [readCorp({ corporation_id: 1000044 }, sak, AT)?.taxRate, readCorp({ corporation_id: 98845591 }, temp, AT)?.taxRate], [0.11, 0]);
+  eq('  a corporation’s rate either way; none given is none, never 0', [corpRate(sak), corpRate(temp), corpRate({ tax_rate: 0.075 }), corpRate({ name: 'X' }), corpRate({ tax_rates: { loyalty_point: 0 } }), corpRate(null)], [0.11, 0, 0.075, null, null, null]);
   eq('  no rate, no corporation or no name: not read, never 0%', [readCorp({ corporation_id: 1 }, { name: 'X', ticker: 'X' }, AT), readCorp(null, { name: 'X', ticker: 'X', tax_rate: 0 }, AT), readCorp({ corporation_id: 1 }, { ticker: 'X', tax_rate: 0 }, AT), readCorp({ corporation_id: 1 }, null, AT)], [null, null, null, null]);
   eq('the rate in words, naming the corporation', [afterTax({ name: 'TEMP TAX HAVEN', taxRate: 0 }), afterTax({ name: 'Caldari Provisions', taxRate: 0.11 }), afterTax(null), afterTax(undefined)],
     ['after TEMP TAX HAVEN’s 0% tax', 'after Caldari Provisions’s 11% tax', 'before tax: your corporation’s tax not read yet', 'before tax: your corporation’s tax not read yet']);
