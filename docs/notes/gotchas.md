@@ -71,8 +71,9 @@ Traps in the code, the tools and the browser that have cost time before.
   stats and skills, at the same moment). Now `cached` shares a lookup in flight and the type lookups share one read
   (`rawType`): 36 requests for 36 hulls, counted in a browser on 30 September 2026. Anything new that caches should do
   the same.
-- **Probe ESI with the app's `X-Compatibility-Date` before writing a reader.** A curl without it gave Task 1 of the
-  freelance tax work `tax_rate`, which the app never receives (eve-facts.md): every sync read no corporation until a later task caught it.
+- **Probe ESI with the app's `X-Compatibility-Date` before writing a reader.** Without it a route can answer another
+  shape: `/corporations/{id}/` gave `tax_rate`, which the app never receives (eve-facts.md), and every sync read no
+  corporation until a later look caught it (1 October 2026).
 - **`SCOPE_INFO` in `config.ts` is the single answer to "what do I need to enable".** Settings lists
   every scope, its exact ESI name, what it unlocks and what breaks without it, logged in or not ---
   a scope registered on the application but granted before it was added is simply absent, with no

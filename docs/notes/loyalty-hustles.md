@@ -136,8 +136,12 @@ mining.md; Abyssal, Hauling and Combat in abyssal-hauling-combat.md (split on 1 
     aside; then the corporation ESI's history puts you in then, at its rate now, only when exact to the cent and within
     everyone's deliveries; else "not recorded". Arithmetic alone can't tell: 593,096,000 is whole at 0, 2, 11, 20%…,
     255,106,158.37 at 11, 39 and 51%. A corporation you founded is dated from `date_founded` while ESI's history is
-    behind (TEMP TAX HAVEN 19:39:23 splits Kernite's 11% at 19:30 from the Buy Backs' 0%); one joined has no known start,
-    and both rates are tried. A total not known reads "–".
+    behind (eve-facts: it split Kernite's 11% at 19:30 from the Buy Backs' 0%); one joined has no known start, and both
+    rates are tried. A total not known reads "–". While any reward lacks `tax`, each sync reads the corporation history
+    and its corporations again (two or three requests); if ESI never gives `tax` on these rewards, that stays.
+  - **Ore not bought, sold in a job's window, counts as Freelance** in the Wallet and Results (the trade rule is the item
+    and the window), though the tab keeps it out of the job's profit; and a player corporation that changed its rate
+    leaves its rewards "not recorded" (ESI keeps no past rate; the exactness check stops a wrong figure).
   - **The user's six, as their check**: profit 91,961,855.90 and 93,852,835.99 (Buy Backs, 0%), 340,610,880.10
     (Kernite), 52,117,599.80 (Mothhat), 278,582,468.32 (ISK Scordite, 813,258 left over at 17.86 M), 136,748,854.74
     (Veldspar); 3,787,583,450.13 received, 386,308,066.87 tax, 2,793,708,955.28 cost, 993,874,494.85 profit. On a phone
