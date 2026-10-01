@@ -171,7 +171,7 @@ characters.md, the dogma behind the yields in eve-ships.md.
     for every ore but Mercoxit (the crystals, eve-ships). Ice names don't go to the Ore picker, which is for ore: an ore
     fit's worth would be worked out at ice's price. It ranks by ISK an hour only when every row has one, else by ISK a
     m³ (the same order under one pace), and marks which.
-  - Plain Kernite outranks its own grades (about 361 ISK a m³ against 115 to 135): its Jita bids are deep at 468
+  - Plain Kernite outranks its own grades (about 361 ISK a m³ against 116 to 135 in the look): its Jita bids are deep at 468
     (200,000+ units, 1 October 2026). The market, not a bug.
   - **On a phone** the table has 226 px inside Side hustles' panel at 390, so it keeps #, the ore with where it's found
     and the best way under it, and ISK a m³ with ISK an hour under that: two figure columns didn't fit.
@@ -180,6 +180,5 @@ characters.md, the dogma behind the yields in eve-ships.md.
     60 × 245.13. Tritanium's book refused: "may be low", no row stuck, Try again 3 requests. `/universe/ids` refused while
     a hull opened: "Couldn't read this fit's figures" in both places, right on reopening. The page check draws it priced
     from ESI fixtures, a row opened. **The measured-pace path hasn't been seen in a browser** (no cloud there).
-  - Found with it: Scaling up priced for the type mined most, so a mostly-ice alt had its ore fits worked out at the
-    ice's ISK a m³; it now counts ore only. The ore table printed a reprocessed figure that missed a mineral's book
-    ("−0.35 ISK"); it's "–" with why, and tried again 2, 4, 8 and 16 minutes on (`useMinedWorth`).
+  - Found with it: Scaling up's ore was the type mined most, ice included (a mostly-ice alt's ore fits at ice's price);
+    it counts ore only. The ore table's "−0.35 ISK" from a missed book is "–", retried at 2, 4, 8, 16 min.
