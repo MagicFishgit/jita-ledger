@@ -98,11 +98,14 @@ export type Relist = {
 };
 
 /**
- * Of what a plan's buy expected to make, the share a raise must still leave: half. Under it, Orders, To do and the mail
- * say keep the bid where it is. The user's Praxis (30 September 2026): the plan bought at 206.3 M to sell at 226 M, 3.2%
- * after fees; Orders had them raise it three times, the last to 208.4 M when listings sold at 224.9 M, which after the
- * three changes' fees left 0.9%; it filled there and the trade lost 1.02 M. A buy no plan priced is guarded at break-even.
- * Never under break-even: a plan that expected nothing licenses no loss.
+ * Of what a plan's buy expected to make, the share a raise must still leave: half, or the user's own target return if
+ * that's lower. Under it, Orders, To do and the mail say keep the bid where it is. The user's Praxis (30 September 2026):
+ * the plan bought at 206.3 M to sell at 226 M, 3.2% after fees; Orders had them raise it three times, the last to
+ * 208.4 M when listings sold at 224.9 M, which after the three changes' fees left 0.9%; it filled there and the trade
+ * lost 1.02 M. The cap at the target is the coordinator's ruling (1 October 2026): the same plan's Vigilance Resonance
+ * Key, priced from a spike to make 36%, was refused a raise that still left 7.6% against the user's 5% target, and a
+ * raise that clears your own target is never refused for a plan's optimism. A buy no plan priced is guarded at
+ * break-even. Never under break-even: a plan that expected nothing licenses no loss.
  */
 export const PLAN_KEEP = 0.5;
 /** PLAN_KEEP in words, for the copy: "half". */
@@ -115,6 +118,8 @@ export type KeepIt = {
   /** Where `resale` came from: the plan's sale price (when lower than where a listing sells now), or the market's. */
   from: 'plan' | 'market';
   ret: number; floor: number;
+  /** Which floor applied: PLAN_KEEP of what the plan expected, your target return (lower), or break-even (no plan). */
+  floorFrom: 'plan' | 'target' | 'breakEven';
   /** Price-change fees already paid on the order, per unit left (`paidPerUnit`). */
   paid: number;
 };
@@ -314,7 +319,8 @@ export type PriceVolume = { price: number; volume: number };
  */
 export function marketBest(levels: PriceVolume[], isBuy: boolean, dailyVolume?: number | null): number | null {
   if (!levels.length) return null;
-  const level = weightedLevel(levels);
+  // A buy side's centre by ISK, so a flood of lowball bids isn't it (`weightedLevel`).
+  const level = weightedLevel(levels, isBuy ? 'isk' : 'units');
   const total = levels.reduce((n, l) => n + l.volume, 0);
   const ordered = [...levels].sort((a, b) => (isBuy ? b.price - a.price : a.price - b.price));
   let skipped = 0;
@@ -512,18 +518,42 @@ function adviseOrder(
  * going rate moves this by nothing, so a price far away from it is a mistake or a token dump rather
  * than a market that has moved. It needs only the live book, so it still holds for an item with no
  * trading history to reason about.
+ *
+ * A buy side is weighed by ISK (`by: 'isk'`), price times units. Bids of 0.01 or 0.02 ISK for 100,000 units cost a
+ * few thousand ISK of escrow and sit on many books, and by units they were the side's centre: the user's Vigilance
+ * Resonance Key bid (1 October 2026), behind 8 units at 25.23 M, was told those were "priced 126199999900% above where
+ * the rest of the book sits (0.02), someone's mistake or a token dump". By ISK such bids weigh nothing. Of the user's
+ * 42 books that day, 10 had a buy side whose centre by units was under a thousandth of its best bid, and `marketBest`
+ * over the whole bid side, without a day's volume, answered 0.01 or 0.02 ISK on 4 of them (none since).
+ * A sell side stays weighed by units: the same failure shows there, a flood of listings far above where the item trades
+ * (the user's Dual Modulated Light Energy Beam I: 3 units at 168,000-168,600 "72% below where the rest of the book sits
+ * (599,100)"), but by ISK it would be worse, and neither units over price nor a band around your own price fixed every
+ * case, so it waits for a ruling.
  */
-export function weightedLevel(orders: PriceVolume[]): number {
+export function weightedLevel(orders: PriceVolume[], by: 'units' | 'isk' = 'units'): number {
   if (!orders.length) return 0;
   const sorted = [...orders].sort((a, b) => a.price - b.price);
-  const total = sorted.reduce((n, o) => n + o.volume, 0);
+  const weight = (o: PriceVolume) => (by === 'isk' ? o.price * o.volume : o.volume);
+  const total = sorted.reduce((n, o) => n + weight(o), 0);
   if (total <= 0) return sorted[Math.floor(sorted.length / 2)].price;
   let seen = 0;
   for (const o of sorted) {
-    seen += o.volume;
+    seen += weight(o);
     if (seen >= total / 2) return o.price;
   }
   return sorted[sorted.length - 1].price;
+}
+
+/**
+ * How far a price is from where the book sits, for the "mistake or a token dump" sentence: a share under double ("23%
+ * below", "40% above"), else as a multiple, never over "over 100 times". A share of a level near nothing came out as
+ * "126199999900% above".
+ */
+function outlierGap(p: number, level: number, above: boolean, pct: (x: number) => string): string {
+  if (!(level > 0) || !Number.isFinite(p)) return above ? 'far above' : 'far below';
+  const ratio = p / level;
+  if (!above || ratio < 2) return `${pct(Math.abs(level - p) / level)} ${above ? 'above' : 'below'}`;
+  return ratio >= 100 ? 'over 100 times' : `${ratio.toFixed(ratio < 10 ? 1 : 0)} times`;
 }
 
 /** A price in a sentence: whole ISK from 1,000 up (four significant figures leave no cents there), cents below. */
@@ -618,7 +648,7 @@ export function adviseRelist(
 
   // Would getting in front put you well outside where the bulk of the book sits? The live book
   // answers that on its own, so it holds even for an item we know nothing else about.
-  const level = weightedLevel([...rivals, { id: mine.orderId, isBuy: mine.isBuy, price, volume: volumeRemain }]);
+  const level = weightedLevel([...rivals, { id: mine.orderId, isBuy: mine.isBuy, price, volume: volumeRemain }], mine.isBuy ? 'isk' : 'units');
   const sideVolume = rivals.reduce((n, o) => n + o.volume, 0) + volumeRemain;
   const chasingOutlier =
     moves && level > 0 &&
@@ -646,7 +676,10 @@ export function adviseRelist(
   const resale = m.resale !== undefined ? m.resale : m.bestSell != null ? tickDown(m.bestSell) : null;
   const plan = m.plan && m.plan.sellAt > 0 ? m.plan : null;
   const sellOn = plan ? (resale != null && resale < plan.sellAt ? resale : plan.sellAt) : resale;
-  const floor = plan ? Math.max(0, PLAN_KEEP * plan.expected) : 0;
+  const yourTarget = m.targetReturn ?? targetPerTrade;
+  const planFloor = plan ? PLAN_KEEP * plan.expected : 0;
+  const floorFrom: KeepIt['floorFrom'] = !plan ? 'breakEven' : yourTarget < planFloor ? 'target' : 'plan';
+  const floor = Math.max(0, floorFrom === 'target' ? yourTarget : planFloor);
   const paid = mine.isBuy ? paidPerUnit(mine.seen, r.k) : 0;
   const raiseRet = mine.isBuy && moves && newPrice > price && sellOn != null && sellOn > 0 && volumeRemain > 0
     ? netOfSale(sellOn) / (newPrice * (1 + r.f) + paid + fee / volumeRemain) - 1
@@ -660,7 +693,10 @@ export function adviseRelist(
     const from = plan && sellOn === plan.sellAt ? 'the plan’s price' : 'where a listing sells now';
     const made = ret < 0 ? `lose ${pctText(-ret)}` : `make ${pctText(ret)}`;
     const paidSaid = paid > 0 ? `, counting the ${iskBig(paid * volumeRemain)} already paid to change its price` : '';
-    const expected = plan && plan.expected > 0 ? `, under ${PLAN_KEEP_SAID} the ${pctText(plan.expected)} the plan expected` : '';
+    // Which floor it fell under: the plan's half, or your target when that's lower (a plan priced from a spike).
+    const expected = !plan || !(plan.expected > 0) ? ''
+      : floorFrom === 'target' ? `, under your ${Number((yourTarget * 100).toFixed(1))}% target (the plan expected ${pctText(plan.expected)})`
+        : `, under ${PLAN_KEEP_SAID} the ${pctText(plan.expected)} the plan expected`;
     return `Don’t raise it: at ${priceText(newPrice)} it would ${made} after fees${paidSaid}, selling on at ${priceText(sellOn!)} (${from})${expected}. Keep it at ${priceText(price)}`;
   };
   const hrs = (h: number) => (h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`);
@@ -748,7 +784,7 @@ export function adviseRelist(
     verdict = 'wait';
     why =
       `The ${aheadUnits.toLocaleString('en-US')} unit${aheadUnits === 1 ? '' : 's'} ahead of you ${aheadUnits === 1 ? 'is' : 'are'} priced ` +
-      `${pctText(Math.abs(level - newPrice) / level)} ${mine.isBuy ? 'above' : 'below'} where the rest of the book sits ` +
+      `${outlierGap(newPrice, level, mine.isBuy, pctText)} where the rest of the book sits ` +
       `(${priceText(level)}) \u2014 someone's mistake or a token dump, not the market`;
   } else if (waitingPaysDaily > targetDaily) {
     // The move is expensive relative to the waiting it saves. Cutting a third off a price to get in
@@ -816,7 +852,7 @@ export function adviseRelist(
     why = `${why}. The plan expected to sell at ${priceText(plan.sellAt)}`;
   }
   const keep: KeepIt | null = mine.isBuy && badBuy && verdict === 'loss' && raiseRet != null && sellOn != null
-    ? { at: newPrice, resale: sellOn, from: plan && sellOn === plan.sellAt ? 'plan' : 'market', ret: raiseRet, floor, paid }
+    ? { at: newPrice, resale: sellOn, from: plan && sellOn === plan.sellAt ? 'plan' : 'market', ret: raiseRet, floor, floorFrom, paid }
     : null;
 
   return {

@@ -3821,6 +3821,38 @@ console.log('\n--- an order knows its plan, and a buy is never raised into a los
   // To do: a move ticked off because a raise would no longer pay says what the guard said.
   const e = { item: { key: `order:${ID}`, kind: 'move', price: 207.1 * M }, seenAt: at3 - 600_000, lastAt: at3 - 600_000 };
   eq('To do: a move that now would raise into a loss is ticked off saying keep it', judgeOrder(e, { open: true, checkedAt: at3, bookRead: true, v: x3 }), `${x3.why}.`);
+  eq('Praxis\'s floor is the plan\'s half, under the 5% target', x3.keep?.floorFrom, 'plan');
+
+  // The floor is capped at your own target (the coordinator's ruling, 1 October 2026). The plan's Vigilance Resonance
+  // Key was priced from a spike to make 36%: half of that refused a raise that still left 7.6% against the user's 5%.
+  const ob = JSON.parse(fs4.readFileSync(new URL('./fixtures/order-books.json', import.meta.url), 'utf8'));
+  const lite = (rows) => rows.map(([id, b, price, volume]) => ({ id, isBuy: b === 1, price, volume }));
+  const KID = 7433389540;
+  const keyV = [['2026-09-30T00:44:02Z', 24.96, 16], ['2026-09-30T01:13:08Z', 25.01, 16], ['2026-09-30T12:02:26Z', 25.07, 12], ['2026-09-30T18:43:54Z', 25.12, 9], ['2026-10-01T09:42:03Z', 25.2, 9]]
+    .map(([issued, p, remain]) => ({ issued, price: p * M, remain }));
+  const keyO = { orderId: KID, typeId: KEY, isBuy: true, price: 25.2 * M, volumeTotal: 16, volumeRemain: 7, issued: keyV.at(-1).issued, state: 'open', locationId: JITA, seen: keyV };
+  const keyAt = Date.parse('2026-10-01T18:27:00Z');
+  const keyJudge = (book, extra = {}) => judgeOne(keyO, { book, perDay: 10, lows: null, highs: null, txs: [], yours: [KID], plan: targets[KEY], ...extra }, S, keyAt);
+  eq('the Key\'s plan expected 36%', Math.round(targets[KEY].expected * 100), 36);
+  const k1 = keyJudge(lite(ob[KEY].step5));
+  eq('the Key\'s raise to 25.24 M, leaving 7.6% selling at 29.19 M, clears your 5% target: it moves', [k1.verdict, k1.newPrice, k1.keep], ['move', 25.24 * M, undefined]);
+  const lower = lite(ob[KEY].step5).map((o) => (!o.isBuy && o.price < 28.2 * M + 1 ? o : !o.isBuy ? { ...o, price: o.price - 1 * M } : o));
+  const k2 = keyJudge(lower);
+  eq('  listings at 28.2 M instead: 3.9%, under your target, kept', [k2.verdict, k2.keep?.floorFrom, Math.round(k2.keep?.ret * 1000) / 10], ['loss', 'target', 3.9]);
+  has('  saying which floor it fell under', k2.why, 'under your 5% target (the plan expected 36%)');
+
+  // A buy side's centre is weighed by ISK: 100,000 bids at 0.02 ISK were the Key's centre by units.
+  const reviewBids = lite(ob[KEY].review).filter((o) => o.isBuy);
+  eq('the Key\'s bids: by units their centre is the 0.02 ISK flood, by ISK where the real bids sit', [weightedLevel(reviewBids), weightedLevel(reviewBids, 'isk')], [0.02, 25.17 * M]);
+  eq('  and the market\'s best bid isn\'t the flood any more', marketBest(reviewBids, true), 25.22 * M);
+  const k3 = keyJudge(lite(ob[KEY].review));
+  eq('the user\'s Key bid, 1 ahead at 25.22 M: not a token dump, a short queue', [k3.verdict, /token dump/.test(k3.why), k3.why], ['wait', false, 'Only 1 ahead of you, about 2 h at this item\'s pace']);
+  eq('  nor at Step 5\'s book', /token dump/.test(k1.why), false);
+  // The sentence's gap is never absurd: a share under double, else a multiple, at most "over 100 times".
+  const gap = (rival) => adviseRelist({ orderId: 1, typeId: 34, isBuy: true, price: 100, volumeRemain: 1000 }, { book: [o(1, true, 100, 1000), o(2, true, rival, 1)] }, R).why;
+  eq('a bid three times the book\'s', /priced 3\.0 times where the rest of the book sits \(100\)/.test(gap(300)), true);
+  eq('  and five hundred times it', /priced over 100 times where the rest of the book sits/.test(gap(50_000)), true);
+  eq('  a sell\'s gap stays a share', /priced 29% below/.test(adviseRelist(fatMine, { book: fatBook }, R).why), true);
 }
 
 console.log('\n--- the sniper ---');

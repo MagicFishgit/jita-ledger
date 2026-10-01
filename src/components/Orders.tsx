@@ -38,7 +38,7 @@ function tipsFor(side: 'all' | 'sell' | 'buy'): Record<string, string> {
   const gets = buy ? 'bought from first' : 'sold to first';
   return {
     Side: `Whether you are buying or selling. A buy order is beaten from above and must go up; a sell is beaten from below and must come down. Either way, being at the front means being ${gets}.`,
-    Verdict: `Whether this order is worth doing something about.\n\n• Being ${both ? 'beaten' : beat} on its own isn’t a reason to move.\n• What matters is how long the ${both ? 'traders' : rivals} ahead of you will stay ahead.${buy || both ? `\n• A buy order also has to be reached: if the bulk of trading hasn’t been getting down to it, the move is to where it does, and if that leaves too little margin, the advice is to cancel it.\n• A buy is never told to raise into a loss. Keep it means raising would leave less than ${PLAN_KEEP_SAID} of what its plan expected, or for a buy no plan priced, would lose, selling on where a listing sells now.` : ''}`,
+    Verdict: `Whether this order is worth doing something about.\n\n• Being ${both ? 'beaten' : beat} on its own isn’t a reason to move.\n• What matters is how long the ${both ? 'traders' : rivals} ahead of you will stay ahead.${buy || both ? `\n• A buy order also has to be reached: if the bulk of trading hasn’t been getting down to it, the move is to where it does, and if that leaves too little margin, the advice is to cancel it.\n• A buy is never told to raise into a loss. Keep it means raising would leave less than ${PLAN_KEEP_SAID} of what its plan expected (or your target, if that’s lower), or for a buy no plan priced, would lose, selling on where a listing sells now.` : ''}`,
     'Ahead of you': `How many units are queued in front of your price, and how many separate ${both ? 'traders' : rivals} that is.\n\nOne big order is better news than a crowd: when it goes, you jump straight to the front.`,
     'Clears in': 'How long the stock ahead of you takes to clear, if nobody undercuts you meanwhile.\n\n• Only one side of the trading reaches you: buyers taking listings for a sell order, sellers dumping into bids for a buy.\n• Which side trades is measured. Each check compares the Jita book with the one before and counts what sold from each side. Until an item has been watched for about a day, a first reading carries most of the weight: what the book’s orders have already sold on each side, or history’s guess when the book says little.\n• New orders placed in front of you aren’t counted, and they’re common: in a six-hour watch of 71 beaten orders, 46 were undercut again.\n\nIf it’s shorter than the hours you’ll wait, relisting would just be a wasted fee.',
     'Your price': both ? 'What you are asking, or bidding, right now.' : buy ? 'What you are bidding right now.' : 'What you are asking right now.',
@@ -306,8 +306,17 @@ export function Orders() {
             { key: 'n', value: units(mine.length), label: `order${mine.length > 1 ? 's' : ''} in Jita 4-4, synced ${ago(d.meta.lastSync, now)}` },
             ...(check.checkedAt ? (worth || cancel || holding || keeping ? [
               ...(worth ? [{ key: 'move', value: <span style={{ color: 'var(--acc)' }}>{units(worth)}</span>, label: 'worth moving' }] : []),
+              // Keep it rows sort below every Move it, so the count sits beside "worth moving", and its number shows the first.
+              ...(keeping ? [{
+                key: 'keep',
+                value: <button type="button" className="name-btn" style={{ color: 'var(--acc2)', font: 'inherit' }} aria-label="Show them in the list below"
+                  onClick={() => { setSide('all'); focusOrders(all.filter((x) => shown(x) === 'keep').map((x) => x.orderId), 120); }}>{units(keeping)}</button>,
+                label: `keep it: raising would cut below what ${keeping === 1 ? 'it' : 'they'} should make`,
+                tip: `Buy orders a raise would cut below what they should make, so they say Keep it rather than Move it.\n\n`
+                  + `• A plan’s buy: under ${PLAN_KEEP_SAID} of what its plan expected, or your ${Number(d.settings.target.toFixed(1))}% target if that’s lower\n`
+                  + `• Any other buy: a loss after every fee, the price changes already paid included\n\nClick the number to show ${keeping === 1 ? 'it' : 'them'} in the list.`,
+              }] : []),
               ...(cancel ? [{ key: 'cancel', value: <span style={{ color: 'var(--neg)' }}>{units(cancel)}</span>, label: 'to cancel' }] : []),
-              ...(keeping ? [{ key: 'keep', value: <span style={{ color: 'var(--acc2)' }}>{units(keeping)}</span>, label: `to keep where ${keeping === 1 ? 'it is' : 'they are'}: raising would leave too little` }] : []),
               ...(holding ? [{ key: 'hold', value: units(holding), label: worth || cancel ? 'beaten but clearing on their own' : 'beaten, but the stock ahead should clear shortly' }] : []),
             ] : [{ key: 'front', value: <span style={{ color: 'var(--pos)' }}>All</span>, label: 'in front' }]) : []),
             ...(elsewhere > 0 ? [{ key: 'else', value: units(elsewhere), label: `in other stations: can’t be checked here` }] : []),
@@ -411,7 +420,7 @@ export function Orders() {
                     const copyAt = x?.underCost ? x.underCost.breakEven : x?.verdict === 'loss' ? null : moveTo;
                     return (
                       <tr key={o.orderId} data-order={o.orderId} className={'hover' + (hot ? ' hot' : x && x.verdict !== 'move' && !keep ? ' dim' : '') + (flash.has(o.orderId) ? ' flash' : '')}>
-                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" copy={copyAt} /></span>{x?.plan && <PlanChip x={x} plan={planOf.get(x.plan.planId)} />}<BusyRelisting typeId={o.typeId} isBuy={o.isBuy} />{x?.underCost && <UnderCostTag u={x.underCost} x={x} />}{x?.overResale && <OverResaleTag u={x.overResale} x={x} r={r} />}{x?.tooBig && <TooBigTag t={x.tooBig} x={x} />}</td>
+                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" copy={copyAt} /></span>{x?.plan && <PlanChip x={x} plan={planOf.get(x.plan.planId)} target={d.settings.target / 100} />}<BusyRelisting typeId={o.typeId} isBuy={o.isBuy} />{x?.underCost && <UnderCostTag u={x.underCost} x={x} />}{x?.overResale && <OverResaleTag u={x.overResale} x={x} r={r} />}{x?.tooBig && <TooBigTag t={x.tooBig} x={x} />}</td>
                         <td className="l lbl" style={{ color: o.isBuy ? 'var(--buy)' : 'var(--neg-t)', fontSize: 11.5 }}>{o.isBuy ? 'Buy' : 'Sell'}</td>
                         <td className="l">
                           {V && x ? (
@@ -486,7 +495,7 @@ export function Orders() {
           { icon: Crosshair, title: 'Check prices', body: 'Reads the live book for every order. ESI refreshes it every five minutes, so checking more often shows nothing new.' },
           { icon: Hourglass, title: 'Set how long you’ll wait', body: 'If the stock ahead of you clears within that many hours, the verdict is Leave it — relisting would just be a fee.' },
           { icon: MoveVertical, title: 'Move the ones marked Move it', body: 'Move it means the queue ahead won’t clear in time. Move to shows the price that puts you back in front.' },
-          { icon: Hand, title: 'Keep the ones marked Keep it', body: `A buy raised to the front would leave too little: under ${PLAN_KEEP_SAID} of what its plan expected, or a loss. It says the price to keep it at.` },
+          { icon: Hand, title: 'Keep the ones marked Keep it', body: `A buy raised to the front would leave too little: under ${PLAN_KEEP_SAID} of what its plan expected or your target, whichever is lower, or a loss. It says the price to keep it at.` },
           { icon: Ban, title: 'Leave the red ones', body: 'Not worth it means getting in front would cost more margin than it’s worth.' },
           { icon: LayoutGrid, title: 'Mind the weakest slots', body: 'When you run out of order slots, swap the lowest per-slot earners first.' },
         ]}
@@ -529,12 +538,12 @@ function OverResaleTag({ u, x, r }: { u: OverResale; x: Relist; r: { f: number; 
 }
 
 /** The plan this order's item belongs to (`planTargets`): its name, and the prices and return it was priced at. */
-function PlanChip({ x, plan }: { x: Relist; plan?: TradePlan }) {
+function PlanChip({ x, plan, target }: { x: Relist; plan?: TradePlan; target: number }) {
   const p = x.plan!;
   const tip = `Part of a plan you started${plan ? ` on ${new Date(plan.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}, while its position is open.\n\n`
     + `• The plan bids ${isk(p.buyAt)} and sells at ${isk(p.sellAt)}: ${(p.expected * 100).toFixed(1)}% after fees\n`
     + (x.isBuy
-      ? `• A raise must still leave ${PLAN_KEEP_SAID} of that, ${(Math.max(0, p.expected * PLAN_KEEP) * 100).toFixed(1)}%, selling on at the plan’s price or where a listing sells now, whichever is lower; otherwise it says Keep it`
+      ? `• A raise must still leave ${p.expected * PLAN_KEEP > target ? `your ${Number((target * 100).toFixed(1))}% target, lower than ${PLAN_KEEP_SAID} of that` : `${PLAN_KEEP_SAID} of that, ${(Math.max(0, p.expected * PLAN_KEEP) * 100).toFixed(1)}%`}, selling on at the plan’s price or where a listing sells now, whichever is lower; otherwise it says Keep it`
       : '• A move is never told to sell under what the stock cost you; one under the plan’s price says so');
   return (
     <span className="sub" style={{ marginTop: 2 }}>
