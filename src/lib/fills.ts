@@ -202,14 +202,6 @@ export const bidBothWindows = (lows: (number | null)[]): number | null => higher
 export const askBothWindows = (highs: (number | null)[]): number | null => lowerOf(reachedAsk(highs), recentAsk(highs));
 
 /**
- * Place and leave's bid: where trading reaches on half the fortnight, raised to where it reached lately when that's
- * higher. Null without the days to say where it reaches on the fortnight: such an item isn't priced this way.
- */
-export const patientBid = (lows: (number | null)[]): number | null => (reachedBid(lows) == null ? null : bidBothWindows(lows));
-/** Place and leave's ask: where trading got up to on half the fortnight, lowered to where it got lately when that's lower. */
-export const patientAsk = (highs: (number | null)[]): number | null => (reachedAsk(highs) == null ? null : askBothWindows(highs));
-
-/**
  * Where a new listing sells, the way Orders judges every sell since 28 September 2026: one step under the cheapest
  * listing when the bulk of trading got up there on at least FILL_RARE of the last 14 days; otherwise where it got up
  * to on half of them (`reachedAsk`), never under one step over the best bid, since a listing there would only sell into

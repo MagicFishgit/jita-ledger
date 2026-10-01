@@ -7,6 +7,7 @@ import { ago, isk, iskBig, iskSigned, pct, plainNum, units } from '../lib/format
 import { resolveNames } from '../lib/market';
 import { absorbable, BUSY_SHOWN, DEFAULT_FILTERS, FIRST_DIR, horizonSaid, horizonShort, HORIZONS, passesGate, RUN_UP, RUN_UP_BEFORE, RUN_UP_DAYS, SLOW_DAYS, snapHorizon, sortProspects, type Sort, type SortKey } from '../lib/prospects';
 import { FILL_RARE, FILL_WINDOW, RECENT_DAYS, RECENT_TYPICAL } from '../lib/fills';
+import { RESERVE_RATIO } from '../lib/evaluate';
 import { clearScan, coverage, loadCache, rankProspects, runScan, stopScan, useScanState, type ScanCache } from '../lib/scan';
 import { COMPETITION_PIVOT, SPLIT_SAID } from '../lib/split';
 import { useFlow } from '../lib/flowStore';
@@ -67,7 +68,7 @@ export function raisesKept(p: Pick<Prospect, 'raiseReserve' | 'qty' | 'capital'>
 }
 
 /** The why of the raises kept back: the lead, then how it's worked out. */
-export const raisesWhy = (said: string) => `${said}.\n\n• The watch of its Jita book saw at least as many units newly placed at the front as filled there, over a day or more: you’d typically be beaten before you fill, and move.\n• Each price change costs the broker fee less your Advanced Broker Relations discount, on the order’s whole value. That much is already off the return and the ranking.`;
+export const raisesWhy = (said: string) => `${said}.\n\n• The watch of its Jita book saw at least ${RESERVE_RATIO === 2 ? 'twice' : `${RESERVE_RATIO} times`} as many units newly placed at the front as filled there, over a day or more: you’d typically be beaten before you fill, and move.\n• Each price change costs the broker fee less your Advanced Broker Relations discount, on the order’s whole value. That much is already off the return and the ranking.`;
 
 /** How long the money is in, in a unit that reads naturally. */
 export function flip(days: number): string {
@@ -331,7 +332,7 @@ function Row({ p, name, open, onToggle, baseShare }: { p: Prospect; name: string
     { l: 'Who’s trading', v: `${pct(p.buyerShare, 0)} buyers`, n: `Share of volume that is buyers taking sell orders — your sells only fill from these. ${SPLIT_SAID[p.splitFrom ?? 'history'].charAt(0).toUpperCase() + SPLIT_SAID[p.splitFrom ?? 'history'].slice(1)}.` },
     { l: 'Position modelled', v: `${units(p.qty)} units`, n: `Flips in ${flip(p.daysToFlip)} at the slower side’s pace` },
     ...(raises ? [{ l: 'Raises kept back', v: raises.count, c: 'var(--acc2)',
-      n: `${raises.cut} off the return: its Jita book sees as much stock newly placed at the front as fills there, so you’d be beaten before you fill` }] : []),
+      n: `${raises.cut} off the return: its Jita book sees at least ${RESERVE_RATIO === 2 ? 'twice' : `${RESERVE_RATIO} times`} as much stock newly placed at the front as fills there, so you’d be beaten before you fill` }] : []),
   ];
   return (
     <>

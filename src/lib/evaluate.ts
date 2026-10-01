@@ -5,7 +5,7 @@
  * Pure.
  */
 import { calc, rates, type Settings } from './fees';
-import { askReachDays, bidReachDays, FILL_WINDOW, patientAsk, patientBid, withWatchedHighs, withWatchedLows, type WatchedExtremes } from './fills';
+import { askReachDays, bidReachDays, FILL_WINDOW, reachedAsk, reachedBid, withWatchedHighs, withWatchedLows, type WatchedExtremes } from './fills';
 import type { FlowDay } from './flow';
 import { askToPlace, bidToPlace, SLOW_DAYS, tradedPerDay, warningsFor } from './prospects';
 import { competitionShare, MIN_DAYS, returnPerDay, throughput, tradingSplit, type BookSold } from './split';
@@ -25,19 +25,26 @@ export type Book = { at: string; bestBuy: number | null; bestSell: number | null
 export const RAISES_RESERVED = 2;
 /** Hours of watching the item's Jita book before its pace of undercuts is trusted for this. */
 export const RESERVE_WATCH_H = 24;
+/**
+ * Units newly placed at or beyond the front, per unit filled on that side, before raises are kept back: the front beaten
+ * at least twice per unit filled. At one for one it applied to 93 of the 94 candidates watched for a day on the cloud's
+ * scan of 1 October 2026, which says nothing about which markets are busy; Praxis was 2.5 times on bids, 2 on asks.
+ */
+export const RESERVE_RATIO = 2;
 
 /**
  * The raises a busy side will cost, from what was watched (`watched.flow`): RAISES_RESERVED on a side where at least
- * as many units were newly placed at or beyond the front as filled there (`newBuy ≥ buy` for bids, `newSell ≥ sell`
- * for asks) over RESERVE_WATCH_H hours or more; something has to have been placed, or there's nothing to go on. Each
+ * RESERVE_RATIO times as many units were newly placed at or beyond the front as filled there (`newBuy ≥ 2 × buy` for
+ * bids, `newSell ≥ 2 × sell` for asks) over RESERVE_WATCH_H hours or more; something has to have been placed, or
+ * there's nothing to go on. Each
  * change costs the change fee (`k`, the broker fee less the Advanced Broker Relations discount) on the whole order's
  * value, since you're beaten before you fill, at least the broker's 100 ISK. Per unit, over `qty`. Undefined when
  * neither side keeps any.
  */
 export function raisesKeptBack(flow: Pick<FlowDay, 'h' | 'buy' | 'sell' | 'newBuy' | 'newSell'> | undefined, k: number, buy: number, sell: number, qty: number): { buy: number; sell: number; isk: number } | undefined {
   if (!flow || !(flow.h >= RESERVE_WATCH_H) || !(qty > 0)) return undefined;
-  const nb = flow.newBuy > 0 && flow.newBuy >= flow.buy ? RAISES_RESERVED : 0;
-  const ns = flow.newSell > 0 && flow.newSell >= flow.sell ? RAISES_RESERVED : 0;
+  const nb = flow.newBuy > 0 && flow.newBuy >= RESERVE_RATIO * flow.buy ? RAISES_RESERVED : 0;
+  const ns = flow.newSell > 0 && flow.newSell >= RESERVE_RATIO * flow.sell ? RAISES_RESERVED : 0;
   if (!nb && !ns) return undefined;
   const fee = (price: number) => Math.max(100, k * price * qty);
   return { buy: nb, sell: ns, isk: (nb * fee(buy) + ns * fee(sell)) / qty };
@@ -81,11 +88,12 @@ export function judgeProspect(
   const asked = askToPlace(bestSell, highs);
   // Place and leave: both prices where trading reaches on half the days, wherever the front is. Not capped at the
   // front: on the scoop and Hammerhead II the front bid sat below where trading reached, and it was the dead one.
-  // Lately too: the bid raised and the ask lowered to where the last few days reached, when that's further in.
+  // The fortnight alone, not the last few days as at the front (the coordinator's ruling, 1 October 2026): these orders
+  // sit behind the front for weeks, and taking the recent window here too removed 30% of the cloud scan's candidates.
   // An item without the days to say where that is can't be priced this way and is left out, not priced at the front.
   const patient = !!filters.patient && !anyReturn;
-  const patientBuy = patient && lows ? patientBid(lows) : null;
-  const patientSell = patient && highs ? patientAsk(highs) : null;
+  const patientBuy = patient && lows ? reachedBid(lows) : null;
+  const patientSell = patient && highs ? reachedAsk(highs) : null;
   if (patient && (patientBuy == null || patientSell == null)) return null;
   const buy = patient ? patientBuy! : anyReturn ? placed.top : placed.buy;
   const sell = patient ? patientSell! : anyReturn ? asked.top : asked.sell;

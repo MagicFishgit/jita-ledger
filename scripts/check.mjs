@@ -3655,11 +3655,16 @@ console.log('\n--- the planner prices from recent days (the user\'s first plan, 
   const sparse = [95, 96, 94, 95, 97, 93, 96, 95, 94, 96, null, 99, null, null];
   eq('  with under 3 of the last 5 days traded, the recent window doesn\'t decide', [P.bidToPlace(95.99, sparse).recentReach, P.bidToPlace(95.99, sparse).window, P.bidToPlace(95.99, sparse).buy], [null, null, 96]);
 
-  // Place and leave takes the recent window too: the higher bid and the lower ask of the two windows.
+  // The recent window's own prices: the 3rd-lowest low and the 3rd-highest high of the last 5 days.
   const lows = [90, 90, 90, 90, 90, 90, 90, 90, 90, 95, 96, 97, 98, 99];
-  eq('place and leave: the bid reached on half the fortnight and 3 of the last 5', [Fl.reachedBid(lows), Fl.recentBid(lows), Fl.patientBid(lows)], [90, 97, 97]);
   const highs = [120, 120, 120, 120, 120, 120, 120, 120, 120, 110, 109, 108, 107, 106];
-  eq('  and the ask', [Fl.reachedAsk(highs), Fl.recentAsk(highs), Fl.patientAsk(highs)], [120, 108, 108]);
+  eq('the recent window\'s bid and ask, beside the fortnight\'s', [Fl.reachedBid(lows), Fl.recentBid(lows), Fl.reachedAsk(highs), Fl.recentAsk(highs)], [90, 97, 120, 108]);
+  // Place and leave keeps to the fortnight (the coordinator's ruling, 1 October 2026): its orders sit behind the front
+  // for weeks, and taking the recent window there too removed 30% of its candidates on the cloud's scan.
+  const leave = judgeProspect({ ...px, lows14: lows, highs14: highs }, book(89, 121), S, { ...fl, patient: true, minRoi: 0 }, 50);
+  eq('place and leave prices on the fortnight alone, wherever the last 5 days traded', [leave.buy, leave.sell, leave.patient, leave.bidWindow, leave.warnings.includes('unreached')], [90, 120, true, undefined, false]);
+  const leaveRun = judgeProspect({ ...px, lows14: lows, highs14: highs, runUp: 0.6 }, book(89, 121), S, { ...fl, patient: true, minRoi: 0 }, 50);
+  eq('  but a run-up is still flagged there, and the planner leaves it out', [leaveRun.warnings.includes('runUp'), ex.includes('runUp')], [true, true]);
 
   // Vigilance Resonance Key: about 21-23 M through August and early September, then 28 M, then 36-45 M from the 24th.
   const vk = st(89156);
@@ -3676,7 +3681,7 @@ console.log('\n--- the planner prices from recent days (the user\'s first plan, 
 
 console.log('\n--- a busy market\'s raises are kept back ---');
 {
-  const { judgeProspect, RAISES_RESERVED, RESERVE_WATCH_H } = await import('../src/lib/evaluate.ts');
+  const { judgeProspect, RAISES_RESERVED, RESERVE_WATCH_H, RESERVE_RATIO } = await import('../src/lib/evaluate.ts');
   const { DEFAULT_SETTINGS, rates } = await import('../src/lib/fees.ts');
   const { DEFAULT_FILTERS } = await import('../src/lib/prospects.ts');
   const now = Date.parse('2026-09-28T00:00:00Z');
@@ -3687,18 +3692,21 @@ console.log('\n--- a busy market\'s raises are kept back ---');
   const fl = { ...DEFAULT_FILTERS, budget: 1e9, horizonDays: 30, partial: true, minRoi: 0, minTrades: 0, minDays: 0 };
   const S = { ...DEFAULT_SETTINGS, share: 10, br: 5, acc: 5, abr: 5, clone: 'omega' };
   const { k } = rates(S);
-  eq('two raises a side, after a day of watching', [RAISES_RESERVED, RESERVE_WATCH_H], [2, 24]);
-  // Praxis's shape in the cloud's watch: more new bids at the front than sold into bids, more new listings than bought.
+  eq('two raises a side, after a day of watching, where the front is beaten twice per unit filled', [RAISES_RESERVED, RESERVE_WATCH_H, RESERVE_RATIO], [2, 24, 2]);
+  // Praxis's shape in the cloud's watch: 2.5 times as many new bids at the front as sold into bids, twice as many new
+  // listings as bought.
   const busy = { h: 30, sell: 37, buy: 12, newSell: 74, newBuy: 30 };
   const p = judgeProspect(st, book, S, fl, 40, false, { flow: busy });
   const short = judgeProspect(st, book, S, fl, 40, false, { flow: { ...busy, h: 10 } });
-  eq('more units newly placed at the front than filled, on both sides, over 24+ hours: 2 raises a side', [p.raiseReserve?.buy, p.raiseReserve?.sell], [2, 2]);
+  eq('at least twice as many units newly placed at the front as filled, on both sides, over 24+ hours: 2 raises a side', [p.raiseReserve?.buy, p.raiseReserve?.sell], [2, 2]);
   eq('  each a change fee on the order\'s value', p.raiseReserve.isk, 2 * k * p.buy + 2 * k * p.sell);
   eq('  the same prices and size without them', [short.buy, short.sell, short.qty], [p.buy, p.sell, p.qty]);
   eq('  and its return drops by those 4 change fees', short.roi - p.roi, (2 * k * p.buy + 2 * k * p.sell) * p.qty / p.capital);
   eq('  as does what it makes a day', short.iskPerDay > p.iskPerDay && short.roiPerDay > p.roiPerDay, true);
   const quiet = judgeProspect(st, book, S, fl, 40, false, { flow: { ...busy, newBuy: 5 } });
   eq('fewer new bids than sold into bids: none kept back on the buy side', [quiet.raiseReserve?.buy, quiet.raiseReserve?.sell], [0, 2]);
+  const half = judgeProspect(st, book, S, fl, 40, false, { flow: { ...busy, newBuy: 18, newSell: 55.5 } });
+  eq('one and a half times as many new as filled, on both sides: none', half.raiseReserve, undefined);
   eq('watched only 10 hours: none', short.raiseReserve, undefined);
   eq('nothing new placed on either side: none', judgeProspect(st, book, S, fl, 40, false, { flow: { h: 30, sell: 0, buy: 0, newSell: 0, newBuy: 0 } }).raiseReserve, undefined);
   eq('a plan placed to be left alone keeps none: it isn\'t moved', judgeProspect(st, book, S, { ...fl, patient: true }, 40, false, { flow: busy }).raiseReserve, undefined);
