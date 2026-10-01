@@ -57,7 +57,12 @@ const ice = (where: string, detail: string, disputed?: string): OreWhere => {
   return o;
 };
 const FACTION_ICE = 'Only in a few systems with ice belts (one to three each). EVE University’s table lists it at "1.0 and lower" and gives no high-sec floor, so which empire systems hold it is not in the sources.';
-const ENRICHED_ICE = 'Also in Shattered Ice Fields in Shattered wormholes.';
+/**
+ * The enriched faction ices are graded in the game now: ESI (1 October 2026) names types 17975–17978 Blue Ice, White
+ * Glaze, Glacial Mass and Clear Icicle IV-Grade, in the Ice group beside the plain ones, and resolves none of the names
+ * EVE University's page still uses. Keyed by ESI's names, so they're priced; the page's name is in the detail.
+ */
+const enriched = (wiki: string) => `${wiki} on EVE University’s page, which still uses the old name. Also in Shattered Ice Fields in Shattered wormholes.`;
 
 export const ORE_WHERE: Record<string, OreWhere> = {
   Veldspar: {
@@ -206,10 +211,10 @@ export const ORE_WHERE: Record<string, OreWhere> = {
   'White Glaze': ice('Caldari space ice belts, in a few systems', FACTION_ICE),
   'Blue Ice': ice('Gallente space ice belts, in a few systems', FACTION_ICE),
   'Glacial Mass': ice('Minmatar space ice belts, in a few systems', FACTION_ICE),
-  'Enriched Clear Icicle': ice('Amarr-quarter null-sec ice belts, 0.0 and lower', ENRICHED_ICE),
-  'Pristine White Glaze': ice('Caldari-quarter null-sec ice belts, 0.0 and lower', ENRICHED_ICE),
-  'Thick Blue Ice': ice('Gallente-quarter null-sec ice belts, 0.0 and lower', ENRICHED_ICE),
-  'Smooth Glacial Mass': ice('Minmatar-quarter null-sec ice belts, 0.0 and lower', ENRICHED_ICE),
+  'Clear Icicle IV-Grade': ice('Amarr-quarter null-sec ice belts, 0.0 and lower', enriched('Enriched Clear Icicle')),
+  'White Glaze IV-Grade': ice('Caldari-quarter null-sec ice belts, 0.0 and lower', enriched('Pristine White Glaze')),
+  'Blue Ice IV-Grade': ice('Gallente-quarter null-sec ice belts, 0.0 and lower', enriched('Thick Blue Ice')),
+  'Glacial Mass IV-Grade': ice('Minmatar-quarter null-sec ice belts, 0.0 and lower', enriched('Smooth Glacial Mass')),
   'Glare Crust': ice('Ice belts in every quarter, 0.4 and lower', 'Standard ice. Also in Shattered Ice Fields in wormholes.'),
   'Dark Glitter': ice('Ice belts in every quarter, 0.1 and lower', 'Standard ice. Also in Shattered Ice Fields in wormholes.'),
   Gelidus: ice('Ice belts in null-sec, 0.0 and lower', 'Standard ice. Also in Shattered Ice Fields in wormholes.', LOWSEC_ICE),

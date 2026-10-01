@@ -4310,8 +4310,10 @@ console.log('\n--- best ore by where it\'s found ---');
   eq('  the other moon ores are not', ['Cobaltite', 'Xenotime'].map((o) => ORE_WHERE[o].disputed), [undefined, undefined]);
   eq('  moon ores are drilled, place moon', ['Zeolites', 'Xenotime'].map((o) => ORE_WHERE[o].found.map((x) => `${x.place}/${x.how}`)), [['moon/drill'], ['moon/drill']]);
   eq('  Gelidus and Krystallos are disputed (low-sec)', ['Gelidus', 'Krystallos', 'Glare Crust'].map((o) => typeof ORE_WHERE[o].disputed), ['string', 'string', 'undefined']);
-  eq('  ice is keyed by full name and found on ice belts', ORE_WHERE['Enriched Clear Icicle'].found.map((x) => `${x.place}/${x.how}`), ['ice/ice belt']);
-  eq('  every ice type in the research is there', ['Clear Icicle', 'White Glaze', 'Blue Ice', 'Glacial Mass', 'Enriched Clear Icicle', 'Pristine White Glaze', 'Thick Blue Ice', 'Smooth Glacial Mass', 'Glare Crust', 'Dark Glitter', 'Gelidus', 'Krystallos'].filter((n) => ORE_WHERE[n]?.kind !== 'ice'), []);
+  eq('  ice is keyed by full name and found on ice belts', ORE_WHERE['Clear Icicle IV-Grade'].found.map((x) => `${x.place}/${x.how}`), ['ice/ice belt']);
+  // The enriched ices under ESI's names (types 17975–17978 since they were graded), the research's in their detail.
+  eq('  every ice type in the research is there', ['Clear Icicle', 'White Glaze', 'Blue Ice', 'Glacial Mass', 'Clear Icicle IV-Grade', 'White Glaze IV-Grade', 'Blue Ice IV-Grade', 'Glacial Mass IV-Grade', 'Glare Crust', 'Dark Glitter', 'Gelidus', 'Krystallos'].filter((n) => ORE_WHERE[n]?.kind !== 'ice'), []);
+  eq('  an enriched ice says its old name', /Enriched Clear Icicle/.test(ORE_WHERE['Clear Icicle IV-Grade'].found[0].detail), true);
   eq('  wormhole sites as the research names them', ['Pyroxeres', 'Arkonor', 'Bistot'].map((n) => ORE_WHERE[n].found.find((x) => x.place === 'wormhole')?.where), ['Wormhole sites: Perimeter, Frontier, Core and Shattered', 'Wormhole sites: Perimeter, Frontier and Core', 'Wormhole sites']);
   eq('  sources carry a read date and a url', ORE_WHERE_SOURCE.every((s) => s.read === '1 October 2026' && s.url.startsWith('https://')), true);
   const row = (base, iskPerM3, iskPerHour) => ({ base, iskPerM3, iskPerHour });
@@ -4324,7 +4326,7 @@ console.log('\n--- best ore by where it\'s found ---');
   // ISK an hour: a row takes only a pace its ore can be mined at.
   const { kindOfBase, kindOfName, sessionKind, paceFor, measuredByKind } = await import('../src/lib/oreWhere.ts');
   eq('  kind by base: ore, moon ore, Mercoxit, ice, unknown', ['Scordite', 'Zeolites', 'Mercoxit', 'Glare Crust', 'Nonsense'].map(kindOfBase), ['ore', 'ore', 'mercoxit', 'ice', null]);
-  eq('  kind by name: grades, ESI\'s trailing space, ice, not an ore', ['Scordite II-Grade', 'Scordite 0-Grade ', 'Brimful Zeolites', 'Mercoxit III-Grade', 'Enriched Clear Icicle', 'Tritanium'].map(kindOfName), ['ore', 'ore', 'ore', 'mercoxit', 'ice', null]);
+  eq('  kind by name: grades, ESI\'s trailing space, ice, not an ore', ['Scordite II-Grade', 'Scordite 0-Grade ', 'Brimful Zeolites', 'Mercoxit III-Grade', 'Clear Icicle IV-Grade', 'Tritanium'].map(kindOfName), ['ore', 'ore', 'ore', 'mercoxit', 'ice', null]);
   eq('  a session of one kind is that kind', sessionKind(['Scordite', 'Veldspar II-Grade']), 'ore');
   eq('  ore and ice in one session say nothing', sessionKind(['Scordite', 'Glare Crust']), null);
   eq('  an ore whose name isn\'t read yet says nothing', sessionKind(['Scordite', null]), null);

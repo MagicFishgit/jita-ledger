@@ -104,9 +104,11 @@ export function MasteryTiers({ hull, family, ore, oreId, iskPerM3, fromRate, hul
   // says what it is once drawn); none is said once the hull closes.
   const tierSaid = tier ? tier.label ?? TIER_SAID[tier.key] : null;
   const atSkills = skillsUnread(pilot) ? 'with every skill at V' : `at ${whose(pilot)} skills`;
+  // An ice fit has no Mercoxit version, so it's said as ice from the start (its lasers' names, as the note below reads them).
+  const iceTier = !!tier?.high.some((x) => /Ice/.test(x.name));
   useEffect(() => {
-    if (onPace && tierSaid && merc && !mercs) onPace({ from: 'fit', hull: hull.name, tier: tierSaid, at: atSkills, m3PerMin: null, drones: false, ice: false, mercoxit: true });
-  }, [onPace, tierSaid, merc, mercs, hull.name, atSkills]);
+    if (onPace && tierSaid && merc && !mercs) onPace({ from: 'fit', hull: hull.name, tier: tierSaid, at: atSkills, m3PerMin: null, drones: false, ice: iceTier, mercoxit: !iceTier });
+  }, [onPace, tierSaid, merc, mercs, hull.name, atSkills, iceTier]);
   useEffect(() => () => onPace?.(null), [onPace]);
   if (!tier) return null;
   const m = merc && mercs ? mercs[tier.key] ?? null : null;

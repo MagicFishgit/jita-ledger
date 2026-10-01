@@ -97,7 +97,8 @@ const PROOF = { small: 'Hammerhead II', large: 'Test Item' };
 const MINING_CASES = [
   { label: 'Miner Two picked and shown', keep: { 'mining-char': '900001', 'mining-show': '900001' },
     proof: ['What Miner Two mined', 'Yields at Miner Two’s skills', 'Trained to V; Alpha uses IV: Omega opens it', 'Alpha can’t use it: Omega opens it'] },
-  { label: 'Miner Two shown, the Procurer open', open: 17480, proof: ['Miner Two’s pace in it', 'From ESI’s figures, without boosts'] },
+  // The best-ore panel's ISK an hour follows the tier open, at the alt's skills.
+  { label: 'Miner Two shown, the Procurer open', open: 17480, proof: ['Miner Two’s pace in it', 'From ESI’s figures, without boosts', 'Solid Procurer, at Miner Two’s skills'] },
   { label: 'Hauler Four shown, refused and never read', keep: { 'mining-show': '900003' },
     proof: ['What your characters mined', 'Not read: EVE refused Hauler Four’s login', 'Its login was refused: hand it over again on the Characters page'] },
   { label: 'a kept character no longer on the roster', keep: { 'mining-char': '999999' }, proof: ['What your characters mined', 'Yields at your skills'] },

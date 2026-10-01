@@ -313,7 +313,7 @@ function OreName({ name, id, kind, onPick }: { name: string; id: number | undefi
   }
   if (!id) return <span className="name">{name}</span>;
   return (
-    <button type="button" className="link-btn name" style={{ padding: 0 }} onClick={() => onPick(id)} data-tip={`Price Scaling up’s fits for ${name}: its crystals, worth and payback.`}>
+    <button type="button" className="name-btn name" onClick={() => onPick(id)} data-tip={`Price Scaling up’s fits for ${name}: its crystals, worth and payback.`}>
       {name}
     </button>
   );
