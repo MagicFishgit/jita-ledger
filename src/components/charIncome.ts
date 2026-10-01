@@ -13,8 +13,8 @@ import { useEnsureNames } from './common';
  * altLedger builds it. Worked out once for each ledger object and window: an alt's ledger is the same object until its
  * revision moves, so a page re-rendering doesn't redo it. Give it `since` and `now` rounded to the minute (the
  * Characters page redraws every 30 seconds for its other times, and a rolling 24 hours moves its start with `now`).
- * `charId`: whose ledger it is, so ISK moved between your characters isn't income (the main's card then agrees with
- * the Wallet).
+ * `charId`: whose ledger it is, so entries naming two of your characters are left out as they are for the Wallet (the
+ * main's card then agrees with it).
  */
 export function useCharIncome(d: Data, since: number, now: number, charId?: number) {
   const acts = useActivityEvents(d, charId);

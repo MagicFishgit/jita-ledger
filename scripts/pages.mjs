@@ -34,7 +34,9 @@ for (const [name, list] of Object.entries(ALTS)) if (list.length) ALL[name].char
 /**
  * ISK sent to the first alt and some back from the last (a donation each way, and a contract price on the large ledger),
  * so the Wallet draws its "Between your characters" line and the phone check measures it at 390 px. Added here only:
- * check-income's ledger holds no characters, and as donations to strangers these would move the play it records.
+ * check-income's ledger holds no characters, and as donations to strangers these would move the play it records. The
+ * contract price is synthetic, there for a second kind of part: no contract entry between two characters has been seen
+ * in real data, so its parties here aren't evidence of how EVE writes one.
  */
 function withTransfers(journal, list) {
   const main = ownerAuth().characterId, first = list[0].entry.charId, last = list[list.length - 1].entry.charId;
@@ -47,7 +49,9 @@ function withTransfers(journal, list) {
   ];
   return withBalances([...old.map(({ balance: _b, ...e }) => e), ...sent], start).journal;
 }
-for (const [name, list] of Object.entries(ALTS)) if (list.length) ALL[name].journal = withTransfers(ALL[name].journal, list);
+/** The ledgers given transfers: their Wallet must draw the line, and a ledger without one must not. */
+const MOVED = new Set();
+for (const [name, list] of Object.entries(ALTS)) if (list.length) { ALL[name].journal = withTransfers(ALL[name].journal, list); MOVED.add(name); }
 // `LEDGER=large PAGE=results npm run check-pages` runs just those (comma-separated), for working on one.
 const only = (v) => (v ? v.split(',') : null);
 const LEDGERS = Object.fromEntries(Object.entries(ALL).filter(([k]) => !only(process.env.LEDGER) || only(process.env.LEDGER).includes(k)));
@@ -177,6 +181,12 @@ try {
       problems = [];
       await page.evaluate((h) => { location.hash = `#${h}`; }, hash);
       await page.waitForTimeout(1500);
+      // The seeded transfers must reach the Wallet as their own line, or the phone check passes without measuring it.
+      if (hash === 'wallet') {
+        const drawn = await page.locator('.between-line', { hasText: 'Between your characters' }).count();
+        if (MOVED.has(name) && !drawn) problems.push('not drawn: no “Between your characters” on a ledger with transfers');
+        if (!MOVED.has(name) && drawn) problems.push('“Between your characters” drawn on a ledger with no transfer');
+      }
       await judge(hash);
     }
     if (name === 'large' && SHOWN.includes('hustles/mining')) {

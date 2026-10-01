@@ -15,9 +15,11 @@ import { useEnsureNames } from './common';
  * realized profit, ships lost by what they were doing) and hands it in. Also the sales no activity counts (`others`), which
  * only the Wallet adds. The main's ledger unless one is given.
  *
- * Whose ledger it is (`charId`) builds the set of your characters (the ledger's own `chars` and that character), so a
- * courier reward between two of them isn't Hauling income. Without a ledger it's the logged-in character's; with one,
- * the caller says whose (an alt's copy holds no `chars`, so for an alt the set is the alt alone). Absent: as before.
+ * Whose ledger it is (`charId`) builds the set of your characters (the ledger's own `chars` and that character), and
+ * entries naming two of them are left out. A courier reward names the Secure Commerce Commission as its payer (the
+ * contract's escrow, 1000132 in the user's journal), not the issuer, so it stays Hauling even when your own character
+ * issued it. Without a ledger it's the logged-in character's; with one, the caller says whose (an alt's copy holds no
+ * `chars`, so for an alt the set is the alt alone). Absent: as before.
  */
 
 export const ACTIVITY_COLOR: Record<Activity, string> = {

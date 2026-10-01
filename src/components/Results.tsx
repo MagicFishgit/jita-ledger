@@ -61,8 +61,9 @@ export function Results() {
   const periodSaid = days === 0 ? (firstAt != null ? `since ${fmtShort(firstAt)}` : 'so far') : days === 365 ? 'a year' : `${days} days`;
 
   // Every ISK movement attributed to an activity, as the Wallet's "All income against play" counts it too. The hook
-  // takes the logged-in character and the ledger's `chars` as your characters, so a courier reward one of them paid
-  // another isn't Hauling.
+  // takes the logged-in character and the ledger's `chars` as your characters and leaves out entries naming two of
+  // them. A courier reward names the Secure Commerce Commission (its escrow) as its payer, not the issuer: the one in
+  // the user's journal came from 1000132. So a reward from your own character stays Hauling.
   const { events, failed, posCalc, lossActs } = useActivityEvents();
 
   const acts = ACTIVITIES;

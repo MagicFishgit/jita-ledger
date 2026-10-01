@@ -137,7 +137,7 @@ function BetweenLine({ b, mainId, charName }: { b: Between; mainId: number | nul
           <button type="button" className="panel-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
             <ChevronRight className="chev" aria-hidden="true" />Between your characters
           </button>
-          <Tip title="Between your characters" text={'ISK moved between your own characters: not income, not spending.\n\n• Sent to an alt is still yours.\n• Each entry names both characters.\n• Left out of both totals above, net cash flow, play, the runway and goals.'} />
+          <Tip title="Between your characters" text={'ISK moved between your own characters: not income, not spending.\n\n• Sent to an alt is still yours.\n• Each entry names both characters.\n• Left out of both totals above, net cash flow, play, the runway’s burn and cash-flow goals.'} />
         </span>
         <span className="v between-figs">
           {b.out > 0 && <span>{iskBig(b.out)} sent</span>}
@@ -327,6 +327,11 @@ export function Wallet() {
     return f.inTotal - f.outTotal;
   };
 
+  // ---- All income against play: every activity counted as Results counts it, and sales no activity counts. Read above
+  // the empty state, as every hook here is: a ledger that fills while the page is open (a first sync, a restore) would
+  // otherwise change how many hooks run, and React throws.
+  const acts = useActivityEvents();
+
   if (!journal.length && !txList.length) {
     return (
       <div className="page">
@@ -405,8 +410,6 @@ export function Wallet() {
   const profit = posSeries.reduce((t, x) => t + realizedBetween(x.series, since, now), 0);
   const play = f.outs.filter((l) => l.kind === 'Personal').reduce((t, l) => t + l.amount, 0);
   const left = profit - play;
-  // ---- All income against play: every activity counted as Results counts it, and sales no activity counts.
-  const acts = useActivityEvents();
 
   // ---- Runway: personal spending plus the running costs, over the last 30 days.
   const burn30 = f30.outs.filter((l) => l.kind === 'Personal' || RUNNING.has(l.key)).reduce((t, l) => t + l.amount, 0);

@@ -4217,6 +4217,8 @@ console.log('\n--- transfers between your characters ---');
   eq('  main to alt donation', ownTransfer(e('player_donation', 1, 2), mine), true);
   eq('  alt to main donation', ownTransfer(e('player_donation', 2, 1), mine), true);
   eq('  alt to alt donation', ownTransfer(e('player_donation', 2, 3), mine), true);
+  // Synthetic: no contract entry between two characters has been seen in real data (the user's one contract_reward names
+  // the SCC, 1000132, as its payer), so this tests the rule as written, not the parties EVE really puts on one.
   eq('  contract_price between them', ownTransfer(e('contract_price', 1, 2), mine), true);
   eq('  player_trading between them', ownTransfer(e('player_trading', 2, 1), mine), true);
   eq('  a stranger to the main is not', ownTransfer(e('player_donation', 9, 1), mine), false);
@@ -4251,6 +4253,7 @@ console.log('\n--- transfers between your characters ---');
   eq('  between.in counts what an alt sent you', flows([back], [], classOf, since, Infinity, mine).between.in, 40e6);
   // The Wallet's line opens to its kinds and their entries, each way readable: a part says what went and what came
   // back, and each entry keeps its own sign and both its characters.
+  // The contract price is synthetic, as above: it gives a second kind of part, not evidence of a contract's parties.
   const both = flows([don, back, { ...don, id: 'c', refType: 'contract_price', amount: -3e6 }], [], classOf, since, Infinity, mine).between;
   eq('  between: totals each way', [both.in, both.out, both.count], [40e6, 103e6, 3]);
   eq('  between: a part per kind, each way apart', both.parts.map((p) => [p.key, p.in, p.out, p.count, p.amount]), [['ref:player_donation', 40e6, 100e6, 2, 140e6], ['ref:contract_price', 0, 3e6, 1, 3e6]]);
