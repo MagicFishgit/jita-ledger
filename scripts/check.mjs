@@ -4068,7 +4068,8 @@ console.log('\n--- the alts the income check seeds earn by their journal (script
     eq(`  ${a.entry.name}: the tax its skills and clone state predict is what its journal charged`, r.t, ALT_TAX[i]);
     const journal = Object.values(d.journal);
     const sales = Object.values(d.txs).filter((t) => !t.isBuy);
-    const taxOf = (t) => Math.abs(journal.find((e) => e.refType === 'transaction_tax' && String(e.contextId) === t.id)?.amount ?? NaN);
+    // A tax row names no trade, as ESI's don't (eve-facts): it's the one in the sale's second.
+    const taxOf = (t) => Math.abs(journal.find((e) => e.refType === 'transaction_tax' && e.date === t.date)?.amount ?? NaN);
     const m = matchFees(journal, Object.values(d.orders), Object.values(d.txs), () => r);
     eq('    each sale\'s tax is claimed from the journal (by second and size)', sales.map((t) => m.taxByTx.get(t.id)), sales.map(taxOf));
     eq('    each sale\'s journal rows name it', journal.filter((e) => e.contextId != null).every((e) => d.txs[String(e.contextId)]?.isBuy === false), true);

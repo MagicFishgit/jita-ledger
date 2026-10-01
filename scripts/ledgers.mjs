@@ -185,11 +185,10 @@ const ACCOUNTING = 16622;
  * figures must not move because of any of it (scripts/income.mjs, "isolation"). Alt 2 has read nothing.
  *
  * Their figures come from their journal, not from estimates: each sale's tax is what the alt pays (`ALT_TAX`), so the
- * fee match (lib/feeMatch.ts, by second and within half of what the rate predicts) claims it for the item resold; and
- * each journal row of a sale names it by `contextId`, which is how the tax on the thing never bought is found
- * (results.ts, by transaction ID). ESI's own tax rows carried no context ID when that was checked (eve-facts), so this
- * is kinder than ESI there. Trade IDs are ESI's transaction IDs as strings (lib/esiRecords.ts), so a `contextId` finds
- * its trade. The final review found the alts' 3.37% rows rejected against the 7.5% an Accounting-less alt is
+ * fee match (lib/feeMatch.ts, by second and within half of what the rate predicts) claims it. Shaped as ESI gives them:
+ * a sale's `market_transaction` row names it by `contextId`, its `transaction_tax` row names nothing (eve-facts), so
+ * results.ts' by-ID tax lookup finds none and estimates at the alt's own rate, which is what the row says. Trade IDs
+ * are ESI's transaction IDs as strings (lib/esiRecords.ts), so a `contextId` finds its trade. The final review found the alts' 3.37% rows rejected against the 7.5% an Accounting-less alt is
  * predicted to pay, and contextIds that named no trade, so their Earned ran on estimates alone.
  */
 function ownWork(charId, i) {
@@ -203,8 +202,8 @@ function ownWork(charId, i) {
   // To the cent, as ESI gives an amount.
   const tax = (gross) => -Math.round(gross * ALT_TAX[i] * 100) / 100;
   const journal = Object.fromEntries([
-    j(`${p}j1`, 2, 'market_transaction', 15 * 820000, sale(2)), j(`${p}j2`, 2, 'transaction_tax', tax(15 * 820000), sale(2)),
-    j(`${p}j3`, 1, 'market_transaction', 40 * 1500000, sale(3)), j(`${p}j4`, 1, 'transaction_tax', tax(40 * 1500000), sale(3)),
+    j(`${p}j1`, 2, 'market_transaction', 15 * 820000, sale(2)), j(`${p}j2`, 2, 'transaction_tax', tax(15 * 820000)),
+    j(`${p}j3`, 1, 'market_transaction', 40 * 1500000, sale(3)), j(`${p}j4`, 1, 'transaction_tax', tax(40 * 1500000)),
     j(`${p}j5`, 1, 'bounty_prizes', 8_000_000),
   ]);
   const mining = {};
