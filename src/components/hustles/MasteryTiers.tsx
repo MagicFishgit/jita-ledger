@@ -8,6 +8,7 @@ import type { HullNode } from '../../lib/miningTree';
 import { ALL_FIVE, fitYield, SKILL, YIELD_SKILLS, type FitYield, type TypeDogma } from '../../lib/miningYield';
 import { typeDogma } from '../../lib/universe';
 import { fitCosts, FitActions, FitGrid, FitSkills, useFitData } from '../FitParts';
+import { skillsUnread, whose, whoseStart } from '../../lib/pilot';
 import { usePilot } from '../pilot';
 import { Seg } from '../ui';
 import { Points, type PointLike } from '../Facts';
@@ -18,7 +19,8 @@ import { CPU_MANAGEMENT, fitCpu, MINING_UPGRADES } from '../../lib/fitCpu';
 /**
  * A hull's mastery tiers, under its node in the mining tree: the fit, what it costs at Jita, what it asks you to train,
  * and what it mines a minute, worked out from ESI's dogma at your skills and at the tier's. Copies the fit for the
- * fitting window, copies the shopping list for Multibuy, or saves it in game as a fitting.
+ * fitting window, copies the shopping list for Multibuy, or saves it in game as a fitting. "Your" is whoever the tree is
+ * shown for (the pilot): an alt's figures say its name, and an alt whose skills aren't read gets the figures at V alone.
  */
 
 const LASER_GROUPS = new Set([54, 464, 483]);
@@ -147,38 +149,44 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
     const skillDogma = Object.fromEntries(YIELD_SKILLS.map((s) => [s, got.dogma[s]]));
     return fitYield(hullD, laser, laserItem.qty ?? 1, cr, extras, skills, skillDogma);
   };
-  const mine = yieldAt(pilot.skills ?? {});
+  // An alt whose skills the cloud hasn't read: everything is at V, and says so. Worked out at no skills, its figures would
+  // read as the alt's own.
+  const unread = skillsUnread(pilot);
   const ceiling = yieldAt(ALL_FIVE);
+  const mine = unread ? ceiling : yieldAt(pilot.skills ?? {});
+  const atSkills = unread ? 'with every skill at V' : `at ${whose(pilot)} skills`;
   const { fitCost, total, unpriced } = fitCosts(tier, crystal, data, hullPrice);
-  const pay = total != null && mine && mine.kind === 'ore' && iskPerM3 != null && fromRate != null ? paybackHours(total, fromRate, mine.m3PerMin, iskPerM3) : null;
+  const pay = !unread && total != null && mine && mine.kind === 'ore' && iskPerM3 != null && fromRate != null ? paybackHours(total, fromRate, mine.m3PerMin, iskPerM3) : null;
   const label = `Jita Ledger ${tier.label ?? TIER_SAID[tier.key]}`;
-  // The ore hold at your skills and at V (lib/cargo.ts: Mining Barge and Exhumers grow the Retriever's and Mackinaw's).
+  // The ore hold at the pilot's skills and at V (lib/cargo.ts: Mining Barge and Exhumers grow the Retriever's and Mackinaw's).
   const hullD = got?.dogma[hull.id];
-  const hold = hullD ? holdsFor(hullD, [], pilot.skills ?? {}).ore ?? 0 : 0;
   const holdV = hullD ? holdsFor(hullD, [], CARGO_FIVE).ore ?? 0 : 0;
+  const hold = unread ? holdV : hullD ? holdsFor(hullD, [], pilot.skills ?? {}).ore ?? 0 : 0;
+  const minesNow = pilot.isMain ? 'you mine' : `${pilot.name} mines`;
 
   return (
     <div className="col" style={{ gap: 12 }}>
-      {merc && base ? <MercoxitNote merc={merc} base={base} got={got} hullId={hull.id} skills={pilot.skills ?? {}} /> : <p className="note small" style={{ margin: 0 }}>{tier.what}</p>}
+      {merc && base ? <MercoxitNote merc={merc} base={base} got={got} hullId={hull.id} skills={unread ? null : pilot.skills ?? {}} /> : <p className="note small" style={{ margin: 0 }}>{tier.what}</p>}
+      {unread && <p className="note small" style={{ margin: 0 }}>Not read yet: {pilot.name}’s skills come with the cloud’s first read, so these are with every skill at V.</p>}
       <div className="kv-mini" style={{ maxWidth: 620 }}>
         <span>Mines</span>
         <b>{!got ? 'Working it out…' : !mine ? 'Only with its drones, which aren’t worked out here: what it’s for is the boosts and compression it gives a fleet.' : mine.kind === 'ice'
-          ? `a block of ice every ${Math.round(mine.cycle / mine.lasers)} s (${units(Math.round((3600 / mine.cycle) * mine.lasers))} an hour) at your skills${ceiling && Math.round(ceiling.cycle) < Math.round(mine.cycle) ? `, every ${Math.round(ceiling.cycle / ceiling.lasers)} s with every skill at V` : ''}`
-          : `${units(Math.round(mine.m3PerMin))} m³ a minute at your skills${ceiling && Math.round(ceiling.m3PerMin) > Math.round(mine.m3PerMin) ? `, ${units(Math.round(ceiling.m3PerMin))} with every skill at V` : ''}`}</b>
+          ? `a block of ice every ${Math.round(mine.cycle / mine.lasers)} s (${units(Math.round((3600 / mine.cycle) * mine.lasers))} an hour) ${atSkills}${!unread && ceiling && Math.round(ceiling.cycle) < Math.round(mine.cycle) ? `, every ${Math.round(ceiling.cycle / ceiling.lasers)} s with every skill at V` : ''}`
+          : `${units(Math.round(mine.m3PerMin))} m³ a minute ${atSkills}${!unread && ceiling && Math.round(ceiling.m3PerMin) > Math.round(mine.m3PerMin) ? `, ${units(Math.round(ceiling.m3PerMin))} with every skill at V` : ''}`}</b>
         {mine?.kind === 'ore' && iskPerM3 != null && <><span>Worth</span><b style={{ color: 'var(--pos)' }}>about {iskBig(mine.m3PerMin * 60 * iskPerM3)} an hour</b></>}
-        {mine?.kind === 'ore' && hold > 0 && <><span data-tip="The ore hold at your skills (Mining Barge and Exhumers grow some), full of this ore, at the same ISK a m³ as the hour; and how long this fit takes to fill it at your skills.">A full ore hold</span>
-          <b>{units(Math.round(hold))} m³{holdV > hold + 0.5 ? ` (${units(Math.round(holdV))} at V)` : ''}{iskPerM3 != null ? <>, worth about <span style={{ color: 'var(--pos)' }}>{iskBig(hold * iskPerM3)}</span></> : ''}; fills in {minutesSaid(hold / mine.m3PerMin)}</b></>}
+        {mine?.kind === 'ore' && hold > 0 && <><span data-tip={`The ore hold ${atSkills} (Mining Barge and Exhumers grow some), full of this ore, at the same ISK a m³ as the hour; and how long this fit takes to fill it ${atSkills}.`}>A full ore hold</span>
+          <b>{units(Math.round(hold))} m³{!unread && holdV > hold + 0.5 ? ` (${units(Math.round(holdV))} at V)` : ''}{iskPerM3 != null ? <>, worth about <span style={{ color: 'var(--pos)' }}>{iskBig(hold * iskPerM3)}</span></> : ''}; fills in {minutesSaid(hold / mine.m3PerMin)}</b></>}
         {mine && mine.critShare > 0 && <><span data-tip="Every cycle has a chance to crit, which adds the cycle’s yield again twice over. Worked out from the laser’s and hull’s dogma.">Critical hits</span><b>{Math.round(mine.critChance * 1000) / 10}% of cycles, +{Math.round(mine.critShare * 1000) / 10}% on average</b></>}
         {merc && got?.cloud && (() => {
           const at = (lvl: number) => Math.max(0, got.cloud!.base * (1 + (got.cloud!.perLevel * lvl) / 100));
-          const lvl = pilot.skills?.[SKILL.deepCoreMining] ?? 0;
+          const lvl = unread ? 5 : pilot.skills?.[SKILL.deepCoreMining] ?? 0;
           return <><span data-tip="Mining Mercoxit can release a toxic gas cloud that damages your ship. The chance is the ore’s own (ESI), and Deep Core Mining cuts it by a tenth a level.">Gas clouds</span>
-            <b>{Math.round(at(lvl) * 1000) / 10}% chance at your Deep Core Mining {lvl}{lvl < 5 ? `, ${Math.round(at(5) * 1000) / 10}% at V` : ''}</b></>;
+            <b>{unread ? `${Math.round(at(5) * 1000) / 10}% chance at Deep Core Mining V` : `${Math.round(at(lvl) * 1000) / 10}% chance at ${whose(pilot)} Deep Core Mining ${lvl}${lvl < 5 ? `, ${Math.round(at(5) * 1000) / 10}% at V` : ''}`}</b></>;
         })()}
         {mine && mine.residueChance > 0 && <><span data-tip="Residue is ore the asteroid loses, not ore you lose: it matters when a belt or moon is shared or scarce. Tech II lasers and Type B and C crystals raise it.">Residue</span><b>{Math.round(mine.residueChance * 1000) / 10}% of cycles, {units(Math.round(mine.residuePerMin))} m³ a minute wasted from the rock</b></>}
         <span>Costs</span>
         <b>{total != null ? `${iskBig(total)} (hull ${iskBig(hullPrice!)}, fit ${iskBig(fitCost!)})` : got ? `–${unpriced.length ? ` (no Jita listing for ${unpriced.join(', ')})` : ''}` : '…'}</b>
-        {pay != null && <><span>Pays back</span><b style={{ color: 'var(--pos)' }}>{pay < 1 ? 'in under an hour' : `in ${units(Math.round(pay))} h of mining`} over what you mine now</b></>}
+        {pay != null && <><span>Pays back</span><b style={{ color: 'var(--pos)' }}>{pay < 1 ? 'in under an hour' : `in ${units(Math.round(pay))} h of mining`} over what {minesNow} now</b></>}
       </div>
       <p className="note small" style={{ margin: 0, color: 'var(--faint)' }}>
         <span data-tip="Worked out from ESI’s figures for the hull, lasers, crystal and upgrades. Boosts, drones and heat aren’t in it; a fleet’s Mining Foreman burst shortens every cycle further." style={{ textDecoration: 'underline dotted', cursor: 'help' }}>From ESI’s figures, without boosts</span>
@@ -196,7 +204,8 @@ function TierView({ hull, tier, base, merc, family, ore, oreId, iskPerM3, fromRa
  * What the Mercoxit version changed: the lasers, whether they take more CPU or powergrid than the fit's own (ESI's figures),
  * the deep-core rig, and where the rig cost CPU, what the fit uses and has at V and at your skills (lib/fitCpu.ts).
  */
-function MercoxitNote({ merc, base, got, hullId, skills }: { merc: MercoxitFit; base: Tier; got: Loaded | null; hullId: number; skills: Record<number, number> }) {
+function MercoxitNote({ merc, base, got, hullId, skills }: { merc: MercoxitFit; base: Tier; got: Loaded | null; hullId: number; skills: Record<number, number> | null }) {
+  const pilot = usePilot();
   const fit = (nm: string) => { const dg = got?.ids[nm] ? got.dogma[got.ids[nm]] : undefined; return dg ? { cpu: dg.attrs[50] ?? 0, pg: dg.attrs[30] ?? 0 } : null; };
   let cpu = 0, pg = 0, known = !!got;
   for (const x of base.high) {
@@ -215,7 +224,7 @@ function MercoxitNote({ merc, base, got, hullId, skills }: { merc: MercoxitFit; 
     const f = hd ? fitDogma(merc.tier, (nm) => got.ids[nm], (id) => got.dogma[id]) : null;
     return hd && f ? fitCpu(hd, f.modules, f.rigs, sk, { [CPU_MANAGEMENT]: got.dogma[CPU_MANAGEMENT], [MINING_UPGRADES]: got.dogma[MINING_UPGRADES] }) : null;
   };
-  const atV = cpuAt(CPU_FIVE), atYours = cpuAt(skills);
+  const atV = cpuAt(CPU_FIVE), atYours = skills ? cpuAt(skills) : null;
   const tf = (c: { need: number; output: number }) => `${units(Math.round(c.need))} of ${units(Math.round(c.output))} tf`;
   const rigPoint: PointLike = !merc.rig.added
     ? (merc.rig.why === 'noRoom' ? { kind: 'warn', lead: 'Rig', text: `No room for the ${DEEP_CORE_RIG} (250 of the hull’s 400 calibration) beside this fit’s rigs, and the CPU won’t spare its processor rig.` }
@@ -232,7 +241,7 @@ function MercoxitNote({ merc, base, got, hullId, skills }: { merc: MercoxitFit; 
         ...(known ? [more ? { kind: 'warn' as const, lead: 'Fitting', text: `They take ${more} than the fit’s own: check it fits in the fitting window.` }
           : { kind: 'good' as const, lead: 'Fitting', text: 'No more CPU or powergrid than the fit’s own.' }] : []),
         rigPoint,
-        ...(atYours && atYours.need > atYours.output ? [{ kind: 'warn' as const, icon: Cpu, lead: 'Your CPU', text: `${tf(atYours)} at your skills: short by ${units(Math.ceil(atYours.need - atYours.output))}. CPU Management and Mining Upgrades close it.` }] : []),
+        ...(atYours && atYours.need > atYours.output ? [{ kind: 'warn' as const, icon: Cpu, lead: `${whoseStart(pilot)} CPU`, text: `${tf(atYours)} at ${whose(pilot)} skills: short by ${units(Math.ceil(atYours.need - atYours.output))}. CPU Management and Mining Upgrades close it.` }] : []),
       ]} />
     </div>
   );

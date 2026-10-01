@@ -10,6 +10,7 @@ import { useData } from '../lib/store';
 import { trainingDays } from '../lib/training';
 import { useSkillIds } from './hustles/SkillPanel';
 import { useEnsureNames, useTypeName } from './common';
+import { skillsUnread, whoseStart } from '../lib/pilot';
 import { usePilot } from './pilot';
 import { cssVars, Tip } from './ui';
 
@@ -77,8 +78,11 @@ export type SkillLine = { name: string; id?: number; what: string | ((have: numb
  * A page's skills, one row each. Nothing shows until the skills have been read: a row of zeros would say "untrained"
  * about skills the app simply hasn't seen.
  */
-export function SkillStrip({ title = 'Your skills here', lines, note }: { title?: string; lines: SkillLine[]; note?: string }) {
+export function SkillStrip({ title, lines, note }: { title?: string; lines: SkillLine[]; note?: string }) {
   const pilot = usePilot();
+  const heading = title ?? `${whoseStart(pilot)} skills here`;
+  // Where the levels come from, for whoever the strip is shown for: an alt's are the cloud's hourly read of its sheet.
+  const from = pilot.isMain ? 'Read from your character on each sync, with your skill queue.' : `Read by the cloud from ${pilot.name} every hour, with its skill queue.`;
   const now = useNow(60_000);
   const byName = useSkillIds(lines.filter((l) => l.id == null).map((l) => l.name));
   const rows = useMemo(() => lines.map((l) => {
@@ -93,8 +97,8 @@ export function SkillStrip({ title = 'Your skills here', lines, note }: { title?
   return (
     <div className="skill-strip">
       <div className="lbl" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        {title}
-        <Tip title={title} text={'Read from your character on each sync, with your skill queue.\n\n• Filled pips are trained; the one filling is training now; dashed ones are queued.\n• “Takes” is the time to the next level from the points already in the skill, at your attributes.'} />
+        {heading}
+        <Tip title={heading} text={`${from}\n\n• Filled pips are trained; the one filling is training now; dashed ones are queued.\n• “Takes” is the time to the next level from the points already in the skill, at ${pilot.isMain ? 'your' : 'its'} attributes.`} />
       </div>
       {rows.map(({ l, id, s }) => {
         const q = queueSaid(s, id != null ? train[id] : null, now, name);
@@ -190,7 +194,8 @@ export function SkillNeeds({ needs }: { needs: { skill: number; level: number }[
   const rows = needs.map((n) => ({ n, s: skillStatus(n.skill, pilot.skills?.[n.skill] ?? 0, pilot.skillQueue, now) }));
   const train = useTrainTimes(rows.map(({ n, s }) => ({ id: n.skill, have: s.have, to: n.level })));
   useEnsureNames(Object.values(train).flatMap((t) => t.needs.map((x) => x.id)));
-  if (!pilot.skills) return null;
+  // An alt whose skills the cloud hasn't read says so, rather than nothing under "To fly it".
+  if (!pilot.skills) return skillsUnread(pilot) ? <p className="note small" style={{ margin: 0 }}>Not read yet: {pilot.name}’s skills come with the cloud’s first read.</p> : null;
   return (
     <div className="skill-needs">
       {rows.map(({ n, s }) => {

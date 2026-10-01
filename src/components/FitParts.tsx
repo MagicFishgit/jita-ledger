@@ -10,6 +10,7 @@ import type { TypeDogma } from '../lib/miningYield';
 import { toast } from '../lib/toast';
 import { typeDogma, typeRequirements } from '../lib/universe';
 import { copyMultibuy } from './common';
+import { who } from '../lib/pilot';
 import { usePilot } from './pilot';
 import { SkillNeeds } from './SkillStrip';
 import { ItemIcon } from './ui';
@@ -155,11 +156,12 @@ export function FitActions({ hullId, hullName, label, fit, crystal, data, total 
   );
 }
 
-/** What the fit and its tier ask you to train, with your levels and queue. */
+/** What the fit and its tier ask you to train, with your levels and queue (whoever the page is shown for: the pilot). */
 export function FitSkills({ data }: { data: FitData | null }) {
+  const pilot = usePilot();
   return (
     <div>
-      <div className="lbl" style={{ marginBottom: 6 }}>What it asks you to train</div>
+      <div className="lbl" style={{ marginBottom: 6 }}>What it asks {who(pilot)} to train</div>
       {data ? <SkillNeeds needs={data.needs} /> : <p className="note small">Reading the fit’s skills…</p>}
     </div>
   );
