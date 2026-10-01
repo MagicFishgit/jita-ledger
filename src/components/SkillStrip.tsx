@@ -10,7 +10,7 @@ import { useData } from '../lib/store';
 import { trainingDays } from '../lib/training';
 import { useSkillIds } from './hustles/SkillPanel';
 import { useEnsureNames, useTypeName } from './common';
-import { skillsUnread, whoseStart } from '../lib/pilot';
+import { alphaCap, skillsUnread, whoseStart } from '../lib/pilot';
 import { usePilot } from './pilot';
 import { cssVars, Tip } from './ui';
 
@@ -39,13 +39,14 @@ const TONE: Record<ReturnType<typeof queueSaid>['tone'], string> = { run: 'var(-
 
 /**
  * Training time for each skill, to `to` (a page's wanted level) or else its next level, with what stands in the way.
- * Prerequisites are read only for a skill not yet injected: injecting it needed them.
+ * Prerequisites are read only for a skill not yet injected: injecting it needed them. A skill an Alpha alt trained past
+ * Alpha's cap has no time (its points are already there, so it read "takes 1 min"): Omega opens it (`capped`).
  */
 export function useTrainTimes(items: { id: number | null; have: number; to?: number }[]): Record<number, Train> {
   const pilot = usePilot();
   const alpha = pilot.alpha;
   const attrs = pilot.attributes;
-  const skills = pilot.skills, sp = pilot.skillSp;
+  const skills = pilot.skills, sp = pilot.skillSp, capped = pilot.capped;
   const key = items.map((x) => `${x.id}:${x.have}:${x.to ?? ''}`).join(',');
   const [out, setOut] = useState<Record<number, Train>>({});
   useEffect(() => {
@@ -56,6 +57,8 @@ export function useTrainTimes(items: { id: number | null; have: number; to?: num
       for (const x of items) {
         if (x.id == null || x.have >= 5) continue;
         const to = Math.max(x.have + 1, Math.min(5, x.to ?? 0));
+        const cap = alphaCap({ capped }, x.id, to);
+        if (cap) { next[x.id] = { to, injected: true, days: null, needs: [], capped: cap }; continue; }
         const injected = skills[x.id] != null;
         const dg = await skillDogma(x.id).catch(() => null);
         next[x.id] = {
@@ -67,7 +70,7 @@ export function useTrainTimes(items: { id: number | null; have: number; to?: num
       if (alive) setOut(next);
     })();
     return () => { alive = false; };
-  }, [key, attrs, sp, skills, alpha]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, attrs, sp, skills, alpha, capped]); // eslint-disable-line react-hooks/exhaustive-deps
   return out;
 }
 

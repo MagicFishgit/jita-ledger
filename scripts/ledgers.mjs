@@ -226,6 +226,11 @@ function ownWork(charId, i) {
  * An alt as the browser keeps it (src/lib/altStore.ts): its roster entry, and the rows pulled for it. Three kinds,
  * by `i`: 0 read and well (an Alpha, mid-queue); 1 with a job failing and its clone state not told apart; 2 just
  * added and refused, with nothing read yet, so every figure on its card is "not known".
+ *
+ * The Alpha's skills are shaped as the cloud's sheet read writes them (worker/src/sheet.ts, check-worker.mjs): Mining
+ * trained to V that Alpha lets it use at IV, and Mining Barge trained to III that Alpha can't use at all, so `activeSkills`
+ * lists only those two, each below its trained level. It once gave Mining an active IV over a trained III, which ESI never
+ * sends, so the page check never drew a capped skill (the final review of stage 3).
  */
 export function alt(charId, name, i) {
   const day = iso(NOW - DAY).slice(0, 10);
@@ -242,10 +247,11 @@ export function alt(charId, name, i) {
     docs: {
       meta: {
         walletBalance: 4.2e6 * (i + 1), walletAt: iso(NOW - 1700_000), totalSp: 1.2e6,
-        ...(i === 0 ? { cloneDetected: 'alpha', cloneSince: iso(NOW - 2 * DAY), activeSkills: { 3386: 4 } } : {}),
-        skillQueue: [{ skillId: 3386, level: 4, finish: iso(NOW + 2 * DAY), start: iso(NOW - DAY) }, { skillId: 3380, level: 4, finish: iso(NOW + 6 * DAY) }],
+        ...(i === 0 ? { cloneDetected: 'alpha', cloneSince: iso(NOW - 2 * DAY), activeSkills: { 3386: 4, 17940: 0 } } : {}),
+        skillQueue: i === 0 ? [{ skillId: 3380, level: 4, finish: iso(NOW + 2 * DAY), start: iso(NOW - DAY) }]
+          : [{ skillId: 3386, level: 4, finish: iso(NOW + 2 * DAY), start: iso(NOW - DAY) }, { skillId: 3380, level: 4, finish: iso(NOW + 6 * DAY) }],
       },
-      skills: { 3386: 3, 3380: 3, [ACCOUNTING]: 5 },
+      skills: i === 0 ? { 3386: 5, 17940: 3, 3380: 3, [ACCOUNTING]: 5 } : { 3386: 3, 3380: 3, [ACCOUNTING]: 5 },
     },
   };
   return { entry, saved };

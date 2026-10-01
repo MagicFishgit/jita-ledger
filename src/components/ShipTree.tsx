@@ -8,7 +8,7 @@ import { edgeShape, nodeState, type NodeState, type Point, type Stat, type TreeN
 import { skillStatus } from '../lib/skillStatus';
 import { hullStats, typeDogma, typeRequirements } from '../lib/universe';
 import { useEnsureNames, useTypeName } from './common';
-import { skillsUnread, who, whose, whoseStart, type Pilot } from '../lib/pilot';
+import { alphaCap, skillsUnread, who, whose, whoseStart, type Pilot } from '../lib/pilot';
 import { usePilot } from './pilot';
 import { SkillNeeds } from './SkillStrip';
 import { Bonuses, Points, ResistBars, Stats } from './Facts';
@@ -126,7 +126,17 @@ export function ShipTree<N extends TreeNode>({ label, nodes, edges, lanes, cols,
   // The paths out of where you are glow: the next steps.
   const from = here ?? nodes.filter((h) => states[h.id] === 'flyable').sort((a, b) => b.col - a.col)[0]?.id ?? null;
   const openHull = open != null ? byId.get(open) ?? null : null;
-  const missing = (h: N) => (info[h.id]?.needs ?? []).filter((n) => (pilot.skills?.[n.skill] ?? 0) < n.level).length;
+  // What stands between the pilot and a hull, for its tip: skills to train, and skills an Alpha alt has trained that Alpha
+  // caps below the level (Omega, not training, opens those; the main has none).
+  const missing = (h: N) => {
+    const short = (info[h.id]?.needs ?? []).filter((n) => (pilot.skills?.[n.skill] ?? 0) < n.level);
+    const omega = short.filter((n) => alphaCap(pilot, n.skill, n.level)).length;
+    const train = short.length - omega;
+    return [
+      train || !omega ? `${train} skill${train === 1 ? '' : 's'} to train` : null,
+      omega ? `needs Omega (Alpha caps ${omega} of the skills it needs)` : null,
+    ].filter(Boolean).join(', and ');
+  };
   // On a phone the chart is a list, and a ship opens right under its row rather than below all of them.
   const [phone, setPhone] = useState(() => typeof matchMedia === 'function' && matchMedia('(max-width: 640px)').matches);
   useEffect(() => {
@@ -208,7 +218,7 @@ export function ShipTree<N extends TreeNode>({ label, nodes, edges, lanes, cols,
             return (
               <button key={h.id} type="button" className={`mtree-node ${st}${open === h.id ? ' sel' : ''}${isPicked(h) ? ' pick' : ''}`} style={{ left: `${x(h)}%`, top: `${y(h)}%`, width: `${91 / cols}%` }}
                 aria-expanded={open === h.id} onClick={() => setOpen(open === h.id ? null : h.id)}
-                data-tip-title={name(h.id)} data-tip={`${h.role}\n\n${stateSaid(st, pilot)}${st === 'locked' && info[h.id] ? `: ${missing(h)} skill${missing(h) === 1 ? '' : 's'} to train` : ''}.${isPicked(h) && pickedSaid ? ` ${pickedSaid}.` : ''}${extra ? ` ${extra}` : ''}`}>
+                data-tip-title={name(h.id)} data-tip={`${h.role}\n\n${stateSaid(st, pilot)}${st === 'locked' && info[h.id] ? `: ${missing(h)}` : ''}.${isPicked(h) && pickedSaid ? ` ${pickedSaid}.` : ''}${extra ? ` ${extra}` : ''}`}>
                 <img src={`https://images.evetech.net/types/${h.id}/render?size=64`} alt="" width={32} height={32} onError={(e) => (e.currentTarget.style.visibility = 'hidden')} />
                 <span className="mtree-name">{name(h.id)}</span>
                 {mark(st)}

@@ -75,10 +75,11 @@ export function trainSaid(ms: number): string {
 
 /**
  * How long a skill takes to a level from the points already in it, at your attributes, and what stands in the way: a
- * skillbook never injected (ESI lists every injected skill, untrained ones at level 0: 39 of the user's 210), and the
- * skills it needs first that you don't have.
+ * skillbook never injected (ESI lists every injected skill, untrained ones at level 0: 39 of the user's 210), the
+ * skills it needs first that you don't have, and Alpha (`capped`: an Alpha alt's skill trained past what Alpha lets it
+ * use, whose time is no answer since the points are already there; `days` is null then).
  */
-export type Train = { to: number; days: number | null; injected: boolean; needs: { id: number; level: number }[] };
+export type Train = { to: number; days: number | null; injected: boolean; needs: { id: number; level: number }[]; capped?: { trained: number; active: number } };
 
 /** Where a skill stands, in a few words, and how to colour it. `name` names a missing prerequisite. */
 export function queueSaid(s: SkillStatus, t: Train | null | undefined, now: number, name: (id: number) => string = (id) => `skill #${id}`): { text: string; tone: 'run' | 'queued' | 'idle' | 'max' } {
@@ -86,6 +87,8 @@ export function queueSaid(s: SkillStatus, t: Train | null | undefined, now: numb
   const q = s.queued[0];
   if (q) return { text: `Queued: ${ROMAN[q.level]}${q.finish ? `, done ${fmtShort(q.finish)}` : ', queue paused'}`, tone: 'queued' };
   if (s.have >= 5) return { text: 'Trained to V', tone: 'max' };
+  // Alpha caps it: no training brings it, Omega does.
+  if (t?.capped) return { text: t.capped.active ? `Trained to ${ROMAN[t.capped.trained]}; Alpha uses ${ROMAN[t.capped.active]}: Omega opens it` : 'Alpha can’t use it: Omega opens it', tone: 'idle' };
   if (t?.needs.length) return { text: `Needs ${t.needs.map((n) => `${name(n.id)} ${ROMAN[n.level]}`).join(' and ')} first`, tone: 'idle' };
   const time = t?.days != null && Number.isFinite(t.days) ? `${ROMAN[t.to]} takes ${trainSaid(t.days * 86400_000)}` : null;
   if (t && !t.injected) return { text: `Skillbook not injected${time ? `; ${time} once it is` : ''}`, tone: 'idle' };

@@ -169,7 +169,10 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
     components read it before, unless a `PilotProvider` hands it another. Only Scaling up is wrapped, for the character
     "Show for" picks, so an alt chosen there can't reach the Abyssal tree, Hauling or Settings. An alt's pilot is the
     levels it can use (an Alpha's capped skills at their active level, `meta.activeSkills`), its own queue and attributes,
-    and Alpha's half-speed training. An empty skills doc is "not read" (`skillsUnread`): its tree is drawn neither
+    and Alpha's half-speed training. A skill Alpha caps (`capped`, `alphaCap`) has no training time: timed from its
+    trained points it read "Mining V takes 1 min" and every barge "1 skill to train" (the final review); it now says
+    "Trained to V; Alpha uses IV: Omega opens it" or "Alpha can’t use it: Omega opens it", and a hull's tip says it
+    needs Omega. The main has no `capped`. An empty skills doc is "not read" (`skillsUnread`): its tree is drawn neither
     flyable nor locked and its tiers are at V, saying so, since worked out at no skills they'd read as the alt's own. The
     words go through the pilot too (`whose`, `who`: "at Miner Two's skills", "Miner Two can fly it"); for the main every
     string is as it was. Save fit in game is the main's alone: it saves to the logged-in character's fittings.

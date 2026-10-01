@@ -15,19 +15,35 @@ export type Pilot = {
   skills: Record<number, number> | undefined;
   skillQueue: QueuedLevel[] | undefined; skillSp: Record<number, number> | undefined;
   attributes: Meta['attributes']; alpha: boolean;
+  /**
+   * What Alpha caps, for an alt: each skill trained past the level Alpha lets it use, with both levels (from its
+   * `meta.activeSkills`, which the cloud's sheet read lists only where the active level is below the trained one). Its
+   * training time is no answer there: the points already cover the trained level, so it read "takes 1 min". Omega is.
+   * Undefined for the main, whose path is as it always was, and for an alt nothing caps.
+   */
+  capped?: Record<number, Capped>;
 };
+/** A skill Alpha caps: the level trained, and the level Alpha uses (0: Alpha can't use it at all). */
+export type Capped = { trained: number; active: number };
 
+type Usable = { usable: Record<number, number>; capped: Record<number, Capped> | undefined };
 /**
- * The usable levels for one copy, kept so the same copy gives the same object: `usableSkills` spreads a new one whenever
- * Alpha caps something, and effects keyed on the skills (useTrainTimes) would otherwise run again on every render.
+ * The usable levels for one copy, and what Alpha caps in it, kept so the same copy gives the same objects:
+ * `usableSkills` spreads a new one whenever Alpha caps something, and effects keyed on the skills or the caps
+ * (useTrainTimes) would otherwise run again on every render.
  */
-const usableMemo = new WeakMap<Record<number, number>, WeakMap<Record<number, number>, Record<number, number>>>();
-function usableOf(trained: Record<number, number>, active: Record<number, number> | undefined): Record<number, number> {
-  if (!active) return usableSkills(trained);
+const usableMemo = new WeakMap<Record<number, number>, WeakMap<Record<number, number>, Usable>>();
+function usableOf(trained: Record<number, number>, active: Record<number, number> | undefined): Usable {
+  if (!active) return { usable: usableSkills(trained), capped: undefined };
   let byActive = usableMemo.get(trained);
   if (!byActive) usableMemo.set(trained, (byActive = new WeakMap()));
   let hit = byActive.get(active);
-  if (!hit) byActive.set(active, (hit = usableSkills(trained, active)));
+  if (!hit) {
+    // Only where the active level is below the trained one: the sheet read lists no other, and one that did would be
+    // no cap.
+    const capped = Object.entries(active).flatMap(([id, a]) => ((trained[Number(id)] ?? 0) > a ? [[id, { trained: trained[Number(id)], active: a }] as const] : []));
+    byActive.set(active, (hit = { usable: usableSkills(trained, active), capped: capped.length ? Object.fromEntries(capped) : undefined }));
+  }
   return hit;
 }
 
@@ -40,12 +56,22 @@ function usableOf(trained: Record<number, number>, active: Record<number, number
  */
 export function pilotFrom(d: Pick<Data, 'skills' | 'meta' | 'settings'>, who: { charId: number | null; name: string; isMain: boolean }, usable: boolean): Pilot {
   const m = d.meta;
-  const skills = !usable ? d.skills
-    : d.skills && Object.keys(d.skills).length ? usableOf(d.skills, m.activeSkills) : undefined;
+  const alt = usable && d.skills && Object.keys(d.skills).length ? usableOf(d.skills, m.activeSkills) : null;
+  const skills = !usable ? d.skills : alt?.usable;
   return {
     charId: who.charId, name: who.name, isMain: who.isMain,
     skills, skillQueue: m.skillQueue, skillSp: m.skillSp, attributes: m.attributes, alpha: d.settings.clone === 'alpha',
+    capped: alt?.capped,
   };
+}
+
+/**
+ * The cap that stands between a pilot and a level of a skill, or null: Alpha caps the skill below that level. Training
+ * isn't the answer then (its points may already be there), Omega is. Always null for the main.
+ */
+export function alphaCap(p: Pick<Pilot, 'capped'>, skill: number, level: number): Capped | null {
+  const c = p.capped?.[skill];
+  return c && c.active < level ? c : null;
 }
 
 /**

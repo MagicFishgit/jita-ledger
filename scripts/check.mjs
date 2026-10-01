@@ -3326,6 +3326,11 @@ console.log('\n--- where a skill stands in the queue ---');
   eq('  a skillbook not injected', queueSaid(idle, { to: 1, days: 17 / 1440, injected: false, needs: [] }, T).text, 'Skillbook not injected; I takes 17 min once it is');
   eq('  otherwise the time to the level wanted', queueSaid({ have: 2, training: null, queued: [] }, { to: 4, days: 1.5, injected: true, needs: [] }, T).text, 'Not queued: IV takes 1 d 12 h');
   eq('  and nothing to do at V', queueSaid({ have: 5, training: null, queued: [] }, null, T).tone, 'max');
+  // An Alpha alt's skill trained past Alpha's cap: Omega, never a time (it read "Not queued: V takes 1 min").
+  eq('  Alpha caps it: trained to V, used at IV', queueSaid({ have: 4, training: null, queued: [] }, { to: 5, days: null, injected: true, needs: [], capped: { trained: 5, active: 4 } }, T),
+    { text: 'Trained to V; Alpha uses IV: Omega opens it', tone: 'idle' });
+  eq('  Alpha can\'t use it at all (Mining Barge trained to III)', queueSaid({ have: 0, training: null, queued: [] }, { to: 1, days: null, injected: true, needs: [], capped: { trained: 3, active: 0 } }, T).text,
+    'Alpha can’t use it: Omega opens it');
 }
 
 console.log('\n--- purchases made in one go ---');
@@ -4086,8 +4091,18 @@ console.log('\n--- whose skills a tree reads: the pilot (pilot.ts) ---');
   eq('    who it is, as given', [a.charId, a.name, a.isMain], [900001, 'Miner Two', false]);
   // A new object on every call would re-run every effect keyed on the skills on every render, which re-renders.
   eq('    the same copy gives the same skills object each time', pilotFrom(alt, who, true).skills === a.skills, true);
+  // What Alpha caps, with both levels: its training time is no answer (the points are there, so it read "takes 1 min").
+  eq('    what Alpha caps, trained and used', a.capped, { [MINING]: { trained: 5, active: 4 }, [BARGE]: { trained: 3, active: 0 } });
+  eq('    the same copy gives the same caps object each time (useTrainTimes keys on it)', pilotFrom(alt, who, true).capped === a.capped, true);
+  eq('    the main has none: its path is as it was', [p.capped, pilotFrom({ ...main, meta: { ...main.meta, activeSkills: { [MINING]: 4 } } }, me, false).capped], [undefined, undefined]);
+  const { alphaCap } = await import('../src/lib/pilot.ts');
+  eq('    Omega opens Mining V (Alpha uses IV) and Mining Barge I (Alpha can\'t use it); not Mining IV, or Astrogeology',
+    [alphaCap(a, MINING, 5), alphaCap(a, BARGE, 1), alphaCap(a, MINING, 4), alphaCap(a, ASTRO, 4), alphaCap(p, MINING, 5)],
+    [{ trained: 5, active: 4 }, { trained: 3, active: 0 }, null, null, null]);
+  const odd = altLedger({ ...saved, docs: { ...saved.docs, meta: { ...saved.docs.meta, activeSkills: { [MINING]: 4, [ASTRO]: 4 } }, skills: { [MINING]: 5, [ASTRO]: 3 } } });
+  eq('    an active level over the trained one (ESI never sends it) is no cap', pilotFrom(odd, who, true).capped, { [MINING]: { trained: 5, active: 4 } });
   const omega = altLedger({ ...saved, docs: { ...saved.docs, meta: { cloneDetected: 'omega', skillQueue: queue } } });
-  eq('  an Omega alt, nothing capped: its trained levels as they are', [pilotFrom(omega, who, true).skills === omega.skills, pilotFrom(omega, who, true).alpha], [true, false]);
+  eq('  an Omega alt, nothing capped: its trained levels as they are', [pilotFrom(omega, who, true).skills === omega.skills, pilotFrom(omega, who, true).alpha, pilotFrom(omega, who, true).capped], [true, false, undefined]);
   // altLedger fills an unread skills doc in as {}: a character always has skills, so that is "not read", never "untrained".
   const unread = pilotFrom(altLedger(emptyAlt()), who, true);
   eq('  an alt whose skills the cloud hasn\'t read: not read, rather than nothing trained', [unread.skills === undefined, unread.skillQueue === undefined, unread.alpha], [true, true, false]);
