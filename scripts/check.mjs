@@ -4311,6 +4311,8 @@ console.log('\n--- best ore by where it\'s found ---');
   eq('  moon ores are drilled, place moon', ['Zeolites', 'Xenotime'].map((o) => ORE_WHERE[o].found.map((x) => `${x.place}/${x.how}`)), [['moon/drill'], ['moon/drill']]);
   eq('  Gelidus and Krystallos are disputed (low-sec)', ['Gelidus', 'Krystallos', 'Glare Crust'].map((o) => typeof ORE_WHERE[o].disputed), ['string', 'string', 'undefined']);
   eq('  ice is keyed by full name and found on ice belts', ORE_WHERE['Enriched Clear Icicle'].found.map((x) => `${x.place}/${x.how}`), ['ice/ice belt']);
+  eq('  every ice type in the research is there', ['Clear Icicle', 'White Glaze', 'Blue Ice', 'Glacial Mass', 'Enriched Clear Icicle', 'Pristine White Glaze', 'Thick Blue Ice', 'Smooth Glacial Mass', 'Glare Crust', 'Dark Glitter', 'Gelidus', 'Krystallos'].filter((n) => ORE_WHERE[n]?.kind !== 'ice'), []);
+  eq('  wormhole sites as the research names them', ['Pyroxeres', 'Arkonor', 'Bistot'].map((n) => ORE_WHERE[n].found.find((x) => x.place === 'wormhole')?.where), ['Wormhole sites: Perimeter, Frontier, Core and Shattered', 'Wormhole sites: Perimeter, Frontier and Core', 'Wormhole sites']);
   eq('  sources carry a read date and a url', ORE_WHERE_SOURCE.every((s) => s.read === '1 October 2026' && s.url.startsWith('https://')), true);
   const row = (base, iskPerM3, iskPerHour) => ({ base, iskPerM3, iskPerHour });
   eq('  rank: by ISK an hour, ties by name', rankOres([row('Scordite', 1, 50), row('Veldspar', 2, 90), row('Plagioclase', 3, 50)], 'highsec').map((r) => r.base), ['Veldspar', 'Plagioclase', 'Scordite']);

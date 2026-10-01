@@ -29,7 +29,8 @@ const f = (place: Place, how: How, where: string, detail?: string): Found => (de
 const BORDER_HIGH = f('highsec', 'rare', 'Rare anomalies in 0.5 systems bordering low-sec', 'The Empire Border Rare Asteroids anomaly; it can also border null-sec.');
 const BORDER_NULL = f('nullsec', 'rare', 'Rare anomalies on null-sec and low-sec borders, and at blue (A0) stars', 'Nullsec Border Rare Asteroids and the Blue A0 Rare Asteroids sites.');
 const A0_WORMHOLE = f('wormhole', 'rare', 'Rare anomalies at a blue (A0) star', 'W-Space Blue A0 Rare Asteroids.');
-const WORMHOLE_SITES = f('wormhole', 'anomaly', 'Wormhole sites: Perimeter, Frontier, Core and Shattered', 'From EVE University’s Wormhole sites page.');
+const WORMHOLE_SITES = (types?: string) => f('wormhole', 'anomaly', types ? `Wormhole sites: ${types}` : 'Wormhole sites', 'From EVE University’s Wormhole sites page.');
+const ALL_WH_SITES = WORMHOLE_SITES('Perimeter, Frontier, Core and Shattered');
 const SOV = (array: string, tiers?: string) => f('nullsec', 'sov', `Sov upgrade: ${array}${tiers ? ` (${tiers})` : ''}`, 'Added with the 2024 sov overhaul (patch 22.01, 30 October 2024): a deposit that comes with the upgrade.');
 const POCHVEN = f('pochven', 'anomaly', 'Anomalies in Pochven: border, internal and home systems', 'Quality climbs from border to internal to home systems; home systems give the best yield. There are no belts in Pochven.');
 
@@ -70,7 +71,7 @@ export const ORE_WHERE: Record<string, OreWhere> = {
       f('highsec', 'belt', 'Amarr and Caldari space, 0.9 to 0.5', 'Not in Gallente or Minmatar high-sec, and none in 1.0 systems.'),
       f('lowsec', 'belt', 'Amarr and Caldari space, 0.4 to 0.1'),
       f('nullsec', 'belt', 'Null-sec belts by security class: H and J at 0.0 and lower, G at -0.4, F at -0.7', 'The class is a property of the system, so you need to know it.'),
-      WORMHOLE_SITES,
+      ALL_WH_SITES,
     ],
   },
   Plagioclase: {
@@ -109,7 +110,7 @@ export const ORE_WHERE: Record<string, OreWhere> = {
       f('highsec', 'rare', 'Rare anomalies, 0.5 to 0.8', 'Kernite and Omber anomalies returned to high-sec with Catalyst (CCP, 14 November 2025). Not in high-sec belts.'),
       f('lowsec', 'belt', 'Amarr, Caldari and Minmatar space, 0.4 to 0.1'),
       f('nullsec', 'belt', 'Null-sec belts by security class: G at 0.0 and lower, H at -0.5, I at -0.9'),
-      WORMHOLE_SITES,
+      WORMHOLE_SITES(),
     ],
   },
   Omber: {
@@ -117,7 +118,7 @@ export const ORE_WHERE: Record<string, OreWhere> = {
     found: [
       f('highsec', 'rare', 'Rare anomalies, 0.5 to 0.8', 'Omber and Kernite-and-Omber anomalies returned to high-sec with Catalyst (CCP, 14 November 2025). Not in high-sec belts.'),
       f('lowsec', 'belt', 'Gallente and Minmatar space, 0.4 to 0.1'),
-      WORMHOLE_SITES,
+      WORMHOLE_SITES(),
     ],
   },
   Ytirium: { kind: 'asteroid', found: [BORDER_HIGH, BORDER_NULL, A0_WORMHOLE] },
@@ -145,13 +146,13 @@ export const ORE_WHERE: Record<string, OreWhere> = {
   },
   Gneiss: {
     kind: 'asteroid',
-    found: [f('lowsec', 'anomaly', 'Low-sec anomalies: small, hidden, average and large', 'Not in the null-sec belt table.'), WORMHOLE_SITES],
+    found: [f('lowsec', 'anomaly', 'Low-sec anomalies: small, hidden, average and large', 'Not in the null-sec belt table.'), ALL_WH_SITES],
   },
   Arkonor: {
     kind: 'asteroid',
     found: [
       f('nullsec', 'belt', 'Null-sec belts by security class: F at -0.6, I at -0.7, J at -0.9', 'Dronelands (class K) belts have it too; the threshold varies by region.'),
-      WORMHOLE_SITES,
+      WORMHOLE_SITES('Perimeter, Frontier and Core'),
     ],
     disputed: PRE_EQUINOX,
   },
@@ -159,7 +160,7 @@ export const ORE_WHERE: Record<string, OreWhere> = {
     kind: 'asteroid',
     found: [
       f('nullsec', 'belt', 'Null-sec belts by security class: F and J at -0.5, G at -0.6, H at -0.9', 'Dronelands (class K) belts vary.'),
-      WORMHOLE_SITES,
+      WORMHOLE_SITES(),
     ],
     disputed: PRE_EQUINOX,
   },
@@ -258,7 +259,7 @@ export function rankOres(rows: OreRow[], place: Place): OreRow[] {
   return here.slice().sort((a, b) => {
     const x = val(a);
     const y = val(b);
-    if (x == null || y == null) return x == null && y == null ? a.base.localeCompare(b.base) : x == null ? 1 : -1;
-    return y - x || a.base.localeCompare(b.base);
+    if (x == null || y == null) return x == null && y == null ? (a.base < b.base ? -1 : a.base > b.base ? 1 : 0) : x == null ? 1 : -1;
+    return y - x || (a.base < b.base ? -1 : a.base > b.base ? 1 : 0);
   });
 }
