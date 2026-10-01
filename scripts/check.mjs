@@ -3347,8 +3347,8 @@ console.log('\n--- every freelance job you did (the user’s six, 1 October 2026
   const exact = jobHistory({ jobs, journal: taxed, txs: F.txs, skip });
   eq('with the journal’s tax: newest first, each job’s rewards, tax, units, cost, leftover and profit', exact.rows.map((r) => [r.job.id, pick(r)]), Object.entries(want));
   eq('  every reward’s tax from the journal', exact.rows.flatMap((r) => r.rewards.map((x) => x.how)).every((h) => h === 'esi'), true);
-  eq('  the total row', [exact.total.received, exact.total.tax, exact.total.delivered, exact.total.cost, exact.total.held, exact.total.heldCost, exact.total.profit, exact.total.unknown],
-    [3_787_583_450.13, 386_308_066.87, 242_326_184, 2_793_708_955.28, 813_258, 17_859_145.68, 993_874_494.85, 0]);
+  eq('  the total row', [exact.total.received, exact.total.payments, exact.total.tax, exact.total.delivered, exact.total.cost, exact.total.held, exact.total.heldCost, exact.total.profit, exact.total.unknown],
+    [3_787_583_450.13, 11, 386_308_066.87, 242_326_184, 2_793_708_955.28, 813_258, 17_859_145.68, 993_874_494.85, 0]);
   const isk = exact.rows.find((r) => r.job.id === ISK);
   eq('  the leftover stays with the job paid next after it: ISK Scordite, at what it cost', [isk.heldCost, isk.low, isk.high, isk.fromStock], [17_859_145.68, 11.76, 11.91, 0]);
   // Four Scordite jobs ran over each other between 29 September and 1 October: each purchase is taken once.
@@ -3364,6 +3364,8 @@ console.log('\n--- every freelance job you did (the user’s six, 1 October 2026
   const none = jobHistory({ jobs, journal: F.journal, txs: F.txs, skip });
   eq('  with no corporation history read: no rate is assumed, the tax is not recorded and the units not known; the rewards still show',
     none.rows.map((r) => [r.received > 0, r.tax, r.taxUnknown, r.delivered, r.profit, r.rewards[0].why]), none.rows.map((r) => [true, 0, r.rewards.length, null, null, 'history']));
+  eq('  and its total claims none of it: every payment not recorded, no job counted, nothing said to be left over',
+    [none.total.payments, none.total.taxUnknown, none.total.unknown, none.total.delivered, none.total.cost, none.total.held, none.total.received], [11, 11, 6, 0, 0, 0, 3_787_583_450.13]);
   // Arithmetic alone can't tell: 593,096,000 is a whole number of units at 0% (34,888,000) as well as at 11% (39,200,000).
   const stale = jobHistory({ jobs, journal: F.journal, txs: F.txs, skip, corps: behind });
   const read = (id) => stale.rows.find((r) => r.job.id === ISK).rewards.find((x) => x.id === id);

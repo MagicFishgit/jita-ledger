@@ -358,17 +358,20 @@ function JobHistory({ now }: { now: number }) {
   const { rows, total } = hist;
   if (!rows.length) return null;
   const running = rows.filter((r) => r.job.state === 'Active').length;
+  // Nothing not known reads as a zero: no payment's tax recorded, or no job's units known, is "–".
+  const noTax = total.payments > 0 && total.taxUnknown === total.payments;
+  const noUnits = total.unknown === rows.length;
   return (
     <div className="col fl-history" style={{ gap: 6 }}>
       <b style={{ color: 'var(--ink)' }}>Every job you did <span className="faint" style={{ fontWeight: 400 }}>· {units(rows.length)}{running ? `, ${units(running)} running` : ''}</span></b>
       <Figures items={[
         { key: 'paid', value: iskBig(total.received), label: 'paid to you', tip: 'Every reward your journal names a job for, after your corporation’s tax.' },
-        { key: 'tax', value: iskBig(total.tax), label: total.taxUnknown ? `tax taken, ${units(total.taxUnknown)} payment${total.taxUnknown === 1 ? '’s' : 's’'} not recorded` : 'tax taken',
+        { key: 'tax', value: noTax ? '–' : iskBig(total.tax), label: noTax ? 'tax taken: not recorded' : total.taxUnknown ? `tax taken, ${units(total.taxUnknown)} payment${total.taxUnknown === 1 ? '’s' : 's’'} not recorded` : 'tax taken',
           tip: 'What your corporation took from the rewards before they reached your wallet: from your journal, or worked out from the corporation ESI says you were in then. Each job’s tax has its payments in its tip.' },
-        { key: 'profit', value: iskBig(total.profit), label: total.unknown ? `profit, ${units(total.unknown)} job${total.unknown === 1 ? '' : 's'} not counted` : 'profit',
+        { key: 'profit', value: noUnits ? '–' : iskBig(total.profit), label: noUnits ? 'profit: units delivered not known' : total.unknown ? `profit, ${units(total.unknown)} job${total.unknown === 1 ? '' : 's'} not counted` : 'profit',
           tip: 'The rewards, less what the delivered units you bought cost, plus anything bought for a job and sold again. Units delivered from stock you didn’t buy for the job have no cost here. A job whose units aren’t known isn’t counted.' },
-        { key: 'held', value: total.held ? iskBig(total.heldCost) : '–', label: total.held ? `bought, not delivered (${units(total.held)} units)` : 'bought, not delivered',
-          tip: 'Bought while a job ran and never delivered or sold, at what it cost: still yours, so not in the profit.' },
+        { key: 'held', value: total.held ? iskBig(total.heldCost) : noUnits ? '–' : 'None', label: total.held ? `bought, not delivered (${units(total.held)} units)` : 'bought, not delivered',
+          tip: 'Bought while a job ran and never delivered or sold, at what it cost: still yours, so not in the profit. A job whose units delivered aren’t known isn’t counted: what it bought can’t be said to be left over.' },
       ]} />
       <div style={{ overflowX: 'auto' }}>
         <table className="tbl compact flh-table">
@@ -385,16 +388,16 @@ function JobHistory({ now }: { now: number }) {
           <tfoot><tr>
             <td className="l">All {units(rows.length)}
               <div className="flh-phone">
-                <b style={{ color: total.profit >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>Profit {iskBig(total.profit)}{total.unknown ? `, ${units(total.unknown)} not counted` : ''}</b>
-                <span>{units(total.delivered)} delivered · {iskBig(total.received)} paid · {iskBig(total.tax)} tax · {iskBig(total.cost)} cost{total.held ? ` · ${units(total.held)} left over` : ''}</span>
+                <b style={{ color: noUnits ? undefined : total.profit >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{noUnits ? 'Profit not known' : `Profit ${iskBig(total.profit)}`}{!noUnits && total.unknown ? `, ${units(total.unknown)} not counted` : ''}</b>
+                <span>{noUnits ? '' : `${units(total.delivered)} delivered · `}{iskBig(total.received)} paid · {noTax ? 'tax not recorded' : `${iskBig(total.tax)} tax`}{noUnits ? '' : ` · ${iskBig(total.cost)} cost`}{total.held ? ` · ${units(total.held)} left over` : ''}</span>
               </div>
             </td>
-            <td className="flh-wide">{units(total.delivered)}{total.unknown > 0 && <span className="sub">{units(total.unknown)} not known</span>}</td>
+            <td className="flh-wide">{noUnits ? '–' : units(total.delivered)}{total.unknown > 0 && <span className="sub">{units(total.unknown)} job{total.unknown === 1 ? '' : 's'} not known</span>}</td>
             <td className="flh-wide">{iskBig(total.received)}</td>
-            <td className="flh-wide">{iskBig(total.tax)}{total.taxUnknown > 0 && <span className="sub">{units(total.taxUnknown)} not recorded</span>}</td>
-            <td className="flh-wide">{iskBig(total.cost)}{total.fromStock > 0 && <span className="sub">{units(total.fromStock)} not bought for it</span>}</td>
+            <td className="flh-wide">{noTax ? 'Not recorded' : iskBig(total.tax)}{!noTax && total.taxUnknown > 0 && <span className="sub">{units(total.taxUnknown)} not recorded</span>}</td>
+            <td className="flh-wide">{noUnits ? '–' : iskBig(total.cost)}{total.fromStock > 0 && <span className="sub">{units(total.fromStock)} not bought for it</span>}</td>
             <td className="flh-wide">{total.held ? <>{units(total.held)}<span className="sub">{iskBig(total.heldCost)} at cost</span></> : '–'}</td>
-            <td className="flh-wide" style={{ color: total.profit >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{iskBig(total.profit)}</td>
+            <td className="flh-wide" style={{ color: noUnits ? undefined : total.profit >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{noUnits ? '–' : iskBig(total.profit)}</td>
           </tr></tfoot>
         </table>
       </div>
@@ -437,7 +440,7 @@ function JobLine({ r, now }: { r: JobRow; now: number }) {
           {r.delivered != null && <span>Cost {iskBig(r.cost)}{range ? ` at ${range} a unit` : ''}</span>}
           {stock && <span style={{ color: 'var(--acc2)' }}>{stock}</span>}
           {unsure && <span style={{ color: 'var(--acc2)' }}>{unsure}</span>}
-          {r.held > 0 && <span>Left over: {units(r.held)}, {iskBig(r.heldCost)} at cost</span>}
+          {r.delivered != null && r.held > 0 && <span>Left over: {units(r.held)}, {iskBig(r.heldCost)} at cost</span>}
         </div>
       </td>
       <td className="flh-wide">{units(r.delivered)}<span className="sub">{r.job.perUnit > 0 ? `at ${bare(r.job.perUnit)} a unit` : 'rate a unit not known'}</span></td>
@@ -449,7 +452,7 @@ function JobLine({ r, now }: { r: JobRow; now: number }) {
         {stock && <span className="sub" style={{ color: 'var(--acc2)' }}>{stock}</span>}
         {unsure && <span className="sub" style={{ color: 'var(--acc2)' }}>{unsure}</span>}
       </td>
-      <td className="flh-wide">{r.held ? <>{units(r.held)}<span className="sub">{iskBig(r.heldCost)} at cost</span></> : '–'}</td>
+      <td className="flh-wide">{r.delivered == null ? '–' : r.held ? <>{units(r.held)}<span className="sub">{iskBig(r.heldCost)} at cost</span></> : '–'}</td>
       <td className="flh-wide flh-profit" style={{ color: r.profit == null ? undefined : r.profit >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>
         {r.profit == null ? '–' : iskBig(r.profit)}
         {r.profit == null && r.rewards.length > 0 && <span className="sub">units not known</span>}

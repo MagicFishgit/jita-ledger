@@ -483,9 +483,12 @@ export type JobRow = {
   at: number;
 };
 export type HistoryTotal = {
-  jobs: number; received: number; tax: number; taxUnknown: number; delivered: number; fromStock: number;
+  jobs: number; received: number; payments: number; tax: number; taxUnknown: number; delivered: number; fromStock: number;
   cost: number; held: number; heldCost: number; profit: number;
-  /** Jobs whose units, and so profit, aren't known: left out of `delivered` and `profit`. */
+  /**
+   * Jobs whose units, and so cost, leftovers and profit, aren't known: left out of those totals (what a job bought can't be
+   * said to be left over while what it delivered isn't known).
+   */
   unknown: number;
 };
 
@@ -616,10 +619,11 @@ export function jobHistory(inp: {
   const rows = [...rowOf.values()].filter((r) => r.rewards.length > 0 || r.job.joined !== false || r.held > 0 || r.sold > 0)
     .sort((a, b) => (a.job.state === 'Active' ? 0 : 1) - (b.job.state === 'Active' ? 0 : 1) || b.at - a.at || a.job.name.localeCompare(b.job.name));
   const sum = (f: (r: JobRow) => number) => rows.reduce((s, r) => s + f(r), 0);
+  const known = (f: (r: JobRow) => number) => (r: JobRow) => (r.delivered == null ? 0 : f(r));
   const total: HistoryTotal = {
-    jobs: rows.length, received: cents(sum((r) => r.received)), tax: cents(sum((r) => r.tax)), taxUnknown: sum((r) => r.taxUnknown),
-    delivered: sum((r) => r.delivered ?? 0), fromStock: sum((r) => r.fromStock), cost: cents(sum((r) => r.cost)),
-    held: sum((r) => r.held), heldCost: cents(sum((r) => r.heldCost)), profit: cents(sum((r) => r.profit ?? 0)),
+    jobs: rows.length, received: cents(sum((r) => r.received)), payments: sum((r) => r.rewards.length), tax: cents(sum((r) => r.tax)), taxUnknown: sum((r) => r.taxUnknown),
+    delivered: sum(known((r) => r.delivered!)), fromStock: sum(known((r) => r.fromStock)), cost: cents(sum(known((r) => r.cost))),
+    held: sum(known((r) => r.held)), heldCost: cents(sum(known((r) => r.heldCost))), profit: cents(sum((r) => r.profit ?? 0)),
     unknown: rows.filter((r) => r.delivered == null).length,
   };
   return { rows, total };
