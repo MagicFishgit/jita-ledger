@@ -659,6 +659,45 @@ console.log('\n--- the watchdog, by character ---');
   }
 }
 
+console.log('\n--- the alert round judges a plan\'s order by its plan (Praxis, 30 September 2026) ---');
+{
+  const { judgeAll } = await import('../worker/src/alerts.ts');
+  const { orderFindings } = await import('../src/lib/alerts.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const fx = JSON.parse(fs.readFileSync(new URL('./fixtures/plan-review.json', import.meta.url), 'utf8'));
+  const M = 1e6, PX = 47466, ID = 7433389018, NOW = Date.parse('2026-09-30T22:49:00Z');
+  const settings = sanitizeSettings({ acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, clone: 'omega', faction: 3.6289558729999998, corp: 7.039647095, taxBase: 7.5, target: 5, share: 7.5, waitHours: 3 });
+  const plan = { id: 'mundr0gwk1vekg', name: '30 Sept · 991.64 M ISK in 4 items', at: '2026-09-30T00:41:37.568Z', isk: 991640000, horizonDays: 7, patient: false,
+    items: [{ typeId: PX, buyAt: 206.3 * M, units: 1, sellAt: 226 * M, positionId: 'mundr0gxt6lx47' }] };
+  // The order at its third raise: 207.1 M after two changes, 40 bid at 208.3 M ahead of it, listings at 225 M.
+  const ledger = ({ plans, status = 'open' } = {}) => {
+    const db = d1();
+    const seen = [['00:42:35', 206.3], ['08:39:24', 206.7], ['11:22:15', 207.1]].map(([t, p]) => ({ issued: `2026-09-30T${t}Z`, price: p * M, remain: 1 }));
+    db.run('INSERT INTO records (char_id, kind, id, data, rev, updated_at) VALUES (?, ?, ?, ?, 1, 0)', MAIN, 'orders', String(ID), JSON.stringify({
+      orderId: ID, typeId: PX, isBuy: true, price: 207.1 * M, volumeTotal: 1, volumeRemain: 1, issued: '2026-09-30T11:22:15Z', state: 'open', locationId: 60003760, escrow: 207.1 * M, seen }));
+    db.run('INSERT INTO records (char_id, kind, id, data, rev, updated_at) VALUES (?, ?, ?, ?, 1, 0)', MAIN, 'positions', 'mundr0gxt6lx47', JSON.stringify({
+      id: 'mundr0gxt6lx47', typeId: PX, openedAt: plan.at, status, jitaOnly: true, excluded: [], included: [] }));
+    if (plans !== undefined) db.run('INSERT INTO docs (char_id, key, data, rev, updated_at) VALUES (?, ?, ?, 1, 0)', MAIN, 'plans', JSON.stringify(plans));
+    const book = [[ID, 1, 207.1 * M, 1], [1, 1, 208.3 * M, 40], [2, 1, 200 * M, 5], [3, 0, 225 * M, 2], [4, 0, 230 * M, 10]];
+    db.run('INSERT INTO books (type_id, stamp, orders, sold, at) VALUES (?, ?, ?, ?, ?)', PX, NOW, JSON.stringify(book), null, NOW - 60_000);
+    db.run('INSERT INTO hist (type_id, expires, rows) VALUES (?, ?, ?)', PX, NOW + 86400_000, JSON.stringify(fx[PX].rows));
+    return db;
+  };
+  const judged = async (db) => {
+    const { list } = await judgeAll(db, MAIN, settings, NOW);
+    return { x: list[0], found: orderFindings(list, () => 'Praxis').map((f) => f.kind) };
+  };
+  const withPlan = await judged(ledger({ plans: [plan] }));
+  eq('  with its plan in D1: keep it at 207.1 M, and no "move" alert', [withPlan.x?.verdict, withPlan.x?.keep?.at, withPlan.x?.plan?.planId, withPlan.found], ['loss', 208.4 * M, plan.id, []]);
+  eq('    its words end "Keep it at 207,100,000"', /Keep it at 207,100,000$/.test(withPlan.x?.why ?? ''), true);
+  const noDoc = await judged(ledger());
+  eq('  with no plans doc, as before: moved and mailed', [noDoc.x?.verdict, noDoc.x?.newPrice, noDoc.x?.plan, noDoc.found], ['move', 208.4 * M, undefined, ['move']]);
+  const closed = await judged(ledger({ plans: [plan], status: 'closed' }));
+  eq('  a plan whose position closed is no plan', [closed.x?.verdict, closed.x?.plan], ['move', undefined]);
+  const odd = await judged(ledger({ plans: { not: 'a list' } }));
+  eq('  a plans doc it can\'t read is no plan, never an error', [odd.x?.verdict, odd.found], ['move', ['move']]);
+}
+
 console.log('\n--- an alt is never a ledger ---');
 {
   const { watchedTypes } = await import('../worker/src/market.ts');

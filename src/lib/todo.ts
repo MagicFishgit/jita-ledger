@@ -188,7 +188,7 @@ const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
  */
 export function judgeOrder(
   e: Entry,
-  c: { open: boolean; checkedAt: number | null; bookRead: boolean; v?: { gone: boolean; verdict: Verdict; price: number; why: string } },
+  c: { open: boolean; checkedAt: number | null; bookRead: boolean; v?: { gone: boolean; verdict: Verdict; price: number; why: string; keep?: unknown } },
 ): string | null {
   if (!c.open) return 'The order has closed: it filled, expired or was cancelled.';
   // Only a check newer than the one that showed it. A second tab holding an older check must not judge
@@ -201,6 +201,8 @@ export function judgeOrder(
   const moved = e.item.price != null && v.price !== e.item.price;
   if (v.verdict === 'front') return moved ? `You moved it to ${isk(v.price)}, and it’s at the front.` : 'It’s at the front now: the orders ahead of it have gone.';
   if (moved) return `You moved it to ${isk(v.price)}. ${v.why}.`;
+  // Raising it would now leave too little (the buy guard): its own words, which end "Keep it at …".
+  if (v.verdict === 'loss' && v.keep) return `${v.why}.`;
   return v.verdict === 'wait' ? `Not worth moving now: ${lower(v.why)}.` : `Moving it no longer pays: ${lower(v.why)}.`;
 }
 

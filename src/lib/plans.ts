@@ -6,7 +6,7 @@
  * positions for the items in one go, maybe even group them" (29 September 2026). Pure.
  */
 import { JITA_44 } from './constants';
-import type { Order } from './types';
+import type { Order, Position } from './types';
 
 export type PlanItem = {
   typeId: number;
@@ -79,4 +79,37 @@ export function newPlan(
     id: o.id, name: o.name, at: o.at, isk: o.deployed, horizonDays: o.horizonDays, patient: o.patient,
     items: rows.map((a) => ({ typeId: a.p.typeId, buyAt: a.p.buy, units: a.units, sellAt: a.p.sell, positionId: positionFor(a.p.typeId) })),
   };
+}
+
+/** What a plan priced an item at, for judging the orders on it: its bid, its sale, and the return it expected at them. */
+export type PlanTarget = {
+  planId: string;
+  buyAt: number; sellAt: number;
+  /** The plan's return at its own prices after the broker fee on both sides and sales tax, as a fraction. */
+  expected: number;
+};
+
+/**
+ * The plan each item's orders belong to, for Orders, To do and the cloud's mail: the newest plan holding the item whose
+ * position is still open (not closed, not deleted). An item whose plan position has closed belongs to no plan, whatever
+ * plan once held it; one in two plans that share its open position belongs to the newer. Orders told the user to raise
+ * Praxis's bid three times with no idea a plan had priced it to make 3.2% (30 September 2026): it filled at 208.4 M and
+ * the trade lost 1.02 M.
+ */
+export function planTargets(
+  plans: Pick<TradePlan, 'id' | 'at' | 'items'>[],
+  positions: Pick<Position, 'id' | 'typeId' | 'status'>[],
+  r: { f: number; t: number },
+): Record<number, PlanTarget> {
+  const open = new Map(positions.filter((p) => p.status === 'open').map((p) => [p.id, p.typeId]));
+  const out: Record<number, PlanTarget> = {};
+  const newest = [...plans].sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0));
+  for (const p of newest) {
+    for (const i of p.items) {
+      if (out[i.typeId] || i.positionId == null || open.get(i.positionId) !== i.typeId) continue;
+      if (!(i.buyAt > 0) || !(i.sellAt > 0)) continue;
+      out[i.typeId] = { planId: p.id, buyAt: i.buyAt, sellAt: i.sellAt, expected: (i.sellAt * (1 - r.f - r.t)) / (i.buyAt * (1 + r.f)) - 1 };
+    }
+  }
+  return out;
 }

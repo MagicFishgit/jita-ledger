@@ -1,8 +1,9 @@
-import { priceUp, tickDown, tickUp } from './tick';
-import { askReachDays, bidReachDays, fillingNow, FILL_RARE, FILL_TYPICAL, FILL_WINDOW, reachedAsk, reachedBid } from './fills';
+import { priceDown, priceUp, tickDown, tickUp } from './tick';
+import { askReachDays, bidReachDays, fillingNow, FILL_RARE, FILL_TYPICAL, FILL_WINDOW, listingPrice, reachedAsk, reachedBid } from './fills';
 import { breakEvenSell, rates, type Settings } from './fees';
 import { RELIST_MIN_H, type FlowDay, type OrderLite } from './flow';
 import { iskBig, units } from './format';
+import type { PlanTarget } from './plans';
 
 /**
  * Whether one of your market orders is worth chasing.
@@ -88,7 +89,69 @@ export type Relist = {
   tooBig?: TooBig;
   /** A sell order whose own price, after the broker fee and sales tax, gets less than the stock cost you. */
   underCost?: UnderCost;
+  /** A buy whose own price, with every fee, already costs more than listing what it buys gets back (`overResale`). */
+  overResale?: OverResale;
+  /** A `loss` because raising this buy would leave too little: "Keep it" where it is (the buy guard in `adviseRelist`). */
+  keep?: KeepIt;
+  /** The plan this order's item belongs to (`planTargets`), when it belongs to one. */
+  plan?: PlanTarget;
 };
+
+/**
+ * Of what a plan's buy expected to make, the share a raise must still leave: half. Under it, Orders, To do and the mail
+ * say keep the bid where it is. The user's Praxis (30 September 2026): the plan bought at 206.3 M to sell at 226 M, 3.2%
+ * after fees; Orders had them raise it three times, the last to 208.4 M when listings sold at 224.9 M, which after the
+ * three changes' fees left 0.9%; it filled there and the trade lost 1.02 M. A buy no plan priced is guarded at break-even.
+ * Never under break-even: a plan that expected nothing licenses no loss.
+ */
+export const PLAN_KEEP = 0.5;
+/** PLAN_KEEP in words, for the copy: "half". */
+export const PLAN_KEEP_SAID = PLAN_KEEP === 0.5 ? 'half' : `${Math.round(PLAN_KEEP * 100)}%`;
+
+/** Why a raise was refused: the price it would have gone to, what it would return selling on at `resale`, and the floor. */
+export type KeepIt = {
+  at: number;
+  resale: number;
+  /** Where `resale` came from: the plan's sale price (when lower than where a listing sells now), or the market's. */
+  from: 'plan' | 'market';
+  ret: number; floor: number;
+  /** Price-change fees already paid on the order, per unit left (`paidPerUnit`). */
+  paid: number;
+};
+
+/**
+ * What the price changes an order has had cost, per unit still on it. A change is charged on what's left at that price,
+ * so each unit left carries one share of every change (the way a position spreads it: positions-results). The broker
+ * fee on a raise's increase isn't here: a bid's own broker fee at its present price covers its placing and every raise.
+ * From the order's kept versions (`seen`), so the Worker, which has no journal, says the same as the browser.
+ */
+export function paidPerUnit(seen: { price: number; remain: number }[] | undefined, k: number): number {
+  let paid = 0;
+  for (const v of (seen ?? []).slice(1)) if (v.remain > 0) paid += Math.max(100, k * v.price * v.remain) / v.remain;
+  return paid;
+}
+
+/**
+ * A buy order whose own price already costs more, with the broker fee and the price changes paid on it, than listing
+ * what it buys gets back after the broker fee and sales tax: the buy side of `underCost`. `breakEven` is the most a bid
+ * can be and still break even there.
+ */
+export type OverResale = { breakEven: number; resale: number; ret: number; paid: number };
+
+export function overResale(
+  o: { isBuy: boolean; seen?: { price: number; remain: number }[] },
+  x: Pick<Relist, 'price' | 'volumeRemain' | 'gone'>,
+  resale: number | null | undefined,
+  r: { f: number; t: number; k: number },
+): OverResale | null {
+  if (!o.isBuy || x.gone || resale == null || !(resale > 0)) return null;
+  const paid = paidPerUnit(o.seen, r.k);
+  const net = resale * (1 - r.f - r.t);
+  const cost = x.price * (1 + r.f) + paid;
+  if (!(net < cost)) return null;
+  const breakEven = priceDown((net - paid) / (1 + r.f));
+  return { breakEven: Number.isFinite(breakEven) && breakEven > 0 ? breakEven : 0, resale, ret: net / cost - 1, paid };
+}
 
 /**
  * A listing that would take longer than this to sell is better sold into the bids: the same 30 days after which
@@ -162,7 +225,9 @@ export function intoBidsWhy(b: IntoBids, price: number, volumeRemain: number, sa
     + `against ${iskBig(listed)} if ${b.left > 0 ? 'those' : 'it'} sold at your price`;
 }
 
-type Mine = { orderId: number; typeId: number; isBuy: boolean; price: number; volumeRemain: number };
+type Mine = { orderId: number; typeId: number; isBuy: boolean; price: number; volumeRemain: number;
+  /** The order's kept versions: a raise's guard counts the price changes already paid for. */
+  seen?: { price: number; remain: number }[] };
 
 export type MarketContext = {
   book: OrderLite[];
@@ -194,6 +259,16 @@ export type MarketContext = {
    * sells first, so its units count towards how long this one takes; and a sell is never moved under your own bid.
    */
   yours?: OrderLite[];
+  /**
+   * The plan this order's item belongs to (`planTargets`): a raise must leave PLAN_KEEP of what it expected, selling on
+   * at its price or where a listing sells now, whichever is lower.
+   */
+  plan?: Pick<PlanTarget, 'buyAt' | 'sellAt' | 'expected'> | null;
+  /**
+   * Where what a buy fills could be listed now (`listingPrice` on others' orders), which a raise must still pay at.
+   * Null when nothing can be said; left out (callers from before it), one step under `bestSell`.
+   */
+  resale?: number | null;
 };
 
 /**
@@ -373,7 +448,9 @@ export function judgeOrder(
   m: { book: OrderLite[]; perDay: number | null; avgCost?: number | null; lows: (number | null)[] | null; txs: Parameters<typeof fillingNow>[2]; watched?: FlowDay;
     highs?: (number | null)[] | null; leave?: boolean;
     /** The IDs of all your open orders (this one may be among them): the rest of yours on this item are set apart. */
-    yours?: number[] },
+    yours?: number[];
+    /** The plan the item belongs to (`planTargets`), if any. */
+    plan?: PlanTarget | null },
   s: Settings,
   now = Date.now(),
 ): Relist {
@@ -381,21 +458,24 @@ export function judgeOrder(
   ids.delete(o.orderId);
   const book = ids.size ? m.book.filter((b) => !ids.has(b.id)) : m.book;
   const yours = ids.size ? m.book.filter((b) => ids.has(b.id)) : [];
-  const x = adviseOrder(o, { ...m, book, yours }, s, now);
+  const asks = book.filter((b) => !b.isBuy && b.id !== o.orderId).map((b) => b.price);
+  const others = book.filter((b) => b.isBuy && b.id !== o.orderId).map((b) => b.price);
+  // Where what a buy fills would be listed now, the way Orders prices a new listing: others' orders only.
+  const resale = o.isBuy ? listingPrice(asks.length ? Math.min(...asks) : null, others.length ? Math.max(...others) : null, m.highs) : undefined;
+  const x = adviseOrder(o, { ...m, book, yours, resale }, s, now);
   // A listing buyers don't take is better sold into the bids: that beats moving it down a tick for a fee. Only
   // others' bids: selling into your own buy order is trading with yourself.
   const r = rates(s);
   const t = r.t;
   // What a unit makes, the way Orders counts a slot's earnings: a buy against listing it one step under the best
   // ask, a sell against what the stock cost or else the best bid.
-  const asks = book.filter((b) => !b.isBuy && b.id !== o.orderId).map((b) => b.price);
-  const others = book.filter((b) => b.isBuy && b.id !== o.orderId).map((b) => b.price);
   const margin = o.isBuy
     ? (asks.length ? tickDown(Math.min(...asks)) * (1 - r.f - t) - x.price * (1 + r.f) : null)
     : m.avgCost != null ? x.price * (1 - r.f - t) - m.avgCost : others.length ? x.price * (1 - r.f - t) - Math.max(...others) * (1 + r.f) : null;
   const big = tooBigToMove(o, x, { perDay: m.perDay, watched: m.watched, margin }, r.k, now);
   const under = underCost(o, x, m.avgCost, r);
-  const judged = { ...x, ...(big ? { tooBig: big } : {}), ...(under ? { underCost: under } : {}) };
+  const over = overResale(o, x, resale, r);
+  const judged = { ...x, ...(big ? { tooBig: big } : {}), ...(under ? { underCost: under } : {}), ...(over ? { overResale: over } : {}), ...(m.plan ? { plan: m.plan } : {}) };
   const into = sellIntoBid(o, x, { ...m, book }, t);
   return into ? { ...judged, verdict: 'bid', intoBids: into, why: intoBidsWhy(into, x.price, x.volumeRemain, t) } : judged;
 }
@@ -403,7 +483,7 @@ export function judgeOrder(
 function adviseOrder(
   o: Mine & { locationId: number; seen?: { issued: string; price: number; remain: number }[] },
   m: { book: OrderLite[]; perDay: number | null; avgCost?: number | null; lows: (number | null)[] | null; txs: Parameters<typeof fillingNow>[2];
-    highs?: (number | null)[] | null; leave?: boolean; yours?: OrderLite[] },
+    highs?: (number | null)[] | null; leave?: boolean; yours?: OrderLite[]; plan?: PlanTarget | null; resale?: number | null },
   s: Settings,
   now: number,
 ): Relist {
@@ -417,6 +497,8 @@ function adviseOrder(
     highs: m.highs,
     leave: m.leave,
     yours: m.yours,
+    plan: m.plan,
+    resale: m.resale,
     targetReturn: s.target / 100,
     filling: fillingNow(o, m.book.find((x) => x.id === o.orderId)?.volume, m.txs, now),
   }, rates(s), s.waitHours, s.target / 100);
@@ -557,9 +639,30 @@ export function adviseRelist(
   // Would the price it takes to get back in front actually be worth having?
   const netOfSale = (p: number) => p * (1 - r.f - r.t);
   const badSell = moves && !mine.isBuy && m.avgCost != null && netOfSale(newPrice) < m.avgCost;
-  const badBuy = moves && mine.isBuy && m.bestSell != null && newPrice >= netOfSale(m.bestSell);
+  // A raise must still pay selling on: at the plan's price or where a listing sells now, whichever is lower, after the
+  // broker fee at the new price, the price changes already paid and this one, it must leave PLAN_KEEP of what the plan
+  // expected, or for a buy no plan priced, break even. It replaced a check that set the new bid against the best ask
+  // after the sell side's fees alone, which passed Praxis's third raise.
+  const resale = m.resale !== undefined ? m.resale : m.bestSell != null ? tickDown(m.bestSell) : null;
+  const plan = m.plan && m.plan.sellAt > 0 ? m.plan : null;
+  const sellOn = plan ? (resale != null && resale < plan.sellAt ? resale : plan.sellAt) : resale;
+  const floor = plan ? Math.max(0, PLAN_KEEP * plan.expected) : 0;
+  const paid = mine.isBuy ? paidPerUnit(mine.seen, r.k) : 0;
+  const raiseRet = mine.isBuy && moves && newPrice > price && sellOn != null && sellOn > 0 && volumeRemain > 0
+    ? netOfSale(sellOn) / (newPrice * (1 + r.f) + paid + fee / volumeRemain) - 1
+    : null;
+  const badBuy = raiseRet != null && raiseRet < floor;
 
   const pctText = (x: number) => `${x >= 1 ? Math.round(x * 100) : (x * 100).toFixed(x < 0.1 ? 1 : 0)}%`;
+  // Said in this order, as the user asked for it to be easy to see: don't raise; what raising would leave; keep it.
+  const keepWhy = (): string => {
+    const ret = raiseRet!;
+    const from = plan && sellOn === plan.sellAt ? 'the plan’s price' : 'where a listing sells now';
+    const made = ret < 0 ? `lose ${pctText(-ret)}` : `make ${pctText(ret)}`;
+    const paidSaid = paid > 0 ? `, counting the ${iskBig(paid * volumeRemain)} already paid to change its price` : '';
+    const expected = plan && plan.expected > 0 ? `, under ${PLAN_KEEP_SAID} the ${pctText(plan.expected)} the plan expected` : '';
+    return `Don’t raise it: at ${priceText(newPrice)} it would ${made} after fees${paidSaid}, selling on at ${priceText(sellOn!)} (${from})${expected}. Keep it at ${priceText(price)}`;
+  };
   const hrs = (h: number) => (h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`);
 
   let verdict: Verdict;
@@ -622,6 +725,9 @@ export function adviseRelist(
     } else if (ret == null || ret < target) {
       verdict = 'dry';
       why = `${said}. Bidding where it did on ${FILL_TYPICAL} of them, ${at(newPrice)}, ${ret == null ? 'would leave nothing to sell into' : ret < 0 ? `would lose ${pctText(-ret)} after fees` : `would leave ${pctText(ret)} after fees, under your ${pctText(target)} target`}`;
+    } else if (badBuy) {
+      verdict = 'loss';
+      why = keepWhy();
     } else {
       verdict = 'move';
       why = `${said}. At ${at(newPrice)} it did on ${FILL_TYPICAL} of them, and still makes ${pctText(ret)} after fees`;
@@ -634,7 +740,7 @@ export function adviseRelist(
     why = 'Matching them would sell under what the stock cost you';
   } else if (badBuy) {
     verdict = 'loss';
-    why = 'Matching them would pay more than you could sell it on for';
+    why = keepWhy();
   } else if (!moves) {
     verdict = 'loss';
     why = 'There is no legal price below theirs left to take';
@@ -704,6 +810,14 @@ export function adviseRelist(
       ? `You’re leaving this one: the bulk of trading reached your ${side} on ${reach} of the last ${FILL_WINDOW} days`
       : 'You’re leaving this one where it is';
   }
+  // A plan's sell told to go under the price the plan expected to sell at says so; the guard against selling under
+  // what the stock cost (above) is the same as any sell's.
+  if (!mine.isBuy && plan && !gone && (verdict === 'move' || verdict === 'loss') && Number.isFinite(newPrice) && newPrice < plan.sellAt) {
+    why = `${why}. The plan expected to sell at ${priceText(plan.sellAt)}`;
+  }
+  const keep: KeepIt | null = mine.isBuy && badBuy && verdict === 'loss' && raiseRet != null && sellOn != null
+    ? { at: newPrice, resale: sellOn, from: plan && sellOn === plan.sellAt ? 'plan' : 'market', ret: raiseRet, floor, paid }
+    : null;
 
   return {
     orderId: mine.orderId, typeId: mine.typeId, isBuy: mine.isBuy,
@@ -716,6 +830,7 @@ export function adviseRelist(
     cutPct, waitingPaysDaily,
     verdict, why, reach, reachAt, unreached, left,
     ...(overBid && unreached ? { overBid: true } : {}),
+    ...(keep ? { keep } : {}),
   };
 }
 

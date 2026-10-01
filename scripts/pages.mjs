@@ -369,6 +369,73 @@ try {
     process.stdout.write(unique.length ? `  FAIL empty, then filled #wallet\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   empty, then filled #wallet\n');
     await page.close();
   }
+  // Orders knowing a plan (task 2 of "plans that hold their margin"): the user's Praxis at its third raise, its plan open,
+  // and a buy bidding over what it resells for. Its verdicts need a checked book, which every other load here refuses, so
+  // ESI answers these two items' books (nothing else); without this the deploy never drew "Keep it", the plan's chip
+  // or the red tag. Both widths, as the run's (PHONE).
+  if (SHOWN.includes('orders') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('plan'))) {
+    const M = 1e6, PX = 47466, TRIT = 34, JITA = 60003760, ID = 7433389018;
+    const seen = [['00:42:35', 206.3], ['08:39:24', 206.7], ['11:22:15', 207.1]].map(([t, p]) => ({ issued: `2026-09-30T${t}Z`, price: p * M, remain: 1 }));
+    const books = {
+      [PX]: [[ID, 1, 207.1 * M, 1], [9001, 1, 208.3 * M, 4], [9002, 1, 200 * M, 5], [9003, 0, 225 * M, 2], [9004, 0, 230 * M, 10]],
+      [TRIT]: [[1, 1, 4.5, 800_000], [9011, 1, 4.4, 5_000_000], [9012, 0, 4.55, 9_000_000]],
+    };
+    const ledger = {
+      settings: { acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, tycoon: 0, clone: 'omega', faction: 3.6289558729999998, corp: 7.039647095, taxBase: 7.5, target: 5, share: 7.5, waitHours: 3 },
+      plans: [{ id: 'mundr0gwk1vekg', name: '30 Sept · 991.64 M ISK in 4 items', at: '2026-09-30T00:41:37.568Z', isk: 991640000, horizonDays: 7, patient: false,
+        items: [{ typeId: PX, buyAt: 206.3 * M, units: 1, sellAt: 226 * M, positionId: 'px' }] }],
+      positions: [{ id: 'px', typeId: PX, openedAt: '2026-09-30T00:41:37.568Z', status: 'open', jitaOnly: true, excluded: [], included: [] }],
+      orders: {
+        [ID]: { orderId: ID, typeId: PX, isBuy: true, price: 207.1 * M, volumeTotal: 1, volumeRemain: 1, issued: seen[2].issued, state: 'open', locationId: JITA, seen },
+        1: { orderId: 1, typeId: TRIT, isBuy: true, price: 4.5, volumeTotal: 1_000_000, volumeRemain: 800_000, issued: '2026-10-01T08:00:00Z', state: 'open', locationId: JITA },
+      },
+      names: { [PX]: 'Praxis', [TRIT]: 'Tritanium' },
+      meta: { walletBalance: 1e9, lastSync: new Date(Date.now() - 600_000).toISOString() },
+    };
+    const page = await browser.newPage(VIEW);
+    await page.route('**/*', (route) => {
+      const url = new URL(route.request().url());
+      if (route.request().url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
+      const b = url.hostname === 'esi.evetech.net' && url.pathname === '/markets/10000002/orders/' ? books[url.searchParams.get('type_id')] : null;
+      if (!b) return route.abort();
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: { expires: new Date(Date.now() + 300_000).toUTCString(), 'x-pages': '1' },
+        body: JSON.stringify(b.map(([id, buy, price, volume]) => ({ order_id: id, type_id: Number(url.searchParams.get('type_id')), location_id: JITA, is_buy_order: buy === 1, price, volume_remain: volume, volume_total: volume, issued: '2026-09-30T00:00:00Z', duration: 90, min_volume: 1, range: 'region' }))) });
+    });
+    const problems = [];
+    page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
+    page.on('console', (m) => { if (m.type() === 'error' && /^Warning: /.test(m.text())) problems.push(`React: ${m.text().split('\n')[0].replace(/%s/g, '').slice(0, 160)}`); });
+    await page.goto(SEED_PAGE);
+    await page.evaluate(async ([d, auth]) => {
+      localStorage.clear(); sessionStorage.clear();
+      localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
+      for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', {}], ['jita-ledger-alts', {}]]) {
+        const h = await new Promise((res) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+        if (!h.objectStoreNames.contains('kv')) { h.close(); continue; }
+        await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
+        h.close();
+      }
+    }, [ledger, ownerAuth()]);
+    await page.goto(`${BASE}#orders`);
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    await page.waitForTimeout(1000);
+    await page.getByRole('button', { name: /Check prices|Check again/ }).click().catch((e) => problems.push(`couldn't check prices: ${e.message.split('\n')[0]}`));
+    await page.waitForSelector('tbody .flag:has-text("Keep it")', { timeout: 20_000 }).catch(() => problems.push('not drawn: no “Keep it” verdict on Praxis'));
+    await page.waitForTimeout(800);
+    const praxis = (await page.locator(`tr[data-order="${ID}"]`).innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!praxis.includes('Keep it at 207,100,000')) problems.push(`not drawn: Praxis's reason in full under Keep it (${praxis.slice(0, 120)})`);
+    if (praxis.includes('208,400,000 ISK')) problems.push('Praxis shows a price to raise to');
+    if (!(await page.locator(`tr[data-order="${ID}"] .flag`, { hasText: 'Plan' }).count())) problems.push('not drawn: no “Plan” chip on Praxis');
+    if (!(await page.locator('tr[data-order="1"]', { hasText: 'Pays more than it resells for' }).count())) problems.push('not drawn: no “Pays more than it resells for” on the Tritanium buy');
+    const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out: ${o}`);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-plan-orders.png` });
+    checked++;
+    const unique = [...new Set(problems)];
+    if (unique.length) failures.push({ ledger: 'plan', page: 'orders', problems: unique });
+    process.stdout.write(unique.length ? `  FAIL plan #orders\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (Keep it, the plan chip, a buy over its resale)\n');
+    await page.close();
+  }
   // The site is public: without the owner's login, only the landing page, with nothing of the ledger's in it and
   // nothing run behind it (not one request to ESI), even with a ledger in this browser.
   if (!only(process.env.LEDGER) && !only(process.env.PAGE)) {

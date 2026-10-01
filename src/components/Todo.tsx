@@ -429,7 +429,7 @@ export function Todo() {
     return next;
   });
 
-  async function act(x: TodoItem) {
+  async function act(x: TodoItem, checking = false) {
     if (x.action.cloudLogin) { if (x.action.cloudLogin === 'main') loginForCloud(); else loginMailerForCloud(); return; }
     if (x.action.exportBackup) {
       // Exporting moves the last-backup time, and that alone ticks this off.
@@ -443,8 +443,9 @@ export function Todo() {
     }
     // A beaten order is fixed in the client: open its market window there when we can.
     if (x.action.typeId != null && canOpenInGame()) {
-      // The price to move to goes on the clipboard while the click still counts, ready for the price box.
-      if (x.action.copy != null && Number.isFinite(x.action.copy)) void copyPrice(x.action.copy, true);
+      // The price to move to goes on the clipboard while the click still counts, ready for the price box. Not for an item
+      // the latest check no longer lists: its price may be one the order is now told not to go to (a raise into a loss).
+      if (!checking && x.action.copy != null && Number.isFinite(x.action.copy)) void copyPrice(x.action.copy, true);
       try {
         await openMarketWindow(x.action.typeId);
         setMem((m) => { if (!m[x.key]) return m; const next = { ...m, [x.key]: { ...m[x.key], openedAt: Date.now() } }; saveMem(next); return next; });
@@ -474,7 +475,7 @@ export function Todo() {
         setSel((selRef.current + 1) % list.length);
       } else if (e.key === 'Enter') {
         const x = list[selRef.current];
-        if (x) { e.preventDefault(); act(x.e.item); }
+        if (x) { e.preventDefault(); act(x.e.item, x.checking); }
       }
     };
     window.addEventListener('keydown', on);
@@ -545,7 +546,7 @@ export function Todo() {
                         <span className="v" style={{ display: 'block' }}>{x.stake > 0 ? iskBig(x.stake) : x.kind === 'scam' ? 'A trap' : '–'}</span>
                         <span className="m" style={{ display: 'block' }}>{MINUTES[x.kind] ? `~${MINUTES[x.kind]} min` : 'a glance'}</span>
                       </span>
-                      <button type="button" className="btn sm" onClick={(ev) => { ev.stopPropagation(); setSel(i); act(x); }}>{x.action.label}</button>
+                      <button type="button" className="btn sm" onClick={(ev) => { ev.stopPropagation(); setSel(i); act(x, checking); }}>{x.action.label}</button>
                     </span>
                   </div>
                 );

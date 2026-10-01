@@ -15,7 +15,7 @@
 import { alertMail, isStaleAlertMail, mailKey, orderFacts, orderFindings, piFindings, repeatMs, shouldAlert, tidyEvery, type Finding } from '../../src/lib/alerts';
 import { readColony, type PlanetHead, type RawColony } from '../../src/lib/colony';
 import type { OrderRecord, TxRecord } from '../../src/lib/esiRecords';
-import { sanitizeSettings, type Settings } from '../../src/lib/fees';
+import { rates, sanitizeSettings, type Settings } from '../../src/lib/fees';
 import { FILL_WINDOW, recentRange } from '../../src/lib/fills';
 import { observedFlow, RELIST_MIN_H, sidePaceOf, type FlowDay, type OrderLite } from '../../src/lib/flow';
 import { judgeProspect, type Book } from '../../src/lib/evaluate';
@@ -24,6 +24,7 @@ import { DEFAULT_FILTERS, passesGate, statsFrom } from '../../src/lib/prospects'
 import { sanitizeAlerts, sanitizeLeave } from '../../src/lib/prefs';
 import { paceDay } from '../../src/lib/prospects';
 import { byUrgency, judgeOrder, type Relist } from '../../src/lib/relist';
+import { planTargets, sanitizePlans } from '../../src/lib/plans';
 import { buyerShare, competitionShare, type BookSold } from '../../src/lib/split';
 import type { AlertConfig, AlertLogEntry, BookLevel, Prospect, ProspectFilters } from '../../src/lib/types';
 import { noteJob } from './archive';
@@ -97,6 +98,15 @@ export async function judgeAll(db: D1Database, charId: number, settings: Setting
   const costs = (await doc<Record<string, number>>(db, charId, 'costs')) ?? {};
   // Items you're leaving orders on (the planner's "Place and leave"): told to move only when trading stops reaching them.
   const leave = new Set(sanitizeLeave(await doc<unknown>(db, charId, 'leave')));
+  // The plan each item belongs to while its position is open (planTargets), so a plan's buy is never raised into a loss.
+  // A ledger whose app hasn't written plans has none: judged as before.
+  const plans = sanitizePlans(await doc<unknown>(db, charId, 'plans'));
+  const positions = plans.length
+    ? (await db.prepare(`SELECT data FROM records WHERE char_id = ?1 AND kind = 'positions' AND data IS NOT NULL`).bind(charId).all<{ data: string }>()).results
+      .map((r) => JSON.parse(r.data) as { id?: unknown; typeId?: unknown; status?: unknown })
+      .filter((p): p is { id: string; typeId: number; status: 'open' | 'closed' } => typeof p.id === 'string' && typeof p.typeId === 'number' && (p.status === 'open' || p.status === 'closed'))
+    : [];
+  const targets = planTargets(plans, positions, rates(settings));
   const since = new Date(now - OWN_FILL_MS).toISOString();
   const txs = (await db.prepare(`SELECT data FROM records WHERE char_id = ?1 AND kind = 'txs' AND data IS NOT NULL AND json_extract(data, '$.date') >= ?2`)
     .bind(charId, since).all<{ data: string }>()).results.map((r) => JSON.parse(r.data) as TxRecord);
@@ -115,7 +125,7 @@ export async function judgeAll(db: D1Database, charId: number, settings: Setting
     const watched: FlowDay = observedFlow({ [o.typeId]: flow[o.typeId] ?? {} }, o.typeId, now);
     const perDay = sidePaceOf({ daily: h ? paceDay(h, now) : null, buyers: h ? buyerShare(h.slice(-30)) : undefined, sold: book.sold, watched }, o.isBuy).perDay;
     const range = h ? recentRange(h, undefined, now, flow[o.typeId]) : null;
-    const x = judgeOrder(o, { book: book.orders, perDay, avgCost: costs[o.typeId], lows: range?.lows ?? null, highs: range?.highs ?? null, leave: leave.has(o.typeId), txs, watched, yours }, settings, now);
+    const x = judgeOrder(o, { book: book.orders, perDay, avgCost: costs[o.typeId], lows: range?.lows ?? null, highs: range?.highs ?? null, leave: leave.has(o.typeId), txs, watched, yours, plan: targets[o.typeId] ?? null }, settings, now);
     if (!x.gone) list.push(x);
     // Left behind the front on purpose: the planner's pace for it (`throughput`), its side's trade at your share,
     // scaled for the orders it queues among and for how often trading reaches its price.

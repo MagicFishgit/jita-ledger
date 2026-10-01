@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Ban, BanknoteArrowDown, ChevronRight, ChevronsUp, CircleDashed, CircleX, Crosshair, Hourglass, LayoutGrid, ListOrdered, MoveVertical, Repeat, Timer } from 'lucide-react';
+import { Ban, BanknoteArrowDown, ChevronRight, ChevronsUp, CircleDashed, CircleX, ClipboardList, Crosshair, Hand, Hourglass, LayoutGrid, ListOrdered, MoveVertical, Repeat, Timer } from 'lucide-react';
 import { ago, isk, iskBig, plainNum, units, until } from '../lib/format';
 import { useAuth, useNow, navigate, useRoute } from '../lib/hooks';
 import { checkOrders, costBasis, jitaOpen, sidePace, useOrderCheck, verdicts } from '../lib/orderCheck';
@@ -14,7 +14,8 @@ import { relistPace } from '../lib/flow';
 import { loadCache, rankProspects } from '../lib/scan';
 import { DEFAULT_FILTERS } from '../lib/prospects';
 import { update, useData } from '../lib/store';
-import { byUrgency, FEE_TARGET, type Relist, type TooBig, type UnderCost, type Verdict } from '../lib/relist';
+import { byUrgency, FEE_TARGET, PLAN_KEEP, PLAN_KEEP_SAID, type OverResale, type Relist, type TooBig, type UnderCost, type Verdict } from '../lib/relist';
+import type { TradePlan } from '../lib/plans';
 import { FILL_WINDOW } from '../lib/fills';
 import type { Prospect } from '../lib/types';
 import { BusyRelisting, canOpenInGame, CopyPrice, NameInGame, OpenInGame, useTypeName } from './common';
@@ -37,7 +38,7 @@ function tipsFor(side: 'all' | 'sell' | 'buy'): Record<string, string> {
   const gets = buy ? 'bought from first' : 'sold to first';
   return {
     Side: `Whether you are buying or selling. A buy order is beaten from above and must go up; a sell is beaten from below and must come down. Either way, being at the front means being ${gets}.`,
-    Verdict: `Whether this order is worth doing something about.\n\n• Being ${both ? 'beaten' : beat} on its own isn’t a reason to move.\n• What matters is how long the ${both ? 'traders' : rivals} ahead of you will stay ahead.${buy || both ? '\n• A buy order also has to be reached: if the bulk of trading hasn’t been getting down to it, the move is to where it does, and if that leaves too little margin, the advice is to cancel it.' : ''}`,
+    Verdict: `Whether this order is worth doing something about.\n\n• Being ${both ? 'beaten' : beat} on its own isn’t a reason to move.\n• What matters is how long the ${both ? 'traders' : rivals} ahead of you will stay ahead.${buy || both ? `\n• A buy order also has to be reached: if the bulk of trading hasn’t been getting down to it, the move is to where it does, and if that leaves too little margin, the advice is to cancel it.\n• A buy is never told to raise into a loss. Keep it means raising would leave less than ${PLAN_KEEP_SAID} of what its plan expected, or for a buy no plan priced, would lose, selling on where a listing sells now.` : ''}`,
     'Ahead of you': `How many units are queued in front of your price, and how many separate ${both ? 'traders' : rivals} that is.\n\nOne big order is better news than a crowd: when it goes, you jump straight to the front.`,
     'Clears in': 'How long the stock ahead of you takes to clear, if nobody undercuts you meanwhile.\n\n• Only one side of the trading reaches you: buyers taking listings for a sell order, sellers dumping into bids for a buy.\n• Which side trades is measured. Each check compares the Jita book with the one before and counts what sold from each side. Until an item has been watched for about a day, a first reading carries most of the weight: what the book’s orders have already sold on each side, or history’s guess when the book says little.\n• New orders placed in front of you aren’t counted, and they’re common: in a six-hour watch of 71 beaten orders, 46 were undercut again.\n\nIf it’s shorter than the hours you’ll wait, relisting would just be a wasted fee.',
     'Your price': both ? 'What you are asking, or bidding, right now.' : buy ? 'What you are bidding right now.' : 'What you are asking right now.',
@@ -48,7 +49,16 @@ function tipsFor(side: 'all' | 'sell' | 'buy'): Record<string, string> {
   };
 }
 
-const VERDICT: Record<Verdict, { label: string; c: string; Icon: typeof Ban }> = {
+/**
+ * What the verdict column shows: the verdict, except that a buy's raise refused by the guard (`keep`) reads "Keep it",
+ * in a warning's amber, rather than "Not worth it". The user was told to raise Praxis three times into a loss and
+ * asked for this to be easy to see.
+ */
+type Shown = Verdict | 'keep';
+const shown = (x: Relist): Shown => (x.verdict === 'loss' && x.keep ? 'keep' : x.verdict);
+
+const VERDICT: Record<Shown, { label: string; c: string; Icon: typeof Ban }> = {
+  keep: { label: 'Keep it', c: 'var(--acc2)', Icon: Hand },
   move: { label: 'Move it', c: 'var(--acc2)', Icon: MoveVertical },
   wait: { label: 'Leave it', c: 'var(--pos)', Icon: Hourglass },
   front: { label: 'In front', c: 'var(--acc)', Icon: ChevronsUp },
@@ -237,10 +247,11 @@ export function Orders() {
   });
   const toggleWeak = () => setWeakOpen((o) => { try { localStorage.setItem(WEAK_KEY, o ? '0' : '1'); } catch { /* private window */ } return !o; });
   const tips = tipsFor(side);
-  const count = (v: Verdict) => all.filter((x) => x.verdict === v).length;
-  // "Cancel it" only earns a card when there's something to cancel.
-  const tally = (['bid', 'move', 'dry', 'wait', 'front', 'loss'] as Verdict[]).filter((v) => (v !== 'dry' && v !== 'bid') || count(v) > 0).map((v) => ({ v, n: count(v) }));
-  const worth = count('move'), holding = count('wait'), cancel = count('dry');
+  const count = (v: Shown) => all.filter((x) => shown(x) === v).length;
+  // "Cancel it", "Sell to bids" and "Keep it" only earn a card when there's something to show.
+  const tally = (['bid', 'move', 'keep', 'dry', 'wait', 'front', 'loss'] as Shown[]).filter((v) => (v !== 'dry' && v !== 'bid' && v !== 'keep') || count(v) > 0).map((v) => ({ v, n: count(v) }));
+  const worth = count('move'), holding = count('wait'), cancel = count('dry'), keeping = count('keep');
+  const planOf = new Map((d.plans ?? []).map((p) => [p.id, p]));
   const pct = check.busy ? (check.busy.done / Math.max(1, check.busy.total)) * 100 : 0;
 
   return (
@@ -293,9 +304,10 @@ export function Orders() {
           <div data-rv="" className="col" style={{ gap: 6 }}>
           <Figures items={[
             { key: 'n', value: units(mine.length), label: `order${mine.length > 1 ? 's' : ''} in Jita 4-4, synced ${ago(d.meta.lastSync, now)}` },
-            ...(check.checkedAt ? (worth || cancel || holding ? [
+            ...(check.checkedAt ? (worth || cancel || holding || keeping ? [
               ...(worth ? [{ key: 'move', value: <span style={{ color: 'var(--acc)' }}>{units(worth)}</span>, label: 'worth moving' }] : []),
               ...(cancel ? [{ key: 'cancel', value: <span style={{ color: 'var(--neg)' }}>{units(cancel)}</span>, label: 'to cancel' }] : []),
+              ...(keeping ? [{ key: 'keep', value: <span style={{ color: 'var(--acc2)' }}>{units(keeping)}</span>, label: `to keep where ${keeping === 1 ? 'it is' : 'they are'}: raising would leave too little` }] : []),
               ...(holding ? [{ key: 'hold', value: units(holding), label: worth || cancel ? 'beaten but clearing on their own' : 'beaten, but the stock ahead should clear shortly' }] : []),
             ] : [{ key: 'front', value: <span style={{ color: 'var(--pos)' }}>All</span>, label: 'in front' }]) : []),
             ...(elsewhere > 0 ? [{ key: 'else', value: units(elsewhere), label: `in other stations: can’t be checked here` }] : []),
@@ -381,29 +393,34 @@ export function Orders() {
                     const x = 'unchecked' in row ? null : (row as Relist);
                     const o = row as { orderId: number; typeId: number; isBuy: boolean; price: number; volumeRemain: number };
                     const name = nameOf(o.typeId);
-                    const V = x ? VERDICT[x.verdict] : null;
+                    const V = x ? VERDICT[shown(x)] : null;
                     const hot = x?.verdict === 'move';
+                    // A raise refused because it would leave too little: never a price to move to, the reason in full.
+                    const keep = !!x?.keep && x.verdict === 'loss';
                     // Left behind the front on purpose: the price to get back in front isn't advice for it.
                     const heldBack = !!x?.left && x.verdict === 'wait';
                     const left = leaving.has(o.typeId);
                     // The price shown under Move to: what opening it in game copies, ready for the price box.
                     // A move that would sell under cost ("Not worth it") is no price to move to: shown as "–", never copied. The
                     // user saw 8,499,000 and 999,800 under Move to, with a copy icon, on two snipes it would sell at a loss.
-                    const underCostMove = x?.verdict === 'loss';
+                    const underCostMove = x?.verdict === 'loss' && !keep;
                     // Your own price is no price to move to (the user's Motley Compound was told to move 4,001 to 4,001).
-                    const moveTo = x && !x.intoBids && !heldBack && !underCostMove && Number.isFinite(x.newPrice) && x.newPrice !== x.price ? x.newPrice : null;
+                    const moveTo = x && !x.intoBids && !heldBack && !underCostMove && !keep && Number.isFinite(x.newPrice) && x.newPrice !== x.price ? x.newPrice : null;
                     // What opening it in game copies: the break-even when it's priced under cost, never a move that's
                     // "not worth it" (it would sell under cost), else the price to move to.
                     const copyAt = x?.underCost ? x.underCost.breakEven : x?.verdict === 'loss' ? null : moveTo;
                     return (
-                      <tr key={o.orderId} data-order={o.orderId} className={'hover' + (hot ? ' hot' : x && x.verdict !== 'move' ? ' dim' : '') + (flash.has(o.orderId) ? ' flash' : '')}>
-                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" copy={copyAt} /></span><BusyRelisting typeId={o.typeId} isBuy={o.isBuy} />{x?.underCost && <UnderCostTag u={x.underCost} x={x} />}{x?.tooBig && <TooBigTag t={x.tooBig} x={x} />}</td>
+                      <tr key={o.orderId} data-order={o.orderId} className={'hover' + (hot ? ' hot' : x && x.verdict !== 'move' && !keep ? ' dim' : '') + (flash.has(o.orderId) ? ' flash' : '')}>
+                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" copy={copyAt} /></span>{x?.plan && <PlanChip x={x} plan={planOf.get(x.plan.planId)} />}<BusyRelisting typeId={o.typeId} isBuy={o.isBuy} />{x?.underCost && <UnderCostTag u={x.underCost} x={x} />}{x?.overResale && <OverResaleTag u={x.overResale} x={x} r={r} />}{x?.tooBig && <TooBigTag t={x.tooBig} x={x} />}</td>
                         <td className="l lbl" style={{ color: o.isBuy ? 'var(--buy)' : 'var(--neg-t)', fontSize: 11.5 }}>{o.isBuy ? 'Buy' : 'Sell'}</td>
                         <td className="l">
                           {V && x ? (
-                            <span className="flag" tabIndex={0} data-tip={x.why} data-tip-title={V.label} style={cssVars({ '--c': V.c, fontSize: 11, padding: '3px 9px', animation: `rise .4s ${Math.min(i, 10) * 70}ms both` })}>
-                              <V.Icon aria-hidden="true" />{V.label}
-                            </span>
+                            <>
+                              <span className="flag" tabIndex={0} data-tip={x.why} data-tip-title={V.label} style={cssVars({ '--c': V.c, fontSize: 11, padding: '3px 9px', animation: `rise .4s ${Math.min(i, 10) * 70}ms both` })}>
+                                <V.Icon aria-hidden="true" />{V.label}
+                              </span>
+                              {keep && <span className="sub" style={{ whiteSpace: 'normal', minWidth: 260, maxWidth: 340, marginTop: 4, color: 'var(--sec)', textWrap: 'pretty' }}>{x.why}.</span>}
+                            </>
                           ) : (
                             <span className="flag plain" style={cssVars({ '--c': '#90a5b8', fontSize: 11, padding: '3px 9px' })} data-tip="Check prices to get a verdict."><CircleDashed aria-hidden="true" />Unchecked</span>
                           )}
@@ -431,7 +448,7 @@ export function Orders() {
                               {moveTo != null && x && x.cutPct > 0 && <span className="sub mono" style={{ color: x.cutPct >= 0.02 ? 'var(--neg)' : 'var(--label)' }}>{x.isBuy ? '+' : '−'}{(x.cutPct * 100).toFixed(x.cutPct < 0.1 ? 1 : 0)}%</span>}
                               {underCostMove && Number.isFinite(x!.newPrice) && <span className="sub" style={{ color: 'var(--neg)' }} data-tip={`Getting in front at ${isk(x!.newPrice)} would sell under what it cost you. ${x!.why}.`}>under cost</span>}
                             </td>
-                            <td data-tip={x && !heldBack && !underCostMove && x.cost > 0 ? `${isk(x.give)} of margin plus a ${isk(x.fee)} fee` : undefined}>{x && !heldBack && !underCostMove && x.cost > 0 ? iskBig(x.cost) : '–'}</td>
+                            <td data-tip={x && !heldBack && !underCostMove && !keep && x.cost > 0 ? `${isk(x.give)} of margin plus a ${isk(x.fee)} fee` : undefined}>{x && !heldBack && !underCostMove && !keep && x.cost > 0 ? iskBig(x.cost) : '–'}</td>
                           </>
                         )}
                         <td>{units(x?.volumeRemain ?? o.volumeRemain)}{x?.intoBids
@@ -468,7 +485,8 @@ export function Orders() {
         steps={[
           { icon: Crosshair, title: 'Check prices', body: 'Reads the live book for every order. ESI refreshes it every five minutes, so checking more often shows nothing new.' },
           { icon: Hourglass, title: 'Set how long you’ll wait', body: 'If the stock ahead of you clears within that many hours, the verdict is Leave it — relisting would just be a fee.' },
-          { icon: MoveVertical, title: 'Move the amber ones', body: 'Move it means the queue ahead won’t clear in time. Move to shows the price that puts you back in front.' },
+          { icon: MoveVertical, title: 'Move the ones marked Move it', body: 'Move it means the queue ahead won’t clear in time. Move to shows the price that puts you back in front.' },
+          { icon: Hand, title: 'Keep the ones marked Keep it', body: `A buy raised to the front would leave too little: under ${PLAN_KEEP_SAID} of what its plan expected, or a loss. It says the price to keep it at.` },
           { icon: Ban, title: 'Leave the red ones', body: 'Not worth it means getting in front would cost more margin than it’s worth.' },
           { icon: LayoutGrid, title: 'Mind the weakest slots', body: 'When you run out of order slots, swap the lowest per-slot earners first.' },
         ]}
@@ -492,6 +510,37 @@ function UnderCostTag({ u, x }: { u: UnderCost; x: Relist }) {
   return (
     <span className="sub" tabIndex={0} style={{ color: 'var(--neg)', fontWeight: 600 }} data-tip-title="Priced under cost" data-tip={tip}>
       Priced under cost: breaks even at {isk(u.breakEven)}
+    </span>
+  );
+}
+
+/** A buy whose own price already costs more than what it buys resells for (`overResale` in relist.ts). */
+function OverResaleTag({ u, x, r }: { u: OverResale; x: Relist; r: { f: number; t: number } }) {
+  const tip = `What this order buys resells for less than it costs you.\n\n`
+    + `• Listed where a listing sells now, ${isk(u.resale)}, a unit gets ${isk(Math.round(u.resale * (1 - r.f - r.t)))} after the broker fee and sales tax\n`
+    + `• Bought at ${isk(x.price)}, it costs ${isk(Math.round(x.price * (1 + r.f) + u.paid))} with the broker fee${u.paid > 0 ? ` and the ${iskBig(Math.round(u.paid))} a unit already paid to change its price` : ''}: ${(-u.ret * 100).toFixed(1)}% lost on each\n`
+    + `• It breaks even at a bid of ${isk(u.breakEven)}\n\n`
+    + `Consider lowering it or cancelling it: every unit it buys at this price loses.`;
+  return (
+    <span className="sub" tabIndex={0} style={{ color: 'var(--neg)', fontWeight: 600 }} data-tip-title="Pays more than it resells for" data-tip={tip}>
+      Pays more than it resells for: breaks even at {isk(u.breakEven)}
+    </span>
+  );
+}
+
+/** The plan this order's item belongs to (`planTargets`): its name, and the prices and return it was priced at. */
+function PlanChip({ x, plan }: { x: Relist; plan?: TradePlan }) {
+  const p = x.plan!;
+  const tip = `Part of a plan you started${plan ? ` on ${new Date(plan.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}, while its position is open.\n\n`
+    + `• The plan bids ${isk(p.buyAt)} and sells at ${isk(p.sellAt)}: ${(p.expected * 100).toFixed(1)}% after fees\n`
+    + (x.isBuy
+      ? `• A raise must still leave ${PLAN_KEEP_SAID} of that, ${(Math.max(0, p.expected * PLAN_KEEP) * 100).toFixed(1)}%, selling on at the plan’s price or where a listing sells now, whichever is lower; otherwise it says Keep it`
+      : '• A move is never told to sell under what the stock cost you; one under the plan’s price says so');
+  return (
+    <span className="sub" style={{ marginTop: 2 }}>
+      <span className="flag plain" tabIndex={0} data-tip-title={plan?.name ?? 'A plan'} data-tip={tip} style={cssVars({ '--c': 'var(--acc)', fontSize: 10, padding: '1px 6px' })}>
+        <ClipboardList aria-hidden="true" />Plan
+      </span>
     </span>
   );
 }

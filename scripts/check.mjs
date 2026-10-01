@@ -3715,6 +3715,114 @@ console.log('\n--- a busy market\'s raises are kept back ---');
   eq('  before the return filter', judgeProspect(st, book, S, { ...fl, minRoi: roiFree - (short.roi - p.roi) / 2 }, 40, false, { flow: busy }), null);
 }
 
+console.log('\n--- an order knows its plan, and a buy is never raised into a loss (Praxis, 30 September 2026) ---');
+{
+  const fs4 = await import('node:fs');
+  const fx = JSON.parse(fs4.readFileSync(new URL('./fixtures/plan-review.json', import.meta.url), 'utf8'));
+  const { planTargets } = await import('../src/lib/plans.ts');
+  const { judgeOrder: judgeOne, PLAN_KEEP, paidPerUnit } = await import('../src/lib/relist.ts');
+  const { recentRange } = await import('../src/lib/fills.ts');
+  const { sanitizeSettings, rates } = await import('../src/lib/fees.ts');
+  const { orderFindings } = await import('../src/lib/alerts.ts');
+  const { priceDown } = await import('../src/lib/tick.ts');
+  const M = 1e6;
+  // The user's settings (the synced document): broker 1.25% from skills and standings, tax 3.375%, wait 3 hours.
+  const S = sanitizeSettings({ acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, tycoon: 0, clone: 'omega', faction: 3.6289558729999998, corp: 7.039647095, taxBase: 7.5, override: false, target: 5, share: 7.5, waitHours: 3 });
+  const r = rates(S);
+  const PX = 47466, KEY = 89156, ID = 7433389018, JITA = 60003760;
+  const plan = { id: 'mundr0gwk1vekg', name: '30 Sept · 991.64 M ISK in 4 items', at: '2026-09-30T00:41:37.568Z', isk: 991640000, horizonDays: 7, patient: false, items: [
+    { typeId: KEY, buyAt: 24.96 * M, units: 16, sellAt: 35.99 * M, positionId: 'mundijzchrgwxh' },
+    { typeId: PX, buyAt: 206.3 * M, units: 1, sellAt: 226 * M, positionId: 'mundr0gxt6lx47' },
+  ] };
+  const positions = [{ id: 'mundijzchrgwxh', typeId: KEY, status: 'open' }, { id: 'mundr0gxt6lx47', typeId: PX, status: 'open' }];
+  const targets = planTargets([plan], positions, r);
+  eq('the plan expected 3.2% on Praxis at its own prices, after the broker fee both ways and tax', [targets[PX].planId, Math.round(targets[PX].expected * 1000) / 10], [plan.id, 3.2]);
+  eq('  a raise must leave half of it', PLAN_KEEP, 0.5);
+  // The plan's position closed, or deleted, or the item in a newer plan sharing its position: judged by no plan, or the newer.
+  eq('a plan whose position closed applies to nothing', planTargets([plan], [positions[0], { ...positions[1], status: 'closed' }], r)[PX], undefined);
+  eq('  nor one whose position was deleted', planTargets([plan], [positions[0]], r)[PX], undefined);
+  eq('  nor a position that follows another item', planTargets([plan], [positions[0], { ...positions[1], typeId: 34 }], r)[PX], undefined);
+  const newer = { ...plan, id: 'later', at: '2026-10-02T00:00:00Z', items: [{ ...plan.items[1], buyAt: 200 * M, sellAt: 230 * M }] };
+  eq('  two plans on one open position: the newer one\'s prices, whatever order they come in', [planTargets([plan, newer], positions, r)[PX].planId, planTargets([newer, plan], positions, r)[PX].sellAt], ['later', 230 * M]);
+  eq('  the older plan still holds its other item', planTargets([plan, newer], positions, r)[KEY].planId, plan.id);
+
+  // Praxis's versions as the cloud kept them: placed at 206.3 M at 00:42, raised to 206.7 M at 08:39 and 207.1 M at
+  // 11:22. Each change cost k on its price (516,890 and 517,890) plus the broker fee on the increase (the journal:
+  // 521,891 and 522,892), which a bid's own broker fee at its present price already counts.
+  const v = [
+    { issued: '2026-09-30T00:42:35Z', price: 206.3 * M, remain: 1 },
+    { issued: '2026-09-30T08:39:24Z', price: 206.7 * M, remain: 1 },
+    { issued: '2026-09-30T11:22:15Z', price: 207.1 * M, remain: 1 },
+  ];
+  eq('the price changes paid so far, per unit left', paidPerUnit(v, r.k), r.k * (206.7 * M + 207.1 * M));
+  eq('  none for an order never changed', paidPerUnit(v.slice(0, 1), r.k), 0);
+  const order = (versions) => ({ orderId: ID, typeId: PX, isBuy: true, price: versions.at(-1).price, volumeTotal: 1, volumeRemain: 1, issued: versions.at(-1).issued, state: 'open', locationId: JITA, seen: versions });
+  // Its book: a rival bid over it, the cheapest listing, a lowball bid and listings further up; ~10 a day sold into bids.
+  const book = (mine, rival, rivalUnits, ask) => [
+    { id: ID, isBuy: true, price: mine, volume: 1 }, { id: 1, isBuy: true, price: rival, volume: rivalUnits }, { id: 2, isBuy: true, price: 200 * M, volume: 5 },
+    { id: 3, isBuy: false, price: ask, volume: 2 }, { id: 4, isBuy: false, price: 230 * M, volume: 10 },
+  ];
+  const at2 = Date.parse('2026-09-30T11:20:00Z'), at3 = Date.parse('2026-09-30T22:49:00Z');
+  const range = recentRange(fx[PX].rows, 14, at3);
+  const judge = (o, b, pl, now, extra = {}) => judgeOne(o, { book: b, perDay: 10, lows: range.lows, highs: range.highs, txs: [], yours: [ID], plan: pl, ...extra }, S, now);
+
+  // The second raise: 206.7 M beaten by 2 at 207.0 M, listings selling at 225.6 M. Raising to 207.1 M leaves 2.1%, over half.
+  const x2 = judge(order(v.slice(0, 2)), book(206.7 * M, 207 * M, 2, 225.7 * M), targets[PX], at2);
+  eq('the second raise, to 207.1 M with listings at 225.6 M, still stands: 2.1% after fees, over half the plan\'s 3.2%', [x2.verdict, x2.newPrice, x2.keep, x2.plan?.planId], ['move', 207.1 * M, undefined, plan.id]);
+
+  // The third: 207.1 M beaten by 4 at 208.3 M, listings at 224.9 M. Raising to 208.4 M, with three changes paid, leaves 0.9%.
+  const b3 = book(207.1 * M, 208.3 * M, 4, 225 * M);
+  const x3 = judge(order(v), b3, targets[PX], at3);
+  eq('the third raise, to 208.4 M with listings at 224.9 M, is refused: keep it', [x3.verdict, x3.keep?.at, x3.keep?.resale, x3.keep?.from, Math.round(x3.keep?.ret * 1000) / 10, Math.round(x3.keep?.floor * 1000) / 10], ['loss', 208.4 * M, 224.9 * M, 'market', 0.9, 1.6]);
+  eq('  said in order: don\'t raise, what raising leaves against what the plan expected, keep it at 207.1 M', x3.why,
+    'Don’t raise it: at 208,400,000 it would make 0.9% after fees, counting the 1.03 M ISK already paid to change its price, selling on at 224,900,000 (where a listing sells now), under half the 3.2% the plan expected. Keep it at 207,100,000');
+  eq('  and it isn\'t mailed: no "move" finding', orderFindings([x3], () => 'Praxis').length, 0);
+  // The same order with no plan is guarded at break-even only: 0.9% is a profit, so the raise stands.
+  const free = judge(order(v), b3, null, at3);
+  eq('a buy with no plan is guarded at break-even only', [free.verdict, free.newPrice, free.keep, free.plan], ['move', 208.4 * M, undefined, undefined]);
+  const loses = judge(order(v), book(207.1 * M, 208.3 * M, 4, 219 * M), null, at3);
+  eq('  and refused where the raise would lose', [loses.verdict, loses.keep?.from], ['loss', 'market']);
+  has('  saying so', loses.why, 'it would lose ');
+  eq('  never with the plan\'s words', loses.why.includes('plan'), false);
+  // The plan's sale price is lower than where a listing sells now: the plan's is what the raise is judged at.
+  const lowPlan = judge(order(v), b3, { ...targets[PX], sellAt: 220 * M }, at3);
+  eq('a plan selling lower than the market is judged at its own price', [lowPlan.verdict, lowPlan.keep?.resale, lowPlan.keep?.from], ['loss', 220 * M, 'plan']);
+  has('  and says so', lowPlan.why, 'selling on at 220,000,000 (the plan’s price)');
+  // A plan whose position closed: the order is judged as any buy.
+  const closed = planTargets([plan], [{ ...positions[1], status: 'closed' }], r)[PX];
+  eq('a plan whose position closed isn\'t applied to its order', judge(order(v), b3, closed, at3).verdict, 'move');
+  // One you're leaving isn't told to move, or kept: it waits, as before.
+  eq('a plan buy you\'re leaving waits, as before', [judge(order(v), b3, targets[PX], at3, { leave: true }).verdict, judge(order(v), b3, targets[PX], at3, { leave: true }).keep], ['wait', undefined]);
+
+  // A buy whose own price already costs more than its resale pays back.
+  eq('a buy that resells for more is not flagged', x3.overResale, undefined);
+  const over = judge(order(v), book(207.1 * M, 208.3 * M, 4, 218 * M), null, at3);
+  const net = 217.9 * M * (1 - r.f - r.t), paid = r.k * (206.7 * M + 207.1 * M);
+  eq('a buy whose price already returns under break-even at the resale is flagged, with the bid that breaks even',
+    [over.overResale?.resale, over.overResale?.breakEven, Math.round(over.overResale?.ret * 1000) / 10], [217.9 * M, priceDown((net - paid) / (1 + r.f)), Math.round((net / (207.1 * M * (1 + r.f) + paid) - 1) * 1000) / 10]);
+  eq('  a sell never is', judge({ ...order(v), isBuy: false }, b3, null, at3).overResale, undefined);
+
+  // A buy with no plan and no history (a new item): the book alone, and nothing it can't support.
+  const bare = (b) => judgeOne(order(v), { book: b, perDay: 10, lows: null, highs: null, txs: [], yours: [ID] }, S, at3);
+  eq('no history: priced one step under the cheapest listing, the book alone', [bare(b3).verdict, bare(book(207.1 * M, 208.3 * M, 4, 219 * M)).verdict], ['move', 'loss']);
+  const noAsks = bare(b3.filter((b) => b.isBuy));
+  eq('  no listings either: no guard, no flag, the queue decides', [noAsks.verdict, noAsks.keep, noAsks.overResale], ['move', undefined, undefined]);
+
+  // A plan's sell told to go under the plan's price says what the plan expected; the guard is still its cost.
+  const sellO = { orderId: 99, typeId: PX, isBuy: false, price: 226 * M, volumeTotal: 1, volumeRemain: 1, issued: '2026-10-01T10:49:35Z', state: 'open', locationId: JITA, seen: [{ issued: '2026-10-01T10:49:35Z', price: 226 * M, remain: 1 }] };
+  const sBook = [{ id: 99, isBuy: false, price: 226 * M, volume: 1 }, { id: 5, isBuy: false, price: 221.9 * M, volume: 40 }, { id: 6, isBuy: true, price: 207.9 * M, volume: 1 }];
+  const sell1 = judgeOne(sellO, { book: sBook, perDay: 10, avgCost: 208.4 * M, lows: range.lows, highs: range.highs, txs: [], yours: [99], plan: targets[PX] }, S, at3);
+  eq('a plan\'s sell moved under its price', [sell1.verdict, sell1.newPrice], ['move', 221.8 * M]);
+  has('  says what the plan expected', sell1.why, 'The plan expected to sell at 226,000,000');
+  const sell2 = judgeOne(sellO, { book: sBook, perDay: 10, avgCost: 225 * M, lows: range.lows, highs: range.highs, txs: [], yours: [99], plan: targets[PX] }, S, at3);
+  eq('  and under its cost is still not worth it', [sell2.verdict, sell2.keep], ['loss', undefined]);
+  has('  saying both', sell2.why, 'under what the stock cost you. The plan expected to sell at 226,000,000');
+
+  // To do: a move ticked off because a raise would no longer pay says what the guard said.
+  const e = { item: { key: `order:${ID}`, kind: 'move', price: 207.1 * M }, seenAt: at3 - 600_000, lastAt: at3 - 600_000 };
+  eq('To do: a move that now would raise into a loss is ticked off saying keep it', judgeOrder(e, { open: true, checkedAt: at3, bookRead: true, v: x3 }), `${x3.why}.`);
+}
+
 console.log('\n--- the sniper ---');
 {
   const Sn = await import('../src/lib/snipe.ts');
