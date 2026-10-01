@@ -168,9 +168,12 @@ export function readCorp(char: { corporation_id?: number } | null | undefined, c
 /** A tax rate as the game shows it: "11%", "0%", "7.5%". */
 export const taxPct = (rate: number) => `${Math.round(rate * 1000) / 10}%`;
 
+/** A name's possessive: "TEMP TAX HAVEN’s", but "Caldari Provisions’", not "Provisions’s". */
+export const possessive = (name: string) => (/s$/i.test(name.trim()) ? `${name.trim()}’` : `${name.trim()}’s`);
+
 /** What the finder's profit is after, in words: "after TEMP TAX HAVEN’s 0% tax", or that the rate isn't known yet. */
 export const afterTax = (corp: Pick<CorpTax, 'name' | 'taxRate'> | null | undefined) =>
-  corp ? `after ${corp.name}’s ${taxPct(corp.taxRate)} tax` : 'before tax: your corporation’s tax not read yet';
+  corp ? `after ${possessive(corp.name)} ${taxPct(corp.taxRate)} tax` : 'before tax: your corporation’s tax not read yet';
 
 /** A job's office as the tab judges it: where it is, whether ESI would describe it, and how it's reached from Jita. */
 export type Office = {
@@ -323,13 +326,17 @@ export function withRead(cur: { at: string; jobs: JoinedJob[]; corps?: CorpSpan[
 }
 
 /**
- * When a job stopped taking deliveries: when it finished; else, for a job done whose finish wasn't read (one kept before
- * it was), when it expired; else not yet.
+ * When a job stopped taking deliveries: when it finished, else when it expires, whatever its state: a job kept as Active
+ * that ESI then stopped describing would otherwise stay open for good, and every later purchase of its items be its. A
+ * running job's expiry is ahead, so nothing changes for it.
  */
-export function jobEnd(j: { finished?: string | null; expires?: string | null; state?: string }): number {
+export function jobEnd(j: { finished?: string | null; expires?: string | null }): number {
   if (j.finished) return Date.parse(j.finished);
-  return j.state !== 'Active' && j.expires ? Date.parse(j.expires) : Infinity;
+  return j.expires ? Date.parse(j.expires) : Infinity;
 }
+
+/** Still taking deliveries at `now`: Active, not finished, and not past its expiry. */
+export const isRunning = (j: Pick<JoinedJob, 'state' | 'finished' | 'expires'>, now: number) => j.state === 'Active' && !j.finished && !(j.expires && Date.parse(j.expires) <= now);
 
 /**
  * A trade for one of your freelance jobs: an item a job you took part in takes, traded while it ran (from its start to
@@ -409,6 +416,11 @@ export type RewardRead = {
   /** The corporation a worked-out rate is that of. */
   corp?: string;
   /**
+   * The tax your journal gave, when (amount + it) isn't a whole number of units at the job's rate to the cent: what ESI's
+   * `tax` means on a freelance reward hasn't been seen, so a figure that doesn't fit is set aside, not trusted.
+   */
+  journalTax?: number;
+  /**
    * Why its units aren't known: the job's rate a unit isn't (`rate`), no corporation history covers it (`history`), or
    * it's a whole number of units at none, or at more than one, of the rates you may have paid (`fits`).
    */
@@ -424,7 +436,9 @@ function wholeUnits(amount: number, net: number, most: number): number | null {
 }
 
 /**
- * What one reward paid for. With ESI's `tax` on the entry, exact: the units are (amount + tax) ÷ the job's rate. Without
+ * What one reward paid for. With ESI's `tax` on the entry: the units are (amount + tax) ÷ the job's rate, when that comes
+ * out whole to the cent (and within everyone's deliveries to a finished job); what `tax` means on a freelance reward hasn't
+ * been seen, so a figure that doesn't fit is set aside (`journalTax`) and the reward read as if it weren't there. Without
  * it (an entry stored before the tax was kept and older than ESI's 30 days, or ESI not giving one), the rate is never
  * assumed: arithmetic alone can't tell, since 593,096,000 is a whole number of units at 0%, 2%, 11%, 20% and more (at 17
  * a unit), and even 255,106,158.37 is at 11%, 39% and 51%. So it's worked out only from the corporation ESI's history
@@ -433,18 +447,23 @@ function wholeUnits(amount: number, net: number, most: number): number | null {
  * leave it not recorded.
  */
 export function readReward(e: { id?: string; date: string; amount: number; tax?: number }, job: JoinedJob, spans: CorpSpan[]): RewardRead {
-  const base = { ...(e.id ? { id: e.id } : {}), at: e.date, amount: e.amount };
   const per = job.perUnit;
-  if (e.tax != null && Number.isFinite(e.tax)) {
-    const tax = Math.abs(e.tax), gross = e.amount + tax;
-    return { ...base, tax, rate: gross > 0 ? tax / gross : null, how: 'esi', units: per > 0 ? Math.round(gross / per) : null, ...(per > 0 ? {} : { why: 'rate' as const }) };
+  // A finished job's deliveries from everyone bound yours.
+  const most = job.state !== 'Active' && job.progress ? job.progress.current : Infinity;
+  const hasTax = e.tax != null && Number.isFinite(e.tax);
+  const base = { ...(e.id ? { id: e.id } : {}), at: e.date, amount: e.amount };
+  if (hasTax && !(per > 0)) return { ...base, tax: Math.abs(e.tax!), rate: e.amount + Math.abs(e.tax!) > 0 ? Math.abs(e.tax!) / (e.amount + Math.abs(e.tax!)) : null, how: 'esi', units: null, why: 'rate' };
+  if (hasTax) {
+    const tax = Math.abs(e.tax!), gross = e.amount + tax;
+    const units = wholeUnits(gross, per, most);
+    if (units != null) return { ...base, tax, rate: gross > 0 ? tax / gross : null, how: 'esi', units };
+    // It doesn't come out whole: set aside, and worked out as if the journal hadn't given it.
+    return { ...readReward({ ...e, tax: undefined }, job, spans), journalTax: tax };
   }
   const none = { units: null, tax: null, rate: null, how: null };
   if (!(per > 0)) return { ...base, ...none, why: 'rate' };
   const may = corpsAt(spans, Date.parse(e.date));
   if (!may.length || may.some((c) => c.taxRate == null)) return { ...base, ...none, why: 'history' };
-  // A finished job's deliveries from everyone bound yours.
-  const most = job.state !== 'Active' && job.progress ? job.progress.current : Infinity;
   const fits = new Map<number, { units: number; corp: CorpSpan }>();
   for (const c of may) {
     const u = wholeUnits(e.amount, per * (1 - c.taxRate!), most);
@@ -473,8 +492,13 @@ export type JobRow = {
   fromBought: number; cost: number; low: number | null; high: number | null; fromStock: number;
   /** Bought while it ran and not delivered or sold: units and what they cost. */
   held: number; heldCost: number;
-  /** Sold again: units, what they fetched after sales tax, and what they cost. */
+  /** Sold again: units of what was bought for it, what they fetched after sales tax, and what they cost. */
   sold: number; revenue: number; soldCost: number;
+  /**
+   * Sold while it ran with nothing bought for a job behind them (mined, contracted, looted): units and what they fetched,
+   * left out of the profit and said apart, as on Positions, never costed at 0.
+   */
+  soldOther: number; soldOtherRevenue: number;
   /** The rewards, less what the delivered units you bought cost, plus what selling them again made. Null while delivered isn't known. */
   profit: number | null;
   /** A job taking the same items has a reward whose units aren't known, so which purchases were whose may be off. */
@@ -507,8 +531,14 @@ const idOrder = (a: string, b: string) => a.length - b.length || (a < b ? -1 : a
  * deliveries, went straight onto a sell order at 21.96 (order 7432972978, 12:03:46, still open in full) and was never
  * delivered. First in, first out would have delivered it into the 1 October rewards and left cheaper units over. Units a
  * delivery needs beyond what's left to take came from stock you didn't buy for it, and are said apart, never costed at
- * 0. What's bought and not delivered stays with the job paid next after it (else the latest begun that could take it);
- * a sale takes from the purchases of its own item, for the latest-begun job running then. Trades in `skip` (a position
+ * 0. What's bought and not delivered stays with the job paid next after it (else the latest begun that could take it).
+ * A sale takes what was left behind, oldest first, of its own item bought before it, each unit counted for the job that
+ * purchase was left with: so a leftover sold during a later job (the 21.96 lot's sell order filling during a Buy Back) is
+ * the earlier job's, and doesn't eat the later job's fresh purchases. It first took the newest purchases since the
+ * latest-begun job began, which charged that leftover to the Buy Back and called its own 20,000,000 "stock you didn't
+ * buy". A sale after every job of its item finished still takes leftovers (the sell order filling next week leaves
+ * nothing over). Units sold while a job ran with nothing bought behind them are said apart and left out of its profit:
+ * costed at 0, 5,000,000 mined Veldspar sold during the Veldspar job added 35.75 M to it. Trades in `skip` (a position
  * counts them, or you tagged them) are no job's, as on the Wallet. Pure.
  */
 export function jobHistory(inp: {
@@ -517,6 +547,8 @@ export function jobHistory(inp: {
   txs: Tx[]; skip: ReadonlySet<string>; corps?: CorpSpan[];
   /** Your sales tax rate, for a sale whose tax the journal doesn't show. */
   salesTax?: number;
+  /** For which jobs still run (sorted first); now, unless given. */
+  now?: number;
 }): { rows: JobRow[]; total: HistoryTotal } {
   const byId = new Map(inp.jobs.map((j) => [j.id, j]));
   const rewards = new Map<string, RewardRead[]>();
@@ -540,10 +572,12 @@ export function jobHistory(inp: {
   type Lot = { id: string; t: number; typeId: number; price: number; left: number };
   const lots: Lot[] = [];
   const sales: Tx[] = [];
+  const anyTakes = new Set(takes.flatMap((j) => j.types));
   for (const tx of inp.txs) {
-    if (inp.skip.has(tx.id) || !isFreelanceTrade(takes, tx)) continue;
-    if (tx.isBuy) lots.push({ id: tx.id, t: Date.parse(tx.date), typeId: tx.typeId, price: tx.unitPrice, left: tx.qty });
-    else sales.push(tx);
+    if (inp.skip.has(tx.id)) continue;
+    if (tx.isBuy) { if (isFreelanceTrade(takes, tx)) lots.push({ id: tx.id, t: Date.parse(tx.date), typeId: tx.typeId, price: tx.unitPrice, left: tx.qty }); }
+    // A sale of a job's item, in a job's window or after: it may sell what was left over.
+    else if (anyTakes.has(tx.typeId)) sales.push(tx);
   }
   lots.sort((a, b) => a.t - b.t || idOrder(a.id, b.id));
   /** The newest purchases first, up to `want`, of those `ok` lets a use at `t` take. */
@@ -567,29 +601,42 @@ export function jobHistory(inp: {
       job: j, rewards: rs, received: rs.reduce((s, r) => s + r.amount, 0),
       tax: cents(rs.reduce((s, r) => s + (r.tax ?? 0), 0)), taxUnknown: rs.filter((r) => r.tax == null).length,
       delivered: unknownUnits ? null : rs.reduce((s, r) => s + (r.units ?? 0), 0),
-      fromBought: 0, cost: 0, low: null, high: null, fromStock: 0, held: 0, heldCost: 0, sold: 0, revenue: 0, soldCost: 0, profit: null, unsure: false,
+      fromBought: 0, cost: 0, low: null, high: null, fromStock: 0, held: 0, heldCost: 0, sold: 0, revenue: 0, soldCost: 0, soldOther: 0, soldOtherRevenue: 0, profit: null, unsure: false,
       at: j.finished ? Date.parse(j.finished) : rs.length ? Date.parse(rs[rs.length - 1].at) : j.created ? Date.parse(j.created) : 0,
     });
   }
+
+  // Which job a purchase is left with when nothing takes it: the job paid next after it, else the latest begun that could.
+  const nextPaid = (j: JoinedJob, t: number) => (rewards.get(j.id) ?? []).map((r) => Date.parse(r.at)).filter((x) => x >= t).sort((a, b) => a - b)[0] ?? Infinity;
+  const ownerOf = (l: Lot) => takes.filter((j) => j.types.includes(l.typeId) && inWindow(j, l.t))
+    .sort((a, b) => nextPaid(a, l.t) - nextPaid(b, l.t) || began(b) - began(a))[0] ?? null;
 
   // Deliveries and sales in the order they happened (a sale first within a second).
   type Use = { t: number; job: JoinedJob; units: number } | { t: number; sale: Tx };
   const uses: Use[] = [];
   for (const j of takes) for (const r of rewards.get(j.id) ?? []) if (r.units != null && r.units > 0) uses.push({ t: Date.parse(r.at), job: j, units: r.units });
-  for (const s of sales) {
-    const t = Date.parse(s.date);
-    const j = takes.filter((x) => x.types.includes(s.typeId) && inWindow(x, t)).sort((a, b) => began(b) - began(a))[0];
-    if (j) uses.push({ t, sale: s });
-  }
+  for (const s of sales) uses.push({ t: Date.parse(s.date), sale: s });
   uses.sort((a, b) => a.t - b.t || ('sale' in a ? 0 : 1) - ('sale' in b ? 0 : 1));
   for (const u of uses) {
     if ('sale' in u) {
       const s = u.sale;
-      const j = takes.filter((x) => x.types.includes(s.typeId) && inWindow(x, u.t)).sort((a, b) => began(b) - began(a))[0];
-      const row = rowOf.get(j.id)!;
-      const d = draw(u.t, (l) => l.typeId === s.typeId && l.t >= began(j), s.qty);
       const gross = s.qty * s.unitPrice;
-      row.sold += s.qty; row.revenue += gross - (taxOf.get(s.id) ?? gross * (inp.salesTax ?? 0)); row.soldCost += d.cost;
+      const each = (gross - (taxOf.get(s.id) ?? gross * (inp.salesTax ?? 0))) / s.qty;
+      let left = s.qty;
+      // What was left behind, oldest first, each unit for the job its purchase was left with.
+      for (const l of lots) {
+        if (left <= 0 || l.t > u.t) break;
+        if (l.left <= 0 || l.typeId !== s.typeId) continue;
+        const owner = ownerOf(l);
+        if (!owner) continue;
+        const take = Math.min(l.left, left);
+        l.left -= take; left -= take;
+        const row = rowOf.get(owner.id)!;
+        row.sold += take; row.revenue += take * each; row.soldCost += take * l.price;
+      }
+      // The rest wasn't bought for a job: said apart on the job running then, out of its profit; after every job, no job's.
+      const j = left > 0 ? takes.filter((x) => x.types.includes(s.typeId) && inWindow(x, u.t)).sort((a, b) => began(b) - began(a))[0] : null;
+      if (j) { const row = rowOf.get(j.id)!; row.soldOther += left; row.soldOtherRevenue += left * each; }
       continue;
     }
     const row = rowOf.get(u.job.id)!;
@@ -599,11 +646,9 @@ export function jobHistory(inp: {
   }
 
   // What's left over stays with the job paid next after it was bought, else the latest begun that could take it.
-  const nextPaid = (j: JoinedJob, t: number) => (rewards.get(j.id) ?? []).map((r) => Date.parse(r.at)).filter((x) => x >= t).sort((a, b) => a - b)[0] ?? Infinity;
   for (const l of lots) {
     if (l.left <= 0) continue;
-    const could = takes.filter((j) => j.types.includes(l.typeId) && inWindow(j, l.t));
-    const j = could.sort((a, b) => nextPaid(a, l.t) - nextPaid(b, l.t) || began(b) - began(a))[0];
+    const j = ownerOf(l);
     if (!j) continue;
     const row = rowOf.get(j.id)!;
     row.held += l.left; row.heldCost += l.left * l.price;
@@ -611,13 +656,15 @@ export function jobHistory(inp: {
 
   const unknownTypes = new Set(takes.filter((j) => rowOf.get(j.id)!.delivered == null).flatMap((j) => j.types));
   for (const row of rowOf.values()) {
-    row.cost = cents(row.cost); row.heldCost = cents(row.heldCost); row.revenue = cents(row.revenue); row.soldCost = cents(row.soldCost);
+    row.cost = cents(row.cost); row.heldCost = cents(row.heldCost); row.revenue = cents(row.revenue); row.soldCost = cents(row.soldCost); row.soldOtherRevenue = cents(row.soldOtherRevenue);
     row.unsure = row.delivered != null && row.job.types.some((t) => unknownTypes.has(t));
     row.profit = row.delivered == null ? null : cents(row.received - row.cost + row.revenue - row.soldCost);
   }
   // A job kept before `joined` was (always from the joined list) counts as joined.
-  const rows = [...rowOf.values()].filter((r) => r.rewards.length > 0 || r.job.joined !== false || r.held > 0 || r.sold > 0)
-    .sort((a, b) => (a.job.state === 'Active' ? 0 : 1) - (b.job.state === 'Active' ? 0 : 1) || b.at - a.at || a.job.name.localeCompare(b.job.name));
+  const now = inp.now ?? Date.now();
+  const running = (r: JobRow) => (isRunning(r.job, now) ? 0 : 1);
+  const rows = [...rowOf.values()].filter((r) => r.rewards.length > 0 || r.job.joined !== false || r.held > 0 || r.sold > 0 || r.soldOther > 0)
+    .sort((a, b) => running(a) - running(b) || b.at - a.at || a.job.name.localeCompare(b.job.name));
   const sum = (f: (r: JobRow) => number) => rows.reduce((s, r) => s + f(r), 0);
   const known = (f: (r: JobRow) => number) => (r: JobRow) => (r.delivered == null ? 0 : f(r));
   const total: HistoryTotal = {

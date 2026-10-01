@@ -62,7 +62,9 @@ export function activityEvents(d: Data, sets: TypeSets | null, failed: boolean, 
     .map((k) => ({ t: Date.parse(k.time), activity: LOSS_ACTIVITY[lossActs[k.id]], isk: netLoss(k) }));
   const jobs = d.meta.freelance?.jobs ?? [];
   const personal = new Set(d.ignored);
-  const freelance = (tx: { id: string; typeId: number; date: string }) => !personal.has(tx.id) && isFreelanceTrade(jobs, tx);
+  // As on the Wallet: a trade you tagged (or marked Personal) is no job's, whatever its item.
+  const tags = d.tags ?? {};
+  const freelance = (tx: { id: string; typeId: number; date: string }) => !personal.has(tx.id) && !(tx.id in tags) && isFreelanceTrade(jobs, tx);
   const inp = { txs, journal: Object.values(nettedJournal(d.journal)), tracked, realized, losses, sets: { ...have, abyssLoot }, freelance, salesTax: rates(d.settings).t, ...(mine ? { mine } : {}) };
   if (!sets) return { events: attribute(inp).filter((e) => WITHOUT_SETS.has(e.activity)), others: [], typeSets: null };
   return { events: attribute(inp), others: otherSales(inp, personal), typeSets: inp.sets };

@@ -463,7 +463,8 @@ try {
     const journal = Object.fromEntries([...fx.journal, { id: '26090000001', date: '2026-09-28T08:00:00Z', refType: 'freelance_jobs_reward', amount: 5_000_000, balance: 1e9,
       firstPartyId: 1000413, secondPartyId: 95210486, description: '-', reason: `project_id=${GONE}:project_name=Old \\u2713 job` }].map((e) => [e.id, e]));
     const ledger = {
-      txs: Object.fromEntries(fx.txs.map((t) => [t.id, t])), journal,
+      // And 5,000,000 Veldspar not bought (mined, or contracted from the alt) sold during the Veldspar job: said apart.
+      txs: Object.fromEntries([...fx.txs, { id: '6880000001', source: 'esi', typeId: 92372, date: '2026-09-20T12:00:00Z', isBuy: false, qty: 5_000_000, unitPrice: 7.15, locationId: 60003760 }].map((t) => [t.id, t])), journal,
       meta: { walletBalance: 1979735843.56, lastSync: new Date(Date.now() - 600_000).toISOString(),
         freelance: { at: '2026-10-01T21:00:00Z', jobs: [], corps: [
           { id: 1000044, name: 'School of Applied Knowledge', start: '2025-05-30T01:17:00Z', taxRate: 0.11 },
@@ -504,8 +505,9 @@ try {
     const text = (await page.locator('.fl-history').innerText().catch(() => '')).replace(/\s+/g, ' ');
     // The six jobs' figures, worked out by hand (scripts/check.mjs), and the job ESI won't describe.
     for (const t of ['Every job you did', '/!\\ Mining Kernite', '..::Buy Back::.. Scordite - all type ✓', 'Galine Bro', '813,258', '17.86 M ISK at cost', '1.01 B ISK', '278.58 M ISK',
-      '993.87 M ISK', '386.31 M ISK', 'worked out', 'Old ✓ job', 'ESI won’t describe it']) if (!text.includes(t)) problems.push(`not drawn: “${t}”`);
-    if (asked < 6) problems.push(`ESI was asked for ${asked} jobs' details, not the seven the journal names`);
+      '993.87 M ISK', '386.31 M ISK', 'worked out', 'Old ✓ job', 'ESI won’t describe it', '5,000,000 sold for', 'that weren’t bought for it: left out of the profit']) if (!text.includes(t)) problems.push(`not drawn: “${t}”`);
+    // A floor: the sync and the tab can both ask; the seventh is the job ESI answers 404 for.
+    if (asked < 7) problems.push(`ESI was asked for ${asked} jobs' details, not the seven the journal names`);
     const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
     if (boundary) problems.push('error boundary');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out: ${o}`);

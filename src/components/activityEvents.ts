@@ -56,7 +56,7 @@ export function useActivityEvents(ledger?: Data, mine?: Set<number>) {
 
   const posCalc = useMemo(() => d.positions.map((p) => ({ p, c: computePosition(p, d, d.settings) })), [d.positions, d.txs, d.journal, d.settings]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const acts = useMemo(() => activityEvents(d, sets, failed, lossActs, posCalc, own), [sets, failed, d.txs, d.journal, d.positions, d.names, d.killmails, lossActs, posCalc, d.settings, d.meta.freelance, d.ignored, own]); // eslint-disable-line react-hooks/exhaustive-deps
+  const acts = useMemo(() => activityEvents(d, sets, failed, lossActs, posCalc, own), [sets, failed, d.txs, d.journal, d.positions, d.names, d.killmails, lossActs, posCalc, d.settings, d.meta.freelance, d.ignored, d.tags, own]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ready = !!sets || failed;
   /**

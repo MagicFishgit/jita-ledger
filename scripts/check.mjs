@@ -3187,7 +3187,7 @@ console.log('\n--- freelance jobs to deliver to ---');
   eq('  a corporation’s rate either way; none given is none, never 0', [corpRate(sak), corpRate(temp), corpRate({ tax_rate: 0.075 }), corpRate({ name: 'X' }), corpRate({ tax_rates: { loyalty_point: 0 } }), corpRate(null)], [0.11, 0, 0.075, null, null, null]);
   eq('  no rate, no corporation or no name: not read, never 0%', [readCorp({ corporation_id: 1 }, { name: 'X', ticker: 'X' }, AT), readCorp(null, { name: 'X', ticker: 'X', tax_rate: 0 }, AT), readCorp({ corporation_id: 1 }, { ticker: 'X', tax_rate: 0 }, AT), readCorp({ corporation_id: 1 }, null, AT)], [null, null, null, null]);
   eq('the rate in words, naming the corporation', [afterTax({ name: 'TEMP TAX HAVEN', taxRate: 0 }), afterTax({ name: 'Caldari Provisions', taxRate: 0.11 }), afterTax(null), afterTax(undefined)],
-    ['after TEMP TAX HAVEN’s 0% tax', 'after Caldari Provisions’s 11% tax', 'before tax: your corporation’s tax not read yet', 'before tax: your corporation’s tax not read yet']);
+    ['after TEMP TAX HAVEN’s 0% tax', 'after Caldari Provisions’ 11% tax', 'before tax: your corporation’s tax not read yet', 'before tax: your corporation’s tax not read yet']);
   eq('  a rate as the game shows it', [taxPct(0.11), taxPct(0), taxPct(0.075), taxPct(0.1)], ['11%', '0%', '7.5%', '10%']);
   const { bestOffice, whereToAccept, FILTER_HIDES } = await import('../src/lib/freelance.ts');
   const O = (id, extra) => ({ id, name: String(id), systemId: 1, security: 0.9, unseen: null, jumps: 5, anyJumps: 5, throughGank: false, aroundExtra: null, ...extra });
@@ -3375,8 +3375,24 @@ console.log('\n--- every freelance job you did (the user’s six, 1 October 2026
   eq('  a reward that fits no rate of the corporation then isn’t forced', readReward({ date: '2026-09-29T11:40:05Z', amount: 255106158.37 }, { ...jobs[0], perUnit: 16 }, spans).why, 'fits');
   eq('  a finished job’s deliveries can’t pass what everyone delivered to it', readReward({ date: '2026-10-01T20:15:31Z', amount: 415_000_000 }, jobs.find((j) => j.id === BB1), spans).why, 'fits');
 
-  // The Wallet: those purchases are freelance; a purchase after its job finished, or before one began, isn't.
   const T = (id, date, typeId = 92374) => ({ id, typeId, date, isBuy: true, qty: 1000, unitPrice: 11.9 });
+  // The journal's tax is checked like a worked-out one: (amount + tax) must be a whole number of units at the job's rate.
+  const isk1 = jobs.find((j) => j.id === ISK);
+  const fit = readReward({ date: '2026-10-01T10:12:08Z', amount: 593_096_000, tax: 73_304_000 }, isk1, []);
+  const misfit = readReward({ date: '2026-10-01T10:12:08Z', amount: 593_096_000, tax: 0.11 }, isk1, spans);
+  const misfitNone = readReward({ date: '2026-10-01T10:12:08Z', amount: 593_096_000, tax: 0.11 }, isk1, []);
+  eq('the journal’s tax when it comes out whole: 39,200,000 units from the journal', [fit.how, fit.units, fit.tax], ['esi', 39_200_000, 73_304_000]);
+  eq('  when it doesn’t (a rate, not an amount): set aside, worked out instead, or not recorded with no history', [misfit.how, misfit.units, misfit.journalTax, misfitNone.how, misfitNone.units, misfitNone.journalTax],
+    ['derived', 39_200_000, 0.11, null, null, 0.11]);
+  // A job kept as Active that ESI stopped describing closes at its expiry, not never.
+  const { isRunning } = await import('../src/lib/freelance.ts');
+  const stuck = { ...isk1, state: 'Active', finished: null, expires: '2026-10-05T00:00:00Z' };
+  eq('a job kept as running that ESI stopped describing closes at its expiry', [isFreelanceTrade([stuck], T('x', '2026-10-04T00:00:00Z')), isFreelanceTrade([stuck], T('y', '2026-10-06T00:00:00Z')),
+    isRunning(stuck, Date.parse('2026-10-04T00:00:00Z')), isRunning(stuck, Date.parse('2026-10-06T00:00:00Z'))], [true, false, true, false]);
+  const { possessive } = await import('../src/lib/freelance.ts');
+  eq('a corporation’s possessive', [possessive('Caldari Provisions'), possessive('TEMP TAX HAVEN'), possessive('Mothhat')], ['Caldari Provisions’', 'TEMP TAX HAVEN’s', 'Mothhat’s']);
+
+  // The Wallet: those purchases are freelance; a purchase after its job finished, or before one began, isn't.
   eq('the Wallet’s rule: purchases while a job ran are its, even once it’s finished; after it finished, or before it began, not',
     [isFreelanceTrade(jobs, T('a', '2026-09-29T12:03:02Z')), isFreelanceTrade(jobs, T('b', '2026-10-01T20:30:20Z')), isFreelanceTrade(jobs, T('c', '2026-10-01T21:00:00Z')),
       isFreelanceTrade(jobs, T('d', '2026-09-27T22:22:48Z', 20)), isFreelanceTrade(jobs, T('e', '2026-10-01T10:05:00Z', 92372)), isFreelanceTrade(jobs, T('f', '2026-10-01T09:58:16Z', 92372))],
@@ -3405,12 +3421,26 @@ console.log('\n--- every freelance job you did (the user’s six, 1 October 2026
     ['Old ✓ job', false, 5_000_000, null, null, 'rate', 1, 3_787_583_450.13 + 5_000_000]);
   eq('  nor does one kept as a stub', jobHistory({ jobs: [stubJob(KERN, 'x')], journal: taxed.filter((e) => e.reason.includes(KERN)), txs: F.txs, skip }).rows.map((r) => [r.received, r.tax, r.delivered, r.held]), [[712_000_000, 88_000_000, null, 0]]);
 
-  // A sale of something bought for a job: from its own item's purchases, for the latest-begun job running then.
+  // A sale takes what was left over, oldest first, for the job that purchase was left with: the 813,258 at 21.96 is ISK
+  // Scordite's, whichever job runs when its sell order (7432972978) fills.
   const sale = { id: 's1', typeId: 92374, date: '2026-09-30T12:00:00Z', isBuy: false, qty: 813_258, unitPrice: 21.9 };
   const sold = jobHistory({ jobs, journal: [...taxed, { date: sale.date, refType: 'transaction_tax', amount: -600_000, contextId: 's1' }], txs: [...F.txs, sale], skip });
-  const m = sold.rows.find((r) => r.job.id === MOTH);
-  eq('  sold again: what it fetched after the journal’s tax, less what it cost, in that job’s profit', [m.sold, m.revenue, m.soldCost, m.profit, sold.total.held],
-    [813_258, Math.round((813_258 * 21.9 - 600_000) * 100) / 100, 17_859_145.68, Math.round((52_117_599.8 + 813_258 * 21.9 - 600_000 - 17_859_145.68) * 100) / 100, 0]);
+  const si = sold.rows.find((r) => r.job.id === ISK);
+  const fetched = Math.round((813_258 * 21.9 - 600_000) * 100) / 100;
+  eq('  sold again: what it fetched after the journal’s tax, less what it cost, in the profit of the job it was bought for', [si.sold, si.revenue, si.soldCost, si.held, si.profit, sold.rows.find((r) => r.job.id === MOTH).profit],
+    [813_258, fetched, 17_859_145.68, 0, Math.round((278_582_468.32 + fetched - 17_859_145.68) * 100) / 100, 52_117_599.8]);
+  // The review's reproductions (final-review.md, I1): the sell order filling at 20:10 on 1 October, during the first Buy Back.
+  const fill = { id: 's2', typeId: 92374, date: '2026-10-01T20:10:00Z', isBuy: false, qty: 813_258, unitPrice: 21.96 };
+  const during = jobHistory({ jobs, journal: taxed, txs: [...F.txs, fill], skip });
+  const bb = during.rows.find((r) => r.job.id === BB1), isk2 = during.rows.find((r) => r.job.id === ISK);
+  eq('  a leftover sold during a later job stays the earlier job’s: the Buy Back keeps its own purchases and profit', [bb.profit, bb.fromStock, bb.sold, isk2.sold, isk2.held],
+    [93_852_835.99, 0, 0, 813_258, 0]);
+  eq('  and after every Scordite job finished, the sale still clears it: nothing left over', jobHistory({ jobs, journal: taxed, txs: [...F.txs, { ...fill, id: 's3', date: '2026-10-02T09:00:00Z' }], skip }).total.held, 0);
+  // 5,000,000 Veldspar not bought (mined, or contracted from the alt) sold on 20 September, while the Veldspar job ran.
+  const mine = { id: 's4', typeId: 92372, date: '2026-09-20T12:00:00Z', isBuy: false, qty: 5_000_000, unitPrice: 7.15 };
+  const v = jobHistory({ jobs, journal: taxed, txs: [...F.txs, mine], skip }).rows.find((r) => r.job.id === VELD);
+  eq('  units sold while a job ran that weren’t bought for it: said apart, out of its profit, never costed at 0', [v.profit, v.sold, v.soldOther, v.soldOtherRevenue],
+    [136_748_854.74, 0, 5_000_000, 35_750_000]);
 
   // Kept: nothing dropped, and a job ESI won't describe this time keeps what was read before.
   const merged = mergeJobs(jobs.slice(0, 3), [stubJob(ISK, 'x'), jobs[3]]);
@@ -4547,6 +4577,11 @@ console.log('\n--- what a ledger earned (income.ts) ---');
   eq('  without the item groups: no abyssal, no loot row', [b.Abyssal, b.loot], [undefined, undefined]);
   eq('    bounties still count', b.Combat, 7000);
   eq('    and rewards, which need none', b.Rewards, 475500);
+  // A trade you tagged is no freelance job's on Results, as on the Wallet and the Freelance tab.
+  const job = { id: 'j', name: 'x', state: 'Completed', standing: 'Unspecified', perUnit: 1, perPlayer: null, types: [100], created: at(-1), expires: null, delivered: 0, finished: at(30) };
+  const withJob = { ...d, meta: { ...d.meta, freelance: { at: at(0), jobs: [job] } } };
+  const fl = (x) => activityEvents(x, sets, false, {}, []).events.filter((e) => e.activity === 'Freelance').length;
+  eq('  Results: a job’s item traded while it ran is Freelance, unless tagged', [fl(withJob), fl({ ...withJob, tags: { a1: 'trading' } })], [2, 1]);
   const { categoryOf } = await import('../src/lib/wallet.ts');
   const said = (refType, amount = 1) => categoryOf({ refType, amount })?.label;
   eq('  the Wallet: goals and AIR rewards are their own line, not Other income',
