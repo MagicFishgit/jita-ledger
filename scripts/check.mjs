@@ -1255,6 +1255,9 @@ eq('  with slots to spare, best return per day first as before', [plan2.ranked, 
     }
     eq('  cancelled after buying some: counted, units were bought', planPlacement(vi, vp, [V(24, '2026-09-30T00:36:15Z', { state: 'cancelled', volumeRemain: 5 })], pos)?.units, 15);
     eq('  To do says the units summed', judgePlaceBuy({ item: { key: 'plan:v:89156' } }, { plan: true, placed: { units: both.units, price: both.order.price } }), 'Placed: 16 at 24,950,000.');
+    // A plan reusing a position opened weeks before: a bid from then, filled long since, isn't placed for this plan.
+    eq('  a position opened weeks before the plan: its old filled bid doesn’t count',
+      planPlacement(vi, vp, [V(25, '2026-09-10T12:00:00Z', { state: 'expired', volumeRemain: 0 })], [{ id: 'v', typeId: 89156, openedAt: '2026-09-10T11:00:00Z' }]), null);
     eq('  progress counts it, so To do’s item ticks off too', [planProgress({ ...vp, id: 'v', name: 'v', isk: 0, horizonDays: 3, patient: false, items: [vi] }, [V(18, '2026-09-29T21:00:00Z')], [{ id: 'v', typeId: 89156, openedAt: '2026-09-29T20:00:00Z' }]).placed, planProgress({ ...vp, id: 'v', name: 'v', isk: 0, horizonDays: 3, patient: false, items: [vi] }, [V(18, '2026-09-29T21:00:00Z')], []).placed], [1, 0]);
   }
   eq('plans from disk: malformed ones are dropped', sanitizePlans([tp, { id: 'x' }, null, { ...tp, id: 'p2', items: [{ typeId: 'no' }] }]).map((p) => p.id), ['p1']);

@@ -48,11 +48,15 @@ export function sanitizePlans(v: unknown): TradePlan[] {
 const SLACK_MS = 2 * 60_000;
 
 /**
- * How long before a plan an order still counts as placed for it when no position predates the plan: the user placed 15 of
+ * How long before a plan an order still counts as placed for it, when the item's position didn't open within the day before
+ * the plan (`POSITION_BEFORE_MS`): a plan reusing a position opened weeks ago mustn't count a bid from then, filled long
+ * since. The user placed 15 of
  * a 16-unit plan's item five minutes before starting it (30 September 2026), and a checklist that showed it unticked got
  * a duplicate placed and the first cancelled, losing its 4,679,391 ISK placing fee.
  */
 export const BEFORE_PLAN_MS = 60 * 60_000;
+/** A position opened within this before the plan was opened for it: a bid placed on it since counts as placed for the plan. */
+export const POSITION_BEFORE_MS = 24 * 60 * 60_000;
 
 export type Placement = {
   /** Every order counted for the item, newest first: those placed since the plan, then the one placed before it. */
@@ -76,8 +80,8 @@ const counts = (o: Order) => o.state === 'open' || o.volumeRemain < o.volumeTota
 /**
  * The buy orders you placed for a plan item: buys for the item in Jita 4-4 that count (`counts`). Every one placed since
  * the plan started (its first version is when it was placed; a price change moves `issued`), newest first; and the newest
- * one placed before the plan: after the item's position opened when that position predates the plan (the order was placed
- * for it), else within `BEFORE_PLAN_MS` of the plan. Their units are summed: one order's alone told the user, with 15
+ * one placed before the plan: since the item's position opened when that was within the day before the plan (the order
+ * was placed for it), else within `BEFORE_PLAN_MS` of the plan. Their units are summed: one order's alone told the user, with 15
  * placed before a plan for 16 and the 1 more placed since as the note advised, that "1 of 16" was placed and "the 15
  * more" was a new order with its own fee, the duplicate this exists to stop.
  */
@@ -91,7 +95,7 @@ export function planPlacement(
   const since = mine.filter((o) => placedAt(o) >= from).sort((a, b) => placedAt(b) - placedAt(a));
   const pos = positions.find((x) => x.id === item.positionId && x.typeId === item.typeId);
   const opened = pos ? Date.parse(pos.openedAt) : NaN;
-  const start = Number.isFinite(opened) && opened < planAt ? opened : planAt - BEFORE_PLAN_MS;
+  const start = Number.isFinite(opened) && opened < planAt && opened >= planAt - POSITION_BEFORE_MS ? opened : planAt - BEFORE_PLAN_MS;
   const earlier = mine.filter((o) => placedAt(o) >= start && placedAt(o) < from).sort((a, b) => placedAt(b) - placedAt(a))[0];
   const all = earlier ? [...since, earlier] : since;
   if (!all.length) return null;
