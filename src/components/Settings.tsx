@@ -1044,6 +1044,9 @@ function CloudPanel() {
       <p className="row tight" style={{ fontSize: 12.5, color: c.phase === 'error' ? 'var(--neg)' : covered ? 'var(--pos)' : 'var(--label)' }}>
         <Cloud aria-hidden="true" style={{ width: 14, height: 14 }} />{line}
       </p>
+      <p className="note" style={{ margin: 0 }}>
+        Your other characters are read by the cloud too, each with a login of its own: <button type="button" className="link-btn" onClick={() => navigate('characters')}>Characters</button>.
+      </p>
       <div className="row" style={{ flexWrap: 'wrap', gap: 10 }}>
         <Check checked={on} onChange={(v) => { setOn(v); setCloudEnabled(v); }} tip="Each browser can be switched off on its own; the cloud copy stays either way.">Keep this browser in sync</Check>
         <button type="button" className="btn sm" disabled={!on || c.phase === 'waiting' || !!busy} onClick={() => run('sync', () => syncCloudNow())}><RefreshCw aria-hidden="true" />Sync now</button>
@@ -1332,7 +1335,7 @@ function DataTab() {
             <button type="button" className="btn sm" onClick={() => fileRef.current?.click()}><Upload aria-hidden="true" />Import backup</button>
             <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={onImport} />
             <button type="button" className="btn sm danger" onClick={async () => {
-              if (!(await confirmAsk({ title: 'Delete everything in this browser?', body: covered ? 'Every position, trade and setting goes from this browser. The cloud copy stays and comes straight back down, so this starts the browser afresh from the cloud. Turn cloud sync off first if you want this browser to stay empty.' : 'Every position, trade and setting goes. Export a backup first if you might want them back.', confirm: 'Delete everything', danger: true }))) return;
+              if (!(await confirmAsk({ title: 'Delete everything in this browser?', body: (covered ? 'Every position, trade and setting goes from this browser. The cloud copy stays and comes straight back down, so this starts the browser afresh from the cloud. Turn cloud sync off first if you want this browser to stay empty.' : 'Every position, trade and setting goes. Export a backup first if you might want them back.') + (Object.keys(d.chars ?? {}).length ? ' Your other characters’ copy in this browser goes too; the cloud keeps theirs.' : ''), confirm: 'Delete everything', danger: true }))) return;
               await clearAll();
               toast(covered ? 'Everything was deleted from this browser. The cloud’s copy is coming back down.' : 'Everything was deleted from this browser.', 'err');
             }}><Trash2 aria-hidden="true" />Delete all data</button>

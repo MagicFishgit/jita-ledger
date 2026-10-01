@@ -56,7 +56,9 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   worked is said as old ("the last run was before that"); and when this browser's login has permissions the cloud's
   lacks, it says the cloud's is about to stop, since the cloud only finds out when its cached access token runs out.
   Handing the main login over runs the ledger copy at once, which proves it and clears the orders job too. To do lists
-  a refused login (kind `cloudLogin`, source `cloud`), ticked off on a newer read of the cloud's status.
+  a refused login (kind `cloudLogin`, source `cloud`), ticked off on a newer read of the cloud's status. An alt's refused or
+  missing login is one such item each (`cloudLogin:alt:<id>`, source `roster`): seen at the roster's read, ticked off only by
+  a later roster read of this session that shows it working or no longer lists the alt, never by a roster from disk.
 - **Every device shows the same mail picture** (Settings → Alerts). The user logged in on a phone and found the
   panel asking them to log in a sending character, and "Alerts in the last 24 h" at 0, while the cloud was mailing
   all day: the panel read only that browser's own sender login and its own alert log (`alertLog` stays local). Now,

@@ -187,6 +187,11 @@ try {
         if (MOVED.has(name) && !drawn) problems.push('not drawn: no “Between your characters” on a ledger with transfers');
         if (!MOVED.has(name) && drawn) problems.push('“Between your characters” drawn on a ledger with no transfer');
       }
+      // The refused alt (Hauler Four) must reach To do as its own item, or the check passes without one.
+      if (hash === 'todo' && ALTS[name]?.some((x) => x.entry.refusedAt != null)) {
+        const refused = ALTS[name].find((x) => x.entry.refusedAt != null).entry;
+        if (!(await page.locator('.page', { hasText: `Hand the cloud ${refused.name}’s login again` }).count())) problems.push(`not drawn: no To do item for ${refused.name}’s refused login`);
+      }
       await judge(hash);
     }
     if (name === 'large' && SHOWN.includes('hustles/mining')) {

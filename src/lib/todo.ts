@@ -18,7 +18,7 @@ import type { Verdict } from './relist';
 export type TodoKind = 'move' | 'cancel' | 'bid' | 'underCost' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry' | 'courier' | 'cloudLogin' | 'placeBuy';
 
 /** Which read a finding came from, and so which read can say it has gone. */
-export type Source = 'orders' | 'colonies' | 'signals' | 'ledger' | 'industry' | 'contracts' | 'cloud';
+export type Source = 'orders' | 'colonies' | 'signals' | 'ledger' | 'industry' | 'contracts' | 'cloud' | 'roster';
 
 export type TodoItem = {
   /** What it's about, stable for as long as the finding lasts: `order:123`, `pi:456`, `backup`. */
@@ -285,6 +285,17 @@ export function judgeCloudLogin(e: Entry, c: { readAt: number | null; kept: bool
   if (c.readAt == null || c.readAt <= e.seenAt) return null;
   if (!c.kept) return false;
   return c.refused ? null : 'The cloud has your login again.';
+}
+
+/**
+ * An alt's cloud login that was refused or missing, gone from the list: done only on a roster read of this session,
+ * newer than the one that showed it (absent is not done: a roster from disk, or the same read, says nothing). Then the
+ * alt no longer on the roster ("No longer one of your characters") or its login working again.
+ */
+export function judgeAltLogin(e: Entry, c: { live: boolean; readAt: number | null; state: 'working' | 'refused' | 'none' | null }): string | null {
+  if (!c.live || c.readAt == null || c.readAt <= e.seenAt) return null;
+  if (c.state == null) return 'No longer one of your characters.';
+  return c.state === 'working' ? 'The cloud has this login again.' : null;
 }
 
 /** Items built from your own ledger, which is always current: gone means dealt with. */
