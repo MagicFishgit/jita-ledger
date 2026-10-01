@@ -91,3 +91,13 @@ State these rather than letting them be discovered:
   companion ores of sov deposits aren't all placed.
 - **Best ore's ISK a m³ is the top bid**, not what a hold of it fetches through the book, and its ISK an hour leaves out
   boosts, drones, travel and selling time.
+- **A plan's buy is judged at today's fees and its plan's sale price.** `expected` uses today's rates, not the planner's
+  then; the plan's price caps the resale even after the market rose past it; fees already paid on an order count against
+  a raise; the guard doesn't look at whether the bid is visibly filling (the Key filled 16 → 9 → 7 and could still read
+  Keep it); and Cancel it (`dry`) on an unreached plan buy is still judged against your target, not the plan's floor.
+  Orders' check of it was one snapshot of the user's orders with 4 buys (1 October 2026): the Praxis replay and the Key
+  are the evidence.
+- **The token guard's history lags a market that moved over 10% within the fortnight**: falling, a real undercutter can
+  read as a token. The share and day's-volume guards catch most (the Key's sell: 26 ahead against its pace).
+- **An item whose book wasn't watched for a day carries no raises in the planner**, which flatters its return by about
+  1% against a watched one.

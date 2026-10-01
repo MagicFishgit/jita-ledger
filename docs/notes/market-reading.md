@@ -121,13 +121,20 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   compared as if it were 5% a day, which made every hour on a week-long sale look five times dearer: the
   user's Upgraded Explosive Coating I, 36 units taking six days with one unit ahead, was told to move for
   ~1,200 ISK to save four hours. With the floor, a stock that sells within a day is judged exactly as before.
-- **And it ignores prices that aren't the market.** `weightedLevel` is the volume-weighted median of
-  your side of the book, so one unit fat-fingered at two thirds the going rate moves it by nothing.
-  A move landing >10% past that level, *and* chasing under 2% of the side's volume, is a mistake or a
-  token dump rather than a repricing. **Both conditions matter**: distance alone wrongly condemned 217
-  units of genuinely cheap supply as a "mistake"; quantity is what separates a fat finger from a
-  cheap seller. This needs only the live book, so it is the one guard that still works for an item
-  with no trading history — which is exactly when the other two cannot fire.
+- **And it ignores prices that aren't the market.** A move landing >10% past where the item sits, *and* chasing under
+  2% of the side's volume, is a mistake or a token dump rather than a repricing. **Both conditions matter**: distance
+  alone wrongly condemned 217 units of genuinely cheap supply as a "mistake"; quantity is what separates a fat finger
+  from a cheap seller. Where it sits is where it has traded when history can say (`tradedLevel`: halfway between the
+  fortnight's median low and median high, `FILL_RARE` days each), else the side's volume-weighted median
+  (`weightedLevel`), so one unit fat-fingered at two thirds the going rate moves it by nothing; without history it is
+  the one guard that still works. Until 1 October 2026 it was always the book, and floods nobody trades with dragged it:
+  the Vigilance Resonance Key's 8 bids ahead read "126199999900% above where the rest of the book sits (0.02)" (100,000
+  bids at 0.02 ISK), a Dual Modulated Light Energy Beam I sell's 3 units ahead "72% below (599,100)" when the fortnight
+  traded ~121–165 k (now 144,000), a Small Ghoul's 57 "23% below (10,450)". The Afocal's token below is still caught,
+  an escrow-bait bid reads "over 100 times where it has traded", and the gap is a share under double, else a multiple.
+  A book's bids are weighed by ISK (`weightedLevel(…, 'isk')`, here and in `marketBest`): of the user's 42 books that
+  evening, 10 had a centre by units under a thousandth of the best bid, and `marketBest` answered 0.01–0.02 on 4 of them
+  (none since). The cost: an escrow-bait bid can be `marketBest`'s market.
 - **Already one step over the best bid, there's nowhere to move** (`adviseRelist`: `moves` needs a new price, and the
   sell-unreached branch waits). The user's Motley Compound (29 September 2026): 27 at 4,001 over a 4,000 bid, where
   every day's trading sat at the bid, was told to "Move it" to 4,001; Sheen Compound likewise at 2,101. The rule moves an
@@ -152,6 +159,21 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   suggested sell price and "stock if sold now" on a position, and the Calculator's prefill. Prospects
   and the Watchlist deliberately don't use it — an outlier only ever *narrows* an apparent spread
   there, so it hides an opportunity rather than inventing a bad trade, and that is the safe direction.
+- **A buy is never raised into a loss, and knows its plan** (`planTargets` in plans.ts; the guard, `paidPerUnit`,
+  `PLAN_KEEP` and `overResale` in relist.ts). Orders had the user raise their plan's Praxis bid three times (30
+  September 2026: 206.3 → 206.7 → 207.1 → 208.4 M); the plan expected 3.2%, the third raise left 0.9%, and the trade lost
+  1.02 M. The old check (`badBuy`) set the new bid against the best ask after the sell side's fees alone. Now a raise,
+  including an unreached buy's move, is judged selling on at the lower of the plan's price and where a listing sells now
+  (`listingPrice` on others' orders), costing the new bid with its broker fee (which covers every increase), each change
+  already paid (k × each later kept version's price, per unit left, from `seen`, so the Worker says the same) and this
+  one. A plan's buy must keep the lower of half what the plan expected and your target, never under break-even; any
+  other, break even. Under it: `loss` with `keep` ("Keep it at 207,100,000"), naming the floor. Praxis's second raise
+  left 2.1% and stood. The cap at the target is the ruling: the Key, priced from a spike to make 36%, was refused a raise
+  leaving 7.6%; it moves now. An item's plan is the newest one holding it whose position is still open; a closed,
+  deleted or retargeted position is no plan. A plan's sell keeps the cost guard and names the plan's price when a move
+  goes under it. A buy whose own price, fees included, costs more than its resale gets back is tagged "Pays more than it
+  resells for: breaks even at X" (`overResale`; 0 of the user's 4 buys on 1 October, so no To do item). On their 35
+  open orders that evening the cap left no Keep it.
 - **The sell side is judged like the buy side** (`askToPlace`, flag `unreachedSell`, "Sells not reached"). An ask
   one step under the best that the bulk of trading reached on fewer than `FILL_RARE` of 14 days is lowered to the
   7th-highest daily high, and an item left with no margin drops out; Busy markets still prices at the top. Stats

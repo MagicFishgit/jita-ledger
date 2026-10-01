@@ -115,6 +115,18 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   again once they stop updating orders by hand. They found six hours too long, so it became the setting. While the cloud holds both logins (`cloudSendsMail`, from `/v1/status`, kept across reloads and
   re-read every 10 minutes) the browser neither mails nor tidies, so nothing arrives twice. Squeeze and
   suspicious-market alerts stay with an open app: they need signals the cloud doesn't keep.
+- **"Keep it" is said where it's easy to see** (Orders.tsx, todo.ts, `judgeAll` in worker/src/alerts.ts; the guard is in
+  market-reading). The user: Orders "told me to relist. It needs to be aware of plans and clearly state, easy to see
+  that you should not move it" (1 October 2026). On Orders a refused raise reads **Keep it** with a hand, in a warning's
+  amber (`--acc2`, as Move it: told apart by the label, the icon, the row not lit and the reason in full under it; red
+  means Not worth it), with no Move to, no cost and nothing copied. It has its own tile and a count beside "worth
+  moving" whose number shows and flashes the rows; it sorts after Move it and Cancel it, before Leave it and In front. A
+  plan's orders carry a Plan chip (the plan's name, prices, expected return and floor in its tip); the Guide's "Move the
+  amber ones" is "Move the ones marked Move it" and "Keep the ones marked Keep it". To do adds no item for it: a move
+  that becomes Keep it ticks off in the guard's words on a newer check that read the book, and an item a newer check no
+  longer lists copies no price when opened. The cloud's round reads the `plans` doc (sanitized) and, only when there are
+  plans, the positions records, a row that doesn't parse skipped; no doc, or one it can't read, is no plan. A refused
+  raise is never mailed as a move, and a guarded buy that was "beaten but clearing" loses that mail.
 - **Opening an item in game from Orders or To do copies the price to move to** (`copyPrice`, `CopyPrice` and the
   `copy` prop of `NameInGame` / `OpenInGame` in `common.tsx`; To do's `action.copy`). The user asked for it, with a
   copy icon beside the price "like we have in sniping": the Sniper's copy button exists because a relist typed by hand

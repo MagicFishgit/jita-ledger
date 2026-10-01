@@ -2,7 +2,10 @@
 
 Bugs found and verified real but not yet fixed.
 
-None open.
+- **`marketBest`'s sell side reads the book by units, so a flood of high listings makes it skip real cheap stock**
+  where no day's volume is passed (Calculator prefill, Arbitrage, lpStore, colonyStore, Planets, Abyssal). Dark Blood
+  Explosive Coating (1 October 2026) answered 70,220, past 117 units at 59,990. Tried and not enough: ISK (worse), units
+  ÷ price, a band of twice your own price. Orders' token guard has history instead (market-reading).
 
 The three an adversarial review found and verified were fixed on 28 September 2026 (see "Each trade and
 each fee belongs to one position" and "Units sold beyond what a position bought" in positions-results): overlapping

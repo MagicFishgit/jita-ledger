@@ -145,10 +145,47 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   which would throw away the margin the plan is priced on (patient bids where trading reaches). So one click: a position
   for every item (or the one already open), grouped as one plan; "Leave alone" for a Place-and-leave plan; and a checklist
   on the planner and in To do where each item opens in game with its price copied, its quantity one more click, and ticks
-  off once a buy order for it in Jita 4-4, first placed after the plan started, shows in your orders. Positions has a
+  off once a buy order for it in Jita 4-4 shows in your orders (placed since the plan, or just before it: below). Positions has a
   Plans panel with each plan's bought, sold, profit and stock, and a filter to its positions; removing a plan leaves the
   positions. Checked end to end in a test browser on the cloud's real scan (13,442 items): a 998.97 M plan of 5 items,
   5 positions, the checklist, the Positions filter and To do.
+- **The checklist counts an order placed just before the plan, and sums what it counts** (`planPlacement`,
+  `placementNote`, `BEFORE_PLAN_MS`). The user's first plan (30 September 2026): the Vigilance Resonance Key's position
+  opened 00:35:02, 15 bid at 00:36:15, the plan for 16 at 00:41:37; the item showed unticked, so they placed 16 and
+  cancelled the 15, losing its 4,679,391 ISK fee. Counted: every buy since the plan, and the newest placed before it after
+  the item's position opened (when that predates the plan) or within 60 minutes; any order unless cancelled with nothing
+  filled. A filled one is expired or closed, and counting only open ones put the item back on "Not yet" and To do within
+  the plan's week. Units are summed and said ("16 of 16 placed (15 before the plan)"): one order's alone read "1 of 16 …
+  the 15 more is a new order" after the top-up its own note advised (final review). A shortfall says EVE can't change a
+  quantity, so the rest is a new order with its own fee, or leave it; never replace. Positions the plan opens start at its
+  own time, so the hour applies; a reused or hand-opened earlier position widens the window to its start, where an old
+  buy, filled ones included, can count.
+- **A price must be reached lately, not only somewhere in the fortnight** (`RECENT_DAYS` 5, `RECENT_MIN` 2,
+  `RECENT_TYPICAL` 3 in fills.ts; `bidToPlace` / `askToPlace`'s `window`). That plan bid 270.7 M for a Caldari Navy
+  Missile Guidance Computer reached on 5 of 14 days, all mid-September at 260–310 M; since the 25th it traded at 359–375 M
+  (1 of the last 5). Praxis's 206.3 M: 4 of 14, 0 of 5; it filled after three raises and lost 1.02 M. Now the front stands
+  only when reached on `FILL_RARE` of 14 and 2 of the last 5, else a bid is the higher of the 7th-lowest low and the
+  3rd-lowest of the last 5 (`bidBothWindows`; asks mirrored), and the not-reached flags say "not lately" when the recent
+  window decided. The Guidance Computer goes to 369.5 M, over its 359.9 M ask, and drops out; Praxis to 210.5 M, ~1.1%,
+  out at 3%. Under 3 of the last 5 days traded, the window says nothing (0 of 957 candidates). Place and leave keeps the
+  fortnight alone (the ruling: the window took 30% of its candidates).
+- **"Ran up lately" keeps a climb out** (`runUp`, `RUN_UP` 0.5): the last 3 days' volume-weighted average against the
+  median day of the 30 before, when the latest day is within 3 days; 0 when it can't be said. The Key, ~21–23 M through
+  early September then 36–45 M, read +60% (36.55 M on 22.89 M) where `lastMove` read +28%; 40% of the plan's ISK went in
+  at a 35.99 M target, and by 1 October its best ask was 29.93 M. The planner and the opportunity mail leave it out (36 on
+  the 1 October scan). Stats from before it claim nothing and the planner says "Scan again before investing" until the
+  first cloud scan after a deploy.
+- **Raises are kept back where the front is beaten twice per fill** (`raisesKeptBack`, `RAISES_RESERVED` 2,
+  `RESERVE_WATCH_H` 24, `RESERVE_RATIO` 2 in evaluate.ts). Praxis's book saw 25–36 new bids a day against 7–19 sold into
+  bids; its three raises cost 1.58 M on a 2.58 M placing fee, and the planner had counted none. Where the watch (24 hours
+  or more in the 14 days, not in a row) saw twice as many units newly placed at the front as filled on a side, 2 changes
+  on that side, each k × price × the whole order, come off the margin before "Return ≥ %" and the ranking ("Raises kept
+  back"). Not on Place and leave; on Busy markets too. At one-for-one it hit 93 of 94 watched candidates; at twice, 91,
+  removing 7, median −1.05%. An unwatched item carries none (limits.md); its tip and the planner's Guide say so.
+- **Measured on the cloud's 1 October scan** (13,465 items, the user's rates, the planner's defaults): 957 → 779
+  candidates at the front (−18.6%: the recent window −145 and 148 repriced, run-up −36, reserve −7, 7 newly admitted);
+  Place and leave 942 → 923 (the run-up); the 25%-cap mix 95.47 M → 77.70 M ISK a day. The planner also follows the
+  watched-flow record now (`useFlow`): a plan opened before any page had read it was worked out without the watch.
 - **Multibuy lists where buying at the ask is the point** (`copyMultibuy` in common.tsx, `multibuy` in combat.ts): each
   Freelance job copies what to buy for it (every item under the reward, per item), and Hub arbitrage copies the shipment
   when buying from sell orders now (not for a buy order, which Multibuy can't place). The Sniper was left out on purpose:
