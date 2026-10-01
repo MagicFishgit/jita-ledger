@@ -82,3 +82,12 @@ Don't re-derive or contradict these without new evidence.
 - **Frigate pockets pay more than cruiser pockets**: Abyss Tracker's median loot a pocket is 2.0–2.9× a cruiser's at every
   tier (330 M against 121 M at T6), about the same per ship once split three ways. zKillboard can say a lost ship's tier only
   when a tier-named NPC is on the mail (270 of 1,847), and its weather never.
+- **Every family's mining crystals share their figures by kind** (ESI, 1 October 2026: the final review read all 11
+  families; Simple, Coherent, Variegated, Complex, Abyssal, Mercoxit and moon ones checked here). Attributes 782 / 3161 /
+  3160 are Type A I 1.5 / 1.0 / 0, A II 1.8 / 1.0 / 3.6, B I 1.5 / 0.9 / 20, B II 1.8 / 0.8 / 30. So a fit mines every
+  ore it can at one m³ a minute; only Mercoxit takes other lasers. Mercoxit has Type B crystals too (60309, 60311).
+- **ESI graded the enriched ices.** Its Ice group (465) holds the 12 market ice types: 16262–16269, and 17975–17978,
+  the old Thick Blue Ice, Pristine White Glaze, Smooth Glacial Mass and Enriched Clear Icicle, now Blue Ice, White
+  Glaze, Glacial Mass and Clear Icicle IV-Grade (`/universe/ids` resolves none of the old names), each with a compressed
+  form; Azure Ice (28627) and Crystalline Icicle (28628) sit in it with no market group. An ice is 1,000 m³ a unit,
+  compressed 100.

@@ -86,3 +86,8 @@ State these rather than letting them be discovered:
 - **A character taken off the roster stays yours for good** (`chars` keeps it, so past transfers stay transfers). One
   sold to another player keeps reading as yours: their ISK to you is "Between your characters", not money in, and the
   unusual-activity list never calls them a new donor.
+- **Where an ore is found rests on one wiki page that asks for a post-Catalyst update**, with no second source for its
+  belt tables. A place lumps region quarters and null-sec security classes together (a row's words say which), and the
+  companion ores of sov deposits aren't all placed.
+- **Best ore's ISK a m³ is the top bid**, not what a hold of it fetches through the book, and its ISK an hour leaves out
+  boosts, drones, travel and selling time.

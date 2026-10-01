@@ -146,3 +146,40 @@ characters.md, the dogma behind the yields in eve-ships.md.
     (`MINING_CASES` in `scripts/pages.mjs`): the Alpha alt picked and shown, then a hull open; the refused alt shown; a
     kept character gone. Each must draw text only that path draws: until the final review the deploy never drew an
     alt's pilot, so a throw there would have shipped.
+- **Best ore to mine ranks every ore and ice type by where it's found** (`hustles/BestOre.tsx` above Scaling up;
+  `lib/oreWhere.ts`, pure and tested). The user: "what the most profitable ore is to farm for the different ore
+  categories"; chosen on 1 October 2026: the category is where it's found (High-sec, Low-sec, Null-sec, Pochven,
+  Wormholes, Moons, Ice), both ISK an hour and ISK a m³, and the plain grade with the higher ones inside (a row opens).
+  - **Places are research, not ESI** (`ORE_WHERE`, `ORE_WHERE_SOURCE`): EVE University's Asteroids and ore, Moon mining
+    and Ice harvesting pages and CCP's Catalyst and 23.01 notes, read 1 October 2026
+    (`.playwright-mcp/research/ore-locations/`). Where they disagree the row is flagged and the tip says how; never
+    resolved. Moon ores are only under Moons (a drill, not a belt), ice of every security only under Ice, and the
+    Mordunium Deposit's companions (Scordite, Omber) aren't placed in null-sec: the research lists them nowhere there.
+  - **The enriched ices go by ESI's names**, "Clear Icicle IV-Grade" and so on (eve-ships), with the wiki's in the detail:
+    `/universe/ids` resolves none of the wiki's. Rows of their own, not inside their plain ice: they're found elsewhere.
+  - **Priced as Scaling up prices** (`priceOres`): the plain grades once a visit, a row's grades when it opens. It prices
+    side by side now, at most 8 books from one call in flight (`esi()` lets 4 out for the whole app; the 8 keeps a
+    ~170-book batch from queueing ahead of the tree's dogma), and says what it couldn't read (`failed`): "may be low",
+    Try again prices only those, and a reprocessed figure that missed a mineral's book is none, never understated.
+    Price again reads past the cache (`fresh`), then Scaling up prices its ore again from the same books. `readBook`
+    shares a read in flight: opening the tab read Tritanium's book 5 times and 23 of 172 books more than once; now once.
+  - **ISK an hour follows Scaling up** (`paceFor`, `measuredByKind`): the open tier's m³ a minute at the shown
+    character's skills (`onPace`, Mining → ScalingUp → MiningTree → MasteryTiers → TierView), else that character's
+    sessions kind by kind, leaving out any with an ore whose name or volume isn't read. An ore fit mines no ice, an ice
+    fit no ore, Mercoxit only its deep-core version, which then speaks for no other ore; a fit ESI couldn't read says so
+    (in the downtime it once read "mines only with its drones"); a drones-only tier says that. One ore fit's pace holds
+    for every ore but Mercoxit (the crystals, eve-ships). Ice names don't go to the Ore picker, which is for ore: an ore
+    fit's worth would be worked out at ice's price. It ranks by ISK an hour only when every row has one, else by ISK a
+    m³ (the same order under one pace), and marks which.
+  - Plain Kernite outranks its own grades (about 361 ISK a m³ against 115 to 135): its Jita bids are deep at 468
+    (200,000+ units, 1 October 2026). The market, not a bug.
+  - **On a phone** the table has 226 px inside Side hustles' panel at 390, so it keeps #, the ore with where it's found
+    and the best way under it, and ISK a m³ with ISK an hour under that: two figure columns didn't fit.
+  - **Checked against real ESI** (`.playwright-mcp/best-ore-look.mjs`): Kernite III-Grade 116.47 ISK a m³ in the panel
+    and in Scaling up; the Solid Hulk 14.87 M an hour in both; the Endurance on Glare Crust 14.09 M, 958 m³ a minute ×
+    60 × 245.13. Tritanium's book refused: "may be low", no row stuck, Try again 3 requests. `/universe/ids` refused while
+    a hull opened: "Couldn't read this fit's figures" in both places, right on reopening. The page check draws it priced
+    from ESI fixtures, a row opened. **The measured-pace path hasn't been seen in a browser** (no cloud there).
+  - Found with it: Scaling up priced for the type mined most, so a mostly-ice alt had its ore fits worked out at the
+    ice's ISK a m³; it now counts ore only. The ore table printed a reprocessed figure that missed a mineral's book
+    ("−0.35 ISK"); it's "–" with why, and tried again 2, 4, 8 and 16 minutes on (`useMinedWorth`).
