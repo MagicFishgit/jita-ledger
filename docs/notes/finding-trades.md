@@ -154,9 +154,8 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   opened 00:35:02, 15 bid at 00:36:15, the plan for 16 at 00:41:37; the item showed unticked, so they placed 16 and
   cancelled the 15, losing its 4,679,391 ISK fee. Counted: every buy since the plan, and the newest placed before it since
   the item's position opened, when that was within the day before (`POSITION_BEFORE_MS`), else within the hour; any order
-  unless cancelled with nothing
-  filled. A filled one is expired or closed, and counting only open ones put the item back on "Not yet" and To do within
-  the plan's week. Units are summed and said ("16 of 16 placed (15 before the plan)"): one order's alone read "1 of 16 …
+  unless cancelled with nothing filled. A filled one is expired or closed, and counting only open ones put the item back
+  on "Not yet" and To do within the plan's week. Units are summed and said ("16 of 16 placed (15 before the plan)"): one order's alone read "1 of 16 …
   the 15 more is a new order" after the top-up its own note advised (final review). A shortfall says EVE can't change a
   quantity, so the rest is a new order with its own fee, or leave it; never replace. A plan reusing a position opened weeks
   before gets the hour: widened to the position's start, a bid from then, filled long since, counted.
