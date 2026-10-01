@@ -138,20 +138,34 @@ before you change it, and add to it when you learn something: what was wrong, th
 
 **Only five of them are in context when a session starts.** Instruction files loaded at the start share a budget of
 150,000 characters; on 30 September 2026 this file and all eleven notes, every one imported here, came to 206,800 and
-Claude Code warned. The notes only grow, so nothing was cut from them. What changed is when each is loaded.
+Claude Code warned. The notes only grow, so nothing was cut from them. What changed is when each is loaded. On 1
+October 2026 the three biggest path-loaded notes were split by area as well (no fact cut): opening `Mining.tsx` loaded
+eve-facts, loyalty-hustles and characters whole, about 146,000 characters with this file; it now loads about 100,000.
+The heaviest file to open is now `Orders.tsx`, at about 120,000. If one file's notes come near 150,000 again, split
+the biggest of them by area the same way.
 
 Loaded when you read a file it covers (`.claude/rules/<topic>.md`: a `paths:` list and an import of the note). A
 session that hasn't read such a file doesn't have the note, so **Read it yourself before designing, researching or
 answering in its area**:
 
-- `eve-facts.md` (anything under `src/`, `worker/` or `scripts/`): EVE and ESI facts that cost real research. Don't
-  re-derive or contradict these without new evidence.
+- `eve-facts.md` (anything under `src/`, `worker/` or `scripts/`): EVE and ESI facts that cost real research: ESI itself,
+  logins and accounts, the wallet and journal. Don't re-derive or contradict these, or the four below, without new
+  evidence.
+- `eve-market.md`: what ESI's books, history and prices say and don't; rate limits.
+- `eve-ships.md`: hulls, holds, fits, mining yields and the Abyss, from ESI's dogma and research.
+- `eve-planets.md`: planets, colonies and planetary goods.
+- `eve-client.md`: EVE mail, notifications, the Sell window, inventory filters, asset safety.
 - `market-reading.md`: how books, prices and paces are judged (reach, the buyer/seller split, Clears in, relist advice).
 - `finding-trades.md`: Prospects, the Capital planner, the full-market scan, the Sniper, Place and leave.
 - `orders-alerts.md`: To do, browser notifications, in-game mail.
 - `positions-results.md`: positions, fees, Results, the Wallet, goals, standings.
-- `loyalty-hustles.md`: Loyalty, Abyssal, Hauling, Planets, Mining, Freelance, Reprocessing, skills, Combat.
-- `characters.md`: alts, and how they are kept apart from the main (whose login, whose data; the roster).
+- `loyalty-hustles.md`: Loyalty, Planets, Freelance, Reprocessing, skills.
+- `mining.md`: the Mining side hustle, Scaling up, mining across characters.
+- `abyssal-hauling-combat.md`: Abyssal, Hauling, Combat.
+- `characters.md`: alts, and how they are kept apart from the main on the browser's side (the alt store, the Characters
+  page, what each earned, transfers).
+- `characters-cloud.md`: the cloud's side of alts (whose login, whose data; the roster) and how a returning login is
+  sorted out.
 
 Always loaded, imported below, because they apply to any change:
 

@@ -1,6 +1,8 @@
 # Several characters
 
-Decisions worth not undoing. How alts (characters on the owner's other accounts) are kept apart from the main.
+Decisions worth not undoing. How alts (characters on the owner's other accounts) are kept apart from the main, on the
+browser's side: the alt store, the Characters page, what each character earned, transfers. The cloud's side and the
+logins are in characters-cloud.md, mining across characters in mining.md (split on 1 October 2026).
 
 - **An alt feeds the one ledger and never logs in to the app** (decided with the user, 30 September 2026; the design
   is `docs/superpowers/specs/2026-09-30-multi-character-design.md`). Their accounts: the main account holds the trading
@@ -8,68 +10,6 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
   into industry and planets. Their one fear was information getting jumbled, so the separation is structural: an alt's
   login is handed to the cloud once, everything read for it is filed under its own character ID, and the main's ledger
   holds no row of an alt's.
-- **The roster is the `alts` table, the login a `keys` row `(the main, 'alt:<id>')`** (migration 0016, `worker/src/alts.ts`).
-  Alts are found through the table, never by matching a purpose's text, and a removed alt whose data was kept stays in
-  it (`removed_at`), so it is still known not to be a ledger: the market watch reads every ledger's open orders.
-- **A reader is told whose login it uses and whose data it writes** (`Reader` in `worker/src/eve.ts`). Only `useLogin`
-  takes the ledger and the purpose; every ESI path, table, `push` and `noteJob` take `char`; `readerLogin` refuses
-  before anything is read when the login isn't that character's. `readMiningRound` was written when the two were one
-  character and bound some tables by its argument and others by the login's: refactored naively it would push an alt's
-  mining into the main's records. `scripts/check-worker.mjs` runs each reader for an alt against real SQL and checks
-  the main's rows are untouched.
-- **The main's path through the readers is as it was.** `stillKept` gates an alt's writes only: a ledger whose login
-  is dropped mid-read still has that read's rows written, as before. The `archive` job's detail doesn't carry the
-  wallet and points `archive` hands the sheet. And `useLogin` marks a login refused only if the row still holds the
-  token it tried, so two jobs refreshing one login at once can't leave a working login marked refused.
-- **Mining pushes its records before it advances the snapshot.** What changed is measured against the stored
-  snapshot, so a push that failed after the snapshot moved was never sent again, and for an alt the cloud is the
-  only writer.
-- **EVE's page picks the character, so the cloud sorts out who came back** (`sortLogin` in `lib/roster.ts`,
-  `keepHandedOver`). Adding an alt while still signed in to the main account at EVE offers the main and the mail
-  character; either, picked by mistake, is kept as its own login and nothing is added. A sender login that turns out
-  to be an alt is refused, its alt's login marked refused at once. The main's and the sender's own flows are unchanged:
-  the user asked for care with logins.
-- **The app says when EVE has just stopped this browser's own login** (`stoppedBy` in `lib/roster.ts`, App.tsx; the
-  final review, 30 September 2026). EVE stops a character's earlier logins that carry a different set of permissions,
-  at its own page (eve-facts), so a cloud login that comes back as a character this browser also holds a login for,
-  with another set, has killed that one. The callback keeps the granted scopes (only purpose and refresh token go to the
-  Worker) and compares them as sets. Kept as the main, with this browser's main on another set: the toast adds "EVE has
-  also stopped this browser's own login for X … log in again here", and the login is left for the next refresh to find,
-  as before. Without it the owner was logged out minutes after adding an alt, with no reason given, when an app release
-  or an optional permission had changed the set since they last logged in. Kept as the sender, with this browser's
-  sender on another set: that login is dead, so it is taken out here (`logoutMailer`) and the toast says so.
-- **This browser's own mail sender, picked while adding a character, is handed over as the sender** (`handOverAs`).
-  With no sender in the cloud, the Worker can't know it (`sortLogin` gets no mailer) and added it as an alt: read hourly,
-  counted in the wallets, and then logged out of this browser by the sender check. The toast still says what was
-  asked for, and the rule above takes out the stopped browser sender. **Except a character already in `chars`**, on the
-  roster or taken off it: then it's being added (back) as an alt, which is what "Add a character" asked. Sent as the
-  sender, one still on the roster would be refused by the Worker, which marks that alt's working login refused. This
-  is the one place `chars` rather than the live roster decides, on purpose: here a removed alt coming back is an alt.
-- **The browser's sender check reads the live roster, and only a roster read in this session** (App.tsx, `rosterLive` in
-  the alt store). A sender logged in to this browser that the cloud reads as an alt is logged out, which revokes it at
-  EVE, with a message. It reads the roster as the cloud has it, never `chars`, which keeps characters taken off the
-  roster: after removing X (the remedy the app suggests) and logging X in as the sender, a check on `chars` revoked the
-  new login and said X was one of the characters the cloud reads, which was false. And it waits until the roster has
-  been read from the cloud since the app opened: the copy on disk may be from before X was taken off.
-- **Only the trading login reaches the trading login's slot** (`handleCallback`): the purposes `main` and none (a login
-  started before purposes were kept). Any other is revoked with an error, and a `never` check fails the build when a new
-  purpose isn't handled, since a purpose that fell through there would take the owner's place.
-- **Alts are read hourly on a cron of their own** (`37 * * * *`, `altsHourly`) and their mining every ten minutes at the
-  end of the five-minute round. Not on the `:07` cron: the full-market scan's 11-minute budget doesn't know alt reads
-  ran ahead of it. Not in the five-minute round: 30 s of CPU.
-- **What isn't done for an alt**: order refresh and judging, alerts, opportunity mail, the track record, share
-  measuring, the Sniper's bids, asset-safety mail, killmails, the `orders` job row. An alt's first `archive` would
-  otherwise mail the main about every wrap it holds.
-- **Clone state is worked out, and can be unknown** (`cloneState`): Alpha when a skill is usable below its trained
-  level, Omega when one is usable above Alpha's cap (`lib/alphaCaps.ts`, from CCP's `cloneGrades.jsonl`), else it can't
-  be told. "Since" is kept only for a change the cloud saw.
-- **The watchdog is by character**: an alt's job findings name it and carry its ID in their key, and a refused login
-  quiets only its own character's job mails. It used to be "any refused login quiets them all".
-- **An app version behind is shown no alt logins** (`/v1/status` lists only `main` and `mailer`): its To do turns every
-  refused login it sees, other than the main's, into "log in a sender", which for an alt is the login that stops its own.
-- **Removing an alt** drops its mining snapshot and job rows either way (a re-add starts from a fresh baseline with no
-  old failing streak) and never its `revs` row (a revision that restarted would let a device holding the old one miss
-  what follows).
 - **The browser never holds an alt's login, and its copy of an alt is read-only** (`lib/altStore.ts`, the Characters
   page). "Add a character" asks EVE for a login with the purpose `cloud-alt`; `handleCallback` hands its refresh token
   on for the Worker and stores nothing (a purpose it didn't know fell through to the trading login's slot, where the
@@ -140,15 +80,6 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
 - **Stage 2a is the Characters page with the roster, and ends with a real alt being read.** What each character
   earned and mined (stage 2b) and Mining across characters (stage 3) came next, then the Wallet's total, transfers and
   To do (4).
-- **The first real alt** (30 September 2026, 21:12 UTC): the owner added FannySchmeller (2122193260) from the Characters
-  page and it came back as the alt (`POST /v1/keys`, then `/read`, then the pull, all in about 13 s; no exception). Its
-  first read, about ten seconds: 36 trades, 83 journal entries, 30 orders, 164 names, stock and one net-worth point
-  (1.05 B), all under its own ID; the sheet found 98 skills, 6.3 M SP and a 17-level queue, and read it as Omega from its
-  skills. The next five-minute round read its mining (10 ledger rows, `alts mining {"alts":1,"read":1,"failed":0}`), none
-  under the main. The main's and the sender's logins kept working and the main's alerts, orders and archive jobs stayed
-  ok. The one row of the main's that names the alt is the main's own `player_donation` of 100 M to it at 15:47 UTC,
-  hours before: the main's data, which stage 4 counts as a transfer.
-  The owner confirmed in game that it is Omega, as the cloud read it: `cloneState` right on its first real character.
 - **What each character earned and mined** (stage 2b, `lib/income.ts`, `lib/altLedger.ts`, `components/charIncome.ts`).
   The Wallet's "All income against play" became a pure function of a ledger (`activityEvents`, `incomeRows`), and an
   alt's pulled copy becomes a ledger (`altLedger`: its own trades, journal, orders, names, net worth and mining; fees
@@ -177,40 +108,3 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
   document's fields in whatever order its updates land), pages read mid-render (now read once settled), and seeding
   IndexedDB while the app was open (now from a page on the same origin that isn't the app; docs/notes/gotchas.md). A
   deliberate change to the Wallet's or Results' wording means re-recording with `RECORD=1` in the same commit.
-- **Mining across characters** (stage 3: `sessionsByCharacter`, `perCharacter`, `altRightNow` in `lib/mining.ts`;
-  `lib/pilot.ts`, `components/pilot.tsx`; `hustles/miningFleet.ts`, `hustles/Mining.tsx`). The tab reads every character's
-  records (the main's from the ledger, an alt's from its pulled copy through `altLedger`) and ticks (`/v1/mining/ticks`,
-  tagged as the main's, and `/v1/alts/mining/ticks`), and writes nothing of an alt's anywhere.
-  - **Sessions are built one character at a time.** Two characters mining at once are read in the same rounds, so their
-    ticks interleave; built together they'd be one session with both ores summed and a doubled pace.
-  - **Whose skills a component shows is a pilot** (`usePilot`): the main, from the store, everywhere, exactly as those
-    components read it before, unless a `PilotProvider` hands it another. Only Scaling up is wrapped, for the character
-    "Show for" picks, so an alt chosen there can't reach the Abyssal tree, Hauling or Settings. An alt's pilot is the
-    levels it can use (an Alpha's capped skills at their active level, `meta.activeSkills`), its own queue and attributes,
-    and Alpha's half-speed training. A skill Alpha caps (`capped`, `alphaCap`) has no training time: timed from its
-    trained points it read "Mining V takes 1 min" and every barge "1 skill to train" (the final review); it now says
-    "Trained to V; Alpha uses IV: Omega opens it" or "Alpha can’t use it: Omega opens it", and a hull's tip says it
-    needs Omega. The main has no `capped`. An empty skills doc is "not read" (`skillsUnread`): its tree is drawn neither
-    flyable nor locked and its tiers are at V, saying so, since worked out at no skills they'd read as the alt's own. The
-    words go through the pilot too (`whose`, `who`: "at Miner Two's skills", "Miner Two can fly it"); for the main every
-    string is as it was. Save fit in game is the main's alone: it saves to the logged-in character's fittings.
-  - **An alt's right now is the cloud's**: its ship at its last mining read, "mining" when its ledger grew in that read
-    or the one before (and only when the alts' ticks were read), always "as of" the read's time, and in the past tense
-    past a session's gap ("Was in a Venture as of …"), since a refused login's last read stays. Where an alt is and
-    whether it's logged in aren't read; `useRightNow` stays the main's.
-  - **Its ore is valued the main's way** (your skills, standing and tax), as on the Characters page.
-  - **Nothing not known reads as a zero**: an alt whose mining the cloud hasn't read says "Not read yet" across its row,
-    or, with its login refused or none kept, to hand it over again (the pilot's `lost`): "Not read yet" never resolves
-    there. A tick read that failed is "–" rather than no sessions, and a Worker a version behind (404 on the alt route) is
-    one line under Sessions, never an error; neither reads as "No sessions seen" or "Once the cloud has seen X mine". `useMiningFleet` says `loading` until the first read after the cloud comes on
-    answers, so no such line flashes, and clears the ticks when the cloud is switched off.
-  - **The filter and "Show for" are kept per browser** (`jita-ledger:mining-char`, `jita-ledger:mining-show`). One naming
-    a character no longer on the roster falls back (All; the filter's character, else the main) without overwriting
-    what's kept, since the roster loads after the page first draws. **Picking in the filter lets go of Show for**, so
-    Scaling up follows the filter's character (the main for All): kept, it stayed on one alt while the tiles showed
-    another, on every later visit too (the controller's ruling; missing until the final review).
-  - The page check's large ledger has the main's own mining too (`scripts/ledgers.mjs`), so the tab adds the main to
-    the alts there; mining isn't income, and the income recording didn't move. It also opens the tab from kept choices
-    (`MINING_CASES` in `scripts/pages.mjs`): the Alpha alt picked and shown, then a hull open; the refused alt shown; a
-    kept character gone. Each must draw text only that path draws: until the final review the deploy never drew an
-    alt's pilot, so a throw there would have shipped.
