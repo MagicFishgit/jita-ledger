@@ -6,7 +6,7 @@ import { bestWay, WAY_SAID, type OreWorth } from '../../lib/mining';
 import { gradeLabel, gradeRank } from '../../lib/miningFits';
 import { MASTERY } from '../../lib/miningMastery';
 import { HULLS } from '../../lib/miningTree';
-import { gradesOf, oreBaseIds, priceOres } from '../../lib/orePricing';
+import { gradesOf, priceOres } from '../../lib/orePricing';
 import {
   kindOfBase, ORE_WHERE, ORE_WHERE_SOURCE, paceFor, PLACES, rankOres,
   type Found, type How, type NoPace, type OreKind, type Pace, type Place,
@@ -54,8 +54,14 @@ const hm = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit'
 type Priced = { state: 'priced'; vol: number; worth: OreWorth; partial: boolean } | { state: 'failed' } | { state: 'none' };
 /** A row's grades: being read, read (the higher ones only), or not readable just now. */
 type Grades = 'reading' | 'failed' | { id: number; name: string }[];
+type Named = 'reading' | 'failed' | 'ok';
 
-export function BestOre({ pace, onPick, minedBases }: {
+/** Every base ore's and ice type's ID by name (`oreBaseIds`): null while it's read, 'failed' when ESI couldn't say. */
+export type OreIds = Record<string, number> | 'failed' | null;
+
+export function BestOre({ ids, onRetryIds, pace, onPick, minedBases }: {
+  /** The ores' IDs, read once by the page and shared with Scaling up's Ore picker, and how to ask again. */
+  ids: OreIds; onRetryIds: () => void;
   /** The pace ISK an hour is worked out at: the tier open in Scaling up, else what sessions measured, else none. */
   pace: Pace | null;
   /** Sends an ore (or one of its grades) to Scaling up's Ore picker. */
@@ -68,15 +74,8 @@ export function BestOre({ pace, onPick, minedBases }: {
   const [place, setPlace] = useState<Place>(readPlace);
   const choosePlace = (p: Place) => { setPlace(p); keepPlace(p); };
 
-  // Every base ore's and ice type's ID, by name: null while read, 'failed' when ESI couldn't say.
-  const [ids, setIds] = useState<Record<string, number> | 'failed' | null>(null);
-  const [idsTry, setIdsTry] = useState(0);
-  useEffect(() => {
-    let alive = true;
-    setIds(null);
-    oreBaseIds().then((x) => { if (alive) setIds(x); }).catch(() => { if (alive) setIds('failed'); });
-    return () => { alive = false; };
-  }, [idsTry]);
+  // Whether the names are read: until they are, a row is being priced, not unpriceable.
+  const named: Named = ids === 'failed' ? 'failed' : ids ? 'ok' : 'reading';
   const idOf = (base: string) => (ids && ids !== 'failed' ? ids[base] : undefined);
 
   // Prices by type, the types being priced now, and when the last run finished.
@@ -189,7 +188,7 @@ export function BestOre({ pace, onPick, minedBases }: {
 
   const pricing = busy.size > 0;
   const status = ids === 'failed'
-    ? <>Couldn’t read the ores’ names from ESI just now, so nothing is priced. <button type="button" className="link-btn" onClick={() => setIdsTry((n) => n + 1)}>Try again</button></>
+    ? <>Couldn’t read the ores’ names from ESI just now, so nothing is priced. <button type="button" className="link-btn" onClick={onRetryIds}>Try again</button></>
     : !ids ? 'Reading the ores from ESI…'
       : pricing ? `Pricing ${units(busy.size)} at Jita…`
         : <>
@@ -205,7 +204,7 @@ export function BestOre({ pace, onPick, minedBases }: {
         <Points compact items={[
           { kind: 'good', icon: Coins, lead: 'Priced', text: 'as Scaling up prices it: the best of selling it as it is, compressed or reprocessed at Jita, after tax.' },
           { kind: 'info', icon: MapPin, lead: 'Where', text: 'from EVE University’s tables and CCP’s patch notes, read 1 October 2026: ESI doesn’t say where ores spawn.' },
-          { kind: 'tip', icon: Gauge, lead: 'ISK an hour', text: 'follows the ship and fit open in Scaling up below, at its character’s skills; with none open, the pace your sessions measured.' },
+          { kind: 'tip', icon: Gauge, lead: 'ISK an hour', text: `follows the ship and fit open in Scaling up below, at its character’s skills; with none open, the pace ${whose(pilot)} sessions measured.` },
         ]} />
       </div>
       <div className="row" style={{ gap: '8px 12px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -218,11 +217,11 @@ export function BestOre({ pace, onPick, minedBases }: {
           <thead><tr>
             <th scope="col" className="l" style={{ width: 36 }}>#</th>
             <th scope="col" className="l"><span className="th">Ore</span></th>
-            <th scope="col" className="l"><span className="th">Found here<Tip title="Found here" text={'Where in this kind of space it’s found, and how.\n\n• From EVE University’s Asteroids and ore, Moon mining and Ice harvesting pages and CCP’s patch notes, read 1 October 2026: ESI doesn’t say.\n• Hover a row for the detail and the page it comes from; a flag marks where the sources disagree.'} /></span></th>
+            <th scope="col" className="l"><span className="th">Found here<Tip title="Found here" text={'Where in this kind of space it’s found, and how.\n\n• From EVE University’s Asteroids and ore, Moon mining and Ice harvesting pages and CCP’s patch notes, read 1 October 2026: ESI doesn’t say.\n• Hover where it’s found for the detail and the page it comes from; a flag marks where the sources disagree.'} /></span></th>
             <th scope="col" className="l"><span className="th">Best way<Tip title="Best way" text={'Of three ways to sell it at Jita 4-4, after tax, whichever fetches most.\n\n• As it is: into its own bids.\n• Compressed: its compressed form into its bids. Compressing keeps one unit for one at a hundredth of the volume; it takes a Porpoise, an Orca or a structure.\n• Reprocessed: at your skills at Jita 4-4, the minerals into their bids, after the station’s tax.'} /></span></th>
             <th scope="col"><span className="th">ISK a m³<Tip title="ISK a m³" text="What a cubic metre of it fetches the best way, after tax: what fills an ore hold best." /></span></th>
             <th scope="col">
-              <span className="th">ISK an hour<Tip title="ISK an hour" text={'A m³ of it at the pace Scaling up shows, for an hour.\n\n• With a ship open there: its tier’s m³ a minute at that character’s skills, from ESI’s figures, without boosts.\n• One ore fit’s pace holds for every ore but Mercoxit: a crystal of one kind mines every family alike (ESI’s figures for each family’s crystals agree).\n• An ore fit mines no ice and an ice fit no ore; Mercoxit takes deep-core lasers, so it has a pace only with Mercoxit picked there.\n• With no ship open: what your sessions measured, on the same kind of ore.'} /></span>
+              <span className="th">ISK an hour<Tip title="ISK an hour" text={`A m³ of it at the pace Scaling up shows, for an hour.\n\n• With a ship open there: its tier’s m³ a minute at that character’s skills, from ESI’s figures, without boosts.\n• One ore fit’s pace holds for every ore but Mercoxit: a crystal of one kind mines every family alike (ESI’s figures for each family’s crystals agree).\n• An ore fit mines no ice and an ice fit no ore; Mercoxit takes deep-core lasers, so it has a pace only with Mercoxit picked there.\n• With no ship open: what ${whose(pilot)} sessions measured, on the same kind of ore.`} /></span>
               <span className="sub" style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>{paceSaid}</span>
             </th>
           </tr></thead>
@@ -262,7 +261,7 @@ export function BestOre({ pace, onPick, minedBases }: {
                       ))}
                       {o.disputed && <span className="flags" style={{ justifyContent: 'flex-start', marginTop: 4 }}><Flag why={o.disputed} title="Sources disagree" color="var(--acc2)">Sources disagree</Flag></span>}
                     </td>
-                    <PriceCells t={id} kind={kind} prices={prices} busy={busy} figures={figures} hourOf={hourOf} whyNot={whyNot} named={!!ids && ids !== 'failed'} />
+                    <PriceCells t={id} kind={kind} prices={prices} busy={busy} figures={figures} hourOf={hourOf} whyNot={whyNot} named={named} />
                   </tr>
                   {isOpen && (g === 'reading' || g === 'failed' || (Array.isArray(g) && !g.length)) && (
                     <tr className="detail"><td colSpan={6}>
@@ -281,7 +280,7 @@ export function BestOre({ pace, onPick, minedBases }: {
                         </span>
                       </td>
                       <td />
-                      <PriceCells t={x.id} kind={kind} prices={prices} busy={busy} figures={figures} hourOf={hourOf} whyNot={whyNot} named />
+                      <PriceCells t={x.id} kind={kind} prices={prices} busy={busy} figures={figures} hourOf={hourOf} whyNot={whyNot} named="ok" />
                     </tr>
                   ))}
                 </Fragment>
@@ -328,13 +327,14 @@ function PriceCells({ t, kind, prices, busy, figures, hourOf, whyNot, named }: {
   figures: (t: number | undefined) => { best: NonNullable<ReturnType<typeof bestWay>>; perM3: number | null; partial: boolean; worth: OreWorth } | null;
   hourOf: (kind: OreKind, perM3: number | null) => { r: ReturnType<typeof paceFor>; isk: number | null };
   whyNot: (why: NoPace, kind: OreKind) => string;
-  /** Whether the ores' names were read: without them nothing could be priced. */
-  named: boolean;
+  /** Whether the ores' names were read: being read, nothing is priced yet; failed, nothing could be. */
+  named: Named;
 }) {
   const f = figures(t);
   const p = t != null ? prices[t] : undefined;
   if (!f) {
-    const said = !named ? 'Not priced: its name couldn’t be read from ESI'
+    const said = named === 'reading' ? 'Pricing…'
+      : named === 'failed' ? 'Not priced: its name couldn’t be read from ESI'
       : t == null ? 'ESI doesn’t know it by this name'
         : busy.has(t) || !p ? 'Pricing…'
           : p.state === 'none' ? 'No bids at Jita for it, its compressed form or its minerals'

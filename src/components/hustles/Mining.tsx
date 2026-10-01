@@ -22,7 +22,7 @@ import { useMinedWorth } from '../charIncome';
 import { useEnsureNames, useTypeName } from '../common';
 import { PilotProvider, usePilot } from '../pilot';
 import { SkillStrip } from '../SkillStrip';
-import { BestOre } from './BestOre';
+import { BestOre, type OreIds } from './BestOre';
 import { MasteryTiers } from './MasteryTiers';
 import { MiningTree } from './MiningTree';
 import { useMiningFleet, type AltTicks, type FleetChar } from './miningFleet';
@@ -180,6 +180,16 @@ export function Mining() {
   })]);
   // The ore Scaling up prices for, kept in this browser: here rather than in Scaling up, so the best-ore panel can pick one.
   const [chosenOre, setChosenOre] = useState<number | null>(readOre);
+  // Every base ore's and ice type's ID, read once for the best-ore panel and Scaling up's Ore picker alike, so the panel's
+  // Try again fills the picker too (it used to keep the empty list it read during the failure).
+  const [oreIds, setOreIds] = useState<OreIds>(null);
+  const [idsTry, setIdsTry] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    setOreIds(null);
+    oreBaseIds().then((x) => { if (alive) setOreIds(x); }).catch(() => { if (alive) setOreIds('failed'); });
+    return () => { alive = false; };
+  }, [idsTry]);
   const chooseOre = (t: number | null) => { setChosenOre(t); saveOre(t); };
   const scaling = useRef<HTMLDivElement>(null);
   const pickOre = (t: number) => { chooseOre(t); scaling.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
@@ -356,10 +366,11 @@ export function Mining() {
       </Panel>
 
       <PilotProvider value={shown.pilot}>
-        <BestOre pace={tierPace ?? measuredPace} onPick={pickOre} minedBases={minedRows} />
+        <BestOre ids={oreIds} onRetryIds={() => setIdsTry((n) => n + 1)} pace={tierPace ?? measuredPace} onPick={pickOre} minedBases={minedRows} />
         <div ref={scaling} style={{ scrollMarginTop: 12 }}>
           <ScalingUp here={here} paceOf={paceOf} measured={measured} mostMined={mostMined} minedBases={minedBases} inShip={inShip}
-            chars={chars} shownId={shown.charId} onShow={chooseShow} chosen={chosenOre} choose={chooseOre} onPace={setTierPace} />
+            chars={chars} shownId={shown.charId} onShow={chooseShow} chosen={chosenOre} choose={chooseOre} onPace={setTierPace}
+            ids={oreIds === 'failed' ? {} : oreIds} />
         </div>
       </PilotProvider>
     </div>
@@ -566,7 +577,7 @@ const saveOre = (t: number | null) => { try { if (t == null) localStorage.remove
  * tree and the tiers, its ship, its pace and the ore it mines most. The ore's worth stays yours (your skills, standing
  * and tax), whoever mines it.
  */
-function ScalingUp({ here, paceOf, measured, mostMined, minedBases, inShip, chars, shownId, onShow, chosen, choose, onPace }: {
+function ScalingUp({ here, paceOf, measured, mostMined, minedBases, inShip, chars, shownId, onShow, chosen, choose, onPace, ids }: {
   here: number | null; paceOf: (hull: number) => { m3PerMin: number; sessions: number } | null;
   measured: number | null; mostMined: number; minedBases: Set<string>;
   /** What the legend says the lit ship is, for whoever it's shown for. */
@@ -577,6 +588,8 @@ function ScalingUp({ here, paceOf, measured, mostMined, minedBases, inShip, char
   chosen: number | null; choose: (t: number | null) => void;
   /** Hears the open tier's pace, for the best-ore panel's ISK an hour. */
   onPace: (p: FitPace | null) => void;
+  /** Every ore's ID by name: null while read, empty when ESI couldn't say. */
+  ids: Record<string, number> | null;
 }) {
   const d = useData();
   const name = useTypeName();
@@ -614,9 +627,7 @@ function ScalingUp({ here, paceOf, measured, mostMined, minedBases, inShip, char
   const best = priced ? bestWay(priced.worth) : null;
   const iskPerM3 = best && priced.m3 > 0 ? best.perUnit / priced.m3 : null;
 
-  // Every ore by its family, and the grades of the one picked, from ESI.
-  const [ids, setIds] = useState<Record<string, number> | null>(null);
-  useEffect(() => { oreBaseIds().then(setIds).catch(() => setIds({})); }, []);
+  // The grades of the ore picked, from ESI.
   const [grades, setGrades] = useState<{ id: number; name: string }[]>([]);
   useEffect(() => {
     if (!base || !ids?.[base]) { setGrades([]); return; }
