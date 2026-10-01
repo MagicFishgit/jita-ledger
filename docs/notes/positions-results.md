@@ -177,7 +177,9 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   Play is the same Personal spending as beside. On the user's ledger copy (to 27 September): never bought +973.81 M (led
   by 213.5 M of Datacore - High Energy Physics), combat +172.83 M, abyssal +1.81 M, every item −6.36 M; 366.5 M on play.
   Without ESI's item groups only trading, hauling, freelance and bounties count, and both pages now say so (Results said
-  it counted those, but counted nothing).
+  it counted those, but counted nothing). Freelance's trades are a job's items in its window over every job you did, finished ones
+  too, and a tagged one is no job's, as on the Wallet (2 October 2026; loyalty-hustles.md); the Wallet's row for one says
+  "during a freelance job of yours that takes it".
 - **Daily goals and AIR rewards are income, for every character** (`REWARDS` in wallet.ts, the Rewards activity; the user,
   1 October 2026: "air rewards and goal payouts should count as income for any character including my main"). They were
   "Other income" on the Wallet and nowhere in Results, All income or a card's Earned: in D1 that day, 16 goal payouts

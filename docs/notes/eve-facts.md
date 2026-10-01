@@ -53,6 +53,23 @@ Don't re-derive or contradict these without new evidence.
   (28 September 2026, contract 235889568, +200,000 ISK, entry 26090577567). The issuer's side
   (`contract_reward_deposited`), a `contract_price` and a `player_trading` between two characters haven't been seen, so
   only a donation is known to name both characters.
+- **A reward reaches the wallet after the character's corporation takes its tax.** Every `freelance_jobs_reward`, mission
+  reward and bounty in D1 to 1 October 2026 was 89% of a round figure under School of Applied Knowledge's 11%:
+  593,096,000 = 39,200,000 × 17 × 0.89; about 298 M taxed of 2.41 B in freelance rewards, 29 September to 1 October.
+  Whether a freelance reward's row carries the journal's `tax` / `tax_receiver_id` ("only applies to tax related
+  transactions") was unseen when the app began keeping them: record what the first real sync shows, at 0% too. A
+  reward's `reason` is `project_id=<id>:project_name=<name>`, `\` and non-ASCII escaped (`/!\\`, `\u2713`); a job's last
+  reward lands 2–7 s after its `details.finished`.
+- **ESI's answers change with `X-Compatibility-Date`** (the app sends 2026-08-18). `/corporations/{id}/` then gives
+  `tax_rates: { isk, loyalty_point }` in percent and no `tax_rate`; with no date or 2025-08-26, `tax_rate` as a fraction
+  (1 October 2026: SAK 1000044 at 11.0, TEMP TAX HAVEN 98845591 at 0.0); it carries `creator_id` and `date_founded`
+  too. `GET /freelance-jobs/{id}` answers for a finished job only with the header: `state: "Completed"`,
+  `details.created`/`finished`/`expires`, `reward.initial`, `progress`, `contribution.reward_per_contribution` (the rate
+  before tax).
+- **Reading a character's corporation**: `/characters/{id}/` is `max-age=86400`, so the app reads `POST
+  /characters/affiliation/` (no cache headers), then `/corporations/{id}/` (`max-age=3600`, an ETag).
+  `/characters/{id}/corporationhistory/` is held a day: on 1 October it still ended with SAK hours after the user founded
+  TEMP TAX HAVEN (19:39:23 UTC). ESI keeps no corporation's past tax rate.
 - **`publicData` grants nothing** — zero ESI endpoints require it; it isn't even an ESI scope.
 - **A sell order holds its own goods**, so real stock is the Jita hangar **plus** everything committed
   to open sell orders. Counting only the hangar reports a phantom shortfall on anything being sold.

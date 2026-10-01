@@ -34,6 +34,10 @@ Decisions worth not undoing. How the ledger lives in the cloud as well as the br
   or changed, and keeps one net-worth point a day the Wallet's way; the market watch (`worker/src/market.ts`) does
   `bookFills` all day on every item any ledger has open orders, open positions or watchlist entries on, and the app
   merges that flow with its own (`setCloudFlow`, cloud wins per day).
+- **`meta.freelance` stays in each browser** (`LOCAL_META`, 1 October 2026): every browser rebuilds the freelance history
+  from the journal and ESI, so a newest-wins doc can't drop a job another found. `meta.corp` rides the doc, read fresh
+  each sync. The hourly archive sends a held journal entry again only when ESI gives a tax its record lacks
+  (`journalGainedTax`, field by field, reading those rows back 90 at a time).
 - **"Delete all data" makes the sync meet the cloud again as a new browser** (`onClearAll` hook in `lib/cloud.ts`). The
   sync's state lives in the ledger's own IndexedDB store (`STATE_KEY`), but its copy in memory outlived the wipe: the
   next minute's pull saved "already met the cloud at revision N" back, so after a reload only what was newer came down

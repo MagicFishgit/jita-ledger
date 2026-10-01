@@ -86,18 +86,14 @@ mining.md; Abyssal, Hauling and Combat in abyssal-hauling-combat.md (split on 1 
   ending within a day. The first run: 491 jobs, 348 wanting an item, 68 paying more than Jita, the best Scordite
   buybacks (~40–200 M, tens of millions of units). A job has to be accepted in game first (Opportunities → Freelance
   Jobs); ESI has no window for it, so the row copies the job's name to search for, and sets the destination.
-  **Your jobs** (scope `esi-characters.read_freelance_jobs.v1`, registered 29 September 2026): the tab reads
-  `/characters/{id}/freelance-jobs` and each job's `/participation` (`contributed`, `Committed`/`Kicked`/`Resigned`) when
-  it opens, and lists them with what's left of your cap and what you've earned (`myShare`). In the finder a job you're
-  in says so, and a capped one counts only what's left of your share.
+  **Your jobs** (scope `esi-characters.read_freelance_jobs.v1`, registered 29 September 2026): `/characters/{id}/freelance-jobs`
+  lists only the jobs running; each one's `/participation` gives `contributed` and `Committed`/`Kicked`/`Resigned`. In the
+  finder a job you're in says so, and a capped one counts only what's left of your share.
   **Second version, after the user's Scordite job** (29 September 2026: 38,132,412 Compressed Scordite 0-Grade bought at
   11.76–11.79, delivered 3–4 jumps out for 17 each, 576.94 M in rewards so far, ~170 M profit on what's delivered):
-  - **What's been done shows in ISK** (`jobLedgers`, `freelanceStore.ts`, `meta.freelance`): each reward's journal
-    reason names its job (`project_id=<id>`), and trades of the items a joined job takes, after it began, not in a
-    position or tagged Personal, are its spend. The tab's "Your jobs" shows rewards, spent, profit on what's delivered
-    (at average cost) and what's bought and not yet delivered. The Wallet has "Freelance rewards" (they were Other
-    income) and "Bought for freelance jobs" (they were Other purchases); Results has a Freelance activity (rewards less
-    everything bought, stock included, so it reads lower than the tab's profit until the stock is delivered).
+  - **What's been done shows in ISK**: the Wallet has "Freelance rewards" (they were Other income) and "Bought for
+    freelance jobs" (they were Other purchases); Results has a Freelance activity (rewards less everything bought,
+    leftovers included, so it reads below the tab's profit until they're delivered). How the tab works it out is below.
   - **A group job buys every item under the reward** (`bestDeliver`): it first took only the one item that made most.
     The price shown is the range paid (11.76–11.79), since "costs 11.79" was read as one price when it was the average.
   - **Where you can accept it**: the game lists a job only within 5 jumps of a system it's broadcast in
@@ -113,6 +109,39 @@ mining.md; Abyssal, Hauling and Combat in abyssal-hauling-combat.md (split on 1 
     the gank systems, all from Jita at once, instead of one ESI route call per office and broadcast system.
   The m³ was questioned: CCP's data and ESI both give 0.0015 m³ a unit of Compressed Scordite 0-Grade (0.15 raw, 0.19
   the old Batch Compressed), so 38.13 M units are 57,199 m³ on the game's own figures.
+- **Freelance after tax, and every job you did** (`jobHistory`, `readReward` in freelance.ts; `readJobHistory` in
+  freelanceStore.ts; 1–2 October 2026). The user saw a lot of tax on a reward, made a corporation at 0%, and asked for the
+  tab to show "the runs you did the cost and profit made", and why job purchases were "Other" in the Wallet.
+  - **The finder prices after your corporation's tax** (`meta.corp`, read each sync), at render: it buys only listings
+    under what a unit pays after it, and says whose ("after TEMP TAX HAVEN’s 0% tax"), or "before tax" until read. At 17 a
+    unit and Scordite at 11.79: 3.34 M a million units at 11%, 5.21 M at 0%.
+  - **"Every job you did"** is every job a reward names plus the joined list, merged, never replaced: the sync replaced it
+    with the joined list, which holds only the jobs running, so three finished jobs' purchases became Other purchases.
+    `meta.freelance` stays in each browser (cloud.md), rebuilt from the journal and ESI; a finished job's details are
+    kept for good; one ESI answers 404 for is listed by its rewards' name and asked again each sync. The tab is the
+    main's alone; an alt's jobs aren't read.
+  - **A job's window runs from its posting to its finish** (`jobEnd`: else its expiry, whatever its state, so a job ESI
+    stops describing doesn't stay open). It starts at the posting, not your joining: anything of its items bought in
+    that window is the job's, here and on the Wallet and Results; a tagged trade is no job's (2 October 2026).
+  - **Each delivery takes the newest purchases before it** of its items in its window, each purchase once (the four
+    Scordite jobs overlapped). Evidence: the 813,258 at 21.96 (29 Sep, 12:03:02) went onto sell order 7432972978 44 s
+    later, never delivered. ISK Scordite costs 1,008,181,985.41 this way, 1,016.36 M first in first out. The cost: a
+    lot bought long before and kept for a delivery is costed after newer ones. Units beyond what's left came from stock
+    not bought for the job (mined, contracted, looted, bought before it began): said apart, never costed. A leftover
+    stays with the job paid next after it. **A sale takes the leftovers, oldest first, for the job each was left with**: a
+    leftover's sell order filling during a later job doesn't eat that job's purchases (it charged a Buy Back 813,258
+    of "stock you didn't buy"), and after every job it still clears it. Units sold in a job's window with nothing bought
+    behind them are said apart and left out of its profit: costed at 0, 5,000,000 mined Veldspar added 35.75 M.
+  - **Units and tax**: the journal's `tax` when (amount + tax) is whole units at the job's rate to the cent, else set
+    aside; then the corporation ESI's history puts you in then, at its rate now, only when exact to the cent and within
+    everyone's deliveries; else "not recorded". Arithmetic alone can't tell: 593,096,000 is whole at 0, 2, 11, 20%…,
+    255,106,158.37 at 11, 39 and 51%. A corporation you founded is dated from `date_founded` while ESI's history is
+    behind (TEMP TAX HAVEN 19:39:23 splits Kernite's 11% at 19:30 from the Buy Backs' 0%); one joined has no known start,
+    and both rates are tried. A total not known reads "–".
+  - **The user's six, as their check**: profit 91,961,855.90 and 93,852,835.99 (Buy Backs, 0%), 340,610,880.10
+    (Kernite), 52,117,599.80 (Mothhat), 278,582,468.32 (ISK Scordite, 813,258 left over at 17.86 M), 136,748,854.74
+    (Veldspar); 3,787,583,450.13 received, 386,308,066.87 tax, 2,793,708,955.28 cost, 993,874,494.85 profit. On a phone
+    the table folds to the job, its profit and figures under its name.
 - **Reprocessing is a page of its own** (`lib/reprocess.ts` pure, `Reprocess.tsx`, `src/data/typeMaterials.json`). The
   user asked for it after the Experimental ZW-4100 Torpedo Launcher turned out to trade at its minerals' value. ESI has
   no type materials, so they're bundled from CCP's SDE (build 3552227, 28 September 2026; `scripts/type-materials.mjs`

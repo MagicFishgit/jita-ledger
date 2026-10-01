@@ -101,3 +101,7 @@ State these rather than letting them be discovered:
   read as a token. The share and day's-volume guards catch most (the Key's sell: 26 ahead against its pace).
 - **An item whose book wasn't watched for a day carries no raises in the planner**, which flatters its return by about
   1% against a watched one.
+- **A freelance reward's worked-out tax uses its corporation's rate now**: ESI keeps no past rate, so a player corporation
+  that changed it leaves its rewards "not recorded" (the exactness check stops a wrong figure). And ore mined or
+  contracted and sold in a freelance job's window counts as Freelance in the Wallet and Results, not as loot: the trade
+  rule is the item and the window (the tab keeps it out of the job's profit).
