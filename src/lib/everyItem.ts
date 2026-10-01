@@ -5,7 +5,11 @@ import type { Data } from './store';
 /** A position that follows every trade of an item, whenever it was, less the ones you tagged Personal. */
 export const everything = (typeId: number, excluded: string[]) => ({ id: `all:${typeId}`, typeId, openedAt: '2003-05-06T00:00:00Z', status: 'open' as const, jitaOnly: false, excluded, included: [] });
 
-/** One ledger's answer, kept while the inputs it read are the same objects (the store replaces what changes). */
+/**
+ * One ledger's answer, kept while the inputs it read are the same objects (the store replaces what changes). Not
+ * `d.positions`: `computePosition` reads it only to ask whether the position it works out is one of the ledger's own
+ * (`mine`, by ID), which then shares the item's trades with its rivals; the `all:` positions here never are.
+ */
 const memo = new WeakMap<object, { key: unknown[]; calcs: ItemCalc[] }>();
 
 /**

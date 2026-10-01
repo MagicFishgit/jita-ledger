@@ -3995,11 +3995,15 @@ console.log('\n--- what a ledger earned (income.ts) ---');
   const { rows, earned } = incomeRows(everyItemCalcs(d), acts, since, now);
   const by = Object.fromEntries(rows.map((r) => [r.key, r.isk]));
   // Trading is every item bought and sold again by its profit, counted once: the activity events hold no Trading here
-  // (no positions), and the row isn't added to them. Its tax is the 7.5% estimate (1,125), not the journal's 500: a
-  // position claims a tax by second and size (feeMatch.ts, within half of what the rate expects), and 500 is 625 off at
-  // the empty ledger's Accounting 0. So 15,000 − 10,000 − 1,125, as the Wallet counted it before income.ts. Abyssal and
-  // loot take their tax by transaction ID (results.ts), so the journal's figures stand there.
-  eq('  trading, every item, by its profit', Math.round(by.trading), 15000 - 10000 - 1125);
+  // (no positions), and the row isn't added to them. Its tax is the estimate at the ledger's own rate (7.5% at the empty
+  // ledger's Accounting 0: 1,125 on the 15,000 sale), not the journal's 500: a position claims a tax by second and size
+  // (feeMatch.ts, within half of what the rate expects), and 500 is 625 off. So 15,000 − 10,000 − 1,125, as the Wallet
+  // counted it before income.ts. Abyssal and loot take their tax by transaction ID (results.ts), so the journal's
+  // figures stand there.
+  const { rates } = await import('../src/lib/fees.ts');
+  const estimated = rates(d.settings).t * 15000;
+  eq('    the estimate is 7.5% of the sale', estimated, 1125);
+  eq('  trading, every item, by its profit', Math.round(by.trading), Math.round(15000 - 10000 - estimated));
   eq('  abyssal: loot sold after tax, less the filament', Math.round(by.Abyssal), 80000 - 2000 - 50000);
   eq('  combat: the bounty', by.Combat, 7000);
   eq('  sold, never bought: the loot after its tax', Math.round(by.loot), 10000 - 300);

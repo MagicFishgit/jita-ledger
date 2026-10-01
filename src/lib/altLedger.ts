@@ -11,6 +11,9 @@ import type { NetWorthPoint } from './types';
  * fees come from its own trade skills and clone state with standings 0; a clone state nobody can tell is taken as
  * Omega, which is the same thing when nothing is past Alpha's caps. Worked out once for each pulled copy: the alt
  * store replaces the copy when its revision moves, so the same copy means the same answer.
+ *
+ * Read-only: the ledger shares the stored copy's record maps and documents (`txs`, `journal`, `meta`…), not copies of
+ * them, so changing anything in it would change the alt store's copy, and every later answer for it.
  */
 const memo = new WeakMap<AltSaved, Map<string, Data>>();
 
