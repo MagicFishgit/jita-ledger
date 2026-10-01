@@ -167,11 +167,16 @@ export function Mining() {
   const measured = median(shownSessions.filter(({ st }) => st.minutes >= LONG_MIN).map(({ st }) => st.m3PerMin));
   // What Scaling up prices for until you pick another: the ore it mined most, or Scordite before it has mined any.
   const shownRecent = recentOf.get(shown.charId) ?? [];
+  // Ore only: a character that mined mostly ice (an Endurance alt) had Scaling up's ore fits priced at the ice's ISK a m³,
+  // and a gas or anything else no crystal mines would do the same; a type whose name isn't read yet waits for it.
   const mostMined = useMemo(() => {
     const by = new Map<number, number>();
-    for (const x of shownRecent) by.set(x.typeId, (by.get(x.typeId) ?? 0) + x.qty);
+    for (const x of shownRecent) {
+      const n = d.names[x.typeId] ?? altNames.find((m) => m[x.typeId])?.[x.typeId];
+      if (n && oreBase(n.trim())) by.set(x.typeId, (by.get(x.typeId) ?? 0) + x.qty);
+    }
     return [...by.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? SCORDITE;
-  }, [shownRecent]);
+  }, [shownRecent, d.names, altNames]);
   const minedBases = new Set([...new Set(shownRecent.map((x) => x.typeId))].map((t) => (d.names[t] || altNames.some((n) => n[t]) ? oreBase(oreName(t)) : null)).filter((x): x is string => !!x));
   // The same for the best-ore panel, with the ice it mined by its own name (an ice type is its own row there).
   const minedRows = new Set([...minedBases, ...[...new Set(shownRecent.map((x) => x.typeId))].flatMap((t) => {
@@ -196,10 +201,18 @@ export function Mining() {
   // ISK an hour on the best-ore panel: the tier open in Scaling up (MasteryTiers reports it), else what the shown
   // character's sessions measured, one kind of ore at a time, since an ice session's pace says nothing about ore.
   const [tierPace, setTierPace] = useState<FitPace | null>(null);
-  const measuredBy = useMemo(() => measuredByKind(shownSessions.filter(({ st }) => st.minutes >= LONG_MIN).map(({ s, st }) => ({
-    ship: s.ship, m3PerMin: st.m3PerMin,
-    kind: sessionKind(Object.keys(s.byType).map((t) => d.names[Number(t)] ?? altNames.find((m) => m[Number(t)])?.[Number(t)])),
-  })), here), [shownSessions, here, d.names, altNames]);
+  // Bumped when the panel has read Jita's books again (Price again), so Scaling up prices its ore again from them: it kept
+  // the first price of the visit, and the two could show one type at two ISK a m³.
+  const [priceVer, setPriceVer] = useState(0);
+  // A session with an ore whose volume isn't known counts that ore as 0 m³ (sessionStats), so its pace would be understated,
+  // down to a "0 ISK" an hour: it's left out like one whose kind isn't known.
+  const measuredBy = useMemo(() => measuredByKind(shownSessions.filter(({ st }) => st.minutes >= LONG_MIN).map(({ s, st }) => {
+    const types = Object.keys(s.byType).map(Number);
+    return {
+      ship: s.ship, m3PerMin: st.m3PerMin,
+      kind: types.some((t) => val.volumeOf(t) == null) ? null : sessionKind(types.map((t) => d.names[t] ?? altNames.find((m) => m[t])?.[t])),
+    };
+  }), here), [shownSessions, here, d.names, altNames, val]);
   const measuredPace: Measured | null = Object.keys(measuredBy).length ? { from: 'measured', by: measuredBy } : null;
   useEnsureNames(chars.flatMap((c) => (c.entry?.ship ? [c.entry.ship] : [])));
   const inShip = shown.isMain
@@ -366,11 +379,12 @@ export function Mining() {
       </Panel>
 
       <PilotProvider value={shown.pilot}>
-        <BestOre ids={oreIds} onRetryIds={() => setIdsTry((n) => n + 1)} pace={tierPace ?? measuredPace} onPick={pickOre} minedBases={minedRows} />
+        <BestOre ids={oreIds} onRetryIds={() => setIdsTry((n) => n + 1)} pace={tierPace ?? measuredPace} onPick={pickOre} minedBases={minedRows}
+          onPricedAgain={() => setPriceVer((v) => v + 1)} />
         <div ref={scaling} style={{ scrollMarginTop: 12 }}>
           <ScalingUp here={here} paceOf={paceOf} measured={measured} mostMined={mostMined} minedBases={minedBases} inShip={inShip}
             chars={chars} shownId={shown.charId} onShow={chooseShow} chosen={chosenOre} choose={chooseOre} onPace={setTierPace}
-            ids={oreIds === 'failed' ? {} : oreIds} />
+            ids={oreIds === 'failed' ? {} : oreIds} priceVer={priceVer} />
         </div>
       </PilotProvider>
     </div>
@@ -577,7 +591,7 @@ const saveOre = (t: number | null) => { try { if (t == null) localStorage.remove
  * tree and the tiers, its ship, its pace and the ore it mines most. The ore's worth stays yours (your skills, standing
  * and tax), whoever mines it.
  */
-function ScalingUp({ here, paceOf, measured, mostMined, minedBases, inShip, chars, shownId, onShow, chosen, choose, onPace, ids }: {
+function ScalingUp({ here, paceOf, measured, mostMined, minedBases, inShip, chars, shownId, onShow, chosen, choose, onPace, ids, priceVer }: {
   here: number | null; paceOf: (hull: number) => { m3PerMin: number; sessions: number } | null;
   measured: number | null; mostMined: number; minedBases: Set<string>;
   /** What the legend says the lit ship is, for whoever it's shown for. */
@@ -590,6 +604,8 @@ function ScalingUp({ here, paceOf, measured, mostMined, minedBases, inShip, char
   onPace: (p: FitPace | null) => void;
   /** Every ore's ID by name: null while read, empty when ESI couldn't say. */
   ids: Record<string, number> | null;
+  /** Moves when the best-ore panel has read Jita's books again: the ore is priced again, its last figure shown meanwhile. */
+  priceVer: number;
 }) {
   const d = useData();
   const name = useTypeName();
@@ -605,24 +621,24 @@ function ScalingUp({ here, paceOf, measured, mostMined, minedBases, inShip, char
   const base = oreName ? oreBase(oreName) : null;
   const family = (oreName ? oreFamily(oreName) : null) ?? 'Simple';
 
-  const [worth, setWorth] = useState<Record<number, { m3: number; worth: OreWorth }>>({});
+  const [worth, setWorth] = useState<Record<number, { m3: number; worth: OreWorth; ver: number }>>({});
   // A read that priced it no way at all (ESI down: every bid failed) isn't kept, or it would say "Pricing at Jita…" for
   // good: it says so, with Try again (it did during the daily downtime, 30 September 2026).
   const [failed, setFailed] = useState<Record<number, boolean>>({});
   const [retry, setRetry] = useState(0);
   useEffect(() => {
-    if (!oreName || worth[ore]) return;
+    if (!oreName || worth[ore]?.ver === priceVer) return;
     let alive = true;
     priceOres([ore], name, d.skills ?? {}, d.settings.corp, r.t)
       .then(({ vols, worth: w }) => {
         if (!alive) return;
         const ok = !!w[ore] && !!bestWay(w[ore]);
         setFailed((x) => ({ ...x, [ore]: !ok }));
-        if (ok) setWorth((x) => ({ ...x, [ore]: { m3: vols[ore], worth: w[ore] } }));
+        if (ok) setWorth((x) => ({ ...x, [ore]: { m3: vols[ore], worth: w[ore], ver: priceVer } }));
       })
       .catch(() => { if (alive) setFailed((x) => ({ ...x, [ore]: true })); });
     return () => { alive = false; };
-  }, [ore, oreName, retry]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ore, oreName, retry, priceVer]); // eslint-disable-line react-hooks/exhaustive-deps
   const priced = worth[ore];
   const best = priced ? bestWay(priced.worth) : null;
   const iskPerM3 = best && priced.m3 > 0 ? best.perUnit / priced.m3 : null;

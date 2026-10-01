@@ -59,7 +59,7 @@ type Named = 'reading' | 'failed' | 'ok';
 /** Every base ore's and ice type's ID by name (`oreBaseIds`): null while it's read, 'failed' when ESI couldn't say. */
 export type OreIds = Record<string, number> | 'failed' | null;
 
-export function BestOre({ ids, onRetryIds, pace, onPick, minedBases }: {
+export function BestOre({ ids, onRetryIds, pace, onPick, minedBases, onPricedAgain }: {
   /** The ores' IDs, read once by the page and shared with Scaling up's Ore picker, and how to ask again. */
   ids: OreIds; onRetryIds: () => void;
   /** The pace ISK an hour is worked out at: the tier open in Scaling up, else what sessions measured, else none. */
@@ -68,6 +68,8 @@ export function BestOre({ ids, onRetryIds, pace, onPick, minedBases }: {
   onPick: (typeId: number) => void;
   /** Ores (by base) and ice types (by name) the shown character mines. */
   minedBases: Set<string>;
+  /** Heard once Price again has read the books past the cache, so Scaling up can price its ore from them too. */
+  onPricedAgain?: () => void;
 }) {
   const d = useData();
   const pilot = usePilot();
@@ -95,6 +97,7 @@ export function BestOre({ ids, onRetryIds, pace, onPick, minedBases }: {
         const lost = new Set(failed);
         // "Read at" only when something was: a run that priced nothing isn't a reading of Jita's bids.
         if (types.some((t) => worth[t] && bestWay(worth[t]))) setReadAt(Date.now());
+        if (fresh) onPricedAgain?.();
         setPrices((x) => {
           const y = { ...x };
           for (const t of types) {
