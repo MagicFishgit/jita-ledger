@@ -5,7 +5,7 @@ import { confirmAsk } from '../lib/confirm';
 import { fmtShort, isk, iskBig, iskBigSigned, rid, units } from '../lib/format';
 import { navigate } from '../lib/hooks';
 import { computePosition } from '../lib/positions';
-import { newPlan, placedOrder, planProgress, PLANS_KEPT } from '../lib/plans';
+import { newPlan, placementNote, planPlacement, planProgress, PLANS_KEPT } from '../lib/plans';
 import type { Plan } from '../lib/planner';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
@@ -70,13 +70,13 @@ export function PlacingChecklist() {
   const d = useData();
   const name = useTypeName();
   const orders = useMemo(() => Object.values(d.orders), [d.orders]);
-  const recent = d.plans.filter((p) => Date.now() - Date.parse(p.at) < CHECKLIST_DAYS * 86400_000 && planProgress(p, orders).placed < p.items.length);
+  const recent = d.plans.filter((p) => Date.now() - Date.parse(p.at) < CHECKLIST_DAYS * 86400_000 && planProgress(p, orders, d.positions).placed < p.items.length);
   useEnsureNames(recent.flatMap((p) => p.items.map((i) => i.typeId)));
   if (!recent.length) return null;
   return (
     <>
       {recent.map((p) => {
-        const prog = planProgress(p, orders);
+        const prog = planProgress(p, orders, d.positions);
         return (
           <section key={p.id} id="placing" className="panel" aria-label={`Placing ${p.name}`} style={{ padding: 18, gap: 12, clipPath: 'none' }}>
             <div className="panel-head">
@@ -98,14 +98,16 @@ export function PlacingChecklist() {
                 <thead><tr><th scope="col" className="l">Item</th><th scope="col">Quantity</th><th scope="col">Buy at</th><th scope="col">In escrow</th><th scope="col" className="l">Placed</th></tr></thead>
                 <tbody>
                   {p.items.map((i) => {
-                    const o = placedOrder(i, p, orders);
+                    const pl = planPlacement(i, p, orders, d.positions);
+                    const o = pl?.order ?? null;
+                    const note = pl ? placementNote(i, pl) : null;
                     return (
                       <tr key={i.typeId} style={{ opacity: o ? 0.55 : 1 }}>
                         <td className="l"><span className="cellrow"><ItemIcon id={i.typeId} /><NameInGame typeId={i.typeId} name={name(i.typeId)} className="name ellipsis" copy={i.buyAt} /></span></td>
                         <td>{units(i.units)} <button type="button" className="link-btn dim copy-price" aria-label={`Copy ${i.units}`} data-tip="Copy the quantity" onClick={() => void copyQty(i.units)}><Copy aria-hidden="true" /></button></td>
                         <td>{isk(i.buyAt)} <CopyPrice price={i.buyAt} /></td>
                         <td>{iskBig(i.units * i.buyAt)}</td>
-                        <td className="l">{o ? <span className="row tight" style={{ color: 'var(--pos)' }}><Check aria-hidden="true" style={{ width: 14, height: 14 }} />{units(o.volumeTotal)} at {isk(o.price)}</span> : <span className="faint">Not yet</span>}</td>
+                        <td className="l">{o && note ? <span style={{ color: 'var(--pos)' }}><span className="row tight" style={{ whiteSpace: 'normal', flexWrap: 'nowrap', alignItems: 'flex-start' }}><Check aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', marginTop: 2 }} />{note.lead} at {isk(o.price)}</span>{note.short && <span className="note small" style={{ display: 'block', margin: 0, whiteSpace: 'normal', minWidth: 220, maxWidth: 320 }}>{note.short}</span>}</span> : <span className="faint">Not yet</span>}</td>
                       </tr>
                     );
                   })}
@@ -130,7 +132,7 @@ export function PlanGroups({ shown, onShow }: { shown: string | null; onShow: (i
     const ps = p.items.map((i) => d.positions.find((x) => x.id === i.positionId)).filter((x): x is NonNullable<typeof x> => !!x);
     const cs = ps.map((x) => computePosition(x, d, d.settings));
     return {
-      p, prog: planProgress(p, orders),
+      p, prog: planProgress(p, orders, d.positions),
       bought: cs.reduce((t, c) => t + c.boughtValue, 0), sold: cs.reduce((t, c) => t + c.soldValue, 0),
       realized: cs.reduce((t, c) => t + c.realized, 0), stock: cs.reduce((t, c) => t + c.costOfStock, 0),
     };

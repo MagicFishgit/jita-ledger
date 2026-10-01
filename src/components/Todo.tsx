@@ -291,7 +291,7 @@ export function Todo() {
     for (const p of d.plans) {
       if (now - Date.parse(p.at) > 7 * DAY) continue;
       for (const i of p.items) {
-        if (placedOrder(i, p, Object.values(d.orders))) continue;
+        if (placedOrder(i, p, Object.values(d.orders), d.positions)) continue;
         out.push({
           key: `plan:${p.id}:${i.typeId}`, ver: '1', kind: 'placeBuy', source: 'ledger', stake: i.units * i.buyAt, typeId: i.typeId,
           title: `Place a buy order: ${units(i.units)} × ${name(i.typeId)} at ${isk(i.buyAt)}`,
@@ -388,7 +388,7 @@ export function Todo() {
           const [, planId, typeId] = x.key.split(':');
           const p = d.plans.find((z) => z.id === planId);
           const it = p?.items.find((z) => String(z.typeId) === typeId);
-          const o = p && it ? placedOrder(it, p, Object.values(d.orders)) : null;
+          const o = p && it ? placedOrder(it, p, Object.values(d.orders), d.positions) : null;
           return judgePlaceBuy(e, { plan: !!p && !!it && t - Date.parse(p.at) <= 7 * DAY, placed: o ? { units: o.volumeTotal, price: o.price } : null });
         }
         case 'cloudLogin': {

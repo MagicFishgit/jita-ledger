@@ -1216,6 +1216,29 @@ eq('  with slots to spare, best return per day first as before', [plan2.ranked, 
   eq('placed: a buy for the item in Jita since the plan started', [placedOrder(tp.items[0], tp, orders)?.orderId, placedOrder(tp.items[1], tp, orders)], [1, null]);
   eq('  an order repriced since but placed before doesn’t count', placedOrder(tp.items[1], tp, [O(5, 35, true, '2026-09-29T18:20:00Z', { seen: [{ issued: '2026-09-28T09:00:00Z', price: 7, remain: 1 }] })]), null);
   eq('  progress', [planProgress(tp, orders).placed, planProgress(tp, orders).of, planProgress(tp, orders).waiting.map((i) => i.typeId)], [1, 2, [35]]);
+  {
+    // The Vigilance Resonance Key case (30 September 2026): 15 placed at 00:36:15, the position opened 00:35:02, a plan for 16 at 00:41:37.
+    const { planPlacement, placementNote } = await import('../src/lib/plans.ts');
+    const vp = { at: '2026-09-30T00:41:37Z' };
+    const vi = { typeId: 89156, buyAt: 24_950_000, units: 16, sellAt: 27e6, positionId: 'v' };
+    const pos = [{ id: 'v', typeId: 89156, openedAt: '2026-09-30T00:35:02Z' }];
+    const V = (orderId, issued, extra = {}) => O(orderId, 89156, true, issued, { price: 24_950_000, volumeTotal: 15, volumeRemain: 15, ...extra });
+    const early = V(10, '2026-09-30T00:36:15Z');
+    const pl = planPlacement(vi, vp, [early], pos);
+    eq('placed before the plan, after its position opened: counted, 15 of 16', [pl?.order.orderId, pl?.before, placementNote(vi, pl).lead], [10, true, 'Already placed: 15 of 16 (before the plan)']);
+    eq('  short of the plan: says EVE can’t change a quantity, never to replace it', placementNote(vi, pl).short, 'EVE can’t change an order’s quantity: the 1 more is a new order with its own fee, or leave it at 15.');
+    eq('  covering the plan: nothing more said', placementNote({ units: 15 }, pl).short, null);
+    eq('  an order from the day before isn’t', planPlacement(vi, vp, [V(11, '2026-09-29T00:36:15Z')], pos), null);
+    eq('  placed before the position opened isn’t', planPlacement(vi, vp, [V(12, '2026-09-30T00:30:00Z')], pos), null);
+    eq('  with no position before the plan, an hour counts and 61 minutes doesn’t',
+      [planPlacement(vi, vp, [V(13, '2026-09-30T23:45:00Z')], [])?.order.orderId, planPlacement({ ...vi, positionId: null }, vp, [V(14, '2026-09-30T00:00:00Z')], [])?.order.orderId, planPlacement({ ...vi, positionId: null }, vp, [V(15, '2026-09-29T23:40:00Z')], [])],
+      [13, 14, null]);
+    eq('  a cancelled earlier order isn’t placed', planPlacement(vi, vp, [V(16, '2026-09-30T00:36:15Z', { state: 'cancelled' })], pos), null);
+    const late = V(17, '2026-09-30T00:44:02Z', { volumeTotal: 16, volumeRemain: 16 });
+    const both = planPlacement(vi, vp, [early, late], pos);
+    eq('  one before and one after: counted once, the after one, not marked before', [both.order.orderId, both.before, placementNote(vi, both).lead, placementNote(vi, both).short], [17, false, '16 of 16 placed', null]);
+    eq('  progress counts it, so To do’s item ticks off too', [planProgress({ ...vp, id: 'v', name: 'v', isk: 0, horizonDays: 3, patient: false, items: [vi] }, [V(18, '2026-09-29T21:00:00Z')], [{ id: 'v', typeId: 89156, openedAt: '2026-09-29T20:00:00Z' }]).placed, planProgress({ ...vp, id: 'v', name: 'v', isk: 0, horizonDays: 3, patient: false, items: [vi] }, [V(18, '2026-09-29T21:00:00Z')], []).placed], [1, 0]);
+  }
   eq('plans from disk: malformed ones are dropped', sanitizePlans([tp, { id: 'x' }, null, { ...tp, id: 'p2', items: [{ typeId: 'no' }] }]).map((p) => p.id), ['p1']);
   const e = { item: { key: 'plan:p1:35' }, seenAt: Date.parse(at), lastAt: Date.parse(at) };
   eq('To do: a plan’s order ticks off once placed, waits while not, and goes when the plan does',

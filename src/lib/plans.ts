@@ -48,21 +48,67 @@ export function sanitizePlans(v: unknown): TradePlan[] {
 const SLACK_MS = 2 * 60_000;
 
 /**
- * The buy order you placed for a plan item: a buy for the item in Jita 4-4, first seen placed after the plan started.
- * Its first version is when it was placed (a price change moves `issued`). The newest if there are several.
+ * How long before a plan an order still counts as placed for it when no position predates the plan: the user placed 15 of
+ * a 16-unit plan's item five minutes before starting it (30 September 2026), and a checklist that showed it unticked got
+ * a duplicate placed and the first cancelled, losing its 4,679,391 ISK placing fee.
  */
-export function placedOrder(item: PlanItem, plan: Pick<TradePlan, 'at'>, orders: Order[]): Order | null {
-  const from = Date.parse(plan.at) - SLACK_MS;
-  const placed = (o: Order) => Date.parse((o.seen?.[0] ?? o).issued);
-  return orders.filter((o) => o.isBuy && o.typeId === item.typeId && o.locationId === JITA_44 && placed(o) >= from)
-    .sort((a, b) => placed(b) - placed(a))[0] ?? null;
+export const BEFORE_PLAN_MS = 60 * 60_000;
+
+export type Placement = {
+  order: Order;
+  /** Placed before the plan started (inside the slack, it counts as since). */
+  before: boolean;
+};
+
+const placedAt = (o: Order) => Date.parse((o.seen?.[0] ?? o).issued);
+
+/**
+ * The buy order you placed for a plan item: a buy for the item in Jita 4-4. Placed since the plan started (its first
+ * version is when it was placed; a price change moves `issued`), the newest if there are several, and that one first.
+ * Failing that, an open one placed before the plan: after the item's position opened when that position predates the
+ * plan (the order was placed for it), else within `BEFORE_PLAN_MS` of the plan. Counted once whatever else is open.
+ */
+export function planPlacement(
+  item: PlanItem, plan: Pick<TradePlan, 'at'>, orders: Order[],
+  positions: Pick<Position, 'id' | 'typeId' | 'openedAt'>[] = [],
+): Placement | null {
+  const planAt = Date.parse(plan.at);
+  const from = planAt - SLACK_MS;
+  const mine = orders.filter((o) => o.isBuy && o.typeId === item.typeId && o.locationId === JITA_44);
+  const since = mine.filter((o) => placedAt(o) >= from).sort((a, b) => placedAt(b) - placedAt(a))[0];
+  if (since) return { order: since, before: false };
+  const pos = positions.find((x) => x.id === item.positionId && x.typeId === item.typeId);
+  const opened = pos ? Date.parse(pos.openedAt) : NaN;
+  const start = Number.isFinite(opened) && opened < planAt ? opened : planAt - BEFORE_PLAN_MS;
+  const earlier = mine.filter((o) => o.state === 'open' && placedAt(o) >= start && placedAt(o) < from).sort((a, b) => placedAt(b) - placedAt(a))[0];
+  return earlier ? { order: earlier, before: true } : null;
+}
+
+export function placedOrder(item: PlanItem, plan: Pick<TradePlan, 'at'>, orders: Order[], positions?: Pick<Position, 'id' | 'typeId' | 'openedAt'>[]): Order | null {
+  return planPlacement(item, plan, orders, positions)?.order ?? null;
+}
+
+/**
+ * What the checklist says of a placed order: the lead ("Already placed: 15 of 16 (before the plan)") and, when it covers
+ * fewer units than the plan, why it isn't replaced: EVE can't change an order's quantity, so the rest is a new order with
+ * its own fee, or the order stays as it is. Never a nudge to cancel and place again.
+ */
+export function placementNote(item: Pick<PlanItem, 'units'>, pl: Placement): { lead: string; short: string | null } {
+  const n = (x: number) => x.toLocaleString('en-US');
+  const have = pl.order.volumeTotal;
+  const lead = pl.before ? `Already placed: ${n(have)} of ${n(item.units)} (before the plan)` : `${n(have)} of ${n(item.units)} placed`;
+  const more = item.units - have;
+  const short = more > 0
+    ? `EVE can’t change an order’s quantity: the ${n(more)} more is a new order with its own fee, or leave it at ${n(have)}.`
+    : null;
+  return { lead, short };
 }
 
 export type PlanProgress = { placed: number; of: number; waiting: PlanItem[] };
 
-/** How far placing the plan has got: which items still have no buy order since it started. */
-export function planProgress(plan: TradePlan, orders: Order[]): PlanProgress {
-  const waiting = plan.items.filter((i) => !placedOrder(i, plan, orders));
+/** How far placing the plan has got: which items still have no buy order for them. */
+export function planProgress(plan: TradePlan, orders: Order[], positions?: Pick<Position, 'id' | 'typeId' | 'openedAt'>[]): PlanProgress {
+  const waiting = plan.items.filter((i) => !placedOrder(i, plan, orders, positions));
   return { placed: plan.items.length - waiting.length, of: plan.items.length, waiting };
 }
 
