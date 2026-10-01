@@ -10,7 +10,7 @@ import { ago, fmtDate, fmtDateTime, iskBig, iskBigSigned, units } from '../lib/f
 import { useAuth, useNow } from '../lib/hooks';
 import type { IncomeRow } from '../lib/income';
 import { minedTotal, type MiningRecord } from '../lib/mining';
-import { altFacts, charFacts, emptyAlt, failingJobs, idleQueueSaid, lastRead, loginState, type CharFacts, type CloneState, type RosterEntry } from '../lib/roster';
+import { altFacts, altReadState, charFacts, emptyAlt, failingJobs, idleQueueSaid, jobOk, lastRead, loginState, type CharFacts, type CloneState, type RosterEntry } from '../lib/roster';
 import { ROMAN, trainSaid } from '../lib/skillStatus';
 import { update, useData, type Data } from '../lib/store';
 import { toast } from '../lib/toast';
@@ -45,19 +45,20 @@ type MinedWorth = ReturnType<typeof useMinedWorth>;
 
 /**
  * What the character earned in the period, by the Wallet's rules: yours is the Wallet's "All income" for the same period.
- * "–" with why while the item groups are read, and for an alt the cloud hasn't read.
+ * "–" with why while the item groups are read, and for an alt whose wallet the cloud hasn't read. `readAt`: an alt's,
+ * when the cloud last read its wallet and journal (its `archive` job), since its figure runs to then, not to now.
  */
-function earnedTile(inc: ReturnType<typeof useCharIncome>, period: string, alt: boolean, notRead: boolean): TileData {
-  if (notRead) return { l: 'Earned', v: '–', n: 'Not read yet', tip: 'The cloud hasn’t read this character’s wallet yet, so what it earned isn’t known.' };
-  const tip = earnedTip(inc.rows, period, alt, inc.failed);
+function earnedTile(inc: ReturnType<typeof useCharIncome>, period: string, alt: boolean, unread: boolean, readAt: number | null, now: number): TileData {
+  if (unread) return { l: 'Earned', v: '–', n: 'Not read yet', tip: 'The cloud hasn’t read this character’s wallet yet, so what it earned isn’t known.' };
+  const tip = earnedTip(inc.rows, period, alt, inc.failed, readAt, now);
   if (!inc.ready) return { l: 'Earned', v: '–', n: 'Reading which items belong to which activity…', tip };
   if (!inc.rows.length) return { l: 'Earned', v: '–', n: `Nothing earned in ${period}`, tip };
   return { l: 'Earned', v: iskBigSigned(inc.earned), n: `In the last ${period}`, c: inc.earned >= 0 ? 'var(--pos)' : 'var(--neg)', tip };
 }
 
-function earnedTip(rows: IncomeRow[], period: string, alt: boolean, failed: boolean): string {
+function earnedTip(rows: IncomeRow[], period: string, alt: boolean, failed: boolean, readAt: number | null, now: number): string {
   const parts = [alt
-    ? `Everything it earned in the last ${period}, by the Wallet’s rules, from its own trades and journal.`
+    ? `Everything it earned in the last ${period}, by the Wallet’s rules, from its own trades and journal as the cloud last read them${readAt != null ? `, ${ago(new Date(readAt).toISOString(), now)}` : ''}: anything since isn’t in it yet.`
     : `Everything you earned in the last ${period}: the Wallet’s “All income” for the same period, by the same rules.`];
   if (rows.length) parts.push(rows.map((r) => `• ${r.said}: ${iskBigSigned(r.isk)}`).join('\n'));
   if (alt) {
@@ -73,19 +74,24 @@ function earnedTip(rows: IncomeRow[], period: string, alt: boolean, failed: bool
 const MINED_TIP = 'What the ore mined is worth now, at your own valuation.\n\n'
   + '• The Mining tab’s: the best of selling it raw, compressed or reprocessed at your skills, after tax.\n'
   + '• Beside what was earned, never added to it: ore becomes ISK when it’s sold, and then it counts where it’s sold.';
+/** EVE records mining by the day, so a rolling 24 hours takes all of yesterday's and today's. */
+const MINED_DAY = '\n• Mining is recorded by the day (EVE time), so for 24 hours this is yesterday’s and today’s.';
 
 /**
- * What the character mined in the period, at today's prices: never 0 ISK for ore that couldn't be priced. `unread`: why
- * its mining isn't known (an alt not read yet, or your mining ledger never read), so none mined isn't claimed.
+ * What the character mined in the period, at today's prices: never 0 ISK for ore that couldn't be priced, and "pricing"
+ * while names or prices are still coming. `unread`: why its mining isn't known (an alt not read yet or without the
+ * permission, or your mining ledger never read), so none mined isn't claimed. `oneDay`: the 24-hour period, which for
+ * mining runs from the start of yesterday.
  */
-function minedTile(recs: MiningRecord[], w: MinedWorth, period: string, unread: string | null): TileData {
-  if (unread) return { l: 'Mined', v: '–', n: unread, tip: MINED_TIP };
-  if (!recs.length) return { l: 'Mined', v: '–', n: `Nothing mined in ${period}`, tip: MINED_TIP };
+function minedTile(recs: MiningRecord[], w: MinedWorth, period: string, oneDay: boolean, unread: string | null): TileData {
+  const tip = MINED_TIP + (oneDay ? MINED_DAY : '');
+  if (unread) return { l: 'Mined', v: '–', n: unread, tip };
+  if (!recs.length) return { l: 'Mined', v: '–', n: `Nothing mined ${oneDay ? 'since yesterday (EVE time)' : `in ${period}`}`, tip };
   const t = minedTotal(recs, w.volumeOf, w.worthOf);
   const amount = t.m3 != null ? `${units(Math.round(t.m3))} m³` : `${units(t.units)} units`;
   const state = w.pricing && t.priced < t.ores ? 'pricing at Jita…'
     : t.priced ? `${t.priced} of ${t.ores} ore${t.ores === 1 ? '' : 's'} priced` : 'not priced';
-  return { l: 'Mined', v: t.priced ? iskBig(t.isk) : '–', n: `${amount}, ${state}`, tip: MINED_TIP };
+  return { l: 'Mined', v: t.priced ? iskBig(t.isk) : '–', n: `${amount}${oneDay ? ' since yesterday (EVE time)' : ''}, ${state}`, tip };
 }
 
 /**
@@ -121,11 +127,14 @@ function Card(props: {
   ledger: Data;
   /** Its mining records in the period, and what each ore is worth. */
   mined: MiningRecord[]; worth: MinedWorth;
-  /** Where the period starts, and how it's said ("7 days", "24 hours"). */
-  since: number; period: string;
-  /** An alt the cloud hasn't read anything for: no skills and no records. */
-  notRead?: boolean;
-  /** Why its mining isn't known, when it isn't (beyond an alt not read yet). */
+  /**
+   * Where the period starts, and how it's said ("7 days", "24 hours"), and the time it runs to, rounded to the minute
+   * (`incomeNow`) so the income isn't worked out again every time the page redraws. `oneDay`: the 24-hour period.
+   */
+  since: number; period: string; incomeNow: number; oneDay: boolean;
+  /** An alt whose wallet the cloud hasn't read: no trades or journal kept, and no read of them that worked. */
+  earnedUnread?: boolean;
+  /** Why its mining isn't known, when it isn't. */
   miningUnread?: string;
   /** What it earned, for the all-characters total: null while not known. */
   onEarned: (id: number, isk: number | null) => void;
@@ -138,10 +147,10 @@ function Card(props: {
 }) {
   const { id, name, facts, now, entry, onEarned } = props;
   const [imgOk, setImgOk] = useState(true);
-  const income = useCharIncome(props.ledger, props.since, now);
+  const income = useCharIncome(props.ledger, props.since, props.incomeNow);
   // Reported up for the all-characters total only when it changes: the page's state holds it, so an effect keyed on the
   // value (not on every render) keeps the two from setting each other in a loop.
-  const known = !props.notRead && income.ready;
+  const known = !props.earnedUnread && income.ready;
   useEffect(() => { onEarned(id, known ? income.earned : null); }, [id, known, income.earned, onEarned]);
   const login = entry ? loginState(entry, [...SCOPES, ...askedScopes()]) : null;
   const failing = entry ? failingJobs(entry) : [];
@@ -184,8 +193,8 @@ function Card(props: {
       </div>
       <Tiles inset min={170} items={[
         ...tiles(facts, now, props.skill, entry),
-        earnedTile(income, props.period, !!entry, !!props.notRead),
-        minedTile(props.mined, props.worth, props.period, props.notRead ? 'Not read yet' : props.miningUnread ?? null),
+        earnedTile(income, props.period, !!entry, !!props.earnedUnread, entry ? jobOk(entry, 'archive') : null, now),
+        minedTile(props.mined, props.worth, props.period, props.oneDay, props.miningUnread ?? null),
       ]} />
       {entry && !unread && facts.clone === 'unknown' && props.onClone && (
         <div className="row tight">
@@ -233,25 +242,33 @@ export function Characters() {
 
   const [days, setDaysState] = useState<Days>(readDays);
   const setDays = (v: Days) => { setDaysState(v); try { localStorage.setItem(DAYS_KEY, String(v)); } catch { /* private window */ } };
-  const since = periodStart(days, now);
+  // The income runs to the minute, not to the 30-second clock the page's other times keep: it's worked out again
+  // whenever its window moves, and a rolling 24 hours moves its start with it (the final review of stage 2b).
+  const incomeNow = Math.floor(now / 60_000) * 60_000;
+  const since = periodStart(days, incomeNow);
   const period = days === 1 ? '24 hours' : `${days} days`;
-  // Mining records are one a day, so the period takes whole days: every record from the day it starts.
-  const fromDate = dateOf(since), pricedFrom = dateOf(periodStart(LONGEST, now));
+  // Mining records are one a day, so the period takes whole days: every record from the day it starts (from yesterday,
+  // for 24 hours).
+  const fromDate = dateOf(since), pricedFrom = dateOf(periodStart(LONGEST, incomeNow));
 
   const mainId = auth?.characterId ?? 0;
   const mine = charFacts({ ...d.meta, cloneSince: undefined }, d.netWorth, now);
   const myMining = useMemo(() => Object.values(d.mining).filter((r) => r.charId === mainId), [d.mining, mainId]);
+  const wanted = [...SCOPES, ...askedScopes()];
   const others = alts.roster.map((entry) => {
     const saved = alts.alts[entry.charId] ?? NO_ALT;
     const facts = altFacts(saved, now);
     const byHand = d.chars[String(entry.charId)]?.clone;
     // The alt's copy as a ledger, the same object until its revision moves (altLedger), so its income is worked out once.
     const ledger = altLedger(saved, byHand);
-    const nothing = !Object.values(saved.records).some((r) => Object.keys(r ?? {}).length);
-    return { entry, facts, byHand, ledger, mining: Object.values(ledger.mining), notRead: facts.totalSp == null && nothing };
+    // Each part is known once that part was read (altReadState), never because something else was.
+    const read = altReadState(saved, entry, wanted, SCOPE.mining);
+    const miningUnread = read.mining === 'read' ? undefined : read.mining === 'permission' ? 'Needs the Mining ledger permission' : 'Not read yet';
+    return { entry, facts, byHand, ledger, mining: Object.values(ledger.mining), earnedUnread: !read.earned, miningUnread };
   });
   const everyone = [mine, ...others.map((o) => o.facts)];
-  const worth = useMinedWorth([myMining, ...others.map((o) => o.mining)].flat().filter((r) => r.date >= pricedFrom).map((r) => r.typeId));
+  // Ore names from your ledger, or the alt's own copy when yours hasn't one.
+  const worth = useMinedWorth([myMining, ...others.map((o) => o.mining)].flat().filter((r) => r.date >= pricedFrom).map((r) => r.typeId), others.map((o) => o.ledger.names));
 
   // Each card's Earned, as it reports it: null while not known (being worked out, or an alt not read yet).
   const [earnedBy, setEarnedBy] = useState<Record<number, number | null>>({});
@@ -277,7 +294,7 @@ export function Characters() {
     {
       l: 'Earned, all characters', v: earnedAll.length ? iskBigSigned(sum(earnedAll)) : '–', n: `In the last ${period}: ${earnedAll.length} of ${everyone.length} counted`,
       c: earnedAll.length ? (sum(earnedAll) >= 0 ? 'var(--pos)' : 'var(--neg)') : undefined,
-      tip: `What every character earned in the last ${period}, added up.\n\n• Each by the Wallet’s rules, as on its card: yours is the Wallet’s “All income”.\n• An alt’s leaves out ships it lost, and counts a freelance reward without what was bought for the job: the cloud reads neither for an alt.\n• A character not read yet, or still being worked out, adds nothing, and the count under the figure says how many did.`,
+      tip: `What every character earned in the last ${period}, added up.\n\n• Each by the Wallet’s rules, as on its card: yours is the Wallet’s “All income”.\n• An alt’s leaves out ships it lost, and counts a freelance reward without what was bought for the job: the cloud reads neither for an alt.\n• A character not read yet, or still being worked out, adds nothing, and the count under the figure says how many did.\n• A card’s figure can be partial: when ESI’s item groups couldn’t be read, it leaves out abyssal, planets, loyalty and things never bought, and its own tip says so.`,
     },
   ];
 
@@ -366,11 +383,12 @@ export function Characters() {
       <Tiles items={total} min={220} />
 
       <Card id={mainId} name={auth?.characterName ?? 'Your character'} facts={mine} now={now} skill={skill} byHand={d.settings.clone}
-        ledger={d} mined={myMining.filter((r) => r.date >= fromDate)} worth={worth} since={since} period={period} onEarned={onEarned}
+        ledger={d} mined={myMining.filter((r) => r.date >= fromDate)} worth={worth} since={since} period={period} incomeNow={incomeNow} oneDay={days === 1} onEarned={onEarned}
         miningUnread={!myMining.length && !hasScope(SCOPE.mining) ? 'Needs the Mining ledger permission' : undefined} />
-      {others.map(({ entry, facts, byHand, ledger, mining, notRead }) => (
+      {others.map(({ entry, facts, byHand, ledger, mining, earnedUnread, miningUnread }) => (
         <Card key={entry.charId} id={entry.charId} name={entry.name ?? `Character ${entry.charId}`} facts={facts} now={now} skill={skill} entry={entry} busy={busy} cloudOff={!cloudOn}
-          ledger={ledger} mined={mining.filter((r) => r.date >= fromDate)} worth={worth} since={since} period={period} notRead={notRead} onEarned={onEarned}
+          ledger={ledger} mined={mining.filter((r) => r.date >= fromDate)} worth={worth} since={since} period={period} incomeNow={incomeNow} oneDay={days === 1}
+          earnedUnread={earnedUnread} miningUnread={miningUnread} onEarned={onEarned}
           byHand={byHand} onClone={(v) => setClone(entry, v)} onHandOver={handOver} onRemove={() => remove(entry)} />
       ))}
       {empty && (

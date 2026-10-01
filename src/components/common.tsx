@@ -291,10 +291,15 @@ export function useTypeName() {
   return (id: number) => d.names[id] ?? `Item #${id}`;
 }
 
-/** Makes sure every type here has a name, fetching the missing ones once and keeping them. */
-export function useEnsureNames(ids: number[]) {
+/**
+ * Makes sure every type here has a name, fetching the missing ones once and keeping them. True while it's still looking:
+ * false once the lookup for the types still unnamed has finished, so a caller can tell "still coming" from "ESI never
+ * named it". (A lookup that names some asks once more for the rest, since the set it's looking for has changed.)
+ */
+export function useEnsureNames(ids: number[]): boolean {
   const d = useData();
   const key = [...new Set(ids)].filter((id) => !d.names[id]).slice(0, 1000).join(',');
+  const [done, setDone] = useState('');
   useEffect(() => {
     if (!key) return;
     let live = true;
@@ -302,9 +307,11 @@ export function useEnsureNames(ids: number[]) {
     const keep = (n: Record<number, string>) => { if (live && Object.keys(n).length) update((x) => ({ names: { ...x.names, ...n } })); };
     // /universe/names/ refuses the whole batch if one ID is bad, so fall back to asking one at a time.
     resolveNames(ids).then(keep).catch(() => Promise.all(ids.map((id) => typeName(id).then((n) => [id, n] as const).catch(() => null)))
-      .then((rows) => keep(Object.fromEntries(rows.filter((r): r is readonly [number, string] => !!r && !!r[1])))));
+      .then((rows) => keep(Object.fromEntries(rows.filter((r): r is readonly [number, string] => !!r && !!r[1])))))
+      .finally(() => { if (live) setDone(key); });
     return () => { live = false; };
   }, [key]);
+  return !!key && done !== key;
 }
 
 /** Which of these types are ships, from ESI's type and group (kept for good once read); empty until known. */

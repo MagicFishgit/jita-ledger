@@ -175,6 +175,26 @@ export function lastRead(e: RosterEntry): number | null {
   return at || null;
 }
 
+/** When one of an alt's cloud jobs last worked (`archive`, `sheet`, `mining`), or null if it never has. */
+export const jobOk = (e: RosterEntry, job: string): number | null => e.jobs.find((j) => j.job === job)?.lastOk ?? null;
+
+/**
+ * Which parts of an alt the cloud has read, each on its own evidence: its wallet once trades or journal are kept or its
+ * `archive` job has worked; its mining once mining records are kept or its `mining` job has worked. A read skill sheet
+ * says nothing of either, and "Nothing earned" for a wallet never read would be a zero standing for not known (the
+ * final review of stage 2b). Mining not read is `permission` when the login works but was handed over without
+ * `miningScope` (config's SCOPE.mining, passed in: this module is shared with the Worker), else `unread`.
+ */
+export function altReadState(saved: AltSaved, e: RosterEntry, wanted: string[], miningScope: string): { earned: boolean; mining: 'read' | 'permission' | 'unread' } {
+  const kept = (kind: string) => Object.keys(saved.records[kind] ?? {}).length > 0;
+  const login = loginState(e, wanted);
+  return {
+    earned: kept('txs') || kept('journal') || jobOk(e, 'archive') != null,
+    mining: kept('mining') || jobOk(e, 'mining') != null ? 'read'
+      : login.state === 'working' && login.missing.includes(miningScope) ? 'permission' : 'unread',
+  };
+}
+
 /** The jobs that have failed since they last worked. */
 export const failingJobs = (e: RosterEntry) => e.jobs.filter((j) => j.lastError && (j.lastOk ?? 0) < j.lastRun);
 

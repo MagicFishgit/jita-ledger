@@ -3951,6 +3951,19 @@ console.log('\n--- which characters are yours ---');
   eq('    an alt whose queue was read empty: known, and "Nothing in the queue"', [readEmpty.training, readEmpty.queueKnown, R.idleQueueSaid(readEmpty)], [null, true, 'Nothing in the queue']);
   eq('    one whose queue wasn\'t read says so, never that it\'s empty', R.idleQueueSaid(R.altFacts(R.emptyAlt(), NOW2)), 'Not read yet');
   eq('    and one training says neither', R.idleQueueSaid(f), null);
+  // What an alt's card can claim was read, each part on its own evidence (altReadState).
+  const MINING = 'esi-industry.read_character_mining.v1';
+  const wantedScopes = ['esi-wallet.read_character_wallet.v1', MINING];
+  const ent = (o = {}) => ({ charId: 900001, name: 'A', addedAt: 0, scopes: wantedScopes, at: NOW2, refusedAt: null, refused: null, rev: 1, ship: null, shipAt: null, jobs: [], ...o });
+  const job = (name, lastOk) => ({ job: name, lastRun: NOW2, lastOk, lastError: lastOk ? null : 'ESI 502' });
+  const sheetOnly = { rev: 1, records: {}, docs: { meta: { totalSp: 1e6 }, skills: { 3386: 3 } } };
+  eq('  an alt whose skills were read but not its wallet or mining: neither is known', R.altReadState(sheetOnly, ent({ jobs: [job('sheet', NOW2), job('archive', null)] }), wantedScopes, MINING), { earned: false, mining: 'unread' });
+  eq('    its wallet read worked with nothing in it: known, so "Nothing earned" is true', R.altReadState(sheetOnly, ent({ jobs: [job('archive', NOW2)] }), wantedScopes, MINING).earned, true);
+  eq('    trades or journal kept: known', [R.altReadState({ ...sheetOnly, records: { txs: { 1: {} } } }, ent(), wantedScopes, MINING).earned, R.altReadState({ ...sheetOnly, records: { journal: { 1: {} } } }, ent(), wantedScopes, MINING).earned], [true, true]);
+  eq('    mining kept, or its mining read worked: known', [R.altReadState({ ...sheetOnly, records: { mining: { a: {} } } }, ent(), wantedScopes, MINING).mining, R.altReadState(sheetOnly, ent({ jobs: [job('mining', NOW2)] }), wantedScopes, MINING).mining], ['read', 'read']);
+  eq('    a working login without the mining permission: says so', R.altReadState(sheetOnly, ent({ scopes: ['esi-wallet.read_character_wallet.v1'] }), wantedScopes, MINING).mining, 'permission');
+  eq('    a refused login: not read yet, whatever it lacked', R.altReadState(R.emptyAlt(), ent({ scopes: [], refusedAt: NOW2, refused: 'invalid_grant' }), wantedScopes, MINING), { earned: false, mining: 'unread' });
+  eq('  when a job last worked', [R.jobOk(ent({ jobs: [job('archive', 123)] }), 'archive'), R.jobOk(ent({ jobs: [job('archive', null)] }), 'archive'), R.jobOk(ent(), 'mining')], [123, null, null]);
 }
 
 console.log('\n--- what a ledger earned (income.ts) ---');
