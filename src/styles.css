@@ -1272,6 +1272,10 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .fit-line .nm .sub { display: block; }
 .fit-line .pr { color: var(--sec); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
+/* The best-ore panel (hustles/BestOre.tsx): where it's found and the best way move under the name on a phone. */
+.bo-table { min-width: 900px; }
+.bo-phone, .bo-table .bo-phone, .bo-table .bo-phone-td { display: none; }
+
 /* Phones. Last in the file on purpose: these override base rules of the same weight, which a later rule would win. */
 @media (max-width: 640px) {
   /* Phones (checked at 390 px by `PHONE=1 npm run check-pages`): nothing may stick out past the screen's edge. Rows,
@@ -1312,4 +1316,19 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
   .res-n { width: auto; text-align: left; }
   .res-key .k-full { display: none; }
   .res-key .k-short { display: inline; }
+  /* The best-ore panel: #, the ore (where it's found and the best way under its name), and ISK a m³ with ISK an hour
+     under it, all in view without scrolling sideways: inside Side hustles' panel the table has about 230 px at 390. */
+  .bo-table { min-width: 0; }
+  .bo-table .bo-wide { display: none; }
+  .bo-phone, .bo-table .bo-phone { display: block; }
+  .bo-table .bo-phone { margin-top: 4px; }
+  .bo-table .bo-phone-td { display: table-cell; }
+  .bo-table td.bo-ore { white-space: normal; }
+  .bo-table th, .bo-table td { padding-left: 5px; padding-right: 5px; }
+  .bo-table th:first-child, .bo-table td:first-child { padding-left: 8px; }
+  .bo-table th:last-child, .bo-table td:last-child { padding-right: 8px; }
+  .bo-table th { white-space: normal; }
+  .bo-table th .sub { white-space: normal; }
+  .bo-table .ticon { display: none; }
+  .bo-table .flag { white-space: normal; }
 }

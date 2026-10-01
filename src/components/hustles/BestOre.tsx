@@ -221,32 +221,32 @@ export function BestOre({ ids, onRetryIds, pace, onPick, minedBases, onPricedAga
           options={PLACES.map((p) => ({ v: p.key, label: p.label, n: Object.values(ORE_WHERE).filter((o) => o.found.some((x) => x.place === p.key)).length }))} />
         <span className="note small" style={{ margin: 0 }}>{status}</span>
       </div>
+      {/* On a phone the ISK an hour column folds under ISK a m³, so whose pace and which fit is said above the table. */}
+      <p className="note small bo-phone" style={{ margin: 0 }}>ISK an hour: {paceSaid}.</p>
       <div className="tbl-scroll">
-        <table className="tbl" style={{ minWidth: 900 }}>
+        <table className="tbl bo-table">
           <thead><tr>
             <th scope="col" className="l" style={{ width: 36 }}>#</th>
             <th scope="col" className="l"><span className="th">Ore</span></th>
-            <th scope="col" className="l"><span className="th">Found here<Tip title="Found here" text={'Where in this kind of space it’s found, and how.\n\n• From EVE University’s Asteroids and ore, Moon mining and Ice harvesting pages and CCP’s patch notes, read 1 October 2026: ESI doesn’t say.\n• Hover where it’s found for the detail and the page it comes from; a flag marks where the sources disagree.'} /></span></th>
-            <th scope="col" className="l"><span className="th">Best way<Tip title="Best way" text={'Of three ways to sell it at Jita 4-4, after tax, whichever fetches most.\n\n• As it is: into its own bids.\n• Compressed: its compressed form into its bids. Compressing keeps one unit for one at a hundredth of the volume; it takes a Porpoise, an Orca or a structure.\n• Reprocessed: at your skills at Jita 4-4, the minerals into their bids, after the station’s tax.'} /></span></th>
+            <th scope="col" className="l bo-wide"><span className="th">Found here<Tip title="Found here" text={'Where in this kind of space it’s found, and how.\n\n• From EVE University’s Asteroids and ore, Moon mining and Ice harvesting pages and CCP’s patch notes, read 1 October 2026: ESI doesn’t say.\n• Hover where it’s found for the detail and the page it comes from; a flag marks where the sources disagree.'} /></span></th>
+            <th scope="col" className="l bo-wide"><span className="th">Best way<Tip title="Best way" text={'Of three ways to sell it at Jita 4-4, after tax, whichever fetches most.\n\n• As it is: into its own bids.\n• Compressed: its compressed form into its bids. Compressing keeps one unit for one at a hundredth of the volume; it takes a Porpoise, an Orca or a structure.\n• Reprocessed: at your skills at Jita 4-4, the minerals into their bids, after the station’s tax.'} /></span></th>
             <th scope="col"><span className="th">{rankMark('m3')}ISK a m³<Tip title="ISK a m³" text="What a cubic metre of it fetches the best way, after tax: what fills an ore hold best." /></span></th>
-            <th scope="col">
+            <th scope="col" className="bo-wide">
               <span className="th">{rankMark('hour')}ISK an hour<Tip title="ISK an hour" text={`A m³ of it at the pace Scaling up shows, for an hour.\n\n• With a ship open there: its tier’s m³ a minute at that character’s skills, from ESI’s figures, without boosts.\n• One ore fit’s pace holds for every ore but Mercoxit: a crystal of one kind mines every family alike (ESI’s figures for each family’s crystals agree).\n• An ore fit mines no ice and an ice fit no ore; Mercoxit takes deep-core lasers, so it has a pace only with Mercoxit picked there.\n• With no ship open: what ${whose(pilot)} sessions measured, on the same kind of ore.`} /></span>
               <span className="sub" style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>{paceSaid}</span>
             </th>
           </tr></thead>
           <tbody>
             {rows.ranked.map((r, i) => {
-              const o = ORE_WHERE[r.base];
               const kind = kindOfBase(r.base)!;
               const id = idOf(r.base);
               const isOpen = open.has(r.base);
               const g = grades[r.base];
-              const src = SOURCE_OF[o.kind];
               return (
                 <Fragment key={r.base}>
                   <tr className={isOpen ? 'open' : undefined}>
                     <td className="l faint">{(by === 'hour' ? r.iskPerHour : r.iskPerM3) != null ? i + 1 : '–'}</td>
-                    <td className="l">
+                    <td className="l bo-ore">
                       <span className="cellrow">
                         {kind !== 'ice' ? (
                           <button type="button" className="expander" aria-expanded={isOpen} onClick={() => toggle(r.base)} disabled={!id}
@@ -260,35 +260,37 @@ export function BestOre({ ids, onRetryIds, pace, onPick, minedBases, onPricedAga
                           {minedBases.has(r.base) && <span className="sub">{mines}</span>}
                         </span>
                       </span>
+                      {/* On a phone where it's found and the best way sit here, so the two figures fit beside the name. */}
+                      <div className="bo-phone">
+                        <FoundLines base={r.base} place={place} />
+                        <WayLine f={figures(id)} />
+                      </div>
                     </td>
-                    <td className="l wrap" style={{ minWidth: 260, maxWidth: 420 }}>
-                      {o.found.filter((x) => x.place === place).map((x, k) => (
-                        <span key={k} style={{ display: 'block' }} data-tip-title={`${r.base}: ${HOW_SAID[x.how].toLowerCase()}`}
-                          data-tip={[x.detail ?? '', `From ${src.name}, read ${src.read}.`, ...(o.disputed ? [`The sources disagree: ${o.disputed}`] : [])].filter(Boolean).join('\n\n')}>
-                          <span className="lbl" style={{ marginRight: 6 }}>{HOW_SAID[x.how]}</span><span className="txt">{whereSaid(x)}</span>
-                        </span>
-                      ))}
-                      {o.disputed && <span className="flags" style={{ justifyContent: 'flex-start', marginTop: 4 }}><Flag why={o.disputed} title="Sources disagree" color="var(--acc2)">Sources disagree</Flag></span>}
+                    <td className="l wrap bo-wide" style={{ minWidth: 260, maxWidth: 420 }}>
+                      <FoundLines base={r.base} place={place} />
                     </td>
                     <PriceCells t={id} kind={kind} prices={prices} busy={busy} figures={figures} hourOf={hourOf} whyNot={whyNot} named={named} />
                   </tr>
                   {isOpen && (g === 'reading' || g === 'failed' || (Array.isArray(g) && !g.length)) && (
-                    <tr className="detail"><td colSpan={6}>
-                      {g === 'reading' ? <span className="note small">Reading its grades from ESI…</span>
-                        : g === 'failed' ? <span className="note small">Couldn’t read its grades from ESI just now. <button type="button" className="link-btn" onClick={() => readGrades(r.base)}>Try again</button></span>
-                          : <span className="note small">No higher grades on the market.</span>}
-                    </td></tr>
+                    <tr className="detail">{[{ span: 6, cls: 'bo-wide' }, { span: 3, cls: 'bo-phone-td' }].map(({ span, cls }) => (
+                      <td key={cls} colSpan={span} className={cls}>
+                        {g === 'reading' ? <span className="note small">Reading its grades from ESI…</span>
+                          : g === 'failed' ? <span className="note small">Couldn’t read its grades from ESI just now. <button type="button" className="link-btn" onClick={() => readGrades(r.base)}>Try again</button></span>
+                            : <span className="note small">No higher grades on the market.</span>}
+                      </td>
+                    ))}</tr>
                   )}
                   {isOpen && Array.isArray(g) && g.map((x) => (
                     <tr key={x.id} className="open">
                       <td />
-                      <td className="l">
+                      <td className="l bo-ore">
                         <span className="cellrow" style={{ paddingLeft: 24 }}>
                           <ItemIcon id={x.id} />
                           <OreName name={x.name.trim()} id={x.id} kind={kind} onPick={onPick} />
                         </span>
+                        <div className="bo-phone" style={{ paddingLeft: 24 }}><WayLine f={figures(x.id)} /></div>
                       </td>
-                      <td />
+                      <td className="bo-wide" />
                       <PriceCells t={x.id} kind={kind} prices={prices} busy={busy} figures={figures} hourOf={hourOf} whyNot={whyNot} named="ok" />
                     </tr>
                   ))}
@@ -312,6 +314,28 @@ export function BestOre({ ids, onRetryIds, pace, onPick, minedBases, onPricedAga
       </p>
     </Panel>
   );
+}
+
+/** How an ore is found in a place: a tag and the research's words a line each, its tip the detail and source; the dispute. */
+function FoundLines({ base, place }: { base: string; place: Place }) {
+  const o = ORE_WHERE[base];
+  const src = SOURCE_OF[o.kind];
+  return (
+    <>
+      {o.found.filter((x) => x.place === place).map((x, k) => (
+        <span key={k} style={{ display: 'block' }} data-tip-title={`${base}: ${HOW_SAID[x.how].toLowerCase()}`}
+          data-tip={[x.detail ?? '', `From ${src.name}, read ${src.read}.`, ...(o.disputed ? [`The sources disagree: ${o.disputed}`] : [])].filter(Boolean).join('\n\n')}>
+          <span className="lbl" style={{ marginRight: 6 }}>{HOW_SAID[x.how]}</span><span className="txt">{whereSaid(x)}</span>
+        </span>
+      ))}
+      {o.disputed && <span className="flags" style={{ justifyContent: 'flex-start', marginTop: 4 }}><Flag why={o.disputed} title="Sources disagree" color="var(--acc2)">Sources disagree</Flag></span>}
+    </>
+  );
+}
+
+/** The best way to sell it, as a line under the name on a phone. */
+function WayLine({ f }: { f: { best: NonNullable<ReturnType<typeof bestWay>>; partial: boolean } | null }) {
+  return f ? <span className="sub" style={{ whiteSpace: 'normal' }}>Best {WAY_SAID[f.best.way].toLowerCase()}{f.partial ? ', may be low' : ''}</span> : null;
 }
 
 /**
@@ -348,20 +372,32 @@ function PriceCells({ t, kind, prices, busy, figures, hourOf, whyNot, named }: {
         : busy.has(t) || !p ? 'Pricing…'
           : p.state === 'none' ? 'No bids at Jita for it, its compressed form or its minerals'
             : 'Couldn’t price it at Jita just now';
-    return <td colSpan={3} className="faint" style={{ textAlign: 'center' }}>{said === 'Pricing…' ? said : <>– <span className="txt">{said}</span></>}</td>;
+    // The best way's own cell, then the reason across the two figures; on a phone, where those two are one column, a cell
+    // of its own (a cell spanning columns the phone hides makes a column of its own).
+    const text = said === 'Pricing…' ? said : <>– <span className="txt">{said}</span></>;
+    return (
+      <>
+        <td className="l faint bo-wide">–</td>
+        <td colSpan={2} className="faint bo-wide" style={{ textAlign: 'center', whiteSpace: 'normal' }}>{text}</td>
+        <td className="faint bo-phone-td" style={{ whiteSpace: 'normal' }}>{text}</td>
+      </>
+    );
   }
   const w = f.worth;
   const ways = `As it is ${w.raw != null ? isk(w.raw) : '–'}, compressed ${w.compressed != null ? isk(w.compressed) : '–'}, reprocessed ${w.reprocessed != null && w.reprocessed > 0 ? isk(w.reprocessed) : '–'} a unit, after tax.`;
   const low = f.partial ? '\n\nSome of Jita’s books for it couldn’t be read just now, so this may be low: Try again above.' : '';
   const h = hourOf(kind, f.perM3);
+  const hourTip = h.isk != null && h.r.m3PerMin != null && f.perM3 != null ? `${units(Math.round(h.r.m3PerMin))} m³ a minute × 60 × ${isk(f.perM3)} a m³.${low}` : h.r.m3PerMin == null ? whyNot(h.r.why, kind) : 'Its volume couldn’t be read from ESI just now.';
+  const hourSaid = h.isk != null ? iskBig(h.isk) : h.r.m3PerMin == null && h.r.why === 'loading' ? '…' : '–';
   return (
     <>
-      <td className="l" data-tip={ways + low}>{WAY_SAID[f.best.way]}{f.partial && <span className="sub">may be low</span>}</td>
+      <td className="l bo-wide" data-tip={ways + low}>{WAY_SAID[f.best.way]}{f.partial && <span className="sub">may be low</span>}</td>
       <td data-tip={f.perM3 == null ? 'Its volume couldn’t be read from ESI just now.' : `${isk(f.best.perUnit)} a unit, ${units(Math.round((f.best.perUnit / f.perM3) * 1000) / 1000)} m³ each.${low}`}>
         {f.perM3 != null ? isk(f.perM3) : '–'}
+        {/* On a phone ISK an hour sits under it: two figure columns and the name don't fit in the tab's width. */}
+        <span className="sub bo-phone" style={{ color: h.isk != null ? 'var(--pos)' : undefined, whiteSpace: 'normal' }} data-tip={hourTip}>{hourSaid} an hour</span>
       </td>
-      <td style={{ color: h.isk != null ? 'var(--pos)' : undefined }}
-        data-tip={h.isk != null && h.r.m3PerMin != null && f.perM3 != null ? `${units(Math.round(h.r.m3PerMin))} m³ a minute × 60 × ${isk(f.perM3)} a m³.${low}` : h.r.m3PerMin == null ? whyNot(h.r.why, kind) : 'Its volume couldn’t be read from ESI just now.'}>
+      <td className="bo-wide" style={{ color: h.isk != null ? 'var(--pos)' : undefined }} data-tip={hourTip}>
         {h.isk != null ? iskBig(h.isk) : h.r.m3PerMin == null && h.r.why === 'loading' ? '…' : <span className="faint">–</span>}
       </td>
     </>
