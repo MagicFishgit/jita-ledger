@@ -59,7 +59,9 @@ Don't re-derive or contradict these without new evidence.
   Accounting and Mining Barge absent, so not usable at all). ESI's skills answer gives a trained and an active level,
   which differ only while Alpha caps a skill; a character with nothing past the limits can't be told apart.
 - **A `player_donation` journal entry has the giver as `first_party_id` and the receiver as `second_party_id`**
-  (the user's journal, 30 September 2026: two entries, the main second on both). **A courier reward names the Secure
+  (the user's journal, 30 September 2026: two entries, the main second on both). One between two of your characters is
+  in both journals under the same entry ID, the giver's negative and the receiver's positive (the main's 100 M to
+  FannySchmeller, entry 26096137638, read in D1 on 1 October 2026). **A courier reward names the Secure
   Commerce Commission (1000132), the contract's escrow, as payer, not the issuer**: the journal's one `contract_reward`
   (28 September 2026, contract 235889568, +200,000 ISK, entry 26090577567). The issuer's side
   (`contract_reward_deposited`), a `contract_price` and a `player_trading` between two characters haven't been seen, so

@@ -77,9 +77,7 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
   of its own, `jita-ledger-alts`, only when the alt's revision has moved: one roster request a minute, not one per alt.
   The shell reads the roster alone (`useAltRoster`), and a read equal to the last keeps the same array, so the pages
   aren't drawn again at every step of a read. The Wallet and To do read only the fields they use (`useAltCopies`,
-  `useRosterAt`, `useRosterLive`), and a read that pulls nothing keeps the copies' object: on `useAlts()` both were drawn
-  again two or three times a read; now the Wallet isn't, and To do once or twice for the read time (counted in a browser,
-  1 October 2026).
+  `useRosterAt`, `useRosterLive`), and a read that pulls nothing keeps the copies' object.
 - **An alt deleted and added again starts its copy afresh** (`altCopyFor` in `lib/roster.ts`, final review, 30 September
   2026). "Remove and delete" deletes an alt's rows in the cloud outright, with no removal left to pull, and keeps its
   revision; a device that missed the removal and the re-add (a phone in the background, an app closed) pulled only what
@@ -122,9 +120,8 @@ Decisions worth not undoing. How alts (characters on the owner's other accounts)
   optional `mine` on `categoryOf`, `describeRef`, `flows`, `unusual` and `attribute`; without it each answers as before).
   Yours are the main and every character in `chars`, removed ones too, so past transfers stay transfers (limits.md: a
   sold one stays yours). A donation, direct trade or contract counts only when it names two *distinct* parties, both
-  yours: CCP writes some of a character's own entries with it on both sides (132 of the user's 202 escrow releases, and a
-  sale to themselves), which a set of the main alone would otherwise make transfers. Only donations are known to name
-  both (eve-facts). The Wallet shows them once, as "Between your characters", and nothing it sums counts them
+  yours: CCP writes some of a character's own entries (`market_escrow` among them) with it on both sides, which a set of
+  the main alone would otherwise make transfers. Only donations are known to name both (eve-facts). The Wallet shows them once, as "Between your characters", and nothing it sums counts them
   (positions-results). A Characters card's set is the same family, for an alt plus itself, so a contract between two of
   yours would read the same on every card.
 - **A card never shows a zero for "not known"** (`charFacts`): an alt just added has no wallet, net-worth point or
