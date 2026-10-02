@@ -28,6 +28,10 @@ const PAGES = [
 ];
 
 const ALL = { empty: {}, small: small(), large: large() };
+// The large ledger already has a little of the planner's 990101 working (planScan): 5 listed and 3 in the Jita hangar, so
+// the mix sizes it after them and its "Already trading" tip says so (PLANNER_WORKING).
+ALL.large.orders = { ...ALL.large.orders, 990101001: { orderId: 990101001, typeId: 990101, isBuy: false, price: 1_400_000, volumeTotal: 5, volumeRemain: 5, issued: new Date(Date.now() - 3600_000).toISOString(), state: 'open', locationId: 60003760 } };
+ALL.large.stock = { ...ALL.large.stock, jita: { ...ALL.large.stock.jita, 990101: 3 } };
 
 for (const [name, list] of Object.entries(ALTS)) if (list.length) ALL[name].chars = charsOf(list);
 
@@ -149,6 +153,8 @@ const PLAN_PROOF = {
  * The planner again with "Leave out flagged items" switched on (kept per browser, read as the page opens): the flagged
  * items leave the mix and are counted by flag, while Raises kept back, a cost rather than a flag, stays.
  */
+/** What 990101's "Already trading" tip must say at the front: the 8 units it already has working, and the plan sized after them. */
+const PLANNER_WORKING = ['3 in your Jita hangar', '8 units already working', 'So this plan takes what’s left'];
 const PLANNER_SWITCH = { drawn: ['Raises kept back'], note: '2 left out: 1 Bids not reached, 1 Long queue', absent: ['Bids not reached', 'Long queue'] };
 /**
  * The planner priced to place and leave (kept per browser, read as the page opens), with slots for every item: 990108,
@@ -310,6 +316,15 @@ try {
         for (const t of PLAN_PROOF[hash].drawn) if (!(await page.locator('.page table .flag', { hasText: t }).count())) problems.push(`not drawn: no “${t}” flag`);
         for (const t of PLAN_PROOF[hash].absent ?? []) if (await page.locator('.page table', { hasText: t }).count()) problems.push(`in the table, and shouldn’t be: “${t}”`);
         if (PLAN_PROOF[hash].note && !(await page.locator('.page', { hasText: PLAN_PROOF[hash].note }).count())) problems.push(`not drawn: no “${PLAN_PROOF[hash].note}”`);
+        if (hash === 'planner') {
+          const tips = await page.locator('.page table .flag[data-tip-title="You already trade this"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-tip') ?? ''));
+          const tip = tips.find((t) => t.includes('units already working')) ?? '';
+          for (const t of PLANNER_WORKING) if (!tip.includes(t)) problems.push(`not drawn: the Already trading tip's “${t}” (${(tips[0] ?? 'no tip').slice(0, 120)})`);
+          // And sized after them: the units planned leave room for the 8 already working.
+          const m = /takes what’s left: ([\d,]+) of the ([\d,]+) units/.exec(tip);
+          const num = (x) => Number(x.replace(/,/g, ''));
+          if (m && num(m[1]) > num(m[2]) - 8) problems.push(`not sized after what's working: ${m[1]} of the ${m[2]} units with 8 working`);
+        }
       }
       await judge(hash);
     }

@@ -7,8 +7,9 @@
  * carrying a warning that suggests the spread is bait is left out entirely.
  */
 
+import { JITA_44 } from './constants';
 import { DEFAULT_FILTERS } from './prospects';
-import type { Prospect, ProspectFilters, ProspectWarning } from './types';
+import type { Order, Prospect, ProspectFilters, ProspectWarning } from './types';
 
 /** Flags that say the spread may not be real. Everything else is information, not a veto. */
 export const PLANNER_EXCLUDES: ProspectWarning[] = ['escrow', 'wall', 'spike', 'fluke', 'moved', 'runUp'];
@@ -68,31 +69,54 @@ export const PLANNER_HORIZONS = [4 / 24, 12 / 24, 1, 3, 7, 14, 30];
 
 export type PlanInput = { isk: number; slots: number; horizonDays: number; maxShare: number;
   /** "Leave out flagged items": SWITCH_EXCLUDES are left out too. */
-  leaveOutFlagged?: boolean };
-export type Allocation = { p: Prospect; isk: number; units: number; days: number; perDay: number };
+  leaveOutFlagged?: boolean;
+  /** Units you already have working per item (`workingUnits`): the plan takes only what its market has left. */
+  working?: Record<number, number> };
+export type Allocation = { p: Prospect; isk: number; units: number; days: number; perDay: number;
+  /** Units the item's market takes in the horizon at your share, and how many of them you already have working. */
+  takes: number; working: number };
+
+/**
+ * What you already have working per item, in units: your open Jita 4-4 orders' units left, buys and sells, and what you
+ * hold in the Jita hangar to sell. All of it uses the item's flip capacity, so a plan sized as if the market were empty
+ * stacks a second plan's bid on the first's (the user approved sizing after it, 2 October 2026). A hangar not read yet
+ * counts as nothing held.
+ */
+export function workingUnits(orders: Pick<Order, 'typeId' | 'state' | 'locationId' | 'volumeRemain'>[], hangar?: Record<number, number> | null): Record<number, number> {
+  const out: Record<number, number> = {};
+  for (const o of orders) if (o.state === 'open' && o.locationId === JITA_44 && o.volumeRemain > 0) out[o.typeId] = (out[o.typeId] ?? 0) + o.volumeRemain;
+  for (const [t, n] of Object.entries(hangar ?? {})) if (n > 0) out[Number(t)] = (out[Number(t)] ?? 0) + n;
+  return out;
+}
 /**
  * `ranked`: which order the mix was filled in. `return` is the usual, best return per day first; `isk` is the one kept
  * when order slots ran out first and filling by ISK a day earned more (see `allocate`).
  */
 export type Plan = {
   rows: Allocation[]; deployed: number; perDay: number; idle: number; slotsUsed: number; limit: 'slots' | 'markets' | 'none'; ranked: 'return' | 'isk';
+  /** Items the fill reached that would have had a row but for what you already have working in them. */
+  filled: number;
   /** When slots ran out and both orders were tried: what the other one would have made a day. */
   other?: number;
 };
 
-/** One item's allocation with `left` ISK still to place: as much as its market takes in the horizon, never over the cap. */
+/**
+ * One item's allocation with `left` ISK still to place: as much as its market takes in the horizon, less what you already
+ * have working in it, never over the cap.
+ */
 function allocationFor(p: Prospect, inp: PlanInput, cap: number, left: number): Allocation | null {
   // canTake is what the market absorbs in the scan's horizon; rescale it to the planner's.
   const perDayIsk = p.daysToFlip > 0 ? (p.qty * p.buy) / p.daysToFlip : 0;
   const absorbs = perDayIsk * inp.horizonDays;
-  const amount = Math.min(absorbs, cap, left);
+  const working = Math.max(0, inp.working?.[p.typeId] ?? 0);
+  const amount = Math.min(Math.max(0, absorbs - working * p.buy), cap, left);
   // Below this an allocation is not worth two order slots.
   if (amount < Math.max(1, inp.isk * 0.01)) return null;
   const units = Math.floor(amount / p.buy);
   if (units < 1) return null;
   const isk = units * p.buy;
   const days = perDayIsk > 0 ? isk / perDayIsk : Infinity;
-  return { p, isk, units, days, perDay: (units * p.net) / Math.max(days, 1 / 24) };
+  return { p, isk, units, days, perDay: (units * p.net) / Math.max(days, 1 / 24), takes: p.buy > 0 ? Math.floor(absorbs / p.buy) : 0, working };
 }
 
 /** Fills the mix in the order given, until the ISK or the slots run out. */
@@ -101,10 +125,15 @@ function fill(order: Prospect[], inp: PlanInput, ranked: Plan['ranked']): Plan {
   let left = Math.max(0, inp.isk);
   let slots = Math.max(0, Math.floor(inp.slots));
   const rows: Allocation[] = [];
+  let filled = 0;
   for (const p of order) {
     if (slots < SLOTS_PER_ITEM || left <= 0) break;
     const a = allocationFor(p, inp, cap, left);
-    if (!a) continue;
+    if (!a) {
+      // Left out only because your orders and stock already take what its market can.
+      if ((inp.working?.[p.typeId] ?? 0) > 0 && allocationFor(p, { ...inp, working: undefined }, cap, left)) filled++;
+      continue;
+    }
     rows.push(a);
     left -= a.isk;
     slots -= SLOTS_PER_ITEM;
@@ -115,7 +144,7 @@ function fill(order: Prospect[], inp: PlanInput, ranked: Plan['ranked']): Plan {
     idle: left,
     slotsUsed: rows.length * SLOTS_PER_ITEM,
     limit: left <= inp.isk * 0.05 ? 'none' : slots < SLOTS_PER_ITEM ? 'slots' : 'markets',
-    ranked,
+    ranked, filled,
   };
 }
 

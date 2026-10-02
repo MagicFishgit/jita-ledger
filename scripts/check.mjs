@@ -1195,6 +1195,26 @@ eq('slots short: the mix is filled by ISK a day when that earns more', [plan2.ra
 eq('  and earns more than best return first would have', Math.round(plan2.perDay / 1e3), 5000);
 plan2 = allocate([...small, ...big], { isk: 1e9, slots: 40, horizonDays: 3, maxShare: 1 });
 eq('  with slots to spare, best return per day first as before', [plan2.ranked, plan2.rows[0].p.typeId], ['return', 1]);
+{
+  // What you already have working in an item uses the same flip capacity: a second plan on an item the first already
+  // bids on was sized as if its market were empty (the user, 2 October 2026: "make that change to the planner").
+  const { workingUnits } = await import('../src/lib/planner.ts');
+  const one = pr(77, 0.05, 100, 10_000); // its market takes 100 units a day at 100
+  const working = workingUnits([
+    { typeId: 77, state: 'open', locationId: 60003760, volumeRemain: 40, isBuy: true },
+    { typeId: 77, state: 'open', locationId: 60003760, volumeRemain: 20, isBuy: false },
+    { typeId: 77, state: 'open', locationId: 60008494, volumeRemain: 500, isBuy: true },
+    { typeId: 77, state: 'expired', locationId: 60003760, volumeRemain: 0, isBuy: true },
+  ], { 77: 10 });
+  eq('working: your open Jita buys and sells left, and the Jita hangar; not Amarr, not a closed order', working, { 77: 70 });
+  eq('  a hangar not read yet counts as nothing held', workingUnits([{ typeId: 77, state: 'open', locationId: 60003760, volumeRemain: 40, isBuy: true }], null), { 77: 40 });
+  const base = { isk: 100_000, slots: 10, horizonDays: 1, maxShare: 1 };
+  eq('nothing working: the plan takes all 100 units its market takes', allocate([one], base).rows[0].units, 100);
+  const sized = allocate([one], { ...base, working });
+  eq('  40 in open buys and 30 held: it takes what is left, 30 of the 100', [sized.rows[0].units, sized.rows[0].takes, sized.rows[0].working, sized.filled], [30, 100, 70, 0]);
+  const full = allocate([one, pr(78, 0.04, 100, 10_000)], { ...base, working: { 77: 100 } });
+  eq('  100 working: no row, and counted as already filled', [full.rows.map((r) => r.p.typeId), full.filled], [[78], 1]);
+}
 
 {
   // Starting a plan: the game can't place several buy orders at once, so a plan is positions plus a checklist.

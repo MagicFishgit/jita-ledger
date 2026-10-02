@@ -5,7 +5,7 @@ import {
 import { effectiveSkills, orderSlots } from '../lib/fees';
 import { isk as iskFmt, iskBig, pct, units } from '../lib/format';
 import { navigate } from '../lib/hooks';
-import { allocate, PLANNER_EXCLUDES, PLANNER_HORIZONS, plannerFilters, plannerPool, SLOTS_PER_ITEM, SWITCH_EXCLUDES, type FlaggedOut } from '../lib/planner';
+import { allocate, PLANNER_EXCLUDES, PLANNER_HORIZONS, plannerFilters, plannerPool, SLOTS_PER_ITEM, SWITCH_EXCLUDES, workingUnits, type Allocation, type FlaggedOut } from '../lib/planner';
 import { horizonSaid, horizonShort, RUN_UP, RUN_UP_PATIENT, snapHorizon } from '../lib/prospects';
 import { loadCache, rankProspects, useScanState, type ScanCache } from '../lib/scan';
 import { update, useData } from '../lib/store';
@@ -91,6 +91,8 @@ export function Planner() {
   // worked out, so a newer record, or the first read of it, works the plan out again. Without it the plan depended on
   // whether another page had loaded the record first.
   const flow = useFlow();
+  // What you already have working in each item, in units: it takes the same flip capacity, so the plan takes what's left.
+  const working = useMemo(() => workingUnits(Object.values(d.orders), d.stock?.jita), [d.orders, d.stock]);
   const { plan, pool, excluded, flagged, allFlagged, unchecked } = useMemo(() => {
     if (!cache || !isk) return { plan: null, pool: 0, excluded: 0, flagged: { total: 0, byFlag: {} } as FlaggedOut, allFlagged: false, unchecked: 0 };
     // Every market's own limit, not just those that could take the whole budget.
@@ -99,10 +101,10 @@ export function Planner() {
     // Items scanned before the sell side, price jumps and run-ups were judged: their spread hasn't been checked for them.
     const old = list.filter((p) => p.stats.lastMove === undefined || !p.stats.highs14 || p.stats.runUp === undefined).length;
     return {
-      plan: allocate(list, { isk, slots, horizonDays: days, maxShare, leaveOutFlagged: leaveOut }), pool: list.length,
+      plan: allocate(list, { isk, slots, horizonDays: days, maxShare, leaveOutFlagged: leaveOut, working }), pool: list.length,
       excluded: chosen.excluded, flagged: chosen.flagged, allFlagged: chosen.allFlagged, unchecked: old,
     };
-  }, [cache, d.settings, isk, slots, days, maxShare, patient, leaveOut, flow]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cache, d.settings, isk, slots, days, maxShare, patient, leaveOut, flow, working]); // eslint-disable-line react-hooks/exhaustive-deps
   // What the switch leaves out, by flag, in the order the switch lists them: "5 Falling, 3 Long queue".
   const byFlag = SWITCH_EXCLUDES.filter((w) => flagged.byFlag[w]).map((w) => `${units(flagged.byFlag[w]!)} ${WARNING[w].short}`).join(', ');
   const overlap = Object.values(flagged.byFlag).reduce((t, n) => t + (n ?? 0), 0) > flagged.total;
@@ -116,6 +118,24 @@ export function Planner() {
     return m;
   }, [d.orders]);
   const inPositions = useMemo(() => new Set(d.positions.filter((p) => p.status === 'open').map((p) => p.typeId)), [d.positions]);
+  const hangarRead = !!d.stock;
+  /** What you already have in an item the mix holds, and that the plan was sized after it. */
+  const alreadyWhy = (a: Allocation) => {
+    const t = a.p.typeId, held = d.stock?.jita[t] ?? 0;
+    const have = [
+      ...(inOrders.has(t) ? [`${iskBig(inOrders.get(t)!)} in open orders on it`] : []),
+      ...(held > 0 ? [`${units(held)} in your Jita hangar`] : []),
+      ...(inPositions.has(t) ? ['an open position on it'] : []),
+    ].join(', ').replace(/, ([^,]*)$/, ' and $1');
+    const bullets = [
+      ...(a.working > 0 ? [
+        `${units(a.working)} units already working: your open orders’ units left and what you hold to sell. They take the same flip capacity.`,
+        `So this plan takes what’s left: ${units(a.units)} of the ${units(a.takes)} units the market takes in your horizon.`,
+      ] : []),
+      ...(hangarRead ? [] : ['Your Jita hangar hasn’t been read yet, so only your orders count here.']),
+    ];
+    return `You have ${have}.${bullets.length ? `\n\n${bullets.map((x) => `• ${x}`).join('\n')}` : ''}\n\nIt takes two more order slots.`;
+  };
   const scanned = cache ? Object.keys(cache.books).length : 0;
   // Items whose orders you're leaving where they are (Orders and the To do list then leave them alone too).
   const leaving = new Set(d.leave);
@@ -205,7 +225,7 @@ export function Planner() {
             { l: 'Blended return / day', v: plan.deployed ? pct(plan.perDay / plan.deployed, 2) : '–', n: 'Across the whole mix', c: 'var(--pos)' },
             { l: 'Slots used', v: `${plan.slotsUsed} of ${slots}`, n: 'One buy and one sell each' },
           ]} />
-          <Panel title="The mix" sub={`Chosen from ${units(pool)} items that pass your Prospects filters${excluded ? `, ${excluded} left out for a warning flag` : ''}${leaveOut && flagged.total ? `, ${units(flagged.total)} more by Leave out flagged items` : ''}.`}>
+          <Panel title="The mix" sub={`Chosen from ${units(pool)} items that pass your Prospects filters${excluded ? `, ${excluded} left out for a warning flag` : ''}${leaveOut && flagged.total ? `, ${units(flagged.total)} more by Leave out flagged items` : ''}${plan.filled ? `, ${units(plan.filled)} left out because your orders${hangarRead ? ' and stock' : ''} already fill what ${plan.filled === 1 ? 'its market takes' : 'their markets take'} in your horizon` : ''}.${hangarRead ? '' : ' Your Jita hangar isn’t read yet, so only your open orders count against what each market takes.'}`}>
             {plan.other != null && plan.rows.length > 0 && (
               <p className="note small" style={{ margin: '0 0 10px' }}>
                 {plan.ranked === 'isk'
@@ -254,9 +274,8 @@ export function Planner() {
                             <span className="cellrow">
                               <span style={{ width: 10, height: 10, flex: 'none', background: COLS[i % COLS.length] }} /><ItemIcon id={a.p.typeId} /><span className="name ellipsis">{name(a.p.typeId)}</span><BusyRelisting typeId={a.p.typeId} />
                               {leaving.has(a.p.typeId) && <Flag color="var(--pos)" title="Leaving it" why="Its orders are left where they are: Orders, To do and alert mail only speak up if trading stops reaching their price.">Leaving it</Flag>}
-                              {(inOrders.has(a.p.typeId) || inPositions.has(a.p.typeId)) && (
-                                <Flag color="var(--acc)" title="You already trade this"
-                                  why={`${inOrders.has(a.p.typeId) ? `You have ${iskBig(inOrders.get(a.p.typeId)!)} in open orders on it` : 'You have an open position on it'}. This would be on top of that, and it takes two more order slots.`}>
+                              {(a.working > 0 || inOrders.has(a.p.typeId) || inPositions.has(a.p.typeId)) && (
+                                <Flag color="var(--acc)" title="You already trade this" why={alreadyWhy(a)}>
                                   Already trading
                                 </Flag>
                               )}

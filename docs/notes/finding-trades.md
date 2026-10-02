@@ -156,6 +156,20 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   filled by what each item makes a day, and whichever earns more a day is kept; the page says which and what the other
   would have made. Test: 1 B, 10 slots, six small and six big markets: 750 M in the five big ones for 5 M a day, where
   best return first put 100 M in the small ones for 1.33 M.
+- **The planner sizes each item after what you already have working in it** (`workingUnits`, `PlanInput.working`,
+  `Allocation.takes`/`working` and `Plan.filled` in planner.ts). It sized each item by what its market takes in the horizon
+  (`absorbs`) and only marked items you already trade ("Already trading … on top of that"), so a second plan on an item
+  the first already bids on was sized as if the market were empty; the user approved sizing after it (2 October 2026).
+  Working, in units: your open Jita 4-4 orders' units left, buys and sells, plus the Jita hangar (`d.stock.jita`; one not
+  read yet counts as nothing, and the mix says so), all of it using the same flip capacity. `allocationFor` takes
+  `absorbs − working × buy` before the cap and the ISK left, and an item with nothing left gets no row. The "Already
+  trading" tip says what you have and "this plan takes what's left: N of the M units the market takes in your horizon";
+  the mix line counts the items left out because your orders and stock already fill them. Measured on the user's 77 open
+  orders and hangar at 17:00 UTC, a fresh 1 B plan on the cloud's 2 October scan with 52 free slots: Place and leave at 12
+  hours went from 26 items, 741 M and 139.6 M a day (as if every market were empty) to 18 items, 722 M and 101.7 M a day,
+  28 left out as already filled (mostly the second plan's own items, their bids open), 2 shrunk and 10 others brought in;
+  at 7 days nothing moved (a week of each market takes far more than the cap per item); at the front at 7 days one item
+  dropped for another, 53.4 M a day either way (`.playwright-mcp/plan-fixes/measure-working.json`).
 - **"Start this plan" turns a mix into positions and a placing checklist** (`lib/plans.ts` pure: `newPlan`,
   `placedOrder`, `planProgress`; `PlanStart.tsx`; the synced `plans` doc; To do kind `placeBuy`). The user wanted to place
   a plan's buy orders "in one go" by import or API, since Multibuy has an import. Researched on 29 September 2026: ESI
