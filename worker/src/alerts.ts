@@ -26,7 +26,7 @@ import { paceDay } from '../../src/lib/prospects';
 import { byUrgency, judgeOrder, type Relist } from '../../src/lib/relist';
 import { planTargets, sanitizePlans } from '../../src/lib/plans';
 import { buyerShare, competitionShare, type BookSold } from '../../src/lib/split';
-import type { AlertConfig, AlertLogEntry, BookLevel, Prospect, ProspectFilters } from '../../src/lib/types';
+import type { AlertConfig, AlertLogEntry, BookLevel, Prospect, ProspectFilters, SellsTo } from '../../src/lib/types';
 import { noteJob } from './archive';
 import { esiDelete, esiGet, esiPost, useLogin, type Login } from './eve';
 import { flowFor, unpack } from './market';
@@ -202,11 +202,15 @@ async function tidy(env: Env, charId: number, main: Login, cfg: AlertConfig, now
   return gone;
 }
 
+/** What the day's full scan noted on an item's book beyond the seven levels a side (`summaryOf` in scan.ts). */
+export type ScanNotes = { npcAnywhere?: number; sellsTo?: SellsTo };
+
 /**
- * A book as Prospects sees it, from the orders the watch last read. The watch keeps only Jita's orders, so NPC sellers
- * elsewhere in The Forge come from the day's full scan (`npcAnywhere`), when given.
+ * A book as Prospects sees it, from the orders the watch last read. The watch keeps only Jita's orders and seven levels a
+ * side, so NPC sellers elsewhere in The Forge (`npcAnywhere`) and the sell side counted whole up to where trading reaches
+ * (`sellsTo`) come from the day's full scan, when given, as the browser carries them onto its live books (`overScan`).
  */
-export function bookOf(orders: OrderLite[], at: number, sold: Book['sold'], npcAnywhere?: number | null): Book {
+export function bookOf(orders: OrderLite[], at: number, sold: Book['sold'], scan?: ScanNotes): Book {
   const levels = (side: OrderLite[], desc: boolean): BookLevel[] => {
     const out: BookLevel[] = [];
     for (const o of [...side].sort((a, b) => (desc ? b.price - a.price : a.price - b.price))) {
@@ -221,23 +225,42 @@ export function bookOf(orders: OrderLite[], at: number, sold: Book['sold'], npcA
   return {
     at: new Date(at).toISOString(), bestBuy: topBuys[0]?.price ?? null, bestSell: topSells[0]?.price ?? null,
     buyOrders: bids.length, sellOrders: asks.length, topBuys, topSells, npcSell: false, sold,
-    ...(npcAnywhere != null && npcAnywhere > 0 ? { npcAnywhere } : {}),
+    ...(scan?.npcAnywhere != null && scan.npcAnywhere > 0 ? { npcAnywhere: scan.npcAnywhere } : {}),
+    ...(scan?.sellsTo ? { sellsTo: scan.sellsTo } : {}),
   };
 }
 
 /**
- * NPCs' lowest price anywhere in The Forge for each of these items, as the day's full scan noted it. A row from a Worker
- * before it noted them, or no row, is none: nothing changes.
+ * What the day's full scan noted for each of these items: NPCs' lowest price anywhere in The Forge, and the Jita sell
+ * side counted whole up to where trading reaches, so the mail counts a queue as Prospects does: an item Prospects shows
+ * as Long queue isn't mailed as a clean trade. A row from a Worker before it noted them, no row, or a note that doesn't
+ * read as one, is none: nothing changes.
  */
-async function npcPrices(db: D1Database, types: number[]): Promise<Map<number, number>> {
-  const out = new Map<number, number>();
+async function scanNotes(db: D1Database, types: number[]): Promise<Map<number, ScanNotes>> {
+  const out = new Map<number, ScanNotes>();
   for (let i = 0; i < types.length; i += 90) {
     const part = types.slice(i, i + 90);
-    const rows = (await db.prepare(`SELECT type_id, json_extract(book, '$.npcAnywhere') AS npc FROM scan_items WHERE type_id IN (${inList(part.length)})`).bind(...part)
-      .all<{ type_id: number; npc: number | null }>()).results;
-    for (const r of rows) if (typeof r.npc === 'number' && r.npc > 0) out.set(r.type_id, r.npc);
+    const rows = (await db.prepare(`SELECT type_id, json_extract(book, '$.npcAnywhere') AS npc, json_extract(book, '$.sellsTo') AS sells_to
+        FROM scan_items WHERE type_id IN (${inList(part.length)})`).bind(...part)
+      .all<{ type_id: number; npc: number | null; sells_to: string | null }>()).results;
+    for (const r of rows) {
+      const note: ScanNotes = {};
+      if (typeof r.npc === 'number' && r.npc > 0) note.npcAnywhere = r.npc;
+      const sellsTo = readSellsTo(r.sells_to);
+      if (sellsTo) note.sellsTo = sellsTo;
+      if (note.npcAnywhere != null || note.sellsTo) out.set(r.type_id, note);
+    }
   }
   return out;
+}
+
+/** A `sellsTo` as json_extract hands it over (an object comes back as its JSON text): a price and a count, or none. */
+function readSellsTo(raw: unknown): SellsTo | undefined {
+  let v: unknown = raw;
+  if (typeof raw === 'string') { try { v = JSON.parse(raw); } catch { return undefined; } }
+  if (!v || typeof v !== 'object') return undefined;
+  const { price, units } = v as { price?: unknown; units?: unknown };
+  return typeof price === 'number' && price > 0 && typeof units === 'number' && units >= 0 ? { price, units } : undefined;
 }
 
 /** Most opportunities in one mail. */
@@ -262,13 +285,14 @@ export async function opportunities(db: D1Database, charId: number, settings: Se
   const filters: ProspectFilters = { ...DEFAULT_FILTERS, ...(watch?.filters ?? {}), busy: false, partial: false };
 
   const books: Record<number, Book> = {};
-  // What NPCs sell it at elsewhere in The Forge leaves an item out as Prospects does (judgeProspect): from the full scan.
-  const npc = await npcPrices(db, types).catch(() => new Map<number, number>());
+  // What NPCs sell it at elsewhere in The Forge, and the whole sell queue, judge an item as Prospects does (judgeProspect):
+  // from the full scan.
+  const notes = await scanNotes(db, types).catch(() => new Map<number, ScanNotes>());
   for (let i = 0; i < types.length; i += 90) {
     const part = types.slice(i, i + 90);
     const rows = (await db.prepare(`SELECT type_id, orders, sold, at FROM books WHERE type_id IN (${inList(part.length)})`).bind(...part)
       .all<{ type_id: number; orders: string; sold: string | null; at: number }>()).results;
-    for (const r of rows) if (now - r.at <= BOOK_MAX_AGE) books[r.type_id] = bookOf(unpack(r.orders), r.at, r.sold ? JSON.parse(r.sold) : undefined, npc.get(r.type_id));
+    for (const r of rows) if (now - r.at <= BOOK_MAX_AGE) books[r.type_id] = bookOf(unpack(r.orders), r.at, r.sold ? JSON.parse(r.sold) : undefined, notes.get(r.type_id));
   }
   const fresh = types.filter((t) => books[t]);
   stages.withBook = fresh.length;

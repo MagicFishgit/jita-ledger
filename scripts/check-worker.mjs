@@ -889,6 +889,35 @@ console.log('\n--- the opportunity mail leaves out what NPCs sell in The Forge a
   eq('  a scan row from a Worker before the note, or none at all: as before', [await judged(x.book), await judged(null)], [kept, kept]);
 }
 
+console.log('\n--- the opportunity mail counts the sell queue on the scan\'s whole-book count, as Prospects does ---');
+{
+  const { opportunities } = await import('../worker/src/alerts.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const fx = JSON.parse(fs.readFileSync(new URL('./fixtures/npc-anywhere.json', import.meta.url), 'utf8'));
+  // The 'Arbalest' Rapid Heavy Missile Launcher I as read on 2 October 2026: Jita's book at 12:05 UTC, ESI's history and
+  // the cloud's watched flow. At a 5 M budget it clears the filters, buying at 24,840 to sell at 40,800 (someone's 4 units
+  // at 40,810 had come in front). The watch's seven live levels hold 2,775 units, about 12 days of buyers: no flag.
+  const ARB = 33440, NOW = Date.parse('2026-10-02T12:10:00Z');
+  const x = fx.items[ARB];
+  const settings = sanitizeSettings({ acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, tycoon: 0, clone: 'omega', faction: 3.6289558729999998, corp: 7.039647095, taxBase: 7.5, override: false, target: 5, share: 7.5 });
+  const ledger = (scanBook) => {
+    const db = d1();
+    db.run('INSERT INTO docs (char_id, key, data, rev, updated_at) VALUES (?, ?, ?, 1, 0)', MAIN, 'watch', JSON.stringify({ types: [ARB], filters: { budget: 5e6, horizonDays: 14, minTrades: 5, minDays: 20, minRoi: 0.03, maxSpikiness: 0.5 } }));
+    db.run('INSERT INTO books (type_id, stamp, orders, sold, at) VALUES (?, ?, ?, ?, ?)', ARB, NOW, JSON.stringify(x.jita.map(([b, price, remain], i) => [i + 1, b, price, remain])), null, NOW - 60_000);
+    db.run('INSERT INTO hist (type_id, expires, rows) VALUES (?, ?, ?)', ARB, NOW + 86400_000, JSON.stringify(x.hist));
+    for (const [day, f] of Object.entries(x.flow)) db.run(`INSERT INTO flow (type_id, day, h, sell, buy, new_sell, new_buy, buy_low, sell_high, front_sell, front_buy, reprice_sell, reprice_buy)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ARB, day, f.h, f.sell, f.buy, f.newSell, f.newBuy, f.buyLow ?? null, f.sellHigh ?? null, f.frontSell, f.frontBuy, f.repriceSell, f.repriceBuy);
+    if (scanBook) db.run('INSERT INTO scan_items (type_id, stats, book, orders, run) VALUES (?, ?, ?, ?, ?)', ARB, JSON.stringify(x.stats), JSON.stringify(scanBook), x.orders, 1);
+    return db;
+  };
+  const judged = async (scanBook) => (await opportunities(ledger(scanBook), MAIN, settings, NOW, false)).qualifying.map((p) => [p.typeId, p.sell, p.queue?.units, p.queue?.atLeast]);
+  eq('  with no scan row, the seven live levels: at least 2,775 listed, mailed as a clean trade', await judged(null), [[ARB, 40_800, 2775, true]]);
+  // The full scan's own count of this book (the test above): 5,170 listed up to 62,910, where trading reached on 4 of 14.
+  eq('  with the scan\'s whole-book count, 5,170 up to 62,910: about 22 days of buyers, Long queue, not mailed', await judged({ ...x.book, sellsTo: { price: 62_910, units: 5170 } }), []);
+  eq('  a scan row without the count (a Worker behind, an old row), or with one it can\'t read: as before',
+    [await judged(x.book), await judged({ ...x.book, sellsTo: '5170' }), await judged({ ...x.book, sellsTo: { price: 62_910 } })], [[[ARB, 40_800, 2775, true]], [[ARB, 40_800, 2775, true]], [[ARB, 40_800, 2775, true]]]);
+}
+
 console.log('\n--- an alt is never a ledger ---');
 {
   const { watchedTypes } = await import('../worker/src/market.ts');
