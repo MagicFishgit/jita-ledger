@@ -4,7 +4,7 @@ import type { Data } from './store';
 import { matchFees, type FeeMatches } from './feeMatch';
 import type { HistRow, Order, Position, Tx } from './types';
 import { nettedJournal } from './refunds';
-import { planCountsWhole, planView, type TradePlan } from './plans';
+import { listedSince, planCountsWhole, planTargets, planView, unitsToList, type Listed, type PlanItem, type TradePlan } from './plans';
 
 const ts = (iso: string) => Date.parse(iso);
 
@@ -427,6 +427,52 @@ export function planPosition(pos: Position, plan: Pick<TradePlan, 'at'>, d: Data
   for (const p of whole.series) { if (p.t < from) held = p.stock; else break; }
   const c = computePosition(planView(pos, plan, d.txs, held), d, s);
   return { c, whole, shared: true, held, heldSold: c.heldSold };
+}
+
+/** A plan item's bought stock, for the list step: what the plan holds, what's listed, and what's left to list. */
+export type PlanListRow = {
+  plan: TradePlan; item: PlanItem; pos: Position; view: PlanPosition;
+  /** What the plan bought and hasn't sold (`planPosition`: a position it took over counts from its start, the earlier stock first). */
+  stock: number;
+  /** What a unit of it cost, the buy's broker fee included; null with nothing held. */
+  unitCost: number | null;
+  /** On your Jita 4-4 sell orders since the position opened (`listedSince`). */
+  listed: Listed;
+  /** Units in your Jita 4-4 hangar; null when it hasn't been read. */
+  hangar: number | null;
+  /** Units to list (`unitsToList`). */
+  units: number;
+};
+
+/** One plan item's row, whatever it holds; null when its position is gone. */
+export function planListRow(plan: TradePlan, item: PlanItem, d: Data, s: Settings): PlanListRow | null {
+  const pos = d.positions.find((p) => p.id === item.positionId && p.typeId === item.typeId);
+  if (!pos) return null;
+  const view = planPosition(pos, plan, d, s);
+  const listed = listedSince(Object.values(d.orders), item.typeId, pos.openedAt, view.whole.sells);
+  const hangar = d.stock ? d.stock.jita[item.typeId] ?? 0 : null;
+  const stock = view.c.stock;
+  return {
+    plan, item, pos, view, stock, unitCost: stock > 0 ? view.c.avgCost : null, listed, hangar,
+    units: unitsToList({ stock, whole: view.whole.stock, listed: listed.units, hangar }),
+  };
+}
+
+/**
+ * Every plan item with stock to list, each under the one plan that holds it (`planTargets`: the newest plan with the item
+ * whose position is still open), so an item two plans share is listed once: Clone Soldier Transporter Tag, in the 30
+ * September and 2 October plans on one position (2 October 2026).
+ */
+export function planListRows(d: Data, s: Settings): PlanListRow[] {
+  const held = planTargets(d.plans ?? [], d.positions, rates(s));
+  const out: PlanListRow[] = [];
+  for (const [typeId, t] of Object.entries(held)) {
+    const plan = d.plans.find((p) => p.id === t.planId);
+    const item = plan?.items.find((i) => i.typeId === Number(typeId));
+    const row = plan && item ? planListRow(plan, item, d, s) : null;
+    if (row && row.units > 0 && row.unitCost != null) out.push(row);
+  }
+  return out;
 }
 
 /**

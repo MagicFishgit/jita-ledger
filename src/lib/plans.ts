@@ -6,6 +6,11 @@
  * positions for the items in one go, maybe even group them" (29 September 2026). Pure.
  */
 import { JITA_44 } from './constants';
+import { breakEvenSell } from './fees';
+import { FILL_TYPICAL, listingPrice, reachedAsk } from './fills';
+import { isk, iskBigSigned, pct } from './format';
+import { MARKET_MOVED } from './prospects';
+import { priceUp, tickUp } from './tick';
 import type { Order, Position, Tx } from './types';
 
 export type PlanItem = {
@@ -282,4 +287,126 @@ export function planTargets(
     }
   }
   return out;
+}
+
+// --- The list step: what a plan bought, priced to list ------------------------------------------------------------------
+
+/**
+ * What's on your Jita 4-4 sell orders of an item since its position opened (`since`), for the list step: `open` units still
+ * listed, and `units` with those a listing has filled that no sale in the position records yet (ESI holds your trades an
+ * hour, your orders 20 minutes: without them a listing that sold would read as stock to list again until its trade came).
+ * An order counts by when it was placed, its first version: a price change moves `issued`, and EVE can't add units to an
+ * order, so one placed before the position lists stock the position never counted. The user's Raging Dark Filament (2
+ * October 2026): 1 listed on 1 October, repriced after the plan; by `issued` it hid one of the plan's 10. `sells` are the
+ * whole position's sales. `price` is the newest open listing's, else the newest's.
+ */
+export type Listed = { units: number; open: number; price: number | null };
+
+export function listedSince(orders: Order[], typeId: number, since: string, sells: { t: number; qty: number }[]): Listed {
+  const from = Date.parse(since);
+  const mine = orders.filter((o) => !o.isBuy && o.typeId === typeId && o.locationId === JITA_44 && placedAt(o) >= from)
+    .sort((a, b) => placedAt(b) - placedAt(a));
+  if (!mine.length) return { units: 0, open: 0, price: null };
+  const open = mine.filter((o) => o.state === 'open').reduce((n, o) => n + o.volumeRemain, 0);
+  const fills = mine.reduce((n, o) => n + filledOf(o), 0);
+  const first = Math.min(...mine.map(placedAt));
+  const recorded = sells.filter((s) => s.t >= first).reduce((n, s) => n + s.qty, 0);
+  const newest = mine.find((o) => o.state === 'open' && o.volumeRemain > 0) ?? mine[0];
+  return { units: open + Math.max(0, fills - recorded), open, price: newest.price };
+}
+
+/**
+ * Units of a plan item to list: what the plan bought and hasn't sold (`stock`: a position it took over counts from its start,
+ * the earlier stock selling first, `planPosition`), no more than the whole position holds that isn't on a sell order
+ * (`whole` less `listed`: units are alike, so the earlier stock is listed first, as it sells first), and, once the hangar has
+ * been read, no more than it holds.
+ */
+export function unitsToList(x: { stock: number; whole: number; listed: number; hangar: number | null }): number {
+  return Math.max(0, Math.min(x.stock, x.whole - x.listed, x.hangar ?? Infinity));
+}
+
+/** Today's Jita book as the list step reads it: others' cheapest listing and best bid (yours set apart), and the fortnight's highs. */
+export type ListMarket = { bestSell: number | null; bestBuy: number | null; highs: (number | null)[] | null };
+
+export function listMarket(book: { id: number; isBuy: boolean; price: number }[], yours: readonly number[], highs: (number | null)[] | null): ListMarket {
+  const mine = new Set(yours);
+  const others = book.filter((o) => !mine.has(o.id));
+  const sells = others.filter((o) => !o.isBuy).map((o) => o.price), bids = others.filter((o) => o.isBuy).map((o) => o.price);
+  return { bestSell: sells.length ? Math.min(...sells) : null, bestBuy: bids.length ? Math.max(...bids) : null, highs };
+}
+
+/** The price a plan's bought stock lists at, the figure beside it, and what it makes. */
+export type PlanListPrice = {
+  /** Where to list: null only at the front with no listing to price against (`missing`). */
+  price: number | null;
+  /** The plan's own price (Place and leave), today's listing price (at the front), or break-even when that lifted it. */
+  from: 'plan' | 'front' | 'breakEven' | null;
+  /** The plan's sale price, as the planner set it. */
+  planPrice: number;
+  /** Today's figure: List patiently for Place and leave, the listing price at the front. Null when it can't be said. */
+  today: number | null;
+  /** The figure shown beside the price: today's for Place and leave, the plan's own at the front. */
+  other: number | null;
+  /** Today's figure against the plan's, when more than MARKET_MOVED apart: which way, and by how much (a fraction). */
+  moved: { dir: 'up' | 'down'; by: number } | null;
+  /** The least a unit lists at without selling under what it cost, after the broker fee and sales tax (`underCost`'s). */
+  breakEven: number;
+  /** After the broker fee and sales tax at the price, against what the units cost: a unit, all of them, and as a return. */
+  perUnit: number | null; profit: number | null; ret: number | null;
+  /** What wasn't known: no book read, a book with no listing in it, or no history for today's patient figure. */
+  missing: 'book' | 'listing' | 'highs' | null;
+};
+
+/**
+ * Where a plan's bought stock lists. A Place-and-leave plan lists at its own sale price (`sellAt`): its intent is to list and
+ * wait where the bulk of trading reached on half the fortnight, and today's List patiently (`reachedAsk` at FILL_TYPICAL, one
+ * step over others' best bid at least, as the position page shows it) is the figure beside it. An at-the-front plan lists at
+ * today's `listingPrice` on the live book, since following the front is what it does, with the plan's price beside it. Never
+ * under break-even. The user's Imperial Navy Infiltrator (2 October 2026): 11 bought at 1,608,000, the plan selling at
+ * 1,836,000; today's listing price, 1,608,000, and List safely, 1,666,000, were both under its 1,708,000 break-even.
+ */
+export function planListPrice(
+  item: Pick<PlanItem, 'sellAt'>, patient: boolean, units: number, unitCost: number,
+  r: { f: number; t: number; k: number }, m: ListMarket | null,
+): PlanListPrice {
+  const breakEven = priceUp(breakEvenSell(unitCost, r, 0));
+  const patientToday = (() => {
+    const at = m?.highs ? reachedAsk(m.highs, FILL_TYPICAL) : null;
+    if (at == null) return null;
+    return m?.bestBuy != null && m.bestBuy > 0 ? Math.max(at, tickUp(m.bestBuy)) : at;
+  })();
+  const today = patient ? patientToday : m ? listingPrice(m.bestSell, m.bestBuy, m.highs) : null;
+  const base = patient ? item.sellAt : today;
+  const price = base == null ? null : Math.max(base, Number.isFinite(breakEven) ? breakEven : 0);
+  const from: PlanListPrice['from'] = base == null ? null : Number.isFinite(breakEven) && base < breakEven ? 'breakEven' : patient ? 'plan' : 'front';
+  const by = today != null && item.sellAt > 0 ? today / item.sellAt - 1 : null;
+  const moved = by != null && Math.abs(by) > MARKET_MOVED + 1e-12 ? { dir: by > 0 ? 'up' as const : 'down' as const, by } : null;
+  const keep = 1 - r.f - r.t;
+  const perUnit = price != null && unitCost > 0 ? price * keep - unitCost : null;
+  const missing: PlanListPrice['missing'] = patient ? (patientToday == null ? 'highs' : null) : !m ? 'book' : m.bestSell == null ? 'listing' : null;
+  return {
+    price, from, planPrice: item.sellAt, today, other: patient ? today : item.sellAt, moved, breakEven,
+    perUnit, profit: perUnit != null ? perUnit * units : null, ret: perUnit != null ? perUnit / unitCost : null, missing,
+  };
+}
+
+/** The list step in words, the same on the checklist, To do and the tests: where the price comes from, the figure beside it, the move, the floor. */
+export function planListSaid(x: PlanListPrice, patient: boolean): { from: string; other: string; moved: string | null; floor: string | null; profit: string | null } {
+  const from = x.from === 'breakEven' ? 'Break-even: the least it lists at without a loss'
+    : x.from === 'plan' ? 'The plan’s price: list it and leave it'
+      : x.from === 'front' ? 'Today’s listing price: the plan follows the front'
+        : x.missing === 'listing' ? 'Nobody lists it in Jita, so there’s no front to price at'
+          : 'Its Jita book couldn’t be read, so there’s no price at the front yet';
+  const other = patient
+    ? (x.today != null ? `List patiently today: ${isk(x.today)}` : 'No history to say where trading gets up to today')
+    : `The plan priced it at ${isk(x.planPrice)}`;
+  const by = x.moved ? pct(Math.abs(x.moved.by), 1) : '';
+  const side = x.moved?.dir === 'up' ? 'over' : 'under';
+  const moved = !x.moved || x.today == null ? null : patient
+    ? `The market has moved ${x.moved.dir} since the plan: List patiently is ${isk(x.today)} today, ${by} ${side} the plan’s ${isk(x.planPrice)}.`
+    : `The market has moved ${x.moved.dir} since the plan: today’s listing price, ${isk(x.today)}, is ${by} ${side} the plan’s ${isk(x.planPrice)}.`;
+  const floor = x.from !== 'breakEven' ? null
+    : `${patient ? `The plan’s ${isk(x.planPrice)}` : `Today’s listing price, ${isk(x.today)},`} sells under what they cost after fees, so it lists at break-even, ${isk(x.breakEven)}.`;
+  const profit = x.profit != null && x.ret != null ? `${iskBigSigned(x.profit)} after fees (${x.ret >= 0 ? '+' : ''}${pct(x.ret, 1)})` : null;
+  return { from, other, moved, floor, profit };
 }

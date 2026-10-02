@@ -1,4 +1,5 @@
-import { fmtDateTime, isk } from './format';
+import { fmtDateTime, isk, units } from './format';
+import { planListSaid, type Listed, type PlanListPrice } from './plans';
 import { FEEDS_QUEUE_DO, feedsQueueLead, type FeedsQueue, type Verdict } from './relist';
 
 /**
@@ -15,7 +16,7 @@ import { FEEDS_QUEUE_DO, feedsQueueLead, type FeedsQueue, type Verdict } from '.
  * is simply absent, and reading absent as done would tick the whole list off on every load.
  */
 
-export type TodoKind = 'move' | 'cancel' | 'bid' | 'underCost' | 'feedsQueue' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry' | 'courier' | 'cloudLogin' | 'placeBuy';
+export type TodoKind = 'move' | 'cancel' | 'bid' | 'underCost' | 'feedsQueue' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry' | 'courier' | 'cloudLogin' | 'placeBuy' | 'planList';
 
 /** Which read a finding came from, and so which read can say it has gone. */
 export type Source = 'orders' | 'colonies' | 'signals' | 'ledger' | 'industry' | 'contracts' | 'cloud' | 'roster';
@@ -93,13 +94,13 @@ export function tickAll(m: Memory, keys: string[], now: number): Memory {
  * measured --- they are there so a list of twelve relists reads as a quarter of an hour, not an evening.
  */
 export const MINUTES: Record<TodoKind, number> = {
-  move: 1, cancel: 1, bid: 2, underCost: 1, feedsQueue: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1, industry: 1, courier: 10, cloudLogin: 1, placeBuy: 1,
+  move: 1, cancel: 1, bid: 2, underCost: 1, feedsQueue: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1, industry: 1, courier: 10, cloudLogin: 1, placeBuy: 1, planList: 1,
 };
 
 export const KIND_LABEL: Record<TodoKind, string> = {
   move: 'Move order', cancel: 'Cancel order', bid: 'Sell into bids', underCost: 'Priced under cost', feedsQueue: 'Feeds a long queue', close: 'Close position', squeeze: 'Margin squeeze', piExpired: 'PI expired',
   piEnding: 'PI ending', nearMiss: 'Trades your positions skipped', scam: 'Suspicious market', backup: 'Backup', industry: 'Industry jobs to deliver', courier: 'Courier to deliver',
-  cloudLogin: 'Cloud login', placeBuy: 'Place buy order',
+  cloudLogin: 'Cloud login', placeBuy: 'Place buy order', planList: 'List what the plan bought',
 };
 
 /**
@@ -322,6 +323,52 @@ export function judgePlaceBuy(e: Entry, c: { plan: boolean; placed: { units: num
       : `Placed: ${n} at ${at}${once > 0 ? `, ${once.toLocaleString('en-US')} of them bought at once` : ''}.`;
   }
   return c.plan ? null : false;
+}
+
+/**
+ * A plan item whose buy filled and isn't listed yet ("List what the plan bought", the list step; `planListRows` in
+ * positions.ts, `planListPrice` in plans.ts): one item per plan item, keyed by plan and item, versioned by the price to list
+ * at, so a repriced suggestion reopens a hand tick and a fill of more units doesn't. Opening it copies that price. An
+ * at-the-front plan with no book read has no price: nothing copied, and its version says so. Never mailed.
+ */
+export function planListItem(
+  x: { planId: string; planName: string; patient: boolean; typeId: number; units: number; unitCost: number },
+  p: PlanListPrice, name: string,
+): TodoItem {
+  const said = planListSaid(p, x.patient);
+  const n = units(x.units);
+  const parts = [
+    `Bought for ${x.planName}.`,
+    p.price != null ? `${said.from}${said.profit ? `: ${said.profit}` : ''}.` : `${said.from}.`,
+    `${said.other}.`,
+    said.floor, said.moved,
+    p.price != null ? `Open it in game (the price is copied), Sell, paste the price, quantity ${n}.` : null,
+  ];
+  return {
+    key: `planList:${x.planId}:${x.typeId}`, ver: p.price != null ? String(p.price) : 'unpriced', kind: 'planList', source: 'ledger',
+    stake: x.units * x.unitCost, typeId: x.typeId,
+    title: p.price != null ? `List ${n} × ${name} at ${isk(p.price)}` : `List ${n} × ${name}`,
+    detail: parts.filter(Boolean).join(' '),
+    action: { label: 'Open', typeId: x.typeId, ...(p.price != null ? { copy: p.price } : {}), route: 'planner' },
+  };
+}
+
+/**
+ * A plan item to list, gone from the list. Absent is not done: it ticks off only when the ledger that dropped it, newer by
+ * construction than the one that listed it, shows the stock listed (a sell order since the position opened covering it, or a
+ * listing that has filled and whose trade hasn't come) or sold. Gone when the plan no longer holds the item (removed, its
+ * position closed, a newer plan holding it): `holds` false. Otherwise (the hangar read shows none, but no listing or sale
+ * does) it's still being checked.
+ */
+export function judgePlanList(e: Entry, c: { holds: boolean; row: { stock: number; units: number; listed: Listed; view: { whole: { stock: number } } } | null }): string | null | false {
+  if (!c.holds || !c.row) return false;
+  const { stock, units: left, listed, view } = c.row;
+  if (left > 0) return null;
+  if (stock <= 0) return 'Sold: the plan holds none of what it bought.';
+  if (view.whole.stock - listed.units <= 0) {
+    return listed.open > 0 ? `Listed: ${units(stock)} at ${isk(listed.price)}.` : `Listed at ${isk(listed.price)} and sold: the sale shows in your trades within the hour.`;
+  }
+  return null;
 }
 
 /**

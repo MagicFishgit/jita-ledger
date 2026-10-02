@@ -1442,6 +1442,141 @@ console.log('\n--- a plan counts a position it shares from its own start ---');
   eq('  opened just over a day before the plan, nothing traded: a view', planPosition(early, fx.plan30, { ...real, positions: [early, cs] }, SU).shared, true);
 }
 
+console.log('\n--- the list step: what a plan bought, priced to list ---');
+{
+  // The user (2 October 2026), once a plan's buy fills: how to price the sell "so I don't mess up the intelligence the plan
+  // set out to accomplish". The plan's sale price showed only in Orders' Plan chip, once a sell order existed. The real case,
+  // read-only from D1 at 20:29 UTC with ESI's history and Jita books at 20:31 (scripts/fixtures/plan-list.json): the
+  // Imperial Navy Infiltrator, 11 bought at once at 1,608,000 for a Place-and-leave plan selling at 1,836,000; Clone
+  // Soldier Transporter Tag, in both plans on one position; Raging Dark Filament, 10 bought, and 1 more listed on 1
+  // October, before its position opened, repriced since.
+  const fs8 = await import('node:fs');
+  const fx = JSON.parse(fs8.readFileSync(new URL('./fixtures/plan-list.json', import.meta.url), 'utf8'));
+  const { sanitizeSettings, rates } = await import('../src/lib/fees.ts');
+  const { planListRow, planListRows } = await import('../src/lib/positions.ts');
+  const { planListPrice, planListSaid, listedSince, unitsToList, listMarket } = await import('../src/lib/plans.ts');
+  const { recentRange } = await import('../src/lib/fills.ts');
+  const { planListItem, judgePlanList, KIND_LABEL, needs } = await import('../src/lib/todo.ts');
+  const S = sanitizeSettings(fx.settings), r = rates(S), NOW = Date.parse(fx.now);
+  const INF = 31866, CS = 33140, RD = 47894, JITA = 60003760;
+  const byId = (xs, k) => Object.fromEntries(xs.map((x) => [x[k], x]));
+  const ledger = (o = {}) => ({
+    txs: byId(fx.txs, 'id'), orders: byId(fx.orders, 'orderId'), journal: byId(fx.journal, 'id'), meta: {}, positions: fx.positions,
+    plans: [fx.plan2, fx.plan30], stock: { at: fx.now, jita: fx.hangar, total: fx.hangar, inContainers: 0 }, ...o,
+  });
+  const market = (t) => listMarket(fx.books[t], fx.orders.map((x) => x.orderId), recentRange(fx.history[t], 14, NOW).highs);
+  const d = ledger();
+  const rows = planListRows(d, S);
+  eq('stock to list: the Infiltrator 11, Clone Soldier 1, Raging Dark 10, each once, under the 2 October plan',
+    rows.map((x) => [x.item.typeId, x.units, x.plan.id]).sort((a, b) => a[0] - b[0]), [[INF, 11, fx.plan2.id], [CS, 1, fx.plan2.id], [RD, 10, fx.plan2.id]]);
+  const inf = rows.find((x) => x.item.typeId === INF);
+  eq('  the Infiltrator’s 11 cost 1,608,000 each and the bid’s 228,036.71 ISK fee', Math.round(inf.unitCost * 100) / 100, Math.round((11 * 1_608_000 + 228_036.71) / 11 * 100) / 100);
+  const rd = rows.find((x) => x.item.typeId === RD);
+  eq('  Raging Dark: the 1 listed on 1 October, before its position, repriced after the plan, lists earlier stock: 10 to list, not 9',
+    [rd.listed.units, rd.stock, rd.units], [0, 10, 10]);
+
+  // A Place-and-leave plan lists at its own price, and says where today's List patiently is.
+  const keep = 1 - r.f - r.t;
+  const pat = planListPrice(inf.item, true, inf.units, inf.unitCost, r, market(INF));
+  eq('Place and leave: the Infiltrator lists at the plan’s 1,836,000, beside List patiently today (1,836,000: the same fortnight), not moved',
+    [pat.price, pat.from, pat.today, pat.other, pat.moved], [1_836_000, 'plan', 1_836_000, 1_836_000, null]);
+  eq('  break-even is what they cost after the broker fee and sales tax, as Orders works it out: 1,708,000', pat.breakEven, 1_708_000);
+  eq('  its profit after fees on the 11: +1.35 M', Math.round(pat.profit), Math.round(11 * (1_836_000 * keep - inf.unitCost)));
+  const patSaid = planListSaid(pat, true);
+  eq('  said: the plan’s price, and List patiently today beside it', [patSaid.from, patSaid.other, patSaid.moved, patSaid.floor],
+    ['The plan’s price: list it and leave it', 'List patiently today: 1,836,000 ISK', null, null]);
+  // At the front: today's listing price, floored at break-even.
+  const front = planListPrice(inf.item, false, inf.units, inf.unitCost, r, market(INF));
+  eq('at the front: today’s listing price, 1,608,000, is under break-even, so it lists at 1,708,000; the plan’s price beside it',
+    [front.today, front.price, front.from, front.other], [1_608_000, 1_708_000, 'breakEven', 1_836_000]);
+  eq('  and the market has moved down 12.4% from the plan', [front.moved?.dir, Math.round(front.moved.by * 1000) / 1000], ['down', -0.124]);
+  const frontSaid = planListSaid(front, false);
+  eq('  said: the floor, and the move', [frontSaid.floor, frontSaid.moved],
+    ['Today’s listing price, 1,608,000 ISK, sells under what they cost after fees, so it lists at break-even, 1,708,000 ISK.', 'The market has moved down since the plan: today’s listing price, 1,608,000 ISK, is 12.4% under the plan’s 1,836,000 ISK.']);
+  const under = planListPrice({ sellAt: 1_700_000 }, true, 11, inf.unitCost, r, market(INF));
+  eq('a plan whose price sells under cost lists at break-even, never below', [under.price, under.from, planListSaid(under, true).floor],
+    [1_708_000, 'breakEven', 'The plan’s 1,700,000 ISK sells under what they cost after fees, so it lists at break-even, 1,708,000 ISK.']);
+  // Clone Soldier: the 2 October plan (Place and leave) holds it, the newer of two plans on its one position.
+  const cs = rows.find((x) => x.item.typeId === CS);
+  const csPat = planListPrice(cs.item, true, cs.units, cs.unitCost, r, market(CS));
+  eq('Clone Soldier under the 2 October plan: 33,400,000, List patiently 31,490,000 today, moved down 5.7%',
+    [csPat.price, csPat.today, csPat.moved?.dir, Math.round(csPat.moved.by * 1000) / 1000], [33_400_000, 31_490_000, 'down', -0.057]);
+  eq('  said in a sentence, no new verdict', planListSaid(csPat, true).moved, 'The market has moved down since the plan: List patiently is 31,490,000 ISK today, 5.7% under the plan’s 33,400,000 ISK.');
+  eq('  today’s figure makes +1.0%', Math.round((31_490_000 * keep / cs.unitCost - 1) * 1000) / 1000, 0.01);
+  // Under the 30 September plan alone (at the front): today's listing price, over break-even, copied; within 5% of the plan's.
+  const only30 = planListRows(ledger({ plans: [fx.plan30] }), S);
+  const cs30 = only30.find((x) => x.item.typeId === CS);
+  const csFront = planListPrice(cs30.item, false, cs30.units, cs30.unitCost, r, market(CS));
+  eq('Clone Soldier under the 30 September plan alone: at the front, 31,890,000 over break-even 31,180,000, the plan’s 33,430,000 beside it, not moved',
+    [only30.length, csFront.price, csFront.from, csFront.breakEven, csFront.other, csFront.moved], [1, 31_890_000, 'front', 31_180_000, 33_430_000, null]);
+  // Nothing not known reads as zero.
+  const noBook = planListPrice(inf.item, false, 11, inf.unitCost, r, null);
+  eq('at the front with no book: no price, said so', [noBook.price, noBook.from, planListSaid(noBook, false).from], [null, null, 'Its Jita book couldn’t be read, so there’s no price at the front yet']);
+  const noHighs = planListPrice(inf.item, true, 11, inf.unitCost, r, { ...market(INF), highs: null });
+  eq('Place and leave with no history: the plan’s price, and no List patiently figure, said so', [noHighs.price, noHighs.today, planListSaid(noHighs, true).other],
+    [1_836_000, null, 'No history to say where trading gets up to today']);
+  eq('your own orders aren’t the market: a listing of yours under the front isn’t undercut',
+    listMarket([{ id: 1, isBuy: false, price: 1_500_000, volume: 11 }, { id: 2, isBuy: false, price: 1_609_000, volume: 3 }, { id: 3, isBuy: true, price: 1_492_000, volume: 5 }], [1], null),
+    { bestSell: 1_609_000, bestBuy: 1_492_000, highs: null });
+
+  // What's on a sell order isn't to list; what the hangar doesn't hold can't be.
+  const sell = (id, remain, total, placed, state = 'open', price = 1_836_000) => ({ orderId: id, typeId: INF, isBuy: false, price, volumeTotal: total, volumeRemain: remain, issued: placed, state, locationId: JITA, seen: [{ issued: placed, price, remain: total }] });
+  const withOrders = (...os) => ledger({ orders: { ...byId(fx.orders, 'orderId'), ...byId(os, 'orderId') } });
+  const rowOf = (dd, t = INF) => planListRow(fx.plan2, fx.plan2.items.find((i) => i.typeId === t), dd, S);
+  eq('11 listed since the plan: nothing to list; 5 listed: 6', [rowOf(withOrders(sell(1, 11, 11, '2026-10-02T17:00:00Z'))).units, rowOf(withOrders(sell(1, 5, 5, '2026-10-02T17:00:00Z'))).units], [0, 6]);
+  eq('  a listing in Amarr isn’t one in Jita', rowOf(withOrders({ ...sell(1, 11, 11, '2026-10-02T17:00:00Z'), locationId: 60008494 })).units, 11);
+  eq('  the hangar holding 4: 4; not read yet: the 11 the trades say', [rowOf(ledger({ stock: { at: fx.now, jita: { [INF]: 4 }, total: {}, inContainers: 0 } })).units, rowOf(ledger({ stock: null })).units], [4, 11]);
+  eq('unitsToList: the plan’s stock, no more than the whole position holds unlisted or the hangar holds',
+    [unitsToList({ stock: 11, whole: 11, listed: 0, hangar: null }), unitsToList({ stock: 188, whole: 2816, listed: 0, hangar: 2816 }), unitsToList({ stock: 188, whole: 2816, listed: 2700, hangar: 116 }), unitsToList({ stock: 5, whole: 3, listed: 4, hangar: 9 })],
+    [11, 188, 116, 0]);
+  // Listed, then it sells: the order leaves the open ones before its trade arrives (ESI holds trades an hour). Units filled
+  // on a listing since the position opened that no sale yet records still count as listed, so the item doesn't come back.
+  const filled = withOrders(sell(1, 0, 11, '2026-10-02T17:00:00Z', 'expired'));
+  eq('listed at 1,836,000 and filled, its trade not in yet: still nothing to list, even with the hangar read before the listing',
+    [rowOf(filled).listed.units, rowOf(filled).listed.open, rowOf(filled).units], [11, 0, 0]);
+  const soldTx = { id: 's1', source: 'esi', typeId: INF, date: '2026-10-02T17:30:00Z', isBuy: false, qty: 11, unitPrice: 1_836_000, locationId: JITA };
+  const sold = ledger({ orders: { ...byId(fx.orders, 'orderId'), 1: sell(1, 0, 11, '2026-10-02T17:00:00Z', 'expired') }, txs: { ...byId(fx.txs, 'id'), s1: soldTx } });
+  eq('  the trade arrives: the plan holds none, nothing filled is left unrecorded', [rowOf(sold).stock, rowOf(sold).listed.units, rowOf(sold).units], [0, 0, 0]);
+  const cancelled = withOrders(sell(1, 11, 11, '2026-10-02T17:00:00Z', 'cancelled'));
+  eq('  a listing cancelled unfilled puts them back: 11 to list', rowOf(cancelled).units, 11);
+  eq('listedSince: a sell order’s placement is its first version, not the issued time a price change moves',
+    listedSince([sell(1, 1, 1, '2026-10-01T09:51:50Z'), { ...sell(2, 1, 1, '2026-10-01T09:51:50Z'), issued: '2026-10-02T16:49:18Z', seen: [{ issued: '2026-10-01T09:51:50Z', price: 1, remain: 1 }, { issued: '2026-10-02T16:49:18Z', price: 2, remain: 1 }] }], INF, '2026-10-02T15:36:31.972Z', []).units, 0);
+
+  // The earlier stock of a shared position is never the plan's to list: Datacore - Rocket Science (see the section above).
+  const RS = 20420, AT = '2026-10-02T15:36:31.972Z';
+  const tx = (id, isBuy, qty, price, date) => ({ id, source: 'esi', typeId: RS, date, isBuy, qty, unitPrice: price, locationId: JITA });
+  const rsPos = { id: 'rs', typeId: RS, openedAt: '2026-09-24T22:26:26.502Z', status: 'open', jitaOnly: true, excluded: [], included: [] };
+  const rsItem = { typeId: RS, buyAt: 85_540, units: 188, sellAt: 94_430, positionId: 'rs' };
+  const rsPlan = { id: 'rsplan', name: 'rs', at: AT, isk: 0, horizonDays: 0.5, patient: true, items: [rsItem] };
+  const rsSell = (remain) => ({ orderId: 7434267823, typeId: RS, isBuy: false, price: 96_980, volumeTotal: 4924, volumeRemain: remain, issued: '2026-10-02T15:19:38Z', state: 'open', locationId: JITA, seen: [{ issued: '2026-10-01T10:58:01Z', price: 97_480, remain: 4924 }] });
+  const rsBuy = (remain) => ({ orderId: 7435100906, typeId: RS, isBuy: true, price: 85_540, volumeTotal: 188, volumeRemain: remain, issued: '2026-10-02T15:48:23Z', state: remain ? 'open' : 'expired', locationId: JITA });
+  const rsBefore = { b1: tx('b1', true, 12_000, 80_720, '2026-09-24T22:31:46Z'), s1: tx('s1', false, 7076, 92_370, '2026-09-28T12:00:00Z'), s2: tx('s2', false, 276, 97_480, '2026-10-01T12:50:51Z'), s3: tx('s3', false, 20, 97_190, '2026-10-02T14:04:33Z'), s4: tx('s4', false, 2000, 96_980, '2026-10-02T15:20:15Z') };
+  const rsLedger = (txs, orders, jita) => ({ txs, orders, journal: {}, meta: {}, positions: [rsPos], plans: [rsPlan], stock: jita == null ? null : { at: AT, jita: { [RS]: jita }, total: {}, inContainers: 0 } });
+  eq('Rocket Science, the plan’s bid not filled: 2,628 held from before, on their sell order, none of it the plan’s to list',
+    planListRow(rsPlan, rsItem, rsLedger(rsBefore, { 1: rsSell(2628), 2: rsBuy(188) }, 0), S).units, 0);
+  const rsMid = { ...rsBefore, p1: tx('p1', true, 188, 85_540, '2026-10-02T18:00:00Z'), s5: tx('s5', false, 2000, 96_980, '2026-10-02T19:00:00Z') };
+  eq('  its 188 filled, 628 of the earlier stock still listed: the 188 to list', planListRow(rsPlan, rsItem, rsLedger(rsMid, { 1: rsSell(628), 2: rsBuy(0) }, 188), S).units, 188);
+  eq('  the earlier stock in the hangar, unlisted, beside the plan’s 188: still 188, never 816', planListRow(rsPlan, rsItem, rsLedger(rsMid, { 2: rsBuy(0) }, 816), S).units, 188);
+
+  // On To do: one item per plan item, keyed by plan and item, versioned by the price; opening it copies the price.
+  const item = planListItem({ planId: fx.plan2.id, planName: fx.plan2.name, patient: true, typeId: INF, units: 11, unitCost: inf.unitCost }, pat, 'Imperial Navy Infiltrator');
+  eq('To do: a “List what the plan bought” item, something to do, keyed by plan and item, versioned by the price, copying it',
+    [item.key, item.ver, item.kind, KIND_LABEL[item.kind], needs(item.kind), item.action.copy, item.action.typeId, item.title],
+    [`planList:${fx.plan2.id}:${INF}`, '1836000', 'planList', 'List what the plan bought', 'act', 1_836_000, INF, 'List 11 × Imperial Navy Infiltrator at 1,836,000 ISK']);
+  has('  its detail says the plan’s price and today’s beside it', item.detail, 'List patiently today: 1,836,000 ISK');
+  eq('  a fill of more units keeps the version: a hand tick holds', planListItem({ planId: fx.plan2.id, planName: '', patient: true, typeId: INF, units: 6, unitCost: inf.unitCost }, pat, 'x').ver, item.ver);
+  const nob = planListItem({ planId: fx.plan30.id, planName: fx.plan30.name, patient: false, typeId: INF, units: 11, unitCost: inf.unitCost }, noBook, 'Imperial Navy Infiltrator');
+  eq('  at the front with no book: no price copied, and the version says so', [nob.ver, nob.action.copy, nob.title], ['unpriced', undefined, 'List 11 × Imperial Navy Infiltrator']);
+  // It ticks off only on the ledger showing it listed or sold, never because it's absent.
+  const e = { item, seenAt: NOW, lastAt: NOW };
+  const judged = (dd) => { const row = rowOf(dd); return judgePlanList(e, { holds: true, row }); };
+  eq('ticked off: listed (a sell order since the plan covers it), sold from that listing, then the trade',
+    [judged(withOrders(sell(1, 11, 11, '2026-10-02T17:00:00Z'))), judged(filled), judged(sold)],
+    ['Listed: 11 at 1,836,000 ISK.', 'Listed at 1,836,000 ISK and sold: the sale shows in your trades within the hour.', 'Sold: the plan holds none of what it bought.']);
+  eq('  the hangar read shows none, but no listing or sale does: still being checked', judged(ledger({ stock: { at: fx.now, jita: {}, total: {}, inContainers: 0 } })), null);
+  eq('  the plan removed, its position closed or a newer plan holding it: it just goes', judgePlanList(e, { holds: false, row: null }), false);
+}
+
 console.log('\n--- the mining ledger ---');
 {
   const { readMining, miningKey, miningTicks, miningSnapshot, miningSessions } = await import('../src/lib/mining.ts');

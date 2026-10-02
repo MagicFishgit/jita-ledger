@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, Check, CheckCheck, CircleDollarSign, CircleX, CloudAlert, Factory, Truck, GitPullRequestArrow, HardDriveDownload, Keyboard, Layers, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, ShoppingCart, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
+import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, Check, CheckCheck, CircleDollarSign, CircleX, CloudAlert, Factory, Truck, GitPullRequestArrow, HardDriveDownload, Keyboard, Layers, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, ShoppingCart, Tag, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
 import { getAuth, loginForCloud, loginMailerForCloud } from '../lib/auth';
 import { breakEvenSpread, rates } from '../lib/fees';
 import { ago, fmtDateTime, isk, iskBig, units } from '../lib/format';
@@ -59,6 +59,7 @@ const LOOK: Record<TodoKind, { Icon: typeof Check; c: string }> = {
   scam: { Icon: ShieldAlert, c: 'var(--neg-l)' },
   backup: { Icon: HardDriveDownload, c: 'var(--acc2)' },
   placeBuy: { Icon: ShoppingCart, c: 'var(--acc)' },
+  planList: { Icon: Tag, c: 'var(--acc)' },
   cloudLogin: { Icon: CloudAlert, c: 'var(--neg)' },
   industry: { Icon: Factory, c: 'var(--acc)' },
   courier: { Icon: Truck, c: 'var(--acc2)' },
