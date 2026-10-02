@@ -390,6 +390,13 @@ export function isWall(levels: BookLevel[], unitsPerDay?: number): boolean {
 }
 
 /**
+ * Price levels a book summary keeps a side: the cloud's full scan (`LEVELS` in worker/src/scan.ts), the browser's book reads
+ * (`levels(…, 7)` in market.ts) and the cloud's watched books (`bookOf` in worker/src/alerts.ts). A side with fewer was read
+ * whole.
+ */
+export const BOOK_LEVELS = 7;
+
+/**
  * The stock a listing at `sell` queues with, from a book summary's sell levels (cheapest first). `front` is one step under
  * the best ask, where a listing at the front goes.
  *
@@ -400,14 +407,14 @@ export function isWall(levels: BookLevel[], unitsPerDay?: number): boolean {
  * patient one under the book), nothing is ahead of it. Without the highs, nothing listed is known to be reached, so only
  * what's at or under its own price counts.
  *
- * `atLeast`: every level held is under the ceiling, so the side may hold more than the summary kept (the cloud's scan
- * keeps seven prices a side).
+ * `atLeast`: the summary kept all BOOK_LEVELS prices it keeps and every one is under the ceiling, so the side may hold
+ * more. With fewer levels, the side was read whole and the count is exact.
  */
 export function listedQueue(topSells: BookLevel[], sell: number, front: number, highs?: (number | null)[] | null): { units: number; atLeast: boolean; upTo: number } {
   const rare = sell >= front && highs ? reachedAsk(highs, FILL_RARE) : null;
   const upTo = rare != null && rare > sell ? rare : sell;
   const within = topSells.filter((l) => l.price <= upTo);
-  return { units: within.reduce((t, l) => t + l.volume, 0), atLeast: within.length > 0 && within.length === topSells.length, upTo };
+  return { units: within.reduce((t, l) => t + l.volume, 0), atLeast: topSells.length >= BOOK_LEVELS && within.length === topSells.length, upTo };
 }
 
 /**

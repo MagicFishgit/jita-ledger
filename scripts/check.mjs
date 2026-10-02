@@ -4020,6 +4020,9 @@ console.log('\n--- a long sell queue, a stricter run-up for Place and leave, and
   const calm = { ...a.book, topSells: [{ price: 60_460, volume: 500 }, { price: 60_470, volume: 500 }, { price: 90_000, volume: 50_000 }] };
   const calmP = judgeProspect(a.stats, calm, S, fl, a.orders, false, watched);
   eq('a queue under two weeks of buyers is not flagged, and stock above where trading reaches isn\'t counted', [calmP.warnings.includes('longQueue'), calmP.queue.units, calmP.queue.atLeast], [false, 1000, false]);
+  // A side with fewer than the levels a summary keeps was read whole: its count is exact, not "at least".
+  const whole = judgeProspect(a.stats, { ...a.book, topSells: a.book.topSells.slice(0, 3) }, S, fl, a.orders, false, watched);
+  eq('  a side of three prices, all where buyers have paid, is counted whole, not "at least"', [P.BOOK_LEVELS, whole.queue.units, whole.queue.atLeast], [7, 333 + 1808 + 371, false]);
 
   // Vigilance Resonance Key: 21-23 M through early September, then a climb; ESI's last three days (28-30 September)
   // averaged 31.98 M against a month's median day of 22.89 M.

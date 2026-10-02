@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { ago, isk, iskBig, iskSigned, pct, plainNum, units } from '../lib/format';
 import { resolveNames } from '../lib/market';
-import { absorbable, BUSY_SHOWN, DEFAULT_FILTERS, FIRST_DIR, horizonSaid, horizonShort, HORIZONS, passesGate, RUN_UP, RUN_UP_BEFORE, RUN_UP_DAYS, RUN_UP_PATIENT, runUpBar, SLOW_DAYS, snapHorizon, sortProspects, type Sort, type SortKey } from '../lib/prospects';
+import { absorbable, BUSY_SHOWN, DEFAULT_FILTERS, FIRST_DIR, horizonSaid, horizonShort, HORIZONS, passesGate, RUN_UP, RUN_UP_BEFORE, RUN_UP_DAYS, RUN_UP_PATIENT, runUpBar, BOOK_LEVELS, SLOW_DAYS, snapHorizon, sortProspects, type Sort, type SortKey } from '../lib/prospects';
 import { FILL_RARE, FILL_WINDOW, RECENT_DAYS, RECENT_TYPICAL } from '../lib/fills';
 import { RESERVE_RATIO, RESERVE_WATCH_H } from '../lib/evaluate';
 import { clearScan, coverage, loadCache, rankProspects, runScan, stopScan, useScanState, type ScanCache } from '../lib/scan';
@@ -55,7 +55,7 @@ export function warningWhy(w: ProspectWarning, p: Pick<Prospect, 'stats' | 'bidR
     return `${q.atLeast ? 'At least ' : ''}${units(q.units)} units are listed at prices buyers have been paying: about ${days} days of the ${units(Math.round(q.perDay))} a day who buy from listings here, over the ${LONG_QUEUE_DAYS} that make a long queue.\n\n`
       // Paragraphs, not bullets: the reason also shows inline under the item's row.
       + `That’s a typical day’s ${units(s.unitsPerDay)} units × the ${pct(p.buyerShare, 0)} bought from listings, ${queuePaceSaid(q.from)}.\n\n`
-      + `Counted up to ${isk(q.upTo)}, where trading got up to on ${FILL_RARE} of the last ${FILL_WINDOW} days: listings above it aren’t selling.${q.atLeast ? ' The scan keeps the cheapest seven prices a side, and every one is under it, so there are likely more.' : ''}\n\n`
+      + `Counted up to ${isk(q.upTo)}, where trading got up to on ${FILL_RARE} of the last ${FILL_WINDOW} days: listings above it aren’t selling.${q.atLeast ? ` The scan keeps the cheapest ${BOOK_LEVELS} prices a side, and every one is under it, so there are likely more.` : ''}\n\n`
       + `New stock waits behind them, and sellers that deep in a queue undercut each other, so the price you’d sell at may not hold.`;
   }
   if (w === 'unreached' && p.bidWindow === 'recent') {
