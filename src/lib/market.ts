@@ -8,6 +8,7 @@ import type { BookLevel, HistRow, MarketSnap } from './types';
 import type { LpOffer } from './loyalty';
 import type { PlanetHead, RawColony } from './colony';
 import { paceDay, recentAverages } from './prospects';
+import { shareInFlight } from './inFlight';
 
 type IdsResponse = {
   inventory_types?: { id: number; name: string }[];
@@ -212,16 +213,22 @@ export async function marketHistory(typeId: number): Promise<HistRow[]> {
   return regionHistory(typeId, regionFor(typeId));
 }
 
-/** Daily history for an item in any region. Cached for 3 hours: ESI only adds a day at a time. */
-export async function regionHistory(typeId: number, regionId: number): Promise<HistRow[]> {
-  const key = regionId === THE_FORGE || regionId === GLOBAL_PLEX_MARKET ? `hist:${typeId}` : `hist:${regionId}:${typeId}`;
+const histKey = (typeId: number, regionId: number) => (regionId === THE_FORGE || regionId === GLOBAL_PLEX_MARKET ? `hist:${typeId}` : `hist:${regionId}:${typeId}`);
+
+/**
+ * Daily history for an item in any region. Cached for 3 hours: ESI only adds a day at a time. Shared while in flight
+ * (inFlight.ts): the cache holds only finished answers, so two asks at once both missed it and both went to ESI; the
+ * Research tab's field picker and agents table read the same 17 datacores at once.
+ */
+export const regionHistory = shareInFlight(histKey, async (typeId: number, regionId: number): Promise<HistRow[]> => {
+  const key = histKey(typeId, regionId);
   const cached = (await get(key, cacheStore)) as { at: number; rows: HistRow[] } | undefined;
   if (cached && Date.now() - cached.at < 3 * 3600_000) return cached.rows;
   const { data } = await esi<HistRow[]>(`/markets/${regionId}/history/`, { query: { type_id: typeId } });
   const rows = [...data].sort((a, b) => a.date.localeCompare(b.date));
   await set(key, { at: Date.now(), rows }, cacheStore).catch(() => undefined);
   return rows;
-}
+});
 
 /** One station's book in another region: another trade hub, for comparing against Jita. */
 export async function stationBook(typeId: number, regionId: number, stationId: number, fresh = false) {

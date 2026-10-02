@@ -5859,5 +5859,128 @@ console.log('\n--- R&D agents: the rules ---');
     [[1000020, 3, 'security', 'Isaziwa'], [1000020, 4, 'distribution', 'Elonaya']]);
 }
 
+console.log('\n--- R&D agents: the Research tab, getting started ---');
+{
+  // Stage 1 of the Research tab (docs/superpowers/specs/2026-10-03-rd-agents-design.md): the pick, the four steps' rules,
+  // and the reads it shares. Figures from the research (.playwright-mcp/research/rd-agents/draft.md).
+  const R = await import('../src/lib/research.ts');
+  const S = await import('../src/lib/researchStart.ts');
+  const { reachFrom } = await import('../src/lib/jumps.ts');
+  const { shareInFlight } = await import('../src/lib/inFlight.ts');
+  const fsR = await import('node:fs');
+  const bundle = JSON.parse(fsR.readFileSync(new URL('../src/data/researchAgents.json', import.meta.url), 'utf8'));
+  const graph = JSON.parse(fsR.readFileSync(new URL('../src/data/universeGraph.json', import.meta.url), 'utf8')).systems;
+  const r2 = (x) => +x.toFixed(2);
+
+  // A read shared while in flight (gotchas.md: a cache that only remembers finished answers asks twice when two ask at once).
+  let calls = 0;
+  const waiting = [];
+  const read = shareInFlight((t, region) => `${region}:${t}`, (t, region) => { calls++; return new Promise((res, rej) => waiting.push({ res: () => res(`${region}:${t}:${calls}`), rej })); });
+  const a = read(20418, 10000002), b = read(20418, 10000002), c = read(20419, 10000002);
+  eq('a read asked for twice at once is one request, and another key is its own', calls, 2);
+  waiting[0].res(); waiting[1].res();
+  eq('  both askers get the one answer', [await a, await b, await c], ['10000002:20418:2', '10000002:20418:2', '10000002:20419:2']);
+  const d2 = read(20418, 10000002), d3 = read(20418, 10000002);
+  eq('  once it has landed, the next ask reads again (the function\'s own cache decides freshness)', calls, 3);
+  waiting[2].rej(new Error('ESI 502'));
+  const shared = await Promise.allSettled([d2, d3]);
+  eq('  a failure is shared by whoever was waiting on it…', [shared.map((x) => x.status), calls], [['rejected', 'rejected'], 3]);
+  const d4 = read(20418, 10000002);
+  waiting[3].res();
+  eq('  …and isn\'t kept: the ask after it reads again', [await d4, calls], ['10000002:20418:4', 4]);
+  const marketSrc = fsR.readFileSync(new URL('../src/lib/market.ts', import.meta.url), 'utf8');
+  has('  regionHistory is that shared read (market.ts can\'t load here: it reads import.meta.env)', marketSrc, 'export const regionHistory = shareInFlight(');
+
+  eq('the bundle names every research agent\'s corporation and faction (static data, so the tab asks ESI for none)',
+    [bundle.agents.filter((x) => !bundle.names?.[x.corp] || !bundle.names?.[x.faction]).length, bundle.names?.[1000020], bundle.names?.[500001]],
+    [0, 'Lai Dai Corporation', 'Caldari State']);
+
+  // The fields: the 17 that make a datacore, each with its own prerequisite beside Science V.
+  eq('the fields: one for each datacore, named, each with its prerequisite (Mechanics, CPU or Power Grid Management V)',
+    [Object.keys(S.FIELDS).sort(), S.FIELDS[11453].name, S.FIELDS[11453].needs, S.FIELDS[11446].needs, S.FIELDS[11449].needs],
+    [Object.keys(R.DATACORE_OF).sort(), 'Electronic Engineering', 3426, 3413, 3392]);
+  eq('  a datacore\'s name from its field, with CCP\'s two odd ones', [S.datacoreName(11453), S.datacoreName(11444), S.datacoreName(11450)],
+    ['Datacore - Electronic Engineering', 'Datacore - Amarrian Starship Engineering', 'Datacore - Gallentean Starship Engineering']);
+
+  // The skill gates rankAgents leaves to the page: Science V, the field's prerequisite at V, the field at the agent's level.
+  eq('skill gaps for a level 2 Electronic Engineering agent: Science V and the field to II (CPU Management V is there)',
+    S.skillGaps(11453, 2, { 3402: 4, 3426: 5 }), [{ id: 3402, level: 5 }, { id: 11453, level: 2 }]);
+  eq('  Graviton Physics asks for Power Grid Management V; nothing lacking is an empty list; skills not read is null',
+    [S.skillGaps(11446, 1, { 3402: 5 }), S.skillGaps(11446, 1, { 3402: 5, 3413: 5, 11446: 3 }), S.skillGaps(11446, 1, undefined)],
+    [[{ id: 3413, level: 5 }, { id: 11446, level: 1 }], [], null]);
+
+  // Training time at the character's attributes, prerequisites included, from the static data's ranks (no ESI read).
+  const main = { intelligence: 24, memory: 24, perception: 20, willpower: 20, charisma: 23 };
+  const first = S.trainingPlan(S.skillGaps(11453, 4, { 3402: 4, 3426: 5 }), { skills: { 3402: 4, 3426: 5 }, sp: { 3402: 45255 }, attrs: main, alpha: false });
+  eq('the main\'s first agent: Science IV → V and the field 0 → IV at 24 / 24, about 8.4 days (the research\'s ≈ 8.5)',
+    [r2(first.days), first.levels.map((x) => [x.id, x.from, x.to])], [r2((256000 - 45255) / 36 / 1440 + 226275 / 36 / 1440), [[3402, 4, 5], [11453, 0, 4]]]);
+  const six = S.trainingPlan([{ id: 12179, level: 5 }], { skills: { 3402: 4 }, sp: {}, attrs: main, alpha: false });
+  eq('  Research Project Management V brings its prerequisites (Laboratory Operation V, Research V), each once, in order',
+    six.levels.map((x) => [x.id, x.from, x.to]), [[3406, 0, 5], [3403, 0, 5], [12179, 0, 5]]);
+  eq('  points already in a level count (its floor when none are read); no attributes read is null, never 0 days',
+    [r2(S.trainingPlan([{ id: 3402, level: 5 }], { skills: { 3402: 4 }, sp: { 3402: 100000 }, attrs: main, alpha: false }).days),
+      r2(S.trainingPlan([{ id: 3402, level: 5 }], { skills: { 3402: 4 }, sp: {}, attrs: main, alpha: false }).days),
+      S.trainingPlan([{ id: 3402, level: 5 }], { skills: { 3402: 4 }, sp: {}, attrs: undefined, alpha: false })],
+    [r2(156000 / 36 / 1440), r2(210745 / 36 / 1440), null]);
+  eq('  nothing to train is 0 days with no levels', S.trainingPlan([], { skills: {}, sp: {}, attrs: main, alpha: false }), { days: 0, levels: [] });
+
+  // Ordinary agents (the way to raise standing) take the agent's, corporation's or faction's standing alone; a corporation
+  // at −2 or under shuts all but level 1 (EVE University, NPC standings).
+  eq('helpers: faction standing alone opens an ordinary agent, at −2 and under the corporation shuts all but level 1',
+    [S.helperAccess(4, null, 5.0, null), S.helperAccess(4, null, 4.65, null), S.helperAccess(3, null, 4.65, null), S.helperAccess(2, -2.5, 4.65, null),
+      S.helperAccess(1, -2.5, null, null), S.helperAccess(2, null, null, 1.2), S.helperAccess(1, null, null, null)],
+    [true, false, true, false, true, true, true]);
+
+  // The main today: Caldari State 3.63 raw (4.65 at Connections IV), Lai Dai at no standing.
+  const reach = reachFrom(graph, 30000142, ['Uedama', 'Sivala']);
+  const jumpsTo = (s) => reach.high.get(s) ?? null;
+  const mainStandings = [{ id: 500001, type: 'faction', standing: 3.63 }];
+  const corps = S.corpReach(bundle.agents, bundle.helpers, { standings: mainStandings, connections: 4, diplomacy: 0, jumpsTo });
+  const laiDai = corps.find((x) => x.corp === 1000020);
+  eq('step 2 for the main: Lai Dai at no standing, Caldari State 4.65, level 2 open, level 3 next (Lai Dai 1.00 with the faction at 3.00, or Lai Dai 3.00)',
+    [laiDai.corpEff, r2(laiDai.factionEff), laiDai.open, laiDai.next], [null, 4.65, 2, { level: 3, corp: 3, viaFaction: { faction: 3, corp: 1 } }]);
+  eq('  Caldari corporations first (their faction is the one with standing), each with its R&D agents counted by level',
+    [corps.slice(0, 3).map((x) => x.faction), laiDai.byLevel], [[500001, 500001, 500001], { 1: 8, 2: 6, 3: 10, 4: 6 }]);
+  const usable = laiDai.helpers.map((h) => h.name);
+  eq('  its helpers usable now include Ehu Vantoh (level 3 security, Isaziwa, 5 jumps) and not its level 4s (Caldari State short of 5.00)',
+    [usable.includes('Ehu Vantoh'), laiDai.helpers.find((h) => h.name === 'Ehu Vantoh')?.jumps, laiDai.helpers.some((h) => h.level === 4)], [true, 5, false]);
+  eq('  ordered best level first, then nearest', laiDai.helpers.every((h, i, xs) => i === 0 || xs[i - 1].level > h.level || (xs[i - 1].level === h.level && (xs[i - 1].jumps ?? 1e9) <= (h.jumps ?? 1e9))), true);
+  eq('  the highest level open anywhere is what\'s offered as the start: 2 for the main; 1 for an alt with nothing read',
+    [S.startLevel(corps), S.startLevel(S.corpReach(bundle.agents, bundle.helpers, { standings: null, connections: 0, diplomacy: 0, jumpsTo }))], [2, 1]);
+
+  // What step 3 lists: open, or one level past what the agent's corporation opens.
+  const ranked = R.rankAgents(bundle.agents, { skills: { 3402: 5, 3426: 5, 11453: 4 }, standings: mainStandings, connections: 4, diplomacy: 0, negotiation: 4,
+    netPerDatacore: { 20418: 79_571 }, jumpsTo });
+  const listed = S.listedAgents(ranked, corps);
+  const lvl = (corp, level) => listed.filter((x) => x.agent.corp === corp && x.agent.level === level).length > 0;
+  eq('step 3 lists what opens now and one level past it: Lai Dai\'s level 2 and 3, not its 4; another empire\'s level 1 and 2, not 3',
+    [lvl(1000020, 2), lvl(1000020, 3), lvl(1000020, 4), lvl(1000056, 1), lvl(1000056, 2), lvl(1000056, 3)], [true, true, false, true, true, false]);
+
+  // The pick: the best-ranked agent and field the character can reach, the nearest of equals, one on a high-sec route first.
+  const pick = S.pickDefault(ranked);
+  eq('the main\'s default pick: a Lai Dai level 2 agent in Electronic Engineering, the nearer of two (Shitsu Ashoma, Friggi, 8 jumps), 50.4 RP a day',
+    [pick.agent.name, pick.agent.corp, pick.agent.level, pick.field, pick.jumps, r2(pick.rpDay)], ['Shitsu Ashoma', 1000020, 2, 11453, 8, 50.4]);
+  const row = (id, open, iskDay, rpDay, jumps) => ({ agent: { id, level: 2 }, field: 11453, datacore: 20418, open, rpDay, iskDay, jumps });
+  eq('  a closed agent is never the pick, however it pays; one off a high-sec route only when nothing else is open',
+    [S.pickDefault([row(1, false, 9e5, 90, 1), row(2, true, 1e5, 50, null), row(3, true, 5e4, 40, 12)])?.agent.id,
+      S.pickDefault([row(1, false, 9e5, 90, 1), row(2, true, 1e5, 50, null)])?.agent.id, S.pickDefault([row(1, false, 9e5, 90, 1)])], [3, 2, null]);
+  eq('  priced beats unpriced; with nothing priced, the most RP a day', [S.pickDefault([row(1, true, null, 90, 2), row(2, true, 10, 20, 9)])?.agent.id,
+    S.pickDefault([row(1, true, null, 20, 2), row(2, true, null, 50, 9)])?.agent.id], [2, 2]);
+
+  eq('six agents: distinct, open, on a high-sec route and priced, in the ranking\'s order; fewer when fewer are',
+    S.bestAgents([row(1, true, 100, 50, 3), row(1, true, 90, 50, 3), row(2, true, 80, 50, null), row(3, false, 70, 50, 2), row(4, true, 60, 50, 4), row(5, true, null, 50, 5)]).map((r) => r.agent.id), [1, 4]);
+  eq('  at most six', S.bestAgents(Array.from({ length: 9 }, (_, i) => row(i + 1, true, 100 - i, 50, 1))).length, 6);
+
+  // A field's year from The Forge's history: now (30 days, volume-weighted), a year ago, and units a day.
+  const T0 = Date.parse('2026-10-03T12:00:00Z');
+  const day = (n) => new Date(T0 - n * DAY).toISOString().slice(0, 10);
+  const hist = [...Array.from({ length: 30 }, (_, i) => ({ date: day(i + 1), average: 100, highest: 101, lowest: 99, volume: 10, order_count: 5 })),
+    { date: day(360), average: 80, highest: 81, lowest: 79, volume: 5, order_count: 2 }, { date: day(370), average: 70, highest: 71, lowest: 69, volume: 5, order_count: 2 }].reverse();
+  const yr = S.fieldYear(hist, T0);
+  eq('a field\'s year: now 100 over 30 days, a year ago 75 (volume-weighted, 335–395 days back), +33%, 10 a day',
+    [yr.price, yr.yearAgo, r2(yr.change), yr.perDay], [100, 75, 0.33, 10]);
+  eq('  no history: nothing to say, never zeros', S.fieldYear([], T0), { price: null, yearAgo: null, change: null, perDay: null, months: [] });
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

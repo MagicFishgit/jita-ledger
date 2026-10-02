@@ -2,17 +2,20 @@
 // and what they research come from the static data (SDE). Run after a game update moves or changes agents:
 //
 //   node scripts/research-agents.mjs <folder>
+//   SDE_ZIP=<a build's JSONL zip> node scripts/research-agents.mjs     (that build, already downloaded; nothing fetched)
 //
 // It reads the SDE's current build from developers.eveonline.com, downloads that build's JSONL zip into <folder> unless
 // it's already there (User-Agent "jita-ledger"; ~99 MB), reads what it needs straight from the zip (no unzip needed), and
 // writes src/data/researchAgents.json:
 //
-//   { built, source, agents: RdAgent[], helpers: HelperAgent[] }   (types in src/lib/research.ts)
+//   { built, source, agents: RdAgent[], helpers: HelperAgent[], names }   (types in src/lib/research.ts)
 //
 // - agents: every research agent, picked by agent type 4 (ResearchAgent in agentTypes.jsonl), never by the R&D division
 //   (18), which also holds event-mission and epic-arc agents. Each with its level, corporation, the corporation's faction,
 //   station, system, and its fields: the skills in its `skills` list that a datacore requires (dogma 182 on a published
 //   datacore, group 333). Astronautic Engineering and Hypernet Science make no datacore, so they're never offered.
+// - names: each of those corporations' and their factions' names, by ID, so the Research tab names them without asking
+//   ESI (static data, like the agents' own names).
 // - helpers: the ordinary mission agents (BasicAgent, type 2) of the security (24) and distribution (22) divisions,
 //   levels 1–4, of every corporation that has a research agent: running their missions is how standing with it rises.
 //   Storyline, event and epic-arc agents are left out (they don't hand out missions you can walk up and run).
@@ -27,7 +30,8 @@ import zlib from 'node:zlib';
 import { Readable } from 'node:stream';
 
 const [dir] = process.argv.slice(2);
-if (!dir) { console.error('usage: node scripts/research-agents.mjs <folder for the SDE zip>'); process.exit(1); }
+const given = process.env.SDE_ZIP;
+if (!dir && !given) { console.error('usage: node scripts/research-agents.mjs <folder for the SDE zip>, or SDE_ZIP=<zip> node scripts/research-agents.mjs'); process.exit(1); }
 const SDE = 'https://developers.eveonline.com/static-data/tranquility';
 const HEADERS = { 'User-Agent': 'jita-ledger' };
 
@@ -35,9 +39,10 @@ const RESEARCH_AGENT = 4, BASIC_AGENT = 2;
 const DIVISIONS = { 24: 'security', 22: 'distribution' };
 const DATACORES = 333, REQUIRED_SKILL_1 = 182;
 
-const latest = JSON.parse((await (await fetch(`${SDE}/latest.jsonl`, { headers: HEADERS })).text()).trim().split('\n')[0]);
-const zipPath = path.join(dir, `eve-online-static-data-${latest.buildNumber}-jsonl.zip`);
+const latest = given ? null : JSON.parse((await (await fetch(`${SDE}/latest.jsonl`, { headers: HEADERS })).text()).trim().split('\n')[0]);
+const zipPath = given ?? path.join(dir, `eve-online-static-data-${latest.buildNumber}-jsonl.zip`);
 if (!fs.existsSync(zipPath)) {
+  if (given) throw new Error(`${given} isn't there`);
   fs.mkdirSync(dir, { recursive: true });
   console.log(`downloading build ${latest.buildNumber}…`);
   const res = await fetch(`${SDE}/eve-online-static-data-${latest.buildNumber}-jsonl.zip`, { headers: HEADERS });
@@ -90,8 +95,10 @@ for await (const t of lines('typeDogma.jsonl')) {
 
 const station = new Map();
 for await (const s of lines('npcStations.jsonl')) station.set(s._key, s.solarSystemID);
-const faction = new Map();
-for await (const c of lines('npcCorporations.jsonl')) faction.set(c._key, c.factionID ?? null);
+const faction = new Map(), corpName = new Map();
+for await (const c of lines('npcCorporations.jsonl')) { faction.set(c._key, c.factionID ?? null); corpName.set(c._key, c.name?.en); }
+const factionName = new Map();
+for await (const f of lines('factions.jsonl')) factionName.set(f._key, f.name?.en);
 const system = new Map();
 for await (const s of lines('mapSolarSystems.jsonl')) system.set(s._key, { name: s.name?.en, sec: s.securityStatus });
 
@@ -121,10 +128,18 @@ const helpers = npcs.filter((c) => c.agent.agentTypeID === BASIC_AGENT && DIVISI
   id: c._key, name: c.name?.en ?? `Agent #${c._key}`, level: c.agent.level, corp: c.corporationID, division: DIVISIONS[c.agent.divisionID], ...where(c),
 })).sort((a, b) => a.id - b.id);
 
+const names = {};
+for (const a of agents) {
+  if (!corpName.get(a.corp) || !factionName.get(a.faction)) throw new Error(`agent ${a.id}'s corporation ${a.corp} or faction ${a.faction} has no name`);
+  names[a.corp] = corpName.get(a.corp);
+  names[a.faction] = factionName.get(a.faction);
+}
 const out = {
   built: new Date().toISOString().slice(0, 10),
   source: `CCP static data build ${sde.buildNumber}, released ${sde.releaseDate}`,
   agents, helpers,
+  // Integer keys: JSON keeps them in ascending order whatever order they were added in.
+  names,
 };
 const file = 'src/data/researchAgents.json';
 fs.mkdirSync('src/data', { recursive: true });
@@ -140,6 +155,7 @@ const offMap = agents.filter((a) => !graph[a.system]);
 const band = (s) => (s >= 0.45 ? 'high' : s > 0 ? 'low' : 'null');
 console.log(`${out.source}`);
 console.log(`${agents.length} research agents by level ${JSON.stringify(by(agents, (a) => a.level))}, in ${rdCorps.size} corporations; by security ${JSON.stringify(by(agents, (a) => band(system.get(a.system).sec)))}`);
+console.log(`names: ${Object.entries(names).map(([id, n]) => `${id} ${n}`).join(', ')}`);
 console.log(`${helpers.length} helpers: ${JSON.stringify(by(helpers, (h) => `${h.division} ${h.level}`))}`);
 console.log(`${offered.size} fields offered, each with its datacore:`);
 for (const f of [...offered].sort((a, b) => a - b)) console.log(`  ${f} ${skillName.get(f)} → ${datacoreOf.get(f)} ${datacores.get(datacoreOf.get(f))}`);
