@@ -124,15 +124,20 @@ export function foldPage(aggs: Map<number, Agg>, npc: Map<number, number>, order
  * browser and the alert round do, with the watched highs folded in.
  */
 export function summaryOf(a: Agg, stats: ProspectStats, at: string, npcAt: number | undefined, watched: WatchedExtremes | undefined): Book {
-  const book: Book = {
-    at, bestBuy: a.buys[0]?.price ?? null, bestSell: a.sells[0]?.price ?? null,
-    buyOrders: a.buyOrders, sellOrders: a.sellOrders, topBuys: a.buys, topSells: a.sells, npcSell: a.npcSell, sold: a.sold,
-  };
+  const book = plainBook(a, at);
   if (npcAt != null) book.npcAnywhere = npcAt;
   const highs = stats.highs14 && stats.lowsEnd ? withWatchedHighs(stats.highs14, stats.lowsEnd, watched) : stats.highs14;
   const ceiling = highs ? queueCeiling(highs) : null;
   if (ceiling != null && a.sells.length >= LEVELS && a.sells[LEVELS - 1].price <= ceiling) book.sellsTo = sellsToOf(a.deep, a.sells[0].price, ceiling);
   return book;
+}
+
+/** The summary without the scan's notes: the seven levels a side, order counts, what the live orders sold, NPCs in Jita. */
+export function plainBook(a: Agg, at: string): Book {
+  return {
+    at, bestBuy: a.buys[0]?.price ?? null, bestSell: a.sells[0]?.price ?? null,
+    buyOrders: a.buyOrders, sellOrders: a.sellOrders, topBuys: a.buys, topSells: a.sells, npcSell: a.npcSell, sold: a.sold,
+  };
 }
 
 /**
@@ -186,8 +191,11 @@ async function writeProgress(db: D1Database, p: ScanProgress | null) {
   await db.prepare('INSERT INTO scan_meta (key, data) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET data = excluded.data').bind('progress', JSON.stringify(p)).run();
 }
 
-/** One full scan. Returns what it covered; the caller records it. */
-export async function fullScan(db: D1Database, now = Date.now()): Promise<ScanMeta> {
+/**
+ * One full scan. Returns what it covered; the caller records it. `summarise` is `summaryOf`, given only to test that a
+ * throw in it stores the item's plain book rather than stopping the run.
+ */
+export async function fullScan(db: D1Database, now = Date.now(), summarise = summaryOf): Promise<ScanMeta> {
   const started = Date.now();
   const startedAt = new Date(started).toISOString();
   // Progress for Settings, written at most every ten seconds and on each change of phase.
@@ -248,8 +256,13 @@ export async function fullScan(db: D1Database, now = Date.now()): Promise<ScanMe
     pending.push(progress('history', seen, candidates.length));
     const stats = statsFrom(t, rows, now);
     const a = aggs.get(t);
-    if (!stats || !a) return;
-    const book = summaryOf(a, stats, at, npc.get(t), watched.get(t));
+    if (!stats || !a) { a?.deep.clear(); return; }
+    // A throw in the summary (none seen) stores the plain book, without the scan's notes, rather than stopping the run:
+    // the hourly carry-on would stop at the same item every hour.
+    let book: Book;
+    try { book = summarise(a, stats, at, npc.get(t), watched.get(t)); } catch { book = plainBook(a, at); }
+    // Every sell price within twice the best ask was kept only for that count: ~9 MB over the scan, let go item by item.
+    a.deep.clear();
     stmts.push(put.bind(t, JSON.stringify(stats), JSON.stringify(book), a.buyOrders + a.sellOrders, run));
     kept++;
     if (stmts.length >= 100) pending.push(flush());

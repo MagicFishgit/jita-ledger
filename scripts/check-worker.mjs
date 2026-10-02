@@ -829,6 +829,20 @@ console.log('\n--- the full scan notes NPC sellers anywhere in The Forge and cou
   // Up to 50,000 the real book held only 4 units at 40,810 besides it.
   const fatTo = { price: 50_000, units: 1 + upTo(arbSells, 50_000) };
   eq('  a fat finger at 25,000: counted only to 50,000, twice the best ask, wherever it came in the pages', [fatTo.units, first.book(ARB).sellsTo, last.book(ARB).sellsTo], [5, fatTo, fatTo]);
+
+  // A summary that throws (none has been seen; the final review, 2 October 2026) must not stop the run: the hourly carry-on
+  // would stop at the same item every hour. Each item's plain book is stored instead, without the scan's notes.
+  const plainDb = ledgerDb();
+  let f = stubFetch([['/markets/10000002/orders/', realBook()], ['/markets/19000001/orders/', []]]);
+  const summarised = [];
+  const plainMeta = await fullScan(plainDb, NOW, (a) => { summarised.push(a); throw new Error('summary failed'); });
+  f.restore();
+  const plain = (t) => { const r = plainDb.rows('SELECT book FROM scan_items WHERE type_id = ?', t)[0]; return r ? JSON.parse(r.book) : null; };
+  const { meta: fullMeta } = await scan(realBook());
+  eq('  a summary that throws: every item still stored, and the run not cut short', [plainMeta.kept, plainMeta.partial], [fullMeta.kept, false]);
+  eq('    each with its plain book: the levels, counts and what sold, without the NPC note or the whole-queue count',
+    [Object.keys(plain(ARB)).sort(), plain(CC).npcAnywhere, plain(ARB).topSells, plain(ARB).sold], [['at', 'bestBuy', 'bestSell', 'buyOrders', 'npcSell', 'sellOrders', 'sold', 'topBuys', 'topSells'].sort(), undefined, book(ARB).topSells, book(ARB).sold]);
+  eq('    and each item\'s kept sell prices are let go once it\'s summarised', [summarised.length, summarised.every((a) => a.deep.size === 0)], [fullMeta.kept, true]);
 }
 
 console.log('\n--- the Sniper relists no dearer than NPCs sell it anywhere in The Forge ---');
