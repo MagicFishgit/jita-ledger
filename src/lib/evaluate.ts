@@ -7,7 +7,7 @@
 import { calc, rates, type Settings } from './fees';
 import { askReachDays, bidReachDays, FILL_WINDOW, reachedAsk, reachedBid, withWatchedHighs, withWatchedLows, type WatchedExtremes } from './fills';
 import type { FlowDay } from './flow';
-import { askToPlace, bidToPlace, listedQueue, runUpBar, SLOW_DAYS, tradedPerDay, warningsFor } from './prospects';
+import { askToPlace, bidToPlace, listedQueue, marketMoved, runUpBar, SLOW_DAYS, tradedPerDay, warningsFor } from './prospects';
 import { competitionShare, MIN_DAYS, returnPerDay, sellQueue, throughput, tradingSplit, type BookSold } from './split';
 import type { BookLevel, Prospect, ProspectFilters, ProspectStats, SellsTo } from './types';
 
@@ -198,6 +198,8 @@ export function judgeProspect(
       ...(!patient && asked.window ? ['unreachedSell' as const] : []),
       ...(daysToFlip > SLOW_DAYS ? ['slow' as const] : []),
       ...(queue?.long ? ['longQueue' as const] : []),
+      // Priced on the fortnight wherever today's book is, a plan placed to be left can sit where the market has moved from.
+      ...(patient && marketMoved(buy, sell, bestBuy, bestSell) ? ['marketMoved' as const] : []),
     ],
   };
 }

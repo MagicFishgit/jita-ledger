@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { ago, isk, iskBig, iskSigned, pct, plainNum, units } from '../lib/format';
 import { resolveNames } from '../lib/market';
-import { absorbable, BUSY_SHOWN, DEFAULT_FILTERS, FIRST_DIR, horizonSaid, horizonShort, HORIZONS, longQueueSaid, passesGate, RUN_UP, RUN_UP_BEFORE, RUN_UP_DAYS, RUN_UP_PATIENT, runUpBar, SLOW_DAYS, snapHorizon, sortProspects, type Sort, type SortKey } from '../lib/prospects';
+import { absorbable, BUSY_SHOWN, DEFAULT_FILTERS, FIRST_DIR, horizonSaid, horizonShort, HORIZONS, longQueueSaid, MARKET_MOVED, marketMoved, marketMovedSaid, passesGate, RUN_UP, RUN_UP_BEFORE, RUN_UP_DAYS, RUN_UP_PATIENT, runUpBar, SLOW_DAYS, snapHorizon, sortProspects, type Sort, type SortKey } from '../lib/prospects';
 import { FILL_RARE, FILL_WINDOW, RECENT_DAYS, RECENT_TYPICAL } from '../lib/fills';
 import { RESERVE_RATIO, RESERVE_WATCH_H } from '../lib/evaluate';
 import { clearScan, coverage, loadCache, rankProspects, runScan, stopScan, useScanState, type ScanCache } from '../lib/scan';
@@ -32,6 +32,7 @@ export const WARNING: Record<ProspectWarning, { short: string; why: string }> = 
   slow: { short: 'Locks ISK for weeks', why: `At your share of the trade, this position takes more than ${SLOW_DAYS} days to buy in and sell out.\n\nFine if you meant to hold it that long, but the ISK is tied up the whole time and the market can move against you meanwhile.` },
   moved: { short: 'Price just moved', why: 'The latest day traded more than 50% away from the two weeks before it. The spread straddles the old price and the new one: a bid where it used to trade won’t fill if the new level holds, and an ask at the new level won’t sell if it falls back.\n\nWait a few days for the market to settle before trading it. The Capital planner leaves these out.' },
   runUp: { short: 'Ran up lately', why: `The last ${RUN_UP_DAYS} days averaged more than ${pct(RUN_UP, 0)} over the median day of the ${RUN_UP_BEFORE} before them (${pct(RUN_UP_PATIENT, 0)} for the Capital planner’s Place and leave): the price has run up.\n\nA spread priced off the climb is gone when it falls back, and an ask looks reached only because of the climb’s days. “Price just moved” looks at the latest day alone; this looks at the last few.\n\nWait for it to settle before trading it. The Capital planner leaves these out.` },
+  marketMoved: { short: 'Market moved', why: `Today’s book has moved more than ${pct(MARKET_MOVED, 0)} from the prices Place and leave would use: the bid over or under today’s best bid, at or over the cheapest listing, or the sale over the cheapest listing.\n\nPlace and leave prices both sides where the bulk of trading reached on half of the last ${FILL_WINDOW} days, wherever today’s book is, so a market that has risen or fallen since leaves the plan behind it.` },
   longQueue: { short: 'Long queue', why: `More units are listed at prices buyers have been paying than about ${LONG_QUEUE_DAYS} days of the buyers who take listings here.\n\nNew stock waits behind them, and sellers that deep in a queue undercut each other, so the price you’d sell at may not hold. A wide spread over a deep queue looks like margin and isn’t.` },
   unreachedSell: { short: 'Sells not reached', why: `The bulk of trading hasn’t been getting up to the best ask: on fewer than ${FILL_RARE} of the last ${FILL_WINDOW} days did the day’s trading reach it.\n\nBuyers here haven’t been paying that much, often because the price has just jumped. The prices shown assume you list where trading did reach, on half of the last ${FILL_WINDOW} days and ${RECENT_TYPICAL} of the last ${RECENT_DAYS} (in Busy markets, the top of the book instead), so the margin is what trading supports, not what the best ask promises.` },
   unreached: { short: 'Bids not reached', why: `The bulk of trading hasn’t been getting down to the best bid: on fewer than ${FILL_RARE} of the last ${FILL_WINDOW} days did the day’s trading reach it.\n\nSellers here list and wait rather than sell into buy orders, so a bid at the top can sit for weeks with your ISK held in it. The prices shown assume you bid where trading did reach, on half of the last ${FILL_WINDOW} days and ${RECENT_TYPICAL} of the last ${RECENT_DAYS} (in Busy markets, the top of the book instead).\n\nESI’s daily low leaves out a small share of trades, so some units still sell lower: on a very busy market that can be thousands a day, which is why Busy markets prices at the top.` },
@@ -41,8 +42,12 @@ export const WARNING: Record<ProspectWarning, { short: string; why: string }> = 
  * A flag's reason for one item: the run-up with its two figures, and "not reached lately" when the fortnight reached
  * the front but the last few days didn't. Otherwise the flag's own reason.
  */
-export function warningWhy(w: ProspectWarning, p: Pick<Prospect, 'stats' | 'bidReach' | 'bidRecent' | 'bidWindow' | 'askReach' | 'askRecent' | 'askWindow' | 'patient' | 'queue' | 'buyerShare'>): string {
+export function warningWhy(w: ProspectWarning, p: Pick<Prospect, 'stats' | 'bidReach' | 'bidRecent' | 'bidWindow' | 'askReach' | 'askRecent' | 'askWindow' | 'patient' | 'queue' | 'buyerShare' | 'buy' | 'sell' | 'bestBuy' | 'bestSell'>): string {
   const s = p.stats;
+  if (w === 'marketMoved') {
+    const m = marketMoved(p.buy, p.sell, p.bestBuy, p.bestSell);
+    if (m) return marketMovedSaid(m, p.bestBuy, p.bestSell);
+  }
   if (w === 'runUp' && s.runUp != null && s.runUpBase != null && s.runUpBase > 0) {
     const bar = p.patient
       ? `Place and leave’s bar of ${pct(runUpBar(true), 0)} (its ask comes from the climb’s own days, so a plan left for weeks is held to more than the front’s ${pct(RUN_UP, 0)})`

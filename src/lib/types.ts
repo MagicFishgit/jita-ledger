@@ -215,7 +215,7 @@ export type ProspectStats = {
   range7?: number[];
 };
 
-export type ProspectWarning = 'thin' | 'fluke' | 'falling' | 'crowded' | 'wall' | 'escrow' | 'spike' | 'moved' | 'runUp' | 'unreached' | 'unreachedSell' | 'slow' | 'longQueue';
+export type ProspectWarning = 'thin' | 'fluke' | 'falling' | 'crowded' | 'wall' | 'escrow' | 'spike' | 'moved' | 'runUp' | 'unreached' | 'unreachedSell' | 'slow' | 'longQueue' | 'marketMoved';
 
 /** A candidate that cleared the gate, priced against the live book. */
 export type Prospect = {

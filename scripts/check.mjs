@@ -3972,6 +3972,43 @@ console.log('\n--- place and leave: priced where trading reaches ---');
   const dead = judgeProspect(st, { ...book, bestBuy: 70, topBuys: [{ price: 70, volume: 5000 }] }, S, { ...fl, patient: true }, 40);
   eq('  with the front below where trading reaches, the bid is still where it reaches', dead.buy, pb);
   eq('  without the days to say where trading reaches, it is left out', judgeProspect({ ...st, lows14: undefined }, book, S, { ...fl, patient: true }, 40), null);
+
+  // Market moved: priced on the fortnight wherever today's book is, a plan's prices can sit where today's market isn't.
+  eq('  a book near the fortnight\'s prices: no Market moved', leave.warnings.includes('marketMoved'), false);
+  const risen = { ...book, bestBuy: 100, bestSell: 120, topBuys: [{ price: 100, volume: 5000 }], topSells: [{ price: 120, volume: 5000 }] };
+  const fallen = { ...book, bestBuy: 80, bestSell: 90, topBuys: [{ price: 80, volume: 5000 }], topSells: [{ price: 90, volume: 5000 }] };
+  const lr = judgeProspect(st, risen, S, { ...fl, patient: true }, 40), lf = judgeProspect(st, fallen, S, { ...fl, patient: true }, 40);
+  eq('  risen since: the bid 9% under today\'s best, flagged', [lr.buy, lr.warnings.includes('marketMoved')], [pb, true]);
+  eq('  fallen since: the bid over the cheapest listing and the sale over it, flagged', [lf.buy >= 90, lf.sell > 90 * 1.05, lf.warnings.includes('marketMoved')], [true, true, true]);
+  eq('  at the front, never: its prices come from today\'s book', [judgeProspect(st, risen, S, fl, 40)?.warnings.includes('marketMoved') ?? false, judgeProspect(st, fallen, S, fl, 40)?.warnings.includes('marketMoved') ?? false], [false, false]);
+}
+
+console.log('\n--- Market moved: the plan\'s items against their books on 2 October 2026 ---');
+{
+  // The user's second plan (15:36 UTC, Place and leave), each item's prices against its live Jita book at ~16:20 UTC,
+  // the user's own orders taken out (.playwright-mcp/plan-check-2/check.json). Fallen: Raging Dark Filament, Imperial Navy
+  // Infiltrator (its bid bought at once); spread gone: Gravid Modulated Strip Miner Mutaplasmid; risen: Compressed
+  // Fullerite-C84, Vigor Compact Micro Auxiliary Power Core. Datacore - Rocket Science, 3% under, isn't moved.
+  const P = await import('../src/lib/prospects.ts');
+  const r = (m) => m && { bid: m.bid && { side: m.bid.side, by: Math.round(m.bid.by * 1000) / 1000 }, sell: m.sell && { by: Math.round(m.sell.by * 1000) / 1000 } };
+  eq('the bar is 5%', P.MARKET_MOVED, 0.05);
+  eq('risen: Compressed Fullerite-C84, the bid 17% under today’s best of 9,250', r(P.marketMoved(7639, 8954, 9250, 10_150)), { bid: { side: 'under', by: 0.174 }, sell: null });
+  eq('  Vigor Compact Micro Auxiliary Power Core, 7.8% under', r(P.marketMoved(13_980_000, 16_320_000, 15_170_000, 17_830_000)), { bid: { side: 'under', by: 0.078 }, sell: null });
+  eq('fallen: Raging Dark Filament, the bid 19% over today’s best and the sale 14% over the cheapest listing',
+    r(P.marketMoved(1_711_000, 1_983_000, 1_440_000, 1_741_000)), { bid: { side: 'over', by: 0.188 }, sell: { by: 0.139 } });
+  eq('  Imperial Navy Infiltrator: the bid over the cheapest listing, so it buys at once', r(P.marketMoved(1_658_000, 1_836_000, 1_492_000, 1_608_000)), { bid: { side: 'atOnce', by: 0.031 }, sell: { by: 0.142 } });
+  eq('spread gone: Gravid Modulated Strip Miner Mutaplasmid, the sale 22% over the cheapest listing', r(P.marketMoved(11_265_000, 13_800_000, 11_300_000, 11_310_000)), { bid: null, sell: { by: 0.22 } });
+  eq('not moved: Datacore - Rocket Science, 3% under', P.marketMoved(85_540, 94_430, 88_170, 96_000), null);
+  eq('  exactly 5% either way isn’t more than 5%', [P.marketMoved(95, 100, 100, 200), P.marketMoved(105, 105, 100, 200), P.marketMoved(100, 210, 100, 200)], [null, null, null]);
+  const said = P.marketMovedSaid(P.marketMoved(7639, 8954, 9250, 10_150), 9250, 10_150);
+  eq('said: the lead, the side that moved and by how much, and the fortnight it comes from', said,
+    'Today’s book has moved away from the prices Place and leave would use.\n\n'
+    + '• Your bid would be 17% under today’s best bid of 9,250 ISK: the market has risen since, so it may not fill.\n\n'
+    + 'Place and leave prices both sides where the bulk of trading reached on half of the last 14 days, wherever today’s book is. More than 5% from today’s book, those days aren’t today’s market.');
+  has('  a bid that buys at once says so', P.marketMovedSaid(P.marketMoved(1_658_000, 1_836_000, 1_492_000, 1_608_000), 1_492_000, 1_608_000),
+    '• Your bid would be at or over today’s cheapest listing of 1,608,000 ISK: it would buy at once, from the listings, rather than wait.\n• The plan sells 14% over today’s cheapest listing of 1,608,000 ISK: the market has fallen since, and it would wait behind cheaper listings.');
+  has('  a bid over today’s best', P.marketMovedSaid(P.marketMoved(1_711_000, 1_983_000, 1_440_000, 1_741_000), 1_440_000, 1_741_000),
+    '• Your bid would be 19% over today’s best bid of 1,440,000 ISK: the market has fallen since, so you’d pay more than buyers bid today.');
 }
 
 console.log('\n--- the planner prices from recent days (the user\'s first plan, 30 September 2026) ---');
@@ -4179,20 +4216,20 @@ console.log('\n--- a long sell queue, a stricter run-up for Place and leave, and
   eq('  warningsFor takes the bar it is given', [P.warningsFor(vk, { buyOrders: 20, sellOrders: 30, topBuys: [], topSells: [] }, 0.1, 40, P.RUN_UP_PATIENT).includes('runUp'), P.warningsFor(vk, { buyOrders: 20, sellOrders: 30, topBuys: [], topSells: [] }, 0.1, 40).includes('runUp')], [true, false]);
 
   // The switch: "Leave out flagged items", off by default.
-  eq('the switch leaves out Falling, Bids and Sells not reached, Crowded, Thin, Slow and Long queue', Pl.SWITCH_EXCLUDES, ['falling', 'unreached', 'unreachedSell', 'crowded', 'thin', 'slow', 'longQueue']);
+  eq('the switch leaves out Falling, Bids and Sells not reached, Crowded, Thin, Slow, Long queue and Market moved', Pl.SWITCH_EXCLUDES, ['falling', 'unreached', 'unreachedSell', 'crowded', 'thin', 'slow', 'longQueue', 'marketMoved']);
   eq('  never what the planner already leaves out, and never Raises kept back (a cost, not a flag)', [Pl.SWITCH_EXCLUDES.some((w) => Pl.PLANNER_EXCLUDES.includes(w)), Pl.SWITCH_EXCLUDES.includes('raiseReserve')], [false, false]);
   const item = (typeId, warnings = [], extra = {}) => ({ typeId, roiPerDay: 0.05, buy: 100, qty: 1e6, daysToFlip: 1, net: 10, warnings, ...extra });
   const each = Pl.SWITCH_EXCLUDES.map((w, i) => item(100 + i, [w]));
   const raises = item(200, [], { raiseReserve: { buy: 2, sell: 2, isk: 1 } });
   const list = [...each, raises, item(201), item(202, ['wall']), item(203, ['falling', 'thin'])];
   const off = Pl.plannerPool(list), on = Pl.plannerPool(list, true);
-  eq('  off: every flagged item stays in the pool, counted; the planner\'s own exclusions apart', [off.pool.length, off.excluded, off.flagged.total, off.allFlagged], [10, 1, 8, false]);
+  eq('  off: every flagged item stays in the pool, counted; the planner\'s own exclusions apart', [off.pool.length, off.excluded, off.flagged.total, off.allFlagged], [11, 1, 9, false]);
   eq('  on: only the clean one and the one with raises kept back', on.pool.map((p) => p.typeId), [200, 201]);
   eq('  how many by flag: an item with two counts under each, and once in the total',
-    [on.flagged.total, on.flagged.byFlag], [8, { falling: 2, unreached: 1, unreachedSell: 1, crowded: 1, thin: 2, slow: 1, longQueue: 1 }]);
+    [on.flagged.total, on.flagged.byFlag], [9, { falling: 2, unreached: 1, unreachedSell: 1, crowded: 1, thin: 2, slow: 1, longQueue: 1, marketMoved: 1 }]);
   eq('  allocate follows the switch', [Pl.allocate(list, { ...inp, maxShare: 0.05 }).rows.length, Pl.allocate(list, { ...inp, slots: 40, maxShare: 0.05, leaveOutFlagged: true }).rows.map((r) => r.p.typeId).sort()], [5, [200, 201]]);
   const allOn = Pl.plannerPool([...each, item(202, ['wall'])], true);
-  eq('  everything flagged, with the switch on: an empty pool that says why', [allOn.pool.length, allOn.flagged.total, allOn.allFlagged], [0, 7, true]);
+  eq('  everything flagged, with the switch on: an empty pool that says why', [allOn.pool.length, allOn.flagged.total, allOn.allFlagged], [0, 8, true]);
   eq('  the same list with the switch off is not that', Pl.plannerPool([...each], false).allFlagged, false);
   eq('  nothing passed at all is not everything flagged', Pl.plannerPool([], true).allFlagged, false);
 }

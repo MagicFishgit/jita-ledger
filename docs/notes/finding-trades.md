@@ -122,6 +122,24 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   Each side's pace is scaled by the share of days trading reached its price (`throughput(..., reach)`), which is
   rough and says so. Items without the days to say where trading reaches are left out, never priced at the front.
   The mix now shows Buy at and Sell at.
+- **"Market moved" says when today's book has left Place and leave's prices** (`marketMoved`, `marketMovedSaid` and
+  `MARKET_MOVED` 0.05 in prospects.ts; flag `marketMoved`, on Place and leave only, in `SWITCH_EXCLUDES`). Place and leave
+  prices both sides on the fortnight wherever the book is (the recent window was left off it on purpose). The user's
+  second plan (2 October 2026, 15:36 UTC) showed what that costs once the market has moved: within the hour a third of
+  it sat where the market wasn't. Fallen: bids far over today's best bid, or at the cheapest listing, which buys at once
+  (Raging Dark Filament at 1.711 M against 1.44 M; Imperial Navy Infiltrator's 1.658 M over a 1.608 M listing), with
+  sales over today's listings; spread gone (Gravid Modulated Strip Miner Mutaplasmid to sell at 13.8 M, listed at 11.31
+  M); risen: bids 8-17% under today's best (Compressed Fullerite-C84 at 7,639 against 9,250; ~122 M in escrow on six).
+  Now, on the book the planner is given (the scan's, live for the items the cloud watches), an item is flagged when the
+  patient bid is more than 5% under or over today's best bid or at or over the cheapest listing, or the sale more than 5%
+  over the cheapest listing. A flag, not an exclusion: Leave out flagged items drops it, and its tip says which side
+  moved, by how much and against what. **It flags close to half**: on the cloud's 2 October scan at the user's settings,
+  80 of 176 Place-and-leave candidates at 12 hours (45%: 37 sales over, 31 bids under, 25 over, 4 buying at once) and 421
+  of 894 at 7 days (47%), the same with or without the watched books laid over the scan's. With the switch on, the
+  12-hour pool goes from 109 to 69 and its mix from 144.5 M a day to 130.4 M; the 7-day from 100.3 M to 55.3 M, 4 of its
+  6 items moved. On the live books at 17:00 UTC (the user's own orders taken out), 11 of the plan's 33 items flag on its
+  own prices, and 8 of the 28 the planner still prices: every one listed above but Raging Gamma Filament, whose book
+  moved again (`.playwright-mcp/plan-fixes/`).
 - **Orders you're leaving aren't told to get back in front** (`Data.leave`, a synced doc of type IDs; `leave` in
   `adviseRelist` / `judgeOrder`). Without this the first patient order would have been told to move by Orders, To do
   and the cloud's mail within the hour. A left order behind the front is `wait` with "You're leaving this one", raises

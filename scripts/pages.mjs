@@ -102,6 +102,10 @@ const PROOF = { small: 'Hammerhead II', large: 'Test Item' };
  *   (`npcAnywhere`, the cloud scan's note): left out of Prospects and the planner, as Command Carriers was on 2 October 2026.
  * - 990107: the same with NPCs at 1.5 M, over where it would list: left out too, as every item NPCs sell anywhere in The
  *   Forge is since the user approved it on 2 October 2026 (Gallente Hauler, listed under the NPCs' 500,000, had stayed in).
+ * - 990108: traded at 1 M to 1.4 M for the fortnight, but its book has fallen to 0.8 M / 0.9 M. At the front it isn't
+ *   priced at all (its ask falls under where its bid has to go). Placed and left, it's bought where trading reached, at
+ *   or over today's cheapest listing, and sold 55% over it: "Market moved" (PLANNER_LEAVE), as Imperial Navy Infiltrator
+ *   was in the user's second plan.
  */
 function planScan(now) {
   const day = (i) => new Date(now - i * 86400_000).toISOString().slice(0, 10);
@@ -123,13 +127,14 @@ function planScan(now) {
     990105: [stats(990105, flat(1 * M), flat(1.4 * M)), { ...book(990105, 1 * M, 1.4 * M), topSells: [{ price: 1.4 * M, volume: 6000 }, { price: 1.401 * M, volume: 6000 }] }],
     990106: [stats(990106, flat(1 * M), flat(1.4 * M)), { ...book(990106, 1 * M, 1.4 * M), npcAnywhere: 1.3 * M }],
     990107: [stats(990107, flat(1 * M), flat(1.4 * M)), { ...book(990107, 1 * M, 1.4 * M), npcAnywhere: 1.5 * M }],
+    990108: [stats(990108, flat(1 * M), flat(1.4 * M)), book(990108, 0.8 * M, 0.9 * M)],
   };
   const busy = { h: 15, sell: 18, buy: 6, newSell: 37, newBuy: 15, frontSell: 2, frontBuy: 2, repriceSell: 0, repriceBuy: 0 };
   return {
     prospects: {
       stats: Object.fromEntries(Object.entries(items).map(([t, [st]]) => [t, st])),
       books: Object.fromEntries(Object.entries(items).map(([t, [, b]]) => [t, b])),
-      sample: { at: new Date(now - 3600_000).toISOString(), totalPages: 400, sampledPages: 400, minSampled: 1, counts: { 990101: 60, 990102: 60, 990103: 60, 990104: 60, 990105: 60, 990106: 60, 990107: 60 } },
+      sample: { at: new Date(now - 3600_000).toISOString(), totalPages: 400, sampledPages: 400, minSampled: 1, counts: { 990101: 60, 990102: 60, 990103: 60, 990104: 60, 990105: 60, 990106: 60, 990107: 60, 990108: 60 } },
       runs: { cloud: new Date(now - 3600_000).toISOString() },
     },
     flow: { log: { 990101: { [day(1)]: busy, [day(0)]: busy } }, ends: {} },
@@ -145,6 +150,11 @@ const PLAN_PROOF = {
  * items leave the mix and are counted by flag, while Raises kept back, a cost rather than a flag, stays.
  */
 const PLANNER_SWITCH = { drawn: ['Raises kept back'], note: '2 left out: 1 Bids not reached, 1 Long queue', absent: ['Bids not reached', 'Long queue'] };
+/**
+ * The planner priced to place and leave (kept per browser, read as the page opens), with slots for every item: 990108,
+ * which only Place and leave prices, carries "Market moved", and its tip says which side moved and by how much.
+ */
+const PLANNER_LEAVE = { flag: 'Market moved', tip: ['Your bid would be at or over today’s cheapest listing of 900,000 ISK', 'The plan sells 56% over today’s cheapest listing of 900,000 ISK', 'half of the last 14 days'] };
 
 /**
  * The Mining tab under an alt, on the large ledger: its filter and Show for kept in this browser, as a visit leaves them,
@@ -319,6 +329,23 @@ try {
       if (!(await page.locator('.page', { hasText: PLANNER_SWITCH.note }).count())) problems.push(`not drawn: no “${PLANNER_SWITCH.note}”`);
       await judge('planner (leave out flagged items)');
       await page.evaluate(() => localStorage.removeItem('jita-ledger:planner'));
+      problems = [];
+      await page.evaluate(() => {
+        localStorage.setItem('jita-ledger:planner', JSON.stringify({ patient: true }));
+        sessionStorage.setItem('jita-ledger:planner-session', JSON.stringify({ isk: 1e9, slots: 20 }));
+        location.hash = '#settings/appearance';
+      });
+      await page.waitForTimeout(500);
+      await page.evaluate(() => { location.hash = '#planner'; });
+      await page.waitForTimeout(1500);
+      const moved = page.locator('.page table .flag', { hasText: PLANNER_LEAVE.flag });
+      if (!(await moved.count())) problems.push(`not drawn in Place and leave: no “${PLANNER_LEAVE.flag}” flag`);
+      else {
+        const tip = (await moved.first().getAttribute('data-tip')) ?? '';
+        for (const t of PLANNER_LEAVE.tip) if (!tip.includes(t)) problems.push(`not drawn: the Market moved tip's “${t}” (${tip.slice(0, 120)})`);
+      }
+      await judge('planner (place and leave)');
+      await page.evaluate(() => { localStorage.removeItem('jita-ledger:planner'); sessionStorage.setItem('jita-ledger:planner-session', JSON.stringify({ isk: 1e9, slots: 10 })); });
     }
     if (name === 'large' && SHOWN.includes('hustles/mining')) {
       for (const c of MINING_CASES) {

@@ -18,7 +18,7 @@ export const PLANNER_EXCLUDES: ProspectWarning[] = ['escrow', 'wall', 'spike', '
  * 2026). Raises kept back isn't one: it's a cost already taken off the margin and the ranking (`raiseReserve`, on 91 of the
  * 94 markets watched for a day on 1 October), not a flag.
  */
-export const SWITCH_EXCLUDES: ProspectWarning[] = ['falling', 'unreached', 'unreachedSell', 'crowded', 'thin', 'slow', 'longQueue'];
+export const SWITCH_EXCLUDES: ProspectWarning[] = ['falling', 'unreached', 'unreachedSell', 'crowded', 'thin', 'slow', 'longQueue', 'marketMoved'];
 export const SLOTS_PER_ITEM = 2;
 
 /** How many items carry one of SWITCH_EXCLUDES, in all and by flag (an item with two counts under each, once in all). */

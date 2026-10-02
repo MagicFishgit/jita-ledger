@@ -2,7 +2,7 @@ import type { BookLevel, HistRow, ProspectFilters, ProspectStats, ProspectWarnin
 import { buyerShare, dayCount, listingShareSaid, LONG_QUEUE_DAYS, NOBODY_BUYS, perDaySaid, queueLengthSaid, queuePaceSaid, type SellQueue } from './split';
 import { askBothWindows, askReachDays, bidBothWindows, bidReachDays, FILL_RARE, FILL_WINDOW, reachedAsk, recentAskReach, recentBidReach, recentRange, RECENT_MIN } from './fills';
 import { tickDown, tickUp } from './tick';
-import { isk, units } from './format';
+import { isk, pct, units } from './format';
 
 const DAY = 86400_000;
 const dayKey = (t: number) => new Date(t).toISOString().slice(0, 10);
@@ -334,6 +334,52 @@ export function askToPlace(bestSell: number, highs?: (number | null)[] | null): 
   const reached = highs && window ? askBothWindows(highs) : null;
   const sell = reached != null && reached < top ? reached : top;
   return { top, sell, askReach, recentReach, window, lowered: sell !== top };
+}
+
+/**
+ * How far Place and leave's prices may sit from today's book before "Market moved" says the market has left them: a bid
+ * more than this under today's best bid or over it, or a sale more than this over today's cheapest listing.
+ */
+export const MARKET_MOVED = 0.05;
+
+/** Which of Place and leave's prices today's book has left, and by how much (fractions of today's best bid or cheapest listing). */
+export type MarketMove = {
+  /** `under`/`over` today's best bid; `atOnce`: at or over the cheapest listing, so it buys from the listings there and then. */
+  bid: { side: 'under' | 'over' | 'atOnce'; by: number } | null;
+  sell: { by: number } | null;
+};
+
+/**
+ * Place and leave prices both sides where the bulk of trading reached on half of the last 14 days, wherever today's book
+ * is (the recent window was left off it on purpose: it took 30% of its candidates). On the user's second plan (2 October
+ * 2026) the market had left a third of it within the hour: bids above today's best or at the cheapest listing, which
+ * buys at once (Raging Dark Filament at 1.711 M against a 1.44 M best bid, Imperial Navy Infiltrator's 1.658 M over a
+ * 1.608 M listing), sales over today's listings (Gravid Modulated Strip Miner Mutaplasmid to sell at 13.8 M against
+ * 11.31 M), and bids 8-17% under today's best (Compressed Fullerite-C84 at 7,639 against 9,250). Judged on the book the
+ * planner is given: the scan's, made live by the five-minute watch for the items it watches. Null when neither moved.
+ */
+export function marketMoved(buy: number, sell: number, bestBuy: number | null, bestSell: number | null): MarketMove | null {
+  let bid: MarketMove['bid'] = null, ask: MarketMove['sell'] = null;
+  if (bestSell != null && bestSell > 0 && buy >= bestSell) bid = { side: 'atOnce', by: buy / bestSell - 1 };
+  else if (bestBuy != null && bestBuy > 0) {
+    const off = buy / bestBuy - 1;
+    if (off > MARKET_MOVED + 1e-12) bid = { side: 'over', by: off };
+    else if (-off > MARKET_MOVED + 1e-12) bid = { side: 'under', by: -off };
+  }
+  if (bestSell != null && bestSell > 0 && sell / bestSell - 1 > MARKET_MOVED + 1e-12) ask = { by: sell / bestSell - 1 };
+  return bid || ask ? { bid, sell: ask } : null;
+}
+
+/** The Market moved flag's reason for one item: which side moved, by how much, and the fortnight its prices come from. */
+export function marketMovedSaid(m: MarketMove, bestBuy: number | null, bestSell: number | null): string {
+  const by = (x: number) => pct(x, x < 0.1 ? 1 : 0);
+  const lines: string[] = [];
+  if (m.bid?.side === 'atOnce') lines.push(`Your bid would be at or over today’s cheapest listing of ${isk(bestSell)}: it would buy at once, from the listings, rather than wait.`);
+  else if (m.bid?.side === 'over') lines.push(`Your bid would be ${by(m.bid.by)} over today’s best bid of ${isk(bestBuy)}: the market has fallen since, so you’d pay more than buyers bid today.`);
+  else if (m.bid) lines.push(`Your bid would be ${by(m.bid.by)} under today’s best bid of ${isk(bestBuy)}: the market has risen since, so it may not fill.`);
+  if (m.sell) lines.push(`The plan sells ${by(m.sell.by)} over today’s cheapest listing of ${isk(bestSell)}: the market has fallen since, and it would wait behind cheaper listings.`);
+  return `Today’s book has moved away from the prices Place and leave would use.\n\n${lines.map((x) => `• ${x}`).join('\n')}\n\n`
+    + `Place and leave prices both sides where the bulk of trading reached on half of the last ${FILL_WINDOW} days, wherever today’s book is. More than ${pct(MARKET_MOVED, 0)} from today’s book, those days aren’t today’s market.`;
 }
 
 export type BookShape = {
