@@ -219,7 +219,16 @@ export function Planner() {
                   <button type="button" className="link-btn" onClick={() => set({ leaveOutFlagged: false })}>Switch it off</button> to plan with them, reading each flag first.
                 </p>
               ) : (
-                <p className="note">Nothing fits. {slots < SLOTS_PER_ITEM ? `You need at least ${SLOTS_PER_ITEM} free slots for one item.` : 'No scanned market can take a meaningful share of this budget at your share of its volume. Try a longer horizon, or a deep scan on Prospects.'}</p>
+                <p className="note">
+                  Nothing fits. {slots < SLOTS_PER_ITEM ? `You need at least ${SLOTS_PER_ITEM} free slots for one item.` : 'No scanned market can take a meaningful share of this budget at your share of its volume. Try a longer horizon, or a deep scan on Prospects.'}
+                  {/* The switch may be what emptied the mix: say it's on and what it left out, as the all-flagged line does. */}
+                  {leaveOut && flagged.total > 0 && slots >= SLOTS_PER_ITEM && (
+                    <>
+                      {' '}Leave out flagged items is on, and left out {units(flagged.total)} {flagged.total === 1 ? 'item' : 'items'} carrying a flag ({byFlag}{overlap ? '; an item can carry more than one' : ''}).{' '}
+                      <button type="button" className="link-btn" onClick={() => set({ leaveOutFlagged: false })}>Switch it off</button> to plan with them too, reading each flag first.
+                    </>
+                  )}
+                </p>
               )
             ) : (
               <>
