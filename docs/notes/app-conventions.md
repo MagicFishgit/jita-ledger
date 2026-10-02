@@ -118,7 +118,9 @@ Decisions worth not undoing. Conventions for wording, layout, tooltips, numbers 
     beaten but clearing), a figure lit with its verdict's tile; List loot's List, Sell into bids, Waiting for a slot and
     Skip / left out; the Sniper's short on the ISK alone, on the % alone and on both, which open Under your bar;
     Blueprints' Sold lately and Nothing to compare; Courier's you could leave with now (counted among the contracts
-    listed, as its words say, so with Safe only on it no longer counts ones that failed the checks).
+    listed; a takeable contract is always a safe one, so Safe only doesn't change it). A tile counts its whole set, not
+    what the page's own filters leave: Orders' Move it can read 3 with Buy orders shown, and pressing it then says
+    "Showing 0 of N", which is honest about why the table is empty.
   - **Don't**: a tile that sums ISK; one counting what its table doesn't list row by row (Orders' in other stations,
     Freelance's open jobs and the ones that don't pay, Abyssal's runs); one counting the whole table, where filtering
     would change nothing (Orders' orders in Jita 4-4, the Sniper's clear both, which is all of Worth sniping, a wrap's

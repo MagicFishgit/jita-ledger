@@ -108,8 +108,8 @@ export function Courier() {
   const trips = useMemo(() => roundTrips(rows), [rows]);
   const run = useMemo(() => tally(rows, 5), [rows]);
   const listed = rows.filter((v) => !safeOnly || v.safe);
-  // Counted among the contracts listed, as its words say ("listed first"): with Safe only on, one that failed the checks
-  // isn't listed, so it isn't one the tile can show.
+  // Counted among the contracts listed, the rows the tile filters. A takeable contract is always a safe one (courier.ts),
+  // so Safe only never hides one: the count is the same either way.
   const takeable = listed.filter((v) => v.takeable).length;
   const shown = takeOnly ? listed.filter((v) => v.takeable) : listed;
   const unsafeCount = rows.filter((v) => !v.safe).length;
