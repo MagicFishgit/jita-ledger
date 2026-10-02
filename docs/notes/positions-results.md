@@ -68,8 +68,14 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   left out; the whole position doesn't move (12,188 bought, 12,372 sold). The row says "Shared since 24 Sep: counted from
   the plan's start", its tip what it held and how much of that has sold; its status (Finished or not) stays the whole
   position's, and the unfiltered list, the tiles, Results and the Wallet read whole positions. The start dialog names the
-  items that already have a position and since when, and says the plan counts them from now. A position open before the
-  plan with no trade before it is counted the same way but not tagged: there's nothing of the earlier trading's in it.
+  items that already have a position and since when, and says the plan counts them from now. **A position opened for the
+  plan counts whole** (`planCountsWhole`): within the day before it (`POSITION_BEFORE_MS`, the window in which the
+  checklist counts a bid on it as placed for the plan) with nothing traded before the plan. Counted as a view it lost a
+  fee, since fees exist without trades: the 30 September plan's Vigilance Resonance Key (position 00:35:02, its bid of 15
+  placed 00:36:15 and cancelled unfilled after the plan at 00:41:37) read 12.07 M of broker fees against the whole
+  position's 16.75 M, the bid's 4,679,391 ISK gone, untagged and dated from the plan (the review, 2 October 2026). Any
+  other position open before the plan is a view and tagged, traded or not: Clone Soldier Transporter Tag's, opened by the
+  30 September plan, is one under the 2 October plan, with nothing filled but its earlier bid's fees paid.
 - **"What your standings are worth" prices your real trading at other standings** (`lib/standings.ts`, Rates & fees).
   Every broker charge is the broker rate × an order's value (a price change × (1 − the Advanced Broker Relations
   discount)), so each fee ÷ the rate paid that day is the trading behind it, and that total × any rate is what the

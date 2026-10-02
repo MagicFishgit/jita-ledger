@@ -1326,6 +1326,21 @@ console.log('\n--- the checklist counts a bid that filled when it was placed ---
   eq('  but a buy beyond what it filled is', planPlacement(cs, plan, [oldBid], csPos, { txs: [oldFill, T('c2', CS, 1, 29_370_000, '2026-10-02T16:05:42Z')], ignored: [] })?.atOnce, 1);
   const p1 = { ...plan, id: 'p', name: 'p', isk: 0, horizonDays: 0.5, patient: true, items: [it] };
   eq('  progress counts it, so the checklist and To do tick it off', [planProgress(p1, [], pos, { txs: [bought], ignored: [] }).placed, planProgress(p1, [], pos).placed], [1, 0]);
+  // Two bids before the plan inside its window (the review, 2 October 2026): the older bought 5 at once from listings, the
+  // newer stands for 10. Only the newer counts as placed for the plan; the older's fill, at a listing's price, is its own.
+  const at = Date.parse(plan.at), iso = (t) => new Date(t).toISOString();
+  const older = { orderId: 30, typeId: INF, isBuy: true, price: 1_700_000, volumeTotal: 5, volumeRemain: 0, issued: iso(at - 30 * 60_000), state: 'expired', locationId: JITA };
+  const newer = { orderId: 31, typeId: INF, isBuy: true, price: 1_650_000, volumeTotal: 10, volumeRemain: 10, issued: iso(at - 10 * 60_000), state: 'open', locationId: JITA };
+  const two = planPlacement({ ...it, positionId: null }, plan, [older, newer], [], { txs: [T('o1', INF, 5, 1_608_000, iso(at - 30 * 60_000))], ignored: [] });
+  eq('  an older bid before the plan that bought at once is its own: 10 placed, not 15', [two?.units, two?.atOnce, two?.order?.orderId], [10, 0, 31]);
+  // A bid for 20 that bought 11 at once leaves 9 standing, which ESI shows up to 20 minutes late. Until then the note
+  // mustn't call the 9 a new order to place: that is the duplicate the checklist exists to stop.
+  const part20 = planPlacement({ ...it, units: 20 }, plan, [], pos, { txs: [bought], ignored: [] });
+  const boughtAt = Date.parse(bought.date);
+  eq('  a bid for 20 that bought 11 at once, its order not shown yet: the rest may still be standing',
+    placementNote({ units: 20 }, part20, boughtAt + 5 * 60_000).short, 'The other 9 may still be standing as your bid: ESI shows your orders up to 20 minutes late, so check in game before placing more.');
+  eq('  20 minutes on, with still no order, the rest is a new order', placementNote({ units: 20 }, part20, boughtAt + 21 * 60_000).short,
+    'EVE can’t change an order’s quantity: the 9 more is a new order with its own fee, or leave it at 11.');
   const e = { item: { key: 'plan:p:31866' }, seenAt: Date.parse(plan.at), lastAt: Date.parse(plan.at) };
   eq('  To do says it was bought at once', [judgePlaceBuy(e, { plan: true, placed: { units: 11, price: 1_608_000, atOnce: 11 } }), judgePlaceBuy(e, { plan: true, placed: { units: 21, price: 1_600_000, atOnce: 11 } })],
     ['Bought at once: 11 at 1,608,000.', 'Placed: 21 at 1,600,000, 11 of them bought at once.']);
@@ -1401,6 +1416,30 @@ console.log('\n--- a plan counts a position it shares from its own start ---');
   const own = { ...pos, id: 'own', openedAt: AT };
   const vOwn = planPosition(own, plan, { ...then, positions: [own] }, S);
   eq('a position opened by the plan isn’t shared, and is counted whole', [vOwn.shared, vOwn.held, planView(own, plan, then.txs) === own], [false, 0, true]);
+
+  // A position opened for the plan, just before it, is the plan's whole (the review, 2 October 2026). The 30 September
+  // plan's Vigilance Resonance Key: position opened 00:35:02.952, its bid of 15 at 24,950,000 placed 00:36:15 (the
+  // checklist counts it as placed before the plan), the plan at 00:41:37.568; that bid was cancelled unfilled after the
+  // plan started, and its 4,679,391 ISK fee is what the duplicate cost. As a view, the plan lost that fee. Clone Soldier
+  // Transporter Tag's position, the 30 September plan's, is still a view under the 2 October plan: opened 2.6 days before
+  // it, and its earlier bid has fees though nothing filled. Real orders, trades and fees, read-only from D1.
+  const fs7 = await import('node:fs');
+  const fx = JSON.parse(fs7.readFileSync(new URL('./fixtures/plan-positions.json', import.meta.url), 'utf8'));
+  const SU = sanitizeSettings(fx.settings);
+  const real = { txs: Object.fromEntries(fx.txs.map((t) => [t.id, t])), orders: Object.fromEntries(fx.orders.map((o) => [o.orderId, o])), journal: Object.fromEntries(fx.journal.map((j) => [j.id, j])), meta: {}, positions: fx.positions, plans: [fx.plan30, fx.plan2] };
+  const [key, cs] = fx.positions;
+  const keyWhole = computePosition(key, real, SU), keyPlan = planPosition(key, fx.plan30, real, SU);
+  eq('the Key, opened for the plan 6.5 minutes before it, nothing traded before: counted whole, not shared',
+    [keyPlan.c === keyPlan.whole, keyPlan.shared, keyPlan.held], [true, false, 0]);
+  eq('  the cancelled bid’s 4,679,391 ISK fee stays in the plan’s figures: 16.75 M of fees, as the whole position',
+    [Math.round(keyPlan.c.brokerFees), Math.round(keyWhole.brokerFees), Math.round(keyPlan.c.realized) === Math.round(keyWhole.realized)], [16_748_658, 16_748_658, true]);
+  const csLater = planPosition(cs, fx.plan2, real, SU), csOwn = planPosition(cs, fx.plan30, real, SU);
+  eq('Clone Soldier under the 2 October plan: still a view, from that plan’s start, and tagged', [csLater.c === csLater.whole, csLater.shared, csLater.held], [false, true, 0]);
+  eq('  under the 30 September plan that opened it: whole', [csOwn.c === csOwn.whole, csOwn.shared], [true, false]);
+  const keyTraded = { ...real, txs: { ...real.txs, early: { id: 'early', source: 'esi', typeId: 89156, date: '2026-09-30T00:40:00Z', isBuy: true, qty: 2, unitPrice: 24_950_000, locationId: JITA } } };
+  eq('  the Key with a trade before the plan: a view, those 2 the earlier trading’s', [planPosition(key, fx.plan30, keyTraded, SU).shared, planPosition(key, fx.plan30, keyTraded, SU).held], [true, 2]);
+  const early = { ...key, openedAt: '2026-09-29T00:41:37.000Z' };
+  eq('  opened just over a day before the plan, nothing traded: a view', planPosition(early, fx.plan30, { ...real, positions: [early, cs] }, SU).shared, true);
 }
 
 console.log('\n--- the mining ledger ---');

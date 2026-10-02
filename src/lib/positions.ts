@@ -4,7 +4,7 @@ import type { Data } from './store';
 import { matchFees, type FeeMatches } from './feeMatch';
 import type { HistRow, Order, Position, Tx } from './types';
 import { nettedJournal } from './refunds';
-import { planView, sharesPosition, type TradePlan } from './plans';
+import { planCountsWhole, planView, type TradePlan } from './plans';
 
 const ts = (iso: string) => Date.parse(iso);
 
@@ -407,25 +407,26 @@ export type PlanPosition = {
   c: PositionCalc;
   /** The whole position, as Positions shows it unfiltered. */
   whole: PositionCalc;
-  /** Open before the plan, with trades of its own before it: the row says so. */
+  /** Counted through a view from the plan's start, holding earlier trading (`planCountsWhole`): the row says so. */
   shared: boolean;
   /** Units the position held at the plan's start, the earlier trading's, and how many of them have sold since. */
   held: number; heldSold: number;
 };
 
 /**
- * The plan's figures for one of its positions. A position the plan opened is counted whole. One it took over, open
- * before it, is counted from the plan's start: `held` is the whole position's stock just before then, which the view
- * leaves to the earlier trading (sold first, none of it the plan's). `whole` can be passed when it's already worked out.
+ * The plan's figures for one of its positions. A position the plan opened, or one opened for it just before it with
+ * nothing traded before the plan, is counted whole (`planCountsWhole`). One it took over from earlier trading is
+ * counted from the plan's start: `held` is the whole position's stock just before then, which the view leaves to the
+ * earlier trading (sold first, none of it the plan's). `whole` can be passed when it's already worked out.
  */
 export function planPosition(pos: Position, plan: Pick<TradePlan, 'at'>, d: Data, s: Settings, whole: PositionCalc = computePosition(pos, d, s)): PlanPosition {
-  if (!sharesPosition(pos, plan)) return { c: whole, whole, shared: false, held: 0, heldSold: 0 };
   const from = ts(plan.at);
+  const traded = whole.buys.some((x) => x.t < from) || whole.sells.some((x) => x.t < from);
+  if (planCountsWhole(pos, plan, traded)) return { c: whole, whole, shared: false, held: 0, heldSold: 0 };
   let held = 0;
   for (const p of whole.series) { if (p.t < from) held = p.stock; else break; }
   const c = computePosition(planView(pos, plan, d.txs, held), d, s);
-  const traded = whole.buys.some((x) => x.t < from) || whole.sells.some((x) => x.t < from);
-  return { c, whole, shared: traded, held, heldSold: c.heldSold };
+  return { c, whole, shared: true, held, heldSold: c.heldSold };
 }
 
 /**

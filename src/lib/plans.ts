@@ -71,6 +71,8 @@ export type Placement = {
   before: number;
   /** Units bought in the window that no order you have yet explains: a bid that filled from listings when placed. */
   atOnce: number;
+  /** When the newest of those trades was, ms; null with none. */
+  atOnceAt: number | null;
   /** The price the checklist shows: the newest order's, else what the newest of those trades paid. */
   price: number;
 };
@@ -88,18 +90,25 @@ const placedAt = (o: Order) => Date.parse((o.seen?.[0] ?? o).issued);
 const counts = (o: Order) => o.state === 'open' || o.volumeRemain < o.volumeTotal;
 const filledOf = (o: Order) => Math.max(0, o.volumeTotal - o.volumeRemain);
 
+/** How late ESI shows your orders: character orders are cached 20 minutes (eve-facts.md). */
+export const ORDERS_LAG_MS = 20 * 60_000;
+
 /**
  * Units bought in the window that no order explains yet: a bid at or over the cheapest listing buys from the listings there
  * and then, never stands, and ESI lists it only in your order history, cached an hour (the plan's Imperial Navy Infiltrator,
  * 11 at 1,658,000, bought at 1,608,000 on 2 October 2026; the user's earlier Multibuy orders are stored that way, expired
- * with nothing left). Your Jita 4-4 buys of the item since `start`, Personal ones left out, less two kinds of fill: a bid
- * you placed outside the window filling inside it fills at its own price (one of its versions), so trades at those prices
- * since it was placed are its, up to what it filled (Clone Soldier Transporter Tag's 4-unit bid from the 30 September plan,
- * still open under the 2 October one); and what the orders counted for the plan have filled, all of it, since a bid that
- * bought from listings paid their prices, not its own. So once the order arrives from history its fills explain the trade,
- * and nothing is counted twice.
+ * with nothing left). Your Jita 4-4 buys of the item since `start`, Personal ones left out, less the fills of every other
+ * bid, then those of the orders counted for the plan:
+ * - a bid you placed before the window filling inside it fills at its own price (one of its versions), so trades at those
+ *   prices since it was placed are its, up to what it filled (Clone Soldier Transporter Tag's 4-unit bid from the 30
+ *   September plan, still open under the 2 October one); some of what it filled may be from before the window;
+ * - a bid placed inside the window that isn't counted (an older one before the plan: only the newest counts) filled only
+ *   inside it, at any price, its own or the listings' it bought from at once: trades since it was placed, up to what it
+ *   filled (the review, 2 October 2026: two bids before the plan, the older bought 5 at once, read 15 placed for 10);
+ * - what the orders counted for the plan have filled, all of it, since a bid that bought from listings paid their prices,
+ *   not its own. So once the order arrives from history its fills explain the trade, and nothing is counted twice.
  */
-function boughtAtOnce(typeId: number, start: number, counted: Order[], others: Order[], trades: PlanTrades): { units: number; price: number | null } {
+function boughtAtOnce(typeId: number, start: number, counted: Order[], others: Order[], trades: PlanTrades): { units: number; price: number | null; at: number | null } {
   const ignored = new Set(trades.ignored ?? []);
   const left = trades.txs
     .filter((t) => t.source === 'esi' && t.isBuy && t.typeId === typeId && t.locationId === JITA_44 && Date.parse(t.date) >= start && !ignored.has(t.id))
@@ -108,9 +117,10 @@ function boughtAtOnce(typeId: number, start: number, counted: Order[], others: O
   for (const o of others) {
     let filled = filledOf(o);
     const prices = new Set([o.price, ...(o.seen ?? []).map((v) => v.price)]);
+    const inside = placedAt(o) >= start;
     for (const x of left) {
       if (filled <= 0) break;
-      if (x.qty <= 0 || !prices.has(x.t.unitPrice) || Date.parse(x.t.date) < placedAt(o)) continue;
+      if (x.qty <= 0 || (!inside && !prices.has(x.t.unitPrice)) || Date.parse(x.t.date) < placedAt(o)) continue;
       const k = Math.min(x.qty, filled);
       x.qty -= k; filled -= k;
     }
@@ -118,7 +128,7 @@ function boughtAtOnce(typeId: number, start: number, counted: Order[], others: O
   const units = Math.max(0, left.reduce((n, x) => n + x.qty, 0) - counted.reduce((n, o) => n + filledOf(o), 0));
   const rest = left.filter((x) => x.qty > 0);
   const newest = rest[rest.length - 1];
-  return { units, price: units > 0 && newest ? newest.t.unitPrice : null };
+  return { units, price: units > 0 && newest ? newest.t.unitPrice : null, at: units > 0 && newest ? Date.parse(newest.t.date) : null };
 }
 
 /**
@@ -145,11 +155,11 @@ export function planPlacement(
   const earlier = mine.filter((o) => placedAt(o) >= start && placedAt(o) < from).sort((a, b) => placedAt(b) - placedAt(a))[0];
   const all = earlier ? [...since, earlier] : since;
   const others = orders.filter((o) => o.isBuy && o.typeId === item.typeId && o.locationId === JITA_44 && !all.includes(o));
-  const once = trades ? boughtAtOnce(item.typeId, start, all, others, trades) : { units: 0, price: null };
+  const once = trades ? boughtAtOnce(item.typeId, start, all, others, trades) : { units: 0, price: null, at: null };
   if (!all.length && !once.units) return null;
   return {
     orders: all, order: all[0] ?? null, units: all.reduce((n, o) => n + o.volumeTotal, 0) + once.units, before: earlier?.volumeTotal ?? 0,
-    atOnce: once.units, price: all[0]?.price ?? once.price ?? item.buyAt,
+    atOnce: once.units, atOnceAt: once.at, price: all[0]?.price ?? once.price ?? item.buyAt,
   };
 }
 
@@ -157,9 +167,10 @@ export function planPlacement(
  * What the checklist says of what's placed: the lead ("Already placed: 15 of 16 (before the plan)", "16 of 16 placed (15
  * before the plan)") and, when it all covers fewer units than the plan, why it isn't replaced: EVE can't change an
  * order's quantity, so the rest is a new order with its own fee, or the orders stay as they are. Never a nudge to cancel
- * and place again.
+ * and place again. While a bid that bought some at once may still have the rest standing unseen (its trade under
+ * ORDERS_LAG_MS old, `now`), it says so instead of calling the rest a new order.
  */
-export function placementNote(item: Pick<PlanItem, 'units'>, pl: Placement): { lead: string; short: string | null; atOnce: string | null } {
+export function placementNote(item: Pick<PlanItem, 'units'>, pl: Placement, now = Date.now()): { lead: string; short: string | null; atOnce: string | null } {
   const n = (x: number) => x.toLocaleString('en-US');
   const have = pl.units;
   const asides = [...(pl.before > 0 ? [`${n(pl.before)} before the plan`] : []), ...(pl.atOnce > 0 ? [`${n(pl.atOnce)} bought at once`] : [])];
@@ -168,9 +179,12 @@ export function placementNote(item: Pick<PlanItem, 'units'>, pl: Placement): { l
       : asides.length ? `${n(have)} of ${n(item.units)} placed (${asides.join('; ')})`
         : `${n(have)} of ${n(item.units)} placed`;
   const more = item.units - have;
-  const short = more > 0
-    ? `EVE can’t change an order’s quantity: the ${n(more)} more is a new order with its own fee, or leave it at ${n(have)}.`
-    : null;
+  // A bid that bought some at once leaves the rest standing as an order, which ESI shows up to ORDERS_LAG_MS late: until
+  // then the rest may already be placed, and calling it a new order invites the duplicate this note exists to stop.
+  const lagging = pl.atOnce > 0 && pl.atOnceAt != null && now - pl.atOnceAt < ORDERS_LAG_MS;
+  const short = more <= 0 ? null : lagging
+    ? `The other ${n(more)} may still be standing as your bid: ESI shows your orders up to ${Math.round(ORDERS_LAG_MS / 60_000)} minutes late, so check in game before placing more.`
+    : `EVE can’t change an order’s quantity: the ${n(more)} more is a new order with its own fee, or leave it at ${n(have)}.`;
   const atOnce = pl.atOnce > 0
     ? 'Your bid was at or over the cheapest listing, so it bought from the listings there and then: the order shows only in your order history, within the hour.'
     : null;
@@ -204,8 +218,22 @@ export function newPlan(
 export const sharesPosition = (pos: Pick<Position, 'openedAt'>, plan: Pick<TradePlan, 'at'>): boolean => Date.parse(pos.openedAt) < Date.parse(plan.at);
 
 /**
- * A position as a plan sees it: from the plan's start, when the position was open before it (`sharesPosition`), else the
- * position itself. Starting a plan takes the open position an item already has, and the user's second plan (2 October
+ * Whether a plan counts a position it follows whole, rather than through a view from its start (`planView`): one the plan
+ * opened, or one opened for it, within the day before it (`POSITION_BEFORE_MS`, the window in which `planPlacement` counts
+ * a bid on it as placed for the plan) with nothing traded before the plan. The 30 September plan's Vigilance Resonance
+ * Key: position opened 00:35:02, its bid of 15 placed 00:36:15 and counted by the checklist, the plan at 00:41:37; the bid
+ * was cancelled unfilled after the plan started, and as a view the plan lost its 4,679,391 ISK fee. A position opened
+ * earlier, or with trades before the plan, holds earlier trading: Clone Soldier Transporter Tag's, opened by the 30
+ * September plan 2.6 days before the 2 October one, nothing filled, but its bid's fees paid.
+ */
+export function planCountsWhole(pos: Pick<Position, 'openedAt'>, plan: Pick<TradePlan, 'at'>, tradedBefore: boolean): boolean {
+  if (!sharesPosition(pos, plan)) return true;
+  return Date.parse(pos.openedAt) >= Date.parse(plan.at) - POSITION_BEFORE_MS && !tradedBefore;
+}
+
+/**
+ * A position as a plan sees it: from the plan's start, when the position was open before it (`sharesPosition`; whether
+ * the plan takes a view at all is `planCountsWhole`), else the position itself. Starting a plan takes the open position an item already has, and the user's second plan (2 October
  * 2026) showed Datacore - Rocket Science's 9,372 sales since 24 September as its own, its bid of 188 placed and nothing
  * of it filled. One position per item stays the rule, so the plan gets a view rather than a position of its own: opened
  * at the plan's start, with only the trades counted by hand from then (`included`, and the ones typed in, through

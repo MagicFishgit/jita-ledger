@@ -1,13 +1,13 @@
-import { horizonShort } from '../lib/prospects';
 import { useMemo } from 'react';
 import { Check, ChevronRight, ClipboardList, Copy, Play, Smartphone, X } from 'lucide-react';
 import { startPosition } from '../lib/actions';
 import { confirmAsk } from '../lib/confirm';
 import { fmtShort, isk, iskBig, iskBigSigned, rid, units } from '../lib/format';
-import { navigate } from '../lib/hooks';
+import { navigate, useNow } from '../lib/hooks';
 import { planPosition } from '../lib/positions';
 import { newPlan, placementNote, planPlacement, planProgress, PLANS_KEPT } from '../lib/plans';
 import type { Plan } from '../lib/planner';
+import { horizonShort } from '../lib/prospects';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { CopyPrice, NameInGame, useEnsureNames, useTypeName } from './common';
@@ -80,6 +80,8 @@ export function PlacingChecklist() {
   const orders = useMemo(() => Object.values(d.orders), [d.orders]);
   // Your trades too: a bid at or over the cheapest listing buys at once and shows no order until your order history does.
   const trades = useMemo(() => ({ txs: Object.values(d.txs), ignored: d.ignored }), [d.txs, d.ignored]);
+  // The note on a bid that bought some at once changes once ESI would show the rest standing (ORDERS_LAG_MS).
+  const now = useNow(60_000);
   const recent = d.plans.filter((p) => Date.now() - Date.parse(p.at) < CHECKLIST_DAYS * 86400_000 && planProgress(p, orders, d.positions, trades).placed < p.items.length);
   useEnsureNames(recent.flatMap((p) => p.items.map((i) => i.typeId)));
   if (!recent.length) return null;
@@ -109,7 +111,7 @@ export function PlacingChecklist() {
                 <tbody>
                   {p.items.map((i) => {
                     const pl = planPlacement(i, p, orders, d.positions, trades);
-                    const note = pl ? placementNote(i, pl) : null;
+                    const note = pl ? placementNote(i, pl, now) : null;
                     return (
                       <tr key={i.typeId} style={{ opacity: pl ? 0.55 : 1 }}>
                         <td className="l"><span className="cellrow"><ItemIcon id={i.typeId} /><NameInGame typeId={i.typeId} name={name(i.typeId)} className="name ellipsis" copy={i.buyAt} /></span></td>
@@ -170,7 +172,7 @@ export function PlanGroups({ shown, onShow }: { shown: string | null; onShow: (i
                 <td className="l">{p.name}<span className="sub">{p.patient ? 'Place and leave' : 'At the front'}, {horizonShort(p.horizonDays)} horizon</span>
                   {shared > 0 && (
                     <span className="sub" tabIndex={0} data-tip-title="Counted from the plan’s start"
-                      data-tip={`${shared === 1 ? 'One of its items already had a position' : `${units(shared)} of its items already had a position`}, trading before the plan, and the plan follows ${shared === 1 ? 'it' : 'them'}.\n\n• The plan counts ${shared === 1 ? 'it' : 'each'} from its start: what was bought and sold before isn’t the plan’s.\n• What ${shared === 1 ? 'it' : 'each'} held then sells first, and isn’t the plan’s either.\n• Show its positions to see them as the plan counts them; open one for the whole position.`}>
+                      data-tip={`${shared === 1 ? 'One of its items already had a position' : `${units(shared)} of its items already had a position`}, open before the plan with earlier trading in it (orders or trades), and the plan follows ${shared === 1 ? 'it' : 'them'}.\n\n• The plan counts ${shared === 1 ? 'it' : 'each'} from its start: what was bought and sold before isn’t the plan’s.\n• What ${shared === 1 ? 'it' : 'each'} held then sells first, and isn’t the plan’s either.\n• Show its positions to see them as the plan counts them; open one for the whole position.`}>
                       {units(shared)} shared with earlier trading, counted from the plan’s start
                     </span>
                   )}

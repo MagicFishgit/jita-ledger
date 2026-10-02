@@ -171,7 +171,7 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   at 7 days nothing moved (a week of each market takes far more than the cap per item); at the front at 7 days one item
   dropped for another, 53.4 M a day either way (`.playwright-mcp/plan-fixes/measure-working.json`).
 - **"Start this plan" turns a mix into positions and a placing checklist** (`lib/plans.ts` pure: `newPlan`,
-  `placedOrder`, `planProgress`; `PlanStart.tsx`; the synced `plans` doc; To do kind `placeBuy`). The user wanted to place
+  `planPlacement`, `planProgress`; `PlanStart.tsx`; the synced `plans` doc; To do kind `placeBuy`). The user wanted to place
   a plan's buy orders "in one go" by import or API, since Multibuy has an import. Researched on 29 September 2026: ESI
   places no orders, and Multibuy only buys at once from listings at the ask ("multibuy only offers immediate buys", CCP),
   which would throw away the margin the plan is priced on (patient bids where trading reaches). So one click: a position
@@ -203,7 +203,11 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   placed are its, up to what it filled: Clone Soldier Transporter Tag's 4-unit bid from the 30 September plan was still
   open under the 2 October plan, and its fills would have ticked the new plan's item off. The checklist says "11 of 11
   bought at once at 1,608,000" and that the order shows only in your order history; To do "Bought at once: 11 at
-  1,608,000."
+  1,608,000." An uncounted bid placed inside the window (an older one before the plan: only the newest counts) filled
+  only there, so its fills come off at any price, its own or the listings': two bids before a plan, the older having
+  bought 5 at once, read 15 placed for 10 (the review). And a bid that bought some at once leaves the rest standing,
+  which ESI shows up to 20 minutes late (`ORDERS_LAG_MS`): until its trade is that old the note says the rest may still
+  be standing, never that it is a new order to place, which would invite the duplicate the checklist exists to stop.
 - **A price must be reached lately, not only somewhere in the fortnight** (`RECENT_DAYS` 5, `RECENT_MIN` 2,
   `RECENT_TYPICAL` 3 in fills.ts; `bidToPlace` / `askToPlace`'s `window`). That plan bid 270.7 M for a Caldari Navy
   Missile Guidance Computer reached on 5 of 14 days, all mid-September at 260–310 M; since the 25th it traded at 359–375 M
