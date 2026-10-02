@@ -199,11 +199,15 @@ export function relistPace(f: FlowDay, isBuy: boolean): RelistPace | null {
  * where each day's average sat) is blended with what was watched of the Jita book, trusted more the
  * longer it has watched. `watchedH` says how much watching there is behind it. Used by the app's order
  * check and by the cloud's, so both judge an order the same way.
+ *
+ * `splitFrom` is where the guess's split came from; `paceFrom` is where the pace itself mostly came from: the watching
+ * once it carries at least half the weight (PRIOR_HOURS or more of it), or alone when there's no guess, else the guess's
+ * source. That's the source a figure resting on the pace names (Orders' "Feeds a long queue").
  */
 export function sidePaceOf(
   ev: { daily: number | null | undefined; buyers: number | undefined; sold: BookSold | undefined; watched: FlowDay },
   isBuy: boolean,
-): { perDay: number | null; watchedH: number; undercutsPerH: number | null; splitFrom: SplitFrom } {
+): { perDay: number | null; watchedH: number; undercutsPerH: number | null; splitFrom: SplitFrom; paceFrom: SplitFrom } {
   const split = tradingSplit({ history: ev.buyers, book: ev.sold });
   const prior = ev.daily != null ? sideVolume(ev.daily, split.share, isBuy) : null;
   const o = ev.watched;
@@ -211,6 +215,7 @@ export function sidePaceOf(
     perDay: pace(prior, isBuy ? o.buy : o.sell, o.h),
     watchedH: o.h,
     splitFrom: split.from,
+    paceFrom: prior == null || !Number.isFinite(prior) || o.h >= PRIOR_HOURS ? 'watched' : split.from,
     undercutsPerH: o.h > 0 ? (isBuy ? o.newBuy : o.newSell) / o.h : null,
   };
 }

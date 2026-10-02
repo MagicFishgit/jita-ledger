@@ -14,7 +14,7 @@ import { relistPace } from '../lib/flow';
 import { loadCache, rankProspects } from '../lib/scan';
 import { DEFAULT_FILTERS } from '../lib/prospects';
 import { update, useData } from '../lib/store';
-import { byUrgency, FEE_TARGET, PLAN_KEEP, PLAN_KEEP_SAID, type OverResale, type Relist, type TooBig, type UnderCost, type Verdict } from '../lib/relist';
+import { byUrgency, FEE_TARGET, feedsQueueSaid, PLAN_KEEP, PLAN_KEEP_SAID, queueDaysSaid, type FeedsQueue, type OverResale, type Relist, type TooBig, type UnderCost, type Verdict } from '../lib/relist';
 import type { TradePlan } from '../lib/plans';
 import { FILL_WINDOW } from '../lib/fills';
 import type { Prospect } from '../lib/types';
@@ -420,7 +420,7 @@ export function Orders() {
                     const copyAt = x?.underCost ? x.underCost.breakEven : x?.verdict === 'loss' ? null : moveTo;
                     return (
                       <tr key={o.orderId} data-order={o.orderId} className={'hover' + (hot ? ' hot' : x && x.verdict !== 'move' && !keep ? ' dim' : '') + (flash.has(o.orderId) ? ' flash' : '')}>
-                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" copy={copyAt} /></span>{x?.plan && <PlanChip x={x} plan={planOf.get(x.plan.planId)} target={d.settings.target / 100} />}<BusyRelisting typeId={o.typeId} isBuy={o.isBuy} />{x?.underCost && <UnderCostTag u={x.underCost} x={x} />}{x?.overResale && <OverResaleTag u={x.overResale} x={x} r={r} />}{x?.tooBig && <TooBigTag t={x.tooBig} x={x} />}</td>
+                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" copy={copyAt} /></span>{x?.plan && <PlanChip x={x} plan={planOf.get(x.plan.planId)} target={d.settings.target / 100} />}<BusyRelisting typeId={o.typeId} isBuy={o.isBuy} />{x?.underCost && <UnderCostTag u={x.underCost} x={x} />}{x?.overResale && <OverResaleTag u={x.overResale} x={x} r={r} />}{x?.tooBig && <TooBigTag t={x.tooBig} x={x} />}{x?.feeds && <FeedsQueueTag q={x.feeds} />}</td>
                         <td className="l lbl" style={{ color: o.isBuy ? 'var(--buy)' : 'var(--neg-t)', fontSize: 11.5 }}>{o.isBuy ? 'Buy' : 'Sell'}</td>
                         <td className="l">
                           {V && x ? (
@@ -572,6 +572,18 @@ function TooBigTag({ t, x }: { t: TooBig; x: Relist }) {
   return (
     <span className="sub" tabIndex={0} style={{ color: 'var(--neg)' }} data-tip-title="Too big to keep moving" data-tip={tip}>
       Too big to keep moving
+    </span>
+  );
+}
+
+/**
+ * A buy that keeps adding stock to a sell queue weeks long (`feedingQueue` in relist.ts): the user's Arbalest buy, still
+ * buying thousands while they held 2,338 and buyers took about 200 a day from listings. Amber, like a warning.
+ */
+function FeedsQueueTag({ q }: { q: FeedsQueue }) {
+  return (
+    <span className="sub" tabIndex={0} style={{ color: 'var(--acc2)', fontWeight: 600 }} data-tip-title="Feeds a long queue" data-tip={feedsQueueSaid(q)}>
+      Feeds a long queue: {queueDaysSaid(q)} of buyers
     </span>
   );
 }

@@ -5149,5 +5149,76 @@ console.log('\n--- best ore by where it\'s found ---');
   eq('  measured with no ship: every session of the kind', measuredByKind([{ ship: 1, kind: 'ore', m3PerMin: 100 }, { ship: 2, kind: 'ore', m3PerMin: 300 }], null).ore, { m3PerMin: 200, sessions: 2, ship: null });
 }
 
+console.log('\n--- Orders: a buy that keeps adding stock to a long sell queue (2 October 2026) ---');
+{
+  const fs6 = await import('node:fs');
+  // 'Arbalest' Rapid Heavy Missile Launcher I: ESI's Jita book at 11:59 UTC, its history to 30 September, the cloud's
+  // watched flow, the user's buy and sell on it as that book had them, their hangar as the stock document read it at 12:44
+  // (scripts/fixtures/orders-queue.json). ~640 a day trade, nearly all sold into bids at ~24.7k; 16,264 listed in Jita.
+  const fx = JSON.parse(fs6.readFileSync(new URL('./fixtures/orders-queue.json', import.meta.url), 'utf8'));
+  const R = await import('../src/lib/relist.ts');
+  const Sp = await import('../src/lib/split.ts');
+  const { sidePaceOf, PRIOR_HOURS } = await import('../src/lib/flow.ts');
+  const { recentRange } = await import('../src/lib/fills.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const S = sanitizeSettings(fx.settings);
+  const now = Date.parse('2026-10-02T12:00:00Z');
+  const book = fx.book.map(([id, b, price, volume]) => ({ id, isBuy: b === 1, price, volume }));
+  const sold = Sp.soldFrom(fx.book.map(([, b, , left, total]) => ({ is_buy_order: b === 1, volume_remain: left, volume_total: total })));
+  const range = recentRange(fx.history, undefined, now, fx.flow);
+  const watched = observedFlow({ [fx.typeId]: fx.flow }, fx.typeId, now);
+  const ev = { daily: paceDay(fx.history, now), buyers: buyerShare(fx.history.slice(-30)), sold, watched };
+  const sellPace = sidePaceOf(ev, false);
+  const yours = [fx.buy.orderId, fx.sell.orderId];
+  const judged = (o, extra = {}) => R.judgeOrder(o, { book, perDay: sidePaceOf(ev, o.isBuy).perDay, lows: range.lows, highs: range.highs, txs: [], watched, yours, hangar: fx.hangar, sellPace, ...extra }, S, now);
+
+  eq('the pace of buyers taking listings says where it came from: over a day watched, the watching', [Math.round(sellPace.perDay), sellPace.paceFrom, sellPace.watchedH >= PRIOR_HOURS], [295, 'watched', true]);
+  const arb = judged(fx.buy);
+  eq('the Arbalest\'s buy feeds a long queue', arb.feeds?.long, true);
+  eq('  others\' listings up to where trading reached (62,910), yours listed and in the hangar, and what it still buys',
+    [arb.feeds?.ahead, arb.feeds?.upTo, arb.feeds?.listed, arb.feeds?.hangar, arb.feeds?.toBuy, arb.feeds?.units, arb.feeds?.atLeast], [3370, 62_910, 1808, 737, 2352, 8267, false]);
+  eq('  about 28 days of the 295 a day who buy from listings, measured from the watching', [Math.round(arb.feeds?.days), Math.round(arb.feeds?.perDay), arb.feeds?.from], [28, 295, 'watched']);
+  const said = arb.feeds ? R.feedsQueueSaid(arb.feeds) : '';
+  has('  its tip says how many days of buyers that is', said, 'about 28 days');
+  has('  and where the buyers a day came from', said, Sp.queuePaceSaid('watched'));
+  has('  and what to do', said, 'cancelling');
+  // The brief's figures, read earlier the same day: 530 in the hangar and 2,557 still to buy, against ~200 a day.
+  const brief = R.feedingQueue(fx.buy, { volumeRemain: 2557, gone: false }, { book, yours, highs: range.highs, hangar: 530, pace: { perDay: 200, watchedH: 115, paceFrom: 'watched' } });
+  eq('  the brief\'s figures at 200 a day: 3,370 + 1,808 + 530 + 2,557, about 41 days', [brief?.units, Math.round(brief?.days), brief?.long], [8265, 41, true]);
+  eq('  its sell is never tagged: only a buy adds stock', judged(fx.sell).feeds, undefined);
+
+  // An ordinary buy (Review Focus 5): a market whose buyers take 600 a day from listings, 2,000 listed by others where
+  // trading reaches, 300 of yours listed, and a buy for 1,000 more: 5.5 days.
+  const calmBook = [{ id: 1, isBuy: false, price: 1010, volume: 100 }, { id: 2, isBuy: false, price: 1020, volume: 1900 }, { id: 3, isBuy: false, price: 1015, volume: 300 },
+    { id: 4, isBuy: true, price: 900, volume: 1000 }, { id: 5, isBuy: false, price: 1500, volume: 50_000 }];
+  const calmHighs = Array(14).fill(1050);
+  const calm = R.feedingQueue({ orderId: 4, isBuy: true }, { volumeRemain: 1000, gone: false }, { book: calmBook, yours: [3, 4], highs: calmHighs, hangar: 0, pace: { perDay: 600, watchedH: 0, paceFrom: 'book' } });
+  eq('an ordinary buy whose stock sells within two weeks is no long queue, and listings above where trading reaches aren\'t counted',
+    [calm?.ahead, calm?.listed, calm?.units, calm?.days, calm?.long], [2000, 300, 3300, 5.5, false]);
+  const calmOrder = { orderId: 4, typeId: 1, isBuy: true, price: 900, volumeRemain: 1000, locationId: 60003760 };
+  eq('  so judgeOrder carries no tag', R.judgeOrder(calmOrder, { book: calmBook, perDay: 100, lows: Array(14).fill(890), highs: calmHighs, txs: [], yours: [3, 4], hangar: 0, sellPace: { perDay: 600, watchedH: 0, paceFrom: 'book' } }, S, now).feeds, undefined);
+  const edge = R.feedingQueue({ orderId: 4, isBuy: true }, { volumeRemain: 500, gone: false }, { book: calmBook, yours: [3, 4], highs: calmHighs, hangar: 0, pace: { perDay: 200, watchedH: 0, paceFrom: 'book' } });
+  eq('  nor at exactly two weeks of buyers: 2,800 against 200 a day', [edge?.days, edge?.long], [Sp.LONG_QUEUE_DAYS, false]);
+
+  // Nothing known is never a zero.
+  const q = (pace, extra = {}) => R.feedingQueue(fx.buy, { volumeRemain: fx.buy.volumeRemain, gone: false }, { book, yours, highs: range.highs, hangar: fx.hangar, pace, ...extra });
+  eq('nothing said with no buyers a day to go on, or with the split only assumed',
+    [q({ perDay: null, watchedH: 0, paceFrom: 'book' }), q({ perDay: 0, watchedH: 0, paceFrom: 'book' }), q({ perDay: 200, watchedH: 3, paceFrom: 'even' })], [null, null, null]);
+  eq('  nor for an order that\'s gone', R.feedingQueue(fx.buy, { volumeRemain: 2352, gone: true }, { book, yours, highs: range.highs, hangar: fx.hangar, pace: sellPace }), null);
+  const noHist = q(sellPace, { highs: null });
+  eq('  without history, others\' listings aren\'t counted: at least yours and what it still buys', [noHist?.ahead, noHist?.upTo, noHist?.units, noHist?.atLeast], [null, null, 1808 + 737 + 2352, true]);
+  has('  and its tip says others\' listings aren\'t counted', noHist ? R.feedsQueueSaid(noHist) : '', 'aren’t counted');
+  const noHangar = q(sellPace, { hangar: null });
+  eq('  with the hangar unread, it isn\'t counted and the queue is at least the rest', [noHangar?.hangar, noHangar?.units, noHangar?.atLeast], [null, 3370 + 1808 + 2352, true]);
+  has('  and its tip says so', noHangar ? R.feedsQueueSaid(noHangar) : '', 'hangar hasn’t been read');
+  eq('  the cloud\'s alert round passes no sell pace: no tag there', judged(fx.buy, { sellPace: undefined }).feeds, undefined);
+
+  // Where the pace came from: the watching once it carries at least half the weight, or alone when there's no prior.
+  const w = (h) => ({ ...watched, h });
+  eq('the pace\'s source: a book prior under a day watched, the watching from a day, history\'s guess with no book, the watching alone with no prior',
+    [sidePaceOf({ ...ev, watched: w(10) }, false).paceFrom, sidePaceOf({ ...ev, watched: w(PRIOR_HOURS) }, false).paceFrom,
+      sidePaceOf({ ...ev, sold: undefined, watched: w(0) }, false).paceFrom, sidePaceOf({ ...ev, daily: null, watched: w(10) }, false).paceFrom], ['book', 'watched', 'history', 'watched']);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

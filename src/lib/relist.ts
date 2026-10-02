@@ -2,8 +2,10 @@ import { priceDown, priceUp, tickDown, tickUp } from './tick';
 import { askReachDays, bidReachDays, fillingNow, FILL_RARE, FILL_TYPICAL, FILL_WINDOW, listingPrice, reachedAsk, reachedBid } from './fills';
 import { breakEvenSell, rates, type Settings } from './fees';
 import { RELIST_MIN_H, type FlowDay, type OrderLite } from './flow';
-import { iskBig, units } from './format';
+import { isk, iskBig, units } from './format';
 import type { PlanTarget } from './plans';
+import { queueCeiling } from './prospects';
+import { LONG_QUEUE_DAYS, queuePaceSaid, sellQueue, type SellQueue, type SplitFrom } from './split';
 
 /**
  * Whether one of your market orders is worth chasing.
@@ -95,6 +97,8 @@ export type Relist = {
   keep?: KeepIt;
   /** The plan this order's item belongs to (`planTargets`), when it belongs to one. */
   plan?: PlanTarget;
+  /** A buy whose stock, with what you hold and what's listed ahead, takes over LONG_QUEUE_DAYS of buyers to sell (`feedingQueue`). */
+  feeds?: FeedsQueue;
 };
 
 /**
@@ -156,6 +160,92 @@ export function overResale(
   if (!(net < cost)) return null;
   const breakEven = priceDown((net - paid) / (1 + r.f));
   return { breakEven: Number.isFinite(breakEven) && breakEven > 0 ? breakEven : 0, resale, ret: net / cost - 1, paid };
+}
+
+/**
+ * The sell queue a buy order's stock joins: everything that has to sell before what it is still buying can, in days of the
+ * buyers who take listings (`sellQueue`, said the way Prospects' Long queue says it).
+ */
+export type FeedsQueue = SellQueue & {
+  /**
+   * Others' listings at prices buyers have been paying: up to `upTo`, where trading reached on FILL_RARE of the last 14
+   * days (`queueCeiling`, as Prospects counts a queue). Null when history can't say where that is: then they aren't
+   * counted, and the queue is `atLeast` the rest.
+   */
+  ahead: number | null;
+  upTo: number | null;
+  /** Your own listings of the item, at any price: all of it sells before, or beside, what the order buys. */
+  listed: number;
+  /** Loose in your Jita hangar. Null when the hangar hasn't been read: not counted, and the queue is `atLeast` the rest. */
+  hangar: number | null;
+  /** What the order is still to buy. */
+  toBuy: number;
+  /** Hours the app has watched the book behind the buyers a day. */
+  watchedH: number;
+};
+
+/**
+ * Whether a buy order keeps adding stock to a sell queue that takes weeks to clear. The 'Arbalest' Rapid Heavy Missile
+ * Launcher I (2 October 2026): ~640 a day traded in The Forge, nearly all sold into bids at ~24.7k, while 16,264 were listed
+ * in Jita from 60,280 up, 5,178 of them up to 62,910 (where trading reached on 4 of the last 14 days), and the cloud watched
+ * buyers take about 200 a day from listings while thousands a day were newly listed at the front. The user held 2,338
+ * unsold (1,808 listed, 530 in the hangar) and their buy order was still buying 2,557 more: the wide spread looked like
+ * margin, and their buy kept feeding a queue weeks long.
+ *
+ * The queue is others' listings up to where trading reaches (from the whole live book, your own orders left out), your own
+ * stock of the item (your listings and your Jita hangar) and what this order is still to buy; against buyers taking
+ * listings a day (`pace`: `sidePaceOf` for the sell side, its `paceFrom` saying where it came from). Worked out for any open
+ * buy whose pace is known (`long` says whether it's over LONG_QUEUE_DAYS); null for a sell, an order that's gone, or with
+ * no buyers a day to go on or the split only assumed (`sellQueue`).
+ */
+export function feedingQueue(
+  o: { orderId: number; isBuy: boolean },
+  x: Pick<Relist, 'volumeRemain' | 'gone'>,
+  m: {
+    /** The live Jita book, your own orders in it. */
+    book: OrderLite[];
+    /** The IDs of your open orders: the rest of yours in the book are your listings, not others'. */
+    yours?: number[];
+    highs?: (number | null)[] | null;
+    hangar: number | null;
+    pace: { perDay: number | null; watchedH: number; paceFrom: SplitFrom };
+  },
+): FeedsQueue | null {
+  if (!o.isBuy || x.gone || !(x.volumeRemain > 0)) return null;
+  const mine = new Set(m.yours ?? []);
+  const sells = m.book.filter((b) => !b.isBuy && b.id !== o.orderId);
+  const upTo = m.highs ? queueCeiling(m.highs) : null;
+  const ahead = upTo == null ? null : sells.filter((b) => !mine.has(b.id) && b.price <= upTo).reduce((n, b) => n + b.volume, 0);
+  const listed = sells.filter((b) => mine.has(b.id)).reduce((n, b) => n + b.volume, 0);
+  const hangar = m.hangar != null && Number.isFinite(m.hangar) ? Math.max(0, m.hangar) : null;
+  const total = (ahead ?? 0) + listed + (hangar ?? 0) + x.volumeRemain;
+  const q = sellQueue(total, m.pace.perDay ?? NaN, m.pace.paceFrom, ahead == null || hangar == null);
+  return q ? { ...q, ahead, upTo, listed, hangar, toBuy: x.volumeRemain, watchedH: m.pace.watchedH } : null;
+}
+
+/** A queue's length in days of buyers, for the tag and its tip: "28 days", "over a year". */
+export function queueDaysSaid(q: Pick<SellQueue, 'days' | 'atLeast'>): string {
+  return q.days > 365 ? 'over a year' : `${q.atLeast ? 'at least' : 'about'} ${Math.round(q.days)} days`;
+}
+
+/** The tip for a buy that feeds a long queue: what it is, the figures behind it, then what to do. */
+export function feedsQueueSaid(q: FeedsQueue): string {
+  const perDay = q.perDay < 10 ? String(Math.round(q.perDay * 10) / 10) : units(Math.round(q.perDay));
+  const others = q.ahead == null
+    ? `Others’ listings aren’t counted: history doesn’t say what buyers have been paying here (it needs trading on ${FILL_RARE} of the last ${FILL_WINDOW} days)`
+    : q.ahead === 0 ? `Nobody else lists at a price buyers have been paying (up to ${isk(q.upTo)})`
+      : `Others list ${units(q.ahead)} at prices buyers have been paying, up to ${isk(q.upTo)}`;
+  const held = q.hangar == null
+    ? `You have ${units(q.listed)} listed; your Jita hangar hasn’t been read, so what’s in it isn’t counted`
+    : `You hold ${units(q.listed + q.hangar)}: ${units(q.listed)} listed and ${units(q.hangar)} in your Jita hangar`;
+  return `What this order still buys joins a sell queue longer than ${LONG_QUEUE_DAYS} days of the buyers who take listings here: `
+    + `${q.atLeast ? 'at least ' : ''}${units(q.units)} units, ${queueDaysSaid(q)} of them.\n\n`
+    + `• ${others}\n`
+    + `• ${held}\n`
+    + `• This order still buys ${units(q.toBuy)}\n`
+    + `• Buyers take about ${perDay} a day from listings, ${queuePaceSaid(q.from)}${q.from === 'watched' && q.watchedH >= 1 ? ` (${Math.round(q.watchedH)} h watched)` : ''}\n\n`
+    + 'Consider cancelling this buy or making it smaller, and list what you hold first: everything it buys waits behind all of that, '
+    + 'and sellers this deep in a queue undercut each other, so the price you’d sell at may not hold.';
 }
 
 /**
@@ -456,7 +546,14 @@ export function judgeOrder(
     /** The IDs of all your open orders (this one may be among them): the rest of yours on this item are set apart. */
     yours?: number[];
     /** The plan the item belongs to (`planTargets`), if any. */
-    plan?: PlanTarget | null },
+    plan?: PlanTarget | null;
+    /** Units of the item loose in your Jita hangar; null when the hangar hasn't been read. For `feedingQueue`. */
+    hangar?: number | null;
+    /**
+     * Buyers taking listings a day (`sidePaceOf` for the sell side), for whether a buy feeds a long queue. Left out (the
+     * cloud's alert round), nothing is said about it.
+     */
+    sellPace?: { perDay: number | null; watchedH: number; paceFrom: SplitFrom } | null },
   s: Settings,
   now = Date.now(),
 ): Relist {
@@ -481,7 +578,9 @@ export function judgeOrder(
   const big = tooBigToMove(o, x, { perDay: m.perDay, watched: m.watched, margin }, r.k, now);
   const under = underCost(o, x, m.avgCost, r);
   const over = overResale(o, x, resale, r);
-  const judged = { ...x, ...(big ? { tooBig: big } : {}), ...(under ? { underCost: under } : {}), ...(over ? { overResale: over } : {}), ...(m.plan ? { plan: m.plan } : {}) };
+  // The whole book, your own orders in it: your listings are part of the queue the buy feeds.
+  const fed = o.isBuy && m.sellPace ? feedingQueue(o, x, { book: m.book, yours: m.yours, highs: m.highs, hangar: m.hangar ?? null, pace: m.sellPace }) : null;
+  const judged = { ...x, ...(big ? { tooBig: big } : {}), ...(under ? { underCost: under } : {}), ...(over ? { overResale: over } : {}), ...(m.plan ? { plan: m.plan } : {}), ...(fed?.long ? { feeds: fed } : {}) };
   const into = sellIntoBid(o, x, { ...m, book }, t);
   return into ? { ...judged, verdict: 'bid', intoBids: into, why: intoBidsWhy(into, x.price, x.volumeRemain, t) } : judged;
 }

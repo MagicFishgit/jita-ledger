@@ -208,6 +208,8 @@ export function verdicts(d: Data, check: CheckState, cost: Record<number, number
       watched: watchedFlow(o.typeId),
       yours,
       plan: plans[o.typeId] ?? null,
+      // Whether a buy keeps adding stock to a long sell queue: what you hold, and how fast buyers take listings.
+      ...(o.isBuy ? { hangar: d.stock ? d.stock.jita[o.typeId] ?? 0 : null, sellPace: sidePace(check, o.typeId, false) } : {}),
     }, d.settings))
     .sort(byUrgency);
 }

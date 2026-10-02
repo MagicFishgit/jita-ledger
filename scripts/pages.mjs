@@ -402,8 +402,16 @@ try {
   // and a buy bidding over what it resells for. Its verdicts need a checked book, which every other load here refuses, so
   // ESI answers these two items' books (nothing else); without this the deploy never drew "Keep it", the plan's chip
   // or the red tag. Both widths, as the run's (PHONE).
+  // And the user's 'Arbalest' buy feeding a long sell queue (2 October 2026, scripts/fixtures/orders-queue.json): ESI answers
+  // its real Jita book and its history, the dates moved so the last day is yesterday, so "Feeds a long queue" is drawn
+  // (from the book's split: nothing is watched here) on any day the check runs.
   if (SHOWN.includes('orders') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('plan'))) {
     const M = 1e6, PX = 47466, TRIT = 34, KEY = 89156, JITA = 60003760, ID = 7433389018;
+    const fs = await import('node:fs');
+    const arb = JSON.parse(fs.readFileSync(new URL('./fixtures/orders-queue.json', import.meta.url), 'utf8'));
+    const ARB = arb.typeId, DAY_MS = 86400_000;
+    const shift = Date.parse(new Date(Date.now() - DAY_MS).toISOString().slice(0, 10)) - Date.parse(arb.history.at(-1).date);
+    const arbHistory = arb.history.map((r) => ({ ...r, date: new Date(Date.parse(r.date) + shift).toISOString().slice(0, 10) }));
     // The plan started an hour ago, so its checklist shows on any day the check runs: the Key's 15 placed five minutes
     // before it, after its position opened (Task 3's case), and Praxis not yet placed for it.
     const planAt = Date.now() - 3600_000, iso = (t) => new Date(t).toISOString();
@@ -411,6 +419,8 @@ try {
     const books = {
       [PX]: [[ID, 1, 207.1 * M, 1], [9001, 1, 208.3 * M, 4], [9002, 1, 200 * M, 5], [9003, 0, 225 * M, 2], [9004, 0, 230 * M, 10]],
       [TRIT]: [[1, 1, 4.5, 800_000], [9011, 1, 4.4, 5_000_000], [9012, 0, 4.55, 9_000_000]],
+      // [order, buy, price, left, placed for]: what the orders have sold says who trades.
+      [ARB]: arb.book,
     };
     const ledger = {
       settings: { acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, tycoon: 0, clone: 'omega', faction: 3.6289558729999998, corp: 7.039647095, taxBase: 7.5, target: 5, share: 7.5, waitHours: 3 },
@@ -422,18 +432,25 @@ try {
         [ID]: { orderId: ID, typeId: PX, isBuy: true, price: 207.1 * M, volumeTotal: 1, volumeRemain: 1, issued: seen[2].issued, state: 'open', locationId: JITA, seen },
         1: { orderId: 1, typeId: TRIT, isBuy: true, price: 4.5, volumeTotal: 1_000_000, volumeRemain: 800_000, issued: '2026-10-01T08:00:00Z', state: 'open', locationId: JITA },
         7433386979: { orderId: 7433386979, typeId: KEY, isBuy: true, price: 24.95 * M, volumeTotal: 15, volumeRemain: 15, issued: iso(planAt - 5 * 60_000), state: 'open', locationId: JITA },
+        [arb.buy.orderId]: arb.buy,
+        [arb.sell.orderId]: arb.sell,
       },
-      names: { [PX]: 'Praxis', [TRIT]: 'Tritanium', [KEY]: 'Vigilance Resonance Key' },
+      stock: { at: new Date(Date.now() - 600_000).toISOString(), jita: { [ARB]: arb.hangar }, total: { [ARB]: arb.hangar }, inContainers: 0 },
+      names: { [PX]: 'Praxis', [TRIT]: 'Tritanium', [KEY]: 'Vigilance Resonance Key', [ARB]: arb.name },
       meta: { walletBalance: 1e9, lastSync: new Date(Date.now() - 600_000).toISOString() },
     };
     const page = await browser.newPage(VIEW);
     await page.route('**/*', (route) => {
       const url = new URL(route.request().url());
       if (route.request().url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
-      const b = url.hostname === 'esi.evetech.net' && url.pathname === '/markets/10000002/orders/' ? books[url.searchParams.get('type_id')] : null;
+      const esi = url.hostname === 'esi.evetech.net';
+      if (esi && url.pathname === '/markets/10000002/history/' && url.searchParams.get('type_id') === String(ARB)) {
+        return route.fulfill({ status: 200, contentType: 'application/json', headers: { expires: new Date(Date.now() + 3600_000).toUTCString() }, body: JSON.stringify(arbHistory) });
+      }
+      const b = esi && url.pathname === '/markets/10000002/orders/' ? books[url.searchParams.get('type_id')] : null;
       if (!b) return route.abort();
       return route.fulfill({ status: 200, contentType: 'application/json', headers: { expires: new Date(Date.now() + 300_000).toUTCString(), 'x-pages': '1' },
-        body: JSON.stringify(b.map(([id, buy, price, volume]) => ({ order_id: id, type_id: Number(url.searchParams.get('type_id')), location_id: JITA, is_buy_order: buy === 1, price, volume_remain: volume, volume_total: volume, issued: '2026-09-30T00:00:00Z', duration: 90, min_volume: 1, range: 'region' }))) });
+        body: JSON.stringify(b.map(([id, buy, price, volume, total]) => ({ order_id: id, type_id: Number(url.searchParams.get('type_id')), location_id: JITA, is_buy_order: buy === 1, price, volume_remain: volume, volume_total: total ?? volume, issued: '2026-09-30T00:00:00Z', duration: 90, min_volume: 1, range: 'region' }))) });
     });
     const problems = [];
     page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
@@ -461,6 +478,13 @@ try {
     if (!(await page.locator(`tr[data-order="${ID}"] .flag`, { hasText: 'Plan' }).count())) problems.push('not drawn: no “Plan” chip on Praxis');
     if (!(await page.locator('tr[data-order="1"]', { hasText: 'Pays more than it resells for' }).count())) problems.push('not drawn: no “Pays more than it resells for” on the Tritanium buy');
     if (!(await page.locator('.stat', { hasText: 'keep it: raising would cut below' }).locator('button').count())) problems.push('not drawn: no Keep it count beside “worth moving”');
+    const feeds = page.locator(`tr[data-order="${arb.buy.orderId}"] [data-tip-title="Feeds a long queue"]`);
+    if (!(await feeds.count())) problems.push('not drawn: no “Feeds a long queue” on the Arbalest buy');
+    else {
+      const tip = (await feeds.first().getAttribute('data-tip')) ?? '';
+      for (const want of ['days of the buyers who take listings', 'in your Jita hangar', 'This order still buys', 'Consider cancelling']) if (!tip.includes(want)) problems.push(`not drawn: the Long queue tip's “${want}”`);
+    }
+    if (await page.locator(`tr[data-order="${arb.sell.orderId}"] [data-tip-title="Feeds a long queue"]`).count()) problems.push('the Arbalest sell carries “Feeds a long queue”: only a buy adds stock');
     let boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
     if (boundary) problems.push('error boundary');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out: ${o}`);
@@ -478,7 +502,7 @@ try {
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'plan', page: 'orders', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL plan #orders\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (Keep it, the plan chip, a buy over its resale) and #planner (the checklist)\n');
+    process.stdout.write(unique.length ? `  FAIL plan #orders\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (Keep it, the plan chip, a buy over its resale, a buy feeding a long queue) and #planner (the checklist)\n');
     await page.close();
   }
   // Every freelance job you did (the user's six, 1 October 2026), rebuilt as a browser that never saw them does: only the
