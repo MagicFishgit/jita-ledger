@@ -5330,8 +5330,10 @@ console.log('\n--- Orders: a buy that keeps adding stock to a long sell queue (2
   has('    and what to do', item?.detail ?? '', 'cancel this buy, or cancel it and place a smaller one');
   has('    the same words as the tip on Orders', R.feedsQueueSaid(arb.feeds), R.feedsQueueLead(arb.feeds));
   eq('  opening it copies no price: cancelling isn\'t one', item?.action.copy, undefined);
-  eq('  its version is the order\'s price and what it still buys, not the pace', [item?.ver, T.feedsQueueItem(judged(fx.buy, { sellPace: { ...sellPace, perDay: 250 } }), fx.name, action)?.ver],
-    [`feeds:${fx.buy.price}:${fx.buy.volumeRemain}`, `feeds:${fx.buy.price}:${fx.buy.volumeRemain}`]);
+  eq('  its version is the order\'s price alone: not the pace, nor the units it fills (a buy filling all day would reopen a tick each time)',
+    [item?.ver, T.feedsQueueItem(judged(fx.buy, { sellPace: { ...sellPace, perDay: 250 } }), fx.name, action)?.ver,
+      T.feedsQueueItem({ ...judged(fx.buy), volumeRemain: fx.buy.volumeRemain - 100 }, fx.name, action)?.ver],
+    [`feeds:${fx.buy.price}`, `feeds:${fx.buy.price}`, `feeds:${fx.buy.price}`]);
   eq('  nothing for a buy that isn\'t tagged, or for a sell', [T.feedsQueueItem(R.judgeOrder(calmOrder, { book: calmBook, perDay: 100, lows: Array(14).fill(890), highs: calmHighs, txs: [], yours: [3, 4], hangar: 0, sellPace: { perDay: 600, watchedH: 0, paceFrom: 'book' } }, S, now), 'x', action), T.feedsQueueItem(judged(fx.sell), fx.name, action)], [null, null]);
   // Ticked off like an order item: only by a newer check that read the book and no longer tags it, or the order closing.
   const e = { key: item.key, item, seenAt: 1000, lastAt: 1000 };

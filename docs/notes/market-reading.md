@@ -298,9 +298,9 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   mail. **On To do since the user approved it** (2 October 2026, "yes i approve all 3 choices"; `feedsQueueItem`,
   `judgeFeedsQueue` in todo.ts, kind `feedsQueue`, under Needs action): one item per tagged buy, keyed by the order
   (`feeds:<id>`), in the tip's own words (`feedsQueueLead` and `FEEDS_QUEUE_DO`, which the tip is built from), opening
-  the item in game with no price copied, at stake what the order still has to spend. Its version is the order's price and
-  what it still buys, never the queue's days, which move with every read of the pace; so a fill reopens an item ticked by
-  hand. It ticks off like an order item: the order closing, or a newer check that read the book and no longer tags it,
+  the item in game with no price copied, at stake what the order still has to spend. Its version is the order's price
+  alone: never the queue's days, which move with every read of the pace, nor what it still buys, since a buy filling all
+  day would reopen a hand tick at every fill (first built that way, changed before shipping). It ticks off like an order item: the order closing, or a newer check that read the book and no longer tags it,
   which can't tell a shorter queue from a pace it can no longer read and says only "The latest check of its book no
   longer has what it buys feeding a long queue." On the user's 3 open buys again (15:20 UTC): only the Arbalest, 8,067
   units, about 27 days at 304 a day watched over 121 h, 2,247 still to buy (55.8 M at stake).

@@ -222,8 +222,9 @@ export function judgeUnderCost(
  * A buy order Orders tags "Feeds a long queue" (`feedingQueue` in relist.ts): what it still buys joins a sell queue weeks
  * long. On To do as something to act on (cancel it, or cancel it and place a smaller one), in the tag's own words, never
  * mailed; the user approved it on 2 October 2026, after their 'Arbalest' buy. Keyed by the order. Its version is the
- * order's price and what it still buys, not the queue's days, which move with every read of the pace: a tick by hand
- * holds until the order itself changes (a fill reopens it). Null for an order not tagged.
+ * order's price alone: not the queue's days, which move with every read of the pace, nor what it still buys, since a buy
+ * filling all day would reopen a tick each time. A tick by hand holds as a chore's does, or until you reprice the order.
+ * Null for an order not tagged.
  */
 export function feedsQueueItem(
   x: { orderId: number; typeId: number; price: number; volumeRemain: number; atRisk: number; feeds?: FeedsQueue },
@@ -232,7 +233,7 @@ export function feedsQueueItem(
 ): TodoItem | null {
   if (!x.feeds?.long) return null;
   return {
-    key: `feeds:${x.orderId}`, ver: `feeds:${x.price}:${x.volumeRemain}`, kind: 'feedsQueue', source: 'orders', price: x.price, stake: x.atRisk, typeId: x.typeId,
+    key: `feeds:${x.orderId}`, ver: `feeds:${x.price}`, kind: 'feedsQueue', source: 'orders', price: x.price, stake: x.atRisk, typeId: x.typeId,
     title: `${name} buy order`,
     detail: `${feedsQueueLead(x.feeds)} ${FEEDS_QUEUE_DO}`,
     action,
