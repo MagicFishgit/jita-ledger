@@ -52,6 +52,24 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   on the position ("left out of the profit rather than guessed at"). On the user's ledger (28 September 2026) this
   moved nothing on their five positions and took 104,465 ISK off Results' every-item Trading line, from three items
   where more sold than was ever bought (one sold 2 of 4 units with no recorded buy, 676,200 ISK of sales).
+- **A plan counts a position it took over from its own start, and the stock held then isn't its** (`planView` and
+  `sharesPosition` in plans.ts, `planPosition` in positions.ts, the never-stored `view` on a position; the Plans panel, and
+  Positions with a plan shown). Starting a plan takes the position an item already has open (one position per item stays
+  the rule), and the user's second plan (2 October 2026, 999 M in 33 items, Place and leave) showed Datacore - Rocket
+  Science's sales since 24 September (9,372 for 876 M) as the plan's, with its bid of 188 placed and nothing of it filled:
+  both summed `computePosition` over the whole position. Now a plan sees a view of it: opened at the plan's start, with
+  trades counted by hand (`included`, and ones typed in) only from then. The units the position held just before the plan
+  (its stock then, 2,628 there) are the earlier trading's, since the user wants each plan "its own contained thing": sales
+  since take them first, and that part of each sale, revenue and tax, is none of the plan's; only what sells beyond them
+  counts, against the plan's own buys, and beyond those too is left out of its profit as usual (`oversold`), never costed.
+  A sell order placed before the plan lists that stock, so its fees aren't the plan's; a buy placed before it and still
+  working shares its placing fee as at any position's start. Tested on the case's figures: after a 2,000-unit sale nothing
+  of the plan's has sold; 1,000 more are 628 of the earlier stock and 372 the plan's, 188 against what it bought and 184
+  left out; the whole position doesn't move (12,188 bought, 12,372 sold). The row says "Shared since 24 Sep: counted from
+  the plan's start", its tip what it held and how much of that has sold; its status (Finished or not) stays the whole
+  position's, and the unfiltered list, the tiles, Results and the Wallet read whole positions. The start dialog names the
+  items that already have a position and since when, and says the plan counts them from now. A position open before the
+  plan with no trade before it is counted the same way but not tagged: there's nothing of the earlier trading's in it.
 - **"What your standings are worth" prices your real trading at other standings** (`lib/standings.ts`, Rates & fees).
   Every broker charge is the broker rate × an order's value (a price change × (1 − the Advanced Broker Relations
   discount)), so each fee ÷ the rate paid that day is the trading behind it, and that total × any rate is what the

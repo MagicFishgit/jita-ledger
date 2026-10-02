@@ -4,7 +4,7 @@ import { startPosition } from '../lib/actions';
 import { confirmAsk } from '../lib/confirm';
 import { fmtShort, isk, iskBig, iskBigSigned, rid, units } from '../lib/format';
 import { navigate } from '../lib/hooks';
-import { computePosition } from '../lib/positions';
+import { planPosition } from '../lib/positions';
 import { newPlan, placementNote, planPlacement, planProgress, PLANS_KEPT } from '../lib/plans';
 import type { Plan } from '../lib/planner';
 import { update, useData } from '../lib/store';
@@ -32,19 +32,26 @@ export function StartPlanButton({ plan, days, patient }: { plan: Plan; days: num
   const d = useData();
   const name = useTypeName();
   if (!plan.rows.length) return null;
-  const already = plan.rows.filter((a) => d.positions.some((p) => p.typeId === a.p.typeId && p.status === 'open')).length;
+  // Items with a position open already: the plan follows it, counted from the plan's start (planView in lib/plans.ts).
+  const taken = plan.rows.flatMap((a) => {
+    const pos = d.positions.find((p) => p.typeId === a.p.typeId && p.status === 'open');
+    return pos ? [{ typeId: a.p.typeId, since: pos.openedAt }] : [];
+  });
   const start = async () => {
+    const n = plan.rows.length, k = taken.length, one = k === 1;
+    const takenSaid = taken.slice(0, 5).map((x, i) => `${name(x.typeId)} (${i ? 'since' : 'open since'} ${fmtShort(x.since)})`).join(', ')
+      + (k > 5 ? ` and ${units(k - 5)} more` : '');
     const ok = await confirmAsk({
       title: 'Start this plan?',
-      body: `${units(plan.rows.length)} items, ${iskBig(plan.deployed)} in buy orders. `
-        + `${already ? `${units(plan.rows.length - already)} new positions open now (${units(already)} already have one, which will follow its order)` : `A position opens for each item now`}, grouped as one plan on Positions. `
-        + `${patient ? 'They’re marked “Leave alone”, as a Place-and-leave plan. ' : ''}`
-        + 'Then place the buy orders from the checklist here or from To do: each opens in game with its price copied. Nothing is placed for you: the game doesn’t allow it.',
+      body: [
+        `${units(n)} items, ${iskBig(plan.deployed)} in buy orders. ${k ? `${units(n - k)} new positions open now` : 'A position opens for each item now'}, grouped as one plan on Positions.`,
+        ...(k ? [`${one ? 'One item already has an open position' : `${units(k)} items already have an open position`}: ${takenSaid}. The plan follows ${one ? 'it' : 'them'} but counts from now: what ${one ? 'it' : 'they'} traded before isn’t the plan’s, and what ${one ? 'it holds' : 'they hold'} now sells first and isn’t the plan’s either.`] : []),
+        `${patient ? 'They’re marked “Leave alone”, as a Place-and-leave plan. ' : ''}Then place the buy orders from the checklist here or from To do: each opens in game with its price copied. Nothing is placed for you: the game doesn’t allow it.`,
+      ].join('\n\n'),
       confirm: 'Start it',
     });
     if (!ok) return;
     const at = new Date().toISOString();
-    const n = plan.rows.length;
     const tp = newPlan(plan.rows, {
       id: rid(), at, deployed: plan.deployed, horizonDays: days, patient,
       name: `${fmtShort(Date.parse(at))} · ${iskBig(plan.deployed)} in ${units(n)} item${n === 1 ? '' : 's'}`,
@@ -128,13 +135,16 @@ export function PlacingChecklist() {
 export function PlanGroups({ shown, onShow }: { shown: string | null; onShow: (id: string | null) => void }) {
   const d = useData();
   const orders = useMemo(() => Object.values(d.orders), [d.orders]);
+  // Each plan as it counts its positions: one it took over from earlier trading only from the plan's start.
   const rows = useMemo(() => d.plans.map((p) => {
     const ps = p.items.map((i) => d.positions.find((x) => x.id === i.positionId)).filter((x): x is NonNullable<typeof x> => !!x);
-    const cs = ps.map((x) => computePosition(x, d, d.settings));
+    const vs = ps.map((x) => planPosition(x, p, d, d.settings));
+    const cs = vs.map((v) => v.c);
     return {
       p, prog: planProgress(p, orders, d.positions),
       bought: cs.reduce((t, c) => t + c.boughtValue, 0), sold: cs.reduce((t, c) => t + c.soldValue, 0),
       realized: cs.reduce((t, c) => t + c.realized, 0), stock: cs.reduce((t, c) => t + c.costOfStock, 0),
+      shared: vs.filter((v) => v.shared).length, oversold: cs.reduce((t, c) => t + c.oversold, 0),
     };
   }), [d.plans, d.positions, d.txs, d.journal, d.orders, d.settings]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!rows.length) return null;
@@ -152,12 +162,19 @@ export function PlanGroups({ shown, onShow }: { shown: string | null; onShow: (i
             <th scope="col"><span className="sr-only">Actions</span></th>
           </tr></thead>
           <tbody>
-            {rows.map(({ p, prog, bought, sold, realized, stock }) => (
+            {rows.map(({ p, prog, bought, sold, realized, stock, shared, oversold }) => (
               <tr key={p.id} className={shown === p.id ? 'open' : undefined}>
-                <td className="l">{p.name}<span className="sub">{p.patient ? 'Place and leave' : 'At the front'}, {units(p.horizonDays)}-day horizon</span></td>
+                <td className="l">{p.name}<span className="sub">{p.patient ? 'Place and leave' : 'At the front'}, {units(p.horizonDays)}-day horizon</span>
+                  {shared > 0 && (
+                    <span className="sub" tabIndex={0} data-tip-title="Counted from the plan’s start"
+                      data-tip={`${shared === 1 ? 'One of its items already had a position' : `${units(shared)} of its items already had a position`}, trading before the plan, and the plan follows ${shared === 1 ? 'it' : 'them'}.\n\n• The plan counts ${shared === 1 ? 'it' : 'each'} from its start: what was bought and sold before isn’t the plan’s.\n• What ${shared === 1 ? 'it' : 'each'} held then sells first, and isn’t the plan’s either.\n• Show its positions to see them as the plan counts them; open one for the whole position.`}>
+                      {units(shared)} shared with earlier trading, counted from the plan’s start
+                    </span>
+                  )}
+                </td>
                 <td>{units(prog.placed)} of {units(prog.of)}</td>
                 <td>{iskBig(bought)}</td>
-                <td>{iskBig(sold)}</td>
+                <td>{iskBig(sold)}{oversold > 0 && <span className="sub" tabIndex={0} data-tip-title="Left out of the profit" data-tip={'Units sold beyond what the plan bought, and beyond what a position it took over held at its start (that stock is the earlier trading’s, and sells first).\n\nThey came from stock no position counted: loot, gifts, units bought before the position opened. They have no recorded cost, so they’re left out of the profit rather than given one. Their sales are in Sold.'}>{units(oversold)} sold beyond what it bought, left out of the profit</span>}</td>
                 <td style={{ color: realized >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{iskBigSigned(realized)}</td>
                 <td>{iskBig(stock)}</td>
                 <td>

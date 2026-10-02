@@ -4,13 +4,15 @@ import type { Data } from './store';
 import { matchFees, type FeeMatches } from './feeMatch';
 import type { HistRow, Order, Position, Tx } from './types';
 import { nettedJournal } from './refunds';
+import { planView, sharesPosition, type TradePlan } from './plans';
 
 const ts = (iso: string) => Date.parse(iso);
 
 export type Match = 'auto' | 'included' | 'excluded' | null;
 
 export function matchTx(pos: Position, tx: Tx): Match {
-  if (tx.source === 'manual') return tx.positionId === pos.id ? 'included' : null;
+  // A plan's view of a shared position counts the ones typed in from its start, as ESI's (plans.ts `planView`).
+  if (tx.source === 'manual') return tx.positionId === pos.id && (!pos.view || ts(tx.date) >= ts(pos.openedAt)) ? 'included' : null;
   const inRule =
     tx.typeId === pos.typeId &&
     (!pos.jitaOnly || tx.locationId === JITA_44) &&
@@ -107,6 +109,11 @@ export type PositionCalc = {
   buyFeesInStock: number;
   salesTax: number; taxActual: number; taxEstimated: number;
   manualFees: number;
+  /**
+   * On a plan's view of a shared position (`view`): units sold since the plan out of what the position held at its start.
+   * They're the earlier trading's, so the view counts none of them, nor their revenue or tax. 0 on anything else.
+   */
+  heldSold: number;
   realized: number; roi: number | null;
   series: SeriesPoint[]; buys: PricePoint[]; sells: PricePoint[];
   firstT: number | null; lastT: number | null;
@@ -116,6 +123,8 @@ type Ev = {
   t: number; kind: 'buy' | 'sell' | 'fee'; qty: number; price: number; fee: number;
   /** Buy fee carried into cost, or sell fee charged, per unit. */ unitFee?: number;
   /** A sale's own tax (and, entered by hand, its fees): charged on the units it covers. */ tax?: number;
+  /** A sale's tax: typed in with a trade added by hand, or ESI's own (`actual`), for the totals a view takes it out of. */
+  taxOf?: { manual: boolean; actual: boolean };
 };
 
 /** The earlier-opened of two positions, which keeps what both would count. */
@@ -225,12 +234,32 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
     counted.push(tx);
     // A sale carries its own tax, so units sold with no recorded cost can leave it out with them.
     const onSale = !tx.isBuy && fee > 0;
-    events.push({ t: ts(tx.date), kind: tx.isBuy ? 'buy' : 'sell', qty: tx.qty, price: tx.unitPrice, fee: 0, tax: onSale ? fee : 0 });
+    events.push({ t: ts(tx.date), kind: tx.isBuy ? 'buy' : 'sell', qty: tx.qty, price: tx.unitPrice, fee: 0, tax: onSale ? fee : 0,
+      ...(onSale ? { taxOf: { manual: tx.source === 'manual', actual: feeActual } } : {}) });
     if (fee > 0 && !onSale) events.push({ t: ts(tx.date), kind: 'fee', qty: 0, price: 0, fee });
     if (fee > 0) {
       if (tx.source === 'manual') manualFees += fee;
       else { salesTax += fee; if (feeActual) taxActual++; else taxEstimated++; }
     }
+  }
+
+  // A plan's view of a position it shares (plans.ts `planView`): what the position held when the plan started is the
+  // earlier trading's. Sales take it first, and that part of each one, its revenue and its tax, is none of the view's;
+  // only what sells beyond it is the plan's. A sale across the line counts its part beyond it.
+  let heldSold = 0;
+  if (pos.view && pos.view.held > 0) {
+    let held = pos.view.held;
+    for (const e of events.filter((x) => x.kind === 'sell').sort((a, b) => a.t - b.t)) {
+      if (held <= 0) break;
+      const take = Math.min(held, e.qty);
+      held -= take; heldSold += take;
+      const tax = (e.tax ?? 0) * (take / e.qty);
+      if (e.taxOf?.manual) manualFees -= tax; else salesTax -= tax;
+      if (take === e.qty && e.taxOf && !e.taxOf.manual) { if (e.taxOf.actual) taxActual--; else taxEstimated--; }
+      e.tax = (e.tax ?? 0) - tax;
+      e.qty -= take;
+    }
+    for (let i = events.length - 1; i >= 0; i--) if (events[i].kind === 'sell' && events[i].qty <= 0) events.splice(i, 1);
   }
 
   // Broker fees come from your orders for this item. A fee belongs to the position that was trading the item
@@ -283,6 +312,8 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
   for (const o of orders) {
     const m = matches.byOrder.get(o.orderId);
     const placedAt = m?.placement.at ?? o.seen?.[0]?.issued ?? o.issued;
+    // In a plan's view, a sell order placed before the plan lists stock held before it: the earlier trading's, fees and all.
+    if (pos.view && !o.isBuy && ts(placedAt) < openT) continue;
     const placedSh = shareOf(o, placedAt, o.volumeTotal);
     if (placedSh) {
       const placed = m ? m.placement.amount : Math.max(100, rAt(placedAt).f * o.price * o.volumeTotal);
@@ -362,12 +393,39 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
     stock, avgCost: stock > 0 ? basis / stock : null, costOfStock: basis,
     costOfSold, oversold, oversoldValue, oversoldNet,
     brokerFees, brokerActualOrders, brokerEstimatedOrders, priceChanges, relistFees, relistsEstimated, relistEvents, prepaidFees, buyFeesInStock: feeBasis,
-    salesTax, taxActual, taxEstimated, manualFees,
+    salesTax, taxActual, taxEstimated, manualFees, heldSold,
     realized, roi: costOfSold > 0 ? realized / costOfSold : null,
     series, buys, sells,
     firstT: events.length ? events[0].t : null,
     lastT: events.length ? events[events.length - 1].t : null,
   };
+}
+
+/** A position as a plan counts it (`planView` in plans.ts), beside the whole. */
+export type PlanPosition = {
+  /** What the plan counts: from its start for a position open before it, else the position itself. */
+  c: PositionCalc;
+  /** The whole position, as Positions shows it unfiltered. */
+  whole: PositionCalc;
+  /** Open before the plan, with trades of its own before it: the row says so. */
+  shared: boolean;
+  /** Units the position held at the plan's start, the earlier trading's, and how many of them have sold since. */
+  held: number; heldSold: number;
+};
+
+/**
+ * The plan's figures for one of its positions. A position the plan opened is counted whole. One it took over, open
+ * before it, is counted from the plan's start: `held` is the whole position's stock just before then, which the view
+ * leaves to the earlier trading (sold first, none of it the plan's). `whole` can be passed when it's already worked out.
+ */
+export function planPosition(pos: Position, plan: Pick<TradePlan, 'at'>, d: Data, s: Settings, whole: PositionCalc = computePosition(pos, d, s)): PlanPosition {
+  if (!sharesPosition(pos, plan)) return { c: whole, whole, shared: false, held: 0, heldSold: 0 };
+  const from = ts(plan.at);
+  let held = 0;
+  for (const p of whole.series) { if (p.t < from) held = p.stock; else break; }
+  const c = computePosition(planView(pos, plan, d.txs, held), d, s);
+  const traded = whole.buys.some((x) => x.t < from) || whole.sells.some((x) => x.t < from);
+  return { c, whole, shared: traded, held, heldSold: c.heldSold };
 }
 
 /**

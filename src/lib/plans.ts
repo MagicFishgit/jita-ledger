@@ -6,7 +6,7 @@
  * positions for the items in one go, maybe even group them" (29 September 2026). Pure.
  */
 import { JITA_44 } from './constants';
-import type { Order, Position } from './types';
+import type { Order, Position, Tx } from './types';
 
 export type PlanItem = {
   typeId: number;
@@ -145,6 +145,29 @@ export function newPlan(
   return {
     id: o.id, name: o.name, at: o.at, isk: o.deployed, horizonDays: o.horizonDays, patient: o.patient,
     items: rows.map((a) => ({ typeId: a.p.typeId, buyAt: a.p.buy, units: a.units, sellAt: a.p.sell, positionId: positionFor(a.p.typeId) })),
+  };
+}
+
+/** A position open before the plan started: a plan takes the one already open on an item (`newPlan`), trading and all. */
+export const sharesPosition = (pos: Pick<Position, 'openedAt'>, plan: Pick<TradePlan, 'at'>): boolean => Date.parse(pos.openedAt) < Date.parse(plan.at);
+
+/**
+ * A position as a plan sees it: from the plan's start, when the position was open before it (`sharesPosition`), else the
+ * position itself. Starting a plan takes the open position an item already has, and the user's second plan (2 October
+ * 2026) showed Datacore - Rocket Science's 9,372 sales since 24 September as its own, its bid of 188 placed and nothing
+ * of it filled. One position per item stays the rule, so the plan gets a view rather than a position of its own: opened
+ * at the plan's start, with only the trades counted by hand from then (`included`, and the ones typed in, through
+ * `view`), and the `held` units the position had at that moment marked as the earlier trading's, which sell first and
+ * are none of the plan's (the user: each plan "its own contained thing"). `held` is the whole position's stock just
+ * before the plan (`planPosition` in positions.ts works it out). Never stored.
+ */
+export function planView(pos: Position, plan: Pick<TradePlan, 'at'>, txs: Record<string, Pick<Tx, 'date'>>, held = 0): Position {
+  if (!sharesPosition(pos, plan)) return pos;
+  const from = Date.parse(plan.at);
+  return {
+    ...pos, openedAt: plan.at,
+    included: pos.included.filter((id) => { const t = txs[id]; return !!t && Date.parse(t.date) >= from; }),
+    view: { held: Math.max(0, held) },
   };
 }
 

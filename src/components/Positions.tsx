@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { GitPullRequestArrow, Hourglass, Inbox, Layers, Lock, Play, Plus, RefreshCw, TrendingDown } from 'lucide-react';
-import { computePosition, finishedPosition } from '../lib/positions';
-import { ago, isk, iskBig, iskBigSigned, pct, units, until } from '../lib/format';
+import { GitBranch, GitPullRequestArrow, Hourglass, Inbox, Layers, Lock, Play, Plus, RefreshCw, TrendingDown } from 'lucide-react';
+import { computePosition, finishedPosition, planPosition, type PlanPosition } from '../lib/positions';
+import { ago, fmtDateTime, fmtShort, isk, iskBig, iskBigSigned, pct, units, until } from '../lib/format';
 import { useData } from '../lib/store';
 import { syncCharacter, useSyncState } from '../lib/sync';
 import { breakEvenSpread, effectiveSkills, orderSlots, rates } from '../lib/fees';
@@ -47,8 +47,18 @@ export function Positions() {
   const openTypes = useMemo(() => [...new Set(d.positions.filter((p) => p.status === 'open').map((p) => p.typeId))], [d.positions]);
   useEffect(() => { if (openTypes.length) readSignals(openTypes).catch(() => undefined); }, [openTypes]);
 
-  const inPlan = planShown ? new Set(d.plans.find((x) => x.id === planShown)?.items.map((i) => i.positionId) ?? []) : null;
+  const plan = planShown ? d.plans.find((x) => x.id === planShown) ?? null : null;
+  const inPlan = planShown ? new Set(plan?.items.map((i) => i.positionId) ?? []) : null;
   const shown = all.filter(({ p }) => (inPlan ? inPlan.has(p.id) : filter === 'all' || p.status === filter));
+  // One plan's positions as the plan counts them: one it took over from earlier trading only from the plan's start
+  // (planView in lib/plans.ts). The unfiltered list, the tiles and each row's status stay the whole positions'.
+  const views = useMemo(() => {
+    if (!plan) return null;
+    const ids = new Set(plan.items.map((i) => i.positionId));
+    const m = new Map<string, PlanPosition>();
+    for (const { p, c } of all) if (ids.has(p.id)) m.set(p.id, planPosition(p, plan, d, d.settings, c));
+    return m;
+  }, [plan, all]); // eslint-disable-line react-hooks/exhaustive-deps
   const realized = all.reduce((s, x) => s + x.c.realized, 0);
   const atCost = all.reduce((s, x) => s + x.c.costOfStock, 0);
   const openN = all.filter((x) => x.p.status === 'open').length;
@@ -146,8 +156,11 @@ export function Positions() {
                 </tr>
               </thead>
               <tbody>
-                {shown.map(({ p, c }) => {
+                {shown.map(({ p, c: whole }) => {
                   const name = nameOf(p.typeId);
+                  const pv = views?.get(p.id);
+                  // The figures: the plan's view of it when one plan's positions are shown, else the whole position.
+                  const c = pv?.c ?? whole;
                   const nm = nearMisses(p, txs, d.positions, done, JITA_44);
                   const s = sig.signals[p.typeId]?.stats;
                   const range = s?.range7;
@@ -161,6 +174,15 @@ export function Positions() {
                           <ItemIcon id={p.typeId} />
                           <span style={{ minWidth: 0 }}>
                             <a href={`#/positions/${p.id}`} className="name ellipsis" style={{ display: 'block', color: 'var(--ink)' }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigate(`positions/${p.id}`); }}>{name}</a>
+                            {pv?.shared && plan && (
+                              <span className="near" tabIndex={0} style={{ color: 'var(--acc)' }} data-tip-title="Shared with your earlier trading"
+                                data-tip={`This position was open before the plan, trading since ${fmtShort(p.openedAt)}, and the plan follows it. The figures here count from the plan’s start, ${fmtDateTime(plan.at)}.\n\n`
+                                  + `• ${pv.held > 0 ? `The ${units(pv.held)} it held then are your earlier trading’s: they sell first, and none of them is the plan’s${pv.heldSold > 0 ? `. ${units(pv.heldSold)} of them ${pv.heldSold === 1 ? 'has' : 'have'} sold since` : ''}.` : 'It held nothing then: what it buys and sells since is the plan’s.'}\n`
+                                  + `${c.oversold > 0 ? `• ${units(c.oversold)} sold beyond those and beyond what the plan bought: left out of the plan’s profit, not given a cost.\n` : ''}`
+                                  + '• Open it for the whole position; the list shows it whole when no plan is picked.'}>
+                                <GitBranch aria-hidden="true" />Shared since {fmtShort(p.openedAt)}: counted from the plan’s start
+                              </span>
+                            )}
                             {nm.length > 0 && (
                               <span className="near" tabIndex={0} data-tip-title="Trades this position skipped"
                                 data-tip={`${nearSummary(nm, p)} Open the position to review, count or ignore them.`}>
@@ -172,14 +194,14 @@ export function Positions() {
                         </span>
                       </td>
                       <td className="l">
-                        {finishedPosition(p, c, orderList) ? (
+                        {finishedPosition(p, whole, orderList) ? (
                           <span className="status-tag" tabIndex={0} style={cssVars({ '--c': 'var(--acc2)' })} data-tip-title="Finished"
                             data-tip={'Nothing left in stock and no order open on it: it sold out, or you backed out of it.\n\nOpen it and close it to lock in the result, fees included. Deleting it would drop them from Results.'}>Finished</span>
                         ) : (
                           <span className="status-tag" style={cssVars({ '--c': p.status === 'open' ? 'var(--acc)' : 'var(--label)' })}>{p.status === 'open' ? 'Open' : 'Closed'}</span>
                         )}
                       </td>
-                      <td style={{ color: 'var(--dim)' }}>{fmtD(p.openedAt)}</td>
+                      <td style={{ color: 'var(--dim)' }}>{fmtD(pv && pv.c !== whole && plan ? plan.at : p.openedAt)}</td>
                       <td>{units(c.bought)}</td>
                       <td>{units(c.sold)}</td>
                       <td>{units(c.stock)}</td>

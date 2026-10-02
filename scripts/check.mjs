@@ -1270,6 +1270,78 @@ eq('  with slots to spare, best return per day first as before', [plan2.ranked, 
     ['Placed: 50,000 at 7.', null, false]);
 }
 
+console.log('\n--- a plan counts a position it shares from its own start ---');
+{
+  // Datacore - Rocket Science (2 October 2026): its position open since 24 September, 12,000 bought and 9,372 sold for
+  // 876,418,400 before the plan, 2,628 still listed at 96,980 by a sell order placed on 1 October. The plan (15:36:31.972)
+  // took that position for its bid of 188 at 85,540, and the Plans panel and the plan's positions showed those sales as
+  // the plan's. The user: each plan "its own contained thing", so the 2,628 held at the plan's start sell first and
+  // aren't the plan's at all.
+  const { computePosition, planPosition } = await import('../src/lib/positions.ts');
+  const { planView } = await import('../src/lib/plans.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const S = sanitizeSettings({ override: true, brokerPct: 1.3, taxPct: 3.375 });
+  const JITA = 60003760, RS = 20420, AT = '2026-10-02T15:36:31.972Z';
+  const tx = (id, isBuy, qty, price, date, extra = {}) => ({ id, source: 'esi', typeId: RS, date, isBuy, qty, unitPrice: price, locationId: JITA, ...extra });
+  const pos = { id: 'mug3pwlix67xqe', typeId: RS, openedAt: '2026-09-24T22:26:26.502Z', status: 'open', jitaOnly: true, excluded: [], included: [] };
+  const plan = { id: 'mur4lko4xsll6o', at: AT, items: [{ typeId: RS, buyAt: 85_540, units: 188, sellAt: 94_430, positionId: pos.id }] };
+  const sellSeen = [{ issued: '2026-10-01T10:58:01Z', price: 97_480, remain: 4924 }, { issued: '2026-10-02T14:03:55Z', price: 97_190, remain: 4628 }, { issued: '2026-10-02T15:19:38Z', price: 96_980, remain: 2628 }];
+  const before = {
+    b1: tx('b1', true, 12_000, 80_720, '2026-09-24T22:31:46Z'),
+    s1: tx('s1', false, 7076, 92_370, '2026-09-28T12:00:00Z'),
+    s2: tx('s2', false, 276, 97_480, '2026-10-01T12:50:51Z'), s3: tx('s3', false, 20, 97_190, '2026-10-02T14:04:33Z'), s4: tx('s4', false, 2000, 96_980, '2026-10-02T15:20:15Z'),
+  };
+  const sellOrder = (remain) => ({ orderId: 7434267823, typeId: RS, isBuy: false, price: 96_980, volumeTotal: 4924, volumeRemain: remain, issued: '2026-10-02T15:19:38Z', state: remain ? 'open' : 'expired', locationId: JITA, seen: sellSeen });
+  const buyOrder = (remain) => ({ orderId: 7435100906, typeId: RS, isBuy: true, price: 85_540, volumeTotal: 188, volumeRemain: remain, issued: '2026-10-02T15:48:23Z', state: remain ? 'open' : 'expired', locationId: JITA, seen: [{ issued: '2026-10-02T15:48:23Z', price: 85_540, remain: 188 }] });
+  const old = { 1: { orderId: 1, typeId: RS, isBuy: true, price: 80_720, volumeTotal: 12_000, volumeRemain: 0, issued: '2026-09-24T22:30:00Z', state: 'expired', locationId: JITA } };
+  const ledger = (txs, orders) => ({ txs, orders: { ...old, ...orders }, journal: {}, meta: {}, positions: [pos], plans: [plan] });
+  const cashOf = (c) => c.soldValue - c.boughtValue - c.brokerFees - c.salesTax;
+  const books = (c) => Math.round(cashOf(c) + c.costOfStock + c.prepaidFees - c.oversoldNet);
+
+  // As it stood at ~16:20: the plan's bid placed, nothing of it filled, nothing sold since.
+  const now = ledger(before, { 7434267823: sellOrder(2628), 7435100906: buyOrder(188) });
+  const whole0 = computePosition(pos, now, S);
+  eq('the whole position: 12,000 bought, 9,372 sold for 876,418,400, 2,628 held', [whole0.bought, whole0.sold, whole0.soldValue, whole0.stock], [12_000, 9372, 876_418_400, 2628]);
+  const v0 = planPosition(pos, plan, now, S);
+  eq('the plan’s view: shared, holding 2,628 of the earlier trading’s, nothing bought or sold, no profit',
+    [v0.shared, v0.held, v0.c.bought, v0.c.sold, v0.c.soldValue, v0.c.realized, v0.c.stock, v0.c.oversold], [true, 2628, 0, 0, 0, 0, 0, 0]);
+  eq('  the sell order listing the earlier stock is none of the plan’s: only its own bid’s fee, prepaid', Math.round(v0.c.prepaidFees), Math.round(0.013 * 85_540 * 188));
+  eq('  the view starts at the plan, the position doesn’t move', [planView(pos, plan, now.txs, 2628).openedAt, pos.openedAt], [AT, '2026-09-24T22:26:26.502Z']);
+
+  // Then the plan's 188 fill, the earlier stock sells 2,000, then 1,000 more: 628 of those are the last of the earlier
+  // stock, and the 372 beyond are the plan's sales, 188 against what it bought and 184 left out, with no cost guessed.
+  const after = { ...before, p1: tx('p1', true, 188, 85_540, '2026-10-02T18:00:00Z'), s5: tx('s5', false, 2000, 96_980, '2026-10-02T19:00:00Z'), s6: tx('s6', false, 1000, 96_980, '2026-10-03T09:00:00Z') };
+  const then = ledger(after, { 7434267823: sellOrder(0), 7435100906: buyOrder(0) });
+  const mid = ledger({ ...before, p1: after.p1, s5: after.s5 }, { 7434267823: sellOrder(628), 7435100906: buyOrder(0) });
+  const vMid = planPosition(pos, plan, mid, S);
+  eq('the plan’s 188 filled and 2,000 of the earlier stock sold: nothing of the plan’s sold', [vMid.c.bought, vMid.c.sold, vMid.c.stock, vMid.heldSold, Math.round(vMid.c.realized)],
+    [188, 0, 188, 2000, 0]);
+  const wholeBefore = JSON.stringify(computePosition(pos, then, S));
+  const v1 = planPosition(pos, plan, then, S);
+  eq('  1,000 more: 628 the earlier stock’s, 372 the plan’s, 184 of them beyond what it bought', [v1.heldSold, v1.c.sold, v1.c.soldValue, v1.c.oversold, v1.c.stock], [2628, 372, 372 * 96_980, 184, 0]);
+  const buyCost = 85_540 * 1.013;
+  const tax = 96_980 * 0.03375;
+  eq('  its profit is the 188 it bought, sold, less their own costs', Math.round(v1.c.realized), Math.round(188 * (96_980 - tax) - 188 * buyCost));
+  eq('  nothing lost in the view', books(v1.c), Math.round(v1.c.realized));
+  eq('  and the whole position is as it was: 12,188 bought, 12,372 sold', [JSON.stringify(computePosition(pos, then, S)) === wholeBefore, v1.whole.bought, v1.whole.sold], [true, 12_188, 12_372]);
+
+  // Trades counted by hand belong to the plan only from its start, ESI's or typed in.
+  const hand = { ...pos, included: ['a1', 'a2'] };
+  const typed = { ...then, positions: [hand], txs: { ...then.txs,
+    a1: tx('a1', true, 50, 80_000, '2026-09-30T10:00:00Z', { locationId: 60008494 }), a2: tx('a2', true, 10, 85_000, '2026-10-02T20:00:00Z', { locationId: 60008494 }),
+    m1: { id: 'm1', source: 'manual', typeId: RS, positionId: pos.id, date: '2026-09-20T12:00:00Z', isBuy: true, qty: 500, unitPrice: 70_000 },
+    m2: { id: 'm2', source: 'manual', typeId: RS, positionId: pos.id, date: '2026-10-02T12:00:00Z', isBuy: false, qty: 5, unitPrice: 96_000 },
+    m3: { id: 'm3', source: 'manual', typeId: RS, positionId: pos.id, date: '2026-10-03T12:00:00Z', isBuy: true, qty: 7, unitPrice: 86_000 } } };
+  const wHand = computePosition(hand, typed, S), vHand = planPosition(hand, plan, typed, S);
+  eq('by hand: the whole counts all of them, the plan only those since it started', [wHand.bought, vHand.c.bought], [12_000 + 188 + 50 + 10 + 500 + 7, 188 + 10 + 7]);
+  eq('  only those dated since are left in the view’s own list', planView(hand, plan, typed.txs).included, ['a2']);
+
+  // A position the plan opened is the plan's whole.
+  const own = { ...pos, id: 'own', openedAt: AT };
+  const vOwn = planPosition(own, plan, { ...then, positions: [own] }, S);
+  eq('a position opened by the plan isn’t shared, and is counted whole', [vOwn.shared, vOwn.held, planView(own, plan, then.txs) === own], [false, 0, true]);
+}
+
 console.log('\n--- the mining ledger ---');
 {
   const { readMining, miningKey, miningTicks, miningSnapshot, miningSessions } = await import('../src/lib/mining.ts');

@@ -99,6 +99,10 @@ State these rather than letting them be discovered:
   are the evidence.
 - **The token guard's history lags a market that moved over 10% within the fortnight**: falling, a real undercutter can
   read as a token. The share and day's-volume guards catch most (the Key's sell: 26 ahead against its pace).
+- **A plan's view of a position it shares is split by time, not by order** (positions-results). A bid placed before the
+  plan that fills after it counts as the plan's buying, and an older plan sharing a position with a newer one counts the
+  newer one's trading too: Clone Soldier Transporter Tag's position is the 30 September plan's, with its 4-unit bid still
+  open, and the 2 October plan's. Telling them apart would need each fill matched to its order, which ESI's trades don't say.
 - **An item whose book wasn't watched for a day carries no raises in the planner**, which flatters its return by about
   1% against a watched one.
 - **A freelance reward's tax, worked out without the journal's own, uses its corporation's rate now** (ESI keeps no past

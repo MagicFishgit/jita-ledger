@@ -92,6 +92,12 @@ export type Position = {
   excluded: string[];
   included: string[];
   note?: string;
+  /**
+   * Only on a plan's view of a position it shares with earlier trading (`planView` in plans.ts), never stored. The view
+   * opens at the plan's start; trades added by hand count from there too, sell orders placed before it aren't its, and
+   * the `held` units the position had then are the earlier trading's: they sell first, and none of it is the view's.
+   */
+  view?: { held: number };
 };
 
 export type BookLevel = { price: number; volume: number };

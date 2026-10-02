@@ -523,6 +523,81 @@ try {
     process.stdout.write(unique.length ? `  FAIL plan #orders\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (Keep it, the plan chip, a buy over its resale, a buy feeding a long queue), #todo (that buy) and #planner (the checklist)\n');
     await page.close();
   }
+  // A plan that took over a position with earlier trading (the user's second plan, 2 October 2026): Datacore - Rocket
+  // Science's position open for a week, 9,372 sold before the plan and 2,000 of the 2,628 it held sold since, the plan's bid
+  // of 188 not filled. Showing the plan's positions must count it from the plan's start (nothing bought or sold, nothing
+  // left out) and say it's shared; the list without a plan shows it whole. Every request outside this server is refused.
+  if (SHOWN.includes('positions') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('plan'))) {
+    const JITA = 60003760, RS = 20420, INF = 31866, DAY_MS = 86400_000;
+    const planAt = Date.now() - 3600_000, iso = (t) => new Date(t).toISOString();
+    const tx = (id, typeId, isBuy, qty, price, t) => ({ id, source: 'esi', typeId, date: iso(t), isBuy, qty, unitPrice: price, locationId: JITA });
+    const ledger = {
+      settings: { acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, tycoon: 0, clone: 'omega', faction: 3.6289558729999998, corp: 7.039647095, taxBase: 7.5, target: 5, share: 7.5, waitHours: 3 },
+      plans: [{ id: 'mur4lko4xsll6o', name: '2 Oct · 999.16 M ISK in 33 items', at: iso(planAt), isk: 999156436.25, horizonDays: 0.5, patient: true,
+        items: [{ typeId: RS, buyAt: 85_540, units: 188, sellAt: 94_430, positionId: 'rs' }, { typeId: INF, buyAt: 1_658_000, units: 11, sellAt: 1_836_000, positionId: 'inf' }] }],
+      positions: [{ id: 'rs', typeId: RS, openedAt: iso(planAt - 8 * DAY_MS), status: 'open', jitaOnly: true, excluded: [], included: [] },
+        { id: 'inf', typeId: INF, openedAt: iso(planAt), status: 'open', jitaOnly: true, excluded: [], included: [] }],
+      txs: {
+        b1: tx('b1', RS, true, 12_000, 80_720, planAt - 8 * DAY_MS + 300_000),
+        s1: tx('s1', RS, false, 9372, 93_516, planAt - 2 * DAY_MS),
+        s2: tx('s2', RS, false, 2000, 96_980, planAt + 1_200_000),
+      },
+      orders: {
+        7434267823: { orderId: 7434267823, typeId: RS, isBuy: false, price: 96_980, volumeTotal: 4924, volumeRemain: 628, issued: iso(planAt - 1.2 * DAY_MS), state: 'open', locationId: JITA },
+        7435100906: { orderId: 7435100906, typeId: RS, isBuy: true, price: 85_540, volumeTotal: 188, volumeRemain: 188, issued: iso(planAt + 720_000), state: 'open', locationId: JITA },
+      },
+      names: { [RS]: 'Datacore - Rocket Science', [INF]: 'Imperial Navy Infiltrator' },
+      meta: { walletBalance: 1e9, lastSync: iso(Date.now() - 600_000) },
+    };
+    const page = await browser.newPage(VIEW);
+    await page.route('**/*', (route) => (route.request().url().startsWith(`http://localhost:${PORT}/`) ? route.continue() : route.abort()));
+    const problems = [];
+    page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
+    page.on('console', (m) => { if (m.type() === 'error' && /^Warning: /.test(m.text())) problems.push(`React: ${m.text().split('\n')[0].replace(/%s/g, '').slice(0, 160)}`); });
+    await page.goto(SEED_PAGE);
+    await page.evaluate(async ([d, auth]) => {
+      localStorage.clear(); sessionStorage.clear();
+      localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
+      for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', {}], ['jita-ledger-alts', {}]]) {
+        const h = await new Promise((res) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+        if (!h.objectStoreNames.contains('kv')) { h.close(); continue; }
+        await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
+        h.close();
+      }
+    }, [ledger, ownerAuth()]);
+    await page.goto(`${BASE}#positions`);
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    await page.waitForTimeout(1000);
+    const cells = async () => page.evaluate(() => {
+      const tr = [...document.querySelectorAll('.page table tbody tr')].find((r) => r.textContent.includes('Datacore - Rocket Science'));
+      return tr ? [...tr.children].map((td) => td.innerText.replace(/\s+/g, ' ').trim()) : null;
+    });
+    const whole = await cells();
+    if (!whole || whole[4] !== '11,372') problems.push(`the list without a plan doesn't show the whole position's 11,372 sold (${JSON.stringify(whole?.slice(3, 6))})`);
+    const plans = (await page.locator('section[aria-label="Plans"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!plans.includes('1 shared with earlier trading, counted from the plan’s start')) problems.push(`not drawn: the Plans panel's “1 shared with earlier trading” (${plans.slice(0, 160)})`);
+    if (plans.includes('left out of the profit')) problems.push('the Plans panel says units were left out: the earlier stock’s sales aren’t the plan’s at all');
+    await page.getByRole('button', { name: 'Show its positions' }).click().catch((e) => problems.push(`couldn't show the plan's positions: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(600);
+    const view = await cells();
+    if (!view || view[3] !== '0' || view[4] !== '0') problems.push(`the plan's view of the shared position isn't counted from its start: bought, sold ${JSON.stringify(view?.slice(3, 5))}`);
+    const tag = page.locator('.page table tbody tr', { hasText: 'Datacore - Rocket Science' }).locator('[data-tip-title="Shared with your earlier trading"]');
+    if (!(await tag.count())) problems.push('not drawn: no “Shared since” tag on the shared position');
+    else {
+      const tip = (await tag.getAttribute('data-tip')) ?? '';
+      for (const want of ['The 2,628 it held then are your earlier trading’s', '2,000 of them have sold since', 'Open it for the whole position']) if (!tip.includes(want)) problems.push(`not drawn: the Shared tag's “${want}”`);
+    }
+    if (await page.locator('.page table tbody tr', { hasText: 'Imperial Navy Infiltrator' }).locator('[data-tip-title="Shared with your earlier trading"]').count()) problems.push('the position the plan opened says it is shared');
+    const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary on Positions');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on Positions: ${o}`);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-plan-shared-positions.png` });
+    checked++;
+    const unique = [...new Set(problems)];
+    if (unique.length) failures.push({ ledger: 'plan shared', page: 'positions', problems: unique });
+    process.stdout.write(unique.length ? `  FAIL plan shared #positions\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan shared #positions (a position the plan took over, counted from its start)\n');
+    await page.close();
+  }
   // Every freelance job you did (the user's six, 1 October 2026), rebuilt as a browser that never saw them does: only the
   // journal's rewards and the ore bought are seeded, ESI answers the jobs' public details and the ore groups from the
   // fixture, and one reward names a job ESI won't describe (404). The corporations you were in are not seeded: the tab
