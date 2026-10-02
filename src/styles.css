@@ -963,7 +963,7 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .scope-row code { display: block; font-family: var(--f-mono); font-size: 11px; color: var(--faint); margin-top: 2px; overflow-wrap: anywhere; }
 
 /* hustles */
-.htabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; }
+.htabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 172px), 1fr)); gap: 10px; }
 .htab { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; align-items: center; padding: 12px 14px; background: rgba(2, 7, 12, .45); border: 1px solid var(--line); text-align: left; color: var(--dim); }
 .htab svg { width: 20px; height: 20px; color: #8a9fb3; }
 .htab .hl { font-family: var(--f-head); font-weight: 600; font-size: 14px; letter-spacing: .1em; text-transform: uppercase; }

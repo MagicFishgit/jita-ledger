@@ -191,7 +191,17 @@ export const startLevel = (corps: CorpReach[]): 0 | 1 | 2 | 3 | 4 => corps.reduc
  */
 export function listedAgents(ranked: RankedAgent[], corps: CorpReach[]): RankedAgent[] {
   const open = new Map(corps.map((c) => [c.corp, c.open]));
-  return ranked.filter((r) => r.open || r.agent.level <= (open.get(r.agent.corp) ?? 0) + 1);
+  return ranked.filter((r) => r.open || r.agent.level <= (open.get(r.agent.corp) ?? 0) + 1).sort(byPayThenNear);
+}
+
+/**
+ * Open before closed, priced before unpriced, more ISK a day, more RP a day, then the nearer (one off a high-sec route
+ * last); else as ranked (the sort is stable). rankAgents breaks ties by agent ID, which put a 37-jump agent above an
+ * 8-jump one paying the same.
+ */
+export function byPayThenNear(a: RankedAgent, b: RankedAgent): number {
+  return Number(b.open) - Number(a.open) || Number(b.iskDay != null) - Number(a.iskDay != null) || (b.iskDay ?? 0) - (a.iskDay ?? 0)
+    || b.rpDay - a.rpDay || (a.jumps ?? Infinity) - (b.jumps ?? Infinity);
 }
 
 /**
@@ -203,15 +213,7 @@ export function listedAgents(ranked: RankedAgent[], corps: CorpReach[]): RankedA
 export function pickDefault(ranked: RankedAgent[]): RankedAgent | null {
   const open = ranked.filter((r) => r.open);
   const onRoute = open.filter((r) => r.jumps != null);
-  const pool = onRoute.length ? onRoute : open;
-  let best: RankedAgent | null = null;
-  for (const r of pool) {
-    if (!best) { best = r; continue; }
-    const priced = Number(r.iskDay != null) - Number(best.iskDay != null);
-    const d = priced || (r.iskDay ?? 0) - (best.iskDay ?? 0) || r.rpDay - best.rpDay || (best.jumps ?? Infinity) - (r.jumps ?? Infinity);
-    if (d > 0) best = r;
-  }
-  return best;
+  return [...(onRoute.length ? onRoute : open)].sort(byPayThenNear)[0] ?? null;
 }
 
 /** How many agents Research Project Management V lets one character run: one, and one more a level. */

@@ -1,18 +1,19 @@
-import { Briefcase, ChartLine, Globe, Pickaxe, Tornado, Truck } from 'lucide-react';
+import { Briefcase, ChartLine, FlaskConical, Globe, Pickaxe, Tornado, Truck } from 'lucide-react';
 import { navigate, type Route } from '../lib/hooks';
 import { Abyssal } from './hustles/Abyssal';
 import { Courier } from './hustles/Courier';
 import { Planets } from './hustles/Planets';
 import { Mining } from './hustles/Mining';
 import { Freelance } from './hustles/Freelance';
+import { Research } from './hustles/Research';
 import { Guide, PageHead } from './ui';
 
 /**
  * Things to do with the hours between relists.
  *
  * Each one earns in a different currency of effort: abyssals want your attention, hauling wants a
- * safe route and a big hold, planets want nothing at all once they are running, and mining wants your time in a
- * belt and pays in ore.
+ * safe route and a big hold, planets want nothing at all once they are running, mining wants your time in a
+ * belt and pays in ore, and research agents, once started in person, want nothing at all and pay in datacores.
  */
 const TABS = [
   { key: 'abyssal', label: 'Abyssal', blurb: 'Filament costs and what your runs have really paid', icon: Tornado },
@@ -20,6 +21,7 @@ const TABS = [
   { key: 'planets', label: 'Planets', blurb: 'Where to put PI, and what it would bring in', icon: Globe },
   { key: 'mining', label: 'Mining', blurb: 'What you mined, your ISK an hour, and the next step up', icon: Pickaxe },
   { key: 'freelance', label: 'Freelance', blurb: 'Jobs paying more for an item than Jita sells it for', icon: Briefcase },
+  { key: 'research', label: 'Research', blurb: 'Agents that make datacores while you trade', icon: FlaskConical },
 ] as const;
 
 type Key = (typeof TABS)[number]['key'];
@@ -44,7 +46,7 @@ export function SideHustles({ route }: { route: Route }) {
         ))}
       </nav>
       <section className="panel" data-rv="" key={sub} style={{ padding: '18px 20px', gap: 16, animation: 'rise .38s cubic-bezier(.2,.8,.2,1)' }}>
-        {sub === 'abyssal' ? <Abyssal /> : sub === 'courier' ? <Courier /> : sub === 'planets' ? <Planets /> : sub === 'freelance' ? <Freelance /> : <Mining />}
+        {sub === 'abyssal' ? <Abyssal /> : sub === 'courier' ? <Courier /> : sub === 'planets' ? <Planets /> : sub === 'freelance' ? <Freelance /> : sub === 'research' ? <Research /> : <Mining />}
       </section>
       <Guide
         title="How to use Side hustles"
@@ -55,6 +57,7 @@ export function SideHustles({ route }: { route: Route }) {
           { icon: Globe, title: 'Planets', body: 'Work down the steps. Choosing a system adds its tax, trip home and how many colonies fit.' },
           { icon: Pickaxe, title: 'Mining', body: 'Mine, and the cloud times your sessions. The ladder says what the next ship costs and how many hours of mining pay for it.' },
           { icon: Briefcase, title: 'Freelance', body: 'Buy in Jita what a job pays more for, haul it, deliver it. Accept the job in game first.' },
+          { icon: FlaskConical, title: 'Research', body: 'Train, reach an R&D agent, start it in person, then leave it: its points buy datacores whenever you pass.' },
         ]}
         habits={[{ icon: ChartLine, title: 'Compare in Results', body: 'Results shows each hustle’s ISK per hour next to trading.' }]}
       />

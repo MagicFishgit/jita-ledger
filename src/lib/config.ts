@@ -100,8 +100,8 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
   },
   'esi-characters.read_standings.v1': {
     label: 'Standings',
-    unlocks: 'The standings part of your broker fee, which is worth real ISK at Jita.',
-    without: 'Broker fee is estimated slightly high.',
+    unlocks: 'The standings part of your broker fee, which is worth real ISK at Jita, and which R&D agents the Research tab says you can use.',
+    without: 'Broker fee is estimated slightly high, and the Research tab can’t say which agents open to you.',
   },
   'esi-ui.open_window.v1': {
     label: 'Open a window in your client',

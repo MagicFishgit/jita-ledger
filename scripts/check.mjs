@@ -5193,7 +5193,7 @@ console.log('\n--- which characters are yours ---');
   // Alt data reaches a page only on purpose: a page that starts reading the alt store is added here in the commit that makes it.
   const walk = (dir) => fs2.readdirSync(new URL(dir, import.meta.url), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${dir}${e.name}/`) : /\.(ts|tsx)$/.test(e.name) ? [`${dir}${e.name}`] : []));
   const users = walk('../src/').filter((p) => /(from\s*|import\s*\(\s*)['"][^'"]*\/altStore['"]/.test(src(p))).map((p) => p.replace('../src/', '')).sort();
-  eq('  and only the shell, the Characters page, the Mining tab, the Wallet and To do read the alt store', users, ['App.tsx', 'components/Characters.tsx', 'components/Todo.tsx', 'components/Wallet.tsx', 'components/hustles/Mining.tsx']);
+  eq('  and only the shell, the Characters page, the Mining and Research tabs, the Wallet and To do read the alt store', users, ['App.tsx', 'components/Characters.tsx', 'components/Todo.tsx', 'components/Wallet.tsx', 'components/hustles/Mining.tsx', 'components/hustles/Research.tsx']);
   eq('  an alt with nothing read yet: nothing, not zeros', R.altFacts(R.emptyAlt(), NOW2), { wallet: null, walletAt: null, netWorth: null, clone: 'unknown', cloneSince: null, training: null, queueEnds: null, queueKnown: false, totalSp: null });
   const readEmpty = R.altFacts({ rev: 1, records: {}, docs: { meta: { skillQueue: [] } } }, NOW2);
   eq('    an alt whose queue was read empty: known, and "Nothing in the queue"', [readEmpty.training, readEmpty.queueKnown, R.idleQueueSaid(readEmpty)], [null, true, 'Nothing in the queue']);
@@ -5961,6 +5961,9 @@ console.log('\n--- R&D agents: the Research tab, getting started ---');
   eq('the main\'s default pick: a Lai Dai level 2 agent in Electronic Engineering, the nearer of two (Shitsu Ashoma, Friggi, 8 jumps), 50.4 RP a day',
     [pick.agent.name, pick.agent.corp, pick.agent.level, pick.field, pick.jumps, r2(pick.rpDay)], ['Shitsu Ashoma', 1000020, 2, 11453, 8, 50.4]);
   const row = (id, open, iskDay, rpDay, jumps) => ({ agent: { id, level: 2 }, field: 11453, datacore: 20418, open, rpDay, iskDay, jumps });
+  eq('  and step 3\'s table starts with it: equal pay sorted nearest first, one off a high-sec route last (rankAgents ties by agent ID)',
+    [listed.filter((r) => r.jumps != null)[0] === pick, listed.slice(0, 5).map((r) => [r.agent.name, r.jumps])],
+    [true, [['Shitsu Ashoma', 8], ['Okila Tsurvalen', 9], ['Orulen Arala', 37], ['Versanen Osoni', null], ['Paara Nikkaken', null]]]);
   eq('  a closed agent is never the pick, however it pays; one off a high-sec route only when nothing else is open',
     [S.pickDefault([row(1, false, 9e5, 90, 1), row(2, true, 1e5, 50, null), row(3, true, 5e4, 40, 12)])?.agent.id,
       S.pickDefault([row(1, false, 9e5, 90, 1), row(2, true, 1e5, 50, null)])?.agent.id, S.pickDefault([row(1, false, 9e5, 90, 1)])], [3, 2, null]);

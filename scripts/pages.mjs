@@ -23,7 +23,7 @@ import { small, large, ALTS, altStoreOf, charsOf, ownerAuth, strangerAuth, withT
 const PAGES = [
   'wallet', 'todo', 'calculator', 'calculator?type=34', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'reprocess',
   'positions', 'positions/{first}', 'orders', 'loot', 'blueprints', 'results', 'loyalty',
-  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/mining', 'hustles/freelance', 'combat', 'characters', 'omega',
+  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/mining', 'hustles/freelance', 'hustles/research', 'combat', 'characters', 'omega',
   'settings/account', 'settings/skills', 'settings/rates', 'settings/alerts', 'settings/appearance', 'settings/data', 'settings/scan',
 ];
 
@@ -850,6 +850,116 @@ try {
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'freelance', page: 'hustles/freelance', problems: unique });
     process.stdout.write(unique.length ? `  FAIL freelance #hustles/freelance\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   freelance #hustles/freelance (every job you did, rebuilt from the journal)\n');
+    await page.close();
+  }
+  // The Research tab's walkthrough (stage 1 of R&D agents, 3 October 2026) for the main with its standings read as the
+  // research found them (Caldari State 3.63, Lai Dai at no standing) and its skills as a trader's (Science V, CPU
+  // Management V, Electronic Engineering IV, Negotiation and Connections IV), ESI answering the 17 datacores' Jita books
+  // (the research's bids of 2 October 2026) and a year of The Forge's history; then shown for an alt whose standings the
+  // cloud hasn't read yet. Without this the deploy draws only the walkthrough with every book refused and no standings.
+  // Seeded in a ledger of its own: never the shared large one, which check-income records. Both widths.
+  if (SHOWN.includes('hustles/research') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('research'))) {
+    const now = Date.now(), iso = (t) => new Date(t).toISOString();
+    const BID = { 20418: 92700, 20416: 92610, 20411: 92360, 20413: 91950, 20420: 88170, 20414: 88070, 25887: 88010, 20412: 88010, 20417: 88000,
+      20171: 87050, 20415: 87000, 20423: 86100, 20419: 85630, 20421: 81590, 20410: 80010, 20172: 52370, 20424: 25060 };
+    const ledger = {
+      skills: { 3402: 5, 3426: 5, 3413: 5, 3392: 5, 11453: 4, 3356: 4, 3359: 4, 3355: 4 },
+      meta: {
+        lastSync: iso(now - 600_000), cloneDetected: 'omega',
+        attributes: { intelligence: 24, memory: 24, perception: 20, willpower: 20, charisma: 23 },
+        standings: { at: iso(now - 600_000), list: [{ id: 500001, type: 'faction', standing: 3.63 }, { id: 1000035, type: 'npc_corp', standing: 7.04 }] },
+      },
+    };
+    // An alt the cloud has read (skills, queue) but not yet its standings: the first hourly read after the Worker deploys.
+    const ALT = 900077, ok = (job, ago) => ({ job, lastRun: now - ago, lastOk: now - ago, lastError: null });
+    const altEntry = { charId: ALT, name: 'Research Alt', addedAt: now - 5 * 86400_000, scopes: ['esi-characters.read_standings.v1', 'esi-skills.read_skills.v1'],
+      at: now - 3600_000, refusedAt: null, refused: null, rev: 2, ship: null, shipAt: null, jobs: [ok('archive', 1800_000), ok('sheet', 1700_000)] };
+    const altSaved = { rev: 2, addedAt: altEntry.addedAt, records: {}, docs: { skills: { 3402: 4, 3392: 3 }, meta: { cloneDetected: 'omega', attributes: { intelligence: 20, memory: 20, perception: 20, willpower: 20, charisma: 19 } } } };
+    const altStore = { roster: { at: now - 60_000, list: [altEntry] }, [`alt:${ALT}`]: altSaved };
+    const page = await browser.newPage(VIEW);
+    let esiAsked = 0;
+    await page.route('**/*', (route) => {
+      const req = route.request();
+      const url = new URL(req.url());
+      if (req.url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
+      if (url.hostname !== 'esi.evetech.net') return route.abort();
+      esiAsked++;
+      const json = (body, headers = {}) => route.fulfill({ status: 200, contentType: 'application/json', headers: { expires: new Date(now + 300_000).toUTCString(), 'x-pages': '1', ...headers }, body: JSON.stringify(body) });
+      const type = Number(url.searchParams.get('type_id'));
+      if (url.pathname === '/markets/10000002/orders/') {
+        const bid = BID[type];
+        // A datacore's bids, deepest first, and a listing; a skillbook (anything else asked) one listing at 1.5 M.
+        return json(bid ? [
+          { order_id: type * 10 + 1, type_id: type, location_id: 60003760, is_buy_order: true, price: bid, volume_remain: 4000, volume_total: 5000, issued: iso(now - 86400_000), duration: 90, min_volume: 1, range: 'station' },
+          { order_id: type * 10 + 2, type_id: type, location_id: 60003760, is_buy_order: false, price: Math.round(bid * 1.05), volume_remain: 900, volume_total: 1000, issued: iso(now - 86400_000), duration: 90, min_volume: 1, range: 'region' },
+        ] : [{ order_id: type * 10 + 3, type_id: type, location_id: 60003760, is_buy_order: false, price: 1_500_000, volume_remain: 5, volume_total: 5, issued: iso(now - 86400_000), duration: 90, min_volume: 1, range: 'region' }]);
+      }
+      if (url.pathname === '/markets/10000002/history/' && BID[type]) {
+        // A year and a month of days, priced 10% higher a year ago, 20,000 units a day.
+        return json(Array.from({ length: 400 }, (_, i) => {
+          const avg = BID[type] * (1 + 0.1 * (i / 400));
+          return { date: iso(now - (i + 1) * 86400_000).slice(0, 10), average: Math.round(avg), highest: Math.round(avg * 1.02), lowest: Math.round(avg * 0.98), volume: 20000, order_count: 300 };
+        }));
+      }
+      if (url.pathname === '/universe/names/' && req.method() === 'POST') {
+        const ids = JSON.parse(req.postData() ?? '[]');
+        return json(ids.map((id) => ({ id, name: `Agent Station ${id}`, category: 'station' })));
+      }
+      return route.abort();
+    });
+    const problems = [];
+    page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
+    page.on('console', (m) => { if (m.type() === 'error' && /^Warning: /.test(m.text())) problems.push(`React: ${m.text().split('\n')[0].replace(/%s/g, '').slice(0, 160)}`); });
+    await page.goto(SEED_PAGE);
+    await page.evaluate(async ([d, auth, alts]) => {
+      localStorage.clear(); sessionStorage.clear();
+      localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
+      for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', {}], ['jita-ledger-alts', alts]]) {
+        const h = await new Promise((res) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+        if (!h.objectStoreNames.contains('kv')) { h.close(); continue; }
+        await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
+        h.close();
+      }
+    }, [ledger, ownerAuth(), altStore]);
+    await page.goto(`${BASE}#hustles/research`);
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    // The pick is the nearest of Lai Dai's level 2 agents in Electronic Engineering (scripts/check.mjs works it out from the
+    // bundle), priced once the books are in.
+    await page.waitForFunction(() => /Shitsu Ashoma/.test(document.querySelector('.page')?.textContent ?? '') && !/Pricing…/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 30_000 })
+      .catch(() => problems.push('the main’s walkthrough never settled on Shitsu Ashoma with every datacore priced'));
+    await page.waitForTimeout(500);
+    const text = async () => (await page.locator('.page').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    const mainText = await text();
+    // RP a day for a level 2 agent at Electronic Engineering IV, Negotiation IV, no standing with the agent: (1 + 40/100) × (4 + 2)².
+    for (const t of ['Steps 1 to 3 follow one pick: Shitsu Ashoma, level 2 Lai Dai Corporation, in Electronic Engineering', '50.4 RP a day',
+      'Start with a level 2 agent:', 'Ehu Vantoh']) if (!mainText.includes(t)) problems.push(`not drawn for the main: “${t}”`);
+    const laiDai = await page.locator('.step-card[aria-label^="Step 2"] tbody tr', { hasText: 'Lai Dai Corporation' }).first().evaluate((tr) => [...tr.children].map((td) => td.innerText.replace(/\s+/g, ' ').trim())).catch(() => null);
+    if (!laiDai) problems.push('not drawn: no Lai Dai row in step 2');
+    else {
+      if (!laiDai[1].startsWith('4.65')) problems.push(`Lai Dai's faction standing isn't Caldari State's 4.65 at Connections IV: ${laiDai[1]}`);
+      if (laiDai[2] !== 'no standing') problems.push(`Lai Dai's own standing doesn't read as no standing: ${laiDai[2]}`);
+      if (laiDai[3] !== 'Level 2') problems.push(`Lai Dai doesn't open level 2: ${laiDai[3]}`);
+      if (!laiDai[4].startsWith('Level 3: Lai Dai Corporation at 1.00 (it has none)')) problems.push(`Lai Dai's next level doesn't ask for 1.00 with none held: ${laiDai[4]}`);
+    }
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-research-main.png` });
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out for the main: ${o}`);
+    // Shown for the alt: its standings aren't read yet, so nothing may say "no standing" for it.
+    await page.locator('[role="group"][aria-label="Show for"] button', { hasText: 'Research Alt' }).click().catch((e) => problems.push(`couldn't show the alt: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(1500);
+    const altText = await text();
+    for (const t of ['Not read yet: Research Alt’s standings come with the cloud’s next hourly read.', 'Start with a level 1 agent:']) if (!altText.includes(t)) problems.push(`not drawn for the alt: “${t}”`);
+    const altSteps = (await page.locator('.step-card[aria-label^="Step 2"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (/no standing/.test(altText)) problems.push('the alt’s walkthrough says “no standing” for standings not read yet');
+    if (!altSteps.includes('Not read yet')) problems.push('the alt’s standings cells don’t say “Not read yet”');
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-research-alt.png` });
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out for the alt: ${o}`);
+    const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary');
+    if (!esiAsked) problems.push('ESI was never asked: the books weren’t read');
+    checked++;
+    const unique = [...new Set(problems)];
+    if (unique.length) failures.push({ ledger: 'research', page: 'hustles/research', problems: unique });
+    process.stdout.write(unique.length ? `  FAIL research #hustles/research\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   research #hustles/research (the main’s walkthrough priced, Lai Dai at no standing; an alt whose standings aren’t read)\n');
     await page.close();
   }
   // The Sniper with finds (2 October 2026: blueprints out unless asked, and Copy for Multibuy). The cloud answers its

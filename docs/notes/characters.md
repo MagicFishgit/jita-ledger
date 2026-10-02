@@ -27,12 +27,14 @@ logins are in characters-cloud.md, mining across characters in mining.md (split 
   a fresh copy, decided before a matching revision is skipped. A copy stored before `addedAt` was kept is kept, not
   pulled again, and takes the roster's at once.
 - **What keeps an alt's rows out of the ledger is that the alt store can't write to it.** From `store.ts` it imports
-  `mergeChars`, `dataGeneration` and `onClearAll`, never `update`; and only `App.tsx`, `Characters.tsx`, `hustles/Mining.tsx`, `Todo.tsx` and `Wallet.tsx` import the
+  `mergeChars`, `dataGeneration` and `onClearAll`, never `update`; and only `App.tsx`, `Characters.tsx`, `hustles/Mining.tsx`, `hustles/Research.tsx`, `Todo.tsx` and `Wallet.tsx` import the
   alt store (To do joined in stage 4 to list an alt whose cloud login is refused or missing, one item per alt keyed
   `cloudLogin:alt:<id>`, whose button opens the Characters page and never hands over the main's or the sender's login; it
   ticks off only on a roster read of this session newer than the one that showed it (`judgeAltLogin`), working again or no
   longer listed. Settings reads `chars` instead, for "Delete all data" saying the alts' copy here goes too: no new importer. Mining joined in stage 3: it shows each character's mining; it calls `useAlts()` and hands the value to
-  `useMiningFleet` in `miningFleet.ts`, which doesn't import the store itself. The Wallet joined in stage 4 for its
+  `useMiningFleet` in `miningFleet.ts`, which doesn't import the store itself. The Research tab joined with its stage 1
+  (3 October 2026) for its "Show for": the same way, `useAlts()` handed to `useResearchChars` in `researchChars.ts`, which
+  reads each alt's skills, standings and sales tax from its pulled copy and writes nothing. The Wallet joined in stage 4 for its
   "All characters" line beside the net worth: the main's total plus each alt's newest daily point, shown on the page
   inside `data-alts` and never added to `nwParts`, `nwTotal` or what the Wallet saves to `netWorth`; `check-income`'s
   isolation check leaves `[data-alts]` out of the Wallet's text and still compares the ledger. Its tip gives each alt's
