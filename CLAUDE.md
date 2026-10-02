@@ -6,7 +6,7 @@ Pages on every push to `main`; the Worker deploys from GitHub Actions too, when 
 
 Pages: Wallet (home), To do (was Tonight's run; `#tonight` still lands there), Calculator, Prospects (find items), Watchlist, Capital planner, Hub
 arbitrage, Sniper (mistake listings), Positions, Orders (which of mine are beaten), Results, Loyalty (spending LP), Side hustles
-(Abyssal / Hauling / Planets / Mining / Freelance), Combat, Characters (the alts the cloud reads), Omega, Settings (tabbed: `settings/<tab>`). Inbox is gone:
+(Abyssal / Hauling / Planets / Mining / Freelance / Research), Combat, Characters (the alts the cloud reads), Omega, Settings (tabbed: `settings/<tab>`). Inbox is gone:
 its job is the Wallet's "Trades no position tracks" table, and `#inbox` redirects to the Wallet.
 Planets is a four-step walkthrough and also reads your real colonies when the planets scope is granted.
 
@@ -164,6 +164,7 @@ answering in its area**:
 - `abyssal-hauling-combat.md`: Abyssal, Hauling, Combat.
 - `characters.md`: alts, and how they are kept apart from the main on the browser's side (the alt store, the Characters
   page, what each earned, transfers).
+- `research.md`: the Research tab, R&D agents (points a day, access, the agents bundle) and its walkthrough.
 - `characters-cloud.md`: the cloud's side of alts (whose login, whose data; the roster) and how a returning login is
   sorted out.
 

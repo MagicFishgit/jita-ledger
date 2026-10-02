@@ -70,7 +70,8 @@ Traps in the code, the tools and the browser that have cost time before.
   the type on its own: opening Hauling sent two or three requests for each of its 36 hulls (the tree's dogma, ShipTree's
   stats and skills, at the same moment). Now `cached` shares a lookup in flight and the type lookups share one read
   (`rawType`): 36 requests for 36 hulls, counted in a browser on 30 September 2026. Anything new that caches should do
-  the same.
+  the same: `shareInFlight` (`lib/inFlight.ts`, pure and tested) wraps a read so, and `regionHistory` is built on it
+  since the Research tab (3 October 2026), whose field picker and agents table read the same 17 histories at once.
 - **Probe ESI with the app's `X-Compatibility-Date` before writing a reader.** Without it a route can answer another
   shape: `/corporations/{id}/` gave `tax_rate`, which the app never receives (eve-facts.md), and every sync read no
   corporation until a later look caught it (1 October 2026).

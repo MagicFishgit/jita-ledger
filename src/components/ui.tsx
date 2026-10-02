@@ -335,9 +335,9 @@ export function SortThPair<K extends string>({ top, bottom, sort, onSort, left }
 }
 
 /** A plain header cell with an optional "i". */
-export function Th({ children, tip, left, title }: { children: ReactNode; tip?: string; left?: boolean; title?: string }) {
+export function Th({ children, tip, left, title, className }: { children: ReactNode; tip?: string; left?: boolean; title?: string; className?: string }) {
   return (
-    <th scope="col" className={left ? 'l' : undefined}>
+    <th scope="col" className={[left ? 'l' : '', className ?? ''].filter(Boolean).join(' ') || undefined}>
       <span className="th">{children}{tip && <Tip text={tip} title={title ?? (typeof children === 'string' ? children : undefined)} />}</span>
     </th>
   );

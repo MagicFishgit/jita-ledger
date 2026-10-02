@@ -38,7 +38,7 @@ export type Walk = {
 
 function Step({ n, title, children, done }: { n: number; title: string; children: ReactNode; done?: boolean }) {
   return (
-    <section className="step-card" aria-label={`Step ${n}: ${title}`}>
+    <section className="step-card rd-step" aria-label={`Step ${n}: ${title}`}>
       <span className="hexn" aria-hidden="true">{done ? '✓' : n}</span>
       <div className="st">{title}</div>
       <div className="col" style={{ gap: 12, minWidth: 0 }}>{children}</div>
@@ -180,7 +180,7 @@ export function ReachStep({ w }: { w: Walk }) {
   const rows = all ? w.corps : w.corps.slice(0, 5);
   return (
     <Step n={2} title="Reach the agents" done={c.standings.state === 'read' && start >= 2}>
-      {why && <Notice kind="warn">{why} Until then only level 1 agents, which take anyone, show as open.</Notice>}
+      {why && <Notice kind="warn">{why} Until then only level 1 agents, which take any standing over −2.00, show as open.</Notice>}
       <Points compact items={[
         c.standings.state === 'read'
           ? { kind: 'tip', lead: start ? `Start with a level ${start} agent:` : 'No R&D agent', text: start ? `the highest open to ${who(c)} now.` : `is open to ${who(c)} at these standings.` }
@@ -189,15 +189,15 @@ export function ReachStep({ w }: { w: Walk }) {
         { kind: 'info', lead: 'Standing rises', text: 'with missions for the corporation’s security and distribution agents, listed here where they’re open now.' },
       ]} />
       <div className="tbl-scroll" style={{ border: '1px solid var(--line-3)' }}>
-        <table className="tbl compact" style={{ minWidth: 860 }}>
+        <table className="tbl compact rd-table">
           <thead>
             <tr>
               <Th left tip="Each corporation with R&D agents (CCP’s static data), its faction, and how far its nearest agent is from Jita on a route that stays in high-sec. Its name’s tip counts its agents by level.">Corporation</Th>
-              <Th tip="Effective: the raw standing lifted by Connections (or Diplomacy, when negative). No standing stays none, whatever the skills.">Faction</Th>
-              <Th>Corporation</Th>
-              <Th>Open now</Th>
-              <Th left>Next level asks</Th>
-              <Th left tip="Its security and distribution agents open to this character now, best level first, then nearest. Their missions raise the corporation’s standing.">Raise it with</Th>
+              <Th className="rd-wide" tip="Effective: the raw standing lifted by Connections (or Diplomacy, when negative). No standing stays none, whatever the skills.">Faction</Th>
+              <Th className="rd-wide">Corporation</Th>
+              <Th className="rd-wide">Open now</Th>
+              <Th left className="rd-wide">Next level asks</Th>
+              <Th left className="rd-wide" tip="Its security and distribution agents open to this character now, best level first, then nearest. Their missions raise the corporation’s standing.">Raise it with</Th>
             </tr>
           </thead>
           <tbody>
@@ -206,12 +206,19 @@ export function ReachStep({ w }: { w: Walk }) {
               const nearest = r.nearest != null ? `${r.nearest} jumps` : 'no high-sec route';
               return (
                 <tr key={r.corp}>
-                  <td className="l"><span className="name" style={{ display: 'block' }} data-tip={`R&D agents at levels 1 to 4: ${r.byLevel[1]}, ${r.byLevel[2]}, ${r.byLevel[3]} and ${r.byLevel[4]}.`}>{w.name(r.corp)}</span><span className="sub">{w.name(r.faction)} · nearest {nearest}</span></td>
-                  <td><span data-tip={f.tip}>{f.text}</span>{f.sub && <span className="sub">{f.sub}</span>}</td>
-                  <td><span data-tip={co.tip}>{co.text}</span>{co.sub && <span className="sub">{co.sub}</span>}</td>
-                  <td>{r.open ? `Level ${r.open}` : <span className="faint">None</span>}</td>
-                  <td className="l wrap" style={{ minWidth: 180 }}>{r.next ? nextSaid(w, r) : <span className="faint">Every level is open</span>}</td>
-                  <td className="l wrap" style={{ minWidth: 180 }}>
+                  <td className="l rd-main">
+                    <span className="name" style={{ display: 'block' }} data-tip={`R&D agents at levels 1 to 4: ${r.byLevel[1]}, ${r.byLevel[2]}, ${r.byLevel[3]} and ${r.byLevel[4]}.`}>{w.name(r.corp)}</span><span className="sub">{w.name(r.faction)} · nearest {nearest}</span>
+                    <span className="rd-phone">
+                      <span>{w.name(r.faction)}: <b>{f.text}</b>{f.sub ? ` (${f.sub})` : ''} · corporation: <b>{co.text}</b>{co.sub ? ` (${co.sub})` : ''}</span>
+                      <span>{r.open ? <b>Level {r.open} open now</b> : 'Nothing open now'}{r.next ? `. ${nextSaid(w, r)}` : ''}</span>
+                      {r.helpers[0] && <span>Raise it with {r.helpers[0].name}: level {r.helpers[0].level} {r.helpers[0].division}, {w.sys(r.helpers[0].system)?.name ?? `system ${r.helpers[0].system}`}{r.helpers[0].jumps != null ? `, ${r.helpers[0].jumps} jumps` : ''}{r.helpers.length > 1 ? `, and ${r.helpers.length - 1} more` : ''}</span>}
+                    </span>
+                  </td>
+                  <td className="rd-wide"><span data-tip={f.tip}>{f.text}</span>{f.sub && <span className="sub">{f.sub}</span>}</td>
+                  <td className="rd-wide"><span data-tip={co.tip}>{co.text}</span>{co.sub && <span className="sub">{co.sub}</span>}</td>
+                  <td className="rd-wide">{r.open ? `Level ${r.open}` : <span className="faint">None</span>}{c.standings.state !== 'read' && <span className="sub">at least</span>}</td>
+                  <td className="l wrap rd-wide" style={{ minWidth: 180 }}>{r.next ? nextSaid(w, r) : <span className="faint">Every level is open</span>}</td>
+                  <td className="l wrap rd-wide" style={{ minWidth: 180 }}>
                     {r.helpers.length ? r.helpers.slice(0, 2).map((h) => (
                       <span key={h.id} className="sub" style={{ whiteSpace: 'normal' }}>{h.name}: level {h.level} {h.division}, {w.sys(h.system)?.name ?? `system ${h.system}`}{h.jumps != null ? `, ${h.jumps} jumps` : ', off a high-sec route'}</span>
                     )) : <span className="faint">None open yet</span>}
@@ -240,7 +247,7 @@ function forYou(w: Walk, r: RankedAgent): { ok: boolean; text: string } {
 }
 
 /** Set as the destination in the logged-in character's client: the main's, whoever the tab is shown for. */
-export function DestButton({ w, station, label }: { w: Walk; station: number; label?: string }) {
+export function DestButton({ w, station, label, narrow }: { w: Walk; station: number; label?: string; narrow?: boolean }) {
   if (!hasScope(SCOPE.waypoint)) return null;
   const said = w.c.isMain ? (label ?? 'Set destination') : `Sets ${w.mainName}’s destination`;
   const go = async () => {
@@ -248,7 +255,7 @@ export function DestButton({ w, station, label }: { w: Walk; station: number; la
     catch (e) { toast(e instanceof Error ? e.message : String(e), 'err'); }
   };
   return (
-    <button type="button" className="dest-btn" onClick={() => void go()} data-tip-title="Set destination"
+    <button type="button" className="dest-btn" style={narrow ? { whiteSpace: 'normal', maxWidth: 140, textAlign: 'right' } : undefined} onClick={() => void go()} data-tip-title="Set destination"
       data-tip={w.c.isMain ? 'Plots the route to the agent’s station in game. It doesn’t fly anything.' : `ESI sets the logged-in character’s destination, which is ${w.mainName}, not ${w.c.name}. It plots the route; it doesn’t fly anything.`}>
       {said}<MapPin aria-hidden="true" />
     </button>
@@ -291,15 +298,15 @@ export function PickStep({ w }: { w: Walk }) {
         { kind: 'warn', lead: 'One field at several agents', text: 'isn’t confirmed: no source says two agents can’t research the same field, and none says they can.' },
       ]} />
       <div className="tbl-scroll" style={{ border: '1px solid var(--line-3)' }}>
-        <table className="tbl compact" style={{ minWidth: 960 }}>
+        <table className="tbl compact rd-table">
           <thead>
             <tr>
               <Th left>Field</Th>
-              <Th tip={`What one datacore fetches sold into Jita’s best bid now, after ${whose(c)} sales tax and the agent’s ${isk(DATACORE_FEE)} fee.`}>A datacore</Th>
-              <Th tip="The last 30 days’ volume-weighted price against the same a year ago (335–395 days back), with each month of the year drawn. The Forge’s history.">Its year</Th>
-              <Th tip="Units traded a day in The Forge over the last 30 days: far more than an agent makes, so selling never moves the price.">A day</Th>
-              <Th tip="The field’s skillbook, where it’s cheapest in The Forge now: Jita’s cheapest listing, or NPCs’ in another station. Read only for books not injected.">Its book</Th>
-              <Th tip={`Distinct agents in this field open to ${who(c)} now, and one level past (nearly).`}>Agents</Th>
+              <Th className="rd-wide" tip={`What one datacore fetches sold into Jita’s best bid now, after ${whose(c)} sales tax and the agent’s ${isk(DATACORE_FEE)} fee.`}>A datacore</Th>
+              <Th className="rd-wide" tip="The last 30 days’ volume-weighted price against the same a year ago (335–395 days back), with each month of the year drawn. The Forge’s history.">Its year</Th>
+              <Th className="rd-wide" tip="Units traded a day in The Forge over the last 30 days: far more than an agent makes, so selling never moves the price.">A day</Th>
+              <Th className="rd-wide" tip="The field’s skillbook, where it’s cheapest in The Forge now: Jita’s cheapest listing, or NPCs’ in another station. Read only for books not injected.">Its book</Th>
+              <Th className="rd-wide" tip={`Distinct agents in this field open to ${who(c)} now, and one level past (nearly).`}>Agents</Th>
               <th scope="col" aria-label="Pick" />
             </tr>
           </thead>
@@ -310,16 +317,22 @@ export function PickStep({ w }: { w: Walk }) {
               const y = x.year;
               return (
                 <tr key={x.f} className={on ? 'chosen' : 'hover'}>
-                  <td className="l"><span className="name" style={{ display: 'block' }}>{FIELDS[x.f].name}</span><span className="sub">{datacoreName(x.f)}</span></td>
-                  <td>{netSaid(w, x.dc)}</td>
-                  <td style={{ minWidth: 150 }}>
+                  <td className="l rd-main">
+                    <span className="name" style={{ display: 'block' }}>{FIELDS[x.f].name}</span><span className="sub rd-wide">{datacoreName(x.f)}</span>
+                    <span className="rd-phone">
+                      <span>A datacore: <b>{netSaid(w, x.dc)}</b>{y && y !== 'failed' && y.change != null ? ` · ${y.change >= 0 ? '+' : ''}${pct(y.change, 0)} on a year` : ''}</span>
+                      <span>{x.open} agents open, {x.nearly} nearly · book: {c.pilot.skills?.[x.f] != null ? 'injected' : bookSaid(w, x.f)}</span>
+                    </span>
+                  </td>
+                  <td className="rd-wide">{netSaid(w, x.dc)}</td>
+                  <td className="rd-wide" style={{ minWidth: 150 }}>
                     {y === undefined ? <span className="faint">Reading…</span> : y === 'failed' ? <span className="faint" data-tip="The Forge’s history couldn’t be read just now.">–</span>
                       : <>{y.change != null ? <span style={{ color: y.change >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{y.change >= 0 ? '+' : ''}{pct(y.change, 0)}</span> : <span className="faint" data-tip="No trading a year ago to compare with.">–</span>}
                         <Sparkline values={y.months.map((m) => m.price)} label={`${FIELDS[x.f].name} datacore, a year of monthly prices`} /></>}
                   </td>
-                  <td>{y && y !== 'failed' && y.perDay != null ? units(Math.round(y.perDay)) : <span className="faint">–</span>}</td>
-                  <td>{c.pilot.skills?.[x.f] != null ? <span className="faint" data-tip={`${who(c) === 'you' ? 'You' : c.name} already ${c.isMain ? 'have' : 'has'} it injected, at ${ROMAN[c.pilot.skills[x.f]]}.`}>Injected</span> : bookSaid(w, x.f)}</td>
-                  <td>{x.open} open{x.nearly ? <span className="sub">{x.nearly} nearly</span> : null}</td>
+                  <td className="rd-wide">{y && y !== 'failed' && y.perDay != null ? units(Math.round(y.perDay)) : <span className="faint">–</span>}</td>
+                  <td className="rd-wide">{c.pilot.skills?.[x.f] != null ? <span className="faint" data-tip={`${who(c) === 'you' ? 'You' : c.name} already ${c.isMain ? 'have' : 'has'} it injected, at ${ROMAN[c.pilot.skills[x.f]]}.`}>Injected</span> : bookSaid(w, x.f)}</td>
+                  <td className="rd-wide">{x.open} open{x.nearly ? <span className="sub">{x.nearly} nearly</span> : null}</td>
                   <td>{best ? <button type="button" className="pick-btn" aria-pressed={on} onClick={() => w.choose(best)}>{on ? 'Chosen' : 'Choose'}</button> : <span className="faint" data-tip={`No agent open to ${who(c)} or nearly researches it.`}>No agent</span>}</td>
                 </tr>
               );
@@ -336,15 +349,15 @@ export function PickStep({ w }: { w: Walk }) {
       </div>
       {rows.length ? (
         <div className="tbl-scroll" style={{ border: '1px solid var(--line-3)' }}>
-          <table className="tbl compact" style={{ minWidth: 860 }}>
+          <table className="tbl compact rd-table">
             <thead>
               <tr>
                 <Th left>Agent</Th>
-                <Th left tip="Its system and security, and jumps from Jita on a route that stays in high-sec (the bundled stargate map).">Where</Th>
-                <Th left tip="Every field it researches; the row’s in bold. You pick one when you start it, fixed until you cancel.">Its fields</Th>
-                <Th tip={`RP a day at ${whose(c)} skills, the field at least at the agent’s level: (1 + (20 + 5 × Negotiation + standing with the agent) ÷ 100) × (field + level)².`}>RP a day</Th>
-                <Th tip={`RP a day ÷ ${RP_PER_DATACORE} × what a datacore fetches after tax and the fee.`}>ISK a day</Th>
-                <Th left>For {who(c)}</Th>
+                <Th left className="rd-wide" tip="Its system and security, and jumps from Jita on a route that stays in high-sec (the bundled stargate map).">Where</Th>
+                <Th left className="rd-wide" tip="Every field it researches; the row’s in bold. You pick one when you start it, fixed until you cancel.">Its fields</Th>
+                <Th className="rd-wide" tip={`RP a day at ${whose(c)} skills, the field at least at the agent’s level: (1 + (20 + 5 × Negotiation + standing with the agent) ÷ 100) × (field + level)².`}>RP a day</Th>
+                <Th className="rd-wide" tip={`RP a day ÷ ${RP_PER_DATACORE} × what a datacore fetches after tax and the fee.`}>ISK a day</Th>
+                <Th left className="rd-wide">For {who(c)}</Th>
                 <th scope="col" aria-label="Pick" />
               </tr>
             </thead>
@@ -356,21 +369,29 @@ export function PickStep({ w }: { w: Walk }) {
                 const anyJ = w.anyJumps(r.agent.system);
                 return (
                   <tr key={`${r.agent.id}:${r.field}`} className={on ? 'chosen' : r.open ? 'hover' : 'hover dim'}>
-                    <td className="l"><span className="name" style={{ display: 'block' }}>{r.agent.name}</span><span className="sub">Level {r.agent.level} · {w.name(r.agent.corp)}</span></td>
-                    <td className="l">
+                    <td className="l rd-main">
+                      <span className="name" style={{ display: 'block' }}>{r.agent.name}</span><span className="sub">Level {r.agent.level} · {w.name(r.agent.corp)}</span>
+                      <span className="rd-phone">
+                        <span>{s ? `${s.name} ${secSaid(s.sec)}` : `System ${r.agent.system}`} · {r.jumps != null ? `${r.jumps} jumps` : <span style={{ color: 'var(--acc2)' }}>off a high-sec route</span>}</span>
+                        <span>{FIELDS[r.field]?.name}: <b>{r.rpDay.toFixed(1)} RP</b>, <b>{netSaid(w, r.datacore, r.iskDay)}</b> a day</span>
+                        <span style={{ color: y.ok ? 'var(--pos)' : undefined }}>{y.text}</span>
+                        <span><DestButton w={w} station={r.agent.station} /></span>
+                      </span>
+                    </td>
+                    <td className="l rd-wide">
                       <span style={{ display: 'block' }}>{s ? `${s.name} ${secSaid(s.sec)}` : `System ${r.agent.system}`}</span>
                       <span className="sub">{r.jumps != null ? `${r.jumps} jumps` : <span style={{ color: 'var(--acc2)' }} data-tip={anyJ != null ? `No route from Jita stays in high-sec: ${anyJ} jumps through low-sec or worse.` : 'No route from Jita on the stargate map.'}>Off a high-sec route</span>}</span>
                     </td>
-                    <td className="l wrap" style={{ minWidth: 150, fontFamily: 'var(--f-body)', fontSize: 12.5, lineHeight: 1.35 }}>
+                    <td className="l wrap rd-wide" style={{ minWidth: 150, fontFamily: 'var(--f-body)', fontSize: 12.5, lineHeight: 1.35 }}>
                       {r.agent.fields.map((f) => (f === r.field ? <b key={f} style={{ color: 'var(--ink)', fontWeight: 600 }}>{FIELDS[f]?.name ?? f}</b> : <span key={f}>{FIELDS[f]?.name ?? f}</span>)).reduce<ReactNode[]>((a, x, i) => (i ? [...a, ', ', x] : [x]), [])}
                     </td>
-                    <td>{r.rpDay.toFixed(1)}</td>
-                    <td>{netSaid(w, r.datacore, r.iskDay)}</td>
-                    <td className="l wrap" style={{ minWidth: 130, color: y.ok ? 'var(--pos)' : undefined }}>{y.text}</td>
+                    <td className="rd-wide">{r.rpDay.toFixed(1)}</td>
+                    <td className="rd-wide">{netSaid(w, r.datacore, r.iskDay)}</td>
+                    <td className="l wrap rd-wide" style={{ minWidth: 130, color: y.ok ? 'var(--pos)' : undefined }}>{y.text}</td>
                     <td>
                       <div className="col" style={{ gap: 4, alignItems: 'flex-end' }}>
                         <button type="button" className="pick-btn" aria-pressed={on} onClick={() => w.choose(r)}>{on ? 'Picked' : 'Pick'}</button>
-                        <DestButton w={w} station={r.agent.station} />
+                        <span className="rd-wide"><DestButton w={w} station={r.agent.station} narrow /></span>
                       </div>
                     </td>
                   </tr>
