@@ -7,7 +7,7 @@ import { reachedAsk, recentRange } from '../lib/fills';
 import { ago, fmtDateTime, isk, iskBig, iskBigSigned, pct, units, until } from '../lib/format';
 import { marketHistory } from '../lib/market';
 import { feeMatchesFor } from '../lib/positions';
-import { followSnipe, groupBuys, instantBuys, judgeTaken, notFitted, notSnipeIds, type Sighting } from '../lib/sniped';
+import { followSnipe, groupBuys, instantBuys, judgeTaken, notFitted, notSnipeIds, sightingTypes, type Sighting } from '../lib/sniped';
 import { JITA_44 } from '../lib/constants';
 import type { HistRow } from '../lib/types';
 import { navigate, useNow } from '../lib/hooks';
@@ -36,7 +36,8 @@ function YourSnipes({ now }: { now: number }) {
   // (the multibuy rule), except a purchase the Sniper had shown, since Copy for Multibuy buys several finds in one go.
   const fromListings = useMemo(() => instantBuys(Object.values(d.txs), Object.values(d.journal), new Set(d.ignored), new Set(d.notSnipes))
     .sort((a, b) => Date.parse(b.date) - Date.parse(a.date)), [d.txs, d.journal, d.ignored, d.notSnipes]);
-  const seenTypes = useMemo(() => [...new Set(fromListings.map((t) => t.typeId))], [fromListings]);
+  // Only items a kept sighting could still match (sightingTypes), newest first: the route takes 500.
+  const seenTypes = useMemo(() => sightingTypes(fromListings, now), [fromListings, now]);
   const seenKey = seenTypes.join(',');
   const [seen, setSeen] = useState<Sighting[]>([]);
   useEffect(() => {

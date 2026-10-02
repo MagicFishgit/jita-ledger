@@ -4501,6 +4501,21 @@ console.log('\n--- snipes you have taken ---');
   eq('  Sniper finds bought in one Multibuy stay snipes; what the Sniper didn\'t show in that burst doesn\'t', ['m1', 'm2', 'm3', 'm4'].map((id) => skipSeen.has(id)), [false, false, false, true]);
   eq('    a fitting\'s Buy All is still no snipe, and without sightings nothing changes', [fit.every((t) => skipSeen.has(t.id)), sniperBuy.every((t) => Sd.notSnipeIds(sniperBuy, []).has(t.id))], [true, true]);
   eq('    a sighting at another price, or long before, doesn\'t vouch for it', [Sd.notSnipeIds(sniperBuy, [], [{ ...shown[0], lo: 50_000, hi: 50_000 }]).has('m1'), Sd.notSnipeIds(sniperBuy, [], [{ ...shown[0], lastSeen: at - 3 * 3600_000 }]).has('m1')], [true, true]);
+  // Which items Your snipes asks the cloud's sightings about (the final fix wave's ruling, 2 October 2026): only those
+  // bought from a listing recently enough for a kept sighting to match. The cloud drops a sighting SEEN_DAYS after its
+  // listing was last seen, and a player's listing lasts PLAYER_ORDER_DAYS at most, so an older buy can't match one; the
+  // route takes 500 types, and every buy from a listing ever made would push the newest finds' marks out.
+  const Sn2 = await import('../src/lib/snipe.ts');
+  eq('  the window: a listing\'s longest life plus how long a sighting is kept, and the slack sighted() allows',
+    [Sn2.PLAYER_ORDER_DAYS, Sn2.SEEN_DAYS, Sd.SIGHTING_WINDOW_MS], [90, 30, (90 + 30) * DAY + Sd.SEEN_SLACK_MIN * 60_000]);
+  const asked = Sd.sightingTypes([
+    T('o1', new Date(at - 121 * DAY).toISOString(), 1, 100, { typeId: 501 }),  // older than the window: no sighting can match
+    T('o2', new Date(at - 119 * DAY).toISOString(), 1, 100, { typeId: 502 }),  // inside it
+    T('o3', new Date(at - 2 * DAY).toISOString(), 1, 100, { typeId: 503 }),
+    T('o4', new Date(at - 5 * DAY).toISOString(), 1, 100, { typeId: 502 }),   // the same item again: asked once
+    T('o5', new Date(at - 3600_000).toISOString(), 1, 100, { typeId: 504 }),
+  ], at);
+  eq('  Your snipes asks about items bought from a listing inside the window, newest first, each once; an older buy is left out', asked, [504, 503, 502]);
   // "If an item is fit to a ship either quickly or later then it wasn't a snipe" (the user, 29 September 2026).
   const snipes = [{ typeId: 6001, units: 1 }, { typeId: 25861, units: 1 }, { typeId: 23013, units: 19_489 }, { typeId: 5321, units: 3 }];
   eq('  a snipe whose item is fitted to one of your ships is left out; a few charges loaded from a big ammo snipe don’t count',

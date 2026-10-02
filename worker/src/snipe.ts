@@ -13,7 +13,7 @@ import { rates, sanitizeSettings, type Settings } from '../../src/lib/fees';
 import { iskBig } from '../../src/lib/format';
 import { sanitizeAlerts } from '../../src/lib/prefs';
 import {
-  BASE_RATES, findBid, findListing, judgeBids, judgeListings, KEEP_SELLS, notYours, SNIPE_FLOOR, splitBlueprints,
+  BASE_RATES, findBid, findListing, judgeBids, judgeListings, KEEP_SELLS, notYours, SEEN_DAYS, SNIPE_FLOOR, splitBlueprints,
   type SnipeBid, type SnipeListing, type SnipeOrder, type SnipeRead, type SnipeStats,
 } from '../../src/lib/snipe';
 import { tickDown } from '../../src/lib/tick';
@@ -31,8 +31,6 @@ const JITA_44 = 60003760;
 const NPC_DURATION = 365;
 /** At most this many listings in one mail: the rest are on the Sniper page. */
 const MAIL_LISTINGS = 8;
-/** How long a sighting is kept for marking your buys as found by the Sniper. */
-const SEEN_DAYS = 30;
 
 const inList = (n: number, from = 1) => Array.from({ length: n }, (_, i) => `?${i + from}`).join(',');
 

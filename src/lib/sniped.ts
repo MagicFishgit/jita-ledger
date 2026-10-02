@@ -7,7 +7,7 @@
  */
 import { JITA_44 } from './constants';
 import { reachedAsk, recentRange } from './fills';
-import { SNIPE_FLOOR } from './snipe';
+import { PLAYER_ORDER_DAYS, SEEN_DAYS, SNIPE_FLOOR } from './snipe';
 import type { HistRow, JournalEntry, Tx } from './types';
 import { multibuys } from './wallet';
 
@@ -15,6 +15,23 @@ import { multibuys } from './wallet';
 export const GROUP_MIN = 30;
 /** A sighting counts from this long before the cloud first saw a listing to this long after it last did. */
 export const SEEN_SLACK_MIN = 10;
+
+/**
+ * How far back a buy can still match a sighting the cloud keeps. A sighting goes SEEN_DAYS after its listing was last seen,
+ * and a player's listing runs PLAYER_ORDER_DAYS at most, so any kept sighting was first seen no more than their sum ago;
+ * `sighted` takes a buy from SEEN_SLACK_MIN before that. An older buy can't be marked as found by the Sniper, so Your snipes
+ * doesn't ask about it: the route takes 500 items, and asking about every buy from a listing ever made would, as the
+ * ledger grew, push out the newest finds' items (the whole-branch review, 2 October 2026). Only if the Sniper's round
+ * stopped running for a while, so the cloud stopped deleting, could an older sighting still be kept.
+ */
+export const SIGHTING_WINDOW_MS = (PLAYER_ORDER_DAYS + SEEN_DAYS) * 86400_000 + SEEN_SLACK_MIN * 60_000;
+
+/** The items to ask the cloud's sightings about: those bought from a listing within SIGHTING_WINDOW_MS, newest first, once each. */
+export function sightingTypes(buys: Pick<Tx, 'typeId' | 'date'>[], now: number): number[] {
+  const since = now - SIGHTING_WINDOW_MS;
+  return [...new Set(buys.filter((t) => Date.parse(t.date) >= since)
+    .sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).map((t) => t.typeId))];
+}
 
 /**
  * Your buys that came from a listing: in Jita, from the wallet, not tagged Personal, and paid for there and then.

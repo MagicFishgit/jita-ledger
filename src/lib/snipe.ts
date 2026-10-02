@@ -41,6 +41,13 @@ export const KEEP_SELLS = 30;
  * category (type → group → category), never by name: a Synth Blue Pill Booster Reaction Formula is one without the word.
  */
 export const BLUEPRINT_CATEGORY = 9;
+/**
+ * Days the cloud keeps a sighting (`snipe_seen`) after it last saw the listing, for marking your buys as found by the
+ * Sniper. The Worker deletes older ones each round; Your snipes asks only about buys a kept one could still match.
+ */
+export const SEEN_DAYS = 30;
+/** The longest a player's market order runs, in days (an NPC's runs 365): a listing seen at all was placed no earlier. */
+export const PLAYER_ORDER_DAYS = 90;
 
 export type SnipeOrder = { id: number; price: number; units: number; total: number; issued: string };
 export type SnipeStats = Pick<ProspectStats, 'highs14' | 'unitsPerDay' | 'daysTraded' | 'lastMove'>;
