@@ -137,8 +137,11 @@ mining.md; Abyssal, Hauling and Combat in abyssal-hauling-combat.md (split on 1 
     everyone's deliveries; else "not recorded". Arithmetic alone can't tell: 593,096,000 is whole at 0, 2, 11, 20%…,
     255,106,158.37 at 11, 39 and 51%. A corporation you founded is dated from `date_founded` while ESI's history is
     behind (eve-facts: it split Kernite's 11% at 19:30 from the Buy Backs' 0%); one joined has no known start, and both
-    rates are tried. A total not known reads "–". While any reward lacks `tax`, each sync reads the corporation history
-    and its corporations again (two or three requests); if ESI never gives `tax` on these rewards, that stays.
+    rates are tried. A total not known reads "–". While any reward lacks `tax`, each sync and each opening of the tab
+    reads the corporation history and its corporations again (two or three requests); if ESI never gives `tax` on these
+    rewards, that stays. The tab once left them to the sync: opened before the first sync with the code (2 October
+    2026), it read "not recorded" on every job and "–" for the totals until the sync came round, and the page check,
+    which seeded them as a sync would, never saw it (it now starts without them).
   - **Ore not bought, sold in a job's window, counts as Freelance** in the Wallet and Results (the trade rule is the item
     and the window), though the tab keeps it out of the job's profit; and a player corporation that changed its rate
     leaves its rewards "not recorded" (ESI keeps no past rate; the exactness check stops a wrong figure).

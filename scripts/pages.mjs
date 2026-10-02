@@ -454,8 +454,11 @@ try {
   }
   // Every freelance job you did (the user's six, 1 October 2026), rebuilt as a browser that never saw them does: only the
   // journal's rewards and the ore bought are seeded, ESI answers the jobs' public details and the ore groups from the
-  // fixture, and one reward names a job ESI won't describe (404). The corporations you were in are seeded, as a sync
-  // would have read them, so the tax is worked out. Without this the deploy never drew the history. Both widths.
+  // fixture, and one reward names a job ESI won't describe (404). The corporations you were in are not seeded: the tab
+  // reads them on opening, from ESI's answers as they stood on 1 October 2026 (the history a day behind, ending with
+  // School of Applied Knowledge; TEMP TAX HAVEN founded by the character at 19:39:23). Seeded as a sync would have left
+  // them, this check drew the tax while the user's tab, opened before its first sync, read "not recorded" on every job
+  // and "–" for the totals (2 October 2026). Without this the deploy never drew the history. Both widths.
   if (SHOWN.includes('hustles/freelance') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('freelance'))) {
     const fs = await import('node:fs');
     const fx = JSON.parse(fs.readFileSync(new URL('./fixtures/freelance-history.json', import.meta.url), 'utf8'));
@@ -466,9 +469,7 @@ try {
       // And 5,000,000 Veldspar not bought (mined, or contracted from the alt) sold during the Veldspar job: said apart.
       txs: Object.fromEntries([...fx.txs, { id: '6880000001', source: 'esi', typeId: 92372, date: '2026-09-20T12:00:00Z', isBuy: false, qty: 5_000_000, unitPrice: 7.15, locationId: 60003760 }].map((t) => [t.id, t])), journal,
       meta: { walletBalance: 1979735843.56, lastSync: new Date(Date.now() - 600_000).toISOString(),
-        freelance: { at: '2026-10-01T21:00:00Z', jobs: [], corps: [
-          { id: 1000044, name: 'School of Applied Knowledge', start: '2025-05-30T01:17:00Z', taxRate: 0.11 },
-          { id: 98845591, name: 'TEMP TAX HAVEN', start: '2026-10-01T19:39:23Z', taxRate: 0 }] } },
+        freelance: { at: '2026-10-01T21:00:00Z', jobs: [] } },
     };
     const details = Object.fromEntries(fx.jobs.map((j) => [j.id, j]));
     const page = await browser.newPage(VIEW);
@@ -482,6 +483,10 @@ try {
       if (m) { asked++; return details[m[1]] ? json(200, details[m[1]]) : json(404, { error: 'Not found' }); }
       m = /^\/universe\/groups\/(\d+)\/$/.exec(url.pathname);
       if (m && fx.groups[m[1]]) return json(200, { group_id: Number(m[1]), name: 'Ore', types: fx.groups[m[1]] });
+      if (url.pathname === '/characters/affiliation/') return json(200, [{ character_id: 95210486, corporation_id: 98845591 }]);
+      if (url.pathname === '/characters/95210486/corporationhistory/') return json(200, [{ corporation_id: 1000044, record_id: 64702728, start_date: '2025-05-30T01:17:00Z' }]);
+      if (url.pathname === '/corporations/1000044/') return json(200, { name: 'School of Applied Knowledge', tax_rates: { isk: 11, loyalty_point: 0 } });
+      if (url.pathname === '/corporations/98845591/') return json(200, { name: 'TEMP TAX HAVEN', ticker: 'ABAAA', tax_rates: { isk: 0, loyalty_point: 0 }, creator_id: 95210486, ceo_id: 95210486, date_founded: '2026-10-01T19:39:23Z' });
       return route.abort();
     });
     const problems = [];

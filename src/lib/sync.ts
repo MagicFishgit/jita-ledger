@@ -5,7 +5,7 @@ import { ALPHA_CAPS, JITA_44, NPC_FALLBACK_IDS, NPC_NAMES, SCOPE, SKILL_FALLBACK
 import { parseSafetyNotice, withNotices } from './assetSafety';
 import { isStation, isStructure, structureInfo } from './universe';
 import { couriersDue, itemsToRead, readContracts, type ContractItem, type RawContract } from './contracts';
-import { readCorpSpans, readJobHistory, untaxedSince } from './freelanceStore';
+import { readCorpSpans, readCurrentCorp, readJobHistory, untaxedSince } from './freelanceStore';
 import { readCorp, withRead, type CorpSpan, type JoinedJob, type RawCorpFounded } from './freelance';
 import { loyaltyPoints, resolveIds, resolveNames } from './market';
 import { dataGeneration, getData, update, type Data } from './store';
@@ -266,12 +266,10 @@ export async function syncCharacter(): Promise<void> {
     // sync after ESI's own copy lets go. On a failure the last one read stays.
     let corpNow: { id: number; body: RawCorpFounded } | null = null;
     try {
-      const { data: aff } = await esi<{ character_id: number; corporation_id: number }[]>('/characters/affiliation/', { method: 'POST', body: [cid] });
-      const mine = aff.find((a) => a.character_id === cid);
-      if (mine) {
-        const { data: co } = await esi<RawCorpFounded>(`/corporations/${mine.corporation_id}/`, { fresh: true });
-        const corp = readCorp(mine, co, new Date().toISOString());
-        if (corp) { metaPatch.corp = corp; corpNow = { id: corp.id, body: co }; read.push('corporation'); }
+      const cur = await readCurrentCorp(cid);
+      if (cur) {
+        const corp = readCorp(cur.affiliation, cur.body, new Date().toISOString());
+        if (corp) { metaPatch.corp = corp; corpNow = { id: corp.id, body: cur.body }; read.push('corporation'); }
       }
     } catch { /* the finder keeps the last rate read, or says it isn't read yet */ }
     // Every freelance job you took part in: each a reward in the journal names (public details, read once a job is done),

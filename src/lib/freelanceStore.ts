@@ -105,6 +105,19 @@ export async function readCorpSpans(characterId: number, since: number, current:
   return corpSpans(characterId, data, since, bodies, current);
 }
 
+/**
+ * Your corporation now and its answer for its tax, both public: the affiliation lookup, a POST (never kept in the
+ * browser's cache) that ESI holds an hour at most (/characters/{id}/ answers `max-age=86400`, which would show the
+ * corporation you left for a day), then the corporation, asked afresh. Null when either read fails.
+ */
+export async function readCurrentCorp(characterId: number): Promise<{ affiliation: { character_id: number; corporation_id: number }; body: RawCorpFounded } | null> {
+  const { data: aff } = await esi<{ character_id: number; corporation_id: number }[]>('/characters/affiliation/', { method: 'POST', body: [characterId] });
+  const mine = aff.find((a) => a.character_id === characterId);
+  if (!mine) return null;
+  const { data: body } = await esi<RawCorpFounded>(`/corporations/${mine.corporation_id}/`, { fresh: true });
+  return { affiliation: mine, body };
+}
+
 /** The earliest reward whose tax the journal doesn't give: what the corporation history has to cover. */
 export function untaxedSince(journal: Iterable<{ refType: string; date: string; tax?: number }>): number | null {
   let t: number | null = null;
@@ -114,10 +127,21 @@ export function untaxedSince(journal: Iterable<{ refType: string; date: string; 
 
 /**
  * The history read again and kept, as the Freelance tab does when it opens: merged with what the store holds now, never
- * a snapshot written back. The corporations are left as the last sync read them.
+ * a snapshot written back. While a reward's tax isn't in the journal, the corporations you were in are read too, as the
+ * sync reads them: left to the sync, a tab opened before the first sync with this code (or on a new device, or after
+ * "Delete all data") had the jobs and no corporations, and read "not recorded" on every job and "–" for every total
+ * until the sync came round (the user's tab, 2 October 2026). A failed read keeps the corporations already held.
  */
 export async function refreshJobHistory(characterId: number, joinedToo: boolean): Promise<void> {
   const d = getData();
-  const jobs = await readJobHistory(characterId, Object.values(d.journal), d.meta.freelance?.jobs ?? [], joinedToo);
-  update((x) => ({ meta: { ...x.meta, freelance: withRead(x.meta.freelance, { at: new Date().toISOString(), jobs }) } }));
+  const journal = Object.values(d.journal);
+  const jobs = await readJobHistory(characterId, journal, d.meta.freelance?.jobs ?? [], joinedToo);
+  const since = untaxedSince(journal);
+  let corps: CorpSpan[] | undefined;
+  if (since != null) {
+    const now = await readCurrentCorp(characterId).then((c) => (c ? { id: c.affiliation.corporation_id, body: c.body } : null)).catch(() => null);
+    const kept = d.meta.corp ? { id: d.meta.corp.id, body: { name: d.meta.corp.name, tax_rate: d.meta.corp.taxRate } } : null;
+    corps = await readCorpSpans(characterId, since, now ?? kept).catch(() => undefined);
+  }
+  update((x) => ({ meta: { ...x.meta, freelance: withRead(x.meta.freelance, { at: new Date().toISOString(), jobs, ...(corps ? { corps } : {}) }) } }));
 }
