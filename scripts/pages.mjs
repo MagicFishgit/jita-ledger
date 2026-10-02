@@ -95,6 +95,9 @@ const PROOF = { small: 'Hammerhead II', large: 'Test Item' };
  * - 990102: its front bid reached on 9 of 14 days but none of the last 5 ("Bids not reached", not lately).
  * - 990103: ran up 80% over the month before: flagged on Prospects ("Ran up lately"), left out of the planner.
  * - 990104: stats from before the run-up was kept: the planner says to scan again, and no flag is claimed.
+ * - 990105: 6,000 units listed at the best ask, where trading reaches, against 300 a day bought from listings (history's
+ *   even guess on 600 a day): 20 days of buyers, "Long queue" on Prospects and in the planner's Flags column. With
+ *   "Leave out flagged items" on, the planner leaves it out with 990102 and says so by flag (PLANNER_SWITCH).
  */
 function planScan(now) {
   const day = (i) => new Date(now - i * 86400_000).toISOString().slice(0, 10);
@@ -113,13 +116,14 @@ function planScan(now) {
     990102: [stats(990102, [...Array(9).fill(1 * M), 1.1 * M, 1.12 * M, 1.1 * M, 1.11 * M, 1.13 * M], flat(1.5 * M)), book(990102, 1 * M, 1.5 * M)],
     990103: [stats(990103, flat(1 * M), flat(1.4 * M), { runUp: 0.8, runUpBase: 0.8 * M }), book(990103, 1 * M, 1.4 * M)],
     990104: [stats(990104, flat(1 * M), flat(1.4 * M), { runUp: undefined, runUpBase: undefined }), book(990104, 1 * M, 1.4 * M)],
+    990105: [stats(990105, flat(1 * M), flat(1.4 * M)), { ...book(990105, 1 * M, 1.4 * M), topSells: [{ price: 1.4 * M, volume: 6000 }, { price: 1.401 * M, volume: 6000 }] }],
   };
   const busy = { h: 15, sell: 18, buy: 6, newSell: 37, newBuy: 15, frontSell: 2, frontBuy: 2, repriceSell: 0, repriceBuy: 0 };
   return {
     prospects: {
       stats: Object.fromEntries(Object.entries(items).map(([t, [st]]) => [t, st])),
       books: Object.fromEntries(Object.entries(items).map(([t, [, b]]) => [t, b])),
-      sample: { at: new Date(now - 3600_000).toISOString(), totalPages: 400, sampledPages: 400, minSampled: 1, counts: { 990101: 60, 990102: 60, 990103: 60, 990104: 60 } },
+      sample: { at: new Date(now - 3600_000).toISOString(), totalPages: 400, sampledPages: 400, minSampled: 1, counts: { 990101: 60, 990102: 60, 990103: 60, 990104: 60, 990105: 60 } },
       runs: { cloud: new Date(now - 3600_000).toISOString() },
     },
     flow: { log: { 990101: { [day(1)]: busy, [day(0)]: busy } }, ends: {} },
@@ -127,9 +131,14 @@ function planScan(now) {
 }
 /** What the large ledger's Prospects and planner must draw from that scan, and what the planner's mix must not hold. */
 const PLAN_PROOF = {
-  prospects: { drawn: ['Ran up lately', 'Bids not reached'] },
-  planner: { drawn: ['Raises kept back', 'Bids not reached'], note: 'Scan again before investing', absent: ['Ran up lately'] },
+  prospects: { drawn: ['Ran up lately', 'Bids not reached', 'Long queue'] },
+  planner: { drawn: ['Raises kept back', 'Bids not reached', 'Long queue'], note: 'Scan again before investing', absent: ['Ran up lately'] },
 };
+/**
+ * The planner again with "Leave out flagged items" switched on (kept per browser, read as the page opens): the flagged
+ * items leave the mix and are counted by flag, while Raises kept back, a cost rather than a flag, stays.
+ */
+const PLANNER_SWITCH = { drawn: ['Raises kept back'], note: '2 left out: 1 Bids not reached, 1 Long queue', absent: ['Bids not reached', 'Long queue'] };
 
 /**
  * The Mining tab under an alt, on the large ledger: its filter and Show for kept in this browser, as a visit leaves them,
@@ -287,6 +296,23 @@ try {
         if (PLAN_PROOF[hash].note && !(await page.locator('.page', { hasText: PLAN_PROOF[hash].note }).count())) problems.push(`not drawn: no “${PLAN_PROOF[hash].note}”`);
       }
       await judge(hash);
+    }
+    if (name === 'large' && SHOWN.includes('planner')) {
+      problems = [];
+      await page.evaluate(() => {
+        let kept = {};
+        try { kept = JSON.parse(localStorage.getItem('jita-ledger:planner') || '{}'); } catch { /* none */ }
+        localStorage.setItem('jita-ledger:planner', JSON.stringify({ ...kept, leaveOutFlagged: true }));
+        location.hash = '#settings/appearance';
+      });
+      await page.waitForTimeout(500);
+      await page.evaluate(() => { location.hash = '#planner'; });
+      await page.waitForTimeout(1500);
+      for (const t of PLANNER_SWITCH.drawn) if (!(await page.locator('.page table .flag', { hasText: t }).count())) problems.push(`not drawn with the switch on: no “${t}” flag`);
+      for (const t of PLANNER_SWITCH.absent) if (await page.locator('.page table', { hasText: t }).count()) problems.push(`in the mix with the switch on, and shouldn’t be: “${t}”`);
+      if (!(await page.locator('.page', { hasText: PLANNER_SWITCH.note }).count())) problems.push(`not drawn: no “${PLANNER_SWITCH.note}”`);
+      await judge('planner (leave out flagged items)');
+      await page.evaluate(() => localStorage.removeItem('jita-ledger:planner'));
     }
     if (name === 'large' && SHOWN.includes('hustles/mining')) {
       for (const c of MINING_CASES) {

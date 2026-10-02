@@ -2,7 +2,7 @@ import type { ContractItem, MyContract } from './contracts';
 import type { QueuedLevel } from './skillStatus';
 import type { CorpSpan, CorpTax, JoinedJob } from './freelance';
 import type { SafetyWrap } from './esiRecords';
-import type { BookSold, SplitFrom } from './split';
+import type { BookSold, SellQueue, SplitFrom } from './split';
 import type { SkillKey } from './constants';
 import type { RateStamp } from './fees';
 
@@ -201,7 +201,7 @@ export type ProspectStats = {
   range7?: number[];
 };
 
-export type ProspectWarning = 'thin' | 'fluke' | 'falling' | 'crowded' | 'wall' | 'escrow' | 'spike' | 'moved' | 'runUp' | 'unreached' | 'unreachedSell' | 'slow';
+export type ProspectWarning = 'thin' | 'fluke' | 'falling' | 'crowded' | 'wall' | 'escrow' | 'spike' | 'moved' | 'runUp' | 'unreached' | 'unreachedSell' | 'slow' | 'longQueue';
 
 /** A candidate that cleared the gate, priced against the live book. */
 export type Prospect = {
@@ -251,6 +251,11 @@ export type Prospect = {
   raiseReserve?: { buy: number; sell: number; isk: number };
   /** Priced to place and leave (`ProspectFilters.patient`): both prices are where trading reaches on half the days. */
   patient?: boolean;
+  /**
+   * The stock listed where this sell would compete (`listedQueue`, prospects.ts), in days of buyers taking listings, and the
+   * price it was counted up to. Absent when nothing is listed there or nothing says who buys (`sellQueue`).
+   */
+  queue?: SellQueue & { upTo: number };
   warnings: ProspectWarning[];
 };
 

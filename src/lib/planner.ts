@@ -12,7 +12,46 @@ import type { Prospect, ProspectFilters, ProspectWarning } from './types';
 
 /** Flags that say the spread may not be real. Everything else is information, not a veto. */
 export const PLANNER_EXCLUDES: ProspectWarning[] = ['escrow', 'wall', 'spike', 'fluke', 'moved', 'runUp'];
+/**
+ * What "Leave out flagged items" leaves out as well, when it's on (off by default, per browser): every flag that's
+ * information rather than a veto. The user asked for "a toggle to not include items with warning like these" (2 October
+ * 2026). Raises kept back isn't one: it's a cost already taken off the margin and the ranking (`raiseReserve`, on 91 of the
+ * 94 markets watched for a day on 1 October), not a flag.
+ */
+export const SWITCH_EXCLUDES: ProspectWarning[] = ['falling', 'unreached', 'unreachedSell', 'crowded', 'thin', 'slow', 'longQueue'];
 export const SLOTS_PER_ITEM = 2;
+
+/** How many items carry one of SWITCH_EXCLUDES, in all and by flag (an item with two counts under each, once in all). */
+export type FlaggedOut = { total: number; byFlag: Partial<Record<ProspectWarning, number>> };
+export type PlannerPool = {
+  /** What the mix is filled from. */
+  pool: Prospect[];
+  /** Left out for one of PLANNER_EXCLUDES, whatever the switch. */
+  excluded: number;
+  /** Of the rest, the ones the switch leaves out when on: counted either way, so the switch can say what it would do. */
+  flagged: FlaggedOut;
+  /** The switch is on and left nothing: every item that passed carries a flag. Said, never an empty mix with no reason. */
+  allFlagged: boolean;
+};
+
+/** The items the planner may use: no flag from PLANNER_EXCLUDES, a return to rank by, and, with the switch on, no other flag. */
+export function plannerPool(prospects: Prospect[], leaveOutFlagged = false): PlannerPool {
+  const usable = prospects.filter((p) => Number.isFinite(p.roiPerDay) && p.roiPerDay > 0);
+  const vetoed = (p: Prospect) => p.warnings.some((w) => PLANNER_EXCLUDES.includes(w));
+  const flagged: FlaggedOut = { total: 0, byFlag: {} };
+  const pool: Prospect[] = [];
+  for (const p of usable) {
+    if (vetoed(p)) continue;
+    const hits = SWITCH_EXCLUDES.filter((w) => p.warnings.includes(w));
+    if (hits.length) {
+      flagged.total++;
+      for (const w of hits) flagged.byFlag[w] = (flagged.byFlag[w] ?? 0) + 1;
+      if (leaveOutFlagged) continue;
+    }
+    pool.push(p);
+  }
+  return { pool, excluded: prospects.filter(vetoed).length, flagged, allFlagged: leaveOutFlagged && !pool.length && flagged.total > 0 };
+}
 
 /**
  * The filters the planner ranks with: your Prospects filters (so it draws from the list you see there),
@@ -27,7 +66,9 @@ export function plannerFilters(saved: Partial<ProspectFilters> | null | undefine
 /** The planner's horizon choices: the Prospects ones, without "any", which a plan can't be sized to. */
 export const PLANNER_HORIZONS = [4 / 24, 12 / 24, 1, 3, 7, 14, 30];
 
-export type PlanInput = { isk: number; slots: number; horizonDays: number; maxShare: number };
+export type PlanInput = { isk: number; slots: number; horizonDays: number; maxShare: number;
+  /** "Leave out flagged items": SWITCH_EXCLUDES are left out too. */
+  leaveOutFlagged?: boolean };
 export type Allocation = { p: Prospect; isk: number; units: number; days: number; perDay: number };
 /**
  * `ranked`: which order the mix was filled in. `return` is the usual, best return per day first; `isk` is the one kept
@@ -86,9 +127,7 @@ function fill(order: Prospect[], inp: PlanInput, ranked: Plan['ranked']): Plan {
  * planner to "fill the given slots" intelligently (29 September 2026).
  */
 export function allocate(prospects: Prospect[], inp: PlanInput): Plan {
-  const pool = prospects
-    .filter((p) => !p.warnings.some((w) => PLANNER_EXCLUDES.includes(w)))
-    .filter((p) => Number.isFinite(p.roiPerDay) && p.roiPerDay > 0);
+  const { pool } = plannerPool(prospects, inp.leaveOutFlagged);
   const byReturn = fill([...pool].sort((a, b) => b.roiPerDay - a.roiPerDay), inp, 'return');
   if (byReturn.limit !== 'slots') return byReturn;
   const cap = Math.max(0, inp.isk) * Math.min(1, Math.max(0, inp.maxShare));

@@ -3972,6 +3972,88 @@ console.log('\n--- a busy market\'s raises are kept back ---');
   eq('  before the return filter', judgeProspect(st, book, S, { ...fl, minRoi: roiFree - (short.roi - p.roi) / 2 }, 40, false, { flow: busy }), null);
 }
 
+console.log('\n--- a long sell queue, a stricter run-up for Place and leave, and the planner\'s switch (2 October 2026) ---');
+{
+  const fs5 = await import('node:fs');
+  // Read on 2 October 2026: the cloud's full scan of 1 October 11:25 UTC as scan_items held it, ESI's history to 30
+  // September, and the cloud's watched flow (scripts/fixtures/planner-queue.json).
+  const fx = JSON.parse(fs5.readFileSync(new URL('./fixtures/planner-queue.json', import.meta.url), 'utf8'));
+  const P = await import('../src/lib/prospects.ts');
+  const Sp = await import('../src/lib/split.ts');
+  const { judgeProspect } = await import('../src/lib/evaluate.ts');
+  const Pl = await import('../src/lib/planner.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  // The user's settings (the synced document): broker 1.25%, tax 3.375%, share 7.5%; the planner's 1 B over 7 days.
+  const S = sanitizeSettings({ acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, tycoon: 0, clone: 'omega', faction: 3.6289558729999998, corp: 7.039647095, taxBase: 7.5, override: false, target: 5, share: 7.5 });
+  const fl = Pl.plannerFilters(null, 1e9, 7);
+  const now = Date.parse('2026-10-02T10:00:00Z');
+
+  eq('a long queue is over two weeks of buyers; Place and leave\'s run-up bar is 30%, the front\'s still 50%', [Sp.LONG_QUEUE_DAYS, P.RUN_UP_PATIENT, P.RUN_UP], [14, 0.3, 0.5]);
+  eq('  a queue in days of buyers', Sp.sellQueue(16_200, 200, 'watched'), { units: 16_200, atLeast: false, perDay: 200, from: 'watched', days: 81, long: true });
+  eq('  stock that sells within two weeks is no long queue', Sp.sellQueue(1000, 200, 'book').long, false);
+  eq('  nothing claimed with no buyers to go on, or the split only assumed', [Sp.sellQueue(1000, 0, 'book'), Sp.sellQueue(1000, NaN, 'book'), Sp.sellQueue(1000, 200, 'even'), Sp.sellQueue(0, 200, 'book')], [null, null, null, null]);
+
+  // 'Arbalest' Rapid Heavy Missile Launcher I: ~720 a day in The Forge, nearly all sold into bids at ~24.7k; the scan's
+  // seven sell levels hold 4,361 units at 60,460-60,950; the cloud watched buyers take about 200 a day from listings.
+  const a = fx[33440];
+  const watched = { days: a.flow, flow: observedFlow({ 33440: a.flow }, 33440, now) };
+  const arb = judgeProspect(a.stats, a.book, S, fl, a.orders, false, watched);
+  eq('the Arbalest at the front: bought at 24,790 to sell at 60,450, the spread the user was caught by', [arb.buy, arb.sell], [24_790, 60_450]);
+  eq('  flagged Long queue', arb.warnings.includes('longQueue'), true);
+  eq('  every one of the scan\'s seven levels sits where buyers have paid, so at least 4,361, against the watched pace',
+    [arb.queue.units, arb.queue.atLeast, arb.queue.from, arb.queue.upTo, Math.round(arb.queue.perDay), Math.round(arb.queue.days)], [4361, true, 'watched', 62_910, 250, 17]);
+  eq('  buyers a day are the typical day × the share buying from listings', arb.queue.perDay, a.stats.unitsPerDay * arb.buyerShare);
+  const arbBook = judgeProspect(a.stats, a.book, S, fl, a.orders);
+  eq('  without the watch, the book\'s split: still flagged, and says so', [arbBook.warnings.includes('longQueue'), arbBook.queue.from, Math.round(arbBook.queue.days)], [true, 'book', 29]);
+  const arbHist = judgeProspect(a.stats, { ...a.book, sold: undefined }, S, fl, a.orders);
+  eq('  with history\'s guess alone: flagged, and the source is history', [arbHist.warnings.includes('longQueue'), arbHist.queue.from], [true, 'history']);
+  has('  which the tip calls a guess', Sp.queuePaceSaid('history'), 'guessed');
+  has('  and a rough one where sellers dump into bids', Sp.queuePaceSaid('history'), 'sell into the bids');
+  eq('  the other sources say where they came from', [Sp.queuePaceSaid('watched').startsWith(Sp.SPLIT_SAID.watched), Sp.queuePaceSaid('book').startsWith(Sp.SPLIT_SAID.book)], [true, true]);
+  const arbEven = judgeProspect({ ...a.stats, buyerShare: undefined }, { ...a.book, sold: undefined }, S, fl, a.orders);
+  eq('  with nothing to say who buys (an even split assumed), no flag and no queue', [arbEven.warnings.includes('longQueue'), arbEven.queue], [false, undefined]);
+  const arbOld = judgeProspect({ ...a.stats, highs14: undefined }, a.book, S, fl, a.orders, false, { flow: watched.flow });
+  eq('  stats from before the highs were kept: nothing listed counts as reached, no flag', [arbOld.warnings.includes('longQueue'), arbOld.queue?.units ?? 0], [false, 0]);
+  const arbLeave = judgeProspect(a.stats, a.book, S, { ...fl, patient: true }, a.orders, false, watched);
+  eq('  Place and leave sells at 27,100, in front of the whole queue: nothing ahead, no flag', [arbLeave.sell, arbLeave.warnings.includes('longQueue')], [27_100, false]);
+  // A busy market whose seven levels hold under two weeks of buyers, and listings above where trading reaches.
+  const calm = { ...a.book, topSells: [{ price: 60_460, volume: 500 }, { price: 60_470, volume: 500 }, { price: 90_000, volume: 50_000 }] };
+  const calmP = judgeProspect(a.stats, calm, S, fl, a.orders, false, watched);
+  eq('a queue under two weeks of buyers is not flagged, and stock above where trading reaches isn\'t counted', [calmP.warnings.includes('longQueue'), calmP.queue.units, calmP.queue.atLeast], [false, 1000, false]);
+
+  // Vigilance Resonance Key: 21-23 M through early September, then a climb; ESI's last three days (28-30 September)
+  // averaged 31.98 M against a month's median day of 22.89 M.
+  const vk = P.statsFrom(89156, fx[89156].rows, Date.parse('2026-10-01T11:30:00Z'));
+  eq('the Key\'s run-up on the cloud\'s 1 October scan: +40%, over Place and leave\'s 30% and under the front\'s 50%', Math.round(vk.runUp * 100), 40);
+  const kb = fx[89156].book;
+  const vkFront = judgeProspect(vk, kb, S, fl, fx[89156].orders);
+  const vkLeave = judgeProspect(vk, kb, S, { ...fl, patient: true }, fx[89156].orders);
+  eq('  at the front: not flagged', vkFront.warnings.includes('runUp'), false);
+  eq('  placed and left, at 36.82 M from the climb\'s days: flagged', [vkLeave.sell, vkLeave.warnings.includes('runUp')], [36_820_000, true]);
+  const inp = { isk: 1e9, slots: 10, horizonDays: 7, maxShare: 0.25 };
+  eq('  so it is left out of a Place-and-leave plan, and kept in one at the front', [Pl.allocate([vkLeave], inp).rows.length, Pl.allocate([vkFront], inp).rows.length], [0, 1]);
+  eq('  the bar said is the one that applied', [P.runUpBar(true), P.runUpBar(false), P.runUpBar(undefined)], [0.3, 0.5, 0.5]);
+  eq('  warningsFor takes the bar it is given', [P.warningsFor(vk, { buyOrders: 20, sellOrders: 30, topBuys: [], topSells: [] }, 0.1, 40, P.RUN_UP_PATIENT).includes('runUp'), P.warningsFor(vk, { buyOrders: 20, sellOrders: 30, topBuys: [], topSells: [] }, 0.1, 40).includes('runUp')], [true, false]);
+
+  // The switch: "Leave out flagged items", off by default.
+  eq('the switch leaves out Falling, Bids and Sells not reached, Crowded, Thin, Slow and Long queue', Pl.SWITCH_EXCLUDES, ['falling', 'unreached', 'unreachedSell', 'crowded', 'thin', 'slow', 'longQueue']);
+  eq('  never what the planner already leaves out, and never Raises kept back (a cost, not a flag)', [Pl.SWITCH_EXCLUDES.some((w) => Pl.PLANNER_EXCLUDES.includes(w)), Pl.SWITCH_EXCLUDES.includes('raiseReserve')], [false, false]);
+  const item = (typeId, warnings = [], extra = {}) => ({ typeId, roiPerDay: 0.05, buy: 100, qty: 1e6, daysToFlip: 1, net: 10, warnings, ...extra });
+  const each = Pl.SWITCH_EXCLUDES.map((w, i) => item(100 + i, [w]));
+  const raises = item(200, [], { raiseReserve: { buy: 2, sell: 2, isk: 1 } });
+  const list = [...each, raises, item(201), item(202, ['wall']), item(203, ['falling', 'thin'])];
+  const off = Pl.plannerPool(list), on = Pl.plannerPool(list, true);
+  eq('  off: every flagged item stays in the pool, counted; the planner\'s own exclusions apart', [off.pool.length, off.excluded, off.flagged.total, off.allFlagged], [10, 1, 8, false]);
+  eq('  on: only the clean one and the one with raises kept back', on.pool.map((p) => p.typeId), [200, 201]);
+  eq('  how many by flag: an item with two counts under each, and once in the total',
+    [on.flagged.total, on.flagged.byFlag], [8, { falling: 2, unreached: 1, unreachedSell: 1, crowded: 1, thin: 2, slow: 1, longQueue: 1 }]);
+  eq('  allocate follows the switch', [Pl.allocate(list, { ...inp, maxShare: 0.05 }).rows.length, Pl.allocate(list, { ...inp, slots: 40, maxShare: 0.05, leaveOutFlagged: true }).rows.map((r) => r.p.typeId).sort()], [5, [200, 201]]);
+  const allOn = Pl.plannerPool([...each, item(202, ['wall'])], true);
+  eq('  everything flagged, with the switch on: an empty pool that says why', [allOn.pool.length, allOn.flagged.total, allOn.allFlagged], [0, 7, true]);
+  eq('  the same list with the switch off is not that', Pl.plannerPool([...each], false).allFlagged, false);
+  eq('  nothing passed at all is not everything flagged', Pl.plannerPool([], true).allFlagged, false);
+}
+
 console.log('\n--- an order knows its plan, and a buy is never raised into a loss (Praxis, 30 September 2026) ---');
 {
   const fs4 = await import('node:fs');

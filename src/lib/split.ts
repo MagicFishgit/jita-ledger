@@ -153,6 +153,49 @@ export const SPLIT_SAID: Record<SplitFrom, string> = {
   even: 'assumed even, with nothing to go on',
 };
 
+/**
+ * A sell queue longer than this many days of buyers is a long one: more stock listed than about two weeks of buyers take
+ * from listings. The 'Arbalest' Rapid Heavy Missile Launcher I (2 October 2026): ~720 a day traded in The Forge, nearly all
+ * sold into bids at ~24.7k, while 16,264 units were listed in Jita from 60,280 up and the cloud watched buyers take about
+ * 200 a day from listings: a 144% spread at the front, over about two months of stock.
+ */
+export const LONG_QUEUE_DAYS = 14;
+
+/** Units in a sell queue against the buyers who take listings: how many days of them it is, and where that pace came from. */
+export type SellQueue = {
+  units: number;
+  /** Only part of the queue could be seen (a book summary keeps a few levels a side): there are at least `units`. */
+  atLeast: boolean;
+  /** Units a day bought from listings. */
+  perDay: number;
+  /** Where the share of trading that buys from listings came from. */
+  from: SplitFrom;
+  days: number;
+  long: boolean;
+};
+
+/**
+ * Units listed (or held, or still to buy) over the buyers taking listings a day. Shared by Prospects' Long queue and
+ * Orders, so both say it the same way. Null with no buyers to go on, or when the split behind them was only assumed
+ * (`even`): nothing not known is claimed.
+ */
+export function sellQueue(units: number, perDay: number, from: SplitFrom, atLeast = false): SellQueue | null {
+  if (!(units > 0) || !(perDay > 0) || !Number.isFinite(perDay) || from === 'even') return null;
+  const days = units / perDay;
+  return { units, atLeast, perDay, from, days, long: days > LONG_QUEUE_DAYS };
+}
+
+/**
+ * Where a queue's buyers a day came from, for its tip. History's guess is called rough: it reads markets where sellers
+ * sell into the bids poorly (it read such items as 30-97% buyers where a six-hour watch saw 0-7%: eve-market.md), and
+ * those are the markets where a long queue builds.
+ */
+export function queuePaceSaid(from: SplitFrom): string {
+  return from === 'history'
+    ? `${SPLIT_SAID.history}: a rough guess, and a poor one on markets where sellers sell into the bids, which is where long queues build`
+    : SPLIT_SAID[from];
+}
+
 /** Units a day that reach your side: buyers for a sell order, sellers for a buy order. */
 export function sideVolume(unitsPerDay: number, buyers: number, isBuy: boolean): number {
   return unitsPerDay * (isBuy ? 1 - buyers : buyers);

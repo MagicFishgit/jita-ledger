@@ -7,8 +7,8 @@
 import { calc, rates, type Settings } from './fees';
 import { askReachDays, bidReachDays, FILL_WINDOW, reachedAsk, reachedBid, withWatchedHighs, withWatchedLows, type WatchedExtremes } from './fills';
 import type { FlowDay } from './flow';
-import { askToPlace, bidToPlace, SLOW_DAYS, tradedPerDay, warningsFor } from './prospects';
-import { competitionShare, MIN_DAYS, returnPerDay, throughput, tradingSplit, type BookSold } from './split';
+import { askToPlace, bidToPlace, listedQueue, runUpBar, SLOW_DAYS, tradedPerDay, warningsFor } from './prospects';
+import { competitionShare, MIN_DAYS, returnPerDay, sellQueue, throughput, tradingSplit, type BookSold } from './split';
 import type { BookLevel, Prospect, ProspectFilters, ProspectStats } from './types';
 
 export type Book = { at: string; bestBuy: number | null; bestSell: number | null; buyOrders: number; sellOrders: number; topBuys: BookLevel[]; topSells: BookLevel[]; npcSell?: boolean;
@@ -109,6 +109,10 @@ export function judgeProspect(
   // trades is read from what the live orders have sold, and what this app has watched, before history.
   const split = tradingSplit({ history: stats.buyerShare, book: book.sold, watched: watched?.flow, typicalDay: stats.unitsPerDay });
   const buyers = split.share;
+  // The stock this sell would compete with, in days of the buyers who take listings (LONG_QUEUE_DAYS). A wide spread over
+  // a deep queue looks like margin and isn't: the 'Arbalest' launcher's 144% spread at the front sat over two months of stock.
+  const listed = listedQueue(book.topSells, sell, asked.top, highs);
+  const queue = sellQueue(listed.units, stats.unitsPerDay * buyers, split.from, listed.atLeast);
   const sellShare = competitionShare(settings.share, book.sellOrders);
   const unitsPerDay = throughput(stats.unitsPerDay, buyers, settings.share, book.buyOrders, book.sellOrders,
     patient ? { buy: bidReach! / FILL_WINDOW, sell: askReach! / FILL_WINDOW } : undefined);
@@ -153,13 +157,16 @@ export function judgeProspect(
       ...(asked.window ? { askWindow: asked.window } : {}),
     } : {}),
     ...(reserve ? { raiseReserve: reserve } : {}),
+    ...(queue ? { queue: { ...queue, upTo: listed.upTo } } : {}),
     warnings: [
-      ...warningsFor(stats, book, c.spreadPct, estOrders),
+      // A run-up is held to a stricter bar for a plan placed to be left: its ask comes from the climb's own days.
+      ...warningsFor(stats, book, c.spreadPct, estOrders, runUpBar(patient)),
       // Priced where trading reaches, a patient plan can't be "not reached". A front reached on the fortnight but not
       // lately (the last few days) is flagged too, and says so (`bidWindow`).
       ...(!patient && placed.window ? ['unreached' as const] : []),
       ...(!patient && asked.window ? ['unreachedSell' as const] : []),
       ...(daysToFlip > SLOW_DAYS ? ['slow' as const] : []),
+      ...(queue?.long ? ['longQueue' as const] : []),
     ],
   };
 }

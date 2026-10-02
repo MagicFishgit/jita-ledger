@@ -1,6 +1,6 @@
 import type { BookLevel, HistRow, ProspectFilters, ProspectStats, ProspectWarning } from './types';
 import { buyerShare } from './split';
-import { askBothWindows, askReachDays, bidBothWindows, bidReachDays, FILL_RARE, recentAskReach, recentBidReach, recentRange, RECENT_MIN } from './fills';
+import { askBothWindows, askReachDays, bidBothWindows, bidReachDays, FILL_RARE, reachedAsk, recentAskReach, recentBidReach, recentRange, RECENT_MIN } from './fills';
 import { tickDown, tickUp } from './tick';
 
 const DAY = 86400_000;
@@ -158,6 +158,16 @@ export const MOVED = 0.5;
  * the ask's recent reach (askToPlace).
  */
 export const RUN_UP = 0.5;
+/**
+ * Place and leave's bar for the same run-up: its orders sit behind the front for weeks, priced where trading reached on
+ * half the fortnight, so the climb's own days set its ask. The Vigilance Resonance Key on the cloud's 1 October 2026 scan
+ * was +40% (ESI's last 3 days, 28-30 September, averaged 31.98 M against a month's median day of 22.89 M): under RUN_UP,
+ * and Place and leave priced its sell at 36.82 M from the climb's days, behind 109 listed units at ~9 a day. At the
+ * front, only RUN_UP flags it.
+ */
+export const RUN_UP_PATIENT = 0.3;
+/** The run-up bar that applies: Place and leave's, or the front's. */
+export const runUpBar = (patient?: boolean) => (patient ? RUN_UP_PATIENT : RUN_UP);
 export const RUN_UP_DAYS = 3;
 export const RUN_UP_BEFORE = 30;
 
@@ -339,6 +349,8 @@ export function warningsFor(
   book: BookShape,
   spreadPct: number,
   estOrders: number,
+  /** The run-up bar: RUN_UP at the front, RUN_UP_PATIENT for Place and leave (`runUpBar`). */
+  runUpAt = RUN_UP,
 ): ProspectWarning[] {
   const out: ProspectWarning[] = [];
   // Few orders on a side means the gap is wide because nobody is standing there.
@@ -359,7 +371,7 @@ export function warningsFor(
   if (stats.spike) out.push('spike');
   if (stats.lastMove != null && Math.abs(stats.lastMove) > MOVED) out.push('moved');
   // Absent on stats from before it was kept: nothing is claimed (the planner says to scan again).
-  if (stats.runUp != null && stats.runUp > RUN_UP) out.push('runUp');
+  if (stats.runUp != null && stats.runUp > runUpAt) out.push('runUp');
   return out;
 }
 
@@ -375,6 +387,27 @@ export function isWall(levels: BookLevel[], unitsPerDay?: number): boolean {
   const total = levels.reduce((t, l) => t + l.volume, 0);
   const front = levels[0].volume;
   return total > 0 && front > WALL_SHARE * total && front > WALL_DAYS * unitsPerDay;
+}
+
+/**
+ * The stock a listing at `sell` queues with, from a book summary's sell levels (cheapest first). `front` is one step under
+ * the best ask, where a listing at the front goes.
+ *
+ * Priced at the front or above it, a listing joins the queue: at the front it's one step under everyone, but the queue
+ * undercuts it back, so what it competes with is everything listed at prices buyers have been paying, up to where trading
+ * reached on FILL_RARE of the last 14 days (or up to its own price, if that's higher: a patient ask behind the front).
+ * Listings above that aren't selling, and aren't a queue anyone waits in. Priced under the front (a lowered ask, a
+ * patient one under the book), nothing is ahead of it. Without the highs, nothing listed is known to be reached, so only
+ * what's at or under its own price counts.
+ *
+ * `atLeast`: every level held is under the ceiling, so the side may hold more than the summary kept (the cloud's scan
+ * keeps seven prices a side).
+ */
+export function listedQueue(topSells: BookLevel[], sell: number, front: number, highs?: (number | null)[] | null): { units: number; atLeast: boolean; upTo: number } {
+  const rare = sell >= front && highs ? reachedAsk(highs, FILL_RARE) : null;
+  const upTo = rare != null && rare > sell ? rare : sell;
+  const within = topSells.filter((l) => l.price <= upTo);
+  return { units: within.reduce((t, l) => t + l.volume, 0), atLeast: within.length > 0 && within.length === topSells.length, upTo };
 }
 
 /**
