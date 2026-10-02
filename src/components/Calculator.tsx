@@ -260,8 +260,8 @@ export function Calculator({ route }: { route: Route }) {
           <div className="msg" role="note" style={cssVars({ flexBasis: '100%', '--c': tr.sell >= snap.npcAnywhere ? 'var(--neg)' : 'var(--acc2)' })}>
             <CircleAlert aria-hidden="true" />
             <span>
-              <b>NPCs sell this elsewhere in The Forge,</b> at {isk(snap.npcAnywhere)} in unlimited supply. Buyers can have all they want there, so a listing in Jita at or over that price waits on the few who won’t travel.
-              {tr.sell >= snap.npcAnywhere ? ' Your sell price is at or over it.' : ''} Prospects and the Capital planner leave it out wherever they’d resell at or over that.
+              <b>NPCs sell this elsewhere in The Forge,</b> at {isk(snap.npcAnywhere)} in unlimited supply. Buyers can have all they want there, so a listing in Jita at or over that price waits on the few who won’t travel, and one a little under it races unlimited supply for them.
+              {tr.sell >= snap.npcAnywhere ? ' Your sell price is at or over it.' : ''} Prospects, the Capital planner and the opportunity mail leave out every item NPCs sell anywhere in The Forge, whatever the price.
             </span>
           </div>
         )}

@@ -294,5 +294,13 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   unknown one says nothing. The tip says to cancel it, or cancel and place a smaller one (a new order with its own fee:
   EVE can't shrink one), and to list what you hold first. On the user's 3 open buys (13:02 UTC): the Arbalest tagged at
   ~27 days (3,294 others' listings to 62,910, 1,808 listed and 737 in the hangar, 2,350 to buy, 306 a day watched over
-  118 h); the Caldari Navy Missile Guidance Computer (2.1 days) and a Clone Soldier Transporter Tag (4.4) not. Not on To
-  do or in mail.
+  118 h); the Caldari Navy Missile Guidance Computer (2.1 days) and a Clone Soldier Transporter Tag (4.4) not. Not in
+  mail. **On To do since the user approved it** (2 October 2026, "yes i approve all 3 choices"; `feedsQueueItem`,
+  `judgeFeedsQueue` in todo.ts, kind `feedsQueue`, under Needs action): one item per tagged buy, keyed by the order
+  (`feeds:<id>`), in the tip's own words (`feedsQueueLead` and `FEEDS_QUEUE_DO`, which the tip is built from), opening
+  the item in game with no price copied, at stake what the order still has to spend. Its version is the order's price and
+  what it still buys, never the queue's days, which move with every read of the pace; so a fill reopens an item ticked by
+  hand. It ticks off like an order item: the order closing, or a newer check that read the book and no longer tags it,
+  which can't tell a shorter queue from a pace it can no longer read and says only "The latest check of its book no
+  longer has what it buys feeding a long queue." On the user's 3 open buys again (15:20 UTC): only the Arbalest, 8,067
+  units, about 27 days at 304 a day watched over 121 h, 2,247 still to buy (55.8 M at stake).

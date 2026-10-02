@@ -4084,7 +4084,7 @@ console.log('\n--- a long sell queue, a stricter run-up for Place and leave, and
   eq('  nothing passed at all is not everything flagged', Pl.plannerPool([], true).allFlagged, false);
 }
 
-console.log('\n--- an NPC seller anywhere in The Forge caps the resale; the scan counts the whole sell queue (2 October 2026) ---');
+console.log('\n--- an NPC seller anywhere in The Forge keeps an item out of Prospects and caps the Sniper\'s resale; the scan counts the whole sell queue (2 October 2026) ---');
 {
   const fs6 = await import('node:fs');
   // Read on 2 October 2026, all read-only: the cloud's full scan of 11:25 UTC, ESI's history, the whole Forge book at
@@ -4111,8 +4111,18 @@ console.log('\n--- an NPC seller anywhere in The Forge caps the resale; the scan
   const ccOld = judgeProspect(cc.stats, cc.book, S, big, cc.orders);
   eq('  without the NPC price (a summary from a Worker a version behind): bought at 2,500 M to resell at 2,749.5 M', [ccOld?.buy, ccOld?.sell], [2.5e9, 2.7495e9]);
   eq('  with it, left out: NPCs sell it at 2,500 M, under where you\'d resell', judgeProspect(cc.stats, withNpc(93983), S, big, cc.orders), null);
-  eq('  an NPC price over where you\'d resell leaves it in', judgeProspect(cc.stats, { ...cc.book, npcAnywhere: 2.8e9 }, S, big, cc.orders)?.sell, 2.7495e9);
-  eq('  and at exactly the resale it\'s out ("at or under")', judgeProspect(cc.stats, { ...cc.book, npcAnywhere: 2.7495e9 }, S, big, cc.orders), null);
+  // Any NPC price, since the user approved it on 2 October 2026: "at or under where you'd resell" left skill books in.
+  eq('  an NPC price over where you\'d resell leaves it out too', judgeProspect(cc.stats, { ...cc.book, npcAnywhere: 2.8e9 }, S, big, cc.orders), null);
+  eq('  and at exactly the resale', judgeProspect(cc.stats, { ...cc.book, npcAnywhere: 2.7495e9 }, S, big, cc.orders), null);
+  // Gallente Hauler (3340), a skill book, on the same scan: Jita listed from 470,400 with lowball bids at 1,236, and NPCs sold
+  // it at 500,000 in 12 other Forge stations. Under "at or under the resale" it stayed in at 470,300, a four-figure return
+  // on paper; now it's out of every view.
+  const gh = fx.skill3340;
+  eq('Gallente Hauler: NPCs sell it at 500,000 in 12 other Forge stations, none in Jita', [gh.npc.length, Math.min(...gh.npc.map(([, p]) => p)), gh.jita.some(([b, , , , d]) => !b && d >= 365), gh.book.npcSell], [12, 500_000, false, false]);
+  const ghOld = judgeProspect(gh.stats, gh.book, S, big, gh.orders);
+  eq('  without the NPC price: priced to resell at 470,300, a four-figure return on paper', [ghOld?.sell, ghOld?.roi > 10], [470_300, true]);
+  eq('  with it, at 500,000 over that resale: left out', judgeProspect(gh.stats, { ...gh.book, npcAnywhere: 500_000 }, S, big, gh.orders), null);
+  eq('    placed and left too', [!!judgeProspect(gh.stats, gh.book, S, Pl.plannerFilters(null, 3e9, 7, true), gh.orders), judgeProspect(gh.stats, { ...gh.book, npcAnywhere: 500_000 }, S, Pl.plannerFilters(null, 3e9, 7, true), gh.orders)], [true, null]);
   // Capital Ships (NPCs 450 M) and Amarr Carrier (550 M): at the front, trading already reaches the NPC price and the
   // margin is gone; the Busy markets view prices the top of the book, 487.9 M and 588.7 M, and showed them.
   const busy = { ...saved, busy: true, partial: true };
@@ -4121,6 +4131,8 @@ console.log('\n--- an NPC seller anywhere in The Forge caps the resale; the scan
     eq(`  ${x.name}: shown in Busy markets at ${top / 1e6} M without the NPC price`, judgeProspect(x.stats, x.book, S, busy, x.orders, true)?.sell, top);
     eq(`    left out with NPCs selling at ${npc / 1e6} M elsewhere in The Forge`, [npcOf(t), judgeProspect(x.stats, withNpc(t), S, busy, x.orders, true)], [npc, null]);
   }
+  eq('  Gallente Hauler: shown in Busy markets at the top of the book without the NPC price, left out with it (over the resale)',
+    [judgeProspect(gh.stats, gh.book, S, busy, gh.orders, true)?.sell, judgeProspect(gh.stats, { ...gh.book, npcAnywhere: 500_000 }, S, busy, gh.orders, true)], [470_300, null]);
   // Neurotoxin Recovery: no NPC orders anywhere in The Forge, 718 units in 14 days: a real player market. Its book read
   // every listing as bought (44 sold from listings, none into bids), so with the book's split nothing reaches a buy order;
   // history's split (56% buyers) prices it placed and left, 75.13 M to 88.88 M, and that's what the NPC rule must leave alone.
@@ -4140,6 +4152,12 @@ console.log('\n--- an NPC seller anywhere in The Forge caps the resale; the scan
   eq('the Sniper relists a Command Carriers at 2,749.5 M where trading reached, but at 2,500 M where NPCs sell it', [free?.resale, free?.npc, capped?.resale, capped?.npc], [2.7495e9, undefined, 2.5e9, 2.5e9]);
   eq('  a listing that pays against where it trades but not against the NPC price is no snipe', [!!Sn.findListing(93983, [O(1, 2.4e9, 1), O(2, 2.8e9, 1)], false, ccSt, now), Sn.findListing(93983, [O(1, 2.4e9, 1), O(2, 2.8e9, 1)], false, ccSt, now, 2.5e9)], [true, null]);
   eq('  an NPC price over the resale changes nothing', Sn.findListing(93983, [O(1, 2e9, 1), O(2, 2.8e9, 1)], false, ccSt, now, 3e9)?.resale, 2.7495e9);
+  // The Sniper keeps its own rule (not part of the user's choice for Prospects): an NPC-sold skill book listed well under the
+  // NPC price is still a snipe, relisted no dearer than the NPCs. Gallente Hauler at 100 a unit (invented), the next listing
+  // its real 470,400.
+  const ghSt = { highs14: gh.stats.highs14, unitsPerDay: gh.stats.unitsPerDay, daysTraded: gh.stats.daysTraded, lastMove: gh.stats.lastMove };
+  const ghSnipe = Sn.findListing(3340, [O(1, 100_000, 20), O(2, 470_400, 46)], false, ghSt, now, 500_000);
+  eq('  a skill book NPCs sell at 500,000, listed at 100,000: still a snipe, relisted one step under the next listing', [!!ghSnipe, ghSnipe?.resale, ghSnipe?.npc], [true, 470_300, 500_000]);
   // A high bid for one you hold is set against listing it, which can't fetch more than the NPC price either.
   const bid = { id: 9, price: 2.6e9, units: 1, minVolume: 1, issued: '2026-10-02T12:00:00Z' };
   eq('  a 2,600 M bid beats listing at the NPC\'s 2,500 M, not at 2,749.5 M', [Sn.findBid(93983, bid, ccSt), Sn.findBid(93983, bid, ccSt, 2.5e9)?.fair, Sn.findBid(93983, bid, ccSt, 2.5e9)?.npc], [null, 2.5e9, 2.5e9]);
@@ -4440,6 +4458,20 @@ console.log('\n--- the sniper ---');
   const on = Sn.splitBlueprints(all6, true, (t) => looked[t]);
   eq('    switched on, every listing shows, and the count of blueprints is the same', [ids(on.shown), on.blueprints.length], [[6721, 990, 46233, 16243, 17771, 29001], 3]);
   eq('    with no lookup to fall back on (the cloud\'s mail), the cloud\'s own category decides', ids(Sn.splitBlueprints(all6, false).shown), [6721]);
+  // High bids for what you hold follow the same switch (the user, 2 October 2026: "yes i approve all 3 choices"): a bid for
+  // a blueprint you hold, a module's, a Thrasher Blueprint's with no category from the cloud (a Worker a version behind)
+  // and a Tracking Speed Script's not looked up yet.
+  const Bi = (typeId, category) => ({ ...bid, typeId, orderId: typeId, ...(category === undefined ? {} : { category }) });
+  const heldBids = Sn.judgeBids([Bi(990, 9), Bi(6721, 7), Bi(16243), Bi(29001)], { f: 0.01268, t: 0.03375 }, { 990: 5, 6721: 5, 16243: 5, 29001: 5 }, { minIsk: 1e5, minPct: 10 });
+  eq('  a held bid row keeps the category the cloud gave its bid', heldBids.filter((x) => x.typeId === 990).map((x) => x.category), [9]);
+  const bOff = Sn.splitBlueprints(heldBids, false, (t) => looked[t]);
+  eq('  high bids for blueprints you hold are out unless asked, as listings are', [ids(bOff.shown), ids(bOff.blueprints).sort((a, b) => a - b)], [[6721], [990, 16243]]);
+  eq('    a bid whose item isn\'t known yet is held back until it\'s looked up', ids(bOff.unknown), [29001]);
+  eq('    switched on, every held bid shows', ids(Sn.splitBlueprints(heldBids, true, (t) => looked[t]).shown).sort((a, b) => a - b), [990, 6721, 16243, 29001]);
+  eq('  the page counts listings and bids apart when there are both, and one kind as before',
+    [Sn.blueprintsSaid(2, 1), Sn.blueprintsSaid(2, 0), Sn.blueprintsSaid(1, 0), Sn.blueprintsSaid(0, 1), Sn.blueprintsSaid(0, 3), Sn.blueprintsSaid(1, 1)],
+    [{ said: '2 blueprint listings and 1 high bid for a blueprint you hold', many: true }, { said: '2 blueprints', many: true }, { said: '1 blueprint', many: false },
+      { said: '1 high bid for a blueprint you hold', many: false }, { said: '3 high bids for blueprints you hold', many: true }, { said: '1 blueprint listing and 1 high bid for a blueprint you hold', many: true }]);
 
   // Copy for Multibuy (authorized by the user, 2 October 2026): "Name N", the cheap units only, with what it should come
   // to at the listings read, and that Multibuy has no price limit. The Anode Particle Stream as read: 133 at 58,730.
@@ -5285,6 +5317,33 @@ console.log('\n--- Orders: a buy that keeps adding stock to a long sell queue (2
   eq('the pace\'s source: a book prior under a day watched, the watching from a day, history\'s guess with no book, the watching alone with no prior',
     [sidePaceOf({ ...ev, watched: w(10) }, false).paceFrom, sidePaceOf({ ...ev, watched: w(PRIOR_HOURS) }, false).paceFrom,
       sidePaceOf({ ...ev, sold: undefined, watched: w(0) }, false).paceFrom, sidePaceOf({ ...ev, daily: null, watched: w(10) }, false).paceFrom], ['book', 'watched', 'history', 'watched']);
+
+  // On To do too (the user, 2 October 2026: "yes i approve all 3 choices"): one item per tagged buy, something to act on,
+  // in the tag's own words, never mailed. Mirrors a sell priced under cost (`underCost`).
+  const T = await import('../src/lib/todo.ts');
+  const action = { label: 'Open in game', typeId: fx.typeId, route: `orders?show=${fx.typeId}` };
+  const item = T.feedsQueueItem(arb, fx.name, action);
+  eq('To do lists the Arbalest\'s buy: keyed by the order, its own kind, something to act on',
+    [item?.key, item?.kind, item?.source, T.needs('feedsQueue'), T.KIND_LABEL.feedsQueue, item?.title], [`feeds:${fx.buy.orderId}`, 'feedsQueue', 'orders', 'act', 'Feeds a long queue', `${fx.name} buy order`]);
+  eq('  what\'s at stake is what the order still has to spend', item?.stake, arb.atRisk);
+  has('  in the tag\'s words: the queue and how long it takes', item?.detail ?? '', R.feedsQueueLead(arb.feeds));
+  has('    and what to do', item?.detail ?? '', 'cancel this buy, or cancel it and place a smaller one');
+  has('    the same words as the tip on Orders', R.feedsQueueSaid(arb.feeds), R.feedsQueueLead(arb.feeds));
+  eq('  opening it copies no price: cancelling isn\'t one', item?.action.copy, undefined);
+  eq('  its version is the order\'s price and what it still buys, not the pace', [item?.ver, T.feedsQueueItem(judged(fx.buy, { sellPace: { ...sellPace, perDay: 250 } }), fx.name, action)?.ver],
+    [`feeds:${fx.buy.price}:${fx.buy.volumeRemain}`, `feeds:${fx.buy.price}:${fx.buy.volumeRemain}`]);
+  eq('  nothing for a buy that isn\'t tagged, or for a sell', [T.feedsQueueItem(R.judgeOrder(calmOrder, { book: calmBook, perDay: 100, lows: Array(14).fill(890), highs: calmHighs, txs: [], yours: [3, 4], hangar: 0, sellPace: { perDay: 600, watchedH: 0, paceFrom: 'book' } }, S, now), 'x', action), T.feedsQueueItem(judged(fx.sell), fx.name, action)], [null, null]);
+  // Ticked off like an order item: only by a newer check that read the book and no longer tags it, or the order closing.
+  const e = { key: item.key, item, seenAt: 1000, lastAt: 1000 };
+  const v = (extra = {}) => ({ gone: false, price: fx.buy.price, ...extra });
+  eq('  absent is not done: an older check, a check that didn\'t read its book, or none at all say nothing',
+    [T.judgeFeedsQueue(e, { open: true, checkedAt: 500, bookRead: true, v: v() }), T.judgeFeedsQueue(e, { open: true, checkedAt: 2000, bookRead: false, v: v() }), T.judgeFeedsQueue(e, { open: true, checkedAt: null, bookRead: false })], [null, null, null]);
+  eq('    nor a newer check that still tags it', T.judgeFeedsQueue(e, { open: true, checkedAt: 2000, bookRead: true, v: v({ feeds: arb.feeds }) }), null);
+  eq('  a newer check that read the book and no longer tags it ticks it off', T.judgeFeedsQueue(e, { open: true, checkedAt: 2000, bookRead: true, v: v() }), 'The latest check of its book no longer has what it buys feeding a long queue.');
+  eq('  so does the order closing, or leaving the market', [T.judgeFeedsQueue(e, { open: false, checkedAt: null, bookRead: false }), T.judgeFeedsQueue(e, { open: true, checkedAt: 2000, bookRead: true, v: v({ gone: true }) })],
+    ['The order has closed: it filled, expired or was cancelled.', 'It’s no longer in the market: it filled, expired or was cancelled.']);
+  const kept = T.remember({ [item.key]: e }, [], () => 1000, (x) => T.judgeFeedsQueue(x, { open: true, checkedAt: 500, bookRead: true, v: v() }), 2000);
+  eq('  gone from the list before a newer check: kept, waiting on it', [!!kept[item.key], kept[item.key]?.done], [true, undefined]);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

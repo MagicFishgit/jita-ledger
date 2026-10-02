@@ -100,6 +100,8 @@ const PROOF = { small: 'Hammerhead II', large: 'Test Item' };
  *   "Leave out flagged items" on, the planner leaves it out with 990102 and says so by flag (PLANNER_SWITCH).
  * - 990106: priced like 990101, but NPCs sell it elsewhere in The Forge at 1.3 M, under the 1,399,000 it would list at
  *   (`npcAnywhere`, the cloud scan's note): left out of Prospects and the planner, as Command Carriers was on 2 October 2026.
+ * - 990107: the same with NPCs at 1.5 M, over where it would list: left out too, as every item NPCs sell anywhere in The
+ *   Forge is since the user approved it on 2 October 2026 (Gallente Hauler, listed under the NPCs' 500,000, had stayed in).
  */
 function planScan(now) {
   const day = (i) => new Date(now - i * 86400_000).toISOString().slice(0, 10);
@@ -120,13 +122,14 @@ function planScan(now) {
     990104: [stats(990104, flat(1 * M), flat(1.4 * M), { runUp: undefined, runUpBase: undefined }), book(990104, 1 * M, 1.4 * M)],
     990105: [stats(990105, flat(1 * M), flat(1.4 * M)), { ...book(990105, 1 * M, 1.4 * M), topSells: [{ price: 1.4 * M, volume: 6000 }, { price: 1.401 * M, volume: 6000 }] }],
     990106: [stats(990106, flat(1 * M), flat(1.4 * M)), { ...book(990106, 1 * M, 1.4 * M), npcAnywhere: 1.3 * M }],
+    990107: [stats(990107, flat(1 * M), flat(1.4 * M)), { ...book(990107, 1 * M, 1.4 * M), npcAnywhere: 1.5 * M }],
   };
   const busy = { h: 15, sell: 18, buy: 6, newSell: 37, newBuy: 15, frontSell: 2, frontBuy: 2, repriceSell: 0, repriceBuy: 0 };
   return {
     prospects: {
       stats: Object.fromEntries(Object.entries(items).map(([t, [st]]) => [t, st])),
       books: Object.fromEntries(Object.entries(items).map(([t, [, b]]) => [t, b])),
-      sample: { at: new Date(now - 3600_000).toISOString(), totalPages: 400, sampledPages: 400, minSampled: 1, counts: { 990101: 60, 990102: 60, 990103: 60, 990104: 60, 990105: 60, 990106: 60 } },
+      sample: { at: new Date(now - 3600_000).toISOString(), totalPages: 400, sampledPages: 400, minSampled: 1, counts: { 990101: 60, 990102: 60, 990103: 60, 990104: 60, 990105: 60, 990106: 60, 990107: 60 } },
       runs: { cloud: new Date(now - 3600_000).toISOString() },
     },
     flow: { log: { 990101: { [day(1)]: busy, [day(0)]: busy } }, ends: {} },
@@ -134,8 +137,8 @@ function planScan(now) {
 }
 /** What the large ledger's Prospects and planner must draw from that scan, and what the planner's mix must not hold. */
 const PLAN_PROOF = {
-  prospects: { drawn: ['Ran up lately', 'Bids not reached', 'Long queue'], absent: ['990106'] },
-  planner: { drawn: ['Raises kept back', 'Bids not reached', 'Long queue'], note: 'Scan again before investing', absent: ['Ran up lately', '990106'] },
+  prospects: { drawn: ['Ran up lately', 'Bids not reached', 'Long queue'], absent: ['990106', '990107'] },
+  planner: { drawn: ['Raises kept back', 'Bids not reached', 'Long queue'], note: 'Scan again before investing', absent: ['Ran up lately', '990106', '990107'] },
 };
 /**
  * The planner again with "Leave out flagged items" switched on (kept per browser, read as the page opens): the flagged
@@ -489,6 +492,21 @@ try {
     if (boundary) problems.push('error boundary');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out: ${o}`);
     if (SHOTS) await page.screenshot({ path: `${SHOTS}-plan-orders.png` });
+    // The same buy on To do (approved 2 October 2026): one item, something to act on, in the tag's words; none for the sell.
+    await page.evaluate(() => { location.hash = '#todo'; });
+    const fed = page.locator('.tn-item', { hasText: 'Feeds a long queue' });
+    await fed.first().waitFor({ timeout: 10_000 }).catch(() => problems.push('not drawn: no “Feeds a long queue” item on To do'));
+    if ((await fed.count()) !== 1) problems.push(`To do lists ${await fed.count()} “Feeds a long queue” items, not the Arbalest buy's one`);
+    const fedText = (await fed.first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+    for (const want of [`${arb.name} buy order`, 'days of the buyers who take listings', 'cancel it and place a smaller one']) if (!fedText.includes(want)) problems.push(`not drawn: the To do item's “${want}”`);
+    await page.getByRole('button', { name: /Needs action/ }).click().catch((e) => problems.push(`couldn't filter To do: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(300);
+    if (!(await page.locator('.tn-item', { hasText: 'Feeds a long queue' }).count())) problems.push('the “Feeds a long queue” item isn’t under Needs action');
+    boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary on To do');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on To do: ${o}`);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-plan-todo.png` });
+    await page.evaluate(() => localStorage.removeItem('jita-ledger:todo-filter'));
     // The plan's checklist on the planner: the Key's order from before the plan counted, never a nudge to replace it.
     await page.evaluate(() => { location.hash = '#planner'; });
     await page.waitForTimeout(1500);
@@ -502,7 +520,7 @@ try {
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'plan', page: 'orders', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL plan #orders\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (Keep it, the plan chip, a buy over its resale, a buy feeding a long queue) and #planner (the checklist)\n');
+    process.stdout.write(unique.length ? `  FAIL plan #orders\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (Keep it, the plan chip, a buy over its resale, a buy feeding a long queue), #todo (that buy) and #planner (the checklist)\n');
     await page.close();
   }
   // Every freelance job you did (the user's six, 1 October 2026), rebuilt as a browser that never saw them does: only the
@@ -580,6 +598,9 @@ try {
   // read, six finds from the read of 1 October 23:27 UTC: a module, a battery and a script, an Epithal Blueprint, a
   // reaction formula (category 9, no "Blueprint" in its name) and a Thrasher Blueprint the read gives no category for (a
   // Worker a version behind), which ESI answers here. Without this the deploy never drew a find, the switch or the copy.
+  // And high bids for what the hangar holds, which the switch hides for blueprints too (approved the same day): the
+  // Jackdaw's bid from the read of 2 October 15:06 UTC, and bids (invented) for a Caracal Blueprint (category 9 from the
+  // cloud) and a Hound Blueprint the read gives no category for, which ESI answers here.
   if (SHOWN.includes('sniper') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('sniper'))) {
     const now = Date.now(), iso = (t) => new Date(t).toISOString();
     const L = (typeId, category, units, cost, cheapest, resale, fair, nextAsk, perDay, daysTraded, doubts = []) => ({
@@ -592,8 +613,12 @@ try {
       // A Command Carriers listed at 2,000 M (invented) under Jita's real 2,800 M: relisted at NPCs' 2,500 M elsewhere in The
       // Forge, under the 2,749.5 M trading got up to (the cloud's read of 2 October 2026).
       { ...L(93983, 16, 1, 2e9, 2e9, 2.5e9, 2.7495e9, 2.8e9, 6.5, 30), npc: 2.5e9 }] };
-    const names = { 6721: 'Small Focused Anode Particle Stream I', 17771: 'Medium AutoCannon Battery', 29001: 'Tracking Speed Script', 990: 'Epithal Blueprint', 46233: 'Synth Blue Pill Booster Reaction Formula', 16243: 'Thrasher Blueprint', 93983: 'Command Carriers' };
-    const ledger = { names, alerts: { snipeMinIsk: 1e6, snipeMinPct: 5 }, meta: { walletBalance: 1e9, lastSync: iso(now - 600_000) } };
+    const B = (typeId, category, price, fair, units) => ({ typeId, orderId: typeId * 10 + 1, price, units, minVolume: 1, fair, issued: iso(now - 3600_000), doubts: [], ...(category === undefined ? {} : { category }) });
+    read.bids = [B(34828, 6, 70_940_000, 64_710_000, 4), B(687, 9, 19_000_000, 15_000_000, 2), B(12035, undefined, 9_500_000, 8_000_000, 1)];
+    const names = { 6721: 'Small Focused Anode Particle Stream I', 17771: 'Medium AutoCannon Battery', 29001: 'Tracking Speed Script', 990: 'Epithal Blueprint', 46233: 'Synth Blue Pill Booster Reaction Formula', 16243: 'Thrasher Blueprint', 93983: 'Command Carriers',
+      34828: 'Jackdaw', 687: 'Caracal Blueprint', 12035: 'Hound Blueprint' };
+    const jita = { 34828: 1, 687: 2, 12035: 1 };
+    const ledger = { names, alerts: { snipeMinIsk: 1e6, snipeMinPct: 5 }, stock: { at: iso(now - 600_000), jita, total: jita, inContainers: 0 }, meta: { walletBalance: 1e9, lastSync: iso(now - 600_000) } };
     const page = await browser.newPage(VIEW);
     // What the page puts on the clipboard, kept where the check can read it.
     await page.addInitScript(() => {
@@ -601,7 +626,7 @@ try {
       try { Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: async (t) => { window.__copied.push(t); } }); } catch { /* no clipboard: the check says so */ }
     });
     const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS' };
-    let typeAsked = 0;
+    let typeAsked = 0, houndAsked = 0;
     await page.route('**/*', (route) => {
       const req = route.request(), url = new URL(req.url());
       if (req.url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
@@ -610,6 +635,8 @@ try {
       if (url.host === '127.0.0.1:9' && url.pathname === '/v1/snipes') return json(read);
       if (url.hostname === 'esi.evetech.net' && /^\/universe\/types\/16243\/?$/.test(url.pathname)) { typeAsked++; return json({ type_id: 16243, name: names[16243], group_id: 487, published: true }); }
       if (url.hostname === 'esi.evetech.net' && /^\/universe\/groups\/487\/?$/.test(url.pathname)) return json({ group_id: 487, name: 'Destroyer Blueprint', category_id: 9 });
+      if (url.hostname === 'esi.evetech.net' && /^\/universe\/types\/12035\/?$/.test(url.pathname)) { houndAsked++; return json({ type_id: 12035, name: names[12035], group_id: 105, published: true }); }
+      if (url.hostname === 'esi.evetech.net' && /^\/universe\/groups\/105\/?$/.test(url.pathname)) return json({ group_id: 105, name: 'Frigate Blueprint', category_id: 9 });
       return route.abort();
     });
     const problems = [];
@@ -630,16 +657,23 @@ try {
     await page.waitForSelector('.page', { timeout: 20_000 });
     const worth = page.locator('section.panel', { hasText: 'Worth sniping' });
     const inWorth = async (n) => (await worth.locator('table tbody tr', { hasText: n }).count()) > 0;
-    // The switch counts the three blueprints once the Thrasher's category has come back from ESI.
-    await page.waitForSelector('button[role="checkbox"]:has-text("Include blueprints (3)")', { timeout: 20_000 }).catch(() => problems.push('not drawn: “Include blueprints (3)”'));
+    // The switch counts the three blueprint listings and the two held blueprint bids once the Thrasher's and the Hound's
+    // categories have come back from ESI.
+    await page.waitForSelector('button[role="checkbox"]:has-text("Include blueprints (5)")', { timeout: 20_000 }).catch(() => problems.push('not drawn: “Include blueprints (5)”'));
     await page.waitForTimeout(1200);
     if (!typeAsked) problems.push('the Thrasher, with no category from the cloud, was never looked up');
+    if (!houndAsked) problems.push('the Hound Blueprint\'s bid, with no category from the cloud, was never looked up');
+    const heldPanel = page.locator('section.panel', { hasText: 'High bids for what you hold' });
+    const inHeld = async (n) => (await heldPanel.locator('table tbody tr', { hasText: n }).count()) > 0;
+    if (!(await inHeld(names[34828]))) problems.push('not drawn in High bids for what you hold: the Jackdaw');
+    for (const n of [names[687], names[12035]]) if (await inHeld(n)) problems.push(`a blueprint's bid in High bids for what you hold with the switch off: ${n}`);
+    if (!(await heldPanel.locator('.note', { hasText: '2 high bids for blueprints you hold are left out.' }).count())) problems.push('not drawn: “2 high bids for blueprints you hold are left out.”');
     if (await page.locator('button[role="checkbox"]:has-text("Include blueprints")').getAttribute('aria-checked') !== 'false') problems.push('blueprints are in by default');
     for (const n of [names[6721], names[17771], names[29001], names[93983]]) if (!(await inWorth(n))) problems.push(`not drawn in Worth sniping: ${n}`);
     // Its relist says why it's under where trading got up to.
     if (!(await worth.locator('table tbody tr', { hasText: names[93983] }).filter({ hasText: 'NPCs sell at 2,500,000,000 ISK' }).count())) problems.push('not drawn: “NPCs sell at 2,500,000,000 ISK” under the Command Carriers relist');
     for (const n of [names[990], names[16243]]) if (await inWorth(n)) problems.push(`a blueprint in Worth sniping with the switch off: ${n}`);
-    if (!(await worth.locator('.note', { hasText: '2 blueprints clear your bar too, left out' }).count())) problems.push('not drawn: “2 blueprints clear your bar too, left out”');
+    if (!(await worth.locator('.note', { hasText: '2 blueprint listings and 2 high bids for blueprints you hold clear your bar too, left out' }).count())) problems.push('not drawn: “2 blueprint listings and 2 high bids for blueprints you hold clear your bar too, left out”');
     if (SHOTS) await page.screenshot({ path: `${SHOTS}-blueprints-off.png` });
     // One find copied for Multibuy: "Name N", and what it should come to.
     await page.getByRole('button', { name: `Copy ${names[6721]} for Multibuy` }).click().catch((e) => problems.push(`couldn't copy a find: ${e.message.split('\n')[0]}`));
@@ -653,6 +687,8 @@ try {
     await page.locator('button[role="checkbox"]:has-text("Include blueprints")').click();
     await page.waitForTimeout(800);
     for (const n of [names[990], names[16243]]) if (!(await inWorth(n))) problems.push(`not drawn in Worth sniping with the switch on: ${n}`);
+    for (const n of [names[34828], names[687], names[12035]]) if (!(await inHeld(n))) problems.push(`not drawn in High bids for what you hold with the switch on: ${n}`);
+    if (await heldPanel.locator('.note', { hasText: 'left out' }).count()) problems.push('the held bids still say some are left out with the switch on');
     await worth.getByRole('button', { name: /Copy all 6 for Multibuy/ }).click().catch((e) => problems.push(`couldn't copy all: ${e.message.split('\n')[0]}`));
     await page.waitForTimeout(400);
     copied = await page.evaluate(() => window.__copied);
@@ -665,7 +701,7 @@ try {
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'sniper', page: 'sniper', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL sniper #sniper\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   sniper #sniper (blueprints out unless asked, the switch, Copy for Multibuy, a relist capped at the NPC price)\n');
+    process.stdout.write(unique.length ? `  FAIL sniper #sniper\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   sniper #sniper (blueprints out unless asked, listings and held bids, the switch, Copy for Multibuy, a relist capped at the NPC price)\n');
     await page.close();
   }
   // The site is public: without the owner's login, only the landing page, with nothing of the ledger's in it and

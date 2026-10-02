@@ -194,21 +194,37 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   word); the cloud looks each listing's type up once (type → group → category) and keeps it, a type ESI didn't answer is
   `null` and held back until known, and a browser on a read without categories looks each up itself (`typeKind`). The mail
   splits before picking its eight, so hidden blueprints can't take their places. "Include blueprints (N)" says how many
-  clear the bar and are left out. High bids for blueprints you hold still show: selling into a bid is paid at once. Hidden
-  blueprints are still recorded as sightings, so the daily "checked against what traded after" counts them.
-- **NPC sellers anywhere in The Forge cap the resale** (`npcAnywhere` on the scan's book, `foldPage` in worker/src/scan.ts;
-  `judgeProspect`; `findListing` / `findBid`'s `npc` in snipe.ts). The user asked whether skill books "actually buy and
-  sell": 470 were in the scan, none caught by the Jita-only `npcSell`, a median 291% between best bid and cheapest ask,
-  while NPCs sold Command Carriers at 2,500 M in other Forge stations (12 orders of 365 days) against Jita's player
-  listings at 2,800 M, and the Forge traded at exactly 2,500 M on 7 of 14 days. Now an item whose lowest NPC sell order
-  anywhere in The Forge is at or under the resale it would list at is out of Prospects (Busy markets too), the planner
-  and the opportunity mail; the Sniper never values a relist above it, read from its own five-minute book (no day-old
-  scan), and says so ("NPCs sell at X"); the Calculator notes it, red when your sell price is at or over it. Measured on
-  the 2 October scan at the user's settings: 31 of 791 front candidates at 7 days (24 skills, 5 blueprints, 2 other), 46
-  of 896 placed and left, no mix row, none of the 100 Busy markets. A skill NPCs don't sell (Neurotoxin Recovery) stays.
-  **Not done**: about half the NPC-sold items that price stay in, mostly skill books listed in Jita a little under the
-  NPC price with lowball bids and four-figure returns on paper (3340: sell 470,300, NPC 500,000); the user approved "at
-  or under where you'd resell" and may ask for stricter.
+  clear the bar and are left out. Hidden blueprints are still recorded as sightings, so the daily "checked against what
+  traded after" counts them. **High bids for blueprints you hold follow the switch too** (approved by the user on 2
+  October 2026 with the other two choices; they had shown, since selling into a bid is paid at once): the cloud looks up
+  each kept bid's category with the listings' (`categoriesOf` on both), the mail splits them the same way, and a browser on
+  a read without bid categories looks each held one up and holds it back meanwhile. The switch's count and the "clear
+  your bar too, left out" line cover both, each counted apart when there are both (`blueprintsSaid`: "2 blueprint
+  listings and 2 high bids for blueprints you hold"), and the held-bids panel says how many it hides, never "no bid"
+  alone. Measured on the read of 15:06 UTC and the user's hangar (12 types, no blueprint): 1 held-bid row (a Jackdaw),
+  none a blueprint; the reads of 1 October 23:27 and 2 October 09:46 had 0 and 1 (the same Jackdaw). So the evidence is
+  the tests' (a Thrasher and a Caracal Blueprint, invented), not the user's own.
+- **NPC sellers anywhere in The Forge keep an item out, and cap the Sniper's resale** (`npcAnywhere` on the scan's book,
+  `foldPage` in worker/src/scan.ts; `judgeProspect`; `findListing` / `findBid`'s `npc` in snipe.ts). The user asked whether
+  skill books "actually buy and sell": 470 were in the scan, none caught by the Jita-only `npcSell`, a median 291% between
+  best bid and cheapest ask, while NPCs sold Command Carriers at 2,500 M in other Forge stations (12 orders of 365 days)
+  against Jita's player listings at 2,800 M, and the Forge traded at exactly 2,500 M on 7 of 14 days. An item NPCs sell
+  anywhere in The Forge is out of Prospects (Busy markets too), the planner and the opportunity mail, **at any price**;
+  the Sniper never values a relist above it, read from its own five-minute book (no day-old scan), and says so ("NPCs
+  sell at X"), and still shows a listing well under it; the Calculator notes it, red when your sell price is at or over
+  it. The first rule (out only when the NPC price was at or under the resale) took 31 of 791 front candidates at 7 days
+  (24 skills, 5 blueprints, 2 other), 46 of 896 placed and left, no mix row, none of the 100 Busy markets, and kept about
+  half the NPC-sold items that price, mostly skill books listed in Jita a little under the NPC price with lowball bids
+  and four-figure returns on paper (Gallente Hauler, 3340: sell 470,300, bid 1,236, NPC 500,000). The user found skill
+  books risky and approved leaving out every one (2 October 2026, "yes i approve all 3 choices"). Measured on the same
+  scan, with the 12:05 book folded as the Worker now stores it, at their settings (2,042 M, 75 slots, 25% cap), against
+  the first rule: 14 more of 751 front candidates
+  out at 7 days, 12 of 610 at 3, 11 of 850 placed and left at 7, 10 of 597 at 3, every one a skill book; the 7-day front
+  mix lost Molecular Engineering (29 M) and High Energy Physics (23 M) and the 3-day Electromagnetic Physics (26 M), each
+  refilled (92.72 → 92.73 M a day, 96.38 → 96.95); none of the 100 Busy markets or the 39 on the saved filters. Placed and
+  left at 7 days, the mix went from 5 items filled by ISK a day (87.63 M) to 37 by return (88.94 M): the skill books had
+  been dragging the by-return fill below the by-ISK one, and none of the 5 was removed. A skill NPCs don't sell
+  (Neurotoxin Recovery) stays.
 - **"Leave out flagged items" in the planner** (`plannerPool`, `SWITCH_EXCLUDES` in planner.ts; kept per browser, off by
   default). The user: "The capital planner should have a toggle to not include items with warning like these". On, it
   leaves out Falling, Bids not reached, Sells not reached, Crowded, Thin, Slow and Long queue, and says how many by flag;

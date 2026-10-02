@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, Check, CheckCheck, CircleDollarSign, CircleX, CloudAlert, Factory, Truck, GitPullRequestArrow, HardDriveDownload, Keyboard, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, ShoppingCart, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
+import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, Check, CheckCheck, CircleDollarSign, CircleX, CloudAlert, Factory, Truck, GitPullRequestArrow, HardDriveDownload, Keyboard, Layers, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, ShoppingCart, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
 import { getAuth, loginForCloud, loginMailerForCloud } from '../lib/auth';
 import { breakEvenSpread, rates } from '../lib/fees';
 import { ago, fmtDateTime, isk, iskBig, units } from '../lib/format';
@@ -11,7 +11,7 @@ import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  inFilter, judgeAltLogin, judgeCloudLogin, judgeCourierJob, judgePlaceBuy, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
+  feedsQueueItem, inFilter, judgeAltLogin, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
   type Entry, type Memory, type TodoFilter, type TodoItem, type TodoKind,
 } from '../lib/todo';
 import type { IndustryJob } from '../lib/types';
@@ -50,6 +50,7 @@ const LOOK: Record<TodoKind, { Icon: typeof Check; c: string }> = {
   cancel: { Icon: CircleX, c: 'var(--neg)' },
   bid: { Icon: BanknoteArrowDown, c: 'var(--acc2)' },
   underCost: { Icon: TriangleAlert, c: 'var(--neg)' },
+  feedsQueue: { Icon: Layers, c: 'var(--acc2)' },
   close: { Icon: ListChecks, c: 'var(--pos)' },
   squeeze: { Icon: TrendingDown, c: 'var(--neg)' },
   piExpired: { Icon: Leaf, c: 'var(--neg)' },
@@ -154,6 +155,10 @@ export function Todo() {
           action: { ...action, copy: u.breakEven },
         });
       }
+      // A buy adding stock to a sell queue weeks long ("Feeds a long queue" on Orders): cancel it, or cancel it and place a
+      // smaller one. Said whatever else the order is told; no price to copy.
+      const fed = feedsQueueItem(x, name(x.typeId), action);
+      if (fed) out.push(fed);
       if (x.verdict === 'bid' && x.intoBids) {
         // Buyers barely take listings: the stock is worth more in the wallet than waiting months in a slot.
         out.push({
@@ -368,6 +373,15 @@ export function Todo() {
         case 'underCost': {
           const o = d.orders[Number(id)];
           return judgeUnderCost(e, {
+            open: !!o && o.state === 'open' && o.volumeRemain > 0,
+            checkedAt,
+            bookRead: !!o && !!check.books?.[o.typeId],
+            v: byOrder.get(Number(id)),
+          });
+        }
+        case 'feedsQueue': {
+          const o = d.orders[Number(id)];
+          return judgeFeedsQueue(e, {
             open: !!o && o.state === 'open' && o.volumeRemain > 0,
             checkedAt,
             bookRead: !!o && !!check.books?.[o.typeId],

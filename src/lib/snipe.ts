@@ -145,8 +145,10 @@ export function findListing(typeId: number, sells: SnipeOrder[], more: boolean, 
 /**
  * A Jita bid, kept when it pays more than listing where the item trades would: for someone who holds the item. `fair` is
  * what listing it would fetch: where trading got up to on half the days, or the NPCs' price in The Forge (`npc`) if lower.
+ * `category` is the item's ESI category, as the cloud looked it up for a listing's (`SnipeListing.category`): absent on a
+ * read from a Worker before it kept them, null when its lookup failed that round.
  */
-export type SnipeBid = { typeId: number; orderId: number; price: number; units: number; minVolume: number; fair: number; issued: string; doubts: Doubt[]; npc?: number };
+export type SnipeBid = { typeId: number; orderId: number; price: number; units: number; minVolume: number; fair: number; issued: string; doubts: Doubt[]; npc?: number; category?: number | null };
 
 export function findBid(typeId: number, bid: { id: number; price: number; units: number; minVolume: number; issued: string }, s: SnipeStats | undefined, npc?: number | null): SnipeBid | null {
   if (!s?.highs14) return null;
@@ -191,14 +193,15 @@ export function judgeListings(list: SnipeListing[], r: { f: number; t: number },
 }
 
 /**
- * Blueprints set apart from the other listings. The user, 2 October 2026: "exclude blueprints, as they might be risky to
+ * Blueprints set apart from the other finds. The user, 2 October 2026: "exclude blueprints, as they might be risky to
  * try and sell". Of the Sniper's 1,222 sightings since 28 September, 59 were blueprints, 41% of them floods (9% of the
- * rest), and 11 clean. Off unless switched on (`AlertConfig.snipeBlueprints`), on the page and in the mail alike.
+ * rest), and 11 clean. Off unless switched on (`AlertConfig.snipeBlueprints`), on the page and in the mail alike, for
+ * listings and for high bids for blueprints you hold, which the switch first left alone (the user approved hiding them
+ * too, the same day).
  *
- * A listing's category is the cloud's; where it has none (a Worker a version behind, or its lookup failed), `categoryOf`
- * answers: the browser's own lookup, undefined while it runs, null when it failed. A listing whose category isn't
- * known either way is `unknown` and stays out with the blueprints until it is, on the safe side; switched on, every
- * listing shows. High bids for blueprints you hold aren't listings and aren't touched: selling into one is paid at once.
+ * A find's category is the cloud's; where it has none (a Worker a version behind, or its lookup failed), `categoryOf`
+ * answers: the browser's own lookup, undefined while it runs, null when it failed. A find whose category isn't known
+ * either way is `unknown` and stays out with the blueprints until it is, on the safe side; switched on, every find shows.
  */
 export function splitBlueprints<T extends Pick<SnipeListing, 'typeId' | 'category'>>(list: T[], include: boolean,
   categoryOf: (typeId: number) => number | null | undefined = () => undefined): { shown: T[]; blueprints: T[]; unknown: T[] } {
@@ -210,6 +213,19 @@ export function splitBlueprints<T extends Pick<SnipeListing, 'typeId' | 'categor
     if (include || (c != null && c !== BLUEPRINT_CATEGORY)) shown.push(x);
   }
   return { shown, blueprints, unknown };
+}
+
+/**
+ * Blueprint finds counted as the Sniper page says them, listings and high bids for blueprints you hold apart when there
+ * are both ("2 blueprint listings and 1 high bid for a blueprint you hold"), else the one kind ("2 blueprints", "1 high bid
+ * for a blueprint you hold"). `many` picks the verb after it ("clear" or "clears").
+ */
+export function blueprintsSaid(listings: number, bids: number): { said: string; many: boolean } {
+  const plain = (n: number) => `${count(n)} blueprint${n === 1 ? '' : 's'}`;
+  const listed = (n: number) => `${count(n)} blueprint listing${n === 1 ? '' : 's'}`;
+  const bid = (n: number) => `${count(n)} high bid${n === 1 ? '' : 's'} for ${n === 1 ? 'a blueprint' : 'blueprints'} you hold`;
+  if (listings > 0 && bids > 0) return { said: `${listed(listings)} and ${bid(bids)}`, many: true };
+  return bids > 0 ? { said: bid(bids), many: bids !== 1 } : { said: plain(listings), many: listings !== 1 };
 }
 
 export type SnipeCopy = { ok: true; block: string; lines: number; total: number; said: string } | { ok: false; why: string };

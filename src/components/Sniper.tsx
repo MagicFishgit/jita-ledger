@@ -12,7 +12,7 @@ import { JITA_44 } from '../lib/constants';
 import type { HistRow } from '../lib/types';
 import { navigate, useNow } from '../lib/hooks';
 import { sanitizeAlerts } from '../lib/prefs';
-import { DOUBT_SAID, judgeBids, judgeListings, listingsRead, notYours, snipeMultibuy, splitBlueprints, type HeldBidRow, type SnipeRead, type SnipeRow } from '../lib/snipe';
+import { blueprintsSaid, DOUBT_SAID, judgeBids, judgeListings, listingsRead, notYours, snipeMultibuy, splitBlueprints, type HeldBidRow, type SnipeRead, type SnipeRow } from '../lib/snipe';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { typeKind } from '../lib/universe';
@@ -235,11 +235,13 @@ export function Sniper() {
   // Your own orders aren't snipes for you, or bids to sell into (notYours).
   const theirs = useMemo(() => (read ? notYours(read, new Set(Object.values(d.orders).filter((o) => o.state === 'open').map((o) => o.orderId))) : null), [read, d.orders]);
   const judged = useMemo(() => (theirs ? judgeListings(theirs.listings, r, d.settings.share, bar) : []), [theirs, r.f, r.t, d.settings.share, bar.minIsk, bar.minPct]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Blueprints only when asked ("risky to try and sell", the user, 2 October 2026), kept with the alert settings so the
-  // mail agrees. Each listing's category is the cloud's; one it has none for (a Worker a version behind, or its lookup
-  // failed) is looked up here (typeKind, kept for good) and held back with the blueprints until it's known.
+  const allHeld = useMemo(() => (theirs ? judgeBids(theirs.bids, r, d.stock?.jita ?? {}, bar) : []), [theirs, r.f, r.t, d.stock, bar.minIsk, bar.minPct]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Blueprints only when asked ("risky to try and sell", the user, 2 October 2026), listings and high bids for blueprints
+  // you hold alike, kept with the alert settings so the mail agrees. Each find's category is the cloud's; one it has none
+  // for (a Worker a version behind, or its lookup failed) is looked up here (typeKind, kept for good) and held back with
+  // the blueprints until it's known.
   const include = d.alerts.snipeBlueprints;
-  const needKey = useMemo(() => [...new Set((theirs?.listings ?? []).filter((l) => l.category == null).map((l) => l.typeId))].sort((a, b) => a - b).join(','), [theirs]);
+  const needKey = useMemo(() => [...new Set([...(theirs?.listings ?? []), ...allHeld].filter((x) => x.category == null).map((x) => x.typeId))].sort((a, b) => a - b).join(','), [theirs, allHeld]);
   const [looked, setLooked] = useState<Record<number, number | null>>({});
   useEffect(() => {
     const ask = needKey ? needKey.split(',').map(Number) : [];
@@ -252,12 +254,16 @@ export function Sniper() {
     return () => { alive = false; };
   }, [needKey]);
   const split = useMemo(() => splitBlueprints(judged, include, (t) => looked[t]), [judged, include, looked]);
-  const rows = split.shown;
+  const heldSplit = useMemo(() => splitBlueprints(allHeld, include, (t) => looked[t]), [allHeld, include, looked]);
+  const rows = split.shown, held = heldSplit.shown;
   const blueprints = split.blueprints, bpWorth = blueprints.filter((x) => x.worth).length;
-  const checking = include ? 0 : split.unknown.filter((x) => !(x.typeId in looked)).length;
-  const unchecked = include ? 0 : split.unknown.length - checking;
+  const bpBids = heldSplit.blueprints, bpBidsWorth = bpBids.filter((x) => x.worth).length;
+  const unknown = [...split.unknown, ...heldSplit.unknown];
+  const checking = include ? 0 : unknown.filter((x) => !(x.typeId in looked)).length;
+  const unchecked = include ? 0 : unknown.length - checking;
+  // High bids for what you hold that the switch keeps out: blueprints, and ones not known yet not to be.
+  const heldOut = include ? 0 : bpBids.length + heldSplit.unknown.length;
   const setBlueprints = (on: boolean) => update((x) => ({ alerts: sanitizeAlerts({ ...x.alerts, snipeBlueprints: on }) }));
-  const held = useMemo(() => (theirs ? judgeBids(theirs.bids, r, d.stock?.jita ?? {}, bar) : []), [theirs, r.f, r.t, d.stock, bar.minIsk, bar.minPct]); // eslint-disable-line react-hooks/exhaustive-deps
   const worth = rows.filter((x) => x.worth);
   const small = rows.filter((x) => !x.worth && !x.doubts.length);
   const doubted = rows.filter((x) => x.doubts.length);
@@ -385,8 +391,8 @@ export function Sniper() {
             <NumChip id="sn-pct" label="Return at least" value={bar.minPct} onChange={(v) => setBar({ minPct: v ?? 0 })} width={60} decimals={1} percent
               tip={'Profit as a share of what buying it out costs, after your fees. It keeps out big buys on a thin edge, where a price a few percent off where it really trades wipes the profit out.\n\n• Profit at least must hold as well: both are floors, and a snipe has to clear both.'} />
             <Check checked={include} onChange={setBlueprints}
-              tip={`Blueprints and reaction formulas (ESI’s Blueprint category), left out of this page and the mail unless this is on: they’re slow to sell, and their cheap listings are mostly floods (41% of the blueprints the Sniper showed in its first days, against 9% of the rest).\n\n• ${read ? `${units(blueprints.length)} in this read, ${units(bpWorth)} of them clearing your bar.` : 'Counted once the cloud’s read is in.'}\n• Kept with your alert settings, so it’s the same on every device and in the mail.\n• High bids for blueprints you hold still show: selling into one is paid at once.`}>
-              Include blueprints{read ? ` (${units(blueprints.length)})` : ''}
+              tip={`Blueprints and reaction formulas (ESI’s Blueprint category), left out of this page and the mail unless this is on, listings and high bids for blueprints you hold alike: they’re slow to sell, and their cheap listings are mostly floods (41% of the blueprints the Sniper showed in its first days, against 9% of the rest).\n\n• ${read ? `${blueprintsSaid(blueprints.length, bpBids.length).said} in this read, ${units(bpWorth + bpBidsWorth)} of them clearing your bar.` : 'Counted once the cloud’s read is in.'}\n• Kept with your alert settings, so it’s the same on every device and in the mail.`}>
+              Include blueprints{read ? ` (${units(blueprints.length + bpBids.length)})` : ''}
             </Check>
             <span className="note small" style={{ margin: 0 }}>
               {read === undefined ? 'Asking the cloud…'
@@ -427,15 +433,15 @@ export function Sniper() {
                 {worth.length ? <><div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>{copyAll(worth)}</div>{table(worth)}</> : (
                   <p className="note">Nothing {bpWorth ? 'else ' : ''}clears your bar in this read. Mistakes come and go within minutes, and the cloud looks again every five.{small.length ? ` ${units(small.length)} smaller ones are below.` : ''}</p>
                 )}
-                {!include && bpWorth > 0 && (
+                {!include && bpWorth + bpBidsWorth > 0 && (
                   <p className="note small" style={{ margin: 0 }}>
-                    {units(bpWorth)} blueprint{bpWorth === 1 ? '' : 's'} clear{bpWorth === 1 ? 's' : ''} your bar too, left out:{' '}
+                    {(({ said, many }) => `${said} clear${many ? '' : 's'} your bar too, left out:`)(blueprintsSaid(bpWorth, bpBidsWorth))}{' '}
                     <button type="button" className="link-btn" onClick={() => setBlueprints(true)}>Include blueprints</button>
                   </p>
                 )}
                 {(checking > 0 || unchecked > 0) && (
                   <p className="note small" style={{ margin: 0 }}>
-                    {checking > 0 && `Checking whether ${units(checking)} listing${checking === 1 ? ' is a blueprint' : 's are blueprints'}: left out until that’s known. `}
+                    {checking > 0 && `Checking whether ${units(checking)} find${checking === 1 ? ' is a blueprint' : 's are blueprints'}: left out until that’s known. `}
                     {unchecked > 0 && `${units(unchecked)} couldn’t be checked for blueprints (ESI didn’t answer), so ${unchecked === 1 ? 'it’s' : 'they’re'} left out: Include blueprints shows ${unchecked === 1 ? 'it' : 'them'}.`}
                   </p>
                 )}
@@ -453,7 +459,14 @@ export function Sniper() {
               )}
 
               <Panel title="High bids for what you hold" sub="Bids well over where the item trades, for things loose in your Jita hangar: selling into one beats listing.">
-                {held.length ? heldTable(held) : <p className="note">No bid for anything in your Jita hangar is well over where it trades right now.{d.stock ? '' : ' Your hangar hasn’t been read yet: it comes with a sync once the assets permission is granted.'}</p>}
+                {held.length ? heldTable(held) : <p className="note">No bid for anything in your Jita hangar{heldOut ? ', blueprints aside,' : ''} is well over where it trades right now.{d.stock ? '' : ' Your hangar hasn’t been read yet: it comes with a sync once the assets permission is granted.'}</p>}
+                {heldOut > 0 && (
+                  <p className="note small" style={{ margin: 0 }}>
+                    {bpBids.length > 0 && (({ said, many }) => `${said} ${many ? 'are' : 'is'} left out. `)(blueprintsSaid(0, bpBids.length))}
+                    {heldSplit.unknown.length > 0 && `${units(heldSplit.unknown.length)} ${bpBids.length ? 'more' : `high bid${heldSplit.unknown.length === 1 ? '' : 's'}`} ${heldSplit.unknown.length === 1 ? 'is' : 'are'} held back until it’s known whether ${heldSplit.unknown.length === 1 ? 'its item is a blueprint' : 'their items are blueprints'}. `}
+                    <button type="button" className="link-btn" onClick={() => setBlueprints(true)}>Include blueprints</button>
+                  </p>
+                )}
               </Panel>
 
               {doubted.length > 0 && (
@@ -476,7 +489,7 @@ export function Sniper() {
           { icon: Eye, title: 'Check it’s still there', body: 'The book the cloud reads is up to five minutes old, and players watching the market in game see mistakes at once. Open the market first.' },
           { icon: Tag, title: 'Buy the listed units', body: 'Buying from a listing costs nothing but its price: no broker fee, no tax. Buy the cheap orders shown, not the ones above them.' },
           { icon: Repeat, title: 'Relist at the price shown', body: 'One step under the next listing, never above where trading reaches on half the days, nor above what NPCs sell it for anywhere in The Forge. The profit already counts your broker fee and sales tax.' },
-          { icon: Hand, title: 'Or sell into a high bid', body: 'A bid well over the going rate for something in your hangar pays at once, for tax only. Watch the minimum a bid takes at a time.' },
+          { icon: Hand, title: 'Or sell into a high bid', body: 'A bid well over the going rate for something in your hangar pays at once, for tax only. Watch the minimum a bid takes at a time. Bids for blueprints you hold show only with Include blueprints on, as their listings do.' },
           { icon: ShieldAlert, title: 'Why some are left out', body: 'A flood (days of the item’s trading at one price), an item whose price just moved, a thin history, a listing days old or several sellers at one price all mean the market may know better than the history does.' },
           { icon: Clock, title: 'It runs while you play', body: 'Every five minutes, whether or not the app is open. Mail brings the ones that clear your bar into the game.' },
         ]}

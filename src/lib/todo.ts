@@ -1,5 +1,5 @@
 import { fmtDateTime, isk } from './format';
-import type { Verdict } from './relist';
+import { FEEDS_QUEUE_DO, feedsQueueLead, type FeedsQueue, type Verdict } from './relist';
 
 /**
  * To do: everything worth doing right now, in one list, the most ISK at stake first.
@@ -15,7 +15,7 @@ import type { Verdict } from './relist';
  * is simply absent, and reading absent as done would tick the whole list off on every load.
  */
 
-export type TodoKind = 'move' | 'cancel' | 'bid' | 'underCost' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry' | 'courier' | 'cloudLogin' | 'placeBuy';
+export type TodoKind = 'move' | 'cancel' | 'bid' | 'underCost' | 'feedsQueue' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry' | 'courier' | 'cloudLogin' | 'placeBuy';
 
 /** Which read a finding came from, and so which read can say it has gone. */
 export type Source = 'orders' | 'colonies' | 'signals' | 'ledger' | 'industry' | 'contracts' | 'cloud' | 'roster';
@@ -93,11 +93,11 @@ export function tickAll(m: Memory, keys: string[], now: number): Memory {
  * measured --- they are there so a list of twelve relists reads as a quarter of an hour, not an evening.
  */
 export const MINUTES: Record<TodoKind, number> = {
-  move: 1, cancel: 1, bid: 2, underCost: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1, industry: 1, courier: 10, cloudLogin: 1, placeBuy: 1,
+  move: 1, cancel: 1, bid: 2, underCost: 1, feedsQueue: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1, industry: 1, courier: 10, cloudLogin: 1, placeBuy: 1,
 };
 
 export const KIND_LABEL: Record<TodoKind, string> = {
-  move: 'Move order', cancel: 'Cancel order', bid: 'Sell into bids', underCost: 'Priced under cost', close: 'Close position', squeeze: 'Margin squeeze', piExpired: 'PI expired',
+  move: 'Move order', cancel: 'Cancel order', bid: 'Sell into bids', underCost: 'Priced under cost', feedsQueue: 'Feeds a long queue', close: 'Close position', squeeze: 'Margin squeeze', piExpired: 'PI expired',
   piEnding: 'PI ending', nearMiss: 'Trades your positions skipped', scam: 'Suspicious market', backup: 'Backup', industry: 'Industry jobs to deliver', courier: 'Courier to deliver',
   cloudLogin: 'Cloud login', placeBuy: 'Place buy order',
 };
@@ -216,6 +216,43 @@ export function judgeUnderCost(
   if (c.v.gone) return 'It’s no longer in the market: it filled, expired or was cancelled.';
   if (c.v.underCost) return null;
   return e.item.price != null && c.v.price !== e.item.price ? `You moved it to ${isk(c.v.price)}, over what it cost.` : 'It no longer sells under what it cost.';
+}
+
+/**
+ * A buy order Orders tags "Feeds a long queue" (`feedingQueue` in relist.ts): what it still buys joins a sell queue weeks
+ * long. On To do as something to act on (cancel it, or cancel it and place a smaller one), in the tag's own words, never
+ * mailed; the user approved it on 2 October 2026, after their 'Arbalest' buy. Keyed by the order. Its version is the
+ * order's price and what it still buys, not the queue's days, which move with every read of the pace: a tick by hand
+ * holds until the order itself changes (a fill reopens it). Null for an order not tagged.
+ */
+export function feedsQueueItem(
+  x: { orderId: number; typeId: number; price: number; volumeRemain: number; atRisk: number; feeds?: FeedsQueue },
+  name: string,
+  action: TodoItem['action'],
+): TodoItem | null {
+  if (!x.feeds?.long) return null;
+  return {
+    key: `feeds:${x.orderId}`, ver: `feeds:${x.price}:${x.volumeRemain}`, kind: 'feedsQueue', source: 'orders', price: x.price, stake: x.atRisk, typeId: x.typeId,
+    title: `${name} buy order`,
+    detail: `${feedsQueueLead(x.feeds)} ${FEEDS_QUEUE_DO}`,
+    action,
+  };
+}
+
+/**
+ * A buy that fed a long queue and no longer does, judged like an order item: only on a newer check that read its book
+ * (absent is not done), or once the order has closed. That check can't tell a shorter queue from a pace it can no longer
+ * read, so it says only what Orders now shows.
+ */
+export function judgeFeedsQueue(
+  e: Entry,
+  c: { open: boolean; checkedAt: number | null; bookRead: boolean; v?: { gone: boolean; feeds?: unknown } },
+): string | null {
+  if (!c.open) return 'The order has closed: it filled, expired or was cancelled.';
+  if (c.checkedAt == null || c.checkedAt <= e.seenAt || !c.bookRead || !c.v) return null;
+  if (c.v.gone) return 'It’s no longer in the market: it filled, expired or was cancelled.';
+  if (c.v.feeds) return null;
+  return 'The latest check of its book no longer has what it buys feeding a long queue.';
 }
 
 /** A PI item that has gone, judged only on a colony read newer than the one that showed it. */

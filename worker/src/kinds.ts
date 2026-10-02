@@ -1,7 +1,8 @@
 /**
  * What category each type is in, as ESI has it (type → group → category), looked up once and kept in D1 (`type_kinds`),
- * as the app's `typeKind` keeps it in the browser. The Sniper needs it for every listing, to leave blueprints out of its
- * mail unless asked (src/lib/snipe.ts, `splitBlueprints`), so it can't wait for a browser to have looked one up.
+ * as the app's `typeKind` keeps it in the browser. The Sniper needs it for every listing and every high bid for what a
+ * ledger holds, to leave blueprints out of its mail unless asked (src/lib/snipe.ts, `splitBlueprints`), so it can't wait
+ * for a browser to have looked one up.
  *
  * Measured on the read of 1 October 2026 (23:27 UTC): 82 listings, 24 of them blueprints (category 9), about 80 types and
  * 40 groups to ask for the first time; after that only a type never listed before.

@@ -159,7 +159,8 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   contract as `context_id`) say what they held ("2× Rattlesnake Blueprint") instead of "Contract price".
 - **To do's Sell into bids items are judged like order items.** The dispatch listed move and cancel but not bid, so
   a bid item fell to the default judge and was ticked "It no longer needs doing" the moment it went missing, before
-  the orders had even been checked.
+  the orders had even been checked. So are "Feeds a long queue" items (kind `feedsQueue`, 2 October 2026; the rule and
+  its version are in market-reading.md): a judge of their own in the dispatch, never the default.
 - **List loot and List your stock say they're not usable at the moment** (`SellWindowBanner.tsx`, full on List loot,
   compact on Positions' List your stock). The user tried the one-paste listing on 29 September 2026: the Sell window's
   import only prices items already in the window (see eve-client.md), so selecting the items in the hangar stays manual,

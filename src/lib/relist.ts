@@ -228,10 +228,25 @@ export function feedsQueueTag(q: FeedsQueue): string {
   return `Feeds a long queue: ${queueLengthSaid(q)}`;
 }
 
+/** What a buy that feeds a long queue is, in a sentence: the lead of its tip on Orders, and of its To do item. */
+export function feedsQueueLead(q: FeedsQueue): string {
+  const count = `${q.atLeast ? 'at least ' : ''}${units(q.units)} units`;
+  return q.perDay > 0
+    ? `What this order still buys joins a sell queue longer than ${LONG_QUEUE_DAYS} days of the buyers who take listings here: ${count}, ${queueDaysSaid(q)} of them.`
+    : `What this order still buys joins a sell queue that doesn’t clear: ${count}, and ${NOBODY_BUYS} here.`;
+}
+
+/**
+ * What to do about a buy that feeds a long queue, on Orders and To do alike. EVE can't make an order smaller
+ * (finding-trades: the plan checklist), so it's to cancel, or cancel and place a smaller one, a new order with its own fee.
+ */
+export const FEEDS_QUEUE_DO = 'EVE can’t make an order smaller: cancel this buy, or cancel it and place a smaller one, which is a new order with its own broker fee. '
+  + 'And list what you hold first: everything it buys waits behind all of that, and sellers this deep in a queue undercut each other, '
+  + 'so the price you’d sell at may not hold.';
+
 /**
  * The tip for a buy that feeds a long queue: what it is, the figures behind it, then what to do. The queue and its pace
- * are said as Prospects' Long queue says them (split.ts). EVE can't make an order smaller (finding-trades: the plan
- * checklist), so the advice is to cancel, or cancel and place a smaller one, which is a new order with its own fee.
+ * are said as Prospects' Long queue says them (split.ts).
  */
 export function feedsQueueSaid(q: FeedsQueue): string {
   const others = q.ahead == null
@@ -241,20 +256,14 @@ export function feedsQueueSaid(q: FeedsQueue): string {
   const held = q.hangar == null
     ? `You have ${units(q.listed)} listed; your Jita hangar hasn’t been read, so what’s in it isn’t counted`
     : `You hold ${units(q.listed + q.hangar)}: ${units(q.listed)} listed and ${units(q.hangar)} in your Jita hangar`;
-  const count = `${q.atLeast ? 'at least ' : ''}${units(q.units)} units`;
-  const lead = q.perDay > 0
-    ? `What this order still buys joins a sell queue longer than ${LONG_QUEUE_DAYS} days of the buyers who take listings here: ${count}, ${queueDaysSaid(q)} of them.`
-    : `What this order still buys joins a sell queue that doesn’t clear: ${count}, and ${NOBODY_BUYS} here.`;
   const watched = q.from === 'watched' && q.watchedH >= 1 ? ` (${Math.round(q.watchedH)} h watched)` : '';
   const pace = q.perDay > 0 ? `Buyers take ${perDaySaid(q.perDay)} from listings` : 'Nobody has been seen buying from listings';
-  return `${lead}\n\n`
+  return `${feedsQueueLead(q)}\n\n`
     + `• ${others}\n`
     + `• ${held}\n`
     + `• This order still buys ${units(q.toBuy)}\n`
     + `• ${pace}, ${queuePaceSaid(q.from)}${watched}\n\n`
-    + 'EVE can’t make an order smaller: cancel this buy, or cancel it and place a smaller one, which is a new order with its own broker fee. '
-    + 'And list what you hold first: everything it buys waits behind all of that, and sellers this deep in a queue undercut each other, '
-    + 'so the price you’d sell at may not hold.';
+    + FEEDS_QUEUE_DO;
 }
 
 /**

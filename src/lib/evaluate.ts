@@ -96,6 +96,16 @@ export function judgeProspect(
   // NPCs sell it at a fixed price in unlimited supply: players rarely sell below that, so a bid doesn't
   // fill, and there's nothing cheaper to buy and resell. Neither side can be traded, so it isn't shown.
   if (book.npcSell) return null;
+  // NPCs sell it anywhere else in The Forge, at any price: out of every view, Busy markets too. Buyers can have all they
+  // want there, so a Jita listing waits on the few who won't travel, and one a little under the NPC price is still racing
+  // unlimited supply for them. In the cloud's scan of 2 October 2026 (which leaves out what NPCs sell in Jita itself,
+  // `npcSell`), NPCs sold 387 of its 465 skill books and 391 of its 612 blueprints in other Forge stations: Command
+  // Carriers from 12 NPC orders at 2,500 M while Jita listed at 2,800 M and the Forge traded at exactly 2,500 M on 7 of 14
+  // days. It first left one out only when the NPC price was at or under where you'd resell, which kept about half of them,
+  // mostly skill books listed in Jita a little under the NPC price with lowball bids and four-figure returns on paper
+  // (Gallente Hauler: listed from 470,400, bid 1,236, NPCs at 500,000). The user found skill books risky and approved
+  // leaving out every one (2 October 2026). The Sniper keeps its own rule: a relist no dearer than the NPCs (snipe.ts).
+  if (book.npcAnywhere != null) return null;
   // Where the bulk of trading reaches, not merely one step above the best bid (see bidToPlace). Except in
   // the Busy markets view: on a market trading hundreds of thousands a day, even the small share of
   // trading ESI trims from its daily low is thousands of units, some of them sellers dumping into bids,
@@ -123,13 +133,6 @@ export function judgeProspect(
   const raised = !patient && buy !== placed.top;
   // A buy at or above the sell is a loss, which the Busy markets view shows rather than hides.
   if (!Number.isFinite(buy) || !Number.isFinite(sell) || (!anyReturn && sell <= buy)) return null;
-  // NPCs sell it somewhere in The Forge at or under where you'd resell: buyers can have all they want there, so a Jita
-  // listing at that price waits on the few who won't travel. In the cloud's scan of 2 October 2026 (which leaves out what
-  // NPCs sell in Jita itself, `npcSell`), NPCs sold 387 of its 465 skill books and 391 of its 612 blueprints in other
-  // Forge stations: Command Carriers from 12 NPC orders at 2,500 M while Jita listed at 2,800 M and the Forge traded at
-  // exactly 2,500 M on 7 of 14 days. Out of every view, Busy markets too: like an NPC seller in Jita, it's not a loss to show but a resale
-  // that isn't there.
-  if (book.npcAnywhere != null && book.npcAnywhere <= sell) return null;
 
   // Only one side of the daily volume fills each of your orders: sellers dumping into bids fill your
   // buy, buyers taking listings fill your sell. And your share of each side shrinks the more orders

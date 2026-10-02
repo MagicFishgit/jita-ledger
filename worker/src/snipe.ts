@@ -134,15 +134,16 @@ export async function sniperRound(env: Env, now = Date.now()) {
     const x = findListing(t, sells.get(t)!, more.has(t), stats.get(t), now, npcAt.get(t));
     if (x) listings.push(x);
   }
-  // Each listing's category, for leaving blueprints out unless asked (page and mail alike): kept in D1, so only types
-  // never listed before go to ESI. One it couldn't read is null, left out with the blueprints, and asked for next round.
-  const kinds = await categoriesOf(db, listings.map((l) => l.typeId), now).catch((e) => { console.error('sniper categories failed', e); return new Map<number, number>(); });
-  for (const l of listings) l.category = kinds.get(l.typeId) ?? null;
   const kept: SnipeBid[] = [];
   for (const t of held) {
     const x = findBid(t, bids.get(t)!, stats.get(t), npcAt.get(t));
     if (x) kept.push(x);
   }
+  // Each listing's and held bid's category, for leaving blueprints out unless asked (page and mail alike): kept in D1, so
+  // only types never seen before go to ESI. One it couldn't read is null, left out with the blueprints, and asked for next
+  // round.
+  const kinds = await categoriesOf(db, [...listings, ...kept].map((x) => x.typeId), now).catch((e) => { console.error('sniper categories failed', e); return new Map<number, number>(); });
+  for (const x of [...listings, ...kept]) x.category = kinds.get(x.typeId) ?? null;
   const read: SnipeRead = { at: new Date(now).toISOString(), expires: first.expires ?? null, pages: first.pages, listings, bids: kept };
   await db.prepare('INSERT INTO scan_meta (key, data) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET data = excluded.data').bind('snipes', JSON.stringify(read)).run();
   // Every listing shown, remembered for a month: a buy of one is then marked as found by the Sniper. What it claimed
@@ -214,9 +215,10 @@ async function mailLedger(env: Env, charId: number, read: SnipeRead, stock: Stoc
   const open = (await env.DB.prepare(`SELECT id FROM records WHERE char_id = ?1 AND kind = 'orders' AND data IS NOT NULL AND json_extract(data, '$.state') = 'open'`)
     .bind(charId).all<{ id: string }>()).results.map((x) => Number(x.id));
   const theirs = notYours(read, new Set(open));
-  // Blueprints only when asked, set aside before the mail's few are picked, or they'd take the places and go unsent.
+  // Blueprints only when asked, set aside before the mail's few are picked, or they'd take the places and go unsent. High
+  // bids for blueprints you hold follow the same switch.
   const rows = splitBlueprints(judgeListings(theirs.listings, r, settings.share, bar), cfg.snipeBlueprints).shown.filter((x) => x.worth).slice(0, MAIL_LISTINGS);
-  const heldRows = judgeBids(theirs.bids, r, stock?.jita ?? {}, bar).filter((x) => x.worth);
+  const heldRows = splitBlueprints(judgeBids(theirs.bids, r, stock?.jita ?? {}, bar), cfg.snipeBlueprints).shown.filter((x) => x.worth);
   if (!rows.length && !heldRows.length) return 0;
   const names = await namesAnywhere(env.DB, charId, [...rows.map((x) => x.typeId), ...heldRows.map((x) => x.typeId)]);
   const price = (p: number) => Math.round(p).toLocaleString('en-US');

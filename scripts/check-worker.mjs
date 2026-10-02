@@ -736,25 +736,34 @@ console.log('\n--- the Sniper leaves blueprints out of the mail unless asked ---
   const JITA = 60003760, NOW = Date.parse('2026-10-02T09:01:00Z');
   // From the cloud's read of 1 October 2026: a module (Small Focused Anode Particle Stream I, group 53, category 7), an
   // Epithal Blueprint (group 108, category 9), and a Medium AutoCannon Battery whose type ESI won't describe this round.
-  const ANODE = 6721, EPITHAL = 990, BATTERY = 17771;
+  // And high bids for what the ledger holds in Jita (invented for the test): a Thrasher Blueprint (group 487, category 9)
+  // and a Tracking Speed Script (group 907, category 8).
+  const ANODE = 6721, EPITHAL = 990, BATTERY = 17771, THRASHER = 16243, SCRIPT = 29001;
   const db = d1();
   const env = testEnv(db);
   await keepKey(db, MAIN, 'main', MAIN, 'Main', SCOPES);
   await keepKey(db, MAIN, 'mailer', SENDER, 'Postmaster', SCOPES);
   const alerts = (more = {}) => push(db, MAIN, { records: [], docs: [{ key: 'alerts', d: { on: true, mail: true, quiet: false, snipeMinIsk: 1e6, snipeMinPct: 5, ...more } }] });
   await alerts();
+  await push(db, MAIN, { records: [], docs: [{ key: 'stock', d: { at: new Date(NOW - 10 * MIN).toISOString(), jita: { [THRASHER]: 2, [SCRIPT]: 3000 }, total: { [THRASHER]: 2, [SCRIPT]: 3000 }, inContainers: 0 } }] });
   const stats = (fair, perDay) => JSON.stringify({ highs14: Array(14).fill(fair), unitsPerDay: perDay, daysTraded: 30, lastMove: 0 });
-  for (const [t, fair, perDay] of [[ANODE, 98_935, 100], [EPITHAL, 8_479_000, 3], [BATTERY, 3_990_000, 4]]) db.run('INSERT INTO scan_items (type_id, stats, book, orders, run) VALUES (?, ?, ?, ?, ?)', t, stats(fair, perDay), '{}', 2, 1);
+  for (const [t, fair, perDay] of [[ANODE, 98_935, 100], [EPITHAL, 8_479_000, 3], [BATTERY, 3_990_000, 4], [THRASHER, 12_000_000, 3], [SCRIPT, 12_360, 2544]]) db.run('INSERT INTO scan_items (type_id, stats, book, orders, run) VALUES (?, ?, ?, ?, ?)', t, stats(fair, perDay), '{}', 2, 1);
   // Each item's Jita sells: the cheap order, priced ten minutes before, then the next listing up.
   const sell = (id, type, price, volume) => ({ order_id: id, type_id: type, location_id: JITA, is_buy_order: false, price, volume_remain: volume, volume_total: volume, issued: new Date(NOW - 10 * MIN).toISOString(), duration: 90, min_volume: 1 });
-  const book = [sell(1, ANODE, 58_730, 133), sell(2, ANODE, 98_860, 50), sell(3, EPITHAL, 6_400_000, 8), sell(4, EPITHAL, 8_474_000, 3), sell(5, BATTERY, 3_000_000, 6), sell(6, BATTERY, 4_798_000, 2)];
-  const names = { [ANODE]: 'Small Focused Anode Particle Stream I', [EPITHAL]: 'Epithal Blueprint', [BATTERY]: 'Medium AutoCannon Battery' };
+  const buy = (id, type, price, volume) => ({ ...sell(id, type, price, volume), is_buy_order: true });
+  const book = [sell(1, ANODE, 58_730, 133), sell(2, ANODE, 98_860, 50), sell(3, EPITHAL, 6_400_000, 8), sell(4, EPITHAL, 8_474_000, 3), sell(5, BATTERY, 3_000_000, 6), sell(6, BATTERY, 4_798_000, 2),
+    buy(7, THRASHER, 13_500_000, 2), buy(8, SCRIPT, 14_500, 5000)];
+  const names = { [ANODE]: 'Small Focused Anode Particle Stream I', [EPITHAL]: 'Epithal Blueprint', [BATTERY]: 'Medium AutoCannon Battery', [THRASHER]: 'Thrasher Blueprint', [SCRIPT]: 'Tracking Speed Script' };
   const routes = (mailId) => [
     ['/markets/10000002/orders/', book],
     [`/universe/types/${ANODE}/`, { type_id: ANODE, name: names[ANODE], group_id: 53 }],
     [`/universe/types/${EPITHAL}/`, { type_id: EPITHAL, name: names[EPITHAL], group_id: 108 }],
+    [`/universe/types/${THRASHER}/`, { type_id: THRASHER, name: names[THRASHER], group_id: 487 }],
+    [`/universe/types/${SCRIPT}/`, { type_id: SCRIPT, name: names[SCRIPT], group_id: 907 }],
     ['/universe/groups/53/', { group_id: 53, category_id: 7 }],
     ['/universe/groups/108/', { group_id: 108, category_id: 9 }],
+    ['/universe/groups/487/', { group_id: 487, category_id: 9 }],
+    ['/universe/groups/907/', { group_id: 907, category_id: 8 }],
     [/^POST \/universe\/names\/$/, (u, init) => JSON.parse(init.body).map((id) => ({ id, name: names[id], category: 'inventory_type' }))],
     [new RegExp(`^POST /characters/${SENDER}/mail/$`), mailId],
   ];
@@ -765,14 +774,18 @@ console.log('\n--- the Sniper leaves blueprints out of the mail unless asked ---
   f.restore();
   const read = JSON.parse(db.rows(`SELECT data FROM scan_meta WHERE key = 'snipes'`)[0].data);
   eq('  every listing carries its category, null where ESI didn\'t say', Object.fromEntries(read.listings.map((l) => [l.typeId, l.category])), { [ANODE]: 7, [EPITHAL]: 9, [BATTERY]: null });
-  eq('    what was read is kept: type, group, category', db.rows('SELECT type_id AS t, group_id AS g, category_id AS c FROM type_kinds ORDER BY type_id'), [{ t: EPITHAL, g: 108, c: 9 }, { t: ANODE, g: 53, c: 7 }]);
-  eq('  off (the default), the mail names the module, not the blueprint, nor the one not known yet', [r1.mailed[MAIN], mailOf(f).includes(names[ANODE]), mailOf(f).includes(names[EPITHAL]), mailOf(f).includes(names[BATTERY])], [1, true, false, false]);
+  eq('  every held bid carries its category too', Object.fromEntries(read.bids.map((b) => [b.typeId, b.category])), { [THRASHER]: 9, [SCRIPT]: 8 });
+  eq('    what was read is kept: type, group, category', db.rows('SELECT type_id AS t, group_id AS g, category_id AS c FROM type_kinds ORDER BY type_id'),
+    [{ t: EPITHAL, g: 108, c: 9 }, { t: ANODE, g: 53, c: 7 }, { t: THRASHER, g: 487, c: 9 }, { t: SCRIPT, g: 907, c: 8 }]);
+  eq('  off (the default), the mail names the module, not the blueprint, nor the one not known yet', [mailOf(f).includes(names[ANODE]), mailOf(f).includes(names[EPITHAL]), mailOf(f).includes(names[BATTERY])], [true, false, false]);
+  eq('    and the high bid for the script you hold, not the one for the blueprint you hold', [r1.mailed[MAIN], mailOf(f).includes(names[SCRIPT]), mailOf(f).includes(names[THRASHER])], [2, true, false]);
 
   await alerts({ snipeBlueprints: true });
   f = stubFetch(routes(802));
   const r2 = await sniperRound(env, NOW + 5 * MIN);
   f.restore();
-  eq('  switched on, the blueprint is mailed, and the one not known yet with it', [r2.mailed[MAIN], mailOf(f).includes(names[EPITHAL]), mailOf(f).includes(names[BATTERY])], [2, true, true]);
+  eq('  switched on, the blueprint is mailed, and the one not known yet with it', [mailOf(f).includes(names[EPITHAL]), mailOf(f).includes(names[BATTERY])], [true, true]);
+  eq('    and the high bid for the blueprint you hold', [r2.mailed[MAIN], mailOf(f).includes(names[THRASHER])], [3, true]);
   eq('    the next round asks ESI only for the type it couldn\'t read', f.calls.filter((c) => c.path.startsWith('/universe/types/') || c.path.startsWith('/universe/groups/')).map((c) => c.path), [`/universe/types/${BATTERY}/`]);
 }
 
@@ -872,7 +885,7 @@ console.log('\n--- the Sniper relists no dearer than NPCs sell it anywhere in Th
   eq('  with no NPC orders in the read, it relists where trading reached', [listing()?.resale, listing()?.npc], [2.7495e9, undefined]);
 }
 
-console.log('\n--- the opportunity mail leaves out what NPCs sell in The Forge at or under the resale ---');
+console.log('\n--- the opportunity mail leaves out whatever NPCs sell anywhere in The Forge ---');
 {
   const { opportunities } = await import('../worker/src/alerts.ts');
   const { sanitizeSettings } = await import('../src/lib/fees.ts');
@@ -896,11 +909,13 @@ console.log('\n--- the opportunity mail leaves out what NPCs sell in The Forge a
     return db;
   };
   const judged = async (scanBook) => (await opportunities(ledger(scanBook), MAIN, settings, NOW, false)).qualifying.map((p) => [p.typeId, p.sell]);
-  const kept = await judged({ ...x.book, npcAnywhere: 15e6 });
-  eq('  NPCs at 15 M, over where it would resell: it qualifies', [kept.length, kept[0]?.[1] < 15e6], [1, true]);
-  // The same item, had NPCs sold it at its resale or under (14 M, invented for the test): the scan's note leaves it out.
+  const kept = await judged(null);
+  eq('  with no scan row, it qualifies, selling under the NPCs\' 15 M', [kept.length, kept[0]?.[1] < 15e6], [1, true]);
+  // Any NPC price leaves it out, since the user approved it on 2 October 2026: at 15 M, over where it would resell, as
+  // at 14 M, under it (invented for the test).
+  eq('  NPCs at 15 M, over the resale: not mailed', await judged({ ...x.book, npcAnywhere: 15e6 }), []);
   eq('  NPCs at 14 M, under the resale: not mailed', await judged({ ...x.book, npcAnywhere: 14e6 }), []);
-  eq('  a scan row from a Worker before the note, or none at all: as before', [await judged(x.book), await judged(null)], [kept, kept]);
+  eq('  a scan row from a Worker before the note: as with none', await judged(x.book), kept);
 }
 
 console.log('\n--- the opportunity mail counts the sell queue on the scan\'s whole-book count, as Prospects does ---');
