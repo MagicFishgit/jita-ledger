@@ -5746,5 +5746,96 @@ console.log('\n--- a count tile filters the table below it ---');
     ['move', 'keep', 'loss', 'wait', 'dry', 'front', 'bid'].map(count));
 }
 
+console.log('\n--- R&D agents: the rules ---');
+{
+  // The user, 2 October 2026: research agents "generate research points over time … great to just have going passively".
+  // The figures are the research's (.playwright-mcp/research/rd-agents/draft.md): EVE University's formula, checked by a
+  // player against three characters (2023), and the access rule from EVE University's Research missions page.
+  const R = await import('../src/lib/research.ts');
+  const fsR = await import('node:fs');
+  const bundle = JSON.parse(fsR.readFileSync(new URL('../src/data/researchAgents.json', import.meta.url), 'utf8'));
+  const graph = JSON.parse(fsR.readFileSync(new URL('../src/data/universeGraph.json', import.meta.url), 'utf8')).systems;
+  const r2 = (x) => +x.toFixed(2);
+
+  eq('RP a day at a level 4 agent: field IV, Negotiation IV, no agent standing; field V, Negotiation V, agent standing 2; and 10',
+    [R.rpPerDay({ field: 4, agentLevel: 4, negotiation: 4, agentStanding: null }), R.rpPerDay({ field: 5, agentLevel: 4, negotiation: 5, agentStanding: 2 }),
+      R.rpPerDay({ field: 5, agentLevel: 4, negotiation: 5, agentStanding: 10 })].map(r2), [89.6, 119.07, 125.55]);
+  eq('  the named constants the copy states', [R.QUALITY_BONUS, R.RP_PER_DATACORE, R.DATACORE_FEE, R.ACCESS, R.CORP_BELOW_FACTION, R.RATE_TOLERANCE],
+    [20, 100, 10_000, { 1: -2, 2: 1, 3: 3, 4: 5 }, 2, { rp: 2, share: 0.02 }]);
+
+  eq('effective standing: Caldari State\'s 3.63 at Connections IV is 4.65; no standing stays none, whatever the skills',
+    [r2(R.effectiveStanding(3.63, 4, 0)), R.effectiveStanding(null, 5, 5)], [4.65, null]);
+  eq('  a negative standing goes through Diplomacy (−3 + 13 × 16%), never Connections',
+    [r2(R.effectiveStanding(-3, 0, 4)), R.effectiveStanding(-3, 4, 0)], [-0.92, -3]);
+  eq('  a standing that exists at 0 is lifted by Connections ("positive or 0", EVE University)', r2(R.effectiveStanding(0, 4, 0)), 1.6);
+
+  eq('R&D access: the corporation at the level\'s standing, or the faction there with the corporation no more than 2 below',
+    [R.agentAccess(4, 5.0, null), R.agentAccess(4, 3.0, 5.0), R.agentAccess(4, 2.9, 5.0), R.agentAccess(4, null, 4.65)], [true, true, false, false]);
+  eq('  no standing counts as 0: level 2 opens on the faction alone (0 ≥ 1 − 2), level 1 to anyone, level 3 not (0 < 3 − 2)',
+    [R.agentAccess(2, null, 4.65), R.agentAccess(1, null, null), R.agentAccess(3, null, 4.65), R.agentAccess(3, 1.0, 4.65)], [true, true, false, true]);
+  eq('  level 1 shuts only below −2 both ways: corporation and faction both at −3, or the corporation over 2 under the faction\'s 0',
+    [R.agentAccess(1, -3, -3), R.agentAccess(1, -5, null), R.agentAccess(1, -3, null)], [false, false, true]);
+  eq('the highest level open: the main today (Lai Dai at none, Caldari State 4.65) has level 2; Lai Dai at 1.0 opens level 3',
+    [R.openLevel(null, 4.65), R.openLevel(1.0, 4.65), R.openLevel(-3, -3), R.openLevel(5, null)], [2, 3, 0, 4]);
+
+  const T = Date.parse('2026-10-01T12:00:00Z');
+  eq('RP now is CCP\'s formula: remainder + per day × days since the start',
+    R.rpNow({ agentId: 1, skillTypeId: 1, startedAt: new Date(T).toISOString(), pointsPerDay: 100, remainderPoints: 50 }, T + 1.5 * DAY), 200);
+  eq('whole datacores at 100 RP, or at a cost given; never under none', [R.datacoresFor(250), R.datacoresFor(250, 50), R.datacoresFor(-40)], [2, 5, 0]);
+
+  const tax = 0.03375;
+  const five = R.datacoreValue([{ price: 92_700, volume: 3 }, { price: 92_000, volume: 10 }], 5, tax);
+  const want5 = (3 * 92_700 + 2 * 92_000) * (1 - tax) - 5 * 10_000;
+  eq('five datacores walked down the bids, after sales tax, less the fee each', [five?.total, five?.perUnit, five?.units], [want5, want5 / 5, 5]);
+  eq('  no bids, or an empty book: nothing to say', [R.datacoreValue(null, 5, tax), R.datacoreValue([], 5, tax)], [null, null]);
+  const twenty = R.datacoreValue([{ price: 92_700, volume: 3 }, { price: 92_000, volume: 10 }], 20, tax);
+  const want13 = (3 * 92_700 + 10 * 92_000) * (1 - tax) - 13 * 10_000;
+  eq('  more than the bids hold: the rest valued at nothing, the total only what the bids take, and how many',
+    [twenty?.total, twenty?.perUnit, twenty?.units], [want13, want13 / 13, 13]);
+  const bait = R.datacoreValue([{ price: 92_700, volume: 3 }, { price: 0.02, volume: 100_000 }], 5, tax);
+  eq('  a bid that doesn\'t cover the fee takes nothing (escrow bait at 0.02 ISK would read as −10,000 a datacore)',
+    [bait?.total, bait?.units], [3 * 92_700 * (1 - tax) - 3 * 10_000, 3]);
+  eq('  only such bids: nothing to say', R.datacoreValue([{ price: 0.02, volume: 100_000 }], 5, tax), null);
+  const none = R.datacoreValue([{ price: 92_700, volume: 3 }], 0, tax);
+  eq('  none held: worth nothing, each at the top bid\'s net', [none?.total, none?.perUnit, none?.units], [0, 92_700 * (1 - tax) - 10_000, 0]);
+
+  // Lai Dai (1000020, Caldari State 500001): a level 4 and a level 2; Carthum (1000064, Amarr Empire 500003): a level 1.
+  const ag = (id, level, corp, faction, system, fields) => ({ id, name: `Agent ${id}`, level, corp, faction, station: 60000000 + id, system, fields });
+  const agents = [ag(1, 4, 1000020, 500001, 30000001, [11453, 11446]), ag(2, 2, 1000020, 500001, 30000002, [11453]), ag(3, 1, 1000064, 500003, 30000003, [11444])];
+  const standings = [{ id: 1, type: 'agent', standing: 2 }, { id: 500001, type: 'faction', standing: 3.63 }];
+  const opts = { skills: { 11453: 4, 11444: 1 }, standings, connections: 4, diplomacy: 0, negotiation: 4,
+    netPerDatacore: { 20418: 79_571, 20421: 68_836 }, jumpsTo: (s) => (s === 30000003 ? null : s - 30000000) };
+  const ranked = R.rankAgents(agents, opts);
+  eq('ranked: open ones first, best ISK a day first, the field at least the agent\'s level, the agent\'s own standing lifted by Connections, unpriced last',
+    ranked.map((r) => [r.agent.id, r.field, r.datacore, r.open, r2(r.rpDay), r.iskDay == null ? null : Math.round(r.iskDay), r.jumps]),
+    [[2, 11453, 20418, true, 50.4, Math.round(0.504 * 79_571), 2], [3, 11444, 20421, true, 5.6, Math.round(0.056 * 68_836), null],
+      [1, 11453, 20418, false, r2(1.4328 * 64), Math.round(1.4328 * 64 / 100 * 79_571), 1], [1, 11446, 20419, false, r2(1.4328 * 64), null, 1]]);
+  eq('  standings not read: worked out as none, so only level 1 is open', R.rankAgents(agents, { ...opts, standings: null }).filter((r) => r.open).map((r) => r.agent.id), [3]);
+
+  eq('the field → datacore map: 17 fields; Amarr Starship Engineering (11444) makes "Datacore - Amarrian Starship Engineering" (20421)',
+    [Object.keys(R.DATACORE_OF).length, R.DATACORE_OF[11444], R.DATACORE_OF[11450], R.DATACORE_OF[11453]], [17, 20421, 20410, 20418]);
+
+  const levels = [1, 2, 3, 4].map((l) => bundle.agents.filter((a) => a.level === l).length);
+  eq('the bundle: 244 research agents (agent type 4), 78 / 81 / 53 / 32 at levels 1–4, by ID', [bundle.agents.length, levels,
+    bundle.agents.every((a, i) => i === 0 || bundle.agents[i - 1].id < a.id)], [244, [78, 81, 53, 32], true]);
+  has('  its source names the static data\'s build', bundle.source, '3569502');
+  const listed = new Set(bundle.agents.flatMap((a) => a.fields));
+  eq('  no field outside the map, every agent with one, and every field in the map offered somewhere',
+    [[...listed].filter((f) => !(f in R.DATACORE_OF)), bundle.agents.filter((a) => !a.fields.length).length, Object.keys(R.DATACORE_OF).map(Number).filter((f) => !listed.has(f))], [[], 0, []]);
+  eq('  every agent has a corporation, a faction, a station and a system', bundle.agents.filter((a) => !a.corp || !a.faction || !a.station || !a.system).length, 0);
+  const laiDai4 = bundle.agents.filter((a) => a.corp === 1000020 && a.level === 4);
+  eq('  Lai Dai\'s six level 4 agents each list Electronic Engineering, Graviton Physics and Caldari Starship Engineering',
+    [laiDai4.length, laiDai4.every((a) => [11453, 11446, 11454].every((f) => a.fields.includes(f)))], [6, true]);
+  const rdCorps = new Set(bundle.agents.map((a) => a.corp));
+  eq('  helpers: 447 security and distribution agents (198 and 249) of levels 1–4, only of corporations with R&D agents, by ID',
+    [bundle.helpers.length, bundle.helpers.filter((h) => h.division === 'security').length,
+      bundle.helpers.filter((h) => !rdCorps.has(h.corp) || h.level < 1 || h.level > 4 || !['security', 'distribution'].includes(h.division)).length,
+      bundle.helpers.every((h, i) => i === 0 || bundle.helpers[i - 1].id < h.id)], [447, 198, 0, true]);
+  const named = (n) => bundle.helpers.find((h) => h.name === n);
+  eq('  the research\'s Lai Dai helpers: Ehu Vantoh (level 3 security, Isaziwa), Tatsari Vaheda (level 4 distribution, Elonaya)',
+    [named('Ehu Vantoh'), named('Tatsari Vaheda')].map((h) => h && [h.corp, h.level, h.division, graph[h.system]?.[1]]),
+    [[1000020, 3, 'security', 'Isaziwa'], [1000020, 4, 'distribution', 'Elonaya']]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
