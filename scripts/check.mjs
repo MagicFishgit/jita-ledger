@@ -4446,13 +4446,19 @@ console.log('\n--- the sniper ---');
   const nm = { 6721: 'Small Focused Anode Particle Stream I', 990: 'Epithal Blueprint' };
   const nameOf = (t) => nm[t] ?? `Item #${t}`;
   const anodeRead = { typeId: 6721, units: 133, cost: 7_811_090, top: 58_730, nextAsk: 98_860 };
-  const one = Sn.snipeMultibuy([anodeRead], nameOf);
+  // The read the finds came from, copied three minutes later: the Sniper reads every five, so a copy can be that old.
+  const READ = '2026-10-01T23:27:00Z', copied = Date.parse(READ) + 3 * 60_000;
+  const one = Sn.snipeMultibuy([anodeRead], nameOf, READ, copied);
   eq('  a find copies as "Name N", N the cheap units', [one.ok, one.block, one.lines], [true, 'Small Focused Anode Particle Stream I 133', 1]);
   eq('    and says what it should come to at the listings read, exactly, with the next listing up', [one.total, one.said.includes('7,811,090 ISK'), one.said.includes('58,730 ISK each'), one.said.includes('from 98,860 ISK each')], [7_811_090, true, true, true]);
   eq('    and that Multibuy has no price limit, so a dearer total means a listing has gone', [/no price limit/.test(one.said), one.said.includes('a total over 7,811,090 ISK')], [true, true]);
-  const both = Sn.snipeMultibuy([anodeRead, { typeId: 990, units: 8, cost: 51_200_000, top: 6_400_000, nextAsk: 8_474_000 }], nameOf);
+  const both = Sn.snipeMultibuy([anodeRead, { typeId: 990, units: 8, cost: 51_200_000, top: 6_400_000, nextAsk: 8_474_000 }], nameOf, READ, copied);
   eq('  all shown: a line each, and their total', [both.block, both.lines, both.total, both.said.includes('59,011,090 ISK')], ['Small Focused Anode Particle Stream I 133\nEpithal Blueprint 8', 2, 59_011_090, true]);
-  eq('  a name not read yet refuses the copy, whole', [Sn.snipeMultibuy([anodeRead, { ...anodeRead, typeId: 123 }], nameOf).ok, /names haven’t loaded/.test(Sn.snipeMultibuy([{ ...anodeRead, typeId: 123 }], nameOf).why)], [false, true]);
+  // "At the listings just read" was said of a read up to five minutes old (the Task 1 review): its age is said instead.
+  eq('  each says how old the read is, never "just read"', [one.said.startsWith('At the listings read 3 min ago it should come to 7,811,090 ISK'), both.said.startsWith('At the listings read 3 min ago the 2 should come to'), /just read/.test(one.said + both.said)], [true, true, false]);
+  eq('    a read under a minute old is "just now"', Sn.snipeMultibuy([anodeRead], nameOf, READ, Date.parse(READ) + 20_000).said.startsWith('At the listings read just now'), true);
+  eq('    and the tips say the same', Sn.listingsRead(READ, copied), 'the listings read 3 min ago');
+  eq('  a name not read yet refuses the copy, whole', [Sn.snipeMultibuy([anodeRead, { ...anodeRead, typeId: 123 }], nameOf, READ, copied).ok, /names haven’t loaded/.test(Sn.snipeMultibuy([{ ...anodeRead, typeId: 123 }], nameOf, READ, copied).why)], [false, true]);
 }
 
 console.log('\n--- snipes you have taken ---');

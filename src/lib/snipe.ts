@@ -15,7 +15,7 @@
  * and the sales tax; selling straight into a bid costs the tax only.
  */
 import { reachedAsk } from './fills';
-import { isk, units as count } from './format';
+import { ago, isk, units as count } from './format';
 import { MOVED } from './prospects';
 import { tickDown } from './tick';
 import type { ProspectStats } from './types';
@@ -208,23 +208,31 @@ export function splitBlueprints<T extends Pick<SnipeListing, 'typeId' | 'categor
 export type SnipeCopy = { ok: true; block: string; lines: number; total: number; said: string } | { ok: false; why: string };
 
 /**
+ * Which read a find's figures come from, for the copy's toast and tips: "the listings read 3 min ago". The Sniper reads
+ * the book every five minutes, so by the time a find is copied its read can be that old; it said "just read" until the
+ * Task 1 review (2 October 2026).
+ */
+export const listingsRead = (readAt: string, now: number) => `the listings read ${ago(readAt, now)}`;
+
+/**
  * Finds for the Multibuy window's import: "Name N" a line (the import's own format), N the cheap units only. The user
  * authorized it on 2 October 2026; the Sniper had been kept out of Multibuy on purpose, to be careful there. Multibuy buys
  * at once from the cheapest listings with no price limit, so a cheap listing someone bought between the read and the
- * paste means the next ones at their full price. What it should come to is said exactly, with the dearest cheap price and
- * the next listing up, so a dearer total in the window shows a listing has gone. A name not read yet ("Item #…") refuses
- * the whole copy: the game can't match it.
+ * paste means the next ones at their full price. What it should come to is said exactly, at the read the finds came from
+ * (`readAt`, its age at `now`), with the dearest cheap price and the next listing up, so a dearer total in the window
+ * shows a listing has gone. A name not read yet ("Item #…") refuses the whole copy: the game can't match it.
  */
-export function snipeMultibuy(rows: Pick<SnipeListing, 'typeId' | 'units' | 'cost' | 'top' | 'nextAsk'>[], nameOf: (typeId: number) => string): SnipeCopy {
+export function snipeMultibuy(rows: Pick<SnipeListing, 'typeId' | 'units' | 'cost' | 'top' | 'nextAsk'>[], nameOf: (typeId: number) => string, readAt: string, now: number): SnipeCopy {
   const list = rows.filter((x) => x.units > 0);
   if (!list.length) return { ok: false, why: 'Nothing to copy.' };
   const names = list.map((x) => (nameOf(x.typeId) ?? '').trim());
   if (names.some((n) => !n || /^Item #\d+$/.test(n))) return { ok: false, why: 'Some item names haven’t loaded yet: try again in a moment.' };
   const total = list.reduce((s, x) => s + x.cost, 0);
   const one = list.length === 1 ? list[0] : null;
+  const at = `At ${listingsRead(readAt, now)}`;
   const said = one
-    ? `At the listings just read it should come to ${isk(total)}: ${count(one.units)} at up to ${isk(one.top)} each. Multibuy has no price limit: if one of these listings has gone, it buys the next ones at their full price${one.nextAsk != null ? `, from ${isk(one.nextAsk)} each` : ''}, so a total over ${isk(total)} in the window means it has. Check it before you press Buy.`
-    : `At the listings just read the ${list.length} should come to ${isk(total)}. Multibuy has no price limit: if any of these listings has gone, it buys the next ones at their full price, so a total over ${isk(total)} in the window means one has. Check it before you press Buy.`;
+    ? `${at} it should come to ${isk(total)}: ${count(one.units)} at up to ${isk(one.top)} each. Multibuy has no price limit: if one of these listings has gone, it buys the next ones at their full price${one.nextAsk != null ? `, from ${isk(one.nextAsk)} each` : ''}, so a total over ${isk(total)} in the window means it has. Check it before you press Buy.`
+    : `${at} the ${list.length} should come to ${isk(total)}. Multibuy has no price limit: if any of these listings has gone, it buys the next ones at their full price, so a total over ${isk(total)} in the window means one has. Check it before you press Buy.`;
   return { ok: true, block: list.map((x, i) => `${names[i]} ${x.units}`).join('\n'), lines: list.length, total, said };
 }
 

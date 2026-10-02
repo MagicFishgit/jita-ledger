@@ -12,7 +12,7 @@ import { JITA_44 } from '../lib/constants';
 import type { HistRow } from '../lib/types';
 import { navigate, useNow } from '../lib/hooks';
 import { sanitizeAlerts } from '../lib/prefs';
-import { DOUBT_SAID, judgeBids, judgeListings, notYours, snipeMultibuy, splitBlueprints, type HeldBidRow, type SnipeRead, type SnipeRow } from '../lib/snipe';
+import { DOUBT_SAID, judgeBids, judgeListings, listingsRead, notYours, snipeMultibuy, splitBlueprints, type HeldBidRow, type SnipeRead, type SnipeRow } from '../lib/snipe';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { typeKind } from '../lib/universe';
@@ -271,14 +271,15 @@ export function Sniper() {
   const mailing = cloudSendsMail() && d.alerts.on && d.alerts.mail && d.alerts.ev.snipe && d.alerts.mailEv.snipe;
   /** A find, or every find shown, for the Multibuy window: the cheap units, with what they should come to (snipeMultibuy). */
   const copyFinds = (list: SnipeRow[]) => {
-    const c = snipeMultibuy(list, name);
+    if (!read) return;
+    const c = snipeMultibuy(list, name, read.at, Date.now());
     if (!c.ok) { toast(c.why, 'warn'); return; }
     void copyMultibuy(c.block, c.lines, undefined, c.said);
   };
-  const copyTip = (x: SnipeRow) => `Copies “${name(x.typeId)} ${x.units}” for the Multibuy window (in Jita: Multibuy, Import from clipboard): the cheap units only.\n\n• At the listings just read it comes to ${isk(x.cost)}, at up to ${isk(x.top)} each.\n• Multibuy has no price limit: if one of these listings has gone, it buys the next ones at their full price${x.nextAsk != null ? `, from ${isk(x.nextAsk)} each` : ''}. Check the window’s total before you press Buy.`;
+  const copyTip = (x: SnipeRow) => `Copies “${name(x.typeId)} ${x.units}” for the Multibuy window (in Jita: Multibuy, Import from clipboard): the cheap units only.\n\n• At ${read ? listingsRead(read.at, now) : 'the listings read'} it comes to ${isk(x.cost)}, at up to ${isk(x.top)} each.\n• Multibuy has no price limit: if one of these listings has gone, it buys the next ones at their full price${x.nextAsk != null ? `, from ${isk(x.nextAsk)} each` : ''}. Check the window’s total before you press Buy.`;
   const copyAll = (list: SnipeRow[]) => (
     <button type="button" className="btn sm" onClick={() => copyFinds(list)}
-      data-tip={`Copies every find in this table for the Multibuy window, the cheap units of each, a line apiece.\n\n• At the listings just read they come to ${isk(list.reduce((s, x) => s + x.cost, 0))}.\n• Multibuy has no price limit: a listing gone means the next ones at their full price, so check the window’s total before you press Buy.\n• Bought in one go they still count under Your snipes: each purchase is matched to what the Sniper showed.`}>
+      data-tip={`Copies every find in this table for the Multibuy window, the cheap units of each, a line apiece.\n\n• At ${read ? listingsRead(read.at, now) : 'the listings read'} they come to ${isk(list.reduce((s, x) => s + x.cost, 0))}.\n• Multibuy has no price limit: a listing gone means the next ones at their full price, so check the window’s total before you press Buy.\n• Bought in one go they still count under Your snipes: each purchase is matched to what the Sniper showed.`}>
       <ShoppingCart aria-hidden="true" />Copy {list.length === 1 ? 'it' : `all ${units(list.length)}`} for Multibuy
     </button>
   );
