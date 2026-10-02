@@ -677,15 +677,21 @@ try {
     const fs = await import('node:fs');
     const fx = JSON.parse(fs.readFileSync(new URL('./fixtures/freelance-history.json', import.meta.url), 'utf8'));
     const GONE = 'deadbeef-0000-4000-8000-000000000000';
+    // And a job paid after the trades were read (the user's Добыча Veldspar*, 2 October 2026: 208 M at 17:33:16 for
+    // 8,000,000 bought at 17:26:54, the trades read only to 17:00:11): its units aren't matched to a purchase yet, and it
+    // must say so rather than call them stock you didn't buy. ESI's public details, description left out.
+    const VELD = {"id": "e94d1cd6-d027-4b77-921d-8f37fcad9f08", "name": "Добыча Veldspar*", "state": "Completed", "last_modified": "2026-10-02T17:33:13.402Z", "progress": {"current": 8000000, "desired": 8000000}, "reward": {"initial": 208000000, "remaining": 0}, "details": {"career": "Industrialist", "created": "2026-10-02T16:00:29.558Z", "finished": "2026-10-02T17:33:13.456Z", "expires": "2026-10-16T16:00:00Z", "creator": {"character": {"id": 2124308466, "name": "Shoya Uitra"}, "corporation": {"id": 98841645, "name": "Autumn Stories"}}}, "configuration": {"version": 1, "parameters": {"corporation_item_delivery": {"corporation_item_delivery": {"item_type": {"values": [{"value_type": "item_group", "values": ["462"]}]}, "corporation_office_location": {"values": [{"value_type": "station", "values": ["60002296"]}, {"value_type": "structure", "values": ["1031058135975"]}]}}}}, "method": "DeliverItem"}, "contribution": {"max_committed_participants": 10000, "reward_per_contribution": 26, "submission_multiplier": 1}, "access_and_visibility": {"acl_protected": false, "broadcast_locations": [{"id": 30002738, "name": "Inoue"}, {"id": 30002053, "name": "Hek"}]}};
     const journal = Object.fromEntries([...fx.journal, { id: '26090000001', date: '2026-09-28T08:00:00Z', refType: 'freelance_jobs_reward', amount: 5_000_000, balance: 1e9,
-      firstPartyId: 1000413, secondPartyId: 95210486, description: '-', reason: `project_id=${GONE}:project_name=Old \\u2713 job` }].map((e) => [e.id, e]));
+      firstPartyId: 1000413, secondPartyId: 95210486, description: '-', reason: `project_id=${GONE}:project_name=Old \\u2713 job` },
+      { id: '26103000001', date: '2026-10-02T17:33:16Z', refType: 'freelance_jobs_reward', amount: 208_000_000, balance: 2e9, firstPartyId: 1000413, secondPartyId: 95210486,
+        description: '-', reason: `project_id=${VELD.id}:project_name=\\u0414\\u043e\\u0431\\u044b\\u0447\\u0430 Veldspar*` }].map((e) => [e.id, e]));
     const ledger = {
       // And 5,000,000 Veldspar not bought (mined, or contracted from the alt) sold during the Veldspar job: said apart.
       txs: Object.fromEntries([...fx.txs, { id: '6880000001', source: 'esi', typeId: 92372, date: '2026-09-20T12:00:00Z', isBuy: false, qty: 5_000_000, unitPrice: 7.15, locationId: 60003760 }].map((t) => [t.id, t])), journal,
       meta: { walletBalance: 1979735843.56, lastSync: new Date(Date.now() - 600_000).toISOString(),
         freelance: { at: '2026-10-01T21:00:00Z', jobs: [] } },
     };
-    const details = Object.fromEntries(fx.jobs.map((j) => [j.id, j]));
+    const details = Object.fromEntries([...fx.jobs, VELD].map((j) => [j.id, j]));
     const page = await browser.newPage(VIEW);
     let asked = 0;
     await page.route('**/*', (route) => {
@@ -724,7 +730,11 @@ try {
     const text = (await page.locator('.fl-history').innerText().catch(() => '')).replace(/\s+/g, ' ');
     // The six jobs' figures, worked out by hand (scripts/check.mjs), and the job ESI won't describe.
     for (const t of ['Every job you did', '/!\\ Mining Kernite', '..::Buy Back::.. Scordite - all type ✓', 'Galine Bro', '813,258', '17.86 M ISK at cost', '1.01 B ISK', '278.58 M ISK',
-      '993.87 M ISK', '386.31 M ISK', 'worked out', 'Old ✓ job', 'ESI won’t describe it', '5,000,000 sold for', 'that weren’t bought for it: left out of the profit']) if (!text.includes(t)) problems.push(`not drawn: “${t}”`);
+      '386.31 M ISK', 'worked out', 'Old ✓ job', 'ESI won’t describe it', '5,000,000 sold for', 'that weren’t bought for it: left out of the profit',
+      'Добыча Veldspar*', '8,000,000 not matched to a purchase yet: your trades are read only to',
+      // The profit's column folds under the job's name on a phone, where it says "so far".
+      PHONE ? 'Profit 208 M ISK so far' : 'the cost may still come in']) if (!text.includes(t)) problems.push(`not drawn: “${t}”`);
+    if (text.includes('8,000,000 from stock you didn’t buy for it')) problems.push('a job paid after the trades were read calls its units stock you didn’t buy');
     // A floor: the sync and the tab can both ask; the seventh is the job ESI answers 404 for.
     if (asked < 7) problems.push(`ESI was asked for ${asked} jobs' details, not the seven the journal names`);
     const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();

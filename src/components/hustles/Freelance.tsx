@@ -405,7 +405,7 @@ function JobHistory({ now }: { now: number }) {
             <td className="flh-wide">{noUnits ? '–' : units(total.delivered)}{total.unknown > 0 && <span className="sub">{units(total.unknown)} job{total.unknown === 1 ? '' : 's'} not known</span>}</td>
             <td className="flh-wide">{iskBig(total.received)}</td>
             <td className="flh-wide">{noTax ? 'Not recorded' : iskBig(total.tax)}{!noTax && total.taxUnknown > 0 && <span className="sub">{units(total.taxUnknown)} not recorded</span>}</td>
-            <td className="flh-wide">{noUnits ? '–' : iskBig(total.cost)}{total.fromStock > 0 && <span className="sub">{units(total.fromStock)} not bought for it</span>}</td>
+            <td className="flh-wide">{noUnits ? '–' : iskBig(total.cost)}{total.fromStock > 0 && <span className="sub">{units(total.fromStock)} {rows.some((r) => purchasesPending(r, readTo)) ? 'not bought for it, or not read yet' : 'not bought for it'}</span>}</td>
             <td className="flh-wide">{total.held ? <>{units(total.held)}<span className="sub">{iskBig(total.heldCost)} at cost</span></> : '–'}</td>
             <td className="flh-wide" style={{ color: noUnits ? undefined : total.profit >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{noUnits ? '–' : iskBig(total.profit)}</td>
           </tr></tfoot>
