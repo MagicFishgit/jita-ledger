@@ -1015,6 +1015,13 @@ export function adviseRelist(
 
 const RANK: Record<Verdict, number> = { bid: 0, move: 0, dry: 1, loss: 2, wait: 3, front: 4 };
 
+/**
+ * What Orders' verdict column shows, and the tiles above it count and filter by: the verdict, except that a buy's raise
+ * refused by the guard (`keep`) reads "Keep it" rather than "Not worth it".
+ */
+export type ShownVerdict = Verdict | 'keep';
+export const shownVerdict = (x: Pick<Relist, 'verdict' | 'keep'>): ShownVerdict => (x.verdict === 'loss' && x.keep ? 'keep' : x.verdict);
+
 /** What needs doing first: real relists, then the ISK at stake within each group. */
 export function byUrgency(a: Relist, b: Relist): number {
   return RANK[a.verdict] - RANK[b.verdict] || b.atRisk - a.atRisk;

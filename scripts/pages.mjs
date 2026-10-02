@@ -539,7 +539,7 @@ try {
     if (praxis.includes('208,400,000 ISK')) problems.push('Praxis shows a price to raise to');
     if (!(await page.locator(`tr[data-order="${ID}"] .flag`, { hasText: 'Plan' }).count())) problems.push('not drawn: no “Plan” chip on Praxis');
     if (!(await page.locator('tr[data-order="1"]', { hasText: 'Pays more than it resells for' }).count())) problems.push('not drawn: no “Pays more than it resells for” on the Tritanium buy');
-    if (!(await page.locator('.stat', { hasText: 'keep it: raising would cut below' }).locator('button').count())) problems.push('not drawn: no Keep it count beside “worth moving”');
+    if (!(await page.locator('button.stat.press', { hasText: 'keep it: raising would cut below' }).count())) problems.push('not drawn: no Keep it count beside “worth moving”');
     const feeds = page.locator(`tr[data-order="${arb.buy.orderId}"] [data-tip-title="Feeds a long queue"]`);
     if (!(await feeds.count())) problems.push('not drawn: no “Feeds a long queue” on the Arbalest buy');
     else {
@@ -547,6 +547,39 @@ try {
       for (const want of ['days of the buyers who take listings', 'in your Jita hangar', 'This order still buys', 'cancel it and place a smaller one']) if (!tip.includes(want)) problems.push(`not drawn: the Long queue tip's “${want}”`);
     }
     if (await page.locator(`tr[data-order="${arb.sell.orderId}"] [data-tip-title="Feeds a long queue"]`).count()) problems.push('the Arbalest sell carries “Feeds a long queue”: only a buy adds stock');
+    // The tiles filter the table (the user, 2 October 2026): Keep it shows only Praxis and, pressed again, every order;
+    // the figure under it is pressed with it; "worth moving" shows only the Arbalest sell and Show all brings the rest
+    // back; a tile counting nothing (Leave it) can't be pressed.
+    {
+      const ids = () => page.locator('table.ord tbody tr').evaluateAll((trs) => trs.map((tr) => tr.getAttribute('data-order')));
+      const all = await ids();
+      const keepTile = page.locator('button.vtile', { hasText: 'Keep it' });
+      await keepTile.click().catch((e) => problems.push(`couldn't press Keep it: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(300);
+      const kept = await ids();
+      if (kept.length !== 1 || kept[0] !== String(ID)) problems.push(`pressing Keep it didn't show only Praxis: ${JSON.stringify(kept)} of ${all.length}`);
+      if ((await keepTile.getAttribute('aria-pressed')) !== 'true') problems.push('the Keep it tile isn’t pressed while it filters');
+      if ((await page.locator('button.stat.press', { hasText: 'keep it: raising would cut below' }).getAttribute('aria-pressed').catch(() => null)) !== 'true') problems.push('the Keep it figure isn’t pressed with its tile');
+      const said = (await page.locator('.tile-showing').innerText().catch(() => '')).replace(/\s+/g, ' ');
+      if (!said.includes(`Showing 1 of ${all.length}: Keep it`)) problems.push(`not drawn: “Showing 1 of ${all.length}: Keep it” (${said})`);
+      await keepTile.click().catch(() => undefined);
+      await page.waitForTimeout(300);
+      if ((await ids()).length !== all.length) problems.push(`pressing Keep it again didn't bring every order back: ${(await ids()).length} of ${all.length}`);
+      if (await page.locator('.tile-showing').count()) problems.push('the “Showing” line stayed after the filter cleared');
+      await page.locator('button.stat.press', { hasText: 'worth moving' }).click().catch((e) => problems.push(`couldn't press “worth moving”: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(300);
+      const moving = await ids();
+      if (moving.length !== 1 || moving[0] !== String(arb.sell.orderId)) problems.push(`pressing “worth moving” didn't show only the Arbalest sell: ${JSON.stringify(moving)}`);
+      if ((await page.locator('button.vtile', { hasText: 'Move it' }).getAttribute('aria-pressed')) !== 'true') problems.push('the Move it tile isn’t pressed with “worth moving”');
+      await page.locator('.tile-showing button', { hasText: 'Show all' }).click().catch((e) => problems.push(`couldn't press Show all: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(300);
+      if ((await ids()).length !== all.length) problems.push(`Show all didn't bring every order back: ${(await ids()).length} of ${all.length}`);
+      const idle = page.locator('button.vtile', { hasText: 'Leave it' });
+      if ((await idle.getAttribute('aria-disabled')) !== 'true') problems.push('Leave it counts nothing here, and isn’t marked as not pressable');
+      await idle.click().catch(() => undefined);
+      await page.waitForTimeout(200);
+      if ((await idle.getAttribute('aria-pressed')) !== 'false' || (await ids()).length !== all.length) problems.push('Leave it counts nothing, and pressing it filtered the table');
+    }
     // Checked, every line under a figure drawn and the In game buttons there, Orders still fits at desktop width.
     if (!PHONE) {
       if (!(await page.locator('tbody .acts button', { hasText: 'In game' }).count())) problems.push('not drawn: no In game button on the checked rows');

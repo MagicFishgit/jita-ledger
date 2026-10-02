@@ -14,7 +14,8 @@ import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { typeKind } from '../lib/universe';
 import { useEnsureNames } from './common';
-import { Check, Empty, Flag, Guide, ItemIcon, Notice, PageHead, Panel, Seg, SortTh, Th, Tiles } from './ui';
+import { Check, Empty, Flag, Guide, ItemIcon, Notice, PageHead, Panel, Seg, SortTh, Th, Tiles, TileShowing, useTileFilter } from './ui';
+import { tileRows } from '../lib/tileFilter';
 import type { HistRow } from '../lib/types';
 import { TradeSkillsLine } from './SkillStrip';
 import { SellWindowBanner } from './SellWindowBanner';
@@ -70,6 +71,18 @@ function lootCompare(sort: LootSort) {
 
 const MARK_KEY = 'jita-ledger:loot-mark';
 
+/**
+ * The count tiles over the table, each the verdicts it counts (lib/tileFilter.ts): pressed, the table shows only those
+ * items. "Skip / left out" counts both.
+ */
+type LootTile = 'list' | 'bids' | 'noSlot' | 'skip';
+const LOOT_TILE: Record<LootTile, { said: string; has: (v: LootCall['verdict']) => boolean }> = {
+  list: { said: 'List', has: (v) => v === 'list' },
+  bids: { said: 'Sell into bids', has: (v) => v === 'bids' },
+  noSlot: { said: 'Waiting for a slot', has: (v) => v === 'noSlot' },
+  skip: { said: 'Skip / left out', has: (v) => v === 'skip' || v === 'held' },
+};
+
 const VERDICT: Record<LootCall['verdict'], { label: string; c: string }> = {
   list: { label: 'List it', c: 'var(--pos)' },
   noSlot: { label: 'No slot', c: 'var(--acc2)' },
@@ -101,6 +114,8 @@ export function Loot() {
   const [kindsOn, setKindsOn] = useState<Set<LootHeld>>(() => new Set());
   const [override, setOverride] = useState<Map<number, boolean>>(() => new Map());
   const [sort, setSort] = useState<LootSort>(loadLootSort);
+  // The verdict tile filtering the table, if one is (lib/tileFilter.ts): for this visit only.
+  const { on: tile, setOn: setTile, press: pressTileOf } = useTileFilter<LootTile>('loot-table');
   const sortBy = (key: LootSortKey) => setSort((x) => {
     const next: LootSort = x.key === key ? { key, dir: x.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: LOOT_SORT_UP.has(key) ? 'asc' : 'desc' };
     try { localStorage.setItem(LOOT_SORT_STORE, JSON.stringify(next)); } catch { /* remembered for this visit only */ }
@@ -204,7 +219,7 @@ export function Loot() {
     Object.entries(d.stock?.jita ?? {}).filter(([, q]) => q > 0).map(([id, q]) => ({ typeId: Number(id), name: d.names[Number(id)] ?? '', qty: q })),
     { assembled: d.stock?.assembled, holding: d.stock?.holding ?? {} },
   );
-  const clear = () => { setText(''); setItems([]); setUnknown([]); setMarkets({}); setReadAt(null); setKinds({}); setAside([]); setKindsOn(new Set()); setOverride(new Map()); };
+  const clear = () => { setText(''); setItems([]); setUnknown([]); setMarkets({}); setReadAt(null); setKinds({}); setAside([]); setKindsOn(new Set()); setOverride(new Map()); setTile(null); };
 
   // An item left out is back in when its kind's switch is on, unless its own Include says otherwise.
   const included = useMemo(() => new Set(items.filter((it) => {
@@ -227,6 +242,9 @@ export function Loot() {
   const by = (v: LootCall['verdict']) => calls.filter((c) => c.verdict === v);
   const listed = by('list'), toBids = by('bids'), noSlot = by('noSlot'), skipped = by('skip'), held = by('held');
   const sorted = useMemo(() => [...calls].sort(lootCompare(sort)), [calls, sort]);
+  const tileCount = (k: LootTile) => calls.filter((c) => LOOT_TILE[k].has(c.verdict)).length;
+  const press = (k: LootTile) => pressTileOf(k, tileCount(k));
+  const tableRows = tileRows(sorted, tile, (c, k) => LOOT_TILE[k].has(c.verdict));
   const stale = readAt != null && now - readAt > 5 * 60_000;
   const totals = useMemo(() => lootTotals(calls), [calls]);
   const daysSaid = (n: number) => (n < 1 ? `${Math.max(1, Math.round(n * 24))} h` : n > 365 ? 'over a year' : `${Math.round(n)} d`);
@@ -273,10 +291,10 @@ export function Loot() {
         <>
           <Tiles items={[
             { l: 'List', v: `${units(listed.length)} of ${units(free)} free slot${free === 1 ? '' : 's'}`, n: listed.length ? `${iskBig(listed.reduce((t, c) => t + (c.listNet ?? 0), 0))} when they sell` : 'Nothing worth a slot', c: 'var(--pos)',
-              tip: `Your ${units(slots)} order slots, ${units(openOrders.length)} in use. The listings that gain most over the bids per day of the slot go first.` },
-            { l: 'Sell into bids', v: units(toBids.length), n: toBids.length ? `${iskBig(toBids.reduce((t, c) => t + c.bidsNet, 0))} now, after tax` : '–', c: 'var(--acc)' },
-            { l: 'Waiting for a slot', v: units(noSlot.length), n: noSlot.length ? 'Worth listing if you free a slot (Orders: Weakest slots)' : '–', c: 'var(--acc2)' },
-            { l: 'Skip / left out', v: `${units(skipped.length)} / ${units(held.length)}`, n: held.length ? 'Left out: tick a kind above the table, or one item, to include it' : '–' },
+              tip: `Your ${units(slots)} order slots, ${units(openOrders.length)} in use. The listings that gain most over the bids per day of the slot go first.`, press: press('list') },
+            { l: 'Sell into bids', v: units(toBids.length), n: toBids.length ? `${iskBig(toBids.reduce((t, c) => t + c.bidsNet, 0))} now, after tax` : '–', c: 'var(--acc)', press: press('bids') },
+            { l: 'Waiting for a slot', v: units(noSlot.length), n: noSlot.length ? 'Worth listing if you free a slot (Orders: Weakest slots)' : '–', c: 'var(--acc2)', press: press('noSlot') },
+            { l: 'Skip / left out', v: `${units(skipped.length)} / ${units(held.length)}`, n: held.length ? 'Left out: tick a kind above the table, or one item, to include it' : '–', press: press('skip') },
           ]} />
           <Tiles items={[
             { l: 'Everything listed', v: iskBig(totals.listed.isk), c: 'var(--pos)',
@@ -329,7 +347,8 @@ export function Loot() {
             </Panel>
           )}
 
-          <section className="panel flush" data-rv="">
+          <section id="loot-table" className="panel flush" data-rv="" style={{ scrollMarginTop: 12 }}>
+            {tile && <div className="panel-bar"><TileShowing shown={tableRows.length} of={calls.length} what={LOOT_TILE[tile].said} onClear={() => setTile(null)} /></div>}
             <div className="tbl-scroll capped">
               <table className="tbl" style={{ minWidth: 1040 }}>
                 <thead><tr>
@@ -344,7 +363,7 @@ export function Loot() {
                   <SortTh k="days" label="Sells in" sort={sort} onSort={sortBy} tip="How long the listing takes to sell at your share of the buyers taking listings" />
                 </tr></thead>
                 <tbody>
-                  {sorted.map((c) => {
+                  {tableRows.map((c) => {
                     const V = VERDICT[c.verdict];
                     return (
                       <tr key={c.typeId} className={c.verdict === 'held' || c.verdict === 'skip' ? 'dim' : undefined}>

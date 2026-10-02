@@ -12,7 +12,8 @@ import { jitaOrders, openContractWindow, resolveNames } from '../lib/market';
 import { toast } from '../lib/toast';
 import { isStation, isStructure, structureInfo } from '../lib/universe';
 import { copyPrice, plainPrice, useEnsureNames, useTypeName } from './common';
-import { Empty, Flag, Guide, ItemIcon, Notice, PageHead, Panel, SortTh, Th, Tiles } from './ui';
+import { Empty, Flag, Guide, ItemIcon, Notice, PageHead, Panel, SortTh, Th, Tiles, TileShowing, useTileFilter } from './ui';
+import { tileRows } from '../lib/tileFilter';
 import { Points } from './Facts';
 import { SkillStrip } from './SkillStrip';
 import { useData } from '../lib/store';
@@ -50,6 +51,8 @@ export function Blueprints() {
   const [busy, setBusy] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<Sort>({ key: 'worth', dir: 'desc' });
+  // The tile filtering the table, if one is (lib/tileFilter.ts): kinds with some sold lately, or with nothing to compare.
+  const { on: tile, setOn: setTile, press: pressTileOf } = useTileFilter<'sold' | 'none'>('bp-table');
   useEnsureNames((owned ?? []).map((b) => b.typeId));
   const can = hasScope(SCOPE.blueprints);
   const cloud = cloudEnabled();
@@ -146,6 +149,15 @@ export function Blueprints() {
   const sortBy = (key: SortKey) => setSort((x) => (x.key === key ? { key, dir: x.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'item' ? 'asc' : 'desc' }));
 
   const priced = rows.filter((r) => listAt(r).price != null);
+  // "Sold lately" and "Nothing to compare" count kinds, the table's rows; pressed, the table shows only those (the search
+  // still applies on top). "Worth listing" sums ISK and stays a figure.
+  const TILE = {
+    sold: { said: 'Sold lately', has: (r: Row) => (r.quote?.sold ?? 0) > 0 },
+    none: { said: 'Nothing to compare', has: (r: Row) => listAt(r).price == null },
+  };
+  const tileCount = (k: keyof typeof TILE) => rows.filter(TILE[k].has).length;
+  const press = (k: keyof typeof TILE) => pressTileOf(k, tileCount(k));
+  const tableRows = tileRows(shown, tile, (r, k) => TILE[k].has(r));
   // Your contracts out now, from the last read of them (Contracting caps how many; lib/contracts.ts).
   const outstanding = d.meta.contracts && auth ? d.meta.contracts.list.filter((c) => c.status === 'outstanding' && c.issuer === auth.characterId).length : null;
   const total = rows.reduce((n, r) => n + r.count, 0);
@@ -191,8 +203,8 @@ export function Blueprints() {
               {market && (
                 <Tiles items={[
                   { l: 'Worth listing', v: iskBig(rows.reduce((n, r) => n + worth(r), 0)), c: 'var(--pos)', n: `${units(priced.length)} kinds at the prices shown` },
-                  { l: 'Sold lately', v: units(rows.filter((r) => (r.quote?.sold ?? 0) > 0).length), n: 'kinds with some gone before expiry in 3 days', tip: 'A contract that vanished before it expired, and whose blueprint didn’t come back from the same seller at a new price: most likely sold, though a seller who cancelled and kept it looks the same.' },
-                  { l: 'Nothing to compare', v: units(rows.length - priced.length), n: 'kinds nobody lists in The Forge' },
+                  { l: 'Sold lately', v: units(tileCount('sold')), n: 'kinds with some gone before expiry in 3 days', press: press('sold'), tip: 'A contract that vanished before it expired, and whose blueprint didn’t come back from the same seller at a new price: most likely sold, though a seller who cancelled and kept it looks the same.' },
+                  { l: 'Nothing to compare', v: units(rows.length - priced.length), n: 'kinds nobody lists in The Forge', press: press('none') },
                 ]} />
               )}
               {market && priced.length > 0 && (
@@ -202,7 +214,8 @@ export function Blueprints() {
                   next: (l) => `${units(contractsAllowed(l))} at once`,
                 }]} />
               )}
-              <section className="panel flush" data-rv="">
+              <section id="bp-table" className="panel flush" data-rv="" style={{ scrollMarginTop: 12 }}>
+                {market && tile && <div className="panel-bar"><TileShowing shown={tableRows.length} of={shown.length} what={TILE[tile].said} onClear={() => setTile(null)} /></div>}
                 <div className="tbl-scroll capped">
                   <table className="tbl" style={{ minWidth: 1100 }}>
                     <thead><tr>
@@ -217,7 +230,7 @@ export function Blueprints() {
                       <th scope="col"><span className="sr-only">Actions</span></th>
                     </tr></thead>
                     <tbody>
-                      {shown.map((r) => {
+                      {(market ? tableRows : shown).map((r) => {
                         const V = verdict(r);
                         const qt = r.quote;
                         return (

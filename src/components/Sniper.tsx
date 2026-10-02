@@ -18,7 +18,8 @@ import { toast } from '../lib/toast';
 import { typeKind } from '../lib/universe';
 import { copyMultibuy, copyPrice, OpenInGame, plainPrice, useEnsureNames, useTypeName } from './common';
 import { flip } from './Prospects';
-import { Check, Empty, Flag, Guide, ItemIcon, NumChip, PageHead, Panel, Tiles } from './ui';
+import { Check, Empty, Flag, Guide, ItemIcon, NumChip, PageHead, Panel, Tiles, TileShowing, useTileFilter } from './ui';
+import { tileRows } from '../lib/tileFilter';
 import { Figures, Points } from './Facts';
 
 
@@ -217,6 +218,8 @@ export function Sniper() {
   const [read, setRead] = useState<SnipeRead | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [showSmall, setShowSmall] = useState(false);
+  // Which part of the bar the "Under your bar" table is narrowed to, if any: a "short on…" figure pressed (lib/tileFilter.ts).
+  const { on: short, setOn: setShort, press: pressTileOf } = useTileFilter<'isk' | 'pct' | 'both'>('snipe-under', () => setShowSmall(true));
   const [showDoubted, setShowDoubted] = useState(false);
   useEffect(() => {
     if (!on) return;
@@ -273,6 +276,15 @@ export function Sniper() {
   const clean = rows.filter((x) => !x.doubts.length);
   const shortIsk = clean.filter((x) => underIsk(x) && !underPct(x)).length, shortPct = clean.filter((x) => !underIsk(x) && underPct(x)).length;
   const shortBoth = clean.filter((x) => underIsk(x) && underPct(x)).length;
+  // The three "short on…" figures count rows of the "Under your bar" table: pressed, it opens showing only those, brought
+  // into view when it's out of sight further down. "Clear both" is the whole of "Worth sniping", so it stays a figure.
+  const SHORT = {
+    isk: { said: 'Short on the ISK alone', has: (x: SnipeRow) => underIsk(x) && !underPct(x), n: shortIsk },
+    pct: { said: 'Short on the % alone', has: (x: SnipeRow) => !underIsk(x) && underPct(x), n: shortPct },
+    both: { said: 'Short on both', has: (x: SnipeRow) => underIsk(x) && underPct(x), n: shortBoth },
+  };
+  const pressShort = (k: keyof typeof SHORT) => pressTileOf(k, SHORT[k].n);
+  const smallShown = tileRows(small, short, (x, k) => SHORT[k].has(x));
   useEnsureNames([...rows.map((x) => x.typeId), ...held.map((x) => x.typeId)]);
   const setBar = (p: Partial<typeof bar>) => update((x) => ({ alerts: sanitizeAlerts({ ...x.alerts, snipeMinIsk: p.minIsk ?? x.alerts.snipeMinIsk, snipeMinPct: p.minPct ?? x.alerts.snipeMinPct }) }));
   const mailing = cloudSendsMail() && d.alerts.on && d.alerts.mail && d.alerts.ev.snipe && d.alerts.mailEv.snipe;
@@ -410,9 +422,9 @@ export function Sniper() {
               <span className="lbl">This read’s {units(clean.length)} listing{clean.length === 1 ? '' : 's'} without doubts</span>
               <Figures items={[
                 { key: 'both', value: units(worth.length), label: 'clear both' },
-                { key: 'isk', value: units(shortIsk), label: 'short on the ISK alone' },
-                { key: 'pct', value: units(shortPct), label: 'short on the % alone' },
-                { key: 'neither', value: units(shortBoth), label: 'short on both' },
+                { key: 'isk', value: units(shortIsk), label: 'short on the ISK alone', press: pressShort('isk') },
+                { key: 'pct', value: units(shortPct), label: 'short on the % alone', press: pressShort('pct') },
+                { key: 'neither', value: units(shortBoth), label: 'short on both', press: pressShort('both') },
               ]} />
             </div>
           )}
@@ -449,13 +461,16 @@ export function Sniper() {
               <YourSnipes now={now} />
 
               {small.length > 0 && (
+                <div id="snipe-under" style={{ scrollMarginTop: 12 }}>
                 <Panel title="Under your bar" sub="Nothing doubts these, but they make less than you asked for.">
                   <div className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <button type="button" className="link-btn" onClick={() => setShowSmall(!showSmall)}>{showSmall ? 'Hide them' : `Show ${units(small.length)}`}</button>
-                    {showSmall && copyAll(small)}
+                    <button type="button" className="link-btn" onClick={() => { setShowSmall(!showSmall); setShort(null); }}>{showSmall ? 'Hide them' : `Show ${units(small.length)}`}</button>
+                    {showSmall && copyAll(smallShown)}
                   </div>
-                  {showSmall && table(small)}
+                  {showSmall && short && <TileShowing shown={smallShown.length} of={small.length} what={SHORT[short].said} onClear={() => setShort(null)} />}
+                  {showSmall && table(smallShown)}
                 </Panel>
+                </div>
               )}
 
               <Panel title="High bids for what you hold" sub="Bids well over where the item trades, for things loose in your Jita hangar: selling into one beats listing.">

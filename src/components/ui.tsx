@@ -1,5 +1,6 @@
 import { useEffect, useId, useState, type CSSProperties, type ReactNode } from 'react';
-import { BookOpen, Check as CheckIcon, ChevronRight, CircleAlert, Info, TriangleAlert, type LucideIcon } from 'lucide-react';
+import { BookOpen, Check as CheckIcon, ChevronRight, CircleAlert, Funnel, Info, TriangleAlert, type LucideIcon } from 'lucide-react';
+import { canPress, pressTile, showingSaid } from '../lib/tileFilter';
 
 /**
  * The pieces every page is made of. Each mirrors one recurring part of the HUD design so a page reads
@@ -45,18 +46,78 @@ export function Figure({ value, sub, color }: { value: ReactNode; sub?: ReactNod
   );
 }
 
-export type TileData = { l: ReactNode; v: ReactNode; n?: ReactNode; c?: string; tip?: string };
+/**
+ * A count tile that filters the table below it (lib/tileFilter.ts): whether it's the one filtering, what pressing it
+ * does, and whether it can be pressed (it counts nothing). One that can't is marked so rather than disabled, which would
+ * take it out of hover and keyboard focus, and with it its tip (List loot's "0 of 0 free slots" says why in its tip).
+ */
+export type TilePress = { on: boolean; onPress: () => void; disabled?: boolean };
+/** A tile's button attributes for its TilePress. */
+export const pressProps = (p: TilePress) => ({
+  'aria-pressed': p.on, 'aria-disabled': p.disabled || undefined, onClick: p.disabled ? undefined : p.onPress,
+});
+
+/**
+ * Brings the table a tile has just filtered into view when none of it shows: on a phone, or where the tiles sit well
+ * above it (the Sniper's), pressing one would otherwise change nothing that can be seen.
+ */
+export function revealTable(id: string) {
+  window.setTimeout(() => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    if (r.top > window.innerHeight - 80 || r.bottom < 80) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, 60);
+}
+
+/**
+ * One table's tile filter (lib/tileFilter.ts): which tile is on, and each tile's TilePress from its key and its count.
+ * `tableId` is the element to bring into view when a tile turns on; `onOn` runs then too (the Sniper opens its table).
+ */
+export function useTileFilter<K extends string>(tableId: string, onOn?: () => void) {
+  const [on, setOn] = useState<K | null>(null);
+  const press = (k: K, count: number): TilePress => ({
+    on: on === k,
+    disabled: !canPress(on, k, count),
+    onPress: () => {
+      const next = pressTile(on, k, count);
+      setOn(next);
+      if (next != null) { onOn?.(); revealTable(tableId); }
+    },
+  });
+  return { on, setOn, press };
+}
+
+export type TileData = { l: ReactNode; v: ReactNode; n?: ReactNode; c?: string; tip?: string; press?: TilePress };
 export function Tiles({ items, min = 200, inset }: { items: TileData[]; min?: number; inset?: boolean }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit,minmax(min(100%,${min}px),1fr))`, gap: 10 }} data-rv="">
-      {items.map((t, i) => (
+      {items.map((t, i) => (t.press ? (
+        // A button can't hold the "i" button, so a tile that filters carries its tip itself, the "i" drawn as a mark.
+        <button key={i} type="button" className={'tile press' + (inset ? ' inset' : '')} style={cssVars({ '--c': t.c })}
+          {...pressProps(t.press)} data-tip={t.tip} data-tip-title={t.tip && typeof t.l === 'string' ? t.l : undefined}>
+          <span className="tile-l">{t.l}{t.tip && <span className="tip-i" aria-hidden="true">i</span>}</span>
+          <span className="tile-v">{t.v}</span>
+          {t.n && <span className="tile-n">{t.n}</span>}
+        </button>
+      ) : (
         <div key={i} className={'tile' + (inset ? ' inset' : '')} style={cssVars({ '--c': t.c })}>
           <div className="tile-l">{t.l}{t.tip && <Tip text={t.tip} title={typeof t.l === 'string' ? t.l : undefined} />}</div>
           <div className="tile-v">{t.v}</div>
           {t.n && <div className="tile-n">{t.n}</div>}
         </div>
-      ))}
+      )))}
     </div>
+  );
+}
+
+/** The line over a table a tile filters: how many rows of how many, by which tile, and the way back to all of them. */
+export function TileShowing({ shown, of, what, onClear }: { shown: number; of: number; what: string; onClear: () => void }) {
+  return (
+    <p className="tile-showing" role="status">
+      <Funnel aria-hidden="true" />{showingSaid(shown, of, what)}<span aria-hidden="true"> · </span>
+      <button type="button" className="link-btn" onClick={onClear}>Show all</button>
+    </p>
   );
 }
 

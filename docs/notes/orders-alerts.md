@@ -120,7 +120,8 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   that you should not move it" (1 October 2026). On Orders a refused raise reads **Keep it** with a hand, in a warning's
   amber (`--acc2`, as Move it: told apart by the label, the icon, the row not lit and the reason in full under it; red
   means Not worth it), with no Move to, no cost and nothing copied. It has its own tile and a count beside "worth
-  moving" whose number shows and flashes the rows; it sorts after Move it and Cancel it, before Leave it and In front. A
+  moving", either of which, pressed, shows only those rows (it flashed them until 2 October 2026: app-conventions, a count
+  tile filters the table it counts); it sorts after Move it and Cancel it, before Leave it and In front. A
   plan's orders carry a Plan chip (the plan's name, prices, expected return and floor in its tip); the Guide's "Move the
   amber ones" is "Move the ones marked Move it" and "Keep the ones marked Keep it". To do adds no item for it: a move
   that becomes Keep it ticks off in the guard's words on a newer check that read the book, and an item a newer check no

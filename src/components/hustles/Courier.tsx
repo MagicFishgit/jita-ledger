@@ -12,7 +12,7 @@ import { THE_FORGE } from '../../lib/config';
 import { update, useData } from '../../lib/store';
 import { toast } from '../../lib/toast';
 import { HAULING_SKILLS } from '../../lib/skills';
-import { Check, cssVars, NumChip, Panel, Th, Tip } from '../ui';
+import { Check, cssVars, NumChip, Panel, Th, Tip, TileShowing, useTileFilter } from '../ui';
 import { SkillPanel, useSkillIds } from './SkillPanel';
 import { useLearnedGankLines } from '../gank';
 import { HaulingTree } from './HaulingTree';
@@ -53,6 +53,8 @@ export function Courier() {
   const [vol, setVol] = useState('55,000');
   const [coll, setColl] = useState('500,000,000');
   const [safeOnly, setSafeOnly] = useState(true);
+  // "You could leave with now" pressed: the table shows only those (lib/tileFilter.ts), for this visit.
+  const { on: takeOnly, setOn: setTakeOnly, press: pressTileOf } = useTileFilter<'take'>('courier-table');
   const [busy, setBusy] = useState<string | null>(null);
   const [scanned, setScanned] = useState(0);
   const { gankIds, learned } = useLearnedGankLines(d);
@@ -105,7 +107,11 @@ export function Courier() {
   );
   const trips = useMemo(() => roundTrips(rows), [rows]);
   const run = useMemo(() => tally(rows, 5), [rows]);
-  const shown = rows.filter((v) => !safeOnly || v.safe);
+  const listed = rows.filter((v) => !safeOnly || v.safe);
+  // Counted among the contracts listed, as its words say ("listed first"): with Safe only on, one that failed the checks
+  // isn't listed, so it isn't one the tile can show.
+  const takeable = listed.filter((v) => v.takeable).length;
+  const shown = takeOnly ? listed.filter((v) => v.takeable) : listed;
   const unsafeCount = rows.filter((v) => !v.safe).length;
   const short = (n: string | null) => n?.split(' ')[0] ?? '?';
 
@@ -182,8 +188,9 @@ export function Courier() {
       ) : (
         <>
           <Figures items={[
-            { key: 'take', value: units(rows.filter((v) => v.takeable).length), label: 'you could leave with now, listed first' },
-            { key: 'shown', value: `${units(shown.length)} of ${units(rows.length)}`, label: 'courier contracts shown' },
+            { key: 'take', value: units(takeable), label: 'you could leave with now, listed first',
+              press: pressTileOf('take', takeable) },
+            { key: 'shown', value: `${units(listed.length)} of ${units(rows.length)}`, label: 'courier contracts shown' },
             ...(unsafeCount > 0 ? [{ key: 'unsafe', value: units(unsafeCount), label: `failed the safety checks${safeOnly ? ', hidden' : ''}` }] : []),
             { key: 'read', value: units(scanned), label: 'public contracts read in The Forge' },
           ]} />
@@ -218,7 +225,10 @@ export function Courier() {
               )}
             </div>
           )}
-          {!shown.length ? (
+          {/* What a pressed tile brings into view: the line saying it filters, then the table. */}
+          <div id="courier-table" className="col" style={{ gap: 8, scrollMarginTop: 12 }}>
+          {takeOnly && <TileShowing shown={shown.length} of={listed.length} what="You could leave with now" onClear={() => setTakeOnly(null)} />}
+          {!listed.length ? (
             <div className="dashed-empty"><p>{unsafeCount > 0 ? 'None of the courier contracts on offer passed the safety checks. That is a normal evening — untick Safe only to see them and what was wrong with each.' : 'No courier contracts are on offer in The Forge right now. They come and go; check again later.'}</p></div>
           ) : (
             <div className="tbl-scroll" style={{ border: '1px solid var(--line-3)' }}>
@@ -250,6 +260,7 @@ export function Courier() {
               </table>
             </div>
           )}
+          </div>
         </>
       )}
 

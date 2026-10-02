@@ -105,6 +105,26 @@ Decisions worth not undoing. Conventions for wording, layout, tooltips, numbers 
   `npm run check-pages` fails if it scrolls sideways at 1440, on the large ledger and on the checked plan ledger with its
   In game buttons; on a phone it still scrolls inside its own box. The CSS is scoped to `.tbl.ord`: `.tbl` is every
   table's.
+- **A count tile filters the table it counts** (`lib/tileFilter.ts`; `useTileFilter`, `TileShowing` and `TilePress` in
+  `ui.tsx`, which `Tiles` and `Figures` take as `press`). The user (2 October 2026), on Orders' tiles: "it would be even
+  better if you could click on them and then the table is filtered to only show them and of course when you click it
+  again you clear the filter". A tile that stands for rows of a table on its page is a button (`aria-pressed`), lit in
+  its own colour while it filters; pressed again, or Show all on the line over the table ("Showing 3 of 69: Move it"),
+  every row comes back. One tile at a time per table, the page's own filters (Orders' sides, a search, a sort) still
+  applying; nothing is kept across reloads. One counting nothing can't be pressed, marked `aria-disabled` rather than
+  disabled, so it keeps hover, focus and its tip (List loot's "0 of 0 free slots" says why in it). When the table is out
+  of sight (on a phone, or the Sniper's further down) pressing brings it into view.
+  - **Filter**: Orders' verdict tiles and the figures under them that count orders (worth moving, Keep it, to cancel,
+    beaten but clearing), a figure lit with its verdict's tile; List loot's List, Sell into bids, Waiting for a slot and
+    Skip / left out; the Sniper's short on the ISK alone, on the % alone and on both, which open Under your bar;
+    Blueprints' Sold lately and Nothing to compare; Courier's you could leave with now (counted among the contracts
+    listed, as its words say, so with Safe only on it no longer counts ones that failed the checks).
+  - **Don't**: a tile that sums ISK; one counting what its table doesn't list row by row (Orders' in other stations,
+    Freelance's open jobs and the ones that don't pay, Abyssal's runs); one counting the whole table, where filtering
+    would change nothing (Orders' orders in Jita 4-4, the Sniper's clear both, which is all of Worth sniping, a wrap's
+    items, Results' items sold, Colonies); one a switch beside it already does (Positions' open positions and its
+    Open / Closed, Loyalty's worth taking and Hide losing offers, Courier's failed the safety checks and Safe only,
+    Combat's kills and losses and its Timeline switch).
 - **Every figure the redesign added is read, derived, or asked for — never invented.** The buy/sell split comes
   from what the book's orders have sold and what the app watched, or where each day's average sits between its
   low and high when those can't tell; training time from dogma and attributes; the

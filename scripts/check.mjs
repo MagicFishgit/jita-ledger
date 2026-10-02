@@ -5568,5 +5568,29 @@ console.log('\n--- Orders: a buy that keeps adding stock to a long sell queue (2
   eq('  gone from the list before a newer check: kept, waiting on it', [!!kept[item.key], kept[item.key]?.done], [true, undefined]);
 }
 
+console.log('\n--- a count tile filters the table below it ---');
+{
+  // The user, 2 October 2026: click a tile and the table shows only its rows; click it again and the filter clears.
+  const F = await import('../src/lib/tileFilter.ts');
+  const { shownVerdict } = await import('../src/lib/relist.ts');
+  eq('pressing a tile turns it on; pressing it again lets go', [F.pressTile(null, 'move', 3), F.pressTile('move', 'move', 3)], ['move', null]);
+  eq('  one at a time: pressing another moves the filter to it', F.pressTile('move', 'keep', 2), 'keep');
+  eq('  a tile counting nothing can\'t be pressed, and leaves the one on as it was', [F.pressTile(null, 'wait', 0), F.pressTile('move', 'wait', 0)], [null, 'move']);
+  eq('  but the one on can be let go of once its rows have gone', [F.pressTile('move', 'move', 0), F.canPress('move', 'move', 0), F.canPress(null, 'wait', 0), F.canPress(null, 'move', 3)], [null, true, false, true]);
+  const rows = [{ id: 1, v: 'move' }, { id: 2, v: 'wait' }, { id: 3, v: 'move' }, { id: 4, v: 'front' }];
+  const match = (r, k) => r.v === k;
+  eq('  the rows it keeps, in their order', F.tileRows(rows, 'move', match).map((r) => r.id), [1, 3]);
+  eq('  with none on, every row, the same list', F.tileRows(rows, null, match) === rows, true);
+  eq('  the line over the table says how many of how many, and by which tile', F.showingSaid(3, 1234, 'Move it'), 'Showing 3 of 1,234: Move it');
+  // Orders' verdict tiles and the figures under them count by what the verdict column shows, and filter by the same.
+  const orders = [
+    { verdict: 'move' }, { verdict: 'loss', keep: { price: 1 } }, { verdict: 'loss' }, { verdict: 'wait' }, { verdict: 'move' }, { verdict: 'dry' },
+  ];
+  eq('a raise the guard refused shows, counts and filters as Keep it, not Not worth it', orders.map(shownVerdict), ['move', 'keep', 'loss', 'wait', 'move', 'dry']);
+  const count = (k) => orders.filter((x) => shownVerdict(x) === k).length;
+  eq('  each tile\'s count is exactly the rows it shows', ['move', 'keep', 'loss', 'wait', 'dry', 'front', 'bid'].map((k) => F.tileRows(orders, k, (x, v) => shownVerdict(x) === v).length),
+    ['move', 'keep', 'loss', 'wait', 'dry', 'front', 'bid'].map(count));
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

@@ -3,7 +3,7 @@ import type { LucideIcon } from 'lucide-react';
 import { Ban, ChevronsUp, CircleCheck, Info, Lightbulb, Quote, ShieldAlert, TriangleAlert } from 'lucide-react';
 import type { TypeDogma } from '../lib/miningYield';
 import type { Point, PointKind, Stat } from '../lib/shipTree';
-import { cssVars } from './ui';
+import { cssVars, pressProps, type TilePress } from './ui';
 
 /**
  * Facts drawn to be read at a glance rather than as a paragraph: points with an icon for their kind, a hull's bonuses as
@@ -54,15 +54,22 @@ export function Bonuses({ items }: { items: string[] }) {
   );
 }
 
-/** Figures as tiles: each its number and what it counts, with how it's worked out in its tip. */
-export function Figures({ items }: { items: { value: ReactNode; label: ReactNode; tip?: string; key?: string }[] }) {
+/**
+ * Figures as tiles: each its number and what it counts, with how it's worked out in its tip. One that counts rows of the
+ * table below it can filter that table (`press`, lib/tileFilter.ts): it's then a button, pressed while it filters.
+ */
+export function Figures({ items }: { items: { value: ReactNode; label: ReactNode; tip?: string; key?: string; press?: TilePress }[] }) {
   return (
     <div className="stats">
-      {items.map((s, i) => (
+      {items.map((s, i) => (s.press ? (
+        <button key={s.key ?? i} type="button" className="stat press" {...pressProps(s.press)} data-tip={s.tip}>
+          <b>{s.value}</b><span>{s.label}</span>
+        </button>
+      ) : (
         <span key={s.key ?? i} className={'stat' + (s.tip ? '' : ' plain')} tabIndex={s.tip ? 0 : undefined} data-tip={s.tip}>
           <b>{s.value}</b><span>{s.label}</span>
         </span>
-      ))}
+      )))}
     </div>
   );
 }

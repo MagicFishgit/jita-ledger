@@ -14,12 +14,13 @@ import { relistPace } from '../lib/flow';
 import { loadCache, rankProspects } from '../lib/scan';
 import { DEFAULT_FILTERS } from '../lib/prospects';
 import { update, useData } from '../lib/store';
-import { byUrgency, FEE_TARGET, feedsQueueSaid, feedsQueueTag, PLAN_KEEP, PLAN_KEEP_SAID, type FeedsQueue, type OverResale, type Relist, type TooBig, type UnderCost, type Verdict } from '../lib/relist';
+import { byUrgency, FEE_TARGET, feedsQueueSaid, feedsQueueTag, PLAN_KEEP, PLAN_KEEP_SAID, shownVerdict, type FeedsQueue, type OverResale, type Relist, type ShownVerdict, type TooBig, type UnderCost } from '../lib/relist';
+import { tileRows } from '../lib/tileFilter';
 import type { TradePlan } from '../lib/plans';
 import { FILL_WINDOW } from '../lib/fills';
 import type { Prospect } from '../lib/types';
 import { BusyRelisting, canOpenInGame, CopyPrice, NameInGame, OpenInGame, useTypeName } from './common';
-import { cssVars, Empty, Guide, ItemIcon, Notice, PageHead, Seg, SortTh, SortThPair } from './ui';
+import { cssVars, Empty, Guide, ItemIcon, Notice, PageHead, pressProps, Seg, SortTh, SortThPair, TileShowing, useTileFilter } from './ui';
 import { Figures } from './Facts';
 import { ScanFreshness } from './ScanFreshness';
 import { TradeSkillsLine } from './SkillStrip';
@@ -50,12 +51,12 @@ function tipsFor(side: 'all' | 'sell' | 'buy'): Record<string, string> {
 }
 
 /**
- * What the verdict column shows: the verdict, except that a buy's raise refused by the guard (`keep`) reads "Keep it",
- * in a warning's amber, rather than "Not worth it". The user was told to raise Praxis three times into a loss and
- * asked for this to be easy to see.
+ * What the verdict column shows (`shownVerdict`): the verdict, except that a buy's raise refused by the guard (`keep`)
+ * reads "Keep it", in a warning's amber, rather than "Not worth it". The user was told to raise Praxis three times into a
+ * loss and asked for this to be easy to see.
  */
-type Shown = Verdict | 'keep';
-const shown = (x: Relist): Shown => (x.verdict === 'loss' && x.keep ? 'keep' : x.verdict);
+type Shown = ShownVerdict;
+const shown = shownVerdict;
 
 const VERDICT: Record<Shown, { label: string; c: string; Icon: typeof Ban }> = {
   keep: { label: 'Keep it', c: 'var(--acc2)', Icon: Hand },
@@ -110,6 +111,9 @@ export function Orders() {
   const now = useNow();
   const check = useOrderCheck();
   const [side, setSide] = useState<'all' | 'sell' | 'buy'>('all');
+  // The verdict tile (or the figure under it) filtering the table, if one is: one at a time, on top of the side shown,
+  // for this visit only (lib/tileFilter.ts). It replaced "Keep it"'s count flashing its rows.
+  const { on: tile, setOn: setTile, press: pressTileOf } = useTileFilter<Shown>('orders-table');
   const [sort, setSort] = useState<OrderSort>(loadOrderSort);
   // Orders to bring into view and flash: from a link to one item's orders (`orders?show=TYPE`, a position's "Should I
   // move them?"), or a Weakest slots entry. The user asked for the row to scroll into view and flash with a bright
@@ -120,6 +124,9 @@ export function Orders() {
   const flashTimer = useRef<number | undefined>(undefined);
   const focusOrders = (ids: number[], delay = 60) => {
     if (!ids.length) return;
+    // Every side and no tile's filter, or the row to show may be one they hide.
+    setSide('all');
+    setTile(null);
     window.setTimeout(() => {
       document.querySelector(`tr[data-order="${ids[0]}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
       // The flash starts once the smooth scroll has mostly arrived, so it's seen, not spent on the way.
@@ -147,7 +154,8 @@ export function Orders() {
   const leaving = useMemo(() => new Set(d.leave), [d.leave]);
   // How left orders have filled against the pace expected, once the cloud has checked enough of them.
   const leaveRecord = leaveSaid(useCloud().track?.leave);
-  const rows = side === 'all' ? all : all.filter((x) => (side === 'buy' ? x.isBuy : !x.isBuy));
+  const sideRows = side === 'all' ? all : all.filter((x) => (side === 'buy' ? x.isBuy : !x.isBuy));
+  const rows = tileRows(sideRows, tile, (x, k) => shown(x) === k);
   const r = rates(d.settings);
   const slots = orderSlots(effectiveSkills(d.settings));
   const checked = !!check.checkedAt && all.length > 0;
@@ -248,6 +256,9 @@ export function Orders() {
   // "Cancel it", "Sell to bids" and "Keep it" only earn a card when there's something to show.
   const tally = (['bid', 'move', 'keep', 'dry', 'wait', 'front', 'loss'] as Shown[]).filter((v) => (v !== 'dry' && v !== 'bid' && v !== 'keep') || count(v) > 0).map((v) => ({ v, n: count(v) }));
   const worth = count('move'), holding = count('wait'), cancel = count('dry'), keeping = count('keep');
+  // A verdict tile, and the figure under it that counts the same orders, filters the table by that verdict: pressed again,
+  // it lets go. Before a check there's nothing to count, so nothing to press.
+  const press = (v: Shown) => pressTileOf(v, checked ? count(v) : 0);
   const planOf = new Map((d.plans ?? []).map((p) => [p.id, p]));
   const pct = check.busy ? (check.busy.done / Math.max(1, check.busy.total)) * 100 : 0;
 
@@ -277,14 +288,15 @@ export function Orders() {
           <div data-rv="" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
             {tally.map(({ v, n }) => {
               const V = VERDICT[v];
+              const p = press(v);
               return (
-                <div key={v} className="row" style={{ gap: 12, padding: '12px 14px', background: 'var(--panel)', border: '1px solid var(--line-2)', borderBottom: `2px solid ${V.c}`, flexWrap: 'nowrap' }}>
-                  <V.Icon aria-hidden="true" style={{ width: 20, height: 20, color: V.c, flex: 'none' }} />
-                  <div>
-                    <div className="mono" style={{ fontSize: 22, lineHeight: 1, color: 'var(--ink)' }}>{checked ? n : '–'}</div>
-                    <div className="lbl" style={{ letterSpacing: '.14em', color: V.c, marginTop: 3, fontWeight: 400 }}>{V.label}</div>
-                  </div>
-                </div>
+                <button key={v} type="button" className="vtile press" style={cssVars({ '--c': V.c })} {...pressProps(p)}>
+                  <V.Icon aria-hidden="true" />
+                  <span>
+                    <span className="vt-n">{checked ? n : '–'}</span>
+                    <span className="vt-l lbl">{V.label}</span>
+                  </span>
+                </button>
               );
             })}
             <div className="row" style={{ gridColumn: 'span 2', gap: 10, padding: '10px 14px', background: 'rgba(3,8,14,.6)', border: '1px solid var(--line-2)' }}>
@@ -302,19 +314,19 @@ export function Orders() {
           <Figures items={[
             { key: 'n', value: units(mine.length), label: `order${mine.length > 1 ? 's' : ''} in Jita 4-4, synced ${ago(d.meta.lastSync, now)}` },
             ...(check.checkedAt ? (worth || cancel || holding || keeping ? [
-              ...(worth ? [{ key: 'move', value: <span style={{ color: 'var(--acc)' }}>{units(worth)}</span>, label: 'worth moving' }] : []),
-              // Keep it rows sort below every Move it, so the count sits beside "worth moving", and its number shows the first.
+              ...(worth ? [{ key: 'move', value: <span style={{ color: 'var(--acc)' }}>{units(worth)}</span>, label: 'worth moving', press: press('move') }] : []),
+              // Keep it rows sort below every Move it, so the count sits beside "worth moving".
               ...(keeping ? [{
                 key: 'keep',
-                value: <button type="button" className="name-btn" style={{ color: 'var(--acc2)', font: 'inherit' }} aria-label="Show them in the list below"
-                  onClick={() => { setSide('all'); focusOrders(all.filter((x) => shown(x) === 'keep').map((x) => x.orderId), 120); }}>{units(keeping)}</button>,
+                value: <span style={{ color: 'var(--acc2)' }}>{units(keeping)}</span>,
                 label: `keep it: raising would cut below what ${keeping === 1 ? 'it' : 'they'} should make`,
                 tip: `Buy orders a raise would cut below what they should make, so they say Keep it rather than Move it.\n\n`
                   + `• A plan’s buy: under ${PLAN_KEEP_SAID} of what its plan expected, or your ${Number(d.settings.target.toFixed(1))}% target if that’s lower\n`
-                  + `• Any other buy: a loss after every fee, the price changes already paid included\n\nClick the number to show ${keeping === 1 ? 'it' : 'them'} in the list.`,
+                  + `• Any other buy: a loss after every fee, the price changes already paid included\n\nClick to show only ${keeping === 1 ? 'it' : 'them'} in the list below, and again to show every order.`,
+                press: press('keep'),
               }] : []),
-              ...(cancel ? [{ key: 'cancel', value: <span style={{ color: 'var(--neg)' }}>{units(cancel)}</span>, label: 'to cancel' }] : []),
-              ...(holding ? [{ key: 'hold', value: units(holding), label: worth || cancel ? 'beaten but clearing on their own' : 'beaten, but the stock ahead should clear shortly' }] : []),
+              ...(cancel ? [{ key: 'cancel', value: <span style={{ color: 'var(--neg)' }}>{units(cancel)}</span>, label: 'to cancel', press: press('dry') }] : []),
+              ...(holding ? [{ key: 'hold', value: units(holding), label: worth || cancel ? 'beaten but clearing on their own' : 'beaten, but the stock ahead should clear shortly', press: press('wait') }] : []),
             ] : [{ key: 'front', value: <span style={{ color: 'var(--pos)' }}>All</span>, label: 'in front' }]) : []),
             ...(elsewhere > 0 ? [{ key: 'else', value: units(elsewhere), label: `in other stations: can’t be checked here` }] : []),
           ]} />
@@ -372,13 +384,14 @@ export function Orders() {
             </section>
           )}
 
-          <section className="panel flush" data-rv="" style={{ flex: 1, minHeight: 260 }}>
+          <section id="orders-table" className="panel flush" data-rv="" style={{ flex: 1, minHeight: 260, scrollMarginTop: 12 }}>
             <div className="panel-bar">
               <Seg label="Which orders to show" value={side} onChange={setSide} size="md" options={[
                 { v: 'all', label: 'All', n: units(checked ? all.length : mine.length) },
                 { v: 'sell', label: 'Sell orders', n: units((checked ? all : mine).filter((x) => !x.isBuy).length) },
                 { v: 'buy', label: 'Buy orders', n: units((checked ? all : mine).filter((x) => x.isBuy).length) },
               ]} />
+              {checked && tile && <TileShowing shown={rows.length} of={sideRows.length} what={VERDICT[tile].label} onClear={() => setTile(null)} />}
             </div>
             {/* Its own scroll box, capped to the screen: a sticky header sticks to its nearest scrolling box, which the
                 sideways scroll makes this one, so the header stays in view down a long list only if this box scrolls. */}
