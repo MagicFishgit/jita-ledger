@@ -123,7 +123,8 @@ export function Planner() {
   const allLeft = planTypes.length > 0 && planTypes.every((t) => leaving.has(t));
   const idleWhy = !plan ? '' : plan.limit === 'slots'
     ? `Out of order slots — each item takes ${SLOTS_PER_ITEM}. Train Wholesale or free some up to put the rest to work.`
-    : leaveOut && flagged.total
+    // With nothing placed, the "Nothing fits" line above names the switch already: said once.
+    : leaveOut && flagged.total && plan.rows.length > 0
       ? `Every market left once Leave out flagged items took out ${units(flagged.total)} is already at what it can take in your horizon. Allow longer, raise the cap per item, switch it off, or run a deep scan.`
       : 'Every market that passes your Prospects filters is already at what it can take in your horizon. Allow longer, raise the cap per item, or run a deep scan.';
 
