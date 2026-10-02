@@ -1,3 +1,4 @@
+import { horizonShort } from '../lib/prospects';
 import { useMemo } from 'react';
 import { Check, ChevronRight, ClipboardList, Copy, Play, Smartphone, X } from 'lucide-react';
 import { startPosition } from '../lib/actions';
@@ -166,7 +167,7 @@ export function PlanGroups({ shown, onShow }: { shown: string | null; onShow: (i
           <tbody>
             {rows.map(({ p, prog, bought, sold, realized, stock, shared, oversold }) => (
               <tr key={p.id} className={shown === p.id ? 'open' : undefined}>
-                <td className="l">{p.name}<span className="sub">{p.patient ? 'Place and leave' : 'At the front'}, {units(p.horizonDays)}-day horizon</span>
+                <td className="l">{p.name}<span className="sub">{p.patient ? 'Place and leave' : 'At the front'}, {horizonShort(p.horizonDays)} horizon</span>
                   {shared > 0 && (
                     <span className="sub" tabIndex={0} data-tip-title="Counted from the plan’s start"
                       data-tip={`${shared === 1 ? 'One of its items already had a position' : `${units(shared)} of its items already had a position`}, trading before the plan, and the plan follows ${shared === 1 ? 'it' : 'them'}.\n\n• The plan counts ${shared === 1 ? 'it' : 'each'} from its start: what was bought and sold before isn’t the plan’s.\n• What ${shared === 1 ? 'it' : 'each'} held then sells first, and isn’t the plan’s either.\n• Show its positions to see them as the plan counts them; open one for the whole position.`}>
