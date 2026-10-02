@@ -8,7 +8,8 @@ import { useAuth, useNow } from '../lib/hooks';
 import { HELD_WHY, IN_USE_CATEGORIES, importBlock, judgeLoot, lootTotals, parseLoot, planLoot, type LootCall, type LootHeld, type LootMarket, type LootRow } from '../lib/lootList';
 import { resolveIds } from '../lib/market';
 import { jitaOpen } from '../lib/orderCheck';
-import { groupBuys, instantBuys, judgeTaken, notFitted, notSnipeIds, snipesHeld } from '../lib/sniped';
+import { cloudEnabled, cloudSightings } from '../lib/cloud';
+import { groupBuys, instantBuys, judgeTaken, notFitted, notSnipeIds, snipesHeld, type Sighting } from '../lib/sniped';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { typeKind } from '../lib/universe';
@@ -120,8 +121,6 @@ export function Loot() {
     for (const [id, k] of Object.entries(kinds)) m.set(Number(id), k);
     return m;
   }, [d.positions, d.orders, kinds]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Your buys from listings, as the Sniper page groups them, for telling which items you sniped.
-  const snipeGroups = useMemo(() => groupBuys(instantBuys(Object.values(d.txs), Object.values(d.journal), new Set(d.ignored), notSnipeIds(Object.values(d.txs), d.notSnipes))), [d.txs, d.journal, d.ignored, d.notSnipes]);
 
   const read = async (rows: LootRow[], hangar: HangarMarks | null = null, again = false) => {
     if (!rows.length) { toast('Nothing to read there. Paste the hangar (list view, Ctrl+C) or the Sell window’s export.', 'warn'); return; }
@@ -180,9 +179,16 @@ export function Loot() {
           } catch { out[it.typeId] = null; }
           setBusy({ step: 'Pricing', done: ++done, total: list.length });
       });
-      // Snipes you still hold: your listing buys judged as the Sniper page judges them, on the history just read.
+      // Snipes you still hold: your listing buys grouped and judged as the Sniper page does, on the history just read. The
+      // cloud's sightings keep Sniper finds bought together (its Copy for Multibuy) among them, as on that page.
       const ids = new Set(list.map((it) => it.typeId));
-      const taken = judgeTaken(snipeGroups.filter((g) => ids.has(g.typeId) && hist[g.typeId]?.length), (t) => hist[t], (iso) => rateAt(d.meta.rateHistory, Date.parse(iso), r));
+      const txs = Object.values(d.txs);
+      const buys = instantBuys(txs, Object.values(d.journal), new Set(d.ignored), new Set(d.notSnipes)).filter((t) => ids.has(t.typeId));
+      const asked = [...new Set(buys.map((t) => t.typeId))];
+      const seen: Sighting[] = asked.length && cloudEnabled() ? await cloudSightings(asked).catch(() => []) : [];
+      const skip = notSnipeIds(txs, d.notSnipes, seen);
+      const snipeGroups = groupBuys(buys.filter((t) => !skip.has(t.id)));
+      const taken = judgeTaken(snipeGroups.filter((g) => hist[g.typeId]?.length), (t) => hist[t], (iso) => rateAt(d.meta.rateHistory, Date.parse(iso), r), seen);
       for (const id of snipesHeld(notFitted(taken, d.stock?.fitted), Object.values(d.txs)).keys()) if (!kind[id]) kind[id] = 'sniped';
       setKinds({ ...kind });
       setMarkets(out); setReadAt(Date.now());

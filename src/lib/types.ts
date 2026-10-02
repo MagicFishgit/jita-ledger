@@ -435,6 +435,11 @@ export type AlertConfig = {
   snipeMinIsk: number;
   /** …and this return after fees, in percent. */
   snipeMinPct: number;
+  /**
+   * Blueprints (ESI category 9) on the Sniper page and in its mail. Off unless asked: the user, 2 October 2026, "exclude
+   * blueprints, as they might be risky to try and sell".
+   */
+  snipeBlueprints: boolean;
 };
 export type AlertLogEntry = { at: string; kind: AlertEvent; key: string; title: string; text: string; test?: boolean };
 

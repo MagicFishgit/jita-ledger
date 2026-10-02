@@ -53,6 +53,7 @@ export const DEFAULT_ALERTS: AlertConfig = {
   repeatH: 4,
   snipeMinIsk: 5_000_000,
   snipeMinPct: 10,
+  snipeBlueprints: false,
 };
 
 /**
@@ -129,6 +130,8 @@ export function sanitizeAlerts(a: Partial<AlertConfig> | null | undefined): Aler
     repeatH: REPEAT_HOURS.includes(x.repeatH as number) ? (x.repeatH as number) : DEFAULT_ALERTS.repeatH,
     snipeMinIsk: clamp(num(x.snipeMinIsk, DEFAULT_ALERTS.snipeMinIsk), 0, 1e13),
     snipeMinPct: clamp(num(x.snipeMinPct, DEFAULT_ALERTS.snipeMinPct), 0, 1000),
+    // Only a plain true lets blueprints in: an older device's whole document, or anything else, keeps them out.
+    snipeBlueprints: x.snipeBlueprints === true,
   };
 }
 

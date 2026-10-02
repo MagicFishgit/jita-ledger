@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Calculator as CalcIcon, Clock, Copy, Crosshair, Eye, EyeOff, Hand, Mail, Repeat, ShieldAlert, SlidersHorizontal, Tag } from 'lucide-react';
+import { Calculator as CalcIcon, Clock, Copy, Crosshair, Eye, EyeOff, Hand, Mail, Repeat, ShieldAlert, ShoppingCart, SlidersHorizontal, Tag } from 'lucide-react';
 import { cloudEnabled, cloudSendsMail, cloudSightings, cloudSnipes, useCloud } from '../lib/cloud';
 import { TRACK_MIN } from '../lib/track';
 import { rateAt, rates } from '../lib/fees';
@@ -12,12 +12,13 @@ import { JITA_44 } from '../lib/constants';
 import type { HistRow } from '../lib/types';
 import { navigate, useNow } from '../lib/hooks';
 import { sanitizeAlerts } from '../lib/prefs';
-import { DOUBT_SAID, judgeBids, judgeListings, notYours, type HeldBidRow, type SnipeRead, type SnipeRow } from '../lib/snipe';
+import { DOUBT_SAID, judgeBids, judgeListings, notYours, snipeMultibuy, splitBlueprints, type HeldBidRow, type SnipeRead, type SnipeRow } from '../lib/snipe';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
-import { copyPrice, OpenInGame, plainPrice, useEnsureNames, useTypeName } from './common';
+import { typeKind } from '../lib/universe';
+import { copyMultibuy, copyPrice, OpenInGame, plainPrice, useEnsureNames, useTypeName } from './common';
 import { flip } from './Prospects';
-import { Empty, Flag, Guide, ItemIcon, NumChip, PageHead, Panel, Tiles } from './ui';
+import { Check, Empty, Flag, Guide, ItemIcon, NumChip, PageHead, Panel, Tiles } from './ui';
 import { Figures, Points } from './Facts';
 
 
@@ -31,7 +32,21 @@ function YourSnipes({ now }: { now: number }) {
   const name = useTypeName();
   const cloud = useCloud();
   const r = rates(d.settings);
-  const groups = useMemo(() => groupBuys(instantBuys(Object.values(d.txs), Object.values(d.journal), new Set(d.ignored), notSnipeIds(Object.values(d.txs), d.notSnipes))), [d.txs, d.journal, d.ignored, d.notSnipes]);
+  // Every buy from a listing, newest first, then what isn't a snipe set aside: buys you said weren't, and shopping lists
+  // (the multibuy rule), except a purchase the Sniper had shown, since Copy for Multibuy buys several finds in one go.
+  const fromListings = useMemo(() => instantBuys(Object.values(d.txs), Object.values(d.journal), new Set(d.ignored), new Set(d.notSnipes))
+    .sort((a, b) => Date.parse(b.date) - Date.parse(a.date)), [d.txs, d.journal, d.ignored, d.notSnipes]);
+  const seenTypes = useMemo(() => [...new Set(fromListings.map((t) => t.typeId))], [fromListings]);
+  const seenKey = seenTypes.join(',');
+  const [seen, setSeen] = useState<Sighting[]>([]);
+  useEffect(() => {
+    if (!seenTypes.length || !cloudEnabled() || !cloud.started) return;
+    cloudSightings(seenTypes).then(setSeen).catch(() => undefined);
+  }, [seenKey, cloud.started]); // eslint-disable-line react-hooks/exhaustive-deps
+  const groups = useMemo(() => {
+    const skip = notSnipeIds(Object.values(d.txs), d.notSnipes, seen);
+    return groupBuys(fromListings.filter((t) => !skip.has(t.id)));
+  }, [fromListings, d.txs, d.notSnipes, seen]);
   const types = useMemo(() => [...new Set(groups.map((g) => g.typeId))], [groups]);
   const key = types.join(',');
   const [hist, setHist] = useState<Record<number, HistRow[]> | null>(null);
@@ -47,11 +62,6 @@ function YourSnipes({ now }: { now: number }) {
     })();
     return () => { alive = false; };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [seen, setSeen] = useState<Sighting[]>([]);
-  useEffect(() => {
-    if (!types.length || !cloudEnabled() || !cloud.started) return;
-    cloudSightings(types).then(setSeen).catch(() => undefined);
-  }, [key, cloud.started]); // eslint-disable-line react-hooks/exhaustive-deps
   const taken = useMemo(() => (hist ? notFitted(judgeTaken(groups, (t) => hist[t], (iso) => rateAt(d.meta.rateHistory, Date.parse(iso), r), seen), d.stock?.fitted) : []),
     [groups, hist, seen, d.meta.rateHistory, r.f, r.t, d.stock?.fitted]); // eslint-disable-line react-hooks/exhaustive-deps
   useEnsureNames(taken.map((x) => x.typeId));
@@ -223,7 +233,29 @@ export function Sniper() {
   const bar = { minIsk: d.alerts.snipeMinIsk, minPct: d.alerts.snipeMinPct };
   // Your own orders aren't snipes for you, or bids to sell into (notYours).
   const theirs = useMemo(() => (read ? notYours(read, new Set(Object.values(d.orders).filter((o) => o.state === 'open').map((o) => o.orderId))) : null), [read, d.orders]);
-  const rows = useMemo(() => (theirs ? judgeListings(theirs.listings, r, d.settings.share, bar) : []), [theirs, r.f, r.t, d.settings.share, bar.minIsk, bar.minPct]); // eslint-disable-line react-hooks/exhaustive-deps
+  const judged = useMemo(() => (theirs ? judgeListings(theirs.listings, r, d.settings.share, bar) : []), [theirs, r.f, r.t, d.settings.share, bar.minIsk, bar.minPct]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Blueprints only when asked ("risky to try and sell", the user, 2 October 2026), kept with the alert settings so the
+  // mail agrees. Each listing's category is the cloud's; one it has none for (a Worker a version behind, or its lookup
+  // failed) is looked up here (typeKind, kept for good) and held back with the blueprints until it's known.
+  const include = d.alerts.snipeBlueprints;
+  const needKey = useMemo(() => [...new Set((theirs?.listings ?? []).filter((l) => l.category == null).map((l) => l.typeId))].sort((a, b) => a - b).join(','), [theirs]);
+  const [looked, setLooked] = useState<Record<number, number | null>>({});
+  useEffect(() => {
+    const ask = needKey ? needKey.split(',').map(Number) : [];
+    if (!ask.length) return;
+    let alive = true, i = 0;
+    const out: Record<number, number | null> = {};
+    void Promise.all(Array.from({ length: 6 }, async () => {
+      while (i < ask.length) { const t = ask[i++]; try { out[t] = (await typeKind(t)).category; } catch { out[t] = null; } }
+    })).then(() => { if (alive) setLooked((x) => ({ ...x, ...out })); });
+    return () => { alive = false; };
+  }, [needKey]);
+  const split = useMemo(() => splitBlueprints(judged, include, (t) => looked[t]), [judged, include, looked]);
+  const rows = split.shown;
+  const blueprints = split.blueprints, bpWorth = blueprints.filter((x) => x.worth).length;
+  const checking = include ? 0 : split.unknown.filter((x) => !(x.typeId in looked)).length;
+  const unchecked = include ? 0 : split.unknown.length - checking;
+  const setBlueprints = (on: boolean) => update((x) => ({ alerts: sanitizeAlerts({ ...x.alerts, snipeBlueprints: on }) }));
   const held = useMemo(() => (theirs ? judgeBids(theirs.bids, r, d.stock?.jita ?? {}, bar) : []), [theirs, r.f, r.t, d.stock, bar.minIsk, bar.minPct]); // eslint-disable-line react-hooks/exhaustive-deps
   const worth = rows.filter((x) => x.worth);
   const small = rows.filter((x) => !x.worth && !x.doubts.length);
@@ -237,12 +269,29 @@ export function Sniper() {
   useEnsureNames([...rows.map((x) => x.typeId), ...held.map((x) => x.typeId)]);
   const setBar = (p: Partial<typeof bar>) => update((x) => ({ alerts: sanitizeAlerts({ ...x.alerts, snipeMinIsk: p.minIsk ?? x.alerts.snipeMinIsk, snipeMinPct: p.minPct ?? x.alerts.snipeMinPct }) }));
   const mailing = cloudSendsMail() && d.alerts.on && d.alerts.mail && d.alerts.ev.snipe && d.alerts.mailEv.snipe;
+  /** A find, or every find shown, for the Multibuy window: the cheap units, with what they should come to (snipeMultibuy). */
+  const copyFinds = (list: SnipeRow[]) => {
+    const c = snipeMultibuy(list, name);
+    if (!c.ok) { toast(c.why, 'warn'); return; }
+    void copyMultibuy(c.block, c.lines, undefined, c.said);
+  };
+  const copyTip = (x: SnipeRow) => `Copies “${name(x.typeId)} ${x.units}” for the Multibuy window (in Jita: Multibuy, Import from clipboard): the cheap units only.\n\n• At the listings just read it comes to ${isk(x.cost)}, at up to ${isk(x.top)} each.\n• Multibuy has no price limit: if one of these listings has gone, it buys the next ones at their full price${x.nextAsk != null ? `, from ${isk(x.nextAsk)} each` : ''}. Check the window’s total before you press Buy.`;
+  const copyAll = (list: SnipeRow[]) => (
+    <button type="button" className="btn sm" onClick={() => copyFinds(list)}
+      data-tip={`Copies every find in this table for the Multibuy window, the cheap units of each, a line apiece.\n\n• At the listings just read they come to ${isk(list.reduce((s, x) => s + x.cost, 0))}.\n• Multibuy has no price limit: a listing gone means the next ones at their full price, so check the window’s total before you press Buy.\n• Bought in one go they still count under Your snipes: each purchase is matched to what the Sniper showed.`}>
+      <ShoppingCart aria-hidden="true" />Copy {list.length === 1 ? 'it' : `all ${units(list.length)}`} for Multibuy
+    </button>
+  );
   const nextRead = read?.expires ? new Date(Date.parse(read.expires) + NEXT_AFTER_MS).toISOString() : undefined;
 
   const listed = (x: SnipeRow) => (
     <>
       {units(x.units)} at {isk(x.cheapest)}{x.top !== x.cheapest && <> to {isk(x.top)}</>}
-      <span className="sub">{x.orderIds.length === 1 ? 'one order' : `${x.orderIds.length} orders`}{x.partly ? ', part bought' : ''}</span>
+      <span className="sub">
+        {x.orderIds.length === 1 ? 'one order' : `${x.orderIds.length} orders`}{x.partly ? ', part bought' : ''}
+        {/* Copy these units for Multibuy, beside them as the relist price's copy sits beside it: the row had no width to spare. */}
+        <button type="button" className="link-btn dim" style={{ marginLeft: 6 }} data-tip={copyTip(x)} aria-label={`Copy ${name(x.typeId)} for Multibuy`} onClick={() => copyFinds([x])}><ShoppingCart aria-hidden="true" /></button>
+      </span>
     </>
   );
   const table = (list: SnipeRow[], withDoubts = false) => (
@@ -333,6 +382,10 @@ export function Sniper() {
               tip={'The least a snipe must make after your fees to count, and to be mailed. It keeps out small change that isn’t worth the clicks.\n\n• Return at least must hold as well: both are floors, and a snipe has to clear both.\n• The same bar applies to bids for what you hold: how much more selling into one gets than listing.'} />
             <NumChip id="sn-pct" label="Return at least" value={bar.minPct} onChange={(v) => setBar({ minPct: v ?? 0 })} width={60} decimals={1} percent
               tip={'Profit as a share of what buying it out costs, after your fees. It keeps out big buys on a thin edge, where a price a few percent off where it really trades wipes the profit out.\n\n• Profit at least must hold as well: both are floors, and a snipe has to clear both.'} />
+            <Check checked={include} onChange={setBlueprints}
+              tip={`Blueprints and reaction formulas (ESI’s Blueprint category), left out of this page and the mail unless this is on: they’re slow to sell, and their cheap listings are mostly floods (41% of the blueprints the Sniper showed in its first days, against 9% of the rest).\n\n• ${read ? `${units(blueprints.length)} in this read, ${units(bpWorth)} of them clearing your bar.` : 'Counted once the cloud’s read is in.'}\n• Kept with your alert settings, so it’s the same on every device and in the mail.\n• High bids for blueprints you hold still show: selling into one is paid at once.`}>
+              Include blueprints{read ? ` (${units(blueprints.length)})` : ''}
+            </Check>
             <span className="note small" style={{ margin: 0 }}>
               {read === undefined ? 'Asking the cloud…'
                 : error ? `Couldn’t reach the cloud: ${error}.`
@@ -359,7 +412,7 @@ export function Sniper() {
             <Mail aria-hidden="true" style={{ width: 14, height: 14, flex: 'none' }} />
             <span>
               {mailing
-                ? 'Anything that clears your bar is mailed to you in game as the cloud finds it, once per listing and price. The item’s name in the mail opens its market.'
+                ? `Anything that clears your bar${include ? '' : ', blueprints aside,'} is mailed to you in game as the cloud finds it, once per listing and price. The item’s name in the mail opens its market.`
                 : cloudSendsMail()
                   ? <>Not mailed: turn on “Mistake listing” mail in <button type="button" className="link-btn" onClick={() => navigate('settings/alerts')}>Settings → Alerts</button>.</>
                   : <>Not mailed: the cloud needs a character to send from (<button type="button" className="link-btn" onClick={() => navigate('settings/data')}>Settings → Your data</button>).</>}
@@ -369,15 +422,30 @@ export function Sniper() {
           {read && (
             <>
               <Panel title="Worth sniping" sub={worth.length ? `${units(worth.length)} clear your bar. They may already be gone: open the market to check before you buy.` : undefined}>
-                {worth.length ? table(worth) : (
-                  <p className="note">Nothing clears your bar in this read. Mistakes come and go within minutes, and the cloud looks again every five.{small.length ? ` ${units(small.length)} smaller ones are below.` : ''}</p>
+                {worth.length ? <><div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>{copyAll(worth)}</div>{table(worth)}</> : (
+                  <p className="note">Nothing {bpWorth ? 'else ' : ''}clears your bar in this read. Mistakes come and go within minutes, and the cloud looks again every five.{small.length ? ` ${units(small.length)} smaller ones are below.` : ''}</p>
+                )}
+                {!include && bpWorth > 0 && (
+                  <p className="note small" style={{ margin: 0 }}>
+                    {units(bpWorth)} blueprint{bpWorth === 1 ? '' : 's'} clear{bpWorth === 1 ? 's' : ''} your bar too, left out:{' '}
+                    <button type="button" className="link-btn" onClick={() => setBlueprints(true)}>Include blueprints</button>
+                  </p>
+                )}
+                {(checking > 0 || unchecked > 0) && (
+                  <p className="note small" style={{ margin: 0 }}>
+                    {checking > 0 && `Checking whether ${units(checking)} listing${checking === 1 ? ' is a blueprint' : 's are blueprints'}: left out until that’s known. `}
+                    {unchecked > 0 && `${units(unchecked)} couldn’t be checked for blueprints (ESI didn’t answer), so ${unchecked === 1 ? 'it’s' : 'they’re'} left out: Include blueprints shows ${unchecked === 1 ? 'it' : 'them'}.`}
+                  </p>
                 )}
               </Panel>
               <YourSnipes now={now} />
 
               {small.length > 0 && (
                 <Panel title="Under your bar" sub="Nothing doubts these, but they make less than you asked for.">
-                  <button type="button" className="link-btn" onClick={() => setShowSmall(!showSmall)}>{showSmall ? 'Hide them' : `Show ${units(small.length)}`}</button>
+                  <div className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button type="button" className="link-btn" onClick={() => setShowSmall(!showSmall)}>{showSmall ? 'Hide them' : `Show ${units(small.length)}`}</button>
+                    {showSmall && copyAll(small)}
+                  </div>
                   {showSmall && table(small)}
                 </Panel>
               )}

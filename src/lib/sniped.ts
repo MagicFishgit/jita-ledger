@@ -49,9 +49,24 @@ export function instantBuys(txs: Tx[], journal: JournalEntry[], personal: Set<st
  * 2026 and asked whether they were fitting buys: two were (a 1MN Y-S8 Compact Afterburner and a Salvager I, bought with
  * 8 other items across 23:08:04–05 and now inside a ship), and none of their 18 real snipes had another item within
  * minutes of it.
+ *
+ * `seen`, the cloud's sightings: a purchase in such a burst that the Sniper had shown (`sighted`) is a snipe however it
+ * was bought. The Sniper's "Copy for Multibuy" of everything shown (2 October 2026) buys several finds in one go, which
+ * the rule alone would strike out of Your snipes.
  */
-export function notSnipeIds(txs: Tx[], notSnipes: Iterable<string>): Set<string> {
-  return new Set([...notSnipes, ...multibuys(txs).flatMap((g) => g.txIds)]);
+export function notSnipeIds(txs: Tx[], notSnipes: Iterable<string>, seen: Sighting[] = []): Set<string> {
+  const byId = new Map(txs.map((t) => [t.id, t]));
+  const shopping = multibuys(txs).flatMap((g) => g.txIds).filter((id) => {
+    const t = byId.get(id);
+    return !t || !sighted(seen, t.typeId, Date.parse(t.date), [t.unitPrice]);
+  });
+  return new Set([...notSnipes, ...shopping]);
+}
+
+/** The Sniper had shown this item at one of these prices around this time (from `SEEN_SLACK_MIN` before it first saw it to as long after it last did). */
+export function sighted(seen: Sighting[], typeId: number, at: number, prices: number[]): boolean {
+  return seen.some((s) => s.typeId === typeId && at >= s.firstSeen - SEEN_SLACK_MIN * 60_000 && at <= s.lastSeen + SEEN_SLACK_MIN * 60_000
+    && prices.some((p) => p >= s.lo - 0.005 && p <= s.hi + 0.005));
 }
 
 /**
@@ -112,9 +127,7 @@ export function judgeTaken(groups: BuyGroup[], historyOf: (typeId: number) => Hi
     const r = rateAt(g.at);
     const keep = fair * (1 - r.f - r.t);
     if (keep < g.avg * (1 + SNIPE_FLOOR.margin)) continue;
-    const at = Date.parse(g.at);
-    const byTool = sightings.some((s) => s.typeId === g.typeId && at >= s.firstSeen - SEEN_SLACK_MIN * 60_000 && at <= s.lastSeen + SEEN_SLACK_MIN * 60_000
-      && g.prices.some((p) => p >= s.lo - 0.005 && p <= s.hi + 0.005));
+    const byTool = sighted(sightings, g.typeId, Date.parse(g.at), g.prices);
     out.push({ ...g, fair, under: 1 - g.avg / fair, expected: g.units * keep - g.cost, byTool });
   }
   return out.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));

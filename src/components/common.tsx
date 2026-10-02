@@ -174,15 +174,16 @@ export const plainPrice = (p: number) => (Number.isInteger(p) ? String(p) : p.to
  * Puts a Multibuy list on the clipboard ("Name N" per line, as the Multibuy import's own tooltip gives it), for the
  * Multibuy window's "Import from clipboard". Multibuy buys at once from the cheapest listings, with no price limit
  * (CCP: "multibuy only offers immediate buys"), so `about`, what the app priced it at, is said too: the window's total
- * should be close to it, and a book that moved since shows there before you press Buy.
+ * should be close to it, and a book that moved since shows there before you press Buy. `said` replaces that sentence
+ * where a page says it more exactly (the Sniper: the total to the ISK, and the next listing up).
  */
-export async function copyMultibuy(block: string, lines: number, about?: number): Promise<void> {
+export async function copyMultibuy(block: string, lines: number, about?: number, said?: string): Promise<void> {
   if (!block) return;
   // A name still loading reads "Item #123", which the game can't match: better no list than a line it drops.
   if (/^Item #\d+ /m.test(block)) { toast('Some item names haven’t loaded yet: try again in a moment.', 'warn'); return; }
   try {
     await navigator.clipboard.writeText(block);
-    toast(`Copied ${lines.toLocaleString('en-US')} line${lines === 1 ? '' : 's'} for Multibuy: Import from clipboard in the Multibuy window.${about ? ` It came to about ${iskBig(about)} at the listings just read: check the window’s total before you press Buy.` : ''}`);
+    toast(`Copied ${lines.toLocaleString('en-US')} line${lines === 1 ? '' : 's'} for Multibuy: Import from clipboard in the Multibuy window.${said ? ` ${said}` : about ? ` It came to about ${iskBig(about)} at the listings just read: check the window’s total before you press Buy.` : ''}`);
   } catch { toast('Your browser wouldn’t let the page copy.', 'err'); }
 }
 

@@ -13,7 +13,7 @@ import { rates, sanitizeSettings, type Settings } from '../../src/lib/fees';
 import { iskBig } from '../../src/lib/format';
 import { sanitizeAlerts } from '../../src/lib/prefs';
 import {
-  BASE_RATES, findBid, findListing, judgeBids, judgeListings, KEEP_SELLS, notYours, SNIPE_FLOOR,
+  BASE_RATES, findBid, findListing, judgeBids, judgeListings, KEEP_SELLS, notYours, SNIPE_FLOOR, splitBlueprints,
   type SnipeBid, type SnipeListing, type SnipeOrder, type SnipeRead, type SnipeStats,
 } from '../../src/lib/snipe';
 import { tickDown } from '../../src/lib/tick';
@@ -21,6 +21,7 @@ import { snipeOutcome } from '../../src/lib/track';
 import type { AlertConfig, HistRow, Stock } from '../../src/lib/types';
 import { mailFindings, namesAnywhere } from './alerts';
 import { eachHistory } from './hist';
+import { categoriesOf } from './kinds';
 import { page, type RawOrder } from './scan';
 
 type Env = { DB: D1Database; EVE_CLIENT_ID: string; TOKEN_KEY: string; APP_URL: string };
@@ -127,6 +128,10 @@ export async function sniperRound(env: Env, now = Date.now()) {
     const x = findListing(t, sells.get(t)!, more.has(t), stats.get(t), now);
     if (x) listings.push(x);
   }
+  // Each listing's category, for leaving blueprints out unless asked (page and mail alike): kept in D1, so only types
+  // never listed before go to ESI. One it couldn't read is null, left out with the blueprints, and asked for next round.
+  const kinds = await categoriesOf(db, listings.map((l) => l.typeId), now).catch((e) => { console.error('sniper categories failed', e); return new Map<number, number>(); });
+  for (const l of listings) l.category = kinds.get(l.typeId) ?? null;
   const kept: SnipeBid[] = [];
   for (const t of held) {
     const x = findBid(t, bids.get(t)!, stats.get(t));
@@ -203,7 +208,8 @@ async function mailLedger(env: Env, charId: number, read: SnipeRead, stock: Stoc
   const open = (await env.DB.prepare(`SELECT id FROM records WHERE char_id = ?1 AND kind = 'orders' AND data IS NOT NULL AND json_extract(data, '$.state') = 'open'`)
     .bind(charId).all<{ id: string }>()).results.map((x) => Number(x.id));
   const theirs = notYours(read, new Set(open));
-  const rows = judgeListings(theirs.listings, r, settings.share, bar).filter((x) => x.worth).slice(0, MAIL_LISTINGS);
+  // Blueprints only when asked, set aside before the mail's few are picked, or they'd take the places and go unsent.
+  const rows = splitBlueprints(judgeListings(theirs.listings, r, settings.share, bar), cfg.snipeBlueprints).shown.filter((x) => x.worth).slice(0, MAIL_LISTINGS);
   const heldRows = judgeBids(theirs.bids, r, stock?.jita ?? {}, bar).filter((x) => x.worth);
   if (!rows.length && !heldRows.length) return 0;
   const names = await namesAnywhere(env.DB, charId, [...rows.map((x) => x.typeId), ...heldRows.map((x) => x.typeId)]);

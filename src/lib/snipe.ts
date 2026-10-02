@@ -15,6 +15,7 @@
  * and the sales tax; selling straight into a bid costs the tax only.
  */
 import { reachedAsk } from './fills';
+import { isk, units as count } from './format';
 import { MOVED } from './prospects';
 import { tickDown } from './tick';
 import type { ProspectStats } from './types';
@@ -35,6 +36,11 @@ export const THIN_DAYS = 7;
 export const SEVERAL = 3;
 /** Sell orders kept per item: enough to walk the cheap end of any book. */
 export const KEEP_SELLS = 30;
+/**
+ * ESI's Blueprint category, which holds every blueprint and reaction formula: what "Include blueprints" means. Read by
+ * category (type → group → category), never by name: a Synth Blue Pill Booster Reaction Formula is one without the word.
+ */
+export const BLUEPRINT_CATEGORY = 9;
 
 export type SnipeOrder = { id: number; price: number; units: number; total: number; issued: string };
 export type SnipeStats = Pick<ProspectStats, 'highs14' | 'unitsPerDay' | 'daysTraded' | 'lastMove'>;
@@ -72,6 +78,11 @@ export type SnipeListing = {
   daysTraded: number;
   lastMove: number | null;
   doubts: Doubt[];
+  /**
+   * The item's ESI category, as the cloud looked it up (`BLUEPRINT_CATEGORY` is a blueprint). Absent on a read from a
+   * Worker before it kept them; null when its lookup failed this round.
+   */
+  category?: number | null;
 };
 
 /**
@@ -155,6 +166,51 @@ export function judgeListings(list: SnipeListing[], r: { f: number; t: number },
     const sellDays = pace > 0 ? x.units / pace : Infinity;
     return { ...x, profit, pct, sellDays, worth: !x.doubts.length && profit >= bar.minIsk && pct * 100 >= bar.minPct };
   }).sort((a, b) => b.profit - a.profit);
+}
+
+/**
+ * Blueprints set apart from the other listings. The user, 2 October 2026: "exclude blueprints, as they might be risky to
+ * try and sell". Of the Sniper's 1,222 sightings since 28 September, 59 were blueprints, 41% of them floods (9% of the
+ * rest), and 11 clean. Off unless switched on (`AlertConfig.snipeBlueprints`), on the page and in the mail alike.
+ *
+ * A listing's category is the cloud's; where it has none (a Worker a version behind, or its lookup failed), `categoryOf`
+ * answers: the browser's own lookup, undefined while it runs, null when it failed. A listing whose category isn't
+ * known either way is `unknown` and stays out with the blueprints until it is, on the safe side; switched on, every
+ * listing shows. High bids for blueprints you hold aren't listings and aren't touched: selling into one is paid at once.
+ */
+export function splitBlueprints<T extends Pick<SnipeListing, 'typeId' | 'category'>>(list: T[], include: boolean,
+  categoryOf: (typeId: number) => number | null | undefined = () => undefined): { shown: T[]; blueprints: T[]; unknown: T[] } {
+  const shown: T[] = [], blueprints: T[] = [], unknown: T[] = [];
+  for (const x of list) {
+    const c = x.category ?? categoryOf(x.typeId);
+    if (c == null) unknown.push(x);
+    else if (c === BLUEPRINT_CATEGORY) blueprints.push(x);
+    if (include || (c != null && c !== BLUEPRINT_CATEGORY)) shown.push(x);
+  }
+  return { shown, blueprints, unknown };
+}
+
+export type SnipeCopy = { ok: true; block: string; lines: number; total: number; said: string } | { ok: false; why: string };
+
+/**
+ * Finds for the Multibuy window's import: "Name N" a line (the import's own format), N the cheap units only. The user
+ * authorized it on 2 October 2026; the Sniper had been kept out of Multibuy on purpose, to be careful there. Multibuy buys
+ * at once from the cheapest listings with no price limit, so a cheap listing someone bought between the read and the
+ * paste means the next ones at their full price. What it should come to is said exactly, with the dearest cheap price and
+ * the next listing up, so a dearer total in the window shows a listing has gone. A name not read yet ("Item #…") refuses
+ * the whole copy: the game can't match it.
+ */
+export function snipeMultibuy(rows: Pick<SnipeListing, 'typeId' | 'units' | 'cost' | 'top' | 'nextAsk'>[], nameOf: (typeId: number) => string): SnipeCopy {
+  const list = rows.filter((x) => x.units > 0);
+  if (!list.length) return { ok: false, why: 'Nothing to copy.' };
+  const names = list.map((x) => (nameOf(x.typeId) ?? '').trim());
+  if (names.some((n) => !n || /^Item #\d+$/.test(n))) return { ok: false, why: 'Some item names haven’t loaded yet: try again in a moment.' };
+  const total = list.reduce((s, x) => s + x.cost, 0);
+  const one = list.length === 1 ? list[0] : null;
+  const said = one
+    ? `At the listings just read it should come to ${isk(total)}: ${count(one.units)} at up to ${isk(one.top)} each. Multibuy has no price limit: if one of these listings has gone, it buys the next ones at their full price${one.nextAsk != null ? `, from ${isk(one.nextAsk)} each` : ''}, so a total over ${isk(total)} in the window means it has. Check it before you press Buy.`
+    : `At the listings just read the ${list.length} should come to ${isk(total)}. Multibuy has no price limit: if any of these listings has gone, it buys the next ones at their full price, so a total over ${isk(total)} in the window means one has. Check it before you press Buy.`;
+  return { ok: true, block: list.map((x, i) => `${names[i]} ${x.units}`).join('\n'), lines: list.length, total, said };
 }
 
 export type HeldBidRow = SnipeBid & { held: number; qty: number; proceeds: number; gain: number; pct: number; worth: boolean };

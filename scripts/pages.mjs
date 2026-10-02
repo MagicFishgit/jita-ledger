@@ -523,6 +523,93 @@ try {
     process.stdout.write(unique.length ? `  FAIL freelance #hustles/freelance\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   freelance #hustles/freelance (every job you did, rebuilt from the journal)\n');
     await page.close();
   }
+  // The Sniper with finds (2 October 2026: blueprints out unless asked, and Copy for Multibuy). The cloud answers its
+  // read, six finds from the read of 1 October 23:27 UTC: a module, a battery and a script, an Epithal Blueprint, a
+  // reaction formula (category 9, no "Blueprint" in its name) and a Thrasher Blueprint the read gives no category for (a
+  // Worker a version behind), which ESI answers here. Without this the deploy never drew a find, the switch or the copy.
+  if (SHOWN.includes('sniper') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('sniper'))) {
+    const now = Date.now(), iso = (t) => new Date(t).toISOString();
+    const L = (typeId, category, units, cost, cheapest, resale, fair, nextAsk, perDay, daysTraded, doubts = []) => ({
+      typeId, orderIds: [typeId * 10], units, cost, cheapest, top: cheapest, resale, fair, nextAsk, pricedAt: iso(now - 20 * 60_000), partly: false,
+      perDay, daysTraded, lastMove: 0, doubts, ...(category === undefined ? {} : { category }) });
+    const read = { at: iso(now - 60_000), expires: iso(now + 240_000), pages: 406, bids: [], listings: [
+      L(6721, 7, 133, 7_811_090, 58_730, 98_850, 98_935, 98_860, 100, 30), L(17771, 23, 6, 18_000_000, 3_000_000, 3_990_000, 3_990_000, 4_798_000, 4, 19),
+      L(29001, 8, 496, 3_537_968, 7_133, 12_290, 12_360, 12_300, 2544, 30), L(990, 9, 8, 51_200_000, 6_400_000, 8_473_000, 8_479_000, 8_474_000, 3, 30),
+      L(46233, 9, 137, 137_000_000, 1_000_000, 1_200_000, 1_200_000, 1_495_000, 5, 23, ['flood']), L(16243, undefined, 5, 40_000_000, 8_000_000, 10_990_000, 12_000_000, 11_000_000, 3, 30)] };
+    const names = { 6721: 'Small Focused Anode Particle Stream I', 17771: 'Medium AutoCannon Battery', 29001: 'Tracking Speed Script', 990: 'Epithal Blueprint', 46233: 'Synth Blue Pill Booster Reaction Formula', 16243: 'Thrasher Blueprint' };
+    const ledger = { names, alerts: { snipeMinIsk: 1e6, snipeMinPct: 5 }, meta: { walletBalance: 1e9, lastSync: iso(now - 600_000) } };
+    const page = await browser.newPage(VIEW);
+    // What the page puts on the clipboard, kept where the check can read it.
+    await page.addInitScript(() => {
+      window.__copied = [];
+      try { Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: async (t) => { window.__copied.push(t); } }); } catch { /* no clipboard: the check says so */ }
+    });
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS' };
+    let typeAsked = 0;
+    await page.route('**/*', (route) => {
+      const req = route.request(), url = new URL(req.url());
+      if (req.url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
+      if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+      const json = (body) => route.fulfill({ status: 200, contentType: 'application/json', headers: { ...cors, 'cache-control': 'max-age=3600' }, body: JSON.stringify(body) });
+      if (url.host === '127.0.0.1:9' && url.pathname === '/v1/snipes') return json(read);
+      if (url.hostname === 'esi.evetech.net' && /^\/universe\/types\/16243\/?$/.test(url.pathname)) { typeAsked++; return json({ type_id: 16243, name: names[16243], group_id: 487, published: true }); }
+      if (url.hostname === 'esi.evetech.net' && /^\/universe\/groups\/487\/?$/.test(url.pathname)) return json({ group_id: 487, name: 'Destroyer Blueprint', category_id: 9 });
+      return route.abort();
+    });
+    const problems = [];
+    page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
+    page.on('console', (m) => { if (m.type() === 'error' && /^Warning: /.test(m.text())) problems.push(`React: ${m.text().split('\n')[0].replace(/%s/g, '').slice(0, 160)}`); });
+    await page.goto(SEED_PAGE);
+    await page.evaluate(async ([d, auth]) => {
+      localStorage.clear(); sessionStorage.clear();
+      localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
+      for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', {}], ['jita-ledger-alts', {}]]) {
+        const h = await new Promise((res) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+        if (!h.objectStoreNames.contains('kv')) { h.close(); continue; }
+        await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
+        h.close();
+      }
+    }, [ledger, ownerAuth()]);
+    await page.goto(`${BASE}#sniper`);
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    const worth = page.locator('section.panel', { hasText: 'Worth sniping' });
+    const inWorth = async (n) => (await worth.locator('table tbody tr', { hasText: n }).count()) > 0;
+    // The switch counts the three blueprints once the Thrasher's category has come back from ESI.
+    await page.waitForSelector('button[role="checkbox"]:has-text("Include blueprints (3)")', { timeout: 20_000 }).catch(() => problems.push('not drawn: “Include blueprints (3)”'));
+    await page.waitForTimeout(1200);
+    if (!typeAsked) problems.push('the Thrasher, with no category from the cloud, was never looked up');
+    if (await page.locator('button[role="checkbox"]:has-text("Include blueprints")').getAttribute('aria-checked') !== 'false') problems.push('blueprints are in by default');
+    for (const n of [names[6721], names[17771], names[29001]]) if (!(await inWorth(n))) problems.push(`not drawn in Worth sniping: ${n}`);
+    for (const n of [names[990], names[16243]]) if (await inWorth(n)) problems.push(`a blueprint in Worth sniping with the switch off: ${n}`);
+    if (!(await worth.locator('.note', { hasText: '2 blueprints clear your bar too, left out' }).count())) problems.push('not drawn: “2 blueprints clear your bar too, left out”');
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-blueprints-off.png` });
+    // One find copied for Multibuy: "Name N", and what it should come to.
+    await page.getByRole('button', { name: `Copy ${names[6721]} for Multibuy` }).click().catch((e) => problems.push(`couldn't copy a find: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(400);
+    let copied = await page.evaluate(() => window.__copied);
+    if (copied.at(-1) !== `${names[6721]} 133`) problems.push(`a find copied as ${JSON.stringify(copied.at(-1))}, not “${names[6721]} 133”`);
+    const toasted = (await page.locator('.toasts').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!toasted.includes('7,811,090 ISK') || !toasted.includes('no price limit')) problems.push(`the copy's toast doesn't say the total and the price limit: ${toasted.slice(0, 200)}`);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-multibuy-toast.png` });
+    // Switched on, the blueprints join the list, and Copy all copies every find shown.
+    await page.locator('button[role="checkbox"]:has-text("Include blueprints")').click();
+    await page.waitForTimeout(800);
+    for (const n of [names[990], names[16243]]) if (!(await inWorth(n))) problems.push(`not drawn in Worth sniping with the switch on: ${n}`);
+    await worth.getByRole('button', { name: /Copy all 5 for Multibuy/ }).click().catch((e) => problems.push(`couldn't copy all: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(400);
+    copied = await page.evaluate(() => window.__copied);
+    const lines = (copied.at(-1) ?? '').split('\n');
+    if (lines.length !== 5 || !lines.includes(`${names[990]} 8`) || !lines.includes(`${names[16243]} 5`)) problems.push(`Copy all copied ${JSON.stringify(copied.at(-1))}`);
+    const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out: ${o}`);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-blueprints-on.png` });
+    checked++;
+    const unique = [...new Set(problems)];
+    if (unique.length) failures.push({ ledger: 'sniper', page: 'sniper', problems: unique });
+    process.stdout.write(unique.length ? `  FAIL sniper #sniper\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   sniper #sniper (blueprints out unless asked, the switch, Copy for Multibuy)\n');
+    await page.close();
+  }
   // The site is public: without the owner's login, only the landing page, with nothing of the ledger's in it and
   // nothing run behind it (not one request to ESI), even with a ledger in this browser.
   if (!only(process.env.LEDGER) && !only(process.env.PAGE)) {
