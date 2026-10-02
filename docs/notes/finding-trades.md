@@ -222,6 +222,8 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
     since the position opened has filled that no sale records yet still count as listed, or a listing that sold would read
     as stock to list again until its trade came, up to an hour later. Each item is listed under the one plan
     `planTargets` gives it: Clone Soldier Transporter Tag is in both the 30 September and 2 October plans on one position.
+    The hangar cap has a cost (limits.md): a hangar read from before a fill reads the item as none, so a filled buy reaches
+    the list only at the next assets read (ESI holds them an hour), and its trade has to arrive first too.
   - **The price**: Place and leave lists at the plan's own `sellAt` (list and wait), with today's List patiently beside it
     (`reachedAsk` at FILL_TYPICAL, one step over others' best bid at least, as the position page shows it); at the front,
     today's `listingPrice` on the live book (others' orders only), with the plan's price beside it; never under break-even

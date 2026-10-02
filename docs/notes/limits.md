@@ -114,3 +114,7 @@ State these rather than letting them be discovered:
   which a pace the check can no longer read does too: the words say what Orders now shows, not that the queue is short.
 - **A Sniper "Copy all" with a ship in it is guessed Personal on the Wallet** ("a fit to fly", the multibuy rule); Results
   and Your snipes read only what you mark.
+- **A plan's filled buy can take up to about an hour to reach "Bought: list it"** (the list step, finding-trades.md):
+  its trade arrives when ESI's copy of your trades turns over (held an hour), and the stock to list is held to what the
+  Jita hangar held at its last read, also an hour's copy, so a hangar read from before the fill reads it as none until the
+  next. The cap is what stops a listing that sold coming back as stock to list; the cost is that wait.

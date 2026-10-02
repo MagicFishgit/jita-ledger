@@ -600,6 +600,7 @@ try {
     const fedText = (await fed.first().innerText().catch(() => '')).replace(/\s+/g, ' ');
     for (const want of [`${arb.name} buy order`, 'days of the buyers who take listings', 'cancel it and place a smaller one']) if (!fedText.includes(want)) problems.push(`not drawn: the To do item's “${want}”`);
     // The Key's 2 bought for the at-the-front plan: one item to list, with no price while its book can't be read, said so.
+    await page.locator('.tn-item', { hasText: 'List what the plan bought' }).first().waitFor({ timeout: 10_000 }).catch(() => undefined);
     const keyList = (await page.locator('.tn-item', { hasText: 'List what the plan bought' }).allInnerTexts().catch(() => [])).map((t) => t.replace(/\s+/g, ' '));
     if (keyList.length !== 1) problems.push(`To do lists ${keyList.length} “List what the plan bought” items, not the Key's one`);
     else for (const want of ['List 2 × Vigilance Resonance Key', 'Its Jita book couldn’t be read', 'The plan priced it at 35,990,000 ISK']) if (!keyList[0].includes(want)) problems.push(`not drawn: the Key's list item's “${want}” (${keyList[0].slice(0, 160)})`);
@@ -746,6 +747,7 @@ try {
     if (await page.locator('.tn-item', { hasText: 'Place a buy order: 11 × Imperial Navy Infiltrator' }).count()) problems.push('To do asks for the Infiltrator’s buy order, which bought at once');
     // And asks to list what it bought: one item, at the plan's price, something to act on.
     const listItem = page.locator('.tn-item', { hasText: 'List what the plan bought' });
+    await listItem.first().waitFor({ timeout: 10_000 }).catch(() => undefined);
     if ((await listItem.count()) !== 1) problems.push(`To do lists ${await listItem.count()} “List what the plan bought” items, not the Infiltrator's one`);
     const listText = (await listItem.first().innerText().catch(() => '')).replace(/\s+/g, ' ');
     for (const want of ['List 11 × Imperial Navy Infiltrator at 1,836,000 ISK', 'Bought for 2 Oct · 999.16 M ISK in 33 items', 'List patiently today: 1,836,000 ISK']) if (!listText.includes(want)) problems.push(`not drawn: the To do list item's “${want}” (${listText.slice(0, 200)})`);
