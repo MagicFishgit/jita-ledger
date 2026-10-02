@@ -5,6 +5,7 @@ import type { SafetyWrap } from './esiRecords';
 import type { BookSold, SellQueue, SplitFrom } from './split';
 import type { SkillKey } from './constants';
 import type { RateStamp } from './fees';
+import type { StandingRow } from './research';
 
 /** A single buy or sell. ESI transactions use their transaction_id; manual ones start with "m-". */
 export type Tx = {
@@ -362,6 +363,15 @@ export type Meta = {
   corp?: CorpTax;
   /** The skill queue as last synced, in order: each skill, the level it trains to, when (null while paused). */
   skillQueue?: QueuedLevel[];
+  /**
+   * Every standing the character has, raw, as ESI gives it (research.ts `toStandings`: sorted by ID, signs kept), for
+   * which R&D agents it can use. The main's is read by the browser's sync whenever the standings permission is held,
+   * whatever "Fill skills, standings and clone state from my character" says (that switch governs only the fee fields,
+   * `settings.faction` / `settings.corp`), with `at`, when it was read. An alt's is written by the cloud's sheet
+   * (worker/src/sheet.ts) with no `at`: a time in its doc would push a revision every hour; its read time is its `sheet`
+   * job's `lastOk`. An entry missing from the list is no standing; `standings` missing is not read yet.
+   */
+  standings?: { at?: string; list: StandingRow[] };
   /** Last time killmails were read. */
   killmailsAt?: string;
   /** The best ISK per loyalty point last worked out on the Loyalty page, per corporation. */

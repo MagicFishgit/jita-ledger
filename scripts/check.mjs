@@ -5812,6 +5812,28 @@ console.log('\n--- R&D agents: the rules ---');
       [1, 11453, 20418, false, r2(1.4328 * 64), Math.round(1.4328 * 64 / 100 * 79_571), 1], [1, 11446, 20419, false, r2(1.4328 * 64), null, 1]]);
   eq('  standings not read: worked out as none, so only level 1 is open', R.rankAgents(agents, { ...opts, standings: null }).filter((r) => r.open).map((r) => r.agent.id), [3]);
 
+  // ESI's /characters/{id}/standings/ as it comes, in no order: every agent, corporation and faction, raw. Kept whole and
+  // sorted by ID (the cloud compares the alt's meta doc as a string, so an order that moved would push every hour).
+  const raw = [
+    { from_id: 3008416, from_type: 'agent', standing: 2.1 },
+    { from_id: 500001, from_type: 'faction', standing: 3.63 },
+    { from_id: 1000125, from_type: 'npc_corp', standing: -1.25 },
+    { from_id: 500010, from_type: 'faction', standing: -4.5 },
+    { from_id: 1000020, from_type: 'npc_corp', standing: 0 },
+  ];
+  eq('standings kept whole: sorted by ID, signs kept, a standing at 0 kept (it isn\'t none), the type from ESI\'s from_type',
+    R.toStandings(raw), [
+      { id: 500001, type: 'faction', standing: 3.63 }, { id: 500010, type: 'faction', standing: -4.5 },
+      { id: 1000020, type: 'npc_corp', standing: 0 }, { id: 1000125, type: 'npc_corp', standing: -1.25 },
+      { id: 3008416, type: 'agent', standing: 2.1 },
+    ]);
+  eq('  the same answer in another order gives the same list, as a string too', JSON.stringify(R.toStandings([...raw].reverse())), JSON.stringify(R.toStandings(raw)));
+  eq('  ESI\'s answer is left as it was', raw[0].from_id, 3008416);
+  eq('  a type ESI doesn\'t name (none today) or a standing that isn\'t a number is left out, never guessed', R.toStandings([
+    { from_id: 1, from_type: 'alliance', standing: 1 }, { from_id: 2, from_type: 'faction', standing: null }, { from_id: 3, from_type: 'faction', standing: 1 },
+  ]), [{ id: 3, type: 'faction', standing: 1 }]);
+  eq('  an empty answer is an empty list (read, with no standing anywhere)', R.toStandings([]), []);
+
   eq('the field → datacore map: 17 fields; Amarr Starship Engineering (11444) makes "Datacore - Amarrian Starship Engineering" (20421)',
     [Object.keys(R.DATACORE_OF).length, R.DATACORE_OF[11444], R.DATACORE_OF[11450], R.DATACORE_OF[11453]], [17, 20421, 20410, 20418]);
 

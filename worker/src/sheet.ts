@@ -1,17 +1,19 @@
 /**
  * An alt's sheet: what the app's own sync reads for the main in the browser, read by the cloud for a character that
  * never logs in to the app. Its skills (the `skills` doc, trained levels, the main's shape) and a `meta` doc with the
- * main's field names (wallet, skill points, queue, attributes, loyalty points, clone state), so the app's own rules
- * read an alt unchanged. Run with the hourly copy (alts.ts), which hands it the wallet and points it already read.
+ * main's field names (wallet, skill points, queue, attributes, loyalty points, clone state, standings), so the app's
+ * own rules read an alt unchanged. Run with the hourly copy (alts.ts), which hands it the wallet and points it already
+ * read.
  */
 import { ALPHA_SKILL_CAPS } from '../../src/lib/alphaCaps';
+import { toStandings, type RawStanding } from '../../src/lib/research';
 import { cloneState, type CloneState } from '../../src/lib/roster';
 import { esiGet, readerLogin, stillKept, type Reader } from './eve';
 import { push } from './sync';
 
 type Env = { DB: D1Database; EVE_CLIENT_ID: string; TOKEN_KEY: string };
 
-const S = { skills: 'esi-skills.read_skills.v1', queue: 'esi-skills.read_skillqueue.v1' };
+const S = { skills: 'esi-skills.read_skills.v1', queue: 'esi-skills.read_skillqueue.v1', standings: 'esi-characters.read_standings.v1' };
 
 type RawSkill = { skill_id: number; trained_skill_level: number; active_skill_level: number; skillpoints_in_skill?: number };
 type RawQueue = {
@@ -70,6 +72,16 @@ export async function readSheet(
       const { data: at } = await esiGet<Attributes>(`/characters/${char}/attributes/`, { token });
       meta.attributes = { intelligence: at.intelligence, memory: at.memory, perception: at.perception, willpower: at.willpower, charisma: at.charisma };
     } catch { /* training time is a nicety */ }
+  }
+  // Every standing, whole, for which R&D agents the alt can use (the Research tab): the main's shape, without the read
+  // time the main's carries. The meta doc is pushed whenever it reads differently (`settled` blanks only `walletAt`), so a
+  // time here would be a new revision every hour; the alt's read time is this job's `lastOk`. A failed read leaves the
+  // standings as they were (absent before the first, "Not read yet"), never an empty list, which would say "no standing".
+  if (login.scopes.includes(S.standings)) {
+    try {
+      const { data } = await esiGet<RawStanding[]>(`/characters/${char}/standings/`, { token });
+      meta.standings = { list: toStandings(data) };
+    } catch { /* kept as they were; the next hourly read tries again */ }
   }
   if (extra.wallet != null) { meta.walletBalance = extra.wallet; meta.walletAt = new Date(now).toISOString(); }
   if (extra.lp) meta.lpBalances = extra.lp;

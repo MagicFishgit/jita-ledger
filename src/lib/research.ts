@@ -63,6 +63,25 @@ export const DATACORE_OF: Record<number, number> = {
 
 /** One standing as ESI's `/characters/{id}/standings/` gives it: raw, signs kept, `type` from its `from_type`. */
 export type StandingRow = { id: number; type: 'agent' | 'npc_corp' | 'faction'; standing: number };
+/** ESI's `/characters/{id}/standings/` row. */
+export type RawStanding = { from_id: number; from_type: string; standing: number };
+
+const STANDING_TYPES: ReadonlySet<string> = new Set<StandingRow['type']>(['agent', 'npc_corp', 'faction']);
+
+/**
+ * Every standing ESI gives, kept whole (`meta.standings.list`, the main's from the browser's sync, an alt's from the
+ * cloud's sheet): sorted by ID, then type, each row built in one key order, so the same answer is the same string
+ * whatever order ESI sent it in. The cloud pushes an alt's meta doc only when its string changes, so an order that moved
+ * would push a revision every hour. Signs are kept, and a standing at 0 is kept: it exists (Connections lifts it), where a
+ * missing entry is no standing at all. A type ESI's spec doesn't name (none today) or a standing that isn't a number is
+ * left out rather than guessed at.
+ */
+export function toStandings(raw: RawStanding[]): StandingRow[] {
+  return raw
+    .filter((x) => STANDING_TYPES.has(x.from_type) && typeof x.standing === 'number' && Number.isFinite(x.standing) && Number.isFinite(x.from_id))
+    .map((x) => ({ id: x.from_id, type: x.from_type as StandingRow['type'], standing: x.standing }))
+    .sort((a, b) => a.id - b.id || (a.type < b.type ? -1 : a.type > b.type ? 1 : 0));
+}
 /** One agent's research as ESI's `/characters/{id}/agents_research/` gives it. */
 export type ResearchRow = { agentId: number; skillTypeId: number; startedAt: string; pointsPerDay: number; remainderPoints: number };
 /** A research agent from the bundle (`src/data/researchAgents.json`); `fields` are skill type IDs in DATACORE_OF. */

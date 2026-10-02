@@ -15,6 +15,7 @@ import type { JournalEntry, Killmail, Meta, Order, Stock, Tx } from './types';
 import { mergeOrders } from './feeMatch';
 import { countStock, mergeSafety, nameHolders, unnamedHolders, toJournal, toOrder, toTx, type RawAsset, type RawCharOrder, type RawJournal, type RawTx, type SafetyNotice } from './esiRecords';
 import { miningKey, readMining, type MiningRecord, type RawMining } from './mining';
+import { toStandings, type RawStanding } from './research';
 
 const { wallet: WALLET, orders: ORDERS, skills: SKILLS, standings: STANDINGS, assets: ASSETS, loyalty: LOYALTY, killmails: KILLMAILS } = SCOPE;
 
@@ -145,15 +146,26 @@ export async function syncCharacter(): Promise<void> {
         fromChar = s;
       }
     }
-    if (d.settings.fromCharacter && hasScope(STANDINGS)) {
+    // Every standing, whole, whenever the permission is held: the Research tab asks which R&D agents you can use, which
+    // turns on every agent, corporation and faction, not the two the fee needs. "Fill skills, standings and clone state
+    // from my character" governs only the fee fields, as before. A failed read fails the sync only where it did before
+    // (the switch on, the fee depending on it); otherwise the standings held stay as they were.
+    if (hasScope(STANDINGS)) {
       setState({ message: 'Reading standings…' });
-      const { data } = await esi<{ from_id: number; standing: number }[]>(`/characters/${cid}/standings/`, { auth: true });
-      fromChar = {
-        ...(fromChar ?? {}),
-        faction: Math.max(0, data.find((x) => x.from_id === npcIds.faction)?.standing ?? 0),
-        corp: Math.max(0, data.find((x) => x.from_id === npcIds.corp)?.standing ?? 0),
-      };
-      read.push('standings');
+      try {
+        const { data } = await esi<RawStanding[]>(`/characters/${cid}/standings/`, { auth: true });
+        metaPatch.standings = { at: new Date().toISOString(), list: toStandings(data) };
+        if (d.settings.fromCharacter) {
+          fromChar = {
+            ...(fromChar ?? {}),
+            faction: Math.max(0, data.find((x) => x.from_id === npcIds.faction)?.standing ?? 0),
+            corp: Math.max(0, data.find((x) => x.from_id === npcIds.corp)?.standing ?? 0),
+          };
+        }
+        read.push('standings');
+      } catch (e) {
+        if (d.settings.fromCharacter) throw e;
+      }
     }
 
     // ESI caches server-side, so it tells us exactly when each route can hold something new.

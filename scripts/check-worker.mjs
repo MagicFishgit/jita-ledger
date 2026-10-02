@@ -61,6 +61,7 @@ const SCOPES = [
   'esi-wallet.read_character_wallet.v1', 'esi-markets.read_character_orders.v1', 'esi-assets.read_assets.v1',
   'esi-characters.read_loyalty.v1', 'esi-skills.read_skills.v1', 'esi-skills.read_skillqueue.v1',
   'esi-industry.read_character_mining.v1', 'esi-location.read_ship_type.v1', 'esi-mail.send_mail.v1', 'esi-mail.organize_mail.v1',
+  'esi-characters.read_standings.v1',
 ];
 /** A ledger with its main's login kept, and one alt on its roster with its own. */
 async function ledgerWithAlt() {
@@ -211,6 +212,12 @@ function esiFor(char, over = {}) {
     ] }],
     [`${c}/skillqueue/`, [{ skill_id: MINING, finished_level: 5, queue_position: 0, finish_date: '2026-10-03T00:00:00Z', start_date: '2026-10-01T00:00:00Z' }]],
     [`${c}/attributes/`, { intelligence: 20, memory: 21, perception: 22, willpower: 23, charisma: 19 }],
+    // In no order, one of them negative: the sheet keeps them sorted by ID, signs kept.
+    [`${c}/standings/`, over.standings ?? [
+      { from_id: 3008416, from_type: 'agent', standing: 2.1 },
+      { from_id: 1000125, from_type: 'npc_corp', standing: -1.25 },
+      { from_id: 500001, from_type: 'faction', standing: 3.63 },
+    ]],
     [new RegExp(`^POST /characters/${SENDER}/mail/$`), 777],
   ];
 }
@@ -317,6 +324,58 @@ console.log('\n--- an alt\'s full read ---');
     const meta = docOf(db, ALT, 'meta');
     eq('  upgraded: a skill past Alpha\'s cap is usable, so Omega', [r.clone, meta.cloneDetected, meta.activeSkills], ['omega', 'omega', {}]);
     eq('    and the change is dated', typeof meta.cloneSince, 'string');
+  }
+
+  // Standings, whole, for the Research tab (which R&D agents an alt can use): filed under the alt, sorted by ID, signs
+  // kept, and no read time in the doc, since the sheet pushes the meta doc whenever it reads differently: a time in it
+  // would be a new revision every hour. The alt's "read at" is its sheet job's.
+  {
+    const { db, env } = await withSender();
+    const before = under(db, MAIN);
+    const rev = () => db.rows('SELECT rev FROM revs WHERE char_id = ?', ALT)[0].rev;
+    const sorted = [
+      { id: 500001, type: 'faction', standing: 3.63 }, { id: 1000125, type: 'npc_corp', standing: -1.25 }, { id: 3008416, type: 'agent', standing: 2.1 },
+    ];
+    let f = stubFetch(esiFor(ALT));
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  an alt\'s standings: kept whole in its meta, sorted by ID, signs kept, with no read time', docOf(db, ALT, 'meta').standings, { list: sorted });
+    eq('    read for the alt only', f.calls.filter((c) => /\/standings\/$/.test(c.path)).map((c) => c.path), [`/characters/${ALT}/standings/`]);
+    eq('    nothing of it under the main', under(db, MAIN), before);
+    eq('    the main\'s ledger holds no standings of the alt\'s', db.rows(`SELECT COUNT(*) AS n FROM docs WHERE char_id = ? AND data LIKE '%3008416%'`, MAIN)[0].n, 0);
+    const rev1 = rev();
+
+    f = stubFetch(esiFor(ALT, { standings: [...esiFor(ALT).find((r) => r[0] === `/characters/${ALT}/standings/`)[1]].reverse() }));
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  the same standings read again, in another order: nothing pushed, no new revision', rev(), rev1);
+
+    const routes = esiFor(ALT);
+    routes[routes.findIndex((r) => r[0] === `/characters/${ALT}/standings/`)] = [`/characters/${ALT}/standings/`, new Response('{"error":"down"}', { status: 500 })];
+    f = stubFetch(routes);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  a standings read that fails leaves them as they were, and pushes nothing', [docOf(db, ALT, 'meta').standings, rev()], [{ list: sorted }, rev1]);
+    eq('    and the sheet still counts as read', db.rows(`SELECT fails, last_error AS e FROM jobs WHERE char_id = ? AND job = 'sheet'`, ALT), [{ fails: 0, e: null }]);
+
+    f = stubFetch(esiFor(ALT, { standings: [{ from_id: 1000125, from_type: 'npc_corp', standing: 0.5 }, { from_id: 500001, from_type: 'faction', standing: 3.63 }] }));
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  standings that moved go up, replacing the list whole', [docOf(db, ALT, 'meta').standings, rev() > rev1],
+      [{ list: [{ id: 500001, type: 'faction', standing: 3.63 }, { id: 1000125, type: 'npc_corp', standing: 0.5 }] }, true]);
+    eq('    and the main still has nothing of it', under(db, MAIN), before);
+  }
+
+  // A login without the standings permission: nothing asked, and nothing written, so the tab says "Not read yet".
+  {
+    const { db, env } = await withSender();
+    db.run('DELETE FROM keys WHERE purpose = ?', `alt:${ALT}`);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', SCOPES.filter((s) => s !== 'esi-characters.read_standings.v1'));
+    const f = stubFetch(esiFor(ALT));
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  an alt whose login lacks the standings permission: not asked, and no standings in its meta, not an empty list',
+      [f.calls.some((c) => /\/standings\/$/.test(c.path)), 'standings' in docOf(db, ALT, 'meta')], [false, false]);
   }
 
   // Removed while the copy was running.
