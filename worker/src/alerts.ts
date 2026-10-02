@@ -202,8 +202,11 @@ async function tidy(env: Env, charId: number, main: Login, cfg: AlertConfig, now
   return gone;
 }
 
-/** A book as Prospects sees it, from the orders the watch last read. */
-export function bookOf(orders: OrderLite[], at: number, sold: Book['sold']): Book {
+/**
+ * A book as Prospects sees it, from the orders the watch last read. The watch keeps only Jita's orders, so NPC sellers
+ * elsewhere in The Forge come from the day's full scan (`npcAnywhere`), when given.
+ */
+export function bookOf(orders: OrderLite[], at: number, sold: Book['sold'], npcAnywhere?: number | null): Book {
   const levels = (side: OrderLite[], desc: boolean): BookLevel[] => {
     const out: BookLevel[] = [];
     for (const o of [...side].sort((a, b) => (desc ? b.price - a.price : a.price - b.price))) {
@@ -218,7 +221,23 @@ export function bookOf(orders: OrderLite[], at: number, sold: Book['sold']): Boo
   return {
     at: new Date(at).toISOString(), bestBuy: topBuys[0]?.price ?? null, bestSell: topSells[0]?.price ?? null,
     buyOrders: bids.length, sellOrders: asks.length, topBuys, topSells, npcSell: false, sold,
+    ...(npcAnywhere != null && npcAnywhere > 0 ? { npcAnywhere } : {}),
   };
+}
+
+/**
+ * NPCs' lowest price anywhere in The Forge for each of these items, as the day's full scan noted it. A row from a Worker
+ * before it noted them, or no row, is none: nothing changes.
+ */
+async function npcPrices(db: D1Database, types: number[]): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  for (let i = 0; i < types.length; i += 90) {
+    const part = types.slice(i, i + 90);
+    const rows = (await db.prepare(`SELECT type_id, json_extract(book, '$.npcAnywhere') AS npc FROM scan_items WHERE type_id IN (${inList(part.length)})`).bind(...part)
+      .all<{ type_id: number; npc: number | null }>()).results;
+    for (const r of rows) if (typeof r.npc === 'number' && r.npc > 0) out.set(r.type_id, r.npc);
+  }
+  return out;
 }
 
 /** Most opportunities in one mail. */
@@ -243,11 +262,13 @@ export async function opportunities(db: D1Database, charId: number, settings: Se
   const filters: ProspectFilters = { ...DEFAULT_FILTERS, ...(watch?.filters ?? {}), busy: false, partial: false };
 
   const books: Record<number, Book> = {};
+  // What NPCs sell it at elsewhere in The Forge leaves an item out as Prospects does (judgeProspect): from the full scan.
+  const npc = await npcPrices(db, types).catch(() => new Map<number, number>());
   for (let i = 0; i < types.length; i += 90) {
     const part = types.slice(i, i + 90);
     const rows = (await db.prepare(`SELECT type_id, orders, sold, at FROM books WHERE type_id IN (${inList(part.length)})`).bind(...part)
       .all<{ type_id: number; orders: string; sold: string | null; at: number }>()).results;
-    for (const r of rows) if (now - r.at <= BOOK_MAX_AGE) books[r.type_id] = bookOf(unpack(r.orders), r.at, r.sold ? JSON.parse(r.sold) : undefined);
+    for (const r of rows) if (now - r.at <= BOOK_MAX_AGE) books[r.type_id] = bookOf(unpack(r.orders), r.at, r.sold ? JSON.parse(r.sold) : undefined, npc.get(r.type_id));
   }
   const fresh = types.filter((t) => books[t]);
   stages.withBook = fresh.length;

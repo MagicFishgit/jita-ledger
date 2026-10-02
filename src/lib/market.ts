@@ -134,6 +134,8 @@ async function fetchAndKeep(typeId: number, force: boolean, hit: BookEntry | und
   // A forced read is someone asking again on purpose, so go past the browser's copy of it.
   const { orders, expires, stamp, partial } = await fetchBook(typeId, force);
   const here = orders.filter((o) => atJita(typeId, o.location_id));
+  // The read is The Forge's whole book for the item, so NPC sellers in any of its stations show here too.
+  const npcAnywhere = orders.reduce<number | null>((m, o) => (!o.is_buy_order && (o.duration ?? 0) >= NPC_DURATION && (m == null || o.price < m) ? o.price : m), null);
   const buys = here.filter((o) => o.is_buy_order).sort((a, b) => b.price - a.price);
   const sells = here.filter((o) => !o.is_buy_order).sort((a, b) => a.price - b.price);
   const snap = {
@@ -146,6 +148,7 @@ async function fetchAndKeep(typeId: number, force: boolean, hit: BookEntry | und
     topBuys: levels(buys, 7),
     topSells: levels(sells, 7),
     npcSell: sells.some((o) => (o.duration ?? 0) >= NPC_DURATION),
+    ...(npcAnywhere != null ? { npcAnywhere } : {}),
     sold: soldFrom(here),
   };
   const raw: OrderLite[] = here.map((o) => ({ id: o.order_id, isBuy: o.is_buy_order, price: o.price, volume: o.volume_remain }));

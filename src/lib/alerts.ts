@@ -88,8 +88,12 @@ export type PiFacts = { system: string; systemId: number; planetType: string; pr
 
 /** A mistake listing (or a high bid for what you hold), as the Sniper judged it at your rates. */
 export type SnipeFacts =
-  | { side: 'buy'; units: number; cheapest: number; top: number; cost: number; resale: number; fair: number; nextAsk: number | null; profit: number; pct: number; pricedAt: string; orders: number; sellDays: number }
-  | { side: 'sell'; qty: number; held: number; price: number; proceeds: number; gain: number; fair: number; minVolume: number };
+  | { side: 'buy'; units: number; cheapest: number; top: number; cost: number; resale: number; fair: number; nextAsk: number | null; profit: number; pct: number; pricedAt: string; orders: number; sellDays: number;
+    /** NPCs' lowest price anywhere in The Forge, when they sell it there: the relist is no dearer. */
+    npc?: number }
+  | { side: 'sell'; qty: number; held: number; price: number; proceeds: number; gain: number; fair: number; minVolume: number;
+    /** The same: listing gets no more, so `fair` is that price where it's lower. */
+    npc?: number };
 
 export type Finding = {
   kind: AlertEvent; key: string; title: string; text: string; isk?: number;
@@ -259,7 +263,7 @@ function section(f: Finding, market: (typeId: number, calc?: boolean, name?: str
         head(`${f.title} - potential profit ${iskBig(z.profit)}`, 'green'),
         advice('green', `buy the ${units(z.units)} at ${z.cheapest === z.top ? price(z.cheapest) : `${price(z.cheapest)} to ${price(z.top)}`} ISK, relist at ${price(z.resale)} ISK`),
         `${itemLink}${col('grey', ' · ')}${money(z.profit)}${col('grey', ` after fees (${pct(z.pct, 0)}) · costs `)}${money(z.cost)}<br>`,
-        col('grey', `Trading got up to ${price(z.fair)} on half the last 14 days${z.nextAsk != null ? `; next listing ${price(z.nextAsk)}` : ''}. ${z.orders === 1 ? 'One order' : `${z.orders} orders`}, priced ${hoursSaid((now - Date.parse(z.pricedAt)) / 3600_000).replace('about ', '')} ago.`) + '<br>',
+        col('grey', `Trading got up to ${price(z.fair)} on half the last 14 days${z.nextAsk != null ? `; next listing ${price(z.nextAsk)}` : ''}${z.npc != null && z.resale >= z.npc ? `; NPCs sell it at ${price(z.npc)} elsewhere in The Forge, so it relists no dearer` : ''}. ${z.orders === 1 ? 'One order' : `${z.orders} orders`}, priced ${hoursSaid((now - Date.parse(z.pricedAt)) / 3600_000).replace('about ', '')} ago.`) + '<br>',
         col('grey', Number.isFinite(z.sellDays) ? `Relisted, it sells in ${hoursSaid(z.sellDays * 24).replace('about ', '')} at your share. It may already be gone: check the market first.` : 'It may already be gone: check the market first.') + '<br>',
       ].join('');
     }
@@ -267,7 +271,7 @@ function section(f: Finding, market: (typeId: number, calc?: boolean, name?: str
       head(`${f.title} - ${iskBig(z.gain)} more than listing`, 'green'),
       advice('green', `sell ${units(z.qty)} into the bid at ${price(z.price)} ISK`),
       `${itemLink}${col('grey', ' · you get ')}${money(z.proceeds)}${col('grey', ' · ')}${money(z.gain)}${col('grey', ' more than listing where it trades')}<br>`,
-      col('grey', `You hold ${units(z.held)} in Jita. Trading got up to ${price(z.fair)} on half the last 14 days.${z.minVolume > 1 ? ` The bid takes at least ${units(z.minVolume)} at a time.` : ''} Selling into a bid costs sales tax, no broker fee.`) + '<br>',
+      col('grey', `You hold ${units(z.held)} in Jita. ${z.npc != null && z.fair >= z.npc ? `NPCs sell it at ${price(z.npc)} elsewhere in The Forge, so a listing gets no more.` : `Trading got up to ${price(z.fair)} on half the last 14 days.`}${z.minVolume > 1 ? ` The bid takes at least ${units(z.minVolume)} at a time.` : ''} Selling into a bid costs sales tax, no broker fee.`) + '<br>',
     ].join('');
   }
   const g = f.safety;

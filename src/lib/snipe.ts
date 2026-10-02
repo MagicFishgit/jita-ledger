@@ -64,12 +64,20 @@ export type SnipeListing = {
   cheapest: number;
   /** The dearest of the orders worth buying. */
   top: number;
-  /** Where to relist: one step under the next listing, never above where trading reaches on half the days. */
+  /**
+   * Where to relist: one step under the next listing, never above where trading reaches on half the days, nor above what
+   * NPCs sell it for anywhere in The Forge (`npc`).
+   */
   resale: number;
   /** Where the bulk of trading got up to on half the last 14 days. */
   fair: number;
   /** The next listing after the cheap ones, if any. */
   nextAsk: number | null;
+  /**
+   * The lowest price NPCs sell it at anywhere in The Forge, when they do (outside Jita: an NPC seller in Jita keeps an item
+   * out altogether). Absent on a read from a Worker before it looked.
+   */
+  npc?: number;
   /** When the cheapest one was priced (ESI's `issued`: a price change moves it). */
   pricedAt: string;
   /** Someone has already bought part of one of them. */
@@ -87,25 +95,28 @@ export type SnipeListing = {
 
 /**
  * The cheap end of one item's Jita sells, if it's worth buying out and relisting. `sells` is sorted cheapest first
- * and may be cut short (`more`): a run of cheap orders that fills everything kept is a flood, not a mistake.
+ * and may be cut short (`more`): a run of cheap orders that fills everything kept is a flood, not a mistake. `npc` is the
+ * lowest price NPCs sell it at anywhere in The Forge: a resale never goes above it, since buyers can have all they want
+ * there (Command Carriers: NPCs at 2,500 M in 12 stations, while trading got up to 2,749.5 M on half of 14 days).
  */
-export function findListing(typeId: number, sells: SnipeOrder[], more: boolean, s: SnipeStats | undefined, now: number): SnipeListing | null {
+export function findListing(typeId: number, sells: SnipeOrder[], more: boolean, s: SnipeStats | undefined, now: number, npc?: number | null): SnipeListing | null {
   if (!sells.length || !s?.highs14) return null;
   const fair = reachedAsk(s.highs14);
   if (fair == null) return null;
+  const cap = npc != null && npc > 0 ? Math.min(fair, npc) : fair;
   const keep = 1 - BASE_RATES.f - BASE_RATES.t;
   let j = 0;
   while (j < sells.length) {
     const p = sells[j].price;
     const next = sells.slice(j + 1).find((o) => o.price > p);
-    const resale = Math.min(fair, next ? tickDown(next.price) : fair);
+    const resale = Math.min(cap, next ? tickDown(next.price) : cap);
     if (resale * keep < p * (1 + SNIPE_FLOOR.margin)) break;
     j++;
   }
   if (!j || (j === sells.length && more)) return null;
   const bought = sells.slice(0, j);
   const nextAsk = j < sells.length ? sells[j].price : null;
-  const resale = Math.min(fair, nextAsk != null ? tickDown(nextAsk) : fair);
+  const resale = Math.min(cap, nextAsk != null ? tickDown(nextAsk) : cap);
   const units = bought.reduce((n, o) => n + o.units, 0);
   const cost = bought.reduce((n, o) => n + o.price * o.units, 0);
   if (units * resale * keep - cost < SNIPE_FLOOR.profit) return null;
@@ -119,23 +130,27 @@ export function findListing(typeId: number, sells: SnipeOrder[], more: boolean, 
   if (bought.length >= SEVERAL) doubts.push('several');
   return {
     typeId, orderIds: bought.map((o) => o.id), units, cost, cheapest: bought[0].price, top: bought[bought.length - 1].price,
-    resale, fair, nextAsk, pricedAt, partly: bought.some((o) => o.units < o.total),
+    resale, fair, nextAsk, ...(npc != null && npc > 0 ? { npc } : {}), pricedAt, partly: bought.some((o) => o.units < o.total),
     perDay, daysTraded: s.daysTraded ?? 0, lastMove: s.lastMove ?? null, doubts,
   };
 }
 
-/** A Jita bid, kept when it pays more than listing where the item trades would: for someone who holds the item. */
-export type SnipeBid = { typeId: number; orderId: number; price: number; units: number; minVolume: number; fair: number; issued: string; doubts: Doubt[] };
+/**
+ * A Jita bid, kept when it pays more than listing where the item trades would: for someone who holds the item. `fair` is
+ * what listing it would fetch: where trading got up to on half the days, or the NPCs' price in The Forge (`npc`) if lower.
+ */
+export type SnipeBid = { typeId: number; orderId: number; price: number; units: number; minVolume: number; fair: number; issued: string; doubts: Doubt[]; npc?: number };
 
-export function findBid(typeId: number, bid: { id: number; price: number; units: number; minVolume: number; issued: string }, s: SnipeStats | undefined): SnipeBid | null {
+export function findBid(typeId: number, bid: { id: number; price: number; units: number; minVolume: number; issued: string }, s: SnipeStats | undefined, npc?: number | null): SnipeBid | null {
   if (!s?.highs14) return null;
-  const fair = reachedAsk(s.highs14);
-  if (fair == null) return null;
+  const reached = reachedAsk(s.highs14);
+  if (reached == null) return null;
+  const fair = npc != null && npc > 0 ? Math.min(reached, npc) : reached;
   if (bid.price * (1 - BASE_RATES.t) < fair * (1 - BASE_RATES.f - BASE_RATES.t) * (1 + SNIPE_FLOOR.margin)) return null;
   const doubts: Doubt[] = [];
   if ((s.lastMove ?? 0) > MOVED) doubts.push('moved');
   if ((s.daysTraded ?? 0) < THIN_DAYS) doubts.push('thin');
-  return { typeId, orderId: bid.id, price: bid.price, units: bid.units, minVolume: bid.minVolume, fair, issued: bid.issued, doubts };
+  return { typeId, orderId: bid.id, price: bid.price, units: bid.units, minVolume: bid.minVolume, fair, issued: bid.issued, doubts, ...(npc != null && npc > 0 ? { npc } : {}) };
 }
 
 /** One read of the book, as the cloud keeps it. */

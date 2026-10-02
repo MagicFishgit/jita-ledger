@@ -1,7 +1,8 @@
-import type { BookLevel, HistRow, ProspectFilters, ProspectStats, ProspectWarning } from './types';
+import type { BookLevel, HistRow, ProspectFilters, ProspectStats, ProspectWarning, SellsTo } from './types';
 import { buyerShare } from './split';
 import { askBothWindows, askReachDays, bidBothWindows, bidReachDays, FILL_RARE, reachedAsk, recentAskReach, recentBidReach, recentRange, RECENT_MIN } from './fills';
 import { tickDown, tickUp } from './tick';
+import { isk } from './format';
 
 const DAY = 86400_000;
 const dayKey = (t: number) => new Date(t).toISOString().slice(0, 10);
@@ -396,6 +397,29 @@ export function isWall(levels: BookLevel[], unitsPerDay?: number): boolean {
  */
 export const BOOK_LEVELS = 7;
 
+/** Where a sell queue is counted to: the price the bulk of trading got up to on FILL_RARE of the last 14 days. */
+export const queueCeiling = (highs: (number | null)[]): number | null => reachedAsk(highs, FILL_RARE);
+
+/**
+ * How far past the best ask the cloud's full scan keeps an item's Jita listings while it reads the book, to count the
+ * queue (`sellsToOf`). On the whole Forge book of 2 October 2026, 192,167 of Jita's 223,245 sell prices sat within twice
+ * their item's best ask; a listing dearer than that is no queue anyone selling at the front waits in. A ceiling past it
+ * (a fat finger at the front) is counted only this far, and says "at least".
+ */
+export const SELLS_COUNTED_TO = 2;
+
+/**
+ * The units listed at or under the queue's ceiling, from a whole sell side's prices ([price, units], any order): what the
+ * full scan keeps beside the seven levels. Counted no further than SELLS_COUNTED_TO times the best ask, which is all the
+ * scan keeps, and the price it was counted to says so.
+ */
+export function sellsToOf(side: Iterable<[number, number]>, bestSell: number, ceiling: number): SellsTo {
+  const price = Math.min(ceiling, SELLS_COUNTED_TO * bestSell);
+  let units = 0;
+  for (const [p, u] of side) if (p <= price) units += u;
+  return { price, units };
+}
+
 /**
  * The stock a listing at `sell` queues with, from a book summary's sell levels (cheapest first). `front` is one step under
  * the best ask, where a listing at the front goes.
@@ -409,12 +433,33 @@ export const BOOK_LEVELS = 7;
  *
  * `atLeast`: the summary kept all BOOK_LEVELS prices it keeps and every one is under the ceiling, so the side may hold
  * more. With fewer levels, the side was read whole and the count is exact.
+ *
+ * `sellsTo`, the cloud scan's count over the whole side, settles that case: counted to this queue's own ceiling it is the
+ * count (`countedTo`), exact; counted to a lower price (twice the best ask, or a ceiling worked out before the browser's
+ * own watched highs raised it), at least that. A live book merged over the scan's can hold more than the morning's count,
+ * so the levels still win where they're more, as a lower bound. Counted past the ceiling, it can't be cut back, and the
+ * levels answer as before. Absent (a Worker a version behind, the browser's own scan, the alert round's books), nothing
+ * changes.
  */
-export function listedQueue(topSells: BookLevel[], sell: number, front: number, highs?: (number | null)[] | null): { units: number; atLeast: boolean; upTo: number } {
-  const rare = sell >= front && highs ? reachedAsk(highs, FILL_RARE) : null;
+export function listedQueue(topSells: BookLevel[], sell: number, front: number, highs?: (number | null)[] | null, sellsTo?: SellsTo | null): { units: number; atLeast: boolean; upTo: number; countedTo?: number } {
+  const rare = sell >= front && highs ? queueCeiling(highs) : null;
   const upTo = rare != null && rare > sell ? rare : sell;
   const within = topSells.filter((l) => l.price <= upTo);
-  return { units: within.reduce((t, l) => t + l.volume, 0), atLeast: topSells.length >= BOOK_LEVELS && within.length === topSells.length, upTo };
+  const units = within.reduce((t, l) => t + l.volume, 0);
+  const atLeast = topSells.length >= BOOK_LEVELS && within.length === topSells.length;
+  if (!atLeast || !sellsTo || !(sellsTo.price <= upTo) || !(sellsTo.units >= 0)) return { units, atLeast, upTo };
+  return { units: Math.max(units, sellsTo.units), atLeast: sellsTo.price < upTo || units > sellsTo.units, upTo, countedTo: sellsTo.price };
+}
+
+/**
+ * How a Long queue's count was made, for its tip: over the whole sell side by the cloud's daily scan (`countedTo`), or from
+ * the book summary's cheapest BOOK_LEVELS prices; and whether there are likely more. Empty when the levels read the side
+ * whole.
+ */
+export function queueCountSaid(q: { atLeast: boolean; upTo: number; countedTo?: number }): string {
+  if (q.countedTo != null && q.countedTo < q.upTo) return ` The cloud’s daily scan counted every listing up to ${isk(q.countedTo)}, so there are likely more.`;
+  if (q.countedTo != null && !q.atLeast) return ' Every listing up to there was counted when the cloud’s daily scan read the whole book.';
+  return q.atLeast ? ` The scan keeps the cheapest ${BOOK_LEVELS} prices a side, and every one is under it, so there are likely more.` : '';
 }
 
 /**

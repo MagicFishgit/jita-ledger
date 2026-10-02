@@ -98,6 +98,8 @@ const PROOF = { small: 'Hammerhead II', large: 'Test Item' };
  * - 990105: 6,000 units listed at the best ask, where trading reaches, against 300 a day bought from listings (history's
  *   even guess on 600 a day): 20 days of buyers, "Long queue" on Prospects and in the planner's Flags column. With
  *   "Leave out flagged items" on, the planner leaves it out with 990102 and says so by flag (PLANNER_SWITCH).
+ * - 990106: priced like 990101, but NPCs sell it elsewhere in The Forge at 1.3 M, under the 1,399,000 it would list at
+ *   (`npcAnywhere`, the cloud scan's note): left out of Prospects and the planner, as Command Carriers was on 2 October 2026.
  */
 function planScan(now) {
   const day = (i) => new Date(now - i * 86400_000).toISOString().slice(0, 10);
@@ -117,13 +119,14 @@ function planScan(now) {
     990103: [stats(990103, flat(1 * M), flat(1.4 * M), { runUp: 0.8, runUpBase: 0.8 * M }), book(990103, 1 * M, 1.4 * M)],
     990104: [stats(990104, flat(1 * M), flat(1.4 * M), { runUp: undefined, runUpBase: undefined }), book(990104, 1 * M, 1.4 * M)],
     990105: [stats(990105, flat(1 * M), flat(1.4 * M)), { ...book(990105, 1 * M, 1.4 * M), topSells: [{ price: 1.4 * M, volume: 6000 }, { price: 1.401 * M, volume: 6000 }] }],
+    990106: [stats(990106, flat(1 * M), flat(1.4 * M)), { ...book(990106, 1 * M, 1.4 * M), npcAnywhere: 1.3 * M }],
   };
   const busy = { h: 15, sell: 18, buy: 6, newSell: 37, newBuy: 15, frontSell: 2, frontBuy: 2, repriceSell: 0, repriceBuy: 0 };
   return {
     prospects: {
       stats: Object.fromEntries(Object.entries(items).map(([t, [st]]) => [t, st])),
       books: Object.fromEntries(Object.entries(items).map(([t, [, b]]) => [t, b])),
-      sample: { at: new Date(now - 3600_000).toISOString(), totalPages: 400, sampledPages: 400, minSampled: 1, counts: { 990101: 60, 990102: 60, 990103: 60, 990104: 60, 990105: 60 } },
+      sample: { at: new Date(now - 3600_000).toISOString(), totalPages: 400, sampledPages: 400, minSampled: 1, counts: { 990101: 60, 990102: 60, 990103: 60, 990104: 60, 990105: 60, 990106: 60 } },
       runs: { cloud: new Date(now - 3600_000).toISOString() },
     },
     flow: { log: { 990101: { [day(1)]: busy, [day(0)]: busy } }, ends: {} },
@@ -131,8 +134,8 @@ function planScan(now) {
 }
 /** What the large ledger's Prospects and planner must draw from that scan, and what the planner's mix must not hold. */
 const PLAN_PROOF = {
-  prospects: { drawn: ['Ran up lately', 'Bids not reached', 'Long queue'] },
-  planner: { drawn: ['Raises kept back', 'Bids not reached', 'Long queue'], note: 'Scan again before investing', absent: ['Ran up lately'] },
+  prospects: { drawn: ['Ran up lately', 'Bids not reached', 'Long queue'], absent: ['990106'] },
+  planner: { drawn: ['Raises kept back', 'Bids not reached', 'Long queue'], note: 'Scan again before investing', absent: ['Ran up lately', '990106'] },
 };
 /**
  * The planner again with "Leave out flagged items" switched on (kept per browser, read as the page opens): the flagged
@@ -561,8 +564,11 @@ try {
     const read = { at: iso(now - 60_000), expires: iso(now + 240_000), pages: 406, bids: [], listings: [
       L(6721, 7, 133, 7_811_090, 58_730, 98_850, 98_935, 98_860, 100, 30), L(17771, 23, 6, 18_000_000, 3_000_000, 3_990_000, 3_990_000, 4_798_000, 4, 19),
       L(29001, 8, 496, 3_537_968, 7_133, 12_290, 12_360, 12_300, 2544, 30), L(990, 9, 8, 51_200_000, 6_400_000, 8_473_000, 8_479_000, 8_474_000, 3, 30),
-      L(46233, 9, 137, 137_000_000, 1_000_000, 1_200_000, 1_200_000, 1_495_000, 5, 23, ['flood']), L(16243, undefined, 5, 40_000_000, 8_000_000, 10_990_000, 12_000_000, 11_000_000, 3, 30)] };
-    const names = { 6721: 'Small Focused Anode Particle Stream I', 17771: 'Medium AutoCannon Battery', 29001: 'Tracking Speed Script', 990: 'Epithal Blueprint', 46233: 'Synth Blue Pill Booster Reaction Formula', 16243: 'Thrasher Blueprint' };
+      L(46233, 9, 137, 137_000_000, 1_000_000, 1_200_000, 1_200_000, 1_495_000, 5, 23, ['flood']), L(16243, undefined, 5, 40_000_000, 8_000_000, 10_990_000, 12_000_000, 11_000_000, 3, 30),
+      // A Command Carriers listed at 2,000 M (invented) under Jita's real 2,800 M: relisted at NPCs' 2,500 M elsewhere in The
+      // Forge, under the 2,749.5 M trading got up to (the cloud's read of 2 October 2026).
+      { ...L(93983, 16, 1, 2e9, 2e9, 2.5e9, 2.7495e9, 2.8e9, 6.5, 30), npc: 2.5e9 }] };
+    const names = { 6721: 'Small Focused Anode Particle Stream I', 17771: 'Medium AutoCannon Battery', 29001: 'Tracking Speed Script', 990: 'Epithal Blueprint', 46233: 'Synth Blue Pill Booster Reaction Formula', 16243: 'Thrasher Blueprint', 93983: 'Command Carriers' };
     const ledger = { names, alerts: { snipeMinIsk: 1e6, snipeMinPct: 5 }, meta: { walletBalance: 1e9, lastSync: iso(now - 600_000) } };
     const page = await browser.newPage(VIEW);
     // What the page puts on the clipboard, kept where the check can read it.
@@ -605,7 +611,9 @@ try {
     await page.waitForTimeout(1200);
     if (!typeAsked) problems.push('the Thrasher, with no category from the cloud, was never looked up');
     if (await page.locator('button[role="checkbox"]:has-text("Include blueprints")').getAttribute('aria-checked') !== 'false') problems.push('blueprints are in by default');
-    for (const n of [names[6721], names[17771], names[29001]]) if (!(await inWorth(n))) problems.push(`not drawn in Worth sniping: ${n}`);
+    for (const n of [names[6721], names[17771], names[29001], names[93983]]) if (!(await inWorth(n))) problems.push(`not drawn in Worth sniping: ${n}`);
+    // Its relist says why it's under where trading got up to.
+    if (!(await worth.locator('table tbody tr', { hasText: names[93983] }).filter({ hasText: 'NPCs sell at 2,500,000,000 ISK' }).count())) problems.push('not drawn: “NPCs sell at 2,500,000,000 ISK” under the Command Carriers relist');
     for (const n of [names[990], names[16243]]) if (await inWorth(n)) problems.push(`a blueprint in Worth sniping with the switch off: ${n}`);
     if (!(await worth.locator('.note', { hasText: '2 blueprints clear your bar too, left out' }).count())) problems.push('not drawn: “2 blueprints clear your bar too, left out”');
     if (SHOTS) await page.screenshot({ path: `${SHOTS}-blueprints-off.png` });
@@ -621,11 +629,11 @@ try {
     await page.locator('button[role="checkbox"]:has-text("Include blueprints")').click();
     await page.waitForTimeout(800);
     for (const n of [names[990], names[16243]]) if (!(await inWorth(n))) problems.push(`not drawn in Worth sniping with the switch on: ${n}`);
-    await worth.getByRole('button', { name: /Copy all 5 for Multibuy/ }).click().catch((e) => problems.push(`couldn't copy all: ${e.message.split('\n')[0]}`));
+    await worth.getByRole('button', { name: /Copy all 6 for Multibuy/ }).click().catch((e) => problems.push(`couldn't copy all: ${e.message.split('\n')[0]}`));
     await page.waitForTimeout(400);
     copied = await page.evaluate(() => window.__copied);
     const lines = (copied.at(-1) ?? '').split('\n');
-    if (lines.length !== 5 || !lines.includes(`${names[990]} 8`) || !lines.includes(`${names[16243]} 5`)) problems.push(`Copy all copied ${JSON.stringify(copied.at(-1))}`);
+    if (lines.length !== 6 || !lines.includes(`${names[990]} 8`) || !lines.includes(`${names[16243]} 5`)) problems.push(`Copy all copied ${JSON.stringify(copied.at(-1))}`);
     const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
     if (boundary) problems.push('error boundary');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out: ${o}`);
@@ -633,7 +641,7 @@ try {
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'sniper', page: 'sniper', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL sniper #sniper\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   sniper #sniper (blueprints out unless asked, the switch, Copy for Multibuy)\n');
+    process.stdout.write(unique.length ? `  FAIL sniper #sniper\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   sniper #sniper (blueprints out unless asked, the switch, Copy for Multibuy, a relist capped at the NPC price)\n');
     await page.close();
   }
   // The site is public: without the owner's login, only the landing page, with nothing of the ledger's in it and

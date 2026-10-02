@@ -301,7 +301,7 @@ export function Sniper() {
           <th scope="col" className="l">Item</th>
           <th scope="col" data-tip="The cheap orders to buy out. Buying from a listing costs no broker fee and no tax.">Listed</th>
           <th scope="col" data-tip="When the cheapest was priced. ESI moves this whenever the price changes, so it may be a reprice.">Priced</th>
-          <th scope="col" data-tip="Where to relist: one step under the next listing, never above where the bulk of trading got up to on half the last 14 days">Relist at</th>
+          <th scope="col" data-tip="Where to relist: one step under the next listing, never above where the bulk of trading got up to on half the last 14 days, nor above what NPCs sell it for anywhere in The Forge">Relist at</th>
           <th scope="col">Costs</th>
           <th scope="col" data-tip="After your broker fee and sales tax on the relist">Profit</th>
           <th scope="col" data-tip="How long the relisted stock takes to sell at your share of the item's trading">Sells in</th>
@@ -319,7 +319,7 @@ export function Sniper() {
                   {isk(x.resale)}
                   <button type="button" className="link-btn dim" aria-label={`Copy ${plainPrice(x.resale)}`} data-tip="Copy the price, to paste into the game rather than type it" onClick={() => copyPrice(x.resale)}><Copy aria-hidden="true" /></button>
                 </span>
-                <span className="sub">{x.resale < x.fair && x.nextAsk != null ? `next listing ${isk(x.nextAsk)}` : `trades to ${isk(x.fair)}`}</span>
+                <span className="sub">{x.npc != null && x.resale >= x.npc ? `NPCs sell at ${isk(x.npc)}` : x.resale < x.fair && x.nextAsk != null ? `next listing ${isk(x.nextAsk)}` : `trades to ${isk(x.fair)}`}</span>
               </td>
               <td>{iskBig(x.cost)}</td>
               <td style={{ color: x.profit > 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{iskBig(x.profit)}<span className="sub">{pct(x.pct, 0)}</span></td>
@@ -344,7 +344,7 @@ export function Sniper() {
           <th scope="col" className="l">Item</th><th scope="col">You hold</th>
           <th scope="col" data-tip="The best Jita bid, and the fewest units it takes at once">Bid</th>
           <th scope="col" data-tip="Selling into a bid costs sales tax, no broker fee">You get</th>
-          <th scope="col" data-tip="More than listing where the bulk of trading got up to on half the last 14 days would get, after fees">Over listing</th>
+          <th scope="col" data-tip="More than listing where the bulk of trading got up to on half the last 14 days would get, after fees (or at what NPCs sell it for in The Forge, if that’s less)">Over listing</th>
           <th scope="col"><span className="sr-only">Actions</span></th>
         </tr></thead>
         <tbody>
@@ -473,7 +473,7 @@ export function Sniper() {
         steps={[
           { icon: Eye, title: 'Check it’s still there', body: 'The book the cloud reads is up to five minutes old, and players watching the market in game see mistakes at once. Open the market first.' },
           { icon: Tag, title: 'Buy the listed units', body: 'Buying from a listing costs nothing but its price: no broker fee, no tax. Buy the cheap orders shown, not the ones above them.' },
-          { icon: Repeat, title: 'Relist at the price shown', body: 'One step under the next listing, never above where trading reaches on half the days. The profit already counts your broker fee and sales tax.' },
+          { icon: Repeat, title: 'Relist at the price shown', body: 'One step under the next listing, never above where trading reaches on half the days, nor above what NPCs sell it for anywhere in The Forge. The profit already counts your broker fee and sales tax.' },
           { icon: Hand, title: 'Or sell into a high bid', body: 'A bid well over the going rate for something in your hangar pays at once, for tax only. Watch the minimum a bid takes at a time.' },
           { icon: ShieldAlert, title: 'Why some are left out', body: 'A flood (days of the item’s trading at one price), an item whose price just moved, a thin history, a listing days old or several sellers at one price all mean the market may know better than the history does.' },
           { icon: Clock, title: 'It runs while you play', body: 'Every five minutes, whether or not the app is open. Mail brings the ones that clear your bar into the game.' },

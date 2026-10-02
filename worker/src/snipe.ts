@@ -70,8 +70,16 @@ export async function sniperRound(env: Env, now = Date.now()) {
   const sells = new Map<number, SnipeOrder[]>();
   const more = new Set<number>();
   const npc = new Set<number>();
+  // NPC sellers anywhere in The Forge, the lowest price for each item: a resale is never valued above it. Read from this
+  // read of the book rather than the daily scan's: it costs one map, is five minutes old rather than a day, and needs no
+  // scan row for the item.
+  const npcAt = new Map<number, number>();
   const bids = new Map<number, Bid>();
   const fold = (o: RawOrder) => {
+    if (!o.is_buy_order && (o.duration ?? 0) >= NPC_DURATION) {
+      const was = npcAt.get(o.type_id);
+      if (was == null || o.price < was) npcAt.set(o.type_id, o.price);
+    }
     if (o.location_id !== JITA_44) return;
     if (o.is_buy_order) {
       const b = bids.get(o.type_id);
@@ -125,7 +133,7 @@ export async function sniperRound(env: Env, now = Date.now()) {
   }
   const listings: SnipeListing[] = [];
   for (const t of candidates) {
-    const x = findListing(t, sells.get(t)!, more.has(t), stats.get(t), now);
+    const x = findListing(t, sells.get(t)!, more.has(t), stats.get(t), now, npcAt.get(t));
     if (x) listings.push(x);
   }
   // Each listing's category, for leaving blueprints out unless asked (page and mail alike): kept in D1, so only types
@@ -134,7 +142,7 @@ export async function sniperRound(env: Env, now = Date.now()) {
   for (const l of listings) l.category = kinds.get(l.typeId) ?? null;
   const kept: SnipeBid[] = [];
   for (const t of held) {
-    const x = findBid(t, bids.get(t)!, stats.get(t));
+    const x = findBid(t, bids.get(t)!, stats.get(t), npcAt.get(t));
     if (x) kept.push(x);
   }
   const read: SnipeRead = { at: new Date(now).toISOString(), expires: first.expires ?? null, pages: first.pages, listings, bids: kept };
@@ -219,8 +227,8 @@ async function mailLedger(env: Env, charId: number, read: SnipeRead, stock: Stoc
       const name = names[x.typeId] ?? `Item #${x.typeId}`;
       return {
         kind: 'snipe', key: `snipe:${x.orderIds[0]}@${x.cheapest}`, title: 'Mistake listing', typeId: x.typeId, name, isk: x.profit,
-        text: `${name}: ${x.units.toLocaleString('en-US')} listed at ${price(x.cheapest)} where it trades at ${price(x.fair)}. Buy and relist at ${price(x.resale)} for ${iskBig(x.profit)} after fees.`,
-        snipe: { side: 'buy', units: x.units, cheapest: x.cheapest, top: x.top, cost: x.cost, resale: x.resale, fair: x.fair, nextAsk: x.nextAsk, profit: x.profit, pct: x.pct, pricedAt: x.pricedAt, orders: x.orderIds.length, sellDays: x.sellDays },
+        text: `${name}: ${x.units.toLocaleString('en-US')} listed at ${price(x.cheapest)} where it trades at ${price(x.fair)}. Buy and relist at ${price(x.resale)}${x.npc != null && x.resale >= x.npc ? ', what NPCs sell it for elsewhere in The Forge,' : ''} for ${iskBig(x.profit)} after fees.`,
+        snipe: { side: 'buy', units: x.units, cheapest: x.cheapest, top: x.top, cost: x.cost, resale: x.resale, fair: x.fair, nextAsk: x.nextAsk, profit: x.profit, pct: x.pct, pricedAt: x.pricedAt, orders: x.orderIds.length, sellDays: x.sellDays, ...(x.npc != null ? { npc: x.npc } : {}) },
       };
     }),
     ...heldRows.map((x): Finding => {
@@ -228,7 +236,7 @@ async function mailLedger(env: Env, charId: number, read: SnipeRead, stock: Stoc
       return {
         kind: 'snipe', key: `snipebid:${x.orderId}@${x.price}`, title: 'High bid for what you hold', typeId: x.typeId, name, isk: x.gain,
         text: `${name}: a bid at ${price(x.price)} for what you hold, well over where it trades (${price(x.fair)}). Selling ${x.qty.toLocaleString('en-US')} into it gets ${iskBig(x.gain)} more than listing.`,
-        snipe: { side: 'sell', qty: x.qty, held: x.held, price: x.price, proceeds: x.proceeds, gain: x.gain, fair: x.fair, minVolume: x.minVolume },
+        snipe: { side: 'sell', qty: x.qty, held: x.held, price: x.price, proceeds: x.proceeds, gain: x.gain, fair: x.fair, minVolume: x.minVolume, ...(x.npc != null ? { npc: x.npc } : {}) },
       };
     }),
   ];

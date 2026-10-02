@@ -8,7 +8,7 @@ import { BUSY_SHOWN, CLOUD_FRESH_HOURS, DEFAULT_FILTERS, expectedEdge, passesGat
 import { cacheStore, getData } from './store';
 import { toast } from './toast';
 import { watchedDays, watchedFlow } from './flowStore';
-import { judgeProspect, type Book } from './evaluate';
+import { judgeProspect, overScan, type Book } from './evaluate';
 import type { ScanRuns } from './prospects';
 import type { Prospect, ProspectFilters, ProspectStats } from './types';
 
@@ -98,8 +98,8 @@ export async function mergeLiveBooks(live: Record<number, Book>): Promise<number
     const t = Number(id);
     const cur = cache.books[t];
     if (!cache.stats[t] || (cur && Date.parse(cur.at) >= Date.parse(b.at))) continue;
-    // The watch's summary doesn't know NPC sellers; the scan's does.
-    cache.books[t] = { ...b, npcSell: cur?.npcSell ?? b.npcSell };
+    // The watch's summary doesn't know NPC sellers, or the whole sell side; the scan's does.
+    cache.books[t] = overScan(b, cur);
     n++;
   }
   if (n) { await saveCache(cache); setState({ saved: state.saved + 1 }); }

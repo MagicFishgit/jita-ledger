@@ -256,6 +256,15 @@ export function Calculator({ route }: { route: Route }) {
             <span><b>NPCs sell this.</b> They sell it in Jita at a fixed price, in unlimited supply. Players rarely sell below that, so a buy order won’t fill, and there’s nothing cheaper to buy and resell. Neither side of this trade works.</span>
           </div>
         )}
+        {!snap?.npcSell && snap?.npcAnywhere != null && (
+          <div className="msg" role="note" style={cssVars({ flexBasis: '100%', '--c': tr.sell >= snap.npcAnywhere ? 'var(--neg)' : 'var(--acc2)' })}>
+            <CircleAlert aria-hidden="true" />
+            <span>
+              <b>NPCs sell this elsewhere in The Forge,</b> at {isk(snap.npcAnywhere)} in unlimited supply. Buyers can have all they want there, so a listing in Jita at or over that price waits on the few who won’t travel.
+              {tr.sell >= snap.npcAnywhere ? ' Your sell price is at or over it.' : ''} Prospects and the Capital planner leave it out wherever they’d resell at or over that.
+            </span>
+          </div>
+        )}
         {!snap?.npcSell && reach != null && reach < FILL_RARE && (
           <div className="msg" role="note" style={cssVars({ flexBasis: '100%', '--c': 'var(--acc2)' })}>
             <CircleAlert aria-hidden="true" />

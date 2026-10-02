@@ -4057,6 +4057,120 @@ console.log('\n--- a long sell queue, a stricter run-up for Place and leave, and
   eq('  nothing passed at all is not everything flagged', Pl.plannerPool([], true).allFlagged, false);
 }
 
+console.log('\n--- an NPC seller anywhere in The Forge caps the resale; the scan counts the whole sell queue (2 October 2026) ---');
+{
+  const fs6 = await import('node:fs');
+  // Read on 2 October 2026, all read-only: the cloud's full scan of 11:25 UTC, ESI's history, the whole Forge book at
+  // 12:05 UTC and the Arbalest's whole Jita sell side at 11:34 UTC (scripts/fixtures/npc-anywhere.json).
+  const fx = JSON.parse(fs6.readFileSync(new URL('./fixtures/npc-anywhere.json', import.meta.url), 'utf8'));
+  const P = await import('../src/lib/prospects.ts');
+  const { judgeProspect } = await import('../src/lib/evaluate.ts');
+  const Pl = await import('../src/lib/planner.ts');
+  const Sn = await import('../src/lib/snipe.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const S = sanitizeSettings({ acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, tycoon: 0, clone: 'omega', faction: 3.6289558729999998, corp: 7.039647095, taxBase: 7.5, override: false, target: 5, share: 7.5 });
+  // The user's saved Prospects filters (the cloud's `watch` doc), for the Busy markets view.
+  const saved = { ...DEFAULT_FILTERS, budget: 1e9, horizonDays: 14, minTrades: 5, minDays: 20, minRoi: 0.03, maxSpikiness: 0.5 };
+  const it = fx.items;
+  const npcOf = (t) => Math.min(...it[t].npc.map(([, price]) => price));
+  const withNpc = (t) => ({ ...it[t].book, npcAnywhere: npcOf(t) });
+
+  // Command Carriers: 12 NPC orders in other Forge stations at 2,500 M, none in Jita (so Jita's npcSell never saw them),
+  // while Jita's player listings start at 2,800 M and the Forge traded at exactly 2,500 M on 7 of 14 days.
+  const cc = it[93983];
+  eq('Command Carriers: NPCs sell it in 12 other Forge stations at 2,500 M, none in Jita', [cc.npc.length, npcOf(93983), cc.jita.some(([b, , , , d]) => !b && d >= 365), cc.book.npcSell], [12, 2.5e9, false, false]);
+  // One book is 2,500 M, so a budget the user's 2,042 M wallet can't reach: the planner at 3 B.
+  const big = Pl.plannerFilters(null, 3e9, 7);
+  const ccOld = judgeProspect(cc.stats, cc.book, S, big, cc.orders);
+  eq('  without the NPC price (a summary from a Worker a version behind): bought at 2,500 M to resell at 2,749.5 M', [ccOld?.buy, ccOld?.sell], [2.5e9, 2.7495e9]);
+  eq('  with it, left out: NPCs sell it at 2,500 M, under where you\'d resell', judgeProspect(cc.stats, withNpc(93983), S, big, cc.orders), null);
+  eq('  an NPC price over where you\'d resell leaves it in', judgeProspect(cc.stats, { ...cc.book, npcAnywhere: 2.8e9 }, S, big, cc.orders)?.sell, 2.7495e9);
+  eq('  and at exactly the resale it\'s out ("at or under")', judgeProspect(cc.stats, { ...cc.book, npcAnywhere: 2.7495e9 }, S, big, cc.orders), null);
+  // Capital Ships (NPCs 450 M) and Amarr Carrier (550 M): at the front, trading already reaches the NPC price and the
+  // margin is gone; the Busy markets view prices the top of the book, 487.9 M and 588.7 M, and showed them.
+  const busy = { ...saved, busy: true, partial: true };
+  for (const [t, top, npc] of [[20533, 487.9e6, 450e6], [24311, 588.7e6, 550e6]]) {
+    const x = it[t];
+    eq(`  ${x.name}: shown in Busy markets at ${top / 1e6} M without the NPC price`, judgeProspect(x.stats, x.book, S, busy, x.orders, true)?.sell, top);
+    eq(`    left out with NPCs selling at ${npc / 1e6} M elsewhere in The Forge`, [npcOf(t), judgeProspect(x.stats, withNpc(t), S, busy, x.orders, true)], [npc, null]);
+  }
+  // Neurotoxin Recovery: no NPC orders anywhere in The Forge, 718 units in 14 days: a real player market. Its book read
+  // every listing as bought (44 sold from listings, none into bids), so with the book's split nothing reaches a buy order;
+  // history's split (56% buyers) prices it placed and left, 75.13 M to 88.88 M, and that's what the NPC rule must leave alone.
+  const nr = it[25530];
+  const nrBook = { ...nr.book, sold: undefined };
+  const leave = Pl.plannerFilters(null, 3e9, 7, true);
+  const nrP = judgeProspect(nr.stats, nrBook, S, leave, nr.orders);
+  eq('Neurotoxin Recovery: no NPC orders anywhere, so kept, exactly as before', [nr.npc.length, nrP?.buy, nrP?.sell, JSON.stringify(judgeProspect(nr.stats, { ...nrBook, npcAnywhere: undefined }, S, leave, nr.orders)) === JSON.stringify(nrP)], [0, 75.13e6, 88.88e6, true]);
+
+  // The Sniper: a listing well under where Command Carriers trades (a mistake at 2,000 M, invented to test the rule; the
+  // next listing is the real 2,800 M) relists at most at the NPC price, never at the 2,749.5 M trading reached.
+  const now = Date.parse('2026-10-02T12:10:00Z');
+  const O = (id, price, units) => ({ id, price, units, total: units, issued: '2026-10-02T12:00:00Z' });
+  const ccSt = { highs14: cc.stats.highs14, unitsPerDay: cc.stats.unitsPerDay, daysTraded: cc.stats.daysTraded, lastMove: cc.stats.lastMove };
+  const free = Sn.findListing(93983, [O(1, 2e9, 1), O(2, 2.8e9, 1)], false, ccSt, now);
+  const capped = Sn.findListing(93983, [O(1, 2e9, 1), O(2, 2.8e9, 1)], false, ccSt, now, 2.5e9);
+  eq('the Sniper relists a Command Carriers at 2,749.5 M where trading reached, but at 2,500 M where NPCs sell it', [free?.resale, free?.npc, capped?.resale, capped?.npc], [2.7495e9, undefined, 2.5e9, 2.5e9]);
+  eq('  a listing that pays against where it trades but not against the NPC price is no snipe', [!!Sn.findListing(93983, [O(1, 2.4e9, 1), O(2, 2.8e9, 1)], false, ccSt, now), Sn.findListing(93983, [O(1, 2.4e9, 1), O(2, 2.8e9, 1)], false, ccSt, now, 2.5e9)], [true, null]);
+  eq('  an NPC price over the resale changes nothing', Sn.findListing(93983, [O(1, 2e9, 1), O(2, 2.8e9, 1)], false, ccSt, now, 3e9)?.resale, 2.7495e9);
+  // A high bid for one you hold is set against listing it, which can't fetch more than the NPC price either.
+  const bid = { id: 9, price: 2.6e9, units: 1, minVolume: 1, issued: '2026-10-02T12:00:00Z' };
+  eq('  a 2,600 M bid beats listing at the NPC\'s 2,500 M, not at 2,749.5 M', [Sn.findBid(93983, bid, ccSt), Sn.findBid(93983, bid, ccSt, 2.5e9)?.fair, Sn.findBid(93983, bid, ccSt, 2.5e9)?.npc], [null, 2.5e9, 2.5e9]);
+  // The mail says why the relist is under where trading got up to, or it reads as a contradiction.
+  const { alertMail: mailNpc } = await import('../src/lib/alerts.ts');
+  const ccMail = mailNpc([{ kind: 'snipe', key: 'snipe:1@2000000000', title: 'Mistake listing', typeId: 93983, name: 'Command Carriers', isk: 390.6e6, text: 'x',
+    snipe: { side: 'buy', units: 1, cheapest: 2e9, top: 2e9, cost: 2e9, resale: capped.resale, fair: capped.fair, nextAsk: capped.nextAsk, profit: 390.6e6, pct: 0.195, pricedAt: '2026-10-02T12:00:00Z', orders: 1, sellDays: 2, npc: capped.npc } }],
+  { appUrl: 'https://x/', keepMin: 30, now });
+  has('  the mail relists at the NPC price and says why', ccMail.body, 'relist at 2,500,000,000 ISK');
+  has('    ', ccMail.body, 'NPCs sell it at 2,500,000,000 elsewhere in The Forge, so it relists no dearer');
+  const bidMail = mailNpc([{ kind: 'snipe', key: 'snipebid:9@2600000000', title: 'High bid for what you hold', typeId: 93983, name: 'Command Carriers', isk: 1, text: 'x',
+    snipe: { side: 'sell', qty: 1, price: 2.6e9, proceeds: 2.51e9, gain: 1, held: 1, fair: 2.5e9, minVolume: 1, npc: 2.5e9 } }], { appUrl: 'https://x/', keepMin: 30, now });
+  has('  and a high bid\'s says listing gets no more than the NPCs', bidMail.body, 'NPCs sell it at 2,500,000,000 elsewhere in The Forge, so a listing gets no more.');
+
+  // The whole-book count. 'Arbalest' Rapid Heavy Missile Launcher I on today's scan: the seven levels hold 2,781 units at
+  // 60,280-60,370, every one under where trading got up to on 4 of 14 days (62,910 with the cloud's watched highs).
+  const a = it[33440];
+  const watched = { days: a.flow, flow: observedFlow({ 33440: a.flow }, 33440, Date.parse('2026-10-02T12:00:00Z')) };
+  const fl = Pl.plannerFilters(null, 1e9, 7);
+  const arb7 = judgeProspect(a.stats, a.book, S, fl, a.orders, false, watched);
+  eq('the Arbalest on the seven levels alone: at least 2,781 up to 62,910, 11 days of buyers, not flagged',
+    [arb7.queue.units, arb7.queue.atLeast, arb7.queue.upTo, Math.round(arb7.queue.days), arb7.warnings.includes('longQueue')], [2781, true, 62_910, 11, false]);
+  const whole = fx.arbalestSells1134.filter(([p]) => p <= 62_910).reduce((t, [, u]) => t + u, 0);
+  const arbW = judgeProspect(a.stats, { ...a.book, sellsTo: { price: 62_910, units: whole } }, S, fl, a.orders, false, watched);
+  eq('  with the scan\'s whole-book count up to the same price (5,170 at 11:34): exact, 20 days, flagged Long queue',
+    [whole, arbW.queue.units, arbW.queue.atLeast, arbW.queue.countedTo, Math.round(arbW.queue.days), arbW.warnings.includes('longQueue')], [5170, 5170, false, 62_910, 20, true]);
+  eq('  a summary without the count (a Worker a version behind, the browser\'s own scan) is as before', JSON.stringify(judgeProspect(a.stats, { ...a.book, sellsTo: undefined }, S, fl, a.orders, false, watched)), JSON.stringify(arb7));
+
+  // listedQueue with the count: exact only where it was counted to the queue's own ceiling.
+  const lv = a.book.topSells;
+  const highs = [60_000, 62_910, 62_910, 62_910, 62_910, 60_000];
+  eq('the queue\'s ceiling is where trading got up to on FILL_RARE of the days', [P.queueCeiling(highs), P.queueCeiling([1, 2, 3])], [62_910, null]);
+  const lq = (sellsTo) => P.listedQueue(lv, 60_270, 60_270, highs, sellsTo);
+  eq('  counted to the ceiling: that count, exact', lq({ price: 62_910, units: 5170 }), { units: 5170, atLeast: false, upTo: 62_910, countedTo: 62_910 });
+  eq('  counted to a lower price (twice the best ask, or a ceiling without the watched highs): at least that', lq({ price: 60_950, units: 4657 }), { units: 4657, atLeast: true, upTo: 62_910, countedTo: 60_950 });
+  eq('  counted past the ceiling: the levels, as before', lq({ price: 70_000, units: 9000 }), { units: 2781, atLeast: true, upTo: 62_910 });
+  eq('  a live book holding more than the morning\'s count (merged over the scan\'s): at least the levels', lq({ price: 62_910, units: 2000 }), { units: 2781, atLeast: true, upTo: 62_910, countedTo: 62_910 });
+  eq('  where the levels already reach past the ceiling, they\'re exact and the count isn\'t needed', P.listedQueue([...lv.slice(0, 3), { price: 70_000, volume: 5 }], 60_270, 60_270, highs, { price: 62_910, units: 5170 }), { units: 353 + 186 + 13, atLeast: false, upTo: 62_910 });
+  // What the tip says of each.
+  has('  the tip: counted over the whole book', P.queueCountSaid({ atLeast: false, upTo: 62_910, countedTo: 62_910 }), 'counted when the cloud’s daily scan read the whole book');
+  has('    counted short of the ceiling: how far, and likely more', P.queueCountSaid({ atLeast: true, upTo: 62_910, countedTo: 60_950 }), 'counted every listing up to 60,950 ISK, so there are likely more');
+  has('    the seven levels alone, as before', P.queueCountSaid({ atLeast: true, upTo: 62_910 }), 'cheapest 7 prices a side, and every one is under it');
+  eq('    a side read whole says nothing more', P.queueCountSaid({ atLeast: false, upTo: 62_910 }), '');
+  // What the scan stores: every listing up to the ceiling, or up to SELLS_COUNTED_TO times the best ask where that's lower.
+  const side = [[60_280, 353], [60_330, 1808], [62_910, 9], [62_930, 3963], [130_000, 50]];
+  eq('the scan counts listings up to the ceiling', [P.SELLS_COUNTED_TO, P.sellsToOf(side, 60_280, 62_910)], [2, { price: 62_910, units: 2170 }]);
+  eq('  and no further than twice the best ask, which is all it keeps', P.sellsToOf([[30_000, 4], ...side], 30_000, 62_910), { price: 60_000, units: 4 });
+
+  // The cloud's five-minute watch sends live books for the best candidates, over the scan's: they hold only Jita's orders,
+  // so what the scan read of the whole region and the whole side stays with them.
+  const E = await import('../src/lib/evaluate.ts');
+  const live = { ...a.book, at: '2026-10-02T12:30:00.000Z', topSells: a.book.topSells.slice(1), npcSell: false };
+  const scanBook = { ...a.book, npcSell: false, npcAnywhere: 2.5e9, sellsTo: { price: 62_910, units: 5170 } };
+  eq('a live book merged over the scan\'s keeps its NPC notes and whole-side count', E.overScan(live, scanBook), { ...live, npcAnywhere: 2.5e9, sellsTo: { price: 62_910, units: 5170 } });
+  eq('  and an NPC seller in Jita, which the watch doesn\'t look for', E.overScan(live, { ...a.book, npcSell: true }).npcSell, true);
+  eq('  with no scan book, or one without them, the live book as it is', [E.overScan(live, undefined), E.overScan(live, a.book)], [live, { ...live, npcSell: false }]);
+}
+
 console.log('\n--- an order knows its plan, and a buy is never raised into a loss (Praxis, 30 September 2026) ---');
 {
   const fs4 = await import('node:fs');

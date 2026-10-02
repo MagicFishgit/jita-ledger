@@ -9,11 +9,32 @@ import { askReachDays, bidReachDays, FILL_WINDOW, reachedAsk, reachedBid, withWa
 import type { FlowDay } from './flow';
 import { askToPlace, bidToPlace, listedQueue, runUpBar, SLOW_DAYS, tradedPerDay, warningsFor } from './prospects';
 import { competitionShare, MIN_DAYS, returnPerDay, sellQueue, throughput, tradingSplit, type BookSold } from './split';
-import type { BookLevel, Prospect, ProspectFilters, ProspectStats } from './types';
+import type { BookLevel, Prospect, ProspectFilters, ProspectStats, SellsTo } from './types';
 
 export type Book = { at: string; bestBuy: number | null; bestSell: number | null; buyOrders: number; sellOrders: number; topBuys: BookLevel[]; topSells: BookLevel[]; npcSell?: boolean;
   /** What the live orders had sold per side when read: who trades here. Absent on books cached before it was kept. */
-  sold?: BookSold };
+  sold?: BookSold;
+  /**
+   * The lowest price NPCs sell it at anywhere in The Forge (an order running NPC_DURATION days), Jita or not: the cloud's
+   * full scan and the browser's own book reads see the whole region. Absent when none does, and on summaries from before
+   * it was kept, which change nothing.
+   */
+  npcAnywhere?: number;
+  /** The Jita sell side counted whole, up to the queue's ceiling, by the cloud's full scan (`SellsTo`). */
+  sellsTo?: SellsTo };
+
+/**
+ * A live book from the cloud's five-minute watch, over the scan's for the same item. The watch reads only Jita's orders,
+ * so what the scan saw of the whole region (an NPC seller in Jita, or anywhere in The Forge) stays, and so does its count
+ * of the whole sell side: the morning's, but nearer than the live seven levels alone (`listedQueue` takes the levels
+ * where they're more).
+ */
+export function overScan(live: Book, scan: Book | undefined): Book {
+  if (!scan) return live;
+  const npcAnywhere = live.npcAnywhere ?? scan.npcAnywhere;
+  const sellsTo = live.sellsTo ?? scan.sellsTo;
+  return { ...live, npcSell: scan.npcSell ?? live.npcSell, ...(npcAnywhere != null ? { npcAnywhere } : {}), ...(sellsTo ? { sellsTo } : {}) };
+}
 
 /**
  * Price changes kept back on a side whose orders you'd typically be beaten on before they fill. Praxis, in the user's
@@ -102,6 +123,13 @@ export function judgeProspect(
   const raised = !patient && buy !== placed.top;
   // A buy at or above the sell is a loss, which the Busy markets view shows rather than hides.
   if (!Number.isFinite(buy) || !Number.isFinite(sell) || (!anyReturn && sell <= buy)) return null;
+  // NPCs sell it somewhere in The Forge at or under where you'd resell: buyers can have all they want there, so a Jita
+  // listing at that price waits on the few who won't travel. In the cloud's scan of 2 October 2026 (which leaves out what
+  // NPCs sell in Jita itself, `npcSell`), NPCs sold 387 of its 465 skill books and 391 of its 612 blueprints in other
+  // Forge stations: Command Carriers from 12 NPC orders at 2,500 M while Jita listed at 2,800 M and the Forge traded at
+  // exactly 2,500 M on 7 of 14 days. Out of every view, Busy markets too: like an NPC seller in Jita, it's not a loss to show but a resale
+  // that isn't there.
+  if (book.npcAnywhere != null && book.npcAnywhere <= sell) return null;
 
   // Only one side of the daily volume fills each of your orders: sellers dumping into bids fill your
   // buy, buyers taking listings fill your sell. And your share of each side shrinks the more orders
@@ -111,7 +139,7 @@ export function judgeProspect(
   const buyers = split.share;
   // The stock this sell would compete with, in days of the buyers who take listings (LONG_QUEUE_DAYS). A wide spread over
   // a deep queue looks like margin and isn't: the 'Arbalest' launcher's 144% spread at the front sat over two months of stock.
-  const listed = listedQueue(book.topSells, sell, asked.top, highs);
+  const listed = listedQueue(book.topSells, sell, asked.top, highs, book.sellsTo);
   const queue = sellQueue(listed.units, stats.unitsPerDay * buyers, split.from, listed.atLeast);
   const sellShare = competitionShare(settings.share, book.sellOrders);
   const unitsPerDay = throughput(stats.unitsPerDay, buyers, settings.share, book.buyOrders, book.sellOrders,
@@ -157,7 +185,7 @@ export function judgeProspect(
       ...(asked.window ? { askWindow: asked.window } : {}),
     } : {}),
     ...(reserve ? { raiseReserve: reserve } : {}),
-    ...(queue ? { queue: { ...queue, upTo: listed.upTo } } : {}),
+    ...(queue ? { queue: { ...queue, upTo: listed.upTo, ...(listed.countedTo != null ? { countedTo: listed.countedTo } : {}) } } : {}),
     warnings: [
       // A run-up is held to a stricter bar for a plan placed to be left: its ask comes from the climb's own days.
       ...warningsFor(stats, book, c.spreadPct, estOrders, runUpBar(patient)),

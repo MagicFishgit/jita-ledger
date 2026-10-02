@@ -95,6 +95,12 @@ export type Position = {
 };
 
 export type BookLevel = { price: number; volume: number };
+/**
+ * Every Jita listing up to `price`, counted over the whole sell side by the cloud's full scan (`sellsToOf` in prospects.ts):
+ * `units` is exact up to there. Kept where the summary's BOOK_LEVELS prices all sit at or under the queue's ceiling, the
+ * one place they can't say how deep it goes.
+ */
+export type SellsTo = { price: number; units: number };
 export type MarketSnap = {
   typeId: number;
   fetchedAt: string;
@@ -118,6 +124,8 @@ export type MarketSnap = {
   sold?: BookSold;
   /** NPCs sell this here, at a fixed price in unlimited supply. */
   npcSell?: boolean;
+  /** The lowest price NPCs sell it at anywhere in The Forge, Jita or not. Absent when none does, and on older snapshots. */
+  npcAnywhere?: number;
 };
 
 export type HistRow = { date: string; average: number; highest: number; lowest: number; volume: number; order_count: number };
@@ -255,7 +263,9 @@ export type Prospect = {
    * The stock listed where this sell would compete (`listedQueue`, prospects.ts), in days of buyers taking listings, and the
    * price it was counted up to. Absent when nothing is listed there or nothing says who buys (`sellQueue`).
    */
-  queue?: SellQueue & { upTo: number };
+  queue?: SellQueue & { upTo: number;
+    /** Where the cloud's scan counted the whole side to, when its count was used (`listedQueue`). */
+    countedTo?: number };
   warnings: ProspectWarning[];
 };
 

@@ -13,10 +13,11 @@
  * history is turned into stats and dropped.
  */
 import type { Book } from '../../src/lib/evaluate';
-import { statsFrom } from '../../src/lib/prospects';
+import { withWatchedHighs, type WatchedExtremes } from '../../src/lib/fills';
+import { queueCeiling, SELLS_COUNTED_TO, sellsToOf, statsFrom } from '../../src/lib/prospects';
 import type { BookSold } from '../../src/lib/split';
 import { tickDown, tickUp } from '../../src/lib/tick';
-import type { BookLevel } from '../../src/lib/types';
+import type { BookLevel, ProspectStats } from '../../src/lib/types';
 import { HEADERS } from './eve';
 import { eachHistory } from './hist';
 import { dayBoundary, nextScanAt } from './scanTimes';
@@ -46,7 +47,12 @@ const HISTORY_CAP = 22000;
 
 export type RawOrder = { order_id: number; type_id: number; location_id: number; is_buy_order: boolean; price: number; volume_remain: number; volume_total: number; duration: number;
   issued?: string; min_volume?: number; range?: string };
-type Agg = { buys: BookLevel[]; sells: BookLevel[]; buyOrders: number; sellOrders: number; sold: Required<BookSold>; npcSell: boolean };
+/**
+ * One item's Jita book as the pages are read. `deep` is every sell price within SELLS_COUNTED_TO times the best ask (price
+ * → units), for counting the whole queue (`sellsTo`): the seven levels alone held 2,781 of the Arbalest's 5,170 units up
+ * to where trading reached on 2 October 2026.
+ */
+export type Agg = { buys: BookLevel[]; sells: BookLevel[]; buyOrders: number; sellOrders: number; sold: Required<BookSold>; npcSell: boolean; deep: Map<number, number> };
 
 /** Adds an order to the best LEVELS levels on its side. A level dropped is worse than every level kept, and so is anything at its price later. */
 function addLevel(levels: BookLevel[], price: number, volume: number, isBuy: boolean) {
@@ -59,21 +65,92 @@ function addLevel(levels: BookLevel[], price: number, volume: number, isBuy: boo
   if (levels.length > LEVELS) levels.pop();
 }
 
+/**
+ * Keeps a sell price for the whole-queue count, if it's within SELLS_COUNTED_TO times the best ask. The best only falls as
+ * pages come in, so a price dropped was over that bound then and is over it at the end: what's kept at the end is every
+ * listing up to SELLS_COUNTED_TO times the final best ask, whatever order the pages came in.
+ */
+function addDeep(a: Agg, price: number, volume: number, wasBest: number | undefined) {
+  const best = a.sells[0].price;
+  if (price > SELLS_COUNTED_TO * best) return;
+  a.deep.set(price, (a.deep.get(price) ?? 0) + volume);
+  // A new best ask: let go of what's now past the bound.
+  if (wasBest != null && best < wasBest) for (const p of a.deep.keys()) if (p > SELLS_COUNTED_TO * best) a.deep.delete(p);
+}
+
 function fold(aggs: Map<number, Agg>, o: RawOrder) {
   let a = aggs.get(o.type_id);
   if (!a) {
-    a = { buys: [], sells: [], buyOrders: 0, sellOrders: 0, sold: { sell: 0, buy: 0, single: { sell: 0, buy: 0 }, orders: { sell: 0, buy: 0 } }, npcSell: false };
+    a = { buys: [], sells: [], buyOrders: 0, sellOrders: 0, sold: { sell: 0, buy: 0, single: { sell: 0, buy: 0 }, orders: { sell: 0, buy: 0 } }, npcSell: false, deep: new Map() };
     aggs.set(o.type_id, a);
   }
   const side = o.is_buy_order ? 'buy' : 'sell';
   if (o.is_buy_order) a.buyOrders++; else a.sellOrders++;
+  const wasBest = a.sells[0]?.price;
   addLevel(o.is_buy_order ? a.buys : a.sells, o.price, o.volume_remain, o.is_buy_order);
+  if (!o.is_buy_order) addDeep(a, o.price, o.volume_remain, wasBest);
   // What the live orders have already sold, as `soldFrom` counts it, one order at a time.
   const total = o.volume_total ?? o.volume_remain;
   a.sold[side] += Math.max(0, total - o.volume_remain);
   a.sold.orders[side]++;
   if (total === 1) a.sold.single[side]++;
   if (!o.is_buy_order && (o.duration ?? 0) >= NPC_DURATION) a.npcSell = true;
+}
+
+/**
+ * NPC sell orders anywhere in The Forge, by item: the lowest price. NPCs sell most skill books, and many other things, at
+ * fixed prices in stations other than Jita 4-4, so Jita's own book (`npcSell`) never shows them, and a Jita listing over
+ * that price waits on buyers who won't travel.
+ */
+function foldNpc(npc: Map<number, number>, o: RawOrder) {
+  if (o.is_buy_order || (o.duration ?? 0) < NPC_DURATION) return;
+  const was = npc.get(o.type_id);
+  if (was == null || o.price < was) npc.set(o.type_id, o.price);
+}
+
+/** Every order on a page: Jita's into the item's book, NPC sellers anywhere into `npc`. Exported to measure the fold. */
+export function foldPage(aggs: Map<number, Agg>, npc: Map<number, number>, orders: RawOrder[]) {
+  for (const o of orders) {
+    foldNpc(npc, o);
+    if (o.location_id === JITA_44) fold(aggs, o);
+  }
+}
+
+/**
+ * The book summary kept for an item, as Prospects reads it: the seven levels a side, order counts, what the live orders
+ * sold, whether NPCs sell it in Jita, NPCs' lowest price anywhere in The Forge (`npcAt`), and the whole sell queue up to
+ * where trading reaches (`sellsTo`) where the seven levels all sit under it and so can't say how deep it goes
+ * (`listedQueue`). Elsewhere the levels already reach past the ceiling and are exact. The ceiling is worked out as the
+ * browser and the alert round do, with the watched highs folded in.
+ */
+export function summaryOf(a: Agg, stats: ProspectStats, at: string, npcAt: number | undefined, watched: WatchedExtremes | undefined): Book {
+  const book: Book = {
+    at, bestBuy: a.buys[0]?.price ?? null, bestSell: a.sells[0]?.price ?? null,
+    buyOrders: a.buyOrders, sellOrders: a.sellOrders, topBuys: a.buys, topSells: a.sells, npcSell: a.npcSell, sold: a.sold,
+  };
+  if (npcAt != null) book.npcAnywhere = npcAt;
+  const highs = stats.highs14 && stats.lowsEnd ? withWatchedHighs(stats.highs14, stats.lowsEnd, watched) : stats.highs14;
+  const ceiling = highs ? queueCeiling(highs) : null;
+  if (ceiling != null && a.sells.length >= LEVELS && a.sells[LEVELS - 1].price <= ceiling) book.sellsTo = sellsToOf(a.deep, a.sells[0].price, ceiling);
+  return book;
+}
+
+/**
+ * Each watched item's highest sale per day (D1's `flow`, from the five-minute watch), for working out the queue's ceiling
+ * as the browser and the alert round do: with the watched highs folded in, the Arbalest's ceiling was 62,910 on 2 October
+ * 2026, without them 60,950.
+ */
+async function watchedHighs(db: D1Database, now: number): Promise<Map<number, WatchedExtremes>> {
+  const since = new Date(now - 15 * 86400_000).toISOString().slice(0, 10);
+  const rows = (await db.prepare('SELECT type_id, day, sell_high FROM flow WHERE day >= ?1 AND sell_high IS NOT NULL').bind(since)
+    .all<{ type_id: number; day: string; sell_high: number }>()).results;
+  const out = new Map<number, WatchedExtremes>();
+  for (const r of rows) {
+    let m = out.get(r.type_id);
+    if (!m) { m = {}; out.set(r.type_id, m); }
+    m[r.day] = { sellHigh: r.sell_high };
+  }
+  return out;
 }
 
 export async function page(url: string): Promise<{ orders: RawOrder[]; pages: number; expires?: string | null }> {
@@ -121,9 +198,10 @@ export async function fullScan(db: D1Database, now = Date.now()): Promise<ScanMe
     await writeProgress(db, { phase, done, total, startedAt, updatedAt: new Date().toISOString() }).catch(() => undefined);
   };
   const aggs = new Map<number, Agg>();
+  const npc = new Map<number, number>();
   const base = `https://esi.evetech.net/markets/${THE_FORGE}/orders/?order_type=all`;
   const first = await page(`${base}&page=1`);
-  for (const o of first.orders) if (o.location_id === JITA_44) fold(aggs, o);
+  foldPage(aggs, npc, first.orders);
   let pagesFailed = 0, next = 2, pagesDone = 1;
   await progress('pages', 1, first.pages);
   await Promise.all(Array.from({ length: 8 }, async () => {
@@ -131,7 +209,7 @@ export async function fullScan(db: D1Database, now = Date.now()): Promise<ScanMe
       const p = next++;
       try {
         const { orders } = await page(`${base}&page=${p}`);
-        for (const o of orders) if (o.location_id === JITA_44) fold(aggs, o);
+        foldPage(aggs, npc, orders);
       } catch { pagesFailed++; }
       await progress('pages', ++pagesDone, first.pages);
     }
@@ -163,6 +241,7 @@ export async function fullScan(db: D1Database, now = Date.now()): Promise<ScanMe
   const flush = async () => { if (stmts.length) { const s = stmts; stmts = []; await db.batch(s); } };
   const pending: Promise<void>[] = [];
   let seen = 0;
+  const watched = await watchedHighs(db, now).catch(() => new Map<number, WatchedExtremes>());
   await progress('history', 0, candidates.length);
   const history = await eachHistory(db, candidates, now, (t, rows) => {
     seen++;
@@ -170,10 +249,7 @@ export async function fullScan(db: D1Database, now = Date.now()): Promise<ScanMe
     const stats = statsFrom(t, rows, now);
     const a = aggs.get(t);
     if (!stats || !a) return;
-    const book: Book = {
-      at, bestBuy: a.buys[0]?.price ?? null, bestSell: a.sells[0]?.price ?? null,
-      buyOrders: a.buyOrders, sellOrders: a.sellOrders, topBuys: a.buys, topSells: a.sells, npcSell: a.npcSell, sold: a.sold,
-    };
+    const book = summaryOf(a, stats, at, npc.get(t), watched.get(t));
     stmts.push(put.bind(t, JSON.stringify(stats), JSON.stringify(book), a.buyOrders + a.sellOrders, run));
     kept++;
     if (stmts.length >= 100) pending.push(flush());

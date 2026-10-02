@@ -776,6 +776,119 @@ console.log('\n--- the Sniper leaves blueprints out of the mail unless asked ---
   eq('    the next round asks ESI only for the type it couldn\'t read', f.calls.filter((c) => c.path.startsWith('/universe/types/') || c.path.startsWith('/universe/groups/')).map((c) => c.path), [`/universe/types/${BATTERY}/`]);
 }
 
+console.log('\n--- the full scan notes NPC sellers anywhere in The Forge and counts the whole sell queue (2 October 2026) ---');
+{
+  const { fullScan } = await import('../worker/src/scan.ts');
+  // Read on 2 October 2026 (scripts/fixtures/npc-anywhere.json): ESI's history after 11:05 UTC, the cloud's watched highs,
+  // and the whole Forge book at 12:05 UTC: each item's Jita orders, and every NPC sell order elsewhere in The Forge.
+  const fx = JSON.parse(fs.readFileSync(new URL('./fixtures/npc-anywhere.json', import.meta.url), 'utf8'));
+  const JITA = 60003760, NOW = Date.parse(fx.scanAt), DAY = 86400_000;
+  const ARB = 33440, CC = 93983, CAPS = 20533, CARRIER = 24311, NEURO = 25530, MOLE = 11529;
+  const ledgerDb = () => {
+    const db = d1();
+    for (const [t, x] of Object.entries(fx.items)) db.run('INSERT INTO hist (type_id, expires, rows) VALUES (?, ?, ?)', Number(t), NOW + DAY, JSON.stringify(x.hist));
+    for (const [day, f] of Object.entries(fx.items[ARB].flow)) db.run(`INSERT INTO flow (type_id, day, h, sell, buy, new_sell, new_buy, buy_low, sell_high, front_sell, front_buy, reprice_sell, reprice_buy)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ARB, day, f.h, f.sell, f.buy, f.newSell, f.newBuy, f.buyLow ?? null, f.sellHigh ?? null, f.frontSell, f.frontBuy, f.repriceSell, f.repriceBuy);
+    return db;
+  };
+  let id = 1;
+  const order = (t, location, buy, price, remain, total, duration) => ({ order_id: id++, type_id: Number(t), location_id: location, is_buy_order: !!buy, price, volume_remain: remain, volume_total: total, duration, issued: '2026-10-02T11:00:00Z', min_volume: 1, range: 'region' });
+  const realBook = () => Object.entries(fx.items).flatMap(([t, x]) => [
+    ...x.jita.map(([b, price, remain, total, duration]) => order(t, JITA, b, price, remain, total, duration)),
+    ...x.npc.map(([loc, price, units]) => order(t, loc, false, price, units, units, 365)),
+  ]);
+  const scan = async (orders) => {
+    const db = ledgerDb();
+    const f = stubFetch([['/markets/10000002/orders/', orders], ['/markets/19000001/orders/', []]]);
+    const meta = await fullScan(db, NOW);
+    f.restore();
+    const book = (t) => { const r = db.rows('SELECT book FROM scan_items WHERE type_id = ?', t)[0]; return r ? JSON.parse(r.book) : null; };
+    return { meta, book };
+  };
+  const { book } = await scan(realBook());
+  eq('  NPCs\' lowest price anywhere in The Forge, on each item they sell: none of them in Jita',
+    Object.fromEntries([CC, CAPS, CARRIER, MOLE, NEURO, ARB].map((t) => [t, [book(t)?.npcAnywhere ?? null, book(t)?.npcSell]])),
+    { [CC]: [2.5e9, false], [CAPS]: [450e6, false], [CARRIER]: [550e6, false], [MOLE]: [15e6, false], [NEURO]: [null, false], [ARB]: [null, false] });
+  // The Arbalest: its seven kept prices all sit under 62,910, where trading got up to on 4 of 14 days with the cloud's
+  // watched highs; counted over the whole side, 5,170 units are listed up to there.
+  const arbSells = fx.items[ARB].jita.filter(([b]) => !b);
+  const upTo = (list, p) => list.filter(([, price]) => price <= p).reduce((t, [, , remain]) => t + remain, 0);
+  eq('  the Arbalest: every listing up to 62,910 counted, not only the seven cheapest prices', [book(ARB).topSells.length, book(ARB).topSells.at(-1).price <= 62_910, book(ARB).sellsTo], [7, true, { price: 62_910, units: upTo(arbSells, 62_910) }]);
+  eq('    which is 5,170 on the book read at 12:05', book(ARB).sellsTo?.units, 5170);
+  // Neurotoxin Recovery: the seven prices (86.9-88.0 M) all under its 89.0 M ceiling, so it's counted too.
+  eq('  Neurotoxin Recovery: counted to its 89 M ceiling', book(NEURO).sellsTo, { price: 89e6, units: upTo(fx.items[NEURO].jita.filter(([b]) => !b), 89e6) });
+  eq('  where a kept price already sits past the ceiling, the seven are exact and nothing is added', [book(CC).sellsTo, book(CAPS).sellsTo], [undefined, undefined]);
+  eq('  the rest of the summary is as it was', Object.keys(book(ARB)).sort(), ['at', 'bestBuy', 'bestSell', 'buyOrders', 'npcSell', 'sellOrders', 'sold', 'sellsTo', 'topBuys', 'topSells'].sort());
+
+  // A fat finger at the front: one unit at 25,000 (invented for the test), under a book whose ceiling is 62,910. The scan
+  // keeps listings up to twice the best ask, so it counts to 50,000 and no further, in whichever order the pages came.
+  const fat = order(ARB, JITA, 0, 25_000, 1, 1, 90);
+  const arbOnly = realBook().filter((o) => o.type_id === ARB);
+  const first = await scan([fat, ...arbOnly]);
+  const last = await scan([...arbOnly, fat]);
+  // Up to 50,000 the real book held only 4 units at 40,810 besides it.
+  const fatTo = { price: 50_000, units: 1 + upTo(arbSells, 50_000) };
+  eq('  a fat finger at 25,000: counted only to 50,000, twice the best ask, wherever it came in the pages', [fatTo.units, first.book(ARB).sellsTo, last.book(ARB).sellsTo], [5, fatTo, fatTo]);
+}
+
+console.log('\n--- the Sniper relists no dearer than NPCs sell it anywhere in The Forge ---');
+{
+  const { sniperRound } = await import('../worker/src/snipe.ts');
+  const fx = JSON.parse(fs.readFileSync(new URL('./fixtures/npc-anywhere.json', import.meta.url), 'utf8'));
+  const JITA = 60003760, NOW = Date.parse('2026-10-02T12:11:00Z'), CC = 93983;
+  const db = d1();
+  const env = testEnv(db);
+  const cc = fx.items[CC];
+  db.run('INSERT INTO scan_items (type_id, stats, book, orders, run) VALUES (?, ?, ?, ?, ?)', CC, JSON.stringify(cc.stats), JSON.stringify(cc.book), cc.orders, 1);
+  let id = 1;
+  const o = (location, price, units, duration = 90) => ({ order_id: id++, type_id: CC, location_id: location, is_buy_order: false, price, volume_remain: units, volume_total: units, issued: new Date(NOW - 10 * MIN).toISOString(), duration, min_volume: 1 });
+  // A mistake at 2,000 M (invented for the test) in front of Jita's real listings, and NPCs' 12 real orders at 2,500 M elsewhere.
+  const jitaSells = cc.jita.filter(([b]) => !b).map(([, price, remain]) => o(JITA, price, remain));
+  const npcs = cc.npc.map(([loc, price, units]) => o(loc, price, units, 365));
+  const routes = (book) => [['/markets/10000002/orders/', book], [`/universe/types/${CC}/`, { type_id: CC, name: cc.name, group_id: 257 }], ['/universe/groups/257/', { group_id: 257, category_id: 16 }]];
+  let f = stubFetch(routes([o(JITA, 2e9, 1), ...jitaSells, ...npcs]));
+  await sniperRound(env, NOW);
+  f.restore();
+  const listing = () => JSON.parse(db.rows(`SELECT data FROM scan_meta WHERE key = 'snipes'`)[0].data).listings.find((l) => l.typeId === CC);
+  eq('  a Command Carriers listed at 2,000 M relists at the NPCs\' 2,500 M, not the 2,749.5 M trading reached', [listing()?.resale, listing()?.npc, listing()?.fair], [2.5e9, 2.5e9, 2.7495e9]);
+  db.run(`DELETE FROM scan_meta WHERE key = 'snipes'`);
+  f = stubFetch(routes([o(JITA, 2e9, 1), ...jitaSells]));
+  await sniperRound(env, NOW + 5 * MIN);
+  f.restore();
+  eq('  with no NPC orders in the read, it relists where trading reached', [listing()?.resale, listing()?.npc], [2.7495e9, undefined]);
+}
+
+console.log('\n--- the opportunity mail leaves out what NPCs sell in The Forge at or under the resale ---');
+{
+  const { opportunities } = await import('../worker/src/alerts.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const fx = JSON.parse(fs.readFileSync(new URL('./fixtures/npc-anywhere.json', import.meta.url), 'utf8'));
+  // Molecular Engineering (a skill), read on 2 October 2026: Jita's book at 12:05 UTC, ESI's history, and NPCs' 12 real
+  // orders elsewhere in The Forge at 15 M. At a 20 M budget it clears the filters with no flag, selling at about 14.4 M.
+  const MOLE = 11529, NOW = Date.parse('2026-10-02T12:10:00Z');
+  const x = fx.items[MOLE];
+  const settings = sanitizeSettings({ acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, tycoon: 0, clone: 'omega', faction: 3.6289558729999998, corp: 7.039647095, taxBase: 7.5, override: false, target: 5, share: 7.5 });
+  const ledger = (scanBook) => {
+    const db = d1();
+    db.run('INSERT INTO docs (char_id, key, data, rev, updated_at) VALUES (?, ?, ?, 1, 0)', MAIN, 'watch', JSON.stringify({ types: [MOLE], filters: { budget: 20e6, horizonDays: 14, minTrades: 5, minDays: 20, minRoi: 0.03, maxSpikiness: 0.5 } }));
+    const packed = x.jita.map(([b, price, remain], i) => [i + 1, b, price, remain]);
+    db.run('INSERT INTO books (type_id, stamp, orders, sold, at) VALUES (?, ?, ?, ?, ?)', MOLE, NOW, JSON.stringify(packed), null, NOW - 60_000);
+    db.run('INSERT INTO hist (type_id, expires, rows) VALUES (?, ?, ?)', MOLE, NOW + 86400_000, JSON.stringify(x.hist));
+    // Watched long enough for the mail to judge it (RELIST_MIN_H), a few traded each side: invented for the test.
+    for (const day of [new Date(Date.now() - 86400_000).toISOString().slice(0, 10), new Date().toISOString().slice(0, 10)]) {
+      db.run(`INSERT INTO flow (type_id, day, h, sell, buy, new_sell, new_buy) VALUES (?, ?, ?, ?, ?, ?, ?)`, MOLE, day, 12, 4, 4, 2, 2);
+    }
+    if (scanBook) db.run('INSERT INTO scan_items (type_id, stats, book, orders, run) VALUES (?, ?, ?, ?, ?)', MOLE, JSON.stringify(x.stats), JSON.stringify(scanBook), x.orders, 1);
+    return db;
+  };
+  const judged = async (scanBook) => (await opportunities(ledger(scanBook), MAIN, settings, NOW, false)).qualifying.map((p) => [p.typeId, p.sell]);
+  const kept = await judged({ ...x.book, npcAnywhere: 15e6 });
+  eq('  NPCs at 15 M, over where it would resell: it qualifies', [kept.length, kept[0]?.[1] < 15e6], [1, true]);
+  // The same item, had NPCs sold it at its resale or under (14 M, invented for the test): the scan's note leaves it out.
+  eq('  NPCs at 14 M, under the resale: not mailed', await judged({ ...x.book, npcAnywhere: 14e6 }), []);
+  eq('  a scan row from a Worker before the note, or none at all: as before', [await judged(x.book), await judged(null)], [kept, kept]);
+}
+
 console.log('\n--- an alt is never a ledger ---');
 {
   const { watchedTypes } = await import('../worker/src/market.ts');
