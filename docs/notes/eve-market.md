@@ -47,3 +47,10 @@ Don't re-derive or contradict these without new evidence.
   days, its bids a lowball 0.02 ISK.
 - **Some busy items really do trade in a 0.1–1% daily range.** Hammerhead II's ESI history shows
   (high − low) / average of 0.13% to 1.3% on most days. A squeeze warning on such an item is correct, not a bug.
+- **NPCs sell most skill books, and many blueprints, at fixed prices in other Forge stations** (365-day orders, so
+  `duration` tells them apart). The cloud's read of The Forge on 2 October 2026: NPC sell orders for 1,828 types, 351 of
+  them in Jita; in the scan NPCs sell 387 of 465 skill books, 391 of 612 blueprints and 34 other items somewhere in The
+  Forge. Command Carriers: 12 NPC orders at 2,500 M in other stations, Jita's players listing at 2,800 M, the Forge trading
+  at exactly 2,500 M on 7 of 14 days (Amarr Titan at 6,000 M on 14 of 14). Jita's `npcSell` check missed all of them. Skills
+  can also be bought from the character sheet (`skill_purchase` in the user's and the alt's journals), which ESI's book
+  doesn't show.

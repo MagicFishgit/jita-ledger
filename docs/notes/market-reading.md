@@ -269,3 +269,29 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
 - **Daily volume divides by calendar days, not by history rows** (`recentAverages`). Dividing by rows present
   spread a thin item's last seven trading days — maybe two months of them — over one week and overstated its
   pace many times over, which sized arbitrage lots and relist advice off a market that wasn't there.
+- **The cloud's daily scan counts the whole sell side up to where trading reaches** (`sellsTo` on the book, `Agg.deep` and
+  `summaryOf` in worker/src/scan.ts, `SELLS_COUNTED_TO` 2; `listedQueue`'s `sellsTo`; `overScan` in evaluate.ts). The book
+  summary keeps seven prices a side, and on 2 October 2026 the 'Arbalest' launcher's seven held 2,781 units (11 days of
+  buyers) where the side up to 62,910, where trading reached on 4 of 14 days, held 5,170 (20 days): 26–36 candidates
+  went unflagged. The fold keeps each item's Jita listings within twice its best ask (the best only falls, so what it
+  keeps is every listing up to twice the final best, in any page order), and the history callback counts them to the
+  queue's ceiling, the same `queueCeiling` the browser uses with the watched highs folded in (without them the
+  Arbalest's ceiling read 60,950, not 62,910). Stored as `{ price, units }`, the price being where it counted to, so a
+  count cut at twice the best says "at least". Measured on a real read of The Forge's 405 pages: the fold 31 MB, the
+  count's share 9.1 MB of the Worker's 128 (192,167 of Jita's 223,245 sell prices kept); the stored scan +0.63%; "at
+  least" counts on the front's candidates 348 → 11; Long queue 74 → 108. The five-minute watch's live books keep the
+  morning's count and NPC price (`overScan`), and the opportunity mail reads both from `scan_items`; where the live seven levels show more, they win, as "at least". A throw
+  while summarising falls back to the plain book, so the day's scan can't be lost to it. The count includes your own
+  listings (the scan doesn't know whose they are).
+- **A buy that feeds a long queue says so on Orders** (`feedingQueue`, `feedsQueueSaid` in relist.ts; `perDaySaid`, `queueDaysSaid` in
+  split.ts, which Prospects' Long queue tip uses too, so a pace under one a day reads 0.3, never 0; `paceFrom` in flow.ts;
+  the "Feeds a long queue" tag). The user, 2 October 2026: "its strange that my arbalest rapid missle launchers are taking
+  so long to sell", then approved "the warning for what happened to the missles". Their buy order kept adding stock
+  behind a queue that takes weeks. For an open Jita buy: others' listings up to the queue's ceiling on the whole live
+  book (yours left out) + your listings + your Jita hangar + what the order still buys, against buyers taking listings a
+  day (`sidePace`'s sell side), tagged past `LONG_QUEUE_DAYS`; a pace measured at zero is a queue that never clears, an
+  unknown one says nothing. The tip says to cancel it, or cancel and place a smaller one (a new order with its own fee:
+  EVE can't shrink one), and to list what you hold first. On the user's 3 open buys (13:02 UTC): the Arbalest tagged at
+  ~27 days (3,294 others' listings to 62,910, 1,808 listed and 737 in the hangar, 2,350 to buy, 306 a day watched over
+  118 h); the Caldari Navy Missile Guidance Computer (2.1 days) and a Clone Soldier Transporter Tag (4.4) not. Not on To
+  do or in mail.

@@ -103,3 +103,9 @@ State these rather than letting them be discovered:
   1% against a watched one.
 - **A freelance reward's tax, worked out without the journal's own, uses its corporation's rate now** (ESI keeps no past
   rate): one whose rate changed reads "not recorded" (loyalty-hustles).
+- **Long queue's count is the cloud's morning read**, carried onto live books for up to a day: a queue that has thinned
+  since reads long until the next scan, and the browser's ceiling (its own watching) can sit above the scan's ("at least").
+- **"Feeds a long queue" counts your own listings at any price**, and tags a buy not meant for resale alike (ore bought for
+  a freelance job; ore markets clear fast, so unlikely).
+- **A Sniper "Copy all" with a ship in it is guessed Personal on the Wallet** ("a fit to fly", the multibuy rule); Results
+  and Your snipes read only what you mark.

@@ -185,10 +185,66 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   candidates at the front (−18.6%: the recent window −145 and 148 repriced, run-up −36, reserve −7, 7 newly admitted);
   Place and leave 942 → 923 (the run-up); the 25%-cap mix 95.47 M → 77.70 M ISK a day. The planner also follows the
   watched-flow record now (`useFlow`): a plan opened before any page had read it was worked out without the watch.
+- **The Sniper leaves blueprints out unless asked** (`splitBlueprints`, `BLUEPRINT_CATEGORY` in snipe.ts; `snipeBlueprints` in
+  the alert settings, default off, only `true` lets them in; `worker/src/kinds.ts`, migration 0017 `type_kinds`). The user,
+  2 October 2026: "i think for the sniper we should exclude blueprints, as they might be risky to try and sell". Evidence: of
+  1,222 sightings since 28 September, 59 were blueprints, 41% of them floods against 9% of the rest, 11 clean; on 1 October
+  at 23:27 UTC both finds clearing the user's bar were blueprints (an Epithal and a Thrasher Blueprint), and on 2 October
+  at 09:46 26 of 89 listings were. A blueprint is ESI category 9, never a name (a reaction formula is one without the
+  word); the cloud looks each listing's type up once (type → group → category) and keeps it, a type ESI didn't answer is
+  `null` and held back until known, and a browser on a read without categories looks each up itself (`typeKind`). The mail
+  splits before picking its eight, so hidden blueprints can't take their places. "Include blueprints (N)" says how many
+  clear the bar and are left out. High bids for blueprints you hold still show: selling into a bid is paid at once. Hidden
+  blueprints are still recorded as sightings, so the daily "checked against what traded after" counts them.
+- **NPC sellers anywhere in The Forge cap the resale** (`npcAnywhere` on the scan's book, `foldPage` in worker/src/scan.ts;
+  `judgeProspect`; `findListing` / `findBid`'s `npc` in snipe.ts). The user asked whether skill books "actually buy and
+  sell": 470 were in the scan, none caught by the Jita-only `npcSell`, a median 291% between best bid and cheapest ask,
+  while NPCs sold Command Carriers at 2,500 M in other Forge stations (12 orders of 365 days) against Jita's player
+  listings at 2,800 M, and the Forge traded at exactly 2,500 M on 7 of 14 days. Now an item whose lowest NPC sell order
+  anywhere in The Forge is at or under the resale it would list at is out of Prospects (Busy markets too), the planner
+  and the opportunity mail; the Sniper never values a relist above it, read from its own five-minute book (no day-old
+  scan), and says so ("NPCs sell at X"); the Calculator notes it, red when your sell price is at or over it. Measured on
+  the 2 October scan at the user's settings: 31 of 791 front candidates at 7 days (24 skills, 5 blueprints, 2 other), 46
+  of 896 placed and left, no mix row, none of the 100 Busy markets. A skill NPCs don't sell (Neurotoxin Recovery) stays.
+  **Not done**: about half the NPC-sold items that price stay in, mostly skill books listed in Jita a little under the
+  NPC price with lowball bids and four-figure returns on paper (3340: sell 470,300, NPC 500,000); the user approved "at
+  or under where you'd resell" and may ask for stricter.
+- **"Leave out flagged items" in the planner** (`plannerPool`, `SWITCH_EXCLUDES` in planner.ts; kept per browser, off by
+  default). The user: "The capital planner should have a toggle to not include items with warning like these". On, it
+  leaves out Falling, Bids not reached, Sells not reached, Crowded, Thin, Slow and Long queue, and says how many by flag;
+  when every item is flagged, or nothing fits with it on, it says the switch is why. **Raises kept back never counts**: a
+  cost already in the margin, on ~91 of 94 watched markets. On the 2 October scan (2,042 M, 75 free slots, 25% cap, 7
+  days): on, it leaves out 532 of 791 front candidates (falling 230, sells not reached 202, bids not reached 169, thin
+  134, long queue 74 on seven levels), and the mix still fills, 93 M a day against 95 M off. Off, the mix is unchanged.
+- **Long queue** (`longQueue`, `LONG_QUEUE_DAYS` 14; `listedQueue`, `queueCeiling` in prospects.ts, `sellQueue` in split.ts).
+  The user's 'Arbalest' Rapid Heavy Missile Launcher I (33440, 2 October 2026): ~720 a day traded in The Forge, nearly all
+  sold into bids at ~24.7 k; ESI listed 16,264 in Jita from 60,280 up; the cloud watched buyers take 170–220 a day from
+  listings while 1,600–8,500 a day were newly listed at the front. A 144% spread at the front sat over weeks of stock. The
+  flag: units listed up to where trading reached on `FILL_RARE` of the last 14 days (counting only to your own price
+  flags nothing at the front, which is one step under every listing), against buyers taking listings a day, saying where
+  that pace came from (watched, the book, or history's guess, poor on markets that sell into bids). A sell priced under
+  the front has nothing ahead. The cloud's scan counts the whole side (`sellsTo`, market-reading.md): 108 of 791 front
+  candidates flagged at 7 days, none in the switch-off mix. The opportunity mail mails only unflagged items and reads the
+  scan's count too, so it no longer mails a Long queue, and Orders' slot-swap suggestions skip flagged items, these included.
+- **Place and leave holds a run-up to 30%** (`RUN_UP_PATIENT`, `runUpBar`; the front keeps `RUN_UP` 0.5). The user: "yes we
+  can make it stricter". The Vigilance Resonance Key was +40% on the 1 October scan (31.8 M over the last 3 days against a
+  month median of 23.2 M) and Place and leave priced its sell at 36.82 M from the spike's days behind 109 listed at ~9 a
+  day. On the 2 October scan the bar takes 31 of 927 placed-and-left candidates (3.3%) and no mix row at 7 days, 2 of 35
+  (48 M) at 3; the Key itself was back to +26% and in. The run-up's tip names the bar that applied.
+- **The planner's "Scan again" banner doesn't say a quick scan is enough**: a quick scan re-reads a sample, and after one
+  1,675 items stayed out of date. The cloud's daily full scan refreshes them all, or a deep scan.
 - **Multibuy lists where buying at the ask is the point** (`copyMultibuy` in common.tsx, `multibuy` in combat.ts): each
   Freelance job copies what to buy for it (every item under the reward, per item), and Hub arbitrage copies the shipment
-  when buying from sell orders now (not for a buy order, which Multibuy can't place). The Sniper was left out on purpose:
-  the user wants to be deliberately careful there. Multibuy buys from the cheapest listings at once with no price limit,
+  when buying from sell orders now (not for a buy order, which Multibuy can't place). The Sniper too, since the user
+  authorized it on 2 October 2026 ("Also I am authorizing adding multibuy to the sniper"; it had been left out because they
+  wanted to be deliberately careful there): per find (the cart beside its listed units: the Actions column pushed the table
+  past its width at 1,440 px) and "Copy all N" for what's shown, the cheap units only, saying the exact total at the
+  listings read and how long ago, the dearest cheap price and the next listing up, so a window total over it means a
+  listing has gone. Finds bought together that way are 3+ purchases of 2+ items within 2 s, the Wallet's multibuy rule,
+  so `notSnipeIds` keeps a burst purchase the Sniper had shown (`sighted`: its item, a price in the sighting's range,
+  within 10 minutes) as a snipe; a fitting's Buy All still isn't. Your snipes asks the cloud about sightings only for items
+  bought from a listing within the window a kept sighting can still match (`SIGHTING_WINDOW_MS`: an order's 90 days, the
+  sightings' 30, 10 minutes), since its route returns at most 500. Multibuy buys from the cheapest listings at once with no price limit,
   so every copy says what it came to at the listings just read, to check against the window's total before Buy. Lines
   are "Name N", the format the import's own tooltip gives ("Veldspar 4" / "4 Veldspar", the user's client, 29 September
   2026); they were "Name xN", which the tooltip doesn't list. A name still loading ("Item #123") refuses the copy rather
