@@ -5,6 +5,7 @@ import { priceUp, tickDown, tickUp } from '../lib/tick';
 import { marketBest, walkBids } from '../lib/relist';
 import { chooseAsk, confirmAsk } from '../lib/confirm';
 import { breakEvenSell, rates } from '../lib/fees';
+import { planTargets } from '../lib/plans';
 import { isk, iskBig, iskBigSigned, parseISK, pct, rid, units } from '../lib/format';
 import { jitaOrders, marketHistory, snapshot, type OrderLite } from '../lib/market';
 import { update, useData } from '../lib/store';
@@ -191,6 +192,27 @@ export function PositionDetail({ id }: { id: string }) {
     }
   }
 
+  // The plan this position belongs to, while it's open (`planTargets`): its own sale price beside the patient ones, so a
+  // plan's stock isn't listed without its intent in view (the list step, 2 October 2026). Place and leave lists there.
+  const target = planTargets(d.plans ?? [], d.positions, r)[pos.typeId];
+  const ofPlan = target ? d.plans.find((p) => p.id === target.planId && p.items.some((i) => i.typeId === pos.typeId && i.positionId === pos.id)) : undefined;
+  let planLine: Stat | null = null;
+  if (target && ofPlan && unitCost != null && keep > 0) {
+    const perUnit = target.sellAt * keep - unitCost;
+    const onStock = c.stock > 0 ? perUnit * c.stock : null;
+    const onBuy = openBuy && buyAt != null && buyLeft > 0 ? (target.sellAt * keep - buyAt * (1 + r.f)) * buyLeft : null;
+    const be = priceUp(breakEvenSell(unitCost, r, 0));
+    const parts = [
+      onStock != null ? `${onStock >= 0 ? 'Makes' : 'Loses'} ${iskBig(Math.abs(onStock))} if all ${units(c.stock)} sell here (${perUnit >= 0 ? '+' : ''}${pct(perUnit / unitCost, 1)} after fees)` : null,
+      onBuy != null ? `${onStock != null ? 'and ' : ''}${onBuy >= 0 ? '+' : '−'}${iskBig(Math.abs(onBuy))} on the ${units(buyLeft)} your buy order is still filling` : null,
+    ].filter(Boolean);
+    planLine = {
+      l: 'The plan sells at', v: isk(target.sellAt), c: perUnit >= 0 ? 'var(--pos)' : 'var(--neg)',
+      n: `${parts.join(' ')}${parts.length ? '. ' : ''}${ofPlan.patient ? 'Place and leave' : 'At the front'}: ${ofPlan.name}.${perUnit < 0 ? ` Under what it cost after fees, so the plan’s list step lists at break-even, ${isk(be)}.` : ''}`,
+      tip: `The price ${ofPlan.name} expects this item to sell at, set by the Capital planner when the plan started.\n\n• ${ofPlan.patient ? 'A Place-and-leave plan lists here and waits: List patiently is today’s version of the same rule.' : 'An at-the-front plan lists at today’s listing price instead, with this beside it.'}\n• The plan’s checklist and To do say where to list what it bought, with the price copied, never under break-even.\n• Profit is after the broker fee and sales tax, against what the units cost you.`,
+    };
+  }
+
   if (c.stock > 0 && c.avgCost != null && keep > 0) {
     const be = priceUp(breakEvenSell(c.avgCost, r, 0));
     const be2 = priceUp(breakEvenSell(c.avgCost, r, 2));
@@ -218,6 +240,7 @@ export function PositionDetail({ id }: { id: string }) {
         tip: `One price step under the cheapest real listing from others in Jita right now (${isk(realBest)}).${mispriced ? `\n\nIt leaves out ${units(skippedUnits)} unit${skippedUnits === 1 ? '' : 's'} listed from ${isk(rawBest)}: under 2% of what’s listed and ${typicalDay ? `a small part of the ${units(Math.round(typicalDay))} a typical day trades` : 'too few to matter'}, so they sell before yours would and aren’t worth a lower price.` : ''}\n\nThe profit is after the broker fee and sales tax on the sale, against what the units cost you. How long it takes comes from how many units a day buyers take and the share of them you’d get, on the days trading gets up to this price.`,
       });
     }
+    if (planLine) stats.push(planLine);
     stats.push(...patient);
     if (bids) {
       // Others' bids only: your own buy order is the top bid on an item you're still buying, and selling into it
@@ -233,8 +256,9 @@ export function PositionDetail({ id }: { id: string }) {
         });
       } else stats.push({ l: 'Sell to buyers right now', v: '–', n: 'Nobody is bidding for it in Jita 4-4 right now' });
     }
-  } else if (patient.length && pos.status === 'open') {
+  } else if ((patient.length || planLine) && pos.status === 'open') {
     // Nothing in stock yet, a buy order filling: the resale price to plan at.
+    if (planLine) stats.push(planLine);
     stats.push(...patient);
   }
 

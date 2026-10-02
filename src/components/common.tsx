@@ -214,8 +214,8 @@ export function CopyPrice({ price }: { price: number }) {
 }
 
 /** What an in-game link says it does, and the price it copies when there is one. */
-const inGameTip = (copy: number | null | undefined) => copy != null && Number.isFinite(copy)
-  ? `Opens the market window in your EVE client and copies ${plainPrice(copy)}, the price to move to, for the price box. You’ll still need to switch to the game.`
+const inGameTip = (copy: number | null | undefined, copyAs = 'the price to move to') => copy != null && Number.isFinite(copy)
+  ? `Opens the market window in your EVE client and copies ${plainPrice(copy)}, ${copyAs}, for the price box. You’ll still need to switch to the game.`
   : 'Opens the market window in your EVE client. You’ll still need to switch to the game.';
 
 /**
@@ -269,7 +269,7 @@ export function OpenInGame({ typeId, name, label = 'In game', variant = 'link', 
  * An item's name that opens its market window in the client when clicked, where the login allows it;
  * plain text where it doesn't. For tables whose rows are items you act on in game.
  */
-export function NameInGame({ typeId, name, className, copy }: { typeId: number; name: string; className?: string; copy?: number | null }) {
+export function NameInGame({ typeId, name, className, copy, copyAs }: { typeId: number; name: string; className?: string; copy?: number | null; copyAs?: string }) {
   const [busy, setBusy] = useState(false);
   if (!hasScope(UI_SCOPE)) return <span className={className}>{name}</span>;
   return (
@@ -277,7 +277,7 @@ export function NameInGame({ typeId, name, className, copy }: { typeId: number; 
       type="button" className={'name-btn' + (className ? ' ' + className : '')} disabled={busy}
       onClick={async () => { setBusy(true); try { await openInGame(typeId, copy); } finally { setBusy(false); } }}
       aria-label={`${name}: open its market window in the EVE client`}
-      data-tip={inGameTip(copy)}
+      data-tip={inGameTip(copy, copyAs)}
     >
       {name}
     </button>

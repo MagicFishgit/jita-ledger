@@ -332,16 +332,18 @@ export function judgePlaceBuy(e: Entry, c: { plan: boolean; placed: { units: num
  * at-the-front plan with no book read has no price: nothing copied, and its version says so. Never mailed.
  */
 export function planListItem(
-  x: { planId: string; planName: string; patient: boolean; typeId: number; units: number; unitCost: number },
+  x: { planId: string; planName: string; patient: boolean; typeId: number; units: number; unitCost: number; reading?: boolean },
   p: PlanListPrice, name: string,
 ): TodoItem {
   const said = planListSaid(p, x.patient);
   const n = units(x.units);
   const parts = [
     `Bought for ${x.planName}.`,
-    p.price != null ? `${said.from}${said.profit ? `: ${said.profit}` : ''}.` : `${said.from}.`,
-    `${said.other}.`,
-    said.floor, said.moved,
+    // Lifted to break-even, the floor's own sentence says where the price comes from.
+    p.from === 'breakEven' ? said.floor : `${said.from}.`,
+    said.profit ? `Makes ${said.profit}.` : null,
+    x.reading ? 'Reading today’s Jita market.' : `${said.other}.`,
+    x.reading ? null : said.moved,
     p.price != null ? `Open it in game (the price is copied), Sell, paste the price, quantity ${n}.` : null,
   ];
   return {

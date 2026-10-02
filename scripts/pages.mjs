@@ -491,11 +491,13 @@ try {
       orders: {
         [ID]: { orderId: ID, typeId: PX, isBuy: true, price: 207.1 * M, volumeTotal: 1, volumeRemain: 1, issued: seen[2].issued, state: 'open', locationId: JITA, seen },
         1: { orderId: 1, typeId: TRIT, isBuy: true, price: 4.5, volumeTotal: 1_000_000, volumeRemain: 800_000, issued: '2026-10-01T08:00:00Z', state: 'open', locationId: JITA },
-        7433386979: { orderId: 7433386979, typeId: KEY, isBuy: true, price: 24.95 * M, volumeTotal: 15, volumeRemain: 15, issued: iso(planAt - 5 * 60_000), state: 'open', locationId: JITA },
+        7433386979: { orderId: 7433386979, typeId: KEY, isBuy: true, price: 24.95 * M, volumeTotal: 15, volumeRemain: 13, issued: iso(planAt - 5 * 60_000), state: 'open', locationId: JITA },
         [arb.buy.orderId]: arb.buy,
         [arb.sell.orderId]: arb.sell,
       },
-      stock: { at: new Date(Date.now() - 600_000).toISOString(), jita: { [ARB]: arb.hangar }, total: { [ARB]: arb.hangar }, inContainers: 0 },
+      // The Key's bid has bought 2 of its 15, in the hangar: an at-the-front plan's stock to list, whose book ESI refuses here.
+      txs: { k1: { id: 'k1', source: 'esi', typeId: KEY, date: iso(planAt + 5 * 60_000), isBuy: true, qty: 2, unitPrice: 24.95 * M, locationId: JITA } },
+      stock: { at: new Date(Date.now() - 600_000).toISOString(), jita: { [ARB]: arb.hangar, [KEY]: 2 }, total: { [ARB]: arb.hangar, [KEY]: 2 }, inContainers: 0 },
       names: { [PX]: 'Praxis', [TRIT]: 'Tritanium', [KEY]: 'Vigilance Resonance Key', [ARB]: arb.name },
       meta: { walletBalance: 1e9, lastSync: new Date(Date.now() - 600_000).toISOString() },
     };
@@ -597,6 +599,10 @@ try {
     if ((await fed.count()) !== 1) problems.push(`To do lists ${await fed.count()} “Feeds a long queue” items, not the Arbalest buy's one`);
     const fedText = (await fed.first().innerText().catch(() => '')).replace(/\s+/g, ' ');
     for (const want of [`${arb.name} buy order`, 'days of the buyers who take listings', 'cancel it and place a smaller one']) if (!fedText.includes(want)) problems.push(`not drawn: the To do item's “${want}”`);
+    // The Key's 2 bought for the at-the-front plan: one item to list, with no price while its book can't be read, said so.
+    const keyList = (await page.locator('.tn-item', { hasText: 'List what the plan bought' }).allInnerTexts().catch(() => [])).map((t) => t.replace(/\s+/g, ' '));
+    if (keyList.length !== 1) problems.push(`To do lists ${keyList.length} “List what the plan bought” items, not the Key's one`);
+    else for (const want of ['List 2 × Vigilance Resonance Key', 'Its Jita book couldn’t be read', 'The plan priced it at 35,990,000 ISK']) if (!keyList[0].includes(want)) problems.push(`not drawn: the Key's list item's “${want}” (${keyList[0].slice(0, 160)})`);
     await page.getByRole('button', { name: /Needs action/ }).click().catch((e) => problems.push(`couldn't filter To do: ${e.message.split('\n')[0]}`));
     await page.waitForTimeout(300);
     if (!(await page.locator('.tn-item', { hasText: 'Feeds a long queue' }).count())) problems.push('the “Feeds a long queue” item isn’t under Needs action');
@@ -611,6 +617,7 @@ try {
     const placing = (await page.locator('#placing').innerText().catch(() => '')).replace(/\s+/g, ' ');
     if (!placing.includes('Already placed: 15 of 16 (before the plan)')) problems.push(`not drawn: the checklist's “Already placed: 15 of 16 (before the plan)” (${placing.slice(0, 120)})`);
     if (!placing.includes('EVE can’t change an order’s quantity')) problems.push('not drawn: the checklist’s note on the 1 more');
+    for (const want of ['Bought: list it', 'At the front', 'Its Jita book couldn’t be read, so there’s no price at the front yet', 'The plan priced it at 35,990,000 ISK']) if (!placing.toLowerCase().includes(want.toLowerCase())) problems.push(`not drawn: the checklist's list part's “${want}”`);
     boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
     if (boundary) problems.push('error boundary on the planner');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on the planner: ${o}`);
@@ -618,7 +625,7 @@ try {
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'plan', page: 'orders', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL plan #orders\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (Keep it, the plan chip, a buy over its resale, a buy feeding a long queue), #todo (that buy) and #planner (the checklist)\n');
+    process.stdout.write(unique.length ? `  FAIL plan #orders\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (Keep it, the plan chip, a buy over its resale, a buy feeding a long queue), #todo (that buy, the Key to list) and #planner (the checklist, its list part with no book)\n');
     await page.close();
   }
   // A plan that took over a position with earlier trading (the user's second plan, 2 October 2026): Datacore - Rocket
@@ -653,8 +660,23 @@ try {
       names: { [RS]: 'Datacore - Rocket Science', [INF]: 'Imperial Navy Infiltrator', [RD]: 'Raging Dark Filament' },
       meta: { walletBalance: 1e9, lastSync: iso(Date.now() - 600_000) },
     };
+    // The Infiltrator's real history (scripts/fixtures/plan-list.json, read 2 October 2026), its days moved so the last is
+    // yesterday: List patiently today beside the plan's 1,836,000 on the list step. Every other request is refused, its
+    // book too, so the step draws the plan's own price without one.
+    const fsP = await import('node:fs');
+    const pl = JSON.parse(fsP.readFileSync(new URL('./fixtures/plan-list.json', import.meta.url), 'utf8'));
+    const infRows = pl.history[INF];
+    const infShift = Date.parse(new Date(Date.now() - DAY_MS).toISOString().slice(0, 10)) - Date.parse(infRows.at(-1).date);
+    const infHistory = infRows.map((r) => ({ ...r, date: new Date(Date.parse(r.date) + infShift).toISOString().slice(0, 10) }));
     const page = await browser.newPage(VIEW);
-    await page.route('**/*', (route) => (route.request().url().startsWith(`http://localhost:${PORT}/`) ? route.continue() : route.abort()));
+    await page.route('**/*', (route) => {
+      const url = new URL(route.request().url());
+      if (route.request().url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
+      if (url.hostname === 'esi.evetech.net' && url.pathname === '/markets/10000002/history/' && url.searchParams.get('type_id') === String(INF)) {
+        return route.fulfill({ status: 200, contentType: 'application/json', headers: { expires: new Date(Date.now() + 3600_000).toUTCString() }, body: JSON.stringify(infHistory) });
+      }
+      return route.abort();
+    });
     const problems = [];
     page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
     page.on('console', (m) => { if (m.type() === 'error' && /^Warning: /.test(m.text())) problems.push(`React: ${m.text().split('\n')[0].replace(/%s/g, '').slice(0, 160)}`); });
@@ -692,6 +714,11 @@ try {
       for (const want of ['The 2,628 it held then are your earlier trading’s', '2,000 of them have sold since', 'Open it for the whole position']) if (!tip.includes(want)) problems.push(`not drawn: the Shared tag's “${want}”`);
     }
     if (await page.locator('.page table tbody tr', { hasText: 'Imperial Navy Infiltrator' }).locator('[data-tip-title="Shared with your earlier trading"]').count()) problems.push('the position the plan opened says it is shared');
+    // The Plans panel's list step: the Infiltrator's 11, bought at once, to list at the plan's 1,836,000; never Rocket Science's earlier stock.
+    await page.locator('section[aria-label="Plans"] .plan-list', { hasText: 'Imperial Navy Infiltrator' }).waitFor({ timeout: 10_000 }).catch(() => problems.push('not drawn: the Plans panel’s “Bought: list it” with the Infiltrator'));
+    const plansList = (await page.locator('section[aria-label="Plans"] .plan-list').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    for (const want of ['Bought: list it · 2 Oct · 999.16 M ISK in 33 items', '1,836,000 ISK', 'The plan’s price: list it and leave it']) if (!plansList.toLowerCase().includes(want.toLowerCase())) problems.push(`not drawn: the Plans panel's list part's “${want}” (${plansList.slice(0, 160)})`);
+    if (plansList.includes('Datacore - Rocket Science')) problems.push('the Plans panel lists Rocket Science’s earlier stock as the plan’s to list');
     let boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
     if (boundary) problems.push('error boundary on Positions');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on Positions: ${o}`);
@@ -703,6 +730,11 @@ try {
     if (!placing.includes('11 of 11 bought at once at 1,608,000')) problems.push(`not drawn: the checklist's “11 of 11 bought at once at 1,608,000” (${placing.slice(0, 160)})`);
     if (!placing.includes('the order shows only in your order history')) problems.push('not drawn: the checklist doesn’t say where the order went');
     if (!placing.includes('2 of 3 placed')) problems.push(`the checklist doesn't count 2 of 3 placed (${placing.slice(0, 120)})`);
+    // Its list part: the plan's own price, copied, with today's List patiently beside it from the history ESI gave.
+    await page.locator('#placing .plan-list', { hasText: 'List patiently today' }).waitFor({ timeout: 10_000 }).catch(() => undefined);
+    const listPart = (await page.locator('#placing .plan-list').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    for (const want of ['Bought: list it', 'Place and leave', 'Imperial Navy Infiltrator', '1,836,000 ISK', 'The plan’s price: list it and leave it', 'List patiently today: 1,836,000 ISK']) if (!listPart.toLowerCase().includes(want.toLowerCase())) problems.push(`not drawn: the checklist's list part's “${want}” (${listPart.slice(0, 200)})`);
+    if (!(await page.locator('#placing .plan-list button.copy-price[aria-label="Copy 1836000"]').count())) problems.push('not drawn: a copy button for the price to list at');
     boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
     if (boundary) problems.push('error boundary on the planner');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on the planner: ${o}`);
@@ -711,15 +743,29 @@ try {
     await page.evaluate(() => { location.hash = '#todo'; });
     await page.waitForTimeout(1500);
     if (!(await page.locator('.tn-item', { hasText: 'Raging Dark Filament' }).count())) problems.push('not drawn: To do doesn’t ask for Raging Dark Filament’s buy order');
-    if (await page.locator('.tn-item', { hasText: 'Imperial Navy Infiltrator' }).count()) problems.push('To do asks for the Infiltrator’s buy order, which bought at once');
+    if (await page.locator('.tn-item', { hasText: 'Place a buy order: 11 × Imperial Navy Infiltrator' }).count()) problems.push('To do asks for the Infiltrator’s buy order, which bought at once');
+    // And asks to list what it bought: one item, at the plan's price, something to act on.
+    const listItem = page.locator('.tn-item', { hasText: 'List what the plan bought' });
+    if ((await listItem.count()) !== 1) problems.push(`To do lists ${await listItem.count()} “List what the plan bought” items, not the Infiltrator's one`);
+    const listText = (await listItem.first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+    for (const want of ['List 11 × Imperial Navy Infiltrator at 1,836,000 ISK', 'Bought for 2 Oct · 999.16 M ISK in 33 items', 'List patiently today: 1,836,000 ISK']) if (!listText.includes(want)) problems.push(`not drawn: the To do list item's “${want}” (${listText.slice(0, 200)})`);
     boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
     if (boundary) problems.push('error boundary on To do');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on To do: ${o}`);
     if (SHOTS) await page.screenshot({ path: `${SHOTS}-plan-shared-todo.png` });
+    // The position page says what the plan sells at, beside List patiently and List safely.
+    await page.evaluate(() => { location.hash = '#positions/inf'; });
+    await page.waitForTimeout(1500);
+    const posText = (await page.locator('.page').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    for (const want of ['The plan sells at', '1,836,000 ISK', 'Place and leave: 2 Oct · 999.16 M ISK in 33 items', 'List patiently']) if (!posText.toLowerCase().includes(want.toLowerCase())) problems.push(`not drawn: the position page's “${want}”`);
+    boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary on the position page');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on the position page: ${o}`);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-plan-shared-position.png` });
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'plan shared', page: 'positions', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL plan shared #positions\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan shared #positions (a position the plan took over, counted from its start), #planner (a bid bought at once on the checklist) and #todo\n');
+    process.stdout.write(unique.length ? `  FAIL plan shared #positions\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan shared #positions (a position the plan took over, counted from its start; the list step), #planner (a bid bought at once, and the list part), #todo and the position page\n');
     await page.close();
   }
   // Every freelance job you did (the user's six, 1 October 2026), rebuilt as a browser that never saw them does: only the

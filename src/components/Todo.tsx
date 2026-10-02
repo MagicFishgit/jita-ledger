@@ -11,7 +11,7 @@ import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  feedsQueueItem, inFilter, judgeAltLogin, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
+  feedsQueueItem, inFilter, judgeAltLogin, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, planListItem, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
   type Entry, type Memory, type TodoFilter, type TodoItem, type TodoKind,
 } from '../lib/todo';
 import type { IndustryJob } from '../lib/types';
@@ -20,7 +20,9 @@ import { PLANETS_SCOPE, readColonies, useColonies } from '../lib/colonyStore';
 import { readSignals, trackedTypes, useSignals } from '../lib/watch';
 import { BACKUP_DAYS } from '../lib/alertsRunner';
 import { LOGIN_STOPS } from '../lib/watchdog';
-import { planPlacement } from '../lib/plans';
+import { planPlacement, planTargets } from '../lib/plans';
+import { planListRow } from '../lib/positions';
+import { usePlanListing } from './planListing';
 import { useAltRoster, useRosterAt, useRosterLive } from '../lib/altStore';
 import { loginState } from '../lib/roster';
 import { cloudCovers, useCloud } from '../lib/cloud';
@@ -115,6 +117,8 @@ export function Todo() {
   useEnsureNames([...(d.meta.industry?.jobs ?? []).map((j) => j.productTypeId ?? j.blueprintTypeId), ...d.plans.flatMap((p) => p.items.map((i) => i.typeId))]);
   const canPlanets = (auth?.scopes ?? []).includes(PLANETS_SCOPE);
   const vs = useMemo(() => verdicts(d, check, costBasis(d)), [d, check]);
+  // What a plan bought and hasn't listed, priced to list (the list step, shared with the plan's checklist).
+  const listing = usePlanListing();
 
   // Keep the data current while the page is open, so what you do in game shows up without asking:
   // the orders as soon as ESI has a newer book, colonies every ten minutes while a PI item is waiting,
@@ -308,6 +312,13 @@ export function Todo() {
         });
       }
     }
+    // What a plan bought and hasn't listed: one item each, at the price to list at (the plan's own for Place and leave,
+    // today's listing price at the front, never under break-even), copied when opened. An at-the-front item waits for its
+    // book's first read, so a build before it can't change its version and drop a tick by hand.
+    for (const x of listing) {
+      if (!x.priced || (!x.read && !x.plan.patient)) continue;
+      out.push(planListItem({ planId: x.plan.id, planName: x.plan.name, patient: x.plan.patient, typeId: x.item.typeId, units: x.units, unitCost: x.unitCost ?? 0, reading: !x.read }, x.priced, name(x.item.typeId)));
+    }
     // A cloud login EVE refused stops everything the cloud does with it, with nobody looking at Settings.
     for (const k of cloud.background?.keys ?? []) {
       if (!k.refusedAt) continue;
@@ -344,7 +355,7 @@ export function Todo() {
       });
     }
     return out;
-  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background, roster]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background, roster, listing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fold each new build into the session: new findings are added, and findings a newer read no longer
   // shows are ticked off with what changed.
@@ -408,6 +419,14 @@ export function Todo() {
           const pl = p && it ? planPlacement(it, p, Object.values(d.orders), d.positions, { txs: Object.values(d.txs), ignored: d.ignored }) : null;
           // Every order counted for the item, summed: "Placed: 1 at …" for a top-up of an earlier 15 read as one unit.
           return judgePlaceBuy(e, { plan: !!p && !!it && t - Date.parse(p.at) <= 7 * DAY, placed: pl ? { units: pl.units, price: pl.price, atOnce: pl.atOnce } : null });
+        }
+        case 'planList': {
+          // Only the ledger showing it listed or sold ticks it off; a plan that no longer holds the item lets it go.
+          const [, planId, typeId] = x.key.split(':');
+          const p = d.plans.find((z) => z.id === planId);
+          const it = p?.items.find((z) => String(z.typeId) === typeId);
+          const holds = !!p && !!it && planTargets(d.plans, d.positions, rates(d.settings))[it.typeId]?.planId === p.id;
+          return judgePlanList(e, { holds, row: holds ? planListRow(p!, it!, d, d.settings) : null });
         }
         case 'cloudLogin': {
           if (x.key.startsWith('cloudLogin:alt:')) {
@@ -506,7 +525,8 @@ export function Todo() {
   const waiting = (x: TodoItem) =>
     x.source === 'orders' ? (!auth ? 'Log in so this can be checked again.' : check.busy ? 'Checking the market again…' : 'Waiting for the next check of the market.')
       : x.source === 'colonies' ? 'Waiting for the next read of your colonies.'
-        : 'Waiting for the next read of this market.';
+        : x.kind === 'planList' ? 'Waiting for your orders or trades to show it listed or sold.'
+          : 'Waiting for the next read of this market.';
   const doneShown = allDone ? view.done : view.done.slice(0, DONE_SHOWN);
   const since = (t: number) => ago(new Date(t).toISOString(), now);
 
@@ -557,7 +577,7 @@ export function Todo() {
                       <span className="tn-title" style={{ display: 'block' }}>{x.title}</span>
                       <span className="tn-detail" style={{ display: 'block' }}>{x.detail}</span>
                       {checking && <span className="tn-note" style={{ display: 'block' }}><RefreshCw aria-hidden="true" />No longer in the latest list. {waiting(x)}</span>}
-                      {opened && <span className="tn-note" style={{ display: 'block' }}>Opened in game {since(e.openedAt!)}. Once you’ve changed it, this ticks itself off when the market shows it, usually within 5 minutes.</span>}
+                      {opened && <span className="tn-note" style={{ display: 'block' }}>Opened in game {since(e.openedAt!)}. {x.kind === 'planList' ? 'Once it’s listed, this ticks itself off when your orders show it, within 20 minutes.' : 'Once you’ve changed it, this ticks itself off when the market shows it, usually within 5 minutes.'}</span>}
                     </span>
                     <span className="tn-right">
                       <span className="tn-stake">

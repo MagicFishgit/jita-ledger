@@ -1,11 +1,11 @@
 import { useMemo } from 'react';
-import { Check, ChevronRight, ClipboardList, Copy, Play, Smartphone, X } from 'lucide-react';
+import { Check, ChevronRight, ClipboardList, Copy, Play, Smartphone, Tag, X } from 'lucide-react';
 import { startPosition } from '../lib/actions';
 import { confirmAsk } from '../lib/confirm';
-import { fmtShort, isk, iskBig, iskBigSigned, rid, units } from '../lib/format';
+import { fmtShort, isk, iskBig, iskBigSigned, pct, rid, units } from '../lib/format';
 import { navigate, useNow } from '../lib/hooks';
 import { planPosition } from '../lib/positions';
-import { newPlan, placementNote, planPlacement, planProgress, PLANS_KEPT } from '../lib/plans';
+import { newPlan, placementNote, planListSaid, planPlacement, planProgress, PLANS_KEPT } from '../lib/plans';
 import type { Plan } from '../lib/planner';
 import { horizonShort } from '../lib/prospects';
 import { update, useData } from '../lib/store';
@@ -13,6 +13,7 @@ import { toast } from '../lib/toast';
 import { CopyPrice, NameInGame, useEnsureNames, useTypeName } from './common';
 import { ItemIcon } from './ui';
 import { Points } from './Facts';
+import { usePlanListing, type PricedRow } from './planListing';
 
 /**
  * Starting a Capital planner mix, and following it. The game can't place several buy orders at once (Multibuy only buys
@@ -73,7 +74,10 @@ export function StartPlanButton({ plan, days, patient }: { plan: Plan; days: num
   );
 }
 
-/** The plans still being placed: each item's buy order, with what to paste, ticked off once it shows in your orders. */
+/**
+ * Each plan's checklist: the buy orders still to place, for a week (each ticked off once it shows in your orders), and then
+ * what the plan bought and hasn't listed (`PlanListPart`), for as long as there is some.
+ */
 export function PlacingChecklist() {
   const d = useData();
   const name = useTypeName();
@@ -82,53 +86,123 @@ export function PlacingChecklist() {
   const trades = useMemo(() => ({ txs: Object.values(d.txs), ignored: d.ignored }), [d.txs, d.ignored]);
   // The note on a bid that bought some at once changes once ESI would show the rest standing (ORDERS_LAG_MS).
   const now = useNow(60_000);
-  const recent = d.plans.filter((p) => Date.now() - Date.parse(p.at) < CHECKLIST_DAYS * 86400_000 && planProgress(p, orders, d.positions, trades).placed < p.items.length);
-  useEnsureNames(recent.flatMap((p) => p.items.map((i) => i.typeId)));
-  if (!recent.length) return null;
+  const listing = usePlanListing();
+  const placing = new Set(d.plans.filter((p) => Date.now() - Date.parse(p.at) < CHECKLIST_DAYS * 86400_000 && planProgress(p, orders, d.positions, trades).placed < p.items.length).map((p) => p.id));
+  const shown = d.plans.filter((p) => placing.has(p.id) || listing.some((x) => x.plan.id === p.id));
+  useEnsureNames(shown.flatMap((p) => p.items.map((i) => i.typeId)));
+  if (!shown.length) return null;
   return (
     <>
-      {recent.map((p) => {
+      {shown.map((p) => {
         const prog = planProgress(p, orders, d.positions, trades);
+        const still = placing.has(p.id);
+        const rows = listing.filter((x) => x.plan.id === p.id);
         return (
-          <section key={p.id} id="placing" className="panel" aria-label={`Placing ${p.name}`} style={{ padding: 18, gap: 12, clipPath: 'none' }}>
+          <section key={p.id} id="placing" className="panel" aria-label={still ? `Placing ${p.name}` : p.name} style={{ padding: 18, gap: 12, clipPath: 'none' }}>
             <div className="panel-head">
-              <span className="panel-title"><ClipboardList aria-hidden="true" style={{ width: 16, height: 16, marginRight: 6, verticalAlign: '-3px' }} />Placing {p.name}</span>
-              <span className="mono" style={{ color: 'var(--acc)' }}>{units(prog.placed)} of {units(prog.of)} placed</span>
+              <span className="panel-title"><ClipboardList aria-hidden="true" style={{ width: 16, height: 16, marginRight: 6, verticalAlign: '-3px' }} />{still ? `Placing ${p.name}` : p.name}</span>
+              <span className="mono" style={{ color: 'var(--acc)' }}>{still ? `${units(prog.placed)} of ${units(prog.of)} placed` : `${units(rows.length)} to list`}</span>
             </div>
-            <div className="track h10"><span className="fill" style={{ width: `${(prog.placed / Math.max(1, prog.of)) * 100}%` }} /></div>
-            <div className="ladder" aria-label="For each item">
-              {['Open it in game (price copied)', 'Place Buy Order', 'Paste the price', 'Paste the quantity', p.patient ? 'A long duration' : 'Set the duration'].map((x, i) => (
-                <span key={x} className="step">{i > 0 && <ChevronRight aria-hidden="true" />}<span>{x}</span></span>
-              ))}
-            </div>
-            <Points compact items={[
-              { kind: 'good', lead: 'Ticks off', text: 'once the order shows in your orders (ESI holds them up to 20 minutes), or its trade does when the bid bought at once (up to an hour).' },
-              { kind: 'warn', icon: Smartphone, lead: 'On the phone', text: 'the copies land on the phone: place them from the PC.' },
-            ]} />
-            <div className="tbl-scroll">
-              <table className="tbl" style={{ minWidth: 640 }}>
-                <thead><tr><th scope="col" className="l">Item</th><th scope="col">Quantity</th><th scope="col">Buy at</th><th scope="col">In escrow</th><th scope="col" className="l">Placed</th></tr></thead>
-                <tbody>
-                  {p.items.map((i) => {
-                    const pl = planPlacement(i, p, orders, d.positions, trades);
-                    const note = pl ? placementNote(i, pl, now) : null;
-                    return (
-                      <tr key={i.typeId} style={{ opacity: pl ? 0.55 : 1 }}>
-                        <td className="l"><span className="cellrow"><ItemIcon id={i.typeId} /><NameInGame typeId={i.typeId} name={name(i.typeId)} className="name ellipsis" copy={i.buyAt} /></span></td>
-                        <td>{units(i.units)} <button type="button" className="link-btn dim copy-price" aria-label={`Copy ${i.units}`} data-tip="Copy the quantity" onClick={() => void copyQty(i.units)}><Copy aria-hidden="true" /></button></td>
-                        <td>{isk(i.buyAt)} <CopyPrice price={i.buyAt} /></td>
-                        <td>{iskBig(i.units * i.buyAt)}</td>
-                        <td className="l">{pl && note ? <span style={{ color: 'var(--pos)' }}><span className="row tight" style={{ whiteSpace: 'normal', flexWrap: 'nowrap', alignItems: 'flex-start' }}><Check aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', marginTop: 2 }} />{note.lead} at {isk(pl.price)}</span>{[note.atOnce, note.short].filter(Boolean).map((x) => <span key={x} className="note small" style={{ display: 'block', margin: 0, whiteSpace: 'normal', minWidth: 220, maxWidth: 320 }}>{x}</span>)}</span> : <span className="faint">Not yet</span>}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            {still && (
+              <>
+                <div className="track h10"><span className="fill" style={{ width: `${(prog.placed / Math.max(1, prog.of)) * 100}%` }} /></div>
+                <div className="ladder" aria-label="For each item">
+                  {['Open it in game (price copied)', 'Place Buy Order', 'Paste the price', 'Paste the quantity', p.patient ? 'A long duration' : 'Set the duration'].map((x, i) => (
+                    <span key={x} className="step">{i > 0 && <ChevronRight aria-hidden="true" />}<span>{x}</span></span>
+                  ))}
+                </div>
+                <Points compact items={[
+                  { kind: 'good', lead: 'Ticks off', text: 'once the order shows in your orders (ESI holds them up to 20 minutes), or its trade does when the bid bought at once (up to an hour).' },
+                  { kind: 'warn', icon: Smartphone, lead: 'On the phone', text: 'the copies land on the phone: place them from the PC.' },
+                ]} />
+                <div className="tbl-scroll">
+                  <table className="tbl" style={{ minWidth: 640 }}>
+                    <thead><tr><th scope="col" className="l">Item</th><th scope="col">Quantity</th><th scope="col">Buy at</th><th scope="col">In escrow</th><th scope="col" className="l">Placed</th></tr></thead>
+                    <tbody>
+                      {p.items.map((i) => {
+                        const pl = planPlacement(i, p, orders, d.positions, trades);
+                        const note = pl ? placementNote(i, pl, now) : null;
+                        return (
+                          <tr key={i.typeId} style={{ opacity: pl ? 0.55 : 1 }}>
+                            <td className="l"><span className="cellrow"><ItemIcon id={i.typeId} /><NameInGame typeId={i.typeId} name={name(i.typeId)} className="name ellipsis" copy={i.buyAt} copyAs="the bid to place" /></span></td>
+                            <td>{units(i.units)} <button type="button" className="link-btn dim copy-price" aria-label={`Copy ${i.units}`} data-tip="Copy the quantity" onClick={() => void copyQty(i.units)}><Copy aria-hidden="true" /></button></td>
+                            <td>{isk(i.buyAt)} <CopyPrice price={i.buyAt} /></td>
+                            <td>{iskBig(i.units * i.buyAt)}</td>
+                            <td className="l">{pl && note ? <span style={{ color: 'var(--pos)' }}><span className="row tight" style={{ whiteSpace: 'normal', flexWrap: 'nowrap', alignItems: 'flex-start' }}><Check aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', marginTop: 2 }} />{note.lead} at {isk(pl.price)}</span>{[note.atOnce, note.short].filter(Boolean).map((x) => <span key={x} className="note small" style={{ display: 'block', margin: 0, whiteSpace: 'normal', minWidth: 220, maxWidth: 320 }}>{x}</span>)}</span> : <span className="faint">Not yet</span>}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+            {rows.length > 0 && <PlanListPart rows={rows} />}
           </section>
         );
       })}
     </>
+  );
+}
+
+/**
+ * "Bought: list it", the list step: one row per item the plan bought and hasn't listed, with the price to list at (the
+ * plan's own for Place and leave, today's listing price at the front, never under break-even: `planListPrice`), the figure
+ * beside it, and the profit after fees. Its name opens the item in game with the price copied, as To do and Orders do. The
+ * user asked how to price the sell "so I don't mess up the intelligence the plan set out to accomplish" (2 October 2026).
+ */
+export function PlanListPart({ rows, planName }: { rows: PricedRow[]; planName?: string }) {
+  const name = useTypeName();
+  if (!rows.length) return null;
+  const patient = rows[0].plan.patient;
+  const wrap = { display: 'block', margin: 0, whiteSpace: 'normal', minWidth: 200, maxWidth: 320 } as const;
+  return (
+    <div className="plan-list" aria-label={`Bought: list it${planName ? `, ${planName}` : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
+      <div className="panel-head">
+        <span className="panel-title"><Tag aria-hidden="true" style={{ width: 15, height: 15 }} />Bought: list it{planName ? ` · ${planName}` : ''}</span>
+        <span className="mono" style={{ color: 'var(--acc)' }}>{units(rows.length)} item{rows.length === 1 ? '' : 's'} to list</span>
+      </div>
+      <Points compact items={[
+        patient
+          ? { kind: 'info', icon: Tag, lead: 'Place and leave', text: 'lists at the plan’s own price and waits there, never under what it cost. Today’s List patiently is beside it.' }
+          : { kind: 'info', icon: Tag, lead: 'At the front', text: 'lists one step under today’s cheapest listing, where trading reaches, never under what it cost. The plan’s price is beside it.' },
+        { kind: 'good', lead: 'Ticks off', text: 'once a sell order for it shows in your orders (ESI holds them up to 20 minutes), or it sells.' },
+      ]} />
+      <div className="tbl-scroll">
+        <table className="tbl" style={{ minWidth: 680 }}>
+          <thead><tr>
+            <th scope="col" className="l">Item</th><th scope="col">To list</th><th scope="col" className="l">List at</th>
+            <th scope="col" className="l">{patient ? 'Today' : 'The plan'}</th>
+            <th scope="col" data-tip="If they all sell at the price: after the broker fee and sales tax, against what they cost you, the buy’s fee included.">Profit after fees</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((x) => {
+              const p = x.priced;
+              const said = p ? planListSaid(p, patient) : null;
+              const reading = !x.read;
+              return (
+                <tr key={`${x.plan.id}:${x.item.typeId}`}>
+                  <td className="l"><span className="cellrow"><ItemIcon id={x.item.typeId} /><NameInGame typeId={x.item.typeId} name={name(x.item.typeId)} className="name ellipsis" copy={p?.price ?? null} copyAs="the price to list at" /></span></td>
+                  <td>{units(x.units)} <button type="button" className="link-btn dim copy-price" aria-label={`Copy ${x.units}`} data-tip="Copy the quantity" onClick={() => void copyQty(x.units)}><Copy aria-hidden="true" /></button></td>
+                  <td className="l">
+                    {p?.price != null ? <>{isk(p.price)} <CopyPrice price={p.price} /></> : <span className="faint">{reading ? 'Reading its book…' : '–'}</span>}
+                    {said && !(reading && p?.price == null) && <span className="note small" style={wrap}>{p!.from === 'breakEven' ? said.floor : said.from}</span>}
+                  </td>
+                  <td className="l">
+                    {reading && patient ? <span className="faint">Reading today’s market…</span> : said ? <span style={{ whiteSpace: 'normal' }}>{said.other}</span> : null}
+                    {said?.moved && !reading && <span className="note small" style={{ ...wrap, color: 'var(--acc2)' }}>{said.moved}</span>}
+                  </td>
+                  <td style={{ color: p?.profit == null ? undefined : p.profit >= 0 ? 'var(--pos)' : 'var(--neg)' }}>
+                    {p?.profit != null ? iskBigSigned(p.profit) : '–'}
+                    {p?.ret != null && <span className="sub">{p.ret >= 0 ? '+' : ''}{pct(p.ret, 1)} on {iskBig(x.units * (x.unitCost ?? 0))}</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -152,6 +226,8 @@ export function PlanGroups({ shown, onShow }: { shown: string | null; onShow: (i
       shared: vs.filter((v) => v.shared).length, oversold: cs.reduce((t, c) => t + c.oversold, 0),
     };
   }), [d.plans, d.positions, d.txs, d.journal, d.orders, d.settings, trades]); // eslint-disable-line react-hooks/exhaustive-deps
+  // What each plan bought and hasn't listed: the same list step as the planner's checklist.
+  const listing = usePlanListing();
   if (!rows.length) return null;
   return (
     <section className="panel" aria-label="Plans" data-rv="" style={{ padding: 18, gap: 10, clipPath: 'none' }}>
@@ -199,6 +275,10 @@ export function PlanGroups({ shown, onShow }: { shown: string | null; onShow: (i
           </tbody>
         </table>
       </div>
+      {d.plans.map((p) => {
+        const mine = listing.filter((x) => x.plan.id === p.id);
+        return mine.length ? <PlanListPart key={p.id} rows={mine} planName={p.name} /> : null;
+      })}
     </section>
   );
 }
