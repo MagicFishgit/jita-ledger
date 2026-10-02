@@ -189,6 +189,8 @@ function LeadTiles({ w }: { w: Walk }) {
   const onceTrained = pick && fieldHas < pick.agent.level ? ` once ${FIELDS[pick.field]?.name} reaches ${ROMAN[pick.agent.level]}` : '';
 
   const six = bestAgents(w.ranked), sixV = bestAgents(w.rankedV);
+  // Worked out at level 1 agents only while the standings that open more aren't read: said on the tile, not only in step 2.
+  const unread = c.standings.state === 'read' ? '' : ' · standings not read yet: level 1 agents only';
   const month = (xs: RankedAgent[]) => xs.reduce((n, r) => n + (r.iskDay ?? 0), 0) * 30;
   const sixSaid = (xs: RankedAgent[]) => (w.pricing ? 'Pricing…' : xs.length ? iskBig(month(xs)) : '–');
 
@@ -203,12 +205,12 @@ function LeadTiles({ w }: { w: Walk }) {
     <Tiles min={220} items={[
       {
         l: 'An agent-day', v: dayOf(pick),
-        n: pick ? <>{pick.rpDay.toFixed(1)} RP a day{onceTrained} · at all V: {dayOf(atV)}</> : 'Nothing open yet',
+        n: pick ? <>{pick.rpDay.toFixed(1)} RP a day{onceTrained} · at all V: {dayOf(atV)}{unread}</> : 'Nothing open yet',
         tip: `What one day of ${pick ? pick.agent.name : 'the pick'}’s research fetches: its RP a day ÷ ${RP_PER_DATACORE} a datacore × what one sells for into Jita’s best bid after ${who} sales tax, less the ${isk(DATACORE_FEE)} fee.\n\n• RP a day = (1 + (20 + 5 × Negotiation + standing with the agent) ÷ 100) × (field skill + agent level)², EVE University’s formula, checked by a player on three characters (2023).\n• At ${who} skills, with the field at least at the agent’s level (assumed to be what it asks for).\n• ${RP_PER_DATACORE} RP a datacore is assumed: CCP 2012; CCP’s support page says 50–150 by field.\n• At all V: field, Negotiation and Connections at V, standings as read.`,
       },
       {
         l: 'Six agents, a month', v: sixSaid(six),
-        n: <>{six.length && six.length < MAX_AGENTS ? `${six.length} open, not six · ` : ''}at all V: {sixSaid(sixV)}</>,
+        n: <>{six.length && six.length < MAX_AGENTS ? `${six.length} open, not six · ` : ''}at all V: {sixSaid(sixV)}{unread}</>,
         tip: `Thirty days of the ${MAX_AGENTS} best-paying agents open to ${c.isMain ? 'you' : c.name} on a high-sec route from Jita, each in its best field, at today’s bids.\n\n• Six needs Research Project Management V: one agent, and one more a level.\n• Whether two agents may research one field at once isn’t confirmed.\n• Doing each agent’s daily mission would add about as much again; nothing here counts it.`,
       },
       {

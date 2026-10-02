@@ -932,7 +932,7 @@ try {
     const mainText = await text();
     // RP a day for a level 2 agent at Electronic Engineering IV, Negotiation IV, no standing with the agent: (1 + 40/100) × (4 + 2)².
     for (const t of ['Steps 1 to 3 follow one pick: Shitsu Ashoma, level 2 Lai Dai Corporation, in Electronic Engineering', '50.4 RP a day',
-      'Start with a level 2 agent:', 'Ehu Vantoh']) if (!mainText.includes(t)) problems.push(`not drawn for the main: “${t}”`);
+      'Start with a level 2 agent:', 'Ehu Vantoh', 'Your standings as the sync read them at']) if (!mainText.includes(t)) problems.push(`not drawn for the main: “${t}”`);
     const laiDai = await page.locator('.step-card[aria-label^="Step 2"] tbody tr', { hasText: 'Lai Dai Corporation' }).first().evaluate((tr) => [...tr.children].map((td) => td.innerText.replace(/\s+/g, ' ').trim())).catch(() => null);
     if (!laiDai) problems.push('not drawn: no Lai Dai row in step 2');
     else {
@@ -947,7 +947,7 @@ try {
     await page.locator('[role="group"][aria-label="Show for"] button', { hasText: 'Research Alt' }).click().catch((e) => problems.push(`couldn't show the alt: ${e.message.split('\n')[0]}`));
     await page.waitForTimeout(1500);
     const altText = await text();
-    for (const t of ['Not read yet: Research Alt’s standings come with the cloud’s next hourly read.', 'Start with a level 1 agent:']) if (!altText.includes(t)) problems.push(`not drawn for the alt: “${t}”`);
+    for (const t of ['Not read yet: Research Alt’s standings come with the cloud’s next hourly read.', 'Start with a level 1 agent:', 'standings not read yet: level 1 agents only']) if (!altText.includes(t)) problems.push(`not drawn for the alt: “${t}”`);
     const altSteps = (await page.locator('.step-card[aria-label^="Step 2"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
     if (/no standing/.test(altText)) problems.push('the alt’s walkthrough says “no standing” for standings not read yet');
     if (!altSteps.includes('Not read yet')) problems.push('the alt’s standings cells don’t say “Not read yet”');

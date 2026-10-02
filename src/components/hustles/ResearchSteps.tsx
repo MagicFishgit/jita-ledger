@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Anchor, Ban, BookOpen, Lock, MapPin, MessageSquare, Navigation, Shuffle, Undo2 } from 'lucide-react';
 import { hasScope } from '../../lib/auth';
 import { SCOPE } from '../../lib/config';
-import { isk, iskBig, pct, units } from '../../lib/format';
+import { fmtDateTime, isk, iskBig, pct, units } from '../../lib/format';
 import { resolveNames, setDestination } from '../../lib/market';
 import {
   ACCESS, CORP_BELOW_FACTION, DATACORE_FEE, DATACORE_OF, RP_PER_DATACORE, effectiveStanding, openLevel, rpPerDay,
@@ -158,6 +158,14 @@ function needSaid(level: 1 | 2 | 3 | 4, corpName: string, factionName: string): 
   return `${corpName} ${signed(n)}, or ${factionName} ${signed(n)} with ${corpName} ${signed(n - CORP_BELOW_FACTION)}`;
 }
 
+/** When the standings shown were read: the main's by its sync, an alt's by the cloud's hourly read of its sheet. */
+function readSaid(w: Walk): string {
+  const s = w.c.standings;
+  if (s.state !== 'read') return '';
+  const at = s.at == null ? null : new Date(s.at).toISOString().slice(0, 10) === new Date(w.now).toISOString().slice(0, 10) ? `${new Date(s.at).toISOString().slice(11, 16)} ET` : fmtDateTime(s.at);
+  return w.c.isMain ? `Your standings as the sync read them${at ? ` at ${at}` : ''}.` : `${w.c.name}’s standings as the cloud last read them${at ? `, at ${at}` : ''}.`;
+}
+
 /** What the next level asks of a corporation's standings, and, once they're read, what each has and what's missing. */
 function nextSaid(w: Walk, r: CorpReach): string {
   const n = r.next!, corp = w.name(r.corp), fac = w.name(r.faction);
@@ -180,7 +188,8 @@ export function ReachStep({ w }: { w: Walk }) {
   const rows = all ? w.corps : w.corps.slice(0, 5);
   return (
     <Step n={2} title="Reach the agents" done={c.standings.state === 'read' && start >= 2}>
-      {why && <Notice kind="warn">{why} Until then only level 1 agents, which take any standing over −2.00, show as open.</Notice>}
+      {why ? <Notice kind="warn">{why} Until then only level 1 agents, which take any standing over −2.00, show as open.</Notice>
+        : <p className="note small" style={{ margin: 0 }}>{readSaid(w)}</p>}
       <Points compact items={[
         c.standings.state === 'read'
           ? { kind: 'tip', lead: start ? `Start with a level ${start} agent:` : 'No R&D agent', text: start ? `the highest open to ${who(c)} now.` : `is open to ${who(c)} at these standings.` }
