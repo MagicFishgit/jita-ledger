@@ -280,7 +280,8 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   count cut at twice the best says "at least". Measured on a real read of The Forge's 405 pages: the fold 31 MB, the
   count's share 9.1 MB of the Worker's 128 (192,167 of Jita's 223,245 sell prices kept); the stored scan +0.63%; "at
   least" counts on the front's candidates 348 → 11; Long queue 74 → 108. The five-minute watch's live books keep the
-  morning's count and NPC price (`overScan`), and the opportunity mail reads both from `scan_items`; where the live seven levels show more, they win, as "at least". A throw
+  morning's count and NPC price (`overScan`), and the opportunity mail reads both from `scan_items`; where the live
+  seven levels show more, they win, as "at least". A throw
   while summarising falls back to the plain book, so the day's scan can't be lost to it. The count includes your own
   listings (the scan doesn't know whose they are).
 - **A buy that feeds a long queue says so on Orders** (`feedingQueue`, `feedsQueueSaid` in relist.ts; `perDaySaid`, `queueDaysSaid` in
