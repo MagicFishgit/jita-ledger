@@ -273,7 +273,7 @@ export async function opportunities(db: D1Database, charId: number, settings: Se
   const fresh = types.filter((t) => books[t]);
   stages.withBook = fresh.length;
   const hist = await histories(db, fresh, now);
-  const flow = await flowFor(db, fresh);
+  const flow = await flowFor(db, fresh, 14, now);
   const qualifying: Prospect[] = [];
   let checked = 0;
   for (const t of fresh) {

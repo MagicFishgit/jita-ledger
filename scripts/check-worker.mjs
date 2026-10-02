@@ -875,7 +875,7 @@ console.log('\n--- the opportunity mail leaves out what NPCs sell in The Forge a
     db.run('INSERT INTO books (type_id, stamp, orders, sold, at) VALUES (?, ?, ?, ?, ?)', MOLE, NOW, JSON.stringify(packed), null, NOW - 60_000);
     db.run('INSERT INTO hist (type_id, expires, rows) VALUES (?, ?, ?)', MOLE, NOW + 86400_000, JSON.stringify(x.hist));
     // Watched long enough for the mail to judge it (RELIST_MIN_H), a few traded each side: invented for the test.
-    for (const day of [new Date(Date.now() - 86400_000).toISOString().slice(0, 10), new Date().toISOString().slice(0, 10)]) {
+    for (const day of ['2026-10-01', '2026-10-02']) {
       db.run(`INSERT INTO flow (type_id, day, h, sell, buy, new_sell, new_buy) VALUES (?, ?, ?, ?, ?, ?, ?)`, MOLE, day, 12, 4, 4, 2, 2);
     }
     if (scanBook) db.run('INSERT INTO scan_items (type_id, stats, book, orders, run) VALUES (?, ?, ?, ?, ?)', MOLE, JSON.stringify(x.stats), JSON.stringify(scanBook), x.orders, 1);

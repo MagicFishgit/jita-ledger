@@ -157,8 +157,8 @@ export async function hoursFor(db: D1Database, types: number[], days = HOD_DAYS)
 }
 
 /** The watched trade for some items over the last `days` UTC days, shaped like the app's flow log. */
-export async function flowFor(db: D1Database, types: number[], days = 14) {
-  const since = new Date(Date.now() - (days - 1) * 86400_000).toISOString().slice(0, 10);
+export async function flowFor(db: D1Database, types: number[], days = 14, now = Date.now()) {
+  const since = new Date(now - (days - 1) * 86400_000).toISOString().slice(0, 10);
   const out: Record<number, Record<string, FlowDay>> = {};
   for (let i = 0; i < types.length; i += 90) {
     const part = types.slice(i, i + 90);
