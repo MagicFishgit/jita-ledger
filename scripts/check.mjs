@@ -2692,6 +2692,9 @@ eq('remind again after 4 h unless you chose otherwise', [sanitizeAlerts({}).repe
 eq('mail starts off', sanitizeAlerts({}).mail, false);
 eq('  and by mail only what you can act on in game, plus the cloud’s trades worth a look, mistake listings, its own failures and asset safety', Object.entries(sanitizeAlerts({}).mailEv).filter(([, v]) => v).map(([k]) => k), ['move', 'pi', 'opportunity', 'snipe', 'watchdog', 'safety']);
 eq('  the Sniper’s bar starts at 5 M and 10%, and keeps what you set', [sanitizeAlerts({}).snipeMinIsk, sanitizeAlerts({}).snipeMinPct, sanitizeAlerts({ snipeMinIsk: 2e7, snipeMinPct: 15 }).snipeMinIsk], [5e6, 10, 2e7]);
+// "Exclude blueprints, as they might be risky to try and sell" (the user, 2 October 2026): out unless switched on, and
+// anything but a plain true (an older device's whole document, a stray value) reads as out.
+eq('  the Sniper leaves blueprints out unless asked: only true lets them in', [sanitizeAlerts({}).snipeBlueprints, sanitizeAlerts({ snipeBlueprints: 'yes' }).snipeBlueprints, sanitizeAlerts({ snipeBlueprints: 1 }).snipeBlueprints, sanitizeAlerts({ snipeBlueprints: true }).snipeBlueprints], [false, false, false, true]);
 eq('  a saved config from before opportunities gets them from the defaults', sanitizeAlerts({ ev: { move: true }, mailEv: { move: true } }).mailEv.opportunity, true);
 eq('mails are deleted after 3 days unless set', sanitizeAlerts({}).mailKeepMin, 4320);
 eq('"keep them" is kept as null', sanitizeAlerts({ mailKeepMin: null }).mailKeepMin, null);
@@ -4194,6 +4197,36 @@ console.log('\n--- the sniper ---');
   const hb = mailOf([{ kind: 'snipe', key: 'snipebid:9@1200000', title: 'High bid for what you hold', typeId: 34, name: 'Tritanium', isk: 546525, text: 'x',
     snipe: { side: 'sell', qty: 5, price: 1.2e6, proceeds: 5.8e6, gain: 546525, held: 5, fair: 1e6, minVolume: 1 } }], { appUrl: 'https://x/', keepMin: 30, now });
   eq('  so does a high bid\'s', hb.body.includes('HIGH BID FOR WHAT YOU HOLD - 546,525 ISK MORE THAN LISTING'), true);
+
+  // Blueprints, by ESI's category, never by name. From the cloud's read of 1 October 2026 (23:27 UTC): a Small Focused
+  // Anode Particle Stream I (category 7, a module), an Epithal Blueprint (9), and a Synth Blue Pill Booster Reaction
+  // Formula, which is category 9 with no "Blueprint" in its name. A Thrasher Blueprint from a Worker a version behind
+  // (no category on the listing) is looked up by the browser; a Medium AutoCannon Battery whose cloud lookup failed (null)
+  // is too, and is a module (23); a Tracking Speed Script not looked up yet is unknown.
+  const Li = (typeId, category) => ({ ...hit, typeId, orderIds: [typeId], ...(category === undefined ? {} : { category }) });
+  const anode = Li(6721, 7), epithal = Li(990, 9), formula = Li(46233, 9), thrasher = Li(16243), battery = Li(17771, null), script = Li(29001);
+  const looked = { 16243: 9, 17771: 23 };
+  const all6 = [anode, epithal, formula, thrasher, battery, script];
+  const off = Sn.splitBlueprints(all6, false, (t) => looked[t]);
+  const ids = (l) => l.map((x) => x.typeId);
+  eq('  blueprints are category 9: out unless asked, the reaction formula with them', [ids(off.shown), ids(off.blueprints)], [[6721, 17771], [990, 46233, 16243]]);
+  eq('    one whose category isn’t known yet is held back with them, on the safe side', ids(off.unknown), [29001]);
+  const on = Sn.splitBlueprints(all6, true, (t) => looked[t]);
+  eq('    switched on, every listing shows, and the count of blueprints is the same', [ids(on.shown), on.blueprints.length], [[6721, 990, 46233, 16243, 17771, 29001], 3]);
+  eq('    with no lookup to fall back on (the cloud\'s mail), the cloud\'s own category decides', ids(Sn.splitBlueprints(all6, false).shown), [6721]);
+
+  // Copy for Multibuy (authorized by the user, 2 October 2026): "Name N", the cheap units only, with what it should come
+  // to at the listings read, and that Multibuy has no price limit. The Anode Particle Stream as read: 133 at 58,730.
+  const nm = { 6721: 'Small Focused Anode Particle Stream I', 990: 'Epithal Blueprint' };
+  const nameOf = (t) => nm[t] ?? `Item #${t}`;
+  const anodeRead = { typeId: 6721, units: 133, cost: 7_811_090, top: 58_730, nextAsk: 98_860 };
+  const one = Sn.snipeMultibuy([anodeRead], nameOf);
+  eq('  a find copies as "Name N", N the cheap units', [one.ok, one.block, one.lines], [true, 'Small Focused Anode Particle Stream I 133', 1]);
+  eq('    and says what it should come to at the listings read, exactly, with the next listing up', [one.total, one.said.includes('7,811,090 ISK'), one.said.includes('58,730 ISK each'), one.said.includes('from 98,860 ISK each')], [7_811_090, true, true, true]);
+  eq('    and that Multibuy has no price limit, so a dearer total means a listing has gone', [/no price limit/.test(one.said), one.said.includes('a total over 7,811,090 ISK')], [true, true]);
+  const both = Sn.snipeMultibuy([anodeRead, { typeId: 990, units: 8, cost: 51_200_000, top: 6_400_000, nextAsk: 8_474_000 }], nameOf);
+  eq('  all shown: a line each, and their total', [both.block, both.lines, both.total, both.said.includes('59,011,090 ISK')], ['Small Focused Anode Particle Stream I 133\nEpithal Blueprint 8', 2, 59_011_090, true]);
+  eq('  a name not read yet refuses the copy, whole', [Sn.snipeMultibuy([anodeRead, { ...anodeRead, typeId: 123 }], nameOf).ok, /names haven’t loaded/.test(Sn.snipeMultibuy([{ ...anodeRead, typeId: 123 }], nameOf).why)], [false, true]);
 }
 
 console.log('\n--- snipes you have taken ---');
@@ -4226,6 +4259,16 @@ console.log('\n--- snipes you have taken ---');
   const skip = Sd.notSnipeIds([...fit, ...same, txs[0]], ['c']);
   eq('  bought in one go with other items: not a snipe', fit.every((t) => skip.has(t.id)), true);
   eq('  but several listings of one item in a row still can be, and a lone buy is judged as ever', [same.some((t) => skip.has(t.id)), skip.has('a'), skip.has('c')], [false, false, true]);
+  // The Sniper's "Copy for Multibuy" of everything shown (2 October 2026) buys several finds in one go: 3+ purchases of
+  // 2+ items, the multibuy rule's shape. A purchase the Sniper had shown (its item, at a sighted price, while up) is a
+  // snipe however it was bought; the rest of such a burst, and a fitting's Buy All, still aren't.
+  const at = Date.parse('2026-10-02T09:00:00Z'), iso = (ms) => new Date(at + ms).toISOString();
+  const sniperBuy = [T('m1', iso(0), 100, 58_730, { typeId: 6721 }), T('m2', iso(400), 33, 58_730, { typeId: 6721 }), T('m3', iso(800), 8, 6_400_000, { typeId: 990 }), T('m4', iso(1200), 2, 4_000, { typeId: 34 })];
+  const shown = [{ typeId: 6721, lo: 58_730, hi: 58_730, firstSeen: at - 30 * 60_000, lastSeen: at - 5 * 60_000 }, { typeId: 990, lo: 6_400_000, hi: 6_400_000, firstSeen: at - 3600_000, lastSeen: at - 60_000 }];
+  const skipSeen = Sd.notSnipeIds([...fit, ...sniperBuy], ['c'], shown);
+  eq('  Sniper finds bought in one Multibuy stay snipes; what the Sniper didn\'t show in that burst doesn\'t', ['m1', 'm2', 'm3', 'm4'].map((id) => skipSeen.has(id)), [false, false, false, true]);
+  eq('    a fitting\'s Buy All is still no snipe, and without sightings nothing changes', [fit.every((t) => skipSeen.has(t.id)), sniperBuy.every((t) => Sd.notSnipeIds(sniperBuy, []).has(t.id))], [true, true]);
+  eq('    a sighting at another price, or long before, doesn\'t vouch for it', [Sd.notSnipeIds(sniperBuy, [], [{ ...shown[0], lo: 50_000, hi: 50_000 }]).has('m1'), Sd.notSnipeIds(sniperBuy, [], [{ ...shown[0], lastSeen: at - 3 * 3600_000 }]).has('m1')], [true, true]);
   // "If an item is fit to a ship either quickly or later then it wasn't a snipe" (the user, 29 September 2026).
   const snipes = [{ typeId: 6001, units: 1 }, { typeId: 25861, units: 1 }, { typeId: 23013, units: 19_489 }, { typeId: 5321, units: 3 }];
   eq('  a snipe whose item is fitted to one of your ships is left out; a few charges loaded from a big ammo snipe don’t count',

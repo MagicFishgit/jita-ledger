@@ -729,6 +729,53 @@ console.log('\n--- the alert round judges a plan\'s order by its plan (Praxis, 3
   eq('  a broken positions row is skipped, never the round', [survived.x?.verdict, survived.x?.plan?.planId], ['loss', plan.id]);
 }
 
+console.log('\n--- the Sniper leaves blueprints out of the mail unless asked ---');
+{
+  const { sniperRound } = await import('../worker/src/snipe.ts');
+  const { push } = await import('../worker/src/sync.ts');
+  const JITA = 60003760, NOW = Date.parse('2026-10-02T09:01:00Z');
+  // From the cloud's read of 1 October 2026: a module (Small Focused Anode Particle Stream I, group 53, category 7), an
+  // Epithal Blueprint (group 108, category 9), and a Medium AutoCannon Battery whose type ESI won't describe this round.
+  const ANODE = 6721, EPITHAL = 990, BATTERY = 17771;
+  const db = d1();
+  const env = testEnv(db);
+  await keepKey(db, MAIN, 'main', MAIN, 'Main', SCOPES);
+  await keepKey(db, MAIN, 'mailer', SENDER, 'Postmaster', SCOPES);
+  const alerts = (more = {}) => push(db, MAIN, { records: [], docs: [{ key: 'alerts', d: { on: true, mail: true, quiet: false, snipeMinIsk: 1e6, snipeMinPct: 5, ...more } }] });
+  await alerts();
+  const stats = (fair, perDay) => JSON.stringify({ highs14: Array(14).fill(fair), unitsPerDay: perDay, daysTraded: 30, lastMove: 0 });
+  for (const [t, fair, perDay] of [[ANODE, 98_935, 100], [EPITHAL, 8_479_000, 3], [BATTERY, 3_990_000, 4]]) db.run('INSERT INTO scan_items (type_id, stats, book, orders, run) VALUES (?, ?, ?, ?, ?)', t, stats(fair, perDay), '{}', 2, 1);
+  // Each item's Jita sells: the cheap order, priced ten minutes before, then the next listing up.
+  const sell = (id, type, price, volume) => ({ order_id: id, type_id: type, location_id: JITA, is_buy_order: false, price, volume_remain: volume, volume_total: volume, issued: new Date(NOW - 10 * MIN).toISOString(), duration: 90, min_volume: 1 });
+  const book = [sell(1, ANODE, 58_730, 133), sell(2, ANODE, 98_860, 50), sell(3, EPITHAL, 6_400_000, 8), sell(4, EPITHAL, 8_474_000, 3), sell(5, BATTERY, 3_000_000, 6), sell(6, BATTERY, 4_798_000, 2)];
+  const names = { [ANODE]: 'Small Focused Anode Particle Stream I', [EPITHAL]: 'Epithal Blueprint', [BATTERY]: 'Medium AutoCannon Battery' };
+  const routes = (mailId) => [
+    ['/markets/10000002/orders/', book],
+    [`/universe/types/${ANODE}/`, { type_id: ANODE, name: names[ANODE], group_id: 53 }],
+    [`/universe/types/${EPITHAL}/`, { type_id: EPITHAL, name: names[EPITHAL], group_id: 108 }],
+    ['/universe/groups/53/', { group_id: 53, category_id: 7 }],
+    ['/universe/groups/108/', { group_id: 108, category_id: 9 }],
+    [/^POST \/universe\/names\/$/, (u, init) => JSON.parse(init.body).map((id) => ({ id, name: names[id], category: 'inventory_type' }))],
+    [new RegExp(`^POST /characters/${SENDER}/mail/$`), mailId],
+  ];
+  const mailOf = (f) => { const c = f.calls.find((x) => x.method === 'POST' && x.path === `/characters/${SENDER}/mail/`); return c ? JSON.parse(c.body).body : ''; };
+
+  let f = stubFetch(routes(801));
+  const r1 = await sniperRound(env, NOW);
+  f.restore();
+  const read = JSON.parse(db.rows(`SELECT data FROM scan_meta WHERE key = 'snipes'`)[0].data);
+  eq('  every listing carries its category, null where ESI didn\'t say', Object.fromEntries(read.listings.map((l) => [l.typeId, l.category])), { [ANODE]: 7, [EPITHAL]: 9, [BATTERY]: null });
+  eq('    what was read is kept: type, group, category', db.rows('SELECT type_id AS t, group_id AS g, category_id AS c FROM type_kinds ORDER BY type_id'), [{ t: EPITHAL, g: 108, c: 9 }, { t: ANODE, g: 53, c: 7 }]);
+  eq('  off (the default), the mail names the module, not the blueprint, nor the one not known yet', [r1.mailed[MAIN], mailOf(f).includes(names[ANODE]), mailOf(f).includes(names[EPITHAL]), mailOf(f).includes(names[BATTERY])], [1, true, false, false]);
+
+  await alerts({ snipeBlueprints: true });
+  f = stubFetch(routes(802));
+  const r2 = await sniperRound(env, NOW + 5 * MIN);
+  f.restore();
+  eq('  switched on, the blueprint is mailed, and the one not known yet with it', [r2.mailed[MAIN], mailOf(f).includes(names[EPITHAL]), mailOf(f).includes(names[BATTERY])], [2, true, true]);
+  eq('    the next round asks ESI only for the type it couldn\'t read', f.calls.filter((c) => c.path.startsWith('/universe/types/') || c.path.startsWith('/universe/groups/')).map((c) => c.path), [`/universe/types/${BATTERY}/`]);
+}
+
 console.log('\n--- an alt is never a ledger ---');
 {
   const { watchedTypes } = await import('../worker/src/market.ts');
