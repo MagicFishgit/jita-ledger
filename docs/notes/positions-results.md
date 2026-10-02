@@ -76,6 +76,13 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   position's 16.75 M, the bid's 4,679,391 ISK gone, untagged and dated from the plan (the review, 2 October 2026). Any
   other position open before the plan is a view and tagged, traded or not: Clone Soldier Transporter Tag's, opened by the
   30 September plan, is one under the 2 October plan, with nothing filled but its earlier bid's fees paid.
+- **A plan's position says what the plan sells at** ("The plan sells at", `PositionDetail`, from `planTargets`), beside List
+  patiently and List safely, while the position belongs to an open plan: the plan's `sellAt`, what it makes if all the
+  stock sells there after fees (and on what an open buy is still filling), whether the plan places and leaves or follows
+  the front, and its name. Drawn without history too (List patiently isn't), and before anything fills. Under break-even it
+  says so, and that the plan's list step lists at break-even instead (finding-trades.md, "the checklist's second part").
+  The user's Imperial Navy Infiltrator (2 October 2026): the plan at 1,836,000 makes +7.5%, List patiently the same
+  1,836,000, List safely 1,666,000 under its 1,708,000 break-even; before, nothing on the page tied any of them to the plan.
 - **"What your standings are worth" prices your real trading at other standings** (`lib/standings.ts`, Rates & fees).
   Every broker charge is the broker rate × an order's value (a price change × (1 − the Advanced Broker Relations
   discount)), so each fee ÷ the rate paid that day is the trading behind it, and that total × any rate is what the

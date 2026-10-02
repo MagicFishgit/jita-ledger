@@ -208,6 +208,45 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   bought 5 at once, read 15 placed for 10 (the review). And a bid that bought some at once leaves the rest standing,
   which ESI shows up to 20 minutes late (`ORDERS_LAG_MS`): until its trade is that old the note says the rest may still
   be standing, never that it is a new order to place, which would invite the duplicate the checklist exists to stop.
+- **The checklist's second part lists what the plan bought** ("Bought: list it", the list step: `planListRows` and
+  `planListRow` in positions.ts; `listedSince`, `unitsToList`, `listMarket`, `planListPrice`, `planListSaid` in plans.ts,
+  Worker-safe; `PlanListPart` in PlanStart.tsx, on the planner and Positions' Plans panel; `usePlanListing` in
+  components/planListing.ts; To do kind `planList`). The user asked how to price the sell once a plan's buy fills "so I
+  don't mess up the intelligence the plan set out to accomplish", and approved it (2 October 2026): the plan's `sellAt`
+  showed only in Orders' Plan chip tip, once a sell order existed.
+  - **Stock to list** is what the plan bought and hasn't sold (`planPosition`'s view, so a position it took over counts
+    from its start and the earlier stock sells first), no more than the whole position holds off its sell orders (units are
+    alike, so the earlier stock is listed first too), and no more than the Jita hangar holds once read. A sell order counts
+    from when it was placed, its first version (`seen[0]`), never `issued`: the user's Raging Dark Filament had 1 listed on
+    1 October, before its position, repriced after the plan, and by `issued` it hid one of the plan's 10. Units a listing
+    since the position opened has filled that no sale records yet still count as listed, or a listing that sold would read
+    as stock to list again until its trade came, up to an hour later. Each item is listed under the one plan
+    `planTargets` gives it: Clone Soldier Transporter Tag is in both the 30 September and 2 October plans on one position.
+  - **The price**: Place and leave lists at the plan's own `sellAt` (list and wait), with today's List patiently beside it
+    (`reachedAsk` at FILL_TYPICAL, one step over others' best bid at least, as the position page shows it); at the front,
+    today's `listingPrice` on the live book (others' orders only), with the plan's price beside it; never under break-even
+    (`underCost`'s: what a unit cost, the buy's fee in, after the broker fee and sales tax). More than `MARKET_MOVED` (5%)
+    between today's figure and the plan's, a sentence says the market has moved and which way, and no verdict.
+    Nothing not known reads as zero: no book, no front price ("Its Jita book couldn’t be read"); no history, no List
+    patiently figure ("No history to say where trading gets up to today"). Each row copies its price, and its name opens
+    the item in game with the price copied ("the price to list at" in the tip).
+  - **On To do** ("List what the plan bought", Needs action): one item per plan item, keyed `planList:<plan>:<type>`,
+    versioned by the price to list at, so a repriced suggestion reopens a hand tick and a fill doesn't. An at-the-front
+    item waits for its book's first read, or a build without it would change its version and drop a hand tick on every
+    page load. It ticks off only when the ledger that dropped it shows the stock listed or sold (`judgePlanList`); the
+    hangar reading none with no listing or sale shown is still being checked; a plan that no longer holds the item (removed,
+    its position closed, a newer plan holding it) lets it go unticked. Not mailed.
+  - **The books are read for it** (`usePlanListing`), every five minutes while shown: Orders' check reads only items with
+    open orders, and a filled, unlisted item has none. The checklist used to show only plans still being placed within
+    their week; a plan with stock to list now shows past both.
+  - **Measured on the user's plans** (20:56 UTC, D1 and ESI read-only, `.playwright-mcp/plan-list-step/`): six items to
+    list, all the 2 October plan's (Place and leave), 33 units costing 135.3 M, about +9.0 M after fees at the plan's
+    prices: the Infiltrator 11 at 1,836,000 (+7.5%; today's listing price 1,608,000 and List safely 1,666,000 are both
+    under its 1,708,000 break-even), Clone Soldier 1 at 33.4 M (List patiently 31.49 M today, moved down 5.7%), Raging Dark
+    Filament 10 at 1,983,000, Fierce Gamma Filament 4 at 2,486,000, Raging Gamma Filament 6 at 10,030,000, Proximity-5
+    'Extraction' Filament 1 at 7,800,000. Five of six read today's List patiently equal to the plan's price because the plan
+    was priced on the same fortnight (ESI's history then ended 1 October): it will part as ESI adds days. Rocket Science's
+    2,628 on their sell order are the earlier trading's: nothing to list.
 - **A price must be reached lately, not only somewhere in the fortnight** (`RECENT_DAYS` 5, `RECENT_MIN` 2,
   `RECENT_TYPICAL` 3 in fills.ts; `bidToPlace` / `askToPlace`'s `window`). That plan bid 270.7 M for a Caldari Navy
   Missile Guidance Computer reached on 5 of 14 days, all mid-September at 260–310 M; since the 25th it traded at 359–375 M
