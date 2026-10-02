@@ -5,7 +5,7 @@ import { RELIST_MIN_H, type FlowDay, type OrderLite } from './flow';
 import { isk, iskBig, units } from './format';
 import type { PlanTarget } from './plans';
 import { queueCeiling } from './prospects';
-import { LONG_QUEUE_DAYS, queuePaceSaid, sellQueue, type SellQueue, type SplitFrom } from './split';
+import { LONG_QUEUE_DAYS, NOBODY_BUYS, perDaySaid, queueDaysSaid, queueLengthSaid, queuePaceSaid, sellQueue, type SellQueue, type SplitFrom } from './split';
 
 /**
  * Whether one of your market orders is worth chasing.
@@ -223,14 +223,17 @@ export function feedingQueue(
   return q ? { ...q, ahead, upTo, listed, hangar, toBuy: x.volumeRemain, watchedH: m.pace.watchedH } : null;
 }
 
-/** A queue's length in days of buyers, for the tag and its tip: "28 days", "over a year". */
-export function queueDaysSaid(q: Pick<SellQueue, 'days' | 'atLeast'>): string {
-  return q.days > 365 ? 'over a year' : `${q.atLeast ? 'at least' : 'about'} ${Math.round(q.days)} days`;
+/** The tag on Orders: "Feeds a long queue: about 28 days of buyers", or "…: nobody has been seen buying from listings". */
+export function feedsQueueTag(q: FeedsQueue): string {
+  return `Feeds a long queue: ${queueLengthSaid(q)}`;
 }
 
-/** The tip for a buy that feeds a long queue: what it is, the figures behind it, then what to do. */
+/**
+ * The tip for a buy that feeds a long queue: what it is, the figures behind it, then what to do. The queue and its pace
+ * are said as Prospects' Long queue says them (split.ts). EVE can't make an order smaller (finding-trades: the plan
+ * checklist), so the advice is to cancel, or cancel and place a smaller one, which is a new order with its own fee.
+ */
 export function feedsQueueSaid(q: FeedsQueue): string {
-  const perDay = q.perDay < 10 ? String(Math.round(q.perDay * 10) / 10) : units(Math.round(q.perDay));
   const others = q.ahead == null
     ? `Others’ listings aren’t counted: history doesn’t say what buyers have been paying here (it needs trading on ${FILL_RARE} of the last ${FILL_WINDOW} days)`
     : q.ahead === 0 ? `Nobody else lists at a price buyers have been paying (up to ${isk(q.upTo)})`
@@ -238,14 +241,20 @@ export function feedsQueueSaid(q: FeedsQueue): string {
   const held = q.hangar == null
     ? `You have ${units(q.listed)} listed; your Jita hangar hasn’t been read, so what’s in it isn’t counted`
     : `You hold ${units(q.listed + q.hangar)}: ${units(q.listed)} listed and ${units(q.hangar)} in your Jita hangar`;
-  return `What this order still buys joins a sell queue longer than ${LONG_QUEUE_DAYS} days of the buyers who take listings here: `
-    + `${q.atLeast ? 'at least ' : ''}${units(q.units)} units, ${queueDaysSaid(q)} of them.\n\n`
+  const count = `${q.atLeast ? 'at least ' : ''}${units(q.units)} units`;
+  const lead = q.perDay > 0
+    ? `What this order still buys joins a sell queue longer than ${LONG_QUEUE_DAYS} days of the buyers who take listings here: ${count}, ${queueDaysSaid(q)} of them.`
+    : `What this order still buys joins a sell queue that doesn’t clear: ${count}, and ${NOBODY_BUYS} here.`;
+  const watched = q.from === 'watched' && q.watchedH >= 1 ? ` (${Math.round(q.watchedH)} h watched)` : '';
+  const pace = q.perDay > 0 ? `Buyers take ${perDaySaid(q.perDay)} from listings` : 'Nobody has been seen buying from listings';
+  return `${lead}\n\n`
     + `• ${others}\n`
     + `• ${held}\n`
     + `• This order still buys ${units(q.toBuy)}\n`
-    + `• Buyers take about ${perDay} a day from listings, ${queuePaceSaid(q.from)}${q.from === 'watched' && q.watchedH >= 1 ? ` (${Math.round(q.watchedH)} h watched)` : ''}\n\n`
-    + 'Consider cancelling this buy or making it smaller, and list what you hold first: everything it buys waits behind all of that, '
-    + 'and sellers this deep in a queue undercut each other, so the price you’d sell at may not hold.';
+    + `• ${pace}, ${queuePaceSaid(q.from)}${watched}\n\n`
+    + 'EVE can’t make an order smaller: cancel this buy, or cancel it and place a smaller one, which is a new order with its own broker fee. '
+    + 'And list what you hold first: everything it buys waits behind all of that, and sellers this deep in a queue undercut each other, '
+    + 'so the price you’d sell at may not hold.';
 }
 
 /**

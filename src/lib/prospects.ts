@@ -1,8 +1,8 @@
 import type { BookLevel, HistRow, ProspectFilters, ProspectStats, ProspectWarning, SellsTo } from './types';
-import { buyerShare } from './split';
-import { askBothWindows, askReachDays, bidBothWindows, bidReachDays, FILL_RARE, reachedAsk, recentAskReach, recentBidReach, recentRange, RECENT_MIN } from './fills';
+import { buyerShare, dayCount, listingShareSaid, LONG_QUEUE_DAYS, NOBODY_BUYS, perDaySaid, queueLengthSaid, queuePaceSaid, type SellQueue } from './split';
+import { askBothWindows, askReachDays, bidBothWindows, bidReachDays, FILL_RARE, FILL_WINDOW, reachedAsk, recentAskReach, recentBidReach, recentRange, RECENT_MIN } from './fills';
 import { tickDown, tickUp } from './tick';
-import { isk } from './format';
+import { isk, units } from './format';
 
 const DAY = 86400_000;
 const dayKey = (t: number) => new Date(t).toISOString().slice(0, 10);
@@ -460,6 +460,23 @@ export function queueCountSaid(q: { atLeast: boolean; upTo: number; countedTo?: 
   if (q.countedTo != null && q.countedTo < q.upTo) return ` The cloud’s daily scan counted every listing up to ${isk(q.countedTo)}, so there are likely more.`;
   if (q.countedTo != null && !q.atLeast) return ' Every listing up to there was counted when the cloud’s daily scan read the whole book.';
   return q.atLeast ? ` The scan keeps the cheapest ${BOOK_LEVELS} prices a side, and every one is under it, so there are likely more.` : '';
+}
+
+/**
+ * Prospects' Long queue reason for one item: the count, how many days of buyers it is and their pace, the typical day and
+ * the share bought from listings behind that pace, and where it was counted to. The queue is said as Orders says it
+ * (`queueLengthSaid`, `perDaySaid` in split.ts), so a slow bulk market's 0.3 a day and 0.4% bought from listings don't
+ * read as "the 0 a day" and "the 0%", as they did until the final review (2 October 2026). Paragraphs, not bullets: the
+ * reason also shows inline under the item's row.
+ */
+export function longQueueSaid(q: SellQueue & { upTo: number; countedTo?: number }, unitsPerDay: number, share: number): string {
+  const length = q.perDay > 0
+    ? `${queueLengthSaid(q)} here, who take ${perDaySaid(q.perDay)} from listings, over the ${LONG_QUEUE_DAYS} that make a long queue`
+    : `${NOBODY_BUYS} here, so the queue doesn’t clear`;
+  return `${q.atLeast ? 'At least ' : ''}${units(q.units)} units are listed at prices buyers have been paying: ${length}.\n\n`
+    + `That’s a typical day’s ${dayCount(unitsPerDay)} units × the ${listingShareSaid(share)} bought from listings, ${queuePaceSaid(q.from)}.\n\n`
+    + `Counted up to ${isk(q.upTo)}, where trading got up to on ${FILL_RARE} of the last ${FILL_WINDOW} days: listings above it aren’t selling.${queueCountSaid(q)}\n\n`
+    + 'New stock waits behind them, and sellers that deep in a queue undercut each other, so the price you’d sell at may not hold.';
 }
 
 /**

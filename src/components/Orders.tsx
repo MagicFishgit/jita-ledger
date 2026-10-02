@@ -14,7 +14,7 @@ import { relistPace } from '../lib/flow';
 import { loadCache, rankProspects } from '../lib/scan';
 import { DEFAULT_FILTERS } from '../lib/prospects';
 import { update, useData } from '../lib/store';
-import { byUrgency, FEE_TARGET, feedsQueueSaid, PLAN_KEEP, PLAN_KEEP_SAID, queueDaysSaid, type FeedsQueue, type OverResale, type Relist, type TooBig, type UnderCost, type Verdict } from '../lib/relist';
+import { byUrgency, FEE_TARGET, feedsQueueSaid, feedsQueueTag, PLAN_KEEP, PLAN_KEEP_SAID, type FeedsQueue, type OverResale, type Relist, type TooBig, type UnderCost, type Verdict } from '../lib/relist';
 import type { TradePlan } from '../lib/plans';
 import { FILL_WINDOW } from '../lib/fills';
 import type { Prospect } from '../lib/types';
@@ -581,9 +581,10 @@ function TooBigTag({ t, x }: { t: TooBig; x: Relist }) {
  * buying thousands while they held 2,338 and buyers took about 200 a day from listings. Amber, like a warning.
  */
 function FeedsQueueTag({ q }: { q: FeedsQueue }) {
+  // Wraps within the width the "Keep it" reason takes, so "nobody has been seen buying from listings" doesn't widen the column.
   return (
-    <span className="sub" tabIndex={0} style={{ color: 'var(--acc2)', fontWeight: 600 }} data-tip-title="Feeds a long queue" data-tip={feedsQueueSaid(q)}>
-      Feeds a long queue: {queueDaysSaid(q)} of buyers
+    <span className="sub" tabIndex={0} style={{ color: 'var(--acc2)', fontWeight: 600, whiteSpace: 'normal', maxWidth: 340 }} data-tip-title="Feeds a long queue" data-tip={feedsQueueSaid(q)}>
+      {feedsQueueTag(q)}
     </span>
   );
 }

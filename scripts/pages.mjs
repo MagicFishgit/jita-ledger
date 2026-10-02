@@ -482,7 +482,7 @@ try {
     if (!(await feeds.count())) problems.push('not drawn: no “Feeds a long queue” on the Arbalest buy');
     else {
       const tip = (await feeds.first().getAttribute('data-tip')) ?? '';
-      for (const want of ['days of the buyers who take listings', 'in your Jita hangar', 'This order still buys', 'Consider cancelling']) if (!tip.includes(want)) problems.push(`not drawn: the Long queue tip's “${want}”`);
+      for (const want of ['days of the buyers who take listings', 'in your Jita hangar', 'This order still buys', 'cancel it and place a smaller one']) if (!tip.includes(want)) problems.push(`not drawn: the Long queue tip's “${want}”`);
     }
     if (await page.locator(`tr[data-order="${arb.sell.orderId}"] [data-tip-title="Feeds a long queue"]`).count()) problems.push('the Arbalest sell carries “Feeds a long queue”: only a buy adds stock');
     let boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();

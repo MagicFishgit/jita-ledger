@@ -5,11 +5,11 @@ import {
 } from 'lucide-react';
 import { ago, isk, iskBig, iskSigned, pct, plainNum, units } from '../lib/format';
 import { resolveNames } from '../lib/market';
-import { absorbable, BUSY_SHOWN, DEFAULT_FILTERS, FIRST_DIR, horizonSaid, horizonShort, HORIZONS, passesGate, queueCountSaid, RUN_UP, RUN_UP_BEFORE, RUN_UP_DAYS, RUN_UP_PATIENT, runUpBar, SLOW_DAYS, snapHorizon, sortProspects, type Sort, type SortKey } from '../lib/prospects';
+import { absorbable, BUSY_SHOWN, DEFAULT_FILTERS, FIRST_DIR, horizonSaid, horizonShort, HORIZONS, longQueueSaid, passesGate, RUN_UP, RUN_UP_BEFORE, RUN_UP_DAYS, RUN_UP_PATIENT, runUpBar, SLOW_DAYS, snapHorizon, sortProspects, type Sort, type SortKey } from '../lib/prospects';
 import { FILL_RARE, FILL_WINDOW, RECENT_DAYS, RECENT_TYPICAL } from '../lib/fills';
 import { RESERVE_RATIO, RESERVE_WATCH_H } from '../lib/evaluate';
 import { clearScan, coverage, loadCache, rankProspects, runScan, stopScan, useScanState, type ScanCache } from '../lib/scan';
-import { COMPETITION_PIVOT, LONG_QUEUE_DAYS, queuePaceSaid, SPLIT_SAID } from '../lib/split';
+import { COMPETITION_PIVOT, LONG_QUEUE_DAYS, SPLIT_SAID } from '../lib/split';
 import { useFlow } from '../lib/flowStore';
 import { update, useData } from '../lib/store';
 import { addToWatchlist, startPosition } from '../lib/actions';
@@ -49,15 +49,7 @@ export function warningWhy(w: ProspectWarning, p: Pick<Prospect, 'stats' | 'bidR
       : `the bar of ${pct(runUpBar(false), 0)}`;
     return `The last ${RUN_UP_DAYS} days averaged ${iskBig(s.runUpBase * (1 + s.runUp))}, ${pct(s.runUp, 0)} over the median day of the ${RUN_UP_BEFORE} before them, ${iskBig(s.runUpBase)}: the price has run up past ${bar}.\n\n${WARNING.runUp.why.split('\n\n').slice(1).join('\n\n')}`;
   }
-  if (w === 'longQueue' && p.queue) {
-    const q = p.queue;
-    const days = q.days < 100 ? Math.round(q.days) : units(Math.round(q.days));
-    return `${q.atLeast ? 'At least ' : ''}${units(q.units)} units are listed at prices buyers have been paying: about ${days} days of the ${units(Math.round(q.perDay))} a day who buy from listings here, over the ${LONG_QUEUE_DAYS} that make a long queue.\n\n`
-      // Paragraphs, not bullets: the reason also shows inline under the item's row.
-      + `That’s a typical day’s ${units(s.unitsPerDay)} units × the ${pct(p.buyerShare, 0)} bought from listings, ${queuePaceSaid(q.from)}.\n\n`
-      + `Counted up to ${isk(q.upTo)}, where trading got up to on ${FILL_RARE} of the last ${FILL_WINDOW} days: listings above it aren’t selling.${queueCountSaid(q)}\n\n`
-      + `New stock waits behind them, and sellers that deep in a queue undercut each other, so the price you’d sell at may not hold.`;
-  }
+  if (w === 'longQueue' && p.queue) return longQueueSaid(p.queue, s.unitsPerDay, p.buyerShare);
   if (w === 'unreached' && p.bidWindow === 'recent') {
     return `The bulk of trading got down to the best bid on ${p.bidReach} of the last ${FILL_WINDOW} days, but on ${p.bidRecent ? `only ${p.bidRecent}` : 'none'} of the last ${RECENT_DAYS}: not lately.\n\nThe price has moved up since those days, so a bid at the top would sit. The prices shown assume you bid where trading did reach on both, half of the last ${FILL_WINDOW} days and ${RECENT_TYPICAL} of the last ${RECENT_DAYS} (in Busy markets, the top of the book instead).`;
   }

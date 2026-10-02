@@ -3991,7 +3991,19 @@ console.log('\n--- a long sell queue, a stricter run-up for Place and leave, and
   eq('a long queue is over two weeks of buyers; Place and leave\'s run-up bar is 30%, the front\'s still 50%', [Sp.LONG_QUEUE_DAYS, P.RUN_UP_PATIENT, P.RUN_UP], [14, 0.3, 0.5]);
   eq('  a queue in days of buyers', Sp.sellQueue(16_200, 200, 'watched'), { units: 16_200, atLeast: false, perDay: 200, from: 'watched', days: 81, long: true });
   eq('  stock that sells within two weeks is no long queue', Sp.sellQueue(1000, 200, 'book').long, false);
-  eq('  nothing claimed with no buyers to go on, or the split only assumed', [Sp.sellQueue(1000, 0, 'book'), Sp.sellQueue(1000, NaN, 'book'), Sp.sellQueue(1000, 200, 'even'), Sp.sellQueue(0, 200, 'book')], [null, null, null, null]);
+  eq('  nothing claimed with no buyers to go on, or the split only assumed', [Sp.sellQueue(1000, NaN, 'book'), Sp.sellQueue(1000, 200, 'even'), Sp.sellQueue(1000, 0, 'even'), Sp.sellQueue(0, 200, 'book'), Sp.sellQueue(0, 0, 'book')], [null, null, null, null, null]);
+  // A measured zero (the final review, 2 October 2026): the book or the watching saw nobody buy from listings, which is a
+  // queue that doesn't clear, not nothing to say.
+  const zero = Sp.sellQueue(1000, 0, 'book');
+  eq('  a pace measured at zero is a long queue with no finite days', [zero?.units, zero?.perDay, zero?.from, zero?.days === Infinity, zero?.long], [1000, 0, 'book', true, true]);
+
+  // How a queue is said, the same on Prospects and Orders. Prospects printed "the 0 a day" under 0.5 a day and "the 0%"
+  // under 0.5% bought from listings: bulk markets that sell into bids, which is where long queues build.
+  eq('  buyers a day: whole from 10, one decimal under it, never a 0 for a pace above nothing', [Sp.perDaySaid(250.4), Sp.perDaySaid(9.96), Sp.perDaySaid(0.3), Sp.perDaySaid(0.04)], ['about 250 a day', 'about 10 a day', 'about 0.3 a day', 'under 0.1 a day']);
+  eq('  the share bought from listings: one decimal under 1%, never 0% for a share above nothing', [Sp.listingShareSaid(0.25), Sp.listingShareSaid(0.004), Sp.listingShareSaid(0.0002)], ['25%', '0.4%', 'under 0.1%']);
+  eq('  a queue\'s length: about, at least where only part was seen, over a year past 365, and nobody seen buying',
+    [Sp.queueLengthSaid({ days: 28.2, atLeast: false, perDay: 295 }), Sp.queueLengthSaid({ days: 17, atLeast: true, perDay: 250 }), Sp.queueLengthSaid({ days: 400, atLeast: true, perDay: 0.3 }), Sp.queueLengthSaid({ days: Infinity, atLeast: false, perDay: 0 })],
+    ['about 28 days of buyers', 'at least 17 days of buyers', 'over a year of buyers', 'nobody has been seen buying from listings']);
 
   // 'Arbalest' Rapid Heavy Missile Launcher I: ~720 a day in The Forge, nearly all sold into bids at ~24.7k; the scan's
   // seven sell levels hold 4,361 units at 60,460-60,950; the cloud watched buyers take about 200 a day from listings.
@@ -4010,6 +4022,21 @@ console.log('\n--- a long sell queue, a stricter run-up for Place and leave, and
   has('  which the tip calls a guess', Sp.queuePaceSaid('history'), 'guessed');
   has('  and a rough one where sellers dump into bids', Sp.queuePaceSaid('history'), 'sell into the bids');
   eq('  the other sources say where they came from', [Sp.queuePaceSaid('watched').startsWith(Sp.SPLIT_SAID.watched), Sp.queuePaceSaid('book').startsWith(Sp.SPLIT_SAID.book)], [true, true]);
+  // The tip, as Orders says a queue: the lower bound, the pace and share from the same helpers.
+  const arbSaid = P.longQueueSaid(arb.queue, a.stats.unitsPerDay, arb.buyerShare);
+  has('  the tip leads with the count and how many days of buyers it is', arbSaid, 'At least 4,361 units are listed at prices buyers have been paying: at least 17 days of buyers here, who take about 250 a day from listings');
+  has('  then the typical day times the share bought from listings', arbSaid, `That’s a typical day’s ${a.stats.unitsPerDay} units × the ${Sp.listingShareSaid(arb.buyerShare)} bought from listings, ${Sp.queuePaceSaid('watched')}`);
+  // A slow bulk market (invented for the test): 75 units a typical day, 0.4% of them bought from listings, 120 listed.
+  const slowSaid = P.longQueueSaid({ ...Sp.sellQueue(120, 75 * 0.004, 'book'), upTo: 62_910 }, 75, 0.004);
+  has('  a slow market\'s queue says its pace and share with a decimal, never a 0', slowSaid, 'over a year of buyers here, who take about 0.3 a day from listings');
+  has('    the share too', slowSaid, '75 units × the 0.4% bought from listings');
+  eq('    and no false zero anywhere in it', [/\b0 a day|the 0%/.test(slowSaid), /Infinity|NaN/.test(slowSaid)], [false, false]);
+  const nobodySaid = P.longQueueSaid({ ...Sp.sellQueue(120, 0, 'book'), upTo: 62_910 }, 75, 0);
+  has('  nobody seen buying from listings is said so', nobodySaid, 'nobody has been seen buying from listings here');
+  eq('    with no days printed', /Infinity|over a year|about 0 /.test(nobodySaid), false);
+  // Prospects drops an item nobody buys from listings: nothing fills a sell there, so it has no pace to rank (throughput).
+  const nobody = { sell: 0, buy: 400, single: { sell: 0, buy: 0 }, orders: { sell: 10, buy: 10 } };
+  eq('  a book whose listings have sold nothing: Prospects still drops the item, as before', judgeProspect(a.stats, { ...a.book, sold: nobody }, S, fl, a.orders), null);
   const arbEven = judgeProspect({ ...a.stats, buyerShare: undefined }, { ...a.book, sold: undefined }, S, fl, a.orders);
   eq('  with nothing to say who buys (an even split assumed), no flag and no queue', [arbEven.warnings.includes('longQueue'), arbEven.queue], [false, undefined]);
   const arbOld = judgeProspect({ ...a.stats, highs14: undefined }, a.book, S, fl, a.orders, false, { flow: watched.flow });
@@ -5181,7 +5208,12 @@ console.log('\n--- Orders: a buy that keeps adding stock to a long sell queue (2
   const said = arb.feeds ? R.feedsQueueSaid(arb.feeds) : '';
   has('  its tip says how many days of buyers that is', said, 'about 28 days');
   has('  and where the buyers a day came from', said, Sp.queuePaceSaid('watched'));
-  has('  and what to do', said, 'cancelling');
+  eq('  its tag says how many days of buyers', R.feedsQueueTag(arb.feeds), 'Feeds a long queue: about 28 days of buyers');
+  // EVE can't make an order smaller (finding-trades: the plan checklist): cancelling and placing a smaller one is a new order.
+  has('  and what to do: cancel it, or cancel and place a smaller one', said, 'cancel this buy, or cancel it and place a smaller one');
+  has('    which is a new order with its own broker fee', said, 'a new order with its own broker fee');
+  has('    and list what you hold first', said, 'list what you hold first');
+  eq('    never "making it smaller": EVE can\'t shrink an order', /making it smaller|Consider cancelling/.test(said), false);
   // The brief's figures, read earlier the same day: 530 in the hangar and 2,557 still to buy, against ~200 a day.
   const brief = R.feedingQueue(fx.buy, { volumeRemain: 2557, gone: false }, { book, yours, highs: range.highs, hangar: 530, pace: { perDay: 200, watchedH: 115, paceFrom: 'watched' } });
   eq('  the brief\'s figures at 200 a day: 3,370 + 1,808 + 530 + 2,557, about 41 days', [brief?.units, Math.round(brief?.days), brief?.long], [8265, 41, true]);
@@ -5203,7 +5235,21 @@ console.log('\n--- Orders: a buy that keeps adding stock to a long sell queue (2
   // Nothing known is never a zero.
   const q = (pace, extra = {}) => R.feedingQueue(fx.buy, { volumeRemain: fx.buy.volumeRemain, gone: false }, { book, yours, highs: range.highs, hangar: fx.hangar, pace, ...extra });
   eq('nothing said with no buyers a day to go on, or with the split only assumed',
-    [q({ perDay: null, watchedH: 0, paceFrom: 'book' }), q({ perDay: 0, watchedH: 0, paceFrom: 'book' }), q({ perDay: 200, watchedH: 3, paceFrom: 'even' })], [null, null, null]);
+    [q({ perDay: null, watchedH: 0, paceFrom: 'book' }), q({ perDay: 200, watchedH: 3, paceFrom: 'even' }), q({ perDay: 0, watchedH: 3, paceFrom: 'even' })], [null, null, null]);
+  // A pace measured at zero (the final review, 2 October 2026): the book says nobody buys from listings, so the queue
+  // doesn't clear. It was "nothing to say", and the buy went untagged.
+  const none = q({ perDay: 0, watchedH: 0, paceFrom: 'book' });
+  eq('a pace measured at zero from the book: a queue that doesn\'t clear, and long', [none?.units, none?.days === Infinity, none?.long], [3370 + 1808 + 737 + 2352, true, true]);
+  eq('  judgeOrder tags it', judged(fx.buy, { sellPace: { perDay: 0, watchedH: 0, paceFrom: 'book' } }).feeds?.long, true);
+  eq('  its tag says nobody has been seen buying from listings', none ? R.feedsQueueTag(none) : '', 'Feeds a long queue: nobody has been seen buying from listings');
+  const noneSaid = none ? R.feedsQueueSaid(none) : '';
+  has('  and so does its tip, with where that came from', noneSaid, `Nobody has been seen buying from listings, ${Sp.queuePaceSaid('book')}`);
+  eq('    with no days or pace printed as a number', /about 0 |Infinity|NaN|over a year/.test(noneSaid), false);
+  const noneWatched = q({ perDay: 0, watchedH: 8, paceFrom: 'watched' });
+  has('  watched to nothing, the tip says how long it was watched', noneWatched ? R.feedsQueueSaid(noneWatched) : '', `Nobody has been seen buying from listings, ${Sp.queuePaceSaid('watched')} (8 h watched)`);
+  const slow = q({ perDay: 0.3, watchedH: 0, paceFrom: 'book' });
+  has('a slow pace is said with its decimal, not as 0', slow ? R.feedsQueueSaid(slow) : '', 'Buyers take about 0.3 a day from listings');
+  eq('  and a queue past a year says so', slow ? R.feedsQueueTag(slow) : '', 'Feeds a long queue: over a year of buyers');
   eq('  nor for an order that\'s gone', R.feedingQueue(fx.buy, { volumeRemain: 2352, gone: true }, { book, yours, highs: range.highs, hangar: fx.hangar, pace: sellPace }), null);
   const noHist = q(sellPace, { highs: null });
   eq('  without history, others\' listings aren\'t counted: at least yours and what it still buys', [noHist?.ahead, noHist?.upTo, noHist?.units, noHist?.atLeast], [null, null, 1808 + 737 + 2352, true]);

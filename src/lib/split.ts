@@ -14,6 +14,7 @@
  */
 
 import type { HistRow } from './types';
+import { pct, units } from './format';
 
 // Kept here rather than imported from ./prospects, which imports this module.
 function median(xs: number[]): number {
@@ -178,11 +179,56 @@ export type SellQueue = {
  * Units listed (or held, or still to buy) over the buyers taking listings a day. Shared by Prospects' Long queue and
  * Orders, so both say it the same way. Null with no buyers to go on, or when the split behind them was only assumed
  * (`even`): nothing not known is claimed.
+ *
+ * A pace measured at zero (the book's orders or the watching saw nobody buy from listings) is a queue that doesn't
+ * clear: long, with no finite days (`days` is Infinity), said as nobody having been seen buying (`queueLengthSaid`).
+ * It was taken as nothing to say until the final review (2 October 2026), so Orders never tagged a buy feeding such a
+ * queue. Prospects is unaffected: nothing fills a sell there, so the item has no pace to rank and is dropped (`throughput`).
  */
-export function sellQueue(units: number, perDay: number, from: SplitFrom, atLeast = false): SellQueue | null {
-  if (!(units > 0) || !(perDay > 0) || !Number.isFinite(perDay) || from === 'even') return null;
-  const days = units / perDay;
-  return { units, atLeast, perDay, from, days, long: days > LONG_QUEUE_DAYS };
+export function sellQueue(n: number, perDay: number, from: SplitFrom, atLeast = false): SellQueue | null {
+  if (!(n > 0) || !(perDay >= 0) || !Number.isFinite(perDay) || from === 'even') return null;
+  const days = perDay > 0 ? n / perDay : Infinity;
+  return { units: n, atLeast, perDay, from, days, long: days > LONG_QUEUE_DAYS };
+}
+
+/**
+ * A count a day for a tip: whole from 10, one decimal under it, so a slow item's 0.3 a day doesn't read as 0, and
+ * "under 0.1" below that.
+ */
+export function dayCount(n: number): string {
+  if (n > 0 && n < 0.1) return 'under 0.1';
+  return n < 10 ? String(Math.round(n * 10) / 10) : units(Math.round(n));
+}
+
+/** Buyers a day for a queue's tips: "about 250 a day", "about 0.3 a day", "under 0.1 a day". */
+export function perDaySaid(n: number): string {
+  return n > 0 && n < 0.1 ? 'under 0.1 a day' : `about ${dayCount(n)} a day`;
+}
+
+/**
+ * The share of trading that buys from listings, for a tip: whole from 1%, one decimal under it, and never 0% for a share
+ * above nothing ("under 0.1%"). Markets that sell into the bids have shares under 1%, and that's where long queues build.
+ */
+export function listingShareSaid(share: number): string {
+  if (share > 0 && share < 0.001) return 'under 0.1%';
+  return pct(share, share > 0 && share < 0.01 ? 1 : 0);
+}
+
+/**
+ * A queue's length in days of buyers: "about 28 days", "at least 28 days" (only part of the queue was seen), "over a
+ * year" past 365. A queue nobody buys from has no days: "never" (callers say it in words, `queueLengthSaid`).
+ */
+export function queueDaysSaid(q: Pick<SellQueue, 'days' | 'atLeast'>): string {
+  if (!Number.isFinite(q.days)) return 'never';
+  return q.days > 365 ? 'over a year' : `${q.atLeast ? 'at least' : 'about'} ${units(Math.round(q.days))} days`;
+}
+
+/** Nobody bought from listings while the pace was measured. */
+export const NOBODY_BUYS = 'nobody has been seen buying from listings';
+
+/** A queue's length for a tag or a tip's lead: "about 28 days of buyers", or, with nobody buying from listings, that. */
+export function queueLengthSaid(q: Pick<SellQueue, 'days' | 'atLeast' | 'perDay'>): string {
+  return q.perDay > 0 ? `${queueDaysSaid(q)} of buyers` : NOBODY_BUYS;
 }
 
 /**
