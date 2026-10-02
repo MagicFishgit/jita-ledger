@@ -177,7 +177,7 @@ export function Positions() {
                             {pv?.shared && plan && (
                               <span className="near" tabIndex={0} style={{ color: 'var(--acc)' }} data-tip-title="Shared with your earlier trading"
                                 data-tip={`This position was open before the plan, trading since ${fmtShort(p.openedAt)}, and the plan follows it. The figures here count from the plan’s start, ${fmtDateTime(plan.at)}.\n\n`
-                                  + `• ${pv.held > 0 ? `The ${units(pv.held)} it held then are your earlier trading’s: they sell first, and none of them is the plan’s${pv.heldSold > 0 ? `. ${units(pv.heldSold)} of them ${pv.heldSold === 1 ? 'has' : 'have'} sold since` : ''}.` : 'It held nothing then: what it buys and sells since is the plan’s.'}\n`
+                                  + `• ${pv.held > 0 ? `The ${units(pv.held)} it held then are your earlier trading’s: they sell first, and none of them is the plan’s${pv.heldSold >= pv.held ? '. All of them have sold since' : pv.heldSold > 0 ? `. ${units(pv.heldSold)} of them ${pv.heldSold === 1 ? 'has' : 'have'} sold since` : ''}.` : 'It held nothing then: what it buys and sells since is the plan’s.'}\n`
                                   + `${c.oversold > 0 ? `• ${units(c.oversold)} sold beyond those and beyond what the plan bought: left out of the plan’s profit, not given a cost.\n` : ''}`
                                   + '• Open it for the whole position; the list shows it whole when no plan is picked.'}>
                                 <GitBranch aria-hidden="true" />Shared since {fmtShort(p.openedAt)}: counted from the plan’s start

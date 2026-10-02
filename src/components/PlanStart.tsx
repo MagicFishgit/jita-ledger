@@ -44,7 +44,7 @@ export function StartPlanButton({ plan, days, patient }: { plan: Plan; days: num
     const ok = await confirmAsk({
       title: 'Start this plan?',
       body: [
-        `${units(n)} items, ${iskBig(plan.deployed)} in buy orders. ${k ? `${units(n - k)} new positions open now` : 'A position opens for each item now'}, grouped as one plan on Positions.`,
+        `${units(n)} items, ${iskBig(plan.deployed)} in buy orders. ${!k ? 'A position opens for each item now, grouped' : n - k === 0 ? 'No new position opens: every item has one, and they’re grouped' : `${units(n - k)} new position${n - k === 1 ? ' opens' : 's open'} now, grouped`} as one plan on Positions.`,
         ...(k ? [`${one ? 'One item already has an open position' : `${units(k)} items already have an open position`}: ${takenSaid}. The plan follows ${one ? 'it' : 'them'} but counts from now: what ${one ? 'it' : 'they'} traded before isn’t the plan’s, and what ${one ? 'it holds' : 'they hold'} now sells first and isn’t the plan’s either.`] : []),
         `${patient ? 'They’re marked “Leave alone”, as a Place-and-leave plan. ' : ''}Then place the buy orders from the checklist here or from To do: each opens in game with its price copied. Nothing is placed for you: the game doesn’t allow it.`,
       ].join('\n\n'),
