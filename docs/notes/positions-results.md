@@ -77,10 +77,14 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   other position open before the plan is a view and tagged, traded or not: Clone Soldier Transporter Tag's, opened by the
   30 September plan, is one under the 2 October plan, with nothing filled but its earlier bid's fees paid.
 - **A plan's position says what the plan sells at** ("The plan sells at", `PositionDetail`, from `planTargets`), beside List
-  patiently and List safely, while the position belongs to an open plan: the plan's `sellAt`, what it makes if all the
-  stock sells there after fees (and on what an open buy is still filling), whether the plan places and leaves or follows
+  patiently and List safely, while the position belongs to an open plan: the plan's `sellAt`, what the plan's own units
+  make if they sell there after fees (and what an open buy is still filling), whether the plan places and leaves or follows
   the front, and its name. Drawn without history too (List patiently isn't), and before anything fills. Under break-even it
-  says so, and that the plan's list step lists at break-even instead (finding-trades.md, "the checklist's second part").
+  says so, and for Place and leave that the plan's list step lists at break-even instead (finding-trades.md, "the
+  checklist's second part"). **The plan's units at their own cost** (`planListRow`, the same as the list step): the review
+  (2 October 2026) found the page working break-even out on the whole position's average, which on a shared position
+  holds the earlier stock: Rocket Science's plan of 188 at 85,540 breaks even at 90,810, the whole position's average at
+  84,990, and the checklist and the page would have named different figures.
   The user's Imperial Navy Infiltrator (2 October 2026): the plan at 1,836,000 makes +7.5%, List patiently the same
   1,836,000, List safely 1,666,000 under its 1,708,000 break-even; before, nothing on the page tied any of them to the plan.
 - **"What your standings are worth" prices your real trading at other standings** (`lib/standings.ts`, Rates & fees).

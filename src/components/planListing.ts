@@ -22,8 +22,8 @@ const REREAD_MS = 5 * 60_000;
 type Read = { book: OrderLite[] | null; hist: HistRow[] | null };
 
 export type PricedRow = PlanListRow & {
-  /** Null while its book hasn't been read yet (the first read of a visit). */
-  priced: PlanListPrice | null;
+  /** Priced without a book until its first read of a visit (`read`): the plan's own price for Place and leave, none at the front. */
+  priced: PlanListPrice;
   /** Whether its book and history have been asked for at least once: a front plan's price needs them. */
   read: boolean;
 };
@@ -39,7 +39,9 @@ export function usePlanListing(): PricedRow[] {
     if (!key) return;
     let live = true;
     const ids = key.split(',').map(Number);
+    // Not while the tab is hidden: it reads once more on coming back into view, as the other pages do.
     const readAll = () => {
+      if (document.visibilityState === 'hidden') return;
       for (const id of ids) {
         Promise.all([
           jitaOrders(id).then((r) => r.orders).catch(() => null),
@@ -49,14 +51,16 @@ export function usePlanListing(): PricedRow[] {
     };
     readAll();
     const t = setInterval(readAll, REREAD_MS);
-    return () => { live = false; clearInterval(t); };
+    const onShow = () => { if (document.visibilityState === 'visible') readAll(); };
+    document.addEventListener('visibilitychange', onShow);
+    return () => { live = false; clearInterval(t); document.removeEventListener('visibilitychange', onShow); };
   }, [key]);
   return useMemo(() => {
     const r = rates(d.settings);
     const yours = Object.values(d.orders).map((o) => o.orderId);
     return rows.map((row) => {
       const x = reads[row.item.typeId];
-      if (!x) return { ...row, priced: row.plan.patient ? planListPrice(row.item, true, row.units, row.unitCost!, r, null) : null, read: false };
+      if (!x) return { ...row, priced: planListPrice(row.item, row.plan.patient, row.units, row.unitCost!, r, null), read: false };
       const highs = x.hist?.length ? recentRange(x.hist, FILL_WINDOW, Date.now(), watchedDays(row.item.typeId)).highs : null;
       // A book that couldn't be read leaves the front without a price; Place and leave still has its own, and the history.
       const m: ListMarket | null = x.book ? listMarket(x.book, yours, highs) : row.plan.patient ? { bestSell: null, bestBuy: null, highs } : null;

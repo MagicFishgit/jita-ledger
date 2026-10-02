@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ChevronDown, Inbox, PartyPopper, PenLine, RefreshCw, Trash2, Undo2 } from 'lucide-react';
-import { computePosition, finishedPosition, laterPosition, startAfter, vsMarketDetail, type PositionCalc } from '../lib/positions';
+import { computePosition, finishedPosition, laterPosition, planListRow, startAfter, vsMarketDetail, type PositionCalc } from '../lib/positions';
 import { priceUp, tickDown, tickUp } from '../lib/tick';
 import { marketBest, walkBids } from '../lib/relist';
 import { chooseAsk, confirmAsk } from '../lib/confirm';
 import { breakEvenSell, rates } from '../lib/fees';
-import { planTargets } from '../lib/plans';
+import { planListPrice, planTargets } from '../lib/plans';
 import { isk, iskBig, iskBigSigned, parseISK, pct, rid, units } from '../lib/format';
 import { jitaOrders, marketHistory, snapshot, type OrderLite } from '../lib/market';
 import { update, useData } from '../lib/store';
@@ -197,19 +197,29 @@ export function PositionDetail({ id }: { id: string }) {
   const target = planTargets(d.plans ?? [], d.positions, r)[pos.typeId];
   const ofPlan = target ? d.plans.find((p) => p.id === target.planId && p.items.some((i) => i.typeId === pos.typeId && i.positionId === pos.id)) : undefined;
   let planLine: Stat | null = null;
-  if (target && ofPlan && unitCost != null && keep > 0) {
-    const perUnit = target.sellAt * keep - unitCost;
-    const onStock = c.stock > 0 ? perUnit * c.stock : null;
+  // The plan's own units at their own cost, as its list step counts them (`planListRow`: a position it took over counts from
+  // its start, the earlier stock first), so this page and the checklist say the same break-even. The review (2 October
+  // 2026): worked out on the whole position's average, a shared position's earlier stock moved it.
+  const planItem = ofPlan?.items.find((i) => i.typeId === pos.typeId && i.positionId === pos.id);
+  const planRow = ofPlan && planItem ? planListRow(ofPlan, planItem, d, d.settings) : null;
+  const planCost = planRow?.unitCost ?? null;
+  if (target && ofPlan && planItem && (planCost != null || buyAt != null) && keep > 0) {
+    const held = planRow?.stock ?? 0;
+    const perUnit = planCost != null ? target.sellAt * keep - planCost : null;
+    const onStock = perUnit != null && held > 0 ? perUnit * held : null;
     const onBuy = openBuy && buyAt != null && buyLeft > 0 ? (target.sellAt * keep - buyAt * (1 + r.f)) * buyLeft : null;
-    const be = priceUp(breakEvenSell(unitCost, r, 0));
+    const listing = planCost != null ? planListPrice(planItem, ofPlan.patient, held, planCost, r, null) : null;
+    const under = listing != null && target.sellAt < listing.breakEven;
+    const whose = planRow?.view.shared ? `the plan’s ${units(held)}` : `all ${units(held)}`;
     const parts = [
-      onStock != null ? `${onStock >= 0 ? 'Makes' : 'Loses'} ${iskBig(Math.abs(onStock))} if all ${units(c.stock)} sell here (${perUnit >= 0 ? '+' : ''}${pct(perUnit / unitCost, 1)} after fees)` : null,
+      onStock != null && perUnit != null && planCost != null ? `${onStock >= 0 ? 'Makes' : 'Loses'} ${iskBig(Math.abs(onStock))} if ${whose} sell here (${perUnit >= 0 ? '+' : ''}${pct(perUnit / planCost, 1)} after fees)` : null,
       onBuy != null ? `${onStock != null ? 'and ' : ''}${onBuy >= 0 ? '+' : '−'}${iskBig(Math.abs(onBuy))} on the ${units(buyLeft)} your buy order is still filling` : null,
     ].filter(Boolean);
+    const good = (onStock ?? onBuy ?? 0) >= 0;
     planLine = {
-      l: 'The plan sells at', v: isk(target.sellAt), c: perUnit >= 0 ? 'var(--pos)' : 'var(--neg)',
-      n: `${parts.join(' ')}${parts.length ? '. ' : ''}${ofPlan.patient ? 'Place and leave' : 'At the front'}: ${ofPlan.name}.${perUnit < 0 ? ` Under what it cost after fees, so the plan’s list step lists at break-even, ${isk(be)}.` : ''}`,
-      tip: `The price ${ofPlan.name} expects this item to sell at, set by the Capital planner when the plan started.\n\n• ${ofPlan.patient ? 'A Place-and-leave plan lists here and waits: List patiently is today’s version of the same rule.' : 'An at-the-front plan lists at today’s listing price instead, with this beside it.'}\n• The plan’s checklist and To do say where to list what it bought, with the price copied, never under break-even.\n• Profit is after the broker fee and sales tax, against what the units cost you.`,
+      l: 'The plan sells at', v: isk(target.sellAt), c: good ? 'var(--pos)' : 'var(--neg)',
+      n: `${parts.join(' ')}${parts.length ? '. ' : ''}${ofPlan.patient ? 'Place and leave' : 'At the front'}: ${ofPlan.name}.${under && listing ? (ofPlan.patient ? ` Under what they cost after fees, so the plan’s list step lists at break-even, ${isk(listing.breakEven)}.` : ` Under what they cost after fees: break-even is ${isk(listing.breakEven)}.`) : ''}`,
+      tip: `The price ${ofPlan.name} expects this item to sell at, set by the Capital planner when the plan started.\n\n• ${ofPlan.patient ? 'A Place-and-leave plan lists here and waits: List patiently is today’s version of the same rule.' : 'An at-the-front plan lists at today’s listing price instead, with this beside it.'}\n• The plan’s checklist and To do say where to list what it bought, with the price copied, never under break-even.\n• Profit is after the broker fee and sales tax, against what the plan’s own units cost you${planRow?.view.shared ? ': this position held stock from before the plan, which isn’t the plan’s' : ''}.`,
     };
   }
 

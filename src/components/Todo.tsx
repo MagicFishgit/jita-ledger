@@ -313,10 +313,9 @@ export function Todo() {
       }
     }
     // What a plan bought and hasn't listed: one item each, at the price to list at (the plan's own for Place and leave,
-    // today's listing price at the front, never under break-even), copied when opened. An at-the-front item waits for its
-    // book's first read, so a build before it can't change its version and drop a tick by hand.
+    // today's listing price at the front, never under break-even), copied when opened. Its version doesn't wait on the book
+    // (Place and leave's is the plan's price, the front's the units to list), so it's listed before the first read, saying so.
     for (const x of listing) {
-      if (!x.priced || (!x.read && !x.plan.patient)) continue;
       out.push(planListItem({ planId: x.plan.id, planName: x.plan.name, patient: x.plan.patient, typeId: x.item.typeId, units: x.units, unitCost: x.unitCost ?? 0, reading: !x.read }, x.priced, name(x.item.typeId)));
     }
     // A cloud login EVE refused stops everything the cloud does with it, with nobody looking at Settings.
@@ -365,8 +364,10 @@ export function Todo() {
     const readAt = col.read ? Date.parse(col.read.at) : null;
     const industryAt = d.meta.industry ? Date.parse(d.meta.industry.at) : null;
     const contractsAt = d.meta.contracts ? Date.parse(d.meta.contracts.at) : null;
+    // A plan item to list is seen on the hangar read it was built from: a newer one holding none of it closes it (judgePlanList).
+    const hangarAt = d.stock?.at ? Date.parse(d.stock.at) : null;
     const seenAt = (x: TodoItem) =>
-      x.source === 'orders' ? checkedAt ?? t : x.source === 'colonies' ? readAt ?? t : x.source === 'signals' ? sig.signals[x.typeId!]?.at ?? t : x.source === 'industry' ? industryAt ?? t : x.source === 'contracts' ? contractsAt ?? t : x.source === 'cloud' ? cloud.backgroundAt ?? t : x.source === 'roster' ? rosterAt ?? t : t;
+      x.kind === 'planList' ? hangarAt ?? t : x.source === 'orders' ? checkedAt ?? t : x.source === 'colonies' ? readAt ?? t : x.source === 'signals' ? sig.signals[x.typeId!]?.at ?? t : x.source === 'industry' ? industryAt ?? t : x.source === 'contracts' ? contractsAt ?? t : x.source === 'cloud' ? cloud.backgroundAt ?? t : x.source === 'roster' ? rosterAt ?? t : t;
     const byOrder = new Map(vs.map((v) => [v.orderId, v]));
     const position = (id: string) => d.positions.find((p) => p.id === id) ?? null;
     const judge = (e: Entry): string | null | false => {
@@ -426,7 +427,7 @@ export function Todo() {
           const p = d.plans.find((z) => z.id === planId);
           const it = p?.items.find((z) => String(z.typeId) === typeId);
           const holds = !!p && !!it && planTargets(d.plans, d.positions, rates(d.settings))[it.typeId]?.planId === p.id;
-          return judgePlanList(e, { holds, row: holds ? planListRow(p!, it!, d, d.settings) : null });
+          return judgePlanList(e, { holds, row: holds ? planListRow(p!, it!, d, d.settings) : null, hangarAt });
         }
         case 'cloudLogin': {
           if (x.key.startsWith('cloudLogin:alt:')) {

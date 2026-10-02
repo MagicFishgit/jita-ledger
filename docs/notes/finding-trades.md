@@ -232,15 +232,21 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
     Nothing not known reads as zero: no book, no front price ("Its Jita book couldn’t be read"); no history, no List
     patiently figure ("No history to say where trading gets up to today"). Each row copies its price, and its name opens
     the item in game with the price copied ("the price to list at" in the tip).
-  - **On To do** ("List what the plan bought", Needs action): one item per plan item, keyed `planList:<plan>:<type>`,
-    versioned by the price to list at, so a repriced suggestion reopens a hand tick and a fill doesn't. An at-the-front
-    item waits for its book's first read, or a build without it would change its version and drop a hand tick on every
-    page load. It ticks off only when the ledger that dropped it shows the stock listed or sold (`judgePlanList`); the
-    hangar reading none with no listing or sale shown is still being checked; a plan that no longer holds the item (removed,
+  - **On To do** ("List what the plan bought", Needs action): one item per plan item, keyed `planList:<plan>:<type>`. A
+    Place-and-leave item is versioned by its price to list at, the plan's own, so a repriced suggestion reopens a hand tick
+    and a fill doesn't. **An at-the-front item is versioned by the units to list** (`units:N`): its price is today's
+    listing price, which moves with the front up to every five minutes, and as the version it reopened a hand tick at
+    every undercut, the nagging the user's "not too tight" rules out (the review, 2 October 2026). Opening either copies the
+    price of the latest build, so the copy is never stale. Neither version waits on the book, so an item is listed before
+    its book's first read, saying so ("Reading its Jita book"). It ticks off only when the ledger that dropped it shows the
+    stock listed or sold (`judgePlanList`), or when a hangar read newer than the one it was built on holds none of it ("No
+    longer in your Jita hangar (read …): moved, used or listed since"): moved, used or fitted, it would never show as
+    listed or sold, and stayed "being checked" for good. The item is seen on the hangar read it was built from (To do's
+    `seenAt` for the kind), so the read that showed it never closes it. A plan that no longer holds the item (removed,
     its position closed, a newer plan holding it) lets it go unticked. Not mailed.
-  - **The books are read for it** (`usePlanListing`), every five minutes while shown: Orders' check reads only items with
-    open orders, and a filled, unlisted item has none. The checklist used to show only plans still being placed within
-    their week; a plan with stock to list now shows past both.
+  - **The books are read for it** (`usePlanListing`), every five minutes while shown and the tab is in view, and once on
+    coming back into view: Orders' check reads only items with open orders, and a filled, unlisted item has none. The
+    checklist used to show only plans still being placed within their week; a plan with stock to list now shows past both.
   - **Measured on the user's plans** (20:56 UTC, D1 and ESI read-only, `.playwright-mcp/plan-list-step/`): six items to
     list, all the 2 October plan's (Place and leave), 33 units costing 135.3 M, about +9.0 M after fees at the plan's
     prices: the Infiltrator 11 at 1,836,000 (+7.5%; today's listing price 1,608,000 and List safely 1,666,000 are both

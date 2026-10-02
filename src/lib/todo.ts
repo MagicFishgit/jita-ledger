@@ -327,9 +327,12 @@ export function judgePlaceBuy(e: Entry, c: { plan: boolean; placed: { units: num
 
 /**
  * A plan item whose buy filled and isn't listed yet ("List what the plan bought", the list step; `planListRows` in
- * positions.ts, `planListPrice` in plans.ts): one item per plan item, keyed by plan and item, versioned by the price to list
- * at, so a repriced suggestion reopens a hand tick and a fill of more units doesn't. Opening it copies that price. An
- * at-the-front plan with no book read has no price: nothing copied, and its version says so. Never mailed.
+ * positions.ts, `planListPrice` in plans.ts): one item per plan item, keyed by plan and item. A Place-and-leave plan's is
+ * versioned by its price to list at, the plan's own, so a repriced suggestion reopens a hand tick and a fill doesn't. An
+ * at-the-front plan's price is today's listing price, which moves with the front up to every five minutes, so its version
+ * is the units to list instead: priced, a hand tick reopened at every undercut (the review, 2 October 2026). Opening it
+ * copies the price of the build it's in, so the copy is always the latest either way. With no book there's no price and
+ * nothing copied; while the book is first read, it says so. Never mailed.
  */
 export function planListItem(
   x: { planId: string; planName: string; patient: boolean; typeId: number; units: number; unitCost: number; reading?: boolean },
@@ -340,14 +343,14 @@ export function planListItem(
   const parts = [
     `Bought for ${x.planName}.`,
     // Lifted to break-even, the floor's own sentence says where the price comes from.
-    p.from === 'breakEven' ? said.floor : `${said.from}.`,
+    p.from === 'breakEven' ? said.floor : x.reading && p.price == null ? 'Reading its Jita book for today’s listing price.' : `${said.from}.`,
     said.profit ? `Makes ${said.profit}.` : null,
     x.reading ? 'Reading today’s Jita market.' : `${said.other}.`,
     x.reading ? null : said.moved,
     p.price != null ? `Open it in game (the price is copied), Sell, paste the price, quantity ${n}.` : null,
   ];
   return {
-    key: `planList:${x.planId}:${x.typeId}`, ver: p.price != null ? String(p.price) : 'unpriced', kind: 'planList', source: 'ledger',
+    key: `planList:${x.planId}:${x.typeId}`, ver: x.patient ? String(p.price) : `units:${x.units}`, kind: 'planList', source: 'ledger',
     stake: x.units * x.unitCost, typeId: x.typeId,
     title: p.price != null ? `List ${n} × ${name} at ${isk(p.price)}` : `List ${n} × ${name}`,
     detail: parts.filter(Boolean).join(' '),
@@ -358,18 +361,24 @@ export function planListItem(
 /**
  * A plan item to list, gone from the list. Absent is not done: it ticks off only when the ledger that dropped it, newer by
  * construction than the one that listed it, shows the stock listed (a sell order since the position opened covering it, or a
- * listing that has filled and whose trade hasn't come) or sold. Gone when the plan no longer holds the item (removed, its
- * position closed, a newer plan holding it): `holds` false. Otherwise (the hangar read shows none, but no listing or sale
- * does) it's still being checked.
+ * listing that has filled and whose trade hasn't come) or sold; or when a hangar read newer than the one that showed it
+ * (`hangarAt` against the entry's `seenAt`, which To do sets to the hangar read the item was built on) holds none of it:
+ * moved, used or fitted, it would never show as listed or sold, and stayed "being checked" (the review, 2 October 2026).
+ * Gone when the plan no longer holds the item (removed, its position closed, a newer plan holding it): `holds` false.
+ * Otherwise, the read that showed it reading none with nothing listed or sold yet, it's still being checked.
  */
-export function judgePlanList(e: Entry, c: { holds: boolean; row: { stock: number; units: number; listed: Listed; view: { whole: { stock: number } } } | null }): string | null | false {
+export function judgePlanList(
+  e: Entry,
+  c: { holds: boolean; row: { stock: number; units: number; listed: Listed; hangar: number | null; view: { whole: { stock: number } } } | null; hangarAt?: number | null },
+): string | null | false {
   if (!c.holds || !c.row) return false;
-  const { stock, units: left, listed, view } = c.row;
+  const { stock, units: left, listed, view, hangar } = c.row;
   if (left > 0) return null;
   if (stock <= 0) return 'Sold: the plan holds none of what it bought.';
   if (view.whole.stock - listed.units <= 0) {
     return listed.open > 0 ? `Listed: ${units(stock)} at ${isk(listed.price)}.` : `Listed at ${isk(listed.price)} and sold: the sale shows in your trades within the hour.`;
   }
+  if (hangar != null && hangar <= 0 && c.hangarAt != null && c.hangarAt > e.seenAt) return `No longer in your Jita hangar (read ${fmtDateTime(c.hangarAt)}): moved, used or listed since.`;
   return null;
 }
 

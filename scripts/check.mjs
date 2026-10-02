@@ -1557,8 +1557,14 @@ console.log('\n--- the list step: what a plan bought, priced to list ---');
   const rsMid = { ...rsBefore, p1: tx('p1', true, 188, 85_540, '2026-10-02T18:00:00Z'), s5: tx('s5', false, 2000, 96_980, '2026-10-02T19:00:00Z') };
   eq('  its 188 filled, 628 of the earlier stock still listed: the 188 to list', planListRow(rsPlan, rsItem, rsLedger(rsMid, { 1: rsSell(628), 2: rsBuy(0) }, 188), S).units, 188);
   eq('  the earlier stock in the hangar, unlisted, beside the plan’s 188: still 188, never 816', planListRow(rsPlan, rsItem, rsLedger(rsMid, { 2: rsBuy(0) }, 816), S).units, 188);
+  // Break-even is the plan's units' own (the review, 2 October 2026): the position page said the list step lists at a break-even
+  // worked out on the whole position's average, 628 earlier units at 80,720 in it, where the list step uses the plan's 188.
+  const rsRow = planListRow(rsPlan, rsItem, rsLedger(rsMid, { 1: rsSell(628), 2: rsBuy(0) }, 188), S);
+  eq('  the plan’s units cost 85,540 and the bid’s fee; break-even on them 90,810, not the whole position’s 84,990',
+    [Math.round(rsRow.unitCost), planListPrice(rsItem, true, rsRow.units, rsRow.unitCost, r, null).breakEven, planListPrice(rsItem, true, 1, rsRow.view.whole.avgCost, r, null).breakEven],
+    [Math.round(85_540 * (1 + r.f)), 90_810, 84_990]);
 
-  // On To do: one item per plan item, keyed by plan and item, versioned by the price; opening it copies the price.
+  // On To do: one item per plan item, keyed by plan and item; Place and leave's versioned by its price, which opening copies.
   const item = planListItem({ planId: fx.plan2.id, planName: fx.plan2.name, patient: true, typeId: INF, units: 11, unitCost: inf.unitCost }, pat, 'Imperial Navy Infiltrator');
   eq('To do: a “List what the plan bought” item, something to do, keyed by plan and item, versioned by the price, copying it',
     [item.key, item.ver, item.kind, KIND_LABEL[item.kind], needs(item.kind), item.action.copy, item.action.typeId, item.title],
@@ -1566,14 +1572,27 @@ console.log('\n--- the list step: what a plan bought, priced to list ---');
   has('  its detail says the plan’s price and today’s beside it', item.detail, 'List patiently today: 1,836,000 ISK');
   eq('  a fill of more units keeps the version: a hand tick holds', planListItem({ planId: fx.plan2.id, planName: '', patient: true, typeId: INF, units: 6, unitCost: inf.unitCost }, pat, 'x').ver, item.ver);
   const nob = planListItem({ planId: fx.plan30.id, planName: fx.plan30.name, patient: false, typeId: INF, units: 11, unitCost: inf.unitCost }, noBook, 'Imperial Navy Infiltrator');
-  eq('  at the front with no book: no price copied, and the version says so', [nob.ver, nob.action.copy, nob.title], ['unpriced', undefined, 'List 11 × Imperial Navy Infiltrator']);
+  eq('  at the front with no book: no price copied', [nob.action.copy, nob.title], [undefined, 'List 11 × Imperial Navy Infiltrator']);
+  // At the front the price moves with the book, up to every five minutes, so a version by price would reopen a hand tick each
+  // time (the review, 2 October 2026): it's versioned by the units to list instead, and the price copied is the build's.
+  const frontItem = planListItem({ planId: fx.plan30.id, planName: fx.plan30.name, patient: false, typeId: INF, units: 11, unitCost: inf.unitCost }, front, 'Imperial Navy Infiltrator');
+  const frontMoved = planListItem({ planId: fx.plan30.id, planName: fx.plan30.name, patient: false, typeId: INF, units: 11, unitCost: inf.unitCost }, { ...front, price: 1_750_000 }, 'Imperial Navy Infiltrator');
+  eq('  at the front: versioned by the 11 to list, not the price; the price copied is today’s',
+    [frontItem.ver, frontMoved.ver, nob.ver, frontItem.action.copy, frontMoved.action.copy], ['units:11', 'units:11', 'units:11', 1_708_000, 1_750_000]);
+  const reading = planListItem({ planId: fx.plan30.id, planName: fx.plan30.name, patient: false, typeId: INF, units: 11, unitCost: inf.unitCost, reading: true }, noBook, 'Imperial Navy Infiltrator');
+  eq('  while its book is first read, it says so rather than that it couldn’t be read', [reading.ver, reading.detail.includes('Reading'), reading.detail.includes('couldn’t be read')], ['units:11', true, false]);
   // It ticks off only on the ledger showing it listed or sold, never because it's absent.
   const e = { item, seenAt: NOW, lastAt: NOW };
-  const judged = (dd) => { const row = rowOf(dd); return judgePlanList(e, { holds: true, row }); };
+  const judged = (dd) => { const row = rowOf(dd); return judgePlanList(e, { holds: true, row, hangarAt: dd.stock ? Date.parse(dd.stock.at) : null }); };
   eq('ticked off: listed (a sell order since the plan covers it), sold from that listing, then the trade',
     [judged(withOrders(sell(1, 11, 11, '2026-10-02T17:00:00Z'))), judged(filled), judged(sold)],
     ['Listed: 11 at 1,836,000 ISK.', 'Listed at 1,836,000 ISK and sold: the sale shows in your trades within the hour.', 'Sold: the plan holds none of what it bought.']);
-  eq('  the hangar read shows none, but no listing or sale does: still being checked', judged(ledger({ stock: { at: fx.now, jita: {}, total: {}, inContainers: 0 } })), null);
+  eq('  the hangar read that showed it reading none, no listing or sale shown: still being checked', judged(ledger({ stock: { at: fx.now, jita: {}, total: {}, inContainers: 0 } })), null);
+  // Moved, used or fitted, it never shows as listed or sold: a newer hangar read holding none closes it, saying so (the review).
+  const later = new Date(NOW + 3600_000).toISOString();
+  eq('  a newer hangar read holding none, no listing or sale: closed, saying what the hangar shows',
+    judged(ledger({ stock: { at: later, jita: {}, total: {}, inContainers: 0 } })), 'No longer in your Jita hangar (read 2 Oct, 21:31 ET): moved, used or listed since.');
+  eq('  but a newer read still holding them leaves it to list', rowOf(ledger({ stock: { at: later, jita: { [INF]: 11 }, total: {}, inContainers: 0 } })).units, 11);
   eq('  the plan removed, its position closed or a newer plan holding it: it just goes', judgePlanList(e, { holds: false, row: null }), false);
 }
 
