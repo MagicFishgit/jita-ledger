@@ -19,7 +19,7 @@ import type { TradePlan } from '../lib/plans';
 import { FILL_WINDOW } from '../lib/fills';
 import type { Prospect } from '../lib/types';
 import { BusyRelisting, canOpenInGame, CopyPrice, NameInGame, OpenInGame, useTypeName } from './common';
-import { cssVars, Empty, Guide, ItemIcon, Notice, PageHead, Seg, SortTh } from './ui';
+import { cssVars, Empty, Guide, ItemIcon, Notice, PageHead, Seg, SortTh, SortThPair } from './ui';
 import { Figures } from './Facts';
 import { ScanFreshness } from './ScanFreshness';
 import { TradeSkillsLine } from './SkillStrip';
@@ -86,9 +86,6 @@ const ORDER_SORT_KEYS: OrderSortKey[] = ['item', 'side', 'verdict', 'ahead', 'cl
 /** Words and the verdict read top to bottom on a first click; figures biggest first. */
 const ORDER_SORT_UP = new Set<OrderSortKey>(['item', 'side', 'verdict']);
 const ORDER_SORT_STORE = 'jita-ledger:orders-sort';
-const ORDER_COLUMNS: [OrderSortKey, string][] = [
-  ['ahead', 'Ahead of you'], ['clears', 'Clears in'], ['price', 'Your price'], ['moveTo', 'Move to'], ['costs', 'Costs you'], ['stock', 'Your stock'], ['isk', 'ISK in order'],
-];
 
 function loadOrderSort(): OrderSort {
   try {
@@ -386,13 +383,20 @@ export function Orders() {
             {/* Its own scroll box, capped to the screen: a sticky header sticks to its nearest scrolling box, which the
                 sideways scroll makes this one, so the header stays in view down a long list only if this box scrolls. */}
             <div className="tbl-scroll capped">
-              <table className="tbl" style={{ minWidth: 1360 }}>
+              {/* Fits the page at 1440 px with the sidebar open (2 October 2026): it had a fixed 1,360 px minimum and ran
+                  to 2,157 px checked, so the actions at the right were cut off. Side sits under the item's name and what a
+                  move costs under its price, the ISK in an order under its stock, each header stacked to match, every sort
+                  and "i" kept. */}
+              <table className="tbl ord">
                 <thead>
                   <tr>
-                    <SortTh k="item" label="Item" sort={sort} onSort={sortBy} left />
-                    <SortTh k="side" label="Side" sort={sort} onSort={sortBy} left tip={tips.Side} />
+                    <SortThPair left sort={sort} onSort={sortBy} top={{ k: 'item', label: 'Item' }} bottom={{ k: 'side', label: 'Side', tip: tips.Side }} />
                     <SortTh k="verdict" label="Verdict" sort={sort} onSort={sortBy} left tip={tips.Verdict} />
-                    {ORDER_COLUMNS.map(([k, h]) => <SortTh key={k} k={k} label={h} sort={sort} onSort={sortBy} tip={tips[h]} />)}
+                    <SortTh k="ahead" label="Ahead of you" sort={sort} onSort={sortBy} tip={tips['Ahead of you']} />
+                    <SortTh k="clears" label="Clears in" sort={sort} onSort={sortBy} tip={tips['Clears in']} />
+                    <SortTh k="price" label="Your price" sort={sort} onSort={sortBy} tip={tips['Your price']} />
+                    <SortThPair sort={sort} onSort={sortBy} top={{ k: 'moveTo', label: 'Move to', tip: tips['Move to'] }} bottom={{ k: 'costs', label: 'Costs you', tip: tips['Costs you'] }} />
+                    <SortThPair sort={sort} onSort={sortBy} top={{ k: 'stock', label: 'Stock', title: 'Your stock', tip: tips['Your stock'] }} bottom={{ k: 'isk', label: 'ISK', title: 'ISK in order', tip: tips['ISK in order'] }} />
                     <SortTh k="perSlot" label="Per slot" title="ISK per day per slot" sort={sort} onSort={sortBy} tip={'Rough ISK a day this order earns for the order slot it takes.\n\n• Its margin at your rates, times how fast your side of the volume fills it at your share.\n• The lowest are the first to swap out when you run out of slots.'} />
                     <th scope="col" style={{ color: 'var(--faint-2)' }}>Actions</th>
                   </tr>
@@ -420,18 +424,17 @@ export function Orders() {
                     const copyAt = x?.underCost ? x.underCost.breakEven : x?.verdict === 'loss' ? null : moveTo;
                     return (
                       <tr key={o.orderId} data-order={o.orderId} className={'hover' + (hot ? ' hot' : x && x.verdict !== 'move' && !keep ? ' dim' : '') + (flash.has(o.orderId) ? ' flash' : '')}>
-                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><NameInGame typeId={o.typeId} name={name} className="name ellipsis" copy={copyAt} /></span>{x?.plan && <PlanChip x={x} plan={planOf.get(x.plan.planId)} target={d.settings.target / 100} />}<BusyRelisting typeId={o.typeId} isBuy={o.isBuy} />{x?.underCost && <UnderCostTag u={x.underCost} x={x} />}{x?.overResale && <OverResaleTag u={x.overResale} x={x} r={r} />}{x?.tooBig && <TooBigTag t={x.tooBig} x={x} />}{x?.feeds && <FeedsQueueTag q={x.feeds} />}</td>
-                        <td className="l lbl" style={{ color: o.isBuy ? 'var(--buy)' : 'var(--neg-t)', fontSize: 11.5 }}>{o.isBuy ? 'Buy' : 'Sell'}</td>
+                        <td className="l"><span className="cellrow"><ItemIcon id={o.typeId} /><span className="ord-id"><NameInGame typeId={o.typeId} name={name} className="name" copy={copyAt} /><span className="ord-side lbl" style={{ color: o.isBuy ? 'var(--buy)' : 'var(--neg-t)' }}>{o.isBuy ? 'Buy' : 'Sell'}</span></span></span>{x?.plan && <PlanChip x={x} plan={planOf.get(x.plan.planId)} target={d.settings.target / 100} />}<BusyRelisting typeId={o.typeId} isBuy={o.isBuy} />{x?.underCost && <UnderCostTag u={x.underCost} x={x} />}{x?.overResale && <OverResaleTag u={x.overResale} x={x} r={r} />}{x?.tooBig && <TooBigTag t={x.tooBig} x={x} />}{x?.feeds && <FeedsQueueTag q={x.feeds} />}</td>
                         <td className="l">
                           {V && x ? (
                             <>
-                              <span className="flag" tabIndex={0} data-tip={x.why} data-tip-title={V.label} style={cssVars({ '--c': V.c, fontSize: 11, padding: '3px 9px', animation: `rise .4s ${Math.min(i, 10) * 70}ms both` })}>
+                              <span className="flag" tabIndex={0} data-tip={x.why} data-tip-title={V.label} style={cssVars({ '--c': V.c, animation: `rise .4s ${Math.min(i, 10) * 70}ms both` })}>
                                 <V.Icon aria-hidden="true" />{V.label}
                               </span>
-                              {keep && <span className="sub" style={{ whiteSpace: 'normal', minWidth: 260, maxWidth: 340, marginTop: 4, color: 'var(--sec)', textWrap: 'pretty' }}>{x.why}.</span>}
+                              {keep && <span className="sub keep-why">{x.why}.</span>}
                             </>
                           ) : (
-                            <span className="flag plain" style={cssVars({ '--c': '#90a5b8', fontSize: 11, padding: '3px 9px' })} data-tip="Check prices to get a verdict."><CircleDashed aria-hidden="true" />Unchecked</span>
+                            <span className="flag plain" style={cssVars({ '--c': '#90a5b8' })} data-tip="Check prices to get a verdict."><CircleDashed aria-hidden="true" />Unchecked</span>
                           )}
                         </td>
                         <td>{x?.beaten ? <>{units(x.aheadUnits)}<span className="sub">{rivalShape(x.aheadOrders, x.topRivalShare, x.isBuy)}</span></> : '–'}</td>
@@ -439,31 +442,43 @@ export function Orders() {
                           {x?.unreached
                             ? <span data-tip={x.isBuy
                               ? `The bulk of the day’s trading got down to your price on ${x.reach} of the last ${FILL_WINDOW} days. Sellers here list and wait, so the queue ahead isn’t what’s holding you back.`
-                              : `The bulk of the day’s trading got up to your price on ${x.reach} of the last ${FILL_WINDOW} days${x.beaten && !x.left ? ', and not to the front of the queue either' : ''}. Buyers here don’t pay that much, so the queue ahead isn’t what’s holding you back.`} data-tip-title="Rarely reached" tabIndex={0} style={{ color: 'var(--neg)' }}>rarely reached<span className="sub">{x.reach} of {FILL_WINDOW} days</span></span>
-                            : !x?.beaten ? '–' : !Number.isFinite(x.hoursToFront) ? <span className="faint">barely trades</span> : <PaceNote x={x} hours={hours} />}
+                              : `The bulk of the day’s trading got up to your price on ${x.reach} of the last ${FILL_WINDOW} days${x.beaten && !x.left ? ', and not to the front of the queue either' : ''}. Buyers here don’t pay that much, so the queue ahead isn’t what’s holding you back.`} data-tip-title="Rarely reached" tabIndex={0} className="words" style={{ color: 'var(--neg)' }}>rarely reached<span className="sub">{x.reach} of {FILL_WINDOW} days</span></span>
+                            : !x?.beaten ? '–' : !Number.isFinite(x.hoursToFront) ? <span className="faint words">barely trades</span> : <PaceNote x={x} hours={hours} />}
                         </td>
                         <td data-tip={x ? (x.live ? 'Read from the live book just now' : 'From your last sync; ESI caches orders for twenty minutes') : undefined}>
                           {isk(x?.price ?? o.price)}{(!x || !x.live) && <span className="sub">from last sync</span>}
                         </td>
+                        {/* Move to, and what it costs under it: the price that puts you back in front, how far that is from
+                            yours, and the margin and fee it takes. Selling into the bids, the top bid and what they pay. */}
                         {x?.intoBids ? (
-                          <>
-                            <td><span style={{ color: 'var(--acc2)' }}>{isk(x.intoBids.top)}</span><span className="sub">top bid</span></td>
-                            <td data-tip="What the standing buy orders pay for your stock now, after sales tax. Selling into a bid costs no broker fee.">{iskBig(x.intoBids.proceeds)}<span className="sub">you get</span></td>
-                          </>
+                          <td>
+                            <span style={{ color: 'var(--acc2)' }}>{isk(x.intoBids.top)}</span>
+                            <span className="sub">top bid · <span className="nowrap" tabIndex={0} data-tip="What the standing buy orders pay for your stock now, after sales tax. Selling into a bid costs no broker fee.">you get {iskBig(x.intoBids.proceeds)}</span></span>
+                          </td>
                         ) : (
-                          <>
-                            <td>
-                              <span style={{ color: hot ? 'var(--pos)' : 'var(--cell)' }}>{moveTo != null ? isk(moveTo) : '–'}</span>{moveTo != null && <CopyPrice price={moveTo} />}
-                              {moveTo != null && x && x.cutPct > 0 && <span className="sub mono" style={{ color: x.cutPct >= 0.02 ? 'var(--neg)' : 'var(--label)' }}>{x.isBuy ? '+' : '−'}{(x.cutPct * 100).toFixed(x.cutPct < 0.1 ? 1 : 0)}%</span>}
-                              {underCostMove && Number.isFinite(x!.newPrice) && <span className="sub" style={{ color: 'var(--neg)' }} data-tip={`Getting in front at ${isk(x!.newPrice)} would sell under what it cost you. ${x!.why}.`}>under cost</span>}
-                            </td>
-                            <td data-tip={x && !heldBack && !underCostMove && !keep && x.cost > 0 ? `${isk(x.give)} of margin plus a ${isk(x.fee)} fee` : undefined}>{x && !heldBack && !underCostMove && !keep && x.cost > 0 ? iskBig(x.cost) : '–'}</td>
-                          </>
+                          <td>
+                            <span style={{ color: hot ? 'var(--pos)' : 'var(--cell)' }}>{moveTo != null ? isk(moveTo) : '–'}</span>{moveTo != null && <CopyPrice price={moveTo} />}
+                            {(() => {
+                              const cut = moveTo != null && x && x.cutPct > 0;
+                              const costs = x && !heldBack && !underCostMove && !keep && x.cost > 0;
+                              if (!cut && !costs) return null;
+                              return (
+                                <span className="sub">
+                                  {cut && <span className="mono" style={{ color: x!.cutPct >= 0.02 ? 'var(--neg)' : 'var(--label)' }}>{x!.isBuy ? '+' : '−'}{(x!.cutPct * 100).toFixed(x!.cutPct < 0.1 ? 1 : 0)}%</span>}
+                                  {cut && costs && ' · '}
+                                  {costs && <span className="nowrap" tabIndex={0} data-tip={`${isk(x!.give)} of margin plus a ${isk(x!.fee)} fee`}>costs {iskBig(x!.cost)}</span>}
+                                </span>
+                              );
+                            })()}
+                            {underCostMove && Number.isFinite(x!.newPrice) && <span className="sub" style={{ color: 'var(--neg)' }} data-tip={`Getting in front at ${isk(x!.newPrice)} would sell under what it cost you. ${x!.why}.`}>under cost</span>}
+                          </td>
                         )}
-                        <td>{units(x?.volumeRemain ?? o.volumeRemain)}{x?.intoBids
-                          ? <span className="sub">{x.intoBids.daysToSell > 365 ? 'over a year' : hours(x.intoBids.daysToSell * 24)} listed</span>
-                          : x && Number.isFinite(x.yourHours) && !x.unreached && <span className="sub">{hours(x.yourHours)} to {x.isBuy ? 'fill' : 'sell'}</span>}</td>
-                        <td>{iskBig((x?.price ?? o.price) * (x?.volumeRemain ?? o.volumeRemain))}</td>
+                        {/* What's left on the order, in units and in the ISK it holds at its own price, then how long it takes. */}
+                        <td>{units(x?.volumeRemain ?? o.volumeRemain)}
+                          <span className="sub mono ord-isk">{iskBig((x?.price ?? o.price) * (x?.volumeRemain ?? o.volumeRemain))}</span>
+                          {x?.intoBids
+                            ? <span className="sub">{x.intoBids.daysToSell > 365 ? 'over a year' : hours(x.intoBids.daysToSell * 24)} listed</span>
+                            : x && Number.isFinite(x.yourHours) && !x.unreached && <span className="sub">{hours(x.yourHours)} to {x.isBuy ? 'fill' : 'sell'}</span>}</td>
                         <td style={{ color: 'var(--acc)' }}>{x && Number.isFinite(perSlot[x.orderId]) ? iskBig(perSlot[x.orderId]) : '–'}</td>
                         <td>
                           <span className="acts">
@@ -581,9 +596,9 @@ function TooBigTag({ t, x }: { t: TooBig; x: Relist }) {
  * buying thousands while they held 2,338 and buyers took about 200 a day from listings. Amber, like a warning.
  */
 function FeedsQueueTag({ q }: { q: FeedsQueue }) {
-  // Wraps within the width the "Keep it" reason takes, so "nobody has been seen buying from listings" doesn't widen the column.
+  // Wraps within the item's column, like every line under a name on Orders, so it doesn't widen the table.
   return (
-    <span className="sub" tabIndex={0} style={{ color: 'var(--acc2)', fontWeight: 600, whiteSpace: 'normal', maxWidth: 340 }} data-tip-title="Feeds a long queue" data-tip={feedsQueueSaid(q)}>
+    <span className="sub" tabIndex={0} style={{ color: 'var(--acc2)', fontWeight: 600 }} data-tip-title="Feeds a long queue" data-tip={feedsQueueSaid(q)}>
       {feedsQueueTag(q)}
     </span>
   );

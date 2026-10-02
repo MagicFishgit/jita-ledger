@@ -677,6 +677,35 @@ input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.7); }
 .tbl tr.detail > td { height: auto; padding: 6px 16px 16px 52px; text-align: left; white-space: normal; background: color-mix(in oklab, var(--acc) 7%, transparent); }
 .tbl tr.detail .unfold { animation: unfold .3s cubic-bezier(.2, .8, .2, 1); }
 .tbl tfoot td { font-weight: 500; color: var(--ink); background: rgba(2, 7, 12, .35); }
+/* Two sortable headers stacked in one cell (SortThPair): each line its own sort and "i", only the one sorting lit. */
+.tbl th.pair .th { display: flex; line-height: 1.3; }
+.tbl th.pair[aria-sort='ascending'], .tbl th.pair[aria-sort='descending'] { color: var(--label); }
+.tbl th.pair .th.on { color: var(--acc); }
+/* Orders fits the page at 1440 px with the sidebar open (2 October 2026): it ran to 2,157 px checked, the actions cut
+   off past a sideways scrollbar. Tighter cells, header words wrap onto two lines, the lines under a figure wrap within
+   their column, Side under the item's name, the actions on two lines, and the Keep it reason narrower. Scoped to
+   Orders: these classes are shared by every table. */
+.tbl.ord { font-size: 12px; }
+.tbl.ord th { padding: 0 6px; letter-spacing: .08em; }
+.tbl.ord td { padding: 4px 6px; }
+.tbl.ord th:first-child, .tbl.ord td:first-child { padding-left: 10px; }
+.tbl.ord th:last-child, .tbl.ord td:last-child { padding-right: 10px; }
+.tbl.ord th .th { gap: 4px; }
+.tbl.ord th button.sort { gap: 3px; white-space: normal; text-wrap: balance; text-align: right; }
+.tbl.ord th.l button.sort { text-align: left; }
+.tbl.ord th.pair button.sort { white-space: nowrap; }
+.tbl.ord .sub { white-space: normal; text-wrap: pretty; }
+.tbl.ord .cellrow { gap: 8px; align-items: flex-start; }
+.tbl.ord .ord-id { display: flex; flex-direction: column; min-width: 100px; }
+.tbl.ord .ord-id .name { white-space: normal; text-wrap: pretty; line-height: 1.3; }
+.tbl.ord .ord-side { font-size: 10.5px; letter-spacing: .1em; margin-top: 1px; }
+.tbl.ord .flag { font-size: 10.5px; padding: 3px 7px; letter-spacing: .06em; }
+.tbl.ord .keep-why { min-width: 150px; max-width: 220px; margin-top: 4px; color: var(--sec); }
+.tbl.ord .ord-isk { color: var(--body); white-space: nowrap; }
+.tbl.ord .acts { flex-wrap: wrap; width: 102px; gap: 3px 6px; }
+/* Words in a figure column ("rarely reached") in the body face, which is narrower than the figures' monospace. */
+.tbl.ord .words { font-family: var(--f-body); font-size: 12.5px; }
+.tbl.ord .nowrap { white-space: nowrap; }
 .spark { width: 100%; min-width: 80px; height: 24px; display: block; }
 
 /* ------------------------------------------------------------ overlays */

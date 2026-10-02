@@ -88,6 +88,15 @@ async function overflow(page) {
   });
 }
 
+/**
+ * Whether a table scrolls sideways inside its own box: what Orders did at 1440 px with the sidebar open, its controls cut
+ * off past a scrollbar (the user, 2 October 2026). Null when there's no such box.
+ */
+const sideways = (page, sel = '.tbl-scroll') => page.evaluate((s) => {
+  const box = document.querySelector(s);
+  return box ? { over: box.scrollWidth - box.clientWidth, width: box.clientWidth } : null;
+}, sel);
+
 /** A name each ledger's Positions page must show, proving the seed reached the app. */
 const PROOF = { small: 'Hammerhead II', large: 'Test Item' };
 
@@ -311,6 +320,12 @@ try {
         if (!(await page.locator('[role="group"][aria-label="Where it’s found"] button', { hasText: 'Null-sec' }).count())) problems.push('not drawn: no place selector on the best-ore panel');
         if (!(await page.locator('.page', { hasText: 'Couldn’t read the ores’ names from ESI just now' }).count())) problems.push('not drawn: the best-ore panel doesn’t say it couldn’t price');
       }
+      // Orders fits at desktop width: the large ledger's 146 Jita orders, without a sideways scrollbar.
+      if (!PHONE && name === 'large' && hash === 'orders') {
+        const s = await sideways(page);
+        if (!s) problems.push('not drawn: no orders table');
+        else if (s.over > 0) problems.push(`the orders table scrolls sideways: ${s.over} px past its ${s.width} px box`);
+      }
       // The large ledger's scan must reach Prospects and the planner with its flags, or both pass on an empty state.
       if (name === 'large' && PLAN_PROOF[hash]) {
         for (const t of PLAN_PROOF[hash].drawn) if (!(await page.locator('.page table .flag', { hasText: t }).count())) problems.push(`not drawn: no “${t}” flag`);
@@ -501,6 +516,8 @@ try {
     page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
     page.on('console', (m) => { if (m.type() === 'error' && /^Warning: /.test(m.text())) problems.push(`React: ${m.text().split('\n')[0].replace(/%s/g, '').slice(0, 160)}`); });
     await page.goto(SEED_PAGE);
+    // Logged in with the market-window permission, so each row draws its In game button as the user's do: the width check
+    // below measures the rows as they see them.
     await page.evaluate(async ([d, auth]) => {
       localStorage.clear(); sessionStorage.clear();
       localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
@@ -510,7 +527,7 @@ try {
         await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
         h.close();
       }
-    }, [ledger, ownerAuth()]);
+    }, [ledger, { ...ownerAuth(), scopes: ['esi-ui.open_window.v1'] }]);
     await page.goto(`${BASE}#orders`);
     await page.waitForSelector('.page', { timeout: 20_000 });
     await page.waitForTimeout(1000);
@@ -530,6 +547,12 @@ try {
       for (const want of ['days of the buyers who take listings', 'in your Jita hangar', 'This order still buys', 'cancel it and place a smaller one']) if (!tip.includes(want)) problems.push(`not drawn: the Long queue tip's “${want}”`);
     }
     if (await page.locator(`tr[data-order="${arb.sell.orderId}"] [data-tip-title="Feeds a long queue"]`).count()) problems.push('the Arbalest sell carries “Feeds a long queue”: only a buy adds stock');
+    // Checked, every line under a figure drawn and the In game buttons there, Orders still fits at desktop width.
+    if (!PHONE) {
+      if (!(await page.locator('tbody .acts button', { hasText: 'In game' }).count())) problems.push('not drawn: no In game button on the checked rows');
+      const s = await sideways(page);
+      if (s?.over > 0) problems.push(`the checked orders table scrolls sideways: ${s.over} px past its ${s.width} px box`);
+    }
     let boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
     if (boundary) problems.push('error boundary');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out: ${o}`);

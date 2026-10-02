@@ -92,6 +92,19 @@ Decisions worth not undoing. Conventions for wording, layout, tooltips, numbers 
   synced skills and standings give, the tab shows those with **Use these**.
 - **Pages run full width** via `--page-max`, so wide tables don't need a scrollbar. Prose keeps its own
   measure.
+- **Orders fits the page at desktop width** (`.tbl.ord` in `styles.css`, `SortThPair` in `ui.tsx`). The user (2 October
+  2026): "the order table has a horizontal scroll bar. my controls on the right is cut off". It had a fixed 1,360 px
+  minimum and ran to 1,752 px on the page check's large ledger unchecked, 2,157 px checked with In game buttons, against
+  1,146 px at 1440 with the sidebar open (1,626 at 1920). Squeezing alone (tighter cells and headers, lines under a
+  figure wrapping) stopped at 1,255 / 1,380: a sortable header carries its arrow and its "i", about 45 px before its
+  label. So three pairs that say one thing share a column, the header stacked to match, every sort and tip kept: Side
+  under the item's name (Weakest slots already says "X buy"), what a move costs under its price, the ISK in an order
+  under its stock (headed Stock and ISK, the tips' titles in full). Header words wrap onto two lines, the lines under a
+  figure wrap in their column (a figure never does), the actions sit on two lines, the Keep it reason is narrower.
+  Narrowest it can go at 1440: 981 px unchecked, 1,071 checked, 1,122 with billion-ISK prices and Keep it rows.
+  `npm run check-pages` fails if it scrolls sideways at 1440, on the large ledger and on the checked plan ledger with its
+  In game buttons; on a phone it still scrolls inside its own box. The CSS is scoped to `.tbl.ord`: `.tbl` is every
+  table's.
 - **Every figure the redesign added is read, derived, or asked for — never invented.** The buy/sell split comes
   from what the book's orders have sold and what the app watched, or where each day's average sits between its
   low and high when those can't tell; training time from dogma and attributes; the

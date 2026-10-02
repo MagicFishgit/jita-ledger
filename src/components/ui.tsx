@@ -229,19 +229,46 @@ export function Chip(props: {
   );
 }
 
+type SortHead<K extends string> = { k: K; label: string; tip?: string; title?: string };
+type SortState<K extends string> = { key: K; dir: 'asc' | 'desc' };
+
+/** One header's sort button and its "i", for SortTh and SortThPair. */
+function SortHeadLine<K extends string>({ h, sort, onSort, lit }: { h: SortHead<K>; sort: SortState<K>; onSort: (k: K) => void; lit?: boolean }) {
+  const on = sort.key === h.k;
+  return (
+    <span className={'th' + (lit && on ? ' on' : '')}>
+      <button type="button" className="sort" onClick={() => onSort(h.k)}>
+        {h.label}<span className="arrow" aria-hidden="true">{on ? (sort.dir === 'asc' ? '↑' : '↓') : '↕'}</span>
+      </button>
+      {h.tip && <Tip text={h.tip} title={h.title ?? h.label} />}
+    </span>
+  );
+}
+
 /** A sortable table header cell. */
 export function SortTh<K extends string>(props: {
-  k: K; label: string; sort: { key: K; dir: 'asc' | 'desc' }; onSort: (k: K) => void; left?: boolean; tip?: string; title?: string;
+  k: K; label: string; sort: SortState<K>; onSort: (k: K) => void; left?: boolean; tip?: string; title?: string;
 }) {
   const on = props.sort.key === props.k;
   return (
     <th scope="col" className={props.left ? 'l' : undefined} aria-sort={on ? (props.sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-      <span className="th">
-        <button type="button" className="sort" onClick={() => props.onSort(props.k)}>
-          {props.label}<span className="arrow" aria-hidden="true">{on ? (props.sort.dir === 'asc' ? '↑' : '↓') : '↕'}</span>
-        </button>
-        {props.tip && <Tip text={props.tip} title={props.title ?? props.label} />}
-      </span>
+      <SortHeadLine h={props} sort={props.sort} onSort={props.onSort} />
+    </th>
+  );
+}
+
+/**
+ * Two sortable headers stacked in one cell, for a column that shows two figures one under the other (Orders' Item over
+ * Side, Move to over Costs you): each line keeps its own sort and its own "i", and only the one sorting is lit.
+ */
+export function SortThPair<K extends string>({ top, bottom, sort, onSort, left }: {
+  top: SortHead<K>; bottom: SortHead<K>; sort: SortState<K>; onSort: (k: K) => void; left?: boolean;
+}) {
+  const on = sort.key === top.k || sort.key === bottom.k;
+  return (
+    <th scope="col" className={'pair' + (left ? ' l' : '')} aria-sort={on ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <SortHeadLine h={top} sort={sort} onSort={onSort} lit />
+      <SortHeadLine h={bottom} sort={sort} onSort={onSort} lit />
     </th>
   );
 }
