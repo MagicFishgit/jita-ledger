@@ -5,7 +5,7 @@ import { esi } from '../../lib/esi';
 import { ago, fmtDateTime, fmtShort, isk, iskBig, units } from '../../lib/format';
 import {
   afterTax, bestDeliver, bestOffice, deliverFlags, FILTER_HIDES, isRunning, jobHistory, possessive, readDeliverJob, taxPct, whereToAccept,
-  type CorpTax, type DeliverCall, type DeliverFlag, type DeliverJob, type JobRow, type JoinedJob, type Office, type RawFreelanceJob, type RewardRead,
+  type CorpTax, type DeliverCall, type DeliverFlag, type DeliverJob, type JobRow, type JoinedJob, type Office, type RawFreelanceJob, type RewardRead, purchasesPending, tradesReadTo,
 } from '../../lib/freelance';
 import { refreshJobHistory } from '../../lib/freelanceStore';
 import { rates } from '../../lib/fees';
@@ -360,6 +360,12 @@ function JobHistory({ now }: { now: number }) {
     return jobHistory({ jobs: jobs ?? [], journal: Object.values(d.journal), txs, skip, corps, salesTax: rates(d.settings).t, now });
   }, [jobs, corps, d.txs, d.journal, d.ignored, d.tags, d.positions, d.settings, Math.floor(now / 3600_000)]); // eslint-disable-line react-hooks/exhaustive-deps
   const { rows, total } = hist;
+  // How far your trades are read, so a job paid after that doesn't call units bought for it "not bought" (purchasesPending).
+  const readTo = useMemo(() => {
+    let newest: number | null = null;
+    for (const t of Object.values(d.txs)) { const at = Date.parse(t.date); if (newest == null || at > newest) newest = at; }
+    return tradesReadTo(d.meta.tradesFreshAt, newest);
+  }, [d.txs, d.meta.tradesFreshAt]);
   if (!rows.length) return null;
   const running = rows.filter((r) => isRunning(r.job, now)).length;
   // Nothing not known reads as a zero: no payment's tax recorded, or no job paid whose units are known, is "–".
@@ -388,7 +394,7 @@ function JobHistory({ now }: { now: number }) {
             <th scope="col" className="flh-wide"><span className="th">Left over<Tip title="Left over" text="Bought while it ran and not delivered or sold, at what it cost. Kept with the job paid next after the purchase." /></span></th>
             <th scope="col" className="flh-wide"><span className="th">Profit<Tip title="Profit" text={'The rewards, less what the delivered units you bought cost, plus anything bought for it and sold again (after sales tax, less what it cost).\n\n• A sale takes what was left over first, oldest first, and counts for the job it was bought for.\n• Units sold while it ran that weren’t bought for a job (mined, contracted, looted) are said apart and left out.'} /></span></th>
           </tr></thead>
-          <tbody>{rows.map((r) => <JobLine key={r.job.id} r={r} now={now} />)}</tbody>
+          <tbody>{rows.map((r) => <JobLine key={r.job.id} r={r} now={now} readTo={readTo} />)}</tbody>
           <tfoot><tr>
             <td className="l">All {units(rows.length)}
               <div className="flh-phone">
@@ -416,7 +422,7 @@ const otherSold = (r: JobRow) => `${units(r.soldOther)} sold for ${iskBig(r.sold
 const bare = (n: number | null) => isk(n).replace(/ ISK$/, '');
 
 /** One job's line. On a phone (styles.css, `.flh-table`) only the job and its profit keep a column; the rest folds under the name. */
-function JobLine({ r, now }: { r: JobRow; now: number }) {
+function JobLine({ r, now, readTo }: { r: JobRow; now: number; readTo: number | null }) {
   const w = when(r, now);
   const live = isRunning(r.job, now);
   const left = live && r.job.perPlayer != null ? Math.max(0, r.job.perPlayer - r.job.delivered) : null;
@@ -428,7 +434,10 @@ function JobLine({ r, now }: { r: JobRow; now: number }) {
     r.taxUnknown ? `${units(r.taxUnknown)} not recorded` : '',
   ].filter(Boolean).join(' · ');
   const range = r.low == null ? '' : r.low === r.high ? bare(r.low) : `${bare(r.low)}–${bare(r.high)}`;
-  const stock = r.fromStock > 0 ? `${units(r.fromStock)} from stock you didn’t buy for it: no cost counted` : '';
+  const pending = purchasesPending(r, readTo);
+  const stock = !(r.fromStock > 0) ? ''
+    : pending ? `${units(r.fromStock)} not matched to a purchase yet: your trades are read only to ${readTo == null ? 'no time yet' : fmtDateTime(readTo)}, and EVE shows them up to an hour late`
+      : `${units(r.fromStock)} from stock you didn’t buy for it: no cost counted`;
   const unsure = r.unsure ? 'may be off: a job taking the same items has a payment whose units aren’t known' : '';
   const tax = (cls?: string) => r.rewards.length
     ? <span className={cls} tabIndex={0} data-tip={paymentLines(r)} data-tip-title={`${r.job.name}: its payments`}>{taxSaid}{cls ? (taxSub ? ` (${taxSub})` : '') : <span className="sub">{taxSub}</span>}</span>
@@ -442,7 +451,7 @@ function JobLine({ r, now }: { r: JobRow; now: number }) {
         <span className="sub">{w.main}{w.sub ? ` · ${w.sub}` : ''}{left != null ? ` · ${units(left)} left for you` : ''}</span>
         {live && <span className="flags"><Flag color="var(--pos)" title="Running" why={r.job.joined !== false ? 'Still taking deliveries, and on your list of joined jobs.' : 'Still taking deliveries.'}>Running</Flag></span>}
         <div className="flh-phone">
-          <b style={{ color: r.profit == null ? undefined : r.profit >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{r.profit == null ? 'Profit not known: units not known' : `Profit ${iskBig(r.profit)}`}{r.sold > 0 ? `, with ${units(r.sold)} sold again for ${iskBig(r.revenue)}` : ''}</b>
+          <b style={{ color: r.profit == null ? undefined : r.profit >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>{r.profit == null ? 'Profit not known: units not known' : `Profit ${iskBig(r.profit)}${pending ? ' so far' : ''}`}{r.sold > 0 ? `, with ${units(r.sold)} sold again for ${iskBig(r.revenue)}` : ''}</b>
           {r.soldOther > 0 && <span style={{ color: 'var(--acc2)' }}>{otherSold(r)}</span>}
           <span>{r.delivered != null ? `${units(r.delivered)} delivered` : 'Delivered: not known'}{r.job.perUnit > 0 ? ` at ${bare(r.job.perUnit)} a unit` : ''}</span>
           <span>{r.received ? `${iskBig(r.received)} paid in ${units(r.rewards.length)} payment${r.rewards.length === 1 ? '' : 's'}` : 'Nothing paid yet'} · tax {tax('flh-tax')}</span>
@@ -465,6 +474,7 @@ function JobLine({ r, now }: { r: JobRow; now: number }) {
       <td className="flh-wide flh-profit" style={{ color: r.profit == null ? undefined : r.profit >= 0 ? 'var(--pos)' : 'var(--neg-t)' }}>
         {r.profit == null ? '–' : iskBig(r.profit)}
         {r.profit == null && r.rewards.length > 0 && <span className="sub">units not known</span>}
+        {pending && r.profit != null && <span className="sub" style={{ color: 'var(--acc2)' }}>until your trades are read: the cost may still come in</span>}
         {r.sold > 0 && <span className="sub">{units(r.sold)} sold again for {iskBig(r.revenue)}</span>}
         {r.soldOther > 0 && <span className="sub" style={{ color: 'var(--acc2)' }}>{otherSold(r)}</span>}
       </td>

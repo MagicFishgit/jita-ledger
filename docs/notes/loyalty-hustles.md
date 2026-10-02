@@ -131,7 +131,12 @@ mining.md; Abyssal, Hauling and Combat in abyssal-hauling-combat.md (split on 1 
     stays with the job paid next after it. **A sale takes the leftovers, oldest first, for the job each was left with**: a
     leftover's sell order filling during a later job doesn't eat that job's purchases (it charged a Buy Back 813,258
     of "stock you didn't buy"), and after every job it still clears it. Units sold in a job's window with nothing bought
-    behind them are said apart and left out of its profit: costed at 0, 5,000,000 mined Veldspar added 35.75 M.
+    behind them are said apart and left out of its profit: costed at 0, 5,000,000 mined Veldspar added 35.75 M. **A job paid after your trades are read says its units aren't
+    matched yet, not that you didn't buy them** (`tradesReadTo`, `purchasesPending`): EVE shows the journal sooner than the
+    trades (each cached an hour), so the user's Добыча Veldspar* (2 October 2026), paid 208 M at 17:33:16 for 8,000,000
+    bought from three listings at 17:26:54, read "from stock you didn't buy for it" at no cost while their trades were read
+    only to 17:00:11. Trades count as read to when EVE's copy was taken (an hour before the sync said new ones can appear)
+    or the newest trade held; past that the row says how far they're read and the profit "may still" lose the cost.
   - **Units and tax**: the journal's `tax` when (amount + tax) is whole units at the job's rate to the cent, else set
     aside; then the corporation ESI's history puts you in then, at its rate now, only when exact to the cent and within
     everyone's deliveries; else "not recorded". Arithmetic alone can't tell: 593,096,000 is whole at 0, 2, 11, 20%…,

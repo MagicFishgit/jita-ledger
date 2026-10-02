@@ -541,6 +541,32 @@ const idOrder = (a: string, b: string) => a.length - b.length || (a < b ? -1 : a
  * costed at 0, 5,000,000 mined Veldspar sold during the Veldspar job added 35.75 M to it. Trades in `skip` (a position
  * counts them, or you tagged them) are no job's, as on the Wallet. Pure.
  */
+/** ESI caches wallet transactions for an hour (eve-facts.md): the copy a sync read was taken this long before it said new ones can appear. */
+export const TRADES_CACHE_MS = 3600_000;
+
+/**
+ * How far your trades are read: when EVE's copy behind the last read was taken (an hour before it said new trades can
+ * appear), or the newest trade held, whichever is later (the cloud may have brought newer ones). Null when neither is known.
+ */
+export function tradesReadTo(freshAt: string | undefined, newestTrade: number | null): number | null {
+  const copy = freshAt ? Date.parse(freshAt) - TRADES_CACHE_MS : NaN;
+  const best = Math.max(Number.isFinite(copy) ? copy : -Infinity, newestTrade ?? -Infinity);
+  return Number.isFinite(best) ? best : null;
+}
+
+/**
+ * A job paid after your trades are read may have bought what it delivered after them, so units it delivered "from stock
+ * you didn't buy for it" may be purchases EVE hasn't shown yet. The journal comes sooner than the trades: the user's
+ * Добыча Veldspar* job (2 October 2026) was paid 208 M at 17:33:16 for 8,000,000 units bought from three listings at
+ * 17:26:54 (60,988,458 ISK of escrow in the journal), while their trades were read only to 17:00:11, and the tab said
+ * the units came from stock they didn't buy, at no cost.
+ */
+export function purchasesPending(r: Pick<JobRow, 'rewards' | 'fromStock'>, readTo: number | null): boolean {
+  if (!(r.fromStock > 0) || !r.rewards.length) return false;
+  const last = Math.max(...r.rewards.map((x) => Date.parse(x.at)));
+  return readTo == null || last > readTo;
+}
+
 export function jobHistory(inp: {
   jobs: JoinedJob[];
   journal: { id?: string; date: string; refType: string; amount: number; reason?: string; tax?: number; contextId?: number }[];

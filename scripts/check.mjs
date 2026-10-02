@@ -3470,7 +3470,7 @@ console.log('\n--- every freelance job you did (the user’s six, 1 October 2026
 {
   const fsF = await import('node:fs');
   const F = JSON.parse(fsF.readFileSync(new URL('./fixtures/freelance-history.json', import.meta.url), 'utf8'));
-  const { jobFromDetail, jobHistory, isFreelanceTrade, readReward, corpSpans, corpsAt, rewardJobName, mergeJobs, stubJob, jobEnd } = await import('../src/lib/freelance.ts');
+  const { jobFromDetail, jobHistory, isFreelanceTrade, readReward, corpSpans, corpsAt, rewardJobName, mergeJobs, stubJob, jobEnd, tradesReadTo, purchasesPending, TRADES_CACHE_MS } = await import('../src/lib/freelance.ts');
   const { flows } = await import('../src/lib/wallet.ts');
   const ME = 95210486;
   const typesOf = (raw) => {
@@ -3549,6 +3549,17 @@ console.log('\n--- every freelance job you did (the user’s six, 1 October 2026
     ['derived', 0.11, null, 'fits', null, 20_000_000]);
   eq('  a reward that fits no rate of the corporation then isn’t forced', readReward({ date: '2026-09-29T11:40:05Z', amount: 255106158.37 }, { ...jobs[0], perUnit: 16 }, spans).why, 'fits');
   eq('  a finished job’s deliveries can’t pass what everyone delivered to it', readReward({ date: '2026-10-01T20:15:31Z', amount: 415_000_000 }, jobs.find((j) => j.id === BB1), spans).why, 'fits');
+
+  // A job paid after your trades are read: its units "not bought for it" may be purchases EVE hasn't shown yet. The user's
+  // Добыча Veldspar* (2 October 2026): paid 208 M at 17:33:16 for 8,000,000 bought at 17:26:54; trades read to 17:00:11.
+  const veld = { rewards: [{ at: '2026-10-02T17:33:16Z' }], fromStock: 8_000_000 };
+  const readVeld = tradesReadTo('2026-10-02T18:00:11Z', Date.parse('2026-10-02T17:00:11Z'));
+  eq('trades are read to when EVE’s copy was taken (an hour before new ones can appear) or the newest trade held, whichever is later',
+    [TRADES_CACHE_MS, new Date(readVeld).toISOString(), new Date(tradesReadTo('2026-10-02T17:30:00Z', Date.parse('2026-10-02T17:00:11Z'))).toISOString(), tradesReadTo(undefined, null)],
+    [3_600_000, '2026-10-02T17:00:11.000Z', '2026-10-02T17:00:11.000Z', null]);
+  eq('  a job paid after that: its units not matched to a purchase may still be bought ones; paid before it, they are stock you didn’t buy',
+    [purchasesPending(veld, readVeld), purchasesPending(veld, Date.parse('2026-10-02T18:05:00Z')), purchasesPending({ ...veld, fromStock: 0 }, readVeld), purchasesPending(veld, null), purchasesPending({ rewards: [], fromStock: 5 }, readVeld)],
+    [true, false, false, true, false]);
 
   const T = (id, date, typeId = 92374) => ({ id, typeId, date, isBuy: true, qty: 1000, unitPrice: 11.9 });
   // The journal's tax is checked like a worked-out one: (amount + tax) must be a whole number of units at the job's rate.
