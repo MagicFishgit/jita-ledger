@@ -20,7 +20,7 @@ import { PLANETS_SCOPE, readColonies, useColonies } from '../lib/colonyStore';
 import { readSignals, trackedTypes, useSignals } from '../lib/watch';
 import { BACKUP_DAYS } from '../lib/alertsRunner';
 import { LOGIN_STOPS } from '../lib/watchdog';
-import { placedOrder, planPlacement } from '../lib/plans';
+import { planPlacement } from '../lib/plans';
 import { useAltRoster, useRosterAt, useRosterLive } from '../lib/altStore';
 import { loginState } from '../lib/roster';
 import { cloudCovers, useCloud } from '../lib/cloud';
@@ -292,11 +292,13 @@ export function Todo() {
         action: { label: 'Blueprints', route: 'blueprints' },
       });
     }
-    // A started plan's buy orders not placed yet (the Capital planner's "Start this plan"), for a week.
+    // A started plan's buy orders not placed yet (the Capital planner's "Start this plan"), for a week. A bid that bought
+    // at once counts by its trade: it shows no order until your order history does (lib/plans.ts).
+    const planTrades = { txs: Object.values(d.txs), ignored: d.ignored };
     for (const p of d.plans) {
       if (now - Date.parse(p.at) > 7 * DAY) continue;
       for (const i of p.items) {
-        if (placedOrder(i, p, Object.values(d.orders), d.positions)) continue;
+        if (planPlacement(i, p, Object.values(d.orders), d.positions, planTrades)) continue;
         out.push({
           key: `plan:${p.id}:${i.typeId}`, ver: '1', kind: 'placeBuy', source: 'ledger', stake: i.units * i.buyAt, typeId: i.typeId,
           title: `Place a buy order: ${units(i.units)} × ${name(i.typeId)} at ${isk(i.buyAt)}`,
@@ -402,9 +404,9 @@ export function Todo() {
           const [, planId, typeId] = x.key.split(':');
           const p = d.plans.find((z) => z.id === planId);
           const it = p?.items.find((z) => String(z.typeId) === typeId);
-          const pl = p && it ? planPlacement(it, p, Object.values(d.orders), d.positions) : null;
+          const pl = p && it ? planPlacement(it, p, Object.values(d.orders), d.positions, { txs: Object.values(d.txs), ignored: d.ignored }) : null;
           // Every order counted for the item, summed: "Placed: 1 at …" for a top-up of an earlier 15 read as one unit.
-          return judgePlaceBuy(e, { plan: !!p && !!it && t - Date.parse(p.at) <= 7 * DAY, placed: pl ? { units: pl.units, price: pl.order.price } : null });
+          return judgePlaceBuy(e, { plan: !!p && !!it && t - Date.parse(p.at) <= 7 * DAY, placed: pl ? { units: pl.units, price: pl.price, atOnce: pl.atOnce } : null });
         }
         case 'cloudLogin': {
           if (x.key.startsWith('cloudLogin:alt:')) {

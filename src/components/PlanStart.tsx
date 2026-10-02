@@ -77,13 +77,15 @@ export function PlacingChecklist() {
   const d = useData();
   const name = useTypeName();
   const orders = useMemo(() => Object.values(d.orders), [d.orders]);
-  const recent = d.plans.filter((p) => Date.now() - Date.parse(p.at) < CHECKLIST_DAYS * 86400_000 && planProgress(p, orders, d.positions).placed < p.items.length);
+  // Your trades too: a bid at or over the cheapest listing buys at once and shows no order until your order history does.
+  const trades = useMemo(() => ({ txs: Object.values(d.txs), ignored: d.ignored }), [d.txs, d.ignored]);
+  const recent = d.plans.filter((p) => Date.now() - Date.parse(p.at) < CHECKLIST_DAYS * 86400_000 && planProgress(p, orders, d.positions, trades).placed < p.items.length);
   useEnsureNames(recent.flatMap((p) => p.items.map((i) => i.typeId)));
   if (!recent.length) return null;
   return (
     <>
       {recent.map((p) => {
-        const prog = planProgress(p, orders, d.positions);
+        const prog = planProgress(p, orders, d.positions, trades);
         return (
           <section key={p.id} id="placing" className="panel" aria-label={`Placing ${p.name}`} style={{ padding: 18, gap: 12, clipPath: 'none' }}>
             <div className="panel-head">
@@ -97,7 +99,7 @@ export function PlacingChecklist() {
               ))}
             </div>
             <Points compact items={[
-              { kind: 'good', lead: 'Ticks off', text: 'once the order shows in your orders; ESI holds them for up to 20 minutes.' },
+              { kind: 'good', lead: 'Ticks off', text: 'once the order shows in your orders (ESI holds them up to 20 minutes), or its trade does when the bid bought at once (up to an hour).' },
               { kind: 'warn', icon: Smartphone, lead: 'On the phone', text: 'the copies land on the phone: place them from the PC.' },
             ]} />
             <div className="tbl-scroll">
@@ -105,16 +107,15 @@ export function PlacingChecklist() {
                 <thead><tr><th scope="col" className="l">Item</th><th scope="col">Quantity</th><th scope="col">Buy at</th><th scope="col">In escrow</th><th scope="col" className="l">Placed</th></tr></thead>
                 <tbody>
                   {p.items.map((i) => {
-                    const pl = planPlacement(i, p, orders, d.positions);
-                    const o = pl?.order ?? null;
+                    const pl = planPlacement(i, p, orders, d.positions, trades);
                     const note = pl ? placementNote(i, pl) : null;
                     return (
-                      <tr key={i.typeId} style={{ opacity: o ? 0.55 : 1 }}>
+                      <tr key={i.typeId} style={{ opacity: pl ? 0.55 : 1 }}>
                         <td className="l"><span className="cellrow"><ItemIcon id={i.typeId} /><NameInGame typeId={i.typeId} name={name(i.typeId)} className="name ellipsis" copy={i.buyAt} /></span></td>
                         <td>{units(i.units)} <button type="button" className="link-btn dim copy-price" aria-label={`Copy ${i.units}`} data-tip="Copy the quantity" onClick={() => void copyQty(i.units)}><Copy aria-hidden="true" /></button></td>
                         <td>{isk(i.buyAt)} <CopyPrice price={i.buyAt} /></td>
                         <td>{iskBig(i.units * i.buyAt)}</td>
-                        <td className="l">{o && note ? <span style={{ color: 'var(--pos)' }}><span className="row tight" style={{ whiteSpace: 'normal', flexWrap: 'nowrap', alignItems: 'flex-start' }}><Check aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', marginTop: 2 }} />{note.lead} at {isk(o.price)}</span>{note.short && <span className="note small" style={{ display: 'block', margin: 0, whiteSpace: 'normal', minWidth: 220, maxWidth: 320 }}>{note.short}</span>}</span> : <span className="faint">Not yet</span>}</td>
+                        <td className="l">{pl && note ? <span style={{ color: 'var(--pos)' }}><span className="row tight" style={{ whiteSpace: 'normal', flexWrap: 'nowrap', alignItems: 'flex-start' }}><Check aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', marginTop: 2 }} />{note.lead} at {isk(pl.price)}</span>{[note.atOnce, note.short].filter(Boolean).map((x) => <span key={x} className="note small" style={{ display: 'block', margin: 0, whiteSpace: 'normal', minWidth: 220, maxWidth: 320 }}>{x}</span>)}</span> : <span className="faint">Not yet</span>}</td>
                       </tr>
                     );
                   })}
@@ -135,18 +136,19 @@ export function PlacingChecklist() {
 export function PlanGroups({ shown, onShow }: { shown: string | null; onShow: (id: string | null) => void }) {
   const d = useData();
   const orders = useMemo(() => Object.values(d.orders), [d.orders]);
+  const trades = useMemo(() => ({ txs: Object.values(d.txs), ignored: d.ignored }), [d.txs, d.ignored]);
   // Each plan as it counts its positions: one it took over from earlier trading only from the plan's start.
   const rows = useMemo(() => d.plans.map((p) => {
     const ps = p.items.map((i) => d.positions.find((x) => x.id === i.positionId)).filter((x): x is NonNullable<typeof x> => !!x);
     const vs = ps.map((x) => planPosition(x, p, d, d.settings));
     const cs = vs.map((v) => v.c);
     return {
-      p, prog: planProgress(p, orders, d.positions),
+      p, prog: planProgress(p, orders, d.positions, trades),
       bought: cs.reduce((t, c) => t + c.boughtValue, 0), sold: cs.reduce((t, c) => t + c.soldValue, 0),
       realized: cs.reduce((t, c) => t + c.realized, 0), stock: cs.reduce((t, c) => t + c.costOfStock, 0),
       shared: vs.filter((v) => v.shared).length, oversold: cs.reduce((t, c) => t + c.oversold, 0),
     };
-  }), [d.plans, d.positions, d.txs, d.journal, d.orders, d.settings]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [d.plans, d.positions, d.txs, d.journal, d.orders, d.settings, trades]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!rows.length) return null;
   return (
     <section className="panel" aria-label="Plans" data-rv="" style={{ padding: 18, gap: 10, clipPath: 'none' }}>

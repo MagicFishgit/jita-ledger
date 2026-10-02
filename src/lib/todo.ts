@@ -310,10 +310,17 @@ export function judgeScam(e: Entry, c: { tracked: boolean; signalAt: number | nu
 
 /**
  * A plan's buy order, gone from the list: placed, when your orders (always current as of the last sync) hold a buy for
- * the item since the plan started; just gone when the plan was removed or is past its week.
+ * the item since the plan started, or your trades show the bid bought at once (`planPlacement`); just gone when the plan
+ * was removed or is past its week.
  */
-export function judgePlaceBuy(e: Entry, c: { plan: boolean; placed: { units: number; price: number } | null }): string | null | false {
-  if (c.placed) return `Placed: ${c.placed.units.toLocaleString('en-US')} at ${c.placed.price.toLocaleString('en-US', { maximumFractionDigits: 2 })}.`;
+export function judgePlaceBuy(e: Entry, c: { plan: boolean; placed: { units: number; price: number; atOnce?: number } | null }): string | null | false {
+  if (c.placed) {
+    const n = c.placed.units.toLocaleString('en-US'), at = c.placed.price.toLocaleString('en-US', { maximumFractionDigits: 2 });
+    // A bid that filled from listings when placed shows no order until your order history does, within the hour.
+    const once = c.placed.atOnce ?? 0;
+    return once >= c.placed.units ? `Bought at once: ${n} at ${at}.`
+      : `Placed: ${n} at ${at}${once > 0 ? `, ${once.toLocaleString('en-US')} of them bought at once` : ''}.`;
+  }
   return c.plan ? null : false;
 }
 

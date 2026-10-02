@@ -159,6 +159,19 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   the 15 more is a new order" after the top-up its own note advised (final review). A shortfall says EVE can't change a
   quantity, so the rest is a new order with its own fee, or leave it; never replace. A plan reusing a position opened weeks
   before gets only the hour: reaching back to the position's start would count a bid from then, filled long since.
+- **The checklist counts a bid that bought at once, by its trade** (`boughtAtOnce` and `PlanTrades` in plans.ts, `atOnce`
+  in `placementNote` and `judgePlaceBuy`). The user's second plan (2 October 2026): its Imperial Navy Infiltrator bid, 11 at
+  1,658,000, was over the cheapest listing, so it bought 11 at 1,608,000 there and then (Raging Gamma Filament the same, 3
+  at 9,007,000). An order that fills on placement is never among your open orders: ESI lists it only in your order history,
+  cached an hour, expired with nothing left. The checklist and To do kept asking for it, and the user thought them broken.
+  Now your Jita 4-4 buys of the item since the window's start count too, Personal ones left out, less everything the
+  counted orders have filled (a bid that bought from listings paid their prices, not its own), so a trade with no order
+  behind it yet counts and, once the order arrives from history, its fills explain the trade and nothing counts twice. A
+  bid of yours from outside the window that fills inside it fills at its own price, so trades at its prices since it was
+  placed are its, up to what it filled: Clone Soldier Transporter Tag's 4-unit bid from the 30 September plan was still
+  open under the 2 October plan, and its fills would have ticked the new plan's item off. The checklist says "11 of 11
+  bought at once at 1,608,000" and that the order shows only in your order history; To do "Bought at once: 11 at
+  1,608,000."
 - **A price must be reached lately, not only somewhere in the fortnight** (`RECENT_DAYS` 5, `RECENT_MIN` 2,
   `RECENT_TYPICAL` 3 in fills.ts; `bidToPlace` / `askToPlace`'s `window`). That plan bid 270.7 M for a Caldari Navy
   Missile Guidance Computer reached on 5 of 14 days, all mid-September at 260–310 M; since the 25th it traded at 359–375 M

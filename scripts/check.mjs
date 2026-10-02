@@ -1198,7 +1198,8 @@ eq('  with slots to spare, best return per day first as before', [plan2.ranked, 
 
 {
   // Starting a plan: the game can't place several buy orders at once, so a plan is positions plus a checklist.
-  const { newPlan, placedOrder, planProgress, sanitizePlans } = await import('../src/lib/plans.ts');
+  const { newPlan, planPlacement: placement, planProgress, sanitizePlans } = await import('../src/lib/plans.ts');
+  const placedOrder = (i, p, o, pos) => placement(i, p, o, pos)?.order ?? null;
   const { judgePlaceBuy } = await import('../src/lib/todo.ts');
   const at = '2026-09-29T18:00:00Z';
   const made = [];
@@ -1268,6 +1269,46 @@ eq('  with slots to spare, best return per day first as before', [plan2.ranked, 
   eq('To do: a plan’s order ticks off once placed, waits while not, and goes when the plan does',
     [judgePlaceBuy(e, { plan: true, placed: { units: 50_000, price: 7 } }), judgePlaceBuy(e, { plan: true, placed: null }), judgePlaceBuy(e, { plan: false, placed: null })],
     ['Placed: 50,000 at 7.', null, false]);
+}
+
+console.log('\n--- the checklist counts a bid that filled when it was placed ---');
+{
+  // Imperial Navy Infiltrator, in the user's second plan (2 October 2026, 15:36:31.972): its bid of 11 at 1,658,000 was over
+  // the cheapest listing, so it bought 11 at 1,608,000 at 15:46:40 and never stood. ESI lists such an order only in your
+  // order history, cached an hour, so the checklist and To do kept asking for it and the user thought them broken.
+  const { planPlacement, placementNote, planProgress } = await import('../src/lib/plans.ts');
+  const { judgePlaceBuy } = await import('../src/lib/todo.ts');
+  const JITA = 60003760, INF = 31866, plan = { at: '2026-10-02T15:36:31.972Z' };
+  const it = { typeId: INF, buyAt: 1_658_000, units: 11, sellAt: 1_836_000, positionId: 'inf' };
+  const pos = [{ id: 'inf', typeId: INF, openedAt: plan.at }];
+  const T = (id, typeId, qty, price, date) => ({ id, source: 'esi', typeId, date, isBuy: true, qty, unitPrice: price, locationId: JITA });
+  const bought = T('6885107521', INF, 11, 1_608_000, '2026-10-02T15:46:40Z');
+  const now = planPlacement(it, plan, [], pos, { txs: [bought], ignored: [] });
+  eq('no order, the trade: placed, 11 of 11, bought at once at what it paid', [now?.units, now?.atOnce, now?.order, now?.price, now && placementNote(it, now).lead], [11, 11, null, 1_608_000, '11 of 11 bought at once']);
+  eq('  and says where the order went', now && placementNote(it, now).atOnce, 'Your bid was at or over the cheapest listing, so it bought from the listings there and then: the order shows only in your order history, within the hour.');
+  const hist = { orderId: 7435101234, typeId: INF, isBuy: true, price: 1_658_000, volumeTotal: 11, volumeRemain: 0, issued: '2026-10-02T15:46:40Z', state: 'expired', locationId: JITA };
+  const later = planPlacement(it, plan, [hist], pos, { txs: [bought], ignored: [] });
+  eq('  the order arrives from history: its fill explains the trade, 11 not 22', [later.units, later.atOnce, later.order?.orderId, placementNote(it, later).lead, placementNote(it, later).atOnce], [11, 0, 7435101234, '11 of 11 placed', null]);
+  const part = { orderId: 2, typeId: INF, isBuy: true, price: 1_600_000, volumeTotal: 10, volumeRemain: 6, issued: '2026-10-02T15:50:00Z', state: 'open', locationId: JITA };
+  const both = planPlacement({ ...it, units: 21 }, plan, [part], pos, { txs: [bought, T('f1', INF, 4, 1_600_000, '2026-10-02T16:10:00Z')], ignored: [] });
+  eq('  a partly filled open order and a bid bought at once: 21 placed, 11 of them at once, the open one shown',
+    [both.units, both.atOnce, both.order?.orderId, both.price, placementNote({ units: 21 }, both).lead], [21, 11, 2, 1_600_000, '21 of 21 placed (11 bought at once)']);
+  eq('  a trade tagged Personal isn’t counted', planPlacement(it, plan, [], pos, { txs: [bought], ignored: ['6885107521'] }), null);
+  eq('  nor one in another station, or a sale', [planPlacement(it, plan, [], pos, { txs: [{ ...bought, locationId: 60008494 }], ignored: [] }), planPlacement(it, plan, [], pos, { txs: [{ ...bought, isBuy: false }], ignored: [] })], [null, null]);
+  // Clone Soldier Transporter Tag: the 30 September plan's bid, 4 at 28,980,000, still open under the 2 October plan. A
+  // standing bid fills at its own price; two of it filling after the plan are its own, never a placement for the new one.
+  const CS = 33140, cs = { typeId: CS, buyAt: 29_370_000, units: 1, sellAt: 33_400_000, positionId: 'cs' };
+  const csPos = [{ id: 'cs', typeId: CS, openedAt: '2026-09-30T00:41:37.568Z' }];
+  const oldBid = { orderId: 7433389245, typeId: CS, isBuy: true, price: 28_980_000, volumeTotal: 4, volumeRemain: 2, issued: '2026-09-30T22:49:27Z', state: 'open', locationId: JITA,
+    seen: [{ issued: '2026-09-30T00:43:08Z', price: 28_820_000, remain: 4 }, { issued: '2026-09-30T17:42:56Z', price: 28_840_000, remain: 4 }, { issued: '2026-09-30T22:49:27Z', price: 28_980_000, remain: 4 }] };
+  const oldFill = T('c1', CS, 2, 28_980_000, '2026-10-02T16:30:00Z');
+  eq('  an older bid filling since is that bid’s, not a placement', planPlacement(cs, plan, [oldBid], csPos, { txs: [oldFill], ignored: [] }), null);
+  eq('  but a buy beyond what it filled is', planPlacement(cs, plan, [oldBid], csPos, { txs: [oldFill, T('c2', CS, 1, 29_370_000, '2026-10-02T16:05:42Z')], ignored: [] })?.atOnce, 1);
+  const p1 = { ...plan, id: 'p', name: 'p', isk: 0, horizonDays: 0.5, patient: true, items: [it] };
+  eq('  progress counts it, so the checklist and To do tick it off', [planProgress(p1, [], pos, { txs: [bought], ignored: [] }).placed, planProgress(p1, [], pos).placed], [1, 0]);
+  const e = { item: { key: 'plan:p:31866' }, seenAt: Date.parse(plan.at), lastAt: Date.parse(plan.at) };
+  eq('  To do says it was bought at once', [judgePlaceBuy(e, { plan: true, placed: { units: 11, price: 1_608_000, atOnce: 11 } }), judgePlaceBuy(e, { plan: true, placed: { units: 21, price: 1_600_000, atOnce: 11 } })],
+    ['Bought at once: 11 at 1,608,000.', 'Placed: 21 at 1,600,000, 11 of them bought at once.']);
 }
 
 console.log('\n--- a plan counts a position it shares from its own start ---');

@@ -61,12 +61,22 @@ export const POSITION_BEFORE_MS = 24 * 60 * 60_000;
 export type Placement = {
   /** Every order counted for the item, newest first: those placed since the plan, then the one placed before it. */
   orders: Order[];
-  /** The newest of them, whose price the checklist shows. */
-  order: Order;
-  /** Units placed for the item, summed over `orders`, and how many of them were on the order placed before the plan. */
+  /** The newest of them; null while the only sign is a bid that bought at once (`atOnce`). */
+  order: Order | null;
+  /**
+   * Units placed for the item: summed over `orders`, plus `atOnce`; how many of them were on the order placed before the
+   * plan.
+   */
   units: number;
   before: number;
+  /** Units bought in the window that no order you have yet explains: a bid that filled from listings when placed. */
+  atOnce: number;
+  /** The price the checklist shows: the newest order's, else what the newest of those trades paid. */
+  price: number;
 };
+
+/** Your trades, for the bids that filled when placed, and the ones you tagged Personal, which don't count. */
+export type PlanTrades = { txs: Pick<Tx, 'id' | 'source' | 'typeId' | 'date' | 'isBuy' | 'qty' | 'unitPrice' | 'locationId'>[]; ignored?: readonly string[] };
 
 const placedAt = (o: Order) => Date.parse((o.seen?.[0] ?? o).issued);
 /**
@@ -76,6 +86,40 @@ const placedAt = (o: Order) => Date.parse((o.seen?.[0] ?? o).issued);
  * counts: units were bought.
  */
 const counts = (o: Order) => o.state === 'open' || o.volumeRemain < o.volumeTotal;
+const filledOf = (o: Order) => Math.max(0, o.volumeTotal - o.volumeRemain);
+
+/**
+ * Units bought in the window that no order explains yet: a bid at or over the cheapest listing buys from the listings there
+ * and then, never stands, and ESI lists it only in your order history, cached an hour (the plan's Imperial Navy Infiltrator,
+ * 11 at 1,658,000, bought at 1,608,000 on 2 October 2026; the user's earlier Multibuy orders are stored that way, expired
+ * with nothing left). Your Jita 4-4 buys of the item since `start`, Personal ones left out, less two kinds of fill: a bid
+ * you placed outside the window filling inside it fills at its own price (one of its versions), so trades at those prices
+ * since it was placed are its, up to what it filled (Clone Soldier Transporter Tag's 4-unit bid from the 30 September plan,
+ * still open under the 2 October one); and what the orders counted for the plan have filled, all of it, since a bid that
+ * bought from listings paid their prices, not its own. So once the order arrives from history its fills explain the trade,
+ * and nothing is counted twice.
+ */
+function boughtAtOnce(typeId: number, start: number, counted: Order[], others: Order[], trades: PlanTrades): { units: number; price: number | null } {
+  const ignored = new Set(trades.ignored ?? []);
+  const left = trades.txs
+    .filter((t) => t.source === 'esi' && t.isBuy && t.typeId === typeId && t.locationId === JITA_44 && Date.parse(t.date) >= start && !ignored.has(t.id))
+    .sort((a, b) => Date.parse(a.date) - Date.parse(b.date))
+    .map((t) => ({ t, qty: t.qty }));
+  for (const o of others) {
+    let filled = filledOf(o);
+    const prices = new Set([o.price, ...(o.seen ?? []).map((v) => v.price)]);
+    for (const x of left) {
+      if (filled <= 0) break;
+      if (x.qty <= 0 || !prices.has(x.t.unitPrice) || Date.parse(x.t.date) < placedAt(o)) continue;
+      const k = Math.min(x.qty, filled);
+      x.qty -= k; filled -= k;
+    }
+  }
+  const units = Math.max(0, left.reduce((n, x) => n + x.qty, 0) - counted.reduce((n, o) => n + filledOf(o), 0));
+  const rest = left.filter((x) => x.qty > 0);
+  const newest = rest[rest.length - 1];
+  return { units, price: units > 0 && newest ? newest.t.unitPrice : null };
+}
 
 /**
  * The buy orders you placed for a plan item: buys for the item in Jita 4-4 that count (`counts`). Every one placed since
@@ -83,11 +127,13 @@ const counts = (o: Order) => o.state === 'open' || o.volumeRemain < o.volumeTota
  * one placed before the plan: since the item's position opened when that was within the day before the plan (the order
  * was placed for it), else within `BEFORE_PLAN_MS` of the plan. Their units are summed: one order's alone told the user, with 15
  * placed before a plan for 16 and the 1 more placed since as the note advised, that "1 of 16" was placed and "the 15
- * more" was a new order with its own fee, the duplicate this exists to stop.
+ * more" was a new order with its own fee, the duplicate this exists to stop. With `trades`, a bid that bought at once
+ * counts too, before its order shows (`boughtAtOnce`).
  */
 export function planPlacement(
   item: PlanItem, plan: Pick<TradePlan, 'at'>, orders: Order[],
   positions: Pick<Position, 'id' | 'typeId' | 'openedAt'>[] = [],
+  trades?: PlanTrades,
 ): Placement | null {
   const planAt = Date.parse(plan.at);
   const from = planAt - SLACK_MS;
@@ -98,12 +144,13 @@ export function planPlacement(
   const start = Number.isFinite(opened) && opened < planAt && opened >= planAt - POSITION_BEFORE_MS ? opened : planAt - BEFORE_PLAN_MS;
   const earlier = mine.filter((o) => placedAt(o) >= start && placedAt(o) < from).sort((a, b) => placedAt(b) - placedAt(a))[0];
   const all = earlier ? [...since, earlier] : since;
-  if (!all.length) return null;
-  return { orders: all, order: all[0], units: all.reduce((n, o) => n + o.volumeTotal, 0), before: earlier?.volumeTotal ?? 0 };
-}
-
-export function placedOrder(item: PlanItem, plan: Pick<TradePlan, 'at'>, orders: Order[], positions?: Pick<Position, 'id' | 'typeId' | 'openedAt'>[]): Order | null {
-  return planPlacement(item, plan, orders, positions)?.order ?? null;
+  const others = orders.filter((o) => o.isBuy && o.typeId === item.typeId && o.locationId === JITA_44 && !all.includes(o));
+  const once = trades ? boughtAtOnce(item.typeId, start, all, others, trades) : { units: 0, price: null };
+  if (!all.length && !once.units) return null;
+  return {
+    orders: all, order: all[0] ?? null, units: all.reduce((n, o) => n + o.volumeTotal, 0) + once.units, before: earlier?.volumeTotal ?? 0,
+    atOnce: once.units, price: all[0]?.price ?? once.price ?? item.buyAt,
+  };
 }
 
 /**
@@ -112,24 +159,29 @@ export function placedOrder(item: PlanItem, plan: Pick<TradePlan, 'at'>, orders:
  * order's quantity, so the rest is a new order with its own fee, or the orders stay as they are. Never a nudge to cancel
  * and place again.
  */
-export function placementNote(item: Pick<PlanItem, 'units'>, pl: Placement): { lead: string; short: string | null } {
+export function placementNote(item: Pick<PlanItem, 'units'>, pl: Placement): { lead: string; short: string | null; atOnce: string | null } {
   const n = (x: number) => x.toLocaleString('en-US');
   const have = pl.units;
-  const lead = pl.before >= have ? `Already placed: ${n(have)} of ${n(item.units)} (before the plan)`
-    : pl.before > 0 ? `${n(have)} of ${n(item.units)} placed (${n(pl.before)} before the plan)`
-      : `${n(have)} of ${n(item.units)} placed`;
+  const asides = [...(pl.before > 0 ? [`${n(pl.before)} before the plan`] : []), ...(pl.atOnce > 0 ? [`${n(pl.atOnce)} bought at once`] : [])];
+  const lead = pl.atOnce >= have ? `${n(have)} of ${n(item.units)} bought at once`
+    : pl.before >= have ? `Already placed: ${n(have)} of ${n(item.units)} (before the plan)`
+      : asides.length ? `${n(have)} of ${n(item.units)} placed (${asides.join('; ')})`
+        : `${n(have)} of ${n(item.units)} placed`;
   const more = item.units - have;
   const short = more > 0
     ? `EVE can’t change an order’s quantity: the ${n(more)} more is a new order with its own fee, or leave it at ${n(have)}.`
     : null;
-  return { lead, short };
+  const atOnce = pl.atOnce > 0
+    ? 'Your bid was at or over the cheapest listing, so it bought from the listings there and then: the order shows only in your order history, within the hour.'
+    : null;
+  return { lead, short, atOnce };
 }
 
 export type PlanProgress = { placed: number; of: number; waiting: PlanItem[] };
 
-/** How far placing the plan has got: which items still have no buy order for them. */
-export function planProgress(plan: TradePlan, orders: Order[], positions?: Pick<Position, 'id' | 'typeId' | 'openedAt'>[]): PlanProgress {
-  const waiting = plan.items.filter((i) => !placedOrder(i, plan, orders, positions));
+/** How far placing the plan has got: which items still have nothing placed for them (a buy order, or a bid that bought at once). */
+export function planProgress(plan: TradePlan, orders: Order[], positions?: Pick<Position, 'id' | 'typeId' | 'openedAt'>[], trades?: PlanTrades): PlanProgress {
+  const waiting = plan.items.filter((i) => !planPlacement(i, plan, orders, positions, trades));
   return { placed: plan.items.length - waiting.length, of: plan.items.length, waiting };
 }
 

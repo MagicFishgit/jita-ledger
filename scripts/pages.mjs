@@ -526,27 +526,33 @@ try {
   // A plan that took over a position with earlier trading (the user's second plan, 2 October 2026): Datacore - Rocket
   // Science's position open for a week, 9,372 sold before the plan and 2,000 of the 2,628 it held sold since, the plan's bid
   // of 188 not filled. Showing the plan's positions must count it from the plan's start (nothing bought or sold, nothing
-  // left out) and say it's shared; the list without a plan shows it whole. Every request outside this server is refused.
+  // left out) and say it's shared; the list without a plan shows it whole. And its Imperial Navy Infiltrator bid, over the
+  // cheapest listing, bought 11 at once with no order to show yet: the checklist must count it placed, saying so, and To
+  // do must not ask for it (Raging Dark Filament, not placed, keeps the checklist up). Every request outside this server is
+  // refused. Both widths.
   if (SHOWN.includes('positions') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('plan'))) {
-    const JITA = 60003760, RS = 20420, INF = 31866, DAY_MS = 86400_000;
+    const JITA = 60003760, RS = 20420, INF = 31866, RD = 47894, DAY_MS = 86400_000;
     const planAt = Date.now() - 3600_000, iso = (t) => new Date(t).toISOString();
     const tx = (id, typeId, isBuy, qty, price, t) => ({ id, source: 'esi', typeId, date: iso(t), isBuy, qty, unitPrice: price, locationId: JITA });
     const ledger = {
       settings: { acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, tycoon: 0, clone: 'omega', faction: 3.6289558729999998, corp: 7.039647095, taxBase: 7.5, target: 5, share: 7.5, waitHours: 3 },
       plans: [{ id: 'mur4lko4xsll6o', name: '2 Oct · 999.16 M ISK in 33 items', at: iso(planAt), isk: 999156436.25, horizonDays: 0.5, patient: true,
-        items: [{ typeId: RS, buyAt: 85_540, units: 188, sellAt: 94_430, positionId: 'rs' }, { typeId: INF, buyAt: 1_658_000, units: 11, sellAt: 1_836_000, positionId: 'inf' }] }],
+        items: [{ typeId: RS, buyAt: 85_540, units: 188, sellAt: 94_430, positionId: 'rs' }, { typeId: INF, buyAt: 1_658_000, units: 11, sellAt: 1_836_000, positionId: 'inf' },
+          { typeId: RD, buyAt: 1_711_000, units: 8, sellAt: 1_983_000, positionId: 'rd' }] }],
       positions: [{ id: 'rs', typeId: RS, openedAt: iso(planAt - 8 * DAY_MS), status: 'open', jitaOnly: true, excluded: [], included: [] },
-        { id: 'inf', typeId: INF, openedAt: iso(planAt), status: 'open', jitaOnly: true, excluded: [], included: [] }],
+        { id: 'inf', typeId: INF, openedAt: iso(planAt), status: 'open', jitaOnly: true, excluded: [], included: [] },
+        { id: 'rd', typeId: RD, openedAt: iso(planAt), status: 'open', jitaOnly: true, excluded: [], included: [] }],
       txs: {
         b1: tx('b1', RS, true, 12_000, 80_720, planAt - 8 * DAY_MS + 300_000),
         s1: tx('s1', RS, false, 9372, 93_516, planAt - 2 * DAY_MS),
         s2: tx('s2', RS, false, 2000, 96_980, planAt + 1_200_000),
+        i1: tx('i1', INF, true, 11, 1_608_000, planAt + 600_000),
       },
       orders: {
         7434267823: { orderId: 7434267823, typeId: RS, isBuy: false, price: 96_980, volumeTotal: 4924, volumeRemain: 628, issued: iso(planAt - 1.2 * DAY_MS), state: 'open', locationId: JITA },
         7435100906: { orderId: 7435100906, typeId: RS, isBuy: true, price: 85_540, volumeTotal: 188, volumeRemain: 188, issued: iso(planAt + 720_000), state: 'open', locationId: JITA },
       },
-      names: { [RS]: 'Datacore - Rocket Science', [INF]: 'Imperial Navy Infiltrator' },
+      names: { [RS]: 'Datacore - Rocket Science', [INF]: 'Imperial Navy Infiltrator', [RD]: 'Raging Dark Filament' },
       meta: { walletBalance: 1e9, lastSync: iso(Date.now() - 600_000) },
     };
     const page = await browser.newPage(VIEW);
@@ -588,14 +594,34 @@ try {
       for (const want of ['The 2,628 it held then are your earlier trading’s', '2,000 of them have sold since', 'Open it for the whole position']) if (!tip.includes(want)) problems.push(`not drawn: the Shared tag's “${want}”`);
     }
     if (await page.locator('.page table tbody tr', { hasText: 'Imperial Navy Infiltrator' }).locator('[data-tip-title="Shared with your earlier trading"]').count()) problems.push('the position the plan opened says it is shared');
-    const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    let boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
     if (boundary) problems.push('error boundary on Positions');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on Positions: ${o}`);
     if (SHOTS) await page.screenshot({ path: `${SHOTS}-plan-shared-positions.png` });
+    // The checklist: the Infiltrator placed by its trade, saying so; Raging Dark Filament not yet.
+    await page.evaluate(() => { location.hash = '#planner'; });
+    await page.waitForTimeout(1500);
+    const placing = (await page.locator('#placing').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!placing.includes('11 of 11 bought at once at 1,608,000')) problems.push(`not drawn: the checklist's “11 of 11 bought at once at 1,608,000” (${placing.slice(0, 160)})`);
+    if (!placing.includes('the order shows only in your order history')) problems.push('not drawn: the checklist doesn’t say where the order went');
+    if (!placing.includes('2 of 3 placed')) problems.push(`the checklist doesn't count 2 of 3 placed (${placing.slice(0, 120)})`);
+    boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary on the planner');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on the planner: ${o}`);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-plan-shared-checklist.png` });
+    // To do asks for the one not placed, never the one that bought at once.
+    await page.evaluate(() => { location.hash = '#todo'; });
+    await page.waitForTimeout(1500);
+    if (!(await page.locator('.tn-item', { hasText: 'Raging Dark Filament' }).count())) problems.push('not drawn: To do doesn’t ask for Raging Dark Filament’s buy order');
+    if (await page.locator('.tn-item', { hasText: 'Imperial Navy Infiltrator' }).count()) problems.push('To do asks for the Infiltrator’s buy order, which bought at once');
+    boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary on To do');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on To do: ${o}`);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-plan-shared-todo.png` });
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'plan shared', page: 'positions', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL plan shared #positions\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan shared #positions (a position the plan took over, counted from its start)\n');
+    process.stdout.write(unique.length ? `  FAIL plan shared #positions\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan shared #positions (a position the plan took over, counted from its start), #planner (a bid bought at once on the checklist) and #todo\n');
     await page.close();
   }
   // Every freelance job you did (the user's six, 1 October 2026), rebuilt as a browser that never saw them does: only the
