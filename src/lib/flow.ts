@@ -193,6 +193,57 @@ export function relistPace(f: FlowDay, isBuy: boolean): RelistPace | null {
   };
 }
 
+/** One of your orders as far as your own moves to the front go: its versions (`Order.seen`), oldest first. */
+export type OwnOrder = { typeId: number; isBuy: boolean; seen?: { issued: string; price: number }[] };
+
+/**
+ * Your own moves to the front of one side of one item, per UTC day: each order placed, and each price change to a better
+ * price (a lower ask, a higher bid). The front-improvement count (`frontSell` / `frontBuy`) can't tell whose move it saw,
+ * so these are taken out of it to leave others' undercuts (`othersUndercutRate`). An order without versions adds nothing.
+ * Every location counts, as in the research it was measured with (`.playwright-mcp/clears-in-research/atfront.mjs`):
+ * keeping only Jita 4-4's changed none of its 1,216 rates (`.playwright-mcp/after-move/match.mjs`, which also finds every
+ * rate here equal to the research's).
+ */
+export function ownFrontMoves(orders: Iterable<OwnOrder>, typeId: number, isBuy: boolean): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const o of orders) {
+    if (o.typeId !== typeId || o.isBuy !== isBuy) continue;
+    const s = o.seen ?? [];
+    for (let i = 0; i < s.length; i++) {
+      const better = i === 0 || (isBuy ? s[i].price > s[i - 1].price : s[i].price < s[i - 1].price);
+      const t = Date.parse(s[i].issued);
+      if (!better || !Number.isFinite(t)) continue;
+      const k = dayOf(t);
+      out[k] = (out[k] ?? 0) + 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * How often others beat the front of one side, an hour: the times the best price improved while watched, less your own
+ * moves to the front those days, over the hours watched. Null under RELIST_MIN_H of watching, the same floor as
+ * `relistPace`. Defined as the research behind `afterMove` defined it (`atfront.mjs`, 3 October 2026), so its bands hold:
+ * - whole UTC days before today only, within FLOW_DAYS (the study read only days before each move, so as not to look
+ *   past it; today's count is kept off here too, so the rate is the one the bands were cut on);
+ * - each day's own moves are taken out up to that day's front count, scaled by the share of the day watched
+ *   (`min(1, h / 24)`), since a move made while nothing watched the book wasn't counted.
+ * `relistPace` reads the same count with your own moves left in and today's watching added; `tooBigToMove` takes out only
+ * the one order's own changes within the hours watched.
+ */
+export function othersUndercutRate(days: Record<string, FlowDay>, own: Record<string, number>, isBuy: boolean, now: number): { perH: number; watchedH: number } | null {
+  const oldest = dayOf(now - (FLOW_DAYS - 1) * 86400_000);
+  const today = dayOf(now);
+  let h = 0, n = 0;
+  for (const [k, d] of Object.entries(days)) {
+    if (k < oldest || k >= today || !(d.h > 0)) continue;
+    const fronts = (isBuy ? d.frontBuy : d.frontSell) ?? 0;
+    n += fronts - Math.min(own[k] ?? 0, fronts) * Math.min(1, d.h / 24);
+    h += d.h;
+  }
+  return h >= RELIST_MIN_H ? { perH: n / h, watchedH: h } : null;
+}
+
 /**
  * Units a day that reach your side of an item: buyers taking listings for a sell, sellers dumping into
  * bids for a buy. The guess from history (the typical day, split by what the live orders have sold or by

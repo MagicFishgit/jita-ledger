@@ -46,6 +46,11 @@ State these rather than letting them be discovered:
 - **"Clears in" assumes nobody undercuts you meanwhile**, and in practice most beaten orders get undercut again
   within hours. It also needs a day or so of the app watching an item before the measured split outweighs the
   guess, and it measures during the hours the app is open, which is the right bias for someone deciding now.
+- **Orders' "After a move" is six days of one trader's moves** (27 September to 3 October 2026, 415 with a known rate,
+  mostly loot and module sells; market-reading). Its bands are typical figures, not a forecast; the moves beaten within
+  10 minutes are left out, so a real move can be beaten sooner, and a move changed again before it was beaten counts as
+  not yet beaten. The rate reads only whole days before today, so an item first watched today says nothing until
+  tomorrow, and undercuts are counted by UTC day, five minutes apart, so a brief spell at the front can be missed.
 - **Net worth values assets at CCP's rough global average**, which flatters anything hard to sell, and its
   trend exists only from the first day the Wallet page was opened in this browser.
 - **"Every item you traded" can't separate Personal sales from trading within one item.** Where an item has both,

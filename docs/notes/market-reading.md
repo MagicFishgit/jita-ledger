@@ -100,6 +100,30 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   fixed. But the undercut rate read from one book (units ahead placed after your last change, over the time
   since) predicted the next six hours poorly (median log error 1.49), and subtracting it would flip verdicts to
   "move" wholesale on thin evidence. The watched rate of new stock at the front is in the Clears-in tip instead.
+- **How long a moved order stays at the front** (`afterMove`, `afterMoveSaid`, `movesToFront`, `AFTER_MOVE` in relist.ts;
+  `othersUndercutRate`, `ownFrontMoves` in flow.ts; the "After a move" line under Orders' Move to). The user asked whether
+  Clears in could use the undercuts the app watches. The research (3 October 2026, `.playwright-mcp/clears-in-research/
+  report.md`, 714 predictions and 1,216 price changes) found it can't: on top of a plain recalibration the undercut rate
+  added +0.016 log-likelihood a row and changed no "within" figure; a drain net of new stock ranked worse (C 0.69 → 0.53)
+  and its "may not clear" was no better than chance; a chance of being undercut first wasn't calibrated. Where the rate
+  does predict is how long a move to the front lasts before it's beaten again. Of the user's 1,216 price changes (27
+  September to 3 October), 105 beaten again within 10 minutes are left out (placed behind on purpose, or undercut at
+  once), and 415 of the rest had their market watched 6 h or more on the days before, cut into thirds by others' undercuts
+  an hour (`out_atfront_skip10.txt`):
+  - quiet, under 0.13 an hour: 13% beaten again within 1 h, 37% within 3 h, median 9.9 h;
+  - middle, 0.13 to 0.34: 28%, 54%, 2.6 h;
+  - busy, 0.34 and over: 42%, 57%, 1.6 h. C 0.587: it orders markets fairly, not well.
+  Measured bands, not a formula: an exponential at each third's rate got the order right and the size wrong (94% of the
+  busy third within 3 h, against 57%). The rate is the research's to the digit (`.playwright-mcp/after-move/match.mjs`:
+  all 1,216 equal): the times the best price improved on whole UTC days before today, less the user's own placements and
+  better prices those days (up to the day's count, times the share of the day watched), over the hours watched; nothing
+  under `RELIST_MIN_H`. Keeping only Jita 4-4's own moves changed none. The cuts sit a hair under the computed 0.12978 and
+  0.34097: at the rounded 0.130, 4 moves at exactly the cut fell to the quiet third, whose median read 9.3 h. The user
+  chose this one line ("helps judge whether a move's fee buys anything") over a track record by figure size, Clears in
+  worded as a floor, or nothing. It shows only under a Move it whose price beats every other order on its side
+  (`movesToFront`): a move behind the front, or behind a token, is beaten from the start, which is what the left-out
+  moves were. Its tip says it's a typical figure for markets this busy, not a forecast, and what was left out. Not on
+  To do, not mailed.
 - **A one-sided day says nothing about who traded** (`buyerShare`). A day whose trading sat only in the upper
   half of the week around it (or only the lower) is skipped, like a flat day; the median comes from two-sided
   days, and needs `MIN_TWO_SIDED` (7) of them or every day is read as before. Reading such a day by where its

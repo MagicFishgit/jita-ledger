@@ -481,6 +481,11 @@ try {
     const ARB = arb.typeId, DAY_MS = 86400_000;
     const shift = Date.parse(new Date(Date.now() - DAY_MS).toISOString().slice(0, 10)) - Date.parse(arb.history.at(-1).date);
     const arbHistory = arb.history.map((r) => ({ ...r, date: new Date(Date.parse(r.date) + shift).toISOString().slice(0, 10) }));
+    // Its watched flow, moved the same way (a day landing after today dropped): four whole days before today, 81 h with
+    // 33 times the best sell price improved and none of them the user's, so others undercut it about 0.41 times an hour,
+    // the busiest third of the research's moves, and its Move it says how long a move to the front lasted there.
+    const today = new Date().toISOString().slice(0, 10);
+    const arbFlow = Object.fromEntries(Object.entries(arb.flow).map(([d, f]) => [new Date(Date.parse(d) + shift).toISOString().slice(0, 10), f]).filter(([d]) => d <= today));
     // The plan started an hour ago, so its checklist shows on any day the check runs: the Key's 15 placed five minutes
     // before it, after its position opened (Task 3's case), and Praxis not yet placed for it.
     const planAt = Date.now() - 3600_000, iso = (t) => new Date(t).toISOString();
@@ -529,16 +534,16 @@ try {
     await page.goto(SEED_PAGE);
     // Logged in with the market-window permission, so each row draws its In game button as the user's do: the width check
     // below measures the rows as they see them.
-    await page.evaluate(async ([d, auth]) => {
+    await page.evaluate(async ([d, auth, cache]) => {
       localStorage.clear(); sessionStorage.clear();
       localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
-      for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', {}], ['jita-ledger-alts', {}]]) {
+      for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', cache], ['jita-ledger-alts', {}]]) {
         const h = await new Promise((res) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
         if (!h.objectStoreNames.contains('kv')) { h.close(); continue; }
         await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
         h.close();
       }
-    }, [ledger, { ...ownerAuth(), scopes: ['esi-ui.open_window.v1'] }]);
+    }, [ledger, { ...ownerAuth(), scopes: ['esi-ui.open_window.v1'] }, { flow: { log: { [ARB]: arbFlow }, ends: {} } }]);
     await page.goto(`${BASE}#orders`);
     await page.waitForSelector('.page', { timeout: 20_000 });
     await page.waitForTimeout(1000);
@@ -558,6 +563,18 @@ try {
       for (const want of ['days of the buyers who take listings', 'in your Jita hangar', 'This order still buys', 'cancel it and place a smaller one']) if (!tip.includes(want)) problems.push(`not drawn: the Long queue tip's “${want}”`);
     }
     if (await page.locator(`tr[data-order="${arb.sell.orderId}"] [data-tip-title="Feeds a long queue"]`).count()) problems.push('the Arbalest sell carries “Feeds a long queue”: only a buy adds stock');
+    // How long a move to the front lasted on markets as busy as the Arbalest's sell side (approved 3 October 2026): under
+    // its Move to, on that row alone.
+    const after = page.locator(`tr[data-order="${arb.sell.orderId}"] [data-tip-title="After a move"]`);
+    if (!(await after.count())) problems.push('not drawn: no “After a move” line under the Arbalest sell’s Move to');
+    else {
+      const line = (await after.first().innerText()).replace(/\s+/g, ' ');
+      if (!line.includes('After a move: half beaten again within about 1.6 h')) problems.push(`the Arbalest sell's after-a-move line reads “${line}”`);
+      const tip = (await after.first().getAttribute('data-tip')) ?? '';
+      for (const want of ['undercut the best sell price about 0.41 times an hour', 'busiest third', 'Half lasted about 1.6 h', '42% were beaten again within an hour, 57% within 3 h',
+        '415 of your 1,216 price changes', 'not a forecast for this order', 'Left out: the 105 beaten again within 10 minutes']) if (!tip.includes(want)) problems.push(`not drawn: the after-a-move tip's “${want}”`);
+    }
+    if ((await page.locator('[data-tip-title="After a move"]').count()) !== 1) problems.push(`${await page.locator('[data-tip-title="After a move"]').count()} after-a-move lines, not the Arbalest sell's one: only a Move it to the front carries it`);
     // The tiles filter the table (the user, 2 October 2026): Keep it shows only Praxis and, pressed again, every order;
     // the figure under it is pressed with it; "worth moving" shows only the Arbalest sell and Show all brings the rest
     // back; a tile counting nothing (Leave it) can't be pressed.
@@ -601,6 +618,14 @@ try {
     if (boundary) problems.push('error boundary');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out: ${o}`);
     if (SHOTS) await page.screenshot({ path: `${SHOTS}-plan-orders.png` });
+    // The after-a-move tip as it's drawn, for looking over by eye.
+    if (SHOTS && (await after.count())) {
+      await after.first().scrollIntoViewIfNeeded().catch(() => undefined);
+      await after.first().hover().catch(() => undefined);
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: `${SHOTS}-plan-orders-after-move.png` });
+      await page.mouse.move(0, 0);
+    }
     // The same buy on To do (approved 2 October 2026): one item, something to act on, in the tag's words; none for the sell.
     await page.evaluate(() => { location.hash = '#todo'; });
     const fed = page.locator('.tn-item', { hasText: 'Feeds a long queue' });
@@ -636,7 +661,7 @@ try {
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'plan', page: 'orders', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL plan #orders\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (Keep it, the plan chip, a buy over its resale, a buy feeding a long queue), #todo (that buy, the Key to list) and #planner (the checklist, its list part with no book)\n');
+    process.stdout.write(unique.length ? `  FAIL plan #orders\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (Keep it, the plan chip, a buy over its resale, a buy feeding a long queue, a move’s after-a-move line), #todo (that buy, the Key to list) and #planner (the checklist, its list part with no book)\n');
     await page.close();
   }
   // A plan that took over a position with earlier trading (the user's second plan, 2 October 2026): Datacore - Rocket

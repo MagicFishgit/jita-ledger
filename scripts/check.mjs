@@ -6252,5 +6252,63 @@ console.log('\n--- R&D agents: cash in on To do, the fee on the Wallet ---');
   eq('  and not one the runway counts as running', RUNNING.has('datacores'), false);
 }
 
+console.log('\n--- how long a moved order stays at the front ---');
+{
+  const { afterMove, afterMoveSaid, movesToFront, AFTER_MOVE, AFTER_MOVE_CUTS } = await import('../src/lib/relist.ts');
+  const { othersUndercutRate, ownFrontMoves } = await import('../src/lib/flow.ts');
+  // The research's bands (3 October 2026, .playwright-mcp/clears-in-research/out_atfront_skip10.txt): moves beaten again
+  // within 10 minutes left out, cut at 0.130 and 0.341 of others' undercuts an hour (0.12978 and 0.34097 as computed).
+  const band = (r) => afterMove(r)?.band ?? null;
+  eq('after a move: quiet under 0.130 an hour, middle from 0.130, busy from 0.341', [band(0), band(0.129), band(0.13), band(0.34), band(0.341), band(3)], ['quiet', 'quiet', 'middle', 'middle', 'busy', 'busy']);
+  eq('  each band carries the research\'s figures', [afterMove(0.06), afterMove(0.22), afterMove(0.95)], [
+    { band: 'quiet', medianH: 9.9, within1h: 0.13, within3h: 0.37 },
+    { band: 'middle', medianH: 2.6, within1h: 0.28, within3h: 0.54 },
+    { band: 'busy', medianH: 1.6, within1h: 0.42, within3h: 0.57 },
+  ]);
+  eq('  and the cuts are the research\'s', [AFTER_MOVE_CUTS.middle, AFTER_MOVE_CUTS.busy, AFTER_MOVE.quiet.n + AFTER_MOVE.middle.n + AFTER_MOVE.busy.n], [0.1297, 0.3409, 415]);
+  eq('  nothing when the rate isn\'t known', [afterMove(null), afterMove(undefined), afterMove(NaN), afterMove(-1)], [null, null, null, null]);
+
+  // The rate: others' undercuts an hour, from whole days before today, your own moves to the front taken out.
+  const now = Date.parse('2026-10-03T09:00:00Z');
+  const d = (i) => new Date(now - i * 86400_000).toISOString().slice(0, 10);
+  const day = (h, frontSell, frontBuy = 0) => ({ h, sell: 0, buy: 0, newSell: 0, newBuy: 0, frontSell, frontBuy });
+  const orders = [
+    // Placed on day 3, beaten, moved down (better) on day 3, then up (worse, not a move to the front) and down again on day 2.
+    { typeId: 5, isBuy: false, seen: [{ issued: `${d(3)}T08:00:00Z`, price: 100 }, { issued: `${d(3)}T10:00:00Z`, price: 99 }, { issued: `${d(2)}T09:00:00Z`, price: 101 }, { issued: `${d(2)}T11:00:00Z`, price: 98 }] },
+    // Ten placements on day 2: more than the day's front count, which they can't take below zero.
+    ...Array.from({ length: 10 }, (_, i) => ({ typeId: 5, isBuy: false, seen: [{ issued: `${d(2)}T1${i}:00:00Z`, price: 97 }] })),
+    { typeId: 5, isBuy: true, seen: [{ issued: `${d(3)}T08:00:00Z`, price: 50 }, { issued: `${d(3)}T09:00:00Z`, price: 51 }] },
+    { typeId: 6, isBuy: false, seen: [{ issued: `${d(3)}T08:00:00Z`, price: 10 }] },
+    { typeId: 5, isBuy: false },
+  ];
+  const own = ownFrontMoves(orders, 5, false);
+  eq('your own moves to the front, per day: placements and better prices, not a worse one, not the other side or item', own, { [d(3)]: 2, [d(2)]: 11 });
+  eq('  the buy side counts its own', ownFrontMoves(orders, 5, true), { [d(3)]: 2 });
+  const days = { [d(20)]: day(24, 90), [d(3)]: day(24, 6, 4), [d(2)]: day(12, 4, 1), [d(0)]: day(9, 50, 50) };
+  // Day 3: 6 − 2 = 4. Day 2: 4 − min(11, 4) × 12/24 = 2. Over 36 h: 1/6 an hour. Today and day 20 (past FLOW_DAYS) left out.
+  const r = othersUndercutRate(days, own, false, now);
+  eq('others\' undercuts an hour: front changes less yours (scaled by the share of the day watched) over the hours, days before today', [r.perH, r.watchedH], [6 / 36, 36]);
+  eq('  the buy side: 4 − 2 and 1 − 0, over 36 h', othersUndercutRate(days, ownFrontMoves(orders, 5, true), true, now).perH, 3 / 36);
+  eq('  under 6 h watched before today: not known', othersUndercutRate({ [d(1)]: day(5.9, 3), [d(0)]: day(9, 3) }, {}, false, now), null);
+  eq('  so afterMove says nothing', afterMove(othersUndercutRate({ [d(1)]: day(5.9, 3) }, {}, false, now)?.perH ?? null), null);
+  eq('  6 h is enough', othersUndercutRate({ [d(1)]: day(6, 3) }, {}, false, now).perH, 0.5);
+
+  // Only a move that puts the order at the very front is a moved order at the front.
+  eq('a move lands in front when it beats every other order on its side (or there are none)',
+    [movesToFront({ isBuy: false, newPrice: 99, best: 100 }), movesToFront({ isBuy: false, newPrice: 170400, best: 137300 }), movesToFront({ isBuy: true, newPrice: 51, best: 50 }), movesToFront({ isBuy: true, newPrice: 49, best: 50 }), movesToFront({ isBuy: false, newPrice: 99, best: null }), movesToFront({ isBuy: false, newPrice: NaN, best: 100 })],
+    [true, false, true, false, true, false]);
+
+  // The words: a short line, and a tip with the band, the rate, the three figures, the source and what was left out.
+  const s = afterMoveSaid(afterMove(0.41), { perH: 0.41, watchedH: 81 }, false);
+  eq('the line under Move to', s.line, 'After a move: half beaten again within about 1.6 h');
+  for (const want of ['undercut the best sell price about 0.41 times an hour over the 81 h watched', 'busiest third', '0.34 an hour or more', 'Half lasted about 1.6 h', '42% were beaten again within an hour, 57% within 3 h',
+    '415 of your 1,216 price changes', '27 September to 3 October 2026', 'not a forecast for this order', 'Left out: the 105 beaten again within 10 minutes', 'some placed behind on purpose, some undercut at once', 'a real move can be beaten sooner than this'])
+    has('  its tip', s.tip, want);
+  has('  a buy is outbid', afterMoveSaid(afterMove(0.06), { perH: 0.06, watchedH: 120 }, true).tip, 'outbid the best bid about 0.06 times an hour');
+  has('  a quiet market says so', afterMoveSaid(afterMove(0.06), { perH: 0.06, watchedH: 120 }, true).tip, 'quietest third of the moves measured (under 0.13 an hour)');
+  has('  a middle one too', afterMoveSaid(afterMove(0.2), { perH: 0.2, watchedH: 120 }, false).tip, 'middle third of the moves measured (0.13 to 0.34 an hour)');
+  eq('  a long median reads in whole hours past 10', afterMoveSaid({ band: 'quiet', medianH: 12.4, within1h: 0.1, within3h: 0.2 }, { perH: 0.01, watchedH: 50 }, false).line, 'After a move: half beaten again within about 12 h');
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

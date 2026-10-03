@@ -554,6 +554,78 @@ export function tooBigToMove(
 }
 
 /**
+ * How long a moved order stays at the front, by how often others undercut that side (`othersUndercutRate` in flow.ts).
+ * The user asked whether "Clears in" could use the undercuts the app watches; the research (3 October 2026,
+ * `.playwright-mcp/clears-in-research/report.md`, `atfront.mjs`) found they don't improve it, but do say how long a move
+ * to the front lasts. Of the user's 1,216 price changes (27 September to 3 October 2026), 105 were beaten again within 10
+ * minutes (placed behind on purpose, or undercut at once) and are left out; 415 of the rest had a market watched 6 h or
+ * more on the days before, cut into thirds by its rate (`out_atfront_skip10.txt`). Measured bands, not a formula: an
+ * exponential model at each third's rate got the order right and the size wrong (it put the busy third at 94% within
+ * 3 h, against 57% measured). The rate ranks moves fairly, not well (Harrell's C 0.587).
+ */
+export type AfterMoveBand = 'quiet' | 'middle' | 'busy';
+/**
+ * Others' undercuts an hour where each band starts: the research's thirds as it computed them (0.12978 and 0.34097,
+ * printed 0.130 and 0.341), taken a hair under so the moves at exactly those rates fall where the research put them, in
+ * the band above. At the rounded 0.130 and 0.341, 4 moves at 0.12978 went to the quiet third, whose median read 9.3 h
+ * rather than 9.9 (`.playwright-mcp/after-move/match.mjs`).
+ */
+export const AFTER_MOVE_CUTS = { middle: 0.1297, busy: 0.3409 } as const;
+/**
+ * Each third: its moves (`n`), the mean rate among them, the share beaten again within an hour and within 3 h, and the
+ * median time to being beaten again (Kaplan–Meier, a move changed again or closed first counted as not yet beaten).
+ */
+export const AFTER_MOVE: Record<AfterMoveBand, { n: number; meanRate: number; within1h: number; within3h: number; medianH: number }> = {
+  quiet: { n: 135, meanRate: 0.06, within1h: 0.13, within3h: 0.37, medianH: 9.9 },
+  middle: { n: 140, meanRate: 0.22, within1h: 0.28, within3h: 0.54, medianH: 2.6 },
+  busy: { n: 140, meanRate: 0.95, within1h: 0.42, within3h: 0.57, medianH: 1.6 },
+};
+/** Where the bands come from: the changes followed, those left out as beaten within 10 minutes, and the dates. */
+export const AFTER_MOVE_FROM = { changes: 1216, quick: 105, from: '27 September', to: '3 October 2026' } as const;
+
+export type AfterMove = { band: AfterMoveBand; medianH: number; within1h: number; within3h: number };
+
+/** The band a market's rate of others' undercuts an hour falls in, with its figures; null when the rate isn't known. */
+export function afterMove(rate: number | null | undefined): AfterMove | null {
+  if (rate == null || !Number.isFinite(rate) || rate < 0) return null;
+  const band: AfterMoveBand = rate < AFTER_MOVE_CUTS.middle ? 'quiet' : rate < AFTER_MOVE_CUTS.busy ? 'middle' : 'busy';
+  const { medianH, within1h, within3h } = AFTER_MOVE[band];
+  return { band, medianH, within1h, within3h };
+}
+
+/**
+ * Whether a move puts the order at the very front: past every other order on its side, or alone on it. The bands are
+ * about moves to the front; one that stays behind (a buy you're leaving moved to where trading reaches, a sell listed
+ * where trading gets up to rather than chasing the front, a move behind a token) is beaten from the start, which is what
+ * the moves left out as beaten within 10 minutes were.
+ */
+export function movesToFront(x: Pick<Relist, 'isBuy' | 'newPrice' | 'best'>): boolean {
+  if (!Number.isFinite(x.newPrice)) return false;
+  return x.best == null || (x.isBuy ? x.newPrice > x.best : x.newPrice < x.best);
+}
+
+/** The line Orders shows under a move's price, and its tip: a typical figure for markets this busy, never a forecast. */
+export function afterMoveSaid(a: AfterMove, rate: { perH: number; watchedH: number }, isBuy: boolean): { line: string; tip: string } {
+  const h = a.medianH < 10 ? String(Number(a.medianH.toFixed(1))) : String(Math.round(a.medianH));
+  const pct = (x: number) => `${Math.round(x * 100)}%`;
+  const cut = (x: number) => String(Number(x.toFixed(2)));
+  const beat = isBuy ? 'outbid the best bid' : 'undercut the best sell price';
+  const often = !(rate.perH > 0) ? `nobody else ${isBuy ? 'outbid the best bid' : 'undercut the best sell price'} in the ${Math.round(rate.watchedH)} h watched`
+    : `others ${beat} about ${rate.perH < 0.01 ? 'under 0.01' : rate.perH.toFixed(2)} times an hour over the ${Math.round(rate.watchedH)} h watched`;
+  const third = a.band === 'quiet' ? `the quietest third of the moves measured (under ${cut(AFTER_MOVE_CUTS.middle)} an hour)`
+    : a.band === 'middle' ? `the middle third of the moves measured (${cut(AFTER_MOVE_CUTS.middle)} to ${cut(AFTER_MOVE_CUTS.busy)} an hour)`
+      : `the busiest third of the moves measured (${cut(AFTER_MOVE_CUTS.busy)} an hour or more)`;
+  const rated = AFTER_MOVE.quiet.n + AFTER_MOVE.middle.n + AFTER_MOVE.busy.n;
+  const tip = `How long your own moves to the front lasted before someone ${isBuy ? 'outbid' : 'undercut'} them, on markets about as busy as this one. A typical figure for markets like this, not a forecast for this order.\n\n`
+    + `• Here ${often}, your own moves taken out: ${third}\n`
+    + `• Half lasted about ${h} h before being beaten again\n`
+    + `• ${pct(a.within1h)} were beaten again within an hour, ${pct(a.within3h)} within 3 h\n\n`
+    + `From ${units(rated)} of your ${units(AFTER_MOVE_FROM.changes)} price changes, ${AFTER_MOVE_FROM.from} to ${AFTER_MOVE_FROM.to}, whose market was watched 6 h or more on the days before. `
+    + `Left out: the ${units(AFTER_MOVE_FROM.quick)} beaten again within 10 minutes (some placed behind on purpose, some undercut at once), so a real move can be beaten sooner than this. Weigh it against what the move costs.`;
+  return { line: `After a move: half beaten again within about ${h} h`, tip };
+}
+
+/**
  * One open order judged against its live book, the way the Orders page, To do, the alerts and the cloud's
  * alert mail all do: your side's pace, your cost, how far trading reaches, and your own fills.
  */

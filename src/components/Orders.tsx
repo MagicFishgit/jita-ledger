@@ -6,19 +6,19 @@ import { checkOrders, costBasis, jitaOpen, sidePace, useOrderCheck, verdicts } f
 import { rates, effectiveSkills, orderSlots } from '../lib/fees';
 import { tickDown } from '../lib/tick';
 import { competitionShare, SPLIT_SAID } from '../lib/split';
-import { useFlow, watchedFlow, watchedHours } from '../lib/flowStore';
+import { useFlow, watchedDays, watchedFlow, watchedHours } from '../lib/flowStore';
 import { busyHours, busySaid } from '../lib/rhythm';
 import { getCloudStatus, useCloud } from '../lib/cloud';
 import { leaveSaid, TRACK_MIN } from '../lib/track';
-import { relistPace } from '../lib/flow';
+import { othersUndercutRate, ownFrontMoves, relistPace } from '../lib/flow';
 import { loadCache, rankProspects } from '../lib/scan';
 import { DEFAULT_FILTERS } from '../lib/prospects';
 import { update, useData } from '../lib/store';
-import { byUrgency, FEE_TARGET, feedsQueueSaid, feedsQueueTag, PLAN_KEEP, PLAN_KEEP_SAID, shownVerdict, type FeedsQueue, type OverResale, type Relist, type ShownVerdict, type TooBig, type UnderCost } from '../lib/relist';
+import { afterMove, afterMoveSaid, byUrgency, FEE_TARGET, feedsQueueSaid, feedsQueueTag, movesToFront, PLAN_KEEP, PLAN_KEEP_SAID, shownVerdict, type FeedsQueue, type OverResale, type Relist, type ShownVerdict, type TooBig, type UnderCost } from '../lib/relist';
 import { tileRows } from '../lib/tileFilter';
 import type { TradePlan } from '../lib/plans';
 import { FILL_WINDOW } from '../lib/fills';
-import type { Prospect } from '../lib/types';
+import type { Order, Prospect } from '../lib/types';
 import { BusyRelisting, canOpenInGame, CopyPrice, NameInGame, OpenInGame, useTypeName } from './common';
 import { cssVars, Empty, Guide, ItemIcon, Notice, PageHead, pressProps, Seg, SortTh, SortThPair, TileShowing, useTileFilter } from './ui';
 import { Figures } from './Facts';
@@ -483,6 +483,7 @@ export function Orders() {
                                 </span>
                               );
                             })()}
+                            {hot && moveTo != null && movesToFront(x!) && <AfterMoveLine x={x!} orders={d.orders} flowV={flowV} />}
                             {underCostMove && Number.isFinite(x!.newPrice) && <span className="sub" style={{ color: 'var(--neg)' }} data-tip={`Getting in front at ${isk(x!.newPrice)} would sell under what it cost you. ${x!.why}.`}>under cost</span>}
                           </td>
                         )}
@@ -615,6 +616,21 @@ function FeedsQueueTag({ q }: { q: FeedsQueue }) {
       {feedsQueueTag(q)}
     </span>
   );
+}
+
+/**
+ * Under a move to the front: how long moves to the front lasted on markets about as busy as this one (`afterMove`), a
+ * typical figure and never a forecast for this order. The user chose it from the Clears-in research (3 October 2026):
+ * the undercuts watched don't sharpen Clears in, but they do say whether a move's fee buys more than an hour in front.
+ */
+function AfterMoveLine({ x, orders, flowV }: { x: Relist; orders: Record<string, Order>; flowV: number }) {
+  const said = useMemo(() => {
+    const rate = othersUndercutRate(watchedDays(x.typeId), ownFrontMoves(Object.values(orders), x.typeId, x.isBuy), x.isBuy, Date.now());
+    const a = afterMove(rate?.perH);
+    return a && rate ? afterMoveSaid(a, rate, x.isBuy) : null;
+  }, [x.typeId, x.isBuy, orders, flowV]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!said) return null;
+  return <span className="sub" tabIndex={0} data-tip-title="After a move" data-tip={said.tip}>{said.line}</span>;
 }
 
 function PaceNote({ x, hours }: { x: Relist; hours: (h: number) => string }) {
