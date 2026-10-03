@@ -315,6 +315,13 @@ try {
       }
       // The best-ore panel must draw with its place selector, and say plainly that it couldn't price: every request
       // outside this server is refused here, so ESI never names the ores (never a zero, never "Pricing…" for good).
+      // The Research tab on these ledgers: the stand-in login holds no standings permission and the main's clone state was
+      // never read, so it must say both (never "no standing" for every corporation, never call the main Alpha).
+      if (hash === 'hustles/research') {
+        for (const t of ['Log in again: this login wasn’t given the permission to read your standings.', 'Clone state not read', '17 datacores’ books couldn’t be read just now'])
+          if (!(await page.locator('.page', { hasText: t }).count())) problems.push(`not drawn on the Research tab: “${t}”`);
+        if (await page.locator('.page', { hasText: 'Needs Omega' }).count()) problems.push('the Research tab calls a main whose clone state isn’t read Alpha');
+      }
       if (hash === 'hustles/mining') {
         if (!(await page.locator('.panel-title', { hasText: 'Best ore to mine' }).count())) problems.push('not drawn: no “Best ore to mine” panel');
         if (!(await page.locator('[role="group"][aria-label="Where it’s found"] button', { hasText: 'Null-sec' }).count())) problems.push('not drawn: no place selector on the best-ore panel');
@@ -875,7 +882,12 @@ try {
     const altEntry = { charId: ALT, name: 'Research Alt', addedAt: now - 5 * 86400_000, scopes: ['esi-characters.read_standings.v1', 'esi-skills.read_skills.v1'],
       at: now - 3600_000, refusedAt: null, refused: null, rev: 2, ship: null, shipAt: null, jobs: [ok('archive', 1800_000), ok('sheet', 1700_000)] };
     const altSaved = { rev: 2, addedAt: altEntry.addedAt, records: {}, docs: { skills: { 3402: 4, 3392: 3 }, meta: { cloneDetected: 'omega', attributes: { intelligence: 20, memory: 20, perception: 20, willpower: 20, charisma: 19 } } } };
-    const altStore = { roster: { at: now - 60_000, list: [altEntry] }, [`alt:${ALT}`]: altSaved };
+    // And an Alpha alt (its sheet read it as Alpha), and one whose login EVE refused with nothing read.
+    const ALPHA = 900078, LOST = 900079;
+    const alphaEntry = { ...altEntry, charId: ALPHA, name: 'Alpha Alt' };
+    const alphaSaved = { ...altSaved, docs: { skills: { 3402: 4 }, meta: { cloneDetected: 'alpha', attributes: altSaved.docs.meta.attributes, standings: { list: [] } } } };
+    const lostEntry = { ...altEntry, charId: LOST, name: 'Lost Alt', refusedAt: now - 7200_000, refused: 'invalid_grant', rev: 0, jobs: [] };
+    const altStore = { roster: { at: now - 60_000, list: [altEntry, alphaEntry, lostEntry] }, [`alt:${ALT}`]: altSaved, [`alt:${ALPHA}`]: alphaSaved, [`alt:${LOST}`]: { rev: 0, records: {}, docs: {} } };
     const page = await browser.newPage(VIEW);
     let esiAsked = 0;
     await page.route('**/*', (route) => {
@@ -886,6 +898,8 @@ try {
       esiAsked++;
       const json = (body, headers = {}) => route.fulfill({ status: 200, contentType: 'application/json', headers: { expires: new Date(now + 300_000).toUTCString(), 'x-pages': '1', ...headers }, body: JSON.stringify(body) });
       const type = Number(url.searchParams.get('type_id'));
+      // Mechanical Engineering's book can't be read: the six-agents tile must say so, never a smaller month as if complete.
+      if (url.pathname === '/markets/10000002/orders/' && type === 20424) return route.abort();
       if (url.pathname === '/markets/10000002/orders/') {
         const bid = BID[type];
         // A datacore's bids, deepest first, and a listing; a skillbook (anything else asked) one listing at 1.5 M.
@@ -932,6 +946,7 @@ try {
     const mainText = await text();
     // RP a day for a level 2 agent at Electronic Engineering IV, Negotiation IV, no standing with the agent: (1 + 40/100) × (4 + 2)².
     for (const t of ['Steps 1 to 3 follow one pick: Shitsu Ashoma, level 2 Lai Dai Corporation, in Electronic Engineering', '50.4 RP a day',
+      '1 datacore’s book couldn’t be read just now, so no month is worked out', 'among the datacores priced (1 couldn’t be read)',
       'Start with a level 2 agent:', 'Ehu Vantoh', 'Your standings as the sync read them at']) if (!mainText.includes(t)) problems.push(`not drawn for the main: “${t}”`);
     const laiDai = await page.locator('.step-card[aria-label^="Step 2"] tbody tr', { hasText: 'Lai Dai Corporation' }).first().evaluate((tr) => [...tr.children].map((td) => td.innerText.replace(/\s+/g, ' ').trim())).catch(() => null);
     if (!laiDai) problems.push('not drawn: no Lai Dai row in step 2');
@@ -947,12 +962,23 @@ try {
     await page.locator('[role="group"][aria-label="Show for"] button', { hasText: 'Research Alt' }).click().catch((e) => problems.push(`couldn't show the alt: ${e.message.split('\n')[0]}`));
     await page.waitForTimeout(1500);
     const altText = await text();
-    for (const t of ['Not read yet: Research Alt’s standings come with the cloud’s next hourly read.', 'Start with a level 1 agent:', 'standings not read yet: level 1 agents only']) if (!altText.includes(t)) problems.push(`not drawn for the alt: “${t}”`);
+    for (const t of ['Not read yet: Research Alt’s standings come with the cloud’s next hourly read.', 'Start with a level 1 agent:', 'standings not read yet: level 1 agents only',
+      // Its level 1 agents open only if its standing allows: never "Open now", never "the best open to" it.
+      'Open if Research Alt’s standing with', 'the best level 1 agent']) if (!altText.includes(t)) problems.push(`not drawn for the alt: “${t}”`);
     const altSteps = (await page.locator('.step-card[aria-label^="Step 2"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
     if (/no standing/.test(altText)) problems.push('the alt’s walkthrough says “no standing” for standings not read yet');
+    for (const t of ['Open now', 'the best open to Research Alt']) if (altText.includes(t)) problems.push(`the alt whose standings aren’t read says “${t}”`);
     if (!altSteps.includes('Not read yet')) problems.push('the alt’s standings cells don’t say “Not read yet”');
     if (SHOTS) await page.screenshot({ path: `${SHOTS}-research-alt.png` });
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out for the alt: ${o}`);
+    // The Alpha alt: Needs Omega, said, with no training time; the refused one: hand its login over again.
+    for (const [who, want] of [['Alpha Alt', ['Needs Omega', 'Alpha Alt is Alpha']], ['Lost Alt', ['Not read: EVE refused Lost Alt’s login; hand it over again on the Characters page.']]]) {
+      await page.locator('[role="group"][aria-label="Show for"] button', { hasText: who }).click().catch((e) => problems.push(`couldn't show ${who}: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(1200);
+      const t = await text();
+      for (const x of want) if (!t.includes(x)) problems.push(`not drawn for ${who}: “${x}”`);
+      if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out for ${who}: ${o}`);
+    }
     const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
     if (boundary) problems.push('error boundary');
     if (!esiAsked) problems.push('ESI was never asked: the books weren’t read');

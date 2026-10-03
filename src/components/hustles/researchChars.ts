@@ -29,7 +29,10 @@ export type ResearchChar = {
   charId: number; name: string; isMain: boolean; pilot: Pilot; standings: StandingsState;
   /** Its own sales tax, for what its datacores fetch. */
   tax: number;
-  /** As read from its skills (or set by hand for an alt); `unknown` is never called Alpha. */
+  /**
+   * As read from its skills, or set by hand (an alt on the Characters page; the main's Omega in Settings, since Alpha is
+   * the setting's default and so says nothing). `unknown` is never called Alpha, and says so.
+   */
   clone: 'alpha' | 'omega' | 'unknown';
 };
 
@@ -52,7 +55,7 @@ export function useResearchChars(alts: ResearchAlts): ResearchChar[] {
       standings: meta.standings ? { state: 'read', list: meta.standings.list, at: meta.standings.at ? Date.parse(meta.standings.at) : null }
         : canStandings ? { state: 'unread' } : { state: 'login' },
       tax: rates(settings).t,
-      clone: meta.cloneDetected ?? 'unknown',
+      clone: meta.cloneDetected ?? (settings.clone === 'omega' ? 'omega' : 'unknown'),
     };
     const wanted = [...SCOPES, ...askedScopes()];
     const others = alts.roster.map((entry): ResearchChar => {

@@ -5973,6 +5973,11 @@ console.log('\n--- R&D agents: the Research tab, getting started ---');
   eq('six agents: distinct, open, on a high-sec route and priced, in the ranking\'s order; fewer when fewer are',
     S.bestAgents([row(1, true, 100, 50, 3), row(1, true, 90, 50, 3), row(2, true, 80, 50, null), row(3, false, 70, 50, 2), row(4, true, 60, 50, 4), row(5, true, null, 50, 5)]).map((r) => r.agent.id), [1, 4]);
   eq('  at most six', S.bestAgents(Array.from({ length: 9 }, (_, i) => row(i + 1, true, 100 - i, 50, 1))).length, 6);
+  // The tile never shows a smaller month as if complete: a datacore book that couldn't be read may be the best-paying field.
+  const sixRows = [row(1, true, 100, 50, 3), row(4, true, 60, 50, 4)];
+  eq('six agents a month: "Pricing…" while books are read; unpriced, never a part-sum, when any datacore\'s book failed; else the month',
+    [S.sixAgents(sixRows, { pricing: true, failed: 0 }), S.sixAgents(sixRows, { pricing: false, failed: 2 }), S.sixAgents(sixRows, { pricing: false, failed: 0 })],
+    [{ state: 'pricing' }, { state: 'unpriced', failed: 2 }, { state: 'ok', agents: sixRows, month: 160 * 30 }]);
 
   // A field's year from The Forge's history: now (30 days, volume-weighted), a year ago, and units a day.
   const T0 = Date.parse('2026-10-03T12:00:00Z');

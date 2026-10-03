@@ -237,6 +237,19 @@ export function bestAgents(ranked: RankedAgent[], n = MAX_AGENTS): RankedAgent[]
   return out;
 }
 
+/**
+ * What the "six agents, a month" tile says: "Pricing…" while any datacore's book is still read; unpriced when any of them
+ * couldn't be read (that field may be the best-paying, so a sum without it would read as complete and be short); else
+ * the best agents (`bestAgents`) and thirty days of them at today's bids.
+ */
+export type SixAgents = { state: 'pricing' } | { state: 'unpriced'; failed: number } | { state: 'ok'; agents: RankedAgent[]; month: number };
+export function sixAgents(ranked: RankedAgent[], o: { pricing: boolean; failed: number }): SixAgents {
+  if (o.pricing) return { state: 'pricing' };
+  if (o.failed > 0) return { state: 'unpriced', failed: o.failed };
+  const agents = bestAgents(ranked);
+  return { state: 'ok', agents, month: agents.reduce((n, r) => n + (r.iskDay ?? 0), 0) * 30 };
+}
+
 /** A field's datacore over the year, from The Forge's daily history: now (the last 30 days), a year ago, units a day, and each month. */
 export type FieldYear = {
   /** The last 30 days' volume-weighted average price; null with no trading in them. */

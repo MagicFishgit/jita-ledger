@@ -33,7 +33,8 @@ export type Walk = {
   books: Record<number, Read<Book>>; hist: Record<number, Read<HistRow[]>>;
   /** What one datacore fetches after tax and the fee, by the datacore's type; missing while its book is read. */
   net: Record<number, number | null>;
-  pricing: boolean; failed: number; retry: () => void; now: number;
+  /** `pricing`: a datacore's book still being read; `unpriced`: datacores whose book couldn't be; `failed`: every read that couldn't. */
+  pricing: boolean; unpriced: number; failed: number; retry: () => void; now: number;
 };
 
 function Step({ n, title, children, done }: { n: number; title: string; children: ReactNode; done?: boolean }) {
@@ -68,6 +69,11 @@ function netSaid(w: Walk, datacore: number, perDay?: number | null): ReactNode {
   if (v != null) return isk(Math.round(v));
   if (b === undefined) return <span className="faint">Pricing…</span>;
   return <span className="faint" data-tip={b === 'failed' ? 'Jita’s book couldn’t be read just now.' : `No bid in Jita pays more than the ${isk(DATACORE_FEE)} fee after tax.`}>–</span>;
+}
+
+/** How many agents research a field for this character: open and nearly, or, standings unread, level 1 and level 2. */
+function countSaid(w: Walk, open: number, nearly: number): string {
+  return w.c.standings.state === 'read' ? `${open} agents open, ${nearly} nearly` : `${open} level 1 agents, ${nearly} level 2`;
 }
 
 /** A skillbook's price where it's cheapest in The Forge: Jita's cheapest listing, or NPCs' elsewhere when lower. */
@@ -134,6 +140,7 @@ export function TrainStep({ w }: { w: Walk }) {
 
   return (
     <Step n={1} title="Train" done={!!gaps && gaps.length === 0}>
+      {c.clone === 'unknown' && <Notice kind="info">Clone state not read: {c.isMain ? 'your skills don’t show it yet (set it in Settings → Account)' : `${c.name}’s skills don’t show it (set it on the Characters page)`}. R&D agents need Omega, for Science V and a field skill, and the training times here are at Omega’s speed.</Notice>}
       {c.clone === 'alpha' && <Notice kind="warn">{c.isMain ? 'You’re' : `${c.name} is`} Alpha: R&D agents need Science V, which Alpha stops at IV, and a field skill, which Alpha can’t train. Omega opens them.</Notice>}
       {!skills && c.isMain && <p className="note small" style={{ margin: 0 }}>Your skills come with the next sync.</p>}
       <SkillStrip title={pick ? `For ${pick.agent.name}` : 'To use any R&D agent'} lines={first} />
@@ -188,12 +195,12 @@ export function ReachStep({ w }: { w: Walk }) {
   const rows = all ? w.corps : w.corps.slice(0, 5);
   return (
     <Step n={2} title="Reach the agents" done={c.standings.state === 'read' && start >= 2}>
-      {why ? <Notice kind="warn">{why} Until then only level 1 agents, which take any standing over −2.00, show as open.</Notice>
+      {why ? <Notice kind="warn">{why} Until then only level 1 agents show as open, and they open only at a standing of −2.00 or more.</Notice>
         : <p className="note small" style={{ margin: 0 }}>{readSaid(w)}</p>}
       <Points compact items={[
         c.standings.state === 'read'
           ? { kind: 'tip', lead: start ? `Start with a level ${start} agent:` : 'No R&D agent', text: start ? `the highest open to ${who(c)} now.` : `is open to ${who(c)} at these standings.` }
-          : { kind: 'tip', lead: 'Start with a level 1 agent:', text: `open to anyone; what more opens waits on ${whose(c)} standings.` },
+          : { kind: 'tip', lead: 'Start with a level 1 agent:', text: `it opens at a standing of −2.00 or more with its corporation; what more opens waits on ${whose(c)} standings.` },
         { kind: 'info', lead: 'An R&D agent', text: `asks its corporation for −2, 1, 3 or 5 at levels 1 to 4, or its faction for that with the corporation no more than 2 under.` },
         { kind: 'info', lead: 'Standing rises', text: 'with missions for the corporation’s security and distribution agents, listed here where they’re open now.' },
       ]} />
@@ -247,12 +254,14 @@ export function ReachStep({ w }: { w: Walk }) {
 // ---- Step 3 ---------------------------------------------------------------------------------------------------
 
 /** Whether a listed agent can be started now, and what stands in the way when not. */
-function forYou(w: Walk, r: RankedAgent): { ok: boolean; text: string } {
+function forYou(w: Walk, r: RankedAgent): { ok: boolean; text: string; standing: string | null; skills: string | null } {
   const gaps = skillGaps(r.field, r.agent.level, w.c.pilot.skills);
-  if (!r.open) return { ok: false, text: `Needs ${needSaid(r.agent.level, w.name(r.agent.corp), w.name(r.agent.faction))}` };
-  if (gaps == null) return { ok: false, text: 'Open; skills not read yet' };
-  if (gaps.length) return { ok: false, text: `Open; train ${gaps.map((g) => `${SKILL_NAMES[g.id] ?? g.id} ${ROMAN[g.level]}`).join(', ')}` };
-  return { ok: true, text: 'Open now' };
+  if (!r.open) return { ok: false, text: `Needs ${needSaid(r.agent.level, w.name(r.agent.corp), w.name(r.agent.faction))}`, standing: null, skills: null };
+  // Standings not read: open only if they allow it, which isn't known (worked out at no standing, only level 1 opens).
+  const standing = w.c.standings.state === 'read' ? null : `if ${whose(w.c)} standing with ${w.name(r.agent.corp)} is ${signed(ACCESS[r.agent.level])} or more`;
+  const skills = gaps == null ? 'skills not read yet' : gaps.length ? `train ${gaps.map((g) => `${SKILL_NAMES[g.id] ?? g.id} ${ROMAN[g.level]}`).join(', ')}` : null;
+  const ok = !standing && !skills;
+  return { ok, text: ok ? 'Open now' : `Open${standing ? ` ${standing}` : ''}${skills ? `; ${skills}` : ''}`, standing, skills };
 }
 
 /** Set as the destination in the logged-in character's client: the main's, whoever the tab is shown for. */
@@ -330,7 +339,7 @@ export function PickStep({ w }: { w: Walk }) {
                     <span className="name" style={{ display: 'block' }}>{FIELDS[x.f].name}</span><span className="sub rd-wide">{datacoreName(x.f)}</span>
                     <span className="rd-phone">
                       <span>A datacore: <b>{netSaid(w, x.dc)}</b>{y && y !== 'failed' && y.change != null ? ` · ${y.change >= 0 ? '+' : ''}${pct(y.change, 0)} on a year` : ''}</span>
-                      <span>{x.open} agents open, {x.nearly} nearly · book: {c.pilot.skills?.[x.f] != null ? 'injected' : bookSaid(w, x.f)}</span>
+                      <span>{countSaid(w, x.open, x.nearly)} · book: {c.pilot.skills?.[x.f] != null ? 'injected' : bookSaid(w, x.f)}</span>
                     </span>
                   </td>
                   <td className="rd-wide">{netSaid(w, x.dc)}</td>
@@ -341,7 +350,7 @@ export function PickStep({ w }: { w: Walk }) {
                   </td>
                   <td className="rd-wide">{y && y !== 'failed' && y.perDay != null ? units(Math.round(y.perDay)) : <span className="faint">–</span>}</td>
                   <td className="rd-wide">{c.pilot.skills?.[x.f] != null ? <span className="faint" data-tip={`${who(c) === 'you' ? 'You' : c.name} already ${c.isMain ? 'have' : 'has'} it injected, at ${ROMAN[c.pilot.skills[x.f]]}.`}>Injected</span> : bookSaid(w, x.f)}</td>
-                  <td className="rd-wide">{x.open} open{x.nearly ? <span className="sub">{x.nearly} nearly</span> : null}</td>
+                  <td className="rd-wide">{w.c.standings.state === 'read' ? <>{x.open} open{x.nearly ? <span className="sub">{x.nearly} nearly</span> : null}</> : <>{x.open} level 1<span className="sub">{x.nearly} level 2</span></>}</td>
                   <td>{best ? <button type="button" className="pick-btn" aria-pressed={on} onClick={() => w.choose(best)}>{on ? 'Chosen' : 'Choose'}</button> : <span className="faint" data-tip={`No agent open to ${who(c)} or nearly researches it.`}>No agent</span>}</td>
                 </tr>
               );
@@ -354,7 +363,7 @@ export function PickStep({ w }: { w: Walk }) {
       <div className="row" style={{ gap: '8px 12px', flexWrap: 'wrap', alignItems: 'center' }}>
         {pick && <Seg size="sm" label="Which agents" value={every ? 'every' : 'field'} onChange={(v) => setEvery(v === 'every')}
           options={[{ v: 'field', label: `In ${FIELDS[pick.field].name}` }, { v: 'every', label: 'Every field', tip: 'Each agent once, in its best-paying field' }]} />}
-        <span className="note small" style={{ margin: 0 }}>Open to {who(c)} now, and one level past (nearly), best ISK a day first.</span>
+        <span className="note small" style={{ margin: 0 }}>{c.standings.state === 'read' ? `Open to ${who(c)} now, and one level past (nearly)` : `Level 1, open if ${whose(c)} standings allow, and level 2`}, best ISK a day first.</span>
       </div>
       {rows.length ? (
         <div className="tbl-scroll" style={{ border: '1px solid var(--line-3)' }}>
@@ -450,7 +459,7 @@ export function StartStep({ w }: { w: Walk }) {
   const field = FIELDS[pick.field].name;
   return (
     <Step n={4} title="Start">
-      {!y.ok && <Notice kind="warn">{pick.agent.name} isn’t ready for {who(c)} yet: {y.text.replace(/^Open; /, '')}.</Notice>}
+      {!y.ok && <Notice kind="warn">{pick.agent.name} isn’t ready for {who(c)} yet: {[pick.open ? null : y.text, y.standing ? `it opens ${y.standing}, and those aren’t read yet` : null, y.skills].filter(Boolean).join('; ')}.</Notice>}
       <Points items={[
         { kind: 'tip', icon: Navigation, lead: 'Travel', text: <>to {s ? `${s.name} (${secSaid(s.sec)})` : `system ${pick.agent.system}`}, {pick.jumps != null ? `${pick.jumps} jumps from Jita` : 'off a high-sec route from Jita'}. <DestButton w={w} station={pick.agent.station} /></> },
         { kind: 'tip', icon: Anchor, lead: 'Dock', text: <>at {station ?? 'its station'}: the agent only talks in person.</> },

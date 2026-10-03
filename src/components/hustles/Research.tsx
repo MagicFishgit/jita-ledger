@@ -5,7 +5,7 @@ import { isk, iskBig } from '../../lib/format';
 import { useNow } from '../../lib/hooks';
 import { HIGH_SEC, jumpsFrom, type Graph } from '../../lib/jumps';
 import { DATACORE_FEE, DATACORE_OF, RP_PER_DATACORE, datacoreValue, rankAgents, type HelperAgent, type RankedAgent, type RdAgent } from '../../lib/research';
-import { bestAgents, corpReach, FIELDS, listedAgents, MAX_AGENTS, pickDefault, SKILL, skillGaps, trainingPlan } from '../../lib/researchStart';
+import { corpReach, FIELDS, listedAgents, MAX_AGENTS, pickDefault, sixAgents, SKILL, skillGaps, trainingPlan } from '../../lib/researchStart';
 import { ROMAN, trainSaid } from '../../lib/skillStatus';
 import { JITA_SYSTEM } from '../../lib/universe';
 import { Points } from '../Facts';
@@ -124,6 +124,7 @@ function Walkthrough({ c, mainName, bundle, graph }: { c: ResearchChar; mainName
     return out;
   }, [datacores, market.books, c.tax]);
   const pricing = datacores.some((t) => market.books[t] === undefined);
+  const unpriced = datacores.filter((t) => market.books[t] === 'failed').length;
 
   const base = { standings, netPerDatacore: net, jumpsTo };
   const ranked = useMemo(() => rankAgents(bundle.agents, { ...base, skills: skills ?? {}, connections: lvl(SKILL.connections), diplomacy: lvl(SKILL.diplomacy), negotiation: lvl(SKILL.negotiation) }),
@@ -145,14 +146,19 @@ function Walkthrough({ c, mainName, bundle, graph }: { c: ResearchChar; mainName
   const anyJumps = (id: number) => any.get(id) ?? null;
 
   const w: Walk = { c, mainName, bundle, name, sys, jumpsTo, anyJumps, ranked, rankedV, corps, listed, pick, choose, kept: !!keptPick,
-    books: market.books, hist: market.hist, net, pricing, failed: market.failed, retry: market.retry, now };
+    books: market.books, hist: market.hist, net, pricing, unpriced, failed: market.failed, retry: market.retry, now };
+  const read = c.standings.state === 'read';
+  const whoSaid = c.isMain ? 'you' : c.name;
+  // While its standings aren't read, a level 1 agent is only open if they allow it (−2.00 or more): never "the best open".
+  const why = w.kept ? '' : !read ? `, the best level 1 agent: it opens at a standing of −2.00 or more, and ${c.isMain ? 'your' : `${c.name}’s`} aren’t read yet`
+    : `, the best open to ${whoSaid}${unpriced ? ` among the datacores priced (${unpriced} couldn’t be read)` : ''}`;
 
   return (
     <>
       <LeadTiles w={w} />
       <div className="col" style={{ gap: 8 }}>
         <p style={{ margin: 0, fontSize: 13.5, color: 'var(--body-2)', maxWidth: '72ch' }}>
-          {pick ? <>Steps 1 to 3 follow one pick: <b>{pick.agent.name}</b>, level {pick.agent.level} {name(pick.agent.corp)}, in <b>{FIELDS[pick.field]?.name}</b>{w.kept ? '' : ', the best open to ' + (c.isMain ? 'you' : c.name)}. Change it in step 3.</>
+          {pick ? <>Steps 1 to 3 follow one pick: <b>{pick.agent.name}</b>, level {pick.agent.level} {name(pick.agent.corp)}, in <b>{FIELDS[pick.field]?.name}</b>{why}. Change it in step 3.</>
             : <>No R&D agent is open to {c.isMain ? 'you' : c.name} at {c.isMain ? 'your' : 'its'} standings: step 2 says what opens one.</>}
         </p>
         <div className="ladder" aria-label="The steps">
@@ -188,11 +194,10 @@ function LeadTiles({ w }: { w: Walk }) {
   const fieldHas = pick ? skills?.[pick.field] ?? 0 : 0;
   const onceTrained = pick && fieldHas < pick.agent.level ? ` once ${FIELDS[pick.field]?.name} reaches ${ROMAN[pick.agent.level]}` : '';
 
-  const six = bestAgents(w.ranked), sixV = bestAgents(w.rankedV);
+  const six = sixAgents(w.ranked, { pricing: w.pricing, failed: w.unpriced }), sixV = sixAgents(w.rankedV, { pricing: w.pricing, failed: w.unpriced });
   // Worked out at level 1 agents only while the standings that open more aren't read: said on the tile, not only in step 2.
   const unread = c.standings.state === 'read' ? '' : ' · standings not read yet: level 1 agents only';
-  const month = (xs: RankedAgent[]) => xs.reduce((n, r) => n + (r.iskDay ?? 0), 0) * 30;
-  const sixSaid = (xs: RankedAgent[]) => (w.pricing ? 'Pricing…' : xs.length ? iskBig(month(xs)) : '–');
+  const sixSaid = (x: ReturnType<typeof sixAgents>) => (x.state === 'pricing' ? 'Pricing…' : x.state === 'ok' && x.agents.length ? iskBig(x.month) : '–');
 
   const plan = pick && skills ? trainingPlan(skillGaps(pick.field, pick.agent.level, skills) ?? [], { skills, sp: c.pilot.skillSp, attrs: c.pilot.attributes, alpha: false }) : null;
   const planSix = pick && skills ? trainingPlan([...(skillGaps(pick.field, pick.agent.level, skills) ?? []), { id: SKILL.rpm, level: 5 }], { skills, sp: c.pilot.skillSp, attrs: c.pilot.attributes, alpha: false }) : null;
@@ -210,12 +215,14 @@ function LeadTiles({ w }: { w: Walk }) {
       },
       {
         l: 'Six agents, a month', v: sixSaid(six),
-        n: <>{six.length && six.length < MAX_AGENTS ? `${six.length} open, not six · ` : ''}at all V: {sixSaid(sixV)}{unread}</>,
+        n: six.state === 'unpriced'
+          ? <>{six.failed} datacore{six.failed === 1 ? '’s book' : 's’ books'} couldn’t be read just now, so no month is worked out. <button type="button" className="link-btn" onClick={w.retry}>Try again</button></>
+          : <>{six.state === 'ok' && six.agents.length && six.agents.length < MAX_AGENTS ? `${six.agents.length} open, not six · ` : ''}at all V: {sixSaid(sixV)}{unread}</>,
         tip: `Thirty days of the ${MAX_AGENTS} best-paying agents open to ${c.isMain ? 'you' : c.name} on a high-sec route from Jita, each in its best field, at today’s bids.\n\n• Six needs Research Project Management V: one agent, and one more a level.\n• Whether two agents may research one field at once isn’t confirmed.\n• Doing each agent’s daily mission would add about as much again; nothing here counts it.`,
       },
       {
         l: 'Training to a first agent', v: alpha ? 'Needs Omega' : daysSaid(plan),
-        n: trainWhy ?? <>to six agents: {daysSaid(planSix)}</>,
+        n: trainWhy ?? <>to six agents: {daysSaid(planSix)}{c.clone === 'unknown' ? ' · at Omega’s speed: clone state not read' : ''}</>,
         tip: `Science V, ${pick ? `${FIELDS[pick.field]?.name}’s prerequisite at V and the field to the agent’s level` : 'the field’s prerequisite and the field'}, at ${who} attributes from the points already trained. Six agents add Laboratory Operation V, Research V and Research Project Management V.\n\nStandings can take longer than skills: step 2 says what each level asks.`,
       },
     ]} />
