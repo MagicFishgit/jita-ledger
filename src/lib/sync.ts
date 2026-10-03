@@ -15,7 +15,7 @@ import type { JournalEntry, Killmail, Meta, Order, Stock, Tx } from './types';
 import { mergeOrders } from './feeMatch';
 import { countStock, mergeSafety, nameHolders, unnamedHolders, toJournal, toOrder, toTx, type RawAsset, type RawCharOrder, type RawJournal, type RawTx, type SafetyNotice } from './esiRecords';
 import { miningKey, readMining, type MiningRecord, type RawMining } from './mining';
-import { toStandings, type RawStanding } from './research';
+import { researchMissionAt, toResearch, toStandings, type RawResearch, type RawStanding } from './research';
 
 const { wallet: WALLET, orders: ORDERS, skills: SKILLS, standings: STANDINGS, assets: ASSETS, loyalty: LOYALTY, killmails: KILLMAILS } = SCOPE;
 
@@ -323,15 +323,31 @@ export async function syncCharacter(): Promise<void> {
         read.push('industry');
       } catch { /* To do goes without */ }
     }
-    // EVE's notification when things went into asset safety: the dates to the second, the structure and the destination.
-    // Only with the notifications permission, and only worth asking while a wrap waits.
+    // Your R&D agents' research, for the Research tab (research.ts toResearch: sorted by agent), with when it was read.
+    // ESI holds it an hour. A failed read leaves what's held (absent: not read yet), never an empty list, which would say
+    // "No agents running".
+    if (hasScope(SCOPE.agentsResearch)) {
+      try {
+        const { data } = await esi<RawResearch[]>(`/characters/${cid}/agents_research/`, { auth: true });
+        metaPatch.research = { at: new Date().toISOString(), agents: toResearch(data) };
+        read.push('research');
+      } catch { /* read on a later sync */ }
+    }
+    // EVE's notifications, with the notifications permission, read only while there's something in them to find (the
+    // route's rate group allows 15 requests a quarter hour, shared by every open browser; ESI holds it 10 minutes):
+    // - while an asset-safety wrap waits: when it went in, the dates to the second, the structure and the destination;
+    // - while an R&D agent runs: when it last offered a research mission (the newest, kept: research.ts researchMissionAt).
     let notices: SafetyNotice[] = [];
-    if (hasScope(SCOPE.notifications) && (fetched.stock?.safety ?? d.stock?.safety ?? []).some((w) => w.state === 'waiting')) {
+    let missionAt: string | null = null;
+    const wrapWaits = (fetched.stock?.safety ?? d.stock?.safety ?? []).some((w) => w.state === 'waiting');
+    const agentsRun = !!(metaPatch.research ?? d.meta.research)?.agents.length;
+    if (hasScope(SCOPE.notifications) && (wrapWaits || agentsRun)) {
       try {
         const { data } = await esi<{ type: string; timestamp: string; text?: string }[]>(`/characters/${cid}/notifications/`, { auth: true });
-        notices = data.map(parseSafetyNotice).filter((n): n is SafetyNotice => n != null);
+        if (wrapWaits) notices = data.map(parseSafetyNotice).filter((n): n is SafetyNotice => n != null);
+        if (agentsRun) missionAt = researchMissionAt(data);
         read.push('notifications');
-      } catch { /* the countdown falls back to what's typed or seen */ }
+      } catch { /* the countdown falls back to what's typed or seen; the mission line keeps the last one seen */ }
     }
 
     if (hasScope(LOYALTY)) {
@@ -392,6 +408,9 @@ export async function syncCharacter(): Promise<void> {
       const p: Partial<Data> = { meta: { ...cur.meta, ...metaPatch, syncLog: log } };
       // Merged into what the store holds now: a job the Freelance tab found meanwhile stays.
       if (freelanceRead) p.meta!.freelance = withRead(cur.meta.freelance, freelanceRead);
+      // The newest mission offered, against what the store holds now: a read that no longer has an older one keeps it.
+      const heldMission = cur.meta.researchMissionAt ? Date.parse(cur.meta.researchMissionAt) : -Infinity;
+      if (missionAt && !(Date.parse(missionAt) <= heldMission)) p.meta!.researchMissionAt = missionAt;
       if (fetched.txs) p.txs = { ...cur.txs, ...fetched.txs };
       if (fetched.journal) p.journal = { ...cur.journal, ...fetched.journal };
       // Each order keeps the versions seen before, so a price change shows up as its own event with the

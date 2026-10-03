@@ -5,7 +5,7 @@ import type { SafetyWrap } from './esiRecords';
 import type { BookSold, SellQueue, SplitFrom } from './split';
 import type { SkillKey } from './constants';
 import type { RateStamp } from './fees';
-import type { StandingRow } from './research';
+import type { ResearchRow, StandingRow } from './research';
 
 /** A single buy or sell. ESI transactions use their transaction_id; manual ones start with "m-". */
 export type Tx = {
@@ -372,6 +372,20 @@ export type Meta = {
    * job's `lastOk`. An entry missing from the list is no standing; `standings` missing is not read yet.
    */
   standings?: { at?: string; list: StandingRow[] };
+  /**
+   * Every R&D agent researching for the character (research.ts `toResearch`: sorted by agent), from ESI's
+   * `/characters/{id}/agents_research/` (permission `esi-characters.read_agents_research.v1`). The main's is read by the
+   * browser's sync with `at`, when it was read; an alt's is written by the cloud's sheet with no `at` (as `standings`).
+   * Missing is not read yet (or the permission missing, said as such); an empty list is read, with no agent running. A
+   * failed read leaves it as it was.
+   */
+  research?: { at?: string; agents: ResearchRow[] };
+  /**
+   * The main's only: when EVE last offered a research mission, the newest `ResearchMissionAvailableMsg`'s timestamp in
+   * any read of its notifications (read while an agent runs, research.ts `researchMissionAt`), never moved back by a read
+   * that no longer has it. Missing: none seen.
+   */
+  researchMissionAt?: string;
   /** Last time killmails were read. */
   killmailsAt?: string;
   /** The best ISK per loyalty point last worked out on the Loyalty page, per corporation. */

@@ -55,6 +55,7 @@ export const SCOPE = {
   shipType: 'esi-location.read_ship_type.v1', // the ship you're in, so each mining session knows its hull
   location: 'esi-location.read_location.v1', // the system you're in, for Mining's "right now"
   online: 'esi-location.read_online.v1', // whether you're logged in, for Mining's "right now"
+  agentsResearch: 'esi-characters.read_agents_research.v1', // your R&D agents: which, the field, points a day and points held
 } as const;
 export const SCOPES: string[] = Object.values(SCOPE);
 
@@ -212,6 +213,11 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
     label: 'Skill queue',
     unlocks: 'Rates & fees says what a trade skill in your queue will do when it finishes: your sales tax, broker fee, price-change discount or order slots, and when.',
     without: 'Fees still follow your skills once they finish; nothing says what’s coming.',
+  },
+  'esi-characters.read_agents_research.v1': {
+    label: 'R&D agents',
+    unlocks: 'Your R&D agents’ research: which agents, the field, points a day and points held, for the Research tab under Side hustles (the cloud reads your alts’ too).',
+    without: 'The Research tab can’t track your agents; its walkthrough still helps you start one.',
   },
   'esi-characters.read_loyalty.v1': {
     label: 'Loyalty points',

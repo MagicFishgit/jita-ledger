@@ -315,10 +315,12 @@ try {
       }
       // The best-ore panel must draw with its place selector, and say plainly that it couldn't price: every request
       // outside this server is refused here, so ESI never names the ores (never a zero, never "Pricing…" for good).
-      // The Research tab on these ledgers: the stand-in login holds no standings permission and the main's clone state was
-      // never read, so it must say both (never "no standing" for every corporation, never call the main Alpha).
+      // The Research tab on these ledgers: the stand-in login holds no standings or research permission and the main's clone
+      // state was never read, so it must say all three (never "no standing" for every corporation, never call the main Alpha,
+      // never a step 4 that waits on a read this login can't make).
       if (hash === 'hustles/research') {
-        for (const t of ['Log in again: this login wasn’t given the permission to read your standings.', 'Clone state not read', '17 datacores’ books couldn’t be read just now'])
+        for (const t of ['Log in again: this login wasn’t given the permission to read your standings.', 'Clone state not read', '17 datacores’ books couldn’t be read just now',
+          'Log in again to read your research: this login wasn’t given EVE’s permission to read R&D agents.'])
           if (!(await page.locator('.page', { hasText: t }).count())) problems.push(`not drawn on the Research tab: “${t}”`);
         if (await page.locator('.page', { hasText: 'Needs Omega' }).count()) problems.push('the Research tab calls a main whose clone state isn’t read Alpha');
       }
@@ -875,6 +877,8 @@ try {
         lastSync: iso(now - 600_000), cloneDetected: 'omega',
         attributes: { intelligence: 24, memory: 24, perception: 20, willpower: 20, charisma: 23 },
         standings: { at: iso(now - 600_000), list: [{ id: 500001, type: 'faction', standing: 3.63 }, { id: 1000035, type: 'npc_corp', standing: 7.04 }] },
+        // The pick's agent running (Shitsu Ashoma, Lai Dai level 2, in Electronic Engineering): step 4 ticks itself off.
+        research: { at: iso(now - 900_000), agents: [{ agentId: 3016563, skillTypeId: 11453, startedAt: iso(now - 2 * 86400_000), pointsPerDay: 50.4, remainderPoints: 0 }] },
       },
     };
     // An alt the cloud has read (skills, queue) but not yet its standings: the first hourly read after the Worker deploys.
@@ -956,6 +960,11 @@ try {
       if (laiDai[3] !== 'Level 2') problems.push(`Lai Dai doesn't open level 2: ${laiDai[3]}`);
       if (!laiDai[4].startsWith('Level 3: Lai Dai Corporation at 1.00 (it has none)')) problems.push(`Lai Dai's next level doesn't ask for 1.00 with none held: ${laiDai[4]}`);
     }
+    // Step 4 ticks itself off once the read shows the pick's agent running, saying what the read shows.
+    const step4 = page.locator('.step-card[aria-label^="Step 4"]');
+    if ((await step4.locator('.hexn').innerText().catch(() => '')) !== '✓') problems.push('step 4 isn’t ticked though the main’s research read shows Shitsu Ashoma running');
+    if (!(await step4.innerText().catch(() => '')).replace(/\s+/g, ' ').includes('The app’s read of your research at')
+      || !mainText.includes('shows Shitsu Ashoma researching Electronic Engineering since')) problems.push('step 4 doesn’t say the read shows Shitsu Ashoma researching Electronic Engineering');
     if (SHOTS) await page.screenshot({ path: `${SHOTS}-research-main.png` });
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out for the main: ${o}`);
     // Shown for the alt: its standings aren't read yet, so nothing may say "no standing" for it.
@@ -963,6 +972,8 @@ try {
     await page.waitForTimeout(1500);
     const altText = await text();
     for (const t of ['Not read yet: Research Alt’s standings come with the cloud’s next hourly read.', 'Start with a level 1 agent:', 'standings not read yet: level 1 agents only',
+      // Its login was handed over before the app asked for the research permission: step 4 says to hand it over again.
+      'Hand the cloud Research Alt’s login again: it was handed over without the permission to read R&D agents.',
       // Its level 1 agents open only if its standing allows: never "Open now", never "the best open to" it.
       'Open if Research Alt’s standing with', 'the best level 1 agent']) if (!altText.includes(t)) problems.push(`not drawn for the alt: “${t}”`);
     const altSteps = (await page.locator('.step-card[aria-label^="Step 2"]').innerText().catch(() => '')).replace(/\s+/g, ' ');

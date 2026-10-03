@@ -5834,6 +5834,42 @@ console.log('\n--- R&D agents: the rules ---');
   ]), [{ id: 3, type: 'faction', standing: 1 }]);
   eq('  an empty answer is an empty list (read, with no standing anywhere)', R.toStandings([]), []);
 
+  // ESI's /characters/{id}/agents_research/ as its OpenAPI spec gives it (compatibility date 2026-08-18; the route needs the
+  // login, so the shape is the spec's, not a probe's): each agent's field, start, points a day and points left over.
+  // Kept sorted by agent, each row in one key order: the cloud pushes an alt's meta doc only when its string changes.
+  const rawR = [
+    { agent_id: 3016563, skill_type_id: 11453, started_at: '2026-10-01T12:00:00Z', points_per_day: 50.4, remainder_points: 12.5 },
+    { remainder_points: -40, points_per_day: 89.6, started_at: '2026-09-20T08:30:00Z', skill_type_id: 11446, agent_id: 3008416 },
+  ];
+  const keptR = [
+    { agentId: 3008416, skillTypeId: 11446, startedAt: '2026-09-20T08:30:00Z', pointsPerDay: 89.6, remainderPoints: -40 },
+    { agentId: 3016563, skillTypeId: 11453, startedAt: '2026-10-01T12:00:00Z', pointsPerDay: 50.4, remainderPoints: 12.5 },
+  ];
+  eq('research read: ESI\'s fields as the app names them, sorted by agent, the start as ESI wrote it, a negative remainder kept (unseen; not clamped)',
+    R.toResearch(rawR), keptR);
+  eq('  the same answer in another order gives the same list, as a string too', JSON.stringify(R.toResearch([...rawR].reverse())), JSON.stringify(keptR));
+  eq('  ESI\'s answer is left as it was', [rawR[0].agent_id, Object.keys(rawR[1])[0]], [3016563, 'remainder_points']);
+  eq('  no agents running is an empty list (read: "No agents running"), never absent', R.toResearch([]), []);
+  eq('  a row with no start, or a figure that isn\'t a number, is left out rather than guessed at', R.toResearch([
+    { agent_id: 1, skill_type_id: 11453, points_per_day: 50, remainder_points: 0 },
+    { agent_id: 2, skill_type_id: 11453, started_at: '2026-10-01T00:00:00Z', points_per_day: null, remainder_points: 0 },
+    { agent_id: 3, skill_type_id: 11453, started_at: 'not a date', points_per_day: 50, remainder_points: 0 },
+    { agent_id: 4, skill_type_id: 11453, started_at: '2026-10-01T00:00:00Z', points_per_day: 50, remainder_points: 0 },
+  ]).map((r) => r.agentId), [4]);
+
+  // A research mission offered (EVE's notification ResearchMissionAvailableMsg; its text hasn't been seen, so only its time
+  // is kept): the newest one's timestamp, as ESI wrote it; none offered is null, never a time.
+  eq('the newest research mission offered: its timestamp, other notifications ignored', R.researchMissionAt([
+    { type: 'ResearchMissionAvailableMsg', timestamp: '2026-10-01T09:00:00Z' },
+    { type: 'StructureItemsMovedToSafety', timestamp: '2026-10-03T09:00:00Z' },
+    { type: 'ResearchMissionAvailableMsg', timestamp: '2026-10-02T11:15:00Z' },
+    { type: 'ResearchMissionAvailableMsg', timestamp: '2026-09-30T23:00:00Z' },
+  ]), '2026-10-02T11:15:00Z');
+  eq('  none offered: null', [R.researchMissionAt([]), R.researchMissionAt([{ type: 'AgentRetiredTrigravian', timestamp: '2026-10-02T11:15:00Z' }])], [null, null]);
+  eq('  one whose time can\'t be read is passed over', R.researchMissionAt([
+    { type: 'ResearchMissionAvailableMsg', timestamp: 'soon' }, { type: 'ResearchMissionAvailableMsg', timestamp: '2026-10-01T09:00:00Z' },
+  ]), '2026-10-01T09:00:00Z');
+
   eq('the field → datacore map: 17 fields; Amarr Starship Engineering (11444) makes "Datacore - Amarrian Starship Engineering" (20421)',
     [Object.keys(R.DATACORE_OF).length, R.DATACORE_OF[11444], R.DATACORE_OF[11450], R.DATACORE_OF[11453]], [17, 20421, 20410, 20418]);
 

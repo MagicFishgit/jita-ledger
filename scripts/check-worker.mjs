@@ -61,7 +61,7 @@ const SCOPES = [
   'esi-wallet.read_character_wallet.v1', 'esi-markets.read_character_orders.v1', 'esi-assets.read_assets.v1',
   'esi-characters.read_loyalty.v1', 'esi-skills.read_skills.v1', 'esi-skills.read_skillqueue.v1',
   'esi-industry.read_character_mining.v1', 'esi-location.read_ship_type.v1', 'esi-mail.send_mail.v1', 'esi-mail.organize_mail.v1',
-  'esi-characters.read_standings.v1',
+  'esi-characters.read_standings.v1', 'esi-characters.read_agents_research.v1',
 ];
 /** A ledger with its main's login kept, and one alt on its roster with its own. */
 async function ledgerWithAlt() {
@@ -217,6 +217,11 @@ function esiFor(char, over = {}) {
       { from_id: 3008416, from_type: 'agent', standing: 2.1 },
       { from_id: 1000125, from_type: 'npc_corp', standing: -1.25 },
       { from_id: 500001, from_type: 'faction', standing: 3.63 },
+    ]],
+    // Two R&D agents, in no order: the sheet keeps them sorted by agent.
+    [`${c}/agents_research/`, over.research ?? [
+      { agent_id: 3016563, skill_type_id: 11453, started_at: '2026-10-01T12:00:00Z', points_per_day: 50.4, remainder_points: 12.5 },
+      { agent_id: 3008416, skill_type_id: 11446, started_at: '2026-09-20T08:30:00Z', points_per_day: 89.6, remainder_points: 0 },
     ]],
     [new RegExp(`^POST /characters/${SENDER}/mail/$`), 777],
   ];
@@ -376,6 +381,70 @@ console.log('\n--- an alt\'s full read ---');
     f.restore();
     eq('  an alt whose login lacks the standings permission: not asked, and no standings in its meta, not an empty list',
       [f.calls.some((c) => /\/standings\/$/.test(c.path)), 'standings' in docOf(db, ALT, 'meta')], [false, false]);
+  }
+
+  // R&D agents' research, for the Research tab's cards: filed under the alt, sorted by agent, and no read time in the doc
+  // (the meta doc is pushed whenever it reads differently, so a time would be a new revision every hour; the alt's "read
+  // at" is its sheet job's). Absent means not read: never an empty list for a read that didn't happen.
+  {
+    const { db, env } = await withSender();
+    const before = under(db, MAIN);
+    const rev = () => db.rows('SELECT rev FROM revs WHERE char_id = ?', ALT)[0].rev;
+    const sorted = [
+      { agentId: 3008416, skillTypeId: 11446, startedAt: '2026-09-20T08:30:00Z', pointsPerDay: 89.6, remainderPoints: 0 },
+      { agentId: 3016563, skillTypeId: 11453, startedAt: '2026-10-01T12:00:00Z', pointsPerDay: 50.4, remainderPoints: 12.5 },
+    ];
+    let f = stubFetch(esiFor(ALT));
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  an alt\'s research: kept in its meta, sorted by agent, with no read time', docOf(db, ALT, 'meta').research, { agents: sorted });
+    eq('    read for the alt only', f.calls.filter((c) => /\/agents_research\/$/.test(c.path)).map((c) => c.path), [`/characters/${ALT}/agents_research/`]);
+    eq('    nothing of it under the main', under(db, MAIN), before);
+    eq('    the main\'s ledger holds no research of the alt\'s', db.rows(`SELECT COUNT(*) AS n FROM docs WHERE char_id = ? AND data LIKE '%3016563%'`, MAIN)[0].n, 0);
+    const rev1 = rev();
+
+    f = stubFetch(esiFor(ALT, { research: [...esiFor(ALT).find((r) => r[0] === `/characters/${ALT}/agents_research/`)[1]].reverse() }));
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  the same research read again, in another order: nothing pushed, no new revision', rev(), rev1);
+
+    const routes = esiFor(ALT);
+    routes[routes.findIndex((r) => r[0] === `/characters/${ALT}/agents_research/`)] = [`/characters/${ALT}/agents_research/`, new Response('{"error":"down"}', { status: 500 })];
+    f = stubFetch(routes);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  a research read that fails leaves it as it was, and pushes nothing', [docOf(db, ALT, 'meta').research, rev()], [{ agents: sorted }, rev1]);
+    eq('    and the sheet still counts as read', db.rows(`SELECT fails, last_error AS e FROM jobs WHERE char_id = ? AND job = 'sheet'`, ALT), [{ fails: 0, e: null }]);
+
+    f = stubFetch(esiFor(ALT, { research: [] }));
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  no agents running any more: an empty list goes up (read, "No agents running"), not nothing', [docOf(db, ALT, 'meta').research, rev() > rev1], [{ agents: [] }, true]);
+    eq('    and the main still has nothing of it', under(db, MAIN), before);
+  }
+
+  // A first read that fails: nothing written, so the tab says "Not read yet", never "No agents running".
+  {
+    const { db, env } = await withSender();
+    const routes = esiFor(ALT);
+    routes[routes.findIndex((r) => r[0] === `/characters/${ALT}/agents_research/`)] = [`/characters/${ALT}/agents_research/`, new Response('{"error":"down"}', { status: 500 })];
+    const f = stubFetch(routes);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  an alt\'s first research read failing: no research in its meta (not an empty list), the rest of the sheet kept',
+      ['research' in docOf(db, ALT, 'meta'), docOf(db, ALT, 'meta').standings?.list.length], [false, 3]);
+  }
+
+  // A login handed over before the app asked for the permission: nothing asked, nothing written.
+  {
+    const { db, env } = await withSender();
+    db.run('DELETE FROM keys WHERE purpose = ?', `alt:${ALT}`);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', SCOPES.filter((s) => s !== 'esi-characters.read_agents_research.v1'));
+    const f = stubFetch(esiFor(ALT));
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  an alt whose login lacks the research permission: not asked, and no research in its meta, not an empty list',
+      [f.calls.some((c) => /\/agents_research\/$/.test(c.path)), 'research' in docOf(db, ALT, 'meta')], [false, false]);
   }
 
   // Removed while the copy was running.

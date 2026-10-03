@@ -84,6 +84,46 @@ export function toStandings(raw: RawStanding[]): StandingRow[] {
 }
 /** One agent's research as ESI's `/characters/{id}/agents_research/` gives it. */
 export type ResearchRow = { agentId: number; skillTypeId: number; startedAt: string; pointsPerDay: number; remainderPoints: number };
+/**
+ * ESI's `/characters/{id}/agents_research/` row, as its OpenAPI spec gives it (compatibility date 2026-08-18, read 2
+ * October 2026; the route needs the permission, so it couldn't be probed): every field required.
+ */
+export type RawResearch = { agent_id: number; skill_type_id: number; started_at: string; points_per_day: number; remainder_points: number };
+
+const finite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+
+/**
+ * Every agent researching for the character (`meta.research.agents`: the main's from the browser's sync, an alt's from
+ * the cloud's sheet), in the app's names, sorted by agent (then field), each row built in one key order, so the same
+ * answer is the same string whatever order ESI sent it in: the cloud pushes an alt's meta doc only when its string
+ * changes. The start is kept as ESI wrote it, and the remainder with its sign: what a purchase does to it hasn't been seen
+ * (it may go below zero). A row with no readable start or a figure that isn't a number is left out rather than guessed at.
+ * An empty answer is an empty list: read, with no agent running.
+ */
+export function toResearch(raw: RawResearch[]): ResearchRow[] {
+  return raw
+    .filter((x) => finite(x.agent_id) && finite(x.skill_type_id) && finite(x.points_per_day) && finite(x.remainder_points)
+      && typeof x.started_at === 'string' && Number.isFinite(Date.parse(x.started_at)))
+    .map((x) => ({ agentId: x.agent_id, skillTypeId: x.skill_type_id, startedAt: x.started_at, pointsPerDay: x.points_per_day, remainderPoints: x.remainder_points }))
+    .sort((a, b) => a.agentId - b.agentId || a.skillTypeId - b.skillTypeId);
+}
+
+/** EVE's notification that an R&D agent offers a research mission (static data's notification type 70). */
+export const MISSION_NOTICE = 'ResearchMissionAvailableMsg';
+
+/**
+ * When EVE last offered a research mission: the newest `ResearchMissionAvailableMsg`'s timestamp, as ESI wrote it, or
+ * null when none is in the read. Only the time is kept: what the notification's text carries hasn't been seen.
+ */
+export function researchMissionAt(notes: { type: string; timestamp: string }[]): string | null {
+  let best: string | null = null, bestT = -Infinity;
+  for (const n of notes) {
+    if (n.type !== MISSION_NOTICE) continue;
+    const t = Date.parse(n.timestamp);
+    if (Number.isFinite(t) && t > bestT) { best = n.timestamp; bestT = t; }
+  }
+  return best;
+}
 /** A research agent from the bundle (`src/data/researchAgents.json`); `fields` are skill type IDs in DATACORE_OF. */
 export type RdAgent = { id: number; name: string; level: 1 | 2 | 3 | 4; corp: number; faction: number; station: number; system: number; fields: number[] };
 /** A security or distribution agent of a corporation with research agents: the way to raise standing with it. */

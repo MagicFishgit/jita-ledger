@@ -79,6 +79,48 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
   (`shareInFlight`, gotchas.md); `jitaBook` already was. Sharing hands two callers one rows array (from the cache each got
   its own copy), which is safe only while no caller changes it: checked on 3 October 2026 across every caller of it and
   of marketHistory, and every in-place sort or write in src (none touches history rows): none changes it.
+- **The permission** (`SCOPE.agentsResearch`, `esi-characters.read_agents_research.v1`, 3 October 2026), registered by
+  the user on the application first, then put in `SCOPE` (not `OPTIONAL_SCOPE`: an optional one is switched on per
+  browser, and a phone that never switched it on would log the main in with a smaller set). So **every login asks for
+  it from now on**, and since a login with a different set of permissions stops the character's earlier ones
+  (eve-facts.md), the user's next login to the app stops the cloud's login for the main, and the alt's login, handed over
+  before, lacks it: **both need handing to the cloud again once the user relogs**. Nothing new says so: Settings'
+  `scopesMissing` (the cloud's set against this browser's) and the Characters page's `loginState(...).missing` already
+  do. Until then the main's step 4 says "Log in again to read your research", an alt's "Hand the cloud X's login again".
+  Its purpose is in `SCOPE_INFO` (gotchas.md: Settings' list is the single answer).
+- **The research reads** (`toResearch` in research.ts, tested). `GET /characters/{id}/agents_research/` gives each
+  agent's `agent_id`, `skill_type_id`, `started_at`, `points_per_day` and `remainder_points` (all required), held an hour.
+  **Its shape is ESI's OpenAPI spec at the app's compatibility date, 2026-08-18** (`.playwright-mcp/research/rd-agents/
+  openapi.json`), not a probe: the route needs the permission, which no login had yet (gotchas.md says to probe first;
+  the first real read is the check). Kept as `meta.research.agents` in the app's names, sorted by agent then field, each
+  row in one key order, the start as ESI wrote it and the remainder with its sign (a purchase may take it below zero,
+  unseen). **Absent is not read** (or the permission missing, said as such), **an empty list is read** ("No agents
+  running"), and a failed read leaves what's held, never an empty list.
+  - The main: the browser's sync, whenever the permission is held, with `at` (when read).
+  - An alt: the cloud's hourly sheet (`worker/src/sheet.ts`), only when its login holds the permission, with **no `at`**:
+    the sheet pushes the alt's meta doc whenever its string changes (`settled` blanks only `walletAt`), so a read time
+    would be a revision every hour; its read time is the `sheet` job's `lastOk`, as standings'. A login without it isn't
+    asked. `scripts/check-worker.mjs`: filed under the alt with the main's rows untouched, the same answer in another
+    order pushes nothing, a failed first read leaves it absent, a failed later one as it was, an empty answer goes up as
+    `[]`, a login without the permission gets none. Seen failing with an `at` planted (7 failures, standings' and the
+    sheet's own "nothing new pushes nothing" among them) and with the sort removed.
+- **The mission offered** (`researchMissionAt` in research.ts, `meta.researchMissionAt`, the main's only). The sync reads
+  notifications while a wrap waits (as before) **or an agent runs** (this sync's research read, else what's held), and
+  keeps the newest `ResearchMissionAvailableMsg`'s timestamp, against what the store holds at the write, so a read that no
+  longer lists it (or another device's newer one) never moves it back. Only the time: the notification's text hasn't been
+  seen. The route's rate group (`char-notification`) allows 15 requests a quarter hour, shared by every open browser, and
+  ESI holds it 10 minutes, so a sync every ~20 minutes costs little. Asset-safety notices are parsed only while a wrap
+  waits, as before. The alt's notifications aren't read.
+- **Step 4 ticks itself off** (`startTick` in ResearchSteps.tsx, `researchWhy` in researchChars.ts): once the shown
+  character's read shows the pick's agent running, whatever field it shows ("The app's read of your research at … shows
+  Shitsu Ashoma researching Electronic Engineering since …"), and the "isn't ready yet" notice goes. Otherwise it says when
+  it will, or why it can't: not read yet, log in again, hand the login over again, or the login refused or not held.
+  `researchChars.ts` gives each character a `research` state shaped as `standings` (read / unread / login / handOver /
+  lost), for the cards to come.
+- **Checked in a browser** (`.playwright-mcp/rd-agents-build/sync-research.mjs`, ESI stubbed, against the dev server):
+  two agents read sorted with `at`; notifications read once and the newest mission kept; a newer one held not moved back;
+  the research read failing leaves none (and asks no notifications) or what was held; no agents, no notifications; the
+  notifications failing, the sync still fine; a login without the permission asks nothing.
 - **Phone**: each table keeps its first column and folds the rest under it (`.rd-table`, `.rd-phone`), the pick buttons
   beside, and each step's hexagon sits beside its title (`.rd-step`), so nothing scrolls sideways at 390. The Side
   hustles tabs' grid min went from 220 to 172 px so the six sit in one row at 1440.
@@ -89,7 +131,10 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
   then an alt with no standings read ("Not read yet", "Open if …", "the best level 1 agent", no "no standing", no "Open
   now"), an Alpha alt ("Needs Omega"), and an alt whose login EVE refused ("hand it over again"). Both widths. The plain
   loads draw the walkthrough with every read refused and assert the main's "Log in again" (the stand-in login has no
-  standings permission), "Clone state not read" and no "Needs Omega", and that all 17 datacores couldn't be read.
+  standings permission), "Clone state not read" and no "Needs Omega", and that all 17 datacores couldn't be read. Since
+  the research read (Task 4 of the plan): the main's meta carries Shitsu Ashoma running, so step 4 must show ✓ and what
+  the read shows (seen failing with the match planted wrong); Research Alt's login lacks the permission ("Hand the cloud
+  Research Alt's login again"); the plain loads' main "Log in again to read your research".
 
 ## Open questions (in order of how much they change the page)
 
@@ -98,6 +143,6 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
 2. **The field level an agent asks for**: its own level (assumed) or less.
 3. **Can two agents research one field at once?** The pick step allows it and says it isn't confirmed.
 4. **What `agents_research` shows after a purchase or a rate refresh** (the first real reads).
-5. **What `ResearchMissionAvailableMsg` carries**, and how long ESI keeps it.
+5. **What `ResearchMissionAvailableMsg` carries**, and how long ESI keeps it. The app keeps only its time until then.
 6. **Lai Dai's standing for both characters**: the first whole `/standings` read (the main's sync; the alt's hourly read
    after the Worker deploys).

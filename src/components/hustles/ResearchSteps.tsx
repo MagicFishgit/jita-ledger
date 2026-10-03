@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Anchor, Ban, BookOpen, Lock, MapPin, MessageSquare, Navigation, Shuffle, Undo2 } from 'lucide-react';
+import { Anchor, Ban, BookOpen, CircleCheck, Lock, MapPin, MessageSquare, Navigation, Shuffle, Undo2 } from 'lucide-react';
 import { hasScope } from '../../lib/auth';
 import { SCOPE } from '../../lib/config';
 import { fmtDateTime, isk, iskBig, pct, units } from '../../lib/format';
@@ -15,7 +15,7 @@ import type { HistRow } from '../../lib/types';
 import { Points } from '../Facts';
 import { SkillStrip, type SkillLine } from '../SkillStrip';
 import { Notice, Seg, Sparkline, Th } from '../ui';
-import { standingsWhy, type ResearchChar } from './researchChars';
+import { researchWhy, standingsWhy, type ResearchChar } from './researchChars';
 import type { Book, Read } from './researchMarket';
 
 /** Everything the four steps read, worked out once by the walkthrough (Research.tsx) for the character shown. */
@@ -427,13 +427,23 @@ export function PickStep({ w }: { w: Walk }) {
 // ---- Step 4 ---------------------------------------------------------------------------------------------------
 
 /**
- * The research read that ticks step 4 off (stage 2): the permission isn't asked for yet. One place, so the step that adds
- * it rewires this alone.
+ * Whether the research read shows the pick's agent running, and what step 4 says about it: done once it does (whatever
+ * field the read shows: it may not be the one picked); otherwise when it will tick, or what stands in the way of the read
+ * (`researchWhy`: the permission missing says what to do, never "No agents running").
  */
-function tickNote(c: ResearchChar): string {
-  return c.isMain
-    ? 'once the app reads your research. That needs EVE’s permission to read research agents, which the app doesn’t ask for yet: switch on the permission when it does, by logging in again once.'
-    : `once the cloud reads ${c.name}’s research. That needs EVE’s permission to read research agents, which the app doesn’t ask for yet: switch on the permission when it does, by handing the cloud ${c.name}’s login again.`;
+function startTick(c: ResearchChar, agent: RdAgent): { done: boolean; text: string } {
+  const r = c.research;
+  const readBy = c.isMain ? 'the app’s read of your research' : `the cloud’s read of ${c.name}’s research`;
+  if (r.state === 'read') {
+    const row = r.agents.find((a) => a.agentId === agent.id);
+    const at = r.at != null ? ` at ${fmtDateTime(r.at)}` : '';
+    if (row) {
+      const field = FIELDS[row.skillTypeId]?.name ?? `field ${row.skillTypeId}`;
+      return { done: true, text: `${c.isMain ? 'The app’s read of your research' : `The cloud’s read of ${c.name}’s research`}${at} shows ${agent.name} researching ${field} since ${fmtDateTime(row.startedAt)}.` };
+    }
+    return { done: false, text: `once ${readBy} shows ${agent.name} running: the read${at} doesn’t show it yet (EVE’s copy can be an hour old${c.isMain ? '' : ', and the cloud reads it hourly'}).` };
+  }
+  return { done: false, text: `once ${readBy} shows ${agent.name} running. ${researchWhy(c)}` };
 }
 
 /** Start: what to do at the agent, in order, and what still stands in the way. */
@@ -457,9 +467,10 @@ export function StartStep({ w }: { w: Walk }) {
   const s = w.sys(pick.agent.system);
   const y = forYou(w, pick);
   const field = FIELDS[pick.field].name;
+  const tick = startTick(c, pick.agent);
   return (
-    <Step n={4} title="Start">
-      {!y.ok && <Notice kind="warn">{pick.agent.name} isn’t ready for {who(c)} yet: {[pick.open ? null : y.text, y.standing ? `it opens ${y.standing}, and those aren’t read yet` : null, y.skills].filter(Boolean).join('; ')}.</Notice>}
+    <Step n={4} title="Start" done={tick.done}>
+      {!y.ok && !tick.done && <Notice kind="warn">{pick.agent.name} isn’t ready for {who(c)} yet: {[pick.open ? null : y.text, y.standing ? `it opens ${y.standing}, and those aren’t read yet` : null, y.skills].filter(Boolean).join('; ')}.</Notice>}
       <Points items={[
         { kind: 'tip', icon: Navigation, lead: 'Travel', text: <>to {s ? `${s.name} (${secSaid(s.sec)})` : `system ${pick.agent.system}`}, {pick.jumps != null ? `${pick.jumps} jumps from Jita` : 'off a high-sec route from Jita'}. <DestButton w={w} station={pick.agent.station} /></> },
         { kind: 'tip', icon: Anchor, lead: 'Dock', text: <>at {station ?? 'its station'}: the agent only talks in person.</> },
@@ -467,7 +478,7 @@ export function StartStep({ w }: { w: Walk }) {
         { kind: 'tip', icon: BookOpen, lead: 'Choose', text: `${field}: fixed until you cancel. Its points buy only its datacore, from this agent.` },
         { kind: 'info', icon: Shuffle, lead: 'A daily mission', text: 'is offered about once a day: optional, and declining it doesn’t cost standing (CCP). Doing it adds a day’s points.' },
         { kind: 'warn', icon: Ban, lead: 'Cancelling', text: 'loses every point held with the agent: buy its datacores first.' },
-        { kind: 'info', icon: Undo2, lead: 'Ticks itself off', text: tickNote(c) },
+        tick.done ? { kind: 'good', icon: CircleCheck, lead: 'Started', text: tick.text } : { kind: 'info', icon: Undo2, lead: 'Ticks itself off', text: tick.text },
       ]} />
     </Step>
   );
