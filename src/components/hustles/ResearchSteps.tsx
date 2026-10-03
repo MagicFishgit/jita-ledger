@@ -439,7 +439,7 @@ function startTick(c: ResearchChar, agent: RdAgent): { done: boolean; text: stri
     const at = r.at != null ? ` at ${fmtDateTime(r.at)}` : '';
     if (row) {
       const field = FIELDS[row.skillTypeId]?.name ?? `field ${row.skillTypeId}`;
-      return { done: true, text: `${c.isMain ? 'The app’s read of your research' : `The cloud’s read of ${c.name}’s research`}${at} shows ${agent.name} researching ${field} since ${fmtDateTime(row.startedAt)}.` };
+      return { done: true, text: `${c.isMain ? 'The app’s read of your research' : `The cloud’s read of ${c.name}’s research`}${at} shows ${agent.name} researching ${field}${Number.isFinite(Date.parse(row.startedAt)) ? ` since ${fmtDateTime(row.startedAt)}` : ''}.` };
     }
     return { done: false, text: `once ${readBy} shows ${agent.name} running: the read${at} doesn’t show it yet (EVE’s copy can be an hour old${c.isMain ? '' : ', and the cloud reads it hourly'}).` };
   }

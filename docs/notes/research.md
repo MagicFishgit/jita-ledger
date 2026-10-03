@@ -141,14 +141,28 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
     (`othersSide` in researchTrack.ts, over prospects.ts' `withoutOwn`; `ResearchChar.own`), since selling into your own
     bid, or another character's, is no sale (market-reading.md: "Sell to bids" walks others' bids only; the main has bid
     on Datacore - Rocket Science before). Anything else that values datacores (To do's cash-in, the Wallet's card) passes
-    its bids through `othersSide` before `agentCard`, or its worth won't match the card's.
-    Listed beside it (`listedWorth`): at `listingPrice` on others' listings and the fortnight's highs, after sales tax, the
-    broker fee (its 100 ISK minimum) and the fee each. No whole datacore yet is a known "Nothing yet"; no bid over the fee,
-    a book still read, or one that couldn't be, is "–" with why or "Pricing…", never 0 ISK. ISK a day is ESI's rate at
-    the top bid's net.
+    its bids through `othersSide` before `agentCard`, and the same listing price, or its worth won't match the card's.
+  - **Listed against the bids, like with like** (`Sale` in researchTrack.ts; the review of 3 October 2026). The first
+    version printed "Listed: about X" under every worth, which read *under* the worth beside a tip calling listing more:
+    it priced all the datacores at one ask after the broker fee, against bids walked for only the units they take, and
+    in the page check's stub book all three cards showed it (448,641 against 454,485 ISK). Now the bids' figure is the
+    worth, and a listing (`listedWorth`: `listingPrice` on others' listings and the fortnight's highs, after sales tax,
+    the broker fee with its 100 ISK minimum and the fee each) is said beside it only when listing them all pays more ("or
+    about X listed, if you wait for a buyer"), else "they pay at least as much as listing". Units the bids don't take are
+    valued listed, in the worth, and said ("The bids take 4 of 6 now (…); the other 2 valued listed, about …"); with no bid
+    over the fee, all of them, and listing is said as the way out. Nothing to list at, or a listing that doesn't cover
+    the fees, is said as that, never "Listed: –". No whole datacore yet is a known "Nothing yet"; a book still read
+    "Pricing…", one that couldn't be "–" with Try again. ISK a day is ESI's rate at the top bid's net.
+  - **The datacores' books are read again every five minutes while the tab is in view**, and on coming back into view
+    (`useResearchMarket`'s `reread`, as the plan's list step does), since RP held ticks while the prices would otherwise
+    be the visit's first read; a re-read that fails keeps the last good book. So the copy says "Jita's best bid now".
+  - **A start that can't be read** (`toResearch` leaves such rows out, but a stored copy could carry one) makes the
+    points held, the datacores, the worth and the next datacore unknown ("–", said), never NaN; the totals then sum no
+    datacores or worth and say how many agents' points can't be worked out. Read times that can't be read are none.
   - **The totals** (`researchTotals`) count only characters whose research was read and say how many: "3 agents: yours, 1
     of 4 alts read". Worth and the month are never a part-sum: any agent's datacores unpriced leaves them "–" with how
-    many (the six-agents tile's lesson).
+    many and why (the six-agents tile's lesson): a book that couldn't be read (with Try again), one read with no price in
+    it (no bid over the fee, and for the worth no listing either; nothing to retry), or points that can't be worked out.
   - **The mission offered** is a line under the main's name, "A research mission was offered 3 h ago", never on a card and
     never "waiting" (only the notification's time is known). Under the totals, "When to cash in" (points don't expire;
     before cancelling; when passing; when the price is high against its year) and "Daily missions" (one about a day after
@@ -178,6 +192,9 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
   book is refused (its worth "–", why, and the totals unsummed); Research Alt holds the permission with nothing read ("Not
   read yet"); Alpha Alt's login lacks it ("Hand the cloud Alpha Alt's login again"); Lost Alt's was refused. The check
   asserts the cards' tiles, "3 agents: yours, 1 of 4 alts read", 8 datacores waiting, the mission line and no "waiting",
+  Electronic Engineering's bids holding 4 of Shitsu's 6 (the other 2 valued listed), Graviton Physics' best bid under the
+  fee (Okila's one valued listed, "listing is the way out"; the month says it has no bid over the fee, with no retry for
+  it), no "Listed: –" and no NaN,
   no "No agents running" for research not read, and the walkthrough folded; then opens it for the walkthrough's own
   assertions. The brief's "1 of 2 alts" was its smallest case; the walkthrough's alts make it 4. `researchTotals` counting
   an unread character and `differs` needing both clauses were each planted and failed `npm run check`.

@@ -6,7 +6,7 @@ import { useNow } from '../../lib/hooks';
 import { HIGH_SEC, jumpsFrom, type Graph } from '../../lib/jumps';
 import { resolveNames } from '../../lib/market';
 import { DATACORE_FEE, DATACORE_OF, RP_PER_DATACORE, type RdAgent, type ResearchRow } from '../../lib/research';
-import { agentCard, listedWorth, othersSide, researchTotals, yearPercentile, type AgentCard } from '../../lib/researchTrack';
+import { agentCard, othersSide, researchTotals, yearPercentile, type AgentCard, type ListWhy } from '../../lib/researchTrack';
 import { datacoreName, FIELDS } from '../../lib/researchStart';
 import { trainSaid } from '../../lib/skillStatus';
 import type { BookLevel, HistRow } from '../../lib/types';
@@ -81,12 +81,24 @@ export function ResearchCards({ chars, mainName, agents, corpName, graph, market
       cards: rows.map((row) => {
         const dc = DATACORE_OF[row.skillTypeId];
         const p = dc != null ? priced[dc] : undefined;
-        return { row, agent: byId.get(row.agentId) ?? null, card: agentCard(row, byId.get(row.agentId) ?? null, c.pilot.skills, standings, p?.state === 'read' ? p.bids : null, c.tax, now) };
+        const read = p?.state === 'read' ? p : null;
+        return { row, agent: byId.get(row.agentId) ?? null, card: agentCard(row, byId.get(row.agentId) ?? null, c.pilot.skills, standings, read?.bids ?? null, c.tax, now, { at: read?.listAt ?? null, brokerFee: c.broker }) };
       }),
     };
   });
   const totals = researchTotals(blocks.map((b) => ({ charId: b.c.charId, isMain: b.c.isMain, read: b.read, cards: b.cards.map((x) => x.card) })));
   const running = totals.agents > 0;
+  // Why a total isn't summed, agent by agent: a book still read, one that couldn't be (Try again), or one read with no price.
+  const counted = blocks.filter((b) => b.read).flatMap((b) => b.cards.map((x) => x.card));
+  const whyNot = (missing: (x: AgentCard) => boolean): Why => {
+    const out: Why = { pricing: 0, failed: 0, noPrice: 0 };
+    for (const x of counted.filter(missing)) {
+      const st = x.datacore != null ? priced[x.datacore]?.state : undefined;
+      if (st === 'pricing') out.pricing++; else if (st === 'failed') out.failed++; else out.noPrice++;
+    }
+    return out;
+  };
+  const worthWhy = whyNot((x) => x.datacores != null && x.datacores > 0 && x.worth == null), monthWhy = whyNot((x) => x.iskDay == null);
 
   // The agents' stations by name (ESI's universe names, one request for all of them); a station not named reads as its system.
   const stationKey = [...new Set(blocks.flatMap((b) => b.cards.map((x) => x.agent?.station).filter((s): s is number => s != null)))].sort().join(',');
@@ -132,8 +144,7 @@ export function ResearchCards({ chars, mainName, agents, corpName, graph, market
             ))}
         </div>
       ))}
-      <Totals totals={totals} anyPricing={blocks.some((b) => b.cards.some((x) => x.card.datacore != null && priced[x.card.datacore]?.state === 'pricing'))}
-        alts={chars.length > 1} retry={market.retry} />
+      <Totals totals={totals} worthWhy={worthWhy} monthWhy={monthWhy} alts={chars.length > 1} retry={market.retry} />
       <div className="g-300" style={{ gap: 16 }}>
         <div className="col" style={{ gap: 6, minWidth: 0 }}>
           <span className="panel-title">When to cash in</span>
@@ -167,12 +178,43 @@ function MissionLine({ at, now }: { at: string; now: number }) {
   );
 }
 
-/** What a datacore figure says when it isn't one: "Pricing…" while the book is read, "–" with why when it can't be priced. */
-function unpricedSaid(p: Priced | undefined, retry: () => void): { v: ReactNode; n: ReactNode } {
+/** Why a listing can't price datacores, as a clause. */
+const listWhySaid = (why: ListWhy | null) => (why === 'noAsk' ? 'nothing is listed in Jita to price a listing against' : 'a listing wouldn’t cover the broker fee, tax and the agent’s fee');
+
+/**
+ * What "Worth now" says, like with like (the review of 3 October 2026): the bids' figure, with a listing beside it only
+ * when listing them all pays more; the units the bids don't take valued listed, said so; with no bid over the fee,
+ * listing as the way out; "Pricing…" while the book is read, "–" with why when nothing prices them.
+ */
+function worthSaid(card: AgentCard, p: Priced | undefined, retry: () => void): { v: ReactNode; n: ReactNode } {
+  const big = (x: number) => iskBig(Math.round(x));
+  if (card.datacores == null) return { v: '–', n: 'The points held aren’t known, so neither is what they fetch.' };
+  if (card.datacores === 0 && card.datacore != null) return { v: 'Nothing yet', n: 'No whole datacore yet.' };
   if (!p) return { v: '–', n: 'This field makes no datacore.' };
   if (p.state === 'pricing') return { v: <span className="faint">Pricing…</span>, n: 'Reading Jita’s book.' };
   if (p.state === 'failed') return { v: '–', n: <>Jita’s book couldn’t be read just now. <button type="button" className="link-btn" onClick={retry}>Try again</button></> };
-  return { v: '–', n: `No bid in Jita pays more than the ${isk(DATACORE_FEE)} fee after tax.` };
+  const s = card.sale, w = card.worth;
+  if (!s) return { v: '–', n: 'Nothing to sell.' };
+  const orListed = s.listPays && s.listed.total != null ? ` Or about ${big(s.listed.total)} listed, if you wait for a buyer.` : '';
+  if (s.bids && !s.rest) {
+    return {
+      v: big(s.bids.total),
+      n: s.listPays && s.listed.total != null ? `Into the bids now, or about ${big(s.listed.total)} listed, if you wait for a buyer.`
+        : s.listed.total != null ? 'Into the bids now: they pay at least as much as listing.'
+        : s.listed.why === 'noAsk' ? 'Into the bids now: nothing is listed in Jita to set a listing against.' : 'Into the bids now: a listing wouldn’t cover its fees.',
+    };
+  }
+  if (s.bids && s.rest) {
+    return {
+      v: big(w?.total ?? s.bids.total),
+      n: s.rest.total != null
+        ? `The bids take ${units(s.bids.units)} of ${units(card.datacores)} now (${big(s.bids.total)}); the other ${units(s.rest.units)} valued listed, about ${big(s.rest.total)}, if you wait for a buyer.${orListed}`
+        : `The bids take ${units(s.bids.units)} of ${units(card.datacores)} now; the other ${units(s.rest.units)} have no price: ${listWhySaid(s.rest.why)}.`,
+    };
+  }
+  return w
+    ? { v: big(w.total), n: `Listed, if you wait for a buyer: no bid in Jita pays more than the ${isk(DATACORE_FEE)} fee after tax, so listing is the way out.` }
+    : { v: '–', n: `No bid in Jita pays more than the ${isk(DATACORE_FEE)} fee after tax, and ${listWhySaid(s.listed.why)}.` };
 }
 
 function AgentCardView({ c, mainName, row, agent, card, now, corpName, graph, jumps, station, priced, year, retry }: {
@@ -183,15 +225,11 @@ function AgentCardView({ c, mainName, row, agent, card, now, corpName, graph, ju
   const whose = c.isMain ? 'your' : `${c.name}’s`;
   const sys = agent ? graph[agent.system] : undefined;
   const where = agent ? [station, sys ? `${sys[1]} ${secSaid(sys[0])}` : `System ${agent.system}`, jumps != null ? `${jumps} jumps from Jita` : 'off a high-sec route from Jita'].filter(Boolean).join(' · ') : null;
-  const no = unpricedSaid(priced, retry);
-  const listed = priced?.state === 'read' && card.datacores > 0 ? listedWorth(card.datacores, priced.listAt, c.tax, c.broker) : null;
-  const toGo = (card.datacores + 1) * RP_PER_DATACORE - card.rpNow;
+  const worth = worthSaid(card, priced, retry);
+  // A start that can't be read (a stored copy could carry one): the points held, and all that follows from them, unknown.
+  const started = Number.isFinite(Date.parse(row.startedAt));
+  const toGo = card.rpNow != null && card.datacores != null ? (card.datacores + 1) * RP_PER_DATACORE - card.rpNow : null;
   const should = card.rpDayShould;
-
-  const worthV: ReactNode = card.datacores === 0 ? 'Nothing yet' : card.worth ? iskBig(Math.round(card.worth.total)) : no.v;
-  const worthN: ReactNode = card.datacores === 0 ? 'No whole datacore yet.'
-    : !card.worth ? no.n
-    : <>{card.worth.units < card.datacores ? `The bids take ${units(card.worth.units)} of ${units(card.datacores)}. ` : ''}Listed: {listed ? `about ${iskBig(Math.round(listed.total))}` : '–'}</>;
 
   return (
     <article className="rd-card" aria-label={`${agent?.name ?? `Agent #${row.agentId}`}: ${field}`}>
@@ -208,27 +246,27 @@ function AgentCardView({ c, mainName, row, agent, card, now, corpName, graph, ju
         {
           l: 'RP a day', v: card.rpDay.toFixed(1), c: card.differs ? 'var(--acc2)' : undefined,
           n: <>{card.differs && should != null ? <>The formula says {should.toFixed(1)}: open the agent to update it. </> : null}
-            {card.iskDay != null ? `About ${isk(Math.round(card.iskDay))} a day at today’s bid` : priced?.state === 'pricing' ? 'ISK a day: pricing…' : null}</>,
+            {card.iskDay != null ? `About ${isk(Math.round(card.iskDay))} a day at Jita’s best bid now` : priced?.state === 'pricing' ? 'ISK a day: pricing…' : null}</>,
           tip: `ESI’s points a day: what accrues now.\n\n• The formula: (1 + (20 + 5 × Negotiation + standing with the agent) ÷ 100) × (field + agent level)², EVE University’s, checked by a player on three characters (2023).\n• At ${whose} skills and standing it gives ${should != null ? should.toFixed(1) : `nothing yet: ${!agent ? 'the agent isn’t in the app’s list' : !c.pilot.skills ? 'skills not read' : 'standings not read'}`}.\n• The game keeps the rate it set when research started, or when the agent was last opened, so a skill or standing gained since shows only once you open the agent. Said when the two differ by more than 2 RP or 2%.`,
         },
         {
-          l: 'RP held now', v: card.rpNow.toFixed(2),
-          n: `Since ${fmtDate(row.startedAt)}, ticking`,
-          tip: `CCP’s formula from ESI: the points ESI read as left over, plus ${card.rpDay.toFixed(1)} a day since the research started (${fmtDateTime(row.startedAt)}).\n\n• No one reports a cap: they pile up until bought.\n• What a purchase does to the start and the points left over hasn’t been seen yet.`,
+          l: 'RP held now', v: card.rpNow != null ? card.rpNow.toFixed(2) : '–',
+          n: card.rpNow != null && started ? `Since ${fmtDate(row.startedAt)}, ticking` : 'The read’s start time can’t be read, so the points held aren’t known.',
+          tip: `CCP’s formula from ESI: the points ESI read as left over, plus ${card.rpDay.toFixed(1)} a day since the research started${started ? ` (${fmtDateTime(row.startedAt)})` : ''}.\n\n• No one reports a cap: they pile up until bought.\n• What a purchase does to the start and the points left over hasn’t been seen yet.`,
         },
         {
-          l: 'Datacores you can buy', v: units(card.datacores),
+          l: 'Datacores you can buy', v: card.datacores != null ? units(card.datacores) : '–',
           n: `${RP_PER_DATACORE} RP each, assumed: CCP 2012; CCP’s support page says 50–150 by field`,
           tip: `Whole datacores the points held buy, at ${RP_PER_DATACORE} research points and ${isk(DATACORE_FEE)} each, from ${agent?.name ?? 'the agent'} in person (Buy Datacores).\n\n• ${RP_PER_DATACORE} RP is CCP’s 2012 dev blog and the static data; CCP’s support page (2024) says 50, 100 or 150 by field. The app uses ${RP_PER_DATACORE} until a purchase shows otherwise.`,
         },
         {
-          l: 'Worth now', v: worthV, n: worthN,
-          tip: `Sold into Jita’s bids now, best first, after ${whose} sales tax and the agent’s ${isk(DATACORE_FEE)} fee each. Bids of any of your characters are left out: selling into your own is no sale.\n\n• Listed: one step under the cheapest listing where trading reaches it (as Orders prices a listing), after sales tax, the broker fee and the fee. More, but it waits for a buyer.\n• Today’s prices: the datacores aren’t sold until you buy them from the agent.`,
+          l: 'Worth now', v: worth.v, n: worth.n,
+          tip: `What the datacores fetch now: sold into Jita’s bids, best first, after ${whose} sales tax and the agent’s ${isk(DATACORE_FEE)} fee each. Bids of any of your characters are left out: selling into your own is no sale.\n\n• What the bids don’t take is valued listed, and with no bid over the fee all of them are: listing is then the way out.\n• Listed: one step under the cheapest listing where trading reaches it (as Orders prices a listing), after sales tax, the broker fee and the fee. It waits for a buyer, and is said beside the bids only when listing them all pays more.\n• Jita’s book is read again every five minutes while this tab is open. Nothing is sold until you buy the datacores from the agent.`,
         },
         {
           l: 'Next datacore in', v: card.nextInMs != null ? trainSaid(card.nextInMs) : '–',
-          n: card.nextInMs != null ? `${toGo.toFixed(1)} RP to go` : 'No points coming in',
-          tip: `At ESI’s ${card.rpDay.toFixed(1)} RP a day: ${toGo.toFixed(1)} research points to the next ${RP_PER_DATACORE}.`,
+          n: card.nextInMs != null && toGo != null ? `${toGo.toFixed(1)} RP to go` : toGo == null ? 'The points held aren’t known.' : 'No points coming in',
+          tip: toGo != null ? `At ESI’s ${card.rpDay.toFixed(1)} RP a day: ${toGo.toFixed(1)} research points to the next ${RP_PER_DATACORE}.` : 'The read’s start time can’t be read, so the points held, and when the next datacore comes, aren’t known.',
         },
       ]} />
       {year && (
@@ -248,13 +286,23 @@ function yearSaid(y: NonNullable<ReturnType<typeof yearPercentile>>): string {
   return `higher than ${pct(y.above, 0)} of its year’s days`;
 }
 
+/** Why a total isn't summed: agents whose book is still read, couldn't be read, or was read with no price in it. */
+type Why = { pricing: number; failed: number; noPrice: number };
+const agentsSaid = (n: number, one: string, many: string) => `${n} agent${n === 1 ? one : many}`;
+
 /** The totals across characters: only those whose research was read, the count said; a part unpriced is no sum. */
-function Totals({ totals: t, anyPricing, alts, retry }: { totals: ReturnType<typeof researchTotals>; anyPricing: boolean; alts: boolean; retry: () => void }) {
+function Totals({ totals: t, worthWhy, monthWhy, alts, retry }: { totals: ReturnType<typeof researchTotals>; worthWhy: Why; monthWhy: Why; alts: boolean; retry: () => void }) {
   const counted = [t.mainRead ? 'yours' : 'yours not read', alts ? `${t.alts.read} of ${t.alts.of} alt${t.alts.of === 1 ? '' : 's'} read` : null].filter(Boolean).join(', ');
-  const missing = (n: number, v: number | null): { v: ReactNode; n: ReactNode } => (v != null ? { v: iskBig(Math.round(v)), n: null }
-    : anyPricing ? { v: <span className="faint">Pricing…</span>, n: null }
-    : { v: '–', n: <>{n} agent{n === 1 ? '’s' : 's’'} datacores couldn’t be priced, so nothing is summed. <button type="button" className="link-btn" onClick={retry}>Try again</button></> });
-  const worth = missing(t.unpriced, t.worth), month = missing(t.monthUnpriced, t.iskMonth);
+  const unknownSaid = t.unknown ? `${agentsSaid(t.unknown, '’s', 's’')} points can’t be worked out (the read’s start time can’t be read)` : null;
+  // "Try again" only for a book that couldn't be read; a book read with nothing in it to price says so, with nothing to retry.
+  const missing = (v: number | null, why: Why, noPrice: string, unknown: string | null): { v: ReactNode; n: ReactNode } => {
+    if (v != null) return { v: iskBig(Math.round(v)), n: null };
+    if (why.pricing) return { v: <span className="faint">Pricing…</span>, n: null };
+    const parts = [why.failed ? `${agentsSaid(why.failed, '’s book', 's’ books')} couldn’t be read just now` : null, why.noPrice ? `${agentsSaid(why.noPrice, '', 's')} ${noPrice}` : null, unknown].filter(Boolean);
+    return { v: '–', n: <>{parts.join('; ')}, so nothing is summed.{why.failed ? <> <button type="button" className="link-btn" onClick={retry}>Try again</button></> : null}</> };
+  };
+  const worth = missing(t.worth, worthWhy, `${worthWhy.noPrice === 1 ? 'has' : 'have'} no price in Jita now: no bid over the fee, and no listing to price them at that covers the fees`, unknownSaid);
+  const month = missing(t.iskMonth, monthWhy, `${monthWhy.noPrice === 1 ? 'has' : 'have'} no bid over the fee in Jita now`, null);
   return (
     <div className="col" style={{ gap: 8 }} data-research="totals">
       <div className="rd-char-head">
@@ -263,9 +311,9 @@ function Totals({ totals: t, anyPricing, alts, retry }: { totals: ReturnType<typ
       </div>
       <Tiles min={170} items={[
         { l: 'RP a day', v: t.rpDay.toFixed(1), n: 'ESI’s rates, added up', tip: 'Every running agent’s points a day as ESI gives them, for the characters whose research was read.' },
-        { l: 'Datacores waiting', v: units(t.datacores), n: `Whole, at ${RP_PER_DATACORE} RP each (assumed)`, tip: 'Each agent’s whole datacores, added up: points held with one agent buy only its own field’s datacores.' },
-        { l: 'Worth now', v: worth.v, n: worth.n ?? 'Sold into Jita’s bids after tax and the fee', tip: 'Each agent’s datacores walked down its field’s bids in Jita, after its character’s sales tax and the 10,000 ISK fee each. Nothing is summed while any agent’s datacores can’t be priced.' },
-        { l: 'A month', v: month.v, n: month.n ?? 'At today’s rates and bids', tip: 'Thirty days of every running agent at ESI’s points a day, each datacore at today’s best bid in Jita after tax and the fee. Daily missions would add about as much again; nothing here counts them.' },
+        { l: 'Datacores waiting', v: t.datacores != null ? units(t.datacores) : '–', n: t.datacores != null ? `Whole, at ${RP_PER_DATACORE} RP each (assumed)` : `${unknownSaid}, so nothing is summed.`, tip: 'Each agent’s whole datacores, added up: points held with one agent buy only its own field’s datacores.' },
+        { l: 'Worth now', v: worth.v, n: worth.n ?? 'Into Jita’s bids, the rest listed', tip: 'Each agent’s Worth now, added up: its datacores sold into its field’s bids in Jita after its character’s sales tax and the 10,000 ISK fee each, and any the bids don’t take valued listed. Nothing is summed while any agent’s can’t be.\n\nJita’s books are read again every five minutes while this tab is open.' },
+        { l: 'A month', v: month.v, n: month.n ?? 'At ESI’s rates and Jita’s best bids now', tip: 'Thirty days of every running agent at ESI’s points a day, each datacore at Jita’s best bid now, after tax and the fee. Daily missions would add about as much again; nothing here counts them.' },
       ]} />
     </div>
   );

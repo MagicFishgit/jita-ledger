@@ -59,6 +59,9 @@ export type ResearchAlts = { roster: RosterEntry[]; alts: Record<number, AltSave
 
 const NO_ALT = emptyAlt();
 
+/** A read time as a number, or null when there's none or it can't be read: never NaN, which a date can't be made from. */
+const timeOf = (iso: string | undefined): number | null => { const t = iso ? Date.parse(iso) : NaN; return Number.isFinite(t) ? t : null; };
+
 /** A character's open Jita 4-4 orders, as the Research tab weighs them. */
 const openInJita = (orders: Record<string, Order>): ResearchChar['own'] => Object.values(orders)
   .filter((o) => o.state === 'open' && o.locationId === JITA_44)
@@ -76,9 +79,9 @@ export function useResearchChars(alts: ResearchAlts): ResearchChar[] {
     const main: ResearchChar = {
       charId: mainId, name: mainName, isMain: true,
       pilot: pilotFrom({ skills, meta, settings }, { charId: mainId, name: mainName, isMain: true }, false),
-      standings: meta.standings ? { state: 'read', list: meta.standings.list, at: meta.standings.at ? Date.parse(meta.standings.at) : null }
+      standings: meta.standings ? { state: 'read', list: meta.standings.list, at: timeOf(meta.standings.at) }
         : canStandings ? { state: 'unread' } : { state: 'login' },
-      research: meta.research ? { state: 'read', agents: meta.research.agents, at: meta.research.at ? Date.parse(meta.research.at) : null }
+      research: meta.research ? { state: 'read', agents: meta.research.agents, at: timeOf(meta.research.at) }
         : canResearch ? { state: 'unread' } : { state: 'login' },
       tax: rates(settings).t, broker: rates(settings).f,
       own: openInJita(orders),

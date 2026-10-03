@@ -51,6 +51,7 @@ const ALL_V: Record<number, number> = Object.fromEntries([...Object.keys(FIELDS)
 
 type Market = ReturnType<typeof useResearchMarket>;
 const DATACORES = Object.values(DATACORE_OF);
+const REREAD: Want[] = DATACORES.map((t) => `b:${t}` as const);
 
 export function Research() {
   // The alt store is read here because this is the tab allowed to read it (scripts/check.mjs keeps the list).
@@ -86,7 +87,8 @@ export function Research() {
   const books = useMemo(() => (walkOpen ? [...Object.keys(FIELDS).map(Number), SKILL.science, SKILL.labOp, SKILL.research, SKILL.rpm, SKILL.negotiation, SKILL.connections, SKILL.mechanics, SKILL.cpu, SKILL.powerGrid]
     .filter((id) => skills?.[id] == null) : []), [skills, walkOpen]);
   const wants = useMemo<Want[]>(() => [...DATACORES.map((t) => `b:${t}` as const), ...DATACORES.map((t) => `h:${t}` as const), ...books.map((t) => `b:${t}` as const)], [books]);
-  const market = useResearchMarket(wants);
+  // The datacores' books are read again every five minutes while the tab is in view: the cards' points tick.
+  const market = useResearchMarket(wants, REREAD);
   const corpName = (id: number) => (bundle && bundle !== 'failed' ? bundle.names?.[id] : undefined) ?? `Corporation #${id}`;
 
   return (

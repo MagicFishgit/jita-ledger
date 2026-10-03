@@ -34,29 +34,56 @@ export type AgentCard = {
    * the old rate until the agent is reopened (forum 419534, 2023), so a skill or standing gained since reads lower.
    */
   differs: boolean;
-  /** Points held now: CCP's formula, the remainder plus points a day since the start. */
-  rpNow: number;
-  /** Whole datacores the points buy at RP_PER_DATACORE (assumed). */
-  datacores: number;
   /**
-   * Those datacores walked down the bids given after sales tax, less the fee each (`datacoreValue`): `units` is how many
-   * the bids take. Null without a bid paying over the fee; a known nothing with no whole datacore yet.
+   * Points held now: CCP's formula, the remainder plus points a day since the start. Null when the read's start can't be
+   * read (`toResearch` leaves such rows out, but a stored copy could carry one): not known, never NaN.
+   */
+  rpNow: number | null;
+  /** Whole datacores the points buy at RP_PER_DATACORE (assumed); null when the points aren't known. */
+  datacores: number | null;
+  /**
+   * What the datacores fetch now (`sale`): sold into the bids where one pays over the fee, the units the bids don't take
+   * valued listed. `units` is how many that covers. A known nothing with no whole datacore yet; null when nothing prices
+   * any, or the points aren't known.
    */
   worth: { total: number; units: number } | null;
+  /** How they sell, said on the card; null with no whole datacore, no datacore for the field, or the points not known. */
+  sale: Sale | null;
   /** ISK a day at ESI's rate: RP a day ÷ RP_PER_DATACORE × one datacore at the top bid after tax and the fee; null unpriced. */
   iskDay: number | null;
   /** Until the next whole datacore at ESI's rate; null while the rate is 0. */
   nextInMs: number | null;
 };
 
+/** Why a listing can't price datacores: nothing listed to set a price against, or a price that doesn't cover the fees. */
+export type ListWhy = 'noAsk' | 'noCover';
+
+/**
+ * How a running agent's datacores sell, like with like (the review of 3 October 2026 caught "Listed" under "Worth now"
+ * beside a tip calling listing more: it priced every datacore at one ask, against bids walked for the units they take).
+ * - `bids`: what Jita's bids take now, after tax and the fee each; null when no bid pays over the fee.
+ * - `rest`: the units the bids don't take (all of them with no bid), valued listed; `total` null with `why` when a
+ *   listing can't price them. Null when the bids take them all.
+ * - `listed`: every one of them listed instead, to set against the bids.
+ * - `listPays`: there are bids, and listing every one pays more than the worth (bids plus the rest listed).
+ */
+export type Sale = {
+  bids: { total: number; units: number } | null;
+  rest: { units: number; total: number | null; why: ListWhy | null } | null;
+  listed: { total: number | null; why: ListWhy | null };
+  listPays: boolean;
+};
+
 /**
  * A running agent's card. `agent` is the bundle's (null when it doesn't hold it); `skills` the character's trained levels
  * (undefined: not read); `standings` raw, as ESI gives them (null: not read; none for the agent is no standing); `bids`
- * the field's datacore's Jita bids, the character's own taken out (null: not read, or couldn't be); `salesTax` the
- * character's own rate.
+ * the field's datacore's Jita bids with every character's own taken out (`othersSide`; null: not read, or couldn't be);
+ * `salesTax` the character's own rate; `list` where a listing would sell (fills.ts' `listingPrice` on others' listings,
+ * null with none) and the character's broker fee. Anything else that values datacores (To do, the Wallet) passes the
+ * same, so its worth is the card's.
  */
 export function agentCard(row: ResearchRow, agent: RdAgent | null, skills: Record<number, number> | undefined, standings: StandingRow[] | null,
-  bids: { price: number; volume: number }[] | null, salesTax: number, now: number): AgentCard {
+  bids: { price: number; volume: number }[] | null, salesTax: number, now: number, list: { at: number | null; brokerFee: number }): AgentCard {
   const datacore = DATACORE_OF[row.skillTypeId] ?? null;
   let rpDayShould: number | null = null;
   if (agent && skills && standings) {
@@ -68,16 +95,42 @@ export function agentCard(row: ResearchRow, agent: RdAgent | null, skills: Recor
   }
   const gap = rpDayShould == null ? 0 : Math.abs(row.pointsPerDay - rpDayShould);
   const differs = rpDayShould != null && (gap > RATE_TOLERANCE.rp || gap > RATE_TOLERANCE.share * rpDayShould);
-  const held = rpNow(row, now);
-  const datacores = datacoresFor(held);
-  const walked = datacore == null ? null : datacores === 0 ? { total: 0, units: 0 } : datacoreValue(bids, datacores, salesTax);
+  const started = Number.isFinite(Date.parse(row.startedAt));
+  const held = started ? rpNow(row, now) : null;
+  const datacores = held == null ? null : datacoresFor(held);
   const top = datacore == null ? null : datacoreValue(bids, 0, salesTax)?.perUnit ?? null;
+  const sale = datacore == null || datacores == null || datacores === 0 ? null : saleOf(datacores, bids, salesTax, list);
+  const worth = datacores === 0 && datacore != null ? { total: 0, units: 0 } : sale ? worthOf(sale) : null;
   return {
-    agentId: row.agentId, field: row.skillTypeId, datacore, rpDay: row.pointsPerDay, rpDayShould, differs, rpNow: held, datacores,
-    worth: walked && { total: walked.total, units: walked.units },
+    agentId: row.agentId, field: row.skillTypeId, datacore, rpDay: row.pointsPerDay, rpDayShould, differs, rpNow: held, datacores, worth,
+    sale: sale && { ...sale, listPays: !!sale.bids && sale.listed.total != null && worth != null && sale.listed.total > worth.total },
     iskDay: top == null ? null : row.pointsPerDay / RP_PER_DATACORE * top,
-    nextInMs: row.pointsPerDay > 0 ? ((datacores + 1) * RP_PER_DATACORE - held) / row.pointsPerDay * DAY_MS : null,
+    nextInMs: held != null && datacores != null && row.pointsPerDay > 0 ? ((datacores + 1) * RP_PER_DATACORE - held) / row.pointsPerDay * DAY_MS : null,
   };
+}
+
+/** How `units` datacores sell (Sale, `listPays` set by the card once the worth is known). */
+function saleOf(units: number, bids: { price: number; volume: number }[] | null, salesTax: number, list: { at: number | null; brokerFee: number }): Sale {
+  const listing = (n: number): { total: number | null; why: ListWhy | null } => {
+    if (list.at == null || !(list.at > 0)) return { total: null, why: 'noAsk' };
+    const v = listedWorth(n, list.at, salesTax, list.brokerFee);
+    return v ? { total: v.total, why: null } : { total: null, why: 'noCover' };
+  };
+  const b = datacoreValue(bids, units, salesTax);
+  const taken = b?.units ?? 0;
+  return {
+    bids: b && { total: b.total, units: b.units },
+    rest: taken < units ? { units: units - taken, ...listing(units - taken) } : null,
+    listed: listing(units),
+    listPays: false,
+  };
+}
+
+/** The worth a sale comes to: the bids' part and the rest listed, where each is priced; null when neither is. */
+function worthOf(s: Sale): { total: number; units: number } | null {
+  const rest = s.rest?.total != null ? { total: s.rest.total, units: s.rest.units } : null;
+  if (!s.bids && !rest) return null;
+  return { total: (s.bids?.total ?? 0) + (rest?.total ?? 0), units: (s.bids?.units ?? 0) + (rest?.units ?? 0) };
 }
 
 /** An open order of one of your characters in Jita 4-4, as the Research tab weighs a book. */
@@ -97,11 +150,15 @@ export function othersSide(levels: BookLevel[], own: OwnOrder[], typeId: number,
 export type CharCards = { charId: number; isMain: boolean; read: boolean; cards: AgentCard[] };
 
 export type ResearchTotals = {
-  agents: number; rpDay: number; datacores: number;
-  /** What every waiting datacore fetches; null when any card with datacores waiting couldn't be valued (never a part-sum), or no agent counts. */
+  agents: number; rpDay: number;
+  /** Whole datacores waiting; null when any card's points aren't known (never a part-sum). */
+  datacores: number | null;
+  /** What every waiting datacore fetches; null when any card with datacores waiting couldn't be valued, or whose points aren't known (never a part-sum), or no agent counts. */
   worth: number | null;
   /** Cards with datacores waiting and no worth. */
   unpriced: number;
+  /** Cards whose points held aren't known (a start that can't be read). */
+  unknown: number;
   /** Thirty days at ESI's rates and today's top bids; null when any card's ISK a day is unknown, or no agent counts. */
   iskMonth: number | null;
   monthUnpriced: number;
@@ -117,15 +174,16 @@ export type ResearchTotals = {
  */
 export function researchTotals(chars: CharCards[]): ResearchTotals {
   const counted = chars.filter((c) => c.read).flatMap((c) => c.cards);
-  const unpriced = counted.filter((x) => x.datacores > 0 && x.worth == null).length;
+  const unknown = counted.filter((x) => x.datacores == null).length;
+  const unpriced = counted.filter((x) => x.datacores != null && x.datacores > 0 && x.worth == null).length;
   const monthUnpriced = counted.filter((x) => x.iskDay == null).length;
   const alts = chars.filter((c) => !c.isMain);
   return {
     agents: counted.length,
     rpDay: counted.reduce((n, x) => n + x.rpDay, 0),
-    datacores: counted.reduce((n, x) => n + x.datacores, 0),
-    worth: !counted.length || unpriced ? null : counted.reduce((n, x) => n + (x.worth?.total ?? 0), 0),
-    unpriced,
+    datacores: unknown ? null : counted.reduce((n, x) => n + (x.datacores ?? 0), 0),
+    worth: !counted.length || unpriced || unknown ? null : counted.reduce((n, x) => n + (x.worth?.total ?? 0), 0),
+    unpriced, unknown,
     iskMonth: !counted.length || monthUnpriced ? null : counted.reduce((n, x) => n + (x.iskDay ?? 0), 0) * 30,
     monthUnpriced,
     mainRead: chars.some((c) => c.isMain && c.read),

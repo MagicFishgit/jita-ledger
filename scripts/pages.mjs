@@ -874,6 +874,10 @@ try {
     const now = Date.now(), iso = (t) => new Date(t).toISOString();
     const BID = { 20418: 92700, 20416: 92610, 20411: 92360, 20413: 91950, 20420: 88170, 20414: 88070, 25887: 88010, 20412: 88010, 20417: 88000,
       20171: 87050, 20415: 87000, 20423: 86100, 20419: 85630, 20421: 81590, 20410: 80010, 20172: 52370, 20424: 25060 };
+    // Electronic Engineering's bids hold only 4 (Shitsu Ashoma's six: 4 into the bids, the other 2 valued listed); Graviton
+    // Physics' best bid is under the 10,000 ISK fee, with a listing at 85,000 (Okila Tsurvalen's one: listing is the way
+    // out). The histories stay at the bids above, so the walkthrough's year and a listing's reach read as before.
+    const BOOK = { 20418: { volume: 4 }, 20419: { bid: 9_000, ask: 85_000 } };
     const ledger = {
       // Graviton Physics III for Okila Tsurvalen's card: its rate should be 35, where ESI still says 33.75.
       skills: { 3402: 5, 3426: 5, 3413: 5, 3392: 5, 11453: 4, 11446: 3, 3356: 4, 3359: 4, 3355: 4 },
@@ -926,11 +930,11 @@ try {
       // Mechanical Engineering's book can't be read: the six-agents tile must say so, never a smaller month as if complete.
       if (url.pathname === '/markets/10000002/orders/' && type === 20424) return route.abort();
       if (url.pathname === '/markets/10000002/orders/') {
-        const bid = BID[type];
+        const bid = BID[type], o = BOOK[type] ?? {};
         // A datacore's bids, deepest first, and a listing; a skillbook (anything else asked) one listing at 1.5 M.
         return json(bid ? [
-          { order_id: type * 10 + 1, type_id: type, location_id: 60003760, is_buy_order: true, price: bid, volume_remain: 4000, volume_total: 5000, issued: iso(now - 86400_000), duration: 90, min_volume: 1, range: 'station' },
-          { order_id: type * 10 + 2, type_id: type, location_id: 60003760, is_buy_order: false, price: Math.round(bid * 1.05), volume_remain: 900, volume_total: 1000, issued: iso(now - 86400_000), duration: 90, min_volume: 1, range: 'region' },
+          { order_id: type * 10 + 1, type_id: type, location_id: 60003760, is_buy_order: true, price: o.bid ?? bid, volume_remain: o.volume ?? 4000, volume_total: 5000, issued: iso(now - 86400_000), duration: 90, min_volume: 1, range: 'station' },
+          { order_id: type * 10 + 2, type_id: type, location_id: 60003760, is_buy_order: false, price: o.ask ?? Math.round(bid * 1.05), volume_remain: 900, volume_total: 1000, issued: iso(now - 86400_000), duration: 90, min_volume: 1, range: 'region' },
         ] : [{ order_id: type * 10 + 3, type_id: type, location_id: 60003760, is_buy_order: false, price: 1_500_000, volume_remain: 5, volume_total: 5, issued: iso(now - 86400_000), duration: 90, min_volume: 1, range: 'region' }]);
       }
       if (url.pathname === '/markets/10000002/history/' && BID[type]) {
@@ -978,17 +982,25 @@ try {
       'Hand the cloud Alpha Alt’s login again: it was handed over without the permission to read R&D agents.',
       'Not read: EVE refused Lost Alt’s login; hand it over again on the Characters page.',
       // The totals count only the characters read, and say so; Mechanical Engineering's book refused: no part-sum.
-      '3 agents: yours, 1 of 4 alts read.', '1 agent’s datacores couldn’t be priced, so nothing is summed',
+      '3 agents: yours, 1 of 4 alts read.',
+      // Worth now: Itirikko's book couldn't be read (Try again); the month also misses Okila's, read with no bid over the fee.
+      '1 agent’s book couldn’t be read just now, so nothing is summed.',
+      '1 agent’s book couldn’t be read just now; 1 agent has no bid over the fee in Jita now, so nothing is summed.',
+      // Like with like (the review of 3 October 2026): the bids take 4 of Shitsu's 6, the other 2 valued listed; Okila's
+      // one has no bid over the fee, so listing is the way out.
+      'The bids take 4 of 6 now (', 'the other 2 valued listed, about',
+      'Listed, if you wait for a buyer: no bid in Jita pays more than the 10,000 ISK fee after tax, so listing is the way out.',
       '100 RP each, assumed: CCP 2012; CCP’s support page says 50–150 by field'])
       if (!track.includes(t)) problems.push(`not drawn in the tracking: “${t}”`);
     // Titles and tile labels are drawn in capitals (innerText follows the CSS).
     for (const t of ['Datacores you can buy', 'When to cash in', 'Daily missions']) if (!track.toLowerCase().includes(t.toLowerCase())) problems.push(`not drawn in the tracking: “${t}”`);
     if (/mission[^.]*waiting/i.test(track)) problems.push('the tracking says a mission is waiting: EVE only said one was offered');
     if (/No agents running/.test(track)) problems.push('the tracking says “No agents running” where research wasn’t read');
+    if (/Listed: –|NaN/.test(track)) problems.push('the tracking says “Listed: –” without a reason, or NaN');
     const tilesOf = async (agent) => page.locator('.rd-card', { hasText: agent }).first().locator('.tile').evaluateAll((ts) => Object.fromEntries(ts.map((t) => [t.querySelector('.tile-l')?.firstChild?.textContent?.trim(), t.querySelector('.tile-v')?.textContent?.trim()]))).catch(() => ({}));
     const shitsu = await tilesOf('Shitsu Ashoma'), itirikko = await tilesOf('Itirikko Innishi'), okila = await tilesOf('Okila Tsurvalen');
     if (shitsu['RP a day'] !== '50.4' || shitsu['Datacores you can buy'] !== '6' || !/ISK$/.test(shitsu['Worth now'] ?? '')) problems.push(`Shitsu Ashoma’s card isn’t 50.4 RP a day, six datacores and a worth in ISK: ${JSON.stringify(shitsu)}`);
-    if (okila['RP a day'] !== '33.8' || okila['Datacores you can buy'] !== '1') problems.push(`Okila Tsurvalen’s card isn’t ESI’s 33.75 a day and one datacore: ${JSON.stringify(okila)}`);
+    if (okila['RP a day'] !== '33.8' || okila['Datacores you can buy'] !== '1' || !/ISK$/.test(okila['Worth now'] ?? '')) problems.push(`Okila Tsurvalen’s card isn’t ESI’s 33.75 a day and one datacore worth a listing in ISK: ${JSON.stringify(okila)}`);
     if (itirikko['Datacores you can buy'] !== '1' || itirikko['Worth now'] !== '–') problems.push(`Itirikko Innishi’s card, its book refused, isn’t one datacore worth “–”: ${JSON.stringify(itirikko)}`);
     if (!(await page.locator('.rd-card', { hasText: 'Itirikko Innishi' }).innerText().catch(() => '')).includes('Jita’s book couldn’t be read just now')) problems.push('Itirikko Innishi’s card doesn’t say why its worth is “–”');
     const totalsTiles = await page.locator('[data-research="totals"] .tile').evaluateAll((ts) => Object.fromEntries(ts.map((t) => [t.querySelector('.tile-l')?.firstChild?.textContent?.trim(), t.querySelector('.tile-v')?.textContent?.trim()]))).catch(() => ({}));
