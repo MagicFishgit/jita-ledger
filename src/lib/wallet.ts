@@ -59,6 +59,9 @@ const OUT: Record<string, Category> = {
   planets: { key: 'planets', label: 'Planets', kind: 'Business' },
   lp: { key: 'lp', label: 'Loyalty store', kind: 'Business' },
   industry: { key: 'industry', label: 'Industry', kind: 'Business' },
+  // What an R&D agent charges for each datacore on top of its points (10,000 ISK, CCP): a cost of the research, which
+  // fell to "Other spending" until 3 October 2026. None in the user's journal yet, so no recorded figure moved.
+  datacores: { key: 'datacores', label: 'Datacores from agents', kind: 'Business' },
   clones: { key: 'clones', label: 'Jump clones', kind: 'Personal' },
   skills: { key: 'skills', label: 'Skills', kind: 'Personal' },
   donation: { key: 'donationOut', label: 'Donations given', kind: 'Personal' },
@@ -108,6 +111,7 @@ export function categoryOf(e: Pick<JournalEntry, 'refType' | 'amount' | 'firstPa
   if (r === 'office_rental_fee') return OUT.rent;
   if (r.startsWith('planetary_')) return OUT.planets;
   if (r === 'lp_store') return OUT.lp;
+  if (r === 'datacore_fee') return OUT.datacores;
   if (has(['industry_job_tax', 'manufacturing', 'researching_material_productivity', 'researching_technology',
     'researching_time_productivity', 'copying', 'reaction', 'reprocessing_tax', 'reverse_engineering'], r)) return OUT.industry;
   if (has(['jump_clone_activation_fee', 'jump_clone_installation_fee', 'clone_activation', 'clone_transfer'], r)) return OUT.clones;
@@ -143,7 +147,7 @@ const REF_SAID: Record<string, string> = {
   ess_escrow_transfer: 'ESS payouts', insurance: 'Insurance payouts', brokers_fee: 'Broker fees', transaction_tax: 'Sales tax',
   asset_safety_recovery_tax: 'Asset safety fee', contract_price: 'Contract prices', contract_reward: 'Courier rewards', lp_store: 'Loyalty store',
   corporation_account_withdrawal: 'Corporation withdrawals', daily_goal_payouts: 'Daily goal payouts', skill_purchase: 'Skill books',
-  air_career_program_reward: 'AIR career program rewards', daily_goal_payouts_tax: 'Tax on daily goal payouts',
+  air_career_program_reward: 'AIR career program rewards', daily_goal_payouts_tax: 'Tax on daily goal payouts', datacore_fee: 'Datacore fees',
 };
 export const refSaid = (r: string) => REF_SAID[r] ?? (r.charAt(0).toUpperCase() + r.slice(1).replace(/_/g, ' '));
 

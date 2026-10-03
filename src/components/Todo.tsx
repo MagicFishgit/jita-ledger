@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, Check, CheckCheck, CircleDollarSign, CircleX, CloudAlert, Factory, Truck, GitPullRequestArrow, HardDriveDownload, Keyboard, Layers, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, ShoppingCart, Tag, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
+import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, Check, CheckCheck, CircleDollarSign, CircleX, CloudAlert, Factory, FlaskConical, Truck, GitPullRequestArrow, HardDriveDownload, Keyboard, Layers, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, ShoppingCart, Tag, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
 import { getAuth, loginForCloud, loginMailerForCloud } from '../lib/auth';
 import { breakEvenSpread, rates } from '../lib/fees';
 import { ago, fmtDateTime, isk, iskBig, units } from '../lib/format';
 import { navigate, useAuth, useNow } from '../lib/hooks';
-import { openMarketWindow } from '../lib/market';
+import { openMarketWindow, resolveNames, setDestination } from '../lib/market';
 import { checkOrders, costBasis, getOrderCheck, jitaOpen, useOrderCheck, verdicts } from '../lib/orderCheck';
 import { computePosition, finishedPosition } from '../lib/positions';
 import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  feedsQueueItem, inFilter, judgeAltLogin, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, planListItem, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
+  cashInItem, feedsQueueItem, inFilter, judgeAltLogin, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, planListItem, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
   type Entry, type Memory, type TodoFilter, type TodoItem, type TodoKind,
 } from '../lib/todo';
 import type { IndustryJob } from '../lib/types';
@@ -23,10 +23,13 @@ import { LOGIN_STOPS } from '../lib/watchdog';
 import { planPlacement, planTargets } from '../lib/plans';
 import { planListRow } from '../lib/positions';
 import { usePlanListing } from './planListing';
-import { useAltRoster, useRosterAt, useRosterLive } from '../lib/altStore';
-import { loginState } from '../lib/roster';
+import { useAltCopies, useAltRoster, useRosterAt, useRosterLive } from '../lib/altStore';
+import { jobOk, loginState } from '../lib/roster';
+import { FIELDS } from '../lib/researchStart';
+import { useResearchChars } from './hustles/researchChars';
+import { useRunningResearch } from './hustles/researchWorth';
 import { cloudCovers, useCloud } from '../lib/cloud';
-import { JITA_44 } from '../lib/config';
+import { JITA_44, SCOPE } from '../lib/config';
 import { toast } from '../lib/toast';
 import { canOpenInGame, copyPrice, downloadText, useEnsureNames, useTypeName } from './common';
 import { cssVars, Empty, Guide, PageHead, Ring, Seg } from './ui';
@@ -65,6 +68,7 @@ const LOOK: Record<TodoKind, { Icon: typeof Check; c: string }> = {
   cloudLogin: { Icon: CloudAlert, c: 'var(--neg)' },
   industry: { Icon: Factory, c: 'var(--acc)' },
   courier: { Icon: Truck, c: 'var(--acc2)' },
+  cashIn: { Icon: FlaskConical, c: 'var(--acc)' },
 };
 
 /** Industry activities by ESI's activity_id, as the Industry window names them. */
@@ -84,6 +88,8 @@ function saveMem(mem: Memory) {
 
 /** The part of a key after its kind: an order, pin or position ID. */
 const idOf = (key: string) => key.slice(key.indexOf(':') + 1).split(':')[0];
+/** A read time as a number; null when there's none or it can't be read. */
+const timeOf = (iso: string | undefined): number | null => { const v = iso ? Date.parse(iso) : NaN; return Number.isFinite(v) ? v : null; };
 
 export function Todo() {
   const d = useData();
@@ -98,6 +104,21 @@ export function Todo() {
   const roster = useAltRoster();
   const rosterAt = useRosterAt();
   const rosterLive = useRosterLive();
+  // R&D agents past the cash-in amount (the Research tab's reminder): every character's research, the main's from the
+  // ledger and each alt's from its pulled copy, valued as the tab's cards value it. Nothing is read while it's off.
+  const copies = useAltCopies();
+  const researchChars = useResearchChars(useMemo(() => ({ roster, alts: copies }), [roster, copies]));
+  const cashSetting = d.prefs.researchCashIn;
+  const research = useRunningResearch(researchChars, now, !!cashSetting?.on);
+  const agentSystems = [...new Set(research.blocks.flatMap((b) => b.cards.map((x) => x.agent?.system)).filter((s): s is number => s != null))].sort((a, b) => a - b).join(',');
+  const [systemNames, setSystemNames] = useState<Record<number, string>>({});
+  useEffect(() => {
+    if (!agentSystems) return;
+    let alive = true;
+    resolveNames(agentSystems.split(',').map(Number)).then((n) => { if (alive) setSystemNames(n); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [agentSystems]);
+  const canDest = (auth?.scopes ?? []).includes(SCOPE.waypoint);
   const inCloud = cloudCovers(cloud);
   const [mem, setMem] = useState<Memory>(readMem);
   // Another tab on this page saves its own view of the session: take it, so the two don't overwrite each other.
@@ -344,6 +365,23 @@ export function Todo() {
         action: { label: 'Characters', route: 'characters' },
       });
     }
+    // R&D agents whose datacores waiting are worth more than your amount: one item each, once the field's bid is read and
+    // the agents bundle has named them. The worth is the tab's card's own (researchWorth.ts). The main's button sets the
+    // destination to the agent's station as it opens the tab; an alt's points are spent by the alt, in person.
+    if (research.bundle) {
+      for (const b of research.blocks) {
+        for (const x of b.cards) {
+          const dc = x.card.datacore;
+          const dest = b.c.isMain && canDest && x.agent ? x.agent.station : undefined;
+          const it = cashInItem({
+            char: { id: b.c.charId, name: b.c.name, isMain: b.c.isMain }, agentId: x.row.agentId, agent: x.agent?.name ?? `Agent #${x.row.agentId}`,
+            system: x.agent ? systemNames[x.agent.system] ?? null : null, field: FIELDS[x.row.skillTypeId]?.name ?? 'its field',
+            datacores: x.card.datacores, worth: x.card.worth?.total ?? null, bidRead: dc != null && research.priced[dc]?.state === 'read',
+          }, cashSetting, dest != null ? { label: 'Set destination', route: 'hustles/research', dest } : { label: 'Open Research', route: 'hustles/research' });
+          if (it) out.push(it);
+        }
+      }
+    }
     const last = d.meta.lastBackupAt ? Date.parse(d.meta.lastBackupAt) : null;
     // Nothing to back up by hand while the ledger is kept in the cloud.
     if ((Object.keys(d.txs).length || d.positions.length) && !inCloud && (last == null || now - last > BACKUP_DAYS * DAY)) {
@@ -354,7 +392,7 @@ export function Todo() {
       });
     }
     return out;
-  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background, roster, listing]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background, roster, listing, research.bundle, research.blocks, research.priced, systemNames, canDest]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fold each new build into the session: new findings are added, and findings a newer read no longer
   // shows are ticked off with what changed.
@@ -366,7 +404,15 @@ export function Todo() {
     const contractsAt = d.meta.contracts ? Date.parse(d.meta.contracts.at) : null;
     // A plan item to list is seen on the hangar read it was built from: a newer one holding none of it closes it (judgePlanList).
     const hangarAt = d.stock?.at ? Date.parse(d.stock.at) : null;
+    // A cash-in item is seen on its character's research read: the main's by the sync, an alt's by the cloud's sheet.
+    const mainId = researchChars[0]?.charId;
+    const researchAt = (charId: number) => {
+      if (charId === mainId) return timeOf(d.meta.research?.at);
+      const a = roster.find((z) => z.charId === charId);
+      return a ? jobOk(a, 'sheet') : null;
+    };
     const seenAt = (x: TodoItem) =>
+      x.source === 'research' ? researchAt(Number(idOf(x.key))) ?? t :
       x.kind === 'planList' ? hangarAt ?? t : x.source === 'orders' ? checkedAt ?? t : x.source === 'colonies' ? readAt ?? t : x.source === 'signals' ? sig.signals[x.typeId!]?.at ?? t : x.source === 'industry' ? industryAt ?? t : x.source === 'contracts' ? contractsAt ?? t : x.source === 'cloud' ? cloud.backgroundAt ?? t : x.source === 'roster' ? rosterAt ?? t : t;
     const byOrder = new Map(vs.map((v) => [v.orderId, v]));
     const position = (id: string) => d.positions.find((p) => p.id === id) ?? null;
@@ -438,6 +484,19 @@ export function Todo() {
           return judgeCloudLogin(e, { readAt: cloud.backgroundAt, kept: !!k, refused: !!k?.refusedAt });
         }
         case 'industry': return judgeIndustry(e, { readAt: industryAt, waiting: new Set((d.meta.industry?.jobs ?? []).filter((j) => jobWaiting(j, t)).map((j) => j.jobId)) });
+        case 'cashIn': {
+          // Only a newer research read says bought or stopped, an alt's only on a roster read of this session (judgeCashIn).
+          const [, ch, ag] = x.key.split(':');
+          const charId = Number(ch), agentId = Number(ag);
+          const isMain = charId === mainId;
+          const block = research.blocks.find((z) => z.c.charId === charId);
+          const card = block?.read ? block.cards.find((z) => z.row.agentId === agentId)?.card : undefined;
+          return judgeCashIn(e, {
+            setting: d.prefs.researchCashIn, isMain, live: rosterLive, readAt: researchAt(charId),
+            gone: !isMain && !roster.some((z) => z.charId === charId),
+            agent: !block?.read ? undefined : card ? { datacores: card.datacores, worth: card.worth?.total ?? null } : null,
+          });
+        }
         default: return judgeLedger(e, { position: position(id), inCloud });
       }
     };
@@ -477,6 +536,13 @@ export function Todo() {
       const at = new Date().toISOString();
       update((y) => ({ meta: { ...y.meta, lastBackupAt: at, backups: [{ at, name: file, bytes: text.length }, ...(y.meta.backups ?? [])].slice(0, 6) } }));
       toast(`Backup saved as ${file}.`);
+      return;
+    }
+    // The main's R&D agent: its station as the destination in game, then the Research tab.
+    if (x.action.dest != null) {
+      try { await setDestination(x.action.dest); toast('Destination set in your client.', 'info'); }
+      catch (err) { toast(err instanceof Error ? err.message : String(err), 'err'); }
+      if (x.action.route) navigate(x.action.route);
       return;
     }
     // A beaten order is fixed in the client: open its market window there when we can.
@@ -526,6 +592,7 @@ export function Todo() {
   const waiting = (x: TodoItem) =>
     x.source === 'orders' ? (!auth ? 'Log in so this can be checked again.' : check.busy ? 'Checking the market again…' : 'Waiting for the next check of the market.')
       : x.source === 'colonies' ? 'Waiting for the next read of your colonies.'
+        : x.source === 'research' ? 'Waiting for the next read of the research, or of Jita’s prices.'
         : x.kind === 'planList' ? 'Waiting for your orders or trades to show it listed or sold.'
           : 'Waiting for the next read of this market.';
   const doneShown = allDone ? view.done : view.done.slice(0, DONE_SHOWN);

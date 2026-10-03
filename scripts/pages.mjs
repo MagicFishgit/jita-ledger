@@ -869,6 +869,10 @@ try {
   // Since the tracking (stage 2): the main has two agents running and a research mission offered, one alt has one running
   // (in Mechanical Engineering, whose book is refused) and the others say why theirs isn't read, so the cards come first,
   // the totals count 1 of the 4 alts, and the walkthrough is folded until opened.
+  // Since cash-in (Task 6 of the plan): the reminder is on at 300,000 ISK, so Shitsu Ashoma's six datacores are a To do item
+  // under Needs action (Okila Tsurvalen's one, under the amount, and Itirikko Innishi's, its book refused, aren't), the
+  // Wallet's research card shows the main's agents with every character's inside data-alts, and the journal's one
+  // datacore fee reads as "Datacores from agents".
   // Seeded in a ledger of its own: never the shared large one, which check-income records. Both widths.
   if (SHOWN.includes('hustles/research') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('research'))) {
     const now = Date.now(), iso = (t) => new Date(t).toISOString();
@@ -879,10 +883,16 @@ try {
     // out). The histories stay at the bids above, so the walkthrough's year and a listing's reach read as before.
     const BOOK = { 20418: { volume: 4 }, 20419: { bid: 9_000, ask: 85_000 } };
     const ledger = {
+      prefs: { researchCashIn: { on: true, isk: 300_000 } },
+      // A bounty, then six datacores bought from an agent (the fee, 10,000 ISK each), so the Wallet draws in full.
+      journal: {
+        1: { id: '1', date: iso(now - 2 * 86400_000), refType: 'bounty_prizes', amount: 20_000_000, balance: 70_000_000, firstPartyId: 1000125, secondPartyId: 95210486, description: 'Bounty' },
+        2: { id: '2', date: iso(now - 86400_000), refType: 'datacore_fee', amount: -60_000, balance: 69_940_000, firstPartyId: 95210486, secondPartyId: 3016563, description: 'Datacores' },
+      },
       // Graviton Physics III for Okila Tsurvalen's card: its rate should be 35, where ESI still says 33.75.
       skills: { 3402: 5, 3426: 5, 3413: 5, 3392: 5, 11453: 4, 11446: 3, 3356: 4, 3359: 4, 3355: 4 },
       meta: {
-        lastSync: iso(now - 600_000), cloneDetected: 'omega',
+        lastSync: iso(now - 600_000), cloneDetected: 'omega', walletBalance: 69_940_000,
         attributes: { intelligence: 24, memory: 24, perception: 20, willpower: 20, charisma: 23 },
         standings: { at: iso(now - 600_000), list: [{ id: 500001, type: 'faction', standing: 3.63 }, { id: 1000035, type: 'npc_corp', standing: 7.04 }] },
         // The pick's agent running (Shitsu Ashoma, Lai Dai level 2, in Electronic Engineering): step 4 ticks itself off. 12.5
@@ -945,8 +955,10 @@ try {
         }));
       }
       if (url.pathname === '/universe/names/' && req.method() === 'POST') {
+        // The agents' systems by name (To do says where to cash in), every other ID as a station.
+        const SYSTEMS = { 30000168: 'Friggi', 30000171: 'Otitoh', 30002788: 'Inaro' };
         const ids = JSON.parse(req.postData() ?? '[]');
-        return json(ids.map((id) => ({ id, name: `Agent Station ${id}`, category: 'station' })));
+        return json(ids.map((id) => (SYSTEMS[id] ? { id, name: SYSTEMS[id], category: 'solar_system' } : { id, name: `Agent Station ${id}`, category: 'station' })));
       }
       return route.abort();
     });
@@ -1006,7 +1018,14 @@ try {
     const totalsTiles = await page.locator('[data-research="totals"] .tile').evaluateAll((ts) => Object.fromEntries(ts.map((t) => [t.querySelector('.tile-l')?.firstChild?.textContent?.trim(), t.querySelector('.tile-v')?.textContent?.trim()]))).catch(() => ({}));
     if (totalsTiles['Datacores waiting'] !== '8' || totalsTiles['Worth now'] !== '–' || totalsTiles['A month'] !== '–') problems.push(`the totals aren’t 8 datacores with worth and month unsummed: ${JSON.stringify(totalsTiles)}`);
     if (await page.locator('.step-card').count()) problems.push('the walkthrough isn’t folded below the cards while agents run');
-    if (SHOTS) await page.screenshot({ path: `${SHOTS}-research-cards.png` });
+    // The cash-in reminder, as set: on at 300,000 ISK.
+    const remind = page.locator('.rd-cashin [role="checkbox"]');
+    if ((await remind.getAttribute('aria-checked').catch(() => null)) !== 'true' || (await page.locator('#rd-cashin').inputValue().catch(() => '')) !== '300,000') problems.push('the cash-in reminder isn’t drawn on at 300,000 ISK');
+    if (SHOTS) {
+      await page.screenshot({ path: `${SHOTS}-research-cards.png` });
+      await remind.scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(800);
+      await page.screenshot({ path: `${SHOTS}-research-cashin.png` });
+    }
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out in the tracking: ${o}`);
     // Open the walkthrough. The pick is the nearest of Lai Dai's level 2 agents in Electronic Engineering (scripts/check.mjs
     // works it out from the bundle), priced once the books are in.
@@ -1059,13 +1078,69 @@ try {
       for (const x of want) if (!t.includes(x)) problems.push(`not drawn for ${who}: “${x}”`);
       if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out for ${who}: ${o}`);
     }
+    if (await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count()) problems.push('error boundary on the Research tab');
+
+    // To do: Shitsu Ashoma's six datacores, worth more than the 300,000 ISK amount, to cash in; nothing for Okila Tsurvalen's
+    // one (under it) or Itirikko Innishi's (its book refused). The stand-in login can't set a destination: Open Research.
+    await page.goto(`${BASE}#todo`);
+    await page.waitForFunction(() => /Cash in at Shitsu Ashoma, Friggi/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 30_000 })
+      .catch(() => problems.push('To do never listed Shitsu Ashoma’s datacores to cash in, with its system'));
+    await page.waitForTimeout(500);
+    const cash = page.locator('.tn-item', { hasText: 'Cash in at Shitsu Ashoma' });
+    const cashText = (await cash.innerText().catch(() => '')).replace(/\s+/g, ' ');
+    for (const t of ['Cash in at Shitsu Ashoma, Friggi: 6 datacores, worth', 'Your Electronic Engineering research, worth more than your 300,000 ISK at Jita’s prices now.',
+      'Buy them from the agent in person, docked in its station']) if (!cashText.includes(t)) problems.push(`not drawn in To do’s cash-in item: “${t}”`);
+    // The same worth as the tab's card (researchWorth.ts prices both).
+    if (!shitsu['Worth now'] || !cashText.includes(`worth ${shitsu['Worth now']}`)) problems.push(`To do’s worth for Shitsu Ashoma isn’t the card’s ${shitsu['Worth now']}`);
+    // The kind and the button are drawn in capitals (innerText follows the CSS).
+    for (const t of ['cash in datacores', 'open research']) if (!cashText.toLowerCase().includes(t)) problems.push(`not drawn in To do’s cash-in item: “${t}”`);
+    if ((await page.locator('.tn-item', { hasText: 'Cash in at' }).count()) !== 1) problems.push('To do lists a cash-in item other than Shitsu Ashoma’s (Okila Tsurvalen’s is under the amount, Itirikko Innishi’s unpriced)');
+    await page.locator('[role="group"][aria-label="Show"] button', { hasText: 'Needs action' }).click().catch((e) => problems.push(`couldn't show Needs action: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(300);
+    if (!(await page.locator('.tn-item', { hasText: 'Cash in at Shitsu Ashoma' }).count())) problems.push('the cash-in item isn’t under Needs action');
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-research-todo.png` });
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out in To do: ${o}`);
+    if (await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count()) problems.push('error boundary on To do');
+
+    // The Wallet's research card: the main's agents outside data-alts, every character's inside it, never in net worth;
+    // and the journal's datacore fee under its own line.
+    await page.goto(`${BASE}#wallet`);
+    await page.waitForFunction(() => {
+      const c = document.querySelector('section[aria-label="R&D agents"]');
+      return !!c?.querySelector('[data-research="wallet-main"]') && !/Pricing…/.test(c.textContent ?? '');
+    }, null, { timeout: 30_000 }).catch(() => problems.push('the Wallet’s research card never settled'));
+    await page.waitForTimeout(500);
+    const rdCard = page.locator('section[aria-label="R&D agents"]');
+    const rdText = (await rdCard.innerText().catch(() => '')).replace(/\s+/g, ' ');
+    const tilesIn = (sel) => page.locator(`${sel} .tile`).evaluateAll((ts) => Object.fromEntries(ts.map((t) => [t.querySelector('.tile-l')?.firstChild?.textContent?.trim(), t.querySelector('.tile-v')?.textContent?.trim()]))).catch(() => ({}));
+    const yours = await tilesIn('[data-research="wallet-main"]'), every = await tilesIn('[data-research="wallet-all"]');
+    if (yours['RP a day'] !== (50.4 + 33.75).toFixed(1) || yours['Datacores waiting'] !== '7' || !/ISK$/.test(yours['Worth now'] ?? '') || yours['A month'] !== '–')
+      problems.push(`the Wallet’s card isn’t the main’s two agents (84.2 RP a day, 7 datacores, a worth in ISK, no month: Okila’s field has no bid over the fee): ${JSON.stringify(yours)}`);
+    if (every['Datacores waiting'] !== '8' || every['Worth now'] !== '–') problems.push(`the Wallet’s card across characters isn’t 8 datacores with the worth unsummed: ${JSON.stringify(every)}`);
+    for (const t of ['2 agents running.', '3 agents: yours, 1 of 4 alts read.', 'Waiting datacores aren’t in net worth', '1 agent has no bid over the fee in Jita now, so nothing is summed.'])
+      if (!rdText.includes(t)) problems.push(`not drawn on the Wallet’s research card: “${t}”`);
+    if (await page.locator('[data-alts] [data-research="wallet-main"]').count()) problems.push('the main’s research figures sit inside data-alts');
+    if (!(await page.locator('[data-alts] [data-research="wallet-all"]').count())) problems.push('the research figures across characters aren’t inside data-alts');
+    const flowsText = (await page.locator('section.panel', { hasText: 'Money out' }).first().innerText().catch(() => '')).toLowerCase();
+    if (!flowsText.includes('datacores from agents')) problems.push('the datacore fee isn’t under “Datacores from agents” in money out');
+    if (SHOTS) { await rdCard.scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(800); await page.screenshot({ path: `${SHOTS}-research-wallet.png` }); }
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on the Wallet: ${o}`);
+    // Switched off on the tab, the amount kept: the item leaves To do unticked, neither open nor done.
+    await page.goto(`${BASE}#hustles/research`);
+    await page.locator('.rd-cashin [role="checkbox"]').click().catch((e) => problems.push(`couldn't switch the cash-in reminder off: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(500);
+    if ((await page.locator('.rd-cashin [role="checkbox"]').getAttribute('aria-checked').catch(() => null)) !== 'false' || (await page.locator('#rd-cashin').inputValue().catch(() => '')) !== '300,000')
+      problems.push('switching the cash-in reminder off didn’t keep its amount');
+    await page.goto(`${BASE}#todo`);
+    await page.waitForTimeout(1500);
+    if (await page.locator('.tn-item', { hasText: 'Cash in at' }).count()) problems.push('switched off, the cash-in item stays on To do (open or done)');
     const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
     if (boundary) problems.push('error boundary');
     if (!esiAsked) problems.push('ESI was never asked: the books weren’t read');
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'research', page: 'hustles/research', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL research #hustles/research\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   research #hustles/research (three agents’ cards and the totals, 1 of 4 alts read; the main’s walkthrough priced, Lai Dai at no standing; an alt whose standings aren’t read)\n');
+    process.stdout.write(unique.length ? `  FAIL research #hustles/research\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   research #hustles/research (three agents’ cards and the totals, 1 of 4 alts read; the main’s walkthrough priced, Lai Dai at no standing; an alt whose standings aren’t read; To do’s cash-in item and the Wallet’s card)\n');
     await page.close();
   }
   // The Sniper with finds (2 October 2026: blueprints out unless asked, and Copy for Multibuy). The cloud answers its

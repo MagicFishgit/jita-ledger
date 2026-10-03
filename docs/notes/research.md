@@ -199,6 +199,48 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
   assertions. The brief's "1 of 2 alts" was its smallest case; the walkthrough's alts make it 4. `researchTotals` counting
   an unread character and `differs` needing both clauses were each planted and failed `npm run check`.
 
+- **Cash in on To do** (the user's choice, 3 October 2026; `cashInItem`, `judgeCashIn` in todo.ts, kind `cashIn`, source
+  `research`, Needs action; `prefs.researchCashIn`). An amount box and a switch under "When to cash in" on the tab
+  (`CashInControl` in ResearchCards.tsx; Research.tsx writes the prefs, so the cards file still reads no store). Kept in the
+  synced prefs and sanitized: absent is off with no amount, the amount whole ISK over 0 or none, on only with a plain true
+  and an amount, and switching off keeps the amount. When on, **one item per agent** whose datacores waiting are worth
+  more than the amount, keyed `cashIn:<character>:<agent>`, versioned by the whole datacores waiting (a hand tick holds
+  until another datacore comes in), built only once that field's bid is read and the agents bundle has named the agent:
+  "Cash in at Shitsu Ashoma, Friggi: 6 datacores, worth 452,537 ISK" (the system named by ESI's `/universe/names`, one
+  request for every running agent's). The item keeps the amount it was listed against (`TodoItem.amount`). The main's
+  button sets the destination to the agent's station (when the login can) and opens the tab; an alt's opens the tab, since
+  the alt spends its points in person. Not mailed.
+  - **Judged** (orders-alerts.md: absent is not done): bought ("Bought: N datacores", fewer whole datacores than when
+    listed) or stopped ("Research stopped", the agent gone from the read) only on a research read newer than the one that
+    listed it (the item's `seenAt` is that read: the main's `meta.research.at`, an alt's `sheet` `lastOk`), and an alt's
+    only on a roster read of this session (`rosterLive`, as `judgeAltLogin`); an alt gone from a live roster just goes. The
+    setting switched off, or raised past the amount it was listed against, unticks it at once (your own act: an item
+    sitting "being checked" for an hour after switching it off would be wrong). As many datacores as listed or more, worth
+    no more than the amount: the price fell, unticked, never bought; that needs no newer research read, since points only
+    grow between reads. Anything not known (the book, the bundle or the read not in yet) is still being checked. Planted
+    wrong, `>=` for a newer read and the alt's live gate removed each failed `npm run check`.
+  - **The same worth as the card**: the pricing and the cards moved out of ResearchCards.tsx into `researchWorth.ts`
+    (`pricedOf`, `blocksOf`, `totalsOf`, `whyNot`), which the tab, To do and the Wallet share, and the totals view into
+    `ResearchTotals.tsx`; the bundle loader into `researchBundle.ts`. To do and the Wallet read only the running fields'
+    books and histories (`useRunningResearch`, re-reading the books every five minutes while in view), load the bundle only
+    once an agent runs, and read nothing with nothing running; To do reads nothing with the reminder off. Cards come from
+    the read alone (no bundle needed), so a reload before the bundle lands never makes an agent look gone to the judge.
+    In the page check To do's item and the tab's card both say 452,537 ISK for Shitsu Ashoma's six.
+- **The Wallet's research card** ("R&D agents", `ResearchAgents` in Wallet.tsx), shown once any character's read shows an
+  agent running, in the empty state too (as asset safety is): yours (RP a day, datacores waiting, worth now, a month at
+  today's prices) outside `data-alts`; across characters inside it, and the whole card inside it when only an alt runs one
+  (the income check leaves `data-alts` out; it differs with alts by design). "Waiting datacores aren't in net worth":
+  research points aren't an asset ESI counts, and they buy only each agent's own datacores, in person. A link to the tab.
+- **The fee** (`datacore_fee` in `categoryOf`): a Wallet line of its own, "Datacores from agents", a business cost, its
+  entries "Datacore fees"; not a running cost. It fell to "Other spending" before. None is in the user's journal yet (3
+  October 2026), nor in the recorded ledgers, so `npm run check-income` passed unchanged. All income doesn't net the fee
+  against datacore sales (limits).
+- **The page check's research case** also turns the reminder on at 300,000 ISK and seeds a bounty and a 60,000 ISK
+  datacore fee: To do lists Shitsu Ashoma's six (and nothing for Okila Tsurvalen's one, under the amount, or Itirikko
+  Innishi's, its book refused) under Needs action; the Wallet's card says 84.2 RP a day and 7 datacores for the main, with
+  no month (Graviton Physics has no bid over the fee), and 8 across characters with the worth unsummed, inside
+  `data-alts`; money out has "Datacores from agents". Both widths.
+
 ## Open questions (in order of how much they change the page)
 
 1. **RP per datacore: 100, or 50/100/150 by field?** Settle on the first purchase (the journal's `datacore_fee` gives the

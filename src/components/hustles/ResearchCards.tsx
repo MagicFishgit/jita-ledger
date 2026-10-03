@@ -1,21 +1,22 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Ban, CalendarClock, Hourglass, MapPin, Shuffle, TrendingUp } from 'lucide-react';
-import { FILL_WINDOW, listingPrice, recentRange } from '../../lib/fills';
 import { ago, fmtDate, fmtDateTime, isk, iskBig, pct, units } from '../../lib/format';
 import { useNow } from '../../lib/hooks';
 import { HIGH_SEC, jumpsFrom, type Graph } from '../../lib/jumps';
 import { resolveNames } from '../../lib/market';
 import { DATACORE_FEE, DATACORE_OF, RP_PER_DATACORE, type RdAgent, type ResearchRow } from '../../lib/research';
-import { agentCard, othersSide, researchTotals, yearPercentile, type AgentCard, type ListWhy } from '../../lib/researchTrack';
+import { yearPercentile, type AgentCard, type ListWhy } from '../../lib/researchTrack';
 import { datacoreName, FIELDS } from '../../lib/researchStart';
 import { trainSaid } from '../../lib/skillStatus';
-import type { BookLevel, HistRow } from '../../lib/types';
+import type { HistRow, Prefs } from '../../lib/types';
 import { JITA_SYSTEM } from '../../lib/universe';
 import { Points } from '../Facts';
-import { ItemIcon, Tiles } from '../ui';
+import { Check, ItemIcon, NumChip, Tiles } from '../ui';
 import { researchWhy, type ResearchChar } from './researchChars';
 import type { Book, Read } from './researchMarket';
 import { DestButton, secSaid } from './ResearchSteps';
+import { countedSaid, TotalsView } from './ResearchTotals';
+import { blocksOf, monthMissing, pricedOf, totalsOf, whyNot, worthMissing, type Priced } from './researchWorth';
 
 /**
  * The Research tab's tracking (stage 2 of docs/superpowers/specs/2026-10-03-rd-agents-design.md): a card per running
@@ -30,8 +31,9 @@ import { DestButton, secSaid } from './ResearchSteps';
  */
 
 type Market = { books: Record<number, Read<Book>>; hist: Record<number, Read<HistRow[]>>; retry: () => void };
-/** A datacore's market as the cards weigh it: everyone else's bids (all your characters' left out), where a listing would sell. */
-type Priced = { state: 'pricing' } | { state: 'failed' } | { state: 'read'; bids: BookLevel[]; listAt: number | null };
+/** The cash-in reminder (`prefs.researchCashIn`), handed in by Research.tsx, which writes it: this file reads no store. */
+type CashIn = { value: Prefs['researchCashIn']; set: (v: { on: boolean; isk: number | null }) => void };
+const DATACORES = Object.values(DATACORE_OF);
 
 /** Where a character's research was read, said in a few words: the main's by its sync, an alt's by the cloud's hourly read. */
 function readSaid(c: ResearchChar, now: number): string | null {
@@ -41,30 +43,18 @@ function readSaid(c: ResearchChar, now: number): string | null {
   return c.isMain ? `As the sync read it${when}; EVE’s copy can be an hour old.` : `As the cloud read it${when}; it reads ${c.name} hourly.`;
 }
 
-export function ResearchCards({ chars, mainName, agents, corpName, graph, market }: {
-  chars: ResearchChar[]; mainName: string; agents: RdAgent[]; corpName: (id: number) => string; graph: Graph; market: Market;
+export function ResearchCards({ chars, mainName, agents, corpName, graph, market, cashIn }: {
+  chars: ResearchChar[]; mainName: string; agents: RdAgent[]; corpName: (id: number) => string; graph: Graph; market: Market; cashIn: CashIn;
 }) {
   // RP held now ticks: CCP's formula runs on between reads.
   const now = useNow(5_000);
   const byId = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
   const high = useMemo(() => jumpsFrom(graph, JITA_SYSTEM, (_, sec) => sec >= HIGH_SEC), [graph]);
 
-  // Every character's own orders come off the book: selling one character's datacores into another's bid is no sale.
+  // Every character's own orders come off the book: selling one character's datacores into another's bid is no sale. The
+  // same rules price To do's cash-in items and the Wallet's research card (researchWorth.ts), so the three agree.
   const own = useMemo(() => chars.flatMap((c) => c.own), [chars]);
-  const priced = useMemo(() => {
-    const out: Record<number, Priced> = {};
-    const at = Date.now();
-    for (const dc of Object.values(DATACORE_OF)) {
-      const b = market.books[dc];
-      if (b === undefined) { out[dc] = { state: 'pricing' }; continue; }
-      if (b === 'failed') { out[dc] = { state: 'failed' }; continue; }
-      const bids = othersSide(b.bids, own, dc, true), asks = othersSide(b.asks, own, dc, false);
-      const h = market.hist[dc];
-      const highs = h && h !== 'failed' ? recentRange(h, FILL_WINDOW, at).highs : null;
-      out[dc] = { state: 'read', bids, listAt: listingPrice(asks[0]?.price ?? null, bids[0]?.price ?? null, highs) };
-    }
-    return out;
-  }, [market.books, market.hist, own]);
+  const priced = useMemo(() => pricedOf(DATACORES, market.books, market.hist, own, Date.now()), [market.books, market.hist, own]);
   const years = useMemo(() => {
     const out: Record<number, ReturnType<typeof yearPercentile>> = {};
     const at = Date.now();
@@ -72,33 +62,11 @@ export function ResearchCards({ chars, mainName, agents, corpName, graph, market
     return out;
   }, [market.hist]);
 
-  const blocks = chars.map((c) => {
-    const r = c.research;
-    const standings = c.standings.state === 'read' ? c.standings.list : null;
-    const rows = r.state === 'read' ? r.agents : [];
-    return {
-      c, read: r.state === 'read',
-      cards: rows.map((row) => {
-        const dc = DATACORE_OF[row.skillTypeId];
-        const p = dc != null ? priced[dc] : undefined;
-        const read = p?.state === 'read' ? p : null;
-        return { row, agent: byId.get(row.agentId) ?? null, card: agentCard(row, byId.get(row.agentId) ?? null, c.pilot.skills, standings, read?.bids ?? null, c.tax, now, { at: read?.listAt ?? null, brokerFee: c.broker }) };
-      }),
-    };
-  });
-  const totals = researchTotals(blocks.map((b) => ({ charId: b.c.charId, isMain: b.c.isMain, read: b.read, cards: b.cards.map((x) => x.card) })));
+  const blocks = blocksOf(chars, byId, priced, now);
+  const totals = totalsOf(blocks);
   const running = totals.agents > 0;
   // Why a total isn't summed, agent by agent: a book still read, one that couldn't be (Try again), or one read with no price.
-  const counted = blocks.filter((b) => b.read).flatMap((b) => b.cards.map((x) => x.card));
-  const whyNot = (missing: (x: AgentCard) => boolean): Why => {
-    const out: Why = { pricing: 0, failed: 0, noPrice: 0 };
-    for (const x of counted.filter(missing)) {
-      const st = x.datacore != null ? priced[x.datacore]?.state : undefined;
-      if (st === 'pricing') out.pricing++; else if (st === 'failed') out.failed++; else out.noPrice++;
-    }
-    return out;
-  };
-  const worthWhy = whyNot((x) => x.datacores != null && x.datacores > 0 && x.worth == null), monthWhy = whyNot((x) => x.iskDay == null);
+  const worthWhy = whyNot(blocks, priced, worthMissing), monthWhy = whyNot(blocks, priced, monthMissing);
 
   // The agents' stations by name (ESI's universe names, one request for all of them); a station not named reads as its system.
   const stationKey = [...new Set(blocks.flatMap((b) => b.cards.map((x) => x.agent?.station).filter((s): s is number => s != null)))].sort().join(',');
@@ -144,7 +112,8 @@ export function ResearchCards({ chars, mainName, agents, corpName, graph, market
             ))}
         </div>
       ))}
-      <Totals totals={totals} worthWhy={worthWhy} monthWhy={monthWhy} alts={chars.length > 1} retry={market.retry} />
+      <TotalsView title="All characters" said={`${totals.agents} agent${totals.agents === 1 ? '' : 's'}: ${countedSaid(totals, chars.length > 1)}.`}
+        totals={totals} worthWhy={worthWhy} monthWhy={monthWhy} retry={market.retry} tag="totals" />
       <div className="g-300" style={{ gap: 16 }}>
         <div className="col" style={{ gap: 6, minWidth: 0 }}>
           <span className="panel-title">When to cash in</span>
@@ -154,6 +123,7 @@ export function ResearchCards({ chars, mainName, agents, corpName, graph, market
             { kind: 'tip', icon: MapPin, lead: 'When passing', text: 'the agent sells them only in person, docked in its station (Buy Datacores).' },
             { kind: 'tip', icon: TrendingUp, lead: 'When the price is high', text: 'against its year: each card says where its field’s latest day sits.' },
           ]} />
+          <CashInControl cashIn={cashIn} />
         </div>
         <div className="col" style={{ gap: 6, minWidth: 0 }}>
           <span className="panel-title">Daily missions</span>
@@ -165,6 +135,26 @@ export function ResearchCards({ chars, mainName, agents, corpName, graph, market
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * The cash-in reminder (the user's choice, 3 October 2026): a To do item for each agent whose datacores waiting are worth
+ * more than the amount, at the cards' own worth. Kept in the synced prefs; on only with an amount, and switching it off
+ * keeps the amount (sanitizePrefs).
+ */
+function CashInControl({ cashIn }: { cashIn: CashIn }) {
+  const isk = cashIn.value?.isk ?? null, on = !!cashIn.value?.on;
+  return (
+    <div className="chipbar rd-cashin" aria-label="Cash-in reminder">
+      <Check checked={on} disabled={isk == null} onChange={(x) => cashIn.set({ on: x, isk })}
+        tip={`${isk == null ? 'Type an amount first. ' : ''}A To do item for each agent whose datacores waiting are worth more than the amount, at Jita’s prices now, as its card says.\n\n• It ticks itself off once a newer read of the research shows them bought, or the research stopped, and goes if the price falls under the amount.\n• Kept with your preferences, so it’s the same on every device. Switching it off keeps the amount.\n• Never mailed.`}>
+        Remind me on To do
+      </Check>
+      <NumChip id="rd-cashin" label="Worth over" value={isk} width={110} decimals={0} placeholder="e.g. 500k" tipTitle="Cash-in reminder"
+          tip={'The amount an agent’s datacores waiting must be worth, at Jita’s prices now, before To do lists it: one item per agent. Typed as 500k, 1.2m or 500,000.'}
+        onChange={(n) => cashIn.set({ on: on && n != null && n > 0, isk: n != null && n > 0 ? n : null })} />
+    </div>
   );
 }
 
@@ -285,37 +275,3 @@ function yearSaid(y: NonNullable<ReturnType<typeof yearPercentile>>): string {
   if (y.above >= (y.days - 1) / y.days) return 'as high as any day of its year';
   return `higher than ${pct(y.above, 0)} of its year’s days`;
 }
-
-/** Why a total isn't summed: agents whose book is still read, couldn't be read, or was read with no price in it. */
-type Why = { pricing: number; failed: number; noPrice: number };
-const agentsSaid = (n: number, one: string, many: string) => `${n} agent${n === 1 ? one : many}`;
-
-/** The totals across characters: only those whose research was read, the count said; a part unpriced is no sum. */
-function Totals({ totals: t, worthWhy, monthWhy, alts, retry }: { totals: ReturnType<typeof researchTotals>; worthWhy: Why; monthWhy: Why; alts: boolean; retry: () => void }) {
-  const counted = [t.mainRead ? 'yours' : 'yours not read', alts ? `${t.alts.read} of ${t.alts.of} alt${t.alts.of === 1 ? '' : 's'} read` : null].filter(Boolean).join(', ');
-  const unknownSaid = t.unknown ? `${agentsSaid(t.unknown, '’s', 's’')} points can’t be worked out (the read’s start time can’t be read)` : null;
-  // "Try again" only for a book that couldn't be read; a book read with nothing in it to price says so, with nothing to retry.
-  const missing = (v: number | null, why: Why, noPrice: string, unknown: string | null): { v: ReactNode; n: ReactNode } => {
-    if (v != null) return { v: iskBig(Math.round(v)), n: null };
-    if (why.pricing) return { v: <span className="faint">Pricing…</span>, n: null };
-    const parts = [why.failed ? `${agentsSaid(why.failed, '’s book', 's’ books')} couldn’t be read just now` : null, why.noPrice ? `${agentsSaid(why.noPrice, '', 's')} ${noPrice}` : null, unknown].filter(Boolean);
-    return { v: '–', n: <>{parts.join('; ')}, so nothing is summed.{why.failed ? <> <button type="button" className="link-btn" onClick={retry}>Try again</button></> : null}</> };
-  };
-  const worth = missing(t.worth, worthWhy, `${worthWhy.noPrice === 1 ? 'has' : 'have'} no price in Jita now: no bid over the fee, and no listing to price them at that covers the fees`, unknownSaid);
-  const month = missing(t.iskMonth, monthWhy, `${monthWhy.noPrice === 1 ? 'has' : 'have'} no bid over the fee in Jita now`, null);
-  return (
-    <div className="col" style={{ gap: 8 }} data-research="totals">
-      <div className="rd-char-head">
-        <span className="panel-title">All characters</span>
-        <span className="note small">{t.agents} agent{t.agents === 1 ? '' : 's'}: {counted}.</span>
-      </div>
-      <Tiles min={170} items={[
-        { l: 'RP a day', v: t.rpDay.toFixed(1), n: 'ESI’s rates, added up', tip: 'Every running agent’s points a day as ESI gives them, for the characters whose research was read.' },
-        { l: 'Datacores waiting', v: t.datacores != null ? units(t.datacores) : '–', n: t.datacores != null ? `Whole, at ${RP_PER_DATACORE} RP each (assumed)` : `${unknownSaid}, so nothing is summed.`, tip: 'Each agent’s whole datacores, added up: points held with one agent buy only its own field’s datacores.' },
-        { l: 'Worth now', v: worth.v, n: worth.n ?? 'Into Jita’s bids, the rest listed', tip: 'Each agent’s Worth now, added up: its datacores sold into its field’s bids in Jita after its character’s sales tax and the 10,000 ISK fee each, and any the bids don’t take valued listed. Nothing is summed while any agent’s can’t be.\n\nJita’s books are read again every five minutes while this tab is open.' },
-        { l: 'A month', v: month.v, n: month.n ?? 'At ESI’s rates and Jita’s best bids now', tip: 'Thirty days of every running agent at ESI’s points a day, each datacore at Jita’s best bid now, after tax and the fee. Daily missions would add about as much again; nothing here counts them.' },
-      ]} />
-    </div>
-  );
-}
-

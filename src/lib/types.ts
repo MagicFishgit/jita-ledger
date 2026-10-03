@@ -456,6 +456,12 @@ export type Prefs = {
   /** PLEX each Omega pack costs in the store. Only the one-month price is known without looking. */
   omegaPacks: Record<'1' | '3' | '6' | '12', number | null>;
   omegaPack: '1' | '3' | '6' | '12';
+  /**
+   * The Research tab's cash-in reminder (the user's choice, 3 October 2026): a To do item per R&D agent whose datacores
+   * waiting are worth more than `isk`. Absent is off with no amount; `on` only while `isk` is over 0, and switching it off
+   * keeps the amount.
+   */
+  researchCashIn?: { on: boolean; isk: number | null };
 };
 
 export type AlertEvent = 'move' | 'clearing' | 'squeeze' | 'pi' | 'scam' | 'backup' | 'opportunity' | 'snipe' | 'watchdog' | 'safety';

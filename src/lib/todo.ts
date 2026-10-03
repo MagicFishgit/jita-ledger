@@ -1,6 +1,7 @@
-import { fmtDateTime, isk, units } from './format';
+import { fmtDateTime, isk, iskBig, units } from './format';
 import { planListSaid, type Listed, type PlanListPrice } from './plans';
 import { FEEDS_QUEUE_DO, feedsQueueLead, type FeedsQueue, type Verdict } from './relist';
+import { DATACORE_FEE, RP_PER_DATACORE } from './research';
 
 /**
  * To do: everything worth doing right now, in one list, the most ISK at stake first.
@@ -16,10 +17,10 @@ import { FEEDS_QUEUE_DO, feedsQueueLead, type FeedsQueue, type Verdict } from '.
  * is simply absent, and reading absent as done would tick the whole list off on every load.
  */
 
-export type TodoKind = 'move' | 'cancel' | 'bid' | 'underCost' | 'feedsQueue' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry' | 'courier' | 'cloudLogin' | 'placeBuy' | 'planList';
+export type TodoKind = 'move' | 'cancel' | 'bid' | 'underCost' | 'feedsQueue' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry' | 'courier' | 'cloudLogin' | 'placeBuy' | 'planList' | 'cashIn';
 
 /** Which read a finding came from, and so which read can say it has gone. */
-export type Source = 'orders' | 'colonies' | 'signals' | 'ledger' | 'industry' | 'contracts' | 'cloud' | 'roster';
+export type Source = 'orders' | 'colonies' | 'signals' | 'ledger' | 'industry' | 'contracts' | 'cloud' | 'roster' | 'research';
 
 export type TodoItem = {
   /** What it's about, stable for as long as the finding lasts: `order:123`, `pi:456`, `backup`. */
@@ -34,12 +35,15 @@ export type TodoItem = {
   stake: number;
   /** An order's own price when it was found, so a later check can tell a relist from a queue that cleared. */
   price?: number;
+  /** `cashIn`: the amount it was listed against, so a setting raised past it can be told from a price that fell. */
+  amount?: number;
   /** The item whose signal it came from. */
   typeId?: number;
   /** Where the action button goes. */
   /** `copy`: a price opening it in game puts on the clipboard, ready for the price box. */
   /** `cloudLogin`: which of the cloud's logins to hand over again. */
-  action: { label: string; route?: string; typeId?: number; exportBackup?: boolean; copy?: number; cloudLogin?: 'main' | 'mailer' };
+  /** `dest`: a station to set as the destination in game first (the main's own R&D agent's). */
+  action: { label: string; route?: string; typeId?: number; exportBackup?: boolean; copy?: number; cloudLogin?: 'main' | 'mailer'; dest?: number };
 };
 
 export type Entry = {
@@ -94,13 +98,13 @@ export function tickAll(m: Memory, keys: string[], now: number): Memory {
  * measured --- they are there so a list of twelve relists reads as a quarter of an hour, not an evening.
  */
 export const MINUTES: Record<TodoKind, number> = {
-  move: 1, cancel: 1, bid: 2, underCost: 1, feedsQueue: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1, industry: 1, courier: 10, cloudLogin: 1, placeBuy: 1, planList: 1,
+  move: 1, cancel: 1, bid: 2, underCost: 1, feedsQueue: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1, industry: 1, courier: 10, cloudLogin: 1, placeBuy: 1, planList: 1, cashIn: 5,
 };
 
 export const KIND_LABEL: Record<TodoKind, string> = {
   move: 'Move order', cancel: 'Cancel order', bid: 'Sell into bids', underCost: 'Priced under cost', feedsQueue: 'Feeds a long queue', close: 'Close position', squeeze: 'Margin squeeze', piExpired: 'PI expired',
   piEnding: 'PI ending', nearMiss: 'Trades your positions skipped', scam: 'Suspicious market', backup: 'Backup', industry: 'Industry jobs to deliver', courier: 'Courier to deliver',
-  cloudLogin: 'Cloud login', placeBuy: 'Place buy order', planList: 'List what the plan bought',
+  cloudLogin: 'Cloud login', placeBuy: 'Place buy order', planList: 'List what the plan bought', cashIn: 'Cash in datacores',
 };
 
 /**
@@ -401,6 +405,58 @@ export function judgeAltLogin(e: Entry, c: { live: boolean; readAt: number | nul
   if (!c.live || c.readAt == null || c.readAt <= e.seenAt) return null;
   if (c.state == null) return 'No longer one of your characters.';
   return c.state === 'working' ? 'The cloud has this login again.' : null;
+}
+
+/**
+ * An R&D agent whose datacores waiting are worth more than your amount (the Research tab's cash-in reminder, the user's
+ * choice of 3 October 2026; `prefs.researchCashIn`): one item per character and agent, keyed by both. Versioned by the
+ * whole datacores waiting, so a hand tick holds until another datacore comes in. Built only once the field's bid is read
+ * and the worth is known (the card's own, `agentCard`: Jita's bids after tax and the fee, what they don't take listed);
+ * null otherwise, or with the setting off. Not mailed.
+ */
+export function cashInItem(
+  x: { char: { id: number; name: string; isMain: boolean }; agentId: number; agent: string; system: string | null; field: string; datacores: number | null; worth: number | null; bidRead: boolean },
+  setting: { on: boolean; isk: number | null } | undefined,
+  action: TodoItem['action'],
+): TodoItem | null {
+  const amount = setting?.on ? setting.isk : null;
+  if (amount == null || !(amount > 0) || !x.bidRead || x.worth == null || x.datacores == null || !(x.worth > amount)) return null;
+  const n = x.datacores;
+  const whose = x.char.isMain ? 'Your' : `${x.char.name}’s`;
+  return {
+    key: `cashIn:${x.char.id}:${x.agentId}`, ver: String(n), kind: 'cashIn', source: 'research', stake: x.worth, amount,
+    title: `Cash in at ${x.agent}${x.system ? `, ${x.system}` : ''}: ${units(n)} datacore${n === 1 ? '' : 's'}, worth ${iskBig(Math.round(x.worth))}`,
+    detail: `${whose} ${x.field} research, worth more than your ${iskBig(amount)} at Jita’s prices now. ${x.char.isMain ? 'Buy them' : `${x.char.name} buys them`} from the agent in person, docked in its station (Buy Datacores, ${RP_PER_DATACORE} RP and ${isk(DATACORE_FEE)} each); the points don’t expire.`,
+    action,
+  };
+}
+
+/**
+ * A cash-in item gone from the list. Never done on absence (an agent missing only because the agents, a book or a roster
+ * aren't read yet is still being checked): bought or stopped only on a research read newer than the one that listed it
+ * (`readAt`: the main's sync, an alt's sheet job's last success), and an alt's only on a roster read of this session
+ * (`live`, as judgeAltLogin). Fewer whole datacores than when listed: bought. The agent gone from the read: stopped. The
+ * setting switched off, or raised past the amount it was listed against: unticked at once (your own act, no read to wait
+ * for). As many datacores or more, worth no more than the amount: the price fell, unticked, never bought. An alt no longer
+ * on a live roster: gone.
+ * `agent` is the agent as the character's research reads now: undefined while it isn't read, null when the read doesn't
+ * list it; its worth null while unpriced.
+ */
+export function judgeCashIn(e: Entry, c: {
+  setting: { on: boolean; isk: number | null } | undefined; isMain: boolean; live: boolean; readAt: number | null; gone: boolean;
+  agent: { datacores: number | null; worth: number | null } | null | undefined;
+}): string | null | false {
+  const amount = c.setting?.on ? c.setting.isk : null;
+  if (amount == null || !(amount > 0) || (e.item.amount != null && amount > e.item.amount)) return false;
+  if (!c.isMain && !c.live) return null;
+  if (!c.isMain && c.gone) return false;
+  const listed = Number(e.item.ver);
+  const fresh = c.readAt != null && c.readAt > e.seenAt;
+  if (fresh && c.agent === null) return 'Research stopped: the latest read no longer lists this agent.';
+  const n = c.agent?.datacores ?? null;
+  if (fresh && n != null && n < listed) return `Bought: ${units(listed - n)} datacore${listed - n === 1 ? '' : 's'}.`;
+  if (n != null && n >= listed && c.agent?.worth != null && c.agent.worth <= amount) return false;
+  return null;
 }
 
 /** Items built from your own ledger, which is always current: gone means dealt with. */

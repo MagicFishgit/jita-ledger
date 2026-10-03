@@ -21,7 +21,7 @@ import { allocate } from '../src/lib/planner.ts';
 import { priceHub, shipment, goingRate } from '../src/lib/arbitrage.ts';
 import { shouldAlert, nextCheckIn, alertMail, isStaleAlertMail, MAIL_SUBJECT, keepSaid, tidyEvery } from '../src/lib/alerts.ts';
 import { spForLevel, spPerMinute, trainingDays, monthlyGain } from '../src/lib/training.ts';
-import { categoryOf, flows, feeLeak, balanceAt, balanceSeries, autoTag, nextTag, runwayDays, unusual, csvCell } from '../src/lib/wallet.ts';
+import { categoryOf, flows, feeLeak, balanceAt, balanceSeries, autoTag, nextTag, runwayDays, unusual, csvCell, RUNNING } from '../src/lib/wallet.ts';
 import { readKillmail, priceOnDay, valueKillmail, activityOf, matchInsurance, learnedGankLines, gankLineFor, multibuy } from '../src/lib/combat.ts';
 import { orderTodo, remember, split, summarise, judgeOrder, judgePi, judgeScam, SESSION_MS } from '../src/lib/todo.ts';
 import { fmtDateTime } from '../src/lib/format.ts';
@@ -6166,6 +6166,66 @@ console.log('\n--- R&D agents: tracking the agents that run ---');
   eq('  days over a year back don\'t count', K.yearPercentile([{ date: day(400), average: 1, highest: 0, lowest: 0, volume: 5, order_count: 1 }, ...yearRows, latest], T)?.days, 101);
   eq('  under 30 days traded in the year, or nothing traded in the last 30: nothing to say',
     [K.yearPercentile([...yearRows.slice(0, 20), latest], T), K.yearPercentile(yearRows.filter((r) => r.date < day(31)), T), K.yearPercentile([], T)], [null, null, null]);
+}
+
+console.log('\n--- R&D agents: cash in on To do, the fee on the Wallet ---');
+{
+  // The user's choice (3 October 2026): a To do item once an agent's datacores waiting are worth more than an amount they
+  // set, with a switch to turn it off (synced prefs, `researchCashIn`). One item per agent, keyed by character and agent,
+  // versioned by the whole datacores waiting. Never done on absence (orders-alerts.md): bought and stopped only on a read
+  // newer than the one that listed it, and an alt's only on a roster read of this session; a price fall unticks it.
+  const T = await import('../src/lib/todo.ts');
+  eq('cash-in setting: kept as set; switching off keeps the amount', [sanitizePrefs({ researchCashIn: { on: true, isk: 400_000 } }).researchCashIn, sanitizePrefs({ researchCashIn: { on: false, isk: 400_000 } }).researchCashIn],
+    [{ on: true, isk: 400_000 }, { on: false, isk: 400_000 }]);
+  eq('  absent is off with no amount; junk is dropped', [sanitizePrefs({}).researchCashIn, sanitizePrefs({ researchCashIn: 'yes' }).researchCashIn, sanitizePrefs({ researchCashIn: [1] }).researchCashIn, 'researchCashIn' in sanitizePrefs({})],
+    [undefined, undefined, undefined, false]);
+  eq('  on only with an amount over 0; an amount that isn\'t a number is none; only a plain true is on',
+    [{ on: true, isk: 0 }, { on: true, isk: -5 }, { on: true, isk: 'lots' }, { on: true, isk: null }, { on: 'true', isk: 400_000 }, { on: true, isk: 400_000.4 }].map((v) => sanitizePrefs({ researchCashIn: v }).researchCashIn),
+    [{ on: false, isk: null }, { on: false, isk: null }, { on: false, isk: null }, { on: false, isk: null }, { on: false, isk: 400_000 }, { on: true, isk: 400_000 }]);
+
+  const ON = { on: true, isk: 300_000 };
+  const main = { id: 95210486, name: 'Rudi', isMain: true };
+  const x = (o = {}) => ({ char: main, agentId: 3016563, agent: 'Shitsu Ashoma', system: 'Friggi', field: 'Electronic Engineering', datacores: 6, worth: 454_485, bidRead: true, ...o });
+  const action = { label: 'Open Research', route: 'hustles/research' };
+  const it = T.cashInItem(x(), ON, action);
+  eq('cash-in item: one per character and agent, versioned by the whole datacores, Needs action, the worth at stake and the amount kept',
+    [it?.key, it?.ver, it?.kind, it?.source, it?.stake, it?.amount, T.needs('cashIn'), T.KIND_LABEL.cashIn, T.MINUTES.cashIn > 0],
+    ['cashIn:95210486:3016563', '6', 'cashIn', 'research', 454_485, 300_000, 'act', 'Cash in datacores', true]);
+  has('  its title: where, how many and the worth', it?.title ?? '', 'Cash in at Shitsu Ashoma, Friggi: 6 datacores, worth 454,485 ISK');
+  has('  its words: whose research, past the amount, bought in person', it?.detail ?? '', 'Your Electronic Engineering research');
+  has('  …', it?.detail ?? '', 'more than your 300,000 ISK');
+  eq('  none when the setting is off or has no amount, the bid isn\'t read, the worth is unknown, or not past the amount',
+    [T.cashInItem(x(), { on: false, isk: 300_000 }, action), T.cashInItem(x(), undefined, action), T.cashInItem(x(), { on: true, isk: null }, action), T.cashInItem(x({ bidRead: false }), ON, action),
+      T.cashInItem(x({ worth: null }), ON, action), T.cashInItem(x({ worth: 300_000 }), ON, action), T.cashInItem(x({ datacores: null }), ON, action)], [null, null, null, null, null, null, null]);
+  const alt = T.cashInItem(x({ char: { id: 900080, name: 'Agent Alt', isMain: false }, datacores: 1, system: null }), { on: true, isk: 50_000 }, action);
+  eq('  an alt\'s: keyed by the alt, one datacore said as one', [alt?.key, alt?.title], ['cashIn:900080:3016563', 'Cash in at Shitsu Ashoma: 1 datacore, worth 454,485 ISK']);
+  has('  and says the alt buys them', alt?.detail ?? '', 'Agent Alt buys them');
+
+  // Judged against what the latest reads say; the item was listed on the research read of `seen`.
+  const seen = Date.parse('2026-10-03T12:00:00Z');
+  const entry = (item) => ({ item, seenAt: seen, lastAt: seen });
+  const e = entry(it);
+  const c = (o = {}) => ({ setting: ON, isMain: true, live: true, readAt: seen + 3600_000, gone: false, agent: { datacores: 6, worth: 454_485 }, ...o });
+  eq('judged from a newer read: fewer whole datacores is bought; the agent gone from the read is stopped',
+    [T.judgeCashIn(e, c({ agent: { datacores: 0, worth: 0 } })), T.judgeCashIn(e, c({ agent: { datacores: 5, worth: 380_000 } })), T.judgeCashIn(e, c({ agent: null }))],
+    ['Bought: 6 datacores.', 'Bought: 1 datacore.', 'Research stopped: the latest read no longer lists this agent.']);
+  eq('  the worth under the amount from a price fall, as many datacores or more: unticked, never bought', [T.judgeCashIn(e, c({ agent: { datacores: 6, worth: 280_000 } })), T.judgeCashIn(e, c({ readAt: seen, agent: { datacores: 7, worth: 299_000 } }))], [false, false]);
+  eq('  the setting switched off, or raised past it: unticked, at once', [T.judgeCashIn(e, c({ setting: { on: false, isk: 300_000 } })), T.judgeCashIn(e, c({ setting: undefined })), T.judgeCashIn(e, c({ setting: { on: true, isk: 500_000 }, readAt: seen }))], [false, false, false]);
+  eq('  no newer read: still checking (fewer datacores or the agent gone on the read that listed it, or none since), and nothing known: still checking',
+    [T.judgeCashIn(e, c({ readAt: seen, agent: { datacores: 0, worth: 0 } })), T.judgeCashIn(e, c({ readAt: seen, agent: null })), T.judgeCashIn(e, c({ readAt: null, agent: null })),
+      T.judgeCashIn(e, c({ agent: undefined })), T.judgeCashIn(e, c({ agent: { datacores: 6, worth: null } })), T.judgeCashIn(e, c({ agent: { datacores: null, worth: null } }))], [null, null, null, null, null, null]);
+  const ea = entry(alt);
+  const ca = (o = {}) => c({ setting: { on: true, isk: 50_000 }, isMain: false, ...o });
+  eq('an alt\'s: judged only on a roster read of this session; then bought, stopped, or no longer yours',
+    [T.judgeCashIn(ea, ca({ live: false, agent: { datacores: 0, worth: 0 } })), T.judgeCashIn(ea, ca({ live: false, agent: null })), T.judgeCashIn(ea, ca({ live: false, agent: { datacores: 1, worth: 20_000 } })),
+      T.judgeCashIn(ea, ca({ agent: { datacores: 0, worth: 0 } })), T.judgeCashIn(ea, ca({ agent: null })), T.judgeCashIn(ea, ca({ gone: true, agent: undefined }))],
+    [null, null, null, 'Bought: 1 datacore.', 'Research stopped: the latest read no longer lists this agent.', false]);
+
+  // The fee: the journal's `datacore_fee` (10,000 ISK a datacore, expected; none seen yet) is a business cost of its own.
+  const fee = flows([{ id: '1', date: '2026-10-03T12:00:00Z', refType: 'datacore_fee', amount: -60_000, balance: 1e6 }], [], () => ({ tracked: false, tag: 'other' }), 0);
+  eq('the datacore fee: "Datacores from agents", a business cost, its entries "Datacore fees"', [categoryOf({ refType: 'datacore_fee', amount: -60_000 }), fee.outs.map((l) => [l.label, l.amount, l.parts[0]?.label])],
+    [{ key: 'datacores', label: 'Datacores from agents', kind: 'Business' }, [['Datacores from agents', 60_000, 'Datacore fees']]]);
+  eq('  and not one the runway counts as running', RUNNING.has('datacores'), false);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

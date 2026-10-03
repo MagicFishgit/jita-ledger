@@ -34,7 +34,9 @@ logins are in characters-cloud.md, mining across characters in mining.md (split 
   longer listed. Settings reads `chars` instead, for "Delete all data" saying the alts' copy here goes too: no new importer. Mining joined in stage 3: it shows each character's mining; it calls `useAlts()` and hands the value to
   `useMiningFleet` in `miningFleet.ts`, which doesn't import the store itself. The Research tab joined with its stage 1
   (3 October 2026) for its "Show for": the same way, `useAlts()` handed to `useResearchChars` in `researchChars.ts`, which
-  reads each alt's skills, standings and sales tax from its pulled copy and writes nothing. The Wallet joined in stage 4 for its
+  reads each alt's skills, standings and sales tax from its pulled copy and writes nothing. To do and the Wallet hand
+  `useResearchChars` their own `useAltCopies()` and roster the same way since the research cash-in (3 October 2026: To do's
+  item per agent past an amount, the Wallet's research card, research.md): no new importer. The Wallet joined in stage 4 for its
   "All characters" line beside the net worth: the main's total plus each alt's newest daily point, shown on the page
   inside `data-alts` and never added to `nwParts`, `nwTotal` or what the Wallet saves to `netWorth`; `check-income`'s
   isolation check leaves `[data-alts]` out of the Wallet's text and still compares the ledger. Its tip gives each alt's

@@ -106,7 +106,19 @@ export function sanitizePrefs(p: Partial<Prefs> | null | undefined): Prefs {
     piTax: x.piTax == null || !Number.isFinite(x.piTax) ? null : clamp(x.piTax, 0, 1),
     omegaPacks: packs,
     omegaPack: (['1', '3', '6', '12'] as const).includes(x.omegaPack as '1') ? (x.omegaPack as Prefs['omegaPack']) : '1',
+    ...cashIn(x.researchCashIn),
   };
+}
+
+/**
+ * The cash-in reminder as kept: absent (off, no amount) unless it's an object; its amount whole ISK over 0, else none; on
+ * only with a plain true and an amount. Switching it off keeps the amount.
+ */
+function cashIn(v: unknown): { researchCashIn?: Prefs['researchCashIn'] } {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  const x = v as { on?: unknown; isk?: unknown };
+  const isk = typeof x.isk === 'number' && Number.isFinite(x.isk) && x.isk > 0 ? Math.min(1e13, Math.max(1, Math.round(x.isk))) : null;
+  return { researchCashIn: { on: x.on === true && isk != null, isk } };
 }
 
 export function sanitizeAlerts(a: Partial<AlertConfig> | null | undefined): AlertConfig {

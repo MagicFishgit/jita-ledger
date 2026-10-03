@@ -4,13 +4,16 @@ import { useAlts } from '../../lib/altStore';
 import { isk, iskBig } from '../../lib/format';
 import { useNow } from '../../lib/hooks';
 import { HIGH_SEC, jumpsFrom, type Graph } from '../../lib/jumps';
-import { DATACORE_FEE, DATACORE_OF, RP_PER_DATACORE, datacoreValue, rankAgents, type HelperAgent, type RankedAgent, type RdAgent } from '../../lib/research';
+import { DATACORE_FEE, DATACORE_OF, RP_PER_DATACORE, datacoreValue, rankAgents, type RankedAgent } from '../../lib/research';
 import { corpReach, FIELDS, listedAgents, MAX_AGENTS, pickDefault, sixAgents, SKILL, skillGaps, trainingPlan } from '../../lib/researchStart';
 import { ROMAN, trainSaid } from '../../lib/skillStatus';
+import { sanitizePrefs } from '../../lib/prefs';
+import { update, useData } from '../../lib/store';
 import { JITA_SYSTEM } from '../../lib/universe';
 import { Points } from '../Facts';
 import { PilotProvider } from '../pilot';
 import { Seg, Tiles } from '../ui';
+import { loadBundle, type Bundle } from './researchBundle';
 import { ResearchCards } from './ResearchCards';
 import { useResearchChars, type ResearchChar } from './researchChars';
 import { useResearchMarket, type Want } from './researchMarket';
@@ -39,11 +42,8 @@ const WALK_KEY = 'jita-ledger:research-walk';
 const readKept = (k: string): string | null => { try { return localStorage.getItem(k); } catch { return null; } };
 const keep = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* just not kept */ } };
 
-type Bundle = { built: string; source: string; agents: RdAgent[]; helpers: HelperAgent[]; names?: Record<string, string> };
-let bundleP: Promise<Bundle> | null = null;
 let graphP: Promise<Graph> | null = null;
-/** The agents bundle and the stargate map, each a chunk of its own, loaded once (a failed load is asked again next time). */
-const loadBundle = () => (bundleP ??= import('../../data/researchAgents.json').then((m) => m.default as unknown as Bundle).catch((e) => { bundleP = null; throw e; }));
+/** The stargate map, a chunk of its own, loaded once (a failed load is asked again next time); the agents bundle likewise (researchBundle.ts). */
 const loadGraph = () => (graphP ??= import('../../data/universeGraph.json').then((m) => (m.default as unknown as { systems: Graph }).systems).catch((e) => { graphP = null; throw e; }));
 
 /** Every skill at V, for the "at all V" figures: every field, and the social skills the formula and access read. */
@@ -90,6 +90,9 @@ export function Research() {
   // The datacores' books are read again every five minutes while the tab is in view: the cards' points tick.
   const market = useResearchMarket(wants, REREAD);
   const corpName = (id: number) => (bundle && bundle !== 'failed' ? bundle.names?.[id] : undefined) ?? `Corporation #${id}`;
+  // The cash-in reminder (To do's item per agent past an amount), kept in the synced prefs; the cards draw its controls.
+  const prefs = useData().prefs;
+  const cashIn = { value: prefs.researchCashIn, set: (v: { on: boolean; isk: number | null }) => update((x) => ({ prefs: sanitizePrefs({ ...x.prefs, researchCashIn: v }) })) };
 
   return (
     <>
@@ -109,7 +112,7 @@ export function Research() {
         <p className="note small" style={{ margin: 0 }}>Loading the agents and the map…</p>
       ) : (
         <>
-          <ResearchCards chars={chars} mainName={main.name} agents={bundle.agents} corpName={corpName} graph={graph} market={market} />
+          <ResearchCards chars={chars} mainName={main.name} agents={bundle.agents} corpName={corpName} graph={graph} market={market} cashIn={cashIn} />
           <section className="col" style={{ gap: 16 }} aria-label="Getting started">
             <div className="rd-walk-head">
               {running ? (

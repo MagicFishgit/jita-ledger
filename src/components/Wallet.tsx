@@ -18,7 +18,7 @@ import {
   autoTag, balanceAt, balanceSeries, csvCell, describeRef, feeLeak, fittedShips, flows, multibuys, nextTag, PERIOD_DAYS, periodStart, RUNNING, runwayDays,
   startOfUtcDay, unusual, type Between, type Days, type Line, type Multibuy, type TradeClass,
 } from '../lib/wallet';
-import { emptyAlt, lastRead, ownIds } from '../lib/roster';
+import { emptyAlt, lastRead, ownIds, type AltSaved, type RosterEntry } from '../lib/roster';
 import type { Activity, JournalEntry, Position, Tx, UntrackedTag } from '../lib/types';
 import { AreaLine, MiniLine } from './charts';
 import { Goals } from './Goals';
@@ -34,6 +34,9 @@ import { incomeRows } from '../lib/income';
 import { nettedJournal, refundsIn } from '../lib/refunds';
 import { altLedger } from '../lib/altLedger';
 import { useAltCopies, useAltRoster } from '../lib/altStore';
+import { researchWhy, useResearchChars } from './hustles/researchChars';
+import { monthMissing, totalsOf, useRunningResearch, whyNot, worthMissing } from './hustles/researchWorth';
+import { countedSaid, TotalsView } from './hustles/ResearchTotals';
 
 const DAY = 86400_000;
 /** One empty copy for every alt not pulled yet, so altLedger's answer for it is worked out once, not on every render. */
@@ -52,6 +55,7 @@ const IN_COLOR: Record<string, string> = {
 };
 const OUT_COLOR: Record<string, string> = {
   freelanceBuys: '#f5b86b', stock: 'var(--acc)', personal: '#ff8d9a', fees: 'var(--acc2)', couriers: '#a98bff', rent: '#90a5b8', clones: '#90a5b8', skills: '#ff8d9a', travel: '#ff8d9a', lp: '#a98bff',
+  datacores: '#6ee7a8',
 };
 const TAG_LOOK: Record<UntrackedTag, { sell: string; buy: string; c: string }> = {
   loot: { sell: 'Loot sale', buy: 'Loot', c: '#eed79a' },
@@ -364,6 +368,7 @@ export function Wallet() {
               : 'Nothing synced yet. The first sync reads your journal and trades; it starts on its own.'}
         </Empty>
         <AssetSafety d={d} rough={rough} />
+        <ResearchAgents roster={roster} copies={copies} now={now} />
       </div>
     );
   }
@@ -510,6 +515,7 @@ export function Wallet() {
       </div>
 
       <AssetSafety d={d} rough={rough} />
+      <ResearchAgents roster={roster} copies={copies} now={now} />
 
       <Untracked d={d} txs={txList.filter((t) => !tracked.has(t.id) && Date.parse(t.date) >= since)} tagOf={tagOf} explicit={(id) => ignored.has(id) || id in d.tags}
         multis={multis} ships={ships} freelance={freelance} periodWords={periodWords} />
@@ -664,6 +670,43 @@ function AllCharacters({ mainTotal, alts }: { mainTotal: number | null; alts: Al
       </div>
     </div>
   );
+}
+
+/**
+ * R&D agents (docs/notes/research.md), shown once any character's research read shows one running: RP a day, the
+ * datacores waiting, what they're worth now and a month at today's prices, worked out as the Research tab's cards are
+ * (researchWorth.ts), with a link there. Yours outside `data-alts`; across characters inside it, since it differs with
+ * alts by design (the income check leaves it out), and the whole card inside it when only an alt runs one. Never part of
+ * net worth: research points aren't an asset ESI counts, and the card says so. Its hooks live here, below the Wallet's
+ * early return, so a first sync filling the page doesn't change how many run.
+ */
+function ResearchAgents({ roster, copies, now }: { roster: RosterEntry[]; copies: Record<number, AltSaved>; now: number }) {
+  const chars = useResearchChars(useMemo(() => ({ roster, alts: copies }), [roster, copies]));
+  const r = useRunningResearch(chars, now);
+  if (!r.running) return null;
+  const main = chars[0];
+  const mineBlocks = r.blocks.filter((b) => b.c.isMain);
+  const mine = totalsOf(mineBlocks);
+  const mainRuns = mine.agents > 0;
+  const card = (
+    <Panel title="R&D agents" sub="Datacores waiting with your research agents, at Jita’s prices now" label="R&D agents">
+      {mainRuns ? (
+        <TotalsView title="Yours" said={`${mine.agents} agent${mine.agents === 1 ? '' : 's'} running.`} totals={mine}
+          worthWhy={whyNot(mineBlocks, r.priced, worthMissing)} monthWhy={whyNot(mineBlocks, r.priced, monthMissing)} retry={r.retry} tag="wallet-main" />
+      ) : <p className="note small" style={{ margin: 0 }}>{main.research.state === 'read' ? 'None of yours running.' : researchWhy(main)}</p>}
+      {r.blocks.length > 1 && (
+        <div data-alts="">
+          <TotalsView title="All characters" said={`${r.totals.agents} agent${r.totals.agents === 1 ? '' : 's'}: ${countedSaid(r.totals, true)}.`} totals={r.totals}
+            worthWhy={whyNot(r.blocks, r.priced, worthMissing)} monthWhy={whyNot(r.blocks, r.priced, monthMissing)} retry={r.retry} tag="wallet-all" />
+        </div>
+      )}
+      <Points compact items={[
+        { kind: 'info', lead: 'Waiting datacores aren’t in net worth', text: 'research points aren’t an asset ESI counts, and they buy only each agent’s own datacores, in person.' },
+      ]} />
+      <button type="button" className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => navigate('hustles/research')}>Each agent on the Research tab</button>
+    </Panel>
+  );
+  return mainRuns ? card : <div data-alts="">{card}</div>;
 }
 
 type Place = { k: string; l: string; v: number | null; d: string; flag?: string; dest?: number; named?: boolean };

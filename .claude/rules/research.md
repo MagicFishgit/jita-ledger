@@ -1,7 +1,7 @@
 ---
 paths:
   - "src/lib/{research,researchStart,researchTrack}.ts"
-  - "src/components/hustles/{Research.tsx,ResearchSteps.tsx,ResearchCards.tsx,researchChars.ts,researchMarket.ts}"
+  - "src/components/hustles/{Research.tsx,ResearchSteps.tsx,ResearchCards.tsx,ResearchTotals.tsx,researchChars.ts,researchMarket.ts,researchWorth.ts,researchBundle.ts}"
   - "src/data/researchAgents.json"
   - "scripts/research-agents.mjs"
 ---
