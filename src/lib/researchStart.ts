@@ -216,7 +216,6 @@ export function pickDefault(ranked: RankedAgent[]): RankedAgent | null {
   return [...(onRoute.length ? onRoute : open)].sort(byPayThenNear)[0] ?? null;
 }
 
-/** How many agents Research Project Management V lets one character run: one, and one more a level. */
 /**
  * What a level of Connections adds to an agent's points a day (step 1's Connections line), through the character's own
  * standing with that agent: the formula's standing term, lifted by 4% of its gap to 10 a level. Null with no standing
@@ -229,6 +228,7 @@ export function connectionsRp(o: { agentRaw: number | null; level: number; diplo
   return at(o.level) - at(o.level - 1);
 }
 
+/** How many agents Research Project Management V lets one character run: one, and one more a level. */
 export const MAX_AGENTS = 6;
 
 /**
