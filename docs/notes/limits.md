@@ -139,3 +139,9 @@ State these rather than letting them be discovered:
   "Datacores from agents", and the datacores sell as "Sold, never bought" (or as trading when you also bought some).
 - **To do's "Fewer datacores waiting: bought, most likely" is an inference**: cancelling and starting again with the same
   agent between ESI's hourly reads reads the same.
+- **Check my hangar reads ESI's copy of your assets, up to an hour old**: ESI holds them an hour, so loot just moved or
+  sold may not show yet; the dialog says when the copy was taken.
+- **Its "Not the position's" is a count, not which units**: units of an item are alike, and EVE's trades don't say which
+  stack a sale came from, so it says how many held in Jita 4-4 (and listed) are beyond the position's own stock, never
+  which ones. It counts Jita 4-4 only: a position counting every station, with stock elsewhere, reads that stock as none
+  of what it holds.

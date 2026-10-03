@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { isWideTip, tipBlocks } from '../../lib/tipText';
 
 /**
@@ -8,6 +9,9 @@ import { isWideTip, tipBlocks } from '../../lib/tipText';
  * It is positioned out of the flow, so showing it never pushes a row down, and it flips below its
  * target when there is no room above. It re-reads its target every second, so a countdown inside a
  * tooltip keeps counting while you look at it. On touch, tapping an "i" pins it until the next tap.
+ *
+ * A target inside an open modal dialog (Positions' Check my hangar) gets the tooltip inside that dialog: a modal sits in
+ * the browser's top layer, above anything the page draws, so a tooltip drawn at the root would show behind it.
  */
 type Shown = { el: Element; x: number; y: number; w: number; below: boolean; fitted?: boolean };
 type Row = [string, string, string | number, string];
@@ -103,7 +107,8 @@ export function TipLayer({ routeKey }: { routeKey: string }) {
   let rows: Row[] = [];
   try { rows = JSON.parse(shown.el.getAttribute('data-tip-rows') || '[]'); } catch { rows = []; }
 
-  return (
+  const host = shown.el.closest('dialog[open]');
+  const tip = (
     <div
       className="tooltip" role="tooltip" ref={box}
       style={{ left: shown.x, top: shown.y, width: shown.w, ['--tt' as string]: shown.below ? 'none' : 'translateY(-100%)' }}
@@ -131,4 +136,5 @@ export function TipLayer({ routeKey }: { routeKey: string }) {
       )}
     </div>
   );
+  return host ? createPortal(tip, host) : tip;
 }

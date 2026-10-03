@@ -14,6 +14,7 @@ import { toast } from '../lib/toast';
 import { ItemSearch, useTypeName } from './common';
 import { nearSummary } from './NearMisses';
 import { ListStock } from './ListStock';
+import { HangarCheckButton } from './HangarCheck';
 import { Check, cssVars, Empty, Guide, ItemIcon, PageHead, Seg, Sparkline, Th } from './ui';
 import { PlanGroups } from './PlanStart';
 
@@ -87,9 +88,14 @@ export function Positions() {
         kicker="04 · Your book" title="Positions"
         lede="A position is an item you’re trading. From its start date, your buys and sells of that item in Jita 4-4 count towards it. Anything else you buy stays out."
         actions={auth && (
-          <button type="button" className="btn tall" disabled={sync.running} onClick={() => syncCharacter()}>
-            <RefreshCw aria-hidden="true" className={sync.running ? 'spinning' : undefined} />{sync.running ? 'Checking…' : 'Check for new trades'}
-          </button>
+          <>
+            {/* Here rather than beside List your stock, which hides itself when nothing bought sits loose in the hangar:
+                a hangar of loot is exactly when this is wanted. */}
+            <HangarCheckButton />
+            <button type="button" className="btn tall" disabled={sync.running} onClick={() => syncCharacter()}>
+              <RefreshCw aria-hidden="true" className={sync.running ? 'spinning' : undefined} />{sync.running ? 'Checking…' : 'Check for new trades'}
+            </button>
+          </>
         )}
       />
 

@@ -1196,6 +1196,149 @@ try {
     process.stdout.write(unique.length ? `  FAIL research #hustles/research\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   research #hustles/research (three agents’ cards and the totals, 2 of 5 alts read; the main’s walkthrough priced, Lai Dai at no standing; an alt whose standings aren’t read; To do’s cash-in item and the Wallet’s card)\n');
     await page.close();
   }
+  // Positions' "Check my hangar" (3 October 2026): the user's loot in a container named "Lewds", some of it an item their
+  // plan bids on. ESI answers the assets read (12 of the plan's datacore loose in the hangar, which its position bought;
+  // Lewds holding 10 more, a blueprint copy, Tritanium no position or order covers, and drones on a sell order; a ship,
+  // Battle Chicken, with a Damage Control II fitted, of an item a position holds 2 of loose, and drones in its bay; 4 of the
+  // datacore in Amarr), the names you gave the container and the ship, and Amarr's name. Picked: Lewds, then the whole
+  // station, then Amarr, each judged; then closed and opened again on the pick kept. A ledger of its own, both widths.
+  if (SHOWN.includes('positions') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('hangar'))) {
+    const now = Date.now(), iso = (t) => new Date(t).toISOString();
+    const JITA_ = 60003760, AMARR_ = 60008494, CID = ownerAuth().characterId;
+    const RS = 20420, DC = 2048, HH = 2185, TRIT = 34, CAN = 17366, SHIP = 24698, BP = 24699, LEWDS = 1_050_000_000_001, CHICKEN = 1_050_000_000_002;
+    const planAt = iso(now - 2 * 86400_000);
+    const pos = (id, typeId, openedAt) => ({ id, typeId, openedAt, status: 'open', jitaOnly: true, excluded: [], included: [] });
+    const ledger = {
+      names: { [RS]: 'Datacore - Rocket Science', [DC]: 'Damage Control II', [HH]: 'Hammerhead II', [TRIT]: 'Tritanium', [CAN]: 'Station Container', [SHIP]: 'Drake', [BP]: 'Drake Blueprint' },
+      // The plan opened the datacore's position and bought 12 of its 20; a position on Damage Control II bought 2; one on
+      // Drake Blueprint holds none (a copy of it shares its type: never stock).
+      positions: [pos('hc-rs', RS, planAt), pos('hc-dc', DC, iso(now - 5 * 86400_000)), pos('hc-bp', BP, iso(now - 3 * 86400_000))],
+      plans: [{ id: 'hc-plan', name: 'Datacore plan', at: planAt, isk: 1_700_000, horizonDays: 7, patient: true, items: [{ typeId: RS, buyAt: 85_000, units: 20, sellAt: 95_000, positionId: 'hc-rs' }] }],
+      txs: {
+        hc1: { id: 'hc1', source: 'esi', typeId: RS, date: iso(now - 86400_000), isBuy: true, qty: 12, unitPrice: 85_000, locationId: JITA_ },
+        hc2: { id: 'hc2', source: 'esi', typeId: DC, date: iso(now - 4 * 86400_000), isBuy: true, qty: 2, unitPrice: 600_000, locationId: JITA_ },
+      },
+      orders: {
+        1: { orderId: 1, typeId: RS, isBuy: true, price: 85_000, volumeTotal: 20, volumeRemain: 8, issued: iso(now - 1.5 * 86400_000), state: 'open', locationId: JITA_ },
+        2: { orderId: 2, typeId: HH, isBuy: false, price: 900_000, volumeTotal: 6, volumeRemain: 5, issued: iso(now - 86400_000), state: 'open', locationId: JITA_ },
+      },
+      meta: { lastSync: iso(now - 600_000) },
+    };
+    const A = (item_id, type_id, location_id, location_flag, location_type, quantity = 1, extra = {}) => ({ item_id, type_id, location_id, location_flag, location_type, quantity, ...extra });
+    const assets = [
+      A(9001, RS, JITA_, 'Hangar', 'station', 12), A(9002, DC, JITA_, 'Hangar', 'station', 2),
+      A(LEWDS, CAN, JITA_, 'Hangar', 'station', 1, { is_singleton: true }),
+      A(9011, RS, LEWDS, 'Unlocked', 'item', 10), A(9012, TRIT, LEWDS, 'Unlocked', 'item', 100), A(9013, HH, LEWDS, 'Unlocked', 'item', 3),
+      A(9014, BP, LEWDS, 'Unlocked', 'item', 1, { is_blueprint_copy: true }),
+      A(CHICKEN, SHIP, JITA_, 'Hangar', 'station', 1, { is_singleton: true }),
+      A(9021, DC, CHICKEN, 'LoSlot0', 'item', 1), A(9022, HH, CHICKEN, 'DroneBay', 'item', 2),
+      A(9031, RS, AMARR_, 'Hangar', 'station', 4),
+    ];
+    const page = await browser.newPage(VIEW);
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-expose-headers': '*' };
+    let assetsAsked = 0, namesAsked = 0;
+    await page.route('**/*', (route) => {
+      const req = route.request(), url = new URL(req.url());
+      if (req.url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
+      if (url.hostname !== 'esi.evetech.net') return route.abort();
+      if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+      // ESI holds assets an hour: this copy lets go in 50 minutes, so it was taken 10 minutes ago.
+      const json = (body) => route.fulfill({ status: 200, contentType: 'application/json', headers: { ...cors, 'cache-control': 'max-age=3000', 'x-pages': '1' }, body: JSON.stringify(body) });
+      if (url.pathname === `/characters/${CID}/assets/`) { assetsAsked++; return json(assets); }
+      if (url.pathname === `/characters/${CID}/assets/names/` && req.method() === 'POST') {
+        namesAsked++;
+        const given = { [LEWDS]: 'Lewds', [CHICKEN]: 'Battle Chicken' };
+        return json(JSON.parse(req.postData() ?? '[]').map((id) => ({ item_id: id, name: given[id] ?? 'None' })));
+      }
+      if (url.pathname === '/universe/names/' && req.method() === 'POST') {
+        const ids = JSON.parse(req.postData() ?? '[]');
+        return json(ids.filter((id) => id === AMARR_).map((id) => ({ id, name: 'Amarr VIII (Oris) - Emperor Family Academy', category: 'station' })));
+      }
+      return route.abort();
+    });
+    const problems = [];
+    page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
+    page.on('console', (m) => { if (m.type() === 'error' && /^Warning: /.test(m.text())) problems.push(`React: ${m.text().split('\n')[0].replace(/%s/g, '').slice(0, 160)}`); });
+    await page.goto(SEED_PAGE);
+    await page.evaluate(async ([d, auth]) => {
+      localStorage.clear(); sessionStorage.clear();
+      localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
+      for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', {}], ['jita-ledger-alts', {}]]) {
+        const h = await new Promise((res) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+        if (!h.objectStoreNames.contains('kv')) { h.close(); continue; }
+        await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
+        h.close();
+      }
+    }, [ledger, { ...ownerAuth(), scopes: ['esi-assets.read_assets.v1'] }]);
+    await page.goto(`${BASE}#positions`);
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    await page.waitForTimeout(1200);
+    const dialog = page.locator('dialog.confirm[open]');
+    const open = async () => {
+      await page.locator('.head-actions button', { hasText: 'Check my hangar' }).click().catch((e) => problems.push(`couldn't click Check my hangar: ${e.message.split('\n')[0]}`));
+      await page.waitForSelector('#hc-where', { timeout: 15_000 }).catch(() => problems.push('the hangar was never read: no place to pick'));
+    };
+    const pickSpot = async (v) => { await page.selectOption('#hc-where', v).catch((e) => problems.push(`couldn't pick ${v}: ${e.message.split('\n')[0]}`)); await page.waitForTimeout(400); };
+    const row = (type) => dialog.locator(`[data-hc="tracked"] tr[data-type="${type}"]`);
+    await open();
+    const said = (await dialog.innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!said.includes('ESI’s copy of your assets was taken')) problems.push('doesn’t say when ESI’s copy of the assets was taken');
+    if ((await page.inputValue('#hc-where').catch(() => '')) !== `${JITA_}/hangar`) problems.push('the first pick isn’t Jita 4-4’s hangar');
+    const options = await page.locator('#hc-where option').evaluateAll((os) => os.map((o) => `${o.parentElement?.getAttribute('label')}|${o.value}|${o.textContent}`)).catch(() => []);
+    for (const [v, label] of [[`${JITA_}/hangar`, 'Jita 4-4|Jita 4-4 hangar · 14 units'], [`${JITA_}/item:${LEWDS}`, 'Jita 4-4|Lewds · 113 units'], [`${JITA_}/item:${CHICKEN}`, 'Jita 4-4|Battle Chicken · 2 units'],
+      [`${AMARR_}/hangar`, 'Amarr VIII (Oris) - Emperor Family Academy|Amarr VIII (Oris) - Emperor Family Academy hangar · 4 units']])
+      if (!options.some((o) => { const [g, val, t] = o.split('|'); return val === v && `${g}|${t}`.startsWith(label); })) problems.push(`no “${label}” to pick (${options.join('; ')})`);
+    // Lewds: the plan's datacore, 10 of them not the position's (of 22 in Jita 4-4: the hangar's 12, Lewds' 10, not the copy).
+    await pickSpot(`${JITA_}/item:${LEWDS}`);
+    if (!(await row(RS).count())) problems.push('Lewds: no row for the plan’s Datacore - Rocket Science');
+    else {
+      if ((await row(RS).getAttribute('data-not')) !== '10') problems.push(`Lewds: “Not the position’s” is ${await row(RS).getAttribute('data-not')}, not 10`);
+      const t = (await row(RS).innerText()).replace(/\s+/g, ' ');
+      // Lowercased: the plan's flag and the link are drawn in capitals.
+      for (const w of ['of the 22 you hold in Jita 4-4', 'Plan: Datacore plan', 'Open the position']) if (!t.toLowerCase().includes(w.toLowerCase())) problems.push(`Lewds: the datacore’s row doesn’t say “${w}”: “${t.slice(0, 200)}”`);
+    }
+    if (!(await dialog.locator('.notice', { hasText: 'Exclude each sale on the position’s page' }).count())) problems.push('Lewds: no lead line saying to Exclude each sale');
+    if (await row(BP).count()) problems.push('Lewds: the blueprint copy is counted (a row for Drake Blueprint)');
+    if (!(await dialog.locator('[data-hc="orders"] li', { hasText: 'Hammerhead II' }).count())) problems.push('Lewds: the drones on a sell order aren’t in the second list');
+    if ((await dialog.innerText().catch(() => '')).includes('Tritanium')) problems.push('Lewds: Tritanium, which no position or order covers, is listed');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out with Lewds picked: ${o}`);
+    if (SHOTS) { await page.waitForTimeout(600); await page.screenshot({ path: `${SHOTS}-hangar-lewds.png` }); }
+    // A tooltip inside the dialog shows inside it: a modal is in the browser's top layer, over a tooltip drawn at the root.
+    if (!PHONE) {
+      await dialog.locator('th', { hasText: 'Not the position’s' }).locator('.tip-i').hover().catch(() => undefined);
+      await page.waitForTimeout(300);
+      if (!(await dialog.locator('.tooltip', { hasText: 'Units are alike' }).isVisible().catch(() => false))) problems.push('a column’s tooltip doesn’t show inside the dialog');
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}-hangar-tip.png` });
+      await page.mouse.move(5, 5);
+    }
+    // The whole station: the fitted Damage Control II isn't held, so its position's 2 loose are all its own.
+    await pickSpot(`${JITA_}/all`);
+    if ((await row(DC).getAttribute('data-here').catch(() => null)) !== '2' || (await row(DC).getAttribute('data-not').catch(() => null)) !== '0')
+      problems.push(`the whole station: Damage Control II reads ${await row(DC).getAttribute('data-here').catch(() => '?')} held, ${await row(DC).getAttribute('data-not').catch(() => '?')} not the position’s, not 2 and 0 (the fitted one counted?)`);
+    if ((await dialog.locator('[data-hc="orders"] li[data-type="2185"]').getAttribute('data-here').catch(() => null)) !== '5') problems.push('the whole station: the drones aren’t 5 (Lewds’ 3 and the drone bay’s 2)');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out with the whole station picked: ${o}`);
+    if (SHOTS) { await page.waitForTimeout(600); await page.screenshot({ path: `${SHOTS}-hangar-all.png` }); }
+    // Amarr: the Jita-only position doesn't count a sale there, and says so.
+    await pickSpot(`${AMARR_}/hangar`);
+    if (!(await dialog.locator('.notice', { hasText: 'Sold here they don’t count against a position, which tracks Jita 4-4 only' }).count())) problems.push('Amarr: doesn’t say a sale there doesn’t count for a Jita-only position');
+    if (!(await row(RS).count())) problems.push('Amarr: the datacore isn’t listed');
+    if (SHOTS) { await page.waitForTimeout(600); await page.screenshot({ path: `${SHOTS}-hangar-amarr.png` }); }
+    // Closed and opened again: the hangar read afresh, the pick kept.
+    await pickSpot(`${JITA_}/item:${LEWDS}`);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+    if (await dialog.count()) problems.push('Escape didn’t close the dialog');
+    await open();
+    if ((await page.inputValue('#hc-where').catch(() => '')) !== `${JITA_}/item:${LEWDS}`) problems.push('opened again, Lewds isn’t picked');
+    if (assetsAsked < 2 || namesAsked < 2) problems.push(`the assets and names weren’t read afresh on opening again (${assetsAsked} assets reads, ${namesAsked} names reads)`);
+    const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary');
+    checked++;
+    const unique = [...new Set(problems)];
+    if (unique.length) failures.push({ ledger: 'hangar', page: 'positions', problems: unique });
+    process.stdout.write(unique.length ? `  FAIL hangar #positions\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   hangar #positions (Check my hangar: Lewds’ loot of the plan’s datacore, 10 not the position’s; the fitted module and the copy left out; the drones on a sell order; Amarr; the pick kept)\n');
+    await page.close();
+  }
   // The Sniper with finds (2 October 2026: blueprints out unless asked, and Copy for Multibuy). The cloud answers its
   // read, six finds from the read of 1 October 23:27 UTC: a module, a battery and a script, an Epithal Blueprint, a
   // reaction formula (category 9, no "Blueprint" in its name) and a Thrasher Blueprint the read gives no category for (a

@@ -6313,5 +6313,140 @@ console.log('\n--- how long a moved order stays at the front ---');
   eq('  a long median reads in whole hours past 10', afterMoveSaid({ band: 'quiet', medianH: 12.4, within1h: 0.1, within3h: 0.2 }, { perH: 0.01, watchedH: 50 }, false).line, 'After a move, half were beaten again within about 12 h');
 }
 
+console.log('\n--- check my hangar: what you hold that a position could count ---');
+{
+  // The user (3 October 2026) came back from exploration with loot in a container in Jita 4-4 named "Lewds", some of it
+  // items their plan has buy orders on, and asked whether selling it affects the plan. It does: a position counts every
+  // Jita sale of its item after it opened, and EVE's trades don't say which stack a unit came from. "create a button to
+  // click in positions that checks my jita inventory and then gives me a list of items that is there that could affect
+  // orders", then "rather let the button have me choose where to look".
+  const { readPlaces, resolvePick, hangarCheck, whereLabel, pathLabel, holderIds, assetsTakenAt, ASSETS_HELD_MS } = await import('../src/lib/hangarCheck.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const JITA = 60003760, AMARR = 60008494, CITADEL = 1035466617946;
+  const A = (item_id, type_id, location_id, location_flag, location_type, quantity = 1, extra = {}) => ({ item_id, type_id, location_id, location_flag, location_type, quantity, ...extra });
+  const RS = 20420, MOD = 3001, DRONE = 2185, TRIT = 34, BP = 999;
+  const raw = [
+    A(1, RS, JITA, 'Hangar', 'station', 10),                                   // loose in the Jita hangar
+    A(2, MOD, JITA, 'Hangar', 'station', 1),
+    A(3, MOD, JITA, 'Hangar', 'station', 1, { is_singleton: true }),           // an assembled module: not for sale as it is
+    A(5001, 17366, JITA, 'Hangar', 'station', 1, { is_singleton: true }),      // "Lewds", a Station Container
+    A(11, RS, 5001, 'Unlocked', 'item', 12),
+    A(12, DRONE, 5001, 'Unlocked', 'item', 3),
+    A(13, TRIT, 5001, 'Unlocked', 'item', 100),
+    A(14, BP, 5001, 'Unlocked', 'item', 1, { is_blueprint_copy: true }),     // a blueprint copy: never stock
+    A(5002, 16233, JITA, 'Hangar', 'station', 1, { is_singleton: true }),      // "Battle Chicken", a ship
+    A(21, MOD, 5002, 'HiSlot0', 'item', 1),                                    // fitted: flown, not for sale
+    A(22, MOD, 5002, 'Cargo', 'item', 2),
+    A(23, DRONE, 5002, 'DroneBay', 'item', 5),
+    A(5003, 17366, 5002, 'Cargo', 'item', 1, { is_singleton: true }),          // "Equipment", a can in its cargo
+    A(31, RS, 5003, 'Unlocked', 'item', 5),
+    A(5004, 17366, JITA, 'Hangar', 'station', 1, { is_singleton: true }),      // an empty assembled container
+    A(41, DRONE, JITA, 'Deliveries', 'station', 1),                            // in the station's deliveries, not the hangar
+    A(5100, 60, 2004, 'AssetSafety', 'other'),                                 // an asset safety wrap, waiting
+    A(51, RS, 5100, 'Hangar', 'item', 50),
+    A(5101, 60, JITA, 'Hangar', 'station'),                                    // and one delivered to Jita, not unpacked
+    A(5102, 17366, 5101, 'Hangar', 'item', 1, { is_singleton: true }),
+    A(52, RS, 5102, 'Unlocked', 'item', 7),
+    A(61, RS, AMARR, 'Hangar', 'station', 4),
+    A(5005, 17366, AMARR, 'Hangar', 'station', 1, { is_singleton: true }),     // named "None" in ESI: no name
+    A(62, TRIT, 5005, 'Unlocked', 'item', 20),
+    A(71, TRIT, CITADEL, 'Hangar', 'item', 1000),                              // a player structure's hangar
+  ];
+  const names = new Map([[5001, 'Lewds'], [5002, 'Battle Chicken'], [5003, 'Equipment'], [5004, ' '], [5005, 'None']]);
+  const TYPE = { 17366: 'Station Container', 16233: 'Prophecy' };
+  const typeName = (id) => TYPE[id] ?? `Type ${id}`;
+  eq('the things that hold things, to ask names for: not the wraps or what’s in them, not an empty container', holderIds(raw).sort((a, b) => a - b), [5001, 5002, 5003, 5005]);
+  eq('ESI holds assets an hour: its copy was taken an hour before it lets go', [assetsTakenAt(Date.parse('2026-10-03T15:02:00Z')), ASSETS_HELD_MS], [Date.parse('2026-10-03T14:02:00Z'), 3600_000]);
+  eq('  and nothing is said when ESI names no time', assetsTakenAt(null), null);
+
+  const places = readPlaces(raw, names);
+  eq('the places: Jita 4-4 first, then by how much is held there; no asset safety (location 2004)', places.map((p) => [p.id, p.units]), [[JITA, 11 + 115 + 12 + 1], [CITADEL, 1000], [AMARR, 24]]);
+  const jita = places[0];
+  eq('  Jita’s spots: its hangar, its deliveries, each container or ship (nested as a path), then the whole place',
+    jita.spots.map((s) => [s.key, s.units]), [['hangar', 11], ['flag:Deliveries', 1], ['item:5001', 115], ['item:5002', 12], ['item:5003', 5], ['all', 139]]);
+  eq('  a can in a ship’s cargo has the ship in its path; names as you gave them', jita.spots.find((s) => s.key === 'item:5003').path.map((p) => [p.id, p.name]), [[5002, 'Battle Chicken'], [5003, 'Equipment']]);
+  eq('  and its label', [pathLabel(jita.spots.find((s) => s.key === 'item:5003').path, typeName), pathLabel(jita.spots.find((s) => s.key === 'item:5001').path, typeName)], ['Battle Chicken › Equipment', 'Lewds']);
+  eq('  ESI’s “None” is no name: the container goes by its type', [places[2].spots.find((s) => s.key === 'item:5005').path[0].name, pathLabel(places[2].spots.find((s) => s.key === 'item:5005').path, typeName)], [null, 'Station Container']);
+  const heldOf = (place, spot) => {
+    const out = {};
+    for (const st of place.stacks) if (spot === 'all' || (spot === 'hangar' && !st.chain.length && st.flag === 'Hangar') || st.chain.some((c) => `item:${c.id}` === spot)) out[st.typeId] = (out[st.typeId] ?? 0) + st.q;
+    return out;
+  };
+  eq('  held in the hangar: loose and packaged; not the assembled module, the ships and containers, or the delivered wrap’s things', heldOf(jita, 'hangar'), { [RS]: 10, [MOD]: 1 });
+  eq('  in Lewds: not the blueprint copy', heldOf(jita, 'item:5001'), { [RS]: 12, [DRONE]: 3, [TRIT]: 100 });
+  eq('  in Battle Chicken: its cargo, its drone bay and the can in its cargo, not what’s fitted', heldOf(jita, 'item:5002'), { [MOD]: 2, [DRONE]: 5, [RS]: 5 });
+  eq('  in the whole station', heldOf(jita, 'all'), { [RS]: 27, [MOD]: 3, [DRONE]: 9, [TRIT]: 100 });
+  eq('a structure is a place of its own', [places[1].id, heldOf(places[1], 'all')], [CITADEL, { [TRIT]: 1000 }]);
+  eq('  the kept pick when it’s still there', resolvePick(places, { place: JITA, spot: 'item:5001' }), { place: JITA, spot: 'item:5001' });
+  eq('  else Jita 4-4’s hangar: a container gone, a place gone, nothing kept', [resolvePick(places, { place: JITA, spot: 'item:777' }), resolvePick(places, { place: 60011866, spot: 'hangar' }), resolvePick(places, null)],
+    [{ place: JITA, spot: 'hangar' }, { place: JITA, spot: 'hangar' }, { place: JITA, spot: 'hangar' }]);
+  const noJita = readPlaces([A(61, RS, AMARR, 'Hangar', 'station', 4)], new Map());
+  eq('  Jita 4-4’s hangar is always there to fall back on, held or not', [noJita[0].id, noJita[0].spots.map((s) => s.key), resolvePick(noJita, null)], [JITA, ['hangar', 'all'], { place: JITA, spot: 'hangar' }]);
+
+  // Datacore - Rocket Science (the plan view's case above): the position open since 24 September holds 2,628 from before
+  // the plan, all on a sell order; the plan took it for a bid of 188. Ten more come home from exploration in Lewds.
+  const S = sanitizeSettings({ override: true, brokerPct: 1.3, taxPct: 3.375 });
+  const AT = '2026-10-02T15:36:31.972Z';
+  const tx = (id, isBuy, qty, price, date) => ({ id, source: 'esi', typeId: RS, date, isBuy, qty, unitPrice: price, locationId: JITA });
+  const pos = { id: 'rs', typeId: RS, openedAt: '2026-09-24T22:26:26.502Z', status: 'open', jitaOnly: true, excluded: [], included: [] };
+  const plan = { id: 'p2', name: 'Second plan', at: AT, isk: 0, horizonDays: 7, patient: true, items: [{ typeId: RS, buyAt: 85_540, units: 188, sellAt: 94_430, positionId: pos.id }] };
+  const sellSeen = [{ issued: '2026-10-01T10:58:01Z', price: 97_480, remain: 4924 }, { issued: '2026-10-02T15:19:38Z', price: 96_980, remain: 2628 }];
+  const before = {
+    b1: tx('b1', true, 12_000, 80_720, '2026-09-24T22:31:46Z'), s1: tx('s1', false, 7076, 92_370, '2026-09-28T12:00:00Z'),
+    s2: tx('s2', false, 296, 97_480, '2026-10-01T12:50:51Z'), s4: tx('s4', false, 2000, 96_980, '2026-10-02T15:20:15Z'),
+  };
+  const sell = (remain) => ({ orderId: 71, typeId: RS, isBuy: false, price: 96_980, volumeTotal: 4924, volumeRemain: remain, issued: '2026-10-02T15:19:38Z', state: remain ? 'open' : 'expired', locationId: JITA, seen: sellSeen });
+  const bid = (remain) => ({ orderId: 72, typeId: RS, isBuy: true, price: 85_540, volumeTotal: 188, volumeRemain: remain, issued: '2026-10-02T15:48:23Z', state: remain ? 'open' : 'expired', locationId: JITA, seen: [{ issued: '2026-10-02T15:48:23Z', price: 85_540, remain: 188 }] });
+  const droneSell = { orderId: 73, typeId: DRONE, isBuy: false, price: 900_000, volumeTotal: 6, volumeRemain: 5, issued: '2026-10-01T00:00:00Z', state: 'open', locationId: JITA };
+  const tritAmarr = { orderId: 74, typeId: TRIT, isBuy: true, price: 4, volumeTotal: 1e6, volumeRemain: 1e6, issued: '2026-10-01T00:00:00Z', state: 'open', locationId: AMARR };
+  const ledger = (txs, orders) => ({ txs, orders: Object.fromEntries(orders.map((o) => [o.orderId, o])), journal: {}, meta: {}, positions: [pos], plans: [plan], names: {} });
+  const lewds = (extra = []) => readPlaces([A(5001, 17366, JITA, 'Hangar', 'station', 1, { is_singleton: true }), A(11, RS, 5001, 'Unlocked', 'item', 10), A(12, DRONE, 5001, 'Unlocked', 'item', 3), A(13, TRIT, 5001, 'Unlocked', 'item', 100), ...extra], new Map([[5001, 'Lewds']]));
+  const now = ledger(before, [sell(2628), bid(188), droneSell, tritAmarr]);
+  const c0 = hangarCheck({ d: now, s: S, places: lewds(), pick: { place: JITA, spot: 'item:5001' }, ordersKnown: true });
+  const r0 = c0.tracked[0];
+  eq('Lewds: one item a position counts, the plan named', [c0.tracked.length, r0.typeId, r0.pos.id, r0.plan?.id, r0.plan?.name], [1, RS, 'rs', 'p2', 'Second plan']);
+  eq('  10 here, the position’s 2,628 all on its sell order, the plan’s bid still buying 188', [r0.here, r0.jita, r0.stock, r0.listed, r0.buying], [10, 10, 2628, 2628, 188]);
+  eq('  the plan’s view: none of the 2,628 held before it is the plan’s', [r0.plan.stock, r0.plan.earlier], [0, 2628]);
+  // Against the whole position, never the plan's view: the 2,628 are the position's own, and excluding their sales would
+  // break it. 10 + 2,628 − 0 (the view) would say 2,638.
+  eq('  not the position’s: the 10 loot, from the whole station and the listing less the whole position’s stock', r0.notPositions, 10);
+  eq('  where they sit in the pick', r0.where.map((w) => [whereLabel(w, typeName), w.q]), [['Lewds', 10]]);
+  eq('an item with only an order of yours goes to the second list; Tritanium, ordered only in Amarr, to neither', [c0.ordersOnly.map((o) => [o.typeId, o.here, o.listed, o.buying])], [[[DRONE, 3, 5, 0]]]);
+  eq('  in Jita 4-4, so nothing outside it', c0.outside, false);
+
+  // Then the plan's 188 fill and 2,000 of the earlier stock sell: the hangar holds the 188 and the 10 loot sit in Lewds.
+  const mid = ledger({ ...before, p1: tx('p1', true, 188, 85_540, '2026-10-02T18:00:00Z'), s5: tx('s5', false, 2000, 96_980, '2026-10-02T19:00:00Z') }, [sell(628), bid(0), droneSell]);
+  const hangar188 = lewds([A(1, RS, JITA, 'Hangar', 'station', 188)]);
+  const c1 = hangarCheck({ d: mid, s: S, places: hangar188, pick: { place: JITA, spot: 'all' }, ordersKnown: true });
+  const r1 = c1.tracked[0];
+  eq('the plan’s 188 bought: the position holds 816, the plan 188, 628 the earlier trading’s', [r1.stock, r1.plan.stock, r1.plan.earlier, r1.listed, r1.buying], [816, 188, 628, 628, 0]);
+  eq('  198 in Jita, 628 listed: 10 aren’t the position’s', [r1.jita, r1.notPositions], [198, 10]);
+  eq('  where: the hangar and Lewds', r1.where.map((w) => [whereLabel(w, typeName), w.q]), [['Hangar', 188], ['Lewds', 10]]);
+  const short = hangarCheck({ d: mid, s: S, places: readPlaces([A(1, RS, JITA, 'Hangar', 'station', 100)], new Map()), pick: { place: JITA, spot: 'hangar' }, ordersKnown: true });
+  eq('  never negative: fewer held than the position counts is none of anyone else’s', short.tracked[0].notPositions, 0);
+  eq('  orders not read: neither the listing nor what isn’t the position’s is known', [hangarCheck({ d: mid, s: S, places: hangar188, pick: { place: JITA, spot: 'all' }, ordersKnown: false }).tracked[0]].map((r) => [r.listed, r.buying, r.notPositions])[0], [null, null, null]);
+  const looted = hangarCheck({ d: mid, s: S, places: lewds([A(1, RS, JITA, 'Hangar', 'station', 188), A(5, MOD, 5001, 'Unlocked', 'item', 2)]), pick: { place: JITA, spot: 'item:5001' }, ordersKnown: true });
+  // The plan's 188 in the hangar are all the position's; 2 of a module looted into Lewds, whose position bought none, aren't.
+  eq('  rows with units that aren’t the position’s come first, however many the others hold', hangarCheck({
+    d: { ...mid, positions: [pos, { ...pos, id: 'mod', typeId: MOD, openedAt: '2026-10-01T00:00:00Z' }] }, s: S,
+    places: readPlaces([A(1, RS, JITA, 'Hangar', 'station', 188), A(5001, 17366, JITA, 'Hangar', 'station', 1, { is_singleton: true }), A(5, MOD, 5001, 'Unlocked', 'item', 2)], new Map()),
+    pick: { place: JITA, spot: 'all' }, ordersKnown: true,
+  }).tracked.map((r) => [r.typeId, r.here, r.notPositions]), [[MOD, 2, 2], [RS, 188, 0]]);
+  eq('  an item no position holds and no order covers is in neither list', looted.tracked.map((r) => r.typeId).concat(looted.ordersOnly.map((r) => r.typeId)), [RS, DRONE]);
+
+  // A place outside Jita 4-4: a Jita-only position doesn't count sales there; one counting everywhere does.
+  const amarr = readPlaces([A(61, RS, AMARR, 'Hangar', 'station', 4)], new Map());
+  const out = hangarCheck({ d: mid, s: S, places: amarr, pick: { place: AMARR, spot: 'hangar' }, ordersKnown: true });
+  eq('Amarr: outside Jita, and the Jita-only position doesn’t count a sale there', [out.outside, out.tracked[0].here, out.tracked[0].countsHere, out.tracked[0].jita], [true, 4, false, 0]);
+  eq('  one that counts every station does', hangarCheck({ d: { ...mid, positions: [{ ...pos, jitaOnly: false }] }, s: S, places: amarr, pick: { place: AMARR, spot: 'hangar' }, ordersKnown: true }).tracked[0].countsHere, true);
+  eq('  in Jita a sale always counts', r1.countsHere, true);
+  const none = hangarCheck({ d: mid, s: S, places, pick: { place: CITADEL, spot: 'all' }, ordersKnown: true });
+  eq('nothing a position or an order of yours covers: both lists empty', [none.tracked.length, none.ordersOnly.length], [0, 0]);
+  eq('a closed position counts nothing new', hangarCheck({ d: { ...mid, positions: [{ ...pos, status: 'closed', closedAt: '2026-10-02T20:00:00Z' }] }, s: S, places: hangar188, pick: { place: JITA, spot: 'all' }, ordersKnown: true }).tracked.length, 0);
+  // Without a plan the position's own stock is the figure; nothing is said of a plan.
+  const solo = hangarCheck({ d: { ...mid, plans: [] }, s: S, places: hangar188, pick: { place: JITA, spot: 'all' }, ordersKnown: true }).tracked[0];
+  eq('  a position no plan holds: no plan, the same count', [solo.plan, solo.notPositions], [null, 10]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

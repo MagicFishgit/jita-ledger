@@ -111,8 +111,8 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
   },
   'esi-assets.read_assets.v1': {
     label: 'Assets',
-    unlocks: 'Stock reconciliation on positions, and the filaments already in your hangar on the Abyssal page.',
-    without: 'Positions cannot check what you hold against what your trades imply.',
+    unlocks: 'Stock reconciliation on positions, Positions’ Check my hangar (which of what you hold a position could count), and the filaments already in your hangar on the Abyssal page.',
+    without: 'Positions cannot check what you hold against what your trades imply, nor which of it a position could count.',
   },
   'esi-planets.manage_planets.v1': {
     label: 'Planetary colonies',

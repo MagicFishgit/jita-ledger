@@ -182,6 +182,53 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   the Sniper's "Your snipes" and the Capital planner (`positions?list=stock`). On the user's hangar (29 September
   2026): 11 bought items, 3 of them ships; 4 ticked for 21.75 M over cost (the sniped Uranium Charge S +21.33 M), and
   the Jackdaw fit's spare scripts unticked, since they now sell under what they cost.
+- **"Check my hangar" says which of what you hold a position could count** (`lib/hangarCheck.ts` pure and tested,
+  `HangarCheck.tsx`, a button in Positions' head beside Check for new trades; 3 October 2026). The user came back from
+  exploration with loot in a Jita 4-4 container named "Lewds", some of it items their plan had buy orders on, and asked
+  whether selling it affects the plan. It does: a position counts every Jita sale of its item after it opened (`matchTx`)
+  and EVE's trades don't say which stack a unit came from, so a loot sale is taken from the position's own units at their
+  cost; sold after the plan's buy filled, the plan reads them as sold and its list step asks to list too few, and a loot
+  sell order counts as the plan's stock listed (`listedSince`). **Marking the trade Personal on the Wallet doesn't keep it
+  out of a position**: `computePosition` never reads `d.ignored`; only the position page's per-trade Exclude does. Their
+  words: "create a button to click in positions that checks my jita inventory and then gives me a list of items that is
+  there that could affect orders. this could be a modal that opens up", then, on the design, "rather let the button have
+  me choose where to look".
+  - **On open it reads your assets afresh** (`fresh`, nothing saved or synced) and the names you gave the things holding
+    things, a thousand a call in calls of their own (ESI's "None" is no name), and says when ESI's copy was taken (its
+    expiry less the hour ESI holds assets), with Read again. Without the assets permission it says a new login asks for it.
+  - **You pick where to look**: every place you hold things, Jita 4-4 first (always there, with its hangar, to fall back
+    on), then by units held; under each its hangar, any other bay of the station's own with something in it (deliveries),
+    every container and ship holding something as a path ("Battle Chicken › Equipment", one you didn't name by its type),
+    and the whole place. Stations by ESI's names, structures by `structureInfo`, as the Wallet's "Where your wealth sits".
+    Asset safety wraps and all in them are left out (they have their own panel). The pick is kept per browser
+    (`jita-ledger:hangar-pick`), falling back to Jita 4-4's hangar once that container or place is gone.
+  - **Held** is packaged, sellable units at any depth: not a blueprint copy, not anything fitted (`bayOf` "Fitted", loaded
+    charges too), not an assembled item (`is_singleton`: a ship in use, a container, an unpacked module), not a wrap's.
+    A ship's cargo, drone bay and other bays count and are named ("Battle Chicken › Drone bay").
+  - **Each item a position counts** (any open position of the type, the earliest opened should there be two): where its
+    units lie in the pick, what the position counts as its own stock (with a plan holding it, `planTargets`, the plan named
+    and its view's stock beside, `planPosition`), your open Jita 4-4 sell orders' units, what your Jita 4-4 buys still
+    buy, and **Not the position's**: units held in Jita 4-4 (the whole station, every spot, this read) plus those listed,
+    less the **whole position's** stock, never below 0, said "of the 22 you hold in Jita 4-4" so a pick of one container
+    isn't misread; rows with such units first, under "Selling those units counts against the position (and the plan):
+    sell them and Exclude each sale on the position's page, or keep them apart until the position closes". **Against the
+    whole position, not the plan's view** (a ruling against the brief's formula, 3 October 2026): on Rocket Science's
+    shared position (2,628 held before the plan, all listed; the plan's view 0) with 10 loot in Lewds, the view's stock
+    would say 2,638 aren't the position's and tell the user to Exclude sales of the position's own earlier stock, which
+    would leave its stock above zero for good; the view already sells those first (`heldSold`). Against the whole it's 10,
+    the units a sale would wrongly take, from the position and, once the earlier stock is gone, from the plan.
+  - Below, items held there with an open Jita 4-4 order of yours and no open position ("selling them doesn't touch a
+    position"); orders elsewhere aren't counted anywhere in it, as positions' stock and sales are Jita's. A place outside
+    Jita 4-4 says a Jita-only position doesn't count sales there, and brought to Jita they do; an item a position counts
+    anywhere is said apart. Nothing a position or order covers is said plainly ("Nothing in Lewds is an item…"). Orders not
+    read leave the listing and the count "–", never 0.
+  - **Here, not beside List your stock** as the brief had it: List your stock hides itself when nothing bought sits loose in
+    the hangar, which is exactly a hangar of loot.
+  - The page check (its own `hangar` case, both widths, the dialog open): Lewds holding 10 of the plan's datacore beside
+    12 in the hangar (10 not the position's, of 22), a blueprint copy of a position's item, Tritanium nothing covers and
+    drones on a sell order; a ship with a fitted Damage Control II beside a position's 2 loose (2 held, none not its);
+    Amarr; the pick kept on opening again; a column's tooltip shown inside the dialog. Counting the fitted one, and
+    drawing the tooltip at the root (gotchas.md), each failed it.
 - **Rates & fees says what the skill queue is about to do** (`lib/skillQueue.ts`, scope `esi-skills.read_skillqueue.v1`,
   registered 29 September 2026). The sync keeps the queue in order (`meta.skillQueue`); each trade skill in it that
   raises a level you have is shown with what it changes when it finishes, worked out from skills and standings (not

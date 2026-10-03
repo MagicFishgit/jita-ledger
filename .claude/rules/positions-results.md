@@ -1,7 +1,7 @@
 ---
 paths:
-  - "src/lib/{positions,feeMatch,fees,results,wallet,longRange,standings,goals,refunds,assetSafety,skillQueue,attribution,heldCost,training,income,everyItem,emptyData}.ts"
-  - "src/components/{Positions,PositionDetail,Results,Wallet,Goals,AssetSafety,ListStock,Omega}.tsx"
+  - "src/lib/{positions,feeMatch,fees,results,wallet,longRange,standings,goals,refunds,assetSafety,skillQueue,attribution,heldCost,training,income,everyItem,emptyData,hangarCheck}.ts"
+  - "src/components/{Positions,PositionDetail,Results,Wallet,Goals,AssetSafety,ListStock,HangarCheck,Omega}.tsx"
   - "src/components/{activityEvents,payback}.ts"
   - "worker/src/safety.ts"
 ---

@@ -1,8 +1,8 @@
 ---
 paths:
-  - "src/lib/{alerts,alertsRunner,mailAlerts,notifyArt,lootList,lootMarket,assetSafety,actions,openLink,marketLink,sync,esiRecords}.ts"
+  - "src/lib/{alerts,alertsRunner,mailAlerts,notifyArt,lootList,lootMarket,assetSafety,actions,openLink,marketLink,sync,esiRecords,hangarCheck}.ts"
   - "src/open.ts"
-  - "src/components/{Loot,ListStock,SellWindowBanner,AssetSafety}.tsx"
+  - "src/components/{Loot,ListStock,SellWindowBanner,AssetSafety,HangarCheck}.tsx"
   - "worker/src/{alerts,safety,watchdog,checks,archive}.ts"
 ---
 

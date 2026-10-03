@@ -23,6 +23,10 @@ Traps in the code, the tools and the browser that have cost time before.
   `ago()` / `until()`, or the display freezes on whatever it first said.
 - **Grid items default to `min-width: auto`**, so text won't wrap and overflows its track. `min-width: 0`.
 - Tooltips must be positioned out of the flow; one that pushes rows down is worse than none.
+- **A tooltip inside a modal `<dialog>` drew behind it.** `showModal()` puts the dialog in the browser's top layer, above
+  anything the page draws, the root's `TipLayer` included, whatever its z-index. So `TipLayer` portals the tooltip into
+  the open dialog holding its target (Check my hangar, 3 October 2026, the first dialog with tips); the page check hovers
+  one there and fails when it isn't inside.
 - **`fetch()` defaults to the browser's HTTP cache**, and ESI market data is `cache-control: public`
   with an Expires minutes out — so a repeat read is answered in ~3ms without a request being made.
   Measured: 612ms, then 3ms, then 358ms with `cache: 'no-cache'`. Pass `fresh: true` to `esi()` when
