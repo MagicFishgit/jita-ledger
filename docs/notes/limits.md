@@ -50,7 +50,9 @@ State these rather than letting them be discovered:
   mostly loot and module sells; market-reading). Its bands are typical figures, not a forecast; the moves beaten within
   10 minutes are left out, so a real move can be beaten sooner, and a move changed again before it was beaten counts as
   not yet beaten. The rate reads only whole days before today, so an item first watched today says nothing until
-  tomorrow, and undercuts are counted by UTC day, five minutes apart, so a brief spell at the front can be missed.
+  tomorrow, and undercuts are counted by UTC day, five minutes apart, so a brief spell at the front can be missed. The
+  bands were cut on the cloud's all-day watching; with the cloud off, the rate comes from the hours this browser was open,
+  a different sample (as for Clears in).
 - **Net worth values assets at CCP's rough global average**, which flatters anything hard to sell, and its
   trend exists only from the first day the Wallet page was opened in this browser.
 - **"Every item you traded" can't separate Personal sales from trading within one item.** Where an item has both,

@@ -6300,14 +6300,17 @@ console.log('\n--- how long a moved order stays at the front ---');
 
   // The words: a short line, and a tip with the band, the rate, the three figures, the source and what was left out.
   const s = afterMoveSaid(afterMove(0.41), { perH: 0.41, watchedH: 81 }, false);
-  eq('the line under Move to', s.line, 'After a move: half beaten again within about 1.6 h');
-  for (const want of ['undercut the best sell price about 0.41 times an hour over the 81 h watched', 'busiest third', '0.34 an hour or more', 'Half lasted about 1.6 h', '42% were beaten again within an hour, 57% within 3 h',
+  eq('the line under Move to', s.line, 'After a move, half were beaten again within about 1.6 h');
+  for (const want of ['undercut the best sell price about 0.41 times an hour over the 81 h watched before today', 'busiest third', '0.34 an hour or more', 'Half lasted about 1.6 h', '42% were beaten again within an hour, 57% within 3 h',
     '415 of your 1,216 price changes', '27 September to 3 October 2026', 'not a forecast for this order', 'Left out: the 105 beaten again within 10 minutes', 'some placed behind on purpose, some undercut at once', 'a real move can be beaten sooner than this'])
     has('  its tip', s.tip, want);
   has('  a buy is outbid', afterMoveSaid(afterMove(0.06), { perH: 0.06, watchedH: 120 }, true).tip, 'outbid the best bid about 0.06 times an hour');
   has('  a quiet market says so', afterMoveSaid(afterMove(0.06), { perH: 0.06, watchedH: 120 }, true).tip, 'quietest third of the moves measured (under 0.13 an hour)');
   has('  a middle one too', afterMoveSaid(afterMove(0.2), { perH: 0.2, watchedH: 120 }, false).tip, 'middle third of the moves measured (0.13 to 0.34 an hour)');
-  eq('  a long median reads in whole hours past 10', afterMoveSaid({ band: 'quiet', medianH: 12.4, within1h: 0.1, within3h: 0.2 }, { perH: 0.01, watchedH: 50 }, false).line, 'After a move: half beaten again within about 12 h');
+  has('  a rate under 0.01 an hour says so, without "about"', afterMoveSaid(afterMove(0.005), { perH: 0.005, watchedH: 300 }, false).tip, 'undercut the best sell price under 0.01 times an hour over the 300 h watched before today');
+  eq('  never "about under"', afterMoveSaid(afterMove(0.005), { perH: 0.005, watchedH: 300 }, false).tip.includes('about under'), false);
+  has('  nobody undercut: said as none', afterMoveSaid(afterMove(0), { perH: 0, watchedH: 40 }, false).tip, 'nobody else undercut the best sell price in the 40 h watched before today');
+  eq('  a long median reads in whole hours past 10', afterMoveSaid({ band: 'quiet', medianH: 12.4, within1h: 0.1, within3h: 0.2 }, { perH: 0.01, watchedH: 50 }, false).line, 'After a move, half were beaten again within about 12 h');
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

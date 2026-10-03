@@ -570,7 +570,7 @@ try {
     if (!(await after.count())) problems.push('not drawn: no “After a move” line under the Arbalest sell’s Move to');
     else {
       const line = (await after.first().innerText()).replace(/\s+/g, ' ');
-      if (!line.includes('After a move: half beaten again within about 1.6 h')) problems.push(`the Arbalest sell's after-a-move line reads “${line}”`);
+      if (!line.includes('After a move, half were beaten again within about 1.6 h')) problems.push(`the Arbalest sell's after-a-move line reads “${line}”`);
       const tip = (await after.first().getAttribute('data-tip')) ?? '';
       for (const want of ['undercut the best sell price about 0.41 times an hour', 'busiest third', 'Half lasted about 1.6 h', '42% were beaten again within an hour, 57% within 3 h',
         '415 of your 1,216 price changes', 'not a forecast for this order', 'Left out: the 105 beaten again within 10 minutes']) if (!tip.includes(want)) problems.push(`not drawn: the after-a-move tip's “${want}”`);

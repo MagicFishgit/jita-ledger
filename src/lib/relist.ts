@@ -568,7 +568,7 @@ export type AfterMoveBand = 'quiet' | 'middle' | 'busy';
  * Others' undercuts an hour where each band starts: the research's thirds as it computed them (0.12978 and 0.34097,
  * printed 0.130 and 0.341), taken a hair under so the moves at exactly those rates fall where the research put them, in
  * the band above. At the rounded 0.130 and 0.341, 4 moves at 0.12978 went to the quiet third, whose median read 9.3 h
- * rather than 9.9 (`.playwright-mcp/after-move/match.mjs`).
+ * rather than 9.9, and 2 at 0.34097 to the middle one: the bands are that sensitive to a few moves at their edges (`.playwright-mcp/after-move/match.mjs`).
  */
 export const AFTER_MOVE_CUTS = { middle: 0.1297, busy: 0.3409 } as const;
 /**
@@ -610,8 +610,8 @@ export function afterMoveSaid(a: AfterMove, rate: { perH: number; watchedH: numb
   const pct = (x: number) => `${Math.round(x * 100)}%`;
   const cut = (x: number) => String(Number(x.toFixed(2)));
   const beat = isBuy ? 'outbid the best bid' : 'undercut the best sell price';
-  const often = !(rate.perH > 0) ? `nobody else ${isBuy ? 'outbid the best bid' : 'undercut the best sell price'} in the ${Math.round(rate.watchedH)} h watched`
-    : `others ${beat} about ${rate.perH < 0.01 ? 'under 0.01' : rate.perH.toFixed(2)} times an hour over the ${Math.round(rate.watchedH)} h watched`;
+  const often = !(rate.perH > 0) ? `nobody else ${isBuy ? 'outbid the best bid' : 'undercut the best sell price'} in the ${Math.round(rate.watchedH)} h watched before today`
+    : `others ${beat} ${rate.perH < 0.01 ? 'under 0.01' : `about ${rate.perH.toFixed(2)}`} times an hour over the ${Math.round(rate.watchedH)} h watched before today`;
   const third = a.band === 'quiet' ? `the quietest third of the moves measured (under ${cut(AFTER_MOVE_CUTS.middle)} an hour)`
     : a.band === 'middle' ? `the middle third of the moves measured (${cut(AFTER_MOVE_CUTS.middle)} to ${cut(AFTER_MOVE_CUTS.busy)} an hour)`
       : `the busiest third of the moves measured (${cut(AFTER_MOVE_CUTS.busy)} an hour or more)`;
@@ -622,7 +622,7 @@ export function afterMoveSaid(a: AfterMove, rate: { perH: number; watchedH: numb
     + `• ${pct(a.within1h)} were beaten again within an hour, ${pct(a.within3h)} within 3 h\n\n`
     + `From ${units(rated)} of your ${units(AFTER_MOVE_FROM.changes)} price changes, ${AFTER_MOVE_FROM.from} to ${AFTER_MOVE_FROM.to}, whose market was watched 6 h or more on the days before. `
     + `Left out: the ${units(AFTER_MOVE_FROM.quick)} beaten again within 10 minutes (some placed behind on purpose, some undercut at once), so a real move can be beaten sooner than this. Weigh it against what the move costs.`;
-  return { line: `After a move: half beaten again within about ${h} h`, tip };
+  return { line: `After a move, half were beaten again within about ${h} h`, tip };
 }
 
 /**

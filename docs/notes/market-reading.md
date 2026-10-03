@@ -118,7 +118,8 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   all 1,216 equal): the times the best price improved on whole UTC days before today, less the user's own placements and
   better prices those days (up to the day's count, times the share of the day watched), over the hours watched; nothing
   under `RELIST_MIN_H`. Keeping only Jita 4-4's own moves changed none. The cuts sit a hair under the computed 0.12978 and
-  0.34097: at the rounded 0.130, 4 moves at exactly the cut fell to the quiet third, whose median read 9.3 h. The user
+  0.34097: at the rounded 0.130 and 0.341, 4 moves at exactly the lower cut fell to the quiet third, whose median read
+  9.3 h, and 2 at the upper to the middle one; the bands are that sensitive to a few moves at their edges. The user
   chose this one line ("helps judge whether a move's fee buys anything") over a track record by figure size, Clears in
   worded as a floor, or nothing. It shows only under a Move it whose price beats every other order on its side
   (`movesToFront`): a move behind the front, or behind a token, is beaten from the start, which is what the left-out
