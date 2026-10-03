@@ -472,8 +472,9 @@ try {
   // ESI answers these two items' books (nothing else); without this the deploy never drew "Keep it", the plan's chip
   // or the red tag. Both widths, as the run's (PHONE).
   // And the user's 'Arbalest' buy feeding a long sell queue (2 October 2026, scripts/fixtures/orders-queue.json): ESI answers
-  // its real Jita book and its history, the dates moved so the last day is yesterday, so "Feeds a long queue" is drawn
-  // (from the book's split: nothing is watched here) on any day the check runs.
+  // its real Jita book and its history, the dates moved so the last day is yesterday, and the browser holds its real
+  // watched flow moved the same way, so "Feeds a long queue" (paced by that watching blended with the book's split) and
+  // the sell's after-a-move line are drawn on any day the check runs.
   if (SHOWN.includes('orders') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('plan'))) {
     const M = 1e6, PX = 47466, TRIT = 34, KEY = 89156, JITA = 60003760, ID = 7433389018;
     const fs = await import('node:fs');
