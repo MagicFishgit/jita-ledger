@@ -5,7 +5,7 @@
  * rules (points a day, access, the ranking) are research.ts; the research behind both is
  * `.playwright-mcp/research/rd-agents/draft.md`. Pure: no config, store, React or DOM, so `npm run check` loads it.
  */
-import { ACCESS, CORP_BELOW_FACTION, DATACORE_OF, effectiveStanding, openLevel, type HelperAgent, type RankedAgent, type RdAgent, type StandingRow } from './research';
+import { ACCESS, CORP_BELOW_FACTION, DATACORE_OF, effectiveStanding, openLevel, rpPerDay, type HelperAgent, type RankedAgent, type RdAgent, type StandingRow } from './research';
 import { spForLevel, trainingDays, type Attributes, type SkillDogma } from './training';
 import type { HistRow } from './types';
 
@@ -217,6 +217,18 @@ export function pickDefault(ranked: RankedAgent[]): RankedAgent | null {
 }
 
 /** How many agents Research Project Management V lets one character run: one, and one more a level. */
+/**
+ * What a level of Connections adds to an agent's points a day (step 1's Connections line), through the character's own
+ * standing with that agent: the formula's standing term, lifted by 4% of its gap to 10 a level. Null with no standing
+ * with the agent (no standing stays none, whatever the skills, so there's nothing to say: the spec); 0 for a negative
+ * one, which Diplomacy lifts instead. `level` is the Connections level reached, against the one before it.
+ */
+export function connectionsRp(o: { agentRaw: number | null; level: number; diplomacy: number; field: number; agentLevel: number; negotiation: number }): number | null {
+  if (o.agentRaw == null) return null;
+  const at = (l: number) => rpPerDay({ field: o.field, agentLevel: o.agentLevel, negotiation: o.negotiation, agentStanding: effectiveStanding(o.agentRaw, l, o.diplomacy) });
+  return at(o.level) - at(o.level - 1);
+}
+
 export const MAX_AGENTS = 6;
 
 /**

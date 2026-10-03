@@ -12,7 +12,7 @@ import type { HistRow, Prefs } from '../../lib/types';
 import { JITA_SYSTEM } from '../../lib/universe';
 import { Points } from '../Facts';
 import { Check, ItemIcon, NumChip, Tiles } from '../ui';
-import { researchWhy, type ResearchChar } from './researchChars';
+import { lostSaid, researchWhy, type ResearchChar } from './researchChars';
 import type { Book, Read } from './researchMarket';
 import { DestButton, secSaid } from './ResearchSteps';
 import { countedSaid, TotalsView } from './ResearchTotals';
@@ -35,11 +35,16 @@ type Market = { books: Record<number, Read<Book>>; hist: Record<number, Read<His
 type CashIn = { value: Prefs['researchCashIn']; set: (v: { on: boolean; isk: number | null }) => void };
 const DATACORES = Object.values(DATACORE_OF);
 
-/** Where a character's research was read, said in a few words: the main's by its sync, an alt's by the cloud's hourly read. */
+/**
+ * Where a character's research was read, said in a few words: the main's by its sync, an alt's by the cloud's hourly read;
+ * an alt whose login is refused or not held as of the cloud's last read, which won't be read again until it's handed over.
+ */
 function readSaid(c: ResearchChar, now: number): string | null {
   const r = c.research;
   if (r.state !== 'read') return null;
   const when = r.at != null ? ` ${ago(new Date(r.at).toISOString(), now)}` : '';
+  const lost = lostSaid(c);
+  if (lost) return `As the cloud last read it${when}. ${lost}`;
   return c.isMain ? `As the sync read it${when}; EVE’s copy can be an hour old.` : `As the cloud read it${when}; it reads ${c.name} hourly.`;
 }
 
@@ -86,7 +91,7 @@ export function ResearchCards({ chars, mainName, agents, corpName, graph, market
         {chars.map((c) => (
           <p key={c.charId} className="note small" data-research={c.isMain ? 'main' : c.charId}>
             <b style={{ color: 'var(--ink)', fontWeight: 600 }}>{c.name}:</b>{' '}
-            {c.research.state === 'read' ? `No agents running. ${c.isMain ? 'The steps below start one, and its card shows here once the sync reads it.' : `Its card shows here once the cloud reads one running.`}` : researchWhy(c)}
+            {c.research.state === 'read' ? (lostSaid(c) ? `No agents running as of the cloud’s last read. ${lostSaid(c)}` : `No agents running. ${c.isMain ? 'The steps below start one, and its card shows here once the sync reads it.' : `Its card shows here once the cloud reads one running.`}`) : researchWhy(c)}
           </p>
         ))}
         {chars[0]?.missionAt && <MissionLine at={chars[0].missionAt} now={now} />}

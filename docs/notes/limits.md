@@ -118,3 +118,17 @@ State these rather than letting them be discovered:
   its trade arrives when ESI's copy of your trades turns over (held an hour), and the stock to list is held to what the
   Jita hangar held at its last read, also an hour's copy, so a hangar read from before the fill reads it as none until the
   next. The cap is what stops a listing that sold coming back as stock to list; the cost is that wait.
+- **R&D agents: a datacore is taken as 100 research points** until a real purchase is logged (CCP's 2012 dev blog and the
+  static data; CCP's support page, edited 2024, says 50, 100 or 150 by field), so datacores waiting, their worth and To
+  do's cash-in can be off by half or half again for a field that costs otherwise (research.md).
+- **The field level an agent asks for is taken as the agent's own level** (EVE University's example; a 2023 player report
+  disagrees), so "once Electronic Engineering reaches II" may ask for more training than the agent does.
+- **Whether two agents may research one field at once isn't confirmed**: the Research tab's pick step allows it and says so.
+- **ESI's points a day lag a skill or standing gained** until the agent is reopened in game; the card works out the rate it
+  should be and says so when the two differ past 2 RP or 2%.
+- **An alt's standings and research are as of the cloud's last hourly read**, and stop at it while its login is refused or
+  not held (the page says which).
+- **All income doesn't net the 10,000 ISK datacore fee against datacore sales**: the fee is its own Wallet line,
+  "Datacores from agents", and the datacores sell as "Sold, never bought" (or as trading when you also bought some).
+- **To do's "Fewer datacores waiting: bought, most likely" is an inference**: cancelling and starting again with the same
+  agent between ESI's hourly reads reads the same.

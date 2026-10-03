@@ -8,14 +8,14 @@ import {
   ACCESS, CORP_BELOW_FACTION, DATACORE_FEE, DATACORE_OF, RP_PER_DATACORE, effectiveStanding, openLevel, rpPerDay,
   type HelperAgent, type RankedAgent, type RdAgent,
 } from '../../lib/research';
-import { datacoreName, fieldYear, FIELDS, SKILL, SKILL_NAMES, skillGaps, startLevel, trainingPlan, type CorpReach } from '../../lib/researchStart';
+import { connectionsRp, datacoreName, fieldYear, FIELDS, SKILL, SKILL_NAMES, skillGaps, startLevel, trainingPlan, type CorpReach } from '../../lib/researchStart';
 import { ROMAN, trainSaid } from '../../lib/skillStatus';
 import { toast } from '../../lib/toast';
 import type { HistRow } from '../../lib/types';
 import { Points } from '../Facts';
 import { SkillStrip, type SkillLine } from '../SkillStrip';
 import { Notice, Seg, Sparkline, Th } from '../ui';
-import { researchWhy, standingsWhy, type ResearchChar } from './researchChars';
+import { lostSaid, researchWhy, standingsWhy, type ResearchChar } from './researchChars';
 import type { Book, Read } from './researchMarket';
 
 /** Everything the four steps read, worked out once by the walkthrough (Research.tsx) for the character shown. */
@@ -133,7 +133,10 @@ export function TrainStep({ w }: { w: Walk }) {
         const fe = effectiveStanding(f, l, has(SKILL.diplomacy)), ce = effectiveStanding(co, l, has(SKILL.diplomacy));
         const open = openLevel(ce, fe), before = openLevel(eff(c, co), eff(c, f));
         const said = [fe != null ? `${w.name(faction)} ${fe.toFixed(2)}` : null, ce != null ? `${w.name(corp)} ${ce.toFixed(2)}` : null].filter(Boolean).join(', ');
-        return said ? `${said}${open > before ? `: opens level ${open}` : ''}` : null;
+        // And the points it adds through the standing with the pick's agent itself, only where that standing exists.
+        const gain = connectionsRp({ agentRaw: raw(c, 'agent', pick.agent.id), level: l, diplomacy: has(SKILL.diplomacy), field: fieldAt, agentLevel: pick.agent.level, negotiation: neg });
+        const rp = gain != null && gain >= 0.005 ? `+${gain.toFixed(2)} RP a day at ${pick.agent.name}` : null;
+        return [said ? `${said}${open > before ? `: opens level ${open}` : ''}` : null, rp].filter(Boolean).join('; ') || null;
       } : undefined,
     },
   ];
@@ -165,12 +168,16 @@ function needSaid(level: 1 | 2 | 3 | 4, corpName: string, factionName: string): 
   return `${corpName} ${signed(n)}, or ${factionName} ${signed(n)} with ${corpName} ${signed(n - CORP_BELOW_FACTION)}`;
 }
 
-/** When the standings shown were read: the main's by its sync, an alt's by the cloud's hourly read of its sheet. */
+/**
+ * When the standings shown were read: the main's by its sync, an alt's by the cloud's hourly read of its sheet; an alt whose
+ * login is refused or not held says it won't be read again until it's handed over.
+ */
 function readSaid(w: Walk): string {
   const s = w.c.standings;
   if (s.state !== 'read') return '';
   const at = s.at == null ? null : new Date(s.at).toISOString().slice(0, 10) === new Date(w.now).toISOString().slice(0, 10) ? `${new Date(s.at).toISOString().slice(11, 16)} ET` : fmtDateTime(s.at);
-  return w.c.isMain ? `Your standings as the sync read them${at ? ` at ${at}` : ''}.` : `${w.c.name}’s standings as the cloud last read them${at ? `, at ${at}` : ''}.`;
+  const lost = lostSaid(w.c);
+  return w.c.isMain ? `Your standings as the sync read them${at ? ` at ${at}` : ''}.` : `${w.c.name}’s standings as the cloud last read them${at ? `, at ${at}` : ''}.${lost ? ` ${lost}` : ''}`;
 }
 
 /** What the next level asks of a corporation's standings, and, once they're read, what each has and what's missing. */
@@ -441,6 +448,8 @@ function startTick(c: ResearchChar, agent: RdAgent): { done: boolean; text: stri
       const field = FIELDS[row.skillTypeId]?.name ?? `field ${row.skillTypeId}`;
       return { done: true, text: `${c.isMain ? 'The app’s read of your research' : `The cloud’s read of ${c.name}’s research`}${at} shows ${agent.name} researching ${field}${Number.isFinite(Date.parse(row.startedAt)) ? ` since ${fmtDateTime(row.startedAt)}` : ''}.` };
     }
+    const lost = lostSaid(c);
+    if (lost) return { done: false, text: `once ${readBy} shows ${agent.name} running: the last read${at} doesn’t show it, and nothing more is read until the login is handed over. ${lost}` };
     return { done: false, text: `once ${readBy} shows ${agent.name} running: the read${at} doesn’t show it yet (EVE’s copy can be an hour old${c.isMain ? '' : ', and the cloud reads it hourly'}).` };
   }
   return { done: false, text: `once ${readBy} shows ${agent.name} running. ${researchWhy(c)}` };

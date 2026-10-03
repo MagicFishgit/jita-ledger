@@ -179,7 +179,8 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
   hustles tabs' grid min went from 220 to 172 px so the six sit in one row at 1440.
 - **The page check** (`scripts/pages.mjs`, a case of its own, never the shared large ledger, which check-income
   records): the main with Caldari State 3.63 and Electronic Engineering IV, ESI answering the datacores' books (the
-  research's bids of 2 October 2026) and histories: the pick, 50.4 RP a day, Lai Dai at 4.65 / "no standing" / level 2 /
+  research's bids of 2 October 2026) and histories: the pick, 50.4 RP a day (51.1 since the fix wave below seeded a 0.50
+  standing with Shitsu Ashoma itself), Lai Dai at 4.65 / "no standing" / level 2 /
   level 3 at 1.00, and Mechanical Engineering's book refused (the six-agents tile says 1 couldn't be read, no month);
   then an alt with no standings read ("Not read yet", "Open if …", "the best level 1 agent", no "no standing", no "Open
   now"), an Alpha alt ("Needs Omega"), and an alt whose login EVE refused ("hand it over again"). Both widths. The plain
@@ -191,7 +192,7 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
   the formula says 35) and a mission was offered 3 h ago; Agent Alt runs Itirikko Innishi in Mechanical Engineering, whose
   book is refused (its worth "–", why, and the totals unsummed); Research Alt holds the permission with nothing read ("Not
   read yet"); Alpha Alt's login lacks it ("Hand the cloud Alpha Alt's login again"); Lost Alt's was refused. The check
-  asserts the cards' tiles, "3 agents: yours, 1 of 4 alts read", 8 datacores waiting, the mission line and no "waiting",
+  asserts the cards' tiles, "3 agents: yours, 1 of 4 alts read" (2 of 5 since Stale Alt, below), 8 datacores waiting, the mission line and no "waiting",
   Electronic Engineering's bids holding 4 of Shitsu's 6 (the other 2 valued listed), Graviton Physics' best bid under the
   fee (Okila's one valued listed, "listing is the way out"; the month says it has no bid over the fee, with no retry for
   it), no "Listed: –" and no NaN,
@@ -204,14 +205,19 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
   (`CashInControl` in ResearchCards.tsx; Research.tsx writes the prefs, so the cards file still reads no store). Kept in the
   synced prefs and sanitized: absent is off with no amount, the amount whole ISK over 0 or none, on only with a plain true
   and an amount, and switching off keeps the amount. When on, **one item per agent** whose datacores waiting are worth
-  more than the amount, keyed `cashIn:<character>:<agent>`, versioned by the whole datacores waiting (a hand tick holds
-  until another datacore comes in), built only once that field's bid is read and the agents bundle has named the agent:
-  "Cash in at Shitsu Ashoma, Friggi: 6 datacores, worth 452,537 ISK" (the system named by ESI's `/universe/names`, one
-  request for every running agent's). The item keeps the amount it was listed against (`TodoItem.amount`). The main's
+  more than the amount, keyed `cashIn:<character>:<agent>`, versioned by the whole datacores waiting, built only once
+  that field's bid is read and the agents bundle has named the agent: "Cash in at Shitsu Ashoma, Friggi: 6 datacores, worth
+  452,537 ISK" (the system named by ESI's `/universe/names`, one request for every running agent's), an alt's named first
+  ("Agent Alt · Cash in at …", so two characters at one agent read apart). **A hand tick holds until another datacore
+  comes in** (`HOLDS_UNTIL_CHANGED` in todo.ts, checked in `remember`): first shipped, it came back after To do's 12 hours
+  like any chore's while the words said otherwise (the final review). Not by adding it to `WARNINGS`, which also decides
+  `needs()` and would have moved it to For information. The item keeps the amount it was listed against
+  (`TodoItem.amount`). The main's
   button sets the destination to the agent's station (when the login can) and opens the tab; an alt's opens the tab, since
   the alt spends its points in person. Not mailed.
-  - **Judged** (orders-alerts.md: absent is not done): bought ("Bought: N datacores", fewer whole datacores than when
-    listed) or stopped ("Research stopped", the agent gone from the read) only on a research read newer than the one that
+  - **Judged** (orders-alerts.md: absent is not done): bought ("Fewer datacores waiting (N fewer): bought, most likely",
+    fewer whole datacores than when listed, said as the inference it is: cancelling and starting again with the same agent
+    between ESI's hourly reads looks the same; it said "Bought: N datacores" until the final review) or stopped ("Research stopped", the agent gone from the read) only on a research read newer than the one that
     listed it (the item's `seenAt` is that read: the main's `meta.research.at`, an alt's `sheet` `lastOk`), and an alt's
     only on a roster read of this session (`rosterLive`, as `judgeAltLogin`); an alt gone from a live roster just goes. The
     setting switched off, or raised past the amount it was listed against, unticks it at once (your own act: an item
@@ -222,8 +228,10 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
   - **The same worth as the card**: the pricing and the cards moved out of ResearchCards.tsx into `researchWorth.ts`
     (`pricedOf`, `blocksOf`, `totalsOf`, `whyNot`), which the tab, To do and the Wallet share, and the totals view into
     `ResearchTotals.tsx`; the bundle loader into `researchBundle.ts`. To do and the Wallet read only the running fields'
-    books and histories (`useRunningResearch`, re-reading the books every five minutes while in view), load the bundle only
-    once an agent runs, and read nothing with nothing running; To do reads nothing with the reminder off. Cards come from
+    books and histories (`useRunningResearch`, re-reading the books every five minutes while in view), and read nothing
+    with nothing running; To do reads nothing with the reminder off. To do loads the agents bundle (83 KB) once an agent
+    runs, for its words; the Wallet never does (`needBundle: false`: its totals use ESI's rates and the datacores' worth,
+    no agent's name or level), checked in the page case by opening the Wallet first and seeing no request for it. Cards come from
     the read alone (no bundle needed), so a reload before the bundle lands never makes an agent look gone to the judge.
     In the page check To do's item and the tab's card both say 452,537 ISK for Shitsu Ashoma's six.
 - **The Wallet's research card** ("R&D agents", `ResearchAgents` in Wallet.tsx), shown once any character's read shows an
@@ -234,12 +242,28 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
 - **The fee** (`datacore_fee` in `categoryOf`): a Wallet line of its own, "Datacores from agents", a business cost, its
   entries "Datacore fees"; not a running cost. It fell to "Other spending" before. None is in the user's journal yet (3
   October 2026), nor in the recorded ledgers, so `npm run check-income` passed unchanged. All income doesn't net the fee
-  against datacore sales (limits).
+  against datacore sales (limits.md).
+- **The setting lives in the synced prefs, and an older build's save can drop it** (`sanitizePrefs` keeps only the fields
+  it knows, as with every late pref): a device on a version from before it that saves its prefs writes them without
+  `researchCashIn`, and the reminder then reads off until set again. Browsers reload to a new version within minutes
+  (app-conventions.md), so it lasts only that long.
+- **An alt whose login was refused after a read** (the final review): read data wins over `lost` in `useResearchChars`, so
+  its standings and research still show, and the words said "As the cloud read it …; it reads X hourly". Now `lostSaid`
+  (researchChars.ts) says what was read is as of the cloud's last read and "EVE refused X's login; hand it over again on the
+  Characters page" (or that the cloud holds no login), on its card head, its "No agents running" line, its standings in
+  step 2 and step 4 ("nothing more is read until the login is handed over"). The page case's Stale Alt (refused, standings
+  and an empty research read) asserts it, and dropping the card head's branch reproduced the bug and failed it.
+- **Step 1's Connections line gives the RP its next level adds at the pick's agent** (`connectionsRp` in researchStart.ts,
+  tested), only where the character has a standing with that agent itself (the spec; no standing stays none, and a
+  negative one is Diplomacy's): (10 − raw) × 4% a level of the formula's standing term. The page case seeds 0.50 with
+  Shitsu Ashoma: "+0.14 RP a day at Shitsu Ashoma" at Connections V.
 - **The page check's research case** also turns the reminder on at 300,000 ISK and seeds a bounty and a 60,000 ISK
   datacore fee: To do lists Shitsu Ashoma's six (and nothing for Okila Tsurvalen's one, under the amount, or Itirikko
   Innishi's, its book refused) under Needs action; the Wallet's card says 84.2 RP a day and 7 datacores for the main, with
   no month (Graviton Physics has no bid over the fee), and 8 across characters with the worth unsummed, inside
-  `data-alts`; money out has "Datacores from agents". Both widths.
+  `data-alts`; money out has "Datacores from agents". Both widths. Since the final review's fix wave: the totals read "2
+  of 5 alts" with Stale Alt (refused after a read, an empty research list), whose words the case asserts, and the Wallet is
+  opened before the tab to prove it asks for no agents bundle.
 
 ## Open questions (in order of how much they change the page)
 
@@ -247,7 +271,9 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
    count; the RP held drops by the cost).
 2. **The field level an agent asks for**: its own level (assumed) or less.
 3. **Can two agents research one field at once?** The pick step allows it and says it isn't confirmed.
-4. **What `agents_research` shows after a purchase or a rate refresh** (the first real reads).
+4. **What `agents_research` shows after a purchase or a rate refresh** (the first real reads). Cancelling and starting
+   again with the same agent between ESI's hourly reads would also read as fewer datacores waiting, which is why To do says
+   "bought, most likely"; a purchase that leaves `started_at` alone and lowers `remainder_points` would tell them apart.
 5. **What `ResearchMissionAvailableMsg` carries**, and how long ESI keeps it. The app keeps only its time until then.
 6. **Lai Dai's standing for both characters**: the first whole `/standings` read (the main's sync; the alt's hourly read
    after the Worker deploys).

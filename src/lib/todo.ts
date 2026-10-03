@@ -72,6 +72,13 @@ export const SESSION_MS = 12 * 3600_000;
 export const WARNINGS: ReadonlySet<TodoKind> = new Set<TodoKind>(['scam', 'squeeze']);
 
 /**
+ * Chores whose tick by hand holds until the finding changes (its version), like a warning's, rather than coming back after
+ * SESSION_MS: a cash-in item's version is the whole datacores waiting, so "not now" holds until another one comes in. Kept
+ * apart from WARNINGS, which also decides what an item wants from you (`needs`): these are still something to do.
+ */
+export const HOLDS_UNTIL_CHANGED: ReadonlySet<TodoKind> = new Set<TodoKind>(['cashIn']);
+
+/**
  * What an item wants from you: something to do, in game or here, or a warning to know about. The user asked to sift
  * the list for what needs acting on and look at the rest when they want (29 September 2026).
  */
@@ -80,7 +87,8 @@ export const needs = (k: TodoKind): 'act' | 'info' => (WARNINGS.has(k) ? 'info' 
 export const inFilter = (k: TodoKind, f: TodoFilter): boolean => f === 'all' || needs(k) === f;
 
 /**
- * Ticks every one of `keys` still open by hand, as its box would: a chore for 12 hours, a warning until it changes.
+ * Ticks every one of `keys` still open by hand, as its box would: a chore for 12 hours, a warning (or a cash-in) until it
+ * changes.
  * Items already done or ticked, or no longer remembered, are left as they are.
  */
 export function tickAll(m: Memory, keys: string[], now: number): Memory {
@@ -126,7 +134,7 @@ export function remember(mem: Memory, items: TodoItem[], seenAt: (x: TodoItem) =
   for (const x of items) {
     const e = mem[x.key];
     const same = !!e && !e.done && e.item.ver === x.ver;
-    const ticked = same && e.ticked && (WARNINGS.has(x.kind) || now - e.ticked.at < SESSION_MS) ? e.ticked : undefined;
+    const ticked = same && e.ticked && (WARNINGS.has(x.kind) || HOLDS_UNTIL_CHANGED.has(x.kind) || now - e.ticked.at < SESSION_MS) ? e.ticked : undefined;
     next[x.key] = { item: x, seenAt: seenAt(x), lastAt: now, ticked, openedAt: same ? e.openedAt : undefined };
   }
   for (const [k, e] of Object.entries(mem)) {
@@ -410,9 +418,9 @@ export function judgeAltLogin(e: Entry, c: { live: boolean; readAt: number | nul
 /**
  * An R&D agent whose datacores waiting are worth more than your amount (the Research tab's cash-in reminder, the user's
  * choice of 3 October 2026; `prefs.researchCashIn`): one item per character and agent, keyed by both. Versioned by the
- * whole datacores waiting, so a hand tick holds until another datacore comes in. Built only once the field's bid is read
- * and the worth is known (the card's own, `agentCard`: Jita's bids after tax and the fee, what they don't take listed);
- * null otherwise, or with the setting off. Not mailed.
+ * whole datacores waiting, and a hand tick holds until another datacore comes in (HOLDS_UNTIL_CHANGED, not the session's
+ * 12 hours). Built only once the field's bid is read and the worth is known (the card's own, `agentCard`: Jita's bids
+ * after tax and the fee, what they don't take listed); null otherwise, or with the setting off. Not mailed.
  */
 export function cashInItem(
   x: { char: { id: number; name: string; isMain: boolean }; agentId: number; agent: string; system: string | null; field: string; datacores: number | null; worth: number | null; bidRead: boolean },
@@ -425,7 +433,8 @@ export function cashInItem(
   const whose = x.char.isMain ? 'Your' : `${x.char.name}’s`;
   return {
     key: `cashIn:${x.char.id}:${x.agentId}`, ver: String(n), kind: 'cashIn', source: 'research', stake: x.worth, amount,
-    title: `Cash in at ${x.agent}${x.system ? `, ${x.system}` : ''}: ${units(n)} datacore${n === 1 ? '' : 's'}, worth ${iskBig(Math.round(x.worth))}`,
+    // An alt's is named first, so two characters' items at one agent read apart.
+    title: `${x.char.isMain ? '' : `${x.char.name} · `}Cash in at ${x.agent}${x.system ? `, ${x.system}` : ''}: ${units(n)} datacore${n === 1 ? '' : 's'}, worth ${iskBig(Math.round(x.worth))}`,
     detail: `${whose} ${x.field} research, worth more than your ${iskBig(amount)} at Jita’s prices now. ${x.char.isMain ? 'Buy them' : `${x.char.name} buys them`} from the agent in person, docked in its station (Buy Datacores, ${RP_PER_DATACORE} RP and ${isk(DATACORE_FEE)} each); the points don’t expire.`,
     action,
   };
@@ -435,7 +444,8 @@ export function cashInItem(
  * A cash-in item gone from the list. Never done on absence (an agent missing only because the agents, a book or a roster
  * aren't read yet is still being checked): bought or stopped only on a research read newer than the one that listed it
  * (`readAt`: the main's sync, an alt's sheet job's last success), and an alt's only on a roster read of this session
- * (`live`, as judgeAltLogin). Fewer whole datacores than when listed: bought. The agent gone from the read: stopped. The
+ * (`live`, as judgeAltLogin). Fewer whole datacores than when listed: bought, most likely (said so: cancelling and
+ * starting again with the same agent between reads looks the same). The agent gone from the read: stopped. The
  * setting switched off, or raised past the amount it was listed against: unticked at once (your own act, no read to wait
  * for). As many datacores or more, worth no more than the amount: the price fell, unticked, never bought. An alt no longer
  * on a live roster: gone.
@@ -454,7 +464,8 @@ export function judgeCashIn(e: Entry, c: {
   const fresh = c.readAt != null && c.readAt > e.seenAt;
   if (fresh && c.agent === null) return 'Research stopped: the latest read no longer lists this agent.';
   const n = c.agent?.datacores ?? null;
-  if (fresh && n != null && n < listed) return `Bought: ${units(listed - n)} datacore${listed - n === 1 ? '' : 's'}.`;
+  // An inference: cancelling and starting again with the same agent within ESI's hour reads the same (research.md).
+  if (fresh && n != null && n < listed) return `Fewer datacores waiting (${units(listed - n)} fewer): bought, most likely.`;
   if (n != null && n >= listed && c.agent?.worth != null && c.agent.worth <= amount) return false;
   return null;
 }

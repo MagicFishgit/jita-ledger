@@ -682,7 +682,8 @@ function AllCharacters({ mainTotal, alts }: { mainTotal: number | null; alts: Al
  */
 function ResearchAgents({ roster, copies, now }: { roster: RosterEntry[]; copies: Record<number, AltSaved>; now: number }) {
   const chars = useResearchChars(useMemo(() => ({ roster, alts: copies }), [roster, copies]));
-  const r = useRunningResearch(chars, now);
+  // Totals only: no agent's name or level is shown, so the agents bundle isn't loaded here.
+  const r = useRunningResearch(chars, now, { needBundle: false });
   if (!r.running) return null;
   const main = chars[0];
   const mineBlocks = r.blocks.filter((b) => b.c.isMain);

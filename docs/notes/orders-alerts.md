@@ -154,8 +154,10 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   newer read with none of them waiting ("All delivered."), like every other item: absent is not done.
 - **R&D agents past an amount go on To do** (kind `cashIn`, source `research`, `judgeCashIn`; the rules are in research.md):
   one item per agent once its datacores waiting are worth more than the amount set on the Research tab, keyed by
-  character and agent, versioned by the whole datacores. Bought or stopped only on a newer research read (an alt's only
-  on a roster read of this session); a price fall, or the setting switched off or raised, unticks it. Not mailed.
+  character and agent, versioned by the whole datacores. Bought (said "most likely") or stopped only on a newer research
+  read (an alt's only on a roster read of this session); a price fall, or the setting switched off or raised, unticks it.
+  A hand tick holds until another datacore comes in (`HOLDS_UNTIL_CHANGED`, not WARNINGS, which would make it For
+  information), not the 12 hours of other chores. Not mailed.
 - **Couriers you've accepted go on To do** (kind `courier`, source `contracts`, `judgeCourierJob`, `lib/contracts.ts`, scope
   `esi-contracts.read_character_contracts.v1`, registered 29 September 2026): due at accepted + days to complete, with the
   reward, the collateral at stake (its ISK, for ordering) and the volume; "Overdue" past it. Ticked off on a newer read of

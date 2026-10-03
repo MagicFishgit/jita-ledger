@@ -82,12 +82,15 @@ export const monthMissing = (x: AgentCard) => x.iskDay == null;
 export const anyRunning = (chars: ResearchChar[]) => chars.some((c) => c.research.state === 'read' && c.research.agents.length > 0);
 
 /**
- * The agents that run, for To do and the Wallet: the bundle (loaded only once one runs), the books and histories of the
- * fields being researched (the books read again every five minutes while the page is in view, as the tab does, so RP held
- * and the worth keep up), and every character's cards and the totals. `enabled` false reads nothing and gives no cards (To
- * do with the cash-in reminder off). `now` is the page's own clock.
+ * The agents that run, for To do and the Wallet: the bundle (loaded only once one runs, and only when asked for), the
+ * books and histories of the fields being researched (the books read again every five minutes while the page is in view,
+ * as the tab does, so RP held and the worth keep up), and every character's cards and the totals. `enabled` false reads
+ * nothing and gives no cards (To do with the cash-in reminder off). `needBundle` false never loads the 83 KB agents
+ * bundle: the Wallet's totals need no agent's name or level (RP a day is ESI's, the worth is the datacores'); only To
+ * do's words do. `now` is the page's own clock.
  */
-export function useRunningResearch(chars: ResearchChar[], now: number, enabled = true) {
+export function useRunningResearch(chars: ResearchChar[], now: number, o: { enabled?: boolean; needBundle?: boolean } = {}) {
+  const enabled = o.enabled ?? true, needBundle = o.needBundle ?? true;
   const running = enabled && anyRunning(chars);
   // The fields' datacores, sorted, as one key: a new read listing the same fields asks nothing new.
   const dcKey = running ? [...new Set(chars.flatMap((c) => (c.research.state === 'read' ? c.research.agents : []).map((r) => DATACORE_OF[r.skillTypeId]).filter((d): d is number => d != null)))].sort((a, b) => a - b).join(',') : '';
@@ -99,12 +102,12 @@ export function useRunningResearch(chars: ResearchChar[], now: number, enabled =
   const [bundle, setBundle] = useState<Bundle | null>(null);
   const [bundleTry, setBundleTry] = useState(0);
   useEffect(() => {
-    if (!running || bundle) return;
+    if (!running || !needBundle || bundle) return;
     let alive = true, again: ReturnType<typeof setTimeout> | undefined;
     // A chunk that didn't load (a deploy in between) is asked again in half a minute; the items wait, they aren't judged gone.
     loadBundle().then((b) => { if (alive) setBundle(b); }, () => { if (alive) again = setTimeout(() => setBundleTry((n) => n + 1), 30_000); });
     return () => { alive = false; clearTimeout(again); };
-  }, [running, bundle, bundleTry]);
+  }, [running, needBundle, bundle, bundleTry]);
   const byId = useMemo(() => new Map((bundle?.agents ?? []).map((a) => [a.id, a])), [bundle]);
 
   const own = useMemo(() => chars.flatMap((c) => c.own), [chars]);

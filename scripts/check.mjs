@@ -6026,6 +6026,19 @@ console.log('\n--- R&D agents: the Research tab, getting started ---');
   eq('  no history: nothing to say, never zeros', S.fieldYear([], T0), { price: null, yearAgo: null, change: null, perDay: null, months: [] });
 }
 
+console.log('\n--- R&D agents: what Connections adds to an agent\'s points ---');
+{
+  // Step 1's Connections line gives the points a day its next level adds through the character's own standing with the
+  // pick's agent (the formula's standing term), only where that standing exists (the spec): no standing stays none.
+  const S = await import('../src/lib/researchStart.ts');
+  const R = await import('../src/lib/research.ts');
+  const at = (o) => S.connectionsRp({ field: 5, agentLevel: 4, negotiation: 5, diplomacy: 0, ...o });
+  eq('Connections V over IV at a level 4 agent, field V, agent standing 2: 3.28 → 3.6 effective, +0.2592 RP a day',
+    +at({ agentRaw: 2, level: 5 }).toFixed(4), +(R.rpPerDay({ field: 5, agentLevel: 4, negotiation: 5, agentStanding: 3.6 }) - R.rpPerDay({ field: 5, agentLevel: 4, negotiation: 5, agentStanding: 3.28 })).toFixed(4));
+  eq('  no standing with the agent: nothing to say; a negative one (Diplomacy lifts it, not Connections): nothing added',
+    [at({ agentRaw: null, level: 5 }), at({ agentRaw: -1, level: 5 })], [null, 0]);
+}
+
 console.log('\n--- R&D agents: tracking the agents that run ---');
 {
   // Stage 2 of the Research tab (docs/superpowers/specs/2026-10-03-rd-agents-design.md): a card per running agent, from
@@ -6198,7 +6211,7 @@ console.log('\n--- R&D agents: cash in on To do, the fee on the Wallet ---');
     [T.cashInItem(x(), { on: false, isk: 300_000 }, action), T.cashInItem(x(), undefined, action), T.cashInItem(x(), { on: true, isk: null }, action), T.cashInItem(x({ bidRead: false }), ON, action),
       T.cashInItem(x({ worth: null }), ON, action), T.cashInItem(x({ worth: 300_000 }), ON, action), T.cashInItem(x({ datacores: null }), ON, action)], [null, null, null, null, null, null, null]);
   const alt = T.cashInItem(x({ char: { id: 900080, name: 'Agent Alt', isMain: false }, datacores: 1, system: null }), { on: true, isk: 50_000 }, action);
-  eq('  an alt\'s: keyed by the alt, one datacore said as one', [alt?.key, alt?.title], ['cashIn:900080:3016563', 'Cash in at Shitsu Ashoma: 1 datacore, worth 454,485 ISK']);
+  eq('  an alt\'s: keyed by the alt, named first so two characters at one agent read apart, one datacore said as one', [alt?.key, alt?.title], ['cashIn:900080:3016563', 'Agent Alt · Cash in at Shitsu Ashoma: 1 datacore, worth 454,485 ISK']);
   has('  and says the alt buys them', alt?.detail ?? '', 'Agent Alt buys them');
 
   // Judged against what the latest reads say; the item was listed on the research read of `seen`.
@@ -6208,7 +6221,8 @@ console.log('\n--- R&D agents: cash in on To do, the fee on the Wallet ---');
   const c = (o = {}) => ({ setting: ON, isMain: true, live: true, readAt: seen + 3600_000, gone: false, agent: { datacores: 6, worth: 454_485 }, ...o });
   eq('judged from a newer read: fewer whole datacores is bought; the agent gone from the read is stopped',
     [T.judgeCashIn(e, c({ agent: { datacores: 0, worth: 0 } })), T.judgeCashIn(e, c({ agent: { datacores: 5, worth: 380_000 } })), T.judgeCashIn(e, c({ agent: null }))],
-    ['Bought: 6 datacores.', 'Bought: 1 datacore.', 'Research stopped: the latest read no longer lists this agent.']);
+    // Hedged: cancelling and starting again with the same agent within ESI's hour reads the same as a purchase.
+    ['Fewer datacores waiting (6 fewer): bought, most likely.', 'Fewer datacores waiting (1 fewer): bought, most likely.', 'Research stopped: the latest read no longer lists this agent.']);
   eq('  the worth under the amount from a price fall, as many datacores or more: unticked, never bought', [T.judgeCashIn(e, c({ agent: { datacores: 6, worth: 280_000 } })), T.judgeCashIn(e, c({ readAt: seen, agent: { datacores: 7, worth: 299_000 } }))], [false, false]);
   eq('  the setting switched off, or raised past it: unticked, at once', [T.judgeCashIn(e, c({ setting: { on: false, isk: 300_000 } })), T.judgeCashIn(e, c({ setting: undefined })), T.judgeCashIn(e, c({ setting: { on: true, isk: 500_000 }, readAt: seen }))], [false, false, false]);
   eq('  no newer read: still checking (fewer datacores or the agent gone on the read that listed it, or none since), and nothing known: still checking',
@@ -6219,7 +6233,17 @@ console.log('\n--- R&D agents: cash in on To do, the fee on the Wallet ---');
   eq('an alt\'s: judged only on a roster read of this session; then bought, stopped, or no longer yours',
     [T.judgeCashIn(ea, ca({ live: false, agent: { datacores: 0, worth: 0 } })), T.judgeCashIn(ea, ca({ live: false, agent: null })), T.judgeCashIn(ea, ca({ live: false, agent: { datacores: 1, worth: 20_000 } })),
       T.judgeCashIn(ea, ca({ agent: { datacores: 0, worth: 0 } })), T.judgeCashIn(ea, ca({ agent: null })), T.judgeCashIn(ea, ca({ gone: true, agent: undefined }))],
-    [null, null, null, 'Bought: 1 datacore.', 'Research stopped: the latest read no longer lists this agent.', false]);
+    [null, null, null, 'Fewer datacores waiting (1 fewer): bought, most likely.', 'Research stopped: the latest read no longer lists this agent.', false]);
+
+  // A hand tick holds until another datacore comes in (its version), not for To do's 12-hour session as a chore's does,
+  // and the item stays something to do, not a warning.
+  const tickIt = (m, key) => ({ ...m, [key]: { ...m[key], ticked: { ver: m[key].item.ver, at: seen } } });
+  const held = tickIt(T.remember({}, [it], () => seen, () => null, seen), it.key);
+  eq('a cash-in ticked by hand holds past the session while its datacores are the same; another datacore reopens it; still Needs action',
+    [!!T.remember(held, [it], () => seen, () => null, seen + T.SESSION_MS + 1)[it.key].ticked, T.remember(held, [{ ...it, ver: '7' }], () => seen, () => null, seen + 60_000)[it.key].ticked, T.needs('cashIn'), T.WARNINGS.has('cashIn')],
+    [true, undefined, 'act', false]);
+  const chore = { ...it, key: 'order:9', kind: 'move', source: 'orders' };
+  eq('  a chore ticked by hand still comes back after the session', T.remember(tickIt(T.remember({}, [chore], () => seen, () => null, seen), chore.key), [chore], () => seen, () => null, seen + T.SESSION_MS + 1)[chore.key].ticked, undefined);
 
   // The fee: the journal's `datacore_fee` (10,000 ISK a datacore, expected; none seen yet) is a business cost of its own.
   const fee = flows([{ id: '1', date: '2026-10-03T12:00:00Z', refType: 'datacore_fee', amount: -60_000, balance: 1e6 }], [], () => ({ tracked: false, tag: 'other' }), 0);

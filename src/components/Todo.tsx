@@ -11,7 +11,7 @@ import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  cashInItem, feedsQueueItem, inFilter, judgeAltLogin, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, planListItem, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
+  cashInItem, feedsQueueItem, inFilter, judgeAltLogin, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, planListItem, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
   type Entry, type Memory, type TodoFilter, type TodoItem, type TodoKind,
 } from '../lib/todo';
 import type { IndustryJob } from '../lib/types';
@@ -88,6 +88,8 @@ function saveMem(mem: Memory) {
 
 /** The part of a key after its kind: an order, pin or position ID. */
 const idOf = (key: string) => key.slice(key.indexOf(':') + 1).split(':')[0];
+/** What a hand tick on a chore that holds until it changes (HOLDS_UNTIL_CHANGED) says about when it comes back. */
+const heldSaid = (k: TodoKind) => (k === 'cashIn' ? 'Tick it yourself. It comes back when another datacore comes in.' : 'Tick it yourself. It comes back only if it changes.');
 /** A read time as a number; null when there's none or it can't be read. */
 const timeOf = (iso: string | undefined): number | null => { const v = iso ? Date.parse(iso) : NaN; return Number.isFinite(v) ? v : null; };
 
@@ -109,7 +111,7 @@ export function Todo() {
   const copies = useAltCopies();
   const researchChars = useResearchChars(useMemo(() => ({ roster, alts: copies }), [roster, copies]));
   const cashSetting = d.prefs.researchCashIn;
-  const research = useRunningResearch(researchChars, now, !!cashSetting?.on);
+  const research = useRunningResearch(researchChars, now, { enabled: !!cashSetting?.on });
   const agentSystems = [...new Set(research.blocks.flatMap((b) => b.cards.map((x) => x.agent?.system)).filter((s): s is number => s != null))].sort((a, b) => a - b).join(',');
   const [systemNames, setSystemNames] = useState<Record<number, string>>({});
   useEffect(() => {
@@ -515,7 +517,7 @@ export function Todo() {
     const keys = open.filter((o) => !o.checking).map((o) => o.e.item.key);
     if (!keys.length) return;
     setMem((m) => { const next = tickAll(m, keys, Date.now()); saveMem(next); return next; });
-    toast(`Marked ${units(keys.length)} done. Any that still need doing come back: a chore after 12 hours, a warning when it changes.`);
+    toast(`Marked ${units(keys.length)} done. Any that still need doing come back: a chore after 12 hours, a warning when it changes, a cash-in when another datacore comes in.`);
   };
 
   const toggle = (key: string) => setMem((m) => {
@@ -637,7 +639,7 @@ export function Todo() {
                 const opened = !checking && e.openedAt != null && now - e.openedAt < 20 * 60_000;
                 return (
                   <div key={x.key} className={'tn-item' + (i === sel ? ' sel' : '') + (checking ? ' checking' : '')} onClick={() => setSel(i)} style={cssVars({ '--c': look.c })}>
-                    <button type="button" className="tn-box" role="checkbox" aria-checked={false} aria-label={`Done: ${x.title}`} data-tip={WARNINGS.has(x.kind) ? 'Mark as seen. It comes back only if it changes.' : 'Tick it yourself. If it still needs doing, it comes back in 12 hours.'} onClick={(ev) => { ev.stopPropagation(); toggle(x.key); }}><Check aria-hidden="true" /></button>
+                    <button type="button" className="tn-box" role="checkbox" aria-checked={false} aria-label={`Done: ${x.title}`} data-tip={WARNINGS.has(x.kind) ? 'Mark as seen. It comes back only if it changes.' : HOLDS_UNTIL_CHANGED.has(x.kind) ? heldSaid(x.kind) : 'Tick it yourself. If it still needs doing, it comes back in 12 hours.'} onClick={(ev) => { ev.stopPropagation(); toggle(x.key); }}><Check aria-hidden="true" /></button>
                     <span className="tn-n">{String(i + 1).padStart(2, '0')}</span>
                     <span className="tn-ic"><look.Icon aria-hidden="true" /></span>
                     <span style={{ minWidth: 0 }}>
@@ -680,7 +682,7 @@ export function Todo() {
                           <span className="tn-kind" style={{ display: 'block' }}>{KIND_LABEL[x.kind]}</span>
                           <span className="tn-title" style={{ display: 'block' }}>{x.title}</span>
                           <span className="tn-how" style={{ display: 'block' }}>
-                            {e.done ? e.done.how : WARNINGS.has(x.kind) ? 'Marked as seen. It comes back only if it changes.' : 'Ticked by hand. If it still needs doing, it comes back 12 hours after you ticked it.'}
+                            {e.done ? e.done.how : WARNINGS.has(x.kind) ? 'Marked as seen. It comes back only if it changes.' : HOLDS_UNTIL_CHANGED.has(x.kind) ? `Ticked by hand. ${heldSaid(x.kind).replace(/^Tick it yourself\. /, '')}` : 'Ticked by hand. If it still needs doing, it comes back 12 hours after you ticked it.'}
                           </span>
                         </span>
                         <span className="tn-right">

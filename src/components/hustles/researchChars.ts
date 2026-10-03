@@ -120,6 +120,18 @@ export function useResearchChars(alts: ResearchAlts): ResearchChar[] {
   }, [mainId, mainName, skills, meta, settings, orders, canStandings, canResearch, known, alts.roster, alts.alts]);
 }
 
+/**
+ * An alt whose cloud login EVE refused, or for which the cloud holds none, as a sentence; null for the main and for an
+ * alt whose login works. What was read before stays shown (read data wins over `lost` in the states above), so wherever
+ * it's shown this says it's only as of the last read and won't be read again until the login is handed over: the review
+ * of 3 October 2026 found a refused alt's research said "it reads X hourly".
+ */
+export function lostSaid(c: ResearchChar): string | null {
+  if (c.isMain || !c.pilot.lost) return null;
+  return c.pilot.lost === 'refused' ? `EVE refused ${c.name}’s login; hand it over again on the Characters page.`
+    : `The cloud holds no login for ${c.name}; hand one over on the Characters page.`;
+}
+
 /** Why a character's standings aren't shown, as a sentence; null when they're read. */
 export function standingsWhy(c: ResearchChar): string | null {
   const s = c.standings;

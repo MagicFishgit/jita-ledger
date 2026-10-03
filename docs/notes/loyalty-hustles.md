@@ -2,6 +2,7 @@
 
 Decisions worth not undoing. Loyalty points, planetary industry, freelance jobs, reprocessing and skills. Mining is in
 mining.md; Abyssal, Hauling and Combat in abyssal-hauling-combat.md (split on 1 October 2026).
+R&D agents (the Research tab under Side hustles, datacores from research points) are in research.md.
 
 - **Loyalty ranks per point, not per ISK**, because points are the scarce thing. An offer's output is
   valued as *listed and waited* (one tick under `marketBest`, less broker fee and tax) with *sold into
