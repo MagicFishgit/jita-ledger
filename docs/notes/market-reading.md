@@ -263,7 +263,7 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   can win: everything reaching your side until someone else beats the front (your own moves while watched taken out).
   It says so once a change costs half of that (`FEE_EATS`), and suggests a size whose change costs a tenth
   (`FEE_TARGET`): ~4,500 units for the Ghoul. Nothing without a positive margin, or when nobody else beat the front.
-  Weakest slots' ISK a day doesn't subtract price-change fees. It first fired on 3-unit loot the market barely feeds (Blood Raider
+  The Per slot column's ISK a day doesn't subtract price-change fees. It first fired on 3-unit loot the market barely feeds (Blood Raider
   Limited Ballistic Control: a change "won" 0.0045 of a unit at 0.0039 a day), where no size is the problem, so it now
   needs a change to win at least one unit and the suggested size to at least halve the order; the suggestion is never
   below what one change wins (on a thin margin, Rocket Science's, 10% is out of reach at any size). On the user's 105

@@ -1089,7 +1089,7 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .content, .landing { overscroll-behavior-y: contain; }
 
 
-/* A panel whose title folds it away (Orders' Weakest slots). */
+/* A panel or line whose title folds it away (the Wallet's money lines, Research's walkthrough, a wrap's holders). */
 .panel-toggle { display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; color: inherit; text-align: left; cursor: pointer; }
 .panel-toggle .chev { width: 14px; height: 14px; color: var(--acc); transition: transform .25s; flex: none; }
 .panel-toggle[aria-expanded='true'] .chev { transform: rotate(90deg); }
@@ -1106,7 +1106,7 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .between-line > .kv > span:first-child { color: var(--body); }
 .between-figs { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; color: var(--sec); }
 
-/* A table row a link sent you to (Orders `?show=`, a Weakest slots entry): a bright outline that pulses twice and
+/* A table row a link sent you to (Orders `?show=`, To do's "Open orders"): a bright outline that pulses twice and
    fades. Drawn with inset shadows on the cells, since an outline on a table row isn't drawn everywhere. */
 .tbl tbody tr.flash > td { animation: row-flash 2.6s ease-out; }
 .tbl tbody tr.flash > td:first-child { animation-name: row-flash-first; }

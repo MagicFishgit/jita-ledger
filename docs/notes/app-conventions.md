@@ -61,8 +61,7 @@ Decisions worth not undoing. Conventions for wording, layout, tooltips, numbers 
   table scrolls sideways inside its own box. `npm run check-phone` checks every page with all three ledgers and fails
   anything past the edge, or cut off by a box that hides rather than scrolls; the deploy runs it too. What it can't
   see, a value too long for its box or text spilling out of a button's height, was found by looking at every page,
-  four screenshots to a sheet (`SHOTS=dir` on the page check). Orders' Weakest slots folds away (folded by default
-  on a phone, remembered per browser).
+  four screenshots to a sheet (`SHOTS=dir` on the page check).
 - **Countdowns keep one width** (`Countdown` in `StatusBar.tsx`, `.statusbar .cd`). The user saw the status bar jitter as
   its timers ticked, most when two changed together: Chakra Petch's digits aren't one width, and 10:00 → 9:59 drops a
   character. Each countdown is a right-aligned box one five-character time wide, with tabular digits (measured: both
@@ -78,7 +77,7 @@ Decisions worth not undoing. Conventions for wording, layout, tooltips, numbers 
   side, scrolls the first of that item's rows to the middle of the table, then (once the smooth scroll has mostly
   arrived) outlines them in the accent colour, two pulses over 2.6 s, drawn as inset shadows on the cells since an
   outline on a table row isn't drawn everywhere. `show` is taken off the address so a reload doesn't repeat it. Also
-  used by To do's "Open orders" (when opening in game can't) and by the item names in Weakest slots.
+  used by To do's "Open orders" (when opening in game can't).
 - **Confirmations use the platform `<dialog>`** (`lib/confirm.ts` + `ConfirmDialog.tsx`), not a
   library: focus trap, Escape and backdrop come free, and it's drawn in the app's own tokens.
   Destructive questions focus Cancel. No native `confirm()` anywhere.
@@ -98,7 +97,7 @@ Decisions worth not undoing. Conventions for wording, layout, tooltips, numbers 
   1,146 px at 1440 with the sidebar open (1,626 at 1920). Squeezing alone (tighter cells and headers, lines under a
   figure wrapping) stopped at 1,255 / 1,380: a sortable header carries its arrow and its "i", about 45 px before its
   label. So three pairs that say one thing share a column, the header stacked to match, every sort and tip kept: Side
-  under the item's name (Weakest slots already says "X buy"), what a move costs under its price, the ISK in an order
+  under the item's name, what a move costs under its price, the ISK in an order
   under its stock (headed Stock and ISK, the tips' titles in full). Header words wrap onto two lines, the lines under a
   figure wrap in their column (a figure never does), the actions sit on two lines, the Keep it reason is narrower.
   Narrowest it can go at 1440: 981 px unchecked, 1,071 checked, 1,122 with billion-ISK prices and Keep it rows.

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Ban, BanknoteArrowDown, ChevronRight, ChevronsUp, CircleDashed, CircleX, ClipboardList, Crosshair, Hand, Hourglass, LayoutGrid, ListOrdered, MoveVertical, Repeat, Timer } from 'lucide-react';
+import { Ban, BanknoteArrowDown, ChevronsUp, CircleDashed, CircleX, ClipboardList, Crosshair, Hand, Hourglass, LayoutGrid, ListOrdered, MoveVertical, Timer } from 'lucide-react';
 import { ago, isk, iskBig, plainNum, units, until } from '../lib/format';
 import { useAuth, useNow, navigate, useRoute } from '../lib/hooks';
 import { checkOrders, costBasis, jitaOpen, sidePace, useOrderCheck, verdicts } from '../lib/orderCheck';
-import { rates, effectiveSkills, orderSlots } from '../lib/fees';
+import { rates } from '../lib/fees';
 import { tickDown } from '../lib/tick';
 import { competitionShare, SPLIT_SAID } from '../lib/split';
 import { useFlow, watchedDays, watchedFlow, watchedHours } from '../lib/flowStore';
@@ -11,18 +11,15 @@ import { busyHours, busySaid } from '../lib/rhythm';
 import { getCloudStatus, useCloud } from '../lib/cloud';
 import { leaveSaid, TRACK_MIN } from '../lib/track';
 import { othersUndercutRate, ownFrontMoves, relistPace } from '../lib/flow';
-import { loadCache, rankProspects } from '../lib/scan';
-import { DEFAULT_FILTERS } from '../lib/prospects';
 import { update, useData } from '../lib/store';
 import { afterMove, afterMoveSaid, byUrgency, FEE_TARGET, feedsQueueSaid, feedsQueueTag, movesToFront, PLAN_KEEP, PLAN_KEEP_SAID, shownVerdict, type FeedsQueue, type OverResale, type Relist, type ShownVerdict, type TooBig, type UnderCost } from '../lib/relist';
 import { tileRows } from '../lib/tileFilter';
 import type { TradePlan } from '../lib/plans';
 import { FILL_WINDOW } from '../lib/fills';
-import type { Order, Prospect } from '../lib/types';
+import type { Order } from '../lib/types';
 import { BusyRelisting, canOpenInGame, CopyPrice, NameInGame, OpenInGame, useTypeName } from './common';
 import { cssVars, Empty, Guide, ItemIcon, Notice, PageHead, pressProps, Seg, SortTh, SortThPair, TileShowing, useTileFilter } from './ui';
 import { Figures } from './Facts';
-import { ScanFreshness } from './ScanFreshness';
 import { TradeSkillsLine } from './SkillStrip';
 
 /**
@@ -102,8 +99,6 @@ function hours(h: number): string {
   return `${Math.round(h / 24)} days`;
 }
 
-const WEAK_KEY = 'jita-ledger:weakest-open';
-
 export function Orders() {
   const d = useData();
   const auth = useAuth();
@@ -116,7 +111,7 @@ export function Orders() {
   const { on: tile, setOn: setTile, press: pressTileOf } = useTileFilter<Shown>('orders-table');
   const [sort, setSort] = useState<OrderSort>(loadOrderSort);
   // Orders to bring into view and flash: from a link to one item's orders (`orders?show=TYPE`, a position's "Should I
-  // move them?"), or a Weakest slots entry. The user asked for the row to scroll into view and flash with a bright
+  // move them?"), or To do's "Open orders". The user asked for the row to scroll into view and flash with a bright
   // outline, since landing at the top of 105 orders left them hunting for it.
   const route = useRoute();
   const showType = Number(route.query.get('show')) || null;
@@ -142,7 +137,6 @@ export function Orders() {
     try { localStorage.setItem(ORDER_SORT_STORE, JSON.stringify(next)); } catch { /* remembered for this visit only */ }
     return next;
   });
-  const [better, setBetter] = useState<Prospect[]>([]);
 
   const open = useMemo(() => Object.values(d.orders).filter((o) => o.state === 'open' && o.volumeRemain > 0), [d.orders]);
   const mine = useMemo(() => jitaOpen(d), [d.orders]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -157,7 +151,6 @@ export function Orders() {
   const sideRows = side === 'all' ? all : all.filter((x) => (side === 'buy' ? x.isBuy : !x.isBuy));
   const rows = tileRows(sideRows, tile, (x, k) => shown(x) === k);
   const r = rates(d.settings);
-  const slots = orderSlots(effectiveSkills(d.settings));
   const checked = !!check.checkedAt && all.length > 0;
 
   // Arriving with `?show=TYPE`: once, when that item's orders are there to show (every side, so none is filtered out).
@@ -230,27 +223,6 @@ export function Orders() {
     });
   }, [checked, rows, mine, side, sort, perSlot, nameOf]);
 
-  // Items from the last scan that would earn more per slot, for the swap suggestions.
-  useEffect(() => {
-    let alive = true;
-    loadCache().then((cache) => {
-      const held = new Set(mine.map((o) => o.typeId));
-      const list = rankProspects(cache, d.settings, { ...DEFAULT_FILTERS, budget: 100_000_000, partial: true })
-        .filter((p) => !held.has(p.typeId) && !p.warnings.length)
-        .sort((a, b) => b.iskPerDay - a.iskPerDay);
-      if (alive) setBetter(list);
-    }).catch(() => undefined);
-    return () => { alive = false; };
-  }, [mine, d.settings]);
-
-  const weakest = all.filter((x) => Number.isFinite(perSlot[x.orderId])).sort((a, b) => perSlot[a.orderId] - perSlot[b.orderId]).slice(0, 3);
-  // Folded away by default on a phone, where it pushed the orders themselves off the first screen; whichever way you
-  // leave it is kept in this browser.
-  const [weakOpen, setWeakOpen] = useState(() => {
-    try { const v = localStorage.getItem(WEAK_KEY); if (v != null) return v === '1'; } catch { /* private window */ }
-    return !window.matchMedia?.('(max-width: 640px)').matches;
-  });
-  const toggleWeak = () => setWeakOpen((o) => { try { localStorage.setItem(WEAK_KEY, o ? '0' : '1'); } catch { /* private window */ } return !o; });
   const tips = tipsFor(side);
   const count = (v: Shown) => all.filter((x) => shown(x) === v).length;
   // "Cancel it", "Sell to bids" and "Keep it" only earn a card when there's something to show.
@@ -344,44 +316,6 @@ export function Orders() {
           <TradeSkillsLine />
           {!canOpenInGame() && (
             <Notice kind="warn">Your login predates the “In game” button. Add <code>esi-ui.open_window.v1</code> to your application on developers.eveonline.com, then log out and in again, and each row will open that item’s market window in your client.</Notice>
-          )}
-
-          {checked && weakest.length > 0 && (
-            <section className="panel" data-rv="" style={{ padding: '12px 16px', clipPath: 'none' }}>
-              <div className="panel-head">
-                <button type="button" className="panel-toggle" aria-expanded={weakOpen} onClick={toggleWeak}>
-                  <ChevronRight className="chev" aria-hidden="true" /><span className="panel-title">Weakest slots</span>
-                </button>
-                <span className="note small">
-                  {/* Every open order takes a slot, wherever it is, so the count is all of them. */}
-                  {!weakOpen ? `${units(open.length)} of ${units(slots)} slots in use: the ${weakest.length} earning least per slot.`
-                    : open.length < slots * 0.9
-                    ? `You’re using ${units(open.length)} of ${units(slots)} slots, so none needs freeing yet — but these earn least per slot, and are the first to swap when you get busy.`
-                    : `You’re using ${units(open.length)} of ${units(slots)} slots. These earn least per slot; swapping them is how a full book earns more.`}
-                </span>
-              </div>
-              {weakOpen && <ScanFreshness what="what to swap them for" compact />}
-              {weakOpen && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,280px),1fr))', gap: 10 }}>
-                {weakest.map((x, i) => {
-                  const b = better[i];
-                  const bv = b ? b.iskPerDay / 2 : null;
-                  return (
-                    <div key={x.orderId} className="inset-box col" style={{ gap: 4, padding: '10px 12px' }}>
-                      <div className="kv"><button type="button" className="name-btn" style={{ color: 'var(--ink)' }} data-tip="Show it in the list below" onClick={() => focusOrders([x.orderId])}>{nameOf(x.typeId)} {x.isBuy ? 'buy' : 'sell'}</button><span className="v" style={{ color: 'var(--acc2)' }}>{iskBig(perSlot[x.orderId])}/day</span></div>
-                      {b && bv != null ? (
-                        <>
-                          <div className="kv" style={{ fontSize: 12.5, color: 'var(--sec)' }}>
-                            <span className="row tight" style={{ flexWrap: 'nowrap', minWidth: 0 }}><Repeat aria-hidden="true" style={{ width: 12, height: 12, color: 'var(--acc)', flex: 'none' }} /><span className="ellipsis">{nameOf(b.typeId)} · {iskBig(bv)}/day</span></span>
-                            <span className="v" style={{ color: bv > perSlot[x.orderId] ? 'var(--pos)' : 'var(--sec)' }}>{bv > perSlot[x.orderId] ? `+${iskBig(bv - perSlot[x.orderId])}/day` : 'no better'}</span>
-                          </div>
-                          <button type="button" className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => navigate(`calculator?type=${b.typeId}`)}>Check it in the calculator</button>
-                        </>
-                      ) : <span className="note small">Run a scan on Prospects to find what could earn more in this slot.</span>}
-                    </div>
-                  );
-                })}
-              </div>}
-            </section>
           )}
 
           <section id="orders-table" className="panel flush" data-rv="" style={{ flex: 1, minHeight: 260, scrollMarginTop: 12 }}>
@@ -526,7 +460,7 @@ export function Orders() {
           { icon: MoveVertical, title: 'Move the ones marked Move it', body: 'Move it means the queue ahead won’t clear in time. Move to shows the price that puts you back in front.' },
           { icon: Hand, title: 'Keep the ones marked Keep it', body: `A buy raised to the front would leave too little: under ${PLAN_KEEP_SAID} of what its plan expected or your target, whichever is lower, or a loss. It says the price to keep it at.` },
           { icon: Ban, title: 'Leave the red ones', body: 'Not worth it means getting in front would cost more margin than it’s worth.' },
-          { icon: LayoutGrid, title: 'Mind the weakest slots', body: 'When you run out of order slots, swap the lowest per-slot earners first.' },
+          { icon: LayoutGrid, title: 'Mind what each slot earns', body: 'When you run out of order slots, sort by Per slot and swap the lowest earners first.' },
         ]}
       />
     </div>

@@ -220,8 +220,7 @@ export type ScanFreshness = {
 };
 
 /**
- * How current the Prospects data is, for the pages that work from it (the planner, hub arbitrage, the
- * slot-swap suggestions on Orders). `fallback` is the newest price in the cache, for a scan run before
+ * How current the Prospects data is, for the pages that work from it (the planner, hub arbitrage, Reprocessing's scanner). `fallback` is the newest price in the cache, for a scan run before
  * finishing times were kept: better than calling it "never".
  */
 export function scanFreshness(runs: ScanRuns | undefined, fallback: string | null, now = Date.now()): ScanFreshness {

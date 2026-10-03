@@ -128,6 +128,11 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   longer lists copies no price when opened. The cloud's round reads the `plans` doc (sanitized) and, only when there are
   plans, the positions records, a row that doesn't parse skipped; no doc, or one it can't read, is no plan. A refused
   raise is never mailed as a move, and a guarded buy that was "beaten but clearing" loses that mail.
+- **Weakest slots is gone from Orders** (3 October 2026). The user: "we can remove the weakest slots, i don't think it is
+  usefull". It was a panel over the table naming the three orders earning least per slot, each beside an item from the
+  last Prospects scan that would earn more ("Check it in the calculator"), with the scan's age; re-ranking the scan for it
+  ran on every visit to Orders. The Per slot column stays (sortable, its tip saying the lowest are the first to swap), and
+  the Guide's "Mind what each slot earns" and List loot's slot notes point at it. Don't bring the panel back unasked.
 - **Opening an item in game from Orders or To do copies the price to move to** (`copyPrice`, `CopyPrice` and the
   `copy` prop of `NameInGame` / `OpenInGame` in `common.tsx`; To do's `action.copy`). The user asked for it, with a
   copy icon beside the price "like we have in sniping": the Sniper's copy button exists because a relist typed by hand

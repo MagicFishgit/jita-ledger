@@ -293,7 +293,7 @@ export function Loot() {
             { l: 'List', v: `${units(listed.length)} of ${units(free)} free slot${free === 1 ? '' : 's'}`, n: listed.length ? `${iskBig(listed.reduce((t, c) => t + (c.listNet ?? 0), 0))} when they sell` : 'Nothing worth a slot', c: 'var(--pos)',
               tip: `Your ${units(slots)} order slots, ${units(openOrders.length)} in use. The listings that gain most over the bids per day of the slot go first.`, press: press('list') },
             { l: 'Sell into bids', v: units(toBids.length), n: toBids.length ? `${iskBig(toBids.reduce((t, c) => t + c.bidsNet, 0))} now, after tax` : '–', c: 'var(--acc)', press: press('bids') },
-            { l: 'Waiting for a slot', v: units(noSlot.length), n: noSlot.length ? 'Worth listing if you free a slot (Orders: Weakest slots)' : '–', c: 'var(--acc2)', press: press('noSlot') },
+            { l: 'Waiting for a slot', v: units(noSlot.length), n: noSlot.length ? 'Worth listing if you free a slot (Orders: sort by Per slot)' : '–', c: 'var(--acc2)', press: press('noSlot') },
             { l: 'Skip / left out', v: `${units(skipped.length)} / ${units(held.length)}`, n: held.length ? 'Left out: tick a kind above the table, or one item, to include it' : '–', press: press('skip') },
           ]} />
           <Tiles items={[
@@ -322,7 +322,7 @@ export function Loot() {
                       <Seg label="Number format" size="sm" value={mark} onChange={setMark} options={[{ v: 'point', label: 'Decimal point' }, { v: 'comma', label: 'Decimal comma' }]} />
                     </div>
                   </>
-                ) : <p className="note small" style={{ margin: 0 }}>{free === 0 ? 'No free order slots: free some on Orders (Weakest slots), or sell into the bids.' : 'Nothing here gains enough over the bids to be worth a slot.'}</p>}
+                ) : <p className="note small" style={{ margin: 0 }}>{free === 0 ? 'No free order slots: free some on Orders (its Per slot column shows what each earns), or sell into the bids.' : 'Nothing here gains enough over the bids to be worth a slot.'}</p>}
                 {(free === 0 || noSlot.length > 0) && <TradeSkillsLine slotsOnly />}
               </div>
               {toBids.length > 0 && (

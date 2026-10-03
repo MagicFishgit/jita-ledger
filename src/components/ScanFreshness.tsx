@@ -9,8 +9,7 @@ import { Notice } from './ui';
 /**
  * How current the Prospects scan is, on a page that works from it.
  *
- * The planner, hub arbitrage and the slot-swap suggestions on Orders all read what the last scan found,
- * and nothing else refreshes it. So each says how old that is, and when a deep scan last finished:
+ * The planner, hub arbitrage and Reprocessing's scanner read what the last scan found, and nothing else refreshes it. So each says how old that is, and when a deep scan last finished:
  * quietly when it's recent, as a warning once it's SCAN_STALE_HOURS old, and plainly once it's a day.
  * `what` is what this page makes from it ("the plan", "the candidates").
  */

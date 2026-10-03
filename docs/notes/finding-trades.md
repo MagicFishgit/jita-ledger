@@ -42,7 +42,7 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   for 19.2 M on the normal list. The mix now shows the flags that don't exclude an item, marks items you
   already have orders or a position on, and offers the Prospects horizon choices (without "any").
 - **Pages that work from the Prospects scan say how old it is** (`ScanFreshness`, rule `scanFreshness`): the
-  Capital planner, Hub arbitrage, and the slot-swap suggestions on Orders. Nothing else refreshes that data,
+  Capital planner, Hub arbitrage and Reprocessing's scanner. Nothing else refreshes that data,
   and the user worried about acting on an old scan. The scan records when a quick and a deep scan last *ran
   to the end* (`cache.runs`; a stopped scan doesn't count). Under 6 hours is a quiet line; over 6 an amber
   warning; over a day a red one; each with when a deep scan last finished, flagged if never or over a week,
@@ -337,7 +337,7 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   that pace came from (watched, the book, or history's guess, poor on markets that sell into bids). A sell priced under
   the front has nothing ahead. The cloud's scan counts the whole side (`sellsTo`, market-reading.md): 108 of 791 front
   candidates flagged at 7 days, none in the switch-off mix. The opportunity mail mails only unflagged items and reads the
-  scan's count too, so it no longer mails a Long queue, and Orders' slot-swap suggestions skip flagged items, these included.
+  scan's count too, so it no longer mails a Long queue.
 - **Place and leave holds a run-up to 30%** (`RUN_UP_PATIENT`, `runUpBar`; the front keeps `RUN_UP` 0.5). The user: "yes we
   can make it stricter". The Vigilance Resonance Key was +40% on the 1 October scan (31.8 M over the last 3 days against a
   month median of 23.2 M) and Place and leave priced its sell at 36.82 M from the spike's days behind 109 listed at ~9 a
