@@ -138,8 +138,10 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
     which the other reading, past both, would miss). The formula is null, never a match, when skills or standings aren't
     read or the agent isn't in the bundle, and then nothing is said beside it (the tip says why).
   - **Worth now walks everyone else's bids**: every character's open Jita 4-4 orders come off the book first
-    (`withoutOwn`, prospects.ts; `ResearchChar.own`), since selling into your own bid, or another character's, is no sale
-    (market-reading.md: "Sell to bids" walks others' bids only; the main has bid on Datacore - Rocket Science before).
+    (`othersSide` in researchTrack.ts, over prospects.ts' `withoutOwn`; `ResearchChar.own`), since selling into your own
+    bid, or another character's, is no sale (market-reading.md: "Sell to bids" walks others' bids only; the main has bid
+    on Datacore - Rocket Science before). Anything else that values datacores (To do's cash-in, the Wallet's card) passes
+    its bids through `othersSide` before `agentCard`, or its worth won't match the card's.
     Listed beside it (`listedWorth`): at `listingPrice` on others' listings and the fortnight's highs, after sales tax, the
     broker fee (its 100 ISK minimum) and the fee each. No whole datacore yet is a known "Nothing yet"; no bid over the fee,
     a book still read, or one that couldn't be, is "–" with why or "Pricing…", never 0 ISK. ISK a day is ESI's rate at

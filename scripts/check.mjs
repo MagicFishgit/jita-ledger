@@ -6105,6 +6105,15 @@ console.log('\n--- R&D agents: tracking the agents that run ---');
   eq('  nobody read: nothing, never zeros as if read', K.researchTotals([{ charId: 1, isMain: true, read: false, cards: [] }]),
     { agents: 0, rpDay: 0, datacores: 0, worth: null, unpriced: 0, iskMonth: null, monthUnpriced: 0, mainRead: false, alts: { read: 0, of: 0 } });
 
+  // Every one of your characters' open Jita orders comes off the book before datacores are valued: selling into your own
+  // bid (or another character's) is no sale. The main has bid on Datacore - Rocket Science before.
+  // (The sell order of yours sits at a bid's price on purpose: only its side keeps it off the bids.)
+  const own = [{ typeId: 20418, isBuy: true, price: 92_700, volume: 2 }, { typeId: 20418, isBuy: false, price: 92_000, volume: 5 }, { typeId: 20420, isBuy: true, price: 92_000, volume: 9 }];
+  eq('others\' bids: your bid on this datacore comes off its price\'s level, a sell order of yours and another datacore\'s bid don\'t',
+    K.othersSide(bids, own, 20418, true), [{ price: 92_700, volume: 1 }, { price: 92_000, volume: 10 }]);
+  eq('  a level that was all yours goes; asks the same way', [K.othersSide([{ price: 92_700, volume: 2 }], own, 20418, true), K.othersSide([{ price: 92_000, volume: 5 }, { price: 92_700, volume: 4 }, { price: 96_000, volume: 1 }], own, 20418, false)],
+    [[], [{ price: 92_700, volume: 4 }, { price: 96_000, volume: 1 }]]);
+
   // Listed instead of sold into bids: at the listing price (fills.ts' listingPrice), after sales tax, the broker fee (its
   // 100 ISK minimum) and the agent's fee each.
   eq('listed: six at 99,000 after tax and a 1.3% broker fee, less the fee each',

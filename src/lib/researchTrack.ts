@@ -9,8 +9,9 @@
  * doesn't hold) is null, never a match; datacores with no bid to sell into are null, never 0 ISK.
  */
 import { DATACORE_FEE, DATACORE_OF, RATE_TOLERANCE, RP_PER_DATACORE, datacoreValue, datacoresFor, effectiveStanding, rpNow, rpPerDay, type RdAgent, type ResearchRow, type StandingRow } from './research';
+import { withoutOwn } from './prospects';
 import { SKILL } from './researchStart';
-import type { HistRow } from './types';
+import type { BookLevel, HistRow } from './types';
 
 const DAY_MS = 86_400_000;
 
@@ -77,6 +78,19 @@ export function agentCard(row: ResearchRow, agent: RdAgent | null, skills: Recor
     iskDay: top == null ? null : row.pointsPerDay / RP_PER_DATACORE * top,
     nextInMs: row.pointsPerDay > 0 ? ((datacores + 1) * RP_PER_DATACORE - held) / row.pointsPerDay * DAY_MS : null,
   };
+}
+
+/** An open order of one of your characters in Jita 4-4, as the Research tab weighs a book. */
+export type OwnOrder = { typeId: number; isBuy: boolean; price: number; volume: number };
+
+/**
+ * One side of a datacore's Jita book without any of your characters' open orders on it: selling one character's
+ * datacores into its own bid, or another character's, is trading with yourself, no sale (market-reading.md: "Sell to
+ * bids" walks others' bids only). Every figure that values datacores (the cards, To do's cash-in, the Wallet) passes its
+ * bids through this before `agentCard`, so they agree.
+ */
+export function othersSide(levels: BookLevel[], own: OwnOrder[], typeId: number, buy: boolean): BookLevel[] {
+  return withoutOwn(levels, own.filter((o) => o.typeId === typeId && o.isBuy === buy).map((o) => ({ price: o.price, volume: o.volume })));
 }
 
 /** One character's cards, and whether its research was read at all (a card can only come from a read). */

@@ -6,6 +6,7 @@ import { rates } from '../../lib/fees';
 import { useAuth } from '../../lib/hooks';
 import { type Pilot, pilotFrom } from '../../lib/pilot';
 import type { ResearchRow, StandingRow } from '../../lib/research';
+import type { OwnOrder } from '../../lib/researchTrack';
 import { emptyAlt, jobOk, loginState, type AltSaved, type RosterEntry } from '../../lib/roster';
 import { useData } from '../../lib/store';
 import type { Order } from '../../lib/types';
@@ -43,7 +44,7 @@ export type ResearchChar = {
    * Its open orders in Jita 4-4 (the main's from the sync, an alt's from the cloud's read), so what datacores fetch is
    * worked out on everyone else's orders: selling into a bid of your own is trading with yourself (market-reading.md).
    */
-  own: { typeId: number; isBuy: boolean; price: number; volume: number }[];
+  own: OwnOrder[];
   /** When EVE last offered a research mission (`meta.researchMissionAt`): the main's only, since an alt's notifications aren't read. */
   missionAt: string | null;
   /**

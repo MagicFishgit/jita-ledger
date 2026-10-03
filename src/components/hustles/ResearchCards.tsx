@@ -5,9 +5,8 @@ import { ago, fmtDate, fmtDateTime, isk, iskBig, pct, units } from '../../lib/fo
 import { useNow } from '../../lib/hooks';
 import { HIGH_SEC, jumpsFrom, type Graph } from '../../lib/jumps';
 import { resolveNames } from '../../lib/market';
-import { withoutOwn } from '../../lib/prospects';
 import { DATACORE_FEE, DATACORE_OF, RP_PER_DATACORE, type RdAgent, type ResearchRow } from '../../lib/research';
-import { agentCard, listedWorth, researchTotals, yearPercentile, type AgentCard } from '../../lib/researchTrack';
+import { agentCard, listedWorth, othersSide, researchTotals, yearPercentile, type AgentCard } from '../../lib/researchTrack';
 import { datacoreName, FIELDS } from '../../lib/researchStart';
 import { trainSaid } from '../../lib/skillStatus';
 import type { BookLevel, HistRow } from '../../lib/types';
@@ -59,8 +58,7 @@ export function ResearchCards({ chars, mainName, agents, corpName, graph, market
       const b = market.books[dc];
       if (b === undefined) { out[dc] = { state: 'pricing' }; continue; }
       if (b === 'failed') { out[dc] = { state: 'failed' }; continue; }
-      const mine = (buy: boolean) => own.filter((o) => o.typeId === dc && o.isBuy === buy).map((o) => ({ price: o.price, volume: o.volume }));
-      const bids = withoutOwn(b.bids, mine(true)), asks = withoutOwn(b.asks, mine(false));
+      const bids = othersSide(b.bids, own, dc, true), asks = othersSide(b.asks, own, dc, false);
       const h = market.hist[dc];
       const highs = h && h !== 'failed' ? recentRange(h, FILL_WINDOW, at).highs : null;
       out[dc] = { state: 'read', bids, listAt: listingPrice(asks[0]?.price ?? null, bids[0]?.price ?? null, highs) };
