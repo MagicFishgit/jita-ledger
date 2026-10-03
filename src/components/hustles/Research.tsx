@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ArrowRight, Coins, Moon } from 'lucide-react';
+import { ArrowRight, ChevronRight, Coins, Moon } from 'lucide-react';
 import { useAlts } from '../../lib/altStore';
 import { isk, iskBig } from '../../lib/format';
 import { useNow } from '../../lib/hooks';
@@ -11,6 +11,7 @@ import { JITA_SYSTEM } from '../../lib/universe';
 import { Points } from '../Facts';
 import { PilotProvider } from '../pilot';
 import { Seg, Tiles } from '../ui';
+import { ResearchCards } from './ResearchCards';
 import { useResearchChars, type ResearchChar } from './researchChars';
 import { useResearchMarket, type Want } from './researchMarket';
 import { PickStep, ReachStep, StartStep, TrainStep, type Walk } from './ResearchSteps';
@@ -21,7 +22,9 @@ import { PickStep, ReachStep, StartStep, TrainStep, type Walk } from './Research
  * later. I have never done this so I would like this page teach you about them and help you get them going and of
  * course track them." Stage 1 (docs/superpowers/specs/2026-10-03-rd-agents-design.md) is the walkthrough: what it pays
  * at the shown character's skills, then four steps (train, reach the agents, pick an agent and a field, start), all
- * following one pick. Stage 2, the cards for agents running, comes above it once the app reads research.
+ * following one pick. Stage 2 (ResearchCards.tsx) is the tracking: once any character has an agent running, a card per
+ * agent comes first and the walkthrough folds below it (open or shut, kept per browser); before then, one line per
+ * character says where its research stands.
  *
  * The agents come from CCP's static data (src/data/researchAgents.json, its own chunk: ESI has no agent route), the
  * distances from the bundled stargate map, standings from each character's `meta.standings` (the main's sync, an alt's
@@ -29,9 +32,10 @@ import { PickStep, ReachStep, StartStep, TrainStep, type Walk } from './Research
  * of this tab allowed to (docs/notes/characters.md); everything of an alt's is only read.
  */
 
-/** "Show for" and the pick, kept per browser. */
+/** "Show for", the pick, and whether the walkthrough is open once agents run, kept per browser. */
 const SHOW_KEY = 'jita-ledger:research-show';
 const PICK_KEY = 'jita-ledger:research-pick';
+const WALK_KEY = 'jita-ledger:research-walk';
 const readKept = (k: string): string | null => { try { return localStorage.getItem(k); } catch { return null; } };
 const keep = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* just not kept */ } };
 
@@ -44,6 +48,9 @@ const loadGraph = () => (graphP ??= import('../../data/universeGraph.json').then
 
 /** Every skill at V, for the "at all V" figures: every field, and the social skills the formula and access read. */
 const ALL_V: Record<number, number> = Object.fromEntries([...Object.keys(FIELDS).map(Number), ...Object.values(SKILL)].map((id) => [id, 5]));
+
+type Market = ReturnType<typeof useResearchMarket>;
+const DATACORES = Object.values(DATACORE_OF);
 
 export function Research() {
   // The alt store is read here because this is the tab allowed to read it (scripts/check.mjs keeps the list).
@@ -66,6 +73,22 @@ export function Research() {
     return () => { alive = false; };
   }, [loadTry]);
 
+  // Once any character's read shows an agent running, its card leads and the walkthrough folds (shut until opened here).
+  const running = chars.some((c) => c.research.state === 'read' && c.research.agents.length > 0);
+  const [walkKept, setWalkKept] = useState(() => readKept(WALK_KEY) === 'open');
+  const walkOpen = !running || walkKept;
+  const toggleWalk = () => { setWalkKept(!walkKept); keep(WALK_KEY, walkKept ? 'shut' : 'open'); };
+
+  // The 17 datacores' books first (they rank the agents and price the cards), then their histories (the field picker's
+  // year, a card's listing price and its year), then the skillbooks the shown character hasn't injected, while the
+  // walkthrough shows. Read here, not in the walkthrough, so the cards have them while it's folded.
+  const skills = shown.pilot.skills;
+  const books = useMemo(() => (walkOpen ? [...Object.keys(FIELDS).map(Number), SKILL.science, SKILL.labOp, SKILL.research, SKILL.rpm, SKILL.negotiation, SKILL.connections, SKILL.mechanics, SKILL.cpu, SKILL.powerGrid]
+    .filter((id) => skills?.[id] == null) : []), [skills, walkOpen]);
+  const wants = useMemo<Want[]>(() => [...DATACORES.map((t) => `b:${t}` as const), ...DATACORES.map((t) => `h:${t}` as const), ...books.map((t) => `b:${t}` as const)], [books]);
+  const market = useResearchMarket(wants);
+  const corpName = (id: number) => (bundle && bundle !== 'failed' ? bundle.names?.[id] : undefined) ?? `Corporation #${id}`;
+
   return (
     <>
       <div className="intro-row">
@@ -77,26 +100,41 @@ export function Research() {
             { kind: 'warn', lead: 'Cancelling', text: 'loses every point held with that agent: buy its datacores first.' },
           ]} />
         </div>
-        {chars.length > 1 && (
-          <Seg size="sm" label="Show for" value={shown.charId} onChange={chooseShow}
-            options={chars.map((c) => ({ v: c.charId, label: c.name, tip: c.isMain ? 'Your skills and standings' : `${c.name}’s skills and standings, as the cloud last read them`, tipTitle: `Show for ${c.name}` }))} />
-        )}
       </div>
       {bundle === 'failed' || graph === 'failed' ? (
         <p className="note small" style={{ margin: 0 }}>Couldn’t load {bundle === 'failed' ? 'the list of agents' : 'the stargate map'} just now. <button type="button" className="link-btn" onClick={() => { setBundle(null); setGraph(null); setLoadTry((n) => n + 1); }}>Try again</button></p>
       ) : !bundle || !graph ? (
         <p className="note small" style={{ margin: 0 }}>Loading the agents and the map…</p>
       ) : (
-        <PilotProvider value={shown.pilot}>
-          <Walkthrough key={shown.charId} c={shown} mainName={main.name} bundle={bundle} graph={graph} />
-        </PilotProvider>
+        <>
+          <ResearchCards chars={chars} mainName={main.name} agents={bundle.agents} corpName={corpName} graph={graph} market={market} />
+          <section className="col" style={{ gap: 16 }} aria-label="Getting started">
+            <div className="rd-walk-head">
+              {running ? (
+                <button type="button" className="panel-toggle" aria-expanded={walkOpen} onClick={toggleWalk}>
+                  <ChevronRight className="chev" aria-hidden="true" /><span className="panel-title">Getting started</span>
+                </button>
+              ) : <span className="panel-title">Getting started</span>}
+              {!walkOpen && <span className="note small">Train, reach the agents, pick one and start it: for another agent, or another character.</span>}
+              {walkOpen && chars.length > 1 && (
+                <Seg size="sm" label="Show for" value={shown.charId} onChange={chooseShow}
+                  options={chars.map((c) => ({ v: c.charId, label: c.name, tip: c.isMain ? 'Your skills and standings' : `${c.name}’s skills and standings, as the cloud last read them`, tipTitle: `Show for ${c.name}` }))} />
+              )}
+            </div>
+            {walkOpen && (
+              <PilotProvider value={shown.pilot}>
+                <Walkthrough key={shown.charId} c={shown} mainName={main.name} bundle={bundle} graph={graph} market={market} />
+              </PilotProvider>
+            )}
+          </section>
+        </>
       )}
     </>
   );
 }
 
 /** The walkthrough for one character: its pick, the tiles, and the four steps. */
-function Walkthrough({ c, mainName, bundle, graph }: { c: ResearchChar; mainName: string; bundle: Bundle; graph: Graph }) {
+function Walkthrough({ c, mainName, bundle, graph, market }: { c: ResearchChar; mainName: string; bundle: Bundle; graph: Graph; market: Market }) {
   const now = useNow(3600_000);
   const skills = c.pilot.skills;
   const lvl = (id: number) => skills?.[id] ?? 0;
@@ -107,12 +145,7 @@ function Walkthrough({ c, mainName, bundle, graph }: { c: ResearchChar; mainName
   const any = useMemo(() => jumpsFrom(graph, JITA_SYSTEM), [graph]);
   const jumpsTo = useMemo(() => (s: number) => high.get(s) ?? null, [high]);
 
-  // The 17 datacores' books first (they rank the agents), then their histories (the field picker), then the skillbooks.
-  const datacores = useMemo(() => Object.values(DATACORE_OF), []);
-  const books = useMemo(() => [...Object.keys(FIELDS).map(Number), SKILL.science, SKILL.labOp, SKILL.research, SKILL.rpm, SKILL.negotiation, SKILL.connections, SKILL.mechanics, SKILL.cpu, SKILL.powerGrid]
-    .filter((id) => skills?.[id] == null), [skills]);
-  const wants = useMemo<Want[]>(() => [...datacores.map((t) => `b:${t}` as const), ...datacores.map((t) => `h:${t}` as const), ...books.map((t) => `b:${t}` as const)], [datacores, books]);
-  const market = useResearchMarket(wants);
+  const datacores = DATACORES;
 
   // What one datacore fetches at the top bid after this character's sales tax and the fee; missing while unread.
   const net = useMemo(() => {

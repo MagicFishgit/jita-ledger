@@ -866,32 +866,53 @@ try {
   // Management V, Electronic Engineering IV, Negotiation and Connections IV), ESI answering the 17 datacores' Jita books
   // (the research's bids of 2 October 2026) and a year of The Forge's history; then shown for an alt whose standings the
   // cloud hasn't read yet. Without this the deploy draws only the walkthrough with every book refused and no standings.
+  // Since the tracking (stage 2): the main has two agents running and a research mission offered, one alt has one running
+  // (in Mechanical Engineering, whose book is refused) and the others say why theirs isn't read, so the cards come first,
+  // the totals count 1 of the 4 alts, and the walkthrough is folded until opened.
   // Seeded in a ledger of its own: never the shared large one, which check-income records. Both widths.
   if (SHOWN.includes('hustles/research') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('research'))) {
     const now = Date.now(), iso = (t) => new Date(t).toISOString();
     const BID = { 20418: 92700, 20416: 92610, 20411: 92360, 20413: 91950, 20420: 88170, 20414: 88070, 25887: 88010, 20412: 88010, 20417: 88000,
       20171: 87050, 20415: 87000, 20423: 86100, 20419: 85630, 20421: 81590, 20410: 80010, 20172: 52370, 20424: 25060 };
     const ledger = {
-      skills: { 3402: 5, 3426: 5, 3413: 5, 3392: 5, 11453: 4, 3356: 4, 3359: 4, 3355: 4 },
+      // Graviton Physics III for Okila Tsurvalen's card: its rate should be 35, where ESI still says 33.75.
+      skills: { 3402: 5, 3426: 5, 3413: 5, 3392: 5, 11453: 4, 11446: 3, 3356: 4, 3359: 4, 3355: 4 },
       meta: {
         lastSync: iso(now - 600_000), cloneDetected: 'omega',
         attributes: { intelligence: 24, memory: 24, perception: 20, willpower: 20, charisma: 23 },
         standings: { at: iso(now - 600_000), list: [{ id: 500001, type: 'faction', standing: 3.63 }, { id: 1000035, type: 'npc_corp', standing: 7.04 }] },
-        // The pick's agent running (Shitsu Ashoma, Lai Dai level 2, in Electronic Engineering): step 4 ticks itself off.
-        research: { at: iso(now - 900_000), agents: [{ agentId: 3016563, skillTypeId: 11453, startedAt: iso(now - 2 * 86400_000), pointsPerDay: 50.4, remainderPoints: 0 }] },
+        // The pick's agent running (Shitsu Ashoma, Lai Dai level 2, in Electronic Engineering): step 4 ticks itself off. 12.5
+        // days at 50.4 is 630 RP, six whole datacores, far from a boundary. And Okila Tsurvalen in Graviton Physics at the
+        // rate it was given at Negotiation III (33.75), where the formula now says 35: "open the agent to update it".
+        research: { at: iso(now - 900_000), agents: [
+          { agentId: 3011520, skillTypeId: 11446, startedAt: iso(now - 4 * 86400_000), pointsPerDay: 33.75, remainderPoints: 20 },
+          { agentId: 3016563, skillTypeId: 11453, startedAt: iso(now - 12.5 * 86400_000), pointsPerDay: 50.4, remainderPoints: 0 },
+        ] },
+        researchMissionAt: iso(now - 3 * 3600_000),
       },
     };
-    // An alt the cloud has read (skills, queue) but not yet its standings: the first hourly read after the Worker deploys.
+    // An alt the cloud has read (skills, queue) but not yet its standings or research: the first hourly read after the Worker
+    // deploys, its login holding both permissions.
     const ALT = 900077, ok = (job, ago) => ({ job, lastRun: now - ago, lastOk: now - ago, lastError: null });
-    const altEntry = { charId: ALT, name: 'Research Alt', addedAt: now - 5 * 86400_000, scopes: ['esi-characters.read_standings.v1', 'esi-skills.read_skills.v1'],
+    const SCOPES_BEFORE = ['esi-characters.read_standings.v1', 'esi-skills.read_skills.v1'];
+    const altEntry = { charId: ALT, name: 'Research Alt', addedAt: now - 5 * 86400_000, scopes: [...SCOPES_BEFORE, 'esi-characters.read_agents_research.v1'],
       at: now - 3600_000, refusedAt: null, refused: null, rev: 2, ship: null, shipAt: null, jobs: [ok('archive', 1800_000), ok('sheet', 1700_000)] };
     const altSaved = { rev: 2, addedAt: altEntry.addedAt, records: {}, docs: { skills: { 3402: 4, 3392: 3 }, meta: { cloneDetected: 'omega', attributes: { intelligence: 20, memory: 20, perception: 20, willpower: 20, charisma: 19 } } } };
-    // And an Alpha alt (its sheet read it as Alpha), and one whose login EVE refused with nothing read.
+    // An alt the cloud has read running Itirikko Innishi (Lai Dai, level 1) in Mechanical Engineering, whose book is refused:
+    // its card's worth and the totals' say so, never 0 ISK and never a part-sum. 30 days at 4.8 is 144 RP, one datacore.
+    const AGENT = 900080;
+    const agentEntry = { ...altEntry, charId: AGENT, name: 'Agent Alt' };
+    const agentSaved = { rev: 3, addedAt: altEntry.addedAt, records: {}, docs: { skills: { 3402: 5, 3392: 5, 11452: 1 }, meta: { cloneDetected: 'omega', attributes: altSaved.docs.meta.attributes,
+      standings: { list: [{ id: 500001, type: 'faction', standing: 0.5 }] },
+      research: { agents: [{ agentId: 3011552, skillTypeId: 11452, startedAt: iso(now - 30 * 86400_000), pointsPerDay: 4.8, remainderPoints: 0 }] } } } };
+    // And an Alpha alt (its sheet read it as Alpha) whose login was handed over before the app asked for the research
+    // permission, and one whose login EVE refused with nothing read.
     const ALPHA = 900078, LOST = 900079;
-    const alphaEntry = { ...altEntry, charId: ALPHA, name: 'Alpha Alt' };
+    const alphaEntry = { ...altEntry, charId: ALPHA, name: 'Alpha Alt', scopes: SCOPES_BEFORE };
     const alphaSaved = { ...altSaved, docs: { skills: { 3402: 4 }, meta: { cloneDetected: 'alpha', attributes: altSaved.docs.meta.attributes, standings: { list: [] } } } };
     const lostEntry = { ...altEntry, charId: LOST, name: 'Lost Alt', refusedAt: now - 7200_000, refused: 'invalid_grant', rev: 0, jobs: [] };
-    const altStore = { roster: { at: now - 60_000, list: [altEntry, alphaEntry, lostEntry] }, [`alt:${ALT}`]: altSaved, [`alt:${ALPHA}`]: alphaSaved, [`alt:${LOST}`]: { rev: 0, records: {}, docs: {} } };
+    const altStore = { roster: { at: now - 60_000, list: [altEntry, agentEntry, alphaEntry, lostEntry] }, [`alt:${ALT}`]: altSaved, [`alt:${AGENT}`]: agentSaved,
+      [`alt:${ALPHA}`]: alphaSaved, [`alt:${LOST}`]: { rev: 0, records: {}, docs: {} } };
     const page = await browser.newPage(VIEW);
     let esiAsked = 0;
     await page.route('**/*', (route) => {
@@ -941,12 +962,46 @@ try {
     }, [ledger, ownerAuth(), altStore]);
     await page.goto(`${BASE}#hustles/research`);
     await page.waitForSelector('.page', { timeout: 20_000 });
-    // The pick is the nearest of Lai Dai's level 2 agents in Electronic Engineering (scripts/check.mjs works it out from the
-    // bundle), priced once the books are in.
-    await page.waitForFunction(() => /Shitsu Ashoma/.test(document.querySelector('.page')?.textContent ?? '') && !/Pricing…/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 30_000 })
+    const text = async () => (await page.locator('.page').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    // The tracking first: agents run, so their cards lead, priced once the books are in, and the walkthrough is folded.
+    await page.waitForFunction(() => document.querySelectorAll('.rd-card').length === 3 && !/Pricing…/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 30_000 })
+      .catch(() => problems.push('the cards never settled: three agents running, every datacore priced'));
+    await page.waitForTimeout(500);
+    const track = (await page.locator('section[aria-label="Your agents"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    for (const t of ['Shitsu Ashoma, level 2 Lai Dai Corporation', 'Okila Tsurvalen, level 2 Lai Dai Corporation', 'Itirikko Innishi, level 1 Lai Dai Corporation',
+      // The stale rate: ESI's 33.75 where the formula says 35.
+      'The formula says 35.0: open the agent to update it',
+      // A mission offered, three hours ago: the time only, on the tab, never on a card.
+      'A research mission was offered 3 h ago.',
+      // Every alt's state in its own words (Review Focus 1–2): not read yet, the permission missing, the login refused.
+      'Not read yet: Research Alt’s research comes with the cloud’s next hourly read.',
+      'Hand the cloud Alpha Alt’s login again: it was handed over without the permission to read R&D agents.',
+      'Not read: EVE refused Lost Alt’s login; hand it over again on the Characters page.',
+      // The totals count only the characters read, and say so; Mechanical Engineering's book refused: no part-sum.
+      '3 agents: yours, 1 of 4 alts read.', '1 agent’s datacores couldn’t be priced, so nothing is summed',
+      '100 RP each, assumed: CCP 2012; CCP’s support page says 50–150 by field'])
+      if (!track.includes(t)) problems.push(`not drawn in the tracking: “${t}”`);
+    // Titles and tile labels are drawn in capitals (innerText follows the CSS).
+    for (const t of ['Datacores you can buy', 'When to cash in', 'Daily missions']) if (!track.toLowerCase().includes(t.toLowerCase())) problems.push(`not drawn in the tracking: “${t}”`);
+    if (/mission[^.]*waiting/i.test(track)) problems.push('the tracking says a mission is waiting: EVE only said one was offered');
+    if (/No agents running/.test(track)) problems.push('the tracking says “No agents running” where research wasn’t read');
+    const tilesOf = async (agent) => page.locator('.rd-card', { hasText: agent }).first().locator('.tile').evaluateAll((ts) => Object.fromEntries(ts.map((t) => [t.querySelector('.tile-l')?.firstChild?.textContent?.trim(), t.querySelector('.tile-v')?.textContent?.trim()]))).catch(() => ({}));
+    const shitsu = await tilesOf('Shitsu Ashoma'), itirikko = await tilesOf('Itirikko Innishi'), okila = await tilesOf('Okila Tsurvalen');
+    if (shitsu['RP a day'] !== '50.4' || shitsu['Datacores you can buy'] !== '6' || !/ISK$/.test(shitsu['Worth now'] ?? '')) problems.push(`Shitsu Ashoma’s card isn’t 50.4 RP a day, six datacores and a worth in ISK: ${JSON.stringify(shitsu)}`);
+    if (okila['RP a day'] !== '33.8' || okila['Datacores you can buy'] !== '1') problems.push(`Okila Tsurvalen’s card isn’t ESI’s 33.75 a day and one datacore: ${JSON.stringify(okila)}`);
+    if (itirikko['Datacores you can buy'] !== '1' || itirikko['Worth now'] !== '–') problems.push(`Itirikko Innishi’s card, its book refused, isn’t one datacore worth “–”: ${JSON.stringify(itirikko)}`);
+    if (!(await page.locator('.rd-card', { hasText: 'Itirikko Innishi' }).innerText().catch(() => '')).includes('Jita’s book couldn’t be read just now')) problems.push('Itirikko Innishi’s card doesn’t say why its worth is “–”');
+    const totalsTiles = await page.locator('[data-research="totals"] .tile').evaluateAll((ts) => Object.fromEntries(ts.map((t) => [t.querySelector('.tile-l')?.firstChild?.textContent?.trim(), t.querySelector('.tile-v')?.textContent?.trim()]))).catch(() => ({}));
+    if (totalsTiles['Datacores waiting'] !== '8' || totalsTiles['Worth now'] !== '–' || totalsTiles['A month'] !== '–') problems.push(`the totals aren’t 8 datacores with worth and month unsummed: ${JSON.stringify(totalsTiles)}`);
+    if (await page.locator('.step-card').count()) problems.push('the walkthrough isn’t folded below the cards while agents run');
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-research-cards.png` });
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out in the tracking: ${o}`);
+    // Open the walkthrough. The pick is the nearest of Lai Dai's level 2 agents in Electronic Engineering (scripts/check.mjs
+    // works it out from the bundle), priced once the books are in.
+    await page.locator('.rd-walk-head .panel-toggle').click().catch((e) => problems.push(`couldn't open the walkthrough: ${e.message.split('\n')[0]}`));
+    await page.waitForFunction(() => /Steps 1 to 3 follow one pick: Shitsu Ashoma/.test(document.querySelector('.page')?.textContent ?? '') && !/Pricing…/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 30_000 })
       .catch(() => problems.push('the main’s walkthrough never settled on Shitsu Ashoma with every datacore priced'));
     await page.waitForTimeout(500);
-    const text = async () => (await page.locator('.page').innerText().catch(() => '')).replace(/\s+/g, ' ');
     const mainText = await text();
     // RP a day for a level 2 agent at Electronic Engineering IV, Negotiation IV, no standing with the agent: (1 + 40/100) × (4 + 2)².
     for (const t of ['Steps 1 to 3 follow one pick: Shitsu Ashoma, level 2 Lai Dai Corporation, in Electronic Engineering', '50.4 RP a day',
@@ -972,8 +1027,8 @@ try {
     await page.waitForTimeout(1500);
     const altText = await text();
     for (const t of ['Not read yet: Research Alt’s standings come with the cloud’s next hourly read.', 'Start with a level 1 agent:', 'standings not read yet: level 1 agents only',
-      // Its login was handed over before the app asked for the research permission: step 4 says to hand it over again.
-      'Hand the cloud Research Alt’s login again: it was handed over without the permission to read R&D agents.',
+      // Its research isn't read yet either: step 4 says it ticks once the cloud's next hourly read shows it.
+      'once the cloud’s read of Research Alt’s research shows',
       // Its level 1 agents open only if its standing allows: never "Open now", never "the best open to" it.
       'Open if Research Alt’s standing with', 'the best level 1 agent']) if (!altText.includes(t)) problems.push(`not drawn for the alt: “${t}”`);
     const altSteps = (await page.locator('.step-card[aria-label^="Step 2"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
@@ -983,7 +1038,9 @@ try {
     if (SHOTS) await page.screenshot({ path: `${SHOTS}-research-alt.png` });
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out for the alt: ${o}`);
     // The Alpha alt: Needs Omega, said, with no training time; the refused one: hand its login over again.
-    for (const [who, want] of [['Alpha Alt', ['Needs Omega', 'Alpha Alt is Alpha']], ['Lost Alt', ['Not read: EVE refused Lost Alt’s login; hand it over again on the Characters page.']]]) {
+    // The Alpha alt's login was handed over before the app asked for the research permission: step 4 says to hand it over.
+    for (const [who, want] of [['Alpha Alt', ['Needs Omega', 'Alpha Alt is Alpha', 'Hand the cloud Alpha Alt’s login again: it was handed over without the permission to read R&D agents.']],
+      ['Lost Alt', ['Not read: EVE refused Lost Alt’s login; hand it over again on the Characters page.']]]) {
       await page.locator('[role="group"][aria-label="Show for"] button', { hasText: who }).click().catch((e) => problems.push(`couldn't show ${who}: ${e.message.split('\n')[0]}`));
       await page.waitForTimeout(1200);
       const t = await text();
@@ -996,7 +1053,7 @@ try {
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'research', page: 'hustles/research', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL research #hustles/research\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   research #hustles/research (the main’s walkthrough priced, Lai Dai at no standing; an alt whose standings aren’t read)\n');
+    process.stdout.write(unique.length ? `  FAIL research #hustles/research\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   research #hustles/research (three agents’ cards and the totals, 1 of 4 alts read; the main’s walkthrough priced, Lai Dai at no standing; an alt whose standings aren’t read)\n');
     await page.close();
   }
   // The Sniper with finds (2 October 2026: blueprints out unless asked, and Copy for Multibuy). The cloud answers its

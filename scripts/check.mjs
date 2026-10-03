@@ -6026,5 +6026,103 @@ console.log('\n--- R&D agents: the Research tab, getting started ---');
   eq('  no history: nothing to say, never zeros', S.fieldYear([], T0), { price: null, yearAgo: null, change: null, perDay: null, months: [] });
 }
 
+console.log('\n--- R&D agents: tracking the agents that run ---');
+{
+  // Stage 2 of the Research tab (docs/superpowers/specs/2026-10-03-rd-agents-design.md): a card per running agent, from
+  // the research read (ESI's points a day and points left over), and the totals across characters. Nothing not known
+  // reads as zero: a rate the formula can't work out is null, never a match; datacores unpriced are null, never 0 ISK.
+  const R = await import('../src/lib/research.ts');
+  const K = await import('../src/lib/researchTrack.ts');
+  const T = Date.parse('2026-10-03T12:00:00Z');
+  const tax = 0.03375;
+  const ag = (id, level) => ({ id, name: `Agent ${id}`, level, corp: 1000020, faction: 500001, station: 60002287, system: 30001376, fields: [11446, 11453] });
+  const row = (o) => ({ agentId: 3016563, skillTypeId: 11453, startedAt: new Date(T - 12.5 * DAY).toISOString(), pointsPerDay: 50.4, remainderPoints: 0, ...o });
+  const bids = [{ price: 92_700, volume: 3 }, { price: 92_000, volume: 10 }];
+  const skills = { 11453: 4, 11446: 3, 3356: 4 };
+
+  // Shitsu Ashoma (Lai Dai, level 2) in Electronic Engineering at IV, Negotiation IV, no standing with the agent: 50.4 RP a
+  // day, both ESI's and the formula's; 12.5 days of it is 630 RP, six whole datacores, walked down the bids.
+  const c = K.agentCard(row({}), ag(3016563, 2), skills, [], bids, tax, T);
+  const six = (3 * 92_700 + 3 * 92_000) * (1 - tax) - 6 * 10_000;
+  eq('a card: ESI\'s rate and the formula\'s (50.4 both), RP now on CCP\'s formula (630 after 12.5 days), six whole datacores',
+    [c.rpDay, +c.rpDayShould.toFixed(2), c.differs, +c.rpNow.toFixed(6), c.datacores, c.datacore], [50.4, 50.4, false, 630, 6, 20418]);
+  eq('  worth: the six walked down the bids after sales tax, less the fee each', [+c.worth?.total.toFixed(4), c.worth?.units], [+six.toFixed(4), 6]);
+  eq('  ISK a day at ESI\'s rate: RP a day ÷ 100 × one datacore at the top bid after tax and the fee',
+    +c.iskDay.toFixed(4), +(0.504 * (92_700 * (1 - tax) - 10_000)).toFixed(4));
+  eq('  the next datacore: the 70 RP to 700 at 50.4 a day', Math.round(c.nextInMs), Math.round(70 / 50.4 * DAY));
+
+  // The rate ESI gives lags a skill or standing change until the agent is reopened (forum 419534, 2023): the formula's is
+  // beside it once the two differ past RATE_TOLERANCE, 2 RP or 2%, either one (so ~1 RP on a small agent, 2 on a big one).
+  const okila = (perDay) => K.agentCard(row({ agentId: 3011520, skillTypeId: 11446, pointsPerDay: perDay }), ag(3011520, 2), skills, [], bids, tax, T);
+  eq('differs: Graviton Physics III at a level 2 agent should be 35; ESI\'s 33.75 (set at Negotiation III) is 3.6% off, under 2 RP: flagged',
+    [+okila(33.75).rpDayShould.toFixed(2), okila(33.75).differs], [35, true]);
+  eq('  34.5 (0.5 RP, 1.4%) is within both: not flagged', okila(34.5).differs, false);
+  const big = (perDay) => K.agentCard(row({ agentId: 1, skillTypeId: 11453, pointsPerDay: perDay }), ag(1, 4), { 11453: 5, 3356: 5, 3359: 0 },
+    [{ id: 1, type: 'agent', standing: 2 }], bids, tax, T);
+  eq('  a level 4 agent at field V, Negotiation V, agent standing 2 should be 119.07: 117.5 (1.3%, 1.57 RP) not flagged, 116.9 (2.17 RP, 1.8%) flagged on the 2 RP',
+    [+big(117.5).rpDayShould.toFixed(2), big(117.5).differs, big(116.9).differs], [119.07, false, true]);
+  eq('  the agent\'s own standing is lifted by Connections, as access reads it (2 at Connections IV is 3.28)',
+    +K.agentCard(row({}), ag(1, 4), { 11453: 5, 3356: 5, 3359: 4 }, [{ id: 3016563, type: 'agent', standing: 2 }], bids, tax, T).rpDayShould.toFixed(4),
+    +R.rpPerDay({ field: 5, agentLevel: 4, negotiation: 5, agentStanding: R.effectiveStanding(2, 4, 0) }).toFixed(4));
+  const unknown = [K.agentCard(row({}), ag(3016563, 2), undefined, [], bids, tax, T), K.agentCard(row({}), ag(3016563, 2), skills, null, bids, tax, T),
+    K.agentCard(row({}), null, skills, [], bids, tax, T)];
+  eq('  the formula is null, never a match, with skills or standings not read or the agent not in the bundle; the rest still counts',
+    unknown.map((x) => [x.rpDayShould, x.differs, x.datacores]), [[null, false, 6], [null, false, 6], [null, false, 6]]);
+
+  eq('worth with no bids (or none paying over the fee) is null, never 0 ISK; so is ISK a day',
+    [K.agentCard(row({}), ag(3016563, 2), skills, [], null, tax, T).worth, K.agentCard(row({}), ag(3016563, 2), skills, [], [{ price: 0.02, volume: 1e5 }], tax, T).worth,
+      K.agentCard(row({}), ag(3016563, 2), skills, [], null, tax, T).iskDay], [null, null, null]);
+  const none = K.agentCard(row({ startedAt: new Date(T - DAY).toISOString() }), ag(3016563, 2), skills, [], null, tax, T);
+  eq('  no whole datacore yet is worth a known nothing, bids or not', [none.datacores, none.worth], [0, { total: 0, units: 0 }]);
+  const thin = K.agentCard(row({}), ag(3016563, 2), skills, [], [{ price: 92_700, volume: 4 }], tax, T);
+  eq('  bids that take fewer than are waiting: the total covers what they take, and says how many',
+    [thin.worth?.units, +thin.worth?.total.toFixed(4)], [4, +(4 * (92_700 * (1 - tax) - 10_000)).toFixed(4)]);
+  const odd = K.agentCard(row({ skillTypeId: 30324 }), ag(3016563, 2), skills, [], bids, tax, T);
+  eq('  a field that makes no datacore (the read names one the bundle drops): no datacore, no worth, no ISK a day',
+    [odd.datacore, odd.worth, odd.iskDay, odd.datacores], [null, null, null, 6]);
+  eq('the next datacore: none while the rate is 0; past a remainder below zero (unseen after a purchase), the whole way to 100',
+    [K.agentCard(row({ pointsPerDay: 0 }), ag(3016563, 2), skills, [], bids, tax, T).nextInMs,
+      Math.round(K.agentCard(row({ startedAt: new Date(T).toISOString(), remainderPoints: -40 }), ag(3016563, 2), skills, [], bids, tax, T).nextInMs)],
+    [null, Math.round(140 / 50.4 * DAY)]);
+
+  // The totals count only characters whose research was read, and say how many alts that is.
+  const alt = K.agentCard(row({ agentId: 3016565, pointsPerDay: 4.8, startedAt: new Date(T - 30 * DAY).toISOString() }), ag(3016565, 1), { 11453: 1 }, [], bids, tax, T);
+  const t = K.researchTotals([
+    { charId: 1, isMain: true, read: true, cards: [c, okila(33.75)] },
+    { charId: 2, isMain: false, read: true, cards: [alt] },
+    { charId: 3, isMain: false, read: false, cards: [] },
+  ]);
+  const okilaC = okila(33.75);
+  eq('totals: RP a day, whole datacores waiting, worth and ISK a month over the read characters; one of two alts read',
+    [+t.rpDay.toFixed(2), t.datacores, t.agents, +t.worth.toFixed(2), t.unpriced, +t.iskMonth.toFixed(2), t.monthUnpriced, t.mainRead, t.alts],
+    [88.95, c.datacores + okilaC.datacores + alt.datacores, 3, +(c.worth.total + okilaC.worth.total + alt.worth.total).toFixed(2), 0,
+      +((c.iskDay + okilaC.iskDay + alt.iskDay) * 30).toFixed(2), 0, true, { read: 1, of: 2 }]);
+  const stray = K.researchTotals([{ charId: 1, isMain: true, read: false, cards: [c] }, { charId: 2, isMain: false, read: true, cards: [alt] }]);
+  eq('  a character not read counts nothing, whatever it carries', [+stray.rpDay.toFixed(2), stray.agents, stray.mainRead, stray.alts], [4.8, 1, false, { read: 1, of: 1 }]);
+  const unpriced = K.researchTotals([{ charId: 1, isMain: true, read: true, cards: [c, K.agentCard(row({ agentId: 9 }), ag(9, 2), skills, [], null, tax, T), none] }]);
+  eq('  never a part-sum: any card with datacores unpriced leaves the worth unknown and says how many; a card with none waiting is priced',
+    [unpriced.worth, unpriced.unpriced, unpriced.iskMonth, unpriced.monthUnpriced], [null, 1, null, 2]);
+  eq('  nobody read: nothing, never zeros as if read', K.researchTotals([{ charId: 1, isMain: true, read: false, cards: [] }]),
+    { agents: 0, rpDay: 0, datacores: 0, worth: null, unpriced: 0, iskMonth: null, monthUnpriced: 0, mainRead: false, alts: { read: 0, of: 0 } });
+
+  // Listed instead of sold into bids: at the listing price (fills.ts' listingPrice), after sales tax, the broker fee (its
+  // 100 ISK minimum) and the agent's fee each.
+  eq('listed: six at 99,000 after tax and a 1.3% broker fee, less the fee each',
+    +K.listedWorth(6, 99_000, tax, 0.013).total.toFixed(2), +(6 * 99_000 * (1 - tax) - 6 * 99_000 * 0.013 - 6 * 10_000).toFixed(2));
+  eq('  the broker fee\'s 100 ISK minimum; no listing price, none held, or a price that doesn\'t cover the fee: nothing to say',
+    [K.listedWorth(1, 11_000, 0, 0.001).total, K.listedWorth(6, null, tax, 0.013), K.listedWorth(0, 99_000, tax, 0.013), K.listedWorth(2, 10_100, tax, 0.013)],
+    [11_000 - 100 - 10_000, null, null, null]);
+
+  // When to cash in: where the field's latest day sits in its year (The Forge's history), like with like.
+  const day = (n) => new Date(T - n * DAY).toISOString().slice(0, 10);
+  const yearRows = Array.from({ length: 100 }, (_, i) => ({ date: day(300 - i * 3), average: 1000 + i, highest: 0, lowest: 0, volume: 5, order_count: 1 }));
+  const latest = { date: day(1), average: 1075.5, highest: 0, lowest: 0, volume: 5, order_count: 1 };
+  const yp = K.yearPercentile([...yearRows, latest], T);
+  eq('the year: the latest day\'s 1,075.5 sits above 76 of the year\'s 101 days', [yp?.price, yp?.date, yp?.days, +yp?.above.toFixed(4)], [1075.5, day(1), 101, +(76 / 101).toFixed(4)]);
+  eq('  days over a year back don\'t count', K.yearPercentile([{ date: day(400), average: 1, highest: 0, lowest: 0, volume: 5, order_count: 1 }, ...yearRows, latest], T)?.days, 101);
+  eq('  under 30 days traded in the year, or nothing traded in the last 30: nothing to say',
+    [K.yearPercentile([...yearRows.slice(0, 20), latest], T), K.yearPercentile(yearRows.filter((r) => r.date < day(31)), T), K.yearPercentile([], T)], [null, null, null]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

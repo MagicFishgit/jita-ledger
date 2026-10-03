@@ -116,7 +116,44 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
   Shitsu Ashoma researching Electronic Engineering since …"), and the "isn't ready yet" notice goes. Otherwise it says when
   it will, or why it can't: not read yet, log in again, hand the login over again, or the login refused or not held.
   `researchChars.ts` gives each character a `research` state shaped as `standings` (read / unread / login / handOver /
-  lost), for the cards to come.
+  lost), which the cards read too.
+- **Tracking: a card per running agent** (`lib/researchTrack.ts`, pure and tested; `hustles/ResearchCards.tsx`; stage 2).
+  The rules live in a file of their own, not research.ts: they need the social skills' IDs (`SKILL`, researchStart.ts,
+  which imports research.ts, so research.ts importing it back would be a cycle), and research.ts is the Worker's.
+  - **Once any character's read shows an agent running, the cards lead and the walkthrough folds below them** ("Getting
+    started", shut until opened, kept per browser in `jita-ledger:research-walk`), with Show for in its head, since it
+    drives the walkthrough only. Before then, "Your agents" is one line per character saying where its research stands
+    (`researchWhy`: not read yet, log in again, hand the login over again, refused), or "No agents running" once read.
+    The market reads moved up from the walkthrough into the tab, so the cards are priced while it's folded; the
+    skillbooks are read only while it shows.
+  - **A card** (`agentCard`): the field and its datacore, the agent with its level and corporation, its station, system,
+    security and high-sec jumps from Jita (an agent the bundle lacks is "Agent #id"); tiles for RP a day, RP held now (CCP's
+    formula, ticking every 5 s), datacores you can buy (whole, at 100 RP, with the caveat), worth now and the next datacore
+    in; and where the field's latest day sits in its year (`yearPercentile`: The Forge's daily averages over 365 days,
+    like with like, needing 30 days traded and one in the last 30; "as low as any day of its year" rather than "higher
+    than 0%"). Set destination on the main's cards only: an alt's points are spent by the alt, in person.
+  - **RP a day is ESI's** (what accrues), with the formula's beside it, in amber, when they differ: "The formula says 35.0:
+    open the agent to update it". `RATE_TOLERANCE` is read as **either** clause: more than 2 RP, or more than 2% of the
+    formula's, so about 1 RP on a level 2 agent and 2 on a level 4 (a Negotiation level at a level 2 agent is 1.8 RP, 3.6%,
+    which the other reading, past both, would miss). The formula is null, never a match, when skills or standings aren't
+    read or the agent isn't in the bundle, and then nothing is said beside it (the tip says why).
+  - **Worth now walks everyone else's bids**: every character's open Jita 4-4 orders come off the book first
+    (`withoutOwn`, prospects.ts; `ResearchChar.own`), since selling into your own bid, or another character's, is no sale
+    (market-reading.md: "Sell to bids" walks others' bids only; the main has bid on Datacore - Rocket Science before).
+    Listed beside it (`listedWorth`): at `listingPrice` on others' listings and the fortnight's highs, after sales tax, the
+    broker fee (its 100 ISK minimum) and the fee each. No whole datacore yet is a known "Nothing yet"; no bid over the fee,
+    a book still read, or one that couldn't be, is "–" with why or "Pricing…", never 0 ISK. ISK a day is ESI's rate at
+    the top bid's net.
+  - **The totals** (`researchTotals`) count only characters whose research was read and say how many: "3 agents: yours, 1
+    of 4 alts read". Worth and the month are never a part-sum: any agent's datacores unpriced leaves them "–" with how
+    many (the six-agents tile's lesson).
+  - **The mission offered** is a line under the main's name, "A research mission was offered 3 h ago", never on a card and
+    never "waiting" (only the notification's time is known). Under the totals, "When to cash in" (points don't expire;
+    before cancelling; when passing; when the price is high against its year) and "Daily missions" (one about a day after
+    the last; doing every one about doubles what agents make; declining doesn't cost standing, CCP 2024, and the agent's
+    "research halted" mail is wrong), from the research's sources.
+  - **On a phone** each tile in a card is a line, its label and figure side by side and its note under them, so a card
+    isn't five tall tiles stacked.
 - **Checked in a browser** (`.playwright-mcp/rd-agents-build/sync-research.mjs`, ESI stubbed, against the dev server):
   two agents read sorted with `at`; notifications read once and the newest mission kept; a newer one held not moved back;
   the research read failing leaves none (and asks no notifications) or what was held; no agents, no notifications; the
@@ -133,8 +170,15 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
   loads draw the walkthrough with every read refused and assert the main's "Log in again" (the stand-in login has no
   standings permission), "Clone state not read" and no "Needs Omega", and that all 17 datacores couldn't be read. Since
   the research read (Task 4 of the plan): the main's meta carries Shitsu Ashoma running, so step 4 must show ✓ and what
-  the read shows (seen failing with the match planted wrong); Research Alt's login lacks the permission ("Hand the cloud
-  Research Alt's login again"); the plain loads' main "Log in again to read your research".
+  the read shows (seen failing with the match planted wrong); the plain loads' main "Log in again to read your research".
+  Since the cards (Task 5): the main runs two agents (Shitsu Ashoma, six datacores; Okila Tsurvalen at ESI's 33.75 where
+  the formula says 35) and a mission was offered 3 h ago; Agent Alt runs Itirikko Innishi in Mechanical Engineering, whose
+  book is refused (its worth "–", why, and the totals unsummed); Research Alt holds the permission with nothing read ("Not
+  read yet"); Alpha Alt's login lacks it ("Hand the cloud Alpha Alt's login again"); Lost Alt's was refused. The check
+  asserts the cards' tiles, "3 agents: yours, 1 of 4 alts read", 8 datacores waiting, the mission line and no "waiting",
+  no "No agents running" for research not read, and the walkthrough folded; then opens it for the walkthrough's own
+  assertions. The brief's "1 of 2 alts" was its smallest case; the walkthrough's alts make it 4. `researchTotals` counting
+  an unread character and `differs` needing both clauses were each planted and failed `npm run check`.
 
 ## Open questions (in order of how much they change the page)
 

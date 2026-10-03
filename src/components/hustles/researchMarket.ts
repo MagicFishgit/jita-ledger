@@ -10,7 +10,7 @@ import type { BookLevel, HistRow } from '../../lib/types';
  * time and in the order asked (the datacores' books first: they rank the agents). Nothing read is never a zero: a read
  * still going is `undefined` ("Pricing…"), one ESI refused is `'failed'` ("–", with Try again).
  */
-export type Book = { bid: number | null; bids: BookLevel[]; ask: number | null; npc: number | null };
+export type Book = { bid: number | null; bids: BookLevel[]; ask: number | null; asks: BookLevel[]; npc: number | null };
 export type Read<T> = T | 'failed' | undefined;
 /** `b:<type>` for a Jita book, `h:<type>` for The Forge's history. */
 export type Want = `b:${number}` | `h:${number}`;
@@ -33,7 +33,7 @@ export function useResearchMarket(wants: Want[]): { books: Record<number, Read<B
         const w = queue[next++];
         const id = Number(w.slice(2));
         const v: Book | HistRow[] | 'failed' = w.startsWith('b:')
-          ? await jitaBook(id).then((s): Book => ({ bid: s.bestBuy, bids: s.topBuys, ask: s.bestSell, npc: s.npcAnywhere ?? null }), () => 'failed' as const)
+          ? await jitaBook(id).then((s): Book => ({ bid: s.bestBuy, bids: s.topBuys, ask: s.bestSell, asks: s.topSells, npc: s.npcAnywhere ?? null }), () => 'failed' as const)
           : await regionHistory(id, THE_FORGE).catch(() => 'failed' as const);
         if (!alive) return;
         settled.current.add(w);

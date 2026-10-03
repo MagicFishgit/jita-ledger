@@ -50,7 +50,7 @@ function Step({ n, title, children, done }: { n: number; title: string; children
 const who = (c: ResearchChar) => (c.isMain ? 'you' : c.name);
 const whose = (c: ResearchChar) => (c.isMain ? 'your' : `${c.name}’s`);
 /** Security as the game shows it: one decimal, 0.45 and up rounding to 0.5. */
-const secSaid = (s: number) => (Math.round(s * 10) / 10).toFixed(1);
+export const secSaid = (s: number) => (Math.round(s * 10) / 10).toFixed(1);
 const raw = (c: ResearchChar, type: 'agent' | 'npc_corp' | 'faction', id: number): number | null =>
   c.standings.state === 'read' ? c.standings.list.find((r) => r.type === type && r.id === id)?.standing ?? null : null;
 const eff = (c: ResearchChar, r: number | null) => effectiveStanding(r, c.pilot.skills?.[SKILL.connections] ?? 0, c.pilot.skills?.[SKILL.diplomacy] ?? 0);
@@ -264,17 +264,17 @@ function forYou(w: Walk, r: RankedAgent): { ok: boolean; text: string; standing:
   return { ok, text: ok ? 'Open now' : `Open${standing ? ` ${standing}` : ''}${skills ? `; ${skills}` : ''}`, standing, skills };
 }
 
-/** Set as the destination in the logged-in character's client: the main's, whoever the tab is shown for. */
-export function DestButton({ w, station, label, narrow }: { w: Walk; station: number; label?: string; narrow?: boolean }) {
+/** Set as the destination in the logged-in character's client: the main's, whoever the tab is shown for (`c`). */
+export function DestButton({ c, mainName, station, label, narrow }: { c: Pick<ResearchChar, 'isMain' | 'name'>; mainName: string; station: number; label?: string; narrow?: boolean }) {
   if (!hasScope(SCOPE.waypoint)) return null;
-  const said = w.c.isMain ? (label ?? 'Set destination') : `Sets ${w.mainName}’s destination`;
+  const said = c.isMain ? (label ?? 'Set destination') : `Sets ${mainName}’s destination`;
   const go = async () => {
-    try { await setDestination(station); toast(`Destination set in ${w.c.isMain ? 'your' : `${w.mainName}’s`} client.`, 'info'); }
+    try { await setDestination(station); toast(`Destination set in ${c.isMain ? 'your' : `${mainName}’s`} client.`, 'info'); }
     catch (e) { toast(e instanceof Error ? e.message : String(e), 'err'); }
   };
   return (
     <button type="button" className="dest-btn" style={narrow ? { whiteSpace: 'normal', maxWidth: 140, textAlign: 'right' } : undefined} onClick={() => void go()} data-tip-title="Set destination"
-      data-tip={w.c.isMain ? 'Plots the route to the agent’s station in game. It doesn’t fly anything.' : `ESI sets the logged-in character’s destination, which is ${w.mainName}, not ${w.c.name}. It plots the route; it doesn’t fly anything.`}>
+      data-tip={c.isMain ? 'Plots the route to the agent’s station in game. It doesn’t fly anything.' : `ESI sets the logged-in character’s destination, which is ${mainName}, not ${c.name}. It plots the route; it doesn’t fly anything.`}>
       {said}<MapPin aria-hidden="true" />
     </button>
   );
@@ -393,7 +393,7 @@ export function PickStep({ w }: { w: Walk }) {
                         <span>{s ? `${s.name} ${secSaid(s.sec)}` : `System ${r.agent.system}`} · {r.jumps != null ? `${r.jumps} jumps` : <span style={{ color: 'var(--acc2)' }}>off a high-sec route</span>}</span>
                         <span>{FIELDS[r.field]?.name}: <b>{r.rpDay.toFixed(1)} RP</b>, <b>{netSaid(w, r.datacore, r.iskDay)}</b> a day</span>
                         <span style={{ color: y.ok ? 'var(--pos)' : undefined }}>{y.text}</span>
-                        <span><DestButton w={w} station={r.agent.station} /></span>
+                        <span><DestButton c={w.c} mainName={w.mainName} station={r.agent.station} /></span>
                       </span>
                     </td>
                     <td className="l rd-wide">
@@ -409,7 +409,7 @@ export function PickStep({ w }: { w: Walk }) {
                     <td>
                       <div className="col" style={{ gap: 4, alignItems: 'flex-end' }}>
                         <button type="button" className="pick-btn" aria-pressed={on} onClick={() => w.choose(r)}>{on ? 'Picked' : 'Pick'}</button>
-                        <span className="rd-wide"><DestButton w={w} station={r.agent.station} narrow /></span>
+                        <span className="rd-wide"><DestButton c={w.c} mainName={w.mainName} station={r.agent.station} narrow /></span>
                       </div>
                     </td>
                   </tr>
@@ -472,7 +472,7 @@ export function StartStep({ w }: { w: Walk }) {
     <Step n={4} title="Start" done={tick.done}>
       {!y.ok && !tick.done && <Notice kind="warn">{pick.agent.name} isn’t ready for {who(c)} yet: {[pick.open ? null : y.text, y.standing ? `it opens ${y.standing}, and those aren’t read yet` : null, y.skills].filter(Boolean).join('; ')}.</Notice>}
       <Points items={[
-        { kind: 'tip', icon: Navigation, lead: 'Travel', text: <>to {s ? `${s.name} (${secSaid(s.sec)})` : `system ${pick.agent.system}`}, {pick.jumps != null ? `${pick.jumps} jumps from Jita` : 'off a high-sec route from Jita'}. <DestButton w={w} station={pick.agent.station} /></> },
+        { kind: 'tip', icon: Navigation, lead: 'Travel', text: <>to {s ? `${s.name} (${secSaid(s.sec)})` : `system ${pick.agent.system}`}, {pick.jumps != null ? `${pick.jumps} jumps from Jita` : 'off a high-sec route from Jita'}. <DestButton c={w.c} mainName={w.mainName} station={pick.agent.station} /></> },
         { kind: 'tip', icon: Anchor, lead: 'Dock', text: <>at {station ?? 'its station'}: the agent only talks in person.</> },
         { kind: 'tip', icon: MessageSquare, lead: 'Start Research', text: `in ${pick.agent.name}’s conversation (the station’s Agents tab).` },
         { kind: 'tip', icon: BookOpen, lead: 'Choose', text: `${field}: fixed until you cancel. Its points buy only its datacore, from this agent.` },

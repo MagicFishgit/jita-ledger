@@ -1048,6 +1048,15 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 /* The Research tab (hustles/Research.tsx): its tables keep a column and fold the rest under it on a phone (.rd-phone). */
 .rd-table { min-width: 860px; }
 .rd-phone { display: none; }
+/* A running agent's card (hustles/ResearchCards.tsx), each character's head over its cards, and the walkthrough's head. */
+.rd-card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: rgba(2, 7, 12, .45); border: 1px solid var(--line-2); border-left: 2px solid var(--acc); min-width: 0; }
+.rd-card-head { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.rd-card-head .dest-btn { font-size: 12.5px; color: var(--body-2); margin-top: 2px; }
+.rd-card-title { font-family: var(--f-head); font-size: 14px; font-weight: 600; letter-spacing: .04em; color: var(--ink); }
+.rd-card-sub { font-size: 12.5px; color: var(--note); overflow-wrap: anywhere; }
+.rd-char-head, .rd-walk-head { display: flex; align-items: baseline; gap: 6px 14px; flex-wrap: wrap; min-width: 0; }
+.rd-walk-head { align-items: center; border-top: 1px solid var(--line-3); padding-top: 14px; }
+.rd-walk-head [role='group'] { margin-left: auto; }
 .pill-tag { padding: 1px 6px; font-size: 11px; color: var(--dim); border: 1px solid var(--line-strong); white-space: nowrap; }
 .pick-btn { height: 28px; padding: 0 12px; border: 1px solid var(--acc); background: transparent; color: var(--acc); font-family: var(--f-head); font-weight: 600; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
 .pick-btn[aria-pressed='true'] { background: var(--acc); color: #03121a; }
@@ -1408,4 +1417,10 @@ button.tile.press .tile-v, button.tile.press .tile-n { display: block; }
   .rd-table .rd-phone b { font-weight: 500; color: var(--ink); }
   .rd-table th:first-child, .rd-table td:first-child { padding-left: 10px; }
   .rd-table th:last-child, .rd-table td:last-child { padding-right: 10px; }
+  /* A running agent's card: each figure a line, its label and figure side by side and the note under them, so five
+     figures don't stack five tall tiles per agent. */
+  .rd-card { padding: 12px 10px; }
+  .rd-card .tile { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 10px; padding: 8px 10px; }
+  .rd-card .tile-v { margin-top: 0; font-size: 15px; }
+  .rd-card .tile-n { grid-column: 1 / -1; }
 }

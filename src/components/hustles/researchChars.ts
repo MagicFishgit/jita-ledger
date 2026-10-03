@@ -1,13 +1,14 @@
 import { useMemo } from 'react';
 import { altLedger } from '../../lib/altLedger';
 import { askedScopes, hasScope } from '../../lib/auth';
-import { SCOPE, SCOPES } from '../../lib/config';
+import { JITA_44, SCOPE, SCOPES } from '../../lib/config';
 import { rates } from '../../lib/fees';
 import { useAuth } from '../../lib/hooks';
 import { type Pilot, pilotFrom } from '../../lib/pilot';
 import type { ResearchRow, StandingRow } from '../../lib/research';
 import { emptyAlt, jobOk, loginState, type AltSaved, type RosterEntry } from '../../lib/roster';
 import { useData } from '../../lib/store';
+import type { Order } from '../../lib/types';
 
 /**
  * Every character the Research tab can be shown for: the main from the store, each alt from its pulled copy (altLedger),
@@ -36,8 +37,15 @@ export type ResearchState =
 
 export type ResearchChar = {
   charId: number; name: string; isMain: boolean; pilot: Pilot; standings: StandingsState; research: ResearchState;
-  /** Its own sales tax, for what its datacores fetch. */
-  tax: number;
+  /** Its own sales tax and broker fee, for what its datacores fetch sold into bids and listed. */
+  tax: number; broker: number;
+  /**
+   * Its open orders in Jita 4-4 (the main's from the sync, an alt's from the cloud's read), so what datacores fetch is
+   * worked out on everyone else's orders: selling into a bid of your own is trading with yourself (market-reading.md).
+   */
+  own: { typeId: number; isBuy: boolean; price: number; volume: number }[];
+  /** When EVE last offered a research mission (`meta.researchMissionAt`): the main's only, since an alt's notifications aren't read. */
+  missionAt: string | null;
   /**
    * As read from its skills, or set by hand (an alt on the Characters page; the main's Omega in Settings, since Alpha is
    * the setting's default and so says nothing). `unknown` is never called Alpha, and says so.
@@ -50,12 +58,17 @@ export type ResearchAlts = { roster: RosterEntry[]; alts: Record<number, AltSave
 
 const NO_ALT = emptyAlt();
 
+/** A character's open Jita 4-4 orders, as the Research tab weighs them. */
+const openInJita = (orders: Record<string, Order>): ResearchChar['own'] => Object.values(orders)
+  .filter((o) => o.state === 'open' && o.locationId === JITA_44)
+  .map((o) => ({ typeId: o.typeId, isBuy: o.isBuy, price: o.price, volume: o.volumeRemain }));
+
 export function useResearchChars(alts: ResearchAlts): ResearchChar[] {
   const d = useData();
   const auth = useAuth();
   const mainId = auth?.characterId ?? 0;
   const mainName = auth?.characterName ?? 'You';
-  const { skills, meta, settings, chars: known } = d;
+  const { skills, meta, settings, orders, chars: known } = d;
   const canStandings = hasScope(SCOPE.standings);
   const canResearch = hasScope(SCOPE.agentsResearch);
   return useMemo(() => {
@@ -66,7 +79,9 @@ export function useResearchChars(alts: ResearchAlts): ResearchChar[] {
         : canStandings ? { state: 'unread' } : { state: 'login' },
       research: meta.research ? { state: 'read', agents: meta.research.agents, at: meta.research.at ? Date.parse(meta.research.at) : null }
         : canResearch ? { state: 'unread' } : { state: 'login' },
-      tax: rates(settings).t,
+      tax: rates(settings).t, broker: rates(settings).f,
+      own: openInJita(orders),
+      missionAt: meta.researchMissionAt ?? null,
       clone: meta.cloneDetected ?? (settings.clone === 'omega' ? 'omega' : 'unknown'),
     };
     const wanted = [...SCOPES, ...askedScopes()];
@@ -91,12 +106,14 @@ export function useResearchChars(alts: ResearchAlts): ResearchChar[] {
         research: rs ? { state: 'read', agents: rs.agents, at: jobOk(entry, 'sheet') }
           : lost ? { state: 'lost', why: lost }
             : login.missing.includes(SCOPE.agentsResearch) ? { state: 'handOver' } : { state: 'unread' },
-        tax: rates(ledger.settings).t,
+        tax: rates(ledger.settings).t, broker: rates(ledger.settings).f,
+        own: openInJita(ledger.orders),
+        missionAt: null,
         clone: detected ?? byHand ?? 'unknown',
       };
     });
     return [main, ...others];
-  }, [mainId, mainName, skills, meta, settings, canStandings, canResearch, known, alts.roster, alts.alts]);
+  }, [mainId, mainName, skills, meta, settings, orders, canStandings, canResearch, known, alts.roster, alts.alts]);
 }
 
 /** Why a character's standings aren't shown, as a sentence; null when they're read. */
