@@ -6,7 +6,7 @@ import { esi, esiAllPages } from '../lib/esi';
 import type { RawAsset } from '../lib/esiRecords';
 import { ago, fmtDateTime, units } from '../lib/format';
 import {
-  assetsTakenAt, copiesOf, doubtSaid, flagLabel, hangarCheck, holderIds, leadRows, leadSaid, pathLabel, planShare, readPlaces, resolvePick, softSaid, tradesDueAt, whereLabel,
+  assetsTakenAt, copiesOf, doubtSaid, flagLabel, hangarCheck, holderIds, leadRows, leadSaid, pathLabel, planShare, readPlaces, resolvePick, softSaid, untilSaid, whereLabel,
   type Copies, type HangarPick, type Place, type Spot, type TrackedRow, type Where,
 } from '../lib/hangarCheck';
 import { navigate, useNow } from '../lib/hooks';
@@ -162,10 +162,10 @@ function HangarCheckDialog({ onClose }: { onClose: () => void }) {
   // What no copy can show: purchases and fills since your trades were read, when the hangar's copy is the newer by more
   // than one read pass. Only beside a count it could have raised.
   const soft = sure.length || unsure.length ? softSaid(copies, now) : null;
-  const due = tradesDueAt(copies);
-  const unsureFills = unsure.some((r) => r.fills > 0 && !r.atLeast);
-  const unsureMoved = unsure.some((r) => r.stale.length > 0);
   const lets = read?.expires != null && read.expires > now ? read.expires : null;
+  // What clears the counts said apart, each by the copy that's behind (ESI's next copy of your trades or orders, then a
+  // sync; a read once ESI lets go of its copy of your hangar).
+  const until = untilSaid(unsure, copies, now, lets);
   const jitaOnlyHere = !!result?.outside && result.tracked.some((r) => !r.countsHere);
 
   return (
@@ -232,11 +232,13 @@ function HangarCheckDialog({ onClose }: { onClose: () => void }) {
                       <Notice>
                         <b>{unsure.length > 1 ? `${units(unsure.length)} items’ counts may be off.` : d.names[unsure[0].typeId] ? `${d.names[unsure[0].typeId]}’s count may be off.` : 'One item’s count may be off.'}</b>
                         {' '}ESI’s copies of your trades, orders and hangar were taken at different times, so units bought, listed or sold in between can read as not the position’s. Don’t Exclude on {unsure.length > 1 ? 'their counts' : 'its count'} yet:
-                        {' '}{[
-                          unsureFills && (soft?.canSync || due == null ? 'check for new trades' : `wait for ESI’s next copy of your trades, due ${fmtDateTime(due)}`),
-                          unsureMoved && (lets ? `read again once ESI lets go of its copy of your hangar, ${fmtDateTime(lets)}` : 'read again'),
-                        ].filter(Boolean).join(', and ')}.
+                        {' '}{until.text}.
                       </Notice>
+                      {until.canSync && !soft?.canSync && (
+                        <button type="button" className="btn sm" disabled={sync.running} onClick={() => void syncCharacter()}>
+                          <RefreshCw aria-hidden="true" className={sync.running ? 'spinning' : undefined} />{sync.running ? 'Checking…' : 'Check for new trades'}
+                        </button>
+                      )}
                     </div>
                   )}
                   {soft && (

@@ -249,11 +249,15 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
       it first seen after the hangar's copy shows it filled since (those can't be in the copy). The count less them is what's
       certain: "At least 8 of Datacore - Rocket Science aren't the position's; up to 2 more may be your bid's fills since your
       trades were read, 8 Oct, 11:59 ET". One whose every unit may be fills leaves the lead and says so ("All 188 may be…").
-    - **listed** (an open sell order first placed, `seen[0]`, after the hangar's copy) and **sold** (a sale the trades show
-      after the hangar's copy not at a price of a sell order placed before it, into a bid; or, with the orders' time known,
-      one after the orders were read at a price of one of your sell orders, which their copy still lists) take a row out of
-      the lead: it isn't lit, its cell says why ("May include units listed since ESI's copy of your hangar, …"), and a line
-      says not to Exclude on it until ESI lets go of its copy of the hangar and it's read again.
+    - **listed** (an open sell order first placed, `seen[0]`, after the hangar's copy), **sold** (a sale the trades show
+      after the hangar's copy not at a price of a sell order placed before it, into a bid) and **soldSinceOrders** (with the
+      orders' time known, a sale after the orders were read at a price of one of your sell orders, which their copy still
+      lists) take a row out of the lead: it isn't lit, and its cell and a line say why against the copy that's behind and
+      what clears it (`doubtSaid`, `untilSaid`). The first two: "May include units listed since ESI's copy of your hangar,
+      …", cleared by reading again once ESI lets go of that copy. The third: "May include units sold since your orders were
+      read, …", cleared by ESI's next copy of your orders (20 minutes after the last) and a sync, with Check for new trades
+      offered once it's due. It was first a kind of sold, dated to the hangar's copy and told to wait for it, up to an hour
+      away (the third review's probe: orders 13:00, trades 13:07, hangar 13:07:20, 5 sold from a listing at 13:03).
     - **What no copy can show** is a soft line on the lead, only past the same 5 minutes (a trades' copy newer than the
       hangar's errs safe and says nothing): "Bought any from a listing, or did a bid of yours fill, since your trades were
       read at …? Those read as not the position's until ESI's next copy of your trades, due …: Check for new trades won't

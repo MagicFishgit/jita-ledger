@@ -6320,7 +6320,7 @@ console.log('\n--- check my hangar: what you hold that a position could count --
   // Jita sale of its item after it opened, and EVE's trades don't say which stack a unit came from. "create a button to
   // click in positions that checks my jita inventory and then gives me a list of items that is there that could affect
   // orders", then "rather let the button have me choose where to look".
-  const { readPlaces, resolvePick, hangarCheck, whereLabel, pathLabel, holderIds, assetsTakenAt, ASSETS_HELD_MS, copiesOf, leadRows, leadSaid, doubtSaid, softSaid, planShare, SAME_READ_MS } = await import('../src/lib/hangarCheck.ts');
+  const { readPlaces, resolvePick, hangarCheck, whereLabel, pathLabel, holderIds, assetsTakenAt, ASSETS_HELD_MS, copiesOf, leadRows, leadSaid, doubtSaid, softSaid, untilSaid, planShare, SAME_READ_MS } = await import('../src/lib/hangarCheck.ts');
   const { sanitizeSettings } = await import('../src/lib/fees.ts');
   const JITA = 60003760, AMARR = 60008494, CITADEL = 1035466617946;
   const A = (item_id, type_id, location_id, location_flag, location_type, quantity = 1, extra = {}) => ({ item_id, type_id, location_id, location_flag, location_type, quantity, ...extra });
@@ -6532,15 +6532,15 @@ console.log('\n--- check my hangar: what you hold that a position could count --
   eq('a bid filled more than your trades show, the hangar’s copy 90 minutes newer: 198 counted, at least 10, 188 maybe its fills, in the lead',
     [a1.notPositions, a1.atLeast, a1.fills, a1.stale, lead(a1).sure.length], [198, 10, 188, [], 1]);
   eq('  the lead says what’s certain and what may be fills', leadSaid([a1], () => 'Datacore - Rocket Science', cp('18:30', '17:00', '18:40')),
-    'At least 10 of Datacore - Rocket Science aren’t the position’s; up to 188 more may be your bid’s fills since your trades were read, 2 Oct, 17:00 ET.');
-  eq('  the cell too', doubtSaid(a1, cp('18:30', '17:00', '18:40')), 'Up to 188 more may be your bid’s fills since your trades were read, 2 Oct, 17:00 ET.');
+    'At least 10 of Datacore - Rocket Science aren’t the position’s; up to 188 more may be your bid’s fills since your trades were read, 2\u00a0Oct,\u00a017:00\u00a0ET.');
+  eq('  the cell too', doubtSaid(a1, cp('18:30', '17:00', '18:40')), 'Up to 188 more may be your bid’s fills since your trades were read, 2\u00a0Oct,\u00a017:00\u00a0ET.');
   eq('  no copies given, or the hangar’s time not known: nothing is said to be off', [rsRow(unrecorded, undefined), rsRow(unrecorded, { ...cp('18:30', '17:00', '18:40'), assets: null })].map((r) => [r.atLeast, r.fills, r.stale]), [[198, 0, []], [198, 0, []]]);
   eq('  the trades read past the hangar’s copy, the fill in them: 10, nothing said', ((r) => [r.notPositions, r.atLeast, r.fills])(rsRow(ledger({ ...before, p1 }, [sell(2628), bid(0), droneSell]), cp('18:30', '18:45', '18:40'))), [10, 10, 0]);
   eq('  the fill in the trades, the trades’ copy older than the hangar’s: its fills all shown, nothing said', rsRow(ledger({ ...before, p1 }, [sell(2628), bid(0), droneSell]), cp('18:30', '18:10', '18:40')).fills, 0);
   // Every unit maybe the bid's: the row leaves the lead and says why.
   const allFills = rsRow(ledger(before, [sell(2628), bid(0), droneSell]), cp('18:30', '17:00', '18:40'), lewds([A(1, RS, JITA, 'Hangar', 'station', 178)]));
   eq('  188 counted, all maybe the bid’s fills: at least none, out of the lead and said apart', [allFills.notPositions, allFills.atLeast, lead(allFills).sure.length, lead(allFills).unsure.length], [188, 0, 0, 1]);
-  eq('  and its cell says so', doubtSaid(allFills, cp('18:30', '17:00', '18:40')), 'All 188 may be your bid’s fills since your trades were read, 2 Oct, 17:00 ET.');
+  eq('  and its cell says so', doubtSaid(allFills, cp('18:30', '17:00', '18:40')), 'All 188 may be your bid’s fills since your trades were read, 2\u00a0Oct,\u00a017:00\u00a0ET.');
   // A fill after the hangar's copy can't be in it: the bid seen at 18:40 (a price change) with 120 left, 88 now, filled 32 since.
   const seenAfter = { ...bid(88), seen: [{ issued: '2026-10-02T15:48:23Z', price: 85_540, remain: 188 }, { issued: '2026-10-02T18:40:00Z', price: 85_600, remain: 120 }] };
   const after = rsRow(ledger(before, [sell(2628), seenAfter, droneSell]), cp('18:30', '17:00', '18:50'), lewds([A(1, RS, JITA, 'Hangar', 'station', 68)]));
@@ -6556,9 +6556,9 @@ console.log('\n--- check my hangar: what you hold that a position could count --
   eq('  nor a trade at the bid’s own price from before it was placed', rsRow(ledger({ ...before, p0: tx('p0', true, 188, 85_540, '2026-10-02T15:00:00Z') }, [sell(2628), bid(0), droneSell]), cp('18:30', '17:00', '18:40'), lewds([A(1, RS, JITA, 'Hangar', 'station', 188)])).fills, 188);
   // The line about what no copy can show: only past the tolerance, and only with the hangar's copy the newer.
   eq('the line about purchases and fills since your trades were read: past the tolerance, ESI’s next copy not due yet',
-    softSaid(cp('18:30', '17:00', '18:40', '18:00'), T('17:30')), { text: 'Bought any from a listing, or did a bid of yours fill, since your trades were read at 2 Oct, 17:00 ET? Those read as not the position’s until ESI’s next copy of your trades, due 2 Oct, 18:00 ET: Check for new trades won’t bring them in before then.', canSync: false });
+    softSaid(cp('18:30', '17:00', '18:40', '18:00'), T('17:30')), { text: 'Bought any from a listing, or did a bid of yours fill, since your trades were read at 2\u00a0Oct,\u00a017:00\u00a0ET? Those read as not the position’s until ESI’s next copy of your trades, due 2\u00a0Oct,\u00a018:00\u00a0ET: Check for new trades won’t bring them in before then.', canSync: false });
   eq('  that copy due: check for new trades', softSaid(cp('18:30', '17:00', '18:40', '18:00'), T('18:31')),
-    { text: 'Bought any from a listing, or did a bid of yours fill, since your trades were read at 2 Oct, 17:00 ET? Those read as not the position’s until your trades are read again: ESI has a newer copy, so check for new trades.', canSync: true });
+    { text: 'Bought any from a listing, or did a bid of yours fill, since your trades were read at 2\u00a0Oct,\u00a017:00\u00a0ET? Those read as not the position’s until your trades are read again: ESI has a newer copy, so check for new trades.', canSync: true });
   eq('  within the tolerance, your trades the newer copy, or the hangar’s time not known: nothing', [softSaid(cp('18:30', '18:26', '18:40', '19:26'), T('18:31')), softSaid(cp('18:30', '18:45', '18:40', '19:45'), T('18:50')), softSaid(cp(null, '17:00', '18:40', '18:00'), T('18:31'))], [null, null, null]);
   // (b) The loot listed at 18:35, after the hangar's copy: its 10 are in the copy (Lewds) and on the order.
   const lootSell = (at) => ({ orderId: 75, typeId: RS, isBuy: false, price: 99_000, volumeTotal: 10, volumeRemain: 10, issued: at, state: 'open', locationId: JITA, seen: [{ issued: at, price: 99_000, remain: 10 }] });
@@ -6569,18 +6569,37 @@ console.log('\n--- check my hangar: what you hold that a position could count --
   const dumped = (price) => rsRow(ledger({ ...before, p1, d1: tx('d1', false, 10, price, '2026-10-02T18:50:00Z') }, [sell(2628), bid(0)]), cp('18:30', '19:00', '19:05'));
   eq('a sale into a bid after the hangar’s copy: the copy still holds what the position let go, flagged “sold”', [dumped(84_000).notPositions, dumped(84_000).stale], [20, ['sold']]);
   eq('  a sale from a listing placed before the copy took nothing from it: trusted', dumped(96_980).stale, []);
-  // (d) Your orders read at 18:50 still list the 2,000 the trades (read to 19:30) show sold from that listing at 19:00.
+  // (d) Your orders read at 18:50 still list the 2,000 the trades (read to 19:30) show sold from that listing at 19:00. Its
+  // own kind (the third review): what clears it is ESI's next copy of your orders, not of your hangar.
   const listedSold = (orders, o) => rsRow(ledger({ ...before, p1, s5: tx('s5', false, 2000, 96_980, '2026-10-02T19:00:00Z') }, orders), cp('19:15', '19:30', o));
   eq('a sale from a listing after your orders were read: the orders still list it, 2,010 read as not the position’s, flagged “sold”',
-    ((r) => [r.notPositions, r.stale])(listedSold([sell(2628), bid(0)], '18:50')), [2010, ['sold']]);
+    ((r) => [r.notPositions, r.stale])(listedSold([sell(2628), bid(0)], '18:50')), [2010, ['soldSinceOrders']]);
   eq('  orders read after the sale: 10, trusted', ((r) => [r.notPositions, r.stale])(listedSold([sell(628), bid(0)], '19:20')), [10, []]);
   eq('  orders’ time not known: that clause can’t say, and says nothing (the re-review)', listedSold([sell(2628), bid(0)], null).stale, []);
   // A row that may be off sorts after one that can be trusted, however many more it reads.
   const modPos = { ...pos, id: 'mod', typeId: MOD, openedAt: '2026-10-01T00:00:00Z' };
   eq('a row that may be off sorts after one that can be trusted', hangarCheck({ d: { ...ledger({ ...before, p1 }, [sell(2628), bid(0), lootSell('2026-10-02T18:35:00Z')]), positions: [pos, modPos] }, s: S, places: lewds([A(1, RS, JITA, 'Hangar', 'station', 188), A(5, MOD, 5001, 'Unlocked', 'item', 2)]), pick: { place: JITA, spot: 'all' }, ordersKnown: true, copies: cp('18:30', '18:45', '18:40') })
     .tracked.map((r) => [r.typeId, r.notPositions, r.stale]), [[MOD, 2, []], [RS, 20, ['listed']]]);
-  eq('the cell says why a listing or a sale may be off', doubtSaid({ ...b1, stale: ['listed', 'sold'] }, cp('18:30', null, null)), 'May include units listed or sold since ESI’s copy of your hangar, 2 Oct, 18:30 ET.');
+  eq('the cell says why a listing or a sale may be off', doubtSaid({ ...b1, stale: ['listed', 'sold'] }, cp('18:30', null, null)), 'May include units listed or sold since ESI’s copy of your hangar, 2\u00a0Oct,\u00a018:30\u00a0ET.');
   eq('  nothing to say: nothing', doubtSaid(pass, cp('18:30', null, null)), null);
+  // The third review's probe: orders read at 13:00, trades at 13:07, the hangar at 13:07:20, 5 sold from a listing at
+  // 13:03. The orders' copy still lists those 5: it's the orders' copy that's behind, dated to it, not to the hangar's.
+  const probe = rsRow(ledger({ ...before, p1, s6: tx('s6', false, 5, 96_980, '2026-10-02T13:03:00Z') }, [sell(2628), bid(0)]), cp('13:07:20', '13:07', '13:00', '14:07'));
+  eq('a sale from a listing after your orders were read, the hangar read after both: flagged as the orders’ copy behind, not the hangar’s', probe.stale, ['soldSinceOrders']);
+  eq('  its cell dates it to your orders', doubtSaid(probe, cp('13:07:20', '13:07', '13:00', '14:07')), 'May include units sold since your orders were read, 2\u00a0Oct,\u00a013:00\u00a0ET.');
+  eq('  beside a sale after the hangar’s copy, each said against its own copy', doubtSaid({ ...probe, stale: ['sold', 'soldSinceOrders'] }, cp('13:07:20', '13:07', '13:00')),
+    'May include units sold since ESI’s copy of your hangar, 2\u00a0Oct,\u00a013:07\u00a0ET. May include units sold since your orders were read, 2\u00a0Oct,\u00a013:00\u00a0ET.');
+  // What clears each: ESI's next copy of your orders (20 minutes after the last) and a sync; of your hangar, a read once
+  // ESI lets go of it; of your trades, a sync once it's due.
+  eq('  what clears it: ESI’s next copy of your orders, then a sync; before it’s due, said, no button',
+    [untilSaid([probe], cp('13:07:20', '13:07', '13:00', '14:07'), T('13:10'), T('14:07:20')), untilSaid([probe], cp('13:07:20', '13:07', '13:00', '14:07'), T('13:21'), T('14:07:20'))],
+    [{ text: 'wait for ESI’s next copy of your orders, due 2\u00a0Oct,\u00a013:20\u00a0ET, then check for new trades', canSync: false }, { text: 'check for new trades', canSync: true }]);
+  eq('  a listing after the hangar’s copy: read again once ESI lets go of it', untilSaid([b1], cp('18:30', '18:45', '18:40'), T('18:50'), T('19:30')),
+    { text: 'read again once ESI lets go of its copy of your hangar, 2\u00a0Oct,\u00a019:30\u00a0ET', canSync: false });
+  eq('  every unit maybe a bid’s fills: ESI’s next copy of your trades', untilSaid([allFills], cp('18:30', '17:00', '18:40', '18:00'), T('17:30'), T('19:30')),
+    { text: 'wait for ESI’s next copy of your trades, due 2\u00a0Oct,\u00a018:00\u00a0ET', canSync: false });
+  eq('  several kinds, said once each', untilSaid([probe, b1, allFills], cp('18:30', '17:00', '18:40', '18:00'), T('19:10'), null),
+    { text: 'check for new trades, and read again', canSync: true });
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

@@ -210,15 +210,18 @@ export function copiesOf(d: { meta?: { expiries?: { transactions?: string; order
 /**
  * Why a row's count may be off, ESI's copies being of different ages (the review of 3 October 2026): units counted twice
  * or let go, read as not the position's, and an Exclude advised on them would take real sales out of the position. Such a
- * row stays out of the lead.
+ * row stays out of the lead. Each is said against the copy that's behind, and clears with that copy's next read:
  * - `listed`: an open sell order of yours placed after the hangar's copy: its units are in that copy and on the order;
  * - `sold`: a sale your trades show after the hangar's copy, not from a sell order placed before it (into a bid, say): the
- *   position has let them go and the copy still holds them; or one after your orders were read from a sell order of yours,
- *   whose units the orders still list.
- * Both clear only once ESI lets go of its copy of your hangar and it's read again. A bid's fills your trades don't show
- * yet are said apart (`TrackedRow.fills`): the row stays in the lead with what's certain.
+ *   position has let them go and the copy still holds them. These two clear once ESI lets go of its copy of your hangar
+ *   and it's read again;
+ * - `soldSinceOrders`: a sale your trades show from a sell order of yours after your orders were read: the orders' copy
+ *   still lists what sold. It clears with ESI's next copy of your orders, 20 minutes after the last, and a sync (the
+ *   third review: dated to the hangar's copy and told to wait for it, it sent you to the wrong copy, up to an hour away).
+ * A bid's fills your trades don't show yet are said apart (`TrackedRow.fills`): the row stays in the lead with what's
+ * certain.
  */
-export type Stale = 'listed' | 'sold';
+export type Stale = 'listed' | 'sold' | 'soldSinceOrders';
 
 /** One item in the place picked that an open position counts. */
 export type TrackedRow = {
@@ -386,8 +389,9 @@ export function hangarCheck(x: { d: Data; s: Settings; places: Place[]; pick: Ha
     const fromOne = (list: Order[], price: number) => list.some((o) => pricesOf(o).has(price));
     const listedBefore = sells.filter((o) => placedAt(o) <= A);
     const sales = txs.filter((t) => !t.isBuy && t.typeId === typeId && inScope(t.locationId));
-    // The orders' time not known, the second clause can't say, and says nothing (the re-review).
-    if (sales.some((t) => (ts(t.date) > A && !fromOne(listedBefore, t.unitPrice)) || (O != null && ts(t.date) > O && fromOne(sells, t.unitPrice)))) out.push('sold');
+    if (sales.some((t) => ts(t.date) > A && !fromOne(listedBefore, t.unitPrice))) out.push('sold');
+    // The orders' time not known, this clause can't say, and says nothing (the re-review).
+    if (O != null && sales.some((t) => ts(t.date) > O && fromOne(sells, t.unitPrice))) out.push('soldSinceOrders');
     return out;
   };
 
@@ -453,7 +457,7 @@ export function leadRows(c: HangarCheck): { sure: TrackedRow[]; unsure: TrackedR
 }
 
 /** A time kept on one line: a narrow cell broke "8 Oct" across two. */
-const at1 = (t: number) => fmtDateTime(t).replace(/ /g, ' ');
+const at1 = (t: number) => fmtDateTime(t).replace(/ /g, '\u00a0');
 const readAt = (c: Copies | undefined) => (c?.trades != null && Number.isFinite(c.trades) ? `, ${at1(c.trades)}` : '');
 
 /**
@@ -477,8 +481,9 @@ export function leadSaid(sure: TrackedRow[], name: (typeId: number) => string | 
 }
 
 /**
- * Why a row's count may be off, in its cell: "Up to 188 more may be your bid's fills since your trades were read, 2 Oct,
- * 17:00 ET.", "May include units listed since ESI's copy of your hangar, 2 Oct, 18:30 ET." Null when nothing is.
+ * Why a row's count may be off, in its cell, each against the copy that's behind: "Up to 188 more may be your bid's fills
+ * since your trades were read, 2 Oct, 17:00 ET.", "May include units listed since ESI's copy of your hangar, 2 Oct, 18:30
+ * ET.", "May include units sold since your orders were read, 2 Oct, 13:00 ET." Null when nothing is.
  */
 export function doubtSaid(r: Pick<TrackedRow, 'stale' | 'fills' | 'notPositions' | 'atLeast'>, copies: Copies | undefined): string | null {
   const parts: string[] = [];
@@ -489,7 +494,32 @@ export function doubtSaid(r: Pick<TrackedRow, 'stale' | 'fills' | 'notPositions'
   }
   const moved = [r.stale.includes('listed') && 'listed', r.stale.includes('sold') && 'sold'].filter(Boolean).join(' or ');
   if (moved) parts.push(`May include units ${moved} since ESI’s copy of your hangar${copies?.assets != null ? `, ${at1(copies.assets)}` : ''}.`);
+  if (r.stale.includes('soldSinceOrders')) parts.push(`May include units sold since your orders were read${copies?.orders != null ? `, ${at1(copies.orders)}` : ''}.`);
   return parts.length ? parts.join(' ') : null;
+}
+
+/** When ESI lets go of the copy of your orders the last read got: 20 minutes after it was taken. */
+export const ordersDueAt = (copies: Copies | undefined): number | null => (copies?.orders != null ? copies.orders + ORDERS_HELD_MS : null);
+
+/**
+ * What clears the rows said apart from the lead, for the line that says not to Exclude on them yet: ESI's next copy of
+ * your trades (a bid's fills) or of your orders (a listing's sale since), then a sync, which before the copy is due reads
+ * the same one; or, for a listing or a sale since the hangar's copy, a read once ESI lets go of that (`hangarLets`, null
+ * when it already has). `canSync` once a sync would help.
+ */
+export function untilSaid(unsure: TrackedRow[], copies: Copies | undefined, now: number, hangarLets: number | null): { text: string; canSync: boolean } {
+  const parts: string[] = [];
+  let canSync = false;
+  const sync = (due: number | null, what: string, then: boolean) => {
+    if (due != null && due > now) parts.push(`wait for ESI’s next copy of your ${what}, due ${at1(due)}${then ? ', then check for new trades' : ''}`);
+    else { canSync = true; if (!parts.includes('check for new trades')) parts.push('check for new trades'); }
+  };
+  if (unsure.some((r) => r.fills > 0 && !r.atLeast)) sync(tradesDueAt(copies), 'trades', false);
+  if (unsure.some((r) => r.stale.includes('soldSinceOrders'))) sync(ordersDueAt(copies), 'orders', true);
+  if (unsure.some((r) => r.stale.includes('listed') || r.stale.includes('sold'))) {
+    parts.push(hangarLets != null ? `read again once ESI lets go of its copy of your hangar, ${at1(hangarLets)}` : 'read again');
+  }
+  return { text: parts.join(', and '), canSync };
 }
 
 /** When ESI lets go of the copy of your trades the last read got: a sync before then reads the same copy. */
