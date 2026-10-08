@@ -194,6 +194,11 @@ export function nextCheckIn(startedAt: number, intervalMin: number, now: number)
 export const MAIL_SUBJECT = 'Jita Ledger';
 /** One mail holds at most this many alerts; a burst beyond it is summed up in a line. */
 const MAIL_MAX = 15;
+/** The longest mail body ESI takes ("Maximum body length is 8000", answered to the user's alert mail, 5 October 2026). */
+export const MAIL_BODY_MAX = 8000;
+const utf8 = new TextEncoder();
+/** A body's length in UTF-8 bytes: never fewer than its characters, so it fits whichever ESI counts. */
+const bodyBytes = (s: string) => utf8.encode(s).length;
 
 const escapeMail = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -402,7 +407,8 @@ export function alertMail(findings: Finding[], opts: { appUrl: string; keepMin: 
     `<font size="${SIZE.text}">`,
     `${sized(SIZE.brand, col('cyan', '<b>Jita Ledger</b>'))}<br>`,
     ...shown.map((f) => section(f, market, now)),
-    n > shown.length ? `<br>…and ${n - shown.length} more in the app.<br>` : '',
+    !shown.length ? `<br>${n} alert${n === 1 ? '' : 's'} in the app: too long to mail.<br>`
+      : n > shown.length ? `<br>…and ${n - shown.length} more in the app.<br>` : '',
     findings.some((f) => f.kind === 'move' || f.kind === 'clearing')
       ? `<br><a href="${opts.appUrl}#orders">Open your orders in Jita Ledger</a><br>`
       : findings.every((f) => f.kind === 'opportunity')
@@ -415,10 +421,13 @@ export function alertMail(findings: Finding[], opts: { appUrl: string; keepMin: 
     `<br>${sized(SIZE.small, col('grey', `${opts.keepMin == null ? 'Alert mails are kept' : `This mail is deleted after ${keepSaid(opts.keepMin)}, read or not`}. Change that, or turn mail alerts off, in Jita Ledger → Settings → Alerts.`))}`,
     '</font>',
   ].join('');
-  // ESI refuses a body over 10,000 characters. Whole alerts are left out rather than a tag cut in half.
+  // ESI refuses a body over MAIL_BODY_MAX ("Maximum body length is 8000"; it was taken as 10,000 until every alert round
+  // failed from 5 October 2026), counted here in UTF-8 bytes, never fewer than characters, so whichever ESI counts it
+  // fits. Whole alerts are left out rather than a tag cut in half, down to none: one alert too long on its own still sends
+  // a mail that points to the app, instead of failing every round.
   let count = Math.min(n, MAIL_MAX);
   let body = build(findings.slice(0, count));
-  while (body.length > 10000 && count > 1) body = build(findings.slice(0, --count));
+  while (bodyBytes(body) > MAIL_BODY_MAX && count > 0) body = build(findings.slice(0, --count));
   return { subject, body };
 }
 

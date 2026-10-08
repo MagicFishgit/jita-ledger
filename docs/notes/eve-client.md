@@ -18,7 +18,10 @@ Don't re-derive or contradict these without new evidence.
   new-mail notice, as ordinary incoming mail.
 - **EVE mail through ESI** (`esi-mail.*`): POST `/characters/{id}/mail/` takes `{recipients:[{recipient_id,
   recipient_type:'character'}], subject, body, approved_cost}` and answers 201 with the new mail's ID. Body at
-  most 10,000 characters, subject 1,000. The body is the client's small HTML: `<br>`, `<b>`, `<font size color>`
+  most **8,000** (ESI: 400 "Maximum body length is 8000"; this note said 10,000, and from 5 October 2026 16:56 every
+  cloud alert round with a long mail failed on it, 833 times by 8 October, mailing nothing, until the user forwarded the
+  watchdog's mail. `alertMail` now counts the body in UTF-8 bytes against `MAIL_BODY_MAX`, since it isn't known whether
+  ESI counts bytes or characters), subject 1,000. The body is the client's small HTML: `<br>`, `<b>`, `<font size color>`
   with ARGB colours (`#ffRRGGBB`), and `<a href>` — `showinfo:{typeId}` opens an item, and a web link makes the
   client ask first. **What it draws was settled by a sample mail to the user's character:** sizes 10–32 all
   differ; `<b>`, `<i>`, `<u>` work; every colour works; `showinfo:` links open items, systems

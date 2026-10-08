@@ -3133,10 +3133,18 @@ console.log('\n--- alert mail ---');
   eq('  but its market still gets a line of its own', oddBody.includes('<a href="u/open.html?market=5~Nope">Open its market in game</a>'), true);
   const many = Array.from({ length: 40 }, (_, i) => ({ ...move, key: 'm' + i, text: 'Hammerhead II ' + 'x'.repeat(400) }));
   const big = alertMail(many, { appUrl: '', keepMin: 4320 });
-  eq('a burst is capped and summed up', big.body.includes('…and 25 more in the app.'), true);
-  eq('  and stays under ESI’s 10,000 characters', big.body.length <= 10000, true);
+  // ESI refuses a body over 8,000 ("Maximum body length is 8000", the user's watchdog mail, 8 October 2026: every alert
+  // round had failed since 5 October). Counted as UTF-8 bytes, which is never less than characters.
+  const bytes = (s) => new TextEncoder().encode(s).length;
+  eq('a burst is capped and summed up', big.body.includes('more in the app.'), true);
+  eq('  and stays within ESI’s 8,000', bytes(big.body) <= 8000, true);
   const huge = alertMail(Array.from({ length: 15 }, (_, i) => ({ ...move, key: 'h' + i, text: 'Hammerhead II ' + 'y'.repeat(900) })), { appUrl: '', keepMin: 4320 });
-  eq('long alerts are dropped whole to fit', huge.body.length <= 10000 && huge.body.includes('Settings → Alerts.') && huge.body.endsWith('</font>') && huge.body.includes('more in the app'), true);
+  eq('long alerts are dropped whole to fit', bytes(huge.body) <= 8000 && huge.body.includes('Settings → Alerts.') && huge.body.endsWith('</font>') && huge.body.includes('more in the app'), true);
+  const wide = alertMail(Array.from({ length: 15 }, (_, i) => ({ ...move, key: 'w' + i, text: 'Hammerhead II ' + '→·'.repeat(250) })), { appUrl: '', keepMin: 4320 });
+  eq('  measured in bytes: arrows and dots take three and two', bytes(wide.body) <= 8000 && wide.body.endsWith('</font>'), true);
+  const lone = alertMail([{ ...move, text: 'Hammerhead II ' + 'z'.repeat(9000) }], { appUrl: 'u/', keepMin: 4320 });
+  eq('  one alert too long on its own: the mail still goes, pointing to the app', bytes(lone.body) <= 8000 && lone.body.includes('1 alert in the app') && lone.body.endsWith('</font>'), true);
+  eq('  and its subject still names it', lone.subject, 'Jita Ledger: Order worth moving');
 
   // With the order check's facts, a mail says what to do and why.
   const facts = { verdict: 'move', isBuy: false, price: 1234000, best: 1229000, gap: 5000, newPrice: 1228900, volumeRemain: 12,
