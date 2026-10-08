@@ -1282,7 +1282,8 @@ eq('  with slots to spare, best return per day first as before', [plan2.ranked, 
     // The day's edge: a position opened 25 hours before the plan gets only the hour, so its bid from 24.5 hours before doesn't count.
     eq('  a position opened just over a day before: only the hour',
       planPlacement(vi, vp, [V(26, '2026-09-29T00:11:37Z')], [{ id: 'v', typeId: 89156, openedAt: '2026-09-28T23:41:37Z' }]), null);
-    eq('  progress counts it, so To do’s item ticks off too', [planProgress({ ...vp, id: 'v', name: 'v', isk: 0, horizonDays: 3, patient: false, items: [vi] }, [V(18, '2026-09-29T21:00:00Z')], [{ id: 'v', typeId: 89156, openedAt: '2026-09-29T20:00:00Z' }]).placed, planProgress({ ...vp, id: 'v', name: 'v', isk: 0, horizonDays: 3, patient: false, items: [vi] }, [V(18, '2026-09-29T21:00:00Z')], []).placed], [1, 0]);
+    // (No position kept for the item in the second: one named but missing is a deleted position, which drops the item.)
+    eq('  progress counts it, so To do’s item ticks off too', [planProgress({ ...vp, id: 'v', name: 'v', isk: 0, horizonDays: 3, patient: false, items: [vi] }, [V(18, '2026-09-29T21:00:00Z')], [{ id: 'v', typeId: 89156, openedAt: '2026-09-29T20:00:00Z' }]).placed, planProgress({ ...vp, id: 'v', name: 'v', isk: 0, horizonDays: 3, patient: false, items: [{ ...vi, positionId: null }] }, [V(18, '2026-09-29T21:00:00Z')], []).waiting.length], [1, 1]);
   }
   eq('plans from disk: malformed ones are dropped', sanitizePlans([tp, { id: 'x' }, null, { ...tp, id: 'p2', items: [{ typeId: 'no' }] }]).map((p) => p.id), ['p1']);
   const e = { item: { key: 'plan:p1:35' }, seenAt: Date.parse(at), lastAt: Date.parse(at) };
@@ -1344,6 +1345,71 @@ console.log('\n--- the checklist counts a bid that filled when it was placed ---
   const e = { item: { key: 'plan:p:31866' }, seenAt: Date.parse(plan.at), lastAt: Date.parse(plan.at) };
   eq('  To do says it was bought at once', [judgePlaceBuy(e, { plan: true, placed: { units: 11, price: 1_608_000, atOnce: 11 } }), judgePlaceBuy(e, { plan: true, placed: { units: 21, price: 1_600_000, atOnce: 11 } })],
     ['Bought at once: 11 at 1,608,000.', 'Placed: 21 at 1,600,000, 11 of them bought at once.']);
+}
+
+console.log('\n--- a plan item you cancelled or closed isn’t asked for again (8 October 2026) ---');
+{
+  // The user's 2 October plan (15:36:31.972, Place and leave): four bids judged "Cancel it" were cancelled with nothing
+  // bought and their positions closed on 8 October at 10:14 UTC. A bid cancelled unfilled counted as never placed, and
+  // nothing looked at the position, so within the plan's week To do asked for "9 × Fierce Exotic Filament at 2,813,000"
+  // again, the price just judged unreachable. The user: "if we have closed them then opening them again could have just
+  // been a price adjustment". Fierce Exotic Filament's bid as D1 holds it.
+  const { planItemState, planProgress, newPlan } = await import('../src/lib/plans.ts');
+  const { judgePlaceBuy, placeBuyItem } = await import('../src/lib/todo.ts');
+  const { planListRows } = await import('../src/lib/positions.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const JITA = 60003760, FE = 47889, EH = 33983, RD = 47894;
+  const plan = { id: 'mur4lko4xsll6o', name: '2 Oct · 999.16 M ISK in 33 items', at: '2026-10-02T15:36:31.972Z', isk: 999156436.25, horizonDays: 0.5, patient: true, items: [
+    { typeId: FE, buyAt: 2_813_000, units: 9, sellAt: 3_443_000, positionId: 'fe' },
+    { typeId: EH, buyAt: 11_490_000, units: 1, sellAt: 13_800_000, positionId: 'eh' },
+    { typeId: RD, buyAt: 1_711_000, units: 10, sellAt: 1_983_000, positionId: 'rd' },
+  ] };
+  const fe = plan.items[0], eh = plan.items[1], rd = plan.items[2];
+  const P = (id, typeId, status = 'open', closedAt) => ({ id, typeId, openedAt: plan.at, status, jitaOnly: true, excluded: [], included: [], ...(closedAt ? { closedAt } : {}) });
+  const open = [P('fe', FE), P('eh', EH), P('rd', RD)];
+  const B = (orderId, typeId, issued, extra = {}) => ({ orderId, typeId, isBuy: true, price: 2_813_000, volumeTotal: 9, volumeRemain: 9, issued, state: 'open', locationId: JITA, seen: [{ issued, price: 2_813_000, remain: 9 }], ...extra });
+  const feGone = B(7435099667, FE, '2026-10-02T15:45:48Z', { state: 'cancelled' });
+  const st = planItemState(fe, plan, [feGone], open);
+  eq('a bid placed for the plan and cancelled with nothing bought: cancelled, not waiting', [st.state, st.order?.orderId, st.at], ['cancelled', 7435099667, Date.parse('2026-10-02T15:45:48Z')]);
+  eq('  To do makes no item for it', placeBuyItem(plan, fe, st, 'Fierce Exotic Filament'), null);
+  eq('  but one for an item still to place', placeBuyItem(plan, rd, planItemState(rd, plan, [feGone], open), 'Raging Dark Filament')?.title, 'Place a buy order: 10 × Raging Dark Filament at 1,711,000 ISK');
+  const again = B(7435200000, FE, '2026-10-05T09:00:00Z', { price: 2_950_000 });
+  const re = planItemState(fe, plan, [feGone, again], open);
+  eq('  a new bid after it, at a new price: placed as usual', [re.state, re.placement?.order?.orderId, re.placement?.units], ['placed', 7435200000, 9]);
+  eq('  cancelled after buying some: placed, units were bought', planItemState(fe, plan, [{ ...feGone, volumeRemain: 4 }], open).state, 'placed');
+  eq('  a cancelled bid from before the window, in another station, or a cancelled sell: still to place',
+    [planItemState(fe, plan, [B(1, FE, '2026-10-01T09:00:00Z', { state: 'cancelled' })], open).state, planItemState(fe, plan, [{ ...feGone, locationId: 60008494 }], open).state,
+      planItemState(fe, plan, [{ ...feGone, isBuy: false }], open).state, planItemState(eh, plan, [{ ...feGone, typeId: EH }], open).state],
+    ['open', 'open', 'open', 'cancelled']);
+  eq('  an expired bid with nothing bought isn’t a choice: still to place', planItemState(fe, plan, [{ ...feGone, state: 'expired' }], open).state, 'open');
+  // Closed, as the user then did: the plan no longer places it.
+  const closed = [P('fe', FE, 'closed', '2026-10-08T10:14:22.316Z'), P('eh', EH, 'closed', '2026-10-08T10:14:41.168Z'), P('rd', RD)];
+  const fc = planItemState(fe, plan, [feGone], closed);
+  eq('its position closed: closed, with when', [fc.state, fc.at, fc.gone], ['closed', Date.parse('2026-10-08T10:14:22.316Z'), false]);
+  eq('  never placed and closed: closed too', planItemState(eh, plan, [], closed).state, 'closed');
+  const noFe = [P('eh', EH), P('rd', RD)];
+  eq('  its position deleted: closed, gone', [planItemState(fe, plan, [], noFe).state, planItemState(fe, plan, [], noFe).gone], ['closed', true]);
+  eq('  a position following another item isn’t its', planItemState(fe, plan, [], [P('fe', EH)]).state, 'closed');
+  eq('  placed, filled, then closed (a trade done): still placed', planItemState(fe, plan, [{ ...feGone, state: 'expired', volumeRemain: 0 }], closed).state, 'placed');
+  eq('  no position to look at (none kept, or positions not given): never closed', [planItemState({ ...fe, positionId: null }, plan, [], []).state, planItemState(fe, plan, []).state], ['open', 'open']);
+  eq('  To do makes no item for a closed one', placeBuyItem(plan, fe, fc, 'Fierce Exotic Filament'), null);
+  // Progress counts them apart, so a plan whose items are all placed or dropped stops being placed.
+  const pr = planProgress(plan, [feGone], open);
+  eq('progress: none placed, 1 dropped, 2 waiting', [pr.placed, pr.dropped.map((i) => i.typeId), pr.waiting.map((i) => i.typeId), pr.of], [0, [FE], [EH, RD], 3]);
+  const rdPlaced = B(7435101000, RD, '2026-10-02T15:47:55Z', { price: 1_711_000, volumeTotal: 10, volumeRemain: 10 });
+  const done = planProgress(plan, [feGone, rdPlaced], closed);
+  eq('  1 placed, 2 dropped: nothing waiting', [done.placed, done.dropped.map((i) => i.typeId), done.waiting.length], [1, [FE, EH], 0]);
+  // To do's item, listed before the bid was cancelled or the position closed, is done in plain words.
+  const e = { item: { key: `plan:${plan.id}:${FE}` }, seenAt: Date.parse(plan.at), lastAt: Date.parse(plan.at) };
+  eq('To do: cancelled or closed, the plan’s item is done, saying why',
+    [judgePlaceBuy(e, { plan: true, placed: null, dropped: st }), judgePlaceBuy(e, { plan: true, placed: null, dropped: fc }),
+      judgePlaceBuy(e, { plan: true, placed: null, dropped: { state: 'closed', at: null, gone: true } }), judgePlaceBuy(e, { plan: false, placed: null, dropped: fc })],
+    ['You cancelled the bid, so the plan doesn’t place it again.', 'You closed its position, so the plan doesn’t place it.', 'You deleted its position, so the plan doesn’t place it.', 'You closed its position, so the plan doesn’t place it.']);
+  eq('  still waiting, it stays; the plan gone, it goes', [judgePlaceBuy(e, { plan: true, placed: null, dropped: null }), judgePlaceBuy(e, { plan: false, placed: null, dropped: null })], [null, false]);
+  // Cancelled and closed: no list row either (planTargets: a closed position is no plan's).
+  const S = sanitizeSettings({ acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, clone: 'omega', target: 5 });
+  eq('cancelled and closed: nothing to list', planListRows({ txs: {}, orders: { [feGone.orderId]: feGone }, journal: {}, meta: {}, positions: closed, plans: [plan], stock: null }, S).map((x) => x.item.typeId), []);
+  eq('a plan from newPlan reads the same', planItemState(newPlan([{ p: { typeId: FE, buy: 2_813_000, sell: 3_443_000 }, units: 9 }], { id: 'n', at: plan.at, deployed: 1, horizonDays: 1, patient: true, name: 'n' }, () => 'fe').items[0], plan, [feGone], open).state, 'cancelled');
 }
 
 console.log('\n--- a plan counts a position it shares from its own start ---');
@@ -4764,6 +4830,85 @@ console.log('\n--- an order knows its plan, and a buy is never raised into a los
   // A bid far over where the item trades still reads as one, its gap never absurd.
   const bait = adviseRelist({ orderId: 1, typeId: 34, isBuy: true, price: 100, volumeRemain: 1000 }, { book: [o(1, true, 100, 1000), o(2, true, 50_000, 1)], lows: Array(14).fill(95), highs: Array(14).fill(110) }, R);
   eq('an escrow-bait bid, history says 102.5: a token, "over 100 times"', [bait.verdict, /priced over 100 times where it has traded \(102\.5/.test(bait.why)], ['wait', true]);
+}
+
+console.log('\n--- a plan’s bid is told to cancel only when no price clears the plan’s floor (8 October 2026) ---');
+{
+  // Four of the user's 2 October plan bids were told "Cancel it" (dry): an unreached buy whose move to where trading
+  // reaches missed their 5% target, while the guard on a plan buy's raises (`PLAN_KEEP`) asks only for half of what the
+  // plan expected, or the target if lower. They cancelled them, and the user: "if it was still profitable" it "could have
+  // just been a price adjustment". Now a plan's unreached bid is judged as the guard judges its raises: selling on at the
+  // lower of the plan's price and where a listing sells now, after the new bid's broker fee, the changes already paid and
+  // this one, against the plan's floor. A buy no plan priced is judged at your target, as before.
+  const { adviseRelist: advise, judgeOrder: judgeOne } = await import('../src/lib/relist.ts');
+  const { orderFindings, alertMail: mail } = await import('../src/lib/alerts.ts');
+  const { remember, split: splitTodo, judgeOrder: judgeTodo } = await import('../src/lib/todo.ts');
+  const RP = { k: 0.0025, f: 0.01, t: 0.03 };
+  // A bid of 1,000 at 100 behind 101; the bulk of trading got down to 110 on every one of the last 14 days, never to
+  // 100, so it moves to 110 (reached on 7). Listings from 121: selling on at 120.9 after fees makes 4.47% on a 110 bid
+  // as the old rule counted it (no change fee), 4.21% as the guard counts it (the 275 ISK to change it, spread).
+  const mine = { orderId: 1, typeId: 34, isBuy: true, price: 100, volumeRemain: 1000 };
+  const book = [o(1, true, 100, 1000), o(2, true, 101, 500), o(3, false, 121, 300)];
+  const lows = Array(14).fill(110);
+  const at = (plan, extra = {}) => advise(mine, { book, bestSell: 121, lows, targetReturn: 0.05, plan, ...extra }, RP, 4, 0.05);
+  const none = at(null);
+  eq('no plan: cancel it, under your 5% target, as before', [none.verdict, none.newPrice], ['dry', 110]);
+  eq('  in the same words', none.why, 'The bulk of trading reached your bid on 0 of the last 14 days. Bidding where it did on 7 of them, 110, would leave 4.5% after fees, under your 5.0% target');
+  const clears = at({ buyAt: 100, sellAt: 125, expected: 0.08 });
+  eq('a plan expecting 8%: its floor is 4%, and 4.21% clears it, so move, though it misses your 5% target', [clears.verdict, clears.newPrice, clears.keep], ['move', 110, undefined]);
+  eq('  saying what it makes, where it sells on, and the plan’s floor', clears.why,
+    'The bulk of trading reached your bid on 0 of the last 14 days. At 110 it did on 7 of them, and still makes 4.2% after fees, selling on at 120.9 (where a listing sells now), over the plan’s floor of 4.0% (half the 8.0% it expected)');
+  const misses = at({ buyAt: 100, sellAt: 125, expected: 0.09 });
+  eq('a plan expecting 9%: 4.21% misses its 4.5% floor, so cancel it', misses.verdict, 'dry');
+  eq('  naming the plan’s floor, not only your target', misses.why,
+    'The bulk of trading reached your bid on 0 of the last 14 days. Bidding where it did on 7 of them, 110, would leave 4.2% after fees, selling on at 120.9 (where a listing sells now), under the plan’s floor of 4.5% (half the 9.0% it expected)');
+  const capped = at({ buyAt: 100, sellAt: 125, expected: 0.2 });
+  eq('a plan expecting 20%: its floor is your 5% target (the cap), so cancel it, saying so', [capped.verdict, capped.why.endsWith('under the plan’s floor, your 5.0% target (it expected 20%)')], ['dry', true]);
+  const low = at({ buyAt: 100, sellAt: 119, expected: 0.04 });
+  eq('a plan selling under where listings sell is judged at its own price: 2.57% over its 2% floor', [low.verdict, low.why.includes('still makes 2.6% after fees, selling on at 119 (the plan’s price), over the plan’s floor of 2.0% (half the 4.0% it expected)')], ['move', true]);
+  // A bid the guard used to keep: listings sell well over your target, but the plan's own price, which caps the resale,
+  // doesn't clear its floor. "Keep it" is for a reached bid's refused raise; a plan bid trading doesn't reach, with no
+  // price that clears the plan's floor, is Cancel it. The user's 62404 (7,221 at 18,020, reached on 3 of 14 days) read
+  // "Keep it" on 8 October: at 18,970 it would lose 0.6% selling on at the plan's 20,070.
+  const kept = advise(mine, { book: [o(1, true, 100, 1000), o(2, true, 101, 500), o(3, false, 131, 300)], bestSell: 131, lows, targetReturn: 0.05, plan: { buyAt: 100, sellAt: 113, expected: 0.05 } }, RP, 4, 0.05);
+  eq('listings clear your target but the plan’s price misses its floor: cancel it, not keep it', [kept.verdict, kept.keep,
+    kept.why.endsWith('would lose 2.6% after fees, selling on at 113 (the plan’s price), under the plan’s floor of 2.5% (half the 5.0% it expected)')], ['dry', undefined, true]);
+  const nothing = at({ buyAt: 100, sellAt: 125, expected: -0.01 });
+  eq('a plan that expected nothing: break-even is the floor', [nothing.verdict, nothing.why.endsWith('over break-even, the least a plan’s buy keeps')], ['move', true]);
+  const lose = advise(mine, { book: [o(1, true, 100, 1000), o(2, true, 101, 500), o(3, false, 112, 300)], bestSell: 112, lows, targetReturn: 0.05, plan: { buyAt: 100, sellAt: 125, expected: -0.01 } }, RP, 4, 0.05);
+  eq('  and a move that would lose is still cancel it', [lose.verdict, lose.why.includes('would lose'), lose.why.endsWith('under break-even, the least a plan’s buy keeps')], ['dry', true, true]);
+  // The price changes already paid count, as they do for a raise: two, to 99.5 and to 100, on the 1,000 left.
+  const paid = advise({ ...mine, seen: [{ price: 99, remain: 1000 }, { price: 99.5, remain: 1000 }, { price: 100, remain: 1000 }] }, { book, bestSell: 121, lows, targetReturn: 0.05, plan: { buyAt: 100, sellAt: 125, expected: 0.08 } }, RP, 4, 0.05);
+  eq('the changes already paid come off: 3.7%, under the 4% floor of a plan expecting 8%, said', [paid.verdict, paid.why.includes('would leave 3.7% after fees, counting the 498.75 ISK already paid to change its price')], ['dry', true]);
+  // Place and leave: the bid goes to where trading reaches, behind the front, and the same floor decides.
+  const left = at({ buyAt: 100, sellAt: 125, expected: 0.08 }, { leave: true });
+  eq('a plan bid you’re leaving: moved to where trading reaches, on the plan’s floor', [left.verdict, left.newPrice, left.left], ['move', 110, true]);
+  eq('no history to say where trading reaches: cancel it, plan or none', [at({ buyAt: 100, sellAt: 125, expected: 0.08 }, { lows: [110, 110, null] }).verdict], ['dry']);
+  // Through judgeOrder, as Orders, To do and the cloud do: the plan's target from planTargets rides along.
+  const lite = { orderId: 1, typeId: 34, isBuy: true, price: 100, volumeTotal: 1000, volumeRemain: 1000, issued: '2026-10-02T15:45:48Z', state: 'open', locationId: 60003760 };
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const S = sanitizeSettings({ acc: 5, br: 5, abr: 5, clone: 'omega', override: true, brokerPct: 1, taxPct: 3, target: 5 });
+  const j = (plan) => judgeOne(lite, { book, perDay: 50, lows, highs: null, txs: [], yours: [1], plan }, S, Date.parse('2026-10-08T12:00:00Z'));
+  eq('judgeOrder: the same item cancels with no plan and moves with one expecting 6%', [j(null).verdict, j({ planId: 'p', buyAt: 100, sellAt: 125, expected: 0.06 }).verdict], ['dry', 'move']);
+
+  // The cloud's mail: a plan bid mailed "RECOMMENDED: cancel this buy order" now gets a move, saying the plan's floor.
+  const f = orderFindings([j({ planId: 'p', buyAt: 100, sellAt: 125, expected: 0.06 })], () => 'Fierce Exotic Filament');
+  eq('the mail: a move, not "unlikely to fill"', [f.length, f[0].kind, f[0].key, f[0].title, f[0].order.planned], [1, 'move', 'move:1:110', 'Order worth moving', true]);
+  const m = mail(f, { appUrl: 'u/', keepMin: 30, now: Date.parse('2026-10-08T12:00:00Z') });
+  eq('  its subject and advice', [m.subject, m.body.includes('RECOMMENDED: move your buy order up to 110 ISK'), m.body.includes('cancel')], ['Jita Ledger: move Fierce Exotic Filament buy to 110', true, false]);
+  has('  and the plan’s floor in its words', m.body, 'over the plan’s floor of 3.0% (half the 6.0% it expected).');
+  const mNone = mail(orderFindings([at(null, { book: [o(1, true, 100, 1000), o(2, true, 101, 500), o(3, false, 131, 300)], bestSell: 131 })], () => 'X'), { appUrl: 'u/', keepMin: 30, now: Date.parse('2026-10-08T12:00:00Z') });
+  eq('  a move with no plan reads as before', mNone.body.includes('Trading reached your bid on 0 of the last 14 days. 110 is where it did on half of them.'), true);
+
+  // To do: the cancel item on the order becomes its move, open, not ticked off as done: the advice changed.
+  const t0 = Date.parse('2026-10-08T10:00:00Z'), t1 = t0 + 600_000;
+  const cancelItem = { key: 'order:1', ver: 'cancel:100', kind: 'cancel', source: 'orders', price: 100, stake: 100_000, title: 'Fierce Exotic Filament buy order', detail: 'x', action: { label: 'Open' } };
+  const moveItem = { ...cancelItem, ver: 'move:110', kind: 'move' };
+  const was = remember({}, [cancelItem], () => t0, () => null, t0);
+  const ticked = { ...was, 'order:1': { ...was['order:1'], ticked: { ver: 'cancel:100', at: t0 } } };
+  const now2 = remember(ticked, [moveItem], () => t1, () => 'done', t1);
+  eq('To do: a cancel that becomes a move is the move, open, its tick gone, never “done”', [now2['order:1'].item.kind, now2['order:1'].done, now2['order:1'].ticked, splitTodo(now2, new Set(['order:1'])).open.length], ['move', undefined, undefined, 1]);
+  eq('  and the order judge, asked of the cancel, waits on a move', judgeTodo({ item: cancelItem, seenAt: t0, lastAt: t0 }, { open: true, checkedAt: t1, bookRead: true, v: clears }), null);
 }
 
 console.log('\n--- the sniper ---');

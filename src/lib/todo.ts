@@ -1,5 +1,5 @@
 import { fmtDateTime, isk, iskBig, units } from './format';
-import { planListSaid, type Listed, type PlanListPrice } from './plans';
+import { planListSaid, type Listed, type PlanItem, type PlanItemState, type PlanListPrice, type TradePlan } from './plans';
 import { FEEDS_QUEUE_DO, feedsQueueLead, type FeedsQueue, type Verdict } from './relist';
 import { DATACORE_FEE, RP_PER_DATACORE } from './research';
 
@@ -322,17 +322,43 @@ export function judgeScam(e: Entry, c: { tracked: boolean; signalAt: number | nu
 }
 
 /**
- * A plan's buy order, gone from the list: placed, when your orders (always current as of the last sync) hold a buy for
- * the item since the plan started, or your trades show the bid bought at once (`planPlacement`); just gone when the plan
- * was removed or is past its week.
+ * A started plan's item still to place ("Place a buy order", for the plan's week): one item each, keyed by plan and item,
+ * opening it in game with the bid copied. Null for an item placed or that the plan no longer places (`planItemState`): a
+ * bid you cancelled with nothing bought, or its position closed or deleted. Asking again for those is what the user found
+ * wrong (8 October 2026): four bids told "Cancel it" were cancelled and their positions closed, and To do asked for each
+ * again at the price just judged unreachable.
  */
-export function judgePlaceBuy(e: Entry, c: { plan: boolean; placed: { units: number; price: number; atOnce?: number } | null }): string | null | false {
+export function placeBuyItem(p: Pick<TradePlan, 'id' | 'name'>, i: PlanItem, state: PlanItemState, name: string): TodoItem | null {
+  if (state.state !== 'open') return null;
+  return {
+    key: `plan:${p.id}:${i.typeId}`, ver: '1', kind: 'placeBuy', source: 'ledger', stake: i.units * i.buyAt, typeId: i.typeId,
+    title: `Place a buy order: ${units(i.units)} × ${name} at ${isk(i.buyAt)}`,
+    detail: `Part of ${p.name}. Open it in game (the price is copied), press Place Buy Order, paste the price, quantity ${units(i.units)}.`,
+    action: { label: 'Open', typeId: i.typeId, copy: i.buyAt, route: 'planner' },
+  };
+}
+
+/**
+ * A plan's buy order, gone from the list: placed, when your orders (always current as of the last sync) hold a buy for
+ * the item since the plan started, or your trades show the bid bought at once (`planPlacement`); done, saying why, when
+ * the plan no longer places it (`dropped`: you cancelled the bid with nothing bought, or closed or deleted its position);
+ * just gone when the plan was removed or is past its week. The ledger is always current, so each of these is said at once.
+ */
+export function judgePlaceBuy(e: Entry, c: {
+  plan: boolean; placed: { units: number; price: number; atOnce?: number } | null;
+  dropped?: Extract<PlanItemState, { state: 'closed' | 'cancelled' }> | null;
+}): string | null | false {
   if (c.placed) {
     const n = c.placed.units.toLocaleString('en-US'), at = c.placed.price.toLocaleString('en-US', { maximumFractionDigits: 2 });
     // A bid that filled from listings when placed shows no order until your order history does, within the hour.
     const once = c.placed.atOnce ?? 0;
     return once >= c.placed.units ? `Bought at once: ${n} at ${at}.`
       : `Placed: ${n} at ${at}${once > 0 ? `, ${once.toLocaleString('en-US')} of them bought at once` : ''}.`;
+  }
+  const d = c.dropped;
+  if (d) {
+    return d.state === 'cancelled' ? 'You cancelled the bid, so the plan doesn’t place it again.'
+      : d.gone ? 'You deleted its position, so the plan doesn’t place it.' : 'You closed its position, so the plan doesn’t place it.';
   }
   return c.plan ? null : false;
 }

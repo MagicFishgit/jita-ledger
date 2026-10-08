@@ -76,7 +76,9 @@ const BY_ISK: AlertEvent[] = ['move', 'clearing'];
 /** What the order check worked out about an order, which a mail spells out. */
 export type OrderFacts = Pick<Relist,
   'verdict' | 'isBuy' | 'price' | 'best' | 'gap' | 'newPrice' | 'volumeRemain' | 'give' | 'fee' | 'cost' | 'atRisk' | 'aheadUnits' | 'aheadOrders' | 'hoursToFront' | 'why'>
-  & Partial<Pick<Relist, 'reach' | 'reachAt' | 'unreached' | 'overBid'>>;
+  & Partial<Pick<Relist, 'reach' | 'reachAt' | 'unreached' | 'overBid'>>
+  /** The order belongs to a plan (`Relist.plan`): an unreached bid's move is judged against the plan's floor, which its `why` names. */
+  & { planned?: true };
 
 /** A trade the cloud found in the items it watches: what Prospects would say about it. */
 export type OppFacts = { buy: number; sell: number; roi: number; iskPerDay: number; qty: number; daysToFlip: number; watchedH: number; bought: number; dumped: number;
@@ -112,7 +114,7 @@ export type SafetyFacts = {
 export const orderFacts = (x: Relist): OrderFacts => ({
   verdict: x.verdict, isBuy: x.isBuy, price: x.price, best: x.best, gap: x.gap, newPrice: x.newPrice, volumeRemain: x.volumeRemain,
   give: x.give, fee: x.fee, cost: x.cost, atRisk: x.atRisk, aheadUnits: x.aheadUnits, aheadOrders: x.aheadOrders, hoursToFront: x.hoursToFront, why: x.why,
-  reach: x.reach, reachAt: x.reachAt, unreached: x.unreached, ...(x.overBid ? { overBid: true } : {}),
+  reach: x.reach, reachAt: x.reachAt, unreached: x.unreached, ...(x.overBid ? { overBid: true } : {}), ...(x.plan ? { planned: true as const } : {}),
 });
 
 /**
@@ -325,8 +327,9 @@ function section(f: Finding, market: (typeId: number, calc?: boolean, name?: str
       ? `${col('grey', 'Yours ')}${price(o.price)}${col('grey', ' · nobody else on your side')}<br>`
       : `${col('grey', 'Yours ')}${price(o.price)}${col('grey', ' · best now ')}${col(o.gap > 0 && o.verdict !== 'front' ? 'red' : 'white', price(o.best))}${o.gap > 0 && o.verdict !== 'front' ? col('grey', ` (beaten by ${price(o.gap)})`) : ''}<br>`);
     if (o.verdict === 'move' && o.unreached) {
-      // For a sell, the order check's own sentence says it best: where trading reaches, or one step over the best bid.
-      out.push(col('grey', o.overBid || !o.isBuy ? `${escapeMail(o.why)}.` : `Trading reached your ${o.isBuy ? 'bid' : 'price'} on ${o.reach} of the last ${FILL_WINDOW} days. ${price(o.newPrice)} is where it did on half of them.`) + '<br>');
+      // For a sell, the order check's own sentence says it best: where trading reaches, or one step over the best bid. So
+      // for a plan's bid: it names the plan's floor the move clears, which is why it isn't told to cancel.
+      out.push(col('grey', o.overBid || !o.isBuy || o.planned ? `${escapeMail(o.why)}.` : `Trading reached your ${o.isBuy ? 'bid' : 'price'} on ${o.reach} of the last ${FILL_WINDOW} days. ${price(o.newPrice)} is where it did on half of them.`) + '<br>');
     }
     if (o.verdict === 'move') {
       out.push(`${col('grey', 'Moving costs ')}${money(o.cost)}${col('grey', ` (${money(o.give)} ${o.isBuy ? 'higher' : 'lower'} price + ${money(o.fee)} fee) · `)}${money(o.atRisk)}${col('grey', ' at stake')}<br>`);

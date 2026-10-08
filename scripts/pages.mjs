@@ -680,20 +680,26 @@ try {
   // of 188 not filled. Showing the plan's positions must count it from the plan's start (nothing bought or sold, nothing
   // left out) and say it's shared; the list without a plan shows it whole. And its Imperial Navy Infiltrator bid, over the
   // cheapest listing, bought 11 at once with no order to show yet: the checklist must count it placed, saying so, and To
-  // do must not ask for it (Raging Dark Filament, not placed, keeps the checklist up). Every request outside this server is
-  // refused. Both widths.
+  // do must not ask for it (Raging Dark Filament, not placed, keeps the checklist up). And two of the four bids the user
+  // cancelled with nothing bought (8 October 2026): Fierce Exotic Filament's, its position still open, and Chaotic Exotic
+  // Filament's, its position closed too. The checklist must say each is dropped, never asked for again, and To do must
+  // not ask to place either (nor anything at all about the closed one). Every request outside this server is refused.
+  // Both widths.
   if (SHOWN.includes('positions') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('plan'))) {
-    const JITA = 60003760, RS = 20420, INF = 31866, RD = 47894, DAY_MS = 86400_000;
+    const JITA = 60003760, RS = 20420, INF = 31866, RD = 47894, FE = 47889, CE = 47891, DAY_MS = 86400_000;
     const planAt = Date.now() - 3600_000, iso = (t) => new Date(t).toISOString();
     const tx = (id, typeId, isBuy, qty, price, t) => ({ id, source: 'esi', typeId, date: iso(t), isBuy, qty, unitPrice: price, locationId: JITA });
     const ledger = {
       settings: { acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, tycoon: 0, clone: 'omega', faction: 3.6289558729999998, corp: 7.039647095, taxBase: 7.5, target: 5, share: 7.5, waitHours: 3 },
       plans: [{ id: 'mur4lko4xsll6o', name: '2 Oct · 999.16 M ISK in 33 items', at: iso(planAt), isk: 999156436.25, horizonDays: 0.5, patient: true,
         items: [{ typeId: RS, buyAt: 85_540, units: 188, sellAt: 94_430, positionId: 'rs' }, { typeId: INF, buyAt: 1_658_000, units: 11, sellAt: 1_836_000, positionId: 'inf' },
-          { typeId: RD, buyAt: 1_711_000, units: 8, sellAt: 1_983_000, positionId: 'rd' }] }],
+          { typeId: RD, buyAt: 1_711_000, units: 8, sellAt: 1_983_000, positionId: 'rd' },
+          { typeId: FE, buyAt: 2_813_000, units: 9, sellAt: 3_443_000, positionId: 'fe' }, { typeId: CE, buyAt: 21_470_000, units: 2, sellAt: 24_390_000, positionId: 'ce' }] }],
       positions: [{ id: 'rs', typeId: RS, openedAt: iso(planAt - 8 * DAY_MS), status: 'open', jitaOnly: true, excluded: [], included: [] },
         { id: 'inf', typeId: INF, openedAt: iso(planAt), status: 'open', jitaOnly: true, excluded: [], included: [] },
-        { id: 'rd', typeId: RD, openedAt: iso(planAt), status: 'open', jitaOnly: true, excluded: [], included: [] }],
+        { id: 'rd', typeId: RD, openedAt: iso(planAt), status: 'open', jitaOnly: true, excluded: [], included: [] },
+        { id: 'fe', typeId: FE, openedAt: iso(planAt), status: 'open', jitaOnly: true, excluded: [], included: [] },
+        { id: 'ce', typeId: CE, openedAt: iso(planAt), closedAt: iso(planAt + 1_800_000), status: 'closed', jitaOnly: true, excluded: [], included: [] }],
       txs: {
         b1: tx('b1', RS, true, 12_000, 80_720, planAt - 8 * DAY_MS + 300_000),
         s1: tx('s1', RS, false, 9372, 93_516, planAt - 2 * DAY_MS),
@@ -703,8 +709,11 @@ try {
       orders: {
         7434267823: { orderId: 7434267823, typeId: RS, isBuy: false, price: 96_980, volumeTotal: 4924, volumeRemain: 628, issued: iso(planAt - 1.2 * DAY_MS), state: 'open', locationId: JITA },
         7435100906: { orderId: 7435100906, typeId: RS, isBuy: true, price: 85_540, volumeTotal: 188, volumeRemain: 188, issued: iso(planAt + 720_000), state: 'open', locationId: JITA },
+        // Cancelled with nothing bought, as ESI's order history keeps them.
+        7435099667: { orderId: 7435099667, typeId: FE, isBuy: true, price: 2_813_000, volumeTotal: 9, volumeRemain: 9, issued: iso(planAt + 556_000), state: 'cancelled', locationId: JITA },
+        7435098339: { orderId: 7435098339, typeId: CE, isBuy: true, price: 21_470_000, volumeTotal: 2, volumeRemain: 2, issued: iso(planAt + 411_000), state: 'cancelled', locationId: JITA },
       },
-      names: { [RS]: 'Datacore - Rocket Science', [INF]: 'Imperial Navy Infiltrator', [RD]: 'Raging Dark Filament' },
+      names: { [RS]: 'Datacore - Rocket Science', [INF]: 'Imperial Navy Infiltrator', [RD]: 'Raging Dark Filament', [FE]: 'Fierce Exotic Filament', [CE]: 'Chaotic Exotic Filament' },
       meta: { walletBalance: 1e9, lastSync: iso(Date.now() - 600_000) },
     };
     // The Infiltrator's real history (scripts/fixtures/plan-list.json, read 2 October 2026), its days moved so the last is
@@ -749,6 +758,7 @@ try {
     if (!whole || whole[4] !== '11,372') problems.push(`the list without a plan doesn't show the whole position's 11,372 sold (${JSON.stringify(whole?.slice(3, 6))})`);
     const plans = (await page.locator('section[aria-label="Plans"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
     if (!plans.includes('1 shared with earlier trading, counted from the plan’s start')) problems.push(`not drawn: the Plans panel's “1 shared with earlier trading” (${plans.slice(0, 160)})`);
+    if (!/2 of 5\s*2 dropped/.test(plans)) problems.push(`the Plans panel doesn't count 2 of 5 placed and 2 dropped (${plans.slice(0, 200)})`);
     if (plans.includes('left out of the profit')) problems.push('the Plans panel says units were left out: the earlier stock’s sales aren’t the plan’s at all');
     await page.getByRole('button', { name: 'Show its positions' }).click().catch((e) => problems.push(`couldn't show the plan's positions: ${e.message.split('\n')[0]}`));
     await page.waitForTimeout(600);
@@ -776,7 +786,13 @@ try {
     const placing = (await page.locator('#placing').innerText().catch(() => '')).replace(/\s+/g, ' ');
     if (!placing.includes('11 of 11 bought at once at 1,608,000')) problems.push(`not drawn: the checklist's “11 of 11 bought at once at 1,608,000” (${placing.slice(0, 160)})`);
     if (!placing.includes('the order shows only in your order history')) problems.push('not drawn: the checklist doesn’t say where the order went');
-    if (!placing.includes('2 of 3 placed')) problems.push(`the checklist doesn't count 2 of 3 placed (${placing.slice(0, 120)})`);
+    if (!placing.includes('2 of 5 placed, 2 dropped')) problems.push(`the checklist doesn't count 2 of 5 placed, 2 dropped (${placing.slice(0, 120)})`);
+    // The bids cancelled with nothing bought: dropped, said and never asked for again.
+    const rowText = async (n) => (await page.locator('#placing tbody tr', { hasText: n }).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+    const feRow = await rowText('Fierce Exotic Filament'), ceRow = await rowText('Chaotic Exotic Filament');
+    for (const want of ['Bid cancelled with nothing bought: not placed again', 'Your bid of 9 at 2,813,000 ISK']) if (!feRow.includes(want)) problems.push(`not drawn: the checklist's cancelled Fierce Exotic Filament “${want}” (${feRow.slice(0, 200)})`);
+    if (!/Position closed \d+ \w+: not placed again/.test(ceRow)) problems.push(`not drawn: the checklist's “Position closed …: not placed again” for Chaotic Exotic Filament (${ceRow.slice(0, 200)})`);
+    if (/Not yet/.test(feRow) || /Not yet/.test(ceRow)) problems.push('the checklist reads a dropped item as “Not yet”');
     // Its list part: the plan's own price, copied, with today's List patiently beside it from the history ESI gave.
     await page.locator('#placing .plan-list', { hasText: 'List patiently today' }).waitFor({ timeout: 10_000 }).catch(() => undefined);
     const listPart = (await page.locator('#placing .plan-list').innerText().catch(() => '')).replace(/\s+/g, ' ');
@@ -791,6 +807,8 @@ try {
     await page.waitForTimeout(1500);
     if (!(await page.locator('.tn-item', { hasText: 'Raging Dark Filament' }).count())) problems.push('not drawn: To do doesn’t ask for Raging Dark Filament’s buy order');
     if (await page.locator('.tn-item', { hasText: 'Place a buy order: 11 × Imperial Navy Infiltrator' }).count()) problems.push('To do asks for the Infiltrator’s buy order, which bought at once');
+    if (await page.locator('.tn-item', { hasText: 'Place a buy order: 9 × Fierce Exotic Filament' }).count()) problems.push('To do asks again for Fierce Exotic Filament’s buy order, which you cancelled');
+    if (await page.locator('.tn-item', { hasText: 'Chaotic Exotic Filament' }).count()) problems.push('To do lists something for Chaotic Exotic Filament, cancelled and its position closed');
     // And asks to list what it bought: one item, at the plan's price, something to act on.
     const listItem = page.locator('.tn-item', { hasText: 'List what the plan bought' });
     await page.locator('.tn-item', { hasText: 'List patiently today' }).first().waitFor({ timeout: 10_000 }).catch(() => undefined);

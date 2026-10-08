@@ -893,12 +893,19 @@ export function adviseRelist(
   const floorFrom: KeepIt['floorFrom'] = !plan ? 'breakEven' : yourTarget < planFloor ? 'target' : 'plan';
   const floor = Math.max(0, floorFrom === 'target' ? yourTarget : planFloor);
   const paid = mine.isBuy ? paidPerUnit(mine.seen, r.k) : 0;
-  const raiseRet = mine.isBuy && moves && newPrice > price && sellOn != null && sellOn > 0 && volumeRemain > 0
+  // What a buy moved to the new price makes selling on at `sellOn`, every fee counted; a raise is guarded on it.
+  const guardRet = mine.isBuy && moves && sellOn != null && sellOn > 0 && volumeRemain > 0
     ? netOfSale(sellOn) / (newPrice * (1 + r.f) + paid + fee / volumeRemain) - 1
     : null;
+  const raiseRet = newPrice > price ? guardRet : null;
   const badBuy = raiseRet != null && raiseRet < floor;
 
   const pctText = (x: number) => `${x >= 1 ? Math.round(x * 100) : (x * 100).toFixed(x < 0.1 ? 1 : 0)}%`;
+  // The plan's bar in words, for an unreached plan bid: its floor, which is half what it expected or your target (the cap).
+  const planBar = (): string => !plan ? ''
+    : floorFrom === 'target' ? `the plan’s floor, your ${pctText(yourTarget)} target (it expected ${pctText(plan.expected)})`
+      : plan.expected > 0 ? `the plan’s floor of ${pctText(floor)} (${PLAN_KEEP_SAID} the ${pctText(plan.expected)} it expected)`
+        : 'break-even, the least a plan’s buy keeps';
   // Said in this order, as the user asked for it to be easy to see: don't raise; what raising would leave; keep it.
   const keepWhy = (): string => {
     const ret = raiseRet!;
@@ -961,24 +968,36 @@ export function adviseRelist(
       why = `${said}. ${there}${sellNow}`;
     }
   } else if (unreached) {
-    // Worth moving to where trading reaches only if selling on from there still makes your target.
+    // Worth moving to where trading reaches only if selling on from there still makes your target. A plan's bid is
+    // judged as the guard judges its raises: selling on at the lower of the plan's price and where a listing sells now,
+    // after the new bid's broker fee, the price changes already paid and this one, against the plan's floor (PLAN_KEEP of
+    // what it expected, your target if lower, never under break-even). The user's 2 October plan (8 October 2026): four
+    // bids were told "Cancel it" against their 5% target, a bar the plan's own sits under by design; they cancelled them,
+    // and "if it was still profitable" it "could have just been a price adjustment". So a plan's bid is told to cancel
+    // only when the price where trading reaches doesn't clear the plan's floor.
     const sellNet = m.bestSell != null ? tickDown(m.bestSell) * (1 - r.f - r.t) : null;
-    const ret = moves && sellNet != null ? sellNet / (newPrice * (1 + r.f)) - 1 : null;
-    const target = m.targetReturn ?? 0;
+    const ret = plan ? guardRet : moves && sellNet != null ? sellNet / (newPrice * (1 + r.f)) - 1 : null;
+    const target = plan ? floor : m.targetReturn ?? 0;
     const said = `The bulk of trading reached your bid on ${reach} of the last ${FILL_WINDOW} days`;
     const at = priceText;
+    // For a plan's bid, what the figure rests on: the changes already paid, where it sells on, and the plan's bar.
+    const onPlan = (side: 'over' | 'under') => !plan ? ''
+      : `${paid > 0 ? `, counting the ${iskBig(paid * volumeRemain)} already paid to change its price` : ''}, selling on at ${at(sellOn!)} (${sellOn === plan.sellAt ? 'the plan’s price' : 'where a listing sells now'}), ${side} ${planBar()}`;
     if (reachAt == null) {
       verdict = 'dry';
       why = `${said}, and the item traded on too few days for any bid to be reached reliably`;
     } else if (ret == null || ret < target) {
       verdict = 'dry';
-      why = `${said}. Bidding where it did on ${FILL_TYPICAL} of them, ${at(newPrice)}, ${ret == null ? 'would leave nothing to sell into' : ret < 0 ? `would lose ${pctText(-ret)} after fees` : `would leave ${pctText(ret)} after fees, under your ${pctText(target)} target`}`;
+      why = `${said}. Bidding where it did on ${FILL_TYPICAL} of them, ${at(newPrice)}, ${ret == null ? 'would leave nothing to sell into'
+        : plan ? `${ret < 0 ? `would lose ${pctText(-ret)}` : `would leave ${pctText(ret)}`} after fees${onPlan('under')}`
+          : ret < 0 ? `would lose ${pctText(-ret)} after fees` : `would leave ${pctText(ret)} after fees, under your ${pctText(target)} target`}`;
     } else if (badBuy) {
+      // Only a buy no plan priced gets here, guarded at break-even: a plan's `ret` is the guard's own, so it can't.
       verdict = 'loss';
       why = keepWhy();
     } else {
       verdict = 'move';
-      why = `${said}. At ${at(newPrice)} it did on ${FILL_TYPICAL} of them, and still makes ${pctText(ret)} after fees`;
+      why = `${said}. At ${at(newPrice)} it did on ${FILL_TYPICAL} of them, and still makes ${pctText(ret)} after fees${onPlan('over')}`;
     }
   } else if (!beaten) {
     verdict = 'front';

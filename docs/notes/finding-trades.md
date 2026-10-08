@@ -208,6 +208,31 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   bought 5 at once, read 15 placed for 10 (the review). And a bid that bought some at once leaves the rest standing,
   which ESI shows up to 20 minutes late (`ORDERS_LAG_MS`): until its trade is that old the note says the rest may still
   be standing, never that it is a new order to place, which would invite the duplicate the checklist exists to stop.
+- **A plan item you cancelled or closed isn't asked for again** (`planItemState`, `droppedNote` and `planProgress`'s
+  `dropped` in plans.ts; `placeBuyItem` and `judgePlaceBuy`'s `dropped` in todo.ts; the checklist in PlanStart.tsx). The
+  user (8 October 2026): "The todo told me that i needed to close orders for a position in plan that is no longer going to
+  be feasably reached. I then closed them … but then later it said I should open those positions again." The 2 October
+  plan's Fierce Exotic Filament (9 at 2,813,000), Experimental Hyperspatial Accelerator (1 at 11,490,000), Entropic
+  Radiation Sink II (8 at 1,976,000) and Chaotic Exotic Filament (2 at 21,470,000) were told "Cancel it", cancelled with
+  nothing bought and their positions closed at 10:14 UTC; a bid cancelled unfilled counted as never placed and nothing
+  looked at the position, so within the plan's week To do asked for each again, at the price just judged unreachable.
+  Now each item is, in this order:
+  - **placed**: a counted order or a bid that bought at once, whatever its position did since (five of that plan's items
+    filled, sold and were closed: they were placed, not dropped);
+  - **closed**: nothing placed, its position closed or deleted (or following another item);
+  - **cancelled**: nothing placed, and a Jita 4-4 buy of it placed in `planPlacement`'s window was cancelled with nothing
+    bought. ESI doesn't say when an order was cancelled, so the checklist names the bid ("Your bid of 9 at 2,813,000 ISK,
+    placed 2 Oct") rather than a date, and a bid placed before the plan and cancelled before it started reads the same
+    (limits.md). A new bid placed after it counts as placing it, as ever: re-placing at another price;
+  - **open**: still to place. An expired bid with nothing bought isn't a choice, so it reads as nothing placed and is
+    asked for again; with no position named (`positionId` null) or no positions given, nothing reads as closed.
+  Closed and cancelled are **dropped**: no "Place a buy order" item; one already listed is done, "You cancelled the bid, so
+  the plan doesn't place it again." / "You closed its position, so the plan doesn't place it." (deleted likewise); the
+  checklist greys the row ("Bid cancelled with nothing bought: not placed again", "Position closed 8 Oct: not placed
+  again") and counts them apart ("2 of 5 placed, 2 dropped", the Plans panel likewise); a plan with nothing waiting stops
+  showing as being placed. The list step already treats a closed position as no plan's (`planTargets`), so a cancelled and
+  closed item has no list row and no To do item of any kind. The page check's shared-position plan case carries one of
+  each (Fierce cancelled with its position open, Chaotic cancelled and closed).
 - **The checklist's second part lists what the plan bought** ("Bought: list it", the list step: `planListRows` and
   `planListRow` in positions.ts; `listedSince`, `unitsToList`, `listMarket`, `planListPrice`, `planListSaid` in plans.ts,
   Worker-safe; `PlanListPart` in PlanStart.tsx, on the planner and Positions' Plans panel; `usePlanListing` in

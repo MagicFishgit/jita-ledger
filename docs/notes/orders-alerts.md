@@ -173,6 +173,13 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   a bid item fell to the default judge and was ticked "It no longer needs doing" the moment it went missing, before
   the orders had even been checked. So are "Feeds a long queue" items (kind `feedsQueue`, 2 October 2026; the rule and
   its version are in market-reading.md): a judge of their own in the dispatch, never the default.
+- **A plan item you cancelled or closed isn't asked to be placed again** (8 October 2026; the rule is in finding-trades.md).
+  No "Place a buy order" item for a bid cancelled with nothing bought or an item whose position is closed or deleted; one
+  already listed is done at once (the ledger is always current): "You cancelled the bid, so the plan doesn't place it
+  again.", "You closed its position, so the plan doesn't place it." or "You deleted its position, …". **A cancel item that
+  becomes a move is the move**: both are keyed by the order (`order:ID`), so the new build replaces the remembered item,
+  its hand tick cleared, never ticked off as done (tested). A plan bid's cancel item says its why, which names the plan's
+  floor (market-reading.md); others keep "leaves too little margin".
 - **List loot and List your stock say they're not usable at the moment** (`SellWindowBanner.tsx`, full on List loot,
   compact on Positions' List your stock). The user tried the one-paste listing on 29 September 2026: the Sell window's
   import only prices items already in the window (see eve-client.md), so selecting the items in the hangar stays manual,

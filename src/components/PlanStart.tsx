@@ -1,11 +1,11 @@
 import { useMemo } from 'react';
-import { Check, ChevronRight, ClipboardList, Copy, Play, Smartphone, Tag, X } from 'lucide-react';
+import { Ban, Check, ChevronRight, ClipboardList, Copy, Play, Smartphone, Tag, X } from 'lucide-react';
 import { startPosition } from '../lib/actions';
 import { confirmAsk } from '../lib/confirm';
 import { fmtShort, isk, iskBig, iskBigSigned, pct, rid, units } from '../lib/format';
 import { navigate, useNow } from '../lib/hooks';
 import { planPosition } from '../lib/positions';
-import { newPlan, placementNote, planListSaid, planPlacement, planProgress, PLANS_KEPT } from '../lib/plans';
+import { droppedNote, droppedState, newPlan, placementNote, planItemState, planListSaid, planProgress, PLANS_KEPT } from '../lib/plans';
 import type { Plan } from '../lib/planner';
 import { horizonShort } from '../lib/prospects';
 import { update, useData } from '../lib/store';
@@ -76,7 +76,9 @@ export function StartPlanButton({ plan, days, patient }: { plan: Plan; days: num
 
 /**
  * Each plan's checklist: the buy orders still to place, for a week (each ticked off once it shows in your orders), and then
- * what the plan bought and hasn't listed (`PlanListPart`), for as long as there is some.
+ * what the plan bought and hasn't listed (`PlanListPart`), for as long as there is some. An item whose bid you cancelled
+ * with nothing bought, or whose position you closed, the plan no longer places: it's said and greyed, never asked for
+ * again, and a plan with nothing else waiting is done placing (`planItemState`).
  */
 export function PlacingChecklist() {
   const d = useData();
@@ -87,7 +89,7 @@ export function PlacingChecklist() {
   // The note on a bid that bought some at once changes once ESI would show the rest standing (ORDERS_LAG_MS).
   const now = useNow(60_000);
   const listing = usePlanListing();
-  const placing = new Set(d.plans.filter((p) => Date.now() - Date.parse(p.at) < CHECKLIST_DAYS * 86400_000 && planProgress(p, orders, d.positions, trades).placed < p.items.length).map((p) => p.id));
+  const placing = new Set(d.plans.filter((p) => Date.now() - Date.parse(p.at) < CHECKLIST_DAYS * 86400_000 && planProgress(p, orders, d.positions, trades).waiting.length > 0).map((p) => p.id));
   const shown = d.plans.filter((p) => placing.has(p.id) || listing.some((x) => x.plan.id === p.id));
   useEnsureNames(shown.flatMap((p) => p.items.map((i) => i.typeId)));
   if (!shown.length) return null;
@@ -101,11 +103,11 @@ export function PlacingChecklist() {
           <section key={p.id} id="placing" className="panel" aria-label={still ? `Placing ${p.name}` : p.name} style={{ padding: 18, gap: 12, clipPath: 'none' }}>
             <div className="panel-head">
               <span className="panel-title"><ClipboardList aria-hidden="true" style={{ width: 16, height: 16, marginRight: 6, verticalAlign: '-3px' }} />{still ? `Placing ${p.name}` : p.name}</span>
-              <span className="mono" style={{ color: 'var(--acc)' }}>{still ? `${units(prog.placed)} of ${units(prog.of)} placed` : `${units(rows.length)} to list`}</span>
+              <span className="mono" style={{ color: 'var(--acc)' }}>{still ? `${units(prog.placed)} of ${units(prog.of)} placed${prog.dropped.length ? `, ${units(prog.dropped.length)} dropped` : ''}` : `${units(rows.length)} to list`}</span>
             </div>
             {still && (
               <>
-                <div className="track h10"><span className="fill" style={{ width: `${(prog.placed / Math.max(1, prog.of)) * 100}%` }} /></div>
+                <div className="track h10"><span className="fill" style={{ width: `${((prog.placed + prog.dropped.length) / Math.max(1, prog.of)) * 100}%` }} /></div>
                 <div className="ladder" aria-label="For each item">
                   {['Open it in game (price copied)', 'Place Buy Order', 'Paste the price', 'Paste the quantity', p.patient ? 'A long duration' : 'Set the duration'].map((x, i) => (
                     <span key={x} className="step">{i > 0 && <ChevronRight aria-hidden="true" />}<span>{x}</span></span>
@@ -114,21 +116,26 @@ export function PlacingChecklist() {
                 <Points compact items={[
                   { kind: 'good', lead: 'Ticks off', text: 'once the order shows in your orders (ESI holds them up to 20 minutes), or its trade does when the bid bought at once (up to an hour).' },
                   { kind: 'warn', icon: Smartphone, lead: 'On the phone', text: 'the copies land on the phone: place them from the PC.' },
+                  ...(prog.dropped.length ? [{ kind: 'info' as const, icon: Ban, lead: 'Dropped', text: 'a bid you cancelled with nothing bought, or an item whose position you closed: the plan doesn’t ask for it again.' }] : []),
                 ]} />
                 <div className="tbl-scroll">
                   <table className="tbl" style={{ minWidth: 640 }}>
                     <thead><tr><th scope="col" className="l">Item</th><th scope="col">Quantity</th><th scope="col">Buy at</th><th scope="col">In escrow</th><th scope="col" className="l">Placed</th></tr></thead>
                     <tbody>
                       {p.items.map((i) => {
-                        const pl = planPlacement(i, p, orders, d.positions, trades);
+                        const st = planItemState(i, p, orders, d.positions, trades);
+                        const pl = st.state === 'placed' ? st.placement : null;
                         const note = pl ? placementNote(i, pl, now) : null;
+                        const dropped = droppedState(st) ? droppedNote(st) : null;
                         return (
-                          <tr key={i.typeId} style={{ opacity: pl ? 0.55 : 1 }}>
+                          <tr key={i.typeId} style={{ opacity: pl || dropped ? 0.55 : 1 }}>
                             <td className="l"><span className="cellrow"><ItemIcon id={i.typeId} /><NameInGame typeId={i.typeId} name={name(i.typeId)} className="name ellipsis" copy={i.buyAt} copyAs="the bid to place" /></span></td>
                             <td>{units(i.units)} <button type="button" className="link-btn dim copy-price" aria-label={`Copy ${i.units}`} data-tip="Copy the quantity" onClick={() => void copyQty(i.units)}><Copy aria-hidden="true" /></button></td>
                             <td>{isk(i.buyAt)} <CopyPrice price={i.buyAt} /></td>
                             <td>{iskBig(i.units * i.buyAt)}</td>
-                            <td className="l">{pl && note ? <span style={{ color: 'var(--pos)' }}><span className="row tight" style={{ whiteSpace: 'normal', flexWrap: 'nowrap', alignItems: 'flex-start' }}><Check aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', marginTop: 2 }} />{note.lead} at {isk(pl.price)}</span>{[note.atOnce, note.short].filter(Boolean).map((x) => <span key={x} className="note small" style={{ display: 'block', margin: 0, whiteSpace: 'normal', minWidth: 220, maxWidth: 320 }}>{x}</span>)}</span> : <span className="faint">Not yet</span>}</td>
+                            <td className="l">{pl && note ? <span style={{ color: 'var(--pos)' }}><span className="row tight" style={{ whiteSpace: 'normal', flexWrap: 'nowrap', alignItems: 'flex-start' }}><Check aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', marginTop: 2 }} />{note.lead} at {isk(pl.price)}</span>{[note.atOnce, note.short].filter(Boolean).map((x) => <span key={x} className="note small" style={{ display: 'block', margin: 0, whiteSpace: 'normal', minWidth: 220, maxWidth: 320 }}>{x}</span>)}</span>
+                              : dropped ? <span className="faint"><span className="row tight" style={{ whiteSpace: 'normal', flexWrap: 'nowrap', alignItems: 'flex-start' }}><Ban aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', marginTop: 2 }} />{dropped.lead}</span>{dropped.sub && <span className="note small" style={{ display: 'block', margin: 0, whiteSpace: 'normal', minWidth: 220, maxWidth: 320 }}>{dropped.sub}</span>}</span>
+                                : <span className="faint">Not yet</span>}</td>
                           </tr>
                         );
                       })}
@@ -253,7 +260,9 @@ export function PlanGroups({ shown, onShow }: { shown: string | null; onShow: (i
                     </span>
                   )}
                 </td>
-                <td>{units(prog.placed)} of {units(prog.of)}</td>
+                <td>{units(prog.placed)} of {units(prog.of)}{prog.dropped.length > 0 && (
+                  <span className="sub" tabIndex={0} data-tip-title="Dropped from the plan" data-tip="Items whose bid you cancelled with nothing bought, or whose position you closed or deleted. The plan doesn’t ask for them again; a new bid for one still counts as placing it.">{units(prog.dropped.length)} dropped</span>
+                )}</td>
                 <td>{iskBig(bought)}</td>
                 <td>{iskBig(sold)}{oversold > 0 && <span className="sub" tabIndex={0} data-tip-title="Left out of the profit" data-tip={'Units sold beyond what the plan bought, and beyond what a position it took over held at its start (that stock is the earlier trading’s, and sells first).\n\nThey came from stock no position counted: loot, gifts, units bought before the position opened. They have no recorded cost, so they’re left out of the profit rather than given one. Their sales are in Sold.'}>{units(oversold)} sold beyond what it bought, left out of the profit</span>}</td>
                 <td style={{ color: realized >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{iskBigSigned(realized)}</td>

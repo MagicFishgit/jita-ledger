@@ -11,7 +11,7 @@ import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  cashInItem, feedsQueueItem, inFilter, judgeAltLogin, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, planListItem, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
+  cashInItem, feedsQueueItem, inFilter, judgeAltLogin, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, placeBuyItem, planListItem, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
   type Entry, type Memory, type TodoFilter, type TodoItem, type TodoKind,
 } from '../lib/todo';
 import type { IndustryJob } from '../lib/types';
@@ -20,7 +20,7 @@ import { PLANETS_SCOPE, readColonies, useColonies } from '../lib/colonyStore';
 import { readSignals, trackedTypes, useSignals } from '../lib/watch';
 import { BACKUP_DAYS } from '../lib/alertsRunner';
 import { LOGIN_STOPS } from '../lib/watchdog';
-import { planPlacement, planTargets } from '../lib/plans';
+import { droppedState, planItemState, planTargets } from '../lib/plans';
 import { planListRow } from '../lib/positions';
 import { usePlanListing } from './planListing';
 import { useAltCopies, useAltRoster, useRosterAt, useRosterLive } from '../lib/altStore';
@@ -202,7 +202,9 @@ export function Todo() {
         out.push({
           key: `order:${x.orderId}`, ver: `cancel:${x.price}`, kind: 'cancel', source: 'orders', price: x.price, stake: x.atRisk,
           title: `${name(x.typeId)} buy order`,
-          detail: `Trading reached your bid on ${x.reach} of the last ${FILL_WINDOW} days, and bidding where it does leaves too little margin. Cancel it to free ${iskBig(x.atRisk)}.`,
+          // A plan's bid says the plan's floor it misses, as Orders and the mail do.
+          detail: x.plan ? `${x.why}. Cancel it to free ${iskBig(x.atRisk)}.`
+            : `Trading reached your bid on ${x.reach} of the last ${FILL_WINDOW} days, and bidding where it does leaves too little margin. Cancel it to free ${iskBig(x.atRisk)}.`,
           action,
         });
         continue;
@@ -321,18 +323,14 @@ export function Todo() {
       });
     }
     // A started plan's buy orders not placed yet (the Capital planner's "Start this plan"), for a week. A bid that bought
-    // at once counts by its trade: it shows no order until your order history does (lib/plans.ts).
+    // at once counts by its trade: it shows no order until your order history does; a bid you cancelled with nothing
+    // bought, or an item whose position you closed, the plan no longer places (lib/plans.ts, planItemState).
     const planTrades = { txs: Object.values(d.txs), ignored: d.ignored };
     for (const p of d.plans) {
       if (now - Date.parse(p.at) > 7 * DAY) continue;
       for (const i of p.items) {
-        if (planPlacement(i, p, Object.values(d.orders), d.positions, planTrades)) continue;
-        out.push({
-          key: `plan:${p.id}:${i.typeId}`, ver: '1', kind: 'placeBuy', source: 'ledger', stake: i.units * i.buyAt, typeId: i.typeId,
-          title: `Place a buy order: ${units(i.units)} × ${name(i.typeId)} at ${isk(i.buyAt)}`,
-          detail: `Part of ${p.name}. Open it in game (the price is copied), press Place Buy Order, paste the price, quantity ${units(i.units)}.`,
-          action: { label: 'Open', typeId: i.typeId, copy: i.buyAt, route: 'planner' },
-        });
+        const item = placeBuyItem(p, i, planItemState(i, p, orderList, d.positions, planTrades), name(i.typeId));
+        if (item) out.push(item);
       }
     }
     // What a plan bought and hasn't listed: one item each, at the price to list at (the plan's own for Place and leave,
@@ -465,9 +463,14 @@ export function Todo() {
           const [, planId, typeId] = x.key.split(':');
           const p = d.plans.find((z) => z.id === planId);
           const it = p?.items.find((z) => String(z.typeId) === typeId);
-          const pl = p && it ? planPlacement(it, p, Object.values(d.orders), d.positions, { txs: Object.values(d.txs), ignored: d.ignored }) : null;
-          // Every order counted for the item, summed: "Placed: 1 at …" for a top-up of an earlier 15 read as one unit.
-          return judgePlaceBuy(e, { plan: !!p && !!it && t - Date.parse(p.at) <= 7 * DAY, placed: pl ? { units: pl.units, price: pl.price, atOnce: pl.atOnce } : null });
+          const st = p && it ? planItemState(it, p, Object.values(d.orders), d.positions, { txs: Object.values(d.txs), ignored: d.ignored }) : null;
+          const pl = st?.state === 'placed' ? st.placement : null;
+          // Every order counted for the item, summed: "Placed: 1 at …" for a top-up of an earlier 15 read as one unit. One
+          // the plan no longer places (its bid cancelled, its position closed) is done, saying so.
+          return judgePlaceBuy(e, {
+            plan: !!p && !!it && t - Date.parse(p.at) <= 7 * DAY, placed: pl ? { units: pl.units, price: pl.price, atOnce: pl.atOnce } : null,
+            dropped: st && droppedState(st) ? st : null,
+          });
         }
         case 'planList': {
           // Only the ledger showing it listed or sold ticks it off; a plan that no longer holds the item lets it go.

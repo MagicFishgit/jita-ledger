@@ -8,7 +8,7 @@
 import { JITA_44 } from './constants';
 import { breakEvenSell } from './fees';
 import { FILL_TYPICAL, listingPrice, reachedAsk } from './fills';
-import { isk, iskBigSigned, pct } from './format';
+import { fmtShort, isk, iskBigSigned, pct } from './format';
 import { MARKET_MOVED } from './prospects';
 import { priceUp, tickUp } from './tick';
 import type { Order, Position, Tx } from './types';
@@ -137,6 +137,19 @@ function boughtAtOnce(typeId: number, start: number, counted: Order[], others: O
 }
 
 /**
+ * Where `planPlacement` looks for a plan item's orders: everything placed since `from` (the plan's start, less SLACK_MS),
+ * and the newest placed from `start` before that: since the item's position opened when that was within the day before
+ * the plan, else within BEFORE_PLAN_MS of it.
+ */
+function placementWindow(item: PlanItem, plan: Pick<TradePlan, 'at'>, positions: Pick<Position, 'id' | 'typeId' | 'openedAt'>[]): { from: number; start: number } {
+  const planAt = Date.parse(plan.at);
+  const pos = positions.find((x) => x.id === item.positionId && x.typeId === item.typeId);
+  const opened = pos ? Date.parse(pos.openedAt) : NaN;
+  const start = Number.isFinite(opened) && opened < planAt && opened >= planAt - POSITION_BEFORE_MS ? opened : planAt - BEFORE_PLAN_MS;
+  return { from: planAt - SLACK_MS, start };
+}
+
+/**
  * The buy orders you placed for a plan item: buys for the item in Jita 4-4 that count (`counts`). Every one placed since
  * the plan started (its first version is when it was placed; a price change moves `issued`), newest first; and the newest
  * one placed before the plan: since the item's position opened when that was within the day before the plan (the order
@@ -150,13 +163,9 @@ export function planPlacement(
   positions: Pick<Position, 'id' | 'typeId' | 'openedAt'>[] = [],
   trades?: PlanTrades,
 ): Placement | null {
-  const planAt = Date.parse(plan.at);
-  const from = planAt - SLACK_MS;
+  const { from, start } = placementWindow(item, plan, positions);
   const mine = orders.filter((o) => o.isBuy && o.typeId === item.typeId && o.locationId === JITA_44 && counts(o));
   const since = mine.filter((o) => placedAt(o) >= from).sort((a, b) => placedAt(b) - placedAt(a));
-  const pos = positions.find((x) => x.id === item.positionId && x.typeId === item.typeId);
-  const opened = pos ? Date.parse(pos.openedAt) : NaN;
-  const start = Number.isFinite(opened) && opened < planAt && opened >= planAt - POSITION_BEFORE_MS ? opened : planAt - BEFORE_PLAN_MS;
   const earlier = mine.filter((o) => placedAt(o) >= start && placedAt(o) < from).sort((a, b) => placedAt(b) - placedAt(a))[0];
   const all = earlier ? [...since, earlier] : since;
   const others = orders.filter((o) => o.isBuy && o.typeId === item.typeId && o.locationId === JITA_44 && !all.includes(o));
@@ -196,12 +205,84 @@ export function placementNote(item: Pick<PlanItem, 'units'>, pl: Placement, now 
   return { lead, short, atOnce };
 }
 
-export type PlanProgress = { placed: number; of: number; waiting: PlanItem[] };
+/** A position as `planItemState` reads it: whether it's still open, and since when it isn't. */
+export type PlanItemPosition = Pick<Position, 'id' | 'typeId' | 'openedAt'> & Partial<Pick<Position, 'status' | 'closedAt'>>;
 
-/** How far placing the plan has got: which items still have nothing placed for them (a buy order, or a bid that bought at once). */
-export function planProgress(plan: TradePlan, orders: Order[], positions?: Pick<Position, 'id' | 'typeId' | 'openedAt'>[], trades?: PlanTrades): PlanProgress {
-  const waiting = plan.items.filter((i) => !planPlacement(i, plan, orders, positions, trades));
-  return { placed: plan.items.length - waiting.length, of: plan.items.length, waiting };
+/**
+ * Where a plan item stands on the checklist:
+ * - `placed`: a buy order counts for it, or a bid that bought at once (`planPlacement`), whatever its position has done
+ *   since: a bid that filled and sold, its position then closed, was placed.
+ * - `closed`: nothing placed, and its position is closed (`at`, when) or deleted (`gone`): the plan no longer places it.
+ * - `cancelled`: nothing placed, its position open, and a Jita 4-4 buy of the item placed in the window `planPlacement`
+ *   looks in was cancelled with nothing bought (`order`; `at` is when it was placed: ESI doesn't say when an order was
+ *   cancelled, so a bid placed before the plan and cancelled before it started reads the same). A new order placed after
+ *   it is a placement as usual: re-placing at another price counts.
+ * - `open`: still to place.
+ * The user's 2 October plan (8 October 2026): four bids judged "Cancel it" were cancelled with nothing bought and their
+ * positions closed, and To do asked for "9 × Fierce Exotic Filament at 2,813,000" again within the plan's week, at the
+ * price just judged unreachable; "if we have closed them then opening them again could have just been a price adjustment".
+ * An expired bid with nothing bought isn't a choice, so it reads as nothing placed. Without `positions` (or with no
+ * `positionId`) a position's state can't be told and nothing reads as closed.
+ */
+export type PlanItemState =
+  | { state: 'placed'; placement: Placement }
+  | { state: 'closed'; at: number | null; gone: boolean }
+  | { state: 'cancelled'; order: Order; at: number }
+  | { state: 'open' };
+
+export function planItemState(item: PlanItem, plan: Pick<TradePlan, 'at'>, orders: Order[], positions?: PlanItemPosition[], trades?: PlanTrades): PlanItemState {
+  const placement = planPlacement(item, plan, orders, positions, trades);
+  if (placement) return { state: 'placed', placement };
+  if (positions && item.positionId != null) {
+    const pos = positions.find((x) => x.id === item.positionId && x.typeId === item.typeId);
+    if (!pos) return { state: 'closed', at: null, gone: true };
+    if (pos.status === 'closed') {
+      const at = pos.closedAt ? Date.parse(pos.closedAt) : NaN;
+      return { state: 'closed', at: Number.isFinite(at) ? at : null, gone: false };
+    }
+  }
+  const { from, start } = placementWindow(item, plan, positions ?? []);
+  const cancelled = orders
+    .filter((o) => o.isBuy && o.typeId === item.typeId && o.locationId === JITA_44 && o.state === 'cancelled' && filledOf(o) === 0 && placedAt(o) >= Math.min(start, from))
+    .sort((a, b) => placedAt(b) - placedAt(a))[0];
+  return cancelled ? { state: 'cancelled', order: cancelled, at: placedAt(cancelled) } : { state: 'open' };
+}
+
+/** A plan item the plan no longer places: its bid cancelled with nothing bought, or its position closed or deleted. */
+export const droppedState = (s: PlanItemState): s is Extract<PlanItemState, { state: 'closed' | 'cancelled' }> => s.state === 'closed' || s.state === 'cancelled';
+
+/**
+ * What the checklist says of an item the plan no longer places: "Bid cancelled with nothing bought: not placed again",
+ * with the bid; "Position closed 8 Oct: not placed again". ESI doesn't say when a bid was cancelled, so the bid is named
+ * by what it was and when it was placed.
+ */
+export function droppedNote(s: Extract<PlanItemState, { state: 'closed' | 'cancelled' }>): { lead: string; sub: string | null } {
+  if (s.state === 'cancelled') {
+    const n = s.order.volumeTotal.toLocaleString('en-US');
+    return { lead: 'Bid cancelled with nothing bought: not placed again', sub: `Your bid of ${n} at ${isk(s.order.price)}, placed ${fmtShort(s.at)}. Cancelling it took the item off the plan; a new bid would count as placing it.` };
+  }
+  return s.gone
+    ? { lead: 'Position deleted: not placed again', sub: null }
+    : { lead: `Position closed${s.at != null ? ` ${fmtShort(s.at)}` : ''}: not placed again`, sub: null };
+}
+
+/**
+ * How far placing the plan has got: what's placed (a buy order, or a bid that bought at once), what the plan no longer
+ * places (`dropped`: its bid cancelled with nothing bought, its position closed or deleted), and what still has nothing
+ * placed for it (`waiting`). A plan with nothing waiting is done placing, dropped items and all.
+ */
+export type PlanProgress = { placed: number; of: number; waiting: PlanItem[]; dropped: PlanItem[] };
+
+export function planProgress(plan: TradePlan, orders: Order[], positions?: PlanItemPosition[], trades?: PlanTrades): PlanProgress {
+  const waiting: PlanItem[] = [], dropped: PlanItem[] = [];
+  let placed = 0;
+  for (const i of plan.items) {
+    const s = planItemState(i, plan, orders, positions, trades);
+    if (s.state === 'placed') placed++;
+    else if (droppedState(s)) dropped.push(i);
+    else waiting.push(i);
+  }
+  return { placed, of: plan.items.length, waiting, dropped };
 }
 
 /**

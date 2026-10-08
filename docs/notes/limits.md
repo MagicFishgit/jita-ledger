@@ -101,9 +101,14 @@ State these rather than letting them be discovered:
 - **A plan's buy is judged at today's fees and its plan's sale price.** `expected` uses today's rates, not the planner's
   then; the plan's price caps the resale even after the market rose past it; fees already paid on an order count against
   a raise; the guard doesn't look at whether the bid is visibly filling (the Key filled 16 → 9 → 7 and could still read
-  Keep it); and Cancel it (`dry`) on an unreached plan buy is still judged against your target, not the plan's floor.
+  Keep it). An unreached plan bid is judged by the same guard (since 8 October 2026), so it relaxes Cancel it only for a
+  plan expecting under twice your target; above that the plan's price, where lower than the market's, makes it stricter.
   Orders' check of it was one snapshot of the user's orders with 4 buys (1 October 2026): the Praxis replay and the Key
-  are the evidence.
+  are the evidence; the unreached rule's, 16 open plan buys on 8 October with no cloud flow (market-reading.md).
+- **A plan bid cancelled with nothing bought takes its item off the plan, wherever it was placed in the window**: ESI
+  doesn't say when an order was cancelled, so a bid placed in the hour before the plan (or since its position opened) and
+  cancelled before the plan started reads as cancelled for the plan too, and the checklist doesn't ask for it. A new bid
+  counts as placing it. An expired bid with nothing bought is asked for again (finding-trades.md).
 - **The token guard's history lags a market that moved over 10% within the fortnight**: falling, a real undercutter can
   read as a token. The share and day's-volume guards catch most (the Key's sell: 26 ahead against its pace).
 - **A plan's view of a position it shares is split by time, not by order** (positions-results). A bid placed before the
