@@ -10,7 +10,7 @@
 import { createServer } from 'vite';
 import { chromium } from 'playwright-core';
 
-const PORT = 5188;
+const PORT = Number(process.env.PORT) || 5188;
 const BASE = `http://localhost:${PORT}/jita-ledger/`;
 /** Where the browser stores are seeded from: the app's origin, but not the app. */
 const SEED_PAGE = `${BASE}src/lib/constants.ts`;

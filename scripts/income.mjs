@@ -10,7 +10,7 @@ import { createServer } from 'vite';
 import { chromium } from 'playwright-core';
 const { NOW, DAY, iso, large, ownerAuth, CANNED_SETS, ALTS, altStoreOf, charsOf, withTransfers } = await import('./ledgers.mjs');
 
-const PORT = 5189;
+const PORT = Number(process.env.PORT) || 5189;
 const BASE = `http://localhost:${PORT}/jita-ledger/`;
 process.env.VITE_CLOUD_URL = 'http://127.0.0.1:9';
 const GOLDEN = new URL('./income-golden.json', import.meta.url);
