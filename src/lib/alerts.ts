@@ -134,7 +134,9 @@ export function orderFindings(list: Relist[], name: (typeId: number) => string):
     } else if (x.verdict === 'dry') {
       // Replaces the advice to move, so it goes out as an order to act on, and is mailed like one.
       out.push({ kind: 'move', key: `dry:${x.orderId}:${x.price}`, isk: x.atRisk, title: 'Buy order unlikely to fill', typeId: x.typeId, name: n, order: orderFacts(x),
-        text: `${n} buy order: trading reached it on ${x.reach} of the last 14 days, and bidding where it does leaves too little margin. Consider cancelling it.` });
+        // A plan's bid says the plan's floor it misses, as Orders, To do and the mail's body do.
+        text: x.plan ? `${n} buy order: ${x.why}. Consider cancelling it.`
+          : `${n} buy order: trading reached it on ${x.reach} of the last 14 days, and bidding where it does leaves too little margin. Consider cancelling it.` });
     } else if (x.verdict === 'wait' && x.beaten && !x.left) {
       // One you're leaving is behind the front on purpose: being beaten is the plan, not news.
       out.push({ kind: 'clearing', key: `clear:${x.orderId}:${x.best}`, isk: x.atRisk, title: ALERT_LABELS.clearing.label, typeId: x.typeId, name: n, order: orderFacts(x),

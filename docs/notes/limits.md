@@ -106,10 +106,13 @@ State these rather than letting them be discovered:
   that the floor is your target and the plan's price, where lower than the market's, makes the move's figure lower.
   Orders' check of it was one snapshot of the user's orders with 4 buys (1 October 2026): the Praxis replay and the Key
   are the evidence; the unreached rule's, 16 open plan buys on 8 October with no cloud flow (market-reading.md).
-- **A plan bid cancelled with nothing bought takes its item off the plan, wherever it was placed in the window**: ESI
-  doesn't say when an order was cancelled, so a bid placed in the hour before the plan (or since its position opened) and
-  cancelled before the plan started reads as cancelled for the plan too, and the checklist doesn't ask for it. A new bid
-  counts as placing it. An expired bid with nothing bought is asked for again (finding-trades.md).
+- **A plan bid cancelled with nothing bought takes its item off the plan, and when it was cancelled can't be told**: ESI
+  doesn't say. So the bids that count are those placed since the plan started (less two minutes' slack), or since the
+  item's position opened when that was within the day before the plan; a bid placed after such a position opened and
+  cancelled before the plan started still reads as cancelled for the plan, and the checklist doesn't ask for it. Not the
+  hour before the plan that placing falls back to: there a bid placed and cancelled before the plan would drop the item
+  for good (the review, 8 October 2026), so a bid placed in that hour and cancelled after the plan started is asked for
+  again. A new bid counts as placing it. An expired bid with nothing bought is asked for again (finding-trades.md).
 - **The token guard's history lags a market that moved over 10% within the fortnight**: falling, a real undercutter can
   read as a token. The share and day's-volume guards catch most (the Key's sell: 26 ahead against its pace).
 - **A plan's view of a position it shares is split by time, not by order** (positions-results). A bid placed before the

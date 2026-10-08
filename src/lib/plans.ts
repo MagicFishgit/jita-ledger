@@ -139,14 +139,14 @@ function boughtAtOnce(typeId: number, start: number, counted: Order[], others: O
 /**
  * Where `planPlacement` looks for a plan item's orders: everything placed since `from` (the plan's start, less SLACK_MS),
  * and the newest placed from `start` before that: since the item's position opened when that was within the day before
- * the plan, else within BEFORE_PLAN_MS of it.
+ * the plan (`opened`), else within BEFORE_PLAN_MS of it.
  */
-function placementWindow(item: PlanItem, plan: Pick<TradePlan, 'at'>, positions: Pick<Position, 'id' | 'typeId' | 'openedAt'>[]): { from: number; start: number } {
+function placementWindow(item: PlanItem, plan: Pick<TradePlan, 'at'>, positions: Pick<Position, 'id' | 'typeId' | 'openedAt'>[]): { from: number; start: number; opened: boolean } {
   const planAt = Date.parse(plan.at);
   const pos = positions.find((x) => x.id === item.positionId && x.typeId === item.typeId);
-  const opened = pos ? Date.parse(pos.openedAt) : NaN;
-  const start = Number.isFinite(opened) && opened < planAt && opened >= planAt - POSITION_BEFORE_MS ? opened : planAt - BEFORE_PLAN_MS;
-  return { from: planAt - SLACK_MS, start };
+  const at = pos ? Date.parse(pos.openedAt) : NaN;
+  const opened = Number.isFinite(at) && at < planAt && at >= planAt - POSITION_BEFORE_MS;
+  return { from: planAt - SLACK_MS, start: opened ? at : planAt - BEFORE_PLAN_MS, opened };
 }
 
 /**
@@ -213,10 +213,12 @@ export type PlanItemPosition = Pick<Position, 'id' | 'typeId' | 'openedAt'> & Pa
  * - `placed`: a buy order counts for it, or a bid that bought at once (`planPlacement`), whatever its position has done
  *   since: a bid that filled and sold, its position then closed, was placed.
  * - `closed`: nothing placed, and its position is closed (`at`, when) or deleted (`gone`): the plan no longer places it.
- * - `cancelled`: nothing placed, its position open, and a Jita 4-4 buy of the item placed in the window `planPlacement`
- *   looks in was cancelled with nothing bought (`order`; `at` is when it was placed: ESI doesn't say when an order was
- *   cancelled, so a bid placed before the plan and cancelled before it started reads the same). A new order placed after
- *   it is a placement as usual: re-placing at another price counts.
+ * - `cancelled`: nothing placed, its position open, and a Jita 4-4 buy of the item placed since the plan started (less
+ *   SLACK_MS), or since its position opened when that was within the day before the plan, was cancelled with nothing
+ *   bought (`order`; `at` is when it was placed: ESI doesn't say when an order was cancelled, so a bid placed after the
+ *   position opened and cancelled before the plan started reads the same). Not the hour before the plan that
+ *   `planPlacement` falls back to: a bid placed and cancelled then, before the plan, would drop the item at once. A new
+ *   order placed after it is a placement as usual: re-placing at another price counts.
  * - `open`: still to place.
  * The user's 2 October plan (8 October 2026): four bids judged "Cancel it" were cancelled with nothing bought and their
  * positions closed, and To do asked for "9 × Fierce Exotic Filament at 2,813,000" again within the plan's week, at the
@@ -241,9 +243,13 @@ export function planItemState(item: PlanItem, plan: Pick<TradePlan, 'at'>, order
       return { state: 'closed', at: Number.isFinite(at) ? at : null, gone: false };
     }
   }
-  const { from, start } = placementWindow(item, plan, positions ?? []);
+  // A bid cancelled before the plan counts only from the position opened for the plan: ESI doesn't say when a bid was
+  // cancelled, so one placed in the hour before a plan and cancelled before it started would otherwise drop the item for
+  // good (the review, 8 October 2026: place a bid, cancel it, then start a plan with the item, and it's never asked for).
+  const { from, start, opened } = placementWindow(item, plan, positions ?? []);
+  const since = opened ? Math.min(start, from) : from;
   const cancelled = orders
-    .filter((o) => o.isBuy && o.typeId === item.typeId && o.locationId === JITA_44 && o.state === 'cancelled' && filledOf(o) === 0 && placedAt(o) >= Math.min(start, from))
+    .filter((o) => o.isBuy && o.typeId === item.typeId && o.locationId === JITA_44 && o.state === 'cancelled' && filledOf(o) === 0 && placedAt(o) >= since)
     .sort((a, b) => placedAt(b) - placedAt(a))[0];
   return cancelled ? { state: 'cancelled', order: cancelled, at: placedAt(cancelled) } : { state: 'open' };
 }

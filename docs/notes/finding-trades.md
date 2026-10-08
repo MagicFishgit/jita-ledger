@@ -220,10 +220,12 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   - **placed**: a counted order or a bid that bought at once, whatever its position did since (five of that plan's items
     filled, sold and were closed: they were placed, not dropped);
   - **closed**: nothing placed, its position closed or deleted (or following another item);
-  - **cancelled**: nothing placed, and a Jita 4-4 buy of it placed in `planPlacement`'s window was cancelled with nothing
-    bought. ESI doesn't say when an order was cancelled, so the checklist names the bid ("Your bid of 9 at 2,813,000 ISK,
-    placed 2 Oct") rather than a date, and a bid placed before the plan and cancelled before it started reads the same
-    (limits.md). A new bid placed after it counts as placing it, as ever: re-placing at another price;
+  - **cancelled**: nothing placed, and a Jita 4-4 buy of it was cancelled with nothing bought, placed since the plan
+    started (less SLACK_MS) or since its position opened when that was within the day before the plan. Not
+    `planPlacement`'s fallback hour before the plan: ESI doesn't say when an order was cancelled, and the review (8
+    October 2026) found that a bid placed, cancelled, and then a plan started with the item never asked for it (limits.md).
+    So the checklist names the bid ("Your bid of 9 at 2,813,000 ISK, placed 2 Oct") rather than a date. A new bid placed
+    after it counts as placing it, as ever: re-placing at another price;
   - **open**: still to place. An expired bid with nothing bought isn't a choice, so it reads as nothing placed and is
     asked for again; with no position named (`positionId` null) or no positions given, nothing reads as closed.
   Closed and cancelled are **dropped**: no "Place a buy order" item; one already listed is done, "You cancelled the bid, so

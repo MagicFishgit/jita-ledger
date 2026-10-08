@@ -1382,6 +1382,17 @@ console.log('\n--- a plan item you cancelled or closed isn’t asked for again (
       planItemState(fe, plan, [{ ...feGone, isBuy: false }], open).state, planItemState(eh, plan, [{ ...feGone, typeId: EH }], open).state],
     ['open', 'open', 'open', 'cancelled']);
   eq('  an expired bid with nothing bought isn’t a choice: still to place', planItemState(fe, plan, [{ ...feGone, state: 'expired' }], open).state, 'open');
+  // The window's edges. ESI doesn't say when a bid was cancelled, so a bid placed and cancelled before the plan started
+  // can't be told from one cancelled after: with no position opened for the plan, only bids placed since its start (less
+  // the two minutes' slack) count, so placing a bid, cancelling it and then starting a plan with the item still asks for
+  // it (the review, 8 October 2026). With a position opened within the day before, from when it opened, as placing does.
+  const before = (min, extra = {}) => B(7435000000 + min, FE, new Date(Date.parse(plan.at) - min * 60_000).toISOString(), { state: 'cancelled', ...extra });
+  eq('  the hour before the plan, no position opened for it: 1 min before counts, 50 and 70 don’t',
+    [planItemState(fe, plan, [before(1)], open).state, planItemState(fe, plan, [before(50)], open).state, planItemState(fe, plan, [before(70)], open).state], ['cancelled', 'open', 'open']);
+  eq('  though a bid 50 min before, still standing, is placed for it', planItemState(fe, plan, [before(50, { state: 'open' })], open).state, 'placed');
+  const early = [{ ...P('fe', FE), openedAt: new Date(Date.parse(plan.at) - 12 * 3600_000).toISOString() }, P('eh', EH), P('rd', RD)];
+  eq('  its position opened 12 h before the plan: a bid cancelled from 6 h or 50 min before counts, one from before the position doesn’t',
+    [planItemState(fe, plan, [before(360)], early).state, planItemState(fe, plan, [before(50)], early).state, planItemState(fe, plan, [before(13 * 60)], early).state], ['cancelled', 'cancelled', 'open']);
   // Closed, as the user then did: the plan no longer places it.
   const closed = [P('fe', FE, 'closed', '2026-10-08T10:14:22.316Z'), P('eh', EH, 'closed', '2026-10-08T10:14:41.168Z'), P('rd', RD)];
   const fc = planItemState(fe, plan, [feGone], closed);
@@ -4891,6 +4902,10 @@ console.log('\n--- a plan’s bid is told to cancel only when no price clears th
   const S = sanitizeSettings({ acc: 5, br: 5, abr: 5, clone: 'omega', override: true, brokerPct: 1, taxPct: 3, target: 5 });
   const j = (plan) => judgeOne(lite, { book, perDay: 50, lows, highs: null, txs: [], yours: [1], plan }, S, Date.parse('2026-10-08T12:00:00Z'));
   eq('judgeOrder: the same item cancels with no plan and moves with one expecting 6%', [j(null).verdict, j({ planId: 'p', buyAt: 100, sellAt: 125, expected: 0.06 }).verdict], ['dry', 'move']);
+  // The browser's alert for a plan bid told to cancel names the plan's floor, as Orders, To do and the mail do.
+  const dryPlan = orderFindings([j({ planId: 'p', buyAt: 100, sellAt: 125, expected: 0.12 })], () => 'Fierce Exotic Filament');
+  eq('the alert for a plan bid to cancel names the plan’s floor; without a plan, as before',
+    [dryPlan[0].order.verdict, dryPlan[0].text.includes('under the plan’s floor, your 5.0% target (it expected 12%). Consider cancelling it.'), orderFindings([j(null)], () => 'X')[0].text.includes('leaves too little margin')], ['dry', true, true]);
 
   // The cloud's mail: a plan bid mailed "RECOMMENDED: cancel this buy order" now gets a move, saying the plan's floor.
   const f = orderFindings([j({ planId: 'p', buyAt: 100, sellAt: 125, expected: 0.06 })], () => 'Fierce Exotic Filament');
