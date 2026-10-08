@@ -4859,20 +4859,21 @@ console.log('\n--- a plan’s bid is told to cancel only when no price clears th
   eq('  saying what it makes, where it sells on, and the plan’s floor', clears.why,
     'The bulk of trading reached your bid on 0 of the last 14 days. At 110 it did on 7 of them, and still makes 4.2% after fees, selling on at 120.9 (where a listing sells now), over the plan’s floor of 4.0% (half the 8.0% it expected)');
   const misses = at({ buyAt: 100, sellAt: 125, expected: 0.09 });
-  eq('a plan expecting 9%: 4.21% misses its 4.5% floor, so cancel it', misses.verdict, 'dry');
+  eq('a plan expecting 9%: 4.21% misses its 4.5% floor and listings miss your 5% target too (4.47%), so cancel it', misses.verdict, 'dry');
   eq('  naming the plan’s floor, not only your target', misses.why,
     'The bulk of trading reached your bid on 0 of the last 14 days. Bidding where it did on 7 of them, 110, would leave 4.2% after fees, selling on at 120.9 (where a listing sells now), under the plan’s floor of 4.5% (half the 9.0% it expected)');
   const capped = at({ buyAt: 100, sellAt: 125, expected: 0.2 });
   eq('a plan expecting 20%: its floor is your 5% target (the cap), so cancel it, saying so', [capped.verdict, capped.why.endsWith('under the plan’s floor, your 5.0% target (it expected 20%)')], ['dry', true]);
   const low = at({ buyAt: 100, sellAt: 119, expected: 0.04 });
   eq('a plan selling under where listings sell is judged at its own price: 2.57% over its 2% floor', [low.verdict, low.why.includes('still makes 2.6% after fees, selling on at 119 (the plan’s price), over the plan’s floor of 2.0% (half the 4.0% it expected)')], ['move', true]);
-  // A bid the guard used to keep: listings sell well over your target, but the plan's own price, which caps the resale,
-  // doesn't clear its floor. "Keep it" is for a reached bid's refused raise; a plan bid trading doesn't reach, with no
-  // price that clears the plan's floor, is Cancel it. The user's 62404 (7,221 at 18,020, reached on 3 of 14 days) read
-  // "Keep it" on 8 October: at 18,970 it would lose 0.6% selling on at the plan's 20,070.
+  // Never a cancel the rule without the plan wouldn't give (the user, 8 October 2026: "Never add a Cancel"). Listings sell
+  // well over your target, but the plan's own price, which caps the resale, doesn't clear its floor: Keep it, as the guard
+  // always said. Compressed Fullerite-C32 (62404, 7,221 at 18,020, reached on 3 of 14 days) read so on 8 October: at
+  // 18,970 it would lose 0.6% selling on at the plan's 20,070.
   const kept = advise(mine, { book: [o(1, true, 100, 1000), o(2, true, 101, 500), o(3, false, 131, 300)], bestSell: 131, lows, targetReturn: 0.05, plan: { buyAt: 100, sellAt: 113, expected: 0.05 } }, RP, 4, 0.05);
-  eq('listings clear your target but the plan’s price misses its floor: cancel it, not keep it', [kept.verdict, kept.keep,
-    kept.why.endsWith('would lose 2.6% after fees, selling on at 113 (the plan’s price), under the plan’s floor of 2.5% (half the 5.0% it expected)')], ['dry', undefined, true]);
+  eq('listings clear your target but the plan’s price misses its floor: keep it, never cancel it', [kept.verdict, kept.keep?.floorFrom, kept.keep?.from, kept.why],
+    ['loss', 'plan', 'plan', 'Don’t raise it: at 110 it would lose 2.6% after fees, selling on at 113 (the plan’s price), under half the 5.0% the plan expected. Keep it at 100']);
+  eq('  without the plan the same bid moves, as before', at(null, { book: [o(1, true, 100, 1000), o(2, true, 101, 500), o(3, false, 131, 300)], bestSell: 131 }).verdict, 'move');
   const nothing = at({ buyAt: 100, sellAt: 125, expected: -0.01 });
   eq('a plan that expected nothing: break-even is the floor', [nothing.verdict, nothing.why.endsWith('over break-even, the least a plan’s buy keeps')], ['move', true]);
   const lose = advise(mine, { book: [o(1, true, 100, 1000), o(2, true, 101, 500), o(3, false, 112, 300)], bestSell: 112, lows, targetReturn: 0.05, plan: { buyAt: 100, sellAt: 125, expected: -0.01 } }, RP, 4, 0.05);

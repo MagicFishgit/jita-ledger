@@ -199,26 +199,31 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   goes under it. A buy whose own price, fees included, costs more than its resale gets back is tagged "Pays more than it
   resells for: breaks even at X" (`overResale`; 0 of the user's 4 buys on 1 October, so no To do item). On their 35
   open orders that evening the cap left no Keep it.
-  **A plan's unreached bid is told to cancel only when no price where trading reaches clears the plan's floor** (the
-  unreached-buy branch of `adviseRelist`, 8 October 2026). It was judged by selling on one step under the best ask
-  against your target, while its raises were judged against the plan's floor: the user cancelled four of the 2 October
-  plan's bids on "Cancel it", and "if it was still profitable" it "could have just been a price adjustment". Now a plan's
-  bid moved to where trading reaches is judged exactly as the guard judges a raise (`guardRet`: the plan's price or where a
-  listing sells now, whichever is lower, every fee and change paid), against the guard's floor: over it, Move it, saying
-  "still makes 4.2% after fees, selling on at 120.9 (where a listing sells now), over the plan's floor of 4.0% (half the
-  8.0% it expected)"; under it, Cancel it, naming the plan's floor ("under the plan's floor, your 5.0% target (it expected
-  20%)" when the target caps it). A buy no plan priced is judged as before. **Keep it is a reached bid's refused raise**: an
-  unreached plan bid the guard used to keep (listings over your target, the plan's own price under its floor) is now Cancel
-  it, since keeping a bid trading doesn't reach waits on nothing: the user's 62404, 7,221 at 18,020 reached on 3 of 14
-  days, read "Keep it" with a move to 18,970 losing 0.6% at the plan's 20,070. **It relaxes only a plan expecting under
-  twice your target**: above that the floor is the target, and the guard's resale (the plan's price where lower) and fees
-  make the figure lower than the old one, never higher. Measured on 8 October (13:13 UTC, `.playwright-mcp/plan-cancel/
-  measure/`: the user's 16 open plan buys from D1's 13:01 read, ESI's public books and history, no cloud flow, the plan's
-  items left): 0 went from Cancel it to Move it, 4 stayed Cancel it, 1 went from Keep it to Cancel it (2 not left). The
-  four cancelled bids replayed on the same books: Fierce Exotic Filament reads Move it under both rules (the market moved
-  since 10:14), the other three Cancel it under both; three of the four expected 13–15%, so their floor was the 5% target.
-  Orders, To do's cancel item and the mail (which now quotes the why for a plan bid's move: `OrderFacts.planned`) name the
-  plan's floor; the cloud's round runs the same rule.
+  **A plan's unreached bid moves when the move clears the plan's floor, and is never told to cancel where the rule without
+  the plan wouldn't** (the unreached-buy branch of `adviseRelist`, 8 October 2026). It was judged by selling on one step
+  under the best ask against your target, while its raises were judged against the plan's floor: the user cancelled four
+  of the 2 October plan's bids on "Cancel it", and "if it was still profitable" it "could have just been a price
+  adjustment". Now, for a plan's bid moved to where trading reaches:
+  - **Move it** when the guard's own figure clears the plan's floor (`guardRet`: the plan's price or where a listing sells
+    now, whichever is lower, every fee and change paid): "still makes 4.2% after fees, selling on at 120.9 (where a listing
+    sells now), over the plan's floor of 4.0% (half the 8.0% it expected)";
+  - **Cancel it** only when it misses that floor and the rule without the plan says cancel too (one step under the best ask
+    misses your target, or no day reached it reliably), naming the plan's floor ("under the plan's floor, your 5.0% target
+    (it expected 20%)" when the target caps it);
+  - **Keep it** otherwise, the guard's own words, as it always said. The user's ruling ("Never add a Cancel"): a first
+    version made this Cancel it too, which turned Compressed Fullerite-C32 (62404, 7,221 at 18,020, reached on 3 of 14
+    days; a move to 18,970 loses 0.6% at the plan's 20,070) from Keep it to Cancel it.
+  A buy no plan priced is judged as before. So a plan's verdict is the old one except where a move now pays, and a move's
+  figure is the honest one: Unstable Heat Sink Mutaplasmid's (49729) read "still makes 253%" at a listing far over where it
+  trades, now "3.5% … selling on at 23,540,000 (the plan's price)". **It relaxes only a plan expecting under twice your
+  target**: above that the floor is the target, and the guard's resale (the plan's price where lower) and fees make the
+  figure lower than the old one. Measured on 8 October (13:13 UTC, `.playwright-mcp/plan-cancel/measure/`: the user's 16
+  open plan buys from D1's 13:01 read, ESI's public books and history, no cloud flow, the plan's items left, and again not
+  left): no verdict changed; the 4 Cancel it now name the plan's floor. The four cancelled bids replayed on the same books:
+  Fierce Exotic Filament reads Move it under both rules (the market moved since 10:14), the other three Cancel it under
+  both; three of the four expected 13–15%, so their floor was the 5% target. Orders, To do's cancel item and the mail
+  (which now quotes the why for a plan bid's move: `OrderFacts.planned`) name the plan's floor; the cloud's round runs the
+  same rule.
 - **The sell side is judged like the buy side** (`askToPlace`, flag `unreachedSell`, "Sells not reached"). An ask
   one step under the best that the bulk of trading reached on fewer than `FILL_RARE` of 14 days is lowered to the
   7th-highest daily high, and an item left with no margin drops out; Busy markets still prices at the top. Stats

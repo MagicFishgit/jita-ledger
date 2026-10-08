@@ -968,16 +968,20 @@ export function adviseRelist(
       why = `${said}. ${there}${sellNow}`;
     }
   } else if (unreached) {
-    // Worth moving to where trading reaches only if selling on from there still makes your target. A plan's bid is
-    // judged as the guard judges its raises: selling on at the lower of the plan's price and where a listing sells now,
-    // after the new bid's broker fee, the price changes already paid and this one, against the plan's floor (PLAN_KEEP of
-    // what it expected, your target if lower, never under break-even). The user's 2 October plan (8 October 2026): four
-    // bids were told "Cancel it" against their 5% target, a bar the plan's own sits under by design; they cancelled them,
-    // and "if it was still profitable" it "could have just been a price adjustment". So a plan's bid is told to cancel
-    // only when the price where trading reaches doesn't clear the plan's floor.
+    // Worth moving to where trading reaches only if selling on from there still makes your target. A plan's bid moves
+    // when the guard says the move pays: selling on at the lower of the plan's price and where a listing sells now, after
+    // the new bid's broker fee, the price changes already paid and this one, against the plan's floor (PLAN_KEEP of what
+    // it expected, your target if lower, never under break-even). The user's 2 October plan (8 October 2026): four bids
+    // were told "Cancel it" against their 5% target, a bar the plan's own sits under by design; they cancelled them, and
+    // "if it was still profitable" it "could have just been a price adjustment". And a plan's bid is never told to cancel
+    // where this rule without the plan wouldn't (the user: "Never add a Cancel"): when the move misses the plan's floor but
+    // selling on one step under the best ask still makes your target, it's Keep it, as the guard always said.
     const sellNet = m.bestSell != null ? tickDown(m.bestSell) * (1 - r.f - r.t) : null;
-    const ret = plan ? guardRet : moves && sellNet != null ? sellNet / (newPrice * (1 + r.f)) - 1 : null;
-    const target = plan ? floor : m.targetReturn ?? 0;
+    const old = moves && sellNet != null ? sellNet / (newPrice * (1 + r.f)) - 1 : null;
+    const target = m.targetReturn ?? 0;
+    const oldDry = old == null || old < target;
+    const ret = plan ? guardRet : old;
+    const bar = plan ? floor : target;
     const said = `The bulk of trading reached your bid on ${reach} of the last ${FILL_WINDOW} days`;
     const at = priceText;
     // For a plan's bid, what the figure rests on: the changes already paid, where it sells on, and the plan's bar.
@@ -986,18 +990,19 @@ export function adviseRelist(
     if (reachAt == null) {
       verdict = 'dry';
       why = `${said}, and the item traded on too few days for any bid to be reached reliably`;
-    } else if (ret == null || ret < target) {
+    } else if ((ret == null || ret < bar) && (!plan || oldDry || !badBuy)) {
       verdict = 'dry';
       why = `${said}. Bidding where it did on ${FILL_TYPICAL} of them, ${at(newPrice)}, ${ret == null ? 'would leave nothing to sell into'
         : plan ? `${ret < 0 ? `would lose ${pctText(-ret)}` : `would leave ${pctText(ret)}`} after fees${onPlan('under')}`
           : ret < 0 ? `would lose ${pctText(-ret)} after fees` : `would leave ${pctText(ret)} after fees, under your ${pctText(target)} target`}`;
     } else if (badBuy) {
-      // Only a buy no plan priced gets here, guarded at break-even: a plan's `ret` is the guard's own, so it can't.
+      // The raise doesn't pay: for a buy no plan priced, under break-even; for a plan's, under its floor while listings
+      // still clear your target (a cancel the rule without the plan wouldn't give). Keep it, the guard's own words.
       verdict = 'loss';
       why = keepWhy();
     } else {
       verdict = 'move';
-      why = `${said}. At ${at(newPrice)} it did on ${FILL_TYPICAL} of them, and still makes ${pctText(ret)} after fees${onPlan('over')}`;
+      why = `${said}. At ${at(newPrice)} it did on ${FILL_TYPICAL} of them, and still makes ${pctText(ret!)} after fees${onPlan('over')}`;
     }
   } else if (!beaten) {
     verdict = 'front';
