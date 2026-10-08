@@ -178,12 +178,19 @@ export const whereLabel = (w: Pick<Where, 'chain' | 'flag' | 'bay'>, typeName: (
 /**
  * When each of ESI's copies behind a row was taken, ms: your assets (this read), your trades and your orders (the last
  * sync's). ESI holds them an hour, an hour and 20 minutes (eve-facts.md), so they're of different ages, and a fill, a
- * listing or a sale between two of them shows in one and not the other (`Stale`). Null when not known.
+ * listing or a sale between two of them shows in one and not the other (`Stale`, `TrackedRow.fills`). `tradesDue`: when
+ * ESI lets go of the trades' copy, so a sync before then reads the same one. Null when not known.
  */
-export type Copies = { assets: number | null; trades: number | null; orders: number | null };
+export type Copies = { assets: number | null; trades: number | null; orders: number | null; tradesDue: number | null };
 /** ESI holds your trades an hour and your orders 20 minutes (eve-facts.md). */
 export const TRADES_HELD_MS = 3600_000;
 export const ORDERS_HELD_MS = 20 * 60_000;
+/**
+ * Copies taken within this of each other are one moment. One read pass takes all three seconds apart, the hangar's last
+ * (the sync reads trades, orders, then assets; the cloud's archive orders, trades, then assets), and judged as different
+ * moments every item with an open bid read as off with nothing having happened (the re-review of 4f5a95d).
+ */
+export const SAME_READ_MS = 5 * 60_000;
 
 /**
  * The copies' times: your assets' from this read (`assetsTakenAt`); your trades' from when the sync said ESI lets them go
@@ -196,30 +203,32 @@ export function copiesOf(d: { meta?: { expiries?: { transactions?: string; order
   const newest = Object.values(d.txs ?? {}).reduce((m, t) => (t.source === 'esi' ? Math.max(m, ts(t.date)) : m), -Infinity);
   const trades = Math.max(at(d.meta?.expiries?.transactions, TRADES_HELD_MS), at(d.meta?.tradesFreshAt, TRADES_HELD_MS), Number.isFinite(newest) ? newest : -Infinity);
   const orders = at(d.meta?.expiries?.orders, ORDERS_HELD_MS);
-  return { assets, trades: Number.isFinite(trades) ? trades : null, orders: Number.isFinite(orders) ? orders : null };
+  const due = Math.max(at(d.meta?.expiries?.transactions, 0), at(d.meta?.tradesFreshAt, 0));
+  return { assets, trades: Number.isFinite(trades) ? trades : null, orders: Number.isFinite(orders) ? orders : null, tradesDue: Number.isFinite(due) ? due : null };
 }
 
 /**
- * Why a row's count may be off, ESI's copies being of different ages (the review of 3 October 2026). Each makes units
- * read as not the position's that are, and the Exclude the lead would advise would take real sales out of the position:
- * - `bought`: your hangar's copy is newer than your trades', and a buy order of yours has filled more than your trades
- *   show, or one was still open when your orders were read before the hangar's copy (it may have filled in between): units
- *   in the hangar the position doesn't have yet. A plan's bids filling is exactly this;
+ * Why a row's count may be off, ESI's copies being of different ages (the review of 3 October 2026): units counted twice
+ * or let go, read as not the position's, and an Exclude advised on them would take real sales out of the position. Such a
+ * row stays out of the lead.
  * - `listed`: an open sell order of yours placed after the hangar's copy: its units are in that copy and on the order;
  * - `sold`: a sale your trades show after the hangar's copy, not from a sell order placed before it (into a bid, say): the
  *   position has let them go and the copy still holds them; or one after your orders were read from a sell order of yours,
  *   whose units the orders still list.
- * `bought` clears once your trades and orders are read again past the hangar's copy (Check for new trades); `listed` and
- * `sold` once ESI lets go of its copy of your hangar and it's read again.
+ * Both clear only once ESI lets go of its copy of your hangar and it's read again. A bid's fills your trades don't show
+ * yet are said apart (`TrackedRow.fills`): the row stays in the lead with what's certain.
  */
-export type Stale = 'bought' | 'listed' | 'sold';
+export type Stale = 'listed' | 'sold';
 
 /** One item in the place picked that an open position counts. */
 export type TrackedRow = {
   typeId: number;
   /** Units held in the place picked, and where they lie in it. */
   here: number; where: Where[];
-  /** The position to open: the plan's when a plan holds the item, else the earliest opened; and every open one of the item. */
+  /**
+   * The position to open: the earliest opened, the one new sales go to (`ownerAt` gives a trade two cover to the
+   * earlier-opened); and every open one of the item.
+   */
   pos: Position; positions: Position[];
   /**
    * What the open positions of the item count as their own stock, together (two can be open: each trade is one's, by
@@ -250,6 +259,15 @@ export type TrackedRow = {
   notPositions: number | null;
   /** Why the count may be off, from the copies' different ages; empty when it can be trusted (or no copies were given). */
   stale: Stale[];
+  /**
+   * Units your bids of the item filled that your trades don't show yet and that could be in the hangar's copy: with that
+   * copy more than `SAME_READ_MS` newer than your trades', each bid's fills not matched to a trade, less those it's known
+   * to have filled after the copy (from a version of it first seen after it). They may be among the units counted. 0
+   * within one read pass, or with no copies given.
+   */
+  fills: number;
+  /** What's certain of `notPositions`: less every unit that may be a bid's fill (`fills`), never below 0. */
+  atLeast: number | null;
   /** Whether a sale where the pick is would count: always in Jita 4-4; elsewhere only for a position not limited to it. */
   countsHere: boolean;
 };
@@ -276,6 +294,11 @@ const filledOf = (o: Order) => Math.max(0, o.volumeTotal - o.volumeRemain);
 const pricesOf = (o: Order) => new Set([o.price, ...(o.seen ?? []).map((v) => v.price)]);
 /** Trade and order times are to the second; a bid that buys at once does so in the second it's placed. */
 const SLACK_MS = 1000;
+/**
+ * How long after a bid was placed a buy at under its price is taken as the bid buying at once from listings. Any later
+ * and it may be an unrelated purchase (the re-review): then it's no fill of the bid's, which can only lower "at least".
+ */
+const AT_ONCE_MS = 60_000;
 
 /**
  * The rows for the place picked. `ordersKnown`: whether your orders have been read; without them the listing and what
@@ -313,39 +336,49 @@ export function hangarCheck(x: { d: Data; s: Settings; places: Place[]; pick: Ha
   const whereOf = (m: Map<string, Where>) => [...m.values()].sort((a, b) => rank(a) - rank(b) || b.q - a.q || a.key.localeCompare(b.key));
 
   /**
-   * Units your bids of the item have filled that your trades don't show. A standing bid fills at its own price, so trades
-   * at one of its prices are its fills first, each bid in the order placed; then a bid that bought at once from listings
-   * paid their prices (never more than its own), from the second it was placed. A bid placed before your trades begin is
-   * held to its fills since the app first saw it (`seen[0].remain`), the rest predating the ledger.
+   * Units your bids of the item filled that your trades don't show yet and that could be in the hangar's copy (`fills`):
+   * only when that copy is more than `SAME_READ_MS` newer than your trades' (a trades' time not known is taken as long
+   * ago). A standing bid fills at its own price, so trades at one of its prices since it was placed are its fills first,
+   * each bid in the order placed; then a bid that bought at once from listings paid their prices (never more than its
+   * own), within `AT_ONCE_MS` of placing it. A bid placed before your trades begin is held to its fills since the app first
+   * saw it (`seen[0].remain`), the rest predating the ledger. What's left, less what a bid is known to have filled after
+   * the hangar's copy (a version of it first seen after the copy, and what it has filled since), may be in the copy.
+   * A bid first seen at a price change has fills from before it that no trade since matches: they read as maybe its fills,
+   * which only lowers "at least".
    */
-  const unrecordedFills = (typeId: number, inScope: (loc: number | undefined) => boolean): number => {
+  const fillsOf = (typeId: number, inScope: (loc: number | undefined) => boolean): number => {
+    if (!copies || copies.assets == null) return 0;
+    const A = copies.assets;
+    if (A - (copies.trades ?? -Infinity) <= SAME_READ_MS) return 0;
     const bids = orders.filter((o) => o.isBuy && o.typeId === typeId && inScope(o.locationId)).sort((a, b) => placedAt(a) - placedAt(b) || a.orderId - b.orderId);
     const buys = txs.filter((t) => t.isBuy && t.typeId === typeId && inScope(t.locationId)).map((t) => ({ t, left: t.qty }));
     const need = new Map(bids.map((o) => [o.orderId, placedAt(o) >= firstTrade - SLACK_MS ? filledOf(o) : Math.max(0, (o.seen?.[0]?.remain ?? o.volumeRemain) - o.volumeRemain)]));
-    const take = (o: Order, from: number, ok: (price: number) => boolean) => {
+    const take = (o: Order, from: number, to: number, ok: (price: number) => boolean) => {
       let n = need.get(o.orderId) ?? 0;
       for (const b of buys) {
         if (n <= 0) break;
-        if (b.left <= 0 || (b.t.locationId != null && b.t.locationId !== o.locationId) || ts(b.t.date) < from || !ok(b.t.unitPrice)) continue;
+        const at = ts(b.t.date);
+        if (b.left <= 0 || (b.t.locationId != null && b.t.locationId !== o.locationId) || at < from || at > to || !ok(b.t.unitPrice)) continue;
         const k = Math.min(n, b.left);
         b.left -= k; n -= k;
       }
       need.set(o.orderId, n);
     };
-    for (const o of bids) { const own = pricesOf(o); take(o, firstTrade, (p) => own.has(p)); }
-    for (const o of bids) { const top = Math.max(...pricesOf(o)); take(o, placedAt(o) - SLACK_MS, (p) => p <= top); }
-    return [...need.values()].reduce((n, v) => n + v, 0);
+    for (const o of bids) { const own = pricesOf(o); take(o, placedAt(o) - SLACK_MS, Infinity, (p) => own.has(p)); }
+    for (const o of bids) { const top = Math.max(...pricesOf(o)); take(o, placedAt(o) - SLACK_MS, placedAt(o) + AT_ONCE_MS, (p) => p <= top); }
+    return bids.reduce((n, o) => {
+      const since = (o.seen ?? []).find((v) => ts(v.issued) > A);
+      const after = since ? Math.max(0, since.remain - o.volumeRemain) : 0;
+      return n + Math.max(0, (need.get(o.orderId) ?? 0) - after);
+    }, 0);
   };
 
   /** Why a type's count may be off (`Stale`), from its orders and trades where the positions count. */
-  const staleOf = (typeId: number, wide: boolean): Stale[] => {
+  const staleOf = (typeId: number, inScope: (loc: number | undefined) => boolean): Stale[] => {
     if (!copies || copies.assets == null) return [];
-    const inScope = (loc: number | undefined) => wide || loc === jitaId;
-    // A copy whose time isn't known is taken as long ago: anything could have happened since.
-    const A = copies.assets, T = copies.trades ?? -Infinity, O = copies.orders ?? -Infinity;
+    const A = copies.assets, O = copies.orders;
     const mine = orders.filter((o) => o.typeId === typeId && inScope(o.locationId));
     const out: Stale[] = [];
-    if (A > T && (unrecordedFills(typeId, inScope) > 0 || (O < A && mine.some((o) => o.isBuy && o.state === 'open' && o.volumeRemain > 0)))) out.push('bought');
     const sells = mine.filter((o) => !o.isBuy);
     if (sells.some((o) => o.state === 'open' && o.volumeRemain > 0 && placedAt(o) > A)) out.push('listed');
     // A listing sells at its own price, so a sale at one of a sell order's prices is taken to be from it. A sale into a bid
@@ -353,7 +386,8 @@ export function hangarCheck(x: { d: Data; s: Settings; places: Place[]; pick: Ha
     const fromOne = (list: Order[], price: number) => list.some((o) => pricesOf(o).has(price));
     const listedBefore = sells.filter((o) => placedAt(o) <= A);
     const sales = txs.filter((t) => !t.isBuy && t.typeId === typeId && inScope(t.locationId));
-    if (sales.some((t) => (ts(t.date) > A && !fromOne(listedBefore, t.unitPrice)) || (ts(t.date) > O && fromOne(sells, t.unitPrice)))) out.push('sold');
+    // The orders' time not known, the second clause can't say, and says nothing (the re-review).
+    if (sales.some((t) => (ts(t.date) > A && !fromOne(listedBefore, t.unitPrice)) || (O != null && ts(t.date) > O && fromOne(sells, t.unitPrice)))) out.push('sold');
     return out;
   };
 
@@ -390,15 +424,17 @@ export function hangarCheck(x: { d: Data; s: Settings; places: Place[]; pick: Ha
       } catch { plan = null; }
     }
     const held = heldIn(typeId, wide);
+    const inScope = (loc: number | undefined) => wide || loc === jitaId;
+    const notPositions = stock != null && listed != null ? Math.max(0, held + listed - stock) : null;
+    const fills = fillsOf(typeId, inScope);
     tracked.push({
-      typeId, here: h.q, where, pos: planPos ?? positions[0], positions, stock, plan, wide, held, listed, buying,
-      notPositions: stock != null && listed != null ? Math.max(0, held + listed - stock) : null,
-      stale: staleOf(typeId, wide),
+      typeId, here: h.q, where, pos: positions[0], positions, stock, plan, wide, held, listed, buying, notPositions,
+      stale: staleOf(typeId, inScope), fills, atLeast: notPositions == null ? null : Math.max(0, notPositions - fills),
       countsHere: pick.place === jitaId || wide,
     });
   }
-  const tier = (r: TrackedRow) => ((r.notPositions ?? 0) > 0 ? (r.stale.length ? 1 : 0) : 2);
-  tracked.sort((a, b) => tier(a) - tier(b) || (b.notPositions ?? 0) - (a.notPositions ?? 0) || b.here - a.here || a.typeId - b.typeId);
+  const tier = (r: TrackedRow) => ((r.notPositions ?? 0) > 0 ? (r.stale.length || !r.atLeast ? 1 : 0) : 2);
+  tracked.sort((a, b) => tier(a) - tier(b) || (b.atLeast ?? 0) - (a.atLeast ?? 0) || (b.notPositions ?? 0) - (a.notPositions ?? 0) || b.here - a.here || a.typeId - b.typeId);
   ordersOnly.sort((a, b) => b.here - a.here || a.typeId - b.typeId);
   return { tracked, ordersOnly, outside: pick.place !== jitaId };
 }
@@ -406,34 +442,74 @@ export function hangarCheck(x: { d: Data; s: Settings; places: Place[]; pick: Ha
 /**
  * The rows the lead speaks of, and the ones it leaves out as possibly off. Only rows where a sale in the place picked
  * would count: outside Jita 4-4 a Jita-only position's row sits under "Sold here they don't count", and a lead telling you
- * to Exclude sales beside it read as the opposite (the review). A row whose count may be off (`Stale`) is said apart.
+ * to Exclude sales beside it read as the opposite (the review). A row with a listing or a sale between ESI's copies
+ * (`Stale`), or whose every unit counted may be a bid's fill (`atLeast` 0), is said apart; one with some of each stays,
+ * at what's certain.
  */
 export function leadRows(c: HangarCheck): { sure: TrackedRow[]; unsure: TrackedRow[] } {
   const over = c.tracked.filter((r) => (r.notPositions ?? 0) > 0 && r.countsHere);
-  return { sure: over.filter((r) => !r.stale.length), unsure: over.filter((r) => r.stale.length > 0) };
+  const sure = over.filter((r) => !r.stale.length && (r.atLeast ?? 0) > 0);
+  return { sure, unsure: over.filter((r) => !sure.includes(r)) };
+}
+
+/** A time kept on one line: a narrow cell broke "8 Oct" across two. */
+const at1 = (t: number) => fmtDateTime(t).replace(/ /g, ' ');
+const readAt = (c: Copies | undefined) => (c?.trades != null && Number.isFinite(c.trades) ? `, ${at1(c.trades)}` : '');
+
+/**
+ * The lead's first sentence: "10 of Datacore - Rocket Science aren't the position's." With some of them maybe a bid's
+ * fills your trades don't show yet, what's certain, and the rest said: "At least 10 of …; up to 188 more may be your bid's
+ * fills since your trades were read, 2 Oct, 17:00 ET." Without the item's name yet, never "Item #20420" in a sentence:
+ * "Some of it isn't the position's."
+ */
+export function leadSaid(sure: TrackedRow[], name: (typeId: number) => string | null, copies?: Copies): string | null {
+  if (!sure.length) return null;
+  if (sure.length > 1) {
+    return `${units(sure.length)} items have units that aren’t their position’s.`
+      + (sure.some((r) => r.fills > 0) ? ` Where a count says “at least”, the rest may be your bids’ fills since your trades were read${readAt(copies)}.` : '');
+  }
+  const r = sure[0], n = r.notPositions ?? 0, least = r.atLeast ?? n, nm = name(r.typeId);
+  if (!nm) return 'Some of it isn’t the position’s.';
+  const is = (k: number) => (k === 1 ? 'isn’t' : 'aren’t');
+  return least < n
+    ? `At least ${units(least)} of ${nm} ${is(least)} the position’s; up to ${units(n - least)} more may be your bid’s fills since your trades were read${readAt(copies)}.`
+    : `${units(n)} of ${nm} ${is(n)} the position’s.`;
 }
 
 /**
- * The lead's first sentence: "10 of Datacore - Rocket Science aren't the position's." Without the item's name yet, never
- * "Item #20420" in a sentence: "Some of it isn't the position's."
+ * Why a row's count may be off, in its cell: "Up to 188 more may be your bid's fills since your trades were read, 2 Oct,
+ * 17:00 ET.", "May include units listed since ESI's copy of your hangar, 2 Oct, 18:30 ET." Null when nothing is.
  */
-export function leadSaid(sure: TrackedRow[], name: (typeId: number) => string | null): string | null {
-  if (!sure.length) return null;
-  if (sure.length > 1) return `${units(sure.length)} items have units that aren’t their position’s.`;
-  const r = sure[0], n = r.notPositions ?? 0, nm = name(r.typeId);
-  return nm ? `${units(n)} of ${nm} ${n === 1 ? 'isn’t' : 'aren’t'} the position’s.` : 'Some of it isn’t the position’s.';
+export function doubtSaid(r: Pick<TrackedRow, 'stale' | 'fills' | 'notPositions' | 'atLeast'>, copies: Copies | undefined): string | null {
+  const parts: string[] = [];
+  const n = r.notPositions ?? 0, least = r.atLeast ?? n;
+  if (r.fills > 0 && n > 0) {
+    parts.push(least > 0 ? `Up to ${units(n - least)} more may be your bid’s fills since your trades were read${readAt(copies)}.`
+      : `${n === 1 ? 'It may be your bid’s fill' : `All ${units(n)} may be your bid’s fills`} since your trades were read${readAt(copies)}.`);
+  }
+  const moved = [r.stale.includes('listed') && 'listed', r.stale.includes('sold') && 'sold'].filter(Boolean).join(' or ');
+  if (moved) parts.push(`May include units ${moved} since ESI’s copy of your hangar${copies?.assets != null ? `, ${at1(copies.assets)}` : ''}.`);
+  return parts.length ? parts.join(' ') : null;
 }
 
-/** Why a row's count may be off, in its cell: "May include units bought since your trades were read, 3 Oct, 14:02 ET." */
-export function staleSaid(stale: Stale[], copies: Copies | undefined): string | null {
-  if (!stale.length) return null;
-  // The time kept on one line: a narrow cell broke "8 Oct" across two.
-  const when = (t: number | null | undefined) => (t != null && Number.isFinite(t) ? `, ${fmtDateTime(t).replace(/ /g, '\u00a0')}` : '');
-  const parts: string[] = [];
-  if (stale.includes('bought')) parts.push(`bought since your trades were read${when(copies?.trades)}`);
-  const moved = [stale.includes('listed') && 'listed', stale.includes('sold') && 'sold'].filter(Boolean).join(' or ');
-  if (moved) parts.push(`${moved} since ESI’s copy of your hangar${when(copies?.assets)}`);
-  return `May include units ${parts.join(', or ')}.`;
+/** When ESI lets go of the copy of your trades the last read got: a sync before then reads the same copy. */
+export const tradesDueAt = (copies: Copies | undefined): number | null =>
+  copies?.tradesDue ?? (copies?.trades != null ? copies.trades + TRADES_HELD_MS : null);
+
+/**
+ * What no copy can show, as a line on the lead (the re-review): with ESI's copy of your hangar more than `SAME_READ_MS`
+ * newer than your trades', a purchase from a listing (no order behind it) or a bid's fill since your trades were read is
+ * in the hangar and not in the position yet. Said with when ESI's next copy of your trades is due: a sync before then reads
+ * the same copy, so `canSync` only once it's due. A trades' copy newer than the hangar's errs safe: nothing is said.
+ */
+export function softSaid(copies: Copies | undefined, now: number): { text: string; canSync: boolean } | null {
+  if (!copies || copies.assets == null) return null;
+  const T = copies.trades;
+  if (T != null && copies.assets - T <= SAME_READ_MS) return null;
+  const q = `Bought any from a listing, or did a bid of yours fill, since your trades were read${T != null ? ` at ${at1(T)}` : ''}? Those read as not the position’s until`;
+  const due = tradesDueAt(copies);
+  if (due != null && due > now) return { text: `${q} ESI’s next copy of your trades, due ${at1(due)}: Check for new trades won’t bring them in before then.`, canSync: false };
+  return { text: `${q} your trades are read again: ${due != null ? 'ESI has a newer copy, so check' : 'check'} for new trades.`, canSync: true };
 }
 
 /**

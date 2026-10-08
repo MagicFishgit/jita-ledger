@@ -1229,14 +1229,15 @@ try {
         hc2: { id: 'hc2', source: 'esi', typeId: DC, date: iso(now - 4 * 86400_000), isBuy: true, qty: 2, unitPrice: 600_000, locationId: JITA_ },
       },
       orders: {
-        1: { orderId: 1, typeId: RS, isBuy: true, price: 85_000, volumeTotal: 20, volumeRemain: 8, issued: iso(now - 1.5 * 86400_000), state: 'open', locationId: JITA_ },
+        // The plan's bid has filled 14, 2 more than the trades show (filled since your trades were read).
+        1: { orderId: 1, typeId: RS, isBuy: true, price: 85_000, volumeTotal: 20, volumeRemain: 6, issued: iso(now - 1.5 * 86400_000), state: 'open', locationId: JITA_ },
         2: { orderId: 2, typeId: HH, isBuy: false, price: 900_000, volumeTotal: 6, volumeRemain: 5, issued: iso(now - 86400_000), state: 'open', locationId: JITA_ },
         // One of the Damage Control IIs listed 3 minutes ago, after ESI's copy of the hangar (10 minutes old) that still holds it.
         3: { orderId: 3, typeId: DC, isBuy: false, price: 650_000, volumeTotal: 1, volumeRemain: 1, issued: iso(now - 180_000), state: 'open', locationId: JITA_, seen: [{ issued: iso(now - 180_000), price: 650_000, remain: 1 }] },
       },
-      // The last sync read your trades 5 minutes ago and your orders 2 minutes ago (ESI holds them an hour and 20 minutes),
-      // both after the hangar's copy: only the listing placed since it may be off.
-      meta: { lastSync: iso(now - 60_000), expiries: { transactions: iso(now + 55 * 60_000), orders: iso(now + 18 * 60_000) } },
+      // The last sync read your trades 6 minutes ago and your orders 2 minutes ago (ESI holds them an hour and 20 minutes),
+      // both after the hangar's first copy: only the listing placed since it may be off.
+      meta: { lastSync: iso(now - 60_000), expiries: { transactions: iso(now + 54 * 60_000), orders: iso(now + 18 * 60_000) } },
     };
     const A = (item_id, type_id, location_id, location_flag, location_type, quantity = 1, extra = {}) => ({ item_id, type_id, location_id, location_flag, location_type, quantity, ...extra });
     const assets = [
@@ -1321,6 +1322,7 @@ try {
     }
     if (!(await dialog.locator('.notice', { hasText: '10 of Datacore - Rocket Science aren’t the position’s. Selling those units counts against the position (and the plan): sell them and Exclude each sale on the position’s page' }).count())) problems.push('Lewds: no lead line naming the datacore’s 10 and saying to Exclude each sale');
     if (await dialog.locator('[data-hc="unsure"]').count()) problems.push('Lewds: a count said to be off, with every copy read after the hangar’s');
+    if (await dialog.locator('[data-hc="soft"]').count()) problems.push('Lewds: the line about purchases since your trades were read, with your trades read after the hangar’s copy');
     if (await row(BP).count()) problems.push('Lewds: the blueprint copy is counted (a row for Drake Blueprint)');
     if (!(await dialog.locator('[data-hc="orders"] li', { hasText: 'Hammerhead II' }).count())) problems.push('Lewds: the drones on a sell order aren’t in the second list');
     if ((await dialog.innerText().catch(() => '')).includes('Tritanium')) problems.push('Lewds: Tritanium, which no position or order covers, is listed');
@@ -1356,8 +1358,9 @@ try {
     if (await dialog.locator('.notice', { hasText: 'Exclude each sale' }).count()) problems.push('Amarr: a lead to Exclude sales beside “Sold here they don’t count” (the review)');
     if (SHOTS) { await page.waitForTimeout(600); await page.screenshot({ path: `${SHOTS}-hangar-amarr.png` }); }
     // Closed and opened again: the hangar read afresh, the pick kept. This time ESI refuses the names, and its copy of the
-    // hangar is 10 seconds old: newer than your trades and orders, with the plan's bid still open when they were read, so
-    // the datacore's count may hold units it bought since, and Check for new trades is offered.
+    // hangar is 10 seconds old, about 6 minutes newer than your trades (past one read pass): the plan's bid has filled 2 more
+    // than the trades show, so at least 8 of the 10 aren't the position's and up to 2 more may be its fills, still in the
+    // lead; and a line says what no copy can show, with ESI's next copy of your trades not due, so no Check for new trades.
     await pickSpot(`${JITA_}/item:${LEWDS}`);
     await page.keyboard.press('Escape');
     await page.waitForTimeout(400);
@@ -1370,10 +1373,15 @@ try {
     if (!again.includes('The names you gave your containers and ships couldn’t be read just now, so they go by their type.')) problems.push('names refused: the dialog doesn’t say they go by their type');
     const relabelled = await page.locator('#hc-where option').evaluateAll((os) => os.map((o) => `${o.value}|${o.textContent}`)).catch(() => []);
     if (!relabelled.some((o) => o.startsWith(`${JITA_}/item:${LEWDS}|Station Container · 113 units`))) problems.push(`names refused: Lewds doesn’t go by its type (${relabelled.join('; ').slice(0, 200)})`);
-    if ((await row(RS).getAttribute('data-stale').catch(() => null)) !== 'bought') problems.push(`a hangar copy newer than your trades, the plan’s bid open: the datacore isn’t said to be off (data-stale “${await row(RS).getAttribute('data-stale').catch(() => '')}”)`);
-    if (!(await row(RS).innerText().catch(() => '')).replace(/\s+/g, ' ').includes('May include units bought since your trades were read')) problems.push('the datacore’s cell doesn’t say it may include units bought since your trades were read');
-    if (!(await dialog.locator('[data-hc="unsure"] button', { hasText: 'Check for new trades' }).count())) problems.push('no Check for new trades offered for a count that may hold units bought since');
-    if (await dialog.locator('.notice.warn', { hasText: 'Exclude each sale' }).count()) problems.push('a lead to Exclude sales on a count that may be off');
+    const [least, fills] = [await row(RS).getAttribute('data-least').catch(() => null), await row(RS).getAttribute('data-fills').catch(() => null)];
+    if (least !== '8' || fills !== '2') problems.push(`the bid’s 2 fills the trades don’t show: the datacore reads at least ${least}, ${fills} maybe fills, not 8 and 2`);
+    if (await row(RS).getAttribute('data-stale').catch(() => null)) problems.push('the datacore is said to be off for its bid’s fills: they’re said apart, the row stays');
+    // The table's cell at a desk, the line under the name on a phone ("at least 8, of the 22 …").
+    if (!/at least 8,? of the 22 you hold in Jita 4-4/.test((await row(RS).innerText().catch(() => '')).replace(/\s+/g, ' '))) problems.push('the datacore’s cell doesn’t say “at least 8”');
+    if (!(await dialog.locator('.notice.warn', { hasText: 'At least 8 of Datacore - Rocket Science aren’t the position’s; up to 2 more may be your bid’s fills since your trades were read' }).count())) problems.push('the lead doesn’t say at least 8, and up to 2 more may be the bid’s fills');
+    if (!(await dialog.locator('[data-hc="soft"]', { hasText: 'Bought any from a listing, or did a bid of yours fill, since your trades were read at' }).count())) problems.push('no line about purchases and fills since your trades were read');
+    if (!(await dialog.locator('[data-hc="soft"]', { hasText: 'Check for new trades won’t bring them in before then' }).count())) problems.push('the line doesn’t say Check for new trades won’t help before ESI’s next copy');
+    if (await dialog.locator('[data-hc="soft"] button').count()) problems.push('Check for new trades offered before ESI’s next copy of your trades is due');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out with a count that may be off: ${o}`);
     if (SHOTS) { await page.waitForTimeout(600); await page.screenshot({ path: `${SHOTS}-hangar-unsure.png` }); }
     // A failed read says so; the last read stays behind it.
@@ -1386,7 +1394,7 @@ try {
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'hangar', page: 'positions', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL hangar #positions\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   hangar #positions (Check my hangar: Lewds’ loot of the plan’s datacore, 10 not the position’s; the fitted module and the copy left out; the drones on a sell order; a listing after the hangar’s copy said to be off; Amarr; the pick kept, the names refused, a bid that may have filled since your trades; a failed read)\n');
+    process.stdout.write(unique.length ? `  FAIL hangar #positions\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   hangar #positions (Check my hangar: Lewds’ loot of the plan’s datacore, 10 not the position’s; the fitted module and the copy left out; the drones on a sell order; a listing after the hangar’s copy said to be off; Amarr; the pick kept, the names refused, at least 8 with a bid’s 2 fills said apart and the line about your trades; a failed read)\n');
     await page.close();
   }
   // The Sniper with finds (2 October 2026: blueprints out unless asked, and Copy for Multibuy). The cloud answers its

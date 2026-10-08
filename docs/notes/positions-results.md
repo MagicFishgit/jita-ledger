@@ -207,7 +207,8 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
     A ship's cargo, drone bay and other bays count and are named ("Battle Chicken › Drone bay").
   - **Each item a position counts** (any open position of the type; two open of one item have their stock **summed**, each
     trade being one's by `ownerAt`: taking the earliest's alone read 20 of 30 held as not theirs, the review of 3 October
-    2026): where its units lie in the pick, what the positions count as their own stock (with a plan holding it,
+    2026; Open the position opens the earliest, the one `ownerAt` gives new sales to, and says so when there are two):
+    where its units lie in the pick, what the positions count as their own stock (with a plan holding it,
     `planTargets`, matched to whichever position its item names, the plan named and its view's stock beside,
     `planPosition`; nothing beside a stock of 0 the plan counts whole, where "0 / all the plan's" read as if something
     were), your open sell orders' units and what your buys still buy, and **Not the position's**: units held where the
@@ -226,27 +227,38 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
     would say 2,638 aren't the position's and tell the user to Exclude sales of the position's own earlier stock, which
     would leave its stock above zero for good; the view already sells those first (`heldSold`). Against the whole it's 10,
     the units a sale would wrongly take, from the position and, once the earlier stock is gone, from the plan.
-  - **ESI's copies are of different ages, and a row whose count may be off for it says so** (`Copies`, `copiesOf`, `Stale`,
-    `staleSaid`, `leadRows` in hangarCheck.ts; the review of 3 October 2026). Held comes from this read of your assets (up
-    to an hour old), the position's stock from the trades the last sync read (ESI holds them an hour), listed from your
-    orders (20 minutes). A bid filling between the trades' copy and the hangar's puts units in the hangar the position
-    doesn't have yet; a sell order placed after the hangar's copy is in the copy and on the order; both happen in the
-    user's own case (a plan's bids filling), read as not the position's, and the lead would then have had them Exclude
-    real sales, which corrupts the position. The copies' times: the assets' from the read's expiry less an hour, the
-    trades' from `meta.expiries.transactions` (or `tradesFreshAt`) less an hour or the newest trade held if later, the
-    orders' from `meta.expiries.orders` less 20 minutes; a time not known is taken as long ago. A row is flagged:
-    **bought** when the hangar's copy is newer than the trades' and a bid of the item has filled more than the trades
-    show (each bid's fills matched to trades at its own prices first, then, for one that bought at once, at the listings'
-    prices under its own from the second it was placed; one placed before the trades begin is held to its fills since the
-    app first saw it), or a bid was still open when the orders were read before the hangar's copy (it may have filled in
-    between: a ruling beyond the review's "has filled", since nothing else can see such a fill); **listed** when an open
-    sell order was first placed (`seen[0]`) after the hangar's copy; **sold** when a sale the trades show came after the
-    hangar's copy and not at a price of a sell order placed before it (into a bid), or after the orders were read at a
-    price of one of your sell orders (still listed in the orders' copy). Such a row is lit in neither the table nor the
-    lead, its cell says why ("May include units bought since your trades were read, 3 Oct, 14:02 ET"), and a line says
-    its count may be off and not to Exclude on it yet, offering **Check for new trades** (the sync, which clears
-    "bought") and, for listed or sold, to read again once ESI lets go of its copy of the hangar. No hangar time, nothing
-    is flagged. Each clause was planted wrong and failed `npm run check`.
+  - **ESI's copies are of different ages, and a count that may be off for it says so** (`Copies`, `copiesOf`, `Stale`,
+    `fills`/`atLeast`, `leadRows`, `leadSaid`, `doubtSaid`, `softSaid` in hangarCheck.ts; the reviews of 3 October 2026).
+    Held comes from this read of your assets (up to an hour old), the position's stock from the trades the last sync read
+    (ESI holds them an hour), listed from your orders (20 minutes). A bid filling between the trades' copy and the
+    hangar's puts units in the hangar the position doesn't have yet; a sell order placed after the hangar's copy is in the
+    copy and on the order; both happen in the user's own case (a plan's bids filling), read as not the position's, and the
+    lead would then have had them Exclude real sales, which corrupts the position. The copies' times: the assets' from the
+    read's expiry less an hour, the trades' from `meta.expiries.transactions` (or `tradesFreshAt`) less an hour or the
+    newest trade held if later, the orders' from `meta.expiries.orders` less 20 minutes.
+    - **Copies within `SAME_READ_MS` (5 minutes) of each other are one moment.** Both readers take all three seconds apart,
+      the hangar's last (the sync: trades, orders, assets; the cloud's archive: orders, trades, assets). The first fix also
+      flagged a bid still open when the orders were read before the hangar's copy: in one read pass that is every item with
+      an open bid, the moment the user opens the app after exploring, and Check for new trades couldn't clear it, since a
+      sync gets ESI's same trades copy until its hour is up (the re-review's run, `scratchpad/stale.mjs`: a bid of 200, 100
+      recorded, 10 loot; all three passes read 10 rightly and flagged it, no lead). That clause is gone.
+    - **A bid's fills the trades don't show yet are said apart, and the row stays in the lead** (`fills`, `atLeast`): only
+      with the hangar's copy more than 5 minutes newer than the trades', each bid's fills not matched to a trade (at its own
+      prices since it was placed, then, for one that bought at once, at listing prices under its own within a minute of
+      placing it; one placed before the trades begin held to its fills since the app first saw it), less what a version of
+      it first seen after the hangar's copy shows it filled since (those can't be in the copy). The count less them is what's
+      certain: "At least 8 of Datacore - Rocket Science aren't the position's; up to 2 more may be your bid's fills since your
+      trades were read, 8 Oct, 11:59 ET". One whose every unit may be fills leaves the lead and says so ("All 188 may be…").
+    - **listed** (an open sell order first placed, `seen[0]`, after the hangar's copy) and **sold** (a sale the trades show
+      after the hangar's copy not at a price of a sell order placed before it, into a bid; or, with the orders' time known,
+      one after the orders were read at a price of one of your sell orders, which their copy still lists) take a row out of
+      the lead: it isn't lit, its cell says why ("May include units listed since ESI's copy of your hangar, …"), and a line
+      says not to Exclude on it until ESI lets go of its copy of the hangar and it's read again.
+    - **What no copy can show** is a soft line on the lead, only past the same 5 minutes (a trades' copy newer than the
+      hangar's errs safe and says nothing): "Bought any from a listing, or did a bid of yours fill, since your trades were
+      read at …? Those read as not the position's until ESI's next copy of your trades, due …: Check for new trades won't
+      bring them in before then." The button is offered only once that copy is due (`tradesDueAt`); before then a sync
+      reads the same one. No hangar time, nothing is said. Each clause was planted wrong and failed `npm run check`.
   - Below, items held there with an open Jita 4-4 order of yours and no open position ("selling them doesn't touch a
     position"); orders elsewhere aren't in that list. A place outside Jita 4-4 says a Jita-only position doesn't count
     sales there, and brought to Jita they do; an item a position counts anywhere is said apart. Nothing a position counts
@@ -262,10 +274,13 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
     drawing the tooltip at the root (gotchas.md), each failed it. Since the review: the sync read trades and orders after
     the hangar's copy, and one Damage Control II was listed after it (1 not the position's, flagged listed, out of the
     lead, no Check for new trades); Amarr draws no lead; opened again, ESI refuses the names (the read still shows, Lewds
-    goes by its type, the pick by item ID kept) and the hangar's copy is 10 seconds old, newer than the trades, the plan's
-    bid open (the datacore flagged bought, Check for new trades offered, no lead); then the assets read fails (said, the last
-    read kept). The plain loads open the dialog with the stand-in login, which has no assets permission, and assert it
-    says to log in again. Not passing `copies`, and not drawing the doubt, each failed it.
+    goes by its type, the pick by item ID kept) and the hangar's copy is 10 seconds old, about 6 minutes newer than the
+    trades, the plan's bid having filled 2 more than they show (the lead "At least 8 of Datacore - Rocket Science aren't the
+    position's; up to 2 more may be your bid's fills…", the cell "at least 8", the soft line with ESI's next copy of the
+    trades not due, no Check for new trades); then the assets read fails (said, the last read kept). Phase one asserts no
+    soft line (the trades read after the hangar's copy). The plain loads open the dialog with the stand-in login, which has
+    no assets permission, and assert it says to log in again. Not passing `copies`, not drawing the doubt, the soft line or
+    "at least" each failed it.
 - **Rates & fees says what the skill queue is about to do** (`lib/skillQueue.ts`, scope `esi-skills.read_skillqueue.v1`,
   registered 29 September 2026). The sync keeps the queue in order (`meta.skillQueue`); each trade skill in it that
   raises a level you have is shown with what it changes when it finishes, worked out from skills and standings (not

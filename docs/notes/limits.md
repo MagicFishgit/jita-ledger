@@ -147,8 +147,11 @@ State these rather than letting them be discovered:
   trades off.
 - **It sets three of ESI's copies against each other, of different ages** (your hangar's, up to an hour old; your trades'
   as last synced, held an hour; your orders', 20 minutes): a bid filling, a listing placed or a sale between them reads as
-  units that aren't the position's. The row says so and stays out of the lead when the app can see it happen (positions-
-  results.md lists when), but **a purchase straight from a listing, with no order behind it, between your trades' copy and
-  the hangar's can't be seen**: it reads as not the position's until Check for new trades brings it in. The same goes for
-  a bid placed and filled between your orders' copy and the hangar's. And a sale into a bid at exactly one of your
-  listings' prices is taken to be from the listing.
+  units that aren't the position's. Where the app can see it (positions-results.md lists when), a bid's fills are said
+  as "up to N more" beside what's certain, and a listing or a sale takes the row out of the lead. **A purchase straight
+  from a listing, with no order behind it, or a bid's fill the orders' copy doesn't show yet, between your trades' copy
+  and the hangar's, can't be seen**: it reads as not the position's until ESI's next copy of your trades (an hour after the
+  last), and Check for new trades can't bring it in before then. The dialog says so in a line on the lead, only when the
+  hangar's copy is more than 5 minutes newer than your trades': copies within 5 minutes are taken as one read pass, so a
+  fill in those minutes goes unsaid. And a sale into a bid at exactly one of your listings' prices is taken to be from the
+  listing.
