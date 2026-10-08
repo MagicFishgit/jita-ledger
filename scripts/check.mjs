@@ -6320,7 +6320,7 @@ console.log('\n--- check my hangar: what you hold that a position could count --
   // Jita sale of its item after it opened, and EVE's trades don't say which stack a unit came from. "create a button to
   // click in positions that checks my jita inventory and then gives me a list of items that is there that could affect
   // orders", then "rather let the button have me choose where to look".
-  const { readPlaces, resolvePick, hangarCheck, whereLabel, pathLabel, holderIds, assetsTakenAt, ASSETS_HELD_MS } = await import('../src/lib/hangarCheck.ts');
+  const { readPlaces, resolvePick, hangarCheck, whereLabel, pathLabel, holderIds, assetsTakenAt, ASSETS_HELD_MS, copiesOf, leadRows, leadSaid, staleSaid, planShare } = await import('../src/lib/hangarCheck.ts');
   const { sanitizeSettings } = await import('../src/lib/fees.ts');
   const JITA = 60003760, AMARR = 60008494, CITADEL = 1035466617946;
   const A = (item_id, type_id, location_id, location_flag, location_type, quantity = 1, extra = {}) => ({ item_id, type_id, location_id, location_flag, location_type, quantity, ...extra });
@@ -6405,7 +6405,7 @@ console.log('\n--- check my hangar: what you hold that a position could count --
   const c0 = hangarCheck({ d: now, s: S, places: lewds(), pick: { place: JITA, spot: 'item:5001' }, ordersKnown: true });
   const r0 = c0.tracked[0];
   eq('Lewds: one item a position counts, the plan named', [c0.tracked.length, r0.typeId, r0.pos.id, r0.plan?.id, r0.plan?.name], [1, RS, 'rs', 'p2', 'Second plan']);
-  eq('  10 here, the position’s 2,628 all on its sell order, the plan’s bid still buying 188', [r0.here, r0.jita, r0.stock, r0.listed, r0.buying], [10, 10, 2628, 2628, 188]);
+  eq('  10 here, the position’s 2,628 all on its sell order, the plan’s bid still buying 188', [r0.here, r0.held, r0.stock, r0.listed, r0.buying], [10, 10, 2628, 2628, 188]);
   eq('  the plan’s view: none of the 2,628 held before it is the plan’s', [r0.plan.stock, r0.plan.earlier], [0, 2628]);
   // Against the whole position, never the plan's view: the 2,628 are the position's own, and excluding their sales would
   // break it. 10 + 2,628 − 0 (the view) would say 2,638.
@@ -6420,7 +6420,7 @@ console.log('\n--- check my hangar: what you hold that a position could count --
   const c1 = hangarCheck({ d: mid, s: S, places: hangar188, pick: { place: JITA, spot: 'all' }, ordersKnown: true });
   const r1 = c1.tracked[0];
   eq('the plan’s 188 bought: the position holds 816, the plan 188, 628 the earlier trading’s', [r1.stock, r1.plan.stock, r1.plan.earlier, r1.listed, r1.buying], [816, 188, 628, 628, 0]);
-  eq('  198 in Jita, 628 listed: 10 aren’t the position’s', [r1.jita, r1.notPositions], [198, 10]);
+  eq('  198 in Jita, 628 listed: 10 aren’t the position’s', [r1.held, r1.notPositions], [198, 10]);
   eq('  where: the hangar and Lewds', r1.where.map((w) => [whereLabel(w, typeName), w.q]), [['Hangar', 188], ['Lewds', 10]]);
   const short = hangarCheck({ d: mid, s: S, places: readPlaces([A(1, RS, JITA, 'Hangar', 'station', 100)], new Map()), pick: { place: JITA, spot: 'hangar' }, ordersKnown: true });
   eq('  never negative: fewer held than the position counts is none of anyone else’s', short.tracked[0].notPositions, 0);
@@ -6437,7 +6437,7 @@ console.log('\n--- check my hangar: what you hold that a position could count --
   // A place outside Jita 4-4: a Jita-only position doesn't count sales there; one counting everywhere does.
   const amarr = readPlaces([A(61, RS, AMARR, 'Hangar', 'station', 4)], new Map());
   const out = hangarCheck({ d: mid, s: S, places: amarr, pick: { place: AMARR, spot: 'hangar' }, ordersKnown: true });
-  eq('Amarr: outside Jita, and the Jita-only position doesn’t count a sale there', [out.outside, out.tracked[0].here, out.tracked[0].countsHere, out.tracked[0].jita], [true, 4, false, 0]);
+  eq('Amarr: outside Jita, and the Jita-only position doesn’t count a sale there', [out.outside, out.tracked[0].here, out.tracked[0].countsHere, out.tracked[0].held], [true, 4, false, 0]);
   eq('  one that counts every station does', hangarCheck({ d: { ...mid, positions: [{ ...pos, jitaOnly: false }] }, s: S, places: amarr, pick: { place: AMARR, spot: 'hangar' }, ordersKnown: true }).tracked[0].countsHere, true);
   eq('  in Jita a sale always counts', r1.countsHere, true);
   const none = hangarCheck({ d: mid, s: S, places, pick: { place: CITADEL, spot: 'all' }, ordersKnown: true });
@@ -6446,6 +6446,100 @@ console.log('\n--- check my hangar: what you hold that a position could count --
   // Without a plan the position's own stock is the figure; nothing is said of a plan.
   const solo = hangarCheck({ d: { ...mid, plans: [] }, s: S, places: hangar188, pick: { place: JITA, spot: 'all' }, ordersKnown: true }).tracked[0];
   eq('  a position no plan holds: no plan, the same count', [solo.plan, solo.notPositions], [null, 10]);
+
+  // Two open positions of one item (the review): each trade is one's, so their stock is summed, and the plan matched to
+  // whichever its item names. Taking only the earliest's 10 read 20 of the 30 held as not the position's.
+  {
+    const mtx = (id, qty, date) => ({ id, source: 'esi', typeId: MOD, date, isBuy: true, qty, unitPrice: 600, locationId: JITA });
+    const pa = { id: 'a', typeId: MOD, openedAt: '2026-09-25T00:00:00Z', status: 'open', jitaOnly: true, excluded: [], included: [] };
+    const pb = { ...pa, id: 'b', openedAt: '2026-09-28T00:00:00Z', included: ['m2'] };
+    const planM = { id: 'pm', name: 'Module plan', at: '2026-09-28T12:00:00Z', isk: 0, horizonDays: 7, patient: true, items: [{ typeId: MOD, buyAt: 600, units: 20, sellAt: 700, positionId: 'b' }] };
+    const two = { txs: { m1: mtx('m1', 10, '2026-09-26T10:00:00Z'), m2: mtx('m2', 20, '2026-09-29T10:00:00Z') }, orders: {}, journal: {}, meta: {}, positions: [pa, pb], plans: [planM], names: {} };
+    const r = hangarCheck({ d: two, s: S, places: readPlaces([A(1, MOD, JITA, 'Hangar', 'station', 30)], new Map()), pick: { place: JITA, spot: 'hangar' }, ordersKnown: true }).tracked[0];
+    eq('two open positions of one item, 10 and 20: their 30 summed, so the 30 held are all theirs', [r.positions.map((p) => p.id), r.stock, r.notPositions], [['a', 'b'], 30, 0]);
+    eq('  the plan matched to the second, the one its item names, and that position the one to open', [r.plan?.id, r.pos.id], ['pm', 'b']);
+  }
+
+  // A position counting every station ("Only Jita 4-4 trades" off, the review): its held units and orders are every
+  // station's, so a sale in Amarr counts and Amarr's units and listings are in the count. A Jita-only one stays Jita's.
+  {
+    const amarrSell = { orderId: 76, typeId: RS, isBuy: false, price: 99_000, volumeTotal: 3, volumeRemain: 3, issued: '2026-10-01T00:00:00Z', state: 'open', locationId: AMARR };
+    const both = lewds([A(1, RS, JITA, 'Hangar', 'station', 188), A(61, RS, AMARR, 'Hangar', 'station', 4)]);
+    const at = (p) => hangarCheck({ d: { ...mid, positions: [p], orders: { ...mid.orders, 76: amarrSell } }, s: S, places: both, pick: { place: AMARR, spot: 'hangar' }, ordersKnown: true }).tracked[0];
+    const w = at({ ...pos, jitaOnly: false }), j = at(pos);
+    eq('every station: 202 held (Jita’s 198 and Amarr’s 4), 631 listed (Amarr’s 3 too), 17 not the position’s, a sale here counts',
+      [w.wide, w.held, w.listed, w.notPositions, w.countsHere], [true, 202, 631, 202 + 631 - 816, true]);
+    eq('  Jita 4-4 only: Jita’s 198 and 628, 10 not the position’s, a sale in Amarr doesn’t count', [j.wide, j.held, j.listed, j.notPositions, j.countsHere], [false, 198, 628, 10, false]);
+    const outside = (p) => leadRows(hangarCheck({ d: { ...mid, positions: [p] }, s: S, places: both, pick: { place: AMARR, spot: 'hangar' }, ordersKnown: true })).sure.length;
+    eq('  outside Jita 4-4 the lead leaves out a Jita-only row (it sits under “Sold here they don’t count”), not one counting everywhere', [outside(pos), outside({ ...pos, jitaOnly: false })], [0, 1]);
+  }
+
+  // The lead's words: the item named, else never "Item #20420" in a sentence (the review).
+  eq('the lead: “10 of Datacore - Rocket Science aren’t the position’s.”', leadSaid([r1], () => 'Datacore - Rocket Science'), '10 of Datacore - Rocket Science aren’t the position’s.');
+  eq('  one unit', leadSaid([{ ...r1, notPositions: 1 }], () => 'Datacore - Rocket Science'), '1 of Datacore - Rocket Science isn’t the position’s.');
+  eq('  the name not loaded yet: no item number in a sentence', leadSaid([r1], () => null), 'Some of it isn’t the position’s.');
+  eq('  two items; none', [leadSaid([r1, r1], () => 'x'), leadSaid([], () => 'x')], ['2 items have units that aren’t their position’s.', null]);
+  // The plan's share under the position's stock: nothing at all held isn't "0 / all the plan's" (the review).
+  eq('the plan’s share: none when the plan holds none of none; all of it; a part and what’s from before it',
+    [planShare({ stock: 0, plan: { id: 'p', name: 'P', stock: 0, earlier: 0 } }), planShare({ stock: 188, plan: { id: 'p', name: 'P', stock: 188, earlier: 0 } }), planShare(r0), planShare(r1), planShare(solo)],
+    [null, 'all the plan’s', 'the plan’s 0, 2,628 from before it', 'the plan’s 188, 628 from before it', null]);
+
+  // ESI's copies of different ages (the review of e32a475). The hangar's copy is up to an hour old, your trades' an hour
+  // and your orders' 20 minutes, each read at its own time: a bid filling between the trades' copy and the hangar's puts
+  // units in the hangar the position doesn't have yet, a listing placed after the hangar's copy is in it and on the order,
+  // and both read as not the position's, which the lead would have you Exclude: real sales taken out of the position.
+  const T = (hhmm) => Date.parse(`2026-10-02T${hhmm}:00Z`);
+  const cp = (assets, trades, orders) => ({ assets: T(assets), trades: trades == null ? null : T(trades), orders: orders == null ? null : T(orders) });
+  eq('copies: trades an hour before their expiry, orders 20 minutes before theirs',
+    copiesOf({ meta: { expiries: { transactions: '2026-10-02T19:00:00Z', orders: '2026-10-02T18:50:00Z' } }, txs: { a: { source: 'esi', date: '2026-10-02T17:30:00Z' } } }, T('18:40')), cp('18:40', '18:00', '18:30'));
+  eq('  a newer trade held (the cloud’s) or this browser’s later read moves the trades’ copy on; a typed trade doesn’t',
+    [copiesOf({ meta: { expiries: { transactions: '2026-10-02T19:00:00Z' } }, txs: { a: { source: 'esi', date: '2026-10-02T18:20:00Z' }, b: { source: 'manual', date: '2026-10-02T23:00:00Z' } } }, null).trades,
+      copiesOf({ meta: { expiries: { transactions: '2026-10-02T19:00:00Z' }, tradesFreshAt: '2026-10-02T19:30:00Z' }, txs: {} }, null).trades], [T('18:20'), T('18:30')]);
+  eq('  nothing known, or not a time: none', [copiesOf({ meta: {}, txs: {} }, null), copiesOf({ meta: { expiries: { transactions: 'soon', orders: '' } } }, null)], [{ assets: null, trades: null, orders: null }, { assets: null, trades: null, orders: null }]);
+
+  const p1 = tx('p1', true, 188, 85_540, '2026-10-02T18:00:00Z');
+  const rsRow = (dd, copies, places = hangar188) => hangarCheck({ d: dd, s: S, places, pick: { place: JITA, spot: 'all' }, ordersKnown: true, copies }).tracked.find((r) => r.typeId === RS);
+  // (a) The plan's 188 filled at 18:00; the hangar's copy (18:30) holds them, the trades (read to 17:00) don't.
+  const unrecorded = ledger(before, [sell(2628), bid(0), droneSell]);
+  const a1 = rsRow(unrecorded, cp('18:30', '17:00', '18:40'));
+  eq('a bid filled after your trades were read, before the hangar’s copy: 198 read as not the position’s, flagged “bought”', [a1.notPositions, a1.stale], [198, ['bought']]);
+  eq('  so the lead leaves it out and says it apart', [leadRows({ tracked: [a1], ordersOnly: [], outside: false }).sure.length, leadRows({ tracked: [a1], ordersOnly: [], outside: false }).unsure.length], [0, 1]);
+  eq('  no copies given, or the hangar’s time not known: nothing is said to be off', [rsRow(unrecorded, undefined).stale, rsRow(unrecorded, { ...cp('18:30', '17:00', '18:40'), assets: null }).stale], [[], []]);
+  eq('  the trades read past the hangar’s copy, the fill in them: 10, trusted', ((r) => [r.notPositions, r.stale])(rsRow(ledger({ ...before, p1 }, [sell(2628), bid(0), droneSell]), cp('18:30', '18:45', '18:40'))), [10, []]);
+  eq('  the fill in the trades, the trades’ copy older than the hangar’s: its fills all shown, trusted', rsRow(ledger({ ...before, p1 }, [sell(2628), bid(0), droneSell]), cp('18:30', '18:10', '18:40')).stale, []);
+  // A bid still open when your orders were read before the hangar's copy may have filled in between: neither shows it.
+  const standing = ledger(before, [sell(2628), bid(188), droneSell]);
+  eq('  an open bid, your orders read before the hangar’s copy and your trades older still: “bought”; orders read after it: trusted',
+    [rsRow(standing, cp('18:30', '17:00', '18:20'), lewds()).stale, rsRow(standing, cp('18:30', '17:00', '18:40'), lewds()).stale], [['bought'], []]);
+  eq('  your trades read after the hangar’s copy: any fill before it is in them, trusted', rsRow(standing, cp('18:30', '18:45', '18:20'), lewds()).stale, []);
+  // A bid that bought at once from a listing paid the listing's price; and a bid from before your trades begin is held to
+  // its fills since the app first saw it.
+  const atOnce = { orderId: 77, typeId: RS, isBuy: true, price: 99_000, volumeTotal: 5, volumeRemain: 0, issued: '2026-10-02T18:10:00Z', state: 'expired', locationId: JITA, seen: [{ issued: '2026-10-02T18:10:00Z', price: 99_000, remain: 0 }] };
+  const oldBid = { orderId: 78, typeId: RS, isBuy: true, price: 70_000, volumeTotal: 1000, volumeRemain: 600, issued: '2026-09-01T00:00:00Z', state: 'open', locationId: JITA, seen: [{ issued: '2026-09-01T00:00:00Z', price: 70_000, remain: 600 }] };
+  eq('  a bid that bought at once (at the listing’s 97,000, under its 99,000), and one from before your trades begin: trusted',
+    rsRow(ledger({ ...before, p1, a1: tx('a1', true, 5, 97_000, '2026-10-02T18:10:00Z') }, [sell(2628), bid(0), atOnce, oldBid]), cp('18:30', '18:20', '18:40')).stale, []);
+  eq('  its trade not in yet: “bought”', rsRow(ledger({ ...before, p1 }, [sell(2628), bid(0), atOnce]), cp('18:30', '18:20', '18:40')).stale, ['bought']);
+  // (b) The loot listed at 18:35, after the hangar's copy: its 10 are in the copy (Lewds) and on the order.
+  const lootSell = (at) => ({ orderId: 75, typeId: RS, isBuy: false, price: 99_000, volumeTotal: 10, volumeRemain: 10, issued: at, state: 'open', locationId: JITA, seen: [{ issued: at, price: 99_000, remain: 10 }] });
+  const b1 = rsRow(ledger({ ...before, p1 }, [sell(2628), bid(0), lootSell('2026-10-02T18:35:00Z')]), cp('18:30', '18:45', '18:40'));
+  eq('a sell order placed after the hangar’s copy: its units counted twice, 20 not the position’s, flagged “listed”', [b1.notPositions, b1.stale], [20, ['listed']]);
+  eq('  placed before the copy: trusted', rsRow(ledger({ ...before, p1 }, [sell(2628), bid(0), lootSell('2026-10-02T18:20:00Z')]), cp('18:30', '18:45', '18:40')).stale, []);
+  // (c) The loot sold into a bid at 18:50, after the hangar's copy, which still holds it; the trades have the sale.
+  const dumped = (price) => rsRow(ledger({ ...before, p1, d1: tx('d1', false, 10, price, '2026-10-02T18:50:00Z') }, [sell(2628), bid(0)]), cp('18:30', '19:00', '19:05'));
+  eq('a sale into a bid after the hangar’s copy: the copy still holds what the position let go, flagged “sold”', [dumped(84_000).notPositions, dumped(84_000).stale], [20, ['sold']]);
+  eq('  a sale from a listing placed before the copy took nothing from it: trusted', dumped(96_980).stale, []);
+  // (d) Your orders read at 18:50 still list the 2,000 the trades (read to 19:30) show sold from that listing at 19:00.
+  const listedSold = (orders, o) => rsRow(ledger({ ...before, p1, s5: tx('s5', false, 2000, 96_980, '2026-10-02T19:00:00Z') }, orders), cp('19:15', '19:30', o));
+  eq('a sale from a listing after your orders were read: the orders still list it, 2,010 read as not the position’s, flagged “sold”',
+    ((r) => [r.notPositions, r.stale])(listedSold([sell(2628), bid(0)], '18:50')), [2010, ['sold']]);
+  eq('  orders read after the sale: 10, trusted', ((r) => [r.notPositions, r.stale])(listedSold([sell(628), bid(0)], '19:20')), [10, []]);
+  // A row that may be off sorts after one that can be trusted, however many more it reads.
+  const modPos = { ...pos, id: 'mod', typeId: MOD, openedAt: '2026-10-01T00:00:00Z' };
+  eq('a row that may be off sorts after one that can be trusted', hangarCheck({ d: { ...unrecorded, positions: [pos, modPos] }, s: S, places: lewds([A(1, RS, JITA, 'Hangar', 'station', 188), A(5, MOD, 5001, 'Unlocked', 'item', 2)]), pick: { place: JITA, spot: 'all' }, ordersKnown: true, copies: cp('18:30', '17:00', '18:40') })
+    .tracked.map((r) => [r.typeId, r.notPositions, r.stale]), [[MOD, 2, []], [RS, 198, ['bought']]]);
+  eq('the cell says why: “May include units bought since your trades were read, 2 Oct, 17:00 ET.”', staleSaid(['bought'], cp('18:30', '17:00', '18:40')), 'May include units bought since your trades were read, 2\u00a0Oct,\u00a017:00\u00a0ET.');
+  eq('  listed and sold, against the hangar’s copy; the trades’ time not known', [staleSaid(['bought', 'listed', 'sold'], cp('18:30', null, null)), staleSaid([], cp('18:30', null, null))],
+    ['May include units bought since your trades were read, or listed or sold since ESI’s copy of your hangar, 2\u00a0Oct,\u00a018:30\u00a0ET.', null]);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

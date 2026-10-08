@@ -324,6 +324,16 @@ try {
           if (!(await page.locator('.page', { hasText: t }).count())) problems.push(`not drawn on the Research tab: “${t}”`);
         if (await page.locator('.page', { hasText: 'Needs Omega' }).count()) problems.push('the Research tab calls a main whose clone state isn’t read Alpha');
       }
+      // Check my hangar with the stand-in login, which holds no assets permission: it says so and how to get it, and reads
+      // nothing (every request outside this server is refused anyway).
+      if (hash === 'positions') {
+        await page.locator('.head-actions button', { hasText: 'Check my hangar' }).click().catch((e) => problems.push(`couldn't click Check my hangar: ${e.message.split('\n')[0]}`));
+        await page.waitForTimeout(400);
+        if (!(await page.locator('dialog.confirm[open] .notice', { hasText: 'needs EVE’s permission to read your assets, which this login wasn’t given. Log in again and EVE asks for it.' }).count())) problems.push('Check my hangar without the assets permission doesn’t say to log in again');
+        if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out with Check my hangar open: ${o}`);
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(300);
+      }
       if (hash === 'hustles/mining') {
         if (!(await page.locator('.panel-title', { hasText: 'Best ore to mine' }).count())) problems.push('not drawn: no “Best ore to mine” panel');
         if (!(await page.locator('[role="group"][aria-label="Where it’s found"] button', { hasText: 'Null-sec' }).count())) problems.push('not drawn: no place selector on the best-ore panel');
@@ -1221,8 +1231,12 @@ try {
       orders: {
         1: { orderId: 1, typeId: RS, isBuy: true, price: 85_000, volumeTotal: 20, volumeRemain: 8, issued: iso(now - 1.5 * 86400_000), state: 'open', locationId: JITA_ },
         2: { orderId: 2, typeId: HH, isBuy: false, price: 900_000, volumeTotal: 6, volumeRemain: 5, issued: iso(now - 86400_000), state: 'open', locationId: JITA_ },
+        // One of the Damage Control IIs listed 3 minutes ago, after ESI's copy of the hangar (10 minutes old) that still holds it.
+        3: { orderId: 3, typeId: DC, isBuy: false, price: 650_000, volumeTotal: 1, volumeRemain: 1, issued: iso(now - 180_000), state: 'open', locationId: JITA_, seen: [{ issued: iso(now - 180_000), price: 650_000, remain: 1 }] },
       },
-      meta: { lastSync: iso(now - 600_000) },
+      // The last sync read your trades 5 minutes ago and your orders 2 minutes ago (ESI holds them an hour and 20 minutes),
+      // both after the hangar's copy: only the listing placed since it may be off.
+      meta: { lastSync: iso(now - 60_000), expiries: { transactions: iso(now + 55 * 60_000), orders: iso(now + 18 * 60_000) } },
     };
     const A = (item_id, type_id, location_id, location_flag, location_type, quantity = 1, extra = {}) => ({ item_id, type_id, location_id, location_flag, location_type, quantity, ...extra });
     const assets = [
@@ -1237,16 +1251,24 @@ try {
     const page = await browser.newPage(VIEW);
     const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-expose-headers': '*' };
     let assetsAsked = 0, namesAsked = 0;
+    // Later reads: ESI's copy of the hangar taken 10 seconds ago (after your trades and orders were read), the names refused,
+    // or the assets read failing.
+    const esiNow = { assetsAge: 600, names: true, assetsFail: false };
     await page.route('**/*', (route) => {
       const req = route.request(), url = new URL(req.url());
       if (req.url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
       if (url.hostname !== 'esi.evetech.net') return route.abort();
       if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
       // ESI holds assets an hour: this copy lets go in 50 minutes, so it was taken 10 minutes ago.
-      const json = (body) => route.fulfill({ status: 200, contentType: 'application/json', headers: { ...cors, 'cache-control': 'max-age=3000', 'x-pages': '1' }, body: JSON.stringify(body) });
-      if (url.pathname === `/characters/${CID}/assets/`) { assetsAsked++; return json(assets); }
+      const json = (body, maxAge = 3000) => route.fulfill({ status: 200, contentType: 'application/json', headers: { ...cors, 'cache-control': `max-age=${maxAge}`, 'x-pages': '1' }, body: JSON.stringify(body) });
+      if (url.pathname === `/characters/${CID}/assets/`) {
+        assetsAsked++;
+        if (esiNow.assetsFail) return route.fulfill({ status: 500, contentType: 'application/json', headers: cors, body: JSON.stringify({ error: 'Internal error' }) });
+        return json(assets, 3600 - esiNow.assetsAge);
+      }
       if (url.pathname === `/characters/${CID}/assets/names/` && req.method() === 'POST') {
         namesAsked++;
+        if (!esiNow.names) return route.fulfill({ status: 403, contentType: 'application/json', headers: cors, body: JSON.stringify({ error: 'Forbidden' }) });
         const given = { [LEWDS]: 'Lewds', [CHICKEN]: 'Battle Chicken' };
         return json(JSON.parse(req.postData() ?? '[]').map((id) => ({ item_id: id, name: given[id] ?? 'None' })));
       }
@@ -1297,7 +1319,8 @@ try {
       // Lowercased: the plan's flag and the link are drawn in capitals.
       for (const w of ['of the 22 you hold in Jita 4-4', 'Plan: Datacore plan', 'Open the position']) if (!t.toLowerCase().includes(w.toLowerCase())) problems.push(`Lewds: the datacore’s row doesn’t say “${w}”: “${t.slice(0, 200)}”`);
     }
-    if (!(await dialog.locator('.notice', { hasText: 'Exclude each sale on the position’s page' }).count())) problems.push('Lewds: no lead line saying to Exclude each sale');
+    if (!(await dialog.locator('.notice', { hasText: '10 of Datacore - Rocket Science aren’t the position’s. Selling those units counts against the position (and the plan): sell them and Exclude each sale on the position’s page' }).count())) problems.push('Lewds: no lead line naming the datacore’s 10 and saying to Exclude each sale');
+    if (await dialog.locator('[data-hc="unsure"]').count()) problems.push('Lewds: a count said to be off, with every copy read after the hangar’s');
     if (await row(BP).count()) problems.push('Lewds: the blueprint copy is counted (a row for Drake Blueprint)');
     if (!(await dialog.locator('[data-hc="orders"] li', { hasText: 'Hammerhead II' }).count())) problems.push('Lewds: the drones on a sell order aren’t in the second list');
     if ((await dialog.innerText().catch(() => '')).includes('Tritanium')) problems.push('Lewds: Tritanium, which no position or order covers, is listed');
@@ -1311,10 +1334,18 @@ try {
       if (SHOTS) await page.screenshot({ path: `${SHOTS}-hangar-tip.png` });
       await page.mouse.move(5, 5);
     }
-    // The whole station: the fitted Damage Control II isn't held, so its position's 2 loose are all its own.
+    // The whole station: the fitted Damage Control II isn't held, so its position's 2 loose are its own; the one listed after
+    // the hangar's copy is in the copy and on the order, so 1 reads as not the position's, said to be possibly off and kept
+    // out of the lead (the review: an Exclude advised on it would take a real sale out of the position).
     await pickSpot(`${JITA_}/all`);
-    if ((await row(DC).getAttribute('data-here').catch(() => null)) !== '2' || (await row(DC).getAttribute('data-not').catch(() => null)) !== '0')
-      problems.push(`the whole station: Damage Control II reads ${await row(DC).getAttribute('data-here').catch(() => '?')} held, ${await row(DC).getAttribute('data-not').catch(() => '?')} not the position’s, not 2 and 0 (the fitted one counted?)`);
+    if ((await row(DC).getAttribute('data-here').catch(() => null)) !== '2' || (await row(DC).getAttribute('data-not').catch(() => null)) !== '1')
+      problems.push(`the whole station: Damage Control II reads ${await row(DC).getAttribute('data-here').catch(() => '?')} held, ${await row(DC).getAttribute('data-not').catch(() => '?')} not the position’s, not 2 and 1 (the fitted one counted?)`);
+    if ((await row(DC).getAttribute('data-stale').catch(() => null)) !== 'listed') problems.push(`the whole station: Damage Control II listed after the hangar’s copy isn’t said to be off (data-stale “${await row(DC).getAttribute('data-stale').catch(() => '')}”)`);
+    if (!(await row(DC).innerText().catch(() => '')).replace(/\s+/g, ' ').includes('May include units listed since ESI’s copy of your hangar')) problems.push('the whole station: Damage Control II’s cell doesn’t say why it may be off');
+    if (!(await dialog.locator('[data-hc="unsure"] .notice', { hasText: 'Damage Control II’s count may be off.' }).count())) problems.push('the whole station: no line saying Damage Control II’s count may be off');
+    if (!(await dialog.locator('[data-hc="unsure"] .notice', { hasText: 'read again once ESI lets go of its copy of your hangar' }).count())) problems.push('the whole station: the line doesn’t say to read again once ESI lets go of the hangar’s copy');
+    if (await dialog.locator('[data-hc="unsure"] button', { hasText: 'Check for new trades' }).count()) problems.push('the whole station: Check for new trades offered for a listing, which only a newer copy of the hangar clears');
+    if (!(await dialog.locator('.notice.warn', { hasText: '10 of Datacore - Rocket Science aren’t the position’s.' }).count())) problems.push('the whole station: the lead doesn’t name the datacore alone');
     if ((await dialog.locator('[data-hc="orders"] li[data-type="2185"]').getAttribute('data-here').catch(() => null)) !== '5') problems.push('the whole station: the drones aren’t 5 (Lewds’ 3 and the drone bay’s 2)');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out with the whole station picked: ${o}`);
     if (SHOTS) { await page.waitForTimeout(600); await page.screenshot({ path: `${SHOTS}-hangar-all.png` }); }
@@ -1322,21 +1353,40 @@ try {
     await pickSpot(`${AMARR_}/hangar`);
     if (!(await dialog.locator('.notice', { hasText: 'Sold here they don’t count against a position, which tracks Jita 4-4 only' }).count())) problems.push('Amarr: doesn’t say a sale there doesn’t count for a Jita-only position');
     if (!(await row(RS).count())) problems.push('Amarr: the datacore isn’t listed');
+    if (await dialog.locator('.notice', { hasText: 'Exclude each sale' }).count()) problems.push('Amarr: a lead to Exclude sales beside “Sold here they don’t count” (the review)');
     if (SHOTS) { await page.waitForTimeout(600); await page.screenshot({ path: `${SHOTS}-hangar-amarr.png` }); }
-    // Closed and opened again: the hangar read afresh, the pick kept.
+    // Closed and opened again: the hangar read afresh, the pick kept. This time ESI refuses the names, and its copy of the
+    // hangar is 10 seconds old: newer than your trades and orders, with the plan's bid still open when they were read, so
+    // the datacore's count may hold units it bought since, and Check for new trades is offered.
     await pickSpot(`${JITA_}/item:${LEWDS}`);
     await page.keyboard.press('Escape');
     await page.waitForTimeout(400);
     if (await dialog.count()) problems.push('Escape didn’t close the dialog');
+    Object.assign(esiNow, { assetsAge: 10, names: false });
     await open();
     if ((await page.inputValue('#hc-where').catch(() => '')) !== `${JITA_}/item:${LEWDS}`) problems.push('opened again, Lewds isn’t picked');
     if (assetsAsked < 2 || namesAsked < 2) problems.push(`the assets and names weren’t read afresh on opening again (${assetsAsked} assets reads, ${namesAsked} names reads)`);
+    const again = (await dialog.innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!again.includes('The names you gave your containers and ships couldn’t be read just now, so they go by their type.')) problems.push('names refused: the dialog doesn’t say they go by their type');
+    const relabelled = await page.locator('#hc-where option').evaluateAll((os) => os.map((o) => `${o.value}|${o.textContent}`)).catch(() => []);
+    if (!relabelled.some((o) => o.startsWith(`${JITA_}/item:${LEWDS}|Station Container · 113 units`))) problems.push(`names refused: Lewds doesn’t go by its type (${relabelled.join('; ').slice(0, 200)})`);
+    if ((await row(RS).getAttribute('data-stale').catch(() => null)) !== 'bought') problems.push(`a hangar copy newer than your trades, the plan’s bid open: the datacore isn’t said to be off (data-stale “${await row(RS).getAttribute('data-stale').catch(() => '')}”)`);
+    if (!(await row(RS).innerText().catch(() => '')).replace(/\s+/g, ' ').includes('May include units bought since your trades were read')) problems.push('the datacore’s cell doesn’t say it may include units bought since your trades were read');
+    if (!(await dialog.locator('[data-hc="unsure"] button', { hasText: 'Check for new trades' }).count())) problems.push('no Check for new trades offered for a count that may hold units bought since');
+    if (await dialog.locator('.notice.warn', { hasText: 'Exclude each sale' }).count()) problems.push('a lead to Exclude sales on a count that may be off');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out with a count that may be off: ${o}`);
+    if (SHOTS) { await page.waitForTimeout(600); await page.screenshot({ path: `${SHOTS}-hangar-unsure.png` }); }
+    // A failed read says so; the last read stays behind it.
+    esiNow.assetsFail = true;
+    await dialog.locator('.hc-read button', { hasText: 'Read again' }).click().catch((e) => problems.push(`couldn't click Read again: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(800);
+    if (!(await dialog.locator('.notice.err', { hasText: 'Couldn’t read your assets: ESI returned 500' }).count())) problems.push('a failed read doesn’t say it couldn’t read your assets');
     const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
     if (boundary) problems.push('error boundary');
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'hangar', page: 'positions', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL hangar #positions\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   hangar #positions (Check my hangar: Lewds’ loot of the plan’s datacore, 10 not the position’s; the fitted module and the copy left out; the drones on a sell order; Amarr; the pick kept)\n');
+    process.stdout.write(unique.length ? `  FAIL hangar #positions\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   hangar #positions (Check my hangar: Lewds’ loot of the plan’s datacore, 10 not the position’s; the fitted module and the copy left out; the drones on a sell order; a listing after the hangar’s copy said to be off; Amarr; the pick kept, the names refused, a bid that may have filled since your trades; a failed read)\n');
     await page.close();
   }
   // The Sniper with finds (2 October 2026: blueprints out unless asked, and Copy for Multibuy). The cloud answers its

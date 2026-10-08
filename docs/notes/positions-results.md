@@ -205,30 +205,67 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   - **Held** is packaged, sellable units at any depth: not a blueprint copy, not anything fitted (`bayOf` "Fitted", loaded
     charges too), not an assembled item (`is_singleton`: a ship in use, a container, an unpacked module), not a wrap's.
     A ship's cargo, drone bay and other bays count and are named ("Battle Chicken › Drone bay").
-  - **Each item a position counts** (any open position of the type, the earliest opened should there be two): where its
-    units lie in the pick, what the position counts as its own stock (with a plan holding it, `planTargets`, the plan named
-    and its view's stock beside, `planPosition`), your open Jita 4-4 sell orders' units, what your Jita 4-4 buys still
-    buy, and **Not the position's**: units held in Jita 4-4 (the whole station, every spot, this read) plus those listed,
-    less the **whole position's** stock, never below 0, said "of the 22 you hold in Jita 4-4" so a pick of one container
-    isn't misread; rows with such units first, under "Selling those units counts against the position (and the plan):
-    sell them and Exclude each sale on the position's page, or keep them apart until the position closes". **Against the
+  - **Each item a position counts** (any open position of the type; two open of one item have their stock **summed**, each
+    trade being one's by `ownerAt`: taking the earliest's alone read 20 of 30 held as not theirs, the review of 3 October
+    2026): where its units lie in the pick, what the positions count as their own stock (with a plan holding it,
+    `planTargets`, matched to whichever position its item names, the plan named and its view's stock beside,
+    `planPosition`; nothing beside a stock of 0 the plan counts whole, where "0 / all the plan's" read as if something
+    were), your open sell orders' units and what your buys still buy, and **Not the position's**: units held where the
+    position counts (Jita 4-4's whole station, every spot, this read) plus those listed, less the **whole position's**
+    stock, never below 0, said "of the 22 you hold in Jita 4-4" so a pick of one container isn't misread. **A position with
+    Only Jita 4-4 trades off** counts sales and orders anywhere, so its held units are every station's in the same read
+    (same exclusions) and its listed and buying all your open orders of the item ("of the 30 you hold anywhere"). Rows with
+    such units first, under "10 of Datacore - Rocket Science aren't the position's. Selling those units counts against the
+    position (and the plan): sell them and Exclude each sale on the position's page, or keep them apart until the position
+    closes" ("Some of it isn't the position's." while the item's name hasn't loaded, never "Item #20420" in a sentence).
+    **The lead speaks only of rows a sale where you're looking would count**: outside Jita 4-4 a Jita-only position's row
+    sits under "Sold here they don't count", and a lead telling you to Exclude sales beside that read as the opposite (the
+    review; it was offered to say "in Jita 4-4" instead, and dropping it there was the cleaner ruling). **Against the
     whole position, not the plan's view** (a ruling against the brief's formula, 3 October 2026): on Rocket Science's
     shared position (2,628 held before the plan, all listed; the plan's view 0) with 10 loot in Lewds, the view's stock
     would say 2,638 aren't the position's and tell the user to Exclude sales of the position's own earlier stock, which
     would leave its stock above zero for good; the view already sells those first (`heldSold`). Against the whole it's 10,
     the units a sale would wrongly take, from the position and, once the earlier stock is gone, from the plan.
+  - **ESI's copies are of different ages, and a row whose count may be off for it says so** (`Copies`, `copiesOf`, `Stale`,
+    `staleSaid`, `leadRows` in hangarCheck.ts; the review of 3 October 2026). Held comes from this read of your assets (up
+    to an hour old), the position's stock from the trades the last sync read (ESI holds them an hour), listed from your
+    orders (20 minutes). A bid filling between the trades' copy and the hangar's puts units in the hangar the position
+    doesn't have yet; a sell order placed after the hangar's copy is in the copy and on the order; both happen in the
+    user's own case (a plan's bids filling), read as not the position's, and the lead would then have had them Exclude
+    real sales, which corrupts the position. The copies' times: the assets' from the read's expiry less an hour, the
+    trades' from `meta.expiries.transactions` (or `tradesFreshAt`) less an hour or the newest trade held if later, the
+    orders' from `meta.expiries.orders` less 20 minutes; a time not known is taken as long ago. A row is flagged:
+    **bought** when the hangar's copy is newer than the trades' and a bid of the item has filled more than the trades
+    show (each bid's fills matched to trades at its own prices first, then, for one that bought at once, at the listings'
+    prices under its own from the second it was placed; one placed before the trades begin is held to its fills since the
+    app first saw it), or a bid was still open when the orders were read before the hangar's copy (it may have filled in
+    between: a ruling beyond the review's "has filled", since nothing else can see such a fill); **listed** when an open
+    sell order was first placed (`seen[0]`) after the hangar's copy; **sold** when a sale the trades show came after the
+    hangar's copy and not at a price of a sell order placed before it (into a bid), or after the orders were read at a
+    price of one of your sell orders (still listed in the orders' copy). Such a row is lit in neither the table nor the
+    lead, its cell says why ("May include units bought since your trades were read, 3 Oct, 14:02 ET"), and a line says
+    its count may be off and not to Exclude on it yet, offering **Check for new trades** (the sync, which clears
+    "bought") and, for listed or sold, to read again once ESI lets go of its copy of the hangar. No hangar time, nothing
+    is flagged. Each clause was planted wrong and failed `npm run check`.
   - Below, items held there with an open Jita 4-4 order of yours and no open position ("selling them doesn't touch a
-    position"); orders elsewhere aren't counted anywhere in it, as positions' stock and sales are Jita's. A place outside
-    Jita 4-4 says a Jita-only position doesn't count sales there, and brought to Jita they do; an item a position counts
-    anywhere is said apart. Nothing a position or order covers is said plainly ("Nothing in Lewds is an item…"). Orders not
-    read leave the listing and the count "–", never 0.
+    position"); orders elsewhere aren't in that list. A place outside Jita 4-4 says a Jita-only position doesn't count
+    sales there, and brought to Jita they do; an item a position counts anywhere is said apart. Nothing a position counts
+    or a Jita 4-4 order covers is said plainly ("Nothing in Lewds is an item a position counts or one of your Jita 4-4
+    orders covers": "one of your orders" was false beside an Amarr order on an item held in Amarr). Orders not read leave
+    the listing and the count "–", never 0.
   - **Here, not beside List your stock** as the brief had it: List your stock hides itself when nothing bought sits loose in
     the hangar, which is exactly a hangar of loot.
   - The page check (its own `hangar` case, both widths, the dialog open): Lewds holding 10 of the plan's datacore beside
     12 in the hangar (10 not the position's, of 22), a blueprint copy of a position's item, Tritanium nothing covers and
     drones on a sell order; a ship with a fitted Damage Control II beside a position's 2 loose (2 held, none not its);
     Amarr; the pick kept on opening again; a column's tooltip shown inside the dialog. Counting the fitted one, and
-    drawing the tooltip at the root (gotchas.md), each failed it.
+    drawing the tooltip at the root (gotchas.md), each failed it. Since the review: the sync read trades and orders after
+    the hangar's copy, and one Damage Control II was listed after it (1 not the position's, flagged listed, out of the
+    lead, no Check for new trades); Amarr draws no lead; opened again, ESI refuses the names (the read still shows, Lewds
+    goes by its type, the pick by item ID kept) and the hangar's copy is 10 seconds old, newer than the trades, the plan's
+    bid open (the datacore flagged bought, Check for new trades offered, no lead); then the assets read fails (said, the last
+    read kept). The plain loads open the dialog with the stand-in login, which has no assets permission, and assert it
+    says to log in again. Not passing `copies`, and not drawing the doubt, each failed it.
 - **Rates & fees says what the skill queue is about to do** (`lib/skillQueue.ts`, scope `esi-skills.read_skillqueue.v1`,
   registered 29 September 2026). The sync keeps the queue in order (`meta.skillQueue`); each trade skill in it that
   raises a level you have is shown with what it changes when it finishes, worked out from skills and standings (not

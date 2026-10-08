@@ -142,6 +142,13 @@ State these rather than letting them be discovered:
 - **Check my hangar reads ESI's copy of your assets, up to an hour old**: ESI holds them an hour, so loot just moved or
   sold may not show yet; the dialog says when the copy was taken.
 - **Its "Not the position's" is a count, not which units**: units of an item are alike, and EVE's trades don't say which
-  stack a sale came from, so it says how many held in Jita 4-4 (and listed) are beyond the position's own stock, never
-  which ones. It counts Jita 4-4 only: a position counting every station, with stock elsewhere, reads that stock as none
-  of what it holds.
+  stack a sale came from, so it says how many held where the position counts (and listed) are beyond the position's own
+  stock, never which ones. Where it counts is Jita 4-4's whole station, or every station for a position with Only Jita 4-4
+  trades off.
+- **It sets three of ESI's copies against each other, of different ages** (your hangar's, up to an hour old; your trades'
+  as last synced, held an hour; your orders', 20 minutes): a bid filling, a listing placed or a sale between them reads as
+  units that aren't the position's. The row says so and stays out of the lead when the app can see it happen (positions-
+  results.md lists when), but **a purchase straight from a listing, with no order behind it, between your trades' copy and
+  the hangar's can't be seen**: it reads as not the position's until Check for new trades brings it in. The same goes for
+  a bid placed and filled between your orders' copy and the hangar's. And a sale into a bid at exactly one of your
+  listings' prices is taken to be from the listing.

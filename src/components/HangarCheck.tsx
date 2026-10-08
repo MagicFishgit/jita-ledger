@@ -5,10 +5,14 @@ import { JITA_44, SCOPE } from '../lib/config';
 import { esi, esiAllPages } from '../lib/esi';
 import type { RawAsset } from '../lib/esiRecords';
 import { ago, fmtDateTime, units } from '../lib/format';
-import { assetsTakenAt, flagLabel, hangarCheck, holderIds, pathLabel, readPlaces, resolvePick, whereLabel, type HangarPick, type Place, type Spot, type TrackedRow, type Where } from '../lib/hangarCheck';
+import {
+  assetsTakenAt, copiesOf, flagLabel, hangarCheck, holderIds, leadRows, leadSaid, pathLabel, planShare, readPlaces, resolvePick, staleSaid, whereLabel,
+  type Copies, type HangarPick, type Place, type Spot, type TrackedRow, type Where,
+} from '../lib/hangarCheck';
 import { navigate, useNow } from '../lib/hooks';
 import { resolveNames } from '../lib/market';
 import { useData } from '../lib/store';
+import { syncCharacter, useSyncState } from '../lib/sync';
 import { isStation, isStructure, isSystem, structureInfo, type StructureRead } from '../lib/universe';
 import { NameInGame, useEnsureNames } from './common';
 import { Points } from './Facts';
@@ -114,11 +118,20 @@ function HangarCheckDialog({ onClose }: { onClose: () => void }) {
   const place = places?.find((p) => p.id === pick?.place) ?? null;
   const spot = place?.spots.find((s) => s.key === pick?.spot) ?? null;
   const ordersKnown = Object.keys(d.orders).length > 0 || (hasScope(SCOPE.orders) && !!d.meta.lastSync);
-  const result = useMemo(
-    () => (places && pick ? hangarCheck({ d, s: d.settings, places, pick, ordersKnown }) : null),
+  // When ESI took each copy the rows mix: this read of your assets, and your trades and orders as the last sync read them.
+  // A sync while the dialog is open moves the last two on, so a row that may have been off is judged again.
+  const taken = read ? assetsTakenAt(read.expires) : null;
+  const copies: Copies | undefined = useMemo(
+    () => (read ? copiesOf(d, taken) : undefined),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [places, pick?.place, pick?.spot, d.positions, d.plans, d.orders, d.txs, d.journal, d.settings, ordersKnown],
+    [read, taken, d.meta.expiries, d.meta.tradesFreshAt, d.txs],
   );
+  const result = useMemo(
+    () => (places && pick ? hangarCheck({ d, s: d.settings, places, pick, ordersKnown, copies }) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [places, pick?.place, pick?.spot, d.positions, d.plans, d.orders, d.txs, d.journal, d.settings, ordersKnown, copies],
+  );
+  const sync = useSyncState();
 
   // Names: the containers' and ships' types (for any you didn't name) and every item listed.
   const holderTypes = (places ?? []).flatMap((p) => p.spots.flatMap((s) => s.path.map((h) => h.typeId)));
@@ -141,10 +154,14 @@ function HangarCheckDialog({ onClose }: { onClose: () => void }) {
   };
   const whereSaid = (ws: Where[]) => ws.map((w) => `${whereLabel(w, typeName)} ${units(w.q)}`).join(' · ');
 
-  const taken = read ? assetsTakenAt(read.expires) : null;
   const close = () => ref.current?.close();
   const open = (id: string) => { close(); navigate(`positions/${id}`); };
-  const notOurs = result?.tracked.filter((r) => (r.notPositions ?? 0) > 0) ?? [];
+  // The lead speaks only of rows a sale where you're looking would count, and only of counts that can be trusted.
+  const { sure, unsure } = result ? leadRows(result) : { sure: [], unsure: [] };
+  const lead = leadSaid(sure, (id) => d.names[id] ?? null);
+  const unsureBought = unsure.some((r) => r.stale.includes('bought'));
+  const unsureMoved = unsure.some((r) => r.stale.some((x) => x !== 'bought'));
+  const lets = read?.expires != null && read.expires > now ? read.expires : null;
   const jitaOnlyHere = !!result?.outside && result.tracked.some((r) => !r.countsHere);
 
   return (
@@ -153,7 +170,7 @@ function HangarCheckDialog({ onClose }: { onClose: () => void }) {
         <div className="dlg-head"><PackageSearch aria-hidden="true" /><span>Check my hangar</span></div>
         <div className="dlg-body">
           <h2 id="hc-title">What you hold that a position could count</h2>
-          <p>A position counts every Jita 4-4 sale of its item after it opened, and EVE’s trades don’t say which stack a unit came from: sell loot of an item you trade and the position takes it from its own stock.</p>
+          <p>A position counts every sale of its item after it opened, in Jita 4-4 (or anywhere, with Only Jita 4-4 trades off), and EVE’s trades don’t say which stack a unit came from: sell loot of an item you trade and the position takes it from its own stock.</p>
           <Points compact items={[
             { kind: 'info', lead: 'Read fresh from EVE', text: 'each time it opens; nothing here is saved or changes your ledger.' },
             { kind: 'warn', lead: 'Personal on the Wallet', text: 'doesn’t keep a sale out of a position: only Exclude on the position’s page does.' },
@@ -200,25 +217,39 @@ function HangarCheckDialog({ onClose }: { onClose: () => void }) {
               {result.tracked.length > 0 && (
                 <section className="hc-section" data-hc="tracked">
                   <h3>{result.tracked.length === 1 ? 'An item a position counts' : `${units(result.tracked.length)} items a position counts`}</h3>
-                  {notOurs.length > 0 && (
+                  {lead && (
                     <Notice kind="warn">
-                      <b>{notOurs.length === 1 ? `${units(notOurs[0].notPositions)} of ${itemName(notOurs[0].typeId)} ${notOurs[0].notPositions === 1 ? 'isn’t' : 'aren’t'} the position’s.` : `${units(notOurs.length)} items have units that aren’t their position’s.`}</b>
-                      {' '}Selling those units counts against the position{notOurs.some((r) => r.plan) ? ' (and the plan)' : ''}: sell them and Exclude each sale on the position’s page, or keep them apart until the position closes.
+                      <b>{lead}</b>
+                      {' '}Selling those units counts against the position{sure.some((r) => r.plan) ? ' (and the plan)' : ''}: sell them and Exclude each sale on the position’s page, or keep them apart until the position closes.
                     </Notice>
+                  )}
+                  {unsure.length > 0 && (
+                    <div className="hc-unsure" data-hc="unsure">
+                      <Notice>
+                        <b>{unsure.length > 1 ? `${units(unsure.length)} items’ counts may be off.` : d.names[unsure[0].typeId] ? `${d.names[unsure[0].typeId]}’s count may be off.` : 'One item’s count may be off.'}</b>
+                        {' '}ESI’s copies of your trades, orders and hangar were taken at different times, so units bought, listed or sold in between can read as not the position’s. Don’t Exclude on {unsure.length > 1 ? 'their counts' : 'its count'} yet:
+                        {' '}{[unsureBought && 'check for new trades', unsureMoved && (lets ? `read again once ESI lets go of its copy of your hangar, ${fmtDateTime(lets)}` : 'read again')].filter(Boolean).join(', and ')}.
+                      </Notice>
+                      {unsureBought && (
+                        <button type="button" className="btn sm" disabled={sync.running} onClick={() => void syncCharacter()}>
+                          <RefreshCw aria-hidden="true" className={sync.running ? 'spinning' : undefined} />{sync.running ? 'Checking…' : 'Check for new trades'}
+                        </button>
+                      )}
+                    </div>
                   )}
                   <div className="hc-scroll">
                     <table className="tbl short hc-table">
                       <thead><tr>
                         <Th left>Item</Th>
                         <Th className="hc-wide" tip="Units held where you’re looking, and where they lie: loose in the hangar, or in a container or ship by the name you gave it. Packaged units only: not what’s fitted to a ship, not blueprint copies, not anything assembled.">Here</Th>
-                        <Th className="hc-wide" tip={'What the position counts as its own stock: what it bought and hasn’t sold.\n\nWith a plan holding the item, the plan’s share is under it: a plan that took over an open position counts from its own start, and what the position held then is the earlier trading’s.'}>The position’s</Th>
-                        <Th className="hc-wide" tip="Units on your open Jita 4-4 sell orders of it: a sell order holds its own goods.">Listed</Th>
-                        <Th className="hc-wide" tip="What your open Jita 4-4 buy orders on it are still buying.">Buying</Th>
-                        <Th className="hc-wide" tip={'Units you hold in Jita 4-4, the whole station (hangar, containers, ships), and on your sell orders, beyond what the position counts as its own.\n\n• Sold, they count against the position: it takes the sale from its own stock, at its cost.\n• Units are alike, so it’s how many, not which ones.\n\nFor example: 22 held and none listed against a position holding 12 leaves 10 that aren’t the position’s.'}>Not the position’s</Th>
+                        <Th className="hc-wide" tip={'What the position counts as its own stock: what it bought and hasn’t sold (two open positions of the item, together).\n\nWith a plan holding the item, the plan’s share is under it: a plan that took over an open position counts from its own start, and what the position held then is the earlier trading’s.'}>The position’s</Th>
+                        <Th className="hc-wide" tip="Units on your open sell orders of it where the position counts (Jita 4-4, or anywhere for one with Only Jita 4-4 trades off): a sell order holds its own goods.">Listed</Th>
+                        <Th className="hc-wide" tip="What your open buy orders on it are still buying, where the position counts (Jita 4-4, or anywhere for one with Only Jita 4-4 trades off).">Buying</Th>
+                        <Th className="hc-wide" tip={'Units you hold where the position counts, and on your sell orders there, beyond what the position counts as its own. Where it counts is Jita 4-4, the whole station (hangar, containers, ships), or every station for a position with Only Jita 4-4 trades off.\n\n• Sold, they count against the position: it takes the sale from its own stock, at its cost.\n• Units are alike, so it’s how many, not which ones.\n• ESI’s copies of your hangar, trades and orders are of different ages: a count that may be off for that says so.\n\nFor example: 22 held and none listed against a position holding 12 leaves 10 that aren’t the position’s.'}>Not the position’s</Th>
                       </tr></thead>
                       <tbody>
                         {result.tracked.map((r) => (
-                          <TrackedLine key={r.typeId} r={r} name={itemName(r.typeId)} where={whereSaid(r.where)} onOpen={() => open(r.pos.id)} planAt={d.plans.find((p) => p.id === r.plan?.id)?.at ?? null} />
+                          <TrackedLine key={r.typeId} r={r} name={itemName(r.typeId)} where={whereSaid(r.where)} onOpen={() => open(r.pos.id)} planAt={d.plans.find((p) => p.id === r.plan?.id)?.at ?? null} copies={copies} />
                         ))}
                       </tbody>
                     </table>
@@ -246,7 +277,7 @@ function HangarCheckDialog({ onClose }: { onClose: () => void }) {
               {!result.tracked.length && !result.ordersOnly.length && (
                 <p className="hc-none" data-hc="none">
                   {spot.units === 0 ? `You hold nothing to sell in ${spotSaid(spot, place)}, as of this read.`
-                    : `Nothing in ${spotSaid(spot, place)} is an item a position or one of your orders covers.`}
+                    : `Nothing in ${spotSaid(spot, place)} is an item a position counts or one of your Jita 4-4 orders covers.`}
                 </p>
               )}
             </>
@@ -262,23 +293,26 @@ function HangarCheckDialog({ onClose }: { onClose: () => void }) {
 }
 
 /** One item a position counts: where it lies here, the position's stock (and the plan's), its orders, and what isn't the position's. */
-function TrackedLine({ r, name, where, onOpen, planAt }: { r: TrackedRow; name: string; where: string; onOpen: () => void; planAt: string | null }) {
-  const held = r.jita + (r.listed ?? 0);
-  const inJita = `of the ${units(held)} you hold in Jita 4-4${r.listed ? ', listed included' : ''}`;
+function TrackedLine({ r, name, where, onOpen, planAt, copies }: { r: TrackedRow; name: string; where: string; onOpen: () => void; planAt: string | null; copies: Copies | undefined }) {
+  const held = r.held + (r.listed ?? 0);
+  const inJita = `of the ${units(held)} you hold ${r.wide ? 'anywhere' : 'in Jita 4-4'}${r.listed ? ', listed included' : ''}`;
+  // A count that may be off, ESI's copies being of different ages, says why, and isn't lit as one to act on; nor is one
+  // where a sale wouldn't count (outside Jita 4-4, a Jita-only position's), which the lead leaves out too.
+  const over = (r.notPositions ?? 0) > 0;
+  const doubt = over ? staleSaid(r.stale, copies) : null;
   const not = r.notPositions == null
     ? <span className="faint" data-tip={r.stock == null ? 'The position couldn’t be worked out just now.' : 'Your orders aren’t read, so what’s listed isn’t known.'}>–</span>
-    : r.notPositions > 0 ? <span style={{ color: 'var(--acc2)' }}>{units(r.notPositions)}</span> : <span className="faint">None</span>;
+    : over ? <span style={{ color: doubt ? 'var(--sec)' : 'var(--acc2)' }}>{units(r.notPositions)}</span> : <span className="faint">None</span>;
   const stock = r.stock == null ? <span className="faint" data-tip="The position couldn’t be worked out just now.">–</span> : units(r.stock);
   // A plan that opened the position counts it whole; one that took it over counts from its own start.
-  const planSaid = !r.plan ? null : r.plan.stock === r.stock && !r.plan.earlier ? 'all the plan’s'
-    : `the plan’s ${units(r.plan.stock)}${r.plan.earlier > 0 ? `, ${units(r.plan.earlier)} from before it` : ''}`;
+  const planSaid = planShare(r);
   const planTip = r.plan
     ? `${r.plan.name}${planAt ? `, started ${fmtDateTime(planAt)}` : ''}, holds this item.\n\n`
       + `• It counts ${units(r.plan.stock)} of the position’s stock as its own${r.plan.earlier > 0 ? `; the ${units(r.plan.earlier)} the position held when it started are your earlier trading’s, sold first` : ''}.\n`
       + '• A sale of units that aren’t the position’s is taken from the plan’s bought units once the earlier stock is gone.'
     : '';
   return (
-    <tr className={(r.notPositions ?? 0) > 0 ? 'hot' : undefined} data-type={r.typeId} data-here={r.here} data-not={r.notPositions ?? ''}>
+    <tr className={over && !doubt && r.countsHere ? 'hot' : undefined} data-type={r.typeId} data-here={r.here} data-not={r.notPositions ?? ''} data-stale={doubt ? r.stale.join(' ') : undefined}>
       <td className="l hc-item">
         <span className="cellrow">
           <ItemIcon id={r.typeId} />
@@ -296,7 +330,8 @@ function TrackedLine({ r, name, where, onOpen, planAt }: { r: TrackedRow; name: 
             <span className="hc-phone">
               <span>Here: <b>{units(r.here)}</b> ({where})</span>
               <span>The position’s: <b>{r.stock == null ? '–' : units(r.stock)}</b>{planSaid ? ` (${planSaid})` : ''}{r.listed != null ? ` · listed ${units(r.listed)}` : ''}{r.buying ? ` · buying ${units(r.buying)}` : ''}</span>
-              <span>Not the position’s: <b>{r.notPositions == null ? '–' : r.notPositions > 0 ? units(r.notPositions) : 'none'}</b>{r.notPositions != null ? `, ${inJita}` : ''}</span>
+              <span>Not the position’s: <b>{r.notPositions == null ? '–' : over ? units(r.notPositions) : 'none'}</b>{r.notPositions != null ? `, ${inJita}` : ''}</span>
+              {doubt && <span className="hc-doubt">{doubt}</span>}
             </span>
           </span>
         </span>
@@ -305,7 +340,7 @@ function TrackedLine({ r, name, where, onOpen, planAt }: { r: TrackedRow; name: 
       <td className="hc-wide">{stock}{planSaid && <span className="sub">{planSaid}</span>}</td>
       <td className="hc-wide">{r.listed == null ? <span className="faint">–</span> : units(r.listed)}</td>
       <td className="hc-wide">{r.buying == null ? <span className="faint">–</span> : units(r.buying)}</td>
-      <td className="hc-wide">{not}{r.notPositions != null && <span className="sub hc-of">{inJita}</span>}</td>
+      <td className="hc-wide">{not}{r.notPositions != null && <span className="sub hc-of">{inJita}</span>}{doubt && <span className="sub hc-of hc-doubt">{doubt}</span>}</td>
     </tr>
   );
 }
