@@ -25,6 +25,11 @@ Decisions worth not undoing. How the ledger lives in the cloud as well as the br
   the database to any minute of the last 30 days (paid plan; 7 on free), which stands in for dated backups. While
   the cloud copy is healthy (`cloudCovers`) the backup reminders (status bar, To do, alerts, Settings tab) stand
   down.
+- **A new synced document doesn't stop the sync while the Worker is a version behind** (`refusedDoc` in cloudSync.ts,
+  `pushNow`; 9 October 2026, with `leaveFrom`). The Worker refuses a whole push over a document it doesn't know (400
+  "Unknown document: X"), and the site and the Worker deploy in either order, so every push would have failed until the
+  Worker landed. The browser now sends the rest without it and keeps it waiting for a later push. An older browser ignores
+  a document it doesn't know when it comes down (`isDocKey`).
 - **The cloud keeps watch with logins handed to it** (`POST /v1/keys`; `loginForCloud` / `loginMailerForCloud` bring
   back a refresh token that goes straight to the Worker and is never stored in the browser). They are sealed with the
   `TOKEN_KEY` secret (AES-GCM); the Worker refreshes one once to prove it, and checks the main login is the ledger's

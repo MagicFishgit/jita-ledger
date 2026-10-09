@@ -855,6 +855,24 @@ console.log('\n--- the alert round judges a plan\'s order by its plan (Praxis, 3
   broken.run('INSERT INTO records (char_id, kind, id, data, rev, updated_at) VALUES (?, ?, ?, ?, 1, 0)', MAIN, 'positions', 'nul', 'null');
   const survived = await judged(broken);
   eq('  a broken positions row is skipped, never the round', [survived.x?.verdict, survived.x?.plan?.planId], ['loss', plan.id]);
+
+  // Leave alone belongs to a plan's own orders (the plans review, 9 October 2026): with `leaveFrom`, an item a
+  // Place-and-leave plan left is left only for orders first placed since its start. Praxis's bid was placed at 00:42:35
+  // and raised twice since, so `issued` (11:22:15) is after a plan started at 08:00, and its first version isn't.
+  const leftLedger = (from) => {
+    const db = ledger();
+    db.run('INSERT INTO docs (char_id, key, data, rev, updated_at) VALUES (?, ?, ?, 1, 0)', MAIN, 'leave', JSON.stringify([PX]));
+    if (from !== undefined) db.run('INSERT INTO docs (char_id, key, data, rev, updated_at) VALUES (?, ?, ?, 1, 0)', MAIN, 'leaveFrom', JSON.stringify(from));
+    return db;
+  };
+  const byHand = await judged(leftLedger());
+  eq('  left with no `leaveFrom` doc (an app version behind, or by hand): left, as before, and not mailed', [byHand.x?.left, byHand.found], [true, []]);
+  const since = await judged(leftLedger({ [PX]: '2026-09-30T00:41:37.568Z' }));
+  eq('  left by a plan that started before it was placed: left', since.x?.left, true);
+  const before = await judged(leftLedger({ [PX]: '2026-09-30T08:00:00Z' }));
+  eq('  left by a plan that started after it was first placed: judged as any order, moved and mailed', [before.x?.left, before.x?.verdict, before.found], [false, 'move', ['move']]);
+  const unreadable = await judged(leftLedger({ not: 'a time', [PX]: 12 }));
+  eq('  a `leaveFrom` doc it can\'t read is no time, never an error', unreadable.x?.left, true);
 }
 
 console.log('\n--- the Sniper leaves blueprints out of the mail unless asked ---');

@@ -487,6 +487,9 @@ try {
   // the sell's after-a-move line are drawn on any day the check runs.
   if (SHOWN.includes('orders') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('plan'))) {
     const M = 1e6, PX = 47466, TRIT = 34, KEY = 89156, JITA = 60003760, ID = 7433389018;
+    // Clone Soldier Transporter Tag, left by a Place-and-leave plan an hour ago (the plans review, 9 October 2026): its bid
+    // placed two days before that and raised since isn't the plan's, its listing placed since is. ESI refuses its book.
+    const CS = 33140, CS_BID = 7433389245, CS_SELL = 7435352999;
     const fs = await import('node:fs');
     const arb = JSON.parse(fs.readFileSync(new URL('./fixtures/orders-queue.json', import.meta.url), 'utf8'));
     const ARB = arb.typeId, DAY_MS = 86400_000;
@@ -519,11 +522,15 @@ try {
         7433386979: { orderId: 7433386979, typeId: KEY, isBuy: true, price: 24.95 * M, volumeTotal: 15, volumeRemain: 13, issued: iso(planAt - 5 * 60_000), state: 'open', locationId: JITA },
         [arb.buy.orderId]: arb.buy,
         [arb.sell.orderId]: arb.sell,
+        [CS_BID]: { orderId: CS_BID, typeId: CS, isBuy: true, price: 29.23 * M, volumeTotal: 4, volumeRemain: 4, issued: iso(planAt + 600_000), state: 'open', locationId: JITA,
+          seen: [{ issued: iso(planAt - 2 * DAY_MS), price: 28.82 * M, remain: 4 }, { issued: iso(planAt + 600_000), price: 29.23 * M, remain: 4 }] },
+        [CS_SELL]: { orderId: CS_SELL, typeId: CS, isBuy: false, price: 33.4 * M, volumeTotal: 1, volumeRemain: 1, issued: iso(planAt + 900_000), state: 'open', locationId: JITA },
       },
+      leave: [CS], leaveFrom: { [CS]: iso(planAt) },
       // The Key's bid has bought 2 of its 15, in the hangar: an at-the-front plan's stock to list, whose book ESI refuses here.
       txs: { k1: { id: 'k1', source: 'esi', typeId: KEY, date: iso(planAt + 5 * 60_000), isBuy: true, qty: 2, unitPrice: 24.95 * M, locationId: JITA } },
       stock: { at: new Date(Date.now() - 600_000).toISOString(), jita: { [ARB]: arb.hangar, [KEY]: 2 }, total: { [ARB]: arb.hangar, [KEY]: 2 }, inContainers: 0 },
-      names: { [PX]: 'Praxis', [TRIT]: 'Tritanium', [KEY]: 'Vigilance Resonance Key', [ARB]: arb.name },
+      names: { [PX]: 'Praxis', [TRIT]: 'Tritanium', [KEY]: 'Vigilance Resonance Key', [ARB]: arb.name, [CS]: 'Clone Soldier Transporter Tag' },
       meta: { walletBalance: 1e9, lastSync: new Date(Date.now() - 600_000).toISOString() },
     };
     const page = await browser.newPage(VIEW);
@@ -558,6 +565,23 @@ try {
     await page.goto(`${BASE}#orders`);
     await page.waitForSelector('.page', { timeout: 20_000 });
     await page.waitForTimeout(1000);
+    // Leave alone belongs to a plan's own orders: the Clone Soldier bid from before the plan gets the usual advice and says
+    // why, the listing placed since is left; Leave alone on the bid leaves every order of the item, Leaving it then neither.
+    // Before the check, while every order is listed (its book is refused, so it has no row once checked).
+    {
+      const btn = (id) => page.locator(`tr[data-order="${id}"] .acts button`, { hasText: /^(Leave alone|Leaving it)$/ });
+      const said = async () => [await btn(CS_BID).innerText({ timeout: 5000 }).catch(() => '–'), await btn(CS_SELL).innerText({ timeout: 5000 }).catch(() => '–')].map((t) => t.trim().toLowerCase());
+      const at = await said();
+      if (at.join() !== 'leave alone,leaving it') problems.push(`Clone Soldier's bid from before the plan and listing since read “${at.join('”, “')}”, not “Leave alone”, “Leaving it”`);
+      const why = (await btn(CS_BID).getAttribute('data-tip', { timeout: 5000 }).catch(() => '')) ?? '';
+      if (!why.includes('This one was placed before it, so it gets the usual advice')) problems.push(`not drawn: why Clone Soldier's bid isn't left (${why.slice(0, 120)})`);
+      await btn(CS_BID).click({ timeout: 5000 }).catch((e) => problems.push(`couldn't press Leave alone: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(300);
+      if ((await said()).join() !== 'leaving it,leaving it') problems.push(`Leave alone on the bid didn't leave every Clone Soldier order: ${(await said()).join(', ')}`);
+      await btn(CS_SELL).click({ timeout: 5000 }).catch((e) => problems.push(`couldn't press Leaving it: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(300);
+      if ((await said()).join() !== 'leave alone,leave alone') problems.push(`Leaving it didn't stop leaving every Clone Soldier order: ${(await said()).join(', ')}`);
+    }
     await page.getByRole('button', { name: /Check prices|Check again/ }).click().catch((e) => problems.push(`couldn't check prices: ${e.message.split('\n')[0]}`));
     await page.waitForSelector('tbody .flag:has-text("Keep it")', { timeout: 20_000 }).catch(() => problems.push('not drawn: no “Keep it” verdict on Praxis'));
     await page.waitForTimeout(800);
@@ -672,7 +696,7 @@ try {
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'plan', page: 'orders', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL plan #orders\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (Keep it, the plan chip, a buy over its resale, a buy feeding a long queue, a move’s after-a-move line), #todo (that buy, the Key to list) and #planner (the checklist, its list part with no book)\n');
+    process.stdout.write(unique.length ? `  FAIL plan #orders\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (Keep it, the plan chip, a buy over its resale, a buy feeding a long queue, a move’s after-a-move line, a plan’s Leave alone on its own orders), #todo (that buy, the Key to list) and #planner (the checklist, its list part with no book)\n');
     await page.close();
   }
   // A plan that took over a position with earlier trading (the user's second plan, 2 October 2026): Datacore - Rocket

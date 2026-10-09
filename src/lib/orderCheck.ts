@@ -10,7 +10,7 @@ import { rates } from './fees';
 import { byUrgency, judgeOrder, type Relist } from './relist';
 import { buyerShare, type BookSold } from './split';
 import { recentRange } from './fills';
-import { planTargets } from './plans';
+import { isLeft, planTargets } from './plans';
 import { getData, type Data } from './store';
 import type { Order } from './types';
 
@@ -190,7 +190,6 @@ export function hangarCosts(d: Data): Map<number, { cost: number; bought: number
 export function verdicts(d: Data, check: CheckState, cost: Record<number, number>): Relist[] {
   if (!check.books) return [];
   const txs = Object.values(d.txs);
-  const leave = new Set(d.leave ?? []);
   const open = jitaOpen(d);
   const yours = open.map((o) => o.orderId);
   // The plan each item belongs to, while its position is open: a raise must still leave half of what it expected.
@@ -203,7 +202,8 @@ export function verdicts(d: Data, check: CheckState, cost: Record<number, number
       avgCost: cost[o.typeId],
       lows: check.lows?.[o.typeId] ?? null,
       highs: check.highs?.[o.typeId] ?? null,
-      leave: leave.has(o.typeId),
+      // Left alone (Place and leave, or by hand): a plan's Leave alone covers that plan's own orders only.
+      leave: isLeft(o, d.leave ?? [], d.leaveFrom),
       txs,
       watched: watchedFlow(o.typeId),
       yours,

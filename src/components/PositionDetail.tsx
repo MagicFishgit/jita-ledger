@@ -5,7 +5,7 @@ import { priceUp, tickDown, tickUp } from '../lib/tick';
 import { marketBest, walkBids } from '../lib/relist';
 import { chooseAsk, confirmAsk } from '../lib/confirm';
 import { breakEvenSell, rates } from '../lib/fees';
-import { planListPrice, planTargets } from '../lib/plans';
+import { isLeft, leaveAfterClose, planListPrice, planTargets } from '../lib/plans';
 import { isk, iskBig, iskBigSigned, parseISK, pct, rid, units } from '../lib/format';
 import { jitaOrders, marketHistory, snapshot, type OrderLite } from '../lib/market';
 import { update, useData } from '../lib/store';
@@ -288,13 +288,24 @@ export function PositionDetail({ id }: { id: string }) {
     patchPosition(pos.id, { openedAt: at });
     if (at !== wanted) toast(`It starts ${fmtDT(at)} EVE instead, when your last ${name} position closed, so no trade counts in both.`, 'warn');
   };
+  // Closed or deleted, a position's item stops being left alone (Leave alone, Place and leave), unless another open position
+  // of it is a Place-and-leave plan's (`leaveAfterClose`): nothing judges its orders as a plan's any more. Said only when
+  // an order of yours was being left.
+  const leftOrders = () => Object.values(d.orders).filter((o) => o.typeId === pos.typeId && o.state === 'open' && o.volumeRemain > 0 && isLeft(o, d.leave, d.leaveFrom));
+  const unleftSaid = (n: number) => `${n === 1 ? 'Your order on it is' : `Your ${units(n)} orders on it are`} no longer left alone: Orders, To do and alert mail judge ${n === 1 ? 'it' : 'them'} as usual again.`;
   const close = async () => {
     // Closing stops counting. Say what that means for stock still held and orders still running first.
     const open = Object.values(d.orders).filter((o) => o.typeId === pos.typeId && o.state === 'open' && o.volumeRemain > 0 && (!pos.jitaOnly || o.locationId === JITA_44));
+    const closedAt = new Date().toISOString();
+    const after = d.positions.map((p) => (p.id === pos.id ? { ...p, status: 'closed' as const, closedAt } : p));
+    const left = leaveAfterClose(d.leave, d.leaveFrom, d.plans, after, pos.typeId) ? leftOrders().length : 0;
     if (c.stock > 0 || open.length) {
       const bits = [
         c.stock > 0 && `The ${units(c.stock)} ${c.stock === 1 ? 'unit' : 'units'} still in stock (${iskBig(c.costOfStock)} at cost) aren’t counted as a gain or a loss. If you sell them later, those sales show on the Wallet as trades no position tracks.`,
         open.length > 0 && `Your ${open.length === 1 ? 'order' : `${open.length} orders`} on it keep running in game, and anything that fills from now on isn’t counted here.`,
+        left > 0 && (left === open.length
+          ? `${left === 1 ? 'It’s' : 'They’re'} no longer left alone either: Orders, To do and alert mail judge ${left === 1 ? 'it' : 'them'} as usual again.`
+          : unleftSaid(left)),
       ].filter(Boolean);
       const ok = await confirmAsk({
         title: `Close with ${c.stock > 0 ? `${units(c.stock)} ${c.stock === 1 ? 'unit' : 'units'} still in stock` : `${open.length === 1 ? 'an order' : 'orders'} still open`}?`,
@@ -303,8 +314,11 @@ export function PositionDetail({ id }: { id: string }) {
       });
       if (!ok) return;
     }
-    patchPosition(pos.id, { status: 'closed', closedAt: new Date().toISOString() });
-    toast(`${name} position closed. Result locked in at ${iskBigSigned(c.realized)}.`);
+    update((x) => {
+      const positions = x.positions.map((p) => (p.id === pos.id ? { ...p, status: 'closed' as const, closedAt } : p));
+      return { positions, ...(leaveAfterClose(x.leave, x.leaveFrom, x.plans, positions, pos.typeId) ?? {}) };
+    });
+    toast(`${name} position closed. Result locked in at ${iskBigSigned(c.realized)}.${left > 0 ? ` ${unleftSaid(left)}` : ''}`);
   };
   const reopen = () => {
     const other = d.positions.find((p) => p.typeId === pos.typeId && p.status === 'open' && p.id !== pos.id);
@@ -337,12 +351,14 @@ export function PositionDetail({ id }: { id: string }) {
     });
     if (a === 'alt') { await close(); return; }
     if (a !== 'yes') return;
+    const left = leaveAfterClose(d.leave, d.leaveFrom, d.plans, d.positions.filter((p) => p.id !== pos.id), pos.typeId) ? leftOrders().length : 0;
     update((x) => {
       const txs = { ...x.txs };
       Object.values(txs).forEach((t) => { if (t.positionId === pos!.id) delete txs[t.id]; });
-      return { positions: x.positions.filter((p) => p.id !== pos!.id), txs };
+      const positions = x.positions.filter((p) => p.id !== pos!.id);
+      return { positions, txs, ...(leaveAfterClose(x.leave, x.leaveFrom, x.plans, positions, pos.typeId) ?? {}) };
     });
-    toast(`Deleted the ${name} position.`, 'info');
+    toast(`Deleted the ${name} position.${left > 0 ? ` ${unleftSaid(left)}` : ''}`, 'info');
     navigate('positions');
   };
   const pc = c.realized >= 0 ? 'var(--pos)' : 'var(--neg)';

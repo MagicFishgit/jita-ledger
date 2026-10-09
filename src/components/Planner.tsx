@@ -19,6 +19,7 @@ import { ScanFreshness } from './ScanFreshness';
 import { ShareCheck } from './ShareCheck';
 import { useCloud } from '../lib/cloud';
 import { leaveSaid } from '../lib/track';
+import { leaveByHand, stopLeaving } from '../lib/plans';
 import { PlacingChecklist, StartPlanButton } from './PlanStart';
 
 const KEY = 'jita-ledger:planner';
@@ -314,11 +315,11 @@ export function Planner() {
                   {allLeft ? (
                     <>
                       <span style={{ fontSize: 13, color: 'var(--pos)' }}>You’re leaving all {units(planTypes.length)} of these: their orders won’t be told to get back in front.</span>
-                      <button type="button" className="link-btn" onClick={() => update((x) => ({ leave: x.leave.filter((t) => !planTypes.includes(t)) }))}>Stop leaving them</button>
+                      <button type="button" className="link-btn" onClick={() => update((x) => stopLeaving(x.leave, x.leaveFrom, planTypes))}>Stop leaving them</button>
                     </>
                   ) : (
                     <>
-                      <button type="button" className="btn sm primary" onClick={() => update((x) => ({ leave: [...new Set([...x.leave, ...planTypes])] }))}>Leave these orders alone</button>
+                      <button type="button" className="btn sm primary" onClick={() => update((x) => leaveByHand(x.leave, x.leaveFrom, planTypes))}>Leave these orders alone</button>
                       <span className="note small" style={{ margin: 0 }}>Once you’ve placed them. Orders, To do and alert mail then only speak up if trading stops reaching their price. Change it per item on Orders.</span>
                     </>
                   )}

@@ -6,14 +6,14 @@ import { del, get, set } from 'idb-keyval';
 import { getAccessToken, getAuth, onAuthChange } from './auth';
 import { CLOUD_URL } from './config';
 import {
-  applyPulled, asMap, diffRecords, docValue, everything, isDocKey, isRecordKey, sharedDoc, type DocKey, type Pulled, type RecordKey,
+  applyPulled, asMap, diffRecords, docValue, everything, isDocKey, isRecordKey, refusedDoc, sharedDoc, type DocKey, type Pulled, type RecordKey,
 } from './cloudSync';
 import { dataGeneration, dataStore, getData, isReady, onClearAll, onDataChange, update, type Data } from './store';
 import { sanitizeSettings } from './fees';
 import { setCloudFlow, setCloudHours } from './flowStore';
 import type { HourBucket } from './rhythm';
 import type { FlowLog } from './flow';
-import { sanitizeAlerts, sanitizeChars, sanitizeLeave, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes } from './prefs';
+import { sanitizeAlerts, sanitizeChars, sanitizeLeave, sanitizeLeaveFrom, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes } from './prefs';
 import { sanitizePlans } from './plans';
 import { costBasis } from './orderCheck';
 import { adoptCloudScan, loadCache, mergeLiveBooks, rankProspects, scanBusy, type CloudScan } from './scan';
@@ -208,20 +208,33 @@ async function pushNow(): Promise<void> {
   const total = recs.length;
   for (let i = 0; i < Math.max(1, recs.length); i += PUSH_CHUNK) {
     const part = recs.slice(i, i + PUSH_CHUNK);
-    const withDocs = i === 0 ? docs : [];
+    let withDocs = i === 0 ? docs : [];
     if (!part.length && !withDocs.length) break;
     if (total > PUSH_CHUNK) setStatus({ phase: 'working', doing: `Uploading your ledger (${Math.min(i + PUSH_CHUNK, total).toLocaleString('en-US')} of ${total.toLocaleString('en-US')})` });
     else setStatus({ phase: 'working', doing: 'Saving changes' });
-    const res = await call<{ rev: number }>('/v1/push', {
-      method: 'POST',
-      body: JSON.stringify({
-        records: part.map(([key]) => { const [k, ...id] = key.split('|'); return { k, i: id.join('|'), d: valueOf(k as RecordKey, id.join('|')) }; }),
-        docs: withDocs.map(([k]) => ({ key: k, d: docValue(d, k) })),
-      }),
-    });
+    let res: { rev: number } | null = null;
+    while (part.length || withDocs.length) {
+      try {
+        res = await call<{ rev: number }>('/v1/push', {
+          method: 'POST',
+          body: JSON.stringify({
+            records: part.map(([key]) => { const [k, ...id] = key.split('|'); return { k, i: id.join('|'), d: valueOf(k as RecordKey, id.join('|')) }; }),
+            docs: withDocs.map(([k]) => ({ key: k, d: docValue(d, k) })),
+          }),
+        });
+        break;
+      } catch (e) {
+        // A Worker a version behind doesn't know a new document yet and takes nothing of the push: send the rest
+        // without it, and keep it waiting for the next push (refusedDoc).
+        const refused = (e as { status?: number }).status === 400 ? refusedDoc((e as Error).message) : null;
+        if (!refused || !withDocs.some(([k]) => k === refused)) throw e;
+        withDocs = withDocs.filter(([k]) => k !== refused);
+      }
+    }
     // "Delete all data" meanwhile: what's left to send was read from a ledger that is gone, and the list it came off is
     // this browser's old one. Stop here.
     if (dataGeneration() !== wipe) return;
+    if (!res) break;
     ownRevs.add(res.rev);
     // Only what hasn't changed again since it was read goes off the list.
     for (const [key, g] of part) if (dirtyRecords.get(key) === g) dirtyRecords.delete(key);
@@ -264,6 +277,7 @@ async function pullNow(cloudWins = false): Promise<Map<string, Set<string>>> {
         if (p.prefs) p.prefs = sanitizePrefs(p.prefs);
         if (p.alerts) p.alerts = sanitizeAlerts(p.alerts);
         if (p.leave) p.leave = sanitizeLeave(p.leave);
+        if (p.leaveFrom) p.leaveFrom = sanitizeLeaveFrom(p.leaveFrom);
         if (p.safetyTimes) p.safetyTimes = sanitizeSafetyTimes(p.safetyTimes);
         if (p.notSnipes) p.notSnipes = sanitizeNotSnipes(p.notSnipes);
         if (p.plans) p.plans = sanitizePlans(p.plans);

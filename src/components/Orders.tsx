@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Ban, BanknoteArrowDown, ChevronsUp, CircleDashed, CircleX, ClipboardList, Crosshair, Hand, Hourglass, LayoutGrid, ListOrdered, MoveVertical, Timer } from 'lucide-react';
-import { ago, isk, iskBig, plainNum, units, until } from '../lib/format';
+import { ago, fmtDateTime, isk, iskBig, plainNum, units, until } from '../lib/format';
 import { useAuth, useNow, navigate, useRoute } from '../lib/hooks';
 import { checkOrders, costBasis, jitaOpen, sidePace, useOrderCheck, verdicts } from '../lib/orderCheck';
 import { rates } from '../lib/fees';
@@ -14,7 +14,7 @@ import { othersUndercutRate, ownFrontMoves, relistPace } from '../lib/flow';
 import { update, useData } from '../lib/store';
 import { afterMove, afterMoveSaid, byUrgency, FEE_TARGET, feedsQueueSaid, feedsQueueTag, movesToFront, PLAN_KEEP, PLAN_KEEP_SAID, shownVerdict, type FeedsQueue, type OverResale, type Relist, type ShownVerdict, type TooBig, type UnderCost } from '../lib/relist';
 import { tileRows } from '../lib/tileFilter';
-import type { TradePlan } from '../lib/plans';
+import { isLeft, leaveByHand, stopLeaving, type TradePlan } from '../lib/plans';
 import { FILL_WINDOW } from '../lib/fills';
 import type { Order } from '../lib/types';
 import { BusyRelisting, canOpenInGame, CopyPrice, NameInGame, OpenInGame, useTypeName } from './common';
@@ -145,7 +145,6 @@ export function Orders() {
   // The cloud's watched trade feeds each order's pace, so its arrival re-reads the verdicts.
   const flowV = useFlow();
   const all: Relist[] = useMemo(() => verdicts(d, check, cost), [d, check, cost, flowV]); // eslint-disable-line react-hooks/exhaustive-deps
-  const leaving = useMemo(() => new Set(d.leave), [d.leave]);
   // How left orders have filled against the pace expected, once the cloud has checked enough of them.
   const leaveRecord = leaveSaid(useCloud().track?.leave);
   const sideRows = side === 'all' ? all : all.filter((x) => (side === 'buy' ? x.isBuy : !x.isBuy));
@@ -359,7 +358,9 @@ export function Orders() {
                     const keep = !!x?.keep && x.verdict === 'loss';
                     // Left behind the front on purpose: the price to get back in front isn't advice for it.
                     const heldBack = !!x?.left && x.verdict === 'wait';
-                    const left = leaving.has(o.typeId);
+                    // Left alone: by hand, every order of the item; by a Place-and-leave plan, only those placed since it started.
+                    const left = isLeft(d.orders[o.orderId] ?? { typeId: o.typeId, issued: '' }, d.leave, d.leaveFrom);
+                    const leftSince = !left && d.leave.includes(o.typeId) ? d.leaveFrom[o.typeId] : undefined;
                     // The price shown under Move to: what opening it in game copies, ready for the price box.
                     // A move that would sell under cost ("Not worth it") is no price to move to: shown as "–", never copied. The
                     // user saw 8,499,000 and 999,800 under Move to, with a copy icon, on two snipes it would sell at a loss.
@@ -434,9 +435,11 @@ export function Orders() {
                             <button type="button" className="link-btn dim" onClick={() => navigate(`calculator?type=${o.typeId}`)}>Calc</button>
                             <button type="button" className={'link-btn' + (left ? '' : ' dim')} style={left ? { color: 'var(--pos)' } : undefined}
                               data-tip={left
-                                ? `You’re leaving ${name}’s orders where they are: nothing tells you to get back in front, only if trading stops reaching their price. Click to go back to the usual advice.${leaveRecord ? `\n\n${leaveRecord}` : ''}`
-                                : `Leave ${name}’s orders where they are, behind the front on purpose: no more “move it”, on this page, To do or in alert mail, unless trading stops reaching their price.`}
-                              onClick={() => update((d2) => ({ leave: left ? d2.leave.filter((t) => t !== o.typeId) : [...new Set([...d2.leave, o.typeId])] }))}>
+                                ? `You’re leaving ${name}’s orders${d.leaveFrom[o.typeId] ? ` placed since its Place-and-leave plan started, ${fmtDateTime(d.leaveFrom[o.typeId])},` : ''} where they are: nothing tells you to get back in front, only if trading stops reaching their price. Click to go back to the usual advice${d.leaveFrom[o.typeId] ? ' for all of them' : ''}.${leaveRecord ? `\n\n${leaveRecord}` : ''}`
+                                : leftSince
+                                  ? `A Place-and-leave plan leaves only ${name}’s orders placed since it started, ${fmtDateTime(leftSince)}. This one was placed before it, so it gets the usual advice.\n\nClick to leave every ${name} order where it is, this one too: no more “move it”, on this page, To do or in alert mail, unless trading stops reaching their price.`
+                                  : `Leave ${name}’s orders where they are, behind the front on purpose: no more “move it”, on this page, To do or in alert mail, unless trading stops reaching their price.`}
+                              onClick={() => update((d2) => (left ? stopLeaving : leaveByHand)(d2.leave, d2.leaveFrom, [o.typeId]))}>
                               {left ? 'Leaving it' : 'Leave alone'}
                             </button>
                           </span>

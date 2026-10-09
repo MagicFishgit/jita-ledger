@@ -160,16 +160,32 @@ export function sanitizeSafetyTimes(v: unknown): SafetyTimesDoc {
   return out;
 }
 
-/** Items you're leaving orders on ("Place and leave"): type IDs, each once. */
 /** Purchases you said weren't snipes (the Sniper's "Not a snipe"): trade IDs. */
 export function sanitizeNotSnipes(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
   return [...new Set(v.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length < 64))].slice(-5000);
 }
 
+/** Items you're leaving orders on ("Place and leave"): type IDs, each once. */
 export function sanitizeLeave(v: unknown): number[] {
   if (!Array.isArray(v)) return [];
   return [...new Set(v.filter((x): x is number => Number.isInteger(x) && x > 0))];
+}
+
+/**
+ * When a Place-and-leave plan left each of its items (`isLeft` in plans.ts): type ID to the plan's start. An item in
+ * `leave` with a time here is left only for orders placed since then; one without, left by hand, for every order of it.
+ * A document of its own beside `leave`, which stays a plain list, since browsers and a Worker a version behind read it.
+ */
+export type LeaveFromDoc = Record<string, string>;
+export function sanitizeLeaveFrom(v: unknown): LeaveFromDoc {
+  const out: LeaveFromDoc = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [id, at] of Object.entries(v as Record<string, unknown>)) {
+    if (!/^\d{1,12}$/.test(id) || !(Number(id) > 0) || typeof at !== 'string' || !Number.isFinite(Date.parse(at))) continue;
+    out[id] = at;
+  }
+  return out;
 }
 
 /**

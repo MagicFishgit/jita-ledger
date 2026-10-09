@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { createStore, get, set, del, keys } from 'idb-keyval';
 import { rates, sanitizeSettings, type Settings } from './fees';
-import { mergeCharsDoc, sanitizeAlerts, sanitizeChars, sanitizeLeave, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes, type CharsDoc, type SafetyTimesDoc } from './prefs';
+import { mergeCharsDoc, sanitizeAlerts, sanitizeChars, sanitizeLeave, sanitizeLeaveFrom, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes, type CharsDoc, type LeaveFromDoc, type SafetyTimesDoc } from './prefs';
 import { sanitizePlans, type TradePlan } from './plans';
 import type { MiningRecord } from './mining';
 import { emptyData } from './emptyData';
@@ -45,6 +45,11 @@ export type Data = {
    * move only when trading stops reaching their price, never to get back in front. Type IDs.
    */
   leave: number[];
+  /**
+   * For items a Place-and-leave plan left, since when (the plan's start): only their orders placed since are left
+   * (`isLeft` in plans.ts). An item in `leave` without a time here, left by hand, is left whole.
+   */
+  leaveFrom: LeaveFromDoc;
   /** Purchases you said weren't snipes, though bought from a listing well under where the item traded: trade IDs. */
   notSnipes: string[];
   /** Capital planner mixes you started: what to buy, and the positions following them (plans.ts). Newest first. */
@@ -62,7 +67,7 @@ export type Data = {
 type Key = keyof Data;
 const KEYS: Key[] = [
   'settings', 'txs', 'journal', 'orders', 'positions', 'watchlist', 'names', 'ignored', 'stock', 'skills', 'meta',
-  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'safetyTimes', 'notSnipes', 'plans', 'mining', 'chars',
+  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'leaveFrom', 'safetyTimes', 'notSnipes', 'plans', 'mining', 'chars',
 ];
 
 const idb = createStore('jita-ledger', 'kv');
@@ -94,6 +99,7 @@ export async function initStore(): Promise<void> {
   data.safetyTimes = sanitizeSafetyTimes(data.safetyTimes);
   data.notSnipes = sanitizeNotSnipes(data.notSnipes);
   data.plans = sanitizePlans(data.plans);
+  data.leaveFrom = sanitizeLeaveFrom(data.leaveFrom);
   data.chars = sanitizeChars(data.chars);
   if (!data.meta.rateHistory?.length) {
     // Assume today's rates applied to everything before the first recorded change.
@@ -216,6 +222,7 @@ export async function importAll(json: string): Promise<void> {
   if (p.prefs) p.prefs = sanitizePrefs(p.prefs);
   if (p.alerts) p.alerts = sanitizeAlerts(p.alerts);
   if (p.leave) p.leave = sanitizeLeave(p.leave);
+  if (p.leaveFrom) p.leaveFrom = sanitizeLeaveFrom(p.leaveFrom);
   if (p.safetyTimes) p.safetyTimes = sanitizeSafetyTimes(p.safetyTimes);
   if (p.notSnipes) p.notSnipes = sanitizeNotSnipes(p.notSnipes);
   if (p.plans) p.plans = sanitizePlans(p.plans);

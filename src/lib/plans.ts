@@ -53,6 +53,71 @@ export function sanitizePlans(v: unknown): TradePlan[] {
 const SLACK_MS = 2 * 60_000;
 
 /**
+ * Whether an order is one you're leaving where it is ("Leave alone", Place and leave): told to move only when trading
+ * stops reaching its price, never to get back in front. Orders, the order check and the cloud's alert round all ask here.
+ *
+ * `leave` lists items; `leaveFrom` says, for an item a Place-and-leave plan left, since when. Such an item's orders are
+ * left only when first placed (`seen[0]`, never `issued`, which a price change moves) at or after the plan's start, less
+ * SLACK_MS: the plan's own, not every order of the item. The plans review (9 October 2026) found the 2 October plan's
+ * Leave alone covering the 30 September at-the-front plan's Clone Soldier Transporter Tag bid (placed 30 September, raised
+ * three times), which was then never told to move and held 116.9 M in escrow after its position closed. An item without a
+ * time (left by hand on Orders, or by a device or a Worker that doesn't know `leaveFrom`) is left whole, as before.
+ * A placement that can't be read is taken as left, as before.
+ */
+export function isLeft(o: { typeId: number; issued: string; seen?: { issued: string }[] }, leave: readonly number[], leaveFrom?: Readonly<Record<string, string>> | null): boolean {
+  if (!leave.includes(o.typeId)) return false;
+  const from = leaveFrom ? Date.parse(leaveFrom[o.typeId] ?? '') : NaN;
+  if (!Number.isFinite(from)) return true;
+  const placed = Date.parse(o.seen?.[0]?.issued ?? o.issued);
+  return !Number.isFinite(placed) || placed >= from - SLACK_MS;
+}
+
+/** What you're leaving: the synced `leave` list and, for items a plan left, since when. */
+export type Leaving = { leave: number[]; leaveFrom: Record<string, string> };
+
+/**
+ * Starting a Place-and-leave plan leaves its items from its start (`at`). An item already left by hand (in `leave` with no
+ * time) stays left whole; one an earlier plan left keeps the earlier time, so that plan's orders stay left too.
+ */
+export function leaveForPlan(leave: readonly number[], leaveFrom: Readonly<Record<string, string>>, typeIds: readonly number[], at: string): Leaving {
+  const next = { ...leaveFrom };
+  for (const t of typeIds) {
+    const held = next[t];
+    if (leave.includes(t) && held === undefined) continue;
+    if (held === undefined || !(Date.parse(held) <= Date.parse(at))) next[t] = at;
+  }
+  return { leave: [...new Set([...leave, ...typeIds])], leaveFrom: next };
+}
+
+/** "Leave alone" by hand (Orders, the planner's mix): every order of these items, whenever placed. */
+export function leaveByHand(leave: readonly number[], leaveFrom: Readonly<Record<string, string>>, typeIds: readonly number[]): Leaving {
+  const next = { ...leaveFrom };
+  for (const t of typeIds) delete next[t];
+  return { leave: [...new Set([...leave, ...typeIds])], leaveFrom: next };
+}
+
+/** "Leaving it" undone (Orders, the planner's mix): these items get the usual advice again. */
+export function stopLeaving(leave: readonly number[], leaveFrom: Readonly<Record<string, string>>, typeIds: readonly number[]): Leaving {
+  const next = { ...leaveFrom };
+  for (const t of typeIds) delete next[t];
+  return { leave: leave.filter((t) => !typeIds.includes(t)), leaveFrom: next };
+}
+
+/**
+ * After a position of `typeId` closed or was deleted (`positions` as they are afterwards): its item stops being left, so
+ * its orders get the usual advice again, unless another open position of the item belongs to a Place-and-leave plan (a
+ * patient plan with an item following it). Null when nothing changes. The plans review's Clone Soldier bid was left alone
+ * after its position closed on 3 October, with nothing judging it as a plan's and 116.9 M in escrow.
+ */
+export function leaveAfterClose(leave: readonly number[], leaveFrom: Readonly<Record<string, string>>,
+  plans: readonly Pick<TradePlan, 'patient' | 'items'>[], positions: readonly Pick<Position, 'id' | 'typeId' | 'status'>[], typeId: number): Leaving | null {
+  if (!leave.includes(typeId) && leaveFrom[typeId] === undefined) return null;
+  const open = new Set(positions.filter((p) => p.typeId === typeId && p.status === 'open').map((p) => p.id));
+  const kept = plans.some((p) => p.patient && p.items.some((i) => i.typeId === typeId && i.positionId != null && open.has(i.positionId)));
+  return kept ? null : stopLeaving(leave, leaveFrom, [typeId]);
+}
+
+/**
  * How long before a plan an order still counts as placed for it, when the item's position didn't open within the day before
  * the plan (`POSITION_BEFORE_MS`): a plan reusing a position opened weeks ago mustn't count a bid from then, filled long
  * since. The user placed 15 of

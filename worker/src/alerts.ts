@@ -21,10 +21,10 @@ import { observedFlow, RELIST_MIN_H, sidePaceOf, type FlowDay, type OrderLite } 
 import { judgeProspect, type Book } from '../../src/lib/evaluate';
 import { leaveOutcome, leaveRatio, predictionOutcome, type LeaveOutcome } from '../../src/lib/track';
 import { DEFAULT_FILTERS, passesGate, statsFrom } from '../../src/lib/prospects';
-import { sanitizeAlerts, sanitizeLeave } from '../../src/lib/prefs';
+import { sanitizeAlerts, sanitizeLeave, sanitizeLeaveFrom } from '../../src/lib/prefs';
 import { paceDay } from '../../src/lib/prospects';
 import { byUrgency, judgeOrder, type Relist } from '../../src/lib/relist';
-import { planTargets, sanitizePlans } from '../../src/lib/plans';
+import { isLeft, planTargets, sanitizePlans } from '../../src/lib/plans';
 import { buyerShare, competitionShare, type BookSold } from '../../src/lib/split';
 import type { AlertConfig, AlertLogEntry, BookLevel, Prospect, ProspectFilters, SellsTo } from '../../src/lib/types';
 import { noteJob } from './archive';
@@ -97,7 +97,10 @@ export async function judgeAll(db: D1Database, charId: number, settings: Setting
   const flow = await flowFor(db, types);
   const costs = (await doc<Record<string, number>>(db, charId, 'costs')) ?? {};
   // Items you're leaving orders on (the planner's "Place and leave"): told to move only when trading stops reaching them.
-  const leave = new Set(sanitizeLeave(await doc<unknown>(db, charId, 'leave')));
+  // A Place-and-leave plan's items are left only for the orders placed since it started (`isLeft`); no `leaveFrom` doc (an
+  // app version behind) leaves every order of the item, as before.
+  const leave = sanitizeLeave(await doc<unknown>(db, charId, 'leave'));
+  const leaveFrom = sanitizeLeaveFrom(await doc<unknown>(db, charId, 'leaveFrom'));
   // The plan each item belongs to while its position is open (planTargets), so a plan's buy is never raised into a loss.
   // A ledger whose app hasn't written plans has none: judged as before.
   const plans = sanitizePlans(await doc<unknown>(db, charId, 'plans'));
@@ -128,7 +131,7 @@ export async function judgeAll(db: D1Database, charId: number, settings: Setting
     const watched: FlowDay = observedFlow({ [o.typeId]: flow[o.typeId] ?? {} }, o.typeId, now);
     const perDay = sidePaceOf({ daily: h ? paceDay(h, now) : null, buyers: h ? buyerShare(h.slice(-30)) : undefined, sold: book.sold, watched }, o.isBuy).perDay;
     const range = h ? recentRange(h, undefined, now, flow[o.typeId]) : null;
-    const x = judgeOrder(o, { book: book.orders, perDay, avgCost: costs[o.typeId], lows: range?.lows ?? null, highs: range?.highs ?? null, leave: leave.has(o.typeId), txs, watched, yours, plan: targets[o.typeId] ?? null }, settings, now);
+    const x = judgeOrder(o, { book: book.orders, perDay, avgCost: costs[o.typeId], lows: range?.lows ?? null, highs: range?.highs ?? null, leave: isLeft(o, leave, leaveFrom), txs, watched, yours, plan: targets[o.typeId] ?? null }, settings, now);
     if (!x.gone) list.push(x);
     // Left behind the front on purpose: the planner's pace for it (`throughput`), its side's trade at your share,
     // scaled for the orders it queues among and for how often trading reaches its price.

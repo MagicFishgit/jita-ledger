@@ -19,7 +19,7 @@ export const RECORD_KEYS = {
 export type RecordKey = keyof typeof RECORD_KEYS;
 
 /** Whole values synced as one document each. */
-export const DOC_KEYS = ['settings', 'meta', 'prefs', 'alerts', 'stock', 'skills', 'ignored', 'nearDone', 'unusualOk', 'leave', 'safetyTimes', 'notSnipes', 'plans', 'chars'] as const;
+export const DOC_KEYS = ['settings', 'meta', 'prefs', 'alerts', 'stock', 'skills', 'ignored', 'nearDone', 'unusualOk', 'leave', 'safetyTimes', 'notSnipes', 'plans', 'chars', 'leaveFrom'] as const;
 export type DocKey = (typeof DOC_KEYS)[number];
 
 /**
@@ -36,6 +36,16 @@ export const LOCAL_FIELDS: Partial<Record<DocKey, readonly string[]>> = { meta: 
 
 export const isRecordKey = (k: string): k is RecordKey => k in RECORD_KEYS;
 export const isDocKey = (k: string): k is DocKey => (DOC_KEYS as readonly string[]).includes(k);
+
+/**
+ * The document a Worker a version behind refused a push over (worker/src/sync.ts answers 400 "Unknown document: X" for a
+ * document it doesn't know yet, and takes nothing of that push). The browser sends the rest without it and keeps it
+ * waiting, so a new document never stops the sync while the site deploys before the Worker. Null for any other answer.
+ */
+export function refusedDoc(message: string | undefined | null): DocKey | null {
+  const m = /^Unknown document: (\w+)$/.exec(message ?? '');
+  return m && isDocKey(m[1]) ? m[1] : null;
+}
 
 /** A collection as a map of ID to record, whatever its shape in the store. */
 export function asMap(key: RecordKey, value: unknown): Map<string, unknown> {

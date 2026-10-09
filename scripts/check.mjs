@@ -2195,6 +2195,12 @@ console.log('\n--- cloud sync: what changed, and applying what came down ---');
   eq('what goes up leaves this browser’s own fields out', [sharedDoc('meta', data.meta), docValue(data, 'prefs')], [{ rateHistory: [1] }, { theme: 'Caldari', perJump: 1 }]);
   const all = everything({ ...data, journal: {}, orders: {}, names: {}, killmails: {}, tags: {}, goals: [], watchlist: [] });
   eq('the first upload is every record and every doc there is', [all.records.map((r) => `${r.k}:${r.i}`), all.docs], [['txs:t1', 'positions:a', 'positions:b', 'netWorth:2026-09-25', 'netWorth:2026-09-27'], ['meta', 'prefs']]);
+  // A Worker a version behind refuses the whole push over a document it doesn't know yet (worker/src/sync.ts): the
+  // browser sends the rest without it, and keeps it waiting for the Worker that knows it.
+  const { refusedDoc } = await import('../src/lib/cloudSync.ts');
+  eq('a Worker a version behind refusing a new document names it', [refusedDoc('Unknown document: leaveFrom'), refusedDoc('Unknown document: settings')], ['leaveFrom', 'settings']);
+  eq('  anything else is no such refusal', [refusedDoc('Unknown record kind: txs'), refusedDoc('Unknown document: nonsense'), refusedDoc('The cloud answered 500'), refusedDoc(undefined)], [null, null, null, null]);
+  eq('  `leaveFrom` is a synced document', everything({ leaveFrom: {} }).docs, ['leaveFrom']);
 }
 console.log('\n--- to do and results ---');
 {
@@ -4245,6 +4251,66 @@ console.log('\n--- place and leave: orders behind the front on purpose ---');
   const thin = [null, null, 60000, null, null, null, 61000, null, null, null, null, 59000, null, null];
   eq('  an item traded on too few days to say where it reaches keeps its queue advice', adviseRelist({ orderId: 7, typeId: 16423, isBuy: false, price: 3_899_000, volumeRemain: 1 }, { book: mBook, dailyVolume: 2, highs: thin }, R, 2, 0.05).unreached, false);
   eq('  and it won’t sell under what the stock cost', adviseRelist({ orderId: 7, typeId: 16423, isBuy: false, price: 3_899_000, volumeRemain: 1 }, { book: mBook, dailyVolume: 2, highs: mHighs, avgCost: 150_000 }, R, 2, 0.05).verdict, 'loss');
+}
+
+console.log('\n--- Leave alone belongs to a plan’s own orders, and ends with its position (the plans review, 9 October 2026) ---');
+{
+  // The user's case: the 2 October Place-and-leave plan (started 15:36:31.972) put Clone Soldier Transporter Tag in `leave`,
+  // and the 30 September at-the-front plan's bid on it (placed 00:43:08 on 30 September, raised three times, the last at
+  // 22:27:17 on 2 October) was told "You're leaving this one" from then on; its position closed on 3 October and the bid
+  // kept 116.9 M in escrow with nothing judging it. The plan's own bid (Compressed Fullerite-C32, placed 15:39:41) is left.
+  const { isLeft, leaveForPlan, leaveByHand, stopLeaving, leaveAfterClose } = await import('../src/lib/plans.ts');
+  const { sanitizeLeaveFrom } = await import('../src/lib/prefs.ts');
+  const CS = 33140, C32 = 62404, RS = 20420, CNMGC = 94063, AT = '2026-10-02T15:36:31.972Z';
+  const clone = { orderId: 7433389245, typeId: CS, isBuy: true, issued: '2026-10-02T22:27:17Z',
+    seen: [{ issued: '2026-09-30T00:43:08Z', price: 28_820_000, remain: 4 }, { issued: '2026-10-02T22:27:17Z', price: 29_230_000, remain: 4 }] };
+  const c32 = { orderId: 7435096529, typeId: C32, isBuy: true, issued: '2026-10-02T15:39:41Z', seen: [{ issued: '2026-10-02T15:39:41Z', price: 18020, remain: 7221 }] };
+  const leave = [CS, C32, RS, CNMGC];
+  const from = { [CS]: AT, [C32]: AT, [RS]: AT };
+  eq('an order placed before its item was left by a plan isn’t left, though a raise moved its `issued` after', isLeft(clone, leave, from), false);
+  eq('  the plan’s own bid, placed after it started, is', isLeft(c32, leave, from), true);
+  eq('  the earlier trading’s listing on a position the plan took over isn’t (Rocket Science, placed 1 Oct)',
+    isLeft({ typeId: RS, issued: '2026-10-08T15:36:13Z', seen: [{ issued: '2026-10-01T10:58:01Z', price: 94420, remain: 2628 }] }, leave, from), false);
+  eq('  an item left by hand (no time) leaves every order of it, as before', isLeft({ typeId: CNMGC, issued: '2026-10-03T11:33:11Z' }, leave, from), true);
+  eq('  no `leaveFrom` doc at all (an older device, a Worker a version behind) is today’s behaviour', [isLeft(clone, leave, undefined), isLeft(clone, leave, {}), isLeft(clone, leave, null)], [true, true, true]);
+  eq('  an item not in `leave` isn’t left, whatever `leaveFrom` holds', isLeft(clone, [C32], from), false);
+  eq('  with no versions seen, the placement is `issued`', [isLeft({ typeId: CS, issued: '2026-10-02T15:40:00Z' }, leave, from), isLeft({ typeId: CS, issued: '2026-10-01T15:40:00Z' }, leave, from)], [true, false]);
+  // The checklist's slack (two minutes): the app's clock and ESI's may differ a little.
+  eq('  placed within the two minutes before the plan, left; three minutes before, not',
+    [isLeft({ typeId: CS, issued: '2026-10-02T15:34:31.972Z' }, leave, from), isLeft({ typeId: CS, issued: '2026-10-02T15:33:31Z' }, leave, from)], [true, false]);
+
+  eq('`leaveFrom` is type IDs to times; anything else is dropped',
+    sanitizeLeaveFrom({ [CS]: AT, abc: AT, 0: AT, '-5': AT, [C32]: 'not a time', [RS]: 12, 15592: null }), { [CS]: AT });
+  eq('  nothing, an array or a string is none', [sanitizeLeaveFrom(undefined), sanitizeLeaveFrom([AT]), sanitizeLeaveFrom('x')], [{}, {}, {}]);
+
+  // Starting a Place-and-leave plan: its items left from its start.
+  eq('starting a plan leaves its items from its start', leaveForPlan([], {}, [CS, C32], AT), { leave: [CS, C32], leaveFrom: { [CS]: AT, [C32]: AT } });
+  eq('  an item you already left by hand stays left whole', leaveForPlan([CNMGC], {}, [CNMGC, C32], AT), { leave: [CNMGC, C32], leaveFrom: { [C32]: AT } });
+  eq('  an item an earlier plan left keeps the earlier time, so that plan’s orders stay left',
+    leaveForPlan([CS], { [CS]: '2026-09-30T00:41:37.568Z' }, [CS], AT), { leave: [CS], leaveFrom: { [CS]: '2026-09-30T00:41:37.568Z' } });
+  eq('  other items are untouched', leaveForPlan([CNMGC], { 15592: AT }, [CS], AT), { leave: [CNMGC, CS], leaveFrom: { 15592: AT, [CS]: AT } });
+
+  // Orders' Leave alone and Leaving it, and the planner's mix buttons: the whole item, by hand.
+  const byHand = leaveByHand(leave, from, [CS]);
+  eq('Leave alone by hand leaves every order of the item, its plan time gone', [byHand.leave, byHand.leaveFrom, isLeft(clone, byHand.leave, byHand.leaveFrom)], [leave, { [C32]: AT, [RS]: AT }, true]);
+  eq('  an item not yet left is added', leaveByHand([C32], {}, [CS]).leave, [C32, CS]);
+  eq('Leaving it (undo) drops the item and its time', stopLeaving(leave, from, [CS, C32]), { leave: [RS, CNMGC], leaveFrom: { [RS]: AT } });
+  eq('  nothing passed in is changed in place', [leave, from], [[CS, C32, RS, CNMGC], { [CS]: AT, [C32]: AT, [RS]: AT }]);
+
+  // A position closing or deleted: its item stops being left, unless another open position of it is a Place-and-leave plan's.
+  const plans = [
+    { id: 'oct2', patient: true, items: [{ typeId: CS, positionId: 'mundr0gxoxlbh5' }, { typeId: C32, positionId: 'c32' }] },
+    { id: 'sep30', patient: false, items: [{ typeId: CS, positionId: 'mundr0gxoxlbh5' }] },
+  ];
+  const closed = [{ id: 'mundr0gxoxlbh5', typeId: CS, status: 'closed' }, { id: 'c32', typeId: C32, status: 'open' }];
+  eq('closing Clone Soldier’s position (3 October) stops leaving it, its time too', leaveAfterClose(leave, from, plans, closed, CS), { leave: [C32, RS, CNMGC], leaveFrom: { [C32]: AT, [RS]: AT } });
+  eq('  deleted (gone from the list) the same', leaveAfterClose(leave, from, plans, closed.filter((p) => p.id !== 'mundr0gxoxlbh5'), CS), { leave: [C32, RS, CNMGC], leaveFrom: { [C32]: AT, [RS]: AT } });
+  eq('  left by hand, the same: nothing judges a closed position’s orders as a plan’s', leaveAfterClose([CS], {}, plans, closed, CS), { leave: [], leaveFrom: {} });
+  const another = [...closed, { id: 'cs2', typeId: CS, status: 'open' }];
+  eq('  unless another open position of the item belongs to a Place-and-leave plan', leaveAfterClose(leave, from, [...plans, { id: 'oct9', patient: true, items: [{ typeId: CS, positionId: 'cs2' }] }], another, CS), null);
+  eq('    one an at-the-front plan holds doesn’t count', leaveAfterClose(leave, from, [...plans, { id: 'oct9', patient: false, items: [{ typeId: CS, positionId: 'cs2' }] }], another, CS)?.leave, [C32, RS, CNMGC]);
+  eq('    nor one no plan holds', leaveAfterClose(leave, from, plans, another, CS)?.leave, [C32, RS, CNMGC]);
+  eq('  an item that wasn’t left changes nothing', leaveAfterClose([C32], { [C32]: AT }, plans, closed, CS), null);
 }
 
 console.log('\n--- place and leave: priced where trading reaches ---');

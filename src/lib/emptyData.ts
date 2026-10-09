@@ -7,5 +7,5 @@ export const emptyData = (): Data => ({
   settings: { ...DEFAULT_SETTINGS },
   txs: {}, journal: {}, orders: {}, positions: [], watchlist: [], names: {}, ignored: [], meta: {},
   prefs: { ...DEFAULT_PREFS }, alerts: { ...DEFAULT_ALERTS }, alertLog: [], goals: [], tags: {}, nearDone: [],
-  killmails: {}, netWorth: [], unusualOk: [], leave: [], safetyTimes: {}, notSnipes: [], plans: [], mining: {}, chars: {},
+  killmails: {}, netWorth: [], unusualOk: [], leave: [], leaveFrom: {}, safetyTimes: {}, notSnipes: [], plans: [], mining: {}, chars: {},
 });
