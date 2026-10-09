@@ -363,22 +363,23 @@ export function judgeScam(e: Entry, c: { tracked: boolean; signalAt: number | nu
 export function placeBuyItem(
   p: Pick<TradePlan, 'id' | 'name'>, i: PlanItem, state: PlanItemState, name: string,
   /**
-   * Today's book against the plan's prices (`placeMoved` on the live read, others' orders), when it has moved: the item
-   * says so with the figures and offers Skip it. Its version stays: the read is redone every five minutes, and a hand tick
-   * reopened each time it crossed the line would nag.
+   * Today's book against the plan's prices (`placeMoved` on the live read, others' orders): moved, the item says so with
+   * the figures and offers Skip it; a book that couldn't be read (`failed`) is said as not checked. Its version stays: the
+   * read is redone every five minutes, and a hand tick reopened each time it crossed the line would nag.
    */
-  moved?: { move: MarketMove; bestBuy: number | null; bestSell: number | null } | null,
+  moved?: { move: MarketMove | null; bestBuy: number | null; bestSell: number | null; failed?: boolean } | null,
 ): TodoItem | null {
   if (state.state !== 'open') return null;
-  const said = moved ? placeMovedSaid(i, moved.move, moved.bestBuy, moved.bestSell) : null;
+  const said = moved?.move ? placeMovedSaid(i, moved.move, moved.bestBuy, moved.bestSell) : null;
+  const unread = !said && moved?.failed ? ' Its Jita book couldn’t be read, so it isn’t checked against today’s market.' : '';
   return {
     key: `plan:${p.id}:${i.typeId}`, ver: '1', kind: 'placeBuy', source: 'ledger', stake: i.units * i.buyAt, typeId: i.typeId,
     title: `Place a buy order: ${units(i.units)} × ${name} at ${isk(i.buyAt)}`,
     detail: said
       ? `Part of ${p.name}. ${said.lead}. ${said.lines.join(' ')} Skip it, or open it in game (the price is copied) and place it anyway, quantity ${units(i.units)}.`
-      : `Part of ${p.name}. Open it in game (the price is copied), press Place Buy Order, paste the price, quantity ${units(i.units)}.`,
+      : `Part of ${p.name}.${unread} Open it in game (the price is copied), press Place Buy Order, paste the price, quantity ${units(i.units)}.`,
     action: { label: 'Open', typeId: i.typeId, copy: i.buyAt, route: 'planner' },
-    ...(moved ? { skip: { planId: p.id, typeId: i.typeId, bestBuy: moved.bestBuy, bestSell: moved.bestSell } } : {}),
+    ...(moved && said ? { skip: { planId: p.id, typeId: i.typeId, bestBuy: moved.bestBuy, bestSell: moved.bestSell } } : {}),
   };
 }
 
@@ -542,10 +543,28 @@ export function judgeCashIn(e: Entry, c: {
   return null;
 }
 
+/**
+ * The empty position of a plan item you skipped (`skippedEmpty` in plans.ts): close it, as after a cancelled bid, so later
+ * trades don't land in it. Keyed as any finished position's, versioned 'skipped' so its judge can say what changed.
+ */
+export function skippedEmptyItem(pos: { id: string; typeId: number }, plan: Pick<TradePlan, 'name'>, name: string): TodoItem {
+  return {
+    key: `close:${pos.id}`, ver: 'skipped', kind: 'close', source: 'ledger', stake: 0,
+    title: name,
+    detail: `You skipped it on ${plan.name}: nothing was bought and no order is on it. Close it so later trades don’t land in it.`,
+    action: { label: 'Open position', route: `positions/${pos.id}` },
+  };
+}
+
 /** Items built from your own ledger, which is always current: gone means dealt with. */
-export function judgeLedger(e: Entry, c: { position?: { status: string } | null; inCloud?: boolean }): string {
+export function judgeLedger(e: Entry, c: { position?: { status: string } | null; inCloud?: boolean; stillSkipped?: boolean }): string {
   switch (e.item.kind) {
-    case 'close': return !c.position ? 'The position was removed.' : c.position.status !== 'open' ? 'You closed it.' : 'It isn’t finished after all: stock or an open order came back.';
+    case 'close':
+      if (!c.position) return 'The position was removed.';
+      if (c.position.status !== 'open') return 'You closed it.';
+      // A skipped plan item's empty position (`skippedEmptyItem`, version 'skipped').
+      if (e.item.ver === 'skipped') return c.stillSkipped ? 'It isn’t empty after all: a trade or an open order came.' : 'You put it back on the plan: place its bid from the checklist.';
+      return 'It isn’t finished after all: stock or an open order came back.';
     case 'nearMiss': return 'Dealt with: counted in or set aside.';
     case 'backup': return c.inCloud ? 'Your ledger is kept in the cloud now.' : 'You exported a backup.';
     default: return 'It no longer needs doing.';

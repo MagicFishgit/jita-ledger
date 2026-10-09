@@ -130,8 +130,10 @@ State these rather than letting them be discovered:
   from the game without opening either is placed at the plan's price unchecked. **A skip is kept in the synced plans doc,
   and an older build's save drops it** (`sanitizePlans` keeps only the fields it knows, as with every late field): a device
   on a version from before it that saves its plans writes them without `skipped`, and the item is asked for again until
-  skipped again; browsers reload to a new version within minutes. **Skip it leaves the position as it is**: one the plan
-  opened sits open and empty on Positions until closed by hand.
+  skipped again; browsers reload to a new version within minutes. **Skip it leaves the position open**: To do offers to
+  close one the plan opened while nothing is in it, never one it took over (that one stays open, empty of the plan's part).
+  **A bid placed after a skip is the plan's again for its prices but not left alone**, until Place it after all: Leave
+  alone is given back only by that button, and an item left by hand isn't let go by a skip at all.
 - **Leaving Market moved out of Place and leave lowers the planner's expected ISK a day** (171 M to 129 M on the 2 October
   plan's start): a moved item looks best on paper. What replaces it is the next best on the same model, whose pace for Place
   and leave the plans review found far too high; that the replacements do better isn't shown, only that the moved ones did

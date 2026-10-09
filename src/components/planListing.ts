@@ -3,9 +3,9 @@ import { rates } from '../lib/fees';
 import { FILL_WINDOW, recentRange } from '../lib/fills';
 import { useFlow, watchedDays } from '../lib/flowStore';
 import { jitaOrders, marketHistory, type OrderLite } from '../lib/market';
-import { listMarket, placeMoved, planListPrice, planProgress, skipPlanItem, type ListMarket, type PlanItem, type PlanListPrice, type TradePlan } from '../lib/plans';
+import { leaveAfterSkip, leaveAfterUnskip, listMarket, placeMoved, planLeaveSince, planListPrice, planProgress, skipPlanItem, type ListMarket, type PlanItem, type PlanListPrice, type TradePlan } from '../lib/plans';
 import type { MarketMove } from '../lib/prospects';
-import { planListRows, type PlanListRow } from '../lib/positions';
+import { computePosition, planListRows, type PlanListRow } from '../lib/positions';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import type { HistRow } from '../lib/types';
@@ -132,14 +132,40 @@ export function usePlacingCheck(): Record<string, PlaceCheck> {
 
 /**
  * "Skip it", from the checklist or To do: the plan no longer asks for the item, keeping when and the book it read so the
- * row can say why. Its position stays as it is: a bid placed for it later still counts as placing it.
+ * row can say why. It no longer holds the item either: its orders aren't priced against the plan (`planTargets`) nor, for
+ * Place and leave, left alone for it (`leaveAfterSkip`), until a bid placed for it counts as placing it. Its position stays
+ * open; To do offers to close it while nothing is in it (`skippedEmpty`).
  */
 export function skipPlaceBid(planId: string, typeId: number, name: string, book: { bestBuy: number | null; bestSell: number | null }) {
-  update((x) => ({ plans: skipPlanItem(x.plans, planId, typeId, { at: new Date().toISOString(), bestBuy: book.bestBuy, bestSell: book.bestSell }) }));
-  toast(`Skipped ${name}: the plan won’t ask for it again. Its position stays as it is, and a bid placed for it later still counts.`);
+  let patient = false, released = false;
+  update((x) => {
+    const plans = skipPlanItem(x.plans, planId, typeId, { at: new Date().toISOString(), bestBuy: book.bestBuy, bestSell: book.bestSell });
+    patient = !!plans.find((p) => p.id === planId)?.patient;
+    const leave = leaveAfterSkip(x.leave, x.leaveFrom, plans, x.positions, typeId, patient);
+    released = !!leave;
+    return { plans, ...(leave ?? {}) };
+  });
+  toast(`Skipped ${name}: the plan won’t ask for it again${released ? ', and its orders aren’t left alone any more' : ''}. Its position stays open; To do offers to close it if the plan opened it and nothing’s in it.`);
 }
 
-/** "Place it after all": the skip undone, so the checklist and To do ask for it again. */
+/**
+ * "Place it after all": the skip undone, so the checklist and To do ask for it again, and a Place-and-leave plan leaves its
+ * orders alone again as starting it did (`leaveAfterUnskip`: from the plan's start, or the position's opening when the plan
+ * counts that position whole).
+ */
 export function unskipPlaceBid(planId: string, typeId: number) {
-  update((x) => ({ plans: skipPlanItem(x.plans, planId, typeId, null) }));
+  update((x) => {
+    const plans = skipPlanItem(x.plans, planId, typeId, null);
+    const plan = plans.find((p) => p.id === planId);
+    const item = plan?.items.find((i) => i.typeId === typeId);
+    if (!plan || !item) return { plans };
+    const pos = x.positions.find((p) => p.id === item.positionId && p.typeId === typeId && p.status === 'open');
+    let since: string | undefined;
+    if (pos && plan.patient) {
+      const c = computePosition(pos, x, x.settings);
+      const from = Date.parse(plan.at);
+      since = planLeaveSince(pos, plan, [...c.buys, ...c.sells].some((t) => t.t < from));
+    }
+    return { plans, ...(leaveAfterUnskip(x.leave, x.leaveFrom, plan, typeId, since) ?? {}) };
+  });
 }

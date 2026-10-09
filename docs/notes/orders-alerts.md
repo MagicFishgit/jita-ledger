@@ -200,7 +200,10 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   with today's figures, and has **Skip it** under the detail beside the usual Open (which still copies the plan's bid, to
   place it anyway). Skip it marks the plan's item skipped, as the checklist's button does; the item is then done, "You
   skipped it: the market had moved from the plan's prices." Its version stays `'1'`, so a hand tick isn't reopened each
-  time a read crosses the 5% line. Not mailed.
+  time a read crosses the 5% line. Not mailed. A book that couldn't be read is said ("Its Jita book couldn't be read, so it
+  isn't checked against today's market."). After a skip, To do offers **Close position** for the item's empty position when
+  the plan opened it (kind `close`, version `skipped`, `skippedEmptyItem`), as it does a position backed out of after a
+  cancelled bid; put back on the plan, that item is done ("You put it back on the plan: place its bid from the checklist.").
 - **List loot and List your stock say they're not usable at the moment** (`SellWindowBanner.tsx`, full on List loot,
   compact on Positions' List your stock). The user tried the one-paste listing on 29 September 2026: the Sell window's
   import only prices items already in the window (see eve-client.md), so selecting the items in the hangar stays manual,

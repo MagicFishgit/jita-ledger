@@ -1499,6 +1499,45 @@ console.log('\n--- the checklist re-checks a bid against today\'s book, and a mo
   eq('  skipped: no item', placeBuyItem(sp, si, st, 'Raging Dark Filament', moved), null);
   const e = { item: { key: `plan:${plan.id}:${RD}` }, seenAt: Date.parse(plan.at), lastAt: Date.parse(plan.at) };
   eq('  and the listed one is done, saying so', judgePlaceBuy(e, { plan: true, placed: null, dropped: st }), 'You skipped it: the market had moved from the plan’s prices.');
+  eq('  a book that couldn’t be read: To do says it isn’t checked', placeBuyItem(plan, rd, planItemState(rd, plan, [], open), 'Raging Dark Filament', { move: null, bestBuy: null, bestSell: null, failed: true }).detail,
+    'Part of 2 Oct · 999.16 M ISK in 33 items. Its Jita book couldn’t be read, so it isn’t checked against today’s market. Open it in game (the price is copied), press Place Buy Order, paste the price, quantity 10.');
+  eq('  read and not moved: as before', placeBuyItem(plan, rd, planItemState(rd, plan, [], open), 'Raging Dark Filament', { move: null, bestBuy: 1_700_000, bestSell: 1_800_000, failed: false }).detail, plain.detail);
+  // The plan keeps the checklist up for its week while an item is skipped, so Place it after all stays in reach.
+  const pg = planProgress(sp, [], open);
+  eq('progress counts a skip apart too', [pg.skipped, planProgress(plan, [], open).skipped], [1, 0]);
+
+  // What a skip does beyond the checklist (the coordinator's ruling, 9 October 2026): the plan no longer holds the item, so
+  // its orders aren't judged at the plan's old prices nor left alone for it, and its empty position can be closed.
+  const { planTargets, leaveAfterSkip, leaveAfterUnskip, skippedEmpty, isLeft } = await import('../src/lib/plans.ts');
+  const R = { f: 0.0131, t: 0.03375 };
+  eq('planTargets: a skipped item is no plan’s, with or without orders', [planTargets(skipped, open, R, [])[RD], planTargets(skipped, open, R)[RD], planTargets(skipped, open, R, [])[FE]?.planId],
+    [undefined, undefined, plan.id]);
+  const later = B(11, RD, '2026-10-03T09:00:00Z');
+  eq('  a bid placed for it after all: the plan’s again, at its prices', [planTargets(skipped, open, R, [later])[RD]?.planId, planTargets(skipped, open, R, [later])[RD]?.buyAt], [plan.id, 1_711_000]);
+  eq('  a cancelled one doesn’t count as placing it', planTargets(skipped, open, R, [{ ...later, state: 'cancelled' }])[RD], undefined);
+  eq('  not skipped: as before', planTargets([plan], open, R, [])[RD]?.planId, plan.id);
+  // Leave alone: the 2 October plan left Raging Dark from its start; skipping it lets its orders go, unless another
+  // Place-and-leave plan's open position holds the item.
+  const LF = { [RD]: plan.at, [FE]: plan.at };
+  const rel = leaveAfterSkip([RD, FE], LF, skipped, open, RD, true);
+  eq('skipping a Place-and-leave item lets its orders go', rel, { leave: [FE], leaveFrom: { [FE]: plan.at } });
+  eq('  so a bid placed for it later is judged as any order', isLeft(later, rel.leave, rel.leaveFrom), false);
+  eq('  an at-the-front plan left nothing: unchanged', leaveAfterSkip([RD, FE], LF, skipped, open, RD, false), null);
+  eq('  left by hand (no time): unchanged', leaveAfterSkip([RD, FE], { [FE]: plan.at }, skipped, open, RD, true), null);
+  const other = { ...plan, id: 'other', at: '2026-10-01T10:00:00Z', items: [{ ...rd, positionId: 'rd' }] };
+  eq('  another Place-and-leave plan’s open position still holds it: unchanged', leaveAfterSkip([RD, FE], LF, [...skipped, other], open, RD, true), null);
+  eq('Place it after all: left again from the plan’s start, or its position’s opening', [leaveAfterUnskip([FE], { [FE]: plan.at }, plan, RD), leaveAfterUnskip([FE], {}, plan, RD, '2026-10-02T15:00:00Z').leaveFrom[RD]],
+    [{ leave: [FE, RD], leaveFrom: { [FE]: plan.at, [RD]: plan.at } }, '2026-10-02T15:00:00Z']);
+  eq('  an at-the-front plan: unchanged', leaveAfterUnskip([FE], {}, { ...plan, patient: false }, RD), null);
+  // To do offers to close the position the plan opened for it, empty, as after a cancelled bid; never a shared one.
+  const pos = { ...P('rd', RD) };
+  eq('its empty position, opened by the plan: offered for closing', skippedEmpty(pos, skipped, [], false)?.id, plan.id);
+  eq('  traded, an order open on the item, or not skipped: not',
+    [skippedEmpty(pos, skipped, [], true), skippedEmpty(pos, skipped, [later], false), skippedEmpty(pos, [plan], [], false)], [null, null, null]);
+  eq('  closed already: not', skippedEmpty({ ...pos, status: 'closed' }, skipped, [], false), null);
+  const shared = { ...pos, openedAt: '2026-09-24T10:00:00Z' };
+  eq('  a position open long before the plan (Rocket Science’s kind): never', skippedEmpty(shared, skipped, [], false), null);
+  eq('  another plan still to place on the same position: not', skippedEmpty(pos, [...skipped, { ...other, at: '2026-10-03T10:00:00Z' }], [], false), null);
 }
 
 console.log('\n--- a plan counts a position it shares from its own start ---');
@@ -4770,6 +4809,7 @@ console.log('\n--- a long sell queue, a stricter run-up for Place and leave, and
   eq('  allocate follows both', [Pl.allocate(ml, { ...inp, slots: 40, maxShare: 0.05 }).rows.map((r) => r.p.typeId).sort(), Pl.allocate(ml, { ...inp, slots: 40, maxShare: 0.05, keepMoved: true }).rows.length],
     [[201, 203], 4]);
   eq('  every item moved: an empty pool that says why; kept, not', [Pl.plannerPool([mv]).allFlagged, Pl.plannerPool([mv]).pool.length, Pl.plannerPool([mv], false, true).allFlagged], [true, 0, false]);
+  eq('  how many kept are in the pool: with Leave out flagged items on, the one with another flag isn’t', [d0.movedIn, k0.movedIn, k1.movedIn], [0, 2, 1]);
   eq('  nothing passed at all is not everything flagged', Pl.plannerPool([], true).allFlagged, false);
 }
 

@@ -102,7 +102,12 @@ export function PlacingChecklist() {
   const listing = usePlanListing();
   // Each bid still to place, against its live Jita book: a market that has moved from the plan's prices is said, with Skip it.
   const check = usePlacingCheck();
-  const placing = new Set(d.plans.filter((p) => Date.now() - Date.parse(p.at) < CHECKLIST_DAYS * 86400_000 && planProgress(p, orders, d.positions, trades).waiting.length > 0).map((p) => p.id));
+  // Still being placed: a bid waiting, or one you skipped, so Place it after all stays in reach for the plan's week.
+  const placing = new Set(d.plans.filter((p) => {
+    if (Date.now() - Date.parse(p.at) >= CHECKLIST_DAYS * 86400_000) return false;
+    const pr = planProgress(p, orders, d.positions, trades);
+    return pr.waiting.length > 0 || pr.skipped > 0;
+  }).map((p) => p.id));
   const shown = d.plans.filter((p) => placing.has(p.id) || listing.some((x) => x.plan.id === p.id));
   useEnsureNames(shown.flatMap((p) => p.items.map((i) => i.typeId)));
   if (!shown.length) return null;

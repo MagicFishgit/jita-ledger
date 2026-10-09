@@ -197,7 +197,7 @@ export function verdicts(d: Data, check: CheckState, cost: Record<number, number
   const open = jitaOpen(d);
   const yours = open.map((o) => o.orderId);
   // The plan each item belongs to, while its position is open: a raise must still leave half of what it expected.
-  const plans = planTargets(d.plans ?? [], d.positions, rates(d.settings));
+  const plans = planTargets(d.plans ?? [], d.positions, rates(d.settings), Object.values(d.orders));
   return open
     .filter((o) => check.books![o.typeId])
     .map((o) => judgeOrder(o, {

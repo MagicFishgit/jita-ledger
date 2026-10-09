@@ -329,13 +329,41 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   "When you skipped it, the best bid was 1,440,000 ISK and the cheapest listing 1,741,000 ISK, against the plan's bid of
   1,711,000 ISK and sale of 1,983,000 ISK. Not placed again; a new bid would count as placing it.") with **Place it after all**, which undoes
   it while the plan has other bids waiting (a plan with nothing waiting stops showing its checklist, as after a cancel).
-  The item is dropped; To do's item is done, "You skipped it: the market had moved from the plan's prices." **Its position
-  stays as it is** (the toast says so): a position the plan opened sits open and empty on Positions,
-  which `finishedPosition` doesn't flag (no order was placed on it). To do's version stays `'1'`: the read moves every five
+  The item is dropped; To do's item is done, "You skipped it: the market had moved from the plan's prices." **A skip lets
+  go of the item, not only the checklist row** (the coordinator's ruling on review, 9 October 2026): its position stays
+  open, and first shipped that way `planTargets` still gave the item to the plan and its Leave alone stayed, so every later
+  order of the item read as left alone and was guarded at the plan's old prices for as long as the position stayed open,
+  the Clone Soldier kind Leave alone per plan had just fixed. Now:
+  - `planTargets` (Orders, To do, the list step, the hangar check, the position page, and the cloud's alert round, which
+    reads the skipped items' orders of any state to tell) holds no plan for an item while it's skipped with nothing placed
+    for it; once a bid counts as placing it (`planPlacement`) it's the plan's again;
+  - skipping a Place-and-leave plan's item ends its Leave alone by the close rule (`leaveAfterSkip` over
+    `leaveAfterClose`, where a skipped item no longer holds the item): unless another Place-and-leave plan's open position
+    holds it. Only what a plan left: an item left by hand (in `leave` with no time) stays left; an at-the-front plan left
+    nothing. **Place it after all** leaves it again as starting the plan did (`leaveAfterUnskip` over `leaveForPlan`, from
+    the plan's start or the position's opening when the plan counts it whole). A bid placed after a skip without Place it
+    after all is the plan's again for its prices but isn't left alone: Leave alone is given back only by that button;
+  - To do offers **Close position** for the skipped item's position when the plan counts it whole (opened for the plan,
+    nothing traded before) and nothing has traded in it, no order of yours is open on the item and no other plan on it is
+    still to place or placed (`skippedEmpty`, `skippedEmptyItem`, version `skipped`): "You skipped it on 2 Oct · …: nothing
+    was bought and no order is on it." `finishedPosition` can't see it (no order was ever placed). Never for a shared
+    position (Rocket Science's). Put back on the plan, it's done: "You put it back on the plan: place its bid from the
+    checklist."
+  - The checklist stays up for the plan's week while an item is skipped (`planProgress`' `skipped`), so Place it after all
+    stays in reach after skipping the last bid waiting.
+  The toast says so: "the plan won't ask for it again, and its orders aren't left alone any more. Its position stays open;
+  To do offers to close it if the plan opened it and nothing's in it." A book that couldn't be read is said on To do too
+  ("Its Jita book couldn't be read, so it isn't checked against today's market."). With both planner switches on, "Keep
+  items whose market moved" says how many of those kept Leave out flagged items still takes for another flag (`movedIn`).
+  To do's version stays `'1'`: the read moves every five
   minutes, and a hand tick reopened each time it crossed the 5% line would nag. Not mailed: the cloud doesn't read plan
   bids not yet placed. The page check's shared-position plan case serves Raging Dark Filament's book at the plan's hour,
   asserts the checklist's and To do's words, skips it from To do, sees it dropped on the checklist ("2 of 6 placed, 3
-  dropped") and undoes it there; Fierce Gamma Filament's book is refused and says it wasn't checked.
+  dropped") and undoes it there; Fierce Gamma Filament's book is refused and says it wasn't checked, on the checklist
+  and To do. Seeded with the plan's Leave alone on both, it asserts the stored `leave`/`leaveFrom` drop Raging Dark (only)
+  on the skip and get it back from the plan's start on Place it after all, and To do's Close position for its empty
+  position. The cloud's round is tested on D1 (`scripts/check-worker.mjs`): skipped with nothing placed, Praxis's bid is
+  judged as any order and mailed; skipped but its bid counting as placing it, the plan's guard holds.
 - **The checklist's second part lists what the plan bought** ("Bought: list it", the list step: `planListRows` and
   `planListRow` in positions.ts; `listedSince`, `unitsToList`, `listMarket`, `planListPrice`, `planListSaid` in plans.ts,
   Worker-safe; `PlanListPart` in PlanStart.tsx, on the planner and Positions' Plans panel; `usePlanListing` in

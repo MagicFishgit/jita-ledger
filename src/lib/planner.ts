@@ -44,6 +44,8 @@ export type PlannerPool = {
   moved: number;
   /** How many of them were left out: all of `moved` by default, none with "Keep items whose market moved". */
   movedOut: number;
+  /** How many of them are in the pool: kept, less those Leave out flagged items takes for another flag. */
+  movedIn: number;
   /**
    * Of the rest not left out for Market moved, the ones "Leave out flagged items" leaves out when on: counted either way,
    * so the switch can say what it would do.
@@ -65,7 +67,7 @@ export function plannerPool(prospects: Prospect[], leaveOutFlagged = false, keep
   const vetoed = (p: Prospect) => p.warnings.some((w) => PLANNER_EXCLUDES.includes(w));
   const flagged: FlaggedOut = { total: 0, byFlag: {} };
   const pool: Prospect[] = [];
-  let moved = 0, movedOut = 0, left = 0;
+  let moved = 0, movedOut = 0, movedIn = 0, left = 0;
   for (const p of usable) {
     if (vetoed(p)) continue;
     left++;
@@ -80,8 +82,9 @@ export function plannerPool(prospects: Prospect[], leaveOutFlagged = false, keep
       if (leaveOutFlagged) continue;
     }
     pool.push(p);
+    if (p.warnings.includes(MOVED_FLAG)) movedIn++;
   }
-  return { pool, excluded: prospects.filter(vetoed).length, moved, movedOut, flagged, allFlagged: !pool.length && left > 0 };
+  return { pool, excluded: prospects.filter(vetoed).length, moved, movedOut, movedIn, flagged, allFlagged: !pool.length && left > 0 };
 }
 
 /**

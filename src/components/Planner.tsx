@@ -97,8 +97,8 @@ export function Planner() {
   const flow = useFlow();
   // What you already have working in each item, in units: it takes the same flip capacity, so the plan takes what's left.
   const working = useMemo(() => workingUnits(Object.values(d.orders), d.stock?.jita), [d.orders, d.stock]);
-  const { plan, pool, excluded, moved, movedOut, flagged, allFlagged, unchecked } = useMemo(() => {
-    if (!cache || !isk) return { plan: null, pool: 0, excluded: 0, moved: 0, movedOut: 0, flagged: { total: 0, byFlag: {} } as FlaggedOut, allFlagged: false, unchecked: 0 };
+  const { plan, pool, excluded, moved, movedOut, movedIn, flagged, allFlagged, unchecked } = useMemo(() => {
+    if (!cache || !isk) return { plan: null, pool: 0, excluded: 0, moved: 0, movedOut: 0, movedIn: 0, flagged: { total: 0, byFlag: {} } as FlaggedOut, allFlagged: false, unchecked: 0 };
     // Every market's own limit, not just those that could take the whole budget.
     const list = rankProspects(cache, d.settings, plannerFilters(savedProspectFilters(), isk, days, patient));
     const chosen = plannerPool(list, leaveOut, keepMoved);
@@ -106,7 +106,7 @@ export function Planner() {
     const old = list.filter((p) => p.stats.lastMove === undefined || !p.stats.highs14 || p.stats.runUp === undefined).length;
     return {
       plan: allocate(list, { isk, slots, horizonDays: days, maxShare, leaveOutFlagged: leaveOut, keepMoved, working }), pool: list.length,
-      excluded: chosen.excluded, moved: chosen.moved, movedOut: chosen.movedOut, flagged: chosen.flagged, allFlagged: chosen.allFlagged, unchecked: old,
+      excluded: chosen.excluded, moved: chosen.moved, movedOut: chosen.movedOut, movedIn: chosen.movedIn, flagged: chosen.flagged, allFlagged: chosen.allFlagged, unchecked: old,
     };
   }, [cache, d.settings, isk, slots, days, maxShare, patient, leaveOut, keepMoved, flow, working]); // eslint-disable-line react-hooks/exhaustive-deps
   // What the switch leaves out, by flag, in the order the switch lists them: "5 Falling, 3 Long queue".
@@ -213,7 +213,7 @@ export function Planner() {
               Keep items whose market moved{cache && isk ? ` (${units(moved)})` : ''}
             </Check>
             <span className="note small" style={{ margin: 0 }}>
-              {keepMoved ? (moved ? `On: ${units(moved)} kept, with the Market moved flag in the mix.` : 'Nothing that passes your filters has moved.')
+              {keepMoved ? (moved ? (movedIn === moved ? `On: ${units(moved)} kept, with the Market moved flag in the mix.` : `On: ${units(moved)} kept; ${units(moved - movedIn)} of them left out by Leave out flagged items for another flag.`) : 'Nothing that passes your filters has moved.')
                 : moved ? `Off: ${units(movedOut)} left out, today’s book more than ${pct(MARKET_MOVED, 0)} from the prices Place and leave would use.` : 'Off: nothing that passes your filters has moved.'}
             </span>
           </div>

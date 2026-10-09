@@ -112,7 +112,18 @@ export async function judgeAll(db: D1Database, charId: number, settings: Setting
         && typeof (p as { id?: unknown }).id === 'string' && typeof (p as { typeId?: unknown }).typeId === 'number'
         && ((p as { status?: unknown }).status === 'open' || (p as { status?: unknown }).status === 'closed'))
     : [];
-  const targets = planTargets(plans, positions, rates(settings));
+  // A plan item skipped on the checklist is no plan's until a bid counts as placing it (`planTargets`): every order of such
+  // items, any state, tells. Read only when a plan has one skipped.
+  const skippedTypes = [...new Set(plans.flatMap((p) => p.items.filter((i) => i.skipped).map((i) => i.typeId)))];
+  const planOrders: OrderRecord[] = [];
+  for (let i = 0; i < skippedTypes.length; i += 90) {
+    const part = skippedTypes.slice(i, i + 90);
+    for (const r of (await db.prepare(`SELECT data FROM records WHERE char_id = ?1 AND kind = 'orders' AND data IS NOT NULL AND json_extract(data, '$.typeId') IN (${inList(part.length, 2)})`)
+      .bind(charId, ...part).all<{ data: string }>()).results) {
+      try { const o = JSON.parse(r.data) as OrderRecord; if (o && typeof o === 'object' && typeof o.typeId === 'number') planOrders.push(o); } catch { /* skipped, never the round */ }
+    }
+  }
+  const targets = planTargets(plans, positions, rates(settings), planOrders);
   const since = new Date(now - OWN_FILL_MS).toISOString();
   const txs = (await db.prepare(`SELECT data FROM records WHERE char_id = ?1 AND kind = 'txs' AND data IS NOT NULL AND json_extract(data, '$.date') >= ?2`)
     .bind(charId, since).all<{ data: string }>()).results.map((r) => JSON.parse(r.data) as TxRecord);

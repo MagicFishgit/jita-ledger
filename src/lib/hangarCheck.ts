@@ -333,7 +333,7 @@ export function hangarCheck(x: { d: Data; s: Settings; places: Place[]; pick: Ha
   const txs = Object.values(d.txs ?? {}).filter((t) => t.source === 'esi').sort((a, b) => ts(a.date) - ts(b.date));
   // Where your trades begin: a bid placed before that has fills the ledger never held.
   const firstTrade = txs.length ? ts(txs[0].date) : Infinity;
-  const targets = planTargets(d.plans ?? [], d.positions ?? [], rates(s));
+  const targets = planTargets(d.plans ?? [], d.positions ?? [], rates(s), orders);
   // Loose in the hangar first, then a station's other bays, then what's in containers and ships, the most first.
   const rank = (w: Where) => (!w.chain.length ? (w.flag === 'Hangar' ? 0 : 1) : 2);
   const whereOf = (m: Map<string, Where>) => [...m.values()].sort((a, b) => rank(a) - rank(b) || b.q - a.q || a.key.localeCompare(b.key));

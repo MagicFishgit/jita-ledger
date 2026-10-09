@@ -11,7 +11,7 @@ import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  cashInItem, feedsQueueItem, notReachedItem, inFilter, judgeAltLogin, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, placeBuyItem, planListItem, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
+  cashInItem, feedsQueueItem, notReachedItem, inFilter, judgeAltLogin, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, placeBuyItem, planListItem, judgeIndustry, judgeLedger, judgeOrder, skippedEmptyItem, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
   type Entry, type Memory, type TodoFilter, type TodoItem, type TodoKind,
 } from '../lib/todo';
 import type { IndustryJob } from '../lib/types';
@@ -20,7 +20,7 @@ import { PLANETS_SCOPE, readColonies, useColonies } from '../lib/colonyStore';
 import { readSignals, trackedTypes, useSignals } from '../lib/watch';
 import { BACKUP_DAYS } from '../lib/alertsRunner';
 import { LOGIN_STOPS } from '../lib/watchdog';
-import { droppedState, planItemState, planTargets } from '../lib/plans';
+import { droppedState, planItemState, planTargets, skippedEmpty } from '../lib/plans';
 import { planListRow } from '../lib/positions';
 import { skipPlaceBid, usePlacingCheck, usePlanListing } from './planListing';
 import { useAltCopies, useAltRoster, useRosterAt, useRosterLive } from '../lib/altStore';
@@ -247,6 +247,11 @@ export function Todo() {
             : `Nothing was bought and no order is left on it${c.realized < 0 ? `: backing out cost ${iskBig(-c.realized)} in fees` : ''}. Close it to keep that in your results.`,
           action: { label: 'Open position', route: `positions/${p.id}` },
         });
+      } else {
+        // A plan item you skipped leaves its position open with nothing in it, which finishedPosition can't see (no order
+        // was ever placed): offered for closing when the plan opened it (lib/plans.ts, skippedEmpty).
+        const sp = skippedEmpty(p, d.plans, orderList, c.bought > 0 || c.sold > 0);
+        if (sp) out.push(skippedEmptyItem(p, sp, name(p.typeId)));
       }
       const s = sig.signals[p.typeId]?.stats;
       if (c.stock > 0 && s && squeezed(s.range7, be2)) {
@@ -337,7 +342,7 @@ export function Todo() {
       for (const i of p.items) {
         const c = placing[`${p.id}:${i.typeId}`];
         const item = placeBuyItem(p, i, planItemState(i, p, orderList, d.positions, planTrades), name(i.typeId),
-          c?.move ? { move: c.move, bestBuy: c.bestBuy, bestSell: c.bestSell } : null);
+          c && (c.move || c.failed) ? { move: c.move, bestBuy: c.bestBuy, bestSell: c.bestSell, failed: c.failed } : null);
         if (item) out.push(item);
       }
     }
@@ -485,7 +490,7 @@ export function Todo() {
           const [, planId, typeId] = x.key.split(':');
           const p = d.plans.find((z) => z.id === planId);
           const it = p?.items.find((z) => String(z.typeId) === typeId);
-          const holds = !!p && !!it && planTargets(d.plans, d.positions, rates(d.settings))[it.typeId]?.planId === p.id;
+          const holds = !!p && !!it && planTargets(d.plans, d.positions, rates(d.settings), Object.values(d.orders))[it.typeId]?.planId === p.id;
           return judgePlanList(e, { holds, row: holds ? planListRow(p!, it!, d, d.settings) : null, hangarAt });
         }
         case 'cloudLogin': {
@@ -510,7 +515,8 @@ export function Todo() {
             agent: !block?.read ? undefined : card ? { datacores: card.datacores, worth: card.worth?.total ?? null } : null,
           });
         }
-        default: return judgeLedger(e, { position: position(id), inCloud });
+        default: return judgeLedger(e, { position: position(id), inCloud,
+          stillSkipped: x.kind === 'close' && d.plans.some((p) => p.items.some((i) => i.positionId === id && !!i.skipped)) });
       }
     };
     setMem((m) => { const next = remember(m, items, seenAt, judge, t); saveMem(next); return next; });

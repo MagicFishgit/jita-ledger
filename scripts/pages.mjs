@@ -948,6 +948,8 @@ try {
       },
       names: { [RS]: 'Datacore - Rocket Science', [INF]: 'Imperial Navy Infiltrator', [RD]: 'Raging Dark Filament', [FE]: 'Fierce Exotic Filament', [CE]: 'Chaotic Exotic Filament', [FG]: 'Fierce Gamma Filament' },
       meta: { walletBalance: 1e9, lastSync: iso(Date.now() - 600_000) },
+      // The plan's Leave alone, as starting it left them: skipping Raging Dark Filament lets it go, Place it after all puts it back.
+      leave: [RD, FG], leaveFrom: { [RD]: iso(planAt), [FG]: iso(planAt) },
     };
     // The Infiltrator's real history (scripts/fixtures/plan-list.json, read 2 October 2026), its days moved so the last is
     // yesterday: List patiently today beside the plan's 1,836,000 on the list step. Every other request is refused, its
@@ -958,9 +960,16 @@ try {
     const infShift = Date.parse(new Date(Date.now() - DAY_MS).toISOString().slice(0, 10)) - Date.parse(infRows.at(-1).date);
     const infHistory = infRows.map((r) => ({ ...r, date: new Date(Date.parse(r.date) + infShift).toISOString().slice(0, 10) }));
     const page = await browser.newPage(VIEW);
+    // Late in the case Fierce Gamma Filament's book answers too, risen 10% over the plan's bid, so both bids left can be skipped.
+    let fgBook = false;
     await page.route('**/*', (route) => {
       const url = new URL(route.request().url());
       if (route.request().url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
+      if (fgBook && url.hostname === 'esi.evetech.net' && url.pathname === '/markets/10000002/orders/' && url.searchParams.get('type_id') === String(FG)) {
+        const book = [[5, true, 2_400_000, 10], [6, false, 2_450_000, 10]];
+        return route.fulfill({ status: 200, contentType: 'application/json', headers: { expires: new Date(Date.now() + 300_000).toUTCString(), 'x-pages': '1' },
+          body: JSON.stringify(book.map(([id, buy, price, volume]) => ({ order_id: id, type_id: FG, location_id: JITA, is_buy_order: buy, price, volume_remain: volume, volume_total: volume, issued: iso(planAt - DAY_MS), duration: 90, min_volume: 1, range: 'region' }))) });
+      }
       if (url.hostname === 'esi.evetech.net' && url.pathname === '/markets/10000002/history/' && url.searchParams.get('type_id') === String(INF)) {
         return route.fulfill({ status: 200, contentType: 'application/json', headers: { expires: new Date(Date.now() + 3600_000).toUTCString() }, body: JSON.stringify(infHistory) });
       }
@@ -1029,6 +1038,13 @@ try {
     if (!placing.includes('2 of 6 placed, 2 dropped')) problems.push(`the checklist doesn't count 2 of 6 placed, 2 dropped (${placing.slice(0, 120)})`);
     // The bids cancelled with nothing bought: dropped, said and never asked for again.
     const rowText = async (n) => (await page.locator('#placing tbody tr', { hasText: n }).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+    /** A document of the ledger as the app saved it (it writes 250 ms after a change). */
+    const stored = (key) => page.evaluate(async (k) => {
+      const h = await new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => res(q.result); });
+      const v = await new Promise((res) => { const r = h.transaction('kv').objectStore('kv').get(k); r.onsuccess = () => res(r.result); r.onerror = () => res(undefined); });
+      h.close();
+      return v;
+    }, key);
     const feRow = await rowText('Fierce Exotic Filament'), ceRow = await rowText('Chaotic Exotic Filament');
     for (const want of ['Bid cancelled with nothing bought: not placed again', 'Your bid of 9 at 2,813,000 ISK']) if (!feRow.includes(want)) problems.push(`not drawn: the checklist's cancelled Fierce Exotic Filament “${want}” (${feRow.slice(0, 200)})`);
     if (!/Position closed \d+ \w+: not placed again/.test(ceRow)) problems.push(`not drawn: the checklist's “Position closed …: not placed again” for Chaotic Exotic Filament (${ceRow.slice(0, 200)})`);
@@ -1061,6 +1077,8 @@ try {
     await rdItem.filter({ hasText: 'The market has moved' }).first().waitFor({ timeout: 10_000 }).catch(() => undefined);
     const rdTodo = (await rdItem.first().innerText().catch(() => '')).replace(/\s+/g, ' ');
     for (const want of ['The market has moved since the plan priced it', '19% over today’s best bid of 1,440,000 ISK', 'Skip it, or open it in game']) if (!rdTodo.includes(want)) problems.push(`not drawn: To do's moved Raging Dark Filament “${want}” (${rdTodo.slice(0, 220)})`);
+    const fgTodo = (await page.locator('.tn-item:not(.done)', { hasText: 'Place a buy order: 6 × Fierce Gamma Filament' }).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!fgTodo.includes('Its Jita book couldn’t be read, so it isn’t checked against today’s market.')) problems.push(`not drawn: To do doesn't say Fierce Gamma Filament wasn't checked (${fgTodo.slice(0, 200)})`);
     const skipBtn = rdItem.first().getByRole('button', { name: 'Skip it' });
     if (!(await skipBtn.count())) problems.push('not drawn: Skip it on To do’s moved Raging Dark Filament');
     else {
@@ -1070,6 +1088,12 @@ try {
       const doneText = (await page.locator('.tn-item.done', { hasText: 'Raging Dark Filament' }).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
       if (!doneText.includes('You skipped it: the market had moved from the plan’s prices.')) problems.push(`To do doesn't say Raging Dark Filament was skipped (${doneText.slice(0, 160)})`);
       if (await page.locator('.tn-item:not(.done)', { hasText: 'Place a buy order: 8 × Raging Dark Filament' }).count()) problems.push('To do still asks for Raging Dark Filament after Skip it');
+      // The plan no longer holds it: its empty position is offered for closing, and its Leave alone has ended.
+      const closeIt = (await page.locator('.tn-item:not(.done)', { hasText: 'You skipped it on 2 Oct' }).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+      if (!closeIt.includes('Raging Dark Filament') || !closeIt.includes('nothing was bought and no order is on it')) problems.push(`not drawn: To do's close item for the skipped Raging Dark Filament's empty position (${closeIt.slice(0, 200)})`);
+      await page.waitForTimeout(600);
+      const [lv, lf] = [await stored('leave'), await stored('leaveFrom')];
+      if (lv?.includes(RD) || lf?.[RD] !== undefined || !lv?.includes(FG)) problems.push(`skipping didn't end Raging Dark Filament's Leave alone, or touched another's (leave ${JSON.stringify(lv)}, leaveFrom ${JSON.stringify(lf)})`);
     }
     if (await page.locator('.tn-item', { hasText: 'Place a buy order: 11 × Imperial Navy Infiltrator' }).count()) problems.push('To do asks for the Infiltrator’s buy order, which bought at once');
     if (await page.locator('.tn-item', { hasText: 'Place a buy order: 9 × Fierce Exotic Filament' }).count()) problems.push('To do asks again for Fierce Exotic Filament’s buy order, which you cancelled');
@@ -1107,11 +1131,27 @@ try {
     await page.locator('#placing tbody tr', { hasText: 'Raging Dark Filament' }).getByRole('button', { name: 'Place it after all' }).click().catch((e) => problems.push(`couldn't undo the skip: ${e.message.split('\n')[0]}`));
     await page.waitForTimeout(800);
     const undone = await rowText('Raging Dark Filament');
+    await page.waitForTimeout(600);
+    const [lv2, lf2] = [await stored('leave'), await stored('leaveFrom')];
+    if (!lv2?.includes(RD) || lf2?.[RD] !== iso(planAt)) problems.push(`Place it after all didn't leave Raging Dark Filament's orders alone again from the plan's start (leave ${JSON.stringify(lv2)}, leaveFrom ${JSON.stringify(lf2)})`);
     if (!undone.includes('The market has moved since the plan priced it') || !(await page.locator('#placing tbody tr', { hasText: 'Raging Dark Filament' }).getByRole('button', { name: 'Skip it' }).count())) problems.push(`Place it after all doesn't ask for it again (${undone.slice(0, 160)})`);
     await page.evaluate(() => { location.hash = '#positions'; });
     await page.waitForTimeout(1200);
     const plans2 = (await page.locator('section[aria-label="Plans"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
     if (!/2 of 6\s*2 dropped/.test(plans2)) problems.push(`the Plans panel doesn't count it back once undone: 2 of 6, 2 dropped (${plans2.slice(0, 200)})`);
+    // Skipping the last bid waiting keeps the checklist up for the plan's week, so Place it after all stays in reach.
+    fgBook = true;
+    await page.evaluate(() => { location.hash = '#planner'; location.reload(); });
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    for (const n of ['Raging Dark Filament', 'Fierce Gamma Filament']) {
+      const row = page.locator('#placing tbody tr', { hasText: n });
+      await row.locator('.placing-moved').waitFor({ timeout: 10_000 }).catch(() => problems.push(`not drawn: ${n} as moved once its book read`));
+      await row.getByRole('button', { name: 'Skip it' }).click().catch(() => undefined);
+      await page.waitForTimeout(500);
+    }
+    const allSkipped = (await page.locator('#placing').first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!/placing 2 oct/i.test(allSkipped) || !allSkipped.includes('2 of 6 placed, 4 dropped')) problems.push(`the checklist goes once the last bid is skipped (${allSkipped.slice(0, 160)})`);
+    if ((await page.locator('#placing').getByRole('button', { name: 'Place it after all' }).count()) !== 2) problems.push('Place it after all isn’t on both skipped rows once nothing waits');
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'plan shared', page: 'positions', problems: unique });

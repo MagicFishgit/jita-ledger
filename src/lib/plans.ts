@@ -165,8 +165,33 @@ export function leaveAfterClose(leave: readonly number[], leaveFrom: Readonly<Re
   plans: readonly Pick<TradePlan, 'patient' | 'items'>[], positions: readonly Pick<Position, 'id' | 'typeId' | 'status'>[], typeId: number): Leaving | null {
   if (!leave.includes(typeId) && leaveFrom[typeId] === undefined) return null;
   const open = new Set(positions.filter((p) => p.typeId === typeId && p.status === 'open').map((p) => p.id));
-  const kept = plans.some((p) => p.patient && p.items.some((i) => i.typeId === typeId && i.positionId != null && open.has(i.positionId)));
+  // A skipped item doesn't hold it: the plan no longer places it (`leaveAfterSkip`).
+  const kept = plans.some((p) => p.patient && p.items.some((i) => i.typeId === typeId && !i.skipped && i.positionId != null && open.has(i.positionId)));
   return kept ? null : stopLeaving(leave, leaveFrom, [typeId]);
+}
+
+/**
+ * After "Skip it" on a Place-and-leave plan's item (`plans` as they are afterwards): the plan no longer places it, so its
+ * Leave alone ends, by the close rule (`leaveAfterClose`: unless another Place-and-leave plan's open position holds the
+ * item). Only what a plan left: an item with a plan's time in `leaveFrom`; one left by hand (no time) stays left, and an
+ * at-the-front plan (`patient` false) left nothing. Null when nothing changes. Without it, every later order of the item
+ * read as left alone, at the plan's old price, for as long as the position stayed open (the review of the skip, 9 October
+ * 2026: the Clone Soldier kind Leave alone per plan had just fixed).
+ */
+export function leaveAfterSkip(leave: readonly number[], leaveFrom: Readonly<Record<string, string>>,
+  plans: readonly Pick<TradePlan, 'patient' | 'items'>[], positions: readonly Pick<Position, 'id' | 'typeId' | 'status'>[], typeId: number, patient: boolean): Leaving | null {
+  if (!patient || leaveFrom[typeId] === undefined) return null;
+  return leaveAfterClose(leave, leaveFrom, plans, positions, typeId);
+}
+
+/**
+ * "Place it after all" on a Place-and-leave plan's item: left again as starting the plan left it (`leaveForPlan`, from the
+ * plan's start or `since`, the position's opening when the plan counts it whole: `planLeaveSince`). Null for a plan at the
+ * front, which leaves nothing.
+ */
+export function leaveAfterUnskip(leave: readonly number[], leaveFrom: Readonly<Record<string, string>>,
+  plan: Pick<TradePlan, 'at' | 'patient'>, typeId: number, since?: string): Leaving | null {
+  return plan.patient ? leaveForPlan(leave, leaveFrom, [typeId], plan.at, since ? { [typeId]: since } : {}) : null;
 }
 
 /**
@@ -285,10 +310,13 @@ function boughtAtOnce(typeId: number, start: number, counted: Order[], others: O
  * and the newest placed from `start` before that: since the item's position opened when that was within the day before
  * the plan (`opened`), else within BEFORE_PLAN_MS of it.
  */
-function placementWindow(item: PlanItem, plan: Pick<TradePlan, 'at'>, positions: Pick<Position, 'id' | 'typeId' | 'openedAt'>[]): { from: number; start: number; opened: boolean } {
+/** A position as placing reads it: when it opened, where known (the cloud's positions are read whole, so they carry it). */
+type PlacePosition = Pick<Position, 'id' | 'typeId'> & Partial<Pick<Position, 'openedAt'>>;
+
+function placementWindow(item: PlanItem, plan: Pick<TradePlan, 'at'>, positions: PlacePosition[]): { from: number; start: number; opened: boolean } {
   const planAt = Date.parse(plan.at);
   const pos = positions.find((x) => x.id === item.positionId && x.typeId === item.typeId);
-  const at = pos ? Date.parse(pos.openedAt) : NaN;
+  const at = pos ? Date.parse(pos.openedAt ?? '') : NaN;
   const opened = Number.isFinite(at) && at < planAt && at >= planAt - POSITION_BEFORE_MS;
   return { from: planAt - SLACK_MS, start: opened ? at : planAt - BEFORE_PLAN_MS, opened };
 }
@@ -304,7 +332,7 @@ function placementWindow(item: PlanItem, plan: Pick<TradePlan, 'at'>, positions:
  */
 export function planPlacement(
   item: PlanItem, plan: Pick<TradePlan, 'at'>, orders: Order[],
-  positions: Pick<Position, 'id' | 'typeId' | 'openedAt'>[] = [],
+  positions: PlacePosition[] = [],
   trades?: PlanTrades,
 ): Placement | null {
   const { from, start } = placementWindow(item, plan, positions);
@@ -431,6 +459,23 @@ export function droppedNote(s: DroppedState, item?: Pick<PlanItem, 'buyAt' | 'se
 }
 
 /**
+ * A position a plan opened for an item you then skipped, with nothing in it: To do offers to close it, as it does a position
+ * backed out of after a cancelled bid (`finishedPosition` can't see it: no order was ever placed on it). Only one the plan
+ * counts whole (`planCountsWhole`: opened for the plan, nothing traded before it), so never a shared position (Datacore -
+ * Rocket Science's, open a week with earlier trading); nothing traded in it at all (`traded`, the whole position's buys and
+ * sells); no open order of yours on the item (in Jita 4-4 for a Jita-only position, as `finishedPosition`); and no other
+ * plan on the position still to place or placed. The plan whose skip it is, or null.
+ */
+export function skippedEmpty(pos: Pick<Position, 'id' | 'typeId' | 'status' | 'openedAt'> & Partial<Pick<Position, 'jitaOnly'>>, plans: TradePlan[], orders: Order[], traded: boolean): TradePlan | null {
+  if (pos.status !== 'open' || traded) return null;
+  if (orders.some((o) => o.typeId === pos.typeId && o.state === 'open' && o.volumeRemain > 0 && (!pos.jitaOnly || o.locationId === JITA_44))) return null;
+  const on = plans.flatMap((p) => p.items.filter((i) => i.positionId === pos.id && i.typeId === pos.typeId).map((i) => ({ p, s: planItemState(i, p, orders, [pos]) })));
+  if (on.some((x) => x.s.state === 'open' || x.s.state === 'placed')) return null;
+  const hit = on.find((x) => x.s.state === 'skipped' && planCountsWhole(pos, x.p, false));
+  return hit?.p ?? null;
+}
+
+/**
  * A plan's bid still to place, against its live Jita book (others' orders: `listMarket`), by Market moved's own rule
  * (`marketMoved`): the bid more than MARKET_MOVED under or over today's best bid, at or over today's cheapest listing (it
  * would buy at once), or the plan's sale more than MARKET_MOVED over today's cheapest listing. Null when not moved, or with
@@ -459,18 +504,22 @@ export function placeMovedSaid(item: Pick<PlanItem, 'buyAt' | 'sellAt'>, m: Mark
  * places (`dropped`: its bid cancelled with nothing bought, its position closed or deleted, or skipped), and what still has nothing
  * placed for it (`waiting`). A plan with nothing waiting is done placing, dropped items and all.
  */
-export type PlanProgress = { placed: number; of: number; waiting: PlanItem[]; dropped: PlanItem[] };
+export type PlanProgress = {
+  placed: number; of: number; waiting: PlanItem[]; dropped: PlanItem[];
+  /** Of the dropped, how many you skipped: the checklist stays up for the plan's week while any is, for Place it after all. */
+  skipped: number;
+};
 
 export function planProgress(plan: TradePlan, orders: Order[], positions?: PlanItemPosition[], trades?: PlanTrades): PlanProgress {
   const waiting: PlanItem[] = [], dropped: PlanItem[] = [];
-  let placed = 0;
+  let placed = 0, skipped = 0;
   for (const i of plan.items) {
     const s = planItemState(i, plan, orders, positions, trades);
     if (s.state === 'placed') placed++;
-    else if (droppedState(s)) dropped.push(i);
+    else if (droppedState(s)) { dropped.push(i); if (s.state === 'skipped') skipped++; }
     else waiting.push(i);
   }
-  return { placed, of: plan.items.length, waiting, dropped };
+  return { placed, of: plan.items.length, waiting, dropped, skipped };
 }
 
 /**
@@ -538,12 +587,17 @@ export type PlanTarget = {
  * position is still open (not closed, not deleted). An item whose plan position has closed belongs to no plan, whatever
  * plan once held it; one in two plans that share its open position belongs to the newer. Orders told the user to raise
  * Praxis's bid three times with no idea a plan had priced it to make 3.2% (30 September 2026): it filled at 208.4 M and
- * the trade lost 1.02 M.
+ * the trade lost 1.02 M. An item you skipped holds no plan while nothing is placed for it (`orders`).
  */
 export function planTargets(
   plans: Pick<TradePlan, 'id' | 'at' | 'items'>[],
-  positions: Pick<Position, 'id' | 'typeId' | 'status'>[],
+  positions: (Pick<Position, 'id' | 'typeId' | 'status'> & Partial<Pick<Position, 'openedAt'>>)[],
   r: { f: number; t: number },
+  /**
+   * Your orders, any state, for a skipped item: it's no plan's while skipped with nothing placed for it, and the plan's
+   * again once a bid counts as placing it (`planPlacement`). Without them a skipped item is no plan's.
+   */
+  orders: Order[] = [],
 ): Record<number, PlanTarget> {
   const open = new Map(positions.filter((p) => p.status === 'open').map((p) => [p.id, p.typeId]));
   const out: Record<number, PlanTarget> = {};
@@ -552,6 +606,9 @@ export function planTargets(
     for (const i of p.items) {
       if (out[i.typeId] || i.positionId == null || open.get(i.positionId) !== i.typeId) continue;
       if (!(i.buyAt > 0) || !(i.sellAt > 0)) continue;
+      // Skipped (the market had moved) with nothing placed since: the plan no longer prices its orders. Its position stays
+      // open, so without this a later order of the item was guarded at the plan's old prices for good (the review, 9 October).
+      if (i.skipped && !planPlacement(i, p, orders, positions)) continue;
       out[i.typeId] = { planId: p.id, buyAt: i.buyAt, sellAt: i.sellAt, expected: (i.sellAt * (1 - r.f - r.t)) / (i.buyAt * (1 + r.f)) - 1 };
     }
   }

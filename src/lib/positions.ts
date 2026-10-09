@@ -464,7 +464,7 @@ export function planListRow(plan: TradePlan, item: PlanItem, d: Data, s: Setting
  * September and 2 October plans on one position (2 October 2026).
  */
 export function planListRows(d: Data, s: Settings): PlanListRow[] {
-  const held = planTargets(d.plans ?? [], d.positions, rates(s));
+  const held = planTargets(d.plans ?? [], d.positions, rates(s), Object.values(d.orders ?? {}));
   const out: PlanListRow[] = [];
   for (const [typeId, t] of Object.entries(held)) {
     const plan = d.plans.find((p) => p.id === t.planId);

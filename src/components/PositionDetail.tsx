@@ -194,7 +194,7 @@ export function PositionDetail({ id }: { id: string }) {
 
   // The plan this position belongs to, while it's open (`planTargets`): its own sale price beside the patient ones, so a
   // plan's stock isn't listed without its intent in view (the list step, 2 October 2026). Place and leave lists there.
-  const target = planTargets(d.plans ?? [], d.positions, r)[pos.typeId];
+  const target = planTargets(d.plans ?? [], d.positions, r, Object.values(d.orders))[pos.typeId];
   const ofPlan = target ? d.plans.find((p) => p.id === target.planId && p.items.some((i) => i.typeId === pos.typeId && i.positionId === pos.id)) : undefined;
   let planLine: Stat | null = null;
   // The plan's own units at their own cost, as its list step counts them (`planListRow`: a position it took over counts from

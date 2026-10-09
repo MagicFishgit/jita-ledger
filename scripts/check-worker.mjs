@@ -823,13 +823,13 @@ console.log('\n--- the alert round judges a plan\'s order by its plan (Praxis, 3
   const plan = { id: 'mundr0gwk1vekg', name: '30 Sept · 991.64 M ISK in 4 items', at: '2026-09-30T00:41:37.568Z', isk: 991640000, horizonDays: 7, patient: false,
     items: [{ typeId: PX, buyAt: 206.3 * M, units: 1, sellAt: 226 * M, positionId: 'mundr0gxt6lx47' }] };
   // The order at its third raise: 207.1 M after two changes, 40 bid at 208.3 M ahead of it, listings at 225 M.
-  const ledger = ({ plans, status = 'open' } = {}) => {
+  const ledger = ({ plans, status = 'open', openedAt = plan.at } = {}) => {
     const db = d1();
     const seen = [['00:42:35', 206.3], ['08:39:24', 206.7], ['11:22:15', 207.1]].map(([t, p]) => ({ issued: `2026-09-30T${t}Z`, price: p * M, remain: 1 }));
     db.run('INSERT INTO records (char_id, kind, id, data, rev, updated_at) VALUES (?, ?, ?, ?, 1, 0)', MAIN, 'orders', String(ID), JSON.stringify({
       orderId: ID, typeId: PX, isBuy: true, price: 207.1 * M, volumeTotal: 1, volumeRemain: 1, issued: '2026-09-30T11:22:15Z', state: 'open', locationId: 60003760, escrow: 207.1 * M, seen }));
     db.run('INSERT INTO records (char_id, kind, id, data, rev, updated_at) VALUES (?, ?, ?, ?, 1, 0)', MAIN, 'positions', 'mundr0gxt6lx47', JSON.stringify({
-      id: 'mundr0gxt6lx47', typeId: PX, openedAt: plan.at, status, jitaOnly: true, excluded: [], included: [] }));
+      id: 'mundr0gxt6lx47', typeId: PX, openedAt, status, jitaOnly: true, excluded: [], included: [] }));
     if (plans !== undefined) db.run('INSERT INTO docs (char_id, key, data, rev, updated_at) VALUES (?, ?, ?, 1, 0)', MAIN, 'plans', JSON.stringify(plans));
     const book = [[ID, 1, 207.1 * M, 1], [1, 1, 208.3 * M, 40], [2, 1, 200 * M, 5], [3, 0, 225 * M, 2], [4, 0, 230 * M, 10]];
     db.run('INSERT INTO books (type_id, stamp, orders, sold, at) VALUES (?, ?, ?, ?, ?)', PX, NOW, JSON.stringify(book), null, NOW - 60_000);
@@ -855,6 +855,17 @@ console.log('\n--- the alert round judges a plan\'s order by its plan (Praxis, 3
   broken.run('INSERT INTO records (char_id, kind, id, data, rev, updated_at) VALUES (?, ?, ?, ?, 1, 0)', MAIN, 'positions', 'nul', 'null');
   const survived = await judged(broken);
   eq('  a broken positions row is skipped, never the round', [survived.x?.verdict, survived.x?.plan?.planId], ['loss', plan.id]);
+  // A plan item skipped on the checklist (the market had moved) is no plan's until a bid counts as placing it: the round
+  // reads the skipped items' orders, any state, to tell (the plans review's fixes, 9 October 2026). A plan started at 02:00,
+  // after Praxis's bid was first placed (00:42:35), its position opened then: the bid isn't the plan's placement.
+  const skip = { at: '2026-09-30T02:10:00Z', bestBuy: 208.3 * M, bestSell: 225 * M };
+  const late = { ...plan, at: '2026-09-30T02:00:00Z' };
+  const lateHeld = await judged(ledger({ plans: [late], openedAt: late.at }));
+  eq('  a plan holding it, not skipped: guarded by the plan', [lateHeld.x?.verdict, lateHeld.x?.plan?.planId], ['loss', plan.id]);
+  const lateSkipped = await judged(ledger({ plans: [{ ...late, items: [{ ...late.items[0], skipped: skip }] }], openedAt: late.at }));
+  eq('  skipped, nothing placed for it since: no plan, judged as any order and mailed', [lateSkipped.x?.verdict, lateSkipped.x?.plan, lateSkipped.found], ['move', undefined, ['move']]);
+  const placedSince = await judged(ledger({ plans: [{ ...plan, items: [{ ...plan.items[0], skipped: skip }] }] }));
+  eq('  skipped, but its bid counts as placing it: the plan’s again', [placedSince.x?.verdict, placedSince.x?.plan?.planId], ['loss', plan.id]);
 
   // Leave alone belongs to a plan's own orders (the plans review, 9 October 2026): with `leaveFrom`, an item a
   // Place-and-leave plan left is left only for orders first placed since its start. Praxis's bid was placed at 00:42:35
