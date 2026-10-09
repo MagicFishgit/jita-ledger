@@ -1,11 +1,11 @@
 import { useMemo } from 'react';
-import { Ban, Check, ChevronRight, ClipboardList, Copy, Play, Smartphone, Tag, X } from 'lucide-react';
+import { Ban, Check, ChevronRight, ClipboardList, Copy, Play, Smartphone, Tag, TriangleAlert, Undo2, X } from 'lucide-react';
 import { startPosition } from '../lib/actions';
 import { confirmAsk } from '../lib/confirm';
 import { fmtShort, isk, iskBig, iskBigSigned, pct, rid, units } from '../lib/format';
 import { navigate, useNow } from '../lib/hooks';
 import { computePosition, planPosition } from '../lib/positions';
-import { droppedNote, droppedState, leaveForPlan, newPlan, placementNote, planItemState, planLeaveSince, planListSaid, planProgress, PLANS_KEPT } from '../lib/plans';
+import { droppedNote, droppedState, leaveForPlan, newPlan, placeMovedSaid, placementNote, planItemState, planLeaveSince, planListSaid, planProgress, PLANS_KEPT } from '../lib/plans';
 import type { Plan } from '../lib/planner';
 import { horizonShort } from '../lib/prospects';
 import { update, useData } from '../lib/store';
@@ -13,7 +13,7 @@ import { toast } from '../lib/toast';
 import { CopyPrice, NameInGame, useEnsureNames, useTypeName } from './common';
 import { ItemIcon } from './ui';
 import { Points } from './Facts';
-import { usePlanListing, type PricedRow } from './planListing';
+import { skipPlaceBid, unskipPlaceBid, usePlacingCheck, usePlanListing, type PricedRow } from './planListing';
 
 /**
  * Starting a Capital planner mix, and following it. The game can't place several buy orders at once (Multibuy only buys
@@ -100,6 +100,8 @@ export function PlacingChecklist() {
   // The note on a bid that bought some at once changes once ESI would show the rest standing (ORDERS_LAG_MS).
   const now = useNow(60_000);
   const listing = usePlanListing();
+  // Each bid still to place, against its live Jita book: a market that has moved from the plan's prices is said, with Skip it.
+  const check = usePlacingCheck();
   const placing = new Set(d.plans.filter((p) => Date.now() - Date.parse(p.at) < CHECKLIST_DAYS * 86400_000 && planProgress(p, orders, d.positions, trades).waiting.length > 0).map((p) => p.id));
   const shown = d.plans.filter((p) => placing.has(p.id) || listing.some((x) => x.plan.id === p.id));
   useEnsureNames(shown.flatMap((p) => p.items.map((i) => i.typeId)));
@@ -127,7 +129,8 @@ export function PlacingChecklist() {
                 <Points compact items={[
                   { kind: 'good', lead: 'Ticks off', text: 'once the order shows in your orders (ESI holds them up to 20 minutes), or its trade does when the bid bought at once (up to an hour).' },
                   { kind: 'warn', icon: Smartphone, lead: 'On the phone', text: 'the copies land on the phone: place them from the PC.' },
-                  ...(prog.dropped.length ? [{ kind: 'info' as const, icon: Ban, lead: 'Dropped', text: 'a bid you cancelled with nothing bought, or an item whose position you closed: the plan doesn’t ask for it again.' }] : []),
+                  { kind: 'info', icon: TriangleAlert, lead: 'Checked against today’s book', text: 'a bid the market has moved from says so: skip it, or place it anyway.' },
+                  ...(prog.dropped.length ? [{ kind: 'info' as const, icon: Ban, lead: 'Dropped', text: 'a bid you cancelled with nothing bought, an item whose position you closed, or one you skipped: the plan doesn’t ask for it again.' }] : []),
                 ]} />
                 <div className="tbl-scroll">
                   <table className="tbl" style={{ minWidth: 640 }}>
@@ -137,7 +140,10 @@ export function PlacingChecklist() {
                         const st = planItemState(i, p, orders, d.positions, trades);
                         const pl = st.state === 'placed' ? st.placement : null;
                         const note = pl ? placementNote(i, pl, now) : null;
-                        const dropped = droppedState(st) ? droppedNote(st) : null;
+                        const dropped = droppedState(st) ? droppedNote(st, i) : null;
+                        // Not placed yet: its live book against the plan's prices (Market moved's rule).
+                        const c = st.state === 'open' ? check[`${p.id}:${i.typeId}`] : undefined;
+                        const moved = c?.move ? placeMovedSaid(i, c.move, c.bestBuy, c.bestSell) : null;
                         return (
                           <tr key={i.typeId} style={{ opacity: pl || dropped ? 0.55 : 1 }}>
                             <td className="l"><span className="cellrow"><ItemIcon id={i.typeId} /><NameInGame typeId={i.typeId} name={name(i.typeId)} className="name ellipsis" copy={i.buyAt} copyAs="the bid to place" /></span></td>
@@ -145,8 +151,19 @@ export function PlacingChecklist() {
                             <td>{isk(i.buyAt)} <CopyPrice price={i.buyAt} /></td>
                             <td>{iskBig(i.units * i.buyAt)}</td>
                             <td className="l">{pl && note ? <span style={{ color: 'var(--pos)' }}><span className="row tight" style={{ whiteSpace: 'normal', flexWrap: 'nowrap', alignItems: 'flex-start' }}><Check aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', marginTop: 2 }} />{note.lead} at {isk(pl.price)}</span>{[note.atOnce, note.short].filter(Boolean).map((x) => <span key={x} className="note small" style={{ display: 'block', margin: 0, whiteSpace: 'normal', minWidth: 220, maxWidth: 320 }}>{x}</span>)}</span>
-                              : dropped ? <span className="faint"><span className="row tight" style={{ whiteSpace: 'normal', flexWrap: 'nowrap', alignItems: 'flex-start' }}><Ban aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', marginTop: 2 }} />{dropped.lead}</span>{dropped.sub && <span className="note small" style={{ display: 'block', margin: 0, whiteSpace: 'normal', minWidth: 220, maxWidth: 320 }}>{dropped.sub}</span>}</span>
-                                : <span className="faint">Not yet</span>}</td>
+                              : dropped ? <span className="faint"><span className="row tight" style={{ whiteSpace: 'normal', flexWrap: 'nowrap', alignItems: 'flex-start' }}><Ban aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', marginTop: 2 }} />{dropped.lead}</span>{dropped.sub && <span className="note small" style={{ display: 'block', margin: 0, whiteSpace: 'normal', minWidth: 220, maxWidth: 320 }}>{dropped.sub}</span>}
+                                {st.state === 'skipped' && <button type="button" className="link-btn" style={{ marginTop: 2 }} onClick={() => unskipPlaceBid(p.id, i.typeId)}><Undo2 aria-hidden="true" />Place it after all</button>}</span>
+                                : moved && c ? (
+                                  <span className="placing-moved" style={{ display: 'block', whiteSpace: 'normal', minWidth: 220, maxWidth: 360 }}>
+                                    <span className="row tight" style={{ whiteSpace: 'normal', flexWrap: 'nowrap', alignItems: 'flex-start', color: 'var(--acc2)' }}><TriangleAlert aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', marginTop: 2 }} />Not yet. {moved.lead}</span>
+                                    {moved.lines.map((x) => <span key={x} className="note small" style={{ display: 'block', margin: 0, whiteSpace: 'normal' }}>{x}</span>)}
+                                    <span className="row tight" style={{ flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                                      <button type="button" className="btn sm" onClick={() => skipPlaceBid(p.id, i.typeId, name(i.typeId), c)}>Skip it</button>
+                                      <span className="note small" style={{ margin: 0 }}>or place it anyway at the plan’s price</span>
+                                    </span>
+                                  </span>
+                                )
+                                  : <span className="faint">Not yet{c?.failed && <span className="note small" style={{ display: 'block', margin: 0, whiteSpace: 'normal', minWidth: 220, maxWidth: 320 }}>Its Jita book couldn’t be read, so it isn’t checked against today’s market.</span>}</span>}</td>
                           </tr>
                         );
                       })}
@@ -274,7 +291,7 @@ export function PlanGroups({ shown, onShow }: { shown: string | null; onShow: (i
                   )}
                 </td>
                 <td>{units(prog.placed)} of {units(prog.of)}{prog.dropped.length > 0 && (
-                  <span className="sub" tabIndex={0} data-tip-title="Dropped from the plan" data-tip="Items whose bid you cancelled with nothing bought, or whose position you closed or deleted. The plan doesn’t ask for them again; a new bid for one still counts as placing it.">{units(prog.dropped.length)} dropped</span>
+                  <span className="sub" tabIndex={0} data-tip-title="Dropped from the plan" data-tip="Items whose bid you cancelled with nothing bought, whose position you closed or deleted, or that you skipped when the market had moved from the plan’s prices. The plan doesn’t ask for them again; a new bid for one still counts as placing it.">{units(prog.dropped.length)} dropped</span>
                 )}</td>
                 <td>{iskBig(bought)}</td>
                 <td>{iskBig(sold)}{oversold > 0 && <span className="sub" tabIndex={0} data-tip-title="Left out of the profit" data-tip={'Units sold beyond what the plan bought, and beyond what a position it took over held at its start (that stock is the earlier trading’s, and sells first).\n\nThey came from stock no position counted: loot, gifts, units bought before the position opened. They have no recorded cost, so they’re left out of the profit rather than given one. Their sales are in Sold.'}>{units(oversold)} sold beyond what it bought, left out of the profit</span>}</td>

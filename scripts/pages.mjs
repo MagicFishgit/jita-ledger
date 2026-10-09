@@ -167,9 +167,15 @@ const PLANNER_WORKING = ['3 in your Jita hangar', '8 units already working', 'So
 const PLANNER_SWITCH = { drawn: ['Raises kept back'], note: '2 left out: 1 Bids not reached, 1 Long queue', absent: ['Bids not reached', 'Long queue'] };
 /**
  * The planner priced to place and leave (kept per browser, read as the page opens), with slots for every item: 990108,
- * which only Place and leave prices, carries "Market moved", and its tip says which side moved and by how much.
+ * which only Place and leave prices, carries "Market moved", so it's left out of the mix by default and the mix says so
+ * (the plans review, 9 October 2026). With "Keep items whose market moved" on (kept per browser too) it's back, and its
+ * flag's tip says which side moved and by how much.
  */
-const PLANNER_LEAVE = { flag: 'Market moved', tip: ['Your bid would be at or over today’s cheapest listing of 900,000 ISK', 'The plan sells 56% over today’s cheapest listing of 900,000 ISK', 'half of the last 14 days'] };
+const PLANNER_LEAVE = {
+  out: ['1 left out because its market moved', 'Keep items whose market moved (1)', 'Off: 1 left out'],
+  kept: 'On: 1 kept, with the Market moved flag in the mix.',
+  flag: 'Market moved', tip: ['Your bid would be at or over today’s cheapest listing of 900,000 ISK', 'The plan sells 56% over today’s cheapest listing of 900,000 ISK', 'half of the last 14 days'],
+};
 
 /**
  * The Mining tab under an alt, on the large ledger: its filter and Show for kept in this browser, as a visit leaves them,
@@ -387,13 +393,28 @@ try {
       await page.waitForTimeout(500);
       await page.evaluate(() => { location.hash = '#planner'; });
       await page.waitForTimeout(1500);
+      // By default the moved item is left out of the mix, and the page says so.
+      const pageText = (await page.locator('.page').innerText().catch(() => '')).replace(/\s+/g, ' ');
+      for (const t of PLANNER_LEAVE.out) if (!pageText.includes(t)) problems.push(`not drawn in Place and leave: “${t}”`);
+      if (await page.locator('.page table .flag', { hasText: PLANNER_LEAVE.flag }).count()) problems.push('in the mix by default, and shouldn’t be: an item flagged Market moved');
+      await judge('planner (place and leave)');
+      // "Keep items whose market moved" brings it back, with its flag and the flag's tip.
+      problems = [];
+      await page.evaluate(() => {
+        localStorage.setItem('jita-ledger:planner', JSON.stringify({ patient: true, keepMoved: true }));
+        location.hash = '#settings/appearance';
+      });
+      await page.waitForTimeout(500);
+      await page.evaluate(() => { location.hash = '#planner'; });
+      await page.waitForTimeout(1500);
+      if (!(await page.locator('.page', { hasText: PLANNER_LEAVE.kept }).count())) problems.push(`not drawn with keep on: “${PLANNER_LEAVE.kept}”`);
       const moved = page.locator('.page table .flag', { hasText: PLANNER_LEAVE.flag });
-      if (!(await moved.count())) problems.push(`not drawn in Place and leave: no “${PLANNER_LEAVE.flag}” flag`);
+      if (!(await moved.count())) problems.push(`not drawn in Place and leave with keep on: no “${PLANNER_LEAVE.flag}” flag`);
       else {
         const tip = (await moved.first().getAttribute('data-tip')) ?? '';
         for (const t of PLANNER_LEAVE.tip) if (!tip.includes(t)) problems.push(`not drawn: the Market moved tip's “${t}” (${tip.slice(0, 120)})`);
       }
-      await judge('planner (place and leave)');
+      await judge('planner (place and leave, keeping moved items)');
       await page.evaluate(() => { localStorage.removeItem('jita-ledger:planner'); sessionStorage.setItem('jita-ledger:planner-session', JSON.stringify({ isk: 1e9, slots: 10 })); });
     }
     if (name === 'large' && SHOWN.includes('hustles/mining')) {
@@ -896,7 +917,7 @@ try {
   // not ask to place either (nor anything at all about the closed one). Every request outside this server is refused.
   // Both widths.
   if (SHOWN.includes('positions') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('plan'))) {
-    const JITA = 60003760, RS = 20420, INF = 31866, RD = 47894, FE = 47889, CE = 47891, DAY_MS = 86400_000;
+    const JITA = 60003760, RS = 20420, INF = 31866, RD = 47894, FE = 47889, CE = 47891, FG = 47901, DAY_MS = 86400_000;
     const planAt = Date.now() - 3600_000, iso = (t) => new Date(t).toISOString();
     const tx = (id, typeId, isBuy, qty, price, t) => ({ id, source: 'esi', typeId, date: iso(t), isBuy, qty, unitPrice: price, locationId: JITA });
     const ledger = {
@@ -904,12 +925,14 @@ try {
       plans: [{ id: 'mur4lko4xsll6o', name: '2 Oct · 999.16 M ISK in 33 items', at: iso(planAt), isk: 999156436.25, horizonDays: 0.5, patient: true,
         items: [{ typeId: RS, buyAt: 85_540, units: 188, sellAt: 94_430, positionId: 'rs' }, { typeId: INF, buyAt: 1_658_000, units: 11, sellAt: 1_836_000, positionId: 'inf' },
           { typeId: RD, buyAt: 1_711_000, units: 8, sellAt: 1_983_000, positionId: 'rd' },
-          { typeId: FE, buyAt: 2_813_000, units: 9, sellAt: 3_443_000, positionId: 'fe' }, { typeId: CE, buyAt: 21_470_000, units: 2, sellAt: 24_390_000, positionId: 'ce' }] }],
+          { typeId: FE, buyAt: 2_813_000, units: 9, sellAt: 3_443_000, positionId: 'fe' }, { typeId: CE, buyAt: 21_470_000, units: 2, sellAt: 24_390_000, positionId: 'ce' },
+          { typeId: FG, buyAt: 2_158_000, units: 6, sellAt: 2_486_000, positionId: 'fg' }] }],
       positions: [{ id: 'rs', typeId: RS, openedAt: iso(planAt - 8 * DAY_MS), status: 'open', jitaOnly: true, excluded: [], included: [] },
         { id: 'inf', typeId: INF, openedAt: iso(planAt), status: 'open', jitaOnly: true, excluded: [], included: [] },
         { id: 'rd', typeId: RD, openedAt: iso(planAt), status: 'open', jitaOnly: true, excluded: [], included: [] },
         { id: 'fe', typeId: FE, openedAt: iso(planAt), status: 'open', jitaOnly: true, excluded: [], included: [] },
-        { id: 'ce', typeId: CE, openedAt: iso(planAt), closedAt: iso(planAt + 1_800_000), status: 'closed', jitaOnly: true, excluded: [], included: [] }],
+        { id: 'ce', typeId: CE, openedAt: iso(planAt), closedAt: iso(planAt + 1_800_000), status: 'closed', jitaOnly: true, excluded: [], included: [] },
+        { id: 'fg', typeId: FG, openedAt: iso(planAt), status: 'open', jitaOnly: true, excluded: [], included: [] }],
       txs: {
         b1: tx('b1', RS, true, 12_000, 80_720, planAt - 8 * DAY_MS + 300_000),
         s1: tx('s1', RS, false, 9372, 93_516, planAt - 2 * DAY_MS),
@@ -923,7 +946,7 @@ try {
         7435099667: { orderId: 7435099667, typeId: FE, isBuy: true, price: 2_813_000, volumeTotal: 9, volumeRemain: 9, issued: iso(planAt + 556_000), state: 'cancelled', locationId: JITA },
         7435098339: { orderId: 7435098339, typeId: CE, isBuy: true, price: 21_470_000, volumeTotal: 2, volumeRemain: 2, issued: iso(planAt + 411_000), state: 'cancelled', locationId: JITA },
       },
-      names: { [RS]: 'Datacore - Rocket Science', [INF]: 'Imperial Navy Infiltrator', [RD]: 'Raging Dark Filament', [FE]: 'Fierce Exotic Filament', [CE]: 'Chaotic Exotic Filament' },
+      names: { [RS]: 'Datacore - Rocket Science', [INF]: 'Imperial Navy Infiltrator', [RD]: 'Raging Dark Filament', [FE]: 'Fierce Exotic Filament', [CE]: 'Chaotic Exotic Filament', [FG]: 'Fierce Gamma Filament' },
       meta: { walletBalance: 1e9, lastSync: iso(Date.now() - 600_000) },
     };
     // The Infiltrator's real history (scripts/fixtures/plan-list.json, read 2 October 2026), its days moved so the last is
@@ -940,6 +963,13 @@ try {
       if (route.request().url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
       if (url.hostname === 'esi.evetech.net' && url.pathname === '/markets/10000002/history/' && url.searchParams.get('type_id') === String(INF)) {
         return route.fulfill({ status: 200, contentType: 'application/json', headers: { expires: new Date(Date.now() + 3600_000).toUTCString() }, body: JSON.stringify(infHistory) });
+      }
+      // Raging Dark Filament's book as it stood within the hour of the plan (2 October 2026): bids at 1,440,000, listings
+      // from 1,741,000, so the plan's bid of 1,711,000 sits 19% over today's best and its sale 14% over the cheapest listing.
+      if (url.hostname === 'esi.evetech.net' && url.pathname === '/markets/10000002/orders/' && url.searchParams.get('type_id') === String(RD)) {
+        const book = [[1, true, 1_440_000, 30], [2, true, 1_400_000, 50], [3, false, 1_741_000, 20], [4, false, 1_748_000, 40]];
+        return route.fulfill({ status: 200, contentType: 'application/json', headers: { expires: new Date(Date.now() + 300_000).toUTCString(), 'x-pages': '1' },
+          body: JSON.stringify(book.map(([id, buy, price, volume]) => ({ order_id: id, type_id: RD, location_id: JITA, is_buy_order: buy, price, volume_remain: volume, volume_total: volume, issued: iso(planAt - DAY_MS), duration: 90, min_volume: 1, range: 'region' }))) });
       }
       return route.abort();
     });
@@ -968,7 +998,7 @@ try {
     if (!whole || whole[4] !== '11,372') problems.push(`the list without a plan doesn't show the whole position's 11,372 sold (${JSON.stringify(whole?.slice(3, 6))})`);
     const plans = (await page.locator('section[aria-label="Plans"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
     if (!plans.includes('1 shared with earlier trading, counted from the plan’s start')) problems.push(`not drawn: the Plans panel's “1 shared with earlier trading” (${plans.slice(0, 160)})`);
-    if (!/2 of 5\s*2 dropped/.test(plans)) problems.push(`the Plans panel doesn't count 2 of 5 placed and 2 dropped (${plans.slice(0, 200)})`);
+    if (!/2 of 6\s*2 dropped/.test(plans)) problems.push(`the Plans panel doesn't count 2 of 6 placed and 2 dropped (${plans.slice(0, 200)})`);
     if (plans.includes('left out of the profit')) problems.push('the Plans panel says units were left out: the earlier stock’s sales aren’t the plan’s at all');
     await page.getByRole('button', { name: 'Show its positions' }).click().catch((e) => problems.push(`couldn't show the plan's positions: ${e.message.split('\n')[0]}`));
     await page.waitForTimeout(600);
@@ -996,13 +1026,23 @@ try {
     const placing = (await page.locator('#placing').innerText().catch(() => '')).replace(/\s+/g, ' ');
     if (!placing.includes('11 of 11 bought at once at 1,608,000')) problems.push(`not drawn: the checklist's “11 of 11 bought at once at 1,608,000” (${placing.slice(0, 160)})`);
     if (!placing.includes('the order shows only in your order history')) problems.push('not drawn: the checklist doesn’t say where the order went');
-    if (!placing.includes('2 of 5 placed, 2 dropped')) problems.push(`the checklist doesn't count 2 of 5 placed, 2 dropped (${placing.slice(0, 120)})`);
+    if (!placing.includes('2 of 6 placed, 2 dropped')) problems.push(`the checklist doesn't count 2 of 6 placed, 2 dropped (${placing.slice(0, 120)})`);
     // The bids cancelled with nothing bought: dropped, said and never asked for again.
     const rowText = async (n) => (await page.locator('#placing tbody tr', { hasText: n }).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
     const feRow = await rowText('Fierce Exotic Filament'), ceRow = await rowText('Chaotic Exotic Filament');
     for (const want of ['Bid cancelled with nothing bought: not placed again', 'Your bid of 9 at 2,813,000 ISK']) if (!feRow.includes(want)) problems.push(`not drawn: the checklist's cancelled Fierce Exotic Filament “${want}” (${feRow.slice(0, 200)})`);
     if (!/Position closed \d+ \w+: not placed again/.test(ceRow)) problems.push(`not drawn: the checklist's “Position closed …: not placed again” for Chaotic Exotic Filament (${ceRow.slice(0, 200)})`);
     if (/Not yet/.test(feRow) || /Not yet/.test(ceRow)) problems.push('the checklist reads a dropped item as “Not yet”');
+    // Raging Dark Filament, not placed, against its live book: the market has moved, said with the figures, and Skip it.
+    await page.locator('#placing tbody tr', { hasText: 'Raging Dark Filament' }).locator('.placing-moved').waitFor({ timeout: 10_000 }).catch(() => undefined);
+    const rdRow = await rowText('Raging Dark Filament');
+    for (const want of ['The market has moved since the plan priced it', 'Its bid of 1,711,000 ISK is 19% over today’s best bid of 1,440,000 ISK', 'It sells at 1,983,000 ISK, 14% over today’s cheapest listing of 1,741,000 ISK', 'or place it anyway'])
+      if (!rdRow.toLowerCase().includes(want.toLowerCase())) problems.push(`not drawn: the checklist's moved Raging Dark Filament “${want}” (${rdRow.slice(0, 220)})`);
+    if (!(await page.locator('#placing tbody tr', { hasText: 'Raging Dark Filament' }).getByRole('button', { name: 'Skip it' }).count())) problems.push('not drawn: Skip it on the moved Raging Dark Filament');
+    // Fierce Gamma Filament's book is refused: still to place, saying it wasn't checked, never moved and never Skip it.
+    const fgRow = await rowText('Fierce Gamma Filament');
+    if (!fgRow.includes('Not yet') || !fgRow.includes('Its Jita book couldn’t be read, so it isn’t checked against today’s market')) problems.push(`not drawn: the checklist's unread Fierce Gamma Filament (${fgRow.slice(0, 200)})`);
+    if (fgRow.includes('Skip it') || fgRow.includes('has moved')) problems.push('the checklist says the market moved for an item whose book couldn’t be read');
     // Its list part: the plan's own price, copied, with today's List patiently beside it from the history ESI gave.
     await page.locator('#placing .plan-list', { hasText: 'List patiently today' }).waitFor({ timeout: 10_000 }).catch(() => undefined);
     const listPart = (await page.locator('#placing .plan-list').innerText().catch(() => '')).replace(/\s+/g, ' ');
@@ -1016,6 +1056,20 @@ try {
     await page.evaluate(() => { location.hash = '#todo'; });
     await page.waitForTimeout(1500);
     if (!(await page.locator('.tn-item', { hasText: 'Raging Dark Filament' }).count())) problems.push('not drawn: To do doesn’t ask for Raging Dark Filament’s buy order');
+    // Its item says the market moved, with the figures, and offers Skip it, which takes it off as the checklist's does.
+    const rdItem = page.locator('.tn-item:not(.done)', { hasText: 'Place a buy order: 8 × Raging Dark Filament' });
+    await rdItem.filter({ hasText: 'The market has moved' }).first().waitFor({ timeout: 10_000 }).catch(() => undefined);
+    const rdTodo = (await rdItem.first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+    for (const want of ['The market has moved since the plan priced it', '19% over today’s best bid of 1,440,000 ISK', 'Skip it, or open it in game']) if (!rdTodo.includes(want)) problems.push(`not drawn: To do's moved Raging Dark Filament “${want}” (${rdTodo.slice(0, 220)})`);
+    const skipBtn = rdItem.first().getByRole('button', { name: 'Skip it' });
+    if (!(await skipBtn.count())) problems.push('not drawn: Skip it on To do’s moved Raging Dark Filament');
+    else {
+      await skipBtn.click();
+      await page.locator('.tn-item.done', { hasText: 'Raging Dark Filament' }).waitFor({ timeout: 5000 }).catch(() => undefined);
+      const doneText = (await page.locator('.tn-item.done', { hasText: 'Raging Dark Filament' }).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+      if (!doneText.includes('You skipped it: the market had moved from the plan’s prices.')) problems.push(`To do doesn't say Raging Dark Filament was skipped (${doneText.slice(0, 160)})`);
+      if (await page.locator('.tn-item:not(.done)', { hasText: 'Place a buy order: 8 × Raging Dark Filament' }).count()) problems.push('To do still asks for Raging Dark Filament after Skip it');
+    }
     if (await page.locator('.tn-item', { hasText: 'Place a buy order: 11 × Imperial Navy Infiltrator' }).count()) problems.push('To do asks for the Infiltrator’s buy order, which bought at once');
     if (await page.locator('.tn-item', { hasText: 'Place a buy order: 9 × Fierce Exotic Filament' }).count()) problems.push('To do asks again for Fierce Exotic Filament’s buy order, which you cancelled');
     if (await page.locator('.tn-item', { hasText: 'Chaotic Exotic Filament' }).count()) problems.push('To do lists something for Chaotic Exotic Filament, cancelled and its position closed');
@@ -1038,10 +1092,29 @@ try {
     if (boundary) problems.push('error boundary on the position page');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on the position page: ${o}`);
     if (SHOTS) await page.screenshot({ path: `${SHOTS}-plan-shared-position.png` });
+    // The checklist after Skip it: Raging Dark Filament skipped, saying why with the book it read, and counted dropped;
+    // Place it after all puts it back, the market still moved.
+    await page.evaluate(() => { location.hash = '#planner'; });
+    await page.waitForTimeout(1500);
+    const after = (await page.locator('#placing').first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!after.includes('2 of 6 placed, 3 dropped')) problems.push(`the checklist doesn't count the skip as dropped: 2 of 6 placed, 3 dropped (${after.slice(0, 160)})`);
+    const rdSkipped = await rowText('Raging Dark Filament');
+    for (const want of ['the market had moved', 'Today’s best bid was 1,440,000 ISK and the cheapest listing 1,741,000 ISK, against the plan’s bid of 1,711,000 ISK and sale of 1,983,000 ISK', 'Place it after all'])
+      if (!rdSkipped.toLowerCase().includes(want.toLowerCase())) problems.push(`not drawn: the checklist's skipped Raging Dark Filament “${want}” (${rdSkipped.slice(0, 260)})`);
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on the planner after Skip it: ${o}`);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-plan-shared-skipped.png` });
+    await page.locator('#placing tbody tr', { hasText: 'Raging Dark Filament' }).getByRole('button', { name: 'Place it after all' }).click().catch((e) => problems.push(`couldn't undo the skip: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(800);
+    const undone = await rowText('Raging Dark Filament');
+    if (!undone.includes('The market has moved since the plan priced it') || !(await page.locator('#placing tbody tr', { hasText: 'Raging Dark Filament' }).getByRole('button', { name: 'Skip it' }).count())) problems.push(`Place it after all doesn't ask for it again (${undone.slice(0, 160)})`);
+    await page.evaluate(() => { location.hash = '#positions'; });
+    await page.waitForTimeout(1200);
+    const plans2 = (await page.locator('section[aria-label="Plans"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!/2 of 6\s*2 dropped/.test(plans2)) problems.push(`the Plans panel doesn't count it back once undone: 2 of 6, 2 dropped (${plans2.slice(0, 200)})`);
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'plan shared', page: 'positions', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL plan shared #positions\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan shared #positions (a position the plan took over, counted from its start; the list step), #planner (a bid bought at once, and the list part), #todo and the position page\n');
+    process.stdout.write(unique.length ? `  FAIL plan shared #positions\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan shared #positions (a position the plan took over, counted from its start; the list step), #planner (a bid bought at once, the list part, a bid the market has moved from, Skip it and its undo), #todo (that bid, skipped there) and the position page\n');
     await page.close();
   }
   // Every freelance job you did (the user's six, 1 October 2026), rebuilt as a browser that never saw them does: only the

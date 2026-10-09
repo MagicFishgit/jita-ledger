@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, CalendarX, Check, CheckCheck, CircleDollarSign, CircleX, CloudAlert, Factory, FlaskConical, Truck, GitPullRequestArrow, HardDriveDownload, Keyboard, Layers, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, ShoppingCart, Tag, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
+import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, CalendarX, Check, CheckCheck, CircleDollarSign, CircleX, CloudAlert, Factory, FlaskConical, Truck, GitPullRequestArrow, HardDriveDownload, Keyboard, Layers, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, ShoppingCart, SkipForward, Tag, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
 import { getAuth, loginForCloud, loginMailerForCloud } from '../lib/auth';
 import { breakEvenSpread, rates } from '../lib/fees';
 import { ago, fmtDateTime, isk, iskBig, units } from '../lib/format';
@@ -22,7 +22,7 @@ import { BACKUP_DAYS } from '../lib/alertsRunner';
 import { LOGIN_STOPS } from '../lib/watchdog';
 import { droppedState, planItemState, planTargets } from '../lib/plans';
 import { planListRow } from '../lib/positions';
-import { usePlanListing } from './planListing';
+import { skipPlaceBid, usePlacingCheck, usePlanListing } from './planListing';
 import { useAltCopies, useAltRoster, useRosterAt, useRosterLive } from '../lib/altStore';
 import { jobOk, loginState } from '../lib/roster';
 import { FIELDS } from '../lib/researchStart';
@@ -143,6 +143,8 @@ export function Todo() {
   const vs = useMemo(() => verdicts(d, check, costBasis(d)), [d, check]);
   // What a plan bought and hasn't listed, priced to list (the list step, shared with the plan's checklist).
   const listing = usePlanListing();
+  // Each plan bid still to place against its live Jita book: one the market has moved from says so and offers Skip it.
+  const placing = usePlacingCheck();
 
   // Keep the data current while the page is open, so what you do in game shows up without asking:
   // the orders as soon as ESI has a newer book, colonies every ten minutes while a PI item is waiting,
@@ -333,7 +335,9 @@ export function Todo() {
     for (const p of d.plans) {
       if (now - Date.parse(p.at) > 7 * DAY) continue;
       for (const i of p.items) {
-        const item = placeBuyItem(p, i, planItemState(i, p, orderList, d.positions, planTrades), name(i.typeId));
+        const c = placing[`${p.id}:${i.typeId}`];
+        const item = placeBuyItem(p, i, planItemState(i, p, orderList, d.positions, planTrades), name(i.typeId),
+          c?.move ? { move: c.move, bestBuy: c.bestBuy, bestSell: c.bestSell } : null);
         if (item) out.push(item);
       }
     }
@@ -396,7 +400,7 @@ export function Todo() {
       });
     }
     return out;
-  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background, roster, listing, research.bundle, research.blocks, research.priced, systemNames, canDest]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background, roster, listing, placing, research.bundle, research.blocks, research.priced, systemNames, canDest]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fold each new build into the session: new findings are added, and findings a newer read no longer
   // shows are ticked off with what changed.
@@ -653,6 +657,12 @@ export function Todo() {
                       <span className="tn-kind" style={{ display: 'block' }}>{KIND_LABEL[x.kind]}</span>
                       <span className="tn-title" style={{ display: 'block' }}>{x.title}</span>
                       <span className="tn-detail" style={{ display: 'block' }}>{x.detail}</span>
+                      {/* A plan's bid the market has moved from: Skip it marks the plan's item, as the checklist's button does. */}
+                      {x.skip && !checking && (
+                        <button type="button" className="link-btn" style={{ marginTop: 4 }} onClick={(ev) => { ev.stopPropagation(); skipPlaceBid(x.skip!.planId, x.skip!.typeId, name(x.skip!.typeId), x.skip!); }}>
+                          <SkipForward aria-hidden="true" />Skip it
+                        </button>
+                      )}
                       {checking && <span className="tn-note" style={{ display: 'block' }}><RefreshCw aria-hidden="true" />No longer in the latest list. {waiting(x)}</span>}
                       {opened && <span className="tn-note" style={{ display: 'block' }}>Opened in game {since(e.openedAt!)}. {x.kind === 'planList' ? 'Once it’s listed, this ticks itself off when your orders show it, within 20 minutes.' : 'Once you’ve changed it, this ticks itself off when the market shows it, usually within 5 minutes.'}</span>}
                     </span>

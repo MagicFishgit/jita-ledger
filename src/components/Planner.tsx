@@ -6,7 +6,7 @@ import { effectiveSkills, orderSlots } from '../lib/fees';
 import { isk as iskFmt, iskBig, pct, units } from '../lib/format';
 import { navigate } from '../lib/hooks';
 import { allocate, PLANNER_EXCLUDES, PLANNER_HORIZONS, plannerFilters, plannerPool, SLOTS_PER_ITEM, SWITCH_EXCLUDES, workingUnits, type Allocation, type FlaggedOut } from '../lib/planner';
-import { horizonSaid, horizonShort, RUN_UP, RUN_UP_PATIENT, snapHorizon } from '../lib/prospects';
+import { horizonSaid, horizonShort, MARKET_MOVED, RUN_UP, RUN_UP_PATIENT, snapHorizon } from '../lib/prospects';
 import { loadCache, rankProspects, useScanState, type ScanCache } from '../lib/scan';
 import { update, useData } from '../lib/store';
 import { useFlow } from '../lib/flowStore';
@@ -28,10 +28,10 @@ const SESSION_KEY = 'jita-ledger:planner-session';
 const COLS = ['var(--acc)', '#a98bff', '#6ee7a8', 'var(--acc2)', '#ff8d9a', '#7aa6ff', '#eed79a', '#5fe0b5', '#ff9f6b', '#c7d2de'];
 
 /**
- * Kept between visits: the horizon, the cap per item, how to price, and whether to leave out flagged items (off unless
- * switched on in this browser). ISK and slots are read fresh each visit.
+ * Kept between visits: the horizon, the cap per item, how to price, whether to leave out flagged items and whether to keep
+ * items whose market moved (both off unless switched on in this browser). ISK and slots are read fresh each visit.
  */
-type Inputs = { days: number | null; maxPct: number | null; patient?: boolean; leaveOutFlagged?: boolean };
+type Inputs = { days: number | null; maxPct: number | null; patient?: boolean; leaveOutFlagged?: boolean; keepMoved?: boolean };
 function readInputs(): Partial<Inputs> {
   try { return JSON.parse(localStorage.getItem(KEY) || '{}') as Partial<Inputs>; } catch { return {}; }
 }
@@ -64,6 +64,7 @@ export function Planner() {
     maxPct: saved.maxPct ?? 25,
     patient: !!saved.patient,
     leaveOutFlagged: saved.leaveOutFlagged === true,
+    keepMoved: saved.keepMoved === true,
   });
   const set = (p: Partial<Inputs>) => setInp((cur) => {
     const next = { ...cur, ...p };
@@ -88,28 +89,43 @@ export function Planner() {
   const isk = iskIn ?? 0, slots = slotsIn, days = inp.days ?? 3, maxShare = Math.max(0, Math.min(100, inp.maxPct ?? 100)) / 100;
   const patient = !!inp.patient;
   const leaveOut = !!inp.leaveOutFlagged;
+  // Market moved is left out of a Place-and-leave plan unless kept (MOVED_FLAG in lib/planner.ts); the front never carries it.
+  const keepMoved = !!inp.keepMoved;
   // What was watched of each book (the split, the fills since the scan, the raises kept back) is read as the plan is
   // worked out, so a newer record, or the first read of it, works the plan out again. Without it the plan depended on
   // whether another page had loaded the record first.
   const flow = useFlow();
   // What you already have working in each item, in units: it takes the same flip capacity, so the plan takes what's left.
   const working = useMemo(() => workingUnits(Object.values(d.orders), d.stock?.jita), [d.orders, d.stock]);
-  const { plan, pool, excluded, flagged, allFlagged, unchecked } = useMemo(() => {
-    if (!cache || !isk) return { plan: null, pool: 0, excluded: 0, flagged: { total: 0, byFlag: {} } as FlaggedOut, allFlagged: false, unchecked: 0 };
+  const { plan, pool, excluded, moved, movedOut, flagged, allFlagged, unchecked } = useMemo(() => {
+    if (!cache || !isk) return { plan: null, pool: 0, excluded: 0, moved: 0, movedOut: 0, flagged: { total: 0, byFlag: {} } as FlaggedOut, allFlagged: false, unchecked: 0 };
     // Every market's own limit, not just those that could take the whole budget.
     const list = rankProspects(cache, d.settings, plannerFilters(savedProspectFilters(), isk, days, patient));
-    const chosen = plannerPool(list, leaveOut);
+    const chosen = plannerPool(list, leaveOut, keepMoved);
     // Items scanned before the sell side, price jumps and run-ups were judged: their spread hasn't been checked for them.
     const old = list.filter((p) => p.stats.lastMove === undefined || !p.stats.highs14 || p.stats.runUp === undefined).length;
     return {
-      plan: allocate(list, { isk, slots, horizonDays: days, maxShare, leaveOutFlagged: leaveOut, working }), pool: list.length,
-      excluded: chosen.excluded, flagged: chosen.flagged, allFlagged: chosen.allFlagged, unchecked: old,
+      plan: allocate(list, { isk, slots, horizonDays: days, maxShare, leaveOutFlagged: leaveOut, keepMoved, working }), pool: list.length,
+      excluded: chosen.excluded, moved: chosen.moved, movedOut: chosen.movedOut, flagged: chosen.flagged, allFlagged: chosen.allFlagged, unchecked: old,
     };
-  }, [cache, d.settings, isk, slots, days, maxShare, patient, leaveOut, flow, working]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cache, d.settings, isk, slots, days, maxShare, patient, leaveOut, keepMoved, flow, working]); // eslint-disable-line react-hooks/exhaustive-deps
   // What the switch leaves out, by flag, in the order the switch lists them: "5 Falling, 3 Long queue".
   const byFlag = SWITCH_EXCLUDES.filter((w) => flagged.byFlag[w]).map((w) => `${units(flagged.byFlag[w]!)} ${WARNING[w].short}`).join(', ');
   const overlap = Object.values(flagged.byFlag).reduce((t, n) => t + (n ?? 0), 0) > flagged.total;
   const listed = (ws: typeof SWITCH_EXCLUDES) => ws.map((w) => WARNING[w].short).join(', ').replace(/, ([^,]*)$/, ' and $1');
+  // What each rule left out of the mix, said where a mix is empty or short: Market moved's, and the switch's when it's on.
+  const outBy = [
+    ...(movedOut ? [{ n: movedOut, said: `${units(movedOut)} because ${movedOut === 1 ? 'its market' : 'their markets'} moved`, act: 'Keep them', set: { keepMoved: true } }] : []),
+    ...(leaveOut && flagged.total ? [{ n: flagged.total, said: `${units(flagged.total)} by Leave out flagged items (${byFlag}${overlap ? '; an item can carry more than one' : ''})`, act: 'Switch it off', set: { leaveOutFlagged: false } }] : []),
+  ];
+  const outSaid = outBy.map((x) => x.said).join(', and ');
+  const outActs = (tail: string) => (
+    <>
+      {outBy.map((x, i) => (
+        <span key={x.act}>{i > 0 ? ', or ' : ''}<button type="button" className="link-btn" onClick={() => set(x.set)}>{i > 0 ? x.act.toLowerCase() : x.act}</button></span>
+      ))}{' '}{tail}
+    </>
+  );
 
   useEnsureNames(plan?.rows.map((a) => a.p.typeId) ?? []);
   // What you already have working in each item, so the mix doesn't quietly double you up.
@@ -144,16 +160,16 @@ export function Planner() {
   const allLeft = planTypes.length > 0 && planTypes.every((t) => leaving.has(t));
   const idleWhy = !plan ? '' : plan.limit === 'slots'
     ? `Out of order slots — each item takes ${SLOTS_PER_ITEM}. Train Wholesale or free some up to put the rest to work.`
-    // With nothing placed, the "Nothing fits" line above names the switch already: said once.
-    : leaveOut && flagged.total && plan.rows.length > 0
-      ? `Every market left once Leave out flagged items took out ${units(flagged.total)} is already at what it can take in your horizon. Allow longer, raise the cap per item, switch it off, or run a deep scan.`
+    // With nothing placed, the "Nothing fits" line above names the rules already: said once.
+    : outBy.length && plan.rows.length > 0
+      ? `Every market left is already at what it can take in your horizon (left out: ${outSaid}). Allow longer, raise the cap per item, ${outBy.map((x) => x.act.toLowerCase()).join(' or ')}, or run a deep scan.`
       : 'Every market that passes your Prospects filters is already at what it can take in your horizon. Allow longer, raise the cap per item, or run a deep scan.';
 
   return (
     <div className="page">
       <PageHead
         kicker="02b · Put ISK to work" title="Capital planner" wide
-        lede="Tell it how much ISK and how many order slots you have free, and it builds a mix from your Prospects — best payback first (or, when free slots run out before the ISK, the markets that make the most a day), never more than a market can take, and never too much in one item. Anything flagged as a wall, spike, fluke, escrow bait, a price that just moved or one that ran up lately is left out, and Leave out flagged items leaves out the rest of the flags too."
+        lede="Tell it how much ISK and how many order slots you have free, and it builds a mix from your Prospects — best payback first (or, when free slots run out before the ISK, the markets that make the most a day), never more than a market can take, and never too much in one item. Anything flagged as a wall, spike, fluke, escrow bait, a price that just moved or one that ran up lately is left out, Place and leave leaves out markets that have moved since the days it prices from, and Leave out flagged items leaves out the rest of the flags too."
       />
       <ScanFreshness what="the plan" />
       <ShareCheck what="Each market’s limit" />
@@ -181,7 +197,7 @@ export function Planner() {
         </div>
         <div className="row" style={{ flexBasis: '100%', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <Check checked={leaveOut} onChange={(v) => set({ leaveOutFlagged: v })}
-            tip={`Leaves out every item carrying a flag, not only the ones the planner always leaves out.\n\n• It leaves out ${listed(SWITCH_EXCLUDES)}.\n• ${listed(PLANNER_EXCLUDES)} are left out whether this is on or not.\n• Raises kept back isn’t a flag: it’s a cost already taken off the return.\n• Kept in this browser.`}>
+            tip={`Leaves out every item carrying a flag, not only the ones the planner always leaves out.\n\n• It leaves out ${listed(SWITCH_EXCLUDES)}.\n• ${listed(PLANNER_EXCLUDES)} are left out whether this is on or not.\n• Market moved has a switch of its own, with Place and leave.\n• Raises kept back isn’t a flag: it’s a cost already taken off the return.\n• Kept in this browser.`}>
             Leave out flagged items{cache && isk ? ` (${units(flagged.total)})` : ''}
           </Check>
           <span className="note small" style={{ margin: 0 }}>
@@ -189,6 +205,19 @@ export function Planner() {
               : 'Off: flagged items stay in, with their flags in the mix.'}
           </span>
         </div>
+        {/* Only Place and leave carries Market moved: at the front the prices come from today's book. */}
+        {patient && (
+          <div className="row" style={{ flexBasis: '100%', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Check checked={keepMoved} onChange={(v) => set({ keepMoved: v })}
+              tip={`Keeps items flagged Market moved in the mix, with the flag. Off, they’re left out.\n\n• Place and leave prices both sides where trading reached on half of the last 14 days, wherever today’s book is.\n• Moved: the bid more than ${pct(MARKET_MOVED, 0)} under or over today’s best bid, at or over today’s cheapest listing, or the sale more than ${pct(MARKET_MOVED, 0)} over today’s cheapest listing.\n• On your 2 October plan, the 11 items it flagged came out at −6.0% of the ISK planned on them a week later, at that day’s bids; the rest at −2.5%.\n• Kept in this browser.`}>
+              Keep items whose market moved{cache && isk ? ` (${units(moved)})` : ''}
+            </Check>
+            <span className="note small" style={{ margin: 0 }}>
+              {keepMoved ? (moved ? `On: ${units(moved)} kept, with the Market moved flag in the mix.` : 'Nothing that passes your filters has moved.')
+                : moved ? `Off: ${units(movedOut)} left out, today’s book more than ${pct(MARKET_MOVED, 0)} from the prices Place and leave would use.` : 'Off: nothing that passes your filters has moved.'}
+            </span>
+          </div>
+        )}
       </div>
 
       {unchecked > 0 && (
@@ -226,7 +255,7 @@ export function Planner() {
             { l: 'Blended return / day', v: plan.deployed ? pct(plan.perDay / plan.deployed, 2) : '–', n: 'Across the whole mix', c: 'var(--pos)' },
             { l: 'Slots used', v: `${plan.slotsUsed} of ${slots}`, n: 'One buy and one sell each' },
           ]} />
-          <Panel title="The mix" sub={`Chosen from ${units(pool)} items that pass your Prospects filters${excluded ? `, ${excluded} left out for a warning flag` : ''}${leaveOut && flagged.total ? `, ${units(flagged.total)} more by Leave out flagged items` : ''}${plan.filled ? `, ${units(plan.filled)} left out because your orders${hangarRead ? ' and stock' : ''} already fill what ${plan.filled === 1 ? 'its market takes' : 'their markets take'} in your horizon` : ''}.${hangarRead ? '' : ' Your Jita hangar isn’t read yet, so only your open orders count against what each market takes.'}`}>
+          <Panel title="The mix" sub={`Chosen from ${units(pool)} items that pass your Prospects filters${excluded ? `, ${excluded} left out for a warning flag` : ''}${movedOut ? `, ${units(movedOut)} left out because ${movedOut === 1 ? 'its market' : 'their markets'} moved` : ''}${leaveOut && flagged.total ? `, ${units(flagged.total)} more by Leave out flagged items` : ''}${plan.filled ? `, ${units(plan.filled)} left out because your orders${hangarRead ? ' and stock' : ''} already fill what ${plan.filled === 1 ? 'its market takes' : 'their markets take'} in your horizon` : ''}.${hangarRead ? '' : ' Your Jita hangar isn’t read yet, so only your open orders count against what each market takes.'}`}>
             {plan.other != null && plan.rows.length > 0 && (
               <p className="note small" style={{ margin: '0 0 10px' }}>
                 {plan.ranked === 'isk'
@@ -237,17 +266,17 @@ export function Planner() {
             {!plan.rows.length ? (
               allFlagged && slots >= SLOTS_PER_ITEM ? (
                 <p className="note">
-                  Every one of the {units(flagged.total)} items left carries a flag ({byFlag}{overlap ? '; an item can carry more than one' : ''}), and Leave out flagged items is on.{' '}
-                  <button type="button" className="link-btn" onClick={() => set({ leaveOutFlagged: false })}>Switch it off</button> to plan with them, reading each flag first.
+                  Every item that passes your filters was left out: {outSaid}.{' '}
+                  {outActs('to plan with them, reading each flag first.')}
                 </p>
               ) : (
                 <p className="note">
                   Nothing fits. {slots < SLOTS_PER_ITEM ? `You need at least ${SLOTS_PER_ITEM} free slots for one item.` : 'No scanned market can take a meaningful share of this budget at your share of its volume. Try a longer horizon, or a deep scan on Prospects.'}
-                  {/* The switch may be what emptied the mix: say it's on and what it left out, as the all-flagged line does. */}
-                  {leaveOut && flagged.total > 0 && slots >= SLOTS_PER_ITEM && (
+                  {/* A rule may be what emptied the mix: say what it left out, as the all-left-out line does. */}
+                  {outBy.length > 0 && slots >= SLOTS_PER_ITEM && (
                     <>
-                      {' '}Leave out flagged items is on, and left out {units(flagged.total)} {flagged.total === 1 ? 'item' : 'items'} carrying a flag ({byFlag}{overlap ? '; an item can carry more than one' : ''}).{' '}
-                      <button type="button" className="link-btn" onClick={() => set({ leaveOutFlagged: false })}>Switch it off</button> to plan with them too, reading each flag first.
+                      {' '}Left out: {outSaid}.{' '}
+                      {outActs('to plan with them too, reading each flag first.')}
                     </>
                   )}
                 </p>
@@ -304,7 +333,7 @@ export function Planner() {
                 </div>
               </>
             )}
-            {/* With everything left out by the switch, the line above already says why nothing is working. */}
+            {/* With everything left out by a rule, the line above already says why nothing is working. */}
             {allFlagged ? null : plan.idle > isk * 0.05 ? (
               <p className="row tight" style={{ fontSize: 13, color: 'var(--acc2)' }}><Info aria-hidden="true" style={{ width: 14, height: 14, flex: 'none' }} /><span><b>{iskBig(plan.idle)}</b> left idle. {idleWhy}</span></p>
             ) : plan.rows.length > 0 && <p className="note small">Nearly everything is working.</p>}
@@ -374,7 +403,7 @@ export function Planner() {
           { icon: CalcIcon, title: 'Check each item before you buy', body: 'Click Calc on any row. The Calculator shows the order book, whether your prices sit inside recent trading, and your break-even.' },
           { icon: Layers, title: 'Start one position per item', body: 'Once the buy orders are placed, start a position for each item so your fills are tracked from the first unit. That’s how Results can later tell you what worked.', color: '#6ee7a8' },
           { icon: RefreshCw, title: 'Re-run it as things fill', body: 'As orders fill and ISK comes back, run the planner again with what’s free. The best items change daily.', color: 'var(--acc2)' },
-          { icon: ShieldAlert, title: 'Trust the flags', body: `Items marked Wall, Spike, Fluke, Escrow bait, Price just moved or Ran up lately are left out on purpose (Place and leave holds Ran up lately to ${pct(RUN_UP_PATIENT, 0)} rather than ${pct(RUN_UP, 0)}). Others, like Bids not reached, Sells not reached, Thin, Long queue or Market moved (Place and leave priced off a book that has since moved), stay in but show in the Flags column, priced where trading actually reaches: hover one before you commit, or switch on Leave out flagged items. Raises kept back means the return already allows for being beaten and moving; an item whose book hasn’t been watched for a day carries none.`, color: '#ff8d9a' },
+          { icon: ShieldAlert, title: 'Trust the flags', body: `Items marked Wall, Spike, Fluke, Escrow bait, Price just moved or Ran up lately are left out on purpose (Place and leave holds Ran up lately to ${pct(RUN_UP_PATIENT, 0)} rather than ${pct(RUN_UP, 0)}). Place and leave also leaves out Market moved (priced off days the book has since left) unless you keep them. Others, like Bids not reached, Sells not reached, Thin or Long queue, stay in but show in the Flags column, priced where trading actually reaches: hover one before you commit, or switch on Leave out flagged items. Raises kept back means the return already allows for being beaten and moving; an item whose book hasn’t been watched for a day carries none.`, color: '#ff8d9a' },
           { icon: ListChecks, title: 'Let To do handle the upkeep', body: 'Once the orders are placed, the daily work is moving the ones that get beaten. The To do list and the undercut alerts tell you which.' },
           { icon: Scale, title: 'Spread beats size', body: 'Ten modest markets are safer than two big ones at the same expected profit. When unsure, lower the cap per item.', color: '#a98bff' },
         ]}
