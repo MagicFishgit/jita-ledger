@@ -1064,6 +1064,7 @@ try {
     const skipBtn = rdItem.first().getByRole('button', { name: 'Skip it' });
     if (!(await skipBtn.count())) problems.push('not drawn: Skip it on To do’s moved Raging Dark Filament');
     else {
+      if (SHOTS) { await rdItem.first().scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-plan-shared-todo-moved.png` }); }
       await skipBtn.click();
       await page.locator('.tn-item.done', { hasText: 'Raging Dark Filament' }).waitFor({ timeout: 5000 }).catch(() => undefined);
       const doneText = (await page.locator('.tn-item.done', { hasText: 'Raging Dark Filament' }).first().innerText().catch(() => '')).replace(/\s+/g, ' ');

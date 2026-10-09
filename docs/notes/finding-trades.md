@@ -123,7 +123,7 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   rough and says so. Items without the days to say where trading reaches are left out, never priced at the front.
   The mix now shows Buy at and Sell at.
 - **"Market moved" says when today's book has left Place and leave's prices** (`marketMoved`, `marketMovedSaid` and
-  `MARKET_MOVED` 0.05 in prospects.ts; flag `marketMoved`, on Place and leave only, in `SWITCH_EXCLUDES`). Place and leave
+  `MARKET_MOVED` 0.05 in prospects.ts; flag `marketMoved`, on Place and leave only; `MOVED_FLAG` in planner.ts). Place and leave
   prices both sides on the fortnight wherever the book is (the recent window was left off it on purpose). The user's
   second plan (2 October 2026, 15:36 UTC) showed what that costs once the market has moved: within the hour a third of
   it sat where the market wasn't. Fallen: bids far over today's best bid, or at the cheapest listing, which buys at once
@@ -132,14 +132,37 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   M); risen: bids 8-17% under today's best (Compressed Fullerite-C84 at 7,639 against 9,250; ~122 M in escrow on six).
   Now, on the book the planner is given (the scan's, live for the items the cloud watches), an item is flagged when the
   patient bid is more than 5% under or over today's best bid or at or over the cheapest listing, or the sale more than 5%
-  over the cheapest listing. A flag, not an exclusion: Leave out flagged items drops it, and its tip says which side
-  moved, by how much and against what. **It flags close to half**: on the cloud's 2 October scan at the user's settings,
+  over the cheapest listing. Its tip says which side moved, by how much and against what. (It was a flag, not an
+  exclusion, which Leave out flagged items dropped, until 9 October 2026: below.) **It flags close to half**: on the cloud's 2 October scan at the user's settings,
   80 of 176 Place-and-leave candidates at 12 hours (45%: 37 sales over, 31 bids under, 25 over, 4 buying at once) and 421
   of 894 at 7 days (47%), the same with or without the watched books laid over the scan's. With the switch on, the
   12-hour pool goes from 109 to 69 and its mix from 144.5 M a day to 130.4 M; the 7-day from 100.3 M to 55.3 M, 4 of its
   6 items moved. On the live books at 17:00 UTC (the user's own orders taken out), 11 of the plan's 33 items flag on its
   own prices, and 8 of the 28 the planner still prices: every one listed above but Raging Gamma Filament, whose book
   moved again (`.playwright-mcp/plan-fixes/`).
+- **Place and leave leaves Market moved out by default** (`MOVED_FLAG`, `plannerPool`'s `keepMoved`, `moved` and `movedOut`
+  in planner.ts; "Keep items whose market moved" on the planner, shown with Place and leave, off by default, kept per
+  browser; the user chose it from the plans review, 9 October 2026). The review: the 11 items the flag carried on the 2
+  October plan, already flagged on the 11:25 scan before the plan started, settled −6.0% per ISK at the 9 October bids
+  against −2.5% for the other 22; leaving them out would have saved about 6.9 M (3.7 M at listing prices). The flag acted
+  only with Leave out flagged items on, which was off. Now it's left out whatever that switch says, and the mix says how
+  many ("1 left out because its market moved"); the switch brings them back with their flag. **Its own rule, not one of
+  `SWITCH_EXCLUDES`**, so each switch decides its own flags and none is counted twice: a moved item left out is counted
+  under Market moved alone, and Leave out flagged items, on, takes a kept moved item out only for another flag. An empty
+  or short mix names what each rule left out, with Keep them / Switch it off. At the front nothing changes: only Place and
+  leave carries the flag. **Measured on the 2 October plan's start** (`.playwright-mcp/plan-review-fixes/
+  measure-moved-default.mjs` and `.json`: the 11:25 scan, the flow read at 13:34, the user's settings and filters of that
+  day, 1 B, 25% cap, 12 hours, as of the plan's start; slots don't bind at 66 or 200): 80 of 175 candidates carry it (81 of
+  176 with the watched books of 16:55 laid over), and the default leaves out the same 11 plan items, by either book: Gravid
+  Modulated Strip Miner Mutaplasmid (sale 13% over the cheapest listing), Gravid Ballistic Control System Mutaplasmid,
+  Experimental Hyperspatial Accelerator, Entropic Radiation Sink II, AG-Composite Molecular Condenser, Compressed
+  Fullerite-C84, Vigor Compact Micro Auxiliary Power Core and Chaotic Exotic Filament (bids 6–17% under today's best),
+  Proximity-5 'Extraction' Filament and Raging Dark Filament (bids 14–19% over it, sales over the cheapest listing),
+  Imperial Navy Infiltrator (bought at once). The mix's expected ISK a day falls from 171.18 M (30 items) to 129.32 M (26),
+  168.08 M to 131.49 M with the watched books: a moved item looks best on paper, the fortnight's spread against a book that
+  has left it. What comes in instead isn't proven better: Republic Fleet Commander Insignia II and Compressed Veldspar
+  II-Grade, among the 7 added, are bids the market rose away from within the week (the review), and the expected figures
+  are the planner's own pace, which the same review found far too high for Place and leave.
 - **Orders you're leaving aren't told to get back in front** (`Data.leave`, a synced doc of type IDs; `leave` in
   `adviseRelist` / `judgeOrder`). Without this the first patient order would have been told to move by Orders, To do
   and the cloud's mail within the hour. A left order behind the front is `wait` with "You're leaving this one", raises
@@ -274,15 +297,45 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
     October 2026) found that a bid placed, cancelled, and then a plan started with the item never asked for it (limits.md).
     So the checklist names the bid ("Your bid of 9 at 2,813,000 ISK, placed 2 Oct") rather than a date. A new bid placed
     after it counts as placing it, as ever: re-placing at another price;
+  - **skipped**: nothing placed, and you pressed Skip it, offered when today's book had moved from the plan's prices (the
+    next bullet; 9 October 2026). Read like cancelled: closed and cancelled come first, and a bid placed for it anyway
+    counts as placing it;
   - **open**: still to place. An expired bid with nothing bought isn't a choice, so it reads as nothing placed and is
     asked for again; with no position named (`positionId` null) or no positions given, nothing reads as closed.
-  Closed and cancelled are **dropped**: no "Place a buy order" item; one already listed is done, "You cancelled the bid, so
+  Closed, cancelled and skipped are **dropped**: no "Place a buy order" item; one already listed is done, "You cancelled the bid, so
   the plan doesn't place it again." / "You closed its position, so the plan doesn't place it." (deleted likewise); the
   checklist greys the row ("Bid cancelled with nothing bought: not placed again", "Position closed 8 Oct: not placed
   again") and counts them apart ("2 of 5 placed, 2 dropped", the Plans panel likewise); a plan with nothing waiting stops
   showing as being placed. The list step already treats a closed position as no plan's (`planTargets`), so a cancelled and
   closed item has no list row and no To do item of any kind. The page check's shared-position plan case carries one of
   each (Fierce cancelled with its position open, Chaotic cancelled and closed).
+- **The checklist re-checks each bid against today's book before you place it** (`placeMoved`, `placeMovedSaid`,
+  `skipPlanItem`, `PlanItem.skipped` in plans.ts; `usePlacingCheck`, `skipPlaceBid`, `unskipPlaceBid` in
+  components/planListing.ts; `placeBuyItem`'s `moved` and `TodoItem.skip` in todo.ts; the user chose it from the plans
+  review, 9 October 2026). The checklist asked for every bid at the plan's price however far the book had moved since:
+  Raging Dark Filament's 1,711,000 sat 19% over a best bid of 1,440,000 within the hour of the plan, and bought into the
+  fall (−13%). Now each bid still to place in a plan of the last week is read against its live Jita book, others' orders
+  only (`listMarket`: your own bid on the item, another plan's, is never today's best bid), every five minutes while the
+  checklist or To do is in view and on coming back into view, sharing the list step's reader (`useItemReads`, the books
+  cached and shared in flight). **Moved is Market moved's own rule** (`marketMoved`): the bid more than 5% under or over
+  today's best bid, at or over today's cheapest listing, or the sale more than 5% over it. The bid over today's best bid
+  (the market fell, so it would pay more than buyers bid) is Raging Dark's own case, and one definition of moved serves
+  the planner and the checklist. Moved, the row says "Not yet. The market has
+  moved since the plan priced it" with a line a side and today's figures, and offers **Skip it** ("or place it anyway at
+  the plan's price"); To do's "Place a buy order" item leads its detail with the same lines and has Skip it under it. Not
+  moved, or before its book is read: as before. A book that couldn't be read: "Not yet", and that it isn't checked against
+  today's market. **Skip it** keeps when and the best bid and cheapest listing it read (`skipped` in the synced `plans`
+  doc, kept by `sanitizePlans`), so the greyed row says why after the book moves on ("Skipped 9 Oct: the market had moved",
+  "Today's best bid was 1,440,000 ISK and the cheapest listing 1,741,000 ISK, against the plan's bid of 1,711,000 ISK and
+  sale of 1,983,000 ISK. Not placed again; a new bid would count as placing it.") with **Place it after all**, which undoes
+  it while the plan has other bids waiting (a plan with nothing waiting stops showing its checklist, as after a cancel).
+  The item is dropped; To do's item is done, "You skipped it: the market had moved from the plan's prices." **Its position
+  stays as it is** (the toast says so): a position the plan opened sits open and empty on Positions,
+  which `finishedPosition` doesn't flag (no order was placed on it). To do's version stays `'1'`: the read moves every five
+  minutes, and a hand tick reopened each time it crossed the 5% line would nag. Not mailed: the cloud doesn't read plan
+  bids not yet placed. The page check's shared-position plan case serves Raging Dark Filament's book at the plan's hour,
+  asserts the checklist's and To do's words, skips it from To do, sees it dropped on the checklist ("2 of 6 placed, 3
+  dropped") and undoes it there; Fierce Gamma Filament's book is refused and says it wasn't checked.
 - **The checklist's second part lists what the plan bought** ("Bought: list it", the list step: `planListRows` and
   `planListRow` in positions.ts; `listedSince`, `unitsToList`, `listMarket`, `planListPrice`, `planListSaid` in plans.ts,
   Worker-safe; `PlanListPart` in PlanStart.tsx, on the planner and Positions' Plans panel; `usePlanListing` in
@@ -412,7 +465,9 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   (Neurotoxin Recovery) stays.
 - **"Leave out flagged items" in the planner** (`plannerPool`, `SWITCH_EXCLUDES` in planner.ts; kept per browser, off by
   default). The user: "The capital planner should have a toggle to not include items with warning like these". On, it
-  leaves out Falling, Bids not reached, Sells not reached, Crowded, Thin, Slow and Long queue, and says how many by flag;
+  leaves out Falling, Bids not reached, Sells not reached, Crowded, Thin, Slow and Long queue, and says how many by flag
+  (Market moved was among them until 9 October 2026, when Place and leave began leaving it out by default with a switch
+  of its own);
   when every item is flagged, or nothing fits with it on, it says the switch is why. **Raises kept back never counts**: a
   cost already in the margin, on ~91 of 94 watched markets. On the 2 October scan (2,042 M, 75 free slots, 25% cap, 7
   days): on, it leaves out 532 of 791 front candidates (falling 230, sells not reached 202, bids not reached 169, thin

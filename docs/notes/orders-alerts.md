@@ -194,6 +194,13 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   becomes a move is the move**: both are keyed by the order (`order:ID`), so the new build replaces the remembered item,
   its hand tick cleared, never ticked off as done (tested). A plan bid's cancel item says its why, which names the plan's
   floor (market-reading.md); others keep "leaves too little margin".
+- **A plan bid the market has moved from says so on To do, with Skip it** (`placeBuyItem`'s `moved`, `TodoItem.skip`; the
+  rule is in finding-trades.md, 9 October 2026). Its "Place a buy order" item, read against the live Jita book every five
+  minutes while To do is in view, leads its detail with "The market has moved since the plan priced it" and a line a side
+  with today's figures, and has **Skip it** under the detail beside the usual Open (which still copies the plan's bid, to
+  place it anyway). Skip it marks the plan's item skipped, as the checklist's button does; the item is then done, "You
+  skipped it: the market had moved from the plan's prices." Its version stays `'1'`, so a hand tick isn't reopened each
+  time a read crosses the 5% line. Not mailed.
 - **List loot and List your stock say they're not usable at the moment** (`SellWindowBanner.tsx`, full on List loot,
   compact on Positions' List your stock). The user tried the one-paste listing on 29 September 2026: the Sell window's
   import only prices items already in the window (see eve-client.md), so selecting the items in the hangar stays manual,

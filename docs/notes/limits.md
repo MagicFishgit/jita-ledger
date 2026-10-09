@@ -125,6 +125,17 @@ State these rather than letting them be discovered:
   hour before the plan that placing falls back to: there a bid placed and cancelled before the plan would drop the item
   for good (the review, 8 October 2026), so a bid placed in that hour and cancelled after the plan started is asked for
   again. A new bid counts as placing it. An expired bid with nothing bought is asked for again (finding-trades.md).
+- **A plan bid's re-check against today's book happens only where the checklist or To do is open** (finding-trades.md):
+  the cloud doesn't read plan bids not yet placed, so nothing mails "the market moved" for one, and a bid placed straight
+  from the game without opening either is placed at the plan's price unchecked. **A skip is kept in the synced plans doc,
+  and an older build's save drops it** (`sanitizePlans` keeps only the fields it knows, as with every late field): a device
+  on a version from before it that saves its plans writes them without `skipped`, and the item is asked for again until
+  skipped again; browsers reload to a new version within minutes. **Skip it leaves the position as it is**: one the plan
+  opened sits open and empty on Positions until closed by hand.
+- **Leaving Market moved out of Place and leave lowers the planner's expected ISK a day** (171 M to 129 M on the 2 October
+  plan's start): a moved item looks best on paper. What replaces it is the next best on the same model, whose pace for Place
+  and leave the plans review found far too high; that the replacements do better isn't shown, only that the moved ones did
+  worse.
 - **The token guard's history lags a market that moved over 10% within the fortnight**: falling, a real undercutter can
   read as a token. The share and day's-volume guards catch most (the Key's sell: 26 ahead against its pace).
 - **A Place-and-leave plan leaves only orders placed since it started** (less two minutes), or since its item's position
