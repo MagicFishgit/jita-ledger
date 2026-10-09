@@ -1,6 +1,6 @@
-import type { BookLevel, HistRow, ProspectFilters, ProspectStats, ProspectWarning, SellsTo } from './types';
+import type { BookLevel, HistRow, ProspectFilters, ProspectStats, ProspectWarning, RoundTrip, SellsTo } from './types';
 import { buyerShare, dayCount, listingShareSaid, LONG_QUEUE_DAYS, NOBODY_BUYS, perDaySaid, queueLengthSaid, queuePaceSaid, type SellQueue } from './split';
-import { askBothWindows, askReachDays, bidBothWindows, bidReachDays, FILL_RARE, FILL_WINDOW, reachedAsk, recentAskReach, recentBidReach, recentRange, RECENT_MIN } from './fills';
+import { askBothWindows, askReachDays, bidBothWindows, bidReachDays, FILL_RARE, FILL_TYPICAL, FILL_WINDOW, reachedAsk, recentAskReach, recentBidReach, recentRange, RECENT_MIN } from './fills';
 import { tickDown, tickUp } from './tick';
 import { isk, pct, units } from './format';
 
@@ -140,7 +140,128 @@ export function statsFrom(typeId: number, rows: HistRow[], now = Date.now()): Pr
     lastMove,
     runUp,
     runUpBase,
+    ...roundTripCounts(rows, lows.end),
   };
+}
+
+/**
+ * The horizons Place and leave's round trips are counted within, in whole days. A horizon of a day or less counts the same
+ * day: history is daily, so a day that reached both the bid and the sale is the nearest it can say to "within 12 hours".
+ */
+export const ROUND_TRIP_DAYS = [1, 3, 7, 14, 30];
+/** Start days looked back over: the plans review's backtest (9 October 2026), two months before the plan. */
+export const ROUND_TRIP_STARTS = 60;
+/**
+ * Fewer start days than this priced, no rate is said and the planner leaves the item out of Place and leave: a rate from a
+ * handful of days is mostly noise, and stood in as 0% or 100% it would rank the item for no reason. A third of the 60.
+ */
+export const ROUND_TRIP_MIN = 20;
+
+/** Days of history a count looks at: the start days, the fortnight before the oldest, and one more where it ends two days back. */
+const ROUND_TRIP_SPAN = ROUND_TRIP_STARTS + FILL_WINDOW + 1;
+const kthBuf = new Float64Array(FILL_WINDOW);
+/** The k-th lowest (or highest) of the FILL_WINDOW days from `from` that traded (`NaN` didn't); null when fewer traded. */
+function kthOf(xs: Float64Array, from: number, k: number, desc: boolean): number | null {
+  let n = 0;
+  for (let i = from; i < from + FILL_WINDOW; i++) {
+    const v = xs[i];
+    if (v !== v) continue;
+    let j = n++;
+    while (j > 0 && (desc ? kthBuf[j - 1] < v : kthBuf[j - 1] > v)) { kthBuf[j] = kthBuf[j - 1]; j--; }
+    kthBuf[j] = v;
+  }
+  return n >= k ? kthBuf[k - 1] : null;
+}
+
+/**
+ * Place and leave's own pricing re-run on each of the last ROUND_TRIP_STARTS days to `end` (the day the item's 14 days end
+ * on, `recentRange`'s), and how often it came round: on each start day, the bid it would have placed that morning
+ * (`reachedBid` of the 14 days before, as `recentRange` ends them) reached by a day's low, and then (that day or later) its
+ * sale (`reachedAsk`) by a day's high, within each of ROUND_TRIP_DAYS. A start day is counted for a horizon only when the
+ * whole horizon has happened; one whose fortnight can't price both sides, or prices the sale at or under the bid, isn't.
+ *
+ * The plans review's backtest (`.playwright-mcp/research/plans-review/backtest.mjs`) is the reference, matched start day for
+ * start day on the 2 October plan's 33 items. The 2 October plan (12-hour horizon) expected +67.6 M within 12 hours, the
+ * planner taking each side as reached on half the days; re-run this way on each item's 60 days before the plan, its prices
+ * round-tripped within a day on a median 7% of start days, 3 days 21%, 7 days 39%, and 6 of the 33 did within 7 days in
+ * fact. One pass over the history a start day, about 0.2 ms an item, so the cloud's daily scan of ~15,000 items can afford it.
+ */
+export function roundTripCounts(rows: Pick<HistRow, 'date' | 'lowest' | 'highest'>[], end: string): { roundTrip: number[]; roundTripOf: number[] } {
+  const e = Date.parse(end + 'T00:00:00Z');
+  const lo = new Float64Array(ROUND_TRIP_SPAN).fill(NaN), hi = new Float64Array(ROUND_TRIP_SPAN).fill(NaN);
+  const first = dayKey(e - (ROUND_TRIP_SPAN - 1) * DAY);
+  // Indexed by days before `end`.
+  for (const r of rows) {
+    if (r.date < first || r.date > end) continue;
+    const d = Math.round((e - Date.parse(r.date + 'T00:00:00Z')) / DAY);
+    lo[d] = r.lowest; hi[d] = r.highest;
+  }
+  const trips = ROUND_TRIP_DAYS.map(() => 0), of = ROUND_TRIP_DAYS.map(() => 0);
+  const longest = ROUND_TRIP_DAYS[ROUND_TRIP_DAYS.length - 1];
+  for (let s = ROUND_TRIP_STARTS - 1; s >= 0; s--) {
+    // The fortnight that morning, as recentRange ends it: on the day before, or two days before when only that one traded
+    // (history running behind), else the day before.
+    const w = lo[s + 1] === lo[s + 1] ? s + 1 : lo[s + 2] === lo[s + 2] ? s + 2 : s + 1;
+    const bid = kthOf(lo, w, FILL_TYPICAL, false), ask = kthOf(hi, w, FILL_TYPICAL, true);
+    if (bid == null || ask == null || ask <= bid) continue;
+    // The day, counted from the start day, the sale was reached after the bid; -1 when it wasn't by `end`.
+    let filled = false, trip = -1;
+    for (let i = 0, last = Math.min(longest - 1, s); i <= last; i++) {
+      if (!filled && lo[s - i] <= bid) filled = true;
+      if (filled && hi[s - i] >= ask) { trip = i; break; }
+    }
+    for (let h = 0; h < ROUND_TRIP_DAYS.length && s >= ROUND_TRIP_DAYS[h] - 1; h++) {
+      of[h]++;
+      if (trip >= 0 && trip < ROUND_TRIP_DAYS[h]) trips[h]++;
+    }
+  }
+  return { roundTrip: trips, roundTripOf: of };
+}
+
+/**
+ * Which of ROUND_TRIP_DAYS a horizon is counted within: the longest not past it (a horizon under a day is the same day), so a
+ * horizon between two is never credited with the longer one's round trips. None ("any") is the longest.
+ */
+export function roundTripIndex(horizonDays: number | null | undefined): number {
+  const last = ROUND_TRIP_DAYS.length - 1;
+  if (horizonDays == null || !Number.isFinite(horizonDays)) return last;
+  let i = 0;
+  while (i < last && ROUND_TRIP_DAYS[i + 1] <= horizonDays + 1e-9) i++;
+  return i;
+}
+
+/** How often Place and leave's prices round-tripped within a horizon, from the stats' counts. See `RoundTrip`. */
+export function roundTripRate(s: Pick<ProspectStats, 'roundTrip' | 'roundTripOf'>, horizonDays: number | null | undefined): RoundTrip {
+  const i = roundTripIndex(horizonDays);
+  const days = ROUND_TRIP_DAYS[i];
+  const trips = s.roundTrip?.[i], of = s.roundTripOf?.[i];
+  if (typeof trips !== 'number' || typeof of !== 'number' || !Number.isFinite(trips) || !Number.isFinite(of)) return { days, sameDay: days === 1, trips: null, of: null, rate: null };
+  return { days, sameDay: days === 1, trips, of, rate: of >= ROUND_TRIP_MIN ? trips / of : null };
+}
+
+/** "within 12 h", "within a day", "within 7 days": the horizon a round trip was counted within, as the plan's words have it. */
+const withinSaid = (t: RoundTrip, horizonDays: number | null | undefined) => `within ${horizonDays != null && horizonDays < 1 ? horizonShort(horizonDays) : horizonSaid(t.days)}`;
+
+/** One line: "Round trip within 12 h on 7% of past days", or why it can't be said. */
+export function roundTripSaid(t: RoundTrip, horizonDays: number | null | undefined): string {
+  if (t.of == null) return 'Round trips not measured: these prices predate it, so scan again';
+  if (t.rate == null) return `Too little history to say how often it round-trips: ${units(t.of)} of the last ${ROUND_TRIP_STARTS} days could be priced`;
+  return `Round trip ${withinSaid(t, horizonDays)} on ${pct(t.rate, 0)} of past days`;
+}
+
+/** A tip laid out (tipText.ts): the line, then how it's counted, then what the plan does with it. */
+export function roundTripTip(t: RoundTrip, horizonDays: number | null | undefined): string {
+  const within = withinSaid(t, horizonDays);
+  return [
+    t.rate != null && t.trips != null && t.of != null ? `${roundTripSaid(t, horizonDays)}: ${units(t.trips)} of the last ${units(t.of)} days.` : `${roundTripSaid(t, horizonDays)}.`,
+    [
+      `• Each of the last ${ROUND_TRIP_STARTS} days, Place and leave’s prices as it would have set them that morning, from the 14 days before.`,
+      `• A round trip: the bid reached (the day’s low at or under it), then the sale (a day’s high at or over it), ${within}.`,
+      ...(t.sameDay ? [`• History is daily, so ${within} counts a day that reached both: the nearest it can say.`] : []),
+      '• A day whose 14 days before couldn’t price both sides isn’t counted.',
+    ].join('\n'),
+    'The plan expects what a round trip makes times this: ISK a day and the return a day are scaled by it, the margin isn’t.',
+  ].join('\n\n');
 }
 
 /**

@@ -1491,16 +1491,16 @@ console.log('\n--- the checklist re-checks a bid against today\'s book, and a mo
   const plain = placeBuyItem(plan, rd, planItemState(rd, plan, [], open), 'Raging Dark Filament');
   const mvItem = placeBuyItem(plan, rd, planItemState(rd, plan, [], open), 'Raging Dark Filament', moved);
   eq('To do, not moved: as before, nothing to skip', [plain.title, plain.detail, plain.ver, plain.skip ?? null],
-    ['Place a buy order: 10 × Raging Dark Filament at 1,711,000 ISK', 'Part of 2 Oct · 999.16 M ISK in 33 items. Open it in game (the price is copied), press Place Buy Order, paste the price, quantity 10.', '1', null]);
+    ['Place a buy order: 10 × Raging Dark Filament at 1,711,000 ISK', 'Part of 2 Oct · 999.16 M ISK in 33 items, a 12-hour plan. Open it in game (the price is copied), press Place Buy Order, paste the price, quantity 10.', '1', null]);
   eq('  moved: the title is the same, the detail leads with what moved, Skip it is offered, the version doesn’t move', [mvItem.title, mvItem.ver, mvItem.skip, mvItem.action.copy],
     ['Place a buy order: 10 × Raging Dark Filament at 1,711,000 ISK', '1', { planId: plan.id, typeId: RD, bestBuy: 1_440_000, bestSell: 1_741_000 }, 1_711_000]);
   eq('  its words', mvItem.detail,
-    'Part of 2 Oct · 999.16 M ISK in 33 items. The market has moved since the plan priced it. Its bid of 1,711,000 ISK is 19% over today’s best bid of 1,440,000 ISK: the market has fallen, so it would pay more than buyers bid now. It sells at 1,983,000 ISK, 14% over today’s cheapest listing of 1,741,000 ISK: it would wait behind cheaper listings. Skip it, or open it in game (the price is copied) and place it anyway, quantity 10.');
+    'Part of 2 Oct · 999.16 M ISK in 33 items, a 12-hour plan. The market has moved since the plan priced it. Its bid of 1,711,000 ISK is 19% over today’s best bid of 1,440,000 ISK: the market has fallen, so it would pay more than buyers bid now. It sells at 1,983,000 ISK, 14% over today’s cheapest listing of 1,741,000 ISK: it would wait behind cheaper listings. Skip it, or open it in game (the price is copied) and place it anyway, quantity 10.');
   eq('  skipped: no item', placeBuyItem(sp, si, st, 'Raging Dark Filament', moved), null);
   const e = { item: { key: `plan:${plan.id}:${RD}` }, seenAt: Date.parse(plan.at), lastAt: Date.parse(plan.at) };
   eq('  and the listed one is done, saying so', judgePlaceBuy(e, { plan: true, placed: null, dropped: st }), 'You skipped it: the market had moved from the plan’s prices.');
   eq('  a book that couldn’t be read: To do says it isn’t checked', placeBuyItem(plan, rd, planItemState(rd, plan, [], open), 'Raging Dark Filament', { move: null, bestBuy: null, bestSell: null, failed: true }).detail,
-    'Part of 2 Oct · 999.16 M ISK in 33 items. Its Jita book couldn’t be read, so it isn’t checked against today’s market. Open it in game (the price is copied), press Place Buy Order, paste the price, quantity 10.');
+    'Part of 2 Oct · 999.16 M ISK in 33 items, a 12-hour plan. Its Jita book couldn’t be read, so it isn’t checked against today’s market. Open it in game (the price is copied), press Place Buy Order, paste the price, quantity 10.');
   eq('  read and not moved: as before', placeBuyItem(plan, rd, planItemState(rd, plan, [], open), 'Raging Dark Filament', { move: null, bestBuy: 1_700_000, bestSell: 1_800_000, failed: false }).detail, plain.detail);
   // The plan keeps the checklist up for its week while an item is skipped, so Place it after all stays in reach.
   const pg = planProgress(sp, [], open);
@@ -4498,9 +4498,11 @@ console.log('\n--- place and leave: priced where trading reaches ---');
   const { DEFAULT_SETTINGS } = await import('../src/lib/fees.ts');
   const { DEFAULT_FILTERS } = await import('../src/lib/prospects.ts');
   const now = Date.parse('2026-09-28T00:00:00Z');
-  const hist = Array.from({ length: 30 }, (_, i) => {
-    const date = new Date(now - (30 - i) * 86400_000).toISOString().slice(0, 10);
-    return { date, average: 100, lowest: 88 + (i % 9), highest: 112 - (i % 8), volume: 20_000, order_count: 200 };
+  // 90 days, so Place and leave can say how often it round-trips within 30 (ROUND_TRIP_MIN of the start days priced); the
+  // last 30 as they were.
+  const hist = Array.from({ length: 90 }, (_, i) => {
+    const date = new Date(now - (90 - i) * 86400_000).toISOString().slice(0, 10);
+    return { date, average: 100, lowest: 88 + ((i + 3) % 9), highest: 112 - ((i + 4) % 8), volume: 20_000, order_count: 200 };
   });
   const st = statsFrom(34, hist, now);
   const book = { at: new Date(now).toISOString(), bestBuy: 90, bestSell: 110, buyOrders: 20, sellOrders: 20, topBuys: [{ price: 90, volume: 5000 }], topSells: [{ price: 110, volume: 5000 }] };
@@ -7160,6 +7162,127 @@ console.log('\n--- check my hangar: what you hold that a position could count --
     { text: 'wait for ESI’s next copy of your trades, due 2\u00a0Oct,\u00a018:00\u00a0ET', canSync: false });
   eq('  several kinds, said once each', untilSaid([probe, b1, allFills], cp('18:30', '17:00', '18:40', '18:00'), T('19:10'), null),
     { text: 'check for new trades, and read again', canSync: true });
+}
+
+console.log('\n--- Place and leave’s pace: how often each item round-trips within the horizon (the plans review, 9 October 2026) ---');
+{
+  // The 2 October plan (12-hour horizon) expected +67.6 M in 12 hours: the planner took each side as reached on half the
+  // days. Place and leave's own pricing re-run on each of the 60 days before the plan round-tripped (bid reached, then the
+  // sale) within a day on a median 7% of them, 3 days 21%, 7 days 39%; 6 of the 33 items did within 7 days in fact.
+  const fsR = await import('node:fs');
+  const fx = JSON.parse(fsR.readFileSync(new URL('./fixtures/round-trips.json', import.meta.url), 'utf8'));
+  const P = await import('../src/lib/prospects.ts');
+  const Fl = await import('../src/lib/fills.ts');
+  const Pl = await import('../src/lib/planner.ts');
+  const { judgeProspect } = await import('../src/lib/evaluate.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const at = Date.parse(fx.scanAt);
+  eq('counted within 1, 3, 7, 14 and 30 days, over the last 60 start days, said from 20 of them', [P.ROUND_TRIP_DAYS, P.ROUND_TRIP_STARTS, P.ROUND_TRIP_MIN], [[1, 3, 7, 14, 30], 60, 20]);
+  // The review's backtest (.playwright-mcp/research/plans-review/backtest.mjs), done the plain way: on each start day s,
+  // Place and leave's prices from the 14 days before it as recentRange gives them, then H days from s.
+  const D = 864e5;
+  const reference = (rows, H, end) => {
+    const plan = Date.parse(end + 'T00:00:00Z') + D;
+    const byDate = new Map(rows.map((h) => [h.date, h]));
+    let of = 0, trips = 0;
+    for (let s = plan - 60 * D; s + H * D <= plan; s += D) {
+      const { lows, highs } = Fl.recentRange(rows.filter((h) => Date.parse(h.date + 'T00:00:00Z') < s), 14, s + 12 * 3600e3);
+      const bid = Fl.reachedBid(lows), ask = Fl.reachedAsk(highs);
+      if (bid == null || ask == null || ask <= bid) continue;
+      of++;
+      let fill = -1;
+      for (let i = 0; i < H; i++) {
+        const h = byDate.get(new Date(s + i * D).toISOString().slice(0, 10));
+        if (fill < 0 && h && h.lowest <= bid) fill = i;
+        if (fill >= 0 && h && h.highest >= ask) { trips++; break; }
+      }
+    }
+    return [of, trips];
+  };
+  for (const [t, it] of Object.entries(fx.items)) {
+    const st = P.statsFrom(Number(t), it.rows, at);
+    eq(`${it.name}: the same start days and round trips as the review's backtest within 1, 3 and 7 days`,
+      [1, 3, 7].map((H) => [st.roundTripOf[P.ROUND_TRIP_DAYS.indexOf(H)], st.roundTrip[P.ROUND_TRIP_DAYS.indexOf(H)]]), [1, 3, 7].map((H) => it.backtest[H]));
+    eq(`  and as the plain way counts them within 14 and 30`, [14, 30].map((H) => [st.roundTripOf[P.ROUND_TRIP_DAYS.indexOf(H)], st.roundTrip[P.ROUND_TRIP_DAYS.indexOf(H)]]), [14, 30].map((H) => reference(it.rows, H, st.lowsEnd)));
+  }
+  const fed = P.statsFrom(15592, fx.items[15592].rows, at), sink = P.statsFrom(49729, fx.items[49729].rows, at), inf = P.statsFrom(31866, fx.items[31866].rows, at);
+  eq('Fed Navy Insignia: within 7 days on 38 of 54 start days (70%)', [fed.roundTrip[2], fed.roundTripOf[2], Math.round(P.roundTripRate(fed, 7).rate * 100)], [38, 54, 70]);
+  eq('Unstable Heat Sink Mutaplasmid: never the same day in 60, 3 of 54 within 7 days', [sink.roundTrip[0], sink.roundTripOf[0], sink.roundTrip[2], sink.roundTripOf[2]], [0, 60, 3, 54]);
+  eq('Imperial Navy Infiltrator: 2 of the 60 start days couldn’t be priced, so 58', inf.roundTripOf[0], 58);
+
+  // A horizon is counted in whole days. History is daily, so 4 and 12 hours are the same day, which is all a day counts too.
+  const rt = { roundTrip: [3, 10, 20, 25, 18], roundTripOf: [60, 58, 54, 47, 31] };
+  eq('4 h, 12 h and a day: the same day, said so', [4 / 24, 0.5, 1].map((h) => { const r = P.roundTripRate(rt, h); return [r.days, r.sameDay, r.trips, r.of, r.rate]; }),
+    [[1, true, 3, 60, 0.05], [1, true, 3, 60, 0.05], [1, true, 3, 60, 0.05]]);
+  eq('  3, 7, 14 and 30 days their own', [3, 7, 14, 30].map((h) => [P.roundTripRate(rt, h).days, P.roundTripRate(rt, h).sameDay, P.roundTripRate(rt, h).rate]),
+    [[3, false, 10 / 58], [7, false, 20 / 54], [14, false, 25 / 47], [30, false, 18 / 31]]);
+  eq('  any horizon (none) or one past 30 days: the longest counted', [P.roundTripRate(rt, null).days, P.roundTripRate(rt, 60).days], [30, 30]);
+  eq('stats from before it was kept: not known, never 0% or 100%', P.roundTripRate({}, 0.5), { days: 1, sameDay: true, trips: null, of: null, rate: null });
+  eq('  fewer than 20 start days priced: the count kept, no rate said', P.roundTripRate({ roundTrip: [1, 2, 3, 4, 5], roundTripOf: [19, 19, 19, 19, 0] }, 1), { days: 1, sameDay: true, trips: 1, of: 19, rate: null });
+  eq('  none priced: no rate, never 0/0', P.roundTripRate({ roundTrip: [0, 0, 0, 0, 0], roundTripOf: [0, 0, 0, 0, 0] }, 30).rate, null);
+  // A month of history: the last 60 start days reach back past it, so few are priced, and none within 30 days.
+  const month = Array.from({ length: 30 }, (_, i) => ({ date: new Date(at - (30 - i) * D).toISOString().slice(0, 10), average: 100, lowest: 90, highest: 110, volume: 1000, order_count: 20 }));
+  const ms = P.statsFrom(1, month, at);
+  eq('a month of history: priced from its 8th day, 23 same-day start days and none within 30 days', [ms.roundTripOf[0], ms.roundTripOf[4], P.roundTripRate(ms, 30).rate], [23, 0, null]);
+  eq('  every day reaching 90 and 110: every priced start day round-trips the same day', [ms.roundTrip[0], P.roundTripRate(ms, 0.5).rate], [23, 1]);
+  eq('  kept compact: whole numbers', [...ms.roundTrip, ...ms.roundTripOf].every(Number.isInteger), true);
+  // A market that skips days: the fortnight a morning prices from ends two days back when only that day traded, as
+  // recentRange ends it. Matched start day for start day on every horizon, the plain way.
+  const gappy = [];
+  for (let i = 0; i < 100; i++) {
+    if (i % 3 === 1 || i % 7 === 5) continue;
+    const w = Math.sin(i / 4) * 6 + (i % 5);
+    gappy.push({ date: new Date(at - (100 - i) * D).toISOString().slice(0, 10), average: 100 + w, lowest: 92 + w + (i % 4), highest: 108 + w - (i % 3), volume: 500, order_count: 9 });
+  }
+  const gs = P.statsFrom(2, gappy, at);
+  eq('a market that skips days: as the plain way counts it, within every horizon', P.ROUND_TRIP_DAYS.map((_, h) => [gs.roundTripOf[h], gs.roundTrip[h]]), P.ROUND_TRIP_DAYS.map((H) => reference(gappy, H, gs.lowsEnd)));
+
+  // Scaled: the expectation, never the margin. A round trip still makes what it makes; how often one comes round within the
+  // horizon scales what the plan expects from it.
+  const S = sanitizeSettings({ acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, tycoon: 0, clone: 'omega', faction: 3.63, corp: 7.04, taxBase: 7.5, override: false, target: 5, share: 7.5 });
+  const re = P.statsFrom(47906, fx.items[47906].rows, at);
+  const pb = Fl.reachedBid(re.lows14), pa = Fl.reachedAsk(re.highs14);
+  const book = { at: fx.scanAt, bestBuy: pb, bestSell: pa, buyOrders: 20, sellOrders: 20, topBuys: [{ price: pb, volume: 100 }], topSells: [{ price: pa, volume: 100 }] };
+  const fl = { ...Pl.plannerFilters(null, 1e9, 0.5, true), minRoi: 0 };
+  const scaled = judgeProspect(re, book, S, fl, 40);
+  const { roundTrip: _t, roundTripOf: _o, ...bare } = re;
+  const unread = judgeProspect(bare, book, S, fl, 40);
+  eq('Raging Electrical Filament within 12 h: the same day on 12 of 60 start days', [scaled.roundTrip.trips, scaled.roundTrip.of, scaled.roundTrip.rate, scaled.roundTrip.sameDay], [12, 60, 0.2, true]);
+  eq('  its margin, size and pace as before', [scaled.roi, scaled.net, scaled.qty, scaled.daysToFlip, scaled.buy, scaled.sell], [unread.roi, unread.net, unread.qty, unread.daysToFlip, unread.buy, unread.sell]);
+  eq('  its return a day and ISK a day scaled by it', [scaled.roiPerDay, scaled.iskPerDay], [unread.roiPerDay * 0.2, unread.iskPerDay * 0.2]);
+  eq('  stats from before it: said not known, never scaled to 0', [unread.roundTrip.of, unread.roundTrip.rate], [null, null]);
+  const week = judgeProspect(re, book, S, { ...fl, horizonDays: 7 }, 40);
+  eq('  within 7 days: its own count', [week.roundTrip.days, week.roundTrip.trips, week.roundTrip.of], [7, 23, 54]);
+  const front = judgeProspect(re, book, S, { ...fl, patient: false }, 40), frontBare = judgeProspect(bare, book, S, { ...fl, patient: false }, 40);
+  eq('at the front: unchanged, no round trip on it', [front.roundTrip, front.roiPerDay, front.iskPerDay], [undefined, frontBare.roiPerDay, frontBare.iskPerDay]);
+
+  // The planner: a measured rate scales what each row expects; the three ways an item can't be scaled are each counted.
+  const trip = (typeId, rate, of = 60, extra = {}) => ({ typeId, roiPerDay: 0.02 * (rate ?? 1), buy: 100, qty: 1000, daysToFlip: 1, net: 10, warnings: [], patient: true,
+    roundTrip: { days: 1, sameDay: true, trips: rate == null || of == null ? (of == null ? null : 1) : Math.round(rate * of), of, rate }, ...extra });
+  const pool = Pl.plannerPool([trip(1, 0.25), trip(2, null, null), trip(3, null, 12), trip(4, 0, 60, { roiPerDay: 0 }), trip(5, 0.5, 60, { warnings: ['wall'] })]);
+  eq('the pool: measured in; from before the measure, too few days and never round-tripping each out and counted', [pool.pool.map((p) => p.typeId), pool.unmeasured, pool.tripFew, pool.noTrip, pool.excluded], [[1], 1, 1, 1, 1]);
+  eq('  every item from before the measure: an empty pool that says why', [Pl.plannerPool([trip(2, null, null)]).allFlagged, Pl.plannerPool([trip(2, null, null)]).unmeasured], [true, 1]);
+  const atFront = { typeId: 9, roiPerDay: 0.02, buy: 100, qty: 1000, daysToFlip: 1, net: 10, warnings: [] };
+  eq('  at the front nothing is counted', ((x) => [x.unmeasured, x.tripFew, x.noTrip])(Pl.plannerPool([atFront])), [0, 0, 0]);
+  const inp = { isk: 1e6, slots: 10, horizonDays: 0.5, maxShare: 1 };
+  const quarter = Pl.allocate([trip(1, 0.25)], inp).rows[0], whole = Pl.allocate([trip(1, 1)], inp).rows[0];
+  eq('a row expects its profit times the rate: a quarter of a sure one', [quarter.units, quarter.perDay / whole.perDay], [whole.units, 0.25]);
+  const mix = Pl.mixRoundTrips([{ ...quarter, p: trip(1, 0.1), isk: 100, units: 1 }, { ...quarter, p: trip(2, 0.3), isk: 300, units: 3 }]);
+  eq('the mix: about 0.4 of its 2 items round-trip, 25% weighted by ISK, from 10% to 30%; +4 expected of +40 if all did',
+    [mix.items, mix.expected, mix.rate, mix.low, mix.high, mix.profit, mix.ifAll, mix.days, mix.sameDay], [2, 0.4, 0.25, 0.1, 0.3, 10 * 0.1 + 30 * 0.3, 40, 1, true]);
+  eq('  an at-the-front mix: nothing to say', Pl.mixRoundTrips([{ ...quarter, p: atFront }]), null);
+  has('  said: a row', P.roundTripSaid(scaled.roundTrip, 0.5), 'Round trip within 12 h on 20% of past days');
+  has('  and how a sub-day horizon is counted', P.roundTripTip(scaled.roundTrip, 0.5), 'History is daily, so within 12 h counts a day that reached both');
+  has('  a week', P.roundTripSaid(week.roundTrip, 7), 'Round trip within 7 days on 43% of past days');
+
+  // The horizon, wherever a plan is named: the user remembered the 2 October plan as 7 days; it was 12 hours.
+  const { planHorizonSaid, planLabel } = await import('../src/lib/plans.ts');
+  eq('a plan’s horizon in words', [4 / 24, 0.5, 1, 3, 7, 14, 30, 8].map(planHorizonSaid), ['a 4-hour plan', 'a 12-hour plan', 'a 1-day plan', 'a 3-day plan', 'a 7-day plan', 'a 14-day plan', 'a 30-day plan', 'an 8-day plan']);
+  eq('  none kept (0 from disk) or none at all: nothing said, never "a 0-day plan"', [planHorizonSaid(0), planHorizonSaid(undefined), planHorizonSaid(NaN)], [null, null, null]);
+  eq('  beside its name', [planLabel({ name: '2 Oct · 999.16 M ISK in 33 items', horizonDays: 0.5 }), planLabel({ name: 'x', horizonDays: 0 })], ['2 Oct · 999.16 M ISK in 33 items, a 12-hour plan', 'x']);
+  const { planListItem: pli, skippedEmptyItem: sei } = await import('../src/lib/todo.ts');
+  has('  To do’s list step names it', pli({ planId: 'p', planName: '2 Oct', horizonDays: 0.5, patient: true, typeId: 1, units: 2, unitCost: 10 }, { price: 20, from: 'plan', planPrice: 20, today: 20, other: 20, moved: null, cheapest: null, atCheapest: null, overCheapest: false, breakEven: 12, perUnit: 5, profit: 10, ret: 0.2 }, 'x').detail, 'Bought for 2 Oct, a 12-hour plan.');
+  has('  and an empty skipped position’s close', sei({ id: 'pos', typeId: 1 }, { name: '2 Oct', horizonDays: 0.5 }, 'x').detail, 'You skipped it on 2 Oct, a 12-hour plan:');
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

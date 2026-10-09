@@ -225,8 +225,11 @@ async function pool<T>(items: T[], fn: (t: T) => Promise<void>) {
   }));
 }
 
-/** Stats carrying everything the rules now judge: the 14-day lows and highs, a sudden move and a run-up. */
-const statsCurrent = (s: ProspectStats) => !!s.lows14 && !!s.highs14 && s.lastMove !== undefined && s.runUp !== undefined;
+/**
+ * Stats carrying everything the rules now judge: the 14-day lows and highs, a sudden move, a run-up and Place and leave's
+ * round trips (so a scan re-reads the history of an item whose stats predate them, and "Scan again" fixes it).
+ */
+const statsCurrent = (s: ProspectStats) => !!s.lows14 && !!s.highs14 && s.lastMove !== undefined && s.runUp !== undefined && s.roundTrip !== undefined;
 
 /** A stats record for an item ESI has no recent history for, so we don't ask again tomorrow. */
 const dead = (typeId: number): ProspectStats => ({

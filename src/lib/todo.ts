@@ -1,5 +1,5 @@
 import { fmtDateTime, isk, iskBig, units } from './format';
-import { placeMovedSaid, planListSaid, type DroppedState, type Listed, type PlanItem, type PlanItemState, type PlanListPrice, type TradePlan } from './plans';
+import { placeMovedSaid, planLabel, planListSaid, type DroppedState, type Listed, type PlanItem, type PlanItemState, type PlanListPrice, type TradePlan } from './plans';
 import type { MarketMove } from './prospects';
 import { FEEDS_QUEUE_DO, feedsQueueLead, notReachedSince, type FeedsQueue, type Relist, type Verdict } from './relist';
 import { DATACORE_FEE, RP_PER_DATACORE } from './research';
@@ -361,7 +361,7 @@ export function judgeScam(e: Entry, c: { tracked: boolean; signalAt: number | nu
  * again at the price just judged unreachable.
  */
 export function placeBuyItem(
-  p: Pick<TradePlan, 'id' | 'name'>, i: PlanItem, state: PlanItemState, name: string,
+  p: Pick<TradePlan, 'id' | 'name'> & Partial<Pick<TradePlan, 'horizonDays'>>, i: PlanItem, state: PlanItemState, name: string,
   /**
    * Today's book against the plan's prices (`placeMoved` on the live read, others' orders): moved, the item says so with
    * the figures and offers Skip it; a book that couldn't be read (`failed`) is said as not checked. Its version stays: the
@@ -376,8 +376,8 @@ export function placeBuyItem(
     key: `plan:${p.id}:${i.typeId}`, ver: '1', kind: 'placeBuy', source: 'ledger', stake: i.units * i.buyAt, typeId: i.typeId,
     title: `Place a buy order: ${units(i.units)} × ${name} at ${isk(i.buyAt)}`,
     detail: said
-      ? `Part of ${p.name}. ${said.lead}. ${said.lines.join(' ')} Skip it, or open it in game (the price is copied) and place it anyway, quantity ${units(i.units)}.`
-      : `Part of ${p.name}.${unread} Open it in game (the price is copied), press Place Buy Order, paste the price, quantity ${units(i.units)}.`,
+      ? `Part of ${planLabel(p)}. ${said.lead}. ${said.lines.join(' ')} Skip it, or open it in game (the price is copied) and place it anyway, quantity ${units(i.units)}.`
+      : `Part of ${planLabel(p)}.${unread} Open it in game (the price is copied), press Place Buy Order, paste the price, quantity ${units(i.units)}.`,
     action: { label: 'Open', typeId: i.typeId, copy: i.buyAt, route: 'planner' },
     ...(moved && said ? { skip: { planId: p.id, typeId: i.typeId, bestBuy: moved.bestBuy, bestSell: moved.bestSell } } : {}),
   };
@@ -420,13 +420,13 @@ export function judgePlaceBuy(e: Entry, c: {
  * nothing copied; while the book is first read, it says so. Never mailed.
  */
 export function planListItem(
-  x: { planId: string; planName: string; patient: boolean; typeId: number; units: number; unitCost: number; reading?: boolean },
+  x: { planId: string; planName: string; horizonDays?: number; patient: boolean; typeId: number; units: number; unitCost: number; reading?: boolean },
   p: PlanListPrice, name: string,
 ): TodoItem {
   const said = planListSaid(p, x.patient);
   const n = units(x.units);
   const parts = [
-    `Bought for ${x.planName}.`,
+    `Bought for ${planLabel({ name: x.planName, horizonDays: x.horizonDays })}.`,
     // Lifted to break-even, the floor's own sentence says where the price comes from.
     p.from === 'breakEven' ? said.floor : x.reading && p.price == null ? 'Reading its Jita book for today’s listing price.' : `${said.from}.`,
     said.profit ? `Makes ${said.profit}.` : null,
@@ -547,11 +547,11 @@ export function judgeCashIn(e: Entry, c: {
  * The empty position of a plan item you skipped (`skippedEmpty` in plans.ts): close it, as after a cancelled bid, so later
  * trades don't land in it. Keyed as any finished position's, versioned 'skipped' so its judge can say what changed.
  */
-export function skippedEmptyItem(pos: { id: string; typeId: number }, plan: Pick<TradePlan, 'name'>, name: string): TodoItem {
+export function skippedEmptyItem(pos: { id: string; typeId: number }, plan: Pick<TradePlan, 'name'> & Partial<Pick<TradePlan, 'horizonDays'>>, name: string): TodoItem {
   return {
     key: `close:${pos.id}`, ver: 'skipped', kind: 'close', source: 'ledger', stake: 0,
     title: name,
-    detail: `You skipped it on ${plan.name}: nothing was bought and no order is on it. Close it so later trades don’t land in it.`,
+    detail: `You skipped it on ${planLabel(plan)}: nothing was bought and no order is on it. Close it so later trades don’t land in it.`,
     action: { label: 'Open position', route: `positions/${pos.id}` },
   };
 }

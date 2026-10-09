@@ -42,6 +42,24 @@ export type TradePlan = {
 /** Plans kept: the newest, since an old one's grouping is of little use. */
 export const PLANS_KEPT = 20;
 
+/**
+ * A plan's horizon as its kind: "a 12-hour plan", "a 7-day plan". The plans review (9 October 2026): the user remembered the 2
+ * October plan as a 7-day one; it was 12 hours, and only the Plans panel said so. So it's said wherever a plan is named. None
+ * for a horizon not kept (`sanitizePlans` reads a missing one as 0): never "a 0-day plan".
+ */
+export function planHorizonSaid(days: number | null | undefined): string | null {
+  if (days == null || !Number.isFinite(days) || days <= 0) return null;
+  const n = days < 1 ? String(Math.round(days * 24)) : String(+days.toFixed(1));
+  const unit = days < 1 ? 'hour' : 'day';
+  return `${/^8/.test(n) || n === '11' || n === '18' ? 'an' : 'a'} ${n}-${unit} plan`;
+}
+
+/** A plan's name with its horizon: "2 Oct · 999.16 M ISK in 33 items, a 12-hour plan". */
+export function planLabel(p: { name: string; horizonDays?: number | null }): string {
+  const h = planHorizonSaid(p.horizonDays);
+  return h ? `${p.name}, ${h}` : p.name;
+}
+
 /** Plans from disk or the cloud: anything malformed is dropped rather than shown. */
 export function sanitizePlans(v: unknown): TradePlan[] {
   if (!Array.isArray(v)) return [];

@@ -214,6 +214,28 @@ export type ProspectStats = {
   spike?: boolean;
   /** 7 daily ranges, oldest first, as (high - low) / average. The margin a trader can work. */
   range7?: number[];
+  /**
+   * Place and leave's round trips, aligned with ROUND_TRIP_DAYS (prospects.ts: within 1, 3, 7, 14 and 30 days): of the last
+   * ROUND_TRIP_STARTS start days, on how many the bid Place and leave would have placed that day was reached and then its
+   * sale within that many days. Whole numbers, kept compact for the cloud's scan. Absent on stats from before it was kept
+   * (9 October 2026), which say nothing: never a 0% or 100% stand-in.
+   */
+  roundTrip?: number[];
+  /** The start days counted for each of those: those Place and leave could price (7 days traded in the 14 before). */
+  roundTripOf?: number[];
+};
+
+/**
+ * How often Place and leave's prices round-tripped within a horizon (`roundTripRate`, prospects.ts). `of` and `trips` are
+ * null on stats from before they were kept; `rate` is null then too, and when fewer than ROUND_TRIP_MIN start days could
+ * be priced: not known, never 0 or 1.
+ */
+export type RoundTrip = {
+  /** The whole days counted: 1 for a horizon of a day or less, since history is daily. */
+  days: number;
+  /** A horizon of a day or less: only a day that reached both the bid and the sale counts. */
+  sameDay: boolean;
+  trips: number | null; of: number | null; rate: number | null;
 };
 
 export type ProspectWarning = 'thin' | 'fluke' | 'falling' | 'crowded' | 'wall' | 'escrow' | 'spike' | 'moved' | 'runUp' | 'unreached' | 'unreachedSell' | 'slow' | 'longQueue' | 'marketMoved';
@@ -266,6 +288,11 @@ export type Prospect = {
   raiseReserve?: { buy: number; sell: number; isk: number };
   /** Priced to place and leave (`ProspectFilters.patient`): both prices are where trading reaches on half the days. */
   patient?: boolean;
+  /**
+   * Place and leave only: how often its prices round-tripped within the horizon on past days. `roiPerDay` and `iskPerDay`
+   * are scaled by its rate; `roi` and `net` stay what one round trip makes. Absent at the front.
+   */
+  roundTrip?: RoundTrip;
   /**
    * The stock listed where this sell would compete (`listedQueue`, prospects.ts), in days of buyers taking listings, and the
    * price it was counted up to. Absent when nothing is listed there or nothing says who buys (`sellQueue`).

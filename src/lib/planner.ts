@@ -52,8 +52,14 @@ export type PlannerPool = {
    */
   flagged: FlaggedOut;
   /**
-   * Nothing is left, though items passed: Market moved's rule or the switch, or both, took every one. Said, never an empty
-   * mix with no reason.
+   * Place and leave only, each left out and counted (`roundTrip` on the prospect, `roundTripRate`): stats from before the
+   * round trips were kept ("Scan again"), too few days priced to say (`ROUND_TRIP_MIN`), and none within the horizon on any
+   * past day. Not scaled to 0% or taken as 100%: a mix built from them would expect what it can't say.
+   */
+  unmeasured: number; tripFew: number; noTrip: number;
+  /**
+   * Nothing is left, though items passed: Market moved's rule, the round-trip rules or the switch took every one. Said,
+   * never an empty mix with no reason.
    */
   allFlagged: boolean;
 };
@@ -63,14 +69,23 @@ export type PlannerPool = {
  * and, with the switch on, no other flag.
  */
 export function plannerPool(prospects: Prospect[], leaveOutFlagged = false, keepMoved = false): PlannerPool {
-  const usable = prospects.filter((p) => Number.isFinite(p.roiPerDay) && p.roiPerDay > 0);
+  // A measured rate of 0 scales the return to 0: such an item passed, and is counted, not dropped unsaid.
+  const noTripMeasured = (p: Prospect) => p.roundTrip?.rate === 0;
+  const usable = prospects.filter((p) => Number.isFinite(p.roiPerDay) && (p.roiPerDay > 0 || noTripMeasured(p)));
   const vetoed = (p: Prospect) => p.warnings.some((w) => PLANNER_EXCLUDES.includes(w));
   const flagged: FlaggedOut = { total: 0, byFlag: {} };
   const pool: Prospect[] = [];
-  let moved = 0, movedOut = 0, movedIn = 0, left = 0;
+  let moved = 0, movedOut = 0, movedIn = 0, left = 0, unmeasured = 0, tripFew = 0, noTrip = 0;
   for (const p of usable) {
     if (vetoed(p)) continue;
     left++;
+    // Place and leave's pace (`roundTrip`, only on its prospects): not known, or known to be never, is left out and said.
+    const t = p.roundTrip;
+    if (t) {
+      if (t.of == null) { unmeasured++; continue; }
+      if (t.rate == null) { tripFew++; continue; }
+      if (t.rate === 0) { noTrip++; continue; }
+    }
     if (p.warnings.includes(MOVED_FLAG)) {
       moved++;
       if (!keepMoved) { movedOut++; continue; }
@@ -84,7 +99,7 @@ export function plannerPool(prospects: Prospect[], leaveOutFlagged = false, keep
     pool.push(p);
     if (p.warnings.includes(MOVED_FLAG)) movedIn++;
   }
-  return { pool, excluded: prospects.filter(vetoed).length, moved, movedOut, movedIn, flagged, allFlagged: !pool.length && left > 0 };
+  return { pool, excluded: prospects.filter(vetoed).length, moved, movedOut, movedIn, unmeasured, tripFew, noTrip, flagged, allFlagged: !pool.length && left > 0 };
 }
 
 /**
@@ -151,7 +166,33 @@ function allocationFor(p: Prospect, inp: PlanInput, cap: number, left: number): 
   if (units < 1) return null;
   const isk = units * p.buy;
   const days = perDayIsk > 0 ? isk / perDayIsk : Infinity;
-  return { p, isk, units, days, perDay: (units * p.net) / Math.max(days, 1 / 24), takes: p.buy > 0 ? Math.floor(absorbs / p.buy) : 0, working };
+  // Place and leave expects what a round trip makes times how often one came round within the horizon (`roundTrip`); the
+  // size is still what its market takes. At the front, the whole of it, as before.
+  const perDay = ((units * p.net) / Math.max(days, 1 / 24)) * (p.roundTrip?.rate ?? 1);
+  return { p, isk, units, days, perDay, takes: p.buy > 0 ? Math.floor(absorbs / p.buy) : 0, working };
+}
+
+/**
+ * What a Place-and-leave mix expects of its round trips, for the mix line and the start dialog: how many of its items history
+ * says come round within the horizon (the rates summed: 0.2 and 0.3 is about half an item), the rate weighted by the ISK in
+ * each and its range, and the profit expected (each row's, times its rate) against what it makes if every one did. Null for
+ * a mix with no measured rate (at the front).
+ */
+export function mixRoundTrips(rows: Pick<Allocation, 'p' | 'isk' | 'units'>[]): { items: number; expected: number; rate: number; low: number; high: number; profit: number; ifAll: number; days: number; sameDay: boolean } | null {
+  const rated = rows.filter((a) => a.p.patient && a.p.roundTrip?.rate != null);
+  if (!rated.length) return null;
+  const rate = (a: Pick<Allocation, 'p'>) => a.p.roundTrip!.rate!;
+  const isk = rated.reduce((t, a) => t + a.isk, 0);
+  const rates = rated.map(rate);
+  return {
+    items: rated.length,
+    expected: rates.reduce((t, r) => t + r, 0),
+    rate: isk > 0 ? rated.reduce((t, a) => t + a.isk * rate(a), 0) / isk : 0,
+    low: Math.min(...rates), high: Math.max(...rates),
+    profit: rated.reduce((t, a) => t + a.units * a.p.net * rate(a), 0),
+    ifAll: rated.reduce((t, a) => t + a.units * a.p.net, 0),
+    days: rated[0].p.roundTrip!.days, sameDay: rated[0].p.roundTrip!.sameDay,
+  };
 }
 
 /** Fills the mix in the order given, until the ISK or the slots run out. */

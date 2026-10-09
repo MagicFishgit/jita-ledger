@@ -7,7 +7,7 @@
 import { calc, rates, type Settings } from './fees';
 import { askReachDays, bidReachDays, FILL_WINDOW, reachedAsk, reachedBid, withWatchedHighs, withWatchedLows, type WatchedExtremes } from './fills';
 import type { FlowDay } from './flow';
-import { askToPlace, bidToPlace, listedQueue, marketMoved, runUpBar, SLOW_DAYS, tradedPerDay, warningsFor } from './prospects';
+import { askToPlace, bidToPlace, listedQueue, marketMoved, roundTripRate, runUpBar, SLOW_DAYS, tradedPerDay, warningsFor } from './prospects';
 import { competitionShare, MIN_DAYS, returnPerDay, sellQueue, throughput, tradingSplit, type BookSold } from './split';
 import type { BookLevel, Prospect, ProspectFilters, ProspectStats, SellsTo } from './types';
 
@@ -169,6 +169,12 @@ export function judgeProspect(
   const net = c.net - (reserve ? reserve.isk * qty : 0);
   const roi = net / c.spent;
   if (!anyReturn && (net <= 0 || roi < filters.minRoi)) return null;
+  // Place and leave: how often its prices came round within the horizon on past days (`roundTripRate`). What a round trip
+  // makes stays the margin ("Return ≥ %" is per trip, and a plan's floor reads it); what the plan expects from it, its return
+  // and ISK a day, is scaled by the rate. Not known (stats from before it was kept, or too few days priced): unscaled here,
+  // and the planner leaves the item out and says why (`plannerPool`), never a 0% or 100% stand-in. At the front: unchanged.
+  const trip = patient ? roundTripRate(stats, filters.horizonDays) : undefined;
+  const scale = trip?.rate ?? 1;
 
   return {
     typeId: stats.typeId, stats, bestBuy, bestSell, buy, sell,
@@ -176,12 +182,13 @@ export function judgeProspect(
     topBuyVol: book.topBuys[0]?.volume ?? 0, topSellVol: book.topSells[0]?.volume ?? 0,
     qty, net: net / qty, roi, spreadPct: c.spreadPct, traded: tradedPerDay(stats),
     canTake, daysToFlip,
-    roiPerDay: returnPerDay(roi, daysToFlip),
+    roiPerDay: returnPerDay(roi, daysToFlip) * scale,
     // Profit spread over the days your money is actually tied up, so a fast small flip and a slow
     // big one can be compared at all.
-    iskPerDay: net / Math.max(daysToFlip, MIN_DAYS), capital: c.spent,
+    iskPerDay: (net / Math.max(daysToFlip, MIN_DAYS)) * scale, capital: c.spent,
     share: sellShare, buyerShare: buyers, splitFrom: split.from,
     bidReach, buyRaised: raised, askReach, sellLowered: !patient && sell !== asked.top, patient,
+    ...(trip ? { roundTrip: trip } : {}),
     ...(!patient ? {
       bidRecent: placed.recentReach, askRecent: asked.recentReach,
       ...(placed.window ? { bidWindow: placed.window } : {}),
