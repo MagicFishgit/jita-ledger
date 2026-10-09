@@ -326,8 +326,8 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   moved, or before its book is read: as before. A book that couldn't be read: "Not yet", and that it isn't checked against
   today's market. **Skip it** keeps when and the best bid and cheapest listing it read (`skipped` in the synced `plans`
   doc, kept by `sanitizePlans`), so the greyed row says why after the book moves on ("Skipped 9 Oct: the market had moved",
-  "Today's best bid was 1,440,000 ISK and the cheapest listing 1,741,000 ISK, against the plan's bid of 1,711,000 ISK and
-  sale of 1,983,000 ISK. Not placed again; a new bid would count as placing it.") with **Place it after all**, which undoes
+  "When you skipped it, the best bid was 1,440,000 ISK and the cheapest listing 1,741,000 ISK, against the plan's bid of
+  1,711,000 ISK and sale of 1,983,000 ISK. Not placed again; a new bid would count as placing it.") with **Place it after all**, which undoes
   it while the plan has other bids waiting (a plan with nothing waiting stops showing its checklist, as after a cancel).
   The item is dropped; To do's item is done, "You skipped it: the market had moved from the plan's prices." **Its position
   stays as it is** (the toast says so): a position the plan opened sits open and empty on Positions,

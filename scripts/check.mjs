@@ -1476,9 +1476,9 @@ console.log('\n--- the checklist re-checks a bid against today\'s book, and a mo
   eq('  not skipped: still to place', planItemState(rd, plan, [], open).state, 'open');
   eq('the checklist says it was skipped, why and what it read', droppedNote(st, si), {
     lead: 'Skipped 2 Oct: the market had moved',
-    sub: 'Today’s best bid was 1,440,000 ISK and the cheapest listing 1,741,000 ISK, against the plan’s bid of 1,711,000 ISK and sale of 1,983,000 ISK. Not placed again; a new bid would count as placing it.' });
+    sub: 'When you skipped it, the best bid was 1,440,000 ISK and the cheapest listing 1,741,000 ISK, against the plan’s bid of 1,711,000 ISK and sale of 1,983,000 ISK. Not placed again; a new bid would count as placing it.' });
   eq('  a book that had no bid or listing says so', droppedNote({ ...st, bestBuy: null }, si).sub,
-    'Today’s best bid was none and the cheapest listing 1,741,000 ISK, against the plan’s bid of 1,711,000 ISK and sale of 1,983,000 ISK. Not placed again; a new bid would count as placing it.');
+    'When you skipped it, the best bid was none and the cheapest listing 1,741,000 ISK, against the plan’s bid of 1,711,000 ISK and sale of 1,983,000 ISK. Not placed again; a new bid would count as placing it.');
   // The synced plans doc keeps it; a malformed one is dropped, the item kept.
   const back = sanitizePlans(JSON.parse(JSON.stringify(skipped)));
   eq('sanitized: a skip is kept as it was', back[0].items[1].skipped, { at: SKIP_AT, bestBuy: 1_440_000, bestSell: 1_741_000 });

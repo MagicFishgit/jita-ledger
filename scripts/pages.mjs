@@ -1100,7 +1100,7 @@ try {
     const after = (await page.locator('#placing').first().innerText().catch(() => '')).replace(/\s+/g, ' ');
     if (!after.includes('2 of 6 placed, 3 dropped')) problems.push(`the checklist doesn't count the skip as dropped: 2 of 6 placed, 3 dropped (${after.slice(0, 160)})`);
     const rdSkipped = await rowText('Raging Dark Filament');
-    for (const want of ['the market had moved', 'Today’s best bid was 1,440,000 ISK and the cheapest listing 1,741,000 ISK, against the plan’s bid of 1,711,000 ISK and sale of 1,983,000 ISK', 'Place it after all'])
+    for (const want of ['the market had moved', 'When you skipped it, the best bid was 1,440,000 ISK and the cheapest listing 1,741,000 ISK, against the plan’s bid of 1,711,000 ISK and sale of 1,983,000 ISK', 'Place it after all'])
       if (!rdSkipped.toLowerCase().includes(want.toLowerCase())) problems.push(`not drawn: the checklist's skipped Raging Dark Filament “${want}” (${rdSkipped.slice(0, 260)})`);
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on the planner after Skip it: ${o}`);
     if (SHOTS) await page.screenshot({ path: `${SHOTS}-plan-shared-skipped.png` });

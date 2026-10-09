@@ -418,7 +418,7 @@ export function droppedNote(s: DroppedState, item?: Pick<PlanItem, 'buyAt' | 'se
     const plan = item ? `, against the plan’s bid of ${isk(item.buyAt)} and sale of ${isk(item.sellAt)}` : '';
     return {
       lead: `Skipped ${fmtShort(s.at)}: the market had moved`,
-      sub: `Today’s best bid was ${s.bestBuy != null ? isk(s.bestBuy) : 'none'} and the cheapest listing ${s.bestSell != null ? isk(s.bestSell) : 'none'}${plan}. Not placed again; a new bid would count as placing it.`,
+      sub: `When you skipped it, the best bid was ${s.bestBuy != null ? isk(s.bestBuy) : 'none'} and the cheapest listing ${s.bestSell != null ? isk(s.bestSell) : 'none'}${plan}. Not placed again; a new bid would count as placing it.`,
     };
   }
   if (s.state === 'cancelled') {
