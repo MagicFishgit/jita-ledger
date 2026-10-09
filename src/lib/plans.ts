@@ -76,17 +76,32 @@ export function isLeft(o: { typeId: number; issued: string; seen?: { issued: str
 export type Leaving = { leave: number[]; leaveFrom: Record<string, string> };
 
 /**
- * Starting a Place-and-leave plan leaves its items from its start (`at`). An item already left by hand (in `leave` with no
- * time) stays left whole; one an earlier plan left keeps the earlier time, so that plan's orders stay left too.
+ * Starting a Place-and-leave plan leaves its items from its start (`at`), or an item's own time in `since` (`planLeaveSince`:
+ * its position's opening, when the plan counts that position whole). An item already left by hand (in `leave` with no
+ * time) stays left whole; one an earlier plan left (still in `leave`) keeps the earlier time, so that plan's orders stay
+ * left too. A time for an item no longer in `leave` is stale (an older tab's "Leaving it" dropped `leave` alone, or two
+ * devices' writes crossed), and gives way to this plan's.
  */
-export function leaveForPlan(leave: readonly number[], leaveFrom: Readonly<Record<string, string>>, typeIds: readonly number[], at: string): Leaving {
+export function leaveForPlan(leave: readonly number[], leaveFrom: Readonly<Record<string, string>>, typeIds: readonly number[], at: string,
+  since: Readonly<Record<string, string>> = {}): Leaving {
   const next = { ...leaveFrom };
   for (const t of typeIds) {
-    const held = next[t];
+    const held = next[t], own = since[t] ?? at;
     if (leave.includes(t) && held === undefined) continue;
-    if (held === undefined || !(Date.parse(held) <= Date.parse(at))) next[t] = at;
+    if (!leave.includes(t) || held === undefined || !(Date.parse(held) <= Date.parse(own))) next[t] = own;
   }
   return { leave: [...new Set([...leave, ...typeIds])], leaveFrom: next };
+}
+
+/**
+ * Since when a Place-and-leave plan leaves an item's orders: its start, or the item's position's opening when the plan
+ * counts that position whole (`planCountsWhole`: opened within the day before the plan with nothing traded before it),
+ * the same window in which the checklist counts a bid on it as placed for the plan. The 30 September plan's Vigilance
+ * Resonance Key: position opened 00:35:02, its bid placed 00:36:15, the plan started 00:41:37; from the plan's start
+ * alone, the bid the checklist counted as the plan's wasn't left.
+ */
+export function planLeaveSince(pos: Pick<Position, 'openedAt'> | undefined, plan: Pick<TradePlan, 'at'>, tradedBefore: boolean): string {
+  return pos && sharesPosition(pos, plan) && planCountsWhole(pos, plan, tradedBefore) ? pos.openedAt : plan.at;
 }
 
 /** "Leave alone" by hand (Orders, the planner's mix): every order of these items, whenever placed. */
@@ -115,6 +130,33 @@ export function leaveAfterClose(leave: readonly number[], leaveFrom: Readonly<Re
   const open = new Set(positions.filter((p) => p.typeId === typeId && p.status === 'open').map((p) => p.id));
   const kept = plans.some((p) => p.patient && p.items.some((i) => i.typeId === typeId && i.positionId != null && open.has(i.positionId)));
   return kept ? null : stopLeaving(leave, leaveFrom, [typeId]);
+}
+
+/**
+ * Deleting a position: the close rule, when it was still open. A closed one already had it at its close, and running it
+ * again would drop an item left by hand since.
+ */
+export function leaveAfterDelete(leave: readonly number[], leaveFrom: Readonly<Record<string, string>>,
+  plans: readonly Pick<TradePlan, 'patient' | 'items'>[], positions: readonly Pick<Position, 'id' | 'typeId' | 'status'>[], deleted: Pick<Position, 'typeId' | 'status'>): Leaving | null {
+  return deleted.status === 'open' ? leaveAfterClose(leave, leaveFrom, plans, positions, deleted.typeId) : null;
+}
+
+/**
+ * Once, for a ledger from before `leaveFrom` existed (the store runs it when none was stored): the close rule for every item
+ * left with no time that a Place-and-leave plan names, so a plan item whose position closed before positions released
+ * their items is let go. The plans review's Clone Soldier Transporter Tag bid (116.9 M in escrow, its position closed on 3
+ * October) was the case. An item no patient plan names (left by hand: loot, the CNMGC) is never touched, and no time is
+ * made up for one that stays. Null when nothing changes.
+ */
+export function releaseOrphans(leave: readonly number[], leaveFrom: Readonly<Record<string, string>>,
+  plans: readonly Pick<TradePlan, 'patient' | 'items'>[], positions: readonly Pick<Position, 'id' | 'typeId' | 'status'>[]): Leaving | null {
+  let cur: Leaving = { leave: [...leave], leaveFrom: { ...leaveFrom } }, changed = false;
+  for (const t of leave) {
+    if (leaveFrom[t] !== undefined || !plans.some((p) => p.patient && p.items.some((i) => i.typeId === t))) continue;
+    const next = leaveAfterClose(cur.leave, cur.leaveFrom, plans, positions, t);
+    if (next) { cur = next; changed = true; }
+  }
+  return changed ? cur : null;
 }
 
 /**

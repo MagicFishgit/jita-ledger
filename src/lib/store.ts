@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { createStore, get, set, del, keys } from 'idb-keyval';
 import { rates, sanitizeSettings, type Settings } from './fees';
 import { mergeCharsDoc, sanitizeAlerts, sanitizeChars, sanitizeLeave, sanitizeLeaveFrom, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes, type CharsDoc, type LeaveFromDoc, type SafetyTimesDoc } from './prefs';
-import { sanitizePlans, type TradePlan } from './plans';
+import { releaseOrphans, sanitizePlans, type TradePlan } from './plans';
 import type { MiningRecord } from './mining';
 import { emptyData } from './emptyData';
 import type {
@@ -88,8 +88,15 @@ let generation = 0;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
+/**
+ * The ledger on disk had no `leaveFrom` doc: written before a plan's Leave alone covered only its own orders and ended
+ * with its position. `releaseOrphanLeave` lets go, once, of plan items left behind by that (see releaseOrphans).
+ */
+let leaveCleanupDue = false;
+
 export async function initStore(): Promise<void> {
   const loaded = await Promise.all(KEYS.map((k) => get(k, idb)));
+  leaveCleanupDue = loaded[KEYS.indexOf('leaveFrom')] === undefined;
   const next = { ...data } as Record<Key, unknown>;
   KEYS.forEach((k, i) => { if (loaded[i] !== undefined) next[k] = loaded[i]; });
   data = next as Data;
@@ -109,6 +116,20 @@ export async function initStore(): Promise<void> {
   }
   ready = true;
   emit();
+}
+
+/**
+ * Once per ledger from before `leaveFrom` (`leaveCleanupDue`): every item left with no time that a Place-and-leave plan
+ * names, whose positions are all closed or none of whose open ones is a patient plan's, stops being left
+ * (`releaseOrphans` in plans.ts). Run by the cloud sync after its first pull of the visit, so it acts on the cloud's
+ * `leave` rather than a copy a device kept from before another one changed it, and pushes what it changed; or at once
+ * with the cloud sync off. Done is the `leaveFrom` doc written (empty, or with what was there), which stays here: it
+ * only marks this browser's ledger as seen.
+ */
+export function releaseOrphanLeave(): void {
+  if (!leaveCleanupDue || !ready) return;
+  leaveCleanupDue = false;
+  update((d) => releaseOrphans(d.leave, d.leaveFrom, d.plans, d.positions) ?? { leaveFrom: { ...d.leaveFrom } });
 }
 
 /** Records a new broker fee and sales tax whenever settings change them. Rapid edits within 2 minutes are merged. */

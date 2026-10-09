@@ -115,9 +115,11 @@ State these rather than letting them be discovered:
   again. A new bid counts as placing it. An expired bid with nothing bought is asked for again (finding-trades.md).
 - **The token guard's history lags a market that moved over 10% within the fortnight**: falling, a real undercutter can
   read as a token. The share and day's-volume guards catch most (the Key's sell: 26 ahead against its pace).
-- **A Place-and-leave plan leaves only orders placed since it started** (less two minutes; finding-trades.md): a bid placed
-  for it earlier, which the checklist counts as placed, gets the usual advice until Leave alone is clicked on Orders, and
-  an order of another plan's placed after it is left with it. Telling them apart would need each order tied to its plan.
+- **A Place-and-leave plan leaves only orders placed since it started** (less two minutes), or since its item's position
+  opened when that was within the day before with nothing traded (finding-trades.md): a bid placed for it in the hour before
+  the plan on a position open longer, which the checklist counts as placed, gets the usual advice until Leave alone is
+  clicked on Orders, and an order of another plan's placed after it is left with it. Telling them apart would need each
+  order tied to its plan.
 - **A plan's view of a position it shares is split by time, not by order** (positions-results). A bid placed before the
   plan that fills after it counts as the plan's buying, and an older plan sharing a position with a newer one counts the
   newer one's trading too: Clone Soldier Transporter Tag's position is the 30 September plan's, with its 4-unit bid still

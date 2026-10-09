@@ -699,6 +699,83 @@ try {
     process.stdout.write(unique.length ? `  FAIL plan #orders\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (Keep it, the plan chip, a buy over its resale, a buy feeding a long queue, a move’s after-a-move line, a plan’s Leave alone on its own orders), #todo (that buy, the Key to list) and #planner (the checklist, its list part with no book)\n');
     await page.close();
   }
+  // A ledger from before `leaveFrom` (the plans review, 9 October 2026): `leave` holds the 2 October Place-and-leave plan's
+  // Clone Soldier Transporter Tag, whose position closed on 3 October, beside one of its items still open and loot left by
+  // hand. Once the cloud's first pull of the visit is in (stubbed here), the app lets go of the plan item left behind, once,
+  // and pushes `leave`; the `leaveFrom` it writes as done stays in this browser. Loaded again with Clone Soldier left by
+  // hand once more, nothing is let go: it ran once.
+  if (SHOWN.includes('orders') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('plan'))) {
+    const CS = 33140, C32 = 62404, LOOT = 34, AT = '2026-10-02T15:36:31.972Z', iso = (t) => new Date(t).toISOString();
+    const ledger = {
+      settings: { acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, clone: 'omega', target: 5, share: 7.5, waitHours: 3 },
+      plans: [{ id: 'oct2', name: '2 Oct · 999.16 M ISK in 33 items', at: AT, isk: 999e6, horizonDays: 0.5, patient: true,
+        items: [{ typeId: CS, buyAt: 29.37e6, units: 1, sellAt: 33.4e6, positionId: 'cs' }, { typeId: C32, buyAt: 18020, units: 7221, sellAt: 20070, positionId: 'c32' }] }],
+      positions: [{ id: 'cs', typeId: CS, openedAt: '2026-09-30T00:41:37.568Z', closedAt: '2026-10-03T11:25:24.313Z', status: 'closed', jitaOnly: true, excluded: [], included: [] },
+        { id: 'c32', typeId: C32, openedAt: AT, status: 'open', jitaOnly: true, excluded: [], included: [] }],
+      orders: { 7433389245: { orderId: 7433389245, typeId: CS, isBuy: true, price: 29.23e6, volumeTotal: 4, volumeRemain: 4, issued: '2026-10-02T22:27:17Z', state: 'open', locationId: 60003760,
+        seen: [{ issued: '2026-09-30T00:43:08Z', price: 28.82e6, remain: 4 }, { issued: '2026-10-02T22:27:17Z', price: 29.23e6, remain: 4 }] } },
+      leave: [CS, C32, LOOT],
+      names: { [CS]: 'Clone Soldier Transporter Tag', [C32]: 'Compressed Fullerite-C32', [LOOT]: 'Tritanium' },
+      meta: { walletBalance: 1e9, lastSync: iso(Date.now() - 600_000) },
+      // Met the cloud before, nothing waiting: its next pull is the visit's first.
+      cloud: { charId: ownerAuth().characterId, rev: 1, started: true, dirty: { r: [], d: [] } },
+    };
+    const page = await browser.newPage(VIEW);
+    const pushed = [];
+    let pulls = 0;
+    await page.route('**/*', (route) => {
+      const url = new URL(route.request().url());
+      if (route.request().url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
+      if (url.pathname === '/v1/pull') { pulls++; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rev: 1, next: null, records: [], docs: [] }) }); }
+      if (url.pathname === '/v1/push') { pushed.push(JSON.parse(route.request().postData() ?? '{}')); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rev: 1 + pushed.length }) }); }
+      return route.abort();
+    });
+    const problems = [];
+    page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
+    const seed = (put) => page.evaluate(async ([d, auth]) => {
+      localStorage.clear(); sessionStorage.clear();
+      localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
+      const h = await new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+      await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(d)) st.put(v, k); t.oncomplete = res; });
+      h.close();
+    }, [put, ownerAuth()]);
+    const stored = () => page.evaluate(async () => {
+      const h = await new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => res(q.result); });
+      const get = (k) => new Promise((res) => { const q = h.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => res(q.result); });
+      const out = { leave: await get('leave'), leaveFrom: await get('leaveFrom') };
+      h.close();
+      return out;
+    });
+    await page.goto(SEED_PAGE);
+    await seed(ledger);
+    await page.goto(`${BASE}#orders`);
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    // The pull, then the push 3 s after the change.
+    for (let i = 0; i < 40 && !pushed.some((b) => b.docs?.some((x) => x.key === 'leave')); i++) await page.waitForTimeout(250);
+    await page.waitForTimeout(400);
+    const first = await page.goto(SEED_PAGE).then(() => stored());
+    if (!pulls) problems.push('the cloud was never pulled');
+    if (JSON.stringify(first.leave) !== JSON.stringify([C32, LOOT])) problems.push(`the first load left ${JSON.stringify(first.leave)}, not the open plan item and the loot (Clone Soldier let go)`);
+    if (JSON.stringify(first.leaveFrom) !== '{}') problems.push(`the first load didn't mark it done: leaveFrom ${JSON.stringify(first.leaveFrom)}`);
+    const sent = pushed.flatMap((b) => b.docs ?? []);
+    const sentLeave = sent.filter((x) => x.key === 'leave').at(-1)?.d;
+    if (JSON.stringify(sentLeave) !== JSON.stringify([C32, LOOT])) problems.push(`the cloud wasn't sent the new leave: ${JSON.stringify(sent.map((x) => x.key))}`);
+    if (sent.some((x) => x.key === 'leaveFrom')) problems.push('the done mark went to the cloud: it stays in this browser');
+    // Clone Soldier left by hand again (its position still closed): a second load lets nothing go.
+    await seed({ ...ledger, leave: [CS, C32, LOOT], leaveFrom: {} });
+    pushed.length = 0;
+    await page.goto(`${BASE}#orders`);
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    await page.waitForTimeout(4500);
+    const again = await page.goto(SEED_PAGE).then(() => stored());
+    if (JSON.stringify(again.leave) !== JSON.stringify([CS, C32, LOOT])) problems.push(`the second load let go again: ${JSON.stringify(again.leave)}`);
+    if (pushed.some((b) => b.docs?.some((x) => x.key === 'leave'))) problems.push('the second load pushed leave');
+    checked++;
+    const unique = [...new Set(problems)];
+    if (unique.length) failures.push({ ledger: 'plan', page: 'orders (leave from before leaveFrom)', problems: unique });
+    process.stdout.write(unique.length ? `  FAIL plan #orders (leave from before leaveFrom)\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (a ledger from before leaveFrom: the closed plan item let go once, after the first pull, and pushed)\n');
+    await page.close();
+  }
   // A plan that took over a position with earlier trading (the user's second plan, 2 October 2026): Datacore - Rocket
   // Science's position open for a week, 9,372 sold before the plan and 2,000 of the 2,628 it held sold since, the plan's bid
   // of 188 not filled. Showing the plan's positions must count it from the plan's start (nothing bought or sold, nothing

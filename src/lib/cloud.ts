@@ -8,7 +8,7 @@ import { CLOUD_URL } from './config';
 import {
   applyPulled, asMap, diffRecords, docValue, everything, isDocKey, isRecordKey, refusedDoc, sharedDoc, type DocKey, type Pulled, type RecordKey,
 } from './cloudSync';
-import { dataGeneration, dataStore, getData, isReady, onClearAll, onDataChange, update, type Data } from './store';
+import { dataGeneration, dataStore, getData, isReady, onClearAll, onDataChange, releaseOrphanLeave, update, type Data } from './store';
 import { sanitizeSettings } from './fees';
 import { setCloudFlow, setCloudHours } from './flowStore';
 import type { HourBucket } from './rhythm';
@@ -363,11 +363,13 @@ onClearAll(async () => {
 export function syncCloudNow(): Promise<void> {
   if (!state || !cloudEnabled()) return Promise.resolve();
   return run(async () => {
-    if (!state!.started) { await firstSync(); return; }
+    // Plan items a ledger from before `leaveFrom` still leaves (store.ts): let go once this browser is level with the cloud.
+    if (!state!.started) { await firstSync(); releaseOrphanLeave(); return; }
     await pushNow();
     setStatus({ phase: 'working', doing: 'Checking for changes' });
     await pullNow();
     setStatus({ phase: 'idle', doing: null, error: null });
+    releaseOrphanLeave();
   });
 }
 
@@ -628,11 +630,12 @@ export function startCloud(): () => void {
     // Local testing stands in a character for the login; a real build never sets these.
     const dev = import.meta.env.VITE_CLOUD_DEV_TOKEN ? Number(import.meta.env.VITE_CLOUD_DEV_CHAR || 90000001) : null;
     const charId = dev ?? getAuth()?.characterId;
-    if (!charId) { state = null; setStatus({ phase: cloudEnabled() ? 'waiting' : 'off', started: false }); return; }
+    if (!charId) { state = null; setStatus({ phase: cloudEnabled() ? 'waiting' : 'off', started: false }); releaseOrphanLeave(); return; }
     if (!isReady()) return;
     await loadState(charId);
     if (!alive) return;
-    if (!cloudEnabled()) { setStatus({ phase: 'off' }); return; }
+    // With no cloud to be level with first, the plan items left behind are let go now (store.ts).
+    if (!cloudEnabled()) { setStatus({ phase: 'off' }); releaseOrphanLeave(); return; }
     setStatus({ phase: 'idle' });
     syncCloudNow()
       .then(() => syncCloudScan().catch(() => undefined))

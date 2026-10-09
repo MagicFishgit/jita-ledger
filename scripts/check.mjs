@@ -4289,6 +4289,21 @@ console.log('\n--- Leave alone belongs to a plan’s own orders, and ends with i
   eq('  an item an earlier plan left keeps the earlier time, so that plan’s orders stay left',
     leaveForPlan([CS], { [CS]: '2026-09-30T00:41:37.568Z' }, [CS], AT), { leave: [CS], leaveFrom: { [CS]: '2026-09-30T00:41:37.568Z' } });
   eq('  other items are untouched', leaveForPlan([CNMGC], { 15592: AT }, [CS], AT), { leave: [CNMGC, CS], leaveFrom: { 15592: AT, [CS]: AT } });
+  eq('  a time for an item no longer in `leave` is stale (an older tab’s Leaving it): this plan’s replaces it',
+    leaveForPlan([], { [CS]: '2026-09-30T00:41:37.568Z' }, [CS], AT), { leave: [CS], leaveFrom: { [CS]: AT } });
+  // The Key (30 September): its position opened 00:35:02 for the plan, its bid placed 00:36:15, the plan at 00:41:37. The
+  // checklist counts that bid as the plan's; from the plan's start alone it wasn't left.
+  const { planLeaveSince } = await import('../src/lib/plans.ts');
+  const KEY = 89156, KEY_AT = '2026-09-30T00:41:37.568Z', KEY_POS = '2026-09-30T00:35:02.952Z';
+  const keyBid = { typeId: KEY, issued: '2026-09-30T00:36:15Z' };
+  eq('a position opened for the plan within the day before, nothing traded: its orders are left from its opening',
+    planLeaveSince({ openedAt: KEY_POS }, { at: KEY_AT }, false), KEY_POS);
+  const keyLeft = leaveForPlan([], {}, [KEY], KEY_AT, { [KEY]: planLeaveSince({ openedAt: KEY_POS }, { at: KEY_AT }, false) });
+  eq('  so the Key’s bid, placed before the plan for it, is left; from the plan’s start alone it wasn’t',
+    [isLeft(keyBid, keyLeft.leave, keyLeft.leaveFrom), isLeft(keyBid, ...Object.values(leaveForPlan([], {}, [KEY], KEY_AT)))], [true, false]);
+  eq('  with trades before the plan, or opened over a day before (Clone Soldier, 2.6 days), or opened for it, or none: the plan’s start',
+    [planLeaveSince({ openedAt: KEY_POS }, { at: KEY_AT }, true), planLeaveSince({ openedAt: '2026-09-30T00:41:37.568Z' }, { at: AT }, false),
+      planLeaveSince({ openedAt: KEY_AT }, { at: KEY_AT }, false), planLeaveSince(undefined, { at: KEY_AT }, false)], [KEY_AT, AT, KEY_AT, KEY_AT]);
 
   // Orders' Leave alone and Leaving it, and the planner's mix buttons: the whole item, by hand.
   const byHand = leaveByHand(leave, from, [CS]);
@@ -4311,6 +4326,25 @@ console.log('\n--- Leave alone belongs to a plan’s own orders, and ends with i
   eq('    one an at-the-front plan holds doesn’t count', leaveAfterClose(leave, from, [...plans, { id: 'oct9', patient: false, items: [{ typeId: CS, positionId: 'cs2' }] }], another, CS)?.leave, [C32, RS, CNMGC]);
   eq('    nor one no plan holds', leaveAfterClose(leave, from, plans, another, CS)?.leave, [C32, RS, CNMGC]);
   eq('  an item that wasn’t left changes nothing', leaveAfterClose([C32], { [C32]: AT }, plans, closed, CS), null);
+  // Deleting a position that had already closed: it let go of its item then; one left by hand since stays left.
+  const { leaveAfterDelete, releaseOrphans } = await import('../src/lib/plans.ts');
+  eq('deleting an open position is the close rule', leaveAfterDelete(leave, from, plans, closed.filter((p) => p.id !== 'mundr0gxoxlbh5'), { typeId: CS, status: 'open' }).leave, [C32, RS, CNMGC]);
+  eq('  deleting one that had already closed leaves an item left by hand since alone', leaveAfterDelete([CS], {}, plans, [], { typeId: CS, status: 'closed' }), null);
+
+  // Once, for a ledger from before `leaveFrom` (the store runs it when none was stored): the review's export had 34 types
+  // in `leave` and no times; the 2 October plan's whose positions had all closed are let go, Clone Soldier among them.
+  const ledgerPlans = [...plans, { id: 'sep30', patient: false, items: [{ typeId: CNMGC, positionId: 'cnmgc' }] }];
+  const ledgerPositions = [...closed, { id: 'cnmgc', typeId: CNMGC, status: 'open' }, { id: 'rs', typeId: RS, status: 'open' }];
+  const LOOT = 34;
+  eq('a plan item whose positions all closed is let go; one with an open position the patient plan holds stays',
+    releaseOrphans([CS, C32, CNMGC, LOOT], {}, ledgerPlans, ledgerPositions), { leave: [C32, CNMGC, LOOT], leaveFrom: {} });
+  eq('  an item no Place-and-leave plan names (left by hand: the CNMGC an at-the-front plan names, loot) is never touched',
+    releaseOrphans([CNMGC, LOOT], {}, ledgerPlans, []), null);
+  eq('  nor an item with a plan’s time (the new rule already covers it)', releaseOrphans([CS], { [CS]: AT }, ledgerPlans, ledgerPositions), null);
+  eq('  a patient plan’s item whose open position no patient plan holds goes, as at a close',
+    releaseOrphans([RS], {}, [{ id: 'oct2', patient: true, items: [{ typeId: RS, positionId: 'old' }] }], ledgerPositions), { leave: [], leaveFrom: {} });
+  eq('  several at once, each by the close rule', releaseOrphans([CS, RS, LOOT], {}, [{ id: 'oct2', patient: true, items: [{ typeId: CS, positionId: null }, { typeId: RS, positionId: 'x' }] }], ledgerPositions),
+    { leave: [LOOT], leaveFrom: {} });
 }
 
 console.log('\n--- place and leave: priced where trading reaches ---');

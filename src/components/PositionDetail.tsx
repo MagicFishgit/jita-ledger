@@ -5,7 +5,7 @@ import { priceUp, tickDown, tickUp } from '../lib/tick';
 import { marketBest, walkBids } from '../lib/relist';
 import { chooseAsk, confirmAsk } from '../lib/confirm';
 import { breakEvenSell, rates } from '../lib/fees';
-import { isLeft, leaveAfterClose, planListPrice, planTargets } from '../lib/plans';
+import { isLeft, leaveAfterClose, leaveAfterDelete, planListPrice, planTargets } from '../lib/plans';
 import { isk, iskBig, iskBigSigned, parseISK, pct, rid, units } from '../lib/format';
 import { jitaOrders, marketHistory, snapshot, type OrderLite } from '../lib/market';
 import { update, useData } from '../lib/store';
@@ -351,12 +351,13 @@ export function PositionDetail({ id }: { id: string }) {
     });
     if (a === 'alt') { await close(); return; }
     if (a !== 'yes') return;
-    const left = leaveAfterClose(d.leave, d.leaveFrom, d.plans, d.positions.filter((p) => p.id !== pos.id), pos.typeId) ? leftOrders().length : 0;
+    // A closed position let go of its item when it closed: deleting it now leaves alone what was left by hand since.
+    const left = leaveAfterDelete(d.leave, d.leaveFrom, d.plans, d.positions.filter((p) => p.id !== pos.id), pos) ? leftOrders().length : 0;
     update((x) => {
       const txs = { ...x.txs };
       Object.values(txs).forEach((t) => { if (t.positionId === pos!.id) delete txs[t.id]; });
       const positions = x.positions.filter((p) => p.id !== pos!.id);
-      return { positions, txs, ...(leaveAfterClose(x.leave, x.leaveFrom, x.plans, positions, pos.typeId) ?? {}) };
+      return { positions, txs, ...(leaveAfterDelete(x.leave, x.leaveFrom, x.plans, positions, pos) ?? {}) };
     });
     toast(`Deleted the ${name} position.${left > 0 ? ` ${unleftSaid(left)}` : ''}`, 'info');
     navigate('positions');

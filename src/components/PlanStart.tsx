@@ -4,8 +4,8 @@ import { startPosition } from '../lib/actions';
 import { confirmAsk } from '../lib/confirm';
 import { fmtShort, isk, iskBig, iskBigSigned, pct, rid, units } from '../lib/format';
 import { navigate, useNow } from '../lib/hooks';
-import { planPosition } from '../lib/positions';
-import { droppedNote, droppedState, leaveForPlan, newPlan, placementNote, planItemState, planListSaid, planProgress, PLANS_KEPT } from '../lib/plans';
+import { computePosition, planPosition } from '../lib/positions';
+import { droppedNote, droppedState, leaveForPlan, newPlan, placementNote, planItemState, planLeaveSince, planListSaid, planProgress, PLANS_KEPT } from '../lib/plans';
 import type { Plan } from '../lib/planner';
 import { horizonShort } from '../lib/prospects';
 import { update, useData } from '../lib/store';
@@ -54,6 +54,15 @@ export function StartPlanButton({ plan, days, patient }: { plan: Plan; days: num
     });
     if (!ok) return;
     const at = new Date().toISOString();
+    // For Place and leave, since when each item's orders are the plan's: its start, or the opening of a position opened for
+    // it within the day before with nothing traded (planLeaveSince), where the checklist counts a bid placed then too.
+    const since: Record<string, string> = {};
+    if (patient) for (const x of taken) {
+      const pos = d.positions.find((p) => p.typeId === x.typeId && p.status === 'open');
+      if (!pos) continue;
+      const c = computePosition(pos, d, d.settings);
+      since[x.typeId] = planLeaveSince(pos, { at }, c.buys.length + c.sells.length > 0);
+    }
     const tp = newPlan(plan.rows, {
       id: rid(), at, deployed: plan.deployed, horizonDays: days, patient,
       name: `${fmtShort(Date.parse(at))} · ${iskBig(plan.deployed)} in ${units(n)} item${n === 1 ? '' : 's'}`,
@@ -61,8 +70,9 @@ export function StartPlanButton({ plan, days, patient }: { plan: Plan; days: num
     const items = tp.items;
     update((x) => ({
       plans: [tp, ...x.plans].slice(0, PLANS_KEPT),
-      // Its own orders: those placed since it started (`isLeft`). An item already left by hand stays left whole.
-      ...(patient ? leaveForPlan(x.leave, x.leaveFrom, items.map((i) => i.typeId), at) : {}),
+      // Its own orders: those placed since it started, or since a position opened for it (`isLeft`). An item already left
+      // by hand stays left whole.
+      ...(patient ? leaveForPlan(x.leave, x.leaveFrom, items.map((i) => i.typeId), at, since) : {}),
     }));
     toast(`Plan started: ${units(items.length)} positions. Place the buy orders from the checklist, starting with ${name(items[0].typeId)}.`);
     requestAnimationFrame(() => document.getElementById('placing')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));

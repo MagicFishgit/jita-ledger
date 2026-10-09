@@ -149,22 +149,28 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   the highs (`askReachDays`, moved to `reachedAsk`, or `loss` when that sells under cost), which other sells don't.
   `fillingNow` now reads sells too (a listing that shrank at its price, or your own sale at or above it). Set from
   the planner for a whole plan in one click, or per item on Orders ("Leave alone" / "Leaving it").
-- **A plan's Leave alone covers its own orders, and ends with the position** (`isLeft`, `leaveForPlan`, `leaveByHand`,
-  `stopLeaving`, `leaveAfterClose` in plans.ts; the synced `leaveFrom` doc, type ID to time, beside `leave`, which stays a
+- **A plan's Leave alone covers its own orders, and ends with the position** (`isLeft`, `leaveForPlan`, `planLeaveSince`,
+  `leaveByHand`, `stopLeaving`, `leaveAfterClose`, `leaveAfterDelete`, `releaseOrphans` in plans.ts; the synced `leaveFrom` doc, type ID to time, beside `leave`, which stays a
   plain list since older browsers and a Worker a version behind read it; the plans review, 9 October 2026). `leave` was by
   item, so starting the 2 October Place-and-leave plan left the 30 September at-the-front plan's Clone Soldier Transporter
   Tag bid too (placed 00:43 on 30 September, raised three times): it read "You're leaving this one" from then on, and after
   its position closed on 3 October nothing judged it as a plan's, with 116.9 M in escrow on 9 October. Now:
   - **Starting a Place-and-leave plan** puts each item in `leave` with `leaveFrom` the plan's start; such an item's orders
     are left only when first placed (`seen[0]`, never `issued`, which a price change moves: that bid's last raise was after
-    the plan) at or after the start less the checklist's two minutes (`SLACK_MS`). An item already left by hand stays left
-    whole; one an earlier plan left keeps the earlier time, so that plan's orders stay left too.
+    the plan) at or after it less the checklist's two minutes (`SLACK_MS`). For an item whose position the plan counts
+    whole (`planCountsWhole`: opened within the day before with nothing traded), the time is that position's opening
+    (`planLeaveSince`), the window in which the checklist counts a bid as placed for the plan: the 30 September plan's
+    Key (position 00:35:02, bid 00:36:15, plan 00:41:37) would otherwise have had its bid unleft. An item already left by
+    hand stays left whole; one an earlier plan left keeps the earlier time while it's still in `leave`, so that plan's
+    orders stay left too; a time for an item no longer in `leave` (an older tab's Leaving it dropped `leave` alone, or two
+    devices' writes crossed) is stale and gives way.
   - **By hand** (Orders' Leave alone, the planner's "Leave these orders alone") is the whole item, as before: its time goes.
     Leaving it / Stop leaving them drop both. An order a plan doesn't cover says so in its tip ("This one was placed before
     it, so it gets the usual advice"), and Leave alone on it leaves every order of the item.
   - **Closing or deleting a position** takes its item out of both, unless another open position of it is a Place-and-leave
-    plan's (a patient plan with an item following it), and the toast says when orders of yours were being left. Reopening
-    doesn't put it back.
+    plan's (a patient plan with an item following it), and the toast says when orders of yours were being left. Deleting
+    one already closed doesn't (it let go at its close; again would drop an item left by hand since). Reopening doesn't put
+    it back.
   - No `leaveFrom` doc, or no time for an item, is the old rule: every order of a left item. The browser, the order check
     and the cloud's alert round all ask `isLeft`; a Worker a version behind refuses a push carrying the new document, so the
     browser sends the rest without it (`refusedDoc`, cloud.md).
@@ -173,8 +179,21 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
     orders, left 24 → 22. The Clone Soldier bid (by both rules) now reads "71 ahead of you, about 43 h of waiting", move to
     29,720,000, where it read "You're leaving this one"; and Datacore - Rocket Science's 2,628 listed at 94,420 on 1
     October, the earlier trading's on the position the plan took over, gets the usual advice (move to 90,890). The plan's
-    own 12 bids and 9 listings stay left, as does the CNMGC left by hand. **The fix is from now on**: the live `leave` has
-    no times and that position closed before it, so the bid stays left until Leaving it is clicked on Orders.
+    own 12 bids and 9 listings stay left, as does the CNMGC left by hand.
+  - **Once, for a ledger from before `leaveFrom`** (`releaseOrphans`, `releaseOrphanLeave` in store.ts; the coordinator's
+    ruling, so the review's own orphan is released): when the stored ledger had no `leaveFrom` doc, every item left with no
+    time that a Place-and-leave plan names gets the close rule (let go unless an open position of it is a patient plan's).
+    It never touches an item no patient plan names (loot or the CNMGC left by hand) and makes up no time for one it keeps.
+    It runs after the cloud sync's first pull of the visit, so it acts on the cloud's `leave` rather than a copy kept from
+    before another device changed it, and pushes `leave`; with the sync off, at once. Done is the `leaveFrom` doc written,
+    empty or as it was, which stays in the browser (a change only to it isn't pushed). On the review's export: 13 of 34 types
+    let go, none with an open position; of the open orders only the Clone Soldier bid stops being left (24 → 23), its 116.9
+    M escrow judged again (`release-orphans.mjs`). Rocket Science's 1 October listing stays left: no time is backfilled.
+    **Residual risk**: each browser runs it once, at its own first load of this version (a new browser too: its empty store
+    had no `leaveFrom` either), so a plan item left by hand again after its position closed is let go again by another
+    browser's first load. A browser whose pull fails waits rather than act on its own copy. The page check (`plan #orders
+    (leave from before leaveFrom)`) loads such a ledger with the cloud stubbed: Clone Soldier let go after the pull, `leave`
+    pushed, `leaveFrom` not; loaded again with it left by hand, nothing changes.
 - **When order slots run out before the ISK, the planner fills by ISK a day** (`allocate`, `Plan.ranked`/`other`). It
   filled best return per day first, which is right while slots are spare, but with few free slots a small market paying
   4% a day on the 20 M it can take earns less than a big one at 2% on 150 M, and most of the ISK sat idle. The user asked
