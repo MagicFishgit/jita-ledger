@@ -9,7 +9,7 @@ import { JITA_44 } from './constants';
 import { breakEvenSell } from './fees';
 import { FILL_TYPICAL, listingPrice, reachedAsk } from './fills';
 import { fmtShort, isk, iskBigSigned, pct } from './format';
-import { MARKET_MOVED } from './prospects';
+import { MARKET_MOVED, marketMoved, type MarketMove } from './prospects';
 import { priceUp, tickUp } from './tick';
 import type { Order, Position, Tx } from './types';
 
@@ -21,7 +21,15 @@ export type PlanItem = {
   sellAt: number;
   /** The position following it: made by the plan, or one already open on the item. */
   positionId: string | null;
+  /**
+   * "Skip it" on the checklist or To do, offered when today's book had moved from the plan's prices (`placeMoved`): when,
+   * and the others' best bid and cheapest listing it read then, so the row can say why after the book moves on. The plan
+   * no longer places it (`planItemState`: `skipped`), as after a cancelled bid; a bid placed for it anyway still counts.
+   */
+  skipped?: PlanSkip;
 };
+
+export type PlanSkip = { at: string; bestBuy: number | null; bestSell: number | null };
 
 export type TradePlan = {
   id: string; name: string;
@@ -42,11 +50,40 @@ export function sanitizePlans(v: unknown): TradePlan[] {
   for (const p of v as Partial<TradePlan>[]) {
     if (!p || typeof p.id !== 'string' || typeof p.at !== 'string' || !Array.isArray(p.items)) continue;
     const items = p.items.filter((i): i is PlanItem => !!i && Number.isInteger(i.typeId) && num(i.buyAt) != null && num(i.units) != null && num(i.sellAt) != null)
-      .map((i) => ({ typeId: i.typeId, buyAt: i.buyAt, units: i.units, sellAt: i.sellAt, positionId: typeof i.positionId === 'string' ? i.positionId : null }));
+      .map((i) => {
+        const skip = sanitizeSkip(i.skipped);
+        return { typeId: i.typeId, buyAt: i.buyAt, units: i.units, sellAt: i.sellAt, positionId: typeof i.positionId === 'string' ? i.positionId : null, ...(skip ? { skipped: skip } : {}) };
+      });
     if (!items.length) continue;
     out.push({ id: p.id, name: typeof p.name === 'string' ? p.name : 'A plan', at: p.at, isk: num(p.isk) ?? 0, horizonDays: num(p.horizonDays) ?? 0, patient: !!p.patient, items });
   }
   return out.slice(0, PLANS_KEPT);
+}
+
+/** A skip as kept: a time that reads, and each figure a number or none; anything else is no skip (the item is kept). */
+function sanitizeSkip(v: unknown): PlanSkip | null {
+  if (!v || typeof v !== 'object') return null;
+  const x = v as Partial<PlanSkip>;
+  if (typeof x.at !== 'string' || !Number.isFinite(Date.parse(x.at))) return null;
+  const n = (y: unknown) => (typeof y === 'number' && Number.isFinite(y) ? y : null);
+  return { at: x.at, bestBuy: n(x.bestBuy), bestSell: n(x.bestSell) };
+}
+
+/**
+ * "Skip it" (`skip`) or undone (null) for one plan's item: a new plans list, the rest as they were. Unchanged (the same
+ * list) when the plan or the item isn't there.
+ */
+export function skipPlanItem<P extends TradePlan>(plans: P[], planId: string, typeId: number, skip: PlanSkip | null): P[] {
+  const p = plans.find((x) => x.id === planId);
+  if (!p || !p.items.some((i) => i.typeId === typeId)) return plans;
+  return plans.map((x) => x !== p ? x : {
+    ...x,
+    items: x.items.map((i) => {
+      if (i.typeId !== typeId) return i;
+      const { skipped: _, ...rest } = i;
+      return skip ? { ...rest, skipped: { ...skip } } : rest;
+    }),
+  });
 }
 
 /** One step: two slack minutes before the plan started, since the app's clock and ESI's may differ a little. */
@@ -326,6 +363,8 @@ export type PlanItemPosition = Pick<Position, 'id' | 'typeId' | 'openedAt'> & Pa
  *   position opened and cancelled before the plan started reads the same). Not the hour before the plan that
  *   `planPlacement` falls back to: a bid placed and cancelled then, before the plan, would drop the item at once. A new
  *   order placed after it is a placement as usual: re-placing at another price counts.
+ * - `skipped`: nothing placed, and you skipped it on the checklist or To do, offered when today's book had moved from the
+ *   plan's prices (`placeMoved`; `at`, and the book it read then). Read like `cancelled`: a bid placed for it anyway counts.
  * - `open`: still to place.
  * The user's 2 October plan (8 October 2026): four bids judged "Cancel it" were cancelled with nothing bought and their
  * positions closed, and To do asked for "9 × Fierce Exotic Filament at 2,813,000" again within the plan's week, at the
@@ -337,6 +376,7 @@ export type PlanItemState =
   | { state: 'placed'; placement: Placement }
   | { state: 'closed'; at: number | null; gone: boolean }
   | { state: 'cancelled'; order: Order; at: number }
+  | { state: 'skipped'; at: number; bestBuy: number | null; bestSell: number | null }
   | { state: 'open' };
 
 export function planItemState(item: PlanItem, plan: Pick<TradePlan, 'at'>, orders: Order[], positions?: PlanItemPosition[], trades?: PlanTrades): PlanItemState {
@@ -358,18 +398,29 @@ export function planItemState(item: PlanItem, plan: Pick<TradePlan, 'at'>, order
   const cancelled = orders
     .filter((o) => o.isBuy && o.typeId === item.typeId && o.locationId === JITA_44 && o.state === 'cancelled' && filledOf(o) === 0 && placedAt(o) >= since)
     .sort((a, b) => placedAt(b) - placedAt(a))[0];
-  return cancelled ? { state: 'cancelled', order: cancelled, at: placedAt(cancelled) } : { state: 'open' };
+  if (cancelled) return { state: 'cancelled', order: cancelled, at: placedAt(cancelled) };
+  // Skipped on the checklist or To do, today's book having moved from the plan's prices (the plans review, 9 October 2026).
+  if (item.skipped) return { state: 'skipped', at: Date.parse(item.skipped.at), bestBuy: item.skipped.bestBuy, bestSell: item.skipped.bestSell };
+  return { state: 'open' };
 }
 
-/** A plan item the plan no longer places: its bid cancelled with nothing bought, or its position closed or deleted. */
-export const droppedState = (s: PlanItemState): s is Extract<PlanItemState, { state: 'closed' | 'cancelled' }> => s.state === 'closed' || s.state === 'cancelled';
+/** A plan item the plan no longer places: its bid cancelled with nothing bought, its position closed or deleted, or skipped. */
+export type DroppedState = Extract<PlanItemState, { state: 'closed' | 'cancelled' | 'skipped' }>;
+export const droppedState = (s: PlanItemState): s is DroppedState => s.state === 'closed' || s.state === 'cancelled' || s.state === 'skipped';
 
 /**
  * What the checklist says of an item the plan no longer places: "Bid cancelled with nothing bought: not placed again",
  * with the bid; "Position closed 8 Oct: not placed again". ESI doesn't say when a bid was cancelled, so the bid is named
  * by what it was and when it was placed.
  */
-export function droppedNote(s: Extract<PlanItemState, { state: 'closed' | 'cancelled' }>): { lead: string; sub: string | null } {
+export function droppedNote(s: DroppedState, item?: Pick<PlanItem, 'buyAt' | 'sellAt'>): { lead: string; sub: string | null } {
+  if (s.state === 'skipped') {
+    const plan = item ? `, against the plan’s bid of ${isk(item.buyAt)} and sale of ${isk(item.sellAt)}` : '';
+    return {
+      lead: `Skipped ${fmtShort(s.at)}: the market had moved`,
+      sub: `Today’s best bid was ${s.bestBuy != null ? isk(s.bestBuy) : 'none'} and the cheapest listing ${s.bestSell != null ? isk(s.bestSell) : 'none'}${plan}. Not placed again; a new bid would count as placing it.`,
+    };
+  }
   if (s.state === 'cancelled') {
     const n = s.order.volumeTotal.toLocaleString('en-US');
     return { lead: 'Bid cancelled with nothing bought: not placed again', sub: `Your bid of ${n} at ${isk(s.order.price)}, placed ${fmtShort(s.at)}. Cancelling it took the item off the plan; a new bid would count as placing it.` };
@@ -380,8 +431,32 @@ export function droppedNote(s: Extract<PlanItemState, { state: 'closed' | 'cance
 }
 
 /**
+ * A plan's bid still to place, against its live Jita book (others' orders: `listMarket`), by Market moved's own rule
+ * (`marketMoved`): the bid more than MARKET_MOVED under or over today's best bid, at or over today's cheapest listing (it
+ * would buy at once), or the plan's sale more than MARKET_MOVED over today's cheapest listing. Null when not moved, or with
+ * no book to say (`market` null, or nobody bidding or listing). The plans review (9 October 2026): the checklist asked for
+ * every bid at the plan's price however far the book had moved since, Raging Dark Filament's 1,711,000 19% over a best bid
+ * of 1,440,000 among them, bought within the hour and then 13% under water.
+ */
+export function placeMoved(item: Pick<PlanItem, 'buyAt' | 'sellAt'>, market: Pick<ListMarket, 'bestBuy' | 'bestSell'> | null): MarketMove | null {
+  if (!market) return null;
+  return marketMoved(item.buyAt, item.sellAt, market.bestBuy, market.bestSell);
+}
+
+/** What the checklist and To do say of a bid the market has moved from: a lead, and a line a side with today's figures. */
+export function placeMovedSaid(item: Pick<PlanItem, 'buyAt' | 'sellAt'>, m: MarketMove, bestBuy: number | null, bestSell: number | null): { lead: string; lines: string[] } {
+  const by = (x: number) => pct(x, x < 0.1 ? 1 : 0);
+  const lines: string[] = [];
+  if (m.bid?.side === 'atOnce') lines.push(`Its bid of ${isk(item.buyAt)} is at or over today’s cheapest listing of ${isk(bestSell)}: it would buy at once, from the listings.`);
+  else if (m.bid?.side === 'over') lines.push(`Its bid of ${isk(item.buyAt)} is ${by(m.bid.by)} over today’s best bid of ${isk(bestBuy)}: the market has fallen, so it would pay more than buyers bid now.`);
+  else if (m.bid) lines.push(`Its bid of ${isk(item.buyAt)} is ${by(m.bid.by)} under today’s best bid of ${isk(bestBuy)}: the market has risen, so it may not fill.`);
+  if (m.sell) lines.push(`It sells at ${isk(item.sellAt)}, ${by(m.sell.by)} over today’s cheapest listing of ${isk(bestSell)}: it would wait behind cheaper listings.`);
+  return { lead: 'The market has moved since the plan priced it', lines };
+}
+
+/**
  * How far placing the plan has got: what's placed (a buy order, or a bid that bought at once), what the plan no longer
- * places (`dropped`: its bid cancelled with nothing bought, its position closed or deleted), and what still has nothing
+ * places (`dropped`: its bid cancelled with nothing bought, its position closed or deleted, or skipped), and what still has nothing
  * placed for it (`waiting`). A plan with nothing waiting is done placing, dropped items and all.
  */
 export type PlanProgress = { placed: number; of: number; waiting: PlanItem[]; dropped: PlanItem[] };

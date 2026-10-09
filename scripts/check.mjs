@@ -1423,6 +1423,84 @@ console.log('\n--- a plan item you cancelled or closed isn’t asked for again (
   eq('a plan from newPlan reads the same', planItemState(newPlan([{ p: { typeId: FE, buy: 2_813_000, sell: 3_443_000 }, units: 9 }], { id: 'n', at: plan.at, deployed: 1, horizonDays: 1, patient: true, name: 'n' }, () => 'fe').items[0], plan, [feGone], open).state, 'cancelled');
 }
 
+console.log('\n--- the checklist re-checks a bid against today\'s book, and a moved item can be skipped (the plans review, 9 October 2026) ---');
+{
+  // The 2 October plan asked to place each bid at the plan's price however far the live book had moved: Raging Dark
+  // Filament's 1,711,000 sat 19% over a best bid of 1,440,000 (bought within the hour, then −13%), Imperial Navy
+  // Infiltrator's 1,658,000 over a 1,608,000 listing (bought at once), Compressed Fullerite-C84's 7,639 17% under 9,250.
+  // Each item still to place is judged against its live Jita book (others' orders) by Market moved's own rule.
+  const { placeMoved, placeMovedSaid, planItemState, planProgress, droppedState, droppedNote, sanitizePlans, skipPlanItem, listMarket } = await import('../src/lib/plans.ts');
+  const { judgePlaceBuy, placeBuyItem } = await import('../src/lib/todo.ts');
+  const JITA = 60003760, RD = 47894, INF = 31866, C84 = 62400, RS = 20420, FE = 47889;
+  const r = (m) => m && { bid: m.bid && { side: m.bid.side, by: Math.round(m.bid.by * 1000) / 1000 }, sell: m.sell && { by: Math.round(m.sell.by * 1000) / 1000 } };
+  const rd = { typeId: RD, buyAt: 1_711_000, units: 10, sellAt: 1_983_000, positionId: 'rd' };
+  const mk = (bestBuy, bestSell) => ({ bestBuy, bestSell, highs: null });
+  eq('Raging Dark Filament: the bid 19% over today’s best, the sale 14% over the cheapest listing', r(placeMoved(rd, mk(1_440_000, 1_741_000))), { bid: { side: 'over', by: 0.188 }, sell: { by: 0.139 } });
+  eq('  Imperial Navy Infiltrator: at or over the cheapest listing, it buys at once', r(placeMoved({ buyAt: 1_658_000, sellAt: 1_836_000 }, mk(1_492_000, 1_608_000))), { bid: { side: 'atOnce', by: 0.031 }, sell: { by: 0.142 } });
+  eq('  Compressed Fullerite-C84: 17% under today’s best bid', r(placeMoved({ buyAt: 7639, sellAt: 8954 }, mk(9250, 10_150))), { bid: { side: 'under', by: 0.174 }, sell: null });
+  eq('  Datacore - Rocket Science, 3% under: not moved', placeMoved({ buyAt: 85_540, sellAt: 94_430 }, mk(88_170, 96_000)), null);
+  eq('  no book read, or an empty one: nothing said', [placeMoved(rd, null), placeMoved(rd, mk(null, null))], [null, null]);
+  // Others' orders only: your own bid on the item (another plan's, the Clone Soldier case) is never today's best bid.
+  const book = [{ id: 1, isBuy: true, price: 1_440_000 }, { id: 2, isBuy: true, price: 1_712_000 }, { id: 3, isBuy: false, price: 1_741_000 }];
+  eq('  your own bid over the plan’s isn’t the market', r(placeMoved(rd, listMarket(book, [2], null))), { bid: { side: 'over', by: 0.188 }, sell: { by: 0.139 } });
+  const said = placeMovedSaid(rd, placeMoved(rd, mk(1_440_000, 1_741_000)), 1_440_000, 1_741_000);
+  eq('said: a lead and a line a side, with today’s figures', said, {
+    lead: 'The market has moved since the plan priced it',
+    lines: [
+      'Its bid of 1,711,000 ISK is 19% over today’s best bid of 1,440,000 ISK: the market has fallen, so it would pay more than buyers bid now.',
+      'It sells at 1,983,000 ISK, 14% over today’s cheapest listing of 1,741,000 ISK: it would wait behind cheaper listings.',
+    ] });
+  has('  a bid that buys at once says so', placeMovedSaid({ buyAt: 1_658_000, sellAt: 1_836_000 }, placeMoved({ buyAt: 1_658_000, sellAt: 1_836_000 }, mk(1_492_000, 1_608_000)), 1_492_000, 1_608_000).lines[0],
+    'Its bid of 1,658,000 ISK is at or over today’s cheapest listing of 1,608,000 ISK: it would buy at once, from the listings.');
+  has('  a bid under today’s best', placeMovedSaid({ buyAt: 7639, sellAt: 8954 }, placeMoved({ buyAt: 7639, sellAt: 8954 }, mk(9250, 10_150)), 9250, 10_150).lines[0],
+    'Its bid of 7,639 ISK is 17% under today’s best bid of 9,250 ISK: the market has risen, so it may not fill.');
+
+  // Skip it: the item is dropped, read like a cancelled bid.
+  const plan = { id: 'mur4lko4xsll6o', name: '2 Oct · 999.16 M ISK in 33 items', at: '2026-10-02T15:36:31.972Z', isk: 999156436.25, horizonDays: 0.5, patient: true, items: [
+    { typeId: FE, buyAt: 2_813_000, units: 9, sellAt: 3_443_000, positionId: 'fe' }, rd] };
+  const SKIP_AT = '2026-10-02T16:57:00.000Z';
+  const skipped = skipPlanItem([plan], plan.id, RD, { at: SKIP_AT, bestBuy: 1_440_000, bestSell: 1_741_000 });
+  const sp = skipped[0], si = sp.items[1];
+  eq('skipping marks the item, and only it, with when and the book it read', [si.skipped, sp.items[0].skipped ?? null, plan.items[1].skipped ?? null], [{ at: SKIP_AT, bestBuy: 1_440_000, bestSell: 1_741_000 }, null, null]);
+  eq('  another plan’s item, or an item the plan lacks: nothing changes', [skipPlanItem([plan], 'other', RD, { at: SKIP_AT, bestBuy: 1, bestSell: 2 }), skipPlanItem([plan], plan.id, 1, { at: SKIP_AT, bestBuy: 1, bestSell: 2 })], [[plan], [plan]]);
+  eq('  and undone', skipPlanItem(skipped, plan.id, RD, null)[0].items[1].skipped ?? null, null);
+  const P = (id, typeId, status = 'open', closedAt) => ({ id, typeId, openedAt: plan.at, status, jitaOnly: true, excluded: [], included: [], ...(closedAt ? { closedAt } : {}) });
+  const open = [P('fe', FE), P('rd', RD)];
+  const st = planItemState(si, sp, [], open);
+  eq('  skipped: dropped, with when and what it read', [st.state, st.at, st.bestBuy, st.bestSell, droppedState(st)], ['skipped', Date.parse(SKIP_AT), 1_440_000, 1_741_000, true]);
+  eq('  progress counts it dropped', [planProgress(sp, [], open).dropped.map((i) => i.typeId), planProgress(sp, [], open).waiting.map((i) => i.typeId)], [[RD], [FE]]);
+  const B = (orderId, typeId, issued, extra = {}) => ({ orderId, typeId, isBuy: true, price: 1_711_000, volumeTotal: 10, volumeRemain: 10, issued, state: 'open', locationId: JITA, seen: [{ issued, price: 1_711_000, remain: 10 }], ...extra });
+  eq('  a bid placed for it anyway: placed, as after a cancelled one', planItemState(si, sp, [B(9, RD, '2026-10-03T09:00:00Z')], open).state, 'placed');
+  eq('  its position closed: closed comes first', planItemState(si, sp, [], [P('fe', FE), P('rd', RD, 'closed', '2026-10-08T10:14:00Z')]).state, 'closed');
+  eq('  a bid cancelled with nothing bought: cancelled comes first', planItemState(si, sp, [B(10, RD, '2026-10-02T15:50:00Z', { state: 'cancelled' })], open).state, 'cancelled');
+  eq('  not skipped: still to place', planItemState(rd, plan, [], open).state, 'open');
+  eq('the checklist says it was skipped, why and what it read', droppedNote(st, si), {
+    lead: 'Skipped 2 Oct: the market had moved',
+    sub: 'Today’s best bid was 1,440,000 ISK and the cheapest listing 1,741,000 ISK, against the plan’s bid of 1,711,000 ISK and sale of 1,983,000 ISK. Not placed again; a new bid would count as placing it.' });
+  eq('  a book that had no bid or listing says so', droppedNote({ ...st, bestBuy: null }, si).sub,
+    'Today’s best bid was none and the cheapest listing 1,741,000 ISK, against the plan’s bid of 1,711,000 ISK and sale of 1,983,000 ISK. Not placed again; a new bid would count as placing it.');
+  // The synced plans doc keeps it; a malformed one is dropped, the item kept.
+  const back = sanitizePlans(JSON.parse(JSON.stringify(skipped)));
+  eq('sanitized: a skip is kept as it was', back[0].items[1].skipped, { at: SKIP_AT, bestBuy: 1_440_000, bestSell: 1_741_000 });
+  eq('  a malformed one is dropped, the item kept', sanitizePlans([{ ...plan, items: [{ ...rd, skipped: 'yes' }, { ...rd, typeId: 1, skipped: { at: 'no' } }, { ...rd, typeId: 2, skipped: { at: SKIP_AT, bestBuy: 'x', bestSell: 3 } }] }])[0].items.map((i) => [i.typeId, i.skipped ?? null]),
+    [[RD, null], [1, null], [2, { at: SKIP_AT, bestBuy: null, bestSell: 3 }]]);
+  eq('  a plan without any is as before', JSON.stringify(sanitizePlans([plan])[0].items[1]), JSON.stringify(rd));
+
+  // To do: the item says the market moved and offers Skip it; not moved, it's as before.
+  const moved = { move: placeMoved(rd, mk(1_440_000, 1_741_000)), bestBuy: 1_440_000, bestSell: 1_741_000 };
+  const plain = placeBuyItem(plan, rd, planItemState(rd, plan, [], open), 'Raging Dark Filament');
+  const mvItem = placeBuyItem(plan, rd, planItemState(rd, plan, [], open), 'Raging Dark Filament', moved);
+  eq('To do, not moved: as before, nothing to skip', [plain.title, plain.detail, plain.ver, plain.skip ?? null],
+    ['Place a buy order: 10 × Raging Dark Filament at 1,711,000 ISK', 'Part of 2 Oct · 999.16 M ISK in 33 items. Open it in game (the price is copied), press Place Buy Order, paste the price, quantity 10.', '1', null]);
+  eq('  moved: the title is the same, the detail leads with what moved, Skip it is offered, the version doesn’t move', [mvItem.title, mvItem.ver, mvItem.skip, mvItem.action.copy],
+    ['Place a buy order: 10 × Raging Dark Filament at 1,711,000 ISK', '1', { planId: plan.id, typeId: RD, bestBuy: 1_440_000, bestSell: 1_741_000 }, 1_711_000]);
+  eq('  its words', mvItem.detail,
+    'Part of 2 Oct · 999.16 M ISK in 33 items. The market has moved since the plan priced it. Its bid of 1,711,000 ISK is 19% over today’s best bid of 1,440,000 ISK: the market has fallen, so it would pay more than buyers bid now. It sells at 1,983,000 ISK, 14% over today’s cheapest listing of 1,741,000 ISK: it would wait behind cheaper listings. Skip it, or open it in game (the price is copied) and place it anyway, quantity 10.');
+  eq('  skipped: no item', placeBuyItem(sp, si, st, 'Raging Dark Filament', moved), null);
+  const e = { item: { key: `plan:${plan.id}:${RD}` }, seenAt: Date.parse(plan.at), lastAt: Date.parse(plan.at) };
+  eq('  and the listed one is done, saying so', judgePlaceBuy(e, { plan: true, placed: null, dropped: st }), 'You skipped it: the market had moved from the plan’s prices.');
+}
+
 console.log('\n--- a plan counts a position it shares from its own start ---');
 {
   // Datacore - Rocket Science (2 October 2026): its position open since 24 September, 12,000 bought and 9,372 sold for
@@ -4417,6 +4495,13 @@ console.log('\n--- place and leave: priced where trading reaches ---');
   eq('  risen since: the bid 9% under today\'s best, flagged', [lr.buy, lr.warnings.includes('marketMoved')], [pb, true]);
   eq('  fallen since: the bid over the cheapest listing and the sale over it, flagged', [lf.buy >= 90, lf.sell > 90 * 1.05, lf.warnings.includes('marketMoved')], [true, true, true]);
   eq('  at the front, never: its prices come from today\'s book', [judgeProspect(st, risen, S, fl, 40)?.warnings.includes('marketMoved') ?? false, judgeProspect(st, fallen, S, fl, 40)?.warnings.includes('marketMoved') ?? false], [false, false]);
+  // So a Place-and-leave plan leaves it out by default, and the same market at the front stays in (the plans review).
+  const Pl = await import('../src/lib/planner.ts');
+  const fr = judgeProspect(st, risen, S, fl, 40);
+  // A budget the market can take: each row needs 1% of it.
+  const pin = { isk: Math.min(lr.qty * lr.buy, fr.qty * fr.buy), slots: 10, horizonDays: 30, maxShare: 1 };
+  eq('  a plan leaves the risen market out when placing and leaving, keeps it when asked, and at the front',
+    [Pl.allocate([lr], pin).rows.length, Pl.allocate([lr], { ...pin, keepMoved: true }).rows.length, fr ? Pl.allocate([fr], pin).rows.length : 'not priced'], [0, 1, 1]);
 }
 
 console.log('\n--- Market moved: the plan\'s items against their books on 2 October 2026 ---');
@@ -4651,22 +4736,40 @@ console.log('\n--- a long sell queue, a stricter run-up for Place and leave, and
   eq('  the bar said is the one that applied', [P.runUpBar(true), P.runUpBar(false), P.runUpBar(undefined)], [0.3, 0.5, 0.5]);
   eq('  warningsFor takes the bar it is given', [P.warningsFor(vk, { buyOrders: 20, sellOrders: 30, topBuys: [], topSells: [] }, 0.1, 40, P.RUN_UP_PATIENT).includes('runUp'), P.warningsFor(vk, { buyOrders: 20, sellOrders: 30, topBuys: [], topSells: [] }, 0.1, 40).includes('runUp')], [true, false]);
 
-  // The switch: "Leave out flagged items", off by default.
-  eq('the switch leaves out Falling, Bids and Sells not reached, Crowded, Thin, Slow, Long queue and Market moved', Pl.SWITCH_EXCLUDES, ['falling', 'unreached', 'unreachedSell', 'crowded', 'thin', 'slow', 'longQueue', 'marketMoved']);
-  eq('  never what the planner already leaves out, and never Raises kept back (a cost, not a flag)', [Pl.SWITCH_EXCLUDES.some((w) => Pl.PLANNER_EXCLUDES.includes(w)), Pl.SWITCH_EXCLUDES.includes('raiseReserve')], [false, false]);
+  // The switch: "Leave out flagged items", off by default. Market moved isn't among its flags: Place and leave leaves those
+  // out by default, and "Keep items whose market moved" brings them back (the plans review, 9 October 2026).
+  eq('the switch leaves out Falling, Bids and Sells not reached, Crowded, Thin, Slow and Long queue', Pl.SWITCH_EXCLUDES, ['falling', 'unreached', 'unreachedSell', 'crowded', 'thin', 'slow', 'longQueue']);
+  eq('  never what the planner already leaves out, never Raises kept back (a cost, not a flag), never Market moved (its own rule)',
+    [Pl.SWITCH_EXCLUDES.some((w) => Pl.PLANNER_EXCLUDES.includes(w)), Pl.SWITCH_EXCLUDES.includes('raiseReserve'), Pl.SWITCH_EXCLUDES.includes('marketMoved')], [false, false, false]);
   const item = (typeId, warnings = [], extra = {}) => ({ typeId, roiPerDay: 0.05, buy: 100, qty: 1e6, daysToFlip: 1, net: 10, warnings, ...extra });
   const each = Pl.SWITCH_EXCLUDES.map((w, i) => item(100 + i, [w]));
   const raises = item(200, [], { raiseReserve: { buy: 2, sell: 2, isk: 1 } });
   const list = [...each, raises, item(201), item(202, ['wall']), item(203, ['falling', 'thin'])];
   const off = Pl.plannerPool(list), on = Pl.plannerPool(list, true);
-  eq('  off: every flagged item stays in the pool, counted; the planner\'s own exclusions apart', [off.pool.length, off.excluded, off.flagged.total, off.allFlagged], [11, 1, 9, false]);
+  eq('  off: every flagged item stays in the pool, counted; the planner\'s own exclusions apart', [off.pool.length, off.excluded, off.flagged.total, off.allFlagged], [10, 1, 8, false]);
   eq('  on: only the clean one and the one with raises kept back', on.pool.map((p) => p.typeId), [200, 201]);
   eq('  how many by flag: an item with two counts under each, and once in the total',
-    [on.flagged.total, on.flagged.byFlag], [9, { falling: 2, unreached: 1, unreachedSell: 1, crowded: 1, thin: 2, slow: 1, longQueue: 1, marketMoved: 1 }]);
+    [on.flagged.total, on.flagged.byFlag], [8, { falling: 2, unreached: 1, unreachedSell: 1, crowded: 1, thin: 2, slow: 1, longQueue: 1 }]);
   eq('  allocate follows the switch', [Pl.allocate(list, { ...inp, maxShare: 0.05 }).rows.length, Pl.allocate(list, { ...inp, slots: 40, maxShare: 0.05, leaveOutFlagged: true }).rows.map((r) => r.p.typeId).sort()], [5, [200, 201]]);
   const allOn = Pl.plannerPool([...each, item(202, ['wall'])], true);
-  eq('  everything flagged, with the switch on: an empty pool that says why', [allOn.pool.length, allOn.flagged.total, allOn.allFlagged], [0, 8, true]);
+  eq('  everything flagged, with the switch on: an empty pool that says why', [allOn.pool.length, allOn.flagged.total, allOn.allFlagged], [0, 7, true]);
   eq('  the same list with the switch off is not that', Pl.plannerPool([...each], false).allFlagged, false);
+  eq('  nothing passed at all is not everything flagged', Pl.plannerPool([], true).allFlagged, false);
+
+  // Market moved (Place and leave's flag: today's book has left the fortnight's prices) is left out by default, whatever
+  // "Leave out flagged items" says. On the 2 October plan the 11 items it flagged settled -6.0% per ISK at today's bids
+  // against -2.5% for the rest (the plans review, 9 October 2026).
+  const mv = item(300, ['marketMoved']), mvThin = item(301, ['marketMoved', 'thin']);
+  const ml = [mv, mvThin, item(201), item(203, ['thin'])];
+  const d0 = Pl.plannerPool(ml), d1 = Pl.plannerPool(ml, true);
+  eq('Market moved: left out by default and counted apart, the other flags as before', [d0.pool.map((p) => p.typeId), d0.moved, d0.movedOut, d0.flagged.total], [[201, 203], 2, 2, 1]);
+  eq('  with Leave out flagged items on too: the moved ones counted once, under Market moved', [d1.pool.map((p) => p.typeId), d1.movedOut, d1.flagged.total, d1.flagged.byFlag], [[201], 2, 1, { thin: 1 }]);
+  const k0 = Pl.plannerPool(ml, false, true), k1 = Pl.plannerPool(ml, true, true);
+  eq('  "Keep items whose market moved" brings them back, still counted, none left out for it', [k0.pool.map((p) => p.typeId), k0.moved, k0.movedOut, k0.flagged.total], [[300, 301, 201, 203], 2, 0, 2]);
+  eq('  kept, a moved item with another flag still goes when Leave out flagged items is on', k1.pool.map((p) => p.typeId), [300, 201]);
+  eq('  allocate follows both', [Pl.allocate(ml, { ...inp, slots: 40, maxShare: 0.05 }).rows.map((r) => r.p.typeId).sort(), Pl.allocate(ml, { ...inp, slots: 40, maxShare: 0.05, keepMoved: true }).rows.length],
+    [[201, 203], 4]);
+  eq('  every item moved: an empty pool that says why; kept, not', [Pl.plannerPool([mv]).allFlagged, Pl.plannerPool([mv]).pool.length, Pl.plannerPool([mv], false, true).allFlagged], [true, 0, false]);
   eq('  nothing passed at all is not everything flagged', Pl.plannerPool([], true).allFlagged, false);
 }
 

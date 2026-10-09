@@ -17,9 +17,20 @@ export const PLANNER_EXCLUDES: ProspectWarning[] = ['escrow', 'wall', 'spike', '
  * What "Leave out flagged items" leaves out as well, when it's on (off by default, per browser): every flag that's
  * information rather than a veto. The user asked for "a toggle to not include items with warning like these" (2 October
  * 2026). Raises kept back isn't one: it's a cost already taken off the margin and the ranking (`raiseReserve`, on 91 of the
- * 94 markets watched for a day on 1 October), not a flag.
+ * 94 markets watched for a day on 1 October), not a flag. Nor is Market moved since 9 October 2026: it has a rule of its
+ * own (`MOVED_FLAG`).
  */
-export const SWITCH_EXCLUDES: ProspectWarning[] = ['falling', 'unreached', 'unreachedSell', 'crowded', 'thin', 'slow', 'longQueue', 'marketMoved'];
+export const SWITCH_EXCLUDES: ProspectWarning[] = ['falling', 'unreached', 'unreachedSell', 'crowded', 'thin', 'slow', 'longQueue'];
+/**
+ * Market moved (Place and leave's prices are more than MARKET_MOVED from today's book; only Place and leave carries it, so
+ * a plan at the front never meets it) is left out by default, whatever "Leave out flagged items" says, and "Keep items
+ * whose market moved" (off by default, per browser) brings such items back. The plans review (9 October 2026): on the 2
+ * October plan the 11 items it flagged, already on the 11:25 scan before the plan started, settled −6.0% per ISK at
+ * today's bids against −2.5% for the rest, and leaving them out would have saved about 6.9 M; the flag only acted when the
+ * switch, off by default, was on. Its own rule, not one of SWITCH_EXCLUDES, so each switch decides its own flags and none
+ * is counted twice.
+ */
+export const MOVED_FLAG: ProspectWarning = 'marketMoved';
 export const SLOTS_PER_ITEM = 2;
 
 /** How many items carry one of SWITCH_EXCLUDES, in all and by flag (an item with two counts under each, once in all). */
@@ -27,22 +38,41 @@ export type FlaggedOut = { total: number; byFlag: Partial<Record<ProspectWarning
 export type PlannerPool = {
   /** What the mix is filled from. */
   pool: Prospect[];
-  /** Left out for one of PLANNER_EXCLUDES, whatever the switch. */
+  /** Left out for one of PLANNER_EXCLUDES, whatever the switches. */
   excluded: number;
-  /** Of the rest, the ones the switch leaves out when on: counted either way, so the switch can say what it would do. */
+  /** Of the rest, those carrying Market moved (MOVED_FLAG), counted either way, so its switch can say what it does. */
+  moved: number;
+  /** How many of them were left out: all of `moved` by default, none with "Keep items whose market moved". */
+  movedOut: number;
+  /**
+   * Of the rest not left out for Market moved, the ones "Leave out flagged items" leaves out when on: counted either way,
+   * so the switch can say what it would do.
+   */
   flagged: FlaggedOut;
-  /** The switch is on and left nothing: every item that passed carries a flag. Said, never an empty mix with no reason. */
+  /**
+   * Nothing is left, though items passed: Market moved's rule or the switch, or both, took every one. Said, never an empty
+   * mix with no reason.
+   */
   allFlagged: boolean;
 };
 
-/** The items the planner may use: no flag from PLANNER_EXCLUDES, a return to rank by, and, with the switch on, no other flag. */
-export function plannerPool(prospects: Prospect[], leaveOutFlagged = false): PlannerPool {
+/**
+ * The items the planner may use: no flag from PLANNER_EXCLUDES, a return to rank by, no Market moved unless `keepMoved`,
+ * and, with the switch on, no other flag.
+ */
+export function plannerPool(prospects: Prospect[], leaveOutFlagged = false, keepMoved = false): PlannerPool {
   const usable = prospects.filter((p) => Number.isFinite(p.roiPerDay) && p.roiPerDay > 0);
   const vetoed = (p: Prospect) => p.warnings.some((w) => PLANNER_EXCLUDES.includes(w));
   const flagged: FlaggedOut = { total: 0, byFlag: {} };
   const pool: Prospect[] = [];
+  let moved = 0, movedOut = 0, left = 0;
   for (const p of usable) {
     if (vetoed(p)) continue;
+    left++;
+    if (p.warnings.includes(MOVED_FLAG)) {
+      moved++;
+      if (!keepMoved) { movedOut++; continue; }
+    }
     const hits = SWITCH_EXCLUDES.filter((w) => p.warnings.includes(w));
     if (hits.length) {
       flagged.total++;
@@ -51,7 +81,7 @@ export function plannerPool(prospects: Prospect[], leaveOutFlagged = false): Pla
     }
     pool.push(p);
   }
-  return { pool, excluded: prospects.filter(vetoed).length, flagged, allFlagged: leaveOutFlagged && !pool.length && flagged.total > 0 };
+  return { pool, excluded: prospects.filter(vetoed).length, moved, movedOut, flagged, allFlagged: !pool.length && left > 0 };
 }
 
 /**
@@ -70,6 +100,8 @@ export const PLANNER_HORIZONS = [4 / 24, 12 / 24, 1, 3, 7, 14, 30];
 export type PlanInput = { isk: number; slots: number; horizonDays: number; maxShare: number;
   /** "Leave out flagged items": SWITCH_EXCLUDES are left out too. */
   leaveOutFlagged?: boolean;
+  /** "Keep items whose market moved": Market moved (MOVED_FLAG) stays in, as any other flag does. */
+  keepMoved?: boolean;
   /** Units you already have working per item (`workingUnits`): the plan takes only what its market has left. */
   working?: Record<number, number> };
 export type Allocation = { p: Prospect; isk: number; units: number; days: number; perDay: number;
@@ -156,7 +188,7 @@ function fill(order: Prospect[], inp: PlanInput, ranked: Plan['ranked']): Plan {
  * planner to "fill the given slots" intelligently (29 September 2026).
  */
 export function allocate(prospects: Prospect[], inp: PlanInput): Plan {
-  const { pool } = plannerPool(prospects, inp.leaveOutFlagged);
+  const { pool } = plannerPool(prospects, inp.leaveOutFlagged, inp.keepMoved);
   const byReturn = fill([...pool].sort((a, b) => b.roiPerDay - a.roiPerDay), inp, 'return');
   if (byReturn.limit !== 'slots') return byReturn;
   const cap = Math.max(0, inp.isk) * Math.min(1, Math.max(0, inp.maxShare));

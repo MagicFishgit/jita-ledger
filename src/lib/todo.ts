@@ -1,5 +1,6 @@
 import { fmtDateTime, isk, iskBig, units } from './format';
-import { planListSaid, type Listed, type PlanItem, type PlanItemState, type PlanListPrice, type TradePlan } from './plans';
+import { placeMovedSaid, planListSaid, type DroppedState, type Listed, type PlanItem, type PlanItemState, type PlanListPrice, type TradePlan } from './plans';
+import type { MarketMove } from './prospects';
 import { FEEDS_QUEUE_DO, feedsQueueLead, notReachedSince, type FeedsQueue, type Relist, type Verdict } from './relist';
 import { DATACORE_FEE, RP_PER_DATACORE } from './research';
 
@@ -44,6 +45,11 @@ export type TodoItem = {
   /** `cloudLogin`: which of the cloud's logins to hand over again. */
   /** `dest`: a station to set as the destination in game first (the main's own R&D agent's). */
   action: { label: string; route?: string; typeId?: number; exportBackup?: boolean; copy?: number; cloudLogin?: 'main' | 'mailer'; dest?: number };
+  /**
+   * `placeBuy`, when today's book has moved from the plan's prices: "Skip it" beside the button, which marks the plan's item
+   * skipped (`skipPlanItem`) with the book it read.
+   */
+  skip?: { planId: string; typeId: number; bestBuy: number | null; bestSell: number | null };
 };
 
 export type Entry = {
@@ -354,25 +360,38 @@ export function judgeScam(e: Entry, c: { tracked: boolean; signalAt: number | nu
  * wrong (8 October 2026): four bids told "Cancel it" were cancelled and their positions closed, and To do asked for each
  * again at the price just judged unreachable.
  */
-export function placeBuyItem(p: Pick<TradePlan, 'id' | 'name'>, i: PlanItem, state: PlanItemState, name: string): TodoItem | null {
+export function placeBuyItem(
+  p: Pick<TradePlan, 'id' | 'name'>, i: PlanItem, state: PlanItemState, name: string,
+  /**
+   * Today's book against the plan's prices (`placeMoved` on the live read, others' orders), when it has moved: the item
+   * says so with the figures and offers Skip it. Its version stays: the read is redone every five minutes, and a hand tick
+   * reopened each time it crossed the line would nag.
+   */
+  moved?: { move: MarketMove; bestBuy: number | null; bestSell: number | null } | null,
+): TodoItem | null {
   if (state.state !== 'open') return null;
+  const said = moved ? placeMovedSaid(i, moved.move, moved.bestBuy, moved.bestSell) : null;
   return {
     key: `plan:${p.id}:${i.typeId}`, ver: '1', kind: 'placeBuy', source: 'ledger', stake: i.units * i.buyAt, typeId: i.typeId,
     title: `Place a buy order: ${units(i.units)} × ${name} at ${isk(i.buyAt)}`,
-    detail: `Part of ${p.name}. Open it in game (the price is copied), press Place Buy Order, paste the price, quantity ${units(i.units)}.`,
+    detail: said
+      ? `Part of ${p.name}. ${said.lead}. ${said.lines.join(' ')} Skip it, or open it in game (the price is copied) and place it anyway, quantity ${units(i.units)}.`
+      : `Part of ${p.name}. Open it in game (the price is copied), press Place Buy Order, paste the price, quantity ${units(i.units)}.`,
     action: { label: 'Open', typeId: i.typeId, copy: i.buyAt, route: 'planner' },
+    ...(moved ? { skip: { planId: p.id, typeId: i.typeId, bestBuy: moved.bestBuy, bestSell: moved.bestSell } } : {}),
   };
 }
 
 /**
  * A plan's buy order, gone from the list: placed, when your orders (always current as of the last sync) hold a buy for
  * the item since the plan started, or your trades show the bid bought at once (`planPlacement`); done, saying why, when
- * the plan no longer places it (`dropped`: you cancelled the bid with nothing bought, or closed or deleted its position);
+ * the plan no longer places it (`dropped`: you cancelled the bid with nothing bought, closed or deleted its position, or
+ * skipped it when the market had moved);
  * just gone when the plan was removed or is past its week. The ledger is always current, so each of these is said at once.
  */
 export function judgePlaceBuy(e: Entry, c: {
   plan: boolean; placed: { units: number; price: number; atOnce?: number } | null;
-  dropped?: Extract<PlanItemState, { state: 'closed' | 'cancelled' }> | null;
+  dropped?: DroppedState | null;
 }): string | null | false {
   if (c.placed) {
     const n = c.placed.units.toLocaleString('en-US'), at = c.placed.price.toLocaleString('en-US', { maximumFractionDigits: 2 });
@@ -384,7 +403,8 @@ export function judgePlaceBuy(e: Entry, c: {
   const d = c.dropped;
   if (d) {
     return d.state === 'cancelled' ? 'You cancelled the bid, so the plan doesn’t place it again.'
-      : d.gone ? 'You deleted its position, so the plan doesn’t place it.' : 'You closed its position, so the plan doesn’t place it.';
+      : d.state === 'skipped' ? 'You skipped it: the market had moved from the plan’s prices.'
+        : d.gone ? 'You deleted its position, so the plan doesn’t place it.' : 'You closed its position, so the plan doesn’t place it.';
   }
   return c.plan ? null : false;
 }
