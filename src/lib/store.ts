@@ -123,8 +123,9 @@ export async function initStore(): Promise<void> {
  * names, whose positions are all closed or none of whose open ones is a patient plan's, stops being left
  * (`releaseOrphans` in plans.ts). Run by the cloud sync after its first pull of the visit, so it acts on the cloud's
  * `leave` rather than a copy a device kept from before another one changed it, and pushes what it changed; or at once
- * with the cloud sync off. Done is the `leaveFrom` doc written (empty, or with what was there), which stays here: it
- * only marks this browser's ledger as seen.
+ * with the cloud sync off. Done is the `leaveFrom` doc written (empty, or with what was there). It is a synced doc like
+ * any other (`DOC_KEYS`); the cleanup's mark isn't pushed only because it leaves the doc's JSON unchanged, so each
+ * browser runs this once, on its own first load of this version.
  */
 export function releaseOrphanLeave(): void {
   if (!leaveCleanupDue || !ready) return;
