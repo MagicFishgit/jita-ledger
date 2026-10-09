@@ -14,6 +14,7 @@ import { resolveNames } from '../lib/market';
 import { useData } from '../lib/store';
 import { syncCharacter, useSyncState } from '../lib/sync';
 import { isStation, isStructure, isSystem, structureInfo, type StructureRead } from '../lib/universe';
+import { planLabel } from '../lib/plans';
 import { NameInGame, useEnsureNames } from './common';
 import { Points } from './Facts';
 import { cssVars, ItemIcon, Notice, Th } from './ui';
@@ -325,7 +326,7 @@ function TrackedLine({ r, name, where, onOpen, planAt, copies }: { r: TrackedRow
   // A plan that opened the position counts it whole; one that took it over counts from its own start.
   const planSaid = planShare(r);
   const planTip = r.plan
-    ? `${r.plan.name}${planAt ? `, started ${fmtDateTime(planAt)}` : ''}, holds this item.\n\n`
+    ? `${planLabel(r.plan)}${planAt ? `, started ${fmtDateTime(planAt)}` : ''}, holds this item.\n\n`
       + `• It counts ${units(r.plan.stock)} of the position’s stock as its own${r.plan.earlier > 0 ? `; the ${units(r.plan.earlier)} the position held when it started are your earlier trading’s, sold first` : ''}.\n`
       + '• A sale of units that aren’t the position’s is taken from the plan’s bought units once the earlier stock is gone.'
     : '';
@@ -338,7 +339,7 @@ function TrackedLine({ r, name, where, onOpen, planAt, copies }: { r: TrackedRow
             <NameInGame typeId={r.typeId} name={name} className="name" />
             <span className="hc-tags">
               {r.plan && (
-                <span className="flag plain" tabIndex={0} data-tip-title={r.plan.name} data-tip={planTip} style={cssVars({ '--c': 'var(--acc)', fontSize: 10, padding: '1px 6px' })}>
+                <span className="flag plain" tabIndex={0} data-tip-title={planLabel(r.plan)} data-tip={planTip} style={cssVars({ '--c': 'var(--acc)', fontSize: 10, padding: '1px 6px' })}>
                   <ClipboardList aria-hidden="true" />Plan: {r.plan.name}
                 </span>
               )}

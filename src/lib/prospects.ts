@@ -240,7 +240,8 @@ export function roundTripRate(s: Pick<ProspectStats, 'roundTrip' | 'roundTripOf'
 }
 
 /** "within 12 h", "within a day", "within 7 days": the horizon a round trip was counted within, as the plan's words have it. */
-const withinSaid = (t: RoundTrip, horizonDays: number | null | undefined) => `within ${horizonDays != null && horizonDays < 1 ? horizonShort(horizonDays) : horizonSaid(t.days)}`;
+export const roundTripWithin = (days: number, horizonDays: number | null | undefined) => `within ${horizonDays != null && horizonDays < 1 ? horizonShort(horizonDays) : horizonSaid(days)}`;
+const withinSaid = (t: RoundTrip, horizonDays: number | null | undefined) => roundTripWithin(t.days, horizonDays);
 
 /** One line: "Round trip within 12 h on 7% of past days", or why it can't be said. */
 export function roundTripSaid(t: RoundTrip, horizonDays: number | null | undefined): string {

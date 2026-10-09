@@ -8,7 +8,8 @@
  */
 
 import { JITA_44 } from './constants';
-import { DEFAULT_FILTERS } from './prospects';
+import { pct, units } from './format';
+import { DEFAULT_FILTERS, ROUND_TRIP_STARTS, roundTripWithin } from './prospects';
 import type { Order, Prospect, ProspectFilters, ProspectWarning } from './types';
 
 /** Flags that say the spread may not be real. Everything else is information, not a veto. */
@@ -193,6 +194,21 @@ export function mixRoundTrips(rows: Pick<Allocation, 'p' | 'isk' | 'units'>[]): 
     ifAll: rated.reduce((t, a) => t + a.units * a.p.net, 0),
     days: rated[0].p.roundTrip!.days, sameDay: rated[0].p.roundTrip!.sameDay,
   };
+}
+
+export type MixRoundTrips = NonNullable<ReturnType<typeof mixRoundTrips>>;
+
+/**
+ * The mix line's words: "About 2 of these 30 round-trip within 12 h, history says: 7% of the last 60 days, weighted by the
+ * ISK in each (0% to 20% an item)". `of` is how many items the mix holds.
+ */
+export function mixRoundTripsSaid(m: MixRoundTrips, of: number, horizonDays: number | null | undefined): string {
+  const within = roundTripWithin(m.days, horizonDays);
+  if (of === 1) return `History says it round-trips ${within} on ${pct(m.rate, 0)} of the last ${ROUND_TRIP_STARTS} days`;
+  const range = m.low === m.high ? `${pct(m.low, 0)} each` : `${pct(m.low, 0)} to ${pct(m.high, 0)} an item`;
+  const lead = m.expected < 0.5 ? `Less than one of these ${units(of)} round-trips` : m.expected < 1.5 ? `About 1 of these ${units(of)} round-trips`
+    : `About ${units(Math.round(m.expected))} of these ${units(of)} round-trip`;
+  return `${lead} ${within}, history says: ${pct(m.rate, 0)} of the last ${ROUND_TRIP_STARTS} days, weighted by the ISK in each (${range})`;
 }
 
 /** Fills the mix in the order given, until the ISK or the slots run out. */

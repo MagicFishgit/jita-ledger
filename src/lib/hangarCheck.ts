@@ -243,7 +243,7 @@ export type TrackedRow = {
    * view of the position (`planPosition`), which from a position it took over doesn't count what was held before it.
    * `earlier`: those units held at the plan's start not sold since, the earlier trading's.
    */
-  plan: { id: string; name: string; stock: number; earlier: number } | null;
+  plan: { id: string; name: string; horizonDays?: number; stock: number; earlier: number } | null;
   /**
    * A position counting every station, not only Jita 4-4 ("Only Jita 4-4 trades" off): its sales and orders anywhere
    * count, so its held units and orders are every station's. Otherwise they're Jita 4-4's, as its stock and sales are.
@@ -424,7 +424,7 @@ export function hangarCheck(x: { d: Data; s: Settings; places: Place[]; pick: Ha
     if (pl && planPos && whole) {
       try {
         const v = planPosition(planPos, pl, d, s, whole);
-        plan = { id: pl.id, name: pl.name, stock: v.c.stock, earlier: v.shared ? Math.max(0, v.held - v.heldSold) : 0 };
+        plan = { id: pl.id, name: pl.name, horizonDays: pl.horizonDays, stock: v.c.stock, earlier: v.shared ? Math.max(0, v.held - v.heldSold) : 0 };
       } catch { plan = null; }
     }
     const held = heldIn(typeId, wide);

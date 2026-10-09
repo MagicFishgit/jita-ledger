@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CalendarClock, Calculator as CalcIcon, Gauge, Hourglass, Info, Layers, LayoutGrid, ListChecks, Lock, Pause, Radar, RefreshCw, Scale, Shield, ShieldAlert, SlidersHorizontal, TrendingDown, TrendingUp, Wallet,
+  CalendarClock, Calculator as CalcIcon, Gauge, Hourglass, Info, Layers, LayoutGrid, ListChecks, Lock, Pause, Radar, RefreshCw, Repeat, Scale, Shield, ShieldAlert, SlidersHorizontal, TrendingDown, TrendingUp, Wallet,
 } from 'lucide-react';
 import { effectiveSkills, orderSlots } from '../lib/fees';
-import { isk as iskFmt, iskBig, pct, units } from '../lib/format';
+import { isk as iskFmt, iskBig, iskBigSigned, pct, units } from '../lib/format';
 import { navigate } from '../lib/hooks';
-import { allocate, PLANNER_EXCLUDES, PLANNER_HORIZONS, plannerFilters, plannerPool, SLOTS_PER_ITEM, SWITCH_EXCLUDES, workingUnits, type Allocation, type FlaggedOut } from '../lib/planner';
-import { horizonSaid, horizonShort, MARKET_MOVED, RUN_UP, RUN_UP_PATIENT, snapHorizon } from '../lib/prospects';
+import { allocate, mixRoundTrips, mixRoundTripsSaid, PLANNER_EXCLUDES, PLANNER_HORIZONS, plannerFilters, plannerPool, SLOTS_PER_ITEM, SWITCH_EXCLUDES, workingUnits, type Allocation, type FlaggedOut } from '../lib/planner';
+import { horizonSaid, horizonShort, MARKET_MOVED, ROUND_TRIP_DAYS, ROUND_TRIP_STARTS, roundTripIndex, roundTripSaid, roundTripTip, roundTripWithin, RUN_UP, RUN_UP_PATIENT, snapHorizon } from '../lib/prospects';
 import { loadCache, rankProspects, useScanState, type ScanCache } from '../lib/scan';
 import { update, useData } from '../lib/store';
 import { useFlow } from '../lib/flowStore';
@@ -97,8 +97,8 @@ export function Planner() {
   const flow = useFlow();
   // What you already have working in each item, in units: it takes the same flip capacity, so the plan takes what's left.
   const working = useMemo(() => workingUnits(Object.values(d.orders), d.stock?.jita), [d.orders, d.stock]);
-  const { plan, pool, excluded, moved, movedOut, movedIn, flagged, allFlagged, unchecked } = useMemo(() => {
-    if (!cache || !isk) return { plan: null, pool: 0, excluded: 0, moved: 0, movedOut: 0, movedIn: 0, flagged: { total: 0, byFlag: {} } as FlaggedOut, allFlagged: false, unchecked: 0 };
+  const { plan, pool, excluded, moved, movedOut, movedIn, unmeasured, tripFew, noTrip, flagged, allFlagged, unchecked } = useMemo(() => {
+    if (!cache || !isk) return { plan: null, pool: 0, excluded: 0, moved: 0, movedOut: 0, movedIn: 0, unmeasured: 0, tripFew: 0, noTrip: 0, flagged: { total: 0, byFlag: {} } as FlaggedOut, allFlagged: false, unchecked: 0 };
     // Every market's own limit, not just those that could take the whole budget.
     const list = rankProspects(cache, d.settings, plannerFilters(savedProspectFilters(), isk, days, patient));
     const chosen = plannerPool(list, leaveOut, keepMoved);
@@ -106,26 +106,38 @@ export function Planner() {
     const old = list.filter((p) => p.stats.lastMove === undefined || !p.stats.highs14 || p.stats.runUp === undefined).length;
     return {
       plan: allocate(list, { isk, slots, horizonDays: days, maxShare, leaveOutFlagged: leaveOut, keepMoved, working }), pool: list.length,
-      excluded: chosen.excluded, moved: chosen.moved, movedOut: chosen.movedOut, movedIn: chosen.movedIn, flagged: chosen.flagged, allFlagged: chosen.allFlagged, unchecked: old,
+      excluded: chosen.excluded, moved: chosen.moved, movedOut: chosen.movedOut, movedIn: chosen.movedIn,
+      // Place and leave's round trips (prospects.ts): from before they were counted, too few days to say, never in the horizon.
+      unmeasured: chosen.unmeasured, tripFew: chosen.tripFew, noTrip: chosen.noTrip,
+      flagged: chosen.flagged, allFlagged: chosen.allFlagged, unchecked: old,
     };
   }, [cache, d.settings, isk, slots, days, maxShare, patient, leaveOut, keepMoved, flow, working]); // eslint-disable-line react-hooks/exhaustive-deps
   // What the switch leaves out, by flag, in the order the switch lists them: "5 Falling, 3 Long queue".
   const byFlag = SWITCH_EXCLUDES.filter((w) => flagged.byFlag[w]).map((w) => `${units(flagged.byFlag[w]!)} ${WARNING[w].short}`).join(', ');
   const overlap = Object.values(flagged.byFlag).reduce((t, n) => t + (n ?? 0), 0) > flagged.total;
   const listed = (ws: typeof SWITCH_EXCLUDES) => ws.map((w) => WARNING[w].short).join(', ').replace(/, ([^,]*)$/, ' and $1');
-  // What each rule left out of the mix, said where a mix is empty or short: Market moved's, and the switch's when it's on.
-  const outBy = [
+  // Place and leave's round trips are counted within whole days: "within 12 h" is the same day (history is daily).
+  const within = roundTripWithin(ROUND_TRIP_DAYS[roundTripIndex(days)], days);
+  // What each rule left out of the mix, said where a mix is empty or short: Market moved's, Place and leave's round trips',
+  // and the switch's when it's on. Only the switches have something to press.
+  const outBy: { n: number; said: string; act?: string; set?: Partial<Inputs> }[] = [
     ...(movedOut ? [{ n: movedOut, said: `${units(movedOut)} because ${movedOut === 1 ? 'its market' : 'their markets'} moved`, act: 'Keep them', set: { keepMoved: true } }] : []),
+    ...(unmeasured ? [{ n: unmeasured, said: `${units(unmeasured)} from before round trips were counted (scan again)` }] : []),
+    ...(tripFew ? [{ n: tripFew, said: `${units(tripFew)} with too little history to say how often ${tripFew === 1 ? 'it round-trips' : 'they round-trip'}` }] : []),
+    ...(noTrip ? [{ n: noTrip, said: `${units(noTrip)} that never round-tripped ${within} in the last ${ROUND_TRIP_STARTS} days` }] : []),
     ...(leaveOut && flagged.total ? [{ n: flagged.total, said: `${units(flagged.total)} by Leave out flagged items (${byFlag}${overlap ? '; an item can carry more than one' : ''})`, act: 'Switch it off', set: { leaveOutFlagged: false } }] : []),
   ];
   const outSaid = outBy.map((x) => x.said).join(', and ');
-  const outActs = (tail: string) => (
+  const acts = outBy.filter((x): x is typeof x & { act: string; set: Partial<Inputs> } => !!x.act && !!x.set);
+  const outActs = (tail: string) => (acts.length ? (
     <>
-      {outBy.map((x, i) => (
+      {acts.map((x, i) => (
         <span key={x.act}>{i > 0 ? ', or ' : ''}<button type="button" className="link-btn" onClick={() => set(x.set)}>{i > 0 ? x.act.toLowerCase() : x.act}</button></span>
       ))}{' '}{tail}
     </>
-  );
+  ) : null);
+  // What the mix expects of its round trips, said on the line over the table (Place and leave only).
+  const trips = plan && patient ? mixRoundTrips(plan.rows) : null;
 
   useEnsureNames(plan?.rows.map((a) => a.p.typeId) ?? []);
   // What you already have working in each item, so the mix doesn't quietly double you up.
@@ -162,7 +174,7 @@ export function Planner() {
     ? `Out of order slots — each item takes ${SLOTS_PER_ITEM}. Train Wholesale or free some up to put the rest to work.`
     // With nothing placed, the "Nothing fits" line above names the rules already: said once.
     : outBy.length && plan.rows.length > 0
-      ? `Every market left is already at what it can take in your horizon (left out: ${outSaid}). Allow longer, raise the cap per item, ${outBy.map((x) => x.act.toLowerCase()).join(' or ')}, or run a deep scan.`
+      ? `Every market left is already at what it can take in your horizon (left out: ${outSaid}). Allow longer, raise the cap per item, ${acts.map((x) => `${x.act.toLowerCase()} `).join('or ')}or run a deep scan.`
       : 'Every market that passes your Prospects filters is already at what it can take in your horizon. Allow longer, raise the cap per item, or run a deep scan.';
 
   return (
@@ -220,11 +232,14 @@ export function Planner() {
         )}
       </div>
 
-      {unchecked > 0 && (
+      {(unchecked > 0 || unmeasured > 0) && (
         <p className="row tight" style={{ fontSize: 13, color: 'var(--acc2)', margin: 0 }}>
           <Radar aria-hidden="true" style={{ width: 14, height: 14, flex: 'none' }} />
           <span>
-            <b>Scan again before investing:</b> {units(unchecked)} of these items predate the plan’s checks on sell prices, sudden moves and run-ups, so their margins may be out of reach. The cloud’s daily full scan refreshes them all, or run a deep scan: a quick one re-reads only a sample.{' '}
+            <b>Scan again before investing:</b>{' '}
+            {unchecked > 0 && `${units(unchecked)} of these items predate the plan’s checks on sell prices, sudden moves and run-ups, so their margins may be out of reach. `}
+            {unmeasured > 0 && `${units(unmeasured)} ${unmeasured === 1 ? 'predates' : 'predate'} Place and leave’s count of round trips, so how often ${unmeasured === 1 ? 'it comes' : 'they come'} round isn’t known: left out of the mix until then. `}
+            The cloud’s daily full scan refreshes them all, or run a deep scan: a quick one re-reads only a sample.{' '}
             <button type="button" className="link-btn" onClick={() => navigate('prospects')}>Open Prospects</button>
           </span>
         </p>
@@ -251,11 +266,11 @@ export function Planner() {
         <>
           <Tiles min={190} items={[
             { l: 'Deployed', v: iskBig(plan.deployed), n: `${pct(plan.deployed / Math.max(isk, 1), 0)} of your ISK`, c: 'var(--acc)' },
-            { l: 'Expected ISK / day', v: iskBig(plan.perDay), n: 'While every order keeps filling at your share', c: 'var(--pos)' },
+            { l: 'Expected ISK / day', v: iskBig(plan.perDay), n: patient ? `Each item’s at how often it round-tripped ${within} on past days` : 'While every order keeps filling at your share', c: 'var(--pos)' },
             { l: 'Blended return / day', v: plan.deployed ? pct(plan.perDay / plan.deployed, 2) : '–', n: 'Across the whole mix', c: 'var(--pos)' },
             { l: 'Slots used', v: `${plan.slotsUsed} of ${slots}`, n: 'One buy and one sell each' },
           ]} />
-          <Panel title="The mix" sub={`Chosen from ${units(pool)} items that pass your Prospects filters${excluded ? `, ${excluded} left out for a warning flag` : ''}${movedOut ? `, ${units(movedOut)} left out because ${movedOut === 1 ? 'its market' : 'their markets'} moved` : ''}${leaveOut && flagged.total ? `, ${units(flagged.total)} more by Leave out flagged items` : ''}${plan.filled ? `, ${units(plan.filled)} left out because your orders${hangarRead ? ' and stock' : ''} already fill what ${plan.filled === 1 ? 'its market takes' : 'their markets take'} in your horizon` : ''}.${hangarRead ? '' : ' Your Jita hangar isn’t read yet, so only your open orders count against what each market takes.'}`}>
+          <Panel title="The mix" sub={`Chosen from ${units(pool)} items that pass your Prospects filters${excluded ? `, ${excluded} left out for a warning flag` : ''}${movedOut ? `, ${units(movedOut)} left out because ${movedOut === 1 ? 'its market' : 'their markets'} moved` : ''}${unmeasured ? `, ${units(unmeasured)} from before round trips were counted` : ''}${tripFew ? `, ${units(tripFew)} with too little history to say how often ${tripFew === 1 ? 'it round-trips' : 'they round-trip'}` : ''}${noTrip ? `, ${units(noTrip)} that never round-tripped ${within} in the last ${ROUND_TRIP_STARTS} days` : ''}${leaveOut && flagged.total ? `, ${units(flagged.total)} more by Leave out flagged items` : ''}${plan.filled ? `, ${units(plan.filled)} left out because your orders${hangarRead ? ' and stock' : ''} already fill what ${plan.filled === 1 ? 'its market takes' : 'their markets take'} in your horizon` : ''}.${hangarRead ? '' : ' Your Jita hangar isn’t read yet, so only your open orders count against what each market takes.'}`}>
             {plan.other != null && plan.rows.length > 0 && (
               <p className="note small" style={{ margin: '0 0 10px' }}>
                 {plan.ranked === 'isk'
@@ -283,16 +298,26 @@ export function Planner() {
               )
             ) : (
               <>
+                {trips && (
+                  <p className="row tight round-trips" style={{ fontSize: 13, margin: '0 0 10px', alignItems: 'flex-start' }}>
+                    <Repeat aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', marginTop: 2, color: 'var(--acc)' }} />
+                    <span tabIndex={0} data-tip-title="Round trips"
+                      data-tip={`How often each item’s prices came round ${within} on the last ${ROUND_TRIP_STARTS} days: on each, the bid Place and leave would have placed that morning reached, then its sale.\n\n• The expected ISK a day is each item’s profit times its rate: ${iskBigSigned(trips.profit)} expected ${within}, against ${iskBigSigned(trips.ifAll)} if every one came round.\n• Each row says its own; hover it for its count.${trips.sameDay ? `\n• History is daily, so ${within} counts a day that reached both prices: the nearest it can say.` : ''}\n\nFor example: your 2 October plan (12 hours) was expected to make +67.6 M, as if every item came round. Its items’ prices had round-tripped the same day on a median 7% of past days, and 6 of its 33 came round within 7 days.`}>
+                      {mixRoundTripsSaid(trips, plan.rows.length, days)}. The expected ISK a day is scaled by it: {iskBigSigned(trips.profit)} expected {within}, against {iskBigSigned(trips.ifAll)} if every one came round.
+                    </span>
+                  </p>
+                )}
                 <div className="bar16" style={{ height: 22 }} aria-hidden="true">
                   {plan.rows.map((a, i) => <div key={a.p.typeId} data-tip={`${name(a.p.typeId)} — ${iskBig(a.isk)} (${pct(a.isk / isk, 0)})`} style={{ width: `${(a.isk / Math.max(isk, 1)) * 100}%`, background: COLS[i % COLS.length] }} />)}
                 </div>
                 <div className="tbl-scroll">
-                  <table className="tbl" style={{ minWidth: 980 }}>
+                  <table className="tbl" style={{ minWidth: patient ? 1060 : 980 }}>
                     <thead><tr>
                       <th scope="col" className="l">Item</th><th scope="col">ISK in</th><th scope="col">Share</th><th scope="col">Units</th>
                       <th scope="col" data-tip={patient ? 'Your buy order’s price: where trading reached on about half of the last 14 days' : 'Your buy order’s price'}>Buy at</th>
                       <th scope="col" data-tip={patient ? 'Your sell order’s price: where trading got up to on about half of the last 14 days' : 'Your sell order’s price'}>Sell at</th>
-                      <th scope="col" data-tip="How long this much takes to buy in and sell out at your share of the slower side">Turns in</th>
+                      <th scope="col" data-tip={patient ? 'How long this much takes to buy in and sell out at your share of the slower side, on days trading reaches its prices. Round trip says how often that came within your horizon.' : 'How long this much takes to buy in and sell out at your share of the slower side'}>Turns in</th>
+                      {patient && <th scope="col" data-tip={`How often its prices came round ${within} on the last ${ROUND_TRIP_STARTS} days: the bid Place and leave would have placed that morning reached, then its sale. ISK a day is its profit times this.`}>Round trip</th>}
                       <th scope="col">ISK / day</th><th scope="col">Return / day</th>
                       <th scope="col" data-tip="Flags that don’t keep an item out but are worth reading first. Hover one for what it means.">Flags</th>
                       <th scope="col"><span className="sr-only">Actions</span></th>
@@ -317,6 +342,12 @@ export function Planner() {
                           <td>{iskFmt(a.p.buy)}</td>
                           <td>{iskFmt(a.p.sell)}</td>
                           <td>{flip(a.days)}</td>
+                          {patient && (
+                            <td className="round-trip" tabIndex={0} data-tip-title={a.p.roundTrip ? roundTripSaid(a.p.roundTrip, days) : 'Round trip'} data-tip={a.p.roundTrip ? roundTripTip(a.p.roundTrip, days) : undefined}>
+                              {a.p.roundTrip?.rate != null ? pct(a.p.roundTrip.rate, 0) : '–'}
+                              <span className="sub">of past days, {within}</span>
+                            </td>
+                          )}
                           <td style={{ color: 'var(--pos)' }}>{iskBig(a.perDay)}</td>
                           <td style={{ color: 'var(--acc)' }}>{pct(a.perDay / a.isk, 2)}</td>
                           <td>{a.p.warnings.length || raisesKept(a.p) ? (
@@ -371,7 +402,7 @@ export function Planner() {
             </p>
             <Points compact items={[
               { kind: 'info', icon: Scale, lead: 'Each market’s limit', text: `your share of its slower side over the horizon (${d.settings.share}% of volume, scaled for how many orders you queue among), at the last scan’s prices.` },
-              patient ? { kind: 'info', lead: 'Place and leave', text: 'each order fills only on days trading reaches it, so its pace is scaled by how often that was: rough, and items without that history are left out.' }
+              patient ? { kind: 'info', icon: Repeat, lead: 'Place and leave', text: `each order fills only on days trading reaches it, and what each item is expected to make is scaled by how often its prices came round ${within} on the last ${ROUND_TRIP_STARTS} days. Items without the history to say are left out.` }
                 : { kind: 'info', lead: '“Bids not reached”', text: 'an item flagged so is priced where trading actually reaches, over the fortnight and lately, not at the best bid.' },
               { kind: 'tip', icon: CalcIcon, lead: 'Before placing', text: 'check each in the Calculator.' },
             ]} />
@@ -395,7 +426,7 @@ export function Planner() {
             title: 'Reading the result', steps: [
               { icon: Gauge, title: 'Return per day beats return', body: 'The mix is ranked by what each item earns per day your ISK is in it. A 6% trade that turns over in a day is worth far more than a 12% trade that takes a week, because the quick one can go round again.' },
               { icon: Pause, title: 'Idle ISK is fine', body: 'If the planner leaves money unspent, the good markets are already full at your share. Forcing the rest into weaker items usually earns less than keeping it. Try a deep scan in Prospects to find more candidates.' },
-              { icon: TrendingUp, title: 'Expected ISK per day is a best case', body: 'It assumes every order keeps filling at your share and prices hold. Real days are lumpier: you get undercut, a market goes quiet, prices move. Plan on somewhere between half and all of it.' },
+              { icon: TrendingUp, title: 'Expected ISK per day is a best case', body: 'At the front it assumes every order keeps filling at your share and prices hold. Real days are lumpier: you get undercut, a market goes quiet, prices move. Plan on somewhere between half and all of it. With Place and leave it’s already scaled by how often each item’s prices came round within your horizon on past days, which is what history says, not a promise.' },
             ],
           },
         ]}

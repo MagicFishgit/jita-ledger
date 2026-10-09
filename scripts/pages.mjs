@@ -119,6 +119,9 @@ const PROOF = { small: 'Hammerhead II', large: 'Test Item' };
  *   priced at all (its ask falls under where its bid has to go). Placed and left, it's bought where trading reached, at
  *   or over today's cheapest listing, and sold 55% over it: "Market moved" (PLANNER_LEAVE), as Imperial Navy Infiltrator
  *   was in the user's second plan.
+ * Place and leave's round trips (`roundTrip`, the plans review, 9 October 2026), within 1, 3, 7, 14 and 30 days: 990101
+ * came round within 3 days on 26 of 58 start days (45%), 990108 on 20 of 58; 990102 could be priced on too few days to
+ * say; 990105 never came round; 990104's stats predate the count as they predate the run-up (PLANNER_TRIPS).
  */
 function planScan(now) {
   const day = (i) => new Date(now - i * 86400_000).toISOString().slice(0, 10);
@@ -130,17 +133,19 @@ function planScan(now) {
     range7: Array(7).fill(0.3), lows14, lowsEnd, highs14, lastMove: 0, runUp: 0, runUpBase: 1.2 * M, ...extra,
   });
   const flat = (x) => Array(14).fill(x);
+  // Round trips within 1, 3, 7, 14 and 30 days, of the start days each could count.
+  const trips = (roundTrip) => ({ roundTrip, roundTripOf: [60, 58, 54, 47, 31] });
   const book = (typeId, bid, ask) => ({ at: new Date(now - 600_000).toISOString(), bestBuy: bid, bestSell: ask, buyOrders: 30, sellOrders: 30,
     topBuys: [{ price: bid, volume: 40 }, { price: bid - 1000, volume: 40 }], topSells: [{ price: ask, volume: 40 }, { price: ask + 1000, volume: 40 }], npcSell: false });
   const items = {
-    990101: [stats(990101, flat(1 * M), flat(1.4 * M)), book(990101, 1 * M, 1.4 * M)],
-    990102: [stats(990102, [...Array(9).fill(1 * M), 1.1 * M, 1.12 * M, 1.1 * M, 1.11 * M, 1.13 * M], flat(1.5 * M)), book(990102, 1 * M, 1.5 * M)],
-    990103: [stats(990103, flat(1 * M), flat(1.4 * M), { runUp: 0.8, runUpBase: 0.8 * M }), book(990103, 1 * M, 1.4 * M)],
-    990104: [stats(990104, flat(1 * M), flat(1.4 * M), { runUp: undefined, runUpBase: undefined }), book(990104, 1 * M, 1.4 * M)],
-    990105: [stats(990105, flat(1 * M), flat(1.4 * M)), { ...book(990105, 1 * M, 1.4 * M), topSells: [{ price: 1.4 * M, volume: 6000 }, { price: 1.401 * M, volume: 6000 }] }],
-    990106: [stats(990106, flat(1 * M), flat(1.4 * M)), { ...book(990106, 1 * M, 1.4 * M), npcAnywhere: 1.3 * M }],
-    990107: [stats(990107, flat(1 * M), flat(1.4 * M)), { ...book(990107, 1 * M, 1.4 * M), npcAnywhere: 1.5 * M }],
-    990108: [stats(990108, flat(1 * M), flat(1.4 * M)), book(990108, 0.8 * M, 0.9 * M)],
+    990101: [stats(990101, flat(1 * M), flat(1.4 * M), trips([12, 26, 33, 40, 25])), book(990101, 1 * M, 1.4 * M)],
+    990102: [stats(990102, [...Array(9).fill(1 * M), 1.1 * M, 1.12 * M, 1.1 * M, 1.11 * M, 1.13 * M], flat(1.5 * M), { roundTrip: [1, 2, 3, 3, 1], roundTripOf: [15, 14, 12, 10, 3] }), book(990102, 1 * M, 1.5 * M)],
+    990103: [stats(990103, flat(1 * M), flat(1.4 * M), { runUp: 0.8, runUpBase: 0.8 * M, ...trips([6, 12, 20, 25, 15]) }), book(990103, 1 * M, 1.4 * M)],
+    990104: [stats(990104, flat(1 * M), flat(1.4 * M), { runUp: undefined, runUpBase: undefined, roundTrip: undefined, roundTripOf: undefined }), book(990104, 1 * M, 1.4 * M)],
+    990105: [stats(990105, flat(1 * M), flat(1.4 * M), trips([0, 0, 0, 0, 0])), { ...book(990105, 1 * M, 1.4 * M), topSells: [{ price: 1.4 * M, volume: 6000 }, { price: 1.401 * M, volume: 6000 }] }],
+    990106: [stats(990106, flat(1 * M), flat(1.4 * M), trips([12, 26, 33, 40, 25])), { ...book(990106, 1 * M, 1.4 * M), npcAnywhere: 1.3 * M }],
+    990107: [stats(990107, flat(1 * M), flat(1.4 * M), trips([12, 26, 33, 40, 25])), { ...book(990107, 1 * M, 1.4 * M), npcAnywhere: 1.5 * M }],
+    990108: [stats(990108, flat(1 * M), flat(1.4 * M), trips([10, 20, 30, 35, 20])), book(990108, 0.8 * M, 0.9 * M)],
   };
   const busy = { h: 15, sell: 18, buy: 6, newSell: 37, newBuy: 15, frontSell: 2, frontBuy: 2, repriceSell: 0, repriceBuy: 0 };
   return {
@@ -171,6 +176,18 @@ const PLANNER_SWITCH = { drawn: ['Raises kept back'], note: '2 left out: 1 Bids 
  * (the plans review, 9 October 2026). With "Keep items whose market moved" on (kept per browser too) it's back, and its
  * flag's tip says which side moved and by how much.
  */
+/**
+ * Place and leave's round trips (3 days, the planner's default horizon): 990101's row and the mix line say how often it came
+ * round; 990104 (stats from before the count) asks for a scan; 990102 and 990105 are left out and counted; and with
+ * "Keep items whose market moved" on, the start dialog says the plan's horizon and what history expects of its 2 items.
+ */
+const PLANNER_TRIPS = {
+  said: ['1 from before round trips were counted', '1 with too little history to say how often it round-trips', '1 that never round-tripped within 3 days in the last 60 days',
+    'predates Place and leave’s count of round trips', 'History says it round-trips within 3 days on 45% of the last 60 days', 'Each item’s at how often it round-tripped within 3 days on past days'],
+  row: ['45%', 'of past days, within 3 days'], rowTip: 'Round trip within 3 days on 45% of past days',
+  kept: 'About 1 of these 2 round-trips within 3 days, history says',
+  dialog: ['in buy orders, a 3-day plan (Place and leave)', 'About 1 of these 2 round-trips within 3 days, history says', 'if every one came round'],
+};
 const PLANNER_LEAVE = {
   out: ['1 left out because its market moved', 'Keep items whose market moved (1)', 'Off: 1 left out'],
   kept: 'On: 1 kept, with the Market moved flag in the mix.',
@@ -397,6 +414,14 @@ try {
       const pageText = (await page.locator('.page').innerText().catch(() => '')).replace(/\s+/g, ' ');
       for (const t of PLANNER_LEAVE.out) if (!pageText.includes(t)) problems.push(`not drawn in Place and leave: “${t}”`);
       if (await page.locator('.page table .flag', { hasText: PLANNER_LEAVE.flag }).count()) problems.push('in the mix by default, and shouldn’t be: an item flagged Market moved');
+      // How often each item came round within the horizon: its row, the mix line, the tile, and the items left out for it.
+      for (const t of PLANNER_TRIPS.said) if (!pageText.includes(t)) problems.push(`not drawn in Place and leave: “${t}”`);
+      const tripCell = page.locator('.page table tbody tr', { hasText: '990101' }).locator('td.round-trip');
+      const tripText = (await tripCell.innerText().catch(() => '')).replace(/\s+/g, ' ');
+      for (const t of PLANNER_TRIPS.row) if (!tripText.includes(t)) problems.push(`not drawn: 990101's round trip “${t}” (${tripText})`);
+      if ((await tripCell.getAttribute('data-tip-title').catch(() => null)) !== PLANNER_TRIPS.rowTip) problems.push(`990101's round trip tip isn't “${PLANNER_TRIPS.rowTip}”`);
+      for (const t of ['990102', '990104', '990105']) if (await page.locator('.page table tbody tr', { hasText: t }).count()) problems.push(`in the Place-and-leave mix, and shouldn’t be: ${t}`);
+      if (/\b(0|100)% of past days/.test(pageText.replace(/45% of past days/g, ''))) problems.push('a round trip said as 0% or 100% where it isn’t known');
       await judge('planner (place and leave)');
       // "Keep items whose market moved" brings it back, with its flag and the flag's tip.
       problems = [];
@@ -408,6 +433,16 @@ try {
       await page.evaluate(() => { location.hash = '#planner'; });
       await page.waitForTimeout(1500);
       if (!(await page.locator('.page', { hasText: PLANNER_LEAVE.kept }).count())) problems.push(`not drawn with keep on: “${PLANNER_LEAVE.kept}”`);
+      if (!(await page.locator('.page', { hasText: PLANNER_TRIPS.kept }).count())) problems.push(`not drawn with keep on: “${PLANNER_TRIPS.kept}”`);
+      // The start dialog's lead: the plan's horizon, and what history says of its round trips. Cancelled: nothing starts.
+      await page.getByRole('button', { name: 'Start this plan' }).first().click().catch(() => problems.push('no Start this plan button in Place and leave'));
+      const startDialog = page.locator('dialog.confirm[open]');
+      await startDialog.waitFor({ timeout: 5000 }).catch(() => undefined);
+      const startSaid = (await startDialog.innerText().catch(() => '')).replace(/\s+/g, ' ');
+      for (const t of PLANNER_TRIPS.dialog) if (!startSaid.includes(t)) problems.push(`not drawn: the start dialog's “${t}” (${startSaid.slice(0, 200)})`);
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}-planner-start-dialog.png` });
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
       const moved = page.locator('.page table .flag', { hasText: PLANNER_LEAVE.flag });
       if (!(await moved.count())) problems.push(`not drawn in Place and leave with keep on: no “${PLANNER_LEAVE.flag}” flag`);
       else {
@@ -1007,6 +1042,7 @@ try {
     if (!whole || whole[4] !== '11,372') problems.push(`the list without a plan doesn't show the whole position's 11,372 sold (${JSON.stringify(whole?.slice(3, 6))})`);
     const plans = (await page.locator('section[aria-label="Plans"]').innerText().catch(() => '')).replace(/\s+/g, ' ');
     if (!plans.includes('1 shared with earlier trading, counted from the plan’s start')) problems.push(`not drawn: the Plans panel's “1 shared with earlier trading” (${plans.slice(0, 160)})`);
+    if (!plans.includes('Place and leave, a 12-hour plan')) problems.push(`not drawn: the Plans panel's “Place and leave, a 12-hour plan” (${plans.slice(0, 160)})`);
     if (!/2 of 6\s*2 dropped/.test(plans)) problems.push(`the Plans panel doesn't count 2 of 6 placed and 2 dropped (${plans.slice(0, 200)})`);
     if (plans.includes('left out of the profit')) problems.push('the Plans panel says units were left out: the earlier stock’s sales aren’t the plan’s at all');
     await page.getByRole('button', { name: 'Show its positions' }).click().catch((e) => problems.push(`couldn't show the plan's positions: ${e.message.split('\n')[0]}`));
@@ -1034,6 +1070,8 @@ try {
     await page.waitForTimeout(1500);
     const placing = (await page.locator('#placing').innerText().catch(() => '')).replace(/\s+/g, ' ');
     if (!placing.includes('11 of 11 bought at once at 1,608,000')) problems.push(`not drawn: the checklist's “11 of 11 bought at once at 1,608,000” (${placing.slice(0, 160)})`);
+    // The panel's title is drawn in capitals (innerText gives them so).
+    if (!placing.toLowerCase().includes('placing 2 oct · 999.16 m isk in 33 items, a 12-hour plan')) problems.push(`the checklist doesn’t name the plan with its horizon (${placing.slice(0, 120)})`);
     if (!placing.includes('the order shows only in your order history')) problems.push('not drawn: the checklist doesn’t say where the order went');
     if (!placing.includes('2 of 6 placed, 2 dropped')) problems.push(`the checklist doesn't count 2 of 6 placed, 2 dropped (${placing.slice(0, 120)})`);
     // The bids cancelled with nothing bought: dropped, said and never asked for again.
@@ -1076,7 +1114,7 @@ try {
     const rdItem = page.locator('.tn-item:not(.done)', { hasText: 'Place a buy order: 8 × Raging Dark Filament' });
     await rdItem.filter({ hasText: 'The market has moved' }).first().waitFor({ timeout: 10_000 }).catch(() => undefined);
     const rdTodo = (await rdItem.first().innerText().catch(() => '')).replace(/\s+/g, ' ');
-    for (const want of ['The market has moved since the plan priced it', '19% over today’s best bid of 1,440,000 ISK', 'Skip it, or open it in game']) if (!rdTodo.includes(want)) problems.push(`not drawn: To do's moved Raging Dark Filament “${want}” (${rdTodo.slice(0, 220)})`);
+    for (const want of ['Part of 2 Oct · 999.16 M ISK in 33 items, a 12-hour plan.', 'The market has moved since the plan priced it', '19% over today’s best bid of 1,440,000 ISK', 'Skip it, or open it in game']) if (!rdTodo.includes(want)) problems.push(`not drawn: To do's moved Raging Dark Filament “${want}” (${rdTodo.slice(0, 220)})`);
     const fgTodo = (await page.locator('.tn-item:not(.done)', { hasText: 'Place a buy order: 6 × Fierce Gamma Filament' }).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
     if (!fgTodo.includes('Its Jita book couldn’t be read, so it isn’t checked against today’s market.')) problems.push(`not drawn: To do doesn't say Fierce Gamma Filament wasn't checked (${fgTodo.slice(0, 200)})`);
     const skipBtn = rdItem.first().getByRole('button', { name: 'Skip it' });
@@ -1103,7 +1141,7 @@ try {
     await page.locator('.tn-item', { hasText: 'List patiently today' }).first().waitFor({ timeout: 10_000 }).catch(() => undefined);
     if ((await listItem.count()) !== 1) problems.push(`To do lists ${await listItem.count()} “List what the plan bought” items, not the Infiltrator's one`);
     const listText = (await listItem.first().innerText().catch(() => '')).replace(/\s+/g, ' ');
-    for (const want of ['List 11 × Imperial Navy Infiltrator at 1,836,000 ISK', 'Bought for 2 Oct · 999.16 M ISK in 33 items', 'List patiently today: 1,836,000 ISK']) if (!listText.includes(want)) problems.push(`not drawn: the To do list item's “${want}” (${listText.slice(0, 200)})`);
+    for (const want of ['List 11 × Imperial Navy Infiltrator at 1,836,000 ISK', 'Bought for 2 Oct · 999.16 M ISK in 33 items, a 12-hour plan.', 'List patiently today: 1,836,000 ISK']) if (!listText.includes(want)) problems.push(`not drawn: the To do list item's “${want}” (${listText.slice(0, 200)})`);
     boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
     if (boundary) problems.push('error boundary on To do');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on To do: ${o}`);

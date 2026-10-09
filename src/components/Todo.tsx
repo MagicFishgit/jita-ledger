@@ -350,7 +350,7 @@ export function Todo() {
     // today's listing price at the front, never under break-even), copied when opened. Its version doesn't wait on the book
     // (Place and leave's is the plan's price, the front's the units to list), so it's listed before the first read, saying so.
     for (const x of listing) {
-      out.push(planListItem({ planId: x.plan.id, planName: x.plan.name, patient: x.plan.patient, typeId: x.item.typeId, units: x.units, unitCost: x.unitCost ?? 0, reading: !x.read }, x.priced, name(x.item.typeId)));
+      out.push(planListItem({ planId: x.plan.id, planName: x.plan.name, horizonDays: x.plan.horizonDays, patient: x.plan.patient, typeId: x.item.typeId, units: x.units, unitCost: x.unitCost ?? 0, reading: !x.read }, x.priced, name(x.item.typeId)));
     }
     // A cloud login EVE refused stops everything the cloud does with it, with nobody looking at Settings.
     for (const k of cloud.background?.keys ?? []) {

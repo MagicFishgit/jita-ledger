@@ -5,9 +5,9 @@ import { confirmAsk } from '../lib/confirm';
 import { fmtShort, isk, iskBig, iskBigSigned, pct, rid, units } from '../lib/format';
 import { navigate, useNow } from '../lib/hooks';
 import { computePosition, planPosition } from '../lib/positions';
-import { droppedNote, droppedState, leaveForPlan, newPlan, placeMovedSaid, placementNote, planItemState, planLeaveSince, planListSaid, planProgress, PLANS_KEPT } from '../lib/plans';
-import type { Plan } from '../lib/planner';
-import { horizonShort } from '../lib/prospects';
+import { droppedNote, droppedState, leaveForPlan, newPlan, placeMovedSaid, placementNote, planHorizonSaid, planItemState, planLabel, planLeaveSince, planListSaid, planProgress, PLANS_KEPT } from '../lib/plans';
+import { mixRoundTrips, mixRoundTripsSaid, type Plan } from '../lib/planner';
+import { ROUND_TRIP_DAYS, roundTripIndex, roundTripWithin } from '../lib/prospects';
 import { update, useData } from '../lib/store';
 import { toast } from '../lib/toast';
 import { CopyPrice, NameInGame, useEnsureNames, useTypeName } from './common';
@@ -43,10 +43,15 @@ export function StartPlanButton({ plan, days, patient }: { plan: Plan; days: num
     const n = plan.rows.length, k = taken.length, one = k === 1;
     const takenSaid = taken.slice(0, 5).map((x, i) => `${name(x.typeId)} (${i ? 'since' : 'open since'} ${fmtShort(x.since)})`).join(', ')
       + (k > 5 ? ` and ${units(k - 5)} more` : '');
+    // Place and leave: what history says of its round trips within the horizon (the planner's mix line, in words).
+    const trips = patient ? mixRoundTrips(plan.rows) : null;
+    const within = roundTripWithin(ROUND_TRIP_DAYS[roundTripIndex(days)], days);
+    const horizon = planHorizonSaid(days);
     const ok = await confirmAsk({
       title: 'Start this plan?',
       body: [
-        `${units(n)} items, ${iskBig(plan.deployed)} in buy orders. ${!k ? 'A position opens for each item now, grouped' : n - k === 0 ? 'No new position opens: every item has one, and they’re grouped' : `${units(n - k)} new position${n - k === 1 ? ' opens' : 's open'} now, grouped`} as one plan on Positions.`,
+        `${units(n)} item${n === 1 ? '' : 's'}, ${iskBig(plan.deployed)} in buy orders${horizon ? `, ${horizon}` : ''} (${patient ? 'Place and leave' : 'at the front'}). ${!k ? 'A position opens for each item now, grouped' : n - k === 0 ? 'No new position opens: every item has one, and they’re grouped' : `${units(n - k)} new position${n - k === 1 ? ' opens' : 's open'} now, grouped`} as one plan on Positions.`,
+        ...(trips ? [`${mixRoundTripsSaid(trips, n, days)}. So it expects ${iskBigSigned(trips.profit)} ${within}, against ${iskBigSigned(trips.ifAll)} if every one came round.${trips.sameDay ? ` History is daily: ${within} counts a day that reached both prices.` : ''}`] : []),
         ...(k ? [`${one ? 'One item already has an open position' : `${units(k)} items already have an open position`}: ${takenSaid}. The plan follows ${one ? 'it' : 'them'} but counts from now: what ${one ? 'it' : 'they'} traded before isn’t the plan’s, and what ${one ? 'it holds' : 'they hold'} now sells first and isn’t the plan’s either.`] : []),
         `${patient ? 'They’re marked “Leave alone”, as a Place-and-leave plan. ' : ''}Then place the buy orders from the checklist here or from To do: each opens in game with its price copied. Nothing is placed for you: the game doesn’t allow it.`,
       ].join('\n\n'),
@@ -118,9 +123,9 @@ export function PlacingChecklist() {
         const still = placing.has(p.id);
         const rows = listing.filter((x) => x.plan.id === p.id);
         return (
-          <section key={p.id} id="placing" className="panel" aria-label={still ? `Placing ${p.name}` : p.name} style={{ padding: 18, gap: 12, clipPath: 'none' }}>
+          <section key={p.id} id="placing" className="panel" aria-label={still ? `Placing ${planLabel(p)}` : planLabel(p)} style={{ padding: 18, gap: 12, clipPath: 'none' }}>
             <div className="panel-head">
-              <span className="panel-title"><ClipboardList aria-hidden="true" style={{ width: 16, height: 16, marginRight: 6, verticalAlign: '-3px' }} />{still ? `Placing ${p.name}` : p.name}</span>
+              <span className="panel-title"><ClipboardList aria-hidden="true" style={{ width: 16, height: 16, marginRight: 6, verticalAlign: '-3px' }} />{still ? `Placing ${planLabel(p)}` : planLabel(p)}</span>
               <span className="mono" style={{ color: 'var(--acc)' }}>{still ? `${units(prog.placed)} of ${units(prog.of)} placed${prog.dropped.length ? `, ${units(prog.dropped.length)} dropped` : ''}` : `${units(rows.length)} to list`}</span>
             </div>
             {still && (
@@ -287,7 +292,7 @@ export function PlanGroups({ shown, onShow }: { shown: string | null; onShow: (i
           <tbody>
             {rows.map(({ p, prog, bought, sold, realized, stock, shared, oversold }) => (
               <tr key={p.id} className={shown === p.id ? 'open' : undefined}>
-                <td className="l">{p.name}<span className="sub">{p.patient ? 'Place and leave' : 'At the front'}, {horizonShort(p.horizonDays)} horizon</span>
+                <td className="l">{p.name}<span className="sub">{p.patient ? 'Place and leave' : 'At the front'}{planHorizonSaid(p.horizonDays) ? `, ${planHorizonSaid(p.horizonDays)}` : ''}</span>
                   {shared > 0 && (
                     <span className="sub" tabIndex={0} data-tip-title="Counted from the plan’s start"
                       data-tip={`${shared === 1 ? 'One of its items already had a position' : `${units(shared)} of its items already had a position`}, open before the plan with earlier trading in it (orders or trades), and the plan follows ${shared === 1 ? 'it' : 'them'}.\n\n• The plan counts ${shared === 1 ? 'it' : 'each'} from its start: what was bought and sold before isn’t the plan’s.\n• What ${shared === 1 ? 'it' : 'each'} held then sells first, and isn’t the plan’s either.\n• Show its positions to see them as the plan counts them; open one for the whole position.`}>
@@ -321,7 +326,7 @@ export function PlanGroups({ shown, onShow }: { shown: string | null; onShow: (i
       </div>
       {d.plans.map((p) => {
         const mine = listing.filter((x) => x.plan.id === p.id);
-        return mine.length ? <PlanListPart key={p.id} rows={mine} planName={p.name} /> : null;
+        return mine.length ? <PlanListPart key={p.id} rows={mine} planName={planLabel(p)} /> : null;
       })}
     </section>
   );

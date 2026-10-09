@@ -14,7 +14,7 @@ import { othersUndercutRate, ownFrontMoves, relistPace } from '../lib/flow';
 import { update, useData } from '../lib/store';
 import { afterMove, afterMoveSaid, byUrgency, FEE_TARGET, feedsQueueSaid, feedsQueueTag, movesToFront, notReachedSince, PLAN_KEEP, PLAN_KEEP_SAID, shownVerdict, sinceLead, type FeedsQueue, type OverResale, type Relist, type ShownVerdict, type TooBig, type UnderCost } from '../lib/relist';
 import { tileRows } from '../lib/tileFilter';
-import { isLeft, leaveByHand, stopLeaving, type TradePlan } from '../lib/plans';
+import { isLeft, leaveByHand, planHorizonSaid, planLabel, stopLeaving, type TradePlan } from '../lib/plans';
 import { FILL_WINDOW } from '../lib/fills';
 import type { Order } from '../lib/types';
 import { BusyRelisting, canOpenInGame, CopyPrice, NameInGame, OpenInGame, useTypeName } from './common';
@@ -511,14 +511,14 @@ function OverResaleTag({ u, x, r }: { u: OverResale; x: Relist; r: { f: number; 
 /** The plan this order's item belongs to (`planTargets`): its name, and the prices and return it was priced at. */
 function PlanChip({ x, plan, target }: { x: Relist; plan?: TradePlan; target: number }) {
   const p = x.plan!;
-  const tip = `Part of a plan you started${plan ? ` on ${new Date(plan.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}, while its position is open.\n\n`
+  const tip = `Part of ${(plan && planHorizonSaid(plan.horizonDays)) ?? 'a plan'} you started${plan ? ` on ${new Date(plan.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}, while its position is open.\n\n`
     + `• The plan bids ${isk(p.buyAt)} and sells at ${isk(p.sellAt)}: ${(p.expected * 100).toFixed(1)}% after fees\n`
     + (x.isBuy
       ? `• A raise must still leave ${p.expected * PLAN_KEEP > target ? `your ${Number((target * 100).toFixed(1))}% target, lower than ${PLAN_KEEP_SAID} of that` : `${PLAN_KEEP_SAID} of that, ${(Math.max(0, p.expected * PLAN_KEEP) * 100).toFixed(1)}%`}, selling on at the plan’s price or where a listing sells now, whichever is lower; otherwise it says Keep it`
       : '• A move is never told to sell under what the stock cost you; one under the plan’s price says so');
   return (
     <span className="sub" style={{ marginTop: 2 }}>
-      <span className="flag plain" tabIndex={0} data-tip-title={plan?.name ?? 'A plan'} data-tip={tip} style={cssVars({ '--c': 'var(--acc)', fontSize: 10, padding: '1px 6px' })}>
+      <span className="flag plain" tabIndex={0} data-tip-title={plan ? planLabel(plan) : 'A plan'} data-tip={tip} style={cssVars({ '--c': 'var(--acc)', fontSize: 10, padding: '1px 6px' })}>
         <ClipboardList aria-hidden="true" />Plan
       </span>
     </span>
