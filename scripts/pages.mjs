@@ -184,7 +184,7 @@ const PLANNER_SWITCH = { drawn: ['Raises kept back'], note: '2 left out: 1 Bids 
 const PLANNER_TRIPS = {
   said: ['1 from before round trips were counted', '1 with too little history to say how often it round-trips', '1 that never round-tripped within 3 days in the last 60 days',
     'predates Place and leave’s count of round trips', 'History says it round-trips within 3 days on 45% of the last 60 days', 'Each item’s at how often it round-tripped within 3 days on past days'],
-  row: ['45%', 'of past days, within 3 days'], rowTip: 'Round trip within 3 days on 45% of past days',
+  row: ['45% of days', 'within 3 days'], rowTip: 'Round trip within 3 days on 45% of past days',
   kept: 'About 1 of these 2 round-trips within 3 days, history says',
   dialog: ['in buy orders, a 3-day plan (Place and leave)', 'About 1 of these 2 round-trips within 3 days, history says', 'if every one came round'],
 };
@@ -440,7 +440,7 @@ try {
       await startDialog.waitFor({ timeout: 5000 }).catch(() => undefined);
       const startSaid = (await startDialog.innerText().catch(() => '')).replace(/\s+/g, ' ');
       for (const t of PLANNER_TRIPS.dialog) if (!startSaid.includes(t)) problems.push(`not drawn: the start dialog's “${t}” (${startSaid.slice(0, 200)})`);
-      if (SHOTS) await page.screenshot({ path: `${SHOTS}-planner-start-dialog.png` });
+      if (SHOTS) { await page.waitForTimeout(700); await page.screenshot({ path: `${SHOTS}-planner-start-dialog.png` }); }
       await page.keyboard.press('Escape');
       await page.waitForTimeout(300);
       const moved = page.locator('.page table .flag', { hasText: PLANNER_LEAVE.flag });
