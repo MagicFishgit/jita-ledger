@@ -543,6 +543,15 @@ export type PlanListPrice = {
   other: number | null;
   /** Today's figure against the plan's, when more than MARKET_MOVED apart: which way, and by how much (a fraction). */
   moved: { dir: 'up' | 'down'; by: number } | null;
+  /** Others' cheapest Jita listing today; null when the book wasn't read or nobody lists it. */
+  cheapest: number | null;
+  /**
+   * Today's cheapest listing when it's more than MARKET_MOVED under the plan's sale price: by how much (a fraction), and what
+   * the units make sold there, after the broker fee and sales tax (a unit, all of them, as a return). Null otherwise.
+   */
+  atCheapest: { by: number; perUnit: number | null; profit: number | null; ret: number | null } | null;
+  /** The price to list at is over today's cheapest listing: what it makes there is said as that, never as plain profit. */
+  overCheapest: boolean;
   /** The least a unit lists at without selling under what it cost, after the broker fee and sales tax (`underCost`'s). */
   breakEven: number;
   /** After the broker fee and sales tax at the price, against what the units cost: a unit, all of them, and as a return. */
@@ -578,8 +587,17 @@ export function planListPrice(
   const keep = 1 - r.f - r.t;
   const perUnit = price != null && unitCost > 0 ? price * keep - unitCost : null;
   const missing: PlanListPrice['missing'] = patient ? (patientToday == null ? 'highs' : null) : !m ? 'book' : m.bestSell == null ? 'listing' : null;
+  // Today's book as well as the fortnight's: the fortnight's List patiently can sit at the plan's price while today's listings
+  // are far under it. The plans review (9 October 2026): Federation Navy Fleet Captain Insignia I read "+6.1% at 920,100",
+  // nothing moved, with List patiently at 915,200 and today's cheapest listing 801,200, under its 826,978 cost.
+  const cheapest = m?.bestSell != null && m.bestSell > 0 ? m.bestSell : null;
+  const under = cheapest != null && item.sellAt > 0 ? 1 - cheapest / item.sellAt : null;
+  const there = cheapest != null && unitCost > 0 ? cheapest * keep - unitCost : null;
+  const atCheapest = under != null && under > MARKET_MOVED + 1e-12
+    ? { by: under, perUnit: there, profit: there != null ? there * units : null, ret: there != null ? there / unitCost : null } : null;
   return {
-    price, from, planPrice: item.sellAt, today, other: patient ? today : item.sellAt, moved, breakEven,
+    price, from, planPrice: item.sellAt, today, other: patient ? today : item.sellAt, moved, cheapest, atCheapest,
+    overCheapest: price != null && cheapest != null && price > cheapest, breakEven,
     perUnit, profit: perUnit != null ? perUnit * units : null, ret: perUnit != null ? perUnit / unitCost : null, missing,
   };
 }
@@ -596,11 +614,19 @@ export function planListSaid(x: PlanListPrice, patient: boolean): { from: string
     : `The plan priced it at ${isk(x.planPrice)}`;
   const by = x.moved ? pct(Math.abs(x.moved.by), 1) : '';
   const side = x.moved?.dir === 'up' ? 'over' : 'under';
-  const moved = !x.moved || x.today == null ? null : patient
-    ? `The market has moved ${x.moved.dir} since the plan: List patiently is ${isk(x.today)} today, ${by} ${side} the plan’s ${isk(x.planPrice)}.`
-    : `The market has moved ${x.moved.dir} since the plan: today’s listing price, ${isk(x.today)}, is ${by} ${side} the plan’s ${isk(x.planPrice)}.`;
+  const signed = (v: number, ret: number) => `${iskBigSigned(v)} after fees (${ret >= 0 ? '+' : ''}${pct(ret, 1)})`;
+  // Place and leave: today's cheapest listing far under the plan's price is the market moving down, whatever the fortnight
+  // says, with what the plan's units make there. At the front the price is already today's listing price.
+  const c = patient ? x.atCheapest : null;
+  const moved = c && x.cheapest != null
+    ? `The market has moved down since the plan: today’s cheapest listing is ${isk(x.cheapest)}, ${pct(c.by, 1)} under the plan’s ${isk(x.planPrice)}${c.profit != null && c.ret != null ? `; sold there, they make ${signed(c.profit, c.ret)}` : ''}.`
+    : !x.moved || x.today == null ? null : patient
+      ? `The market has moved ${x.moved.dir} since the plan: List patiently is ${isk(x.today)} today, ${by} ${side} the plan’s ${isk(x.planPrice)}.`
+      : `The market has moved ${x.moved.dir} since the plan: today’s listing price, ${isk(x.today)}, is ${by} ${side} the plan’s ${isk(x.planPrice)}.`;
   const floor = x.from !== 'breakEven' ? null
     : `${patient ? `The plan’s ${isk(x.planPrice)}` : `Today’s listing price, ${isk(x.today)},`} sells under what they cost after fees, so it lists at break-even, ${isk(x.breakEven)}.`;
-  const profit = x.profit != null && x.ret != null ? `${iskBigSigned(x.profit)} after fees (${x.ret >= 0 ? '+' : ''}${pct(x.ret, 1)})` : null;
+  // Never a profit at a price over today's cheapest listing without saying so: it's made only once those under it have sold.
+  const profit = x.profit != null && x.ret != null
+    ? `${signed(x.profit, x.ret)}${x.overCheapest && x.price != null && x.cheapest != null ? ` if they sell at ${isk(x.price)}, over today’s cheapest listing of ${isk(x.cheapest)}` : ''}` : null;
   return { from, other, moved, floor, profit };
 }

@@ -106,6 +106,13 @@ State these rather than letting them be discovered:
   that the floor is your target and the plan's price, where lower than the market's, makes the move's figure lower.
   Orders' check of it was one snapshot of the user's orders with 4 buys (1 October 2026): the Praxis replay and the Key
   are the evidence; the unreached rule's, 16 open plan buys on 8 October with no cloud flow (market-reading.md).
+- **A left order's days since it was placed count the day it was placed whole**: trading that morning, before the order
+  existed, counts as reaching it (which errs towards saying nothing), and ESI's history runs a day behind, so an order
+  placed on the 3rd is first judged on the 6th (the 5th when the app or the cloud watched that day). Fewer than 3 days with
+  trading since says nothing new. A price change doesn't restart the count (the first version's time), and the price a
+  move goes to was reached on at least one of those days (a sell's is the highest since, a buy's no lower than the lowest
+  since), so once moved there it reads as reached until those days leave the 14, when the usual count takes over: the
+  CNMGC moved to 345,150,000 on 6 October would have sat there unsold and unflagged until about the 17th.
 - **A plan bid cancelled with nothing bought takes its item off the plan, and when it was cancelled can't be told**: ESI
   doesn't say. So the bids that count are those placed since the plan started (less two minutes' slack), or since the
   item's position opened when that was within the day before the plan; a bid placed after such a position opened and

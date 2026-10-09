@@ -875,6 +875,41 @@ console.log('\n--- the alert round judges a plan\'s order by its plan (Praxis, 3
   eq('  a `leaveFrom` doc it can\'t read is no time, never an error', unreadable.x?.left, true);
 }
 
+console.log('\n--- the alert round judges a left order on the days since it was placed (the plans review, 9 October 2026) ---');
+{
+  // A Place-and-leave bid of 100, first placed on 2 October and raised to it on 7 October; trading's daily lows reached 95
+  // on the 7 days before it was placed and 104 to 110 on the 7 since. The round used to read "reached on 7 of the last 14
+  // days" and say nothing; now it's judged on the days since it was placed, moved to 104 and mailed as any move.
+  const { judgeAll } = await import('../worker/src/alerts.ts');
+  const { orderFindings } = await import('../src/lib/alerts.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const T = 62404, ID = 7435096529, NOW = Date.parse('2026-10-09T15:08:00Z');
+  const settings = sanitizeSettings({ acc: 5, br: 5, abr: 5, clone: 'omega', override: true, brokerPct: 1, taxPct: 3, target: 5 });
+  const rows = Array.from({ length: 14 }, (_, i) => {
+    const date = new Date(Date.parse('2026-09-25T00:00:00Z') + i * 86400_000).toISOString().slice(0, 10);
+    return { date, average: 112, highest: 116, lowest: i < 7 ? 95 : 104 + (i - 7), volume: 1000, order_count: 20 };
+  });
+  const ledger = (first) => {
+    const db = d1();
+    const seen = [{ issued: first, price: 99, remain: 1000 }, { issued: '2026-10-07T12:00:00Z', price: 100, remain: 1000 }];
+    db.run('INSERT INTO records (char_id, kind, id, data, rev, updated_at) VALUES (?, ?, ?, ?, 1, 0)', MAIN, 'orders', String(ID), JSON.stringify({
+      orderId: ID, typeId: T, isBuy: true, price: 100, volumeTotal: 1000, volumeRemain: 1000, issued: '2026-10-07T12:00:00Z', state: 'open', locationId: 60003760, escrow: 100_000, seen }));
+    db.run('INSERT INTO docs (char_id, key, data, rev, updated_at) VALUES (?, ?, ?, 1, 0)', MAIN, 'leave', JSON.stringify([T]));
+    db.run('INSERT INTO books (type_id, stamp, orders, sold, at) VALUES (?, ?, ?, ?, ?)', T, NOW, JSON.stringify([[ID, 1, 100, 1000], [1, 1, 103, 500], [2, 0, 121, 300]]), null, NOW - 60_000);
+    db.run('INSERT INTO hist (type_id, expires, rows) VALUES (?, ?, ?)', T, NOW + 86400_000, JSON.stringify(rows));
+    return db;
+  };
+  const left = await judgeAll(ledger('2026-10-02T15:40:00Z'), MAIN, settings, NOW);
+  const x = left.list[0];
+  const found = orderFindings(left.list, () => 'Compressed Fullerite-C32');
+  eq('  placed 2 October, not reached on any of the 7 days since: moved to 104, said so, and mailed as a move', [x?.left, x?.verdict, x?.newPrice, x?.since, found.map((f) => f.key)],
+    [true, 'move', 104, { days: 7, traded: 7, reach: 0 }, [`move:${ID}:104`]]);
+  eq('    in the words Orders and To do use', found[0]?.text.startsWith('Compressed Fullerite-C32 buy order: not reached on any of the 7 days since you placed it; today’s best bid is 3.0% over'), true);
+  eq('    the 14 days’ count is kept as it was, and so is the pace Place and leave is checked against', [x?.reach, left.pace?.[ID] > 0], [7, true]);
+  const fresh = await judgeAll(ledger('2026-10-07T12:00:00Z'), MAIN, settings, NOW);
+  eq('  first placed on 7 October: two days, nothing new, nothing mailed', [fresh.list[0]?.verdict, fresh.list[0]?.since, orderFindings(fresh.list, () => 'x')], ['wait', undefined, []]);
+}
+
 console.log('\n--- the Sniper leaves blueprints out of the mail unless asked ---');
 {
   const { sniperRound } = await import('../worker/src/snipe.ts');

@@ -148,7 +148,10 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   when that is above where trading reaches) or told to cancel; a **sell you're leaving** gets the same test against
   the highs (`askReachDays`, moved to `reachedAsk`, or `loss` when that sells under cost), which other sells don't.
   `fillingNow` now reads sells too (a listing that shrank at its price, or your own sale at or above it). Set from
-  the planner for a whole plan in one click, or per item on Orders ("Leave alone" / "Leaving it").
+  the planner for a whole plan in one click, or per item on Orders ("Leave alone" / "Leaving it"). From three days of
+  trading since an order was first placed it's judged on those days too, since the last 14 hold days before it existed:
+  reached on none of them, it's told to move, cancel or keep it (the 8 October rule), and is on To do (market-reading.md,
+  "A left order is judged on the days since it was placed"; orders-alerts.md).
 - **A plan's Leave alone covers its own orders, and ends with the position** (`isLeft`, `leaveForPlan`, `planLeaveSince`,
   `leaveByHand`, `stopLeaving`, `leaveAfterClose`, `leaveAfterDelete`, `releaseOrphans` in plans.ts; the synced `leaveFrom` doc, type ID to time, beside `leave`, which stays a
   plain list since older browsers and a Worker a version behind read it; the plans review, 9 October 2026). `leave` was by
@@ -301,6 +304,17 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
     today's `listingPrice` on the live book (others' orders only), with the plan's price beside it; never under break-even
     (`underCost`'s: what a unit cost, the buy's fee in, after the broker fee and sales tax). More than `MARKET_MOVED` (5%)
     between today's figure and the plan's, a sentence says the market has moved and which way, and no verdict.
+    **Today's cheapest listing counts as well as the fortnight** (`cheapest`, `atCheapest`, `overCheapest` in
+    `planListPrice`; the plans review, 9 October 2026): Federation Navy Fleet Captain Insignia I read "+6.1%" at the plan's
+    920,100, nothing moved, with List patiently at 915,200 and today's cheapest listing from others 801,200, under its
+    826,978 cost. For Place and leave, today's cheapest listing more than `MARKET_MOVED` under the plan's price is the market
+    moving down, said with that figure and what the plan's units make there ("sold there, they make −2.32 M ISK after fees
+    (−7.6%)"), never "not moved"; and a price to list at over today's cheapest listing says so beside its profit, on the
+    checklist ("if it sells over today's cheapest listing") and To do ("… if they sell at 920,100 ISK, over today's cheapest
+    listing of 801,200 ISK"). At the front the price is already today's listing price, so only a break-even lift over it is
+    said. On the review's held items (`liststep-today.mjs`): 5 of 8 Place-and-leave items now say the market moved down (3
+    before, by List patiently: Gravid Modulated Strip Miner, Raging Dark, the Infiltrator; now Fed Navy Insignia and
+    Raging Gamma Filament, 6.5% under, too), and all 8 profits carry the caveat.
     Nothing not known reads as zero: no book, no front price ("Its Jita book couldn’t be read"); no history, no List
     patiently figure ("No history to say where trading gets up to today"). Each row copies its price, and its name opens
     the item in game with the price copied ("the price to list at" in the tip).

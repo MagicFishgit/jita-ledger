@@ -776,6 +776,115 @@ try {
     process.stdout.write(unique.length ? `  FAIL plan #orders (leave from before leaveFrom)\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (a ledger from before leaveFrom: the closed plan item let go once, after the first pull, and pushed)\n');
     await page.close();
   }
+  // Left orders the market has left since they were placed (the plans review, 9 October 2026): a bid of 1,000 at 100 first
+  // placed five days ago at 99 and raised since, trading's lows at 95 on the nine days before it and 104 to 108 on the five
+  // since; a listing of 10 at 120 placed five days ago, the highs at 125 before and 112 down to 108 since. Both left by hand.
+  // ESI answers their books and histories (the days moved so the last is yesterday), nothing else. Orders must say under
+  // each verdict that it hasn't been reached on any of the 5 days since, and Clears in "0 of 5 days since placed"; To do
+  // must list each once, as "Not reached since you placed it" under Needs action, the bid's opening copying 104. Both widths.
+  if (SHOWN.includes('orders') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('plan'))) {
+    const JITA = 60003760, DAY_MS = 86400_000, BID = 990301, LIST = 990302, BID_ID = 8800001, LIST_ID = 8800002;
+    const yesterday = Date.parse(new Date(Date.now() - DAY_MS).toISOString().slice(0, 10));
+    const day = (i) => new Date(yesterday - (13 - i) * DAY_MS).toISOString().slice(0, 10);
+    const placed = new Date(Date.parse(day(9) + 'T12:00:00Z')).toISOString(), raised = new Date(Date.now() - DAY_MS).toISOString();
+    const hist = {
+      [BID]: Array.from({ length: 14 }, (_, i) => ({ date: day(i), average: 112, highest: 116, lowest: i < 9 ? 95 : 104 + (i - 9), volume: 1000, order_count: 20 })),
+      [LIST]: Array.from({ length: 14 }, (_, i) => ({ date: day(i), average: 110, highest: i < 9 ? 125 : 112 - (i - 9), lowest: 100, volume: 1000, order_count: 20 })),
+    };
+    const books = { [BID]: [[BID_ID, 1, 100, 1000], [8800011, 1, 103, 500], [8800012, 0, 121, 300]], [LIST]: [[LIST_ID, 0, 120, 10], [8800021, 0, 118, 5], [8800022, 1, 100, 50]] };
+    const ledger = {
+      settings: { acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, clone: 'omega', target: 5, share: 7.5, waitHours: 3 },
+      orders: {
+        [BID_ID]: { orderId: BID_ID, typeId: BID, isBuy: true, price: 100, volumeTotal: 1000, volumeRemain: 1000, issued: raised, state: 'open', locationId: JITA,
+          seen: [{ issued: placed, price: 99, remain: 1000 }, { issued: raised, price: 100, remain: 1000 }] },
+        [LIST_ID]: { orderId: LIST_ID, typeId: LIST, isBuy: false, price: 120, volumeTotal: 10, volumeRemain: 10, issued: placed, state: 'open', locationId: JITA, seen: [{ issued: placed, price: 120, remain: 10 }] },
+      },
+      leave: [BID, LIST],
+      names: { [BID]: 'Left Bid Fixture', [LIST]: 'Left Listing Fixture' },
+      meta: { walletBalance: 1e9, lastSync: new Date(Date.now() - 600_000).toISOString() },
+    };
+    const page = await browser.newPage(VIEW);
+    await page.addInitScript(() => {
+      window.__copied = [];
+      try { Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: async (t) => { window.__copied.push(t); } }); } catch { /* no clipboard: the check says so */ }
+    });
+    await page.route('**/*', (route) => {
+      const url = new URL(route.request().url());
+      if (route.request().url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
+      const t = url.searchParams.get('type_id');
+      if (url.hostname === 'esi.evetech.net' && url.pathname === '/markets/10000002/history/' && hist[t]) {
+        return route.fulfill({ status: 200, contentType: 'application/json', headers: { expires: new Date(Date.now() + 3600_000).toUTCString() }, body: JSON.stringify(hist[t]) });
+      }
+      if (url.hostname === 'esi.evetech.net' && url.pathname === '/markets/10000002/orders/' && books[t]) {
+        return route.fulfill({ status: 200, contentType: 'application/json', headers: { expires: new Date(Date.now() + 300_000).toUTCString(), 'x-pages': '1' },
+          body: JSON.stringify(books[t].map(([id, buy, price, volume]) => ({ order_id: id, type_id: Number(t), location_id: JITA, is_buy_order: buy === 1, price, volume_remain: volume, volume_total: volume, issued: placed, duration: 90, min_volume: 1, range: 'region' }))) });
+      }
+      return route.abort();
+    });
+    const problems = [];
+    page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
+    page.on('console', (m) => { if (m.type() === 'error' && /^Warning: /.test(m.text())) problems.push(`React: ${m.text().split('\n')[0].replace(/%s/g, '').slice(0, 160)}`); });
+    await page.goto(SEED_PAGE);
+    await page.evaluate(async ([d, auth]) => {
+      localStorage.clear(); sessionStorage.clear();
+      localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
+      for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', {}], ['jita-ledger-alts', {}]]) {
+        const h = await new Promise((res) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+        if (!h.objectStoreNames.contains('kv')) { h.close(); continue; }
+        await new Promise((res) => { const tr = h.transaction('kv', 'readwrite'); const st = tr.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); tr.oncomplete = res; });
+        h.close();
+      }
+    }, [ledger, { ...ownerAuth(), scopes: ['esi-ui.open_window.v1'] }]);
+    await page.goto(`${BASE}#orders`);
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    await page.waitForTimeout(800);
+    await page.getByRole('button', { name: /Check prices|Check again/ }).click().catch((e) => problems.push(`couldn't check prices: ${e.message.split('\n')[0]}`));
+    await page.waitForSelector(`tr[data-order="${BID_ID}"] .flag:has-text("Move it")`, { timeout: 20_000 }).catch(() => problems.push('not drawn: no “Move it” on the left bid'));
+    await page.waitForTimeout(800);
+    const row = async (id) => (await page.locator(`tr[data-order="${id}"]`).innerText().catch(() => '')).replace(/\s+/g, ' ');
+    const bidRow = await row(BID_ID), listRow = await row(LIST_ID);
+    for (const want of ['Not reached on any of the 5 days since you placed it; today’s best bid is 3.0% over.', 'not reached', '0 of 5 days since placed', '104']) if (!bidRow.includes(want)) problems.push(`not drawn on the left bid's row: “${want}” (${bidRow.slice(0, 200)})`);
+    if (!(await page.locator(`tr[data-order="${LIST_ID}"] .flag`, { hasText: 'Move it' }).count())) problems.push('not drawn: no “Move it” on the left listing');
+    for (const want of ['Not reached on any of the 5 days since you listed it; today’s cheapest listing is 1.7% under.', '0 of 5 days since placed', '112']) if (!listRow.includes(want)) problems.push(`not drawn on the left listing's row: “${want}” (${listRow.slice(0, 200)})`);
+    if (bidRow.includes('of the last 14 days') || listRow.includes('of the last 14 days')) problems.push('a left order the market has left still reads “of the last 14 days”');
+    const why = (await page.locator(`tr[data-order="${BID_ID}"] .flag`).first().getAttribute('data-tip').catch(() => '')) ?? '';
+    if (!why.includes('At 104, the lowest trading got down to since you placed it (on 1 of those days), it still makes')) problems.push(`the left bid's verdict tip doesn't say where it moves (${why.slice(0, 200)})`);
+    if (!PHONE) {
+      const s = await sideways(page);
+      if (s?.over > 0) problems.push(`the orders table scrolls sideways: ${s.over} px past its ${s.width} px box`);
+    }
+    let boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out: ${o}`);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-left-orders.png` });
+    // To do: one item each, Needs action, the bid's opening copying 104.
+    await page.evaluate(() => { location.hash = '#todo'; });
+    const items = page.locator('.tn-item', { hasText: 'Not reached since you placed it' });
+    await items.first().waitFor({ timeout: 10_000 }).catch(() => problems.push('not drawn: no “Not reached since you placed it” item on To do'));
+    const texts = (await items.allInnerTexts().catch(() => [])).map((t) => t.replace(/\s+/g, ' '));
+    if (texts.length !== 2) problems.push(`To do lists ${texts.length} “Not reached since you placed it” items, not the bid's and the listing's`);
+    const bidItem = texts.find((t) => t.includes('Left Bid Fixture buy order')) ?? '';
+    for (const want of ['Not reached on any of the 5 days since you placed it', 'Move it to 104 ISK']) if (!bidItem.includes(want)) problems.push(`not drawn: the bid's To do item's “${want}” (${bidItem.slice(0, 200)})`);
+    if (!texts.some((t) => t.includes('Left Listing Fixture sell order') && t.includes('Move it to 112 ISK'))) problems.push('not drawn: the listing’s To do item moving it to 112');
+    if (await page.locator('.tn-item', { hasText: 'Left Bid Fixture' }).count() !== 1) problems.push('the left bid has more than one To do item');
+    await page.getByRole('button', { name: /Needs action/ }).click().catch((e) => problems.push(`couldn't filter To do: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(300);
+    if ((await page.locator('.tn-item', { hasText: 'Not reached since you placed it' }).count()) !== 2) problems.push('the “Not reached since you placed it” items aren’t under Needs action');
+    await page.locator('.tn-item', { hasText: 'Left Bid Fixture' }).getByRole('button', { name: 'Open in game' }).click().catch((e) => problems.push(`couldn't open the bid in game: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(500);
+    const copied = await page.evaluate(() => window.__copied ?? []);
+    if (!copied.includes('104')) problems.push(`opening the bid's item didn't copy 104: ${JSON.stringify(copied)}`);
+    boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary on To do');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on To do: ${o}`);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-left-todo.png` });
+    await page.evaluate(() => localStorage.removeItem('jita-ledger:todo-filter'));
+    checked++;
+    const unique = [...new Set(problems)];
+    if (unique.length) failures.push({ ledger: 'plan', page: 'orders (not reached since placed)', problems: unique });
+    process.stdout.write(unique.length ? `  FAIL plan #orders (not reached since placed)\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   plan #orders (a left bid and listing not reached since placed: said under the verdict and in Clears in) and #todo (one item each, Needs action, the move copied)\n');
+    await page.close();
+  }
   // A plan that took over a position with earlier trading (the user's second plan, 2 October 2026): Datacore - Rocket
   // Science's position open for a week, 9,372 sold before the plan and 2,000 of the 2,628 it held sold since, the plan's bid
   // of 188 not filled. Showing the plan's positions must count it from the plan's start (nothing bought or sold, nothing

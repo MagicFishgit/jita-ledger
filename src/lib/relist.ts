@@ -1,5 +1,5 @@
 import { priceDown, priceUp, tickDown, tickUp } from './tick';
-import { askReachDays, bidReachDays, fillingNow, FILL_RARE, FILL_TYPICAL, FILL_WINDOW, listingPrice, reachedAsk, reachedBid } from './fills';
+import { askReachDays, bidReachDays, fillingNow, FILL_RARE, FILL_TYPICAL, FILL_WINDOW, listingPrice, reachedAsk, reachedBid, sincePlaced } from './fills';
 import { breakEvenSell, rates, type Settings } from './fees';
 import { RELIST_MIN_H, type FlowDay, type OrderLite } from './flow';
 import { isk, iskBig, units } from './format';
@@ -99,7 +99,31 @@ export type Relist = {
   plan?: PlanTarget;
   /** A buy whose stock, with what you hold and what's listed ahead, takes over LONG_QUEUE_DAYS of buyers to sell (`feedingQueue`). */
   feeds?: FeedsQueue;
+  /**
+   * A left order judged on the days since it was first placed (`sincePlaced`: placed within the last 14 days, with trading on
+   * LEFT_MIN_DAYS of them or more): how many days (`days`, today's when the app watched it), how many traded, and on how many
+   * the bulk of trading reached its price. `reach` (above) stays the last 14 days' count. Reached on none of them, and not
+   * visibly filling, it's `unreached` on those days alone (`notReachedSince`).
+   */
+  since?: { days: number; traded: number; reach: number };
 };
+
+/** A left order the bulk of trading hasn't reached on any day since it was placed: what To do and the mail call "Not reached since you placed it". */
+export const notReachedSince = (x: Pick<Relist, 'unreached' | 'since'>): boolean => x.unreached && x.since?.reach === 0;
+
+const pctSaid = (x: number) => `${x >= 1 ? Math.round(x * 100) : (x * 100).toFixed(x < 0.1 ? 1 : 0)}%`;
+
+/**
+ * How a left order the market has left is said, first, wherever it's said (Orders, To do, the mail): "Not reached on any of
+ * the 7 days since you placed it; today's best bid is 8.6% over". The best price on its side is others' (`best`).
+ */
+export function sinceLead(x: Pick<Relist, 'isBuy' | 'price' | 'best' | 'since'>): string {
+  const n = x.since?.days ?? 0;
+  const head = `Not reached on any of the ${n} days since you ${x.isBuy ? 'placed' : 'listed'} it`;
+  if (x.best == null || !(x.price > 0)) return head;
+  if (x.isBuy) return x.best > x.price ? `${head}; today’s best bid is ${pctSaid(x.best / x.price - 1)} over` : `${head}, though you’re the best bid`;
+  return x.best < x.price ? `${head}; today’s cheapest listing is ${pctSaid(1 - x.best / x.price)} under` : `${head}, though you’re the cheapest listing`;
+}
 
 /**
  * Of what a plan's buy expected to make, the share a raise must still leave: half, or the user's own target return if
@@ -342,6 +366,9 @@ type Mine = { orderId: number; typeId: number; isBuy: boolean; price: number; vo
   /** The order's kept versions: a raise's guard counts the price changes already paid for. */
   seen?: { price: number; remain: number }[] };
 
+/** When an order was first placed: its first kept version's time, since a price change moves `issued`; else `issued`. */
+export const firstPlaced = (o: { issued?: string; seen?: { issued?: string }[] }): string | null => o.seen?.[0]?.issued ?? o.issued ?? null;
+
 export type MarketContext = {
   book: OrderLite[];
   /**
@@ -382,6 +409,12 @@ export type MarketContext = {
    * Null when nothing can be said; left out (callers from before it), one step under `bestSell`.
    */
   resale?: number | null;
+  /**
+   * The day `lows` and `highs` end on (`recentRange`'s `end`), and when this order was first placed (`firstPlaced`): with both,
+   * a left order is judged on the days since it was placed (`sincePlaced`). Left out, it's judged on the 14 days, as before.
+   */
+  end?: string | null;
+  placed?: string | null;
 };
 
 /**
@@ -630,9 +663,11 @@ export function afterMoveSaid(a: AfterMove, rate: { perH: number; watchedH: numb
  * alert mail all do: your side's pace, your cost, how far trading reaches, and your own fills.
  */
 export function judgeOrder(
-  o: Mine & { locationId: number; seen?: { issued: string; price: number; remain: number }[] },
+  o: Mine & { locationId: number; issued?: string; seen?: { issued: string; price: number; remain: number }[] },
   m: { book: OrderLite[]; perDay: number | null; avgCost?: number | null; lows: (number | null)[] | null; txs: Parameters<typeof fillingNow>[2]; watched?: FlowDay;
     highs?: (number | null)[] | null; leave?: boolean;
+    /** The day `lows` and `highs` end on (`recentRange`'s `end`): a left order is then judged on the days since it was placed. */
+    end?: string | null;
     /** The IDs of all your open orders (this one may be among them): the rest of yours on this item are set apart. */
     yours?: number[];
     /** The plan the item belongs to (`planTargets`), if any. */
@@ -676,9 +711,9 @@ export function judgeOrder(
 }
 
 function adviseOrder(
-  o: Mine & { locationId: number; seen?: { issued: string; price: number; remain: number }[] },
+  o: Mine & { locationId: number; issued?: string; seen?: { issued: string; price: number; remain: number }[] },
   m: { book: OrderLite[]; perDay: number | null; avgCost?: number | null; lows: (number | null)[] | null; txs: Parameters<typeof fillingNow>[2];
-    highs?: (number | null)[] | null; leave?: boolean; yours?: OrderLite[]; plan?: PlanTarget | null; resale?: number | null },
+    highs?: (number | null)[] | null; leave?: boolean; yours?: OrderLite[]; plan?: PlanTarget | null; resale?: number | null; end?: string | null },
   s: Settings,
   now: number,
 ): Relist {
@@ -694,6 +729,8 @@ function adviseOrder(
     yours: m.yours,
     plan: m.plan,
     resale: m.resale,
+    end: m.end,
+    placed: firstPlaced(o),
     targetReturn: s.target / 100,
     filling: fillingNow(o, m.book.find((x) => x.id === o.orderId)?.volume, m.txs, now),
   }, rates(s), s.waitHours, s.target / 100);
@@ -831,10 +868,23 @@ export function adviseRelist(
   const ordinarySell = !mine.isBuy && !m.leave;
   const frontReach = ordinarySell && reach != null ? askReachDays(m.highs!, Number.isFinite(oneStep) ? oneStep : price) : reach;
   const sellReachAt = !mine.isBuy && m.highs ? reachedAsk(m.highs) : null;
+  // A left order is judged on the days since it was first placed too (`sincePlaced`): the last 14 days hold days before it
+  // existed, and a bid priced where trading reached on half of them read "reached on 5 of the last 14 days" for a week after
+  // the market had left it (the plans review, 9 October 2026). Reached on none of them, it's unreached whatever the 14 days
+  // say; reached on some, it's judged as before, on the 14 days, and said on these.
+  const sinceW = m.leave && !gone ? sincePlaced(mine.isBuy ? m.lows : m.highs, m.end, m.placed) : null;
+  const sinceReach = sinceW ? (mine.isBuy ? bidReachDays(sinceW.xs, price) : askReachDays(sinceW.xs, price)) : null;
+  const notSince = sinceReach === 0 && !m.filling;
   // Your own fills overrule the count: history lags and is trimmed, your order isn't. An ordinary sell on an item that
   // traded on too few days to say where trading reaches keeps its queue advice.
-  let unreached = frontReach != null && frontReach < FILL_RARE && !m.filling && !(ordinarySell && sellReachAt == null);
-  let reachAt = !unreached ? null : mine.isBuy ? reachedBid(m.lows!) : sellReachAt;
+  let unreached = notSince || (frontReach != null && frontReach < FILL_RARE && !m.filling && !(ordinarySell && sellReachAt == null));
+  // Where a left order the market has left moves to. A buy: where trading reaches now, as for any left buy (`reachedBid`
+  // over the 14 days, the price Place and leave would bid today), and never under the lowest the days since it was placed
+  // got down to, so it's a price trading has reached since. A sell: the highest the days since it was listed got up to.
+  const nowBid = notSince && mine.isBuy ? reachedBid(m.lows!) : null;
+  let reachAt = !unreached ? null
+    : notSince ? (mine.isBuy ? Math.max(nowBid ?? 0, reachedBid(sinceW!.xs, 1)!) : reachedAsk(sinceW!.xs, 1))
+      : mine.isBuy ? reachedBid(m.lows!) : sellReachAt;
   // Where trading reached may be under today's best bid when the market has since moved up (the membrane's fortnight
   // was mostly 55,000 before a buyer arrived at 100,000). A listing there would just sell into the bid, so the move
   // is to one step over it instead.
@@ -931,12 +981,6 @@ export function adviseRelist(
     const at = priceText;
     let said: string, there: string, sellNow = '';
     if (overBid) {
-      // The market has moved up past where it used to trade: say it the way the user read it, and that selling into
-      // that bid now pays about the same, straight away. Listing one step over a bid gains a tick (at most ~0.1% at
-      // four figures) and moving costs a price-change fee (~0.26%), so the bid is never worse by more than that.
-      const n = ordinarySell && beaten ? frontReach : reach;
-      said = `${n === 0 ? 'Nobody buys at your price' : 'Buyers rarely pay your price'}${ordinarySell && beaten ? ` or even at the front, ${at(oneStep)}` : ''} (reached on ${n} of the last ${FILL_WINDOW} days)`;
-      there = `Where it used to trade, ${at(reachAt!)}, is below today’s best bid of ${at(bestBid!)}, so list one step above it at ${at(newPrice)}`;
       // Only someone else's bid: selling into your own buy order is trading with yourself.
       const theirs = m.book.filter((o) => o.isBuy && o.id !== mine.orderId && o.price === bestBid);
       const theirUnits = theirs.reduce((n2, o) => n2 + o.volume, 0);
@@ -945,6 +989,20 @@ export function adviseRelist(
           ? ', or sell into that bid now for about the same'
           : `, or sell into the bids now for about the same (that one takes ${units(theirUnits)} of your ${units(volumeRemain)})`;
       }
+    }
+    if (notSince) {
+      // Listed and left, and the market hasn't come up to it on any day since: the highest it got up to since then.
+      said = sinceLead({ isBuy: false, price, best, since: { days: sinceW!.days, traded: sinceW!.traded, reach: 0 } });
+      there = overBid
+        ? `The most the bulk of trading got up to since, ${at(reachAt!)}, is below today’s best bid of ${at(bestBid!)}, so list one step above it at ${at(newPrice)}`
+        : `The most the bulk of trading got up to since was ${at(reachAt!)}, on ${askReachDays(sinceW!.xs, reachAt!)} of them`;
+    } else if (overBid) {
+      // The market has moved up past where it used to trade: say it the way the user read it, and that selling into
+      // that bid now pays about the same, straight away. Listing one step over a bid gains a tick (at most ~0.1% at
+      // four figures) and moving costs a price-change fee (~0.26%), so the bid is never worse by more than that.
+      const n = ordinarySell && beaten ? frontReach : reach;
+      said = `${n === 0 ? 'Nobody buys at your price' : 'Buyers rarely pay your price'}${ordinarySell && beaten ? ` or even at the front, ${at(oneStep)}` : ''} (reached on ${n} of the last ${FILL_WINDOW} days)`;
+      there = `Where it used to trade, ${at(reachAt!)}, is below today’s best bid of ${at(bestBid!)}, so list one step above it at ${at(newPrice)}`;
     } else {
       said = !ordinarySell
         ? `The bulk of trading got up to your price on ${reach} of the last ${FILL_WINDOW} days`
@@ -982,8 +1040,14 @@ export function adviseRelist(
     const oldDry = old == null || old < target;
     const ret = plan ? guardRet : old;
     const bar = plan ? floor : target;
-    const said = `The bulk of trading reached your bid on ${reach} of the last ${FILL_WINDOW} days`;
     const at = priceText;
+    // Placed and left, and the market hasn't come down to it on any day since: said so, and where trading reaches now on
+    // both counts, the days since it was placed and the last 14.
+    const said = notSince ? sinceLead({ isBuy: true, price, best, since: { days: sinceW!.days, traded: sinceW!.traded, reach: 0 } })
+      : `The bulk of trading reached your bid on ${reach} of the last ${FILL_WINDOW} days`;
+    const whereNow = !notSince ? ''
+      : newPrice === nowBid ? `where trading reached on ${bidReachDays(m.lows!, newPrice)} of the last ${FILL_WINDOW} days (${bidReachDays(sinceW!.xs, newPrice)} of the ${sinceW!.days} since you placed it)`
+        : `the lowest trading got down to since you placed it (on ${bidReachDays(sinceW!.xs, newPrice)} of those days)`;
     // For a plan's bid, what the figure rests on: the changes already paid, where it sells on, and the plan's bar.
     const onPlan = (side: 'over' | 'under') => !plan ? ''
       : `${paid > 0 ? `, counting the ${iskBig(paid * volumeRemain)} already paid to change its price` : ''}, selling on at ${at(sellOn!)} (${sellOn === plan.sellAt ? 'the plan’s price' : 'where a listing sells now'}), ${side} ${planBar()}`;
@@ -992,17 +1056,19 @@ export function adviseRelist(
       why = `${said}, and the item traded on too few days for any bid to be reached reliably`;
     } else if ((ret == null || ret < bar) && (!plan || oldDry || !badBuy)) {
       verdict = 'dry';
-      why = `${said}. Bidding where it did on ${FILL_TYPICAL} of them, ${at(newPrice)}, ${ret == null ? 'would leave nothing to sell into'
+      why = `${said}. ${notSince ? `Bidding ${at(newPrice)}, ${whereNow},` : `Bidding where it did on ${FILL_TYPICAL} of them, ${at(newPrice)},`} ${ret == null ? 'would leave nothing to sell into'
         : plan ? `${ret < 0 ? `would lose ${pctText(-ret)}` : `would leave ${pctText(ret)}`} after fees${onPlan('under')}`
           : ret < 0 ? `would lose ${pctText(-ret)} after fees` : `would leave ${pctText(ret)} after fees, under your ${pctText(target)} target`}`;
     } else if (badBuy) {
       // The raise doesn't pay: for a buy no plan priced, under break-even; for a plan's, under its floor while listings
       // still clear your target (a cancel the rule without the plan wouldn't give). Keep it, the guard's own words.
       verdict = 'loss';
-      why = keepWhy();
+      why = notSince ? `${said}. ${keepWhy()}` : keepWhy();
     } else {
       verdict = 'move';
-      why = `${said}. At ${at(newPrice)} it did on ${FILL_TYPICAL} of them, and still makes ${pctText(ret!)} after fees${onPlan('over')}`;
+      why = notSince
+        ? `${said}. At ${at(newPrice)}, ${whereNow}, it still makes ${pctText(ret!)} after fees${onPlan('over')}`
+        : `${said}. At ${at(newPrice)} it did on ${FILL_TYPICAL} of them, and still makes ${pctText(ret!)} after fees${onPlan('over')}`;
     }
   } else if (!beaten) {
     verdict = 'front';
@@ -1081,9 +1147,12 @@ export function adviseRelist(
   if (left && !unreached && (verdict === 'move' || verdict === 'wait' || verdict === 'loss')) {
     verdict = 'wait';
     const side = mine.isBuy ? 'bid' : 'price';
-    why = reach != null
-      ? `You’re leaving this one: the bulk of trading reached your ${side} on ${reach} of the last ${FILL_WINDOW} days`
-      : 'You’re leaving this one where it is';
+    // Said on the days it has been in the book, when there are enough of them: the 14 hold days before it existed.
+    why = sinceW && sinceReach != null
+      ? `You’re leaving this one: the bulk of trading reached your ${side} on ${sinceReach} of the ${sinceW.days} days since you ${mine.isBuy ? 'placed' : 'listed'} it`
+      : reach != null
+        ? `You’re leaving this one: the bulk of trading reached your ${side} on ${reach} of the last ${FILL_WINDOW} days`
+        : 'You’re leaving this one where it is';
   }
   // A plan's sell told to go under the price the plan expected to sell at says so; the guard against selling under
   // what the stock cost (above) is the same as any sell's.
@@ -1104,6 +1173,7 @@ export function adviseRelist(
     aheadUnits, aheadOrders: ahead.length, hoursToFront, topRivalShare, yourHours,
     cutPct, waitingPaysDaily,
     verdict, why, reach, reachAt, unreached, left,
+    ...(sinceW && sinceReach != null ? { since: { days: sinceW.days, traded: sinceW.traded, reach: sinceReach } } : {}),
     ...(overBid && unreached ? { overBid: true } : {}),
     ...(keep ? { keep } : {}),
   };

@@ -1,6 +1,6 @@
 import { fmtDateTime, isk, iskBig, units } from './format';
 import { planListSaid, type Listed, type PlanItem, type PlanItemState, type PlanListPrice, type TradePlan } from './plans';
-import { FEEDS_QUEUE_DO, feedsQueueLead, type FeedsQueue, type Verdict } from './relist';
+import { FEEDS_QUEUE_DO, feedsQueueLead, notReachedSince, type FeedsQueue, type Relist, type Verdict } from './relist';
 import { DATACORE_FEE, RP_PER_DATACORE } from './research';
 
 /**
@@ -17,7 +17,7 @@ import { DATACORE_FEE, RP_PER_DATACORE } from './research';
  * is simply absent, and reading absent as done would tick the whole list off on every load.
  */
 
-export type TodoKind = 'move' | 'cancel' | 'bid' | 'underCost' | 'feedsQueue' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry' | 'courier' | 'cloudLogin' | 'placeBuy' | 'planList' | 'cashIn';
+export type TodoKind = 'move' | 'cancel' | 'bid' | 'notReached' | 'underCost' | 'feedsQueue' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry' | 'courier' | 'cloudLogin' | 'placeBuy' | 'planList' | 'cashIn';
 
 /** Which read a finding came from, and so which read can say it has gone. */
 export type Source = 'orders' | 'colonies' | 'signals' | 'ledger' | 'industry' | 'contracts' | 'cloud' | 'roster' | 'research';
@@ -106,11 +106,11 @@ export function tickAll(m: Memory, keys: string[], now: number): Memory {
  * measured --- they are there so a list of twelve relists reads as a quarter of an hour, not an evening.
  */
 export const MINUTES: Record<TodoKind, number> = {
-  move: 1, cancel: 1, bid: 2, underCost: 1, feedsQueue: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1, industry: 1, courier: 10, cloudLogin: 1, placeBuy: 1, planList: 1, cashIn: 5,
+  move: 1, cancel: 1, bid: 2, notReached: 1, underCost: 1, feedsQueue: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1, industry: 1, courier: 10, cloudLogin: 1, placeBuy: 1, planList: 1, cashIn: 5,
 };
 
 export const KIND_LABEL: Record<TodoKind, string> = {
-  move: 'Move order', cancel: 'Cancel order', bid: 'Sell into bids', underCost: 'Priced under cost', feedsQueue: 'Feeds a long queue', close: 'Close position', squeeze: 'Margin squeeze', piExpired: 'PI expired',
+  move: 'Move order', cancel: 'Cancel order', bid: 'Sell into bids', notReached: 'Not reached since you placed it', underCost: 'Priced under cost', feedsQueue: 'Feeds a long queue', close: 'Close position', squeeze: 'Margin squeeze', piExpired: 'PI expired',
   piEnding: 'PI ending', nearMiss: 'Trades your positions skipped', scam: 'Suspicious market', backup: 'Backup', industry: 'Industry jobs to deliver', courier: 'Courier to deliver',
   cloudLogin: 'Cloud login', placeBuy: 'Place buy order', planList: 'List what the plan bought', cashIn: 'Cash in datacores',
 };
@@ -250,6 +250,33 @@ export function feedsQueueItem(
     title: `${name} buy order`,
     detail: `${feedsQueueLead(x.feeds)} ${FEEDS_QUEUE_DO}`,
     action,
+  };
+}
+
+/**
+ * A left order (Place and leave, or left by hand) the bulk of trading hasn't reached on any day since it was placed
+ * (`notReachedSince`, the plans review of 9 October 2026: 633 M sat in 13 such bids, each read "reached on 5 of the last
+ * 14 days" from days before it existed). One item per order, whatever it's told, since the point is to see what sits where
+ * the market isn't: keyed by the order as its move or cancel would be, so it stands in their place, and versioned by the
+ * order's price, as a long queue's is: where trading reaches now moves with each day's history and doesn't reopen a hand
+ * tick; a reprice does. A move copies its price when opened in game and says what it costs; a cancel says what it frees;
+ * Keep it, or a listing whose move would sell under cost, is said in the verdict's own words and copies nothing (no cancel
+ * is added to a Keep it: the rule of 8 October 2026). Judged as any order item (`judgeOrder`): ticked off by a newer check
+ * that read its book and no longer says so, or the order closing.
+ */
+export function notReachedItem(
+  x: Pick<Relist, 'orderId' | 'typeId' | 'isBuy' | 'price' | 'newPrice' | 'atRisk' | 'cost' | 'verdict' | 'why' | 'unreached' | 'since'>,
+  name: string,
+  action: TodoItem['action'],
+): TodoItem | null {
+  if (!notReachedSince(x)) return null;
+  const move = x.verdict === 'move';
+  return {
+    key: `order:${x.orderId}`, ver: `notReached:${x.price}`, kind: 'notReached', source: 'orders', price: x.price, stake: x.atRisk, typeId: x.typeId,
+    title: `${name} ${x.isBuy ? 'buy' : 'sell'} order`,
+    detail: move ? `${x.why}. Move it to ${isk(x.newPrice)}: costs ${iskBig(x.cost)}.`
+      : x.verdict === 'dry' ? `${x.why}. Cancel it to free ${iskBig(x.atRisk)}.` : `${x.why}.`,
+    action: move ? { ...action, copy: x.newPrice } : action,
   };
 }
 

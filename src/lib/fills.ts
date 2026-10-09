@@ -91,6 +91,36 @@ export function withWatchedHighs(highs: (number | null)[], end: string, watched:
   return highs.map((h, i) => highest(h, watched[dayKey(e - (highs.length - 1 - i) * DAY)]?.sellHigh));
 }
 
+/**
+ * A left order (Place and leave, or left by hand) is judged on the days since it was first placed once trading happened on
+ * this many of them; before then it's judged as any other left order, on the last 14 days. The plans review (9 October
+ * 2026): the 2 October plan's bids, priced where trading reached on half the fortnight before, kept reading "reached on 5
+ * of the last 14 days" for a week while the market had risen away from them, the reaching days all from before they
+ * existed: 633 M sat in 13 such bids. Three days of trading is the least that says the market has left one.
+ */
+export const LEFT_MIN_DAYS = 3;
+
+/**
+ * The days of a window of daily lows or highs (`recentRange`'s, oldest first, ending on the day `end`) from the UTC day an
+ * order was first placed (`placed`, its first version's time) to the window's end, that day included: `days` of them,
+ * `traded` with trading, and their figures `xs`. Null when the order was placed before the window's first day (the window is
+ * then all since it was placed, and the usual count says so), after its last, when the time can't be read, or when fewer
+ * than LEFT_MIN_DAYS of those days traded: too few to say the market has left it, and nobody trading isn't the market leaving.
+ * The day it was placed counts whole, so trading that morning, before the order existed, counts as reaching it: that errs
+ * towards saying nothing.
+ */
+export function sincePlaced(xs: (number | null)[] | null | undefined, end: string | null | undefined, placed: string | null | undefined): { days: number; traded: number; xs: (number | null)[] } | null {
+  if (!xs?.length || !end || !placed) return null;
+  const e = Date.parse(end + 'T00:00:00Z');
+  const p = Date.parse(placed);
+  if (!Number.isFinite(e) || !Number.isFinite(p)) return null;
+  const days = Math.round((e - Date.parse(dayKey(p) + 'T00:00:00Z')) / DAY) + 1;
+  if (days < 1 || days > xs.length) return null;
+  const tail = xs.slice(-days);
+  const traded = tail.filter((x) => x != null).length;
+  return traded >= LEFT_MIN_DAYS ? { days, traded, xs: tail } : null;
+}
+
 /** On how many of the days the bulk of trading got down to a bid at `price`. */
 export function bidReachDays(lows: (number | null)[], price: number): number {
   return lows.filter((l) => l != null && l <= price).length;

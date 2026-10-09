@@ -1560,8 +1560,35 @@ console.log('\n--- the list step: what a plan bought, priced to list ---');
   eq('  break-even is what they cost after the broker fee and sales tax, as Orders works it out: 1,708,000', pat.breakEven, 1_708_000);
   eq('  its profit after fees on the 11: +1.35 M', Math.round(pat.profit), Math.round(11 * (1_836_000 * keep - inf.unitCost)));
   const patSaid = planListSaid(pat, true);
-  eq('  said: the plan’s price, and List patiently today beside it', [patSaid.from, patSaid.other, patSaid.moved, patSaid.floor],
-    ['The plan’s price: list it and leave it', 'List patiently today: 1,836,000 ISK', null, null]);
+  // The fortnight hasn't moved (List patiently is the plan's own price), but today's book has: the cheapest listing from
+  // others, 1,609,000, is 12.4% under the plan's price and under the 1,708,000 break-even (the plans review, 9 October 2026).
+  eq('  said: the plan’s price, List patiently today beside it, and today’s cheapest listing far under it, with what they make there',
+    [patSaid.from, patSaid.other, patSaid.moved, patSaid.floor],
+    ['The plan’s price: list it and leave it', 'List patiently today: 1,836,000 ISK',
+      'The market has moved down since the plan: today’s cheapest listing is 1,609,000 ISK, 12.4% under the plan’s 1,836,000 ISK; sold there, they make −1.04 M ISK after fees (−5.8%).', null]);
+  eq('  the profit at the plan’s price says it’s over today’s cheapest listing', [pat.cheapest, pat.overCheapest, patSaid.profit],
+    [1_609_000, true, '+1.35 M ISK after fees (+7.5%) if they sell at 1,836,000 ISK, over today’s cheapest listing of 1,609,000 ISK']);
+  // Federation Navy Fleet Captain Insignia I (the plans review, 9 October 2026): 37 at 826,978 each, the plan's 920,100, List
+  // patiently 915,200 (the fortnight hasn't moved), today's cheapest listing from others 801,200. The list step read "+6.1%",
+  // nothing moved. Now today's listing far under the plan's price is the market moving down, said with what they make there.
+  {
+    const { iskBigSigned, pct: pctF } = await import('../src/lib/format.ts');
+    const fed = (bestSell) => planListPrice({ sellAt: 920_100 }, true, 37, 826_978, r, { bestSell, bestBuy: 700_100, highs: Array(14).fill(915_200) });
+    const fn = fed(801_200), fnSaid = planListSaid(fn, true);
+    const there = 37 * (801_200 * keep - 826_978);
+    eq('Fed Navy Insignia: List patiently 915,200 hasn’t moved, but today’s cheapest listing is 12.9% under the plan’s price',
+      [fn.price, fn.today, fn.moved, fn.cheapest, Math.round(fn.atCheapest.by * 1000) / 1000, Math.round(fn.atCheapest.profit)], [920_100, 915_200, null, 801_200, 0.129, Math.round(there)]);
+    eq('  said: moved down, with today’s figure and what the 37 make there, a loss', fnSaid.moved,
+      `The market has moved down since the plan: today’s cheapest listing is 801,200 ISK, 12.9% under the plan’s 920,100 ISK; sold there, they make ${iskBigSigned(there)} after fees (${pctF(there / (37 * 826_978), 1)}).`);
+    eq('  and the profit at the plan’s price says it’s over today’s cheapest listing', fnSaid.profit.endsWith(' if they sell at 920,100 ISK, over today’s cheapest listing of 801,200 ISK'), true);
+    const near = fed(900_000), nearSaid = planListSaid(near, true);
+    eq('  today’s cheapest 2.2% under: not moved, but its profit still says it’s over today’s cheapest listing', [near.atCheapest, nearSaid.moved, near.overCheapest, nearSaid.profit.includes('over today’s cheapest listing of 900,000 ISK')], [null, null, true, true]);
+    const over = fed(950_000);
+    eq('  today’s cheapest over the plan’s price: nothing said of it', [over.atCheapest, over.overCheapest, planListSaid(over, true).profit.includes('cheapest')], [null, false, false]);
+    eq('  no book read: nothing said of today’s listings', [fed(null).cheapest, fed(null).atCheapest, fed(null).overCheapest], [null, null, false]);
+    const item = planListItem({ planId: 'p', planName: '2 Oct', patient: true, typeId: 15592, units: 37, unitCost: 826_978 }, fn, 'Federation Navy Fleet Captain Insignia I');
+    eq('  on To do: the move and the profit’s caveat', [item.detail.includes(fnSaid.moved), item.detail.includes(`Makes ${fnSaid.profit}.`)], [true, true]);
+  }
   // At the front: today's listing price, floored at break-even.
   const front = planListPrice(inf.item, false, inf.units, inf.unitCost, r, market(INF));
   eq('at the front: today’s listing price, 1,608,000, is under break-even, so it lists at 1,708,000; the plan’s price beside it',
@@ -5033,6 +5060,129 @@ console.log('\n--- a plan’s bid is told to cancel only when no price clears th
   const now2 = remember(ticked, [moveItem], () => t1, () => 'done', t1);
   eq('To do: a cancel that becomes a move is the move, open, its tick gone, never “done”', [now2['order:1'].item.kind, now2['order:1'].done, now2['order:1'].ticked, splitTodo(now2, new Set(['order:1'])).open.length], ['move', undefined, undefined, 1]);
   eq('  and the order judge, asked of the cancel, waits on a move', judgeTodo({ item: cancelItem, seenAt: t0, lastAt: t0 }, { open: true, checkedAt: t1, bookRead: true, v: clears }), null);
+}
+
+console.log('\n--- a left order is judged on the days since it was placed (the plans review, 9 October 2026) ---');
+{
+  // The 2 October plan's bids were priced where trading reached on half the fortnight before, then the market rose: each
+  // read "You're leaving this one: reached on 5 of the last 14 days" for a week, the reaching days all from before it
+  // existed. 633 M sat in 13 such bids. Now a left order with trading on LEFT_MIN_DAYS of the days since it was first placed
+  // (`seen[0]`) is judged on those days too: reached on none of them, it's unreached, and the plan's three-way rule decides.
+  const { adviseRelist: advise, judgeOrder: judgeOne, notReachedSince, sinceLead } = await import('../src/lib/relist.ts');
+  const { sincePlaced, LEFT_MIN_DAYS } = await import('../src/lib/fills.ts');
+  const { orderFindings, alertMail: mail } = await import('../src/lib/alerts.ts');
+  const T = await import('../src/lib/todo.ts');
+  const RP = { k: 0.0025, f: 0.01, t: 0.03 };
+  const END = '2026-10-08', PLACED = '2026-10-02T15:40:00Z';
+  // The days since: 2 to 8 October, seven of them.
+  const lows = [95, 95, 95, 95, 95, 95, 95, 104, 105, 106, 107, 108, 109, 110];
+  eq('the days since it was placed: 2 to 8 October, the day it was placed counted whole', sincePlaced(lows, END, PLACED), { days: 7, traded: 7, xs: [104, 105, 106, 107, 108, 109, 110] });
+  eq('  placed 6 October: three days, enough', sincePlaced(lows, END, '2026-10-06T23:59:00Z')?.days, LEFT_MIN_DAYS);
+  eq('  placed yesterday, or the day before: too few to say (nothing new), and today, none',
+    [sincePlaced(lows, END, '2026-10-08T01:00:00Z'), sincePlaced(lows, END, '2026-10-07T12:00:00Z'), sincePlaced(lows, END, '2026-10-09T09:00:00Z')], [null, null, null]);
+  eq('  placed before the window: the 14 days are all since, and the usual count says so', sincePlaced(lows, END, '2026-09-20T00:00:00Z'), null);
+  eq('  a time it can’t read, or no end: nothing', [sincePlaced(lows, END, 'soon'), sincePlaced(lows, null, PLACED), sincePlaced(null, END, PLACED)], [null, null, null]);
+  eq('  trading on only 2 of the days since: too few to say the market left it', sincePlaced([95, 95, 95, 95, 95, 95, 95, null, null, 104, null, null, 105, null], END, PLACED), null);
+
+  const mine = { orderId: 1, typeId: 34, isBuy: true, price: 100, volumeRemain: 1000 };
+  const book = [o(1, true, 100, 1000), o(2, true, 103, 500), o(3, false, 121, 300)];
+  const at = (extra = {}) => advise(mine, { book, bestSell: 121, lows, targetReturn: 0.05, leave: true, end: END, placed: PLACED, ...extra }, RP, 4, 0.05);
+  // Before: 7 of the last 14 days reached it, all before it was placed.
+  const old = at({ end: undefined });
+  eq('without the window’s end: as before, left, "reached on 7 of the last 14 days"', [old.verdict, old.unreached, old.since, old.why],
+    ['wait', false, undefined, 'You’re leaving this one: the bulk of trading reached your bid on 7 of the last 14 days']);
+  const none = at();
+  eq('reached on none of the 7 days since it was placed: unreached, and moved up to the lowest trading got down to since (where trading reaches now, 95, is under it)',
+    [none.verdict, none.unreached, none.since, none.newPrice, none.reach, notReachedSince(none)], ['move', true, { days: 7, traded: 7, reach: 0 }, 104, 7, true]);
+  eq('  said: not reached since, today’s best bid over it, where it moves and what it still makes', none.why,
+    'Not reached on any of the 7 days since you placed it; today’s best bid is 3.0% over. At 104, the lowest trading got down to since you placed it (on 1 of those days), it still makes 10% after fees');
+  eq('  the lead on its own, as Orders shows it under the verdict', sinceLead(none), 'Not reached on any of the 7 days since you placed it; today’s best bid is 3.0% over');
+  // Where trading reaches now, on the fortnight (the 7th-lowest low, 106), over the lowest since (104): that.
+  const now = at({ lows: [95, 95, 95, 95, 120, 120, 120, 104, 105, 106, 107, 108, 109, 110] });
+  eq('where trading reaches now is over the lowest since: there, on both counts', [now.verdict, now.newPrice, now.why.includes('At 106, where trading reached on 7 of the last 14 days (3 of the 7 since you placed it), it still makes')], ['move', 106, true]);
+  // The plan's three-way rule (8 October 2026), unchanged: move over the plan's floor, cancel under it, keep it where the
+  // rule without the plan wouldn't cancel.
+  const plan8 = { buyAt: 100, sellAt: 125, expected: 0.08 };
+  const moved = at({ plan: plan8 });
+  eq('a plan bid: moved, over the plan’s floor', [moved.verdict, moved.why.endsWith('selling on at 120.9 (where a listing sells now), over the plan’s floor of 4.0% (half the 8.0% it expected)')], ['move', true]);
+  const thin = [o(1, true, 100, 1000), o(2, true, 103, 500), o(3, false, 109, 300)];
+  const dry = at({ plan: plan8, book: thin, bestSell: 109 });
+  eq('  listings at 109: cancel it, naming the plan’s floor', [dry.verdict, dry.why],
+    ['dry', 'Not reached on any of the 7 days since you placed it; today’s best bid is 3.0% over. Bidding 104, the lowest trading got down to since you placed it (on 1 of those days), would lose 0.7% after fees, selling on at 108.9 (where a listing sells now), under the plan’s floor of 4.0% (half the 8.0% it expected)']);
+  const kept = at({ plan: { buyAt: 100, sellAt: 108, expected: 0.05 }, book: [o(1, true, 100, 1000), o(2, true, 103, 500), o(3, false, 131, 300)], bestSell: 131 });
+  eq('  the plan’s own price missing its floor while listings clear your target: keep it, never cancel it', [kept.verdict, !!kept.keep, kept.why],
+    ['loss', true, 'Not reached on any of the 7 days since you placed it; today’s best bid is 3.0% over. Don’t raise it: at 104 it would lose 1.5% after fees, selling on at 108 (the plan’s price), under half the 5.0% the plan expected. Keep it at 100']);
+  const noPlanDry = at({ book: thin, bestSell: 109 });
+  eq('  no plan, listings at 109: cancel it, under your target', [noPlanDry.verdict, noPlanDry.why.endsWith('would lose 0.5% after fees')], ['dry', true]);
+  // What's said only from LEFT_MIN_DAYS days of trading since (Review Focus 1), and never for an order not left, or one filling.
+  eq('placed on 7 October: two days, nothing new', [at({ placed: '2026-10-07T12:00:00Z' }).verdict, at({ placed: '2026-10-07T12:00:00Z' }).since], ['wait', undefined]);
+  eq('placed on 6 October: three days of trading, said', [at({ placed: '2026-10-06T12:00:00Z', lows: [95, 95, 95, 95, 95, 95, 95, 95, 95, 95, 95, 108, 109, 110] }).since], [{ days: 3, traded: 3, reach: 0 }]);
+  eq('not left: judged as before, nothing since', [at({ leave: false }).since, at({ leave: false }).unreached], [undefined, false]);
+  eq('visibly filling: reached, whatever the days say', [at({ filling: true }).unreached, notReachedSince(at({ filling: true }))], [false, false]);
+  const some = at({ lows: [95, 95, 95, 95, 95, 95, 95, 99, 104, 105, 106, 107, 108, 109] });
+  eq('reached on some of the days since: left as before, said on those days', [some.verdict, some.why], ['wait', 'You’re leaving this one: the bulk of trading reached your bid on 1 of the 7 days since you placed it']);
+  // Through judgeOrder, as Orders, To do and the cloud judge: placed is the first version's time (Review Focus 2), not
+  // `issued`, which a price change moves.
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const S = sanitizeSettings({ acc: 5, br: 5, abr: 5, clone: 'omega', override: true, brokerPct: 1, taxPct: 3, target: 5 });
+  const lite = { orderId: 1, typeId: 34, isBuy: true, price: 100, volumeTotal: 1000, volumeRemain: 1000, issued: '2026-10-07T12:00:00Z', state: 'open', locationId: 60003760,
+    seen: [{ issued: PLACED, price: 99, remain: 1000 }, { issued: '2026-10-07T12:00:00Z', price: 100, remain: 1000 }] };
+  const j = (o2, end = END) => judgeOne(o2, { book, perDay: 50, lows, highs: null, end, leave: true, txs: [], yours: [1] }, S, Date.parse('2026-10-09T12:00:00Z'));
+  eq('judgeOrder: raised on 7 October, first placed on 2 October: judged on the 7 days since 2 October', [j(lite).verdict, j(lite).since?.days], ['move', 7]);
+  eq('  with no versions kept, `issued`: two days, nothing new', [j({ ...lite, seen: undefined }).verdict, j({ ...lite, seen: undefined }).since], ['wait', undefined]);
+  eq('  no end passed (an older caller): as before', [j(lite, null).verdict, j(lite, null).since], ['wait', undefined]);
+
+  // A sell listed and left: moved down to the highest the days since got up to, never under cost, never under the best bid.
+  const sell = { orderId: 5, typeId: 35, isBuy: false, price: 120, volumeRemain: 10 };
+  const highs = [125, 125, 125, 125, 125, 125, 125, 112, 111, 110, 112.5, 109, 108, 110];
+  const sBook = (bid = 100) => [o(5, false, 120, 10), o(6, false, 118, 5), o(7, true, bid, 50)];
+  const s = (extra = {}) => advise(sell, { book: sBook(), highs, leave: true, end: END, placed: PLACED, avgCost: 100, ...extra }, RP, 4, 0.05);
+  eq('a sell, before: left, reached on 7 of the last 14', s({ end: undefined }).why, 'You’re leaving this one: the bulk of trading reached your price on 7 of the last 14 days');
+  const sMove = s();
+  eq('  now: moved down to 112.5, the most trading got up to since it was listed', [sMove.verdict, sMove.newPrice, sMove.since, sMove.why],
+    ['move', 112.5, { days: 7, traded: 7, reach: 0 }, 'Not reached on any of the 7 days since you listed it; today’s cheapest listing is 1.7% under. The most the bulk of trading got up to since was 112.5, on 1 of them']);
+  eq('  under what it cost: not worth it, said so', [s({ avgCost: 110 }).verdict, s({ avgCost: 110 }).why.endsWith('on 1 of them, which would sell under what the stock cost you')], ['loss', true]);
+  const sOver = s({ book: sBook(113) });
+  eq('  under today’s best bid: one step over it, or sell into it', [sOver.verdict, sOver.newPrice, sOver.overBid, sOver.why.endsWith('The most the bulk of trading got up to since, 112.5, is below today’s best bid of 113, so list one step above it at 113.1, or sell into that bid now for about the same')],
+    ['move', 113.1, true, true]);
+
+  // To do: one item per order, in place of its move or cancel, versioned by the order's price; a move copies its price.
+  const action = { label: 'Open in game', typeId: 34 };
+  const item = T.notReachedItem(none, 'Tritanium', action);
+  eq('To do: “Not reached since you placed it”, keyed by the order, versioned by its price, the move’s price copied, something to act on',
+    [item.key, item.ver, item.kind, item.source, item.price, item.stake, item.title, item.action.copy, T.needs(item.kind), T.KIND_LABEL[item.kind]],
+    ['order:1', 'notReached:100', 'notReached', 'orders', 100, 100_000, 'Tritanium buy order', 104, 'act', 'Not reached since you placed it']);
+  eq('  its words: the why, then the move and its cost', item.detail, `${none.why}. Move it to 104 ISK: costs 4,260 ISK.`);
+  const dryItem = T.notReachedItem(dry, 'Tritanium', action);
+  eq('  a cancel: no price copied, the ISK it frees', [dryItem.ver, dryItem.action.copy, dryItem.detail.endsWith('Cancel it to free 100,000 ISK.')], ['notReached:100', undefined, true]);
+  // Keep it and a listing whose move sells under cost are on To do too: what sits where the market isn't is the point. In
+  // the verdict's own words, nothing copied, no cancel added to a Keep it.
+  const keptItem = T.notReachedItem(kept, 'Tritanium', action), lossItem = T.notReachedItem(s({ avgCost: 110 }), 'Fixture', action);
+  eq('  Keep it: listed, its own words, nothing copied', [keptItem?.kind, keptItem?.action.copy, keptItem?.detail, keptItem?.detail.includes('Cancel')], ['notReached', undefined, `${kept.why}.`, false]);
+  eq('  a listing whose move sells under cost: listed, its words, nothing copied', [lossItem?.title, lossItem?.action.copy, lossItem?.detail.endsWith('which would sell under what the stock cost you.')], ['Fixture sell order', undefined, true]);
+  eq('  nothing for an order reached since, or judged on the 14 days', [T.notReachedItem(some, 'x', action), T.notReachedItem(old, 'x', action)], [null, null]);
+  const ek = { item: keptItem, seenAt: 1000, lastAt: 1000 };
+  const still = T.remember({ [keptItem.key]: ek }, [T.notReachedItem(kept, 'Tritanium', action)], () => 2000, () => 'done', 2000);
+  eq('  a Keep it item: a newer check still keeping it lists it again, open; one reached since ticks it off in the guard’s words',
+    [still[keptItem.key].done, T.split(still, new Set([keptItem.key])).open.length, T.judgeOrder(ek, { open: true, checkedAt: 2000, bookRead: true, v: { ...kept, since: { days: 7, traded: 7, reach: 1 }, unreached: false, why: 'Don’t raise it: x. Keep it at 100' } })],
+    [undefined, 1, 'Don’t raise it: x. Keep it at 100.']);
+  eq('  a new where-trading-reaches figure doesn’t reopen it; a reprice does', [T.notReachedItem(now, 'x', action).ver, T.notReachedItem({ ...none, price: 101 }, 'x', action).ver], ['notReached:100', 'notReached:101']);
+  // Judged as any order item: only a newer check that read its book, or the order closing.
+  const e = { item, seenAt: 1000, lastAt: 1000 };
+  eq('  an older check, or one that didn’t read the book, says nothing', [T.judgeOrder(e, { open: true, checkedAt: 500, bookRead: true, v: some }), T.judgeOrder(e, { open: true, checkedAt: 2000, bookRead: false, v: some })], [null, null]);
+  eq('  a newer check that still says so keeps it', T.judgeOrder(e, { open: true, checkedAt: 2000, bookRead: true, v: none }), null);
+  eq('  moved to where trading reaches: ticked off, saying so', T.judgeOrder(e, { open: true, checkedAt: 2000, bookRead: true, v: { ...some, price: 104 } }),
+    'You moved it to 104 ISK. You’re leaving this one: the bulk of trading reached your bid on 1 of the 7 days since you placed it.');
+  eq('  the order closing ticks it off', T.judgeOrder(e, { open: false, checkedAt: null, bookRead: false }), 'The order has closed: it filled, expired or was cancelled.');
+
+  // The alert and the mail: a move or a cancel, mailed as any (the alert minimum applies), in the same words.
+  const f = orderFindings([none, { ...noPlanDry, orderId: 2 }], () => 'Tritanium');
+  eq('the alerts: a move and a cancel, both “move” for the mail', [f.map((x) => x.kind), f.map((x) => x.key)], [['move', 'move'], ['move:1:104', 'dry:2:100']]);
+  eq('  their words say since it was placed', [f[0].text, f[1].text.startsWith(`Tritanium buy order: ${noPlanDry.why}.`)],
+    ['Tritanium buy order: not reached on any of the 7 days since you placed it; today’s best bid is 3.0% over — worth moving to 104 ISK, where trading reaches now (costs 4,260 ISK).', true]);
+  const m = mail([f[0]], { appUrl: 'u/', keepMin: 30, now: Date.parse('2026-10-09T12:00:00Z') });
+  has('  the mail’s body gives the why in full', m.body, 'Not reached on any of the 7 days since you placed it; today’s best bid is 3.0% over. At 104, the lowest trading got down to since you placed it');
+  eq('  never “of the last 14 days” for it', m.body.includes('of the last 14 days'), false);
 }
 
 console.log('\n--- the sniper ---');

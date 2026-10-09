@@ -12,7 +12,7 @@ import { getCloudStatus, useCloud } from '../lib/cloud';
 import { leaveSaid, TRACK_MIN } from '../lib/track';
 import { othersUndercutRate, ownFrontMoves, relistPace } from '../lib/flow';
 import { update, useData } from '../lib/store';
-import { afterMove, afterMoveSaid, byUrgency, FEE_TARGET, feedsQueueSaid, feedsQueueTag, movesToFront, PLAN_KEEP, PLAN_KEEP_SAID, shownVerdict, type FeedsQueue, type OverResale, type Relist, type ShownVerdict, type TooBig, type UnderCost } from '../lib/relist';
+import { afterMove, afterMoveSaid, byUrgency, FEE_TARGET, feedsQueueSaid, feedsQueueTag, movesToFront, notReachedSince, PLAN_KEEP, PLAN_KEEP_SAID, shownVerdict, sinceLead, type FeedsQueue, type OverResale, type Relist, type ShownVerdict, type TooBig, type UnderCost } from '../lib/relist';
 import { tileRows } from '../lib/tileFilter';
 import { isLeft, leaveByHand, stopLeaving, type TradePlan } from '../lib/plans';
 import { FILL_WINDOW } from '../lib/fills';
@@ -358,6 +358,8 @@ export function Orders() {
                     const keep = !!x?.keep && x.verdict === 'loss';
                     // Left behind the front on purpose: the price to get back in front isn't advice for it.
                     const heldBack = !!x?.left && x.verdict === 'wait';
+                    // Left, and the market hasn't reached it on any day since it was placed: said under its verdict, as Keep it is.
+                    const notSince = !!x && notReachedSince(x);
                     // Left alone: by hand, every order of the item; by a Place-and-leave plan, only those placed since it started.
                     const left = isLeft(d.orders[o.orderId] ?? { typeId: o.typeId, issued: '' }, d.leave, d.leaveFrom);
                     const leftSince = !left && d.leave.includes(o.typeId) ? d.leaveFrom[o.typeId] : undefined;
@@ -379,7 +381,7 @@ export function Orders() {
                               <span className="flag" tabIndex={0} data-tip={x.why} data-tip-title={V.label} style={cssVars({ '--c': V.c, animation: `rise .4s ${Math.min(i, 10) * 70}ms both` })}>
                                 <V.Icon aria-hidden="true" />{V.label}
                               </span>
-                              {keep && <span className="sub keep-why">{x.why}.</span>}
+                              {keep ? <span className="sub keep-why">{x.why}.</span> : notSince && <span className="sub keep-why">{sinceLead(x)}.</span>}
                             </>
                           ) : (
                             <span className="flag plain" style={cssVars({ '--c': '#90a5b8' })} data-tip="Check prices to get a verdict."><CircleDashed aria-hidden="true" />Unchecked</span>
@@ -387,7 +389,10 @@ export function Orders() {
                         </td>
                         <td>{x?.beaten ? <>{units(x.aheadUnits)}<span className="sub">{rivalShape(x.aheadOrders, x.topRivalShare, x.isBuy)}</span></> : '–'}</td>
                         <td style={{ color: x?.verdict === 'wait' ? 'var(--pos)' : 'var(--cell)' }}>
-                          {x?.unreached
+                          {x && notSince
+                            ? <span data-tip={`The bulk of each day’s trading didn’t get ${x.isBuy ? 'down' : 'up'} to your price on any of the ${x.since!.days} days since you ${x.isBuy ? 'placed' : 'listed'} it${x.since!.traded < x.since!.days ? ` (it traded on ${x.since!.traded} of them)` : ''}. Days before then don’t count: your order wasn’t in the book.\n\nYou’re leaving it, so it isn’t told to get back in front: the verdict says whether moving ${x.isBuy ? 'up to where trading reaches now' : 'down to the most trading got up to since'} pays.`}
+                              data-tip-title="Not reached since placed" tabIndex={0} className="words" style={{ color: 'var(--neg)' }}>not reached<span className="sub">0 of {x.since!.days} days since placed</span></span>
+                            : x?.unreached
                             ? <span data-tip={x.isBuy
                               ? `The bulk of the day’s trading got down to your price on ${x.reach} of the last ${FILL_WINDOW} days. Sellers here list and wait, so the queue ahead isn’t what’s holding you back.`
                               : `The bulk of the day’s trading got up to your price on ${x.reach} of the last ${FILL_WINDOW} days${x.beaten && !x.left ? ', and not to the front of the queue either' : ''}. Buyers here don’t pay that much, so the queue ahead isn’t what’s holding you back.`} data-tip-title="Rarely reached" tabIndex={0} className="words" style={{ color: 'var(--neg)' }}>rarely reached<span className="sub">{x.reach} of {FILL_WINDOW} days</span></span>

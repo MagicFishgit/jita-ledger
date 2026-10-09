@@ -224,6 +224,45 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   both; three of the four expected 13–15%, so their floor was the 5% target. Orders, To do's cancel item and the mail
   (which now quotes the why for a plan bid's move: `OrderFacts.planned`) name the plan's floor; the cloud's round runs the
   same rule.
+- **A left order is judged on the days since it was placed** (`sincePlaced`, `LEFT_MIN_DAYS` 3 in fills.ts; `notSince`,
+  `sinceLead`, `notReachedSince`, `firstPlaced`, `Relist.since` in relist.ts; the plans review, 9 October 2026). A left
+  order's reach was counted over the last 14 days, which hold days before it existed: the 2 October plan's Place-and-leave
+  bids, priced where trading reached on half the fortnight before, read "You're leaving this one: reached on 5 of the last
+  14 days" for a week while the market rose away from them. Now an order left (`isLeft`), first placed within the window
+  (`seen[0]`, never `issued`, which a price change moves) and with trading on at least `LEFT_MIN_DAYS` of the days since
+  (the day it was placed counted whole, today folded in when watched; the order check and the cloud's round pass
+  `recentRange`'s `end`) is judged on those days too:
+  - **reached on none of them**, and not visibly filling (`fillingNow`), it's unreached whatever the 14 days say. A buy goes
+    to where trading reaches now, `reachedBid` over the 14 days (the price Place and leave would bid today, the target of any
+    left buy), never under the lowest the days since got down to, so the move is to a price trading reached since; then the
+    8 October three-way rule (above) says Move it, Keep it or Cancel it. A sell goes to the highest the days since got up
+    to (`reachedAsk` at 1, the brief's ruling), never under cost (Not worth it) and never under the best bid (one step over
+    it, `overBid`, with "or sell into that bid");
+  - **reached on some of them**, it's judged as before on the 14 days, and its "You're leaving this one" counts the days
+    since ("reached your bid on 1 of the 7 days since you placed it");
+  - **fewer than 3 traded days since**, placed before the window, or no window end passed (an older caller), nothing new.
+  It's said first, the same everywhere (Orders under the verdict and in Clears in, "0 of 7 days since placed"; To do, one
+  item per such order whatever it's told, orders-alerts.md; the mail, for a move or a cancel): "Not reached on any of the 7 days since you placed it; today's best bid is 8.6% over", or for a sell "since you
+  listed it; today's cheapest listing is 11% under". `reach` stays the 14 days' count: leave_track's pace divides it by 14.
+  **Measured** (`.playwright-mcp/research/plans-review/since-placed.mjs`, out/since-placed.txt: the review's export, ESI's
+  books of 9 October and history to 8 October, no watched flow, `leave` as exported): of the 13 open bids, 11 weren't
+  reached on any of the 7 days since 2 October (465.3 M in escrow): 2 Move it (Fierce Electrical Filament 1,717,000 →
+  1,723,000; Unstable Ice Harvester Mutaplasmid 11,780,000 → 12,310,000), 3 Cancel it (X-Large Ancillary Shield Booster,
+  Raging Exotic Filament, and Zero-Point Field Manipulator, Cancel it already), 6 Keep it (304.7 M: Republic Fleet Commander
+  Insignia II, Cataclysmic Gamma Filament, AG-Composite Molecular Condenser, Compressed Veldspar II-Grade, and Compressed
+  Fullerite-C32 and Unstable Heat Sink Mutaplasmid, Keep it already), each on To do; 5 mailed (over the 5 M minimum);
+  every one read "You're leaving this one" or as before.
+  Golden Mykoserocin (1 of 7) and the Clone Soldier bid (3 of 9) stay left, said on the days since. The floor (the lowest
+  since) decided only AG-Composite's price (875,400 over the fortnight's 857,300). Of 11 listings, 6 weren't reached since
+  listed: 3 Move it (Raging Gamma Filament 9,672,000 → 9,660,000; Gravid Ballistic Control System Mutaplasmid 11,860,000 →
+  11,510,000; the CNMGC 359,900,000 → 345,150,000), 3 Not worth it (Imperial Navy Infiltrator, Raging Dark Filament and
+  Gravid Modulated Strip Miner Mutaplasmid: the most trading got up to since sells under cost); the Fed Navy Insignia,
+  Villard Wheel and two Rocket Science listings were placed on 8 or 9 October and say nothing new. **The CNMGC**, listed 3
+  October 11:33 and left by hand: nothing new on 4 and 5 October (history a day behind: one and two days since), Move it to
+  345,150,000 from 6 October (3 October's high, the day it was listed); trading got up to 319.85 M, 337.85 M and 323 M on 6
+  to 8 October, so that price wouldn't have sold, nor would 339.5 M (half the days since); today's cheapest listing on the
+  9th was 320.3 M. The review's "+31 to +39 M at 337.5 to 345.5 M" needed a sale on 4 or 5 October, before history could
+  say (with the cloud's watching folding the day in, the 5th at the earliest).
 - **The sell side is judged like the buy side** (`askToPlace`, flag `unreachedSell`, "Sells not reached"). An ask
   one step under the best that the bulk of trading reached on fewer than `FILL_RARE` of 14 days is lowered to the
   7th-highest daily high, and an item left with no margin drops out; Busy markets still prices at the top. Stats

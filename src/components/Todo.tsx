@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, Check, CheckCheck, CircleDollarSign, CircleX, CloudAlert, Factory, FlaskConical, Truck, GitPullRequestArrow, HardDriveDownload, Keyboard, Layers, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, ShoppingCart, Tag, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
+import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, CalendarX, Check, CheckCheck, CircleDollarSign, CircleX, CloudAlert, Factory, FlaskConical, Truck, GitPullRequestArrow, HardDriveDownload, Keyboard, Layers, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, ShoppingCart, Tag, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
 import { getAuth, loginForCloud, loginMailerForCloud } from '../lib/auth';
 import { breakEvenSpread, rates } from '../lib/fees';
 import { ago, fmtDateTime, isk, iskBig, units } from '../lib/format';
@@ -11,7 +11,7 @@ import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  cashInItem, feedsQueueItem, inFilter, judgeAltLogin, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, placeBuyItem, planListItem, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
+  cashInItem, feedsQueueItem, notReachedItem, inFilter, judgeAltLogin, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, placeBuyItem, planListItem, judgeIndustry, judgeLedger, judgeOrder, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
   type Entry, type Memory, type TodoFilter, type TodoItem, type TodoKind,
 } from '../lib/todo';
 import type { IndustryJob } from '../lib/types';
@@ -54,6 +54,7 @@ const LOOK: Record<TodoKind, { Icon: typeof Check; c: string }> = {
   move: { Icon: CircleDollarSign, c: 'var(--acc2)' },
   cancel: { Icon: CircleX, c: 'var(--neg)' },
   bid: { Icon: BanknoteArrowDown, c: 'var(--acc2)' },
+  notReached: { Icon: CalendarX, c: 'var(--acc2)' },
   underCost: { Icon: TriangleAlert, c: 'var(--neg)' },
   feedsQueue: { Icon: Layers, c: 'var(--acc2)' },
   close: { Icon: ListChecks, c: 'var(--pos)' },
@@ -197,6 +198,9 @@ export function Todo() {
         });
         continue;
       }
+      // Left alone, and not reached on any day since it was placed: what it's told (move, cancel, keep it), in place of the rest.
+      const since = notReachedItem(x, name(x.typeId), action);
+      if (since) { out.push(since); continue; }
       if (x.verdict === 'dry') {
         // A buy trading doesn't reach, where reaching it leaves too little: the ISK is better freed.
         out.push({
@@ -422,7 +426,7 @@ export function Todo() {
       switch (x.kind) {
         // Sell into bids is an order item too: without it here, the default judge ticked it off the moment it went
         // missing, even before the orders had been checked (absent is not done).
-        case 'move': case 'cancel': case 'bid': {
+        case 'move': case 'cancel': case 'bid': case 'notReached': {
           const o = d.orders[Number(id)];
           return judgeOrder(e, {
             open: !!o && o.state === 'open' && o.volumeRemain > 0,

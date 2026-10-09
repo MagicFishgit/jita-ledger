@@ -131,7 +131,8 @@ export async function judgeAll(db: D1Database, charId: number, settings: Setting
     const watched: FlowDay = observedFlow({ [o.typeId]: flow[o.typeId] ?? {} }, o.typeId, now);
     const perDay = sidePaceOf({ daily: h ? paceDay(h, now) : null, buyers: h ? buyerShare(h.slice(-30)) : undefined, sold: book.sold, watched }, o.isBuy).perDay;
     const range = h ? recentRange(h, undefined, now, flow[o.typeId]) : null;
-    const x = judgeOrder(o, { book: book.orders, perDay, avgCost: costs[o.typeId], lows: range?.lows ?? null, highs: range?.highs ?? null, leave: isLeft(o, leave, leaveFrom), txs, watched, yours, plan: targets[o.typeId] ?? null }, settings, now);
+    // With the day they end on, a left order is judged on the days since it was placed too (`sincePlaced`).
+    const x = judgeOrder(o, { book: book.orders, perDay, avgCost: costs[o.typeId], lows: range?.lows ?? null, highs: range?.highs ?? null, end: range?.end ?? null, leave: isLeft(o, leave, leaveFrom), txs, watched, yours, plan: targets[o.typeId] ?? null }, settings, now);
     if (!x.gone) list.push(x);
     // Left behind the front on purpose: the planner's pace for it (`throughput`), its side's trade at your share,
     // scaled for the orders it queues among and for how often trading reaches its price.

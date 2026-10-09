@@ -213,6 +213,8 @@ export function PlanListPart({ rows, planName }: { rows: PricedRow[]; planName?:
                   <td style={{ color: p?.profit == null ? undefined : p.profit >= 0 ? 'var(--pos)' : 'var(--neg)' }}>
                     {p?.profit != null ? iskBigSigned(p.profit) : '–'}
                     {p?.ret != null && <span className="sub">{p.ret >= 0 ? '+' : ''}{pct(p.ret, 1)} on {iskBig(x.units * (x.unitCost ?? 0))}</span>}
+                    {/* Made only once the listings under it have sold: never shown as plain profit. */}
+                    {p?.profit != null && p.overCheapest && p.cheapest != null && <span className="sub" style={{ color: 'var(--acc2)', whiteSpace: 'normal' }}>if it sells over today’s cheapest listing, {isk(p.cheapest)}</span>}
                   </td>
                 </tr>
               );

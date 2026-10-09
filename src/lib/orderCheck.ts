@@ -32,6 +32,8 @@ export type CheckState = {
   lows: Record<number, (number | null)[]>;
   /** And highs, for whether trading still gets up to a sell you're leaving. */
   highs?: Record<number, (number | null)[]>;
+  /** The day each item's lows and highs end on (`recentRange`'s `end`): a left order is judged on the days since it was placed. */
+  ends?: Record<number, string>;
   checkedAt: string | null;
   /** When ESI will next have a different book. Re-checking before then cannot show a relist. */
   bookFreshAt: number | null;
@@ -83,6 +85,7 @@ async function runCheck(fresh: boolean): Promise<void> {
   const buyers: Record<number, number> = {};
   const lows: Record<number, (number | null)[]> = {};
   const highs: Record<number, (number | null)[]> = {};
+  const ends: Record<number, string> = {};
   let failed = 0, done = 0, soonest = Infinity, moved = 0, i = 0;
   await Promise.all(Array.from({ length: Math.min(4, typeIds.length) }, async () => {
     while (i < typeIds.length) {
@@ -104,6 +107,7 @@ async function runCheck(fresh: boolean): Promise<void> {
         const range = recentRange(h, undefined, undefined, watchedDays(id));
         lows[id] = range.lows;
         highs[id] = range.highs;
+        ends[id] = range.end;
       } catch { vol[id] = null; }
       setState({ busy: { done: ++done, total: typeIds.length } });
     }
@@ -113,7 +117,7 @@ async function runCheck(fresh: boolean): Promise<void> {
   await loadFlow();
   await settleFlow();
   setState({
-    books: out, daily: vol, buyers, lows, highs, sold,
+    books: out, daily: vol, buyers, lows, highs, ends, sold,
     bookFreshAt: Number.isFinite(soonest) ? soonest : null,
     changed: before ? moved : null,
     checkedAt: new Date().toISOString(),
@@ -202,6 +206,7 @@ export function verdicts(d: Data, check: CheckState, cost: Record<number, number
       avgCost: cost[o.typeId],
       lows: check.lows?.[o.typeId] ?? null,
       highs: check.highs?.[o.typeId] ?? null,
+      end: check.ends?.[o.typeId] ?? null,
       // Left alone (Place and leave, or by hand): a plan's Leave alone covers that plan's own orders only.
       leave: isLeft(o, d.leave ?? [], d.leaveFrom),
       txs,

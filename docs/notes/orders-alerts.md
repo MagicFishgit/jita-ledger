@@ -152,6 +152,18 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   `heldCost`), Orders tags it red with the loss per unit and in all, and the least price that breaks even; To do lists
   it to correct, and opening it in game copies the break-even price (a "Not worth it" move is never copied). It ticks
   off like an order item, on a newer check of the book. Not mailed yet.
+- **A left order the market has left since it was placed goes on To do** (kind `notReached`, "Not reached since you placed
+  it", Needs action, source `orders`, `notReachedItem` in todo.ts; the rule is in market-reading.md; the plans review, 9
+  October 2026). One item per order, whatever it's told, since the point is to see what sits where the market isn't: keyed
+  `order:<id>` so it stands in place of that order's move or cancel item, never beside it, and versioned by the order's
+  price as a long queue's is: where trading reaches now moves with each day's history and doesn't reopen a hand tick, a
+  reprice does. A chore, so a hand tick comes back after 12 hours while it still says so. Opening a move copies its price
+  and says what it costs; a cancel says what it frees; a Keep it, or a listing whose move would sell under cost, is said in
+  the verdict's own words with nothing copied, and no cancel is added to a Keep it (the 8 October rule). Judged as any order
+  item (`judgeOrder`): ticked off by a newer check that read its book and no longer says so ("You moved it to 104 ISK.
+  You're leaving this one: …", or a Keep it's own words once reached since), or the order closing. On the review's data: 11
+  bids (465.3 M of escrow: 2 to move, 3 to cancel, 6 Keep it holding 304.7 M) and 6 listings (3 to move, 3 not worth moving).
+  The cloud mails only a Move it or Cancel it, as any (a `move` finding; the alert minimum applies), in the same words.
 - **Industry jobs waiting to be delivered go on To do** (kind `industry`, source `industry`, `judgeIndustry`, scope
   `esi-industry.read_character_jobs.v1`, registered 29 September 2026). The sync keeps the jobs not yet delivered with
   when they were read and their facilities' names (`meta.industry`); a job is waiting when it's `ready` or `active` past
