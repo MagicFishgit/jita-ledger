@@ -113,6 +113,11 @@ State these rather than letting them be discovered:
   move goes to was reached on at least one of those days (a sell's is the highest since, a buy's no lower than the lowest
   since), so once moved there it reads as reached until those days leave the 14, when the usual count takes over: the
   CNMGC moved to 345,150,000 on 6 October would have sat there unsold and unflagged until about the 17th.
+- **The plan list step's "market moved down" reads others' cheapest listing as it is**, so one unit listed far under real
+  stock says the market fell and puts the "over today's cheapest listing" caveat on the profit. The app's token guard
+  (`marketBest`, Orders' real front) was tried and couldn't be used: on Federation Navy Fleet Captain Insignia I's book it
+  read 919,000 where 379 real units sat from 801,200 (known-bugs.md), hiding the very case the check exists for. The figure
+  is said, so a token shows as what it is.
 - **A plan bid cancelled with nothing bought takes its item off the plan, and when it was cancelled can't be told**: ESI
   doesn't say. So the bids that count are those placed since the plan started (less two minutes' slack), or since the
   item's position opened when that was within the day before the plan; a bid placed after such a position opened and

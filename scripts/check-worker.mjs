@@ -903,7 +903,7 @@ console.log('\n--- the alert round judges a left order on the days since it was 
   const x = left.list[0];
   const found = orderFindings(left.list, () => 'Compressed Fullerite-C32');
   eq('  placed 2 October, not reached on any of the 7 days since: moved to 104, said so, and mailed as a move', [x?.left, x?.verdict, x?.newPrice, x?.since, found.map((f) => f.key)],
-    [true, 'move', 104, { days: 7, traded: 7, reach: 0 }, [`move:${ID}:104`]]);
+    [true, 'move', 104, { days: 7, traded: 7, reach: 0, to: 'since' }, [`move:${ID}:104`]]);
   eq('    in the words Orders and To do use', found[0]?.text.startsWith('Compressed Fullerite-C32 buy order: not reached on any of the 7 days since you placed it; today’s best bid is 3.0% over'), true);
   eq('    the 14 days’ count is kept as it was, and so is the pace Place and leave is checked against', [x?.reach, left.pace?.[ID] > 0], [7, true]);
   const fresh = await judgeAll(ledger('2026-10-07T12:00:00Z'), MAIN, settings, NOW);

@@ -780,7 +780,7 @@ try {
   // placed five days ago at 99 and raised since, trading's lows at 95 on the nine days before it and 104 to 108 on the five
   // since; a listing of 10 at 120 placed five days ago, the highs at 125 before and 112 down to 108 since. Both left by hand.
   // ESI answers their books and histories (the days moved so the last is yesterday), nothing else. Orders must say under
-  // each verdict that it hasn't been reached on any of the 5 days since, and Clears in "0 of 5 days since placed"; To do
+  // each verdict that it hasn't been reached on any of the 5 days since, and Clears in "0 of 5 days since placed" (a listing's "since listed"); To do
   // must list each once, as "Not reached since you placed it" under Needs action, the bid's opening copying 104. Both widths.
   if (SHOWN.includes('orders') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('plan'))) {
     const JITA = 60003760, DAY_MS = 86400_000, BID = 990301, LIST = 990302, BID_ID = 8800001, LIST_ID = 8800002;
@@ -845,7 +845,7 @@ try {
     const bidRow = await row(BID_ID), listRow = await row(LIST_ID);
     for (const want of ['Not reached on any of the 5 days since you placed it; today’s best bid is 3.0% over.', 'not reached', '0 of 5 days since placed', '104']) if (!bidRow.includes(want)) problems.push(`not drawn on the left bid's row: “${want}” (${bidRow.slice(0, 200)})`);
     if (!(await page.locator(`tr[data-order="${LIST_ID}"] .flag`, { hasText: 'Move it' }).count())) problems.push('not drawn: no “Move it” on the left listing');
-    for (const want of ['Not reached on any of the 5 days since you listed it; today’s cheapest listing is 1.7% under.', '0 of 5 days since placed', '112']) if (!listRow.includes(want)) problems.push(`not drawn on the left listing's row: “${want}” (${listRow.slice(0, 200)})`);
+    for (const want of ['Not reached on any of the 5 days since you listed it; today’s cheapest listing is 1.7% under.', '0 of 5 days since listed', '112']) if (!listRow.includes(want)) problems.push(`not drawn on the left listing's row: “${want}” (${listRow.slice(0, 200)})`);
     if (bidRow.includes('of the last 14 days') || listRow.includes('of the last 14 days')) problems.push('a left order the market has left still reads “of the last 14 days”');
     const why = (await page.locator(`tr[data-order="${BID_ID}"] .flag`).first().getAttribute('data-tip').catch(() => '')) ?? '';
     if (!why.includes('At 104, the lowest trading got down to since you placed it (on 1 of those days), it still makes')) problems.push(`the left bid's verdict tip doesn't say where it moves (${why.slice(0, 200)})`);

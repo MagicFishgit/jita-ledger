@@ -241,21 +241,24 @@ Decisions worth not undoing. How the app judges a book, a price and a pace: wher
   - **reached on some of them**, it's judged as before on the 14 days, and its "You're leaving this one" counts the days
     since ("reached your bid on 1 of the 7 days since you placed it");
   - **fewer than 3 traded days since**, placed before the window, or no window end passed (an older caller), nothing new.
-  It's said first, the same everywhere (Orders under the verdict and in Clears in, "0 of 7 days since placed"; To do, one
-  item per such order whatever it's told, orders-alerts.md; the mail, for a move or a cancel): "Not reached on any of the 7 days since you placed it; today's best bid is 8.6% over", or for a sell "since you
-  listed it; today's cheapest listing is 11% under". `reach` stays the 14 days' count: leave_track's pace divides it by 14.
+  It's said first, the same everywhere (Orders under the verdict and in Clears in, "0 of 7 days since placed", a listing's
+  "since listed"; To do and the mail for a move or a cancel, orders-alerts.md): "Not reached on any of the 7 days since you
+  placed it; today's best bid is 8.6% over", or for a sell "since you listed it; today's cheapest listing is 11% under",
+  with "(it traded on 4 of them)" when some of those days had no trading, so they don't read as days of evidence. The
+  mail names what the move's price is (`Relist.since.to`): "where trading reaches now", or for the floor "a price trading
+  reached since you placed it". `reach` stays the 14 days' count: leave_track's pace divides it by 14.
   **Measured** (`.playwright-mcp/research/plans-review/since-placed.mjs`, out/since-placed.txt: the review's export, ESI's
   books of 9 October and history to 8 October, no watched flow, `leave` as exported): of the 13 open bids, 11 weren't
   reached on any of the 7 days since 2 October (465.3 M in escrow): 2 Move it (Fierce Electrical Filament 1,717,000 →
   1,723,000; Unstable Ice Harvester Mutaplasmid 11,780,000 → 12,310,000), 3 Cancel it (X-Large Ancillary Shield Booster,
   Raging Exotic Filament, and Zero-Point Field Manipulator, Cancel it already), 6 Keep it (304.7 M: Republic Fleet Commander
   Insignia II, Cataclysmic Gamma Filament, AG-Composite Molecular Condenser, Compressed Veldspar II-Grade, and Compressed
-  Fullerite-C32 and Unstable Heat Sink Mutaplasmid, Keep it already), each on To do; 5 mailed (over the 5 M minimum);
-  every one read "You're leaving this one" or as before.
+  Fullerite-C32 and Unstable Heat Sink Mutaplasmid, Keep it already); the 5 moves and cancels on To do and mailed (all over
+  the 5 M minimum), the Keep its on Orders only; every one read "You're leaving this one" or as before.
   Golden Mykoserocin (1 of 7) and the Clone Soldier bid (3 of 9) stay left, said on the days since. The floor (the lowest
   since) decided only AG-Composite's price (875,400 over the fortnight's 857,300). Of 11 listings, 6 weren't reached since
   listed: 3 Move it (Raging Gamma Filament 9,672,000 → 9,660,000; Gravid Ballistic Control System Mutaplasmid 11,860,000 →
-  11,510,000; the CNMGC 359,900,000 → 345,150,000), 3 Not worth it (Imperial Navy Infiltrator, Raging Dark Filament and
+  11,510,000; the CNMGC 359,900,000 → 345,150,000; on To do and mailed), 3 Not worth it (Imperial Navy Infiltrator, Raging Dark Filament and
   Gravid Modulated Strip Miner Mutaplasmid: the most trading got up to since sells under cost); the Fed Navy Insignia,
   Villard Wheel and two Rocket Science listings were placed on 8 or 9 October and say nothing new. **The CNMGC**, listed 3
   October 11:33 and left by hand: nothing new on 4 and 5 October (history a day behind: one and two days since), Move it to

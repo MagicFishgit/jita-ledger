@@ -256,26 +256,25 @@ export function feedsQueueItem(
 /**
  * A left order (Place and leave, or left by hand) the bulk of trading hasn't reached on any day since it was placed
  * (`notReachedSince`, the plans review of 9 October 2026: 633 M sat in 13 such bids, each read "reached on 5 of the last
- * 14 days" from days before it existed). One item per order, whatever it's told, since the point is to see what sits where
- * the market isn't: keyed by the order as its move or cancel would be, so it stands in their place, and versioned by the
- * order's price, as a long queue's is: where trading reaches now moves with each day's history and doesn't reopen a hand
- * tick; a reprice does. A move copies its price when opened in game and says what it costs; a cancel says what it frees;
- * Keep it, or a listing whose move would sell under cost, is said in the verdict's own words and copies nothing (no cancel
- * is added to a Keep it: the rule of 8 October 2026). Judged as any order item (`judgeOrder`): ticked off by a newer check
- * that read its book and no longer says so, or the order closing.
+ * 14 days" from days before it existed), told to move or cancel. One item per order, keyed by the order as its move or
+ * cancel would be, so it stands in their place, and versioned by the order's price, as a long queue's is: where trading
+ * reaches now moves with each day's history and doesn't reopen a hand tick; a reprice does. A move copies its price when
+ * opened in game and says what it costs; a cancel says what it frees. Null for anything else: Keep it and a listing whose
+ * move would sell under cost have nothing to do, and To do adds no item for Keep it (orders-alerts.md; the coordinator's
+ * ruling of 9 October 2026, the user having ruled out nagging): Orders says both under the verdict. Judged as any order
+ * item (`judgeOrder`): ticked off by a newer check that read its book and no longer says so, or the order closing.
  */
 export function notReachedItem(
   x: Pick<Relist, 'orderId' | 'typeId' | 'isBuy' | 'price' | 'newPrice' | 'atRisk' | 'cost' | 'verdict' | 'why' | 'unreached' | 'since'>,
   name: string,
   action: TodoItem['action'],
 ): TodoItem | null {
-  if (!notReachedSince(x)) return null;
+  if (!notReachedSince(x) || (x.verdict !== 'move' && x.verdict !== 'dry')) return null;
   const move = x.verdict === 'move';
   return {
     key: `order:${x.orderId}`, ver: `notReached:${x.price}`, kind: 'notReached', source: 'orders', price: x.price, stake: x.atRisk, typeId: x.typeId,
     title: `${name} ${x.isBuy ? 'buy' : 'sell'} order`,
-    detail: move ? `${x.why}. Move it to ${isk(x.newPrice)}: costs ${iskBig(x.cost)}.`
-      : x.verdict === 'dry' ? `${x.why}. Cancel it to free ${iskBig(x.atRisk)}.` : `${x.why}.`,
+    detail: move ? `${x.why}. Move it to ${isk(x.newPrice)}: costs ${iskBig(x.cost)}.` : `${x.why}. Cancel it to free ${iskBig(x.atRisk)}.`,
     action: move ? { ...action, copy: x.newPrice } : action,
   };
 }

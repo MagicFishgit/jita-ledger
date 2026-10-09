@@ -391,7 +391,7 @@ export function Orders() {
                         <td style={{ color: x?.verdict === 'wait' ? 'var(--pos)' : 'var(--cell)' }}>
                           {x && notSince
                             ? <span data-tip={`The bulk of each day’s trading didn’t get ${x.isBuy ? 'down' : 'up'} to your price on any of the ${x.since!.days} days since you ${x.isBuy ? 'placed' : 'listed'} it${x.since!.traded < x.since!.days ? ` (it traded on ${x.since!.traded} of them)` : ''}. Days before then don’t count: your order wasn’t in the book.\n\nYou’re leaving it, so it isn’t told to get back in front: the verdict says whether moving ${x.isBuy ? 'up to where trading reaches now' : 'down to the most trading got up to since'} pays.`}
-                              data-tip-title="Not reached since placed" tabIndex={0} className="words" style={{ color: 'var(--neg)' }}>not reached<span className="sub">0 of {x.since!.days} days since placed</span></span>
+                              data-tip-title={`Not reached since ${x.isBuy ? 'placed' : 'listed'}`} tabIndex={0} className="words" style={{ color: 'var(--neg)' }}>not reached<span className="sub">0 of {x.since!.days} days since {x.isBuy ? 'placed' : 'listed'}</span></span>
                             : x?.unreached
                             ? <span data-tip={x.isBuy
                               ? `The bulk of the day’s trading got down to your price on ${x.reach} of the last ${FILL_WINDOW} days. Sellers here list and wait, so the queue ahead isn’t what’s holding you back.`

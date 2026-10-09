@@ -103,9 +103,11 @@ export type Relist = {
    * A left order judged on the days since it was first placed (`sincePlaced`: placed within the last 14 days, with trading on
    * LEFT_MIN_DAYS of them or more): how many days (`days`, today's when the app watched it), how many traded, and on how many
    * the bulk of trading reached its price. `reach` (above) stays the last 14 days' count. Reached on none of them, and not
-   * visibly filling, it's `unreached` on those days alone (`notReachedSince`).
+   * visibly filling, it's `unreached` on those days alone (`notReachedSince`), and `to` says what its move's price is: where
+   * trading reaches now (`now`, a buy's reachedBid over the 14 days) or a price the days since reached (`since`: a buy's
+   * lowest since, when that's higher; a sell's highest since).
    */
-  since?: { days: number; traded: number; reach: number };
+  since?: { days: number; traded: number; reach: number; to?: 'now' | 'since' };
 };
 
 /** A left order the bulk of trading hasn't reached on any day since it was placed: what To do and the mail call "Not reached since you placed it". */
@@ -118,8 +120,9 @@ const pctSaid = (x: number) => `${x >= 1 ? Math.round(x * 100) : (x * 100).toFix
  * the 7 days since you placed it; today's best bid is 8.6% over". The best price on its side is others' (`best`).
  */
 export function sinceLead(x: Pick<Relist, 'isBuy' | 'price' | 'best' | 'since'>): string {
-  const n = x.since?.days ?? 0;
-  const head = `Not reached on any of the ${n} days since you ${x.isBuy ? 'placed' : 'listed'} it`;
+  const n = x.since?.days ?? 0, traded = x.since?.traded ?? n;
+  // Days with no trading reached nothing either, but they're no evidence: said, so 7 days don't read as 7 days of trading.
+  const head = `Not reached on any of the ${n} days since you ${x.isBuy ? 'placed' : 'listed'} it${traded < n ? ` (it traded on ${traded} of them)` : ''}`;
   if (x.best == null || !(x.price > 0)) return head;
   if (x.isBuy) return x.best > x.price ? `${head}; today’s best bid is ${pctSaid(x.best / x.price - 1)} over` : `${head}, though you’re the best bid`;
   return x.best < x.price ? `${head}; today’s cheapest listing is ${pctSaid(1 - x.best / x.price)} under` : `${head}, though you’re the cheapest listing`;
@@ -1173,7 +1176,7 @@ export function adviseRelist(
     aheadUnits, aheadOrders: ahead.length, hoursToFront, topRivalShare, yourHours,
     cutPct, waitingPaysDaily,
     verdict, why, reach, reachAt, unreached, left,
-    ...(sinceW && sinceReach != null ? { since: { days: sinceW.days, traded: sinceW.traded, reach: sinceReach } } : {}),
+    ...(sinceW && sinceReach != null ? { since: { days: sinceW.days, traded: sinceW.traded, reach: sinceReach, ...(notSince ? { to: mine.isBuy && newPrice === nowBid ? 'now' as const : 'since' as const } : {}) } } : {}),
     ...(overBid && unreached ? { overBid: true } : {}),
     ...(keep ? { keep } : {}),
   };

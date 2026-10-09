@@ -3,7 +3,10 @@
 Bugs found and verified real but not yet fixed.
 
 - **`marketBest`'s sell side reads the book by units, so a flood of high listings makes it skip real cheap stock**
-  where no day's volume is passed (Calculator prefill, Arbitrage, lpStore, colonyStore, Planets, Abyssal). Dark Blood
+  where no day's volume is passed (Calculator prefill, Arbitrage, lpStore, colonyStore, Planets, Abyssal). With one passed
+  it can still: on Federation Navy Fleet Captain Insignia I's book (9 October 2026; 31,252 listed, 22,619 of them at a
+  million and over, a typical day 3,494) it answered 919,000, past 379 units from 801,200 to 918,900, which is why the plan
+  list step reads others' cheapest listing as it is (limits.md). Dark Blood
   Explosive Coating (1 October 2026) answered 70,220, past 117 units at 59,990. Tried and not enough: ISK (worse), units
   ÷ price, a band of twice your own price. Orders' token guard has history instead (market-reading).
 

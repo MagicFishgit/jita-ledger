@@ -590,6 +590,8 @@ export function planListPrice(
   // Today's book as well as the fortnight's: the fortnight's List patiently can sit at the plan's price while today's listings
   // are far under it. The plans review (9 October 2026): Federation Navy Fleet Captain Insignia I read "+6.1% at 920,100",
   // nothing moved, with List patiently at 915,200 and today's cheapest listing 801,200, under its 826,978 cost.
+  // Others' cheapest listing as it is, not `marketBest`'s token-guarded front: on Fed Navy's book that read 919,000, skipping
+  // 379 real units from 801,200 (its level dragged up by 22,600 listed at a million and more: known-bugs.md). limits.md.
   const cheapest = m?.bestSell != null && m.bestSell > 0 ? m.bestSell : null;
   const under = cheapest != null && item.sellAt > 0 ? 1 - cheapest / item.sellAt : null;
   const there = cheapest != null && unitCost > 0 ? cheapest * keep - unitCost : null;

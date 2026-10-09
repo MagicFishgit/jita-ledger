@@ -150,8 +150,8 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   `fillingNow` now reads sells too (a listing that shrank at its price, or your own sale at or above it). Set from
   the planner for a whole plan in one click, or per item on Orders ("Leave alone" / "Leaving it"). From three days of
   trading since an order was first placed it's judged on those days too, since the last 14 hold days before it existed:
-  reached on none of them, it's told to move, cancel or keep it (the 8 October rule), and is on To do (market-reading.md,
-  "A left order is judged on the days since it was placed"; orders-alerts.md).
+  reached on none of them, it's told to move, cancel or keep it (the 8 October rule), a move or a cancel on To do too
+  (market-reading.md, "A left order is judged on the days since it was placed"; orders-alerts.md).
 - **A plan's Leave alone covers its own orders, and ends with the position** (`isLeft`, `leaveForPlan`, `planLeaveSince`,
   `leaveByHand`, `stopLeaving`, `leaveAfterClose`, `leaveAfterDelete`, `releaseOrphans` in plans.ts; the synced `leaveFrom` doc, type ID to time, beside `leave`, which stays a
   plain list since older browsers and a Worker a version behind read it; the plans review, 9 October 2026). `leave` was by
@@ -312,7 +312,10 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
     (−7.6%)"), never "not moved"; and a price to list at over today's cheapest listing says so beside its profit, on the
     checklist ("if it sells over today's cheapest listing") and To do ("… if they sell at 920,100 ISK, over today's cheapest
     listing of 801,200 ISK"). At the front the price is already today's listing price, so only a break-even lift over it is
-    said. On the review's held items (`liststep-today.mjs`): 5 of 8 Place-and-leave items now say the market moved down (3
+    said. "Today's cheapest listing" is others' cheapest as it is: `marketBest`'s token-guarded front was tried and read
+    Fed Navy's at 919,000, skipping 379 real units from 801,200 (known-bugs.md), hiding the very case; so one unit listed
+    far under can say the market moved down (limits.md). The position page's "The plan sells at" reads the same book and
+    says when its profit is "at a price over today's cheapest listing". On the review's held items (`liststep-today.mjs`): 5 of 8 Place-and-leave items now say the market moved down (3
     before, by List patiently: Gravid Modulated Strip Miner, Raging Dark, the Infiltrator; now Fed Navy Insignia and
     Raging Gamma Filament, 6.5% under, too), and all 8 profits carry the caveat.
     Nothing not known reads as zero: no book, no front price ("Its Jita book couldn’t be read"); no history, no List

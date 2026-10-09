@@ -133,7 +133,7 @@ export function orderFindings(list: Relist[], name: (typeId: number) => string):
     if (x.verdict === 'move') {
       out.push({ kind: 'move', key: `move:${x.orderId}:${x.newPrice}`, isk: x.atRisk, title: ALERT_LABELS.move.label, typeId: x.typeId, name: n, order: orderFacts(x),
         text: since
-          ? `${n} ${side} order: ${since} — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, ${x.overBid ? 'one step over the best bid' : x.isBuy ? 'where trading reaches now' : 'the most trading got up to since'} (costs ${iskBig(x.cost)}).`
+          ? `${n} ${side} order: ${since} — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, ${x.overBid ? 'one step over the best bid' : !x.isBuy ? 'the most trading got up to since' : x.since?.to === 'now' ? 'where trading reaches now' : 'a price trading reached since you placed it'} (costs ${iskBig(x.cost)}).`
           : x.unreached
           ? `${n} ${side} order: trading rarely gets ${x.isBuy ? 'down' : 'up'} to it (${x.reach} of the last ${FILL_WINDOW} days) — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK, ${x.overBid ? 'one step over the best bid' : 'where it does'} (costs ${iskBig(x.cost)}).`
           : `${n} ${side} order beaten — worth moving to ${Math.round(x.newPrice).toLocaleString('en-US')} ISK (costs ${iskBig(x.cost)}).` });

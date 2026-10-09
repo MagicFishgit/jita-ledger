@@ -198,7 +198,7 @@ export function Todo() {
         });
         continue;
       }
-      // Left alone, and not reached on any day since it was placed: what it's told (move, cancel, keep it), in place of the rest.
+      // Left alone, and not reached on any day since it was placed: move it to where trading reaches now, or cancel it.
       const since = notReachedItem(x, name(x.typeId), action);
       if (since) { out.push(since); continue; }
       if (x.verdict === 'dry') {

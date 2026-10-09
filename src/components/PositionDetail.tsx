@@ -5,7 +5,7 @@ import { priceUp, tickDown, tickUp } from '../lib/tick';
 import { marketBest, walkBids } from '../lib/relist';
 import { chooseAsk, confirmAsk } from '../lib/confirm';
 import { breakEvenSell, rates } from '../lib/fees';
-import { isLeft, leaveAfterClose, leaveAfterDelete, planListPrice, planTargets } from '../lib/plans';
+import { isLeft, leaveAfterClose, leaveAfterDelete, listMarket, planListPrice, planTargets } from '../lib/plans';
 import { isk, iskBig, iskBigSigned, parseISK, pct, rid, units } from '../lib/format';
 import { jitaOrders, marketHistory, snapshot, type OrderLite } from '../lib/market';
 import { update, useData } from '../lib/store';
@@ -208,7 +208,10 @@ export function PositionDetail({ id }: { id: string }) {
     const perUnit = planCost != null ? target.sellAt * keep - planCost : null;
     const onStock = perUnit != null && held > 0 ? perUnit * held : null;
     const onBuy = openBuy && buyAt != null && buyLeft > 0 ? (target.sellAt * keep - buyAt * (1 + r.f)) * buyLeft : null;
-    const listing = planCost != null ? planListPrice(planItem, ofPlan.patient, held, planCost, r, null) : null;
+    // On today's book, as the list step reads it: whether the plan's price is over others' cheapest listing today, which its
+    // profit then says, as the list step's does.
+    const listing = planCost != null ? planListPrice(planItem, ofPlan.patient, held, planCost, r, book ? listMarket(book, [...ownIds], highs) : null) : null;
+    const overCheapest = listing?.cheapest != null && target.sellAt > listing.cheapest ? listing.cheapest : null;
     const under = listing != null && target.sellAt < listing.breakEven;
     const whose = planRow?.view.shared ? `the plan’s ${units(held)}` : `all ${units(held)}`;
     const parts = [
@@ -218,7 +221,7 @@ export function PositionDetail({ id }: { id: string }) {
     const good = (onStock ?? onBuy ?? 0) >= 0;
     planLine = {
       l: 'The plan sells at', v: isk(target.sellAt), c: good ? 'var(--pos)' : 'var(--neg)',
-      n: `${parts.join(' ')}${parts.length ? '. ' : ''}${ofPlan.patient ? 'Place and leave' : 'At the front'}: ${ofPlan.name}.${under && listing ? (ofPlan.patient ? ` Under what they cost after fees, so the plan’s list step lists at break-even, ${isk(listing.breakEven)}.` : ` Under what they cost after fees: break-even is ${isk(listing.breakEven)}.`) : ''}`,
+      n: `${parts.join(' ')}${overCheapest != null && parts.length ? `, at a price over today’s cheapest listing of ${isk(overCheapest)}` : ''}${parts.length ? '. ' : ''}${ofPlan.patient ? 'Place and leave' : 'At the front'}: ${ofPlan.name}.${under && listing ? (ofPlan.patient ? ` Under what they cost after fees, so the plan’s list step lists at break-even, ${isk(listing.breakEven)}.` : ` Under what they cost after fees: break-even is ${isk(listing.breakEven)}.`) : ''}`,
       tip: `The price ${ofPlan.name} expects this item to sell at, set by the Capital planner when the plan started.\n\n• ${ofPlan.patient ? 'A Place-and-leave plan lists here and waits: List patiently is today’s version of the same rule.' : 'An at-the-front plan lists at today’s listing price instead, with this beside it.'}\n• The plan’s checklist and To do say where to list what it bought, with the price copied, never under break-even.\n• Profit is after the broker fee and sales tax, against what the plan’s own units cost you${planRow?.view.shared ? ': this position held stock from before the plan, which isn’t the plan’s' : ''}.`,
     };
   }
