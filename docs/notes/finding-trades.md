@@ -120,7 +120,8 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   same as a position's "List patiently"), **wherever the front is**: not capped at one tick over the best bid, since
   on the scoop and Hammerhead II the front bid sat below where trading reached and was the one that never filled.
   Each side's pace is scaled by the share of days trading reached its price (`throughput(..., reach)`), which is
-  rough and says so. Items without the days to say where trading reaches are left out, never priced at the front.
+  rough and says so; since 9 October 2026 what a plan expects is scaled by how often each item's prices came round within
+  the horizon (below). Items without the days to say where trading reaches are left out, never priced at the front.
   The mix now shows Buy at and Sell at.
 - **"Market moved" says when today's book has left Place and leave's prices** (`marketMoved`, `marketMovedSaid` and
   `MARKET_MOVED` 0.05 in prospects.ts; flag `marketMoved`, on Place and leave only; `MOVED_FLAG` in planner.ts). Place and leave
@@ -163,6 +164,55 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   has left it. What comes in instead isn't proven better: Republic Fleet Commander Insignia II and Compressed Veldspar
   II-Grade, among the 7 added, are bids the market rose away from within the week (the review), and the expected figures
   are the planner's own pace, which the same review found far too high for Place and leave.
+- **Place and leave expects what history says of each item's round trips within the horizon** (`roundTripCounts`,
+  `roundTripRate`, `roundTripSaid`, `ROUND_TRIP_DAYS` 1/3/7/14/30, `ROUND_TRIP_STARTS` 60, `ROUND_TRIP_MIN` 20 in
+  prospects.ts; `roundTrip` and `roundTripOf` on the stats; `Prospect.roundTrip`; `mixRoundTrips`, `mixRoundTripsSaid` and
+  `plannerPool`'s `unmeasured`, `tripFew`, `noTrip` in planner.ts; the user chose it from the plans review, 9 October 2026).
+  The 2 October plan (12-hour horizon; the user remembered it as 7 days) expected +67.6 M within 12 hours: the planner took
+  each side as reached on half the days. The review re-ran Place and leave's own pricing on each of its 33 items' 60 days
+  before the plan (`.playwright-mcp/research/plans-review/backtest.mjs`): its prices round-tripped (the bid reached by a
+  day's low, then the sale by a day's high, that day or later) within a day on a median 7% of start days, 3 days 21%, 7
+  days 39%; the cloud's leave_track had 24 of 30 plan bids followed a day or more fill nothing. Now:
+  - **`statsFrom` counts them** from the history it already has: on each of the last 60 start days to the stats' 14 days'
+    end, the bid and sale Place and leave would have priced that morning (`reachedBid` / `reachedAsk` of the 14 days before,
+    ending where `recentRange` ends them, two days back when only that one traded), and whether they came round within 1, 3,
+    7, 14 and 30 days; a start day counts for a horizon only once the whole horizon has happened, and one whose fortnight
+    can't price both sides isn't counted. Two arrays of whole numbers aligned with `ROUND_TRIP_DAYS`, trips and start days
+    counted. It matches backtest.mjs start day for start day (the 33 items, three horizons; tested on five of them,
+    `scripts/fixtures/round-trips.json`, and on a market that skips days against the backtest done the plain way, which
+    fails with the two-days-back ending planted away). The cloud's daily scan and the browser's scans both get it through
+    `statsFrom`; a browser scan re-reads the history of stats without it (`statsCurrent`).
+  - **A horizon of a day or less is the same day**: history is daily, so 4 h, 12 h and a day count a day that reached both
+    prices (said so in the row's tip and the start dialog). A horizon between two counts is credited with the shorter.
+  - **The expectation is scaled, never the margin**: a Place-and-leave prospect's return a day and ISK a day, and each mix
+    row's ISK a day, are times its rate; `roi`, `net`, the size and Turns in stay what one round trip makes and takes, so
+    "Return ≥ %" stays per trip and a plan's floor (`planTargets.expected`, Keep it) doesn't move. At the front: unchanged.
+  - **Not known is never 0% or 100%**: stats from before the count (`unmeasured`) are left out and "Scan again before
+    investing" says so; fewer than `ROUND_TRIP_MIN` start days priced (`tripFew`), and a measured 0 within the horizon
+    (`noTrip`, which a 0 return would otherwise have dropped unsaid), are left out and counted in the mix's line, and an
+    empty mix names them. Until the first cloud scan after a deploy, Place and leave's mix is empty and says why.
+  - **Said**: a Round trip column ("45% of days", within 3 days; the tip "Round trip within 3 days on 45% of past days: 26 of
+    the last 58 days" and how it's counted); the line over the mix ("About 3 of these 27 round-trip within 12 h, history
+    says: 12% of the last 60 days, weighted by the ISK in each (5% to 22% an item)", with the profit expected against the
+    profit if every one came round); the Expected ISK a day tile; the start dialog's lead.
+  - **The plan's horizon wherever the plan is named** (`planHorizonSaid`, `planLabel` in plans.ts: "a 12-hour plan", nothing
+    for a horizon not kept, which `sanitizePlans` reads as 0): the start dialog's lead ("2 items, 257 M ISK in buy orders, a
+    3-day plan (Place and leave)"), the checklist's title, the Plans panel ("Place and leave, a 12-hour plan"; it read "0 h
+    horizon" for a plan without one), its list part, To do's place, list and close items ("Part of 2 Oct · 999.16 M ISK in
+    33 items, a 12-hour plan."), the position page's "The plan sells at", Orders' plan chip and the hangar check's plan tip
+    (the chip itself keeps the name alone).
+  - **Measured** (`.playwright-mcp/plan-review-fixes/measure-round-trips.mjs` and `.json`/`.txt`: the cloud's 2 October scan,
+    each candidate's Forge history from ESI cut to before 2 October, the user's settings and filters, 1 B, 25% cap, 66
+    slots). The 2 October plan's own 33 items and units: expected +67.58 M before, +5.77 M within 12 hours after (+14.81 M
+    within 3 days, +25.80 M within 7); it realized +4.67 M by 9 October. The planner's mix at the plan's start, 12 hours:
+    26 items and 129.32 M a day before, 27 and 14.19 M a day after (+6.45 M expected within 12 hours against +56.51 M if
+    all came round; 22 candidates never came round the same day in 60 days, 1 too little history; 18 of the plan's items
+    in it, 20 before); 3 days: 33 items, 58.38 M a day → 22, 15.18 M; 7 days: 5 items by ISK a day, 54.44 M → 28 by return,
+    14.47 M. History still overstates the week after the plan: its rates summed to 2.7 of the 33 within 12 hours, 7.0 within
+    3 days and 12.0 within 7, against 0, 0 and 2 that did by ESI's days in order (6 by the trades the user made, one at a
+    loss): the markets moved away from the fortnight's prices (limits.md). Cost: 57 µs an item on top of statsFrom's ~830
+    (1,721 histories of up to 396 days), 0.8 s over the scan's 13,434 items; 58 bytes an item stored, 0.78 MB on the
+    scan's 17.2 MB of stats and books (4.5%).
 - **Orders you're leaving aren't told to get back in front** (`Data.leave`, a synced doc of type IDs; `leave` in
   `adviseRelist` / `judgeOrder`). Without this the first patient order would have been told to move by Orders, To do
   and the cloud's mail within the hour. A left order behind the front is `wait` with "You're leaving this one", raises

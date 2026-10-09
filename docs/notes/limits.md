@@ -138,6 +138,19 @@ State these rather than letting them be discovered:
   plan's start): a moved item looks best on paper. What replaces it is the next best on the same model, whose pace for Place
   and leave the plans review found far too high; that the replacements do better isn't shown, only that the moved ones did
   worse.
+- **Place and leave's round-trip rate is history's, daily and region-wide** (finding-trades.md). A day that reached both
+  prices says the bulk of trading got there, not that your order, queued among others at your share, filled and sold; a
+  horizon under a day counts the same day, the nearest daily history can say; the 60 start days overlap, so a rate is
+  less sure than its count suggests, and the 30-day count rests on at most 31. On the 2 October plan the rates summed to 12
+  of its 33 items within 7 days, against 6 that the user round-tripped and 2 by ESI's days in order: a market that moves
+  away from the fortnight's prices (the review's adverse selection) comes round less than its past did. Only the
+  expectation is scaled: each item is still sized by what its market takes at reach/14 a side.
+- **At the front, the planner's expectation is unchanged** (9 October 2026): it prices one step inside today's book and
+  relists to stay there, so the round trips of Place and leave's fortnight prices don't describe it, and its pace still
+  assumes every order keeps filling at your share.
+- **Until the first cloud scan after the round trips shipped, Place and leave's mix is empty**: stats from before the count
+  are left out ("Scan again before investing"), never stood in as 0% or 100%. A deep scan in the browser fills in the
+  items it reads.
 - **The token guard's history lags a market that moved over 10% within the fortnight**: falling, a real undercutter can
   read as a token. The share and day's-volume guards catch most (the Key's sell: 26 ahead against its pace).
 - **A Place-and-leave plan leaves only orders placed since it started** (less two minutes), or since its item's position
