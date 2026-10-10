@@ -342,9 +342,9 @@ export default {
         return body ? new Response(body, { headers: { ...c, 'Content-Type': 'application/json' } }) : json(null, 200, c);
       }
       if (url.pathname === '/v1/scan/status' && request.method === 'GET') return json(await scanStatus(env.DB), 200, c);
-      // Abyss Tracker, read by the cloud for the Abyssal page: every tier and weather, and one fit when it's opened.
       // The Industry tab's NPC sellers of every blueprint it ranks, from the morning scan (industryNpc.ts).
       if (url.pathname === '/v1/industry/npc' && request.method === 'GET') return json(await npcRows(env.DB), 200, c);
+      // Abyss Tracker, read by the cloud for the Abyssal page: every tier and weather, and one fit when it's opened.
       if (url.pathname === '/v1/abyss' && request.method === 'GET') return json(await abyssCells(env.DB), 200, c);
       if (url.pathname === '/v1/jobs/abyss' && request.method === 'POST') return json(await refreshAbyss(env.DB), 200, c);
       if (url.pathname === '/v1/abyss/fit' && request.method === 'GET') return json(await abyssFit(env.DB, url.searchParams.get('id') ?? ''), 200, c);

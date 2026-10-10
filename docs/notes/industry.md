@@ -118,10 +118,10 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
   book this morning". They are appended after the trading candidates, so a run that hits the time budget drops them first.
   **Marked `watchOnly` on the stats, not the book** (a correction to the spec): `overScan` rebuilds a
   live book over the scan's for every watched item and carries only three notes, so a flag on the book would have been
-  lost the first time a position got the item watched. Prospects, Busy markets and the planner (`judgeProspect`), the
+  lost the first time a position got the item watched. The stats are replaced only by a browser scan's own history read, which keeps the flag (`keepWatchOnly`). Prospects, Busy markets and the planner (`judgeProspect`), the
   opportunity mail (it reads the flag from D1 itself, so an old browser's `watch` doc can't get one mailed), the Sniper
   (`findListing`, `findBid`) and Hub arbitrage (`scanBusiest`) leave them out, and so does `passesGate`, which the browser
-  scan's book requests, Prospects' "most any item could swallow" and `coverage`'s checked count go through. Left alone on
+  scan's book requests, Prospects' "most any item could swallow" and `coverage`'s checked, candidate and priced counts go through (Prospects would otherwise say "Scan again to widen the net" every day). Settings → Market scan shows the run's `watchOnly` apart and counts `kept` without them. Left alone on
   purpose: Reprocessing's scanner and Freelance read books only (more items valued is fine), and `mergeLiveBooks` only
   lays books over stats. A browser's own quick or deep scan judges what it samples as before.
 - **The NPC row** (`industry_npc`, migration 0018; `worker/src/industryNpc.ts`; `GET /v1/industry/npc`): each run keeps

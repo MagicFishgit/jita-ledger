@@ -44,3 +44,6 @@ export const GLOBAL_PLEX_MARKET = 19000001;
  */
 export const OWNER_CHARS: readonly number[] = [95210486];
 export const isOwner = (characterId: number | null | undefined): boolean => characterId != null && OWNER_CHARS.includes(characterId);
+
+/** NPC market orders run for 365 days; a player's for 90 at most (market.ts re-exports it; the Worker's scan shares it). */
+export const NPC_DURATION = 365;

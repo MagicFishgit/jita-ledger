@@ -1,5 +1,6 @@
 import { get, set } from 'idb-keyval';
 import { esi, esiAllPages } from './esi';
+import { NPC_DURATION } from './constants';
 import { GLOBAL_PLEX_MARKET, JITA_44, PLEX_TYPE, THE_FORGE } from './config';
 import { cacheStore } from './store';
 import { buyerShare, soldFrom, tradingSplit, type BookSold } from './split';
@@ -52,7 +53,7 @@ type RawMarketOrder = { order_id: number; is_buy_order: boolean; price: number; 
  * in the book, with no list of such items to keep up to date. Checked on Raven Blueprint, which NPCs
  * sell at a fixed price.
  */
-export const NPC_DURATION = 365;
+export { NPC_DURATION };
 
 function levels(orders: RawMarketOrder[], n: number): BookLevel[] {
   const out: BookLevel[] = [];

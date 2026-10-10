@@ -179,7 +179,7 @@ function planScan(now, big = false) {
 }
 /** What the large ledger's Prospects and planner must draw from that scan, and what the planner's mix must not hold. */
 const PLAN_PROOF = {
-  prospects: { drawn: ['Ran up lately', 'Bids not reached', 'Long queue'], absent: ['990106', '990107', '990109'] },
+  prospects: { drawn: ['Ran up lately', 'Bids not reached', 'Long queue'], lacks: 'Scan again to widen the net', absent: ['990106', '990107', '990109'] },
   planner: { drawn: ['Raises kept back', 'Bids not reached', 'Long queue'], note: 'Scan again before investing', absent: ['Ran up lately', '990106', '990107', '990109'] },
 };
 /**
@@ -424,6 +424,7 @@ try {
       if (name === 'large' && PLAN_PROOF[hash]) {
         for (const t of PLAN_PROOF[hash].drawn) if (!(await page.locator('.page table .flag', { hasText: t }).count())) problems.push(`not drawn: no “${t}” flag`);
         for (const t of PLAN_PROOF[hash].absent ?? []) if (await page.locator('.page table', { hasText: t }).count()) problems.push(`in the table, and shouldn’t be: “${t}”`);
+        if (PLAN_PROOF[hash].lacks && (await page.locator('.page', { hasText: PLAN_PROOF[hash].lacks }).count())) problems.push(`drawn, and shouldn’t be: “${PLAN_PROOF[hash].lacks}” (990109 is watch-only; it is no candidate)`);
         if (PLAN_PROOF[hash].note && !(await page.locator('.page', { hasText: PLAN_PROOF[hash].note }).count())) problems.push(`not drawn: no “${PLAN_PROOF[hash].note}”`);
         if (hash === 'planner') {
           await mixFits(page, 'at the front', problems);

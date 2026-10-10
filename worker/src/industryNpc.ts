@@ -5,6 +5,7 @@
  * `industry_npc`; D1 keeps the latest complete read and, beside it, any newer partial one, and only those two, so the
  * browser can say "NPCs don't sell it in The Forge" only after a read that missed no page.
  */
+import { NPC_DURATION } from '../../src/lib/constants';
 import type { NpcRow } from '../../src/lib/industryRank';
 
 /** NPC sell orders of the blueprints asked for, by blueprint and station: the lowest price at each. */
@@ -12,7 +13,7 @@ export type BpoSellers = Map<number, Map<number, number>>;
 
 /** One order into the fold, if it's an NPC's sell order (365 days) of a blueprint asked for. */
 export function foldBpo(out: BpoSellers, want: ReadonlySet<number>, o: { type_id: number; location_id: number; price: number; is_buy_order: boolean; duration?: number }) {
-  if (o.is_buy_order || (o.duration ?? 0) < 365 || !want.has(o.type_id)) return;
+  if (o.is_buy_order || (o.duration ?? 0) < NPC_DURATION || !want.has(o.type_id)) return;
   let m = out.get(o.type_id);
   if (!m) out.set(o.type_id, (m = new Map()));
   const was = m.get(o.location_id);

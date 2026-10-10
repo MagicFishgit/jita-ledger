@@ -509,6 +509,8 @@ export type CloudScanStatus = {
   last: {
     at: string; startedAt: string; seconds: number; pages: number; pagesFailed: number;
     jitaTypes: number; twoSided: number; gated: number; checked: number; kept: number;
+    /** Of `checked`, read only for the Industry tab. Absent from a Worker a version behind. */
+    watchOnly?: number;
     history: { cached: number; fetched: number; failed: number; remaining: number }; partial: boolean;
   } | null;
   progress: { phase: 'pages' | 'history' | 'saving'; done: number; total: number; startedAt: string; updatedAt: string } | null;

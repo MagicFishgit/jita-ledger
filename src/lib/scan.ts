@@ -4,7 +4,7 @@ import { JITA_44, THE_FORGE } from './config';
 import { esi } from './esi';
 import { rates, type Settings } from './fees';
 import { jitaBook, marketHistory } from './market';
-import { BUSY_SHOWN, CLOUD_FRESH_HOURS, DEFAULT_FILTERS, expectedEdge, passesGate, pickPages, statsFrom, tradedPerDay } from './prospects';
+import { BUSY_SHOWN, CLOUD_FRESH_HOURS, DEFAULT_FILTERS, expectedEdge, keepWatchOnly, passesGate, pickPages, statsFrom, tradedPerDay } from './prospects';
 import { cacheStore, getData } from './store';
 import { toast } from './toast';
 import { watchedDays, watchedFlow } from './flowStore';
@@ -202,8 +202,10 @@ export async function clearScan(): Promise<void> {
 export function coverage(cache: ScanCache) {
   const counts = cache.sample?.counts ?? {};
   const min = cache.sample?.minSampled ?? DEPTH.quick.minSampled;
-  const candidates = Object.keys(counts).filter((id) => counts[Number(id)] >= min).length;
-  const books = Object.values(cache.books);
+  // Types the cloud's scan read only for the Industry tab (`watchOnly`) are in its counts and books but are no candidates.
+  const only = (id: number) => !!cache.stats[id]?.watchOnly;
+  const candidates = Object.keys(counts).filter((id) => counts[Number(id)] >= min && !only(Number(id))).length;
+  const books = Object.entries(cache.books).filter(([id]) => !only(Number(id))).map(([, b]) => b);
   // The oldest price is the honest one to quote: it is the worst thing on screen.
   const oldest = books.reduce<number | null>((acc, b) => {
     const t = Date.parse(b.at);
@@ -283,7 +285,7 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
     let sinceSave = 0;
     await pool(todo, async (id) => {
       try {
-        cache.stats[id] = statsFrom(id, await marketHistory(id)) ?? dead(id);
+        cache.stats[id] = keepWatchOnly(statsFrom(id, await marketHistory(id)) ?? dead(id), cache.stats[id]);
       } catch {
         setState({ failed: state.failed + 1 });
       }
@@ -335,7 +337,7 @@ export async function runScan(settings: Settings, filters: ProspectFilters = DEF
         // The highs likewise, for the sell side.
         const [book, hist] = await Promise.all([jitaBook(s.typeId), statsCurrent(s) ? null : marketHistory(s.typeId)]);
         cache.books[s.typeId] = { at: new Date().toISOString(), ...book };
-        if (hist) cache.stats[s.typeId] = statsFrom(s.typeId, hist) ?? dead(s.typeId);
+        if (hist) cache.stats[s.typeId] = keepWatchOnly(statsFrom(s.typeId, hist) ?? dead(s.typeId), s);
       } catch {
         setState({ failed: state.failed + 1 });
       }

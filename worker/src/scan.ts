@@ -21,6 +21,7 @@ import type { BookLevel, ProspectStats } from '../../src/lib/types';
 import { HEADERS } from './eve';
 import { eachHistory } from './hist';
 import { dayBoundary, nextScanAt } from './scanTimes';
+import { NPC_DURATION } from '../../src/lib/constants';
 import { noteRate } from './rate';
 import INDUSTRY from '../../src/data/industryTypes.json' with { type: 'json' };
 import { foldBpo, npcRowOf, saveNpcRow, type BpoSellers } from './industryNpc';
@@ -31,8 +32,6 @@ const PLEX = 44992;
 const PLEX_MARKET = 19000001;
 /** Price levels kept per side, as the app's book summary keeps them. */
 const LEVELS = 7;
-/** NPC orders run for a year; a player's for 90 days at most. */
-const NPC_DURATION = 365;
 /**
  * The spread one step inside the best prices must be over this for history to be worth fetching: below it, the
  * broker fees on both sides and the sales tax take it all at anyone's rates (best skills and standings still pay
@@ -287,7 +286,7 @@ export async function fullScan(db: D1Database, now = Date.now(), summarise = sum
     // Every sell price within twice the best ask was kept only for that count: ~9 MB over the scan, let go item by item.
     a.deep.clear();
     stmts.push(put.bind(t, JSON.stringify(stats), JSON.stringify(book), a.buyOrders + a.sellOrders, run));
-    kept++;
+    if (!watchOnly.has(t)) kept++;
     if (stmts.length >= 100) pending.push(flush());
   }, { concurrency: 24, deadline: started + TIME_BUDGET });
   await Promise.all(pending);

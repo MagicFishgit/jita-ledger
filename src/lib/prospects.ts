@@ -400,6 +400,11 @@ export const DEFAULT_FILTERS: ProspectFilters = {
   demoteFlagged: false,
 };
 
+/** Stats rebuilt from history keep the mark of a row the cloud's scan read only for the Industry tab (never writing `watchOnly: undefined`). */
+export function keepWatchOnly(fresh: ProspectStats, old?: Pick<ProspectStats, 'watchOnly'>): ProspectStats {
+  return old?.watchOnly ? { ...fresh, watchOnly: true } : fresh;
+}
+
 /**
  * Does this item change hands often enough, and steadily enough, to trade every day?
  *

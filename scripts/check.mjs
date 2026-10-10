@@ -7706,7 +7706,9 @@ console.log('\n--- a scan row read only for the Industry tab stays out of every 
   const bid = { id: 9, price: 20e6, units: 5, minVolume: 1, issued: new Date(NOWS - 3600_000).toISOString() };
   eq('  the Sniper: the listing and the high bid found, and neither on a watch-only row',
     [S.findListing(1, sells, false, s, NOWS)?.units, S.findListing(1, sells, false, { ...s, watchOnly: true }, NOWS), S.findBid(1, bid, s)?.price, S.findBid(1, bid, { ...s, watchOnly: true })], [2, null, 20e6, null]);
-  const { passesGate } = await import('../src/lib/prospects.ts');
+  const { passesGate, keepWatchOnly } = await import('../src/lib/prospects.ts');
+  eq('  a browser scan rebuilding a row\'s stats keeps the mark, and adds none (no `watchOnly: undefined` key)',
+    [keepWatchOnly({ typeId: 1 }, { watchOnly: true }), keepWatchOnly({ typeId: 1 }, {}), Object.keys(keepWatchOnly({ typeId: 1 }, undefined))], [{ typeId: 1, watchOnly: true }, { typeId: 1 }, ['typeId']]);
   eq('  the browser scan\'s gate (deep-scan book requests, "most any item could swallow", the alert round): a watch-only row never passes',
     [passesGate({ daysTraded: 30, tradesPerDay: 60, spikiness: 0.1 }, filters), passesGate({ daysTraded: 30, tradesPerDay: 60, spikiness: 0.1, watchOnly: true }, filters)], [true, false]);
   const st = (typeId, unitsPerDay, extra = {}) => ({ typeId, unitsPerDay, avgPrice: 1e6, ...extra });

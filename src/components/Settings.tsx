@@ -1238,8 +1238,9 @@ function ScanTab() {
               { l: 'Order book pages read', h: 'All of The Forge, every order', v: last.pagesFailed ? `${units(last.pages - last.pagesFailed)} of ${units(last.pages)}` : `${units(last.pages)} of ${units(last.pages)}` },
               { l: 'Items for sale or wanted in Jita', h: 'At Jita 4-4, plus PLEX', v: units(last.jitaTypes) },
               { l: 'With both buyers and sellers', h: 'Items NPCs sell are left out: nothing undercuts them', v: units(last.twoSided) },
-              { l: 'Price history checked', h: `Every item whose buy and sell prices are far enough apart to pay the fees, and the ${units(300)} busiest`, v: units(last.checked) },
+              { l: 'Price history checked', h: last.watchOnly ? `Every item whose buy and sell prices are far enough apart to pay the fees, the ${units(300)} busiest, and the ${units(last.watchOnly)} read for the Industry tab` : `Every item whose buy and sell prices are far enough apart to pay the fees, and the ${units(300)} busiest`, v: units(last.checked) },
               { l: 'In Prospects', h: 'Those with trading history to judge them by', v: units(last.kept) },
+              ...(last.watchOnly ? [{ l: 'Read for the Industry tab', h: 'Products and materials it ranks: never in Prospects, the planner or the Sniper', v: units(last.watchOnly) }] : []),
             ].map((x) => (
               <div key={x.l} className="lrow"><span><span className="lt" style={{ fontSize: 13 }}>{x.l}</span><span className="ls">{x.h}</span></span><span className="lv mono" style={{ fontSize: 13 }}>{x.v}</span></div>
             ))}
