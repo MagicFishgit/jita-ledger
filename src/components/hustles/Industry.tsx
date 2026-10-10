@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { useAlts } from '../../lib/altStore';
 import { navigate, type Route } from '../../lib/hooks';
 import type { Indexed } from '../../lib/industry';
+import type { Graph } from '../../lib/jumps';
 import { PilotProvider } from '../pilot';
 import { Seg } from '../ui';
-import { loadIndustry } from './industryBundle';
+import { loadGraph, loadIndustry } from './industryBundle';
 import { useIndustryChars } from './industryChars';
+import { IndustryBuild } from './IndustryBuild';
 import { IndustryStart } from './IndustryStart';
 
 /**
@@ -23,6 +25,7 @@ const keep = (k: string, v: string) => { try { localStorage.setItem(k, v); } cat
 
 export const SECTIONS = [
   { key: 'start', label: 'Start', tip: 'Where you stand, and the steps from a first job to capitals' },
+  { key: 'build', label: 'Build', tip: 'What pays at your build site, and where you build' },
 ] as const;
 type Section = (typeof SECTIONS)[number]['key'];
 
@@ -42,10 +45,12 @@ export function Industry({ route }: { route: Route }) {
   const choose = (s: Section) => { keep(SECTION_KEY, s); navigate(`hustles/industry/${s}`); };
 
   const [ix, setIx] = useState<Indexed | 'failed' | null>(null);
+  const [graph, setGraph] = useState<Graph | 'failed' | null>(null);
   const [tries, setTries] = useState(0);
   useEffect(() => {
     let alive = true;
     loadIndustry().then((b) => { if (alive) setIx(b); }, () => { if (alive) setIx('failed'); });
+    loadGraph().then((g) => { if (alive) setGraph(g); }, () => { if (alive) setGraph('failed'); });
     return () => { alive = false; };
   }, [tries]);
 
@@ -60,13 +65,14 @@ export function Industry({ route }: { route: Route }) {
           )}
         </div>
       )}
-      {ix === 'failed' ? (
-        <p className="note small" style={{ margin: 0 }}>Couldn’t load the blueprints just now. <button type="button" className="link-btn" onClick={() => { setIx(null); setTries((n) => n + 1); }}>Try again</button></p>
-      ) : !ix ? (
-        <p className="note small" style={{ margin: 0 }}>Loading the blueprints…</p>
+      {ix === 'failed' || graph === 'failed' ? (
+        <p className="note small" style={{ margin: 0 }}>Couldn’t load {ix === 'failed' ? 'the blueprints' : 'the stargate map'} just now. <button type="button" className="link-btn" onClick={() => { setIx(null); setGraph(null); setTries((n) => n + 1); }}>Try again</button></p>
+      ) : !ix || !graph ? (
+        <p className="note small" style={{ margin: 0 }}>Loading the blueprints and the map…</p>
       ) : (
         <PilotProvider value={shown.pilot}>
           {section === 'start' && <IndustryStart key={shown.charId} c={shown} ix={ix} />}
+          {section === 'build' && <IndustryBuild key={shown.charId} c={shown} ix={ix} graph={graph} mainName={main.name} />}
         </PilotProvider>
       )}
     </div>

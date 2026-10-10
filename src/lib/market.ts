@@ -9,6 +9,7 @@ import type { LpOffer } from './loyalty';
 import type { PlanetHead, RawColony } from './colony';
 import { paceDay, recentAverages } from './prospects';
 import { shareInFlight } from './inFlight';
+import { parseIndices, type IndustryIndex } from './industry';
 
 type IdsResponse = {
   inventory_types?: { id: number; name: string }[];
@@ -340,6 +341,20 @@ export function adjustedPricesShared(): Promise<Record<number, number>> {
     p.catch(() => { adjusted = null; });
   }
   return adjusted.p;
+}
+
+let indices: { at: number; p: Promise<Record<number, IndustryIndex>> } | null = null;
+/**
+ * ESI's industry cost indices for every system (/industry/systems/, no login, about 2 MB, cached an hour by ESI), read at
+ * most once an hour however many panels ask, and shared while in flight. A failure isn't kept.
+ */
+export function industrySystemsShared(): Promise<Record<number, IndustryIndex>> {
+  if (!indices || Date.now() - indices.at > 3600_000) {
+    const p = esi<{ solar_system_id: number; cost_indices: { activity: string; cost_index: number }[] }[]>('/industry/systems/').then(({ data }) => parseIndices(data));
+    indices = { at: Date.now(), p };
+    p.catch(() => { indices = null; });
+  }
+  return indices.p;
 }
 
 /** Loyalty points held with each corporation. */

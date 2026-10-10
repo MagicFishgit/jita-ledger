@@ -11,12 +11,12 @@ import {
   siteFromStructure,
 } from '../lib/reprocess';
 import { loadCache } from '../lib/scan';
-import { getAuth, hasScope } from '../lib/auth';
+import { hasScope } from '../lib/auth';
 import { SCOPE } from '../lib/config';
-import { structureInfo, system } from '../lib/universe';
 import { useData } from '../lib/store';
 import { useNow } from '../lib/hooks';
 import { skillStatus, trainSaid } from '../lib/skillStatus';
+import { FindStructure } from './FindStructure';
 import { ROMAN, SkillStrip } from './SkillStrip';
 import { toast } from '../lib/toast';
 import { copyMultibuy, ItemSearch, useEnsureNames, useTypeName } from './common';
@@ -82,7 +82,8 @@ export function Reprocess() {
               options={[{ v: 'station', label: 'Jita 4-4' }, { v: 'structure', label: 'A structure' }]} />
             {place.kind === 'structure' && (
               <>
-                {hasScope(SCOPE.search) && <FindStructure onPick={(p) => setPlace({ ...place, ...p })} picked={place.name} />}
+                {hasScope(SCOPE.search) && <FindStructure onPick={(f) => setPlace({ ...place, ...siteFromStructure(f.typeId, f.security), name: f.name })} picked={place.name}
+                  describe={(f) => { const k = siteFromStructure(f.typeId, f.security).structure; return k === 'other' ? 'not a refinery' : k === 'tatara' ? 'Tatara' : 'Athanor'; }} />}
                 <Seg label="Structure" size="sm" value={place.structure} onChange={(v) => setPlace({ ...place, structure: v, name: undefined })}
                   options={[{ v: 'tatara', label: 'Tatara', tip: '+5.5% on ore' }, { v: 'athanor', label: 'Athanor', tip: '+2% on ore' }, { v: 'other', label: 'Other' }]} />
                 <Seg label="Reprocessing rig" size="sm" value={place.rig} onChange={(v) => setPlace({ ...place, rig: v })}
@@ -244,56 +245,6 @@ function ItemCheck({ bundle, site, implant, skills, salesTax, name, picked }: { 
   );
 }
 
-
-/**
- * Find the structure you refine at by name (esi-search.search_structures.v1): ESI searches the structures you can see,
- * and each found one's type and system say whether it's an Athanor or a Tatara and its security band (siteFromStructure).
- * Its rig and tax aren't in ESI, so they stay yours to set.
- */
-function FindStructure({ onPick, picked }: { onPick: (p: { structure: 'athanor' | 'tatara' | 'other'; sec: 'high' | 'low' | 'null'; name: string }) => void; picked?: string }) {
-  const [q, setQ] = useState('');
-  const [found, setFound] = useState<{ id: number; name: string; system: string; security: number | null; typeId?: number }[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const find = async () => {
-    const a = getAuth();
-    if (!a || q.trim().length < 3) { toast('Type at least three letters of its name.', 'warn'); return; }
-    setBusy(true);
-    try {
-      const { data } = await esi<{ structure?: number[] }>(`/characters/${a.characterId}/search/`, { auth: true, query: { categories: 'structure', search: q.trim(), strict: 'false' } });
-      const out: { id: number; name: string; system: string; security: number | null; typeId?: number }[] = [];
-      for (const id of (data.structure ?? []).slice(0, 15)) {
-        const s = await structureInfo(id);
-        if (s.status !== 'found') continue;
-        const sys = await system(s.systemId).catch(() => null);
-        out.push({ id, name: s.name, system: sys?.name ?? '', security: sys?.security ?? null, typeId: s.typeId });
-      }
-      setFound(out);
-    } catch (e) { toast(e instanceof Error ? e.message : String(e), 'err'); }
-    finally { setBusy(false); }
-  };
-  return (
-    <div className="col" style={{ gap: 6 }}>
-      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input className="num" placeholder="Find it by name" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void find(); }} style={{ width: 220, maxWidth: '100%' }} aria-label="Find a structure by name" />
-        <button type="button" className="btn sm" disabled={busy} onClick={() => void find()}>{busy ? 'Searching…' : 'Find'}</button>
-        {picked && <span className="note small" style={{ margin: 0 }}>At {picked}</span>}
-      </div>
-      {found && (found.length ? (
-        <div className="col" style={{ gap: 2 }}>
-          {found.map((f) => {
-            const s = siteFromStructure(f.typeId, f.security);
-            return (
-              <button key={f.id} type="button" className="link-btn" style={{ justifyContent: 'flex-start', textAlign: 'left' }}
-                onClick={() => { onPick({ ...s, name: f.name }); setFound(null); setQ(''); }}>
-                {f.name} <span className="faint">· {f.system}{f.security != null ? ` ${f.security.toFixed(1)}` : ''} · {s.structure === 'other' ? 'not a refinery' : s.structure === 'tatara' ? 'Tatara' : 'Athanor'}</span>
-              </button>
-            );
-          })}
-        </div>
-      ) : <p className="note small" style={{ margin: 0 }}>No structure you can see by that name.</p>)}
-    </div>
-  );
-}
 
 /**
  * Items listed under what their output fetches (lib/reprocess.ts scanUnderValue), from the books the cloud's daily full

@@ -97,3 +97,18 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
   `refusedDoc` holds it back.
 - **Seven Side hustles tabs**: the row is a container, seven columns from 1,040 px, four below, two on a phone with an odd
   last tab across the row, so none sits alone. 172 px a tab (the old minimum) fitted six at 1,440.
+
+- **Build sites** (`industrySites.ts`, `IndustrySites.tsx`; the `industry` doc's `sites`). Three ways in: a quiet NPC
+  station within 10 high-sec jumps of Jita (ESI's `/industry/systems` index, lowest first; a Factory, or a Laboratory for
+  research: only 510 stations have one), a structure found by name (`FindStructure`, now `components/FindStructure.tsx`,
+  shared with Reprocessing; it searches as the browser's login, the main), or a home typed by you (UALX-3 offered first).
+  A site says its system, band, high-sec jumps from Jita and index; its kind, rigs (of its size, at most three) and tax
+  are yours to type. An NPC station is 0.25% and takes no rigs. A tax not typed is an empty box and "–: type it from the
+  Industry window", never 0%. A home with no structure ID holds nothing the app can read.
+- **Freight** (`FREIGHT_PRESETS`, the doc's `freight`): a route is ISK a m³ of packaged volume, a share of the goods'
+  value, and a minimum a contract. Brave Freight's three are offered with their source (Jita ↔ UALX-3 900 ISK a m³, 0.75%
+  of a 105% collateral, 5 M minimum; Jita ↔ C-J6MT 1,150 with no minimum stated; UALX-3 ↔ C-J6MT 415 and 50 M) and none
+  is used until picked. From a high-sec station within 10 jumps of Jita you carry it yourself, for no ISK (`legFor`).
+- **A security not known is its own band** (`secBand` returns `'unknown'` for NaN, undefined or null; Task 2's review). Null-sec
+  has the best rig multiplier, so a home typed as a system the map lacks must not take it: `rigFor` gives an unknown band no
+  rig bonus, `siteFacts` carries it, and the sites table shows no security for it.

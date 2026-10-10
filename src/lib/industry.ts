@@ -122,9 +122,14 @@ export function kindOfType(typeId: number | null | undefined): SiteKind {
   return 'other';
 }
 
-export type SecBand = 'high' | 'low' | 'null';
-/** A system's band for a rig's multiplier: 0.45 and up is high-sec, above 0 low-sec, the rest (wormholes too) null. As reprocess.ts reads it. */
-export const secBand = (security: number): SecBand => (security >= 0.45 ? 'high' : security > 0 ? 'low' : 'null');
+export type SecBand = 'high' | 'low' | 'null' | 'unknown';
+/**
+ * A system's band for a rig's multiplier: 0.45 and up is high-sec, above 0 low-sec, the rest (wormholes too) null. As
+ * reprocess.ts reads it. A security that isn't known (NaN, undefined, null) is 'unknown', never null-sec: null-sec has the
+ * best rig multiplier, so a system not yet resolved must not take it (Task 2's review).
+ */
+export const secBand = (security: number | null | undefined): SecBand =>
+  typeof security !== 'number' || !Number.isFinite(security) ? 'unknown' : security >= 0.45 ? 'high' : security > 0 ? 'low' : 'null';
 
 export type Bonus = { material: number; time: number; cost: number };
 export const NO_BONUS: Bonus = { material: 1, time: 1, cost: 1 };
@@ -151,7 +156,7 @@ export function inFilter(ix: Indexed, filter: number, product: number | null): b
 export function rigFor(ix: Indexed, rigs: readonly number[], kind: SiteKind, band: SecBand, product: number | null, activity: Activity): Bonus {
   const out = { ...NO_BONUS };
   const size = RIG_SIZE[kind];
-  if (!size) return out;
+  if (!size || band === 'unknown') return out; // a security not known takes no multiplier, never null-sec's
   const sec = band === 'high' ? 0 : band === 'low' ? 1 : 2;
   const at: Record<RigKind, 0 | 1 | 2> = { time: 0, material: 1, cost: 2 };
   for (const id of rigs) {

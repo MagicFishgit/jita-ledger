@@ -175,7 +175,7 @@ R&D agents (the Research tab under Side hustles, datacores from research points)
   50% (a 250mm Compressed Coil Gun I, +283 k for 29; a J5 Enduring Warp Disruptor), and Inferno Torpedoes +3.2 M only
   at Scrapmetal V: reprocessors keep most prices at mineral value. The finds are leads: clicking the Coil Gun into the
   item check, against the live book, its cheap listings had already sold (−240 k).
-  **Where you refine can be found by name** (`FindStructure`, `siteFromStructure`, scope `esi-search.search_structures.v1`,
+  **Where you refine can be found by name** (`FindStructure`, now `components/FindStructure.tsx`, shared with the Industry tab's build sites, 10 October 2026; `siteFromStructure`, scope `esi-search.search_structures.v1`,
   registered 29 September 2026): ESI's character search for structures you can see, each read with
   `/universe/structures/{id}` (now keeping its `type_id`) and its system: an Athanor (35835) or Tatara (35836) sets the
   structure, 0.45 and up is high-sec, above 0 low, the rest null. Rig and tax aren't in ESI and stay the user's.

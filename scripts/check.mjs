@@ -7430,6 +7430,8 @@ console.log('\n--- Industry: the rules (industry.ts), on EVE Ref\'s own figures 
   eq('    Tech I and Tech II together on one product: the better is taken', I.rigFor(ix, [37146, 37147], 'raitaru', 'high', 621, 'manufacturing').material, 0.976);
   eq('    an NPC station takes no rig', I.rigFor(ix, [37146], 'npc', 'high', 621, 'manufacturing'), I.NO_BONUS);
   eq('  security bands as reprocess.ts reads them', [0.45, 0.449, 0.1, 0, -0.2].map(I.secBand), ['high', 'low', 'low', 'null', 'null']);
+  eq('  a security not known is its own band, never null-sec\'s: NaN, undefined and null', [NaN, undefined, null].map(I.secBand), ['unknown', 'unknown', 'unknown']);
+  eq('    and takes no rig multiplier (null-sec\'s would be 0.958)', I.rigFor(ix, [37146], 'raitaru', 'unknown', 621, 'manufacturing').material, 1);
   eq('  a structure\'s kind from its type: an Azbel, a Fortizar, an Athanor (no bonuses here)', [35826, 35833, 35835].map(I.kindOfType), ['azbel', 'fortizar', 'other']);
   const idx = I.parseIndices(fx.systems);
   eq('  ESI\'s indices by system: UALX-3\'s manufacturing 6.12%, ME research 9.47%; a system missing an activity isn\'t listed',
@@ -7637,6 +7639,46 @@ console.log('\n--- who mines (industryRank.ts minedLately) ---');
   eq('  mining records in the last 30 days, by character: the alt mined yesterday, the main 30 days ago, not 31; none, none',
     [K.minedLately(mining, 900001, NOW4), K.minedLately(mining, 95210486, NOW4), K.minedLately({ a: rec(95210486, '2026-09-09') }, 95210486, NOW4), K.minedLately({}, 1, NOW4)], [true, true, false, false]);
   eq('    by character: the alt\'s record isn\'t the main\'s', K.minedLately({ b: rec(900001, '2026-10-09') }, 95210486, NOW4), false);
+}
+
+console.log('\n--- Industry: where you build (industrySites.ts) ---');
+{
+  // ESI's indices of 10 October 2026 for the systems in the fixture (Jita, Perimeter, Maurasi, Urlen, Itamo, Sobaseki, UALX-3,
+  // C-J6MT), CCP's stations and their services, and the stargate map.
+  const I = await import('../src/lib/industry.ts');
+  const S = await import('../src/lib/industrySites.ts');
+  const { jumpsFrom, HIGH_SEC } = await import('../src/lib/jumps.ts');
+  const fsI = await import('node:fs');
+  const ix = I.indexBundle(JSON.parse(fsI.readFileSync(new URL('../src/data/industry.json', import.meta.url), 'utf8')));
+  const g = JSON.parse(fsI.readFileSync(new URL('../src/data/universeGraph.json', import.meta.url), 'utf8')).systems;
+  const fx = JSON.parse(fsI.readFileSync(new URL('./fixtures/industry-everef.json', import.meta.url), 'utf8'));
+  const idx = I.parseIndices(fx.systems);
+  const high = jumpsFrom(g, S.JITA_SYSTEM, (_, s) => s >= HIGH_SEC);
+  const quiet = S.quietStations(ix.b.stations, g, idx, { maxJumps: 10, need: 'factory', limit: 50 });
+  eq('  the quietest factories near Jita first: Itamo (3.94%, 2 jumps), then Perimeter, Maurasi, Sobaseki, Jita', [...new Set(quiet.map((x) => x.system))], ['Itamo', 'Perimeter', 'Maurasi', 'Sobaseki', 'Jita']);
+  eq('    a system ESI lists no index for is left out', quiet.every((x) => idx[x.systemId]), true);
+  eq('  a Laboratory near Jita, quietest first: Sobaseki\'s', S.quietStations(ix.b.stations, g, idx, { maxJumps: 10, need: 'lab', limit: 3 }).map((x) => [x.stationId, x.system, x.lab]), [[60002419, 'Sobaseki', true]]);
+  eq('  the nearest Laboratory: a jump from Jita; twelve from UALX-3', [S.nearestLab(ix.b.stations, g, 30000142), S.nearestLab(ix.b.stations, g, 30004807)],
+    [{ stationId: 60002419, systemId: 30001363, jumps: 1 }, { stationId: 60012751, systemId: 30001014, jumps: 12 }]);
+  const home = S.homeSite(30004807, 'UALX-3', 'azbel');
+  const facts = S.siteFacts(home, g, high, idx);
+  eq('  a home in UALX-3: null-sec, no high-sec route from Jita, its index, its tax not typed (null, never 0)', [facts.band, facts.jitaJumps, facts.nearJita, facts.index.manufacturing, facts.tax, facts.canScience], ['null', null, false, 0.0612, null, true]);
+  eq('    before ESI\'s indices are read: no index, said', [S.siteFacts(home, g, high, null).index, S.siteFacts(home, g, high, null).indexWhy], [null, 'Reading the industry indices…']);
+  eq('    a home in a system the map lacks: an unknown band, said, never null-sec', [S.siteFacts(S.homeSite(99999999, 'Nowhere', 'azbel'), g, high, idx).band, S.siteFacts(S.homeSite(99999999, 'Nowhere', 'azbel'), g, high, idx).security], ['unknown', null]);
+  eq('    a system ESI lists no index for, said by name', S.siteFacts(S.homeSite(30000168, 'Friggi', 'raitaru'), g, high, idx).indexWhy, 'ESI lists no industry index for Friggi');
+  const st = S.stationSite({ stationId: 60003466, systemId: 30000144, system: 'Perimeter', security: 0.949, jumps: 1, index: 0.0695, lab: false }, 'Perimeter station');
+  const stFacts = S.siteFacts(st, g, high, idx);
+  eq('  an NPC station a jump from Jita: 0.25%, carried to Jita, no Laboratory so no research there', [stFacts.tax, stFacts.jitaJumps, stFacts.nearJita, stFacts.canScience], [0.0025, 1, true, false]);
+  eq('  goods to Jita: carried from Perimeter; no way from UALX-3 until a route is picked; Brave Freight once it is; none to UALX-3\'s own market',
+    [S.legFor(st, stFacts, S.JITA_SYSTEM, []), S.legFor(home, facts, S.JITA_SYSTEM, []), S.legFor(home, facts, S.JITA_SYSTEM, S.FREIGHT_PRESETS).kind, S.legFor(home, facts, 30004807, [])],
+    [{ kind: 'carry', jumps: 1 }, { kind: 'none' }, 'route', { kind: 'here' }]);
+  eq('  Brave Freight\'s presets: 900 ISK a m³, 0.75% of 105%, 5 M; Jita ↔ C-J6MT 1,150 with no minimum stated; UALX-3 ↔ C-J6MT 415, 50 M',
+    S.FREIGHT_PRESETS.map((r) => [r.perM3, +r.collateral.toFixed(6), r.min]), [[900, 0.007875, 5e6], [1150, 0.007875, null], [415, 0, 5e7]]);
+  eq('  the rigs each structure takes: 34 L-Set for an Azbel, 64 M-Set for a Raitaru, 8 XL-Set for a Sotiyo, none in a station',
+    ['azbel', 'raitaru', 'sotiyo', 'npc'].map((k) => S.rigsFitting(ix, k).length), [34, 64, 8, 0]);
+  eq('  a structure found by name: its kind from its type; its rigs and tax yours to type',
+    S.structureSite({ id: 1046664001931, name: 'UALX-3 - 1st Byzantigoon', systemId: 30004807, typeId: 35834 }),
+    { id: 'st:1046664001931', name: 'UALX-3 - 1st Byzantigoon', systemId: 30004807, kind: 'keepstar', structureId: 1046664001931, rigs: [], tax: null });
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

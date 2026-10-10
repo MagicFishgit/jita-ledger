@@ -7,6 +7,7 @@
 // Why: the Wallet once crashed the whole app on a ledger with trades but no journal, and Results keyed a list by
 // item name that only broke with two positions on one item. Rich hand-made seeds don't find those; an empty store,
 // a thin one and a big generated one, on every page, do.
+import fs from 'node:fs';
 import { createServer } from 'vite';
 import { chromium } from 'playwright-core';
 
@@ -1697,6 +1698,9 @@ try {
     // Each later task fills these with the answers it needs: ESI by path, the cloud by path.
     const ESI = {};
     const CLOUD = {};
+    const FX = JSON.parse(fs.readFileSync(new URL('./fixtures/industry-everef.json', import.meta.url), 'utf8'));
+    ESI['/industry/systems/'] = (url, req, json) => json(FX.systems);
+    ESI['/universe/names/'] = (url, req, json) => json(JSON.parse(req.postData() ?? '[]').map((id) => ({ id, name: `Station ${id}`, category: 'station' })));
     await page.route('**/*', (route) => {
       const req = route.request(), url = new URL(req.url());
       if (req.url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
@@ -1772,6 +1776,54 @@ try {
       const got = await tiles('[data-industry="where"]');
       if (got['Jita broker fee']?.[0] !== '1.20%' || got['Factory slots']?.[0] !== '–') problems.push(`typed fees with no skills read: fee ${JSON.stringify(got['Jita broker fee'])}, slots ${JSON.stringify(got['Factory slots'])}; wanted 1.20% and –`);
     }
+
+    // --- Build: where you build (Task 4B).
+    await page.goto(`${BASE}#hustles/industry/build`);
+    await page.waitForSelector('[data-industry="sites"]', { timeout: 20_000 }).catch(() => problems.push('Where you build never drew'));
+    if (!(await text('[data-industry="sites"]')).includes('No build sites yet: add a quiet station near Jita, a structure you can see, or your home.')) problems.push('no sites, and it doesn’t say how to add one');
+    // A quiet station: ESI's indices of 10 October 2026, Itamo's 3.94% the quietest within 10 jumps.
+    await page.waitForSelector('[data-industry="near-jita"] button', { timeout: 15_000 }).catch(() => problems.push('the quiet stations never listed'));
+    const nearText = await text('[data-industry="near-jita"]');
+    if (!nearText.includes('Itamo 0.7 · 2 jumps · manufacturing index 3.94%')) problems.push(`the quietest station isn’t Itamo at 3.94%: “${nearText.slice(0, 200)}”`);
+    await page.locator('[data-industry="near-jita"] button', { hasText: 'Add' }).first().click();
+    await page.waitForTimeout(400);
+    const st = await text('[data-industry="site-list"]');
+    for (const t of ['Default', '2 high-sec jumps from Jita', '0.25%', '3.94%']) if (!st.includes(t)) problems.push(`the station site doesn’t say “${t}”: “${st.slice(0, 240)}”`);
+    await page.locator('[aria-label="Station services"] button', { hasText: 'With a Laboratory' }).click();
+    await page.waitForTimeout(300);
+    if (!(await text('[data-industry="near-jita"]')).includes('Sobaseki 0.8 · 1 jump · ME research index 16.41%')) problems.push('with a Laboratory, Sobaseki isn’t offered at its 16.41% ME research index');
+    // A home typed by you: UALX-3, an Azbel, no tax typed, then 1% typed and an L-Set rig.
+    await page.locator('[aria-label="Add a site"] button', { hasText: 'Home' }).click();
+    await page.locator('[data-industry="add-home"] button', { hasText: 'Add' }).click();
+    await page.waitForTimeout(400);
+    const homeRow = () => text('[data-site="home:30004807"]');
+    for (const t of ['Home in UALX-3', 'no high-sec route from Jita', '6.12%', 'Typed by you: with no structure ID, the app knows nothing held there.']) if (!(await homeRow()).includes(t)) problems.push(`the home site doesn’t say “${t}”`);
+    if (!PHONE && !(await page.locator('[data-site="home:30004807"] input[placeholder="–"]').count())) problems.push('the home’s tax isn’t an empty box (it must never read 0%)');
+    if (PHONE && !(await homeRow()).includes('Tax: –: type it from the Industry window')) problems.push('on a phone, the home’s tax doesn’t say it isn’t typed');
+    if (!PHONE) {
+      await page.locator('[data-site="home:30004807"] .chip input').fill('1');
+      await page.locator('[data-site="home:30004807"] select[aria-label^="Add a rig"]').selectOption({ label: 'L-Set Equipment Manufacturing Efficiency I' });
+      await page.waitForTimeout(400);
+      if (!(await homeRow()).includes('L-Set Equipment Manufacturing Efficiency I')) problems.push('the rig picked isn’t on the home site');
+      await page.reload();
+      // From Task 5B the panel opens shut once sites exist: open it.
+      await page.waitForSelector('[data-industry="build"]', { timeout: 20_000 });
+      if (!(await page.locator('[data-industry="sites"]').isVisible().catch(() => false))) await page.locator('button.panel-toggle', { hasText: 'Where you build' }).click();
+      await page.waitForSelector('[data-site="home:30004807"]', { timeout: 20_000 });
+      if ((await page.locator('[data-site="home:30004807"] .chip input').inputValue().catch(() => '')) !== '1') problems.push('the home’s typed 1% tax wasn’t kept');
+    }
+    // By name: the stand-in login has no search permission.
+    await page.locator('[aria-label="Add a site"] button', { hasText: 'A structure by name' }).click();
+    if (!(await text('[data-industry="add-site"]')).includes('Log in again: finding a structure by name needs EVE’s permission to search structures.')) problems.push('finding a structure without the permission doesn’t say to log in again');
+    // Freight: Brave Freight's preset, used.
+    await page.locator('[data-industry="freight"] .panel-toggle').click();
+    await page.locator('[data-industry="freight"] button', { hasText: 'Use it' }).first().click();
+    await page.waitForTimeout(300);
+    const fr = await text('[data-route="brave-jita-ualx"]');
+    if (!fr.includes('900 ISK a m³, 0.79% of the goods’ value, 5 M ISK minimum · Brave wiki, 3 June 2026')) problems.push(`Brave Freight’s route doesn’t read as published: “${fr}”`);
+    const siteFit = await sideways(page, '[data-industry="sites"] .tbl-scroll');
+    if (!PHONE && siteFit && siteFit.over > 0) problems.push(`the sites table scrolls sideways at 1,440 (${siteFit.over} px)`);
+    if (SHOTS) { await page.locator('[data-industry="sites"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-industry-sites.png` }); }
 
     // --- the end of the industry case
     const all = await text();
