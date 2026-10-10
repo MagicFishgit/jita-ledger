@@ -7283,6 +7283,19 @@ console.log('\n--- Place and leave’s pace: how often each item round-trips wit
   const { planListItem: pli, skippedEmptyItem: sei } = await import('../src/lib/todo.ts');
   has('  To do’s list step names it', pli({ planId: 'p', planName: '2 Oct', horizonDays: 0.5, patient: true, typeId: 1, units: 2, unitCost: 10 }, { price: 20, from: 'plan', planPrice: 20, today: 20, other: 20, moved: null, cheapest: null, atCheapest: null, overCheapest: false, breakEven: 12, perUnit: 5, profit: 10, ret: 0.2 }, 'x').detail, 'Bought for 2 Oct, a 12-hour plan.');
   has('  and an empty skipped position’s close', sei({ id: 'pos', typeId: 1 }, { name: '2 Oct', horizonDays: 0.5 }, 'x').detail, 'You skipped it on 2 Oct, a 12-hour plan:');
+
+  // The empty position's Close item says why it went (the final review): a removed plan is not "put back".
+  const { skippedCloseState: scs, judgeLedger: jl } = await import('../src/lib/todo.ts');
+  const closeItem = sei({ id: 'pos', typeId: 1 }, { id: 'oct2', name: '2 Oct', horizonDays: 0.5 }, 'x');
+  eq('  it remembers whose skip it is', closeItem.planId, 'oct2');
+  const say = (plans, extra = {}) => jl({ item: closeItem, seenAt: 0 }, { position: { status: 'open' }, ...scs(plans, 'pos', 'oct2'), ...extra });
+  const skippedPlan = { id: 'oct2', items: [{ positionId: 'pos', skipped: { at: 'x' } }] };
+  eq('  still skipped, so something came: not empty after all', say([skippedPlan]), 'It isn’t empty after all: a trade or an open order came.');
+  eq('  put back on its plan: the checklist is there', say([{ id: 'oct2', items: [{ positionId: 'pos' }] }]), 'You put it back on the plan: place its bid from the checklist.');
+  eq('  its plan removed: says so, never "put back"', say([]), 'The plan was removed, so it no longer asks to close this position.');
+  eq('  a newer plan took the position: says so, not "isn’t empty"', say([{ id: 'oct9', items: [{ positionId: 'pos' }] }]), 'A newer plan holds this position now.');
+  eq('  a newer plan beside the skipped one: the skip still reads as before', say([skippedPlan, { id: 'oct9', items: [{ positionId: 'pos' }] }]), 'It isn’t empty after all: a trade or an open order came.');
+  eq('  an item remembered without its plan: any plan naming the position', scs([{ id: 'a', items: [{ positionId: 'pos', skipped: {} }] }], 'pos', undefined), { stillSkipped: true, planNamesIt: true, otherPlanHolds: false });
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

@@ -133,6 +133,13 @@ export function releaseOrphanLeave(): void {
   update((d) => releaseOrphans(d.leave, d.leaveFrom, d.plans, d.positions) ?? { leaveFrom: { ...d.leaveFrom } });
 }
 
+/**
+ * The cloud's first pull of the visit brought a `leaveFrom` doc: a plan has been started since this version began writing
+ * one, so that ledger is past the move and nothing is left behind to let go. The cleanup stands down. A new browser, "Delete
+ * all data" and a save that never landed all start with no `leaveFrom` on disk, and without this each would run it again.
+ */
+export function standDownOrphanCleanup(): void { leaveCleanupDue = false; }
+
 /** Records a new broker fee and sales tax whenever settings change them. Rapid edits within 2 minutes are merged. */
 function stampRates(next: Data): Data {
   const r = rates(next.settings);

@@ -11,7 +11,7 @@ import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  cashInItem, feedsQueueItem, notReachedItem, inFilter, judgeAltLogin, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, placeBuyItem, planListItem, judgeIndustry, judgeLedger, judgeOrder, skippedEmptyItem, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
+  cashInItem, feedsQueueItem, notReachedItem, inFilter, judgeAltLogin, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, placeBuyItem, planListItem, judgeIndustry, judgeLedger, judgeOrder, skippedEmptyItem, skippedCloseState, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
   type Entry, type Memory, type TodoFilter, type TodoItem, type TodoKind,
 } from '../lib/todo';
 import type { IndustryJob } from '../lib/types';
@@ -516,7 +516,7 @@ export function Todo() {
           });
         }
         default: return judgeLedger(e, { position: position(id), inCloud,
-          stillSkipped: x.kind === 'close' && d.plans.some((p) => p.items.some((i) => i.positionId === id && !!i.skipped)) });
+          ...(x.kind === 'close' && x.ver === 'skipped' ? skippedCloseState(d.plans, id, x.planId) : {}) });
       }
     };
     setMem((m) => { const next = remember(m, items, seenAt, judge, t); saveMem(next); return next; });

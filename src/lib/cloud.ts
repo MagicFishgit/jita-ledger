@@ -8,7 +8,7 @@ import { CLOUD_URL } from './config';
 import {
   applyPulled, asMap, diffRecords, docValue, everything, isDocKey, isRecordKey, refusedDoc, sharedDoc, type DocKey, type Pulled, type RecordKey,
 } from './cloudSync';
-import { dataGeneration, dataStore, getData, isReady, onClearAll, onDataChange, releaseOrphanLeave, update, type Data } from './store';
+import { dataGeneration, dataStore, getData, isReady, onClearAll, onDataChange, releaseOrphanLeave, standDownOrphanCleanup, update, type Data } from './store';
 import { sanitizeSettings } from './fees';
 import { setCloudFlow, setCloudHours } from './flowStore';
 import type { HourBucket } from './rhythm';
@@ -266,6 +266,7 @@ async function pullNow(cloudWins = false): Promise<Map<string, Set<string>>> {
     // Local changes not yet sent win: they'll be pushed, and that push is newer.
     const records = page.records.filter((r) => !ownRevs.has(r.r) && (cloudWins || !dirtyRecords.has(`${r.k}|${r.i}`)));
     const docs = page.docs.filter((x) => !ownRevs.has(x.r) && (cloudWins || !dirtyDocs.has(x.key as DocKey)));
+    if (page.docs.some((x) => x.key === 'leaveFrom')) standDownOrphanCleanup();
     for (const r of page.records) { if (!seen.has(r.k)) seen.set(r.k, new Set()); seen.get(r.k)!.add(r.i); }
     for (const x of page.docs) { if (!seen.has('doc')) seen.set('doc', new Set()); seen.get('doc')!.add(x.key); }
     if (records.length || docs.length) {
@@ -630,7 +631,7 @@ export function startCloud(): () => void {
     // Local testing stands in a character for the login; a real build never sets these.
     const dev = import.meta.env.VITE_CLOUD_DEV_TOKEN ? Number(import.meta.env.VITE_CLOUD_DEV_CHAR || 90000001) : null;
     const charId = dev ?? getAuth()?.characterId;
-    if (!charId) { state = null; setStatus({ phase: cloudEnabled() ? 'waiting' : 'off', started: false }); releaseOrphanLeave(); return; }
+    if (!charId) { state = null; setStatus({ phase: cloudEnabled() ? 'waiting' : 'off', started: false }); return; }
     if (!isReady()) return;
     await loadState(charId);
     if (!alive) return;

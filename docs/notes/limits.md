@@ -127,7 +127,9 @@ State these rather than letting them be discovered:
   again. A new bid counts as placing it. An expired bid with nothing bought is asked for again (finding-trades.md).
 - **A plan bid's re-check against today's book happens only where the checklist or To do is open** (finding-trades.md):
   the cloud doesn't read plan bids not yet placed, so nothing mails "the market moved" for one, and a bid placed straight
-  from the game without opening either is placed at the plan's price unchecked. **A skip is kept in the synced plans doc,
+  from the game without opening either is placed at the plan's price unchecked. **A skipped item placed again by a bid that bought at once reads as no plan's** on Orders, To do, the list step, the hangar
+  check, the position page and the cloud's round (`planTargets` calls `planPlacement` without trades) until the order arrives
+  from ESI's order history, up to about an hour; the checklist counts it at once. **A skip is kept in the synced plans doc,
   and an older build's save drops it** (`sanitizePlans` keeps only the fields it knows, as with every late field): a device
   on a version from before it that saves its plans writes them without `skipped`, and the item is asked for again until
   skipped again; browsers reload to a new version within minutes. **Skip it leaves the position open**: To do offers to
@@ -138,6 +140,9 @@ State these rather than letting them be discovered:
   plan's start): a moved item looks best on paper. What replaces it is the next best on the same model, whose pace for Place
   and leave the plans review found far too high; that the replacements do better isn't shown, only that the moved ones did
   worse.
+- **Importing a backup from before `leaveFrom` restores its `leave` with `leaveFrom` empty and doesn't run the cleanup**
+  (finding-trades.md), so plan items whose positions have since closed are left whole again until Leaving it is clicked on
+  Orders.
 - **Place and leave's round-trip rate is history's, daily and region-wide** (finding-trades.md). A day that reached both
   prices says the bulk of trading got there, not that your order, queued among others at your share, filled and sold; a
   horizon under a day counts the same day, the nearest daily history can say; the 60 start days overlap, so a rate is

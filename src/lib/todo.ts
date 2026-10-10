@@ -38,6 +38,8 @@ export type TodoItem = {
   price?: number;
   /** `cashIn`: the amount it was listed against, so a setting raised past it can be told from a price that fell. */
   amount?: number;
+  /** `close` for a skipped plan item: the plan whose skip it is, so its judge can tell a removed plan from a newer one. */
+  planId?: string;
   /** The item whose signal it came from. */
   typeId?: number;
   /** Where the action button goes. */
@@ -547,23 +549,43 @@ export function judgeCashIn(e: Entry, c: {
  * The empty position of a plan item you skipped (`skippedEmpty` in plans.ts): close it, as after a cancelled bid, so later
  * trades don't land in it. Keyed as any finished position's, versioned 'skipped' so its judge can say what changed.
  */
-export function skippedEmptyItem(pos: { id: string; typeId: number }, plan: Pick<TradePlan, 'name'> & Partial<Pick<TradePlan, 'horizonDays'>>, name: string): TodoItem {
+export function skippedEmptyItem(pos: { id: string; typeId: number }, plan: Pick<TradePlan, 'name'> & Partial<Pick<TradePlan, 'horizonDays' | 'id'>>, name: string): TodoItem {
   return {
-    key: `close:${pos.id}`, ver: 'skipped', kind: 'close', source: 'ledger', stake: 0,
+    key: `close:${pos.id}`, ver: 'skipped', kind: 'close', source: 'ledger', stake: 0, planId: plan.id,
     title: name,
     detail: `You skipped it on ${planLabel(plan)}: nothing was bought and no order is on it. Close it so later trades don’t land in it.`,
     action: { label: 'Open position', route: `positions/${pos.id}` },
   };
 }
 
+/**
+ * What the plans now say of a skipped item's position, for `judgeLedger`: whether the plan that skipped it still names the
+ * position (`planNamesIt`; false once it was removed or trimmed), whether that item is still skipped (`stillSkipped`), and
+ * whether another plan names the position meanwhile (`otherPlanHolds`). An item remembered without its plan's ID (`planId`
+ * undefined, from before it was kept) is taken as any plan naming the position.
+ */
+export function skippedCloseState(plans: readonly { id: string; items: readonly { positionId?: string | null; skipped?: unknown }[] }[], positionId: string, planId?: string):
+  { stillSkipped: boolean; planNamesIt: boolean; otherPlanHolds: boolean } {
+  const names = (p: (typeof plans)[number]) => p.items.some((i) => i.positionId === positionId);
+  const own = planId == null ? plans.filter(names) : plans.filter((p) => p.id === planId && names(p));
+  const other = planId != null && plans.some((p) => p.id !== planId && names(p));
+  return { stillSkipped: own.some((p) => p.items.some((i) => i.positionId === positionId && !!i.skipped)), planNamesIt: own.length > 0, otherPlanHolds: other && own.length === 0 };
+}
+
 /** Items built from your own ledger, which is always current: gone means dealt with. */
-export function judgeLedger(e: Entry, c: { position?: { status: string } | null; inCloud?: boolean; stillSkipped?: boolean }): string {
+export function judgeLedger(e: Entry, c: { position?: { status: string } | null; inCloud?: boolean; stillSkipped?: boolean; planNamesIt?: boolean; otherPlanHolds?: boolean }): string {
   switch (e.item.kind) {
     case 'close':
       if (!c.position) return 'The position was removed.';
       if (c.position.status !== 'open') return 'You closed it.';
       // A skipped plan item's empty position (`skippedEmptyItem`, version 'skipped').
-      if (e.item.ver === 'skipped') return c.stillSkipped ? 'It isn’t empty after all: a trade or an open order came.' : 'You put it back on the plan: place its bid from the checklist.';
+      if (e.item.ver === 'skipped') {
+        // Why a skipped item's empty position no longer asks to be closed. `planNamesIt` false (the plan was removed or
+        // trimmed) and `otherPlanHolds` (a newer plan took the position) are unknown to an older caller: the old answers then.
+        if (c.otherPlanHolds) return 'A newer plan holds this position now.';
+        if (c.planNamesIt === false) return 'The plan was removed, so it no longer asks to close this position.';
+        return c.stillSkipped ? 'It isn’t empty after all: a trade or an open order came.' : 'You put it back on the plan: place its bid from the checklist.';
+      }
       return 'It isn’t finished after all: stock or an open order came back.';
     case 'nearMiss': return 'Dealt with: counted in or set aside.';
     case 'backup': return c.inCloud ? 'Your ledger is kept in the cloud now.' : 'You exported a backup.';

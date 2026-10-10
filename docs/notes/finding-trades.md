@@ -268,9 +268,15 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
     empty or as it was, which stays in the browser (a change only to it isn't pushed). On the review's export: 13 of 34 types
     let go, none with an open position; of the open orders only the Clone Soldier bid stops being left (24 → 23), its 116.9
     M escrow judged again (`release-orphans.mjs`). Rocket Science's 1 October listing stays left: no time is backfilled.
-    **Residual risk**: each browser runs it once, at its own first load of this version (a new browser too: its empty store
-    had no `leaveFrom` either), so a plan item left by hand again after its position closed is let go again by another
-    browser's first load. A browser whose pull fails waits rather than act on its own copy. The page check (`plan #orders
+    It stands down when the cloud's first pull of the visit brings a `leaveFrom` doc (`standDownOrphanCleanup` in store.ts;
+    the final review, 10 October 2026): a plan started since this version wrote one, so that ledger is past the move. Before
+    that a new browser, "Delete all data" and a save that never landed each had no `leaveFrom` on disk and ran it again. Logging
+    out in a session whose first sync never succeeded no longer runs it either (it acted on the local copy before any pull);
+    it runs after the first pull on the next login.
+    **Residual risk**: what still re-arms it is a ledger the cloud holds no `leaveFrom` for (sync off, or no plan started
+    since), where a plan item left by hand again after its position closed is let go again at the next load with none on
+    disk; and a browser whose stored cloud revision is past the revision the doc was written at doesn't see it in an
+    incremental pull. A browser whose pull fails waits rather than act on its own copy. The page check (`plan #orders
     (leave from before leaveFrom)`) loads such a ledger with the cloud stubbed: Clone Soldier let go after the pull, `leave`
     pushed, `leaveFrom` not; loaded again with it left by hand, nothing changes.
 - **When order slots run out before the ISK, the planner fills by ISK a day** (`allocate`, `Plan.ranked`/`other`). It

@@ -817,11 +817,11 @@ try {
     };
     const page = await browser.newPage(VIEW);
     const pushed = [];
-    let pulls = 0;
+    let pulls = 0, pullDocs = [];
     await page.route('**/*', (route) => {
       const url = new URL(route.request().url());
       if (route.request().url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
-      if (url.pathname === '/v1/pull') { pulls++; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rev: 1, next: null, records: [], docs: [] }) }); }
+      if (url.pathname === '/v1/pull') { pulls++; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rev: 1, next: null, records: [], docs: pullDocs }) }); }
       if (url.pathname === '/v1/push') { pushed.push(JSON.parse(route.request().postData() ?? '{}')); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rev: 1 + pushed.length }) }); }
       return route.abort();
     });
@@ -865,6 +865,28 @@ try {
     const again = await page.goto(SEED_PAGE).then(() => stored());
     if (JSON.stringify(again.leave) !== JSON.stringify([CS, C32, LOOT])) problems.push(`the second load let go again: ${JSON.stringify(again.leave)}`);
     if (pushed.some((b) => b.docs?.some((x) => x.key === 'leave'))) problems.push('the second load pushed leave');
+    // The cloud already holds a `leaveFrom` (a plan was started since this version): a browser with none on disk (a new one,
+    // after "Delete all data") is past the move, so nothing is let go and nothing pushed.
+    pullDocs = [{ key: 'leaveFrom', r: 1, d: { [C32]: AT } }];
+    await seed({ ...ledger, leave: [CS, C32, LOOT] });
+    pushed.length = 0;
+    await page.goto(`${BASE}#orders`);
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    await page.waitForTimeout(4500);
+    const past = await page.goto(SEED_PAGE).then(() => stored());
+    if (JSON.stringify(past.leave) !== JSON.stringify([CS, C32, LOOT])) problems.push(`with the cloud's leaveFrom pulled it still let go: ${JSON.stringify(past.leave)}`);
+    if (pushed.some((b) => b.docs?.some((x) => x.key === 'leave'))) problems.push('with the cloud\'s leaveFrom pulled it pushed leave');
+    pullDocs = [];
+    // Sync switched off: nothing to be level with, so it runs at once.
+    await seed({ ...ledger, leave: [CS, C32, LOOT] });
+    await page.evaluate(() => localStorage.setItem('jita-ledger:cloud-off', '1'));
+    const pullsBefore = pulls;
+    await page.goto(`${BASE}#orders`);
+    await page.waitForSelector('.page', { timeout: 20_000 });
+    await page.waitForTimeout(1500);
+    const off = await page.goto(SEED_PAGE).then(() => stored());
+    if (JSON.stringify(off.leave) !== JSON.stringify([C32, LOOT])) problems.push(`with sync off it left ${JSON.stringify(off.leave)}, not the open plan item and the loot`);
+    if (pulls !== pullsBefore) problems.push('with sync off the cloud was pulled');
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'plan', page: 'orders (leave from before leaveFrom)', problems: unique });
