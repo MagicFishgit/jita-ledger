@@ -182,8 +182,11 @@ EVE Ref's, and they disagree only where said)
   the cloud can read it. Its data is fresh: Tritanium at UALX-3 was updated 29 minutes before the read.
 - A type with no data reads `weekly_movement` −1.0 (seen on one, with 23 listed), and a side with no orders reads 0.00
   with 0 listed: both are "not known" or "none", never a price or pace of 0.
-- Brave's wiki names "Mothership Bellicose" as UALX-3's staging Keepstar; Goonmetrics tracks "1st Byzantigoon". Which
-  holds the market needs an in-game look (the one open question left).
+- **Two markets at UALX-3** (the user, 10 October 2026): "Mothership Bellicose is usually the brave corp
+  market/staging which means 1st Byzantigoon is probably the goons and therefor the imperium alliances market". So
+  1st Byzantigoon (1046664001931, the one Goonmetrics tracks) is the Imperium's market, and Mothership Bellicose
+  (Brave's wiki: UALX-3's staging Keepstar) is Brave's own, which Goonmetrics doesn't track and whose ID isn't public;
+  it's added as a hub once a character of the user's can see it (`FindStructure`).
 
 **Home and freight** (the research's sources; a figure from these is shown with its source and date)
 
@@ -536,8 +539,10 @@ section says "<alt>'s contracts aren't read: the cloud reads an alt's wallet, or
 **Home markets** (the section): lead "Prices at home, from Goonmetrics until a character of yours can read the market
 itself." A hub is a structure with a name and **a reader**: the character whose login reads it, the main by default, any
 character the user picks (the user: "all my characters but especially my main"). The list starts with Goonmetrics' two
-(UALX-3 1st Byzantigoon, C-J6MT), and a character who can see a structure adds one with `FindStructure` as that
-character (the main in the browser, an alt through the cloud).
+(UALX-3 1st Byzantigoon, the Imperium's market, and C-J6MT), and a character who can see a structure adds one with
+`FindStructure` as that character (the main in the browser, an alt through the cloud): Brave's own Mothership
+Bellicose at UALX-3 first among them, which the section names as the one to add once a character has docking access
+("Brave's market at UALX-3, Mothership Bellicose: add it once one of your characters can see it").
 
 **Reading a structure's market**: the cloud reads `/markets/structures/{id}` hourly on the `37` cron with the reader's
 login, folding page by page (the fold moves from `worker/src/scan.ts` to `src/lib/bookFold.ts`, so the scan and this
@@ -816,8 +821,8 @@ finding-trades.md the scan's watch set and NPC row.
 
 ## Open questions
 
-1. **Which UALX-3 Keepstar holds the market**: "1st Byzantigoon" per Goonmetrics, "Mothership Bellicose" per Brave's
-   wiki. Needs an in-game look once docked; until then both can be hubs and the reads say which answers.
+None. The last one, which UALX-3 Keepstar holds the market, the user answered on 10 October 2026: both do, Mothership
+Bellicose Brave's own and 1st Byzantigoon the Imperium's (above).
 
 ## Revision 1 (10 October 2026)
 
