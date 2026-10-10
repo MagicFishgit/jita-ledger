@@ -754,6 +754,7 @@ console.log('\n--- when alts are read ---');
     eq('    each alt\'s copy and sheet are noted', db.rows('SELECT job FROM jobs WHERE char_id = ? ORDER BY job', ALT).map((x) => x.job), ['archive', 'sheet']);
     eq('    CCP\'s prices are fetched once for the round', f.calls.filter((c) => c.path === '/markets/prices/').length, 1);
     eq('    nothing is noted for the main', db.rows('SELECT COUNT(*) AS n FROM jobs WHERE char_id = ?', MAIN)[0].n, 0);
+    eq('    then home prices are asked for, after the alts (stubbed: no network)', f.calls.some((c) => c.path === '/api/price_data/'), true);
   }
 }
 
@@ -1216,6 +1217,44 @@ console.log('\n--- the full scan reads the Industry tab\'s watch set, and keeps 
   await saveNpcRow(keep, 4, { at: at(4000), complete: true, pagesFailed: 0, sellers: { 4: [40, [60004]] } });
   eq('    a complete read drops every older row', [keep.rows('SELECT run FROM industry_npc ORDER BY run').map((r) => r.run), (await npcRows(keep)).partial], [[4], null]);
   eq('  before any run: nothing, and nothing claimed', await npcRows(d1()), { complete: null, partial: null });
+}
+
+console.log('\n--- home prices from Goonmetrics, read gently by the cloud (Task 6) ---');
+{
+  const { refreshHomePrices, homePrices, REFRESH_MS } = await import('../worker/src/goonmetrics.ts');
+  const NOW = Date.parse('2026-10-10T12:37:00Z');
+  const xmlFor = (ids) => `<goonmetrics method="price_data" version="1.0"><price_data>${ids.map((id) => `<type id="${id}"><updated>2026-10-10T12:00:00Z</updated><all><weekly_movement>700</weekly_movement></all><buy><max>9.5</max><listed>100</listed></buy><sell><min>10</min><listed>200</listed></sell></type>`).join('')}</price_data></goonmetrics>`;
+  // Every call answered from the type IDs it asks for, its User-Agent and size recorded; `fail` makes chosen calls fail.
+  const run = async (db, { types, fail = () => false, now = NOW, on = true } = {}) => {
+    const real = globalThis.fetch, calls = [];
+    globalThis.fetch = async (input, init = {}) => {
+      const url = new URL(String(input));
+      const ids = (url.searchParams.get('type_id') ?? '').split(',').map(Number);
+      calls.push({ host: url.host, path: url.pathname, hub: Number(url.searchParams.get('station_id')), n: ids.length, ua: init.headers?.['User-Agent'] });
+      if (fail(calls.length)) return new Response('busy', { status: 503 });
+      return new Response(xmlFor(ids), { status: 200, headers: { 'Content-Type': 'text/xml' } });
+    };
+    let pauses = 0;
+    try { return { r: await refreshHomePrices(db, now, types, async () => { pauses++; }, on), calls, pauses }; } finally { globalThis.fetch = real; }
+  };
+  const types = Array.from({ length: 120 }, (_, i) => 1000 + i);
+  const db = d1();
+  const first = await run(db, { types });
+  eq('  both hubs read, 50 types a call (3 calls a hub), a pause before every call but the first', [first.r.done, first.calls.length, first.calls.map((c) => c.n), first.pauses], [{ 'UALX-3': 'read', 'C-J6MT': 'read' }, 6, [50, 50, 20, 50, 50, 20], 5]);
+  eq('    from Goonmetrics\' API, with a User-Agent naming the project only', [first.calls[0].host, first.calls[0].path, first.calls[0].ua], ['goonmetrics.apps.goonswarm.org', '/api/price_data/', 'jita-ledger (hobby tool)']);
+  eq('    one row a hub, every type in it', db.rows('SELECT hub, source FROM home_prices ORDER BY hub').map((r) => [r.hub, r.source]), [[1046664001931, 'goonmetrics'], [1049588174021, 'goonmetrics']]);
+  const served = await homePrices(db, 1046664001931);
+  eq('  the route serves a hub\'s read', [Object.keys(served.prices).length, served.prices[1000]], [120, ['2026-10-10T12:00:00Z', 700, 9.5, 100, 10, 200]]);
+  eq('  within six hours nothing is read again', [(await run(db, { types, now: NOW + REFRESH_MS - 60_000 })).calls.length], [0]);
+  // Six hours on, C-J6MT's second call fails: its last good row stays; UALX-3's is new.
+  const before = db.rows('SELECT at FROM home_prices WHERE hub = ?', 1049588174021)[0].at;
+  const later = await run(db, { types, now: NOW + REFRESH_MS, fail: (n) => n === 5 });
+  eq('  a hub whose read fails keeps its last good row, and says why', [later.r.done, db.rows('SELECT at FROM home_prices WHERE hub = ?', 1049588174021)[0].at === before, later.r.error], [{ 'UALX-3': 'read', 'C-J6MT': 'failed' }, true, 'Goonmetrics answered 503 for C-J6MT']);
+  const down = await run(d1(), { types, fail: () => true });
+  eq('  three failed calls in a row end the round: the site is down', [down.calls.length, down.r.stopped], [3, true]);
+  eq('  switched off: nothing read, and the route says so', [(await run(d1(), { types, on: false })).calls.length, await homePrices(d1(), 1046664001931, false)], [0, { off: true }]);
+  eq('  before its first read: nothing, not an empty price list', await homePrices(d1(), 1049588174021), null);
+  await rejects('  a hub the cloud doesn\'t read is refused', () => homePrices(d1(), 1030049082711), /Not a hub the cloud reads/);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

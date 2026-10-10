@@ -220,3 +220,6 @@ State these rather than letting them be discovered:
 - **A structure's facility tax and rigs are typed until measured** (stage 2 measures the tax); until then profit is ranked
   before the tax, said. **NPC BPO places outside The Forge are read when a row is opened**; the list's price elsewhere is
   CCP's base price.
+- **Home prices are Goonmetrics'**, a Goonswarm tool fed partly by its members' client uploads, read every six hours: a
+  hub's best sell can be hours old, and its weekly movement is the only pace until the home region's history is read (and
+  that history is the whole region's, not the hub's). The hub's broker fee is typed, not known.

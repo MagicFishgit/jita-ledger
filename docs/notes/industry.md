@@ -154,3 +154,30 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
 - **Mined materials**: "Which ore gives the most?" loads CCP's reprocessing table (481 KB, only then) and the base ores'
   volumes, and names the ore giving the most of each mineral a m³ at the character's yield in Jita 4-4; Mining's Best ore is
   linked for where it pays most.
+- **Home prices from Goonmetrics** (`src/lib/homeMarket.ts`, `worker/src/goonmetrics.ts`, migration 0019 `home_prices`,
+  `GET /v1/home/prices?hub=`). Goonmetrics is a Goonswarm tool ("Goonmetrics © GARPA 2012–2026") that gathers data from CCP
+  and members' client uploads; it publishes no terms, key or limit, sends no CORS header (only the cloud can read it) and no
+  cache headers. So the cloud reads it gently: the watch set (`industryTypes.json`), 50 types a call, 1.5 s apart, every
+  six hours a hub, after the alts' hourly read on the `37` cron (no new cron: one took 26 minutes to first fire), with a
+  User-Agent naming the project only. A hub's read is one row; a read that fails keeps the last good one, three failed
+  calls in a row end the round, and it isn't a watched job (as Abyss Tracker: someone else's site, the tab says how old
+  its figures are). `GOONMETRICS_ON = false` switches it off if its authors object; the route then says so and the tab
+  says "Goonmetrics isn't read". **Not known is never 0**: `weekly_movement` −1.0 is null, and a side with 0.00 and 0
+  listed is none. The hubs are UALX-3's 1st Byzantigoon (the Imperium's market) and C-J6MT; 1DQ1-A is left out (almost
+  nothing listed). Brave's own UALX-3 Keepstar, Mothership Bellicose, isn't tracked by Goonmetrics and joins as a hub in
+  stage 4, once a character of the user's can see it.
+- **The browser holds a hub's read like the NPC row** (`useHomePrices`, `homeHoldMs`): shared in flight, kept until the
+  cloud's next refresh could have replaced it (its `at` + 6 h + 10 minutes) or 15 minutes, whichever is sooner, and dropped
+  when the cloud is switched off, on a different login and on "Delete all data". A hub just picked never shows the last
+  hub's prices for a render (the state is kept with its hub).
+- **Selling at home** (the finder's Home hub, Sell at Jita / the hub / Either): Goonmetrics' best sell less a tick, checked
+  against the home region's 14 days of highs once its history is read (`useHomeHistory`: Tenerifis or Insmother, only the
+  top 40 rows sold at home), after your sales tax and the hub's broker fee. Its pace is that history's typical day split by
+  `buyerShare`, or, before it's read, Goonmetrics' weekly movement ÷ 7 at an even split, said so on the row's sale. The
+  broker fee is typed (a structure's owner sets it; ESI doesn't say): blank, the finder ranks before it, the head says
+  "Profit a day, before the broker fee at UALX-3" and each row what each 1% costs a day, the row's profit a unit and the
+  detail's profit tile say so too, never a fee of 0% shown as if typed. Home prices are said with how old
+  they are, "older than a day" past 24 hours; off, not read yet, failing, switched off or the cloud a version behind each
+  say which, and nothing is sold at home on prices nobody read (Either falls back to Jita). A row that can sell at home isn't
+  "nowhere it may be sold" for its Jita leg missing: the count line gives every place's own reason ("no freight route to
+  Jita; not read at UALX-3 yet"), and "No freight route between the site and Jita" is said only for a material nothing else supplies.

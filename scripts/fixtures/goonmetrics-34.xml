@@ -1,0 +1,20 @@
+<goonmetrics method="price_data" version="1.0">
+  <price_data>
+    
+    <type id="34">
+      <updated>2026-10-10T05:15:12Z</updated>
+      <all>
+        <weekly_movement>1236237101.9</weekly_movement>
+      </all>
+      <buy>
+        <max>3.21</max>
+        <listed>898989626</listed>
+      </buy>
+      <sell>
+        <min>3.52</min>
+        <listed>665373133</listed>
+      </sell>
+    </type>
+    
+  </price_data>
+</goonmetrics>

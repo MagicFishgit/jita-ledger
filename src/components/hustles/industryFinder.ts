@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { iskBig } from '../../lib/format';
+import { HOME_STALE_MS, homeQuote, hubOf, type HomeHub } from '../../lib/homeMarket';
 import { watchedFlow } from '../../lib/flowStore';
 import type { Indexed } from '../../lib/industry';
 import {
@@ -9,7 +10,7 @@ import { JITA_SYSTEM, legFor, siteFacts, stationLabel, type SiteFacts } from '..
 import { HIGH_SEC, jumpsFrom, type Graph } from '../../lib/jumps';
 import type { IndustrySite } from '../../lib/prefs';
 import type { IndustryChar } from './industryChars';
-import { useAdjusted, useIndices, useIndustryDoc, useLiveBooks, useNpcRow, useScanCache, useStationNames, type Loaded, type NpcState } from './industryMarket';
+import { useAdjusted, useHomeHistory, useHomePrices, useIndices, useIndustryDoc, useLiveBooks, useNpcRow, useScanCache, useStationNames, type HomeState, type Loaded, type NpcState } from './industryMarket';
 
 /**
  * The finder's inputs, gathered once for Build and Start (docs/notes/industry.md): the site, its facts and legs, ESI's
@@ -38,6 +39,8 @@ export type Finder = {
   input: Omit<RowInput, 'bp'> | null;
   npc: NpcState; bpo: (bp: number) => BpoWhere;
   scan: Loaded<unknown>;
+  /** The home hub picked, and its prices from the cloud. */
+  hub: HomeHub | null; home: HomeState;
 };
 
 export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph): Finder {
@@ -51,6 +54,9 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph): Finder {
   const hasScan = !!cache && Object.keys(cache.stats).length > 0;
   // Skills not read are not level 0: an empty or absent doc is waited for, never ranked at.
   const skills = c.pilot.skills && Object.keys(c.pilot.skills).length > 0 ? c.pilot.skills : undefined;
+  const hub = hubOf(doc.hub);
+  const home = useHomePrices(hub?.id ?? null);
+  const prices = hub && home.status === 'ok' ? home.prices : null;
 
   const input = useMemo((): Omit<RowInput, 'bp'> | null => {
     if (!site || !facts || !facts.index || !cache || !hasScan || adjusted.state !== 'ok' || !skills) return null;
@@ -58,32 +64,35 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph): Finder {
     const market = (t: number): Market => {
       const b = cache.books[t];
       if (!flows.has(t)) flows.set(t, watchedFlow(t));
-      return { jita: b ? othersBook(b, c.own, t, false) : null, stats: cache.stats[t] ?? null, watched: flows.get(t) ?? null };
+      return { jita: b ? othersBook(b, c.own, t, false) : null, stats: cache.stats[t] ?? null, watched: flows.get(t) ?? null, home: prices ? homeQuote(prices[t]) : null };
     };
     return {
       ix, me: doc.assume.me, te: doc.assume.te, skills, clone: c.clone,
       site: { kind: site.kind, rigs: site.rigs, band: facts.band, tax: facts.tax, index: facts.index },
-      adjusted: adjusted.value, market, sell: 'jita', share: doc.share,
-      fees: { broker: c.broker, tax: c.tax, hubBroker: null },
-      legs: { jita: legFor(site, facts, JITA_SYSTEM, doc.freight), home: null },
-      noShipsToJita: doc.noShipsToJita, jitaJumps: facts.jitaJumps, mines: c.mines, hubName: null, now: Date.now(),
+      adjusted: adjusted.value, market, sell: hub ? doc.sell : 'jita', share: doc.share,
+      fees: { broker: c.broker, tax: c.tax, hubBroker: hub ? doc.hubFees[hub.id] ?? null : null },
+      legs: { jita: legFor(site, facts, JITA_SYSTEM, doc.freight), home: hub ? legFor(site, facts, hub.systemId, doc.freight) : null },
+      noShipsToJita: doc.noShipsToJita, jitaJumps: facts.jitaJumps, mines: c.mines, hubName: hub?.short ?? null, now: Date.now(),
     };
-  }, [site, facts, cache, hasScan, adjusted, skills, c, ix, doc.assume, doc.share, doc.freight, doc.noShipsToJita]);
+  }, [site, facts, cache, hasScan, adjusted, skills, c, ix, doc.assume, doc.share, doc.freight, doc.noShipsToJita, doc.sell, doc.hubFees, hub, prices]);
 
   const bps = useMemo(() => finderBlueprints(ix), [ix]);
   const first = useMemo(() => (input ? rankBuilds(input, bps) : []), [input, bps]);
   // The top rows' products and materials, read live; ranked again on them.
   const liveTypes = useMemo(() => [...new Set(first.filter((r) => r.day).slice(0, LIVE_ROWS).flatMap((r) => [r.product, ...r.materials.map((m) => m.type)]))], [first]);
   const liveBooks = useLiveBooks(liveTypes);
-  const live = Object.keys(liveBooks).length > 0;
+  // The home region's history for the top rows sold at home: their pace and split, where Goonmetrics' weekly movement stood in.
+  const homeTypes = useMemo(() => (hub ? first.filter((r) => r.day && r.sale?.place === 'home').slice(0, LIVE_ROWS).map((r) => r.product) : []), [first, hub]);
+  const homeHist = useHomeHistory(homeTypes, hub?.region ?? null);
+  const live = Object.keys(liveBooks).length > 0 || Object.keys(homeHist).length > 0;
   const liveInput = useMemo(() => {
     if (!input || !live) return input;
     const market = (t: number): Market => {
       const m = input.market(t), b = liveBooks[t];
-      return b ? { ...m, jita: othersBook(b, c.own, t, true) } : m;
+      return { ...m, ...(b ? { jita: othersBook(b, c.own, t, true) } : {}), ...(homeHist[t] ? { homeHist: homeHist[t] } : {}) };
     };
     return { ...input, market };
-  }, [input, live, liveBooks, c.own]);
+  }, [input, live, liveBooks, homeHist, c.own]);
   const rows = useMemo(() => (liveInput && live ? rankBuilds(liveInput, bps) : first), [liveInput, live, first, bps]);
 
   const npcRows = npc.status === 'ok' ? npc.rows : null;
@@ -99,7 +108,7 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph): Finder {
                 : adjusted.state === 'loading' ? { text: 'Reading CCP’s adjusted prices…' }
                   : adjusted.state === 'failed' ? { text: 'Couldn’t read CCP’s adjusted prices just now, so no job can be costed.', retry: adjusted.retry }
                     : null;
-  return { site, facts, waiting, rows, live, input: liveInput, npc, bpo, scan };
+  return { site, facts, waiting, rows, live, input: liveInput, npc, bpo, scan, hub, home };
 }
 
 /** The finder's kinds as the choice lists them. */
@@ -139,4 +148,18 @@ export function useStationSaid(ids: readonly number[], ix: Indexed, graph: Graph
   const names = useStationNames(ids);
   const systemOf = useMemo(() => new Map(ix.b.stations.map((s) => [s[0], s[1]] as const)), [ix]);
   return (id, systemId) => { const sys = systemId ?? systemOf.get(id); return stationSaid(names, id, sys != null ? graph[sys]?.[1] ?? null : null); };
+}
+
+/** What the home hub's prices are, as a sentence beside the choices (`now` ticks so "read 2 h ago" moves). */
+export function homeSaid(f: Pick<Finder, 'hub' | 'home'>, now: number, ago: (iso: string, now: number) => string): string | null {
+  const h = f.hub, st = f.home;
+  if (!h) return null;
+  if (st.status === 'off') return 'Home prices come from the cloud, which isn’t on in this browser (Settings → Your data).';
+  if (st.status === 'loading') return `Reading ${h.short}’s prices from the cloud…`;
+  if (st.status === 'behind') return 'The cloud is a version behind: home prices come once it’s updated.';
+  if (st.status === 'failed') return `Couldn’t read ${h.short}’s prices from the cloud: ${st.error}.`;
+  if (st.status === 'switched') return 'Goonmetrics isn’t read: the cloud has it switched off.';
+  if (st.status === 'none') return `Not read yet: the cloud reads ${h.short}’s prices from Goonmetrics every six hours.`;
+  const old = now - Date.parse(st.at) > HOME_STALE_MS;
+  return `${h.short}’s prices: Goonmetrics, read ${ago(st.at, now)}${old ? ': older than a day' : ''}.`;
 }

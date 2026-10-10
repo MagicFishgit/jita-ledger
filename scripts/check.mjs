@@ -7775,5 +7775,24 @@ console.log('\n--- Industry: the finder reads others\' books, and the ore a mine
   eq('    none of them yields it: none', K.bestOreFor(40, ores, () => 0.5), null);
 }
 
+console.log('\n--- Industry: home prices from Goonmetrics (homeMarket.ts) ---');
+{
+  const H = await import('../src/lib/homeMarket.ts');
+  const fsH = await import('node:fs');
+  // Goonmetrics' answer for Tritanium at UALX-3, read 10 October 2026 05:44 UTC (scripts/fixtures/goonmetrics-34.xml).
+  const xml = fsH.readFileSync(new URL('./fixtures/goonmetrics-34.xml', import.meta.url), 'utf8');
+  eq('  a type\'s row: updated, weekly movement, best buy and listed, best sell and listed', H.parseGoonmetrics(xml), { 34: ['2026-10-10T05:15:12Z', 1236237101.9, 3.21, 898989626, 3.52, 665373133] });
+  // A type with no data, and a side with no orders (as Goonmetrics writes them; seen on one type, with 23 listed).
+  const none = '<goonmetrics><price_data><type id="7"><updated>2026-10-10T05:00:00Z</updated><all><weekly_movement>-1.0</weekly_movement></all><buy><max>0.00</max><listed>0</listed></buy><sell><min>120.5</min><listed>23</listed></sell></type></price_data></goonmetrics>';
+  eq('    weekly movement −1 is not known, a side with nothing listed is none: never 0', H.parseGoonmetrics(none), { 7: ['2026-10-10T05:00:00Z', null, null, 0, 120.5, 23] });
+  eq('  a kept row as the finder reads it, and none for a type the read doesn\'t have', [H.homeQuote(['t', 700, 3.21, 9, 3.52, 9]), H.homeQuote(undefined)], [{ sell: 3.52, buy: 3.21, weekly: 700, at: 't' }, null]);
+  eq('  the hubs: UALX-3\'s 1st Byzantigoon (Tenerifis) and C-J6MT (Insmother); 1DQ1-A left out', H.HOME_HUBS.map((h) => [h.id, h.short, h.region]), [[1046664001931, 'UALX-3', 10000061], [1049588174021, 'C-J6MT', 10000009]]);
+  // The browser holds a hub's read until the cloud's next refresh could have replaced it (its `at` + 6 h + 10 min), 15 minutes at most.
+  const at = '2026-10-10T06:00:00Z', t0 = Date.parse(at);
+  eq('  a read is held 15 minutes, less when the next refresh is nearer, never negative, and 15 with no time',
+    [H.homeHoldMs(at, t0 + 3600_000), H.homeHoldMs(at, t0 + 6 * 3600_000 + 5 * 60_000), H.homeHoldMs(at, t0 + 7 * 3600_000), H.homeHoldMs(null, t0), H.homeHoldMs('nonsense', t0)],
+    [15 * 60_000, 5 * 60_000, 0, 15 * 60_000, 15 * 60_000]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

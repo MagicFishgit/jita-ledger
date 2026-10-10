@@ -1,3 +1,4 @@
+import type { HomeRow } from './homeMarket';
 import type { LeaveSummary, ShareSummary, SnipeSummary } from './track';
 import type { AltPage, RosterEntry } from './roster';
 import type { TrackerCell, TrackerFitDetail } from './abyssTracker';
@@ -608,6 +609,11 @@ export const cloudAbyssFit = (id: string) => call<TrackerFitDetail>(`/v1/abyss/f
  * newer partial one. A Worker a version behind answers 404 (the error's `status`).
  */
 export const cloudIndustryNpc = () => call<{ complete: NpcRow | null; partial: NpcRow | null } | null>('/v1/industry/npc');
+/**
+ * A home hub's prices as the cloud last read them from Goonmetrics (goonmetrics.ts): null before its first read, `off` when
+ * the cloud has Goonmetrics switched off. A Worker a version behind answers 404 (the error's `status`).
+ */
+export const cloudHomePrices = (hub: number) => call<{ off: true } | { hub: number; source: string; at: string; prices: Record<string, HomeRow> } | null>(`/v1/home/prices?hub=${hub}`);
 export const cloudTestMail = () => call<{ mailId: number; about: string }>('/v1/alerts/test', { method: 'POST' });
 
 let costsSent: string | null = null;

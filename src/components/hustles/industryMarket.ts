@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { cloudEnabled, cloudIndustryNpc, useCloud } from '../../lib/cloud';
+import { cloudEnabled, cloudHomePrices, cloudIndustryNpc, useCloud } from '../../lib/cloud';
 import { EsiError, esi } from '../../lib/esi';
 import { shareInFlight } from '../../lib/inFlight';
 import type { IndustryIndex } from '../../lib/industry';
 import { npcHoldMs, type NpcRow } from '../../lib/industryRank';
-import { adjustedPricesShared, industrySystemsShared, jitaBook, resolveNames } from '../../lib/market';
+import { homeHoldMs, type HomeRow } from '../../lib/homeMarket';
+import { adjustedPricesShared, industrySystemsShared, jitaBook, regionHistory, resolveNames } from '../../lib/market';
 import { nameReader } from '../../lib/nameReader';
 import { sanitizeIndustry, type IndustryDoc } from '../../lib/prefs';
 import { loadCache, useScanState, type ScanCache } from '../../lib/scan';
 import type { BookSold } from '../../lib/split';
 import { getAuth, onAuthChange } from '../../lib/auth';
 import { onClearAll, update, useData } from '../../lib/store';
-import type { BookLevel } from '../../lib/types';
+import type { BookLevel, HistRow } from '../../lib/types';
 
 /**
  * What the Industry tab reads besides its bundle (docs/notes/industry.md): ESI's indices (an hour, shared), NPC stations'
@@ -162,3 +163,69 @@ export const regionSellers = shareInFlight((bp: number) => String(bp), async (bp
   }));
   return { sellers: sellers.sort((a, b) => a.price - b.price || a.station - b.station), failed, read: read.sort((a, b) => a - b) };
 });
+
+/**
+ * A home hub's prices from the cloud (Goonmetrics, six-hourly): `off` with the cloud copy off in this browser, `switched`
+ * when the cloud has Goonmetrics off, `none` before its first read, `behind` for a Worker without the route (404), `failed`
+ * otherwise; `ok` with when it was read and each type's row.
+ */
+export type HomeState = { status: 'off' } | { status: 'loading' } | { status: 'behind' } | { status: 'failed'; error: string } | { status: 'switched' } | { status: 'none' }
+  | { status: 'ok'; at: string; prices: Record<string, HomeRow> };
+/**
+ * The cloud writes a hub's row every six hours: a read is shared while in flight and kept until the next refresh could have
+ * replaced it or 15 minutes (homeHoldMs). Dropped when the cloud is switched off, on a different login and on "Delete all
+ * data", as the NPC row is, so a fresh read is never hidden behind an old copy.
+ */
+const homeHeld = new Map<number, { until: number; read: ReturnType<typeof cloudHomePrices> }>();
+const resetHome = () => { homeHeld.clear(); };
+let homeChar: number | null | undefined;
+onAuthChange(() => { const id = getAuth()?.characterId ?? null; if (homeChar !== undefined && homeChar !== id) resetHome(); homeChar = id; });
+onClearAll(resetHome);
+const homeRead = (hub: number) => {
+  const h = homeHeld.get(hub);
+  if (h && Date.now() < h.until) return h.read;
+  const read = cloudHomePrices(hub);
+  const held = { until: Infinity, read };
+  homeHeld.set(hub, held);
+  read.then((r) => { held.until = Date.now() + homeHoldMs(r && !('off' in r) ? r.at : null, Date.now()); }, () => { if (homeHeld.get(hub) === held) homeHeld.delete(hub); });
+  return read;
+};
+export function useHomePrices(hub: number | null): HomeState {
+  const cloud = useCloud();
+  // Kept with the hub it was read for, so a hub just picked never shows the last one's prices for a render.
+  const [got, setGot] = useState<{ hub: number | null; st: HomeState }>({ hub: null, st: { status: 'loading' } });
+  useEffect(() => {
+    if (hub == null) return;
+    if (!cloudEnabled()) { resetHome(); setGot({ hub, st: { status: 'off' } }); return; }
+    if (!cloud.started) { setGot({ hub, st: { status: 'loading' } }); return; }
+    let alive = true;
+    setGot({ hub, st: { status: 'loading' } });
+    homeRead(hub).then((r) => { if (alive) setGot({ hub, st: !r ? { status: 'none' } : 'off' in r ? { status: 'switched' } : { status: 'ok', at: r.at, prices: r.prices } }); },
+      (e) => { if (alive) setGot({ hub, st: (e as { status?: number }).status === 404 ? { status: 'behind' } : { status: 'failed', error: e instanceof Error ? e.message : String(e) } }); });
+    return () => { alive = false; };
+  }, [hub, cloud.started]);
+  return got.hub === hub ? got.st : { status: 'loading' };
+}
+
+/** The home region's daily history for the types asked (regionHistory: kept three hours, shared in flight), four at a time. One that can't be read is left out. */
+export function useHomeHistory(types: readonly number[], region: number | null): Record<number, HistRow[]> {
+  const key = region ? `${region}:${types.join(',')}` : '';
+  const [got, setGot] = useState<Record<number, HistRow[]>>({});
+  useEffect(() => {
+    setGot({});
+    if (!key) return;
+    let alive = true;
+    const queue = key.split(':')[1].split(',').filter(Boolean).map(Number);
+    let next = 0;
+    const work = async () => {
+      while (alive && next < queue.length) {
+        const t = queue[next++];
+        const rows = await regionHistory(t, region!).catch(() => null);
+        if (alive && rows) setGot((x) => ({ ...x, [t]: rows }));
+      }
+    };
+    for (let i = 0; i < 4; i++) void work();
+    return () => { alive = false; };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  return got;
+}

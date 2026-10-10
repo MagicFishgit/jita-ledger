@@ -28,6 +28,7 @@ import { rateReport } from './rate';
 import { blueprintMarket } from './blueprints';
 import { abyssCells, abyssFit, refreshAbyss } from './abyss';
 import { npcRows } from './industryNpc';
+import { homePrices, refreshHomePrices } from './goonmetrics';
 
 export interface Env {
   DB: D1Database;
@@ -210,7 +211,12 @@ export default {
     }
     // The alts' full reads. Matched by name: anything unmatched below is taken for the hourly archive.
     if (event.cron === ALTS_CRON) {
-      ctx.waitUntil(altsHourly(env).then((r) => console.log('alts hourly', JSON.stringify(r))).catch((e) => console.error('alts hourly failed', e)));
+      ctx.waitUntil(altsHourly(env).then((r) => console.log('alts hourly', JSON.stringify(r))).catch((e) => console.error('alts hourly failed', e))
+        // Then home prices for the Industry tab, when a hub's are six hours old (goonmetrics.ts): after the alts, never in
+        // their way; not a watched job (someone else's site, and the tab says how old its figures are).
+        .finally(async () => {
+          try { console.log('goonmetrics', JSON.stringify(await refreshHomePrices(env.DB))); } catch (e) { console.error('goonmetrics failed', e); }
+        }));
       return;
     }
     // The day's full-market scan, just after ESI publishes the day's history.
@@ -344,6 +350,8 @@ export default {
       if (url.pathname === '/v1/scan/status' && request.method === 'GET') return json(await scanStatus(env.DB), 200, c);
       // The Industry tab's NPC sellers of every blueprint it ranks, from the morning scan (industryNpc.ts).
       if (url.pathname === '/v1/industry/npc' && request.method === 'GET') return json(await npcRows(env.DB), 200, c);
+      // A home hub's prices as the cloud last read them from Goonmetrics (goonmetrics.ts); 400 for a hub it doesn't read.
+      if (url.pathname === '/v1/home/prices' && request.method === 'GET') return json(await homePrices(env.DB, Number(url.searchParams.get('hub'))), 200, c);
       // Abyss Tracker, read by the cloud for the Abyssal page: every tier and weather, and one fit when it's opened.
       if (url.pathname === '/v1/abyss' && request.method === 'GET') return json(await abyssCells(env.DB), 200, c);
       if (url.pathname === '/v1/jobs/abyss' && request.method === 'POST') return json(await refreshAbyss(env.DB), 200, c);

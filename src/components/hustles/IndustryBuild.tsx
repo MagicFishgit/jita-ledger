@@ -1,7 +1,8 @@
 import { Fragment, useMemo, useState } from 'react';
 import { ChevronRight, Coins, Scale, Store } from 'lucide-react';
-import { iskBig, iskBigSigned, pct, units } from '../../lib/format';
-import { navigate } from '../../lib/hooks';
+import { ago, iskBig, iskBigSigned, pct, units } from '../../lib/format';
+import { HOME_HUBS } from '../../lib/homeMarket';
+import { navigate, useNow } from '../../lib/hooks';
 import type { Indexed } from '../../lib/industry';
 import { payback, productKind, type BpoWhere, type Row } from '../../lib/industryRank';
 import type { Graph } from '../../lib/jumps';
@@ -10,7 +11,7 @@ import { Points } from '../Facts';
 import { Check, NumChip, Seg, Th } from '../ui';
 import type { IndustryChar } from './industryChars';
 import { IndustryDetail } from './IndustryDetail';
-import { bpoSaid, FINDER_KINDS, KIND_LABEL, useFinder, useFinderView, useStationSaid, type Finder } from './industryFinder';
+import { bpoSaid, FINDER_KINDS, homeSaid, KIND_LABEL, useFinder, useFinderView, useStationSaid, type Finder } from './industryFinder';
 import { useIndustryDoc } from './industryMarket';
 import { IndustrySites } from './IndustrySites';
 
@@ -63,17 +64,24 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
     const n = new Map<string, { n: number; said: (one: boolean) => string }>();
     for (const r of f.rows) {
       if (r.day || !r.missing) continue;
-      const own = r.missing === 'noSale' ? r.sales.find((x) => x.why)?.why ?? null : null;
+      // Every place it was allowed to sell says why not ("no freight route to Jita; not read at UALX-3 yet"), not only the first.
+      const own = r.missing === 'noSale' && r.sales.length ? [...new Set(r.sales.map((x) => x.why).filter((w): w is string => !!w))].map(lcfirst).join('; ') || null : null;
       const key = own ? `noSale:${own}` : r.missing;
-      const e = n.get(key) ?? { n: 0, said: own ? () => `can’t be sold: ${lcfirst(own)}` : MISSING_SAID[r.missing] };
+      const e = n.get(key) ?? { n: 0, said: own ? () => `can’t be sold: ${own}` : r.missing === 'noBook' && f.hub ? (one) => `${one ? 'has' : 'have'} no Jita book this morning and no price at ${f.hub!.short}` : MISSING_SAID[r.missing] };
       e.n++; n.set(key, e);
     }
     return [...n.values()].map((e) => `${units(e.n)} ${e.said(e.n === 1)}`).join(', ');
-  }, [f.rows]);
+  }, [f.rows, f.hub]);
   const noRoute = f.rows.some((r) => r.missing === 'noRoute');
   const keptHome = f.rows.filter((r) => r.shipsKeptHome).length;
   const station = useStationSaid(shown.slice(0, SHOWN + more).flatMap((r) => { const w = f.bpo(r.bp); return w.state === 'forge' ? [w.stations[0]] : []; }), ix, graph);
   const beforeTax = f.facts != null && f.facts.tax == null;
+  // Ranked before the hub's broker fee when a row shown sells at home and the fee isn't typed.
+  const beforeBroker = shown.slice(0, SHOWN + more).some((r) => r.brokerPerPct != null);
+  const before = [beforeTax && 'the facility tax', beforeBroker && `the broker fee at ${f.hub?.short}`].filter(Boolean).join(' and ');
+  const headSaid = before ? `Profit a day, before ${before}` : 'Profit a day, one slot';
+  const now = useNow(60_000);
+  const homeLine = homeSaid(f, now, ago);
   // A job's total leaves out an Alpha tax whose clone state isn't read (jobCostOf): every figure built on it says so.
   const cloneUnread = c.clone === 'unknown';
 
@@ -100,6 +108,21 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
           tip={'The part of each market’s daily trade you’d sell.\n\n• The research used 10%.\n• Profit a day is linear in it: doubling it doubles a market-limited row.'} />
         <Seg size="sm" label="ME and TE of an original you’d buy" value={`${doc.assume.me}/${doc.assume.te}`} onChange={(v) => { const [me, te] = v.split('/').map(Number); setDoc({ assume: { me, te } }); }}
           options={ASSUME_CHOICES.map((a) => ({ v: `${a.me}/${a.te}`, label: `ME ${a.me} / TE ${a.te}`, tip: a.me === 0 ? 'As NPCs sell it: unresearched.' : 'Researched first: the detail says how long it takes and what it costs.' }))} />
+        <label className="chip h34"><span className="cl">Home hub</span>
+          <select value={doc.hub ?? ''} onChange={(e) => setDoc({ hub: e.target.value ? Number(e.target.value) : null })} aria-label="Home hub">
+            <option value="">None</option>
+            {HOME_HUBS.map((h) => <option key={h.id} value={h.id}>{h.short}</option>)}
+          </select>
+        </label>
+        {f.hub && (
+          <Seg size="sm" label="Sell at" value={doc.sell} onChange={(v) => setDoc({ sell: v })}
+            options={[{ v: 'jita', label: 'Jita' }, { v: 'home', label: f.hub.short }, { v: 'best', label: 'Either', tip: 'Whichever pays more a day, for each item.' }]} />
+        )}
+        {f.hub && (
+          <NumChip label={`Broker fee at ${f.hub.short}`} percent width={50} value={doc.hubFees[f.hub.id] != null ? +(doc.hubFees[f.hub.id] * 100).toFixed(4) : null} placeholder="–"
+            onChange={(n) => { const next = { ...doc.hubFees }; if (n == null) delete next[f.hub!.id]; else next[f.hub!.id] = n / 100; setDoc({ hubFees: next }); }}
+            tip={'A structure’s broker fee is set by its owner and isn’t in ESI.\n\n• Typed by you.\n• Blank: the finder ranks before it and says what each 1% costs a day.'} />
+        )}
         <Check checked={doc.noShipsToJita} onChange={(v) => setDoc({ noShipsToJita: v })}
           tip={`Your words: ships are “too bulky expensive and risky” to haul to Jita. On, a ship built outside high-sec or more than 10 high-sec jumps from Jita sells at home or not at all.`}>Never haul ships to Jita</Check>
       </div>
@@ -115,6 +138,7 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
           options={[{ v: 'day', label: 'Profit a day' }, { v: 'unit', label: 'Profit a unit' }, { v: 'payback', label: 'Payback' }]} />
       </div>
 
+      {homeLine && <p className="note small" style={{ margin: 0 }} data-industry="home-said">{homeLine}</p>}
       {f.waiting ? (
         <p className="note small" style={{ margin: 0 }} data-industry="finder-wait">
           {f.waiting.text}
@@ -124,10 +148,11 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
       ) : (
         <div className="col" style={{ gap: 8 }} data-industry="finder">
           <p className="note small" style={{ margin: 0 }} data-industry="finder-count">
-            {units(shown.length)} of {units(priced.length)} priced at {f.site?.name}{f.live ? '; the top rows on Jita’s books now, the rest on this morning’s' : ', on this morning’s Jita books'}.
+            {units(shown.length)} of {units(priced.length)} priced at {f.site?.name}{f.live ? '; the top rows on Jita’s books now, the rest on this morning’s' : ', on this morning’s Jita books'}{f.hub && doc.sell !== 'jita' ? `; a sale at ${f.hub.short} on Goonmetrics’ prices` : ''}.
             {unpriced > 0 && ` ${units(unpriced)} aren’t priced: ${why}.`}
             {keptHome > 0 && doc.noShipsToJita && ` ${units(keptHome)} ${keptHome === 1 ? 'ship stays' : 'ships stay'} home: never haul ships to Jita is on${f.facts?.band === 'high' && f.facts.jitaJumps == null ? ` (no high-sec route from ${f.site?.name} to Jita on the map)` : f.facts?.band === 'unknown' ? ` (${f.site?.name}’s security isn’t known, so its ships stay home)` : ''}.`}
             {beforeTax && ` Profit a day is before the facility tax: ${f.site?.name}’s isn’t typed.`}
+            {beforeBroker && ` Profit a day is before the broker fee at ${f.hub?.short}: it isn’t typed.`}
             {cloneUnread && ' Clone state not read: the 0.25% Alpha tax is left out of every job’s cost.'}
             {noRoute && ` No freight route between ${f.site?.name} and Jita is picked, so no material can be brought from Jita: `}
             {noRoute && <button type="button" className="link-btn" onClick={() => { setView({ sitesOpen: true }); setTimeout(() => document.querySelector('[data-industry="sites"]')?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 150); }} data-industry="pick-route">pick one under Where you build</button>}
@@ -141,7 +166,7 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
                   <Th left className="rd-wide ind-c-bpo" tip="NPCs’ price for the original in The Forge this morning, and where; or why there isn’t one.">BPO</Th>
                   <Th className="rd-wide ind-c-unit" tip="What one unit makes after its materials, the job, fees and freight, on the better side it sells on.">Profit a unit</Th>
                   <Th className="rd-wide" tip="A day’s job: what one factory slot makes, and what the market takes at your industry share, and which of the two limits it.">One slot a day</Th>
-                  <Th className="rd-wide ind-c-day" tip={`What one factory slot earns a day.${beforeTax ? '\n\n• Before the facility tax: the site’s isn’t typed. Each row says what each 1% costs a day.' : ''}`}>{beforeTax ? 'Profit a day, before the facility tax' : 'Profit a day, one slot'}</Th>
+                  <Th className="rd-wide ind-c-day" tip={`What one factory slot earns a day.${before ? `\n\n• Before ${before}: not typed. Each row says what each 1% costs a day.` : ''}`}>{headSaid}</Th>
                   <Th className="rd-wide" tip="Days for one slot’s profit to pay for the original at NPCs’ price.">Payback</Th>
                   <Th className="rd-wide" tip="Skills the blueprint asks for that aren’t trained to its level.">Skills</Th>
                 </tr>
@@ -152,8 +177,8 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
                   const pb = payback(bpoPrice(w), r.day?.profit);
                   const up = unitProfit(r);
                   const name = ix.b.types[r.product]?.[0] ?? `Item #${r.product}`;
-                  const tax = r.taxPerPct != null ? `each 1% of tax: ${iskBig(r.taxPerPct)} a day` : null;
-                  const book = r.sale && f.input ? (f.input.market(r.product).jita?.live ? 'Jita’s book now' : 'this morning’s book') : null;
+                  const tax = [r.taxPerPct != null && `each 1% of tax: ${iskBig(r.taxPerPct)} a day`, r.brokerPerPct != null && `each 1% of broker fee at ${f.hub?.short}: ${iskBig(r.brokerPerPct)} a day`].filter(Boolean).join(' · ') || null;
+                  const book = !r.sale || !f.input ? null : r.sale.place === 'home' ? `sold at ${f.hub?.short}, Goonmetrics’ prices` : f.input.market(r.product).jita?.live ? 'Jita’s book now' : 'this morning’s book';
                   return (
                     <Fragment key={r.bp}>
                       <tr className={open === r.bp ? 'open' : undefined} data-bp={r.bp}>
@@ -164,15 +189,15 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
                           <span className="sub">{KIND_LABEL[productKind(ix, r.product)]}{book ? ` · ${book}` : ''}</span>
                           <span className="rd-phone">
                             <span>BPO: {b.v} {b.n}</span>
-                            <span>Profit a day{beforeTax ? ', before the facility tax' : ''}: {iskBigSigned(r.day!.profit)}{r.costKnown === false && r.taxPerPct == null ? ' (before the Alpha tax)' : ''}</span>
-                            <span>Profit a unit: {iskBigSigned(up)}</span>
+                            <span>Profit a day{before ? `, before ${before}` : ''}: {iskBigSigned(r.day!.profit)}{r.costKnown === false && r.taxPerPct == null ? ' (before the Alpha tax)' : ''}</span>
+                            <span>Profit a unit: {iskBigSigned(up)}{r.brokerPerPct != null ? ' (before the broker fee)' : ''}</span>
                             <span>One slot: {units(r.day!.units)} of {units(r.makes)} a day, the {r.day!.limit === 'market' ? 'market' : 'slot'} limits it</span>
                             {tax && <span>{tax}</span>}
                             <span>Payback: {pb != null ? `${pb.toFixed(1)} days` : '–'}</span>
                           </span>
                         </td>
                         <td className="l rd-wide"><span>{b.v}</span><span className="sub">{b.n}</span></td>
-                        <td className="rd-wide"><span className="ind-fig">{iskBigSigned(up)}</span></td>
+                        <td className="rd-wide"><span className="ind-fig">{iskBigSigned(up)}</span>{r.brokerPerPct != null && <span className="sub">before the broker fee at {f.hub?.short}</span>}</td>
                         <td className="rd-wide">{units(r.day!.units)} / {units(r.makes)}<span className="sub">the {r.day!.limit === 'market' ? 'market' : 'slot'} limits it</span></td>
                         <td className="rd-wide"><span className="ind-fig">{iskBigSigned(r.day!.profit)}</span>{tax && <span className="sub">{tax}</span>}{r.costKnown === false && r.taxPerPct == null && <span className="sub">before the Alpha tax: clone state not read</span>}</td>
                         <td className="rd-wide">{pb != null ? `${pb.toFixed(1)} days` : '–'}<span className="sub">{pb != null ? '' : bpoPrice(w) == null ? 'no NPC price' : 'never, at a loss'}</span></td>

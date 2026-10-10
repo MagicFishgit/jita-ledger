@@ -149,11 +149,11 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
           n: job ? `index ${pct(input.site.index!.manufacturing)} → ${iskBig(job.index)}${job.bonus ? `, bonuses ${iskBigSigned(job.bonus)}` : ''} · facility tax ${job.tax != null ? iskBig(job.tax) : 'not typed'} · SCC ${iskBig(job.scc)} · ${job.alpha == null ? 'Clone state not read: the 0.25% Alpha tax is left out' : job.alpha ? `Alpha tax ${iskBig(job.alpha)}` : 'no Alpha tax'}` : 'not costed',
           tip: 'The game charges a job on its estimated item value (the ME 0 materials at CCP’s adjusted prices) × runs:\n\n• × the system’s index, less the structure’s and rigs’ cost bonuses on that part;\n• + the facility tax, the 4% SCC surcharge, and 0.25% more for an Alpha.',
         },
-        {
-          l: sale?.place === 'home' ? 'The sale at home' : 'The sale in Jita', v: listPrice != null ? iskBig(listPrice) : '–',
-          n: sale ? `nets ${iskBig(sale.listNet)} listed, ${iskBig(sale.bidNet)} into the best bid · ${units(sale.pace)} a day, ${pct(sale.split, 0)} buyers taking listings (${sale.splitFrom === 'goonmetrics' ? 'even, until the home history is read' : SPLIT_SAID[sale.splitFrom]})${sale.freight ? ` · freight ${isk(sale.freight)} a unit` : ''}` : 'not sold anywhere you said',
-        },
-        { l: 'Profit a day, one slot', v: iskBigSigned(row.day?.profit), n: (row.taxPerPct != null ? `before the facility tax; each 1% costs ${iskBig(row.taxPerPct)} a day` : row.day ? `${units(row.day.units)} sold of ${units(row.makes)} made` : '') + (row.costKnown === false && row.taxPerPct == null ? '; before the Alpha tax, since the clone state isn’t read' : '') },
+        ...(row.sales.length ? row.sales : [null]).map((s) => s ? ({
+          l: s.place === 'home' ? `The sale at ${input.hubName}` : 'The sale in Jita', v: s.list != null ? iskBig(s.list) : '–',
+          n: s.why ?? `nets ${iskBig(s.listNet)} listed${s.brokerKnown ? '' : ' (before the broker fee: not typed)'}, ${iskBig(s.bidNet)} into the best bid · ${units(s.pace)} a day, ${pct(s.split, 0)} buyers taking listings (${s.paceFrom === 'goonmetrics' ? 'Goonmetrics’ weekly movement ÷ 7, at an even split, until the home history is read' : SPLIT_SAID[s.splitFrom as Exclude<typeof s.splitFrom, 'goonmetrics'>]})${s.place === 'home' ? ` · Goonmetrics: ${((w) => (w != null ? units(w) : '–'))(input.market(row.product).home?.weekly)} a week` : ''}${s.freight ? ` · freight ${isk(s.freight)} a unit` : ''}`,
+        }) : { l: 'The sale', v: '–', n: 'not sold anywhere you said' }),
+        { l: 'Profit a day, one slot', v: iskBigSigned(row.day?.profit), n: ((r) => (r.length ? `${r.join('; ')}` : row.day ? `${units(row.day.units)} sold of ${units(row.makes)} made` : ''))([row.taxPerPct != null && `before the facility tax; each 1% costs ${iskBig(row.taxPerPct)} a day`, row.brokerPerPct != null && `before the broker fee at ${input.hubName}; each 1% costs ${iskBig(row.brokerPerPct)} a day`].filter(Boolean)) + (row.costKnown === false && row.taxPerPct == null ? '; before the Alpha tax, since the clone state isn’t read' : '') },
       ]} />
 
       {levels && (

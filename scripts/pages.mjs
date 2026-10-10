@@ -2036,6 +2036,74 @@ try {
       if (!(await text('[data-industry="finder-wait"]')).includes('Your skills aren’t read yet')) problems.push('with skills not read, the finder doesn’t wait with its words');
       if (await page.locator('[data-industry="finder"] [data-bp]').count()) problems.push('the finder ranked blueprints with the skills not read');
     }
+    // --- Selling at home (Task 6): the cloud's Goonmetrics read for UALX-3 two hours old, C-J6MT's 26 hours old; built at
+    // the UALX-3 home (1% tax typed, so the head is before the broker fee alone), sold at UALX-3.
+    // (The review-fixes block above left the skills unread: seeded again as the finder's own case has them.)
+    await page.goto(SEED_PAGE);
+    await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } });
+    npcAnswer = { complete: { at: iso(now - 3 * 3600_000), complete: true, pagesFailed: 0, sellers: { 25895: [1_250_000, [60001483, 60001486]] } }, partial: null };
+    const UALX_HUB = 1046664001931;
+    let homeAnswer = (hub) => (hub === UALX_HUB
+      ? { hub, source: 'goonmetrics', at: iso(now - 2 * 3600_000), prices: { [PUMP]: [iso(now - 2 * 3600_000), 7 * 841, 7_000_000, 40, 7_500_000, 50] } }
+      : { hub, source: 'goonmetrics', at: iso(now - 26 * 3600_000), prices: {} });
+    CLOUD['/v1/home/prices'] = (url, req, json) => { const a = homeAnswer(Number(url.searchParams.get('hub'))); return a === 404 ? json({ error: 'Not found' }, 404) : json(a); };
+    let homeHistory = false;
+    ESI['/markets/10000061/history/'] = (url, req, json) => (homeHistory && Number(url.searchParams.get('type_id')) === PUMP
+      ? json(Array.from({ length: 30 }, (_, i) => ({ date: day5(30 - i), average: 7_300_000, highest: 7_520_000, lowest: 7_050_000, order_count: 30, volume: 600 })))
+      : json({ error: 'Not found' }, 404));
+    // The finder's own head (a row's detail holds tables of its own), and the pump's detail open (the open row is kept per browser).
+    // (On a phone the head is folded into each row, so the count line over the table says it instead.)
+    const finderHead = () => (PHONE ? text('[data-industry="finder-count"]').then((t) => t.toLowerCase()) : page.locator('.ind-finder > thead').innerText().then((t) => t.replace(/\s+/g, ' ').toLowerCase()).catch(() => ''));
+    const pumpOpen = async () => {
+      if ((await page.locator('[data-bp="25895"] .expander').getAttribute('aria-expanded', { timeout: 8000 }).catch(() => null)) !== 'true') {
+        const opened = await page.locator('[data-bp="25895"] .expander').click({ timeout: 8000 }).then(() => true, () => false);
+        if (!opened) { problems.push('the pump isn’t in the finder to open its detail'); return ''; }
+      }
+      await page.waitForTimeout(800);
+      return text('[data-industry="detail"]');
+    };
+    await finder();
+    await page.locator('select[aria-label="Build at"]').selectOption({ label: 'Home in UALX-3' });
+    await page.locator('select[aria-label="Home hub"]').selectOption({ label: 'UALX-3' });
+    await page.locator('[aria-label="Sell at"] button', { hasText: 'UALX-3' }).click();
+    await page.waitForTimeout(1500);
+    if (!(await text('[data-industry="home-said"]')).includes('UALX-3’s prices: Goonmetrics, read 2 h ago.')) problems.push(`the home hub’s prices don’t say when the cloud read them: “${await text('[data-industry="home-said"]')}”`);
+    if (!(await finderHead()).includes(PHONE ? 'profit a day is before the broker fee at ualx-3' : 'profit a day, before the broker fee at ualx-3')) problems.push(`with UALX-3’s broker fee not typed, the head doesn’t say so: “${await finderHead()}”`);
+    const atHome = await text('[data-bp="25895"]');
+    for (const t of ['sold at UALX-3, Goonmetrics’ prices', 'each 1% of broker fee at UALX-3:']) if (!atHome.includes(t)) problems.push(`the pump sold at UALX-3 doesn’t say “${t}”: “${atHome.slice(0, 200)}”`);
+    const homeDetail = (await pumpOpen()).toLowerCase();
+    for (const t of ['The sale at UALX-3', '(before the broker fee: not typed)', 'Goonmetrics’ weekly movement ÷ 7, at an even split, until the home history is read', 'Goonmetrics: 5,887 a week'])
+      if (!homeDetail.includes(t.toLowerCase())) problems.push(`the pump’s detail at home doesn’t say “${t}”`);
+    if (SHOTS) { await page.locator('[data-industry="detail"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-industry-home.png` }); }
+    // The broker fee typed: ranked after it, nothing said before it.
+    await page.locator('label.chip', { hasText: 'Broker fee at UALX-3' }).locator('input').fill('1');
+    await page.waitForTimeout(1200);
+    if ((await finderHead()).includes('before the broker fee')) problems.push('with UALX-3’s broker fee typed, the head still says before it');
+    if ((await text('[data-bp="25895"]')).includes('each 1% of broker fee')) problems.push('with UALX-3’s broker fee typed, the pump still says what each 1% costs');
+    // The home region's history read: the pace is its own, no longer Goonmetrics' weekly movement.
+    homeHistory = true;
+    await finder();
+    const histDetail = await pumpOpen();
+    if (histDetail.includes('Goonmetrics’ weekly movement ÷ 7')) problems.push('with the home history read, the pump’s pace still comes from Goonmetrics’ weekly movement');
+    if (!histDetail.includes('guessed from where each day’s average sat between its low and high')) problems.push('with the home history read, the pump’s split doesn’t say it comes from history');
+    // C-J6MT's read is 26 hours old: said with its time.
+    await page.locator('select[aria-label="Home hub"]').selectOption({ label: 'C-J6MT' });
+    await page.waitForTimeout(1200);
+    if (!(await text('[data-industry="home-said"]')).includes('C-J6MT’s prices: Goonmetrics, read 1 day ago: older than a day.')) problems.push(`C-J6MT’s day-old prices aren’t said as older than a day: “${await text('[data-industry="home-said"]')}”`);
+    // Back at UALX-3, selling wherever pays more: with Goonmetrics switched off in the cloud, then the cloud a version
+    // behind, it's said, and the pump sells in Jita rather than at home on prices nobody read.
+    await page.locator('select[aria-label="Home hub"]').selectOption({ label: 'UALX-3' });
+    await page.locator('[aria-label="Sell at"] button', { hasText: 'Either' }).click();
+    await page.waitForTimeout(800);
+    for (const [answer, said] of [[() => ({ off: true }), 'Goonmetrics isn’t read: the cloud has it switched off.'], [() => 404, 'The cloud is a version behind: home prices come once it’s updated.']]) {
+      homeAnswer = answer;
+      await finder();
+      if (!(await text('[data-industry="home-said"]')).includes(said)) problems.push(`the home prices line doesn’t say “${said}”`);
+      const pumpRow = await text('[data-bp="25895"]');
+      if (pumpRow.includes('Goonmetrics’ prices') || !/Jita’s book now|this morning’s book/.test(pumpRow)) problems.push(`with no home prices (“${said}”), the pump isn’t sold in Jita: “${pumpRow.slice(0, 200)}”`);
+    }
+    const homeFit = await sideways(page, '[data-industry="finder"] .tbl-scroll');
+    if (!PHONE && homeFit && homeFit.over > 0) problems.push(`the finder with a home hub scrolls sideways at 1,440 (${homeFit.over} px)`);
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');
