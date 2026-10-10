@@ -165,6 +165,8 @@ answering in its area**:
 - `characters.md`: alts, and how they are kept apart from the main on the browser's side (the alt store, the Characters
   page, what each earned, transfers).
 - `research.md`: the Research tab, R&D agents (points a day, access, the agents bundle) and its walkthrough.
+- `industry.md`: the Industry side hustle: the static-data bundle, the job, research, copying and invention rules, build
+  sites, the finder, home prices from Goonmetrics, the ladder.
 - `characters-cloud.md`: the cloud's side of alts (whose login, whose data; the roster) and how a returning login is
   sorted out.
 

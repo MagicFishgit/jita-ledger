@@ -7298,5 +7298,53 @@ console.log('\n--- Place and leave’s pace: how often each item round-trips wit
   eq('  an item remembered without its plan: any plan naming the position', scs([{ id: 'a', items: [{ positionId: 'pos', skipped: {} }] }], 'pos', undefined), { stillSkipped: true, planNamesIt: true, otherPlanHolds: false });
 }
 
+console.log('\n--- Industry: the bundle (scripts/industry-bundle.mjs, CCP static data build 3569502) ---');
+{
+  // The Industry tab's static data (docs/superpowers/specs/2026-10-10-industry-design.md). The worked item is the research's
+  // (.playwright-mcp/research/bpo/report.md): Large Trimark Armor Pump I, checked there against EVE Ref's industry API.
+  const fsI = await import('node:fs');
+  const zlibI = await import('node:zlib');
+  const read = (p) => fsI.readFileSync(new URL(p, import.meta.url));
+  const raw = read('../src/data/industry.json');
+  const b = JSON.parse(raw);
+  const bp = (id) => b.bps.find((x) => x[0] === id);
+  eq('  the build and its counts: 2,693 blueprints, 5,670 types in 602 groups, 106 rigs, 2,305 stations, 57 skills, 3 engineering complexes',
+    [b.build, b.bps.length, Object.keys(b.types).length, Object.keys(b.groups).length, b.rigs.length, b.stations.length, Object.keys(b.skills).length, Object.keys(b.structures).length],
+    [3569502, 2693, 5670, 602, 106, 2305, 57, 3]);
+  eq('  a group, named: a ship rig\'s, and the fuel blocks\'', [b.groups[773], b.groups[1136]], [['Rig Armor', 7], ['Fuel Block', 4]]);
+  eq('  under its budget: 1.2 MB, 160 KB gzipped', [raw.length <= 1.2e6, zlibI.gzipSync(raw).length <= 160_000], [true, true]);
+  eq('  the Large Trimark Armor Pump I Blueprint: 40 runs a copy; 4,500 s and 83 / 72 / 56 a run to build',
+    bp(25895).slice(0, 3), [25895, 40, [4500, [[25601, 83], [25605, 72], [25590, 56]], [[3380, 1], [26253, 1]], [[25894, 1]]]]);
+  eq('    copying 3,600 s a run; ME and TE research 1,575 s for the first level (a rank 15 blueprint)', [bp(25895)[3][0], bp(25895)[4][0], bp(25895)[5][0]], [3600, 1575, 1575]);
+  eq('    invention: 3 + 3 datacores, three skills, a 34% chance of a one-run Tech II copy',
+    bp(25895)[6], [23400, [[20416, 3], [20171, 3]], [[11443, 1], [11442, 1], [23087, 1]], [[26303, 1, 0.34]]]);
+  eq('  its Tech II blueprint, invented and never sold: one run a copy, 45,000 s, 20 / 15 / 1 / 23 a run',
+    [bp(26303)[1], bp(26303)[2][0], bp(26303)[2][1], bp(26303)[6]], [1, 45000, [[25624, 20], [25609, 15], [11475, 1], [25620, 23]], 0]);
+  eq('  a type: name, group, category, packaged volume, base price (0: none), mineable',
+    [b.types[25894], b.types[34], b.types[621]], [['Large Trimark Armor Pump I', 773, 7, 20, 0, 0], ['Tritanium', 18, 4, 0.01, 2, 1], ['Caracal', 26, 6, 10000, 8000000, 0]]);
+  eq('  the engineering complexes\' role bonuses (material, cost, time)', b.structures, { 35825: [0.99, 0.97, 0.85], 35826: [0.99, 0.96, 0.8], 35827: [0.99, 0.95, 0.7] });
+  // A modifier source names the structure attribute it moves (2538…); the rig's value is its own 2594 / 2593 / 2595.
+  eq('  a rig\'s own values: Standup L-Set Equipment Manufacturing Efficiency I',
+    b.rigs.find((r) => r[0] === 37170), [37170, 3, 1, [['manufacturing', 'material', 2], ['manufacturing', 'time', 2]], [-20, -2, 0], [1, 1.9, 2.1]]);
+  eq('    the M-Set Basic Medium Ship material rigs, Tech I and Tech II',
+    [b.rigs.find((r) => r[0] === 37146), b.rigs.find((r) => r[0] === 37147)],
+    [[37146, 2, 1, [['manufacturing', 'material', 7]], [0, -2, 0], [1, 1.9, 2.1]], [37147, 2, 2, [['manufacturing', 'material', 7]], [0, -2.4, 0], [1, 1.9, 2.1]]]);
+  eq('    a copy-and-research rig helps every blueprint (no filter)', b.rigs.find((r) => r[0] === 37183)[3].every((m) => m[2] === 0), true);
+  eq('    no Thukker or faction rig', b.rigs.every((r) => r[2] === 1 || r[2] === 2), true);
+  eq('  the filter a medium ship rig reads', b.filters[7], ['Medium T1 Ships', [], [26, 28, 419, 463, 1201, 4902, 5087]]);
+  eq('  the industry skills: rank, attributes, and the bonus each carries',
+    [3380, 3388, 3387, 24625, 3406, 24624, 3402, 3403, 3409, 11442].map((s) => b.skills[s]),
+    [[1, 166, 165, 440, -4], [3, 166, 165, 1961, -3], [2, 166, 165, 450, 1], [8, 166, 165, 450, 1], [1, 165, 166, 471, 1], [8, 165, 166, 471, 1],
+      [1, 165, 166, 452, -5], [1, 165, 166, 453, -5], [3, 165, 166, 468, -5], [5, 165, 166, 1982, -1]]);
+  eq('  stations with a Factory, and the far fewer with a Laboratory', [b.stations.filter((s) => s[2] & 1).length, b.stations.filter((s) => s[2] & 2).length], [2259, 510]);
+  const eivF = JSON.parse(read('../src/data/industryEiv.json'));
+  eq('  every published blueprint\'s ME 0 materials (stage 2 reads them)', [Object.keys(eivF.eiv).length, eivF.eiv[25895]], [4039, [[25601, 83], [25605, 72], [25590, 56]]]);
+  const watchF = JSON.parse(read('../src/data/industryTypes.json'));
+  eq('  the cloud\'s watch set (every Tech I product and its materials) and the blueprints it keeps NPC sellers for', [watchF.watch.length, watchF.bpos.length], [1858, 1673]);
+  eq('    the pump and its circuits watched; its Tech II blueprint no NPC\'s; its Tech II product not watched yet',
+    [watchF.watch.includes(25894), watchF.watch.includes(25601), watchF.bpos.includes(25895), watchF.bpos.includes(26303), watchF.watch.includes(26302)], [true, true, true, false, false]);
+  eq('    sorted, so a rebuild of one build changes nothing', [watchF.watch.every((t, i, a) => !i || a[i - 1] < t), b.bps.every((x, i, a) => !i || a[i - 1][0] < x[0])], [true, true]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
