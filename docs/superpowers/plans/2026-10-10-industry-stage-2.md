@@ -45,10 +45,13 @@ differ from the code, the code wins.
    the record. Built-and-sold then needs no bundle to claim units.
 2. **The main's jobs are read once.** `meta.industry` (To do's "Industry jobs to deliver", its key `industry:<place>` kept)
    is derived from the same `include_completed=true` read that writes the records, not a second request.
-3. **Whether jobs were read at all.** A read with no jobs writes no record, so "absent is not read" needs a mark: the
-   main's is `meta.industry` (already written by every jobs read); an alt's is `meta.jobsRead: true` in its meta doc,
-   written once by the sheet (a read time there would be a revision every hour, the R&D lesson). Its read time stays the
-   `sheet` job's `lastOk`, as the spec says.
+3. **Whether jobs were read at all.** A read with no jobs writes no record, so "absent is not read" needs a mark: every
+   stage-2 jobs read writes `meta.jobsRead: true` (the main's by its sync, an alt's by the cloud's sheet), once; a read
+   time there would be a revision every hour for an alt (the R&D lesson). The main's `meta.industry` doesn't count: every
+   ledger from before stage 2 has one (To do's jobs to deliver), read without `include_completed`, and taking it as a jobs
+   read would say "0 of 5 in use" and "Nothing running" while it lists running jobs (pre-flight M1). Jobs read = the mark,
+   or records held (the cloud's archive writes the main's). The read time stays the main's `meta.industry.at` and an
+   alt's `sheet` job's `lastOk`, as the spec says.
 4. **The `blueprints` document gains `names`.** `{ list, names? }`: the name of each container, ship or structure a
    blueprint sits in, read once per new location by the reader's own login (`/characters/{id}/assets/names` and
    `/universe/structures/{id}`), `''` when it has none. An alt's containers can be named only with the alt's login, which
@@ -85,9 +88,11 @@ differ from the code, the code wins.
     copies it uses aren't charged (they aren't manufacturing materials, and the spec counts those only): a stated limit.
 12. **`buildRow` gains `held`.** A Tech II copy you hold is built as it is (its own ME, TE and runs); without the flag
     `buildRow` costs invention again for every Tech II blueprint.
-13. **Slots in use count running and ready jobs.** EVE University's "Industry" page doesn't say whether a finished job
-    holds its slot until delivered (fetched 11 October 2026), so a ready job counts as in use and the tip and limits.md say
-    so: it errs towards fewer free slots, never more.
+13. **Slots in use count running and ready jobs** (the controller's ruling on risk 5). EVE University's "Industry" page
+    doesn't say whether a finished job holds its slot until delivered (fetched 11 October 2026); forum reports say it does,
+    until delivered or cancelled (forums.eveonline.com/t/industry-slots-locked-but-not-having-any-jobs-in-list/153387,
+    forums-archive.eveonline.com/message/4828259). So a ready job counts as in use, the tip says so, and it's checked in game
+    after shipping.
 14. **The ladder: reads annotate, skills still decide.** "You're here" stays by skills (and a structure site for Build at
     home); each rung adds what the reads show ("12 manufacturing jobs in the last 90 days", "3 originals researched") and
     Start's slot tiles say how many are in use. A character with the skills who never ran a job isn't moved down.
@@ -96,14 +101,28 @@ differ from the code, the code wins.
     hub's Goonmetrics sell less a tick; anywhere else: the `industry` doc's `sell` choice (a ship with "never haul ships to
     Jita" on goes to the hub). Running the finder inside To do would load the bundle, the map and every book.
 16. **The section's key is `blueprints`** (`hustles/industry/blueprints`), label "Blueprints & jobs".
-17. **The Worker reads with `X-Compatibility-Date: 2025-08-26`** (`worker/src/eve.ts`), the browser with 2026-08-18. The
-    two routes are pinned to ESI's OpenAPI at 2026-08-18 (`.playwright-mcp/research/rd-agents/openapi.json`), every field
-    the app reads but `job_id … end_date` optional in the reader; the first real read by each is the check (as for
+17. **The Worker reads with `X-Compatibility-Date: 2025-08-26`** (`worker/src/eve.ts`), the browser with 2026-08-18, and
+    that's settled (the controller's ruling on risk 6): ESI's OpenAPI gives `/characters/{id}/blueprints/` and
+    `/characters/{id}/industry/jobs/` the identical 200 schema under both dates
+    (`.playwright-mcp/research/industry-stage2/openapi-*.json`), so the Worker keeps its date. Every field the app reads
+    but `job_id … end_date` is optional in the reader; the first real read is still the check of the data (as for
     `agents_research`), recorded in the note.
 18. **List what you built is versioned by the newest delivered job's ID**, not every delivered job's (Task 12B). The item
     is built from the newest jobs whose units the place still holds, so listing part of an older batch would drop that job
     from the set, change a version of all their IDs and reopen a hand tick; the newest job's ID changes only with another
     delivery, which is when the spec says a hand tick should reopen.
+19. **A merged job reaches the browser that pushed it** (pre-flight I1; Task 9B). A browser skips its own pushes'
+    revisions when it pulls (`ownRevs`), so a job the Worker merged (D1 held first-sight fields the pushed record lacked)
+    and wrote at the push's revision would never come back to the browser that pushed it. The Worker writes such rows at a
+    revision of its own, after the push's, and reports the push's: the next pull brings them down to every browser,
+    including one built before this task, and `applyPulled` merges them in. A job pushed as D1 holds it is written at the
+    push's revision as before, so this costs a revision only when a merge added something.
+20. **First sight falls back to the blueprints held before the read** (pre-flight I2). Whether ESI lists a blueprint while
+    it's installed in a job isn't known (its `location_flag` enum names no industry job), so a job's blueprint is looked up
+    in the read just taken, then in the doc held before it (`bpFrom`): "as last read for its item ID", the spec's words.
+21. **The first sight keeps its own time** (`first.at`, pre-flight M10): `mergeJob` keeps the earliest `seenAt` but may
+    take `first` from a later record (the earlier saw the job paused), so `checkable` judges by when the job was first seen
+    running, not first seen at all.
 
 ## Global Constraints
 
@@ -152,8 +171,10 @@ differ from the code, the code wins.
    `blueprints` doc) must still land, the jobs must stay waiting, and later chunks of a large push must still be sent.
    Pinned in Task 9A, step 1 (`refusedKind`) and step 9 (the page case's stubbed cloud answering 400).
 2. **A job first seen late by one writer.** A browser that first sees a job after it ended (no first-sight fields) must
-   never erase the cloud's record that has them, whether its record goes up before or after the cloud's comes down.
-   Pinned in Task 9A, step 1 (`mergeJob`, `applyPulled`) and Task 9B, step 1 (the Worker's push merging).
+   never erase the cloud's record that has them, and must end up holding them itself, whether its record goes up before or
+   after the cloud's comes down. Pinned in Task 9A, step 1 (`mergeJob`, `applyPulled` both ways), Task 9B, step 1 (the
+   Worker writes a merged job that differs from what was pushed at a revision of its own, after the push's) and Task 9B,
+   step 7 (the page case: a browser that pushes its late record before pulling ends up holding `first`).
 3. **An alt refused after a read, or never read.** What was read stays shown with "as the cloud last read it" and
    `lostSaid`; nothing reads "0 originals", "0 slots in use" or "No jobs" for an alt whose jobs weren't read; totals count
    only characters read and say how many. Pinned in Task 10A, step 1 (`charRows`, `fleetTotals`) and step 9 (the page case).
@@ -171,6 +192,7 @@ differ from the code, the code wins.
 | `scripts/industry-bundle.mjs`, `src/data/industryEiv.json` | `out`: each blueprint's product and units a run | 9A |
 | `src/lib/industryTrack.ts` (new) | Jobs (`RawJob`, `JobRecord`, `toJob`, `firstSight`, `mergeJob`, `readJobs`), the `blueprints` doc, `slotsUsed`, `jobCheck`, `measuredTax`, `builtClaims`, `builtItems`, `builtAndSold` | 9A, 10A, 11, 12B, 13 |
 | `src/lib/industryReads.ts` (new) | The browser's reads of the main's blueprints and jobs (I/O) | 9A, 10B |
+| `src/components/Settings.tsx` | Your data names the `jobs` kind (`KIND_SAID`) | 9A |
 | `src/lib/cloudSync.ts` | `refusedKind`, the `jobs` kind, the `blueprints` doc, `applyPulled`'s merge | 9A |
 | `src/lib/cloud.ts` | `pushNow` holds a refused kind back; `pullNow` sanitizes `blueprints` | 9A |
 | `src/lib/store.ts`, `src/lib/emptyData.ts`, `src/lib/types.ts` | `Data.jobs`, `Data.blueprints`, `Meta.blueprintsAt`, `Meta.jobsRead` | 9A |
@@ -192,8 +214,8 @@ differ from the code, the code wins.
 | `src/lib/todo.ts`, `src/components/Todo.tsx` | An alt's jobs to deliver; List what you built | 12A, 12B |
 | `src/components/planListing.ts` | `useItemReads` exported | 12B |
 | `src/lib/types.ts`, `src/lib/prefs.ts` | `Activity` gains `Industry` | 13 |
-| `src/lib/positions.ts`, `src/lib/everyItem.ts`, `src/lib/results.ts`, `src/lib/income.ts` | Claims; the Industry activity | 13 |
-| `src/components/activityEvents.ts`, `src/components/Results.tsx` | Industry's inputs loaded when needed; its row | 13 |
+| `src/lib/positions.ts`, `src/lib/everyItem.ts`, `src/lib/results.ts`, `src/lib/income.ts`, `src/lib/wallet.ts` | Claims; the Industry activity; `industry_security_tax` filed as Industry | 13 |
+| `src/components/activityEvents.ts`, `src/components/Results.tsx`, `src/components/Wallet.tsx`, `src/components/Characters.tsx`, `src/components/charIncome.ts` | Industry's inputs loaded when needed; its row and words while they load or after they fail | 13 |
 | `scripts/check.mjs`, `scripts/check-worker.mjs`, `scripts/pages.mjs` | Tests | every task |
 | `scripts/income-golden.json` | Re-recorded once | 13 |
 | `docs/notes/industry.md`, `limits.md`, `positions-results.md`, `characters.md`, `orders-alerts.md`, `cloud.md`, `CLAUDE.md` | Notes | every task |
@@ -208,6 +230,7 @@ loads like an import: keep it valid YAML, and run `head -20 .claude/rules/indust
 - Create: `src/lib/industryTrack.ts`, `src/lib/industryReads.ts`
 - Modify: `scripts/industry-bundle.mjs` and `src/data/industryEiv.json` (rebuilt: `out`), `src/lib/cloudSync.ts`
   (`refusedKind`, `RECORD_KEYS.jobs`, `DOC_KEYS` `'blueprints'`, `applyPulled`), `src/lib/cloud.ts` (`pushNow`, `pullNow`),
+  `src/components/Settings.tsx` (`KIND_SAID.jobs`),
   `src/lib/store.ts`, `src/lib/emptyData.ts`, `src/lib/types.ts` (`Meta.blueprintsAt`, `Meta.jobsRead`), `src/lib/sync.ts`,
   `src/lib/altLedger.ts`, `src/components/Todo.tsx` (its `ACTIVITY` map moves to `industryTrack.ts`), `worker/src/sync.ts`
   (`DOC_KEYS` `'blueprints'` only: the `jobs` kind is Task 9B's), `scripts/check.mjs`, `scripts/check-worker.mjs`,
@@ -223,14 +246,16 @@ loads like an import: keep it valid YAML, and run `head -20 .claude/rules/indust
     `FIRST_SIGHT_MS` (5,400,000), `ACTIVITY_SAID`, `ACTIVITY_OF`, `SCIENCE_ACTIVITIES`, `toJob(raw, seenAt, perRun)`,
     `eivBlueprintOf(job)`, `firstSight(job, o)`, `mergeJob(stored, incoming)`, `newJobs(raw, stored)`,
     `readJobs(raw, stored, c)`, `jobUnits(job)`, `checkable(job)`; `type BpRow`, `type BlueprintsDoc`, `MAX_BLUEPRINTS`,
-    `toBlueprintsDoc(raw, names?)`, `sanitizeBlueprints(v)`, `ownedOf(doc)`, `bpAt(doc, itemId)`, `placesToName(doc)`,
-    `isStationId(id)`, `isStructureId(id)`.
+    `toBlueprintsDoc(raw, names?)`, `sanitizeBlueprints(v)`, `ownedOf(doc)`, `bpAt(doc, itemId)`,
+    `bpFrom(fresh, held)` (correction 20), `placesToName(doc)`, `isStationId(id)`, `isStructureId(id)`. `FirstSight` carries
+    `at`, when it was taken (correction 21).
   - `src/lib/industryReads.ts`: `type EivFile`, `loadEiv()`, `readBlueprintsNow(cid, prev, can)`,
-    `readJobsNow(cid, stored, bps)`.
+    `readJobsNow(cid, stored, bps, heldBps)`.
   - `src/lib/cloudSync.ts`: `refusedKind(message): RecordKey | null`; `RECORD_KEYS.jobs = 'map'`; `'blueprints'` in `DOC_KEYS`.
   - `Data.jobs: Record<string, JobRecord>`, `Data.blueprints?: BlueprintsDoc` (store.ts); `Meta.blueprintsAt?: string`,
-    `Meta.jobsRead?: true` (types.ts).
+    `Meta.jobsRead?: true` (types.ts), the main's and an alt's (correction 3).
   - `altLedger(saved)` carries `jobs` and `blueprints`.
+  - `src/components/Settings.tsx`: `KIND_SAID.jobs` (Your data: "1 industry job", "12 industry jobs").
 
 The main's jobs come from one read with `include_completed=true` (correction 2): `meta.industry` (To do's jobs to deliver,
 unchanged in shape and key) is derived from it as before, and the records are the same rows kept.
@@ -285,7 +310,7 @@ console.log('\n--- Industry stage 2: jobs kept past ESI\'s 90 days (industryTrac
     [f.me, f.te, f.systemId, f.index, Math.round(f.eiv * 65)], [10, 20, 30004807, indices[30004807].manufacturing, 157590413]);
   eq('    a job first seen after it ended has none', T.firstSight({ ...job, status: 'ready' }, sight), undefined);
   eq('    nothing read is not known, never 0: no blueprint read, no system, no prices', T.firstSight(job, { bp: null, systemId: null, indices: null, adjusted: null, eiv: null }),
-    { me: null, te: null, systemId: null, index: null, eiv: null });
+    { me: null, te: null, systemId: null, index: null, eiv: null, at: '2026-10-11T10:20:00Z' });
   const inv = T.toJob(raw({ activity_id: 8, product_type_id: 26303, runs: 3 }), '2026-10-11T10:20:00Z', null);
   eq('    invention\'s EIV is the Tech II blueprint\'s it makes, at the invention index', [Math.round(T.firstSight(inv, sight).eiv), T.firstSight(inv, sight).index], [35524196, indices[30004807].invention]);
 
@@ -309,7 +334,14 @@ console.log('\n--- Industry stage 2: jobs kept past ESI\'s 90 days (industryTrac
   eq('    a held job isn\'t sighted again, whatever it shows now', T.readJobs([raw()], { 501: late }, ctx)[0]?.first, undefined);
   eq('    the jobs not held yet', T.newJobs([raw(), raw({ job_id: 503 })], held).map((r) => r.job_id), [503]);
   eq('  units a job made: runs × units a run, manufacturing only; not known without units a run', [T.jobUnits(job), T.jobUnits({ ...job, perRun: null }), T.jobUnits(inv)], [65, null, null]);
-  eq('  checked only when first seen within 90 minutes of its start', [T.checkable(cloud), T.checkable({ ...cloud, seenAt: '2026-10-11T11:29:00Z' }), T.checkable({ ...cloud, seenAt: '2026-10-11T11:31:00Z' }), T.checkable(late)], [true, true, false, false]);
+  const sightAt = (at) => ({ ...cloud, first: { ...f, at } });
+  eq('  checked only when first seen running within 90 minutes of its start', [T.checkable(cloud), T.checkable(sightAt('2026-10-11T11:29:00Z')), T.checkable(sightAt('2026-10-11T11:31:00Z')), T.checkable(late)], [true, true, false, false]);
+  // Seen paused at 10:05 (no first sight), running at 13:00: merged, the earliest seen is 10:05, but the first sight was
+  // taken at 13:00, three hours after the start: not checkable (correction 21, pre-flight M10).
+  const pausedEarly = T.toJob(raw({ status: 'paused' }), '2026-10-11T10:05:00Z', 1);
+  const runningLate = { ...T.toJob(raw(), '2026-10-11T13:00:00Z', 1), first: { ...f, at: '2026-10-11T13:00:00Z' } };
+  const ml = T.mergeJob(pausedEarly, runningLate);
+  eq('    a first sight taken later than the first seeing is judged by its own time', [ml.seenAt, ml.first.at, T.checkable(ml)], ['2026-10-11T10:05:00Z', '2026-10-11T13:00:00Z', false]);
   eq('  the Industry window\'s activity names', [T.ACTIVITY_SAID[1], T.ACTIVITY_SAID[4], T.ACTIVITY_SAID[8]], ['Manufacturing', 'ME research', 'Invention']);
 }
 
@@ -326,6 +358,11 @@ console.log('\n--- Industry stage 2: the blueprints document (industryTrack.ts) 
   });
   eq('  read back as the Blueprints page reads ESI', T.ownedOf(doc), readBlueprints([...raw].sort((x, y) => x.item_id - y.item_id)));
   eq('  a blueprint\'s ME and TE by its item ID; one not held is none', [T.bpAt(doc, 30), T.bpAt(doc, 31), T.bpAt(undefined, 30)], [{ me: 10, te: 20 }, null, null]);
+  // A running job's blueprint may be missing from the read just taken (ESI may not list one installed in a job): the doc held
+  // before the read stands in (correction 20, pre-flight I2).
+  const fresh = T.toBlueprintsDoc(raw.filter((x) => x.item_id !== 30));
+  eq('  first sight looks in the fresh read, then in the doc held before it', [T.bpFrom(fresh, doc)(30), T.bpFrom(fresh, doc)(10), T.bpFrom(fresh, undefined)(30), T.bpFrom(undefined, doc)(30)],
+    [{ me: 10, te: 20 }, { me: 10, te: 20 }, null, { me: 10, te: 20 }]);
   eq('  places still to name: containers and ships, structures; never a station', T.placesToName(T.toBlueprintsDoc(raw)), { items: [1030000001], structures: [1046664001931] });
   eq('    a place named once (or found to have no name) isn\'t asked again', T.placesToName(T.toBlueprintsDoc(raw, { 1030000001: '', 1046664001931: '' })), { items: [], structures: [] });
   eq('  sanitized: absent is not read; a row that isn\'t one is dropped; an empty list is read', [T.sanitizeBlueprints(undefined), T.sanitizeBlueprints({ list: [[1, 2, 3, 'Hangar', -1, -1, 0, 0], ['x'], [5, 6, 7, 'Hangar', -1, -1, 99, 0]] }), T.sanitizeBlueprints({ list: [] }), T.sanitizeBlueprints('x')],
@@ -348,6 +385,8 @@ console.log('\n--- Industry stage 2: a new record kind and document sync like th
   const { emptyData } = await import('../src/lib/emptyData.ts');
   const p = C.applyPulled({ ...emptyData(), jobs: { 501: mine } }, { records: [{ k: 'jobs', i: '501', d: down }], docs: [] });
   eq('  a job that comes down without its first-sight fields keeps this browser\'s (mergeJob)', [p.jobs[501].first, p.jobs[501].status, p.jobs[501].seenAt], [first, 'ready', '2026-10-11T10:20:00Z']);
+  const q = C.applyPulled({ ...emptyData(), jobs: { 501: down } }, { records: [{ k: 'jobs', i: '501', d: mine }], docs: [] });
+  eq('  and the other way: a browser holding only its late record takes the cloud\'s first-sight fields when they come down', [q.jobs[501].first, q.jobs[501].status, q.jobs[501].seenAt], [first, 'ready', '2026-10-11T10:20:00Z']);
   eq('  an empty ledger: no jobs, blueprints not read', [emptyData().jobs, 'blueprints' in emptyData()], [{}, false]);
 }
 
@@ -424,8 +463,8 @@ import { eivOf, type Activity, type IndustryIndex } from './industry';
 
 /**
  * ESI's /characters/{id}/industry/jobs/ row: OpenAPI at 2026-08-18 (`.playwright-mcp/research/rd-agents/openapi.json`). The
- * required fields as ESI requires them, the rest optional. The Worker reads at 2025-08-26 (worker/src/eve.ts): the first real
- * read by each is the check (docs/notes/industry.md).
+ * required fields as ESI requires them, the rest optional. The Worker reads at 2025-08-26 (worker/src/eve.ts), whose schema
+ * for this route is identical; the first real read is the check of the data (docs/notes/industry.md).
  */
 export type RawJob = {
   job_id: number; installer_id: number; facility_id: number; station_id: number; activity_id: number;
@@ -454,7 +493,11 @@ export const SCIENCE_ACTIVITIES: ReadonlySet<number> = new Set([3, 4, 5, 7, 8]);
  * for its item ID, the system it ran in, that system's index for its activity, and the EIV a run at that hour's adjusted
  * prices. Each is null when not known: never 0.
  */
-export type FirstSight = { me: number | null; te: number | null; systemId: number | null; index: number | null; eiv: number | null };
+export type FirstSight = {
+  me: number | null; te: number | null; systemId: number | null; index: number | null; eiv: number | null;
+  /** When it was taken (correction 21): a record's earliest `seenAt` may be a sighting of the job paused, hours before. */
+  at?: string;
+};
 
 /** A job as kept: ESI's fields, units a manufacturing run makes (industryEiv.json `out`), when it was first seen, and its first sight. */
 export type JobRecord = {
@@ -488,7 +531,7 @@ function shape(x: JobRecord): JobRecord {
     runs: x.runs, licensedRuns: x.licensedRuns, successfulRuns: x.successfulRuns, probability: x.probability, cost: x.cost,
     facilityId: x.facilityId, stationId: x.stationId, outputId: x.outputId, start: x.start, end: x.end, completed: x.completed, status: x.status,
     perRun: x.perRun, seenAt: x.seenAt,
-    ...(f ? { first: { me: f.me, te: f.te, systemId: f.systemId, index: f.index, eiv: f.eiv } } : {}),
+    ...(f ? { first: { me: f.me, te: f.te, systemId: f.systemId, index: f.index, eiv: f.eiv, ...(f.at ? { at: f.at } : {}) } } : {}),
   };
 }
 
@@ -531,6 +574,7 @@ export function firstSight(j: JobRecord, o: SightInputs): FirstSight | undefined
     me: o.bp?.me ?? null, te: o.bp?.te ?? null, systemId: o.systemId,
     index: act && sys ? sys[act] : null,
     eiv: mats && o.adjusted ? eivOf(mats, o.adjusted) : null,
+    at: j.seenAt,
   };
 }
 
@@ -588,8 +632,11 @@ export function readJobs(raw: readonly RawJob[], stored: Readonly<Record<string,
 /** Units a job made: runs × units a run, for manufacturing; null when it isn't manufacturing or units a run aren't known. */
 export const jobUnits = (j: JobRecord): number | null => (j.activity === 1 && j.perRun != null ? (j.successfulRuns ?? j.runs) * j.perRun : null);
 
-/** Whether a job can be checked against what EVE charged (jobCheck): first seen running, within FIRST_SIGHT_MS of its start. */
-export const checkable = (j: JobRecord): boolean => !!j.first && Date.parse(j.seenAt) - Date.parse(j.start) <= FIRST_SIGHT_MS;
+/**
+ * Whether a job can be checked against what EVE charged (jobCheck): first seen running within FIRST_SIGHT_MS of its start,
+ * judged by when its first sight was taken (`first.at`; a record from before it was kept falls back to `seenAt`).
+ */
+export const checkable = (j: JobRecord): boolean => !!j.first && Date.parse(j.first.at ?? j.seenAt) - Date.parse(j.start) <= FIRST_SIGHT_MS;
 
 // --- Blueprints ------------------------------------------------------------------------------------------------------
 
@@ -647,6 +694,13 @@ export function bpAt(doc: BlueprintsDoc | undefined, itemId: number): { me: numb
   const r = doc?.list.find((x) => x[0] === itemId);
   return r ? { me: r[6], te: r[7] } : null;
 }
+
+/**
+ * A job's blueprint by its item ID for first sight (correction 20): in the read just taken, else in the doc held before it.
+ * Whether ESI lists a blueprint while it's installed in a job isn't known; "as last read" is the spec's rule.
+ */
+export const bpFrom = (fresh: BlueprintsDoc | undefined | null, held: BlueprintsDoc | undefined | null) => (itemId: number): { me: number; te: number } | null =>
+  bpAt(fresh ?? undefined, itemId) ?? bpAt(held ?? undefined, itemId);
 
 /** The places the document doesn't name yet: containers and ships (by /assets/names), and structures (by /universe/structures). Stations are named by anyone. */
 export function placesToName(doc: BlueprintsDoc): { items: number[]; structures: number[] } {
@@ -710,7 +764,10 @@ In `src/lib/types.ts`, in `Meta` after `research?: …`:
 ```ts
   /** When your blueprints were last read (the `blueprints` doc: the main's, by the sync). An alt's read time is its `sheet` job's. */
   blueprintsAt?: string;
-  /** An alt's jobs have been read at least once (the cloud's sheet): a read with no jobs writes no record, so absent is not read. */
+  /**
+   * Jobs have been read at least once by a stage-2 read (the main's by its sync, an alt's by the cloud's sheet): a read with
+   * no jobs writes no record, so absent is not read. `industry` isn't a jobs read: every ledger from before had one.
+   */
   jobsRead?: true;
 ```
 
@@ -737,6 +794,9 @@ In `src/lib/altLedger.ts`: import `sanitizeBlueprints` from `'./industryTrack'`,
 `mining: rec('mining'), jobs: rec('jobs'),` and after `stock: …`:
 `blueprints: saved.docs.blueprints === undefined ? undefined : sanitizeBlueprints(saved.docs.blueprints),`.
 
+In `src/components/Settings.tsx`, `KIND_SAID` gains `jobs: ['industry job', 'industry jobs'],` (Your data lists what the
+cloud holds by kind; without it a ledger reads "1 jobs", beside the cloud's own jobs).
+
 In `src/components/Todo.tsx`: delete the local `ACTIVITY` constant and its comment; import `ACTIVITY_SAID` from
 `'../lib/industryTrack'`; `ACTIVITY[j.activity]` becomes `ACTIVITY_SAID[j.activity]`.
 
@@ -748,7 +808,7 @@ Create `src/lib/industryReads.ts`:
 import type { RawBlueprint } from './blueprints';
 import { esi, esiAllPages } from './esi';
 import { adjustedPricesShared, industrySystemsShared } from './market';
-import { bpAt, isStationId, isStructureId, newJobs, placesToName, readJobs, toBlueprintsDoc, type BlueprintsDoc, type JobRecord, type RawJob } from './industryTrack';
+import { bpFrom, isStationId, isStructureId, newJobs, placesToName, readJobs, toBlueprintsDoc, type BlueprintsDoc, type JobRecord, type RawJob } from './industryTrack';
 import { station, structureInfo } from './universe';
 
 /**
@@ -799,7 +859,7 @@ export async function readBlueprintsNow(cid: number, prev: BlueprintsDoc | undef
  * job needs is read only when one turns up: industryEiv.json (units a run, ME 0 materials), and for one running, ESI's
  * indices, CCP's adjusted prices and its station's system. A lookup that fails leaves that field not known, never 0.
  */
-export async function readJobsNow(cid: number, stored: Record<string, JobRecord>, bps: BlueprintsDoc | undefined): Promise<{ raw: RawJob[]; changed: JobRecord[] }> {
+export async function readJobsNow(cid: number, stored: Record<string, JobRecord>, bps: BlueprintsDoc | undefined, heldBps: BlueprintsDoc | undefined): Promise<{ raw: RawJob[]; changed: JobRecord[] }> {
   const { data: raw } = await esi<RawJob[]>(`/characters/${cid}/industry/jobs/`, { auth: true, query: { include_completed: 'true' } });
   const fresh = newJobs(raw, stored);
   const eiv = fresh.length ? await loadEiv().catch(() => null) : null;
@@ -813,7 +873,7 @@ export async function readJobsNow(cid: number, stored: Record<string, JobRecord>
     else if (isStructureId(id)) { const s = await structureInfo(id).catch(() => null); systems.set(id, s?.status === 'found' ? s.systemId : null); }
   }
   const changed = readJobs(raw, stored, {
-    seenAt: new Date().toISOString(), perRun: (bp) => eiv?.out[String(bp)]?.[1] ?? null, bp: (item) => bpAt(bps, item),
+    seenAt: new Date().toISOString(), perRun: (bp) => eiv?.out[String(bp)]?.[1] ?? null, bp: bpFrom(bps, heldBps),
     systemOf: (id) => systems.get(id) ?? null, indices, adjusted, eiv: eiv?.eiv ?? null,
   });
   return { raw, changed };
@@ -844,8 +904,10 @@ In `src/lib/sync.ts`:
     if (hasScope(SCOPE.industry)) {
       setState({ message: 'Reading your industry jobs…' });
       try {
-        const r = await readJobsNow(cid, d.jobs, bpsNow);
+        // The blueprints read just now, else the doc held before it (correction 20): a blueprint in a job may not be listed.
+        const r = await readJobsNow(cid, d.jobs, bpsNow, d.blueprints);
         fetched.jobs = r.changed;
+        metaPatch.jobsRead = true;
         const waiting = r.raw.filter((j: RawJob) => j.status === 'active' || j.status === 'ready' || j.status === 'paused').map((j) => ({
           jobId: j.job_id, activity: j.activity_id, blueprintTypeId: j.blueprint_type_id, productTypeId: j.product_type_id ?? null, runs: j.runs,
           end: j.end_date, status: j.status, stationId: j.station_id ?? j.facility_id,
@@ -884,8 +946,11 @@ Plant, run, see it fail, undo:
 - `firstSight`: drop `if (j.status !== 'active') return undefined;`: "a job first seen after it ended has none" fails.
 - `eivBlueprintOf`: return `j.blueprintTypeId` always: "invention's EIV is the Tech II blueprint's" fails.
 - `readJobs`: sight held jobs too (`if (!held)` → `if (true)`): "a held job isn't sighted again" fails.
-- `FIRST_SIGHT_MS = 60 * 60_000`: "checked only when first seen within 90 minutes" fails.
-- `applyPulled`: back to `next[i] = d`: "a job that comes down without its first-sight fields" fails.
+- `FIRST_SIGHT_MS = 60 * 60_000`: "checked only when first seen running within 90 minutes" fails.
+- `checkable`: judge by `j.seenAt`: "a first sight taken later than the first seeing is judged by its own time" fails.
+- `bpFrom`: drop `?? bpAt(held …)`: "first sight looks in the fresh read, then in the doc held before it" fails.
+- `applyPulled`: back to `next[i] = d`: "a job that comes down without its first-sight fields" fails (the other direction
+  passes either way: a record with them replacing one without; the Worker's half is Task 9B's).
 - `refusedKind`: drop `isRecordKey(m[1]) &&` (`return m ? m[1] : null`): "a refused kind is named; anything else isn't" fails.
 
 - [ ] **Step 8: The rule and the note**
@@ -904,7 +969,9 @@ its evidence, the note's style):
   (correction 5 and why), the pull merging in `applyPulled` (correction 6).
 - **Units a run** (`industryEiv.json` `out`, correction 1), with the size the script printed.
 - **One read of the main's jobs** feeds `meta.industry` and the records (correction 2); what marks jobs read
-  (`meta.industry`, an alt's `meta.jobsRead`, correction 3).
+  (`meta.jobsRead`, written by the main's sync and an alt's sheet; never a stage-1 `meta.industry`, correction 3).
+- **First sight's blueprint and time**: the fresh read, else the doc held before it (`bpFrom`, correction 20); the sighting's
+  own time in `first.at`, which `checkable` judges by (correction 21).
 - **The blueprints document's `names`** (correction 4).
 - **A new record kind and a Worker a version behind** (`refusedKind`): as `refusedDoc`, and the chunk loop now carries on
   past a chunk that was all a refused kind.
@@ -936,15 +1003,16 @@ In `scripts/pages.mjs`, above `// --- the end of the industry case`, add:
         facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: iso(now - 7200_000), end: iso(now + 3600_000), completed: null, status: 'active', perRun: 1, seenAt: iso(now - 7000_000) };
       await page.goto(SEED_PAGE);
       await seed({ ...ledger, jobs: { 9001: job }, names: { 34: 'Tritanium' }, cloud: { ...CLOUD_STATE, dirty: { r: ['jobs|9001', 'names|34'], d: ['industry'] } } }, { alts: altStore });
+      // From the seed page, a full load: the sync starts on the seeded unsent list. Wait on the condition, never a clock
+      // (pre-flight M13): the saved unsent list (`cloud`, written 500 ms after a push) has let go of what went up.
       await page.goto(`${BASE}#hustles/industry/start`);
-      await page.reload(); // a fresh start, so the sync loads the seeded unsent list (as the ladder block reloads)
-      for (let i = 0; i < 40 && !pushes.some((b) => !(b.records ?? []).some((r) => r.k === 'jobs')); i++) await page.waitForTimeout(250);
-      await page.waitForTimeout(1200); // the unsent list is saved 500 ms after a push
+      const cloudState = () => page.evaluate(() => new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('cloud'); g.onsuccess = () => res(g.result); }; }));
+      let state = await cloudState();
+      for (let i = 0; i < 80 && (state?.dirty?.r ?? ['names|34']).includes('names|34'); i++) { await page.waitForTimeout(250); state = await cloudState(); }
       const sent = pushes.find((b) => !(b.records ?? []).some((r) => r.k === 'jobs'));
       if (!pushes.some((b) => (b.records ?? []).some((r) => r.k === 'jobs'))) problems.push('the push with a job never went up');
       if (!sent || !(sent.records ?? []).some((r) => r.k === 'names' && r.i === '34') || !(sent.docs ?? []).some((x) => x.key === 'industry'))
         problems.push(`with the jobs kind refused, the rest of the push didn’t go up: ${JSON.stringify(pushes).slice(0, 300)}`);
-      const state = await page.evaluate(() => new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('cloud'); g.onsuccess = () => res(g.result); }; }));
       if (!state?.dirty?.r?.includes('jobs|9001') || state.dirty.r.includes('names|34')) problems.push(`the refused job isn’t kept waiting (or what went up is): ${JSON.stringify(state?.dirty)}`);
       CLOUD['/v1/push'] = prevPush; CLOUD['/v1/pull'] = prevPull;
     }
@@ -960,7 +1028,7 @@ main logged in for real is not possible here, so the look is the page case's own
 - [ ] **Step 11: Commit**
 
 ```bash
-git add scripts/industry-bundle.mjs src/data/industryEiv.json src/lib/industryTrack.ts src/lib/industryReads.ts src/lib/cloudSync.ts src/lib/cloud.ts src/lib/store.ts src/lib/emptyData.ts src/lib/types.ts src/lib/sync.ts src/lib/altLedger.ts src/components/Todo.tsx worker/src/sync.ts scripts/check.mjs scripts/check-worker.mjs scripts/pages.mjs .claude/rules/industry.md docs/notes/industry.md docs/notes/cloud.md
+git add scripts/industry-bundle.mjs src/data/industryEiv.json src/lib/industryTrack.ts src/lib/industryReads.ts src/lib/cloudSync.ts src/lib/cloud.ts src/lib/store.ts src/lib/emptyData.ts src/lib/types.ts src/lib/sync.ts src/lib/altLedger.ts src/components/Todo.tsx src/components/Settings.tsx worker/src/sync.ts scripts/check.mjs scripts/check-worker.mjs scripts/pages.mjs .claude/rules/industry.md docs/notes/industry.md docs/notes/cloud.md
 git commit -m "$(cat <<'EOF'
 Industry stage 2: jobs kept as records, blueprints as a document, the main's read in the browser
 
@@ -987,20 +1055,23 @@ EOF
 - Create: `worker/src/industryJobs.ts`
 - Modify: `worker/src/sync.ts` (`RECORD_KINDS` `'jobs'`, merged on push), `worker/src/archive.ts` (the main's jobs;
   `storedRecords` exported), `worker/src/sheet.ts` (an alt's blueprints and jobs), `scripts/check-worker.mjs`,
-  `CLAUDE.md` (the Worker's imported rules), `.claude/rules/industry.md`, `docs/notes/industry.md`,
-  `docs/notes/characters-cloud.md`
+  `scripts/pages.mjs` (the browser's half of correction 19), `CLAUDE.md` (the Worker's imported rules),
+  `.claude/rules/industry.md`, `docs/notes/industry.md`, `docs/notes/cloud.md`, `docs/notes/characters-cloud.md`
 
 **Interfaces:**
-- Consumes: from Task 9A, `mergeJob`, `readJobs`, `newJobs`, `toBlueprintsDoc`, `placesToName`, `bpAt`,
+- Consumes: from Task 9A, `mergeJob`, `readJobs`, `newJobs`, `toBlueprintsDoc`, `placesToName`, `bpAt`, `bpFrom`,
   `sanitizeBlueprints`, `isStationId`, `isStructureId`, `type JobRecord`, `type RawJob`, `type BlueprintsDoc`
   (`src/lib/industryTrack.ts`); `industryEiv.json`'s `out`; `parseIndices` (`src/lib/industry.ts`); `esiGet`, `esiAll`,
   `esiPost`, `EveError` (`worker/src/eve.ts`).
 - Produces:
   - `worker/src/industryJobs.ts`: `SCOPE_JOBS`, `SCOPE_BLUEPRINTS`, `readJobsFor(char, token, o): Promise<JobRecord[]>`
-    (`o: { bps: BlueprintsDoc | null; stored: (ids: string[]) => Promise<Map<string, JobRecord>>; now?: number }`),
+    (`o: { bps: BlueprintsDoc | null; held?: BlueprintsDoc | null; stored: (ids: string[]) => Promise<Map<string, JobRecord>>; now?: number }`;
+    `held`: the doc before this read, correction 20),
     `readBlueprintsFor(char, token, scopes, prev): Promise<BlueprintsDoc>`.
   - `worker/src/archive.ts`: `storedRecords` exported; `ArchiveResult.jobs?: number`.
   - D1: an alt's `blueprints` doc and `jobs` records under the alt; its meta doc's `jobsRead: true` once its jobs were read.
+  - `push` (worker/src/sync.ts): a `jobs` row the merge changed from what was pushed is written at a revision of its own,
+    after the push's; the push reports its own (correction 19).
 
 **Ship-safety.** A browser a version behind never sends `jobs` (it doesn't know the kind) and ignores one that comes down
 (`isRecordKey`); the Worker accepting `jobs` changes nothing for it. The Worker imports `industryEiv.json` (its second JSON
@@ -1015,7 +1086,7 @@ Add to `scripts/check-worker.mjs`, before its final `console.log(failed ? …)`:
 console.log('\n--- Industry stage 2: jobs and blueprints in the cloud (Task 9B) ---');
 {
   const FXI = JSON.parse(fs.readFileSync(new URL('./fixtures/industry-everef.json', import.meta.url), 'utf8'));
-  const { push } = await import('../worker/src/sync.ts');
+  const { push, pull } = await import('../worker/src/sync.ts');
   const { archive } = await import('../worker/src/archive.ts');
   const { readAlt } = await import('../worker/src/alts.ts');
   const { altReader, ledgerReader } = await import('../worker/src/eve.ts');
@@ -1047,10 +1118,16 @@ console.log('\n--- Industry stage 2: jobs and blueprints in the cloud (Task 9B) 
     await push(db, MAIN, { records: [{ k: 'jobs', i: '801', d: seen }], docs: [] });
     const late = { ...seen, status: 'delivered', completed: END, seenAt: END };
     delete late.first;
-    await push(db, MAIN, { records: [{ k: 'jobs', i: '801', d: late }], docs: [] });
+    const p2 = await push(db, MAIN, { records: [{ k: 'jobs', i: '801', d: late }], docs: [] });
     const got = jobOf(db, MAIN, 801);
     eq('  a jobs record is taken now, and one pushed without first-sight fields is merged onto D1\'s, never over it',
       [got.first, got.seenAt, got.status, got.completed], [first, START, 'delivered', END]);
+    // The pushing browser skips its push's revision when it pulls (ownRevs), so what the merge added has to come at another.
+    const pulled = async () => (await pull(db, MAIN, 0, null)).records.find((r) => r.k === 'jobs' && r.i === '801');
+    const row2 = await pulled();
+    eq('    written at a revision of its own after the push\'s, so the browser that pushed it pulls the merged job', [row2.r > p2.rev, row2.d.first], [true, first]);
+    const p3 = await push(db, MAIN, { records: [{ k: 'jobs', i: '801', d: got }], docs: [] });
+    eq('    a job pushed as D1 holds it is written at the push\'s own revision (no revision spent)', (await pulled()).r, p3.rev);
   }
 
   // The main's jobs, read by the hourly archive: first sight from the blueprints doc its browser keeps.
@@ -1102,6 +1179,18 @@ console.log('\n--- Industry stage 2: jobs and blueprints in the cloud (Task 9B) 
     await readAlt(env, altReader(MAIN, ALT));
     f.restore();
     eq('  a jobs read that fails leaves what was held, and the sheet still counts as read', [jobOf(db, ALT, 801)?.first?.me, db.rows(`SELECT fails FROM jobs WHERE char_id = ? AND job = 'sheet'`, ALT)[0].fails], [10, 0]);
+  }
+
+  // A running job's blueprint may be missing from the read just taken: the doc held before stands in (correction 20).
+  {
+    const { db, env } = await ledgerWithAlt();
+    db.run('DELETE FROM keys WHERE purpose = ?', `alt:${ALT}`);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', IND);
+    await push(db, ALT, { records: [], docs: [{ key: 'blueprints', d: { list: [[7001, 25895, 1030000001, 'Hangar', -1, -1, 10, 20]] } }] });
+    const f = stubFetch([...industryRoutes(ALT, { blueprints: [] }), ...esiFor(ALT)]);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  an alt\'s job whose blueprint this read doesn\'t list is sighted with the ME held before it', jobOf(db, ALT, 801)?.first?.me, 10);
   }
 
   // A login handed over without the permissions: nothing asked, nothing written, no mark.
@@ -1163,18 +1252,50 @@ and in `push`, replace from `const rows: { k: string; i: string; d: string | nul
   for (const doc of docs) if (!DOC_KEYS.has(doc.key)) throw new BadRequest(`Unknown document: ${doc.key}`);
   const jobIds = records.filter((r) => r.k === 'jobs' && r.d != null && typeof r.i === 'string').map((r) => r.i);
   const heldJobs = jobIds.length ? await storedOf(db, charId, 'jobs', jobIds) : new Map<string, unknown>();
-  const rows: { k: string; i: string; d: string | null }[] = [];
+  // `later`: jobs the merge changed from what was pushed (correction 19), written at a revision of their own below.
+  const rows: { k: string; i: string; d: string | null }[] = [], later: typeof rows = [];
   for (const r of records) {
     if (typeof r.i !== 'string' || !r.i || r.i.length > 200) throw new BadRequest('A record needs an ID');
     const value = r.k === 'jobs' && r.d != null ? mergeJob(heldJobs.get(r.i) as JobRecord | undefined, r.d as JobRecord) : r.d;
     const d = value == null ? null : JSON.stringify(value);
     if (d && d.length > MAX_RECORD_BYTES) throw new BadRequest(`A ${r.k} record is too large (${d.length} bytes)`);
-    rows.push({ k: r.k, i: r.i, d });
+    (r.k === 'jobs' && r.d != null && d !== JSON.stringify(r.d) ? later : rows).push({ k: r.k, i: r.i, d });
   }
 ```
 
 (both refusals now run before any read, so a refused push reads nothing; the messages are unchanged, which
-`refusedDoc` and `refusedKind` match).
+`refusedDoc` and `refusedKind` match). Then the statements: replace from `let chunk: typeof rows = [], size = 0;` through
+`return { rev, records: rows.length, docs: docs.length };` with
+
+```ts
+  let chunk: typeof rows = [], size = 0;
+  const flush = () => { if (chunk.length) stmts.push(upsert.bind(charId, now, JSON.stringify(chunk))); chunk = []; size = 0; };
+  const queue = (list: typeof rows) => {
+    for (const r of list) {
+      const n = (r.d?.length ?? 4) + r.i.length + 40;
+      if (size + n > CHUNK_BYTES) flush();
+      chunk.push(r); size += n;
+    }
+    flush();
+  };
+  queue(rows);
+  const setDoc = db.prepare(`
+    INSERT INTO docs (char_id, key, data, rev, updated_at) VALUES (?1, ?2, ?3, ${REV}, ?4)
+    ON CONFLICT(char_id, key) DO UPDATE SET data = excluded.data, rev = excluded.rev, updated_at = excluded.updated_at`);
+  for (const doc of docs) stmts.push(setDoc.bind(charId, doc.key, JSON.stringify(doc.d ?? null), now));
+  const read = stmts.length;
+  stmts.push(db.prepare('SELECT rev FROM revs WHERE char_id = ?1').bind(charId));
+  // A job the merge changed from what was pushed (D1 held first-sight fields the pushed record lacked) goes at a revision of
+  // its own, after the push's: the browser that pushed skips its own revision when it pulls (ownRevs), and every browser,
+  // one built before this too, pulls this one (correction 19). Same transaction; the push reports its own revision.
+  if (later.length) {
+    stmts.push(db.prepare('UPDATE revs SET rev = rev + 1 WHERE char_id = ?1').bind(charId));
+    queue(later);
+  }
+  const results = await db.batch<{ rev: number }>(stmts);
+  const rev = results[read].results[0].rev;
+  return { rev, records: rows.length + later.length, docs: docs.length };
+```
 
 - [ ] **Step 4: `worker/src/industryJobs.ts`**
 
@@ -1189,7 +1310,7 @@ Create it:
 import EIV from '../../src/data/industryEiv.json' with { type: 'json' };
 import type { RawBlueprint } from '../../src/lib/blueprints';
 import { parseIndices, type IndustryIndex } from '../../src/lib/industry';
-import { bpAt, isStationId, isStructureId, newJobs, placesToName, readJobs, toBlueprintsDoc, type BlueprintsDoc, type JobRecord, type RawJob } from '../../src/lib/industryTrack';
+import { bpFrom, isStationId, isStructureId, newJobs, placesToName, readJobs, toBlueprintsDoc, type BlueprintsDoc, type JobRecord, type RawJob } from '../../src/lib/industryTrack';
 import { esiAll, esiGet, esiPost, EveError } from './eve';
 
 export const SCOPE_JOBS = 'esi-industry.read_character_jobs.v1';
@@ -1210,7 +1331,7 @@ async function adjustedPrices(): Promise<Record<number, number>> {
  * table for every row; what a job not held yet needs to be sighted (the indices, the prices, its station's system) is read
  * only when one turns up running. A lookup that fails leaves that field not known. The records that changed.
  */
-export async function readJobsFor(char: number, token: string, o: { bps: BlueprintsDoc | null; stored: (ids: string[]) => Promise<Map<string, JobRecord>>; now?: number }): Promise<JobRecord[]> {
+export async function readJobsFor(char: number, token: string, o: { bps: BlueprintsDoc | null; held?: BlueprintsDoc | null; stored: (ids: string[]) => Promise<Map<string, JobRecord>>; now?: number }): Promise<JobRecord[]> {
   const { data: raw } = await esiGet<RawJob[]>(`/characters/${char}/industry/jobs/`, { token, query: { include_completed: 'true' } });
   const held = Object.fromEntries(await o.stored(raw.filter((r) => Number.isInteger(r?.job_id)).map((r) => String(r.job_id))));
   const running = newJobs(raw, held).filter((r) => r.status === 'active');
@@ -1227,7 +1348,7 @@ export async function readJobsFor(char: number, token: string, o: { bps: Bluepri
     }
   }
   return readJobs(raw, held, {
-    seenAt: new Date(o.now ?? Date.now()).toISOString(), perRun: (bp) => E.out[String(bp)]?.[1] ?? null, bp: (item) => bpAt(o.bps ?? undefined, item),
+    seenAt: new Date(o.now ?? Date.now()).toISOString(), perRun: (bp) => E.out[String(bp)]?.[1] ?? null, bp: bpFrom(o.bps, o.held),
     systemOf: (id) => systems.get(id) ?? null, indices, adjusted, eiv: E.eiv,
   });
 }
@@ -1293,7 +1414,9 @@ In `worker/src/sheet.ts`:
   // Its blueprints (the `blueprints` doc, the main's shape) and its industry jobs (records), each only with its permission.
   // No read time in either: its read time is this job's lastOk, for the tab and To do alike. A read with no jobs writes no
   // record, so `jobsRead` marks that one happened (absent: "Not read yet", never "No jobs"). A failed read leaves what's held.
-  let bps = sanitizeBlueprints(await doc(db, char, 'blueprints')) ?? null;
+  // The doc held before this read stands in for a blueprint the read doesn't list (one in a job, correction 20).
+  const heldBps = sanitizeBlueprints(await doc(db, char, 'blueprints')) ?? null;
+  let bps = heldBps;
   if (login.scopes.includes(SCOPE_BLUEPRINTS)) {
     try {
       const next = await readBlueprintsFor(char, token, login.scopes, bps);
@@ -1303,7 +1426,7 @@ In `worker/src/sheet.ts`:
   }
   if (login.scopes.includes(SCOPE_JOBS)) {
     try {
-      const changed = await readJobsFor(char, token, { bps, stored: (ids) => storedRecords<JobRecord>(db, char, 'jobs', ids), now });
+      const changed = await readJobsFor(char, token, { bps, held: heldBps, stored: (ids) => storedRecords<JobRecord>(db, char, 'jobs', ids), now });
       for (const j of changed) records.push({ k: 'jobs', i: String(j.jobId), d: j });
       meta.jobsRead = true;
     } catch { /* kept as it was */ }
@@ -1321,13 +1444,50 @@ Expected: no `FAIL` (the module-load test now loads `industryJobs.ts` with its J
 
 Plant, run, see it fail, undo:
 - `push`: write `r.d` for jobs as before (no merge): "merged onto D1's, never over it" fails.
+- `push`: write `later` with `rows` (`queue([...rows, ...later])`, no second revision): "written at a revision of its own
+  after the push's" fails.
+- `readJobsFor`: `bp: bpFrom(o.bps, null)`: "an alt's job whose blueprint this read doesn't list" fails.
 - `archive`: drop `!alt &&`: "read once, by the sheet" fails (2 reads).
 - `sheet`: `meta.jobsRead = true;` just above `if (login.scopes.includes(SCOPE_JOBS))`: "an alt whose login lacks them …
   no jobsRead" fails.
 - `sheet`: push the blueprints doc every read (drop the `JSON.stringify` compare): "read again unchanged: no new revision" fails.
 - `readBlueprintsFor`: use `toBlueprintsDoc(raw)` without `prev?.names` for the draft: "the container isn't named again" fails.
 
-- [ ] **Step 7: The notes**
+- [ ] **Step 7: The page case: a browser that pushed its late job first**
+
+The Worker's half is pinned in Step 1; this pins the browser's (Review Focus 2): with a stand-in cloud doing what
+`worker/src/sync.ts` now does (the push answers its own revision, the merged job comes down at a later one), the browser
+ends up holding `first`. In `scripts/pages.mjs`, above `// --- the end of the industry case`:
+
+```js
+    // --- Task 9B: a browser that pushes its late job before pulling ends up holding the cloud's first-sight fields
+    // (correction 19). The stand-in cloud answers the push at revision 5 and brings the merged job down at 6.
+    {
+      const prevPush = CLOUD['/v1/push'], prevPull = CLOUD['/v1/pull'];
+      const late = { jobId: 9002, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 10, licensedRuns: 40, successfulRuns: null, probability: null, cost: 1200000,
+        facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: iso(now - 7200_000), end: iso(now - 600_000), completed: null, status: 'ready', perRun: 1, seenAt: iso(now - 300_000) };
+      const first = { me: 10, te: 20, systemId: 30000142, index: 0.1651, eiv: 2424467.9, at: iso(now - 7000_000) };
+      let pushed = false;
+      CLOUD['/v1/push'] = (url, req, json) => { pushed = true; return json({ rev: 5, records: 1, docs: 0 }); };
+      CLOUD['/v1/pull'] = (url, req, json) => json(pushed
+        ? { rev: 6, records: [{ k: 'jobs', i: '9002', d: { ...late, seenAt: iso(now - 7000_000), first }, r: 6 }], docs: [], next: null }
+        : { rev: 4, records: [], docs: [], next: null });
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, jobs: { 9002: late }, cloud: { ...CLOUD_STATE, rev: 4, dirty: { r: ['jobs|9002'], d: [] } } }, { alts: altStore });
+      await page.goto(`${BASE}#hustles/industry/start`);
+      const held = () => page.evaluate(() => new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('jobs'); g.onsuccess = () => res(g.result); }; }));
+      let jobs = await held();
+      for (let i = 0; i < 80 && !jobs?.[9002]?.first; i++) { await page.waitForTimeout(250); jobs = await held(); }
+      const j2 = jobs?.[9002];
+      if (!j2?.first || j2.first.me !== 10 || j2.seenAt !== iso(now - 7000_000) || j2.status !== 'ready') problems.push(`a browser that pushed its late job first never took the cloud’s first-sight fields: ${JSON.stringify(j2 ?? null).slice(0, 300)}`);
+      CLOUD['/v1/push'] = prevPush; CLOUD['/v1/pull'] = prevPull;
+    }
+```
+
+Planted: in `cloud.ts`'s `pullNow`, skip pulled `jobs` rows (`page.records.filter((r) => r.k !== 'jobs' && …)`): this fails;
+undo.
+
+- [ ] **Step 8: The notes**
 
 - `CLAUDE.md`, "The Worker runs the app's own rules" list: add `industryTrack` (jobs, the blueprints doc) and `blueprints`
   (which it imports) after `homeMarket (values)`.
@@ -1338,20 +1498,25 @@ Plant, run, see it fail, undo:
   blueprints and jobs by the sheet (`:37`), `jobsRead`, names with the reader's own login, the push merging `jobs` and only
   `jobs`, what the tests pin (filed under the alt, the main untouched, nothing new pushes nothing, a failed read keeps
   what's held, no permission no mark, removed mid-read nothing back).
+- `docs/notes/cloud.md`, after the `refusedKind` bullet: "**A job the Worker merged comes back down** (correction 19 of
+  the Industry stage-2 plan): a `jobs` row whose merge changed it from what was pushed is written at a revision of its own,
+  after the push's, which the push doesn't report: the pushing browser skips its own revisions when it pulls, so only this
+  way does it get the first-sight fields another writer saw. A job pushed as D1 holds it costs no extra revision."
 - `docs/notes/characters-cloud.md`: after "**Alts are read hourly on a cron of their own**", add "Since Industry stage 2
   (11 October 2026) the sheet also reads an alt's blueprints (the `blueprints` doc) and industry jobs (`jobs` records,
   `meta.jobsRead`), each only with its permission; the archive reads only the main's jobs, so the `sheet` job's `lastOk`
   dates every one of an alt's industry reads."
 
-- [ ] **Step 8: The checks**
+- [ ] **Step 9: The checks**
 
 Run: `npm run check && npm run build && npm run check-pages && npm run check-income`
-Expected: all pass; `scripts/income-golden.json` unchanged. (No UI changed: `check-phone` and screenshots aren't needed.)
+Expected: all pass (`LEDGER=industry npm run check-pages` while iterating on Step 7's block); `scripts/income-golden.json`
+unchanged. (No UI changed: `check-phone` and screenshots aren't needed.)
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add worker/src/industryJobs.ts worker/src/sync.ts worker/src/archive.ts worker/src/sheet.ts scripts/check-worker.mjs CLAUDE.md .claude/rules/industry.md docs/notes/industry.md docs/notes/characters-cloud.md
+git add worker/src/industryJobs.ts worker/src/sync.ts worker/src/archive.ts worker/src/sheet.ts scripts/check-worker.mjs scripts/pages.mjs CLAUDE.md .claude/rules/industry.md docs/notes/industry.md docs/notes/cloud.md docs/notes/characters-cloud.md
 git commit -m "$(cat <<'EOF'
 Industry stage 2: the cloud keeps jobs and blueprints, merging every writer's job
 
@@ -1360,7 +1525,8 @@ a browser was open: a job installed and finished between visits was never sighte
 jobs (first sight from the blueprints doc its browser keeps), and each alt's hourly sheet reads its blueprints and jobs,
 filed under the alt, with the main's rows untouched (tested against real SQL). The Worker takes the `jobs` kind and merges
 each pushed job onto D1's record (mergeJob), so a browser that first saw a job after it ended can't drop what the cloud
-saw while it ran.
+saw while it ran; where the merge added something, the job is written at a revision of its own after the push's, so the
+browser that pushed (which skips its own revisions when it pulls) gets the first-sight fields too.
 
 An alt's read with no jobs writes no record, so its meta doc carries jobsRead once a read has happened: absent stays
 "Not read yet", never "No jobs".
@@ -1490,8 +1656,8 @@ Append to `src/lib/industryTrack.ts`:
 ```ts
 /**
  * Slots in use, from a character's jobs: running (active or paused, not past its end) and finished but not delivered
- * (ready, or active past its end). Whether EVE frees a slot before delivery isn't confirmed (EVE University's "Industry"
- * page doesn't say, 11 October 2026), so a finished job counts as in use: fewer free slots, never more (limits.md).
+ * (ready, or active past its end): a finished job holds its slot until it's delivered (forum reports; EVE University's
+ * "Industry" page doesn't say; checked in game after shipping, limits.md).
  * Manufacturing takes a factory slot, research, copying, invention and reverse engineering a science slot; reactions have
  * slots of their own, not modelled.
  */
@@ -1741,8 +1907,9 @@ In `src/components/hustles/industryChars.ts`:
 
 ```ts
       blueprints: blueprints ? { state: 'read', value: ownedOf(blueprints), at: timeOf(meta.blueprintsAt) } : hasScope(SCOPE.blueprints) ? { state: 'unread' } : { state: 'login' },
-      // Read once meta.industry is (every jobs read writes it) or a record came from the cloud's archive.
-      jobs: meta.industry || Object.keys(jobs).length ? { state: 'read', value: Object.values(jobs), at: timeOf(meta.industry?.at) } : hasScope(SCOPE.industry) ? { state: 'unread' } : { state: 'login' },
+      // Read once a stage-2 read has happened (meta.jobsRead, correction 3) or a record came from the cloud's archive. A
+      // stage-1 meta.industry isn't one: it listed only the jobs to deliver, and would read here as "0 in use".
+      jobs: meta.jobsRead || Object.keys(jobs).length ? { state: 'read', value: Object.values(jobs), at: timeOf(meta.industry?.at) } : hasScope(SCOPE.industry) ? { state: 'unread' } : { state: 'login' },
       places: blueprints?.names ?? {},
 ```
 
@@ -1835,7 +2002,12 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
   const fleetAll = fleetTotals(rows), fleet = fleetTotals(shownRows);
   // Every character's open orders come off the books, so a row worked out for one isn't selling into another's bid.
   const own = useMemo(() => chars.flatMap((c) => c.own), [chars]);
-  const f = useFinder(shown, ix, graph, { own });
+  // The finder's inputs from a character whose skills and fee are read: the shown one when they are, else the first that has
+  // them (pre-flight M11). Each row is then worked out at its own character's (charInput); one whose character's skills
+  // aren't read says so on the row.
+  const readOk = (c: IndustryChar) => !!finderSkills(c.pilot.skills, c.clone) && c.feeKnown;
+  const base = (readOk(shown) ? shown : chars.find(readOk)) ?? shown;
+  const f = useFinder(base, ix, graph, { own });
   const kinds = useMemo(() => blueprintKinds(picked.flatMap((c) => (c.blueprints.state === 'read' ? [{ charId: c.charId, name: c.name, owned: c.blueprints.value }] : []))), [picked]);
   const jobs = useMemo(() => picked.flatMap((c) => (c.jobs.state === 'read' ? c.jobs.value.map((j) => ({ c, j })) : [])), [picked]);
   const stationIds = useMemo(() => [...new Set([...kinds.flatMap((k) => k.where.map((w) => w[0])), ...jobs.map((x) => x.j.stationId)].filter(isStationId))], [kinds, jobs]);
@@ -1865,7 +2037,7 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
         <p style={{ margin: 0 }}>What your characters hold and have running.</p>
         <Points compact items={[
           { kind: 'info', icon: ScrollText, lead: 'Blueprints', text: 'as each character holds them, with what each builds at your build site.' },
-          { kind: 'info', icon: Factory, lead: 'Slots in use', text: 'count jobs running and ones finished but not delivered yet.' },
+          { kind: 'info', icon: Factory, lead: 'Slots in use', text: 'count jobs running and ones finished but not delivered: a finished job holds its slot until delivered.' },
           { kind: 'info', icon: FlaskConical, lead: 'Read', text: 'yours with each sync and hourly by the cloud; an alt’s hourly by the cloud.' },
         ]} />
       </div>
@@ -1881,7 +2053,7 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
         <table className="tbl compact rd-table ind-chars" data-industry="chars">
           <thead><tr>
             <Th left>Character</Th>
-            <Th className="rd-wide" tip={'Factory slots in use of the slots its skills give.\n\n• In use: jobs running, and ones finished but not delivered (whether EVE frees a slot before delivery isn’t confirmed, so they count).\n• Slots: 1, plus Mass Production and Advanced Mass Production.'}>Factory slots</Th>
+            <Th className="rd-wide" tip={'Factory slots in use of the slots its skills give.\n\n• In use: jobs running, and ones finished but not delivered: a finished job holds its slot until it’s delivered.\n• Slots: 1, plus Mass Production and Advanced Mass Production.'}>Factory slots</Th>
             <Th className="rd-wide" tip="Science slots (research, copying, invention) in use of the slots Laboratory Operation and Advanced Laboratory Operation give.">Science slots</Th>
             <Th className="rd-wide">Jobs ready</Th>
             <Th className="rd-wide">Originals</Th>
@@ -1938,7 +2110,6 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
 
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
         <span className="lbl">Blueprints</span>
-        <button type="button" className="link-btn" onClick={() => navigate('blueprints')}>Price for selling: the Blueprints page</button>
       </div>
       {f.waiting && <p className="note small" style={{ margin: 0 }} data-industry="owned-wait">{f.waiting.text}</p>}
       {kinds.length ? (
@@ -1967,6 +2138,11 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
                     <td className="l rd-main">
                       <span className="nm">{nameOf(ix, k.typeId)}</span>
                       <span className="sub">{kind}{all && many ? ` · ${k.name}` : ''}</span>
+                      {/* Each kind to the Blueprints page, which prices it (spec: "Price for selling"). That page reads your own
+                          blueprints only, so an alt's kinds have no link: its tip says so. */}
+                      {c.isMain
+                        ? <button type="button" className="link-btn" data-industry="price-for-selling" onClick={() => navigate(`blueprints?type=${k.typeId}`)}>Price for selling</button>
+                        : <span className="sub" data-tip={`The Blueprints page prices your own blueprints; ${c.name}’s are read by the cloud and aren’t priced there.`}>Price for selling: the Blueprints page prices yours only</span>}
                       <span className="rd-phone"><span>{units(k.count)} held · {where}</span><span>Builds: {builds}</span><span>{stepSaid}</span></span>
                     </td>
                     <td className="rd-wide">{units(k.count)}</td>
@@ -2048,9 +2224,9 @@ and `.ind-total td { border-top: 1px solid var(--line-3); }` (the phone block al
   from the doc (correction 4) and stations by ESI; the next research step at the lab; the filter's rule (Mining's)).
 - `docs/notes/characters.md`: in "What keeps an alt's rows out of the ledger", the Industry tab's sentence gains "and,
   since stage 2, each alt's blueprints and jobs (Blueprints & jobs)".
-- `docs/notes/limits.md`: add "**Slots in use count finished jobs not yet delivered**: whether EVE frees a slot before
-  delivery isn't confirmed (EVE University's "Industry" page doesn't say), so free slots may read one or two low until a
-  ready job is delivered. **An alt's blueprints and jobs are as of the cloud's last hourly read**, and where a blueprint
+- `docs/notes/limits.md`: add "**Slots in use count finished jobs not yet delivered**: players report a finished job holds
+  its slot until it's delivered (EVE University's "Industry" page doesn't say); if the game frees it sooner, in use reads
+  high by the ready jobs until they're delivered. **An alt's blueprints and jobs are as of the cloud's last hourly read**, and where a blueprint
   sits is named once per place (renaming a container in game shows on the next new place only)."
 
 - [ ] **Step 9: The page case**
@@ -2077,7 +2253,7 @@ In `scripts/pages.mjs`, above `// --- the end of the industry case`, add:
         [`alt:${STALE}`]: { rev: 3, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: { 3380: 2 }, meta: { attributes: ATTRS, jobsRead: true }, blueprints: { list: [[8101, 25895, 60003760, 'Hangar', -1, -1, 0, 0]] } } },
       };
       await page.goto(SEED_PAGE);
-      await seed({ ...ledger, jobs: mainJobs, blueprints: mainBps, meta: { ...ledger.meta, blueprintsAt: iso(now - 600_000), industry: { at: iso(now - 600_000), jobs: [], places: {} } }, industry: DOC, cloud: CLOUD_STATE },
+      await seed({ ...ledger, jobs: mainJobs, blueprints: mainBps, meta: { ...ledger.meta, blueprintsAt: iso(now - 600_000), jobsRead: true, industry: { at: iso(now - 600_000), jobs: [], places: {} } }, industry: DOC, cloud: CLOUD_STATE },
         { alts: altStore2, cache: { prospects: SCAN } });
       await page.goto(`${BASE}#hustles/industry/blueprints`);
       await page.waitForSelector('[data-industry="owned"]', { timeout: 30_000 }).catch(() => problems.push('Blueprints & jobs never drew'));
@@ -2095,17 +2271,36 @@ In `scripts/pages.mjs`, above `// --- the end of the industry case`, add:
       if (!bps.includes('ME 4 → 5:')) problems.push(`Builder Alt’s ME 4 original doesn’t give its next research step: “${bps.slice(0, 300)}”`);
       if (!(await text('[data-industry="jobs-running"]')).includes('Ready to deliver')) problems.push('the ready job doesn’t say so');
       if (!(await text('[data-industry="jobs-done"]')).includes('17.21 M')) problems.push('the finished job doesn’t say what EVE charged');
+      if ((await page.locator('[data-industry="bp-list"] [data-industry="price-for-selling"]').count()) !== 2) problems.push('the main’s two blueprint kinds don’t each link to the Blueprints page to price them');
       // The filter: Builder Alt alone, and Show for follows.
       await page.locator('[data-industry="char-filter"] button', { hasText: 'Builder Alt' }).click(); await page.waitForTimeout(600);
       const tilesB = await tiles('[data-industry="owned-tiles"]');
       if (tilesB.Originals?.[0] !== '1' || tilesB['Science slots']?.[0] !== '1 / 2') problems.push(`filtered to Builder Alt, the tiles aren’t its own: ${JSON.stringify(tilesB)}`);
       if (!(await page.locator('[aria-label="Show for"] button[aria-pressed="true"]', { hasText: 'Builder Alt' }).count())) problems.push('picking Builder Alt in the filter doesn’t move Show for');
       await page.locator('[data-industry="char-filter"] button', { hasText: 'All' }).click(); await page.waitForTimeout(400);
+      // Show for an alt whose skills aren't read: under All, the others' rows are still worked out (pre-flight M11).
+      await showFor('Lost Alt');
+      if ((await text('[data-industry="owned-wait"]')).includes('skills aren’t read')) problems.push('with Show for on an alt not read, every blueprint row waits on its skills');
+      await page.locator('[data-industry="char-filter"] button', { hasText: 'All' }).click(); await page.waitForTimeout(400);
       const fit = await sideways(page, '[data-industry="bp-list"]');
       if (!PHONE && fit && fit.over > 0) problems.push(`the blueprints table scrolls sideways at 1,440 (${fit.over} px)`);
       if (SHOTS) { await page.locator('[data-industry="owned"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-industry-owned.png`, fullPage: true }); }
+      // A ledger from before stage 2: meta.industry lists a running job, but no stage-2 read has happened (pre-flight M1).
+      // Its jobs read as not read, never "0 of 5 in use" or "Nothing running". (The stand-in login holds no permission, so
+      // "not read" is said as "log in again"; with the permission it would be "Not read yet: … the next sync".)
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, blueprints: mainBps, meta: { ...ledger.meta, blueprintsAt: iso(now - 600_000), industry: { at: iso(now - 600_000), places: {},
+        jobs: [{ jobId: 9101, activity: 1, blueprintTypeId: 25895, productTypeId: 25894, runs: 10, end: iso(now + 5 * 3600_000), status: 'active', stationId: 60003760 }] } }, industry: DOC, cloud: CLOUD_STATE },
+        { alts: altStore2, cache: { prospects: SCAN } });
+      await page.goto(`${BASE}#hustles/industry/blueprints`);
+      await page.waitForSelector('[data-industry="chars"]', { timeout: 30_000 }).catch(() => problems.push('Blueprints & jobs never drew on a stage-1 ledger'));
+      const old = await row(ownerAuth().characterId);
+      if (!old.includes('Log in again: this login wasn’t given EVE’s permission to read your industry jobs.') || old.includes('0 of 5 in use') || old.includes('in use not read') === false) problems.push(`a stage-1 meta.industry reads as a jobs read: “${old}”`);
     }
 ```
+
+Planted, each failing this block, then undone: `industryChars` back to `meta.industry ||` (the stage-1 ledger reads "0 of 5
+in use"); `useFinder(shown, …)` in IndustryOwned (Show for Lost Alt leaves every row waiting); the per-row link dropped.
 
 (`DOC` and `SCAN` are the finder block's; this block sits after them. `Seg` marks its pick with `aria-pressed`. Fix a figure only when the rule drawing it is right: the main's 5 and 4 slots are
 its Mass Production IV and Laboratory Operation III; its jobs 9101 running and 9102 ready make 2 factory slots in use.)
@@ -2201,7 +2396,8 @@ Expected: `rungDone` and `readsWhy` not functions.
 
 - [ ] **Step 3: `readsWhy` and `rungDone`**
 
-Append to `src/lib/industryOwned.ts` (and add `productKind` to its imports from `'./industryRank'` and
+Append to `src/lib/industryOwned.ts` (and import `productKind`, a value, from `'./industryRank'` in an import of its own
+beside the existing `import type { LabSite } from './industryRank'`, which a value can't join; and add
 `type RungKey` from `'./industryLadder'`):
 
 ```ts
@@ -2289,7 +2485,7 @@ In `src/components/hustles/IndustryStart.tsx`:
 - the Factory slots tile's `n` becomes
   `s ? `${used ? `${units(used.factory)} in use (running, or finished and not delivered) · ` : ''}one job each; ${MAX_SLOTS} at most: 1, plus Mass Production and Advanced Mass Production` : why`,
   and the Science slots tile's the same with `used.science`; both tips gain the bullet
-  `\n• In use: jobs running, and ones finished but not delivered: whether EVE frees a slot before delivery isn’t confirmed, so they count.`
+  `\n• In use: jobs running, and ones finished but not delivered: a finished job holds its slot until it’s delivered.`
 - in each rung, after the `count` line:
 
 ```tsx
@@ -2331,7 +2527,10 @@ In `scripts/pages.mjs`, the Tech II detail's expected phrase
 In `src/components/Blueprints.tsx`:
 - imports: `getData, update, useData` from `'../lib/store'` (replacing the `useData` import); `readBlueprintsNow` from
   `'../lib/industryReads'`; `ownedOf` from `'../lib/industryTrack'`; `useEffect` with `useMemo, useState` from `'react'`;
-  drop `readBlueprints, type RawBlueprint` and `esiAllPages` if nothing else uses them.
+  `useRoute` beside `navigate` from `'../lib/hooks'`. Drop what only the old reader used, or `npm run build` fails under
+  `noUnusedLocals` (pre-flight M4): `readBlueprints` and `type RawBlueprint` from the `'../lib/blueprints'` import, the whole
+  `import { esi, esiAllPages } from '../lib/esi';` line, and `structureInfo` from the `'../lib/universe'` import (keeping
+  `isStation, isStructure`); `setOwned` goes with the state it belonged to.
 - `const [owned, setOwned] = useState<OwnedBlueprint[] | null>(null);` becomes
   `const owned = useMemo(() => (d.blueprints ? ownedOf(d.blueprints) : null), [d.blueprints]);`
   and `places` holds stations' names only, read whenever the doc's stations change:
@@ -2369,6 +2568,23 @@ In `src/components/Blueprints.tsx`:
 
 - in `rows`, `places.get(b.locationId) ?? (…)` becomes `placeOf(b.locationId)` (and `places` stays in the memo's deps
   with `d.blueprints`).
+- **One kind, from the Industry tab's "Price for selling"** (the spec's link from each kind): `blueprints?type=<typeId>`
+  shows that blueprint alone, with a line to show every one:
+
+```ts
+  // Arriving from the Industry tab's "Price for selling" (`blueprints?type=TYPE`): that blueprint's kinds alone.
+  const onlyType = Number(useRoute().query.get('type')) || null;
+```
+
+  `shown`'s filter gains `(onlyType == null || r.kind.typeId === onlyType) &&`, and above the table:
+
+```tsx
+      {onlyType != null && (
+        <p className="note small" style={{ margin: 0 }} data-bp-only={onlyType}>
+          Showing {name(onlyType)} alone, from the Industry tab. <button type="button" className="link-btn" onClick={() => navigate('blueprints')}>Show every blueprint</button>
+        </p>
+      )}
+```
 - the Panel's `sub`: when `owned`, append `` ` · read ${ago(d.meta.blueprintsAt, now)}` `` (the stored read's time; the
   sync refreshes it); the Empty text stays "Press “Read my blueprints”…" for a doc not read yet.
 
@@ -2387,7 +2603,7 @@ In `scripts/pages.mjs`:
     // --- Task 10B: Start with the main's reads: slots in use, what it holds and ran, each rung's reads.
     {
       await page.goto(SEED_PAGE);
-      await seed({ ...ledger, jobs: mainJobs, blueprints: mainBps, meta: { ...ledger.meta, blueprintsAt: iso(now - 600_000), industry: { at: iso(now - 600_000), jobs: [], places: {} } }, industry: DOC, cloud: CLOUD_STATE },
+      await seed({ ...ledger, jobs: mainJobs, blueprints: mainBps, meta: { ...ledger.meta, blueprintsAt: iso(now - 600_000), jobsRead: true, industry: { at: iso(now - 600_000), jobs: [], places: {} } }, industry: DOC, cloud: CLOUD_STATE },
         { alts: altStore, cache: { prospects: SCAN } });
       await page.goto(`${BASE}#hustles/industry/start`);
       await page.reload();
@@ -2411,6 +2627,10 @@ In `scripts/pages.mjs`:
       if (!bp.includes('2 blueprints in 2 kinds') || !/read \d+ min ago/.test(bp)) problems.push(`the Blueprints page doesn’t show the stored read with its time: “${bp.slice(0, 300)}”`);
       if (!(await page.locator('table td', { hasText: 'Blueprints' }).count())) problems.push('the Blueprints page doesn’t name the container from the doc');
       if (asked) problems.push('the Blueprints page read ESI by itself');
+      // From the Industry tab's "Price for selling": one blueprint alone, and the way back to all of them.
+      await page.goto(`${BASE}#blueprints?type=25895`);
+      await page.waitForSelector('[data-bp-only="25895"]', { timeout: 10_000 }).catch(() => problems.push('the Blueprints page doesn’t take a blueprint from the Industry tab'));
+      if (!(await text('[data-bp-only="25895"]')).includes('Show every blueprint')) problems.push('showing one blueprint, the Blueprints page has no way back to all');
       delete ESI[BP_PATH];
     }
 ```
@@ -2463,7 +2683,7 @@ EOF
 ### Task 11: The job check and the measured facility tax (**Use this**)
 
 **Files:**
-- Modify: `src/lib/industryTrack.ts` (`JobPlace`, `jobPlace`, `CHECK_TOLERANCE`, `MAX_FACILITY_TAX`, `jobCostOf`,
+- Modify: `src/lib/industryTrack.ts` (`JobPlace`, `jobPlace`, `CHECK_TOLERANCE`, `MAX_FACILITY_TAX`, `jobCostFor`,
   `jobCheck`, `measuredTax`), `src/lib/industryOwned.ts` (`measuredBySite`), `src/components/hustles/IndustryOwned.tsx`
   (the finished jobs' Checked column), `src/components/hustles/IndustrySites.tsx` (the measured tax with **Use this**),
   `src/components/hustles/IndustryBuild.tsx` and `Industry.tsx` (`chars` passed down), `scripts/check.mjs`,
@@ -2476,7 +2696,7 @@ EOF
   `type IndustrySite` (prefs.ts, a type import); `type Read` (Task 10A).
 - Produces:
   - `src/lib/industryTrack.ts`: `type JobPlace = { kind: SiteKind; rigs: readonly number[]; band: SecBand; tax: number | null; siteId: string | null }`,
-    `jobPlace(job, sites, bandOf)`, `CHECK_TOLERANCE` (0.01), `MAX_FACILITY_TAX` (0.1), `jobCostOf(ix, job, place, clone)`,
+    `jobPlace(job, sites, bandOf)`, `CHECK_TOLERANCE` (0.01), `MAX_FACILITY_TAX` (0.1), `jobCostFor(ix, job, place, clone)`,
     `type JobCheck`, `jobCheck(ix, job, place, clone)`, `measuredTax(ix, job, place, clone)`.
   - `src/lib/industryOwned.ts`: `type Measured = { tax: number; at: string; who: string; isMain: boolean; jobId: number }`,
     `measuredBySite(ix, sites, chars, bandOf): Record<string, Measured | null>` (`chars: { name; isMain; clone; jobs: Read<JobRecord[]> }[]`).
@@ -2574,11 +2794,12 @@ const late = (job: JobRecord): string => {
 };
 
 /**
+ * (Named `jobCostFor`, not `jobCostOf`: that is industry.ts's rule on a base, which the cost functions below use.)
  * The cost the app works out for a job from what was kept at its first sight (the index and the EIV a run, its blueprint's
  * ME and TE for research) and where it ran: the rules of industry.ts, as the finder charges them. A reason instead when it
  * can't: not modelled, seen after it ended or too late, an input not kept, a structure that isn't your site.
  */
-export function jobCostOf(ix: Indexed, job: JobRecord, place: JobPlace | null, clone: Clone): { cost: JobCost } | { why: string } {
+export function jobCostFor(ix: Indexed, job: JobRecord, place: JobPlace | null, clone: Clone): { cost: JobCost } | { why: string } {
   const act = ACTIVITY_OF[job.activity];
   if (!act) return { why: `${ACTIVITY_SAID[job.activity] ?? 'This activity'} isn’t modelled` };
   const f = job.first;
@@ -2607,7 +2828,7 @@ export type JobCheck =
 /** A finished or running job's cost as EVE charged it (ESI's `cost`) against the app's; said when more than 1% apart. */
 export function jobCheck(ix: Indexed, job: JobRecord, place: JobPlace | null, clone: Clone): JobCheck {
   if (job.cost == null) return { state: 'unchecked', why: 'ESI gives no cost for it' };
-  const r = jobCostOf(ix, job, place, clone);
+  const r = jobCostFor(ix, job, place, clone);
   if ('why' in r) return { state: 'unchecked', why: r.why };
   if (r.cost.tax == null) return { state: 'unchecked', why: 'the facility tax there isn’t typed (what the job measures is offered on the site)' };
   if (r.cost.alpha == null) return { state: 'unchecked', why: 'the clone state isn’t read, so the Alpha tax may be in it' };
@@ -2629,7 +2850,7 @@ export function measuredTax(ix: Indexed, job: JobRecord, place: JobPlace | null,
   if (!place || place.kind === 'npc' || !place.siteId) return { why: 'only a job at one of your structure sites measures its tax' };
   if (clone === 'unknown') return { why: 'the clone state isn’t read, so the Alpha tax may be in its cost' };
   if (job.cost == null) return { why: 'ESI gives no cost for it' };
-  const r = jobCostOf(ix, job, { ...place, tax: 0 }, clone);
+  const r = jobCostFor(ix, job, { ...place, tax: 0 }, clone);
   if ('why' in r) return { why: r.why };
   const tax = (job.cost - (r.cost.index + r.cost.bonus + r.cost.scc + (r.cost.alpha ?? 0))) / r.cost.base;
   if (!Number.isFinite(tax) || tax < -0.0005) return { why: 'what it measures is under nothing: its index or prices moved since' };
@@ -2667,8 +2888,8 @@ Run: `npm run check 2>&1 | grep -B1 -A3 "Task 11"`
 Expected: no `FAIL`.
 
 Plant, run, see it fail, undo:
-- `jobCostOf`: drop `if (!checkable(job))`: "what can't be checked says why" fails (the late job).
-- `jobCostOf`: `const sb = { material: 1, time: 1, cost: 1 };` (no Azbel bonus): "EVE Ref's job … 17,213,916" fails.
+- `jobCostFor`: drop `if (!checkable(job))`: "what can't be checked says why" fails (the late job).
+- `jobCostFor`: `const sb = { material: 1, time: 1, cost: 1 };` (no Azbel bonus): "EVE Ref's job … 17,213,916" fails.
 - `measuredTax`: accept an unknown clone (drop its line): "where it can't measure …" fails.
 - `measuredTax`: drop `r.cost.scc` from the subtraction: "the tax it measures: 1.00%" fails (5%).
 - `jobCheck`: `sccShare` without `(r.cost.tax ?? 0)`: "an NPC-station research job says the SCC share" fails.
@@ -2746,7 +2967,7 @@ In `scripts/pages.mjs`, above `// --- the end of the industry case`:
       const jobs11 = { 9301: done(9301, {}), 9302: done(9302, { facilityId: 60001483, stationId: 60001483, outputId: 60001483, runs: 1, cost: 1_250_000, first: { me: 10, te: 20, systemId: 30000119, index: 0.05, eiv: EIV_RUN } }),
         9303: done(9303, { facilityId: 60001483, stationId: 60001483, outputId: 60001483, seenAt: at(now - 2 * 86400_000 + 3 * 3600_000) }) };
       await page.goto(SEED_PAGE);
-      await seed({ ...ledger, jobs: jobs11, meta: { ...ledger.meta, industry: { at: iso(now - 600_000), jobs: [], places: {} } }, industry: DOC11, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } });
+      await seed({ ...ledger, jobs: jobs11, meta: { ...ledger.meta, jobsRead: true, industry: { at: iso(now - 600_000), jobs: [], places: {} } }, industry: DOC11, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } });
       await page.goto(`${BASE}#hustles/industry/blueprints`);
       await page.waitForSelector('[data-industry="jobs-done"]', { timeout: 30_000 }).catch(() => problems.push('the finished jobs never drew'));
       const check = async (id) => text(`[data-industry="jobs-done"] [data-job="${id}"] [data-industry="check"]`);
@@ -3031,7 +3252,8 @@ EOF
     `builtItems(jobs, byLocation, charId): BuiltItem[]`.
   - `src/lib/todo.ts`: `TodoKind` gains `'built'`, `Source` gains `'stock'`; `builtWhere(o)`, `builtItem(x, o)`, `judgeBuilt(e, c)`;
     `'built'` in `HOLDS_UNTIL_CHANGED`, `MINUTES` and `KIND_LABEL` ("List what you built").
-  - `src/components/planListing.ts`: `useItemReads` exported; `useBuiltPrices(types): Record<number, { price: number | null; read: boolean }>`.
+  - `src/components/planListing.ts`: `useItemReads` exported; `useBuiltPrices(types, yours): Record<number, { price: number | null; read: boolean }>` (`yours`: every
+    character's open order IDs, taken off the book; pre-flight M8).
 
 **Correction 18 (this task's).** The spec versions the item by "the delivered job IDs". The item is built from the newest
 jobs whose units the place still holds, so listing part of an older batch would drop that job from the set and change the
@@ -3064,6 +3286,17 @@ console.log('\n--- Industry stage 2: To do, List what you built (Task 12B) ---')
   eq('  keyed by character, product and place; versioned by the newest delivered job (another delivery reopens it)', [it.key, it.ver, it.kind, it.source, it.amount], ['built:7:25894:60003760', '2', 'built', 'stock', 100]);
   eq('    said with the price to list at, copied on opening', [it.title, it.action.copy, it.stake], ['List 100 Large Trimark Armor Pump I you built, at Jita IV - Moon 4', 7_040_000, 704_000_000]);
   eq('  a hand tick holds until another delivery', D.HOLDS_UNTIL_CHANGED.has('built'), true);
+  // Through `remember`, as To do folds each build in: a tick on the same version holds past SESSION_MS (listing part of the
+  // batch rebuilds the item with the same newest job), and another delivery's version reopens it.
+  const T0b = Date.parse('2026-10-11T12:00:00Z');
+  const m0 = D.remember({}, [it], () => 1000, () => null, T0b);
+  const ticked = { ...m0, [it.key]: { ...m0[it.key], ticked: { ver: it.ver, at: T0b } } };
+  const later = T0b + D.SESSION_MS + 3600_000;
+  const listedSome = D.builtItem({ charId: 7, who: null, typeId: 25894, place: 60003760, placeName: 'Jita IV - Moon 4', jobIds: [2], newest: 2, units: 50, held: 60 },
+    { name: 'Large Trimark Armor Pump I', where: 'jita', price: 7_000_000, read: true, hubName: null, isMain: true });
+  const delivered = { ...listedSome, ver: '5' };
+  eq('    through remember: still ticked a day on with the same newest job; reopened by another delivery',
+    [!!D.remember(ticked, [listedSome], () => 2000, () => null, later)[it.key].ticked, !!D.remember(ticked, [delivered], () => 2000, () => null, later)[it.key].ticked], [true, false]);
   const e = { item: it, seenAt: 1000, lastAt: 1000 };
   eq('  judged on a stock read newer than the one it was built on: fewer held than built is listed, sold or moved', [
     D.judgeBuilt(e, { readAt: 1000, held: 10 }), D.judgeBuilt(e, { readAt: 2000, held: 10 }), D.judgeBuilt(e, { readAt: 2000, held: 100 }), D.judgeBuilt(e, { readAt: null, held: null }),
@@ -3191,15 +3424,16 @@ from `'../lib/fills'`; add at the end:
 ```ts
 /**
  * What you built, priced as a listing in Jita (To do's List what you built): `listingPrice` on others' live book with the
- * fortnight's highs, the plan list step's own reads (useItemReads: every five minutes while shown). `read` is false until
- * the first read of the visit; a book that couldn't be read prices nothing.
+ * fortnight's highs, the plan list step's own reads (useItemReads: every five minutes while shown). `yours`: every
+ * character's open order IDs, taken off the book. `read` is false until the first read of the visit; a book that couldn't
+ * be read prices nothing.
  */
-export function useBuiltPrices(types: readonly number[]): Record<number, { price: number | null; read: boolean }> {
-  const d = useData();
+export function useBuiltPrices(types: readonly number[], yours: readonly number[]): Record<number, { price: number | null; read: boolean }> {
   const key = [...new Set(types)].sort((a, b) => a - b).join(',');
   const reads = useItemReads(key, true);
+  // Every character's open orders come off the book (pre-flight M8): an alt's built item isn't priced one tick under its own listing.
+  const yoursKey = [...yours].sort((a, b) => a - b).join(',');
   return useMemo(() => {
-    const yours = Object.values(d.orders).map((o) => o.orderId);
     const out: Record<number, { price: number | null; read: boolean }> = {};
     for (const t of key ? key.split(',').map(Number) : []) {
       const x = reads[t];
@@ -3209,7 +3443,7 @@ export function useBuiltPrices(types: readonly number[]): Record<number, { price
       out[t] = { price: m ? listingPrice(m.bestSell, m.bestBuy, m.highs) : null, read: true };
     }
     return out;
-  }, [key, reads, d.orders]);
+  }, [key, reads, yoursKey]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 ```
 
@@ -3217,7 +3451,7 @@ In `src/components/Todo.tsx`:
 - imports: `builtItem, builtWhere, judgeBuilt` from `'../lib/todo'`; `builtItems` from `'../lib/industryTrack'`;
   `useBuiltPrices` from `'./planListing'`; `hubOf, homeQuote` from `'../lib/homeMarket'`; `useHomePrices` from
   `'./hustles/industryMarket'`; `useShipTypes` from `'./common'`; `tickDown` from `'../lib/tick'`; `type Stock` from `'../lib/types'`.
-- before the items `useMemo`:
+- **above Task 12A's `altJobs` and `altStations`** (which now read `builtAll`, so it must be declared first: pre-flight M5):
 
 ```ts
   // What every character built that sits loose where it landed (industryTrack.ts builtItems): the main's from its sync's
@@ -3234,8 +3468,15 @@ In `src/components/Todo.tsx`:
   const home = useHomePrices(builtAll.length ? hub?.id ?? null : null);
   const placeSystem = (place: number) => d.industry.sites.find((s) => s.structureId === place || s.stationId === place)?.systemId ?? (place === 60003760 ? 30000142 : null);
   const whereOf = (b: { typeId: number; place: number }) => builtWhere({ place: b.place, placeSystem: placeSystem(b.place), hub, sell: d.industry.sell, ship: ships.has(b.typeId), noShipsToJita: d.industry.noShipsToJita });
-  const builtJita = useBuiltPrices(builtAll.filter((x) => whereOf(x.b) === 'jita').map((x) => x.b.typeId));
+  // Every character's open orders, off the books the prices are read on (pre-flight M8).
+  const allOrderIds = useMemo(() => [...Object.values(d.orders), ...roster.flatMap((a) => Object.values((copies[a.charId]?.records.orders ?? {}) as Record<string, { orderId: number }>))].map((o) => o.orderId), [d.orders, roster, copies]);
+  const builtJita = useBuiltPrices(builtAll.filter((x) => whereOf(x.b) === 'jita').map((x) => x.b.typeId), allOrderIds);
 ```
+
+  and To do's `useEnsureNames` (`Todo.tsx:141`) gains the built products, or a first build reads "Item #25894"
+  (pre-flight I3: `useTypeName` names from `d.names`, and a delivered job is in no list it already ensures):
+  `useEnsureNames([...(d.meta.industry?.jobs ?? []).map(…), ...d.plans.flatMap(…), ...altJobs.flatMap((x) => x.jobs.map((j) => j.productTypeId ?? j.blueprintTypeId)), ...builtAll.map((x) => x.b.typeId)])`
+  (that call moves below `builtAll` and `altJobs`).
 
 - in the items build:
 
@@ -3250,8 +3491,9 @@ In `src/components/Todo.tsx`:
     }
 ```
 
-  with the deps gaining `builtAll, builtJita, home, ships, stationNames`. (Add the built places that are stations to
-  Task 12A's `altStations` list so they're named: `[...altJobs…, ...builtAll.map((x) => x.b.place)]`.)
+  with the deps gaining `builtAll, builtJita, home, ships, stationNames`. Task 12A's `altStations` gains the built places
+  that are stations, so they're named: `[...altJobs.flatMap(…), ...builtAll.map((x) => x.b.place)]` (declared after
+  `builtAll`, above).
 - `seenAt`: `x.source === 'stock' ? builtSeen(x) ?? t :` with
 
 ```ts
@@ -3285,18 +3527,25 @@ In `scripts/pages.mjs`, above `// --- the end of the industry case`:
       const built = { jobId: 9501, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 10, licensedRuns: null, successfulRuns: null, probability: null, cost: 1e6,
         facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: iso(now - 2 * 86400_000), end: iso(now - 86400_000), completed: iso(now - 86400_000), status: 'delivered', perRun: 1, seenAt: iso(now - 2 * 86400_000 + 600_000) };
       await page.goto(SEED_PAGE);
+      // The pump is named by ESI here, not seeded: a first build is a type the ledger has never named, so this pins To do's
+      // useEnsureNames for built types (pre-flight I3). The case's names stub calls everything else a station.
+      const prevNames = ESI['/universe/names/'];
+      ESI['/universe/names/'] = (url, req, json) => json(JSON.parse(req.postData() ?? '[]').map((id) => (id === 25894 ? { id, name: 'Large Trimark Armor Pump I', category: 'inventory_type' } : { id, name: `Station ${id}`, category: 'station' })));
       await seed({ ...ledger, jobs: { 9501: built }, stock: { at: iso(now - 600_000), jita: { 25894: 10 }, total: { 25894: 10 }, byLocation: { 60003760: { 25894: 10 } } }, industry: DOC, cloud: CLOUD_STATE }, { alts: altStore });
       await page.goto(`${BASE}#todo`);
       await page.waitForSelector('.tn-item', { timeout: 20_000 }).catch(() => problems.push('To do drew no item'));
-      await page.waitForTimeout(1500);
+      // Wait on the condition (the name lands from ESI, the price from the book), not a clock.
+      await page.waitForFunction(() => [...document.querySelectorAll('.tn-item')].some((e) => /Large Trimark Armor Pump I you built[\s\S]*List in Jita at/.test(e.textContent ?? '')), null, { timeout: 20_000 }).catch(() => undefined);
       const item = await text('.tn-item:has-text("you built")');
       // Priced on the case's own Jita book for the pump (ITEMS, the finder's stand-in); no history is served, so at the front.
-      if (!item.includes('List 10 Large Trimark Armor Pump I you built, at Jita IV - Moon 4') || !/List in Jita at [\d,.]+/.test(item) || !item.includes('opening it copies the price')) problems.push(`To do doesn’t list the pumps built, priced in Jita: “${item.slice(0, 300)}”`);
+      if (!item.includes('List 10 Large Trimark Armor Pump I you built, at Jita IV - Moon 4') || !/List in Jita at [\d,.]+/.test(item) || !item.includes('opening it copies the price')) problems.push(`To do doesn’t list the pumps built, named and priced in Jita: “${item.slice(0, 300)}”`);
+      ESI['/universe/names/'] = prevNames;
     }
 ```
 
 (The case already answers `/markets/10000002/orders/` for the pump from `ITEMS`; with no history served, `listingPrice` is
-one tick under its cheapest listing.)
+one tick under its cheapest listing.) Planted, then undone: To do's `useEnsureNames` without the built types: the title reads
+"Item #25894" and this fails.
 
 - [ ] **Step 7: The notes**
 
@@ -3345,6 +3594,8 @@ EOF
   (`ACTIVITY_WHAT.Industry`, `WITHOUT_SETS`, `activityEvents`' Industry events and notes), `src/components/activityEvents.ts`
   (`ACTIVITY_COLOR.Industry`; Industry's inputs loaded only when needed), `src/components/Results.tsx` (Industry's note
   under its row; memo deps), `src/components/Wallet.tsx` and `src/components/Omega.tsx` (memo deps), `scripts/check.mjs`,
+  `src/lib/wallet.ts` (`industry_security_tax` filed as Industry), `src/components/charIncome.ts` and
+  `src/components/Characters.tsx` (Earned's words while Industry's inputs load or after they fail),
   `scripts/pages.mjs`, `scripts/income-golden.json` (re-recorded, the one task allowed to), `docs/notes/industry.md`,
   `docs/notes/positions-results.md`, `docs/notes/limits.md`
 
@@ -3357,9 +3608,12 @@ EOF
     `builtAndSold(o): BuiltResult`.
   - `src/lib/everyItem.ts`: `claimsOf(d): Map<string, number>`; `everything(typeId, excluded, claimed?)`.
   - `Position.claimed?: Record<string, number>`; `AttributionInput.claims?: ReadonlyMap<string, number>`.
-  - `activityEvents(d, sets, failed, lossActs, posCalc, mine?, built?)` with `built: { mats: MatsOf | null } | null`;
-    `Acts.industry: { unknownJobs: number; unbought: { typeId: number; units: number }[]; offSite: number } | null`.
-  - `useActivityEvents` waits for Industry's inputs (`ready`) only when the ledger needs them.
+  - `src/lib/income.ts`: `type BuiltInputs = { state: 'none' | 'loading' | 'ready' | 'failed'; mats: MatsOf | null }`;
+    `activityEvents(d, sets, failed, lossActs, posCalc, mine?, built?)`; `Acts.industry: IndustryActs | null`
+    (`{ state: 'loading' | 'failed' | 'ready'; unknownJobs: number; unbought: { typeId: number; units: number }[]; offSite: number }`,
+    null with no jobs); `industrySaid(industry, name): { figure: string | null; note: string | null }`.
+  - `useActivityEvents` returns `industry`, `industryRetry` and `waiting` (the words for what it's still reading); `ready`
+    waits for Industry's inputs only while they load, and only for a ledger that needs them (pre-flight I4, M12).
 
 Corrections owned here: 9 (claims derived from the ledger; `Position.claimed`), 10 (the bundle loads beyond the tab only
 when a job needs it), 11 (what Industry counts).
@@ -3415,23 +3669,42 @@ console.log('\n--- Industry stage 2: built and sold (Task 13) ---');
   // manufacturing job's materials at the purchases before it, newest first, each unit once; what was never bought, said.
   const buys = [tx('m1', '2026-09-30T00:00:00Z', true, 600, 4, 34), tx('m2', '2026-10-01T12:00:00Z', true, 500, 5, 34)];
   const jobsB = [job(1, '2026-10-02T00:00:00Z', 10, { start: '2026-10-02T00:00:00Z' }), job(2, '2026-10-04T00:00:00Z', 10, { start: '2026-10-04T00:00:00Z', cost: 60_000 }), job(3, '2026-10-04T00:00:00Z', 10, { start: '2026-10-04T00:00:00Z', first: undefined })];
-  const journal = [{ date: '2026-10-02T00:00:01Z', refType: 'industry_job_tax', amount: -40_000, contextId: 1, contextIdType: 'industry_job_id' }, { date: '2026-10-02T00:00:02Z', refType: 'reprocessing_tax', amount: -9, contextId: 1, contextIdType: 'industry_job_id' }];
+  const journal = [{ date: '2026-10-02T00:00:01Z', refType: 'industry_job_tax', amount: -40_000, contextId: 1, contextIdType: 'industry_job_id' },
+    { date: '2026-10-02T00:00:01Z', refType: 'industry_security_tax', amount: -5_000, contextId: 1, contextIdType: 'industry_job_id' },
+    { date: '2026-10-02T00:00:02Z', refType: 'reprocessing_tax', amount: -9, contextId: 1, contextIdType: 'industry_job_id' }];
   const mats = (j) => (j.first ? { mats: [[34, 500]], atSite: true } : null);
   const b = T.builtAndSold({ jobs: jobsB, txs: [...buys, tx('x1', '2026-10-05T00:00:00Z', false, 15, 7e6)], journal, claims: new Map([['x1', 10]]), taxByTx: new Map([['x1', 15 * 7e6 * 0.036]]), salesTax: 0.036, personal: new Set(), mats });
   const sum = (from, to) => Math.round(b.events.filter((e) => e.t >= Date.parse(from) && e.t < Date.parse(to)).reduce((s, e) => s + e.isk, 0));
-  eq('  job 1 (2 Oct): its fee from the journal, not reprocessing; 500 Tritanium at the newest purchases before it (500 at 5)', sum('2026-10-02T00:00:00Z', '2026-10-03T00:00:00Z'), -40_000 - 2_500);
+  eq('  job 1 (2 Oct): its fees from the journal (the job tax and the SCC\'s industry_security_tax), not reprocessing; 500 Tritanium at the newest purchases before it (500 at 5)',
+    sum('2026-10-02T00:00:00Z', '2026-10-03T00:00:00Z'), -40_000 - 5_000 - 2_500);
   eq('  jobs 2 and 3 (4 Oct): ESI\'s cost for each; 500 more at what\'s left (600 at 4); job 3\'s materials not known', sum('2026-10-04T00:00:00Z', '2026-10-05T00:00:00Z'), -60_000 - 50_000 - 2_000);
   eq('  the sale (5 Oct): 10 of 15 claimed, after that part of its tax', sum('2026-10-05T00:00:00Z', '2026-10-06T00:00:00Z'), Math.round(10 * 7e6 * (1 - 0.036)));
   eq('  said apart: one job\'s materials not known; nothing unbought yet', [b.unknown, b.unbought], [[3], []]);
   const short = T.builtAndSold({ jobs: [job(4, '2026-10-02T00:00:00Z', 10, { start: '2026-10-02T00:00:00Z' })], txs: [buys[0]], journal: [], claims: new Map(), taxByTx: new Map(), salesTax: 0.036, personal: new Set(), mats: () => ({ mats: [[34, 800]], atSite: true }) });
   eq('  units never bought before the job are said apart, never costed at 0', [short.unbought, Math.round(short.events.reduce((s, e) => s + e.isk, 0))], [[{ jobId: 4, typeId: 34, units: 200 }], -50_000 - 2_400]);
+  // A purchase a freelance job of yours counts (attribute's `freelance`) is that job's, not a job's material too (pre-flight M9).
+  const fl = T.builtAndSold({ jobs: [job(5, '2026-10-02T00:00:00Z', 10, { start: '2026-10-02T00:00:00Z' })], txs: buys, journal: [], claims: new Map(), taxByTx: new Map(), salesTax: 0.036, personal: new Set(),
+    freelance: (x) => x.id === 'm2', mats: () => ({ mats: [[34, 500]], atSite: true }) });
+  eq('  a purchase a freelance job counts isn\'t costed as a material: 500 at 4 (m1), not at 5 (m2)', Math.round(fl.events.reduce((s, e) => s + e.isk, 0)), -50_000 - 2_000);
 
   // In All income: an Industry row, and "Sold, never bought" without the claimed units.
   const sets = { filaments: new Set(), abyssLoot: new Set(), pi: new Set(), lpGoods: new Set() };
-  const acts = N.activityEvents(d, sets, false, {}, [], undefined, { mats: () => ({ mats: [], atSite: true }) });
+  const acts = N.activityEvents(d, sets, false, {}, [], undefined, { state: 'ready', mats: () => ({ mats: [], atSite: true }) });
   const rows = N.incomeRows(EV.everyItemCalcs(d), acts, Date.parse('2026-09-01T00:00:00Z'), Date.parse('2026-10-10T00:00:00Z')).rows;
   eq('  All income: Industry counted, trading kept, nothing "Sold, never bought"', [rows.some((x) => x.key === 'Industry' && x.isk > 0), rows.some((x) => x.key === 'trading' && x.isk > 0), rows.some((x) => x.key === 'loot')], [true, true, false]);
-  eq('  Industry needs no item groups (ESI\'s groups failing still counts it)', N.activityEvents(d, null, true, {}, [], undefined, { mats: () => ({ mats: [], atSite: true }) }).events.some((e) => e.activity === 'Industry'), true);
+  eq('  Industry needs no item groups (ESI\'s groups failing still counts it)', N.activityEvents(d, null, true, {}, [], undefined, { state: 'ready', mats: () => ({ mats: [], atSite: true }) }).events.some((e) => e.activity === 'Industry'), true);
+  // While the blueprints load, or if they couldn't be, Industry has no figure at all: never claimed sales with no materials
+  // under "no ME recorded" (pre-flight I4). It says which.
+  const loading = N.activityEvents(d, sets, false, {}, [], undefined, { state: 'loading', mats: null });
+  const refused = N.activityEvents(d, sets, false, {}, [], undefined, { state: 'failed', mats: null });
+  eq('  while the blueprints load: no Industry figure, and it\'s working out; refused: none, said', [loading.events.some((e) => e.activity === 'Industry'), loading.industry.state, refused.events.some((e) => e.activity === 'Industry'), refused.industry.state],
+    [false, 'loading', false, 'failed']);
+  const nm = (id) => `Type ${id}`;
+  eq('  the words for each', [N.industrySaid(loading.industry, nm), N.industrySaid(refused.industry, nm), N.industrySaid(null, nm), N.industrySaid(acts.industry, nm)], [
+    { figure: 'Working out…', note: 'Reading the blueprints, to cost what you built…' },
+    { figure: '–', note: 'The blueprints couldn’t be loaded, so what you built isn’t counted here or in the total.' },
+    { figure: null, note: null }, { figure: null, note: null },
+  ]);
 }
 ```
 
@@ -3448,7 +3721,9 @@ Append to `src/lib/industryTrack.ts`:
 // --- Built and sold (spec, stage 2's last task) ------------------------------------------------------------------------
 
 /** A job's fees in the journal (wallet.ts's Industry costs), by the job its context names. Never `reprocessing_tax`: not a job's. */
-export const JOB_FEE_REFS: ReadonlySet<string> = new Set(['industry_job_tax', 'manufacturing', 'researching_material_productivity', 'researching_technology', 'researching_time_productivity', 'copying', 'reaction', 'reverse_engineering']);
+// ESI's industry ref types at 2026-08-18 (`.playwright-mcp/research/industry-stage2/openapi-2026-08-18.json`, the journal's
+// `ref_type` enum): every one but `reprocessing_tax`. `industry_security_tax` may be how a job's SCC is written (pre-flight M7).
+export const JOB_FEE_REFS: ReadonlySet<string> = new Set(['industry_job_tax', 'industry_security_tax', 'manufacturing', 'researching_material_productivity', 'researching_technology', 'researching_time_productivity', 'copying', 'reaction', 'reverse_engineering']);
 
 type SaleLike = { id: string; typeId: number; date: string; isBuy: boolean; qty: number };
 /**
@@ -3504,6 +3779,8 @@ export function builtAndSold(o: {
   journal: readonly { date: string; refType: string; amount: number; contextId?: number; contextIdType?: string }[];
   claims: ReadonlyMap<string, number>; taxByTx: ReadonlyMap<string, number>; salesTax: number;
   personal: ReadonlySet<string>; mats: MatsOf | null;
+  /** A trade a freelance job of yours counts (income.ts's `freelance`): never a job's material too (pre-flight M9). */
+  freelance?: (tx: { id: string; typeId: number; date: string }) => boolean;
 }): BuiltResult {
   const events: BuiltResult['events'] = [];
   for (const t of o.txs) {
@@ -3521,7 +3798,7 @@ export function builtAndSold(o: {
   // Purchases by material, newest first, with what's left of each.
   const left = new Map<string, number>();
   const buysOf = new Map<number, (SaleLike & { unitPrice: number })[]>();
-  for (const t of o.txs) if (t.isBuy && !o.personal.has(t.id)) buysOf.set(t.typeId, [...(buysOf.get(t.typeId) ?? []), t]);
+  for (const t of o.txs) if (t.isBuy && !o.personal.has(t.id) && !o.freelance?.(t)) buysOf.set(t.typeId, [...(buysOf.get(t.typeId) ?? []), t]);
   for (const list of buysOf.values()) list.sort((a, b) => Date.parse(b.date) - Date.parse(a.date) || b.id.localeCompare(a.id));
   for (const j of [...o.jobs].sort((a, b) => Date.parse(a.start) - Date.parse(b.start) || a.jobId - b.jobId)) {
     const at = Date.parse(j.start);
@@ -3560,6 +3837,9 @@ In `src/lib/types.ts`: `Activity` becomes `… | 'Freelance' | 'Industry' | 'Rew
    */
   claimed?: Record<string, number>;
 ```
+
+In `src/lib/wallet.ts` (line 115's list of Industry costs), add `'industry_security_tax'`: ESI lists it among the industry
+ref types, and the Wallet filed it under Other spending (the recorded ledgers hold none, so the income recording doesn't move).
 
 In `src/lib/prefs.ts`: `ACTIVITIES` becomes `['Trading', 'Loyalty', 'Planets', 'Hauling', 'Abyssal', 'Combat', 'Freelance', 'Industry', 'Rewards']`.
 
@@ -3654,21 +3934,56 @@ In `src/lib/income.ts`:
   `Industry: 'What you built and sold, after sales tax, less every job’s fees and the materials your manufacturing jobs used (at your own purchases before each job; materials you never bought aren’t costed, and said)',`;
 - `WITHOUT_SETS` gains `'Industry'`;
 - `Acts` gains
-  `/** What Industry couldn't cost, said under its row: jobs whose materials aren't known, units never bought, jobs at a structure that isn't your site. Null with no jobs. */ industry: { unknownJobs: number; unbought: { typeId: number; units: number }[]; offSite: number } | null;`;
-- `activityEvents` gains a last parameter `built?: { mats: MatsOf | null } | null`, and:
+  `/** Industry's state and what it couldn't cost, said under its row; null with no jobs. */ industry: IndustryActs | null;` with
+
+```ts
+/**
+ * Industry's inputs (useActivityEvents' useBuiltInputs): `none` when no job needs the bundle (no manufacturing job's ME was
+ * recorded), `loading` while it and the sites' security load, `ready`, or `failed`.
+ */
+export type BuiltInputs = { state: 'none' | 'loading' | 'ready' | 'failed'; mats: MatsOf | null };
+/** What Industry is: being worked out, not countable (the bundle refused), or counted, with what it couldn't cost. */
+export type IndustryActs = { state: 'loading' | 'failed' | 'ready'; unknownJobs: number; unbought: { typeId: number; units: number }[]; offSite: number };
+
+/**
+ * Industry's figure and note as the pages say them (Results' row, the Wallet's All income, a Characters card): while its
+ * inputs load, "Working out…" and what's being read; refused, "–" and that it isn't counted; counted, the figure itself
+ * (`figure` null) and what it couldn't cost, if anything. Never a figure of claimed sales without materials under a false
+ * reason (pre-flight I4).
+ */
+export function industrySaid(ind: IndustryActs | null, name: (typeId: number) => string): { figure: string | null; note: string | null } {
+  if (!ind) return { figure: null, note: null };
+  if (ind.state === 'loading') return { figure: 'Working out…', note: 'Reading the blueprints, to cost what you built…' };
+  if (ind.state === 'failed') return { figure: '–', note: 'The blueprints couldn’t be loaded, so what you built isn’t counted here or in the total.' };
+  const parts = [
+    ind.unknownJobs ? `${ind.unknownJobs} manufacturing job${ind.unknownJobs === 1 ? '’s' : 's’'} materials aren’t known (no ME recorded when first seen, or a blueprint the bundle lacks)` : null,
+    ind.unbought.length ? `materials you never bought before the job aren’t costed: ${ind.unbought.slice(0, 3).map((u) => `${u.units.toLocaleString('en-US')} ${name(u.typeId)}`).join(', ')}${ind.unbought.length > 3 ? ` and ${ind.unbought.length - 3} more` : ''}` : null,
+    ind.offSite ? `${ind.offSite} ran at a structure that isn’t one of your build sites, or whose system’s security couldn’t be read: no bonuses applied where not known` : null,
+  ].filter(Boolean);
+  return { figure: null, note: parts.length ? `${parts.join('; ')}.` : null };
+}
+```
+
+- `activityEvents` gains a last parameter `built?: BuiltInputs | null`, and (named `industryJobs`: `jobs` is already the
+  freelance jobs there):
 
 ```ts
   const claims = claimsOf(d);
   const inp = { …as now…, claims };
   // Industry (built and sold): its own rules, needing no item groups. Its materials need the bundle (`built.mats`, loaded by
-  // useActivityEvents only for a ledger with a manufacturing job whose ME was recorded); without it they're "not known".
-  const jobs = Object.values(d.jobs ?? {});
-  const ind = jobs.length ? builtAndSold({ jobs, txs, journal: inp.journal, claims, taxByTx: taxesOf(inp.journal), salesTax: inp.salesTax, personal, mats: built?.mats ?? null }) : null;
+  // useActivityEvents only for a ledger with a manufacturing job whose ME was recorded). While it loads, or if it couldn't
+  // be, there's no Industry figure at all, and it says which (industrySaid): never claimed sales with no materials.
+  const industryJobs = Object.values(d.jobs ?? {});
+  const bstate = built?.state ?? 'none';
+  const ind = industryJobs.length && (bstate === 'ready' || bstate === 'none')
+    ? builtAndSold({ jobs: industryJobs, txs, journal: inp.journal, claims, taxByTx: taxesOf(inp.journal), salesTax: inp.salesTax, personal, freelance, mats: built?.mats ?? null }) : null;
   const industryEvents = (ind?.events ?? []).map((e) => ({ t: e.t, activity: 'Industry' as const, isk: e.isk }));
-  const industry = ind ? {
-    unknownJobs: ind.unknown.length, offSite: ind.offSite.length,
-    unbought: [...ind.unbought.reduce((m, u) => m.set(u.typeId, (m.get(u.typeId) ?? 0) + u.units), new Map<number, number>())].map(([typeId, units]) => ({ typeId, units })),
-  } : null;
+  const industry: IndustryActs | null = !industryJobs.length ? null
+    : !ind ? { state: bstate === 'failed' ? 'failed' : 'loading', unknownJobs: 0, unbought: [], offSite: 0 }
+      : {
+        state: 'ready', unknownJobs: ind.unknown.length, offSite: ind.offSite.length,
+        unbought: [...ind.unbought.reduce((m, u) => m.set(u.typeId, (m.get(u.typeId) ?? 0) + u.units), new Map<number, number>())].map(([typeId, units]) => ({ typeId, units })),
+      };
 ```
 
   where `taxesOf` is `results.ts`' `taxesByTx`: in results.ts `function taxesByTx` becomes `export function taxesByTx`, and
@@ -3690,17 +4005,18 @@ In `src/components/activityEvents.ts`:
  * read) only when it has rigs. `ready` is false while either is loading for a ledger that needs it; otherwise true at once.
  * The sites are the main's `industry` doc (yours, whichever character ran the job).
  */
-function useBuiltInputs(d: Data, sites: readonly IndustrySite[]): { ready: boolean; mats: MatsOf | null } {
+function useBuiltInputs(d: Data, sites: readonly IndustrySite[]): BuiltInputs & { retry: () => void } {
   const needs = useMemo(() => Object.values(d.jobs ?? {}).some((j) => j.activity === 1 && j.first?.me != null && j.status !== 'cancelled' && j.status !== 'reverted'), [d.jobs]);
   const rigged = useMemo(() => sites.filter((s) => s.kind !== 'npc' && s.rigs.length).map((s) => s.systemId).sort((a, b) => a - b).join(','), [sites]);
   const [ix, setIx] = useState<Indexed | 'failed' | null>(null);
   const [bands, setBands] = useState<Record<number, SecBand> | null>(null);
+  const [tries, setTries] = useState(0);
   useEffect(() => {
     if (!needs) return;
     let alive = true;
     loadIndustry().then((x) => { if (alive) setIx(x); }, () => { if (alive) setIx('failed'); });
     return () => { alive = false; };
-  }, [needs]);
+  }, [needs, tries]);
   useEffect(() => {
     if (!needs) return;
     let alive = true;
@@ -3727,40 +4043,65 @@ function useBuiltInputs(d: Data, sites: readonly IndustrySite[]): { ready: boole
       return { mats: materialsFor(m[1], j.runs, me, sb, rig), atSite: npc || (!!site && !rigsUnknown) };
     };
   }, [needs, ix, bands, sites]);
-  return { ready: !needs || ix === 'failed' || (!!ix && !!bands), mats };
+  const state: BuiltInputs['state'] = !needs ? 'none' : ix === 'failed' ? 'failed' : ix && bands ? 'ready' : 'loading';
+  // loadIndustry lets go of a failed load (industryBundle.ts), so asking again reads it afresh.
+  return { state, mats, retry: () => { setIx(null); setTries((n) => n + 1); } };
 }
 ```
 
   (imports: `useEffect, useMemo, useState` from react; `loadIndustry` from `'./hustles/industryBundle'`; `materialsFor,
   rigFor, secBand, structureBonus, type Indexed, type SecBand` from `'../lib/industry'`; `isStationId, type MatsOf` from
-  `'../lib/industryTrack'`; `type IndustrySite` from `'../lib/prefs'`; `system` from `'../lib/universe'`.) An NPC station
+  `'../lib/industryTrack'`; `type BuiltInputs` beside `activityEvents` from `'../lib/income'`; `type IndustrySite` from
+  `'../lib/prefs'`; `system` from `'../lib/universe'`.) An NPC station
   has no material bonus, so a job at any NPC station is "at site" with none.
-- in `useActivityEvents`: `const built = useBuiltInputs(d, live.industry.sites);`; `activityEvents(…, own, built)` with
-  `built.mats` in the deps (pass `{ mats: built.mats }` memoised on `built.mats`), `d.jobs` in the `acts` deps, and
-  `const ready = (!!sets || failed) && built.ready;`.
+- in `useActivityEvents`: `const built = useBuiltInputs(d, live.industry.sites);`; `activityEvents(…, own,
+  { state: built.state, mats: built.mats })` with `built.state, built.mats` and `d.jobs` in the `acts` deps; and
 
-In `src/components/Results.tsx`: the `itemCalcs` memo deps gain `d.jobs, d.positions`; under the Industry row of "By
-activity" (inside the `acts.map`, after the row, as Trading has its own sub-row), when `industry` (from
-`useActivityEvents()`) says something:
+```ts
+  // Ready once the item groups are in (or failed) and Industry's inputs aren't still loading for a ledger that needs them.
+  const ready = (!!sets || failed) && built.state !== 'loading';
+  // What it's still reading, said where the figures would be (the Wallet, a Characters card): pre-flight M12.
+  const waiting = !(sets || failed) ? 'Reading which items belong to which activity…' : built.state === 'loading' ? 'Reading the blueprints, to cost what you built…' : null;
+```
+
+  and the returned memo becomes `({ ...acts, failed, posCalc, lossActs, ready, waiting, industryRetry: built.retry })` (its
+  deps gaining `waiting, built.retry`).
+
+In `src/components/Results.tsx`: the `itemCalcs` memo deps gain `d.jobs, d.positions`; the `useActivityEvents()` call
+destructures `industry, industryRetry` too, and above the return:
+
+```ts
+  // Industry's figure and note as industrySaid says them: "Working out…" while the blueprints load, "–" and why if they
+  // couldn't be (with Try again), else the figure and what it couldn't cost (pre-flight I4).
+  const ind = industrySaid(industry, name);
+```
+
+(`name` from `useTypeName()`; import `industrySaid` from `'../lib/income'`). In the "By activity" row, the figure cell for
+Industry shows `ind.figure ?? (tot[k] ? iskBigSigned(tot[k]) : '–')` and carries `data-industry="results-industry"`;
+after the row, as Trading has its own sub-row:
 
 ```tsx
-                    {a === 'Industry' && industryNote && (
-                      <tr><td className="l note small" colSpan={4} data-industry="results-note">{industryNote}</td></tr>
+                    {a === 'Industry' && ind.note && (
+                      <tr><td className="l note small" colSpan={4} data-industry="results-note">{ind.note}
+                        {industry?.state === 'failed' && <> <button type="button" className="link-btn" onClick={industryRetry}>Try again</button></>}</td></tr>
                     )}
 ```
 
-with, above the return,
+and the "Made in" tile's note says what the total leaves out meanwhile:
+`n: industry && industry.state !== 'ready' ? (industry.state === 'loading' ? 'After every fee and tax; what you built is still being worked out' : 'After every fee and tax; what you built isn’t counted (the blueprints couldn’t be loaded)') : 'After every fee and tax'`.
 
-```ts
-  const { industry } = useActivityEvents();  // (destructure with the existing call: `const { events, failed, posCalc, lossActs, industry } = …`)
-  const industryNote = industry && (industry.unknownJobs || industry.unbought.length || industry.offSite)
-    ? [industry.unknownJobs ? `${units(industry.unknownJobs)} manufacturing job${industry.unknownJobs === 1 ? '’s' : 's’'} materials aren’t known (no ME recorded when first seen)` : null,
-      industry.unbought.length ? `materials you never bought before the job aren’t costed: ${industry.unbought.slice(0, 3).map((u) => `${units(u.units)} ${name(u.typeId)}`).join(', ')}${industry.unbought.length > 3 ? ` and ${units(industry.unbought.length - 3)} more` : ''}` : null,
-      industry.offSite ? `${units(industry.offSite)} ran at a structure that isn’t one of your build sites, or whose system’s security couldn’t be read: no rig or structure bonuses applied where not known` : null].filter(Boolean).join('; ') + '.'
-    : null;
-```
+In `src/components/Wallet.tsx`'s `AllIncome`: `{!acts.ready ? <p className="note">Reading which items belong to which
+activity…</p>` becomes `{!acts.ready ? <p className="note" data-industry="wallet-waiting">{acts.waiting ?? 'Reading…'}</p>`;
+the closing note gains, after the item-groups sentence,
+`{acts.industry?.state === 'failed' ? <> What you built isn’t counted: the blueprints couldn’t be loaded. <button type="button" className="link-btn" onClick={acts.industryRetry}>Try again</button></> : null}`
+(its text becomes a fragment for it); and the Industry row, when there is one, carries `industrySaid(acts.industry,
+name).note` in its tip.
 
-(`name` is the page's type-name lookup; use `useTypeName()` if it has none.)
+In `src/components/charIncome.ts`, `useCharIncome` returns `waiting: acts.waiting, industry: acts.industry` too. In
+`src/components/Characters.tsx`'s `earnedTile`, `n: 'Reading which items belong to which activity…'` becomes
+`n: inc.waiting ?? 'Reading…'`, and a ready card whose `inc.industry?.state === 'failed'` has
+`n: `In the last ${period}, without what was built`` with its tip adding the line "What it built isn't counted: the
+blueprints couldn't be loaded".
 
 In `src/components/Wallet.tsx` (`calcs`) and `src/components/Omega.tsx` (`calcs`): the `everyItemCalcs` memo deps gain
 `d.jobs, d.positions`.
@@ -3780,6 +4121,10 @@ Plant, run, see it fail, undo:
 - `builtAndSold`: oldest purchases first: "500 Tritanium at the newest purchases before it" fails.
 - `builtAndSold`: a missing unit costed at 0 silently (drop the `unbought.push`): "units never bought … said apart" fails.
 - `WITHOUT_SETS` without `'Industry'`: "Industry needs no item groups" fails.
+- `activityEvents`: compute `builtAndSold` whatever `built.state` (drop the state condition): "while the blueprints load: no
+  Industry figure" fails, and the page case's refused bundle shows a figure.
+- `JOB_FEE_REFS` without `'industry_security_tax'`: "job 1 … its fees from the journal (the job tax and the SCC's …)" fails.
+- `builtAndSold`: drop `&& !o.freelance?.(t)`: "a purchase a freelance job counts isn't costed as a material" fails.
 
 - [ ] **Step 7: The page case, and the recorded income**
 
@@ -3794,11 +4139,20 @@ In `scripts/pages.mjs`, above `// --- the end of the industry case`:
       const sale = { id: '77001', date: iso(now - 86400_000), typeId: 25894, qty: 10, unitPrice: 7_000_000, isBuy: false, locationId: 60003760, clientId: 1, source: 'esi' };
       await page.goto(SEED_PAGE);
       await seed({ ...ledger, jobs: { 9601: built }, txs: { 77001: sale }, industry: DOC, cloud: CLOUD_STATE }, { alts: altStore });
+      // The bundle refused first (pre-flight I4): Results says what you built isn't counted, with no Industry figure.
+      // Routing turns Playwright's cache off, and each load is a new document, so the chunk is asked for afresh.
+      await page.route('**/src/data/industry.json*', (route) => route.abort());
       await page.goto(`${BASE}#results`);
-      await page.waitForSelector('.page', { timeout: 20_000 });
-      await page.waitForTimeout(2500);
+      await page.reload();
+      await page.waitForSelector('[data-industry="results-note"]', { timeout: 20_000 }).catch(() => problems.push('Results never said the blueprints couldn’t be loaded'));
+      if (!(await text('[data-industry="results-note"]')).includes('The blueprints couldn’t be loaded, so what you built isn’t counted here or in the total.')) problems.push(`with the blueprints refused, Results doesn’t say so: “${await text('[data-industry="results-note"]')}”`);
+      if ((await text('[data-industry="results-industry"]')).trim() !== '–') problems.push(`with the blueprints refused, Results still shows an Industry figure: “${await text('[data-industry="results-industry"]')}”`);
+      await page.unroute('**/src/data/industry.json*');
+      await page.reload();
+      await page.waitForFunction(() => /\+[\d.,]+ [MBk]/.test(document.querySelector('[data-industry="results-industry"]')?.textContent ?? ''), null, { timeout: 20_000 })
+        .catch(() => problems.push('Results never counted Industry once the blueprints loaded'));
       const res = await text('.page');
-      if (!/Industry\s+\+[\d.,]+ [MBk]/.test(res)) problems.push(`Results doesn’t count the pumps built and sold as Industry: “${res.slice(0, 400)}”`);
+      if (!/\+[\d.,]+ [MBk]/.test(await text('[data-industry="results-industry"]'))) problems.push(`Results doesn’t count the pumps built and sold as Industry: “${res.slice(0, 400)}”`);
       if (!(await text('[data-industry="results-note"]')).includes('materials you never bought before the job aren’t costed')) problems.push('Results doesn’t say the pump’s materials, never bought, aren’t costed');
     }
 ```
@@ -3821,8 +4175,11 @@ All income for the large ledger unchanged (no Industry row: nothing built there)
 - `docs/notes/positions-results.md`: a bullet **Built and sold is Industry's, claimed first** (the claim order; that a
   claimed sale's units come off Results' every-item position, its tax pro rata and its listing fee carried out with them;
   `otherSales` and "Sold, never bought" see what's left; built types are never in the activity sets, and why (an item both
-  built and bought would leave trading whole); what Industry counts (correction 11); its note under Results' row; the
-  income recording's one new line and why).
+  built and bought would leave trading whole); what Industry counts (correction 11), its job fees by every industry ref
+  type ESI lists but `reprocessing_tax` (`industry_security_tax` too), and never a purchase a freelance job counts; while
+  the blueprints load Results, the Wallet and the Characters cards say "Working out…" and what's being read, and if they
+  couldn't be loaded that what was built isn't counted, with Try again (`industrySaid`): never claimed sales with no
+  materials; its note under Results' row; the income recording's one new line and why).
 - `docs/notes/limits.md`: "**Built and sold costs each job's materials at the blueprint's ME as first seen running**, with
   your site's bonuses where it ran at one (an NPC station has none; another structure's aren't known and aren't applied,
   nor a site's rigs when its system's security couldn't be read, each said), at your purchases before the job, newest first; materials you never bought aren't costed, and are said. A sale
@@ -3841,7 +4198,7 @@ Expected: all pass, with `scripts/income-golden.json` re-recorded once (Step 7) 
 - [ ] **Step 11: Commit**
 
 ```bash
-git add src/lib/industryTrack.ts src/lib/types.ts src/lib/prefs.ts src/lib/positions.ts src/lib/everyItem.ts src/lib/results.ts src/lib/income.ts src/components/activityEvents.ts src/components/Results.tsx src/components/Wallet.tsx src/components/Omega.tsx scripts/check.mjs scripts/pages.mjs scripts/income-golden.json docs/notes/industry.md docs/notes/positions-results.md docs/notes/limits.md
+git add src/lib/industryTrack.ts src/lib/types.ts src/lib/prefs.ts src/lib/positions.ts src/lib/everyItem.ts src/lib/results.ts src/lib/income.ts src/lib/wallet.ts src/components/activityEvents.ts src/components/Results.tsx src/components/Wallet.tsx src/components/Omega.tsx src/components/charIncome.ts src/components/Characters.tsx scripts/check.mjs scripts/pages.mjs scripts/income-golden.json docs/notes/industry.md docs/notes/positions-results.md docs/notes/limits.md
 git commit -m "$(cat <<'EOF'
 Industry stage 2: built and sold counts as Industry, not as "Sold, never bought"
 
@@ -3871,6 +4228,9 @@ the branch both sides, `npm run deployed` until it says "Shipped." before the ne
 after shipping (implementers never touch D1 or ESI with a login); each finding goes in `docs/notes/industry.md` with its
 evidence, as the notes always do.
 
+- [ ] **The first job sighted has `first.me`** (correction 20): `SELECT data FROM records WHERE kind = 'jobs'` (read-only)
+  for a job first seen running; record in the note whether ESI's blueprints read listed its blueprint while the job ran
+  (the fresh read gave it) or the held doc stood in, so the fallback's need is known.
 - [ ] **The first real reads of the two routes**, by the browser (2026-08-18) and by the Worker (2025-08-26): the main's
   sync log lists `blueprints` and `industry`; `npx wrangler tail jita-ledger-cloud` shows no `industry jobs read failed`
   after the next `:07` archive; `SELECT char_id, COUNT(*) FROM records WHERE kind = 'jobs' GROUP BY char_id` has the main's
@@ -3881,7 +4241,9 @@ evidence, as the notes always do.
   copy job at an NPC station its `sccShare` (the tip): if it isn't the constant, the reading is wrong (Task 11's note says
   how to tell which), and a separate commit changes `SCC_RESEARCH` or `SCC_COPY` citing the job.
 - [ ] **The first industry journal entries**: which ref types a job writes and whether `context_id_type` is
-  `industry_job_id` (`SELECT data FROM records WHERE kind = 'journal' AND data LIKE '%industry%'`, read-only). If jobs'
-  fees don't name the job, Industry falls back to ESI's cost on each job, as built; say so in the note.
-- [ ] **Slots in use against the game**: the Industry window's "Jobs: N / M" beside the section's figure for the main; if a
-  ready job doesn't hold its slot in game, `slotsUsed` stops counting it and limits.md loses that line.
+  `industry_job_id` (`SELECT data FROM records WHERE kind = 'journal' AND data LIKE '%industry%'`, read-only), and whether
+  a job's SCC comes as `industry_security_tax` (counted in `JOB_FEE_REFS`). If jobs' fees don't name the job, Industry falls
+  back to ESI's cost on each job, as built; if the named entries don't sum to ESI's `cost`, say by how much in the note.
+- [ ] **Slots in use against the game** (the controller's ruling on risk 5: ready jobs count, the tip says so, checked in
+  game after shipping): the Industry window's "Jobs: N / M" beside the section's figure for the main; if a ready job doesn't
+  hold its slot in game, `slotsUsed` stops counting it and limits.md loses that line.
