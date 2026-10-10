@@ -7331,6 +7331,7 @@ console.log('\n--- Industry: the bundle (scripts/industry-bundle.mjs, CCP static
     [[37146, 2, 1, [['manufacturing', 'material', 7]], [0, -2, 0], [1, 1.9, 2.1]], [37147, 2, 2, [['manufacturing', 'material', 7]], [0, -2.4, 0], [1, 1.9, 2.1]]]);
   eq('    a copy-and-research rig helps every blueprint (no filter)', b.rigs.find((r) => r[0] === 37183)[3].every((m) => m[2] === 0), true);
   eq('    no Thukker or faction rig', b.rigs.every((r) => r[2] === 1 || r[2] === 2), true);
+  eq('    every rig is M, L or XL (a size-1 or size-5 modifier source left out)', b.rigs.every((r) => [2, 3, 4].includes(r[1])), true);
   eq('  the filter a medium ship rig reads', b.filters[7], ['Medium T1 Ships', [], [26, 28, 419, 463, 1201, 4902, 5087]]);
   eq('  the industry skills: rank, attributes, and the bonus each carries',
     [3380, 3388, 3387, 24625, 3406, 24624, 3402, 3403, 3409, 11442].map((s) => b.skills[s]),
