@@ -29,3 +29,18 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
   slot).
 - **Station services from `stationOperations`**: 2,259 NPC stations have a Factory and only 510 a Laboratory, so a quiet
   station to build in is often not one to research in.
+- **The rules match EVE Ref to the ISK on the research's item** (`src/lib/industry.ts`, `scripts/fixtures/industry-everef.json`).
+  The Large Trimark Armor Pump I, 65 runs at ME 10 / TE 20 in an Azbel in null-sec with a Tech I L-Set Equipment rig, 6.17%
+  index, 1% tax, Industry IV, Advanced Industry II: materials 4,606 / 3,995 / 3,108, 1,318.95 s a run (EVE Ref 21 min
+  58.953 s), job cost 17,213,916, EVE Ref's own figure, at ESI's adjusted prices at full precision. **The spec's
+  "17,213,889" was a slip in the research's write-up**: its own inputs give EVE Ref's figure. Copying 65 runs: base
+  3,151,808, SCC 126,072, tax 31,518. Invention at III / III / III: 0.4335, base 1,638,947.87 for the 2.3068 attempts a copy
+  takes, job cost 206,717.19; the Tech II pump at ME 2 / TE 4: 19 / 14 / 1 / 22 and 14,892 s.
+  - **Materials round per job**: `max(runs, ceil(round(runs × qty × (1 − ME/100) × structure × rig, 2)))`.
+  - **The structure's and rigs' cost bonuses come off the index part only**; the facility tax, SCC and Alpha tax are on
+    the base. A facility tax not known is `null` and left out of the total (the finder says so), never 0%.
+  - **A research job's time is the blueprint's own first-level time** (rank × 105 s, already in the static data) × the level
+    table's steps ÷ 105: never the rank again. Its cost has no rank (EVE University's table, the research's reading).
+  - **Invention has no science-skill time bonus** (EVE Ref: 23,400 × 0.94 × 0.8 = 17,596.8 s an attempt, Science V or not);
+    copying has Science's 5% a level. Tech II manufacturing gets each required skill's dogma 1982 (−1% a level).
+  - **Rigs of one kind on one product don't stack here**: the better is taken. No source says how two would combine.

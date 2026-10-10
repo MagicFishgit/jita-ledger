@@ -1,0 +1,391 @@
+{
+ "read": {
+  "everef": "api.everef.net/v1/industry/cost, 9 October 2026 (the research, .playwright-mcp/research/bpo/data/web/everef-25894.json and everef-26302.json)",
+  "esi": "ESI /markets/prices/ and /industry/systems/, 10 October 2026 05:44 UTC, no login, User-Agent jita-ledger (research), X-Compatibility-Date 2026-08-18 (.playwright-mcp/research/industry-spec/)"
+ },
+ "adjusted": {
+  "34": 3.1391360812857907,
+  "35": 12.62474258459444,
+  "36": 37.31464053687164,
+  "37": 160.63637642695616,
+  "38": 611.2547900094626,
+  "39": 1179.5044683332333,
+  "40": 1463.299751992639,
+  "11475": 594.1860127531901,
+  "20171": 62856.661782965326,
+  "20416": 115507.46216243802,
+  "25590": 1744.9639501794502,
+  "25601": 1915.2703214594012,
+  "25605": 30108.090017762468,
+  "25609": 123026.69376033236,
+  "25620": 16391.92698054715,
+  "25624": 1665059.3747332175
+ },
+ "systems": [
+  {
+   "cost_indices": [
+    {
+     "activity": "manufacturing",
+     "cost_index": 0.0394
+    },
+    {
+     "activity": "researching_time_efficiency",
+     "cost_index": 0.0359
+    },
+    {
+     "activity": "researching_material_efficiency",
+     "cost_index": 0.0396
+    },
+    {
+     "activity": "copying",
+     "cost_index": 0.0305
+    },
+    {
+     "activity": "invention",
+     "cost_index": 0.0273
+    },
+    {
+     "activity": "reaction",
+     "cost_index": 0.0014
+    }
+   ],
+   "solar_system_id": 30000119
+  },
+  {
+   "cost_indices": [
+    {
+     "activity": "manufacturing",
+     "cost_index": 0.0542
+    },
+    {
+     "activity": "researching_time_efficiency",
+     "cost_index": 0.0602
+    },
+    {
+     "activity": "researching_material_efficiency",
+     "cost_index": 0.0647
+    },
+    {
+     "activity": "copying",
+     "cost_index": 0.0373
+    },
+    {
+     "activity": "invention",
+     "cost_index": 0.0664
+    },
+    {
+     "activity": "reaction",
+     "cost_index": 0.0014
+    }
+   ],
+   "solar_system_id": 30000139
+  },
+  {
+   "cost_indices": [
+    {
+     "activity": "manufacturing",
+     "cost_index": 0.0709
+    },
+    {
+     "activity": "researching_time_efficiency",
+     "cost_index": 0.0784
+    },
+    {
+     "activity": "researching_material_efficiency",
+     "cost_index": 0.0726
+    },
+    {
+     "activity": "copying",
+     "cost_index": 0.0472
+    },
+    {
+     "activity": "invention",
+     "cost_index": 0.0664
+    },
+    {
+     "activity": "reaction",
+     "cost_index": 0.0014
+    }
+   ],
+   "solar_system_id": 30000140
+  },
+  {
+   "cost_indices": [
+    {
+     "activity": "manufacturing",
+     "cost_index": 0.1651
+    },
+    {
+     "activity": "researching_time_efficiency",
+     "cost_index": 0.0014
+    },
+    {
+     "activity": "researching_material_efficiency",
+     "cost_index": 0.0014
+    },
+    {
+     "activity": "copying",
+     "cost_index": 0.0014
+    },
+    {
+     "activity": "invention",
+     "cost_index": 0.0014
+    },
+    {
+     "activity": "reaction",
+     "cost_index": 0.0014
+    }
+   ],
+   "solar_system_id": 30000142
+  },
+  {
+   "cost_indices": [
+    {
+     "activity": "manufacturing",
+     "cost_index": 0.0695
+    },
+    {
+     "activity": "researching_time_efficiency",
+     "cost_index": 0.0736
+    },
+    {
+     "activity": "researching_material_efficiency",
+     "cost_index": 0.0725
+    },
+    {
+     "activity": "copying",
+     "cost_index": 0.0494
+    },
+    {
+     "activity": "invention",
+     "cost_index": 0.052
+    },
+    {
+     "activity": "reaction",
+     "cost_index": 0.0014
+    }
+   ],
+   "solar_system_id": 30000144
+  },
+  {
+   "cost_indices": [
+    {
+     "activity": "manufacturing",
+     "cost_index": 0.0892
+    },
+    {
+     "activity": "researching_time_efficiency",
+     "cost_index": 0.1303
+    },
+    {
+     "activity": "researching_material_efficiency",
+     "cost_index": 0.1222
+    },
+    {
+     "activity": "copying",
+     "cost_index": 0.1292
+    },
+    {
+     "activity": "invention",
+     "cost_index": 0.1505
+    },
+    {
+     "activity": "reaction",
+     "cost_index": 0.0829
+    }
+   ],
+   "solar_system_id": 30000772
+  },
+  {
+   "cost_indices": [
+    {
+     "activity": "manufacturing",
+     "cost_index": 0.097
+    },
+    {
+     "activity": "researching_time_efficiency",
+     "cost_index": 0.1629
+    },
+    {
+     "activity": "researching_material_efficiency",
+     "cost_index": 0.1641
+    },
+    {
+     "activity": "copying",
+     "cost_index": 0.1402
+    },
+    {
+     "activity": "invention",
+     "cost_index": 0.139
+    },
+    {
+     "activity": "reaction",
+     "cost_index": 0.0014
+    }
+   ],
+   "solar_system_id": 30001363
+  },
+  {
+   "cost_indices": [
+    {
+     "activity": "manufacturing",
+     "cost_index": 0.0612
+    },
+    {
+     "activity": "researching_time_efficiency",
+     "cost_index": 0.1002
+    },
+    {
+     "activity": "researching_material_efficiency",
+     "cost_index": 0.0947
+    },
+    {
+     "activity": "copying",
+     "cost_index": 0.0872
+    },
+    {
+     "activity": "invention",
+     "cost_index": 0.0794
+    },
+    {
+     "activity": "reaction",
+     "cost_index": 0.0595
+    }
+   ],
+   "solar_system_id": 30004807
+  }
+ ],
+ "t1": {
+  "input": {
+   "me": 10,
+   "te": 20,
+   "runs": 65,
+   "industry": 4,
+   "advanced_industry": 2,
+   "science": 5,
+   "structure_type_id": 35826,
+   "rig_id": [
+    37170
+   ],
+   "security": "NULL_SEC",
+   "facility_tax": 0.01,
+   "manufacturing_cost": 0.0617,
+   "copying_cost": 0
+  },
+  "manufacturing": {
+   "estimated_item_value": 157590413,
+   "facility_tax": 1575904,
+   "materials": {
+    "25590": {
+     "quantity": 3108,
+     "type_id": 25590,
+     "volume": 31.08,
+     "volume_per_unit": 0.01
+    },
+    "25601": {
+     "quantity": 4606,
+     "type_id": 25601,
+     "volume": 46.06,
+     "volume_per_unit": 0.01
+    },
+    "25605": {
+     "quantity": 3995,
+     "type_id": 25605,
+     "volume": 39.95,
+     "volume_per_unit": 0.01
+    }
+   },
+   "runs": 65,
+   "scc_surcharge": 6303617,
+   "system_cost_bonuses": -388933,
+   "system_cost_index": 9723328,
+   "time_per_run": "PT21M58.953S",
+   "total_job_cost": 17213916
+  },
+  "copying": {
+   "estimated_item_value": 157590413,
+   "facility_tax": 31518,
+   "job_cost_base": 3151808,
+   "runs": 65,
+   "scc_surcharge": 126072,
+   "time": "PT36H39M36S",
+   "total_job_cost": 157590
+  }
+ },
+ "t2": {
+  "input": {
+   "industry": 4,
+   "advanced_industry": 2,
+   "hydromagnetic_physics": 3,
+   "nanite_engineering": 3,
+   "amarr_encryption_methods": 3,
+   "structure_type_id": 35826,
+   "rig_id": [
+    37170
+   ],
+   "security": "NULL_SEC",
+   "facility_tax": 0.01,
+   "manufacturing_cost": 0.0617,
+   "invention_cost": 0.0793
+  },
+  "manufacturing": {
+   "estimated_item_value": 35524196,
+   "materials": {
+    "11475": {
+     "quantity": 1,
+     "type_id": 11475,
+     "volume": 0.04,
+     "volume_per_unit": 0.04
+    },
+    "25609": {
+     "quantity": 14,
+     "type_id": 25609,
+     "volume": 0.14,
+     "volume_per_unit": 0.01
+    },
+    "25620": {
+     "quantity": 22,
+     "type_id": 25620,
+     "volume": 0.22,
+     "volume_per_unit": 0.01
+    },
+    "25624": {
+     "quantity": 19,
+     "type_id": 25624,
+     "volume": 0.19,
+     "volume_per_unit": 0.01
+    }
+   },
+   "me": 2,
+   "te": 4,
+   "time": "PT4H8M12S",
+   "runs": 1
+  },
+  "invention": {
+   "estimated_item_value": 81947396.54,
+   "job_cost_base": 1638947.87,
+   "probability": 0.4335,
+   "runs": 2.306805074971165,
+   "system_cost_index": 129968.63,
+   "system_cost_bonuses": -5198.85,
+   "facility_tax": 16389.39,
+   "scc_surcharge": 65558.02,
+   "total_job_cost": 206717.19,
+   "avg_time_per_copy": "PT11H16M32.387S",
+   "materials": {
+    "20171": {
+     "quantity": 6.920415224913495,
+     "type_id": 20171,
+     "volume": 0.69,
+     "volume_per_unit": 0.1
+    },
+    "20416": {
+     "quantity": 6.920415224913495,
+     "type_id": 20416,
+     "volume": 0.69,
+     "volume_per_unit": 0.1
+    }
+   }
+  }
+ }
+}

@@ -7347,5 +7347,96 @@ console.log('\n--- Industry: the bundle (scripts/industry-bundle.mjs, CCP static
   eq('    sorted, so a rebuild of one build changes nothing', [watchF.watch.every((t, i, a) => !i || a[i - 1] < t), b.bps.every((x, i, a) => !i || a[i - 1][0] < x[0])], [true, true]);
 }
 
+console.log('\n--- Industry: the rules (industry.ts), on EVE Ref\'s own figures ---');
+{
+  // Each rule against EVE Ref's industry API on the research's Large Trimark Armor Pump I (an Azbel in null-sec with a
+  // Tech I L-Set Equipment rig, UALX-3's 6.17% index, 1% facility tax) and its Tech II, with ESI's adjusted prices of 10
+  // October 2026 at full precision (scripts/fixtures/industry-everef.json).
+  const I = await import('../src/lib/industry.ts');
+  const fsI = await import('node:fs');
+  const fx = JSON.parse(fsI.readFileSync(new URL('./fixtures/industry-everef.json', import.meta.url), 'utf8'));
+  const ix = I.indexBundle(JSON.parse(fsI.readFileSync(new URL('../src/data/industry.json', import.meta.url), 'utf8')));
+  const near = (label, got, want, tol) => { if (!(Math.abs(got - want) <= tol)) { failed++; console.log(`  FAIL ${label}: got ${got}, want ${want} ± ${tol}`); } };
+  const LTAP = ix.bp.get(25895), LTAP2 = ix.bp.get(26303);
+  const azbel = I.structureBonus(ix, 'azbel');
+  const rig = I.rigFor(ix, [37170], 'azbel', 'null', 25894, 'manufacturing');
+  const r6 = (b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, Math.round(v * 1e6) / 1e6]));
+  eq('  the Azbel\'s role bonus, and the Tech I L-Set Equipment rig in null-sec on a large armor rig', [azbel, r6(rig)], [{ material: 0.99, cost: 0.96, time: 0.8 }, { material: 0.958, time: 0.58, cost: 1 }]);
+
+  // Materials, as EVE Ref read them: 4,606 / 3,995 / 3,108 for 65 runs at ME 10.
+  const mats = I.materialsFor(LTAP[2][1], 65, 10, azbel.material, rig.material);
+  eq('  a day\'s 65 runs at ME 10 use 4,606 / 3,995 / 3,108', mats, [[25601, 4606], [25605, 3995], [25590, 3108]]);
+  eq('    as EVE Ref read them', mats.map(([t, q]) => fx.t1.manufacturing.materials[t].quantity === q), [true, true, true]);
+  eq('    rounded per job, not per run (65 × ceil(83 × 0.8536) would be 4,615)', mats[0][1], 4606);
+  eq('    a material needed once a run never falls under the runs', I.materialsFor([[11475, 1]], 1, 2, 0.99, 0.958), [[11475, 1]]);
+
+  // Time: 4,500 × 0.80 (TE 20) × 0.84 (Industry IV) × 0.94 (Advanced Industry II) × 0.80 × 0.58 = 1,318.95 s; EVE Ref 21 min 58.953 s.
+  const sk1 = { 3380: 4, 3388: 2 };
+  const t1 = I.jobTime(LTAP[2][0], 20, I.manufacturingSkills(ix, LTAP[2][2], sk1), azbel.time, rig.time);
+  eq('  a run takes 1,318.95 s, and a day holds 65 of them', [Math.round(t1 * 100) / 100, I.runsPerDay(t1)], [1318.95, 65]);
+
+  // Job cost: 65 × EIV × (6.17% × 0.96 + 1% + 4%): EVE Ref 17,213,916.
+  const eiv1 = I.eivOf(LTAP[2][1], fx.adjusted);
+  near('  the estimated item value of 65 runs, as EVE Ref read it', eiv1 * 65, fx.t1.manufacturing.estimated_item_value, 1);
+  const job = I.manufacturingCost(eiv1, 65, { index: 0.0617, structure: azbel.cost, rig: 1, tax: 0.01, clone: 'omega' });
+  near('  the job costs 17,213,916, as EVE Ref charges it (the spec\'s 17,213,889 doesn\'t follow from its own inputs)', job.total, fx.t1.manufacturing.total_job_cost, 30);
+  near('    its index part', job.index, fx.t1.manufacturing.system_cost_index, 1);
+  near('    the Azbel\'s 4% off the index part only', job.bonus, fx.t1.manufacturing.system_cost_bonuses, 1);
+  near('    the facility tax', job.tax, fx.t1.manufacturing.facility_tax, 1);
+  near('    the SCC', job.scc, fx.t1.manufacturing.scc_surcharge, 1);
+  eq('    no Alpha tax for Omega', job.alpha, 0);
+  eq('    an Alpha pays 0.25% of the base more; a clone not known leaves it out, never 0', [Math.round(I.manufacturingCost(eiv1, 65, { index: 0.0617, structure: 0.96, rig: 1, tax: 0.01, clone: 'alpha' }).total - job.total), I.manufacturingCost(eiv1, 65, { index: 0.0617, structure: 0.96, rig: 1, tax: 0.01, clone: 'unknown' }).alpha], [393976, null]);
+  const untaxed = I.manufacturingCost(eiv1, 65, { index: 0.0617, structure: 0.96, rig: 1, tax: null, clone: 'omega' });
+  eq('    a facility tax not known is null, and left out of the total', [untaxed.tax, Math.round(job.total - untaxed.total)], [null, Math.round(job.tax)]);
+  eq('  an adjusted price missing leaves the EIV unknown, never a smaller one', I.eivOf(LTAP[2][1], { 25601: 1915.27, 25605: 30108.09 }), null);
+
+  // Copying the BPO for 65 runs: base 3,151,808, SCC 126,072, tax 31,518 (EVE Ref; copying index 0 there).
+  const copy = I.copyCost(eiv1, 65, 1, { index: 0, structure: azbel.cost, rig: 1, tax: 0.01, clone: 'omega' });
+  eq('  copying 65 runs: base 3,151,808, SCC 126,072, tax 31,518, as EVE Ref charges', [copy.base, copy.scc, copy.tax].map(Math.round), [fx.t1.copying.job_cost_base, fx.t1.copying.scc_surcharge, fx.t1.copying.facility_tax]);
+  eq('    and takes 36 h 39 min 36 s at Science V, Advanced Industry II in an Azbel', I.copyTime(ix, LTAP[3][0], 65, 1, { 3402: 5, 3388: 2 }, azbel.time, 1), 131976);
+
+  // Invention at Hydromagnetic Physics III, Nanite Engineering III, Amarr Encryption Methods III: 0.4335; base 1,638,947.87
+  // on an EIV of 81,947,396.54 (the Tech II product's 35,524,196 a run, for 2.3068 attempts).
+  const p = I.inventionChance(LTAP[6][3][0][2], 3, 3, 3);
+  eq('  invention\'s chance at III, III and III: 0.4335, as EVE Ref', p, fx.t2.invention.probability);
+  const eiv2 = I.eivOf(LTAP2[2][1], fx.adjusted);
+  near('  the Tech II product\'s EIV a run', eiv2, fx.t2.manufacturing.estimated_item_value, 1);
+  const inv = I.inventionCost(eiv2, 1 / p, { index: 0.0793, structure: azbel.cost, rig: 1, tax: 0.01, clone: 'omega' });
+  near('  invention\'s base for the attempts one copy takes: 1,638,947.87', inv.base, fx.t2.invention.job_cost_base, 0.1);
+  near('    and its job cost, 206,717.19', inv.total, fx.t2.invention.total_job_cost, 0.1);
+  // EVE Ref's input had Science V: no science skill shortens invention, so it must change nothing.
+  near('    an attempt takes 17,596.8 s, a copy 11 h 16 min 32.4 s, Science V or not', I.inventionTime(ix, LTAP[6][0], { 3388: 2, 3402: 5 }, azbel.time, 1) / p, 40592.387, 0.01);
+
+  // Tech II manufacturing at ME 2 / TE 4: 19 / 14 / 1 / 22, 4 h 8 min 12 s (the science skills' 1% a level, from dogma 1982).
+  eq('  the Tech II pump at ME 2: 19 / 14 / 1 / 22, as EVE Ref read them', I.materialsFor(LTAP2[2][1], 1, 2, azbel.material, rig.material), [[25624, 19], [25609, 14], [11475, 1], [25620, 22]]);
+  const sk2 = { 3380: 4, 3388: 2, 11442: 3, 11443: 3 };
+  eq('    and takes 14,892 s, 4 h 8 min 12 s', Math.round(I.jobTime(LTAP2[2][0], 4, I.manufacturingSkills(ix, LTAP2[2][2], sk2), azbel.time, rig.time)), 14892);
+
+  // ME research on the level table: ME 8 is about 18% of ME 10's time.
+  const me10 = I.researchTime(ix, LTAP[4][0], 'me', 0, 10, { 3409: 5, 3388: 5 }, 1, 1);
+  const me8 = I.researchTime(ix, LTAP[4][0], 'me', 0, 8, { 3409: 5, 3388: 5 }, 1, 1);
+  eq('  ME 0 → 10 at Metallurgy V and Advanced Industry V in a station: 2,448,000 s (28.3 days); ME 8: 432,750.94 s', [me10, me8], [2448000, 432750.9375]);
+  eq('    ME 8 takes 17.7% of ME 10\'s time (the research\'s "about 18%")', Math.round((me8 / me10) * 1000) / 10, 17.7);
+  eq('    TE 0 → 20 (level 10) reads Research, not Metallurgy', [I.researchTime(ix, LTAP[5][0], 'te', 0, 10, { 3403: 5, 3388: 5 }, 1, 1), I.researchTime(ix, LTAP[5][0], 'te', 0, 10, { 3409: 5, 3388: 5 }, 1, 1)], [2448000, 3264000]);
+  const rc = I.researchCost(eiv1, 0, 10, { index: 0.0725, structure: 1, rig: 1, tax: I.NPC_FACILITY_TAX, clone: 'omega' });
+  eq('  ME 0 → 10 at Perimeter\'s 7.25% ME index in a station: base 118,221,673, 2% SCC, 11,231,059 in all', [Math.round(rc.base), Math.round(rc.scc), Math.round(rc.total)], [118221673, 2364433, 11231059]);
+
+  eq('  slots: Mass Production V and Advanced V make 11 factory slots; Laboratory Operation IV 5 science slots; none, one each',
+    [I.slots(ix, { 3387: 5, 24625: 5, 3406: 4 }), I.slots(ix, {})], [{ factory: 11, science: 5 }, { factory: 1, science: 1 }]);
+  // The rig filter: a Medium T1 rig helps a cruiser and not a frigate, fits a Raitaru and not an Azbel, and doubles in null-sec.
+  eq('  the M-Set Basic Medium Ship ME rig: a Caracal in high-sec 0.98, a Rifter nothing, on an Azbel nothing, in null-sec 0.958',
+    [I.rigFor(ix, [37146], 'raitaru', 'high', 621, 'manufacturing').material, I.rigFor(ix, [37146], 'raitaru', 'high', 587, 'manufacturing').material,
+      I.rigFor(ix, [37146], 'azbel', 'high', 621, 'manufacturing').material, I.rigFor(ix, [37146], 'raitaru', 'null', 621, 'manufacturing').material], [0.98, 1, 1, 0.958]);
+  eq('    Tech I and Tech II together on one product: the better is taken', I.rigFor(ix, [37146, 37147], 'raitaru', 'high', 621, 'manufacturing').material, 0.976);
+  eq('    an NPC station takes no rig', I.rigFor(ix, [37146], 'npc', 'high', 621, 'manufacturing'), I.NO_BONUS);
+  eq('  security bands as reprocess.ts reads them', [0.45, 0.449, 0.1, 0, -0.2].map(I.secBand), ['high', 'low', 'low', 'null', 'null']);
+  eq('  a structure\'s kind from its type: an Azbel, a Fortizar, an Athanor (no bonuses here)', [35826, 35833, 35835].map(I.kindOfType), ['azbel', 'fortizar', 'other']);
+  const idx = I.parseIndices(fx.systems);
+  eq('  ESI\'s indices by system: UALX-3\'s manufacturing 6.12%, ME research 9.47%; a system missing an activity isn\'t listed',
+    [idx[30004807].manufacturing, idx[30004807].researchMaterial, I.parseIndices([{ solar_system_id: 1, cost_indices: [{ activity: 'manufacturing', cost_index: 0.1 }] }])[1]], [0.0612, 0.0947, undefined]);
+  eq('  the named constants the copy states', [I.SCC, I.SCC_COPY, I.SCC_RESEARCH, I.ALPHA_TAX, I.NPC_FACILITY_TAX, I.LEVEL_MOD.length, I.MAX_SLOTS], [0.04, 0.04, 0.02, 0.0025, 0.0025, 11, 11]);
+  eq('  the bundle indexed: the pump\'s blueprint by its product, its Tech II invented from it', [ix.byProduct.get(25894)?.[0], ix.t2.has(26303), ix.inventedFrom.get(26303), ix.t2.has(25895), ix.t2.size], [25895, true, 25895, false, 1020]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
