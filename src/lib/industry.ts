@@ -55,7 +55,9 @@ export function indexBundle(b: IndustryBundle): Indexed {
   for (const x of b.bps) {
     const inv = x[6];
     if (!inv) continue;
-    for (const p of inv[3]) if (ix.bp.has(p[0])) { ix.t2.add(p[0]); ix.inventedFrom.set(p[0], x[0]); }
+    // A product several Tech I blueprints invent (Capital Hull Repairer II: the Tech I, a meta 1 and a meta 2) is invented from
+    // the lowest blueprint ID: the bundle is in ID order, and the Tech I original comes first (checked on the one such product).
+    for (const p of inv[3]) if (ix.bp.has(p[0])) { ix.t2.add(p[0]); if (!ix.inventedFrom.has(p[0])) ix.inventedFrom.set(p[0], x[0]); }
   }
   return ix;
 }

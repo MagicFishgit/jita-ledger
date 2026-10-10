@@ -70,8 +70,10 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
       if (r.day || !r.missing) continue;
       // Every place it was allowed to sell says why not ("no freight route to Jita; not read at UALX-3 yet"), not only the first.
       const own = r.missing === 'noSale' && r.sales.length ? [...new Set(r.sales.map((x) => x.why).filter((w): w is string => !!w))].map(lcfirst).join('; ') || null : null;
-      const key = own ? `noSale:${own}` : r.missing;
-      const e = n.get(key) ?? { n: 0, said: own ? () => `can’t be sold: ${own}` : r.missing === 'noBook' && f.hub && doc.sell !== 'jita' ? (one) => `${one ? 'has' : 'have'} no Jita book this morning and no price at ${f.hub!.short}` : MISSING_SAID[r.missing] };
+      // A Tech II row says why its invention can't be costed, by that reason (no Laboratory, no index at the lab, a datacore nobody lists, skills not read).
+      const invWhy = r.missing === 'noInvention' && r.invention?.why ? lcfirst(r.invention.why) : null;
+      const key = own ? `noSale:${own}` : invWhy ? `noInvention:${invWhy}` : r.missing;
+      const e = n.get(key) ?? { n: 0, said: own ? () => `can’t be sold: ${own}` : invWhy ? () => `Tech II can’t be costed: ${invWhy}` : r.missing === 'noBook' && f.hub && doc.sell !== 'jita' ? (one) => `${one ? 'has' : 'have'} no Jita book this morning and no price at ${f.hub!.short}` : MISSING_SAID[r.missing] };
       e.n++; n.set(key, e);
     }
     return [...n.values()].map((e) => `${units(e.n)} ${e.said(e.n === 1)}`).join(', ');

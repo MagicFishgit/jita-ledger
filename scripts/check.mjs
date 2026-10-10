@@ -7927,11 +7927,16 @@ console.log('\n--- Industry: Tech II through invention (industryRank.ts, industr
   eq('  the skills it asks for: Industry V to build Tech II, Armor Rigging III; the sciences and encryption trained', row.lacking, [{ id: 3380, level: 5 }, { id: 26253, level: 3 }]);
   const su = K.startUp(row, { bpo: 1_250_000, research: 0, held: { units: (t) => (t === 20171 ? 4 : 0), cost: () => 0 } });
   near('  start-up counts a day\'s datacores beside the materials, less those held', su.materials, row.materialCost + 6.9204152 * 99_830 + (6.9204152 - 4) * 93_970, 1);
-  eq('    and the shopping list buys the rest', K.shoppingList(row, { units: (t) => (t === 20171 ? 4 : 0), cost: () => 0 }).filter((x) => x.type === 20171).map((x) => +x.qty.toFixed(4)), [2.9204]);
+  eq('    and the shopping list buys the rest', K.shoppingList(row, { units: (t) => (t === 20171 ? 4 : 0), cost: () => 0 }).filter((x) => x.type === 20171).map((x) => +x.qty.toFixed(4)), [3]);
 
   // The chance by which skill is which: a science counts a thirtieth a level, the encryption skill a fortieth.
   const at = (sk) => K.buildRow({ ...input, skills: { 3380: 4, 3388: 2, 3402: 5, ...sk } }).invention.chance;
-  eq('  the chance at unequal levels: a science at IV 38.53%, the encryption skill at IV 37.40%, nothing trained 34%', [+at({ 11443: 4 }).toFixed(6), +at({ 23087: 4 }).toFixed(6), at({})], [0.385333, 0.374, 0.34]);
+  // EVE needs each of the three at I to invent at all: one untrained is worked out at I, and the row lists it as needed.
+  eq('  the chance at unequal levels (each at least I): a science at IV 40.52%, the encryption skill at IV 39.67%, nothing trained 37.06%',
+    [+at({ 11443: 4 }).toFixed(6), +at({ 23087: 4 }).toFixed(6), +at({}).toFixed(6)], [+(0.34 * (1 + 5 / 30 + 1 / 40)).toFixed(6), +(0.34 * (1 + 2 / 30 + 4 / 40)).toFixed(6), +(0.34 * (1 + 2 / 30 + 1 / 40)).toFixed(6)]);
+  const untrained = K.buildRow({ ...input, skills: { 3380: 4, 3388: 2, 3402: 5, 11443: 2 } });
+  eq('    the skills still to train to I are listed (never a chance at level 0), and the row lacks them, so rung 6 can\'t call it buildable',
+    [untrained.invention.needs, row.invention.needs, untrained.lacking.map((x) => x.id).filter((id) => [11442, 23087].includes(id))], [[11442, 23087], [], [11442, 23087]]);
   eq('    the encryption skill found by its name', [K.isEncryption(ix, 23087), K.isEncryption(ix, 11443)], [true, false]);
 
   // Where invention can't be costed: said, and the row not priced.
@@ -7958,6 +7963,24 @@ console.log('\n--- Industry: Tech II through invention (industryRank.ts, industr
   const npc = { kind: 'npc', rigs: [], band: 'high', tax: 0.0025, index: idx[30000119] };
   const cerRow = K.buildRow({ ...input, bp: cer, site: npc, lab: npc, adjusted: adj, skills: { 3380: 5, 3388: 2, 3402: 5 }, noShipsToJita: false,
     market: (t) => (t === 11993 ? { jita: { ask: 300e6, bid: 280e6, bids: [{ price: 280e6, volume: 10 }], at: '', live: false }, stats: { spark: Array(30).fill(20), highs14: Array(14).fill(310e6), buyerShare: 0.5 } } : { jita: { ask: 1000, bid: 900, bids: [], at: '', live: false }, stats: null }) });
+  // A lab-limited row builds only what the lab invents for: its tax and its freight are on that, not on a full day's job.
+  const cerTaxless = K.buildRow({ ...input, bp: cer, site: { ...npc, tax: null }, lab: npc, adjusted: adj, skills: { 3380: 5, 3388: 2, 3402: 5 }, noShipsToJita: false, market: (t) => (t === 11993 ? { jita: { ask: 300e6, bid: 280e6, bids: [{ price: 280e6, volume: 10 }], at: '', live: false }, stats: { spark: Array(30).fill(20), highs14: Array(14).fill(310e6), buyerShare: 0.5 } } : { jita: { ask: 1000, bid: 900, bids: [], at: '', live: false }, stats: null }) });
+  near('  each 1% of an untyped facility tax is on what the lab lets the factory build, not a full day\'s job', cerTaxless.taxPerPct, cerTaxless.job.base * cerTaxless.makes / (cerTaxless.runs * cerTaxless.perRun) * 0.01, 0.01);
+  eq('    which is under a full day\'s job', cerTaxless.taxPerPct < cerTaxless.job.base / Math.max(1, cerTaxless.runs * cerTaxless.time / 86400) * 0.01, true);
+  const route = { kind: 'route', f: { perM3: 900, collateral: 0.007875, min: 50_000_000_000 }, name: 'Brave Freight' };
+  const cerFr = K.buildRow({ ...input, bp: cer, site: npc, lab: npc, adjusted: adj, skills: { 3380: 5, 3388: 2, 3402: 5 }, noShipsToJita: false, legs: { jita: route, home: null }, market: (t) => (t === 11993 ? { jita: { ask: 300e6, bid: 280e6, bids: [{ price: 280e6, volume: 10 }], at: '', live: false }, stats: { spark: Array(30).fill(20), highs14: Array(14).fill(310e6), buyerShare: 0.5 } } : { jita: { ask: 1000, bid: 900, bids: [], at: '', live: false }, stats: null }) });
+  const wk = cerFr.materials.map((m) => m.qty * 7 * cerFr.makes / (cerFr.runs * cerFr.perRun)), vol = (m) => ix.b.types[m.type]?.[3] ?? 0;
+  const raw = cerFr.materials.reduce((a, m, i) => a + wk[i] * (900 * vol(m) + 0.007875 * 1000), 0), scale = Math.max(1, 50_000_000_000 / raw);
+  eq('  freight\'s minimum is spread over the week\'s materials the lab lets it use: each material\'s delivered price is its ask plus the scaled rate',
+    cerFr.materials.every((m) => Math.abs(m.price - (1000 + scale * (900 * vol(m) + 0.007875 * 1000))) < 1e-6), true);
+  // A ten-run copy (Miner II): a success is ten units, and a unit costs a tenth of the datacores, jobs and copies.
+  const minerBp = ix.bp.get(784), minerT1 = ix.bp.get(ix.inventedFrom.get(784));
+  const adjM = Object.fromEntries([...minerBp[2][1], ...minerT1[2][1]].map(([t]) => [t, 1000]));
+  const minerRow = K.buildRow({ ...input, bp: minerBp, site: npc, lab: npc, adjusted: adjM, skills: { 3380: 5, 3388: 2, 3402: 5 }, noShipsToJita: false, market: (t) => (t === 482 ? { jita: { ask: 900_000, bid: 800_000, bids: [{ price: 800_000, volume: 10 }], at: '', live: false }, stats: { spark: Array(30).fill(200), highs14: Array(14).fill(950_000), buyerShare: 0.5 } } : { jita: { ask: 1000, bid: 900, bids: [], at: '', live: false }, stats: null }) });
+  const mi = minerRow.invention;
+  eq('  a ten-run copy: a success is ten units and a unit a tenth of its datacores, invention jobs and copies', [mi.runsPerCopy, mi.unitsPerCopy, minerRow.runs], [10, 10, 10]);
+  near('    its cost a unit', mi.perUnit * 10, mi.datacoreCost + mi.job.total + mi.copy.total, 1e-6);
+  eq('  a product several Tech I blueprints invent comes from the lowest ID, the Tech I original (Capital Hull Repairer II: 41627)', [ix.inventedFrom.get(41630), ix.b.types[41627][0]], [41627, 'Capital Hull Repairer I Blueprint']);
   eq('  the lab binds a Tech II cruiser: it makes what one lab slot invents for, not the half a day the factory could', [cerRow.makes === cerRow.invention.labPerDay, cerRow.makes < 0.5, cerRow.day.limit], [true, true, 'invention']);
 
   // The ladder's rung 6 opens Tech II rows: their own sciences and encryption skill are the rung's, their building isn't.
@@ -7966,6 +7989,7 @@ console.log('\n--- Industry: Tech II through invention (industryRank.ts, industr
   eq('  rung 6 opens the pump II with its sciences untrained, only with Armor Rigging III, and no other rung opens it',
     [L.rowsOpened(ix, [t2row], 't2', { 3380: 5, 26253: 3 }, 'omega').length, L.rowsOpened(ix, [t2row], 't2', { 3380: 5 }, 'omega').length, L.rowsOpened(ix, [t2row], 'npc', { 3380: 5, 26253: 3 }, 'omega').length], [1, 0, 0]);
 
+  eq('  rung 6 leaves Tech I rows out, and every other rung leaves Tech II rows out', [L.rowsOpened(ix, [{ bp: 25895, product: 25894, day: { profit: 1e6 } }], 't2', { 3380: 5, 26253: 3 }, 'omega').length, L.rowsOpened(ix, [{ ...t2row, bp: 26303 }], 'research', { 3380: 5, 26253: 3 }, 'omega').length], [0, 0]);
   eq('  the finder costs 1,012 Tech II blueprints through invention (no capital hull), apart from its 1,652 Tech I',
     [K.inventionBlueprints(ix).length, K.inventionBlueprints(ix).some((bp) => K.finderBlueprints(ix).includes(bp))], [1012, false]);
 

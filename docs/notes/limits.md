@@ -230,3 +230,6 @@ State these rather than letting them be discovered:
 - **Tech II's invention cost is EVE Ref's formula checked on a one-run rig copy.** For a ten-run module copy the job is
   taken, as the spec reads it, on one run's EIV an attempt; that case hasn't been checked against a real job. Decryptors
   and reactions aren't modelled, and each Tech II row assumes one lab slot inventing for its one factory slot.
+- **A Tech II row is one job a day**, as every row is (a job is a day of runs): a one-run copy builds one hull a day though a
+  factory slot could take two or three if jobs were installed more often, so Tech II rows read below what a factory slot
+  and a lab slot can make then. The detail says so where it binds ("One job a day").

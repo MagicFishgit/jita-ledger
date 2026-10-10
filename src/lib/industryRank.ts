@@ -277,7 +277,10 @@ export const isEncryption = (ix: Indexed, skill: number): boolean => (ix.b.types
  */
 export type Invention = {
   from: number; chance: number | null; attempts: number | null; runsPerCopy: number; unitsPerCopy: number;
+  /** Levels as the chance is worked out at: an untrained one counts as I, since EVE needs each at I to invent at all (`needs`). */
   sciences: { id: number; level: number }[]; encryption: { id: number; level: number } | null;
+  /** The sciences and the encryption skill not trained to I: invention isn't possible until they are. */
+  needs: number[];
   /** Each datacore an attempt; and a day's, sourced like a material (qty: a day's, at the units a day made). */
   perAttempt: { type: number; qty: number }[];
   datacores: MaterialPick[];
@@ -334,7 +337,8 @@ export function buildRow(o: RowInput): Row {
   // One factory slot fed by one lab slot: Tech II makes no more a day than the lab invents for.
   const makes = lab && lab.labPerDay != null ? Math.min(made / days, lab.labPerDay) : made / days;
   const need = materialsFor(m[1], runs, me, sb.material, rig.material);
-  const week = (qty: number) => (qty * 7) / days;
+  // A week's units bought: the job's, scaled by how much of the day's job the lab lets the factory run (Tech I: all of it).
+  const week = (qty: number) => (qty * 7 * makes) / made;
   const lines = (price: (mk: Market) => number | null | undefined) => need.map(([type, qty]) => ({ volume: ix.b.types[type]?.[3] ?? 0, price: price(o.market(type)) ?? 0, units: week(qty) }));
   const jitaLeg = batchLeg(o.legs.jita, lines((mk) => mk.jita?.ask));
   const homeLeg = o.legs.home ? batchLeg(o.legs.home, lines((mk) => mk.home?.sell)) : null;
@@ -379,7 +383,7 @@ export function buildRow(o: RowInput): Row {
     bp: bp[0], product: prod.type, perRun: prod.perRun, ship, time, runs, makes, materials, materialCost, eiv, job, costUnit, sales, sale, day, invention,
     // Whole when nothing is left out of any job's cost: the build's, and a Tech II's invention and copies at the lab.
     costKnown: job ? job.tax != null && job.alpha != null && (!invention?.job || (invention.job.tax != null && invention.job.alpha != null && invention.copy?.tax != null && invention.copy.alpha != null)) : null,
-    taxPerPct: siteTaxed || labTaxed > 0 ? ((siteTaxed ? job!.base / days : 0) + labTaxed) * 0.01 : null,
+    taxPerPct: siteTaxed || labTaxed > 0 ? ((siteTaxed ? (job!.base * makes) / made : 0) + labTaxed) * 0.01 : null,
     brokerPerPct: day && sale?.place === 'home' && !sale.brokerKnown && sale.list != null ? day.list * sale.list * 0.01 : null,
     lacking: lackingAll(m[2], t1, o.skills), missing,
     shipsKeptHome: ship && !jitaOk && o.sell !== 'home' && !!pm.jita,
@@ -395,7 +399,7 @@ function lackingAll(made: [number, number][], t1: BundleBp | undefined, skills: 
 }
 
 type InventionLab = {
-  inv: BpActivity; sciences: { id: number; level: number }[]; encryption: { id: number; level: number } | null;
+  inv: BpActivity; sciences: { id: number; level: number }[]; encryption: { id: number; level: number } | null; needs: number[];
   chance: number | null; attempts: number | null; runsPerCopy: number; unitsPerCopy: number; labSeconds: number | null; labPerDay: number | null;
 };
 
@@ -407,11 +411,14 @@ function inventionLab(o: RowInput, t1: BundleBp, inv: BpActivity, invented: numb
   const { ix } = o;
   const cp = t1[3] as BpActivity | 0;
   const read = Object.keys(o.skills).length > 0;
-  const level = (id: number) => Math.max(0, Math.min(5, o.skills[id] ?? 0));
+  const have = (id: number) => Math.max(0, Math.min(5, o.skills[id] ?? 0));
+  // EVE needs each of the three at I to invent at all: an untrained one is worked out at I and listed in `needs`.
+  const level = (id: number) => Math.max(1, have(id));
   const listed = inv[2].filter(([id]) => !NOT_SCIENCE.has(id));
   const enc = listed.find(([id]) => isEncryption(ix, id));
   const sciences = listed.filter(([id]) => !isEncryption(ix, id)).map(([id]) => ({ id, level: level(id) }));
   const encryption = enc ? { id: enc[0], level: level(enc[0]) } : null;
+  const needs = read ? [...listed.map(([id]) => id)].filter((id) => have(id) < 1) : [];
   const chance = read ? inventionChance(invented[2] ?? 0, sciences[0]?.level ?? 0, sciences[1]?.level ?? 0, encryption?.level ?? 0) : null;
   const attempts = chance == null ? null : chance > 0 ? 1 / chance : Infinity;
   const runsPerCopy = invented[1];
@@ -420,7 +427,7 @@ function inventionLab(o: RowInput, t1: BundleBp, inv: BpActivity, invented: numb
   const rigT = (a: 'invention' | 'copying') => (lab ? rigFor(ix, lab.rigs, lab.kind, lab.band, null, a).time : 1);
   const labSeconds = attempts == null ? null : attempts * (inventionTime(ix, inv[0], o.skills, sb.time, rigT('invention')) + (cp ? copyTime(ix, cp[0], 1, 1, o.skills, sb.time, rigT('copying')) : 0));
   const unitsPerCopy = runsPerCopy * perRun;
-  return { inv, sciences, encryption, chance, attempts, runsPerCopy, unitsPerCopy, labSeconds, labPerDay: labSeconds == null ? null : Number.isFinite(labSeconds) && labSeconds > 0 ? (DAY_S / labSeconds) * unitsPerCopy : 0 };
+  return { inv, sciences, encryption, needs, chance, attempts, runsPerCopy, unitsPerCopy, labSeconds, labPerDay: labSeconds == null ? null : Number.isFinite(labSeconds) && labSeconds > 0 ? (DAY_S / labSeconds) * unitsPerCopy : 0 };
 }
 
 /** A Tech II row's invention, priced: datacores sourced like materials, the invention jobs and the one-run copies at the lab. */
@@ -453,7 +460,7 @@ function inventionCosts(o: RowInput, t1: BundleBp, l: InventionLab, eivT2: numbe
       : job == null || copy == null ? 'no adjusted price for it' : null;
   return {
     from: t1[0], chance: l.chance, attempts: l.attempts, runsPerCopy: l.runsPerCopy, unitsPerCopy: l.unitsPerCopy,
-    sciences: l.sciences, encryption: l.encryption, perAttempt: l.inv[1].map(([type, qty]) => ({ type, qty })), datacores, datacoreCost, job, copy,
+    sciences: l.sciences, encryption: l.encryption, needs: l.needs, perAttempt: l.inv[1].map(([type, qty]) => ({ type, qty })), datacores, datacoreCost, job, copy,
     perUnit: why ? null : (datacoreCost! + job!.total + copy!.total) / l.unitsPerCopy,
     labSeconds: l.labSeconds, labPerDay: l.labPerDay, noRoute, why,
   };
@@ -556,7 +563,8 @@ export function startUp(row: Row, o: { bpo: number | null; research: number | nu
 
 /** What to buy for a day's job beyond what's held, per source: each line the units, the delivered price and the source picked. */
 export function shoppingList(row: Row, held: Held): { type: number; qty: number; price: number | null; source: Source | null }[] {
-  return [...row.materials, ...(row.invention?.datacores ?? [])].map((x) => ({ type: x.type, qty: Math.max(0, x.qty - Math.max(0, held.units(x.type))), price: x.price, source: x.pick })).filter((x) => x.qty > 0);
+  // Whole units to buy: a datacore's a day is an expected value (3 × 2.3068 attempts), and a list can't buy 6.92 (materials are whole).
+  return [...row.materials, ...(row.invention?.datacores ?? [])].map((x) => ({ type: x.type, qty: Math.ceil(x.qty - Math.max(0, held.units(x.type)) - 1e-9), price: x.price, source: x.pick })).filter((x) => x.qty > 0);
 }
 
 /** The morning scan's NPC sellers of every bundle blueprint in The Forge (`industry_npc`): price and stations, cheapest first. */

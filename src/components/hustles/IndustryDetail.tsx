@@ -61,6 +61,9 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
   const bpo = w.state === 'forge' ? w.price : null;
   const su = startUp(row, { bpo, research: inv ? 0 : assumed?.cost ?? null, held });
   const shop = shoppingList(row, held);
+  // Datacores held (anywhere) are said apart from what's held at the site: the tile counts only the site's.
+  const coreHeld = inv ? inv.datacores.reduce((a, d) => a + Math.min(d.qty, Math.max(0, held.units(d.type))), 0) : 0;
+  const matHeld = su.heldUnits - coreHeld;
   const jitaLines = shop.filter((x) => x.source === 'jita');
   const station = useStationSaid(w.state === 'forge' ? w.stations : [], ix, graph);
   const b = bpoSaid(w, finder.npc, (id) => station(id));
@@ -91,6 +94,9 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
   const researchLeft = lab && (lab.site.tax == null || input.clone === 'unknown')
     ? `; research leaves out ${[lab.site.tax == null ? 'the lab’s tax, not typed' : '', input.clone === 'unknown' ? 'the Alpha tax, clone state not read' : ''].filter(Boolean).join(' and ')}` : '';
   const job = row.job;
+  // A job is a day of runs, so a copy of few runs builds few a day though the slot could run more jobs: said where it binds.
+  const slotCould = inv ? (DAY_S / row.time) * row.perRun : 0;
+  const oneJob = inv && row.time > 0 && slotCould > row.runs * row.perRun * 1.05 && row.runs < DAY_S / row.time ? slotCould : 0;
   const sb = structureBonus(ix, site.kind);
   const rig = rigFor(ix, site.rigs, site.kind, facts.band, row.product, 'manufacturing');
   const sale = row.sale;
@@ -163,7 +169,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
           <Tiles min={180} items={[
             {
               l: 'Chance', v: inv.chance != null ? pct(inv.chance, 1) : '–',
-              n: inv.chance == null ? `${c.isMain ? 'Your' : `${c.name}’s`} skills aren’t read, so the chance isn’t known` : `${[...inv.sciences, ...(inv.encryption ? [inv.encryption] : [])].map((x) => `${name(x.id)} ${x.level}`).join(', ')} · ${inv.attempts != null ? inv.attempts.toFixed(2) : '–'} attempts a copy of ${units(inv.runsPerCopy)} run${inv.runsPerCopy === 1 ? '' : 's'}, at ME ${T2_ME} / TE ${T2_TE}`,
+              n: inv.chance == null ? `${c.isMain ? 'Your' : `${c.name}’s`} skills aren’t read, so the chance isn’t known` : `${inv.needs.length ? `Needs ${inv.needs.map(name).join(', ')} I to invent: at I each, ` : ''}${[...inv.sciences, ...(inv.encryption ? [inv.encryption] : [])].map((x) => `${name(x.id)} ${x.level}`).join(', ')} · ${inv.attempts != null ? inv.attempts.toFixed(2) : '–'} attempts a copy of ${units(inv.runsPerCopy)} run${inv.runsPerCopy === 1 ? '' : 's'}, at ME ${T2_ME} / TE ${T2_TE}`,
               tip: 'Invention’s chance: the base × (1 + both sciences’ levels ÷ 30 + the encryption skill’s ÷ 40) (EVE University).\n\n• Each attempt takes a run of a Tech I copy and its datacores, success or not.\n• Decryptors, which change the chance, runs, ME and TE, aren’t modelled.',
             },
             {
@@ -180,6 +186,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
             },
           ]} />
           {(lab?.site.tax == null || input.clone === 'unknown') && inv.job && <p className="note small" style={{ margin: 0 }} data-industry="invention-left-out">Invention’s jobs and the copies leave out{lab?.site.tax == null ? ' the lab’s facility tax, which isn’t typed' : ''}{lab?.site.tax == null && input.clone === 'unknown' ? ' and' : ''}{input.clone === 'unknown' ? ' the Alpha tax, since the clone state isn’t read' : ''}.</p>}
+          {oneJob && <p className="note small" style={{ margin: 0 }} data-industry="one-job">One job a day: a {units(inv.runsPerCopy)}-run copy builds {units(row.runs * row.perRun)}, though the slot could take {(oneJob).toFixed(1)} a day if you install jobs more often.</p>}
           <p className="note small" style={{ margin: 0 }}>A Tech II copy can’t be researched: it builds at ME {T2_ME} / TE {T2_TE}, as invented. Decryptors aren’t modelled, nor are reactions: what they make is bought.</p>
         </div>
       )}
@@ -240,7 +247,11 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
 
       <Tiles min={180} items={[
         { l: 'Start-up', v: iskBig(su.total), n: su.total == null ? (bpo == null ? 'no NPC price for the original' : su.research == null ? 'research not worked out' : 'a material can’t be priced') : inv ? `the Tech I original ${iskBig(su.bpo)} · a day’s materials and datacores ${iskBig(su.materials)}` : `original ${iskBig(su.bpo)} · research to ME ${input.me} / TE ${input.te} ${su.research ? iskBig(su.research) : 'none'} · a day’s materials ${iskBig(su.materials)}${su.research ? researchLeft : ''}` },
-        { l: 'Held here', v: heldKnown ? units(su.heldUnits) : '–', n: su.heldUnits ? `cost you ${su.heldCost != null ? iskBig(su.heldCost) : '– (not all bought: no cost)'}; counted in start-up and the list, never in the profit a day` : !heldKnown ? (loc == null ? 'nothing known at a home typed by you' : 'assets not read yet') : 'none of its materials held here' },
+        {
+          l: 'Held here', v: heldKnown ? units(matHeld) : '–',
+          n: (matHeld ? `cost you ${su.heldCost != null ? iskBig(su.heldCost) : '– (not all bought: no cost)'}${coreHeld ? ' (with the datacores)' : ''}; counted in start-up and the list, never in the profit a day` : !heldKnown ? (loc == null ? 'nothing known at a home typed by you' : 'assets not read yet') : 'none of its materials held here')
+            + (inv ? ` · datacores held anywhere: ${c.stock ? units(coreHeld) : '–'}, counted in start-up` : ''),
+        },
         { l: 'Payback', v: payback(bpo, row.day?.profit) != null ? `${payback(bpo, row.day?.profit)!.toFixed(1)} days` : '–', n: `${inv ? 'the Tech I original' : 'the original'} at NPCs’ price, out of one slot’s profit a day` },
       ]} />
 

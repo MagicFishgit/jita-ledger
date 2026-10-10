@@ -244,3 +244,11 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
   - **Rung 6's "pays now"** is the Tech II rows the character could build with the item's own sciences and encryption skill,
     at its sciences' chance now, and only when the rung is met and no row shown lacks a skill (as the other rungs): otherwise
     "Not buildable yet. Once <whose> skills cover this, these would make …, priced at <whose> skills today".
+  - **Fix round 1 (review of Task 8)**: the shopping list buys whole units (a datacore's a day is an expected value, 6.92, and
+    the clipboard must match the list; start-up keeps the expected value). A lab-limited row builds only what the lab invents
+    for, so its tax a day and the week's freight basis scale by `makes / made` (the Cerberus at a Raitaru with tax not typed
+    read 129,258 ISK a day where 45,783 is right). **EVE needs each of the two sciences and the encryption skill at I to
+    invent at all**: an untrained one is worked out at I, listed as needed ("Needs X I to invent: at I each"), and counts in
+    the row's `lacking`, so rung 6 and Can build now never call it buildable. `inventedFrom` takes the lowest blueprint ID where
+    several Tech I blueprints invent one product (Capital Hull Repairer II: the Tech I, not the meta Capital IEF Compact). The
+    detail says datacores held anywhere apart from what's held at the site, and a Tech II row unpriced says why on the count line.
