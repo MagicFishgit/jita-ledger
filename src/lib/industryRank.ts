@@ -3,9 +3,9 @@ import { median, paceDay, withoutOwn } from './prospects';
 import { buyerShare, EVEN_SPLIT, tradingSplit, type BookSold, type SplitFrom } from './split';
 import type { BookLevel, HistRow, ProspectStats } from './types';
 import {
-  DAY_S, eivOf, jobTime, lacking, manufacturingCost, manufacturingSkills, materialsFor, productOf, researchCost, researchTime,
-  rigFor, runsPerDay, structureBonus, type BpActivity, type BundleBp, type Clone, type Indexed, type IndustryIndex,
-  type JobCost, type SecBand, type SiteKind,
+  copyCost, copyTime, DAY_S, eivOf, inventionChance, inventionCost, inventionTime, jobTime, lacking, manufacturingCost, manufacturingSkills,
+  materialsFor, productOf, researchCost, researchTime, rigFor, runsPerDay, SKILL, structureBonus, type BpActivity, type BundleBp,
+  type Clone, type Indexed, type IndustryIndex, type JobCost, type SecBand, type SiteKind,
 } from './industry';
 
 /**
@@ -208,8 +208,11 @@ export function sellAt(place: 'jita' | 'home', m: Market, o: { broker: number | 
   };
 }
 
-/** One factory slot's day: units onto listings and into bids, what they make, and whether the market or the slot limits it. */
-export type SlotDay = { list: number; bids: number; units: number; profit: number; limit: 'market' | 'slot' };
+/**
+ * One factory slot's day: units onto listings and into bids, what they make, and whether the market, the slot or (Tech
+ * II) the lab slot inventing for it limits it.
+ */
+export type SlotDay = { list: number; bids: number; units: number; profit: number; limit: 'market' | 'slot' | 'invention' };
 
 /**
  * What one slot earns a day selling at one place: the better-paying side first, up to your share of its pace, then the
@@ -234,8 +237,8 @@ export function slotDay(makes: number, sale: Sale, costUnit: number, share: numb
   return { list: n.list, bids: n.bids, units, profit, limit: units >= makes - 1e-9 ? 'slot' : 'market' };
 }
 
-/** Why a row isn't priced: no Jita book this morning; indices, adjusted prices or a material's price not known; no freight route to bring materials from Jita (`noRoute`: pick one); nowhere it may be sold. */
-export type Missing = 'noBook' | 'noIndex' | 'noAdjusted' | 'noRoute' | 'noMaterials' | 'noSale';
+/** Why a row isn't priced: no Jita book this morning; indices, adjusted prices or a material's price not known; no freight route to bring materials (or Tech II's datacores) from Jita (`noRoute`: pick one); nowhere it may be sold; (Tech II) its invention can't be costed. */
+export type Missing = 'noBook' | 'noIndex' | 'noAdjusted' | 'noRoute' | 'noMaterials' | 'noSale' | 'noInvention';
 
 export type RowSite = { kind: SiteKind; rigs: readonly number[]; band: SecBand; tax: number | null; index: IndustryIndex | null };
 export type RowInput = {
@@ -253,6 +256,38 @@ export type RowInput = {
   noShipsToJita: boolean; jitaJumps: number | null;
   mines: boolean; hubName: string | null;
   now: number;
+  /** Where research, copying and invention run (industrySites' labFor): the site, or the nearest Laboratory; null when none can be reached. Tech II's invention needs it. */
+  lab?: LabSite | null;
+};
+
+/** A Tech II copy as invented: ME 2, TE 4 (EVE University, "Invention"). Decryptors, which change them, aren't modelled. */
+export const T2_ME = 2, T2_TE = 4;
+/** Skills an invention lists that aren't its sciences: Capital Ship Construction and Outpost Construction gate some capital modules'. */
+const NOT_SCIENCE = new Set<number>([SKILL.capitalShips, 3400]);
+/** An encryption skill, by its name: the static data has no flag for it, and its level counts a quarter less than a science's. */
+export const isEncryption = (ix: Indexed, skill: number): boolean => (ix.b.types[skill]?.[0] ?? '').endsWith('Encryption Methods');
+
+/**
+ * A Tech II unit's invention, a success at a time: the chance at the builder's skills (the two sciences a thirtieth a
+ * level, the encryption skill a fortieth), attempts = 1 / chance, each attempt a one-run Tech I copy (the copy loses a run
+ * an attempt) and its datacores, at the lab's index and bonuses. A success is a copy of `runsPerCopy` runs at ME 2 / TE 4.
+ * `labPerDay` is what one lab slot invents for a day, copying included. Costs not known (skills not read, no lab, no index
+ * there, a datacore nobody lists, no adjusted price) stay null, with `why`: skills not read are never level 0, so the
+ * chance itself is null then.
+ */
+export type Invention = {
+  from: number; chance: number | null; attempts: number | null; runsPerCopy: number; unitsPerCopy: number;
+  sciences: { id: number; level: number }[]; encryption: { id: number; level: number } | null;
+  /** Each datacore an attempt; and a day's, sourced like a material (qty: a day's, at the units a day made). */
+  perAttempt: { type: number; qty: number }[];
+  datacores: MaterialPick[];
+  /** A success's datacores, invention jobs and one-run copies; and all of it a unit. */
+  datacoreCost: number | null; job: JobCost | null; copy: JobCost | null; perUnit: number | null;
+  /** Lab seconds a success (its copies and attempts), and units a day one lab slot invents for; null with the chance. */
+  labSeconds: number | null; labPerDay: number | null;
+  /** Datacores no freight route from Jita can bring (`noRoute`'s sibling). */
+  noRoute: boolean;
+  why: string | null;
 };
 
 export type Row = {
@@ -262,6 +297,8 @@ export type Row = {
   eiv: number | null; job: JobCost | null;
   costUnit: number | null;
   sales: Sale[]; sale: Sale | null; day: SlotDay | null;
+  /** Tech II: its invention, costed into costUnit; null for Tech I. */
+  invention: Invention | null;
   /** When the facility tax isn't known: what each 1% of it would cost a day. */
   taxPerPct: number | null;
   /** Whether the job's cost is whole: false while the facility tax or the Alpha tax (clone state) isn't known, so the profit is "before" it; null when the job isn't costed. */
@@ -281,14 +318,22 @@ export function buildRow(o: RowInput): Row {
   const prod = productOf(bp)!;
   const t = ix.b.types[prod.type];
   const ship = t?.[2] === 6;
+  // Tech II: built from an invented copy, at ME 2 / TE 4, a job no longer than the copy's runs.
+  const from = ix.inventedFrom.get(bp[0]);
+  const t1 = from != null ? ix.bp.get(from) : undefined;
+  const t1Inv = t1 && t1[6] ? (t1[6] as BpActivity) : null;
+  const invented = t1Inv ? t1Inv[3].find((p) => p[0] === bp[0]) ?? null : null;
+  const me = invented ? T2_ME : o.me, te = invented ? T2_TE : o.te;
   const sb = structureBonus(ix, o.site.kind);
   const rig = rigFor(ix, o.site.rigs, o.site.kind, o.site.band, prod.type, 'manufacturing');
-  const time = jobTime(m[0], o.te, manufacturingSkills(ix, m[2], o.skills), sb.time, rig.time);
-  const runs = runsPerDay(time, o.copyRuns);
+  const time = jobTime(m[0], te, manufacturingSkills(ix, m[2], o.skills), sb.time, rig.time);
+  const runs = runsPerDay(time, invented ? o.copyRuns ?? invented[1] : o.copyRuns);
   const days = Math.max(1, (runs * time) / DAY_S);
   const made = runs * prod.perRun;
-  const makes = made / days;
-  const need = materialsFor(m[1], runs, o.me, sb.material, rig.material);
+  const lab = t1 && t1Inv && invented ? inventionLab(o, t1, t1Inv, invented, prod.perRun) : null;
+  // One factory slot fed by one lab slot: Tech II makes no more a day than the lab invents for.
+  const makes = lab && lab.labPerDay != null ? Math.min(made / days, lab.labPerDay) : made / days;
+  const need = materialsFor(m[1], runs, me, sb.material, rig.material);
   const week = (qty: number) => (qty * 7) / days;
   const lines = (price: (mk: Market) => number | null | undefined) => need.map(([type, qty]) => ({ volume: ix.b.types[type]?.[3] ?? 0, price: price(o.market(type)) ?? 0, units: week(qty) }));
   const jitaLeg = batchLeg(o.legs.jita, lines((mk) => mk.jita?.ask));
@@ -305,7 +350,8 @@ export function buildRow(o: RowInput): Row {
   const materialCost = materials.every((x) => x.price != null) ? materials.reduce((s, x) => s + x.qty * x.price!, 0) : null;
   const eiv = o.adjusted ? eivOf(m[1], o.adjusted) : null;
   const job = eiv != null && o.site.index ? manufacturingCost(eiv, runs, { index: o.site.index.manufacturing, structure: sb.cost, rig: rig.cost, tax: o.site.tax, clone: o.clone }) : null;
-  const costUnit = materialCost != null && job ? (materialCost + job.total) / made : null;
+  const invention = t1 && lab ? inventionCosts(o, t1, lab, eiv, makes, jitaLeg, homeLeg) : null;
+  const costUnit = materialCost != null && job && (!invented || invention?.perUnit != null) ? (materialCost + job.total) / made + (invention?.perUnit ?? 0) : null;
 
   const pm = o.market(prod.type);
   const jitaOk = shipToJita({ ship, noShipsToJita: o.noShipsToJita, band: o.site.band, jitaJumps: o.jitaJumps });
@@ -319,18 +365,97 @@ export function buildRow(o: RowInput): Row {
     const d = s.why ? null : slotDay(makes, s, costUnit, o.share);
     if (d && (!day || d.profit > day.profit)) { sale = s; day = d; }
   }
-  // Materials nobody can bring in because no freight route from Jita is picked say so (the user's first run at a null-sec home),
-  // not "a material nobody lists".
-  const noRoute = materialCost == null && materials.some((x) => !x.pick && x.options.some((q) => q.source === 'jita' && q.why === NO_ROUTE_WHY));
+  // The lab binds when it invents for fewer than the factory slot makes and every one of those sells.
+  if (day && lab && lab.labPerDay != null && lab.labPerDay < made / days && day.limit === 'slot') day = { ...day, limit: 'invention' };
+  // Materials (or a Tech II's datacores) nobody can bring in because no freight route from Jita is picked say so (the user's
+  // first run at a null-sec home), not "a material nobody lists".
+  const noRoute = (materialCost == null && materials.some((x) => !x.pick && x.options.some((q) => q.source === 'jita' && q.why === NO_ROUTE_WHY))) || !!invention?.noRoute;
   const missing: Missing | null = !pm.jita && !pm.home ? 'noBook' : !o.site.index ? 'noIndex' : eiv == null ? 'noAdjusted'
-    : noRoute ? 'noRoute' : materialCost == null ? 'noMaterials' : !day ? 'noSale' : null;
+    : noRoute ? 'noRoute' : materialCost == null ? 'noMaterials' : invented && invention?.perUnit == null ? 'noInvention' : !day ? 'noSale' : null;
+  // A tax not typed: the manufacturing job's, and the lab's too where the lab is the site, each 1% of their bases a day.
+  const labTaxed = invention?.job && invention.copy && invention.job.tax == null ? ((invention.job.base + invention.copy.base) * makes) / invention.unitsPerCopy : 0;
+  const siteTaxed = job != null && o.site.tax == null;
   return {
-    bp: bp[0], product: prod.type, perRun: prod.perRun, ship, time, runs, makes, materials, materialCost, eiv, job, costUnit, sales, sale, day,
-    costKnown: job ? job.tax != null && job.alpha != null : null,
-    taxPerPct: job && o.site.tax == null ? (job.base * 0.01) / days : null,
+    bp: bp[0], product: prod.type, perRun: prod.perRun, ship, time, runs, makes, materials, materialCost, eiv, job, costUnit, sales, sale, day, invention,
+    // Whole when nothing is left out of any job's cost: the build's, and a Tech II's invention and copies at the lab.
+    costKnown: job ? job.tax != null && job.alpha != null && (!invention?.job || (invention.job.tax != null && invention.job.alpha != null && invention.copy?.tax != null && invention.copy.alpha != null)) : null,
+    taxPerPct: siteTaxed || labTaxed > 0 ? ((siteTaxed ? job!.base / days : 0) + labTaxed) * 0.01 : null,
     brokerPerPct: day && sale?.place === 'home' && !sale.brokerKnown && sale.list != null ? day.list * sale.list * 0.01 : null,
-    lacking: lacking(m[2], o.skills), missing,
+    lacking: lackingAll(m[2], t1, o.skills), missing,
     shipsKeptHome: ship && !jitaOk && o.sell !== 'home' && !!pm.jita,
+  };
+}
+
+/** The skills a row asks for: its manufacturing's, and for Tech II its Tech I's invention and copying too, each at the highest level asked. */
+function lackingAll(made: [number, number][], t1: BundleBp | undefined, skills: Record<number, number>): { id: number; level: number }[] {
+  const want = new Map<number, number>();
+  const lists = [made, ...(t1 ? [(t1[6] || null)?.[2] ?? [], (t1[3] || null)?.[2] ?? []] : [])];
+  for (const list of lists) for (const [id, l] of list) want.set(id, Math.max(want.get(id) ?? 0, l));
+  return lacking([...want], skills);
+}
+
+type InventionLab = {
+  inv: BpActivity; sciences: { id: number; level: number }[]; encryption: { id: number; level: number } | null;
+  chance: number | null; attempts: number | null; runsPerCopy: number; unitsPerCopy: number; labSeconds: number | null; labPerDay: number | null;
+};
+
+/**
+ * A Tech II row's lab: its chance, attempts and lab time, before any price (so the slot's units a day can be capped first).
+ * With no skills read the chance is null: an unread skill is never level 0.
+ */
+function inventionLab(o: RowInput, t1: BundleBp, inv: BpActivity, invented: number[], perRun: number): InventionLab {
+  const { ix } = o;
+  const cp = t1[3] as BpActivity | 0;
+  const read = Object.keys(o.skills).length > 0;
+  const level = (id: number) => Math.max(0, Math.min(5, o.skills[id] ?? 0));
+  const listed = inv[2].filter(([id]) => !NOT_SCIENCE.has(id));
+  const enc = listed.find(([id]) => isEncryption(ix, id));
+  const sciences = listed.filter(([id]) => !isEncryption(ix, id)).map(([id]) => ({ id, level: level(id) }));
+  const encryption = enc ? { id: enc[0], level: level(enc[0]) } : null;
+  const chance = read ? inventionChance(invented[2] ?? 0, sciences[0]?.level ?? 0, sciences[1]?.level ?? 0, encryption?.level ?? 0) : null;
+  const attempts = chance == null ? null : chance > 0 ? 1 / chance : Infinity;
+  const runsPerCopy = invented[1];
+  const lab = o.lab ?? null;
+  const sb = structureBonus(ix, lab?.kind ?? 'npc');
+  const rigT = (a: 'invention' | 'copying') => (lab ? rigFor(ix, lab.rigs, lab.kind, lab.band, null, a).time : 1);
+  const labSeconds = attempts == null ? null : attempts * (inventionTime(ix, inv[0], o.skills, sb.time, rigT('invention')) + (cp ? copyTime(ix, cp[0], 1, 1, o.skills, sb.time, rigT('copying')) : 0));
+  const unitsPerCopy = runsPerCopy * perRun;
+  return { inv, sciences, encryption, chance, attempts, runsPerCopy, unitsPerCopy, labSeconds, labPerDay: labSeconds == null ? null : Number.isFinite(labSeconds) && labSeconds > 0 ? (DAY_S / labSeconds) * unitsPerCopy : 0 };
+}
+
+/** A Tech II row's invention, priced: datacores sourced like materials, the invention jobs and the one-run copies at the lab. */
+function inventionCosts(o: RowInput, t1: BundleBp, l: InventionLab, eivT2: number | null, makes: number, jitaLeg: Leg, homeLeg: Leg | null): Invention {
+  const { ix } = o;
+  const lab = o.lab ?? null;
+  const attempts = l.attempts != null && Number.isFinite(l.attempts) ? l.attempts : null;
+  const perDay = attempts != null ? (makes / l.unitsPerCopy) * attempts : 0;
+  const datacores: MaterialPick[] = l.inv[1].map(([type, qty]) => {
+    const mk = o.market(type), mt = ix.b.types[type];
+    return {
+      ...sourceMaterial({
+        type, weekNeed: qty * perDay * 7, volume: mt?.[3] ?? 0, mineable: false, mines: false,
+        jita: mk.jita ? { ask: mk.jita.ask, bid: mk.jita.bid, patient: mk.stats?.lows14 ? reachedBid(mk.stats.lows14) : null } : null,
+        jitaLeg, home: mk.home ?? null, homeLeg, hubName: o.hubName, homeRead: mk.homeRead,
+      }),
+      qty: qty * perDay,
+    };
+  });
+  const perAttempt = l.inv[1].reduce<number | null>((sum, [, qty], i) => (sum == null || datacores[i].price == null ? null : sum + qty * datacores[i].price!), 0);
+  const eivT1 = o.adjusted && t1[2] ? eivOf((t1[2] as BpActivity)[1], o.adjusted) : null;
+  const sb = structureBonus(ix, lab?.kind ?? 'npc');
+  const at = (a: 'invention' | 'copying') => (lab?.index ? { index: lab.index[a], structure: sb.cost, rig: rigFor(ix, lab.rigs, lab.kind, lab.band, null, a).cost, tax: lab.tax, clone: o.clone } : null);
+  const job = eivT2 != null && attempts != null && at('invention') ? inventionCost(eivT2, attempts, at('invention')!) : null;
+  const copy = eivT1 != null && attempts != null && at('copying') ? copyCost(eivT1, 1, attempts, at('copying')!) : null;
+  const datacoreCost = perAttempt != null && attempts != null ? perAttempt * attempts : null;
+  const noRoute = datacores.some((d) => !d.pick && d.options.some((q) => q.source === 'jita' && q.why === NO_ROUTE_WHY));
+  const why = l.chance == null ? 'skills not read, so the chance of success isn’t known' : !lab ? 'no Laboratory can be reached' : !lab.index ? 'no index for the lab’s system'
+    : attempts == null ? 'no chance of success at these skills' : noRoute ? 'no freight route from Jita to bring the datacores' : datacoreCost == null ? 'a datacore nobody lists where it can be bought'
+      : job == null || copy == null ? 'no adjusted price for it' : null;
+  return {
+    from: t1[0], chance: l.chance, attempts: l.attempts, runsPerCopy: l.runsPerCopy, unitsPerCopy: l.unitsPerCopy,
+    sciences: l.sciences, encryption: l.encryption, perAttempt: l.inv[1].map(([type, qty]) => ({ type, qty })), datacores, datacoreCost, job, copy,
+    perUnit: why ? null : (datacoreCost! + job!.total + copy!.total) / l.unitsPerCopy,
+    labSeconds: l.labSeconds, labPerDay: l.labPerDay, noRoute, why,
   };
 }
 
@@ -359,6 +484,14 @@ export function finderBlueprints(ix: Indexed): BundleBp[] {
   return ix.b.bps.filter((bp) => {
     const p = productOf(bp);
     return !!p && !!bp[2] && !ix.t2.has(bp[0]) && productKind(ix, p.type) !== 'capital';
+  });
+}
+
+/** Tech II blueprints the finder costs through invention: every one invented from a Tech I (the 68 old originals on the market too), no capital hull. */
+export function inventionBlueprints(ix: Indexed): BundleBp[] {
+  return ix.b.bps.filter((bp) => {
+    const p = productOf(bp);
+    return !!p && !!bp[2] && ix.inventedFrom.has(bp[0]) && productKind(ix, p.type) !== 'capital';
   });
 }
 
@@ -409,7 +542,7 @@ export type Held = { units: (type: number) => number; cost: (type: number, units
  */
 export function startUp(row: Row, o: { bpo: number | null; research: number | null; held: Held }): { bpo: number | null; research: number | null; materials: number | null; heldUnits: number; heldCost: number | null; total: number | null } {
   let materials = 0, heldUnits = 0, heldCost: number | null = 0, known = true;
-  for (const x of row.materials) {
+  for (const x of [...row.materials, ...(row.invention?.datacores ?? [])]) {
     const h = Math.min(x.qty, Math.max(0, o.held.units(x.type)));
     heldUnits += h;
     if (h > 0) { const c = o.held.cost(x.type, h); heldCost = heldCost != null && c != null ? heldCost + c : null; }
@@ -423,7 +556,7 @@ export function startUp(row: Row, o: { bpo: number | null; research: number | nu
 
 /** What to buy for a day's job beyond what's held, per source: each line the units, the delivered price and the source picked. */
 export function shoppingList(row: Row, held: Held): { type: number; qty: number; price: number | null; source: Source | null }[] {
-  return row.materials.map((x) => ({ type: x.type, qty: Math.max(0, x.qty - Math.max(0, held.units(x.type))), price: x.price, source: x.pick })).filter((x) => x.qty > 0);
+  return [...row.materials, ...(row.invention?.datacores ?? [])].map((x) => ({ type: x.type, qty: Math.max(0, x.qty - Math.max(0, held.units(x.type))), price: x.price, source: x.pick })).filter((x) => x.qty > 0);
 }
 
 /** The morning scan's NPC sellers of every bundle blueprint in The Forge (`industry_npc`): price and stations, cheapest first. */

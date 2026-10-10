@@ -11,7 +11,8 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
   `src/data/industry.json` (the tab's chunk: 2,693 blueprints, 5,670 types in 602 named groups, 106 rigs, 2,305 stations,
   57 skills; 1,056 KB, 145 KB gzipped, against a budget of 1.2 MB and 160 KB), `industryEiv.json` (every published blueprint's ME 0
   materials, 4,039, for stage 2's first-sight EIV: nothing reads it in stage 1), and `industryTypes.json` (the cloud's watch
-  set, 1,858 types, and the 1,673 blueprints whose NPC sellers the scan keeps).
+  set, 2,916 types: every Tech I and Tech II product, their materials and the datacores (1,858 before Tech II), and the 1,673
+  blueprints whose NPC sellers the scan keeps).
 - **Which blueprints**: every published blueprint on the market whose product is on the market (1,741), and every one
   they invent (1,020 Tech II). 68 are both (the old Tech II originals: Helios, Crow, Raptor…): they're Tech II here,
   costed through invention, since NPCs never sold them and an original you'd buy would be a fiction.
@@ -112,8 +113,8 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
 - **A security not known is its own band** (`secBand` returns `'unknown'` for NaN, undefined or null; Task 2's review). Null-sec
   has the best rig multiplier, so a home typed as a system the map lacks must not take it: `rigFor` gives an unknown band no
   rig bonus, `siteFacts` carries it, and the sites table shows no security for it.
-- **The scan's watch set** (`worker/src/scan.ts`, `src/data/industryTypes.json`; 1,858 types in stage 1: every Tech I
-  product and its materials). Read with the morning scan whatever its candidate gate (one-sided, or NPC-sold in Jita), so
+- **The scan's watch set** (`worker/src/scan.ts`, `src/data/industryTypes.json`; 2,916 types: every Tech I and Tech II
+  product, their materials and the datacores (1,858 before Tech II)). Read with the morning scan whatever its candidate gate (one-sided, or NPC-sold in Jita), so
   the finder has a Jita book and history for them; one with no Jita order still gets no row, and the finder says "No Jita
   book this morning". They are appended after the trading candidates, so a run that hits the time budget drops them first.
   **Marked `watchOnly` on the stats, not the book** (a correction to the spec): `overScan` rebuilds a
@@ -213,3 +214,33 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
     header of rungs 1 and 2 and rung 3's closing line name the facility tax or a hub's broker fee not typed and the Alpha tax
     when the clone isn't read, as Build's rows do. The rows are priced at the character's own skills while "opened" by the
     rung's: a rung's profit is what its rows make today for this character, not for one who has just reached the rung.
+- **Tech II through invention** (`industryRank.ts`: `inventionLab`, `inventionCosts`, `inventionBlueprints`; `labFor` in
+  industrySites.ts; the finder's Tech choice). The 1,012 invention products that aren't capital hulls are ranked beside Tech
+  I: attempts = 1 / chance at the builder's skills (the sciences a thirtieth a level, the encryption skill, found by its name,
+  a fortieth; Capital Ship Construction and Outpost Construction aren't sciences), each attempt a one-run Tech I copy and
+  its datacores (sourced like materials), invention's job on 2% of the Tech II EIV an attempt and the copy's on 2% of the
+  Tech I's, at the lab (`labFor`: the site, else the nearest Laboratory); then built at **ME 2 / TE 4, whatever the finder
+  assumes**, a job no longer than the copy's runs (one for ships and rigs, ten for most modules). **Checked to the ISK on
+  EVE Ref's pump II** (9 October 2026, its own prices): materials 55,328,908.30, the job 3,880,379, datacores 1,341,176.47 and
+  invention jobs 206,717.19 a copy (EVE Ref's 1,547,893.66 together), the copies 5,593.23 at a copying index of 0 (EVE Ref
+  leaves them out of its invention figure; the app counts them), profit 1,451,914.04 less the copies a unit listed one tick
+  under 65,270,000.
+  - **One factory slot fed by one lab slot**: a row makes no more a day than one lab slot invents for, copying included
+    ("the lab slot inventing for it limits it"). The Cerberus (a two-day build, 26% a try) makes what the lab gives,
+    not half a hull a day.
+  - **Its original is the Tech I one**, "to copy from", with payback on it; its detail has the invention's tiles and no
+    level table ("A Tech II copy can't be researched"), and steps that copy and invent before building.
+  - **Datacores held count wherever they're held** (an R&D agent's sit at its station), in start-up and the list.
+  - **Not modelled**, and said: decryptors (they change chance, runs, ME and TE), and reactions (what they make is bought).
+  - **Not known stays not known**: skills not read give no chance (null, "–", said; never computed at level 0), no
+    Laboratory, no index at the lab's system, a datacore nobody lists, no adjusted price and no freight route from Jita for
+    the datacores (`noRoute`, as for materials) each leave the row unpriced with its reason (`Missing` `noInvention`). A lab
+    tax not typed, or an Alpha tax whose clone state isn't read, is left out of the invention's jobs and the copies and said
+    (`Row.costKnown` covers them, `taxPerPct` adds the lab's 1%, the detail's `data-industry="invention-left-out"` note).
+  - **A slot's day under one unit is said as time between** ("about one every 2 days", `everyDays`, as Task 6's cell does),
+    for what sells and for what the row makes, so a Tech II ship's half a hull a day reads "<1 / <1".
+  - **The watch set grew to 2,916** (Tech II products, their materials, the datacores): the morning scan reads up to 1,058
+    more types watch-only, Goonmetrics 59 calls a hub instead of 38.
+  - **Rung 6's "pays now"** is the Tech II rows the character could build with the item's own sciences and encryption skill,
+    at its sciences' chance now, and only when the rung is met and no row shown lacks a skill (as the other rungs): otherwise
+    "Not buildable yet. Once <whose> skills cover this, these would make …, priced at <whose> skills today".

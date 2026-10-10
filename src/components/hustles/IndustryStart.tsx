@@ -122,7 +122,6 @@ function RungPays({ k, met, c, ix, f, factory, structure }: { k: RungKey; met: b
   if (k === 'copy') return <p className="note small" style={{ margin: 0 }}>Copies sell on contracts, which this tab doesn’t read yet: the finder prices what you build from them.</p>;
   if (k === 'home') return <p className="note small" style={{ margin: 0 }}>{structure ? `${structure}: its tax, rigs and broker fee are what you typed under Build’s Where you build.` : 'A structure’s tax, rigs and broker fee aren’t known until you dock: add your home under Build’s Where you build, and type them.'}</p>;
   if (k === 'capital') return <p className="note small" style={{ margin: 0 }}>Capitals sell on contracts, not the market, so the finder doesn’t price them.</p>;
-  if (k === 't2') return null;
   if (!sk) return null;
   if (f.waiting) return <p className="note small" style={{ margin: 0 }} data-pays="waiting">{f.site ? f.waiting.text : 'Pick where you build first: add a site on the Build tab, under Where you build.'}</p>;
   if (!f.input || !f.rows.length) return <p className="note small" style={{ margin: 0 }} data-pays="working">Working out what pays…</p>;
@@ -133,14 +132,16 @@ function RungPays({ k, met, c, ix, f, factory, structure }: { k: RungKey; met: b
   const buildable = (rows: readonly { lacking: unknown[] }[]) => met && rows.every((r) => r.lacking.length === 0);
   // A figure that leaves something out says so, as the Build tab's rows do (an untyped facility tax or hub broker fee, an unread Alpha tax).
   const before = (rows: Parameters<typeof beforeSaid>[0]) => { const b = beforeSaid(rows, f.hub?.short); return b.length ? `, before ${b.join(' and ')}` : ''; };
-  if (k === 'npc') {
+  if (k === 'npc' || k === 't2') {
     const pays = paying(opened);
     if (!pays.length) return <p className="note small" style={{ margin: 0 }} data-pays="none">Nothing it opens makes a profit at {at} today.</p>;
     const top = pays.slice(0, 3);
     const now = buildable(top);
+    // Tech II is invented at the lab and built at ME 2 / TE 4 whatever the finder assumes; its chance is at the character's own sciences.
+    const how = k === 't2' ? `invented at ${f.lab?.at ?? 'a Laboratory'} at ${whose} sciences` : `at ME ${f.input.me} / TE ${f.input.te}`;
     return (
       <div className="col ind-pays" data-pays="rows">
-        <span className="note small">{now ? `Pays now at ${at}, one slot a day, at ME ${f.input.me} / TE ${f.input.te}${before(top)}:` : `Not buildable yet. Once ${whose} skills cover this, these would make, one slot a day at ${at}, at ME ${f.input.me} / TE ${f.input.te}${before(top)}, priced at ${whose} skills today:`}</span>
+        <span className="note small">{now ? `Pays now at ${at}, one slot a day, ${how}${before(top)}:` : `Not buildable yet. Once ${whose} skills cover this, these would make, one slot a day at ${at}, ${how}${before(top)}, priced at ${whose} skills today:`}</span>
         {top.map((r) => <div key={r.bp} className="ind-pay"><span>{name(r.product)}</span><b>{iskBigSigned(r.day!.profit)}</b></div>)}
       </div>
     );

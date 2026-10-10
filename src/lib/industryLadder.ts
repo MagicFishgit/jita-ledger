@@ -166,10 +166,22 @@ export function ladderOf(o: { skills: Record<number, number> | null; clone: Clon
   return { rungs: RUNGS.map((rung, i) => ({ rung, met: met[i], state: here != null && i < here ? 'done' : i === here ? 'here' : i === next ? 'next' : 'ahead' })), here };
 }
 
-/** The finder's priced rows a rung opens (manufacturing skills within the usable levels raised to the rung's), best profit a day first, losing ones too. */
+/**
+ * The finder's priced rows a rung opens (manufacturing skills within the usable levels raised to the rung's), best profit a
+ * day first, losing ones too. Tech II rows are rung 6's alone, whose own sciences and encryption skill are the rung's ("the
+ * item's two sciences, its encryption skill"): its Tech I's invention skills are raised too before its building is checked
+ * (a Tech II build asks for the sciences as well). Every other rung opens Tech I rows.
+ */
 export function rowsOpened(ix: Indexed, rows: readonly Row[], key: RungKey, skills: Record<number, number>, clone: Clone): Row[] {
   const s = onRung(key, skills, clone);
-  return rows.filter((r) => r.day && can(ix.bp.get(r.bp)?.[2] ?? 0, s)).sort((a, b) => b.day!.profit - a.day!.profit);
+  const at = (r: Row) => {
+    const inv = r.invention ? (ix.bp.get(r.invention.from)?.[6] || null) : null;
+    if (!inv) return s;
+    const up = { ...s };
+    for (const [id, l] of inv[2]) up[id] = Math.max(up[id] ?? 0, l);
+    return up;
+  };
+  return rows.filter((r) => r.day && (key === 't2') === !!r.invention && can(ix.bp.get(r.bp)?.[2] ?? 0, at(r))).sort((a, b) => b.day!.profit - a.day!.profit);
 }
 
 /** The rows that make a profit, of those. */

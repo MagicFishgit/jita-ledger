@@ -5,21 +5,21 @@ import { SCOPE } from '../../lib/config';
 import { isk, iskBig, iskBigSigned, pct, units } from '../../lib/format';
 import { heldCost } from '../../lib/heldCost';
 import { navigate } from '../../lib/hooks';
-import { DAY_S, KIND_SAID, NPC_FACILITY_TAX, secBand, SKILL, structureBonus, rigFor, type Indexed } from '../../lib/industry';
-import { bestOreFor, meLevels, payback, shoppingList, startUp, type Held, type LabSite, type Row } from '../../lib/industryRank';
-import { JITA_SYSTEM, nearestLab } from '../../lib/industrySites';
+import { DAY_S, KIND_SAID, SKILL, structureBonus, rigFor, type Indexed } from '../../lib/industry';
+import { bestOreFor, meLevels, payback, shoppingList, startUp, T2_ME, T2_TE, type Held, type Row } from '../../lib/industryRank';
+import { JITA_SYSTEM } from '../../lib/industrySites';
 import { HIGH_SEC, jumpsFrom, type Graph } from '../../lib/jumps';
 import { setDestination } from '../../lib/market';
 import { oreBaseIds } from '../../lib/orePricing';
 import { yieldOf, type Materials } from '../../lib/reprocess';
-import { SPLIT_SAID } from '../../lib/split';
+import { dayCount, SPLIT_SAID } from '../../lib/split';
 import { toast } from '../../lib/toast';
 import { typeInfo } from '../../lib/universe';
 import { copyMultibuy, copyPrice } from '../common';
 import { Tiles } from '../ui';
 import type { IndustryChar } from './industryChars';
-import { bpoSaid, useStationSaid, type Finder } from './industryFinder';
-import { NPC_REGIONS, regionSellers, useIndices, type RegionSeller } from './industryMarket';
+import { aDaySaid, bpoSaid, everyDays, useStationSaid, type Finder } from './industryFinder';
+import { NPC_REGIONS, regionSellers, type RegionSeller } from './industryMarket';
 
 /**
  * A finder row's detail (docs/notes/industry.md): every material with its sources, the job's time and cost broken down,
@@ -32,37 +32,34 @@ const SOURCE_SAID = { jita: 'Jita', home: 'home hub', mined: 'mined' } as const;
 export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: IndustryChar; ix: Indexed; graph: Graph; row: Row; finder: Finder; mainName: string }) {
   const input = finder.input!;
   const site = finder.site!, facts = finder.facts!;
-  const indices = useIndices();
-  const idx = indices.state === 'ok' ? indices.value : null;
   const name = (id: number) => ix.b.types[id]?.[0] ?? `Item #${id}`;
   const jitaAny = useMemo(() => jumpsFrom(graph, JITA_SYSTEM), [graph]);
   const jitaHigh = useMemo(() => jumpsFrom(graph, JITA_SYSTEM, (_, s) => s >= HIGH_SEC), [graph]);
   const fromSite = useMemo(() => jumpsFrom(graph, site.systemId), [graph, site.systemId]);
 
-  // What's held where the site is: the builder's loose stock there, at what its own latest buys cost it.
+  // What's held where the site is: the builder's loose stock there, at what its own latest buys cost it. A Tech II row's
+  // datacores count wherever they're held: an R&D agent's sit at its station, and the builder carries them to the lab.
   const loc = site.stationId ?? site.structureId ?? null;
   // Held is known only for a place with an ID and assets that were read: never 0 for not known.
   const heldKnown = loc != null && c.stock != null;
   const here = heldKnown ? c.stock!.byLocation[loc!] ?? {} : {};
+  const inv = row.invention;
+  const cores = new Set(inv?.datacores.map((d) => d.type) ?? []);
+  const anywhere = (t: number) => Object.values(c.stock?.byLocation ?? {}).reduce((a, x) => a + (x[t] ?? 0), 0);
   const held: Held = {
-    units: (t) => here[t] ?? 0,
+    units: (t) => (cores.has(t) ? anywhere(t) : here[t] ?? 0),
     cost: (t, n) => heldCost(c.buys.filter((b) => b.typeId === t), n, new Set(), c.broker),
   };
 
-  // Research runs at the site when it has a Laboratory, else at the nearest one.
-  const lab = useMemo((): { at: string; site: LabSite } | null => {
-    if (facts.canScience) return { at: site.name, site: { kind: site.kind, rigs: site.rigs, band: facts.band, tax: facts.tax, index: facts.index } };
-    const n = nearestLab(ix.b.stations, graph, site.systemId);
-    if (!n) return null;
-    const sys = graph[n.systemId];
-    return { at: `the nearest Laboratory, in ${sys?.[1] ?? `system ${n.systemId}`} (${n.jumps} jump${n.jumps === 1 ? '' : 's'})`, site: { kind: 'npc', rigs: [], band: secBand(sys?.[0]), tax: NPC_FACILITY_TAX, index: idx?.[n.systemId] ?? null } };
-  }, [facts, site, ix, graph, idx]);
+  // Research runs at the site when it has a Laboratory, else at the nearest one (labFor, as Tech II's invention does, so the
+  // two can't come from different labs). A Tech II copy can't be researched: no level table for it.
+  const lab = finder.lab;
   const bpRow = ix.bp.get(row.bp)!;
-  const levels = useMemo(() => (lab ? meLevels({ ...input, bp: bpRow }, lab.site) : null), [input, bpRow, lab]);
+  const levels = useMemo(() => (lab && !inv ? meLevels({ ...input, bp: bpRow }, lab.site) : null), [input, bpRow, lab, inv]);
   const assumed = levels?.find((l) => l.me === input.me && l.te === input.te) ?? null;
   const w = finder.bpo(row.bp);
   const bpo = w.state === 'forge' ? w.price : null;
-  const su = startUp(row, { bpo, research: assumed?.cost ?? null, held });
+  const su = startUp(row, { bpo, research: inv ? 0 : assumed?.cost ?? null, held });
   const shop = shoppingList(row, held);
   const jitaLines = shop.filter((x) => x.source === 'jita');
   const station = useStationSaid(w.state === 'forge' ? w.stations : [], ix, graph);
@@ -112,7 +109,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
   return (
     <div className="col ind-detail" style={{ gap: 14 }} data-industry="detail">
       <div className="col" style={{ gap: 6 }}>
-        <span className="lbl">Materials for a day’s {units(row.runs)} runs at ME {input.me}</span>
+        <span className="lbl">Materials for a day’s {units(row.runs)} run{row.runs === 1 ? '' : 's'} at ME {inv ? T2_ME : input.me}</span>
         <div className="tbl-scroll">
           <table className="tbl compact rd-table">
             <thead><tr><th className="l">Material</th><th>A day</th><th className="l rd-wide">Each source, delivered</th><th className="l rd-wide">Picked</th><th className="rd-wide">Held here</th></tr></thead>
@@ -147,7 +144,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
       </div>
 
       <Tiles min={180} items={[
-        { l: 'A run', v: time(row.time), n: `${units(row.runs)} runs a day, ${units(row.makes)} made · ${KIND_SAID[site.kind]}${sb.time < 1 ? ` ×${sb.time}` : ''}${rig.time < 1 ? `, rigs ×${rig.time.toFixed(3)}` : ''}` },
+        { l: 'A run', v: time(row.time), n: `${inv ? `${units(row.runs)} run${row.runs === 1 ? '' : 's'} a job` : `${units(row.runs)} runs a day`}, makes ${aDaySaid(row.makes)} · ${KIND_SAID[site.kind]}${sb.time < 1 ? ` ×${sb.time}` : ''}${rig.time < 1 ? `, rigs ×${rig.time.toFixed(3)}` : ''}` },
         {
           l: 'The job', v: job ? iskBig(job.total) : '–',
           n: job ? `index ${pct(input.site.index!.manufacturing)} → ${iskBig(job.index)}${job.bonus ? `, bonuses ${iskBigSigned(job.bonus)}` : ''} · facility tax ${job.tax != null ? iskBig(job.tax) : 'not typed'} · SCC ${iskBig(job.scc)} · ${job.alpha == null ? 'Clone state not read: the 0.25% Alpha tax is left out' : job.alpha ? `Alpha tax ${iskBig(job.alpha)}` : 'no Alpha tax'}` : 'not costed',
@@ -157,8 +154,35 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
           l: s.place === 'home' ? `The sale at ${input.hubName}` : 'The sale in Jita', v: s.list != null ? iskBig(s.list) : '–',
           n: s.why ?? `nets ${iskBig(s.listNet)} listed${s.brokerKnown ? '' : ' (before the broker fee: not typed)'}, ${iskBig(s.bidNet)} into the best bid · ${units(s.pace)} a day, ${pct(s.split, 0)} buyers taking listings (${s.paceFrom === 'goonmetrics' ? 'Goonmetrics’ weekly movement ÷ 7, at an even split, until the home history is read' : SPLIT_SAID[s.splitFrom as Exclude<typeof s.splitFrom, 'goonmetrics'>]})${s.place === 'home' ? ` · Goonmetrics: ${((w) => (w != null ? units(w) : '–'))(input.market(row.product).home?.weekly)} a week${staleFigure}` : ''}${s.freight ? ` · freight ${isk(s.freight)} a unit` : ''}`,
         }) : { l: 'The sale', v: '–', n: 'not sold anywhere you said' }),
-        { l: 'Profit a day, one slot', v: iskBigSigned(row.day?.profit), n: ((r) => (r.length ? `${r.join('; ')}` : row.day ? `${units(row.day.units)} sold of ${units(row.makes)} made` : ''))([row.taxPerPct != null && `before the facility tax; each 1% costs ${iskBig(row.taxPerPct)} a day`, row.brokerPerPct != null && `before the broker fee at ${input.hubName}; each 1% costs ${iskBig(row.brokerPerPct)} a day`].filter(Boolean)) + (row.costKnown === false && row.taxPerPct == null ? '; before the Alpha tax, since the clone state isn’t read' : '') },
+        { l: 'Profit a day, one slot', v: iskBigSigned(row.day?.profit), n: ((r) => (r.length ? `${r.join('; ')}` : row.day ? `${aDaySaid(row.day.units)} sold of ${aDaySaid(row.makes)} made` : ''))([row.taxPerPct != null && `before the facility tax; each 1% costs ${iskBig(row.taxPerPct)} a day`, row.brokerPerPct != null && `before the broker fee at ${input.hubName}; each 1% costs ${iskBig(row.brokerPerPct)} a day`].filter(Boolean)) + (row.costKnown === false && row.taxPerPct == null ? '; before the Alpha tax, since the clone state isn’t read' : '') },
       ]} />
+
+      {inv && (
+        <div className="col" style={{ gap: 6 }} data-industry="invention">
+          <span className="lbl">Invention, at {lab?.at ?? 'no Laboratory'}</span>
+          <Tiles min={180} items={[
+            {
+              l: 'Chance', v: inv.chance != null ? pct(inv.chance, 1) : '–',
+              n: inv.chance == null ? `${c.isMain ? 'Your' : `${c.name}’s`} skills aren’t read, so the chance isn’t known` : `${[...inv.sciences, ...(inv.encryption ? [inv.encryption] : [])].map((x) => `${name(x.id)} ${x.level}`).join(', ')} · ${inv.attempts != null ? inv.attempts.toFixed(2) : '–'} attempts a copy of ${units(inv.runsPerCopy)} run${inv.runsPerCopy === 1 ? '' : 's'}, at ME ${T2_ME} / TE ${T2_TE}`,
+              tip: 'Invention’s chance: the base × (1 + both sciences’ levels ÷ 30 + the encryption skill’s ÷ 40) (EVE University).\n\n• Each attempt takes a run of a Tech I copy and its datacores, success or not.\n• Decryptors, which change the chance, runs, ME and TE, aren’t modelled.',
+            },
+            {
+              l: 'Datacores a copy', v: inv.datacoreCost != null ? iskBig(inv.datacoreCost) : '–',
+              n: `${inv.perAttempt.map((d) => `${units(d.qty)} ${name(d.type)}`).join(' and ')} an attempt${inv.datacoreCost == null ? `: ${inv.why ?? 'one isn’t listed where it can be bought'}` : ''} · held anywhere count in start-up`,
+            },
+            {
+              l: 'Jobs a copy', v: inv.job && inv.copy ? iskBig(inv.job.total + inv.copy.total) : '–',
+              n: inv.job && inv.copy ? `invention ${iskBig(inv.job.total)}, its Tech I copies ${iskBig(inv.copy.total)}${inv.job.tax == null ? ' · the lab’s tax not typed: left out' : ''}${inv.job.alpha == null ? ' · clone state not read: the Alpha tax is left out' : ''}` : inv.why ?? 'not costed',
+            },
+            {
+              l: 'A unit', v: inv.perUnit != null ? iskBig(inv.perUnit) : '–',
+              n: inv.perUnit != null ? `${units(inv.unitsPerCopy)} unit${inv.unitsPerCopy === 1 ? '' : 's'} a copy · one lab slot invents for ${inv.labPerDay != null ? (inv.labPerDay >= 1 ? `${dayCount(inv.labPerDay)} a day` : everyDays(inv.labPerDay)) : '–'}${row.day?.limit === 'invention' ? ', which limits the slot' : ''}` : inv.why ?? 'not costed',
+            },
+          ]} />
+          {(lab?.site.tax == null || input.clone === 'unknown') && inv.job && <p className="note small" style={{ margin: 0 }} data-industry="invention-left-out">Invention’s jobs and the copies leave out{lab?.site.tax == null ? ' the lab’s facility tax, which isn’t typed' : ''}{lab?.site.tax == null && input.clone === 'unknown' ? ' and' : ''}{input.clone === 'unknown' ? ' the Alpha tax, since the clone state isn’t read' : ''}.</p>}
+          <p className="note small" style={{ margin: 0 }}>A Tech II copy can’t be researched: it builds at ME {T2_ME} / TE {T2_TE}, as invented. Decryptors aren’t modelled, nor are reactions: what they make is bought.</p>
+        </div>
+      )}
 
       {levels && (
         <div className="col" style={{ gap: 6 }}>
@@ -184,10 +208,10 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
           {(lab!.site.tax == null || input.clone === 'unknown') && <p className="note small" style={{ margin: 0 }} data-industry="research-left-out">Research ISK and the profit after it leave out{lab!.site.tax == null ? ' the lab’s facility tax, which isn’t typed' : ''}{lab!.site.tax == null && input.clone === 'unknown' ? ' and' : ''}{input.clone === 'unknown' ? ' the Alpha tax, since the clone state isn’t read' : ''}.</p>}
         </div>
       )}
-      {!lab && <p className="note small" style={{ margin: 0 }}>No Laboratory can be reached on the map from {site.name}, so research isn’t worked out.</p>}
+      {!lab && <p className="note small" style={{ margin: 0 }}>No Laboratory can be reached on the map from {site.name}, so {inv ? 'invention' : 'research'} isn’t worked out.</p>}
 
       <div className="col" style={{ gap: 6 }} data-industry="bpo-places">
-        <span className="lbl">The original</span>
+        <span className="lbl">{inv ? 'The Tech I original, to copy from' : 'The original'}</span>
         <p style={{ margin: 0 }}>{b.v !== '–' ? `${b.v} ${b.n}` : b.n}.</p>
         {w.state === 'forge' && w.stations.map((s) => {
           const sysId = findSystem(ix, s);
@@ -215,9 +239,9 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
       </div>
 
       <Tiles min={180} items={[
-        { l: 'Start-up', v: iskBig(su.total), n: su.total == null ? (bpo == null ? 'no NPC price for the original' : su.research == null ? 'research not worked out' : 'a material can’t be priced') : `original ${iskBig(su.bpo)} · research to ME ${input.me} / TE ${input.te} ${su.research ? iskBig(su.research) : 'none'} · a day’s materials ${iskBig(su.materials)}${su.research ? researchLeft : ''}` },
+        { l: 'Start-up', v: iskBig(su.total), n: su.total == null ? (bpo == null ? 'no NPC price for the original' : su.research == null ? 'research not worked out' : 'a material can’t be priced') : inv ? `the Tech I original ${iskBig(su.bpo)} · a day’s materials and datacores ${iskBig(su.materials)}` : `original ${iskBig(su.bpo)} · research to ME ${input.me} / TE ${input.te} ${su.research ? iskBig(su.research) : 'none'} · a day’s materials ${iskBig(su.materials)}${su.research ? researchLeft : ''}` },
         { l: 'Held here', v: heldKnown ? units(su.heldUnits) : '–', n: su.heldUnits ? `cost you ${su.heldCost != null ? iskBig(su.heldCost) : '– (not all bought: no cost)'}; counted in start-up and the list, never in the profit a day` : !heldKnown ? (loc == null ? 'nothing known at a home typed by you' : 'assets not read yet') : 'none of its materials held here' },
-        { l: 'Payback', v: payback(bpo, row.day?.profit) != null ? `${payback(bpo, row.day?.profit)!.toFixed(1)} days` : '–', n: 'the original at NPCs’ price, out of one slot’s profit a day' },
+        { l: 'Payback', v: payback(bpo, row.day?.profit) != null ? `${payback(bpo, row.day?.profit)!.toFixed(1)} days` : '–', n: `${inv ? 'the Tech I original' : 'the original'} at NPCs’ price, out of one slot’s profit a day` },
       ]} />
 
       <div className="col" style={{ gap: 6 }}>
@@ -235,10 +259,13 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
         <span className="lbl">The steps</span>
         <div className="ladder">
           {[
-            w.state === 'forge' ? `Buy the original at ${station(w.stations[0])}` : `Find an original: ${w.state === 'notForge' ? 'no NPC sells it in The Forge' : b.n}`,
-            input.me || input.te ? `Research it to ME ${input.me} / TE ${input.te} at ${lab?.at ?? 'a Laboratory'}${assumed?.days ? `, ${assumed.days.toFixed(1)} days` : ''}` : 'No research: build at ME 0',
+            w.state === 'forge' ? `Buy the ${inv ? 'Tech I ' : ''}original at ${station(w.stations[0])}` : `Find ${inv ? 'a Tech I' : 'an'} original: ${w.state === 'notForge' ? 'no NPC sells it in The Forge' : b.n}`,
+            ...(inv ? [
+              `Copy it at ${lab?.at ?? 'a Laboratory'}: ${inv.attempts != null ? inv.attempts.toFixed(1) : '–'} one-run copies a success`,
+              `Invent at ${lab?.at ?? 'a Laboratory'}: ${inv.chance != null ? pct(inv.chance, 0) : '–'} a try, with its datacores`,
+            ] : [input.me || input.te ? `Research it to ME ${input.me} / TE ${input.te} at ${lab?.at ?? 'a Laboratory'}${assumed?.days ? `, ${assumed.days.toFixed(1)} days` : ''}` : 'No research: build at ME 0']),
             'Buy the materials',
-            `Install the job at ${site.name}`,
+            `Install the job at ${site.name}${inv ? ` at ME ${T2_ME}` : ''}`,
             sale ? `List at ${sale.place === 'home' ? input.hubName ?? 'home' : 'Jita 4-4'}${listPrice != null ? ` at ${isk(listPrice)}` : ''}` : 'Nowhere you said it may be sold',
           ].map((x, i) => <span key={x} className="step">{i > 0 && <ArrowRight aria-hidden="true" />}<span>{x}</span></span>)}
         </div>

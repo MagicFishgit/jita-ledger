@@ -1,7 +1,7 @@
 import { MINUS } from './format';
 import { HIGH_SEC, jumpsFrom, type Graph } from './jumps';
 import { NPC_FACILITY_TAX, RIG_SIZE, secBand, kindOfType, type BundleRig, type Indexed, type IndustryIndex, type SecBand, type SiteKind } from './industry';
-import { NEAR_JITA_JUMPS, type Leg } from './industryRank';
+import { NEAR_JITA_JUMPS, type LabSite, type Leg } from './industryRank';
 import type { FreightRoute, IndustrySite } from './prefs';
 
 /**
@@ -54,6 +54,24 @@ export function nearestLab(stations: readonly [number, number, number][], graph:
     if (!best || j < best.jumps || (j === best.jumps && stationId < best.stationId)) best = { stationId, systemId, jumps: j };
   }
   return best;
+}
+
+/**
+ * Where a site's research, copying and invention run: the site itself when it can (an NPC station with a Laboratory, or
+ * any structure), else the nearest NPC station with one by any route, at its system's index (null while the indices
+ * aren't read, or when ESI lists none for it) and an NPC station's tax. Null when no Laboratory can be reached on the map.
+ * The finder (Tech II's invention) and a row's detail (research) both take it from here, so they can't disagree.
+ */
+export function labFor(site: IndustrySite, facts: SiteFacts, stations: readonly [number, number, number][], graph: Graph, indices: Record<number, IndustryIndex> | null): { at: string; site: LabSite } | null {
+  if (facts.canScience) return { at: site.name, site: { kind: site.kind, rigs: site.rigs, band: facts.band, tax: facts.tax, index: facts.index } };
+  const n = nearestLab(stations, graph, site.systemId);
+  if (!n) return null;
+  const sys = graph[n.systemId];
+  return {
+    at: `the nearest Laboratory, in ${sys?.[1] ?? `system ${n.systemId}`} (${n.jumps} jump${n.jumps === 1 ? '' : 's'})`,
+    // A security the map lacks is its own band, never high-sec by default.
+    site: { kind: 'npc', rigs: [], band: secBand(sys?.[0]), tax: NPC_FACILITY_TAX, index: indices?.[n.systemId] ?? null },
+  };
 }
 
 /** What a site is, worked out: its system's name and band, its high-sec jumps from Jita (null: no high-sec route), its index, whether it can research. */

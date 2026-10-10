@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
-import { iskBig } from '../../lib/format';
+import { iskBig, units } from '../../lib/format';
 import { HOME_STALE_MS, homeQuote, hubOf, type HomeHub } from '../../lib/homeMarket';
 import { watchedFlow } from '../../lib/flowStore';
 import type { Indexed } from '../../lib/industry';
 import {
-  bpoWhere, finderBlueprints, LIVE_ROWS, othersBook, rankBuilds, type BpoWhere, type Market, type ProductKind, type Row, type RowInput,
+  bpoWhere, finderBlueprints, inventionBlueprints, LIVE_ROWS, othersBook, rankBuilds, type BpoWhere, type LabSite, type Market, type ProductKind, type Row, type RowInput,
 } from '../../lib/industryRank';
-import { JITA_SYSTEM, legFor, siteFacts, stationLabel, type SiteFacts } from '../../lib/industrySites';
+import { JITA_SYSTEM, labFor, legFor, siteFacts, stationLabel, type SiteFacts } from '../../lib/industrySites';
 import { HIGH_SEC, jumpsFrom, type Graph } from '../../lib/jumps';
 import type { IndustrySite } from '../../lib/prefs';
 import type { IndustryChar } from './industryChars';
@@ -19,12 +19,12 @@ import { useAdjusted, useHomeHistory, useHomePrices, useIndices, useIndustryDoc,
  * and materials on live ones (the Loyalty pattern). Reads nothing an earlier state can't use: nothing is ranked until the
  * site, the scan, the indices and the adjusted prices are in, and each says what it's waiting on.
  */
-export type FinderView = { kind: ProductKind | 'all'; canBuild: boolean; bpoUpTo: number | null; sort: 'day' | 'unit' | 'payback'; sitesOpen: boolean | null };
+export type FinderView = { kind: ProductKind | 'all'; tech: 'all' | 't1' | 't2'; canBuild: boolean; bpoUpTo: number | null; sort: 'day' | 'unit' | 'payback'; sitesOpen: boolean | null };
 export const FINDER_KEY = 'jita-ledger:industry-finder';
-const DEFAULT_VIEW: FinderView = { kind: 'all', canBuild: false, bpoUpTo: null, sort: 'day', sitesOpen: null };
-const readView = (): FinderView => { try { const v = { ...DEFAULT_VIEW, ...(JSON.parse(localStorage.getItem(FINDER_KEY) ?? '{}') as Partial<FinderView>) }; return FINDER_KINDS.includes(v.kind) ? v : { ...v, kind: 'all' }; } catch { return DEFAULT_VIEW; } };
+const DEFAULT_VIEW: FinderView = { kind: 'all', tech: 'all', canBuild: false, bpoUpTo: null, sort: 'day', sitesOpen: null };
+const readView = (): FinderView => { try { const v = { ...DEFAULT_VIEW, ...(JSON.parse(localStorage.getItem(FINDER_KEY) ?? '{}') as Partial<FinderView>) }; const w = ['all', 't1', 't2'].includes(v.tech) ? v : { ...v, tech: 'all' as const }; return FINDER_KINDS.includes(w.kind) ? w : { ...w, kind: 'all' as const }; } catch { return DEFAULT_VIEW; } };
 
-/** The finder's view, kept per browser: kind, "Can build now", "BPO up to", the sort, and the sites panel open or shut. */
+/** The finder's view, kept per browser: kind, Tech I or II, "Can build now", "BPO up to", the sort, and the sites panel open or shut. */
 export function useFinderView(): [FinderView, (patch: Partial<FinderView>) => void] {
   const [v, setV] = useState(readView);
   return [v, (patch) => setV((x) => { const n = { ...x, ...patch }; try { localStorage.setItem(FINDER_KEY, JSON.stringify(n)); } catch { /* just not kept */ } return n; })];
@@ -32,6 +32,8 @@ export function useFinderView(): [FinderView, (patch: Partial<FinderView>) => vo
 
 export type Finder = {
   site: IndustrySite | null; facts: SiteFacts | null;
+  /** Where research, copying and invention run for the site (labFor), named; null with no site or no Laboratory reachable. */
+  lab: { at: string; site: LabSite } | null;
   /** What it's waiting on, as a sentence; null once rows are ranked. */
   waiting: { text: string; retry?: () => void } | null;
   rows: Row[]; live: boolean;
@@ -50,6 +52,7 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph): Finder {
   const jitaHigh = useMemo(() => jumpsFrom(graph, JITA_SYSTEM, (_, sec) => sec >= HIGH_SEC), [graph]);
   const idx = indices.state === 'ok' ? indices.value : null;
   const facts = useMemo(() => (site ? siteFacts(site, graph, jitaHigh, idx) : null), [site, graph, jitaHigh, idx]);
+  const lab = useMemo(() => (site && facts ? labFor(site, facts, ix.b.stations, graph, idx) : null), [site, facts, ix, graph, idx]);
   const cache = scan.state === 'ok' ? scan.value : null;
   const hasScan = !!cache && Object.keys(cache.stats).length > 0;
   // Skills not read are not level 0: an empty or absent doc is waited for, never ranked at.
@@ -73,13 +76,15 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph): Finder {
       fees: { broker: c.broker, tax: c.tax, hubBroker: hub ? doc.hubFees[hub.id] ?? null : null },
       legs: { jita: legFor(site, facts, JITA_SYSTEM, doc.freight), home: hub ? legFor(site, facts, hub.systemId, doc.freight) : null },
       noShipsToJita: doc.noShipsToJita, jitaJumps: facts.jitaJumps, mines: c.mines, hubName: hub?.short ?? null, now: Date.now(),
+      lab: lab?.site ?? null,
     };
-  }, [site, facts, cache, hasScan, adjusted, skills, c, ix, doc.assume, doc.share, doc.freight, doc.noShipsToJita, doc.sell, doc.hubFees, hub, prices]);
+  }, [site, facts, lab, cache, hasScan, adjusted, skills, c, ix, doc.assume, doc.share, doc.freight, doc.noShipsToJita, doc.sell, doc.hubFees, hub, prices]);
 
-  const bps = useMemo(() => finderBlueprints(ix), [ix]);
+  // Tech I and, through invention, Tech II: ranked together.
+  const bps = useMemo(() => [...finderBlueprints(ix), ...inventionBlueprints(ix)], [ix]);
   const first = useMemo(() => (input ? rankBuilds(input, bps) : []), [input, bps]);
   // The top rows' products and materials, read live; ranked again on them.
-  const liveTypes = useMemo(() => [...new Set(first.filter((r) => r.day).slice(0, LIVE_ROWS).flatMap((r) => [r.product, ...r.materials.map((m) => m.type)]))], [first]);
+  const liveTypes = useMemo(() => [...new Set(first.filter((r) => r.day).slice(0, LIVE_ROWS).flatMap((r) => [r.product, ...r.materials.map((m) => m.type), ...(r.invention?.datacores.map((d) => d.type) ?? [])]))], [first]);
   const liveBooks = useLiveBooks(liveTypes);
   // The home region's history for the top rows sold at home: their pace and split, where Goonmetrics' weekly movement stood in.
   const homeTypes = useMemo(() => (hub ? first.filter((r) => r.day && r.sale?.place === 'home').slice(0, LIVE_ROWS).map((r) => r.product) : []), [first, hub]);
@@ -97,7 +102,8 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph): Finder {
   const rows = useMemo(() => (liveInput && (live || homeLive) ? rankBuilds(liveInput, bps) : first), [liveInput, live, homeLive, first, bps]);
 
   const npcRows = npc.status === 'ok' ? npc.rows : null;
-  const bpo = (bp: number) => bpoWhere(npcRows, bp, ix.b.types[bp]?.[4] ?? 0);
+  // A Tech II row's original is the Tech I one its copies are made from.
+  const bpo = (bp: number) => { const o = ix.inventedFrom.get(bp) ?? bp; return bpoWhere(npcRows, o, ix.b.types[o]?.[4] ?? 0); };
 
   const waiting = !site ? { text: 'Pick where you build first: add a site under Where you build, below.' }
     : !skills || !c.feeKnown ? { text: c.isMain ? 'Your skills aren’t read yet: they come with the next sync, and the finder works at them.' : `${c.name}’s skills aren’t read yet (the cloud reads them hourly); the finder works at them.` }
@@ -109,7 +115,7 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph): Finder {
                 : adjusted.state === 'loading' ? { text: 'Reading CCP’s adjusted prices…' }
                   : adjusted.state === 'failed' ? { text: 'Couldn’t read CCP’s adjusted prices just now, so no job can be costed.', retry: adjusted.retry }
                     : null;
-  return { site, facts, waiting, rows, live, input: liveInput, npc, bpo, scan, hub, home };
+  return { site, facts, lab, waiting, rows, live, input: liveInput, npc, bpo, scan, hub, home };
 }
 
 /**
@@ -130,6 +136,20 @@ export const KIND_CHOICE: Record<ProductKind | 'all', string> = {
 };
 // 'hulls-other' is left out: every ship in the bundle sits in a size's groups or is a Titan or supercarrier (Capitals).
 export const FINDER_KINDS: (ProductKind | 'all')[] = ['all', 'rigs', 'modules', 'charges', 'components', 'drones', 'deployables', 'hulls-small', 'hulls-medium', 'hulls-large', 'fuel', 'structures', 'capital-parts', 'other'];
+
+/**
+ * A count a day, said so a fraction doesn't read as noise: from one a day the count, under it as time between ("about one
+ * every 2 days"). Tech II ships make it common (a two-day build at 26% a try is half a hull a day, and sells that way).
+ */
+export function everyDays(n: number): string {
+  if (!(n > 0)) return 'none';
+  const d = Math.round(1 / n);
+  return d <= 1 ? 'about one a day' : `about one every ${units(d)} days`;
+}
+/** A count a day for a cell: "6", or "<1" under one a day (its time between is `everyDays`'). */
+export const perDayCell = (n: number): string => (n >= 1 ? units(n) : '<1');
+/** A count a day in a sentence: "6 a day", "about one every 2 days". */
+export const aDaySaid = (n: number): string => (n >= 1 ? `${units(n)} a day` : everyDays(n));
 
 /** What the BPO's column says: NPCs' price and where, or why there isn't one. */
 export function bpoSaid(w: BpoWhere, npc: NpcState, station: (id: number) => string): { v: string; n: string } {

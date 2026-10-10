@@ -227,3 +227,6 @@ State these rather than letting them be discovered:
   region's history is read, is a handful of trades there, so a row selling one unit every couple of weeks at a large margin
   (the first look at the real UALX-3 row ranked such items first) is ranked honestly by the share rule but is the least sure
   figure on the page; under one sale a day the finder says the time between sales rather than a fraction.
+- **Tech II's invention cost is EVE Ref's formula checked on a one-run rig copy.** For a ten-run module copy the job is
+  taken, as the spec reads it, on one run's EIV an attempt; that case hasn't been checked against a real job. Decryptors
+  and reactions aren't modelled, and each Tech II row assumes one lab slot inventing for its one factory slot.

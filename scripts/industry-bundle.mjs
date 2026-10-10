@@ -205,7 +205,8 @@ for (const [id, b] of [...bps].sort((a, b) => a[0] - b[0])) {
   if (m && types.get(id)?.published) eiv[id] = (m.materials ?? []).map((x) => [x.typeID, x.quantity]);
 }
 
-// The watch set: every Tech I product and its materials. The blueprints whose NPC sellers the scan keeps: Tech I only.
+// The watch set: every Tech I product and its materials, then Tech II's (below). The blueprints whose NPC sellers the scan
+// keeps: Tech I only.
 const watch = new Set(), bpos = [];
 for (const id of [...t1].filter((x) => !t2.has(x)).sort((a, b) => a - b)) {
   const m = man(bps.get(id));
@@ -213,6 +214,14 @@ for (const id of [...t1].filter((x) => !t2.has(x)).sort((a, b) => a - b)) {
   for (const x of m.materials ?? []) watch.add(x.typeID);
   bpos.push(id);
 }
+// Tech II, costed through invention: every invention product and its materials, and the datacores each Tech I's
+// invention takes. Their blueprints aren't NPCs' (none sells a Tech II original), so not in bpos.
+for (const id of [...t2].sort((a, b) => a - b)) {
+  const m = man(bps.get(id));
+  watch.add(m.products[0].typeID);
+  for (const x of m.materials ?? []) watch.add(x.typeID);
+}
+for (const id of [...t1].sort((a, b) => a - b)) for (const x of bps.get(id).activities.invention?.materials ?? []) watch.add(x.typeID);
 
 const released = sde.releaseDate;
 const out = { build: sde.buildNumber, released, source: `CCP static data build ${sde.buildNumber}, released ${released}`, bps: outBps, types: outTypes, groups: outGroups, filters, rigs, structures, stations, skills };

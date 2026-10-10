@@ -2230,6 +2230,61 @@ try {
     await paysAt(DOC, 'Fresh Alt');
     if (!(await says('npc', 'before the alpha tax'))) problems.push(`rung 1 for Fresh Alt, whose clone isn’t read, doesn’t say its figures are before the Alpha tax: “${(await rung('npc')).slice(-300)}”`);
     if (!(await says('npc', 'not buildable yet. once fresh alt’s skills cover this')) || (await says('npc', 'pays now'))) problems.push(`rung 1 for Fresh Alt, who lacks Mass Production, says “pays now”: “${(await rung('npc')).slice(-300)}”`);
+    // --- Tech II (Task 8): the Large Trimark Armor Pump II through invention, at EVE Ref's prices of 9 October 2026 (its
+    // four materials and two datacores), built at Itamo's station and invented at the nearest Laboratory, Sobaseki's.
+    Object.assign(ITEMS, {
+      26302: [st5(26302, 332, Array(14).fill(65_300_000)), bk5(61_550_000, 65_270_000)],
+      ...Object.fromEntries(Object.entries({ 25624: 1_656_000, 25609: 1_675_000, 11475: 648.3, 25620: 18_830, 20171: 93_970, 20416: 99_830 })
+        .map(([t, p]) => [t, [st5(Number(t), 5000, Array(14).fill(p * 1.05)), bk5(p * 0.95, p)]])),
+    });
+    for (const [t, [s, b]] of Object.entries(ITEMS)) { SCAN.stats[t] = s; SCAN.books[t] = b; }
+    await page.goto(SEED_PAGE);
+    await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } });
+    await page.goto(`${BASE}#hustles/industry/build`);
+    await page.reload();
+    await page.waitForSelector('[data-industry="finder"] [data-bp="26303"]', { timeout: 30_000 }).catch(async () => problems.push(`the finder never priced the Tech II pump: “${(await text('[data-industry="build"]')).slice(0, 300)}”`));
+    await page.waitForTimeout(1200);
+    const t2 = await text('[data-bp="26303"]');
+    for (const t of ['Large Trimark Armor Pump II', 'Tech II from Large Trimark Armor Pump I', '1.25 M ISK', 'the Tech I original, to copy from'])
+      if (!t2.includes(t)) problems.push(`the Tech II pump’s row doesn’t say “${t}”: “${t2.slice(0, 240)}”`);
+    if (!/\d+ of those priced (is|are) Tech II, invented at the nearest Laboratory, in Sobaseki \(\d+ jumps?\); decryptors and reactions aren’t modelled\./.test(await text('[data-industry="finder-count"]'))) problems.push(`the count doesn’t say how many are Tech II and where they’re invented: “${await text('[data-industry="finder-count"]')}”`);
+    await page.locator('[aria-label="Tech"] button', { hasText: /^Tech II$/ }).click();
+    await page.waitForTimeout(600);
+    if (await page.locator('[data-bp="25895"]').count() || !(await page.locator('[data-bp="26303"]').count())) problems.push('Tech II alone still shows Tech I rows, or not the Tech II pump');
+    await page.locator('[aria-label="Tech"] button', { hasText: /^Tech I$/ }).click();
+    await page.waitForTimeout(600);
+    if (await page.locator('[data-bp="26303"]').count()) problems.push('Tech I alone still shows the Tech II pump');
+    await page.locator('[aria-label="Tech"] button', { hasText: 'Tech I and II' }).click();
+    await page.waitForTimeout(600);
+    await page.locator('[data-bp="26303"] .expander').click({ timeout: 5000 }).catch(() => problems.push('the Tech II pump’s row can’t be opened'));
+    await page.waitForTimeout(1000);
+    const inv = await text('[data-industry="detail"]');
+    for (const t of ['Invention, at the nearest Laboratory, in Sobaseki', 'attempts a copy of 1 run, at ME 2 / TE 4', '3 Datacore - Nanite Engineering and 3 Datacore - Hydromagnetic Physics an attempt',
+      'one lab slot invents for', 'A Tech II copy can’t be researched: it builds at ME 2 / TE 4, as invented. Decryptors aren’t modelled', 'Materials for a day’s 1 run at ME 2',
+      'The Tech I original, to copy from', 'Copy it at the nearest Laboratory', 'Invent at the nearest Laboratory', 'Install the job at Station 60001483 at ME 2'])
+      if (!inv.toLowerCase().includes(t.toLowerCase())) problems.push(`the Tech II pump’s detail doesn’t say “${t}”`);
+    if (await page.locator('[data-industry="detail"] [data-industry="me-levels"]').count()) problems.push('the Tech II pump’s detail offers to research it');
+    const shop = await text('[data-industry="detail"]');
+    if (!/Datacore - Hydromagnetic Physics\s+Jita, 93,970/.test(shop)) problems.push('the Tech II pump’s shopping list doesn’t buy its datacores');
+    if (SHOTS) { await page.locator('[data-industry="invention"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-industry-t2.png` }); }
+    const t2Fit = await sideways(page, '[data-industry="finder"] .tbl-scroll');
+    if (!PHONE && t2Fit && t2Fit.over > 0) problems.push(`the finder with a Tech II row open scrolls sideways at 1,440 (${t2Fit.over} px)`);
+    if (!(await text('[data-bp="26303"]')).includes('never, at a loss')) problems.push('the Tech II pump, losing at Itamo, doesn’t say it never pays back');
+    // Rung 6 (the ladder's rule since Task 7's review: "pays now" only where the rung is met and nothing shown lacks a skill).
+    // The pump II sold higher (70.27 M ISK: at EVE Ref's 65.27 M it loses at Itamo's station, above). The main with Science V and
+    // Armor Rigging III but the pump's sciences untrained: priced at its skills, not buildable yet.
+    ITEMS[26302] = [st5(26302, 332, Array(14).fill(70_300_000)), bk5(66_000_000, 70_270_000)];
+    SCAN.stats[26302] = ITEMS[26302][0]; SCAN.books[26302] = ITEMS[26302][1];
+    await ladderOf({ ...ledger, skills: { ...ledger.skills, 3402: 5, 26253: 3 } });
+    await page.waitForSelector('[data-rung="t2"] [data-pays="rows"]', { timeout: 30_000 }).catch(async () => problems.push(`rung 6 never said what Tech II pays: “${(await rung('t2')).slice(0, 300)}”`));
+    if (!(await says('t2', 'Not buildable yet. Once your skills cover this, these would make, one slot a day at Station 60001483, invented at the nearest Laboratory, in Sobaseki')) || !(await says('t2', 'Large Trimark Armor Pump II')) || (await says('t2', 'pays now')))
+      problems.push(`rung 6, the pump II’s sciences untrained, doesn’t say it isn’t buildable yet: “${(await rung('t2')).slice(0, 300)}”`);
+    // With the two sciences and the encryption skill at I (and Science V, Armor Rigging III) it pays now, at its chance now.
+    await ladderOf({ ...ledger, skills: { ...ledger.skills, 3402: 5, 26253: 3, 11443: 1, 11442: 1, 23087: 1 } });
+    await page.waitForSelector('[data-rung="t2"] [data-pays="rows"]', { timeout: 30_000 }).catch(async () => problems.push(`rung 6 never said what Tech II pays: “${(await rung('t2')).slice(0, 300)}”`));
+    if (!(await says('t2', 'Pays now at Station 60001483, one slot a day, invented at the nearest Laboratory, in Sobaseki')) || !(await says('t2', 'Large Trimark Armor Pump II')) || (await says('t2', 'not buildable yet')))
+      problems.push(`rung 6 doesn’t say what the Tech II pump pays now: “${(await rung('t2')).slice(0, 300)}”`);
+    if (SHOTS) { await page.locator('[data-rung="t2"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-industry-rung6.png` }); }
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

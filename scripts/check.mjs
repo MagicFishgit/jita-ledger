@@ -7341,9 +7341,9 @@ console.log('\n--- Industry: the bundle (scripts/industry-bundle.mjs, CCP static
   const eivF = JSON.parse(read('../src/data/industryEiv.json'));
   eq('  every published blueprint\'s ME 0 materials (stage 2 reads them)', [Object.keys(eivF.eiv).length, eivF.eiv[25895]], [4039, [[25601, 83], [25605, 72], [25590, 56]]]);
   const watchF = JSON.parse(read('../src/data/industryTypes.json'));
-  eq('  the cloud\'s watch set (every Tech I product and its materials) and the blueprints it keeps NPC sellers for', [watchF.watch.length, watchF.bpos.length], [1858, 1673]);
-  eq('    the pump and its circuits watched; its Tech II blueprint no NPC\'s; its Tech II product not watched yet',
-    [watchF.watch.includes(25894), watchF.watch.includes(25601), watchF.bpos.includes(25895), watchF.bpos.includes(26303), watchF.watch.includes(26302)], [true, true, true, false, false]);
+  eq('  the cloud\'s watch set (every Tech I and Tech II product, their materials and the datacores) and the blueprints it keeps NPC sellers for', [watchF.watch.length, watchF.bpos.length], [2916, 1673]);
+  eq('    the pump and its circuits watched; its Tech II blueprint no NPC\'s; its Tech II product and datacores watched',
+    [watchF.watch.includes(25894), watchF.watch.includes(25601), watchF.bpos.includes(25895), watchF.bpos.includes(26303), watchF.watch.includes(26302), watchF.watch.includes(20171)], [true, true, true, false, true, true]);
   eq('    sorted, so a rebuild of one build changes nothing', [watchF.watch.every((t, i, a) => !i || a[i - 1] < t), b.bps.every((x, i, a) => !i || a[i - 1][0] < x[0])], [true, true]);
 }
 
@@ -7880,6 +7880,104 @@ console.log('\n--- Industry: the ladder (industryLadder.ts) ---');
   eq('  a sum over whole rows leaves nothing out; each missing part is named, the Alpha tax only when the facility tax isn\'t what is missing',
     [L.beforeSaid([whole]), L.beforeSaid([whole, { ...whole, taxPerPct: 10_000, costKnown: false }]), L.beforeSaid([{ ...whole, brokerPerPct: 5 }], 'UALX-3'), L.beforeSaid([{ ...whole, costKnown: false }]), L.beforeSaid([{ ...whole, costKnown: null }])],
     [[], ['the facility tax'], ['the broker fee at UALX-3'], ['the Alpha tax'], []]);
+}
+
+console.log('\n--- Industry: Tech II through invention (industryRank.ts, industrySites.ts) ---');
+{
+  // EVE Ref's Large Trimark Armor Pump II (api.everef.net/v1/industry/cost, 9 October 2026, the research's
+  // everef-26302.json): skills Industry IV, Advanced Industry II, Science V, Hydromagnetic Physics, Nanite Engineering and
+  // Amarr Encryption Methods III; built in an Azbel with the L-Set rig in null-sec (6.17% manufacturing, 1% tax) and
+  // invented there (7.93% invention, copying index 0, as EVE Ref's input); materials and datacores at EVE Ref's own prices
+  // (Jita's lowest sell): 1,656,000 / 1,675,000 / 648.3 / 18,830, datacores 93,970 and 99,830. EVE Ref: invention
+  // 1,547,893.66 a unit (datacores 1,341,176.47, jobs 206,717.19), a build 59,209,287.3, copying 5,593.23 for its copies.
+  const I = await import('../src/lib/industry.ts');
+  const K = await import('../src/lib/industryRank.ts');
+  const S = await import('../src/lib/industrySites.ts');
+  const { jumpsFrom, HIGH_SEC } = await import('../src/lib/jumps.ts');
+  const fsT = await import('node:fs');
+  const ix = I.indexBundle(JSON.parse(fsT.readFileSync(new URL('../src/data/industry.json', import.meta.url), 'utf8')));
+  const g = JSON.parse(fsT.readFileSync(new URL('../src/data/universeGraph.json', import.meta.url), 'utf8')).systems;
+  const fx = JSON.parse(fsT.readFileSync(new URL('./fixtures/industry-everef.json', import.meta.url), 'utf8'));
+  const idx = I.parseIndices(fx.systems);
+  const near = (label, got, want, tol) => { if (!(got != null && Math.abs(got - want) <= tol)) { failed++; console.log(`  FAIL ${label}: got ${got}, want ${want} ± ${tol}`); } };
+  const ASK = { 25624: 1_656_000, 25609: 1_675_000, 11475: 648.3, 25620: 18_830, 20171: 93_970, 20416: 99_830 };
+  const market = (t) => t === 26302 ? { jita: { ask: 65_270_000, bid: 61_550_000, bids: [{ price: 61_550_000, volume: 100 }], at: '', live: false }, stats: { spark: Array(30).fill(332), highs14: Array(14).fill(65_300_000), buyerShare: 0.5 } }
+    : ASK[t] ? { jita: { ask: ASK[t], bid: ASK[t] * 0.9, bids: [], at: '', live: false }, stats: null } : { jita: null, stats: null };
+  const azbel = { kind: 'azbel', rigs: [37170], band: 'null', tax: 0.01, index: { ...idx[30004807], manufacturing: 0.0617, invention: 0.0793, copying: 0 } };
+  const input = {
+    ix, bp: ix.bp.get(26303), me: 0, te: 0, skills: { 3380: 4, 3388: 2, 3402: 5, 11443: 3, 11442: 3, 23087: 3 }, clone: 'omega',
+    site: azbel, lab: azbel, adjusted: fx.adjusted, market, sell: 'jita', share: 10, fees: { broker: 0.013, tax: 0.03375, hubBroker: null },
+    legs: { jita: { kind: 'carry', jumps: 0 }, home: null }, noShipsToJita: true, jitaJumps: null, mines: false, hubName: null, now: Date.parse('2026-10-09T15:00:00Z'),
+  };
+  const row = K.buildRow(input), inv = row.invention;
+  eq('  invented from the Tech I pump, at 43.35%: 2.3068 attempts a one-run copy, Hydromagnetic and Nanite the sciences, Amarr the encryption',
+    [inv.from, inv.chance, inv.attempts, inv.runsPerCopy, inv.sciences.map((x) => x.id), inv.encryption?.id], [25895, 0.4335, 1 / 0.4335, 1, [11443, 11442], 23087]);
+  eq('  built at ME 2 / TE 4 whatever the finder assumes: 19 / 14 / 1 / 22, one run a job (the copy\'s one run)', [row.materials.map((m) => m.qty), row.runs], [[19, 14, 1, 22], 1]);
+  near('    the materials, at EVE Ref\'s prices: 55,328,908.30', row.materialCost, 55_328_908.3, 0.01);
+  near('    the job: 3,880,379', row.job.total, 3_880_379, 1);
+  near('  the datacores a copy: 6.92 of each, 1,341,176.47', inv.datacoreCost, 1_341_176.47, 0.01);
+  near('  the invention jobs a copy: 206,717.19', inv.job.total, 206_717.19, 0.1);
+  near('    and the two together, EVE Ref\'s invention a unit: 1,547,893.66', inv.datacoreCost + inv.job.total, 1_547_893.66, 0.5);
+  near('  the Tech I copies a success, at a copying index of 0: 5,593.23', inv.copy.total, 5_593.23, 1);
+  near('  a unit costs the build and the invention: 59,209,287.30 + 1,547,893.66 + the copies', row.costUnit, 59_209_287.3 + 1_547_893.66 + inv.copy.total, 1);
+  near('  listed one tick under Jita\'s 65,270,000 it makes the research\'s 1,451,914.04 a unit, less the copies', row.sale.listNet - row.costUnit, 1_451_914.04 - inv.copy.total, 1);
+  near('  one lab slot: 2.3068 × (17,596.8 s inventing + 2,030.4 s copying) a success, 1.91 units a day', inv.labPerDay, 86_400 / (inv.attempts * (17_596.8 + 2_030.4)), 0.01);
+  eq('    which doesn\'t bind a one-run job a day: the slot limits it', [row.makes, row.day.limit], [1, 'slot']);
+  eq('  a day\'s datacores: 3 an attempt, 6.92 a success, at the one a day it makes', inv.datacores.map((d) => [d.type, +d.qty.toFixed(4)]), [[20416, 6.9204], [20171, 6.9204]]);
+  eq('  the skills it asks for: Industry V to build Tech II, Armor Rigging III; the sciences and encryption trained', row.lacking, [{ id: 3380, level: 5 }, { id: 26253, level: 3 }]);
+  const su = K.startUp(row, { bpo: 1_250_000, research: 0, held: { units: (t) => (t === 20171 ? 4 : 0), cost: () => 0 } });
+  near('  start-up counts a day\'s datacores beside the materials, less those held', su.materials, row.materialCost + 6.9204152 * 99_830 + (6.9204152 - 4) * 93_970, 1);
+  eq('    and the shopping list buys the rest', K.shoppingList(row, { units: (t) => (t === 20171 ? 4 : 0), cost: () => 0 }).filter((x) => x.type === 20171).map((x) => +x.qty.toFixed(4)), [2.9204]);
+
+  // The chance by which skill is which: a science counts a thirtieth a level, the encryption skill a fortieth.
+  const at = (sk) => K.buildRow({ ...input, skills: { 3380: 4, 3388: 2, 3402: 5, ...sk } }).invention.chance;
+  eq('  the chance at unequal levels: a science at IV 38.53%, the encryption skill at IV 37.40%, nothing trained 34%', [+at({ 11443: 4 }).toFixed(6), +at({ 23087: 4 }).toFixed(6), at({})], [0.385333, 0.374, 0.34]);
+  eq('    the encryption skill found by its name', [K.isEncryption(ix, 23087), K.isEncryption(ix, 11443)], [true, false]);
+
+  // Where invention can't be costed: said, and the row not priced.
+  const noLab = K.buildRow({ ...input, lab: null });
+  eq('  no Laboratory reachable: the invention isn\'t costed and the row says why', [noLab.missing, noLab.invention.why, noLab.costUnit, noLab.day], ['noInvention', 'no Laboratory can be reached', null, null]);
+  eq('    a lab with no index read: likewise', K.buildRow({ ...input, lab: { ...azbel, index: null } }).invention.why, 'no index for the lab’s system');
+  eq('    a datacore nobody lists: likewise', K.buildRow({ ...input, market: (t) => (t === 20171 ? { jita: null, stats: null } : market(t)) }).invention.why, 'a datacore nobody lists where it can be bought');
+
+  // Skills not read are never level 0: no chance is computed, and the row says so.
+  const unread = K.buildRow({ ...input, skills: {} });
+  eq('  skills not read: the chance and the attempts are null (never computed at level 0), the row isn\'t priced and says why',
+    [unread.invention.chance, unread.invention.attempts, unread.invention.labPerDay, unread.invention.why, unread.missing, unread.costUnit], [null, null, null, 'skills not read, so the chance of success isn’t known', 'noInvention', null]);
+  // No freight route from Jita: the datacores say it too.
+  const noRoute = K.buildRow({ ...input, legs: { jita: { kind: 'none' }, home: null } });
+  eq('  no freight route from Jita: the datacores can\'t be brought, and the row says no route rather than a datacore nobody lists', [noRoute.invention.noRoute, noRoute.missing], [true, 'noRoute']);
+  // A lab whose tax isn't typed leaves it out of the invention and the copies, and the row says so (P1).
+  const taxless = K.buildRow({ ...input, lab: { ...azbel, tax: null } });
+  eq('  a lab tax not typed: the cost isn\'t whole, and each 1% of it is a daily figure beside the build\'s',
+    [row.costKnown, taxless.costKnown, taxless.invention.job.tax, taxless.taxPerPct > 0, row.taxPerPct], [true, false, null, true, null]);
+
+  // The lab binds where invention is slower than the build: the Cerberus, a 26% one-run copy, a 2-day build.
+  const cer = ix.bp.get(11994), cerT1 = ix.bp.get(ix.inventedFrom.get(11994));
+  const adj = Object.fromEntries([...cer[2][1], ...cerT1[2][1]].map(([t]) => [t, 1000]));
+  const npc = { kind: 'npc', rigs: [], band: 'high', tax: 0.0025, index: idx[30000119] };
+  const cerRow = K.buildRow({ ...input, bp: cer, site: npc, lab: npc, adjusted: adj, skills: { 3380: 5, 3388: 2, 3402: 5 }, noShipsToJita: false,
+    market: (t) => (t === 11993 ? { jita: { ask: 300e6, bid: 280e6, bids: [{ price: 280e6, volume: 10 }], at: '', live: false }, stats: { spark: Array(30).fill(20), highs14: Array(14).fill(310e6), buyerShare: 0.5 } } : { jita: { ask: 1000, bid: 900, bids: [], at: '', live: false }, stats: null }) });
+  eq('  the lab binds a Tech II cruiser: it makes what one lab slot invents for, not the half a day the factory could', [cerRow.makes === cerRow.invention.labPerDay, cerRow.makes < 0.5, cerRow.day.limit], [true, true, 'invention']);
+
+  // The ladder's rung 6 opens Tech II rows: their own sciences and encryption skill are the rung's, their building isn't.
+  const L = await import('../src/lib/industryLadder.ts');
+  const t2row = { bp: 26303, product: 26302, day: { profit: 2e6 }, invention: { from: 25895 } };
+  eq('  rung 6 opens the pump II with its sciences untrained, only with Armor Rigging III, and no other rung opens it',
+    [L.rowsOpened(ix, [t2row], 't2', { 3380: 5, 26253: 3 }, 'omega').length, L.rowsOpened(ix, [t2row], 't2', { 3380: 5 }, 'omega').length, L.rowsOpened(ix, [t2row], 'npc', { 3380: 5, 26253: 3 }, 'omega').length], [1, 0, 0]);
+
+  eq('  the finder costs 1,012 Tech II blueprints through invention (no capital hull), apart from its 1,652 Tech I',
+    [K.inventionBlueprints(ix).length, K.inventionBlueprints(ix).some((bp) => K.finderBlueprints(ix).includes(bp))], [1012, false]);
+
+  // Where the lab is: the site when it has a Laboratory, else the nearest one, at that system's index.
+  const high = jumpsFrom(g, S.JITA_SYSTEM, (_, s) => s >= HIGH_SEC);
+  const home = S.homeSite(30004807, 'UALX-3', 'azbel'), homeFacts = S.siteFacts(home, g, high, idx);
+  const st = S.stationSite({ stationId: 60003466, systemId: 30000144, system: 'Perimeter', security: 0.949, jumps: 1, index: 0.0695, lab: false }, 'Perimeter station');
+  const stLab = S.labFor(st, S.siteFacts(st, g, high, idx), ix.b.stations, g, idx);
+  eq('  the lab: a structure is its own; an NPC station without one sends you to the nearest (Sirppala, from Perimeter) at an NPC station\'s 0.25%, its index none where ESI\'s list (here the fixture\'s eight systems) has none',
+    [S.labFor(home, homeFacts, ix.b.stations, g, idx).at, S.labFor(home, homeFacts, ix.b.stations, g, idx).site.index === homeFacts.index, stLab.at, stLab.site.tax, stLab.site.index],
+    ['Home in UALX-3', true, 'the nearest Laboratory, in Sirppala (2 jumps)', 0.0025, null]);
+  eq('    from Itamo, Sobaseki\'s, at its index', S.labFor(S.homeSite(30000119, 'Itamo', 'other'), { ...S.siteFacts(S.homeSite(30000119, 'Itamo', 'other'), g, high, idx), canScience: false }, ix.b.stations, g, idx).site.index === idx[30001363], true);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
