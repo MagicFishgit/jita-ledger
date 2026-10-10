@@ -44,3 +44,29 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
   - **Invention has no science-skill time bonus** (EVE Ref: 23,400 × 0.94 × 0.8 = 17,596.8 s an attempt, Science V or not);
     copying has Science's 5% a level. Tech II manufacturing gets each required skill's dogma 1982 (−1% a level).
   - **Rigs of one kind on one product don't stack here**: the better is taken. No source says how two would combine.
+- **The finder reproduces the research's worked row** (`src/lib/industryRank.ts`): the Large Trimark Armor Pump I at
+  ME 10 / TE 20 in an Azbel in null-sec, materials from Jita by Brave Freight, listed in Jita at 7,040,000: 5,959,979 of
+  materials and 264,830 of job a unit, a sale netting 6,637,440 after 1.3%, 3.375% and 73,440 of freight, 412,632 profit a
+  unit, and one slot's 65 a day binding under 81 a day of buyers at a 10% share.
+  - **A job is a day of runs** (the research's choice): as many as finish in a day, at least one; a run over a day makes
+    its units over the days it takes.
+  - **Freight's minimum is spread over a batch**: a week's materials in one contract (`batchLeg`), a week's sales at your
+    share in another. Charged per material, the 5 M minimum made the research's row 8,001 ISK a unit dearer.
+  - **Sourcing is per material**: Jita's best ask plus freight in (carried, with no ISK, from a high-sec site within 10
+    jumps), the home hub's best sell only where its weekly movement is ten times the week's need, and mined at what it
+    would sell for, never free. **Mined is picked only for a mineable material and a builder with mining records in the
+    last 30 days**: a bid is always under an ask, so otherwise every mineral would read as mined and every builder as a
+    miner (a deviation from the spec's "cheapest of three", 10 October 2026). Jita's patient bid is said, never picked.
+  - **One slot's day**: the better-paying side first, at your share of its pace (buyers taking listings, sellers selling
+    into bids, from `tradingSplit`), then the other only where it pays, both no more than the slot makes. A side that loses
+    is still shown, as a loss.
+  - **Not known stays not known**: no Jita book this morning, no history to pace it, no index for the system, adjusted
+    prices not read, a material nobody lists, no freight route: each a reason, never a 0. A facility tax not typed is left
+    out of the job cost and the row says what each 1% would cost a day; likewise a hub's broker fee.
+  - **Home pace before the home history is read is Goonmetrics' weekly movement ÷ 7 at an even split**, said as such;
+    once read, the region's typical day × history's split, so a market that sells into bids paces below one where buyers
+    take listings.
+  - **The finder ranks the 1,652 Tech I blueprints that aren't invention products or capital hulls.** Titans and
+    supercarriers (groups 30, 659) sit outside the static data's capital filter and are left out by group.
+  - **A row says whether its job cost is whole** (`costKnown`): false while the facility tax or the clone state (Alpha tax)
+    isn't known, because `jobCostOf`'s total leaves them out; such a row is ranked before the missing part, never with it as 0.

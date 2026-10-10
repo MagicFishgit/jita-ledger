@@ -7438,5 +7438,140 @@ console.log('\n--- Industry: the rules (industry.ts), on EVE Ref\'s own figures 
   eq('  the bundle indexed: the pump\'s blueprint by its product, its Tech II invented from it', [ix.byProduct.get(25894)?.[0], ix.t2.has(26303), ix.inventedFrom.get(26303), ix.t2.has(25895), ix.t2.size], [25895, true, 25895, false, 1020]);
 }
 
+console.log('\n--- Industry: the finder\'s rules (industryRank.ts) ---');
+{
+  // The research's worked row (.playwright-mcp/research/bpo/report.md, "Worked by hand"): the Large Trimark Armor Pump I at
+  // ME 10 / TE 20 in an Azbel in null-sec, materials from Jita by Brave Freight (900 ISK a m³, 0.75% of a 105% collateral),
+  // listed in Jita at 7,040,000 after 1.3% and 3.375%: 5,959,979 of materials and 264,829 of job a unit, 412,632 profit
+  // a unit, and the slot (65 a day) binding under 81 a day of listings at a 10% share.
+  const I = await import('../src/lib/industry.ts');
+  const K = await import('../src/lib/industryRank.ts');
+  const fsI = await import('node:fs');
+  const fx = JSON.parse(fsI.readFileSync(new URL('./fixtures/industry-everef.json', import.meta.url), 'utf8'));
+  const ix = I.indexBundle(JSON.parse(fsI.readFileSync(new URL('../src/data/industry.json', import.meta.url), 'utf8')));
+  const near = (label, got, want, tol) => { if (!(got != null && Math.abs(got - want) <= tol)) { failed++; console.log(`  FAIL ${label}: got ${got}, want ${want} ± ${tol}`); } };
+  const NOW3 = Date.parse('2026-10-09T15:00:00Z');
+  const BRAVE = { perM3: 900, collateral: 0.0075 * 1.05, min: 5_000_000 };
+  const route = { kind: 'route', f: BRAVE, name: 'Brave Freight' };
+
+  eq('  pace from the scan\'s spark: the last 14 days\' median; their average when it\'s 0; nothing without a spark',
+    [K.paceFromSpark([...Array(16).fill(5), ...Array(14).fill(841)]), K.paceFromSpark([...Array(23).fill(0), 7, 7, 0, 0, 7, 0, 0]), K.paceFromSpark(undefined)], [841, 1.5, null]);
+  eq('  freight: a Large rig to Jita is 18,000 + 55,440 of collateral, 73,440 a unit in a week\'s batch', K.freightPerUnit(BRAVE, 20, 7_040_000, 455), 73_440);
+  eq('    a small batch pays the 5 M minimum, spread over it', K.freightPerUnit(BRAVE, 5, 100_000, 10), 500_000);
+  eq('    you carry it, or it\'s where it\'s sold: no ISK; no route set: not known', [K.legCost({ kind: 'carry', jumps: 4 }, 20, 1e6, 7), K.legCost({ kind: 'here' }, 20, 1e6, 7), K.legCost({ kind: 'none' }, 20, 1e6, 7)], [0, 0, null]);
+
+  eq('  never haul ships to Jita: a ship built in null-sec, or 11 high-sec jumps out, stays home; 6 jumps out may go; a module always may; the switch off, anything may',
+    [K.shipToJita({ ship: true, noShipsToJita: true, band: 'null', jitaJumps: null }), K.shipToJita({ ship: true, noShipsToJita: true, band: 'high', jitaJumps: 11 }),
+      K.shipToJita({ ship: true, noShipsToJita: true, band: 'high', jitaJumps: 6 }), K.shipToJita({ ship: false, noShipsToJita: true, band: 'null', jitaJumps: null }),
+      K.shipToJita({ ship: true, noShipsToJita: false, band: 'null', jitaJumps: null })], [false, false, true, true, true]);
+
+  // Sourcing: the cheapest delivered, home only where deep enough, mined never free and only for a builder who mines.
+  const gm = (sell, buy, weekly) => ({ sell, buy, weekly, at: '2026-10-09T14:00:00Z' });
+  const src = (o) => K.sourceMaterial({ type: 34, weekNeed: 500, volume: 0.01, mineable: false, mines: false, jita: { ask: 100, bid: 95, patient: 96 }, jitaLeg: { kind: 'carry', jumps: 4 }, home: null, homeLeg: null, hubName: null, ...o });
+  const plain = src({});
+  eq('  Jita\'s best ask, carried: 100, with the patient bid beside it', [plain.pick, plain.price, plain.patient, plain.options[0].why], ['jita', 100, 96, 'Jita’s best ask; you carry it']);
+  eq('    with a route and no minimum, plus freight (9 ISK a 0.01 m³ unit and 0.79% of its value)', src({ jitaLeg: { ...route, f: { ...BRAVE, min: null } } }).price, 100 + 9 + 0.007875 * 100);
+  eq('    a material shipped alone pays the whole 5 M minimum over its week\'s 500 units', src({ jitaLeg: route }).price, 100 + 10_000);
+  const batch = K.batchLeg(route, [{ volume: 0.01, price: 4213, units: 32_242 }, { volume: 0.01, price: 25_980, units: 27_965 }]);
+  eq('  a week\'s materials in one contract: over the 5 M minimum, the route\'s own terms; a small batch, scaled up to it',
+    [batch.f, K.batchLeg(route, [{ volume: 0.01, price: 100, units: 500 }]).f.perM3 > 900, K.batchLeg({ kind: 'carry', jumps: 2 }, [])], [{ perM3: 900, collateral: 0.007875, min: null }, true, { kind: 'carry', jumps: 2 }]);
+  eq('    no route set: Jita can\'t be priced, and nothing is picked', [src({ jitaLeg: { kind: 'none' } }).pick, src({ jitaLeg: { kind: 'none' } }).options[0].why], [null, 'no freight route from Jita']);
+  const home = { homeLeg: { kind: 'here' }, hubName: 'UALX-3' };
+  eq('  the home hub when it moves ten times a week\'s need and is cheaper', [src({ ...home, home: gm(90, 80, 5000) }).pick, src({ ...home, home: gm(90, 80, 5000) }).price], ['home', 90]);
+  const thin = src({ ...home, home: gm(90, 80, 4999) });
+  eq('    under ten times: too thin, Jita picked, the reason said', [thin.pick, thin.options.find((x) => x.source === 'home').why], ['jita', 'too thin to buy a week’s need at UALX-3']);
+  eq('    weekly movement not known (Goonmetrics\' −1): its depth can\'t be judged, never picked', src({ ...home, home: gm(90, 80, null) }).pick, 'jita');
+  const notMiner = src({ mineable: true, ...home, home: gm(120, 80, 5000) });
+  eq('  mined, for a builder who doesn\'t mine: listed at the home bid, never picked', [notMiner.pick, notMiner.options.find((x) => x.source === 'mined')], ['jita', { source: 'mined', price: 80, why: 'valued at what it would sell for; not counted, since you haven’t mined in 30 days', pickable: false }]);
+  eq('    for one who does: picked at what it would sell for, never free', [src({ mineable: true, mines: true, ...home, home: gm(120, 80, 5000) }).pick, src({ mineable: true, mines: true, ...home, home: gm(120, 80, 5000) }).price], ['mined', 80]);
+  eq('    no home bid: valued at Jita\'s; no bid anywhere: no price, not free', [src({ mineable: true, mines: true }).price, src({ mineable: true, mines: true, jita: { ask: 100, bid: null, patient: null } }).price], [95, 100]);
+  eq('    a material no market lists and nobody mines: nothing picked', src({ jita: null }).pick, null);
+
+  // Selling at home: the region's history decides the split, so a market that sells into bids paces below one that doesn't.
+  const day = (i, avg) => ({ date: new Date(NOW3 - (i + 1) * 86400_000).toISOString().slice(0, 10), average: avg, highest: 110, lowest: 90, volume: 1000, order_count: 50 });
+  const dumps = Array.from({ length: 30 }, (_, i) => day(i, 92)).reverse(), buys = Array.from({ length: 30 }, (_, i) => day(i, 108)).reverse();
+  const at = (hist) => K.sellAt('home', { jita: null, stats: null, home: gm(105, 95, 7000), homeHist: hist }, { broker: null, tax: 0.03375, leg: { kind: 'here' }, volume: 1, makes: 50, share: 10, now: NOW3, hubName: 'UALX-3' });
+  eq('  at home, a market that sells into bids paces below one where buyers take listings (history\'s split, 1,000 a day)',
+    [at(dumps).listPace, at(buys).listPace, at(dumps).paceFrom], [100, 900, 'history']);
+  eq('    before its history is read: Goonmetrics\' weekly movement ÷ 7, at an even split, said', [at(null).pace, at(null).split, at(null).paceFrom], [1000, 0.5, 'goonmetrics']);
+  eq('    the hub\'s broker fee not known: the net leaves it out and says so', [at(null).brokerKnown, at(null).listNet], [false, 104.9 * (1 - 0.03375)]);
+  eq('  no Jita book this morning: said, never a 0', K.sellAt('jita', { jita: null, stats: null }, { broker: 0.013, tax: 0.03375, leg: { kind: 'carry', jumps: 3 }, volume: 1, makes: 1, share: 10, now: NOW3 }).why, 'No Jita book this morning');
+  eq('  a book but no history to pace it: said, never a pace of 0', K.sellAt('jita', { jita: { ask: 10, bid: 9, bids: [], at: '', live: true }, stats: null }, { broker: 0.013, tax: 0.03375, leg: { kind: 'carry', jumps: 3 }, volume: 1, makes: 1, share: 10, now: NOW3 }).why, 'No history this morning to say how fast it sells');
+
+  // One slot's day.
+  const sale = (o) => ({ place: 'jita', list: 100, listNet: 95, bid: 90, bidNet: 87, pace: 1000, listPace: 600, bidPace: 400, split: 0.6, splitFrom: 'book', paceFrom: 'scan', freight: 0, brokerKnown: true, why: null, ...o });
+  eq('  the slot binds: listings take all 50 it makes', K.slotDay(50, sale({}), 80, 10), { list: 50, bids: 0, units: 50, profit: 750, limit: 'slot' });
+  eq('  the market binds: 60 to listings, then 40 into bids where that pays too, of 200 made', K.slotDay(200, sale({}), 80, 10), { list: 60, bids: 40, units: 100, profit: 60 * 15 + 40 * 7, limit: 'market' });
+  eq('    bids that lose aren\'t sold into', K.slotDay(200, sale({ bidNet: 70 }), 80, 10), { list: 60, bids: 0, units: 60, profit: 900, limit: 'market' });
+  eq('    a listing that loses is still shown, as a loss, when it\'s the better side', K.slotDay(50, sale({ listNet: 75, bidNet: 70 }), 80, 10).profit, -250);
+
+  // The research's row.
+  const ASK = { 25601: 4213, 25605: 25_980, 25590: 84_000 };
+  const spark = [...Array(16).fill(800), ...Array(14).fill(841)];
+  const highs14 = [7_100_000, 7_050_000, 7_045_000, 7_041_000, 6_900_000, 6_950_000, 6_990_000, 7_000_000, 7_010_000, 6_980_000, 6_970_000, 6_960_000, 6_950_000, 6_940_000];
+  const sold = { sell: 1690, buy: 62, single: { sell: 0, buy: 0 }, orders: { sell: 20, buy: 5 } };
+  const market = (t) => t === 25894 ? { jita: { ask: 7_041_000, bid: 6_240_000, bids: [{ price: 6_240_000, volume: 100 }], sold, at: '', live: false }, stats: { spark, highs14, buyerShare: 0.5 } }
+    : ASK[t] ? { jita: { ask: ASK[t], bid: ASK[t] * 0.9, bids: [], at: '', live: false }, stats: null } : { jita: null, stats: null };
+  const idx = I.parseIndices(fx.systems);
+  const base = {
+    ix, bp: ix.bp.get(25895), me: 10, te: 20, skills: { 3380: 4, 3388: 2 }, clone: 'omega',
+    site: { kind: 'azbel', rigs: [37170], band: 'null', tax: 0.01, index: { ...idx[30004807], manufacturing: 0.0617 } },
+    adjusted: fx.adjusted, market, sell: 'jita', share: 10, fees: { broker: 0.013, tax: 0.03375, hubBroker: null },
+    legs: { jita: route, home: null }, noShipsToJita: true, jitaJumps: null, mines: false, hubName: null, now: NOW3,
+  };
+  const row = K.buildRow(base);
+  eq('  the worked row: 65 runs, 65 made a day, materials 4,606 / 3,995 / 3,108, sold in Jita at 7,040,000', [row.runs, row.makes, row.materials.map((m) => m.qty), row.sale?.list], [65, 65, [4606, 3995, 3108], 7_040_000]);
+  near('    materials 5,959,979 a unit, as the research worked them', row.materialCost / 65, 5_959_979, 1);
+  near('    the job 264,830 a unit (EVE Ref\'s 17,213,916 ÷ 65)', row.job.total / 65, 264_829.5, 1);
+  near('    the sale nets 6,637,440 after fees and 73,440 of freight', row.sale.listNet, 6_637_440, 0.5);
+  near('    412,632 profit a unit', row.sale.listNet - row.costUnit, 412_632, 1);
+  eq('    the slot binds (81 a day of buyers at 10% is more than 65), 26.8 M a day', [row.day.limit, row.day.list, Math.round(row.day.profit)], ['slot', 65, Math.round(65 * (row.sale.listNet - row.costUnit))]);
+  eq('    nothing missing, and the skills it asks for are trained', [row.missing, row.lacking], [null, [{ id: 26253, level: 1 }]]);
+  // A site whose facility tax isn't typed: ranked before it, with what each 1% costs a day.
+  const untaxed = K.buildRow({ ...base, site: { ...base.site, tax: null } });
+  near('  a tax not typed: ranked before it, profit a day higher by exactly the tax', untaxed.day.profit - row.day.profit, row.job.tax, 0.01);
+  near('    and each 1% of it costs 1,575,904 a day', untaxed.taxPerPct, 1_575_904.13, 0.5);
+  eq('    a known tax has no "each 1%" line, and its cost is whole; untyped, it isn\'t', [row.taxPerPct, row.costKnown, untaxed.costKnown, K.buildRow({ ...base, clone: 'unknown' }).costKnown], [null, true, false, false]);
+  eq('  no index for the site\'s system: said, the job not costed', [K.buildRow({ ...base, site: { ...base.site, index: null } }).missing, K.buildRow({ ...base, site: { ...base.site, index: null } }).job], ['noIndex', null]);
+  eq('  adjusted prices not read yet: said', K.buildRow({ ...base, adjusted: null }).missing, 'noAdjusted');
+  eq('  no Jita book this morning for the product: said', K.buildRow({ ...base, market: (t) => (t === 25894 ? { jita: null, stats: null } : market(t)) }).missing, 'noBook');
+  // Selling at home with the hub's broker fee not typed: before it, with each 1%'s cost a day.
+  const homeRow = K.buildRow({ ...base, sell: 'home', hubName: 'UALX-3', legs: { jita: route, home: { kind: 'here' } },
+    market: (t) => (t === 25894 ? { ...market(t), home: gm(7_500_000, 7_000_000, 7 * 841), homeHist: null } : market(t)) });
+  eq('  at home with no broker fee typed: before it, and each 1% costs a day\'s listings × price × 1%', [homeRow.sale?.place, homeRow.sale?.brokerKnown, Math.round(homeRow.brokerPerPct)], ['home', false, Math.round(homeRow.day.list * homeRow.sale.list * 0.01)]);
+  // A ship at a null-sec site, Jita only, the switch on: kept home, nowhere to sell, said.
+  const caracal = K.buildRow({ ...base, bp: ix.byProduct.get(621), me: 0, te: 0, site: { ...base.site, rigs: [] }, market: () => ({ jita: { ask: 10e6, bid: 9e6, bids: [], at: '', live: false }, stats: { spark, buyerShare: 0.5 } }) });
+  eq('  a ship from a null-sec site with "never haul ships to Jita" on: kept home, not sold in Jita', [caracal.shipsKeptHome, caracal.sales.length, caracal.missing], [true, 0, 'noSale']);
+
+  eq('  where the original is sold: in The Forge, the partial read\'s newer sellers on top; else NPCs don\'t sell it there (after a complete read), or no seller found (a partial one), or not read',
+    [K.bpoWhere({ complete: { at: 'a', complete: true, pagesFailed: 0, sellers: { 25895: [1_250_000, [60001]] } }, partial: { at: 'b', complete: false, pagesFailed: 3, sellers: { 25895: [1_200_000, [60002]] } } }, 25895, 1_250_000),
+      K.bpoWhere({ complete: { at: 'a', complete: true, pagesFailed: 0, sellers: {} }, partial: null }, 25895, 1_250_000),
+      K.bpoWhere({ complete: null, partial: { at: 'b', complete: false, pagesFailed: 4, sellers: {} } }, 25895, 1_250_000),
+      K.bpoWhere(null, 25895, 1_250_000), K.bpoWhere({ complete: { at: 'a', complete: true, pagesFailed: 0, sellers: {} }, partial: null }, 25895, 0).base],
+    [{ state: 'forge', price: 1_200_000, stations: [60002] }, { state: 'notForge', base: 1_250_000, at: 'a' }, { state: 'unknown', base: 1_250_000, missed: 4 }, { state: 'unread' }, null]);
+  eq('  payback: the original ÷ profit a day; none without a price or a profit', [K.payback(1_250_000, 250_000), K.payback(null, 1), K.payback(1, -5)], [5, null, null]);
+
+  // ME levels: research days at the builder's skills in a station with a Laboratory (no rigs, 0.25% tax, Perimeter's indices).
+  const lab = { kind: 'npc', rigs: [], band: 'high', tax: I.NPC_FACILITY_TAX, index: idx[30000144] };
+  const lv = K.meLevels({ ...base, skills: { 3380: 4, 3388: 5, 3409: 5, 3403: 5 } }, lab);
+  eq('  ME levels: 0/0, 6/0, 8/0, 10/0, 10/20', lv.map((x) => [x.me, x.te]), [[0, 0], [6, 0], [8, 0], [10, 0], [10, 20]]);
+  eq('    profit grows with research; 0/0 costs nothing to research', [lv[0].profit < lv[3].profit, lv[3].profit < lv[4].profit, lv[0].days, lv[0].cost], [true, true, 0, 0]);
+  near('    ME 10 takes 28.3 days at Metallurgy V and Advanced Industry V; 10/20 twice that in one lab slot', lv[3].days, 28.333, 0.001);
+  near('      10/20', lv[4].days, 56.667, 0.001);
+
+  // Start-up and the shopping list: held materials count here, never in the profit a day.
+  const held = { units: (t) => (t === 25601 ? 1000 : 0), cost: (t, n) => (t === 25601 ? n * 4000 : null) };
+  const su = K.startUp(row, { bpo: 1_250_000, research: 11_231_059, held });
+  near('  start-up: the original, research, and a day\'s materials less the 1,000 held', su.materials, row.materialCost - 1000 * row.materials[0].price, 0.01);
+  eq('    with what those 1,000 cost you, and the total', [su.heldUnits, su.heldCost, Math.round(su.total)], [1000, 4_000_000, Math.round(1_250_000 + 11_231_059 + su.materials)]);
+  eq('  the shopping list buys what isn\'t held', K.shoppingList(row, held).map((x) => [x.type, x.qty, x.source]), [[25601, 3606, 'jita'], [25605, 3995, 'jita'], [25590, 3108, 'jita']]);
+  eq('  the profit a day is the same with or without the held materials', K.buildRow(base).day.profit, row.day.profit);
+
+  eq('  kinds: a large armor rig, a cruiser, a frigate, a fuel block, a carrier (left out of the finder)',
+    [25894, 621, 587, 4051, 23757].map((t) => K.productKind(ix, t)), ['rigs', 'hulls-medium', 'hulls-small', 'fuel', 'capital']);
+  eq('  the finder\'s blueprints: Tech I, no invention product, no capital hull', [K.finderBlueprints(ix).length, K.finderBlueprints(ix).some((b) => ix.t2.has(b[0]))], [1652, false]);
+  eq('  the named constants the copy states', [K.NEAR_JITA_JUMPS, K.HOME_DEPTH, K.DEFAULT_SHARE, K.LIVE_ROWS], [10, 10, 10, 40]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
