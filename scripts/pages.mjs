@@ -421,7 +421,8 @@ try {
       for (const t of PLANNER_TRIPS.row) if (!tripText.includes(t)) problems.push(`not drawn: 990101's round trip “${t}” (${tripText})`);
       if ((await tripCell.getAttribute('data-tip-title').catch(() => null)) !== PLANNER_TRIPS.rowTip) problems.push(`990101's round trip tip isn't “${PLANNER_TRIPS.rowTip}”`);
       for (const t of ['990102', '990104', '990105']) if (await page.locator('.page table tbody tr', { hasText: t }).count()) problems.push(`in the Place-and-leave mix, and shouldn’t be: ${t}`);
-      if (/\b(0|100)% of past days/.test(pageText.replace(/45% of past days/g, ''))) problems.push('a round trip said as 0% or 100% where it isn’t known');
+      // Not known is never shown as 0% or 100%: the rows say "45% of days", the mix line "… of the last 60 days".
+      if (/\b(0|100)% of (days|the last)/.test(pageText.replace(/45% of (days|the last)/g, ''))) problems.push('a round trip said as 0% or 100% where it isn’t known');
       await judge('planner (place and leave)');
       // "Keep items whose market moved" brings it back, with its flag and the flag's tip.
       problems = [];

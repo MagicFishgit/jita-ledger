@@ -142,7 +142,8 @@ State these rather than letting them be discovered:
   prices says the bulk of trading got there, not that your order, queued among others at your share, filled and sold; a
   horizon under a day counts the same day, the nearest daily history can say; the 60 start days overlap, so a rate is
   less sure than its count suggests, and the 30-day count rests on at most 31. On the 2 October plan the rates summed to 12
-  of its 33 items within 7 days, against 6 that the user round-tripped and 2 by ESI's days in order: a market that moves
+  of its 33 items within 7 days, against 2 by the count's own rule (ESI's days, the bid then the sale) and 6 round trips the
+  user traded, some under the plan's price; its expected profit within 7 days, +25.8 M, against +4.67 M realized a week on: a market that moves
   away from the fortnight's prices (the review's adverse selection) comes round less than its past did. Only the
   expectation is scaled: each item is still sized by what its market takes at reach/14 a side.
 - **At the front, the planner's expectation is unchanged** (9 October 2026): it prices one step inside today's book and

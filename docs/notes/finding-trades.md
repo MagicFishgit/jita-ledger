@@ -204,13 +204,16 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   - **Measured** (`.playwright-mcp/plan-review-fixes/measure-round-trips.mjs` and `.json`/`.txt`: the cloud's 2 October scan,
     each candidate's Forge history from ESI cut to before 2 October, the user's settings and filters, 1 B, 25% cap, 66
     slots). The 2 October plan's own 33 items and units: expected +67.58 M before, +5.77 M within 12 hours after (+14.81 M
-    within 3 days, +25.80 M within 7); it realized +4.67 M by 9 October. The planner's mix at the plan's start, 12 hours:
+    within 3 days, +25.80 M within 7). Like for like, the 7-day +25.80 M against the +4.67 M it realized by 9 October, a
+    week on: still about five times over, though nearer than +67.58 M in 12 hours. The planner's mix at the plan's start, 12 hours:
     26 items and 129.32 M a day before, 27 and 14.19 M a day after (+6.45 M expected within 12 hours against +56.51 M if
     all came round; 22 candidates never came round the same day in 60 days, 1 too little history; 18 of the plan's items
     in it, 20 before); 3 days: 33 items, 58.38 M a day → 22, 15.18 M; 7 days: 5 items by ISK a day, 54.44 M → 28 by return,
     14.47 M. History still overstates the week after the plan: its rates summed to 2.7 of the 33 within 12 hours, 7.0 within
-    3 days and 12.0 within 7, against 0, 0 and 2 that did by ESI's days in order (6 by the trades the user made, one at a
-    loss): the markets moved away from the fortnight's prices (limits.md). Cost: 57 µs an item on top of statsFrom's ~830
+    3 days and 12.0 within 7, against 0, 0 and 2 that came round by the count's own rule (a day's low at or under the plan's
+    bid, then a high at or over its sale, by ESI's days from placing); the review's 6 within 7 days are the round trips the
+    user traded (one at a loss), which also counts sales under the plan's price. The markets moved away from the
+    fortnight's prices (limits.md). Cost: 57 µs an item on top of statsFrom's ~830
     (1,721 histories of up to 396 days), 0.8 s over the scan's 13,434 items; 58 bytes an item stored, 0.78 MB on the
     scan's 17.2 MB of stats and books (4.5%).
 - **Orders you're leaving aren't told to get back in front** (`Data.leave`, a synced doc of type IDs; `leave` in
