@@ -44,6 +44,8 @@ function savedProspectFilters(): Partial<ProspectFilters> | null {
   try { return JSON.parse(localStorage.getItem('jita-ledger:prospects') || 'null')?.f ?? null; } catch { return null; }
 }
 
+const plainIsk = (n: number) => iskFmt(n).replace(/ ISK$/, '');
+
 export function Planner() {
   const d = useData();
   // How left orders have filled against the pace this plan's pricing expects, once the cloud has checked enough.
@@ -311,11 +313,11 @@ export function Planner() {
                   {plan.rows.map((a, i) => <div key={a.p.typeId} data-tip={`${name(a.p.typeId)} — ${iskBig(a.isk)} (${pct(a.isk / isk, 0)})`} style={{ width: `${(a.isk / Math.max(isk, 1)) * 100}%`, background: COLS[i % COLS.length] }} />)}
                 </div>
                 <div className="tbl-scroll">
-                  <table className="tbl mix" style={{ minWidth: patient ? 1060 : 1040 }}>
+                  <table className="tbl mix" style={{ minWidth: patient ? 1000 : 980 }}>
                     <thead><tr>
-                      <th scope="col" className="l">Item</th><th scope="col">ISK in</th><th scope="col">Share</th><th scope="col">Units</th>
-                      <th scope="col" data-tip={patient ? 'Your buy order’s price: where trading reached on about half of the last 14 days' : 'Your buy order’s price'}>Buy at</th>
-                      <th scope="col" data-tip={patient ? 'Your sell order’s price: where trading got up to on about half of the last 14 days' : 'Your sell order’s price'}>Sell at</th>
+                      <th scope="col" className="l">Item</th><th scope="col" data-tip="The ISK this plan puts into the item. The line under it is its share of your ISK.">ISK in</th><th scope="col">Units</th>
+                      <th scope="col" data-tip={patient ? 'Your buy order’s price: where trading reached on about half of the last 14 days' : 'Your buy order’s price'}>Buy at<span className="sub">ISK</span></th>
+                      <th scope="col" data-tip={patient ? 'Your sell order’s price: where trading got up to on about half of the last 14 days' : 'Your sell order’s price'}>Sell at<span className="sub">ISK</span></th>
                       <th scope="col" data-tip={patient ? 'How long this much takes to buy in and sell out at your share of the slower side, on days trading reaches its prices. Round trip says how often that came within your horizon.' : 'How long this much takes to buy in and sell out at your share of the slower side'}>Turns in</th>
                       {patient && <th scope="col" data-tip={`How often its prices came round ${within} on past days (of the last ${ROUND_TRIP_STARTS}, each whose horizon has passed): the bid Place and leave would have placed that morning reached, then its sale. ISK a day is its profit times this.`}>Round trip<span className="sub">{within}</span></th>}
                       <th scope="col">ISK / day</th><th scope="col">Return / day</th>
@@ -341,11 +343,10 @@ export function Planner() {
                               </span>
                             </span>
                           </td>
-                          <td>{iskBig(a.isk)}</td>
-                          <td style={{ color: 'var(--sec)' }}>{pct(a.isk / isk, 0)}</td>
+                          <td>{iskBig(a.isk)}<span className="sub">{pct(a.isk / isk, 0)}</span></td>
                           <td>{units(a.units)}</td>
-                          <td>{iskFmt(a.p.buy)}</td>
-                          <td>{iskFmt(a.p.sell)}</td>
+                          <td>{plainIsk(a.p.buy)}</td>
+                          <td>{plainIsk(a.p.sell)}</td>
                           <td>{flip(a.days)}</td>
                           {patient && (
                             <td className="round-trip" tabIndex={0} data-tip-title={a.p.roundTrip ? roundTripSaid(a.p.roundTrip, days) : 'Round trip'} data-tip={a.p.roundTrip ? roundTripTip(a.p.roundTrip, days) : undefined}>

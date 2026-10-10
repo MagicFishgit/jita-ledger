@@ -28,10 +28,17 @@ const PAGES = [
 ];
 
 const ALL = { empty: {}, small: small(), large: large() };
+// The planner again with prices in the billions (Orders was sized against them too): its own copy of the large ledger and its own
+// scan, so the shared one check-income records stays as it is. Desktop only: the phone check measures other things.
+if (process.env.PHONE !== "1") ALL.bigfig = large();
 // The large ledger already has a little of the planner's 990101 working (planScan): 5 listed and 3 in the Jita hangar, so
 // the mix sizes it after them and its "Already trading" tip says so (PLANNER_WORKING).
 ALL.large.orders = { ...ALL.large.orders, 990101001: { orderId: 990101001, typeId: 990101, isBuy: false, price: 1_400_000, volumeTotal: 5, volumeRemain: 5, issued: new Date(Date.now() - 3600_000).toISOString(), state: 'open', locationId: 60003760 } };
 ALL.large.stock = { ...ALL.large.stock, jita: { ...ALL.large.stock.jita, 990101: 3 } };
+if (ALL.bigfig) {
+  ALL.bigfig.orders = { ...ALL.bigfig.orders, 990101001: { ...ALL.large.orders[990101001], price: 1_400_000_000 } };
+  ALL.bigfig.stock = ALL.large.stock;
+}
 
 for (const [name, list] of Object.entries(ALTS)) if (list.length) ALL[name].chars = charsOf(list);
 
@@ -131,10 +138,10 @@ const PROOF = { small: 'Hammerhead II', large: 'Test Item' };
  * came round within 3 days on 26 of 58 start days (45%), 990108 on 20 of 58; 990102 could be priced on too few days to
  * say; 990105 never came round; 990104's stats predate the count as they predate the run-up (PLANNER_TRIPS).
  */
-function planScan(now) {
+function planScan(now, big = false) {
   const day = (i) => new Date(now - i * 86400_000).toISOString().slice(0, 10);
   const lowsEnd = day(1);
-  const M = 1e6;
+  const M = big ? 1e9 : 1e6; // the big-figure case: buy and sell prices in the billions
   const stats = (typeId, lows14, highs14, extra = {}) => ({
     typeId, at: new Date(now - 3600_000).toISOString(), daysTraded: 30, tradesPerDay: 60, unitsPerDay: 600, spikiness: 0.04,
     dailyRange: 0.3, trend: 0, avgPrice: 1.2 * M, spark: Array(30).fill(600), buyerShare: 0.5, high30: 1.6 * M, spike: false,
@@ -284,13 +291,13 @@ try {
     // page on the app's origin that isn't the app (Vite serves a module as it is): under the open app, the ledger it
     // holds in memory could be written back over the seed (docs/notes/gotchas.md).
     await page.goto(SEED_PAGE);
-    await page.evaluate(async ([d, auth, alts, scan]) => {
+    await page.evaluate(async ([d, auth, alts, scan, big]) => {
       localStorage.clear(); sessionStorage.clear();
       localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
       if (scan) {
         // Prospects sized to what the scan's items can take; the planner given ISK and slots (the large ledger's 400 orders fill its own).
-        localStorage.setItem('jita-ledger:prospects', JSON.stringify({ f: { budget: 1e7, horizonDays: 3, minTrades: 5, minDays: 20, minRoi: 0.03, maxSpikiness: 0.5, demoteFlagged: true }, sort: { key: 'roiDay', dir: 'desc' } }));
-        sessionStorage.setItem('jita-ledger:planner-session', JSON.stringify({ isk: 1e9, slots: 10 }));
+        localStorage.setItem('jita-ledger:prospects', JSON.stringify({ f: { budget: big ? 1e10 : 1e7, horizonDays: 3, minTrades: 5, minDays: 20, minRoi: 0.03, maxSpikiness: 0.5, demoteFlagged: true }, sort: { key: 'roiDay', dir: 'desc' } }));
+        sessionStorage.setItem('jita-ledger:planner-session', JSON.stringify({ isk: big ? 5e10 : 1e9, slots: 10 }));
       }
       const open = (db) => new Promise((res, rej) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onerror = rej; q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
       for (const [db, put] of [['jita-ledger', d], ['jita-ledger-cache', scan ?? {}], ['jita-ledger-alts', alts]]) {
@@ -299,7 +306,7 @@ try {
         await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
         h.close();
       }
-    }, [data, ownerAuth(), altStoreOf(ALTS[name] ?? []), name === 'large' ? planScan(Date.now()) : null]);
+    }, [data, ownerAuth(), altStoreOf(ALTS[name] ?? []), name === 'large' ? planScan(Date.now()) : name === 'bigfig' ? planScan(Date.now(), true) : null, name === 'bigfig']);
     await page.goto(BASE);
     await page.waitForSelector('.page', { timeout: 20_000 });
     // The seed has to have reached the app, or every page below passes on an empty store.
@@ -326,6 +333,25 @@ try {
       if (unique.length) failures.push({ ledger: name, page: label, problems: unique });
       process.stdout.write(unique.length ? `  FAIL ${name} #${label}\n${unique.map((x) => `       ${x}`).join('\n')}\n` : `  ok   ${name} #${label}\n`);
     };
+    // The big-figure case is the planner's mix at both pricings and nothing else.
+    if (name === 'bigfig') {
+      for (const [label, kept] of [['at the front', {}], ['place and leave', { patient: true, keepMoved: true }]]) {
+        problems = [];
+        await page.evaluate((k) => { localStorage.setItem('jita-ledger:planner', JSON.stringify(k)); location.hash = '#settings/appearance'; }, kept);
+        await page.waitForTimeout(500);
+        await page.evaluate(() => { location.hash = '#planner'; });
+        await page.waitForTimeout(1500);
+        const rows = await page.locator('.page table.mix tbody tr').count();
+        if (!rows) problems.push('not drawn: no mix rows');
+        const big = await page.locator('.page table.mix tbody tr td', { hasText: /\b[1-9][\d,]{12,}/ }).count();
+        if (!big) problems.push('the mix has no price in the billions, so this case proves nothing');
+        if (!(await page.locator('.page table.mix .flag', { hasText: 'Already trading' }).count())) problems.push('not drawn: no Already trading chip in the big-figure mix');
+        await mixFits(page, `big figures, ${label}`, problems);
+        await judge(`planner (big figures, ${label})`);
+      }
+      await page.close();
+      continue;
+    }
     const first = data.positions?.[0]?.id;
     for (const p of SHOWN) {
       if (p.includes('{first}') && !first) continue;
