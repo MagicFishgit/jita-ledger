@@ -39,6 +39,9 @@ export async function refreshHomePrices(db: D1Database, now = Date.now(), types:
   const kept = new Map(rows.map((r) => [r.hub, r]));
   const done: Record<string, 'read' | 'partial' | 'fresh' | 'later' | 'failed'> = {};
   let error: string | null = null, inARow = 0, calls = 0;
+  // A hub's try is stamped on its row, or on a stub (at 0: never read) when it has none yet.
+  const stamp = (hub: number) => db.prepare(`INSERT INTO home_prices (hub, source, at, data, tried) VALUES (?1, 'goonmetrics', 0, '{}', ?2)
+    ON CONFLICT(hub) DO UPDATE SET tried = excluded.tried`).bind(hub, now).run();
   for (const hub of HOME_HUBS) {
     const old = kept.get(hub.id);
     if (now - Math.max(old?.tried ?? 0, old?.at ?? 0) < REFRESH_MS - REFRESH_SLACK_MS) { done[hub.short] = 'fresh'; continue; }
@@ -65,20 +68,23 @@ export async function refreshHomePrices(db: D1Database, now = Date.now(), types:
     }
     try {
       if (Object.keys(got).length) {
-        const merged = { ...(old ? (JSON.parse(old.data) as Record<number, HomeRow>) : {}), ...got };
+        // Pruned to the types asked for now, so one that has left the watch set doesn't stay in the row for good.
+        const wanted = new Set(types);
+        const merged = Object.fromEntries(Object.entries({ ...(old ? (JSON.parse(old.data) as Record<number, HomeRow>) : {}), ...got }).filter(([t]) => wanted.has(Number(t))));
         await db.prepare(`INSERT INTO home_prices (hub, source, at, data, tried) VALUES (?1, 'goonmetrics', ?2, ?3, ?2)
           ON CONFLICT(hub) DO UPDATE SET source = excluded.source, at = excluded.at, data = excluded.data, tried = excluded.tried`).bind(hub.id, now, JSON.stringify(merged)).run();
         done[hub.short] = ok && !cut ? 'read' : 'partial';
       } else {
         // Nothing came back (a hub with fewer than three batches, all refused): the try is stamped so it isn't repeated hourly.
-        if (old) await db.prepare('UPDATE home_prices SET tried = ?2 WHERE hub = ?1').bind(hub.id, now).run();
+        await stamp(hub.id);
         done[hub.short] = 'failed';
       }
     } catch (e) {
       // A write that throws mustn't make the next hour read the whole hub again.
       error ??= e instanceof Error ? e.message : String(e);
       done[hub.short] = 'failed';
-      try { if (old) await db.prepare('UPDATE home_prices SET tried = ?2 WHERE hub = ?1').bind(hub.id, now).run(); } catch { /* nothing more to do */ }
+      // With no row yet, a stub (at 0: never read) carries the stamp; if even that throws, say so and move on.
+      try { await stamp(hub.id); } catch (e2) { console.error('goonmetrics: could not stamp the try', e2); }
     }
   }
   return { done, error, stopped: false };
@@ -89,5 +95,6 @@ export async function homePrices(db: D1Database, hub: number, on = GOONMETRICS_O
   if (!HOME_HUBS.some((h) => h.id === hub)) throw new BadRequest('Not a hub the cloud reads');
   if (!on) return { off: true };
   const r = await db.prepare('SELECT hub, source, at, data FROM home_prices WHERE hub = ?1').bind(hub).first<{ hub: number; source: string; at: number; data: string }>();
-  return r ? { hub: r.hub, source: r.source, at: new Date(r.at).toISOString(), prices: JSON.parse(r.data) } : null;
+  // A stub row (at 0) only carries a try's stamp: the hub was never read.
+  return r && r.at > 0 ? { hub: r.hub, source: r.source, at: new Date(r.at).toISOString(), prices: JSON.parse(r.data) } : null;
 }

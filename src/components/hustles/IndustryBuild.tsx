@@ -11,7 +11,7 @@ import { Points } from '../Facts';
 import { Check, NumChip, Seg, Th } from '../ui';
 import type { IndustryChar } from './industryChars';
 import { IndustryDetail } from './IndustryDetail';
-import { bpoSaid, FINDER_KINDS, homeSaid, KIND_LABEL, useFinder, useFinderView, useStationSaid, type Finder } from './industryFinder';
+import { bpoSaid, FINDER_KINDS, homeSaid, KIND_CHOICE, KIND_LABEL, useFinder, useFinderView, useStationSaid, type Finder } from './industryFinder';
 import { useIndustryDoc } from './industryMarket';
 import { IndustrySites } from './IndustrySites';
 
@@ -32,8 +32,8 @@ const MISSING_SAID: Record<NonNullable<Row['missing']>, (one: boolean) => string
   noMaterials: (one) => `${one ? 'needs' : 'need'} a material nobody lists where it can be bought`,
   noSale: (one) => `${one ? 'has' : 'have'} nowhere ${one ? 'it' : 'they'} may be sold`,
 };
-/** Units a day: a thin market sells a fraction of one, which "0" would hide beside a profit that rests on it. */
-const perDay = (n: number) => (n >= 10 ? units(n) : n >= 1 ? n.toFixed(1) : n.toFixed(2));
+/** A slot's sales under one a day are said as time between sales: a fraction of a unit reads as noise beside a profit that rests on it. */
+const everyDays = (n: number) => { const d = Math.round(1 / n); return d <= 1 ? 'about one a day' : `about one every ${units(d)} days`; };
 const lcfirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
 
 const bpoPrice = (w: BpoWhere) => (w.state === 'forge' ? w.price : null);
@@ -131,7 +131,7 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
       <div className="row ind-choices">
         <label className="chip h34"><span className="cl">Kind</span>
           <select value={view.kind} onChange={(e) => setView({ kind: e.target.value as typeof view.kind })} aria-label="Kind">
-            {FINDER_KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+            {FINDER_KINDS.map((k) => <option key={k} value={k}>{KIND_CHOICE[k]}</option>)}
           </select>
         </label>
         <Check checked={view.canBuild} onChange={(v) => setView({ canBuild: v })} tip={c.isMain ? 'Only what your skills build now.' : `Only what ${c.name}’s skills build now.`}>Can build now</Check>
@@ -193,14 +193,14 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
                             <span>BPO: {b.v} {b.n}</span>
                             <span>Profit a day{before ? `, before ${before}` : ''}: {iskBigSigned(r.day!.profit)}{r.costKnown === false && r.taxPerPct == null ? ' (before the Alpha tax)' : ''}</span>
                             <span>Profit a unit: {iskBigSigned(up)}{r.brokerPerPct != null ? ' (before the broker fee)' : ''}</span>
-                            <span>One slot: {perDay(r.day!.units)} of {units(r.makes)} a day, the {r.day!.limit === 'market' ? 'market' : 'slot'} limits it</span>
+                            <span>One slot: {r.day!.units >= 1 ? `${units(r.day!.units)} of ${units(r.makes)} a day` : `sells ${everyDays(r.day!.units)} (it makes ${units(r.makes)} a day)`}, the {r.day!.limit === 'market' ? 'market' : 'slot'} limits it</span>
                             {tax && <span>{tax}</span>}
                             <span>Payback: {pb != null ? `${pb.toFixed(1)} days` : '–'}</span>
                           </span>
                         </td>
                         <td className="l rd-wide"><span>{b.v}</span><span className="sub">{b.n}</span></td>
                         <td className="rd-wide"><span className="ind-fig">{iskBigSigned(up)}</span>{r.brokerPerPct != null && <span className="sub">before the broker fee at {f.hub?.short}</span>}</td>
-                        <td className="rd-wide">{perDay(r.day!.units)} / {units(r.makes)}<span className="sub">the {r.day!.limit === 'market' ? 'market' : 'slot'} limits it</span></td>
+                        <td className="rd-wide">{r.day!.units >= 1 ? units(r.day!.units) : '<1'} / {units(r.makes)}<span className="sub">{r.day!.units < 1 ? `${everyDays(r.day!.units)}; ` : ''}the {r.day!.limit === 'market' ? 'market' : 'slot'} limits it</span></td>
                         <td className="rd-wide"><span className="ind-fig">{iskBigSigned(r.day!.profit)}</span>{tax && <span className="sub">{tax}</span>}{r.costKnown === false && r.taxPerPct == null && <span className="sub">before the Alpha tax: clone state not read</span>}</td>
                         <td className="rd-wide">{pb != null ? `${pb.toFixed(1)} days` : '–'}<span className="sub">{pb != null ? '' : bpoPrice(w) == null ? 'no NPC price' : 'never, at a loss'}</span></td>
                         <td className="rd-wide">{r.lacking.length ? `${r.lacking.length} to train` : 'trained'}</td>

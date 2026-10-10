@@ -1225,7 +1225,7 @@ console.log('\n--- home prices from Goonmetrics, read gently by the cloud (Task 
   const NOW = Date.parse('2026-10-10T12:37:00Z');
   const xmlFor = (ids) => `<goonmetrics method="price_data" version="1.0"><price_data>${ids.map((id) => `<type id="${id}"><updated>2026-10-10T12:00:00Z</updated><all><weekly_movement>700</weekly_movement></all><buy><max>9.5</max><listed>100</listed></buy><sell><min>10</min><listed>200</listed></sell></type>`).join('')}</price_data></goonmetrics>`;
   // Every call answered from the type IDs it asks for, its User-Agent and size recorded; `fail` makes chosen calls fail.
-  const run = async (db, { types, fail = () => false, html = () => false, now = NOW, on = true, deadline } = {}) => {
+  const run = async (db, { types, fail = () => false, html = () => false, now = NOW, on = true, deadline, slow = false } = {}) => {
     const real = globalThis.fetch, calls = [];
     globalThis.fetch = async (input, init = {}) => {
       const url = new URL(String(input));
@@ -1236,7 +1236,7 @@ console.log('\n--- home prices from Goonmetrics, read gently by the cloud (Task 
       return new Response(xmlFor(ids), { status: 200, headers: { 'Content-Type': 'text/xml' } });
     };
     let pauses = 0;
-    try { return { r: await refreshHomePrices(db, now, types, async () => { pauses++; }, on, deadline), calls, pauses }; } finally { globalThis.fetch = real; }
+    try { return { r: await refreshHomePrices(db, now, types, async () => { pauses++; if (slow) await new Promise((r) => setTimeout(r, 80)); }, on, deadline), calls, pauses }; } finally { globalThis.fetch = real; }
   };
   const types = Array.from({ length: 120 }, (_, i) => 1000 + i);
   const d1WithRead = () => { const x = d1(); x.run("INSERT INTO home_prices (hub, source, at, data, tried) VALUES (1046664001931, 'goonmetrics', ?, '{}', ?), (1049588174021, 'goonmetrics', ?, '{}', ?)", NOW, NOW, NOW, NOW); return x; };
@@ -1271,6 +1271,21 @@ console.log('\n--- home prices from Goonmetrics, read gently by the cloud (Task 
   const refused = await run(dbS, { types: types.slice(0, 50), now: NOW + REFRESH_MS, html: () => true });
   eq('  every call refused (fewer than three): the hubs are stamped as tried, and read again no sooner than six hours', [refused.r.done, (await run(dbS, { types: types.slice(0, 50), now: NOW + REFRESH_MS + 3600_000 })).calls.length], [{ 'UALX-3': 'failed', 'C-J6MT': 'failed' }, 0]);
   eq('    a hub is due a little early (the alts\' read ahead of it varies), not an hour late', (await run(d1WithRead(), { types: types.slice(0, 50), now: NOW + REFRESH_MS - 20 * 60_000 })).calls.length, 2);
+  // A deadline that passes after a hub's first batches: what came is merged and stamped; the next hub waits for the next hour.
+  const dbT = d1();
+  const cut = await run(dbT, { types, deadline: Date.now() + 50, slow: true });
+  eq('  time running out mid-hub: the batches read are kept and stamped (partial), the other hub is left', [cut.r.done, cut.calls.length, Object.keys((await homePrices(dbT, 1046664001931)).prices).length, dbT.rows('SELECT tried FROM home_prices').map((r) => r.tried)], [{ 'UALX-3': 'partial', 'C-J6MT': 'later' }, 2, 100, [NOW]]);
+  // A first read whose write keeps throwing: a stub row carries the stamp, so the hub isn't read again every hour.
+  const dbW = d1();
+  const brokenWrite = { ...dbW, prepare: (sql) => { if (sql.includes('excluded.data')) throw new Error('disk full'); return dbW.prepare(sql); } };
+  const w1 = await run(brokenWrite, { types });
+  eq('  a first read whose write throws is stamped through a stub, which reads as never read', [w1.r.done, dbW.rows('SELECT hub, at, tried FROM home_prices ORDER BY hub').map((r) => [r.at, r.tried]), await homePrices(dbW, 1046664001931)], [{ 'UALX-3': 'failed', 'C-J6MT': 'failed' }, [[0, NOW], [0, NOW]], null]);
+  eq('    and the next hours leave it alone: no re-read of 38 calls a hub every hour', (await run(brokenWrite, { types, now: NOW + 3600_000 })).calls.length, 0);
+  // Types that leave the watch set leave the row.
+  const dbP = d1();
+  await run(dbP, { types });
+  await run(dbP, { types: types.slice(0, 60), now: NOW + REFRESH_MS });
+  eq('  a type that has left the watch set is pruned from the row', Object.keys((await homePrices(dbP, 1046664001931)).prices).length, 60);
   // Time: nothing is started after the cron's budget, and a hub cut short is merged and stamped.
   const late = await run(d1(), { types, deadline: Date.now() - 1 });
   eq('  past the budget no call starts, and the hubs are left for the next hour', [late.calls.length, late.r.done], [0, { 'UALX-3': 'later', 'C-J6MT': 'later' }]);

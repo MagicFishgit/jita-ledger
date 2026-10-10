@@ -2125,6 +2125,17 @@ try {
       const pumpRow = await text('[data-bp="25895"]');
       if (pumpRow.includes('Goonmetrics’ prices') || !/Jita’s book now|this morning’s book/.test(pumpRow)) problems.push(`with no home prices (“${said}”), the pump isn’t sold in Jita: “${pumpRow.slice(0, 200)}”`);
     }
+    // The ship kinds are labelled by what they hold (the static data's size filters), and a pace under one a day is a time between sales.
+    {
+      const kinds = await page.locator('select[aria-label="Kind"] option').allInnerTexts();
+      for (const t of ['Small ships: frigates, destroyers, shuttles', 'Medium ships: cruisers, battlecruisers, haulers, barges', 'Large ships: battleships, freighters, the Orca'])
+        if (!kinds.includes(t)) problems.push(`the Kind choice doesn’t offer “${t}”: ${kinds.join(' | ')}`);
+      if (kinds.some((k) => /Industrials, barges and shuttles|Frigates and destroyers/.test(k))) problems.push('the Kind choice still has the old ship labels');
+      await page.locator('label.chip', { hasText: 'Industry share' }).locator('input').fill('0.1');
+      await page.waitForTimeout(1200);
+      const slow = await text('[data-bp="25895"]');
+      if (!/about one (a day|every \d+ days)/.test(slow) || /\b0\.0\d/.test(slow.split('limits it')[0] ?? '')) problems.push(`a pump selling under one a day doesn’t say the time between sales: “${slow.slice(0, 300)}”`);
+    }
     const homeFit = await sideways(page, '[data-industry="finder"] .tbl-scroll');
     if (!PHONE && homeFit && homeFit.over > 0) problems.push(`the finder with a home hub scrolls sideways at 1,440 (${homeFit.over} px)`);
     // --- the end of the industry case

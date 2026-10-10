@@ -223,3 +223,7 @@ State these rather than letting them be discovered:
 - **Home prices are Goonmetrics'**, a Goonswarm tool fed partly by its members' client uploads, read every six hours: a
   hub's best sell can be hours old, and its weekly movement is the only pace until the home region's history is read (and
   that history is the whole region's, not the hub's). The hub's broker fee is typed, not known.
+- **On a thin home market a high profit a day rests on a few sales.** Goonmetrics' weekly movement, the only pace until the home
+  region's history is read, is a handful of trades there, so a row selling one unit every couple of weeks at a large margin
+  (the first look at the real UALX-3 row ranked such items first) is ranked honestly by the share rule but is the least sure
+  figure on the page; under one sale a day the finder says the time between sales rather than a fraction.

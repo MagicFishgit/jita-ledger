@@ -22,7 +22,7 @@ import { useAdjusted, useHomeHistory, useHomePrices, useIndices, useIndustryDoc,
 export type FinderView = { kind: ProductKind | 'all'; canBuild: boolean; bpoUpTo: number | null; sort: 'day' | 'unit' | 'payback'; sitesOpen: boolean | null };
 export const FINDER_KEY = 'jita-ledger:industry-finder';
 const DEFAULT_VIEW: FinderView = { kind: 'all', canBuild: false, bpoUpTo: null, sort: 'day', sitesOpen: null };
-const readView = (): FinderView => { try { return { ...DEFAULT_VIEW, ...(JSON.parse(localStorage.getItem(FINDER_KEY) ?? '{}') as Partial<FinderView>) }; } catch { return DEFAULT_VIEW; } };
+const readView = (): FinderView => { try { const v = { ...DEFAULT_VIEW, ...(JSON.parse(localStorage.getItem(FINDER_KEY) ?? '{}') as Partial<FinderView>) }; return FINDER_KINDS.includes(v.kind) ? v : { ...v, kind: 'all' }; } catch { return DEFAULT_VIEW; } };
 
 /** The finder's view, kept per browser: kind, "Can build now", "BPO up to", the sort, and the sites panel open or shut. */
 export function useFinderView(): [FinderView, (patch: Partial<FinderView>) => void] {
@@ -112,13 +112,24 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph): Finder {
   return { site, facts, waiting, rows, live, input: liveInput, npc, bpo, scan, hub, home };
 }
 
-/** The finder's kinds as the choice lists them. */
+/**
+ * The finder's kinds, short, for a row's line. The ship sizes follow the static data's rig filters (industry.json `filters` 5 to
+ * 10, the groups each holds), not the hull's name: a Retriever is a mining barge, so a Medium ship; the Orca is an industrial
+ * command ship, so Large.
+ */
 export const KIND_LABEL: Record<ProductKind | 'all', string> = {
   all: 'Everything', rigs: 'Rigs', modules: 'Modules', charges: 'Ammo and charges', components: 'Components', drones: 'Drones and fighters',
-  deployables: 'Deployables', 'hulls-small': 'Frigates and destroyers', 'hulls-medium': 'Cruisers and battlecruisers', 'hulls-large': 'Battleships',
-  'hulls-other': 'Industrials, barges and shuttles', fuel: 'Fuel blocks', structures: 'Structures', 'capital-parts': 'Capital parts', capital: 'Capitals', other: 'Other',
+  deployables: 'Deployables', 'hulls-small': 'Small ships', 'hulls-medium': 'Medium ships', 'hulls-large': 'Large ships',
+  'hulls-other': 'Other ships', fuel: 'Fuel blocks', structures: 'Structures', 'capital-parts': 'Capital parts', capital: 'Capitals', other: 'Other',
 };
-export const FINDER_KINDS: (ProductKind | 'all')[] = ['all', 'rigs', 'modules', 'charges', 'components', 'drones', 'deployables', 'hulls-small', 'hulls-medium', 'hulls-large', 'hulls-other', 'fuel', 'structures', 'capital-parts', 'other'];
+/** The same as the choice lists them, a ship size with the groups it holds. */
+export const KIND_CHOICE: Record<ProductKind | 'all', string> = {
+  ...KIND_LABEL,
+  'hulls-small': 'Small ships: frigates, destroyers, shuttles', 'hulls-medium': 'Medium ships: cruisers, battlecruisers, haulers, barges',
+  'hulls-large': 'Large ships: battleships, freighters, the Orca',
+};
+// 'hulls-other' is left out: every ship in the bundle sits in a size's groups or is a Titan or supercarrier (Capitals).
+export const FINDER_KINDS: (ProductKind | 'all')[] = ['all', 'rigs', 'modules', 'charges', 'components', 'drones', 'deployables', 'hulls-small', 'hulls-medium', 'hulls-large', 'fuel', 'structures', 'capital-parts', 'other'];
 
 /** What the BPO's column says: NPCs' price and where, or why there isn't one. */
 export function bpoSaid(w: BpoWhere, npc: NpcState, station: (id: number) => string): { v: string; n: string } {
