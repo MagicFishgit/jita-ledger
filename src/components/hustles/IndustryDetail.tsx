@@ -41,7 +41,9 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
 
   // What's held where the site is: the builder's loose stock there, at what its own latest buys cost it.
   const loc = site.stationId ?? site.structureId ?? null;
-  const here = loc != null ? c.stock?.byLocation[loc] ?? {} : {};
+  // Held is known only for a place with an ID and assets that were read: never 0 for not known.
+  const heldKnown = loc != null && c.stock != null;
+  const here = heldKnown ? c.stock!.byLocation[loc!] ?? {} : {};
   const held: Held = {
     units: (t) => here[t] ?? 0,
     cost: (t, n) => heldCost(c.buys.filter((b) => b.typeId === t), n, new Set(), c.broker),
@@ -67,9 +69,9 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
   const b = bpoSaid(w, finder.npc, (id) => station(id));
 
   // Other regions NPCs seed originals in, read on asking.
-  const [regions, setRegions] = useState<{ sellers: RegionSeller[]; failed: number } | 'reading' | 'failed' | null>(null);
+  const [regions, setRegions] = useState<{ sellers: RegionSeller[]; failed: number; read: number[] } | 'reading' | 'failed' | null>(null);
   const regionStation = useStationSaid(regions && typeof regions === 'object' ? regions.sellers.slice(0, 8).map((s) => s.station) : [], ix, graph);
-  const lookElsewhere = () => { setRegions('reading'); regionSellers(row.bp).then(setRegions, () => setRegions('failed')); };
+  const lookElsewhere = () => { setRegions('reading'); regionSellers(row.bp).then((r) => setRegions(r.read.length ? r : 'failed'), () => setRegions('failed')); };
 
   // The ore that gives the most of a mineral, on asking (CCP's reprocessing table is a chunk of its own, 481 KB).
   const [ores, setOres] = useState<Record<number, { name: string; perM3: number } | null> | 'reading' | 'failed' | null>(null);
@@ -88,6 +90,9 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
     } catch { setOres('failed'); }
   };
 
+  // The research's cost leaves out an untyped lab tax and an Alpha tax whose clone state isn't read, as the job's does.
+  const researchLeft = lab && (lab.site.tax == null || input.clone === 'unknown')
+    ? `; research leaves out ${[lab.site.tax == null ? 'the lab’s tax, not typed' : '', input.clone === 'unknown' ? 'the Alpha tax, clone state not read' : ''].filter(Boolean).join(' and ')}` : '';
   const job = row.job;
   const sb = structureBonus(ix, site.kind);
   const rig = rigFor(ix, site.rigs, site.kind, facts.band, row.product, 'manufacturing');
@@ -110,7 +115,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
             <tbody>
               {row.materials.map((m) => {
                 const said = m.options.map((o) => `${SOURCE_SAID[o.source]}: ${o.price != null ? isk(o.price) : '–'} (${o.why})`).join(' · ');
-                const pick = m.pick ? `${SOURCE_SAID[m.pick]}, ${isk(m.price)}` : '–: nothing can be picked';
+                const pick = m.pick ? `${SOURCE_SAID[m.pick]}, ${isk(m.price)}` : 'nothing can be picked';
                 const ore = ores && typeof ores === 'object' ? ores[m.type] : undefined;
                 return (
                   <tr key={m.type}>
@@ -122,7 +127,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
                     <td>{units(m.qty)}</td>
                     <td className="l rd-wide ind-wrap">{said}</td>
                     <td className="l rd-wide">{pick}</td>
-                    <td className="rd-wide">{loc == null ? '–' : units(held.units(m.type))}</td>
+                    <td className="rd-wide">{heldKnown ? units(held.units(m.type)) : '–'}</td>
                   </tr>
                 );
               })}
@@ -130,6 +135,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
           </table>
         </div>
         {loc == null && <p className="note small" style={{ margin: 0 }}>A home typed by you has no structure ID, so nothing held there is known.</p>}
+        {loc != null && c.stock == null && <p className="note small" style={{ margin: 0 }}>{c.isMain ? 'Your' : `${c.name}’s`} assets aren’t read yet, so what’s held here isn’t known: {c.isMain ? 'the next sync reads them' : 'the cloud reads them hourly'}.</p>}
         {mineable.length > 0 && ores == null && <button type="button" className="link-btn" onClick={() => void whichOre()}>Which ore gives the most of {mineable.length === 1 ? 'it' : 'each'}?</button>}
         {ores === 'reading' && <p className="note small" style={{ margin: 0 }}>Reading CCP’s reprocessing table and the ores…</p>}
         {ores === 'failed' && <p className="note small" style={{ margin: 0 }}>Couldn’t read the ores just now. <button type="button" className="link-btn" onClick={() => void whichOre()}>Try again</button></p>}
@@ -140,7 +146,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
         { l: 'A run', v: time(row.time), n: `${units(row.runs)} runs a day, ${units(row.makes)} made · ${KIND_SAID[site.kind]}${sb.time < 1 ? ` ×${sb.time}` : ''}${rig.time < 1 ? `, rigs ×${rig.time.toFixed(3)}` : ''}` },
         {
           l: 'The job', v: job ? iskBig(job.total) : '–',
-          n: job ? `index ${pct(input.site.index!.manufacturing)} → ${iskBig(job.index)}${job.bonus ? `, bonuses ${iskBigSigned(job.bonus)}` : ''} · facility tax ${job.tax != null ? iskBig(job.tax) : '–: not typed'} · SCC ${iskBig(job.scc)} · ${job.alpha == null ? 'Clone state not read: the 0.25% Alpha tax is left out' : job.alpha ? `Alpha tax ${iskBig(job.alpha)}` : 'no Alpha tax'}` : 'not costed',
+          n: job ? `index ${pct(input.site.index!.manufacturing)} → ${iskBig(job.index)}${job.bonus ? `, bonuses ${iskBigSigned(job.bonus)}` : ''} · facility tax ${job.tax != null ? iskBig(job.tax) : 'not typed'} · SCC ${iskBig(job.scc)} · ${job.alpha == null ? 'Clone state not read: the 0.25% Alpha tax is left out' : job.alpha ? `Alpha tax ${iskBig(job.alpha)}` : 'no Alpha tax'}` : 'not costed',
           tip: 'The game charges a job on its estimated item value (the ME 0 materials at CCP’s adjusted prices) × runs:\n\n• × the system’s index, less the structure’s and rigs’ cost bonuses on that part;\n• + the facility tax, the 4% SCC surcharge, and 0.25% more for an Alpha.',
         },
         {
@@ -154,21 +160,24 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
         <div className="col" style={{ gap: 6 }}>
           <span className="lbl">Researching it first, at {lab!.at}</span>
           <div className="tbl-scroll">
-            <table className="tbl compact" data-industry="me-levels">
-              <thead><tr><th className="l nowrap">ME / TE</th><th>Profit a day</th><th>Research, one lab slot</th><th>Research ISK</th></tr></thead>
+            <table className="tbl compact rd-table" data-industry="me-levels">
+              <thead><tr><th className="l nowrap">ME / TE</th><th>Profit a day</th><th className="rd-wide" title="One lab slot">Research time</th><th className="rd-wide">Research ISK</th></tr></thead>
               <tbody>
                 {levels.map((l) => (
                   <tr key={`${l.me}/${l.te}`} className={l.me === input.me && l.te === input.te ? 'on' : undefined}>
-                    <td className="l nowrap">ME {l.me} / TE {l.te}</td>
+                    <td className="l nowrap rd-main">ME {l.me} / TE {l.te}
+                      <span className="rd-phone"><span>Research: {l.days == null ? '–' : l.days === 0 ? 'none' : `${l.days.toFixed(1)} days`}, {l.cost == null ? (lab!.site.index ? '–' : 'no index for the lab’s system') : l.cost === 0 ? 'no ISK' : iskBig(l.cost)}</span></span>
+                    </td>
                     <td>{iskBigSigned(l.profit)}</td>
-                    <td>{l.days == null ? '–' : l.days === 0 ? 'none' : `${l.days.toFixed(1)} days`}</td>
-                    <td>{l.cost == null ? (lab!.site.index ? '–' : '–: no index for the lab’s system') : l.cost === 0 ? 'none' : iskBig(l.cost)}</td>
+                    <td className="rd-wide">{l.days == null ? '–' : l.days === 0 ? 'none' : `${l.days.toFixed(1)} days`}</td>
+                    <td className="rd-wide">{l.cost == null ? (lab!.site.index ? '–' : 'no index for the lab’s system') : l.cost === 0 ? 'none' : iskBig(l.cost)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
           <p className="note small" style={{ margin: 0 }}>At {c.isMain ? 'your' : `${c.name}’s`} skills: Metallurgy {c.pilot.skills?.[SKILL.metallurgy] ?? 0}, Research {c.pilot.skills?.[SKILL.research] ?? 0}, Advanced Industry {c.pilot.skills?.[SKILL.advancedIndustry] ?? 0}. ME 8 takes about 18% of ME 10’s time.</p>
+          {(lab!.site.tax == null || input.clone === 'unknown') && <p className="note small" style={{ margin: 0 }} data-industry="research-left-out">Research ISK and the profit after it leave out{lab!.site.tax == null ? ' the lab’s facility tax, which isn’t typed' : ''}{lab!.site.tax == null && input.clone === 'unknown' ? ' and' : ''}{input.clone === 'unknown' ? ' the Alpha tax, since the clone state isn’t read' : ''}.</p>}
         </div>
       )}
       {!lab && <p className="note small" style={{ margin: 0 }}>No Laboratory can be reached on the map from {site.name}, so research isn’t worked out.</p>}
@@ -179,9 +188,13 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
         {w.state === 'forge' && w.stations.map((s) => {
           const sysId = findSystem(ix, s);
           const sys = sysId != null ? graph[sysId] : undefined;
+          // Two stations whose names weren't read say the same ("A station in Itamo"): numbered, and the system said once.
+          const label = station(s), same = w.stations.filter((x) => station(x) === label);
+          const said = same.length > 1 ? `${label} (${same.indexOf(s) + 1} of ${same.length})` : label;
+          const sysText = sys ? `${label.includes(sys[1]) ? '' : `${sys[1]} `}${sys[0].toFixed(1)}` : '';
           return <div key={s} className="row" style={{ gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
-            <span>{station(s)}</span>
-            <span className="faint">{sys ? `${sys[1]} ${sys[0].toFixed(1)}` : ''}{sysId != null ? ` · ${jitaHigh.get(sysId) ?? jitaAny.get(sysId) ?? '–'} jumps from Jita, ${fromSite.get(sysId) ?? '–'} from ${site.name}` : ''}</span>
+            <span>{said}</span>
+            <span className="faint">{sysText}{sysId != null ? ` · ${jitaHigh.get(sysId) ?? jitaAny.get(sysId) ?? '–'} jumps from Jita, ${fromSite.get(sysId) ?? '–'} from ${site.name}` : ''}</span>
             {hasScope(SCOPE.waypoint) && <button type="button" className="link-btn" onClick={() => void setDest(s)}>{destLabel}</button>}
           </div>;
         })}
@@ -193,12 +206,13 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
             <span>{regionStation(x.station, x.system)}</span>
             <span className="faint">{NPC_REGIONS[x.region]} · {iskBig(x.price)} · {jitaAny.get(x.system) ?? '–'} jumps from Jita, {fromSite.get(x.system) ?? '–'} from {site.name}</span>
           </div>
-        )) : <p className="note small" style={{ margin: 0 }}>NPCs don’t sell it in {Object.values(NPC_REGIONS).join(', ')} either{regions.failed ? ` (${regions.failed} couldn’t be read)` : ''}.</p>)}
+        )) : <p className="note small" style={{ margin: 0 }}>NPCs don’t sell it in {regions.read.map((r) => NPC_REGIONS[r]).join(', ')}{w.state === 'forge' ? ' either' : ''}.</p>)}
+        {regions && typeof regions === 'object' && regions.failed > 0 && <p className="note small" style={{ margin: 0 }}>{regions.failed} {regions.failed === 1 ? 'region' : 'regions'} couldn’t be read ({Object.keys(NPC_REGIONS).map(Number).filter((r) => !regions.read.includes(r)).map((r) => NPC_REGIONS[r]).join(', ')}). <button type="button" className="link-btn" onClick={lookElsewhere}>Try again</button></p>}
       </div>
 
       <Tiles min={180} items={[
-        { l: 'Start-up', v: iskBig(su.total), n: su.total == null ? (bpo == null ? 'no NPC price for the original' : su.research == null ? 'research not worked out' : 'a material can’t be priced') : `original ${iskBig(su.bpo)} · research to ME ${input.me} / TE ${input.te} ${su.research ? iskBig(su.research) : 'none'} · a day’s materials ${iskBig(su.materials)}` },
-        { l: 'Held here', v: units(su.heldUnits), n: su.heldUnits ? `cost you ${su.heldCost != null ? iskBig(su.heldCost) : '– (not all bought: no cost)'}; counted in start-up and the list, never in the profit a day` : loc == null ? 'nothing known at a home typed by you' : 'none of its materials held here' },
+        { l: 'Start-up', v: iskBig(su.total), n: su.total == null ? (bpo == null ? 'no NPC price for the original' : su.research == null ? 'research not worked out' : 'a material can’t be priced') : `original ${iskBig(su.bpo)} · research to ME ${input.me} / TE ${input.te} ${su.research ? iskBig(su.research) : 'none'} · a day’s materials ${iskBig(su.materials)}${su.research ? researchLeft : ''}` },
+        { l: 'Held here', v: heldKnown ? units(su.heldUnits) : '–', n: su.heldUnits ? `cost you ${su.heldCost != null ? iskBig(su.heldCost) : '– (not all bought: no cost)'}; counted in start-up and the list, never in the profit a day` : !heldKnown ? (loc == null ? 'nothing known at a home typed by you' : 'assets not read yet') : 'none of its materials held here' },
         { l: 'Payback', v: payback(bpo, row.day?.profit) != null ? `${payback(bpo, row.day?.profit)!.toFixed(1)} days` : '–', n: 'the original at NPCs’ price, out of one slot’s profit a day' },
       ]} />
 
@@ -217,7 +231,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
         <span className="lbl">The steps</span>
         <div className="ladder">
           {[
-            w.state === 'forge' ? `Buy the original at ${station(w.stations[0])}` : 'Find an original: no NPC sells it in The Forge',
+            w.state === 'forge' ? `Buy the original at ${station(w.stations[0])}` : `Find an original: ${w.state === 'notForge' ? 'no NPC sells it in The Forge' : b.n}`,
             input.me || input.te ? `Research it to ME ${input.me} / TE ${input.te} at ${lab?.at ?? 'a Laboratory'}${assumed?.days ? `, ${assumed.days.toFixed(1)} days` : ''}` : 'No research: build at ME 0',
             'Buy the materials',
             `Install the job at ${site.name}`,

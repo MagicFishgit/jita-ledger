@@ -27,9 +27,11 @@ const MISSING_SAID: Record<NonNullable<Row['missing']>, (one: boolean) => string
   noBook: (one) => `${one ? 'has' : 'have'} no Jita book this morning`,
   noIndex: () => 'can’t be costed: no index for the site',
   noAdjusted: () => 'can’t be costed: no adjusted price for a material',
+  noRoute: () => 'can’t be costed: no freight route to bring materials from Jita',
   noMaterials: (one) => `${one ? 'needs' : 'need'} a material nobody lists where it can be bought`,
   noSale: (one) => `${one ? 'has' : 'have'} nowhere ${one ? 'it' : 'they'} may be sold`,
 };
+const lcfirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
 
 const bpoPrice = (w: BpoWhere) => (w.state === 'forge' ? w.price : null);
 const unitProfit = (r: Row) => (r.day && r.day.units > 0 ? r.day.profit / r.day.units : r.sale && r.costUnit != null ? (r.sale.listNet ?? r.sale.bidNet ?? NaN) - r.costUnit : null);
@@ -56,10 +58,19 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
   }, [priced, view, ix, f]); // eslint-disable-line react-hooks/exhaustive-deps
   const unpriced = f.rows.length - priced.length;
   const why = useMemo(() => {
-    const n: Partial<Record<NonNullable<Row['missing']>, number>> = {};
-    for (const r of f.rows) if (!r.day && r.missing) n[r.missing] = (n[r.missing] ?? 0) + 1;
-    return Object.entries(n).map(([k, v]) => `${units(v)} ${MISSING_SAID[k as NonNullable<Row['missing']>](v === 1)}`).join(', ');
+    // A row with nowhere to sell says why by its sale's own words (no history to pace it, no freight route to Jita, nothing
+    // listed), and "nowhere it may be sold" only when no place was allowed at all.
+    const n = new Map<string, { n: number; said: (one: boolean) => string }>();
+    for (const r of f.rows) {
+      if (r.day || !r.missing) continue;
+      const own = r.missing === 'noSale' ? r.sales.find((x) => x.why)?.why ?? null : null;
+      const key = own ? `noSale:${own}` : r.missing;
+      const e = n.get(key) ?? { n: 0, said: own ? () => `can’t be sold: ${lcfirst(own)}` : MISSING_SAID[r.missing] };
+      e.n++; n.set(key, e);
+    }
+    return [...n.values()].map((e) => `${units(e.n)} ${e.said(e.n === 1)}`).join(', ');
   }, [f.rows]);
+  const noRoute = f.rows.some((r) => r.missing === 'noRoute');
   const keptHome = f.rows.filter((r) => r.shipsKeptHome).length;
   const station = useStationSaid(shown.slice(0, SHOWN + more).flatMap((r) => { const w = f.bpo(r.bp); return w.state === 'forge' ? [w.stations[0]] : []; }), ix, graph);
   const beforeTax = f.facts != null && f.facts.tax == null;
@@ -115,8 +126,12 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
           <p className="note small" style={{ margin: 0 }} data-industry="finder-count">
             {units(shown.length)} of {units(priced.length)} priced at {f.site?.name}{f.live ? '; the top rows on Jita’s books now, the rest on this morning’s' : ', on this morning’s Jita books'}.
             {unpriced > 0 && ` ${units(unpriced)} aren’t priced: ${why}.`}
-            {keptHome > 0 && doc.noShipsToJita && ` ${units(keptHome)} ${keptHome === 1 ? 'ship stays' : 'ships stay'} home: never haul ships to Jita is on${f.facts?.band === 'high' && f.facts.jitaJumps == null ? ` (${f.site?.name}’s distance to Jita isn’t known)` : ''}.`}
+            {keptHome > 0 && doc.noShipsToJita && ` ${units(keptHome)} ${keptHome === 1 ? 'ship stays' : 'ships stay'} home: never haul ships to Jita is on${f.facts?.band === 'high' && f.facts.jitaJumps == null ? ` (no high-sec route from ${f.site?.name} to Jita on the map)` : f.facts?.band === 'unknown' ? ` (${f.site?.name}’s security isn’t known, so its ships stay home)` : ''}.`}
+            {beforeTax && ` Profit a day is before the facility tax: ${f.site?.name}’s isn’t typed.`}
             {cloneUnread && ' Clone state not read: the 0.25% Alpha tax is left out of every job’s cost.'}
+            {noRoute && ` No freight route between ${f.site?.name} and Jita is picked, so no material can be brought from Jita: `}
+            {noRoute && <button type="button" className="link-btn" onClick={() => { setView({ sitesOpen: true }); }} data-industry="pick-route">pick one under Where you build</button>}
+            {noRoute && '.'}
           </p>
           <div className="tbl-scroll" style={{ border: '1px solid var(--line-3)' }}>
             <table className="tbl compact rd-table ind-finder">
@@ -124,9 +139,9 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
                 <tr>
                   <Th left className="ind-c-name">Product</Th>
                   <Th left className="rd-wide ind-c-bpo" tip="NPCs’ price for the original in The Forge this morning, and where; or why there isn’t one.">BPO</Th>
-                  <Th className="rd-wide" tip="What one unit makes after its materials, the job, fees and freight, on the better side it sells on.">Profit a unit</Th>
+                  <Th className="rd-wide ind-c-unit" tip="What one unit makes after its materials, the job, fees and freight, on the better side it sells on.">Profit a unit</Th>
                   <Th className="rd-wide" tip="A day’s job: what one factory slot makes, and what the market takes at your industry share, and which of the two limits it.">One slot a day</Th>
-                  <Th className="ind-c-day" tip={`What one factory slot earns a day.${beforeTax ? '\n\n• Before the facility tax: the site’s isn’t typed. Each row says what each 1% costs a day.' : ''}`}>{beforeTax ? 'Profit a day, before the facility tax' : 'Profit a day, one slot'}</Th>
+                  <Th className="rd-wide ind-c-day" tip={`What one factory slot earns a day.${beforeTax ? '\n\n• Before the facility tax: the site’s isn’t typed. Each row says what each 1% costs a day.' : ''}`}>{beforeTax ? 'Profit a day, before the facility tax' : 'Profit a day, one slot'}</Th>
                   <Th className="rd-wide" tip="Days for one slot’s profit to pay for the original at NPCs’ price.">Payback</Th>
                   <Th className="rd-wide" tip="Skills the blueprint asks for that aren’t trained to its level.">Skills</Th>
                 </tr>
@@ -149,6 +164,7 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
                           <span className="sub">{KIND_LABEL[productKind(ix, r.product)]}{book ? ` · ${book}` : ''}</span>
                           <span className="rd-phone">
                             <span>BPO: {b.v} {b.n}</span>
+                            <span>Profit a day{beforeTax ? ', before the facility tax' : ''}: {iskBigSigned(r.day!.profit)}{r.costKnown === false && r.taxPerPct == null ? ' (before the Alpha tax)' : ''}</span>
                             <span>Profit a unit: {iskBigSigned(up)}</span>
                             <span>One slot: {units(r.day!.units)} of {units(r.makes)} a day, the {r.day!.limit === 'market' ? 'market' : 'slot'} limits it</span>
                             {tax && <span>{tax}</span>}
@@ -156,9 +172,9 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
                           </span>
                         </td>
                         <td className="l rd-wide"><span>{b.v}</span><span className="sub">{b.n}</span></td>
-                        <td className="rd-wide">{iskBigSigned(up)}</td>
+                        <td className="rd-wide"><span className="ind-fig">{iskBigSigned(up)}</span></td>
                         <td className="rd-wide">{units(r.day!.units)} / {units(r.makes)}<span className="sub">the {r.day!.limit === 'market' ? 'market' : 'slot'} limits it</span></td>
-                        <td>{iskBigSigned(r.day!.profit)}{tax && <span className="sub">{tax}</span>}{r.costKnown === false && r.taxPerPct == null && <span className="sub">before the Alpha tax: clone state not read</span>}</td>
+                        <td className="rd-wide"><span className="ind-fig">{iskBigSigned(r.day!.profit)}</span>{tax && <span className="sub">{tax}</span>}{r.costKnown === false && r.taxPerPct == null && <span className="sub">before the Alpha tax: clone state not read</span>}</td>
                         <td className="rd-wide">{pb != null ? `${pb.toFixed(1)} days` : '–'}<span className="sub">{pb != null ? '' : bpoPrice(w) == null ? 'no NPC price' : 'never, at a loss'}</span></td>
                         <td className="rd-wide">{r.lacking.length ? `${r.lacking.length} to train` : 'trained'}</td>
                       </tr>

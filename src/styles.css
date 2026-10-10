@@ -1119,12 +1119,15 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
    .tbl-scroll) rather than widening the finder past the page. */
 .ind-finder { table-layout: fixed; width: 100%; }
 .ind-finder th, .ind-finder td { white-space: normal; vertical-align: top; }
-.ind-finder .ind-c-name { width: 26%; }
-.ind-finder .ind-c-bpo { width: 20%; }
-.ind-finder .ind-c-day { width: 16%; }
+.ind-finder .ind-c-name { width: 24%; }
+.ind-finder .ind-c-bpo { width: 17%; }
+.ind-finder .ind-c-day { width: 14%; }
+.ind-finder .ind-c-unit { width: 13%; }
 .ind-finder td .sub { white-space: normal; }
 .ind-finder tr.detail td { padding: 14px 12px; background: rgba(2, 7, 12, .35); }
 .ind-wrap { white-space: normal; min-width: 260px; }
+/* A figure never wraps (its note under it does). */
+.ind-finder .ind-fig { white-space: nowrap; }
 /* The Research tab (hustles/Research.tsx): its tables keep a column and fold the rest under it on a phone (.rd-phone). */
 .rd-table { min-width: 860px; }
 .rd-phone { display: none; }
@@ -1497,12 +1500,10 @@ button.tile.press .tile-v, button.tile.press .tile-n { display: block; }
   .rd-table .rd-phone b { font-weight: 500; color: var(--ink); }
   .rd-table th:first-child, .rd-table td:first-child { padding-left: 10px; }
   .rd-table th:last-child, .rd-table td:last-child { padding-right: 10px; }
-  .ind-finder { table-layout: auto; }
-  .ind-finder .ind-c-name, .ind-finder .ind-c-day { width: auto; }
-  .ind-finder th.ind-c-day, .ind-finder td:nth-child(5) { min-width: 96px; }
-  .ind-finder td.rd-main { min-width: 150px; }
-  .ind-finder tr.detail td { padding: 10px 8px; }
-  .ind-finder tr.detail .ind-detail { position: sticky; left: 0; width: calc(100vw - 108px); min-width: 0; }
+  .ind-finder .ind-c-name { width: 100%; }
+  .ind-finder tr.detail > td { padding: 10px 8px; }
+  .ind-detail .tbl th, .ind-detail .tbl td { padding-left: 6px; padding-right: 6px; }
+  .ind-detail [data-industry="me-levels"] td:not(.rd-main) { white-space: nowrap; }
   /* A running agent's card: each figure a line, its label and figure side by side and the note under them, so five
      figures don't stack five tall tiles per agent. */
   .rd-card { padding: 12px 10px; }

@@ -1929,7 +1929,7 @@ try {
     const count = await text('[data-industry="finder-count"]');
     if (!count.includes('priced at Station 60001483')) problems.push('the finder doesn’t say which site it priced at');
     if (!/aren’t priced: [\d,]+ have no Jita book this morning/.test(count)) problems.push(`the finder doesn’t count what has no Jita book this morning: “${count}”`);
-    if ((await head()).includes('before the facility tax')) problems.push('a station’s known 0.25% tax, and the head says “before the facility tax”');
+    if ((await head()).includes('before the facility tax') || count.includes('before the facility tax')) problems.push('a station’s known 0.25% tax, and it says “before the facility tax”');
     const pump = await text('[data-bp="25895"]');
     if (!pump.includes('at Station 60001483 (and 1 more)')) problems.push(`the pump’s original isn’t NPCs’ at Itamo’s station: “${pump}”`);
     if (!pump.includes('Jita’s book now')) problems.push('the pump, a top row, isn’t said to be on Jita’s book now after the live read');
@@ -1937,9 +1937,9 @@ try {
     // At C-J6MT: no tax typed, so ranked before it, said in the head and each row; ships stay home.
     await page.locator('select[aria-label="Build at"]').selectOption({ label: 'Home in C-J6MT' });
     await page.waitForTimeout(1500);
-    if (!(await head()).includes('profit a day, before the facility tax')) problems.push(`with C-J6MT’s tax not typed, the head doesn’t say “Profit a day, before the facility tax”: “${await head()}”`);
+    if (PHONE ? !(await text('[data-industry="finder-count"]')).includes('Profit a day is before the facility tax') : !(await head()).includes('profit a day, before the facility tax')) problems.push(`with C-J6MT’s tax not typed, the head doesn’t say “Profit a day, before the facility tax”: “${await head()}”`);
     if (!(await text('[data-bp="25895"]')).includes('each 1% of tax:')) problems.push('the pump’s row doesn’t say what each 1% of tax costs a day');
-    if (!/\d+ ships stay home: never haul ships to Jita is on\./.test(await text('[data-industry="finder-count"]'))) problems.push(`from a null-sec site, it doesn’t say ships stay home: “${await text('[data-industry="finder-count"]')}”`);
+    if (!/\d+ ships? stays? home: never haul ships to Jita is on/.test(await text('[data-industry="finder-count"]'))) problems.push(`from a null-sec site, it doesn’t say ships stay home: “${await text('[data-industry="finder-count"]')}”`);
     if (await page.locator('[data-bp="687"]').count()) problems.push('a Caracal built in C-J6MT is offered for sale in Jita with “never haul ships to Jita” on');
     // The pump's detail.
     await page.locator('[data-bp="25895"] .expander').click();
@@ -1955,17 +1955,53 @@ try {
     npcAnswer = 404;
     await finder();
     if (!(await text('[data-bp="25895"]')).includes('The cloud is a version behind: NPC sellers come once it’s updated')) problems.push('with the cloud a version behind, the pump’s original doesn’t say so');
-    if (/NPCs don’t sell it in The Forge/.test(await text('[data-industry="finder"]'))) problems.push('with the cloud a version behind, a row says NPCs don’t sell it');
+    if (/NPCs don’t sell it in The Forge|no NPC sells it/.test(await text('[data-industry="finder"]'))) problems.push('with the cloud a version behind, a row or its detail says NPCs don’t sell it');
+    {
+      const steps = await text('[data-industry="steps"]');
+      if (!steps.includes('Find an original: The cloud is a version behind')) problems.push(`with the cloud a version behind, the detail’s steps don’t say so: “${steps.slice(0, 160)}”`);
+    }
     // A station ESI won't name is said by its system, never "Station #id" (useStationSaid).
     npcAnswer = { complete: { at: iso(now - 3 * 3600_000), complete: true, pagesFailed: 0, sellers: { 25895: [1_250_000, [60001483, 60001486]] } }, partial: null };
     ESI['/universe/names/'] = (url, req, json) => json({ error: 'Invalid ID' }, 404);
     await finder();
     if (!(await text('[data-bp="25895"]')).includes('at A station in Itamo (and 1 more)')) problems.push(`with ESI refusing the names, the original isn’t said by its system: “${(await text('[data-bp="25895"]')).slice(0, 200)}”`);
     if (/Station #\d/.test(await text('[data-industry="build"]'))) problems.push('the finder shows “Station #id”');
+    {
+      const places = await text('[data-industry="bpo-places"]');
+      if (!places.includes('A station in Itamo (1 of 2)') || !places.includes('A station in Itamo (2 of 2)')) problems.push(`two stations with no name aren’t told apart: “${places.slice(0, 220)}”`);
+      if (/Itamo 0\.7/.test(places) && /A station in Itamo[^]*Itamo 0\.7/.test(places)) problems.push('the system is said twice beside a station named by it');
+    }
     ESI['/universe/names/'] = (url, req, json) => json(JSON.parse(req.postData() ?? '[]').map((id) => ({ id, name: `Station ${id}`, category: 'station' })));
     const finderFit = await sideways(page, '[data-industry="finder"] .tbl-scroll');
     if (!PHONE && finderFit && finderFit.over > 0) problems.push(`the finder scrolls sideways at 1,440 (${finderFit.over} px)`);
     if (SHOTS) await page.screenshot({ path: `${SHOTS}-industry-finder.png` });
+    // --- Review fixes (task 5B round 1): a null-sec home with no freight route picked, assets not read, skills not read.
+    {
+      const reseed = async (doc, d = ledger) => { await page.goto(SEED_PAGE); await seed({ ...d, industry: doc, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } }); };
+      const buildPage = async (sel) => { await page.goto(`${BASE}#hustles/industry/build`); await page.reload(); await page.waitForSelector(sel, { timeout: 30_000 }).catch(() => problems.push(`Build never drew ${sel}`)); await page.waitForTimeout(1200); };
+      npcAnswer = { complete: { at: iso(now - 3 * 3600_000), complete: true, pagesFailed: 0, sellers: { 25895: [1_250_000, [60001483, 60001486]] } }, partial: null };
+      await reseed({ ...DOC, site: 'home:30004807', freight: [] });
+      await buildPage('[data-industry="finder-count"]');
+      const noRoute = await text('[data-industry="finder-count"]');
+      if (!noRoute.includes('No freight route between Home in UALX-3 and Jita is picked')) problems.push(`a null-sec home with no freight route picked doesn’t say so: “${noRoute.slice(0, 300)}”`);
+      if (/need a material nobody lists/.test(noRoute)) problems.push('with no freight route picked, rows are said to need “a material nobody lists”');
+      if (!(await page.locator('[data-industry="pick-route"]').count())) problems.push('with no route picked, there’s no way to the sites panel');
+      else { await page.locator('[data-industry="pick-route"]').click(); await page.waitForTimeout(500); if (!(await page.locator('[data-industry="sites"]').isVisible().catch(() => false))) problems.push('the pick-a-route link doesn’t open Where you build'); }
+      // Assets not read: the Held column and tile say so, never 0.
+      await reseed(DOC);
+      await buildPage('[data-bp="25895"]');
+      await page.locator('[data-bp="25895"] .expander').click();
+      await page.waitForTimeout(600);
+      const held = await text('[data-industry="detail"]');
+      if (!held.includes('assets aren’t read yet, so what’s held here isn’t known')) problems.push(`with assets not read, the detail doesn’t say so: “${held.slice(0, 200)}”`);
+      if (/none of its materials held here/.test(held)) problems.push('with assets not read, the detail says none of its materials are held');
+      // Skills not read: the finder waits with its words and ranks nothing.
+      const { skills: _skills, ...noSkills } = ledger;
+      await reseed(DOC, noSkills);
+      await buildPage('[data-industry="finder-wait"]');
+      if (!(await text('[data-industry="finder-wait"]')).includes('Your skills aren’t read yet')) problems.push('with skills not read, the finder doesn’t wait with its words');
+      if (await page.locator('[data-industry="finder"] [data-bp]').count()) problems.push('the finder ranked blueprints with the skills not read');
+    }
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

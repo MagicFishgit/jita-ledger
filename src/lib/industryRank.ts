@@ -228,8 +228,8 @@ export function slotDay(makes: number, sale: Sale, costUnit: number, share: numb
   return { list: n.list, bids: n.bids, units, profit, limit: units >= makes - 1e-9 ? 'slot' : 'market' };
 }
 
-/** Why a row isn't priced: no Jita book this morning; indices, adjusted prices or a material's price not known; nowhere it may be sold. */
-export type Missing = 'noBook' | 'noIndex' | 'noAdjusted' | 'noMaterials' | 'noSale';
+/** Why a row isn't priced: no Jita book this morning; indices, adjusted prices or a material's price not known; no freight route to bring materials from Jita (`noRoute`: pick one); nowhere it may be sold. */
+export type Missing = 'noBook' | 'noIndex' | 'noAdjusted' | 'noRoute' | 'noMaterials' | 'noSale';
 
 export type RowSite = { kind: SiteKind; rigs: readonly number[]; band: SecBand; tax: number | null; index: IndustryIndex | null };
 export type RowInput = {
@@ -264,7 +264,7 @@ export type Row = {
   brokerPerPct: number | null;
   lacking: { id: number; level: number }[];
   missing: Missing | null;
-  /** Ships the switch keeps out of Jita from this site. */
+  /** Ships the switch keeps out of Jita from this site (only ones with a Jita book: ones that would otherwise have sold there). */
   shipsKeptHome: boolean;
 };
 
@@ -313,15 +313,18 @@ export function buildRow(o: RowInput): Row {
     const d = s.why ? null : slotDay(makes, s, costUnit, o.share);
     if (d && (!day || d.profit > day.profit)) { sale = s; day = d; }
   }
+  // Materials nobody can bring in because no freight route from Jita is picked say so (the user's first run at a null-sec home),
+  // not "a material nobody lists".
+  const noRoute = materialCost == null && materials.some((x) => !x.pick && x.options.some((q) => q.source === 'jita' && q.why === 'no freight route from Jita'));
   const missing: Missing | null = !pm.jita && !pm.home ? 'noBook' : !o.site.index ? 'noIndex' : eiv == null ? 'noAdjusted'
-    : materialCost == null ? 'noMaterials' : !day ? 'noSale' : null;
+    : noRoute ? 'noRoute' : materialCost == null ? 'noMaterials' : !day ? 'noSale' : null;
   return {
     bp: bp[0], product: prod.type, perRun: prod.perRun, ship, time, runs, makes, materials, materialCost, eiv, job, costUnit, sales, sale, day,
     costKnown: job ? job.tax != null && job.alpha != null : null,
     taxPerPct: job && o.site.tax == null ? (job.base * 0.01) / days : null,
     brokerPerPct: day && sale?.place === 'home' && !sale.brokerKnown && sale.list != null ? day.list * sale.list * 0.01 : null,
     lacking: lacking(m[2], o.skills), missing,
-    shipsKeptHome: ship && !jitaOk && o.sell !== 'home',
+    shipsKeptHome: ship && !jitaOk && o.sell !== 'home' && !!pm.jita,
   };
 }
 

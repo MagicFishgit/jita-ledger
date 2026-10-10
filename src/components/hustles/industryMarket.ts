@@ -77,6 +77,17 @@ export function useScanCache(): Loaded<ScanCache> {
  */
 export type NpcState = { status: 'off' } | { status: 'loading' } | { status: 'behind' } | { status: 'failed'; error: string }
   | { status: 'ok'; rows: { complete: NpcRow | null; partial: NpcRow | null } };
+/** The cloud writes the NPC row once a morning: one read an hour is plenty, shared while in flight and kept for the visit. */
+const NPC_HOLD_MS = 3_600_000;
+let npcHeld: { at: number; read: ReturnType<typeof cloudIndustryNpc> } | null = null;
+const npcRead = () => {
+  if (npcHeld && Date.now() - npcHeld.at < NPC_HOLD_MS) return npcHeld.read;
+  const read = cloudIndustryNpc();
+  const held = { at: Date.now(), read };
+  npcHeld = held;
+  read.catch(() => { if (npcHeld === held) npcHeld = null; });
+  return read;
+};
 export function useNpcRow(): NpcState {
   const cloud = useCloud();
   const [st, setSt] = useState<NpcState>(() => (cloudEnabled() ? { status: 'loading' } : { status: 'off' }));
@@ -84,7 +95,7 @@ export function useNpcRow(): NpcState {
     if (!cloudEnabled()) { setSt({ status: 'off' }); return; }
     if (!cloud.started) return;
     let alive = true;
-    cloudIndustryNpc().then((rows) => { if (alive) setSt({ status: 'ok', rows: { complete: rows?.complete ?? null, partial: rows?.partial ?? null } }); },
+    npcRead().then((rows) => { if (alive) setSt({ status: 'ok', rows: { complete: rows?.complete ?? null, partial: rows?.partial ?? null } }); },
       (e) => { if (alive) setSt((e as { status?: number }).status === 404 ? { status: 'behind' } : { status: 'failed', error: e instanceof Error ? e.message : String(e) }); });
     return () => { alive = false; };
   }, [cloud.started]);
@@ -103,13 +114,19 @@ export function useLiveBooks(types: readonly number[]): Record<number, LiveBook>
   useEffect(() => {
     let alive = true;
     const queue = key ? key.split(',').map(Number) : [];
-    let next = 0;
+    let next = 0, done = 0;
+    // Each book landing re-ranked all 1,652 rows (about 25 ms) and reordered them 70 to 150 times: the books are held back and
+    // set in batches (the first sixteen, so the rows move early, then every thirty-two, and the rest when the queue drains).
+    let buf: Record<number, LiveBook> = {};
+    const flush = () => { const b = buf; buf = {}; if (Object.keys(b).length) setGot((x) => ({ ...x, ...b })); };
     const work = async () => {
       while (alive && next < queue.length) {
         const t = queue[next++];
         const b = await jitaBook(t).catch(() => null);
         if (!alive) return;
-        if (b) setGot((x) => ({ ...x, [t]: { bestBuy: b.bestBuy, bestSell: b.bestSell, topBuys: b.topBuys, topSells: b.topSells, ...(b.sold ? { sold: b.sold } : {}), at: b.fetchedAt } }));
+        if (b) buf[t] = { bestBuy: b.bestBuy, bestSell: b.bestSell, topBuys: b.topBuys, topSells: b.topSells, ...(b.sold ? { sold: b.sold } : {}), at: b.fetchedAt };
+        done++;
+        if (done === 16 || (done > 16 && (done - 16) % 32 === 0) || done === queue.length) flush();
       }
     };
     for (let i = 0; i < 4; i++) void work();
@@ -123,15 +140,17 @@ export const NPC_REGIONS: Record<number, string> = {
   10000016: 'Lonetrek', 10000043: 'Domain', 10000067: 'Genesis', 10000041: 'Syndicate', 10000057: 'Outer Ring', 10000023: 'Pure Blind', 10000011: 'Great Wildlands',
 };
 export type RegionSeller = { region: number; station: number; system: number; price: number };
-/** NPCs' sell orders (365 days) of one original in each of NPC_REGIONS: seven public reads, shared while in flight. A region that can't be read is left out and counted. */
-export const regionSellers = shareInFlight((bp: number) => String(bp), async (bp: number): Promise<{ sellers: RegionSeller[]; failed: number }> => {
+/** NPCs' sell orders (365 days) of one original in each of NPC_REGIONS: seven public reads, shared while in flight. A region that can't be read is left out and counted; `read` names the ones that were. */
+export const regionSellers = shareInFlight((bp: number) => String(bp), async (bp: number): Promise<{ sellers: RegionSeller[]; failed: number; read: number[] }> => {
   const sellers: RegionSeller[] = [];
+  const read: number[] = [];
   let failed = 0;
   await Promise.all(Object.keys(NPC_REGIONS).map(Number).map(async (region) => {
     try {
       const { data } = await esi<{ location_id: number; system_id: number; price: number; duration: number; is_buy_order: boolean }[]>(`/markets/${region}/orders/`, { query: { order_type: 'sell', type_id: bp } });
+      read.push(region);
       for (const o of data) if (!o.is_buy_order && o.duration >= 365) sellers.push({ region, station: o.location_id, system: o.system_id, price: o.price });
     } catch { failed++; }
   }));
-  return { sellers: sellers.sort((a, b) => a.price - b.price || a.station - b.station), failed };
+  return { sellers: sellers.sort((a, b) => a.price - b.price || a.station - b.station), failed, read: read.sort((a, b) => a - b) };
 });

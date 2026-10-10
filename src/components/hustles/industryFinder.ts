@@ -106,9 +106,9 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph): Finder {
 export const KIND_LABEL: Record<ProductKind | 'all', string> = {
   all: 'Everything', rigs: 'Rigs', modules: 'Modules', charges: 'Ammo and charges', components: 'Components', drones: 'Drones and fighters',
   deployables: 'Deployables', 'hulls-small': 'Frigates and destroyers', 'hulls-medium': 'Cruisers and battlecruisers', 'hulls-large': 'Battleships',
-  'hulls-other': 'Other hulls', fuel: 'Fuel blocks', structures: 'Structures', 'capital-parts': 'Capital parts', capital: 'Capitals', other: 'Other',
+  'hulls-other': 'Industrials, barges and shuttles', fuel: 'Fuel blocks', structures: 'Structures', 'capital-parts': 'Capital parts', capital: 'Capitals', other: 'Other',
 };
-export const FINDER_KINDS: (ProductKind | 'all')[] = ['all', 'rigs', 'modules', 'charges', 'components', 'drones', 'deployables', 'hulls-small', 'hulls-medium', 'hulls-large', 'fuel', 'structures', 'capital-parts', 'other'];
+export const FINDER_KINDS: (ProductKind | 'all')[] = ['all', 'rigs', 'modules', 'charges', 'components', 'drones', 'deployables', 'hulls-small', 'hulls-medium', 'hulls-large', 'hulls-other', 'fuel', 'structures', 'capital-parts', 'other'];
 
 /** What the BPO's column says: NPCs' price and where, or why there isn't one. */
 export function bpoSaid(w: BpoWhere, npc: NpcState, station: (id: number) => string): { v: string; n: string } {
