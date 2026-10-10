@@ -97,6 +97,14 @@ const sideways = (page, sel = '.tbl-scroll') => page.evaluate((s) => {
   return box ? { over: box.scrollWidth - box.clientWidth, width: box.clientWidth } : null;
 }, sel);
 
+/** The planner's mix is a table too: it fits the page at 1440 with the sidebar open, Flags and Calc included (Task 4's review). */
+const mixFits = async (page, which, problems) => {
+  if (PHONE) return;
+  const s = await sideways(page);
+  if (!s) problems.push(`not drawn: no mix table (${which})`);
+  else if (s.over > 0) problems.push(`the planner's mix scrolls sideways (${which}): ${s.over} px past its ${s.width} px box`);
+};
+
 /** A name each ledger's Positions page must show, proving the seed reached the app. */
 const PROOF = { small: 'Hammerhead II', large: 'Test Item' };
 
@@ -183,8 +191,8 @@ const PLANNER_SWITCH = { drawn: ['Raises kept back'], note: '2 left out: 1 Bids 
  */
 const PLANNER_TRIPS = {
   said: ['1 from before round trips were counted', '1 with too little history to say how often it round-trips', '1 that never round-tripped within 3 days in the last 60 days',
-    'predates Place and leave’s count of round trips', 'History says it round-trips within 3 days on 45% of the last 60 days', 'Each item’s at how often it round-tripped within 3 days on past days'],
-  row: ['45% of days', 'within 3 days'], rowTip: 'Round trip within 3 days on 45% of past days',
+    'predates Place and leave’s count of round trips', 'History says it round-trips within 3 days on 45% of past days', 'Each item scaled by how often it round-tripped within 3 days on past days'],
+  row: ['45% of days'], header: 'Round trip within 3 days', rowTip: 'Round trip within 3 days on 45% of past days',
   kept: 'About 1 of these 2 round-trips within 3 days, history says',
   dialog: ['in buy orders, a 3-day plan (Place and leave)', 'About 1 of these 2 round-trips within 3 days, history says', 'if every one came round'],
 };
@@ -374,6 +382,7 @@ try {
         for (const t of PLAN_PROOF[hash].absent ?? []) if (await page.locator('.page table', { hasText: t }).count()) problems.push(`in the table, and shouldn’t be: “${t}”`);
         if (PLAN_PROOF[hash].note && !(await page.locator('.page', { hasText: PLAN_PROOF[hash].note }).count())) problems.push(`not drawn: no “${PLAN_PROOF[hash].note}”`);
         if (hash === 'planner') {
+          await mixFits(page, 'at the front', problems);
           const tips = await page.locator('.page table .flag[data-tip-title="You already trade this"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-tip') ?? ''));
           const tip = tips.find((t) => t.includes('units already working')) ?? '';
           for (const t of PLANNER_WORKING) if (!tip.includes(t)) problems.push(`not drawn: the Already trading tip's “${t}” (${(tips[0] ?? 'no tip').slice(0, 120)})`);
@@ -418,11 +427,14 @@ try {
       for (const t of PLANNER_TRIPS.said) if (!pageText.includes(t)) problems.push(`not drawn in Place and leave: “${t}”`);
       const tripCell = page.locator('.page table tbody tr', { hasText: '990101' }).locator('td.round-trip');
       const tripText = (await tripCell.innerText().catch(() => '')).replace(/\s+/g, ' ');
+      const headText = (await page.locator('.page table thead th', { hasText: 'Round trip' }).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+      if (!headText.toLowerCase().includes(PLANNER_TRIPS.header.toLowerCase())) problems.push(`not drawn: the Round trip header “${PLANNER_TRIPS.header}” (${headText})`);
+      await mixFits(page, 'place and leave', problems);
       for (const t of PLANNER_TRIPS.row) if (!tripText.includes(t)) problems.push(`not drawn: 990101's round trip “${t}” (${tripText})`);
       if ((await tripCell.getAttribute('data-tip-title').catch(() => null)) !== PLANNER_TRIPS.rowTip) problems.push(`990101's round trip tip isn't “${PLANNER_TRIPS.rowTip}”`);
       for (const t of ['990102', '990104', '990105']) if (await page.locator('.page table tbody tr', { hasText: t }).count()) problems.push(`in the Place-and-leave mix, and shouldn’t be: ${t}`);
-      // Not known is never shown as 0% or 100%: the rows say "45% of days", the mix line "… of the last 60 days".
-      if (/\b(0|100)% of (days|the last)/.test(pageText.replace(/45% of (days|the last)/g, ''))) problems.push('a round trip said as 0% or 100% where it isn’t known');
+      // Not known is never shown as 0% or 100%: the rows say "45% of days", the mix line "… of past days".
+      if (/\b(0|100)% of (days|past days|the last)/.test(pageText.replace(/45% of (days|past days|the last)/g, ''))) problems.push('a round trip said as 0% or 100% where it isn’t known');
       await judge('planner (place and leave)');
       // "Keep items whose market moved" brings it back, with its flag and the flag's tip.
       problems = [];

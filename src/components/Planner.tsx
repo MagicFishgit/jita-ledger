@@ -266,7 +266,7 @@ export function Planner() {
         <>
           <Tiles min={190} items={[
             { l: 'Deployed', v: iskBig(plan.deployed), n: `${pct(plan.deployed / Math.max(isk, 1), 0)} of your ISK`, c: 'var(--acc)' },
-            { l: 'Expected ISK / day', v: iskBig(plan.perDay), n: patient ? `Each item’s at how often it round-tripped ${within} on past days` : 'While every order keeps filling at your share', c: 'var(--pos)' },
+            { l: 'Expected ISK / day', v: iskBig(plan.perDay), n: patient ? `Each item scaled by how often it round-tripped ${within} on past days` : 'While every order keeps filling at your share', c: 'var(--pos)' },
             { l: 'Blended return / day', v: plan.deployed ? pct(plan.perDay / plan.deployed, 2) : '–', n: 'Across the whole mix', c: 'var(--pos)' },
             { l: 'Slots used', v: `${plan.slotsUsed} of ${slots}`, n: 'One buy and one sell each' },
           ]} />
@@ -302,7 +302,7 @@ export function Planner() {
                   <p className="row tight round-trips" style={{ fontSize: 13, margin: '0 0 10px', alignItems: 'flex-start', flexWrap: 'nowrap' }}>
                     <Repeat aria-hidden="true" style={{ width: 14, height: 14, flex: 'none', marginTop: 3, color: 'var(--acc)' }} />
                     <span style={{ minWidth: 0 }} tabIndex={0} data-tip-title="Round trips"
-                      data-tip={`How often each item’s prices came round ${within} on the last ${ROUND_TRIP_STARTS} days: on each, the bid Place and leave would have placed that morning reached, then its sale.\n\n• The expected ISK a day is each item’s profit times its rate: ${iskBigSigned(trips.profit)} expected ${within}, against ${iskBigSigned(trips.ifAll)} if every one came round.\n• Each row says its own; hover it for its count.${trips.sameDay ? `\n• History is daily, so ${within} counts a day that reached both prices: the nearest it can say.` : ''}\n\nFor example: your 2 October plan (12 hours) was expected to make +67.6 M, as if every item came round. Its items’ prices had round-tripped the same day on a median 7% of past days, and 6 of its 33 came round within 7 days.`}>
+                      data-tip={`How often each item’s prices came round ${within} on past days (of the last ${ROUND_TRIP_STARTS}, each whose horizon has passed): on each, the bid Place and leave would have placed that morning reached, then its sale.\n\n• The expected ISK a day is each item’s profit times its rate: ${iskBigSigned(trips.profit)} expected ${within}, against ${iskBigSigned(trips.ifAll)} if every one came round.\n• Each row says its own; hover it for its count.${trips.sameDay ? `\n• History is daily, so ${within} counts a day that reached both prices: the nearest it can say.` : ''}\n\nFor example: your 2 October plan (12 hours) was expected to make +67.6 M, as if every item came round. Its items’ prices had round-tripped the same day on a median 7% of past days, and by that count 2 of its 33 came round within 7 days.`}>
                       {mixRoundTripsSaid(trips, plan.rows.length, days)}. The expected ISK a day is scaled by it: {iskBigSigned(trips.profit)} expected {within}, against {iskBigSigned(trips.ifAll)} if every one came round.
                     </span>
                   </p>
@@ -311,13 +311,13 @@ export function Planner() {
                   {plan.rows.map((a, i) => <div key={a.p.typeId} data-tip={`${name(a.p.typeId)} — ${iskBig(a.isk)} (${pct(a.isk / isk, 0)})`} style={{ width: `${(a.isk / Math.max(isk, 1)) * 100}%`, background: COLS[i % COLS.length] }} />)}
                 </div>
                 <div className="tbl-scroll">
-                  <table className="tbl" style={{ minWidth: patient ? 1060 : 980 }}>
+                  <table className="tbl mix" style={{ minWidth: patient ? 1060 : 1040 }}>
                     <thead><tr>
                       <th scope="col" className="l">Item</th><th scope="col">ISK in</th><th scope="col">Share</th><th scope="col">Units</th>
                       <th scope="col" data-tip={patient ? 'Your buy order’s price: where trading reached on about half of the last 14 days' : 'Your buy order’s price'}>Buy at</th>
                       <th scope="col" data-tip={patient ? 'Your sell order’s price: where trading got up to on about half of the last 14 days' : 'Your sell order’s price'}>Sell at</th>
                       <th scope="col" data-tip={patient ? 'How long this much takes to buy in and sell out at your share of the slower side, on days trading reaches its prices. Round trip says how often that came within your horizon.' : 'How long this much takes to buy in and sell out at your share of the slower side'}>Turns in</th>
-                      {patient && <th scope="col" data-tip={`On how many of the last ${ROUND_TRIP_STARTS} days its prices came round ${within}: the bid Place and leave would have placed that morning reached, then its sale. ISK a day is its profit times this.`}>Round trip</th>}
+                      {patient && <th scope="col" data-tip={`How often its prices came round ${within} on past days (of the last ${ROUND_TRIP_STARTS}, each whose horizon has passed): the bid Place and leave would have placed that morning reached, then its sale. ISK a day is its profit times this.`}>Round trip<span className="sub">{within}</span></th>}
                       <th scope="col">ISK / day</th><th scope="col">Return / day</th>
                       <th scope="col" data-tip="Flags that don’t keep an item out but are worth reading first. Hover one for what it means.">Flags</th>
                       <th scope="col"><span className="sr-only">Actions</span></th>
@@ -327,13 +327,18 @@ export function Planner() {
                         <tr key={a.p.typeId} className="hover">
                           <td className="l">
                             <span className="cellrow">
-                              <span style={{ width: 10, height: 10, flex: 'none', background: COLS[i % COLS.length] }} /><ItemIcon id={a.p.typeId} /><span className="name ellipsis">{name(a.p.typeId)}</span><BusyRelisting typeId={a.p.typeId} />
-                              {leaving.has(a.p.typeId) && <Flag color="var(--pos)" title="Leaving it" why="Its orders are left where they are: Orders, To do and alert mail only speak up if trading stops reaching their price.">Leaving it</Flag>}
-                              {(a.working > 0 || inOrders.has(a.p.typeId) || inPositions.has(a.p.typeId)) && (
-                                <Flag color="var(--acc)" title="You already trade this" why={alreadyWhy(a)}>
-                                  Already trading
-                                </Flag>
-                              )}
+                              <span style={{ width: 10, height: 10, flex: 'none', background: COLS[i % COLS.length] }} /><ItemIcon id={a.p.typeId} /><span className="mix-id">
+                                <span className="name">{name(a.p.typeId)}</span>
+                                <span className="mix-tags">
+                                  <BusyRelisting typeId={a.p.typeId} />
+                                  {leaving.has(a.p.typeId) && <Flag color="var(--pos)" title="Leaving it" why="Its orders are left where they are: Orders, To do and alert mail only speak up if trading stops reaching their price.">Leaving it</Flag>}
+                                  {(a.working > 0 || inOrders.has(a.p.typeId) || inPositions.has(a.p.typeId)) && (
+                                    <Flag color="var(--acc)" title="You already trade this" why={alreadyWhy(a)}>
+                                      Already trading
+                                    </Flag>
+                                  )}
+                                </span>
+                              </span>
                             </span>
                           </td>
                           <td>{iskBig(a.isk)}</td>
@@ -345,7 +350,6 @@ export function Planner() {
                           {patient && (
                             <td className="round-trip" tabIndex={0} data-tip-title={a.p.roundTrip ? roundTripSaid(a.p.roundTrip, days) : 'Round trip'} data-tip={a.p.roundTrip ? roundTripTip(a.p.roundTrip, days) : undefined}>
                               {a.p.roundTrip?.rate != null ? `${pct(a.p.roundTrip.rate, 0)} of days` : '–'}
-                              <span className="sub">{within}</span>
                             </td>
                           )}
                           <td style={{ color: 'var(--pos)' }}>{iskBig(a.perDay)}</td>
@@ -402,7 +406,7 @@ export function Planner() {
             </p>
             <Points compact items={[
               { kind: 'info', icon: Scale, lead: 'Each market’s limit', text: `your share of its slower side over the horizon (${d.settings.share}% of volume, scaled for how many orders you queue among), at the last scan’s prices.` },
-              patient ? { kind: 'info', icon: Repeat, lead: 'Place and leave', text: `each order fills only on days trading reaches it, and what each item is expected to make is scaled by how often its prices came round ${within} on the last ${ROUND_TRIP_STARTS} days. Items without the history to say are left out.` }
+              patient ? { kind: 'info', icon: Repeat, lead: 'Place and leave', text: `each order fills only on days trading reaches it, and what each item is expected to make is scaled by how often its prices came round ${within} on past days. Items without the history to say are left out.` }
                 : { kind: 'info', lead: '“Bids not reached”', text: 'an item flagged so is priced where trading actually reaches, over the fortnight and lately, not at the best bid.' },
               { kind: 'tip', icon: CalcIcon, lead: 'Before placing', text: 'check each in the Calculator.' },
             ]} />

@@ -735,6 +735,20 @@ input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.7); }
 /* Words in a figure column ("rarely reached") in the body face, which is narrower than the figures' monospace. */
 .tbl.ord .words { font-family: var(--f-body); font-size: 12.5px; }
 .tbl.ord .nowrap { white-space: nowrap; }
+/* The planner's mix fits the page at 1440 px with the sidebar open: the Item cell gives way (its tags under the name, the
+   name wrapping) and Round trip is headed with its horizon rather than repeating it in every row. Scoped to this table. */
+.tbl.mix { font-size: 12px; }
+.tbl.mix th { padding: 0 7px; letter-spacing: .08em; white-space: normal; text-wrap: balance; }
+.tbl.mix td { padding: 4px 7px; }
+.tbl.mix th:first-child, .tbl.mix td:first-child { padding-left: 12px; }
+.tbl.mix th:last-child, .tbl.mix td:last-child { padding-right: 12px; }
+.tbl.mix .flags { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.tbl.mix .flag { font-size: 10.5px; padding: 3px 7px; letter-spacing: .06em; }
+.tbl.mix .cellrow { align-items: flex-start; }
+.tbl.mix .mix-id { display: flex; flex-direction: column; gap: 3px; min-width: 120px; }
+.tbl.mix .mix-id .name { white-space: normal; text-wrap: pretty; line-height: 1.3; }
+.tbl.mix .mix-tags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; white-space: normal; }
+.tbl.mix th .sub { text-transform: none; letter-spacing: 0; }
 .spark { width: 100%; min-width: 80px; height: 24px; display: block; }
 
 /* ------------------------------------------------------------ overlays */

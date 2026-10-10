@@ -191,9 +191,9 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
     investing" says so; fewer than `ROUND_TRIP_MIN` start days priced (`tripFew`), and a measured 0 within the horizon
     (`noTrip`, which a 0 return would otherwise have dropped unsaid), are left out and counted in the mix's line, and an
     empty mix names them. Until the first cloud scan after a deploy, Place and leave's mix is empty and says why.
-  - **Said**: a Round trip column ("45% of days", within 3 days; the tip "Round trip within 3 days on 45% of past days: 26 of
-    the last 58 days" and how it's counted); the line over the mix ("About 3 of these 27 round-trip within 12 h, history
-    says: 12% of the last 60 days, weighted by the ISK in each (5% to 22% an item)", with the profit expected against the
+  - **Said**: a Round trip column ("45% of days", headed "Round trip / within 3 days" rather than repeating it in each row; the tip "Round trip within 3 days on 45% of past days: 26 of
+    the 58 days that could be counted" and how it's counted: only start days whose whole horizon has passed count, so the base is under 60 and "of past days" is said, not "of the last 60"); the line over the mix ("About 3 of these 27 round-trip within 12 h, history
+    says: 12% of past days, weighted by the ISK in each (5% to 22% an item)", with the profit expected against the
     profit if every one came round); the Expected ISK a day tile; the start dialog's lead.
   - **The plan's horizon wherever the plan is named** (`planHorizonSaid`, `planLabel` in plans.ts: "a 12-hour plan", nothing
     for a horizon not kept, which `sanitizePlans` reads as 0): the start dialog's lead ("2 items, 257 M ISK in buy orders, a

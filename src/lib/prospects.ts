@@ -183,8 +183,7 @@ function kthOf(xs: Float64Array, from: number, k: number, desc: boolean): number
  * The plans review's backtest (`.playwright-mcp/research/plans-review/backtest.mjs`) is the reference, matched start day for
  * start day on the 2 October plan's 33 items. The 2 October plan (12-hour horizon) expected +67.6 M within 12 hours, the
  * planner taking each side as reached on half the days; re-run this way on each item's 60 days before the plan, its prices
- * round-tripped within a day on a median 7% of start days, 3 days 21%, 7 days 39%, and 6 of the 33 did within 7 days in
- * fact. One pass over the history a start day, about 0.2 ms an item, so the cloud's daily scan of ~15,000 items can afford it.
+ * round-tripped within a day on a median 7% of start days, 3 days 21%, 7 days 39%, and by this count 2 of the 33 did within 7 days (6 round trips were traded, some under the plan's price). One pass over the history a start day, about 0.2 ms an item, so the cloud's daily scan of ~15,000 items can afford it.
  */
 export function roundTripCounts(rows: Pick<HistRow, 'date' | 'lowest' | 'highest'>[], end: string): { roundTrip: number[]; roundTripOf: number[] } {
   const e = Date.parse(end + 'T00:00:00Z');
@@ -241,12 +240,13 @@ export function roundTripRate(s: Pick<ProspectStats, 'roundTrip' | 'roundTripOf'
 
 /** "within 12 h", "within a day", "within 7 days": the horizon a round trip was counted within, as the plan's words have it. */
 export const roundTripWithin = (days: number, horizonDays: number | null | undefined) => `within ${horizonDays != null && horizonDays < 1 ? horizonShort(horizonDays) : horizonSaid(days)}`;
+const horizonWords = (t: RoundTrip, horizonDays: number | null | undefined) => roundTripWithin(t.days, horizonDays).replace(/^within /, '');
 const withinSaid = (t: RoundTrip, horizonDays: number | null | undefined) => roundTripWithin(t.days, horizonDays);
 
 /** One line: "Round trip within 12 h on 7% of past days", or why it can't be said. */
 export function roundTripSaid(t: RoundTrip, horizonDays: number | null | undefined): string {
   if (t.of == null) return 'Round trips not measured: these prices predate it, so scan again';
-  if (t.rate == null) return `Too little history to say how often it round-trips: ${units(t.of)} of the last ${ROUND_TRIP_STARTS} days could be priced`;
+  if (t.rate == null) return `Too little history to say how often it round-trips: only ${units(t.of)} days could be counted (it needs ${ROUND_TRIP_MIN})`;
   return `Round trip ${withinSaid(t, horizonDays)} on ${pct(t.rate, 0)} of past days`;
 }
 
@@ -254,9 +254,9 @@ export function roundTripSaid(t: RoundTrip, horizonDays: number | null | undefin
 export function roundTripTip(t: RoundTrip, horizonDays: number | null | undefined): string {
   const within = withinSaid(t, horizonDays);
   return [
-    t.rate != null && t.trips != null && t.of != null ? `${roundTripSaid(t, horizonDays)}: ${units(t.trips)} of the last ${units(t.of)} days.` : `${roundTripSaid(t, horizonDays)}.`,
+    t.rate != null && t.trips != null && t.of != null ? `${roundTripSaid(t, horizonDays)}: ${units(t.trips)} of the ${units(t.of)} days that could be counted.` : `${roundTripSaid(t, horizonDays)}.`,
     [
-      `• Each of the last ${ROUND_TRIP_STARTS} days, Place and leave’s prices as it would have set them that morning, from the 14 days before.`,
+      `• Each of the last ${ROUND_TRIP_STARTS} days whose ${horizonWords(t, horizonDays)} have passed: Place and leave’s prices as it would have set them that morning, from the 14 days before.`,
       `• A round trip: the bid reached (the day’s low at or under it), then the sale (a day’s high at or over it), ${within}.`,
       ...(t.sameDay ? [`• History is daily, so ${within} counts a day that reached both: the nearest it can say.`] : []),
       '• A day whose 14 days before couldn’t price both sides isn’t counted.',

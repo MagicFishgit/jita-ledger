@@ -221,7 +221,10 @@ export type ProspectStats = {
    * (9 October 2026), which say nothing: never a 0% or 100% stand-in.
    */
   roundTrip?: number[];
-  /** The start days counted for each of those: those Place and leave could price (7 days traded in the 14 before). */
+  /**
+   * The start days counted for each of those: of the last ROUND_TRIP_STARTS, the ones whose 14 days before price both sides
+   * (7 days traded) with a sale over the bid, and whose whole horizon has passed (up to 59, 58, 54, 47 and 31).
+   */
   roundTripOf?: number[];
 };
 
