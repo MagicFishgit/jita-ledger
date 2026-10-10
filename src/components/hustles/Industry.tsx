@@ -71,7 +71,7 @@ export function Industry({ route }: { route: Route }) {
         <p className="note small" style={{ margin: 0 }}>Loading the blueprints and the map…</p>
       ) : (
         <PilotProvider value={shown.pilot}>
-          {section === 'start' && <IndustryStart key={shown.charId} c={shown} ix={ix} />}
+          {section === 'start' && <IndustryStart key={shown.charId} c={shown} ix={ix} graph={graph} />}
           {section === 'build' && <IndustryBuild key={shown.charId} c={shown} ix={ix} graph={graph} mainName={main.name} />}
         </PilotProvider>
       )}

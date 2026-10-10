@@ -1126,6 +1126,22 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .ind-finder td .sub { white-space: normal; }
 .ind-finder tr.detail td { padding: 14px 12px; background: rgba(2, 7, 12, .35); }
 .ind-wrap { white-space: normal; min-width: 260px; }
+/* The ladder on Start (IndustryStart.tsx): one card a rung down the page, its number beside it, the rung you're on lit and
+   the ones below it dimmed. Not .ladder, which is already two other things (Planets' step chips, the old mining cards). */
+.ind-ladder { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.ind-rung { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; padding: 12px 14px; border: 1px solid var(--line-2); background: rgba(2, 7, 12, .35); min-width: 0; }
+.ind-rung.here { border-color: var(--acc); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--acc) 40%, transparent); }
+.ind-rung.done { opacity: .7; }
+.ind-rung-n { font-family: var(--f-head); font-size: 22px; line-height: 1; color: var(--label); }
+.ind-rung.here .ind-rung-n, .ind-rung.done .ind-rung-n { color: var(--acc); }
+.ind-rung-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; color: var(--ink); }
+.ind-rung-tag { font-family: var(--f-head); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--pos); }
+.ind-rung-tag.here { color: var(--acc); }
+.ind-omega { font-size: 12.5px; color: var(--acc2); }
+.ind-pays { gap: 3px; }
+.ind-pay { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; font-size: 12.5px; color: var(--body); max-width: 560px; }
+.ind-pay b { font-weight: 500; color: var(--ink); white-space: nowrap; }
+.ind-pay .sub { display: block; color: var(--label); font-size: 11.5px; }
 /* A figure never wraps (its note under it does). */
 .ind-finder .ind-fig { white-space: nowrap; }
 /* The Research tab (hustles/Research.tsx): its tables keep a column and fold the rest under it on a phone (.rd-phone). */

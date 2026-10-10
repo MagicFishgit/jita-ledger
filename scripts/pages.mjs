@@ -2138,6 +2138,91 @@ try {
     }
     const homeFit = await sideways(page, '[data-industry="finder"] .tbl-scroll');
     if (!PHONE && homeFit && homeFit.over > 0) problems.push(`the finder with a home hub scrolls sideways at 1,440 (${homeFit.over} px)`);
+    // --- The ladder (Task 7): the main (Omega) on rung 2 by its skills, what each rung pays at Itamo's station (the
+    // default site); then the main as an Alpha, Fresh Alt's clone not read, and Lost Alt's skills not read.
+    npcAnswer = { complete: { at: iso(now - 3 * 3600_000), complete: true, pagesFailed: 0, sellers: { 25895: [1_250_000, [60001483, 60001486]] } }, partial: null };
+    // The skills the rungs name, so each row reads as the game names it (the case's other names are stations).
+    const SKILL_NAMES = { 3380: 'Industry', 3387: 'Mass Production', 24625: 'Advanced Mass Production', 3406: 'Laboratory Operation', 24624: 'Advanced Laboratory Operation',
+      3409: 'Metallurgy', 3403: 'Research', 3402: 'Science', 3388: 'Advanced Industry', 22242: 'Capital Ship Construction' };
+    ESI['/universe/names/'] = (url, req, json) => json(JSON.parse(req.postData() ?? '[]').map((id) => (SKILL_NAMES[id] ? { id, name: SKILL_NAMES[id], category: 'inventory_type' } : { id, name: `Station ${id}`, category: 'station' })));
+    const ladderOf = async (d) => {
+      await page.goto(SEED_PAGE);
+      await seed({ ...d, industry: DOC, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } });
+      await page.goto(`${BASE}#hustles/industry/start`);
+      await page.reload();
+      await page.waitForSelector('[data-industry="ladder"]', { timeout: 20_000 }).catch(() => problems.push('the ladder never drew'));
+    };
+    // A rung's words, compared without case (its tags are drawn in capitals).
+    const rung = (k) => text(`[data-rung="${k}"]`).then((t) => t.toLowerCase());
+    const says = async (k, t) => (await rung(k)).includes(t.toLowerCase());
+    await ladderOf(ledger);
+    await page.waitForSelector('[data-rung="npc"] [data-pays="rows"]', { timeout: 30_000 }).catch(async () => problems.push(`rung 1 never said what it pays: “${(await rung('npc')).slice(0, 300)}”`));
+    await page.waitForTimeout(800);
+    if (!(await text('[data-industry="here"]')).includes('You’re on rung 2, Research ME first, by your skills and the sites you’ve added. Your blueprints and jobs aren’t read here yet.')) problems.push(`the main isn’t on rung 2: “${await text('[data-industry="here"]')}”`);
+    if (!(await page.locator('[data-rung="research"].here').count())) problems.push('rung 2 isn’t lit as where the main is');
+    for (const t of ['Your skills cover it', 'Industry I', 'Mass Production I', 'Builds 954 of the 1,652 Tech I items the finder ranks, at these skills.', 'Pays now at Station 60001483, one slot a day, at ME 0 / TE 0:', 'Caracal'])
+      if (!(await says('npc', t))) problems.push(`rung 1 doesn’t say “${t}”`);
+    for (const t of ['You’re here', 'Researches 1,259 of the 1,652 originals.', 'Researched to ME 10 / TE 20, one slot a day at Station 60001483:', 'a day over ME 0'])
+      if (!(await says('research', t))) problems.push(`rung 2 doesn’t say “${t}”`);
+    if (!/your 5 factory slots: (only \d+ items? pays? at station 60001483 today, making|the best \d+ items at station 60001483 make) .+ a day\./.test(await rung('slots'))) problems.push(`rung 3 doesn’t say what the main’s 5 slots make: “${(await rung('slots')).slice(0, 300)}”`);
+    if (!(await says('copy', 'Copies 1,633 of the 1,652 originals.'))) problems.push('rung 4 doesn’t count what the main can copy');
+    if (!(await says('home', 'Site added')) || !(await says('home', 'Home in UALX-3: its tax, rigs and broker fee are what you typed'))) problems.push('rung 5 doesn’t say a structure site is added');
+    if (!(await says('t2', 'Invents 0 of the 1,020 Tech II items with the sciences and encryption skills trained so far.'))) problems.push('rung 6 doesn’t count the Tech II the main can invent');
+    for (const t of ['Capital Ship Construction III', 'Builds 12 of the 29 capital hulls.', 'Capitals sell on contracts, not the market, so the finder doesn’t price them.'])
+      if (!(await says('capital', t))) problems.push(`rung 7 doesn’t say “${t}”`);
+    if (/needs omega|clone state not read/i.test(await text('[data-industry="ladder"]'))) problems.push('the Omega main’s ladder speaks of Alpha');
+    if (SHOTS) { await page.locator('[data-industry="ladder"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-industry-ladder.png` }); }
+    // The main as an Alpha: Mass Production held to III, Laboratory Operation, Metallurgy and Research unusable, so rung 1.
+    await ladderOf({ ...ledger, settings: { ...ledger.settings, clone: 'alpha' }, meta: { ...ledger.meta, cloneDetected: 'alpha' } });
+    await page.waitForTimeout(1500);
+    if (!(await text('[data-industry="here"]')).includes('You’re on rung 1, Build in a high-sec NPC station')) problems.push(`the Alpha main isn’t on rung 1: “${await text('[data-industry="here"]')}”`);
+    for (const k of ['research', 'slots', 't2', 'capital']) if (!(await says(k, 'Needs Omega: Alpha'))) problems.push(`the Alpha main’s rung ${k} doesn’t say it needs Omega`);
+    for (const k of ['npc', 'copy', 'home']) if (await says(k, 'Needs Omega')) problems.push(`the Alpha main’s rung ${k} says it needs Omega`);
+    if (!(await says('research', 'Needs Omega: Alpha can’t use Laboratory Operation, Metallurgy or Research.'))) problems.push('rung 2 doesn’t name what an Alpha can’t use');
+    if (!(await says('slots', 'Alpha uses III: Omega opens V'))) problems.push('the Alpha main’s Mass Production V reads as training, not as Alpha’s cap');
+    if (SHOTS) { await page.locator('[data-industry="ladder"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-industry-ladder-alpha.png` }); }
+    // Fresh Alt: its clone not read, never called Alpha; not on the first rung (no Mass Production).
+    await ladderOf(ledger);
+    await showFor('Fresh Alt');
+    await page.waitForTimeout(800);
+    if (!(await text('[data-industry="here"]')).includes('Not on the first rung yet, by Fresh Alt’s skills: Industry I and Mass Production I start it.')) problems.push(`Fresh Alt’s place on the ladder isn’t said: “${await text('[data-industry="here"]')}”`);
+    if (!(await says('research', 'Clone state not read: an Alpha can’t use Laboratory Operation, Metallurgy or Research.'))) problems.push('Fresh Alt’s rung 2 doesn’t say its clone isn’t read');
+    if (/needs omega/i.test(await text('[data-industry="ladder"]'))) problems.push('Fresh Alt, its clone not read, is told it needs Omega');
+    // Lost Alt: skills not read; nothing judged, no count, no pays.
+    await showFor('Lost Alt');
+    await page.waitForTimeout(800);
+    if (/your skills cover it|you’re here|builds \d|pays now/i.test(await text('[data-industry="ladder"]'))) problems.push('Lost Alt, its skills not read, is placed on the ladder');
+    if (!(await text('[data-industry="here"]')).includes('Lost Alt')) problems.push(`Lost Alt’s ladder doesn’t say its skills aren’t read: “${await text('[data-industry="here"]')}”`);
+    // Skills not read are never level 0 (carried P2): Lost Alt's rungs list what they ask, count nothing as trained, and price nothing.
+    if (!(await page.locator('[data-rung="npc"] [data-rung-needs="bare"]', { hasText: 'Asks for Industry I, Mass Production I. Lost Alt’s levels aren’t read, so none is counted as trained.' }).count())) problems.push(`Lost Alt’s first rung doesn’t list its skills bare: “${(await rung('npc')).slice(0, 300)}”`);
+    if (/trained \(|to train|takes \d|\bI to\b/i.test(await text('[data-industry="ladder"]'))) problems.push('Lost Alt, its skills not read, has skill rows judged');
+    if (await page.locator('[data-industry="ladder"] .skill-needs').count()) problems.push('Lost Alt, its skills not read, is drawn skill rows');
+    // The main with no skills read at all (a first sync not yet come): the same, and its slots and fee "–".
+    await page.goto(SEED_PAGE);
+    await seed({ settings: ledger.settings, meta: { lastSync: iso(now - 600_000) }, industry: DOC, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } });
+    await page.goto(`${BASE}#hustles/industry/start`);
+    await page.reload();
+    await page.waitForSelector('[data-industry="ladder"]', { timeout: 20_000 }).catch(() => problems.push('the ladder never drew for a main with no skills'));
+    await page.waitForTimeout(800);
+    if (!(await text('[data-industry="here"]')).includes('Your skills come with the next sync.')) problems.push(`a main with no skills read isn’t told so on the ladder: “${await text('[data-industry="here"]')}”`);
+    if (/your skills cover it|you’re here|builds \d|pays now|\bNaN\b|undefined|Item #|Station #\d/i.test(await text('[data-industry="ladder"]'))) problems.push(`a main with no skills read is placed on the ladder: “${(await text('[data-industry="ladder"]')).slice(0, 300)}”`);
+    // What "pays now" leaves out, it says (carried P1): UALX-3 with its tax not typed (the facility tax), then typed with Fresh Alt,
+    // whose clone isn't read (the Alpha tax).
+    const noTax = { ...DOC, site: 'home:30004807', assume: { me: 10, te: 20 }, sites: DOC.sites.map((x) => (x.id === 'home:30004807' ? { ...x, tax: null } : x)) };
+    const paysAt = async (doc, who) => {
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, industry: doc, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } });
+      await page.goto(`${BASE}#hustles/industry/start`);
+      await page.reload();
+      await page.waitForSelector('[data-industry="ladder"]', { timeout: 20_000 });
+      if (who) await showFor(who);
+      await page.waitForSelector('[data-rung="npc"] [data-pays="rows"], [data-rung="npc"] [data-pays="none"]', { timeout: 30_000 }).catch(async () => problems.push(`rung 1 never said what it pays: “${(await rung('npc')).slice(-300)}”`));
+      await page.waitForTimeout(800);
+    };
+    await paysAt(noTax, null);
+    for (const k of ['npc', 'research', 'slots']) if (!(await says(k, 'before the facility tax'))) problems.push(`rung ${k} at UALX-3, whose tax isn’t typed, doesn’t say its figures are before the facility tax: “${(await rung(k)).slice(-300)}”`);
+    await paysAt(DOC, 'Fresh Alt');
+    if (!(await says('npc', 'before the alpha tax'))) problems.push(`rung 1 for Fresh Alt, whose clone isn’t read, doesn’t say its figures are before the Alpha tax: “${(await rung('npc')).slice(-300)}”`);
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

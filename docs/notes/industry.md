@@ -181,3 +181,35 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
   say which, and nothing is sold at home on prices nobody read (Either falls back to Jita). A row that can sell at home isn't
   "nowhere it may be sold" for its Jita leg missing: the count line gives every place's own reason ("no freight route to
   Jita; not read at UALX-3 yet"), and "No freight route between the site and Jita" is said only for a material nothing else supplies.
+
+- **The ladder on Start** (`src/lib/industryLadder.ts`, `IndustryStart.tsx`): seven rungs, the spec's, each with the skills
+  it needs (`SkillNeeds` at the shown character's pilot), what it opens, how many blueprints, whether an Alpha can climb it
+  and what it pays now from the finder's own rows at its site. **Levels the spec left blank, decided here**: Industry I and
+  Mass Production I; Laboratory Operation, Metallurgy and Research I; Mass Production V, Advanced Mass Production I,
+  Laboratory Operation V, Advanced Laboratory Operation I; Science I; Science V; Industry V, Advanced Industry V and Capital
+  Ship Construction **III** (the 29 capital hulls ask for III, IV, V or Advanced Capital Ship Construction: at I the rung
+  would open none). Prerequisites are the skill rows' "Needs X first", from ESI.
+  - **"Needs Omega" comes from CCP's caps** (`alphaCaps.ts`) for any Alpha, main or alt: an alt's pilot marks only skills
+    trained past their cap, so an Alpha alt at Mass Production III would otherwise be promised IV's training time. The
+    derivation gives rungs 2, 3, 6 and 7, as the spec says (tested). A row past the cap says "Alpha uses III: Omega opens V"
+    or "Alpha can't use it: Omega opens it" (`SkillNeeds`' `beyond`), never "Trained". Clone not read: "Clone state not
+    read: an Alpha can't use …", never "Alpha", training times at Omega's speed. An Alpha's slots and counts are at its
+    usable levels.
+  - **Skills not read are never level 0**: with no skills (a main before its first sync, an alt's `{}`) the ladder judges
+    nothing: no "You're here", no counts, no prices, and each rung lists what it asks bare ("Asks for Industry I, Mass
+    Production I. Lost Alt's levels aren't read, so none is counted as trained."), with `skillsWhy` over it. The page case
+    checks a refused alt and a main with no skills.
+  - **Where you stand is by skills alone** ("Your blueprints and jobs aren't read here yet", until stage 2), and Build at
+    home, which has no skill, by a structure among the sites added. "You're here" is the last of an unbroken run of met
+    rungs from the first; one met past a gap says "Your skills cover it" without being where you stand.
+  - **Counts** are the bundle's skill lists against the character's usable levels raised to the rung's: with no skills,
+    766 of the 1,652 Tech I items built, 1,229 researched, 1,633 copied, 12 of the 29 capital hulls (build 3569502).
+  - **Pays now** is the finder's rows at its site: rung 1 the best three a slot makes a day; rung 2 the ten best priced
+    again at ME 0 and at ME 10 / TE 20, the best three by ME 10 with the gain; rung 3 what the character's factory slots and
+    eleven make, one item a slot. Rungs 4, 5 and 7 say why there's nothing to price (copies and capitals sell on contracts;
+    a structure's tax, rigs and broker fee aren't known until docked). Nothing ranked yet says the finder's own waiting
+    words (a missing site says to add one on the Build tab, since "below" is wrong on Start), or "Working out what pays…".
+  - **A figure that leaves something out says so** (`beforeSaid`, from `Row.costKnown`, `taxPerPct`, `brokerPerPct`): the
+    header of rungs 1 and 2 and rung 3's closing line name the facility tax or a hub's broker fee not typed and the Alpha tax
+    when the clone isn't read, as Build's rows do. The rows are priced at the character's own skills while "opened" by the
+    rung's: a rung's profit is what its rows make today for this character, not for one who has just reached the rung.

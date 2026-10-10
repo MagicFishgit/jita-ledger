@@ -195,9 +195,11 @@ export function TradeSkillsLine({ slotsOnly = false }: { slotsOnly?: boolean }) 
 
 /**
  * Skills a thing needs, each at a level (a ship to fly, a module to fit): your level against it, and where it stands in
- * your queue, or what's missing first. For the mining ladder's rungs.
+ * your queue, or what's missing first. For the mining ladder's rungs. `beyond` says when a level is past what the
+ * character can use whatever it trains (Industry's ladder: an Alpha's caps, which an alt's pilot marks only for skills
+ * trained past them), in place of the training time; such a level never reads as trained.
  */
-export function SkillNeeds({ needs }: { needs: { skill: number; level: number }[] }) {
+export function SkillNeeds({ needs, beyond }: { needs: { skill: number; level: number }[]; beyond?: (skill: number, level: number) => string | null }) {
   const pilot = usePilot();
   const now = useNow(60_000);
   const name = useTypeName();
@@ -210,13 +212,14 @@ export function SkillNeeds({ needs }: { needs: { skill: number; level: number }[
   return (
     <div className="skill-needs">
       {rows.map(({ n, s }) => {
-        const met = s.have >= n.level;
+        const over = beyond?.(n.skill, n.level) ?? null;
+        const met = !over && s.have >= n.level;
         const q = queueSaid(s, train[n.skill], now, name);
         return (
           <div key={n.skill} className="skill-need">
             <span className="sk-name">{name(n.skill)} {ROMAN[n.level]}</span>
             <SkillPips s={s} want={n.level} />
-            <span className="sk-q" style={{ color: met ? 'var(--pos)' : TONE[q.tone] }}>{met ? `Trained (${ROMAN[s.have]})` : q.text}</span>
+            <span className="sk-q" style={{ color: met ? 'var(--pos)' : TONE[over ? 'idle' : q.tone] }}>{over ?? (met ? `Trained (${ROMAN[s.have]})` : q.text)}</span>
           </div>
         );
       })}

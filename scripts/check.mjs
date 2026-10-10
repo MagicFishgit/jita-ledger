@@ -7797,5 +7797,88 @@ console.log('\n--- Industry: home prices from Goonmetrics (homeMarket.ts) ---');
     [15 * 60_000, 5 * 60_000, 5 * 60_000, 15 * 60_000, 15 * 60_000]);
 }
 
+console.log('\n--- Industry: the ladder (industryLadder.ts) ---');
+{
+  const I = await import('../src/lib/industry.ts');
+  const K = await import('../src/lib/industryRank.ts');
+  const L = await import('../src/lib/industryLadder.ts');
+  const fsL = await import('node:fs');
+  const ix = I.indexBundle(JSON.parse(fsL.readFileSync(new URL('../src/data/industry.json', import.meta.url), 'utf8')));
+  const fx = JSON.parse(fsL.readFileSync(new URL('./fixtures/industry-everef.json', import.meta.url), 'utf8'));
+  // The page case's main: Industry V, Mass Production IV, Advanced Industry II, Laboratory Operation III, Science IV,
+  // Metallurgy II, Research II (and trade and rigging skills the ladder doesn't ask for).
+  const MAIN = { 3380: 5, 3387: 4, 3388: 2, 3406: 3, 3402: 4, 3409: 2, 3403: 2, 3446: 4, 16622: 4, 26253: 1 };
+  const keys = (v) => v.rungs.map((r) => `${r.rung.key}:${r.state}`);
+
+  eq('  seven rungs, in the spec\'s order', L.RUNGS.map((r) => r.key), ['npc', 'research', 'slots', 'copy', 'home', 't2', 'capital']);
+  eq('  "Needs Omega" worked out from CCP\'s caps: rungs 2, 3, 6 and 7, as the spec says', L.RUNGS.map((r) => L.beyondAlpha(r).length > 0), [false, true, true, false, false, true, true]);
+  eq('  an Alpha\'s usable levels: Mass Production held to III, Laboratory Operation to none; an Omega\'s as trained',
+    [L.usable(MAIN, 'alpha')[3387], L.usable(MAIN, 'alpha')[3406], L.usable(MAIN, 'alpha')[3380], L.usable(MAIN, 'omega')[3387], L.usable(MAIN, 'unknown')[3406]], [3, 0, 5, 4, 3]);
+
+  const main = L.ladderOf({ skills: MAIN, clone: 'omega', structureSite: false });
+  eq('  the main, Omega: on rung 2 (rung 3 wants Mass Production V); Copy met past the gap stays ahead',
+    [main.here, keys(main), main.rungs.map((r) => r.met)], [1, ['npc:done', 'research:here', 'slots:next', 'copy:ahead', 'home:ahead', 't2:ahead', 'capital:ahead'], [true, true, false, true, false, false, false]]);
+  eq('    the same main as an Alpha: rung 1, its Laboratory Operation unusable', L.ladderOf({ skills: MAIN, clone: 'alpha', structureSite: false }).here, 0);
+  const four = { 3380: 1, 3387: 5, 24625: 1, 3406: 5, 24624: 1, 3409: 1, 3403: 1, 3402: 1 };
+  eq('  Build at home is met by a structure among the sites, not a skill: rung 4 without one, rung 5 with',
+    [L.ladderOf({ skills: four, clone: 'omega', structureSite: false }).here, L.ladderOf({ skills: four, clone: 'omega', structureSite: true }).here], [3, 4]);
+  eq('  no Industry or Mass Production: not on the first rung, which is next', [L.ladderOf({ skills: { 3380: 1 }, clone: 'omega', structureSite: true }).here, keys(L.ladderOf({ skills: { 3380: 1 }, clone: 'omega', structureSite: true }))[0]], [null, 'npc:next']);
+  const unread = L.ladderOf({ skills: null, clone: 'unknown', structureSite: true });
+  eq('  skills not read: nothing judged, nothing here', [unread.here, unread.rungs.every((r) => r.met === null && r.state === 'ahead')], [null, true]);
+
+  const research = L.RUNGS[1], slots = L.RUNGS[2];
+  eq('  what a rung says of Alpha: Needs Omega for an Alpha, "Clone state not read" when unknown (never "Alpha"), nothing for an Omega',
+    [L.omegaSaid(research, 'alpha'), L.omegaSaid(slots, 'alpha'), L.omegaSaid(research, 'unknown'), L.omegaSaid(research, 'omega'), L.omegaSaid(L.RUNGS[0], 'alpha')],
+    ['Needs Omega: Alpha can’t use Laboratory Operation, Metallurgy or Research.',
+      'Needs Omega: Alpha uses Mass Production to III, and can’t use Advanced Mass Production, Laboratory Operation or Advanced Laboratory Operation.',
+      'Clone state not read: an Alpha can’t use Laboratory Operation, Metallurgy or Research.', null, null]);
+  eq('  a skill row past Alpha\'s cap says so instead of a training time; within it, or not an Alpha, nothing',
+    [L.needBeyond('alpha', 3387, 5), L.needBeyond('alpha', 3406, 1), L.needBeyond('alpha', 3387, 1), L.needBeyond('unknown', 3406, 1)],
+    ['Alpha uses III: Omega opens V', 'Alpha can’t use it: Omega opens it', null, null]);
+
+  // Counts from the bundle (build 3569502), at the skills raised to each rung's.
+  const counts = (sk, clone) => L.RUNGS.map((r) => L.rungCount(ix, r.key, sk, clone));
+  eq('  what each rung opens with no skills: 766 of 1,652 Tech I items built, 1,229 researched, 1,633 copied, no Tech II, 12 of 29 capital hulls',
+    counts({}, 'omega'), [{ n: 766, of: 1652 }, { n: 1229, of: 1652 }, null, { n: 1633, of: 1652 }, null, { n: 0, of: 1020 }, { n: 12, of: 29 }]);
+  eq('    the main\'s own skills open more on rungs 1 and 2: 954 and 1,259 (952 as an Alpha)',
+    [counts(MAIN, 'omega')[0].n, counts(MAIN, 'omega')[1].n, counts(MAIN, 'alpha')[0].n], [954, 1259, 952]);
+  eq('    a Tech II item counts once its Tech I\'s invention skills are in: the pump II with Hydromagnetic Physics, Nanite Engineering and Amarr Encryption Methods',
+    L.rungCount(ix, 't2', { 11443: 1, 11442: 1, 23087: 1 }, 'omega').n > 0, true);
+
+  // The rows a rung opens: the pump (Industry I and Armor Rigging I) and the Caracal (Industry I).
+  const r = (bp, product, profit) => ({ bp, product, day: profit == null ? null : { profit } });
+  const rows = [r(25895, 25894, 5e6), r(687, 621, 3e6), r(687, 621, -1e6), r(687, 621, null)];
+  eq('  rows a rung opens: the Caracal at rung 1 with no rigging skill; the pump too once trained; unpriced rows never',
+    [L.rowsOpened(ix, rows, 'npc', {}, 'omega').map((x) => x.day.profit), L.rowsOpened(ix, rows, 'npc', { 26253: 1 }, 'omega').map((x) => x.day.profit)], [[3e6, -1e6], [5e6, 3e6, -1e6]]);
+  eq('  one item a slot: the best paying rows, as many as there are slots, and how many there were',
+    [L.slotsPay(L.rowsOpened(ix, rows, 'npc', { 26253: 1 }, 'omega'), 1), L.slotsPay(L.rowsOpened(ix, rows, 'npc', { 26253: 1 }, 'omega'), 11)], [{ profit: 5e6, items: 1 }, { profit: 8e6, items: 2 }]);
+
+  // Research's worth, on Task 3's worked row (the pump in the Azbel at UALX-3, sold in Jita).
+  const ASK = { 25601: 4213, 25605: 25_980, 25590: 84_000 };
+  const spark = [...Array(16).fill(800), ...Array(14).fill(841)];
+  const highs14 = [7_100_000, 7_050_000, 7_045_000, 7_041_000, 6_900_000, 6_950_000, 6_990_000, 7_000_000, 7_010_000, 6_980_000, 6_970_000, 6_960_000, 6_950_000, 6_940_000];
+  const market = (t) => t === 25894 ? { jita: { ask: 7_041_000, bid: 6_240_000, bids: [{ price: 6_240_000, volume: 100 }], at: '', live: false }, stats: { spark, highs14, buyerShare: 0.5 } }
+    : ASK[t] ? { jita: { ask: ASK[t], bid: ASK[t] * 0.9, bids: [], at: '', live: false }, stats: null } : { jita: null, stats: null };
+  const idx = I.parseIndices(fx.systems);
+  const input = {
+    ix, me: 0, te: 0, skills: { 3380: 4, 3388: 2, 26253: 1 }, clone: 'omega',
+    site: { kind: 'azbel', rigs: [37170], band: 'null', tax: 0.01, index: { ...idx[30004807], manufacturing: 0.0617 } },
+    adjusted: fx.adjusted, market, sell: 'jita', share: 10, fees: { broker: 0.013, tax: 0.03375, hubBroker: null },
+    legs: { jita: { kind: 'route', f: { perM3: 900, collateral: 0.0075 * 1.05, min: 5_000_000 }, name: 'Brave Freight' }, home: null },
+    noShipsToJita: true, jitaJumps: null, mines: false, hubName: null, now: Date.parse('2026-10-09T15:00:00Z'),
+  };
+  const at0 = K.buildRow({ ...input, bp: ix.bp.get(25895) });
+  const best = L.researchedRows(input, [at0]), b = best[0] ?? {};
+  eq('  research\'s worth: the row priced again at ME 0 / TE 0 and at ME 10 / TE 20, ME 10 paying more',
+    [best.length, Math.round(b.at0), Math.round(b.at10), b.at10 > b.at0],
+    [1, Math.round(at0.day.profit), Math.round(K.buildRow({ ...input, bp: ix.bp.get(25895), me: 10, te: 20 }).day.profit), true]);
+
+  // What a figure leaves out (carried finding P1): the ladder's "pays now" says it wherever it shows a profit.
+  const whole = { taxPerPct: null, brokerPerPct: null, costKnown: true };
+  eq('  a sum over whole rows leaves nothing out; each missing part is named, the Alpha tax only when the facility tax isn\'t what is missing',
+    [L.beforeSaid([whole]), L.beforeSaid([whole, { ...whole, taxPerPct: 10_000, costKnown: false }]), L.beforeSaid([{ ...whole, brokerPerPct: 5 }], 'UALX-3'), L.beforeSaid([{ ...whole, costKnown: false }]), L.beforeSaid([{ ...whole, costKnown: null }])],
+    [[], ['the facility tax'], ['the broker fee at UALX-3'], ['the Alpha tax'], []]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
