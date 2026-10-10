@@ -1821,10 +1821,43 @@ try {
     await page.waitForTimeout(300);
     const fr = await text('[data-route="brave-jita-ualx"]');
     if (!fr.includes('900 ISK a m³, 0.79% of the goods’ value, 5 M ISK minimum · Brave wiki, 3 June 2026')) problems.push(`Brave Freight’s route doesn’t read as published: “${fr}”`);
+    // A reversed typed route beside one held is refused, said, not silently ignored.
+    {
+      const form = '[data-industry="route-form"]';
+      await page.locator(`${form} input[aria-label="Route from (a system)"]`).fill('UALX-3');
+      await page.locator(`${form} input[aria-label="Route to (a system)"]`).fill('Jita');
+      await page.locator(`${form} .chip input`).first().fill('500');
+      await page.locator(`${form} button`, { hasText: 'Add a route' }).click();
+      await page.waitForTimeout(400);
+      if (!(await text('body')).includes('You already have a route between UALX-3 and Jita')) problems.push('a reversed typed route isn’t refused with a word');
+      if (await page.locator('[data-route^="typed:"]').count()) problems.push('a reversed typed route was added beside the one held');
+    }
+    if (!(await homeRow()).includes('\u22120.2') || /\s-0\.2/.test(await homeRow())) problems.push('a negative security isn’t written with the minus glyph');
     const siteFit = await sideways(page, '[data-industry="sites"] .tbl-scroll');
     if (!PHONE && siteFit && siteFit.over > 0) problems.push(`the sites table scrolls sideways at 1,440 (${siteFit.over} px)`);
     if (SHOTS) { await page.locator('[data-industry="sites"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-industry-sites.png` }); }
 
+    // A station whose name ESI won't give is saved under its system's name, never "Station #id"; while names are read, Add waits.
+    {
+      ESI['/universe/names/'] = (url, req, json) => json({ error: 'Invalid ID' }, 404);
+      await page.goto(`${BASE}#hustles/industry/build`);
+      await page.reload();
+      await page.waitForSelector('[data-industry="sites"]', { timeout: 20_000 });
+      for (const b of await page.locator('[data-industry="site-list"] [data-site^="npc:"] button', { hasText: 'Remove' }).all()) await b.click();
+      await page.locator('[aria-label="Add a site"] button', { hasText: 'A station near Jita' }).click();
+      await page.waitForSelector('[data-industry="near-jita"] button', { timeout: 15_000 });
+      await page.waitForTimeout(800);
+      const nj = await text('[data-industry="near-jita"]');
+      if (!nj.includes('ESI gave no name: saved as “A station in Itamo”')) problems.push(`a station with no name from ESI doesn’t say what it’s saved as: “${nj.slice(0, 200)}”`);
+      await page.locator('[data-industry="near-jita"] button', { hasText: 'Add' }).first().click();
+      await page.waitForTimeout(400);
+      const kept = await page.evaluate(async () => {
+        const h = await new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => res(q.result); });
+        return new Promise((res) => { const q = h.transaction('kv').objectStore('kv').get('industry'); q.onsuccess = () => res(q.result); });
+      });
+      const names = (kept?.sites ?? []).map((s) => s.name);
+      if (!names.some((n) => n === 'A station in Itamo') || names.some((n) => /#\d/.test(n))) problems.push(`the saved site names: ${JSON.stringify(names)}; wanted “A station in Itamo” and no “#id”`);
+    }
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

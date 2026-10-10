@@ -27,22 +27,29 @@ export function useShared<T>(read: () => Promise<T>, key = ''): Loaded<T> {
 
 export const useIndices = (): Loaded<Record<number, IndustryIndex>> => useShared(industrySystemsShared);
 
-/** NPC stations' names (ESI's /universe/names, one request for all asked), kept for the visit; one ESI didn't name reads "Station #id". */
-const stationNames = new Map<number, string>();
-export function useStationNames(ids: readonly number[]): Record<number, string> {
+/**
+ * NPC stations' names (ESI's /universe/names, one request for all asked), kept for the visit. A name read is a string, one ESI
+ * didn't give (a lookup that failed, or a station it doesn't name) is null, and one still being read is absent: the
+ * caller never saves a placeholder. A refused batch (ESI rejects the whole list over one bad ID) is asked again one by one.
+ */
+const stationNames = new Map<number, string | null>();
+export function useStationNames(ids: readonly number[]): Record<number, string | null> {
   const key = [...new Set(ids)].sort((a, b) => a - b).join(',');
   const [ver, bump] = useState(0);
   useEffect(() => {
     const want = key ? key.split(',').map(Number).filter((id) => !stationNames.has(id)) : [];
     if (!want.length) return;
     let alive = true;
-    resolveNames(want).then((got) => {
-      for (const [id, n] of Object.entries(got)) stationNames.set(Number(id), n);
+    const mark = (got: Record<number, string>, asked: number[]) => { for (const id of asked) stationNames.set(id, got[id] ?? null); };
+    (async () => {
+      try { mark(await resolveNames(want), want); } catch {
+        for (const id of want) { try { mark(await resolveNames([id]), [id]); } catch { stationNames.set(id, null); } }
+      }
       if (alive) bump((n) => n + 1);
-    }, () => undefined);
+    })();
     return () => { alive = false; };
   }, [key]);
-  return useMemo(() => Object.fromEntries((key ? key.split(',').map(Number) : []).map((id) => [id, stationNames.get(id) ?? `Station #${id}`])), [key, ver]);
+  return useMemo(() => Object.fromEntries((key ? key.split(',').map(Number) : []).filter((id) => stationNames.has(id)).map((id) => [id, stationNames.get(id) ?? null])), [key, ver]);
 }
 
 /** The synced `industry` doc, and a writer that cleans each change as disk and the cloud do. */

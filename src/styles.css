@@ -1105,12 +1105,14 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 /* The sites' table (IndustrySites.tsx): short selects (a select is as wide as its longest option), and cells that wrap, since
    a site's note and its rigs' names would otherwise run it past the page at 1,440 (gotchas.md: table cells don't wrap). */
 .ind-sel { max-width: 170px; height: 30px; padding: 0 6px; background: var(--field); border: 1px solid rgba(130, 185, 225, .18); }
-.ind-rigs { white-space: normal; min-width: 180px; }
+.ind-rigs { white-space: normal; min-width: 150px; }
 .ind-rig { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--body); }
 .ind-acts { display: flex; gap: 12px; align-items: baseline; margin-top: 2px; }
 .ind-default { font-family: var(--f-head); font-size: 11px; letter-spacing: .06em; color: var(--acc); }
 .ind-sites td { white-space: normal; vertical-align: top; }
 .ind-sites td.rd-main { min-width: 220px; }
+.ind-sites td .sub { display: block; white-space: normal; }
+.ind-sites td.rd-main .sub { max-width: 280px; }
 /* The Research tab (hustles/Research.tsx): its tables keep a column and fold the rest under it on a phone (.rd-phone). */
 .rd-table { min-width: 860px; }
 .rd-phone { display: none; }

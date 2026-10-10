@@ -1,3 +1,4 @@
+import { MINUS } from './format';
 import { HIGH_SEC, jumpsFrom, type Graph } from './jumps';
 import { NPC_FACILITY_TAX, RIG_SIZE, secBand, kindOfType, type BundleRig, type Indexed, type IndustryIndex, type SecBand, type SiteKind } from './industry';
 import { NEAR_JITA_JUMPS, type Leg } from './industryRank';
@@ -101,6 +102,14 @@ export function legFor(site: { systemId: number }, facts: Pick<SiteFacts, 'nearJ
   if (market === JITA_SYSTEM && facts.nearJita && facts.jitaJumps != null) return { kind: 'carry', jumps: facts.jitaJumps };
   return { kind: 'none' };
 }
+
+/**
+ * What a station site is called: the name ESI gave, else its system's ("A station in Itamo"), from the map. Never "Station
+ * #id": a placeholder saved into the synced doc would stay there for good.
+ */
+export const stationLabel = (name: string | null | undefined, system: string): string => (name && name.trim() ? name : `A station in ${system}`);
+/** A security as the app writes a number: the minus glyph, one decimal; none when not known. */
+export const secText = (security: number | null): string => (security == null ? '' : `${security < 0 ? MINUS : ''}${Math.abs(security).toFixed(1)}`);
 
 /** A site for an NPC station picked from the quiet list. */
 export const stationSite = (p: StationPick, name: string): IndustrySite =>

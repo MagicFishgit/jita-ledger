@@ -1,7 +1,7 @@
 const nf2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const nf0 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
 const nfIn = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
-const MINUS = '\u2212';
+export const MINUS = '\u2212';
 
 /** Accepts 1,234,567.89 / 1 234 567,89 / 1.2m / 350k / 2b / pasted "1,234.00 ISK". */
 export function parseISK(input: string | null | undefined): number {

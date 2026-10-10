@@ -3,9 +3,10 @@ import { Building2, ChevronRight, Factory, Truck } from 'lucide-react';
 import { hasScope } from '../../lib/auth';
 import { SCOPE } from '../../lib/config';
 import { iskBig, pct } from '../../lib/format';
+import { toast } from '../../lib/toast';
 import { KIND_SAID, kindOfType, type Indexed, type SiteKind } from '../../lib/industry';
 import { NEAR_JITA_JUMPS } from '../../lib/industryRank';
-import { FREIGHT_PRESETS, HOME_SYSTEMS, homeSite, JITA_SYSTEM, quietStations, rigsFitting, routeBetween, siteFacts, stationSite, structureSite } from '../../lib/industrySites';
+import { FREIGHT_PRESETS, HOME_SYSTEMS, homeSite, JITA_SYSTEM, quietStations, rigsFitting, routeBetween, secText, siteFacts, stationLabel, stationSite, structureSite } from '../../lib/industrySites';
 import { HIGH_SEC, jumpsFrom, type Graph } from '../../lib/jumps';
 import { MAX_ROUTES, MAX_SITES, type FreightRoute, type IndustrySite } from '../../lib/prefs';
 import { Points } from '../Facts';
@@ -68,7 +69,9 @@ export function IndustrySites({ c, ix, graph, mainName }: { c: IndustryChar; ix:
             <tbody>
               {doc.sites.map((s) => {
                 const f = siteFacts(s, graph, jitaHigh, idx);
-                const where = `${f.system ?? sysName(s.systemId)}${f.security != null ? ` ${f.security.toFixed(1)}` : ''} · ${f.jitaJumps != null ? `${f.jitaJumps} high-sec jump${f.jitaJumps === 1 ? '' : 's'} from Jita` : 'no high-sec route from Jita'}`;
+                const place = `${f.system ?? sysName(s.systemId)}${f.security != null ? ` ${secText(f.security)}` : ''}`;
+                const jumps = f.jitaJumps != null ? `${f.jitaJumps} high-sec jump${f.jitaJumps === 1 ? '' : 's'} from Jita` : 'no high-sec route from Jita';
+                const where = `${place} · ${jumps}`;
                 const kind = s.kind === 'npc' ? (s.lab ? 'NPC station with a Laboratory' : 'NPC station') : KIND_SAID[s.kind];
                 const tax = f.tax != null ? `${pct(f.tax)}${s.kind === 'npc' ? '' : ' typed by you'}` : '–: type it from the Industry window';
                 const index = f.index ? pct(f.index.manufacturing) : f.indexWhy;
@@ -85,7 +88,7 @@ export function IndustrySites({ c, ix, graph, mainName }: { c: IndustryChar; ix:
                       {!s.structureId && s.kind !== 'npc' && <span className="sub">Typed by you: with no structure ID, the app knows nothing held there.</span>}
                       <span className="rd-phone"><span>{where}</span><span>{kind}</span><span>Tax: {tax}</span><span>Index: {index}</span></span>
                     </td>
-                    <td className="l rd-wide">{where}</td>
+                    <td className="l rd-wide">{place}<span className="sub">{jumps}</span></td>
                     <td className="l rd-wide">
                       {s.kind === 'npc' ? kind : (
                         <select className="ind-sel" aria-label={`Kind of ${s.name}`} value={s.kind} onChange={(e) => change(s.id, { kind: e.target.value as SiteKind, rigs: [] })}>
@@ -160,12 +163,14 @@ function NearJita({ ix, graph, indices, sites, add }: { ix: Indexed; graph: Grap
       <Seg size="sm" label="Station services" value={lab ? 'lab' : 'factory'} onChange={(v) => setLab(v === 'lab')}
         options={[{ v: 'factory', label: 'With a Factory', tip: 'For building: 2,259 NPC stations have one.' }, { v: 'lab', label: 'With a Laboratory', tip: 'For research, copying and invention: only 510 NPC stations have one.' }]} />
       {list.length ? list.map((p) => {
-        const id = `npc:${p.stationId}`, have = sites.some((s) => s.id === id), name = names[p.stationId] ?? `Station #${p.stationId}`;
+        const id = `npc:${p.stationId}`, have = sites.some((s) => s.id === id), read = names[p.stationId], name = stationLabel(read, p.system);
         return (
           <div key={p.stationId} className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'baseline' }}>
             <span className="nm">{name}</span>
-            <span className="faint">{p.system} {p.security.toFixed(1)} · {p.jumps} jump{p.jumps === 1 ? '' : 's'} · {lab ? 'ME research' : 'manufacturing'} index {pct(p.index)}{p.lab && !lab ? ' · has a Laboratory' : ''}</span>
-            {have ? <span className="faint">Added</span> : <button type="button" className="btn sm" onClick={() => add(stationSite(p, name))}>Add</button>}
+            <span className="faint">{p.system} {secText(p.security)} · {p.jumps} jump{p.jumps === 1 ? '' : 's'} · {lab ? 'ME research' : 'manufacturing'} index {pct(p.index)}{p.lab && !lab ? ' · has a Laboratory' : ''}</span>
+            {have ? <span className="faint">Added</span> : read === undefined ? <button type="button" className="btn sm" disabled>Reading names…</button>
+              : <button type="button" className="btn sm" onClick={() => add(stationSite(p, name))}>Add</button>}
+            {!have && read === null && <span className="faint">ESI gave no name: saved as “{name}”</span>}
           </div>
         );
       }) : <p className="note small" style={{ margin: 0 }}>No station with {lab ? 'a Laboratory' : 'a Factory'} within {NEAR_JITA_JUMPS} high-sec jumps has an index ESI lists.</p>}
@@ -205,7 +210,11 @@ function Freight({ graph, routes, setRoutes }: { graph: Graph; routes: FreightRo
   const [perM3, setPerM3] = useState<number | null>(null), [coll, setColl] = useState<number | null>(null), [min, setMin] = useState<number | null>(null);
   const sys = (name: string) => { const e = Object.entries(graph).find(([, v]) => v[1].toLowerCase() === name.trim().toLowerCase()); return e ? Number(e[0]) : null; };
   const name = (id: number) => graph[id]?.[1] ?? `System #${id}`;
-  const add = (r: FreightRoute) => { if (routes.length < MAX_ROUTES && !routes.some((x) => x.id === r.id)) setRoutes([...routes, r]); };
+  const add = (r: FreightRoute) => {
+    const have = routeBetween(routes, r.a, r.b);
+    if (have) { toast(`You already have a route between ${name(r.a)} and ${name(r.b)}: ${have.name}. Remove it to use another.`, 'warn'); return; }
+    if (routes.length < MAX_ROUTES) setRoutes([...routes, r]);
+  };
   const sa = sys(a), sb = sys(b);
   const said = (r: FreightRoute) => `${r.perM3.toLocaleString('en-US')} ISK a m³${r.collateral ? `, ${pct(r.collateral)} of the goods’ value` : ''}, ${r.min != null ? `${iskBig(r.min)} minimum` : 'no minimum stated'}`;
   return (

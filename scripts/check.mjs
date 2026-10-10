@@ -7676,6 +7676,9 @@ console.log('\n--- Industry: where you build (industrySites.ts) ---');
     S.FREIGHT_PRESETS.map((r) => [r.perM3, +r.collateral.toFixed(6), r.min]), [[900, 0.007875, 5e6], [1150, 0.007875, null], [415, 0, 5e7]]);
   eq('  the rigs each structure takes: 34 L-Set for an Azbel, 64 M-Set for a Raitaru, 8 XL-Set for a Sotiyo, none in a station',
     ['azbel', 'raitaru', 'sotiyo', 'npc'].map((k) => S.rigsFitting(ix, k).length), [34, 64, 8, 0]);
+  eq('  a route is found either way round: a typed b to a beside a to b would be ignored, so the UI refuses it', [S.routeBetween(S.FREIGHT_PRESETS, 30000772, S.JITA_SYSTEM)?.id, S.routeBetween(S.FREIGHT_PRESETS, 30004807, 30000142)?.id], ['brave-jita-cj6', 'brave-jita-ualx']);
+  eq('  a station\'s name when ESI gave none: its system\'s, never "Station #id" (a placeholder would be saved for good)', [S.stationLabel(null, 'Itamo'), S.stationLabel(undefined, 'Itamo'), S.stationLabel('  ', 'Itamo'), S.stationLabel('Itamo VI - Moon 1', 'Itamo')], ['A station in Itamo', 'A station in Itamo', 'A station in Itamo', 'Itamo VI - Moon 1']);
+  eq('  a security as written: the minus glyph, one decimal, nothing when not known', [S.secText(-0.2), S.secText(0.949), S.secText(null)], ['\u22120.2', '0.9', '']);
   eq('  a structure found by name: its kind from its type; its rigs and tax yours to type',
     S.structureSite({ id: 1046664001931, name: 'UALX-3 - 1st Byzantigoon', systemId: 30004807, typeId: 35834 }),
     { id: 'st:1046664001931', name: 'UALX-3 - 1st Byzantigoon', systemId: 30004807, kind: 'keepstar', structureId: 1046664001931, rigs: [], tax: null });
