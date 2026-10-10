@@ -77,6 +77,18 @@ export function usable(skills: Record<number, number>, clone: Clone): Record<num
 /** A rung's needs past what an Alpha can use. */
 export const beyondAlpha = (r: Rung): Need[] => r.needs.filter((n) => n.level > alphaCapOf(n.skill));
 
+/**
+ * What Alpha can't do in industry, said once from the same caps and rungs as `omegaSaid`, so the Clone tile and the ladder
+ * can't disagree: the skills no rung can use (cap 0) in the rungs' order, and those held below a rung's level.
+ */
+export function alphaTileSaid(): string {
+  const need = RUNGS.flatMap((r) => r.needs);
+  const none = [...new Set(need.filter((n) => alphaCapOf(n.skill) === 0).map((n) => n.name))];
+  const held = [...new Map(need.filter((n) => alphaCapOf(n.skill) > 0 && n.level > alphaCapOf(n.skill)).map((n) => [n.name, n])).values()]
+    .map((n) => `${n.name} only to ${ROMAN[alphaCapOf(n.skill)]}`);
+  return `Alpha can’t use ${listed(none, 'or')}${held.length ? `, and uses ${listed(held, 'and')}` : ''}: the later rungs need Omega`;
+}
+
 /** What a rung says about Alpha: "Needs Omega" for an Alpha, "Clone state not read" when unknown (never "Alpha"); nothing for Omega or a rung Alpha climbs. */
 export function omegaSaid(r: Rung, clone: Clone): string | null {
   const over = beyondAlpha(r);

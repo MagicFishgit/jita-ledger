@@ -2164,7 +2164,11 @@ try {
       if (!(await says('npc', t))) problems.push(`rung 1 doesn’t say “${t}”`);
     for (const t of ['You’re here', 'Researches 1,259 of the 1,652 originals.', 'Researched to ME 10 / TE 20, one slot a day at Station 60001483:', 'a day over ME 0'])
       if (!(await says('research', t))) problems.push(`rung 2 doesn’t say “${t}”`);
-    if (!/your 5 factory slots: (only \d+ items? pays? at station 60001483 today, making|the best \d+ items at station 60001483 make) .+ a day\./.test(await rung('slots'))) problems.push(`rung 3 doesn’t say what the main’s 5 slots make: “${(await rung('slots')).slice(0, 300)}”`);
+    if (!/your 5 factory slots: (only \d+ items? (pays?|would pay) at station 60001483( today)?, making|the best \d+ items at station 60001483 (make|would make)) .+ a day\./.test(await rung('slots'))) problems.push(`rung 3 doesn’t say what the main’s 5 slots make: “${(await rung('slots')).slice(0, 300)}”`);
+    // Not "pays now" for what can't be built yet (fix round 1): the main lacks Mass Production V, so rung 3 is priced at its skills today.
+    if (!(await says('slots', 'would make')) && !(await says('slots', 'would pay'))) problems.push(`rung 3 for a main who lacks Mass Production V says what its slots make as if it could build them now: “${(await rung('slots')).slice(-300)}”`);
+    if (!(await says('slots', 'Not buildable yet')) || (await says('slots', 'pays now'))) problems.push('rung 3 for a main who lacks its skills doesn’t say it isn’t buildable yet');
+    if (!(await says('npc', 'pays now at')) || (await says('npc', 'not buildable yet'))) problems.push('rung 1, which the main’s skills cover, isn’t “pays now”');
     if (!(await says('copy', 'Copies 1,633 of the 1,652 originals.'))) problems.push('rung 4 doesn’t count what the main can copy');
     if (!(await says('home', 'Site added')) || !(await says('home', 'Home in UALX-3: its tax, rigs and broker fee are what you typed'))) problems.push('rung 5 doesn’t say a structure site is added');
     if (!(await says('t2', 'Invents 0 of the 1,020 Tech II items with the sciences and encryption skills trained so far.'))) problems.push('rung 6 doesn’t count the Tech II the main can invent');
@@ -2177,6 +2181,7 @@ try {
     await page.waitForTimeout(1500);
     if (!(await text('[data-industry="here"]')).includes('You’re on rung 1, Build in a high-sec NPC station')) problems.push(`the Alpha main isn’t on rung 1: “${await text('[data-industry="here"]')}”`);
     for (const k of ['research', 'slots', 't2', 'capital']) if (!(await says(k, 'Needs Omega: Alpha'))) problems.push(`the Alpha main’s rung ${k} doesn’t say it needs Omega`);
+    if (!(await text('[data-industry="where"]')).includes('Alpha can’t use Laboratory Operation, Metallurgy, Research, Advanced Mass Production, Advanced Laboratory Operation, Advanced Industry or Capital Ship Construction')) problems.push(`the Alpha main’s Clone tile doesn’t name what the caps forbid: “${(await text('[data-industry="where"]')).slice(-300)}”`);
     for (const k of ['npc', 'copy', 'home']) if (await says(k, 'Needs Omega')) problems.push(`the Alpha main’s rung ${k} says it needs Omega`);
     if (!(await says('research', 'Needs Omega: Alpha can’t use Laboratory Operation, Metallurgy or Research.'))) problems.push('rung 2 doesn’t name what an Alpha can’t use');
     if (!(await says('slots', 'Alpha uses III: Omega opens V'))) problems.push('the Alpha main’s Mass Production V reads as training, not as Alpha’s cap');
@@ -2188,6 +2193,7 @@ try {
     if (!(await text('[data-industry="here"]')).includes('Not on the first rung yet, by Fresh Alt’s skills: Industry I and Mass Production I start it.')) problems.push(`Fresh Alt’s place on the ladder isn’t said: “${await text('[data-industry="here"]')}”`);
     if (!(await says('research', 'Clone state not read: an Alpha can’t use Laboratory Operation, Metallurgy or Research.'))) problems.push('Fresh Alt’s rung 2 doesn’t say its clone isn’t read');
     if (/needs omega/i.test(await text('[data-industry="ladder"]'))) problems.push('Fresh Alt, its clone not read, is told it needs Omega');
+    if (!(await text('[data-industry="here"]')).includes('Clone state not read, so Alpha’s limits aren’t applied.')) problems.push('Fresh Alt’s place on the ladder doesn’t say Alpha’s limits aren’t applied');
     // Lost Alt: skills not read; nothing judged, no count, no pays.
     await showFor('Lost Alt');
     await page.waitForTimeout(800);
@@ -2223,6 +2229,7 @@ try {
     for (const k of ['npc', 'research', 'slots']) if (!(await says(k, 'before the facility tax'))) problems.push(`rung ${k} at UALX-3, whose tax isn’t typed, doesn’t say its figures are before the facility tax: “${(await rung(k)).slice(-300)}”`);
     await paysAt(DOC, 'Fresh Alt');
     if (!(await says('npc', 'before the alpha tax'))) problems.push(`rung 1 for Fresh Alt, whose clone isn’t read, doesn’t say its figures are before the Alpha tax: “${(await rung('npc')).slice(-300)}”`);
+    if (!(await says('npc', 'not buildable yet. once fresh alt’s skills cover this')) || (await says('npc', 'pays now'))) problems.push(`rung 1 for Fresh Alt, who lacks Mass Production, says “pays now”: “${(await rung('npc')).slice(-300)}”`);
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

@@ -3,7 +3,7 @@ import { FlaskConical, MapPin, ScrollText, Store } from 'lucide-react';
 import { iskBig, iskBigSigned, pct, units } from '../../lib/format';
 import { navigate } from '../../lib/hooks';
 import { MAX_SLOTS, slots, type Indexed } from '../../lib/industry';
-import { beforeSaid, ladderOf, needBeyond, omegaSaid, paying, researchedRows, rowsOpened, rungCount, slotsPay, usable, type RungKey } from '../../lib/industryLadder';
+import { alphaTileSaid, beforeSaid, ladderOf, needBeyond, omegaSaid, paying, researchedRows, rowsOpened, rungCount, slotsPay, usable, type RungKey } from '../../lib/industryLadder';
 import type { Graph } from '../../lib/jumps';
 import { Points } from '../Facts';
 import { SkillNeeds } from '../SkillStrip';
@@ -32,9 +32,10 @@ export function IndustryStart({ c, ix, graph }: { c: IndustryChar; ix: Indexed; 
   const lad = useMemo(() => ladderOf({ skills: sk ?? null, clone: c.clone, structureSite: !!structure }), [sk, c.clone, structure]);
   const finder = useFinder(c, ix, graph);
   const whose = c.isMain ? 'your' : `${c.name}’s`;
+  const noClone = c.clone === 'unknown' ? ' (Clone state not read, so Alpha’s limits aren’t applied.)' : '';
   const hereSaid = !sk ? `${why} Until then the ladder shows what each rung asks, and judges nothing.`
-    : lad.here == null ? `Not on the first rung yet, by ${whose} skills: Industry I and Mass Production I start it.`
-      : `You’re on rung ${lad.here + 1}, ${lad.rungs[lad.here].rung.title}, by ${whose} skills and the sites you’ve added. ${c.isMain ? 'Your' : `${c.name}’s`} blueprints and jobs aren’t read here yet.`;
+    : lad.here == null ? `Not on the first rung yet, by ${whose} skills: Industry I and Mass Production I start it.${noClone}`
+      : `You’re on rung ${lad.here + 1}, ${lad.rungs[lad.here].rung.title}, by ${whose} skills and the sites you’ve added. ${c.isMain ? 'Your' : `${c.name}’s`} blueprints and jobs aren’t read here yet.${noClone}`;
   return (
     <section className="col" style={{ gap: 14 }} aria-label="Start" data-industry="start">
       <div className="col" style={{ gap: 8 }}>
@@ -61,7 +62,7 @@ export function IndustryStart({ c, ix, graph }: { c: IndustryChar; ix: Indexed; 
           },
           {
             l: 'Clone', v: c.clone === 'alpha' ? 'Alpha' : c.clone === 'omega' ? 'Omega' : 'Not read',
-            n: c.clone === 'alpha' ? 'Alpha can’t use Metallurgy, Research or Laboratory Operation: researching needs Omega'
+            n: c.clone === 'alpha' ? alphaTileSaid()
               : c.clone === 'omega' ? 'every industry skill is open'
                 : 'clone state not read: the 0.25% Alpha job tax is left out where it can’t be told',
           },
@@ -91,7 +92,7 @@ export function IndustryStart({ c, ix, graph }: { c: IndustryChar; ix: Indexed; 
                     ? <SkillNeeds needs={r.needs.map((n) => ({ skill: n.skill, level: n.level }))} beyond={(skill, level) => needBeyond(c.clone, skill, level)} />
                     : <p className="note small" style={{ margin: 0 }} data-rung-needs="bare">Asks for {r.needs.map((n) => `${n.name} ${ROMAN[n.level]}`).join(', ')}. {c.isMain ? 'Your' : `${c.name}’s`} levels aren’t read, so none is counted as trained.</p>)}
                   {count && <p className="note small" style={{ margin: 0 }}>{COUNT_SAID[r.key]?.(count.n, count.of)}</p>}
-                  <RungPays k={r.key} c={c} ix={ix} f={finder} factory={s?.factory ?? null} structure={structure?.name ?? null} />
+                  <RungPays k={r.key} met={v.met === true} c={c} ix={ix} f={finder} factory={s?.factory ?? null} structure={structure?.name ?? null} />
                   {r.key === 't2' && <button type="button" className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => navigate('hustles/research')}><FlaskConical aria-hidden="true" />R&amp;D agents make datacores: the Research tab</button>}
                 </div>
               </li>
@@ -115,7 +116,7 @@ const COUNT_SAID: Partial<Record<RungKey, (n: number, of: number) => string>> = 
 };
 
 /** What a rung pays now, from the finder's own rows at its site (useFinder), or why there's nothing to show. */
-function RungPays({ k, c, ix, f, factory, structure }: { k: RungKey; c: IndustryChar; ix: Indexed; f: Finder; factory: number | null; structure: string | null }) {
+function RungPays({ k, met, c, ix, f, factory, structure }: { k: RungKey; met: boolean; c: IndustryChar; ix: Indexed; f: Finder; factory: number | null; structure: string | null }) {
   const name = (t: number) => ix.b.types[t]?.[0] ?? `Item #${t}`;
   const sk = c.pilot.skills && Object.keys(c.pilot.skills).length ? c.pilot.skills : undefined;
   if (k === 'copy') return <p className="note small" style={{ margin: 0 }}>Copies sell on contracts, which this tab doesn’t read yet: the finder prices what you build from them.</p>;
@@ -127,15 +128,19 @@ function RungPays({ k, c, ix, f, factory, structure }: { k: RungKey; c: Industry
   if (!f.input || !f.rows.length) return <p className="note small" style={{ margin: 0 }} data-pays="working">Working out what pays…</p>;
   const at = f.site?.name ?? 'your build site';
   const opened = rowsOpened(ix, f.rows, k, sk, c.clone);
+  // Only a rung the character's skills cover, on rows it can build today, is "pays now": the finder prices each row at its own skills.
+  const whose = c.isMain ? 'your' : `${c.name}’s`;
+  const buildable = (rows: readonly { lacking: unknown[] }[]) => met && rows.every((r) => r.lacking.length === 0);
   // A figure that leaves something out says so, as the Build tab's rows do (an untyped facility tax or hub broker fee, an unread Alpha tax).
   const before = (rows: Parameters<typeof beforeSaid>[0]) => { const b = beforeSaid(rows, f.hub?.short); return b.length ? `, before ${b.join(' and ')}` : ''; };
   if (k === 'npc') {
     const pays = paying(opened);
     if (!pays.length) return <p className="note small" style={{ margin: 0 }} data-pays="none">Nothing it opens makes a profit at {at} today.</p>;
     const top = pays.slice(0, 3);
+    const now = buildable(top);
     return (
       <div className="col ind-pays" data-pays="rows">
-        <span className="note small">Pays now at {at}, one slot a day, at ME {f.input.me} / TE {f.input.te}{before(top)}:</span>
+        <span className="note small">{now ? `Pays now at ${at}, one slot a day, at ME ${f.input.me} / TE ${f.input.te}${before(top)}:` : `Not buildable yet. Once ${whose} skills cover this, these would make, one slot a day at ${at}, at ME ${f.input.me} / TE ${f.input.te}${before(top)}, priced at ${whose} skills today:`}</span>
         {top.map((r) => <div key={r.bp} className="ind-pay"><span>{name(r.product)}</span><b>{iskBigSigned(r.day!.profit)}</b></div>)}
       </div>
     );
@@ -145,7 +150,7 @@ function RungPays({ k, c, ix, f, factory, structure }: { k: RungKey; c: Industry
     if (!best.length) return <p className="note small" style={{ margin: 0 }} data-pays="none">Nothing it opens makes a profit at ME 10 at {at} today.</p>;
     return (
       <div className="col ind-pays" data-pays="rows">
-        <span className="note small">Researched to ME 10 / TE 20, one slot a day at {at}{before(best.map((x) => x.row))}:</span>
+        <span className="note small">{buildable(best.map((x) => x.row)) ? `Researched to ME 10 / TE 20, one slot a day at ${at}${before(best.map((x) => x.row))}:` : `Not buildable yet. Once ${whose} skills cover this, researched to ME 10 / TE 20, these would make, one slot a day at ${at}${before(best.map((x) => x.row))}, priced at ${whose} skills today:`}</span>
         {best.map((x) => <div key={x.row.bp} className="ind-pay"><span>{name(x.row.product)}{x.at0 != null && <span className="sub">{iskBigSigned(x.at10 - x.at0)} a day over ME 0</span>}</span><b>{iskBigSigned(x.at10)}</b></div>)}
       </div>
     );
@@ -154,13 +159,15 @@ function RungPays({ k, c, ix, f, factory, structure }: { k: RungKey; c: Industry
   const all = slotsPay(opened, MAX_SLOTS);
   if (!all.items || factory == null) return <p className="note small" style={{ margin: 0 }} data-pays="none">Nothing it opens makes a profit at {at} today.</p>;
   const now = slotsPay(opened, factory);
+  const can = buildable(paying(opened).slice(0, factory));
   const lacks = beforeSaid(paying(opened).slice(0, MAX_SLOTS), f.hub?.short).join(' and ');
   const items = (n: number) => `${units(n)} item${n === 1 ? '' : 's'}`;
   return (
     <p className="note small" style={{ margin: 0 }} data-pays="slots">
       {c.isMain ? 'Your' : `${c.name}’s`} {units(factory)} factory slot{factory === 1 ? '' : 's'}: {now.items < factory
-        ? `only ${items(now.items)} ${now.items === 1 ? 'pays' : 'pay'} at ${at} today, making ${iskBig(now.profit)} a day.`
-        : `the best ${items(now.items)} at ${at} make ${iskBig(now.profit)} a day.`}
+        ? `only ${items(now.items)} ${now.items === 1 ? (can ? 'pays' : 'would pay') : (can ? 'pay' : 'would pay')} at ${at}${can ? ' today' : ''}, making ${iskBig(now.profit)} a day.`
+        : `the best ${items(now.items)} at ${at} ${can ? 'make' : 'would make'} ${iskBig(now.profit)} a day.`}
+      {!can && ` Not buildable yet: ${whose} skills don’t cover this rung, or a row needs a skill ${c.isMain ? 'you' : 'it'} lack${c.isMain ? '' : 's'}; priced at ${whose} skills today.`}
       {all.items > now.items && ` With ${MAX_SLOTS} slots, the best ${items(all.items)} make ${iskBig(all.profit)} a day.`}
       {lacks && ` These figures are before ${lacks}.`}
     </p>

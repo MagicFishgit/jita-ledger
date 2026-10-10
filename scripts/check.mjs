@@ -7873,6 +7873,8 @@ console.log('\n--- Industry: the ladder (industryLadder.ts) ---');
     [best.length, Math.round(b.at0), Math.round(b.at10), b.at10 > b.at0],
     [1, Math.round(at0.day.profit), Math.round(K.buildRow({ ...input, bp: ix.bp.get(25895), me: 10, te: 20 }).day.profit), true]);
 
+  eq('  the Clone tile\'s Alpha note is built from the same caps and rungs: what no rung can use, and Mass Production held to III',
+    L.alphaTileSaid(), 'Alpha can’t use Laboratory Operation, Metallurgy, Research, Advanced Mass Production, Advanced Laboratory Operation, Advanced Industry or Capital Ship Construction, and uses Mass Production only to III and Science only to IV: the later rungs need Omega');
   // What a figure leaves out (carried finding P1): the ladder's "pays now" says it wherever it shows a profit.
   const whole = { taxPerPct: null, brokerPerPct: null, costKnown: true };
   eq('  a sum over whole rows leaves nothing out; each missing part is named, the Alpha tax only when the facility tax isn\'t what is missing',
