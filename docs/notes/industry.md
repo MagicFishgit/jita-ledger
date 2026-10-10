@@ -279,3 +279,5 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
     would have drawn a "0" for a Tech II row without the note; it is `> 0` now.
   - FindStructure prints a negative security with the typographic minus (`MINUS`), as `secText` does; CLAUDE.md lists `homeMarket`
     and `industryRank` among the modules the Worker imports; `nameReader` is in this note's `paths:`.
+  - **Left as a limit** (limits.md): the row doesn't record which types a cut-short round asked for, so a type in a batch it
+    never reached reads as no price there, and a round always starts from the first batch. No read has been cut short yet.

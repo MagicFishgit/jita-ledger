@@ -223,6 +223,11 @@ State these rather than letting them be discovered:
 - **Home prices are Goonmetrics'**, a Goonswarm tool fed partly by its members' client uploads, read every six hours: a
   hub's best sell can be hours old, and its weekly movement is the only pace until the home region's history is read (and
   that history is the whole region's, not the hub's). The hub's broker fee is typed, not known.
+- **A Goonmetrics read cut short reads the types it never reached as having no price there.** A hub's row holds only the
+  types that came back; one stopped by three failures in a row, or by the round's time, is kept and stamped (partial), and a
+  type in a batch it never reached reads "no price at UALX-3" rather than "not read" until a later round reads it. Rounds
+  start from the first batch, so a hub cut at the same point each time (a rate limit no read has met yet) never reaches its
+  last batches. Rotating where a round starts would cover them over a few rounds (left for stage 4, which reads home books).
 - **On a thin home market a high profit a day rests on a few sales.** Goonmetrics' weekly movement, the only pace until the home
   region's history is read, is a handful of trades there, so a row selling one unit every couple of weeks at a large margin
   (the first look at the real UALX-3 row ranked such items first) is ranked honestly by the share rule but is the least sure
