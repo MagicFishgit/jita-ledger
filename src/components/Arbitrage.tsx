@@ -11,7 +11,7 @@ import { FILL_WINDOW, recentRange } from '../lib/fills';
 import { loadCache } from '../lib/scan';
 import { update, useData } from '../lib/store';
 import { secureRoute, stationPlace, typeInfo, JITA_SYSTEM } from '../lib/universe';
-import { GANK_SYSTEMS, goingRate, HUBS, priceHub, shipment, type BuyMode, type HubQuote } from '../lib/arbitrage';
+import { GANK_SYSTEMS, goingRate, HUBS, priceHub, scanBusiest, shipment, type BuyMode, type HubQuote } from '../lib/arbitrage';
 import { JITA_44, THE_FORGE } from '../lib/config';
 import { toast } from '../lib/toast';
 import { useEnsureNames, useTypeName, copyMultibuy } from './common';
@@ -64,10 +64,7 @@ export function Arbitrage() {
       const place = await placeOf(hub);
       const cache = await loadCache();
       // The busiest items from the last scan, plus everything you trade or watch.
-      const busiest = Object.values(cache.stats)
-        .filter((x) => cache.books[x.typeId])
-        .sort((a, b) => b.unitsPerDay * b.avgPrice - a.unitsPerDay * a.avgPrice)
-        .slice(0, CANDIDATES).map((x) => x.typeId);
+      const busiest = scanBusiest(cache.stats, cache.books, CANDIDATES);
       const mine = [...d.positions.filter((p) => p.status === 'open').map((p) => p.typeId), ...d.watchlist.map((w) => w.typeId)];
       const ids = [...new Set([...busiest, ...mine])];
       if (!ids.length) { setData({ at: Date.now(), place, quotes: [] }); loaded.set(hub, { at: Date.now(), place, quotes: [] }); return; }

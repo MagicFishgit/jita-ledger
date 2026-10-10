@@ -407,10 +407,11 @@ export const DEFAULT_FILTERS: ProspectFilters = {
  * still be no use to you if it all went on a single day; days traded alone waves that through.
  */
 export function passesGate(
-  s: Pick<ProspectStats, 'daysTraded' | 'tradesPerDay' | 'spikiness'>,
+  s: Pick<ProspectStats, 'daysTraded' | 'tradesPerDay' | 'spikiness' | 'watchOnly'>,
   f: ProspectFilters,
 ): boolean {
-  return s.daysTraded >= f.minDays && s.tradesPerDay >= f.minTrades && s.spikiness <= f.maxSpikiness;
+  // A row the cloud's scan read only for the Industry tab never passed the scan's own gate: nothing here counts or reads it.
+  return !s.watchOnly && s.daysTraded >= f.minDays && s.tradesPerDay >= f.minTrades && s.spikiness <= f.maxSpikiness;
 }
 
 /**

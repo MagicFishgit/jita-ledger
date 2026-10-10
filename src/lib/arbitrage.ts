@@ -9,6 +9,7 @@
 import { listingPrice } from './fills';
 import { tickDown, tickUp } from './tick';
 import { sideVolume } from './split';
+import type { ProspectStats } from './types';
 
 /**
  * The four hubs besides Jita. Held by station ID: `/universe/ids/` will not resolve Amarr's trade
@@ -27,6 +28,16 @@ export const HUBS: { name: string; station: string; stationId: number }[] = [
  * name at runtime. Niarja used to be the other one, but it has been Pochven since 2020 (ESI gives it
  * −1.0), so a high-sec route can never pass through it; the route now runs Uedama → Sivala.
  */
+/**
+ * The busiest items in a scan by ISK traded a day (units a day × average price), those with a book, at most `n`: Hub
+ * arbitrage's candidates. A row the cloud's scan read only for the Industry tab (`watchOnly`) isn't one: it never passed the
+ * scan's own gate.
+ */
+export function scanBusiest(stats: Record<number, Pick<ProspectStats, 'typeId' | 'unitsPerDay' | 'avgPrice' | 'watchOnly'>>, books: Record<number, unknown>, n: number): number[] {
+  return Object.values(stats).filter((x) => books[x.typeId] && !x.watchOnly)
+    .sort((a, b) => b.unitsPerDay * b.avgPrice - a.unitsPerDay * a.avgPrice).slice(0, n).map((x) => x.typeId);
+}
+
 export const GANK_SYSTEMS = ['Uedama', 'Sivala'];
 
 export type BuyMode = 'sells' | 'order';

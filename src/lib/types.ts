@@ -226,6 +226,12 @@ export type ProspectStats = {
    * (7 days traded) with a sale over the bid, and whose whole horizon has passed (up to 59, 58, 54, 47 and 31).
    */
   roundTripOf?: number[];
+  /**
+   * Read by the cloud's scan only for the Industry tab's watch set (src/data/industryTypes.json): a product or material the
+   * candidate gate would have left out. Prospects, Busy markets, the planner, the opportunity mail, the Sniper and Hub
+   * arbitrage leave it out; on the stats, not the book, since a live book from the watch replaces the scan's (overScan).
+   */
+  watchOnly?: true;
 };
 
 /**

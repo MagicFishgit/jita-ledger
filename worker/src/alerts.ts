@@ -218,7 +218,7 @@ async function tidy(env: Env, charId: number, main: Login, cfg: AlertConfig, now
 }
 
 /** What the day's full scan noted on an item's book beyond the seven levels a side (`summaryOf` in scan.ts). */
-export type ScanNotes = { npcAnywhere?: number; sellsTo?: SellsTo };
+export type ScanNotes = { npcAnywhere?: number; sellsTo?: SellsTo; watchOnly?: true };
 
 /**
  * A book as Prospects sees it, from the orders the watch last read. The watch keeps only Jita's orders and seven levels a
@@ -255,15 +255,17 @@ async function scanNotes(db: D1Database, types: number[]): Promise<Map<number, S
   const out = new Map<number, ScanNotes>();
   for (let i = 0; i < types.length; i += 90) {
     const part = types.slice(i, i + 90);
-    const rows = (await db.prepare(`SELECT type_id, json_extract(book, '$.npcAnywhere') AS npc, json_extract(book, '$.sellsTo') AS sells_to
+    const rows = (await db.prepare(`SELECT type_id, json_extract(book, '$.npcAnywhere') AS npc, json_extract(book, '$.sellsTo') AS sells_to,
+        json_extract(stats, '$.watchOnly') AS watch_only
         FROM scan_items WHERE type_id IN (${inList(part.length)})`).bind(...part)
-      .all<{ type_id: number; npc: number | null; sells_to: string | null }>()).results;
+      .all<{ type_id: number; npc: number | null; sells_to: string | null; watch_only: number | null }>()).results;
     for (const r of rows) {
       const note: ScanNotes = {};
       if (typeof r.npc === 'number' && r.npc > 0) note.npcAnywhere = r.npc;
       const sellsTo = readSellsTo(r.sells_to);
       if (sellsTo) note.sellsTo = sellsTo;
-      if (note.npcAnywhere != null || note.sellsTo) out.set(r.type_id, note);
+      if (r.watch_only) note.watchOnly = true;
+      if (note.npcAnywhere != null || note.sellsTo || note.watchOnly) out.set(r.type_id, note);
     }
   }
   return out;
@@ -309,7 +311,7 @@ export async function opportunities(db: D1Database, charId: number, settings: Se
       .all<{ type_id: number; orders: string; sold: string | null; at: number }>()).results;
     for (const r of rows) if (now - r.at <= BOOK_MAX_AGE) books[r.type_id] = bookOf(unpack(r.orders), r.at, r.sold ? JSON.parse(r.sold) : undefined, notes.get(r.type_id));
   }
-  const fresh = types.filter((t) => books[t]);
+  const fresh = types.filter((t) => books[t] && !notes.get(t)?.watchOnly);
   stages.withBook = fresh.length;
   const hist = await histories(db, fresh, now);
   const flow = await flowFor(db, fresh, 14, now);

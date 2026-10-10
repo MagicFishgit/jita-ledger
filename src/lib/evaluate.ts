@@ -91,6 +91,8 @@ export function judgeProspect(
   /** What was watched of this item's Jita book: per-day extremes and the totals (flow.ts). */
   watched?: { days?: WatchedExtremes; flow?: FlowDay },
 ): Prospect | null {
+  // Read by the cloud's scan only for the Industry tab (industryTypes.json): never a prospect, whichever page asks.
+  if (stats.watchOnly) return null;
   const { bestBuy, bestSell } = book;
   if (bestBuy == null || bestSell == null) return null;
   // NPCs sell it at a fixed price in unlimited supply: players rarely sell below that, so a bid doesn't

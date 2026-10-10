@@ -22,6 +22,8 @@ import { HEADERS } from './eve';
 import { eachHistory } from './hist';
 import { dayBoundary, nextScanAt } from './scanTimes';
 import { noteRate } from './rate';
+import INDUSTRY from '../../src/data/industryTypes.json' with { type: 'json' };
+import { foldBpo, npcRowOf, saveNpcRow, type BpoSellers } from './industryNpc';
 
 const THE_FORGE = 10000002;
 const JITA_44 = 60003760;
@@ -108,13 +110,20 @@ function foldNpc(npc: Map<number, number>, o: RawOrder) {
   if (was == null || o.price < was) npc.set(o.type_id, o.price);
 }
 
-/** Every order on a page: Jita's into the item's book, NPC sellers anywhere into `npc`. Exported to measure the fold. */
-export function foldPage(aggs: Map<number, Agg>, npc: Map<number, number>, orders: RawOrder[]) {
+/**
+ * Every order on a page: Jita's into the item's book, NPC sellers anywhere into `npc`, and NPCs' sell orders of the Industry
+ * tab's blueprints, by station, into `bpos`. Exported to measure the fold.
+ */
+export function foldPage(aggs: Map<number, Agg>, npc: Map<number, number>, orders: RawOrder[], bpos?: { want: ReadonlySet<number>; out: BpoSellers }) {
   for (const o of orders) {
     foldNpc(npc, o);
+    if (bpos) foldBpo(bpos.out, bpos.want, o);
     if (o.location_id === JITA_44) fold(aggs, o);
   }
 }
+
+/** The Industry tab's watch set and the blueprints whose NPC sellers it shows (src/data/industryTypes.json). */
+export type IndustryTypes = { watch: number[]; bpos: number[] };
 
 /**
  * The book summary kept for an item, as Prospects reads it: the seven levels a side, order counts, what the live orders
@@ -175,6 +184,8 @@ export type ScanMeta = {
   history: { cached: number; fetched: number; failed: number; remaining: number };
   /** Stopped at the time budget with history still to fetch: the next hourly run carries on. */
   partial: boolean;
+  /** Of `checked`, the Industry tab's watch set read only for it (`watchOnly` on their stats). Absent on runs before it. */
+  watchOnly?: number;
 };
 
 /** Where a running scan has got to, for Settings. */
@@ -195,7 +206,7 @@ async function writeProgress(db: D1Database, p: ScanProgress | null) {
  * One full scan. Returns what it covered; the caller records it. `summarise` is `summaryOf`, given only to test that a
  * throw in it stores the item's plain book rather than stopping the run.
  */
-export async function fullScan(db: D1Database, now = Date.now(), summarise = summaryOf): Promise<ScanMeta> {
+export async function fullScan(db: D1Database, now = Date.now(), summarise = summaryOf, industry: IndustryTypes = INDUSTRY as IndustryTypes): Promise<ScanMeta> {
   const started = Date.now();
   const startedAt = new Date(started).toISOString();
   // Progress for Settings, written at most every ten seconds and on each change of phase.
@@ -207,9 +218,10 @@ export async function fullScan(db: D1Database, now = Date.now(), summarise = sum
   };
   const aggs = new Map<number, Agg>();
   const npc = new Map<number, number>();
+  const bpos = { want: new Set(industry.bpos), out: new Map() as BpoSellers };
   const base = `https://esi.evetech.net/markets/${THE_FORGE}/orders/?order_type=all`;
   const first = await page(`${base}&page=1`);
-  foldPage(aggs, npc, first.orders);
+  foldPage(aggs, npc, first.orders, bpos);
   let pagesFailed = 0, next = 2, pagesDone = 1;
   await progress('pages', 1, first.pages);
   await Promise.all(Array.from({ length: 8 }, async () => {
@@ -217,7 +229,7 @@ export async function fullScan(db: D1Database, now = Date.now(), summarise = sum
       const p = next++;
       try {
         const { orders } = await page(`${base}&page=${p}`);
-        foldPage(aggs, npc, orders);
+        foldPage(aggs, npc, orders, bpos);
       } catch { pagesFailed++; }
       await progress('pages', ++pagesDone, first.pages);
     }
@@ -231,6 +243,10 @@ export async function fullScan(db: D1Database, now = Date.now(), summarise = sum
     aggs.delete(PLEX);
     for (const o of plexOrders) fold(aggs, { ...o, type_id: PLEX, location_id: JITA_44 });
   } catch { /* PLEX left out today */ }
+  const run = started;
+  // The Industry tab's NPC sellers of every blueprint it ranks, whatever the gate below: saved even when the history stops at
+  // the time budget, since the pages are all read by now (or the row says how many weren't).
+  await saveNpcRow(db, run, npcRowOf(bpos.out, now, pagesFailed)).catch((e) => console.error('industry npc row failed', e));
 
   // Which items a trade could pay on, plus the busiest for the Busy markets view. NPC-sold items can't be traded.
   const twoSided = [...aggs.entries()].filter(([, a]) => a.buyOrders > 0 && a.sellOrders > 0 && !a.npcSell);
@@ -239,8 +255,14 @@ export async function fullScan(db: D1Database, now = Date.now(), summarise = sum
   const candidates = [...new Set([...busiest, ...gated])]
     .sort((x, y) => (aggs.get(y)!.buyOrders + aggs.get(y)!.sellOrders) - (aggs.get(x)!.buyOrders + aggs.get(x)!.sellOrders))
     .slice(0, HISTORY_CAP);
+  // The Industry tab's watch set (every Tech I product and its materials) with a Jita book, whatever the gate above (traded
+  // one way only, or NPC-sold in Jita): read for the tab and marked `watchOnly` on their stats, so Prospects, Busy markets,
+  // the planner, the opportunity mail, the Sniper and Hub arbitrage leave them out. One with no Jita order gets no row.
+  // Appended after the candidates, so a run that hits the time budget drops these first and never a trading candidate.
+  const natural = new Set(candidates);
+  const watchOnly = new Set(industry.watch.filter((t) => aggs.has(t) && !natural.has(t)));
+  const all = [...candidates, ...watchOnly];
 
-  const run = started;
   const at = new Date(now).toISOString();
   const put = db.prepare(`INSERT INTO scan_items (type_id, stats, book, orders, run) VALUES (?1, ?2, ?3, ?4, ?5)
     ON CONFLICT(type_id) DO UPDATE SET stats = excluded.stats, book = excluded.book, orders = excluded.orders, run = excluded.run`);
@@ -250,13 +272,14 @@ export async function fullScan(db: D1Database, now = Date.now(), summarise = sum
   const pending: Promise<void>[] = [];
   let seen = 0;
   const watched = await watchedHighs(db, now).catch(() => new Map<number, WatchedExtremes>());
-  await progress('history', 0, candidates.length);
-  const history = await eachHistory(db, candidates, now, (t, rows) => {
+  await progress('history', 0, all.length);
+  const history = await eachHistory(db, all, now, (t, rows) => {
     seen++;
-    pending.push(progress('history', seen, candidates.length));
+    pending.push(progress('history', seen, all.length));
     const stats = statsFrom(t, rows, now);
     const a = aggs.get(t);
     if (!stats || !a) { a?.deep.clear(); return; }
+    if (watchOnly.has(t)) stats.watchOnly = true;
     // A throw in the summary (none seen) stores the plain book, without the scan's notes, rather than stopping the run:
     // the hourly carry-on would stop at the same item every hour.
     let book: Book;
@@ -268,7 +291,7 @@ export async function fullScan(db: D1Database, now = Date.now(), summarise = sum
     if (stmts.length >= 100) pending.push(flush());
   }, { concurrency: 24, deadline: started + TIME_BUDGET });
   await Promise.all(pending);
-  await progress('saving', seen, candidates.length);
+  await progress('saving', seen, all.length);
   await flush();
   // Items today's scan no longer lists go, but only after a complete scan that read the market: a failed read or a
   // run stopped at its time budget keeps what was there.
@@ -278,7 +301,7 @@ export async function fullScan(db: D1Database, now = Date.now(), summarise = sum
   const meta: ScanMeta = {
     at: new Date().toISOString(), startedAt: new Date(started).toISOString(), seconds: Math.round((Date.now() - started) / 1000),
     pages: first.pages, pagesFailed, jitaTypes: aggs.size, twoSided: twoSided.length, gated: gated.length,
-    checked: candidates.length, kept, history, partial,
+    checked: all.length, kept, history, partial, watchOnly: watchOnly.size,
   };
   await db.prepare('INSERT INTO scan_meta (key, data) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET data = excluded.data').bind('scan', JSON.stringify(meta)).run();
   await writeProgress(db, null);

@@ -50,7 +50,7 @@ export const SEEN_DAYS = 30;
 export const PLAYER_ORDER_DAYS = 90;
 
 export type SnipeOrder = { id: number; price: number; units: number; total: number; issued: string };
-export type SnipeStats = Pick<ProspectStats, 'highs14' | 'unitsPerDay' | 'daysTraded' | 'lastMove'>;
+export type SnipeStats = Pick<ProspectStats, 'highs14' | 'unitsPerDay' | 'daysTraded' | 'lastMove' | 'watchOnly'>;
 export type Doubt = 'flood' | 'moved' | 'thin' | 'stale' | 'several';
 
 export const DOUBT_SAID: Record<Doubt, { short: string; why: string }> = {
@@ -107,7 +107,8 @@ export type SnipeListing = {
  * there (Command Carriers: NPCs at 2,500 M in 12 stations, while trading got up to 2,749.5 M on half of 14 days).
  */
 export function findListing(typeId: number, sells: SnipeOrder[], more: boolean, s: SnipeStats | undefined, now: number, npc?: number | null): SnipeListing | null {
-  if (!sells.length || !s?.highs14) return null;
+  // A row the cloud's scan read only for the Industry tab: not one the Sniper ever judged, and it doesn't start now.
+  if (!sells.length || !s?.highs14 || s.watchOnly) return null;
   const fair = reachedAsk(s.highs14);
   if (fair == null) return null;
   const cap = npc != null && npc > 0 ? Math.min(fair, npc) : fair;
@@ -151,7 +152,7 @@ export function findListing(typeId: number, sells: SnipeOrder[], more: boolean, 
 export type SnipeBid = { typeId: number; orderId: number; price: number; units: number; minVolume: number; fair: number; issued: string; doubts: Doubt[]; npc?: number; category?: number | null };
 
 export function findBid(typeId: number, bid: { id: number; price: number; units: number; minVolume: number; issued: string }, s: SnipeStats | undefined, npc?: number | null): SnipeBid | null {
-  if (!s?.highs14) return null;
+  if (!s?.highs14 || s.watchOnly) return null;
   const reached = reachedAsk(s.highs14);
   if (reached == null) return null;
   const fair = npc != null && npc > 0 ? Math.min(reached, npc) : reached;

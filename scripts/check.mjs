@@ -7684,5 +7684,35 @@ console.log('\n--- Industry: where you build (industrySites.ts) ---');
     { id: 'st:1046664001931', name: 'UALX-3 - 1st Byzantigoon', systemId: 30004807, kind: 'keepstar', structureId: 1046664001931, rigs: [], tax: null });
 }
 
+console.log('\n--- a scan row read only for the Industry tab stays out of every trade finder (Task 5A) ---');
+{
+  const { judgeProspect } = await import('../src/lib/evaluate.ts');
+  const { DEFAULT_FILTERS } = await import('../src/lib/prospects.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const S = await import('../src/lib/snipe.ts');
+  const { scanBusiest } = await import('../src/lib/arbitrage.ts');
+  const fsW = await import('node:fs');
+  // Molecular Engineering as read on 2 October 2026 (scripts/fixtures/npc-anywhere.json): a clean prospect at the user's rates.
+  const x = JSON.parse(fsW.readFileSync(new URL('./fixtures/npc-anywhere.json', import.meta.url), 'utf8')).items[11529];
+  const settings = sanitizeSettings({ acc: 5, br: 5, abr: 5, trade: 5, retail: 5, wholesale: 4, tycoon: 0, clone: 'omega', faction: 3.6289558729999998, corp: 7.039647095, taxBase: 7.5, target: 5, share: 7.5 });
+  const filters = { ...DEFAULT_FILTERS, budget: 20e6, horizonDays: 14, minTrades: 5, minDays: 20, minRoi: 0.03, maxSpikiness: 0.5, busy: false, partial: false };
+  eq('  Prospects (and Busy markets, the planner, the watch doc): a prospect as read, none when watch-only',
+    [judgeProspect(x.stats, x.book, settings, filters, x.orders)?.typeId, judgeProspect({ ...x.stats, watchOnly: true }, x.book, settings, filters, x.orders)], [11529, null]);
+  eq('    even judged with any return, as Busy markets is', judgeProspect({ ...x.stats, watchOnly: true }, x.book, settings, { ...filters, busy: true }, x.orders, true), null);
+  // The Sniper: a mistake listing at 5 M under a market that trades at 10 M (invented for the test).
+  const NOWS = Date.parse('2026-10-10T12:00:00Z');
+  const sells = [{ id: 1, price: 5e6, units: 2, total: 2, issued: new Date(NOWS - 3600_000).toISOString() }, { id: 2, price: 10e6, units: 50, total: 50, issued: new Date(NOWS - 5 * 86400_000).toISOString() }];
+  const s = { highs14: Array(14).fill(10e6), unitsPerDay: 100, daysTraded: 30, lastMove: 0 };
+  const bid = { id: 9, price: 20e6, units: 5, minVolume: 1, issued: new Date(NOWS - 3600_000).toISOString() };
+  eq('  the Sniper: the listing and the high bid found, and neither on a watch-only row',
+    [S.findListing(1, sells, false, s, NOWS)?.units, S.findListing(1, sells, false, { ...s, watchOnly: true }, NOWS), S.findBid(1, bid, s)?.price, S.findBid(1, bid, { ...s, watchOnly: true })], [2, null, 20e6, null]);
+  const { passesGate } = await import('../src/lib/prospects.ts');
+  eq('  the browser scan\'s gate (deep-scan book requests, "most any item could swallow", the alert round): a watch-only row never passes',
+    [passesGate({ daysTraded: 30, tradesPerDay: 60, spikiness: 0.1 }, filters), passesGate({ daysTraded: 30, tradesPerDay: 60, spikiness: 0.1, watchOnly: true }, filters)], [true, false]);
+  const st = (typeId, unitsPerDay, extra = {}) => ({ typeId, unitsPerDay, avgPrice: 1e6, ...extra });
+  eq('  Hub arbitrage\'s busiest: by ISK traded a day, with a book, never a watch-only row however busy',
+    scanBusiest({ 1: st(1, 100), 2: st(2, 900, { watchOnly: true }), 3: st(3, 50), 4: st(4, 70) }, { 1: {}, 2: {}, 3: {} }, 2), [1, 3]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

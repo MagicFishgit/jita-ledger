@@ -211,7 +211,7 @@ export function coverage(cache: ScanCache) {
   }, null);
   return {
     candidates,
-    checked: Object.keys(cache.stats).length,
+    checked: Object.values(cache.stats).filter((s) => !s.watchOnly).length,
     priced: books.length,
     pricedAt: oldest === null ? null : new Date(oldest).toISOString(),
   };

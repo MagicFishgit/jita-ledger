@@ -1108,6 +1108,11 @@ console.log('\n--- the opportunity mail leaves out whatever NPCs sell anywhere i
   eq('  NPCs at 15 M, over the resale: not mailed', await judged({ ...x.book, npcAnywhere: 15e6 }), []);
   eq('  NPCs at 14 M, under the resale: not mailed', await judged({ ...x.book, npcAnywhere: 14e6 }), []);
   eq('  a scan row from a Worker before the note: as with none', await judged(x.book), kept);
+  // A browser a version behind doesn't know the flag and can still put a watch-only type in its watch doc: the mail reads
+  // the flag from the scan's own row in D1 and leaves it out.
+  const wdb = ledger(x.book);
+  wdb.run('UPDATE scan_items SET stats = ? WHERE type_id = ?', JSON.stringify({ ...x.stats, watchOnly: true }), MOLE);
+  eq('  a watch-only scan row in the watch doc: not mailed', (await opportunities(wdb, MAIN, settings, NOW, false)).qualifying, []);
 }
 
 console.log('\n--- the opportunity mail counts the sell queue on the scan\'s whole-book count, as Prospects does ---');
@@ -1163,6 +1168,54 @@ console.log('\n--- the industry doc goes up like any other ---');
   const db = d1();
   const r = await push(db, MAIN, { records: [], docs: [{ key: 'industry', d: { sites: [], share: 10 } }] });
   eq('  a push carrying the industry doc is taken, not refused as unknown', [r.docs, db.rows(`SELECT key FROM docs WHERE char_id = ?`, MAIN).map((x) => x.key)], [1, ['industry']]);
+}
+
+console.log('\n--- the full scan reads the Industry tab\'s watch set, and keeps NPCs\' blueprint sellers (Task 5A) ---');
+{
+  const { fullScan } = await import('../worker/src/scan.ts');
+  const { npcRows, saveNpcRow } = await import('../worker/src/industryNpc.ts');
+  const JITA = 60003760, NOW = Date.parse('2026-10-10T11:30:00Z'), DAY = 86400_000;
+  // Invented for the test. Tritanium (34) trades both ways at a wide spread: a candidate anyway, and in the watch set. Fried
+  // Interface Circuit (25601) is listed in Jita and nobody bids: the gate leaves it out, the watch set reads it. Armor Plates
+  // (25605) has no Jita order at all. 30000 trades both ways and isn't in the watch set. NPCs sell the pump's blueprint
+  // (25895) at 1,250,000 in two stations and a dearer copy of it in a third; and another blueprint nobody asked about.
+  const industry = { watch: [34, 25601, 25605], bpos: [25895] };
+  let id = 1;
+  const order = (t, location, buy, price, remain, duration = 90) => ({ order_id: id++, type_id: t, location_id: location, is_buy_order: buy, price, volume_remain: remain, volume_total: remain, duration, issued: '2026-10-10T09:00:00Z', min_volume: 1, range: 'region' });
+  const book = [
+    order(34, JITA, true, 3, 1e6), order(34, JITA, false, 4, 1e6),
+    order(25601, JITA, false, 4200, 5000),
+    order(30000, JITA, true, 90, 100), order(30000, JITA, false, 110, 100),
+    order(25895, 60001, false, 1_250_000, 10, 365), order(25895, 60002, false, 1_250_000, 10, 365), order(25895, 60003, false, 1_300_000, 10, 365),
+    order(25895, 60004, false, 900_000, 1, 90), order(999, 60001, false, 5_000_000, 10, 365),
+  ];
+  const hist = Array.from({ length: 30 }, (_, i) => ({ date: new Date(NOW - (i + 1) * DAY).toISOString().slice(0, 10), average: 100, highest: 110, lowest: 90, volume: 1000, order_count: 20 })).reverse();
+  const db = d1();
+  for (const t of [34, 25601, 25605, 30000]) db.run('INSERT INTO hist (type_id, expires, rows) VALUES (?, ?, ?)', t, NOW + DAY, JSON.stringify(hist));
+  const f = stubFetch([['/markets/10000002/orders/', book], ['/markets/19000001/orders/', []]]);
+  const meta = await fullScan(db, NOW, undefined, industry);
+  f.restore();
+  const row = (t) => { const r = db.rows('SELECT stats FROM scan_items WHERE type_id = ?', t)[0]; return r ? JSON.parse(r.stats) : null; };
+  eq('  a candidate in the watch set is a candidate as before, not watch-only', [row(34)?.typeId, row(34)?.watchOnly], [34, undefined]);
+  eq('  a material traded one way only, left out by the gate, is read for the tab and marked watch-only', [row(25601)?.typeId, row(25601)?.watchOnly], [25601, true]);
+  eq('  one with no Jita order gets no row (the tab says "No Jita book this morning")', row(25605), null);
+  eq('  a candidate outside the watch set is as before', [row(30000)?.typeId, row(30000)?.watchOnly], [30000, undefined]);
+  eq('  the run counts the watch set it read', [meta.checked, meta.watchOnly], [3, 1]);
+  const rows = await npcRows(db);
+  eq('  NPCs\' sellers of the tab\'s blueprints: the lowest price and every station, cheapest first; a player\'s order and a blueprint not asked about left out',
+    [rows.complete?.sellers, rows.complete?.complete, rows.complete?.pagesFailed, rows.partial], [{ 25895: [1_250_000, [60001, 60002, 60003]] }, true, 0, null]);
+  // What D1 keeps: the latest complete read, and a newer partial one beside it, and only those.
+  const at = (t) => new Date(t).toISOString();
+  const keep = d1();
+  await saveNpcRow(keep, 1, { at: at(1000), complete: true, pagesFailed: 0, sellers: { 1: [10, [60001]] } });
+  await saveNpcRow(keep, 2, { at: at(2000), complete: false, pagesFailed: 3, sellers: { 2: [20, [60002]] } });
+  const both = await npcRows(keep);
+  eq('  a partial read after a complete one: both kept, the partial\'s missed pages said', [both.complete?.sellers, both.partial?.sellers, both.partial?.pagesFailed], [{ 1: [10, [60001]] }, { 2: [20, [60002]] }, 3]);
+  await saveNpcRow(keep, 3, { at: at(3000), complete: false, pagesFailed: 1, sellers: { 3: [30, [60003]] } });
+  eq('    another partial one replaces the older partial', [keep.rows('SELECT run FROM industry_npc ORDER BY run').map((r) => r.run), (await npcRows(keep)).partial?.sellers], [[1, 3], { 3: [30, [60003]] }]);
+  await saveNpcRow(keep, 4, { at: at(4000), complete: true, pagesFailed: 0, sellers: { 4: [40, [60004]] } });
+  eq('    a complete read drops every older row', [keep.rows('SELECT run FROM industry_npc ORDER BY run').map((r) => r.run), (await npcRows(keep)).partial], [[4], null]);
+  eq('  before any run: nothing, and nothing claimed', await npcRows(d1()), { complete: null, partial: null });
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

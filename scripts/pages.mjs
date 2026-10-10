@@ -136,6 +136,7 @@ const PROOF = { small: 'Hammerhead II', large: 'Test Item' };
  *   priced at all (its ask falls under where its bid has to go). Placed and left, it's bought where trading reached, at
  *   or over today's cheapest listing, and sold 55% over it: "Market moved" (PLANNER_LEAVE), as Imperial Navy Infiltrator
  *   was in the user's second plan.
+ * - 990109: priced like 990101, but read by the cloud only for the Industry tab (`watchOnly` on its stats): never on Prospects, Busy markets or the planner.
  * Place and leave's round trips (`roundTrip`, the plans review, 9 October 2026), within 1, 3, 7, 14 and 30 days: 990101
  * came round within 3 days on 26 of 58 start days (45%), 990108 on 20 of 58; 990102 could be priced on too few days to
  * say; 990105 never came round; 990104's stats predate the count as they predate the run-up (PLANNER_TRIPS).
@@ -163,13 +164,14 @@ function planScan(now, big = false) {
     990106: [stats(990106, flat(1 * M), flat(1.4 * M), trips([12, 26, 33, 40, 25])), { ...book(990106, 1 * M, 1.4 * M), npcAnywhere: 1.3 * M }],
     990107: [stats(990107, flat(1 * M), flat(1.4 * M), trips([12, 26, 33, 40, 25])), { ...book(990107, 1 * M, 1.4 * M), npcAnywhere: 1.5 * M }],
     990108: [stats(990108, flat(1 * M), flat(1.4 * M), trips([10, 20, 30, 35, 20])), book(990108, 0.8 * M, 0.9 * M)],
+    990109: [stats(990109, flat(1 * M), flat(1.4 * M), { ...trips([12, 26, 33, 40, 25]), watchOnly: true }), book(990109, 1 * M, 1.4 * M)],
   };
   const busy = { h: 15, sell: 18, buy: 6, newSell: 37, newBuy: 15, frontSell: 2, frontBuy: 2, repriceSell: 0, repriceBuy: 0 };
   return {
     prospects: {
       stats: Object.fromEntries(Object.entries(items).map(([t, [st]]) => [t, st])),
       books: Object.fromEntries(Object.entries(items).map(([t, [, b]]) => [t, b])),
-      sample: { at: new Date(now - 3600_000).toISOString(), totalPages: 400, sampledPages: 400, minSampled: 1, counts: { 990101: 60, 990102: 60, 990103: 60, 990104: 60, 990105: 60, 990106: 60, 990107: 60, 990108: 60 } },
+      sample: { at: new Date(now - 3600_000).toISOString(), totalPages: 400, sampledPages: 400, minSampled: 1, counts: { 990101: 60, 990102: 60, 990103: 60, 990104: 60, 990105: 60, 990106: 60, 990107: 60, 990108: 60, 990109: 60 } },
       runs: { cloud: new Date(now - 3600_000).toISOString() },
     },
     flow: { log: { 990101: { [day(1)]: busy, [day(0)]: busy } }, ends: {} },
@@ -177,8 +179,8 @@ function planScan(now, big = false) {
 }
 /** What the large ledger's Prospects and planner must draw from that scan, and what the planner's mix must not hold. */
 const PLAN_PROOF = {
-  prospects: { drawn: ['Ran up lately', 'Bids not reached', 'Long queue'], absent: ['990106', '990107'] },
-  planner: { drawn: ['Raises kept back', 'Bids not reached', 'Long queue'], note: 'Scan again before investing', absent: ['Ran up lately', '990106', '990107'] },
+  prospects: { drawn: ['Ran up lately', 'Bids not reached', 'Long queue'], absent: ['990106', '990107', '990109'] },
+  planner: { drawn: ['Raises kept back', 'Bids not reached', 'Long queue'], note: 'Scan again before investing', absent: ['Ran up lately', '990106', '990107', '990109'] },
 };
 /**
  * The planner again with "Leave out flagged items" switched on (kept per browser, read as the page opens): the flagged

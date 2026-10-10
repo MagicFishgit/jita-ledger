@@ -66,6 +66,10 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   carries on. `[limits] subrequests = 30000` because the default 10,000 doesn't cover it. Settings → Market scan
   shows the last run, the next, and live progress (`scan_meta` 'progress', written every 10 s; polled every 5 s
   while one runs, every minute otherwise, only while something shows it).
+- **The scan also reads the Industry tab's watch set** (10 October 2026, docs/notes/industry.md): every Tech I product and
+  its materials with a Jita book, whatever the gate, marked `watchOnly` on their stats so no trade finder here sees them
+  (`judgeProspect`, the Sniper's finders, `scanBusiest`, the opportunity mail). And it keeps NPCs' sellers of every Tech I
+  blueprint, with their stations, in `industry_npc`: `foldNpc`'s one lowest price an item says nothing about where.
 - **The Sniper finds mistake listings from the whole book, and doubts before it trusts** (`lib/snipe.ts` pure,
   `worker/src/snipe.ts`, cron `1-59/5`). The user buys fat-fingered listings by hand and relists them; this looks
   for them. ESI refreshes The Forge's book at about :x0:30 and :x5:30, so the sniper runs a minute after (reading a

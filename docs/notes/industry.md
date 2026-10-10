@@ -112,3 +112,20 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
 - **A security not known is its own band** (`secBand` returns `'unknown'` for NaN, undefined or null; Task 2's review). Null-sec
   has the best rig multiplier, so a home typed as a system the map lacks must not take it: `rigFor` gives an unknown band no
   rig bonus, `siteFacts` carries it, and the sites table shows no security for it.
+- **The scan's watch set** (`worker/src/scan.ts`, `src/data/industryTypes.json`; 1,858 types in stage 1: every Tech I
+  product and its materials). Read with the morning scan whatever its candidate gate (one-sided, or NPC-sold in Jita), so
+  the finder has a Jita book and history for them; one with no Jita order still gets no row, and the finder says "No Jita
+  book this morning". They are appended after the trading candidates, so a run that hits the time budget drops them first.
+  **Marked `watchOnly` on the stats, not the book** (a correction to the spec): `overScan` rebuilds a
+  live book over the scan's for every watched item and carries only three notes, so a flag on the book would have been
+  lost the first time a position got the item watched. Prospects, Busy markets and the planner (`judgeProspect`), the
+  opportunity mail (it reads the flag from D1 itself, so an old browser's `watch` doc can't get one mailed), the Sniper
+  (`findListing`, `findBid`) and Hub arbitrage (`scanBusiest`) leave them out, and so does `passesGate`, which the browser
+  scan's book requests, Prospects' "most any item could swallow" and `coverage`'s checked count go through. Left alone on
+  purpose: Reprocessing's scanner and Freelance read books only (more items valued is fine), and `mergeLiveBooks` only
+  lays books over stats. A browser's own quick or deep scan judges what it samples as before.
+- **The NPC row** (`industry_npc`, migration 0018; `worker/src/industryNpc.ts`; `GET /v1/industry/npc`): each run keeps
+  the NPC sellers of the 1,673 Tech I blueprints (365-day sell orders anywhere in The Forge), the lowest price and every
+  station, cheapest first, whatever the gate. `complete` when no page failed, with the pages missed beside. D1 keeps the
+  latest complete row and any newer partial one, and only those two; the browser reads the complete one with the partial's
+  newer sellers on top, and says "NPCs don't sell it in The Forge" only after a complete read.
