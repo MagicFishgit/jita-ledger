@@ -70,3 +70,4 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
     supercarriers (groups 30, 659) sit outside the static data's capital filter and are left out by group.
   - **A row says whether its job cost is whole** (`costKnown`): false while the facility tax or the clone state (Alpha tax)
     isn't known, because `jobCostOf`'s total leaves them out; such a row is ranked before the missing part, never with it as 0.
+  - **Known and left alone (Task 3 review)**: a sale's freight minimum is spread over a week at your share of the pace, not over the week's smaller sale when the slot makes less (minor). A site whose distance to Jita isn't known (`jitaJumps == null`) keeps ships home while "never haul ships to Jita" is on; the UI says "distance to Jita not known".

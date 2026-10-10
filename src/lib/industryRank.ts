@@ -31,7 +31,7 @@ export function paceFromSpark(spark: readonly number[] | null | undefined): numb
   if (!spark?.length) return null;
   const last = spark.slice(-14);
   const m = median([...last]);
-  return m > 0 ? m : last.reduce((s, v) => s + v, 0) / 14;
+  return m > 0 ? m : last.reduce((s, v) => s + v, 0) / last.length;
 }
 
 /** A freight route's terms: ISK a m³ of packaged volume, a share of the goods' value for collateral, a minimum a contract (null: none stated). */
@@ -108,7 +108,7 @@ export function sourceMaterial(o: {
 }): Omit<MaterialPick, 'qty'> {
   const options: SourceOption[] = [];
   const ask = o.jita?.ask ?? null;
-  if (ask == null) options.push({ source: 'jita', price: null, why: 'none listed in Jita', pickable: false });
+  if (ask == null) options.push({ source: 'jita', price: null, why: o.jita ? 'none listed in Jita' : 'no Jita book this morning', pickable: false });
   else {
     const f = legCost(o.jitaLeg, o.volume, ask, o.weekNeed);
     options.push(f == null ? { source: 'jita', price: null, why: 'no freight route from Jita', pickable: false }
@@ -123,6 +123,7 @@ export function sourceMaterial(o: {
           : f == null ? { source: 'home', price: null, why: `no freight route from ${at}`, pickable: false }
             : { source: 'home', price: sell + f, why: `${at}’s best sell`, pickable: true });
   }
+  else if (o.homeLeg && o.hubName) options.push({ source: 'home', price: null, why: `not read at ${o.hubName} yet`, pickable: false });
   if (o.mineable) {
     const value = o.home?.buy ?? o.jita?.bid ?? null;
     options.push(value == null ? { source: 'mined', price: null, why: 'no bid to value it at', pickable: false }
@@ -403,6 +404,7 @@ export function startUp(row: Row, o: { bpo: number | null; research: number | nu
     const h = Math.min(x.qty, Math.max(0, o.held.units(x.type)));
     heldUnits += h;
     if (h > 0) { const c = o.held.cost(x.type, h); heldCost = heldCost != null && c != null ? heldCost + c : null; }
+    if (x.qty - h <= 0) continue;
     if (x.price == null) { known = false; continue; }
     materials += (x.qty - h) * x.price;
   }

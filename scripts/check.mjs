@@ -7454,6 +7454,7 @@ console.log('\n--- Industry: the finder\'s rules (industryRank.ts) ---');
   const BRAVE = { perM3: 900, collateral: 0.0075 * 1.05, min: 5_000_000 };
   const route = { kind: 'route', f: BRAVE, name: 'Brave Freight' };
 
+  eq('  a spark shorter than 14 days averages over the days it holds', K.paceFromSpark([0, 0, 0, 0, 0, 0, 6]), 6 / 7);
   eq('  pace from the scan\'s spark: the last 14 days\' median; their average when it\'s 0; nothing without a spark',
     [K.paceFromSpark([...Array(16).fill(5), ...Array(14).fill(841)]), K.paceFromSpark([...Array(23).fill(0), 7, 7, 0, 0, 7, 0, 0]), K.paceFromSpark(undefined)], [841, 1.5, null]);
   eq('  freight: a Large rig to Jita is 18,000 + 55,440 of collateral, 73,440 a unit in a week\'s batch', K.freightPerUnit(BRAVE, 20, 7_040_000, 455), 73_440);
@@ -7486,6 +7487,9 @@ console.log('\n--- Industry: the finder\'s rules (industryRank.ts) ---');
   eq('    for one who does: picked at what it would sell for, never free', [src({ mineable: true, mines: true, ...home, home: gm(120, 80, 5000) }).pick, src({ mineable: true, mines: true, ...home, home: gm(120, 80, 5000) }).price], ['mined', 80]);
   eq('    no home bid: valued at Jita\'s; no bid anywhere: no price, not free', [src({ mineable: true, mines: true }).price, src({ mineable: true, mines: true, jita: { ask: 100, bid: null, patient: null } }).price], [95, 100]);
   eq('    a material no market lists and nobody mines: nothing picked', src({ jita: null }).pick, null);
+  eq('    no Jita book at all says so, not "none listed"', src({ jita: null }).options[0].why, 'no Jita book this morning');
+  eq('    a hub that lists nothing: no price, the reason said, Jita picked', [src({ ...home, home: gm(null, null, 5000) }).pick, src({ ...home, home: gm(null, null, 5000) }).options.find((x) => x.source === 'home')], ['jita', { source: 'home', price: null, why: 'none listed at UALX-3', pickable: false }]);
+  eq('    a hub picked but not read yet: an option that says so, never pickable', [src({ ...home, home: null }).pick, src({ ...home, home: null }).options.find((x) => x.source === 'home')], ['jita', { source: 'home', price: null, why: 'not read at UALX-3 yet', pickable: false }]);
 
   // Selling at home: the region's history decides the split, so a market that sells into bids paces below one that doesn't.
   const day = (i, avg) => ({ date: new Date(NOW3 - (i + 1) * 86400_000).toISOString().slice(0, 10), average: avg, highest: 110, lowest: 90, volume: 1000, order_count: 50 });
@@ -7495,6 +7499,10 @@ console.log('\n--- Industry: the finder\'s rules (industryRank.ts) ---');
     [at(dumps).listPace, at(buys).listPace, at(dumps).paceFrom], [100, 900, 'history']);
   eq('    before its history is read: Goonmetrics\' weekly movement ÷ 7, at an even split, said', [at(null).pace, at(null).split, at(null).paceFrom], [1000, 0.5, 'goonmetrics']);
   eq('    the hub\'s broker fee not known: the net leaves it out and says so', [at(null).brokerKnown, at(null).listNet], [false, 104.9 * (1 - 0.03375)]);
+  eq('  a Jita book with both sides empty: said, never a 0', K.sellAt('jita', { jita: { ask: null, bid: null, bids: [], at: '', live: true }, stats: { spark: [3, 3, 3], buyerShare: 0.5 } }, { broker: 0.013, tax: 0.03375, leg: { kind: 'carry', jumps: 3 }, volume: 1, makes: 1, share: 10, now: NOW3 }).why, 'none listed or bid in Jita');
+  eq('  a hub that lists nothing and has no bid: said', K.sellAt('home', { jita: null, stats: null, home: gm(null, null, 7000) }, { broker: null, tax: 0.03375, leg: { kind: 'here' }, volume: 1, makes: 50, share: 10, now: NOW3, hubName: 'UALX-3' }).why, 'none listed at UALX-3');
+  // The share cap sets the week's sales a route's minimum is spread over: 100 a day at 10% is 10, so 70 a week, not 7,000.
+  eq('  freight at home spreads its minimum over a week of your share of sales (70 units), not of what the slot makes', Math.round(K.sellAt('home', { jita: null, stats: null, home: gm(100_000, 90_000, 700) }, { broker: null, tax: 0.03375, leg: route, volume: 1, makes: 1000, share: 10, now: NOW3, hubName: 'UALX-3' }).freight), Math.round(5_000_000 / 70));
   eq('  no Jita book this morning: said, never a 0', K.sellAt('jita', { jita: null, stats: null }, { broker: 0.013, tax: 0.03375, leg: { kind: 'carry', jumps: 3 }, volume: 1, makes: 1, share: 10, now: NOW3 }).why, 'No Jita book this morning');
   eq('  a book but no history to pace it: said, never a pace of 0', K.sellAt('jita', { jita: { ask: 10, bid: 9, bids: [], at: '', live: true }, stats: null }, { broker: 0.013, tax: 0.03375, leg: { kind: 'carry', jumps: 3 }, volume: 1, makes: 1, share: 10, now: NOW3 }).why, 'No history this morning to say how fast it sells');
 
@@ -7564,6 +7572,9 @@ console.log('\n--- Industry: the finder\'s rules (industryRank.ts) ---');
   const su = K.startUp(row, { bpo: 1_250_000, research: 11_231_059, held });
   near('  start-up: the original, research, and a day\'s materials less the 1,000 held', su.materials, row.materialCost - 1000 * row.materials[0].price, 0.01);
   eq('    with what those 1,000 cost you, and the total', [su.heldUnits, su.heldCost, Math.round(su.total)], [1000, 4_000_000, Math.round(1_250_000 + 11_231_059 + su.materials)]);
+  const fullyHeld = { units: (t) => (t === 25601 ? 1000 : t === 25605 ? 99999 : 0), cost: (t, n) => n * 1 };
+  const rowNoPrice = { ...row, materials: row.materials.map((m) => (m.type === 25605 ? { ...m, price: null } : m)) };
+  eq('    a fully held material needs no price; one still to buy does', [K.startUp(rowNoPrice, { bpo: 1, research: 1, held: fullyHeld }).total != null, K.startUp(rowNoPrice, { bpo: 1, research: 1, held }).total], [true, null]);
   eq('  the shopping list buys what isn\'t held', K.shoppingList(row, held).map((x) => [x.type, x.qty, x.source]), [[25601, 3606, 'jita'], [25605, 3995, 'jita'], [25590, 3108, 'jita']]);
   eq('  the profit a day is the same with or without the held materials', K.buildRow(base).day.profit, row.day.profit);
 
