@@ -213,3 +213,10 @@ State these rather than letting them be discovered:
   hangar's copy is more than 5 minutes newer than your trades': copies within 5 minutes are taken as one read pass, so a
   fill in those minutes goes unsaid. And a sale into a bid at exactly one of your listings' prices is taken to be from the
   listing.
+- **Selling at the industry share of each side's pace is a guess** (10% unless typed), and profit a day is linear in it. No
+  competition, undercutting or relist fees are modelled. **Materials are bought at today's asks**; a patient bid is shown,
+  not assumed. **Mined materials cost what they'd sell for**, never nothing, and are counted only for a builder with mining
+  records in the last 30 days.
+- **A structure's facility tax and rigs are typed until measured** (stage 2 measures the tax); until then profit is ranked
+  before the tax, said. **NPC BPO places outside The Forge are read when a row is opened**; the list's price elsewhere is
+  CCP's base price.

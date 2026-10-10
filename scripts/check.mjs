@@ -7716,5 +7716,56 @@ console.log('\n--- a scan row read only for the Industry tab stays out of every 
     scanBusiest({ 1: st(1, 100), 2: st(2, 900, { watchOnly: true }), 3: st(3, 50), 4: st(4, 70) }, { 1: {}, 2: {}, 3: {} }, 2), [1, 3]);
 }
 
+console.log('\n--- Industry: station names keep only what ESI definitely said (Task 5B, carried finding P7) ---');
+{
+  const { nameReader } = await import('../src/lib/nameReader.ts');
+  const refused = (e) => e?.status === 400 || e?.status === 404;
+  const err = (status) => Object.assign(new Error('x'), { status });
+  // A batch ESI rejects over one bad ID (60000001), then one at a time: the good one has a name, the bad one is refused.
+  let asked = [];
+  const r1 = nameReader(async (ids) => { asked.push(ids.join('+')); if (ids.length > 1 || ids[0] === 60000001) throw err(404); return { [ids[0]]: `Station ${ids[0]}` }; }, refused);
+  await r1.read([60000001, 60001483]);
+  eq('  a refused batch is asked again one by one: the name read, the refused ID a definite null', [r1.known.get(60001483), r1.known.get(60000001), asked], ['Station 60001483', null, ['60000001+60001483', '60000001', '60001483']]);
+  // A list changed mid-fallback asks no ID twice.
+  asked = [];
+  let release; const gate = new Promise((res) => { release = res; });
+  const r2 = nameReader(async (ids) => { asked.push(ids.join('+')); if (ids.length > 1) throw err(400); await gate; return { [ids[0]]: `S${ids[0]}` }; }, refused);
+  const a = r2.read([1, 2]), b = r2.read([2, 3]);
+  await new Promise((res) => setTimeout(res, 10));
+  release(); await Promise.all([a, b]);
+  eq('    a second list sharing an ID mid-fallback: that ID is asked for once', asked.filter((x) => x === '2').length, 1);
+  // Offline: nothing is cached, so a later read asks again and finds the name.
+  let online = false;
+  const r3 = nameReader(async (ids) => { if (!online) throw new TypeError('Failed to fetch'); return Object.fromEntries(ids.map((id) => [id, `S${id}`])); }, refused);
+  await r3.read([5]);
+  const offline = r3.known.has(5);
+  online = true; await r3.read([5]);
+  eq('  a lookup that threw (offline) caches nothing; a later read finds the real name', [offline, r3.known.get(5)], [false, 'S5']);
+  // A 5xx on the batch is no answer about any ID either, and doesn't fan out into single requests.
+  let calls = 0;
+  const r4 = nameReader(async () => { calls++; throw err(503); }, refused);
+  await r4.read([7, 8]);
+  eq('    a 503 on the batch: nothing cached, no single-ID fallback', [r4.known.size, calls], [0, 1]);
+  // A single-ID answer without the ID is definite.
+  const r5 = nameReader(async () => ({}), refused);
+  await r5.read([9]);
+  eq('    an answer without the ID is a definite null', r5.known.get(9), null);
+}
+
+console.log('\n--- Industry: the finder reads others\' books, and the ore a mineral comes from (Task 5B) ---');
+{
+  const K = await import('../src/lib/industryRank.ts');
+  const book = { bestBuy: 100, bestSell: 120, topBuys: [{ price: 100, volume: 10 }, { price: 99, volume: 50 }], topSells: [{ price: 120, volume: 5 }, { price: 121, volume: 40 }], at: '2026-10-10T11:25:00Z' };
+  const own = [{ typeId: 7, isBuy: true, price: 100, volume: 10 }, { typeId: 7, isBuy: false, price: 120, volume: 2 }, { typeId: 8, isBuy: false, price: 121, volume: 40 }];
+  eq('  your own whole bid comes off, so the best bid is the next; your listing leaves 3 of the front', K.othersBook(book, own, 7, true),
+    { ask: 120, bid: 99, bids: [{ price: 99, volume: 50 }], at: '2026-10-10T11:25:00Z', live: true });
+  eq('    another item\'s orders change nothing', K.othersBook(book, own, 9, false).bid, 100);
+  // Two ores (invented): A gives 400 Tritanium a 100-unit portion at 0.1 m3 a unit, B 1,000 at 1 m3. At a 50% yield, A
+  // gives 400 x 0.5 / 100 / 0.1 = 20 a m3, B 5: A it is.
+  const ores = [{ id: 1, mats: [100, [[34, 400]]], volume: 0.1 }, { id: 2, mats: [100, [[34, 1000], [35, 50]]], volume: 1 }, { id: 3, mats: [100, [[36, 5]]], volume: 0.1 }];
+  eq('  the ore giving the most of a mineral a m3 at your yield', K.bestOreFor(34, ores, () => 0.5), { id: 1, perM3: 20 });
+  eq('    none of them yields it: none', K.bestOreFor(40, ores, () => 0.5), null);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

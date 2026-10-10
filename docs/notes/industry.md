@@ -129,3 +129,28 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
   station, cheapest first, whatever the gate. `complete` when no page failed, with the pages missed beside. D1 keeps the
   latest complete row and any newer partial one, and only those two; the browser reads the complete one with the partial's
   newer sellers on top, and says "NPCs don't sell it in The Forge" only after a complete read.
+- **The finder** (`industryFinder.ts`, `IndustryBuild.tsx`, `IndustryDetail.tsx`): every Tech I blueprint (1,652) ranked
+  for the default site at the shown character's skills, fees and clone, by profit a day for one factory slot; first on the
+  morning's books, then the top 40 rows' products and materials on live ones (the Loyalty pattern), each row saying which.
+  It waits, saying what for, until a site, the skills (an empty or absent skills doc is not level 0), the scan, ESI's indices
+  and CCP's adjusted prices are in; nothing is ranked on a guess. Books are everyone else's (`othersBook`). A row not priced
+  is counted by why ("1,650 have no Jita book this morning"), never shown at 0. Decisions (site, share, ships switch, ME/TE
+  assumed) are the synced doc's; kind, "Can build now", "BPO up to", the sort and the open row are this browser's
+  (`jita-ledger:industry-finder`, `jita-ledger:industry-open`).
+- **A site whose facility tax isn't typed is ranked before it** (the user's own case, a home they can't dock in): the head
+  reads "Profit a day, before the facility tax" and each row "each 1% of tax: X a day". **A clone state not read leaves the
+  0.25% Alpha tax out the same way** (`Row.costKnown`): the count line, each row and the detail's tile say so.
+- **The original's price**: NPCs' in The Forge from the morning's NPC row ("1.25 M ISK at <station> (and 1 more)"); not
+  there after a complete read, "NPCs don't sell it in The Forge; CCP's base price X" with no payback; after a partial read
+  alone, "No NPC seller found (this morning's read missed N pages)". The cloud off, a version behind (404) or failing says
+  which, never that NPCs don't sell it. On asking, a row reads the seven regions the research found NPCs seeding originals
+  in (Lonetrek, Domain, Genesis, Syndicate, Outer Ring, Pure Blind, Great Wildlands).
+- **A station is said by its name, else by its system, never "Station #id"** (`stationSaid`, `useStationSaid`): while the
+  name is read, the system's name alone; when ESI answered without it, "A station in Itamo". `nameReader.ts` (pure, tested)
+  keeps only a definite answer (the ID answered without, or refused with a 400/404); a throw, a 5xx or being offline caches
+  nothing, so a later visit asks again, and each single-ID retry is shared in flight (a refused batch is asked one by one).
+- **"Never haul ships to Jita" with a high-sec site whose distance to Jita isn't known** keeps the ships home, and the
+  count line says the distance isn't known; for a null-sec site the band is the reason and nothing more is said.
+- **Mined materials**: "Which ore gives the most?" loads CCP's reprocessing table (481 KB, only then) and the base ores'
+  volumes, and names the ore giving the most of each mineral a m³ at the character's yield in Jita 4-4; Mining's Best ore is
+  linked for where it pays most.

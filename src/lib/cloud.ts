@@ -20,6 +20,7 @@ import { adoptCloudScan, loadCache, mergeLiveBooks, rankProspects, scanBusy, typ
 import type { Book } from './evaluate';
 import type { SnipeRead } from './snipe';
 import type { BpContract } from './bpContracts';
+import type { NpcRow } from './industryRank';
 import type { Sighting } from './sniped';
 import { DEFAULT_FILTERS } from './prospects';
 import type { AlertEvent, ProspectFilters } from './types';
@@ -602,6 +603,11 @@ export const cloudAbyss = () => call<TrackerCell[]>('/v1/abyss');
 export const cloudAbyssFit = (id: string) => call<TrackerFitDetail>(`/v1/abyss/fit?id=${encodeURIComponent(id)}`);
 
 /** A test alert mail sent by the cloud, from one of your real orders. */
+/**
+ * The morning scan's NPC sellers of every blueprint the Industry tab ranks (industryNpc.ts): the latest complete read and a
+ * newer partial one. A Worker a version behind answers 404 (the error's `status`).
+ */
+export const cloudIndustryNpc = () => call<{ complete: NpcRow | null; partial: NpcRow | null } | null>('/v1/industry/npc');
 export const cloudTestMail = () => call<{ mailId: number; about: string }>('/v1/alerts/test', { method: 'POST' });
 
 let costsSent: string | null = null;

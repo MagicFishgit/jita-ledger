@@ -25,7 +25,7 @@ import { small, large, ALTS, altStoreOf, charsOf, ownerAuth, strangerAuth, withT
 const PAGES = [
   'wallet', 'todo', 'calculator', 'calculator?type=34', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'reprocess',
   'positions', 'positions/{first}', 'orders', 'loot', 'blueprints', 'results', 'loyalty',
-  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/mining', 'hustles/freelance', 'hustles/research', 'hustles/industry', 'combat', 'characters', 'omega',
+  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/mining', 'hustles/freelance', 'hustles/research', 'hustles/industry', 'hustles/industry/build', 'combat', 'characters', 'omega',
   'settings/account', 'settings/skills', 'settings/rates', 'settings/alerts', 'settings/appearance', 'settings/data', 'settings/scan',
 ];
 
@@ -364,6 +364,7 @@ try {
       await page.evaluate((h) => { location.hash = `#${h}`; }, hash);
       // The Industry tab loads a 1 MB chunk, from a cold dev server too: wait for what it draws, not a fixed time.
       if (hash === 'hustles/industry') await page.waitForSelector('[data-industry="start"]', { timeout: 30_000 }).catch(() => {});
+      else if (hash === 'hustles/industry/build') { await page.waitForSelector('[data-industry="build"]', { timeout: 30_000 }).catch(() => {}); await page.waitForTimeout(800); }
       else await page.waitForTimeout(1500);
       // The seeded transfers must reach the Wallet as their own line, or the phone check passes without measuring it.
       if (hash === 'wallet') {
@@ -387,6 +388,8 @@ try {
           if (!(await page.locator('.page', { hasText: t }).count())) problems.push(`not drawn on the Research tab: “${t}”`);
         if (await page.locator('.page', { hasText: 'Needs Omega' }).count()) problems.push('the Research tab calls a main whose clone state isn’t read Alpha');
       }
+      // Build on a ledger with no build site: the finder asks for one, and nothing is ranked.
+      if (hash === 'hustles/industry/build' && !(await page.locator('[data-industry="finder-wait"]', { hasText: 'Pick where you build first: add a site under Where you build, below.' }).count())) problems.push('Build with no site doesn’t ask for one');
       // The Industry tab on these ledgers: Start's lead always draws; a main with no skills synced says when they come.
       if (hash === 'hustles/industry') {
         if (!(await page.locator('[data-industry="start"]', { hasText: 'Industry turns materials into things that sell.' }).count())) problems.push('not drawn: the Industry tab’s Start');
@@ -1845,6 +1848,9 @@ try {
       ESI['/universe/names/'] = (url, req, json) => json({ error: 'Invalid ID' }, 404);
       await page.goto(`${BASE}#hustles/industry/build`);
       await page.reload();
+      // From Task 5B the panel is shut once sites exist: open it.
+      await page.waitForSelector('[data-industry="build"]', { timeout: 20_000 });
+      if (!(await page.locator('[data-industry="sites"]').isVisible().catch(() => false))) await page.locator('button.panel-toggle', { hasText: 'Where you build' }).click();
       await page.waitForSelector('[data-industry="sites"]', { timeout: 20_000 });
       for (const b of await page.locator('[data-industry="site-list"] [data-site^="npc:"] button', { hasText: 'Remove' }).all()) await b.click();
       await page.locator('[aria-label="Add a site"] button', { hasText: 'A station near Jita' }).click();
@@ -1861,6 +1867,105 @@ try {
       const names = (kept?.sites ?? []).map((s) => s.name);
       if (!names.some((n) => n === 'A station in Itamo') || names.some((n) => /#\d/.test(n))) problems.push(`the saved site names: ${JSON.stringify(names)}; wanted “A station in Itamo” and no “#id”`);
     }
+    // --- Build: the finder (Task 5B). Before a scan is held, it says so.
+    // The station-name stub the sites check above refused; the finder reads the NPC row's stations by name.
+    ESI['/universe/names/'] = (url, req, json) => json(JSON.parse(req.postData() ?? '[]').map((id) => ({ id, name: `Station ${id}`, category: 'station' })));
+    // Then a scan as the cloud's morning one leaves it: the Large Trimark Armor Pump I (listed at 7,041,000, reached on 4 of
+    // 14 days, 841 a day), its three salvage materials read only for the tab (watchOnly: the finder uses them all the same),
+    // a Caracal and its minerals. ESI answers adjusted prices and live books; the cloud the NPC row. Three sites: Itamo's
+    // station (the default), UALX-3 (1% typed, an L-Set Equipment rig) and C-J6MT (tax not typed), Brave Freight to both.
+    const day5 = (i) => iso(now - i * 86400_000).slice(0, 10);
+    const st5 = (typeId, perDay, highs, extra = {}) => ({ typeId, at: iso(now - 3600_000), daysTraded: 30, tradesPerDay: 40, unitsPerDay: perDay, spikiness: 0.05, dailyRange: 0.1, trend: 0,
+      avgPrice: highs[0], spark: Array(30).fill(perDay), buyerShare: 0.5, lows14: Array(14).fill(highs[0] * 0.9), lowsEnd: day5(1), highs14: highs, lastMove: 0, ...extra });
+    const bk5 = (bid, ask, sold) => ({ at: iso(now - 3600_000), bestBuy: bid, bestSell: ask, buyOrders: 5, sellOrders: 20, topBuys: [{ price: bid, volume: 500 }], topSells: [{ price: ask, volume: 5_000_000 }], npcSell: false, ...(sold ? { sold } : {}) });
+    const PUMP = 25894, CARACAL = 621, MINERAL = { 34: 3.5, 35: 13, 36: 40, 37: 160, 38: 600, 39: 1150, 40: 1500 };
+    const ITEMS = {
+      [PUMP]: [st5(PUMP, 841, [7_100_000, 7_050_000, 7_045_000, 7_041_000, ...Array(10).fill(6_960_000)]), bk5(6_240_000, 7_041_000, { sell: 1690, buy: 62, single: { sell: 0, buy: 0 }, orders: { sell: 20, buy: 5 } })],
+      25601: [st5(25601, 20_000, Array(14).fill(4300), { watchOnly: true }), bk5(3900, 4213)],
+      25605: [st5(25605, 20_000, Array(14).fill(26_500), { watchOnly: true }), bk5(24_000, 25_980)],
+      25590: [st5(25590, 20_000, Array(14).fill(85_000), { watchOnly: true }), bk5(80_000, 84_000)],
+      [CARACAL]: [st5(CARACAL, 40, Array(14).fill(14e6)), bk5(11e6, 14e6)],
+      ...Object.fromEntries(Object.entries(MINERAL).map(([t, p]) => [t, [st5(Number(t), 1e7, Array(14).fill(p * 1.1)), bk5(p * 0.95, p)]])),
+    };
+    const SCAN = { stats: Object.fromEntries(Object.entries(ITEMS).map(([t, [s]]) => [t, s])), books: Object.fromEntries(Object.entries(ITEMS).map(([t, [, b]]) => [t, b])),
+      sample: { at: iso(now - 3600_000), totalPages: 400, sampledPages: 400, minSampled: 1, counts: {} }, runs: { cloud: iso(now - 3600_000) } };
+    ESI['/markets/prices/'] = (url, req, json) => json(Object.entries(FX.adjusted).map(([t, p]) => ({ type_id: Number(t), adjusted_price: p, average_price: p })));
+    ESI['/markets/10000002/orders/'] = (url, req, json) => {
+      const t = Number(url.searchParams.get('type_id')), b = ITEMS[t]?.[1];
+      if (!b) return json([]);
+      const o = (id, buy, price, n) => ({ order_id: t * 10 + id, type_id: t, location_id: 60003760, system_id: 30000142, is_buy_order: buy, price, volume_remain: n, volume_total: n, issued: iso(now - 86400_000), duration: 90, min_volume: 1, range: 'station' });
+      return json([o(1, true, b.bestBuy, 500), o(2, false, b.bestSell, 5_000_000)]);
+    };
+    let npcAnswer = { complete: { at: iso(now - 3 * 3600_000), complete: true, pagesFailed: 0, sellers: { 25895: [1_250_000, [60001483, 60001486]] } }, partial: null };
+    CLOUD['/v1/pull'] = (url, req, json) => json({ rev: 1, next: null, records: [], docs: [] });
+    CLOUD['/v1/push'] = (url, req, json) => json({ rev: 2 });
+    CLOUD['/v1/industry/npc'] = (url, req, json) => (npcAnswer === 404 ? json({ error: 'Not found' }, 404) : json(npcAnswer));
+    const BRAVE = [{ id: 'brave-jita-ualx', name: 'Brave Freight, Jita ↔ UALX-3', a: 30000142, b: 30004807, perM3: 900, collateral: 0.007875, min: 5e6, source: 'Brave wiki, 3 June 2026' },
+      { id: 'brave-jita-cj6', name: 'Brave Freight, Jita ↔ C-J6MT', a: 30000142, b: 30000772, perM3: 1150, collateral: 0.007875, min: null, source: 'Brave Freight’s calculator, 9 October 2026' }];
+    const DOC = { sites: [
+      { id: 'npc:60001483', name: 'Station 60001483', systemId: 30000119, kind: 'npc', stationId: 60001483, rigs: [], tax: 0.0025 },
+      { id: 'home:30004807', name: 'Home in UALX-3', systemId: 30004807, kind: 'azbel', rigs: [37170], tax: 0.01 },
+      { id: 'home:30000772', name: 'Home in C-J6MT', systemId: 30000772, kind: 'raitaru', rigs: [], tax: null },
+    ], site: 'npc:60001483', sell: 'jita', hub: null, hubFees: {}, freight: BRAVE, share: 10, noShipsToJita: true, assume: { me: 0, te: 0 } };
+    const CLOUD_STATE = { charId: ownerAuth().characterId, rev: 1, started: true, dirty: { r: [], d: [] } };
+    // (Seeded without a scan first: the ledger above has its skills again, the sites check left it without.)
+    await page.goto(SEED_PAGE);
+    await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE }, { alts: altStore });
+    await page.goto(`${BASE}#hustles/industry/build`);
+    await page.waitForSelector('[data-industry="build"]', { timeout: 20_000 }).catch(() => problems.push('Build never drew'));
+    await page.waitForTimeout(1000);
+    if (!(await text('[data-industry="finder-wait"]')).includes('No market scan here yet: the cloud’s comes every morning.')) problems.push(`with no scan held, the finder doesn’t say so: “${await text('[data-industry="finder-wait"]')}” / “${await text('[data-industry="build"]')}”`.slice(0, 700));
+    await page.goto(SEED_PAGE);
+    await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } });
+    const finder = async () => {
+      await page.goto(`${BASE}#hustles/industry/build`);
+      await page.reload();
+      await page.waitForSelector('[data-industry="finder"] [data-bp="25895"]', { timeout: 30_000 }).catch(async () => problems.push(`the finder never priced the pump: “${(await text('[data-industry="build"]')).slice(0, 300)}”`));
+      await page.waitForTimeout(1200);
+    };
+    await finder();
+    // Headers and labels are drawn in capitals: compare words, not case.
+    const head = () => page.locator('.ind-finder thead').innerText().then((t) => t.replace(/\s+/g, ' ').toLowerCase()).catch(() => '');
+    const count = await text('[data-industry="finder-count"]');
+    if (!count.includes('priced at Station 60001483')) problems.push('the finder doesn’t say which site it priced at');
+    if (!/aren’t priced: [\d,]+ have no Jita book this morning/.test(count)) problems.push(`the finder doesn’t count what has no Jita book this morning: “${count}”`);
+    if ((await head()).includes('before the facility tax')) problems.push('a station’s known 0.25% tax, and the head says “before the facility tax”');
+    const pump = await text('[data-bp="25895"]');
+    if (!pump.includes('at Station 60001483 (and 1 more)')) problems.push(`the pump’s original isn’t NPCs’ at Itamo’s station: “${pump}”`);
+    if (!pump.includes('Jita’s book now')) problems.push('the pump, a top row, isn’t said to be on Jita’s book now after the live read');
+    if (!(await text('[data-bp="687"]')).includes('NPCs don’t sell it in The Forge; CCP’s base price 82.5 M ISK')) problems.push('the Caracal’s original doesn’t say NPCs don’t sell it in The Forge, with CCP’s base price');
+    // At C-J6MT: no tax typed, so ranked before it, said in the head and each row; ships stay home.
+    await page.locator('select[aria-label="Build at"]').selectOption({ label: 'Home in C-J6MT' });
+    await page.waitForTimeout(1500);
+    if (!(await head()).includes('profit a day, before the facility tax')) problems.push(`with C-J6MT’s tax not typed, the head doesn’t say “Profit a day, before the facility tax”: “${await head()}”`);
+    if (!(await text('[data-bp="25895"]')).includes('each 1% of tax:')) problems.push('the pump’s row doesn’t say what each 1% of tax costs a day');
+    if (!/\d+ ships stay home: never haul ships to Jita is on\./.test(await text('[data-industry="finder-count"]'))) problems.push(`from a null-sec site, it doesn’t say ships stay home: “${await text('[data-industry="finder-count"]')}”`);
+    if (await page.locator('[data-bp="687"]').count()) problems.push('a Caracal built in C-J6MT is offered for sale in Jita with “never haul ships to Jita” on');
+    // The pump's detail.
+    await page.locator('[data-bp="25895"] .expander').click();
+    await page.waitForTimeout(800);
+    const detail = (await text('[data-industry="detail"]')).toLowerCase();
+    for (const t of ['Materials for a day’s', 'Researching it first, at', 'ME 10 / TE 20', 'Install the job at Home in C-J6MT', 'Copy for Multibuy', 'Shopping list, beyond what’s held', 'A home typed by you has no structure ID, so nothing held there is known.'])
+      if (!detail.includes(t.toLowerCase())) problems.push(`the pump’s detail doesn’t say “${t}”`);
+    if (SHOTS) { await page.locator('[data-industry="detail"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-industry-detail.png` }); }
+    // The NPC row: a partial read only, then a cloud a version behind.
+    npcAnswer = { complete: null, partial: { at: iso(now - 3600_000), complete: false, pagesFailed: 3, sellers: {} } };
+    await finder();
+    if (!(await text('[data-bp="25895"]')).includes('No NPC seller found (this morning’s read missed 3 pages); base price 1.25 M ISK')) problems.push('after a partial read alone, the pump doesn’t say no seller was found and how many pages were missed');
+    npcAnswer = 404;
+    await finder();
+    if (!(await text('[data-bp="25895"]')).includes('The cloud is a version behind: NPC sellers come once it’s updated')) problems.push('with the cloud a version behind, the pump’s original doesn’t say so');
+    if (/NPCs don’t sell it in The Forge/.test(await text('[data-industry="finder"]'))) problems.push('with the cloud a version behind, a row says NPCs don’t sell it');
+    // A station ESI won't name is said by its system, never "Station #id" (useStationSaid).
+    npcAnswer = { complete: { at: iso(now - 3 * 3600_000), complete: true, pagesFailed: 0, sellers: { 25895: [1_250_000, [60001483, 60001486]] } }, partial: null };
+    ESI['/universe/names/'] = (url, req, json) => json({ error: 'Invalid ID' }, 404);
+    await finder();
+    if (!(await text('[data-bp="25895"]')).includes('at A station in Itamo (and 1 more)')) problems.push(`with ESI refusing the names, the original isn’t said by its system: “${(await text('[data-bp="25895"]')).slice(0, 200)}”`);
+    if (/Station #\d/.test(await text('[data-industry="build"]'))) problems.push('the finder shows “Station #id”');
+    ESI['/universe/names/'] = (url, req, json) => json(JSON.parse(req.postData() ?? '[]').map((id) => ({ id, name: `Station ${id}`, category: 'station' })));
+    const finderFit = await sideways(page, '[data-industry="finder"] .tbl-scroll');
+    if (!PHONE && finderFit && finderFit.over > 0) problems.push(`the finder scrolls sideways at 1,440 (${finderFit.over} px)`);
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}-industry-finder.png` });
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

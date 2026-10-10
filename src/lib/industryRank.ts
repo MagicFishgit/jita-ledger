@@ -1,5 +1,5 @@
 import { listingPrice, reachedBid, recentRange } from './fills';
-import { median, paceDay } from './prospects';
+import { median, paceDay, withoutOwn } from './prospects';
 import { buyerShare, EVEN_SPLIT, tradingSplit, type BookSold, type SplitFrom } from './split';
 import type { BookLevel, HistRow, ProspectStats } from './types';
 import {
@@ -453,4 +453,31 @@ export const MINED_DAYS = 30;
 export function minedLately(records: Record<string, { charId: number; date: string }>, charId: number, now: number): boolean {
   const since = new Date(now - MINED_DAYS * 86_400_000).toISOString().slice(0, 10);
   return Object.values(records).some((r) => r.charId === charId && r.date >= since);
+}
+
+/**
+ * A Jita book as the finder reads it: everyone else's orders, the builder's own taken off their price's level (selling
+ * into your own bid, or undercutting your own listing, is no sale). `live` when it's a read of now, not the morning's.
+ */
+export function othersBook(b: { bestBuy: number | null; bestSell: number | null; topBuys: BookLevel[]; topSells: BookLevel[]; sold?: BookSold; at: string },
+  own: readonly { typeId: number; isBuy: boolean; price: number; volume: number }[], typeId: number, live: boolean): JitaBook {
+  const mine = own.filter((o) => o.typeId === typeId);
+  const asks = withoutOwn(b.topSells, mine.filter((o) => !o.isBuy));
+  const bids = withoutOwn(b.topBuys, mine.filter((o) => o.isBuy));
+  return { ask: asks[0]?.price ?? null, bid: bids[0]?.price ?? null, bids, ...(b.sold ? { sold: b.sold } : {}), at: b.at, live };
+}
+
+/**
+ * The ore that gives the most of a material a m³ mined, at the builder's yield where it's refined: each ore's units of the
+ * material a portion x yield / portion / its volume. Null when none of the ores given yields it.
+ */
+export function bestOreFor(material: number, ores: readonly { id: number; mats: [number, [number, number][], number?]; volume: number }[], yieldOf: (m: [number, [number, number][], number?]) => number): { id: number; perM3: number } | null {
+  let best: { id: number; perM3: number } | null = null;
+  for (const o of ores) {
+    const q = o.mats[1].find(([t]) => t === material)?.[1];
+    if (!q || !(o.volume > 0)) continue;
+    const perM3 = (q * yieldOf(o.mats)) / o.mats[0] / o.volume;
+    if (!best || perM3 > best.perM3) best = { id: o.id, perM3 };
+  }
+  return best;
 }
