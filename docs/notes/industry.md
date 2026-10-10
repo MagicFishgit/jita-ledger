@@ -71,3 +71,24 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
   - **A row says whether its job cost is whole** (`costKnown`): false while the facility tax or the clone state (Alpha tax)
     isn't known, because `jobCostOf`'s total leaves them out; such a row is ranked before the missing part, never with it as 0.
   - **Known and left alone (Task 3 review)**: a sale's freight minimum is spread over a week at your share of the pace, not over the week's smaller sale when the slot makes less (minor). A site whose distance to Jita isn't known (`jitaJumps == null`) keeps ships home while "never haul ships to Jita" is on; the UI says "distance to Jita not known".
+- **The tab** (`components/hustles/Industry.tsx`): sections in the address (`hustles/industry/<section>`), the last kept
+  per browser (`jita-ledger:industry-section`); "Show for" (`jita-ledger:industry-show`) picks whose skills, clone, Jita
+  fees, held stock and mining every figure uses, the main or an alt, falling back to the main without forgetting the kept
+  one. Industry.tsx is the one file of the tab importing the alt store; `useIndustryChars` reads each alt's pulled copy and
+  writes nothing.
+- **Skills not read are not level 0**: Start gives no slots and no fee for an alt whose skills aren't read, nor for a main
+  whose first sync has brought none (its skills doc is `{}`, which `slots` would read as an untrained character: "1 of
+  11"). The page check's empty ledger asserts it.
+- **An alt's Jita broker fee is at its read standings** (`altFees.ts`, 10 October 2026): Caldari State and Caldari Navy,
+  raw, each floored at 0, exactly as the main's sync fills its settings. `altLedger` carries standing 0 for both, and the
+  Research tab took an alt's fee from that (`researchChars.ts`), so an alt with standings read 2.10% at Broker Relations
+  III where it pays 1.98% (the page case's Builder Alt). Both tabs now use `ratesAtStandings`. One whose standings aren't
+  read pays as if it had none, and says so; one whose skills aren't read shows no fee. `altLedger`'s own zeros stay: an
+  alt's Earned is worked out on them, and changing that moves the income check.
+- **The `industry` doc** (`prefs.ts` `sanitizeIndustry`, synced; not in `prefs`, whose sanitizer would drop it on an
+  older build's save): sites, the default site, where to sell, the home hub and its typed broker fee, freight routes, the
+  industry share (10%), never haul ships to Jita (on), the ME/TE assumed (0/0, 8/0 or 10/20). An NPC station's site keeps
+  no rigs and takes 0.25%; a structure's tax not typed stays null, never 0. A Worker a version behind refuses the doc and
+  `refusedDoc` holds it back.
+- **Seven Side hustles tabs**: the row is a container, seven columns from 1,040 px, four below, two on a phone with an odd
+  last tab across the row, so none sits alone. 172 px a tab (the old minimum) fitted six at 1,440.

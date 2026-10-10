@@ -13,8 +13,9 @@ export const RECORD_KINDS = new Set([
 // `costs` and `watch` are docs only the cloud reads: the browser's cost basis per item, for the alert checks,
 // and the items it asks to have watched (Prospects candidates, loyalty outputs), with the filters to judge them by.
 // `chars` is which characters are yours (the main's ledger holds that and nothing else of an alt's); allowed here
-// before any app sends it, since a push naming a document the Worker doesn't know is refused whole.
-export const DOC_KEYS = new Set(['settings', 'meta', 'prefs', 'alerts', 'stock', 'skills', 'ignored', 'nearDone', 'unusualOk', 'costs', 'watch', 'leave', 'safetyTimes', 'notSnipes', 'plans', 'chars', 'leaveFrom']);
+// before any app sends it, since a push naming a document the Worker doesn't know is refused whole. `industry` is the
+// Industry tab's decisions: sites, freight, typed taxes, the share.
+export const DOC_KEYS = new Set(['settings', 'meta', 'prefs', 'alerts', 'stock', 'skills', 'ignored', 'nearDone', 'unusualOk', 'costs', 'watch', 'leave', 'safetyTimes', 'notSnipes', 'plans', 'chars', 'leaveFrom', 'industry']);
 
 /** D1 takes a bound string up to 2 MB; records go up in chunks well under that. */
 const CHUNK_BYTES = 900_000;

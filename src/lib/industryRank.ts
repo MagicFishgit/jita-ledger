@@ -443,3 +443,14 @@ export function bpoWhere(rows: { complete: NpcRow | null; partial: NpcRow | null
 /** Days for the original to pay for itself out of one slot's profit a day; null with no original price or no profit. */
 export const payback = (bpo: number | null, profitDay: number | null | undefined): number | null =>
   bpo != null && profitDay != null && profitDay > 0 ? bpo / profitDay : null;
+
+/** How far back a mining record says a character mines. */
+export const MINED_DAYS = 30;
+/**
+ * Whether a character mined in the last 30 days, by its own mining records (the Mining tab's: the main's in the ledger, an
+ * alt's in its pulled copy): only then is "mined" picked as a material's source (sourceMaterial).
+ */
+export function minedLately(records: Record<string, { charId: number; date: string }>, charId: number, now: number): boolean {
+  const since = new Date(now - MINED_DAYS * 86_400_000).toISOString().slice(0, 10);
+  return Object.values(records).some((r) => r.charId === charId && r.date >= since);
+}

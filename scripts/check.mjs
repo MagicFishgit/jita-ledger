@@ -5755,7 +5755,7 @@ console.log('\n--- which characters are yours ---');
   // Alt data reaches a page only on purpose: a page that starts reading the alt store is added here in the commit that makes it.
   const walk = (dir) => fs2.readdirSync(new URL(dir, import.meta.url), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${dir}${e.name}/`) : /\.(ts|tsx)$/.test(e.name) ? [`${dir}${e.name}`] : []));
   const users = walk('../src/').filter((p) => /(from\s*|import\s*\(\s*)['"][^'"]*\/altStore['"]/.test(src(p))).map((p) => p.replace('../src/', '')).sort();
-  eq('  and only the shell, the Characters page, the Mining and Research tabs, the Wallet and To do read the alt store', users, ['App.tsx', 'components/Characters.tsx', 'components/Todo.tsx', 'components/Wallet.tsx', 'components/hustles/Mining.tsx', 'components/hustles/Research.tsx']);
+  eq('  and only the shell, the Characters page, the Mining, Research and Industry tabs, the Wallet and To do read the alt store', users, ['App.tsx', 'components/Characters.tsx', 'components/Todo.tsx', 'components/Wallet.tsx', 'components/hustles/Industry.tsx', 'components/hustles/Mining.tsx', 'components/hustles/Research.tsx']);
   eq('  an alt with nothing read yet: nothing, not zeros', R.altFacts(R.emptyAlt(), NOW2), { wallet: null, walletAt: null, netWorth: null, clone: 'unknown', cloneSince: null, training: null, queueEnds: null, queueKnown: false, totalSp: null });
   const readEmpty = R.altFacts({ rev: 1, records: {}, docs: { meta: { skillQueue: [] } } }, NOW2);
   eq('    an alt whose queue was read empty: known, and "Nothing in the queue"', [readEmpty.training, readEmpty.queueKnown, R.idleQueueSaid(readEmpty)], [null, true, 'Nothing in the queue']);
@@ -7582,6 +7582,61 @@ console.log('\n--- Industry: the finder\'s rules (industryRank.ts) ---');
     [25894, 621, 587, 4051, 23757].map((t) => K.productKind(ix, t)), ['rigs', 'hulls-medium', 'hulls-small', 'fuel', 'capital']);
   eq('  the finder\'s blueprints: Tech I, no invention product, no capital hull', [K.finderBlueprints(ix).length, K.finderBlueprints(ix).some((b) => ix.t2.has(b[0]))], [1652, false]);
   eq('  the named constants the copy states', [K.NEAR_JITA_JUMPS, K.HOME_DEPTH, K.DEFAULT_SHARE, K.LIVE_ROWS], [10, 10, 10, 40]);
+}
+
+console.log('\n--- an alt\'s Jita broker fee at its read standings (altFees.ts) ---');
+{
+  // An alt's copy (altLedger) carries faction and corporation standing 0, and the Research tab took its fee from that
+  // (researchChars.ts), so an alt with standings paid, on paper, the fee of one with none. The fee now reads Caldari State
+  // and Caldari Navy (Jita 4-4's owners) from its read standings, raw and floored at 0, as the main's sync does (sync.ts).
+  const A = await import('../src/lib/altFees.ts');
+  const { sanitizeSettings } = await import('../src/lib/fees.ts');
+  const read = [{ id: 500001, type: 'faction', standing: 3.63 }, { id: 1000035, type: 'npc_corp', standing: 7.04 }, { id: 3016563, type: 'agent', standing: 0.5 }];
+  eq('  Caldari State and Caldari Navy, raw, as the main\'s sync takes them', A.jitaStandings(read), { faction: 3.63, corp: 7.04 });
+  eq('  a negative standing floored at 0, as the sync floors it; one missing is none', A.jitaStandings([{ id: 500001, type: 'faction', standing: -2 }]), { faction: 0, corp: 0 });
+  eq('  not read is not zero: null', [A.jitaStandings(undefined), A.jitaStandings(null)], [null, null]);
+  const s = sanitizeSettings({ br: 3, acc: 4, clone: 'omega' });
+  // 3% − 0.3% × 3 − 0.03% × 3.63 − 0.02% × 7.04 = 1.8503%; with none read, the settings' own 2.1%.
+  eq('  the fee at those standings at Broker Relations III, and with none read', [A.ratesAtStandings(s, read).f, A.ratesAtStandings(s, undefined).f].map((f) => +f.toFixed(6)), [0.018503, 0.021]);
+}
+
+console.log('\n--- the industry doc: what you decide, synced (prefs.ts) ---');
+{
+  const P = await import('../src/lib/prefs.ts');
+  const D = P.DEFAULT_INDUSTRY;
+  eq('  nothing, or anything not a doc, is the default: no sites, Jita, 10%, no ships to Jita, 0/0', [P.sanitizeIndustry(undefined), P.sanitizeIndustry([1]), P.sanitizeIndustry('x')],
+    [D, D, D]);
+  eq('    the default\'s figures', [D.sell, D.share, D.noShipsToJita, D.assume, D.sites, D.freight, D.hub], ['jita', 10, true, { me: 0, te: 0 }, [], [], null]);
+  const npc = { id: 'npc:60003466', name: 'Perimeter II - Moon 1 - Caldari Navy Assembly Plant', systemId: 30000144, kind: 'npc', stationId: 60003466, rigs: [37146], tax: 0.05, lab: true };
+  const home = { id: 'home:30004807', name: 'Home in UALX-3', systemId: 30004807, kind: 'azbel', rigs: [37170, 37170, 37171, 37172, 37173], tax: null };
+  const found = { id: 'st:1046664001931', name: 'UALX-3 - 1st Byzantigoon', systemId: 30004807, kind: 'keepstar', structureId: 1046664001931, rigs: [], tax: 0.01 };
+  const doc = P.sanitizeIndustry({ sites: [npc, home, found, { ...npc }, { id: 'bad', name: 'x', systemId: 1, kind: 'npc' }, { id: 'odd', name: 'y', systemId: 30000144, kind: 'castle' }],
+    site: 'home:30004807', sell: 'best', hub: 1046664001931, hubFees: { 1046664001931: 0.013, x: 0.5, 1049588174021: 0.9 }, share: 7.5, noShipsToJita: false, assume: { me: 10, te: 20 },
+    freight: [{ id: 'brave', name: 'Brave Freight', a: 30000142, b: 30004807, perM3: 900, collateral: 0.007875, min: 5e6, source: 'Brave wiki, 3 June 2026' }, { id: 'bad', name: 'z', a: 1, b: 2, perM3: 1, collateral: 0, min: null, source: null }] });
+  eq('  an NPC station keeps no rigs and takes its 0.25% facility tax, whatever was stored', doc.sites[0], { ...npc, rigs: [], tax: 0.0025 });
+  eq('  a structure keeps three rigs at most, each once; a tax not typed stays null, never 0', doc.sites[1], { ...home, rigs: [37170, 37171, 37172] });
+  eq('  a structure found by name keeps its ID', doc.sites[2], found);
+  eq('  a duplicate, a system out of range and a kind the app doesn\'t know are dropped', doc.sites.length, 3);
+  eq('  the rest as stored: default site, where to sell, hub, its typed fee, share, the switch, ME/TE', [doc.site, doc.sell, doc.hub, doc.hubFees, doc.share, doc.noShipsToJita, doc.assume],
+    ['home:30004807', 'best', 1046664001931, { 1046664001931: 0.013 }, 7.5, false, { me: 10, te: 20 }]);
+  eq('  a freight route kept, one between systems that don\'t exist dropped', doc.freight.map((r) => r.id), ['brave']);
+  eq('  a default site that isn\'t one of the sites, an ME/TE that isn\'t a choice, a share of 0: back to the default',
+    [P.sanitizeIndustry({ site: 'gone' }).site, P.sanitizeIndustry({ assume: { me: 9, te: 0 } }).assume, P.sanitizeIndustry({ share: 0 }).share], [null, { me: 0, te: 0 }, 10]);
+  const { refusedDoc, DOC_KEYS } = await import('../src/lib/cloudSync.ts');
+  eq('  synced as a doc, and held back by a Worker a version behind that refuses it', [DOC_KEYS.includes('industry'), refusedDoc('Unknown document: industry')], [true, 'industry']);
+  const { emptyData } = await import('../src/lib/emptyData.ts');
+  eq('  an empty ledger has the default doc', emptyData().industry, D);
+}
+
+console.log('\n--- who mines (industryRank.ts minedLately) ---');
+{
+  const K = await import('../src/lib/industryRank.ts');
+  const NOW4 = Date.parse('2026-10-10T12:00:00Z');
+  const rec = (charId, date) => ({ charId, date, systemId: 30000142, typeId: 1230, qty: 1000 });
+  const mining = { a: rec(95210486, '2026-09-10'), b: rec(900001, '2026-10-09') };
+  eq('  mining records in the last 30 days, by character: the alt mined yesterday, the main 30 days ago, not 31; none, none',
+    [K.minedLately(mining, 900001, NOW4), K.minedLately(mining, 95210486, NOW4), K.minedLately({ a: rec(95210486, '2026-09-09') }, 95210486, NOW4), K.minedLately({}, 1, NOW4)], [true, true, false, false]);
+  eq('    by character: the alt\'s record isn\'t the main\'s', K.minedLately({ b: rec(900001, '2026-10-09') }, 95210486, NOW4), false);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

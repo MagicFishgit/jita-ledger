@@ -1,4 +1,4 @@
-import { Briefcase, ChartLine, FlaskConical, Globe, Pickaxe, Tornado, Truck } from 'lucide-react';
+import { Briefcase, ChartLine, Factory, FlaskConical, Globe, Pickaxe, Tornado, Truck } from 'lucide-react';
 import { navigate, type Route } from '../lib/hooks';
 import { Abyssal } from './hustles/Abyssal';
 import { Courier } from './hustles/Courier';
@@ -6,6 +6,7 @@ import { Planets } from './hustles/Planets';
 import { Mining } from './hustles/Mining';
 import { Freelance } from './hustles/Freelance';
 import { Research } from './hustles/Research';
+import { Industry } from './hustles/Industry';
 import { Guide, PageHead } from './ui';
 
 /**
@@ -13,7 +14,8 @@ import { Guide, PageHead } from './ui';
  *
  * Each one earns in a different currency of effort: abyssals want your attention, hauling wants a
  * safe route and a big hold, planets want nothing at all once they are running, mining wants your time in a
- * belt and pays in ore, and research agents, once started in person, want nothing at all and pay in datacores.
+ * belt and pays in ore, research agents, once started in person, want nothing at all and pay in datacores, and industry wants a
+ * blueprint, a slot and somewhere to build, and pays in what the market takes.
  */
 const TABS = [
   { key: 'abyssal', label: 'Abyssal', blurb: 'Filament costs and what your runs have really paid', icon: Tornado },
@@ -22,6 +24,7 @@ const TABS = [
   { key: 'mining', label: 'Mining', blurb: 'What you mined, your ISK an hour, and the next step up', icon: Pickaxe },
   { key: 'freelance', label: 'Freelance', blurb: 'Jobs paying more for an item than Jita sells it for', icon: Briefcase },
   { key: 'research', label: 'Research', blurb: 'Agents that make datacores while you trade', icon: FlaskConical },
+  { key: 'industry', label: 'Industry', blurb: 'What to build, where, and what it pays', icon: Factory },
 ] as const;
 
 type Key = (typeof TABS)[number]['key'];
@@ -37,7 +40,8 @@ export function SideHustles({ route }: { route: Route }) {
         kicker="08 · Between relists" title="Side hustles" wide
         lede="Ways to earn while your orders sit. Everything is costed the way the rest of the app costs a trade — live Jita prices, your own broker fee and sales tax — so it compares against just buying and selling."
       />
-      <nav className="htabs" aria-label="Side hustles" data-rv="">
+      <div className="htabs-wrap" data-rv="">
+      <nav className="htabs" aria-label="Side hustles">
         {TABS.map((t) => (
           <button key={t.key} type="button" className="htab" aria-current={sub === t.key ? 'page' : undefined} onClick={() => navigate(`hustles/${t.key}`)}>
             <t.icon aria-hidden="true" />
@@ -45,8 +49,9 @@ export function SideHustles({ route }: { route: Route }) {
           </button>
         ))}
       </nav>
+      </div>
       <section className="panel" data-rv="" key={sub} style={{ padding: '18px 20px', gap: 16, animation: 'rise .38s cubic-bezier(.2,.8,.2,1)' }}>
-        {sub === 'abyssal' ? <Abyssal /> : sub === 'courier' ? <Courier /> : sub === 'planets' ? <Planets /> : sub === 'freelance' ? <Freelance /> : sub === 'research' ? <Research /> : <Mining />}
+        {sub === 'abyssal' ? <Abyssal /> : sub === 'courier' ? <Courier /> : sub === 'planets' ? <Planets /> : sub === 'freelance' ? <Freelance /> : sub === 'industry' ? <Industry route={route} /> : sub === 'research' ? <Research /> : <Mining />}
       </section>
       <Guide
         title="How to use Side hustles"
@@ -58,6 +63,7 @@ export function SideHustles({ route }: { route: Route }) {
           { icon: Pickaxe, title: 'Mining', body: 'Mine, and the cloud times your sessions. The ladder says what the next ship costs and how many hours of mining pay for it.' },
           { icon: Briefcase, title: 'Freelance', body: 'Buy in Jita what a job pays more for, haul it, deliver it. Accept the job in game first.' },
           { icon: FlaskConical, title: 'Research', body: 'Train, reach an R&D agent, start it in person, then leave it: its points buy datacores whenever you pass.' },
+          { icon: Factory, title: 'Industry', body: 'Pick where you build, find what pays there, research ME before you build much.' },
         ]}
         habits={[{ icon: ChartLine, title: 'Compare in Results', body: 'Results shows each hustle’s ISK per hour next to trading.' }]}
       />

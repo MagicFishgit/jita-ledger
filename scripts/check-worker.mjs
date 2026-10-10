@@ -1157,5 +1157,13 @@ console.log('\n--- an alt is never a ledger ---');
   eq('  the list of your characters is a document the cloud keeps', (await pull(db, MAIN, 0, null)).docs.map((x) => x.key), ['chars']);
 }
 
+console.log('\n--- the industry doc goes up like any other ---');
+{
+  const { push } = await import('../worker/src/sync.ts');
+  const db = d1();
+  const r = await push(db, MAIN, { records: [], docs: [{ key: 'industry', d: { sites: [], share: 10 } }] });
+  eq('  a push carrying the industry doc is taken, not refused as unknown', [r.docs, db.rows(`SELECT key FROM docs WHERE char_id = ?`, MAIN).map((x) => x.key)], [1, ['industry']]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

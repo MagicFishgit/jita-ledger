@@ -27,12 +27,13 @@ logins are in characters-cloud.md, mining across characters in mining.md (split 
   a fresh copy, decided before a matching revision is skipped. A copy stored before `addedAt` was kept is kept, not
   pulled again, and takes the roster's at once.
 - **What keeps an alt's rows out of the ledger is that the alt store can't write to it.** From `store.ts` it imports
-  `mergeChars`, `dataGeneration` and `onClearAll`, never `update`; and only `App.tsx`, `Characters.tsx`, `hustles/Mining.tsx`, `hustles/Research.tsx`, `Todo.tsx` and `Wallet.tsx` import the
+  `mergeChars`, `dataGeneration` and `onClearAll`, never `update`; and only `App.tsx`, `Characters.tsx`, `hustles/Mining.tsx`, `hustles/Research.tsx`, `hustles/Industry.tsx`, `Todo.tsx` and `Wallet.tsx` import the
   alt store (To do joined in stage 4 to list an alt whose cloud login is refused or missing, one item per alt keyed
   `cloudLogin:alt:<id>`, whose button opens the Characters page and never hands over the main's or the sender's login; it
   ticks off only on a roster read of this session newer than the one that showed it (`judgeAltLogin`), working again or no
   longer listed. Settings reads `chars` instead, for "Delete all data" saying the alts' copy here goes too: no new importer. Mining joined in stage 3: it shows each character's mining; it calls `useAlts()` and hands the value to
-  `useMiningFleet` in `miningFleet.ts`, which doesn't import the store itself. The Research tab joined with its stage 1
+  `useMiningFleet` in `miningFleet.ts`, which doesn't import the store itself. The Industry tab joined with its first task (10 October 2026): `useAlts()` handed to `useIndustryChars` in `industryChars.ts`,
+  which reads each alt's skills, standings, stock, purchases and mining from its pulled copy and writes nothing. The Research tab joined with its stage 1
   (3 October 2026) for its "Show for": the same way, `useAlts()` handed to `useResearchChars` in `researchChars.ts`, which
   reads each alt's skills, standings and sales tax from its pulled copy and writes nothing. To do and the Wallet hand
   `useResearchChars` their own `useAltCopies()` and roster the same way since the research cash-in (3 October 2026: To do's

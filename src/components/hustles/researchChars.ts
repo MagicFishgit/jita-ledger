@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { altLedger } from '../../lib/altLedger';
 import { askedScopes, hasScope } from '../../lib/auth';
 import { JITA_44, SCOPE, SCOPES } from '../../lib/config';
+import { ratesAtStandings } from '../../lib/altFees';
 import { rates } from '../../lib/fees';
 import { useAuth } from '../../lib/hooks';
 import { type Pilot, pilotFrom } from '../../lib/pilot';
@@ -63,7 +64,7 @@ const NO_ALT = emptyAlt();
 const timeOf = (iso: string | undefined): number | null => { const t = iso ? Date.parse(iso) : NaN; return Number.isFinite(t) ? t : null; };
 
 /** A character's open Jita 4-4 orders, as the Research tab weighs them. */
-const openInJita = (orders: Record<string, Order>): ResearchChar['own'] => Object.values(orders)
+export const openInJita = (orders: Record<string, Order>): ResearchChar['own'] => Object.values(orders)
   .filter((o) => o.state === 'open' && o.locationId === JITA_44)
   .map((o) => ({ typeId: o.typeId, isBuy: o.isBuy, price: o.price, volume: o.volumeRemain }));
 
@@ -98,6 +99,8 @@ export function useResearchChars(alts: ResearchAlts): ResearchChar[] {
       const lost = login.state === 'working' ? undefined : login.state;
       const st = ledger.meta.standings;
       const rs = ledger.meta.research;
+      // At its read standings with Jita 4-4's owners (altFees.ts), not altLedger's zeros.
+      const fee = ratesAtStandings(ledger.settings, st?.list);
       const detected = (ledger.meta as { cloneDetected?: 'alpha' | 'omega' }).cloneDetected;
       return {
         charId: entry.charId, name, isMain: false,
@@ -110,7 +113,7 @@ export function useResearchChars(alts: ResearchAlts): ResearchChar[] {
         research: rs ? { state: 'read', agents: rs.agents, at: jobOk(entry, 'sheet') }
           : lost ? { state: 'lost', why: lost }
             : login.missing.includes(SCOPE.agentsResearch) ? { state: 'handOver' } : { state: 'unread' },
-        tax: rates(ledger.settings).t, broker: rates(ledger.settings).f,
+        tax: fee.t, broker: fee.f,
         own: openInJita(ledger.orders),
         missionAt: null,
         clone: detected ?? byHand ?? 'unknown',

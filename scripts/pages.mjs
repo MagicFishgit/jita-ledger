@@ -23,7 +23,7 @@ import { small, large, ALTS, altStoreOf, charsOf, ownerAuth, strangerAuth, withT
 const PAGES = [
   'wallet', 'todo', 'calculator', 'calculator?type=34', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'reprocess',
   'positions', 'positions/{first}', 'orders', 'loot', 'blueprints', 'results', 'loyalty',
-  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/mining', 'hustles/freelance', 'hustles/research', 'combat', 'characters', 'omega',
+  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/mining', 'hustles/freelance', 'hustles/research', 'hustles/industry', 'combat', 'characters', 'omega',
   'settings/account', 'settings/skills', 'settings/rates', 'settings/alerts', 'settings/appearance', 'settings/data', 'settings/scan',
 ];
 
@@ -380,6 +380,16 @@ try {
           'Log in again to read your research: this login wasn’t given EVE’s permission to read R&D agents.'])
           if (!(await page.locator('.page', { hasText: t }).count())) problems.push(`not drawn on the Research tab: “${t}”`);
         if (await page.locator('.page', { hasText: 'Needs Omega' }).count()) problems.push('the Research tab calls a main whose clone state isn’t read Alpha');
+      }
+      // The Industry tab on these ledgers: Start's lead always draws; a main with no skills synced says when they come.
+      if (hash === 'hustles/industry') {
+        if (!(await page.locator('[data-industry="start"]', { hasText: 'Industry turns materials into things that sell.' }).count())) problems.push('not drawn: the Industry tab’s Start');
+        if (/\bNaN\b/.test(await page.locator('.page').innerText().catch(() => ''))) problems.push('the Industry tab shows NaN');
+        // A main whose first sync brought no skills is not a main with none trained: no slots, no fee, and it says when they come.
+        if (name === 'empty') {
+          const got = await page.locator('[data-industry="where"] .tile').evaluateAll((ts) => ts.map((t) => (t.textContent ?? '').replace(/\s+/g, ' ')));
+          if (!got.some((t) => /Factory slots.*–.*Your skills come with the next sync/.test(t)) || got.some((t) => /Factory slots.*1 of 11/.test(t))) problems.push(`the Industry tab works out slots for a main with no skills read: ${JSON.stringify(got.slice(0, 2))}`);
+        }
       }
       // Check my hangar with the stand-in login, which holds no assets permission: it says so and how to get it, and reads
       // nothing (every request outside this server is refused anyway).
@@ -1645,6 +1655,117 @@ try {
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'research', page: 'hustles/research', problems: unique });
     process.stdout.write(unique.length ? `  FAIL research #hustles/research\n${unique.map((x) => `       ${x}`).join('\n')}\n` : '  ok   research #hustles/research (three agents’ cards and the totals, 2 of 5 alts read; the main’s walkthrough priced, Lai Dai at no standing; an alt whose standings aren’t read; To do’s cash-in item and the Wallet’s card)\n');
+    await page.close();
+  }
+  // The Industry tab (docs/superpowers/plans/2026-10-10-industry-stage-1.md), in a ledger of its own: never the shared
+  // large one, which check-income records. Task 4A: Start's lead and where each character stands (its slots, its Jita fees
+  // at its own read standings, its clone), Show for over the main and three alts (one read with standings, one with skills
+  // and no standings read, one whose login EVE refused with nothing read), and the seven tabs in one row at 1,440. Each
+  // later task adds its block above "the end of the industry case". Both widths.
+  if (SHOWN.includes('hustles/industry') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('industry'))) {
+    const now = Date.now(), iso = (t) => new Date(t).toISOString();
+    const ok = (job, ago) => ({ job, lastRun: now - ago, lastOk: now - ago, lastError: null });
+    const ATTRS = { intelligence: 24, memory: 24, perception: 20, willpower: 20, charisma: 23 };
+    // The main: Broker Relations IV and Accounting IV at Caldari State 3.63, Caldari Navy 7.04 (the research's own), so its
+    // fee is 3% − 1.2% − 0.03% × 3.63 − 0.02% × 7.04 = 1.55%, and its tax 7.5% × (1 − 0.44) = 4.20%.
+    const ledger = {
+      settings: { acc: 4, br: 4, abr: 0, trade: 4, retail: 0, wholesale: 0, tycoon: 0, clone: 'omega', faction: 3.63, corp: 7.04, fromCharacter: true },
+      skills: { 3380: 5, 3387: 4, 3388: 2, 3406: 3, 3402: 4, 3409: 2, 3403: 2, 3446: 4, 16622: 4, 26253: 1 },
+      meta: { lastSync: iso(now - 600_000), cloneDetected: 'omega', walletBalance: 2e9, attributes: ATTRS,
+        standings: { at: iso(now - 600_000), list: [{ id: 500001, type: 'faction', standing: 3.63 }, { id: 1000035, type: 'npc_corp', standing: 7.04 }] } },
+    };
+    const BUILDER = 900091, FRESH = 900092, LOST = 900093;
+    const entry = (charId, name, extra = {}) => ({ charId, name, addedAt: now - 5 * 86400_000,
+      scopes: ['esi-characters.read_standings.v1', 'esi-skills.read_skills.v1', 'esi-assets.read_assets.v1'],
+      at: now - 3600_000, refusedAt: null, refused: null, rev: 2, ship: null, shipAt: null, jobs: [ok('archive', 1800_000), ok('sheet', 1700_000)], ...extra });
+    // Builder Alt: Broker Relations III at Caldari State 2.0, Caldari Navy 3.0: 3% − 0.9% − 0.06% − 0.06% = 1.98% (at
+    // altLedger's zero standings it read 2.10%). Fresh Alt: skills read, standings not: 2.10%, said. Lost Alt: refused.
+    const altStore = {
+      roster: { at: now - 60_000, list: [entry(BUILDER, 'Builder Alt'), entry(FRESH, 'Fresh Alt'), entry(LOST, 'Lost Alt', { refusedAt: now - 7200_000, refused: 'invalid_grant', rev: 0, jobs: [] })] },
+      [`alt:${BUILDER}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: { 3446: 3, 16622: 4, 3380: 4, 3387: 2, 3406: 1 }, meta: { cloneDetected: 'omega', attributes: ATTRS,
+        standings: { list: [{ id: 500001, type: 'faction', standing: 2 }, { id: 1000035, type: 'npc_corp', standing: 3 }] } } } },
+      [`alt:${FRESH}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: { 3446: 3, 16622: 4, 3380: 1 }, meta: { attributes: ATTRS } } },
+      [`alt:${LOST}`]: { rev: 0, records: {}, docs: {} },
+    };
+    const page = await browser.newPage(VIEW);
+    let esiAsked = 0;
+    // Each later task fills these with the answers it needs: ESI by path, the cloud by path.
+    const ESI = {};
+    const CLOUD = {};
+    await page.route('**/*', (route) => {
+      const req = route.request(), url = new URL(req.url());
+      if (req.url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
+      const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', headers: { expires: new Date(now + 300_000).toUTCString(), 'x-pages': '1' }, body: JSON.stringify(body) });
+      if (url.hostname === 'esi.evetech.net') {
+        esiAsked++;
+        const answer = ESI[url.pathname];
+        return answer ? answer(url, req, json) : route.abort();
+      }
+      const cloud = CLOUD[url.pathname];
+      return cloud ? cloud(url, req, json) : route.abort();
+    });
+    const problems = [];
+    page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
+    page.on('console', (m) => { if (m.type() === 'error' && /^Warning: /.test(m.text())) problems.push(`React: ${m.text().split('\n')[0].replace(/%s/g, '').slice(0, 160)}`); });
+    const seed = (d, alts) => page.evaluate(async ([d2, auth, a]) => {
+      localStorage.clear(); sessionStorage.clear();
+      localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
+      for (const [db, put] of [['jita-ledger', d2], ['jita-ledger-cache', a.cache ?? {}], ['jita-ledger-alts', a.alts]]) {
+        const h = await new Promise((res) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+        if (!h.objectStoreNames.contains('kv')) { h.close(); continue; }
+        await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
+        h.close();
+      }
+    }, [d, ownerAuth(), alts]);
+    const text = async (sel = '.page') => (await page.locator(sel).innerText().catch(() => '')).replace(/\s+/g, ' ');
+    const tiles = (sel) => page.locator(`${sel} .tile`).evaluateAll((ts) => Object.fromEntries(ts.map((t) => [t.querySelector('.tile-l')?.firstChild?.textContent?.trim(), [t.querySelector('.tile-v')?.textContent?.trim(), t.querySelector('.tile-n')?.textContent?.trim()]]))).catch(() => ({}));
+    const showFor = async (name) => { await page.locator('[aria-label="Show for"] button', { hasText: name }).click().catch((e) => problems.push(`couldn’t show for ${name}: ${e.message.split('\n')[0]}`)); await page.waitForTimeout(600); };
+    await page.goto(SEED_PAGE);
+    await seed(ledger, { alts: altStore });
+
+    // --- Start (Task 4A): where each character stands.
+    await page.goto(`${BASE}#hustles/industry/start`);
+    await page.waitForSelector('[data-industry="start"]', { timeout: 20_000 }).catch(() => problems.push('Start never drew'));
+    const want = {
+      You: { 'Factory slots': ['5 of 11'], 'Science slots': ['4 of 11'], 'Jita broker fee': ['1.55%', 'sales tax 4.20%, as Settings has them'], Clone: ['Omega'] },
+      'Builder Alt': { 'Factory slots': ['3 of 11'], 'Science slots': ['2 of 11'], 'Jita broker fee': ['1.98%', 'sales tax 4.20%, at Builder Alt’s standings with Caldari State and Caldari Navy'], Clone: ['Omega'] },
+      'Fresh Alt': { 'Jita broker fee': ['2.10%', 'sales tax 4.20%; standings not read: broker fee at no standing'], Clone: ['Not read'] },
+      'Lost Alt': { 'Factory slots': ['–', 'Not read: EVE refused Lost Alt’s login; hand it over again on the Characters page.'], 'Jita broker fee': ['–', 'Not read: EVE refused Lost Alt’s login; hand it over again on the Characters page.'] },
+    };
+    for (const [who, rows] of Object.entries(want)) {
+      if (who !== 'You') await showFor(who);
+      const got = await tiles('[data-industry="where"]');
+      for (const [label, [v, n]] of Object.entries(rows)) {
+        if (got[label]?.[0] !== v || (n && got[label]?.[1] !== n)) problems.push(`Start for ${who}: “${label}” reads ${JSON.stringify(got[label])}, not ${JSON.stringify([v, n].filter(Boolean))}`);
+      }
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}-industry-start-${who.replace(/\W+/g, '_')}.png` });
+    }
+    await showFor('Owner');
+    // Seven tabs: one row at 1,440, no name cut off; on a phone, no tab alone on its row.
+    if (!PHONE) {
+      const tops = await page.locator('.htabs .htab').evaluateAll((ts) => ts.map((t) => t.offsetTop));
+      if (tops.length !== 7 || new Set(tops).size !== 1) problems.push(`the seven Side hustles tabs aren’t one row at 1,440: ${JSON.stringify(tops)}`);
+      const cut = await page.locator('.htabs .htab .hl').evaluateAll((ls) => ls.filter((l) => l.scrollWidth > l.clientWidth + 1).map((l) => l.textContent));
+      if (cut.length) problems.push(`a tab’s name is cut off at 1,440: ${cut.join(', ')}`);
+    } else {
+      const alone = await page.evaluate(() => {
+        const nav = document.querySelector('.htabs'); const rows = {};
+        for (const t of nav.querySelectorAll('.htab')) (rows[t.offsetTop] ??= []).push(t);
+        return Object.values(rows).filter((r) => r.length === 1 && r[0].offsetWidth < nav.clientWidth - 2).length;
+      });
+      if (alone) problems.push('a Side hustles tab sits alone on its row on a phone');
+    }
+
+    // --- the end of the industry case
+    const all = await text();
+    if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out: ${o}`);
+    const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary');
+    checked++;
+    const unique = [...new Set(problems)];
+    if (unique.length) failures.push({ ledger: 'industry', page: 'hustles/industry', problems: unique });
+    process.stdout.write(unique.length ? `  FAIL industry #hustles/industry\n${unique.map((x) => `       ${x}`).join('\n')}\n` : `  ok   industry #hustles/industry (Start for the main and three alts, each one’s fee at its own standings; ${esiAsked} ESI reads)\n`);
     await page.close();
   }
   // Positions' "Check my hangar" (3 October 2026): the user's loot in a container named "Lewds", some of it an item their

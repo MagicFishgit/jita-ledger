@@ -1006,10 +1006,22 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .scope-row code { display: block; font-family: var(--f-mono); font-size: 11px; color: var(--faint); margin-top: 2px; overflow-wrap: anywhere; }
 
 /* hustles */
-.htabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 172px), 1fr)); gap: 10px; }
-.htab { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; align-items: center; padding: 12px 14px; background: rgba(2, 7, 12, .45); border: 1px solid var(--line); text-align: left; color: var(--dim); }
-.htab svg { width: 20px; height: 20px; color: #8a9fb3; }
-.htab .hl { font-family: var(--f-head); font-weight: 600; font-size: 14px; letter-spacing: .1em; text-transform: uppercase; }
+/*
+ * Side hustles' tabs (SideHustles.tsx): seven in one row where they fit (the page at 1,440 with the sidebar open is about
+ * 1,090 px), else four and three, else two with an odd last tab across the row, so no tab ever sits alone
+ * (docs/notes/industry.md). By the row's own width, not the screen's: the sidebar open or shut changes it.
+ */
+.htabs-wrap { container-type: inline-size; }
+.htabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.htabs > .htab:last-child:nth-child(odd) { grid-column: 1 / -1; }
+@container (min-width: 560px) {
+  .htabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .htabs > .htab:last-child:nth-child(odd) { grid-column: auto; }
+}
+@container (min-width: 1040px) { .htabs { grid-template-columns: repeat(7, minmax(0, 1fr)); } }
+.htab { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: center; padding: 11px 10px; background: rgba(2, 7, 12, .45); border: 1px solid var(--line); text-align: left; color: var(--dim); }
+.htab svg { width: 18px; height: 18px; color: #8a9fb3; }
+.htab .hl { font-family: var(--f-head); font-weight: 600; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
 .htab .hb { display: block; font-size: 12px; color: var(--note); margin-top: 1px; text-wrap: pretty; }
 .htab:hover { border-color: color-mix(in oklab, var(--acc) 50%, transparent); }
 .htab[aria-current='page'] { background: linear-gradient(180deg, color-mix(in oklab, var(--acc) 16%, transparent), color-mix(in oklab, var(--acc) 4%, transparent)); border-color: var(--acc); color: #fff; }
@@ -1088,6 +1100,8 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .step-card .st { font-family: var(--f-head); font-size: 13px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--ink); margin-bottom: 8px; }
 .locked { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px dashed var(--line-strong); color: var(--label); font-size: 13px; }
 .locked svg { width: 15px; height: 15px; flex: none; }
+/* The Industry tab (hustles/Industry.tsx): its section switch and Show for share a row, wrapping on a phone. */
+.ind-head { gap: 10px 16px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
 /* The Research tab (hustles/Research.tsx): its tables keep a column and fold the rest under it on a phone (.rd-phone). */
 .rd-table { min-width: 860px; }
 .rd-phone { display: none; }

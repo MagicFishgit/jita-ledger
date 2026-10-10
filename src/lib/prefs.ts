@@ -1,3 +1,4 @@
+import { NPC_FACILITY_TAX, type SiteKind } from './industry';
 import type { Activity, AlertConfig, AlertEvent, Motion, Prefs, Theme } from './types';
 
 /**
@@ -186,6 +187,104 @@ export function sanitizeLeaveFrom(v: unknown): LeaveFromDoc {
     out[id] = at;
   }
   return out;
+}
+
+/**
+ * A place to build (docs/notes/industry.md): an NPC station near Jita, a structure found by name, or a home typed by you.
+ * What's kept is what you'd do in game; what the market or ESI says is read fresh.
+ */
+export type IndustrySite = {
+  /** `npc:<station>`, `st:<structure>`, or `home:<system>`. */
+  id: string;
+  name: string;
+  systemId: number;
+  kind: SiteKind;
+  /** An NPC station's ID. */
+  stationId?: number;
+  /** A structure's ID once found by name: what its hangar stock is filed under. A home typed by you has none. */
+  structureId?: number;
+  /** Its engineering rigs, the bundle's type IDs, at most 3, of the structure's size. An NPC station has none. */
+  rigs: number[];
+  /** Its facility tax as a fraction: an NPC station's 0.25%; a structure's as typed, null until it is (never taken as 0). */
+  tax: number | null;
+  /** An NPC station with a Laboratory, where research, copying and invention run. */
+  lab?: boolean;
+};
+/** A freight route between two systems, either way: ISK a m³ of packaged volume, a share of the goods' value, a minimum (null: none stated). */
+export type FreightRoute = { id: string; name: string; a: number; b: number; perM3: number; collateral: number; min: number | null; source: string | null };
+/** What you've decided about building, synced so every device works it out the same (the spec's "What's kept where"). */
+export type IndustryDoc = {
+  sites: IndustrySite[];
+  /** The site the finder works for (an id in `sites`), or none. */
+  site: string | null;
+  sell: 'jita' | 'home' | 'best';
+  /** The home hub sold at and bought from: a Goonmetrics hub's structure ID. */
+  hub: number | null;
+  /** A hub's broker fee as you typed it, a fraction, by hub ID. Untyped is absent: ranked before it. */
+  hubFees: Record<string, number>;
+  freight: FreightRoute[];
+  /** The part of each market's daily trade you'd sell, in percent: 10 by default, the research's figure for modules. */
+  share: number;
+  /** Never haul ships to Jita: the user's own words, 9 October 2026 ("too bulky expensive and risky"). */
+  noShipsToJita: boolean;
+  /** The ME and TE assumed for an original you'd buy: 0/0, 8/0 or 10/20. */
+  assume: { me: number; te: number };
+};
+export const DEFAULT_INDUSTRY: IndustryDoc = { sites: [], site: null, sell: 'jita', hub: null, hubFees: {}, freight: [], share: 10, noShipsToJita: true, assume: { me: 0, te: 0 } };
+export const SITE_KINDS: readonly SiteKind[] = ['npc', 'raitaru', 'azbel', 'sotiyo', 'astrahus', 'fortizar', 'keepstar', 'other'];
+export const ASSUME_CHOICES: readonly { me: number; te: number }[] = [{ me: 0, te: 0 }, { me: 8, te: 0 }, { me: 10, te: 20 }];
+export const MAX_SITES = 12;
+export const MAX_ROUTES = 12;
+const isSystem = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 30_000_000 && (n as number) < 33_000_000;
+
+/** The doc as stored or pulled, cleaned: anything it doesn't know, or out of range, goes; a site or route that can't be read is dropped whole. */
+export function sanitizeIndustry(v: unknown): IndustryDoc {
+  const x = (v && typeof v === 'object' && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
+  const text = (s: unknown, max: number) => (typeof s === 'string' && s.trim() && s.length <= max ? s : null);
+  const share = (n: unknown, hi: number) => (typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= hi ? n : null);
+  const sites: IndustrySite[] = [];
+  for (const raw of Array.isArray(x.sites) ? x.sites : []) {
+    if (!raw || typeof raw !== 'object' || sites.length >= MAX_SITES) continue;
+    const s = raw as Record<string, unknown>;
+    const id = text(s.id, 64), name = text(s.name, 120), kind = SITE_KINDS.find((k) => k === s.kind), systemId = s.systemId;
+    if (!id || !name || !isSystem(systemId) || !kind || sites.some((y) => y.id === id)) continue;
+    if (kind === 'npc') {
+      const stationId = s.stationId;
+      if (!Number.isInteger(stationId) || (stationId as number) < 60_000_000 || (stationId as number) >= 64_000_000) continue;
+      sites.push({ id, name, systemId, kind, stationId: stationId as number, rigs: [], tax: NPC_FACILITY_TAX, ...(s.lab === true ? { lab: true } : {}) });
+      continue;
+    }
+    const rigs = [...new Set((Array.isArray(s.rigs) ? s.rigs : []).filter((r): r is number => Number.isInteger(r) && r > 0))].slice(0, 3);
+    const structureId = Number.isInteger(s.structureId) && (s.structureId as number) >= 1e12 ? (s.structureId as number) : null;
+    sites.push({ id, name, systemId, kind, ...(structureId != null ? { structureId } : {}), rigs, tax: share(s.tax, 0.5) });
+  }
+  const freight: FreightRoute[] = [];
+  for (const raw of Array.isArray(x.freight) ? x.freight : []) {
+    if (!raw || typeof raw !== 'object' || freight.length >= MAX_ROUTES) continue;
+    const r = raw as Record<string, unknown>;
+    const id = text(r.id, 64), name = text(r.name, 80), perM3 = share(r.perM3, 1e5), collateral = share(r.collateral, 0.2), a = r.a, b = r.b;
+    if (!id || !name || !isSystem(a) || !isSystem(b) || perM3 == null || collateral == null || freight.some((y) => y.id === id)) continue;
+    const min = r.min == null ? null : share(r.min, 1e10);
+    if (r.min != null && min == null) continue;
+    freight.push({ id, name, a, b, perM3, collateral, min, source: text(r.source, 120) });
+  }
+  const hubFees: Record<string, number> = {};
+  if (x.hubFees && typeof x.hubFees === 'object' && !Array.isArray(x.hubFees)) {
+    for (const [k, f] of Object.entries(x.hubFees as Record<string, unknown>)) { const n = share(f, 0.2); if (/^\d{13,}$/.test(k) && n != null) hubFees[k] = n; }
+  }
+  const a = x.assume as { me?: unknown; te?: unknown } | undefined;
+  const assume = ASSUME_CHOICES.find((c) => c.me === a?.me && c.te === a?.te) ?? ASSUME_CHOICES[0];
+  const sh = share(x.share, 100);
+  return {
+    sites,
+    site: typeof x.site === 'string' && sites.some((s) => s.id === x.site) ? x.site : null,
+    sell: x.sell === 'home' || x.sell === 'best' ? x.sell : 'jita',
+    hub: Number.isInteger(x.hub) && (x.hub as number) >= 1e12 ? (x.hub as number) : null,
+    hubFees, freight,
+    share: sh != null && sh >= 0.1 ? sh : DEFAULT_INDUSTRY.share,
+    noShipsToJita: x.noShipsToJita !== false,
+    assume: { ...assume },
+  };
 }
 
 /**

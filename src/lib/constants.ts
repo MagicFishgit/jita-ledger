@@ -24,6 +24,8 @@ export const ALPHA_CAPS: Record<SkillKey, number> = { acc: 0, br: 2, abr: 0, tra
 
 /** Caldari Navy: the loyalty store a Jita trader is most likely to have points with. */
 export const CALDARI_NAVY = 1000035;
+/** Caldari State: with Caldari Navy, the owner of Jita 4-4, whose standings set a broker fee there. */
+export const CALDARI_STATE = 500001;
 
 // PLEX trades on one market for the whole game, not in The Forge.
 export const PLEX_TYPE = 44992;
