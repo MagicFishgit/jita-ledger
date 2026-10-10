@@ -89,6 +89,8 @@ export type Market = {
   homeHist?: HistRow[] | null;
 };
 
+/** What a Jita source says when no freight route from Jita is picked: the finder reads it back to tell "pick a route" from "nobody lists it". */
+export const NO_ROUTE_WHY = 'no freight route from Jita';
 export type Source = 'jita' | 'home' | 'mined';
 export type SourceOption = { source: Source; price: number | null; why: string; pickable: boolean };
 export type MaterialPick = { type: number; qty: number; pick: Source | null; price: number | null; options: SourceOption[]; patient: number | null };
@@ -111,7 +113,7 @@ export function sourceMaterial(o: {
   if (ask == null) options.push({ source: 'jita', price: null, why: o.jita ? 'none listed in Jita' : 'no Jita book this morning', pickable: false });
   else {
     const f = legCost(o.jitaLeg, o.volume, ask, o.weekNeed);
-    options.push(f == null ? { source: 'jita', price: null, why: 'no freight route from Jita', pickable: false }
+    options.push(f == null ? { source: 'jita', price: null, why: NO_ROUTE_WHY, pickable: false }
       : { source: 'jita', price: ask + f, why: o.jitaLeg.kind === 'route' ? 'Jita’s best ask, plus freight' : o.jitaLeg.kind === 'carry' ? 'Jita’s best ask; you carry it' : 'Jita’s best ask', pickable: true });
   }
   if (o.home && o.homeLeg && o.hubName) {
@@ -315,7 +317,7 @@ export function buildRow(o: RowInput): Row {
   }
   // Materials nobody can bring in because no freight route from Jita is picked say so (the user's first run at a null-sec home),
   // not "a material nobody lists".
-  const noRoute = materialCost == null && materials.some((x) => !x.pick && x.options.some((q) => q.source === 'jita' && q.why === 'no freight route from Jita'));
+  const noRoute = materialCost == null && materials.some((x) => !x.pick && x.options.some((q) => q.source === 'jita' && q.why === NO_ROUTE_WHY));
   const missing: Missing | null = !pm.jita && !pm.home ? 'noBook' : !o.site.index ? 'noIndex' : eiv == null ? 'noAdjusted'
     : noRoute ? 'noRoute' : materialCost == null ? 'noMaterials' : !day ? 'noSale' : null;
   return {
@@ -483,4 +485,18 @@ export function bestOreFor(material: number, ores: readonly { id: number; mats: 
     if (!best || perM3 > best.perM3) best = { id: o.id, perM3 };
   }
   return best;
+}
+
+/**
+ * How long a read of the NPC row may be kept: until the next morning scan could have replaced it (the first 11:25 EVE time after the row's `at`,
+ * plus ten minutes' margin) or 15 minutes, whichever is sooner; never negative. A row with no time is kept 15 minutes.
+ */
+export const NPC_HOLD_MS = 15 * 60_000;
+export function npcHoldMs(at: string | null, now: number): number {
+  const t = at ? Date.parse(at) : NaN;
+  if (!Number.isFinite(t)) return NPC_HOLD_MS;
+  const d = new Date(t);
+  const scan = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 11, 25);
+  const next = (scan > t ? scan : scan + 86_400_000) + 10 * 60_000;
+  return Math.max(0, Math.min(NPC_HOLD_MS, next - now));
 }

@@ -3,13 +3,14 @@ import { cloudEnabled, cloudIndustryNpc, useCloud } from '../../lib/cloud';
 import { EsiError, esi } from '../../lib/esi';
 import { shareInFlight } from '../../lib/inFlight';
 import type { IndustryIndex } from '../../lib/industry';
-import type { NpcRow } from '../../lib/industryRank';
+import { npcHoldMs, type NpcRow } from '../../lib/industryRank';
 import { adjustedPricesShared, industrySystemsShared, jitaBook, resolveNames } from '../../lib/market';
 import { nameReader } from '../../lib/nameReader';
 import { sanitizeIndustry, type IndustryDoc } from '../../lib/prefs';
 import { loadCache, useScanState, type ScanCache } from '../../lib/scan';
 import type { BookSold } from '../../lib/split';
-import { update, useData } from '../../lib/store';
+import { getAuth, onAuthChange } from '../../lib/auth';
+import { onClearAll, update, useData } from '../../lib/store';
 import type { BookLevel } from '../../lib/types';
 
 /**
@@ -77,22 +78,29 @@ export function useScanCache(): Loaded<ScanCache> {
  */
 export type NpcState = { status: 'off' } | { status: 'loading' } | { status: 'behind' } | { status: 'failed'; error: string }
   | { status: 'ok'; rows: { complete: NpcRow | null; partial: NpcRow | null } };
-/** The cloud writes the NPC row once a morning: one read an hour is plenty, shared while in flight and kept for the visit. */
-const NPC_HOLD_MS = 3_600_000;
-let npcHeld: { at: number; read: ReturnType<typeof cloudIndustryNpc> } | null = null;
+/**
+ * The cloud writes the NPC row once a morning: one read shared while in flight and kept until the next scan could have
+ * replaced it or 15 minutes (npcHoldMs). Dropped when the cloud is switched off, on a different login and on "Delete all
+ * data", so a fresh scan is never hidden behind an old copy.
+ */
+let npcHeld: { until: number; read: ReturnType<typeof cloudIndustryNpc> } | null = null;
+const resetNpc = () => { npcHeld = null; };
+let npcChar: number | null | undefined;
+onAuthChange(() => { const id = getAuth()?.characterId ?? null; if (npcChar !== undefined && npcChar !== id) resetNpc(); npcChar = id; });
+onClearAll(resetNpc);
 const npcRead = () => {
-  if (npcHeld && Date.now() - npcHeld.at < NPC_HOLD_MS) return npcHeld.read;
+  if (npcHeld && Date.now() < npcHeld.until) return npcHeld.read;
   const read = cloudIndustryNpc();
-  const held = { at: Date.now(), read };
+  const held = { until: Infinity, read };
   npcHeld = held;
-  read.catch(() => { if (npcHeld === held) npcHeld = null; });
+  read.then((rows) => { held.until = Date.now() + npcHoldMs(rows?.partial?.at ?? rows?.complete?.at ?? null, Date.now()); }, () => { if (npcHeld === held) npcHeld = null; });
   return read;
 };
 export function useNpcRow(): NpcState {
   const cloud = useCloud();
   const [st, setSt] = useState<NpcState>(() => (cloudEnabled() ? { status: 'loading' } : { status: 'off' }));
   useEffect(() => {
-    if (!cloudEnabled()) { setSt({ status: 'off' }); return; }
+    if (!cloudEnabled()) { resetNpc(); setSt({ status: 'off' }); return; }
     if (!cloud.started) return;
     let alive = true;
     npcRead().then((rows) => { if (alive) setSt({ status: 'ok', rows: { complete: rows?.complete ?? null, partial: rows?.partial ?? null } }); },

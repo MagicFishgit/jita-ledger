@@ -1899,7 +1899,8 @@ try {
     let npcAnswer = { complete: { at: iso(now - 3 * 3600_000), complete: true, pagesFailed: 0, sellers: { 25895: [1_250_000, [60001483, 60001486]] } }, partial: null };
     CLOUD['/v1/pull'] = (url, req, json) => json({ rev: 1, next: null, records: [], docs: [] });
     CLOUD['/v1/push'] = (url, req, json) => json({ rev: 2 });
-    CLOUD['/v1/industry/npc'] = (url, req, json) => (npcAnswer === 404 ? json({ error: 'Not found' }, 404) : json(npcAnswer));
+    let npcAsked = 0;
+    CLOUD['/v1/industry/npc'] = (url, req, json) => (npcAsked++, npcAnswer === 404 ? json({ error: 'Not found' }, 404) : json(npcAnswer));
     const BRAVE = [{ id: 'brave-jita-ualx', name: 'Brave Freight, Jita ↔ UALX-3', a: 30000142, b: 30004807, perM3: 900, collateral: 0.007875, min: 5e6, source: 'Brave wiki, 3 June 2026' },
       { id: 'brave-jita-cj6', name: 'Brave Freight, Jita ↔ C-J6MT', a: 30000142, b: 30000772, perM3: 1150, collateral: 0.007875, min: null, source: 'Brave Freight’s calculator, 9 October 2026' }];
     const DOC = { sites: [
@@ -1947,11 +1948,27 @@ try {
     const detail = (await text('[data-industry="detail"]')).toLowerCase();
     for (const t of ['Materials for a day’s', 'Researching it first, at', 'ME 10 / TE 20', 'Install the job at Home in C-J6MT', 'Copy for Multibuy', 'Shopping list, beyond what’s held', 'A home typed by you has no structure ID, so nothing held there is known.'])
       if (!detail.includes(t.toLowerCase())) problems.push(`the pump’s detail doesn’t say “${t}”`);
+    {
+      const tile = await text('[data-industry="detail"] .tile:has-text("The job")');
+      if (!tile.includes('facility tax not typed') || tile.includes('–:')) problems.push(`the job tile at C-J6MT doesn’t say “facility tax not typed” cleanly: “${tile.slice(0, 200)}”`);
+      if (!(await page.locator('[data-industry="research-left-out"]').count())) problems.push('the research costs at a lab whose tax isn’t typed don’t say what they leave out');
+    }
     if (SHOTS) { await page.locator('[data-industry="detail"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-industry-detail.png` }); }
     // The NPC row: a partial read only, then a cloud a version behind.
     npcAnswer = { complete: null, partial: { at: iso(now - 3600_000), complete: false, pagesFailed: 3, sellers: {} } };
     await finder();
     if (!(await text('[data-bp="25895"]')).includes('No NPC seller found (this morning’s read missed 3 pages); base price 1.25 M ISK')) problems.push('after a partial read alone, the pump doesn’t say no seller was found and how many pages were missed');
+    {
+      const steps = async () => text('[data-industry="steps"]');
+      if (!(await steps()).includes('Find an original: No NPC seller found (this morning’s read missed 3 pages)') || /no NPC sells it/.test(await steps())) problems.push(`after a partial read alone, the detail’s steps don’t say no seller was found: “${(await steps()).slice(0, 160)}”`);
+      npcAnswer = { complete: { at: iso(now - 3 * 3600_000), complete: true, pagesFailed: 0, sellers: {} }, partial: null };
+      await finder();
+      if (!(await steps()).includes('Find an original: no NPC sells it in The Forge')) problems.push(`after a complete read lacking it, the steps don’t say no NPC sells it in The Forge: “${(await steps()).slice(0, 160)}”`);
+      await page.evaluate(() => localStorage.setItem('jita-ledger:cloud-off', '1'));
+      await finder();
+      if (!(await steps()).includes('Find an original: NPC sellers come from the cloud’s morning scan, which isn’t on in this browser') || /no NPC sells it/.test(await steps())) problems.push(`with the cloud off, the steps say something else: “${(await steps()).slice(0, 200)}”`);
+      await page.evaluate(() => localStorage.removeItem('jita-ledger:cloud-off'));
+    }
     npcAnswer = 404;
     await finder();
     if (!(await text('[data-bp="25895"]')).includes('The cloud is a version behind: NPC sellers come once it’s updated')) problems.push('with the cloud a version behind, the pump’s original doesn’t say so');
@@ -1986,7 +2003,24 @@ try {
       if (!noRoute.includes('No freight route between Home in UALX-3 and Jita is picked')) problems.push(`a null-sec home with no freight route picked doesn’t say so: “${noRoute.slice(0, 300)}”`);
       if (/need a material nobody lists/.test(noRoute)) problems.push('with no freight route picked, rows are said to need “a material nobody lists”');
       if (!(await page.locator('[data-industry="pick-route"]').count())) problems.push('with no route picked, there’s no way to the sites panel');
-      else { await page.locator('[data-industry="pick-route"]').click(); await page.waitForTimeout(500); if (!(await page.locator('[data-industry="sites"]').isVisible().catch(() => false))) problems.push('the pick-a-route link doesn’t open Where you build'); }
+      else {
+        // The NPC row is asked once across a remount of Build (Start and back), not on every mount.
+        const asked = npcAsked;
+        await page.evaluate(() => { location.hash = '#hustles/industry/start'; });
+        await page.waitForSelector('[data-industry="start"]', { timeout: 20_000 });
+        await page.evaluate(() => { location.hash = '#hustles/industry/build'; });
+        await page.waitForSelector('[data-industry="finder-count"]', { timeout: 20_000 });
+        await page.waitForTimeout(600);
+        if (npcAsked !== asked) problems.push(`the NPC row was asked for again on a remount of Build (${npcAsked - asked} more)`);
+        // A short window, so the panel opening below the table is out of sight unless the link brings it in.
+        const vs = page.viewportSize();
+        if (vs) await page.setViewportSize({ width: vs.width, height: Math.min(vs.height, 420) });
+        await page.locator('[data-industry="pick-route"]').click(); await page.waitForTimeout(1500);
+        if (!(await page.locator('[data-industry="sites"]').isVisible().catch(() => false))) problems.push('the pick-a-route link doesn’t open Where you build');
+        const inView = await page.evaluate(() => { const c = document.querySelector('.content')?.getBoundingClientRect(), t = document.querySelector('[data-industry="sites"]')?.getBoundingClientRect(); return c && t ? { top: t.top - c.top, height: c.height } : null; });
+        if (!inView || inView.top < -1 || inView.top > 80) problems.push(`the pick-a-route link doesn’t scroll Where you build to the top of the page’s view: ${JSON.stringify(inView)}`);
+        if (vs) await page.setViewportSize(vs);
+      }
       // Assets not read: the Held column and tile say so, never 0.
       await reseed(DOC);
       await buildPage('[data-bp="25895"]');

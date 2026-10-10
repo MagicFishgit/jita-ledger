@@ -7553,6 +7553,14 @@ console.log('\n--- Industry: the finder\'s rules (industryRank.ts) ---');
   const caracal = K.buildRow({ ...base, bp: ix.byProduct.get(621), me: 0, te: 0, site: { ...base.site, rigs: [] }, market: () => ({ jita: { ask: 10e6, bid: 9e6, bids: [], at: '', live: false }, stats: { spark, buyerShare: 0.5 } }) });
   eq('  a ship from a null-sec site with "never haul ships to Jita" on: kept home, not sold in Jita', [caracal.shipsKeptHome, caracal.sales.length, caracal.missing], [true, 0, 'noSale']);
 
+  const noBookShip = K.buildRow({ ...base, bp: ix.byProduct.get(621), me: 0, te: 0, site: { ...base.site, rigs: [] }, market: () => ({ jita: null, stats: null }) });
+  eq('    a ship with no Jita book isn\'t counted as kept home by the switch (it would not have sold there anyway)', [noBookShip.shipsKeptHome, noBookShip.missing], [false, 'noBook']);
+  eq('  no freight route from Jita picked: said as that, ahead of "a material nobody lists"', [K.buildRow({ ...base, legs: { jita: { kind: 'none' }, home: null } }).missing, K.NO_ROUTE_WHY], ['noRoute', 'no freight route from Jita']);
+  const AT = '2026-10-10T11:25:00Z', T = (h, m = 0) => Date.parse(`2026-10-10T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00Z`);
+  eq('  an NPC row is kept 15 minutes, or until the next morning scan could replace it if sooner, never negative',
+    [K.npcHoldMs(AT, T(12)), K.npcHoldMs('2026-10-10T11:36:00Z', T(23, 55)), K.npcHoldMs('2026-10-10T11:36:00Z', Date.parse('2026-10-11T11:30:00Z')), K.npcHoldMs('2026-10-08T11:25:00Z', T(12)), K.npcHoldMs(null, T(12))],
+    [900_000, 900_000, 300_000, 0, 900_000]);
+
   eq('  where the original is sold: in The Forge, the partial read\'s newer sellers on top; else NPCs don\'t sell it there (after a complete read), or no seller found (a partial one), or not read',
     [K.bpoWhere({ complete: { at: 'a', complete: true, pagesFailed: 0, sellers: { 25895: [1_250_000, [60001]] } }, partial: { at: 'b', complete: false, pagesFailed: 3, sellers: { 25895: [1_200_000, [60002]] } } }, 25895, 1_250_000),
       K.bpoWhere({ complete: { at: 'a', complete: true, pagesFailed: 0, sellers: {} }, partial: null }, 25895, 1_250_000),

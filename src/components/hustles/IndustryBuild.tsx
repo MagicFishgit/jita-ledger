@@ -130,7 +130,7 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
             {beforeTax && ` Profit a day is before the facility tax: ${f.site?.name}’s isn’t typed.`}
             {cloneUnread && ' Clone state not read: the 0.25% Alpha tax is left out of every job’s cost.'}
             {noRoute && ` No freight route between ${f.site?.name} and Jita is picked, so no material can be brought from Jita: `}
-            {noRoute && <button type="button" className="link-btn" onClick={() => { setView({ sitesOpen: true }); }} data-industry="pick-route">pick one under Where you build</button>}
+            {noRoute && <button type="button" className="link-btn" onClick={() => { setView({ sitesOpen: true }); setTimeout(() => document.querySelector('[data-industry="sites"]')?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 150); }} data-industry="pick-route">pick one under Where you build</button>}
             {noRoute && '.'}
           </p>
           <div className="tbl-scroll" style={{ border: '1px solid var(--line-3)' }}>
