@@ -256,7 +256,7 @@ export function roundTripTip(t: RoundTrip, horizonDays: number | null | undefine
   return [
     t.rate != null && t.trips != null && t.of != null ? `${roundTripSaid(t, horizonDays)}: ${units(t.trips)} of the ${units(t.of)} days that could be counted.` : `${roundTripSaid(t, horizonDays)}.`,
     [
-      `• Each of the last ${ROUND_TRIP_STARTS} days whose ${horizonWords(t, horizonDays)} have passed: Place and leave’s prices as it would have set them that morning, from the 14 days before.`,
+      `• Each of the last ${ROUND_TRIP_STARTS} days that had ${horizonWords(t, horizonDays)} after it: Place and leave’s prices as it would have set them that morning, from the 14 days before.`,
       `• A round trip: the bid reached (the day’s low at or under it), then the sale (a day’s high at or over it), ${within}.`,
       ...(t.sameDay ? [`• History is daily, so ${within} counts a day that reached both: the nearest it can say.`] : []),
       '• A day whose 14 days before couldn’t price both sides isn’t counted.',

@@ -197,7 +197,7 @@ const PLANNER_SWITCH = { drawn: ['Raises kept back'], note: '2 left out: 1 Bids 
  * "Keep items whose market moved" on, the start dialog says the plan's horizon and what history expects of its 2 items.
  */
 const PLANNER_TRIPS = {
-  said: ['1 from before round trips were counted', '1 with too little history to say how often it round-trips', '1 that never round-tripped within 3 days in the last 60 days',
+  said: ['1 from before round trips were counted', '1 with too little history to say how often it round-trips', '1 that never round-tripped within 3 days on any past day',
     'predates Place and leave’s count of round trips', 'History says it round-trips within 3 days on 45% of past days', 'Each item scaled by how often it round-tripped within 3 days on past days'],
   row: ['45% of days'], header: 'Round trip within 3 days', rowTip: 'Round trip within 3 days on 45% of past days',
   kept: 'About 1 of these 2 round-trips within 3 days, history says',
