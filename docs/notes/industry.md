@@ -76,9 +76,14 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
   fees, held stock and mining every figure uses, the main or an alt, falling back to the main without forgetting the kept
   one. Industry.tsx is the one file of the tab importing the alt store; `useIndustryChars` reads each alt's pulled copy and
   writes nothing.
-- **Skills not read are not level 0**: Start gives no slots and no fee for an alt whose skills aren't read, nor for a main
-  whose first sync has brought none (its skills doc is `{}`, which `slots` would read as an untrained character: "1 of
-  11"). The page check's empty ledger asserts it.
+- **Skills not read are not level 0, and a fee is shown only when it is known** (`IndustryChar.feeKnown`, `hasSkills`,
+  `IndustryStart`). A main before its first sync has no `skills` at all (`emptyData` has no such key); an alt's pulled copy
+  has `{}` until the cloud reads it. Either, taken as trained-nothing, gives "1" factory slot and the fee of an untrained
+  character. So slots need skills with at least one level (`{}` counts as unread). The fee is known for the main when it
+  types its own broker fee and sales tax (Settings' override), or its settings aren't filled from the character, or its
+  skills are read; for an alt when its skills are read (`altFees` works its fee out from them). Otherwise it is "–" with
+  when the skills come. The slots tiles show the number alone ("5") with "11 at most" in the note: "5 of 11" read as five
+  in use. The page check asserts the empty ledger shows "–" for both, and a main with typed fees and no skills shows them.
 - **An alt's Jita broker fee is at its read standings** (`altFees.ts`, 10 October 2026): Caldari State and Caldari Navy,
   raw, each floored at 0, exactly as the main's sync fills its settings. `altLedger` carries standing 0 for both, and the
   Research tab took an alt's fee from that (`researchChars.ts`), so an alt with standings read 2.10% at Broker Relations

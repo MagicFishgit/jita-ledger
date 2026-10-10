@@ -104,7 +104,7 @@ is null, never an error). `npm run worker:deploy` still works by hand from this 
 **The Worker runs the app's own rules**, imported straight from `src/lib`: `esiRecords`, `flow`, `split`, `relist`,
 `fills`, `fees`, `prefs`, `prospects`, `evaluate`, `alerts`, `colony`, `tick`, `format`, `constants`, `types`, `snipe`,
 `track`, `share`, `watchdog`, `roster`, `alphaCaps`, `mining`, `abyssTracker` (with `abyssal` for a type), `plans`,
-`research`. These must stay free of `./config`, `./store`, React and the DOM, even for a type import: `tsc -p worker`
+`research`, `industry`. These must stay free of `./config`, `./store`, React and the DOM, even for a type import: `tsc -p worker`
 pulls in whatever they import. That is why `OrderLite` lives in `flow.ts`, `SkillKey` comes from `constants`, and
 `soldFrom`, `sidePaceOf`, `judgeOrder`, `orderFindings` and `piFindings` were moved out of the I/O modules.
 

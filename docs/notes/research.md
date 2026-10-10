@@ -277,3 +277,10 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
 5. **What `ResearchMissionAvailableMsg` carries**, and how long ESI keeps it. The app keeps only its time until then.
 6. **Lai Dai's standing for both characters**: the first whole `/standings` read (the main's sync; the alt's hourly read
    after the Worker deploys).
+
+- **An alt's broker fee comes from its read standings** (`altFees.ts`, 10 October 2026; `researchChars.ts`). `altLedger`
+  carries standing 0 with Caldari State and Caldari Navy, and the tab took an alt's fee from it, so an alt with standings was
+  valued as paying the fee of one with none (2.10% at Broker Relations III, where 1.98% is paid). A listing's worth on a
+  card, and anything else priced after the fee, now uses `ratesAtStandings`; with none read the settings' own. The page
+  check's `researchfee` case (Fee Alt: 6 datacores, 4 into the bids and 2 valued listed) reads 471,608 ISK at the right
+  fee and 471,382 at the zeros.

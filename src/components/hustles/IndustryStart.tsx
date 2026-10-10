@@ -15,7 +15,7 @@ export function IndustryStart({ c, ix }: { c: IndustryChar; ix: Indexed }) {
   const sk = c.pilot.skills && Object.keys(c.pilot.skills).length ? c.pilot.skills : undefined;
   const s = sk ? slots(ix, sk) : null;
   const why = skillsWhy(c);
-  const feeKnown = !!sk;
+  const feeKnown = c.feeKnown;
   const feeSaid = c.isMain ? `sales tax ${pct(c.tax)}, as Settings has them`
     : c.standingsRead ? `sales tax ${pct(c.tax)}, at ${c.name}’s standings with Caldari State and Caldari Navy`
       : `sales tax ${pct(c.tax)}; standings not read: broker fee at no standing`;
@@ -32,11 +32,11 @@ export function IndustryStart({ c, ix }: { c: IndustryChar; ix: Indexed }) {
       <div data-industry="where">
         <Tiles min={200} items={[
           {
-            l: 'Factory slots', v: s ? `${s.factory} of ${MAX_SLOTS}` : '–', n: s ? 'one job each: 1, plus Mass Production and Advanced Mass Production' : why,
+            l: 'Factory slots', v: s ? `${s.factory}` : '–', n: s ? `one job each; ${MAX_SLOTS} at most: 1, plus Mass Production and Advanced Mass Production` : why,
             tip: 'How many manufacturing jobs run at once.\n\n• One, plus one a level of Mass Production and of Advanced Mass Production.\n• Eleven at most (EVE University, "Industry skills").',
           },
           {
-            l: 'Science slots', v: s ? `${s.science} of ${MAX_SLOTS}` : '–', n: s ? 'research, copying and invention: 1, plus Laboratory Operation and Advanced Laboratory Operation' : why,
+            l: 'Science slots', v: s ? `${s.science}` : '–', n: s ? `research, copying and invention, one job each; ${MAX_SLOTS} at most: 1, plus Laboratory Operation and Advanced Laboratory Operation` : why,
             tip: 'How many research, copying and invention jobs run at once.\n\n• One, plus one a level of Laboratory Operation and of Advanced Laboratory Operation.\n• Eleven at most.',
           },
           {

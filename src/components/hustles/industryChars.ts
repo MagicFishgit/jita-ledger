@@ -28,6 +28,12 @@ export type IndustryChar = {
   broker: number; tax: number;
   /** An alt's standings read (the cloud's hourly sheet); always true for the main, whose fee follows its settings. */
   standingsRead: boolean;
+  /**
+   * Whether its fee can be shown: the main's when it types its own broker fee and sales tax (Settings' override), or its
+   * settings aren't filled from the character, or its skills are read (the fee then follows them); an alt's when its skills
+   * are read (altFees.ts works its fee out from them). Otherwise the fee would be that of an untrained character.
+   */
+  feeKnown: boolean;
   /** Loose items per station or structure as last read, and when: the main's by its sync, an alt's by the cloud's hourly read. Null when not read. */
   stock: { byLocation: Record<number, Record<number, number>>; at: string } | null;
   /** Its own purchases, for what held materials cost it (heldCost). */
@@ -40,6 +46,8 @@ export type IndustryChar = {
 export type IndustryAlts = { roster: RosterEntry[]; alts: Record<number, AltSaved> };
 
 const NO_ALT = emptyAlt();
+/** Skills read: a ledger's skills doc is absent (a main before its first sync) or empty (an alt's, filled in by altLedger) until they are. */
+const hasSkills = (s: Record<number, number> | undefined): boolean => !!s && Object.keys(s).length > 0;
 
 export function useIndustryChars(alts: IndustryAlts): IndustryChar[] {
   const d = useData();
@@ -56,6 +64,7 @@ export function useIndustryChars(alts: IndustryAlts): IndustryChar[] {
       pilot: pilotFrom({ skills, meta, settings }, { charId: mainId, name: mainName, isMain: true }, false),
       clone: meta.cloneDetected ?? (settings.clone === 'omega' ? 'omega' : 'unknown'),
       broker: r.f, tax: r.t, standingsRead: true,
+      feeKnown: settings.override || !settings.fromCharacter || hasSkills(skills),
       stock: stock?.byLocation ? { byLocation: stock.byLocation, at: stock.at } : null,
       buys: Object.values(txs).filter((t) => t.isBuy),
       mines: minedLately(mining, mainId, hour),
@@ -76,7 +85,7 @@ export function useIndustryChars(alts: IndustryAlts): IndustryChar[] {
         charId: entry.charId, name, isMain: false,
         pilot: { ...pilotFrom(ledger, { charId: entry.charId, name, isMain: false }, true), lost },
         clone: (ledger.meta as { cloneDetected?: 'alpha' | 'omega' }).cloneDetected ?? byHand ?? 'unknown',
-        broker: ra.f, tax: ra.t, standingsRead: !!list,
+        broker: ra.f, tax: ra.t, standingsRead: !!list, feeKnown: hasSkills(ledger.skills),
         stock: st?.byLocation ? { byLocation: st.byLocation, at: st.at } : null,
         buys: Object.values(ledger.txs).filter((t) => t.isBuy),
         mines: minedLately(ledger.mining, entry.charId, hour),
