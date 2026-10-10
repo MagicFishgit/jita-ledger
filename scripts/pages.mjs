@@ -2069,6 +2069,18 @@ try {
     await page.waitForTimeout(1500);
     if (!(await text('[data-industry="home-said"]')).includes('UALX-3’s prices: Goonmetrics, read 2 h ago.')) problems.push(`the home hub’s prices don’t say when the cloud read them: “${await text('[data-industry="home-said"]')}”`);
     if (!(await finderHead()).includes(PHONE ? 'profit a day is before the broker fee at ualx-3' : 'profit a day, before the broker fee at ualx-3')) problems.push(`with UALX-3’s broker fee not typed, the head doesn’t say so: “${await finderHead()}”`);
+    // The hub was read, so a type it has no price for isn't "not read yet": the count line and the pump's materials say so.
+    {
+      const said = await text('[data-industry="finder-count"]'), mat = (await pumpOpen()).toLowerCase();
+      if (!said.includes('no price at UALX-3') || /not read at UALX-3 yet/i.test(said)) problems.push(`after UALX-3's read, a type with no price there isn't said as “no price at UALX-3”: “${said.slice(0, 400)}”`);
+      if (!mat.includes('home hub: – (no price at ualx-3)') || mat.includes('not read at ualx-3 yet')) problems.push('after UALX-3’s read, the pump’s materials without a price there say “not read yet”');
+    }
+    // Selling in Jita only, with a hub picked: no word of a price at a place nothing is sold at.
+    await page.locator('[aria-label="Sell at"] button', { hasText: 'Jita' }).click();
+    await page.waitForTimeout(1000);
+    if (/no price at UALX-3/.test(await text('[data-industry="finder-count"]'))) problems.push('with Sell at Jita, the count line still counts rows as having no price at UALX-3');
+    await page.locator('[aria-label="Sell at"] button', { hasText: 'UALX-3' }).click();
+    await page.waitForTimeout(1000);
     const atHome = await text('[data-bp="25895"]');
     for (const t of ['sold at UALX-3, Goonmetrics’ prices', 'each 1% of broker fee at UALX-3:']) if (!atHome.includes(t)) problems.push(`the pump sold at UALX-3 doesn’t say “${t}”: “${atHome.slice(0, 200)}”`);
     const homeDetail = (await pumpOpen()).toLowerCase();
@@ -2086,6 +2098,17 @@ try {
     const histDetail = await pumpOpen();
     if (histDetail.includes('Goonmetrics’ weekly movement ÷ 7')) problems.push('with the home history read, the pump’s pace still comes from Goonmetrics’ weekly movement');
     if (!histDetail.includes('guessed from where each day’s average sat between its low and high')) problems.push('with the home history read, the pump’s split doesn’t say it comes from history');
+    // A type Goonmetrics last heard of three days before the cloud's read says so on its sale tile.
+    {
+      const was = homeAnswer;
+      homeAnswer = (hub) => { const r = was(hub); return hub === UALX_HUB ? { ...r, prices: { [PUMP]: [iso(now - 74 * 3600_000), ...r.prices[PUMP].slice(1)] } } : r; };
+      await finder();
+      const old = await pumpOpen();
+      if (!old.includes('Goonmetrics’ figure for it is from')) problems.push('a pump whose Goonmetrics figure is three days older than the cloud’s read doesn’t say so on its sale tile');
+      homeAnswer = was;
+      await finder();
+      if ((await pumpOpen()).includes('Goonmetrics’ figure for it is from')) problems.push('a pump read at the same time as the cloud’s read says its figure is old');
+    }
     // C-J6MT's read is 26 hours old: said with its time.
     await page.locator('select[aria-label="Home hub"]').selectOption({ label: 'C-J6MT' });
     await page.waitForTimeout(1200);

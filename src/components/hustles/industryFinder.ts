@@ -64,7 +64,7 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph): Finder {
     const market = (t: number): Market => {
       const b = cache.books[t];
       if (!flows.has(t)) flows.set(t, watchedFlow(t));
-      return { jita: b ? othersBook(b, c.own, t, false) : null, stats: cache.stats[t] ?? null, watched: flows.get(t) ?? null, home: prices ? homeQuote(prices[t]) : null };
+      return { jita: b ? othersBook(b, c.own, t, false) : null, stats: cache.stats[t] ?? null, watched: flows.get(t) ?? null, home: prices ? homeQuote(prices[t]) : null, homeRead: !!prices };
     };
     return {
       ix, me: doc.assume.me, te: doc.assume.te, skills, clone: c.clone,
@@ -84,16 +84,17 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph): Finder {
   // The home region's history for the top rows sold at home: their pace and split, where Goonmetrics' weekly movement stood in.
   const homeTypes = useMemo(() => (hub ? first.filter((r) => r.day && r.sale?.place === 'home').slice(0, LIVE_ROWS).map((r) => r.product) : []), [first, hub]);
   const homeHist = useHomeHistory(homeTypes, hub?.region ?? null);
-  const live = Object.keys(liveBooks).length > 0 || Object.keys(homeHist).length > 0;
+  // Live Jita books and home histories are told apart: the count line says "on Jita's books now" only for the first.
+  const live = Object.keys(liveBooks).length > 0, homeLive = Object.keys(homeHist).length > 0;
   const liveInput = useMemo(() => {
-    if (!input || !live) return input;
+    if (!input || !(live || homeLive)) return input;
     const market = (t: number): Market => {
       const m = input.market(t), b = liveBooks[t];
       return { ...m, ...(b ? { jita: othersBook(b, c.own, t, true) } : {}), ...(homeHist[t] ? { homeHist: homeHist[t] } : {}) };
     };
     return { ...input, market };
-  }, [input, live, liveBooks, homeHist, c.own]);
-  const rows = useMemo(() => (liveInput && live ? rankBuilds(liveInput, bps) : first), [liveInput, live, first, bps]);
+  }, [input, live, homeLive, liveBooks, homeHist, c.own]);
+  const rows = useMemo(() => (liveInput && (live || homeLive) ? rankBuilds(liveInput, bps) : first), [liveInput, live, homeLive, first, bps]);
 
   const npcRows = npc.status === 'ok' ? npc.rows : null;
   const bpo = (bp: number) => bpoWhere(npcRows, bp, ix.b.types[bp]?.[4] ?? 0);

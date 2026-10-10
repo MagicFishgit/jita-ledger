@@ -28,7 +28,7 @@ import { rateReport } from './rate';
 import { blueprintMarket } from './blueprints';
 import { abyssCells, abyssFit, refreshAbyss } from './abyss';
 import { npcRows } from './industryNpc';
-import { homePrices, refreshHomePrices } from './goonmetrics';
+import { BUDGET_MS, homePrices, refreshHomePrices } from './goonmetrics';
 
 export interface Env {
   DB: D1Database;
@@ -215,7 +215,7 @@ export default {
         // Then home prices for the Industry tab, when a hub's are six hours old (goonmetrics.ts): after the alts, never in
         // their way; not a watched job (someone else's site, and the tab says how old its figures are).
         .finally(async () => {
-          try { console.log('goonmetrics', JSON.stringify(await refreshHomePrices(env.DB))); } catch (e) { console.error('goonmetrics failed', e); }
+          try { console.log('goonmetrics', JSON.stringify(await refreshHomePrices(env.DB, Date.now(), undefined, undefined, undefined, event.scheduledTime + BUDGET_MS))); } catch (e) { console.error('goonmetrics failed', e); }
         }));
       return;
     }

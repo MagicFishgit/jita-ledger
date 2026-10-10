@@ -98,6 +98,10 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
   const rig = rigFor(ix, site.rigs, site.kind, facts.band, row.product, 'manufacturing');
   const sale = row.sale;
   const listPrice = sale?.list ?? null;
+  // Goonmetrics stamps each type's own `updated`: a thin item's upload from days before the cloud's read says so, not read as fresh.
+  const homeAt = finder.home.status === 'ok' ? Date.parse(finder.home.at) : NaN, typeAt = Date.parse(input.market(row.product).home?.at ?? '');
+  const staleFigure = Number.isFinite(homeAt) && Number.isFinite(typeAt) && homeAt - typeAt > 24 * 3600_000
+    ? ` · Goonmetrics’ figure for it is from ${new Date(typeAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}` : '';
   const setDest = async (id: number) => {
     try { await setDestination(id); toast(`Destination set in ${c.isMain ? 'your' : `${mainName}’s`} client.`, 'info'); }
     catch (e) { toast(e instanceof Error ? e.message : String(e), 'err'); }
@@ -151,7 +155,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
         },
         ...(row.sales.length ? row.sales : [null]).map((s) => s ? ({
           l: s.place === 'home' ? `The sale at ${input.hubName}` : 'The sale in Jita', v: s.list != null ? iskBig(s.list) : '–',
-          n: s.why ?? `nets ${iskBig(s.listNet)} listed${s.brokerKnown ? '' : ' (before the broker fee: not typed)'}, ${iskBig(s.bidNet)} into the best bid · ${units(s.pace)} a day, ${pct(s.split, 0)} buyers taking listings (${s.paceFrom === 'goonmetrics' ? 'Goonmetrics’ weekly movement ÷ 7, at an even split, until the home history is read' : SPLIT_SAID[s.splitFrom as Exclude<typeof s.splitFrom, 'goonmetrics'>]})${s.place === 'home' ? ` · Goonmetrics: ${((w) => (w != null ? units(w) : '–'))(input.market(row.product).home?.weekly)} a week` : ''}${s.freight ? ` · freight ${isk(s.freight)} a unit` : ''}`,
+          n: s.why ?? `nets ${iskBig(s.listNet)} listed${s.brokerKnown ? '' : ' (before the broker fee: not typed)'}, ${iskBig(s.bidNet)} into the best bid · ${units(s.pace)} a day, ${pct(s.split, 0)} buyers taking listings (${s.paceFrom === 'goonmetrics' ? 'Goonmetrics’ weekly movement ÷ 7, at an even split, until the home history is read' : SPLIT_SAID[s.splitFrom as Exclude<typeof s.splitFrom, 'goonmetrics'>]})${s.place === 'home' ? ` · Goonmetrics: ${((w) => (w != null ? units(w) : '–'))(input.market(row.product).home?.weekly)} a week${staleFigure}` : ''}${s.freight ? ` · freight ${isk(s.freight)} a unit` : ''}`,
         }) : { l: 'The sale', v: '–', n: 'not sold anywhere you said' }),
         { l: 'Profit a day, one slot', v: iskBigSigned(row.day?.profit), n: ((r) => (r.length ? `${r.join('; ')}` : row.day ? `${units(row.day.units)} sold of ${units(row.makes)} made` : ''))([row.taxPerPct != null && `before the facility tax; each 1% costs ${iskBig(row.taxPerPct)} a day`, row.brokerPerPct != null && `before the broker fee at ${input.hubName}; each 1% costs ${iskBig(row.brokerPerPct)} a day`].filter(Boolean)) + (row.costKnown === false && row.taxPerPct == null ? '; before the Alpha tax, since the clone state isn’t read' : '') },
       ]} />

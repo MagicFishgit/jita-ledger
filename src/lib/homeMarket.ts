@@ -22,16 +22,18 @@ export const HOME_STALE_MS = 24 * 3600_000;
 /** How old a hub's row may be before the cloud reads it again (the Worker's round), and how long the browser holds a read of it. */
 export const HOME_REFRESH_MS = 6 * 3600_000;
 export const HOME_HOLD_MAX_MS = 15 * 60_000;
+/** A read already due again is still held this long, so a mount doesn't fetch the ~130 KB row each time. */
+export const HOME_HOLD_MIN_MS = 5 * 60_000;
 /** The margin after a hub's next refresh could land (the hourly cron fires at :37 and the read takes about two minutes). */
 export const HOME_HOLD_MARGIN_MS = 10 * 60_000;
 /**
  * How long the browser keeps a read of a hub's prices: until the cloud's next refresh could have replaced it (its `at` plus
- * HOME_REFRESH_MS plus a margin) or 15 minutes, whichever is sooner; never negative. A read with no time is kept 15 minutes.
+ * HOME_REFRESH_MS plus a margin) or 15 minutes, whichever is sooner, but at least 5. A read with no time is kept 15 minutes.
  */
 export function homeHoldMs(at: string | null, now: number): number {
   const t = at ? Date.parse(at) : NaN;
   if (!Number.isFinite(t)) return HOME_HOLD_MAX_MS;
-  return Math.max(0, Math.min(HOME_HOLD_MAX_MS, t + HOME_REFRESH_MS + HOME_HOLD_MARGIN_MS - now));
+  return Math.max(HOME_HOLD_MIN_MS, Math.min(HOME_HOLD_MAX_MS, t + HOME_REFRESH_MS + HOME_HOLD_MARGIN_MS - now));
 }
 
 /** One type's prices at a hub as kept: its `updated`, weekly movement, best buy and units listed, best sell and units listed; null where not known or none. */
@@ -44,8 +46,9 @@ export type HomeRow = [updated: string, weekly: number | null, buy: number | nul
  */
 export function parseGoonmetrics(xml: string): Record<number, HomeRow> {
   const out: Record<number, HomeRow> = {};
-  const num = (block: string, re: RegExp) => { const m = re.exec(block); const n = m ? Number(m[1]) : NaN; return Number.isFinite(n) ? n : null; };
-  for (const m of xml.matchAll(/<type id="(\d+)">([\s\S]*?)<\/type>/g)) {
+  // A blank field is not known, never 0 (Number('') is 0).
+  const num = (block: string, re: RegExp) => { const s = re.exec(block)?.[1].trim(); const n = s ? Number(s) : NaN; return Number.isFinite(n) ? n : null; };
+  for (const m of xml.matchAll(/<type\s+id="(\d+)"[^>]*>([\s\S]*?)<\/type>/g)) {
     const t = Number(m[1]), b = m[2];
     const updated = /<updated>([^<]+)<\/updated>/.exec(b)?.[1] ?? '';
     const weekly = num(b, /<weekly_movement>([^<]+)<\/weekly_movement>/);

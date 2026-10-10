@@ -7492,6 +7492,7 @@ console.log('\n--- Industry: the finder\'s rules (industryRank.ts) ---');
   eq('    no Jita book at all says so, not "none listed"', src({ jita: null }).options[0].why, 'no Jita book this morning');
   eq('    a hub that lists nothing: no price, the reason said, Jita picked', [src({ ...home, home: gm(null, null, 5000) }).pick, src({ ...home, home: gm(null, null, 5000) }).options.find((x) => x.source === 'home')], ['jita', { source: 'home', price: null, why: 'none listed at UALX-3', pickable: false }]);
   eq('    a hub picked but not read yet: an option that says so, never pickable', [src({ ...home, home: null }).pick, src({ ...home, home: null }).options.find((x) => x.source === 'home')], ['jita', { source: 'home', price: null, why: 'not read at UALX-3 yet', pickable: false }]);
+  eq('    a hub read but with no price for the type: it says so, not "not read yet"', [src({ ...home, home: null, homeRead: true }).pick, src({ ...home, home: null, homeRead: true }).options.find((x) => x.source === 'home')], ['jita', { source: 'home', price: null, why: 'no price at UALX-3', pickable: false }]);
 
   // Selling at home: the region's history decides the split, so a market that sells into bids paces below one that doesn't.
   const day = (i, avg) => ({ date: new Date(NOW3 - (i + 1) * 86400_000).toISOString().slice(0, 10), average: avg, highest: 110, lowest: 90, volume: 1000, order_count: 50 });
@@ -7785,13 +7786,15 @@ console.log('\n--- Industry: home prices from Goonmetrics (homeMarket.ts) ---');
   // A type with no data, and a side with no orders (as Goonmetrics writes them; seen on one type, with 23 listed).
   const none = '<goonmetrics><price_data><type id="7"><updated>2026-10-10T05:00:00Z</updated><all><weekly_movement>-1.0</weekly_movement></all><buy><max>0.00</max><listed>0</listed></buy><sell><min>120.5</min><listed>23</listed></sell></type></price_data></goonmetrics>';
   eq('    weekly movement −1 is not known, a side with nothing listed is none: never 0', H.parseGoonmetrics(none), { 7: ['2026-10-10T05:00:00Z', null, null, 0, 120.5, 23] });
+  eq('    a blank field is not known, never 0 (weekly movement, a price)', H.parseGoonmetrics('<goonmetrics><price_data><type id="9"><updated>t</updated><all><weekly_movement> </weekly_movement></all><buy><max></max><listed>4</listed></buy><sell><min>5</min><listed>3</listed></sell></type></price_data></goonmetrics>'), { 9: ['t', null, null, 4, 5, 3] });
+  eq('    a type tag with more than its id is still read', Object.keys(H.parseGoonmetrics('<price_data><type id="5" extra="1"><updated>t</updated></type></price_data>')), ['5']);
   eq('  a kept row as the finder reads it, and none for a type the read doesn\'t have', [H.homeQuote(['t', 700, 3.21, 9, 3.52, 9]), H.homeQuote(undefined)], [{ sell: 3.52, buy: 3.21, weekly: 700, at: 't' }, null]);
   eq('  the hubs: UALX-3\'s 1st Byzantigoon (Tenerifis) and C-J6MT (Insmother); 1DQ1-A left out', H.HOME_HUBS.map((h) => [h.id, h.short, h.region]), [[1046664001931, 'UALX-3', 10000061], [1049588174021, 'C-J6MT', 10000009]]);
   // The browser holds a hub's read until the cloud's next refresh could have replaced it (its `at` + 6 h + 10 min), 15 minutes at most.
   const at = '2026-10-10T06:00:00Z', t0 = Date.parse(at);
-  eq('  a read is held 15 minutes, less when the next refresh is nearer, never negative, and 15 with no time',
+  eq('  a read is held 15 minutes, less when the next refresh is nearer but never under 5 (a read already due is not fetched at every mount), and 15 with no time',
     [H.homeHoldMs(at, t0 + 3600_000), H.homeHoldMs(at, t0 + 6 * 3600_000 + 5 * 60_000), H.homeHoldMs(at, t0 + 7 * 3600_000), H.homeHoldMs(null, t0), H.homeHoldMs('nonsense', t0)],
-    [15 * 60_000, 5 * 60_000, 0, 15 * 60_000, 15 * 60_000]);
+    [15 * 60_000, 5 * 60_000, 5 * 60_000, 15 * 60_000, 15 * 60_000]);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

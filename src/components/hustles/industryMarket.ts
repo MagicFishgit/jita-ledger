@@ -216,12 +216,18 @@ export function useHomeHistory(types: readonly number[], region: number | null):
     if (!key) return;
     let alive = true;
     const queue = key.split(':')[1].split(',').filter(Boolean).map(Number);
-    let next = 0;
+    let next = 0, done = 0;
+    // As useLiveBooks: each history landing re-ranked all 1,652 rows, so they are held back and set in batches.
+    let buf: Record<number, HistRow[]> = {};
+    const flush = () => { const b = buf; buf = {}; if (Object.keys(b).length) setGot((x) => ({ ...x, ...b })); };
     const work = async () => {
       while (alive && next < queue.length) {
         const t = queue[next++];
         const rows = await regionHistory(t, region!).catch(() => null);
-        if (alive && rows) setGot((x) => ({ ...x, [t]: rows }));
+        if (!alive) return;
+        if (rows) buf[t] = rows;
+        done++;
+        if (done === 8 || (done > 8 && (done - 8) % 16 === 0) || done === queue.length) flush();
       }
     };
     for (let i = 0; i < 4; i++) void work();

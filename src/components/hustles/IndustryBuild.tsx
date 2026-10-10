@@ -32,6 +32,8 @@ const MISSING_SAID: Record<NonNullable<Row['missing']>, (one: boolean) => string
   noMaterials: (one) => `${one ? 'needs' : 'need'} a material nobody lists where it can be bought`,
   noSale: (one) => `${one ? 'has' : 'have'} nowhere ${one ? 'it' : 'they'} may be sold`,
 };
+/** Units a day: a thin market sells a fraction of one, which "0" would hide beside a profit that rests on it. */
+const perDay = (n: number) => (n >= 10 ? units(n) : n >= 1 ? n.toFixed(1) : n.toFixed(2));
 const lcfirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
 
 const bpoPrice = (w: BpoWhere) => (w.state === 'forge' ? w.price : null);
@@ -67,11 +69,11 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
       // Every place it was allowed to sell says why not ("no freight route to Jita; not read at UALX-3 yet"), not only the first.
       const own = r.missing === 'noSale' && r.sales.length ? [...new Set(r.sales.map((x) => x.why).filter((w): w is string => !!w))].map(lcfirst).join('; ') || null : null;
       const key = own ? `noSale:${own}` : r.missing;
-      const e = n.get(key) ?? { n: 0, said: own ? () => `can’t be sold: ${own}` : r.missing === 'noBook' && f.hub ? (one) => `${one ? 'has' : 'have'} no Jita book this morning and no price at ${f.hub!.short}` : MISSING_SAID[r.missing] };
+      const e = n.get(key) ?? { n: 0, said: own ? () => `can’t be sold: ${own}` : r.missing === 'noBook' && f.hub && doc.sell !== 'jita' ? (one) => `${one ? 'has' : 'have'} no Jita book this morning and no price at ${f.hub!.short}` : MISSING_SAID[r.missing] };
       e.n++; n.set(key, e);
     }
     return [...n.values()].map((e) => `${units(e.n)} ${e.said(e.n === 1)}`).join(', ');
-  }, [f.rows, f.hub]);
+  }, [f.rows, f.hub, doc.sell]);
   const noRoute = f.rows.some((r) => r.missing === 'noRoute');
   const keptHome = f.rows.filter((r) => r.shipsKeptHome).length;
   const station = useStationSaid(shown.slice(0, SHOWN + more).flatMap((r) => { const w = f.bpo(r.bp); return w.state === 'forge' ? [w.stations[0]] : []; }), ix, graph);
@@ -191,14 +193,14 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
                             <span>BPO: {b.v} {b.n}</span>
                             <span>Profit a day{before ? `, before ${before}` : ''}: {iskBigSigned(r.day!.profit)}{r.costKnown === false && r.taxPerPct == null ? ' (before the Alpha tax)' : ''}</span>
                             <span>Profit a unit: {iskBigSigned(up)}{r.brokerPerPct != null ? ' (before the broker fee)' : ''}</span>
-                            <span>One slot: {units(r.day!.units)} of {units(r.makes)} a day, the {r.day!.limit === 'market' ? 'market' : 'slot'} limits it</span>
+                            <span>One slot: {perDay(r.day!.units)} of {units(r.makes)} a day, the {r.day!.limit === 'market' ? 'market' : 'slot'} limits it</span>
                             {tax && <span>{tax}</span>}
                             <span>Payback: {pb != null ? `${pb.toFixed(1)} days` : '–'}</span>
                           </span>
                         </td>
                         <td className="l rd-wide"><span>{b.v}</span><span className="sub">{b.n}</span></td>
                         <td className="rd-wide"><span className="ind-fig">{iskBigSigned(up)}</span>{r.brokerPerPct != null && <span className="sub">before the broker fee at {f.hub?.short}</span>}</td>
-                        <td className="rd-wide">{units(r.day!.units)} / {units(r.makes)}<span className="sub">the {r.day!.limit === 'market' ? 'market' : 'slot'} limits it</span></td>
+                        <td className="rd-wide">{perDay(r.day!.units)} / {units(r.makes)}<span className="sub">the {r.day!.limit === 'market' ? 'market' : 'slot'} limits it</span></td>
                         <td className="rd-wide"><span className="ind-fig">{iskBigSigned(r.day!.profit)}</span>{tax && <span className="sub">{tax}</span>}{r.costKnown === false && r.taxPerPct == null && <span className="sub">before the Alpha tax: clone state not read</span>}</td>
                         <td className="rd-wide">{pb != null ? `${pb.toFixed(1)} days` : '–'}<span className="sub">{pb != null ? '' : bpoPrice(w) == null ? 'no NPC price' : 'never, at a loss'}</span></td>
                         <td className="rd-wide">{r.lacking.length ? `${r.lacking.length} to train` : 'trained'}</td>

@@ -1225,19 +1225,21 @@ console.log('\n--- home prices from Goonmetrics, read gently by the cloud (Task 
   const NOW = Date.parse('2026-10-10T12:37:00Z');
   const xmlFor = (ids) => `<goonmetrics method="price_data" version="1.0"><price_data>${ids.map((id) => `<type id="${id}"><updated>2026-10-10T12:00:00Z</updated><all><weekly_movement>700</weekly_movement></all><buy><max>9.5</max><listed>100</listed></buy><sell><min>10</min><listed>200</listed></sell></type>`).join('')}</price_data></goonmetrics>`;
   // Every call answered from the type IDs it asks for, its User-Agent and size recorded; `fail` makes chosen calls fail.
-  const run = async (db, { types, fail = () => false, now = NOW, on = true } = {}) => {
+  const run = async (db, { types, fail = () => false, html = () => false, now = NOW, on = true, deadline } = {}) => {
     const real = globalThis.fetch, calls = [];
     globalThis.fetch = async (input, init = {}) => {
       const url = new URL(String(input));
       const ids = (url.searchParams.get('type_id') ?? '').split(',').map(Number);
       calls.push({ host: url.host, path: url.pathname, hub: Number(url.searchParams.get('station_id')), n: ids.length, ua: init.headers?.['User-Agent'] });
       if (fail(calls.length)) return new Response('busy', { status: 503 });
+      if (html(calls.length)) return new Response('<html><body>Not found</body></html>', { status: 200, headers: { 'Content-Type': 'text/html' } });
       return new Response(xmlFor(ids), { status: 200, headers: { 'Content-Type': 'text/xml' } });
     };
     let pauses = 0;
-    try { return { r: await refreshHomePrices(db, now, types, async () => { pauses++; }, on), calls, pauses }; } finally { globalThis.fetch = real; }
+    try { return { r: await refreshHomePrices(db, now, types, async () => { pauses++; }, on, deadline), calls, pauses }; } finally { globalThis.fetch = real; }
   };
   const types = Array.from({ length: 120 }, (_, i) => 1000 + i);
+  const d1WithRead = () => { const x = d1(); x.run("INSERT INTO home_prices (hub, source, at, data, tried) VALUES (1046664001931, 'goonmetrics', ?, '{}', ?), (1049588174021, 'goonmetrics', ?, '{}', ?)", NOW, NOW, NOW, NOW); return x; };
   const db = d1();
   const first = await run(db, { types });
   eq('  both hubs read, 50 types a call (3 calls a hub), a pause before every call but the first', [first.r.done, first.calls.length, first.calls.map((c) => c.n), first.pauses], [{ 'UALX-3': 'read', 'C-J6MT': 'read' }, 6, [50, 50, 20, 50, 50, 20], 5]);
@@ -1245,11 +1247,33 @@ console.log('\n--- home prices from Goonmetrics, read gently by the cloud (Task 
   eq('    one row a hub, every type in it', db.rows('SELECT hub, source FROM home_prices ORDER BY hub').map((r) => [r.hub, r.source]), [[1046664001931, 'goonmetrics'], [1049588174021, 'goonmetrics']]);
   const served = await homePrices(db, 1046664001931);
   eq('  the route serves a hub\'s read', [Object.keys(served.prices).length, served.prices[1000]], [120, ['2026-10-10T12:00:00Z', 700, 9.5, 100, 10, 200]]);
-  eq('  within six hours nothing is read again', [(await run(db, { types, now: NOW + REFRESH_MS - 60_000 })).calls.length], [0]);
-  // Six hours on, C-J6MT's second call fails: its last good row stays; UALX-3's is new.
-  const before = db.rows('SELECT at FROM home_prices WHERE hub = ?', 1049588174021)[0].at;
+  eq('  within six hours (less the half hour of slack) nothing is read again', [(await run(db, { types, now: NOW + REFRESH_MS - 40 * 60_000 })).calls.length], [0]);
+  const stamped = db.rows('SELECT hub, tried FROM home_prices ORDER BY hub').map((r) => r.tried);
+  eq('    each row says when it was tried', stamped, [NOW, NOW]);
+  // Six hours on, C-J6MT's second call fails: the batches that came are merged over its last good row, and the hub is stamped.
   const later = await run(db, { types, now: NOW + REFRESH_MS, fail: (n) => n === 5 });
-  eq('  a hub whose read fails keeps its last good row, and says why', [later.r.done, db.rows('SELECT at FROM home_prices WHERE hub = ?', 1049588174021)[0].at === before, later.r.error], [{ 'UALX-3': 'read', 'C-J6MT': 'failed' }, true, 'Goonmetrics answered 503 for C-J6MT']);
+  const cj = await homePrices(db, 1049588174021);
+  eq('  a hub with one failing call keeps every type (the good batches new, the failed one as it was), and says why', [later.r.done, later.r.error, Object.keys(cj.prices).length, cj.at], [{ 'UALX-3': 'read', 'C-J6MT': 'partial' }, 'Goonmetrics answered 503 for C-J6MT', 120, new Date(NOW + REFRESH_MS).toISOString()]);
+  eq('    and is not read again within six hours, however its round went: one batch Goonmetrics keeps refusing costs nothing more', [(await run(db, { types, now: NOW + REFRESH_MS + 3600_000, fail: () => true })).calls.length, (await run(db, { types, now: NOW + REFRESH_MS + 5 * 3600_000 })).calls.length], [0, 0]);
+  // A 200 that isn't Goonmetrics' prices (an HTML page, an error element, nothing) is a failed call and never wipes the last good row.
+  const dbH = d1();
+  await run(dbH, { types });
+  const goodAt = (await homePrices(dbH, 1046664001931)).at;
+  const noise = await run(dbH, { types, now: NOW + REFRESH_MS, html: () => true });
+  eq('  a 200 HTML answer three times running ends the round and keeps the last good row', [noise.calls.length, noise.r.stopped, noise.r.error, (await homePrices(dbH, 1046664001931)).at === goodAt, Object.keys((await homePrices(dbH, 1046664001931)).prices).length], [3, true, 'Goonmetrics answered something other than prices for UALX-3', true, 120]);
+  eq('    and, a round three failures stopped being unstamped, the next hour tries again: three calls at most', (await run(dbH, { types, now: NOW + REFRESH_MS + 3600_000, html: () => true })).calls.length, 3);
+  const errored = await run(d1(), { types: types.slice(0, 50), now: NOW, html: (n) => n === 1 });
+  eq('    one such answer among few: no row is written from it', [errored.r.done['UALX-3'], errored.r.done['C-J6MT']], ['failed', 'read']);
+  eq('  a type tag with more than its id still parses', Object.keys((await import('../src/lib/homeMarket.ts')).parseGoonmetrics(xmlFor([5]).replace('<type id="5">', '<type id="5" name="x">'))), ['5']);
+  // Every batch refused for a hub with a row: the try is stamped, so the next hours leave it alone (no hourly re-read of the hub).
+  const dbS = d1();
+  await run(dbS, { types: types.slice(0, 50) });
+  const refused = await run(dbS, { types: types.slice(0, 50), now: NOW + REFRESH_MS, html: () => true });
+  eq('  every call refused (fewer than three): the hubs are stamped as tried, and read again no sooner than six hours', [refused.r.done, (await run(dbS, { types: types.slice(0, 50), now: NOW + REFRESH_MS + 3600_000 })).calls.length], [{ 'UALX-3': 'failed', 'C-J6MT': 'failed' }, 0]);
+  eq('    a hub is due a little early (the alts\' read ahead of it varies), not an hour late', (await run(d1WithRead(), { types: types.slice(0, 50), now: NOW + REFRESH_MS - 20 * 60_000 })).calls.length, 2);
+  // Time: nothing is started after the cron's budget, and a hub cut short is merged and stamped.
+  const late = await run(d1(), { types, deadline: Date.now() - 1 });
+  eq('  past the budget no call starts, and the hubs are left for the next hour', [late.calls.length, late.r.done], [0, { 'UALX-3': 'later', 'C-J6MT': 'later' }]);
   const down = await run(d1(), { types, fail: () => true });
   eq('  three failed calls in a row end the round: the site is down', [down.calls.length, down.r.stopped], [3, true]);
   eq('  switched off: nothing read, and the route says so', [(await run(d1(), { types, on: false })).calls.length, await homePrices(d1(), 1046664001931, false)], [0, { off: true }]);
