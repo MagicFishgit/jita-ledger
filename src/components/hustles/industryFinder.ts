@@ -6,6 +6,7 @@ import type { Indexed } from '../../lib/industry';
 import {
   bpoWhere, finderBlueprints, inventionBlueprints, LIVE_ROWS, othersBook, rankBuilds, type BpoWhere, type LabSite, type Market, type ProductKind, type Row, type RowInput,
 } from '../../lib/industryRank';
+import { finderSkills } from '../../lib/industryLadder';
 import { JITA_SYSTEM, labFor, legFor, siteFacts, stationLabel, type SiteFacts } from '../../lib/industrySites';
 import { HIGH_SEC, jumpsFrom, type Graph } from '../../lib/jumps';
 import type { IndustrySite } from '../../lib/prefs';
@@ -56,7 +57,7 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph): Finder {
   const cache = scan.state === 'ok' ? scan.value : null;
   const hasScan = !!cache && Object.keys(cache.stats).length > 0;
   // Skills not read are not level 0: an empty or absent doc is waited for, never ranked at.
-  const skills = c.pilot.skills && Object.keys(c.pilot.skills).length > 0 ? c.pilot.skills : undefined;
+  const skills = finderSkills(c.pilot.skills, c.clone);
   const hub = hubOf(doc.hub);
   const home = useHomePrices(hub?.id ?? null);
   const prices = hub && home.status === 'ok' ? home.prices : null;

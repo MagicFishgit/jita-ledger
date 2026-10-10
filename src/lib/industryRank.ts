@@ -284,6 +284,8 @@ export type Invention = {
   /** Each datacore an attempt; and a day's, sourced like a material (qty: a day's, at the units a day made). */
   perAttempt: { type: number; qty: number }[];
   datacores: MaterialPick[];
+  /** The same datacores for one job (start-up and the shopping list): whole attempts for the copies it needs, at least one attempt. */
+  jobDatacores: MaterialPick[];
   /** A success's datacores, invention jobs and one-run copies; and all of it a unit. */
   datacoreCost: number | null; job: JobCost | null; copy: JobCost | null; perUnit: number | null;
   /** Lab seconds a success (its copies and attempts), and units a day one lab slot invents for; null with the chance. */
@@ -354,7 +356,7 @@ export function buildRow(o: RowInput): Row {
   const materialCost = materials.every((x) => x.price != null) ? materials.reduce((s, x) => s + x.qty * x.price!, 0) : null;
   const eiv = o.adjusted ? eivOf(m[1], o.adjusted) : null;
   const job = eiv != null && o.site.index ? manufacturingCost(eiv, runs, { index: o.site.index.manufacturing, structure: sb.cost, rig: rig.cost, tax: o.site.tax, clone: o.clone }) : null;
-  const invention = t1 && lab ? inventionCosts(o, t1, lab, eiv, makes, jitaLeg, homeLeg) : null;
+  const invention = t1 && lab ? inventionCosts(o, t1, lab, eiv, makes, runs, jitaLeg, homeLeg) : null;
   const costUnit = materialCost != null && job && (!invented || invention?.perUnit != null) ? (materialCost + job.total) / made + (invention?.perUnit ?? 0) : null;
 
   const pm = o.market(prod.type);
@@ -377,13 +379,15 @@ export function buildRow(o: RowInput): Row {
   const missing: Missing | null = !pm.jita && !pm.home ? 'noBook' : !o.site.index ? 'noIndex' : eiv == null ? 'noAdjusted'
     : noRoute ? 'noRoute' : materialCost == null ? 'noMaterials' : invented && invention?.perUnit == null ? 'noInvention' : !day ? 'noSale' : null;
   // A tax not typed: the manufacturing job's, and the lab's too where the lab is the site, each 1% of their bases a day.
-  const labTaxed = invention?.job && invention.copy && invention.job.tax == null ? ((invention.job.base + invention.copy.base) * makes) / invention.unitsPerCopy : 0;
+  // Profit a day charges costs on the units sold (`day.units`, under what's made where the market limits it), so these are on them too.
+  const sold = day?.units ?? makes;
+  const labTaxed = invention?.job && invention.copy && invention.job.tax == null ? ((invention.job.base + invention.copy.base) * sold) / invention.unitsPerCopy : 0;
   const siteTaxed = job != null && o.site.tax == null;
   return {
     bp: bp[0], product: prod.type, perRun: prod.perRun, ship, time, runs, makes, materials, materialCost, eiv, job, costUnit, sales, sale, day, invention,
     // Whole when nothing is left out of any job's cost: the build's, and a Tech II's invention and copies at the lab.
     costKnown: job ? job.tax != null && job.alpha != null && (!invention?.job || (invention.job.tax != null && invention.job.alpha != null && invention.copy?.tax != null && invention.copy.alpha != null)) : null,
-    taxPerPct: siteTaxed || labTaxed > 0 ? ((siteTaxed ? (job!.base * makes) / made : 0) + labTaxed) * 0.01 : null,
+    taxPerPct: siteTaxed || labTaxed > 0 ? ((siteTaxed ? (job!.base * sold) / made : 0) + labTaxed) * 0.01 : null,
     brokerPerPct: day && sale?.place === 'home' && !sale.brokerKnown && sale.list != null ? day.list * sale.list * 0.01 : null,
     lacking: lackingAll(m[2], t1, o.skills), missing,
     shipsKeptHome: ship && !jitaOk && o.sell !== 'home' && !!pm.jita,
@@ -431,7 +435,7 @@ function inventionLab(o: RowInput, t1: BundleBp, inv: BpActivity, invented: numb
 }
 
 /** A Tech II row's invention, priced: datacores sourced like materials, the invention jobs and the one-run copies at the lab. */
-function inventionCosts(o: RowInput, t1: BundleBp, l: InventionLab, eivT2: number | null, makes: number, jitaLeg: Leg, homeLeg: Leg | null): Invention {
+function inventionCosts(o: RowInput, t1: BundleBp, l: InventionLab, eivT2: number | null, makes: number, runs: number, jitaLeg: Leg, homeLeg: Leg | null): Invention {
   const { ix } = o;
   const lab = o.lab ?? null;
   const attempts = l.attempts != null && Number.isFinite(l.attempts) ? l.attempts : null;
@@ -447,6 +451,9 @@ function inventionCosts(o: RowInput, t1: BundleBp, l: InventionLab, eivT2: numbe
       qty: qty * perDay,
     };
   });
+  // One job's: the copies it needs, each a success of `runsPerCopy` runs, and the whole attempts those take on average (at least one).
+  const jobAttempts = attempts != null ? Math.max(1, Math.ceil(Math.ceil(runs / l.runsPerCopy) * attempts - 1e-9)) : null;
+  const jobDatacores = datacores.map((d, i) => ({ ...d, qty: jobAttempts != null ? jobAttempts * l.inv[1][i][1] : d.qty }));
   const perAttempt = l.inv[1].reduce<number | null>((sum, [, qty], i) => (sum == null || datacores[i].price == null ? null : sum + qty * datacores[i].price!), 0);
   const eivT1 = o.adjusted && t1[2] ? eivOf((t1[2] as BpActivity)[1], o.adjusted) : null;
   const sb = structureBonus(ix, lab?.kind ?? 'npc');
@@ -460,7 +467,7 @@ function inventionCosts(o: RowInput, t1: BundleBp, l: InventionLab, eivT2: numbe
       : job == null || copy == null ? 'no adjusted price for it' : null;
   return {
     from: t1[0], chance: l.chance, attempts: l.attempts, runsPerCopy: l.runsPerCopy, unitsPerCopy: l.unitsPerCopy,
-    sciences: l.sciences, encryption: l.encryption, needs: l.needs, perAttempt: l.inv[1].map(([type, qty]) => ({ type, qty })), datacores, datacoreCost, job, copy,
+    sciences: l.sciences, encryption: l.encryption, needs: l.needs, perAttempt: l.inv[1].map(([type, qty]) => ({ type, qty })), datacores, jobDatacores, datacoreCost, job, copy,
     perUnit: why ? null : (datacoreCost! + job!.total + copy!.total) / l.unitsPerCopy,
     labSeconds: l.labSeconds, labPerDay: l.labPerDay, noRoute, why,
   };
@@ -544,12 +551,12 @@ export type Held = { units: (type: number) => number; cost: (type: number, units
 
 /**
  * What starting costs: the original (NPCs' price; null when no NPC sells it), research to the ME/TE assumed, and a day's
- * materials less what's held at the site. Held materials count here and in the shopping list only, never in the steady
+ * materials (a Tech II's with the datacores of the attempts that job takes) less what's held at the site. Held materials count here and in the shopping list only, never in the steady
  * profit a day, since they're one-off and carry no freight in.
  */
 export function startUp(row: Row, o: { bpo: number | null; research: number | null; held: Held }): { bpo: number | null; research: number | null; materials: number | null; heldUnits: number; heldCost: number | null; total: number | null } {
   let materials = 0, heldUnits = 0, heldCost: number | null = 0, known = true;
-  for (const x of [...row.materials, ...(row.invention?.datacores ?? [])]) {
+  for (const x of [...row.materials, ...(row.invention?.jobDatacores ?? [])]) {
     const h = Math.min(x.qty, Math.max(0, o.held.units(x.type)));
     heldUnits += h;
     if (h > 0) { const c = o.held.cost(x.type, h); heldCost = heldCost != null && c != null ? heldCost + c : null; }
@@ -561,10 +568,10 @@ export function startUp(row: Row, o: { bpo: number | null; research: number | nu
   return { bpo: o.bpo, research: o.research, materials: mats, heldUnits, heldCost, total: o.bpo != null && o.research != null && mats != null ? o.bpo + o.research + mats : null };
 }
 
-/** What to buy for a day's job beyond what's held, per source: each line the units, the delivered price and the source picked. */
+/** What to buy for one job beyond what's held, per source: each line the units, the delivered price and the source picked. */
 export function shoppingList(row: Row, held: Held): { type: number; qty: number; price: number | null; source: Source | null }[] {
-  // Whole units to buy: a datacore's a day is an expected value (3 × 2.3068 attempts), and a list can't buy 6.92 (materials are whole).
-  return [...row.materials, ...(row.invention?.datacores ?? [])].map((x) => ({ type: x.type, qty: Math.ceil(x.qty - Math.max(0, held.units(x.type)) - 1e-9), price: x.price, source: x.pick })).filter((x) => x.qty > 0);
+  // Whole units to buy: a job's datacores are whole attempts already; the rounding is for what's held (materials are whole).
+  return [...row.materials, ...(row.invention?.jobDatacores ?? [])].map((x) => ({ type: x.type, qty: Math.ceil(x.qty - Math.max(0, held.units(x.type)) - 1e-9), price: x.price, source: x.pick })).filter((x) => x.qty > 0);
 }
 
 /** The morning scan's NPC sellers of every bundle blueprint in The Forge (`industry_npc`): price and stations, cheapest first. */

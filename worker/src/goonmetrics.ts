@@ -26,8 +26,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Reads each hub that is due: its last try (good or not) at least REFRESH_MS less the slack ago. However a round went, a hub is
- * not read again before then, with one exception: a round three failed calls in a row stopped isn't stamped, so the next hour
- * tries again (three calls at most while the site is down). The batches that succeeded are merged over the last good row's
+ * not read again before then, with one exception: a hub none of whose calls came back when three failed in a row stopped the round isn't stamped, so the next hour
+ * tries again (three calls at most while the site is down); one some of whose batches came back is merged and stamped (partial). The batches that succeeded are merged over the last good row's
  * types, so a batch Goonmetrics keeps refusing doesn't lose the rest, and the hub's `at` is when they were read. A call whose
  * answer isn't Goonmetrics' price data (a 200 with an HTML or error page) fails like any other. Returns what it did per hub: read,
  * partial (some batches failed or time ran out), fresh, later (out of time before it began) or failed. `pause`, `on` and
@@ -42,6 +42,30 @@ export async function refreshHomePrices(db: D1Database, now = Date.now(), types:
   // A hub's try is stamped on its row, or on a stub (at 0: never read) when it has none yet.
   const stamp = (hub: number) => db.prepare(`INSERT INTO home_prices (hub, source, at, data, tried) VALUES (?1, 'goonmetrics', 0, '{}', ?2)
     ON CONFLICT(hub) DO UPDATE SET tried = excluded.tried`).bind(hub, now).run();
+  // Writes what a hub's batches brought (merged over its last good row, pruned to the types asked for now) and stamps the try;
+  // with nothing back, only the stamp. It sets done[hub] itself.
+  const save = async (hub: (typeof HOME_HUBS)[number], old: { data: string } | undefined, got: Record<number, HomeRow>, how: 'read' | 'partial') => {
+    try {
+      if (Object.keys(got).length) {
+        // Pruned to the types asked for now, so one that has left the watch set doesn't stay in the row for good.
+        const wanted = new Set(types);
+        const merged = Object.fromEntries(Object.entries({ ...(old ? (JSON.parse(old.data) as Record<number, HomeRow>) : {}), ...got }).filter(([t]) => wanted.has(Number(t))));
+        await db.prepare(`INSERT INTO home_prices (hub, source, at, data, tried) VALUES (?1, 'goonmetrics', ?2, ?3, ?2)
+          ON CONFLICT(hub) DO UPDATE SET source = excluded.source, at = excluded.at, data = excluded.data, tried = excluded.tried`).bind(hub.id, now, JSON.stringify(merged)).run();
+        done[hub.short] = how;
+      } else {
+        // Nothing came back (a hub with fewer than three batches, all refused): the try is stamped so it isn't repeated hourly.
+        await stamp(hub.id);
+        done[hub.short] = 'failed';
+      }
+    } catch (e) {
+      // A write that throws mustn't make the next hour read the whole hub again.
+      error ??= e instanceof Error ? e.message : String(e);
+      done[hub.short] = 'failed';
+      // With no row yet, a stub (at 0: never read) carries the stamp; if even that throws, say so and move on.
+      try { await stamp(hub.id); } catch (e2) { console.error('goonmetrics: could not stamp the try', e2); }
+    }
+  };
   for (const hub of HOME_HUBS) {
     const old = kept.get(hub.id);
     if (now - Math.max(old?.tried ?? 0, old?.at ?? 0) < REFRESH_MS - REFRESH_SLACK_MS) { done[hub.short] = 'fresh'; continue; }
@@ -63,29 +87,15 @@ export async function refreshHomePrices(db: D1Database, now = Date.now(), types:
       } catch (e) {
         ok = false;
         error ??= e instanceof Error ? e.message : String(e);
-        if (++inARow >= 3) { done[hub.short] = 'failed'; return { done, error, stopped: true }; }
+        if (++inARow >= 3) {
+          // Batches of this hub that did come are kept and the hub stamped (partial): throwing them away read the same hub again
+          // every hour. A hub none of whose calls came back is left unstamped: the site is down, three calls an hour at most.
+          if (Object.keys(got).length) await save(hub, old, got, 'partial'); else done[hub.short] = 'failed';
+          return { done, error, stopped: true };
+        }
       }
     }
-    try {
-      if (Object.keys(got).length) {
-        // Pruned to the types asked for now, so one that has left the watch set doesn't stay in the row for good.
-        const wanted = new Set(types);
-        const merged = Object.fromEntries(Object.entries({ ...(old ? (JSON.parse(old.data) as Record<number, HomeRow>) : {}), ...got }).filter(([t]) => wanted.has(Number(t))));
-        await db.prepare(`INSERT INTO home_prices (hub, source, at, data, tried) VALUES (?1, 'goonmetrics', ?2, ?3, ?2)
-          ON CONFLICT(hub) DO UPDATE SET source = excluded.source, at = excluded.at, data = excluded.data, tried = excluded.tried`).bind(hub.id, now, JSON.stringify(merged)).run();
-        done[hub.short] = ok && !cut ? 'read' : 'partial';
-      } else {
-        // Nothing came back (a hub with fewer than three batches, all refused): the try is stamped so it isn't repeated hourly.
-        await stamp(hub.id);
-        done[hub.short] = 'failed';
-      }
-    } catch (e) {
-      // A write that throws mustn't make the next hour read the whole hub again.
-      error ??= e instanceof Error ? e.message : String(e);
-      done[hub.short] = 'failed';
-      // With no row yet, a stub (at 0: never read) carries the stamp; if even that throws, say so and move on.
-      try { await stamp(hub.id); } catch (e2) { console.error('goonmetrics: could not stamp the try', e2); }
-    }
+    await save(hub, old, got, ok && !cut ? 'read' : 'partial');
   }
   return { done, error, stopped: false };
 }

@@ -252,3 +252,30 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
     the row's `lacking`, so rung 6 and Can build now never call it buildable. `inventedFrom` takes the lowest blueprint ID where
     several Tech I blueprints invent one product (Capital Hull Repairer II: the Tech I, not the meta Capital IEF Compact). The
     detail says datacores held anywhere apart from what's held at the site, and a Tech II row unpriced says why on the count line.
+- **Final whole-branch review (10 October 2026): seven fixes.**
+  - **A Goonmetrics round stopped by three failures in a row keeps what came and stamps the hub** (`refreshHomePrices`'s `save`).
+    It used to return at once on the third failure, throwing away the hub's batches already read and leaving it unstamped. The
+    reviewer's probe: a host that answers 10 calls and then sends 429 got 13 calls an hour, 312 a day, with `home_prices` empty
+    and C-J6MT never reached; at a 50-call limit that is about 1,270 a day, against the user's condition of a hub every six
+    hours, 1.5 s apart, 50 types a call. Now the batches of the current hub that came back are merged over its last good row
+    (pruned to `types`) and the hub stamped `partial`; a hub none of whose calls came back is left unstamped (the site is down:
+    three calls an hour at most), and hubs not reached stay as they were. Tested: the same host over 24 hourly rounds makes 4
+    rounds of 13 calls, with the planted old rule failing all three assertions.
+  - **"Each 1% of tax costs X a day" is on the units sold** (`taxPerPct`, `labTaxed`). Profit a day charges costs on `day.units`,
+    but the line used units made: the pump row at a 2% share (16.2 sold of 65 made) said 1,575,904 where typing 1% lowers the
+    profit by 393,364. Both the site's and the lab's part now use the units sold, as `brokerPerPct` already did, so the line equals
+    profit(untyped) − profit(1%) to the ISK.
+  - **Tech II start-up and the shopping list are one job's, datacores included** (`Invention.jobDatacores`). They held a full
+    job's materials but a day's datacores at the lab's pace: the lab-limited Cerberus row listed 6 of each datacore, while one
+    attempt needs 8 and a success takes 28.2 on average, so Copy for Multibuy could not start one invention. Now the datacores
+    are whole attempts for the copies the job needs: ceil(runs ÷ the copy's runs) successes, ceil(successes × attempts) attempts
+    (at least one), times a datacore's count an attempt. The pump: 3 attempts, 9 of each (was 6.92). The a-day figures
+    (`datacores`) still size the weekly sourcing; the detail says "one job's materials, and the datacores for the attempts it
+    takes on average". Tech I is unchanged.
+  - **The finder prices at usable levels** (`finderSkills` in industryLadder.ts): an Alpha that was once Omega was given Omega's
+    job times and "Can build now". Unread skills (absent, null, `{}`) stay undefined, never a map of zeros.
+  - **The "One job a day" note** counts the lab too: the slot could take at most `min(slot, labPerDay)`, and the note shows only
+    when that is 5% over what's made (it read "could take 2.7 a day" beside "one lab slot inventing for 1.3 a day"). `{0 && …}`
+    would have drawn a "0" for a Tech II row without the note; it is `> 0` now.
+  - FindStructure prints a negative security with the typographic minus (`MINUS`), as `secText` does; CLAUDE.md lists `homeMarket`
+    and `industryRank` among the modules the Worker imports; `nameReader` is in this note's `paths:`.

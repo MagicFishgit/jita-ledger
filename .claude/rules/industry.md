@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/lib/{industry,industryRank,industrySites,industryLadder,homeMarket,altFees}.ts"
+  - "src/lib/{industry,industryRank,industrySites,industryLadder,homeMarket,altFees,nameReader}.ts"
   - "src/components/hustles/{Industry.tsx,IndustryStart.tsx,IndustrySites.tsx,IndustryBuild.tsx,IndustryDetail.tsx,industryChars.ts,industryBundle.ts,industryMarket.ts,industryFinder.ts}"
   - "src/components/FindStructure.tsx"
   - "src/data/{industry,industryEiv,industryTypes}.json"

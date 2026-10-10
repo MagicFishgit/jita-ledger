@@ -7542,6 +7542,10 @@ console.log('\n--- Industry: the finder\'s rules (industryRank.ts) ---');
   const untaxed = K.buildRow({ ...base, site: { ...base.site, tax: null } });
   near('  a tax not typed: ranked before it, profit a day higher by exactly the tax', untaxed.day.profit - row.day.profit, row.job.tax, 0.01);
   near('    and each 1% of it costs 1,575,904 a day', untaxed.taxPerPct, 1_575_904.13, 0.5);
+  // Where the market limits the row (a 2% share: 16.2 sold of 65 made), costs are charged on the units sold, so "each 1%" is what typing 1% takes off the profit a day.
+  const limitedUn = K.buildRow({ ...base, share: 2, site: { ...base.site, tax: null } }), limitedOne = K.buildRow({ ...base, share: 2, site: { ...base.site, tax: 0.01 } });
+  eq('  a market-limited row: it sells under what it makes', [limitedUn.day.limit, limitedUn.day.units < limitedUn.makes], ['market', true]);
+  near('    each 1% of tax equals what typing 1% takes off its profit a day, to the ISK', limitedUn.taxPerPct, limitedUn.day.profit - limitedOne.day.profit, 1);
   eq('    a known tax has no "each 1%" line, and its cost is whole; untyped, it isn\'t', [row.taxPerPct, row.costKnown, untaxed.costKnown, K.buildRow({ ...base, clone: 'unknown' }).costKnown], [null, true, false, false]);
   eq('  no index for the site\'s system: said, the job not costed', [K.buildRow({ ...base, site: { ...base.site, index: null } }).missing, K.buildRow({ ...base, site: { ...base.site, index: null } }).job], ['noIndex', null]);
   eq('  adjusted prices not read yet: said', K.buildRow({ ...base, adjusted: null }).missing, 'noAdjusted');
@@ -7815,6 +7819,10 @@ console.log('\n--- Industry: the ladder (industryLadder.ts) ---');
   eq('  an Alpha\'s usable levels: Mass Production held to III, Laboratory Operation to none; an Omega\'s as trained',
     [L.usable(MAIN, 'alpha')[3387], L.usable(MAIN, 'alpha')[3406], L.usable(MAIN, 'alpha')[3380], L.usable(MAIN, 'omega')[3387], L.usable(MAIN, 'unknown')[3406]], [3, 0, 5, 4, 3]);
 
+  // The finder prices at the levels a character can use, and an unread character stays unread (never a map of zeros).
+  eq('  the finder\'s skills: an Alpha that was once Omega gets the capped levels; Omega\'s as trained',
+    [L.finderSkills(MAIN, 'alpha')[3387], L.finderSkills(MAIN, 'alpha')[3406], L.finderSkills(MAIN, 'omega')[3387]], [3, 0, 4]);
+  eq('    unread skills (absent, null or {}) stay undefined, for any clone state', [L.finderSkills(undefined, 'alpha'), L.finderSkills(null, 'omega'), L.finderSkills({}, 'alpha'), L.finderSkills({}, 'omega')], [undefined, undefined, undefined, undefined]);
   const main = L.ladderOf({ skills: MAIN, clone: 'omega', structureSite: false });
   eq('  the main, Omega: on rung 2 (rung 3 wants Mass Production V); Copy met past the gap stays ahead',
     [main.here, keys(main), main.rungs.map((r) => r.met)], [1, ['npc:done', 'research:here', 'slots:next', 'copy:ahead', 'home:ahead', 't2:ahead', 'capital:ahead'], [true, true, false, true, false, false, false]]);
@@ -7926,8 +7934,8 @@ console.log('\n--- Industry: Tech II through invention (industryRank.ts, industr
   eq('  a day\'s datacores: 3 an attempt, 6.92 a success, at the one a day it makes', inv.datacores.map((d) => [d.type, +d.qty.toFixed(4)]), [[20416, 6.9204], [20171, 6.9204]]);
   eq('  the skills it asks for: Industry V to build Tech II, Armor Rigging III; the sciences and encryption trained', row.lacking, [{ id: 3380, level: 5 }, { id: 26253, level: 3 }]);
   const su = K.startUp(row, { bpo: 1_250_000, research: 0, held: { units: (t) => (t === 20171 ? 4 : 0), cost: () => 0 } });
-  near('  start-up counts a day\'s datacores beside the materials, less those held', su.materials, row.materialCost + 6.9204152 * 99_830 + (6.9204152 - 4) * 93_970, 1);
-  eq('    and the shopping list buys the rest', K.shoppingList(row, { units: (t) => (t === 20171 ? 4 : 0), cost: () => 0 }).filter((x) => x.type === 20171).map((x) => +x.qty.toFixed(4)), [3]);
+  near('  start-up counts one job\'s datacores beside its materials: whole attempts (3 for 2.3068 expected, 3 datacores each = 9), less those held', su.materials, row.materialCost + 9 * 99_830 + (9 - 4) * 93_970, 1);
+  eq('    and the shopping list buys the rest', K.shoppingList(row, { units: (t) => (t === 20171 ? 4 : 0), cost: () => 0 }).filter((x) => x.type === 20171).map((x) => +x.qty.toFixed(4)), [5]);
 
   // The chance by which skill is which: a science counts a thirtieth a level, the encryption skill a fortieth.
   const at = (sk) => K.buildRow({ ...input, skills: { 3380: 4, 3388: 2, 3402: 5, ...sk } }).invention.chance;
@@ -7967,6 +7975,14 @@ console.log('\n--- Industry: Tech II through invention (industryRank.ts, industr
   const cerTaxless = K.buildRow({ ...input, bp: cer, site: { ...npc, tax: null }, lab: npc, adjusted: adj, skills: { 3380: 5, 3388: 2, 3402: 5 }, noShipsToJita: false, market: (t) => (t === 11993 ? { jita: { ask: 300e6, bid: 280e6, bids: [{ price: 280e6, volume: 10 }], at: '', live: false }, stats: { spark: Array(30).fill(20), highs14: Array(14).fill(310e6), buyerShare: 0.5 } } : { jita: { ask: 1000, bid: 900, bids: [], at: '', live: false }, stats: null }) });
   near('  each 1% of an untyped facility tax is on what the lab lets the factory build, not a full day\'s job', cerTaxless.taxPerPct, cerTaxless.job.base * cerTaxless.makes / (cerTaxless.runs * cerTaxless.perRun) * 0.01, 0.01);
   eq('    which is under a full day\'s job', cerTaxless.taxPerPct < cerTaxless.job.base / Math.max(1, cerTaxless.runs * cerTaxless.time / 86400) * 0.01, true);
+  // A lab-limited row's start-up and list are one job's: its materials and the datacores of the attempts that job's copies take, whole.
+  const none = { units: () => 0, cost: () => 0 };
+  const cerList = K.shoppingList(cerRow, none), ci = cerRow.invention;
+  const cerSuccesses = Math.ceil(cerRow.runs / ci.runsPerCopy), cerAttempts = Math.ceil(cerSuccesses * ci.attempts - 1e-9);
+  eq('  the lab-limited Cerberus: the list holds one job\'s materials and, of each datacore, whole attempts for its successes (at least one attempt)',
+    [ci.perAttempt.every((d) => cerList.find((x) => x.type === d.type).qty >= d.qty), ci.perAttempt.map((d) => cerList.find((x) => x.type === d.type).qty), ci.perAttempt.map((d) => cerAttempts * d.qty), cerRow.materials.every((m) => cerList.find((x) => x.type === m.type).qty === Math.ceil(m.qty))],
+    [true, ci.perAttempt.map((d) => cerAttempts * d.qty), ci.perAttempt.map((d) => cerAttempts * d.qty), true]);
+  eq('    and a day\'s expected datacores (5.43 each) would have bought less than one attempt', ci.datacores.every((d, i) => Math.ceil(d.qty) < ci.perAttempt[i].qty), true);
   const route = { kind: 'route', f: { perM3: 900, collateral: 0.007875, min: 50_000_000_000 }, name: 'Brave Freight' };
   const cerFr = K.buildRow({ ...input, bp: cer, site: npc, lab: npc, adjusted: adj, skills: { 3380: 5, 3388: 2, 3402: 5 }, noShipsToJita: false, legs: { jita: route, home: null }, market: (t) => (t === 11993 ? { jita: { ask: 300e6, bid: 280e6, bids: [{ price: 280e6, volume: 10 }], at: '', live: false }, stats: { spark: Array(30).fill(20), highs14: Array(14).fill(310e6), buyerShare: 0.5 } } : { jita: { ask: 1000, bid: 900, bids: [], at: '', live: false }, stats: null }) });
   const wk = cerFr.materials.map((m) => m.qty * 7 * cerFr.makes / (cerFr.runs * cerFr.perRun)), vol = (m) => ix.b.types[m.type]?.[3] ?? 0;

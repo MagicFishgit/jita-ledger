@@ -74,6 +74,14 @@ export function usable(skills: Record<number, number>, clone: Clone): Record<num
   return Object.fromEntries(Object.entries(skills).map(([id, l]) => [id, Math.min(l, alphaCapOf(Number(id)))]));
 }
 
+/**
+ * The skills the finder prices at: the levels the character can use (`usable`), and undefined while they aren't read (absent,
+ * or an empty map), never a map of zeros: an unread character is told so, not shown level 0 results.
+ */
+export function finderSkills(skills: Record<number, number> | null | undefined, clone: Clone): Record<number, number> | undefined {
+  return skills && Object.keys(skills).length > 0 ? usable(skills, clone) : undefined;
+}
+
 /** A rung's needs past what an Alpha can use. */
 export const beyondAlpha = (r: Rung): Need[] => r.needs.filter((n) => n.level > alphaCapOf(n.skill));
 

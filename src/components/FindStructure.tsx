@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { getAuth } from '../lib/auth';
 import { esi } from '../lib/esi';
+import { MINUS } from '../lib/format';
 import { toast } from '../lib/toast';
 import { structureInfo, system } from '../lib/universe';
 
@@ -47,7 +48,7 @@ export function FindStructure({ onPick, picked, describe, label = 'Find a struct
           {found.map((f) => (
             <button key={f.id} type="button" className="link-btn" style={{ justifyContent: 'flex-start', textAlign: 'left' }}
               onClick={() => { onPick(f); setFound(null); setQ(''); }}>
-              {f.name} <span className="faint">· {f.system}{f.security != null ? ` ${f.security.toFixed(1)}` : ''} · {describe(f)}</span>
+              {f.name} <span className="faint">· {f.system}{f.security != null ? ` ${f.security < 0 ? MINUS : ''}${Math.abs(f.security).toFixed(1)}` : ''} · {describe(f)}</span>
             </button>
           ))}
         </div>

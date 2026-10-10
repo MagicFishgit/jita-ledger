@@ -62,7 +62,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
   const su = startUp(row, { bpo, research: inv ? 0 : assumed?.cost ?? null, held });
   const shop = shoppingList(row, held);
   // Datacores held (anywhere) are said apart from what's held at the site: the tile counts only the site's.
-  const coreHeld = inv ? inv.datacores.reduce((a, d) => a + Math.min(d.qty, Math.max(0, held.units(d.type))), 0) : 0;
+  const coreHeld = inv ? inv.jobDatacores.reduce((a, d) => a + Math.min(d.qty, Math.max(0, held.units(d.type))), 0) : 0;
   const matHeld = su.heldUnits - coreHeld;
   const jitaLines = shop.filter((x) => x.source === 'jita');
   const station = useStationSaid(w.state === 'forge' ? w.stations : [], ix, graph);
@@ -95,8 +95,9 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
     ? `; research leaves out ${[lab.site.tax == null ? 'the lab’s tax, not typed' : '', input.clone === 'unknown' ? 'the Alpha tax, clone state not read' : ''].filter(Boolean).join(' and ')}` : '';
   const job = row.job;
   // A job is a day of runs, so a copy of few runs builds few a day though the slot could run more jobs: said where it binds.
-  const slotCould = inv ? (DAY_S / row.time) * row.perRun : 0;
-  const oneJob = inv && row.time > 0 && slotCould > row.runs * row.perRun * 1.05 && row.runs < DAY_S / row.time ? slotCould : 0;
+  // ...but never more than the lab invents for (`labPerDay`), which can be the lesser limit.
+  const slotCould = inv ? Math.min((DAY_S / row.time) * row.perRun, inv.labPerDay ?? Infinity) : 0;
+  const oneJob = inv && row.time > 0 && slotCould > row.makes * 1.05 && row.runs < DAY_S / row.time ? slotCould : 0;
   const sb = structureBonus(ix, site.kind);
   const rig = rigFor(ix, site.rigs, site.kind, facts.band, row.product, 'manufacturing');
   const sale = row.sale;
@@ -115,7 +116,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
   return (
     <div className="col ind-detail" style={{ gap: 14 }} data-industry="detail">
       <div className="col" style={{ gap: 6 }}>
-        <span className="lbl">Materials for a day’s {units(row.runs)} run{row.runs === 1 ? '' : 's'} at ME {inv ? T2_ME : input.me}</span>
+        <span className="lbl">Materials for {inv ? 'one job: ' : 'a day’s '}{units(row.runs)} run{row.runs === 1 ? '' : 's'} at ME {inv ? T2_ME : input.me}</span>
         <div className="tbl-scroll">
           <table className="tbl compact rd-table">
             <thead><tr><th className="l">Material</th><th>A day</th><th className="l rd-wide">Each source, delivered</th><th className="l rd-wide">Picked</th><th className="rd-wide">Held here</th></tr></thead>
@@ -186,7 +187,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
             },
           ]} />
           {(lab?.site.tax == null || input.clone === 'unknown') && inv.job && <p className="note small" style={{ margin: 0 }} data-industry="invention-left-out">Invention’s jobs and the copies leave out{lab?.site.tax == null ? ' the lab’s facility tax, which isn’t typed' : ''}{lab?.site.tax == null && input.clone === 'unknown' ? ' and' : ''}{input.clone === 'unknown' ? ' the Alpha tax, since the clone state isn’t read' : ''}.</p>}
-          {oneJob && <p className="note small" style={{ margin: 0 }} data-industry="one-job">One job a day: a {units(inv.runsPerCopy)}-run copy builds {units(row.runs * row.perRun)}, though the slot could take {(oneJob).toFixed(1)} a day if you install jobs more often.</p>}
+          {oneJob > 0 && <p className="note small" style={{ margin: 0 }} data-industry="one-job">One job a day: a {units(inv.runsPerCopy)}-run copy builds {units(row.runs * row.perRun)}, though the slot could take {(oneJob).toFixed(1)} a day if you install jobs more often.</p>}
           <p className="note small" style={{ margin: 0 }}>A Tech II copy can’t be researched: it builds at ME {T2_ME} / TE {T2_TE}, as invented. Decryptors aren’t modelled, nor are reactions: what they make is bought.</p>
         </div>
       )}
@@ -246,7 +247,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
       </div>
 
       <Tiles min={180} items={[
-        { l: 'Start-up', v: iskBig(su.total), n: su.total == null ? (bpo == null ? 'no NPC price for the original' : su.research == null ? 'research not worked out' : 'a material can’t be priced') : inv ? `the Tech I original ${iskBig(su.bpo)} · a day’s materials and datacores ${iskBig(su.materials)}` : `original ${iskBig(su.bpo)} · research to ME ${input.me} / TE ${input.te} ${su.research ? iskBig(su.research) : 'none'} · a day’s materials ${iskBig(su.materials)}${su.research ? researchLeft : ''}` },
+        { l: 'Start-up', v: iskBig(su.total), n: su.total == null ? (bpo == null ? 'no NPC price for the original' : su.research == null ? 'research not worked out' : 'a material can’t be priced') : inv ? `the Tech I original ${iskBig(su.bpo)} · one job’s materials, and the datacores for the attempts it takes on average ${iskBig(su.materials)}` : `original ${iskBig(su.bpo)} · research to ME ${input.me} / TE ${input.te} ${su.research ? iskBig(su.research) : 'none'} · a day’s materials ${iskBig(su.materials)}${su.research ? researchLeft : ''}` },
         {
           l: 'Held here', v: heldKnown ? units(matHeld) : '–',
           n: (matHeld ? `cost you ${su.heldCost != null ? iskBig(su.heldCost) : '– (not all bought: no cost)'}${coreHeld ? ' (with the datacores)' : ''}; counted in start-up and the list, never in the profit a day` : !heldKnown ? (loc == null ? 'nothing known at a home typed by you' : 'assets not read yet') : 'none of its materials held here')
@@ -259,7 +260,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
         <span className="lbl">Shopping list, beyond what’s held</span>
         {shop.length ? shop.map((x) => <div key={x.type} className="row" style={{ gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
           <span>{units(x.qty)} {name(x.type)}</span><span className="faint">{x.source ? `${SOURCE_SAID[x.source]}, ${isk(x.price)} each` : 'nothing can be picked'}</span>
-        </div>) : <p className="note small" style={{ margin: 0 }}>Everything a day’s job needs is held here.</p>}
+        </div>) : <p className="note small" style={{ margin: 0 }}>Everything {inv ? 'one job' : 'a day’s job'} needs is held here.</p>}
         {jitaLines.length > 0 && (
           <button type="button" className="btn sm" style={{ alignSelf: 'flex-start' }}
             onClick={() => void copyMultibuy(jitaLines.map((x) => `${name(x.type)} ${x.qty}`).join('\n'), jitaLines.length, jitaLines.reduce((s, x) => s + x.qty * (input.market(x.type).jita?.ask ?? 0), 0))}>Copy for Multibuy</button>

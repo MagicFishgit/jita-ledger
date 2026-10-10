@@ -2260,7 +2260,7 @@ try {
     await page.waitForTimeout(1000);
     const inv = await text('[data-industry="detail"]');
     for (const t of ['Invention, at the nearest Laboratory, in Sobaseki', 'attempts a copy of 1 run, at ME 2 / TE 4', '3 Datacore - Nanite Engineering and 3 Datacore - Hydromagnetic Physics an attempt',
-      'one lab slot invents for', 'A Tech II copy can’t be researched: it builds at ME 2 / TE 4, as invented. Decryptors aren’t modelled', 'Materials for a day’s 1 run at ME 2',
+      'one lab slot invents for', 'A Tech II copy can’t be researched: it builds at ME 2 / TE 4, as invented. Decryptors aren’t modelled', 'Materials for one job: 1 run at ME 2',
       'The Tech I original, to copy from', 'Copy it at the nearest Laboratory', 'Invent at the nearest Laboratory', 'Install the job at Station 60001483 at ME 2',
       'Needs Hydromagnetic Physics, Nanite Engineering, Amarr Encryption Methods I to invent: at I each,', 'datacores held anywhere:'])
       if (!inv.toLowerCase().includes(t.toLowerCase())) problems.push(`the Tech II pump’s detail doesn’t say “${t}”`);

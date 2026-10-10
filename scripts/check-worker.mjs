@@ -1255,6 +1255,19 @@ console.log('\n--- home prices from Goonmetrics, read gently by the cloud (Task 
   const cj = await homePrices(db, 1049588174021);
   eq('  a hub with one failing call keeps every type (the good batches new, the failed one as it was), and says why', [later.r.done, later.r.error, Object.keys(cj.prices).length, cj.at], [{ 'UALX-3': 'read', 'C-J6MT': 'partial' }, 'Goonmetrics answered 503 for C-J6MT', 120, new Date(NOW + REFRESH_MS).toISOString()]);
   eq('    and is not read again within six hours, however its round went: one batch Goonmetrics keeps refusing costs nothing more', [(await run(db, { types, now: NOW + REFRESH_MS + 3600_000, fail: () => true })).calls.length, (await run(db, { types, now: NOW + REFRESH_MS + 5 * 3600_000 })).calls.length], [0, 0]);
+  // A host that answers some calls and then fails every one (a rate limit): the round stops on the third failure in a row, but the
+  // batches of the hub it was reading that came back are kept and the hub stamped, so it isn't read again for six hours.
+  const big = Array.from({ length: 400 }, (_, i) => 1000 + i);
+  const dbR = d1();
+  const limited = await run(dbR, { types: big, fail: (n) => n > 10 });
+  const cjR = await homePrices(dbR, 1049588174021);
+  eq('  a host that answers 10 calls then fails: the first hub read whole, the second partly (2 of 8 batches), the round stopped', [limited.calls.length, limited.r.done, limited.r.stopped, Object.keys(cjR?.prices ?? {}).length], [13, { 'UALX-3': 'read', 'C-J6MT': 'partial' }, true, 100]);
+  eq('    the partial hub is stamped: no call for it within six hours', [dbR.rows('SELECT hub, tried FROM home_prices ORDER BY hub').map((r) => r.tried), (await run(dbR, { types: big, now: NOW + 3600_000, fail: (n) => n > 10 })).calls.length], [[NOW, NOW], 0]);
+  const dbD = d1();
+  let day = 0;
+  for (let h = 0; h < 24; h++) day += (await run(dbD, { types: big, now: NOW + h * 3600_000, fail: (n) => n > 10 })).calls.length;
+  eq('    over 24 hourly rounds against that host: 4 rounds of 13 calls, not 13 an hour (312)', day <= 4 * 13, true);
+
   // A 200 that isn't Goonmetrics' prices (an HTML page, an error element, nothing) is a failed call and never wipes the last good row.
   const dbH = d1();
   await run(dbH, { types });
