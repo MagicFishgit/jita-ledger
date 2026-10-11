@@ -32,6 +32,8 @@ export type CopySummary = {
 };
 
 /** The window the summary counts, and how long what sold is kept (a day more, so the window is always whole). */
+/** Stamped as a round's error before it reads: a round the cloud stops can't write after it, so this stays as its trace (copies.ts). */
+export const INTERRUPTED = 'interrupted: the cloud stopped the read before it finished';
 export const COPY_WINDOW_DAYS = 7;
 export const COPY_KEEP_DAYS = 8;
 const DAY = 86_400_000;

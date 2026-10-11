@@ -8751,6 +8751,10 @@ console.log('\n--- Industry stage 3: the copy finder (copyFinder.ts, Task 14B) -
   // An Azbel in UALX-3 (null-sec, copying index 8.72%, 1% tax) with a Standup L-Set Blueprint Copy Optimization I: time × 0.80 × 0.58, cost × 0.96 × 0.79.
   const az = F.copyRow({ ...base, lab: { kind: 'azbel', rigs: [43729], band: 'null', tax: 0.01, index: indices[30004807] } });
   eq('  at an Azbel with a copy rig in null-sec: a run in 1,177.63 s, 5,631.19 a run', [Math.round(az.time * 1000) / 1000, Math.round(az.cost.total * 100) / 100, Math.round(az.iskDay)], [1177.632, 5631.19, 183204]);
+  eq('research\'s skills count as lacking, merged with copying\'s (the pump: three at I); none once the original is held whole, or when trained',
+    [F.copyRow(base).lacking.map((x) => `${x.id}/${x.level}`).sort(), F.copyRow({ ...base, held: { me: 10, te: 20 } }).lacking, F.copyRow({ ...base, skills: { ...base.skills, 3409: 1, 3403: 1, 26253: 1 } }).lacking],
+    [['26253/1', '3403/1', '3409/1'], [], []]);
+  eq('  research past 30 days is long (the pump from 0/0: 83.6 d); one held at ME 6 / TE 0 is 82 d; held whole has none', [F.RESEARCH_LONG_DAYS, F.copyRow(base).research.days > F.RESEARCH_LONG_DAYS], [30, true]);
   eq('  a kind the bundle doesn\'t hold, and a Tech II copy (made by invention), are left out', [F.copyRow({ ...base, kind: { ...pump, typeId: 32306 } }), F.copyRow({ ...base, kind: { ...pump, typeId: 39581 } })], ['notInBundle', 'invented']);
   eq('  thin: one seller, or under three sales', [F.thinSaid({ contracts: 9, sellers: 1 }), F.thinSaid({ contracts: 2, sellers: 2 }), F.thinSaid({ contracts: 3, sellers: 2 })],
     ['1 seller: one person’s prices', '2 sales this week: too few to say what it sells at', null]);

@@ -2842,7 +2842,13 @@ try {
       if (!/\d.* ISK/.test(await text('[data-kind="25895|10|20|40"] [data-industry="copy-isk"]'))) problems.push(`the pump row has no ISK a day: “${pumpRow}”`);
       if (!PHONE && !(await text('[data-kind="37045|10|20|5"]')).includes('median ask now, under what sold')) problems.push('the Standup’s price doesn’t say it’s the median ask, under what sold');
       const count = await text('[data-industry="copy-count"]');
-      if (!count.includes('1 copy of blueprints NPCs don’t sell') || !count.includes('1 Tech II copy (made by invention')) problems.push(`the left-out kinds aren’t said: “${count}”`);
+      if (!count.includes('1 kind of copy of blueprints NPCs don’t sell') || !count.includes('1 kind of Tech II copy (made by invention')) problems.push(`the left-out kinds aren’t said: “${count}”`);
+      // Research past 30 days is flagged on the row (the pump's 75 days); the research skills to train are the unit test's (the page's main has them).
+      if (!/research: \d+ days first/i.test(pumpRow)) problems.push(`research past 30 days isn’t flagged on the pump: “${pumpRow}”`);
+      const standup = await text('[data-kind="37045|10|20|5"]');
+      if (/<1 runs a day/.test(standup) || (!PHONE && !standup.includes('about one every'))) problems.push(`a pace under one a day isn’t said as time between: “${standup}”`);
+      if (PHONE ? !/payback not known: no npc price/i.test(standup) || !/research \d/i.test(pumpRow) : !/after \d.* of research/.test(pumpRow) || !/no NPC price for the original/.test(standup)) problems.push(`payback’s research time, or why it has none, isn’t said: “${pumpRow}” “${standup}”`);
+      if (!PHONE && !/Building: – \(/.test(pumpRow + standup)) problems.push('a building figure not known doesn’t say why');
       if (!(await text('[data-industry="copy-state"]')).includes('Counting what sells: 3.5 days so far.')) problems.push('the days counted aren’t said');
       const tip = await page.locator('[data-industry="copy-cost"]').first().getAttribute('data-tip').catch(() => '');
       if (!tip?.includes('not yet checked against a copy job of yours')) problems.push(`the copy cost doesn’t say copying’s SCC isn’t checked yet: “${tip}”`);
@@ -2866,11 +2872,15 @@ try {
       for (const [answer, words] of [[null, 'The cloud hasn’t read the copy market yet'], [404, 'The cloud is a version behind'], [{ off: true }, 'reads of EVE Ref switched off'],
         // A round tried and none has read (no `at`): what went wrong and when, never “not read yet”, never a table.
         [{ tried: iso(now - 3 * 3600_000), error: 'EVE Ref answered 502 for public-contracts-latest.v2.tar.bz2' }, 'tried to read the copy market 3 h ago and it failed: EVE Ref answered 502'],
-        [{ tried: iso(now - 3 * 3600_000), error: 'interrupted: the cloud stopped the read before it finished' }, 'failed: interrupted: the cloud stopped the read']]) {
+        [{ tried: iso(now - 3 * 3600_000), error: 'interrupted: the cloud stopped the read before it finished' }, 'failed: interrupted: the cloud stopped the read'],
+        // A round in progress stamps INTERRUPTED before it reads: a try under 3 minutes old is the cloud reading now.
+        [{ tried: iso(Date.now() - 60_000), error: 'interrupted: the cloud stopped the read before it finished' }, 'The cloud is reading the copy market now']]) {
         copies = answer;
         await page.reload();
         await page.waitForFunction((w) => (document.querySelector('[data-industry="copy-state"]')?.textContent ?? '').includes(w), words, { timeout: 20_000 }).catch(() => undefined);
         if (!(await text('[data-industry="copy-state"]')).includes(words)) problems.push(`the copy market ${JSON.stringify(answer)} isn’t said as “${words}”: “${await text('[data-industry="copy-state"]')}”`);
+        if (answer && answer.tried && words.includes('502') && !(await text('[data-industry="copy-state"]')).includes('within the hour')) problems.push('a failed try (not an interrupted one) doesn’t say the cloud tries again within the hour');
+        if (answer && answer.tried && words.includes('interrupted') && ((await text('[data-industry="copy-state"]')).includes('within the hour') || !(await text('[data-industry="copy-state"]')).includes('next six-hourly round'))) problems.push('an interrupted round says the cloud tries again within the hour: it waits for its next six-hourly round');
         if (answer && answer.tried && (/not read yet|hasn’t read/.test(await text('[data-industry="copy-state"]')) || await page.locator('[data-industry="copy-finder"], [data-industry="copy-count"]').count())) problems.push('a round that tried and failed is said as not read yet, or draws a table');
       }
       // A summary whose later try failed: the error before the figures, the last good read's time beside it, the figures still drawn;
@@ -2881,6 +2891,12 @@ try {
       const failedSaid = await text('[data-industry="copy-state"]');
       if (!failedSaid.startsWith('The cloud’s last read failed') || !failedSaid.includes('EVE Ref answered 502') || !failedSaid.includes('These figures are from the read of 2 h ago')) problems.push(`a failed later try isn’t said before the figures: “${failedSaid}”`);
       if (!failedSaid.includes('kept the new set without counting sales from it.')) problems.push(`the reset note isn’t said: “${failedSaid}”`);
+      // A read in progress (stamped INTERRUPTED before it reads, under 3 minutes ago) isn't a failure; the figures stay.
+      copies = { ...SUM, error: 'interrupted: the cloud stopped the read before it finished', tried: iso(Date.now() - 60_000) };
+      await page.reload();
+      await page.waitForFunction(() => (document.querySelector('[data-industry="copy-state"]')?.textContent ?? '').includes('is reading the copy market now'), null, { timeout: 20_000 })
+        .catch(async () => problems.push(`a read in progress is said as failed: “${await text('[data-industry="copy-state"]')}”`));
+      if (!(await page.locator('[data-industry="copy-finder"]').count())) problems.push('a read in progress hides the last good figures');
     }
 
     // --- the end of the industry case

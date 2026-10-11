@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { FlaskConical, Scale, Store } from 'lucide-react';
-import { copyKindKey } from '../../lib/copyMarket';
-import { copyReadings, copyRows, countingSaid, gapSaid, heldOriginal, readingsSaid, type CheckedJob, type CopyFinderRow } from '../../lib/copyFinder';
+import { copyKindKey, INTERRUPTED } from '../../lib/copyMarket';
+import { copyReadings, copyRows, countingSaid, gapSaid, heldOriginal, readingsSaid, RESEARCH_LONG_DAYS, type CheckedJob, type CopyFinderRow } from '../../lib/copyFinder';
 import { ago, fmtDate, iskBig, pct, units } from '../../lib/format';
 import { useNow } from '../../lib/hooks';
 import { nameOf, rigFor, secBand, type Indexed } from '../../lib/industry';
@@ -13,11 +13,18 @@ import type { IndustrySite } from '../../lib/prefs';
 import { Points } from '../Facts';
 import { Th } from '../ui';
 import { skillsWhy, type IndustryChar } from './industryChars';
-import { bpoSaid, perDayCell, useFinder, useStationSaid } from './industryFinder';
+import { aDaySaid, bpoSaid, useFinder, useStationSaid } from './industryFinder';
 import { useAdjusted, useCopyMarket, useIndices, useIndustryDoc } from './industryMarket';
 
 /** Rows shown before "Show more": a week's kinds run to two thousand. */
 const SHOWN = 50;
+/**
+ * A round stamps INTERRUPTED before it reads, so a read in progress looks like a failed one for a few minutes: say it's reading.
+ * After one the cloud stopped, the next try waits the full six hours (copies.ts); after any other failure, the next hourly cron.
+ */
+const READING_MS = 3 * 60_000;
+const readingNow = (tried: string | null, error: string | null, now: number) => error === INTERRUPTED && tried != null && now - Date.parse(tried) < READING_MS && now >= Date.parse(tried);
+const retrySaid = (error: string | null) => (error === INTERRUPTED ? 'It tries again on its next six-hourly round' : 'It tries again within the hour');
 const daysSaid = (d: number) => (d < 1 ? `${Math.max(1, Math.round(d * 24))} h` : `${Math.round(d * 10) / 10} d`);
 
 /**
@@ -61,7 +68,8 @@ export function IndustryCopies({ c, chars, ix, graph }: { c: IndustryChar; chars
       : market.status === 'behind' ? 'The cloud is a version behind: what copies sell comes once it’s updated.'
         : market.status === 'switched' ? 'The cloud has its reads of EVE Ref switched off, so what copies sell isn’t counted.'
           : market.status === 'none' ? 'The cloud hasn’t read the copy market yet: its first read comes on its next six-hourly round, and counting starts six hours after that.'
-            : market.status === 'tried' ? `The cloud tried to read the copy market ${ago(market.tried, now)}${market.error ? ` and it failed: ${market.error}` : ' and has nothing to show yet'}. It tries again within the hour, and counting starts six hours after a read lands.`
+            : market.status === 'tried' ? (readingNow(market.tried, market.error, now) ? 'The cloud is reading the copy market now: what it finds comes on the next look, and counting starts six hours after a read lands.'
+              : `The cloud tried to read the copy market ${ago(market.tried, now)}${market.error ? ` and it failed: ${market.error}` : ' and has nothing to show yet'}. ${retrySaid(market.error)}, and counting starts six hours after a read lands.`)
               : market.status === 'failed' ? `Couldn’t read what copies sold from the cloud: ${market.error}`
                 : null;
   // What the rows wait for, as the finder says it (useFinder's own states): a site, the skills, the indices, the adjusted prices.
@@ -77,9 +85,9 @@ export function IndustryCopies({ c, chars, ix, graph }: { c: IndustryChar; chars
   // Building instead, for the rows shown only (M10): a buildRow a kind for every kind sold would run on each live-book flush.
   const buildDays = useMemo(() => new Map(shown.map((r) => [copyKindKey(r.kind), built(r.bp, r.kind.me, r.kind.te)])), [shown, built]);
   const leftSaid = got ? [
-    got.left.notInBundle ? `${units(got.left.notInBundle)} ${got.left.notInBundle === 1 ? 'copy' : 'copies'} of blueprints NPCs don’t sell (faction and exploration copies: nobody makes them by copying)` : null,
-    got.left.invented ? `${units(got.left.invented)} Tech II ${got.left.invented === 1 ? 'copy' : 'copies'} (made by invention: Build ranks Tech II)` : null,
-    got.left.noCopying ? `${units(got.left.noCopying)} whose blueprint can’t be copied` : null,
+    got.left.notInBundle ? `${units(got.left.notInBundle)} ${got.left.notInBundle === 1 ? 'kind' : 'kinds'} of copy of blueprints NPCs don’t sell (faction and exploration copies: nobody makes them by copying)` : null,
+    got.left.invented ? `${units(got.left.invented)} ${got.left.invented === 1 ? 'kind' : 'kinds'} of Tech II copy (made by invention: Build ranks Tech II)` : null,
+    got.left.noCopying ? `${units(got.left.noCopying)} ${got.left.noCopying === 1 ? 'kind' : 'kinds'} whose blueprint can’t be copied` : null,
   ].filter(Boolean).join('; ') : '';
 
   return (
@@ -98,7 +106,8 @@ export function IndustryCopies({ c, chars, ix, graph }: { c: IndustryChar; chars
           {market.status === 'failed' && <> <button type="button" className="link-btn" onClick={market.retry}>Try again</button></>}</p>
       ) : summary && market.status === 'ok' && (
         <p className="note small" data-industry="copy-state" style={{ margin: 0 }}>
-          {market.error ? `The cloud’s last read failed (tried ${market.tried ? ago(market.tried, now) : 'just now'}): ${market.error}. These figures are from the read of ${ago(summary.at, now)}. ` : ''}
+          {market.error ? (readingNow(market.tried, market.error, now) ? `The cloud is reading the copy market now; these figures are from the read of ${ago(summary.at, now)}. `
+            : `The cloud’s last read failed (tried ${market.tried ? ago(market.tried, now) : 'just now'}): ${market.error}. ${retrySaid(market.error)}. These figures are from the read of ${ago(summary.at, now)}. `) : ''}
           {`From EVE Ref’s snapshot of The Forge’s public contracts, ${ago(summary.at, now)}; a contract that vanished before it expired counts as sold. `}
           {[countingSaid(summary), gapSaid(summary),
             market.note ? `${market.note}.` : null,
@@ -116,7 +125,8 @@ export function IndustryCopies({ c, chars, ix, graph }: { c: IndustryChar; chars
         <>
           <p className="note small" data-industry="copy-count" style={{ margin: 0 }}>
             {`${units(summary.sold.length)} kinds sold ${summary.days >= 7 ? 'in the last week' : 'so far'}, ${units(rows.length)} of them made by copying${leftSaid ? `; left out: ${leftSaid}` : ''}. `}
-            {`Copied at ${f.lab?.at ?? 'no Laboratory reached'}, at ${c.isMain ? 'your' : `${c.name}’s`} skills, selling ${pct(doc.share / 100, doc.share % 1 ? 1 : 0)} of what sold.`}
+            {f.lab ? `Copied at ${f.lab.at}, at ${c.isMain ? 'your' : `${c.name}’s`} skills, selling ${pct(doc.share / 100, doc.share % 1 ? 1 : 0)} of what sold.`
+              : `No Laboratory can be reached from where you build, so no copy is costed. Selling ${pct(doc.share / 100, doc.share % 1 ? 1 : 0)} of what sold.`}
           </p>
           <div className="tbl-scroll" style={{ border: '1px solid var(--line-3)' }}>
             <table className="tbl compact rd-table ind-copies" data-industry="copy-finder">
@@ -130,7 +140,7 @@ export function IndustryCopies({ c, chars, ix, graph }: { c: IndustryChar; chars
                 <Th className="rd-wide ind-c-pay" tip={'Payback: days for the original and its research to pay for themselves out of ISK a day.\n\nBuilding instead: the finder’s profit a day for one factory slot building from this blueprint at the kind’s ME and TE, the slot you’d build with instead.'}>Payback, and building instead</Th>
               </tr></thead>
               <tbody>
-                {shown.map((r) => <CopyRowView key={copyKindKey(r.kind)} r={r} name={nameOf(ix, r.bp)} bpo={bpoSaid(bpoOf(r.bp), f.npc, (id) => station(id))} costTip={costTip} buildDay={buildDays.get(copyKindKey(r.kind)) ?? null} />)}
+                {shown.map((r) => <CopyRowView key={copyKindKey(r.kind)} r={r} name={nameOf(ix, r.bp)} bpo={bpoSaid(bpoOf(r.bp), f.npc, (id) => station(id))} costTip={costTip} buildDay={buildDays.get(copyKindKey(r.kind)) ?? null} buildWhy={input ? 'the finder can’t price building it' : 'the Build finder isn’t ready yet'} ix={ix} />)}
               </tbody>
             </table>
           </div>
@@ -141,24 +151,38 @@ export function IndustryCopies({ c, chars, ix, graph }: { c: IndustryChar; chars
   );
 }
 
-function CopyRowView({ r, name, bpo, costTip, buildDay }: { r: CopyFinderRow; name: string; bpo: { v: string; n: string }; costTip: string[]; buildDay: number | null }) {
+/** Why a payback isn't a figure, in the order the figures it needs come. */
+function paybackWhy(r: CopyFinderRow): string {
+  if (r.research === 'held') return 'original held: nothing to pay back';
+  if (r.bpoPrice == null) return 'no NPC price for the original';
+  if (r.research.cost == null) return 'research cost not known';
+  if (r.iskDay == null) return 'no ISK a day to pay it back from';
+  return 'copying it makes nothing a day';
+}
+
+function CopyRowView({ r, name, bpo, costTip, buildDay, buildWhy, ix }: { r: CopyFinderRow; name: string; bpo: { v: string; n: string }; costTip: string[]; buildDay: number | null; buildWhy: string; ix: Indexed }) {
   const k = r.kind;
   const research = r.research === 'held' ? { v: 'None', n: 'you hold the original at that ME and TE' }
     : { v: r.research.days != null ? daysSaid(r.research.days) : '–', n: `ME ${r.research.me[0]} → ${r.research.me[1]}, TE ${r.research.te[0]} → ${r.research.te[1]}${r.research.cost != null ? ` · ${iskBig(r.research.cost)}` : r.research.days == null ? ' · no Laboratory reached, or its index isn’t read' : ' · cost not known'}` };
   const costWhy = r.eiv == null ? 'CCP’s adjusted prices lack one of its materials' : 'no Laboratory reached, or its index isn’t read';
+  const after = r.research !== 'held' && r.research.days != null ? ` after ${daysSaid(r.research.days)} of research` : '';
+  const long = r.research !== 'held' && r.research.days != null && r.research.days > RESEARCH_LONG_DAYS ? `Research: ${Math.round(r.research.days)} days first` : null;
+  const train = r.lacking.length ? `${r.lacking.length} to train` : null;
+  const trainTip = r.lacking.map((x) => `${nameOf(ix, x.id)} ${x.level}`).join(', ');
+  const phonePay = r.payback != null ? `payback ${units(Math.round(r.payback))} d${after}` : `payback not known: ${paybackWhy(r)}`;
   return (
     <tr data-kind={copyKindKey(k)}>
       <td className="l rd-main">
         <span className="nm">{name}</span>
-        <div className="note small">{`ME ${k.me} / TE ${k.te} · ${units(k.runs)} run${k.runs === 1 ? '' : 's'} a copy`}{r.thin && <span className="flag warn">{r.thin}</span>}</div>
-        <div className="rd-phone note small">{r.iskDay != null ? `${iskBig(r.iskDay)} a day` : '–'} · {perDayCell(r.yourRuns)} runs a day · {r.payback != null ? `payback ${Math.round(r.payback)} d` : 'no payback'}</div>
+        <div className="note small">{`ME ${k.me} / TE ${k.te} · ${units(k.runs)} run${k.runs === 1 ? '' : 's'} a copy`}{r.thin && <span className="flag warn">{r.thin}</span>}{long && <span className="flag warn" data-industry="copy-long">{long}</span>}{train && <span className="flag warn" data-industry="copy-train" data-tip={`Skills to train before you can copy or research it: ${trainTip}`}>{train}</span>}</div>
+        <div className="rd-phone note small">{`${r.price.from === 'asks' ? 'asked' : 'sold'} at ${iskBig(r.price.perRun)} a run · ${r.research === 'held' ? 'original held' : `research ${r.research.days != null ? daysSaid(r.research.days) : 'time not known'}`} · ${phonePay}`}</div>
       </td>
       <td className="rd-wide"><div>{units(k.contracts)}</div><div className="note small">{`${units(k.copies)} cop${k.copies === 1 ? 'y' : 'ies'} · ${units(k.sellers)} seller${k.sellers === 1 ? '' : 's'}`}</div></td>
       <td className="rd-wide"><div>{iskBig(r.price.perRun)}</div><div className="note small">{r.price.from === 'asks' ? `median ask now, under what sold (${iskBig(k.perRun)})` : 'median sold'}</div></td>
       <td className="rd-wide"><span data-industry="copy-cost" data-tip={costTip.join('\n\n')}>{r.cost ? iskBig(r.cost.total) : '–'}</span>{!r.cost && <div className="note small">{costWhy}</div>}</td>
-      <td data-industry="copy-isk"><div>{r.iskDay != null ? iskBig(r.iskDay) : '–'}</div><div className="note small">{`${perDayCell(r.yourRuns)} runs a day · ${r.limit === 'slot' ? 'the lab slot' : 'the market'} limits it (a slot makes ${perDayCell(r.labRuns)})`}</div></td>
+      <td data-industry="copy-isk"><div>{r.iskDay != null ? iskBig(r.iskDay) : '–'}</div><div className="note small">{`${aDaySaid(r.yourRuns)} · ${r.limit === 'slot' ? 'the lab slot' : 'the market'} limits it (a slot makes ${aDaySaid(r.labRuns)})`}</div></td>
       <td className="rd-wide"><div>{r.bpoPrice === 0 ? 'Held: you hold one' : `${bpo.v} ${bpo.n}`}</div><div className="note small">{`Research: ${research.v} · ${research.n}`}</div></td>
-      <td className="rd-wide"><div>{r.payback != null ? `${units(Math.round(r.payback))} d` : '–'}</div><div className="note small">{buildDay != null ? `Building: ${iskBig(buildDay)} a day` : 'Building: –'}</div></td>
+      <td className="rd-wide"><div>{r.payback != null ? `${units(Math.round(r.payback))} d` : '–'}</div><div className="note small">{r.payback != null ? `from the purchase${after}` : paybackWhy(r)}</div><div className="note small">{buildDay != null ? `Building: ${iskBig(buildDay)} a day` : `Building: – (${buildWhy})`}</div></td>
     </tr>
   );
 }

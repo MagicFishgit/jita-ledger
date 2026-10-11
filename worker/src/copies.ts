@@ -11,7 +11,7 @@
  */
 import type { BpContract } from '../../src/lib/bpContracts';
 import { THE_FORGE } from '../../src/lib/constants';
-import { COPY_KEEP_DAYS, COPY_WINDOW_DAYS, compactCopies, copiesSold, copySummary, itemIssuers, soldRows, type CopyRead, type CopyRow, type CopySummary, type SoldRow } from '../../src/lib/copyMarket';
+import { INTERRUPTED, COPY_KEEP_DAYS, COPY_WINDOW_DAYS, compactCopies, copiesSold, copySummary, itemIssuers, soldRows, type CopyRead, type CopyRow, type CopySummary, type SoldRow } from '../../src/lib/copyMarket';
 import { LATEST, readSnapshot, type SnapshotUnchanged } from './blueprints';
 
 export const COPIES_ON = true;
@@ -24,8 +24,7 @@ export const COPIES_RETRY_MS = 50 * 60_000;
 export const COPIES_BUDGET_MS = 12 * 60_000;
 /** Contracts a `copy_set` row holds: about 280 KB of JSON, under D1's 2 MB a row (the set was 1.02 to 1.03 MB on 11 October 2026). */
 export const COPY_PART = 3000;
-/** Stamped before a read: a round the cloud stops (memory, the wall limit) can't write anything after, so this stays as its trace. */
-export const INTERRUPTED = 'interrupted: the cloud stopped the read before it finished';
+export { INTERRUPTED };
 const DAY = 86_400_000;
 
 /**

@@ -278,6 +278,6 @@ State these rather than letting them be discovered:
   Contract fees aren't modelled.
 - **A copy's ISK a day leaves out contract fees and competition**, and **its pace is your share of what sold, counted from vanishings**
   (a contract listed and sold between two six-hourly reads is never seen, so the count is low; a vanished contract may have been
-  cancelled). Contract fees aren't modelled (Copies section, industry.md).
+  cancelled). Payback leaves the research's days out (the row says them, and flags research past 30 days).
 - **The copy cost rests on two readings not yet checked**: copying's SCC (EVE Ref's 4%) and a cost rig multiplying the structure's
   bonus. The Copies section says so in the cost's tip until a copy or research job of yours settles each.

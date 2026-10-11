@@ -562,3 +562,8 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
     its own (Astrahus, Fortizar) reads the same either way, said so.
   - **Layout**: seven columns at 1,440 (Original and research, and Payback and building instead, each share a column; the table is
     `table-layout: fixed`), the first and ISK a day on a phone, the rest folded into a line under the name.
+  - **Fix round (review of 14B)**: an interrupted round (INTERRUPTED, now in copyMarket.ts) waits the full six hours, so the section says "its
+    next six-hourly round", never "within the hour"; a try under 3 minutes old with that error is a read in progress ("reading now"), not a
+    failure. A row's `lacking` merges copying's and research's skills (about a quarter of blueprints need some to research) and says "N to train";
+    research past 30 days is flagged on the row and payback says "from the purchase, after N d of research"; every figure not known says why
+    (payback, building, no Laboratory); a pace under one a day is time between ("about one every 2 days"); the left-out counts are kinds.

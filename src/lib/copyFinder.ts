@@ -12,6 +12,8 @@ import { ACTIVITY_OF, jobCheck, MEASURE_BAND, type JobPlace, type JobRecord } fr
 
 /** Under this many sales a week, what a kind sells at is one or two buyers' prices (spec). */
 export const THIN_SALES = 3;
+/** Research to the kind's ME and TE that takes longer than this is flagged: payback leaves the research's time out. */
+export const RESEARCH_LONG_DAYS = 30;
 
 export function thinSaid(k: Pick<KindSold, 'contracts' | 'sellers'>): string | null {
   if (k.sellers <= 1) return '1 seller: one person’s prices';
@@ -45,6 +47,7 @@ export type CopyFinderRow = {
   payback: number | null;
   buildDay: number | null;
   thin: string | null;
+  /** Skills lacking for copying and, unless the original is held whole, for researching it. */
   lacking: { id: number; level: number }[];
 };
 export type CopyRowInput = {
@@ -84,12 +87,12 @@ export function copyRow(o: CopyRowInput): CopyFinderRow | CopyLeft {
   const cost = eiv != null && lab?.index ? copyCost(eiv, 1, 1, { index: lab.index.copying, structure: sb.cost, rig: rig('copying').cost, tax: lab.tax, clone: o.clone }) : null;
   const iskDay = cost ? yourRuns * (price.perRun - cost.total) : null;
   const held = o.held;
+  const rme = activityOf(bp, 'researchMaterial'), rte = activityOf(bp, 'researchTime');
   let research: CopyFinderRow['research'];
   if (held && held.me >= k.me && held.te >= k.te) research = 'held';
   else {
     // From the held original's levels (a TE level is 2%), never past the kind's: copies keep the original's ME and TE.
     const meFrom = Math.min(held?.me ?? 0, k.me), teFrom = Math.min(Math.floor((held?.te ?? 0) / 2), k.te / 2);
-    const rme = activityOf(bp, 'researchMaterial'), rte = activityOf(bp, 'researchTime');
     const meT = rme ? researchTime(ix, rme[0], 'me', meFrom, k.me, o.skills, sb.time, rig('researchMaterial').time) : null;
     const teT = rte ? researchTime(ix, rte[0], 'te', teFrom, k.te / 2, o.skills, sb.time, rig('researchTime').time) : null;
     const at = (a: 'researchMaterial' | 'researchTime') => (lab?.index ? { index: lab.index[a], structure: sb.cost, rig: rig(a).cost, tax: lab.tax, clone: o.clone } : null);
@@ -101,10 +104,14 @@ export function copyRow(o: CopyRowInput): CopyFinderRow | CopyLeft {
   const bpoPrice = held ? 0 : o.bpo.state === 'forge' ? o.bpo.price : null;
   const researchIsk = research === 'held' ? 0 : research.cost;
   const payback = research !== 'held' && bpoPrice != null && researchIsk != null && iskDay != null && iskDay > 0 ? (bpoPrice + researchIsk) / iskDay : null;
+  // Copying's skills, and research's (about a quarter of blueprints need some to research: the pump, Metallurgy I and Armor Rigging I).
+  const need = new Map<number, number>();
+  for (const { id, level } of [...lacking(copy[2], o.skills), ...(research === 'held' ? [] : [rme, rte].flatMap((a) => (a ? lacking(a[2], o.skills) : [])))]) need.set(id, Math.max(need.get(id) ?? 0, level));
+  const needs = [...need].map(([id, level]) => ({ id, level }));
   return {
     kind: k, bp: bp[0], price, time, labRuns, soldRuns, yourRuns, limit: labRuns < atShare ? 'slot' : 'market', eiv, cost,
     costKnown: cost ? cost.tax != null && cost.alpha != null : null, iskDay, research, bpoPrice, payback,
-    buildDay: o.build(bp[0], k.me, k.te), thin: thinSaid(k), lacking: lacking(copy[2], o.skills),
+    buildDay: o.build(bp[0], k.me, k.te), thin: thinSaid(k), lacking: needs,
   };
 }
 
