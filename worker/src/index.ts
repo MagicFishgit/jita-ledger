@@ -29,6 +29,7 @@ import { blueprintMarket } from './blueprints';
 import { abyssCells, abyssFit, refreshAbyss } from './abyss';
 import { npcRows } from './industryNpc';
 import { BUDGET_MS, homePrices, refreshHomePrices } from './goonmetrics';
+import { COPIES_BUDGET_MS, copiesFor, refreshCopies } from './copies';
 
 export interface Env {
   DB: D1Database;
@@ -216,6 +217,10 @@ export default {
         // their way; not a watched job (someone else's site, and the tab says how old its figures are).
         .finally(async () => {
           try { console.log('goonmetrics', JSON.stringify(await refreshHomePrices(env.DB, Date.now(), undefined, undefined, undefined, event.scheduledTime + BUDGET_MS))); } catch (e) { console.error('goonmetrics failed', e); }
+        })
+        // Then what copies sell (copies.ts), when six hours old: after Goonmetrics, never in its way; not a watched job.
+        .finally(async () => {
+          try { console.log('copies', JSON.stringify(await refreshCopies(env.DB, Date.now(), { deadline: event.scheduledTime + COPIES_BUDGET_MS }))); } catch (e) { console.error('copies failed', e); }
         }));
       return;
     }
@@ -352,6 +357,8 @@ export default {
       if (url.pathname === '/v1/industry/npc' && request.method === 'GET') return json(await npcRows(env.DB), 200, c);
       // A home hub's prices as the cloud last read them from Goonmetrics (goonmetrics.ts); 400 for a hub it doesn't read.
       if (url.pathname === '/v1/home/prices' && request.method === 'GET') return json(await homePrices(env.DB, Number(url.searchParams.get('hub'))), 200, c);
+      // What copies sold for in The Forge over the last week, and the asks now (copies.ts); null before the cloud's first read.
+      if (url.pathname === '/v1/copies' && request.method === 'GET') return json(await copiesFor(env.DB), 200, c);
       // Abyss Tracker, read by the cloud for the Abyssal page: every tier and weather, and one fit when it's opened.
       if (url.pathname === '/v1/abyss' && request.method === 'GET') return json(await abyssCells(env.DB), 200, c);
       if (url.pathname === '/v1/jobs/abyss' && request.method === 'POST') return json(await refreshAbyss(env.DB), 200, c);

@@ -89,6 +89,173 @@ export class TarSink {
   }
 }
 
+type SnapshotFile = 'meta' | 'contracts' | 'items' | null;
+const SNAPSHOT_FILES: Record<string, SnapshotFile> = { 'meta.json': 'meta', 'contracts.csv': 'contracts', 'contract_items.csv': 'items' };
+const fileOf = (name: string): SnapshotFile => SNAPSHOT_FILES[name.slice(name.lastIndexOf('/') + 1)] ?? null;
+const ITEM_EXCHANGE = new TextEncoder().encode('item_exchange'), TRUE = new TextEncoder().encode('true');
+const MAX_FIELDS = 40;
+
+/**
+ * The region's blueprint-only contracts, read as the bzip2 decoder writes the tar a byte at a time (stage 3, correction 19): each
+ * CSV line is split into fields where it lies, a contract kept only when it is a public item exchange of the region with a price,
+ * its items only while every one is a blueprint given, and every copy of the region's item exchanges, a bundle with other items
+ * included, noted with its seller (`copyIssuers`: what tells a reprice from a sale, correction 5). Nothing else is held: the
+ * whole contracts and items files (39 MB on 11 October 2026) peaked near the Worker's 128 MB with the rest of a round. The same
+ * contracts `blueprintContracts` reads from whole files (tested equal). Expiry is judged at `now`, else the snapshot's own time.
+ */
+export class ContractSink {
+  at: string | null = null;
+  readonly copyIssuers = new Map<number, number>();
+  private opts: { region: number; now?: number; types?: ReadonlySet<number> };
+  private header = new Uint8Array(512);
+  private hpos = 0;
+  private cur: { file: SnapshotFile; size: number; pos: number; left: number } | null = null;
+  private done = new Set<SnapshotFile>();
+  private meta: number[] = [];
+  private line = new Uint8Array(4096);
+  private llen = 0;
+  private quoted = false;
+  private cols: Map<string, number> | null = null;
+  private bounds = new Int32Array(MAX_FIELDS * 2);
+  /** How many fields the last line split into. */
+  private fields = 0;
+  private dec = new TextDecoder();
+  private kept = new Map<number, BpContract>();
+  /** The region's item exchanges dropped as comparables (an item asked for, or not a blueprint): their sellers, by contract. */
+  private spoiled = new Map<number, number>();
+  constructor(opts: { region: number; now?: number; types?: ReadonlySet<number> }) { this.opts = opts; }
+
+  writeByte(b: number): void {
+    if (!this.cur) {
+      this.header[this.hpos++] = b;
+      if (this.hpos < 512) return;
+      this.hpos = 0;
+      let name = '';
+      for (let i = 0; i < 100 && this.header[i]; i++) name += String.fromCharCode(this.header[i]);
+      if (!name) throw TAR_DONE;
+      let oct = '';
+      for (let i = 124; i < 136 && this.header[i]; i++) oct += String.fromCharCode(this.header[i]);
+      const size = parseInt(oct.trim() || '0', 8);
+      const file = fileOf(name);
+      // Items are kept only for contracts already kept, so they must come after them (EVE Ref's order: meta, contracts, items).
+      if (file === 'items' && !this.done.has('contracts')) throw new Error('EVE Ref’s snapshot lists its contracts’ items before its contracts');
+      this.cur = { file, size, pos: 0, left: Math.ceil(size / 512) * 512 };
+      this.cols = null; this.llen = 0; this.quoted = false;
+      if (this.cur.left === 0) this.finish();
+      return;
+    }
+    if (this.cur.pos < this.cur.size) {
+      if (this.cur.file === 'meta') this.meta.push(b);
+      else if (this.cur.file) {
+        if (b === 0x22) this.quoted = !this.quoted;
+        if (b === 0x0a && !this.quoted) this.endLine();
+        else if (b !== 0x0d || this.quoted) {
+          if (this.llen === this.line.length) { const n = new Uint8Array(this.line.length * 2); n.set(this.line); this.line = n; }
+          this.line[this.llen++] = b;
+        }
+      }
+    }
+    this.cur.pos++;
+    if (--this.cur.left === 0) this.finish();
+  }
+
+  /** The line's fields as [start, end) pairs (outer quotes still on), in `bounds`. */
+  private split(): void {
+    let n = 0, start = 0, q = false;
+    for (let i = 0; i <= this.llen; i++) {
+      const c = i < this.llen ? this.line[i] : 0x2c;
+      if (c === 0x22) q = !q;
+      else if (c === 0x2c && !q) { if (n < MAX_FIELDS) { this.bounds[2 * n] = start; this.bounds[2 * n + 1] = i; } n++; start = i + 1; }
+    }
+    // A field past this line's own reads empty, never what a longer line before it left (a line short of fields).
+    const m = Math.min(n, MAX_FIELDS);
+    for (let k = m; k < this.fields; k++) { this.bounds[2 * k] = 0; this.bounds[2 * k + 1] = 0; }
+    this.fields = m;
+  }
+  private col(name: string): number { return this.cols?.get(name) ?? -1; }
+  private range(k: number): [number, number] {
+    let s = this.bounds[2 * k], e = this.bounds[2 * k + 1];
+    if (e - s >= 2 && this.line[s] === 0x22 && this.line[e - 1] === 0x22) { s++; e--; }
+    return [s, e];
+  }
+  private is(k: number, lit: Uint8Array): boolean {
+    if (k < 0) return false;
+    const [s, e] = this.range(k);
+    if (e - s !== lit.length) return false;
+    for (let i = 0; i < lit.length; i++) if (this.line[s + i] !== lit[i]) return false;
+    return true;
+  }
+  private empty(k: number): boolean { if (k < 0) return true; const [s, e] = this.range(k); return e <= s; }
+  /** A whole number read from the field's bytes, no string made; anything else through Number(); NaN when empty. */
+  private int(k: number): number {
+    if (k < 0) return NaN;
+    const [s, e] = this.range(k);
+    if (e <= s) return NaN;
+    let v = 0, i = s;
+    const neg = this.line[i] === 0x2d;
+    if (neg) i++;
+    for (; i < e; i++) { const c = this.line[i]; if (c < 0x30 || c > 0x39) return Number(this.str(k)); v = v * 10 + (c - 0x30); }
+    return neg ? -v : v;
+  }
+  private str(k: number): string {
+    if (k < 0) return '';
+    const [s, e] = this.range(k);
+    const t = this.dec.decode(this.line.subarray(s, e));
+    return t.includes('""') ? t.replace(/""/g, '"') : t;
+  }
+
+  private endLine(): void {
+    if (!this.llen) return;
+    if (!this.cols) { this.cols = new Map(csvFields(this.dec.decode(this.line.subarray(0, this.llen))).map((c, i) => [c.trim(), i])); this.llen = 0; return; }
+    this.split();
+    if (this.cur!.file === 'contracts') {
+      if (this.is(this.col('type'), ITEM_EXCHANGE) && this.int(this.col('region_id')) === this.opts.region && !this.is(this.col('for_corporation'), TRUE)) {
+        const price = Number(this.str(this.col('price')));
+        if (price > 0) {
+          const id = this.int(this.col('contract_id'));
+          const station = this.int(this.col('station_id')) || this.int(this.col('start_location_id'));
+          this.kept.set(id, { id, price, issued: this.str(this.col('date_issued')), expires: this.str(this.col('date_expired')), stationId: station > 0 ? station : null,
+            issuer: this.int(this.col('issuer_id')), title: this.str(this.col('title')), items: [] });
+        }
+      }
+      this.llen = 0;
+      return;
+    }
+    const id = this.int(this.col('contract_id'));
+    const c = this.kept.get(id);
+    const issuer = c ? c.issuer : this.spoiled.get(id);
+    if (issuer != null && this.is(this.col('is_blueprint_copy'), TRUE)) { const it = this.int(this.col('item_id')); if (it > 0) this.copyIssuers.set(it, issuer); }
+    if (c) {
+      const me = this.col('material_efficiency');
+      // A contract asking for an item, or holding anything that isn't a blueprint (no ME), is no comparable: dropped whole.
+      if (!this.is(this.col('is_included'), TRUE) || this.empty(me)) { this.kept.delete(id); this.spoiled.set(id, c.issuer); }
+      else {
+        const runs = this.col('runs'), te = this.col('time_efficiency'), itemId = this.int(this.col('item_id'));
+        c.items.push({ typeId: this.int(this.col('type_id')), copy: this.is(this.col('is_blueprint_copy'), TRUE), me: this.int(me), te: this.empty(te) ? 0 : this.int(te),
+          runs: this.empty(runs) ? null : this.int(runs), qty: Math.max(1, this.int(this.col('quantity')) || 1), itemId: itemId > 0 ? itemId : null });
+      }
+    }
+    this.llen = 0;
+  }
+
+  private finish(): void {
+    const file = this.cur!.file;
+    if (file === 'contracts' || file === 'items') this.endLine();
+    if (file === 'meta') { try { this.at = (JSON.parse(this.dec.decode(new Uint8Array(this.meta))) as { scrape_end?: string }).scrape_end ?? null; } catch { this.at = null; } this.meta = []; }
+    if (file) this.done.add(file);
+    this.cur = null;
+    if (this.done.has('meta') && this.done.has('contracts') && this.done.has('items')) throw TAR_DONE;
+  }
+
+  /** The contracts kept: blueprints only, not expired at `now` (else the snapshot's own time), holding one of `types` when asked; and every copy's seller. */
+  result(): { contracts: BpContract[]; at: string | null; copyIssuers: ReadonlyMap<number, number> } {
+    const now = this.opts.now ?? (this.at ? Date.parse(this.at) : Date.now());
+    const types = this.opts.types;
+    const contracts = [...this.kept.values()].filter((c) => c.items.length && Date.parse(c.expires) > now && (!types || c.items.some((i) => types.has(i.typeId))));
+    return { contracts, at: this.at, copyIssuers: this.copyIssuers };
+  }
+}
+
 /**
  * Contracts in an older snapshot that are gone from the newer one before they'd have expired: the nearest thing to
  * "sold" the data has (the research, 26 to 29 September: those that vanished sat at the cheap end of their kind). One

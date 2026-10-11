@@ -1,12 +1,12 @@
 ---
 paths:
-  - "src/lib/{industry,industryRank,industrySites,industryLadder,industryTrack,industryOwned,industryReads,homeMarket,altFees,nameReader}.ts"
+  - "src/lib/{industry,industryRank,industrySites,industryLadder,industryTrack,industryOwned,industryReads,homeMarket,altFees,nameReader,copyMarket}.ts"
   - "src/components/hustles/{Industry.tsx,IndustryStart.tsx,IndustrySites.tsx,IndustryBuild.tsx,IndustryDetail.tsx,IndustryOwned.tsx,industryChars.ts,industryBundle.ts,industryMarket.ts,industryFinder.ts}"
   - "src/components/FindStructure.tsx"
   - "src/data/{industry,industryEiv,industryTypes}.json"
   - "scripts/industry-bundle.mjs"
-  - "worker/src/{industryNpc,goonmetrics,industryJobs}.ts"
-  - "worker/migrations/{0018_industry_npc,0019_home_prices}.sql"
+  - "worker/src/{industryNpc,goonmetrics,industryJobs,copies}.ts"
+  - "worker/migrations/{0018_industry_npc,0019_home_prices,0020_copies}.sql"
 ---
 
 # Industry

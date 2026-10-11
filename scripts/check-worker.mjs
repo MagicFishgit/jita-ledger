@@ -1520,5 +1520,101 @@ console.log('\n--- Industry stage 2: jobs and blueprints in the cloud (Task 9B) 
   }
 }
 
+console.log('\n--- what copies sell, read every six hours by the cloud (Task 14A) ---');
+{
+  const { refreshCopies, copiesFor, COPY_PART } = await import('../worker/src/copies.ts');
+  const FX = JSON.parse(fs.readFileSync(new URL('./fixtures/copy-snapshots.json', import.meta.url), 'utf8'));
+  const snap = (i, at = FX.snapshots[i].at) => ({ at, contracts: FX.snapshots[i].contracts.map(([id, price, expires, issuer, items]) => ({ id, price, issued: '', expires, stationId: 60003760, issuer, title: '',
+    items: items.map(([typeId, copy, me, te, runs, qty, itemId]) => ({ typeId, copy: copy === 1, me, te, runs, qty, itemId })) })) });
+  const [A, B, C] = FX.snapshots.map((s) => Date.parse(s.at));
+  const H = 3_600_000;
+  const n = (db, sql) => db.rows(sql)[0].n;
+  const db = d1();
+  const r1 = await refreshCopies(db, A + 120_000, { read: async () => snap(0), part: 40 });
+  eq('  the first read keeps the set (96 contracts in rows of 40) and counts nothing sold', [r1, db.rows('SELECT part FROM copy_set ORDER BY part').map((r) => r.part), n(db, 'SELECT COUNT(*) AS n FROM copy_sold')],
+    [{ done: 'read', contracts: 96, sold: 0, parts: 3 }, [0, 1, 2], 0]);
+  const s1 = await copiesFor(db);
+  eq('    and says counting has begun: 0 days, no reads, the asks known', [s1.days, s1.reads, s1.sold, Object.keys(s1.asks).length, s1.error], [0, 0, [], 11, null]);
+  eq('  three hours on it isn\'t due', await refreshCopies(db, A + 3 * H, { read: async () => snap(1) }), { done: 'fresh' });
+  eq('  six hours on: 16 sold, the set rewritten in one row', [await refreshCopies(db, B + 120_000, { read: async () => snap(1) }), n(db, 'SELECT COUNT(*) AS n FROM copy_set')], [{ done: 'read', contracts: 87, sold: 16, parts: 1 }, 1]);
+  eq('  twelve: 12 more (28 kept)', [await refreshCopies(db, C + 120_000, { read: async () => snap(2) }), n(db, 'SELECT COUNT(*) AS n FROM copy_sold')], [{ done: 'read', contracts: 82, sold: 12, parts: 1 }, 28]);
+  const s3 = await copiesFor(db);
+  eq('  GET /v1/copies: the summary worked out in the round, with when it last tried', [s3.at, Math.round(s3.days * 1000) / 1000, s3.reads, s3.sold.length, s3.tried, s3.error], ['2026-10-11T12:01:00.000Z', 0.5, 2, 7, new Date(C + 120_000).toISOString(), null]);
+  // EVE Ref stalled: the same snapshot six hours on compares nothing, says so, and is tried again the next hour.
+  const same = await refreshCopies(db, C + 6 * H, { read: async () => snap(2) });
+  const afterSame = await copiesFor(db);
+  eq('  the same snapshot again: nothing compared, said as nothing newer (not an error), tried again an hour later', [same, n(db, 'SELECT COUNT(*) AS n FROM copy_sold'), afterSame.error, afterSame.stale, await refreshCopies(db, C + 6.5 * H, { read: async () => snap(2) }), await refreshCopies(db, C + 7 * H, { read: async () => snap(2) })],
+    [{ done: 'same' }, 28, null, '2026-10-11T12:01:00.000Z', { done: 'fresh' }, { done: 'same' }]);
+  eq('  a failed read keeps the set and what sold, says why, and waits for the next hour', [await refreshCopies(db, C + 12 * H, { read: async () => { throw new Error('EVE Ref answered 503 for public-contracts-latest.v2.tar.bz2'); } }), n(db, 'SELECT COUNT(*) AS n FROM copy_set'), n(db, 'SELECT COUNT(*) AS n FROM copy_sold'), (await copiesFor(db)).error, await refreshCopies(db, C + 12.5 * H, { read: async () => snap(2) })],
+    [{ done: 'failed', error: 'EVE Ref answered 503 for public-contracts-latest.v2.tar.bz2' }, 1, 28, 'EVE Ref answered 503 for public-contracts-latest.v2.tar.bz2', { done: 'fresh' }]);
+  eq('  out of time before it began: nothing read, nothing stamped', [await refreshCopies(db, C + 14 * H, { read: async () => snap(2), deadline: Date.now() - 1 }), JSON.parse(db.rows("SELECT data FROM scan_meta WHERE key = 'copies'")[0].data).tried], [{ done: 'later' }, C + 12 * H]);
+  eq('  switched off: nothing read, and the route says so', [await refreshCopies(d1(), A, { read: async () => snap(0), on: false }), await copiesFor(d1(), false)], [{ off: true }, { off: true }]);
+  eq('  before its first read: nothing, not an empty summary', await copiesFor(d1()), null);
+  // A kept set more than a week older than the new snapshot: compared, it would put a week of sales on one day.
+  const dbOld = d1();
+  await refreshCopies(dbOld, A + 120_000, { read: async () => snap(0) });
+  const late = new Date(A + 8 * 86400_000).toISOString();
+  eq('  a kept set over seven days old: the set replaced, nothing compared', [await refreshCopies(dbOld, A + 8 * 86400_000 + 120_000, { read: async () => snap(1, late) }), n(dbOld, 'SELECT COUNT(*) AS n FROM copy_sold'), (await copiesFor(dbOld)).reads],
+    [{ done: 'read', contracts: 87, sold: 0, parts: 1 }, 0, 0]);
+  // Your own characters (every login the cloud holds, every alt) are no one's market.
+  const dbOwn = d1();
+  const seller = FX.snapshots[1].contracts.find((x) => x[4].some((i) => i[0] === 21012 && i[4] === 40) && !FX.snapshots[2].contracts.some((y) => y[0] === x[0]))[3];
+  dbOwn.run('INSERT INTO alts (char_id, ledger, name, added_at) VALUES (?, ?, ?, ?)', seller, MAIN, 'Seller Alt', 1);
+  for (const [i, t] of [[0, A], [1, B], [2, C]]) await refreshCopies(dbOwn, t + 120_000, { read: async () => snap(i) });
+  eq('  an alt\'s sales and asks are left out of the summary (its row in copy_sold kept)', [(await copiesFor(dbOwn)).sold.some((x) => x.typeId === 21012 && x.runs === 40), n(dbOwn, `SELECT COUNT(*) AS n FROM copy_sold WHERE issuer = ${seller}`)], [false, 5]);
+  // What sold is pruned after eight days; a round's own rows stay.
+  const dbP = d1();
+  dbP.run('INSERT INTO copy_sold (contract_id, type_id, me, te, runs, copies, price, issuer, at) VALUES (1, 693, 10, 20, 1, 1, 1, 7, ?)', A - 9 * 86400_000);
+  await refreshCopies(dbP, A + 120_000, { read: async () => snap(0) });
+  eq('  a sale kept over eight days is pruned', n(dbP, 'SELECT COUNT(*) AS n FROM copy_sold'), 0);
+  // The default reader: EVE Ref's latest snapshot, asked once, with a User-Agent naming the project only.
+  const calls = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => { calls.push({ url: String(input), ua: init.headers?.['User-Agent'], timeout: init.signal instanceof AbortSignal }); return new Response(new Uint8Array([1, 2, 3]), { status: 200 }); };
+  let viaFetch;
+  try { viaFetch = await refreshCopies(d1(), A); } finally { globalThis.fetch = real; }
+  eq('  the default reader asks EVE Ref once, naming the project only, with a timeout; bytes that aren\'t a snapshot fail the round', [calls, viaFetch.done],
+    [[{ url: 'https://data.everef.net/public-contracts/public-contracts-latest.v2.tar.bz2', ua: 'Jita Ledger (a personal EVE trading tool)', timeout: true }], 'failed']);
+  eq('  a row holds 3,000 contracts', COPY_PART, 3000);
+  // I5: the round stamps "interrupted" before it reads, so a round the cloud kills leaves a trace; after one, it waits six hours.
+  const { INTERRUPTED } = await import('../worker/src/copies.ts');
+  const dbI = d1();
+  let mid = null;
+  await refreshCopies(dbI, A + 120_000, { read: async () => { mid = JSON.parse(dbI.rows("SELECT data FROM scan_meta WHERE key = 'copies'")[0].data); return snap(0); } });
+  eq('  stamped as interrupted, with the try\'s time, while the read is under way; the read\'s end writes over it',
+    [mid?.error ?? null, mid?.tried ?? null, JSON.parse(dbI.rows("SELECT data FROM scan_meta WHERE key = 'copies'")[0].data).error], [INTERRUPTED, A + 120_000, null]);
+  const dbK = d1();
+  dbK.run("INSERT INTO scan_meta (key, data) VALUES ('copies', ?)", JSON.stringify({ tried: A, read: 0, error: INTERRUPTED, stale: null, reads: [] }));
+  eq('  after a round the cloud stopped: not tried again an hour on, but six hours on', [await refreshCopies(dbK, A + H, { read: async () => snap(0) }), (await refreshCopies(dbK, A + 6 * H, { read: async () => snap(0) })).done], [{ done: 'fresh' }, 'read']);
+  // A throw after the read (here D1 refusing the batch) is no kill: it says why, keeps the last round's set, and is tried the next hour.
+  const dbF = d1();
+  await refreshCopies(dbF, A + 120_000, { read: async () => snap(0), part: 40 });
+  const refusing = { ...dbF, batch: async () => { throw new Error('D1 refused the batch'); } };
+  const refused = await refreshCopies(refusing, B + 120_000, { read: async () => snap(1) }).catch((e) => ({ threw: String(e?.message ?? e) }));
+  eq('  a write D1 refuses: said (not "interrupted"), the last round\'s set kept, tried again the next hour',
+    [refused, JSON.parse(dbF.rows("SELECT data FROM scan_meta WHERE key = 'copies'")[0].data).error, n(dbF, 'SELECT COUNT(*) AS n FROM copy_set'), n(dbF, 'SELECT COUNT(*) AS n FROM copy_sold'), (await refreshCopies(dbF, B + H, { read: async () => snap(1) })).done],
+    [{ done: 'failed', error: 'D1 refused the batch' }, 'D1 refused the batch', 3, 0, 'read']);
+  // A partial snapshot (a page EVE Ref's scraper missed) makes a contract look sold; the next whole one brings it back and it's taken out.
+  const ids = FX.snapshots.map((s) => new Set(s.contracts.map((x) => x[0])));
+  const X = FX.snapshots[0].contracts.find((x) => ids[1].has(x[0]) && ids[2].has(x[0]) && x[4].every((i) => i[1] === 1))[0];
+  const partial = (i, at) => { const s = snap(i, at); return { ...s, contracts: s.contracts.filter((x) => x.id !== X) }; };
+  const dbPart = d1();
+  await refreshCopies(dbPart, A + 120_000, { read: async () => snap(0) });
+  const r2 = await refreshCopies(dbPart, B + 120_000, { read: async () => partial(1) });
+  const hadX = n(dbPart, `SELECT COUNT(*) AS n FROM copy_sold WHERE contract_id = ${X}`);
+  const r3 = await refreshCopies(dbPart, C + 120_000, { read: async () => snap(2) });
+  eq('  a contract missing from one snapshot and back in the next: counted, then taken out (28 sold, as with whole snapshots)',
+    [r2.sold, hadX, r3.back, n(dbPart, `SELECT COUNT(*) AS n FROM copy_sold WHERE contract_id = ${X}`), n(dbPart, 'SELECT COUNT(*) AS n FROM copy_sold'), (await copiesFor(dbPart)).sold.reduce((t, k) => t + k.contracts, 0)],
+    [17, 1, 1, 0, 28, 28]);
+  // The reader's copyIssuers see a copy its seller moved into a bundle the comparables leave out (correction 5): a reprice, not a sale.
+  const dbB = d1();
+  await refreshCopies(dbB, A + 120_000, { read: async () => snap(0) });
+  const tempest = FX.snapshots[0].contracts.find((x) => x[4][0][0] === 693 && !ids[1].has(x[0]));
+  const at06 = snap(1), issuers = new Map();
+  for (const x of at06.contracts) for (const it of x.items) if (it.itemId) issuers.set(it.itemId, x.issuer);
+  for (const it of tempest[4]) issuers.set(it[6], tempest[3]);
+  eq('  a Tempest contract gone at 06:00 whose copy sits in a bundle of its seller\'s: 15 sold, not 16', (await refreshCopies(dbB, B + 120_000, { read: async () => ({ ...at06, copyIssuers: issuers }) })).sold, 15);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

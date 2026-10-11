@@ -3773,7 +3773,7 @@ console.log('\n--- freelance jobs to deliver to ---');
 
 console.log('\n--- blueprints and their contracts ---');
 {
-  const { untar, csvFields, blueprintContracts, TarSink, TAR_DONE, vanishedSince } = await import('../src/lib/bpContracts.ts');
+  const { untar, csvFields, blueprintContracts, TarSink, ContractSink, TAR_DONE, vanishedSince } = await import('../src/lib/bpContracts.ts');
   const { readBlueprints, comparables, quoteBlueprint, scamFlags, tidy } = await import('../src/lib/blueprints.ts');
   // A tar made here: ustar headers (name, size in octal), each file padded to 512 bytes.
   const tar = (files) => {
@@ -3834,6 +3834,38 @@ console.log('\n--- blueprints and their contracts ---');
     [{ price: 1134000000, where: 'market' }, { price: 1.1e9, where: 'contract' }, { price: 1.1e9, where: 'contract' }]);
   eq('a title that claims what the contract isn’t', [scamFlags({ copy: true, me: 9, te: 18, title: '10/20 Fully Researched BPO', stationId: 60003760 }), scamFlags({ copy: false, me: 10, te: 20, title: 'ME10 TE20', stationId: 60008494 })],
     [['saysOriginal', 'saysResearch'], ['notJita']]);
+  // The streaming reader (stage 3): the same contracts as blueprintContracts from whole files, holding nothing else.
+  const feed = (snk, bytes) => { try { for (const x of bytes) snk.writeByte(x); return null; } catch (e) { return e; } };
+  const NOW = Date.parse('2026-09-29T00:00:00Z');
+  const snapBytes = tar([['meta.json', '{"scrape_end":"2026-09-29T09:30:43Z"}'], ['contracts.csv', contracts], ['contract_items.csv', items], ['dogma.csv', 'never decoded']]);
+  const cs = new ContractSink({ region: 10000002, now: NOW });
+  const stop = feed(cs, snapBytes);
+  const streamed = cs.result();
+  eq('the streaming reader keeps exactly what blueprintContracts keeps from whole files, and stops after its three files',
+    [stop === TAR_DONE, { contracts: streamed.contracts, at: streamed.at }], [true, blueprintContracts(untar(snapBytes), { region: 10000002, now: NOW })]);
+  eq('  every copy of the region\'s item exchanges to its seller, the mixed bundle\'s (contract 2) included; none of another region\'s',
+    [...streamed.copyIssuers].sort((x, y) => x[0] - y[0]), [[100, 11], [101, 11], [102, 12]]);
+  // Above, contract 2's copy comes before the minerals that drop it, while it is still kept; here after them, once it is dropped.
+  const mineralsFirst = items.replace('true,true,102,10,1,3,10,20,691,x,2\n"",true,103,,5,4,,,34,x,2\n', '"",true,103,,5,4,,,34,x,2\ntrue,true,102,10,1,3,10,20,691,x,2\n');
+  const late = new ContractSink({ region: 10000002, now: NOW });
+  feed(late, tar([['meta.json', '{}'], ['contracts.csv', contracts], ['contract_items.csv', mineralsFirst]]));
+  eq('  a copy listed after what dropped its bundle is noted with its seller too',
+    [mineralsFirst !== items, late.result().contracts.map((x) => x.id), [...late.result().copyIssuers].sort((x, y) => x[0] - y[0])], [true, [1, 5], [[100, 11], [101, 11], [102, 12]]]);
+  const own = new ContractSink({ region: 10000002 });
+  feed(own, snapBytes);
+  eq('  with no time given, expiry is judged at the snapshot\'s own time', own.result().contracts.map((x) => x.id), [1, 5]);
+  const crlf = tar([['meta.json', '{}'], ['contracts.csv', contracts.replace('"10x ""Rifter"", cheap"', '"two\nlines"').replace(/\n/g, '\r\n').replace('"two\r\nlines"', '"two\nlines"')], ['contract_items.csv', items.replace(/\n/g, '\r\n')]]);
+  const cr = new ContractSink({ region: 10000002, now: NOW });
+  feed(cr, crlf);
+  eq('  CRLF line ends, and a title with a line break inside its quotes', cr.result().contracts.map((x) => [x.id, x.title, x.items.length]), [[1, 'two\nlines', 2], [5, 'Rifter BPO', 1]]);
+  const short = items.replace('"",true,106,10,1,7,,20,691,x,5\n', '"",true,106,10,1,7,,20,691,x,5\ntrue,true,107\n');
+  const shortTar = tar([['meta.json', '{}'], ['contracts.csv', contracts], ['contract_items.csv', short]]);
+  const sh = new ContractSink({ region: 10000002, now: NOW });
+  feed(sh, shortTar);
+  eq('  a line short of fields reads them empty, as from whole files, never the line before\'s bytes',
+    [short !== items, sh.result().contracts], [true, blueprintContracts(untar(shortTar), { region: 10000002, now: NOW }).contracts]);
+  eq('  items before contracts are refused, never read wrong', String(feed(new ContractSink({ region: 10000002 }), tar([['meta.json', '{}'], ['contract_items.csv', items], ['contracts.csv', contracts]]))?.message),
+    'EVE Ref’s snapshot lists its contracts’ items before its contracts');
 }
 
 console.log('\n--- what each freelance job made ---');
@@ -8598,6 +8630,64 @@ console.log('\n--- Industry stage 2: built and sold, the review\'s fixes (Task 1
   eq('  a typed home is offered the structures in its system its jobs ran at, matching no site, most jobs first, named when read', O.homeCandidates(home, [home, site], [main, alt, unread]),
     [{ structureId: A, name: 'Home Azbel', jobs: 3 }, { structureId: B, name: null, jobs: 2 }]);
   eq('    none once it has its structure ID, and none for an NPC station', [O.homeCandidates({ ...home, structureId: A }, [home, site], [main]), O.homeCandidates({ id: 'npc:60003760', name: 'Jita', systemId: 30004807, kind: 'npc', stationId: 60003760, rigs: [], tax: 0.0025 }, [], [main])], [[], []]);
+}
+
+console.log('\n--- Industry stage 3: the copy market (copyMarket.ts, Task 14A) ---');
+{
+  const M = await import('../src/lib/copyMarket.ts');
+  const fsC = await import('node:fs');
+  const FX = JSON.parse(fsC.readFileSync(new URL('./fixtures/copy-snapshots.json', import.meta.url), 'utf8'));
+  const contracts = (s) => s.contracts.map(([id, price, expires, issuer, items]) => ({ id, price, issued: '', expires, stationId: 60003760, issuer, title: '',
+    items: items.map(([typeId, copy, me, te, runs, qty, itemId]) => ({ typeId, copy: copy === 1, me, te, runs, qty, itemId })) }));
+  const [a, b, c] = FX.snapshots.map((s) => ({ at: Date.parse(s.at), all: contracts(s) }));
+  const sets = [a, b, c].map((s) => M.compactCopies(s.all));
+  const byType = (rows) => rows.reduce((m, r) => ({ ...m, [r[1]]: (m[r[1]] ?? 0) + 1 }), {});
+  // 11 October 2026: The Forge's contracts holding the fixture's five types, at 00:00, 06:00 and 12:00 UTC.
+  eq('the single-kind copy contracts of each snapshot (of 119, 111 and 111 holding the five types)', sets.map((x) => x.length), [96, 87, 82]);
+  const C = (id, items, extra = {}) => ({ id, price: 1e6, issued: '', expires: '2026-10-20T00:00:00Z', stationId: 60003760, issuer: 7, title: '', items, ...extra });
+  const I = (typeId, me, te, runs, itemId, copy = true) => ({ typeId, copy, me, te, runs, qty: 1, itemId });
+  eq('  not one: a bundle of two kinds, an original, a copy with no runs, a contract with no price', M.compactCopies([
+    C(1, [I(693, 10, 20, 1, 11), I(693, 10, 20, 2, 12)]), C(2, [I(693, 10, 20, null, 21, false)]), C(3, [I(693, 10, 20, null, 31)]), C(4, [I(693, 10, 20, 1, 41)], { price: 0 }),
+    C(5, [I(693, 10, 20, 1, 51), I(693, 10, 20, 1, 52)]),
+  ]), [[5, 693, 10, 20, 1, 2, 1e6, 7, Date.parse('2026-10-20T00:00:00Z') / 1000, [51, 52]]]);
+
+  const sold = (older, newer) => M.copiesSold(older, new Set(newer.all.map((x) => x.id)), M.itemIssuers(newer.all), newer.at);
+  const ab = sold(sets[0], b), bc = sold(sets[1], c);
+  eq('vanished before expiry, 00:00 to 06:00: 2 Tempest, 13 of 32306, 1 Standup', [ab.length, byType(ab)], [16, { 693: 2, 32306: 13, 37045: 1 }]);
+  const gone = sets[0].filter((r) => !b.all.some((x) => x.id === r[0]));
+  eq('  4 Tempest and 1 Standup contracts were repriced by their sellers (their copies back in a newer contract of theirs): not sales', [gone.length, byType(gone)], [21, { 693: 6, 32306: 13, 37045: 2 }]);
+  eq('06:00 to 12:00: 12, among them 5 Capital Turret Hardpoint contracts whose copies came back under another seller (bought and relisted: sales)',
+    [bc.length, byType(bc), bc.filter((r) => r[9].some((it) => M.itemIssuers(c.all).has(it))).length], [12, { 693: 1, 21012: 8, 25895: 3 }, 5]);
+  // The design's point (spec, "What sold"): a contract listed after one read and sold before the next but one is seen by reads six
+  // hours apart and missed by comparing the first with the third, the research's way.
+  const ac = sold(sets[0], c), fresh = bc.filter((r) => !sets[0].some((x) => x[0] === r[0]));
+  eq('  4 contracts listed after 00:00 and sold before 12:00: counted six-hourly, missed by comparing 00:00 with 12:00 (25 against 28)',
+    [fresh.length, fresh.filter((r) => ac.some((x) => x[0] === r[0])).length, ac.length, ab.length + bc.length], [4, 0, 25, 28]);
+  const T0 = Date.parse('2026-10-19T00:00:00Z');
+  const k = (id, issuer, itemId, expires = '2026-10-20T00:00:00Z') => M.compactCopies([C(id, [I(693, 10, 20, 1, itemId)], { issuer, expires })])[0];
+  // A bundle of two blueprints is a contract the comparables keep, so itemIssuers sees it; one with other items in it only the
+  // reader's copyIssuers sees (the reader's tests below, and the Worker's).
+  eq('  past its expiry at the newer snapshot\'s time: not a sale; a copy moved by its seller into a bundle of blueprints: a reprice, not a sale',
+    M.copiesSold([k(1, 7, 100, '2026-10-18T23:00:00Z'), k(2, 7, 200), k(3, 7, 300)], new Set(), M.itemIssuers([C(9, [I(693, 10, 20, 1, 200), I(688, 10, 20, 1, 999)], { issuer: 7 })]), T0).map((r) => r[0]), [3]);
+
+  const rows = [...M.soldRows(ab, b.at), ...M.soldRows(bc, c.at)];
+  const sum = M.copySummary({ sold: rows, current: sets[2], reads: [[a.at, b.at, ab.length], [b.at, c.at, bc.length]], exclude: new Set(), at: c.at });
+  eq('the summary: as of the newest snapshot, half a day counted over two reads, the longest six hours',
+    [sum.at, Math.round(sum.days * 1000) / 1000, Math.round(sum.gapHours * 100) / 100, sum.reads], ['2026-10-11T12:01:00.000Z', 0.5, 6, 2]);
+  eq('  each kind sold: contracts, copies, sellers, the median price a run', sum.sold.map((x) => [x.typeId, x.me, x.te, x.runs, x.contracts, x.copies, x.sellers, Math.round(x.perRun)]), [
+    [693, 10, 20, 1, 2, 2, 1, 999999], [693, 10, 20, 10, 1, 1, 1, 659000], [21012, 10, 20, 19, 3, 3, 1, 73684], [21012, 10, 20, 40, 5, 5, 1, 162500],
+    [25895, 10, 20, 40, 3, 3, 1, 112500], [32306, 0, 0, 1, 13, 49, 6, 115000000], [37045, 10, 20, 5, 1, 1, 1, 1780000]]);
+  eq('  the asks now, a run: cheapest, median, contracts, sellers', [sum.asks['21012|10|20|40'], sum.asks['693|10|20|10'], sum.asks['37045|10|20|5'], sum.asks['25895|10|20|40'] ?? null],
+    [[98750, 175000, 11, 3], [659000, 694000, 20, 7], [1680000, 1690000, 4, 2], null]);
+  // The one seller of the five Capital Turret Hardpoint sales, and the seller of the first 10-run Tempest copy listed at 12:00 (2 of its 20 asks).
+  const seller = rows.find((r) => r.typeId === 21012 && r.runs === 40).issuer;
+  const lister = sets[2].find((r) => r[1] === 693 && r[2] === 10 && r[3] === 20 && r[4] === 10)[7];
+  const own = M.copySummary({ sold: rows, current: sets[2], reads: [[a.at, b.at, 16], [b.at, c.at, 12]], exclude: new Set([seller, lister]), at: c.at });
+  eq('  your own contracts are no one\'s market: their sales and asks left out', [own.sold.some((x) => x.typeId === 21012 && x.runs === 40), own.asks['693|10|20|10']], [false, [659000, 692000, 18, 6]]);
+  eq('  a sale and a read more than seven days old are out of the window', M.copySummary({ sold: [{ ...rows[0], at: c.at - 8 * 86400_000 }], current: [], reads: [[c.at - 9 * 86400_000, c.at - 8 * 86400_000, 1]], exclude: new Set(), at: c.at }),
+    { at: '2026-10-11T12:01:00.000Z', days: 0, gapHours: 0, reads: 0, sold: [], asks: {} });
+  eq('  the first read: nothing compared yet, 0 days, the asks known', [M.copySummary({ sold: [], current: sets[0], reads: [], exclude: new Set(), at: a.at }).days, Object.keys(M.copySummary({ sold: [], current: sets[0], reads: [], exclude: new Set(), at: a.at }).asks).length], [0, 11]);
+  eq('the kind\'s key', M.copyKindKey({ typeId: 693, me: 10, te: 20, runs: 1 }), '693|10|20|1');
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

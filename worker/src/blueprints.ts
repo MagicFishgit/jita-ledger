@@ -1,4 +1,4 @@
-import { blueprintContracts, TAR_DONE, TarSink, vanishedSince, type BpContract } from '../../src/lib/bpContracts';
+import { ContractSink, TAR_DONE, vanishedSince, type BpContract } from '../../src/lib/bpContracts';
 import { THE_FORGE } from '../../src/lib/constants';
 import { bunzipTo } from './vendor/bunzip';
 
@@ -8,28 +8,40 @@ import { bunzipTo } from './vendor/bunzip';
  * item calls. Its server sends no CORS header, so the browser can't fetch it: the cloud does, unpacks the latest
  * snapshot and the one nearest three days ago (one at a time, so only one is ever in memory), and returns the
  * contracts holding the blueprints asked about, and those that vanished before expiry in between. Nothing runs until
- * asked: the user wanted this on a button, not a live scanner.
+ * asked: the user wanted this on a button, not a live scanner. The copy round (copies.ts) reads EVE Ref with the same
+ * reader (`readSnapshot`), filtering as it decompresses.
  */
 const BASE = 'https://data.everef.net/public-contracts';
-const LATEST = `${BASE}/public-contracts-latest.v2.tar.bz2`;
-const WANT = ['meta.json', 'contracts.csv', 'contract_items.csv'];
+export const LATEST = `${BASE}/public-contracts-latest.v2.tar.bz2`;
 const DAY = 86400_000;
 /** How far back to look for what sold. */
 export const VANISHED_DAYS = 3;
-const UA = { 'User-Agent': 'Jita Ledger (a personal EVE trading tool)' };
+/** EVE Ref is someone else's site: the User-Agent names the project only. */
+export const EVE_REF_UA = { 'User-Agent': 'Jita Ledger (a personal EVE trading tool)' };
+/** A stalled EVE Ref mustn't hold the invocation to its 15-minute wall: the 6.6 MB file came in seconds on 11 October 2026. */
+export const READ_TIMEOUT_MS = 90_000;
+
+/**
+ * A snapshot's contracts of a region, kept as they stream out of bzip2 (ContractSink): never the 39 MB of CSV whole. `now`
+ * judges expiry (else the snapshot's own time); `types` keeps only contracts holding one of them.
+ */
+export async function readSnapshot(url: string, opts: { region: number; now?: number; types?: ReadonlySet<number> }): Promise<{ contracts: BpContract[]; at: string | null; copyIssuers: ReadonlyMap<number, number> }> {
+  const res = await fetch(url, { headers: EVE_REF_UA, signal: AbortSignal.timeout(READ_TIMEOUT_MS) });
+  if (!res.ok) throw new Error(`EVE Ref answered ${res.status} for ${url.split('/').pop()}`);
+  const sink = new ContractSink(opts);
+  try { bunzipTo(new Uint8Array(await res.arrayBuffer()), sink); } catch (e) { if (e !== TAR_DONE) throw e; }
+  return sink.result();
+}
 
 async function snapshot(url: string, types: ReadonlySet<number>, now: number): Promise<{ contracts: BpContract[]; at: string | null }> {
-  const res = await fetch(url, { headers: UA });
-  if (!res.ok) throw new Error(`EVE Ref answered ${res.status} for ${url.split('/').pop()}`);
-  const sink = new TarSink(WANT);
-  try { bunzipTo(new Uint8Array(await res.arrayBuffer()), sink); } catch (e) { if (e !== TAR_DONE) throw e; }
-  return blueprintContracts(sink.files, { region: THE_FORGE, now, types });
+  const r = await readSnapshot(url, { region: THE_FORGE, now, types });
+  return { contracts: r.contracts, at: r.at };
 }
 
 /** The history snapshot nearest a moment: EVE Ref lists each day's, every 30 minutes, in the day's index. */
 async function historyNear(t: number): Promise<{ url: string; at: number } | null> {
   const day = new Date(t).toISOString().slice(0, 10);
-  const res = await fetch(`${BASE}/history/${day.slice(0, 4)}/${day}/index.json`, { headers: UA });
+  const res = await fetch(`${BASE}/history/${day.slice(0, 4)}/${day}/index.json`, { headers: EVE_REF_UA, signal: AbortSignal.timeout(READ_TIMEOUT_MS) });
   if (!res.ok) return null;
   const idx = (await res.json()) as { files?: { url: string; file_time: string }[] };
   let best: { url: string; at: number } | null = null;

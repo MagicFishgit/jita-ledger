@@ -266,3 +266,10 @@ State these rather than letting them be discovered:
   sale a position counts is never claimed, out of Industry's too**: open positions only for what you buy (the Wallet offers none
   on a sale Industry counts). The Wallet's "Trades no position tracks" says a built sale's why ("Built by you: Industry counts
   it"), but its tag and the cash flow's "Loot & other sales" stay as `autoTag` reads it.
+- **Copies "sold" are contracts that vanished before expiry** (the cloud's copy round, industry.md stage 3): a seller cancelling
+  looks the same, and so does a copy taken back and relisted only after the next read (none of the 327 that vanished from 00:00
+  to 06:00 on 11 October came back by the same seller at 12:00). **Read every six hours, so a copy listed and sold within a
+  read's span is missed** (the Sold column says so; the summary gives the longest span). **A contract missing from one snapshot**
+  (EVE Ref's scraper missed a page) counts as sold until the next whole snapshot shows it again, then is taken out, so a figure
+  can drop by it six hours later. Public contracts of The Forge only: Brave's corporation and alliance contracts aren't visible.
+  Contract fees aren't modelled.

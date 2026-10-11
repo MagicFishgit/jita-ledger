@@ -1,8 +1,9 @@
 // @ts-nocheck
 /**
  * bzip2 decoding for the Worker, from seek-bzip 2.0.0 (MIT, the notices below kept), adapted to plain Uint8Arrays: the
- * Worker has no Node Buffer. Used to read EVE Ref's public contract snapshot (tar.bz2) for the blueprint tool. Its four
- * files are joined in order (crc32, bit reader, stream, decoder); only the Buffer allocations and copies changed.
+ * Worker has no Node Buffer. Used to read EVE Ref's public contract snapshot (tar.bz2) for the blueprint tool and the
+ * copy round. Its four files are joined in order (crc32, bit reader, stream, decoder); only the Buffer allocations and
+ * copies changed, and the block buffer is reused.
  */
 /* CRC32, used in Bzip2 implementation.
  * This is a port of CRC32.java from the jbzip2 implementation at
@@ -529,7 +530,8 @@ Bunzip.prototype._get_next_block = function() {
     mtfSymbol[i] = i;
   /* Loop through compressed symbols. */
   var runPos = 0, dbufCount = 0, selector = 0, uc;
-  var dbuf = this.dbuf = new Uint32Array(this.dbufSize);
+  // One buffer for every block: a block writes each entry before it reads it. A fresh 3.6 MB array a block was garbage otherwise.
+  var dbuf = this.dbuf = (this.dbuf && this.dbuf.length === this.dbufSize) ? this.dbuf : new Uint32Array(this.dbufSize);
   symCount = 0;
   for (;;) {
     /* Determine which huffman coding group to use. */
