@@ -94,7 +94,7 @@ export function IndustrySites({ c, ix, graph, mainName, chars }: { c: IndustryCh
                 const jumps = f.jitaJumps != null ? `${f.jitaJumps} high-sec jump${f.jitaJumps === 1 ? '' : 's'} from Jita` : 'no high-sec route from Jita';
                 const where = `${place} · ${jumps}`;
                 const kind = s.kind === 'npc' ? (s.lab ? 'NPC station with a Laboratory' : 'NPC station') : KIND_SAID[s.kind];
-                const tax = f.tax != null ? `${pct(f.tax)}${s.kind === 'npc' ? '' : ' typed by you'}` : '–: type it from the Industry window, or run a job there and the app measures it';
+                const tax = f.tax != null ? `${pct(f.tax)}${s.kind === 'npc' ? '' : ' typed by you'}` : `–: type it from the Industry window${s.kind === 'other' ? '' : ', or run a job there and the app measures it'}`;
                 const index = f.index ? pct(f.index.manufacturing) : f.indexWhy;
                 const fitting = rigsFitting(ix, s.kind).filter((r) => !s.rigs.includes(r[0]));
                 return (
