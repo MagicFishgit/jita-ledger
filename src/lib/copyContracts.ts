@@ -2,7 +2,7 @@
  * Your own copy contracts (docs/notes/industry.md, stage 3): every item exchange you issued whose items are all blueprint
  * copies, kept as a synced document of its own (correction 10): ESI lists a character's contracts only 30 days back and the
  * sync replaces meta.contracts' list each time, so a sale would drop out of Results after a month, and meta goes up every sync.
- * The main's only: the cloud reads no alt's contracts. Pure; browser only.
+ * The main's only: the cloud reads no alt's contracts. Pure; the Worker imports it for the merge.
  */
 import type { ContractItem, MyContract } from './contracts';
 import type { JobRecord } from './industryTrack';
@@ -211,8 +211,8 @@ export function copySales(o: { doc: CopyContractsDoc | undefined; jobs: readonly
     const entries = named.get(c.id) ?? [];
     if (c.copies.some(([t]) => copiedBefore(t, issued))) for (const f of entries) if (CONTRACT_FEE_REFS.has(f.refType)) out.events.push({ t: f.t, isk: f.isk });
     const state = copyState(c, Infinity, o.mine);
-    if (state === 'taken') { out.toOwn.push(c.id); continue; }
-    if (state !== 'sold') continue;
+    if (state === 'taken') out.toOwn.push(c.id);
+    else if (state !== 'sold') continue;
     const total = c.copies.reduce((n, [, k]) => n + k, 0);
     let claimed = 0;
     for (const [typeId, count] of c.copies) {
@@ -224,10 +224,12 @@ export function copySales(o: { doc: CopyContractsDoc | undefined; jobs: readonly
       }
     }
     if (claimed < total) out.notMade.push({ contractId: c.id, copies: total - claimed });
-    if (!claimed) continue;
+    // A taken contract (accepted by one of yours) uses up its copies like a sale, but counts no ISK: those copies left your hands.
+    if (!claimed || state === 'taken') continue;
     const paid = entries.filter((e) => e.refType === 'contract_price' && e.isk > 0);
     const isk = paid.length ? paid.reduce((n, e) => n + e.isk, 0) : c.price;
-    out.events.push({ t: paid.length ? paid[0].t : Date.parse(c.completed ?? c.expires), isk: (isk * claimed) / total });
+    // No `completed`: dated at its listing, never its expiry, which may lie in the future and put the sale outside every period until then.
+    out.events.push({ t: paid.length ? paid[0].t : Date.parse(c.completed ?? c.issued), isk: (isk * claimed) / total });
   }
   return out;
 }

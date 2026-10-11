@@ -394,7 +394,7 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
 - **Copy contracts you sold are Industry's too** (Industry stage 3, Task 15B; `copySales` in copyContracts.ts, added to Industry's events in `activityEvents`; the rule is
   in industry.md). A finished copy contract not accepted by one of your characters counts its price (journal `contract_price` naming it, else its own price) times the share
   of its copies your delivered copy jobs made before it was listed, claimed oldest contract first; copies no job made are said ("N copies sold on contract that no copy job
-  of yours made … aren't counted"), and a contract one of your characters accepted is said as a transfer, never a sale. The journal's contract fees for it count in full when
+  of yours made … aren't counted"), and a contract one of your characters accepted is said as a transfer, never a sale, but it uses up its copies from your copy jobs, oldest first, as a sale claims them (counting no ISK), so a later sale can't claim them as made. The journal's contract fees for it count in full when
   you'd copied the blueprint first. The copy jobs' fees are charged once, at their start (stage 2, correction 11), never again here. A copy contract's price was in no activity
   before (`attribute` gives `contract_price` none; the Wallet's money in still files it under Contracts), so no recorded figure moved.
 - **ISK moved between your own characters is neither earned nor spent** (stage 4 of several characters, 1 October 2026;

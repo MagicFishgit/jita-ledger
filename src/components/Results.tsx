@@ -290,7 +290,7 @@ export function Results() {
             { kind: 'info', lead: 'One rule each', text: 'hover an activity’s name to see it.' },
             { kind: 'info', lead: 'Trading', text: 'is any trade a position counts; anything else goes to its item’s activity, and an item in none is left out, not guessed.' },
             { kind: 'info', lead: 'Every item traded', text: 'counts your trades with or without a position: shown beside Trading, not added to the total.' },
-            { kind: 'info', lead: 'Industry', text: 'claims a sale of what you built first, up to what your jobs had made by then; the rest of the sale counts as before.' },
+            { kind: 'info', lead: 'Industry', text: 'claims a sale of what you built first, up to what your jobs had made by then; the rest of the sale counts as before. Copies your copy jobs made that sold on contract count too (their price, less any contract fee the journal names for them).' },
           ]} />
         </Panel>
       </div>

@@ -8959,6 +8959,11 @@ console.log('\n--- Industry stage 3: copies sold count in Industry (copySales, T
   eq('  an outstanding contract that left ESI\'s list (gone) claims no copies and adds no event', K.copySales({ doc: { list: [cc(16, '2026-10-02T00:00:00Z', [[25895, 2]], 'outstanding', { price: 9e6, gone: '2026-10-09T00:00:00Z' })] }, jobs, journal: [] }), { events: [], notMade: [], toOwn: [] });
   eq('  nor does it use up the copies a later sale claims', K.copySales({ doc: { list: [cc(16, '2026-10-02T00:00:00Z', [[25895, 3]], 'outstanding', { price: 9e6, gone: '2026-10-09T00:00:00Z' }), doc.list[0]] }, jobs, journal: [] }).events, [{ t: T('2026-10-03T00:00:00Z'), isk: 9e6 }]);
 
+  // A taken contract uses up its copies (no ISK), so a later sale can't claim them; a finished one with no completion is dated at its listing.
+  const tk = K.copySales({ doc: { list: [cc(21, '2026-10-02T00:00:00Z', [[25895, 2]], 'finished', { price: 5e6, acceptor: ALT, completed: '2026-10-03T00:00:00Z' }), cc(22, '2026-10-04T00:00:00Z', [[25895, 2]], 'finished', { price: 7e6, acceptor: 500, completed: '2026-10-05T00:00:00Z' })] }, jobs: [job(1, 2, '2026-10-01T00:00:00Z')], journal: [], mine: new Set([ME, ALT]) });
+  eq('  a taken contract uses up the job\'s copies, counting no ISK: the later sale claims none', [tk.events, tk.notMade, tk.toOwn], [[], [{ contractId: 22, copies: 2 }], [21]]);
+  eq('  a finished contract with no completion is dated at its listing, not its expiry', K.copySales({ doc: { list: [cc(23, '2026-10-02T00:00:00Z', [[25895, 1]], 'finished', { price: 4e6, acceptor: 500 })] }, jobs: [job(1, 2, '2026-10-01T00:00:00Z')], journal: [] }).events, [{ t: T('2026-10-02T00:00:00Z'), isk: 4e6 }]);
+
   // Through the Industry activity: the copy job's fee charged once (stage 2's builtAndSold, at its start), the sale added.
   const d = { ...emptyData(), jobs: { 1: job(1, 3, '2026-10-01T00:00:00Z') }, copyContracts: { list: [doc.list[0]] },
     journal: { j1: { id: 'j1', ...journal[0] }, j2: { id: 'j2', ...journal[1] } } };
