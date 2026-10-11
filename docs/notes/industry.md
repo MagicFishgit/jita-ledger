@@ -388,5 +388,13 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   EVE charged over the app's base besides the index part, the tax and the Alpha tax, as a share of the base. ME research's reading is
   SCC_RESEARCH (2%) on the app's base (2% of the EIV × the level steps ÷ 105, no rank); copying's SCC_COPY (4%) on 2% of the EIV ×
   runs × copies. When the first real job's share isn't the constant to within rounding (the index's four decimals), the reading is
-  wrong: say which (rank in the research base would scale the share by the blueprint's rank; no SCC on copying reads 0) and change the
-  constant in a commit citing the job. Until then the constants stand.
+  wrong: say which and change the constant in a commit citing the job. The clean test for a rank missing from the research base is
+  charged ÷ the app's total (that ratio is the rank); `sccShare` itself is muddied by it (with rank 2 in the base it reads
+  SCC + (rank − 1) × (index × bonus + tax + SCC), 0.0525 for a 2% reading, not a multiple of 2%). Confirm too that the ME/TE kept at
+  first sight is the level the job started from (a read after an earlier job was delivered shows the new one, and the check then
+  says why it can't work the job out). No SCC on copying reads 0. Until then the constants stand.
+- **Inputs not known give a reason, never a figure** (the Task 11 review): research whose kept level plus its levels runs past 10 or
+  has none, a copy whose runs a copy takes weren't read, and a site of kind Other (no cost bonus known: a real complex's would land in
+  a tax offered) each say why instead of working out a cost. A measured tax within ±0.05% (`MEASURE_BAND`, about what the index's four
+  decimals move it) of the typed one reads "paid about the same", with no Use this; two jobs at one site that differ beyond that
+  say so ("An earlier job, of 2 Oct, paid 1.00%"), never the newest alone. A cost under `CHECK_FLOOR` (1 ISK) off isn't said to differ.

@@ -246,11 +246,11 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
               {done.map(({ c, j }) => {
                 const k = jobCheck(ix, j, jobSite(j, doc.sites, bandOf), c.clone);
                 const scc = k.state === 'checked' && k.sccShare != null ? ` · the SCC here came to ${pct(k.sccShare)} of the job’s base` : '';
-                const said = k.state === 'unchecked' ? `Not checked: ${k.why}` : k.differs ? `The app worked out ${iskBig(k.app)}; EVE charged ${iskBig(k.charged)}` : `Matches what EVE charged${scc}`;
+                const said = k.state === 'unchecked' ? `Not checked: ${k.why}` : k.differs ? `The app worked out ${iskBig(k.app)}; EVE charged ${iskBig(k.charged)}${scc}` : `Matches what EVE charged${scc}`;
                 return (
                 <tr key={`${c.charId}:${j.jobId}`} data-job={j.jobId}>
                   <td className="l rd-main"><span className="nm">{ACTIVITY_SAID[j.activity] ?? 'Job'}: {product(j)}</span><span className="sub">{j.status === 'delivered' ? 'Delivered' : j.status === 'cancelled' ? 'Cancelled' : 'Reverted'}{all && many ? ` · ${c.name}` : ''}</span>
-                    <span className="rd-phone"><span>{units(j.runs)} run{j.runs === 1 ? '' : 's'} · {jobPlace(c, j)}</span><span>{fmtShort(j.completed ?? j.end)} · cost {j.cost != null ? iskBig(j.cost) : '–'}</span><span>{said}</span></span></td>
+                    <span className="rd-phone"><span>{units(j.runs)} run{j.runs === 1 ? '' : 's'} · {jobPlace(c, j)}</span><span>{fmtShort(j.completed ?? j.end)} · cost {j.cost != null ? iskBig(j.cost) : '–'}</span><span data-off={k.state === 'checked' && k.differs ? '1' : undefined}>{said}</span></span></td>
                   <td className="rd-wide">{units(j.runs)}</td>
                   <td className="l rd-wide">{jobPlace(c, j)}</td>
                   <td className="rd-wide">{fmtShort(j.completed ?? j.end)}</td>

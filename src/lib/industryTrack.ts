@@ -316,8 +316,14 @@ export function slotsUsed(jobs: readonly JobRecord[], now: number): { factory: n
 
 /** Where a job ran, as the app knows it: an NPC station (its 0.25% tax, no bonus), or one of your sites (its kind, rigs, band and typed tax). */
 export type JobPlace = { kind: SiteKind; rigs: readonly number[]; band: SecBand; tax: number | null; siteId: string | null };
-/** A cost more than this share off what EVE charged is said. */
+/** A cost more than this share off what EVE charged is said, unless it is within `CHECK_FLOOR`. */
 export const CHECK_TOLERANCE = 0.01;
+/** ISK: ESI gives a cost to the cent, so a tiny job (a 1.74 ISK copy) isn't said to differ by rounding. */
+export const CHECK_FLOOR = 1;
+/** A measured tax within this of another (a fraction: 0.05%) is the same reading: the index's four decimals move it by about this much. */
+export const MEASURE_BAND = 0.0005;
+/** Whether two measured taxes are further apart than the measure's own noise. */
+export const taxesDiffer = (a: number, b: number): boolean => Math.round(Math.abs(a - b) * 10_000) > Math.round(MEASURE_BAND * 10_000);
 /** The most a structure's owner can charge (EVE University, "Tax"): a measure over it means the inputs moved. */
 export const MAX_FACILITY_TAX = 0.1;
 
@@ -329,7 +335,7 @@ export function jobPlace(job: JobRecord, sites: readonly IndustrySite[], bandOf:
 }
 
 const late = (job: JobRecord): string => {
-  const min = Math.round((Date.parse(job.seenAt) - Date.parse(job.start)) / 60_000);
+  const min = Math.round((Date.parse(job.first?.at ?? job.seenAt) - Date.parse(job.start)) / 60_000);
   return `first seen ${min >= 60 ? `${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} min` : ''}` : `${min} min`} after it started: the index and prices may have moved since it was installed`;
 };
 
@@ -348,16 +354,21 @@ export function jobCostFor(ix: Indexed, job: JobRecord, place: JobPlace | null, 
   if (f.index == null) return { why: 'the system’s index wasn’t read when it was seen' };
   if (f.eiv == null) return { why: 'its estimated item value wasn’t known when it was seen (an adjusted price was missing)' };
   if (!place) return { why: 'it ran at a structure that isn’t one of your build sites, so its bonuses aren’t known' };
+  if (place.kind === 'other') return { why: 'its site is “Other, no bonus”: what a real complex’s cost bonus takes off isn’t known' };
   const sb = structureBonus(ix, place.kind);
   const rig = rigFor(ix, place.rigs, place.kind, place.band, act === 'manufacturing' ? job.productTypeId : null, act);
   const at = { index: f.index, structure: sb.cost, rig: rig.cost, tax: place.tax, clone };
   if (act === 'manufacturing') return { cost: manufacturingCost(f.eiv, job.runs, at) };
-  if (act === 'copying') return { cost: copyCost(f.eiv, job.licensedRuns ?? 1, job.runs, at) };
+  if (act === 'copying') {
+    if (job.licensedRuns == null) return { why: 'the runs a copy takes weren’t read, so the copy’s size isn’t known' };
+    return { cost: copyCost(f.eiv, job.licensedRuns, job.runs, at) };
+  }
   if (act === 'invention') return { cost: inventionCost(f.eiv, job.runs, at) };
   // Research: levels from the blueprint's own as kept at first sight (a TE level is 2%), a job's runs being levels.
   const from = act === 'researchMaterial' ? f.me : f.te == null ? null : Math.floor(f.te / 2);
   if (from == null) return { why: `its ${act === 'researchMaterial' ? 'ME' : 'TE'} wasn’t read when it was seen` };
-  return { cost: researchCost(f.eiv, from, Math.min(10, from + job.runs), at) };
+  if (from < 0 || from + job.runs > 10) return { why: `its ${act === 'researchMaterial' ? 'ME' : 'TE'} read at first sight (${act === 'researchMaterial' ? f.me : f.te}) doesn’t fit the job’s ${job.runs} level${job.runs === 1 ? '' : 's'}: the level it started from wasn’t kept` };
+  return { cost: researchCost(f.eiv, from, from + job.runs, at) };
 }
 
 export type JobCheck =
@@ -370,13 +381,13 @@ export function jobCheck(ix: Indexed, job: JobRecord, place: JobPlace | null, cl
   if (job.cost == null) return { state: 'unchecked', why: 'ESI gives no cost for it' };
   const r = jobCostFor(ix, job, place, clone);
   if ('why' in r) return { state: 'unchecked', why: r.why };
-  if (r.cost.tax == null) return { state: 'unchecked', why: 'the facility tax there isn’t typed (what the job measures is offered on the site)' };
+  if (r.cost.tax == null) return { state: 'unchecked', why: job.activity === 1 ? 'the facility tax there isn’t typed (what the job measures is offered on the site)' : 'the facility tax there isn’t typed (only a manufacturing job there measures it)' };
   if (r.cost.alpha == null) return { state: 'unchecked', why: 'the clone state isn’t read, so the Alpha tax may be in it' };
   const app = r.cost.total, charged = job.cost;
   const act = ACTIVITY_OF[job.activity];
   const scc = place?.kind === 'npc' && (act === 'copying' || act === 'researchMaterial' || act === 'researchTime') && r.cost.base > 0
     ? (charged - (r.cost.index + r.cost.bonus + (r.cost.tax ?? 0) + (r.cost.alpha ?? 0))) / r.cost.base : null;
-  return { state: 'checked', app, charged, parts: r.cost, differs: Math.abs(app - charged) > CHECK_TOLERANCE * Math.max(charged, 1), ...(scc != null ? { sccShare: scc } : {}) };
+  return { state: 'checked', app, charged, parts: r.cost, differs: Math.abs(app - charged) > Math.max(CHECK_FLOOR, CHECK_TOLERANCE * charged), ...(scc != null ? { sccShare: scc } : {}) };
 }
 
 /**

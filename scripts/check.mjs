@@ -8319,6 +8319,39 @@ console.log('\n--- Industry stage 2: the job check and the measured tax (industr
   const sites = [{ id: 'st:1046664001931', name: 'x', systemId: 30004807, kind: 'azbel', structureId: 1046664001931, rigs: [37170], tax: null }];
   const m = O.measuredBySite(ix, sites, [{ name: 'You', isMain: true, clone: 'omega', jobs: { state: 'read', value: [job(), job({ jobId: 702, start: '2026-10-01T10:00:00Z', seenAt: '2026-10-01T10:20:00Z', cost: 17_300_000 })], at: 1 } }], () => 'null');
   eq('  per site, the newest job that measures, and whose', m['st:1046664001931'], { tax: 0.01, at: '2026-10-11T10:00:00Z', who: 'You', isMain: true, jobId: 701 });
+  // --- the review's round (Task 11 fixes)
+  // 1. Correction 21: a job seen paused at 10:05 and first seen running at 13:00 is late by 3 h, not 5 min.
+  eq('  a job first seen running late says how late by its first sight, not by its first sighting paused', why(job({ seenAt: '2026-10-11T10:05:00Z', first: { me: 10, te: 20, systemId: 30004807, index: 0.0617, eiv: EIV_RUN, at: '2026-10-11T13:00:00Z' } })), 'first seen 3 h after it started: the index and prices may have moved since it was installed');
+  // 8. 0.9% off reads as matching; a tiny job isn't said to differ by rounding.
+  eq('  0.9% off is a match; 1.1% off is not', [T.jobCheck(ix, job({ cost: Math.round(17213916 / 0.991) }), azbel, 'omega').differs, T.jobCheck(ix, job({ cost: Math.round(17213916 / 0.989) }), azbel, 'omega').differs], [false, true]);
+  const tinyAt = { index: 0.0014, structure: 1, rig: 1, tax: 0.0025, clone: 'omega' };
+  const tiny = I.copyCost(100, 1, 1, tinyAt);
+  const copyJob = (cost, over = {}) => job({ activity: 5, runs: 1, licensedRuns: 1, cost, facilityId: 60003760, stationId: 60003760, first: { me: null, te: null, systemId: 30000142, index: 0.0014, eiv: 100 }, ...over });
+  eq('  a copy under an ISK off, which is rounding, doesn’t differ; a ISK and a half off does', [T.jobCheck(ix, copyJob(tiny.total + 0.9), npc, 'omega').differs, T.jobCheck(ix, copyJob(tiny.total + 1.6), npc, 'omega').differs], [false, true]);
+  // At least one each of TE research, copying and invention through jobCostFor, charged as the rules say.
+  const costOf = (j, p = npc) => { const r = T.jobCostFor(ix, j, p, 'omega'); return 'cost' in r ? Math.round(r.cost.total * 100) / 100 : r.why; };
+  eq('  copying, TE research and invention are worked out by their own rules', [
+    costOf(copyJob(1, { runs: 3, licensedRuns: 5, first: { me: null, te: null, systemId: 30000142, index: 0.0014, eiv: EIV_RUN } })),
+    costOf(job({ activity: 3, runs: 2, facilityId: 60003760, stationId: 60003760, first: { me: 4, te: 6, systemId: 30000142, index: 0.0014, eiv: EIV_RUN } })),
+    costOf(job({ activity: 8, runs: 3, facilityId: 60003760, stationId: 60003760, first: { me: null, te: null, systemId: 30000142, index: 0.0014, eiv: EIV_RUN } })),
+  ].map((x) => (typeof x === 'number' ? Math.round(x) : x)), [
+    Math.round(I.copyCost(EIV_RUN, 5, 3, { index: 0.0014, structure: 1, rig: 1, tax: 0.0025, clone: 'omega' }).total),
+    Math.round(I.researchCost(EIV_RUN, 3, 5, { index: 0.0014, structure: 1, rig: 1, tax: 0.0025, clone: 'omega' }).total),
+    Math.round(I.inventionCost(EIV_RUN, 3, { index: 0.0014, structure: 1, rig: 1, tax: 0.0025, clone: 'omega' }).total),
+  ]);
+  // 5. Inputs not known give a reason, never a figure.
+  const resJob = (me, runs) => job({ activity: 4, runs, facilityId: 60003760, stationId: 60003760, first: { me, te: 0, systemId: 30000142, index: 0.0014, eiv: EIV_RUN } });
+  eq('  research read at the top, or running past level 10, says why instead of working out 0 ISK', [String(costOf(resJob(10, 1))).slice(0, 14), String(costOf(resJob(8, 3))).slice(0, 14), typeof costOf(resJob(8, 2))], ['its ME read at', 'its ME read at', 'number']);
+  eq('  a copy whose runs a copy takes weren’t read says why', costOf(copyJob(1, { licensedRuns: null })), 'the runs a copy takes weren’t read, so the copy’s size isn’t known');
+  eq('  a site of kind Other measures nothing and checks nothing: its bonus isn’t known', [T.measuredTax(ix, job(), { ...azbel, kind: 'other', tax: null }, 'omega').why, why(job(), { ...azbel, kind: 'other' })], ['its site is “Other, no bonus”: what a real complex’s cost bonus takes off isn’t known', 'its site is “Other, no bonus”: what a real complex’s cost bonus takes off isn’t known']);
+  // 6. The untyped-tax words are per activity.
+  eq('  an untyped tax: only manufacturing says the job measures it', [why(job(), { ...azbel, tax: null }), why(copyJob(1, { facilityId: 1046664001931, stationId: 1046664001931 }), { ...azbel, tax: null })], ['the facility tax there isn’t typed (what the job measures is offered on the site)', 'the facility tax there isn’t typed (only a manufacturing job there measures it)']);
+  // 2. The measure's own noise, and two jobs disagreeing.
+  eq('  taxes within ±0.05% are the same reading, 0.06% apart are not', [T.taxesDiffer(0.01, 0.0099), T.taxesDiffer(0.01, 0.0105), T.taxesDiffer(0.01, 0.0106), T.taxesDiffer(0.01, 0.0094)], [false, false, true, true]);
+  const old5 = job({ jobId: 703, start: '2026-10-05T10:00:00Z', seenAt: '2026-10-05T10:20:00Z', cost: 17213916 + 0.04 * 157590413.44605502 });
+  const m2 = O.measuredBySite(ix, sites, [{ name: 'You', isMain: true, clone: 'omega', jobs: { state: 'read', value: [job(), old5], at: 1 } }], () => 'null');
+  eq('  the newest differing from the one before beyond the noise names the earlier job', [m2['st:1046664001931'].jobId, m2['st:1046664001931'].earlier?.jobId, m2['st:1046664001931'].earlier && +m2['st:1046664001931'].earlier.tax.toFixed(4)], [701, 703, 0.05]);
+  eq('  an earlier job within the noise is not named', m['st:1046664001931'].earlier, undefined);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

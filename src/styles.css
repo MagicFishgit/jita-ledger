@@ -1115,7 +1115,7 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .ind-chars td, .ind-bps td, .ind-jobs td { white-space: normal; vertical-align: top; }
 .ind-chars td.rd-main, .ind-bps td.rd-main, .ind-jobs td.rd-main { min-width: 220px; }
 .ind-chars td .sub, .ind-bps td .sub, .ind-jobs td .sub { display: block; white-space: normal; }
-.ind-jobs td[data-off="1"] { color: var(--acc2); }
+.ind-jobs td[data-off="1"], .ind-jobs .rd-phone span[data-off="1"] { color: var(--acc2); }
 .ind-total td { border-top: 1px solid var(--line-3); }
 .ind-sites td.rd-main .sub { max-width: 280px; }
 /* The finder (IndustryBuild.tsx): its choices wrap; a row's detail spans the table and wraps its words. */

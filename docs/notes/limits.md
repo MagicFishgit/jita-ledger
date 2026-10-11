@@ -244,4 +244,4 @@ State these rather than letting them be discovered:
   place (renaming a container in game shows on the next new place only).
 - **A job's check and its measured tax need it first seen running within 90 minutes of its start**: a job installed and finished
   between reads can't be checked. Its EIV is at that hour's adjusted prices and its index ESI's four decimals (a few hundred ISK on a
-  big job). A measured tax holds until the owner changes it, and is only offered.
+  big job). A measured tax holds until the owner changes it, and is only offered. **They use the character's clone state now, not at install**: one that was Alpha when the job started and is Omega now reads 0.25% off (the Alpha tax is missing from the app's side, or the measured tax comes out that much under).

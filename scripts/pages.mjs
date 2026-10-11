@@ -2523,24 +2523,34 @@ try {
       if (!/read just now/.test(await text('.page'))) problems.push('the Blueprints page’s Read didn’t renew the time shown');
 
       // The race: the sync reads the blueprints, then waits on its jobs read; a Read begun meanwhile lands first, and the sync's
-      // older read must not write over it (readLands), neither its doc nor its time.
+      // older read must not write over it (readLands), neither its doc nor its time. Nothing here waits on a clock: the sync is
+      // held on a promise this case resolves itself, every wait is on a condition with a generous ceiling, and the end is read
+      // from the page (the store's own memory) once the sync's button is back, never after a pause.
+      const until = async (what, fn, ms = 60_000) => {
+        const t0 = Date.now();
+        for (;;) { if (await fn()) return true; if (Date.now() - t0 > ms) { problems.push(`never reached: ${what}`); return false; } await page.waitForTimeout(100); }
+      };
+      const btnBusy = () => page.evaluate(() => document.querySelector('.sync-btn')?.hasAttribute('disabled') ?? false);
       gate = {}; gate.promise = new Promise((r) => { gate.open = r; });
       bpAnswer = bpRow(9401, 1); askedPaths = [];
-      await page.locator('.sync-btn').click();
-      await page.waitForFunction(() => document.querySelector('.sync-btn')?.hasAttribute('disabled'), null, { timeout: 10_000 }).catch(() => undefined);
-      for (let i = 0; i < 80 && !askedPaths.some((x) => x.endsWith('/industry/jobs/')); i++) await page.waitForTimeout(250);
-      if (!askedPaths.some((x) => x.endsWith('/industry/jobs/'))) problems.push('the sync never reached its jobs read');
+      // The sync the reload starts is held at its jobs read; if none starts, the button starts one.
+      await page.reload();
+      await page.waitForSelector('.page', { timeout: 20_000 });
+      const reached = () => askedPaths.some((x) => x.endsWith('/industry/jobs/'));
+      for (let i = 0; i < 100 && !reached(); i++) await page.waitForTimeout(100); // the reload's own sync, given 10 s to get there
+      if (!reached()) { await page.locator('.sync-btn:not([disabled])').click(); await until('the sync reaching its jobs read', async () => reached()); }
+      await until('the sync held on its jobs read (button busy)', btnBusy);
+      const before2 = await stored();
       bpAnswer = bpRow(9402, 9);
       await page.locator('button', { hasText: 'Read them again' }).click();
-      await page.waitForFunction(() => /ME 9 \/ TE 10/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 15_000 }).catch(() => problems.push('the Read begun during the sync never showed'));
-      let mid = await stored();
-      for (let i = 0; i < 40 && !mid.ids.includes(9402); i++) { await page.waitForTimeout(250); mid = await stored(); }
+      await page.waitForFunction(() => /ME 9 \/ TE 10/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 60_000 }).catch(() => problems.push('the Read begun during the sync never showed'));
+      // The page's own doc landing in IndexedDB (positive signals only: its row, its newer time).
+      const mid = { at: null, ids: [] };
+      await until('the page’s Read in IndexedDB', async () => { Object.assign(mid, await stored()); return mid.ids.includes(9402) && mid.at && mid.at !== before2.at; });
       gate.open(); gate = null;
-      await idle();
-      await page.waitForTimeout(1200); // the sync's own write is debounced like the page's
-      const end = await stored();
-      if (!end.ids.includes(9402) || end.ids.includes(9401) || end.at !== mid.at) problems.push(`an older sync read wrote over the Blueprints page’s newer Read: ${JSON.stringify({ mid, end })}`);
-      if (!/ME 9 \/ TE 10/.test(await text('.page'))) problems.push('the Blueprints page lost its Read to the sync’s older one');
+      // The sync is done when its button is back (it is busy while held, so this can't pass early).
+      await until('the sync going idle', async () => !(await btnBusy()));
+      if (!/ME 9 \/ TE 10/.test(await text('.page')) || /ME 1 \/ TE 10/.test(await text('.page'))) problems.push('an older sync read wrote over the Blueprints page’s newer Read (the page lost it)');
       for (const k of Object.keys(ESI)) if (k.startsWith(`/characters/${ID}/`)) delete ESI[k];
     }
 

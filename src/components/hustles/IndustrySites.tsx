@@ -6,6 +6,7 @@ import { fmtShort, iskBig, pct } from '../../lib/format';
 import { toast } from '../../lib/toast';
 import { KIND_SAID, kindOfType, secBand, type Indexed, type SiteKind } from '../../lib/industry';
 import { measuredBySite } from '../../lib/industryOwned';
+import { taxesDiffer } from '../../lib/industryTrack';
 import { NEAR_JITA_JUMPS } from '../../lib/industryRank';
 import { FREIGHT_PRESETS, HOME_SYSTEMS, homeSite, JITA_SYSTEM, quietStations, rigsFitting, routeBetween, secText, siteFacts, stationLabel, stationSite, structureSite } from '../../lib/industrySites';
 import { HIGH_SEC, jumpsFrom, type Graph } from '../../lib/jumps';
@@ -47,12 +48,16 @@ export function IndustrySites({ c, ix, graph, mainName, chars }: { c: IndustryCh
   const measuredLine = (s: IndustrySite, phone: '' | '-phone') => {
     const m = measured[s.id];
     if (!m) return null;
-    const agrees = s.tax != null && Math.abs(s.tax - m.tax) < 0.00005;
-    return agrees ? <span className="sub" data-industry={`measured-agrees${phone}`}>{m.isMain ? 'Your' : `${m.who}’s`} job of {fmtShort(m.at)} there paid the same.</span>
+    const whose = m.isMain ? 'Your' : `${m.who}’s`;
+    // Within the measure's own noise (the index's four decimals, ±0.05%) of the typed tax: the same reading, so no Use this.
+    const agrees = s.tax != null && !taxesDiffer(s.tax, m.tax);
+    const same = s.tax != null && Math.abs(s.tax - m.tax) < 0.00005;
+    const earlier = m.earlier ? <> An earlier job{m.earlier.who !== m.who ? ` (${m.earlier.isMain ? 'yours' : `${m.earlier.who}’s`})` : ''}, of {fmtShort(m.earlier.at)}, paid {pct(m.earlier.tax)}.</> : null;
+    return agrees ? <span className="sub" data-industry={`measured-agrees${phone}`}>{whose} job of {fmtShort(m.at)} there paid {same ? 'the same' : `about the same (${pct(m.tax)})`}.{earlier}</span>
       : (
         <span className="sub" data-industry={`use-measured${phone}`}>
-          {m.isMain ? 'Your' : `${m.who}’s`} job of {fmtShort(m.at)} there paid {pct(m.tax)}:{' '}
-          <button type="button" className="link-btn" onClick={() => change(s.id, { tax: m.tax })}>Use this</button>
+          {whose} job of {fmtShort(m.at)} there paid {pct(m.tax)}:{' '}
+          <button type="button" className="link-btn" onClick={() => change(s.id, { tax: m.tax })}>Use this</button>{earlier}
         </span>
       );
   };
@@ -89,7 +94,7 @@ export function IndustrySites({ c, ix, graph, mainName, chars }: { c: IndustryCh
                 const jumps = f.jitaJumps != null ? `${f.jitaJumps} high-sec jump${f.jitaJumps === 1 ? '' : 's'} from Jita` : 'no high-sec route from Jita';
                 const where = `${place} · ${jumps}`;
                 const kind = s.kind === 'npc' ? (s.lab ? 'NPC station with a Laboratory' : 'NPC station') : KIND_SAID[s.kind];
-                const tax = f.tax != null ? `${pct(f.tax)}${s.kind === 'npc' ? '' : ' typed by you'}` : '–: type it from the Industry window';
+                const tax = f.tax != null ? `${pct(f.tax)}${s.kind === 'npc' ? '' : ' typed by you'}` : '–: type it from the Industry window, or run a job there and the app measures it';
                 const index = f.index ? pct(f.index.manufacturing) : f.indexWhy;
                 const fitting = rigsFitting(ix, s.kind).filter((r) => !s.rigs.includes(r[0]));
                 return (
