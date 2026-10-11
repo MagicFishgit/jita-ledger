@@ -2588,6 +2588,21 @@ try {
       if (!(await page.locator(`[data-industry="${AG}"]`).count())) problems.push('after Use this, the site doesn’t say the job agrees');
     }
 
+    // --- Task 12A: To do lists an alt's jobs to deliver, with whose they are; the main's jobs don't carry its name.
+    {
+      const ready = { jobId: 9401, activity: 1, blueprintId: 8001, blueprintTypeId: 25895, productTypeId: 25894, runs: 65, licensedRuns: null, successfulRuns: null, probability: null, cost: 1e6,
+        facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: iso(now - 86400_000), end: iso(now - 3600_000), completed: null, status: 'ready', perRun: 1, seenAt: iso(now - 86400_000 + 600_000) };
+      const alts12 = { ...altStore, [`alt:${BUILDER}`]: { ...altStore[`alt:${BUILDER}`], records: { jobs: { 9401: ready } }, docs: { ...altStore[`alt:${BUILDER}`].docs, meta: { ...altStore[`alt:${BUILDER}`].docs.meta, jobsRead: true } } } };
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE }, { alts: alts12 });
+      await page.goto(`${BASE}#todo`);
+      await page.waitForSelector('.tn-item', { timeout: 20_000 }).catch(() => problems.push('To do drew no item'));
+      await page.waitForTimeout(1200);
+      const item = await text('.tn-item:has-text("Builder Alt")');
+      if (!item.includes('Builder Alt · 1 industry job ready at Station 60003760') || !item.includes('Builder Alt delivers them in the Industry window')) problems.push(`To do doesn’t list Builder Alt’s job to deliver: “${item.slice(0, 200)}”`);
+      if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-todo-alt.png` }); }
+    }
+
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

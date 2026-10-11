@@ -171,6 +171,12 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   when they were read and their facilities' names (`meta.industry`); a job is waiting when it's `ready` or `active` past
   its end (`jobWaiting`), and they're listed one item per facility, the job IDs in its `ver`. It ticks off only on a
   newer read with none of them waiting ("All delivered."), like every other item: absent is not done.
+- **An alt's too** (Industry stage 2, `altIndustryItem`, `judgeAltIndustry`): one item per alt and facility, keyed
+  `industry:<char>:<place>` so the main's items never reopen, seen at the alt's `sheet` read and ticked off only by a newer
+  one on a roster read of this session (and only while its pulled copy is held: no copy is not a copy with nothing waiting);
+  an alt gone from a live roster just goes. Built from its `jobs` records, which the cloud reads hourly, so it's as of that
+  read; a refused alt's last-read jobs still list. Its place is `jobPlaceSaid`'s (a station by ESI's name, a structure by the
+  alt's blueprints doc or the system it was first seen in), never a container.
 - **R&D agents past an amount go on To do** (kind `cashIn`, source `research`, `judgeCashIn`; the rules are in research.md):
   one item per agent once its datacores waiting are worth more than the amount set on the Research tab, keyed by
   character and agent, versioned by the whole datacores. Bought (said "most likely") or stopped only on a newer research

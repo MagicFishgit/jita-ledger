@@ -398,3 +398,4 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   a tax offered) each say why instead of working out a cost. A measured tax within ±0.05% (`MEASURE_BAND`, about what the index's four
   decimals move it) of the typed one reads "paid about the same", with no Use this; two jobs at one site that differ beyond that
   say so ("An earlier job, of 2 Oct, paid 1.00%"), never the newest alone. A cost under `CHECK_FLOOR` (1 ISK) off isn't said to differ.
+- **To do lists an alt's jobs to deliver** (Task 12A): `industry:<char>:<place>`, seen at the alt's `sheet` read and judged only on a roster read of this session; the rule is in orders-alerts.md.

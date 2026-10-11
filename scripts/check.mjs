@@ -8354,5 +8354,23 @@ console.log('\n--- Industry stage 2: the job check and the measured tax (industr
   eq('  an earlier job within the noise is not named', m['st:1046664001931'].earlier, undefined);
 }
 
+console.log('\n--- Industry stage 2: To do, an alt\'s jobs to deliver (todo.ts, Task 12A) ---');
+{
+  const D = await import('../src/lib/todo.ts');
+  const it = D.altIndustryItem({ charId: 900091, who: 'Builder Alt', place: 60003760, placeName: 'Jita IV - Moon 4 - Caldari Navy Assembly Plant',
+    jobs: [{ jobId: 12, activity: 5, what: 'Large Trimark Armor Pump I Blueprint', runs: 1 }, { jobId: 11, activity: 1, what: 'Large Trimark Armor Pump I', runs: 65 }] });
+  eq('  one item per alt and facility, keyed by both; the job IDs its version', [it.key, it.ver, it.kind, it.source], ['industry:900091:60003760', '11.12', 'industry', 'industry']);
+  eq('    said with whose they are', it.title, 'Builder Alt · 2 industry jobs ready at Jita IV - Moon 4 - Caldari Navy Assembly Plant');
+  const e = { item: it, seenAt: 1000, lastAt: 1000 };
+  eq('  judged only on a roster read of this session newer than the one that showed it', [
+    D.judgeAltIndustry(e, { live: false, readAt: 2000, gone: false, waiting: new Set() }),
+    D.judgeAltIndustry(e, { live: true, readAt: 1000, gone: false, waiting: new Set() }),
+    D.judgeAltIndustry(e, { live: true, readAt: 2000, gone: false, waiting: new Set([12]) }),
+    D.judgeAltIndustry(e, { live: true, readAt: 2000, gone: false, waiting: new Set() }),
+  ], [null, null, null, 'All delivered.']);
+  eq('  an alt gone from a live roster just goes', D.judgeAltIndustry(e, { live: true, readAt: 500, gone: true, waiting: new Set() }), false);
+  eq('  an alt gone from a roster read from disk stays', D.judgeAltIndustry(e, { live: false, readAt: 500, gone: true, waiting: new Set() }), null);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

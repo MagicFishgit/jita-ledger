@@ -11,7 +11,7 @@ import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  cashInItem, feedsQueueItem, notReachedItem, inFilter, judgeAltLogin, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, placeBuyItem, planListItem, judgeIndustry, judgeLedger, judgeOrder, skippedEmptyItem, skippedCloseState, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
+  altIndustryItem, cashInItem, feedsQueueItem, notReachedItem, inFilter, judgeAltIndustry, judgeAltLogin, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, placeBuyItem, planListItem, judgeIndustry, judgeLedger, judgeOrder, skippedEmptyItem, skippedCloseState, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
   type Entry, type Memory, type TodoFilter, type TodoItem, type TodoKind,
 } from '../lib/todo';
 import type { IndustryJob } from '../lib/types';
@@ -31,7 +31,8 @@ import { useRunningResearch } from './hustles/researchWorth';
 import { cloudCovers, useCloud } from '../lib/cloud';
 import { JITA_44, SCOPE } from '../lib/config';
 import { toast } from '../lib/toast';
-import { ACTIVITY_SAID } from '../lib/industryTrack';
+import { ACTIVITY_SAID, type JobRecord } from '../lib/industryTrack';
+import { jobPlaceSaid } from '../lib/industryOwned';
 import { canOpenInGame, copyPrice, downloadText, useEnsureNames, useTypeName } from './common';
 import { cssVars, Empty, Guide, PageHead, Ring, Seg } from './ui';
 import { Points } from './Facts';
@@ -119,6 +120,16 @@ export function Todo() {
     resolveNames(agentSystems.split(',').map(Number)).then((n) => { if (alive) setSystemNames(n); }).catch(() => undefined);
     return () => { alive = false; };
   }, [agentSystems]);
+  // An alt's finished jobs (its records as the cloud's sheet last read them), and the names of their facilities.
+  const altJobs = useMemo(() => roster.map((a) => ({ a, jobs: Object.values((copies[a.charId]?.records.jobs ?? {}) as Record<string, JobRecord>) })), [roster, copies]);
+  const altPlaces = [...new Set(altJobs.flatMap((x) => x.jobs.filter((j) => jobWaiting(j, now)).flatMap((j) => [j.stationId, j.first?.systemId ?? 0])).filter((id) => id > 0))].sort((a, b) => a - b).join(',');
+  const [placeNames, setPlaceNames] = useState<Record<number, string>>({});
+  useEffect(() => {
+    if (!altPlaces) return;
+    let alive = true;
+    resolveNames(altPlaces.split(',').map(Number)).then((n) => { if (alive) setPlaceNames(n); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [altPlaces]);
   const canDest = (auth?.scopes ?? []).includes(SCOPE.waypoint);
   const inCloud = cloudCovers(cloud);
   const [mem, setMem] = useState<Memory>(readMem);
@@ -136,7 +147,7 @@ export function Todo() {
   const hasOrders = jitaOpen(d).length > 0;
   const tracked = useMemo(() => trackedTypes(d), [d.positions, d.orders, d.watchlist]); // eslint-disable-line react-hooks/exhaustive-deps
   // Industry jobs make things you may never have traded: name them.
-  useEnsureNames([...(d.meta.industry?.jobs ?? []).map((j) => j.productTypeId ?? j.blueprintTypeId), ...d.plans.flatMap((p) => p.items.map((i) => i.typeId))]);
+  useEnsureNames([...(d.meta.industry?.jobs ?? []).map((j) => j.productTypeId ?? j.blueprintTypeId), ...altJobs.flatMap((x) => x.jobs.filter((j) => jobWaiting(j, now)).map((j) => j.productTypeId ?? j.blueprintTypeId)), ...d.plans.flatMap((p) => p.items.map((i) => i.typeId))]);
   const canPlanets = (auth?.scopes ?? []).includes(PLANETS_SCOPE);
   const vs = useMemo(() => verdicts(d, check, costBasis(d)), [d, check]);
   // What a plan bought and hasn't listed, priced to list (the list step, shared with the plan's checklist).
@@ -331,6 +342,19 @@ export function Todo() {
         action: { label: 'Blueprints', route: 'blueprints' },
       });
     }
+    // An alt's jobs finished and waiting, one item per alt and facility (its records as the cloud's sheet last read them).
+    for (const { a, jobs } of altJobs) {
+      const byAltPlace = new Map<number, JobRecord[]>();
+      for (const j of jobs) if (jobWaiting(j, now)) byAltPlace.set(j.stationId, [...(byAltPlace.get(j.stationId) ?? []), j]);
+      const names = (copies[a.charId]?.docs.blueprints as { names?: Record<string, string> } | undefined)?.names ?? {};
+      for (const [place, js] of byAltPlace) {
+        out.push(altIndustryItem({
+          charId: a.charId, who: a.name ?? `Character ${a.charId}`, place,
+          placeName: jobPlaceSaid(js[0], { names, jobPlaces: {}, station: (id) => placeNames[id] ?? 'a station', system: (id) => placeNames[id] ?? null }),
+          jobs: js.map((j) => ({ jobId: j.jobId, activity: j.activity, what: name(j.productTypeId ?? j.blueprintTypeId), runs: j.runs })),
+        }));
+      }
+    }
     // A started plan's buy orders not placed yet (the Capital planner's "Start this plan"), for a week. A bid that bought
     // at once counts by its trade: it shows no order until your order history does; a bid you cancelled with nothing
     // bought, or an item whose position you closed, the plan no longer places (lib/plans.ts, planItemState).
@@ -403,7 +427,7 @@ export function Todo() {
       });
     }
     return out;
-  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background, roster, listing, placing, research.bundle, research.blocks, research.priced, systemNames, canDest]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background, roster, listing, placing, research.bundle, research.blocks, research.priced, systemNames, canDest, altJobs, placeNames, copies]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fold each new build into the session: new findings are added, and findings a newer read no longer
   // shows are ticked off with what changed.
@@ -422,9 +446,16 @@ export function Todo() {
       const a = roster.find((z) => z.charId === charId);
       return a ? jobOk(a, 'sheet') : null;
     };
+    // An alt's jobs item (industry:<char>:<place>) is seen on its sheet read; the main's on its own jobs read.
+    const industrySeen = (x: TodoItem) => {
+      const p = x.key.split(':');
+      if (p.length !== 3) return industryAt;
+      const a = roster.find((z) => String(z.charId) === p[1]);
+      return a ? jobOk(a, 'sheet') : null;
+    };
     const seenAt = (x: TodoItem) =>
       x.source === 'research' ? researchAt(Number(idOf(x.key))) ?? t :
-      x.kind === 'planList' ? hangarAt ?? t : x.source === 'orders' ? checkedAt ?? t : x.source === 'colonies' ? readAt ?? t : x.source === 'signals' ? sig.signals[x.typeId!]?.at ?? t : x.source === 'industry' ? industryAt ?? t : x.source === 'contracts' ? contractsAt ?? t : x.source === 'cloud' ? cloud.backgroundAt ?? t : x.source === 'roster' ? rosterAt ?? t : t;
+      x.kind === 'planList' ? hangarAt ?? t : x.source === 'orders' ? checkedAt ?? t : x.source === 'colonies' ? readAt ?? t : x.source === 'signals' ? sig.signals[x.typeId!]?.at ?? t : x.source === 'industry' ? industrySeen(x) ?? t : x.source === 'contracts' ? contractsAt ?? t : x.source === 'cloud' ? cloud.backgroundAt ?? t : x.source === 'roster' ? rosterAt ?? t : t;
     const byOrder = new Map(vs.map((v) => [v.orderId, v]));
     const position = (id: string) => d.positions.find((p) => p.id === id) ?? null;
     const judge = (e: Entry): string | null | false => {
@@ -499,7 +530,17 @@ export function Todo() {
           const k = cloud.background?.keys.find((z) => z.purpose === id);
           return judgeCloudLogin(e, { readAt: cloud.backgroundAt, kept: !!k, refused: !!k?.refusedAt });
         }
-        case 'industry': return judgeIndustry(e, { readAt: industryAt, waiting: new Set((d.meta.industry?.jobs ?? []).filter((j) => jobWaiting(j, t)).map((j) => j.jobId)) });
+        case 'industry': {
+          const p = x.key.split(':');
+          if (p.length === 3) {
+            const a = roster.find((z) => String(z.charId) === p[1]);
+            const copy = copies[Number(p[1])];
+            const waiting = new Set((Object.values(copy?.records.jobs ?? {}) as JobRecord[]).filter((j) => jobWaiting(j, t)).map((j) => j.jobId));
+            // A copy not loaded (or reset) is not a copy with nothing waiting: absent is not delivered.
+            return judgeAltIndustry(e, { live: rosterLive && (!a || !!copy), readAt: a ? jobOk(a, 'sheet') : null, gone: !a, waiting });
+          }
+          return judgeIndustry(e, { readAt: industryAt, waiting: new Set((d.meta.industry?.jobs ?? []).filter((j) => jobWaiting(j, t)).map((j) => j.jobId)) });
+        }
         case 'cashIn': {
           // Only a newer research read says bought or stopped, an alt's only on a roster read of this session (judgeCashIn).
           const [, ch, ag] = x.key.split(':');

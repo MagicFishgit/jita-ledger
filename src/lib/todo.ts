@@ -2,6 +2,7 @@ import { fmtDateTime, isk, iskBig, units } from './format';
 import { placeMovedSaid, planLabel, planListSaid, type DroppedState, type Listed, type PlanItem, type PlanItemState, type PlanListPrice, type TradePlan } from './plans';
 import type { MarketMove } from './prospects';
 import { FEEDS_QUEUE_DO, feedsQueueLead, notReachedSince, type FeedsQueue, type Relist, type Verdict } from './relist';
+import { ACTIVITY_SAID } from './industryTrack';
 import { DATACORE_FEE, RP_PER_DATACORE } from './research';
 
 /**
@@ -321,6 +322,32 @@ export function judgeIndustry(e: Entry, c: { readAt: number | null; waiting: Rea
   if (c.readAt == null || c.readAt <= e.seenAt) return null;
   const ids = e.item.ver.split('.').map(Number).filter((n) => n > 0);
   return ids.some((id) => c.waiting.has(id)) ? null : ids.length === 1 ? 'Delivered.' : 'All delivered.';
+}
+
+/**
+ * An alt's industry jobs finished and waiting to be delivered (its `jobs` records, read by the cloud's sheet): one item per
+ * alt and facility. Keyed `industry:<char>:<place>`, so the main's `industry:<place>` items never reopen; its version is the
+ * job IDs, as the main's. `placeName` is the facility as the page can say it (jobPlaceSaid), null when it can't.
+ */
+export function altIndustryItem(x: { charId: number; who: string; place: number; placeName: string | null; jobs: { jobId: number; activity: number; what: string; runs: number }[] }): TodoItem {
+  const what = x.jobs.map((j) => `${ACTIVITY_SAID[j.activity] ?? 'Job'}: ${j.what}${j.runs > 1 ? ` ×${units(j.runs)}` : ''}`);
+  return {
+    key: `industry:${x.charId}:${x.place}`, ver: x.jobs.map((j) => j.jobId).sort((a, b) => a - b).join('.'), kind: 'industry', source: 'industry', stake: 0,
+    title: `${x.who} · ${units(x.jobs.length)} industry job${x.jobs.length === 1 ? '' : 's'} ready at ${x.placeName ?? 'a facility'}`,
+    detail: `${what.slice(0, 4).join(' · ')}${what.length > 4 ? ` and ${units(what.length - 4)} more` : ''}. ${x.who} delivers them in the Industry window (Jobs, Deliver).`,
+    action: { label: 'Blueprints & jobs', route: 'hustles/industry/blueprints' },
+  };
+}
+
+/**
+ * An alt's jobs-to-deliver item that has gone: judged only on a roster read of this session (the cloud reads the alt
+ * hourly; a roster from disk may be older than what showed it) whose sheet read is newer than the one that showed it.
+ * An alt gone from a live roster just goes.
+ */
+export function judgeAltIndustry(e: Entry, c: { live: boolean; readAt: number | null; gone: boolean; waiting: ReadonlySet<number> }): string | null | false {
+  if (!c.live) return null;
+  if (c.gone) return false;
+  return judgeIndustry(e, { readAt: c.readAt, waiting: c.waiting });
 }
 
 /**
