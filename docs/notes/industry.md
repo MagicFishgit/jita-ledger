@@ -567,3 +567,20 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
     failure. A row's `lacking` merges copying's and research's skills (about a quarter of blueprints need some to research) and says "N to train";
     research past 30 days is flagged on the row and payback says "from the purchase, after N d of research"; every figure not known says why
     (payback, building, no Laboratory); a pace under one a day is time between ("about one every 2 days"); the left-out counts are kinds.
+
+- **Your copy contracts are a synced document of their own** (`copyContracts`, `src/lib/copyContracts.ts`, Task 15A; corrections 10 to 14).
+  ESI lists a character's contracts only 30 days back and the sync replaces `meta.contracts`' list each time, so a copy sold last month
+  would drop out of Results after a month; `meta` also goes up every sync, so the contracts get a document that changes only with a copy
+  contract. A copy contract is an item exchange you issued whose items, as your own contract items read them, are all given and all copies
+  (`raw_quantity` −2; `ContractItem.raw` keeps it, null when ESI gave none, absent on an item read before this stage, which `itemsToRead`
+  reads once more). The sync reads items for your outstanding item exchanges as well as the finished ones. Each contract keeps ESI's status,
+  price, availability, acceptor, completion and start station, its copies by type, and its kinds `[type, ME, TE, runs, copies]`, read once
+  from the public items while outstanding and public (at most 20 a sync): `private` (never asked), `gone` (no longer outstanding or past
+  its expiry before they were read, or the answer held no copy), absent (not read: a 404 is asked again next sync). One that leaves ESI's list
+  is stamped `gone` once, its last status kept, and never dropped (5,000, newest kept); one still listed whose items weren't read this sync
+  (past the 500 kept) keeps its copies and follows its status. Written against live state in the final `update`, only when changed.
+- **Your copy business** (Copies section, `CopyBusiness`): the shown character's copy jobs (activity 5) and copies held, and the main's copy
+  contracts with their state (listed / expired: ESI has no expired status, so an outstanding contract past its expiry, its copies still in it
+  until deleted / sold) and the cheapest ask of their kind. It is drawn outside the copy market's gate: it comes from the sync and the
+  cloud's reads of your characters, so it shows with the cloud off or a version behind. An alt's contracts aren't read: said, never "none".
+  The blueprints in copy contracts join the sync's name lookup, and an expired contract's station is named, for To do later (Task 15C).

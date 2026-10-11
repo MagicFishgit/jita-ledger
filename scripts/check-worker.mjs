@@ -1317,6 +1317,14 @@ console.log('\n--- the blueprints doc goes up like any other ---');
   eq('  a push carrying the blueprints doc is taken, not refused as unknown', [r.docs, db.rows('SELECT key FROM docs WHERE char_id = ?', MAIN).map((x) => x.key)], [1, ['blueprints']]);
 }
 
+console.log('\n--- the copyContracts doc goes up like any other ---');
+{
+  const { push } = await import('../worker/src/sync.ts');
+  const db = d1();
+  const r = await push(db, MAIN, { records: [], docs: [{ key: 'copyContracts', d: { list: [] } }] });
+  eq('  a push carrying it is taken, not refused as unknown', [r.docs, db.rows('SELECT key FROM docs WHERE char_id = ?', MAIN).map((x) => x.key)], [1, ['copyContracts']]);
+}
+
 console.log('\n--- Industry stage 2: jobs and blueprints in the cloud (Task 9B) ---');
 {
   const FXI = JSON.parse(fs.readFileSync(new URL('./fixtures/industry-everef.json', import.meta.url), 'utf8'));

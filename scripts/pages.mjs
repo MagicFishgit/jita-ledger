@@ -2899,6 +2899,82 @@ try {
       if (!(await page.locator('[data-industry="copy-finder"]').count())) problems.push('a read in progress hides the last good figures');
     }
 
+    // --- Task 15A: Your copy business, from a seeded document, then the sync reading your contracts with ESI stubbed: your
+    // outstanding public copy contract's kinds read once (and not again next sync), a private one's never asked, a 404 asked again.
+    {
+      const MAIN_ID = ownerAuth().characterId;
+      const cc = (id, over) => ({ id, issued: iso(now - 5 * 86400_000), expires: iso(now + 9 * 86400_000), status: 'outstanding', price: 9e6, availability: 'public', acceptor: null, completed: null, station: 60003760, copies: [[25895, 2]], ...over });
+      const copyContracts = { list: [
+        cc(601, { kinds: [[25895, 10, 20, 40, 2]] }),
+        cc(602, { expires: iso(now - 86400_000) }),
+        cc(603, { status: 'finished', acceptor: 777, completed: iso(now - 2 * 86400_000), kinds: 'gone' }),
+        cc(604, { availability: 'personal', kinds: 'private' }),
+      ] };
+      const copyJob = { jobId: 9701, activity: 5, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25895, runs: 2, licensedRuns: 40, successfulRuns: null, probability: null, cost: 283177.85,
+        facilityId: 60001483, stationId: 60001483, outputId: 60001483, start: iso(now - 3600_000), end: iso(now + 5 * 3600_000), completed: null, status: 'active', perRun: null, seenAt: iso(now - 3000_000) };
+      CLOUD['/v1/copies'] = (url, req, json) => json({ at: iso(now - 3600_000), days: 7, gapHours: 6, reads: 28, tried: iso(now - 3000_000), error: null, sold: [], asks: { '25895|10|20|40': [100000, 112500, 6, 3] } });
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE, jobs: { 9701: copyJob }, meta: { ...ledger.meta, jobsRead: true, contracts: { at: iso(now - 600_000), list: [], items: {}, places: {} } }, copyContracts }, { alts: altStore });
+      await page.goto(`${BASE}#hustles/industry/copies`);
+      await page.waitForSelector('[data-industry="copy-contracts"]', { timeout: 30_000 }).catch(async () => problems.push(`Your copy contracts never drew: “${(await text('[data-industry="copy-business"]')).slice(0, 400)}”`));
+      const biz = await text('[data-industry="copy-business"]');
+      for (const want of ['2 × 40 runs', 'Listed until', 'others’ cheapest 100,000 ISK (6 listed): undercut', 'kinds not known: a private contract isn’t public', 'kinds not known: it left the public list before they were read'])
+        if (!biz.includes(want)) problems.push(`Your copy business doesn’t say “${want}”: “${biz.slice(0, 500)}”`);
+      // The rows' own words, not the tiles' labels (M17): a date after each.
+      const rowsText = await text('[data-industry="copy-contracts"]');
+      if (!/Expired \d{1,2} [A-Z][a-z]{2} \d{4}: delete it in game to get the copies back/.test(rowsText)) problems.push(`the expired contract’s row doesn’t say when and what to do: “${rowsText.slice(0, 300)}”`);
+      if (!/Sold \d{1,2} [A-Z][a-z]{2} \d{4}/.test(rowsText)) problems.push(`the sold contract’s row doesn’t say when: “${rowsText.slice(0, 300)}”`);
+      await page.locator('[data-industry="copy-business"] .tile', { hasText: 'Expired' }).click().catch(() => problems.push('the Expired tile can’t be pressed'));
+      if ((await page.locator('[data-industry="copy-contracts"] tbody tr').count()) !== 1) problems.push('pressing Expired doesn’t filter the table to the expired contract');
+      // I4: with the cloud a version behind (no copy market at all), Your copy business still shows: it is the sync's, not the cloud's.
+      CLOUD['/v1/copies'] = (url, req, json) => json({ error: 'Not found' }, 404);
+      await page.reload();
+      await page.waitForSelector('[data-industry="copy-contracts"]', { timeout: 20_000 }).catch(() => problems.push('with the cloud a version behind, Your copy business is gone'));
+      if ((await page.locator('[data-industry="copy-contracts"] tbody tr').count()) < 4) problems.push('with the cloud a version behind, Your copy contracts doesn’t list the four contracts');
+      if (!(await text('[data-industry="copy-state"]')).includes('The cloud is a version behind')) problems.push('with the cloud a version behind, Copies doesn’t say so');
+      if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-copy-business-main.png`, fullPage: true }); }
+      await showFor('Builder Alt');
+      if (!(await text('[data-industry="copy-contracts-alt"]')).includes('Builder Alt’s contracts aren’t read')) problems.push('under an alt, Your copy contracts doesn’t say its contracts aren’t read');
+      if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-copy-business.png` }); }
+
+      // The sync: scopes with contracts; ESI answers for your contracts, their items and the public items.
+      const asked = [];
+      const C = (contract_id, over = {}) => ({ contract_id, type: 'item_exchange', status: 'outstanding', issuer_id: MAIN_ID, issuer_corporation_id: 1, acceptor_id: 0, assignee_id: 0, price: 5e6, title: '', for_corporation: false,
+        availability: 'public', date_issued: iso(now - 86400_000), date_expired: iso(now + 13 * 86400_000), start_location_id: 60003760, end_location_id: 60003760, ...over });
+      ESI[`/characters/${MAIN_ID}/contracts/`] = (url, req, json) => (asked.push(url.pathname), json([C(701), C(702, { availability: 'personal' }), C(703, { status: 'finished', acceptor_id: 777, date_completed: iso(now - 3600_000) }), C(704), C(705)]));
+      for (const id of [701, 702, 703, 705]) ESI[`/characters/${MAIN_ID}/contracts/${id}/items/`] = (url, req, json) => (asked.push(url.pathname), json([{ record_id: 1, type_id: 25895, quantity: 1, is_singleton: true, raw_quantity: -2, is_included: true }]));
+      ESI[`/characters/${MAIN_ID}/contracts/704/items/`] = (url, req, json) => (asked.push(url.pathname), json([{ record_id: 1, type_id: 34, quantity: 100, is_singleton: false, is_included: true }]));
+      ESI['/contracts/public/items/701/'] = (url, req, json) => (asked.push(url.pathname), json([{ record_id: 1, item_id: 1, type_id: 25895, quantity: 1, is_included: true, is_blueprint_copy: true, material_efficiency: 10, time_efficiency: 20, runs: 40 }]));
+      ESI['/contracts/public/items/705/'] = (url, req, json) => (asked.push(url.pathname), json({ error: 'Contract not found' }, 404));
+      const storedCC = () => page.evaluate(() => new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('copyContracts'); g.onsuccess = () => res(g.result ?? null); }; }));
+      // One sync started by the button, waited for on what it asks (never on a pause), then until its button is back.
+      const syncOnce = async () => {
+        await page.waitForSelector('.sync-btn:not([disabled])', { timeout: 30_000 }).catch(() => problems.push('the sync never went idle'));
+        const n = asked.length;
+        await page.locator('.sync-btn:not([disabled])').click().catch(() => undefined);
+        for (let i = 0; i < 200 && !asked.slice(n).some((x) => x.endsWith('/contracts/')); i++) await page.waitForTimeout(100);
+        await page.waitForSelector('.sync-btn:not([disabled])', { timeout: 30_000 }).catch(() => problems.push('the sync never finished'));
+      };
+      await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('jita-ledger:auth')); a.scopes = ['esi-contracts.read_character_contracts.v1']; localStorage.setItem('jita-ledger:auth', JSON.stringify(a)); });
+      await page.reload();
+      await page.waitForSelector('.page', { timeout: 20_000 });
+      await syncOnce();
+      let got = await storedCC();
+      for (let i = 0; i < 40 && !got?.list?.some((x) => x.id === 701 && Array.isArray(x.kinds)); i++) { await page.waitForTimeout(250); got = await storedCC(); }
+      const by = (id) => got?.list?.find((x) => x.id === id);
+      if (!Array.isArray(by(701)?.kinds) || by(701).kinds[0][3] !== 40) problems.push(`701’s kinds weren’t read from ESI’s public items: ${JSON.stringify(by(701))}`);
+      if (by(702)?.kinds !== 'private' || asked.includes('/contracts/public/items/702/')) problems.push('a private contract was asked of the public route, or not marked private');
+      if (by(703)?.kinds !== 'gone' || asked.includes('/contracts/public/items/703/')) problems.push('a contract finished before its kinds were read was asked, or not marked gone');
+      if (by(704)) problems.push('an item exchange of Tritanium was kept as a copy contract');
+      if (by(705)?.kinds !== undefined) problems.push('a 404 from the public route was kept as an answer');
+      asked.length = 0;
+      await syncOnce();
+      await page.waitForTimeout(500);
+      if (asked.includes('/contracts/public/items/701/')) problems.push('701’s kinds were asked for again on the next sync');
+      if (!asked.includes('/contracts/public/items/705/')) problems.push('705’s 404 wasn’t asked again on the next sync');
+      for (const k of Object.keys(ESI)) if (k.includes('/contracts/')) delete ESI[k];
+    }
+
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

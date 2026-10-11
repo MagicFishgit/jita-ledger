@@ -15,6 +15,7 @@ import { setCloudFlow, setCloudHours } from './flowStore';
 import type { HourBucket } from './rhythm';
 import type { FlowLog } from './flow';
 import { sanitizeBlueprints } from './industryTrack';
+import { sanitizeCopyContracts } from './copyContracts';
 import { sanitizeAlerts, sanitizeChars, sanitizeIndustry, sanitizeLeave, sanitizeLeaveFrom, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes } from './prefs';
 import { sanitizePlans } from './plans';
 import { costBasis } from './orderCheck';
@@ -292,6 +293,7 @@ async function pullNow(cloudWins = false): Promise<Map<string, Set<string>>> {
         if (p.chars) p.chars = sanitizeChars(p.chars);
         if (p.industry) p.industry = sanitizeIndustry(p.industry);
         if (p.blueprints !== undefined) p.blueprints = sanitizeBlueprints(p.blueprints);
+        if (p.copyContracts !== undefined) p.copyContracts = sanitizeCopyContracts(p.copyContracts);
         return p;
       }, { origin: 'cloud' });
       // Applied over what was waiting here, so that no longer goes up.

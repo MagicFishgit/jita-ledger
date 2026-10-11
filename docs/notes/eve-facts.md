@@ -143,3 +143,8 @@ Don't re-derive or contradict these without new evidence.
   entries for purchases at all (all 3,663 were sales). A same-second escrow for a different amount is a buy order
   placed that matched at once. This is how `instantBuys` tells a snipe from a fill; matching fills to your orders'
   prices failed, because orders placed or repriced before their history was kept aren't known.
+
+- **A character's contracts carry `availability`, and their items `raw_quantity`** (as the stage 3 plan recorded it, 11 October 2026; not re-probed in Task 15A): `public` or `personal` and so on;
+  a contract item's `raw_quantity` is −2 for a blueprint copy and −1 for an original or another singleton. ESI's public contract items
+  (`/contracts/public/items/{id}/`, no login, held about an hour) give a copy's `material_efficiency`, `time_efficiency` and `runs`; an unknown
+  contract answers 404 "Contract not found", an expired or accepted one a 204 with no body, and one just expired may still answer 200 from cache.

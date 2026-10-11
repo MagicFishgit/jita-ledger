@@ -81,3 +81,7 @@ Decisions worth not undoing. How the ledger lives in the cloud as well as the br
   for good (`TrackerState`). **Its failures aren't a watched job**: the user chose (30 September 2026) not to be mailed when Abyss Tracker is down,
   since it's someone else's site and the page says how old its figures are. A cell that keeps failing is passed over, and
   three failures in a row end the round. Fits kept over a week are deleted each hour; one asked for again is read afresh.
+
+- **`copyContracts` is a synced document** (11 October 2026, Industry stage 3): the main's copy contracts, changed only when a copy contract
+  changes, merged in the sync's final `update` against live state (never a snapshot) and pulled through `sanitizeCopyContracts`. A Worker a
+  version behind refuses it as unknown and `refusedDoc` holds it back; an older browser ignores it (`isDocKey`).

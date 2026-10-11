@@ -6,6 +6,7 @@ import { releaseOrphans, sanitizePlans, type TradePlan } from './plans';
 import type { MiningRecord } from './mining';
 import { emptyData } from './emptyData';
 import { sanitizeBlueprints, type BlueprintsDoc, type JobRecord } from './industryTrack';
+import { sanitizeCopyContracts, type CopyContractsDoc } from './copyContracts';
 import type {
   AlertConfig, AlertLogEntry, Goal, JournalEntry, Killmail, Meta, NetWorthPoint, Order, Position, Prefs,
   Stock, Tx, UntrackedTag, WatchItem,
@@ -70,11 +71,13 @@ export type Data = {
   jobs: Record<string, JobRecord>;
   /** Your blueprints as last read (industryTrack.ts BlueprintsDoc). Absent: not read yet. */
   blueprints?: BlueprintsDoc;
+  /** Your copy contracts as last read (copyContracts.ts). Absent: not read yet. */
+  copyContracts?: CopyContractsDoc;
 };
 type Key = keyof Data;
 const KEYS: Key[] = [
   'settings', 'txs', 'journal', 'orders', 'positions', 'watchlist', 'names', 'ignored', 'stock', 'skills', 'meta',
-  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'leaveFrom', 'safetyTimes', 'notSnipes', 'plans', 'mining', 'chars', 'industry', 'jobs', 'blueprints',
+  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'leaveFrom', 'safetyTimes', 'notSnipes', 'plans', 'mining', 'chars', 'industry', 'jobs', 'blueprints', 'copyContracts',
 ];
 
 const idb = createStore('jita-ledger', 'kv');
@@ -117,6 +120,7 @@ export async function initStore(): Promise<void> {
   data.chars = sanitizeChars(data.chars);
   data.industry = sanitizeIndustry(data.industry);
   data.blueprints = sanitizeBlueprints(data.blueprints);
+  data.copyContracts = sanitizeCopyContracts(data.copyContracts);
   if (!data.meta.rateHistory?.length) {
     // Assume today's rates applied to everything before the first recorded change.
     const r = rates(data.settings);
@@ -266,6 +270,7 @@ export async function importAll(json: string): Promise<void> {
   if (p.plans) p.plans = sanitizePlans(p.plans);
   if (p.industry) p.industry = sanitizeIndustry(p.industry);
   if (p.blueprints !== undefined) p.blueprints = sanitizeBlueprints(p.blueprints);
+  if (p.copyContracts !== undefined) p.copyContracts = sanitizeCopyContracts(p.copyContracts);
   update(p);
 }
 

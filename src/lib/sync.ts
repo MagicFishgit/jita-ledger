@@ -4,7 +4,8 @@ import { esi, esiAllPages } from './esi';
 import { ALPHA_CAPS, JITA_44, NPC_FALLBACK_IDS, NPC_NAMES, SCOPE, SKILL_FALLBACK_IDS, SKILL_NAMES, type SkillKey } from './config';
 import { parseSafetyNotice, withNotices } from './assetSafety';
 import { isStation, isStructure, structureInfo } from './universe';
-import { couriersDue, itemsToRead, readContracts, type ContractItem, type RawContract } from './contracts';
+import { couriersDue, itemsToRead, readContracts, type ContractItem, type MyContract, type RawContract } from './contracts';
+import { copyContractsOf, copyState, kindsToRead, readKinds, type ContractKind, type PublicItem } from './copyContracts';
 import { readCorpSpans, readCurrentCorp, readJobHistory, untaxedSince } from './freelanceStore';
 import { readCorp, withRead, type CorpSpan, type JoinedJob, type RawCorpFounded } from './freelance';
 import { loyaltyPoints, resolveIds, resolveNames } from './market';
@@ -105,6 +106,9 @@ export async function syncCharacter(): Promise<void> {
     const d = getData();
     const { skillIds, npcIds } = await ensureIds(d);
     const metaPatch: Partial<Meta> = { skillIds, npcIds };
+    // Your copy contracts as this sync read them, merged onto the live store in the final update (Industry, stage 3).
+    let copyRead: { list: MyContract[]; items: Record<number, ContractItem[]>; kinds: Record<number, ContractKind[] | 'gone'>; at: string } | null = null;
+    let copyTypes: number[] = [];
     const expiries: NonNullable<Meta['expiries']> = {};
     const keep = (k: keyof NonNullable<Meta['expiries']>) => (at: number | null) => { if (at != null) expiries[k] = new Date(at).toISOString(); };
     /** Only the settings the character owns. Everything else the user controls and we must not touch. */
@@ -262,14 +266,26 @@ export async function syncCharacter(): Promise<void> {
         const items: Record<number, ContractItem[]> = { ...(prev?.items ?? {}) };
         for (const id of itemsToRead(list, cid, items)) {
           try {
-            const { data } = await esi<{ type_id: number; quantity: number; is_included: boolean }[]>(`/characters/${cid}/contracts/${id}/items/`, { auth: true });
-            items[id] = data.map((i) => ({ typeId: i.type_id, qty: i.quantity, included: i.is_included }));
+            const { data } = await esi<{ type_id: number; quantity: number; is_included: boolean; raw_quantity?: number }[]>(`/characters/${cid}/contracts/${id}/items/`, { auth: true });
+            items[id] = data.map((i) => ({ typeId: i.type_id, qty: i.quantity, included: i.is_included, raw: i.raw_quantity ?? null }));
           } catch { /* read on a later sync */ }
         }
+        // Your copy contracts (Industry, stage 3): each public outstanding one's kinds read once from ESI's public contract
+        // items (no login; at most 20 a sync). A 404 is a contract ESI's public list doesn't show yet: asked again next sync.
+        const readAt = new Date().toISOString();
+        const draft = copyContractsOf(getData().copyContracts, list, items, {}, cid, readAt);
+        const kinds: Record<number, ContractKind[] | 'gone'> = {};
+        for (const id of kindsToRead(draft, Date.now())) {
+          try { kinds[id] = readKinds((await esi<PublicItem[] | undefined>(`/contracts/public/items/${id}/`)).data); } catch { /* asked again next sync */ }
+        }
+        copyRead = { list, items, kinds, at: readAt };
+        // Their blueprints' names, looked up with the rest (I2): To do and the section never say "Item #…".
+        copyTypes = [...new Set(draft.list.flatMap((x) => x.copies.map(([t]) => t)))];
+        const expiredAt = draft.list.filter((x) => copyState(x, Date.now()) === 'expired' && x.station != null).map((x) => x.station as number);
         // Keep the newest 500 contracts' items: a contract's journal entries stay findable, the doc stays small.
         const keepIds = Object.keys(items).map(Number).sort((a, b) => b - a).slice(0, 500);
         const places: Record<number, string> = { ...(prev?.places ?? {}) };
-        const dests = [...new Set(couriersDue(list, cid).flatMap((c) => [c.contract.end, c.contract.start]).filter((x): x is number => x != null))].filter((id) => !places[id]);
+        const dests = [...new Set([...couriersDue(list, cid).flatMap((c) => [c.contract.end, c.contract.start]), ...expiredAt].filter((x): x is number => x != null))].filter((id) => !places[id]);
         if (dests.filter(isStation).length) Object.assign(places, await resolveNames(dests.filter(isStation)).catch(() => ({})));
         for (const id of dests.filter(isStructure)) { const s = await structureInfo(id).catch(() => null); if (s?.status === 'found') places[id] = s.name; }
         metaPatch.contracts = { at: new Date().toISOString(), list, items: Object.fromEntries(keepIds.map((id) => [id, items[id]])), places };
@@ -408,6 +424,7 @@ export async function syncCharacter(): Promise<void> {
     const allTypeIds = [
       ...Object.values(fetched.txs ?? d.txs).map((t) => t.typeId),
       ...Object.values(fetched.orders ?? d.orders).map((o) => o.typeId),
+      ...copyTypes,
     ];
     const missing = [...new Set(allTypeIds)].filter((id) => !d.names[id]);
     if (missing.length) {
@@ -459,6 +476,11 @@ export async function syncCharacter(): Promise<void> {
       if (fetched.blueprints) {
         if (readLands(cur.meta.blueprintsAt, bpStart)) { if (JSON.stringify(fetched.blueprints) !== JSON.stringify(cur.blueprints)) p.blueprints = fetched.blueprints; }
         else p.meta!.blueprintsAt = cur.meta.blueprintsAt;
+      }
+      // Your copy contracts, merged onto what the store holds now (a pull may have brought another device's meanwhile): written only when they changed.
+      if (copyRead) {
+        const next = copyContractsOf(cur.copyContracts, copyRead.list, copyRead.items, copyRead.kinds, cid, copyRead.at);
+        if (JSON.stringify(next) !== JSON.stringify(cur.copyContracts ?? null)) p.copyContracts = next;
       }
       if (allSkills) p.skills = allSkills;
       // Replaced wholesale, not merged: it is a snapshot of what you hold right now.

@@ -1,17 +1,26 @@
 import { useCallback, useMemo, useState } from 'react';
 import { FlaskConical, Scale, Store } from 'lucide-react';
-import { copyKindKey, INTERRUPTED } from '../../lib/copyMarket';
+import { copyKindKey, INTERRUPTED, type CopySummary } from '../../lib/copyMarket';
 import { copyReadings, copyRows, countingSaid, gapSaid, heldOriginal, readingsSaid, RESEARCH_LONG_DAYS, type CheckedJob, type CopyFinderRow } from '../../lib/copyFinder';
-import { ago, fmtDate, iskBig, pct, units } from '../../lib/format';
-import { useNow } from '../../lib/hooks';
+import { ago, fmtDate, iskBig, pct, units, until } from '../../lib/format';
+import { navigate, useNow } from '../../lib/hooks';
 import { nameOf, rigFor, secBand, type Indexed } from '../../lib/industry';
 import { finderSkills } from '../../lib/industryLadder';
 import { bpoWhere, buildRow } from '../../lib/industryRank';
 import { jobPlace } from '../../lib/industryTrack';
 import type { Graph } from '../../lib/jumps';
 import type { IndustrySite } from '../../lib/prefs';
+import { copiesSaid, copyState, type CopyContract, type CopyState } from '../../lib/copyContracts';
+import { hasScope } from '../../lib/auth';
+import { SCOPE } from '../../lib/config';
+import { blueprintKinds, jobPlaceSaid, readWhy } from '../../lib/industryOwned';
+import { isStationId, type JobRecord } from '../../lib/industryTrack';
+import { jobWaiting } from '../../lib/todo';
+import { tileRows } from '../../lib/tileFilter';
+import { useData } from '../../lib/store';
+import { useEnsureNames } from '../common';
 import { Points } from '../Facts';
-import { Th } from '../ui';
+import { Th, Tiles, TileShowing, useTileFilter } from '../ui';
 import { skillsWhy, type IndustryChar } from './industryChars';
 import { aDaySaid, bpoSaid, useFinder, useStationSaid } from './industryFinder';
 import { useAdjusted, useCopyMarket, useIndices, useIndustryDoc } from './industryMarket';
@@ -147,6 +156,7 @@ export function IndustryCopies({ c, chars, ix, graph }: { c: IndustryChar; chars
           {rows.length > shown.length && <button type="button" className="link-btn" onClick={() => setMore((m) => m + SHOWN)}>Show {units(Math.min(SHOWN, rows.length - shown.length))} more</button>}
         </>
       ))}
+      <CopyBusiness c={c} ix={ix} graph={graph} summary={summary} />
     </section>
   );
 }
@@ -184,5 +194,103 @@ function CopyRowView({ r, name, bpo, costTip, buildDay, buildWhy, ix }: { r: Cop
       <td className="rd-wide"><div>{r.bpoPrice === 0 ? 'Held: you hold one' : `${bpo.v} ${bpo.n}`}</div><div className="note small">{`Research: ${research.v} · ${research.n}`}</div></td>
       <td className="rd-wide"><div>{r.payback != null ? `${units(Math.round(r.payback))} d` : '–'}</div><div className="note small">{r.payback != null ? `from the purchase${after}` : paybackWhy(r)}</div><div className="note small">{buildDay != null ? `Building: ${iskBig(buildDay)} a day` : `Building: – (${buildWhy})`}</div></td>
     </tr>
+  );
+}
+
+/**
+ * Your copy business (spec): the shown character's copy jobs and copies held, and the main's own copy contracts with their state
+ * and the cheapest ask of their kind now. An alt's contracts aren't read: said, never "none".
+ */
+function CopyBusiness({ c, ix, graph, summary }: { c: IndustryChar; ix: Indexed; graph: Graph; summary: CopySummary | null }) {
+  const d = useData();
+  const now = useNow(60_000);
+  const jobs = c.jobs.state === 'read' ? c.jobs.value.filter((j) => j.activity === 5) : null;
+  const doc = c.isMain ? d.copyContracts : undefined;
+  // Names the bundle lacks (copies of faction or exploration blueprints) are asked of ESI, "…" while they're read (IndustryOwned's way).
+  const looking = useEnsureNames([...new Set([...(jobs ?? []).map((j) => j.blueprintTypeId), ...(doc?.list ?? []).flatMap((x) => x.copies.map(([t]) => t))])].filter((t) => !ix.b.types[t]));
+  const name = (t: number) => ix.b.types[t]?.[0] ?? d.names[t] ?? (looking ? '…' : `Item #${t}`);
+  const running = (jobs ?? []).filter((j) => j.status === 'active' || j.status === 'paused' || j.status === 'ready').sort((a, b) => Date.parse(a.end) - Date.parse(b.end));
+  const done = (jobs ?? []).filter((j) => (j.status === 'delivered' || j.status === 'cancelled' || j.status === 'reverted') && now - Date.parse(j.completed ?? j.end) <= 30 * 86_400_000)
+    .sort((a, b) => Date.parse(b.completed ?? b.end) - Date.parse(a.completed ?? a.end));
+  const held = c.blueprints.state === 'read' ? blueprintKinds([{ charId: c.charId, name: c.name, owned: c.blueprints.value }]).filter((k) => k.copy) : null;
+  // Stations only: /universe/names refuses a batch holding a structure's ID, and a job's structure is named by jobPlaceSaid (M11).
+  const station = useStationSaid([...new Set((jobs ?? []).map((j) => j.stationId).filter(isStationId))], ix, graph);
+  const place = (j: JobRecord) => jobPlaceSaid(j, { names: c.places, jobPlaces: c.jobPlaces, station, system: (id) => graph[id]?.[1] ?? null });
+  const tile = useTileFilter<'listed' | 'expired' | 'sold'>('copy-contracts');
+  const TILE_SAID = { listed: 'Listed', expired: 'Expired', sold: 'Sold, 30 days' } as const;
+  const contracts = (doc?.list ?? []).map((x) => ({ x, st: copyState(x, now) }))
+    .filter(({ x, st }) => st === 'listed' || st === 'expired' || now - Date.parse(x.completed ?? x.issued) <= 30 * 86_400_000)
+    .sort((a, b) => b.x.id - a.x.id);
+  const count = (s: 'listed' | 'expired' | 'sold') => contracts.filter((r) => r.st === s).length;
+  const shown = tileRows(contracts, tile.on, (r, k) => r.st === k);
+  const kindSaid = (x: CopyContract) => (Array.isArray(x.kinds) ? x.kinds.map((k) => `${k[4]}× ME ${k[1]} / TE ${k[2]}, ${k[3]} run${k[3] === 1 ? '' : 's'}`).join('; ')
+    : x.kinds === 'private' ? 'kinds not known: a private contract isn’t public'
+      : x.kinds === 'gone' ? 'kinds not known: it left the public list before they were read'
+        : 'kinds are read with the next sync');
+  const askSaid = (x: CopyContract) => {
+    if (!Array.isArray(x.kinds) || x.kinds.length !== 1 || !summary) return null;
+    const k = x.kinds[0], a = summary.asks[copyKindKey({ typeId: k[0], me: k[1], te: k[2], runs: k[3] })];
+    const mine = x.price / (k[4] * k[3]);
+    return a ? `${iskBig(mine)} a run; others’ cheapest ${iskBig(a[0])} (${units(a[2])} listed)${mine > a[0] ? ': undercut' : ''}` : `${iskBig(mine)} a run; nobody else lists this kind now`;
+  };
+  const stateSaid = (x: CopyContract, st: CopyState) => st === 'listed' ? `Listed until ${fmtDate(x.expires)}`
+    : st === 'expired' ? `Expired ${fmtDate(x.expires)}: delete it in game to get the copies back`
+      : st === 'sold' ? `Sold ${x.completed ? fmtDate(x.completed) : ''}`.trim()
+        : st === 'deleted' ? 'Deleted' : x.status.replace(/_/g, ' ');
+  // ESI lists contracts only 30 days back (M7): one that left it while outstanding may still hold its copies.
+  const goneSaid = (x: CopyContract) => (!x.gone ? '' : x.status === 'outstanding' ? '. No longer in your contracts: ESI lists them only 30 days back, so if you didn’t delete it in game, its copies are still in it' : ' (past ESI’s 30 days)');
+
+  return (
+    <div className="col" style={{ gap: 10 }} data-industry="copy-business">
+      <span className="lbl">Your copy business</span>
+      <span className="lbl small">Copy jobs</span>
+      {jobs == null ? <p className="note small" style={{ margin: 0 }}>{readWhy(c, c.jobs, 'jobs')}</p>
+        : !running.length && !done.length ? <p className="note small" style={{ margin: 0 }}>No copy jobs running, or finished in the last 30 days.</p>
+          : (
+            <div className="tbl-scroll"><table className="tbl compact rd-table" data-industry="copy-jobs">
+              <thead><tr><Th left>Blueprint</Th><Th className="rd-wide">Copies</Th><Th className="rd-wide">Where</Th><Th>State</Th><Th className="rd-wide" tip="What EVE charged for the job (ESI’s cost).">Cost</Th></tr></thead>
+              <tbody>{[...running, ...done].map((j) => (
+                <tr key={j.jobId}>
+                  <td className="l rd-main">{name(j.blueprintTypeId)}<div className="rd-phone note small">{`${units(j.runs)} × ${j.licensedRuns != null ? units(j.licensedRuns) : '?'} runs · ${place(j)}`}</div></td>
+                  <td className="rd-wide">{`${units(j.runs)} × ${j.licensedRuns != null ? units(j.licensedRuns) : '?'} runs`}</td>
+                  <td className="rd-wide">{place(j)}</td>
+                  <td>{jobWaiting(j, now) ? 'Ready to deliver' : j.status === 'active' || j.status === 'paused' ? `Done ${until(j.end, now) ?? 'any moment now'}` : `${j.status.charAt(0).toUpperCase()}${j.status.slice(1)} ${fmtDate(j.completed ?? j.end)}`}</td>
+                  <td className="rd-wide">{j.cost != null ? iskBig(j.cost) : '–'}</td>
+                </tr>))}</tbody>
+            </table></div>
+          )}
+      <span className="lbl small">Copies held</span>
+      {held == null ? <p className="note small" style={{ margin: 0 }}>{readWhy(c, c.blueprints, 'blueprints')}</p>
+        : !held.length ? <p className="note small" style={{ margin: 0 }}>{c.isMain ? 'You hold' : `${c.name} holds`} no copies.</p>
+          : (
+            <div className="col" style={{ gap: 4 }} data-industry="copies-held">{held.map((k) => (
+              <div key={k.key}>{`${units(k.count)}× ${name(k.typeId)} · ME ${k.me} / TE ${k.te} · ${k.runs != null ? `${units(k.runs)} runs` : 'runs –'}`}
+                {c.isMain && <> · <button type="button" className="link-btn" onClick={() => navigate(`blueprints?type=${k.typeId}`)}>Price for selling</button></>}</div>))}</div>
+          )}
+      <span className="lbl small">Your copy contracts</span>
+      {!c.isMain ? <p className="note small" data-industry="copy-contracts-alt" style={{ margin: 0 }}>{`${c.name}’s contracts aren’t read: the cloud reads an alt’s wallet, orders and assets, not its contracts.`}</p>
+        : !doc ? <p className="note small" style={{ margin: 0 }}>{hasScope(SCOPE.contracts) ? 'Not read yet: your contracts come with the next sync.' : 'Log in again: this login wasn’t given EVE’s permission to read your contracts.'}</p>
+          : !contracts.length ? <p className="note small" style={{ margin: 0 }}>No copy contracts listed, expired, or finished in the last 30 days.</p>
+            : (
+              <>
+                <Tiles min={150} items={[
+                  { l: 'Listed', v: units(count('listed')), press: tile.press('listed', count('listed')) },
+                  { l: 'Expired', v: units(count('expired')), c: count('expired') ? 'var(--acc2)' : undefined, tip: 'Past their expiry: the copies stay in them until you delete the contract in game.', press: tile.press('expired', count('expired')) },
+                  { l: 'Sold, 30 days', v: units(count('sold')), press: tile.press('sold', count('sold')) },
+                ]} />
+                {tile.on && <TileShowing shown={shown.length} of={contracts.length} what={TILE_SAID[tile.on]} onClear={() => tile.setOn(null)} />}
+                <div className="tbl-scroll" id="copy-contracts"><table className="tbl compact rd-table" data-industry="copy-contracts">
+                  <thead><tr><Th left>Copies</Th><Th className="rd-wide">Kinds</Th><Th>Price</Th><Th left className="rd-wide">State</Th></tr></thead>
+                  <tbody>{shown.map(({ x, st }) => (
+                    <tr key={x.id} data-contract={x.id}>
+                      <td className="l rd-main">{copiesSaid(x.copies, name)}<div className="rd-phone note small">{kindSaid(x)}</div><div className="rd-phone note small">{stateSaid(x, st)}{goneSaid(x)}</div></td>
+                      <td className="rd-wide">{kindSaid(x)}</td>
+                      <td><div>{iskBig(x.price)}</div>{askSaid(x) && <div className="note small">{askSaid(x)}</div>}</td>
+                      <td className="l rd-wide" style={{ whiteSpace: 'normal', minWidth: 200 }}>{stateSaid(x, st)}{goneSaid(x)}</td>
+                    </tr>))}</tbody>
+                </table></div>
+              </>
+            )}
+    </div>
   );
 }

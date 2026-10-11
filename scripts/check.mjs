@@ -4144,7 +4144,7 @@ console.log('\n--- your contracts ---');
     C(6, 'courier', 'in_progress', me, 9, { date_accepted: '2026-09-28T10:00:00Z', days_to_complete: 1 }),
   ]);
   eq('couriers you accepted and haven’t delivered, due at accepted + days to complete', couriersDue(list, me).map((c) => [c.contract.id, new Date(c.due).toISOString()]), [[1, '2026-10-01T10:00:00.000Z']]);
-  eq('item exchanges finished with you on either side, whose items aren’t known yet', itemsToRead(list, me, { 5: [] }), [3]);
+  eq('item exchanges finished with you on either side, and your own outstanding ones (copy contracts, stage 3), whose items aren’t known yet', itemsToRead(list, me, { 5: [] }), [3, 4]);
   eq('what a contract held, given then asked', contractSaid([{ typeId: 1, qty: 3, included: true }, { typeId: 2, qty: 1, included: false }], (t) => (t === 1 ? 'Rifter Blueprint' : 'Tritanium')), '3× Rifter Blueprint; asking 1× Tritanium');
   const e = { item: { key: 'courier:1', ver: '', kind: 'courier', source: 'contracts', title: '', detail: '', stake: 0, action: { label: '' } }, seenAt: 1000, lastAt: 1000 };
   eq('a courier ticks off on a newer read: delivered, or failed with the collateral lost', [judgeCourierJob(e, { readAt: 500, status: 'finished' }), judgeCourierJob(e, { readAt: 2000, status: 'in_progress' }), judgeCourierJob(e, { readAt: 2000, status: 'finished' }), judgeCourierJob(e, { readAt: 2000, status: 'failed' })],
@@ -8820,6 +8820,57 @@ console.log('\n--- Industry stage 3: the copy finder (copyFinder.ts, Task 14B) -
   const aJob = at(B * (0.0872 * rgA.cost + 0.05), astra, { jobId: 3, facilityId: 1046664001932, stationId: 1046664001932, first: { me: 10, te: 20, systemId: 30004807, index: 0.0872, eiv: EIV, at: '2026-10-11T10:10:00Z' } });
   eq('  at a structure with no cost bonus of its own, said as the same either way, not as an index too low to tell', F.readingsSaid(F.copyReadings(ix, aJob), true, date)[1],
     'The copy rig’s cost bonus: your job of 2026-10-11 paid within 1% of the app’s figure; the structure has no cost bonus of its own, so adding the rig’s and multiplying are the same.');
+}
+
+console.log('\n--- Industry stage 3: your copy contracts (copyContracts.ts, Task 15A) ---');
+{
+  const K = await import('../src/lib/copyContracts.ts');
+  const { itemsToRead, readContracts } = await import('../src/lib/contracts.ts');
+  const ME = 95210486;
+  const raw = (contract_id, over = {}) => ({ contract_id, type: 'item_exchange', status: 'outstanding', issuer_id: ME, acceptor_id: 0, assignee_id: 0, price: 9e6, title: '',
+    date_issued: '2026-10-01T00:00:00Z', date_expired: '2026-10-15T00:00:00Z', start_location_id: 60003760, for_corporation: false, availability: 'public', ...over });
+  const list = readContracts([raw(501), raw(502, { availability: 'personal' }), raw(503, { status: 'finished', acceptor_id: 777, date_completed: '2026-10-02T00:00:00Z' }),
+    raw(504), raw(505, { issuer_id: 1234 }), raw(506, { type: 'courier' })]);
+  eq('ESI\'s availability is kept on a contract (null when an older list lacks it)', [list[0].availability, list[1].availability, readContracts([{ ...raw(9), availability: undefined }])[0].availability], ['public', 'personal', null]);
+  const copy = (typeId, qty = 1) => ({ typeId, qty, included: true, raw: -2 });
+  const items = { 501: [copy(25895, 2)], 502: [copy(25895)], 503: [copy(688)], 504: [{ typeId: 34, qty: 100, included: true, raw: null }], 505: [copy(25895)] };
+  eq('items to read: your outstanding item exchanges and finished ones either side; not a courier, not someone else\'s outstanding one; once',
+    itemsToRead(list, ME, {}), [501, 502, 503, 504]);
+  eq('  read again once: an item exchange you issued whose items were read before raw_quantity was kept', [itemsToRead(list, ME, { ...items, 501: [{ typeId: 25895, qty: 2, included: true }] }), itemsToRead(list, ME, items)], [[501], []]);
+  eq('a copy contract: every item given and a copy (raw −2)', [K.allCopies(items[501]), K.allCopies(items[504]), K.allCopies([copy(1), { ...copy(2), included: false }]), K.allCopies([]), K.allCopies(undefined)], [true, false, false, false, false]);
+  const doc1 = K.copyContractsOf(undefined, list, items, {}, ME, '2026-10-02T12:00:00Z');
+  eq('the document: your copy contracts only, by contract; a private one marked so (never asked); one finished before its kinds were read, gone',
+    doc1.list.map((c) => [c.id, c.status, c.availability, c.copies, c.kinds ?? null, c.station, c.acceptor]),
+    [[501, 'outstanding', 'public', [[25895, 2]], null, 60003760, null], [502, 'outstanding', 'personal', [[25895, 1]], 'private', 60003760, null], [503, 'finished', 'public', [[688, 1]], 'gone', 60003760, 777]]);
+  eq('  kinds to read: an outstanding public one whose kinds aren\'t read', K.kindsToRead(doc1, Date.parse('2026-10-02T12:00:00Z')), [501]);
+  // M8: an outstanding contract past its expiry isn't asked (a 404 there would be asked every sync until it's deleted): gone.
+  const expired = K.copyContractsOf(undefined, readContracts([raw(511, { date_expired: '2026-10-01T12:00:00Z' })]), { 511: [copy(25895)] }, {}, ME, '2026-10-02T12:00:00Z');
+  eq('  one past its expiry with its kinds unread: gone, never asked', [expired.list[0].kinds, K.kindsToRead(expired, Date.parse('2026-10-02T12:00:00Z')), K.kindsToRead(doc1, Date.parse('2026-10-16T00:00:00Z'))], ['gone', [], []]);
+  const kinds = K.readKinds([
+    { type_id: 25895, quantity: 1, is_included: true, is_blueprint_copy: true, material_efficiency: 10, time_efficiency: 20, runs: 40, item_id: 1, record_id: 1 },
+    { type_id: 25895, quantity: 1, is_included: true, is_blueprint_copy: true, material_efficiency: 10, time_efficiency: 20, runs: 40, item_id: 2, record_id: 2 },
+  ]);
+  eq('ESI\'s public items read as kinds: [type, ME, TE, runs, copies]', kinds, [[25895, 10, 20, 40, 2]]);
+  eq('  a 204 (no body) or no copy in the answer: gone', [K.readKinds(undefined), K.readKinds([{ type_id: 34, quantity: 5, is_included: true }])], ['gone', 'gone']);
+  const list2 = list.map((c) => (c.id === 501 ? { ...c, status: 'finished', acceptor: 888, completed: '2026-10-03T00:00:00Z' } : c));
+  const doc2 = K.copyContractsOf(doc1, list2, items, { 501: kinds }, ME, '2026-10-03T12:00:00Z');
+  eq('  the next read: kinds read kept, the status followed', doc2.list.map((c) => [c.id, c.status, c.kinds]), [[501, 'finished', [[25895, 10, 20, 40, 2]]], [502, 'outstanding', 'private'], [503, 'finished', 'gone']]);
+  // I6: kinds kept are never lost to a read that brings none, and the same read again is the same document (nothing to push).
+  eq('  kinds kept through a read that brings none, while it\'s outstanding', K.copyContractsOf(doc2, list, items, {}, ME, '2026-10-04T12:00:00Z').list.find((c) => c.id === 501).kinds, [[25895, 10, 20, 40, 2]]);
+  eq('  the read that made a document, again, gives that document', K.copyContractsOf(doc2, list2, items, {}, ME, '2026-10-04T12:00:00Z'), doc2);
+  // M14: listed but its items not read this sync (past the 500 kept, waiting their turn): kept, its state followed, never gone.
+  const unread = K.copyContractsOf(doc1, list2, { ...items, 501: undefined }, {}, ME, '2026-10-03T12:00:00Z').list.find((c) => c.id === 501);
+  eq('  a contract still listed whose items weren\'t read this sync: kept with its copies, its status followed, not gone', [unread.status, unread.copies, unread.acceptor, unread.gone ?? null], ['finished', [[25895, 2]], 888, null]);
+  const doc3 = K.copyContractsOf(doc2, list.filter((c) => c.id !== 503), items, {}, ME, '2026-11-05T12:00:00Z');
+  const doc4 = K.copyContractsOf(doc3, list.filter((c) => c.id !== 503), items, {}, ME, '2026-11-06T12:00:00Z');
+  eq('  past ESI\'s 30 days: kept with its last status, stamped gone once', [doc3.list.find((c) => c.id === 503), doc4.list.find((c) => c.id === 503).gone],
+    [{ ...doc2.list.find((c) => c.id === 503), gone: '2026-11-05T12:00:00Z' }, '2026-11-05T12:00:00Z']);
+  const now = Date.parse('2026-10-10T00:00:00Z');
+  eq('a copy contract\'s state: listed, expired (outstanding past its expiry), sold, deleted, other', ['outstanding', 'outstanding', 'finished', 'deleted', 'rejected'].map((s, i) => K.copyState({ status: s, expires: i === 1 ? '2026-10-09T00:00:00Z' : '2026-10-15T00:00:00Z' }, now)),
+    ['listed', 'expired', 'sold', 'deleted', 'other']);
+  eq('what it holds, in words', K.copiesSaid([[25895, 2], [688, 1]], (t) => ({ 25895: 'Large Trimark Armor Pump I Blueprint', 688: 'Raven Blueprint' })[t]), '2× Large Trimark Armor Pump I Blueprint, 1× Raven Blueprint');
+  eq('the sanitizer keeps a good document whole and drops a bad row', [K.sanitizeCopyContracts(doc4), K.sanitizeCopyContracts({ list: [{ id: 'x' }, ...doc4.list] }), K.sanitizeCopyContracts(null), K.sanitizeCopyContracts({ list: 3 })],
+    [doc4, doc4, undefined, undefined]);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
