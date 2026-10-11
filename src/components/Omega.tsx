@@ -14,7 +14,7 @@ import { LevelBoxes } from './common';
 import { cssVars, Guide, NumChip, PageHead, Seg } from './ui';
 import { Points } from './Facts';
 import { useSkillPayback } from './payback';
-import { everyItemCalcs } from '../lib/everyItem';
+import { claimsOf, everyItemCalcs } from '../lib/everyItem';
 import { useTradeQueue } from './SkillStrip';
 
 const DAY = 86400_000;
@@ -69,7 +69,7 @@ export function Omega() {
 
   // The last 30 days of trading: every item you bought and sold, tracked by a position or not, as Results' "Every item
   // traded" counts it. It counted positions only, which read 17.77 M of the user's 92.13 M (29 September 2026).
-  const calcs = useMemo(() => everyItemCalcs(d), [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored, d.jobs, d.positions]); // eslint-disable-line react-hooks/exhaustive-deps
+  const calcs = useMemo(() => everyItemCalcs(d), [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored, claimsOf(d)]); // eslint-disable-line react-hooks/exhaustive-deps
   const pace = useMemo(() => {
     const now = Date.now(), from = now - 30 * DAY;
     const rows = calcs.map((c) => itemResult(c, from - 1, now)).filter(isTrade);

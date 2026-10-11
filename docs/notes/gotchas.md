@@ -80,9 +80,12 @@ Traps in the code, the tools and the browser that have cost time before.
   module map and answers every later `import()` of that URL with it, without asking the server again (probed 11 October 2026
   against Vite's dev server, `.playwright-mcp/industry/13/retry-probe.mjs`, and the production build's own chunk under `vite
   preview`, `retry-probe-prod.mjs`: one request, then none after the route was lifted, then loaded after a reload). So a loader that lets go of a failed promise (`loadIndustry`) still can't load it again in place, and a Try
-  again that only asks again does nothing: Industry's built-and-sold says "Reload to try again" and reloads (`reloadApp`).
-  The Industry tab's own Try again for the bundle and the stargate map (stage 1, Industry.tsx) asks again in place, so it has
-  the same problem.
+  again that only asks again does nothing: Industry's built-and-sold and the Industry tab say "Reload to try again" and reload
+  (`reloadApp`), as a page whose own file failed already does (App.tsx). **The other loaders still ask again in place**
+  (known-bugs.md): the agents bundle (`loadBundle`, researchBundle.ts, asked again by the Research tab's Try again and by
+  researchWorth.ts every 30 seconds), the Research tab's stargate map (Research.tsx `loadGraph`), Freelance's map (which doesn't
+  even let go of a failed promise) and the sync's EIV table (`loadEiv`, industryReads.ts, so first sights lose their EIV until a
+  reload). A new loader of a chunk should offer a reload, not a retry.
 - **Probe ESI with the app's `X-Compatibility-Date` before writing a reader.** Without it a route can answer another
   shape: `/corporations/{id}/` gave `tax_rate`, which the app never receives (eve-facts.md), and every sync read no
   corporation until a later look caught it (1 October 2026).

@@ -248,12 +248,21 @@ State these rather than letting them be discovered:
 - **List what you built can lag and can come back** (To do, industry.md). Its units come from the hangar copy ESI holds for an hour, so an item can stay up to about an hour after you've listed; units are alike, so an old job's item can come back if you later buy the same product at that place (stated, not bounded); and products delivered into a container never list (nested units aren't loose stock) until the first real delivery says how they land. A ship is "checking" until its kind is read and is never priced at Jita from a home hub while "never haul ships to Jita" is on. "Either" lists at Jita here.
 - **Built and sold costs each job's materials at the blueprint's ME as first seen running**, with your site's bonuses where it
   ran at one (an NPC station has none; another structure's aren't known and aren't applied, nor a site of kind Other's, nor a
-  site's rigs when its system's security couldn't be read, each said), at your purchases before the job, newest first;
-  materials you never bought aren't costed, and are said. **A home you typed in (no structure found by name) matches no job**,
-  as for the job check: its jobs are costed with no structure or rig bonus, so their materials read up to its material bonus
-  dear (said as "a structure that isn't one of your build sites"), until the structure is found by name. A sale split between
-  built and bought units is claimed for the built ones first, and a built unit used or moved rather than sold can still claim
-  a later sale of bought stock. Invention's datacores and copies aren't charged, nor built units' share of their sell orders'
-  broker fees (in neither Industry nor trading). Each character's own: a unit built by one and sold by another isn't claimed. **The Wallet's "Trades no
-  position tracks" still reads a built product's sale as "Sold without ever buying one — loot or a drop"** (its own rule,
-  `autoTag`), though All income and Results count it as Industry.
+  site's rigs when its system's security couldn't be read, each said), at what you still held from your purchases at the job's
+  start, newest first (a purchase sold again before the job isn't held, so trading and Industry never both cost it); materials
+  you never bought, or bought and sold again, aren't costed, and are said. **But a material still held at the job and sold
+  later, along with units you didn't buy, is still costed in both**: Results' every-item lots don't know a job used units, so
+  they cost the later sale against the purchases the job took. **Materials bought inside a tracked position stay in its stock**
+  after a job uses them (no income counted twice: a position realizes only on sales). **A buy order's broker fee on a material
+  counts nowhere** (Industry costs materials at their price; trading carries the fee in stock never sold), beside built units'
+  share of their sell orders' broker fees (in neither Industry nor trading). Invention's datacores and copies aren't charged. A
+  job with no cost from ESI and no journal entry naming it is charged no fee, and said. **A home you typed in (no structure ID)
+  matches no job**, as for the job check: its jobs are costed with no structure or rig bonus, so their materials read up to its
+  material bonus dear (said as "a structure that isn't one of your build sites"), until it has the structure's ID: found by name,
+  or chosen from the structures in its system your jobs ran at (the sites table offers them; never set by itself). A sale split
+  between built and bought units is claimed for the built ones first, and a built unit used or moved rather than sold can still
+  claim a later sale of bought stock. Each character's own: a unit built by one and sold by another isn't claimed. **A position
+  opened on a product you build reads the built units' sales as sold beyond what it bought, left out of its profit and, since a
+  sale a position counts is never claimed, out of Industry's too**: open positions only for what you buy (the Wallet offers none
+  on a sale Industry counts). The Wallet's "Trades no position tracks" says a built sale's why ("Built by you: Industry counts
+  it"), but its tag and the cash flow's "Loot & other sales" stay as `autoTag` reads it.

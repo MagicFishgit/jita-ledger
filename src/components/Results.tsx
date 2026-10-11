@@ -3,7 +3,7 @@ import { CalendarRange, Clock, History, Layers, Trophy } from 'lucide-react';
 import { fmtDate, fmtShort, iskBig, iskBigSigned, pct, units } from '../lib/format';
 import { useNow } from '../lib/hooks';
 import { byBucket, perHour, totals } from '../lib/results';
-import { everyItemCalcs } from '../lib/everyItem';
+import { claimsOf, everyItemCalcs } from '../lib/everyItem';
 import { bandOf, bucketStarts, groupResults, HELD_BANDS, inBandOrder, isTrade, isUnbought, itemResult, PRICE_BANDS, profitByBucket, unitFor, type BucketUnit, type Group, type ItemCalc, type ItemResult } from '../lib/longRange';
 import { itemCategory } from '../lib/universe';
 import { netLoss } from '../lib/combat';
@@ -114,7 +114,7 @@ export function Results() {
       : `${byOverall[0].a} made the most. Put in the hours a week you spend on each activity to see what each pays for your time.`;
 
   // Every item ever bought and sold again, by the Positions rule, whether or not a position tracks it.
-  const itemCalcs = useMemo<ItemCalc[]>(() => everyItemCalcs(d), [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored, d.jobs, d.positions]); // eslint-disable-line react-hooks/exhaustive-deps
+  const itemCalcs = useMemo<ItemCalc[]>(() => everyItemCalcs(d), [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored, claimsOf(d)]); // eslint-disable-line react-hooks/exhaustive-deps
   const itemRows = useMemo(() => itemCalcs.map((c) => itemResult(c, since - 1, now)), [itemCalcs, since, now]);
   const tradeRows = itemRows.filter(isTrade);
   const unbought = itemRows.filter(isUnbought);

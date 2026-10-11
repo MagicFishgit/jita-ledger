@@ -8526,5 +8526,55 @@ console.log('\n--- Industry stage 2: built and sold (Task 13) ---');
   ]);
 }
 
+console.log('\n--- Industry stage 2: built and sold, the review\'s fixes (Task 13) ---');
+{
+  const T = await import('../src/lib/industryTrack.ts');
+  const O = await import('../src/lib/industryOwned.ts');
+  const N = await import('../src/lib/income.ts');
+  const job = (jobId, start, over = {}) => ({ jobId, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 10, licensedRuns: null, successfulRuns: null, probability: null,
+    cost: 50_000, facilityId: 60003760, stationId: 60003760, outputId: 60003760, start, end: start, completed: start, status: 'delivered', perRun: 1, seenAt: start,
+    first: { me: 10, te: 20, systemId: 30000142, index: 0.05, eiv: 2e6 }, ...over });
+  const tx = (id, date, isBuy, qty, unitPrice, typeId = 34) => ({ id, date, typeId, qty, unitPrice, isBuy, locationId: 60003760, clientId: 1, source: 'esi' });
+  const run = (txs, o = {}) => T.builtAndSold({ jobs: [job(1, '2026-10-05T00:00:00Z')], txs, journal: [], claims: new Map(), taxByTx: new Map(), salesTax: 0.036, personal: new Set(), mats: () => ({ mats: [[34, 500]], atSite: true }), ...o });
+  const total = (b) => Math.round(b.events.reduce((t, e) => t + e.isk, 0));
+  // The review's probe: 1,000 Tritanium bought at 4 on 1 Oct, all sold at 5 on 2 Oct (trading costed all 1,000), a job on 5 Oct
+  // uses 500, mined: none of it is held from a purchase, so none is costed again and the 500 are said unbought.
+  const probe = run([tx('t1', '2026-10-01T00:00:00Z', true, 1000, 4), tx('t2', '2026-10-02T00:00:00Z', false, 1000, 5)]);
+  eq('  a material bought and sold again before the job isn\'t costed by the job: only its fee, its 500 unbought', [total(probe), probe.unbought], [-50_000, [{ jobId: 1, typeId: 34, units: 500 }]]);
+  // Sales use up what's held oldest first, as Results' lots do: 500 at 4 then 500 at 6 bought, 500 sold, the job takes the 6s.
+  const fifo = run([tx('a', '2026-09-29T00:00:00Z', true, 500, 4), tx('b', '2026-09-30T00:00:00Z', true, 500, 6), tx('s', '2026-10-01T00:00:00Z', false, 500, 7)]);
+  eq('  a sale uses up the oldest purchases first: the job takes the 500 left at 6', [total(fifo), fifo.unbought], [-50_000 - 3_000, []]);
+  // Part sold: 1,000 at 4, 600 sold; the job takes the 400 still held and says 100 unbought.
+  const part = run([tx('p1', '2026-10-01T00:00:00Z', true, 1000, 4), tx('p2', '2026-10-02T00:00:00Z', false, 600, 5)]);
+  eq('  what\'s left of a purchase after a sale is held: 400 at 4, 100 unbought', [total(part), part.unbought], [-50_000 - 1_600, [{ jobId: 1, typeId: 34, units: 100 }]]);
+  // A sale after the job doesn't reach back; a Personal sale and the units Industry claims of a sale use up nothing.
+  const after = run([tx('q1', '2026-10-01T00:00:00Z', true, 500, 4), tx('q2', '2026-10-06T00:00:00Z', false, 500, 5)]);
+  eq('    a sale after the job leaves the job its 500 at 4', total(after), -50_000 - 2_000);
+  const personal = run([tx('r1', '2026-10-01T00:00:00Z', true, 500, 4), tx('r2', '2026-10-02T00:00:00Z', false, 500, 5)], { personal: new Set(['r2']) });
+  eq('    a sale marked Personal uses up nothing held', [total(personal), personal.unbought], [-50_000 - 2_000, []]);
+  const claimed = run([tx('c1', '2026-10-01T00:00:00Z', true, 500, 4), tx('c2', '2026-10-02T00:00:00Z', false, 500, 5)], { claims: new Map([['c2', 300]]) });
+  // (Its claimed 300 also count as Industry's sale, after tax.)
+  eq('    the units Industry claims of a sale were built, not taken from what was bought: 300 still held', [total(claimed), claimed.unbought], [-50_000 - 1_200 + Math.round(300 * 5 * (1 - 0.036)), [{ jobId: 1, typeId: 34, units: 200 }]]);
+  // A job whose fee isn't known (no cost from ESI, no journal entry naming it) is charged nothing, and said.
+  const fees = T.builtAndSold({ jobs: [job(6, '2026-10-02T00:00:00Z', { cost: null }), job(7, '2026-10-02T00:00:00Z', { cost: null })], txs: [],
+    journal: [{ date: '2026-10-02T00:00:01Z', refType: 'industry_job_tax', amount: -40_000, contextId: 7, contextIdType: 'industry_job_id' }], claims: new Map(), taxByTx: new Map(), salesTax: 0.036, personal: new Set(), mats: () => ({ mats: [], atSite: true }) });
+  eq('  a job with no cost and no journal entry naming it: its fee isn\'t known, nothing charged; one the journal names is', [fees.feeUnknown, total(fees)], [[6], -40_000]);
+  eq('    and said', [N.industrySaid({ state: 'ready', unknownJobs: 0, unbought: [], offSite: 0, feesUnknown: 1 }, String).note, N.industrySaid({ state: 'ready', unknownJobs: 0, unbought: [], offSite: 0, feesUnknown: 2 }, String).note],
+    ['1 job’s fee isn’t known (ESI gave no cost, and no journal entry names it), so none is charged for it.', '2 jobs’ fees aren’t known (ESI gave no cost, and no journal entry names them), so none is charged for them.']);
+
+  // A home you typed in (no structure ID) is offered each structure in its system where jobs of yours ran that matches no site.
+  const home = { id: 'home:30004807', name: 'Home in UALX-3', systemId: 30004807, kind: 'azbel', rigs: [], tax: 0.01 };
+  const site = { id: 'st:1046664001931', name: 'Byz', systemId: 30004807, kind: 'fortizar', structureId: 1046664001931, rigs: [], tax: null };
+  const at = (jobId, facilityId, systemId) => job(jobId, '2026-10-02T00:00:00Z', { facilityId, stationId: facilityId, outputId: facilityId, ...(systemId === undefined ? { first: undefined } : { first: { me: 10, te: 20, systemId, index: 0.05, eiv: 2e6 } }) });
+  const A = 1047000000001, B = 1047000000002;
+  const main = { jobs: { state: 'read', value: [at(1, A, 30004807), at(2, A, 30004807), at(3, A, 30004807), at(4, B, 30004807), at(5, 1046664001931, 30004807), at(6, 1047000000003, 30000142), at(7, 60003760, 30004807), at(8, 1047000000004)], at: null },
+    places: { [A]: 'Home Azbel' }, jobPlaces: {} };
+  const alt = { jobs: { state: 'read', value: [at(9, B, 30004807)], at: null }, places: {}, jobPlaces: {} };
+  const unread = { jobs: { state: 'unread' } };
+  eq('  a typed home is offered the structures in its system its jobs ran at, matching no site, most jobs first, named when read', O.homeCandidates(home, [home, site], [main, alt, unread]),
+    [{ structureId: A, name: 'Home Azbel', jobs: 3 }, { structureId: B, name: null, jobs: 2 }]);
+  eq('    none once it has its structure ID, and none for an NPC station', [O.homeCandidates({ ...home, structureId: A }, [home, site], [main]), O.homeCandidates({ id: 'npc:60003760', name: 'Jita', systemId: 30004807, kind: 'npc', stationId: 60003760, rigs: [], tax: 0.0025 }, [], [main])], [[], []]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

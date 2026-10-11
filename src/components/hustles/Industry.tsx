@@ -5,6 +5,7 @@ import type { Indexed } from '../../lib/industry';
 import type { Graph } from '../../lib/jumps';
 import { PilotProvider } from '../pilot';
 import { Seg } from '../ui';
+import { reloadApp } from '../../lib/reload';
 import { loadGraph, loadIndustry } from './industryBundle';
 import { useIndustryChars } from './industryChars';
 import { IndustryBuild } from './IndustryBuild';
@@ -55,13 +56,12 @@ export function Industry({ route }: { route: Route }) {
 
   const [ix, setIx] = useState<Indexed | 'failed' | null>(null);
   const [graph, setGraph] = useState<Graph | 'failed' | null>(null);
-  const [tries, setTries] = useState(0);
   useEffect(() => {
     let alive = true;
     loadIndustry().then((b) => { if (alive) setIx(b); }, () => { if (alive) setIx('failed'); });
     loadGraph().then((g) => { if (alive) setGraph(g); }, () => { if (alive) setGraph('failed'); });
     return () => { alive = false; };
-  }, [tries]);
+  }, []);
 
   return (
     <div className="col" style={{ gap: 16 }} data-industry="tab">
@@ -75,7 +75,8 @@ export function Industry({ route }: { route: Route }) {
         </div>
       )}
       {ix === 'failed' || graph === 'failed' ? (
-        <p className="note small" style={{ margin: 0 }}>Couldn’t load {ix === 'failed' ? 'the blueprints' : 'the stargate map'} just now. <button type="button" className="link-btn" onClick={() => { setIx(null); setGraph(null); setTries((n) => n + 1); }}>Try again</button></p>
+        <p className="note small" style={{ margin: 0 }}>Couldn’t load {ix === 'failed' ? 'the blueprints' : 'the stargate map'} just now. {/* A chunk that failed can't be asked for again in the same page (gotchas.md): trying again is a reload. */}
+          <button type="button" className="link-btn" onClick={() => void reloadApp()}>Reload to try again</button></p>
       ) : !ix || !graph ? (
         <p className="note small" style={{ margin: 0 }}>Loading the blueprints and the map…</p>
       ) : (

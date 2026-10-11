@@ -1996,7 +1996,9 @@ try {
     {
       const reseed = async (doc, d = ledger) => { await page.goto(SEED_PAGE); await seed({ ...d, industry: doc, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } }); };
       const buildPage = async (sel) => { await page.goto(`${BASE}#hustles/industry/build`); await page.reload(); await page.waitForSelector(sel, { timeout: 30_000 }).catch(() => problems.push(`Build never drew ${sel}`)); await page.waitForTimeout(1200); };
-      npcAnswer = { complete: { at: iso(now - 3 * 3600_000), complete: true, pagesFailed: 0, sellers: { 25895: [1_250_000, [60001483, 60001486]] } }, partial: null };
+      // Read 5 minutes ago, so it's held whatever the clock (npcHoldMs: until 10 minutes past the next 11:25 scan, at most 15
+      // minutes). At 3 hours old it was held for nothing between 11:35 and 14:25 UTC, and the remount check below failed then.
+      npcAnswer = { complete: { at: iso(now - 5 * 60_000), complete: true, pagesFailed: 0, sellers: { 25895: [1_250_000, [60001483, 60001486]] } }, partial: null };
       await reseed({ ...DOC, site: 'home:30004807', freight: [] });
       await buildPage('[data-industry="finder-count"]');
       const noRoute = await text('[data-industry="finder-count"]');
@@ -2677,6 +2679,9 @@ try {
       // The main bought one of the pump's materials before the job: 800 Fried Interface Circuit at 1,000, of which the job used
       // 747 (83 a run × 10 runs at ME 10). That purchase is Industry's cost (747,000), and never a trade of its own.
       const matBuy = { id: '77000', date: iso(now - 4 * 86400_000), typeId: 25601, qty: 800, unitPrice: 1_000, isBuy: true, locationId: 60003760, clientId: 1, source: 'esi' };
+      // And 2 pumps bought before any was built, still held: the item is one you've bought, so the Wallet would offer a position on
+      // the sale (it reads the built 10 as sold beyond what a position bought), which it mustn't (the review of Task 13).
+      const pumpBuy = { id: '76999', date: iso(now - 5 * 86400_000), typeId: 25894, qty: 2, unitPrice: 6_500_000, isBuy: true, locationId: 60003760, clientId: 1, source: 'esi' };
       // The pump's materials are salvage nothing here bought or named: ESI names them, so the note says what wasn't costed by
       // name (the hook's useEnsureNames for them), never "Item #25601".
       const MATS = { 25601: 'Fried Interface Circuit', 25605: 'Armor Plates', 25590: 'Contaminated Nanite Compound', 25894: 'Large Trimark Armor Pump I' };
@@ -2687,7 +2692,7 @@ try {
       const BA13 = `alt:${BUILDER}`;
       const alts13 = { ...altStore, [BA13]: { ...altStore[BA13], records: { ...(altStore[BA13].records ?? {}), jobs: { 9602: { ...built, jobId: 9602 } }, txs: { 77002: { ...sale, id: '77002' } } }, docs: { ...altStore[BA13].docs, meta: { ...altStore[BA13].docs.meta, jobsRead: true } } } };
       await page.goto(SEED_PAGE);
-      await seed({ ...ledger, jobs: { 9601: built }, txs: { 77000: matBuy, 77001: sale }, industry: DOC, cloud: CLOUD_STATE }, { alts: alts13 });
+      await seed({ ...ledger, jobs: { 9601: built }, txs: { 76999: pumpBuy, 77000: matBuy, 77001: sale }, industry: DOC, cloud: CLOUD_STATE }, { alts: alts13 });
       // While the blueprints load (held back here): no Industry figure on Results but "Working out…" and what's being read,
       // and the Wallet and the main's card say what they're still reading (pre-flight I4, M12), never a figure without materials.
       let release;
@@ -2750,7 +2755,7 @@ try {
       if ((await text('[data-industry="results-industry"]')).trim() !== '+66.01 M ISK') problems.push(`Results’ Industry isn’t the sale after tax less the job’s fee and the materials bought for it: “${await text('[data-industry="results-industry"]')}”`);
       await page.waitForFunction(() => /648 Armor Plates/.test(document.querySelector('[data-industry="results-note"]')?.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
       const note = await text('[data-industry="results-note"]');
-      if (!note.includes('Materials you never bought before the job aren’t costed')) problems.push('Results doesn’t say the pump’s materials, never bought, aren’t costed');
+      if (!note.includes('Materials you didn’t hold from purchases when the job started (mined, looted, or bought and sold again) aren’t costed')) problems.push('Results doesn’t say the pump’s materials, never bought, aren’t costed');
       if (!note.includes('aren’t costed: 648 Armor Plates, 504 Contaminated Nanite Compound.') || /Fried Interface Circuit/.test(note)) problems.push(`Results doesn’t name the materials it didn’t cost, and only those: “${note}”`);
       // The circuits bought are Industry's cost alone: not a trade on Results' every item (nothing of them sold).
       if (/Every item traded −/.test(await text())) problems.push('the circuits bought for the job read as a trading loss on Results');
@@ -2760,6 +2765,12 @@ try {
       const wallet = await text(allIncome);
       if (!(await text('[data-industry="wallet-industry"]')).includes('+66.01 M ISK') || /Sold, never bought|Trading, every item/.test(wallet)) problems.push(`the Wallet’s All income doesn’t count the pumps as Industry alone: “${wallet.slice(0, 400)}”`);
       if (SHOTS) { await page.locator(allIncome).scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-wallet.png` }); }
+      // "Trades no position tracks": the built sale says Industry counts it, and offers no position (the pump bought beside it does).
+      const builtRow = page.locator('tr:has([data-industry="wallet-built"])');
+      if ((await text('[data-industry="wallet-built"]')).trim() !== 'Built by you: Industry counts it') problems.push(`the Wallet’s untracked sale of what was built doesn’t say Industry counts it: “${await text('[data-industry="wallet-built"]')}”`);
+      if (await builtRow.locator('button', { hasText: 'Start a position' }).count()) problems.push('the Wallet offers a position on a sale Industry counts');
+      if (!(await page.locator('tr:has-text("Bought") button', { hasText: 'Start a position' }).count())) problems.push('the pumps bought no longer offer a position (the case no longer tests the built sale’s)');
+      if (SHOTS) { await builtRow.scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-wallet-untracked.png` }); }
       await page.evaluate(() => { location.hash = '#characters'; });
       await page.waitForFunction(() => /\+66\.01 M ISK/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 20_000 }).catch(() => problems.push('the main’s Characters card doesn’t say +66.01 M earned'));
       // The main's +66.01 M and Builder Alt's +66.76 M (it bought no materials, so none are its cost): all characters +132.77 M.
@@ -2767,6 +2778,32 @@ try {
         .catch(async () => problems.push(`Builder Alt’s built and sold isn’t in its Earned, or the main’s purchase reached it (all characters should be +132.77 M): “${(await text()).slice(0, 500)}”`));
       if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-characters.png` }); }
       ESI['/universe/names/'] = prevNames;
+    }
+
+    // --- Task 13 review: a home you typed in (no structure ID) matches no job; the sites table offers the structure in its system
+    // where your jobs ran, named by the sync, and Use it gives the home that ID. Never set by itself.
+    {
+      const TYPED = 1047000000001;
+      const at13 = (jobId, ago) => ({ jobId, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 10, licensedRuns: null, successfulRuns: null, probability: null, cost: 300_000,
+        facilityId: TYPED, stationId: TYPED, outputId: TYPED, start: iso(now - ago), end: iso(now - ago + 86400_000), completed: iso(now - ago + 86400_000), status: 'delivered', perRun: 1,
+        seenAt: iso(now - ago + 600_000), first: { me: 10, te: 20, systemId: 30004807, index: 0.05, eiv: 2e6, at: iso(now - ago + 600_000) } });
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, meta: { ...ledger.meta, industry: { at: iso(now - 600_000), jobs: [], places: { [TYPED]: 'Home Azbel' } } }, jobs: { 9611: at13(9611, 4 * 86400_000), 9612: at13(9612, 3 * 86400_000) }, industry: DOC, cloud: CLOUD_STATE }, { alts: altStore });
+      await page.goto(`${BASE}#hustles/industry/build`);
+      await page.waitForSelector('[data-industry="build"]', { timeout: 20_000 }).catch(() => problems.push('Build never drew (typed home)'));
+      if (!(await page.locator('[data-industry="sites"]').isVisible().catch(() => false))) await page.locator('button.panel-toggle', { hasText: 'Where you build' }).click().catch(() => undefined);
+      const offer = '[data-site="home:30004807"] [data-industry="home-offer"]';
+      await page.waitForSelector(offer, { timeout: 20_000 }).catch(async () => problems.push(`the typed home isn’t offered the structure its jobs ran at: “${(await text('[data-industry="site-list"]')).slice(0, 400)}”`));
+      if (!(await text(offer)).includes('Your jobs ran at Home Azbel in UALX-3 (2 jobs): is it your home?')) problems.push(`the typed home’s offer doesn’t say where and how many jobs: “${await text(offer)}”`);
+      if (await page.locator('[data-site="home:30000772"] [data-industry="home-offer"]').count()) problems.push('a typed home with no jobs in its system is offered a structure');
+      const homeOf = () => page.evaluate(() => new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('industry'); g.onsuccess = () => res(g.result?.sites?.find((x) => x.id === 'home:30004807') ?? null); }; }));
+      if ((await homeOf())?.structureId != null) problems.push('the typed home was given a structure ID without Use it');
+      if (SHOTS) { await page.locator(offer).scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-home-offer.png` }); }
+      await page.locator(`${offer} button`, { hasText: 'Use it' }).click().catch((e) => problems.push(`couldn’t press Use it: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(800);
+      const h = await homeOf();
+      if (h?.structureId !== TYPED || h?.name !== 'Home Azbel') problems.push(`Use it didn’t give the home its structure’s ID and name: ${JSON.stringify(h)}`);
+      if (await page.locator(offer).count()) problems.push('the typed home is still offered a structure after Use it');
     }
 
     // --- the end of the industry case

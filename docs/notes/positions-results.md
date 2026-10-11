@@ -343,16 +343,33 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
     counted for what's left, its tax pro rata, and the sell orders' broker fees are spread over the claimed units too, so
     trading isn't charged the listing fee of what it didn't sell; that fee is in neither, limits.md), and `attribute` and
     `otherSales` see only what's left. So an item both built and bought keeps its bought part's profit in trading (tested:
-    10 bought, 10 built, 15 sold: trading sells 5 against what it bought). `everyItemCalcs`' key gained `jobs` and `positions`.
+    10 bought, 10 built, 15 sold: trading sells 5 against what it bought). `everyItemCalcs`' key, and the Results, Wallet and
+    Omega memos on it, gained `claimsOf(d)` itself: the same Map while its inputs hold, one constant without jobs.
   - **What Industry counts** (correction 11): claimed sales at their time, after tax (the journal's, else the rate); every job's
     fee at its start, the journal's entries naming it by `industry_job_id` in every industry ref type ESI lists but
     `reprocessing_tax` (`industry_security_tax` included, which may be how a job's SCC is written; the Wallet files it under
-    Industry costs too), else ESI's `cost` on the job; each manufacturing job's materials at its start (not a cancelled or
-    reverted one's), costed at the character's own purchases before the job, newest first, each unit once across jobs, never a
-    purchase a freelance job counts (Freelance's already). Materials never bought are named and not costed; a job with no ME
-    recorded says its materials aren't known; one at a structure that isn't your site (a home typed in has no structure ID to
-    match), a site of kind Other, or a rigged site whose system's security couldn't be read is costed without the bonuses not
-    known, and said. It needs no item groups, so it counts when ESI's groups fail.
+    Industry costs too), else ESI's `cost` on the job (with neither, no fee is charged and "N jobs' fees aren't known" is said);
+    each manufacturing job's materials at its start (not a cancelled or reverted one's), costed at **what the character still
+    held from its own purchases then**, newest first: a material's purchases (not Personal, never one a freelance job counts,
+    Freelance's already) and sales (not Personal, less units Industry claims) are walked in time order, sales using up purchases
+    oldest first as Results' lots do, and each job takes what it uses, so a unit is costed once across jobs and never after it
+    was sold. The review of Task 13 found the first version charging a purchase twice: 1,000 Tritanium bought at 4 and all sold
+    at 5 (trading costed them), then a job using 500 mined, took 500 × 4 again; now that job's 500 are said unbought (tested,
+    with the old rule planted). Materials never bought are named and not costed; a job with no ME recorded says its materials
+    aren't known; one at a structure that isn't your site, a site of kind Other, or a rigged site whose system's security
+    couldn't be read is costed without the bonuses not known, and said. It needs no item groups, so it counts when ESI's groups
+    fail.
+  - **A home you typed in gets its structure from its jobs, by your choice** (`homeCandidates` in industryOwned.ts, the Build
+    tab's sites table). `jobPlace` matches a structure by its ID and never guesses: the job check, the measured tax and Use this
+    rest on it, and UALX-3 holds other structures, so a guess could write another structure's tax into the synced doc. So a
+    typed home (no structure ID) is offered each structure in its system where any character's jobs ran (by the system its job
+    was first seen in) that matches no site, one line each with its job count and its name when a read named it: "Your jobs ran
+    at Home Azbel in UALX-3 (2 jobs): is it your home? Use it", which sets the home's `structureId` (and name); from then every
+    reader matches it by ID. The page check presses it and reads the doc.
+  - **A sale Industry claims offers no position on the Wallet** ("Trades no position tracks" says "Built by you: Industry counts
+    it", or how many of the sale's units, and has no Start a position; its tag and the cash flow stay as they were). A position
+    opened on a product you build counts its sales, which are then never claimed, and reads the built units as sold beyond what
+    it bought (`oversold`), left out of both (limits.md): open positions only for what you buy.
   - **While the blueprints load, nothing is said as a figure** (pre-flight I4): the bundle loads beyond the Industry tab only
     for a ledger with a manufacturing job whose ME was recorded. Meanwhile Results' Industry reads "Working out…" with "Reading
     the blueprints, to cost what you built…" under it and the Made tile says what you built is still being worked out; the

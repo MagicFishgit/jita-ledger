@@ -10,6 +10,13 @@ Bugs found and verified real but not yet fixed.
   Explosive Coating (1 October 2026) answered 70,220, past 117 units at 59,990. Tried and not enough: ISK (worse), units
   ÷ price, a band of twice your own price. Orders' token guard has history instead (market-reading).
 
+- **A chunk that failed to load is asked for again in place, which never works** (gotchas.md: Chromium keeps a failed dynamic
+  import for the life of the page; probed on the dev server and the production build, 11 October 2026). Not yet fixed: the
+  Research tab's Try again for the agents bundle and the stargate map (Research.tsx, researchBundle.ts `loadBundle`), To do's and
+  the Wallet's 30-second retry of the agents bundle (researchWorth.ts), Freelance's map (`loadGraph`, Freelance.tsx, which keeps
+  the failed promise too), and the sync's EIV table (`loadEiv`, industryReads.ts): each stays failed until the app is reloaded,
+  the last losing the EIV of jobs first seen meanwhile. Industry's own loaders reload instead (Task 13 of stage 2).
+
 The three an adversarial review found and verified were fixed on 28 September 2026 (see "Each trade and
 each fee belongs to one position" and "Units sold beyond what a position bought" in positions-results): overlapping
 positions double-counting the totals, sells with no matching buys costed at their own price, and broker fees dropped

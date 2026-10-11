@@ -487,19 +487,27 @@ export function builtClaims(jobs: readonly JobRecord[], txs: readonly SaleLike[]
 export type MatsOf = (job: JobRecord) => { mats: [number, number][]; atSite: boolean } | null;
 export type BuiltResult = {
   events: { t: number; isk: number }[];
-  /** Units of a material a job used that weren't bought before it (mined, looted, from before): not costed. */
+  /**
+   * Units of a material a job used that weren't held from your purchases at its start (mined, looted, from before the
+   * records, or bought and sold again since): not costed.
+   */
   unbought: { jobId: number; typeId: number; units: number }[];
   /** Manufacturing jobs whose materials aren't known (no ME recorded, or a blueprint the bundle lacks). */
   unknown: number[];
   /** Manufacturing jobs costed without some bonus: at a structure that isn't one of your sites, or one whose rigs couldn't be applied (its system's security not read). */
   offSite: number[];
+  /** Jobs whose fee isn't known: ESI gave no cost and no journal entry names them. Nothing is charged for them, and it's said. */
+  feeUnknown: number[];
 };
 
 /**
  * What a character's industry made, as ISK movements (correction 11): each claimed sale's part after its tax, at its time;
  * every job's fee at its start (the journal's entries naming it by `industry_job_id`, else ESI's cost on the job); each
- * manufacturing job's materials at its start, costed at its own purchases before the job, newest first, each unit once
- * across jobs (the Freelance rule). Cancelled and reverted jobs' materials aren't charged. What isn't known is said apart.
+ * manufacturing job's materials at its start, costed at what it still held from its own purchases then, newest first.
+ * What's held is walked in time order, a material at a time: purchases (not Personal, not a freelance job's) add to it,
+ * sales (not Personal, less units Industry claims) use it up oldest first, as Results' lots do, and each job takes what it
+ * uses, so a unit is costed once across jobs (the Freelance rule) and never after it was sold: trading has costed those.
+ * Cancelled and reverted jobs' materials aren't charged. What isn't known is said apart.
  */
 export function builtAndSold(o: {
   jobs: readonly JobRecord[];
@@ -524,21 +532,41 @@ export function builtAndSold(o: {
     const fee = { t: Date.parse(e.date), isk: e.amount };
     if (list) list.push(fee); else fees.set(e.contextId, [fee]);
   }
-  const unbought: BuiltResult['unbought'] = [], unknown: number[] = [], offSite: number[] = [];
-  // Purchases by material, newest first, with what's left of each.
-  const left = new Map<string, number>();
-  const buysOf = new Map<number, (SaleLike & { unitPrice: number })[]>();
+  const unbought: BuiltResult['unbought'] = [], unknown: number[] = [], offSite: number[] = [], feeUnknown: number[] = [];
+  // Each material's purchases and sales in time order (a purchase before a sale in the same second).
+  type Move = { t: number; buy: boolean; id: string; qty: number; price: number };
+  const movesOf = new Map<number, Move[]>();
   for (const t of o.txs) {
-    if (!t.isBuy || o.personal.has(t.id) || o.freelance?.(t)) continue;
-    const list = buysOf.get(t.typeId);
-    if (list) list.push(t); else buysOf.set(t.typeId, [t]);
+    if (o.personal.has(t.id) || (t.isBuy && o.freelance?.(t))) continue;
+    const qty = t.isBuy ? t.qty : t.qty - Math.min(t.qty, o.claims.get(t.id) ?? 0);
+    if (qty <= 0) continue;
+    const move = { t: Date.parse(t.date), buy: t.isBuy, id: t.id, qty, price: t.unitPrice };
+    const list = movesOf.get(t.typeId);
+    if (list) list.push(move); else movesOf.set(t.typeId, [move]);
   }
-  for (const list of buysOf.values()) list.sort((a, b) => Date.parse(b.date) - Date.parse(a.date) || b.id.localeCompare(a.id));
+  for (const list of movesOf.values()) list.sort((a, b) => a.t - b.t || (a.buy === b.buy ? a.id.localeCompare(b.id) : a.buy ? -1 : 1));
+  // What's held of a material, oldest purchase first, walked up to a job's start; jobs come in start order, so it only moves on.
+  type Lot = { left: number; price: number };
+  const held = new Map<number, { lots: Lot[]; next: number }>();
+  const heldAt = (type: number, at: number): Lot[] => {
+    let h = held.get(type);
+    if (!h) held.set(type, (h = { lots: [], next: 0 }));
+    const moves = movesOf.get(type) ?? [];
+    while (h.next < moves.length && moves[h.next].t <= at) {
+      const m = moves[h.next++];
+      if (m.buy) { h.lots.push({ left: m.qty, price: m.price }); continue; }
+      // A sale uses up what's held oldest first; past that it sold units never bought (mined, looted), which hold nothing.
+      let want = m.qty;
+      for (const lot of h.lots) { if (want <= 0) break; const take = Math.min(lot.left, want); lot.left -= take; want -= take; }
+    }
+    return h.lots;
+  };
   for (const j of [...o.jobs].sort((a, b) => Date.parse(a.start) - Date.parse(b.start) || a.jobId - b.jobId)) {
     const at = Date.parse(j.start);
     const named = fees.get(j.jobId);
     if (named) events.push(...named);
     else if (j.cost != null) events.push({ t: at, isk: -j.cost });
+    else feeUnknown.push(j.jobId);
     if (j.activity !== 1 || j.status === 'cancelled' || j.status === 'reverted') continue;
     const m = o.mats ? o.mats(j) : null;
     if (!m) { unknown.push(j.jobId); continue; }
@@ -546,17 +574,16 @@ export function builtAndSold(o: {
     let cost = 0;
     for (const [type, need] of m.mats) {
       let want = need;
-      for (const b of buysOf.get(type) ?? []) {
-        if (want <= 0) break;
-        if (Date.parse(b.date) > at) continue;
-        const have = left.get(b.id) ?? b.qty;
-        const take = Math.min(have, want);
+      // The newest purchases still held first.
+      const lots = heldAt(type, at);
+      for (let i = lots.length - 1; i >= 0 && want > 0; i--) {
+        const take = Math.min(lots[i].left, want);
         if (take <= 0) continue;
-        left.set(b.id, have - take); want -= take; cost += take * b.unitPrice;
+        lots[i].left -= take; want -= take; cost += take * lots[i].price;
       }
       if (want > 0) unbought.push({ jobId: j.jobId, typeId: type, units: want });
     }
     if (cost) events.push({ t: at, isk: -cost });
   }
-  return { events, unbought, unknown, offSite };
+  return { events, unbought, unknown, offSite, feeUnknown };
 }

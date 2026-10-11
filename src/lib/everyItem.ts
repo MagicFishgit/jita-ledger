@@ -27,10 +27,11 @@ export function claimsOf(d: Data): Map<string, number> {
 }
 
 /**
- * One ledger's answer, kept while the inputs it read are the same objects (the store replaces what changes). `d.jobs` and
- * `d.positions` are in the key for Industry's claims (`claimsOf`: a sale a position counts is never claimed); otherwise
- * `computePosition` reads the positions only to ask whether the position it works out is one of the ledger's own (`mine`,
- * by ID), which then shares the item's trades with its rivals, and the `all:` positions here never are.
+ * One ledger's answer, kept while the inputs it read are the same objects (the store replaces what changes). Industry's
+ * claims are in the key as `claimsOf(d)` itself: the same Map while its jobs, trades, positions and Personal marks hold, and
+ * one constant with no jobs, so a ledger without jobs isn't worked out again when only a position moves. Not `d.positions`
+ * otherwise: `computePosition` reads it only to ask whether the position it works out is one of the ledger's own (`mine`,
+ * by ID), which then shares the item's trades with its rivals; the `all:` positions here never are.
  */
 const memo = new WeakMap<object, { key: unknown[]; calcs: ItemCalc[] }>();
 
@@ -40,7 +41,7 @@ const memo = new WeakMap<object, { key: unknown[]; calcs: ItemCalc[] }>();
  * of the user's 30 days, against 92.13 M over every item, 29 September 2026).
  */
 export function everyItemCalcs(d: Data): ItemCalc[] {
-  const key = [d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored, d.jobs, d.positions];
+  const key = [d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored, claimsOf(d)];
   const hit = memo.get(d.txs);
   if (hit && hit.key.every((k, i) => k === key[i])) return hit.calcs;
   const calcs = computeEveryItem(d);

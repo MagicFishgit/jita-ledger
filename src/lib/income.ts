@@ -25,7 +25,7 @@ export const ACTIVITY_WHAT: Record<Activity, string> = {
   Abyssal: 'Abyssal loot sold, less filaments bought and ships lost',
   Combat: 'Bounties and missions, less ships lost',
   Freelance: 'Freelance job rewards, less everything bought for the jobs (stock not yet delivered included; the Freelance tab shows profit on what’s delivered)',
-  Industry: 'What you built and sold, after sales tax, less every job’s fees and the materials your manufacturing jobs used (at your own purchases before each job; materials you never bought aren’t costed, and said)',
+  Industry: 'What you built and sold, after sales tax, less every job’s fees and the materials your manufacturing jobs used (at what you still held from your own purchases when each job started; materials you didn’t hold that way aren’t costed, and said)',
   Rewards: 'Daily goal payouts, AIR career program rewards and CCP’s other rewards for playing (challenges, milestones, opportunities), less any tax on them',
 };
 const LOSS_ACTIVITY: Record<CombatActivity, Activity> = { Abyssal: 'Abyssal', Hauling: 'Hauling', PvP: 'Combat', PvE: 'Combat' };
@@ -50,7 +50,7 @@ export type Acts = {
  */
 export type BuiltInputs = { state: 'none' | 'loading' | 'ready' | 'failed'; mats: MatsOf | null };
 /** What Industry is: being worked out, not countable (the bundle refused), or counted, with what it couldn't cost. */
-export type IndustryActs = { state: 'loading' | 'failed' | 'ready'; unknownJobs: number; unbought: { typeId: number; units: number }[]; offSite: number };
+export type IndustryActs = { state: 'loading' | 'failed' | 'ready'; unknownJobs: number; unbought: { typeId: number; units: number }[]; offSite: number; feesUnknown: number };
 
 /**
  * Industry's figure and note as the pages say them (Results' row, the Wallet's All income, a Characters card): while its
@@ -63,8 +63,9 @@ export function industrySaid(ind: IndustryActs | null, name: (typeId: number) =>
   if (ind.state === 'loading') return { figure: 'Working out…', note: 'Reading the blueprints, to cost what you built…' };
   if (ind.state === 'failed') return { figure: '–', note: 'The blueprints couldn’t be loaded, so what you built isn’t counted here or in the total.' };
   const parts = [
+    ind.feesUnknown ? (ind.feesUnknown === 1 ? '1 job’s fee isn’t known (ESI gave no cost, and no journal entry names it), so none is charged for it' : `${ind.feesUnknown} jobs’ fees aren’t known (ESI gave no cost, and no journal entry names them), so none is charged for them`) : null,
     ind.unknownJobs ? `${ind.unknownJobs} manufacturing job${ind.unknownJobs === 1 ? '’s' : 's’'} materials aren’t known (no ME recorded when first seen, or a blueprint the bundle lacks)` : null,
-    ind.unbought.length ? `materials you never bought before the job aren’t costed: ${ind.unbought.slice(0, 3).map((u) => `${u.units.toLocaleString('en-US')} ${name(u.typeId)}`).join(', ')}${ind.unbought.length > 3 ? ` and ${ind.unbought.length - 3} more` : ''}` : null,
+    ind.unbought.length ? `materials you didn’t hold from purchases when the job started (mined, looted, or bought and sold again) aren’t costed: ${ind.unbought.slice(0, 3).map((u) => `${u.units.toLocaleString('en-US')} ${name(u.typeId)}`).join(', ')}${ind.unbought.length > 3 ? ` and ${ind.unbought.length - 3} more` : ''}` : null,
     // A home you typed in has no structure ID, so no job matches it (Task 11's jobPlace, the same rule): said, so a builder
     // there knows why its bonuses aren't applied and how to give it one.
     ind.offSite ? `${ind.offSite} manufacturing job${ind.offSite === 1 ? '' : 's'} ran at a structure that isn’t one of your build sites (a home you typed in has none to match: find it by name under Industry, Build), at a site of kind Other, or at one whose system’s security couldn’t be read: no bonuses applied where not known` : null,
@@ -115,9 +116,9 @@ export function activityEvents(d: Data, sets: TypeSets | null, failed: boolean, 
     ? builtAndSold({ jobs: industryJobs, txs, journal: inp.journal, claims, taxByTx: taxesOf(inp.journal), salesTax: inp.salesTax, personal, freelance, mats: built?.mats ?? null }) : null;
   const industryEvents = (ind?.events ?? []).map((e) => ({ t: e.t, activity: 'Industry' as const, isk: e.isk }));
   const industry: IndustryActs | null = !industryJobs.length ? null
-    : !ind ? { state: bstate === 'failed' ? 'failed' : 'loading', unknownJobs: 0, unbought: [], offSite: 0 }
+    : !ind ? { state: bstate === 'failed' ? 'failed' : 'loading', unknownJobs: 0, unbought: [], offSite: 0, feesUnknown: 0 }
       : {
-        state: 'ready', unknownJobs: ind.unknown.length, offSite: ind.offSite.length,
+        state: 'ready', unknownJobs: ind.unknown.length, offSite: ind.offSite.length, feesUnknown: ind.feeUnknown.length,
         unbought: [...ind.unbought.reduce((m, u) => m.set(u.typeId, (m.get(u.typeId) ?? 0) + u.units), new Map<number, number>())].map(([typeId, units]) => ({ typeId, units })),
       };
   if (!sets) return { events: [...attribute(inp), ...industryEvents].filter((e) => WITHOUT_SETS.has(e.activity)), others: [], typeSets: null, industry };

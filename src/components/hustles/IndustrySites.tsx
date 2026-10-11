@@ -5,7 +5,7 @@ import { SCOPE } from '../../lib/config';
 import { fmtShort, iskBig, pct } from '../../lib/format';
 import { toast } from '../../lib/toast';
 import { KIND_SAID, kindOfType, secBand, type Indexed, type SiteKind } from '../../lib/industry';
-import { measuredBySite } from '../../lib/industryOwned';
+import { homeCandidates, measuredBySite } from '../../lib/industryOwned';
 import { taxesDiffer } from '../../lib/industryTrack';
 import { NEAR_JITA_JUMPS } from '../../lib/industryRank';
 import { FREIGHT_PRESETS, HOME_SYSTEMS, homeSite, JITA_SYSTEM, quietStations, rigsFitting, routeBetween, secText, siteFacts, stationLabel, stationSite, structureSite } from '../../lib/industrySites';
@@ -62,6 +62,14 @@ export function IndustrySites({ c, ix, graph, mainName, chars }: { c: IndustryCh
       );
   };
   const measured = useMemo(() => measuredBySite(ix, doc.sites, chars, bandOf), [ix, doc.sites, chars, graph]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A home you typed in matches no job until it has its structure's ID (industryOwned.ts homeCandidates): each structure in its
+  // system where jobs of yours ran is offered, one line each, and choosing one sets it, never by itself.
+  const homeOffers = (s: IndustrySite) => homeCandidates(s, doc.sites, chars).map((h) => (
+    <span key={h.structureId} className="sub" data-industry="home-offer">
+      Your jobs ran at {h.name ?? 'a structure'} in {sysName(s.systemId)} ({h.jobs} job{h.jobs === 1 ? '' : 's'}): is it your home?{' '}
+      <button type="button" className="link-btn" onClick={() => change(s.id, { structureId: h.structureId, ...(h.name ? { name: h.name } : {}) })}>Use it</button>
+    </span>
+  ));
 
   return (
     <section className="col" style={{ gap: 12 }} aria-label="Where you build" data-industry="sites">
@@ -107,6 +115,7 @@ export function IndustrySites({ c, ix, graph, mainName, chars }: { c: IndustryCh
                         <button type="button" className="link-btn" onClick={() => remove(s.id)}>Remove</button>
                       </span>
                       {!s.structureId && s.kind !== 'npc' && <span className="sub">Typed by you: with no structure ID, the app knows nothing held there.</span>}
+                      {homeOffers(s)}
                       <span className="rd-phone"><span>{where}</span><span>{kind}</span><span>Tax: {tax}</span><span>Index: {index}</span>{s.kind !== 'npc' && measuredLine(s, '-phone')}</span>
                     </td>
                     <td className="l rd-wide">{place}<span className="sub">{jumps}</span></td>

@@ -410,4 +410,8 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   counts (claimed sales after tax, every job's fee, manufacturing materials at your own purchases before each job; invention's
   datacores and copies not charged). Where a job ran is Task 11's `jobPlace`: an NPC station has no material bonus, a structure
   only when it is one of your sites with a structure ID, so a home typed in costs its jobs without its bonuses, said (limits.md).
-  A failed load can't be retried in place (gotchas.md): its button reloads the app.
+  A failed load can't be retried in place (gotchas.md): its button reloads the app, and so does this tab's own "Reload to try
+  again" for the bundle and the map (it asked again in place, which did nothing). **A typed home is offered the structure its
+  jobs ran at** (the review's ruling, 11 October 2026; positions-results.md): never matched by a guess inside `jobPlace`, which
+  the job check, the measured tax and Use this rest on; the sites table offers each structure in the home's system where jobs ran
+  and matches no site, and Use it sets the home's structure ID.

@@ -9,7 +9,7 @@ import { eivOf, researchCost, researchTime, rigFor, slots, structureBonus, type 
 import { alphaCapOf, RUNGS, usable, type RungKey } from './industryLadder';
 import type { LabSite } from './industryRank';
 import { productKind } from './industryRank';
-import { isStationId, jobPlace, measuredTax, slotsUsed, taxesDiffer, type JobRecord } from './industryTrack';
+import { isStationId, isStructureId, jobPlace, measuredTax, slotsUsed, taxesDiffer, type JobRecord } from './industryTrack';
 import type { IndustrySite } from './prefs';
 import { units } from './format';
 import { lostSaid } from './pilot';
@@ -262,6 +262,33 @@ export type Measured = {
   /** The next older job that measures, when it differs from this one beyond the measure's own noise (`taxesDiffer`): two jobs at one structure disagreeing is said, never settled by taking the newest. */
   earlier?: { tax: number; at: string; who: string; isMain: boolean; jobId: number };
 };
+/** A structure a typed home could be: where jobs of yours ran in its system, matching no site. */
+export type HomeCandidate = { structureId: number; name: string | null; jobs: number };
+/**
+ * A home you typed in has no structure ID, so no job matches it: `jobPlace` matches a structure by its ID and never guesses,
+ * since the job check, the measured tax and Use this rest on it, and a home's system can hold other structures (the review of
+ * Task 13). What it can offer instead: each structure in the home's system where any character's jobs ran (the system its job
+ * was first seen in, `first.systemId`; a job first seen after it ended doesn't say) that matches no site, with how many jobs ran
+ * there and its name when a read named it (the blueprints doc's places, else the main's sync's), most jobs first. Choosing one
+ * gives the home that structure ID (the Build tab's sites table), and every reader matches it from then on.
+ */
+export function homeCandidates(home: IndustrySite, sites: readonly IndustrySite[], chars: readonly { jobs: Read<JobRecord[]>; places?: Readonly<Record<string, string>>; jobPlaces?: Readonly<Record<string, string>> }[]): HomeCandidate[] {
+  if (home.kind === 'npc' || home.structureId != null) return [];
+  const known = new Set(sites.map((s) => s.structureId).filter((x): x is number => x != null));
+  const count = new Map<number, number>(), names = new Map<number, string>();
+  for (const c of chars) {
+    if (c.jobs.state !== 'read') continue;
+    for (const j of c.jobs.value) {
+      if (!isStructureId(j.facilityId) || known.has(j.facilityId) || j.first?.systemId !== home.systemId) continue;
+      count.set(j.facilityId, (count.get(j.facilityId) ?? 0) + 1);
+      const n = c.places?.[String(j.facilityId)] || c.jobPlaces?.[String(j.facilityId)];
+      if (n && !names.has(j.facilityId)) names.set(j.facilityId, n);
+    }
+  }
+  return [...count].map(([structureId, jobs]) => ({ structureId, name: names.get(structureId) ?? null, jobs }))
+    .sort((a, b) => b.jobs - a.jobs || a.structureId - b.structureId);
+}
+
 /** Per structure site, the newest manufacturing job of any character there that measures its tax (measuredTax); null when none does. */
 export function measuredBySite(ix: Indexed, sites: readonly IndustrySite[], chars: readonly { name: string; isMain: boolean; clone: Clone; jobs: Read<JobRecord[]> }[], bandOf: (s: IndustrySite) => SecBand): Record<string, Measured | null> {
   const out: Record<string, Measured | null> = {};

@@ -29,7 +29,7 @@ import { isFreelanceTrade } from '../lib/freelance';
 import { BarLine, cssVars, Empty, Figure, PageHead, Panel, Seg, Tiles, Tip } from './ui';
 import { ACTIVITY_COLOR, useActivityEvents } from './activityEvents';
 import { Points } from './Facts';
-import { everyItemCalcs } from '../lib/everyItem';
+import { claimsOf, everyItemCalcs } from '../lib/everyItem';
 import { incomeRows, industrySaid } from '../lib/income';
 import { nettedJournal, refundsIn } from '../lib/refunds';
 import { altLedger } from '../lib/altLedger';
@@ -204,6 +204,8 @@ export function Wallet() {
   const posSeries = useMemo(() => d.positions.map((p) => ({ p, series: computePosition(p, d, d.settings).series })),
     [d.positions, d.txs, d.journal, d.orders, d.settings]); // eslint-disable-line react-hooks/exhaustive-deps
   const ignored = useMemo(() => new Set(d.ignored), [d.ignored]);
+  // Units of your sales Industry claims (what you built and sold): the same Map while its inputs hold.
+  const claims = claimsOf(d);
   // Purchases made in one go (the Multibuy window, a fitting's "Buy all") are one row; one with a ship in it is a fit
   // to fly, guessed Personal until you say otherwise (wallet.ts, `multibuys`).
   const multis = useMemo(() => multibuys(txList), [txList]);
@@ -517,7 +519,7 @@ export function Wallet() {
       <AssetSafety d={d} rough={rough} />
       <ResearchAgents roster={roster} copies={copies} now={now} />
 
-      <Untracked d={d} txs={txList.filter((t) => !tracked.has(t.id) && Date.parse(t.date) >= since)} tagOf={tagOf} explicit={(id) => ignored.has(id) || id in d.tags}
+      <Untracked d={d} txs={txList.filter((t) => !tracked.has(t.id) && Date.parse(t.date) >= since)} tagOf={tagOf} explicit={(id) => ignored.has(id) || id in d.tags} claimed={(id) => claims.get(id) ?? 0}
         multis={multis} ships={ships} freelance={freelance} periodWords={periodWords} />
 
       <div className="g-300">
@@ -852,7 +854,7 @@ function WhereItSits(props: {
 /** A row of "Trades no position tracks": one trade, or purchases made in one go. */
 type UntrackedRow = { kind: 'tx'; tx: Tx; at: string } | { kind: 'multi'; g: Multibuy; txs: Tx[]; at: string };
 
-function Untracked(props: { d: Data; txs: Tx[]; tagOf: (tx: Tx) => UntrackedTag; explicit: (id: string) => boolean; multis: Multibuy[]; ships: ReadonlySet<number>; freelance: (tx: Tx) => boolean; periodWords: string }) {
+function Untracked(props: { d: Data; txs: Tx[]; tagOf: (tx: Tx) => UntrackedTag; explicit: (id: string) => boolean; multis: Multibuy[]; ships: ReadonlySet<number>; freelance: (tx: Tx) => boolean; periodWords: string; claimed: (id: string) => number }) {
   const { d, txs, tagOf } = props;
   const name = useTypeName();
   const [all, setAll] = useState(false);
@@ -893,18 +895,22 @@ function Untracked(props: { d: Data; txs: Tx[]; tagOf: (tx: Tx) => UntrackedTag;
     const tag = tagOf(tx);
     const look = TAG_LOOK[tag];
     const hasOpen = d.positions.some((p) => p.typeId === tx.typeId && p.status === 'open');
+    // Units of a sale Industry claims (what you built and sold, everyItem.ts claimsOf) are Industry's: said here, and no
+    // position is offered, since one would read the built units as sold beyond what it bought, left out of both.
+    const built = tx.isBuy ? 0 : Math.min(tx.qty, props.claimed(tx.id));
+    const builtWhy = built ? (built >= tx.qty ? 'Built by you: Industry counts it' : `Built by you: Industry counts ${units(built)} of the ${units(tx.qty)}`) : null;
     return (
       <tr key={tx.id} className="hover">
         <td className="l" style={inGroup ? { paddingLeft: 40 } : undefined}><span className="name" style={{ fontWeight: 400, fontSize: 13.5 }}>{name(tx.typeId)}</span></td>
         <td className="l" style={{ color: 'var(--sec)', fontFamily: 'var(--f-body)' }}>{tx.isBuy ? 'Bought' : 'Sold'} <span style={{ color: 'var(--faint)' }}>{fmtShort(tx.date)}</span></td>
         <td>{units(tx.qty)}</td>
-        <td className="l" style={{ color: 'var(--note)', fontFamily: 'var(--f-body)', whiteSpace: 'normal' }}>{inGroup && !props.explicit(tx.id) ? '' : props.freelance(tx) ? `${tx.isBuy ? 'Bought' : 'Sold'} during a freelance job of yours that takes it: counted under Freelance` : why(tx, tag)}</td>
+        <td className="l" style={{ color: 'var(--note)', fontFamily: 'var(--f-body)', whiteSpace: 'normal' }} data-industry={builtWhy ? 'wallet-built' : undefined}>{builtWhy ?? (inGroup && !props.explicit(tx.id) ? '' : props.freelance(tx) ? `${tx.isBuy ? 'Bought' : 'Sold'} during a freelance job of yours that takes it: counted under Freelance` : why(tx, tag))}</td>
         <td style={{ color: tx.isBuy ? 'var(--neg-t)' : 'var(--pos)' }}>{tx.isBuy ? '−' : '+'}{iskBig(tx.qty * tx.unitPrice)}</td>
         <td className="l">
           <button type="button" className="tag-btn" style={cssVars({ '--c': props.freelance(tx) ? '#f5b86b' : look.c })} onClick={() => setTag(tx, nextTag(tag))}
             data-tip="Click to change what this counts as: loot sale, personal, trading, or other.">{props.freelance(tx) ? 'Freelance' : tx.isBuy ? look.buy : look.sell}</button>
         </td>
-        <td>{!inGroup && (tag === 'trading' || tag === 'other') && !hasOpen && <button type="button" className="link-btn" onClick={() => start(tx)}>Start a position</button>}</td>
+        <td>{!inGroup && !built && (tag === 'trading' || tag === 'other') && !hasOpen && <button type="button" className="link-btn" onClick={() => start(tx)}>Start a position</button>}</td>
       </tr>
     );
   };
@@ -1169,7 +1175,7 @@ function Report(props: {
  * Personal spending as beside.
  */
 function AllIncome({ d, acts, play, since, now, periodWords }: { d: Data; acts: ReturnType<typeof useActivityEvents>; play: number; since: number; now: number; periodWords: string }) {
-  const calcs = useMemo(() => everyItemCalcs(d), [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored, d.jobs, d.positions]); // eslint-disable-line react-hooks/exhaustive-deps
+  const calcs = useMemo(() => everyItemCalcs(d), [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored, claimsOf(d)]); // eslint-disable-line react-hooks/exhaustive-deps
   const { rows, earned } = useMemo(() => incomeRows(calcs, acts, since, now), [calcs, acts, since, now]);
   const name = useTypeName();
   // What Industry couldn't cost (materials never bought, jobs with no ME recorded), said in its row's tip.
