@@ -18,8 +18,8 @@
 //     structures: { type: [material, cost, time] }            Raitaru, Azbel, Sotiyo: dogma 2600, 2601, 2602
 //     stations:   [station, system, services][]               services 1 a Factory, 2 a Laboratory, 3 both
 //     skills:     { id: [rank, primary, secondary, bonusAttribute, bonus] } }
-// src/data/industryEiv.json: { build, eiv: { bp: [[material, qty]] } }, every published blueprint's ME 0 manufacturing
-//   materials: what a job's estimated item value is worked out from (stage 2 keeps a job's EIV at first sight).
+// src/data/industryEiv.json: { build, eiv: { bp: [[material, qty]] }, out: { bp: [product, perRun] } }, every published
+//   blueprint's ME 0 manufacturing materials and its product: a job's estimated item value, and the units it made.
 // src/data/industryTypes.json: { build, watch: number[], bpos: number[] }, the type IDs the cloud reads for the tab: the
 //   watch set (every Tech I product and its materials) and the blueprints whose NPC sellers the morning scan keeps.
 //
@@ -198,11 +198,15 @@ for await (const s of lines('npcStations.jsonl')) {
 }
 stations.sort((a, b) => a[0] - b[0]);
 
-// Every published blueprint's ME 0 manufacturing materials, for a job's estimated item value.
-const eiv = {};
+// Every published blueprint's ME 0 manufacturing materials, for a job's estimated item value, and its product with how many a
+// run makes (`out` in the file), for the units a job made: ESI's job doesn't say, and built-and-sold claims sales by them (stage 2).
+const eiv = {}, perRunOf = {};
 for (const [id, b] of [...bps].sort((a, b) => a[0] - b[0])) {
   const m = man(b);
-  if (m && types.get(id)?.published) eiv[id] = (m.materials ?? []).map((x) => [x.typeID, x.quantity]);
+  if (m && types.get(id)?.published) {
+    eiv[id] = (m.materials ?? []).map((x) => [x.typeID, x.quantity]);
+    perRunOf[id] = [m.products[0].typeID, m.products[0].quantity];
+  }
 }
 
 // The watch set: every Tech I product and its materials, then Tech II's (below). The blueprints whose NPC sellers the scan
@@ -227,7 +231,7 @@ const released = sde.releaseDate;
 const out = { build: sde.buildNumber, released, source: `CCP static data build ${sde.buildNumber}, released ${released}`, bps: outBps, types: outTypes, groups: outGroups, filters, rigs, structures, stations, skills };
 fs.mkdirSync('src/data', { recursive: true });
 fs.writeFileSync('src/data/industry.json', JSON.stringify(out));
-fs.writeFileSync('src/data/industryEiv.json', JSON.stringify({ build: sde.buildNumber, eiv }));
+fs.writeFileSync('src/data/industryEiv.json', JSON.stringify({ build: sde.buildNumber, eiv, out: perRunOf }));
 fs.writeFileSync('src/data/industryTypes.json', JSON.stringify({ build: sde.buildNumber, watch: [...watch].sort((a, b) => a - b), bpos }));
 
 const kb = (f) => `${(fs.statSync(f).size / 1024).toFixed(1)} KB, ${(zlib.gzipSync(fs.readFileSync(f)).length / 1024).toFixed(1)} KB gzipped`;

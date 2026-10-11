@@ -15,6 +15,8 @@ import type { JournalEntry, Killmail, Meta, Order, Stock, Tx } from './types';
 import { mergeOrders } from './feeMatch';
 import { countStock, mergeSafety, nameHolders, unnamedHolders, toJournal, toOrder, toTx, type RawAsset, type RawCharOrder, type RawJournal, type RawTx, type SafetyNotice } from './esiRecords';
 import { miningKey, readMining, type MiningRecord, type RawMining } from './mining';
+import { readBlueprintsNow, readJobsNow } from './industryReads';
+import { mergeJob, type BlueprintsDoc, type JobRecord, type RawJob } from './industryTrack';
 import { researchMissionAt, toResearch, toStandings, type RawResearch, type RawStanding } from './research';
 
 const { wallet: WALLET, orders: ORDERS, skills: SKILLS, standings: STANDINGS, assets: ASSETS, loyalty: LOYALTY, killmails: KILLMAILS } = SCOPE;
@@ -178,6 +180,7 @@ export async function syncCharacter(): Promise<void> {
     const fetched: {
       txs?: Record<string, Tx>; journal?: Record<string, JournalEntry>; orders?: Record<string, Order>;
       names?: Record<number, string>; stock?: Stock; killmails?: Record<string, Killmail>; mining?: Record<string, MiningRecord>;
+      jobs?: JobRecord[]; blueprints?: BlueprintsDoc;
     } = {};
     if (hasScope(WALLET)) {
       setState({ message: 'Reading wallet balance…' });
@@ -306,22 +309,39 @@ export async function syncCharacter(): Promise<void> {
         read.push('mining');
       } catch { /* read on a later sync */ }
     }
-    // Industry jobs not yet delivered, with their facilities named, for To do (todo.ts, judgeIndustry).
-    if (hasScope(SCOPE.industry)) {
+    // Your blueprints (the `blueprints` doc: what each is, ME, TE, runs, where), for the Industry tab and the Blueprints page,
+    // with when they were read. Written only when something in it changed. A failed read leaves what's held (absent: not read).
+    let bpsNow = d.blueprints;
+    if (hasScope(SCOPE.blueprints)) {
+      setState({ message: 'Reading your blueprints…' });
       try {
-        const { data } = await esi<{ job_id: number; activity_id: number; blueprint_type_id: number; product_type_id?: number; runs: number; end_date: string; status: string; station_id: number; facility_id: number }[]>(`/characters/${cid}/industry/jobs/`, { auth: true });
-        const jobs = data.filter((j) => j.status === 'active' || j.status === 'ready' || j.status === 'paused').map((j) => ({
+        fetched.blueprints = await readBlueprintsNow(cid, d.blueprints, { assets: hasScope(ASSETS), structures: hasScope(SCOPE.structures) });
+        bpsNow = fetched.blueprints;
+        metaPatch.blueprintsAt = new Date().toISOString();
+        read.push('blueprints');
+      } catch { /* read on a later sync */ }
+    }
+    // Your industry jobs, every status for 90 days, kept as records past that (industryTrack.ts: a job not held yet gets its
+    // first-sight fields while it runs). To do's jobs to deliver come from the same read, with their facilities named.
+    if (hasScope(SCOPE.industry)) {
+      setState({ message: 'Reading your industry jobs…' });
+      try {
+        // The blueprints read just now, else the doc held before it (correction 20): a blueprint in a job may not be listed.
+        const r = await readJobsNow(cid, d.jobs, bpsNow, d.blueprints);
+        fetched.jobs = r.changed;
+        metaPatch.jobsRead = true;
+        const waiting = r.raw.filter((j: RawJob) => j.status === 'active' || j.status === 'ready' || j.status === 'paused').map((j) => ({
           jobId: j.job_id, activity: j.activity_id, blueprintTypeId: j.blueprint_type_id, productTypeId: j.product_type_id ?? null, runs: j.runs,
           end: j.end_date, status: j.status, stationId: j.station_id ?? j.facility_id,
         }));
         const places: Record<number, string> = { ...(d.meta.industry?.places ?? {}) };
-        const unknown = [...new Set(jobs.map((j) => j.stationId))].filter((id) => !places[id]);
+        const unknown = [...new Set(waiting.map((j) => j.stationId))].filter((id) => !places[id]);
         const stations = unknown.filter(isStation);
         if (stations.length) Object.assign(places, await resolveNames(stations).catch(() => ({})));
         for (const id of unknown.filter(isStructure)) { const s = await structureInfo(id).catch(() => null); if (s?.status === 'found') places[id] = s.name; }
-        metaPatch.industry = { at: new Date().toISOString(), jobs, places };
+        metaPatch.industry = { at: new Date().toISOString(), jobs: waiting, places };
         read.push('industry');
-      } catch { /* To do goes without */ }
+      } catch { /* To do and the tab go without */ }
     }
     // Your R&D agents' research, for the Research tab (research.ts toResearch: sorted by agent), with when it was read.
     // ESI holds it an hour. A failed read leaves what's held (absent: not read yet), never an empty list, which would say
@@ -424,6 +444,13 @@ export async function syncCharacter(): Promise<void> {
         for (const [k, r] of Object.entries(fetched.mining)) if (m[k]?.qty !== r.qty) m[k] = r;
         p.mining = m;
       }
+      // Jobs are merged onto what the store holds now (a pull may have brought the cloud's record meanwhile).
+      if (fetched.jobs?.length) {
+        const j = { ...cur.jobs };
+        for (const x of fetched.jobs) j[String(x.jobId)] = mergeJob(cur.jobs[String(x.jobId)], x);
+        p.jobs = j;
+      }
+      if (fetched.blueprints && JSON.stringify(fetched.blueprints) !== JSON.stringify(cur.blueprints)) p.blueprints = fetched.blueprints;
       if (allSkills) p.skills = allSkills;
       // Replaced wholesale, not merged: it is a snapshot of what you hold right now.
       // What the cloud learned about asset safety wraps (when each went in, its name) is kept, not overwritten.

@@ -7,13 +7,14 @@ import { del, get, set } from 'idb-keyval';
 import { getAccessToken, getAuth, onAuthChange } from './auth';
 import { CLOUD_URL } from './config';
 import {
-  applyPulled, asMap, diffRecords, docValue, everything, isDocKey, isRecordKey, refusedDoc, sharedDoc, type DocKey, type Pulled, type RecordKey,
+  applyPulled, asMap, diffRecords, docValue, everything, isDocKey, isRecordKey, refusedDoc, refusedKind, sharedDoc, type DocKey, type Pulled, type RecordKey,
 } from './cloudSync';
 import { dataGeneration, dataStore, getData, isReady, onClearAll, onDataChange, releaseOrphanLeave, standDownOrphanCleanup, update, type Data } from './store';
 import { sanitizeSettings } from './fees';
 import { setCloudFlow, setCloudHours } from './flowStore';
 import type { HourBucket } from './rhythm';
 import type { FlowLog } from './flow';
+import { sanitizeBlueprints } from './industryTrack';
 import { sanitizeAlerts, sanitizeChars, sanitizeIndustry, sanitizeLeave, sanitizeLeaveFrom, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes } from './prefs';
 import { sanitizePlans } from './plans';
 import { costBasis } from './orderCheck';
@@ -209,7 +210,7 @@ async function pushNow(): Promise<void> {
   };
   const total = recs.length;
   for (let i = 0; i < Math.max(1, recs.length); i += PUSH_CHUNK) {
-    const part = recs.slice(i, i + PUSH_CHUNK);
+    let part = recs.slice(i, i + PUSH_CHUNK);
     let withDocs = i === 0 ? docs : [];
     if (!part.length && !withDocs.length) break;
     if (total > PUSH_CHUNK) setStatus({ phase: 'working', doing: `Uploading your ledger (${Math.min(i + PUSH_CHUNK, total).toLocaleString('en-US')} of ${total.toLocaleString('en-US')})` });
@@ -226,17 +227,20 @@ async function pushNow(): Promise<void> {
         });
         break;
       } catch (e) {
-        // A Worker a version behind doesn't know a new document yet and takes nothing of the push: send the rest
-        // without it, and keep it waiting for the next push (refusedDoc).
-        const refused = (e as { status?: number }).status === 400 ? refusedDoc((e as Error).message) : null;
-        if (!refused || !withDocs.some(([k]) => k === refused)) throw e;
-        withDocs = withDocs.filter(([k]) => k !== refused);
+        // A Worker a version behind doesn't know a new document, or a new record kind, yet, and takes nothing of the push:
+        // send the rest without it, and keep it waiting for the next push (refusedDoc, refusedKind).
+        const bad = (e as { status?: number }).status === 400, msg = (e as Error).message;
+        const doc = bad ? refusedDoc(msg) : null;
+        if (doc && withDocs.some(([k]) => k === doc)) { withDocs = withDocs.filter(([k]) => k !== doc); continue; }
+        const kind = bad ? refusedKind(msg) : null;
+        if (kind && part.some(([key]) => key.startsWith(`${kind}|`))) { part = part.filter(([key]) => !key.startsWith(`${kind}|`)); continue; }
+        throw e;
       }
     }
     // "Delete all data" meanwhile: what's left to send was read from a ledger that is gone, and the list it came off is
     // this browser's old one. Stop here.
     if (dataGeneration() !== wipe) return;
-    if (!res) break;
+    if (!res) continue;
     ownRevs.add(res.rev);
     // Only what hasn't changed again since it was read goes off the list.
     for (const [key, g] of part) if (dirtyRecords.get(key) === g) dirtyRecords.delete(key);
@@ -286,6 +290,7 @@ async function pullNow(cloudWins = false): Promise<Map<string, Set<string>>> {
         if (p.plans) p.plans = sanitizePlans(p.plans);
         if (p.chars) p.chars = sanitizeChars(p.chars);
         if (p.industry) p.industry = sanitizeIndustry(p.industry);
+        if (p.blueprints !== undefined) p.blueprints = sanitizeBlueprints(p.blueprints);
         return p;
       }, { origin: 'cloud' });
       // Applied over what was waiting here, so that no longer goes up.

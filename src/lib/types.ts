@@ -416,6 +416,13 @@ export type Meta = {
    * failed read leaves it as it was.
    */
   research?: { at?: string; agents: ResearchRow[] };
+  /** When your blueprints were last read (the `blueprints` doc: the main's, by the sync). An alt's read time is its `sheet` job's. */
+  blueprintsAt?: string;
+  /**
+   * Jobs have been read at least once by a stage-2 read (the main's by its sync, an alt's by the cloud's sheet): a read with
+   * no jobs writes no record, so absent is not read. `industry` isn't a jobs read: every ledger from before had one.
+   */
+  jobsRead?: true;
   /**
    * The main's only: when EVE last offered a research mission, the newest `ResearchMissionAvailableMsg`'s timestamp in
    * any read of its notifications (read while an agent runs, research.ts `researchMissionAt`), never moved back by a read

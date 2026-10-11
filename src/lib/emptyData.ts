@@ -8,5 +8,5 @@ export const emptyData = (): Data => ({
   txs: {}, journal: {}, orders: {}, positions: [], watchlist: [], names: {}, ignored: [], meta: {},
   prefs: { ...DEFAULT_PREFS }, alerts: { ...DEFAULT_ALERTS }, alertLog: [], goals: [], tags: {}, nearDone: [],
   killmails: {}, netWorth: [], unusualOk: [], leave: [], leaveFrom: {}, safetyTimes: {}, notSnipes: [], plans: [], mining: {}, chars: {},
-  industry: { ...DEFAULT_INDUSTRY },
+  industry: { ...DEFAULT_INDUSTRY }, jobs: {},
 });

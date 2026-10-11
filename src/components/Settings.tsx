@@ -993,6 +993,7 @@ const KIND_SAID: Record<string, [string, string]> = {
   txs: ['trade', 'trades'], journal: ['journal entry', 'journal entries'], orders: ['order', 'orders'], names: ['item name', 'item names'],
   killmails: ['killmail', 'killmails'], tags: ['trade tag', 'trade tags'], positions: ['position', 'positions'], goals: ['goal', 'goals'],
   watchlist: ['watchlist item', 'watchlist items'], netWorth: ['net-worth day', 'net-worth days'],
+  jobs: ['industry job', 'industry jobs'],
 };
 const kindSaid = (kind: string, n: number) => { const w = KIND_SAID[kind] ?? [kind, kind]; return `${units(n)} ${n === 1 ? w[0] : w[1]}`; };
 function CloudPanel() {

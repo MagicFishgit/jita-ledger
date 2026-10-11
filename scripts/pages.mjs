@@ -2286,6 +2286,35 @@ try {
     if (!(await says('t2', 'Pays now at Station 60001483, one slot a day, invented at the nearest Laboratory, in Sobaseki')) || !(await says('t2', 'Large Trimark Armor Pump II')) || (await says('t2', 'not buildable yet')))
       problems.push(`rung 6 doesn’t say what the Tech II pump pays now: “${(await rung('t2')).slice(0, 300)}”`);
     if (SHOTS) { await page.locator('[data-rung="t2"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-industry-rung6.png` }); }
+    // --- Task 9A: a Worker a version behind refuses the new record kind. The rest of the push goes up, the jobs wait.
+    {
+      const pushes = [];
+      // The case's own stand-ins for these two, put back at the end of the block.
+      const prevPush = CLOUD['/v1/push'], prevPull = CLOUD['/v1/pull'];
+      CLOUD['/v1/push'] = (url, req, json) => {
+        const b = JSON.parse(req.postData() ?? '{}');
+        pushes.push(b);
+        return (b.records ?? []).some((r) => r.k === 'jobs') ? json({ error: 'Unknown record kind: jobs' }, 400) : json({ rev: 2, records: (b.records ?? []).length, docs: (b.docs ?? []).length });
+      };
+      CLOUD['/v1/pull'] = (url, req, json) => json({ rev: 2, records: [], docs: [], next: null });
+      const job = { jobId: 9001, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 10, licensedRuns: 40, successfulRuns: null, probability: null, cost: 1200000,
+        facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: iso(now - 7200_000), end: iso(now + 3600_000), completed: null, status: 'active', perRun: 1, seenAt: iso(now - 7000_000) };
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, jobs: { 9001: job }, names: { 34: 'Tritanium' }, cloud: { ...CLOUD_STATE, dirty: { r: ['jobs|9001', 'names|34'], d: ['industry'] } } }, { alts: altStore });
+      // From the seed page, a full load: the sync starts on the seeded unsent list. Wait on the condition, never a clock
+      // (pre-flight M13): the saved unsent list (`cloud`, written 500 ms after a push) has let go of what went up.
+      await page.goto(`${BASE}#hustles/industry/start`);
+      const cloudState = () => page.evaluate(() => new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('cloud'); g.onsuccess = () => res(g.result); }; }));
+      let state = await cloudState();
+      for (let i = 0; i < 80 && (state?.dirty?.r ?? ['names|34']).includes('names|34'); i++) { await page.waitForTimeout(250); state = await cloudState(); }
+      const sent = pushes.find((b) => !(b.records ?? []).some((r) => r.k === 'jobs'));
+      if (!pushes.some((b) => (b.records ?? []).some((r) => r.k === 'jobs'))) problems.push('the push with a job never went up');
+      if (!sent || !(sent.records ?? []).some((r) => r.k === 'names' && r.i === '34') || !(sent.docs ?? []).some((x) => x.key === 'industry'))
+        problems.push(`with the jobs kind refused, the rest of the push didn’t go up: ${JSON.stringify(pushes).slice(0, 300)}`);
+      if (!state?.dirty?.r?.includes('jobs|9001') || state.dirty.r.includes('names|34')) problems.push(`the refused job isn’t kept waiting (or what went up is): ${JSON.stringify(state?.dirty)}`);
+      CLOUD['/v1/push'] = prevPush; CLOUD['/v1/pull'] = prevPull;
+    }
+
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

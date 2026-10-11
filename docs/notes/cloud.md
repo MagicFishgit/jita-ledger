@@ -30,6 +30,7 @@ Decisions worth not undoing. How the ledger lives in the cloud as well as the br
   "Unknown document: X"), and the site and the Worker deploy in either order, so every push would have failed until the
   Worker landed. The browser now sends the rest without it and keeps it waiting for a later push. An older browser ignores
   a document it doesn't know when it comes down (`isDocKey`).
+- **A new record kind doesn't stop the sync either** (`refusedKind` in cloudSync.ts, `pushNow`; 11 October 2026, with `jobs`): the Worker refuses a whole push carrying a kind it doesn't know (400 "Unknown record kind: X"); the browser sends the rest without that kind's records, which wait for a later push, and goes on to the next chunk when a whole chunk was that kind. An older browser ignores a kind it doesn't know when it comes down (`isRecordKey`). A kind several writers keep (`jobs`) is merged, not replaced, when it comes down (`applyPulled`).
 - **The cloud keeps watch with logins handed to it** (`POST /v1/keys`; `loginForCloud` / `loginMailerForCloud` bring
   back a refresh token that goes straight to the Worker and is never stored in the browser). They are sealed with the
   `TOKEN_KEY` secret (AES-GCM); the Worker refreshes one once to prove it, and checks the main login is the ledger's

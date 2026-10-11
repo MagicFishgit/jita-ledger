@@ -3,6 +3,7 @@ import type { AltSaved } from './roster';
 import { SKILL_FALLBACK_IDS, SKILL_NAMES, type SkillKey } from './constants';
 import { DEFAULT_SETTINGS, sanitizeSettings } from './fees';
 import { emptyData } from './emptyData';
+import { sanitizeBlueprints } from './industryTrack';
 import type { NetWorthPoint } from './types';
 
 /**
@@ -28,9 +29,10 @@ export function altLedger(saved: AltSaved, byHand?: 'alpha' | 'omega'): Data {
   const levels = Object.fromEntries((Object.keys(SKILL_NAMES) as SkillKey[]).map((k) => [k, skills[SKILL_FALLBACK_IDS[k]] ?? 0]));
   const d: Data = {
     ...emptyData(),
-    txs: rec('txs'), journal: rec('journal'), orders: rec('orders'), names: rec('names'), mining: rec('mining'),
+    txs: rec('txs'), journal: rec('journal'), orders: rec('orders'), names: rec('names'), mining: rec('mining'), jobs: rec('jobs'),
     netWorth: Object.values(rec<NetWorthPoint>('netWorth')).sort((a, b) => a.date.localeCompare(b.date)),
     meta, skills, stock: saved.docs.stock as Data['stock'],
+    blueprints: saved.docs.blueprints === undefined ? undefined : sanitizeBlueprints(saved.docs.blueprints),
     settings: sanitizeSettings({ ...DEFAULT_SETTINGS, ...levels, clone: detected ?? byHand ?? 'omega', faction: 0, corp: 0 }),
   };
   if (!memo.has(saved)) memo.set(saved, new Map());

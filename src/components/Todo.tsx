@@ -31,6 +31,7 @@ import { useRunningResearch } from './hustles/researchWorth';
 import { cloudCovers, useCloud } from '../lib/cloud';
 import { JITA_44, SCOPE } from '../lib/config';
 import { toast } from '../lib/toast';
+import { ACTIVITY_SAID } from '../lib/industryTrack';
 import { canOpenInGame, copyPrice, downloadText, useEnsureNames, useTypeName } from './common';
 import { cssVars, Empty, Guide, PageHead, Ring, Seg } from './ui';
 import { Points } from './Facts';
@@ -71,9 +72,6 @@ const LOOK: Record<TodoKind, { Icon: typeof Check; c: string }> = {
   courier: { Icon: Truck, c: 'var(--acc2)' },
   cashIn: { Icon: FlaskConical, c: 'var(--acc)' },
 };
-
-/** Industry activities by ESI's activity_id, as the Industry window names them. */
-const ACTIVITY: Record<number, string> = { 1: 'Manufacturing', 3: 'TE research', 4: 'ME research', 5: 'Copying', 8: 'Invention', 9: 'Reaction', 11: 'Reaction' };
 
 function readMem(): Memory {
   try {
@@ -325,7 +323,7 @@ export function Todo() {
     const byPlace = new Map<number, IndustryJob[]>();
     for (const j of d.meta.industry?.jobs ?? []) if (jobWaiting(j, now)) byPlace.set(j.stationId, [...(byPlace.get(j.stationId) ?? []), j]);
     for (const [place, jobs] of byPlace) {
-      const what = jobs.map((j) => `${ACTIVITY[j.activity] ?? 'Job'}: ${name(j.productTypeId ?? j.blueprintTypeId)}${j.runs > 1 ? ` ×${units(j.runs)}` : ''}`);
+      const what = jobs.map((j) => `${ACTIVITY_SAID[j.activity] ?? 'Job'}: ${name(j.productTypeId ?? j.blueprintTypeId)}${j.runs > 1 ? ` ×${units(j.runs)}` : ''}`);
       out.push({
         key: `industry:${place}`, ver: jobs.map((j) => j.jobId).sort((a, b) => a - b).join('.'), kind: 'industry', source: 'industry', stake: 0,
         title: `${units(jobs.length)} industry job${jobs.length === 1 ? '' : 's'} ready at ${d.meta.industry?.places[place] ?? 'a facility'}`,

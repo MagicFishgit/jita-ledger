@@ -1309,5 +1309,13 @@ console.log('\n--- home prices from Goonmetrics, read gently by the cloud (Task 
   await rejects('  a hub the cloud doesn\'t read is refused', () => homePrices(d1(), 1030049082711), /Not a hub the cloud reads/);
 }
 
+console.log('\n--- the blueprints doc goes up like any other ---');
+{
+  const { push } = await import('../worker/src/sync.ts');
+  const db = d1();
+  const r = await push(db, MAIN, { records: [], docs: [{ key: 'blueprints', d: { list: [] } }] });
+  eq('  a push carrying the blueprints doc is taken, not refused as unknown', [r.docs, db.rows('SELECT key FROM docs WHERE char_id = ?', MAIN).map((x) => x.key)], [1, ['blueprints']]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

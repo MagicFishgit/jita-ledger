@@ -8020,5 +8020,133 @@ console.log('\n--- Industry: Tech II through invention (industryRank.ts, industr
   eq('    from Itamo, Sobaseki\'s, at its index', S.labFor(S.homeSite(30000119, 'Itamo', 'other'), { ...S.siteFacts(S.homeSite(30000119, 'Itamo', 'other'), g, high, idx), canScience: false }, ix.b.stations, g, idx).site.index === idx[30001363], true);
 }
 
+console.log('\n--- Industry stage 2: units a run in industryEiv.json (Task 9A) ---');
+{
+  const fsE = await import('node:fs');
+  const E = JSON.parse(fsE.readFileSync(new URL('../src/data/industryEiv.json', import.meta.url)));
+  // Built-and-sold claims a job's units from its runs × units a run, which ESI's job doesn't give and only the 1 MB bundle
+  // held: every blueprint with ME 0 materials now names its product and how many a run makes.
+  eq('  every blueprint in it names its product and units a run', [Object.keys(E.out).length, Object.keys(E.out).every((k) => k in E.eiv)], [Object.keys(E.eiv).length, true]);
+  eq('  the Large Trimark Armor Pump I Blueprint makes one a run; the Scourge Cruise Missile Blueprint a hundred', [E.out[25895], E.out[804]], [[25894, 1], [203, 100]]);
+}
+
+console.log('\n--- Industry stage 2: jobs kept past ESI\'s 90 days (industryTrack.ts) ---');
+{
+  const T = await import('../src/lib/industryTrack.ts');
+  const I = await import('../src/lib/industry.ts');
+  const fsT = await import('node:fs');
+  const FX = JSON.parse(fsT.readFileSync(new URL('./fixtures/industry-everef.json', import.meta.url), 'utf8'));
+  const E = JSON.parse(fsT.readFileSync(new URL('../src/data/industryEiv.json', import.meta.url)));
+  const indices = I.parseIndices(FX.systems);
+  // ESI's row (OpenAPI 2026-08-18): the pump, 65 runs at UALX-3's 1st Byzantigoon (a structure), started 10:00.
+  const raw = (over = {}) => ({
+    job_id: 501, installer_id: 95210486, facility_id: 1046664001931, station_id: 1046664001931, activity_id: 1,
+    blueprint_id: 7001, blueprint_type_id: 25895, blueprint_location_id: 1046664001931, output_location_id: 1046664001931,
+    runs: 65, status: 'active', duration: 66000, start_date: '2026-10-11T10:00:00Z', end_date: '2026-10-12T04:20:00Z',
+    product_type_id: 25894, licensed_runs: 40, cost: 17213916, ...over,
+  });
+  const job = T.toJob(raw(), '2026-10-11T10:20:00Z', 1);
+  eq('  ESI\'s row as kept: what ran, where, when, its cost, and where its products land', job, {
+    jobId: 501, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 65, licensedRuns: 40, successfulRuns: null,
+    probability: null, cost: 17213916, facilityId: 1046664001931, stationId: 1046664001931, outputId: 1046664001931,
+    start: '2026-10-11T10:00:00Z', end: '2026-10-12T04:20:00Z', completed: null, status: 'active', perRun: 1, seenAt: '2026-10-11T10:20:00Z',
+  });
+  eq('  units a run only for manufacturing: a copy job keeps none', T.toJob(raw({ activity_id: 5 }), '2026-10-11T10:20:00Z', 1).perRun, null);
+
+  const sight = { bp: { me: 10, te: 20 }, systemId: 30004807, indices, adjusted: FX.adjusted, eiv: E.eiv };
+  const f = T.firstSight(job, sight);
+  eq('  first seen while active: the blueprint\'s ME and TE as read, the system, its manufacturing index, the EIV a run',
+    [f.me, f.te, f.systemId, f.index, Math.round(f.eiv * 65)], [10, 20, 30004807, indices[30004807].manufacturing, 157590413]);
+  eq('    a job first seen after it ended has none', T.firstSight({ ...job, status: 'ready' }, sight), undefined);
+  eq('    nothing read is not known, never 0: no blueprint read, no system, no prices', T.firstSight(job, { bp: null, systemId: null, indices: null, adjusted: null, eiv: null }),
+    { me: null, te: null, systemId: null, index: null, eiv: null, at: '2026-10-11T10:20:00Z' });
+  const inv = T.toJob(raw({ activity_id: 8, product_type_id: 26303, runs: 3 }), '2026-10-11T10:20:00Z', null);
+  eq('    invention\'s EIV is the Tech II blueprint\'s it makes, at the invention index', [Math.round(T.firstSight(inv, sight).eiv), T.firstSight(inv, sight).index], [35524196, indices[30004807].invention]);
+
+  // Two writers: the cloud saw it at 10:20 while active; a browser first saw it at 18:00, ready, with no first-sight fields.
+  const cloud = { ...job, first: f };
+  const late = T.toJob(raw({ status: 'ready', end_date: '2026-10-11T17:50:00Z' }), '2026-10-11T18:00:00Z', 1);
+  const m1 = T.mergeJob(late, cloud), m2 = T.mergeJob(cloud, late);
+  eq('  merged either way round: first-sight fields kept, the earliest seen, ESI\'s fields from the later status',
+    [m1.first, m1.seenAt, m1.status, m1.end, m2.first, m2.seenAt, m2.status, m2.end],
+    [f, '2026-10-11T10:20:00Z', 'ready', '2026-10-11T17:50:00Z', f, '2026-10-11T10:20:00Z', 'ready', '2026-10-11T17:50:00Z']);
+  eq('    a stale read never moves a delivered job back to active', T.mergeJob({ ...cloud, status: 'delivered', completed: '2026-10-12T05:00:00Z' }, { ...job, seenAt: '2026-10-11T11:00:00Z' }).status, 'delivered');
+  eq('    the same job read again is the stored record itself (nothing to push)', T.mergeJob(cloud, { ...job, seenAt: '2026-10-11T12:00:00Z' }) === cloud, true);
+  eq('    a stored record that isn\'t one (an older build\'s, or another job) gives way', T.mergeJob({ junk: 1 }, job), job);
+
+  const ctx = { seenAt: '2026-10-11T10:20:00Z', perRun: (bp) => E.out[bp]?.[1] ?? null, bp: (id) => (id === 7001 ? { me: 10, te: 20 } : null), systemOf: () => 30004807, indices, adjusted: FX.adjusted, eiv: E.eiv };
+  const got = T.readJobs([raw(), raw({ job_id: 502, status: 'delivered', completed_date: '2026-10-10T08:00:00Z' })], {}, ctx);
+  eq('  ESI\'s list read onto nothing held: both kept, first-sight fields only on the active one', got.map((x) => [x.jobId, !!x.first, x.perRun]), [[501, true, 1], [502, false, 1]]);
+  const held = Object.fromEntries(got.map((x) => [String(x.jobId), x]));
+  eq('    read again unchanged: nothing changed', T.readJobs([raw(), raw({ job_id: 502, status: 'delivered', completed_date: '2026-10-10T08:00:00Z' })], held, { ...ctx, seenAt: '2026-10-11T11:00:00Z' }), []);
+  // Held from a late sight (no first-sight fields) and running in this read: it isn't sighted again.
+  eq('    a held job isn\'t sighted again, whatever it shows now', T.readJobs([raw()], { 501: late }, ctx)[0]?.first, undefined);
+  eq('    the jobs not held yet', T.newJobs([raw(), raw({ job_id: 503 })], held).map((r) => r.job_id), [503]);
+  eq('  units a job made: runs × units a run, manufacturing only; not known without units a run', [T.jobUnits(job), T.jobUnits({ ...job, perRun: null }), T.jobUnits(inv)], [65, null, null]);
+  const sightAt = (at) => ({ ...cloud, first: { ...f, at } });
+  eq('  checked only when first seen running within 90 minutes of its start', [T.checkable(cloud), T.checkable(sightAt('2026-10-11T11:29:00Z')), T.checkable(sightAt('2026-10-11T11:31:00Z')), T.checkable(late)], [true, true, false, false]);
+  // Seen paused at 10:05 (no first sight), running at 13:00: merged, the earliest seen is 10:05, but the first sight was
+  // taken at 13:00, three hours after the start: not checkable (correction 21, pre-flight M10).
+  const pausedEarly = T.toJob(raw({ status: 'paused' }), '2026-10-11T10:05:00Z', 1);
+  const runningLate = { ...T.toJob(raw(), '2026-10-11T13:00:00Z', 1), first: { ...f, at: '2026-10-11T13:00:00Z' } };
+  const ml = T.mergeJob(pausedEarly, runningLate);
+  eq('    a first sight taken later than the first seeing is judged by its own time', [ml.seenAt, ml.first.at, T.checkable(ml)], ['2026-10-11T10:05:00Z', '2026-10-11T13:00:00Z', false]);
+  eq('  the Industry window\'s activity names', [T.ACTIVITY_SAID[1], T.ACTIVITY_SAID[4], T.ACTIVITY_SAID[8]], ['Manufacturing', 'ME research', 'Invention']);
+}
+
+console.log('\n--- Industry stage 2: the blueprints document (industryTrack.ts) ---');
+{
+  const T = await import('../src/lib/industryTrack.ts');
+  const { readBlueprints } = await import('../src/lib/blueprints.ts');
+  const b = (item_id, type_id, location_id, quantity, runs, me, te) => ({ item_id, type_id, location_id, location_flag: 'Hangar', quantity, runs, material_efficiency: me, time_efficiency: te });
+  const raw = [b(30, 25895, 60003760, -1, -1, 10, 20), b(10, 25895, 1046664001931, -2, 40, 10, 20), b(20, 804, 1_030_000_001, 3, -1, 0, 0)];
+  const doc = T.toBlueprintsDoc(raw, { 1030000001: 'Blueprints', 99: 'gone' });
+  eq('  sorted by item ID, each row [item, type, where, flag, quantity, runs, ME, TE]; names only for places it holds', doc, {
+    list: [[10, 25895, 1046664001931, 'Hangar', -2, 40, 10, 20], [20, 804, 1030000001, 'Hangar', 3, -1, 0, 0], [30, 25895, 60003760, 'Hangar', -1, -1, 10, 20]],
+    names: { 1030000001: 'Blueprints' },
+  });
+  eq('  read back as the Blueprints page reads ESI', T.ownedOf(doc), readBlueprints([...raw].sort((x, y) => x.item_id - y.item_id)));
+  eq('  a blueprint\'s ME and TE by its item ID; one not held is none', [T.bpAt(doc, 30), T.bpAt(doc, 31), T.bpAt(undefined, 30)], [{ me: 10, te: 20 }, null, null]);
+  // A running job's blueprint may be missing from the read just taken (ESI may not list one installed in a job): the doc held
+  // before the read stands in (correction 20, pre-flight I2).
+  const fresh = T.toBlueprintsDoc(raw.filter((x) => x.item_id !== 30));
+  eq('  first sight looks in the fresh read, then in the doc held before it', [T.bpFrom(fresh, doc)(30), T.bpFrom(fresh, doc)(10), T.bpFrom(fresh, undefined)(30), T.bpFrom(undefined, doc)(30)],
+    [{ me: 10, te: 20 }, { me: 10, te: 20 }, null, { me: 10, te: 20 }]);
+  eq('  places still to name: containers and ships, structures; never a station', T.placesToName(T.toBlueprintsDoc(raw)), { items: [1030000001], structures: [1046664001931] });
+  eq('    a place named once (or found to have no name) isn\'t asked again', T.placesToName(T.toBlueprintsDoc(raw, { 1030000001: '', 1046664001931: '' })), { items: [], structures: [] });
+  eq('  sanitized: absent is not read; a row that isn\'t one is dropped; an empty list is read', [T.sanitizeBlueprints(undefined), T.sanitizeBlueprints({ list: [[1, 2, 3, 'Hangar', -1, -1, 0, 0], ['x'], [5, 6, 7, 'Hangar', -1, -1, 99, 0]] }), T.sanitizeBlueprints({ list: [] }), T.sanitizeBlueprints('x')],
+    [undefined, { list: [[1, 2, 3, 'Hangar', -1, -1, 0, 0]] }, { list: [] }, undefined]);
+  eq('  the station and structure bands', [T.isStationId(60003760), T.isStationId(1030000001), T.isStructureId(1046664001931)], [true, false, true]);
+}
+
+console.log('\n--- Industry stage 2: a new record kind and document sync like the others (cloudSync.ts) ---');
+{
+  const C = await import('../src/lib/cloudSync.ts');
+  eq('  jobs go record by record; blueprints are a document', [C.RECORD_KEYS.jobs, C.DOC_KEYS.includes('blueprints')], ['map', true]);
+  // A Worker a version behind answers 400 "Unknown record kind: jobs" and takes nothing of the push: the browser sends the
+  // rest without that kind and keeps it waiting (cloud.ts pushNow), as refusedDoc does for a document.
+  eq('  a refused kind is named; anything else isn\'t one', [C.refusedKind('Unknown record kind: jobs'), C.refusedKind('Unknown record kind: frogs'), C.refusedKind('Unknown document: blueprints'), C.refusedKind(undefined)], ['jobs', null, null, null]);
+  const first = { me: 10, te: 20, systemId: 30004807, index: 0.0617, eiv: 2424467.9 };
+  const mine = { jobId: 501, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 65, licensedRuns: 40, successfulRuns: null, probability: null, cost: 17213916,
+    facilityId: 1, stationId: 1, outputId: 1, start: '2026-10-11T10:00:00Z', end: '2026-10-12T04:20:00Z', completed: null, status: 'active', perRun: 1, seenAt: '2026-10-11T10:20:00Z', first };
+  const down = { ...mine, status: 'ready', seenAt: '2026-10-11T18:00:00Z' };
+  delete down.first;
+  const { emptyData } = await import('../src/lib/emptyData.ts');
+  const p = C.applyPulled({ ...emptyData(), jobs: { 501: mine } }, { records: [{ k: 'jobs', i: '501', d: down }], docs: [] });
+  eq('  a job that comes down without its first-sight fields keeps this browser\'s (mergeJob)', [p.jobs[501].first, p.jobs[501].status, p.jobs[501].seenAt], [first, 'ready', '2026-10-11T10:20:00Z']);
+  const q = C.applyPulled({ ...emptyData(), jobs: { 501: down } }, { records: [{ k: 'jobs', i: '501', d: mine }], docs: [] });
+  eq('  and the other way: a browser holding only its late record takes the cloud\'s first-sight fields when they come down', [q.jobs[501].first, q.jobs[501].status, q.jobs[501].seenAt], [first, 'ready', '2026-10-11T10:20:00Z']);
+  eq('  an empty ledger: no jobs, blueprints not read', [emptyData().jobs, 'blueprints' in emptyData()], [{}, false]);
+}
+
+console.log('\n--- Industry stage 2: an alt\'s copy carries its jobs and blueprints (altLedger.ts) ---');
+{
+  const { altLedger } = await import('../src/lib/altLedger.ts');
+  const saved = { rev: 3, records: { jobs: { 9: { jobId: 9 } } }, docs: { blueprints: { list: [[1, 25895, 60003760, 'Hangar', -1, -1, 4, 8]] } } };
+  const l = altLedger(saved);
+  eq('  its jobs and its blueprints doc, read-only', [l.jobs, l.blueprints], [{ 9: { jobId: 9 } }, { list: [[1, 25895, 60003760, 'Hangar', -1, -1, 4, 8]] }]);
+  eq('  none read: no jobs, blueprints not read', [altLedger({ rev: 0, records: {}, docs: {} }).jobs, altLedger({ rev: 0, records: {}, docs: {} }).blueprints], [{}, undefined]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

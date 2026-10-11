@@ -5,6 +5,7 @@ import { mergeCharsDoc, sanitizeAlerts, sanitizeChars, sanitizeIndustry, sanitiz
 import { releaseOrphans, sanitizePlans, type TradePlan } from './plans';
 import type { MiningRecord } from './mining';
 import { emptyData } from './emptyData';
+import { sanitizeBlueprints, type BlueprintsDoc, type JobRecord } from './industryTrack';
 import type {
   AlertConfig, AlertLogEntry, Goal, JournalEntry, Killmail, Meta, NetWorthPoint, Order, Position, Prefs,
   Stock, Tx, UntrackedTag, WatchItem,
@@ -65,11 +66,15 @@ export type Data = {
   chars: CharsDoc;
   /** The Industry tab's decisions: build sites, freight routes, typed taxes and broker fees, the share, the ships switch (prefs.ts). */
   industry: IndustryDoc;
+  /** Your industry jobs, every status, kept past ESI's 90 days (industryTrack.ts): records of kind `jobs`, by job ID. */
+  jobs: Record<string, JobRecord>;
+  /** Your blueprints as last read (industryTrack.ts BlueprintsDoc). Absent: not read yet. */
+  blueprints?: BlueprintsDoc;
 };
 type Key = keyof Data;
 const KEYS: Key[] = [
   'settings', 'txs', 'journal', 'orders', 'positions', 'watchlist', 'names', 'ignored', 'stock', 'skills', 'meta',
-  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'leaveFrom', 'safetyTimes', 'notSnipes', 'plans', 'mining', 'chars', 'industry',
+  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'leaveFrom', 'safetyTimes', 'notSnipes', 'plans', 'mining', 'chars', 'industry', 'jobs', 'blueprints',
 ];
 
 const idb = createStore('jita-ledger', 'kv');
@@ -111,6 +116,7 @@ export async function initStore(): Promise<void> {
   data.leaveFrom = sanitizeLeaveFrom(data.leaveFrom);
   data.chars = sanitizeChars(data.chars);
   data.industry = sanitizeIndustry(data.industry);
+  data.blueprints = sanitizeBlueprints(data.blueprints);
   if (!data.meta.rateHistory?.length) {
     // Assume today's rates applied to everything before the first recorded change.
     const r = rates(data.settings);
@@ -259,6 +265,7 @@ export async function importAll(json: string): Promise<void> {
   if (p.notSnipes) p.notSnipes = sanitizeNotSnipes(p.notSnipes);
   if (p.plans) p.plans = sanitizePlans(p.plans);
   if (p.industry) p.industry = sanitizeIndustry(p.industry);
+  if (p.blueprints !== undefined) p.blueprints = sanitizeBlueprints(p.blueprints);
   update(p);
 }
 

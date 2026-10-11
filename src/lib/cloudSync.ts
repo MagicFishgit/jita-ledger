@@ -1,4 +1,5 @@
 import type { Data } from './store';
+import { mergeJob, type JobRecord } from './industryTrack';
 
 /**
  * What the cloud copy of the ledger is made of, and how a change on one side becomes a change on the other.
@@ -13,13 +14,13 @@ type Rec = Record<string, unknown>;
 
 /** Collections synced record by record, with how to find each record's ID and rebuild the collection. */
 export const RECORD_KEYS = {
-  txs: 'map', journal: 'map', orders: 'map', names: 'map', killmails: 'map', tags: 'map', mining: 'map',
+  txs: 'map', journal: 'map', orders: 'map', names: 'map', killmails: 'map', tags: 'map', mining: 'map', jobs: 'map',
   positions: 'id', goals: 'id', watchlist: 'typeId', netWorth: 'date',
 } as const;
 export type RecordKey = keyof typeof RECORD_KEYS;
 
 /** Whole values synced as one document each. */
-export const DOC_KEYS = ['settings', 'meta', 'prefs', 'alerts', 'stock', 'skills', 'ignored', 'nearDone', 'unusualOk', 'leave', 'safetyTimes', 'notSnipes', 'plans', 'chars', 'leaveFrom', 'industry'] as const;
+export const DOC_KEYS = ['settings', 'meta', 'prefs', 'alerts', 'stock', 'skills', 'ignored', 'nearDone', 'unusualOk', 'leave', 'safetyTimes', 'notSnipes', 'plans', 'chars', 'leaveFrom', 'industry', 'blueprints'] as const;
 export type DocKey = (typeof DOC_KEYS)[number];
 
 /**
@@ -45,6 +46,16 @@ export const isDocKey = (k: string): k is DocKey => (DOC_KEYS as readonly string
 export function refusedDoc(message: string | undefined | null): DocKey | null {
   const m = /^Unknown document: (\w+)$/.exec(message ?? '');
   return m && isDocKey(m[1]) ? m[1] : null;
+}
+
+/**
+ * The record kind a Worker a version behind refused a push over (worker/src/sync.ts answers 400 "Unknown record kind: X" and
+ * takes nothing of that push). The browser sends the rest without that kind's records and keeps them waiting, as refusedDoc
+ * does for a document: a new kind never stops the sync while the site deploys before the Worker. Null for any other answer.
+ */
+export function refusedKind(message: string | undefined | null): RecordKey | null {
+  const m = /^Unknown record kind: (\w+)$/.exec(message ?? '');
+  return m && isRecordKey(m[1]) ? m[1] : null;
 }
 
 /** A collection as a map of ID to record, whatever its shape in the store. */
@@ -109,7 +120,9 @@ export function applyPulled(data: Data, pulled: Pulled): Partial<Data> {
     const current = (data as unknown as Rec)[key];
     if (how === 'map') {
       const next: Rec = { ...((current as Rec) ?? {}) };
-      for (const { i, d } of rows) { if (d == null) delete next[i]; else next[i] = d; }
+      // A job is kept by several writers: what comes down is merged onto what's here (industryTrack.ts mergeJob), so a
+      // record a device built after the job ended never drops the first-sight fields this one holds.
+      for (const { i, d } of rows) { if (d == null) delete next[i]; else next[i] = key === 'jobs' ? mergeJob(next[i] as JobRecord | undefined, d as JobRecord) : d; }
       patch[key] = next;
     } else {
       const list = [...((current as Rec[]) ?? [])];
