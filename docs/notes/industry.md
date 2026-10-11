@@ -473,6 +473,16 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
     count**; a snapshot no newer than the kept one (EVE Ref stalled) is `stale`, not an error, and tried again the next hour; a
     failed read keeps the set and what sold and says why; a kept set more than seven days older than the new snapshot is replaced
     without comparing (a week of sales on one day is no pace).
+  - **A snapshot that isn't whole is refused, never compared** (the review of Task 14A). The first `ContractSink` stopped at the
+    archive's end and answered the snapshot's time with no contracts, whatever was missing, and the round compared it: an empty
+    06:00 read counted all 96 kept contracts as sold and replaced the set with none, and the whole 12:00 snapshot then took 67
+    back and left 29 where whole snapshots give 28 (5 reprices under new IDs kept as sales, 4 real sales missed). Now the reader
+    refuses an archive lacking meta, contracts or items, a stream cut short (`result()` throws), an empty CSV, and a header
+    without a column it reads or with one past the 40 it splits ("EVE Ref’s contracts.csv has no issuer_id column"); the
+    Blueprints route then errors rather than answering empty. And the round refuses a snapshot with no copy contracts, or under
+    half those kept (the 11 October sets held 11,402 to 11,432): it says so, keeps the set and what sold as they are, writes no
+    sale and tries again the next hour; the next whole snapshot is compared with the set kept (the fixture's 00:00 against 12:00:
+    25, the six-hourly count's 28 less what the skipped read would have seen).
   - **A partial snapshot is undone by the next** (correction 20): a page EVE Ref's scraper missed makes its contracts look sold; a
     contract in `copy_sold` that is back in a newer snapshot never left, and is taken out (`back`). Tested with one contract
     missing from the 06:00 snapshot: 17 counted, then 28, as with whole snapshots.
@@ -486,6 +496,14 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   - **D1's cost**: about 375 inserts and 375 prunes a round, each written twice with the `copy_sold_at` index, and the set's rows
     and the state: about 1,500 row writes a round, 6,000 a day, 180,000 a month, under 0.4% of the plan's 50 M. A round that
     read the same snapshot writes only its state.
+  - **EVE Ref unchanged is a 304, not a download** (the review of Task 14A): the round keeps the ETag of the newest file it read
+    that wasn't newer than the kept set and, while a set is kept, sends it as `If-None-Match`; a 304 is the same as reading the
+    same snapshot (`stale`, tried again the next hour), with nothing downloaded and nothing written but the state. The Blueprints
+    route sends none.
+  - **`GET /v1/copies` before a set is kept** answers `{ tried, error }` once a round has tried (a failed first read, or one the
+    cloud stopped: `INTERRUPTED`), so the tab can say why; `null` only when no round has tried. A summary always carries `at` and
+    this never does: Task 14B's `CopiesAnswer` and `useCopyMarket` have to tell them apart (the plan's version maps every answer
+    that isn't null or `off` to a summary).
   - **`COPIES_ON`** (copies.ts) switches it off; the route then answers `{ off: true }`. EVE Ref is someone else's site: one file
     every six hours, the Blueprints route's User-Agent naming the project only, not a watched job (the section says how old its
     read is).

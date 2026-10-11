@@ -94,6 +94,16 @@ const SNAPSHOT_FILES: Record<string, SnapshotFile> = { 'meta.json': 'meta', 'con
 const fileOf = (name: string): SnapshotFile => SNAPSHOT_FILES[name.slice(name.lastIndexOf('/') + 1)] ?? null;
 const ITEM_EXCHANGE = new TextEncoder().encode('item_exchange'), TRUE = new TextEncoder().encode('true');
 const MAX_FIELDS = 40;
+const FILE_NAMES = { meta: 'meta.json', contracts: 'contracts.csv', items: 'contract_items.csv' } as const;
+/**
+ * Every column ContractSink reads, by file. A header without one, or with one past MAX_FIELDS, is refused: read anyway, the
+ * column would read empty on every line and the snapshot would look like one with no contracts (the review of Task 14A: an
+ * empty read counted every kept copy as sold).
+ */
+const NEEDED = {
+  contracts: ['contract_id', 'type', 'region_id', 'price', 'date_issued', 'date_expired', 'station_id', 'start_location_id', 'issuer_id', 'title', 'for_corporation'],
+  items: ['contract_id', 'type_id', 'is_included', 'is_blueprint_copy', 'item_id', 'material_efficiency', 'time_efficiency', 'runs', 'quantity'],
+} as const;
 
 /**
  * The region's blueprint-only contracts, read as the bzip2 decoder writes the tar a byte at a time (stage 3, correction 19): each
@@ -206,7 +216,17 @@ export class ContractSink {
 
   private endLine(): void {
     if (!this.llen) return;
-    if (!this.cols) { this.cols = new Map(csvFields(this.dec.decode(this.line.subarray(0, this.llen))).map((c, i) => [c.trim(), i])); this.llen = 0; return; }
+    if (!this.cols) {
+      this.cols = new Map(csvFields(this.dec.decode(this.line.subarray(0, this.llen))).map((c, i) => [c.trim(), i]));
+      const file = this.cur!.file as 'contracts' | 'items';
+      for (const name of NEEDED[file]) {
+        const at = this.cols.get(name);
+        if (at == null) throw new Error(`EVE Ref’s ${FILE_NAMES[file]} has no ${name} column`);
+        if (at >= MAX_FIELDS) throw new Error(`EVE Ref’s ${FILE_NAMES[file]} puts ${name} past the ${MAX_FIELDS} columns read`);
+      }
+      this.llen = 0;
+      return;
+    }
     this.split();
     if (this.cur!.file === 'contracts') {
       if (this.is(this.col('type'), ITEM_EXCHANGE) && this.int(this.col('region_id')) === this.opts.region && !this.is(this.col('for_corporation'), TRUE)) {
@@ -240,15 +260,31 @@ export class ContractSink {
 
   private finish(): void {
     const file = this.cur!.file;
-    if (file === 'contracts' || file === 'items') this.endLine();
+    if (file === 'contracts' || file === 'items') {
+      this.endLine();
+      if (!this.cols) throw new Error(`EVE Ref’s ${FILE_NAMES[file]} is empty`);
+    }
     if (file === 'meta') { try { this.at = (JSON.parse(this.dec.decode(new Uint8Array(this.meta))) as { scrape_end?: string }).scrape_end ?? null; } catch { this.at = null; } this.meta = []; }
     if (file) this.done.add(file);
     this.cur = null;
     if (this.done.has('meta') && this.done.has('contracts') && this.done.has('items')) throw TAR_DONE;
   }
 
-  /** The contracts kept: blueprints only, not expired at `now` (else the snapshot's own time), holding one of `types` when asked; and every copy's seller. */
+  /**
+   * Throws unless meta, contracts and items were all read: an archive that ended before them, or a stream cut short, is no
+   * snapshot, and read as one it would look like a snapshot with no contracts (the review of Task 14A).
+   */
+  private whole(): void {
+    const lacking = (['meta', 'contracts', 'items'] as const).filter((f) => !this.done.has(f)).map((f) => FILE_NAMES[f]);
+    if (lacking.length) throw new Error(`EVE Ref’s snapshot lacks ${lacking.length > 1 ? `${lacking.slice(0, -1).join(', ')} and ${lacking[lacking.length - 1]}` : lacking[0]}`);
+  }
+
+  /**
+   * The contracts kept: blueprints only, not expired at `now` (else the snapshot's own time), holding one of `types` when asked;
+   * and every copy's seller. Throws when the three files weren't all read.
+   */
   result(): { contracts: BpContract[]; at: string | null; copyIssuers: ReadonlyMap<number, number> } {
+    this.whole();
     const now = this.opts.now ?? (this.at ? Date.parse(this.at) : Date.now());
     const types = this.opts.types;
     const contracts = [...this.kept.values()].filter((c) => c.items.length && Date.parse(c.expires) > now && (!types || c.items.some((i) => types.has(i.typeId))));

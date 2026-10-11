@@ -5,13 +5,14 @@
  * contract of the set kept last time that vanished before expiry, not relisted by its seller, in `copy_sold` (kept eight
  * days). The summary the Copies section reads is worked out once a round and kept in `scan_meta` ('copySummary'), beside the
  * round's own state ('copies'), all in one batch with the set. EVE Ref is someone else's site: one 6.6 MB file every six
- * hours, a User-Agent naming the project only, a 90-second timeout, not a watched job (the section says how old its read
- * is), and COPIES_ON switches it off.
+ * hours (one unchanged since the last read is a 304 to its ETag, not downloaded again), a User-Agent naming the project only, a
+ * 90-second timeout, not a watched job (the section says how old its read is), and COPIES_ON switches it off. A snapshot that
+ * isn't whole (no copy contracts, or under half those kept) is refused rather than compared.
  */
 import type { BpContract } from '../../src/lib/bpContracts';
 import { THE_FORGE } from '../../src/lib/constants';
 import { COPY_KEEP_DAYS, COPY_WINDOW_DAYS, compactCopies, copiesSold, copySummary, itemIssuers, soldRows, type CopyRead, type CopyRow, type CopySummary, type SoldRow } from '../../src/lib/copyMarket';
-import { LATEST, readSnapshot } from './blueprints';
+import { LATEST, readSnapshot, type SnapshotUnchanged } from './blueprints';
 
 export const COPIES_ON = true;
 export const COPIES_REFRESH_MS = 6 * 3_600_000;
@@ -27,22 +28,30 @@ export const COPY_PART = 3000;
 export const INTERRUPTED = 'interrupted: the cloud stopped the read before it finished';
 const DAY = 86_400_000;
 
-/** A snapshot as the round reads it; `copyIssuers`: every copy of The Forge's item exchanges to its seller (ContractSink), else worked out from `contracts`. */
-export type Snapshot = { at: string | null; contracts: BpContract[]; copyIssuers?: ReadonlyMap<number, number> };
+/**
+ * A snapshot as the round reads it; `copyIssuers`: every copy of The Forge's item exchanges to its seller (ContractSink), else
+ * worked out from `contracts`; `etag`: the ETag EVE Ref sent with it.
+ */
+export type Snapshot = { at: string | null; contracts: BpContract[]; copyIssuers?: ReadonlyMap<number, number>; etag?: string | null };
 /**
  * The round's state: when it last tried and last read (the Worker's clock), the last error (INTERRUPTED until a try ends), the
- * kept snapshot's time when EVE Ref's latest was still that one at the last try (not an error: nothing new to read), and each
- * comparison's span.
+ * kept snapshot's time when EVE Ref's latest was still that one at the last try (not an error: nothing new to read), each
+ * comparison's span, and the ETag of the newest file read that wasn't newer than the kept set (sent as If-None-Match).
  */
-export type CopiesState = { tried: number; read: number; error: string | null; stale: string | null; reads: CopyRead[] };
+export type CopiesState = { tried: number; read: number; error: string | null; stale: string | null; reads: CopyRead[]; etag: string | null };
+/** `GET /v1/copies` before a read has kept a set, once a round has tried: when, and why it didn't (INTERRUPTED: the cloud stopped it). */
+export type CopiesUnread = { tried: string; error: string | null };
 
-/** The default reader: EVE Ref's latest snapshot of The Forge, expiry judged at the snapshot's own time. */
-export const latestSnapshot = (): Promise<Snapshot> => readSnapshot(LATEST, { region: THE_FORGE });
+/**
+ * The default reader: EVE Ref's latest snapshot of The Forge, expiry judged at the snapshot's own time. With the kept file's
+ * ETag, an unchanged file is a 304: nothing downloaded.
+ */
+export const latestSnapshot = (etag: string | null = null): Promise<Snapshot | SnapshotUnchanged> => readSnapshot(LATEST, { region: THE_FORGE, etag });
 
 async function stateOf(db: D1Database): Promise<CopiesState> {
   const r = await db.prepare(`SELECT data FROM scan_meta WHERE key = 'copies'`).first<{ data: string }>();
   const s = r ? (JSON.parse(r.data) as Partial<CopiesState>) : {};
-  return { tried: s.tried ?? 0, read: s.read ?? 0, error: s.error ?? null, stale: s.stale ?? null, reads: Array.isArray(s.reads) ? s.reads : [] };
+  return { tried: s.tried ?? 0, read: s.read ?? 0, error: s.error ?? null, stale: s.stale ?? null, reads: Array.isArray(s.reads) ? s.reads : [], etag: s.etag ?? null };
 }
 const putMeta = (db: D1Database, key: string, v: unknown) =>
   db.prepare('INSERT INTO scan_meta (key, data) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET data = excluded.data').bind(key, JSON.stringify(v));
@@ -58,7 +67,7 @@ export async function ownCharacters(db: D1Database): Promise<Set<number>> {
  * what sold, take back what a partial snapshot made look sold, replace the set, and write the summary and the state; then prune.
  * `read`, `on`, `deadline` and `part` are for the tests and the cron.
  */
-export async function refreshCopies(db: D1Database, now = Date.now(), o: { read?: () => Promise<Snapshot>; on?: boolean; deadline?: number; part?: number } = {}) {
+export async function refreshCopies(db: D1Database, now = Date.now(), o: { read?: (etag: string | null) => Promise<Snapshot | SnapshotUnchanged>; on?: boolean; deadline?: number; part?: number } = {}) {
   if (!(o.on ?? COPIES_ON)) return { off: true as const };
   const st = await stateOf(db);
   // A read the cloud stopped waits the full six hours, never the hour: the same read would likely stop again.
@@ -68,11 +77,22 @@ export async function refreshCopies(db: D1Database, now = Date.now(), o: { read?
   // Every way this round ends writes over it; one the cloud kills leaves it (I5).
   await putMeta(db, 'copies', { ...st, tried: now, error: INTERRUPTED }).run();
   const stamp = (error: string) => putMeta(db, 'copies', { ...st, tried: now, error }).run();
-  let snap: Snapshot;
-  try { snap = await (o.read ?? latestSnapshot)(); } catch (e) {
+  let snap: Snapshot | SnapshotUnchanged;
+  let keptAt: number | null;
+  try {
+    // The kept set's time alone: the set itself is read after the download, so the two are never in memory together.
+    keptAt = (await db.prepare('SELECT at FROM copy_set ORDER BY part LIMIT 1').first<{ at: number }>())?.at ?? null;
+    // The ETag only with a set kept to compare against: a 304 then means EVE Ref's latest is no newer than it.
+    snap = await (o.read ?? latestSnapshot)(keptAt != null ? st.etag : null);
+  } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
     await stamp(error);
     return { done: 'failed' as const, error };
+  }
+  if ('unchanged' in snap) {
+    // EVE Ref answered 304 to the kept ETag: the same as reading the same snapshot, without its 6.6 MB (the review of Task 14A).
+    await putMeta(db, 'copies', { ...st, tried: now, error: null, stale: keptAt != null ? new Date(keptAt).toISOString() : null }).run();
+    return { done: 'same' as const };
   }
   // What follows the read says how it ended too: a write D1 refuses, or a kept row that won't parse, is said and tried again the
   // next hour, never left as INTERRUPTED with the six hours' wait that only a round the cloud stops should get.
@@ -80,20 +100,30 @@ export async function refreshCopies(db: D1Database, now = Date.now(), o: { read?
   try {
     const at = snap.at ? Date.parse(snap.at) : NaN;
     if (!Number.isFinite(at)) { await stamp('EVE Ref’s snapshot says no time'); return { done: 'failed' as const, error: 'EVE Ref’s snapshot says no time' }; }
-    const parts = (await db.prepare('SELECT part, at, data FROM copy_set ORDER BY part').all<{ part: number; at: number; data: string }>()).results;
-    const keptAt = parts.length ? parts[0].at : null;
     if (keptAt != null && at <= keptAt) {
-      // EVE Ref hasn't written a newer snapshot: not a failure, nothing to compare, and the next hour tries again.
-      await putMeta(db, 'copies', { ...st, tried: now, error: null, stale: new Date(keptAt).toISOString() }).run();
+      // EVE Ref hasn't written a newer snapshot: not a failure, nothing to compare, and the next hour tries again (with this
+      // file's ETag, so an unchanged one isn't downloaded again).
+      await putMeta(db, 'copies', { ...st, tried: now, error: null, stale: new Date(keptAt).toISOString(), etag: snap.etag ?? st.etag }).run();
       return { done: 'same' as const };
     }
     const current = compactCopies(snap.contracts);
+    const parts = keptAt != null ? (await db.prepare('SELECT data FROM copy_set ORDER BY part').all<{ data: string }>()).results : [];
+    const older = parts.flatMap((p) => JSON.parse(p.data) as CopyRow[]);
+    // A snapshot with no copy contracts, or under half those kept (the sets of 11 October held 11,402 to 11,432), is a partial
+    // one: compared, every kept contract it lacks would count as sold for good (the review of Task 14A, an empty read: 96 of
+    // 96). Refused: said, the kept set and what sold left as they are, and tried again the next hour.
+    if (!current.length || current.length < older.length / 2) {
+      const error = current.length
+        ? `EVE Ref’s snapshot holds ${current.length} copy contracts of The Forge, under half the ${older.length} kept: taken for a partial snapshot, nothing compared`
+        : `EVE Ref’s snapshot holds no copy contracts of The Forge: taken for a partial snapshot, nothing ${keptAt != null ? 'compared' : 'kept'}`;
+      await stamp(error);
+      return { done: 'failed' as const, error };
+    }
     const newerIds = new Set(snap.contracts.map((c) => c.id));
     let sold: CopyRow[] = [];
     const reads = st.reads.filter((r) => r[1] > now - COPY_KEEP_DAYS * DAY);
     // A first read, or a kept set more than a week older than this one, compares nothing: a week of sales on one day is no pace.
     if (keptAt != null && at - keptAt <= COPY_WINDOW_DAYS * DAY) {
-      const older = parts.flatMap((p) => JSON.parse(p.data) as CopyRow[]);
       sold = copiesSold(older, newerIds, snap.copyIssuers ?? itemIssuers(snap.contracts), at);
       reads.push([keptAt, at, sold.length]);
     }
@@ -117,7 +147,7 @@ export async function refreshCopies(db: D1Database, now = Date.now(), o: { read?
     const size = o.part ?? COPY_PART;
     let p = 0;
     for (let i = 0; i < current.length || p === 0; i += size, p++) writes.push(db.prepare('INSERT INTO copy_set (part, at, data) VALUES (?1, ?2, ?3)').bind(p, at, JSON.stringify(current.slice(i, i + size))));
-    writes.push(putMeta(db, 'copySummary', summary), putMeta(db, 'copies', { tried: now, read: now, error: null, stale: null, reads }));
+    writes.push(putMeta(db, 'copySummary', summary), putMeta(db, 'copies', { tried: now, read: now, error: null, stale: null, reads, etag: snap.etag ?? null }));
     await db.batch(writes);
     kept = { contracts: current.length, sold: sold.length, parts: p, back: back.length };
   } catch (e) {
@@ -130,13 +160,17 @@ export async function refreshCopies(db: D1Database, now = Date.now(), o: { read?
   return { done: 'read' as const, contracts: kept.contracts, sold: kept.sold, parts: kept.parts, ...(kept.back ? { back: kept.back } : {}) };
 }
 
-/** For `GET /v1/copies`: the last round's summary with when it last tried, its error and whether EVE Ref had nothing newer; null before the first; `off` when switched off. */
-export async function copiesFor(db: D1Database, on = COPIES_ON): Promise<{ off: true } | (CopySummary & { tried: string | null; error: string | null; stale: string | null }) | null> {
+/**
+ * For `GET /v1/copies`: the last round's summary with when it last tried, its error and whether EVE Ref had nothing newer; `off`
+ * when switched off. Before a read has kept a set: `{ tried, error }` once a round has tried (a summary always has `at`; this
+ * never does), so the tab can say why (a failed read, or one the cloud stopped); null only when no round has tried.
+ */
+export async function copiesFor(db: D1Database, on = COPIES_ON): Promise<{ off: true } | (CopySummary & { tried: string | null; error: string | null; stale: string | null }) | CopiesUnread | null> {
   if (!on) return { off: true };
   const rows = (await db.prepare(`SELECT key, data FROM scan_meta WHERE key IN ('copies', 'copySummary')`).all<{ key: string; data: string }>()).results;
   const sum = rows.find((r) => r.key === 'copySummary');
-  if (!sum) return null;
   const st = rows.find((r) => r.key === 'copies');
   const s = st ? (JSON.parse(st.data) as Partial<CopiesState>) : {};
+  if (!sum) return s.tried ? { tried: new Date(s.tried).toISOString(), error: s.error ?? null } : null;
   return { ...(JSON.parse(sum.data) as CopySummary), tried: s.tried ? new Date(s.tried).toISOString() : null, error: s.error ?? null, stale: s.stale ?? null };
 }

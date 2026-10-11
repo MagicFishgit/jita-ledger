@@ -3866,6 +3866,32 @@ console.log('\n--- blueprints and their contracts ---');
     [short !== items, sh.result().contracts], [true, blueprintContracts(untar(shortTar), { region: 10000002, now: NOW }).contracts]);
   eq('  items before contracts are refused, never read wrong', String(feed(new ContractSink({ region: 10000002 }), tar([['meta.json', '{}'], ['contract_items.csv', items], ['contracts.csv', contracts]]))?.message),
     'EVE Ref’s snapshot lists its contracts’ items before its contracts');
+  // The review of Task 14A: an archive or a header that isn't whole is refused, never read as a snapshot with no contracts (which
+  // the copy round would have counted as every kept copy sold).
+  const refused = (bytes) => {
+    const snk = new ContractSink({ region: 10000002, now: NOW });
+    const e = feed(snk, bytes);
+    if (e && e !== TAR_DONE) return String(e.message ?? e);
+    try { return `read ${snk.result().contracts.length}`; } catch (x) { return String(x.message); }
+  };
+  const whole = tar([['meta.json', '{}'], ['contracts.csv', contracts], ['contract_items.csv', items]]);
+  eq('  a file missing, no file at all, a column renamed or past the 40 read, an empty CSV, a stream cut short: refused; the whole one read', [
+    refused(tar([['meta.json', '{}'], ['contracts.csv', contracts]])),
+    refused(tar([])),
+    refused(tar([['meta.json', '{}'], ['contracts.csv', contracts.replace(',issuer_id,', ',issuer,')], ['contract_items.csv', items]])),
+    refused(tar([['meta.json', '{}'], ['contracts.csv', contracts.split('\n').map((l) => (l ? 'x,'.repeat(40) + l : l)).join('\n')], ['contract_items.csv', items]])),
+    refused(tar([['meta.json', '{}'], ['contracts.csv', contracts], ['contract_items.csv', '']])),
+    refused(whole.subarray(0, whole.length - 1024 - 300)),
+    refused(whole),
+  ], [
+    'EVE Ref’s snapshot lacks contract_items.csv',
+    'EVE Ref’s snapshot lacks meta.json, contracts.csv and contract_items.csv',
+    'EVE Ref’s contracts.csv has no issuer_id column',
+    'EVE Ref’s contracts.csv puts contract_id past the 40 columns read',
+    'EVE Ref’s contract_items.csv is empty',
+    'EVE Ref’s snapshot lacks contract_items.csv',
+    'read 2',
+  ]);
 }
 
 console.log('\n--- what each freelance job made ---');

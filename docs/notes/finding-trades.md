@@ -631,6 +631,8 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   **The snapshot reader is shared with the cloud's copy round and filters as it decompresses** (`readSnapshot` in
   `worker/src/blueprints.ts`, `ContractSink` in `bpContracts.ts`, industry stage 3, 11 October 2026): the contracts and items
   files (39 MB of CSV by then) are no longer held whole; each line is split where it lies and only the region's blueprint-only
-  contracts are kept, with a 90 s fetch timeout. The route's answer is unchanged: `npm run check` tests the stream equal to
-  `blueprintContracts` from whole files, and on two real snapshots it gave the same contracts in the same order (industry.md:
-  the reader peaks at 29 MB of heap and ArrayBuffers where the whole files peaked at 113 MB and more).
+  contracts are kept, with a 90 s fetch timeout. A snapshot lacking one of its three files, cut short, or whose header lacks a
+  column the reader reads is refused, so the route errors rather than answering empty. The route's answer is otherwise
+  unchanged: `npm run check` tests the stream equal to `blueprintContracts` from whole files, and on two real snapshots it gave
+  the same contracts in the same order (industry.md: the reader peaks at 29 MB of heap and ArrayBuffers where the whole files
+  peaked at 113 MB and more).

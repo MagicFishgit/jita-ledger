@@ -1550,6 +1550,10 @@ console.log('\n--- what copies sell, read every six hours by the cloud (Task 14A
   eq('  out of time before it began: nothing read, nothing stamped', [await refreshCopies(db, C + 14 * H, { read: async () => snap(2), deadline: Date.now() - 1 }), JSON.parse(db.rows("SELECT data FROM scan_meta WHERE key = 'copies'")[0].data).tried], [{ done: 'later' }, C + 12 * H]);
   eq('  switched off: nothing read, and the route says so', [await refreshCopies(d1(), A, { read: async () => snap(0), on: false }), await copiesFor(d1(), false)], [{ off: true }, { off: true }]);
   eq('  before its first read: nothing, not an empty summary', await copiesFor(d1()), null);
+  // The review of Task 14A: once a round has tried, the route says when and why even before a set is kept; null only when none has.
+  const dbX = d1();
+  await refreshCopies(dbX, A, { read: async () => { throw new Error('EVE Ref answered 503 for public-contracts-latest.v2.tar.bz2'); } });
+  eq('  a first read that failed: when it tried and why, not "never read"', await copiesFor(dbX), { tried: new Date(A).toISOString(), error: 'EVE Ref answered 503 for public-contracts-latest.v2.tar.bz2' });
   // A kept set more than a week older than the new snapshot: compared, it would put a week of sales on one day.
   const dbOld = d1();
   await refreshCopies(dbOld, A + 120_000, { read: async () => snap(0) });
@@ -1585,6 +1589,7 @@ console.log('\n--- what copies sell, read every six hours by the cloud (Task 14A
     [mid?.error ?? null, mid?.tried ?? null, JSON.parse(dbI.rows("SELECT data FROM scan_meta WHERE key = 'copies'")[0].data).error], [INTERRUPTED, A + 120_000, null]);
   const dbK = d1();
   dbK.run("INSERT INTO scan_meta (key, data) VALUES ('copies', ?)", JSON.stringify({ tried: A, read: 0, error: INTERRUPTED, stale: null, reads: [] }));
+  eq('  a first round the cloud stopped: the route says so', await copiesFor(dbK), { tried: new Date(A).toISOString(), error: INTERRUPTED });
   eq('  after a round the cloud stopped: not tried again an hour on, but six hours on', [await refreshCopies(dbK, A + H, { read: async () => snap(0) }), (await refreshCopies(dbK, A + 6 * H, { read: async () => snap(0) })).done], [{ done: 'fresh' }, 'read']);
   // A throw after the read (here D1 refusing the batch) is no kill: it says why, keeps the last round's set, and is tried the next hour.
   const dbF = d1();
@@ -1614,6 +1619,47 @@ console.log('\n--- what copies sell, read every six hours by the cloud (Task 14A
   for (const x of at06.contracts) for (const it of x.items) if (it.itemId) issuers.set(it.itemId, x.issuer);
   for (const it of tempest[4]) issuers.set(it[6], tempest[3]);
   eq('  a Tempest contract gone at 06:00 whose copy sits in a bundle of its seller\'s: 15 sold, not 16', (await refreshCopies(dbB, B + 120_000, { read: async () => ({ ...at06, copyIssuers: issuers }) })).sold, 15);
+  // The review of Task 14A: a snapshot with no copy contracts, or under half those kept, is a partial one. Compared, every kept
+  // contract it lacks would count as sold for good (96 of 96 on an empty 06:00); refused, nothing moves and the next hour tries again.
+  const { compactCopies } = await import('../src/lib/copyMarket.ts');
+  const dbE = d1();
+  await refreshCopies(dbE, A + 120_000, { read: async () => snap(0), part: 40 });
+  const keptRows = () => dbE.rows('SELECT data FROM copy_set ORDER BY part').flatMap((r) => JSON.parse(r.data)).length;
+  const emptyRead = await refreshCopies(dbE, B + 120_000, { read: async () => ({ at: FX.snapshots[1].at, contracts: [] }) });
+  const noneSaid = 'EVE Ref’s snapshot holds no copy contracts of The Forge: taken for a partial snapshot, nothing compared';
+  eq('  an empty 06:00 snapshot: refused and said, no sale, the 00:00 set kept, its rows and summary as they were',
+    [emptyRead, n(dbE, 'SELECT COUNT(*) AS n FROM copy_sold'), n(dbE, 'SELECT COUNT(*) AS n FROM copy_set'), keptRows(), (await copiesFor(dbE)).error, (await copiesFor(dbE)).reads],
+    [{ done: 'failed', error: noneSaid }, 0, 3, 96, noneSaid, 0]);
+  const part06 = (() => { const s = snap(1); return { ...s, contracts: s.contracts.slice(0, 40) }; })();
+  const partN = compactCopies(part06.contracts).length;
+  eq('  an hour on, a 06:00 snapshot with under half the copy contracts kept: refused the same way',
+    [partN < 48, await refreshCopies(dbE, B + 120_000 + H, { read: async () => part06 }), n(dbE, 'SELECT COUNT(*) AS n FROM copy_sold'), keptRows()],
+    [true, { done: 'failed', error: `EVE Ref’s snapshot holds ${partN} copy contracts of The Forge, under half the 96 kept: taken for a partial snapshot, nothing compared` }, 0, 96]);
+  eq('  then the whole 12:00 one: compared with the 00:00 set kept (25 sold, the six-hour count missed)',
+    [await refreshCopies(dbE, C + 120_000, { read: async () => snap(2) }), n(dbE, 'SELECT COUNT(*) AS n FROM copy_sold')], [{ done: 'read', contracts: 82, sold: 25, parts: 1 }, 25]);
+  const dbE0 = d1();
+  eq('  an empty first snapshot: nothing kept, said', [await refreshCopies(dbE0, A, { read: async () => ({ at: FX.snapshots[0].at, contracts: [] }) }), n(dbE0, 'SELECT COUNT(*) AS n FROM copy_set'), await copiesFor(dbE0)],
+    [{ done: 'failed', error: 'EVE Ref’s snapshot holds no copy contracts of The Forge: taken for a partial snapshot, nothing kept' }, 0, { tried: new Date(A).toISOString(), error: 'EVE Ref’s snapshot holds no copy contracts of The Forge: taken for a partial snapshot, nothing kept' }]);
+  // The review of Task 14A: the kept file's ETag goes as If-None-Match, so EVE Ref unchanged is a 304 and no 6.6 MB download.
+  const dbT = d1();
+  await refreshCopies(dbT, A + 120_000, { read: async () => ({ ...snap(0), etag: '"v0"' }) });
+  const asked = [];
+  let downloaded = 0;
+  const realT = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const tag = init.headers?.['If-None-Match'] ?? null;
+    asked.push(tag);
+    const same = tag === '"v0"';
+    return { status: same ? 304 : 200, ok: !same, headers: new Headers(same ? {} : { ETag: '"v1"' }), arrayBuffer: async () => { downloaded++; return new Uint8Array([1, 2, 3]).buffer; } };
+  };
+  let r304;
+  try { r304 = await refreshCopies(dbT, B + 120_000); } finally { globalThis.fetch = realT; }
+  const stT = JSON.parse(dbT.rows("SELECT data FROM scan_meta WHERE key = 'copies'")[0].data);
+  eq('  EVE Ref unchanged (304 to the kept ETag): the same snapshot, nothing downloaded, no sale, the set kept, tried again the next hour',
+    [r304, asked, downloaded, n(dbT, 'SELECT COUNT(*) AS n FROM copy_sold'), n(dbT, 'SELECT COUNT(*) AS n FROM copy_set'), stT.stale, stT.error, stT.etag, await refreshCopies(dbT, B + 120_000 + 30 * 60_000, { read: async () => snap(1) })],
+    [{ done: 'same' }, ['"v0"'], 0, 0, 1, '2026-10-11T00:01:04.000Z', null, '"v0"', { done: 'fresh' }]);
+  eq('  a read keeps its file\'s ETag; the same snapshot downloaded again under a new one keeps that', [JSON.parse(dbT.rows("SELECT data FROM scan_meta WHERE key = 'copies'")[0].data).etag,
+    (await refreshCopies(dbT, B + 120_000 + H, { read: async () => ({ ...snap(0), etag: '"v0b"' }) })).done, JSON.parse(dbT.rows("SELECT data FROM scan_meta WHERE key = 'copies'")[0].data).etag], ['"v0"', 'same', '"v0b"']);
 }
 
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');

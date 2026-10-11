@@ -21,20 +21,29 @@ export const EVE_REF_UA = { 'User-Agent': 'Jita Ledger (a personal EVE trading t
 /** A stalled EVE Ref mustn't hold the invocation to its 15-minute wall: the 6.6 MB file came in seconds on 11 October 2026. */
 export const READ_TIMEOUT_MS = 90_000;
 
+/** A snapshot read: its contracts of the region, its time, every copy's seller, and the ETag EVE Ref sent with it. */
+export type SnapshotRead = { contracts: BpContract[]; at: string | null; copyIssuers: ReadonlyMap<number, number>; etag: string | null };
+/** EVE Ref answered 304 to the ETag sent: its file is still the one read with it, and nothing was downloaded. */
+export type SnapshotUnchanged = { unchanged: true };
+
 /**
  * A snapshot's contracts of a region, kept as they stream out of bzip2 (ContractSink): never the 39 MB of CSV whole. `now`
- * judges expiry (else the snapshot's own time); `types` keeps only contracts holding one of them.
+ * judges expiry (else the snapshot's own time); `types` keeps only contracts holding one of them. With `etag` (the copy round's
+ * kept one) it asks `If-None-Match`, so an unchanged file is a 304 and no 6.6 MB download (the review of Task 14A).
  */
-export async function readSnapshot(url: string, opts: { region: number; now?: number; types?: ReadonlySet<number> }): Promise<{ contracts: BpContract[]; at: string | null; copyIssuers: ReadonlyMap<number, number> }> {
-  const res = await fetch(url, { headers: EVE_REF_UA, signal: AbortSignal.timeout(READ_TIMEOUT_MS) });
+export async function readSnapshot(url: string, opts: { region: number; now?: number; types?: ReadonlySet<number>; etag?: string | null }): Promise<SnapshotRead | SnapshotUnchanged> {
+  const res = await fetch(url, { headers: opts.etag ? { ...EVE_REF_UA, 'If-None-Match': opts.etag } : EVE_REF_UA, signal: AbortSignal.timeout(READ_TIMEOUT_MS) });
+  if (res.status === 304 && opts.etag) return { unchanged: true };
   if (!res.ok) throw new Error(`EVE Ref answered ${res.status} for ${url.split('/').pop()}`);
   const sink = new ContractSink(opts);
   try { bunzipTo(new Uint8Array(await res.arrayBuffer()), sink); } catch (e) { if (e !== TAR_DONE) throw e; }
-  return sink.result();
+  return { ...sink.result(), etag: res.headers.get('ETag') };
 }
 
 async function snapshot(url: string, types: ReadonlySet<number>, now: number): Promise<{ contracts: BpContract[]; at: string | null }> {
   const r = await readSnapshot(url, { region: THE_FORGE, now, types });
+  // Sent without an ETag, a 304 can't come back as one (it throws above).
+  if ('unchanged' in r) throw new Error('EVE Ref answered 304 to a read that sent no ETag');
   return { contracts: r.contracts, at: r.at };
 }
 
