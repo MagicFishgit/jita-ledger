@@ -410,7 +410,11 @@ export function measuredTax(ix: Indexed, job: JobRecord, place: JobPlace | null,
 }
 
 /** What a character built that sits loose where it landed, to list: its delivered jobs' products, by product and place. */
-export type BuiltItem = { charId: number; typeId: number; place: number; jobIds: number[]; newest: number; units: number; held: number };
+export type BuiltItem = {
+  charId: number; typeId: number; place: number; jobIds: number[]; newest: number; units: number; held: number;
+  /** Where the newest job ran, and what was seen of its system: a place that is a structure you typed in has no other way to say which system it is in. */
+  stationId: number; first?: FirstSight;
+};
 /**
  * List what you built (spec, To do): per product and place, the newest delivered manufacturing jobs whose units the place's
  * loose hangar stock (`byLocation`) still holds together, newest first. Once fewer are held than the newest job made, there's
@@ -432,7 +436,7 @@ export function builtItems(jobs: readonly JobRecord[], byLocation: Record<number
     const take: JobRecord[] = [];
     let units = 0;
     for (const j of newest) { const u = jobUnits(j)!; if (units + u > held) break; take.push(j); units += u; }
-    if (take.length) out.push({ charId, typeId, place, jobIds: take.map((j) => j.jobId).sort((a, b) => a - b), newest: take[0].jobId, units, held });
+    if (take.length) out.push({ charId, typeId, place, jobIds: take.map((j) => j.jobId).sort((a, b) => a - b), newest: take[0].jobId, units, held, stationId: take[0].stationId, ...(take[0].first ? { first: take[0].first } : {}) });
   }
   return out.sort((a, b) => a.typeId - b.typeId || a.place - b.place);
 }

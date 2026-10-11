@@ -2622,8 +2622,36 @@ try {
       await page.waitForFunction(() => [...document.querySelectorAll('.tn-item')].some((e) => /Large Trimark Armor Pump I you built[\s\S]*List in Jita at/.test(e.textContent ?? '')), null, { timeout: 20_000 }).catch(() => undefined);
       const item = await text('.tn-item:has-text("you built")');
       // Priced on the case's own Jita book for the pump (ITEMS, the finder's stand-in); no history is served, so at the front.
-      if (!item.includes('List 10 Large Trimark Armor Pump I you built, at Jita IV - Moon 4') || !/List in Jita at [\d,.]+/.test(item) || !item.includes('opening it copies the price')) problems.push(`To do doesn’t list the pumps built, named and priced in Jita: “${item.slice(0, 300)}”`);
+      if (!item.includes('List 10 Large Trimark Armor Pump I you built, at Jita 4-4') || !/List in Jita at [\d,.]+/.test(item) || !item.includes('opening it copies the price')) problems.push(`To do doesn’t list the pumps built, named and priced in Jita: “${item.slice(0, 300)}”`);
       if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-todo-built.png` }); }
+      // Built at your home hub (a typed home: no site ID to match): listed at the hub on Goonmetrics' sell less a tick, named by the
+      // hub, its age said; then the cloud a version behind says so and never "nobody lists it there".
+      const homeJob = { ...built, jobId: 9502, facilityId: UALX_HUB, stationId: UALX_HUB, outputId: UALX_HUB };
+      const homeSeed = async () => { await page.goto(SEED_PAGE); await seed({ ...ledger, jobs: { 9502: homeJob }, stock: { at: iso(now - 600_000), jita: {}, total: { 25894: 10 }, byLocation: { [UALX_HUB]: { 25894: 10 } } }, industry: { ...DOC, hub: UALX_HUB }, cloud: CLOUD_STATE }, { alts: altStore }); await page.goto(`${BASE}#todo`); await page.waitForSelector('.tn-item', { timeout: 20_000 }).catch(() => problems.push('To do drew no item (home)')); };
+      const priorHome = homeAnswer;
+      homeAnswer = (hub) => ({ hub, source: 'goonmetrics', at: iso(now - 2 * 3600_000), prices: { [PUMP]: [iso(now - 2 * 3600_000), 7 * 841, 7_000_000, 40, 7_500_000, 50] } });
+      await homeSeed();
+      await page.waitForFunction(() => /List at UALX-3 at/.test(document.body.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
+      const homeItem = await text('.tn-item:has-text("you built")');
+      if (!homeItem.includes('you built, at UALX-3 - 1st Byzantigoon') || !homeItem.includes('List at UALX-3 at 7,499,000 ISK') || !/Goonmetrics, read 2 h ago/.test(homeItem)) problems.push(`To do doesn’t list the pumps built at the home hub, named, priced and dated: “${homeItem.slice(0, 400)}”`);
+      if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-todo-built-home.png` }); }
+      const wasHome = homeAnswer; homeAnswer = () => 404;
+      await homeSeed();
+      await page.waitForFunction(() => /version behind/.test(document.body.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
+      const behindItem = await text('.tn-item:has-text("you built")');
+      if (!behindItem.includes('The cloud is a version behind') || /nobody lists/.test(behindItem)) problems.push(`with the cloud a version behind, To do doesn’t say so (or says nobody lists it): “${behindItem.slice(0, 400)}”`);
+      homeAnswer = priorHome;
+      // An alt's: named, no price copied, its button opens Blueprints & jobs.
+      const BA = `alt:${BUILDER}`;
+      const altBuilt = { ...built, jobId: 9503 };
+      const altsBuilt = { ...altStore, [BA]: { ...altStore[BA], records: { ...(altStore[BA].records ?? {}), jobs: { 9503: altBuilt } }, docs: { ...altStore[BA].docs, meta: { ...altStore[BA].docs.meta, jobsRead: true }, stock: { at: iso(now - 600_000), jita: { 25894: 10 }, total: { 25894: 10 }, byLocation: { 60003760: { 25894: 10 } } } } } };
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE }, { alts: altsBuilt });
+      await page.goto(`${BASE}#todo`);
+      await page.waitForSelector('.tn-item', { timeout: 20_000 }).catch(() => problems.push('To do drew no item (alt)'));
+      await page.waitForFunction(() => [...document.querySelectorAll('.tn-item')].some((e) => /Builder Alt · List 10 Large Trimark Armor Pump I you built/.test(e.textContent ?? '')), null, { timeout: 20_000 }).catch(() => undefined);
+      const altBuiltItem = await text('.tn-item:has-text("Builder Alt · List")');
+      if (!altBuiltItem.includes('Builder Alt · List 10 Large Trimark Armor Pump I you built') || /copies the price/.test(altBuiltItem) || !/Blueprints & jobs/i.test(altBuiltItem)) problems.push(`an alt’s built item copies a price or doesn’t open Blueprints & jobs: “${altBuiltItem.slice(0, 400)}”`);
       ESI['/universe/names/'] = prevNames;
     }
 

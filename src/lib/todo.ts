@@ -355,9 +355,8 @@ export function judgeAltIndustry(e: Entry, c: { live: boolean; readAt: number | 
 /**
  * Where what you built is listed (correction 15 of the stage-2 plan): where it sits decides. In Jita 4-4, Jita; at your home
  * hub's structure or in its system, the hub; anywhere else the Industry tab's choice, except that a ship never goes to Jita
- * while "never haul ships to Jita" is on (the user's words). Null: nowhere it may be listed (a ship with no hub picked).
- * `placeSystem` is known for Jita 4-4 and for a place that is one of your build sites (To do reads it from the industry doc),
- * so "in the hub's system" holds for your own structure there; any other place is judged by the choice.
+ * while "never haul ships to Jita" is on (the user's words). The tab's "Either" (`best`) lists at Jita here: To do doesn't
+ * rank the two markets. Null: nowhere it may be listed (a ship with no hub picked). `placeSystem` is `builtPlaceSystem`.
  */
 export function builtWhere(o: { place: number; placeSystem: number | null; hub: { id: number; systemId: number } | null; sell: 'jita' | 'home' | 'best'; ship: boolean; noShipsToJita: boolean }): 'jita' | 'home' | null {
   if (o.place === JITA_44) return 'jita';
@@ -366,18 +365,40 @@ export function builtWhere(o: { place: number; placeSystem: number | null; hub: 
   return o.sell === 'home' && o.hub ? 'home' : 'jita';
 }
 
-/** List what you built: one item per character, product and place, its version the newest delivered job's ID. */
-export function builtItem(x: BuiltItem & { who: string | null; placeName: string | null }, o: { name: string; where: 'jita' | 'home' | null; price: number | null; read: boolean; hubName: string | null; isMain: boolean }): TodoItem {
+/**
+ * The system a built place is in: one of your build sites' (`siteSystem`), Jita 4-4's, where the job that built it ran when the
+ * products landed there (its first sight names the system), or a home hub's own. A home you typed in has no site ID to match.
+ */
+export function builtPlaceSystem(b: { place: number; stationId: number; first?: { systemId: number | null } }, siteSystem: number | null, hubs: readonly { id: number; systemId: number }[]): number | null {
+  if (siteSystem != null) return siteSystem;
+  if (b.place === JITA_44) return 30000142;
+  if (b.place === b.stationId && b.first?.systemId != null) return b.first.systemId;
+  return hubs.find((h) => h.id === b.place)?.systemId ?? null;
+}
+
+/** What is known of the price to list at: priced, being read, nobody listing it there, or not known (with why). */
+export type BuiltMarket = { kind: 'priced'; price: number } | { kind: 'reading' } | { kind: 'none' } | { kind: 'unknown'; said: string };
+
+/**
+ * List what you built: one item per character, product and place, its version the newest delivered job's ID. `where` is
+ * 'checking' while it isn't known whether a ship (the answer depends on it), and only the main's item opens in game and
+ * copies the price (an alt's points at Blueprints & jobs: the alt lists it in person).
+ */
+export function builtItem(x: BuiltItem & { who: string | null; placeName: string | null }, o: { name: string; where: 'jita' | 'home' | 'checking' | null; market: BuiltMarket; hubName: string | null; isMain: boolean; age?: string | null; shipFailed?: boolean; lost?: string | null }): TodoItem {
   const at = o.where === 'home' ? `at ${o.hubName ?? 'your home hub'}` : 'in Jita';
-  const priceSaid = o.where == null ? 'It’s a ship and “never haul ships to Jita” is on, with no home hub picked: pick one on the Industry tab.'
-    : o.price != null ? `List ${at} at ${isk(o.price)}${o.where === 'jita' ? ' (others’ cheapest listing less a tick, where trading reaches)' : ' (the hub’s cheapest listing less a tick, Goonmetrics)'}; opening it copies the price.`
-      : !o.read ? (o.where === 'jita' ? 'Reading its Jita book.' : 'Reading the home hub’s prices.') : `No price to list ${at}: nobody lists it there.`;
+  const copies = o.isMain ? '; opening it copies the price.' : '.';
+  const priceSaid = o.where === 'checking' ? (o.shipFailed ? 'Couldn’t read whether it’s a ship, so it isn’t priced.' : 'Checking whether it’s a ship.')
+    : o.where == null ? 'It’s a ship and “never haul ships to Jita” is on, with no home hub picked: pick one on the Industry tab.'
+      : o.market.kind === 'priced' ? `List ${at} at ${isk(o.market.price)}${o.where === 'jita' ? ' (others’ cheapest listing less a tick, where trading reaches)' : ' (the hub’s cheapest listing less a tick, Goonmetrics)'}${copies}${o.age ? ` ${o.age}` : ''}`
+        : o.market.kind === 'reading' ? (o.where === 'jita' ? 'Reading its Jita book.' : 'Reading the home hub’s prices.')
+          : o.market.kind === 'none' ? `No price to list ${at}: nobody lists it there.` : o.market.said;
+  const price = o.market.kind === 'priced' && (o.where === 'jita' || o.where === 'home') ? o.market.price : null;
   return {
     key: `built:${x.charId}:${x.typeId}:${x.place}`, ver: String(x.newest), kind: 'built', source: 'stock', typeId: x.typeId, amount: x.units,
-    stake: o.price != null ? o.price * x.units : 0,
+    stake: price != null ? price * x.units : 0,
     title: `${x.who ? `${x.who} · ` : ''}List ${units(x.units)} ${o.name} you built, at ${x.placeName ?? 'where it landed'}`,
-    detail: `${units(x.jobIds.length)} job${x.jobIds.length === 1 ? '' : 's'} delivered there made them, and ${units(x.held)} sit loose in that hangar. ${priceSaid}`,
-    action: o.isMain && o.where && o.price != null ? { label: 'Open in game', typeId: x.typeId, copy: o.price } : { label: 'Blueprints & jobs', route: 'hustles/industry/blueprints' },
+    detail: `${units(x.jobIds.length)} job${x.jobIds.length === 1 ? '' : 's'} delivered there made ${x.held === 1 ? 'it' : 'them'}, and ${units(x.held)} ${x.held === 1 ? 'sits' : 'sit'} loose in that hangar. ${priceSaid}${o.lost ? ` As the cloud last read it. ${o.lost}` : ''}`,
+    action: o.isMain && price != null ? { label: 'Open in game', typeId: x.typeId, copy: price } : { label: 'Blueprints & jobs', route: 'hustles/industry/blueprints' },
   };
 }
 

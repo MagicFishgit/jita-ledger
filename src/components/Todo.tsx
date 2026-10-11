@@ -11,7 +11,7 @@ import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  altIndustryItem, builtItem, builtWhere, cashInItem, feedsQueueItem, notReachedItem, inFilter, judgeAltIndustry, judgeAltLogin, judgeBuilt, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, placeBuyItem, planListItem, judgeIndustry, judgeLedger, judgeOrder, skippedEmptyItem, skippedCloseState, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
+  altIndustryItem, builtItem, builtPlaceSystem, builtWhere, type BuiltMarket, cashInItem, feedsQueueItem, notReachedItem, inFilter, judgeAltIndustry, judgeAltLogin, judgeBuilt, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, placeBuyItem, planListItem, judgeIndustry, judgeLedger, judgeOrder, skippedEmptyItem, skippedCloseState, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
   type Entry, type Memory, type TodoFilter, type TodoItem, type TodoKind,
 } from '../lib/todo';
 import type { IndustryJob } from '../lib/types';
@@ -26,7 +26,8 @@ import { skipPlaceBid, useBuiltPrices, usePlacingCheck, usePlanListing } from '.
 import { useHomePrices } from './hustles/industryMarket';
 import { useAltCopies, useAltRoster, useRosterAt, useRosterLive } from '../lib/altStore';
 import { jobOk, loginState } from '../lib/roster';
-import { hubOf, homeQuote } from '../lib/homeMarket';
+import { HOME_HUBS, hubOf, homeQuote, type HomeHub } from '../lib/homeMarket';
+import { homeSaid } from './hustles/industryFinder';
 import { tickDown } from '../lib/tick';
 import type { Stock } from '../lib/types';
 import { lostSaid } from '../lib/pilot';
@@ -36,9 +37,9 @@ import { useRunningResearch } from './hustles/researchWorth';
 import { cloudCovers, useCloud } from '../lib/cloud';
 import { JITA_44, SCOPE } from '../lib/config';
 import { toast } from '../lib/toast';
-import { ACTIVITY_SAID, builtItems, isStationId, type JobRecord } from '../lib/industryTrack';
+import { ACTIVITY_SAID, builtItems, isStationId, type BuiltItem, type JobRecord } from '../lib/industryTrack';
 import { jobPlaceSaid } from '../lib/industryOwned';
-import { canOpenInGame, copyPrice, downloadText, useEnsureNames, useShipTypes, useTypeName } from './common';
+import { canOpenInGame, copyPrice, downloadText, useEnsureNames, useShipKinds, useTypeName } from './common';
 import { cssVars, Empty, Guide, PageHead, Ring, Seg } from './ui';
 import { Points } from './Facts';
 
@@ -137,16 +138,24 @@ export function Todo() {
     ...roster.flatMap((a) => builtItems(Object.values((copies[a.charId]?.records.jobs ?? {}) as Record<string, JobRecord>), (copies[a.charId]?.docs.stock as Stock | undefined)?.byLocation, a.charId)
       .map((b) => ({ b, who: a.name ?? `Character ${a.charId}` }))),
   ], [d.jobs, d.stock, builtMain, roster, copies]);
-  const ships = useShipTypes(builtAll.map((x) => x.b.typeId));
+  const shipKinds = useShipKinds(builtAll.map((x) => x.b.typeId));
   const hub = hubOf(d.industry.hub);
-  const home = useHomePrices(builtAll.length ? hub?.id ?? null : null);
-  const placeSystem = (place: number) => d.industry.sites.find((s) => s.structureId === place || s.stationId === place)?.systemId ?? (place === JITA_44 ? 30000142 : null);
-  const whereOf = (b: { typeId: number; place: number }) => builtWhere({ place: b.place, placeSystem: placeSystem(b.place), hub, sell: d.industry.sell, ship: ships.has(b.typeId), noShipsToJita: d.industry.noShipsToJita });
+  const placeSystem = (b: BuiltItem) => builtPlaceSystem(b, d.industry.sites.find((s) => s.structureId === b.place || s.stationId === b.place)?.systemId ?? null, HOME_HUBS);
+  // Where it lists. Whether it's a ship only matters where the answer differs; until the type is read that's 'checking', never
+  // "not a ship" (a ship built at home must not be priced, or copied, at Jita).
+  const whereOf = (b: BuiltItem): 'jita' | 'home' | 'checking' | null => {
+    const at = (ship: boolean) => builtWhere({ place: b.place, placeSystem: placeSystem(b), hub, sell: d.industry.sell, ship, noShipsToJita: d.industry.noShipsToJita });
+    if (shipKinds.known.has(b.typeId)) return at(shipKinds.ships.has(b.typeId));
+    return at(true) === at(false) ? at(false) : 'checking';
+  };
+  const builtWhereAll = builtAll.map((x) => whereOf(x.b));
+  // The hub's prices are fetched only when something built lists there.
+  const home = useHomePrices(builtWhereAll.includes('home') ? hub?.id ?? null : null);
   // Every character's open orders, off the books the prices are read on (pre-flight M8).
   const allOrderIds = useMemo(() => [...Object.values(d.orders), ...roster.flatMap((a) => Object.values((copies[a.charId]?.records.orders ?? {}) as Record<string, { orderId: number }>))].map((o) => o.orderId), [d.orders, roster, copies]);
-  const builtJita = useBuiltPrices(builtAll.filter((x) => whereOf(x.b) === 'jita').map((x) => x.b.typeId), allOrderIds);
+  const builtJita = useBuiltPrices(builtAll.filter((x, i) => builtWhereAll[i] === 'jita').map((x) => x.b.typeId), allOrderIds);
   // The built places that are stations are named by the same call as an alt's facilities (never a second lookup for the same IDs).
-  const altPlaces = [...new Set([...altJobs.flatMap((x) => x.jobs.filter((j) => jobWaiting(j, now)).flatMap((j) => [j.stationId, j.first?.systemId ?? 0])), ...builtAll.map((x) => x.b.place).filter(isStationId)].filter((id) => id > 0))].sort((a, b) => a - b).join(',');
+  const altPlaces = [...new Set([...altJobs.flatMap((x) => x.jobs.filter((j) => jobWaiting(j, now)).flatMap((j) => [j.stationId, j.first?.systemId ?? 0])), ...builtAll.map((x) => x.b.place).filter((p) => isStationId(p) && p !== JITA_44), ...builtAll.map((x) => (x.b.place === x.b.stationId && !isStationId(x.b.place) ? x.b.first?.systemId ?? 0 : 0))].filter((id) => id > 0))].sort((a, b) => a - b).join(',');
   const [placeNames, setPlaceNames] = useState<Record<number, string>>({});
   useEffect(() => {
     if (!altPlaces) return;
@@ -381,16 +390,34 @@ export function Todo() {
       }
     }
     // What was built and sits loose where it landed, to list (industryTrack.ts builtItems), one item per character, product and place.
-    for (const { b, who } of builtAll) {
-      const where = whereOf(b);
-      const hq = where === 'home' && home.status === 'ok' ? homeQuote(home.prices[b.typeId]) : null;
-      const priced = where === 'jita' ? builtJita[b.typeId] ?? { price: null, read: false }
-        : where === 'home' ? { price: hq?.sell != null ? tickDown(hq.sell) : null, read: home.status !== 'loading' } : { price: null, read: true };
+    for (const [i, { b, who }] of builtAll.entries()) {
+      const where = builtWhereAll[i];
+      // Not known is said as what it is (the Industry tab's words): "nobody lists it there" only for a book that was read with no
+      // other listing, or a Goonmetrics row whose sell side is empty.
+      let market: BuiltMarket = { kind: 'reading' };
+      let age: string | null = null;
+      if (where === 'jita') {
+        const p = builtJita[b.typeId];
+        market = !p || p.state === 'reading' ? { kind: 'reading' } : p.state === 'priced' ? { kind: 'priced', price: p.price! } : p.state === 'none' ? { kind: 'none' } : { kind: 'unknown', said: 'Couldn’t read its Jita book just now, so it isn’t priced.' };
+      } else if (where === 'home') {
+        const said = homeSaid({ hub: hub as HomeHub, home }, now, ago);
+        if (home.status !== 'ok') market = home.status === 'loading' ? { kind: 'reading' } : { kind: 'unknown', said: said ?? 'Home prices aren’t read.' };
+        else {
+          const row = home.prices[b.typeId];
+          const hq = homeQuote(row);
+          market = !row ? { kind: 'unknown', said: `Goonmetrics has no price for it at ${hub!.short}.` } : hq?.sell != null ? { kind: 'priced', price: tickDown(hq.sell) } : { kind: 'none' };
+          age = said;
+        }
+      } else market = { kind: 'none' };
       // A place is a station or a structure, never a container: named as an alt's jobs' facilities are (jobPlaceSaid).
       const bpNames = ((b.charId === builtMain ? d.blueprints : copies[b.charId]?.docs.blueprints) as { names?: Record<string, string> } | undefined)?.names ?? {};
       const siteName = d.industry.sites.find((z) => z.structureId === b.place || z.stationId === b.place)?.name;
-      const placeName = jobPlaceSaid({ stationId: b.place, first: undefined }, { names: bpNames, jobPlaces: { ...(siteName ? { [b.place]: siteName } : {}), ...(d.meta.industry?.places ?? {}) }, station: (id) => placeNames[id] ?? siteName ?? 'a station', system: () => null });
-      out.push(builtItem({ ...b, who, placeName }, { name: name(b.typeId), where, price: priced.price, read: priced.read, hubName: hub?.short ?? null, isMain: who == null }));
+      const hubName = hubOf(b.place)?.name;
+      const placeName = b.place === JITA_44 ? 'Jita 4-4'
+        : jobPlaceSaid({ stationId: b.place, first: b.place === b.stationId ? b.first : undefined }, { names: bpNames, jobPlaces: { ...(hubName ? { [b.place]: hubName } : {}), ...(siteName ? { [b.place]: siteName } : {}), ...(d.meta.industry?.places ?? {}) }, station: (id) => placeNames[id] ?? siteName ?? 'a station', system: (id) => placeNames[id] ?? null });
+      const alt = who == null ? undefined : roster.find((z) => z.charId === b.charId);
+      const lost = alt ? lostSaid({ isMain: false, name: who!, pilot: { lost: (st => (st === 'working' ? undefined : st))(loginState(alt, []).state) } }) : null;
+      out.push(builtItem({ ...b, who, placeName }, { name: name(b.typeId), where, market, hubName: hub?.short ?? null, isMain: who == null, age, shipFailed: shipKinds.failed.has(b.typeId), lost }));
     }
     // A started plan's buy orders not placed yet (the Capital planner's "Start this plan"), for a week. A bid that bought
     // at once counts by its trade: it shows no order until your order history does; a bid you cancelled with nothing
@@ -464,7 +491,7 @@ export function Todo() {
       });
     }
     return out;
-  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background, roster, listing, placing, research.bundle, research.blocks, research.priced, systemNames, canDest, altJobs, placeNames, copies, builtAll, builtJita, home, ships]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background, roster, listing, placing, research.bundle, research.blocks, research.priced, systemNames, canDest, altJobs, placeNames, copies, builtAll, builtJita, home, shipKinds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fold each new build into the session: new findings are added, and findings a newer read no longer
   // shows are ticked off with what changed.

@@ -173,22 +173,25 @@ export function unskipPlaceBid(planId: string, typeId: number) {
 /**
  * What you built, priced as a listing in Jita (To do's List what you built): `listingPrice` on others' live book with the
  * fortnight's highs, the plan list step's own reads (useItemReads: every five minutes while shown). `yours`: every
- * character's open order IDs, taken off the book. `read` is false until the first read of the visit; a book that couldn't
- * be read prices nothing.
+ * character's open order IDs, taken off the book. `reading` until the first read of the visit; `failed` for a book that
+ * couldn't be read; `none` for one read with nobody else listing it.
  */
-export function useBuiltPrices(types: readonly number[], yours: readonly number[]): Record<number, { price: number | null; read: boolean }> {
+export type BuiltPrice = { price: number | null; state: 'reading' | 'priced' | 'none' | 'failed' };
+export function useBuiltPrices(types: readonly number[], yours: readonly number[]): Record<number, BuiltPrice> {
   const key = [...new Set(types)].sort((a, b) => a - b).join(',');
   const reads = useItemReads(key, true);
   // Every character's open orders come off the book (pre-flight M8): an alt's built item isn't priced one tick under its own listing.
   const yoursKey = [...yours].sort((a, b) => a - b).join(',');
   return useMemo(() => {
-    const out: Record<number, { price: number | null; read: boolean }> = {};
+    const out: Record<number, BuiltPrice> = {};
     for (const t of key ? key.split(',').map(Number) : []) {
       const x = reads[t];
-      if (!x) { out[t] = { price: null, read: false }; continue; }
+      if (!x) { out[t] = { price: null, state: 'reading' }; continue; }
       const highs = x.hist?.length ? recentRange(x.hist, FILL_WINDOW, Date.now(), watchedDays(t)).highs : null;
       const m = x.book ? listMarket(x.book, yours, highs) : null;
-      out[t] = { price: m ? listingPrice(m.bestSell, m.bestBuy, m.highs) : null, read: true };
+      // A book that couldn't be read is not a book nobody lists in: the first is `failed`, the second `none`.
+      const price = m ? listingPrice(m.bestSell, m.bestBuy, m.highs) : null;
+      out[t] = { price, state: price != null ? 'priced' : m ? 'none' : 'failed' };
     }
     return out;
   }, [key, reads, yoursKey]); // eslint-disable-line react-hooks/exhaustive-deps

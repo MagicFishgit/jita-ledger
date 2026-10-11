@@ -317,16 +317,24 @@ export function useEnsureNames(ids: number[]): boolean {
 
 /** Which of these types are ships, from ESI's type and group (kept for good once read); empty until known. */
 export function useShipTypes(ids: number[]): ReadonlySet<number> {
+  return useShipKinds(ids).ships;
+}
+
+/**
+ * Which of these types are ships, and which weren't asked about yet or couldn't be read: a type not in `known` is not known to
+ * be anything, so "not a ship" must not be read from its absence from `ships` (`failed` lists the reads that threw).
+ */
+export function useShipKinds(ids: number[]): { ships: ReadonlySet<number>; known: ReadonlySet<number>; failed: ReadonlySet<number> } {
   const key = [...new Set(ids)].sort((a, b) => a - b).join(',');
-  const [ships, setShips] = useState<ReadonlySet<number>>(() => new Set());
+  const [got, setGot] = useState<{ ships: ReadonlySet<number>; known: ReadonlySet<number>; failed: ReadonlySet<number> }>(() => ({ ships: new Set(), known: new Set(), failed: new Set() }));
   useEffect(() => {
     if (!key) return;
     let live = true;
-    Promise.all(key.split(',').map(Number).map((id) => typeKind(id).then((k) => (k.ship ? id : null)).catch(() => null)))
-      .then((r) => { if (live) setShips(new Set(r.filter((x): x is number => x != null))); });
+    Promise.all(key.split(',').map(Number).map((id) => typeKind(id).then((k) => ({ id, ship: k.ship, ok: true })).catch(() => ({ id, ship: false, ok: false }))))
+      .then((r) => { if (live) setGot({ ships: new Set(r.filter((x) => x.ship).map((x) => x.id)), known: new Set(r.filter((x) => x.ok).map((x) => x.id)), failed: new Set(r.filter((x) => !x.ok).map((x) => x.id)) }); });
     return () => { live = false; };
   }, [key]);
-  return ships;
+  return got;
 }
 
 export function downloadText(filename: string, text: string, type = 'application/json') {
