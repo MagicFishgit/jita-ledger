@@ -2668,6 +2668,107 @@ try {
       ESI['/universe/names/'] = prevNames;
     }
 
+    // --- Task 13: Results counts what was built and sold as Industry, and says what it couldn't cost.
+    {
+      const built = { jobId: 9601, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 10, licensedRuns: null, successfulRuns: null, probability: null, cost: 300_000,
+        facilityId: 60001483, stationId: 60001483, outputId: 60001483, start: iso(now - 3 * 86400_000), end: iso(now - 2 * 86400_000), completed: iso(now - 2 * 86400_000), status: 'delivered', perRun: 1,
+        seenAt: iso(now - 3 * 86400_000 + 600_000), first: { me: 10, te: 20, systemId: 30000119, index: 0.05, eiv: 2e6 } };
+      const sale = { id: '77001', date: iso(now - 86400_000), typeId: 25894, qty: 10, unitPrice: 7_000_000, isBuy: false, locationId: 60003760, clientId: 1, source: 'esi' };
+      // The main bought one of the pump's materials before the job: 800 Fried Interface Circuit at 1,000, of which the job used
+      // 747 (83 a run × 10 runs at ME 10). That purchase is Industry's cost (747,000), and never a trade of its own.
+      const matBuy = { id: '77000', date: iso(now - 4 * 86400_000), typeId: 25601, qty: 800, unitPrice: 1_000, isBuy: true, locationId: 60003760, clientId: 1, source: 'esi' };
+      // The pump's materials are salvage nothing here bought or named: ESI names them, so the note says what wasn't costed by
+      // name (the hook's useEnsureNames for them), never "Item #25601".
+      const MATS = { 25601: 'Fried Interface Circuit', 25605: 'Armor Plates', 25590: 'Contaminated Nanite Compound', 25894: 'Large Trimark Armor Pump I' };
+      const prevNames = ESI['/universe/names/'];
+      ESI['/universe/names/'] = (url, req, json) => json(JSON.parse(req.postData() ?? '[]').map((id) => (MATS[id] ? { id, name: MATS[id], category: 'inventory_type' } : { id, name: `Station ${id}`, category: 'station' })));
+      // Builder Alt built and sold the same, read by the cloud: its card's Earned is Industry's too, by its own copy (its own
+      // Accounting IV, so the same 4.20%), never the main's.
+      const BA13 = `alt:${BUILDER}`;
+      const alts13 = { ...altStore, [BA13]: { ...altStore[BA13], records: { ...(altStore[BA13].records ?? {}), jobs: { 9602: { ...built, jobId: 9602 } }, txs: { 77002: { ...sale, id: '77002' } } }, docs: { ...altStore[BA13].docs, meta: { ...altStore[BA13].docs.meta, jobsRead: true } } } };
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, jobs: { 9601: built }, txs: { 77000: matBuy, 77001: sale }, industry: DOC, cloud: CLOUD_STATE }, { alts: alts13 });
+      // While the blueprints load (held back here): no Industry figure on Results but "Working out…" and what's being read,
+      // and the Wallet and the main's card say what they're still reading (pre-flight I4, M12), never a figure without materials.
+      let release;
+      const held = new Promise((r) => { release = r; });
+      await page.route('**/src/data/industry.json*', async (route) => { await held; await route.continue().catch(() => undefined); });
+      await page.goto(`${BASE}#results`);
+      await page.waitForSelector('[data-industry="results-industry"]', { timeout: 20_000 }).catch(() => problems.push('Results drew no Industry row while the blueprints load'));
+      await page.waitForFunction(() => /what you built is still being worked out/.test(document.body.textContent ?? ''), null, { timeout: 10_000 }).catch(() => undefined);
+      if ((await text('[data-industry="results-industry"]')).trim() !== 'Working out…' || !(await text('[data-industry="results-note"]')).includes('Reading the blueprints, to cost what you built…')
+        || !(await text('.tile:has-text("Made in")')).includes('what you built is still being worked out')) problems.push(`while the blueprints load, Results doesn’t say it’s working Industry out: “${await text('[data-industry="results-industry"]')}” / “${await text('[data-industry="results-note"]')}”`);
+      if (SHOTS) { await page.locator('[data-industry="results-note"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-results-loading.png` }); }
+      await page.evaluate(() => { location.hash = '#wallet'; });
+      await page.waitForSelector('[data-industry="wallet-waiting"]', { timeout: 20_000 }).catch(() => undefined);
+      if ((await text('[data-industry="wallet-waiting"]')).trim() !== 'Reading the blueprints, to cost what you built…') problems.push(`while the blueprints load, the Wallet’s All income doesn’t say what it’s reading: “${await text('[data-industry="wallet-waiting"]')}”`);
+      await page.evaluate(() => { location.hash = '#characters'; });
+      await page.waitForFunction(() => /Reading the blueprints, to cost what you built…/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 20_000 })
+        .catch(() => problems.push('while the blueprints load, the main’s Characters card doesn’t say what it’s reading'));
+      release();
+      await page.unroute('**/src/data/industry.json*');
+      // The bundle refused (pre-flight I4): Results says what you built isn't counted, with no Industry figure.
+      // Routing turns Playwright's cache off, and each load is a new document, so the chunk is asked for afresh.
+      await page.route('**/src/data/industry.json*', (route) => route.abort());
+      await page.goto(`${BASE}#results`);
+      await page.reload();
+      await page.waitForSelector('[data-industry="results-note"]', { timeout: 20_000 }).catch(() => problems.push('Results never said the blueprints couldn’t be loaded'));
+      if (!(await text('[data-industry="results-note"]')).includes('The blueprints couldn’t be loaded, so what you built isn’t counted here or in the total.')) problems.push(`with the blueprints refused, Results doesn’t say so: “${await text('[data-industry="results-note"]')}”`);
+      if ((await text('[data-industry="results-industry"]')).trim() !== '–') problems.push(`with the blueprints refused, Results still shows an Industry figure: “${await text('[data-industry="results-industry"]')}”`);
+      if (!(await text('.tile:has-text("Made in")')).includes('what you built isn’t counted (the blueprints couldn’t be loaded)')) problems.push('with the blueprints refused, Results’ “Made in” tile doesn’t say what it leaves out');
+      if (SHOTS) { await page.locator('[data-industry="results-note"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-results-refused.png` }); }
+      // The Wallet's All income says it too, with Try again, and counts the claimed sale nowhere else meanwhile: never as "Sold,
+      // never bought" (claims need no bundle).
+      await page.evaluate(() => { location.hash = '#wallet'; });
+      const allIncome = '.panel:has-text("All income against play")';
+      await page.waitForFunction(() => /What you built isn’t counted: the blueprints couldn’t be loaded/.test(document.body.textContent ?? ''), null, { timeout: 20_000 }).catch(() => problems.push('the Wallet never said the blueprints couldn’t be loaded'));
+      const walletRefused = await text(allIncome);
+      if (/Sold, never bought/.test(walletRefused) || /Industry \+/.test(walletRefused)) problems.push(`with the blueprints refused, the Wallet counts the pumps somewhere: “${walletRefused.slice(0, 400)}”`);
+      // And each card says its Earned is without what was built (here nothing else was earned, so "–", never "Nothing earned").
+      await page.evaluate(() => { location.hash = '#characters'; });
+      await page.waitForFunction(() => (document.querySelector('.page')?.textContent?.match(/without what was built/g) ?? []).length >= 2, null, { timeout: 20_000 })
+        .catch(() => problems.push('with the blueprints refused, the main’s and Builder Alt’s cards don’t say their Earned is without what was built'));
+      // Neither adds to the total, which says so by its count: Fresh Alt's "Nothing earned" alone, never a 0 standing for them.
+      if (!/In the last 7 days: 1 of 4 counted/.test(await text())) problems.push(`with the blueprints refused, the total counts cards whose builds weren’t costed: “${(await text()).slice(0, 600)}”`);
+      if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-characters-refused.png` }); }
+      await page.evaluate(() => { location.hash = '#wallet'; });
+      await page.waitForSelector(`${allIncome} button:has-text("Reload to try again")`, { timeout: 20_000 }).catch(() => undefined);
+      // "Reload to try again" reloads: Chromium never asks again for a dynamic import that failed in the same document
+      // (retry-probe.mjs), so a retry in place did nothing. Once the chunk can be had, the reload counts Industry.
+      await page.unroute('**/src/data/industry.json*');
+      await page.locator(`${allIncome} button`, { hasText: 'Reload to try again' }).click().catch((e) => problems.push(`couldn’t press Reload to try again on the Wallet: ${e.message.split('\n')[0]}`));
+      await page.waitForSelector('[data-industry="wallet-industry"]', { timeout: 20_000 }).catch(() => problems.push('Reload to try again on the Wallet never counted Industry'));
+      // Counted, from a fresh load: the pumps' sale after tax (10 × 7 M less 4.20%) less the job's 300,000 and the 747 circuits
+      // bought for it (747,000) = +66.01 M, the same on Results, the Wallet and the main's Characters card; the materials never
+      // bought are named, not costed.
+      await page.goto(`${BASE}#results`);
+      await page.reload();
+      await page.waitForFunction(() => /\+[\d.,]+ [MBk]/.test(document.querySelector('[data-industry="results-industry"]')?.textContent ?? ''), null, { timeout: 20_000 })
+        .catch(() => problems.push('Results never counted Industry once the blueprints loaded'));
+      const res = await text('.page');
+      if (!/\+[\d.,]+ [MBk]/.test(await text('[data-industry="results-industry"]'))) problems.push(`Results doesn’t count the pumps built and sold as Industry: “${res.slice(0, 400)}”`);
+      if ((await text('[data-industry="results-industry"]')).trim() !== '+66.01 M ISK') problems.push(`Results’ Industry isn’t the sale after tax less the job’s fee and the materials bought for it: “${await text('[data-industry="results-industry"]')}”`);
+      await page.waitForFunction(() => /648 Armor Plates/.test(document.querySelector('[data-industry="results-note"]')?.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
+      const note = await text('[data-industry="results-note"]');
+      if (!note.includes('Materials you never bought before the job aren’t costed')) problems.push('Results doesn’t say the pump’s materials, never bought, aren’t costed');
+      if (!note.includes('aren’t costed: 648 Armor Plates, 504 Contaminated Nanite Compound.') || /Fried Interface Circuit/.test(note)) problems.push(`Results doesn’t name the materials it didn’t cost, and only those: “${note}”`);
+      // The circuits bought are Industry's cost alone: not a trade on Results' every item (nothing of them sold).
+      if (/Every item traded −/.test(await text())) problems.push('the circuits bought for the job read as a trading loss on Results');
+      if (SHOTS) { await page.locator('[data-industry="results-note"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-results.png` }); }
+      await page.evaluate(() => { location.hash = '#wallet'; });
+      await page.waitForSelector('[data-industry="wallet-industry"]', { timeout: 20_000 }).catch(() => problems.push('the Wallet’s All income has no Industry row'));
+      const wallet = await text(allIncome);
+      if (!(await text('[data-industry="wallet-industry"]')).includes('+66.01 M ISK') || /Sold, never bought|Trading, every item/.test(wallet)) problems.push(`the Wallet’s All income doesn’t count the pumps as Industry alone: “${wallet.slice(0, 400)}”`);
+      if (SHOTS) { await page.locator(allIncome).scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-wallet.png` }); }
+      await page.evaluate(() => { location.hash = '#characters'; });
+      await page.waitForFunction(() => /\+66\.01 M ISK/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 20_000 }).catch(() => problems.push('the main’s Characters card doesn’t say +66.01 M earned'));
+      // The main's +66.01 M and Builder Alt's +66.76 M (it bought no materials, so none are its cost): all characters +132.77 M.
+      await page.waitForFunction(() => /\+132\.77 M ISK/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 20_000 })
+        .catch(async () => problems.push(`Builder Alt’s built and sold isn’t in its Earned, or the main’s purchase reached it (all characters should be +132.77 M): “${(await text()).slice(0, 500)}”`));
+      if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-characters.png` }); }
+      ESI['/universe/names/'] = prevNames;
+    }
+
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

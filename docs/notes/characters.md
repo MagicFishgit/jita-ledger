@@ -98,6 +98,10 @@ logins are in characters-cloud.md, mining across characters in mining.md (split 
   rows or its `archive` job has succeeded, Mined once it has mining rows or its `mining` job has; an alt whose login
   lacks the mining permission says so, as the main's card does. Saying "Nothing earned" for an alt whose wallet read
   never succeeded would be a zero for not known.
+- **Earned counts what a character built and sold as Industry** (Industry stage 2, Task 13; positions-results.md): its own
+  delivered jobs against its own sales, an alt's from its pulled copy, the materials at its own purchases. While the blueprints
+  load the card says "Reading the blueprints, to cost what you built…"; if they couldn't be loaded, "In the last 7 days, without
+  what was built" (its tip says so), and the card adds nothing to Earned, all characters, whose count says how many did.
 - **An alt's income is worked out once a revision.** `altLedger` returns the same object for the same pulled copy,
   `everyItemCalcs` and the hook's memos key on it, and the income takes a minute-rounded clock, so the minute's roster
   read and the page's ticking don't redo it. `loadTypeSets` keeps one answer per set of loyalty stores, so the main's and

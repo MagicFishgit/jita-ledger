@@ -76,6 +76,13 @@ Traps in the code, the tools and the browser that have cost time before.
   (`rawType`): 36 requests for 36 hulls, counted in a browser on 30 September 2026. Anything new that caches should do
   the same: `shareInFlight` (`lib/inFlight.ts`, pure and tested) wraps a read so, and `regionHistory` is built on it
   since the Research tab (3 October 2026), whose field picker and agents table read the same 17 histories at once.
+- **A dynamic `import()` that failed can't be retried in the same document.** Chromium keeps the failure in the page's
+  module map and answers every later `import()` of that URL with it, without asking the server again (probed 11 October 2026
+  against Vite's dev server, `.playwright-mcp/industry/13/retry-probe.mjs`, and the production build's own chunk under `vite
+  preview`, `retry-probe-prod.mjs`: one request, then none after the route was lifted, then loaded after a reload). So a loader that lets go of a failed promise (`loadIndustry`) still can't load it again in place, and a Try
+  again that only asks again does nothing: Industry's built-and-sold says "Reload to try again" and reloads (`reloadApp`).
+  The Industry tab's own Try again for the bundle and the stargate map (stage 1, Industry.tsx) asks again in place, so it has
+  the same problem.
 - **Probe ESI with the app's `X-Compatibility-Date` before writing a reader.** Without it a route can answer another
   shape: `/corporations/{id}/` gave `tax_rate`, which the app never receives (eve-facts.md), and every sync read no
   corporation until a later look caught it (1 October 2026).

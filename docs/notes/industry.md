@@ -400,3 +400,14 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   say so ("An earlier job, of 2 Oct, paid 1.00%"), never the newest alone. A cost under `CHECK_FLOOR` (1 ISK) off isn't said to differ.
 - **To do lists an alt's jobs to deliver** (Task 12A): `industry:<char>:<place>`, seen at the alt's `sheet` read and judged only on a roster read of this session; the rule is in orders-alerts.md.
 - **To do lists what you built** (Task 12B): `built:<char>:<product>:<place>`, the rule and its version in orders-alerts.md. Two corrections to the spec. **Correction 15, where it's listed follows where it sits** (`builtWhere`): in Jita 4-4 on Jita's live book (`listingPrice`, every character's open orders taken off it), at the home hub's structure or in its system on the hub's Goonmetrics sell less a tick, anywhere else by the `industry` doc's `sell` choice, and a ship never goes to Jita while "never haul ships to Jita" is on (with no hub picked it says so and prices nothing). Running the finder inside To do would load the bundle, the map and every book. **Correction 18, versioned by the newest delivered job's ID**, not every delivered job's: the item is built from the newest jobs whose units the place still holds, so listing part of an older batch would drop that job, change the version and reopen a hand tick the user meant to hold. Another delivery changes it, which is when a hand tick should reopen. The place is named as an alt's jobs' facilities are (`jobPlaceSaid`, one `/universe/names` call for both).
+- **Built and sold is the Industry activity** (Task 13, 11 October 2026: `builtClaims`, `builtAndSold`, `JOB_FEE_REFS` here; the
+  claim order, what it counts and every state's words are in positions-results.md, its limits in limits.md). Three corrections to
+  the spec: **9**, the claims are derived from the ledger (`claimsOf(d)`: jobs, trades, positions, Personal marks), not passed by
+  each caller, and a split sale rides `Position.claimed` on Results' every-item positions; **10**, the bundle loads beyond this
+  tab, on Results, the Wallet and the Characters page, only for a ledger holding a manufacturing job whose ME was recorded (not
+  cancelled), and a site's system security (one public read) only for a site with rigs (`useBuiltInputs`): every other ledger,
+  and the income recording's, never asks for it, so stage 1's "loaded by the tab only" holds for them; **11**, what Industry
+  counts (claimed sales after tax, every job's fee, manufacturing materials at your own purchases before each job; invention's
+  datacores and copies not charged). Where a job ran is Task 11's `jobPlace`: an NPC station has no material bonus, a structure
+  only when it is one of your sites with a structure ID, so a home typed in costs its jobs without its bonuses, said (limits.md).
+  A failed load can't be retried in place (gotchas.md): its button reloads the app.

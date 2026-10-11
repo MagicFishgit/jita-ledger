@@ -20,7 +20,8 @@ export function useCharIncome(d: Data, since: number, now: number, mine?: Set<nu
   const acts = useActivityEvents(d, mine);
   const calcs = useMemo(() => everyItemCalcs(d), [d]);
   const out = useMemo(() => incomeRows(calcs, acts, since, now), [calcs, acts, since, now]);
-  return { ready: acts.ready, failed: acts.failed, earned: out.earned, rows: out.rows };
+  // `waiting`: what it's still reading while not ready; `industry`: whether what was built could be counted (activityEvents.ts).
+  return { ready: acts.ready, failed: acts.failed, earned: out.earned, rows: out.rows, waiting: acts.waiting, industry: acts.industry };
 }
 
 /**

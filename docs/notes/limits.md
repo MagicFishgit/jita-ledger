@@ -246,3 +246,14 @@ State these rather than letting them be discovered:
   between reads can't be checked. Its EIV is at that hour's adjusted prices and its index ESI's four decimals (a few hundred ISK on a
   big job). A measured tax holds until the owner changes it, and is only offered. **They use the character's clone state now, not at install**: one that was Alpha when the job started and is Omega now reads 0.25% off (the Alpha tax is missing from the app's side, or the measured tax comes out that much under).
 - **List what you built can lag and can come back** (To do, industry.md). Its units come from the hangar copy ESI holds for an hour, so an item can stay up to about an hour after you've listed; units are alike, so an old job's item can come back if you later buy the same product at that place (stated, not bounded); and products delivered into a container never list (nested units aren't loose stock) until the first real delivery says how they land. A ship is "checking" until its kind is read and is never priced at Jita from a home hub while "never haul ships to Jita" is on. "Either" lists at Jita here.
+- **Built and sold costs each job's materials at the blueprint's ME as first seen running**, with your site's bonuses where it
+  ran at one (an NPC station has none; another structure's aren't known and aren't applied, nor a site of kind Other's, nor a
+  site's rigs when its system's security couldn't be read, each said), at your purchases before the job, newest first;
+  materials you never bought aren't costed, and are said. **A home you typed in (no structure found by name) matches no job**,
+  as for the job check: its jobs are costed with no structure or rig bonus, so their materials read up to its material bonus
+  dear (said as "a structure that isn't one of your build sites"), until the structure is found by name. A sale split between
+  built and bought units is claimed for the built ones first, and a built unit used or moved rather than sold can still claim
+  a later sale of bought stock. Invention's datacores and copies aren't charged, nor built units' share of their sell orders'
+  broker fees (in neither Industry nor trading). Each character's own: a unit built by one and sold by another isn't claimed. **The Wallet's "Trades no
+  position tracks" still reads a built product's sale as "Sold without ever buying one — loot or a drop"** (its own rule,
+  `autoTag`), though All income and Results count it as Industry.

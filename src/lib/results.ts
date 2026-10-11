@@ -5,8 +5,9 @@
  * realized profit, abyssal running from filaments bought against loot sold, hauling from courier
  * rewards, planets from sales of planetary goods less customs tax, loyalty from sales of loyalty-store
  * goods less the ISK the store took, combat from bounties and missions, and rewards from what CCP pays
- * for playing (daily goals, the AIR career program; `REWARDS` in wallet.ts). Ships lost are charged to
- * the activity they were lost in. None of it is estimated.
+ * for playing (daily goals, the AIR career program; `REWARDS` in wallet.ts), and industry from what you
+ * built and sold less its jobs' fees and materials (income.ts, industryTrack.ts builtAndSold). Ships lost
+ * are charged to the activity they were lost in. None of it is estimated.
  */
 
 import { categoryOf, REWARDS, REWARDS_TAX } from './wallet';
@@ -81,15 +82,12 @@ export type AttributionInput = {
   mine?: Set<number>;
   /** Used only for a sale whose tax the journal doesn't show. */
   salesTax: number;
+  /** Units of sales Industry claims (built and sold), by trade ID: only what's left of each counts here. */
+  claims?: ReadonlyMap<string, number>;
 };
 
-/**
- * Every ISK movement that belongs to an activity, by the rules at the top of this file. A trade no
- * position counts goes to the activity its item belongs to; one that belongs to none is left out
- * rather than guessed at.
- */
 /** The sales tax the journal charged each trade, by transaction ID. */
-function taxesByTx(journal: AttributionInput['journal']): Map<string, number> {
+export function taxesByTx(journal: AttributionInput['journal']): Map<string, number> {
   const taxByTx = new Map<string, number>();
   for (const e of journal) {
     if (e.refType === 'transaction_tax' && e.contextId != null) taxByTx.set(String(e.contextId), (taxByTx.get(String(e.contextId)) ?? 0) + Math.abs(e.amount));
@@ -97,15 +95,23 @@ function taxesByTx(journal: AttributionInput['journal']): Map<string, number> {
   return taxByTx;
 }
 
+/**
+ * Every ISK movement that belongs to an activity, by the rules at the top of this file. A trade no
+ * position counts goes to the activity its item belongs to; one that belongs to none is left out
+ * rather than guessed at. Units Industry claims (`claims`: what you built and sold) are Industry's
+ * (income.ts), so only what's left of such a sale counts here.
+ */
 export function attribute(inp: AttributionInput): DayEvent[] {
   const out: DayEvent[] = [];
   const taxByTx = taxesByTx(inp.journal);
   for (const r of inp.realized) if (r.isk) out.push({ t: r.t, activity: 'Trading', isk: r.isk });
   for (const tx of inp.txs) {
     if (inp.tracked.has(tx.id)) continue;
+    const off = tx.isBuy ? 0 : Math.min(tx.qty, inp.claims?.get(tx.id) ?? 0);
+    if (off >= tx.qty) continue;
     const t = Date.parse(tx.date);
     const gross = tx.qty * tx.unitPrice;
-    const net = tx.isBuy ? -gross : gross - (taxByTx.get(tx.id) ?? gross * inp.salesTax);
+    const net = tx.isBuy ? -gross : (gross - (taxByTx.get(tx.id) ?? gross * inp.salesTax)) * ((tx.qty - off) / tx.qty);
     const { filaments, abyssLoot, pi, lpGoods } = inp.sets;
     // Freelance: the items bought for a job, and any sold again, against its rewards below.
     if (inp.freelance?.(tx)) { out.push({ t, activity: 'Freelance', isk: net }); continue; }
@@ -141,8 +147,10 @@ export function otherSales(inp: AttributionInput, personal: Set<string>): { t: n
   for (const tx of inp.txs) {
     if (tx.isBuy || inp.tracked.has(tx.id) || personal.has(tx.id) || inp.freelance?.(tx)) continue;
     if (abyssLoot.has(tx.typeId) || pi.has(tx.typeId) || lpGoods.has(tx.typeId)) continue;
+    const off = Math.min(tx.qty, inp.claims?.get(tx.id) ?? 0);
+    if (off >= tx.qty) continue;
     const gross = tx.qty * tx.unitPrice;
-    out.push({ t: Date.parse(tx.date), isk: gross - (taxByTx.get(tx.id) ?? gross * inp.salesTax), typeId: tx.typeId });
+    out.push({ t: Date.parse(tx.date), isk: (gross - (taxByTx.get(tx.id) ?? gross * inp.salesTax)) * ((tx.qty - off) / tx.qty), typeId: tx.typeId });
   }
   return out;
 }

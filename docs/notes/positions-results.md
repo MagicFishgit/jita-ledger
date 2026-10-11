@@ -314,8 +314,8 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   - items an activity counts (filaments, abyssal loot, planetary and loyalty-store goods) left to that activity.
   Play is the same Personal spending as beside. On the user's ledger copy (to 27 September): never bought +973.81 M (led
   by 213.5 M of Datacore - High Energy Physics), combat +172.83 M, abyssal +1.81 M, every item −6.36 M; 366.5 M on play.
-  Without ESI's item groups only trading, hauling, freelance and bounties count, and both pages now say so (Results said
-  it counted those, but counted nothing). Freelance's trades are a job's items in its window over every job you did, finished ones
+  Without ESI's item groups only trading, hauling, freelance, bounties, rewards and industry count, and both pages now say
+  so (Results said it counted those, but counted nothing). Freelance's trades are a job's items in its window over every job you did, finished ones
   too, and a tagged one is no job's, as on the Wallet (2 October 2026; loyalty-hustles.md); the Wallet's row for one says
   "during a freelance job of yours that takes it".
 - **Daily goals and AIR rewards are income, for every character** (`REWARDS` in wallet.ts, the Rewards activity; the user,
@@ -327,6 +327,53 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   from its spec: daily goals, the AIR career program, and the older challenges, milestones, opportunities and campaign
   objectives, four of which were "Bounties & missions" and so Combat (none in the user's journal). A corporation's tax on
   a payout (`daily_goal_payouts_tax`) is a fee on the Wallet and nets in Rewards.
+- **Built and sold is Industry's, claimed first** (Industry stage 2's last task, 11 October 2026; `builtClaims`,
+  `builtAndSold` and `JOB_FEE_REFS` in industryTrack.ts, `claimsOf` in everyItem.ts, `Position.claimed`, `AttributionInput.claims`,
+  `activityEvents`' `built` and `industrySaid` in income.ts, `useBuiltInputs` in components/activityEvents.ts; the rules of the
+  bundle and the job are in industry.md). A product you built and sold read in All income as "Sold, never bought" at its whole
+  sale value, while the materials bought for it counted nowhere, so All income overstated industry by every material bought.
+  - **The claim order**: per product, its sales no position counts and not marked Personal, oldest first, take units from what the
+    character's delivered manufacturing jobs had made by the sale's time (records, runs × units a run), built units first; a sale
+    before the first delivery claims nothing (it stays trading or "Sold, never bought"), and one holding both is split. By trade
+    ID and units, each character's own: a unit built by one and sold by another isn't claimed. Derived from the ledger
+    (`claimsOf`: jobs, trades, positions, Personal marks, memoised), so every caller gets them unchanged.
+  - **Built types never join the activity sets**: those take a whole item (`incomeRows` drops an item in them from "Trading,
+    every item" and "Sold, never bought", `otherSales` skips its sales), which would have taken an item both built and bought out
+    of trading entirely. Instead a claimed sale's units come off Results' every-item position (`Position.claimed`: the sale is
+    counted for what's left, its tax pro rata, and the sell orders' broker fees are spread over the claimed units too, so
+    trading isn't charged the listing fee of what it didn't sell; that fee is in neither, limits.md), and `attribute` and
+    `otherSales` see only what's left. So an item both built and bought keeps its bought part's profit in trading (tested:
+    10 bought, 10 built, 15 sold: trading sells 5 against what it bought). `everyItemCalcs`' key gained `jobs` and `positions`.
+  - **What Industry counts** (correction 11): claimed sales at their time, after tax (the journal's, else the rate); every job's
+    fee at its start, the journal's entries naming it by `industry_job_id` in every industry ref type ESI lists but
+    `reprocessing_tax` (`industry_security_tax` included, which may be how a job's SCC is written; the Wallet files it under
+    Industry costs too), else ESI's `cost` on the job; each manufacturing job's materials at its start (not a cancelled or
+    reverted one's), costed at the character's own purchases before the job, newest first, each unit once across jobs, never a
+    purchase a freelance job counts (Freelance's already). Materials never bought are named and not costed; a job with no ME
+    recorded says its materials aren't known; one at a structure that isn't your site (a home typed in has no structure ID to
+    match), a site of kind Other, or a rigged site whose system's security couldn't be read is costed without the bonuses not
+    known, and said. It needs no item groups, so it counts when ESI's groups fail.
+  - **While the blueprints load, nothing is said as a figure** (pre-flight I4): the bundle loads beyond the Industry tab only
+    for a ledger with a manufacturing job whose ME was recorded. Meanwhile Results' Industry reads "Working out…" with "Reading
+    the blueprints, to cost what you built…" under it and the Made tile says what you built is still being worked out; the
+    Wallet's All income and a Characters card say "Reading the blueprints, to cost what you built…" where the figure would be
+    (`waiting`; their `ready` waits only for a ledger that needs it). If it couldn't be loaded: "–" and "The blueprints
+    couldn’t be loaded, so what you built isn’t counted here or in the total", the Wallet the same, a card "In the last 7 days,
+    without what was built" and left out of Earned, all characters (its count says so). Never claimed sales with no materials.
+    **"Reload to try again" reloads**: Chromium keeps a failed dynamic import for the life of the document and never asks
+    again (gotchas.md), so a retry in place did nothing (the page case caught it).
+  - **Its note sits under Results' row** (what it couldn't cost, materials by name: the hook asks ESI for their names) and in the
+    Wallet's Industry row's tip. On a phone the note keeps to the table's visible width.
+  - **The income recording gained one line**: Results lists every activity, so "By activity" has "Industry – Hours a week on
+    industry –" between Freelance and Rewards; re-recorded once for it, and nothing else moved (the recorded ledgers hold no
+    jobs). The Wallet's rows drop under 1 ISK, so they didn't change.
+  - The page check's industry case holds a pump built (10 at an NPC station, ME 10) and sold (10 at 7 M) by the main and by
+    Builder Alt, the main having bought 800 Fried Interface Circuit before the job: held back, Results says it's working out and
+    the Wallet and the card what they read; refused, Results says so with "–", the Wallet says so with nothing counted as "Sold,
+    never bought", both cards say "without what was built" and the total counts neither; then reload, +66.01 M on Results, the
+    Wallet and the main's card (10 × 7 M less 4.20%, less the job's 300,000 and the 747 circuits it used at 1,000), the circuits
+    no trade of their own, +132.77 M all characters (the alt bought none), and the two salvage materials never bought named in
+    the note. Planted, no purchase costed as a material read +66.76 M and failed it.
 - **ISK moved between your own characters is neither earned nor spent** (stage 4 of several characters, 1 October 2026;
   the rule is in characters.md). The owner's 100 M to FannySchmeller on 30 September read as 100 M of play. Now play,
   the runway's burn, running costs, the day's biggest cost, the month's report, cash-flow goals and the unusual-activity

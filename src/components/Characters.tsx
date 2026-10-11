@@ -50,13 +50,16 @@ type MinedWorth = ReturnType<typeof useMinedWorth>;
  */
 function earnedTile(inc: ReturnType<typeof useCharIncome>, period: string, alt: boolean, unread: boolean, readAt: number | null, now: number): TileData {
   if (unread) return { l: 'Earned', v: '–', n: 'Not read yet', tip: 'The cloud hasn’t read this character’s wallet yet, so what it earned isn’t known.' };
-  const tip = earnedTip(inc.rows, period, alt, inc.failed, readAt, now);
-  if (!inc.ready) return { l: 'Earned', v: '–', n: 'Reading which items belong to which activity…', tip };
+  const tip = earnedTip(inc.rows, period, alt, inc.failed, readAt, now, inc.industry?.state === 'failed');
+  if (!inc.ready) return { l: 'Earned', v: '–', n: inc.waiting ?? 'Reading…', tip };
+  // The blueprints couldn't be loaded: what was built isn't in the figure, and the card says so rather than a total that
+  // looks whole (or "Nothing earned" when only what was built would have counted).
+  if (inc.industry?.state === 'failed') return { l: 'Earned', v: inc.rows.length ? iskBigSigned(inc.earned) : '–', n: `In the last ${period}, without what was built`, ...(inc.rows.length ? { c: inc.earned >= 0 ? 'var(--pos)' : 'var(--neg)' } : {}), tip };
   if (!inc.rows.length) return { l: 'Earned', v: '–', n: `Nothing earned in ${period}`, tip };
   return { l: 'Earned', v: iskBigSigned(inc.earned), n: `In the last ${period}`, c: inc.earned >= 0 ? 'var(--pos)' : 'var(--neg)', tip };
 }
 
-function earnedTip(rows: IncomeRow[], period: string, alt: boolean, failed: boolean, readAt: number | null, now: number): string {
+function earnedTip(rows: IncomeRow[], period: string, alt: boolean, failed: boolean, readAt: number | null, now: number, builtFailed = false): string {
   const parts = [alt
     ? `Everything it earned in the last ${period}, by the Wallet’s rules, from its own trades and journal as the cloud last read them${readAt != null ? `, ${ago(new Date(readAt).toISOString(), now)}` : ''}: anything since isn’t in it yet.`
     : `Everything you earned in the last ${period}: the Wallet’s “All income” for the same period, by the same rules.`];
@@ -68,6 +71,7 @@ function earnedTip(rows: IncomeRow[], period: string, alt: boolean, failed: bool
       + '• Ore it hauled to you and you sold: that’s yours when you sell it.');
   }
   if (failed) parts.push('ESI’s item groups couldn’t be read, so abyssal, planets, loyalty and things never bought aren’t counted.');
+  if (builtFailed) parts.push(`What ${alt ? 'it' : 'you'} built isn’t counted: the blueprints couldn’t be loaded.`);
   return parts.join('\n\n');
 }
 
@@ -155,7 +159,9 @@ function Card(props: {
   const income = useCharIncome(props.ledger, props.since, props.incomeNow, props.mine);
   // Reported up for the all-characters total only when it changes: the page's state holds it, so an effect keyed on the
   // value (not on every render) keeps the two from setting each other in a loop.
-  const known = !props.earnedUnread && income.ready;
+  // A card whose builds couldn't be costed (the blueprints didn't load) says its figure is without them, and adds nothing to
+  // the total: a sum that left them out would read as whole, or as 0 where only what was built earned anything.
+  const known = !props.earnedUnread && income.ready && income.industry?.state !== 'failed';
   useEffect(() => { onEarned(id, known ? income.earned : null); }, [id, known, income.earned, onEarned]);
   const login = entry ? loginState(entry, [...SCOPES, ...askedScopes()]) : null;
   const failing = entry ? failingJobs(entry) : [];
@@ -280,7 +286,7 @@ export function Characters() {
   // Ore names from your ledger, or the alt's own copy when yours hasn't one.
   const worth = useMinedWorth([myMining, ...others.map((o) => o.mining)].flat().filter((r) => r.date >= pricedFrom).map((r) => r.typeId), others.map((o) => o.ledger.names));
 
-  // Each card's Earned, as it reports it: null while not known (being worked out, or an alt not read yet).
+  // Each card's Earned, as it reports it: null while not known (being worked out, an alt not read yet, or its builds not costed).
   const [earnedBy, setEarnedBy] = useState<Record<number, number | null>>({});
   const onEarned = useCallback((id: number, v: number | null) => setEarnedBy((x) => (x[id] === v ? x : { ...x, [id]: v })), []);
   useEnsureNames([...everyone.flatMap((f) => (f.training ? [f.training.skillId] : [])), ...alts.roster.flatMap((r) => (r.ship ? [r.ship] : []))]);
@@ -304,7 +310,7 @@ export function Characters() {
     {
       l: 'Earned, all characters', v: earnedAll.length ? iskBigSigned(sum(earnedAll)) : '–', n: `In the last ${period}: ${earnedAll.length} of ${everyone.length} counted`,
       c: earnedAll.length ? (sum(earnedAll) >= 0 ? 'var(--pos)' : 'var(--neg)') : undefined,
-      tip: `What every character earned in the last ${period}, added up.\n\n• Each by the Wallet’s rules, as on its card: yours is the Wallet’s “All income”.\n• An alt’s leaves out ships it lost, and counts a freelance reward without what was bought for the job: the cloud reads neither for an alt.\n• A character not read yet, or still being worked out, adds nothing, and the count under the figure says how many did.\n• A card’s figure can be partial: when ESI’s item groups couldn’t be read, it leaves out abyssal, planets, loyalty and things never bought, and its own tip says so.`,
+      tip: `What every character earned in the last ${period}, added up.\n\n• Each by the Wallet’s rules, as on its card: yours is the Wallet’s “All income”.\n• An alt’s leaves out ships it lost, and counts a freelance reward without what was bought for the job: the cloud reads neither for an alt.\n• A character not read yet, still being worked out, or whose builds couldn’t be costed (the blueprints didn’t load) adds nothing, and the count under the figure says how many did.\n• A card’s figure can be partial: when ESI’s item groups couldn’t be read, it leaves out abyssal, planets, loyalty and things never bought, and its own tip says so.`,
     },
   ];
 

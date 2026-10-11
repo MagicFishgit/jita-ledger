@@ -15,7 +15,7 @@ import { flip } from './Prospects';
 import { Guide, NumChip, PageHead, Panel, Seg, Tiles } from './ui';
 import { Figures, Points } from './Facts';
 import { ACTIVITY_COLOR, useActivityEvents } from './activityEvents';
-import { ACTIVITY_WHAT } from '../lib/income';
+import { ACTIVITY_WHAT, industrySaid } from '../lib/income';
 
 const DAY = 86400_000;
 /** 0 is everything the ledger holds. */
@@ -64,7 +64,7 @@ export function Results() {
   // takes the logged-in character and the ledger's `chars` as your characters and leaves out entries naming two of
   // them. A courier reward names the Secure Commerce Commission (its escrow) as its payer, not the issuer: the one in
   // the user's journal came from 1000132. So a reward from your own character stays Hauling.
-  const { events, failed, posCalc, lossActs } = useActivityEvents();
+  const { events, failed, posCalc, lossActs, industry, industryRetry } = useActivityEvents();
 
   const acts = ACTIVITIES;
   const starts = bucketStarts(since, now, unit);
@@ -114,7 +114,7 @@ export function Results() {
       : `${byOverall[0].a} made the most. Put in the hours a week you spend on each activity to see what each pays for your time.`;
 
   // Every item ever bought and sold again, by the Positions rule, whether or not a position tracks it.
-  const itemCalcs = useMemo<ItemCalc[]>(() => everyItemCalcs(d), [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored]); // eslint-disable-line react-hooks/exhaustive-deps
+  const itemCalcs = useMemo<ItemCalc[]>(() => everyItemCalcs(d), [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored, d.jobs, d.positions]); // eslint-disable-line react-hooks/exhaustive-deps
   const itemRows = useMemo(() => itemCalcs.map((c) => itemResult(c, since - 1, now)), [itemCalcs, since, now]);
   const tradeRows = itemRows.filter(isTrade);
   const unbought = itemRows.filter(isUnbought);
@@ -170,6 +170,10 @@ export function Results() {
     return `The biggest earners: the ${lead[0].key} category (${iskBigSigned(lead[0].profit)}), items selling for ${low(lead[1].key)} each (${iskBigSigned(lead[1].profit)}), and stock held ${low(lead[2].key)} (${iskBigSigned(lead[2].profit)}).`;
   })();
 
+  // Industry's figure and note as industrySaid says them: "Working out…" while the blueprints load, "–" and why if they
+  // couldn't be (with Try again), else the figure and what it couldn't cost (pre-flight I4).
+  const ind = industrySaid(industry, name);
+
   const setHours = (a: Activity, v: number | null) => update((x) => {
     const h = { ...x.prefs.hours };
     if (v == null || !(v > 0)) delete h[a]; else h[a] = v;
@@ -183,9 +187,10 @@ export function Results() {
         lede="Everything you made, split by activity — and what each paid per hour of your time, so you know where your evenings are best spent."
         actions={<Seg label="Period" value={days} onChange={setDays} options={PERIODS} />}
       />
-      {failed && <p className="note" style={{ color: 'var(--acc2)' }}>Couldn’t read the item groups from ESI, so only trading, hauling, freelance, bounties and rewards are counted. It tries again next visit.</p>}
+      {failed && <p className="note" style={{ color: 'var(--acc2)' }}>Couldn’t read the item groups from ESI, so only trading, hauling, freelance, bounties, industry and rewards are counted. It tries again next visit.</p>}
       <Tiles min={190} items={[
-        { l: days === 0 ? `Made ${periodSaid}` : `Made in ${periodSaid}`, v: iskBigSigned(grand), n: 'After every fee and tax', c: grand >= 0 ? 'var(--pos)' : 'var(--neg)' },
+        { l: days === 0 ? `Made ${periodSaid}` : `Made in ${periodSaid}`, v: iskBigSigned(grand), c: grand >= 0 ? 'var(--pos)' : 'var(--neg)',
+          n: industry && industry.state !== 'ready' ? (industry.state === 'loading' ? 'After every fee and tax; what you built is still being worked out' : 'After every fee and tax; what you built isn’t counted (the blueprints couldn’t be loaded)') : 'After every fee and tax' },
         { l: 'Per day', v: iskBigSigned(grand / covered), n: covered < span ? `Averaged over the ${covered} day${covered === 1 ? '' : 's'} your ledger covers` : 'Averaged across the period' },
         { l: 'Per hour of your time', v: overallPh != null ? iskBigSigned(overallPh) : '–', n: overallPh != null ? `Across the ${hoursKnown.length} activit${hoursKnown.length === 1 ? 'y' : 'ies'} you gave hours for` : 'Put your hours in below', c: 'var(--acc)' },
         { l: 'Return / day on capital', v: capital > 0 ? pct(tot[tradingK] / covered / capital, 2) : '–', n: 'Trading profit ÷ ISK tied up in it now', c: 'var(--acc)' },
@@ -242,7 +247,9 @@ export function Results() {
                       <td className="l" style={{ width: '45%' }}>
                         <span className="row tight" style={{ flexWrap: 'nowrap' }}>
                           <span className="track" style={{ flex: 1 }}><span className="fill" style={{ width: `${(Math.max(0, tot[k]) / barMax) * 100}%`, background: COLOR[a] }} /></span>
-                          <span style={{ fontSize: 12, color: tot[k] < 0 ? 'var(--neg-t)' : 'var(--figure)' }}>{tot[k] ? iskBigSigned(tot[k]) : '–'}</span>
+                          {a === 'Industry'
+                            ? <span style={{ fontSize: 12, color: !ind.figure && tot[k] < 0 ? 'var(--neg-t)' : 'var(--figure)' }} data-industry="results-industry">{ind.figure ?? (tot[k] ? iskBigSigned(tot[k]) : '–')}</span>
+                            : <span style={{ fontSize: 12, color: tot[k] < 0 ? 'var(--neg-t)' : 'var(--figure)' }}>{tot[k] ? iskBigSigned(tot[k]) : '–'}</span>}
                         </span>
                       </td>
                       {a === 'Rewards'
@@ -250,6 +257,12 @@ export function Results() {
                         : <td><NumChip label={`Hours a week on ${a.toLowerCase()}`} hideLabel value={hours[a] ?? null} onChange={(v) => setHours(a, v)} width={56} decimals={1} placeholder="–" /></td>}
                       <td style={{ color: ph[k] != null && overallPh != null && ph[k]! > overallPh ? 'var(--pos)' : 'var(--figure)' }}>{ph[k] == null ? '–' : iskBigSigned(ph[k])}</td>
                     </tr>
+                    {a === 'Industry' && ind.note && (
+                      <tr><td className="l note small" colSpan={4} style={{ whiteSpace: 'normal', height: 'auto', paddingBottom: 8, fontFamily: 'var(--f-body)' }} data-industry="results-note">
+                        {/* The table scrolls sideways on a phone (520 px): the note keeps to what's in view, so it reads without scrolling. */}
+                        <span style={{ display: 'block', maxWidth: 'calc(100vw - 140px)' }}>{ind.note}
+                          {industry?.state === 'failed' && <> <button type="button" className="link-btn" onClick={industryRetry}>Reload to try again</button></>}</span></td></tr>
+                    )}
                     {a === 'Trading' && (
                       <tr>
                         <td className="l" data-tip-title="Every item traded" data-tip={'Every trade in an item you bought, tracked by a position or not, worked out by the same rules as Positions.\n\n• Trades you tagged Personal are left out, as on the Wallet.\n• Shown beside Trading, not added to the total: tracked trades are already counted there.\n• "Every item you traded" below lists them one by one.'}>
@@ -277,6 +290,7 @@ export function Results() {
             { kind: 'info', lead: 'One rule each', text: 'hover an activity’s name to see it.' },
             { kind: 'info', lead: 'Trading', text: 'is any trade a position counts; anything else goes to its item’s activity, and an item in none is left out, not guessed.' },
             { kind: 'info', lead: 'Every item traded', text: 'counts your trades with or without a position: shown beside Trading, not added to the total.' },
+            { kind: 'info', lead: 'Industry', text: 'claims a sale of what you built first, up to what your jobs had made by then; the rest of the sale counts as before.' },
           ]} />
         </Panel>
       </div>

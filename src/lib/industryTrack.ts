@@ -440,3 +440,123 @@ export function builtItems(jobs: readonly JobRecord[], byLocation: Record<number
   }
   return out.sort((a, b) => a.typeId - b.typeId || a.place - b.place);
 }
+
+// --- Built and sold (spec, stage 2's last task) ------------------------------------------------------------------------
+
+/**
+ * A job's fees in the journal (wallet.ts's Industry costs), by the job its context names. Never `reprocessing_tax`: not a
+ * job's. ESI's industry ref types at 2026-08-18 (`.playwright-mcp/research/industry-stage2/openapi-2026-08-18.json`, the
+ * journal's `ref_type` enum): every one but `reprocessing_tax`. `industry_security_tax` may be how a job's SCC is written
+ * (pre-flight M7).
+ */
+export const JOB_FEE_REFS: ReadonlySet<string> = new Set(['industry_job_tax', 'industry_security_tax', 'manufacturing', 'researching_material_productivity', 'researching_technology', 'researching_time_productivity', 'copying', 'reaction', 'reverse_engineering']);
+
+type SaleLike = { id: string; typeId: number; date: string; isBuy: boolean; qty: number };
+/**
+ * Industry's claims on a character's sales (spec, "One claim order"): per product, its sales oldest first (not those `skip`
+ * says: a position counts them, or they're marked Personal) take units from what its delivered manufacturing jobs had made
+ * by the sale's time, built units before any bought ones. A sale before the first delivery claims nothing. Trade ID → units
+ * (a sale can be split).
+ */
+export function builtClaims(jobs: readonly JobRecord[], txs: readonly SaleLike[], skip: (txId: string) => boolean): Map<string, number> {
+  const made = new Map<number, { t: number; units: number }[]>();
+  for (const j of jobs) {
+    if (j.activity !== 1 || j.status !== 'delivered' || j.productTypeId == null) continue;
+    const u = jobUnits(j);
+    if (u == null) continue;
+    const list = made.get(j.productTypeId);
+    const batch = { t: Date.parse(j.completed ?? j.end), units: u };
+    if (list) list.push(batch); else made.set(j.productTypeId, [batch]);
+  }
+  const out = new Map<string, number>();
+  for (const [typeId, batches] of made) {
+    batches.sort((a, b) => a.t - b.t);
+    const sales = txs.filter((t) => !t.isBuy && t.typeId === typeId && !skip(t.id)).sort((a, b) => Date.parse(a.date) - Date.parse(b.date) || a.id.localeCompare(b.id));
+    let pool = 0, next = 0;
+    for (const s of sales) {
+      const at = Date.parse(s.date);
+      while (next < batches.length && batches[next].t <= at) pool += batches[next++].units;
+      const take = Math.min(pool, s.qty);
+      if (take > 0) { out.set(s.id, take); pool -= take; }
+    }
+  }
+  return out;
+}
+
+/** A job's materials (the bundle's at its recorded ME, with its site's bonuses when it ran at one of your sites: `atSite`); null when not known. */
+export type MatsOf = (job: JobRecord) => { mats: [number, number][]; atSite: boolean } | null;
+export type BuiltResult = {
+  events: { t: number; isk: number }[];
+  /** Units of a material a job used that weren't bought before it (mined, looted, from before): not costed. */
+  unbought: { jobId: number; typeId: number; units: number }[];
+  /** Manufacturing jobs whose materials aren't known (no ME recorded, or a blueprint the bundle lacks). */
+  unknown: number[];
+  /** Manufacturing jobs costed without some bonus: at a structure that isn't one of your sites, or one whose rigs couldn't be applied (its system's security not read). */
+  offSite: number[];
+};
+
+/**
+ * What a character's industry made, as ISK movements (correction 11): each claimed sale's part after its tax, at its time;
+ * every job's fee at its start (the journal's entries naming it by `industry_job_id`, else ESI's cost on the job); each
+ * manufacturing job's materials at its start, costed at its own purchases before the job, newest first, each unit once
+ * across jobs (the Freelance rule). Cancelled and reverted jobs' materials aren't charged. What isn't known is said apart.
+ */
+export function builtAndSold(o: {
+  jobs: readonly JobRecord[];
+  txs: readonly (SaleLike & { unitPrice: number })[];
+  journal: readonly { date: string; refType: string; amount: number; contextId?: number; contextIdType?: string }[];
+  claims: ReadonlyMap<string, number>; taxByTx: ReadonlyMap<string, number>; salesTax: number;
+  personal: ReadonlySet<string>; mats: MatsOf | null;
+  /** A trade a freelance job of yours counts (income.ts's `freelance`): never a job's material too (pre-flight M9). */
+  freelance?: (tx: { id: string; typeId: number; date: string }) => boolean;
+}): BuiltResult {
+  const events: BuiltResult['events'] = [];
+  for (const t of o.txs) {
+    const c = o.claims.get(t.id);
+    if (!c || t.isBuy) continue;
+    const gross = t.qty * t.unitPrice;
+    events.push({ t: Date.parse(t.date), isk: (gross - (o.taxByTx.get(t.id) ?? gross * o.salesTax)) * (c / t.qty) });
+  }
+  const fees = new Map<number, { t: number; isk: number }[]>();
+  for (const e of o.journal) {
+    if (e.contextIdType !== 'industry_job_id' || e.contextId == null || !JOB_FEE_REFS.has(e.refType)) continue;
+    const list = fees.get(e.contextId);
+    const fee = { t: Date.parse(e.date), isk: e.amount };
+    if (list) list.push(fee); else fees.set(e.contextId, [fee]);
+  }
+  const unbought: BuiltResult['unbought'] = [], unknown: number[] = [], offSite: number[] = [];
+  // Purchases by material, newest first, with what's left of each.
+  const left = new Map<string, number>();
+  const buysOf = new Map<number, (SaleLike & { unitPrice: number })[]>();
+  for (const t of o.txs) {
+    if (!t.isBuy || o.personal.has(t.id) || o.freelance?.(t)) continue;
+    const list = buysOf.get(t.typeId);
+    if (list) list.push(t); else buysOf.set(t.typeId, [t]);
+  }
+  for (const list of buysOf.values()) list.sort((a, b) => Date.parse(b.date) - Date.parse(a.date) || b.id.localeCompare(a.id));
+  for (const j of [...o.jobs].sort((a, b) => Date.parse(a.start) - Date.parse(b.start) || a.jobId - b.jobId)) {
+    const at = Date.parse(j.start);
+    const named = fees.get(j.jobId);
+    if (named) events.push(...named);
+    else if (j.cost != null) events.push({ t: at, isk: -j.cost });
+    if (j.activity !== 1 || j.status === 'cancelled' || j.status === 'reverted') continue;
+    const m = o.mats ? o.mats(j) : null;
+    if (!m) { unknown.push(j.jobId); continue; }
+    if (!m.atSite) offSite.push(j.jobId);
+    let cost = 0;
+    for (const [type, need] of m.mats) {
+      let want = need;
+      for (const b of buysOf.get(type) ?? []) {
+        if (want <= 0) break;
+        if (Date.parse(b.date) > at) continue;
+        const have = left.get(b.id) ?? b.qty;
+        const take = Math.min(have, want);
+        if (take <= 0) continue;
+        left.set(b.id, have - take); want -= take; cost += take * b.unitPrice;
+      }
+      if (want > 0) unbought.push({ jobId: j.jobId, typeId: type, units: want });
+    }
+    if (cost) events.push({ t: at, isk: -cost });
+  }
+  return { events, unbought, unknown, offSite };
+}

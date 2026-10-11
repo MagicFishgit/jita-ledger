@@ -30,7 +30,7 @@ import { BarLine, cssVars, Empty, Figure, PageHead, Panel, Seg, Tiles, Tip } fro
 import { ACTIVITY_COLOR, useActivityEvents } from './activityEvents';
 import { Points } from './Facts';
 import { everyItemCalcs } from '../lib/everyItem';
-import { incomeRows } from '../lib/income';
+import { incomeRows, industrySaid } from '../lib/income';
 import { nettedJournal, refundsIn } from '../lib/refunds';
 import { altLedger } from '../lib/altLedger';
 import { useAltCopies, useAltRoster } from '../lib/altStore';
@@ -1169,19 +1169,22 @@ function Report(props: {
  * Personal spending as beside.
  */
 function AllIncome({ d, acts, play, since, now, periodWords }: { d: Data; acts: ReturnType<typeof useActivityEvents>; play: number; since: number; now: number; periodWords: string }) {
-  const calcs = useMemo(() => everyItemCalcs(d), [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored]); // eslint-disable-line react-hooks/exhaustive-deps
+  const calcs = useMemo(() => everyItemCalcs(d), [d.txs, d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored, d.jobs, d.positions]); // eslint-disable-line react-hooks/exhaustive-deps
   const { rows, earned } = useMemo(() => incomeRows(calcs, acts, since, now), [calcs, acts, since, now]);
+  const name = useTypeName();
+  // What Industry couldn't cost (materials never bought, jobs with no ME recorded), said in its row's tip.
+  const industryNote = industrySaid(acts.industry, name).note;
   const colorOf = (key: string) => (key === 'trading' ? ACTIVITY_COLOR.Trading : key === 'loot' ? '#adbfcf' : ACTIVITY_COLOR[key as Activity]);
   const left = earned - play;
   const plus = rows.filter((r) => r.isk > 0);
   const scale = Math.max(1, plus.reduce((t, r) => t + r.isk, 0), play);
   return (
-    <Panel title={<span className="row tight" style={{ gap: 6 }}>All income against play<Tip title="All income against play" text={'Everything you earned, against what you spent on play.\n\n• Trading is every item you bought and sold again, by its profit, not only your positions.\n• Each other activity is counted as on Results: freelance rewards less what the jobs cost, abyssal loot less filaments and ships lost, bounties less ships lost.\n• What you sold but never bought (loot, ore, datacores) counts by what it sold for, after tax.\n• Play is everything marked Personal, as in Trading against play.'} /></span>}>
-      {!acts.ready ? <p className="note">Reading which items belong to which activity…</p> : (
+    <Panel title={<span className="row tight" style={{ gap: 6 }}>All income against play<Tip title="All income against play" text={'Everything you earned, against what you spent on play.\n\n• Trading is every item you bought and sold again, by its profit, not only your positions.\n• Each other activity is counted as on Results: freelance rewards less what the jobs cost, abyssal loot less filaments and ships lost, bounties less ships lost.\n• Industry is what you built and sold, less every job’s fees and the materials your jobs used.\n• What you sold but never bought (loot, ore, datacores) counts by what it sold for, after tax.\n• Play is everything marked Personal, as in Trading against play.'} /></span>}>
+      {!acts.ready ? <p className="note" data-industry="wallet-waiting">{acts.waiting ?? 'Reading…'}</p> : (
         <>
           <div className="col" style={{ gap: 6 }}>
             {rows.length ? rows.map((r) => (
-              <div key={r.key} className="kv" style={{ fontSize: 13.5 }} data-tip={r.tip} data-tip-title={r.said}>
+              <div key={r.key} className="kv" style={{ fontSize: 13.5 }} data-tip={r.key === 'Industry' && industryNote ? `${r.tip}\n\n${industryNote}` : r.tip} data-tip-title={r.said} data-industry={r.key === 'Industry' ? 'wallet-industry' : undefined}>
                 <span className="row tight" style={{ color: 'var(--body)', gap: 7 }}><span aria-hidden="true" style={{ width: 9, height: 9, background: colorOf(r.key), flex: 'none' }} />{r.said}</span>
                 <span className="v" style={{ color: r.isk >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{iskBigSigned(r.isk)}</span>
               </div>
@@ -1208,6 +1211,7 @@ function AllIncome({ d, acts, play, since, now, periodWords }: { d: Data; acts: 
               : play <= earned ? `Everything you do pays for your flying, with ${iskBig(left)} left over.`
                 : `You spent ${iskBig(play - earned)} more on play than you earned.`}
             {acts.failed ? ' The item groups couldn’t be read from ESI, so abyssal, planets, loyalty and things never bought aren’t counted; it tries again next visit.' : ''}
+            {acts.industry?.state === 'failed' ? <> What you built isn’t counted: the blueprints couldn’t be loaded. <button type="button" className="link-btn" onClick={acts.industryRetry}>Reload to try again</button></> : null}
           </p>
         </>
       )}

@@ -99,6 +99,11 @@ export type Position = {
    * the `held` units the position had then are the earlier trading's: they sell first, and none of it is the view's.
    */
   view?: { held: number };
+  /**
+   * Only on Results' every-item positions (`everything` in everyItem.ts), never stored: units of a sale Industry claims
+   * (built and sold, industryTrack.ts builtClaims), by trade ID. Those units come off the sale with that part of its tax.
+   */
+  claimed?: Record<string, number>;
 };
 
 export type BookLevel = { price: number; volume: number };
@@ -476,7 +481,7 @@ export type Killmail = {
 
 export type Theme = 'Caldari' | 'Amarr' | 'Gallente' | 'Minmatar';
 export type Motion = 'Full' | 'Calm' | 'Off';
-export type Activity = 'Trading' | 'Loyalty' | 'Planets' | 'Hauling' | 'Abyssal' | 'Combat' | 'Freelance' | 'Rewards';
+export type Activity = 'Trading' | 'Loyalty' | 'Planets' | 'Hauling' | 'Abyssal' | 'Combat' | 'Freelance' | 'Industry' | 'Rewards';
 
 /** How the app looks and a few choices that belong to you rather than to a page. */
 export type Prefs = {

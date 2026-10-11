@@ -214,6 +214,8 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
   const events: Ev[] = [];
   const counted: Tx[] = [];
   let manualFees = 0, salesTax = 0, taxActual = 0, taxEstimated = 0;
+  // Units Industry claims off this position's sales (Results' every-item positions only, `pos.claimed`).
+  let claimedUnits = 0;
 
   for (const tx of all) {
     const m = matchTx(pos, tx);
@@ -231,10 +233,16 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
     if (m !== 'excluded' && takenElsewhere(tx, m)) { rows.push({ tx, match: 'elsewhere', fee, feeActual }); continue; }
     rows.push({ tx, match: m, fee, feeActual });
     if (m === 'excluded') continue;
+    // Units Industry claims (Results' every-item positions only, `pos.claimed`): off this sale with that part of its tax.
+    const off = !tx.isBuy && pos.claimed ? Math.min(tx.qty, pos.claimed[tx.id] ?? 0) : 0;
+    if (off) claimedUnits += off;
+    if (off >= tx.qty) continue;
+    const qty = tx.qty - off, part = qty / tx.qty;
+    if (off) fee *= part;
     counted.push(tx);
     // A sale carries its own tax, so units sold with no recorded cost can leave it out with them.
     const onSale = !tx.isBuy && fee > 0;
-    events.push({ t: ts(tx.date), kind: tx.isBuy ? 'buy' : 'sell', qty: tx.qty, price: tx.unitPrice, fee: 0, tax: onSale ? fee : 0,
+    events.push({ t: ts(tx.date), kind: tx.isBuy ? 'buy' : 'sell', qty, price: tx.unitPrice, fee: 0, tax: onSale ? fee : 0,
       ...(onSale ? { taxOf: { manual: tx.source === 'manual', actual: feeActual } } : {}) });
     if (fee > 0 && !onSale) events.push({ t: ts(tx.date), kind: 'fee', qty: 0, price: 0, fee });
     if (fee > 0) {
@@ -339,9 +347,11 @@ export function computePosition(pos: Position, d: Data, s: Settings): PositionCa
   const countedBuys = events.filter((e) => e.kind === 'buy').reduce((n, e) => n + e.qty, 0);
   const countedSells = events.filter((e) => e.kind === 'sell').reduce((n, e) => n + e.qty, 0);
   const buyFeeUnit = countedBuys > 0 ? buyFeePool / countedBuys : 0;
-  const sellFeeUnit = countedSells > 0 ? sellFeePool / countedSells : 0;
+  // Claimed units carry their share of the sell orders' broker fees out with them: Industry counts its sales after tax, and
+  // trading isn't charged the listing fee of what it didn't sell (a stated limit: that fee is in neither).
+  const sellFeeUnit = countedSells + claimedUnits > 0 ? sellFeePool / (countedSells + claimedUnits) : 0;
   if (!countedBuys && buyFeePool > 0) events.push({ t: firstFee ?? Date.now(), kind: 'fee', qty: 0, price: 0, fee: buyFeePool });
-  if (!countedSells && sellFeePool > 0) events.push({ t: firstFee ?? Date.now(), kind: 'fee', qty: 0, price: 0, fee: sellFeePool });
+  if (!countedSells && !claimedUnits && sellFeePool > 0) events.push({ t: firstFee ?? Date.now(), kind: 'fee', qty: 0, price: 0, fee: sellFeePool });
   for (const e of events) {
     if (e.kind === 'buy') e.unitFee = buyFeeUnit;
     else if (e.kind === 'sell') e.unitFee = sellFeeUnit;

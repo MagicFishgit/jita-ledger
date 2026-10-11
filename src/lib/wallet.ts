@@ -112,7 +112,7 @@ export function categoryOf(e: Pick<JournalEntry, 'refType' | 'amount' | 'firstPa
   if (r.startsWith('planetary_')) return OUT.planets;
   if (r === 'lp_store') return OUT.lp;
   if (r === 'datacore_fee') return OUT.datacores;
-  if (has(['industry_job_tax', 'manufacturing', 'researching_material_productivity', 'researching_technology',
+  if (has(['industry_job_tax', 'industry_security_tax', 'manufacturing', 'researching_material_productivity', 'researching_technology',
     'researching_time_productivity', 'copying', 'reaction', 'reprocessing_tax', 'reverse_engineering'], r)) return OUT.industry;
   if (has(['jump_clone_activation_fee', 'jump_clone_installation_fee', 'clone_activation', 'clone_transfer'], r)) return OUT.clones;
   if (r === 'skill_purchase') return OUT.skills;

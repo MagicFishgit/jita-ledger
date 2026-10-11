@@ -1,14 +1,36 @@
-import { computePosition } from './positions';
+import { builtClaims } from './industryTrack';
+import { computePosition, countedIn } from './positions';
 import type { ItemCalc } from './longRange';
 import type { Data } from './store';
 
-/** A position that follows every trade of an item, whenever it was, less the ones you tagged Personal. */
-export const everything = (typeId: number, excluded: string[]) => ({ id: `all:${typeId}`, typeId, openedAt: '2003-05-06T00:00:00Z', status: 'open' as const, jitaOnly: false, excluded, included: [] });
+/** A position that follows every trade of an item, whenever it was, less the ones you tagged Personal, and the units Industry claims. */
+export const everything = (typeId: number, excluded: string[], claimed?: Record<string, number>) => ({ id: `all:${typeId}`, typeId, openedAt: '2003-05-06T00:00:00Z', status: 'open' as const, jitaOnly: false, excluded, included: [], ...(claimed ? { claimed } : {}) });
+
+const NO_CLAIMS = new Map<string, number>();
+const claimMemo = new WeakMap<object, { key: unknown[]; claims: Map<string, number> }>();
+/**
+ * Industry's claims on this ledger's sales (industryTrack.ts builtClaims): its jobs against its sales no position counts and
+ * not marked Personal. Kept while the jobs, trades, positions and Personal marks are the same objects; none without jobs.
+ */
+export function claimsOf(d: Data): Map<string, number> {
+  const jobs = d.jobs ?? {};
+  if (!Object.keys(jobs).length) return NO_CLAIMS;
+  const key = [d.txs, d.positions, d.ignored];
+  const hit = claimMemo.get(jobs);
+  if (hit && hit.key.every((k, i) => k === key[i])) return hit.claims;
+  const txs = Object.values(d.txs).filter((t) => t.source === 'esi');
+  const tracked = new Set(txs.filter((t) => d.positions.some((p) => countedIn(p, t))).map((t) => t.id));
+  const personal = new Set(d.ignored);
+  const claims = builtClaims(Object.values(jobs), txs, (id) => tracked.has(id) || personal.has(id));
+  claimMemo.set(jobs, { key, claims });
+  return claims;
+}
 
 /**
- * One ledger's answer, kept while the inputs it read are the same objects (the store replaces what changes). Not
- * `d.positions`: `computePosition` reads it only to ask whether the position it works out is one of the ledger's own
- * (`mine`, by ID), which then shares the item's trades with its rivals; the `all:` positions here never are.
+ * One ledger's answer, kept while the inputs it read are the same objects (the store replaces what changes). `d.jobs` and
+ * `d.positions` are in the key for Industry's claims (`claimsOf`: a sale a position counts is never claimed); otherwise
+ * `computePosition` reads the positions only to ask whether the position it works out is one of the ledger's own (`mine`,
+ * by ID), which then shares the item's trades with its rivals, and the `all:` positions here never are.
  */
 const memo = new WeakMap<object, { key: unknown[]; calcs: ItemCalc[] }>();
 
@@ -18,7 +40,7 @@ const memo = new WeakMap<object, { key: unknown[]; calcs: ItemCalc[] }>();
  * of the user's 30 days, against 92.13 M over every item, 29 September 2026).
  */
 export function everyItemCalcs(d: Data): ItemCalc[] {
-  const key = [d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored];
+  const key = [d.journal, d.orders, d.settings, d.meta.rateHistory, d.ignored, d.jobs, d.positions];
   const hit = memo.get(d.txs);
   if (hit && hit.key.every((k, i) => k === key[i])) return hit.calcs;
   const calcs = computeEveryItem(d);
@@ -37,8 +59,17 @@ function computeEveryItem(d: Data): ItemCalc[] {
   const personalOnly = new Set([...personal.keys()].filter((id) => !traded.has(id)));
   const bids = new Set(Object.values(d.orders).filter((o) => o.isBuy && !personalOnly.has(o.typeId)).map((o) => o.typeId));
   const types = [...new Set([...traded, ...bids])];
+  // Units Industry claims come off their sales, so an item both built and bought keeps its bought part in trading.
+  const claimedByType = new Map<number, Record<string, number>>();
+  for (const [id, n] of claimsOf(d)) {
+    const t = d.txs[id];
+    if (!t) continue;
+    const rec = claimedByType.get(t.typeId) ?? {};
+    rec[id] = n;
+    claimedByType.set(t.typeId, rec);
+  }
   return types.map((typeId) => {
-    const c = computePosition(everything(typeId, personal.get(typeId) ?? []), d, d.settings);
+    const c = computePosition(everything(typeId, personal.get(typeId) ?? [], claimedByType.get(typeId)), d, d.settings);
     return { typeId, series: c.series, buys: c.buys, sells: c.sells, ordered: bids.has(typeId), relists: c.relistEvents };
   });
 }

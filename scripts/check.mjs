@@ -8446,5 +8446,85 @@ console.log('\n--- Industry stage 2: To do, List what you built (Task 12B) ---')
   eq('  the newest job’s station and first sight ride on the item', (() => { const x = T.builtItems([job(1, '2026-10-01T00:00:00Z', 50, { stationId: 1047, first: { systemId: 30004807 } })], at(50), 7)[0]; return [x.stationId, x.first]; })(), [1047, { systemId: 30004807 }]);
 }
 
+console.log('\n--- Industry stage 2: built and sold (Task 13) ---');
+{
+  const T = await import('../src/lib/industryTrack.ts');
+  const P = await import('../src/lib/positions.ts');
+  const EV = await import('../src/lib/everyItem.ts');
+  const R = await import('../src/lib/results.ts');
+  const N = await import('../src/lib/income.ts');
+  const { emptyData } = await import('../src/lib/emptyData.ts');
+  const { itemResult, isTrade } = await import('../src/lib/longRange.ts');
+  const PUMP = 25894;
+  const job = (jobId, completed, runs, over = {}) => ({ jobId, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: PUMP, runs, licensedRuns: null, successfulRuns: null, probability: null,
+    cost: 50_000, facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: completed, end: completed, completed, status: 'delivered', perRun: 1, seenAt: completed,
+    first: { me: 10, te: 20, systemId: 30000142, index: 0.05, eiv: 2e6 }, ...over });
+  const tx = (id, date, isBuy, qty, unitPrice, typeId = PUMP) => ({ id, date, typeId, qty, unitPrice, isBuy, locationId: 60003760, clientId: 1, source: 'esi' });
+
+  // The claim order: built 10 (delivered 5 Oct); a sale on 1 Oct is before any was built; 8 on the 6th are built; of 4 on
+  // the 7th, 2 are built and 2 bought; a sale a position counts, and one marked Personal, stay out.
+  const jobs = [job(1, '2026-10-05T00:00:00Z', 10)];
+  const sales = [tx('s1', '2026-10-01T00:00:00Z', false, 5, 7e6), tx('s2', '2026-10-06T00:00:00Z', false, 8, 7e6), tx('s3', '2026-10-07T00:00:00Z', false, 4, 7e6),
+    tx('s4', '2026-10-06T01:00:00Z', false, 3, 7e6), tx('s5', '2026-10-06T02:00:00Z', false, 1, 7e6)];
+  const claims = T.builtClaims(jobs, sales, (id) => id === 's4' || id === 's5');
+  eq('  Industry claims only units built by the sale\'s time, oldest sales first, a sale split; a position\'s or a Personal sale never', [...claims], [['s2', 8], ['s3', 2]]);
+  eq('    a job not delivered, or with no units a run, claims nothing', [...T.builtClaims([job(2, '2026-10-05T00:00:00Z', 10, { status: 'ready' }), job(3, '2026-10-05T00:00:00Z', 10, { perRun: null })], sales, () => false)], []);
+
+  // An item both built and bought: 10 bought on 1 Oct at 5 M, 10 built (delivered 2 Oct), 15 sold on 3 Oct at 7 M. Industry
+  // claims 10; trading keeps its bought part: 5 sold against what it bought.
+  const d = { ...emptyData(), txs: Object.fromEntries([tx('b1', '2026-10-01T00:00:00Z', true, 10, 5e6), tx('x1', '2026-10-03T00:00:00Z', false, 15, 7e6)].map((t) => [t.id, t])), jobs: { 1: job(1, '2026-10-02T00:00:00Z', 10) } };
+  eq('  claims from the ledger (claimsOf): 10 of the 15', [...EV.claimsOf(d)], [['x1', 10]]);
+  const all = (claimed) => ({ id: `all:${PUMP}`, typeId: PUMP, openedAt: '2003-05-06T00:00:00Z', status: 'open', jitaOnly: false, excluded: [], included: [], ...(claimed ? { claimed } : {}) });
+  const withClaim = P.computePosition(all({ x1: 10 }), d, d.settings);
+  const fiveSold = P.computePosition(all(), { ...d, txs: { ...d.txs, x1: { ...d.txs.x1, qty: 5 } } }, d.settings);
+  eq('  a split sale: the position sees 5 sold, at that part of its tax, exactly as a sale of 5', [withClaim.sold, Math.round(withClaim.realized), withClaim.oversold], [5, Math.round(fiveSold.realized), 0]);
+  const calc = EV.everyItemCalcs(d).find((c) => c.typeId === PUMP);
+  const r = itemResult(calc, 0, Date.parse('2026-10-10T00:00:00Z'));
+  eq('  "Trading, every item" keeps the bought part\'s profit: 5 sold, covered, still a trade', [r.sold, r.covered, isTrade(r), r.profit > 0], [5, 5, true, true]);
+  const inp = { txs: Object.values(d.txs), journal: [], tracked: new Set(), realized: [], losses: [], sets: { filaments: new Set(), abyssLoot: new Set(), pi: new Set(), lpGoods: new Set() }, salesTax: 0.036, claims: EV.claimsOf(d) };
+  eq('  otherSales sees only what\'s left of a claimed sale', R.otherSales(inp, new Set()).map((x) => Math.round(x.isk)), [Math.round(5 * 7e6 * (1 - 0.036))]);
+
+  // Built and sold: the sale's claimed part after tax, every job's fee (the journal's naming it, else ESI's cost), and each
+  // manufacturing job's materials at the purchases before it, newest first, each unit once; what was never bought, said.
+  const buys = [tx('m1', '2026-09-30T00:00:00Z', true, 600, 4, 34), tx('m2', '2026-10-01T12:00:00Z', true, 500, 5, 34)];
+  const jobsB = [job(1, '2026-10-02T00:00:00Z', 10, { start: '2026-10-02T00:00:00Z' }), job(2, '2026-10-04T00:00:00Z', 10, { start: '2026-10-04T00:00:00Z', cost: 60_000 }), job(3, '2026-10-04T00:00:00Z', 10, { start: '2026-10-04T00:00:00Z', first: undefined })];
+  const journal = [{ date: '2026-10-02T00:00:01Z', refType: 'industry_job_tax', amount: -40_000, contextId: 1, contextIdType: 'industry_job_id' },
+    { date: '2026-10-02T00:00:01Z', refType: 'industry_security_tax', amount: -5_000, contextId: 1, contextIdType: 'industry_job_id' },
+    { date: '2026-10-02T00:00:02Z', refType: 'reprocessing_tax', amount: -9, contextId: 1, contextIdType: 'industry_job_id' }];
+  const mats = (j) => (j.first ? { mats: [[34, 500]], atSite: true } : null);
+  const b = T.builtAndSold({ jobs: jobsB, txs: [...buys, tx('x1', '2026-10-05T00:00:00Z', false, 15, 7e6)], journal, claims: new Map([['x1', 10]]), taxByTx: new Map([['x1', 15 * 7e6 * 0.036]]), salesTax: 0.036, personal: new Set(), mats });
+  const sum = (from, to) => Math.round(b.events.filter((e) => e.t >= Date.parse(from) && e.t < Date.parse(to)).reduce((s, e) => s + e.isk, 0));
+  eq('  job 1 (2 Oct): its fees from the journal (the job tax and the SCC\'s industry_security_tax), not reprocessing; 500 Tritanium at the newest purchases before it (500 at 5)',
+    sum('2026-10-02T00:00:00Z', '2026-10-03T00:00:00Z'), -40_000 - 5_000 - 2_500);
+  eq('  jobs 2 and 3 (4 Oct): ESI\'s cost for each; 500 more at what\'s left (600 at 4); job 3\'s materials not known', sum('2026-10-04T00:00:00Z', '2026-10-05T00:00:00Z'), -60_000 - 50_000 - 2_000);
+  eq('  the sale (5 Oct): 10 of 15 claimed, after that part of its tax', sum('2026-10-05T00:00:00Z', '2026-10-06T00:00:00Z'), Math.round(10 * 7e6 * (1 - 0.036)));
+  eq('  said apart: one job\'s materials not known; nothing unbought yet', [b.unknown, b.unbought], [[3], []]);
+  const short = T.builtAndSold({ jobs: [job(4, '2026-10-02T00:00:00Z', 10, { start: '2026-10-02T00:00:00Z' })], txs: [buys[0]], journal: [], claims: new Map(), taxByTx: new Map(), salesTax: 0.036, personal: new Set(), mats: () => ({ mats: [[34, 800]], atSite: true }) });
+  eq('  units never bought before the job are said apart, never costed at 0', [short.unbought, Math.round(short.events.reduce((s, e) => s + e.isk, 0))], [[{ jobId: 4, typeId: 34, units: 200 }], -50_000 - 2_400]);
+  // A purchase a freelance job of yours counts (attribute's `freelance`) is that job's, not a job's material too (pre-flight M9).
+  const fl = T.builtAndSold({ jobs: [job(5, '2026-10-02T00:00:00Z', 10, { start: '2026-10-02T00:00:00Z' })], txs: buys, journal: [], claims: new Map(), taxByTx: new Map(), salesTax: 0.036, personal: new Set(),
+    freelance: (x) => x.id === 'm2', mats: () => ({ mats: [[34, 500]], atSite: true }) });
+  eq('  a purchase a freelance job counts isn\'t costed as a material: 500 at 4 (m1), not at 5 (m2)', Math.round(fl.events.reduce((s, e) => s + e.isk, 0)), -50_000 - 2_000);
+
+  // In All income: an Industry row, and "Sold, never bought" without the claimed units.
+  const sets = { filaments: new Set(), abyssLoot: new Set(), pi: new Set(), lpGoods: new Set() };
+  const acts = N.activityEvents(d, sets, false, {}, [], undefined, { state: 'ready', mats: () => ({ mats: [], atSite: true }) });
+  const rows = N.incomeRows(EV.everyItemCalcs(d), acts, Date.parse('2026-09-01T00:00:00Z'), Date.parse('2026-10-10T00:00:00Z')).rows;
+  eq('  All income: Industry counted, trading kept, nothing "Sold, never bought"', [rows.some((x) => x.key === 'Industry' && x.isk > 0), rows.some((x) => x.key === 'trading' && x.isk > 0), rows.some((x) => x.key === 'loot')], [true, true, false]);
+  eq('  Industry needs no item groups (ESI\'s groups failing still counts it)', N.activityEvents(d, null, true, {}, [], undefined, { state: 'ready', mats: () => ({ mats: [], atSite: true }) }).events.some((e) => e.activity === 'Industry'), true);
+  // While the blueprints load, or if they couldn't be, Industry has no figure at all: never claimed sales with no materials
+  // under "no ME recorded" (pre-flight I4). It says which.
+  const loading = N.activityEvents(d, sets, false, {}, [], undefined, { state: 'loading', mats: null });
+  const refused = N.activityEvents(d, sets, false, {}, [], undefined, { state: 'failed', mats: null });
+  eq('  while the blueprints load: no Industry figure, and it\'s working out; refused: none, said', [loading.events.some((e) => e.activity === 'Industry'), loading.industry.state, refused.events.some((e) => e.activity === 'Industry'), refused.industry.state],
+    [false, 'loading', false, 'failed']);
+  const nm = (id) => `Type ${id}`;
+  eq('  the words for each', [N.industrySaid(loading.industry, nm), N.industrySaid(refused.industry, nm), N.industrySaid(null, nm), N.industrySaid(acts.industry, nm)], [
+    { figure: 'Working out…', note: 'Reading the blueprints, to cost what you built…' },
+    { figure: '–', note: 'The blueprints couldn’t be loaded, so what you built isn’t counted here or in the total.' },
+    { figure: null, note: null }, { figure: null, note: null },
+  ]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
