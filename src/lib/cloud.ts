@@ -273,7 +273,7 @@ async function pullNow(cloudWins = false): Promise<Map<string, Set<string>>> {
     if (dataGeneration() !== wipe) return seen;
     // Local changes not yet sent win: they'll be pushed, and that push is newer.
     const records = page.records.filter((r) => !ownRevs.has(r.r) && (cloudWins || !dirtyRecords.has(`${r.k}|${r.i}`)));
-    const docs = page.docs.filter((x) => !ownRevs.has(x.r) && (cloudWins || !dirtyDocs.has(x.key as DocKey)));
+    const docs = page.docs.filter((x) => !ownRevs.has(x.r) && (cloudWins || !dirtyDocs.has(x.key as DocKey) || x.key === 'copyContracts'));
     if (page.docs.some((x) => x.key === 'leaveFrom')) standDownOrphanCleanup();
     for (const r of page.records) { if (!seen.has(r.k)) seen.set(r.k, new Set()); seen.get(r.k)!.add(r.i); }
     for (const x of page.docs) { if (!seen.has('doc')) seen.set('doc', new Set()); seen.get('doc')!.add(x.key); }
@@ -300,6 +300,13 @@ async function pullNow(cloudWins = false): Promise<Map<string, Set<string>>> {
       if (cloudWins) {
         for (const r of records) dirtyRecords.delete(`${r.k}|${r.i}`);
         for (const x of docs) dirtyDocs.delete(x.key as DocKey);
+      }
+      // Your copy contracts come down as a union with what's here (applyPulled), dirty or not: when the union holds more than
+      // the cloud's copy (this browser knew contracts past ESI's 30 days that the cloud doesn't), it goes up.
+      for (const x of docs) {
+        if (x.key !== 'copyContracts') continue;
+        const came = sanitizeCopyContracts(x.d);
+        if (JSON.stringify(came) !== JSON.stringify(getData().copyContracts)) { markDoc('copyContracts'); schedulePush(); }
       }
     }
     if (++pages > 1) setStatus({ phase: 'working', doing: `Bringing your ledger down (${(pages * 2000).toLocaleString('en-US')} records so far)` });

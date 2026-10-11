@@ -2909,6 +2909,8 @@ try {
         cc(602, { expires: iso(now - 86400_000) }),
         cc(603, { status: 'finished', acceptor: 777, completed: iso(now - 2 * 86400_000), kinds: 'gone' }),
         cc(604, { availability: 'personal', kinds: 'private' }),
+        cc(605, { gone: iso(now - 2 * 86400_000) }),
+        cc(606, { status: 'finished', acceptor: MAIN_ID, completed: iso(now - 86400_000), kinds: 'gone' }),
       ] };
       const copyJob = { jobId: 9701, activity: 5, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25895, runs: 2, licensedRuns: 40, successfulRuns: null, probability: null, cost: 283177.85,
         facilityId: 60001483, stationId: 60001483, outputId: 60001483, start: iso(now - 3600_000), end: iso(now + 5 * 3600_000), completed: null, status: 'active', perRun: null, seenAt: iso(now - 3000_000) };
@@ -2918,19 +2920,42 @@ try {
       await page.goto(`${BASE}#hustles/industry/copies`);
       await page.waitForSelector('[data-industry="copy-contracts"]', { timeout: 30_000 }).catch(async () => problems.push(`Your copy contracts never drew: “${(await text('[data-industry="copy-business"]')).slice(0, 400)}”`));
       const biz = await text('[data-industry="copy-business"]');
-      for (const want of ['2 × 40 runs', 'Listed until', 'others’ cheapest 100,000 ISK (6 listed): undercut', 'kinds not known: a private contract isn’t public', 'kinds not known: it left the public list before they were read'])
+      for (const want of ['2 × 40 runs', 'Listed until', 'others’ cheapest in The Forge 100,000 ISK (6 listed): you’re undercut', 'No longer listed by ESI', 'ESI lists contracts only 30 days back: if you didn’t delete it in game, its copies are still in it', 'Taken by', 'kinds not known: a private contract isn’t public', 'kinds not known: it left the public list before they were read'])
         if (!biz.includes(want)) problems.push(`Your copy business doesn’t say “${want}”: “${biz.slice(0, 500)}”`);
       // The rows' own words, not the tiles' labels (M17): a date after each.
       const rowsText = await text('[data-industry="copy-contracts"]');
       if (!/Expired \d{1,2} [A-Z][a-z]{2} \d{4}: delete it in game to get the copies back/.test(rowsText)) problems.push(`the expired contract’s row doesn’t say when and what to do: “${rowsText.slice(0, 300)}”`);
       if (!/Sold \d{1,2} [A-Z][a-z]{2} \d{4}/.test(rowsText)) problems.push(`the sold contract’s row doesn’t say when: “${rowsText.slice(0, 300)}”`);
       await page.locator('[data-industry="copy-business"] .tile', { hasText: 'Expired' }).click().catch(() => problems.push('the Expired tile can’t be pressed'));
-      if ((await page.locator('[data-industry="copy-contracts"] tbody tr').count()) !== 1) problems.push('pressing Expired doesn’t filter the table to the expired contract');
+      if ((await page.locator('[data-industry="copy-contracts"] tbody tr').count()) !== 1) problems.push('pressing Expired doesn’t filter the table to the expired contract (a contract ESI stopped listing counted as expired?)');
+      if ((await text('[data-industry="copy-contracts"] tr[data-contract="606"]')).includes('Sold')) problems.push('a contract taken by your own character is counted or said as sold');
       // I4: with the cloud a version behind (no copy market at all), Your copy business still shows: it is the sync's, not the cloud's.
       CLOUD['/v1/copies'] = (url, req, json) => json({ error: 'Not found' }, 404);
       await page.reload();
       await page.waitForSelector('[data-industry="copy-contracts"]', { timeout: 20_000 }).catch(() => problems.push('with the cloud a version behind, Your copy business is gone'));
-      if ((await page.locator('[data-industry="copy-contracts"] tbody tr').count()) < 4) problems.push('with the cloud a version behind, Your copy contracts doesn’t list the four contracts');
+      if ((await page.locator('[data-industry="copy-contracts"] tbody tr').count()) < 6) problems.push('with the cloud a version behind, Your copy contracts doesn’t list the six contracts');
+      // Fix round 1: a pull bringing the cloud's copy contracts while this browser's own waits to go up is a union, and the union goes up.
+      {
+        const pushedBodies = [];
+        CLOUD['/v1/pull'] = (url, req, json) => json({ rev: 5, next: null, records: [], docs: [{ key: 'copyContracts', r: 5, d: { list: [cc(590, { status: 'finished', acceptor: 777, completed: iso(now - 40 * 86400_000), issued: iso(now - 50 * 86400_000), gone: iso(now - 20 * 86400_000), kinds: 'gone' })] } }] });
+        // A browser meeting the cloud for the first time (not started), its own copy contracts already waiting to go up: the case the old filter dropped the cloud's doc in.
+        CLOUD['/v1/push'] = (url, req, json) => (pushedBodies.push(req.postData() ?? ''), json({ rev: 6 }));
+        await page.goto(SEED_PAGE);
+        await seed({ ...ledger, industry: DOC, cloud: { charId: CLOUD_STATE.charId, rev: 0, started: false, dirty: { r: [], d: ['copyContracts'] } }, jobs: { 9701: copyJob }, meta: { ...ledger.meta, jobsRead: true, contracts: { at: iso(now - 600_000), list: [], items: {}, places: {} } }, copyContracts }, { alts: altStore });
+        await page.goto(`${BASE}#hustles/industry/copies`);
+        const idsOf = () => page.evaluate(() => new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('copyContracts'); g.onsuccess = () => res((g.result?.list ?? []).map((x) => x.id)); }; }));
+        let ids = [];
+        for (let i = 0; i < 60 && !(ids.includes(590) && ids.includes(601)); i++) { await page.waitForTimeout(500); ids = await idsOf(); }
+        if (!ids.includes(590) || !ids.includes(601)) problems.push(`a pulled copyContracts doc beside a waiting local one wasn’t merged: ${JSON.stringify(ids)}`);
+        for (let i = 0; i < 40 && !pushedBodies.some((b) => b.includes('"copyContracts"') && b.includes('590') && b.includes('601')); i++) await page.waitForTimeout(500);
+        if (!pushedBodies.some((b) => b.includes('"copyContracts"') && b.includes('590') && b.includes('601'))) problems.push('the union of the pulled and the local copy contracts wasn’t pushed');
+        CLOUD['/v1/pull'] = (url, req, json) => json({ rev: 1, next: null, records: [], docs: [] });
+        CLOUD['/v1/push'] = (url, req, json) => json({ rev: 2 });
+        await page.goto(SEED_PAGE);
+        await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE, jobs: { 9701: copyJob }, meta: { ...ledger.meta, jobsRead: true, contracts: { at: iso(now - 600_000), list: [], items: {}, places: {} } }, copyContracts }, { alts: altStore });
+        await page.goto(`${BASE}#hustles/industry/copies`);
+        await page.waitForSelector('[data-industry="copy-contracts"]', { timeout: 20_000 }).catch(() => problems.push('after the pull case, Your copy contracts never drew'));
+      }
       if (!(await text('[data-industry="copy-state"]')).includes('The cloud is a version behind')) problems.push('with the cloud a version behind, Copies doesn’t say so');
       if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-copy-business-main.png`, fullPage: true }); }
       await showFor('Builder Alt');

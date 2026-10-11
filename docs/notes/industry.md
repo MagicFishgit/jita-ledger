@@ -584,3 +584,17 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   until deleted / sold) and the cheapest ask of their kind. It is drawn outside the copy market's gate: it comes from the sync and the
   cloud's reads of your characters, so it shows with the cloud off or a version behind. An alt's contracts aren't read: said, never "none".
   The blueprints in copy contracts join the sync's name lookup, and an expired contract's station is named, for To do later (Task 15C).
+- **Fix round 1 of 15A: the history is merged, never replaced** (`mergeCopyContracts`, `mergeCopyContract` in copyContracts.ts). The sync starts at load
+  without waiting for the first pull, and the pull used to drop a doc while the local one was dirty: a new browser would have written ESI's 30 days over
+  the cloud's history and pushed it, which ESI can't give back. Now both sides merge, as `jobs` do: the browser's pull applies the union whether the local doc is
+  dirty or not (and under `cloudWins`), marking it dirty when the union holds more than what came down; the Worker's push reads D1's doc first, writes the
+  merge and, when it differs from what was pushed, writes it at a revision of its own after the push's so the pushing browser pulls it back (correction 19's
+  way). The merge is by contract, commutative and idempotent: the record whose status is further on (outstanding, in progress, other, deleted, finished) wins its
+  own fields, an acceptor or completion either side knows is kept, `gone` is the earliest stamp, kinds read beat `private`, which beats `gone`, which beats unread.
+  A contract stamped `gone` stays so even if a later read lists it again (ESI's window only moves forward; a partial list read is the one way that could be wrong).
+  **Cap 3,000** (`MAX_COPY_CONTRACTS`; the merge's too): the document is one D1 value (2 MB), measured about 1.54 MB at 5,000 contracts with one kind each and 2.16 MB with five.
+  **States**: a contract that left ESI's list while outstanding is "No longer listed by ESI" (its own tile, shown for 30 days after the stamp, "ESI lists contracts
+  only 30 days back: if you didn't delete it in game, its copies are still in it"), never Expired; a finished one taken by one of your own characters (`ownIds`) is
+  "Taken by <name>", not Sold. **15B must not count a taken contract as copy income** (ISK between your own characters is a transfer, never income); use
+  `copyState(c, now, ownIds(...))` and count only `'sold'`. The sync also keeps the items of every contract still in ESI's list, so the oldest listed exchanges aren't
+  read again and pruned every sync.

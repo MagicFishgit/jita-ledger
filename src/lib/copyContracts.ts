@@ -26,7 +26,12 @@ export type CopyContract = {
   gone?: string;
 };
 export type CopyContractsDoc = { list: CopyContract[] };
-export const MAX_COPY_CONTRACTS = 5000;
+/**
+ * The document goes up as one D1 value, which holds 2 MB at most. Measured 11 October 2026: 5,000 contracts with one kind each
+ * come to about 1.54 MB and with five kinds each 2.16 MB, so 3,000 (about 1.3 MB at five kinds) is the cap, for the sync's
+ * own list and for the merge alike.
+ */
+export const MAX_COPY_CONTRACTS = 3000;
 
 /** Items that make a copy contract: at least one, every one given (nothing asked) and a copy (raw_quantity −2). */
 export const allCopies = (items: readonly ContractItem[] | undefined): boolean => !!items?.length && items.every((i) => i.included && i.raw === -2);
@@ -82,12 +87,49 @@ export function readKinds(items: readonly PublicItem[] | undefined | null): Cont
   return [...m.values()].sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || a[3] - b[3]);
 }
 
-export type CopyState = 'listed' | 'expired' | 'sold' | 'deleted' | 'other';
-/** ESI has no expired status: an outstanding contract past its expiry is expired, its copies in it until deleted (correction 12). */
-export function copyState(c: Pick<CopyContract, 'status' | 'expires'>, now: number): CopyState {
-  if (c.status === 'outstanding') return Date.parse(c.expires) <= now ? 'expired' : 'listed';
-  if (c.status === 'finished' || c.status === 'finished_issuer' || c.status === 'finished_contractor') return 'sold';
+export type CopyState = 'listed' | 'expired' | 'unlisted' | 'sold' | 'taken' | 'deleted' | 'other';
+/**
+ * ESI has no expired status: an outstanding contract past its expiry is expired, its copies in it until deleted (correction 12).
+ * One that left ESI's list while outstanding (`gone`) is `unlisted`: nobody knows whether it expired, sold or was deleted. A
+ * finished one whose acceptor is one of your own characters (`mine`) is `taken`, not a sale.
+ */
+export function copyState(c: Pick<CopyContract, 'status' | 'expires'> & { gone?: string; acceptor?: number | null }, now: number, mine?: ReadonlySet<number>): CopyState {
+  if (c.status === 'outstanding') return c.gone ? 'unlisted' : Date.parse(c.expires) <= now ? 'expired' : 'listed';
+  if (c.status === 'finished' || c.status === 'finished_issuer' || c.status === 'finished_contractor') return c.acceptor != null && mine?.has(c.acceptor) ? 'taken' : 'sold';
   return c.status === 'deleted' ? 'deleted' : 'other';
+}
+
+const TERMINAL_RANK = (status: string): number => (status === 'outstanding' ? 0 : status === 'in_progress' ? 1
+  : status === 'finished' || status === 'finished_issuer' || status === 'finished_contractor' ? 4 : status === 'deleted' ? 3 : 2);
+const KINDS_RANK = (k: CopyContract['kinds']): number => (Array.isArray(k) ? 3 : k === 'private' ? 2 : k === 'gone' ? 1 : 0);
+
+/**
+ * Two copies of one contract (this browser's, the cloud's): never moves back. The record whose status is further on wins its
+ * own fields (outstanding, then in progress, then other terminal statuses, then deleted, then finished; equal ranks by the
+ * status's text, then the record's JSON, so the choice never depends on the order); an acceptor or completion either side
+ * knows is kept; `gone` is the earliest stamp (ESI's 30-day window only moves forward); kinds read beat `private`, which
+ * beats `gone`, which beats not read.
+ */
+export function mergeCopyContract(a: CopyContract, b: CopyContract): CopyContract {
+  const key = (c: CopyContract): [number, string, string] => [TERMINAL_RANK(c.status), c.status, JSON.stringify(c)];
+  const ka = key(a), kb = key(b);
+  const aWins = ka[0] !== kb[0] ? ka[0] > kb[0] : ka[1] !== kb[1] ? ka[1] > kb[1] : ka[2] >= kb[2];
+  const [w, l] = aWins ? [a, b] : [b, a];
+  const kinds = KINDS_RANK(w.kinds) >= KINDS_RANK(l.kinds) ? w.kinds : l.kinds;
+  const gone = w.gone != null && l.gone != null ? (w.gone < l.gone ? w.gone : l.gone) : (w.gone ?? l.gone);
+  return { id: w.id, issued: w.issued, expires: w.expires, status: w.status, price: w.price, availability: w.availability, acceptor: w.acceptor ?? l.acceptor,
+    completed: w.completed ?? l.completed, station: w.station ?? l.station, copies: w.copies, ...(kinds !== undefined ? { kinds } : {}), ...(gone !== undefined ? { gone } : {}) };
+}
+
+/**
+ * The union of two copies of the document, by contract (a browser that met the cloud after a month would otherwise write only
+ * ESI's 30 days over the cloud's history, which ESI can't list again): sorted, capped to the newest, commutative and idempotent.
+ * Used by the browser's pull and by the Worker's push, as `mergeJob` is for jobs.
+ */
+export function mergeCopyContracts(a: CopyContractsDoc | undefined, b: CopyContractsDoc | undefined): CopyContractsDoc {
+  const by = new Map<number, CopyContract>();
+  for (const c of [...(a?.list ?? []), ...(b?.list ?? [])]) { const had = by.get(c.id); by.set(c.id, had ? mergeCopyContract(had, c) : mergeCopyContract(c, c)); }
+  return { list: [...by.values()].sort((x, y) => x.id - y.id).slice(-MAX_COPY_CONTRACTS) };
 }
 
 /** What a contract holds, in words: "2× Large Trimark Armor Pump I Blueprint, 1× Raven Blueprint" (three, then "and N more"). */

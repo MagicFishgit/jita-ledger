@@ -1,5 +1,6 @@
 import type { Data } from './store';
 import { mergeJob, type JobRecord } from './industryTrack';
+import { mergeCopyContracts, sanitizeCopyContracts } from './copyContracts';
 
 /**
  * What the cloud copy of the ledger is made of, and how a change on one side becomes a change on the other.
@@ -147,6 +148,10 @@ export function applyPulled(data: Data, pulled: Pulled): Partial<Data> {
       const keep: Rec = {};
       for (const k of localFields) if (mine?.[k] !== undefined) keep[k] = mine[k];
       patch[doc.key] = { ...(doc.d as Rec), ...keep };
+    } else if (doc.key === 'copyContracts') {
+      // A union, never a replacement: a browser that knows contracts past ESI's 30 days keeps them (copyContracts.ts).
+      const came = sanitizeCopyContracts(doc.d);
+      patch[doc.key] = came ? mergeCopyContracts(came, data.copyContracts) : data.copyContracts;
     } else {
       patch[doc.key] = doc.d;
     }

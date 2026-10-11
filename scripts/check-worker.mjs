@@ -1325,6 +1325,23 @@ console.log('\n--- the copyContracts doc goes up like any other ---');
   eq('  a push carrying it is taken, not refused as unknown', [r.docs, db.rows('SELECT key FROM docs WHERE char_id = ?', MAIN).map((x) => x.key)], [1, ['copyContracts']]);
 }
 
+console.log('\n--- the copyContracts doc is merged onto D1\'s, never written over it (Task 15A fix round 1) ---');
+{
+  const { push, pull } = await import('../worker/src/sync.ts');
+  const db = d1();
+  const cc = (id, over = {}) => ({ id, issued: '2026-09-01T00:00:00Z', expires: '2026-10-15T00:00:00Z', status: 'outstanding', price: 9e6, availability: 'public', acceptor: null, completed: null, station: 60003760, copies: [[25895, 2]], ...over });
+  const heldDoc = { list: [cc(100, { status: 'finished', acceptor: 777, completed: '2026-09-02T00:00:00Z', gone: '2026-10-05T00:00:00Z' }), cc(200)] };
+  await push(db, MAIN, { records: [], docs: [{ key: 'copyContracts', d: heldDoc }] });
+  const stored = () => JSON.parse(db.rows('SELECT data FROM docs WHERE char_id = ? AND key = ?', MAIN, 'copyContracts')[0].data);
+  const r1 = await push(db, MAIN, { records: [], docs: [{ key: 'copyContracts', d: { list: [cc(200), cc(300)] } }] });
+  eq('  a push of a 30-day doc keeps the old contract D1 held', stored().list.map((c) => c.id), [100, 200, 300]);
+  const back = await pull(db, MAIN, r1.rev, null);
+  eq('  the merged doc is at a revision after the push\'s, and a pull since the push\'s revision returns it', [back.rev > r1.rev, back.docs.some((x) => x.key === 'copyContracts')], [true, true]);
+  const r2 = await push(db, MAIN, { records: [], docs: [{ key: 'copyContracts', d: stored() }] });
+  const again = await pull(db, MAIN, r2.rev, null);
+  eq('  a push whose doc is already the union writes no extra revision', [again.rev === r2.rev, again.docs.length], [true, 0]);
+}
+
 console.log('\n--- Industry stage 2: jobs and blueprints in the cloud (Task 9B) ---');
 {
   const FXI = JSON.parse(fs.readFileSync(new URL('./fixtures/industry-everef.json', import.meta.url), 'utf8'));

@@ -10,6 +10,7 @@ import { bpoWhere, buildRow } from '../../lib/industryRank';
 import { jobPlace } from '../../lib/industryTrack';
 import type { Graph } from '../../lib/jumps';
 import type { IndustrySite } from '../../lib/prefs';
+import { ownIds } from '../../lib/roster';
 import { copiesSaid, copyState, type CopyContract, type CopyState } from '../../lib/copyContracts';
 import { hasScope } from '../../lib/auth';
 import { SCOPE } from '../../lib/config';
@@ -216,29 +217,37 @@ function CopyBusiness({ c, ix, graph, summary }: { c: IndustryChar; ix: Indexed;
   // Stations only: /universe/names refuses a batch holding a structure's ID, and a job's structure is named by jobPlaceSaid (M11).
   const station = useStationSaid([...new Set((jobs ?? []).map((j) => j.stationId).filter(isStationId))], ix, graph);
   const place = (j: JobRecord) => jobPlaceSaid(j, { names: c.places, jobPlaces: c.jobPlaces, station, system: (id) => graph[id]?.[1] ?? null });
-  const tile = useTileFilter<'listed' | 'expired' | 'sold'>('copy-contracts');
-  const TILE_SAID = { listed: 'Listed', expired: 'Expired', sold: 'Sold, 30 days' } as const;
-  const contracts = (doc?.list ?? []).map((x) => ({ x, st: copyState(x, now) }))
-    .filter(({ x, st }) => st === 'listed' || st === 'expired' || now - Date.parse(x.completed ?? x.issued) <= 30 * 86_400_000)
+  const tile = useTileFilter<'listed' | 'expired' | 'unlisted' | 'sold'>('copy-contracts');
+  const TILE_SAID = { listed: 'Listed', expired: 'Expired', unlisted: 'No longer listed by ESI', sold: 'Sold, 30 days' } as const;
+  // Your own characters: a copy contract one of them took isn't a sale (copyState's `taken`).
+  const mine = useMemo(() => (c.isMain ? ownIds(c.charId, d.chars) : new Set<number>()), [c.isMain, c.charId, d.chars]);
+  const DAY30 = 30 * 86_400_000;
+  const contracts = (doc?.list ?? []).map((x) => ({ x, st: copyState(x, now, mine) }))
+    // Listed and expired stay while they hold copies; one ESI stopped listing shows for 30 days after that was seen, then only the document keeps it.
+    .filter(({ x, st }) => st === 'listed' || st === 'expired' || (st === 'unlisted' ? now - Date.parse(x.gone!) <= DAY30 : now - Date.parse(x.completed ?? x.issued) <= DAY30))
     .sort((a, b) => b.x.id - a.x.id);
-  const count = (s: 'listed' | 'expired' | 'sold') => contracts.filter((r) => r.st === s).length;
+  const count = (s: 'listed' | 'expired' | 'unlisted' | 'sold') => contracts.filter((r) => r.st === s).length;
   const shown = tileRows(contracts, tile.on, (r, k) => r.st === k);
   const kindSaid = (x: CopyContract) => (Array.isArray(x.kinds) ? x.kinds.map((k) => `${k[4]}× ME ${k[1]} / TE ${k[2]}, ${k[3]} run${k[3] === 1 ? '' : 's'}`).join('; ')
     : x.kinds === 'private' ? 'kinds not known: a private contract isn’t public'
       : x.kinds === 'gone' ? 'kinds not known: it left the public list before they were read'
         : 'kinds are read with the next sync');
-  const askSaid = (x: CopyContract) => {
+  const askSaid = (x: CopyContract, st: CopyState) => {
+    if (st !== 'listed' && st !== 'expired') return null;
     if (!Array.isArray(x.kinds) || x.kinds.length !== 1 || !summary) return null;
     const k = x.kinds[0], a = summary.asks[copyKindKey({ typeId: k[0], me: k[1], te: k[2], runs: k[3] })];
-    const mine = x.price / (k[4] * k[3]);
-    return a ? `${iskBig(mine)} a run; others’ cheapest ${iskBig(a[0])} (${units(a[2])} listed)${mine > a[0] ? ': undercut' : ''}` : `${iskBig(mine)} a run; nobody else lists this kind now`;
+    const perRun = x.price / (k[4] * k[3]);
+    return a ? `${iskBig(perRun)} a run; others’ cheapest in The Forge ${iskBig(a[0])} (${units(a[2])} listed)${perRun > a[0] ? ': you’re undercut' : ''}` : `${iskBig(perRun)} a run; nobody else lists this kind in The Forge now`;
   };
   const stateSaid = (x: CopyContract, st: CopyState) => st === 'listed' ? `Listed until ${fmtDate(x.expires)}`
     : st === 'expired' ? `Expired ${fmtDate(x.expires)}: delete it in game to get the copies back`
-      : st === 'sold' ? `Sold ${x.completed ? fmtDate(x.completed) : ''}`.trim()
-        : st === 'deleted' ? 'Deleted' : x.status.replace(/_/g, ' ');
-  // ESI lists contracts only 30 days back (M7): one that left it while outstanding may still hold its copies.
-  const goneSaid = (x: CopyContract) => (!x.gone ? '' : x.status === 'outstanding' ? '. No longer in your contracts: ESI lists them only 30 days back, so if you didn’t delete it in game, its copies are still in it' : ' (past ESI’s 30 days)');
+      : st === 'unlisted' ? 'No longer listed by ESI'
+        : st === 'sold' ? `Sold ${x.completed ? fmtDate(x.completed) : ''}`.trim()
+          : st === 'taken' ? `Taken by ${x.acceptor === c.charId ? c.name : d.chars[String(x.acceptor)]?.name ?? 'one of your characters'}${x.completed ? ` ${fmtDate(x.completed)}` : ''}`
+            : st === 'deleted' ? 'Deleted' : `${x.status.charAt(0).toUpperCase()}${x.status.slice(1).replace(/_/g, ' ')}`;
+  // ESI lists contracts only 30 days back (M7, correction 13): one that left it while outstanding may still hold its copies.
+  const UNLISTED_TIP = 'ESI lists contracts only 30 days back: if you didn’t delete it in game, its copies are still in it';
+  const goneSaid = (x: CopyContract) => (!x.gone ? '' : x.status === 'outstanding' ? `. ${UNLISTED_TIP}` : ' (past ESI’s 30 days)');
 
   return (
     <div className="col" style={{ gap: 10 }} data-industry="copy-business">
@@ -251,8 +260,8 @@ function CopyBusiness({ c, ix, graph, summary }: { c: IndustryChar; ix: Indexed;
               <thead><tr><Th left>Blueprint</Th><Th className="rd-wide">Copies</Th><Th className="rd-wide">Where</Th><Th>State</Th><Th className="rd-wide" tip="What EVE charged for the job (ESI’s cost).">Cost</Th></tr></thead>
               <tbody>{[...running, ...done].map((j) => (
                 <tr key={j.jobId}>
-                  <td className="l rd-main">{name(j.blueprintTypeId)}<div className="rd-phone note small">{`${units(j.runs)} × ${j.licensedRuns != null ? units(j.licensedRuns) : '?'} runs · ${place(j)}`}</div></td>
-                  <td className="rd-wide">{`${units(j.runs)} × ${j.licensedRuns != null ? units(j.licensedRuns) : '?'} runs`}</td>
+                  <td className="l rd-main">{name(j.blueprintTypeId)}<div className="rd-phone note small">{`${units(j.runs)} × ${j.licensedRuns != null ? units(j.licensedRuns) : '–'} runs · ${place(j)}`}</div></td>
+                  <td className="rd-wide">{`${units(j.runs)} × ${j.licensedRuns != null ? units(j.licensedRuns) : '–'} runs`}</td>
                   <td className="rd-wide">{place(j)}</td>
                   <td>{jobWaiting(j, now) ? 'Ready to deliver' : j.status === 'active' || j.status === 'paused' ? `Done ${until(j.end, now) ?? 'any moment now'}` : `${j.status.charAt(0).toUpperCase()}${j.status.slice(1)} ${fmtDate(j.completed ?? j.end)}`}</td>
                   <td className="rd-wide">{j.cost != null ? iskBig(j.cost) : '–'}</td>
@@ -276,6 +285,7 @@ function CopyBusiness({ c, ix, graph, summary }: { c: IndustryChar; ix: Indexed;
                 <Tiles min={150} items={[
                   { l: 'Listed', v: units(count('listed')), press: tile.press('listed', count('listed')) },
                   { l: 'Expired', v: units(count('expired')), c: count('expired') ? 'var(--acc2)' : undefined, tip: 'Past their expiry: the copies stay in them until you delete the contract in game.', press: tile.press('expired', count('expired')) },
+                  ...(count('unlisted') ? [{ l: 'No longer listed by ESI', v: units(count('unlisted')), c: 'var(--acc2)', tip: UNLISTED_TIP, press: tile.press('unlisted', count('unlisted')) }] : []),
                   { l: 'Sold, 30 days', v: units(count('sold')), press: tile.press('sold', count('sold')) },
                 ]} />
                 {tile.on && <TileShowing shown={shown.length} of={contracts.length} what={TILE_SAID[tile.on]} onClear={() => tile.setOn(null)} />}
@@ -285,7 +295,7 @@ function CopyBusiness({ c, ix, graph, summary }: { c: IndustryChar; ix: Indexed;
                     <tr key={x.id} data-contract={x.id}>
                       <td className="l rd-main">{copiesSaid(x.copies, name)}<div className="rd-phone note small">{kindSaid(x)}</div><div className="rd-phone note small">{stateSaid(x, st)}{goneSaid(x)}</div></td>
                       <td className="rd-wide">{kindSaid(x)}</td>
-                      <td><div>{iskBig(x.price)}</div>{askSaid(x) && <div className="note small">{askSaid(x)}</div>}</td>
+                      <td><div>{iskBig(x.price)}</div>{askSaid(x, st) && <div className="note small">{askSaid(x, st)}</div>}</td>
                       <td className="l rd-wide" style={{ whiteSpace: 'normal', minWidth: 200 }}>{stateSaid(x, st)}{goneSaid(x)}</td>
                     </tr>))}</tbody>
                 </table></div>

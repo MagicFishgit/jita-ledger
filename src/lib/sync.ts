@@ -282,8 +282,11 @@ export async function syncCharacter(): Promise<void> {
         // Their blueprints' names, looked up with the rest (I2): To do and the section never say "Item #…".
         copyTypes = [...new Set(draft.list.flatMap((x) => x.copies.map(([t]) => t)))];
         const expiredAt = draft.list.filter((x) => copyState(x, Date.now()) === 'expired' && x.station != null).map((x) => x.station as number);
-        // Keep the newest 500 contracts' items: a contract's journal entries stay findable, the doc stays small.
-        const keepIds = Object.keys(items).map(Number).sort((a, b) => b - a).slice(0, 500);
+        // Keep the newest 500 contracts' items, and those of every contract still in ESI's list (30 days back, so bounded): a
+        // contract's journal entries stay findable, the doc stays small, and the oldest listed exchanges aren't read again and
+        // pruned on every sync.
+        const listed = new Set(list.map((c) => c.id));
+        const keepIds = [...new Set([...Object.keys(items).map(Number).sort((a, b) => b - a).slice(0, 500), ...Object.keys(items).map(Number).filter((id) => listed.has(id))])];
         const places: Record<number, string> = { ...(prev?.places ?? {}) };
         const dests = [...new Set([...couriersDue(list, cid).flatMap((c) => [c.contract.end, c.contract.start]), ...expiredAt].filter((x): x is number => x != null))].filter((id) => !places[id]);
         if (dests.filter(isStation).length) Object.assign(places, await resolveNames(dests.filter(isStation)).catch(() => ({})));

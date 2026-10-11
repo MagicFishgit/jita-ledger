@@ -8873,5 +8873,34 @@ console.log('\n--- Industry stage 3: your copy contracts (copyContracts.ts, Task
     [doc4, doc4, undefined, undefined]);
 }
 
+console.log('\n--- Industry stage 3: your copy contracts are merged, never replaced (Task 15A fix round 1) ---');
+{
+  const K = await import('../src/lib/copyContracts.ts');
+  const { applyPulled } = await import('../src/lib/cloudSync.ts');
+  const cc = (id, over = {}) => ({ id, issued: '2026-09-01T00:00:00Z', expires: '2026-10-15T00:00:00Z', status: 'outstanding', price: 9e6, availability: 'public', acceptor: null, completed: null, station: 60003760, copies: [[25895, 2]], ...over });
+  const old = cc(100, { status: 'finished', acceptor: 777, completed: '2026-09-02T00:00:00Z', kinds: [[25895, 10, 20, 40, 2]], gone: '2026-10-05T00:00:00Z' });
+  const local = { list: [cc(200), cc(300, { kinds: 'gone' })] };
+  const pulled = { list: [old, cc(300, { kinds: [[25895, 10, 20, 40, 1]] })] };
+  const merged = K.mergeCopyContracts(local, pulled);
+  eq('a doc built from ESI\'s 30 days merged with the cloud\'s keeps the older gone contract', merged.list.map((c) => c.id), [100, 200, 300]);
+  eq('  and a kinds array is kept over \'gone\'', merged.list.find((c) => c.id === 300).kinds, [[25895, 10, 20, 40, 1]]);
+  const a = { list: [cc(1, { status: 'finished', acceptor: 5, completed: '2026-10-01T00:00:00Z' }), cc(2, { kinds: 'private', gone: '2026-10-09T00:00:00Z', status: 'deleted' }), cc(3, { price: 1 }), cc(5, { status: 'finished', kinds: 'gone', gone: '2026-10-09T00:00:00Z' })] };
+  const b = { list: [cc(1), cc(2, { kinds: [[1, 2, 3, 4, 5]], gone: '2026-10-08T00:00:00Z', status: 'finished', acceptor: 9 }), cc(3, { price: 2 }), cc(4), cc(5, { acceptor: 4, kinds: [[9, 9, 9, 9, 9]], gone: '2026-10-07T00:00:00Z' })] };
+  eq('merging is commutative (as JSON)', JSON.stringify(K.mergeCopyContracts(a, b)), JSON.stringify(K.mergeCopyContracts(b, a)));
+  eq('  and idempotent', JSON.stringify(K.mergeCopyContracts(K.mergeCopyContracts(a, b), b)), JSON.stringify(K.mergeCopyContracts(a, b)));
+  const m = K.mergeCopyContracts(a, b);
+  eq('a status never moves back from finished to outstanding; the earliest gone stamp and kinds read are kept; a null acceptor takes the known one',
+    [m.list[0].status, m.list[0].acceptor, m.list[1].status, m.list[1].gone, m.list[1].kinds], ['finished', 5, 'finished', '2026-10-08T00:00:00Z', [[1, 2, 3, 4, 5]]]);
+  const five = m.list.find((c) => c.id === 5);
+  eq('  what only the losing record knows is kept: its kinds read, its acceptor, its earlier gone stamp', [five.status, five.kinds, five.acceptor, five.gone], ['finished', [[9, 9, 9, 9, 9]], 4, '2026-10-07T00:00:00Z']);
+  eq('  the cap keeps the newest', K.mergeCopyContracts({ list: Array.from({ length: K.MAX_COPY_CONTRACTS + 5 }, (_, n) => cc(n + 1)) }, undefined).list[0].id, 6);
+  const data = { copyContracts: local };
+  eq('a pulled doc applied over a local one is the union, whether or not the local one waits to go up', applyPulled(data, { records: [], docs: [{ key: 'copyContracts', d: pulled }] }).copyContracts.list.map((c) => c.id), [100, 200, 300]);
+  const now = Date.parse('2026-10-10T00:00:00Z');
+  eq('copyState: left ESI\'s list while outstanding is unlisted, never expired; taken by your own character is not sold',
+    [K.copyState({ status: 'outstanding', expires: '2026-10-01T00:00:00Z', gone: '2026-10-05T00:00:00Z' }, now), K.copyState({ status: 'finished', expires: 'x', acceptor: 5 }, now, new Set([5])), K.copyState({ status: 'finished', expires: 'x', acceptor: 6 }, now, new Set([5]))],
+    ['unlisted', 'taken', 'sold']);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

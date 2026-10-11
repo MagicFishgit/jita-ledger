@@ -182,7 +182,7 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
   'esi-contracts.read_character_contracts.v1': {
     label: 'Your contracts',
     unlocks: 'To do lists courier contracts you’ve accepted with their deadline and the collateral at stake, and the Wallet names what the item exchanges you sold or bought held; Industry’s Copies section lists the copy contracts you issued, with what each holds and whether it sold.',
-    without: 'Couriers you’ve accepted aren’t tracked, and contract ISK shows without what it was for.',
+    without: 'Couriers you’ve accepted aren’t tracked, contract ISK shows without what it was for, and Industry’s Copies section can’t list your copy contracts.',
   },
   'esi-location.read_ship_type.v1': {
     label: 'Current ship',

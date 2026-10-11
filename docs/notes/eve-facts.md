@@ -144,7 +144,9 @@ Don't re-derive or contradict these without new evidence.
   placed that matched at once. This is how `instantBuys` tells a snipe from a fill; matching fills to your orders'
   prices failed, because orders placed or repriced before their history was kept aren't known.
 
-- **A character's contracts carry `availability`, and their items `raw_quantity`** (as the stage 3 plan recorded it, 11 October 2026; not re-probed in Task 15A): `public` or `personal` and so on;
-  a contract item's `raw_quantity` is −2 for a blueprint copy and −1 for an original or another singleton. ESI's public contract items
-  (`/contracts/public/items/{id}/`, no login, held about an hour) give a copy's `material_efficiency`, `time_efficiency` and `runs`; an unknown
-  contract answers 404 "Contract not found", an expired or accepted one a 204 with no body, and one just expired may still answer 200 from cache.
+- **A character's contracts carry `availability`, and their items `raw_quantity`** (11 October 2026). **Observed** (the plan's research, on the public route): an unknown contract answers 404 "Contract not found",
+  and one just expired may still answer 200 from cache; ESI's public contract items (`/contracts/public/items/{id}/`, no login, held about
+  an hour) give a copy's `material_efficiency`, `time_efficiency` and `runs`. **Spec only, never seen on a real answer**: the 204 with no
+  body for an expired or accepted contract, a character contract's `availability` (`public`, `personal`…), and an item's `raw_quantity`
+  (−2 a blueprint copy, −1 an original or another singleton). The first real sync after Task 15A is the check: if `raw_quantity` is
+  absent, no contract reads as a copy contract and the Copies section's contracts stay empty.

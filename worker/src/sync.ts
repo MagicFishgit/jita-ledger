@@ -8,6 +8,7 @@
  */
 
 import { mergeJob, type JobRecord } from '../../src/lib/industryTrack';
+import { mergeCopyContracts, sanitizeCopyContracts } from '../../src/lib/copyContracts';
 
 export const RECORD_KINDS = new Set([
   'txs', 'journal', 'orders', 'names', 'killmails', 'tags', 'positions', 'goals', 'watchlist', 'netWorth', 'mining', 'jobs',
@@ -64,6 +65,25 @@ export async function push(db: D1Database, charId: number, body: PushBody): Prom
     (r.k === 'jobs' && r.d != null && d !== JSON.stringify(r.d) ? later : rows).push({ k: r.k, i: r.i, d });
   }
 
+  // Your copy contracts are kept by several browsers and ESI lists only 30 days: the document is merged onto D1's, never written
+  // over it (copyContracts.ts mergeCopyContracts), or a browser that first met the cloud late would drop a month's sales for good.
+  // One that the merge changed from what was pushed goes at a revision of its own, as a changed job does.
+  const docRows: { key: string; json: string }[] = [], laterDocs: typeof docRows = [];
+  for (const doc of docs) {
+    let json = JSON.stringify(doc.d ?? null), isLater = false;
+    if (doc.key === 'copyContracts') {
+      const pushed = sanitizeCopyContracts(doc.d);
+      if (pushed) {
+        const heldRaw = (await db.prepare('SELECT data FROM docs WHERE char_id = ?1 AND key = ?2').bind(charId, doc.key).first<{ data: string }>())?.data;
+        let held; try { held = heldRaw ? sanitizeCopyContracts(JSON.parse(heldRaw)) : undefined; } catch { held = undefined; }
+        const merged = JSON.stringify(mergeCopyContracts(held, pushed));
+        isLater = merged !== JSON.stringify(pushed);
+        json = merged;
+      }
+    }
+    (isLater ? laterDocs : docRows).push({ key: doc.key, json });
+  }
+
   const now = Date.now();
   // One batch is one transaction: the new revision and every write that carries it land together or not at
   // all. Each write reads the revision from the row the first statement just bumped.
@@ -90,15 +110,16 @@ export async function push(db: D1Database, charId: number, body: PushBody): Prom
   const setDoc = db.prepare(`
     INSERT INTO docs (char_id, key, data, rev, updated_at) VALUES (?1, ?2, ?3, ${REV}, ?4)
     ON CONFLICT(char_id, key) DO UPDATE SET data = excluded.data, rev = excluded.rev, updated_at = excluded.updated_at`);
-  for (const doc of docs) stmts.push(setDoc.bind(charId, doc.key, JSON.stringify(doc.d ?? null), now));
+  for (const doc of docRows) stmts.push(setDoc.bind(charId, doc.key, doc.json, now));
   const read = stmts.length;
   stmts.push(db.prepare('SELECT rev FROM revs WHERE char_id = ?1').bind(charId));
   // A job the merge changed from what was pushed (D1 held first-sight fields the pushed record lacked) goes at a revision of
   // its own, after the push's: the browser that pushed skips its own revision when it pulls (ownRevs), and every browser,
   // one built before this too, pulls this one (correction 19). Same transaction; the push reports its own revision.
-  if (later.length) {
+  if (later.length || laterDocs.length) {
     stmts.push(db.prepare('UPDATE revs SET rev = rev + 1 WHERE char_id = ?1').bind(charId));
     queue(later);
+    for (const doc of laterDocs) stmts.push(setDoc.bind(charId, doc.key, doc.json, now));
   }
   const results = await db.batch<{ rev: number }>(stmts);
   const rev = results[read].results[0].rev;
