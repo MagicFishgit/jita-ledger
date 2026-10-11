@@ -2,12 +2,15 @@
  * An alt's sheet: what the app's own sync reads for the main in the browser, read by the cloud for a character that
  * never logs in to the app. Its skills (the `skills` doc, trained levels, the main's shape) and a `meta` doc with the
  * main's field names (wallet, skill points, queue, attributes, loyalty points, clone state, standings, R&D agents'
- * research), so the app's own rules read an alt unchanged. Run with the hourly copy (alts.ts), which hands it the wallet and points it already
+ * research), its blueprints (the `blueprints` doc) and industry jobs (records), so the app's own rules read an alt unchanged. Run with the hourly copy (alts.ts), which hands it the wallet and points it already
  * read.
  */
 import { ALPHA_SKILL_CAPS } from '../../src/lib/alphaCaps';
 import { toResearch, toStandings, type RawResearch, type RawStanding } from '../../src/lib/research';
 import { cloneState, type CloneState } from '../../src/lib/roster';
+import { sanitizeBlueprints, type JobRecord } from '../../src/lib/industryTrack';
+import { storedRecords } from './archive';
+import { readBlueprintsFor, readJobsFor, SCOPE_BLUEPRINTS, SCOPE_JOBS } from './industryJobs';
 import { esiGet, readerLogin, stillKept, type Reader } from './eve';
 import { push } from './sync';
 
@@ -36,7 +39,7 @@ async function doc<T>(db: D1Database, charId: number, key: string): Promise<T | 
 const settled = (m: Record<string, unknown>) => JSON.stringify({ ...m, walletAt: '' });
 
 export async function readSheet(
-  env: Env, who: Reader, extra: { wallet: number | null; lp: { corporationId: number; points: number }[] | null }, now = Date.now(),
+  env: Env, who: Reader, extra: { wallet: number | null; lp: { corporationId: number; points: number }[] | null; itemIds?: readonly number[] | null }, now = Date.now(),
 ): Promise<SheetResult> {
   const login = await readerLogin(env, who);
   if (!login) throw new Error('No login kept for this character');
@@ -44,6 +47,7 @@ export async function readSheet(
   const before = await doc<Record<string, unknown>>(db, char, 'meta');
   const meta: Record<string, unknown> = { ...(before ?? {}) };
   const docs: { key: string; d: unknown }[] = [];
+  const records: { k: string; i: string; d: unknown }[] = [];
   let clone: CloneState | null = null;
   let count = 0;
 
@@ -96,10 +100,32 @@ export async function readSheet(
       meta.research = { agents: toResearch(data) };
     } catch { /* kept as it was; the next hourly read tries again */ }
   }
+  // Its blueprints (the `blueprints` doc, the main's shape) and its industry jobs (records), each only with its permission.
+  // No read time in either: its read time is this job's lastOk, for the tab and To do alike. A read with no jobs writes no
+  // record, so `jobsRead` marks that one happened (absent: "Not read yet", never "No jobs"). A failed read leaves what's held.
+  // The doc held before this read stands in for a blueprint the read doesn't list (one in a job, correction 20).
+  // Which places are its own containers or ships comes from the archive's assets read of this run (`extra.itemIds`); with
+  // none (the archive failed or had no assets permission) nothing is classified this hour (placesToName).
+  const heldBps = sanitizeBlueprints(await doc(db, char, 'blueprints')) ?? null;
+  let bps = heldBps;
+  if (login.scopes.includes(SCOPE_BLUEPRINTS)) {
+    try {
+      const next = await readBlueprintsFor(char, token, login.scopes, bps, extra.itemIds ? new Set(extra.itemIds) : null);
+      if (JSON.stringify(next) !== JSON.stringify(bps)) docs.push({ key: 'blueprints', d: next });
+      bps = next;
+    } catch { /* kept as it was; the next hourly read tries again */ }
+  }
+  if (login.scopes.includes(SCOPE_JOBS)) {
+    try {
+      const changed = await readJobsFor(char, token, { bps, held: heldBps, stored: (ids) => storedRecords<JobRecord>(db, char, 'jobs', ids), now });
+      for (const j of changed) records.push({ k: 'jobs', i: String(j.jobId), d: j });
+      meta.jobsRead = true;
+    } catch { /* kept as it was */ }
+  }
   if (extra.wallet != null) { meta.walletBalance = extra.wallet; meta.walletAt = new Date(now).toISOString(); }
   if (extra.lp) meta.lpBalances = extra.lp;
 
   if (!before || settled(before) !== settled(meta)) docs.push({ key: 'meta', d: meta });
-  if (docs.length && (await stillKept(db, who))) await push(db, char, { records: [], docs });
-  return { skills: count, clone, pushed: docs.length };
+  if ((docs.length || records.length) && (await stillKept(db, who))) await push(db, char, { records, docs });
+  return { skills: count, clone, pushed: docs.length + records.length };
 }

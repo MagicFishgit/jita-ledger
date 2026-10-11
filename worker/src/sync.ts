@@ -7,8 +7,10 @@
  * everything after the revision a device last saw, in revision order, a page at a time.
  */
 
+import { mergeJob, type JobRecord } from '../../src/lib/industryTrack';
+
 export const RECORD_KINDS = new Set([
-  'txs', 'journal', 'orders', 'names', 'killmails', 'tags', 'positions', 'goals', 'watchlist', 'netWorth', 'mining',
+  'txs', 'journal', 'orders', 'names', 'killmails', 'tags', 'positions', 'goals', 'watchlist', 'netWorth', 'mining', 'jobs',
 ]);
 // `costs` and `watch` are docs only the cloud reads: the browser's cost basis per item, for the alert checks,
 // and the items it asks to have watched (Prospects candidates, loyalty outputs), with the filters to judge them by.
@@ -29,20 +31,38 @@ export type PushBody = {
 
 export class BadRequest extends Error {}
 
+/** The stored records of one kind with these IDs, 90 at a time (D1 binds at most 100 parameters). */
+async function storedOf(db: D1Database, charId: number, kind: string, ids: string[]): Promise<Map<string, unknown>> {
+  const out = new Map<string, unknown>();
+  for (let i = 0; i < ids.length; i += 90) {
+    const part = ids.slice(i, i + 90);
+    const rows = (await db.prepare(`SELECT id, data FROM records WHERE char_id = ?1 AND kind = ?2 AND id IN (${part.map((_, n) => `?${n + 3}`).join(',')})`)
+      .bind(charId, kind, ...part).all<{ id: string; data: string | null }>()).results;
+    for (const r of rows) if (r.data) out.set(r.id, JSON.parse(r.data));
+  }
+  return out;
+}
+
 export async function push(db: D1Database, charId: number, body: PushBody): Promise<{ rev: number; records: number; docs: number }> {
   const records = body.records ?? [];
   const docs = body.docs ?? [];
   if (!records.length && !docs.length) return { rev: await currentRev(db, charId), records: 0, docs: 0 };
 
-  const rows: { k: string; i: string; d: string | null }[] = [];
-  for (const r of records) {
-    if (!RECORD_KINDS.has(r.k)) throw new BadRequest(`Unknown record kind: ${r.k}`);
-    if (typeof r.i !== 'string' || !r.i || r.i.length > 200) throw new BadRequest('A record needs an ID');
-    const d = r.d == null ? null : JSON.stringify(r.d);
-    if (d && d.length > MAX_RECORD_BYTES) throw new BadRequest(`A ${r.k} record is too large (${d.length} bytes)`);
-    rows.push({ k: r.k, i: r.i, d });
-  }
+  // A job is kept by several writers (the browser's sync, the archive, the sheet): merged onto D1's record, never written
+  // over it (industryTrack.ts mergeJob), so a device that first saw a job after it ended can't drop what was seen while it ran.
+  for (const r of records) if (!RECORD_KINDS.has(r.k)) throw new BadRequest(`Unknown record kind: ${r.k}`);
   for (const doc of docs) if (!DOC_KEYS.has(doc.key)) throw new BadRequest(`Unknown document: ${doc.key}`);
+  const jobIds = records.filter((r) => r.k === 'jobs' && r.d != null && typeof r.i === 'string').map((r) => r.i);
+  const heldJobs = jobIds.length ? await storedOf(db, charId, 'jobs', jobIds) : new Map<string, unknown>();
+  // `later`: jobs the merge changed from what was pushed (correction 19), written at a revision of their own below.
+  const rows: { k: string; i: string; d: string | null }[] = [], later: typeof rows = [];
+  for (const r of records) {
+    if (typeof r.i !== 'string' || !r.i || r.i.length > 200) throw new BadRequest('A record needs an ID');
+    const value = r.k === 'jobs' && r.d != null ? mergeJob(heldJobs.get(r.i) as JobRecord | undefined, r.d as JobRecord) : r.d;
+    const d = value == null ? null : JSON.stringify(value);
+    if (d && d.length > MAX_RECORD_BYTES) throw new BadRequest(`A ${r.k} record is too large (${d.length} bytes)`);
+    (r.k === 'jobs' && r.d != null && d !== JSON.stringify(r.d) ? later : rows).push({ k: r.k, i: r.i, d });
+  }
 
   const now = Date.now();
   // One batch is one transaction: the new revision and every write that carries it land together or not at
@@ -58,20 +78,31 @@ export async function push(db: D1Database, charId: number, body: PushBody): Prom
     ON CONFLICT(char_id, kind, id) DO UPDATE SET data = excluded.data, rev = excluded.rev, updated_at = excluded.updated_at`);
   let chunk: typeof rows = [], size = 0;
   const flush = () => { if (chunk.length) stmts.push(upsert.bind(charId, now, JSON.stringify(chunk))); chunk = []; size = 0; };
-  for (const r of rows) {
-    const n = (r.d?.length ?? 4) + r.i.length + 40;
-    if (size + n > CHUNK_BYTES) flush();
-    chunk.push(r); size += n;
-  }
-  flush();
+  const queue = (list: typeof rows) => {
+    for (const r of list) {
+      const n = (r.d?.length ?? 4) + r.i.length + 40;
+      if (size + n > CHUNK_BYTES) flush();
+      chunk.push(r); size += n;
+    }
+    flush();
+  };
+  queue(rows);
   const setDoc = db.prepare(`
     INSERT INTO docs (char_id, key, data, rev, updated_at) VALUES (?1, ?2, ?3, ${REV}, ?4)
     ON CONFLICT(char_id, key) DO UPDATE SET data = excluded.data, rev = excluded.rev, updated_at = excluded.updated_at`);
   for (const doc of docs) stmts.push(setDoc.bind(charId, doc.key, JSON.stringify(doc.d ?? null), now));
+  const read = stmts.length;
   stmts.push(db.prepare('SELECT rev FROM revs WHERE char_id = ?1').bind(charId));
+  // A job the merge changed from what was pushed (D1 held first-sight fields the pushed record lacked) goes at a revision of
+  // its own, after the push's: the browser that pushed skips its own revision when it pulls (ownRevs), and every browser,
+  // one built before this too, pulls this one (correction 19). Same transaction; the push reports its own revision.
+  if (later.length) {
+    stmts.push(db.prepare('UPDATE revs SET rev = rev + 1 WHERE char_id = ?1').bind(charId));
+    queue(later);
+  }
   const results = await db.batch<{ rev: number }>(stmts);
-  const rev = results[results.length - 1].results[0].rev;
-  return { rev, records: rows.length, docs: docs.length };
+  const rev = results[read].results[0].rev;
+  return { rev, records: rows.length + later.length, docs: docs.length };
 }
 
 async function currentRev(db: D1Database, charId: number): Promise<number> {

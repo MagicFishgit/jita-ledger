@@ -14,6 +14,8 @@ import {
   type JournalRecord, type OrderRecord, type RawAsset, type RawCharOrder, type RawJournal, type RawTx, type SafetyWrap, type StockRecord,
 } from '../../src/lib/esiRecords';
 import { esiAll, esiGet, esiPost, readerLogin, stillKept, useLogin, type Reader } from './eve';
+import { readJobsFor, SCOPE_JOBS } from './industryJobs';
+import { sanitizeBlueprints, type JobRecord } from '../../src/lib/industryTrack';
 import { mailSafety, registerSafety, safetyFindings } from './safety';
 import { push } from './sync';
 
@@ -32,6 +34,14 @@ export type ArchiveResult = {
   trades: number; journal: number; orders: number; names: number; stock: boolean; netWorth: number | null;
   /** The wallet balance and loyalty points this read saw, for an alt's sheet (sheet.ts); absent without the permission. */
   wallet?: number | null; lp?: { corporationId: number; points: number }[] | null;
+  /** The main's industry jobs that changed (an alt's are its sheet's). */
+  jobs?: number;
+  /**
+   * The character's own asset item IDs, from the assets read of this run, for an alt's sheet (sheet.ts) to tell a container or
+   * ship from a structure among its blueprints' places (asset item IDs are 13 digits like structures': size tells nothing).
+   * Absent when the assets weren't read (no permission, or the read failed): the sheet then classifies nothing this hour.
+   */
+  itemIds?: number[];
 };
 
 async function ids(db: D1Database, charId: number, kind: string): Promise<Set<string>> {
@@ -39,7 +49,7 @@ async function ids(db: D1Database, charId: number, kind: string): Promise<Set<st
   return new Set(rows.map((r) => r.id));
 }
 /** The stored records of one kind with these IDs, read 90 at a time (D1 binds at most 100 parameters). */
-async function storedRecords<T>(db: D1Database, charId: number, kind: string, idsList: string[]): Promise<Map<string, T>> {
+export async function storedRecords<T>(db: D1Database, charId: number, kind: string, idsList: string[]): Promise<Map<string, T>> {
   const out = new Map<string, T>();
   for (let i = 0; i < idsList.length; i += 90) {
     const part = idsList.slice(i, i + 90);
@@ -171,11 +181,24 @@ export async function archive(env: Env, who: Reader, opts: { prices?: Record<num
     orders = r.all;
   }
 
+  // The main's industry jobs, every status, kept as records (industryTrack.ts). A job not held yet is sighted while it runs,
+  // its blueprint's ME and TE from the blueprints doc the main's browser keeps. An alt's are its sheet's (sheet.ts), so one
+  // job (`sheet`) dates all of an alt's industry reads. A failed read leaves what's held and doesn't stop the copy.
+  if (!alt && has(scopes, SCOPE_JOBS)) {
+    try {
+      const changed = await readJobsFor(charId, token, { bps: sanitizeBlueprints(await doc(db, charId, 'blueprints')) ?? null, stored: (ids) => storedRecords<JobRecord>(db, charId, 'jobs', ids) });
+      for (const j of changed) records.push({ k: 'jobs', i: String(j.jobId), d: j });
+      result.jobs = changed.length;
+    } catch (e) { console.log('industry jobs read failed', charId, e instanceof Error ? e.message : String(e)); }
+  }
+
   // Assets: a snapshot, replaced whole; pushed only when the counts moved.
   let stockTotal: Record<number, number> | undefined;
   let freshWraps: SafetyWrap[] = [];
   if (has(scopes, S.assets)) {
-    const stock = countStock(await esiAll<RawAsset>(`/characters/${charId}/assets/`, { token }), JITA_44);
+    const rawAssets = await esiAll<RawAsset>(`/characters/${charId}/assets/`, { token });
+    if (alt) result.itemIds = rawAssets.map((a) => a.item_id);
+    const stock = countStock(rawAssets, JITA_44);
     stockTotal = stock.total;
     const prev = await doc<StockRecord>(db, charId, 'stock');
     // Asset safety: wraps registered once by the cloud, which alone can date them, and what was learned carried

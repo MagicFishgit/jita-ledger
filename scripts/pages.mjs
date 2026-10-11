@@ -2320,6 +2320,29 @@ try {
       CLOUD['/v1/push'] = prevPush; CLOUD['/v1/pull'] = prevPull;
     }
 
+    // --- Task 9B: a browser that pushes its late job before pulling ends up holding the cloud's first-sight fields
+    // (correction 19). The stand-in cloud answers the push at revision 5 and brings the merged job down at 6.
+    {
+      const prevPush = CLOUD['/v1/push'], prevPull = CLOUD['/v1/pull'];
+      const late = { jobId: 9002, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 10, licensedRuns: 40, successfulRuns: null, probability: null, cost: 1200000,
+        facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: iso(now - 7200_000), end: iso(now - 600_000), completed: null, status: 'ready', perRun: 1, seenAt: iso(now - 300_000) };
+      const first = { me: 10, te: 20, systemId: 30000142, index: 0.1651, eiv: 2424467.9, at: iso(now - 7000_000) };
+      let pushed = false;
+      CLOUD['/v1/push'] = (url, req, json) => { pushed = true; return json({ rev: 5, records: 1, docs: 0 }); };
+      CLOUD['/v1/pull'] = (url, req, json) => json(pushed
+        ? { rev: 6, records: [{ k: 'jobs', i: '9002', d: { ...late, seenAt: iso(now - 7000_000), first }, r: 6 }], docs: [], next: null }
+        : { rev: 4, records: [], docs: [], next: null });
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, jobs: { 9002: late }, cloud: { ...CLOUD_STATE, rev: 4, dirty: { r: ['jobs|9002'], d: [] } } }, { alts: altStore });
+      await page.goto(`${BASE}#hustles/industry/start`);
+      const held = () => page.evaluate(() => new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('jobs'); g.onsuccess = () => res(g.result); }; }));
+      let jobs = await held();
+      for (let i = 0; i < 80 && !jobs?.[9002]?.first; i++) { await page.waitForTimeout(250); jobs = await held(); }
+      const j2 = jobs?.[9002];
+      if (!j2?.first || j2.first.me !== 10 || j2.seenAt !== iso(now - 7000_000) || j2.status !== 'ready') problems.push(`a browser that pushed its late job first never took the cloud’s first-sight fields: ${JSON.stringify(j2 ?? null).slice(0, 300)}`);
+      CLOUD['/v1/push'] = prevPush; CLOUD['/v1/pull'] = prevPull;
+    }
+
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

@@ -53,6 +53,9 @@ logs in to the app) and the browser's side.
 - **Alts are read hourly on a cron of their own** (`37 * * * *`, `altsHourly`) and their mining every ten minutes at the
   end of the five-minute round. Not on the `:07` cron: the full-market scan's 11-minute budget doesn't know alt reads
   ran ahead of it. Not in the five-minute round: 30 s of CPU.
+- Since Industry stage 2 (11 October 2026) the sheet also reads an alt's blueprints (the `blueprints` doc) and industry jobs (`jobs` records,
+  `meta.jobsRead`), each only with its permission; the archive reads only the main's jobs, so the `sheet` job's `lastOk` dates every one of an
+  alt's industry reads. The archive hands the sheet the alt's asset item IDs, which tell its containers and ships from structures.
 - **What isn't done for an alt**: order refresh and judging, alerts, opportunity mail, the track record, share
   measuring, the Sniper's bids, asset-safety mail, killmails, the `orders` job row. An alt's first `archive` would
   otherwise mail the main about every wrap it holds.

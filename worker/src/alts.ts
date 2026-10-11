@@ -53,16 +53,17 @@ export async function readAlt(env: Env, who: Reader, prices?: Record<number, num
   try {
     copied = await archive(env, who, { prices });
     // The wallet and points go to the sheet below, not into the job's detail.
-    const { wallet: _wallet, lp: _lp, ...noted } = copied;
+    const { wallet: _wallet, lp: _lp, itemIds: _ids, ...noted } = copied;
     await note(env.DB, who, 'archive', { ok: true, detail: noted });
   } catch (e) {
     await note(env.DB, who, 'archive', { ok: false, error: said(e) });
     throw e;
   }
   try {
-    const sheet = await readSheet(env, who, { wallet: copied.wallet ?? null, lp: copied.lp ?? null });
+    const sheet = await readSheet(env, who, { wallet: copied.wallet ?? null, lp: copied.lp ?? null, itemIds: copied.itemIds ?? null });
     await note(env.DB, who, 'sheet', { ok: true, detail: sheet });
-    return { ...copied, clone: sheet.clone };
+    const { itemIds: _kept, ...rest } = copied;
+    return { ...rest, clone: sheet.clone };
   } catch (e) {
     await note(env.DB, who, 'sheet', { ok: false, error: said(e) });
     throw e;

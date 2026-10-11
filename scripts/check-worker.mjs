@@ -1317,5 +1317,161 @@ console.log('\n--- the blueprints doc goes up like any other ---');
   eq('  a push carrying the blueprints doc is taken, not refused as unknown', [r.docs, db.rows('SELECT key FROM docs WHERE char_id = ?', MAIN).map((x) => x.key)], [1, ['blueprints']]);
 }
 
+console.log('\n--- Industry stage 2: jobs and blueprints in the cloud (Task 9B) ---');
+{
+  const FXI = JSON.parse(fs.readFileSync(new URL('./fixtures/industry-everef.json', import.meta.url), 'utf8'));
+  const { push, pull } = await import('../worker/src/sync.ts');
+  const { archive } = await import('../worker/src/archive.ts');
+  const { readAlt } = await import('../worker/src/alts.ts');
+  const { altReader, ledgerReader } = await import('../worker/src/eve.ts');
+  const docOf = (db, char, key) => { const r = db.rows('SELECT data FROM docs WHERE char_id = ? AND key = ?', char, key)[0]; return r ? JSON.parse(r.data) : null; };
+  const jobOf = (db, char, id) => { const r = db.rows(`SELECT data FROM records WHERE char_id = ? AND kind = 'jobs' AND id = ?`, char, String(id))[0]; return r ? JSON.parse(r.data) : null; };
+  const rev = (db, char) => db.rows('SELECT rev FROM revs WHERE char_id = ?', char)[0]?.rev ?? 0;
+  const IND = [...SCOPES, 'esi-industry.read_character_jobs.v1', 'esi-characters.read_blueprints.v1', 'esi-universe.read_structures.v1'];
+  const START = new Date(Date.now() - 20 * 60_000).toISOString(), END = new Date(Date.now() + 6 * 3600_000).toISOString();
+  const rawJob = (char, over = {}) => ({ job_id: 801, installer_id: char, facility_id: 60003760, station_id: 60003760, activity_id: 1, blueprint_id: 7001, blueprint_type_id: 25895,
+    blueprint_location_id: 60003760, output_location_id: 60003760, runs: 65, status: 'active', duration: 66000, start_date: START, end_date: END, product_type_id: 25894, licensed_runs: 40, cost: 17213916, ...over });
+  const CONT = 1044519007308, STRUCT = 1046664001931;
+  const rawBp = (over = {}) => ({ item_id: 7001, type_id: 25895, location_id: CONT, location_flag: 'Hangar', quantity: -1, runs: -1, material_efficiency: 10, time_efficiency: 20, ...over });
+  /** ESI as the industry reads need it, ahead of esiFor's (the first matching route answers). */
+  const industryRoutes = (char, over = {}) => [
+    [`/characters/${char}/industry/jobs/`, over.jobs ?? [rawJob(char)]],
+    [`/characters/${char}/blueprints/`, over.blueprints ?? [rawBp()]],
+    // Real-range IDs: every asset item_id in a real read is 13 digits (1.044e12 to 1.056e12), like a structure's.
+    [`/characters/${char}/assets/`, [{ item_id: CONT, type_id: 17366, quantity: 1, location_id: 60003760, location_flag: 'Hangar', location_type: 'station', is_singleton: true }]],
+    [new RegExp(`^POST /characters/${char}/assets/names/$`), over.names ?? [{ item_id: CONT, name: 'Blueprints' }]],
+    [`/universe/structures/${STRUCT}/`, { name: 'Raitaru Home', solar_system_id: 30000142 }],
+    ['/industry/systems/', FXI.systems],
+    ['/markets/prices/', Object.entries(FXI.adjusted).map(([t, p]) => ({ type_id: Number(t), adjusted_price: p, average_price: p }))],
+    ['/universe/stations/60003760/', { system_id: 30000142, name: 'Jita IV - Moon 4 - Caldari Navy Assembly Plant' }],
+  ];
+  const jitaIndex = 0.1651, pumpEiv = 157590413.44605502 / 65;
+
+  // The push: a job is merged onto D1's record, never written over it.
+  {
+    const db = d1();
+    const first = { me: 10, te: 20, systemId: 30000142, index: jitaIndex, eiv: pumpEiv };
+    const seen = { jobId: 801, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 65, licensedRuns: 40, successfulRuns: null, probability: null, cost: 17213916,
+      facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: START, end: END, completed: null, status: 'active', perRun: 1, seenAt: START, first };
+    await push(db, MAIN, { records: [{ k: 'jobs', i: '801', d: seen }], docs: [] });
+    const late = { ...seen, status: 'delivered', completed: END, seenAt: END };
+    delete late.first;
+    const p2 = await push(db, MAIN, { records: [{ k: 'jobs', i: '801', d: late }], docs: [] });
+    const got = jobOf(db, MAIN, 801);
+    eq('  a jobs record is taken now, and one pushed without first-sight fields is merged onto D1\'s, never over it',
+      [got.first, got.seenAt, got.status, got.completed], [first, START, 'delivered', END]);
+    // The pushing browser skips its push's revision when it pulls (ownRevs), so what the merge added has to come at another.
+    const pulled = async () => (await pull(db, MAIN, 0, null)).records.find((r) => r.k === 'jobs' && r.i === '801');
+    const row2 = await pulled();
+    eq('    written at a revision of its own after the push\'s, so the browser that pushed it pulls the merged job', [row2.r > p2.rev, row2.d.first], [true, first]);
+    const p3 = await push(db, MAIN, { records: [{ k: 'jobs', i: '801', d: got }], docs: [] });
+    eq('    a job pushed as D1 holds it is written at the push\'s own revision (no revision spent)', (await pulled()).r, p3.rev);
+  }
+
+  // The main's jobs, read by the hourly archive: first sight from the blueprints doc its browser keeps.
+  {
+    const { db, env } = await ledgerWithAlt();
+    db.run('DELETE FROM keys WHERE purpose = ?', 'main');
+    await keepKey(db, MAIN, 'main', MAIN, 'Main', IND);
+    await push(db, MAIN, { records: [], docs: [{ key: 'blueprints', d: { list: [[7001, 25895, CONT, 'Hangar', -1, -1, 10, 20]] } }] });
+    let f = stubFetch([...industryRoutes(MAIN), ...esiFor(MAIN)]);
+    const r = await archive(env, ledgerReader(MAIN));
+    f.restore();
+    const j = jobOf(db, MAIN, 801);
+    eq('  the main\'s job kept under the main, seen running: its blueprint\'s ME and TE from the doc, Jita\'s index, the EIV a run',
+      [r.jobs, j.perRun, j.first.me, j.first.te, j.first.systemId, j.first.index, Math.round(j.first.eiv * 65)], [1, 1, 10, 20, 30000142, jitaIndex, 157590413]);
+    // The call is what's pinned (esiFor has no blueprints route, so a read would 404 and be swallowed).
+    eq('    the archive reads no blueprints for the main (its browser does)', f.calls.some((c) => /\/blueprints\/$/.test(c.path)), false);
+    const jobRev = () => db.rows(`SELECT rev FROM records WHERE char_id = ? AND kind = 'jobs' AND id = '801'`, MAIN)[0].rev;
+    const r0 = jobRev();
+    f = stubFetch([...industryRoutes(MAIN), ...esiFor(MAIN)]);
+    await archive(env, ledgerReader(MAIN));
+    f.restore();
+    eq('    read again unchanged: the job isn\'t pushed again, and nothing new is sighted (no indices read)',
+      [jobRev(), f.calls.some((c) => c.path === '/industry/systems/')], [r0, false]);
+    f = stubFetch([...industryRoutes(MAIN, { jobs: [rawJob(MAIN, { status: 'delivered', completed_date: END })] }), ...esiFor(MAIN)]);
+    await archive(env, ledgerReader(MAIN));
+    f.restore();
+    eq('    delivered: the status moves, the first sight stays', [jobOf(db, MAIN, 801).status, jobOf(db, MAIN, 801).first.me], ['delivered', 10]);
+  }
+
+  // An alt's blueprints and jobs, read by its hourly sheet, filed under it.
+  {
+    const { db, env } = await ledgerWithAlt();
+    db.run('DELETE FROM keys WHERE purpose = ?', `alt:${ALT}`);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', IND);
+    const main = under(db, MAIN);
+    const twoBps = [rawBp(), rawBp({ item_id: 7002, type_id: 25896, location_id: STRUCT, location_flag: 'CorpSAG1' })];
+    let f = stubFetch([...industryRoutes(ALT, { blueprints: twoBps }), ...esiFor(ALT)]);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  an alt\'s blueprints: its doc, its container (one of its own asset item IDs) and its structure each named by the right call, which places are its own containers kept, no read time',
+      docOf(db, ALT, 'blueprints'), { list: [[7001, 25895, CONT, 'Hangar', -1, -1, 10, 20], [7002, 25896, STRUCT, 'CorpSAG1', -1, -1, 10, 20]], names: { [CONT]: 'Blueprints', [STRUCT]: 'Raitaru Home' }, items: [CONT] });
+    eq('    the container was named by /assets/names and not looked up as a structure; the structure the other way round',
+      [f.calls.some((c) => c.path === `/universe/structures/${CONT}/`), f.calls.filter((c) => c.method === 'POST' && /assets\/names/.test(c.path)).every((c) => !String(c.body).includes(String(STRUCT))), f.calls.some((c) => c.path === `/universe/structures/${STRUCT}/`)], [false, true, true]);
+    eq('    its job under it, sighted with its own blueprint\'s ME', [jobOf(db, ALT, 801)?.first?.me, docOf(db, ALT, 'meta').jobsRead], [10, true]);
+    eq('    read once, by the sheet: the archive doesn\'t read an alt\'s jobs', f.calls.filter((c) => /\/industry\/jobs\/$/.test(c.path)).length, 1);
+    eq('    nothing of it under the main', under(db, MAIN), main);
+    const r1 = rev(db, ALT);
+    f = stubFetch([...industryRoutes(ALT, { blueprints: twoBps }), ...esiFor(ALT)]);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  read again unchanged: no new revision, and the container isn\'t named again', [rev(db, ALT), f.calls.some((c) => (c.method === 'POST' && /assets\/names/.test(c.path) && String(c.body).includes(String(CONT))) || c.path === `/universe/structures/${STRUCT}/`)], [r1, false]);
+    f = stubFetch([...industryRoutes(ALT, { blueprints: twoBps, jobs: new Response('{"error":"down"}', { status: 500 }) }), ...esiFor(ALT)]);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  a jobs read that fails leaves what was held, and the sheet still counts as read', [jobOf(db, ALT, 801)?.first?.me, db.rows(`SELECT fails FROM jobs WHERE char_id = ? AND job = 'sheet'`, ALT)[0].fails], [10, 0]);
+  }
+
+  // The archive read no assets this hour (the login lacks the permission here; a failed read gives the same: no item IDs): the
+  // sheet classifies nothing: the blueprints are kept, no place is named or marked a container, none looked up as a structure.
+  {
+    const { db, env } = await ledgerWithAlt();
+    db.run('DELETE FROM keys WHERE purpose = ?', `alt:${ALT}`);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', IND.filter((s) => s !== 'esi-assets.read_assets.v1'));
+    const f = stubFetch([...industryRoutes(ALT, { blueprints: [rawBp(), rawBp({ item_id: 7002, type_id: 25896, location_id: STRUCT })] }), ...esiFor(ALT)]);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  no assets read this hour: the blueprints are kept with no names and no containers, and no place is looked up',
+      [docOf(db, ALT, 'blueprints'), f.calls.some((c) => /assets\/names|universe\/structures/.test(c.path))],
+      [{ list: [[7001, 25895, CONT, 'Hangar', -1, -1, 10, 20], [7002, 25896, STRUCT, 'Hangar', -1, -1, 10, 20]] }, false]);
+  }
+
+  // A running job's blueprint may be missing from the read just taken: the doc held before stands in (correction 20).
+  {
+    const { db, env } = await ledgerWithAlt();
+    db.run('DELETE FROM keys WHERE purpose = ?', `alt:${ALT}`);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', IND);
+    await push(db, ALT, { records: [], docs: [{ key: 'blueprints', d: { list: [[7001, 25895, CONT, 'Hangar', -1, -1, 10, 20]] } }] });
+    const f = stubFetch([...industryRoutes(ALT, { blueprints: [] }), ...esiFor(ALT)]);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  an alt\'s job whose blueprint this read doesn\'t list is sighted with the ME held before it', jobOf(db, ALT, 801)?.first?.me, 10);
+  }
+
+  // A login handed over without the permissions: nothing asked, nothing written, no mark.
+  {
+    const { db, env } = await ledgerWithAlt();
+    const f = stubFetch([...industryRoutes(ALT), ...esiFor(ALT)]);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  an alt whose login lacks them: not asked; no blueprints doc, no jobs, no jobsRead (not "none")',
+      [f.calls.some((c) => /\/industry\/jobs\/$|\/blueprints\/$/.test(c.path)), docOf(db, ALT, 'blueprints'), jobOf(db, ALT, 801), 'jobsRead' in (docOf(db, ALT, 'meta') ?? {})], [false, null, null, false]);
+  }
+
+  // Taken off the roster while its jobs were read: nothing of it goes back in.
+  {
+    const { db, env } = await ledgerWithAlt();
+    db.run('DELETE FROM keys WHERE purpose = ?', `alt:${ALT}`);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', IND);
+    const routes = [...industryRoutes(ALT), ...esiFor(ALT)];
+    routes[0] = [`/characters/${ALT}/industry/jobs/`, () => { db.run('DELETE FROM keys WHERE purpose = ?', `alt:${ALT}`); return [rawJob(ALT)]; }];
+    const f = stubFetch(routes);
+    await readAlt(env, altReader(MAIN, ALT)).catch(() => undefined);
+    f.restore();
+    eq('  an alt removed mid-read gets no jobs and no blueprints doc', [jobOf(db, ALT, 801), docOf(db, ALT, 'blueprints')], [null, null]);
+  }
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
