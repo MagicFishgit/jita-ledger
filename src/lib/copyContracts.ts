@@ -223,7 +223,8 @@ export function copySales(o: { doc: CopyContractsDoc | undefined; jobs: readonly
         b.left -= take; want -= take; claimed += take;
       }
     }
-    if (claimed < total) out.notMade.push({ contractId: c.id, copies: total - claimed });
+    // Only a sale says copies no job made: a taken contract sold nothing, so "sold on contract … isn't counted" would be false.
+    if (claimed < total && state === 'sold') out.notMade.push({ contractId: c.id, copies: total - claimed });
     // A taken contract (accepted by one of yours) uses up its copies like a sale, but counts no ISK: those copies left your hands.
     if (!claimed || state === 'taken') continue;
     const paid = entries.filter((e) => e.refType === 'contract_price' && e.isk > 0);
