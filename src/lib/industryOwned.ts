@@ -6,8 +6,9 @@
  */
 import type { OwnedBlueprint } from './blueprints';
 import { eivOf, researchCost, researchTime, rigFor, slots, structureBonus, type BundleBp, type Clone, type Indexed } from './industry';
-import { alphaCapOf, RUNGS, usable } from './industryLadder';
+import { alphaCapOf, RUNGS, usable, type RungKey } from './industryLadder';
 import type { LabSite } from './industryRank';
+import { productKind } from './industryRank';
 import { isStationId, slotsUsed, type JobRecord } from './industryTrack';
 import { lostSaid } from './pilot';
 import { spForLevel, trainingDays, type Attributes } from './training';
@@ -68,9 +69,6 @@ function nextRung(ix: Indexed, c: CharIn): CharRow['next'] {
   return 'top';
 }
 
-/** Neither read yet, said once. */
-const both = (c: CharIn): string => (c.isMain ? 'Not read yet: your industry jobs and blueprints come with the next sync.' : `Not read yet: ${c.name}’s industry jobs and blueprints come with the cloud’s next hourly read.`);
-
 const lostLine = (c: CharIn): string | null => lostSaid({ isMain: c.isMain, name: c.name, pilot: { lost: c.lost } });
 
 export function charRows(ix: Indexed, chars: readonly CharIn[], now: number): CharRow[] {
@@ -85,8 +83,7 @@ export function charRows(ix: Indexed, chars: readonly CharIn[], now: number): Ch
     // why once (both unread alike, or both lost, whose sentence is the same).
     const why = anyRead
       ? [lost ? `As the cloud last read it. ${lost}` : null, jobsWhy, bpsWhy].filter(Boolean).join(' ') || null
-      : c.jobs.state === 'unread' && c.blueprints.state === 'unread' ? both(c)
-        : jobsWhy === bpsWhy ? jobsWhy : [jobsWhy, bpsWhy].filter(Boolean).join(' ') || null;
+      : readsWhy(c, c.jobs, c.blueprints);
     return {
       charId: c.charId, name: c.name, isMain: c.isMain,
       factory: s ? { used: used?.factory ?? null, of: s.factory } : null,
@@ -198,4 +195,45 @@ export function jobPlaceSaid(j: Pick<JobRecord, 'stationId' | 'first'>, o: { nam
   if (n) return n;
   const sys = j.first?.systemId != null ? o.system(j.first.systemId) : null;
   return sys ? `a structure in ${sys}` : 'a structure (not named yet)';
+}
+
+/** Why a character's jobs and blueprints aren't shown, in one sentence where both are alike; null when both are read. */
+export function readsWhy(c: { isMain: boolean; name: string }, jobs: Read<unknown>, bps: Read<unknown>): string | null {
+  const jw = readWhy(c, jobs, 'jobs'), bw = readWhy(c, bps, 'blueprints');
+  if (!jw && !bw) return null;
+  if (jw && bw && jobs.state === bps.state) {
+    if (jobs.state === 'unread') return c.isMain ? 'Not read yet: your industry jobs and blueprints come with the next sync.' : `Not read yet: ${c.name}’s industry jobs and blueprints come with the cloud’s next hourly read.`;
+    if (jobs.state === 'login') return 'Log in again: this login wasn’t given EVE’s permission to read your industry jobs and blueprints.';
+    if (jobs.state === 'handOver') return `Hand the cloud ${c.name}’s login again: it was handed over without the permission to read industry jobs and blueprints.`;
+    return jw;
+  }
+  return [jw, bw].filter(Boolean).join(' ');
+}
+
+/** How far back a rung's jobs are counted: ESI's own 90 days of jobs, so the figure doesn't grow with the records kept. */
+export const RUNG_DONE_DAYS = 90;
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+/**
+ * What the reads show of a rung (correction 14: they annotate it; skills still decide where you stand): jobs of its activity
+ * in the last 90 days (cancelled and reverted ones aren't counted), and for research and copying what's held. Null when
+ * nothing is read or nothing shows; More slots (Start's tiles say slots in use) and Build at home (a site) have none.
+ */
+export function rungDone(ix: Indexed, key: RungKey, r: { jobs: readonly JobRecord[] | null; blueprints: readonly OwnedBlueprint[] | null }, now: number): string | null {
+  const recent = (r.jobs ?? []).filter((j) => j.status !== 'cancelled' && j.status !== 'reverted' && now - Date.parse(j.start) <= RUNG_DONE_DAYS * 86_400_000);
+  const n = (acts: number[], also: (j: JobRecord) => boolean = () => true) => recent.filter((j) => acts.includes(j.activity) && also(j)).length;
+  const since = 'in the last 90 days';
+  const parts: string[] = [];
+  const jobsSaid = (count: number, what: string) => { if (r.jobs && count) parts.push(`${plural(count, `${what} job`, `${what} jobs`)} ${since}`); };
+  if (key === 'npc') jobsSaid(n([1], (j) => productKind(ix, j.productTypeId ?? 0) !== 'capital'), 'manufacturing');
+  else if (key === 'research') {
+    jobsSaid(n([3, 4]), 'research');
+    const researched = (r.blueprints ?? []).filter((b) => !b.copy && (b.me > 0 || b.te > 0)).reduce((s, b) => s + b.count, 0);
+    if (r.blueprints && researched) parts.push(plural(researched, 'original researched', 'originals researched'));
+  } else if (key === 'copy') {
+    jobsSaid(n([5]), 'copy');
+    const copies = (r.blueprints ?? []).filter((b) => b.copy).reduce((s, b) => s + b.count, 0);
+    if (r.blueprints && copies) parts.push(plural(copies, 'copy held', 'copies held'));
+  } else if (key === 't2') jobsSaid(n([8]), 'invention');
+  else if (key === 'capital') { const c = n([1], (j) => productKind(ix, j.productTypeId ?? 0) === 'capital'); if (r.jobs && c) parts.push(`${plural(c, 'capital', 'capitals')} ${since}`); }
+  return parts.length ? parts.join('; ') : null;
 }

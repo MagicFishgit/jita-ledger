@@ -2158,7 +2158,7 @@ try {
     await ladderOf(ledger);
     await page.waitForSelector('[data-rung="npc"] [data-pays="rows"]', { timeout: 30_000 }).catch(async () => problems.push(`rung 1 never said what it pays: “${(await rung('npc')).slice(0, 300)}”`));
     await page.waitForTimeout(800);
-    if (!(await text('[data-industry="here"]')).includes('You’re on rung 2, Research ME first, by your skills and the sites you’ve added. Your blueprints and jobs aren’t read here yet.')) problems.push(`the main isn’t on rung 2: “${await text('[data-industry="here"]')}”`);
+    if (!(await text('[data-industry="here"]')).includes('You’re on rung 2, Research ME first, by your skills and the sites you’ve added. Log in again: this login wasn’t given EVE’s permission to read your industry jobs and blueprints.')) problems.push(`the main isn’t on rung 2: “${await text('[data-industry="here"]')}”`);
     if (!(await page.locator('[data-rung="research"].here').count())) problems.push('rung 2 isn’t lit as where the main is');
     for (const t of ['Your skills cover it', 'Industry I', 'Mass Production I', 'Builds 954 of the 1,652 Tech I items the finder ranks, at these skills.', 'Pays now at Station 60001483, one slot a day, at ME 0 / TE 0:', 'Caracal'])
       if (!(await says('npc', t))) problems.push(`rung 1 doesn’t say “${t}”`);
@@ -2262,8 +2262,9 @@ try {
     for (const t of ['Invention, at the nearest Laboratory, in Sobaseki', 'attempts a copy of 1 run, at ME 2 / TE 4', '3 Datacore - Nanite Engineering and 3 Datacore - Hydromagnetic Physics an attempt',
       'one lab slot invents for', 'A Tech II copy can’t be researched: it builds at ME 2 / TE 4, as invented. Decryptors aren’t modelled', 'Materials for one job: 1 run at ME 2',
       'The Tech I original, to copy from', 'Copy it at the nearest Laboratory', 'Invent at the nearest Laboratory', 'Install the job at Station 60001483 at ME 2',
-      'Needs Hydromagnetic Physics, Nanite Engineering, Amarr Encryption Methods I to invent: at I each,', 'datacores held anywhere:'])
+      'Needs Hydromagnetic Physics I, Nanite Engineering I and Amarr Encryption Methods I to invent; worked out at I · 2.69 attempts', 'datacores held anywhere:'])
       if (!inv.toLowerCase().includes(t.toLowerCase())) problems.push(`the Tech II pump’s detail doesn’t say “${t}”`);
+    if (/\b(Physics|Engineering|Methods) [0-5]\b/.test(inv)) problems.push('the Tech II chance tile writes a skill level in Arabic numerals');
     if (await page.locator('[data-industry="detail"] [data-industry="me-levels"]').count()) problems.push('the Tech II pump’s detail offers to research it');
     const shop = await text('[data-industry="detail"]');
     if (!/Datacore - Hydromagnetic Physics\s+Jita, 93,970/.test(shop)) problems.push('the Tech II pump’s shopping list doesn’t buy its datacores');
@@ -2345,9 +2346,8 @@ try {
 
     // --- Task 10A: Blueprints & jobs. The main holds an original and a copy and runs jobs; Builder Alt was read; Fresh Alt
     // wasn't; Lost Alt was refused with nothing read; Stale Alt was refused after a read.
-    {
-      const STALE = 900094;
-      const j = (jobId, activity, status, start, end, over = {}) => ({ jobId, activity, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 10, licensedRuns: 40, successfulRuns: null, probability: null,
+    const STALE = 900094;
+    const j = (jobId, activity, status, start, end, over = {}) => ({ jobId, activity, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 10, licensedRuns: 40, successfulRuns: null, probability: null,
         cost: 1234567, facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: iso(start), end: iso(end), completed: null, status, perRun: 1, seenAt: iso(start + 300_000), ...over });
       const mainJobs = { 9101: j(9101, 1, 'active', now - 7200_000, now + 5 * 3600_000), 9102: j(9102, 1, 'ready', now - 9 * 3600_000, now - 3600_000),
         9103: j(9103, 1, 'delivered', now - 2 * 86400_000, now - 86400_000, { completed: iso(now - 86400_000 + 600_000), cost: 17213916 }),
@@ -2429,6 +2429,67 @@ try {
       await page.waitForSelector('[data-industry="chars"]', { timeout: 30_000 }).catch(() => problems.push('Blueprints & jobs never drew on a stage-1 ledger'));
       const old = await row(ownerAuth().characterId);
       if (!old.includes('Log in again: this login wasn’t given EVE’s permission to read your industry jobs.') || old.includes('0 of 5 in use') || !old.includes('– of 5 in use')) problems.push(`a stage-1 meta.industry reads as a jobs read: “${old}”`);
+    
+
+    // --- Task 10B: Start with the main's reads: slots in use, what it holds and ran, each rung's reads.
+    {
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, jobs: mainJobs, blueprints: mainBps, meta: { ...ledger.meta, blueprintsAt: iso(now - 600_000), jobsRead: true, industry: { at: iso(now - 600_000), jobs: [], places: {} } }, industry: DOC, cloud: CLOUD_STATE },
+        { alts: altStore, cache: { prospects: SCAN } });
+      await page.goto(`${BASE}#hustles/industry/start`);
+      await page.reload();
+      await page.waitForSelector('[data-industry="ladder"]', { timeout: 20_000 }).catch(() => problems.push('the ladder never drew with reads'));
+      await page.waitForTimeout(800);
+      const here = await text('[data-industry="here"]');
+      if (!here.includes('You hold 3 originals and 1 copy, and ran 5 jobs in the last 90 days.')) problems.push(`Start doesn’t say what the main holds and ran: “${here}”`);
+      if (!here.includes('You’re on rung 2, Research ME first')) problems.push(`the reads moved where the main stands: “${here}”`);
+      const t = await tiles('[data-industry="where"]');
+      if (!t['Factory slots']?.[1]?.startsWith('2 in use')) problems.push(`the factory slots tile doesn’t say 2 in use: ${JSON.stringify(t['Factory slots'])}`);
+      if (!(await text('[data-rung-done="npc"]')).includes('Your reads show 5 manufacturing jobs in the last 90 days.')) problems.push('rung 1 doesn’t say what the reads show');
+      if (!(await text('[data-rung-done="research"]')).includes('Your reads show 2 originals researched.')) problems.push('rung 2 doesn’t count the researched originals');
+      if (!(await text('[data-rung-done="copy"]')).includes('1 copy held')) problems.push('rung 4 doesn’t count the copy held');
+      if (SHOTS) { await page.locator('[data-rung-done="npc"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-industry-start-reads.png` }); }
+    }
+    // --- Task 10B: the Blueprints page reads the doc, with its time; no read happens by itself.
+    {
+      let asked = 0;
+      const BP_PATH = `/characters/${ownerAuth().characterId}/blueprints/`;
+      ESI[BP_PATH] = (url, req, json) => (asked++, json([]));
+      await page.goto(`${BASE}#blueprints`);
+      await page.reload();
+      await page.waitForSelector('.page', { timeout: 20_000 });
+      await page.waitForTimeout(1200);
+      const bp = await text('.page');
+      if (!bp.includes('4 blueprints in 4 kinds') || !/read \d+ min ago/.test(bp)) problems.push(`the Blueprints page doesn’t show the stored read with its time: “${bp.slice(0, 300)}”`);
+      if (!(await page.locator('table td', { hasText: 'Blueprints' }).count())) problems.push('the Blueprints page doesn’t name the container from the doc');
+      // 7003 sits in a container with a 13-digit item ID (like a structure's) listed in the doc's items: a container, not a station.
+      const cont = await text('table');
+      if (!cont.includes('A container or ship you haven’t named') || /A station ×|A container, ship or structure/.test(cont)) problems.push(`the Blueprints page doesn’t read the main’s unnamed container as a container: “${cont.slice(0, 400)}”`);
+      if (asked) problems.push('the Blueprints page read ESI by itself');
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}-blueprints-all.png` });
+      // From the Industry tab's "Price for selling": one blueprint alone, and the way back to all of them.
+      await page.goto(`${BASE}#blueprints?type=17716`);
+      await page.waitForSelector('[data-bp-only="17716"]', { timeout: 10_000 }).catch(() => problems.push('the Blueprints page doesn’t take a blueprint from the Industry tab'));
+      if (!/show every blueprint/i.test(await text('[data-bp-only="17716"]'))) problems.push('showing one blueprint, the Blueprints page has no way back to all');
+      if ((await page.locator('table tbody tr').count()) !== 1) problems.push(`?type= shows ${await page.locator('table tbody tr').count()} rows, not the one kind`);
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}-blueprints-type.png` });
+      // The button reads afresh into the doc with the sync's reader: the assets read first (their item IDs tell a container from a
+      // structure), the container's name by /assets/names, and the page then shows both, the stored time renewed.
+      const CONT2 = 1044519009999, askedPaths = [];
+      ESI[BP_PATH] = (url, req, json) => (askedPaths.push(url.pathname), json([{ item_id: 9301, type_id: 25895, location_id: CONT2, location_flag: 'Unlocked', quantity: -1, runs: -1, material_efficiency: 5, time_efficiency: 10 }]));
+      ESI[`/characters/${ownerAuth().characterId}/assets/`] = (url, req, json) => (askedPaths.push(url.pathname), json([{ item_id: CONT2, type_id: 3293, location_id: 60003760, location_flag: 'Hangar', location_type: 'station', quantity: 1, is_singleton: true }]));
+      ESI[`/characters/${ownerAuth().characterId}/assets/names/`] = (url, req, json) => (askedPaths.push(url.pathname), json([{ item_id: CONT2, name: 'Spare Blueprints' }]));
+      await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('jita-ledger:auth')); a.scopes = ['esi-characters.read_blueprints.v1', 'esi-assets.read_assets.v1', 'esi-universe.read_structures.v1']; localStorage.setItem('jita-ledger:auth', JSON.stringify(a)); });
+      await page.goto(`${BASE}#blueprints`);
+      await page.reload();
+      await page.waitForSelector('.page', { timeout: 20_000 });
+      await page.waitForTimeout(6000); // the sync the reload starts finishes first, so it can't write over the button's read
+      await page.locator('button', { hasText: 'Read them again' }).click().catch(() => problems.push('the Blueprints page has no Read them again button with the permissions'));
+      await page.waitForFunction(() => /Spare Blueprints/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 15_000 })
+        .catch(async () => problems.push(`the Blueprints page’s Read didn’t put the freshly read blueprints and their container’s name on the page (asked ${askedPaths.join(', ') || 'nothing'}; table: ${(await text('table')).slice(0, 400)}; toast: ${(await text('.toasts, [role=status], [role=alert]')).slice(0, 200)})`));
+      if (!askedPaths.some((x) => x.endsWith('/assets/'))) problems.push('the Blueprints page’s Read didn’t read the assets to tell containers from structures');
+      if (!/read just now/.test(await text('.page'))) problems.push(`the Blueprints page’s Read didn’t renew the stored time: “${(await text('.page')).slice(0, 300)}”`);
+      for (const k of Object.keys(ESI)) if (k.startsWith(`/characters/${ownerAuth().characterId}/`)) delete ESI[k];
     }
 
     // --- the end of the industry case

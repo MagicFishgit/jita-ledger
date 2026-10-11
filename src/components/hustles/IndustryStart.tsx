@@ -1,10 +1,13 @@
 import { useMemo } from 'react';
 import { FlaskConical, MapPin, ScrollText, Store } from 'lucide-react';
 import { iskBig, iskBigSigned, pct, units } from '../../lib/format';
-import { navigate } from '../../lib/hooks';
+import { navigate, useNow } from '../../lib/hooks';
 import { MAX_SLOTS, slots, type Indexed } from '../../lib/industry';
 import { alphaTileSaid, beforeSaid, ladderOf, needBeyond, omegaSaid, paying, researchedRows, rowsOpened, rungCount, slotsPay, usable, type RungKey } from '../../lib/industryLadder';
+import { readsWhy, rungDone, RUNG_DONE_DAYS } from '../../lib/industryOwned';
+import { slotsUsed } from '../../lib/industryTrack';
 import type { Graph } from '../../lib/jumps';
+import { ROMAN } from '../../lib/skillStatus';
 import { Points } from '../Facts';
 import { SkillNeeds } from '../SkillStrip';
 import { Tiles } from '../ui';
@@ -32,10 +35,22 @@ export function IndustryStart({ c, ix, graph }: { c: IndustryChar; ix: Indexed; 
   const lad = useMemo(() => ladderOf({ skills: sk ?? null, clone: c.clone, structureSite: !!structure }), [sk, c.clone, structure]);
   const finder = useFinder(c, ix, graph);
   const whose = c.isMain ? 'your' : `${c.name}’s`;
+  const now = useNow(60_000);
+  // What the reads show (correction 14: they annotate; skills still decide where you stand).
+  const jobs = c.jobs.state === 'read' ? c.jobs.value : null, bps = c.blueprints.state === 'read' ? c.blueprints.value : null;
+  const used = jobs ? slotsUsed(jobs, now) : null;
+  const reads = { jobs, blueprints: bps };
+  const held = bps ? { o: bps.filter((b) => !b.copy).reduce((n, b) => n + b.count, 0), c: bps.filter((b) => b.copy).reduce((n, b) => n + b.count, 0) } : null;
+  const ran = jobs ? jobs.filter((j) => j.status !== 'cancelled' && j.status !== 'reverted' && now - Date.parse(j.start) <= RUNG_DONE_DAYS * 86_400_000).length : null;
+  const who = c.isMain ? 'You' : c.name;
+  const notRead = readsWhy(c, c.jobs, c.blueprints);
+  // readsWhy is null only when both are read, so held and ran are set then.
+  const readsSaid = notRead
+    ?? `${who} hold${c.isMain ? '' : 's'} ${units(held!.o)} original${held!.o === 1 ? '' : 's'} and ${units(held!.c)} cop${held!.c === 1 ? 'y' : 'ies'}, and ran ${units(ran!)} job${ran === 1 ? '' : 's'} in the last 90 days.`;
   const noClone = c.clone === 'unknown' ? ' (Clone state not read, so Alpha’s limits aren’t applied.)' : '';
-  const hereSaid = !sk ? `${why} Until then the ladder shows what each rung asks, and judges nothing.`
+  const hereSaid = !sk ? `${why} Until then the ladder shows what each rung asks, and judges nothing.${notRead ? '' : ` ${readsSaid}`}`
     : lad.here == null ? `Not on the first rung yet, by ${whose} skills: Industry I and Mass Production I start it.${noClone}`
-      : `You’re on rung ${lad.here + 1}, ${lad.rungs[lad.here].rung.title}, by ${whose} skills and the sites you’ve added. ${c.isMain ? 'Your' : `${c.name}’s`} blueprints and jobs aren’t read here yet.${noClone}`;
+      : `You’re on rung ${lad.here + 1}, ${lad.rungs[lad.here].rung.title}, by ${whose} skills and the sites you’ve added. ${readsSaid}${noClone}`;
   return (
     <section className="col" style={{ gap: 14 }} aria-label="Start" data-industry="start">
       <div className="col" style={{ gap: 8 }}>
@@ -49,12 +64,12 @@ export function IndustryStart({ c, ix, graph }: { c: IndustryChar; ix: Indexed; 
       <div data-industry="where">
         <Tiles min={200} items={[
           {
-            l: 'Factory slots', v: s ? `${s.factory}` : '–', n: s ? `one job each; ${MAX_SLOTS} at most: 1, plus Mass Production and Advanced Mass Production` : why,
-            tip: 'How many manufacturing jobs run at once.\n\n• One, plus one a level of Mass Production and of Advanced Mass Production.\n• Eleven at most (EVE University, "Industry skills").',
+            l: 'Factory slots', v: s ? `${s.factory}` : '–', n: s ? `${used ? `${units(used.factory)} in use (running, or finished and not delivered) · ` : ''}one job each; ${MAX_SLOTS} at most: 1, plus Mass Production and Advanced Mass Production` : why,
+            tip: 'How many manufacturing jobs run at once.\n\n• One, plus one a level of Mass Production and of Advanced Mass Production.\n• Eleven at most (EVE University, "Industry skills").\n• In use: jobs running, and ones finished but not delivered: a finished job holds its slot until it’s delivered.',
           },
           {
-            l: 'Science slots', v: s ? `${s.science}` : '–', n: s ? `research, copying and invention, one job each; ${MAX_SLOTS} at most: 1, plus Laboratory Operation and Advanced Laboratory Operation` : why,
-            tip: 'How many research, copying and invention jobs run at once.\n\n• One, plus one a level of Laboratory Operation and of Advanced Laboratory Operation.\n• Eleven at most.',
+            l: 'Science slots', v: s ? `${s.science}` : '–', n: s ? `${used ? `${units(used.science)} in use (running, or finished and not delivered) · ` : ''}research, copying and invention, one job each; ${MAX_SLOTS} at most: 1, plus Laboratory Operation and Advanced Laboratory Operation` : why,
+            tip: 'How many research, copying and invention jobs run at once.\n\n• One, plus one a level of Laboratory Operation and of Advanced Laboratory Operation.\n• Eleven at most.\n• In use: jobs running, and ones finished but not delivered: a finished job holds its slot until it’s delivered.',
           },
           {
             l: 'Jita broker fee', v: feeKnown ? pct(c.broker) : '–', n: feeKnown ? feeSaid : why,
@@ -92,6 +107,7 @@ export function IndustryStart({ c, ix, graph }: { c: IndustryChar; ix: Indexed; 
                     ? <SkillNeeds needs={r.needs.map((n) => ({ skill: n.skill, level: n.level }))} beyond={(skill, level) => needBeyond(c.clone, skill, level)} />
                     : <p className="note small" style={{ margin: 0 }} data-rung-needs="bare">Asks for {r.needs.map((n) => `${n.name} ${ROMAN[n.level]}`).join(', ')}. {c.isMain ? 'Your' : `${c.name}’s`} levels aren’t read, so none is counted as trained.</p>)}
                   {count && <p className="note small" style={{ margin: 0 }}>{COUNT_SAID[r.key]?.(count.n, count.of)}</p>}
+                  {(() => { const done = rungDone(ix, r.key, reads, now); return done ? <p className="note small" style={{ margin: 0 }} data-rung-done={r.key}>{c.isMain ? 'Your' : `${c.name}’s`} reads show {done}.</p> : null; })()}
                   <RungPays k={r.key} met={v.met === true} c={c} ix={ix} f={finder} factory={s?.factory ?? null} structure={structure?.name ?? null} />
                   {r.key === 't2' && <button type="button" className="link-btn" style={{ alignSelf: 'flex-start' }} onClick={() => navigate('hustles/research')}><FlaskConical aria-hidden="true" />R&amp;D agents make datacores: the Research tab</button>}
                 </div>
@@ -103,8 +119,6 @@ export function IndustryStart({ c, ix, graph }: { c: IndustryChar; ix: Indexed; 
     </section>
   );
 }
-
-const ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V'];
 
 /** Each rung's count of what it opens, at the shown character's skills raised to the rung's. */
 const COUNT_SAID: Partial<Record<RungKey, (n: number, of: number) => string>> = {

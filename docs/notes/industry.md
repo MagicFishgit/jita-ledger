@@ -200,8 +200,8 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
     nothing: no "You're here", no counts, no prices, and each rung lists what it asks bare ("Asks for Industry I, Mass
     Production I. Lost Alt's levels aren't read, so none is counted as trained."), with `skillsWhy` over it. The page case
     checks a refused alt and a main with no skills.
-  - **Where you stand is by skills alone** ("Your blueprints and jobs aren't read here yet", until stage 2), and Build at
-    home, which has no skill, by a structure among the sites added. "You're here" is the last of an unbroken run of met
+  - **Where you stand is by skills alone**, and Build at home, which has no skill, by a structure among the sites added.
+    (Stage 2 changed what Start *says*, never where you stand: the reads annotate it, see Stage 2 below.) "You're here" is the last of an unbroken run of met
     rungs from the first; one met past a gap says "Your skills cover it" without being where you stand.
   - **Counts** are the bundle's skill lists against the character's usable levels raised to the rung's: with no skills,
     766 of the 1,652 Tech I items built, 1,229 researched, 1,633 copied, 12 of the 29 capital hulls (build 3569502).
@@ -336,3 +336,22 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
     ready tile filters the running table (`useTileFilter`). Slots with jobs not read say "– of 5 in use"; the slot and Copies
     tiles say how many characters they count (`slotsRead`); an unpriced row says Build's reason (`MISSING_SAID`) and "N to
     train". The page case plants an Alpha alt and a figure of Builder Alt's to catch a row priced at the shown character's input.
+- **Start reads what's held and run** (Task 10B; correction 14: annotate, never move). "You're here" stays by skills, so a
+  character with the skills who never ran a job isn't moved down. The `here` sentence adds what the reads show ("You hold 3
+  originals and 1 copy, and ran 5 jobs in the last 90 days.") or why they aren't (`readsWhy`: one sentence where jobs and
+  blueprints are alike, else both; the same words `charRows` uses), and with skills unread it still says what's held. Each rung
+  adds `rungDone`: jobs of its activity in the last `RUNG_DONE_DAYS` (90, ESI's own span, so the figure doesn't grow with the
+  records kept; cancelled and reverted not counted), capitals told from rung 1's by the product's kind; research adds originals
+  researched, copying the copies held. More slots and Build at home have none: the slot tiles say "N in use (running, or
+  finished and not delivered)" instead (a finished job holds its slot until delivered: the forum reports in the plan's
+  correction 13, checked in game after shipping).
+- **The Tech II chance tile** writes levels in Roman numerals and each skill once (carried item 2 of stage 1): "Needs
+  Hydromagnetic Physics I, Nanite Engineering I and Amarr Encryption Methods I to invent; worked out at I", then only the
+  skills it isn't already naming, at their level. It read "Hydromagnetic Physics 1" and repeated the skills after "at I each".
+  The page check fails an Arabic level in the tile.
+- **The Blueprints page is on the document** (one reader: the sync's `readBlueprintsNow`). It shows the stored `blueprints`
+  doc with `meta.blueprintsAt` ("read 10 min ago") and reads only on its button, which reads the assets first when that
+  permission is held (their item IDs tell a container or ship from a structure: all are 13 digits) and passes them, or null
+  without; the page and the tab read the same doc. A place is `placeSaid`'s words capitalized, stations by ESI's names; the
+  first version said every container "A station". `blueprints?type=TYPE` (the Industry tab's "Price for selling") shows that
+  blueprint's kinds alone with a way back to all.

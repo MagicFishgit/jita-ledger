@@ -12,6 +12,7 @@ import { HIGH_SEC, jumpsFrom, type Graph } from '../../lib/jumps';
 import { setDestination } from '../../lib/market';
 import { oreBaseIds } from '../../lib/orePricing';
 import { yieldOf, type Materials } from '../../lib/reprocess';
+import { ROMAN } from '../../lib/skillStatus';
 import { dayCount, SPLIT_SAID } from '../../lib/split';
 import { toast } from '../../lib/toast';
 import { typeInfo } from '../../lib/universe';
@@ -27,6 +28,9 @@ import { NPC_REGIONS, regionSellers, type RegionSeller } from './industryMarket'
  * the morning scan, the regions the research found them in on asking), what starting costs, the shopping list with Copy
  * for Multibuy, and the steps. Everything is the finder's own figures for the row; nothing is guessed to fill a gap.
  */
+/** "A", "A and B", "A, B and C". */
+const andList = (xs: string[]): string => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+
 const SOURCE_SAID = { jita: 'Jita', home: 'home hub', mined: 'mined' } as const;
 
 export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: IndustryChar; ix: Indexed; graph: Graph; row: Row; finder: Finder; mainName: string }) {
@@ -170,7 +174,12 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
           <Tiles min={180} items={[
             {
               l: 'Chance', v: inv.chance != null ? pct(inv.chance, 1) : '–',
-              n: inv.chance == null ? `${c.isMain ? 'Your' : `${c.name}’s`} skills aren’t read, so the chance isn’t known` : `${inv.needs.length ? `Needs ${inv.needs.map(name).join(', ')} I to invent: at I each, ` : ''}${[...inv.sciences, ...(inv.encryption ? [inv.encryption] : [])].map((x) => `${name(x.id)} ${x.level}`).join(', ')} · ${inv.attempts != null ? inv.attempts.toFixed(2) : '–'} attempts a copy of ${units(inv.runsPerCopy)} run${inv.runsPerCopy === 1 ? '' : 's'}, at ME ${T2_ME} / TE ${T2_TE}`,
+              n: inv.chance == null ? `${c.isMain ? 'Your' : `${c.name}’s`} skills aren’t read, so the chance isn’t known` : [
+                inv.needs.length ? `Needs ${andList(inv.needs.map((id) => `${name(id)} I`))} to invent; worked out at I` : null,
+                // The skills it's worked out at, each once: the ones it needs are said above, at I.
+                [...inv.sciences, ...(inv.encryption ? [inv.encryption] : [])].filter((x) => !inv.needs.includes(x.id)).map((x) => `${name(x.id)} ${ROMAN[x.level]}`).join(', ') || null,
+                `${inv.attempts != null ? inv.attempts.toFixed(2) : '–'} attempts a copy of ${units(inv.runsPerCopy)} run${inv.runsPerCopy === 1 ? '' : 's'}, at ME ${T2_ME} / TE ${T2_TE}`,
+              ].filter(Boolean).join(' · '),
               tip: 'Invention’s chance: the base × (1 + both sciences’ levels ÷ 30 + the encryption skill’s ÷ 40) (EVE University).\n\n• Each attempt takes a run of a Tech I copy and its datacores, success or not.\n• Decryptors, which change the chance, runs, ME and TE, aren’t modelled.',
             },
             {

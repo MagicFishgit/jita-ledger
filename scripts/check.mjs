@@ -8235,5 +8235,29 @@ console.log('\n--- Industry stage 2: Blueprints & jobs (industryOwned.ts, Task 1
     ['a structure your login can’t see', 'a structure Fresh Alt’s login can’t see', 'a container, ship or structure (not named yet)']);
 }
 
+console.log('\n--- Industry stage 2: Start reads what\'s held and run (industryOwned.ts, Task 10B) ---');
+{
+  const O = await import('../src/lib/industryOwned.ts');
+  const T = await import('../src/lib/industryTrack.ts');
+  const I = await import('../src/lib/industry.ts');
+  const fsB = await import('node:fs');
+  const ix = I.indexBundle(JSON.parse(fsB.readFileSync(new URL('../src/data/industry.json', import.meta.url))));
+  const NOW6 = Date.parse('2026-10-11T12:00:00Z');
+  const job = (jobId, activity, status, start, over = {}) => ({ jobId, activity, blueprintId: 1, blueprintTypeId: 25895, productTypeId: 25894, runs: 1, licensedRuns: null, successfulRuns: null, probability: null,
+    cost: 1, facilityId: 1, stationId: 1, outputId: 1, start, end: start, completed: null, status, perRun: 1, seenAt: start, ...over });
+  const jobs = [job(1, 1, 'delivered', '2026-10-01T00:00:00Z'), job(2, 1, 'active', '2026-10-11T00:00:00Z'), job(3, 1, 'cancelled', '2026-10-05T00:00:00Z'), job(4, 1, 'delivered', '2026-06-01T00:00:00Z'),
+    job(5, 4, 'delivered', '2026-10-02T00:00:00Z'), job(6, 5, 'active', '2026-10-10T00:00:00Z'), job(7, 8, 'ready', '2026-10-09T00:00:00Z'), job(8, 1, 'active', '2026-10-10T00:00:00Z', { productTypeId: 23757 })];
+  const owned = T.ownedOf({ list: [[10, 25895, 1, 'Hangar', -1, -1, 10, 20], [11, 25895, 1, 'Hangar', -1, -1, 0, 0], [12, 25895, 1, 'Hangar', -2, 40, 10, 20]] });
+  const r = { jobs, blueprints: owned };
+  // Jobs 1 and 2 count; 3 was cancelled, 4 is from June, 8 built a capital (rung 7's).
+  eq('  rung 1: manufacturing jobs in the last 90 days (cancelled, older and capital ones not counted)', O.rungDone(ix, 'npc', r, NOW6), '2 manufacturing jobs in the last 90 days');
+  eq('  rung 2: research jobs and originals researched', O.rungDone(ix, 'research', r, NOW6), '1 research job in the last 90 days; 1 original researched');
+  eq('  rung 4: copy jobs and copies held; rung 6: invention jobs', [O.rungDone(ix, 'copy', r, NOW6), O.rungDone(ix, 't2', r, NOW6)], ['1 copy job in the last 90 days; 1 copy held', '1 invention job in the last 90 days']);
+  eq('  rung 7: a capital built (the Archon, 23757)', O.rungDone(ix, 'capital', r, NOW6), '1 capital in the last 90 days');
+  eq('  nothing read says nothing; More slots and Build at home have no reads of their own', [O.rungDone(ix, 'npc', { jobs: null, blueprints: null }, NOW6), O.rungDone(ix, 'slots', r, NOW6), O.rungDone(ix, 'home', r, NOW6)], [null, null, null]);
+  eq('  readsWhy: both alike, said once', [O.readsWhy({ isMain: true, name: 'You' }, { state: 'login' }, { state: 'login' }), O.readsWhy({ isMain: false, name: 'X' }, { state: 'unread' }, { state: 'unread' }), O.readsWhy({ isMain: true, name: 'You' }, { state: 'read', value: [], at: 1 }, { state: 'read', value: [], at: 1 })],
+    ['Log in again: this login wasn’t given EVE’s permission to read your industry jobs and blueprints.', 'Not read yet: X’s industry jobs and blueprints come with the cloud’s next hourly read.', null]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

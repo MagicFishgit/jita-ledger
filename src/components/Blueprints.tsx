@@ -1,22 +1,25 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ClipboardList, Copy, ExternalLink, FileSearch, ScrollText, Tags } from 'lucide-react';
 import { getAuth, hasScope } from '../lib/auth';
-import { comparables, kindKey, quoteBlueprint, readBlueprints, SCAM_SAID, unusedPrice, type BpKind, type BpQuote, type OwnedBlueprint, type RawBlueprint } from '../lib/blueprints';
+import { comparables, kindKey, quoteBlueprint, SCAM_SAID, unusedPrice, type BpKind, type BpQuote } from '../lib/blueprints';
 import type { BpContract } from '../lib/bpContracts';
 import { cloudBlueprintMarket, cloudEnabled } from '../lib/cloud';
 import { SCOPE } from '../lib/config';
-import { esi, esiAllPages } from '../lib/esi';
+import { esiAllPages } from '../lib/esi';
 import { ago, isk, iskBig, units } from '../lib/format';
-import { navigate, useAuth, useNow } from '../lib/hooks';
+import { readBlueprintsNow } from '../lib/industryReads';
+import { ownedOf } from '../lib/industryTrack';
+import { placeSaid } from '../lib/industryOwned';
+import { navigate, useAuth, useNow, useRoute } from '../lib/hooks';
 import { jitaOrders, openContractWindow, resolveNames } from '../lib/market';
 import { toast } from '../lib/toast';
-import { isStation, isStructure, structureInfo } from '../lib/universe';
+import { isStation } from '../lib/universe';
 import { copyPrice, plainPrice, useEnsureNames, useTypeName } from './common';
 import { Empty, Flag, Guide, ItemIcon, Notice, PageHead, Panel, SortTh, Th, Tiles, TileShowing, useTileFilter } from './ui';
 import { tileRows } from '../lib/tileFilter';
 import { Points } from './Facts';
 import { SkillStrip } from './SkillStrip';
-import { useData } from '../lib/store';
+import { getData, update, useData } from '../lib/store';
 import { contractsAllowed } from '../lib/skillStatus';
 
 type Row = {
@@ -44,7 +47,7 @@ export function Blueprints() {
   const auth = useAuth();
   const now = useNow(60_000);
   const name = useTypeName();
-  const [owned, setOwned] = useState<OwnedBlueprint[] | null>(null);
+  const owned = useMemo(() => (d.blueprints ? ownedOf(d.blueprints) : null), [d.blueprints]);
   const [places, setPlaces] = useState<Map<number, string>>(() => new Map());
   const [market, setMarket] = useState<{ at: string | null; since: string | null; current: BpContract[]; vanished: BpContract[] } | null>(null);
   const [books, setBooks] = useState<Map<number, { bid: number | null; ask: number | null }>>(() => new Map());
@@ -57,27 +60,35 @@ export function Blueprints() {
   const can = hasScope(SCOPE.blueprints);
   const cloud = cloudEnabled();
 
+  // Stations by ESI's names (public); containers, ships and structures by the doc's (read with the login that holds them).
+  const stationKey = [...new Set((owned ?? []).map((b) => b.locationId).filter(isStation))].sort((a, b) => a - b).join(',');
+  useEffect(() => {
+    if (!stationKey) return;
+    let alive = true;
+    resolveNames(stationKey.split(',').map(Number)).then((n) => { if (alive) setPlaces(new Map(Object.entries(n).map(([id, v]) => [Number(id), v]))); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [stationKey]);
+  // The page's column is the Industry tab's own words (placeSaid), first letter capitalized.
+  const placeOf = (id: number) => {
+    const t = placeSaid({ isMain: true, name: '' }, id, { names: d.blueprints?.names ?? {}, items: d.blueprints?.items ?? [] }, (sid) => places.get(sid) || 'A station');
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  };
+
+  // A fresh read into the `blueprints` doc (industryReads.ts, the sync's own reader), with its time: the Industry tab reads it too.
   const read = async () => {
     const a = getAuth();
     if (!a) return;
     setBusy('Reading your blueprints…');
     try {
-      const rows = readBlueprints(await esiAllPages<RawBlueprint>(`/characters/${a.characterId}/blueprints/`, { auth: true }));
-      // Where each sits: a station or structure by name, a container or ship by the name you gave it.
-      setBusy('Naming where they are…');
-      const ids = [...new Set(rows.map((b) => b.locationId))];
-      const out = new Map<number, string>();
-      const stations = ids.filter(isStation);
-      if (stations.length) Object.entries(await resolveNames(stations).catch(() => ({} as Record<number, string>))).forEach(([id, n]) => out.set(Number(id), n));
-      for (const id of ids.filter(isStructure)) { const s = await structureInfo(id); if (s.status === 'found') out.set(id, s.name); }
-      const items = ids.filter((id) => !isStation(id) && !isStructure(id));
-      for (let i = 0; i < items.length; i += 1000) {
-        try {
-          const { data } = await esi<{ item_id: number; name: string }[]>(`/characters/${a.characterId}/assets/names/`, { auth: true, method: 'POST', body: items.slice(i, i + 1000) });
-          for (const n of data) if (n.name && n.name !== 'None') out.set(n.item_id, n.name);
-        } catch { /* named as a container */ }
+      // The assets read tells a container or ship (an item of yours) from a structure; without the permission nothing is classified.
+      let itemIds: Set<number> | null = null;
+      if (hasScope(SCOPE.assets)) {
+        try { itemIds = new Set((await esiAllPages<{ item_id: number }>(`/characters/${a.characterId}/assets/`, { auth: true })).map((x) => x.item_id)); } catch { /* places named on a later read */ }
       }
-      setPlaces(out); setOwned(rows); setMarket(null); setBooks(new Map());
+      const doc = await readBlueprintsNow(a.characterId, getData().blueprints, { assets: hasScope(SCOPE.assets), structures: hasScope(SCOPE.structures) }, itemIds);
+      const at = new Date().toISOString();
+      update((x) => ({ blueprints: doc, meta: { ...x.meta, blueprintsAt: at } }));
+      setMarket(null); setBooks(new Map());
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'err');
     } finally { setBusy(null); }
@@ -112,7 +123,7 @@ export function Blueprints() {
     for (const b of owned) {
       const kind: BpKind = { typeId: b.typeId, copy: b.copy, me: b.me, te: b.te, runs: b.runs };
       const key = `${kindKey(kind)}|${b.unused ? 'u' : ''}`;
-      const where = places.get(b.locationId) ?? (isStation(b.locationId) || isStructure(b.locationId) ? 'A station' : 'A container');
+      const where = placeOf(b.locationId);
       const r = by.get(key) ?? { key, kind, unused: b.unused, count: 0, where: [], quote: market ? quoteBlueprint(kind, cur, gone) : null, market: b.unused ? books.get(b.typeId) ?? null : null };
       r.count += b.count;
       const w = r.where.find((x) => x.name === where);
@@ -120,12 +131,14 @@ export function Blueprints() {
       by.set(key, r);
     }
     return [...by.values()];
-  }, [owned, places, market, books]);
+  }, [owned, places, d.blueprints, market, books]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The price to sell at: an unused original's is capped by the market (unusedPrice), anything else's is the contracts'.
   const listAt = (r: Row): { price: number | null; where: 'market' | 'contract' | null } =>
     r.unused ? unusedPrice(r.quote, r.market?.ask ?? null) : { price: r.quote?.suggest ?? null, where: r.quote?.suggest != null ? 'contract' : null };
   const worth = (r: Row) => (listAt(r).price ?? 0) * r.count;
+  // Arriving from the Industry tab's "Price for selling" (`blueprints?type=TYPE`): that blueprint's kinds alone.
+  const onlyType = Number(useRoute().query.get('type')) || null;
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const s = sort.dir === 'asc' ? 1 : -1;
@@ -139,13 +152,13 @@ export function Blueprints() {
         default: return worth(r) || null;
       }
     };
-    return rows.filter((r) => !needle || name(r.kind.typeId).toLowerCase().includes(needle) || r.where.some((w) => w.name.toLowerCase().includes(needle)))
+    return rows.filter((r) => (onlyType == null || r.kind.typeId === onlyType) && (!needle || name(r.kind.typeId).toLowerCase().includes(needle) || r.where.some((w) => w.name.toLowerCase().includes(needle))))
       .sort((a, b) => {
         const x = v(a), y = v(b);
         if (x == null || y == null) return x == null && y == null ? 0 : x == null ? 1 : -1;
         return typeof x === 'string' ? s * x.localeCompare(y as string) : s * (x - (y as number));
       });
-  }, [rows, q, sort, name]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rows, q, sort, name, onlyType]); // eslint-disable-line react-hooks/exhaustive-deps
   const sortBy = (key: SortKey) => setSort((x) => (x.key === key ? { key, dir: x.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'item' ? 'asc' : 'desc' }));
 
   const priced = rows.filter((r) => listAt(r).price != null);
@@ -183,7 +196,7 @@ export function Blueprints() {
         : !can ? <Notice kind="warn">Reading your blueprints needs the blueprints permission. <button type="button" className="link-btn" onClick={() => navigate('settings/account')}>Settings → Account</button> lists it: log out and in again to grant it.</Notice>
         : null}
 
-      <Panel title="Your blueprints" sub={owned ? `${units(total)} blueprint${total === 1 ? '' : 's'} in ${units(rows.length)} kind${rows.length === 1 ? '' : 's'}${market?.at ? `, priced on contracts as of ${ago(market.at, now)}` : ''}` : 'Read them from EVE, then price them'}>
+      <Panel title="Your blueprints" sub={owned ? `${units(total)} blueprint${total === 1 ? '' : 's'} in ${units(rows.length)} kind${rows.length === 1 ? '' : 's'}${d.meta.blueprintsAt ? ` · read ${ago(d.meta.blueprintsAt, now)}` : ''}${market?.at ? `, priced on contracts as of ${ago(market.at, now)}` : ''}` : 'Read them from EVE, then price them'}>
         <div className="col" style={{ gap: 10 }}>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <button type="button" className="btn primary" disabled={!!busy || !auth || !can} onClick={() => void read()}><ScrollText aria-hidden="true" />{owned ? 'Read them again' : 'Read my blueprints'}</button>
@@ -213,6 +226,11 @@ export function Blueprints() {
                   what: (have) => `How many contracts you can have out at once: ${units(contractsAllowed(have))}${outstanding != null ? `, ${units(outstanding)} out now` : ''}, against ${units(priced.length)} kind${priced.length === 1 ? '' : 's'} worth listing.`,
                   next: (l) => `${units(contractsAllowed(l))} at once`,
                 }]} />
+              )}
+              {onlyType != null && (
+                <p className="note small" style={{ margin: 0 }} data-bp-only={onlyType}>
+                  Showing {name(onlyType)} alone, from the Industry tab. <button type="button" className="link-btn" onClick={() => navigate('blueprints')}>Show every blueprint</button>
+                </p>
               )}
               <section id="bp-table" className="panel flush" data-rv="" style={{ scrollMarginTop: 12 }}>
                 {market && tile && <div className="panel-bar"><TileShowing shown={tableRows.length} of={shown.length} what={TILE[tile].said} onClear={() => setTile(null)} /></div>}
