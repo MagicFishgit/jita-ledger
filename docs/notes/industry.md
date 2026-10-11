@@ -252,6 +252,16 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
     the row's `lacking`, so rung 6 and Can build now never call it buildable. `inventedFrom` takes the lowest blueprint ID where
     several Tech I blueprints invent one product (Capital Hull Repairer II: the Tech I, not the meta Capital IEF Compact). The
     detail says datacores held anywhere apart from what's held at the site, and a Tech II row unpriced says why on the count line.
+- **The first real reads after stage 1 shipped** (main b82b56e, deployed 10 October 2026 about 21:50 UTC; read from D1 with
+  SELECTs only):
+  - **Goonmetrics**: the first `37` round after the deploy (10 October, 22:37:50 UTC) read both hubs in one go, 2,916 types
+    each. UALX-3's 1st Byzantigoon: 1,808 with a sell price, 901 with a buy, 2,432 with a weekly movement, a 160 KB row;
+    C-J6MT: 2,230, 1,500 and 2,520, 166 KB. A read a minute into the round showed only UALX-3: both rows carry the round's
+    start as `at`, and the second hub's lands a minute or so later.
+  - **The morning scan with the watch set** (11 October, 11:25:40 to 11:27:33 UTC, 113 s): 398 pages, none failed; 15,344
+    items checked, 13,479 kept, **245 watch-only** (the watch set's types that weren't already candidates; the rest pass the
+    gate anyway); history 15,192 fetched, 5 failed. `industry_npc`: one complete row, **1,207 of the 1,673 Tech I
+    blueprints** with NPC sellers somewhere in The Forge, 190 KB.
 - **Final whole-branch review (10 October 2026): seven fixes.**
   - **A Goonmetrics round stopped by three failures in a row keeps what came and stamps the hub** (`refreshHomePrices`'s `save`).
     It used to return at once on the third failure, throwing away the hub's batches already read and leaving it unstamped. The
