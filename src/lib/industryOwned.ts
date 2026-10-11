@@ -9,6 +9,7 @@ import { eivOf, researchCost, researchTime, rigFor, slots, structureBonus, type 
 import { alphaCapOf, RUNGS, usable } from './industryLadder';
 import type { LabSite } from './industryRank';
 import { isStationId, slotsUsed, type JobRecord } from './industryTrack';
+import { lostSaid } from './pilot';
 import { spForLevel, trainingDays, type Attributes } from './training';
 
 /** Where a character's read stands: read (with when), not read yet, the main's login lacking the permission, an alt's handed over without it, or its login lost. */
@@ -70,8 +71,7 @@ function nextRung(ix: Indexed, c: CharIn): CharRow['next'] {
 /** Neither read yet, said once. */
 const both = (c: CharIn): string => (c.isMain ? 'Not read yet: your industry jobs and blueprints come with the next sync.' : `Not read yet: ${c.name}’s industry jobs and blueprints come with the cloud’s next hourly read.`);
 
-const lostLine = (c: CharIn): string | null => (c.isMain || !c.lost ? null : c.lost === 'refused'
-  ? `EVE refused ${c.name}’s login; hand it over again on the Characters page.` : `The cloud holds no login for ${c.name}; hand one over on the Characters page.`);
+const lostLine = (c: CharIn): string | null => lostSaid({ isMain: c.isMain, name: c.name, pilot: { lost: c.lost } });
 
 export function charRows(ix: Indexed, chars: readonly CharIn[], now: number): CharRow[] {
   return chars.map((c) => {
@@ -105,6 +105,8 @@ export type Fleet = {
   factory: { used: number; of: number } | null; science: { used: number; of: number } | null;
   ready: number | null; originals: number | null; copies: number | null;
   jobsRead: number; bpsRead: number; of: number;
+  /** Characters whose slots in use are known (skills and jobs both read). */
+  slotsRead: number;
 };
 export function fleetTotals(rows: readonly CharRow[]): Fleet {
   const sum = (xs: (number | null)[]) => { const k = xs.filter((x): x is number => x != null); return k.length ? k.reduce((a, b) => a + b, 0) : null; };
@@ -113,6 +115,7 @@ export function fleetTotals(rows: readonly CharRow[]): Fleet {
     factory: slot('factory'), science: slot('science'), ready: sum(rows.map((r) => r.ready)),
     originals: sum(rows.map((r) => r.originals)), copies: sum(rows.map((r) => r.copies)),
     jobsRead: rows.filter((r) => r.ready != null).length, bpsRead: rows.filter((r) => r.originals != null).length, of: rows.length,
+    slotsRead: rows.filter((r) => r.factory?.used != null).length,
   };
 }
 
@@ -181,4 +184,18 @@ export function placeSaid(c: { isMain: boolean; name: string }, id: number, doc:
   if (n) return n;
   if (doc.items.includes(id)) return n === '' ? `a container or ship ${c.isMain ? 'you haven’t' : `${c.name} hasn’t`} named` : 'a container or ship (not named yet)';
   return n === '' ? `a structure ${c.isMain ? 'your' : `${c.name}’s`} login can’t see` : 'a container, ship or structure (not named yet)';
+}
+
+/**
+ * A job's place. A job runs in a station or a structure, never in a container: a station by ESI's name; a structure by the
+ * blueprints document's name for it (`names`), else the one the main's sync named (`jobPlaces`, meta.industry.places), else
+ * "a structure in <system>" from where it was first seen (`first.systemId`), else "a structure (not named yet)".
+ */
+export function jobPlaceSaid(j: Pick<JobRecord, 'stationId' | 'first'>, o: { names: Readonly<Record<string, string>>; jobPlaces: Readonly<Record<string, string>>; station: (id: number) => string; system: (id: number) => string | null }): string {
+  if (isStationId(j.stationId)) return o.station(j.stationId);
+  const k = String(j.stationId);
+  const n = o.names[k] || o.jobPlaces[k];
+  if (n) return n;
+  const sys = j.first?.systemId != null ? o.system(j.first.systemId) : null;
+  return sys ? `a structure in ${sys}` : 'a structure (not named yet)';
 }

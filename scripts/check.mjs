@@ -8224,6 +8224,12 @@ console.log('\n--- Industry stage 2: Blueprints & jobs (industryOwned.ts, Task 1
   eq('    a container of the character\'s own (in items) with no name: a container or ship, never a structure',
     [O.placeSaid(main, CONT, doc({ [CONT]: '' }, [CONT]), stn), O.placeSaid(fresh, CONT, doc({ [CONT]: '' }, [CONT]), stn), O.placeSaid(main, CONT, doc({}, [CONT]), stn)],
     ['a container or ship you haven’t named', 'a container or ship Fresh Alt hasn’t named', 'a container or ship (not named yet)']);
+  const SJ = 1046664001931;
+  const jo = { names: { [SJ + 1]: 'Raitaru Home' }, jobPlaces: { [SJ + 2]: 'Synced Keepstar' }, station: stn, system: (id) => (id === 30000142 ? 'Jita' : null) };
+  eq('  jobPlaceSaid: a station by ESI; a structure by the doc, else the sync, else its system, else not named; never a container',
+    [O.jobPlaceSaid({ stationId: 60003760 }, jo), O.jobPlaceSaid({ stationId: SJ + 1 }, jo), O.jobPlaceSaid({ stationId: SJ + 2 }, jo), O.jobPlaceSaid({ stationId: SJ, first: { systemId: 30000142 } }, jo), O.jobPlaceSaid({ stationId: SJ }, jo)],
+    ['Jita IV - Moon 4 - Caldari Navy Assembly Plant', 'Raitaru Home', 'Synced Keepstar', 'a structure in Jita', 'a structure (not named yet)']);
+  eq('  fleet: slots are counted for the characters whose skills and jobs are both read', [fleet.slotsRead, O.fleetTotals([rows[0]]).slotsRead], [2, 1]);
   eq('    not an item of its own and refused: a structure its login can\'t see; unnamed and unclassified: any of the three',
     [O.placeSaid(main, STRUCT, doc({ [STRUCT]: '' }, []), stn), O.placeSaid(fresh, STRUCT, doc({ [STRUCT]: '' }, []), stn), O.placeSaid(main, STRUCT, doc({}, []), stn)],
     ['a structure your login can’t see', 'a structure Fresh Alt’s login can’t see', 'a container, ship or structure (not named yet)']);

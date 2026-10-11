@@ -2350,10 +2350,13 @@ try {
       const j = (jobId, activity, status, start, end, over = {}) => ({ jobId, activity, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 10, licensedRuns: 40, successfulRuns: null, probability: null,
         cost: 1234567, facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: iso(start), end: iso(end), completed: null, status, perRun: 1, seenAt: iso(start + 300_000), ...over });
       const mainJobs = { 9101: j(9101, 1, 'active', now - 7200_000, now + 5 * 3600_000), 9102: j(9102, 1, 'ready', now - 9 * 3600_000, now - 3600_000),
-        9103: j(9103, 1, 'delivered', now - 2 * 86400_000, now - 86400_000, { completed: iso(now - 86400_000 + 600_000), cost: 17213916 }) };
+        9103: j(9103, 1, 'delivered', now - 2 * 86400_000, now - 86400_000, { completed: iso(now - 86400_000 + 600_000), cost: 17213916 }),
+        // Two finished jobs in structures (13-digit facility IDs): one named by the main's sync, one only by where it was first seen.
+        9104: j(9104, 1, 'delivered', now - 3 * 86400_000, now - 2 * 86400_000, { facilityId: 1046664001931, stationId: 1046664001931, completed: iso(now - 2 * 86400_000 + 600_000), first: { me: 10, te: 20, systemId: 30000142, index: 0.1, eiv: 1e6, at: iso(now - 3 * 86400_000) } }),
+        9105: j(9105, 1, 'delivered', now - 4 * 86400_000, now - 3 * 86400_000, { facilityId: 1046664001932, stationId: 1046664001932, completed: iso(now - 3 * 86400_000 + 600_000) }) };
       // 7003 sits in a container of the main's own with a 13-digit item ID (1044519007308, like a structure's) it hasn't named.
       const CONT = 1044519007308;
-      const mainBps = { list: [[7001, 25895, 60003760, 'Hangar', -1, -1, 10, 20], [7002, 25895, 1030000001, 'Hangar', -2, 40, 10, 20], [7003, 25895, CONT, 'Hangar', -1, -1, 2, 4]], names: { 1030000001: 'Blueprints', [CONT]: '' }, items: [1030000001, CONT] };
+      const mainBps = { list: [[7001, 25895, 60003760, 'Hangar', -1, -1, 10, 20], [7002, 25895, 1030000001, 'Hangar', -2, 40, 10, 20], [7003, 25895, CONT, 'Hangar', -1, -1, 2, 4], [7004, 17716, 60003760, 'Hangar', -1, -1, 0, 0]], names: { 1030000001: 'Blueprints', [CONT]: '' }, items: [1030000001, CONT] };
       const builderJobs = { 9201: { ...j(9201, 5, 'active', now - 3600_000, now + 3600_000), blueprintId: 8001 } };
       // Logins handed over with the blueprints and jobs permissions (the plain entries' lack them, which reads "hand it over again").
       const IND_SCOPES = [...altStore.roster.list[0].scopes, 'esi-characters.read_blueprints.v1', 'esi-industry.read_character_jobs.v1'];
@@ -2364,8 +2367,11 @@ try {
         [`alt:${STALE}`]: { rev: 3, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: { 3380: 2 }, meta: { attributes: ATTRS, jobsRead: true }, blueprints: { list: [[8101, 25895, 60003760, 'Hangar', -1, -1, 0, 0]] } } },
       };
       await page.goto(SEED_PAGE);
-      await seed({ ...ledger, jobs: mainJobs, blueprints: mainBps, meta: { ...ledger.meta, blueprintsAt: iso(now - 600_000), jobsRead: true, industry: { at: iso(now - 600_000), jobs: [], places: {} } }, industry: DOC, cloud: CLOUD_STATE },
+      await seed({ ...ledger, jobs: mainJobs, blueprints: mainBps, meta: { ...ledger.meta, blueprintsAt: iso(now - 600_000), jobsRead: true, industry: { at: iso(now - 600_000), jobs: [], places: { 1046664001932: 'Raitaru Home' } } }, industry: DOC, cloud: CLOUD_STATE },
         { alts: altStore2, cache: { prospects: SCAN } });
+      // The bundle lacks the Gila Blueprint (17716): its name comes from ESI.
+      const namesBefore = ESI['/universe/names/'];
+      ESI['/universe/names/'] = (url, req, json) => json(JSON.parse(req.postData() ?? '[]').map((id) => (id === 17716 ? { id, name: 'Gila Blueprint', category: 'inventory_type' } : { id, name: `Station ${id}`, category: 'station' })));
       await page.goto(`${BASE}#hustles/industry/blueprints`);
       await page.waitForSelector('[data-industry="owned"]', { timeout: 30_000 }).catch(() => problems.push('Blueprints & jobs never drew'));
       await page.waitForTimeout(1500);
@@ -2381,10 +2387,23 @@ try {
       if (!bps.includes('Blueprints') || !bps.includes('Copy · 40 runs · ME 10 / TE 20')) problems.push(`the copy in the container named Blueprints isn’t listed: “${bps.slice(0, 300)}”`);
       // A container with a 13-digit ID (a structure's size) is a container: it's one of the character's own (the doc's items).
       if (!bps.includes('a container or ship you haven’t named') || /a structure/.test(bps)) problems.push(`a 13-digit container place doesn’t read as a container: “${bps.slice(0, 400)}”`);
+      if (!bps.includes('Gila Blueprint') || /Item #/.test(await text('[data-industry=\"owned\"]'))) problems.push('a blueprint the bundle lacks isn’t named from ESI (or an “Item #” shows)');
+      const doneText = await text('[data-industry="jobs-done"]');
+      if (!doneText.includes('a structure in Jita') || !doneText.includes('Raitaru Home') || /container, ship or structure/.test(doneText)) problems.push(`a job in a structure isn’t named as one: “${doneText.slice(0, 400)}”`);
+      if (!(await row(FRESH)).includes('– of 1 in use')) problems.push(`Fresh Alt’s slots, with its jobs not read, don’t say “– of 1 in use”: “${await row(FRESH)}”`);
+      // Each row is worked out at its own character's input, not the shown one's: Stale Alt is Alpha (the main Omega).
+      const bpRow = (who) => text(`[data-industry="bp-list"] tr:has-text("${who}")`);
+      if (!(await bpRow('Stale Alt')).includes('Alpha tax')) problems.push(`Stale Alt’s row isn’t worked out as an Alpha: “${await bpRow('Stale Alt')}”`);
+      if (!(await bpRow('Builder Alt')).includes('−5.33 M')) problems.push(`Builder Alt’s row isn’t worked out at its own skills and fees: “${await bpRow('Builder Alt')}”`);
+      // The Jobs ready tile filters the running table, and Show all brings the rest back.
+      await page.locator('[data-industry="owned-tiles"] .tile.press', { hasText: 'Jobs ready' }).click({ timeout: 4000 }).catch(() => problems.push('the Jobs ready tile can’t be pressed')); await page.waitForTimeout(400);
+      if ((await page.locator('[data-industry="jobs-running"] tbody tr').count()) !== 1 || !(await text('.tile-showing')).includes('Showing 1 of 3')) problems.push('pressing Jobs ready doesn’t keep only the waiting jobs');
+      await page.locator('.tile-showing button', { hasText: 'Show all' }).click({ timeout: 4000 }).catch(() => undefined); await page.waitForTimeout(400);
+      if ((await page.locator('[data-industry="jobs-running"] tbody tr').count()) !== 3) problems.push('Show all doesn’t bring the running jobs back');
       if (!bps.includes('ME 4 → 5:')) problems.push(`Builder Alt’s ME 4 original doesn’t give its next research step: “${bps.slice(0, 300)}”`);
       if (!(await text('[data-industry="jobs-running"]')).includes('Ready to deliver')) problems.push('the ready job doesn’t say so');
       if (!(await text('[data-industry="jobs-done"]')).includes('17.21 M')) problems.push('the finished job doesn’t say what EVE charged');
-      if ((await page.locator('[data-industry="bp-list"] [data-industry="price-for-selling"]').count()) !== 3) problems.push('the main’s three blueprint kinds don’t each link to the Blueprints page to price them');
+      if ((await page.locator('[data-industry="bp-list"] [data-industry="price-for-selling"]').count()) !== 4) problems.push('the main’s four blueprint kinds don’t each link to the Blueprints page to price them');
       // The filter: Builder Alt alone, and Show for follows.
       await page.locator('[data-industry="char-filter"] button', { hasText: 'Builder Alt' }).click(); await page.waitForTimeout(600);
       const tilesB = await tiles('[data-industry="owned-tiles"]');
@@ -2398,6 +2417,7 @@ try {
       const fit = await sideways(page, '[data-industry="bp-list"]');
       if (!PHONE && fit && fit.over > 0) problems.push(`the blueprints table scrolls sideways at 1,440 (${fit.over} px)`);
       if (SHOTS) { await page.locator('[data-industry="owned"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-industry-owned.png`, fullPage: true }); }
+      ESI['/universe/names/'] = namesBefore;
       // A ledger from before stage 2: meta.industry lists a running job, but no stage-2 read has happened (pre-flight M1).
       // Its jobs read as not read, never "0 of 5 in use" or "Nothing running". (The stand-in login holds no permission, so
       // "not read" is said as "log in again"; with the permission it would be "Not read yet: … the next sync".)
@@ -2408,7 +2428,7 @@ try {
       await page.goto(`${BASE}#hustles/industry/blueprints`);
       await page.waitForSelector('[data-industry="chars"]', { timeout: 30_000 }).catch(() => problems.push('Blueprints & jobs never drew on a stage-1 ledger'));
       const old = await row(ownerAuth().characterId);
-      if (!old.includes('Log in again: this login wasn’t given EVE’s permission to read your industry jobs.') || old.includes('0 of 5 in use') || old.includes('in use not read') === false) problems.push(`a stage-1 meta.industry reads as a jobs read: “${old}”`);
+      if (!old.includes('Log in again: this login wasn’t given EVE’s permission to read your industry jobs.') || old.includes('0 of 5 in use') || !old.includes('– of 5 in use')) problems.push(`a stage-1 meta.industry reads as a jobs read: “${old}”`);
     }
 
     // --- the end of the industry case

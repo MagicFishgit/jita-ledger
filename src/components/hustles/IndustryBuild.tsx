@@ -24,7 +24,7 @@ import { IndustrySites } from './IndustrySites';
 const OPEN_KEY = 'jita-ledger:industry-open';
 const SHOWN = 50;
 /** Why rows aren't priced, by how many: "1,650 have no Jita book this morning", "1 has nowhere it may be sold". */
-const MISSING_SAID: Record<NonNullable<Row['missing']>, (one: boolean) => string> = {
+export const MISSING_SAID: Record<NonNullable<Row['missing']>, (one: boolean) => string> = {
   noBook: (one) => `${one ? 'has' : 'have'} no Jita book this morning`,
   noIndex: () => 'can’t be costed: no index for the site',
   noAdjusted: () => 'can’t be costed: no adjusted price for a material',

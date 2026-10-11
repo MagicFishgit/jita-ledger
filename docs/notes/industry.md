@@ -330,3 +330,9 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
     holds a container at 1044519007308.
   - **Next research** is the level table's step at the lab (`nextResearch`): ME to 10, then TE to 20; a copy can't be
     researched; no Laboratory reached gives the time and no price.
+  - **Review fixes (11 October 2026).** A job's place is its own rule (`jobPlaceSaid`): a station by ESI, a structure by the blueprints
+    doc's name, else the main's sync's (`meta.industry.places`), else "a structure in <system>" from `first.systemId`; never a
+    container. Types the bundle lacks (1,346 published blueprints) are named by `useEnsureNames`, "…" while it looks. The Jobs
+    ready tile filters the running table (`useTileFilter`). Slots with jobs not read say "– of 5 in use"; the slot and Copies
+    tiles say how many characters they count (`slotsRead`); an unpriced row says Build's reason (`MISSING_SAID`) and "N to
+    train". The page case plants an Alpha alt and a figure of Builder Alt's to catch a row priced at the shown character's input.

@@ -53,6 +53,8 @@ export type IndustryChar = {
   places: Record<string, string>;
   /** Which of those places are its own containers or ships (the doc's `items`): asset IDs are 13 digits like structures', so the size can't say. */
   placeItems: number[];
+  /** Structures its waiting jobs sit in, named by its sync (`meta.industry.places`): the main's only; an alt's are none. */
+  jobPlaces: Record<string, string>;
 };
 export type IndustryAlts = { roster: RosterEntry[]; alts: Record<number, AltSaved> };
 
@@ -87,6 +89,7 @@ export function useIndustryChars(alts: IndustryAlts): IndustryChar[] {
       jobs: meta.jobsRead || Object.keys(jobs).length ? { state: 'read', value: Object.values(jobs), at: timeOf(meta.industry?.at) } : hasScope(SCOPE.industry) ? { state: 'unread' } : { state: 'login' },
       places: blueprints?.names ?? {},
       placeItems: blueprints?.items ?? [],
+      jobPlaces: meta.industry?.places ?? {},
     };
     const wanted = [...SCOPES, ...askedScopes()];
     const others = alts.roster.map((entry): IndustryChar => {
@@ -115,7 +118,7 @@ export function useIndustryChars(alts: IndustryAlts): IndustryChar[] {
         buys: Object.values(ledger.txs).filter((t) => t.isBuy),
         mines: minedLately(ledger.mining, entry.charId, hour),
         own: openInJita(ledger.orders),
-        blueprints: altBps, jobs: altJobs, places: bpd?.names ?? {}, placeItems: bpd?.items ?? [],
+        blueprints: altBps, jobs: altJobs, places: bpd?.names ?? {}, placeItems: bpd?.items ?? [], jobPlaces: {},
       };
     });
     return [main, ...others];

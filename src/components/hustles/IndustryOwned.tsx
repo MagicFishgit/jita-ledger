@@ -2,9 +2,9 @@ import { useMemo } from 'react';
 import { Factory, FlaskConical, ScrollText } from 'lucide-react';
 import { fmtShort, iskBig, iskBigSigned, units } from '../../lib/format';
 import { navigate, useNow } from '../../lib/hooks';
-import { nameOf, type Indexed } from '../../lib/industry';
+import { type Indexed } from '../../lib/industry';
 import { beforeSaid, finderSkills } from '../../lib/industryLadder';
-import { blueprintKinds, charInput, charRows, fleetTotals, nextResearch, placeSaid as placeName, readWhy, type CharIn } from '../../lib/industryOwned';
+import { blueprintKinds, charInput, charRows, fleetTotals, jobPlaceSaid, nextResearch, placeSaid as placeName, readWhy, type CharIn } from '../../lib/industryOwned';
 import { buildRow } from '../../lib/industryRank';
 import { ACTIVITY_SAID, isStationId, type JobRecord } from '../../lib/industryTrack';
 import type { Graph } from '../../lib/jumps';
@@ -12,7 +12,11 @@ import { lostSaid } from '../../lib/pilot';
 import { ROMAN, trainSaid } from '../../lib/skillStatus';
 import { jobWaiting } from '../../lib/todo';
 import { Points } from '../Facts';
-import { Seg, Th, Tiles } from '../ui';
+import { useEnsureNames } from '../common';
+import { useData } from '../../lib/store';
+import { tileRows } from '../../lib/tileFilter';
+import { Seg, Th, TileShowing, Tiles, useTileFilter } from '../ui';
+import { MISSING_SAID } from './IndustryBuild';
 import type { IndustryChar } from './industryChars';
 import { useFinder, useStationSaid } from './industryFinder';
 
@@ -49,6 +53,13 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
   const jobs = useMemo(() => picked.flatMap((c) => (c.jobs.state === 'read' ? c.jobs.value.map((j) => ({ c, j })) : [])), [picked]);
   const stationIds = useMemo(() => [...new Set([...kinds.flatMap((k) => k.where.map((w) => w[0])), ...jobs.map((x) => x.j.stationId)].filter(isStationId))], [kinds, jobs]);
   const station = useStationSaid(stationIds, ix, graph);
+  // Names for the types the bundle lacks (1,346 published blueprints aren't in it), as the Blueprints page asks for them.
+  const wantedTypes = useMemo(() => [...new Set([...kinds.map((k) => k.typeId), ...jobs.flatMap(({ j }) => [j.blueprintTypeId, j.productTypeId ?? j.blueprintTypeId])])].filter((id) => !ix.b.types[id]), [kinds, jobs, ix]);
+  const looking = useEnsureNames(wantedTypes);
+  const named = useData().names;
+  const nm = (id: number): string => ix.b.types[id]?.[0] ?? named[id] ?? (looking ? '…' : `Item #${id}`);
+  const systemName = (id: number): string | null => graph[id]?.[1] ?? null;
+  const jobPlace = (c: IndustryChar, j: JobRecord): string => jobPlaceSaid(j, { names: c.places, jobPlaces: c.jobPlaces, station, system: systemName });
   const whose = (c: IndustryChar) => (c.isMain ? 'your' : `${c.name}’s`);
   /** A place by its name: a station by ESI's, a container, ship or structure by the character's blueprints doc (industryOwned.ts placeSaid). */
   const placeSaid = (c: IndustryChar, id: number): string => placeName(c, id, { names: c.places, items: c.placeItems }, station);
@@ -56,11 +67,14 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
   const many = chars.length > 1;
   const all = filter === 'all';
 
+  const tile = useTileFilter<'ready'>('ind-jobs-running');
   const running = jobs.filter(({ j }) => j.status === 'active' || j.status === 'paused' || j.status === 'ready').sort((a, b) => Date.parse(a.j.end) - Date.parse(b.j.end));
+  const waitingRows = running.filter(({ j }) => jobWaiting(j, now));
+  const shownRunning = tileRows(running, tile.on, ({ j }) => jobWaiting(j, now));
   const done = jobs.filter(({ j }) => (j.status === 'delivered' || j.status === 'cancelled' || j.status === 'reverted') && now - Date.parse(j.completed ?? j.end) <= 30 * DAY)
     .sort((a, b) => Date.parse(b.j.completed ?? b.j.end) - Date.parse(a.j.completed ?? a.j.end));
-  const product = (j: JobRecord) => nameOf(ix, j.productTypeId ?? j.blueprintTypeId);
-  const slotSaid = (s: { used: number | null; of: number } | null) => (s ? (s.used != null ? `${units(s.used)} of ${units(s.of)} in use` : `${units(s.of)}, in use not read`) : '–');
+  const product = (j: JobRecord) => nm(j.productTypeId ?? j.blueprintTypeId);
+  const slotSaid = (s: { used: number | null; of: number } | null) => (s ? (s.used != null ? `${units(s.used)} of ${units(s.of)} in use` : `– of ${units(s.of)} in use`) : '–');
 
   return (
     <section className="col" style={{ gap: 14 }} aria-label="Blueprints & jobs" data-industry="owned">
@@ -69,7 +83,7 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
         <Points compact items={[
           { kind: 'info', icon: ScrollText, lead: 'Blueprints', text: 'as each character holds them, with what each builds at your build site.' },
           { kind: 'info', icon: Factory, lead: 'Slots in use', text: 'count jobs running and ones finished but not delivered: a finished job holds its slot until delivered.' },
-          { kind: 'info', icon: FlaskConical, lead: 'Read', text: 'yours with each sync and hourly by the cloud; an alt’s hourly by the cloud.' },
+          { kind: 'info', icon: FlaskConical, lead: 'Read', text: 'your blueprints with each sync; your jobs with each sync and hourly by the cloud; an alt’s both hourly by the cloud.' },
         ]} />
       </div>
       {many && (
@@ -100,7 +114,7 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
                 <tr key={r.charId} data-char={r.charId}>
                   <td className="l rd-main">
                     <span className="nm">{r.name}</span>
-                    {r.why && <span className="sub">{r.why}</span>}
+                    {r.why && (nothing ? <span className="rd-phone"><span>{r.why}</span></span> : <span className="sub">{r.why}</span>)}
                     {!nothing && <span className="rd-phone"><span>Factory: {slotSaid(r.factory)}</span><span>Science: {slotSaid(r.science)}</span><span>Ready: {r.ready ?? '–'} · Originals: {r.originals ?? '–'} · Copies: {r.copies ?? '–'}</span><span>{next}</span></span>}
                   </td>
                   {nothing ? <td className="l rd-wide note small" colSpan={6}>{r.why}</td> : (<>
@@ -116,7 +130,8 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
             })}
             {many && (
               <tr className="ind-total" data-char="all">
-                <td className="l rd-main"><span className="nm">All characters</span><span className="sub">{`Jobs read for ${fleetAll.jobsRead} of ${fleetAll.of}, blueprints for ${fleetAll.bpsRead} of ${fleetAll.of}`}</span></td>
+                <td className="l rd-main"><span className="nm">All characters</span><span className="sub">{`Jobs read for ${fleetAll.jobsRead} of ${fleetAll.of}, blueprints for ${fleetAll.bpsRead} of ${fleetAll.of}`}</span>
+                  <span className="rd-phone"><span>Factory: {slotSaid(fleetAll.factory)}</span><span>Science: {slotSaid(fleetAll.science)}</span><span>Ready: {fleetAll.ready ?? '–'} · Originals: {fleetAll.originals ?? '–'} · Copies: {fleetAll.copies ?? '–'}</span></span></td>
                 <td className="rd-wide">{fleetAll.factory ? `${units(fleetAll.factory.used)} of ${units(fleetAll.factory.of)} in use` : '–'}</td>
                 <td className="rd-wide">{fleetAll.science ? `${units(fleetAll.science.used)} of ${units(fleetAll.science.of)} in use` : '–'}</td>
                 <td className="rd-wide">{fleetAll.ready ?? '–'}</td>
@@ -132,10 +147,11 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
       <div data-industry="owned-tiles">
         <Tiles min={170} items={[
           { l: 'Originals', v: fleet.originals != null ? units(fleet.originals) : '–', n: fleet.bpsRead < fleet.of ? `${fleet.bpsRead} of ${fleet.of} read` : all && many ? 'every character' : undefined },
-          { l: 'Copies', v: fleet.copies != null ? units(fleet.copies) : '–' },
-          { l: 'Factory slots', v: fleet.factory ? `${units(fleet.factory.used)} / ${units(fleet.factory.of)}` : '–', n: 'in use of slots' },
-          { l: 'Science slots', v: fleet.science ? `${units(fleet.science.used)} / ${units(fleet.science.of)}` : '–', n: 'in use of slots' },
-          { l: 'Jobs ready', v: fleet.ready != null ? units(fleet.ready) : '–', n: fleet.jobsRead < fleet.of ? `${fleet.jobsRead} of ${fleet.of} read` : 'to deliver in the Industry window' },
+          { l: 'Copies', v: fleet.copies != null ? units(fleet.copies) : '–', n: fleet.bpsRead < fleet.of ? `${fleet.bpsRead} of ${fleet.of} read` : undefined },
+          { l: 'Factory slots', v: fleet.factory ? `${units(fleet.factory.used)} / ${units(fleet.factory.of)}` : '–', n: fleet.slotsRead < fleet.of ? `in use of slots; ${fleet.slotsRead} of ${fleet.of} read` : 'in use of slots' },
+          { l: 'Science slots', v: fleet.science ? `${units(fleet.science.used)} / ${units(fleet.science.of)}` : '–', n: fleet.slotsRead < fleet.of ? `in use of slots; ${fleet.slotsRead} of ${fleet.of} read` : 'in use of slots' },
+          { l: 'Jobs ready', v: fleet.ready != null ? units(fleet.ready) : '–', n: fleet.jobsRead < fleet.of ? `${fleet.jobsRead} of ${fleet.of} read` : 'to deliver in the Industry window',
+            press: tile.press('ready', waitingRows.length) },
         ]} />
       </div>
 
@@ -158,7 +174,7 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
                 const sk = finderSkills(c.pilot.skills, c.clone);
                 const inp = f.input ? charInput(f.input, { skills: sk, clone: c.clone, broker: c.broker, tax: c.tax, mines: c.mines }) : null;
                 const row = bp && bp[2] && inp ? buildRow({ ...inp, bp, me: k.me, te: k.te, copyRuns: k.copy ? k.runs : null, held: true }) : null;
-                const builds = !bp || !bp[2] ? 'builds nothing the finder knows' : !f.input ? '–' : !sk ? `–: ${whose(c)} skills aren’t read` : row?.day ? `${iskBigSigned(row.day.profit)}${beforeSaid([row], f.hub?.short).length ? `, before ${beforeSaid([row], f.hub?.short).join(' and ')}` : ''}` : '–: not priced at this site';
+                const builds = !bp || !bp[2] ? 'builds nothing the finder knows' : !f.input ? '–' : !sk ? `–: ${whose(c)} skills aren’t read` : row?.day ? `${iskBigSigned(row.day.profit)}${beforeSaid([row], f.hub?.short).length ? `, before ${beforeSaid([row], f.hub?.short).join(' and ')}` : ''}${row.lacking.length ? ` · ${row.lacking.length} to train` : ''}` : row?.missing ? `–: it ${MISSING_SAID[row.missing](true)}${row.lacking.length ? ` · ${row.lacking.length} to train` : ''}` : '–: not priced at this site';
                 const step = bp ? nextResearch({ ix, bp, me: k.me, te: k.te, copy: k.copy, skills: sk ?? {}, clone: c.clone, lab: f.lab?.site ?? null, adjusted: f.input?.adjusted ?? null }) : 'none';
                 const stepSaid = step === 'copy' ? 'a copy can’t be researched' : step === 'done' ? 'fully researched' : step === 'none' ? '–'
                   : `${step.what.toUpperCase()} ${step.from} → ${step.to}: ${trainSaid(step.seconds * 1000)}${step.cost != null ? ` and ${iskBig(step.cost)}` : ''} at ${f.lab?.at ?? 'an NPC station with a Laboratory'}${sk ? '' : ' (skills not read: at none)'}`;
@@ -167,7 +183,7 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
                 return (
                   <tr key={k.key} data-bp-kind={k.typeId}>
                     <td className="l rd-main">
-                      <span className="nm">{nameOf(ix, k.typeId)}</span>
+                      <span className="nm">{nm(k.typeId)}</span>
                       <span className="sub">{kind}{all && many ? ` · ${k.name}` : ''}</span>
                       {/* Each kind to the Blueprints page, which prices it (spec: "Price for selling"). That page reads your own
                           blueprints only, so an alt's kinds have no link: its tip says so. */}
@@ -188,25 +204,26 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
         </div>
       ) : (
         <p className="note small" style={{ margin: 0 }} data-industry="bp-none">
-          {picked.every((c) => c.blueprints.state === 'read') ? (all && many ? 'None of your characters holds a blueprint.' : `${shown.isMain ? 'You hold' : `${picked[0]?.name} holds`} no blueprints.`)
-            : picked.map((c) => readWhy(c, c.blueprints, 'blueprints') ?? '').filter(Boolean).join(' ')}
+          {picked.every((c) => c.blueprints.state === 'read') && all && many ? 'None of your characters holds a blueprint.'
+            : picked.map((c) => (c.blueprints.state === 'read' ? `${c.isMain ? 'You hold' : `${c.name} holds`} no blueprints.` : readWhy(c, c.blueprints, 'blueprints') ?? '')).filter(Boolean).join(' ')}
         </p>
       )}
 
       <span className="lbl">Jobs running and ready</span>
+      {tile.on && <TileShowing shown={shownRunning.length} of={running.length} what="Jobs ready" onClear={() => tile.setOn(null)} />}
       {running.length ? (
-        <div className="tbl-scroll" style={{ border: '1px solid var(--line-3)' }}>
+        <div id="ind-jobs-running" className="tbl-scroll" style={{ border: '1px solid var(--line-3)' }}>
           <table className="tbl compact rd-table ind-jobs" data-industry="jobs-running">
             <thead><tr><Th left>Job</Th><Th className="rd-wide">Runs</Th><Th left className="rd-wide">Where</Th><Th className="rd-wide">Time left</Th></tr></thead>
             <tbody>
-              {running.map(({ c, j }) => {
+              {shownRunning.map(({ c, j }) => {
                 const left = jobWaiting(j, now) ? 'Ready to deliver' : j.status === 'paused' ? 'Paused (the facility is offline)' : trainSaid(Date.parse(j.end) - now);
                 return (
                   <tr key={`${c.charId}:${j.jobId}`} data-job={j.jobId}>
                     <td className="l rd-main"><span className="nm">{ACTIVITY_SAID[j.activity] ?? 'Job'}: {product(j)}</span>{all && many && <span className="sub">{c.name}</span>}
-                      <span className="rd-phone"><span>{units(j.runs)} run{j.runs === 1 ? '' : 's'} · {placeSaid(c, j.stationId)}</span><span>{left}</span></span></td>
+                      <span className="rd-phone"><span>{units(j.runs)} run{j.runs === 1 ? '' : 's'} · {jobPlace(c, j)}</span><span>{left}</span></span></td>
                     <td className="rd-wide">{units(j.runs)}</td>
-                    <td className="l rd-wide">{placeSaid(c, j.stationId)}</td>
+                    <td className="l rd-wide">{jobPlace(c, j)}</td>
                     <td className="rd-wide">{left}</td>
                   </tr>
                 );
@@ -225,9 +242,9 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
               {done.map(({ c, j }) => (
                 <tr key={`${c.charId}:${j.jobId}`} data-job={j.jobId}>
                   <td className="l rd-main"><span className="nm">{ACTIVITY_SAID[j.activity] ?? 'Job'}: {product(j)}</span><span className="sub">{j.status === 'delivered' ? 'Delivered' : j.status === 'cancelled' ? 'Cancelled' : 'Reverted'}{all && many ? ` · ${c.name}` : ''}</span>
-                    <span className="rd-phone"><span>{units(j.runs)} run{j.runs === 1 ? '' : 's'} · {placeSaid(c, j.stationId)}</span><span>{fmtShort(j.completed ?? j.end)} · cost {j.cost != null ? iskBig(j.cost) : '–'}</span></span></td>
+                    <span className="rd-phone"><span>{units(j.runs)} run{j.runs === 1 ? '' : 's'} · {jobPlace(c, j)}</span><span>{fmtShort(j.completed ?? j.end)} · cost {j.cost != null ? iskBig(j.cost) : '–'}</span></span></td>
                   <td className="rd-wide">{units(j.runs)}</td>
-                  <td className="l rd-wide">{placeSaid(c, j.stationId)}</td>
+                  <td className="l rd-wide">{jobPlace(c, j)}</td>
                   <td className="rd-wide">{fmtShort(j.completed ?? j.end)}</td>
                   <td className="rd-wide" data-cost={j.jobId}>{j.cost != null ? iskBig(j.cost) : '–'}</td>
                 </tr>
