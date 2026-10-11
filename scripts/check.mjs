@@ -8896,6 +8896,27 @@ console.log('\n--- Industry stage 3: your copy contracts are merged, never repla
   eq('  the cap keeps the newest', K.mergeCopyContracts({ list: Array.from({ length: K.MAX_COPY_CONTRACTS + 5 }, (_, n) => cc(n + 1)) }, undefined).list[0].id, 6);
   const data = { copyContracts: local };
   eq('a pulled doc applied over a local one is the union, whether or not the local one waits to go up', applyPulled(data, { records: [], docs: [{ key: 'copyContracts', d: pulled }] }).copyContracts.list.map((c) => c.id), [100, 200, 300]);
+  // Fix round 2: `gone` is stamped only against ESI's own list and only for a contract older than its 30 days; a carried stamp isn't stripped.
+  {
+    const ME = 95210486;
+    const L = (id, over = {}) => ({ id, type: 'item_exchange', status: 'outstanding', issuer: ME, acceptor: 0, price: 9e6, availability: 'public', issued: '2026-09-25T00:00:00Z', expires: '2026-10-20T00:00:00Z', completed: null, start: 60003760, ...over });
+    const its = { 7: [{ typeId: 25895, qty: 2, included: true, raw: -2 }] };
+    const held = K.sanitizeCopyContracts({ list: [cc(7, { issued: '2026-09-25T00:00:00Z', expires: '2026-10-20T00:00:00Z', gone: '2026-10-05T00:00:00Z', kinds: [[25895, 10, 20, 40, 2]], copies: [[25895, 2]] })] });
+    const same = K.copyContractsOf(held, [L(7)], its, {}, ME, '2026-10-10T00:00:00Z');
+    eq('a listed contract carrying gone: a sync rebuilds the doc unchanged (nothing to push), and the merge agrees', [JSON.stringify(same), JSON.stringify(K.mergeCopyContracts(held, same))], [JSON.stringify(held), JSON.stringify(held)]);
+    const readAt = '2026-10-10T00:00:00Z';
+    const young = K.copyContractsOf({ list: [cc(8, { issued: '2026-09-30T00:00:00Z' })] }, [], {}, {}, ME, readAt);
+    const olderOne = K.copyContractsOf({ list: [cc(9, { issued: '2026-09-09T00:00:00Z' })] }, [], {}, {}, ME, readAt);
+    eq('a held contract missing from the list is stamped gone only when issued more than 30 days before the read (10 days: no, 31 days: yes)', [young.list[0].gone ?? null, olderOne.list[0].gone ?? null], [null, readAt]);
+    const stale = K.copyContractsOf({ list: [cc(7, { issued: '2026-08-01T00:00:00Z' })] }, [L(7, { issued: '2026-08-01T00:00:00Z' })], { 7: [{ typeId: 25895, qty: 2, included: true }] }, {}, ME, readAt);
+    eq('a listed contract whose items fail allCopies keeps its old record and is not stamped, however old', [stale.list[0].gone ?? null, stale.list[0].copies], [null, [[25895, 2]]]);
+    // The reviewer's flip: a device stamps a listed contract, the Worker merges, the other device syncs again: nothing changes after the first round.
+    const b = K.copyContractsOf(K.copyContractsOf(undefined, [L(7)], its, { 7: [[25895, 10, 20, 40, 2]] }, ME, readAt), [L(7)], { 7: [{ typeId: 25895, qty: 2, included: true }] }, {}, ME, '2026-10-10T01:00:00Z');
+    let d1 = K.mergeCopyContracts(K.copyContractsOf(undefined, [L(7)], its, { 7: [[25895, 10, 20, 40, 2]] }, ME, readAt), b);
+    const rounds = [];
+    for (let r = 1; r <= 3; r++) { const next = K.copyContractsOf(d1, [L(7)], its, {}, ME, `2026-10-10T0${r + 1}:00:00Z`); rounds.push([JSON.stringify(next) !== JSON.stringify(d1), JSON.stringify(K.mergeCopyContracts(d1, next)) !== JSON.stringify(next)]); d1 = K.mergeCopyContracts(d1, next); }
+    eq('the push loop: a listed contract never flips (no rewrite, no later revision) over three rounds, and is never stamped from stale items', [rounds, b.list[0].gone ?? null], [[[false, false], [false, false], [false, false]], null]);
+  }
   const now = Date.parse('2026-10-10T00:00:00Z');
   eq('copyState: left ESI\'s list while outstanding is unlisted, never expired; taken by your own character is not sold',
     [K.copyState({ status: 'outstanding', expires: '2026-10-01T00:00:00Z', gone: '2026-10-05T00:00:00Z' }, now), K.copyState({ status: 'finished', expires: 'x', acceptor: 5 }, now, new Set([5])), K.copyState({ status: 'finished', expires: 'x', acceptor: 6 }, now, new Set([5]))],

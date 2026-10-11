@@ -598,3 +598,11 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   "Taken by <name>", not Sold. **15B must not count a taken contract as copy income** (ISK between your own characters is a transfer, never income); use
   `copyState(c, now, ownIds(...))` and count only `'sold'`. The sync also keeps the items of every contract still in ESI's list, so the oldest listed exchanges aren't
   read again and pruned every sync.
+- **Fix round 2 of 15A: `gone` is stamped only against ESI's own list** (`copyContractsOf`; correction 13). The first version stamped a listed contract whenever
+  this device's items for it were unusable (read before `raw` was kept, not read, past the cap), and the merge ("gone if either, earliest") put the stamp back after
+  each sync stripped it: a push and a later revision every round, the row reading "No longer listed by ESI" while ESI listed it. Now the listed set is every item
+  exchange you issued in ESI's list, whatever its items (a listed one with unusable items keeps its old record and follows its status); a held contract missing from
+  the list is stamped only when issued **more than 30 days before the read** (ESI lists a character's contracts 30 days back, so a younger one missing is a partial or
+  stale read, or issued after the read, never one that left; if the window is measured from completion this only delays a stamp until the contract is missing
+  anyway); and a stamp already held is carried forward, so the sync and the merge agree and a sync writes nothing when nothing changed. The Worker keeps D1's doc when
+  a pushed one doesn't sanitize (a pre-15A backup's null).

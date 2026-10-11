@@ -2920,7 +2920,7 @@ try {
       await page.goto(`${BASE}#hustles/industry/copies`);
       await page.waitForSelector('[data-industry="copy-contracts"]', { timeout: 30_000 }).catch(async () => problems.push(`Your copy contracts never drew: “${(await text('[data-industry="copy-business"]')).slice(0, 400)}”`));
       const biz = await text('[data-industry="copy-business"]');
-      for (const want of ['2 × 40 runs', 'Listed until', 'others’ cheapest in The Forge 100,000 ISK (6 listed): you’re undercut', 'No longer listed by ESI', 'ESI lists contracts only 30 days back: if you didn’t delete it in game, its copies are still in it', 'Taken by', 'kinds not known: a private contract isn’t public', 'kinds not known: it left the public list before they were read'])
+      for (const want of ['2 × 40 runs', 'Listed until', 'others’ cheapest in The Forge 100,000 ISK (6 listed): you’re undercut', 'No longer listed by ESI', 'kinds not known: they weren’t read before ESI stopped listing it', 'ESI lists contracts only 30 days back: if you didn’t delete it in game, its copies are still in it', 'Taken by', 'kinds not known: a private contract isn’t public', 'kinds not known: it left the public list before they were read'])
         if (!biz.includes(want)) problems.push(`Your copy business doesn’t say “${want}”: “${biz.slice(0, 500)}”`);
       // The rows' own words, not the tiles' labels (M17): a date after each.
       const rowsText = await text('[data-industry="copy-contracts"]');

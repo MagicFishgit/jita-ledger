@@ -36,11 +36,21 @@ export const MAX_COPY_CONTRACTS = 3000;
 /** Items that make a copy contract: at least one, every one given (nothing asked) and a copy (raw_quantity −2). */
 export const allCopies = (items: readonly ContractItem[] | undefined): boolean => !!items?.length && items.every((i) => i.included && i.raw === -2);
 
+/** ESI lists a character's contracts this far back (correction 13). */
+const ESI_LIST_DAYS = 30;
+
 /**
  * The document after a read of your contracts (`list`, `items` as the sync keeps them): every item exchange you issued whose
  * items are all copies, with the read's status, price, acceptor and completion; the kinds read this sync (`kinds`) where none
- * were kept; `private` for a contract that isn't public and `gone` for one no longer outstanding, neither ever asked; one no
- * longer listed stamped `gone` once with the read's time, its last status kept. Never drops one; sorted by contract.
+ * were kept; `private` for a contract that isn't public and `gone` for one no longer outstanding, neither ever asked.
+ *
+ * `gone` is stamped (once, with the read's time, the last status kept) only against ESI's own list: a held contract that is no
+ * longer among the item exchanges you issued in `list`, whatever their items, AND was issued more than 30 days before the read.
+ * ESI lists a character's contracts 30 days back (correction 13), so a younger one missing from the list is a partial or stale
+ * read, or one issued after the read, never one that left; if ESI's window is measured from completion instead, this only delays
+ * a stamp until the contract is missing anyway. A listed contract whose items aren't usable this read (read before `raw` was kept,
+ * not read, past the 500 kept) keeps its old record and follows its status. A `gone` stamp already held is carried forward, never
+ * stripped, so this and `mergeCopyContracts` agree and a sync writes nothing when nothing changed. Never drops one; sorted by contract.
  */
 export function copyContractsOf(prev: CopyContractsDoc | undefined, list: readonly MyContract[], items: Readonly<Record<number, ContractItem[] | undefined>>,
   kinds: Readonly<Record<number, ContractKind[] | 'gone'>>, me: number, readAt: string): CopyContractsDoc {
@@ -49,22 +59,22 @@ export function copyContractsOf(prev: CopyContractsDoc | undefined, list: readon
   const listed = new Set<number>();
   for (const c of list) {
     if (c.type !== 'item_exchange' || c.issuer !== me) continue;
+    listed.add(c.id);
     const old = byId.get(c.id), its = items[c.id];
-    if (!its) {
-      // Listed, its items not read this sync (past the 500 kept, waiting their turn): one kept before stays, its state followed (M14).
-      if (old) { const keep: CopyContract = { ...old, status: c.status, price: c.price, acceptor: c.acceptor > 0 ? c.acceptor : null, completed: c.completed }; delete keep.gone; byId.set(c.id, keep); listed.add(c.id); }
+    if (!its || !allCopies(its)) {
+      // Listed, its items unusable this read: one kept before stays, its state followed (M14); its `gone`, if any, is carried.
+      if (old) byId.set(c.id, { ...old, status: c.status, price: c.price, acceptor: c.acceptor > 0 ? c.acceptor : null, completed: c.completed });
       continue;
     }
-    if (!allCopies(its)) continue;
-    listed.add(c.id);
     const copies = [...its.reduce((m, i) => m.set(i.typeId, (m.get(i.typeId) ?? 0) + i.qty), new Map<number, number>())].sort((a, b) => a[0] - b[0]) as [number, number][];
     const availability = c.availability ?? null;
     // Never asked: a private one, and one no longer outstanding or past its expiry (M8: a 404 there would be asked every sync).
     const k = old?.kinds ?? kinds[c.id] ?? (availability != null && availability !== 'public' ? 'private' : c.status !== 'outstanding' || Date.parse(c.expires) <= now ? 'gone' : undefined);
     byId.set(c.id, { id: c.id, issued: c.issued, expires: c.expires, status: c.status, price: c.price, availability, acceptor: c.acceptor > 0 ? c.acceptor : null,
-      completed: c.completed, station: c.start, copies, ...(k ? { kinds: k } : {}) });
+      completed: c.completed, station: c.start, copies, ...(k ? { kinds: k } : {}), ...(old?.gone ? { gone: old.gone } : {}) });
   }
-  for (const [id, c] of byId) if (!listed.has(id) && !c.gone) byId.set(id, { ...c, gone: readAt });
+  const oldest = now - ESI_LIST_DAYS * 86_400_000;
+  for (const [id, c] of byId) if (!listed.has(id) && !c.gone && Date.parse(c.issued) < oldest) byId.set(id, { ...c, gone: readAt });
   return { list: [...byId.values()].sort((a, b) => a.id - b.id).slice(-MAX_COPY_CONTRACTS) };
 }
 

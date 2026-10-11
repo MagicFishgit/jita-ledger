@@ -1340,6 +1340,11 @@ console.log('\n--- the copyContracts doc is merged onto D1\'s, never written ove
   const r2 = await push(db, MAIN, { records: [], docs: [{ key: 'copyContracts', d: stored() }] });
   const again = await pull(db, MAIN, r2.rev, null);
   eq('  a push whose doc is already the union writes no extra revision', [again.rev === r2.rev, again.docs.length], [true, 0]);
+  const r3 = await push(db, MAIN, { records: [], docs: [{ key: 'copyContracts', d: stored() }] });
+  eq('  a second push of the same doc writes no later revision', r3.rev, r2.rev + 1);
+  // A doc that doesn't sanitize (a pre-15A backup's null) never writes over the history D1 holds.
+  await push(db, MAIN, { records: [], docs: [{ key: 'copyContracts', d: null }] });
+  eq('  a pushed null keeps the history D1 holds', stored().list.map((c) => c.id), [100, 200, 300]);
 }
 
 console.log('\n--- Industry stage 2: jobs and blueprints in the cloud (Task 9B) ---');

@@ -231,7 +231,8 @@ function CopyBusiness({ c, ix, graph, summary }: { c: IndustryChar; ix: Indexed;
   const kindSaid = (x: CopyContract) => (Array.isArray(x.kinds) ? x.kinds.map((k) => `${k[4]}× ME ${k[1]} / TE ${k[2]}, ${k[3]} run${k[3] === 1 ? '' : 's'}`).join('; ')
     : x.kinds === 'private' ? 'kinds not known: a private contract isn’t public'
       : x.kinds === 'gone' ? 'kinds not known: it left the public list before they were read'
-        : 'kinds are read with the next sync');
+        : x.gone ? 'kinds not known: they weren’t read before ESI stopped listing it'
+          : 'kinds are read with the next sync');
   const askSaid = (x: CopyContract, st: CopyState) => {
     if (st !== 'listed' && st !== 'expired') return null;
     if (!Array.isArray(x.kinds) || x.kinds.length !== 1 || !summary) return null;

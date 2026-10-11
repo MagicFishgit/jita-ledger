@@ -73,12 +73,15 @@ export async function push(db: D1Database, charId: number, body: PushBody): Prom
     let json = JSON.stringify(doc.d ?? null), isLater = false;
     if (doc.key === 'copyContracts') {
       const pushed = sanitizeCopyContracts(doc.d);
+      const heldRaw = (await db.prepare('SELECT data FROM docs WHERE char_id = ?1 AND key = ?2').bind(charId, doc.key).first<{ data: string }>())?.data;
+      let held; try { held = heldRaw ? sanitizeCopyContracts(JSON.parse(heldRaw)) : undefined; } catch { held = undefined; }
       if (pushed) {
-        const heldRaw = (await db.prepare('SELECT data FROM docs WHERE char_id = ?1 AND key = ?2').bind(charId, doc.key).first<{ data: string }>())?.data;
-        let held; try { held = heldRaw ? sanitizeCopyContracts(JSON.parse(heldRaw)) : undefined; } catch { held = undefined; }
         const merged = JSON.stringify(mergeCopyContracts(held, pushed));
         isLater = merged !== JSON.stringify(pushed);
         json = merged;
+      } else if (held) {
+        // A doc that doesn't sanitize (a pre-15A backup's null) must not write over the history D1 holds: keep it, write nothing.
+        continue;
       }
     }
     (isLater ? laterDocs : docRows).push({ key: doc.key, json });
