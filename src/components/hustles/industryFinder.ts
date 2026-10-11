@@ -10,6 +10,7 @@ import { finderSkills } from '../../lib/industryLadder';
 import { JITA_SYSTEM, labFor, legFor, siteFacts, stationLabel, type SiteFacts } from '../../lib/industrySites';
 import { HIGH_SEC, jumpsFrom, type Graph } from '../../lib/jumps';
 import type { IndustrySite } from '../../lib/prefs';
+import type { OwnOrder } from '../../lib/researchTrack';
 import type { IndustryChar } from './industryChars';
 import { useAdjusted, useHomeHistory, useHomePrices, useIndices, useIndustryDoc, useLiveBooks, useNpcRow, useScanCache, useStationNames, type HomeState, type Loaded, type NpcState } from './industryMarket';
 
@@ -46,7 +47,12 @@ export type Finder = {
   hub: HomeHub | null; home: HomeState;
 };
 
-export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph): Finder {
+/**
+ * The finder's rows for the default site. `own`: whose open orders come off the books: the shown character's, or every
+ * character's on Blueprints & jobs, where a row is worked out for its own character.
+ */
+export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph, opts: { own?: OwnOrder[] } = {}): Finder {
+  const own = opts.own ?? c.own;
   const [doc] = useIndustryDoc();
   const site = doc.sites.find((s) => s.id === doc.site) ?? doc.sites[0] ?? null;
   const indices = useIndices(), adjusted = useAdjusted(), scan = useScanCache(), npc = useNpcRow();
@@ -68,7 +74,7 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph): Finder {
     const market = (t: number): Market => {
       const b = cache.books[t];
       if (!flows.has(t)) flows.set(t, watchedFlow(t));
-      return { jita: b ? othersBook(b, c.own, t, false) : null, stats: cache.stats[t] ?? null, watched: flows.get(t) ?? null, home: prices ? homeQuote(prices[t]) : null, homeRead: !!prices };
+      return { jita: b ? othersBook(b, own, t, false) : null, stats: cache.stats[t] ?? null, watched: flows.get(t) ?? null, home: prices ? homeQuote(prices[t]) : null, homeRead: !!prices };
     };
     return {
       ix, me: doc.assume.me, te: doc.assume.te, skills, clone: c.clone,
@@ -96,10 +102,10 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph): Finder {
     if (!input || !(live || homeLive)) return input;
     const market = (t: number): Market => {
       const m = input.market(t), b = liveBooks[t];
-      return { ...m, ...(b ? { jita: othersBook(b, c.own, t, true) } : {}), ...(homeHist[t] ? { homeHist: homeHist[t] } : {}) };
+      return { ...m, ...(b ? { jita: othersBook(b, own, t, true) } : {}), ...(homeHist[t] ? { homeHist: homeHist[t] } : {}) };
     };
     return { ...input, market };
-  }, [input, live, homeLive, liveBooks, homeHist, c.own]);
+  }, [input, live, homeLive, liveBooks, homeHist, own]);
   const rows = useMemo(() => (liveInput && (live || homeLive) ? rankBuilds(liveInput, bps) : first), [liveInput, live, homeLive, first, bps]);
 
   const npcRows = npc.status === 'ok' ? npc.rows : null;

@@ -244,6 +244,8 @@ export type RowSite = { kind: SiteKind; rigs: readonly number[]; band: SecBand; 
 export type RowInput = {
   ix: Indexed; bp: BundleBp;
   me: number; te: number; copyRuns?: number | null;
+  /** The character holds this blueprint (an invented copy included): built at its own ME, TE and runs, never invented again. */
+  held?: boolean;
   skills: Record<number, number>; clone: Clone;
   site: RowSite;
   adjusted: Record<number, number> | null;
@@ -324,7 +326,7 @@ export function buildRow(o: RowInput): Row {
   const t = ix.b.types[prod.type];
   const ship = t?.[2] === 6;
   // Tech II: built from an invented copy, at ME 2 / TE 4, a job no longer than the copy's runs.
-  const from = ix.inventedFrom.get(bp[0]);
+  const from = o.held ? undefined : ix.inventedFrom.get(bp[0]);
   const t1 = from != null ? ix.bp.get(from) : undefined;
   const t1Inv = t1 && t1[6] ? (t1[6] as BpActivity) : null;
   const invented = t1Inv ? t1Inv[3].find((p) => p[0] === bp[0]) ?? null : null;

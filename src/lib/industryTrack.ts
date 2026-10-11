@@ -277,3 +277,22 @@ export function placesToName(doc: BlueprintsDoc, itemIds: ReadonlySet<number> | 
 /** The doc's places that are containers or ships: the ones already found, and those among this read's item IDs. */
 export const itemPlaces = (doc: BlueprintsDoc, itemIds: ReadonlySet<number> | null | undefined): number[] =>
   [...new Set(doc.list.map((r) => r[2]))].filter((id) => (doc.items ?? []).includes(id) || !!itemIds?.has(id)).sort((a, b) => a - b);
+
+// --- Slots -----------------------------------------------------------------------------------------------------------
+
+/**
+ * Slots in use, from a character's jobs: running (active or paused, not past its end) and finished but not delivered
+ * (ready, or active past its end): a finished job holds its slot until it's delivered (forum reports; EVE University's
+ * "Industry" page doesn't say; checked in game after shipping, limits.md).
+ * Manufacturing takes a factory slot, research, copying, invention and reverse engineering a science slot; reactions have
+ * slots of their own, not modelled.
+ */
+export function slotsUsed(jobs: readonly JobRecord[], now: number): { factory: number; science: number; running: number; ready: number } {
+  let factory = 0, science = 0, running = 0, ready = 0;
+  for (const j of jobs) {
+    if (j.status !== 'active' && j.status !== 'paused' && j.status !== 'ready') continue;
+    if (j.activity === 1) factory++; else if (SCIENCE_ACTIVITIES.has(j.activity)) science++; else continue;
+    if (j.status === 'ready' || (j.status === 'active' && Date.parse(j.end) <= now)) ready++; else running++;
+  }
+  return { factory, science, running, ready };
+}

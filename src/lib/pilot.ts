@@ -100,3 +100,14 @@ export const unreadNote = (p: Pick<Pilot, 'name' | 'lost'>): string => (
   p.lost === 'refused' ? `Not read: EVE refused ${p.name}’s login; hand it over again on the Characters page`
     : p.lost === 'none' ? `Not read: the cloud holds no login for ${p.name}; hand one over on the Characters page`
       : `Not read yet: ${p.name}’s skills come with the cloud’s first read`);
+
+/**
+ * An alt whose cloud login EVE refused, or for which the cloud holds none, as a sentence; null for the main and for an alt
+ * whose login works. What was read before stays shown wherever it's shown, so this says it's only as of the last read and
+ * won't be read again until the login is handed over (the review of 3 October 2026, research.md; Industry since stage 2).
+ */
+export function lostSaid(c: { isMain: boolean; name: string; pilot: Pick<Pilot, 'lost'> }): string | null {
+  if (c.isMain || !c.pilot.lost) return null;
+  return c.pilot.lost === 'refused' ? `EVE refused ${c.name}’s login; hand it over again on the Characters page.`
+    : `The cloud holds no login for ${c.name}; hand one over on the Characters page.`;
+}

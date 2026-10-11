@@ -8151,5 +8151,83 @@ console.log('\n--- Industry stage 2: an alt\'s copy carries its jobs and bluepri
   eq('  none read: no jobs, blueprints not read', [altLedger({ rev: 0, records: {}, docs: {} }).jobs, altLedger({ rev: 0, records: {}, docs: {} }).blueprints], [{}, undefined]);
 }
 
+console.log('\n--- Industry stage 2: Blueprints & jobs (industryOwned.ts, Task 10A) ---');
+{
+  const O = await import('../src/lib/industryOwned.ts');
+  const T = await import('../src/lib/industryTrack.ts');
+  const K = await import('../src/lib/industryRank.ts');
+  const I = await import('../src/lib/industry.ts');
+  const { lostSaid } = await import('../src/lib/pilot.ts');
+  const fsO = await import('node:fs');
+  const ix = I.indexBundle(JSON.parse(fsO.readFileSync(new URL('../src/data/industry.json', import.meta.url))));
+  const NOW5 = Date.parse('2026-10-11T12:00:00Z');
+  const job = (jobId, activity, status, end, over = {}) => ({ jobId, activity, blueprintId: 1, blueprintTypeId: 25895, productTypeId: 25894, runs: 10, licensedRuns: null, successfulRuns: null, probability: null,
+    cost: 1e6, facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: '2026-10-11T00:00:00Z', end, completed: null, status, perRun: 1, seenAt: '2026-10-11T00:05:00Z', ...over });
+  const jobs = [job(1, 1, 'active', '2026-10-11T20:00:00Z'), job(2, 1, 'ready', '2026-10-11T08:00:00Z'), job(3, 1, 'active', '2026-10-11T11:00:00Z'), job(4, 5, 'active', '2026-10-12T00:00:00Z'), job(5, 1, 'delivered', '2026-10-10T00:00:00Z'), job(6, 9, 'active', '2026-10-12T00:00:00Z')];
+  eq('  slots in use: running and finished-not-delivered, by kind; delivered and reactions take none', T.slotsUsed(jobs, NOW5), { factory: 3, science: 1, running: 2, ready: 2 });
+
+  const read = (value, at = NOW5) => ({ state: 'read', value, at });
+  const owned = T.ownedOf({ list: [[10, 25895, 60003760, 'Hangar', -1, -1, 10, 20], [11, 25895, 1030000001, 'Hangar', -2, 40, 10, 20], [12, 804, 60003760, 'Hangar', 3, -1, 0, 0]] });
+  const main = { charId: 1, name: 'You', isMain: true, clone: 'omega', skills: { 3380: 1, 3387: 4, 3406: 3 }, sp: {}, attrs: { intelligence: 24, memory: 24, perception: 20, willpower: 20, charisma: 23 }, jobs: read(jobs), blueprints: read(owned) };
+  const fresh = { charId: 2, name: 'Fresh Alt', isMain: false, clone: 'unknown', skills: { 3380: 1 }, sp: {}, attrs: undefined, jobs: { state: 'unread' }, blueprints: { state: 'unread' } };
+  const lost = { charId: 3, name: 'Lost Alt', isMain: false, clone: 'unknown', skills: undefined, sp: undefined, attrs: undefined, jobs: { state: 'lost', why: 'refused' }, blueprints: { state: 'lost', why: 'refused' }, lost: 'refused' };
+  const stale = { charId: 4, name: 'Stale Alt', isMain: false, clone: 'alpha', skills: { 3380: 2, 3387: 1 }, sp: {}, attrs: main.attrs, jobs: read([]), blueprints: read(owned.slice(0, 1)), lost: 'refused' };
+  const rows = O.charRows(ix, [main, fresh, lost, stale], NOW5);
+  eq('  the main: 5 factory slots (Mass Production IV), 3 in use; 4 science, 1; 2 ready; 4 originals (a stack of 3 unused), 1 copy',
+    [rows[0].factory, rows[0].science, rows[0].ready, rows[0].originals, rows[0].copies], [{ used: 3, of: 5 }, { used: 1, of: 4 }, 2, 4, 1]);
+  eq('    its next rung: Research ME first, what it lacks, and the training time at its attributes',
+    [rows[0].next?.title, rows[0].next?.lacking.map((x) => [x.id, x.level, x.omega]), rows[0].next?.days > 0], ['Research ME first', [[3409, 1, false], [3403, 1, false]], true]);
+  eq('  an alt not read: no counts at all, never zeros, and why', [rows[1].factory?.used ?? null, rows[1].ready, rows[1].originals, rows[1].copies, rows[1].why],
+    [null, null, null, null, 'Not read yet: Fresh Alt’s industry jobs and blueprints come with the cloud’s next hourly read.']);
+  eq('  an alt refused with nothing read: why, and nothing counted', [rows[2].factory, rows[2].originals, rows[2].why], [null, null, 'Not read: EVE refused Lost Alt’s login; hand it over again on the Characters page.']);
+  eq('  an alt refused after a read: what was read, and that it\'s as of the cloud\'s last read', [rows[3].originals, rows[3].ready, rows[3].why],
+    [1, 0, 'As the cloud last read it. EVE refused Stale Alt’s login; hand it over again on the Characters page.']);
+  eq('    an Alpha alt\'s next rung says what needs Omega', rows[3].next?.lacking.find((x) => x.id === 3409)?.omega, true);
+  const fleet = O.fleetTotals(rows);
+  eq('  the fleet\'s totals count only the characters read, and say how many', [fleet.originals, fleet.copies, fleet.ready, fleet.jobsRead, fleet.bpsRead, fleet.of], [5, 1, 2, 2, 2, 4]);
+  eq('  lostSaid, one sentence for any character with a refused login', [lostSaid({ isMain: false, name: 'X', pilot: { lost: 'none' } }), lostSaid({ isMain: true, name: 'You', pilot: {} })],
+    ['The cloud holds no login for X; hand one over on the Characters page.', null]);
+  eq('  readWhy: the main\'s login without the permission, an alt\'s handed over without it',
+    [O.readWhy({ isMain: true, name: 'You' }, { state: 'login' }, 'jobs'), O.readWhy({ isMain: false, name: 'X' }, { state: 'handOver' }, 'blueprints')],
+    ['Log in again: this login wasn’t given EVE’s permission to read your industry jobs.', 'Hand the cloud X’s login again: it was handed over without the permission to read blueprints.']);
+
+  const kinds = O.blueprintKinds([{ charId: 1, name: 'You', owned }, { charId: 4, name: 'Stale Alt', owned: owned.slice(0, 1) }]);
+  eq('  one row a kind and character: the stack of 3 unused counted 3, each where it sits', kinds.map((k) => [k.charId, k.typeId, k.copy, k.unused, k.me, k.te, k.runs, k.count, k.where]),
+    [[1, 804, false, true, 0, 0, null, 3, [[60003760, 3]]], [1, 25895, false, false, 10, 20, null, 1, [[60003760, 1]]], [1, 25895, true, false, 10, 20, 40, 1, [[1030000001, 1]]], [4, 25895, false, false, 10, 20, null, 1, [[60003760, 1]]]]);
+
+  const bp = ix.bp.get(25895);
+  const lab = { kind: 'npc', rigs: [], band: 'high', tax: 0.0025, index: { manufacturing: 0.05, copying: 0.05, invention: 0.05, researchMaterial: 0.05, researchTime: 0.05 } };
+  const adjusted = JSON.parse(fsO.readFileSync(new URL('./fixtures/industry-everef.json', import.meta.url), 'utf8')).adjusted;
+  const step = O.nextResearch({ ix, bp, me: 4, te: 0, copy: false, skills: { 3409: 0, 3403: 0 }, clone: 'omega', lab, adjusted });
+  eq('  an original\'s next research step: ME 4 → 5 at the level table, priced at the lab', [step.what, step.from, step.to, Math.round(step.seconds), step.cost != null],
+    ['me', 4, 5, Math.round(1575 * (3360 - 1414) / 105), true]);
+  eq('    at ME 10, TE next (a level is 2%); fully researched, none; a copy can\'t be', [O.nextResearch({ ix, bp, me: 10, te: 6, copy: false, skills: {}, clone: 'omega', lab, adjusted }).what,
+    O.nextResearch({ ix, bp, me: 10, te: 20, copy: false, skills: {}, clone: 'omega', lab, adjusted }), O.nextResearch({ ix, bp, me: 10, te: 20, copy: true, skills: {}, clone: 'omega', lab, adjusted })], ['te', 'done', 'copy']);
+  eq('    no Laboratory reached: the time at no bonus, no price', O.nextResearch({ ix, bp, me: 0, te: 0, copy: false, skills: {}, clone: 'omega', lab: null, adjusted }).cost, null);
+
+  // Under All, a blueprint row is worked out at its own character's skills, clone, Jita fees and mining, never the shown one's.
+  const shownIn = { skills: { 3380: 5 }, clone: 'omega', fees: { broker: 0.02, tax: 0.04, hubBroker: 0.01 }, mines: false, share: 10 };
+  eq('  a row\'s inputs at its own character', O.charInput(shownIn, { skills: { 3380: 1 }, clone: 'alpha', broker: 0.0198, tax: 0.0336, mines: true }),
+    { skills: { 3380: 1 }, clone: 'alpha', fees: { broker: 0.0198, tax: 0.0336, hubBroker: 0.01 }, mines: true, share: 10 });
+  eq('    its skills not read: no row (never worked out at level 0)', O.charInput(shownIn, { skills: undefined, clone: 'omega', broker: 0.02, tax: 0.04, mines: false }), null);
+
+  // A Tech II copy you hold is built as it is: buildRow costs invention only for one you'd invent.
+  const t2 = ix.bp.get(26303);
+  const base = { ix, me: 2, te: 4, copyRuns: 1, skills: { 3380: 4 }, clone: 'omega', site: { kind: 'npc', rigs: [], band: 'high', tax: 0.0025, index: lab.index }, adjusted, market: () => ({ jita: null, stats: null, watched: null, home: null, homeRead: false }),
+    sell: 'jita', share: 10, fees: { broker: 0.02, tax: 0.04, hubBroker: null }, legs: { jita: { kind: 'here' }, home: null }, noShipsToJita: true, jitaJumps: 0, mines: false, hubName: null, now: NOW5, lab };
+  eq('  buildRow: a held Tech II copy isn\'t invented again', [K.buildRow({ ...base, bp: t2 }).invention != null, K.buildRow({ ...base, bp: t2, held: true }).invention], [true, null]);
+  const doc = (names, items) => ({ names, items });
+  const stn = () => 'Jita IV - Moon 4 - Caldari Navy Assembly Plant';
+  const CONT = 1044519007308, STRUCT = 1030000001234;
+  eq('  placeSaid: a station by ESI\'s name; a name in the doc as it is, even at a 13-digit ID',
+    [O.placeSaid(main, 60003760, doc({}, []), stn), O.placeSaid(main, CONT, doc({ [CONT]: 'Blueprints' }, [CONT]), stn)], ['Jita IV - Moon 4 - Caldari Navy Assembly Plant', 'Blueprints']);
+  eq('    a container of the character\'s own (in items) with no name: a container or ship, never a structure',
+    [O.placeSaid(main, CONT, doc({ [CONT]: '' }, [CONT]), stn), O.placeSaid(fresh, CONT, doc({ [CONT]: '' }, [CONT]), stn), O.placeSaid(main, CONT, doc({}, [CONT]), stn)],
+    ['a container or ship you haven’t named', 'a container or ship Fresh Alt hasn’t named', 'a container or ship (not named yet)']);
+  eq('    not an item of its own and refused: a structure its login can\'t see; unnamed and unclassified: any of the three',
+    [O.placeSaid(main, STRUCT, doc({ [STRUCT]: '' }, []), stn), O.placeSaid(fresh, STRUCT, doc({ [STRUCT]: '' }, []), stn), O.placeSaid(main, STRUCT, doc({}, []), stn)],
+    ['a structure your login can’t see', 'a structure Fresh Alt’s login can’t see', 'a container, ship or structure (not named yet)']);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

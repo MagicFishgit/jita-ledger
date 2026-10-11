@@ -238,3 +238,7 @@ State these rather than letting them be discovered:
 - **A Tech II row is one job a day**, as every row is (a job is a day of runs): a one-run copy builds one hull a day though a
   factory slot could take two or three if jobs were installed more often, so Tech II rows read below what a factory slot
   and a lab slot can make then. The detail says so where it binds ("One job a day").
+- **Slots in use count finished jobs not yet delivered**: players report a finished job holds its slot until it's delivered
+  (EVE University's "Industry" page doesn't say); if the game frees it sooner, in use reads high by the ready jobs until they're
+  delivered. **An alt's blueprints and jobs are as of the cloud's last hourly read**, and where a blueprint sits is named once per
+  place (renaming a container in game shows on the next new place only).

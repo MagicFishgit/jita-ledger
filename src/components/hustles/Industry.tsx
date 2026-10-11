@@ -8,24 +8,28 @@ import { Seg } from '../ui';
 import { loadGraph, loadIndustry } from './industryBundle';
 import { useIndustryChars } from './industryChars';
 import { IndustryBuild } from './IndustryBuild';
+import { IndustryOwned } from './IndustryOwned';
 import { IndustryStart } from './IndustryStart';
 
 /**
  * Industry: what to build, where, and what it pays (docs/notes/industry.md; spec
  * docs/superpowers/specs/2026-10-10-industry-design.md). Its sections sit in the address (hustles/industry/<section>)
- * and the last one picked is kept per browser: Start (where you stand and the ladder) and, from Task 4B, Build (where you
- * build and the finder); stages 2 to 4 add Blueprints & jobs, Copies and Home markets. "Show for" picks whose skills,
+ * and the last one picked is kept per browser: Start (where you stand and the ladder), Build (where you
+ * build and the finder) and Blueprints & jobs; stages 3 and 4 add Copies and Home markets. "Show for" picks whose skills,
  * clone, fees, held stock and mining every figure uses: the main, or an alt from its pulled copy, read and never written.
  * The one file of the tab that imports the alt store (scripts/check.mjs keeps the list).
  */
 const SECTION_KEY = 'jita-ledger:industry-section';
 const SHOW_KEY = 'jita-ledger:industry-show';
+const CHAR_KEY = 'jita-ledger:industry-char';
 const readKept = (k: string): string | null => { try { return localStorage.getItem(k); } catch { return null; } };
 const keep = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* just not kept */ } };
+const forget = (k: string) => { try { localStorage.removeItem(k); } catch { /* just not kept */ } };
 
 export const SECTIONS = [
   { key: 'start', label: 'Start', tip: 'Where you stand, and the steps from a first job to capitals' },
   { key: 'build', label: 'Build', tip: 'What pays at your build site, and where you build' },
+  { key: 'blueprints', label: 'Blueprints & jobs', tip: 'What your characters hold and have running' },
 ] as const;
 type Section = (typeof SECTIONS)[number]['key'];
 
@@ -36,8 +40,13 @@ export function Industry({ route }: { route: Route }) {
   const main = chars[0];
   // A kept character no longer on the roster falls back to the main, without forgetting the kept one: the roster loads
   // after the tab first draws.
-  const [keptShow, setKeptShow] = useState(() => Number(readKept(SHOW_KEY)) || null);
-  const shown = chars.find((c) => c.charId === keptShow) ?? main;
+  const [keptShow, setKeptShow] = useState<number | null>(() => Number(readKept(SHOW_KEY)) || null);
+  // The All-characters filter on Blueprints & jobs (Mining's rule): picking in it lets go of Show for, which then follows the
+  // filter's character (the main for All). A kept character no longer on the roster falls back to All without being forgotten.
+  const [keptFilter, setKeptFilter] = useState<number | 'all'>(() => { const v = readKept(CHAR_KEY); return v && v !== 'all' && Number(v) ? Number(v) : 'all'; });
+  const filter: number | 'all' = keptFilter !== 'all' && chars.some((c) => c.charId === keptFilter) ? keptFilter : 'all';
+  const chooseFilter = (v: number | 'all') => { setKeptFilter(v); keep(CHAR_KEY, String(v)); setKeptShow(null); forget(SHOW_KEY); };
+  const shown = chars.find((c) => c.charId === keptShow) ?? (filter !== 'all' ? chars.find((c) => c.charId === filter) : undefined) ?? main;
   const chooseShow = (id: number) => { setKeptShow(id); keep(SHOW_KEY, String(id)); };
 
   const kept = readKept(SECTION_KEY);
@@ -73,6 +82,7 @@ export function Industry({ route }: { route: Route }) {
         <PilotProvider value={shown.pilot}>
           {section === 'start' && <IndustryStart key={shown.charId} c={shown} ix={ix} graph={graph} />}
           {section === 'build' && <IndustryBuild key={shown.charId} c={shown} ix={ix} graph={graph} mainName={main.name} />}
+          {section === 'blueprints' && <IndustryOwned chars={chars} filter={filter} onFilter={chooseFilter} shown={shown} ix={ix} graph={graph} />}
         </PilotProvider>
       )}
     </div>

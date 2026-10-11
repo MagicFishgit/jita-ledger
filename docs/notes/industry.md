@@ -310,3 +310,23 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   D1's record, 90 IDs at a time); the other kinds are written as pushed. Pinned in `scripts/check-worker.mjs`: filed under the alt with the main's
   rows untouched, read again unchanged pushes nothing (no revision, no names asked again), a failed read keeps what's held, no permission no
   mark, removed mid-read nothing back, and each rule was planted wrong and failed.
+
+- **Blueprints & jobs** (`industryOwned.ts` pure, `IndustryOwned.tsx`; Task 10A, 11 October 2026; section key `blueprints`).
+  Your characters (slots in use of the slots skills give, jobs ready, originals, copies, the first rung's missing skills with
+  their training time, `Needs Omega` for an Alpha), the filter's tiles, one blueprint row a kind and character, every job
+  running or ready and those finished in 30 days. The All-characters filter is Mining's rule (`jita-ledger:industry-char`):
+  picking in it lets go of Show for; a kept character off the roster falls back to All without being forgotten.
+  - **Read states, never zeros** (`Read<T>`, `charRows`): not read yet, login lacking the permission, handed over without it,
+    lost. Read data wins over a lost login and says it is as the cloud last read it (`lostSaid`, now in `pilot.ts` for Research
+    and Industry). Totals count only characters read and say how many. A stage-1 `meta.industry` is not a jobs read.
+  - **Slots in use count ready jobs** (correction 13): a finished job is said to hold its slot until delivered (limits.md).
+  - **Each blueprint row is worked out at its own character's** usable skills, clone, Jita fees and mining (`charInput`), with
+    every character's open orders off the books (`useFinder`'s `own`); the finder's inputs come from the shown character, else
+    the first with skills read. A held copy is built as it is and never invented again (`RowInput.held`, correction 12).
+  - **Where a blueprint sits** (`placeSaid`): a station by ESI's name; a name in the doc as it is; asset item IDs are 13 digits
+    like structures', so a place in the doc's `items` is a container or ship ("you haven't named" / "<name> hasn't named" with
+    `''`, else "not named yet"), a place not in `items` with `''` is a structure its login can't see, and one neither named nor
+    in `items` is "a container, ship or structure (not named yet)". Jobs only run in stations or structures. The page case
+    holds a container at 1044519007308.
+  - **Next research** is the level table's step at the lab (`nextResearch`): ME to 10, then TE to 20; a copy can't be
+    researched; no Laboratory reached gives the time and no price.

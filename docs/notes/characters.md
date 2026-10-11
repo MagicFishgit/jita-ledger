@@ -33,7 +33,7 @@ logins are in characters-cloud.md, mining across characters in mining.md (split 
   ticks off only on a roster read of this session newer than the one that showed it (`judgeAltLogin`), working again or no
   longer listed. Settings reads `chars` instead, for "Delete all data" saying the alts' copy here goes too: no new importer. Mining joined in stage 3: it shows each character's mining; it calls `useAlts()` and hands the value to
   `useMiningFleet` in `miningFleet.ts`, which doesn't import the store itself. The Industry tab joined with its first task (10 October 2026): `useAlts()` handed to `useIndustryChars` in `industryChars.ts`,
-  which reads each alt's skills, standings, stock, purchases and mining from its pulled copy and writes nothing. The Research tab joined with its stage 1
+  which reads each alt's skills, standings, stock, purchases and mining from its pulled copy and writes nothing, and, since stage 2, each alt's blueprints and jobs (Blueprints & jobs). The Research tab joined with its stage 1
   (3 October 2026) for its "Show for": the same way, `useAlts()` handed to `useResearchChars` in `researchChars.ts`, which
   reads each alt's skills, standings and sales tax from its pulled copy and writes nothing. To do and the Wallet hand
   `useResearchChars` their own `useAltCopies()` and roster the same way since the research cash-in (3 October 2026: To do's
