@@ -8259,5 +8259,21 @@ console.log('\n--- Industry stage 2: Start reads what\'s held and run (industryO
     ['Log in again: this login wasn’t given EVE’s permission to read your industry jobs and blueprints.', 'Not read yet: X’s industry jobs and blueprints come with the cloud’s next hourly read.', null]);
 }
 
+console.log('\n--- Industry stage 2: a blueprints read may not land over a newer one; the Tech II chance words (Task 10B fixes) ---');
+{
+  const T = await import('../src/lib/industryTrack.ts');
+  const O = await import('../src/lib/industryOwned.ts');
+  const t0 = Date.parse('2026-10-11T12:00:00Z');
+  eq('  nothing held: lands; held older or equal: lands; held from a read that started later: doesn’t', [T.readLands(undefined, t0), T.readLands('2026-10-11T11:59:00Z', t0), T.readLands('2026-10-11T12:00:00Z', t0), T.readLands('2026-10-11T12:00:01Z', t0), T.readLands('garbage', t0)], [true, true, true, false, true]);
+  const nm = (id) => ({ 1: 'Hydromagnetic Physics', 2: 'Nanite Engineering', 3: 'Amarr Encryption Methods' }[id]);
+  eq('  chance words: needs at I once, trained ones in Roman numerals once, no Arabic level', [
+    O.chanceSaid({ needs: [1, 2, 3], sciences: [{ id: 1, level: 1 }, { id: 2, level: 1 }], encryption: { id: 3, level: 1 }, attempts: 2.69, runsPerCopy: 1 }, nm, 2, 4),
+    O.chanceSaid({ needs: [], sciences: [{ id: 1, level: 3 }, { id: 2, level: 4 }], encryption: { id: 3, level: 2 }, attempts: 2, runsPerCopy: 10 }, nm, 2, 4),
+    O.chanceSaid({ needs: [2], sciences: [{ id: 1, level: 3 }, { id: 2, level: 1 }], encryption: { id: 3, level: 5 }, attempts: null, runsPerCopy: 1 }, nm, 2, 4)],
+  ['Needs Hydromagnetic Physics I, Nanite Engineering I and Amarr Encryption Methods I to invent; worked out at I · 2.69 attempts a copy of 1 run, at ME 2 / TE 4',
+    'Hydromagnetic Physics III, Nanite Engineering IV, Amarr Encryption Methods II · 2.00 attempts a copy of 10 runs, at ME 2 / TE 4',
+    'Needs Nanite Engineering I to invent; worked out at I · Hydromagnetic Physics III, Amarr Encryption Methods V · – attempts a copy of 1 run, at ME 2 / TE 4']);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

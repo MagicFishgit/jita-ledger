@@ -10,7 +10,9 @@ import { alphaCapOf, RUNGS, usable, type RungKey } from './industryLadder';
 import type { LabSite } from './industryRank';
 import { productKind } from './industryRank';
 import { isStationId, slotsUsed, type JobRecord } from './industryTrack';
+import { units } from './format';
 import { lostSaid } from './pilot';
+import { ROMAN } from './skillStatus';
 import { spForLevel, trainingDays, type Attributes } from './training';
 
 /** Where a character's read stands: read (with when), not read yet, the main's login lacking the permission, an alt's handed over without it, or its login lost. */
@@ -236,4 +238,19 @@ export function rungDone(ix: Indexed, key: RungKey, r: { jobs: readonly JobRecor
   } else if (key === 't2') jobsSaid(n([8]), 'invention');
   else if (key === 'capital') { const c = n([1], (j) => productKind(ix, j.productTypeId ?? 0) === 'capital'); if (r.jobs && c) parts.push(`${plural(c, 'capital', 'capitals')} ${since}`); }
   return parts.length ? parts.join('; ') : null;
+}
+
+/** "A", "A and B", "A, B and C". */
+const andList = (xs: string[]): string => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+
+/**
+ * The Tech II chance tile's note: the skills invention needs and the character lacks, at I (EVE needs each at I to invent at
+ * all), then the ones it has at their level, each skill once and levels in Roman numerals, then the attempts.
+ */
+export function chanceSaid(inv: { needs: number[]; sciences: { id: number; level: number }[]; encryption: { id: number; level: number } | null; attempts: number | null; runsPerCopy: number }, name: (id: number) => string, me: number, te: number): string {
+  return [
+    inv.needs.length ? `Needs ${andList(inv.needs.map((id) => `${name(id)} I`))} to invent; worked out at I` : null,
+    [...inv.sciences, ...(inv.encryption ? [inv.encryption] : [])].filter((x) => !inv.needs.includes(x.id)).map((x) => `${name(x.id)} ${ROMAN[x.level]}`).join(', ') || null,
+    `${inv.attempts != null ? inv.attempts.toFixed(2) : '–'} attempts a copy of ${units(inv.runsPerCopy)} run${inv.runsPerCopy === 1 ? '' : 's'}, at ME ${me} / TE ${te}`,
+  ].filter(Boolean).join(' · ');
 }

@@ -8,7 +8,7 @@ import { SCOPE } from '../lib/config';
 import { esiAllPages } from '../lib/esi';
 import { ago, isk, iskBig, units } from '../lib/format';
 import { readBlueprintsNow } from '../lib/industryReads';
-import { ownedOf } from '../lib/industryTrack';
+import { ownedOf, readLands } from '../lib/industryTrack';
 import { placeSaid } from '../lib/industryOwned';
 import { navigate, useAuth, useNow, useRoute } from '../lib/hooks';
 import { jitaOrders, openContractWindow, resolveNames } from '../lib/market';
@@ -19,7 +19,7 @@ import { Empty, Flag, Guide, ItemIcon, Notice, PageHead, Panel, SortTh, Th, Tile
 import { tileRows } from '../lib/tileFilter';
 import { Points } from './Facts';
 import { SkillStrip } from './SkillStrip';
-import { getData, update, useData } from '../lib/store';
+import { dataGeneration, getData, update, useData } from '../lib/store';
 import { contractsAllowed } from '../lib/skillStatus';
 
 type Row = {
@@ -79,6 +79,7 @@ export function Blueprints() {
     const a = getAuth();
     if (!a) return;
     setBusy('Reading your blueprints…');
+    const gen = dataGeneration(), started = Date.now();
     try {
       // The assets read tells a container or ship (an item of yours) from a structure; without the permission nothing is classified.
       let itemIds: Set<number> | null = null;
@@ -86,8 +87,10 @@ export function Blueprints() {
         try { itemIds = new Set((await esiAllPages<{ item_id: number }>(`/characters/${a.characterId}/assets/`, { auth: true })).map((x) => x.item_id)); } catch { /* places named on a later read */ }
       }
       const doc = await readBlueprintsNow(a.characterId, getData().blueprints, { assets: hasScope(SCOPE.assets), structures: hasScope(SCOPE.structures) }, itemIds);
-      const at = new Date().toISOString();
-      update((x) => ({ blueprints: doc, meta: { ...x.meta, blueprintsAt: at } }));
+      // Everything was wiped meanwhile, or a read that started later has landed (the sync's, or a pull): this one is older.
+      if (dataGeneration() !== gen) return;
+      const at = new Date(started).toISOString();
+      update((x) => (readLands(x.meta.blueprintsAt, started) ? { blueprints: doc, meta: { ...x.meta, blueprintsAt: at } } : {}));
       setMarket(null); setBooks(new Map());
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'err');
@@ -229,7 +232,7 @@ export function Blueprints() {
               )}
               {onlyType != null && (
                 <p className="note small" style={{ margin: 0 }} data-bp-only={onlyType}>
-                  Showing {name(onlyType)} alone, from the Industry tab. <button type="button" className="link-btn" onClick={() => navigate('blueprints')}>Show every blueprint</button>
+                  {rows.some((r) => r.kind.typeId === onlyType) ? `Showing ${name(onlyType)} alone, from the Industry tab.` : `You hold none of ${name(onlyType)} now.`} <button type="button" className="link-btn" onClick={() => navigate('blueprints')}>Show every blueprint</button>
                 </p>
               )}
               <section id="bp-table" className="panel flush" data-rv="" style={{ scrollMarginTop: 12 }}>

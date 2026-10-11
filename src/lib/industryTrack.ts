@@ -236,6 +236,17 @@ export function sanitizeBlueprints(v: unknown): BlueprintsDoc | undefined {
   return withNames(list, names, x.items);
 }
 
+/**
+ * Whether a blueprints read that started at `startedAt` may be written over what's held (`blueprintsAt`, stamped at each
+ * read's start by both writers, the sync and the Blueprints page): not when a read that started later has landed, or an
+ * older read finishing late would put its doc and its time over a newer one's.
+ */
+export function readLands(heldAt: string | undefined, startedAt: number): boolean {
+  if (!heldAt) return true;
+  const t = Date.parse(heldAt);
+  return !Number.isFinite(t) || t <= startedAt;
+}
+
 const ownedMemo = new WeakMap<BlueprintsDoc, OwnedBlueprint[]>();
 /** The document read as the Blueprints page reads ESI (blueprints.ts readBlueprints). */
 export function ownedOf(doc: BlueprintsDoc): OwnedBlueprint[] {

@@ -16,7 +16,7 @@ import { mergeOrders } from './feeMatch';
 import { countStock, mergeSafety, nameHolders, unnamedHolders, toJournal, toOrder, toTx, type RawAsset, type RawCharOrder, type RawJournal, type RawTx, type SafetyNotice } from './esiRecords';
 import { miningKey, readMining, type MiningRecord, type RawMining } from './mining';
 import { readBlueprintsNow, readJobsNow } from './industryReads';
-import { mergeJob, type BlueprintsDoc, type JobRecord, type RawJob } from './industryTrack';
+import { mergeJob, readLands, type BlueprintsDoc, type JobRecord, type RawJob } from './industryTrack';
 import { researchMissionAt, toResearch, toStandings, type RawResearch, type RawStanding } from './research';
 
 const { wallet: WALLET, orders: ORDERS, skills: SKILLS, standings: STANDINGS, assets: ASSETS, loyalty: LOYALTY, killmails: KILLMAILS } = SCOPE;
@@ -314,12 +314,15 @@ export async function syncCharacter(): Promise<void> {
     // Your blueprints (the `blueprints` doc: what each is, ME, TE, runs, where), for the Industry tab and the Blueprints page,
     // with when they were read. Written only when something in it changed. A failed read leaves what's held (absent: not read).
     let bpsNow = d.blueprints;
+    let bpStart = 0;
     if (hasScope(SCOPE.blueprints)) {
       setState({ message: 'Reading your blueprints…' });
       try {
-        fetched.blueprints = await readBlueprintsNow(cid, d.blueprints, { assets: hasScope(ASSETS), structures: hasScope(SCOPE.structures) }, assetIds);
+        // Stamped when the read starts (readLands): a read begun later, on the Blueprints page, outranks this one.
+        bpStart = Date.now();
+        fetched.blueprints = await readBlueprintsNow(cid, getData().blueprints, { assets: hasScope(ASSETS), structures: hasScope(SCOPE.structures) }, assetIds);
         bpsNow = fetched.blueprints;
-        metaPatch.blueprintsAt = new Date().toISOString();
+        metaPatch.blueprintsAt = new Date(bpStart).toISOString();
         read.push('blueprints');
       } catch { /* read on a later sync */ }
     }
@@ -452,7 +455,11 @@ export async function syncCharacter(): Promise<void> {
         for (const x of fetched.jobs) j[String(x.jobId)] = mergeJob(cur.jobs[String(x.jobId)], x);
         p.jobs = j;
       }
-      if (fetched.blueprints && JSON.stringify(fetched.blueprints) !== JSON.stringify(cur.blueprints)) p.blueprints = fetched.blueprints;
+      // Written only if no read that started later has landed (the page's Read, or a pull): else its doc and time stay.
+      if (fetched.blueprints) {
+        if (readLands(cur.meta.blueprintsAt, bpStart)) { if (JSON.stringify(fetched.blueprints) !== JSON.stringify(cur.blueprints)) p.blueprints = fetched.blueprints; }
+        else p.meta!.blueprintsAt = cur.meta.blueprintsAt;
+      }
       if (allSkills) p.skills = allSkills;
       // Replaced wholesale, not merged: it is a snapshot of what you hold right now.
       // What the cloud learned about asset safety wraps (when each went in, its name) is kept, not overwritten.

@@ -355,3 +355,15 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   without; the page and the tab read the same doc. A place is `placeSaid`'s words capitalized, stations by ESI's names; the
   first version said every container "A station". `blueprints?type=TYPE` (the Industry tab's "Price for selling") shows that
   blueprint's kinds alone with a way back to all.
+- **A blueprints read lands only if no read that started later has** (`readLands` in industryTrack.ts; the 10B review). Both
+  writers, the sync and the Blueprints page's button, stamp `meta.blueprintsAt` with when their read *started* and write the doc
+  and that time only when the stored one isn't newer. The sync's final `update` ran seconds after its read (jobs, research and
+  more come between) and wrote the doc and time over a Read made in that gap, the time moving backwards; the page's write had no
+  guard against a newer sync or a pulled doc. The sync reads with `getData().blueprints` as `prev`, not its snapshot, and the
+  page drops its write when the ledger was wiped meanwhile (`dataGeneration`). The page case holds the sync's jobs read open
+  while a Read runs and asserts the Read's doc and time survive (the guard removed: the sync's older doc wins).
+- **`blueprintsAt` rides `meta`, the doc is its own document** (kept so: an `at` inside the doc would rewrite an alt's doc every
+  hour, the R&D lesson). With the Worker a version behind (`refusedDoc` holds the doc back) another device can therefore show a
+  newer time over an older doc until the doc lands; the time is the main's last read, not a proof of what the cloud holds.
+- **Start says a refused alt's reads as the cloud's last** (`lostSaid`): the reads line, each rung's line and "in use" carry "as
+  the cloud last read it", as Blueprints & jobs does. `?type=` for a kind no longer held says "You hold none of X now".

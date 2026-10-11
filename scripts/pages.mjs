@@ -2435,7 +2435,7 @@ try {
     {
       await page.goto(SEED_PAGE);
       await seed({ ...ledger, jobs: mainJobs, blueprints: mainBps, meta: { ...ledger.meta, blueprintsAt: iso(now - 600_000), jobsRead: true, industry: { at: iso(now - 600_000), jobs: [], places: {} } }, industry: DOC, cloud: CLOUD_STATE },
-        { alts: altStore, cache: { prospects: SCAN } });
+        { alts: altStore2, cache: { prospects: SCAN } });
       await page.goto(`${BASE}#hustles/industry/start`);
       await page.reload();
       await page.waitForSelector('[data-industry="ladder"]', { timeout: 20_000 }).catch(() => problems.push('the ladder never drew with reads'));
@@ -2448,6 +2448,13 @@ try {
       if (!(await text('[data-rung-done="npc"]')).includes('Your reads show 5 manufacturing jobs in the last 90 days.')) problems.push('rung 1 doesn’t say what the reads show');
       if (!(await text('[data-rung-done="research"]')).includes('Your reads show 2 originals researched.')) problems.push('rung 2 doesn’t count the researched originals');
       if (!(await text('[data-rung-done="copy"]')).includes('1 copy held')) problems.push('rung 4 doesn’t count the copy held');
+      // An alt refused after a read: what was read stays, said as the cloud's last read, with why.
+      await showFor('Stale Alt');
+      const staleHere = await text('[data-industry="here"]');
+      if (!staleHere.includes('as the cloud last read it') || !staleHere.includes('EVE refused Stale Alt’s login')) problems.push(`Start says a refused alt’s reads as current: “${staleHere}”`);
+      const staleT = await tiles('[data-industry="where"]');
+      if (!staleT['Factory slots']?.[1]?.includes('(as the cloud last read it)')) problems.push(`the slot tiles say a refused alt’s jobs in use as current: ${JSON.stringify(staleT['Factory slots'])}`);
+      await showFor('Owner');
       if (SHOTS) { await page.locator('[data-rung-done="npc"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-industry-start-reads.png` }); }
     }
     // --- Task 10B: the Blueprints page reads the doc, with its time; no read happens by itself.
@@ -2473,23 +2480,68 @@ try {
       if (!/show every blueprint/i.test(await text('[data-bp-only="17716"]'))) problems.push('showing one blueprint, the Blueprints page has no way back to all');
       if ((await page.locator('table tbody tr').count()) !== 1) problems.push(`?type= shows ${await page.locator('table tbody tr').count()} rows, not the one kind`);
       if (SHOTS) await page.screenshot({ path: `${SHOTS}-blueprints-type.png` });
+      await page.goto(`${BASE}#blueprints?type=34`);
+      await page.waitForSelector('[data-bp-only="34"]', { timeout: 10_000 }).catch(() => problems.push('the Blueprints page doesn’t take a kind that isn’t held'));
+      const none = await text('[data-bp-only="34"]');
+      if (!none.includes('You hold none of') || !/show every blueprint/i.test(none)) problems.push(`a kind no longer held draws an empty table without saying so: “${none}”`);
       // The button reads afresh into the doc with the sync's reader: the assets read first (their item IDs tell a container from a
-      // structure), the container's name by /assets/names, and the page then shows both, the stored time renewed.
-      const CONT2 = 1044519009999, askedPaths = [];
-      ESI[BP_PATH] = (url, req, json) => (askedPaths.push(url.pathname), json([{ item_id: 9301, type_id: 25895, location_id: CONT2, location_flag: 'Unlocked', quantity: -1, runs: -1, material_efficiency: 5, time_efficiency: 10 }]));
-      ESI[`/characters/${ownerAuth().characterId}/assets/`] = (url, req, json) => (askedPaths.push(url.pathname), json([{ item_id: CONT2, type_id: 3293, location_id: 60003760, location_flag: 'Hangar', location_type: 'station', quantity: 1, is_singleton: true }]));
-      ESI[`/characters/${ownerAuth().characterId}/assets/names/`] = (url, req, json) => (askedPaths.push(url.pathname), json([{ item_id: CONT2, name: 'Spare Blueprints' }]));
-      await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('jita-ledger:auth')); a.scopes = ['esi-characters.read_blueprints.v1', 'esi-assets.read_assets.v1', 'esi-universe.read_structures.v1']; localStorage.setItem('jita-ledger:auth', JSON.stringify(a)); });
+      // structure), the container's name by /assets/names, and the page then shows both, the stored time renewed. Nothing here
+      // waits on a clock: the sync the reload starts is waited out (the button enabled), the stubs go in after it, and every
+      // assertion is about requests made after the click.
+      const ID = ownerAuth().characterId, CONT2 = 1044519009999;
+      let askedPaths = [], bpAnswer = null, gate = null;
+      const bpRow = (item, me) => ({ item_id: item, type_id: 25895, location_id: CONT2, location_flag: 'Unlocked', quantity: -1, runs: -1, material_efficiency: me, time_efficiency: 10 });
+      const stubs = () => {
+        ESI[`/characters/${ID}/blueprints/`] = (url, req, json) => (askedPaths.push(url.pathname), json([bpAnswer]));
+        ESI[`/characters/${ID}/assets/`] = (url, req, json) => (askedPaths.push(url.pathname), json([{ item_id: CONT2, type_id: 3293, location_id: 60003760, location_flag: 'Hangar', location_type: 'station', quantity: 1, is_singleton: true }]));
+        ESI[`/characters/${ID}/assets/names/`] = (url, req, json) => (askedPaths.push(url.pathname), json([{ item_id: CONT2, name: 'Spare Blueprints' }]));
+        // The sync's jobs read waits for the gate when one is set: the Read lands while it's in flight.
+        ESI[`/characters/${ID}/industry/jobs/`] = async (url, req, json) => { askedPaths.push(url.pathname); if (gate) await gate.promise; return json([]); };
+      };
+      const stored = () => page.evaluate(async () => {
+        const db = await new Promise((r) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => r(q.result); });
+        const get = (k) => new Promise((r) => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => r(q.result); });
+        const [m, b] = await Promise.all([get('meta'), get('blueprints')]);
+        db.close();
+        return { at: m?.blueprintsAt ?? null, ids: (b?.list ?? []).map((r) => r[0]) };
+      });
+      const idle = () => page.waitForSelector('.sync-btn:not([disabled])', { timeout: 30_000 }).catch(() => problems.push('the sync never went idle'));
+      await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('jita-ledger:auth')); a.scopes = ['esi-characters.read_blueprints.v1', 'esi-assets.read_assets.v1', 'esi-universe.read_structures.v1', 'esi-industry.read_character_jobs.v1']; localStorage.setItem('jita-ledger:auth', JSON.stringify(a)); });
       await page.goto(`${BASE}#blueprints`);
       await page.reload();
       await page.waitForSelector('.page', { timeout: 20_000 });
-      await page.waitForTimeout(6000); // the sync the reload starts finishes first, so it can't write over the button's read
+      await idle();
+      const before = await stored();
+      bpAnswer = bpRow(9301, 5); stubs(); askedPaths = [];
       await page.locator('button', { hasText: 'Read them again' }).click().catch(() => problems.push('the Blueprints page has no Read them again button with the permissions'));
       await page.waitForFunction(() => /Spare Blueprints/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 15_000 })
-        .catch(async () => problems.push(`the Blueprints page’s Read didn’t put the freshly read blueprints and their container’s name on the page (asked ${askedPaths.join(', ') || 'nothing'}; table: ${(await text('table')).slice(0, 400)}; toast: ${(await text('.toasts, [role=status], [role=alert]')).slice(0, 200)})`));
-      if (!askedPaths.some((x) => x.endsWith('/assets/'))) problems.push('the Blueprints page’s Read didn’t read the assets to tell containers from structures');
-      if (!/read just now/.test(await text('.page'))) problems.push(`the Blueprints page’s Read didn’t renew the stored time: “${(await text('.page')).slice(0, 300)}”`);
-      for (const k of Object.keys(ESI)) if (k.startsWith(`/characters/${ownerAuth().characterId}/`)) delete ESI[k];
+        .catch(async () => problems.push(`the Blueprints page’s Read didn’t put the freshly read blueprints and their container’s name on the page (asked ${askedPaths.join(', ') || 'nothing'})`));
+      for (const p of ['/blueprints/', '/assets/', '/assets/names/']) if (!askedPaths.some((x) => x.endsWith(p))) problems.push(`the Blueprints page’s Read made no ${p} request after the click`);
+      let after = await stored();
+      for (let i = 0; i < 40 && !(after.ids.includes(9301) && after.at && after.at !== before.at); i++) { await page.waitForTimeout(250); after = await stored(); }
+      if (!after.ids.includes(9301) || !after.at || (before.at && Date.parse(after.at) <= Date.parse(before.at))) problems.push(`the Blueprints page’s Read didn’t store the doc with a newer time: ${JSON.stringify({ before, after })}`);
+      if (!/read just now/.test(await text('.page'))) problems.push('the Blueprints page’s Read didn’t renew the time shown');
+
+      // The race: the sync reads the blueprints, then waits on its jobs read; a Read begun meanwhile lands first, and the sync's
+      // older read must not write over it (readLands), neither its doc nor its time.
+      gate = {}; gate.promise = new Promise((r) => { gate.open = r; });
+      bpAnswer = bpRow(9401, 1); askedPaths = [];
+      await page.locator('.sync-btn').click();
+      await page.waitForFunction(() => document.querySelector('.sync-btn')?.hasAttribute('disabled'), null, { timeout: 10_000 }).catch(() => undefined);
+      for (let i = 0; i < 80 && !askedPaths.some((x) => x.endsWith('/industry/jobs/')); i++) await page.waitForTimeout(250);
+      if (!askedPaths.some((x) => x.endsWith('/industry/jobs/'))) problems.push('the sync never reached its jobs read');
+      bpAnswer = bpRow(9402, 9);
+      await page.locator('button', { hasText: 'Read them again' }).click();
+      await page.waitForFunction(() => /ME 9 \/ TE 10/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 15_000 }).catch(() => problems.push('the Read begun during the sync never showed'));
+      let mid = await stored();
+      for (let i = 0; i < 40 && !mid.ids.includes(9402); i++) { await page.waitForTimeout(250); mid = await stored(); }
+      gate.open(); gate = null;
+      await idle();
+      await page.waitForTimeout(1200); // the sync's own write is debounced like the page's
+      const end = await stored();
+      if (!end.ids.includes(9402) || end.ids.includes(9401) || end.at !== mid.at) problems.push(`an older sync read wrote over the Blueprints page’s newer Read: ${JSON.stringify({ mid, end })}`);
+      if (!/ME 9 \/ TE 10/.test(await text('.page'))) problems.push('the Blueprints page lost its Read to the sync’s older one');
+      for (const k of Object.keys(ESI)) if (k.startsWith(`/characters/${ID}/`)) delete ESI[k];
     }
 
     // --- the end of the industry case
