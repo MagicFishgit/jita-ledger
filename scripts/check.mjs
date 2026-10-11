@@ -8275,5 +8275,51 @@ console.log('\n--- Industry stage 2: a blueprints read may not land over a newer
     'Needs Nanite Engineering I to invent; worked out at I · Hydromagnetic Physics III, Amarr Encryption Methods V · – attempts a copy of 1 run, at ME 2 / TE 4']);
 }
 
+console.log('\n--- Industry stage 2: the job check and the measured tax (industryTrack.ts, Task 11) ---');
+{
+  const T = await import('../src/lib/industryTrack.ts');
+  const O = await import('../src/lib/industryOwned.ts');
+  const I = await import('../src/lib/industry.ts');
+  const fsC = await import('node:fs');
+  const ix = I.indexBundle(JSON.parse(fsC.readFileSync(new URL('../src/data/industry.json', import.meta.url))));
+  const EIV_RUN = 157590413.44605502 / 65;
+  // EVE Ref's worked job (scripts/fixtures/industry-everef.json t1): 65 runs of the pump, ME 10, in an Azbel at UALX-3 with
+  // the L-Set Equipment rig, null-sec, index 6.17%, tax 1%: 17,213,916 ISK.
+  const azbel = { kind: 'azbel', rigs: [37170], band: 'null', tax: 0.01, siteId: 'st:1046664001931' };
+  const job = (over = {}) => ({ jobId: 701, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 65, licensedRuns: 40, successfulRuns: null, probability: null,
+    cost: 17213916, facilityId: 1046664001931, stationId: 1046664001931, outputId: 1046664001931, start: '2026-10-11T10:00:00Z', end: '2026-10-12T04:00:00Z', completed: '2026-10-12T05:00:00Z',
+    status: 'delivered', perRun: 1, seenAt: '2026-10-11T10:20:00Z', first: { me: 10, te: 20, systemId: 30004807, index: 0.0617, eiv: EIV_RUN }, ...over });
+  const c = T.jobCheck(ix, job(), azbel, 'omega');
+  eq('  EVE Ref\'s job: the app works out 17,213,916, what EVE charged; nothing said', [c.state, Math.round(c.app), c.charged, c.differs], ['checked', 17213916, 17213916, false]);
+  eq('  a cost more than 1% off is said', T.jobCheck(ix, job({ cost: 17_500_000 }), azbel, 'omega').differs, true);
+  const why = (j, p = azbel, clone = 'omega') => { const r = T.jobCheck(ix, j, p, clone); return r.state === 'unchecked' ? r.why : null; };
+  eq('  what can\'t be checked says why', [
+    why(job({ first: undefined })), why(job({ seenAt: '2026-10-11T13:10:00Z' })), why(job(), null), why(job(), { ...azbel, tax: null }), why(job(), azbel, 'unknown'), why(job({ activity: 9 })), why(job({ cost: null })),
+  ], [
+    'first seen after it ended: its index and EIV weren’t kept', 'first seen 3 h 10 min after it started: the index and prices may have moved since it was installed',
+    'it ran at a structure that isn’t one of your build sites, so its bonuses aren’t known', 'the facility tax there isn’t typed (what the job measures is offered on the site)',
+    'the clone state isn’t read, so the Alpha tax may be in it', 'Reaction isn’t modelled', 'ESI gives no cost for it',
+  ]);
+  eq('  the tax it measures: 1.00%, from manufacturing at your structure site, clone known', T.measuredTax(ix, job(), { ...azbel, tax: null }, 'omega'), { tax: 0.01 });
+  const mwhy = (j, p = azbel, clone = 'omega') => T.measuredTax(ix, j, p, clone).why ?? null;
+  eq('  where it can\'t measure, it says why and gives no figure', [mwhy(job({ activity: 5 })), mwhy(job(), { ...azbel, kind: 'npc', siteId: null }), mwhy(job(), azbel, 'unknown'), mwhy(job({ seenAt: '2026-10-11T13:10:00Z' })), mwhy(job({ cost: 54_090_000 }))], [
+    'only a manufacturing job measures the facility tax', 'only a job at one of your structure sites measures its tax', 'the clone state isn’t read, so the Alpha tax may be in its cost',
+    'first seen 3 h 10 min after it started: the index and prices may have moved since it was installed', 'what it measures, 24.4%, is more than a structure can charge (10%): its index or prices moved since',
+  ]);
+  // An ME research job in an NPC station (0.25% tax known): what EVE charged over the app's base, besides the index and the
+  // tax, is its SCC share, the reading the spec says a real job settles. Charged exactly as the app works it out, it reads 2%.
+  const npc = { kind: 'npc', rigs: [], band: 'high', tax: 0.0025, siteId: null };
+  const res = job({ activity: 4, runs: 1, facilityId: 60003760, stationId: 60003760, first: { me: 4, te: 0, systemId: 30000142, index: 0.0014, eiv: EIV_RUN } });
+  const appRes = I.researchCost(EIV_RUN, 4, 5, { index: 0.0014, structure: 1, rig: 1, tax: 0.0025, clone: 'omega' }).total;
+  const rc = T.jobCheck(ix, { ...res, cost: appRes }, npc, 'omega');
+  eq('  an NPC-station research job says the SCC share EVE charged', [rc.state, +rc.sccShare.toFixed(6)], ['checked', 0.02]);
+  eq('  where a job ran: an NPC station by its own 0.25%; one of your structure sites by its kind, rigs and tax; any other structure: not known', [
+    T.jobPlace(res, [], () => 'high'), T.jobPlace(job(), [{ id: 'st:1046664001931', name: 'x', systemId: 30004807, kind: 'azbel', structureId: 1046664001931, rigs: [37170], tax: null }], () => 'null'), T.jobPlace(job(), [], () => 'null'),
+  ], [{ kind: 'npc', rigs: [], band: 'high', tax: 0.0025, siteId: null }, { kind: 'azbel', rigs: [37170], band: 'null', tax: null, siteId: 'st:1046664001931' }, null]);
+  const sites = [{ id: 'st:1046664001931', name: 'x', systemId: 30004807, kind: 'azbel', structureId: 1046664001931, rigs: [37170], tax: null }];
+  const m = O.measuredBySite(ix, sites, [{ name: 'You', isMain: true, clone: 'omega', jobs: { state: 'read', value: [job(), job({ jobId: 702, start: '2026-10-01T10:00:00Z', seenAt: '2026-10-01T10:20:00Z', cost: 17_300_000 })], at: 1 } }], () => 'null');
+  eq('  per site, the newest job that measures, and whose', m['st:1046664001931'], { tax: 0.01, at: '2026-10-11T10:00:00Z', who: 'You', isMain: true, jobId: 701 });
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

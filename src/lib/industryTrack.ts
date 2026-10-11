@@ -8,7 +8,11 @@
  * blueprints.ts and industry.ts, which are pure too.
  */
 import { readBlueprints, type OwnedBlueprint, type RawBlueprint } from './blueprints';
-import { eivOf, type Activity, type IndustryIndex } from './industry';
+import {
+  copyCost, eivOf, inventionCost, manufacturingCost, NPC_FACILITY_TAX, researchCost, rigFor, structureBonus,
+  type Activity, type Clone, type Indexed, type IndustryIndex, type JobCost, type SecBand, type SiteKind,
+} from './industry';
+import type { IndustrySite } from './prefs';
 
 /**
  * ESI's /characters/{id}/industry/jobs/ row: OpenAPI at 2026-08-18 (`.playwright-mcp/research/rd-agents/openapi.json`). The
@@ -306,4 +310,90 @@ export function slotsUsed(jobs: readonly JobRecord[], now: number): { factory: n
     if (j.status === 'ready' || (j.status === 'active' && Date.parse(j.end) <= now)) ready++; else running++;
   }
   return { factory, science, running, ready };
+}
+
+// --- What EVE charged, against what the app works out (spec, "The job check, and what it measures") -------------------
+
+/** Where a job ran, as the app knows it: an NPC station (its 0.25% tax, no bonus), or one of your sites (its kind, rigs, band and typed tax). */
+export type JobPlace = { kind: SiteKind; rigs: readonly number[]; band: SecBand; tax: number | null; siteId: string | null };
+/** A cost more than this share off what EVE charged is said. */
+export const CHECK_TOLERANCE = 0.01;
+/** The most a structure's owner can charge (EVE University, "Tax"): a measure over it means the inputs moved. */
+export const MAX_FACILITY_TAX = 0.1;
+
+/** Where a job ran: an NPC station by its own facility tax; a structure only when it's one of your sites; else null (its bonuses aren't known). */
+export function jobPlace(job: JobRecord, sites: readonly IndustrySite[], bandOf: (site: IndustrySite) => SecBand): JobPlace | null {
+  if (isStationId(job.facilityId)) return { kind: 'npc', rigs: [], band: 'high', tax: NPC_FACILITY_TAX, siteId: sites.find((s) => s.stationId === job.facilityId)?.id ?? null };
+  const site = sites.find((s) => s.structureId === job.facilityId);
+  return site ? { kind: site.kind, rigs: site.rigs, band: bandOf(site), tax: site.tax, siteId: site.id } : null;
+}
+
+const late = (job: JobRecord): string => {
+  const min = Math.round((Date.parse(job.seenAt) - Date.parse(job.start)) / 60_000);
+  return `first seen ${min >= 60 ? `${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} min` : ''}` : `${min} min`} after it started: the index and prices may have moved since it was installed`;
+};
+
+/**
+ * (Named `jobCostFor`, not `jobCostOf`: that is industry.ts's rule on a base, which the cost functions below use.)
+ * The cost the app works out for a job from what was kept at its first sight (the index and the EIV a run, its blueprint's
+ * ME and TE for research) and where it ran: the rules of industry.ts, as the finder charges them. A reason instead when it
+ * can't: not modelled, seen after it ended or too late, an input not kept, a structure that isn't your site.
+ */
+export function jobCostFor(ix: Indexed, job: JobRecord, place: JobPlace | null, clone: Clone): { cost: JobCost } | { why: string } {
+  const act = ACTIVITY_OF[job.activity];
+  if (!act) return { why: `${ACTIVITY_SAID[job.activity] ?? 'This activity'} isn’t modelled` };
+  const f = job.first;
+  if (!f) return { why: 'first seen after it ended: its index and EIV weren’t kept' };
+  if (!checkable(job)) return { why: late(job) };
+  if (f.index == null) return { why: 'the system’s index wasn’t read when it was seen' };
+  if (f.eiv == null) return { why: 'its estimated item value wasn’t known when it was seen (an adjusted price was missing)' };
+  if (!place) return { why: 'it ran at a structure that isn’t one of your build sites, so its bonuses aren’t known' };
+  const sb = structureBonus(ix, place.kind);
+  const rig = rigFor(ix, place.rigs, place.kind, place.band, act === 'manufacturing' ? job.productTypeId : null, act);
+  const at = { index: f.index, structure: sb.cost, rig: rig.cost, tax: place.tax, clone };
+  if (act === 'manufacturing') return { cost: manufacturingCost(f.eiv, job.runs, at) };
+  if (act === 'copying') return { cost: copyCost(f.eiv, job.licensedRuns ?? 1, job.runs, at) };
+  if (act === 'invention') return { cost: inventionCost(f.eiv, job.runs, at) };
+  // Research: levels from the blueprint's own as kept at first sight (a TE level is 2%), a job's runs being levels.
+  const from = act === 'researchMaterial' ? f.me : f.te == null ? null : Math.floor(f.te / 2);
+  if (from == null) return { why: `its ${act === 'researchMaterial' ? 'ME' : 'TE'} wasn’t read when it was seen` };
+  return { cost: researchCost(f.eiv, from, Math.min(10, from + job.runs), at) };
+}
+
+export type JobCheck =
+  | { state: 'unchecked'; why: string }
+  /** `sccShare`: at an NPC station, for research and copying, what EVE charged over the app's base besides the index part and the tax: the SCC reading a real job settles. */
+  | { state: 'checked'; app: number; charged: number; parts: JobCost; differs: boolean; sccShare?: number };
+
+/** A finished or running job's cost as EVE charged it (ESI's `cost`) against the app's; said when more than 1% apart. */
+export function jobCheck(ix: Indexed, job: JobRecord, place: JobPlace | null, clone: Clone): JobCheck {
+  if (job.cost == null) return { state: 'unchecked', why: 'ESI gives no cost for it' };
+  const r = jobCostFor(ix, job, place, clone);
+  if ('why' in r) return { state: 'unchecked', why: r.why };
+  if (r.cost.tax == null) return { state: 'unchecked', why: 'the facility tax there isn’t typed (what the job measures is offered on the site)' };
+  if (r.cost.alpha == null) return { state: 'unchecked', why: 'the clone state isn’t read, so the Alpha tax may be in it' };
+  const app = r.cost.total, charged = job.cost;
+  const act = ACTIVITY_OF[job.activity];
+  const scc = place?.kind === 'npc' && (act === 'copying' || act === 'researchMaterial' || act === 'researchTime') && r.cost.base > 0
+    ? (charged - (r.cost.index + r.cost.bonus + (r.cost.tax ?? 0) + (r.cost.alpha ?? 0))) / r.cost.base : null;
+  return { state: 'checked', app, charged, parts: r.cost, differs: Math.abs(app - charged) > CHECK_TOLERANCE * Math.max(charged, 1), ...(scc != null ? { sccShare: scc } : {}) };
+}
+
+/**
+ * The facility tax a manufacturing job at one of your structure sites paid (spec): (ESI's cost − the base × (index ×
+ * bonuses + SCC + Alpha tax)) ÷ the base, to 0.01%. Only offered, with Use this, never written by itself. A reason instead
+ * where it can't measure: another activity, an NPC station or a structure that isn't your site, the clone state not read
+ * (the Alpha tax may be in the cost), seen too late, or a figure no structure can charge.
+ */
+export function measuredTax(ix: Indexed, job: JobRecord, place: JobPlace | null, clone: Clone): { tax: number; why?: undefined } | { why: string; tax?: undefined } {
+  if (job.activity !== 1) return { why: 'only a manufacturing job measures the facility tax' };
+  if (!place || place.kind === 'npc' || !place.siteId) return { why: 'only a job at one of your structure sites measures its tax' };
+  if (clone === 'unknown') return { why: 'the clone state isn’t read, so the Alpha tax may be in its cost' };
+  if (job.cost == null) return { why: 'ESI gives no cost for it' };
+  const r = jobCostFor(ix, job, { ...place, tax: 0 }, clone);
+  if ('why' in r) return { why: r.why };
+  const tax = (job.cost - (r.cost.index + r.cost.bonus + r.cost.scc + (r.cost.alpha ?? 0))) / r.cost.base;
+  if (!Number.isFinite(tax) || tax < -0.0005) return { why: 'what it measures is under nothing: its index or prices moved since' };
+  if (tax > MAX_FACILITY_TAX + 0.0005) return { why: `what it measures, ${(tax * 100).toFixed(1)}%, is more than a structure can charge (10%): its index or prices moved since` };
+  return { tax: Math.max(0, Math.round(tax * 10_000) / 10_000) };
 }

@@ -1,12 +1,13 @@
 import { useMemo } from 'react';
 import { Factory, FlaskConical, ScrollText } from 'lucide-react';
-import { fmtShort, iskBig, iskBigSigned, units } from '../../lib/format';
+import { fmtShort, iskBig, iskBigSigned, pct, units } from '../../lib/format';
 import { navigate, useNow } from '../../lib/hooks';
-import { type Indexed } from '../../lib/industry';
+import { secBand, type Indexed } from '../../lib/industry';
 import { beforeSaid, finderSkills } from '../../lib/industryLadder';
 import { blueprintKinds, charInput, charRows, fleetTotals, jobPlaceSaid, nextResearch, placeSaid as placeName, readWhy, type CharIn } from '../../lib/industryOwned';
 import { buildRow } from '../../lib/industryRank';
-import { ACTIVITY_SAID, isStationId, type JobRecord } from '../../lib/industryTrack';
+import { ACTIVITY_SAID, isStationId, jobCheck, jobPlace as jobSite, type JobRecord } from '../../lib/industryTrack';
+import type { IndustrySite } from '../../lib/prefs';
 import type { Graph } from '../../lib/jumps';
 import { lostSaid } from '../../lib/pilot';
 import { ROMAN, trainSaid } from '../../lib/skillStatus';
@@ -19,6 +20,7 @@ import { Seg, Th, TileShowing, Tiles, useTileFilter } from '../ui';
 import { MISSING_SAID } from './IndustryBuild';
 import type { IndustryChar } from './industryChars';
 import { useFinder, useStationSaid } from './industryFinder';
+import { useIndustryDoc } from './industryMarket';
 
 const DAY = 86_400_000;
 
@@ -32,6 +34,8 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
   chars: IndustryChar[]; filter: number | 'all'; onFilter: (v: number | 'all') => void; shown: IndustryChar; ix: Indexed; graph: Graph;
 }) {
   const now = useNow(60_000);
+  const [doc] = useIndustryDoc();
+  const bandOf = (s: IndustrySite) => secBand(graph[s.systemId]?.[0]);
   const picked = filter === 'all' ? chars : chars.filter((c) => c.charId === filter);
   const ins: CharIn[] = useMemo(() => chars.map((c) => ({
     charId: c.charId, name: c.name, isMain: c.isMain, clone: c.clone, skills: finderSkills(c.pilot.skills, c.clone),
@@ -237,18 +241,25 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
         <span className="lbl">Finished in the last 30 days</span>
         <div className="tbl-scroll" style={{ border: '1px solid var(--line-3)' }}>
           <table className="tbl compact rd-table ind-jobs" data-industry="jobs-done">
-            <thead><tr><Th left>Job</Th><Th className="rd-wide">Runs</Th><Th left className="rd-wide">Where</Th><Th className="rd-wide">Finished</Th><Th className="rd-wide" tip="What EVE charged for the job: its installation fee and the facility tax (ESI's own figure).">What it cost</Th></tr></thead>
+            <thead><tr><Th left>Job</Th><Th className="rd-wide">Runs</Th><Th left className="rd-wide">Where</Th><Th className="rd-wide">Finished</Th><Th className="rd-wide" tip="What EVE charged for the job: its installation fee and the facility tax (ESI's own figure).">What it cost</Th><Th left className="rd-wide" tip={'The app’s cost for the job, worked out from what was kept when it was first seen running, against what EVE charged.\n\n• Only a job first seen within 90 minutes of its start: the index and prices move hourly.\n• At one of your build sites or an NPC station: elsewhere its bonuses aren’t known.'}>Checked</Th></tr></thead>
             <tbody>
-              {done.map(({ c, j }) => (
+              {done.map(({ c, j }) => {
+                const k = jobCheck(ix, j, jobSite(j, doc.sites, bandOf), c.clone);
+                const scc = k.state === 'checked' && k.sccShare != null ? ` · the SCC here came to ${pct(k.sccShare)} of the job’s base` : '';
+                const said = k.state === 'unchecked' ? `Not checked: ${k.why}` : k.differs ? `The app worked out ${iskBig(k.app)}; EVE charged ${iskBig(k.charged)}` : `Matches what EVE charged${scc}`;
+                return (
                 <tr key={`${c.charId}:${j.jobId}`} data-job={j.jobId}>
                   <td className="l rd-main"><span className="nm">{ACTIVITY_SAID[j.activity] ?? 'Job'}: {product(j)}</span><span className="sub">{j.status === 'delivered' ? 'Delivered' : j.status === 'cancelled' ? 'Cancelled' : 'Reverted'}{all && many ? ` · ${c.name}` : ''}</span>
-                    <span className="rd-phone"><span>{units(j.runs)} run{j.runs === 1 ? '' : 's'} · {jobPlace(c, j)}</span><span>{fmtShort(j.completed ?? j.end)} · cost {j.cost != null ? iskBig(j.cost) : '–'}</span></span></td>
+                    <span className="rd-phone"><span>{units(j.runs)} run{j.runs === 1 ? '' : 's'} · {jobPlace(c, j)}</span><span>{fmtShort(j.completed ?? j.end)} · cost {j.cost != null ? iskBig(j.cost) : '–'}</span><span>{said}</span></span></td>
                   <td className="rd-wide">{units(j.runs)}</td>
                   <td className="l rd-wide">{jobPlace(c, j)}</td>
                   <td className="rd-wide">{fmtShort(j.completed ?? j.end)}</td>
                   <td className="rd-wide" data-cost={j.jobId}>{j.cost != null ? iskBig(j.cost) : '–'}</td>
+                  <td className="l rd-wide" data-industry="check" data-off={k.state === 'checked' && k.differs ? '1' : undefined}
+                    data-tip={k.state === 'checked' ? `Index ${iskBig(k.parts.index)}, bonuses ${iskBig(k.parts.bonus)}, facility tax ${iskBig(k.parts.tax ?? 0)}, SCC ${iskBig(k.parts.scc)}, Alpha tax ${iskBig(k.parts.alpha ?? 0)}: ${iskBig(k.app)}.${scc}` : undefined}>{said}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

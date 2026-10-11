@@ -40,7 +40,7 @@ const lcfirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
 const bpoPrice = (w: BpoWhere) => (w.state === 'forge' ? w.price : null);
 const unitProfit = (r: Row) => (r.day && r.day.units > 0 ? r.day.profit / r.day.units : r.sale && r.costUnit != null ? (r.sale.listNet ?? r.sale.bidNet ?? NaN) - r.costUnit : null);
 
-export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix: Indexed; graph: Graph; mainName: string }) {
+export function IndustryBuild({ c, ix, graph, mainName, chars }: { c: IndustryChar; ix: Indexed; graph: Graph; mainName: string; chars: IndustryChar[] }) {
   const [doc, setDoc] = useIndustryDoc();
   const f = useFinder(c, ix, graph);
   const [view, setView] = useFinderView();
@@ -235,7 +235,7 @@ export function IndustryBuild({ c, ix, graph, mainName }: { c: IndustryChar; ix:
         <button type="button" className="panel-toggle" aria-expanded={sitesOpen} onClick={() => setView({ sitesOpen: !sitesOpen })}>
           <ChevronRight className="chev" aria-hidden="true" /><span className="panel-title">Where you build</span>
         </button>
-        {sitesOpen && <IndustrySites c={c} ix={ix} graph={graph} mainName={mainName} />}
+        {sitesOpen && <IndustrySites c={c} ix={ix} graph={graph} mainName={mainName} chars={chars} />}
       </div>
     </section>
   );

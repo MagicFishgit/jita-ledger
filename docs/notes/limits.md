@@ -242,3 +242,6 @@ State these rather than letting them be discovered:
   (EVE University's "Industry" page doesn't say); if the game frees it sooner, in use reads high by the ready jobs until they're
   delivered. **An alt's blueprints and jobs are as of the cloud's last hourly read**, and where a blueprint sits is named once per
   place (renaming a container in game shows on the next new place only).
+- **A job's check and its measured tax need it first seen running within 90 minutes of its start**: a job installed and finished
+  between reads can't be checked. Its EIV is at that hour's adjusted prices and its index ESI's four decimals (a few hundred ISK on a
+  big job). A measured tax holds until the owner changes it, and is only offered.

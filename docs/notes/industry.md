@@ -367,3 +367,26 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   newer time over an older doc until the doc lands; the time is the main's last read, not a proof of what the cloud holds.
 - **Start says a refused alt's reads as the cloud's last** (`lostSaid`): the reads line, each rung's line and "in use" carry "as
   the cloud last read it", as Blueprints & jobs does. `?type=` for a kind no longer held says "You hold none of X now".
+
+- **The job check** (Task 11, 11 October 2026; `jobCheck`, `jobCostFor`, `jobPlace` in industryTrack.ts; the finished jobs' Checked column).
+  The app's cost for a job, from what was kept at first sight (the index and the EIV a run, a blueprint's ME and TE for research) and
+  where it ran, against ESI's `cost`; said when more than `CHECK_TOLERANCE` (1%) apart, with the parts (index, bonuses, facility
+  tax, SCC, Alpha tax) in the tip. Where it ran: an NPC station by its own 0.25%; a structure only when it is one of your build
+  sites (its kind, rigs and typed tax); any other structure isn't known (a job's place is a station or a structure, never a
+  container). Every reason it can't be checked is said, never a match assumed: not modelled (reactions, reverse engineering),
+  first seen after it ended or more than 90 minutes after it started (`checkable`), an input not kept, not one of your sites, the
+  facility tax not typed, the clone state not read (the Alpha tax may be in it), ESI gives no cost. Checked on EVE Ref's own job
+  (65 pumps, an Azbel with the L-Set rig, null-sec): 17,213,916, to the ISK.
+- **The measured facility tax** (`measuredTax`, `measuredBySite`; the site's Facility tax cell). For a manufacturing job at one of
+  your structure sites with the clone state known: (ESI's cost − the base × (index × bonuses + SCC + Alpha tax)) ÷ the base, to
+  0.01%. Offered beside the typed tax with **Use this** and never written by itself; when the typed tax already agrees it says the
+  job paid the same. Any character's newest job there that measures, with whose it was. Not measured where it can't be, each with
+  its reason: another activity, an NPC station or a structure that isn't your site, an unknown clone, a job first seen late, a figure
+  under nothing or over `MAX_FACILITY_TAX` (10%, what a structure can charge: the index or prices moved since). EVE Ref's job
+  measures 1.00%, as typed in its inputs.
+- **Settling the SCC bases** (not changed by Task 11). Each research or copy job checked at an NPC station shows `sccShare`: what
+  EVE charged over the app's base besides the index part, the tax and the Alpha tax, as a share of the base. ME research's reading is
+  SCC_RESEARCH (2%) on the app's base (2% of the EIV × the level steps ÷ 105, no rank); copying's SCC_COPY (4%) on 2% of the EIV ×
+  runs × copies. When the first real job's share isn't the constant to within rounding (the index's four decimals), the reading is
+  wrong: say which (rank in the research base would scale the share by the blueprint's rank; no SCC on copying reads 0) and change the
+  constant in a commit citing the job. Until then the constants stand.

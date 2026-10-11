@@ -2544,6 +2544,40 @@ try {
       for (const k of Object.keys(ESI)) if (k.startsWith(`/characters/${ID}/`)) delete ESI[k];
     }
 
+    // --- Task 11: a job at your structure site measures its tax (Use this); an NPC-station job more than 1% off is said.
+    {
+      const EIV_RUN = 157590413.44605502 / 65;
+      const SITE = { id: 'st:1046664001931', name: 'UALX-3 - 1st Byzantigoon', systemId: 30004807, kind: 'azbel', structureId: 1046664001931, rigs: [37170], tax: null };
+      const DOC11 = { ...DOC, sites: [...DOC.sites, SITE] };
+      const at = (t) => iso(t);
+      const done = (jobId, over) => ({ jobId, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 65, licensedRuns: 40, successfulRuns: null, probability: null, cost: 17213916,
+        facilityId: 1046664001931, stationId: 1046664001931, outputId: 1046664001931, start: at(now - 2 * 86400_000), end: at(now - 86400_000), completed: at(now - 86400_000 + 600_000), status: 'delivered', perRun: 1,
+        seenAt: at(now - 2 * 86400_000 + 1200_000), first: { me: 10, te: 20, systemId: 30004807, index: 0.0617, eiv: EIV_RUN }, ...over });
+      const jobs11 = { 9301: done(9301, {}), 9302: done(9302, { facilityId: 60001483, stationId: 60001483, outputId: 60001483, runs: 1, cost: 1_250_000, first: { me: 10, te: 20, systemId: 30000119, index: 0.05, eiv: EIV_RUN } }),
+        9303: done(9303, { facilityId: 60001483, stationId: 60001483, outputId: 60001483, seenAt: at(now - 2 * 86400_000 + 3 * 3600_000) }) };
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, jobs: jobs11, meta: { ...ledger.meta, jobsRead: true, industry: { at: iso(now - 600_000), jobs: [], places: {} } }, industry: DOC11, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } });
+      await page.goto(`${BASE}#hustles/industry/blueprints`);
+      await page.waitForSelector('[data-industry="jobs-done"]', { timeout: 30_000 }).catch(() => problems.push('the finished jobs never drew'));
+      const check = async (id) => text(`[data-industry="jobs-done"] [data-job="${id}"] [data-industry="check"]`);
+      if (!(await check(9301)).includes('Not checked: the facility tax there isn’t typed')) problems.push(`the job at the untyped structure isn’t said as unchecked for its tax: “${await check(9301)}”`);
+      if (!/The app worked out .+; EVE charged 1\.25 M/.test(await check(9302))) problems.push(`the NPC-station job 1% off isn’t said: “${await check(9302)}”`);
+      if (!(await check(9303)).includes('Not checked: first seen 3 h after it started')) problems.push(`the job seen late isn’t said as such: “${await check(9303)}”`);
+      if (SHOTS) { await page.locator('[data-industry="jobs-done"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-job-check.png` }); }
+      const UM = PHONE ? 'use-measured-phone' : 'use-measured', AG = PHONE ? 'measured-agrees-phone' : 'measured-agrees';
+      await page.goto(`${BASE}#hustles/industry/build`);
+      await page.waitForSelector('[data-industry="build"]', { timeout: 20_000 });
+      if (!(await page.locator('[data-industry="sites"]').isVisible().catch(() => false))) await page.locator('button.panel-toggle', { hasText: 'Where you build' }).click();
+      await page.waitForSelector(`[data-industry="${UM}"]`, { timeout: 15_000 }).catch(async () => problems.push(`the measured tax isn’t offered: “${(await text('[data-industry="site-list"]')).slice(0, 300)}”`));
+      if (!(await text(`[data-industry="${UM}"]`)).includes('job of') || !(await text(`[data-industry="${UM}"]`)).includes('there paid 1.00%')) problems.push(`the measured tax doesn’t say whose job and what it paid: “${await text(`[data-industry="${UM}"]`)}”`);
+      const stored = () => page.evaluate(() => new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('industry'); g.onsuccess = () => res(g.result); }; }));
+      if (SHOTS) { await page.locator(`[data-industry="${UM}"]`).scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-use-this.png` }); }
+      if ((await stored()).sites.find((s) => s.id === 'st:1046664001931').tax != null) problems.push('the measured tax was written without Use this');
+      await page.locator(`[data-industry="${UM}"] button`, { hasText: 'Use this' }).click(); await page.waitForTimeout(800);
+      if ((await stored()).sites.find((s) => s.id === 'st:1046664001931').tax !== 0.01) problems.push('Use this didn’t set the site’s tax to 1.00%');
+      if (!(await page.locator(`[data-industry="${AG}"]`).count())) problems.push('after Use this, the site doesn’t say the job agrees');
+    }
+
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

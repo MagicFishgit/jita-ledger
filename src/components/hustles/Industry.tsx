@@ -81,7 +81,7 @@ export function Industry({ route }: { route: Route }) {
       ) : (
         <PilotProvider value={shown.pilot}>
           {section === 'start' && <IndustryStart key={shown.charId} c={shown} ix={ix} graph={graph} />}
-          {section === 'build' && <IndustryBuild key={shown.charId} c={shown} ix={ix} graph={graph} mainName={main.name} />}
+          {section === 'build' && <IndustryBuild key={shown.charId} c={shown} ix={ix} graph={graph} mainName={main.name} chars={chars} />}
           {section === 'blueprints' && <IndustryOwned chars={chars} filter={filter} onFilter={chooseFilter} shown={shown} ix={ix} graph={graph} />}
         </PilotProvider>
       )}

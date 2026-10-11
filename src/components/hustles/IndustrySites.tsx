@@ -2,9 +2,10 @@ import { useMemo, useState } from 'react';
 import { Building2, ChevronRight, Factory, Truck } from 'lucide-react';
 import { hasScope } from '../../lib/auth';
 import { SCOPE } from '../../lib/config';
-import { iskBig, pct } from '../../lib/format';
+import { fmtShort, iskBig, pct } from '../../lib/format';
 import { toast } from '../../lib/toast';
-import { KIND_SAID, kindOfType, type Indexed, type SiteKind } from '../../lib/industry';
+import { KIND_SAID, kindOfType, secBand, type Indexed, type SiteKind } from '../../lib/industry';
+import { measuredBySite } from '../../lib/industryOwned';
 import { NEAR_JITA_JUMPS } from '../../lib/industryRank';
 import { FREIGHT_PRESETS, HOME_SYSTEMS, homeSite, JITA_SYSTEM, quietStations, rigsFitting, routeBetween, secText, siteFacts, stationLabel, stationSite, structureSite } from '../../lib/industrySites';
 import { HIGH_SEC, jumpsFrom, type Graph } from '../../lib/jumps';
@@ -28,7 +29,7 @@ const KIND_PICK: Record<SiteKind, string> = { npc: 'NPC station', raitaru: 'Rait
 const rigName = (ix: Indexed, id: number) => (ix.b.types[id]?.[0] ?? `Rig #${id}`).replace(/^Standup /, '');
 type Adding = 'near' | 'name' | 'home';
 
-export function IndustrySites({ c, ix, graph, mainName }: { c: IndustryChar; ix: Indexed; graph: Graph; mainName: string }) {
+export function IndustrySites({ c, ix, graph, mainName, chars }: { c: IndustryChar; ix: Indexed; graph: Graph; mainName: string; chars: IndustryChar[] }) {
   const [doc, setDoc] = useIndustryDoc();
   const indices = useIndices();
   const idx = indices.state === 'ok' ? indices.value : null;
@@ -41,6 +42,21 @@ export function IndustrySites({ c, ix, graph, mainName }: { c: IndustryChar; ix:
   const change = (id: string, patch: Partial<IndustrySite>) => setDoc({ sites: doc.sites.map((s) => (s.id === id ? { ...s, ...patch } : s)) });
   const remove = (id: string) => setDoc({ sites: doc.sites.filter((s) => s.id !== id), site: doc.site === id ? (doc.sites.find((s) => s.id !== id)?.id ?? null) : doc.site });
   const sysName = (id: number) => graph[id]?.[1] ?? `System #${id}`;
+  // What a job of yours (any character's) measured there (industryOwned.ts measuredBySite): offered, never applied by itself.
+  const bandOf = (s: IndustrySite) => secBand(graph[s.systemId]?.[0]);
+  const measuredLine = (s: IndustrySite, phone: '' | '-phone') => {
+    const m = measured[s.id];
+    if (!m) return null;
+    const agrees = s.tax != null && Math.abs(s.tax - m.tax) < 0.00005;
+    return agrees ? <span className="sub" data-industry={`measured-agrees${phone}`}>{m.isMain ? 'Your' : `${m.who}’s`} job of {fmtShort(m.at)} there paid the same.</span>
+      : (
+        <span className="sub" data-industry={`use-measured${phone}`}>
+          {m.isMain ? 'Your' : `${m.who}’s`} job of {fmtShort(m.at)} there paid {pct(m.tax)}:{' '}
+          <button type="button" className="link-btn" onClick={() => change(s.id, { tax: m.tax })}>Use this</button>
+        </span>
+      );
+  };
+  const measured = useMemo(() => measuredBySite(ix, doc.sites, chars, bandOf), [ix, doc.sites, chars, graph]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <section className="col" style={{ gap: 12 }} aria-label="Where you build" data-industry="sites">
@@ -86,7 +102,7 @@ export function IndustrySites({ c, ix, graph, mainName }: { c: IndustryChar; ix:
                         <button type="button" className="link-btn" onClick={() => remove(s.id)}>Remove</button>
                       </span>
                       {!s.structureId && s.kind !== 'npc' && <span className="sub">Typed by you: with no structure ID, the app knows nothing held there.</span>}
-                      <span className="rd-phone"><span>{where}</span><span>{kind}</span><span>Tax: {tax}</span><span>Index: {index}</span></span>
+                      <span className="rd-phone"><span>{where}</span><span>{kind}</span><span>Tax: {tax}</span><span>Index: {index}</span>{s.kind !== 'npc' && measuredLine(s, '-phone')}</span>
                     </td>
                     <td className="l rd-wide">{place}<span className="sub">{jumps}</span></td>
                     <td className="l rd-wide">
@@ -116,8 +132,11 @@ export function IndustrySites({ c, ix, graph, mainName }: { c: IndustryChar; ix:
                     </td>
                     <td className="rd-wide">
                       {s.kind === 'npc' ? tax : (
-                        <NumChip label="Facility tax" hideLabel percent width={60} value={s.tax != null ? +(s.tax * 100).toFixed(4) : null} placeholder="–"
-                          onChange={(n) => change(s.id, { tax: n == null ? null : n / 100 })} tip={s.tax == null ? 'Not typed: the finder ranks before it and says what each 1% costs a day.' : 'Typed by you.'} />
+                        <>
+                          <NumChip label="Facility tax" hideLabel percent width={60} value={s.tax != null ? +(s.tax * 100).toFixed(4) : null} placeholder="–"
+                            onChange={(n) => change(s.id, { tax: n == null ? null : n / 100 })} tip={s.tax == null ? 'Not typed: the finder ranks before it and says what each 1% costs a day. Type it from the Industry window, or run a manufacturing job there and the app measures it.' : 'Typed by you.'} />
+                          {measuredLine(s, '')}
+                        </>
                       )}
                     </td>
                     <td className="rd-wide">{index}</td>

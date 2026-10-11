@@ -5,11 +5,12 @@
  * has no use for, so it isn't industryTrack.ts. Nothing not read is a zero: a count is null with why.
  */
 import type { OwnedBlueprint } from './blueprints';
-import { eivOf, researchCost, researchTime, rigFor, slots, structureBonus, type BundleBp, type Clone, type Indexed } from './industry';
+import { eivOf, researchCost, researchTime, rigFor, slots, structureBonus, type BundleBp, type Clone, type Indexed, type SecBand } from './industry';
 import { alphaCapOf, RUNGS, usable, type RungKey } from './industryLadder';
 import type { LabSite } from './industryRank';
 import { productKind } from './industryRank';
-import { isStationId, slotsUsed, type JobRecord } from './industryTrack';
+import { isStationId, jobPlace, measuredTax, slotsUsed, type JobRecord } from './industryTrack';
+import type { IndustrySite } from './prefs';
 import { units } from './format';
 import { lostSaid } from './pilot';
 import { ROMAN } from './skillStatus';
@@ -253,4 +254,22 @@ export function chanceSaid(inv: { needs: number[]; sciences: { id: number; level
     [...inv.sciences, ...(inv.encryption ? [inv.encryption] : [])].filter((x) => !inv.needs.includes(x.id)).map((x) => `${name(x.id)} ${ROMAN[x.level]}`).join(', ') || null,
     `${inv.attempts != null ? inv.attempts.toFixed(2) : '–'} attempts a copy of ${units(inv.runsPerCopy)} run${inv.runsPerCopy === 1 ? '' : 's'}, at ME ${me} / TE ${te}`,
   ].filter(Boolean).join(' · ');
+}
+
+/** A facility tax a job measured at one of your sites: the tax, when the job started, whose job. */
+export type Measured = { tax: number; at: string; who: string; isMain: boolean; jobId: number };
+/** Per structure site, the newest manufacturing job of any character there that measures its tax (measuredTax); null when none does. */
+export function measuredBySite(ix: Indexed, sites: readonly IndustrySite[], chars: readonly { name: string; isMain: boolean; clone: Clone; jobs: Read<JobRecord[]> }[], bandOf: (s: IndustrySite) => SecBand): Record<string, Measured | null> {
+  const out: Record<string, Measured | null> = {};
+  for (const s of sites) {
+    if (s.kind === 'npc' || s.structureId == null) continue;
+    const cands = chars.flatMap((c) => (c.jobs.state === 'read' ? c.jobs.value.filter((j) => j.facilityId === s.structureId).map((j) => ({ c, j })) : []))
+      .sort((a, b) => Date.parse(b.j.start) - Date.parse(a.j.start));
+    out[s.id] = null;
+    for (const { c, j } of cands) {
+      const m = measuredTax(ix, j, jobPlace(j, sites, bandOf), c.clone);
+      if (m.tax != null) { out[s.id] = { tax: m.tax, at: j.start, who: c.name, isMain: c.isMain, jobId: j.jobId }; break; }
+    }
+  }
+  return out;
 }
