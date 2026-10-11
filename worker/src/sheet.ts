@@ -9,10 +9,9 @@ import { ALPHA_SKILL_CAPS } from '../../src/lib/alphaCaps';
 import { toResearch, toStandings, type RawResearch, type RawStanding } from '../../src/lib/research';
 import { cloneState, type CloneState } from '../../src/lib/roster';
 import { sanitizeBlueprints, type JobRecord } from '../../src/lib/industryTrack';
-import { storedRecords } from './archive';
-import { readBlueprintsFor, readJobsFor, SCOPE_BLUEPRINTS, SCOPE_JOBS } from './industryJobs';
+import { readBlueprintsFor, readJobsFor, SCOPE_BLUEPRINTS, SCOPE_JOBS, SCOPE_STRUCTURES } from './industryJobs';
 import { esiGet, readerLogin, stillKept, type Reader } from './eve';
-import { push } from './sync';
+import { push, storedRecords } from './sync';
 
 type Env = { DB: D1Database; EVE_CLIENT_ID: string; TOKEN_KEY: string };
 
@@ -117,7 +116,7 @@ export async function readSheet(
   }
   if (login.scopes.includes(SCOPE_JOBS)) {
     try {
-      const changed = await readJobsFor(char, token, { bps, held: heldBps, stored: (ids) => storedRecords<JobRecord>(db, char, 'jobs', ids), now });
+      const changed = await readJobsFor(char, token, { bps, held: heldBps, structures: login.scopes.includes(SCOPE_STRUCTURES), stored: (ids) => storedRecords<JobRecord>(db, char, 'jobs', ids), now });
       for (const j of changed) records.push({ k: 'jobs', i: String(j.jobId), d: j });
       meta.jobsRead = true;
     } catch { /* kept as it was */ }

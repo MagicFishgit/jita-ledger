@@ -12,7 +12,7 @@ import { esiAll, esiGet, esiPost, EveError } from './eve';
 export const SCOPE_JOBS = 'esi-industry.read_character_jobs.v1';
 export const SCOPE_BLUEPRINTS = 'esi-characters.read_blueprints.v1';
 const SCOPE_ASSETS = 'esi-assets.read_assets.v1';
-const SCOPE_STRUCTURES = 'esi-universe.read_structures.v1';
+export const SCOPE_STRUCTURES = 'esi-universe.read_structures.v1';
 const E = EIV as unknown as { eiv: Record<string, [number, number][]>; out: Record<string, [number, number]> };
 
 /** CCP's adjusted prices (/markets/prices/, no login): what a job's EIV is worked out on. */
@@ -27,7 +27,7 @@ async function adjustedPrices(): Promise<Record<number, number>> {
  * table for every row; what a job not held yet needs to be sighted (the indices, the prices, its station's system) is read
  * only when one turns up running. A lookup that fails leaves that field not known. The records that changed.
  */
-export async function readJobsFor(char: number, token: string, o: { bps: BlueprintsDoc | null; held?: BlueprintsDoc | null; stored: (ids: string[]) => Promise<Map<string, JobRecord>>; now?: number }): Promise<JobRecord[]> {
+export async function readJobsFor(char: number, token: string, o: { bps: BlueprintsDoc | null; held?: BlueprintsDoc | null; structures?: boolean; stored: (ids: string[]) => Promise<Map<string, JobRecord>>; now?: number }): Promise<JobRecord[]> {
   const { data: raw } = await esiGet<RawJob[]>(`/characters/${char}/industry/jobs/`, { token, query: { include_completed: 'true' } });
   const held = Object.fromEntries(await o.stored(raw.filter((r) => Number.isInteger(r?.job_id)).map((r) => String(r.job_id))));
   const running = newJobs(raw, held).filter((r) => r.status === 'active');
@@ -39,7 +39,7 @@ export async function readJobsFor(char: number, token: string, o: { bps: Bluepri
     for (const id of new Set(running.map((r) => r.station_id))) {
       try {
         if (isStationId(id)) systems.set(id, (await esiGet<{ system_id: number }>(`/universe/stations/${id}/`)).data.system_id);
-        else if (isStructureId(id)) systems.set(id, (await esiGet<{ solar_system_id: number }>(`/universe/structures/${id}/`, { token })).data.solar_system_id);
+        else if (isStructureId(id) && o.structures) systems.set(id, (await esiGet<{ solar_system_id: number }>(`/universe/structures/${id}/`, { token })).data.solar_system_id);
       } catch { systems.set(id, null); }
     }
   }
@@ -73,7 +73,7 @@ export async function readBlueprintsFor(char: number, token: string, scopes: str
   if (scopes.includes(SCOPE_STRUCTURES)) {
     for (const id of want.structures) {
       try { names[String(id)] = (await esiGet<{ name: string }>(`/universe/structures/${id}/`, { token })).data.name; }
-      catch (e) { if (e instanceof EveError && (e.status === 401 || e.status === 403)) names[String(id)] = ''; }
+      catch (e) { if (e instanceof EveError && e.status === 403) names[String(id)] = ''; }
     }
   }
   return toBlueprintsDoc(raw, names, itemPlaces(draft, itemIds));

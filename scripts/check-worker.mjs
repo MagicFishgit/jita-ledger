@@ -1437,6 +1437,31 @@ console.log('\n--- Industry stage 2: jobs and blueprints in the cloud (Task 9B) 
       [{ list: [[7001, 25895, CONT, 'Hangar', -1, -1, 10, 20], [7002, 25896, STRUCT, 'Hangar', -1, -1, 10, 20]] }, false]);
   }
 
+  // A 401 from a structure is the token's, not the structure's: the place stays unnamed and is asked again (only a 403 is `''`).
+  {
+    const { db, env } = await ledgerWithAlt();
+    db.run('DELETE FROM keys WHERE purpose = ?', `alt:${ALT}`);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', IND);
+    const routes = [...industryRoutes(ALT, { blueprints: [rawBp(), rawBp({ item_id: 7002, type_id: 25896, location_id: STRUCT })] }), ...esiFor(ALT)];
+    routes.unshift([`/universe/structures/${STRUCT}/`, new Response('{"error":"token"}', { status: 401 })]);
+    const f = stubFetch(routes);
+    await readAlt(env, altReader(MAIN, ALT));
+    f.restore();
+    eq('  a structure that answers 401 is left unnamed, not marked refused', [String(STRUCT) in (docOf(db, ALT, 'blueprints').names ?? {}), docOf(db, ALT, 'blueprints').names[CONT]], [false, 'Blueprints']);
+  }
+
+  // A job running at a structure: its system is asked only with the structures permission.
+  {
+    const { db, env } = await ledgerWithAlt();
+    db.run('DELETE FROM keys WHERE purpose = ?', 'main');
+    await keepKey(db, MAIN, 'main', MAIN, 'Main', IND.filter((s) => s !== 'esi-universe.read_structures.v1'));
+    const f = stubFetch([...industryRoutes(MAIN, { jobs: [rawJob(MAIN, { facility_id: STRUCT, station_id: STRUCT })] }), ...esiFor(MAIN)]);
+    await archive(env, ledgerReader(MAIN));
+    f.restore();
+    eq('  no structures permission: a job at a structure is kept with its system not known, and no structure is asked about',
+      [f.calls.some((c) => /universe\/structures/.test(c.path)), jobOf(db, MAIN, 801)?.first?.systemId], [false, null]);
+  }
+
   // A running job's blueprint may be missing from the read just taken: the doc held before stands in (correction 20).
   {
     const { db, env } = await ledgerWithAlt();

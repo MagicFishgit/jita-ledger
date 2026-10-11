@@ -32,13 +32,13 @@ export type PushBody = {
 export class BadRequest extends Error {}
 
 /** The stored records of one kind with these IDs, 90 at a time (D1 binds at most 100 parameters). */
-async function storedOf(db: D1Database, charId: number, kind: string, ids: string[]): Promise<Map<string, unknown>> {
-  const out = new Map<string, unknown>();
+export async function storedRecords<T>(db: D1Database, charId: number, kind: string, ids: string[]): Promise<Map<string, T>> {
+  const out = new Map<string, T>();
   for (let i = 0; i < ids.length; i += 90) {
     const part = ids.slice(i, i + 90);
     const rows = (await db.prepare(`SELECT id, data FROM records WHERE char_id = ?1 AND kind = ?2 AND id IN (${part.map((_, n) => `?${n + 3}`).join(',')})`)
       .bind(charId, kind, ...part).all<{ id: string; data: string | null }>()).results;
-    for (const r of rows) if (r.data) out.set(r.id, JSON.parse(r.data));
+    for (const r of rows) if (r.data) out.set(r.id, JSON.parse(r.data) as T);
   }
   return out;
 }
@@ -53,12 +53,12 @@ export async function push(db: D1Database, charId: number, body: PushBody): Prom
   for (const r of records) if (!RECORD_KINDS.has(r.k)) throw new BadRequest(`Unknown record kind: ${r.k}`);
   for (const doc of docs) if (!DOC_KEYS.has(doc.key)) throw new BadRequest(`Unknown document: ${doc.key}`);
   const jobIds = records.filter((r) => r.k === 'jobs' && r.d != null && typeof r.i === 'string').map((r) => r.i);
-  const heldJobs = jobIds.length ? await storedOf(db, charId, 'jobs', jobIds) : new Map<string, unknown>();
+  const heldJobs = jobIds.length ? await storedRecords<JobRecord>(db, charId, 'jobs', jobIds) : new Map<string, JobRecord>();
   // `later`: jobs the merge changed from what was pushed (correction 19), written at a revision of their own below.
   const rows: { k: string; i: string; d: string | null }[] = [], later: typeof rows = [];
   for (const r of records) {
     if (typeof r.i !== 'string' || !r.i || r.i.length > 200) throw new BadRequest('A record needs an ID');
-    const value = r.k === 'jobs' && r.d != null ? mergeJob(heldJobs.get(r.i) as JobRecord | undefined, r.d as JobRecord) : r.d;
+    const value = r.k === 'jobs' && r.d != null ? mergeJob(heldJobs.get(r.i), r.d as JobRecord) : r.d;
     const d = value == null ? null : JSON.stringify(value);
     if (d && d.length > MAX_RECORD_BYTES) throw new BadRequest(`A ${r.k} record is too large (${d.length} bytes)`);
     (r.k === 'jobs' && r.d != null && d !== JSON.stringify(r.d) ? later : rows).push({ k: r.k, i: r.i, d });

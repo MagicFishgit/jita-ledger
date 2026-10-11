@@ -1090,7 +1090,7 @@ function CloudPanel() {
                   : archiveJob.lastError && archiveStale ? `The login works again (${fmtDateTime(watcher.at)}); the last run, at ${fmtDateTime(archiveJob.lastRun)}, was before that and failed. The next runs at 7 past the hour, or run it now.`
                   : archiveJob.lastError ? `The last run failed: ${archiveJob.lastError}.`
                     : `Last run ${ago(new Date(archiveJob.lastRun).toISOString(), now)}${archiveJob.detail ? `: ${[
-                      ['trades', 'new trade'], ['journal', 'journal entry'], ['orders', 'order change'], ['names', 'name'],
+                      ['trades', 'new trade'], ['journal', 'journal entry'], ['orders', 'order change'], ['names', 'name'], ['jobs', 'industry job change'],
                     ].map(([k, w]) => { const n = Number(archiveJob.detail?.[k] ?? 0); return n ? `${units(n)} ${n === 1 ? w : w === 'journal entry' ? 'journal entries' : w + 's'}` : null; }).filter(Boolean).join(', ') || 'nothing new'}` : ''}.`}
               </p>
               <div className="row" style={{ gap: 10 }}>

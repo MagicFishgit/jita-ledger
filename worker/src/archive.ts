@@ -14,10 +14,10 @@ import {
   type JournalRecord, type OrderRecord, type RawAsset, type RawCharOrder, type RawJournal, type RawTx, type SafetyWrap, type StockRecord,
 } from '../../src/lib/esiRecords';
 import { esiAll, esiGet, esiPost, readerLogin, stillKept, useLogin, type Reader } from './eve';
-import { readJobsFor, SCOPE_JOBS } from './industryJobs';
+import { readJobsFor, SCOPE_JOBS, SCOPE_STRUCTURES } from './industryJobs';
 import { sanitizeBlueprints, type JobRecord } from '../../src/lib/industryTrack';
 import { mailSafety, registerSafety, safetyFindings } from './safety';
-import { push } from './sync';
+import { push, storedRecords } from './sync';
 
 const JITA_44 = 60003760;
 const has = (scopes: string[], s: string) => scopes.includes(s);
@@ -47,17 +47,6 @@ export type ArchiveResult = {
 async function ids(db: D1Database, charId: number, kind: string): Promise<Set<string>> {
   const rows = (await db.prepare('SELECT id FROM records WHERE char_id = ?1 AND kind = ?2 AND data IS NOT NULL').bind(charId, kind).all<{ id: string }>()).results;
   return new Set(rows.map((r) => r.id));
-}
-/** The stored records of one kind with these IDs, read 90 at a time (D1 binds at most 100 parameters). */
-export async function storedRecords<T>(db: D1Database, charId: number, kind: string, idsList: string[]): Promise<Map<string, T>> {
-  const out = new Map<string, T>();
-  for (let i = 0; i < idsList.length; i += 90) {
-    const part = idsList.slice(i, i + 90);
-    const rows = (await db.prepare(`SELECT id, data FROM records WHERE char_id = ?1 AND kind = ?2 AND id IN (${part.map((_, n) => `?${n + 3}`).join(',')})`)
-      .bind(charId, kind, ...part).all<{ id: string; data: string | null }>()).results;
-    for (const r of rows) if (r.data) out.set(r.id, JSON.parse(r.data) as T);
-  }
-  return out;
 }
 async function doc<T>(db: D1Database, charId: number, key: string): Promise<T | null> {
   const row = await db.prepare('SELECT data FROM docs WHERE char_id = ?1 AND key = ?2').bind(charId, key).first<{ data: string }>();
@@ -186,7 +175,7 @@ export async function archive(env: Env, who: Reader, opts: { prices?: Record<num
   // job (`sheet`) dates all of an alt's industry reads. A failed read leaves what's held and doesn't stop the copy.
   if (!alt && has(scopes, SCOPE_JOBS)) {
     try {
-      const changed = await readJobsFor(charId, token, { bps: sanitizeBlueprints(await doc(db, charId, 'blueprints')) ?? null, stored: (ids) => storedRecords<JobRecord>(db, charId, 'jobs', ids) });
+      const changed = await readJobsFor(charId, token, { structures: has(scopes, SCOPE_STRUCTURES), bps: sanitizeBlueprints(await doc(db, charId, 'blueprints')) ?? null, stored: (ids) => storedRecords<JobRecord>(db, charId, 'jobs', ids) });
       for (const j of changed) records.push({ k: 'jobs', i: String(j.jobId), d: j });
       result.jobs = changed.length;
     } catch (e) { console.log('industry jobs read failed', charId, e instanceof Error ? e.message : String(e)); }
