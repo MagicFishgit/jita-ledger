@@ -2605,6 +2605,28 @@ try {
       if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-todo-alt.png` }); }
     }
 
+    // --- Task 12B: To do lists what the main built that sits in Jita 4-4's hangar, priced on Jita's book.
+    {
+      const built = { jobId: 9501, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 10, licensedRuns: null, successfulRuns: null, probability: null, cost: 1e6,
+        facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: iso(now - 2 * 86400_000), end: iso(now - 86400_000), completed: iso(now - 86400_000), status: 'delivered', perRun: 1, seenAt: iso(now - 2 * 86400_000 + 600_000) };
+      await page.goto(SEED_PAGE);
+      // The pump is named by ESI here, not seeded: a first build is a type the ledger has never named, so this pins To do's
+      // useEnsureNames for built types (pre-flight I3). The case's names stub calls everything else a station; Jita 4-4 gets
+      // its real name, which the built place is named with (the same lookup as an alt's facilities).
+      const prevNames = ESI['/universe/names/'];
+      ESI['/universe/names/'] = (url, req, json) => json(JSON.parse(req.postData() ?? '[]').map((id) => (id === 25894 ? { id, name: 'Large Trimark Armor Pump I', category: 'inventory_type' } : id === 60003760 ? { id, name: 'Jita IV - Moon 4 - Caldari Navy Assembly Plant', category: 'station' } : { id, name: `Station ${id}`, category: 'station' })));
+      await seed({ ...ledger, jobs: { 9501: built }, stock: { at: iso(now - 600_000), jita: { 25894: 10 }, total: { 25894: 10 }, byLocation: { 60003760: { 25894: 10 } } }, industry: DOC, cloud: CLOUD_STATE }, { alts: altStore });
+      await page.goto(`${BASE}#todo`);
+      await page.waitForSelector('.tn-item', { timeout: 20_000 }).catch(() => problems.push('To do drew no item'));
+      // Wait on the condition (the name lands from ESI, the price from the book), not a clock.
+      await page.waitForFunction(() => [...document.querySelectorAll('.tn-item')].some((e) => /Large Trimark Armor Pump I you built[\s\S]*List in Jita at/.test(e.textContent ?? '')), null, { timeout: 20_000 }).catch(() => undefined);
+      const item = await text('.tn-item:has-text("you built")');
+      // Priced on the case's own Jita book for the pump (ITEMS, the finder's stand-in); no history is served, so at the front.
+      if (!item.includes('List 10 Large Trimark Armor Pump I you built, at Jita IV - Moon 4') || !/List in Jita at [\d,.]+/.test(item) || !item.includes('opening it copies the price')) problems.push(`To do doesn’t list the pumps built, named and priced in Jita: “${item.slice(0, 300)}”`);
+      if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-todo-built.png` }); }
+      ESI['/universe/names/'] = prevNames;
+    }
+
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

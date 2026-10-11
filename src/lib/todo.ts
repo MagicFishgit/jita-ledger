@@ -1,8 +1,9 @@
+import { JITA_44 } from './constants';
 import { fmtDateTime, isk, iskBig, units } from './format';
 import { placeMovedSaid, planLabel, planListSaid, type DroppedState, type Listed, type PlanItem, type PlanItemState, type PlanListPrice, type TradePlan } from './plans';
 import type { MarketMove } from './prospects';
 import { FEEDS_QUEUE_DO, feedsQueueLead, notReachedSince, type FeedsQueue, type Relist, type Verdict } from './relist';
-import { ACTIVITY_SAID } from './industryTrack';
+import { ACTIVITY_SAID, type BuiltItem } from './industryTrack';
 import { DATACORE_FEE, RP_PER_DATACORE } from './research';
 
 /**
@@ -19,10 +20,10 @@ import { DATACORE_FEE, RP_PER_DATACORE } from './research';
  * is simply absent, and reading absent as done would tick the whole list off on every load.
  */
 
-export type TodoKind = 'move' | 'cancel' | 'bid' | 'notReached' | 'underCost' | 'feedsQueue' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry' | 'courier' | 'cloudLogin' | 'placeBuy' | 'planList' | 'cashIn';
+export type TodoKind = 'move' | 'cancel' | 'bid' | 'notReached' | 'underCost' | 'feedsQueue' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry' | 'courier' | 'cloudLogin' | 'placeBuy' | 'planList' | 'cashIn' | 'built';
 
 /** Which read a finding came from, and so which read can say it has gone. */
-export type Source = 'orders' | 'colonies' | 'signals' | 'ledger' | 'industry' | 'contracts' | 'cloud' | 'roster' | 'research';
+export type Source = 'orders' | 'colonies' | 'signals' | 'ledger' | 'industry' | 'contracts' | 'cloud' | 'roster' | 'research' | 'stock';
 
 export type TodoItem = {
   /** What it's about, stable for as long as the finding lasts: `order:123`, `pi:456`, `backup`. */
@@ -82,10 +83,11 @@ export const WARNINGS: ReadonlySet<TodoKind> = new Set<TodoKind>(['scam', 'squee
 
 /**
  * Chores whose tick by hand holds until the finding changes (its version), like a warning's, rather than coming back after
- * SESSION_MS: a cash-in item's version is the whole datacores waiting, so "not now" holds until another one comes in. Kept
+ * SESSION_MS: a cash-in item's version is the whole datacores waiting, so "not now" holds until another one comes in; a built item's version is its newest delivered job, so
+ * "not now" holds until another delivery. Kept
  * apart from WARNINGS, which also decides what an item wants from you (`needs`): these are still something to do.
  */
-export const HOLDS_UNTIL_CHANGED: ReadonlySet<TodoKind> = new Set<TodoKind>(['cashIn']);
+export const HOLDS_UNTIL_CHANGED: ReadonlySet<TodoKind> = new Set<TodoKind>(['cashIn', 'built']);
 
 /**
  * What an item wants from you: something to do, in game or here, or a warning to know about. The user asked to sift
@@ -115,13 +117,13 @@ export function tickAll(m: Memory, keys: string[], now: number): Memory {
  * measured --- they are there so a list of twelve relists reads as a quarter of an hour, not an evening.
  */
 export const MINUTES: Record<TodoKind, number> = {
-  move: 1, cancel: 1, bid: 2, notReached: 1, underCost: 1, feedsQueue: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1, industry: 1, courier: 10, cloudLogin: 1, placeBuy: 1, planList: 1, cashIn: 5,
+  move: 1, cancel: 1, bid: 2, notReached: 1, underCost: 1, feedsQueue: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1, industry: 1, courier: 10, cloudLogin: 1, placeBuy: 1, planList: 1, cashIn: 5, built: 2,
 };
 
 export const KIND_LABEL: Record<TodoKind, string> = {
   move: 'Move order', cancel: 'Cancel order', bid: 'Sell into bids', notReached: 'Not reached since you placed it', underCost: 'Priced under cost', feedsQueue: 'Feeds a long queue', close: 'Close position', squeeze: 'Margin squeeze', piExpired: 'PI expired',
   piEnding: 'PI ending', nearMiss: 'Trades your positions skipped', scam: 'Suspicious market', backup: 'Backup', industry: 'Industry jobs to deliver', courier: 'Courier to deliver',
-  cloudLogin: 'Cloud login', placeBuy: 'Place buy order', planList: 'List what the plan bought', cashIn: 'Cash in datacores',
+  cloudLogin: 'Cloud login', placeBuy: 'Place buy order', planList: 'List what the plan bought', cashIn: 'Cash in datacores', built: 'List what you built',
 };
 
 /**
@@ -348,6 +350,45 @@ export function judgeAltIndustry(e: Entry, c: { live: boolean; readAt: number | 
   if (!c.live) return null;
   if (c.gone) return false;
   return judgeIndustry(e, { readAt: c.readAt, waiting: c.waiting });
+}
+
+/**
+ * Where what you built is listed (correction 15 of the stage-2 plan): where it sits decides. In Jita 4-4, Jita; at your home
+ * hub's structure or in its system, the hub; anywhere else the Industry tab's choice, except that a ship never goes to Jita
+ * while "never haul ships to Jita" is on (the user's words). Null: nowhere it may be listed (a ship with no hub picked).
+ * `placeSystem` is known for Jita 4-4 and for a place that is one of your build sites (To do reads it from the industry doc),
+ * so "in the hub's system" holds for your own structure there; any other place is judged by the choice.
+ */
+export function builtWhere(o: { place: number; placeSystem: number | null; hub: { id: number; systemId: number } | null; sell: 'jita' | 'home' | 'best'; ship: boolean; noShipsToJita: boolean }): 'jita' | 'home' | null {
+  if (o.place === JITA_44) return 'jita';
+  if (o.hub && (o.place === o.hub.id || o.placeSystem === o.hub.systemId)) return 'home';
+  if (o.ship && o.noShipsToJita) return o.hub ? 'home' : null;
+  return o.sell === 'home' && o.hub ? 'home' : 'jita';
+}
+
+/** List what you built: one item per character, product and place, its version the newest delivered job's ID. */
+export function builtItem(x: BuiltItem & { who: string | null; placeName: string | null }, o: { name: string; where: 'jita' | 'home' | null; price: number | null; read: boolean; hubName: string | null; isMain: boolean }): TodoItem {
+  const at = o.where === 'home' ? `at ${o.hubName ?? 'your home hub'}` : 'in Jita';
+  const priceSaid = o.where == null ? 'It’s a ship and “never haul ships to Jita” is on, with no home hub picked: pick one on the Industry tab.'
+    : o.price != null ? `List ${at} at ${isk(o.price)}${o.where === 'jita' ? ' (others’ cheapest listing less a tick, where trading reaches)' : ' (the hub’s cheapest listing less a tick, Goonmetrics)'}; opening it copies the price.`
+      : !o.read ? (o.where === 'jita' ? 'Reading its Jita book.' : 'Reading the home hub’s prices.') : `No price to list ${at}: nobody lists it there.`;
+  return {
+    key: `built:${x.charId}:${x.typeId}:${x.place}`, ver: String(x.newest), kind: 'built', source: 'stock', typeId: x.typeId, amount: x.units,
+    stake: o.price != null ? o.price * x.units : 0,
+    title: `${x.who ? `${x.who} · ` : ''}List ${units(x.units)} ${o.name} you built, at ${x.placeName ?? 'where it landed'}`,
+    detail: `${units(x.jobIds.length)} job${x.jobIds.length === 1 ? '' : 's'} delivered there made them, and ${units(x.held)} sit loose in that hangar. ${priceSaid}`,
+    action: o.isMain && o.where && o.price != null ? { label: 'Open in game', typeId: x.typeId, copy: o.price } : { label: 'Blueprints & jobs', route: 'hustles/industry/blueprints' },
+  };
+}
+
+/**
+ * A built item that has gone: on a stock read newer than the one it was built on, fewer held than it was listed for
+ * (`amount`) is listed, sold or moved. Anything else isn't known yet. An alt gone from a live roster just goes.
+ */
+export function judgeBuilt(e: Entry, c: { readAt: number | null; held: number | null; gone?: boolean }): string | null | false {
+  if (c.gone) return false;
+  if (c.readAt == null || c.readAt <= e.seenAt || c.held == null) return null;
+  return c.held < (e.item.amount ?? 0) ? `Listed, sold or moved: ${units(c.held)} left.` : null;
 }
 
 /**

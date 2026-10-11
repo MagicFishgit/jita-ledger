@@ -177,6 +177,7 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   an alt gone from a live roster just goes. Built from its `jobs` records, which the cloud reads hourly, so it's as of that
   read; a refused alt's last-read jobs still list. Its place is `jobPlaceSaid`'s (a station by ESI's name, a structure by the
   alt's blueprints doc or the system it was first seen in), never a container.
+- **What you built goes on To do** (kind `built`, source `stock`, Needs action; `builtItems`, `builtItem`, `builtWhere`, `judgeBuilt`): one item per character, product and place, while the place's loose hangar holds at least the newest delivered jobs' units; versioned by the newest delivered job (correction 18: a hand tick holds until another delivery, listing part of a batch doesn't reopen it, `HOLDS_UNTIL_CHANGED`); judged on a newer stock read (the main's sync's, an alt's archive), fewer held saying "Listed, sold or moved: N left"; an alt gone from a live roster just goes. Priced where it sits (correction 15). Not mailed.
 - **R&D agents past an amount go on To do** (kind `cashIn`, source `research`, `judgeCashIn`; the rules are in research.md):
   one item per agent once its datacores waiting are worth more than the amount set on the Research tab, keyed by
   character and agent, versioned by the whole datacores. Bought (said "most likely") or stopped only on a newer research

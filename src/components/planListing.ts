@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { rates } from '../lib/fees';
-import { FILL_WINDOW, recentRange } from '../lib/fills';
+import { FILL_WINDOW, listingPrice, recentRange } from '../lib/fills';
 import { useFlow, watchedDays } from '../lib/flowStore';
 import { jitaOrders, marketHistory, type OrderLite } from '../lib/market';
 import { leaveAfterSkip, leaveAfterUnskip, listMarket, placeMoved, planLeaveSince, planListPrice, planProgress, skipPlanItem, type ListMarket, type PlanItem, type PlanListPrice, type TradePlan } from '../lib/plans';
@@ -35,7 +35,7 @@ export type PricedRow = PlanListRow & {
  * then every REREAD_MS while the tab is in view and once on coming back into view. Books are cached and shared in flight
  * (market.ts), so two lists reading one item cost one request.
  */
-function useItemReads(key: string, history: boolean): Record<number, Read> {
+export function useItemReads(key: string, history: boolean): Record<number, Read> {
   const [reads, setReads] = useState<Record<number, Read>>({});
   useEffect(() => {
     if (!key) return;
@@ -168,4 +168,28 @@ export function unskipPlaceBid(planId: string, typeId: number) {
     }
     return { plans, ...(leaveAfterUnskip(x.leave, x.leaveFrom, plan, typeId, since) ?? {}) };
   });
+}
+
+/**
+ * What you built, priced as a listing in Jita (To do's List what you built): `listingPrice` on others' live book with the
+ * fortnight's highs, the plan list step's own reads (useItemReads: every five minutes while shown). `yours`: every
+ * character's open order IDs, taken off the book. `read` is false until the first read of the visit; a book that couldn't
+ * be read prices nothing.
+ */
+export function useBuiltPrices(types: readonly number[], yours: readonly number[]): Record<number, { price: number | null; read: boolean }> {
+  const key = [...new Set(types)].sort((a, b) => a - b).join(',');
+  const reads = useItemReads(key, true);
+  // Every character's open orders come off the book (pre-flight M8): an alt's built item isn't priced one tick under its own listing.
+  const yoursKey = [...yours].sort((a, b) => a - b).join(',');
+  return useMemo(() => {
+    const out: Record<number, { price: number | null; read: boolean }> = {};
+    for (const t of key ? key.split(',').map(Number) : []) {
+      const x = reads[t];
+      if (!x) { out[t] = { price: null, read: false }; continue; }
+      const highs = x.hist?.length ? recentRange(x.hist, FILL_WINDOW, Date.now(), watchedDays(t)).highs : null;
+      const m = x.book ? listMarket(x.book, yours, highs) : null;
+      out[t] = { price: m ? listingPrice(m.bestSell, m.bestBuy, m.highs) : null, read: true };
+    }
+    return out;
+  }, [key, reads, yoursKey]); // eslint-disable-line react-hooks/exhaustive-deps
 }

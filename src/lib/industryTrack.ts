@@ -408,3 +408,31 @@ export function measuredTax(ix: Indexed, job: JobRecord, place: JobPlace | null,
   if (tax > MAX_FACILITY_TAX + 0.0005) return { why: `what it measures, ${(tax * 100).toFixed(1)}%, is more than a structure can charge (10%): its index or prices moved since` };
   return { tax: Math.max(0, Math.round(tax * 10_000) / 10_000) };
 }
+
+/** What a character built that sits loose where it landed, to list: its delivered jobs' products, by product and place. */
+export type BuiltItem = { charId: number; typeId: number; place: number; jobIds: number[]; newest: number; units: number; held: number };
+/**
+ * List what you built (spec, To do): per product and place, the newest delivered manufacturing jobs whose units the place's
+ * loose hangar stock (`byLocation`) still holds together, newest first. Once fewer are held than the newest job made, there's
+ * nothing to list there (its judge says so on a newer stock read). Nothing read of the hangar: nothing.
+ */
+export function builtItems(jobs: readonly JobRecord[], byLocation: Record<number, Record<number, number>> | undefined, charId: number): BuiltItem[] {
+  if (!byLocation) return [];
+  const groups = new Map<string, JobRecord[]>();
+  for (const j of jobs) {
+    if (j.activity !== 1 || j.status !== 'delivered' || j.productTypeId == null || jobUnits(j) == null) continue;
+    const k = `${j.productTypeId}|${j.outputId}`;
+    groups.set(k, [...(groups.get(k) ?? []), j]);
+  }
+  const out: BuiltItem[] = [];
+  for (const [k, js] of groups) {
+    const [typeId, place] = k.split('|').map(Number);
+    const held = byLocation[place]?.[typeId] ?? 0;
+    const newest = [...js].sort((a, b) => Date.parse(b.completed ?? b.end) - Date.parse(a.completed ?? a.end) || b.jobId - a.jobId);
+    const take: JobRecord[] = [];
+    let units = 0;
+    for (const j of newest) { const u = jobUnits(j)!; if (units + u > held) break; take.push(j); units += u; }
+    if (take.length) out.push({ charId, typeId, place, jobIds: take.map((j) => j.jobId).sort((a, b) => a - b), newest: take[0].jobId, units, held });
+  }
+  return out.sort((a, b) => a.typeId - b.typeId || a.place - b.place);
+}

@@ -8374,5 +8374,47 @@ console.log('\n--- Industry stage 2: To do, an alt\'s jobs to deliver (todo.ts, 
   eq('  an alt gone from a roster read from disk stays', D.judgeAltIndustry(e, { live: false, readAt: 500, gone: true, waiting: new Set() }), null);
 }
 
+console.log('\n--- Industry stage 2: To do, List what you built (Task 12B) ---');
+{
+  const T = await import('../src/lib/industryTrack.ts');
+  const D = await import('../src/lib/todo.ts');
+  const job = (jobId, completed, runs = 50, over = {}) => ({ jobId, activity: 1, blueprintId: 1, blueprintTypeId: 25895, productTypeId: 25894, runs, licensedRuns: null, successfulRuns: null, probability: null,
+    cost: 1, facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: completed, end: completed, completed, status: 'delivered', perRun: 1, seenAt: completed, ...over });
+  const jobs = [job(1, '2026-10-01T00:00:00Z'), job(2, '2026-10-05T00:00:00Z'), job(3, '2026-10-06T00:00:00Z', 50, { status: 'ready' }), job(4, '2026-10-02T00:00:00Z', 10, { activity: 5 })];
+  const at = (n) => ({ 60003760: { 25894: n } });
+  eq('  the newest delivered jobs whose units the place still holds: 100 held, both jobs', T.builtItems(jobs, at(100), 7),
+    [{ charId: 7, typeId: 25894, place: 60003760, jobIds: [1, 2], newest: 2, units: 100, held: 100 }]);
+  eq('    60 held: the newest job only', T.builtItems(jobs, at(60), 7).map((x) => [x.jobIds, x.newest, x.units]), [[[2], 2, 50]]);
+  eq('    10 held (50 built, 40 listed): nothing to list', T.builtItems(jobs, at(10), 7), []);
+  eq('    nothing read of the hangar: nothing', T.builtItems(jobs, undefined, 7), []);
+  const it = D.builtItem({ charId: 7, who: null, typeId: 25894, place: 60003760, placeName: 'Jita IV - Moon 4', jobIds: [1, 2], newest: 2, units: 100, held: 100 },
+    { name: 'Large Trimark Armor Pump I', where: 'jita', price: 7_040_000, read: true, hubName: null, isMain: true });
+  eq('  keyed by character, product and place; versioned by the newest delivered job (another delivery reopens it)', [it.key, it.ver, it.kind, it.source, it.amount], ['built:7:25894:60003760', '2', 'built', 'stock', 100]);
+  eq('    said with the price to list at, copied on opening', [it.title, it.action.copy, it.stake], ['List 100 Large Trimark Armor Pump I you built, at Jita IV - Moon 4', 7_040_000, 704_000_000]);
+  eq('  a hand tick holds until another delivery', D.HOLDS_UNTIL_CHANGED.has('built'), true);
+  const T0b = Date.parse('2026-10-11T12:00:00Z');
+  const m0 = D.remember({}, [it], () => 1000, () => null, T0b);
+  const ticked = { ...m0, [it.key]: { ...m0[it.key], ticked: { ver: it.ver, at: T0b } } };
+  const later = T0b + D.SESSION_MS + 3600_000;
+  const listedSome = D.builtItem({ charId: 7, who: null, typeId: 25894, place: 60003760, placeName: 'Jita IV - Moon 4', jobIds: [2], newest: 2, units: 50, held: 60 },
+    { name: 'Large Trimark Armor Pump I', where: 'jita', price: 7_000_000, read: true, hubName: null, isMain: true });
+  const delivered = { ...listedSome, ver: '5' };
+  eq('    through remember: still ticked a day on with the same newest job; reopened by another delivery',
+    [!!D.remember(ticked, [listedSome], () => 2000, () => null, later)[it.key].ticked, !!D.remember(ticked, [delivered], () => 2000, () => null, later)[it.key].ticked], [true, false]);
+  const e = { item: it, seenAt: 1000, lastAt: 1000 };
+  eq('  judged on a stock read newer than the one it was built on: fewer held than built is listed, sold or moved', [
+    D.judgeBuilt(e, { readAt: 1000, held: 10 }), D.judgeBuilt(e, { readAt: 2000, held: 10 }), D.judgeBuilt(e, { readAt: 2000, held: 100 }), D.judgeBuilt(e, { readAt: null, held: null }),
+  ], [null, 'Listed, sold or moved: 10 left.', null, null]);
+  eq('  an alt gone from a live roster just goes', D.judgeBuilt(e, { readAt: 2000, held: 0, gone: true }), false);
+  eq('  where it lists: in Jita 4-4 Jita; at the hub or in its system the hub; a ship elsewhere never Jita while that\'s on', [
+    D.builtWhere({ place: 60003760, placeSystem: 30000142, hub: null, sell: 'jita', ship: false, noShipsToJita: true }),
+    D.builtWhere({ place: 1046664001931, placeSystem: 30004807, hub: { id: 1046664001931, systemId: 30004807 }, sell: 'jita', ship: false, noShipsToJita: true }),
+    D.builtWhere({ place: 1047000000000, placeSystem: 30004807, hub: { id: 1046664001931, systemId: 30004807 }, sell: 'jita', ship: false, noShipsToJita: true }),
+    D.builtWhere({ place: 60001483, placeSystem: 30000119, hub: { id: 1046664001931, systemId: 30004807 }, sell: 'jita', ship: true, noShipsToJita: true }),
+    D.builtWhere({ place: 60001483, placeSystem: 30000119, hub: null, sell: 'jita', ship: true, noShipsToJita: true }),
+    D.builtWhere({ place: 60001483, placeSystem: 30000119, hub: null, sell: 'jita', ship: false, noShipsToJita: true }),
+  ], ['jita', 'home', 'home', 'home', null, 'jita']);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
