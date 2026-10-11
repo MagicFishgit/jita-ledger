@@ -145,7 +145,13 @@ export function mergeJob(stored: JobRecord | undefined | null, incoming: JobReco
   const earlier = iAt < sAt ? incoming : stored;
   const later = earlier === stored ? incoming : stored;
   const esi = rank(incoming.status) >= rank(stored.status) ? incoming : stored;
-  const first = earlier.first ?? later.first;
+  let first = earlier.first ?? later.first;
+  // Levels read later by the other writer fill a null one (field-level, these two only): the cloud's null-levelled record
+  // never wins back over a filled one, in either order.
+  const other = earlier.first ? later.first : undefined;
+  if (first && other && ((first.me == null && other.me != null) || (first.te == null && other.te != null))) {
+    first = { ...first, me: first.me ?? other.me, te: first.te ?? other.te };
+  }
   const next = shape({ ...esi, seenAt: earlier.seenAt, perRun: incoming.perRun ?? stored.perRun, first });
   return JSON.stringify(next) === JSON.stringify(shape(stored)) ? stored : next;
 }
@@ -168,7 +174,7 @@ export type JobsContext = Omit<SightInputs, 'bp' | 'systemId'> & {
 
 /**
  * ESI's list folded onto what the writer holds: each row merged onto its record; one not held is seen now, with its
- * first-sight fields while active (a held job is never sighted again, whatever it shows). The records that changed.
+ * first-sight fields while active (a held job is never sighted again; a running one lacking its blueprint's ME and TE has them filled). The records that changed.
  */
 export function readJobs(raw: readonly RawJob[], stored: Readonly<Record<string, JobRecord>>, c: JobsContext): JobRecord[] {
   const out: JobRecord[] = [];
@@ -180,7 +186,13 @@ export function readJobs(raw: readonly RawJob[], stored: Readonly<Record<string,
       const f = firstSight(j, { bp: c.bp(r.blueprint_id), systemId: c.systemOf(j.stationId), indices: c.indices, adjusted: c.adjusted, eiv: c.eiv });
       if (f) j = shape({ ...j, first: f });
     }
-    const m = mergeJob(held, j);
+    let m = mergeJob(held, j);
+    // A running job's blueprint keeps its ME and TE until delivery, so a read that has the blueprint now fills the levels
+    // first sight lacked (the blueprints doc can arrive after the job is first seen); nothing else of `first` moves.
+    if (held && (m.status === 'active' || m.status === 'paused') && m.first && (m.first.me == null || m.first.te == null)) {
+      const bp = c.bp(r.blueprint_id);
+      if (bp) m = shape({ ...m, first: { ...m.first, me: m.first.me ?? bp.me, te: m.first.te ?? bp.te } });
+    }
     if (m !== held) out.push(m);
   }
   return out;

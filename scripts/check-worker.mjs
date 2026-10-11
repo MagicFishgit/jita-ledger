@@ -1395,6 +1395,28 @@ console.log('\n--- Industry stage 2: jobs and blueprints in the cloud (Task 9B) 
     eq('    delivered: the status moves, the first sight stays', [jobOf(db, MAIN, 801).status, jobOf(db, MAIN, 801).first.me], ['delivered', 10]);
   }
 
+  // A job the cloud saw before the main's browser pushed its blueprints doc: the levels are filled once the doc is there.
+  {
+    const { db, env } = await ledgerWithAlt();
+    db.run('DELETE FROM keys WHERE purpose = ?', 'main');
+    await keepKey(db, MAIN, 'main', MAIN, 'Main', IND);
+    const bare = { jobId: 801, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 65, licensedRuns: 40, successfulRuns: null, probability: null, cost: 17213916,
+      facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: START, end: END, completed: null, status: 'active', perRun: 1, seenAt: START,
+      first: { me: null, te: null, systemId: 30000142, index: jitaIndex, eiv: pumpEiv, at: START } };
+    await push(db, MAIN, { records: [{ k: 'jobs', i: '801', d: bare }], docs: [{ key: 'blueprints', d: { list: [[7001, 25895, CONT, 'Hangar', -1, -1, 10, 20]] } }] });
+    const f = stubFetch([...industryRoutes(MAIN), ...esiFor(MAIN)]);
+    await archive(env, ledgerReader(MAIN));
+    f.restore();
+    const j = jobOf(db, MAIN, 801);
+    eq('  a running job held without its levels: the archive fills them from the blueprints doc, the rest of first as it was',
+      [j.first.me, j.first.te, j.first.systemId, j.first.index, j.first.at, j.seenAt], [10, 20, 30000142, jitaIndex, START, START]);
+    await push(db, MAIN, { records: [{ k: 'jobs', i: '802', d: { ...bare, jobId: 802 } }], docs: [] });
+    const h = stubFetch([...industryRoutes(MAIN, { jobs: [rawJob(MAIN, { job_id: 802, status: 'delivered', completed_date: END })] }), ...esiFor(MAIN)]);
+    await archive(env, ledgerReader(MAIN));
+    h.restore();
+    eq('    one delivered meanwhile isn\'t filled', [jobOf(db, MAIN, 802).status, jobOf(db, MAIN, 802).first.me], ['delivered', null]);
+  }
+
   // An alt's blueprints and jobs, read by its hourly sheet, filed under it.
   {
     const { db, env } = await ledgerWithAlt();

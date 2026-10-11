@@ -8094,6 +8094,20 @@ console.log('\n--- Industry stage 2: jobs kept past ESI\'s 90 days (industryTrac
   const runningLate = { ...T.toJob(raw(), '2026-10-11T13:00:00Z', 1), first: { ...f, at: '2026-10-11T13:00:00Z' } };
   const ml = T.mergeJob(pausedEarly, runningLate);
   eq('    a first sight taken later than the first seeing is judged by its own time', [ml.seenAt, ml.first.at, T.checkable(ml)], ['2026-10-11T10:05:00Z', '2026-10-11T13:00:00Z', false]);
+  // A job first seen before its blueprints doc existed has no levels in its first sight; a read that has the blueprint fills them.
+  const bare = { ...job, first: { ...f, me: null, te: null } };
+  const filled = T.readJobs([raw()], { 501: bare }, { ...ctx, seenAt: '2026-10-11T12:00:00Z' });
+  eq('  a running job held without its blueprint\'s levels gets them once a read has the blueprint, the rest of first untouched',
+    [filled.length, filled[0]?.first], [1, f]);
+  eq('    a paused one too', T.readJobs([raw({ status: 'paused' })], { 501: { ...bare, status: 'paused' } }, ctx)[0]?.first?.me, 10);
+  eq('    only the missing one: a held me stays, te is filled', T.readJobs([raw()], { 501: { ...bare, first: { ...bare.first, me: 3 } } }, ctx)[0]?.first, { ...f, me: 3 });
+  eq('    not after it is ready, delivered or cancelled (its levels may have moved)',
+    ['ready', 'delivered', 'cancelled', 'reverted'].map((status) => T.readJobs([raw({ status, completed_date: '2026-10-12T05:00:00Z' })], { 501: { ...bare, status: 'active' } }, ctx)[0]?.first?.me),
+    [null, null, null, null]);
+  eq('    blueprint not in the read: still not known, nothing pushed', T.readJobs([raw()], { 501: bare }, { ...ctx, bp: () => null }), []);
+  eq('    nothing to fill: the held record is not pushed again', T.readJobs([raw()], { 501: cloud }, ctx), []);
+  const lv = T.mergeJob({ ...cloud, first: { ...f, me: null, te: null } }, { ...late, seenAt: '2026-10-11T18:00:00Z', first: f }), lv2 = T.mergeJob({ ...late, first: f }, { ...cloud, first: { ...f, me: null, te: null } });
+  eq('  merged either way round, a filled ME and TE are kept over the other writer\'s null ones', [lv.first.me, lv.first.te, lv2.first.me, lv2.first.te], [10, 20, 10, 20]);
   eq('  the Industry window\'s activity names', [T.ACTIVITY_SAID[1], T.ACTIVITY_SAID[4], T.ACTIVITY_SAID[8]], ['Manufacturing', 'ME research', 'Invention']);
 }
 
