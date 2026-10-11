@@ -13,7 +13,8 @@ the copy cost's readings) and `src/lib/copyContracts.ts` (browser only: the `cop
 for the Industry activity). The Worker's round (`worker/src/copies.ts`) runs on the `37` cron after Goonmetrics, keeps the
 set in `copy_set` parts and what sold in `copy_sold`, and precomputes the summary `GET /v1/copies` serves. The main's sync
 reads its own copy contracts' items (with `raw_quantity`) and each public one's kinds once from ESI's public contract items,
-and keeps them in a new synced document through `refusedDoc`.
+and keeps them in a new synced document through `refusedDoc`. EVE Ref's snapshot is read as it decompresses (the Blueprints route
+shares the reader), so a round holds a few tens of MB, never the 39 MB of CSV whole.
 
 **Tech Stack:** React 18 + TypeScript + Vite; Cloudflare Worker + D1; ESI (`X-Compatibility-Date: 2026-08-18` from the
 browser); EVE Ref's public contracts (`data.everef.net/public-contracts`, tar.bz2, unpacked by `worker/src/vendor/bunzip.ts`);
@@ -39,6 +40,9 @@ run with `node --import ./scripts/register.mjs`, which loads the app's own `bpCo
   30 minutes. The Forge's blueprint-only contracts: 15,124 / 15,151 / 15,235 at 00:00 / 06:00 / 12:00 UTC; the single-kind
   copy contracts among them 11,421 / 11,402 / 11,432 over 2,799 to 2,832 kinds; as compact JSON 1.02 to 1.03 MB (257 KB
   gzipped). Parsing one snapshot with `blueprintContracts`: 0.89 to 0.95 s in Node. Contracts of copies hold up to 500 items.
+- Memory, reading the 12:00 snapshot in Node (heap plus ArrayBuffers, sampled each MB decoded): the whole files kept, then
+  parsed, peaked at 113 MB above the process's own; read as it decompresses (correction 19), 31.1 MB, with the same 15,235
+  contracts and 46,204 items, and every copy's seller (49,531) noted besides.
 - **Six-hourly reads count far more than the research's multi-day ones**: 327 contracts vanished before expiry from 00:00 to
   06:00 and 430 from 06:00 to 12:00 (149 and 200 sellers), against 2,683 over 2 to 6 October and 2,077 over 6 to 9 October by
   the research's method: a contract listed and sold between two reads is never seen. Of the 327, none came back by the same
@@ -64,7 +68,8 @@ Each is said again in the task that owns it, and goes in `docs/notes/industry.md
    their time, sold or not (a listing fee is paid either way). Copies are claimed against your delivered copy jobs to tell copies
    you made from copies bought or given (Brave's free copies): only claimed copies count.
 2. **`copy_sold` takes about 1,500 rows a day, not about 320** (Task 14A): measured above. With the prune after eight days,
-   about 3,000 row writes a day, 90,000 a month, against the plan's 50 M. The finder's pace is the six-hour counts, which is
+   and each insert and prune written twice with the `copy_sold_at` index, about 6,000 row writes a day, 180,000 a month,
+   under 0.4% of the plan's 50 M. The finder's pace is the six-hour counts, which is
    the design's point; the research's weekly tables understated sales about three to five times.
 3. **The kept set is split into rows from the start** (Task 14A, `COPY_PART` 3,000 contracts, about 280 KB a row), not
    "split by type range if it nears 1.5 MB": it is 1.02 to 1.03 MB now, and one row would fail outright the day the market
@@ -72,8 +77,13 @@ Each is said again in the task that owns it, and goes in `docs/notes/industry.md
 4. **The round's state lives in `scan_meta`** (key `copies`: when it last tried and read, its error, and each comparison's
    span), as `checks.ts` keeps its own, and the summary under key `copySummary`, worked out once a round: so `copy_set` is
    only the set, and `GET /v1/copies` never parses a megabyte. The spec's `copy_set (at, data)` becomes `(part, at, data)`.
-5. **A reprice is told by every blueprint contract of the newer snapshot**, not only the kept copy set: a seller moving a
-   copy into a bundle repriced it, he didn't sell it (`itemIssuers` over all of them). On 2 to 6 October that left out 3 more.
+   What sold, the set, the summary and the state are written in one batch (one D1 transaction), so a failed write never leaves
+   a comparison's span out of `reads` with its sales in.
+5. **A reprice is told by every copy in The Forge's item exchanges of the newer snapshot**, not only the kept copy set: a seller
+   moving a copy into a bundle repriced it, he didn't sell it. `blueprintContracts` drops a bundle holding anything that isn't
+   a blueprint, so the snapshot reader notes every copy's seller as it streams, those bundles included (`copyIssuers`; 7,656 of
+   49,531 copies on 11 October at 12:00 sat in contracts the comparables leave out); without the reader's map (the tests'
+   snapshots), `itemIssuers` over the blueprint contracts.
 6. **Your own contracts are left out of what sold and the asks** (every character whose login the cloud holds, and every alt
    on a roster, removed ones too), as the Blueprints route leaves the caller's out.
 7. **A kind's price a run is the lower of the median sold and the median ask now**, the Blueprints page's own rule
@@ -95,11 +105,14 @@ Each is said again in the task that owns it, and goes in `docs/notes/industry.md
     lists them. `itemsToRead` widens to your own outstanding item exchanges only (not every outstanding one you can see).
 12. **"Expired" is ESI's `outstanding` past `date_expired`**: ESI has no expired status. An expired contract keeps its copies
     until deleted in game; they go back to the station it was made at (its `start_location_id`, named with the couriers').
-13. **A contract that leaves ESI's list is stamped `gone` once** (the read that first misses it), its last status kept; To do
-    takes a newer read without it as "deleted, most likely or past ESI's 30 days" (a complete list: absence there is evidence).
+13. **A contract that leaves ESI's list is stamped `gone` once** (the read that first misses it, never one still in the list whose
+    items weren't read this sync), its last status kept. ESI lists a deleted contract as `deleted` within its 30 days, so leaving
+    the list means the 30 days passed: To do ends the item on a newer read without it, saying "ESI lists contracts only 30 days
+    back: if you didn't delete it in game, its copies are still in it" (a complete list: absence there is evidence).
 14. **Kinds are read once a contract, at most 20 a sync, and never for a private one**: 200 gives the kinds; 204 or no copy in
-    the answer is `gone` ("left the public list before its kinds were read"); a 404 while it's still outstanding is tried
-    again next sync (ESI's public list lags a new contract), `gone` once it isn't outstanding.
+    the answer is `gone` ("left the public list before its kinds were read"); a 404 while it's still outstanding and not past its
+    expiry is tried again next sync (ESI's public list lags a new contract), `gone` once it isn't outstanding or has expired, so
+    an expired contract isn't asked again every sync until deleted.
 15. **The copy cost's readings are worked out from your jobs, live** (Task 14B, the brief's P5): copying's SCC (EVE Ref's 4%,
     `SCC_COPY`) by the newest copy job checked at an NPC station (`sccShare`, stage 2's Task 11), and the copy and research rigs'
     cost bonus (dogma 2595, taken as multiplying the structure's) by the newest copy or research job checked at one of your
@@ -112,8 +125,22 @@ Each is said again in the task that owns it, and goes in `docs/notes/industry.md
     compares six-hourly reads, and only reads that close show the spec's case of a contract listed and sold between the first
     and the third (4 in the fixture's five types, missed by comparing the first with the third: 25 sales against 28). The
     research's files are kept where they were, unchanged.
-
-## Global Constraints
+18. **`copy_sold`'s `qty` is `copies`** (the spec's column name, here how many copies a contract held: the word the summary and
+    the finder use), and `/v1/copies` gives the median ask beside the cheapest (a superset of the spec's "cheapest ask": the price
+    rule of correction 7 needs it). The Sold column's tip always says a contract listed and sold between two reads is missed
+    (spec), not only when a gap is long.
+19. **The snapshot is read as it decompresses** (Task 14A, I5; the controller's ruling): `ContractSink` splits each CSV line where
+    it lies and keeps only The Forge's blueprint-only item exchanges and every copy's seller, never the 39 MB of CSV whole, and
+    the bzip2 decoder reuses its 3.6 MB block buffer. Measured on the 11 October 12:00 snapshot: the old reader peaked at 113 MB
+    of heap and ArrayBuffers before collection (122 MB in the pre-flight's measure), near the Worker's 128 MB in an isolate the
+    five-minute round and the Sniper may share; the streaming reader at 31.1 MB, the same contracts (tested equal). Its bar is
+    60 MB, measured in Task 14A step 8. The Blueprints route shares it; its answer is unchanged.
+20. **A contract back in a newer snapshot is taken out of `copy_sold`**: a partial EVE Ref snapshot (a page its scraper missed)
+    makes every contract on it look sold; the next whole one shows it never left. Tested with one contract missing from the
+    06:00 snapshot: counted (17), then taken out (28, as with whole snapshots).
+21. **A round stamps its try before it reads, and its fetch gives up after 90 s** (I5): a memory kill or the wall limit is no
+    throw, so without the stamp nothing would say a round was stopped, and the same round would run again every hour; after
+    one, the next try waits the full six hours.
 
 - Pure `src/lib` modules the Worker imports (`copyMarket.ts`, `bpContracts.ts`, and what they import) stay free of
   `./config`, `./store`, React and the DOM, even for a type; no enums, namespaces or constructor parameter properties
@@ -158,9 +185,11 @@ Each is said again in the task that owns it, and goes in `docs/notes/industry.md
 
 ## Review Focus
 
-1. **A round that can't compare.** The first read ever, a read of the same snapshot (EVE Ref stalled), a failed fetch, a
-   snapshot older than the kept set, and a kept set more than seven days old must write no `copy_sold` row and never say "no
-   copies sold": the summary says counting has started (0 days) or how old the read is. Pinned in Task 14A, step 2 (check-worker: first read, same snapshot, failure, a set over a week old).
+1. **A round that can't compare, or is stopped.** The first read ever, a read of the same snapshot (EVE Ref stalled), a failed
+   fetch, a snapshot older than the kept set, a kept set more than seven days old and a partial snapshot must write no lasting
+   `copy_sold` row, and the Copies section must never say "no copies sold" before a read compared two sets; a round the cloud
+   kills must leave a trace and not run again within the hour. Pinned in Task 14A, step 2 (check-worker: first read, same snapshot, failure, a set over a week old, a partial
+   snapshot, the interrupted stamp and the six-hour wait after it) and Task 14B, step 7 (no table before a read counted).
 2. **A reprice, a relist by someone else, an expiry.** A contract its seller moved into a new contract (or a bundle) isn't a
    sale; one whose copy came back under another seller is; one past its expiry isn't. Pinned in Task 14A, step 2 (the 11
    October fixture's 4 Tempest and 1 Standup reprices, its 5 Capital Turret Hardpoint relists, a bundle move, an expiry).
@@ -180,9 +209,10 @@ Each is said again in the task that owns it, and goes in `docs/notes/industry.md
 | File | Responsibility | Task |
 | --- | --- | --- |
 | `worker/migrations/0020_copies.sql` (new) | `copy_set (part, at, data)`, `copy_sold (contract_id, type_id, me, te, runs, copies, price, issuer, at)` | 14A |
-| `src/lib/bpContracts.ts` | `snapshotAt(files)` (meta's `scrape_end`), used by `blueprintContracts` | 14A |
+| `src/lib/bpContracts.ts` | `ContractSink`: the region's blueprint contracts and every copy's seller, kept as the tar streams out | 14A |
+| `worker/src/vendor/bunzip.ts` | The 3.6 MB block buffer reused across blocks | 14A |
 | `src/lib/copyMarket.ts` (new) | `compactCopies`, `itemIssuers`, `copiesSold`, `soldRows`, `copySummary`; the types | 14A |
-| `worker/src/blueprints.ts` | `readSnapshot(url)`, `LATEST`, `EVE_REF_UA` exported, its own route unchanged | 14A |
+| `worker/src/blueprints.ts` | `readSnapshot(url, opts)` (streaming, 90 s timeout), `LATEST`, `EVE_REF_UA`, `READ_TIMEOUT_MS`; its own route's answer unchanged | 14A |
 | `worker/src/copies.ts` (new) | `refreshCopies`, `copiesFor`, `ownCharacters`, `latestSnapshot`, `COPIES_ON` | 14A |
 | `worker/src/index.ts` | The `37` chain runs copies after Goonmetrics; `GET /v1/copies` | 14A |
 | `scripts/fixtures/copy-snapshots.json` (new) | Three 11 October snapshots' contracts holding five types (63,763 bytes) | 14A |
@@ -190,7 +220,7 @@ Each is said again in the task that owns it, and goes in `docs/notes/industry.md
 | `src/lib/cloud.ts`, `src/components/hustles/industryMarket.ts` | `cloudCopies`; `useCopyMarket` (held like the NPC row) | 14B |
 | `src/components/hustles/IndustryCopies.tsx` (new), `Industry.tsx` | The Copies section (finder; Your copy business in 15A) | 14B, 15A |
 | `src/lib/contracts.ts` | `ContractItem.raw`, `MyContract.availability`, `itemsToRead` widened | 15A |
-| `src/lib/copyContracts.ts` (new) | The `copyContracts` doc: `copyContractsOf`, `kindsToRead`, `readKinds`, `copyState`, sanitizer; `copySales` | 15A, 15B |
+| `src/lib/copyContracts.ts` (new) | The `copyContracts` doc: `copyContractsOf`, `kindsToRead`, `readKinds`, `copyState`, sanitizer; `copySales`; `copiesWhat` | 15A, 15B, 15C |
 | `src/lib/sync.ts` | Your copy contracts' items and kinds, the doc written against live state | 15A |
 | `src/lib/store.ts`, `src/lib/cloudSync.ts`, `src/lib/cloud.ts`, `worker/src/sync.ts` | `Data.copyContracts`, `DOC_KEYS`, the pull's sanitizer | 15A |
 | `src/lib/config.ts` | `SCOPE_INFO` for contracts names the Copies section | 15A |
@@ -207,17 +237,21 @@ like an import: keep it valid YAML, and run `head -20 .claude/rules/industry.md`
 
 **Files:**
 - Create: `worker/migrations/0020_copies.sql`, `src/lib/copyMarket.ts`, `worker/src/copies.ts`,
-  `scripts/fixtures/copy-snapshots.json` (cut by an existing script, step 1)
-- Modify: `src/lib/bpContracts.ts` (`snapshotAt`), `worker/src/blueprints.ts` (`readSnapshot`, `LATEST`, `EVE_REF_UA`
-  exported), `worker/src/index.ts` (the `37` chain, `GET /v1/copies`), `scripts/check.mjs`, `scripts/check-worker.mjs`,
+  `scripts/fixtures/copy-snapshots.json` (cut by an existing script, step 1), and, gitignored,
+  `.playwright-mcp/research/industry-stage3-scripts/measure-memory.mjs` (step 8)
+- Modify: `src/lib/bpContracts.ts` (`ContractSink`), `worker/src/vendor/bunzip.ts` (the block buffer reused),
+  `worker/src/blueprints.ts` (`readSnapshot(url, opts)` filtering as it decompresses, with a 90 s timeout; `LATEST`,
+  `EVE_REF_UA`, `READ_TIMEOUT_MS` exported), `worker/src/index.ts` (the `37` chain, `GET /v1/copies`), `scripts/check.mjs`, `scripts/check-worker.mjs`,
   `.claude/rules/industry.md`, `docs/notes/industry.md`, `docs/notes/limits.md`, `docs/notes/finding-trades.md` (the
   Blueprints bullet: the reader is shared), `CLAUDE.md` (Timers paragraph; the Worker's imports list gains `copyMarket`)
 
 **Interfaces:**
-- Consumes: `blueprintContracts`, `TarSink`, `TAR_DONE`, `fileNamed`, `type BpContract` (`src/lib/bpContracts.ts`); `bunzipTo`
+- Consumes: `blueprintContracts`, `csvFields`, `untar`, `TAR_DONE`, `type BpContract` (`src/lib/bpContracts.ts`); `bunzipTo`
   (`worker/src/vendor/bunzip.ts`); `THE_FORGE` (`src/lib/constants.ts`); `BadRequest` is not needed (the route takes no input).
 - Produces (later tasks rely on these exact names):
-  - `src/lib/bpContracts.ts`: `snapshotAt(files: Map<string, Uint8Array>): string | null`.
+  - `src/lib/bpContracts.ts`: `class ContractSink` (`new ContractSink({ region, now?, types? })`, `writeByte(b)`, `result():
+    { contracts: BpContract[]; at: string | null; copyIssuers: ReadonlyMap<number, number> }`).
+  - `worker/src/blueprints.ts`: `LATEST`, `EVE_REF_UA`, `READ_TIMEOUT_MS` (90,000), `readSnapshot(url, { region, now?, types? })`.
   - `src/lib/copyMarket.ts`: `type CopyKind = { typeId; me; te; runs }`, `copyKindKey(k): string` (`"type|me|te|runs"`),
     `type CopyRow` (tuple below), `type CopyRead = [from: number, to: number, sold: number]`, `type SoldRow`,
     `type KindSold = { typeId; me; te; runs; contracts; copies; sellers; perRun }`, `type Ask = [cheapest, median, contracts,
@@ -225,26 +259,33 @@ like an import: keep it valid YAML, and run `head -20 .claude/rules/industry.md`
     KindSold[]; asks: Record<string, Ask> }`, `COPY_WINDOW_DAYS` (7), `COPY_KEEP_DAYS` (8), `compactCopies(contracts)`,
     `itemIssuers(contracts)`, `copiesSold(older, newerIds, itemIssuer, now)`, `soldRows(rows, at)`, `copySummary(o)`.
   - `worker/src/copies.ts`: `COPIES_ON`, `COPIES_REFRESH_MS`, `COPIES_SLACK_MS`, `COPIES_RETRY_MS`, `COPIES_BUDGET_MS`,
-    `COPY_PART`, `type Snapshot`, `type CopiesState`, `latestSnapshot()`, `ownCharacters(db)`, `refreshCopies(db, now?, o?)`,
+    `COPY_PART`, `INTERRUPTED`, `type Snapshot` (`copyIssuers?` from the reader), `type CopiesState`, `latestSnapshot()`,
+    `ownCharacters(db)`, `refreshCopies(db, now?, o?)` (its result may carry `back`: contracts taken out of `copy_sold`),
     `copiesFor(db, on?)`.
   - `GET /v1/copies` → `{ off: true }` (switched off) | `null` (never read) | `CopySummary & { tried: string | null; error:
     string | null; stale: string | null }` (`stale`: EVE Ref's latest snapshot was still the one kept, as of that time: not an error).
 
 **Why the shapes.** The set is every single-kind copy contract (every item a copy of one type at one ME, TE and runs, nothing
 asked in return) of The Forge, as `[contract, type, ME, TE, runs a copy, copies, price, issuer, expires in seconds, item IDs]`:
-the item IDs are what tells a reprice from a sale (`vanishedSince`'s rule), and nothing else of a contract is read again.
+the item IDs are what tells a reprice from a sale (`vanishedSince`'s rule, against the reader's `copyIssuers`: every copy in The
+Forge's item exchanges, a bundle with other items included, correction 5), and nothing else of a contract is read again.
 `copy_set` holds it in rows of `COPY_PART` contracts (correction 3). A round compares the kept set with EVE Ref's latest:
 what was kept, is gone from the new snapshot, wasn't past its expiry at the new snapshot's time and whose items didn't come
 back in a contract by the same seller vanished before expiry (sold, most likely), and goes in `copy_sold` at the new
-snapshot's time (`INSERT OR IGNORE` on the contract: a round redone after a failed write adds nothing twice). Each comparison's
-span goes in the state's `reads`, which says how many days are counted and how long the longest stretch between two reads was.
-The summary is worked out at the end of a round and kept (correction 4).
+snapshot's time (`INSERT OR IGNORE` on the contract). A contract kept in `copy_sold` that is back in the new snapshot never left:
+a partial snapshot made it look sold, and it's taken out (correction 20). Each comparison's span goes in the state's `reads`,
+which says how many days are counted and how long the longest stretch between two reads was. What sold, what came back, the
+set, the summary and the state go in one batch, one transaction (correction 4): a round whose write fails leaves the last
+round's all as it was, and the next compares again.
 
 **When it reads.** Due when its last good read is 5½ hours old (six hours less the half-hour slack Goonmetrics allows for
 the alts' read ahead of it) and its last try at least 50 minutes old, so a failed or unmoved read is tried again the next
 hour, never twice an hour. Nothing starts past `COPIES_BUDGET_MS` (12 minutes) from the cron's scheduled time: Goonmetrics
-may run to 10, and the invocation stops at 15. A first read only keeps the set; a read whose snapshot isn't newer than the
-kept one, a failed one, and one more than seven days after the kept set compare nothing (Review Focus 1).
+may run to 10, and the invocation stops at 15. Before it reads, the round stamps its try as `INTERRUPTED`; every way it ends
+writes over that, so only a round the cloud stops (memory, the wall limit: no `catch` sees those) leaves it, and after one the
+next try waits the full six hours, not the hour (correction 21). The fetch gives up after 90 s. A first read only keeps the set;
+a read whose snapshot isn't newer than the kept one, a failed one, and one more than seven days after the kept set compare
+nothing (Review Focus 1).
 
 - [ ] **Step 1: Cut the fixture**
 
@@ -270,7 +311,6 @@ Add to `scripts/check.mjs`, before the final `console.log(failed ? …)`:
 console.log('\n--- Industry stage 3: the copy market (copyMarket.ts, Task 14A) ---');
 {
   const M = await import('../src/lib/copyMarket.ts');
-  const { snapshotAt } = await import('../src/lib/bpContracts.ts');
   const fsC = await import('node:fs');
   const FX = JSON.parse(fsC.readFileSync(new URL('./fixtures/copy-snapshots.json', import.meta.url), 'utf8'));
   const contracts = (s) => s.contracts.map(([id, price, expires, issuer, items]) => ({ id, price, issued: '', expires, stationId: 60003760, issuer, title: '',
@@ -278,8 +318,6 @@ console.log('\n--- Industry stage 3: the copy market (copyMarket.ts, Task 14A) -
   const [a, b, c] = FX.snapshots.map((s) => ({ at: Date.parse(s.at), all: contracts(s) }));
   const sets = [a, b, c].map((s) => M.compactCopies(s.all));
   const byType = (rows) => rows.reduce((m, r) => ({ ...m, [r[1]]: (m[r[1]] ?? 0) + 1 }), {});
-  eq('a snapshot\'s time is its meta\'s scrape_end', snapshotAt(new Map([['x/meta.json', new TextEncoder().encode('{"scrape_end":"2026-10-11T00:01:04Z"}')]])), '2026-10-11T00:01:04Z');
-  eq('  none without a meta.json, or one that doesn\'t parse', [snapshotAt(new Map()), snapshotAt(new Map([['meta.json', new TextEncoder().encode('{')]]))], [null, null]);
   // 11 October 2026: The Forge's contracts holding the fixture's five types, at 00:00, 06:00 and 12:00 UTC.
   eq('the single-kind copy contracts of each snapshot (of 119, 111 and 111 holding the five types)', sets.map((x) => x.length), [96, 87, 82]);
   const C = (id, items, extra = {}) => ({ id, price: 1e6, issued: '', expires: '2026-10-20T00:00:00Z', stationId: 60003760, issuer: 7, title: '', items, ...extra });
@@ -303,8 +341,10 @@ console.log('\n--- Industry stage 3: the copy market (copyMarket.ts, Task 14A) -
     [fresh.length, fresh.filter((r) => ac.some((x) => x[0] === r[0])).length, ac.length, ab.length + bc.length], [4, 0, 25, 28]);
   const T0 = Date.parse('2026-10-19T00:00:00Z');
   const k = (id, issuer, itemId, expires = '2026-10-20T00:00:00Z') => M.compactCopies([C(id, [I(693, 10, 20, 1, itemId)], { issuer, expires })])[0];
-  eq('  past its expiry at the newer snapshot\'s time: not a sale; a copy moved by its seller into a bundle: a reprice, not a sale',
-    M.copiesSold([k(1, 7, 100, '2026-10-18T23:00:00Z'), k(2, 7, 200), k(3, 7, 300)], new Set(), M.itemIssuers([C(9, [I(693, 10, 20, 1, 200), I(34, 0, 0, null, 999, false)], { issuer: 7 })]), T0).map((r) => r[0]), [3]);
+  // A bundle of two blueprints is a contract the comparables keep, so itemIssuers sees it; one with other items in it only the
+  // reader's copyIssuers sees (the reader's tests below, and the Worker's).
+  eq('  past its expiry at the newer snapshot\'s time: not a sale; a copy moved by its seller into a bundle of blueprints: a reprice, not a sale',
+    M.copiesSold([k(1, 7, 100, '2026-10-18T23:00:00Z'), k(2, 7, 200), k(3, 7, 300)], new Set(), M.itemIssuers([C(9, [I(693, 10, 20, 1, 200), I(688, 10, 20, 1, 999)], { issuer: 7 })]), T0).map((r) => r[0]), [3]);
 
   const rows = [...M.soldRows(ab, b.at), ...M.soldRows(bc, c.at)];
   const sum = M.copySummary({ sold: rows, current: sets[2], reads: [[a.at, b.at, ab.length], [b.at, c.at, bc.length]], exclude: new Set(), at: c.at });
@@ -325,6 +365,33 @@ console.log('\n--- Industry stage 3: the copy market (copyMarket.ts, Task 14A) -
   eq('  the first read: nothing compared yet, 0 days, the asks known', [M.copySummary({ sold: [], current: sets[0], reads: [], exclude: new Set(), at: a.at }).days, Object.keys(M.copySummary({ sold: [], current: sets[0], reads: [], exclude: new Set(), at: a.at }).asks).length], [0, 11]);
   eq('the kind\'s key', M.copyKindKey({ typeId: 693, me: 10, te: 20, runs: 1 }), '693|10|20|1');
 }
+```
+
+And at the end of the block `--- blueprints and their contracts ---` in `scripts/check.mjs` (before its closing brace, so it uses
+that block's `tar`, `contracts` and `items`; `ContractSink` and `TAR_DONE` join its import from `bpContracts.ts`), the reader
+that filters as it decompresses (correction 19):
+
+```js
+  // The streaming reader (stage 3): the same contracts as blueprintContracts from whole files, holding nothing else.
+  const feed = (snk, bytes) => { try { for (const x of bytes) snk.writeByte(x); return null; } catch (e) { return e; } };
+  const NOW = Date.parse('2026-09-29T00:00:00Z');
+  const snapBytes = tar([['meta.json', '{"scrape_end":"2026-09-29T09:30:43Z"}'], ['contracts.csv', contracts], ['contract_items.csv', items], ['dogma.csv', 'never decoded']]);
+  const cs = new ContractSink({ region: 10000002, now: NOW });
+  const stop = feed(cs, snapBytes);
+  const streamed = cs.result();
+  eq('the streaming reader keeps exactly what blueprintContracts keeps from whole files, and stops after its three files',
+    [stop === TAR_DONE, { contracts: streamed.contracts, at: streamed.at }], [true, blueprintContracts(untar(snapBytes), { region: 10000002, now: NOW })]);
+  eq('  every copy of the region\'s item exchanges to its seller, the mixed bundle\'s (contract 2) included; none of another region\'s',
+    [...streamed.copyIssuers].sort((x, y) => x[0] - y[0]), [[100, 11], [101, 11], [102, 12]]);
+  const own = new ContractSink({ region: 10000002 });
+  feed(own, snapBytes);
+  eq('  with no time given, expiry is judged at the snapshot\'s own time', own.result().contracts.map((x) => x.id), [1, 5]);
+  const crlf = tar([['meta.json', '{}'], ['contracts.csv', contracts.replace('"10x ""Rifter"", cheap"', '"two\nlines"').replace(/\n/g, '\r\n').replace('"two\r\nlines"', '"two\nlines"')], ['contract_items.csv', items.replace(/\n/g, '\r\n')]]);
+  const cr = new ContractSink({ region: 10000002, now: NOW });
+  feed(cr, crlf);
+  eq('  CRLF line ends, and a title with a line break inside its quotes', cr.result().contracts.map((x) => [x.id, x.title, x.items.length]), [[1, 'two\nlines', 2], [5, 'Rifter BPO', 1]]);
+  eq('  items before contracts are refused, never read wrong', String(feed(new ContractSink({ region: 10000002 }), tar([['meta.json', '{}'], ['contract_items.csv', items], ['contracts.csv', contracts]]))?.message),
+    'EVE Ref’s snapshot lists its contracts’ items before its contracts');
 ```
 
 Add to `scripts/check-worker.mjs`, before the final `console.log(failed ? …)`:
@@ -380,12 +447,42 @@ console.log('\n--- what copies sell, read every six hours by the cloud (Task 14A
   // The default reader: EVE Ref's latest snapshot, asked once, with a User-Agent naming the project only.
   const calls = [];
   const real = globalThis.fetch;
-  globalThis.fetch = async (input, init = {}) => { calls.push({ url: String(input), ua: init.headers?.['User-Agent'] }); return new Response(new Uint8Array([1, 2, 3]), { status: 200 }); };
+  globalThis.fetch = async (input, init = {}) => { calls.push({ url: String(input), ua: init.headers?.['User-Agent'], timeout: init.signal instanceof AbortSignal }); return new Response(new Uint8Array([1, 2, 3]), { status: 200 }); };
   let viaFetch;
   try { viaFetch = await refreshCopies(d1(), A); } finally { globalThis.fetch = real; }
-  eq('  the default reader asks EVE Ref once, naming the project only; bytes that aren\'t a snapshot fail the round', [calls, viaFetch.done],
-    [[{ url: 'https://data.everef.net/public-contracts/public-contracts-latest.v2.tar.bz2', ua: 'Jita Ledger (a personal EVE trading tool)' }], 'failed']);
+  eq('  the default reader asks EVE Ref once, naming the project only, with a timeout; bytes that aren\'t a snapshot fail the round', [calls, viaFetch.done],
+    [[{ url: 'https://data.everef.net/public-contracts/public-contracts-latest.v2.tar.bz2', ua: 'Jita Ledger (a personal EVE trading tool)', timeout: true }], 'failed']);
   eq('  a row holds 3,000 contracts', COPY_PART, 3000);
+  // I5: the round stamps "interrupted" before it reads, so a round the cloud kills leaves a trace; after one, it waits six hours.
+  const { INTERRUPTED } = await import('../worker/src/copies.ts');
+  const dbI = d1();
+  let mid = null;
+  await refreshCopies(dbI, A + 120_000, { read: async () => { mid = JSON.parse(dbI.rows("SELECT data FROM scan_meta WHERE key = 'copies'")[0].data); return snap(0); } });
+  eq('  stamped as interrupted, with the try\'s time, while the read is under way; the read\'s end writes over it',
+    [mid.error, mid.tried, JSON.parse(dbI.rows("SELECT data FROM scan_meta WHERE key = 'copies'")[0].data).error], [INTERRUPTED, A + 120_000, null]);
+  const dbK = d1();
+  dbK.run("INSERT INTO scan_meta (key, data) VALUES ('copies', ?)", JSON.stringify({ tried: A, read: 0, error: INTERRUPTED, stale: null, reads: [] }));
+  eq('  after a round the cloud stopped: not tried again an hour on, but six hours on', [await refreshCopies(dbK, A + H, { read: async () => snap(0) }), (await refreshCopies(dbK, A + 6 * H, { read: async () => snap(0) })).done], [{ done: 'fresh' }, 'read']);
+  // A partial snapshot (a page EVE Ref's scraper missed) makes a contract look sold; the next whole one brings it back and it's taken out.
+  const ids = FX.snapshots.map((s) => new Set(s.contracts.map((x) => x[0])));
+  const X = FX.snapshots[0].contracts.find((x) => ids[1].has(x[0]) && ids[2].has(x[0]) && x[4].every((i) => i[1] === 1))[0];
+  const partial = (i, at) => { const s = snap(i, at); return { ...s, contracts: s.contracts.filter((x) => x.id !== X) }; };
+  const dbPart = d1();
+  await refreshCopies(dbPart, A + 120_000, { read: async () => snap(0) });
+  const r2 = await refreshCopies(dbPart, B + 120_000, { read: async () => partial(1) });
+  const hadX = n(dbPart, `SELECT COUNT(*) AS n FROM copy_sold WHERE contract_id = ${X}`);
+  const r3 = await refreshCopies(dbPart, C + 120_000, { read: async () => snap(2) });
+  eq('  a contract missing from one snapshot and back in the next: counted, then taken out (28 sold, as with whole snapshots)',
+    [r2.sold, hadX, r3.back, n(dbPart, `SELECT COUNT(*) AS n FROM copy_sold WHERE contract_id = ${X}`), n(dbPart, 'SELECT COUNT(*) AS n FROM copy_sold'), (await copiesFor(dbPart)).sold.reduce((t, k) => t + k.contracts, 0)],
+    [17, 1, 1, 0, 28, 28]);
+  // The reader's copyIssuers see a copy its seller moved into a bundle the comparables leave out (correction 5): a reprice, not a sale.
+  const dbB = d1();
+  await refreshCopies(dbB, A + 120_000, { read: async () => snap(0) });
+  const tempest = FX.snapshots[0].contracts.find((x) => x[4][0][0] === 693 && !ids[1].has(x[0]));
+  const at06 = snap(1), issuers = new Map();
+  for (const x of at06.contracts) for (const it of x.items) if (it.itemId) issuers.set(it.itemId, x.issuer);
+  for (const it of tempest[4]) issuers.set(it[6], tempest[3]);
+  eq('  a Tempest contract gone at 06:00 whose copy sits in a bundle of its seller\'s: 15 sold, not 16', (await refreshCopies(dbB, B + 120_000, { read: async () => ({ ...at06, copyIssuers: issuers }) })).sold, 15);
 }
 ```
 
@@ -426,20 +523,178 @@ CREATE INDEX IF NOT EXISTS copy_sold_at ON copy_sold (at);
 
 - [ ] **Step 5: The pure rules**
 
-In `src/lib/bpContracts.ts`, add after `fileNamed` and use it in `blueprintContracts` (replace its last four lines that read
-`meta.json`):
+In `src/lib/bpContracts.ts`, add after `TarSink` (which stays, with `blueprintContracts`, for its tests):
 
 ```ts
-/** When EVE Ref took a snapshot: its meta.json's `scrape_end`; null without one, or one that doesn't parse. */
-export function snapshotAt(files: Map<string, Uint8Array>): string | null {
-  const meta = fileNamed(files, 'meta.json');
-  if (!meta) return null;
-  try { return (JSON.parse(new TextDecoder().decode(meta)) as { scrape_end?: string }).scrape_end ?? null; } catch { return null; }
+type SnapshotFile = 'meta' | 'contracts' | 'items' | null;
+const SNAPSHOT_FILES: Record<string, SnapshotFile> = { 'meta.json': 'meta', 'contracts.csv': 'contracts', 'contract_items.csv': 'items' };
+const fileOf = (name: string): SnapshotFile => SNAPSHOT_FILES[name.slice(name.lastIndexOf('/') + 1)] ?? null;
+const ITEM_EXCHANGE = new TextEncoder().encode('item_exchange'), TRUE = new TextEncoder().encode('true');
+const MAX_FIELDS = 40;
+
+/**
+ * The region's blueprint-only contracts, read as the bzip2 decoder writes the tar a byte at a time (stage 3, correction 19): each
+ * CSV line is split into fields where it lies, a contract kept only when it is a public item exchange of the region with a price,
+ * its items only while every one is a blueprint given, and every copy of the region's item exchanges, a bundle with other items
+ * included, noted with its seller (`copyIssuers`: what tells a reprice from a sale, correction 5). Nothing else is held: the
+ * whole contracts and items files (39 MB on 11 October 2026) peaked near the Worker's 128 MB with the rest of a round. The same
+ * contracts `blueprintContracts` reads from whole files (tested equal). Expiry is judged at `now`, else the snapshot's own time.
+ */
+export class ContractSink {
+  at: string | null = null;
+  readonly copyIssuers = new Map<number, number>();
+  private opts: { region: number; now?: number; types?: ReadonlySet<number> };
+  private header = new Uint8Array(512);
+  private hpos = 0;
+  private cur: { file: SnapshotFile; size: number; pos: number; left: number } | null = null;
+  private done = new Set<SnapshotFile>();
+  private meta: number[] = [];
+  private line = new Uint8Array(4096);
+  private llen = 0;
+  private quoted = false;
+  private cols: Map<string, number> | null = null;
+  private bounds = new Int32Array(MAX_FIELDS * 2);
+  private dec = new TextDecoder();
+  private kept = new Map<number, BpContract>();
+  /** The region's item exchanges dropped as comparables (an item asked for, or not a blueprint): their sellers, by contract. */
+  private spoiled = new Map<number, number>();
+  constructor(opts: { region: number; now?: number; types?: ReadonlySet<number> }) { this.opts = opts; }
+
+  writeByte(b: number): void {
+    if (!this.cur) {
+      this.header[this.hpos++] = b;
+      if (this.hpos < 512) return;
+      this.hpos = 0;
+      let name = '';
+      for (let i = 0; i < 100 && this.header[i]; i++) name += String.fromCharCode(this.header[i]);
+      if (!name) throw TAR_DONE;
+      let oct = '';
+      for (let i = 124; i < 136 && this.header[i]; i++) oct += String.fromCharCode(this.header[i]);
+      const size = parseInt(oct.trim() || '0', 8);
+      const file = fileOf(name);
+      // Items are kept only for contracts already kept, so they must come after them (EVE Ref's order: meta, contracts, items).
+      if (file === 'items' && !this.done.has('contracts')) throw new Error('EVE Ref’s snapshot lists its contracts’ items before its contracts');
+      this.cur = { file, size, pos: 0, left: Math.ceil(size / 512) * 512 };
+      this.cols = null; this.llen = 0; this.quoted = false;
+      if (this.cur.left === 0) this.finish();
+      return;
+    }
+    if (this.cur.pos < this.cur.size) {
+      if (this.cur.file === 'meta') this.meta.push(b);
+      else if (this.cur.file) {
+        if (b === 0x22) this.quoted = !this.quoted;
+        if (b === 0x0a && !this.quoted) this.endLine();
+        else if (b !== 0x0d || this.quoted) {
+          if (this.llen === this.line.length) { const n = new Uint8Array(this.line.length * 2); n.set(this.line); this.line = n; }
+          this.line[this.llen++] = b;
+        }
+      }
+    }
+    this.cur.pos++;
+    if (--this.cur.left === 0) this.finish();
+  }
+
+  /** The line's fields as [start, end) pairs (outer quotes still on), in `bounds`. */
+  private split(): void {
+    let n = 0, start = 0, q = false;
+    for (let i = 0; i <= this.llen; i++) {
+      const c = i < this.llen ? this.line[i] : 0x2c;
+      if (c === 0x22) q = !q;
+      else if (c === 0x2c && !q) { if (n < MAX_FIELDS) { this.bounds[2 * n] = start; this.bounds[2 * n + 1] = i; } n++; start = i + 1; }
+    }
+  }
+  private col(name: string): number { return this.cols?.get(name) ?? -1; }
+  private range(k: number): [number, number] {
+    let s = this.bounds[2 * k], e = this.bounds[2 * k + 1];
+    if (e - s >= 2 && this.line[s] === 0x22 && this.line[e - 1] === 0x22) { s++; e--; }
+    return [s, e];
+  }
+  private is(k: number, lit: Uint8Array): boolean {
+    if (k < 0) return false;
+    const [s, e] = this.range(k);
+    if (e - s !== lit.length) return false;
+    for (let i = 0; i < lit.length; i++) if (this.line[s + i] !== lit[i]) return false;
+    return true;
+  }
+  private empty(k: number): boolean { if (k < 0) return true; const [s, e] = this.range(k); return e <= s; }
+  /** A whole number read from the field's bytes, no string made; anything else through Number(); NaN when empty. */
+  private int(k: number): number {
+    if (k < 0) return NaN;
+    const [s, e] = this.range(k);
+    if (e <= s) return NaN;
+    let v = 0, i = s;
+    const neg = this.line[i] === 0x2d;
+    if (neg) i++;
+    for (; i < e; i++) { const c = this.line[i]; if (c < 0x30 || c > 0x39) return Number(this.str(k)); v = v * 10 + (c - 0x30); }
+    return neg ? -v : v;
+  }
+  private str(k: number): string {
+    if (k < 0) return '';
+    const [s, e] = this.range(k);
+    const t = this.dec.decode(this.line.subarray(s, e));
+    return t.includes('""') ? t.replace(/""/g, '"') : t;
+  }
+
+  private endLine(): void {
+    if (!this.llen) return;
+    if (!this.cols) { this.cols = new Map(csvFields(this.dec.decode(this.line.subarray(0, this.llen))).map((c, i) => [c.trim(), i])); this.llen = 0; return; }
+    this.split();
+    if (this.cur!.file === 'contracts') {
+      if (this.is(this.col('type'), ITEM_EXCHANGE) && this.int(this.col('region_id')) === this.opts.region && !this.is(this.col('for_corporation'), TRUE)) {
+        const price = Number(this.str(this.col('price')));
+        if (price > 0) {
+          const id = this.int(this.col('contract_id'));
+          const station = this.int(this.col('station_id')) || this.int(this.col('start_location_id'));
+          this.kept.set(id, { id, price, issued: this.str(this.col('date_issued')), expires: this.str(this.col('date_expired')), stationId: station > 0 ? station : null,
+            issuer: this.int(this.col('issuer_id')), title: this.str(this.col('title')), items: [] });
+        }
+      }
+      this.llen = 0;
+      return;
+    }
+    const id = this.int(this.col('contract_id'));
+    const c = this.kept.get(id);
+    const issuer = c ? c.issuer : this.spoiled.get(id);
+    if (issuer != null && this.is(this.col('is_blueprint_copy'), TRUE)) { const it = this.int(this.col('item_id')); if (it > 0) this.copyIssuers.set(it, issuer); }
+    if (c) {
+      const me = this.col('material_efficiency');
+      // A contract asking for an item, or holding anything that isn't a blueprint (no ME), is no comparable: dropped whole.
+      if (!this.is(this.col('is_included'), TRUE) || this.empty(me)) { this.kept.delete(id); this.spoiled.set(id, c.issuer); }
+      else {
+        const runs = this.col('runs'), te = this.col('time_efficiency'), itemId = this.int(this.col('item_id'));
+        c.items.push({ typeId: this.int(this.col('type_id')), copy: this.is(this.col('is_blueprint_copy'), TRUE), me: this.int(me), te: this.empty(te) ? 0 : this.int(te),
+          runs: this.empty(runs) ? null : this.int(runs), qty: Math.max(1, this.int(this.col('quantity')) || 1), itemId: itemId > 0 ? itemId : null });
+      }
+    }
+    this.llen = 0;
+  }
+
+  private finish(): void {
+    const file = this.cur!.file;
+    if (file === 'contracts' || file === 'items') this.endLine();
+    if (file === 'meta') { try { this.at = (JSON.parse(this.dec.decode(new Uint8Array(this.meta))) as { scrape_end?: string }).scrape_end ?? null; } catch { this.at = null; } this.meta = []; }
+    if (file) this.done.add(file);
+    this.cur = null;
+    if (this.done.has('meta') && this.done.has('contracts') && this.done.has('items')) throw TAR_DONE;
+  }
+
+  /** The contracts kept: blueprints only, not expired at `now` (else the snapshot's own time), holding one of `types` when asked; and every copy's seller. */
+  result(): { contracts: BpContract[]; at: string | null; copyIssuers: ReadonlyMap<number, number> } {
+    const now = this.opts.now ?? (this.at ? Date.parse(this.at) : Date.now());
+    const types = this.opts.types;
+    const contracts = [...this.kept.values()].filter((c) => c.items.length && Date.parse(c.expires) > now && (!types || c.items.some((i) => types.has(i.typeId))));
+    return { contracts, at: this.at, copyIssuers: this.copyIssuers };
+  }
 }
 ```
 
-```ts
-  return { contracts, at: snapshotAt(files) };
+In `worker/src/vendor/bunzip.ts`, line 532, reuse the block buffer (a block writes every entry it later reads; a fresh 3.6 MB
+array a block was most of the garbage the measure below found), and say so in the file's header comment ("only the Buffer
+allocations and copies changed, and the block buffer is reused"):
+
+```js
+  // One buffer for every block: a block writes each entry before it reads it. A fresh 3.6 MB array a block was garbage otherwise.
+  var dbuf = this.dbuf = (this.dbuf && this.dbuf.length === this.dbufSize) ? this.dbuf : new Uint32Array(this.dbufSize);
 ```
 
 Create `src/lib/copyMarket.ts`:
@@ -555,41 +810,52 @@ export function copySummary(o: { sold: readonly SoldRow[]; current: readonly Cop
 
 - [ ] **Step 6: The Worker's round and route**
 
-In `worker/src/blueprints.ts`, export the reader the Blueprints route already uses, so both read EVE Ref one way (replace the
-`LATEST`, `UA` and `snapshot` definitions; `historyNear` passes `EVE_REF_UA` where it passed `UA`):
+In `worker/src/blueprints.ts`, one reader for both: the Blueprints route and the copy round read EVE Ref the same way, filtering
+as it decompresses (replace the `LATEST`, `UA` and `snapshot` definitions and the `WANT` list; `historyNear` passes
+`EVE_REF_UA` where it passed `UA`, and its index fetch takes the same timeout):
 
 ```ts
 export const LATEST = `${BASE}/public-contracts-latest.v2.tar.bz2`;
 /** EVE Ref is someone else's site: the User-Agent names the project only. */
 export const EVE_REF_UA = { 'User-Agent': 'Jita Ledger (a personal EVE trading tool)' };
+/** A stalled EVE Ref mustn't hold the invocation to its 15-minute wall: the 6.6 MB file came in seconds on 11 October 2026. */
+export const READ_TIMEOUT_MS = 90_000;
 
-/** A snapshot's files the app reads (meta, contracts, items), decoded as they stream out of bzip2: the rest is never decoded. */
-export async function readSnapshot(url: string): Promise<Map<string, Uint8Array>> {
-  const res = await fetch(url, { headers: EVE_REF_UA });
+/**
+ * A snapshot's contracts of a region, kept as they stream out of bzip2 (ContractSink): never the 39 MB of CSV whole. `now`
+ * judges expiry (else the snapshot's own time); `types` keeps only contracts holding one of them.
+ */
+export async function readSnapshot(url: string, opts: { region: number; now?: number; types?: ReadonlySet<number> }): Promise<{ contracts: BpContract[]; at: string | null; copyIssuers: ReadonlyMap<number, number> }> {
+  const res = await fetch(url, { headers: EVE_REF_UA, signal: AbortSignal.timeout(READ_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`EVE Ref answered ${res.status} for ${url.split('/').pop()}`);
-  const sink = new TarSink(WANT);
+  const sink = new ContractSink(opts);
   try { bunzipTo(new Uint8Array(await res.arrayBuffer()), sink); } catch (e) { if (e !== TAR_DONE) throw e; }
-  return sink.files;
+  return sink.result();
 }
 
 async function snapshot(url: string, types: ReadonlySet<number>, now: number): Promise<{ contracts: BpContract[]; at: string | null }> {
-  return blueprintContracts(await readSnapshot(url), { region: THE_FORGE, now, types });
+  const r = await readSnapshot(url, { region: THE_FORGE, now, types });
+  return { contracts: r.contracts, at: r.at };
 }
 ```
+
+(Imports: `ContractSink, TAR_DONE, vanishedSince, type BpContract` from `../../src/lib/bpContracts`; `blueprintContracts` and
+`TarSink` are no longer imported here. The route's answer is unchanged: the same contracts, tested equal in step 2.)
 
 Create `worker/src/copies.ts`:
 
 ```ts
 /**
  * What blueprint copies sell for in The Forge (docs/notes/industry.md, stage 3). Every six hours, after Goonmetrics on the
- * `37` cron, the cloud reads EVE Ref's latest public-contract snapshot, keeps The Forge's single-kind copy contracts as a set
- * (`copy_set`, in rows of COPY_PART), and puts each contract of the set kept last time that vanished before expiry, not
- * relisted by its seller, in `copy_sold` (kept eight days). The summary the Copies section reads is worked out once a round
- * and kept in `scan_meta` ('copySummary'), beside the round's own state ('copies'). EVE Ref is someone else's site: one
- * 6.5 MB file every six hours, a User-Agent naming the project only, not a watched job (the section says how old its read
+ * `37` cron, the cloud reads EVE Ref's latest public-contract snapshot (filtered as it decompresses: blueprints.ts
+ * readSnapshot), keeps The Forge's single-kind copy contracts as a set (`copy_set`, in rows of COPY_PART), and puts each
+ * contract of the set kept last time that vanished before expiry, not relisted by its seller, in `copy_sold` (kept eight
+ * days). The summary the Copies section reads is worked out once a round and kept in `scan_meta` ('copySummary'), beside the
+ * round's own state ('copies'), all in one batch with the set. EVE Ref is someone else's site: one 6.6 MB file every six
+ * hours, a User-Agent naming the project only, a 90-second timeout, not a watched job (the section says how old its read
  * is), and COPIES_ON switches it off.
  */
-import { blueprintContracts, snapshotAt, type BpContract } from '../../src/lib/bpContracts';
+import type { BpContract } from '../../src/lib/bpContracts';
 import { THE_FORGE } from '../../src/lib/constants';
 import { COPY_KEEP_DAYS, COPY_WINDOW_DAYS, compactCopies, copiesSold, copySummary, itemIssuers, soldRows, type CopyRead, type CopyRow, type CopySummary, type SoldRow } from '../../src/lib/copyMarket';
 import { LATEST, readSnapshot } from './blueprints';
@@ -598,27 +864,27 @@ export const COPIES_ON = true;
 export const COPIES_REFRESH_MS = 6 * 3_600_000;
 /** The alts' read ahead of it varies, so a read is due a little early rather than an hour late (Goonmetrics' slack). */
 export const COPIES_SLACK_MS = 30 * 60_000;
-/** After a try that failed or found the same snapshot, the next waits for the next hourly cron. */
+/** After a try that failed, the next waits for the next hourly cron. */
 export const COPIES_RETRY_MS = 50 * 60_000;
 /** No read starts this long after the cron's scheduled time: Goonmetrics may run to 10 minutes; the invocation stops at 15. */
 export const COPIES_BUDGET_MS = 12 * 60_000;
-/** Contracts a `copy_set` row holds: about 280 KB of JSON, far under D1's 2 MB a row (the set was 1.02 to 1.03 MB on 11 October 2026). */
+/** Contracts a `copy_set` row holds: about 280 KB of JSON, under D1's 2 MB a row (the set was 1.02 to 1.03 MB on 11 October 2026). */
 export const COPY_PART = 3000;
+/** Stamped before a read: a round the cloud stops (memory, the wall limit) can't write anything after, so this stays as its trace. */
+export const INTERRUPTED = 'interrupted: the cloud stopped the read before it finished';
 const DAY = 86_400_000;
 
-export type Snapshot = { at: string | null; contracts: BpContract[] };
+/** A snapshot as the round reads it; `copyIssuers`: every copy of The Forge's item exchanges to its seller (ContractSink), else worked out from `contracts`. */
+export type Snapshot = { at: string | null; contracts: BpContract[]; copyIssuers?: ReadonlyMap<number, number> };
 /**
- * The round's state: when it last tried and last read (the Worker's clock), the last error, the kept snapshot's time when EVE Ref's
- * latest was still that one at the last try (not an error: nothing new to read), each comparison's span.
+ * The round's state: when it last tried and last read (the Worker's clock), the last error (INTERRUPTED until a try ends), the
+ * kept snapshot's time when EVE Ref's latest was still that one at the last try (not an error: nothing new to read), and each
+ * comparison's span.
  */
 export type CopiesState = { tried: number; read: number; error: string | null; stale: string | null; reads: CopyRead[] };
 
-/** The default reader: EVE Ref's latest snapshot, every Forge blueprint-only contract, expiry judged at the snapshot's own time. */
-export async function latestSnapshot(): Promise<Snapshot> {
-  const files = await readSnapshot(LATEST);
-  const at = snapshotAt(files);
-  return { at, contracts: blueprintContracts(files, { region: THE_FORGE, now: at ? Date.parse(at) : Date.now() }).contracts };
-}
+/** The default reader: EVE Ref's latest snapshot of The Forge, expiry judged at the snapshot's own time. */
+export const latestSnapshot = (): Promise<Snapshot> => readSnapshot(LATEST, { region: THE_FORGE });
 
 async function stateOf(db: D1Database): Promise<CopiesState> {
   const r = await db.prepare(`SELECT data FROM scan_meta WHERE key = 'copies'`).first<{ data: string }>();
@@ -635,14 +901,19 @@ export async function ownCharacters(db: D1Database): Promise<Set<number>> {
 }
 
 /**
- * One round, when due (see the plan's "When it reads"): read the latest snapshot, compare it with the kept set, keep what sold,
- * replace the set, prune, work the summary out. `read`, `on`, `deadline` and `part` are for the tests and the cron.
+ * One round, when due (the plan's "When it reads"): read the latest snapshot, compare it with the kept set, and in one batch keep
+ * what sold, take back what a partial snapshot made look sold, replace the set, and write the summary and the state; then prune.
+ * `read`, `on`, `deadline` and `part` are for the tests and the cron.
  */
 export async function refreshCopies(db: D1Database, now = Date.now(), o: { read?: () => Promise<Snapshot>; on?: boolean; deadline?: number; part?: number } = {}) {
   if (!(o.on ?? COPIES_ON)) return { off: true as const };
   const st = await stateOf(db);
-  if (now - st.read < COPIES_REFRESH_MS - COPIES_SLACK_MS || now - st.tried < COPIES_RETRY_MS) return { done: 'fresh' as const };
+  // A read the cloud stopped waits the full six hours, never the hour: the same read would likely stop again.
+  const retry = st.error === INTERRUPTED ? COPIES_REFRESH_MS - COPIES_SLACK_MS : COPIES_RETRY_MS;
+  if (now - st.read < COPIES_REFRESH_MS - COPIES_SLACK_MS || now - st.tried < retry) return { done: 'fresh' as const };
   if (Date.now() > (o.deadline ?? Infinity)) return { done: 'later' as const };
+  // Every way this round ends writes over it; one the cloud kills leaves it (I5).
+  await putMeta(db, 'copies', { ...st, tried: now, error: INTERRUPTED }).run();
   const stamp = (error: string) => putMeta(db, 'copies', { ...st, tried: now, error }).run();
   let snap: Snapshot;
   try { snap = await (o.read ?? latestSnapshot)(); } catch (e) {
@@ -660,34 +931,39 @@ export async function refreshCopies(db: D1Database, now = Date.now(), o: { read?
     return { done: 'same' as const };
   }
   const current = compactCopies(snap.contracts);
+  const newerIds = new Set(snap.contracts.map((c) => c.id));
   let sold: CopyRow[] = [];
   const reads = st.reads.filter((r) => r[1] > now - COPY_KEEP_DAYS * DAY);
   // A first read, or a kept set more than a week older than this one, compares nothing: a week of sales on one day is no pace.
   if (keptAt != null && at - keptAt <= COPY_WINDOW_DAYS * DAY) {
     const older = parts.flatMap((p) => JSON.parse(p.data) as CopyRow[]);
-    sold = copiesSold(older, new Set(snap.contracts.map((c) => c.id)), itemIssuers(snap.contracts), at);
-    const rows = soldRows(sold, at);
-    const writes: D1PreparedStatement[] = [];
-    // Ten rows a statement: nine values each, under D1's 100 bound parameters.
-    for (let i = 0; i < rows.length; i += 10) {
-      const chunk = rows.slice(i, i + 10);
-      writes.push(db.prepare(`INSERT OR IGNORE INTO copy_sold (contract_id, type_id, me, te, runs, copies, price, issuer, at) VALUES ${chunk.map((_, n) => `(${Array.from({ length: 9 }, (_, k) => `?${n * 9 + k + 1}`).join(', ')})`).join(', ')}`)
-        .bind(...chunk.flatMap((s) => [s.contractId, s.typeId, s.me, s.te, s.runs, s.copies, s.price, s.issuer, s.at])));
-    }
-    if (writes.length) await db.batch(writes);
+    sold = copiesSold(older, newerIds, snap.copyIssuers ?? itemIssuers(snap.contracts), at);
     reads.push([keptAt, at, sold.length]);
   }
-  // The set replaced in one transaction: what sold went in first, so a failed write here is compared again next time and ignored twice.
-  const size = o.part ?? COPY_PART;
-  const sets: D1PreparedStatement[] = [db.prepare('DELETE FROM copy_set')];
-  for (let i = 0, p = 0; i < current.length || p === 0; i += size, p++) sets.push(db.prepare('INSERT INTO copy_set (part, at, data) VALUES (?1, ?2, ?3)').bind(p, at, JSON.stringify(current.slice(i, i + size))));
-  await db.batch(sets);
-  await db.prepare('DELETE FROM copy_sold WHERE at <= ?1').bind(now - COPY_KEEP_DAYS * DAY).run();
-  const window = (await db.prepare('SELECT contract_id AS contractId, type_id AS typeId, me, te, runs, copies, price, issuer, at FROM copy_sold WHERE at > ?1')
+  // The window: what's kept, less any contract back in this snapshot (a partial snapshot before made it look sold: M20), plus what sold now.
+  const held = (await db.prepare('SELECT contract_id AS contractId, type_id AS typeId, me, te, runs, copies, price, issuer, at FROM copy_sold WHERE at > ?1')
     .bind(at - COPY_WINDOW_DAYS * DAY).all<SoldRow>()).results;
-  const summary = copySummary({ sold: window, current, reads, exclude: await ownCharacters(db), at });
-  await db.batch([putMeta(db, 'copySummary', summary), putMeta(db, 'copies', { tried: now, read: now, error: null, stale: null, reads })]);
-  return { done: 'read' as const, contracts: current.length, sold: sold.length, parts: sets.length - 1 };
+  const heldIds = new Set(held.map((r) => r.contractId));
+  const back = held.filter((r) => newerIds.has(r.contractId)).map((r) => r.contractId);
+  const fresh = soldRows(sold, at).filter((r) => !heldIds.has(r.contractId));
+  const summary = copySummary({ sold: [...held.filter((r) => !newerIds.has(r.contractId)), ...fresh], current, reads, exclude: await ownCharacters(db), at });
+  // One batch, one transaction (M18): what sold, what came back, the set, the summary and the state land together or not at all.
+  const writes: D1PreparedStatement[] = [];
+  // Ten rows a statement: nine values each, under D1's 100 bound parameters.
+  for (let i = 0; i < fresh.length; i += 10) {
+    const chunk = fresh.slice(i, i + 10);
+    writes.push(db.prepare(`INSERT OR IGNORE INTO copy_sold (contract_id, type_id, me, te, runs, copies, price, issuer, at) VALUES ${chunk.map((_, n) => `(${Array.from({ length: 9 }, (_, k) => `?${n * 9 + k + 1}`).join(', ')})`).join(', ')}`)
+      .bind(...chunk.flatMap((s) => [s.contractId, s.typeId, s.me, s.te, s.runs, s.copies, s.price, s.issuer, s.at])));
+  }
+  for (let i = 0; i < back.length; i += 90) { const ids = back.slice(i, i + 90); writes.push(db.prepare(`DELETE FROM copy_sold WHERE contract_id IN (${ids.map((_, n) => `?${n + 1}`).join(',')})`).bind(...ids)); }
+  writes.push(db.prepare('DELETE FROM copy_set'));
+  const size = o.part ?? COPY_PART;
+  let p = 0;
+  for (let i = 0; i < current.length || p === 0; i += size, p++) writes.push(db.prepare('INSERT INTO copy_set (part, at, data) VALUES (?1, ?2, ?3)').bind(p, at, JSON.stringify(current.slice(i, i + size))));
+  writes.push(putMeta(db, 'copySummary', summary), putMeta(db, 'copies', { tried: now, read: now, error: null, stale: null, reads }));
+  await db.batch(writes);
+  await db.prepare('DELETE FROM copy_sold WHERE at <= ?1').bind(now - COPY_KEEP_DAYS * DAY).run();
+  return { done: 'read' as const, contracts: current.length, sold: sold.length, parts: p, ...(back.length ? { back: back.length } : {}) };
 }
 
 /** For `GET /v1/copies`: the last round's summary with when it last tried, its error and whether EVE Ref had nothing newer; null before the first; `off` when switched off. */
@@ -723,29 +999,101 @@ and, beside `/v1/home/prices`:
 
 Run: `npm run check`. Expected: `all passed` twice (check.mjs, then check-worker.mjs, whose "every Worker module loads" list now
 includes `copies.ts`). Then plant each and see it fail, putting it back after: in `copiesSold` drop
-`&& !r[9].some(…)` (the reprice test: 21, not 16); drop `r[8] * 1000 > now &&` (the expiry test); in `refreshCopies` remove the
-`at - keptAt <= COPY_WINDOW_DAYS * DAY` clause (the seven-day test then counts sales); make `same` stamp `read: now` (the try an hour on reads `fresh`
-where it must read the snapshot again); drop `o.exclude.has(s.issuer) ||` (the own-contracts test).
+`&& !r[9].some(…)` (the reprice test: 21, not 16); drop `r[8] * 1000 > now &&` (the expiry test); in `copySummary` drop
+`|| o.exclude.has(s.issuer)` (the own-contracts test); in `refreshCopies` remove the `at - keptAt <= COPY_WINDOW_DAYS * DAY`
+clause (the seven-day test then counts sales); make `same` stamp `read: now` (the try an hour on reads `fresh` where it must read
+the snapshot again); remove the `INTERRUPTED` stamp before the read (the mid-read test); make `retry` always `COPIES_RETRY_MS`
+(the after-a-kill test reads an hour on); drop the `back` deletion (the partial-snapshot test keeps 29); use `itemIssuers` in
+place of `snap.copyIssuers ??` (the bundle test reads 16); in `ContractSink`, record a copy's seller only for kept contracts (the
+mixed-bundle `copyIssuers` test loses 102); drop the items-before-contracts check (that test reads wrong instead of refusing);
+in `readSnapshot`, drop the `signal` (the default reader's `timeout: true`).
 
-- [ ] **Step 8: Notes**
+- [ ] **Step 8: Measure the memory on a real snapshot (I5)**
+
+Write `.playwright-mcp/research/industry-stage3-scripts/measure-memory.mjs` (gitignored, beside the cut script):
+
+```js
+// The copy round's memory on real EVE Ref snapshots (stage 3, I5). Heap plus ArrayBuffers, sampled every MB the decoder writes
+// and after each step, above what the process held before. Usage:
+//   node --expose-gc --import ./scripts/register.mjs <this> reader <snapshot.tar.bz2>
+//   node --max-old-space-size=48 --disable-warning=ExperimentalWarning --import ./scripts/register.mjs <this> round <older.tar.bz2> <newer.tar.bz2>
+import fs from 'node:fs';
+import { bunzipTo } from '../../../worker/src/vendor/bunzip.ts';
+import { ContractSink, TAR_DONE } from '../../../src/lib/bpContracts.ts';
+const [mode, ...files] = process.argv.slice(2);
+const mu = () => { const m = process.memoryUsage(); return m.heapUsed + m.arrayBuffers; };
+let peak = 0, n = 0;
+const read = (file) => async () => {
+  const bytes = new Uint8Array(fs.readFileSync(file));
+  const sink = new ContractSink({ region: 10000002 });
+  try { bunzipTo(bytes, { writeByte(b) { if ((++n & 0xfffff) === 0) peak = Math.max(peak, mu()); sink.writeByte(b); } }); } catch (e) { if (e !== TAR_DONE) throw e; }
+  const r = sink.result();
+  peak = Math.max(peak, mu());
+  return r;
+};
+globalThis.gc?.();
+if (mode === 'reader') {
+  const base = mu(), t0 = performance.now();
+  const r = await read(files[0])();
+  const ms = performance.now() - t0;
+  globalThis.gc?.();
+  console.log(`reader: ${r.contracts.length} contracts, ${r.contracts.reduce((t, c) => t + c.items.length, 0)} items, ${r.copyIssuers.size} copies' sellers; ${Math.round(ms)} ms; peak ${((peak - base) / 1e6).toFixed(1)} MB above ${(base / 1e6).toFixed(1)}; held after GC ${((mu() - base) / 1e6).toFixed(1)} MB`);
+} else {
+  const { d1 } = await import('../../../scripts/d1.mjs');
+  const { refreshCopies } = await import('../../../worker/src/copies.ts');
+  const db = d1();
+  // The rounds' clocks: the snapshots' own times (00:00 and 06:00 UTC) and ten minutes, so the second is due.
+  await refreshCopies(db, Date.parse('2026-10-11T00:10:00Z'), { read: read(files[0]) });
+  const base = mu(); peak = 0;
+  const t0 = performance.now();
+  const r = await refreshCopies(db, Date.parse('2026-10-11T06:10:00Z'), { read: read(files[1]) });
+  console.log(`round: ${JSON.stringify(r)}; ${Math.round(performance.now() - t0)} ms; peak ${((Math.max(peak, mu()) - base) / 1e6).toFixed(1)} MB above ${(base / 1e6).toFixed(1)}`);
+}
+```
+
+Run it on the 12:00 snapshot, then the 00:00 → 06:00 round under a 48 MB old space:
+
+```bash
+D=.playwright-mcp/research/industry-stage3/dl
+S=.playwright-mcp/research/industry-stage3-scripts/measure-memory.mjs
+node --expose-gc --import ./scripts/register.mjs $S reader $D/public-contracts-2026-10-11_12-00-05.v2.tar.bz2
+node --max-old-space-size=48 --disable-warning=ExperimentalWarning --import ./scripts/register.mjs $S round $D/public-contracts-2026-10-11_00-00-07.v2.tar.bz2 $D/public-contracts-2026-10-11_06-00-05.v2.tar.bz2
+```
+
+Expected (the plan's own run of this code, 11 October 2026, Node 24.18): **reader: 15235 contracts, 46204 items, 49531 copies'
+sellers; about 2.4 s; peak 31.1 MB above the process's own (the 6.6 MB file included), held after GC 20.6 MB**; the round
+`{"done":"read","contracts":11402,"sold":327,"parts":4}` in about 2.7 s, completing under the 48 MB old space. **The bar: the
+reader's peak at most 60 MB, and the round completes under `--max-old-space-size=48`.** Over the bar, don't ship: find what's held
+(the old reader, whole files kept, peaked at 113 MB in the same measure; without the block buffer's reuse the stream peaked at
+84.5 MB). Put the two lines in the commit message and the note. (The bzip2 decoder's working arrays aren't sampled between its
+writes: the measure is the app's, not a proof; the Worker's own first round, its `wrangler tail` line and `scan_meta`, is the
+rest.)
+
+- [ ] **Step 9: Notes**
 
 - `docs/notes/industry.md`, a new `## Stage 3: copies to sell` section: the round (when it reads, what it keeps, what counts as
-  sold, the measured counts above, corrections 2 to 6), that a `copy_set` row (about 280 KB) is the largest row the Worker has
-  written so far (`industry_npc`'s 190 KB was), so the first real round is its check, the D1 cost (about 375 inserts and 375 prunes a round, 8 rows of set
-  and state: about 3,000 row writes a day, 90,000 a month), `COPIES_ON`, and that the first `37` round after a deploy only keeps
-  the set (the summary says 0 days) and the next, six hours on, is the first to count.
+  sold, the measured counts above, corrections 2 to 6, 19 to 21), that a `copy_set` row is about 280 KB, under D1's 2 MB, the D1
+  cost (about 375 inserts and 375 prunes a round, each written twice with the `copy_sold_at` index, and 8 rows of set and state:
+  about 6,000 row writes a day, 180,000 a month, under 0.4% of the plan's 50 M), the memory measure of step 8 (both lines, and the
+  old reader's 113 MB beside them), `COPIES_ON`, and that the first `37` round after a deploy only keeps the set (the section says
+  counting has begun) and the next, six hours on, is the first to count.
 - `CLAUDE.md`'s Timers paragraph: "…hourly at :37 every alt's full read (`altsHourly`), then Goonmetrics and then the copy
   market (`refreshCopies`) when six hours old"; the Worker's imports list gains `copyMarket`.
-- `docs/notes/limits.md`: **Copies "sold" are contracts that vanished before expiry**: a seller cancelling looks the same; read
-  every six hours, so one listed and sold within a read's span is missed (the summary says the longest span); public contracts
-  of The Forge only (Brave's corporation and alliance contracts aren't visible); contract fees aren't modelled.
-- `docs/notes/finding-trades.md`, the Blueprints bullet: the snapshot reader (`readSnapshot`) is shared with the copy round.
+- `docs/notes/limits.md`: **Copies "sold" are contracts that vanished before expiry**: a seller cancelling looks the same, and so
+  does a copy taken back and relisted only after the next read (none of 327 on 11 October); read every six hours, so one listed
+  and sold within a read's span is missed (the Sold column says so; the summary gives the longest span); a contract missing from
+  one snapshot (EVE Ref's scraper missed a page) counts as sold until the next whole snapshot shows it again, then is taken out,
+  so a figure can drop by it six hours later; public contracts of The Forge only (Brave's corporation and alliance contracts
+  aren't visible); contract fees aren't modelled.
+- `docs/notes/finding-trades.md`, the Blueprints bullet: the snapshot reader (`readSnapshot`, `ContractSink`) is shared with the
+  copy round and filters as it decompresses; the route's answer is unchanged (tested equal to `blueprintContracts`).
 - `.claude/rules/industry.md` `paths:` gains `src/lib/copyMarket.ts`, `worker/src/copies.ts`, `worker/migrations/0020_copies.sql`.
 
-- [ ] **Step 9: The five checks, and commit**
+- [ ] **Step 10: The five checks, and commit**
 
 Run: `npm run check && npm run build && LEDGER=industry npm run check-pages && npm run check-pages && npm run check-income`.
-Expected: all green (no page reads the route yet). `git add` the files above and commit:
+Expected: all green (no page reads the route yet; the Blueprints page's own checks still pass: its route shares the new reader,
+whose contracts step 2 tests equal to what `blueprintContracts` keeps). `git add` the files above and commit:
 
 ```bash
 git commit -m "Industry stage 3: the cloud counts what copies sell, every six hours
@@ -757,7 +1105,9 @@ single-kind copy contracts as a set (copy_set, rows of 3,000: the set is 1.02 MB
 market doubles) and puts each contract of the last set that vanished before expiry, not relisted by its seller (judged
 against every contract of the new snapshot, a bundle too), in copy_sold for eight days. The summary is worked out once a
 round, so GET /v1/copies never parses a megabyte; your own characters' contracts are left out of it. A first read, the
-same snapshot, a failure or a set more than a week old compare nothing and say so. Tested on three real snapshots
+same snapshot, a failure or a set more than a week old compare nothing and say so. The snapshot is read as it
+decompresses, keeping only The Forge's blueprint contracts and every copy's seller, never the 39 MB of CSV whole: <the two
+measure lines of step 8>, against 113 MB for the old reader in the same measure. Tested on three real snapshots
 (scripts/fixtures/copy-snapshots.json): 16 sold of 21 gone (5 repriced), then 12 with 5 relisted by others.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -912,6 +1262,12 @@ console.log('\n--- Industry stage 3: the copy finder (copyFinder.ts, Task 14B) -
     'The copy rig’s cost bonus: your job of 2026-10-11 paid within 1% of the app’s figure, but nearer the rig adding to the structure’s bonus than multiplying it, so the costs here with a rig may be a little high.',
   ]);
   eq('  no rig line where the lab has no cost rig', F.readingsSaid({ scc: { state: 'unchecked' }, rig: { state: 'unchecked' } }, false, date).length, 1);
+  // An Astrahus has no cost bonus of its own: with its M-Set copy cost rig, adding and multiplying give the same charge (M16).
+  const astra = { kind: 'astrahus', rigs: [43891], band: 'null', tax: 0.01, siteId: 'home:30004807' };
+  const rgA = I.rigFor(ix, [43891], 'astrahus', 'null', null, 'copying');
+  const aJob = at(B * (0.0872 * rgA.cost + 0.05), astra, { jobId: 3, facilityId: 1046664001932, stationId: 1046664001932, first: { me: 10, te: 20, systemId: 30004807, index: 0.0872, eiv: EIV, at: '2026-10-11T10:10:00Z' } });
+  eq('  at a structure with no cost bonus of its own, said as the same either way, not as an index too low to tell', F.readingsSaid(F.copyReadings(ix, aJob), true, date)[1],
+    'The copy rig’s cost bonus: your job of 2026-10-11 paid within 1% of the app’s figure; the structure has no cost bonus of its own, so adding the rig’s and multiplying are the same.');
 }
 ```
 
@@ -1062,7 +1418,7 @@ export function gapSaid(s: Pick<CopySummary, 'gapHours'>): string | null {
 
 export type CostReading =
   | { state: 'unchecked' }
-  | { state: 'agrees' | 'differs'; jobId: number; start: string; who: string; app: number; charged: number; nearer: 'multiplied' | 'added' | null };
+  | { state: 'agrees' | 'differs'; jobId: number; start: string; who: string; app: number; charged: number; nearer: 'multiplied' | 'added' | null; alike?: boolean };
 /** A job with where it ran (stage 2's `jobPlace`), its character's clone and whose it is ("Your", "Builder Alt’s"). */
 export type CheckedJob = { job: JobRecord; place: JobPlace | null; clone: Clone; who: string };
 
@@ -1097,7 +1453,9 @@ export function copyReadings(ix: Indexed, jobs: readonly CheckedJob[]): { scc: C
       const r = rigFor(ix, x.place.rigs, x.place.kind, x.place.band, null, act);
       if (r.cost < 1) {
         const sb = structureBonus(ix, x.place.kind), p = c.parts;
-        rig = { state: c.differs ? 'differs' : 'agrees', ...head, nearer: rigNearer(p.base, p.index / p.base, sb.cost, r.cost, (p.tax ?? 0) + p.scc + (p.alpha ?? 0), c.charged) };
+        // A structure with no cost bonus of its own (an Astrahus, a Fortizar): adding the rig's and multiplying are the same (M16).
+        rig = sb.cost === 1 ? { state: c.differs ? 'differs' : 'agrees', ...head, nearer: null, alike: true }
+          : { state: c.differs ? 'differs' : 'agrees', ...head, nearer: rigNearer(p.base, p.index / p.base, sb.cost, r.cost, (p.tax ?? 0) + p.scc + (p.alpha ?? 0), c.charged) };
       }
     }
   }
@@ -1118,7 +1476,8 @@ export function readingsSaid(r: { scc: CostReading; rig: CostReading }, labCostR
     : g.state === 'differs' ? `The copy rig’s cost bonus: ${whose} job of ${date(g.start)} paid ${isk(g.charged)} ISK where the app worked out ${isk(g.app)}: the costs here with a rig may be off.`
       : g.nearer === 'added' ? `The copy rig’s cost bonus: ${whose} job of ${date(g.start)} paid within 1% of the app’s figure, but nearer the rig adding to the structure’s bonus than multiplying it, so the costs here with a rig may be a little high.`
         : g.nearer === 'multiplied' ? `The copy rig’s cost bonus checked: ${whose} job of ${date(g.start)} paid the app’s figure, the rig multiplying the structure’s bonus.`
-          : `The copy rig’s cost bonus: ${whose} job of ${date(g.start)} paid within 1% of the app’s figure; at that index adding and multiplying can’t be told apart.`);
+          : g.alike ? `The copy rig’s cost bonus: ${whose} job of ${date(g.start)} paid within 1% of the app’s figure; the structure has no cost bonus of its own, so adding the rig’s and multiplying are the same.`
+            : `The copy rig’s cost bonus: ${whose} job of ${date(g.start)} paid within 1% of the app’s figure; at that index adding and multiplying can’t be told apart.`);
   return out;
 }
 ```
@@ -1127,7 +1486,10 @@ export function readingsSaid(r: { scc: CostReading; rig: CostReading }, labCostR
 
 Run: `npm run check`. Expected: the new section passes. Plant and see each fail: `Math.max(1, o.days)` → `o.days` (the half-day
 test reads 240); `askMedian < k.perRun` → `false` (the asks test); `research !== 'held' &&` dropped from payback (the held test
-reads 0); `ix.inventedFrom.has` check removed (the Tech II test); `rigNearer`'s `2 * noise` → `0` (the 0.14% test).
+reads 0); `ix.inventedFrom.has` check removed (the Tech II test); `rigNearer`'s `2 * noise` → `0` (the 0.14% test); the `alike`
+branch dropped (the Astrahus test reads "at that index"). And in the page check (step 7): the `summary.reads > 0` gate removed
+(the first-read stub draws "0 kinds sold" and a table); `buildDays` computed for every row is no failure but is M10's cost: keep it
+to the rows shown.
 
 - [ ] **Step 5: The cloud's read in the browser**
 
@@ -1216,7 +1578,7 @@ import { Points } from '../Facts';
 import { Th } from '../ui';
 import { skillsWhy, type IndustryChar } from './industryChars';
 import { bpoSaid, perDayCell, useFinder, useStationSaid } from './industryFinder';
-import { useAdjusted, useCopyMarket, useIndustryDoc } from './industryMarket';
+import { useAdjusted, useCopyMarket, useIndices, useIndustryDoc } from './industryMarket';
 
 /** Rows shown before "Show more": a week's kinds run to two thousand. */
 const SHOWN = 50;
@@ -1233,6 +1595,7 @@ export function IndustryCopies({ c, chars, ix, graph }: { c: IndustryChar; chars
   const f = useFinder(c, ix, graph);
   const market = useCopyMarket();
   const adjusted = useAdjusted();
+  const indices = useIndices();
   const [more, setMore] = useState(0);
   // Each input held steady, so the minute's tick doesn't work every kind out again (a buildRow a kind, as the finder ranks).
   const skills = useMemo(() => finderSkills(c.pilot.skills, c.clone), [c.pilot.skills, c.clone]);
@@ -1245,8 +1608,8 @@ export function IndustryCopies({ c, chars, ix, graph }: { c: IndustryChar; chars
   const bpoOf = useCallback((bp: number) => bpoWhere(npcRows, bp, ix.b.types[bp]?.[4] ?? 0), [npcRows, ix]);
   const built = useMemo(() => (input ? (bp: number, me: number, te: number) => { const x = ix.bp.get(bp); return x ? buildRow({ ...input, bp: x, me, te }).day?.profit ?? null : null; } : () => null), [input, ix]);
   const got = useMemo(() => (summary && skills && adjusted.state === 'ok'
-    ? copyRows({ ix, summary, skills, clone: c.clone, lab: f.lab?.site ?? null, adjusted: adjusted.value, share: doc.share, heldOf: (t) => heldOriginal(owned, t), bpoOf, build: built })
-    : null), [summary, skills, adjusted, ix, c.clone, f.lab, doc.share, owned, bpoOf, built]);
+    ? copyRows({ ix, summary, skills, clone: c.clone, lab: f.lab?.site ?? null, adjusted: adjusted.value, share: doc.share, heldOf: (t) => heldOriginal(owned, t), bpoOf, build: () => null })
+    : null), [summary, skills, adjusted, ix, c.clone, f.lab, doc.share, owned, bpoOf]);
   // What real copy and research jobs say about the cost (every character's, newest first): correction 15.
   const checked: CheckedJob[] = useMemo(() => chars.flatMap((x) => (x.jobs.state === 'read' ? x.jobs.value.map((job) => ({ job, place: jobPlace(job, doc.sites, bandOf), clone: x.clone, who: x.isMain ? 'Your' : `${x.name}’s` })) : [])), [chars, doc.sites]); // eslint-disable-line react-hooks/exhaustive-deps
   const readings = useMemo(() => copyReadings(ix, checked), [ix, checked]);
@@ -1263,13 +1626,18 @@ export function IndustryCopies({ c, chars, ix, graph }: { c: IndustryChar; chars
           : market.status === 'none' ? 'The cloud hasn’t read the copy market yet: its first read comes on its next six-hourly round, and counting starts six hours after that.'
             : market.status === 'failed' ? `Couldn’t read what copies sold from the cloud: ${market.error}`
               : null;
-  const waiting = !f.site ? 'Pick where you build first (Build, Where you build): copies are made at its Laboratory, or the nearest one.'
-    : !skills ? skillsWhy(c)
-      : adjusted.state === 'loading' ? 'Reading CCP’s adjusted prices…'
-        : adjusted.state === 'failed' ? 'Couldn’t read CCP’s adjusted prices just now, so no copy can be costed.'
-          : null;
+  // What the rows wait for, as the finder says it (useFinder's own states): a site, the skills, the indices, the adjusted prices.
+  const waiting: { text: string; retry?: () => void } | null = !f.site ? { text: 'Pick where you build first (Build, Where you build): copies are made at its Laboratory, or the nearest one.' }
+    : !skills ? { text: skillsWhy(c) }
+      : indices.state === 'loading' ? { text: 'Reading the industry indices…' }
+        : indices.state === 'failed' ? { text: 'Couldn’t read ESI’s industry indices just now, so no copy can be costed.', retry: indices.retry }
+          : adjusted.state === 'loading' ? { text: 'Reading CCP’s adjusted prices…' }
+            : adjusted.state === 'failed' ? { text: 'Couldn’t read CCP’s adjusted prices just now, so no copy can be costed.', retry: adjusted.retry }
+              : null;
   const rows = got?.rows ?? [];
-  const shown = rows.slice(0, SHOWN + more);
+  const shown = useMemo(() => rows.slice(0, SHOWN + more), [rows, more]);
+  // Building instead, for the rows shown only (M10): a buildRow a kind for every kind sold would run on each live-book flush.
+  const buildDays = useMemo(() => new Map(shown.map((r) => [copyKindKey(r.kind), built(r.bp, r.kind.me, r.kind.te)])), [shown, built]);
   const leftSaid = got ? [
     got.left.notInBundle ? `${units(got.left.notInBundle)} ${got.left.notInBundle === 1 ? 'copy' : 'copies'} of blueprints NPCs don’t sell (faction and exploration copies: nobody makes them by copying)` : null,
     got.left.invented ? `${units(got.left.invented)} Tech II ${got.left.invented === 1 ? 'copy' : 'copies'} (made by invention: Build ranks Tech II)` : null,
@@ -1299,8 +1667,12 @@ export function IndustryCopies({ c, chars, ix, graph }: { c: IndustryChar; chars
         </p>
       )}
 
-      {summary && (waiting ? (
-        <p className="note small" data-industry="copy-wait" style={{ margin: 0 }}>{waiting}</p>
+      {/* Before a read has compared two sets the line above says counting has begun: no count, no table (I3). */}
+      {summary && summary.reads > 0 && (waiting ? (
+        <p className="note small" data-industry="copy-wait" style={{ margin: 0 }}>{waiting.text}
+          {waiting.retry && <> <button type="button" className="link-btn" onClick={waiting.retry}>Try again</button></>}</p>
+      ) : got && !rows.length ? (
+        <p className="note small" data-industry="copy-none" style={{ margin: 0 }}>{`No copies of blueprints you can copy sold in what’s been counted${leftSaid ? ` (left out: ${leftSaid})` : ''}.`}</p>
       ) : got && (
         <>
           <p className="note small" data-industry="copy-count" style={{ margin: 0 }}>
@@ -1311,7 +1683,7 @@ export function IndustryCopies({ c, chars, ix, graph }: { c: IndustryChar; chars
             <table className="tbl compact rd-table ind-copies" data-industry="copy-finder">
               <thead><tr>
                 <Th left>Copy of</Th>
-                <Th className="rd-wide" tip={'Contracts of this kind that vanished before they expired this week, read every six hours.\n\n• Sellers: how many different ones; one seller is one person’s prices.'}>Sold</Th>
+                <Th className="rd-wide" tip={'Contracts of this kind that vanished before they expired this week, read every six hours.\n\n• A contract listed and sold between two reads is never seen, so this counts fewer than sold.\n• Sellers: how many different ones; one seller is one person’s prices.'}>Sold</Th>
                 <Th className="rd-wide" tip={'A run’s price: the median of what sold, or the median ask now when that’s lower.\n\nFor example: a kind that sold at 1.78 M a run, now asked at 1.69 M, is priced at 1.69 M.'}>Price a run</Th>
                 <Th className="rd-wide" tip={['A run’s copy job at the lab: 2% of the product’s estimated item value × (the copying index × the bonuses + the facility tax + the SCC + the Alpha tax).', ...costTip.map((l) => `• ${l}`)].join('\n\n')}>Copy cost a run</Th>
                 <Th className="rd-wide" tip="Runs a day you’d sell: your share of what sold a day, or what a lab slot makes, whichever is less.">Runs a day</Th>
@@ -1322,7 +1694,7 @@ export function IndustryCopies({ c, chars, ix, graph }: { c: IndustryChar; chars
                 <Th className="rd-wide" tip="The finder’s profit a day for one factory slot building from this blueprint at the kind’s ME and TE: the slot you’d build with instead.">Building instead</Th>
               </tr></thead>
               <tbody>
-                {shown.map((r) => <CopyRowView key={copyKindKey(r.kind)} r={r} name={nameOf(ix, r.bp)} bpo={bpoSaid(bpoOf(r.bp), f.npc, (id) => station(id))} costTip={costTip} />)}
+                {shown.map((r) => <CopyRowView key={copyKindKey(r.kind)} r={r} name={nameOf(ix, r.bp)} bpo={bpoSaid(bpoOf(r.bp), f.npc, (id) => station(id))} costTip={costTip} buildDay={buildDays.get(copyKindKey(r.kind)) ?? null} />)}
               </tbody>
             </table>
           </div>
@@ -1333,7 +1705,7 @@ export function IndustryCopies({ c, chars, ix, graph }: { c: IndustryChar; chars
   );
 }
 
-function CopyRowView({ r, name, bpo, costTip }: { r: CopyFinderRow; name: string; bpo: { v: string; n: string }; costTip: string[] }) {
+function CopyRowView({ r, name, bpo, costTip, buildDay }: { r: CopyFinderRow; name: string; bpo: { v: string; n: string }; costTip: string[]; buildDay: number | null }) {
   const k = r.kind;
   const research = r.research === 'held' ? { v: 'None', n: 'you hold the original at that ME and TE' }
     : { v: r.research.days != null ? daysSaid(r.research.days) : '–', n: `ME ${r.research.me[0]} → ${r.research.me[1]}, TE ${r.research.te[0]} → ${r.research.te[1]}${r.research.cost != null ? ` · ${iskBig(r.research.cost)}` : r.research.days == null ? ' · no Laboratory reached, or its index isn’t read' : ' · cost not known'}` };
@@ -1353,7 +1725,7 @@ function CopyRowView({ r, name, bpo, costTip }: { r: CopyFinderRow; name: string
       <td className="rd-wide"><div>{r.bpoPrice === 0 ? 'Held' : bpo.v}</div><div className="note small">{r.bpoPrice === 0 ? 'you hold one' : bpo.n}</div></td>
       <td className="rd-wide"><div>{research.v}</div><div className="note small">{research.n}</div></td>
       <td className="rd-wide">{r.payback != null ? `${units(Math.round(r.payback))} d` : '–'}</td>
-      <td className="rd-wide">{r.buildDay != null ? `${iskBig(r.buildDay)} a day` : '–'}</td>
+      <td className="rd-wide">{buildDay != null ? `${iskBig(buildDay)} a day` : '–'}</td>
     </tr>
   );
 }
@@ -1408,9 +1780,22 @@ and in the industry case, above `// --- the end of the industry case`:
       const tip = await page.locator('[data-industry="copy-cost"]').first().getAttribute('data-tip').catch(() => '');
       if (!tip?.includes('not yet checked against a copy job of yours')) problems.push(`the copy cost doesn’t say copying’s SCC isn’t checked yet: “${tip}”`);
       if (/\b0 ISK\b/.test(await text('[data-industry="copies"]'))) problems.push('the Copies section shows “0 ISK” for something not known');
-      const fit = await sideways(page, '[data-industry="copy-finder"]');
-      if (fit) problems.push(`the copy finder scrolls sideways at ${PHONE ? 390 : 1440}: ${fit}`);
+      // The overflow is on the table's .tbl-scroll box, not the table (I1); on a phone the box may scroll, as every table's does.
+      const fit = await sideways(page, '[data-industry="copies"] .tbl-scroll');
+      if (!PHONE && fit && fit.over > 0) problems.push(`the copy finder scrolls sideways at 1,440 (${fit.over} px)`);
       if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-copies.png` }); }
+      // Before any read compared two sets: the counting line alone, no count and no table (I3).
+      copies = { ...SUM, days: 0, gapHours: 0, reads: 0, sold: [] };
+      await page.reload();
+      await page.waitForSelector('[data-industry="copy-state"]', { timeout: 20_000 }).catch(() => undefined);
+      if (!(await text('[data-industry="copy-state"]')).includes('Counting what sells: it began with the cloud’s last read')) problems.push('the first read doesn’t say counting has begun');
+      if (await page.locator('[data-industry="copy-finder"], [data-industry="copy-count"], [data-industry="copy-none"]').count()) problems.push('before a read counted, Copies draws a count, a table or “no copies sold”');
+      if (/\b0 kinds sold/.test(await text('[data-industry="copies"]'))) problems.push('before a read counted, Copies says “0 kinds sold”');
+      // Reads counted, nothing a player can copy sold: one line, never an empty table.
+      copies = { ...SUM, sold: [SUM.sold[1]] };
+      await page.reload();
+      await page.waitForSelector('[data-industry="copy-none"]', { timeout: 20_000 }).catch(() => problems.push('with nothing copyable sold, Copies doesn’t say so in one line'));
+      if (await page.locator('[data-industry="copy-finder"]').count()) problems.push('with nothing copyable sold, Copies still draws a table');
       for (const [answer, words] of [[null, 'The cloud hasn’t read the copy market yet'], [404, 'The cloud is a version behind'], [{ off: true }, 'reads of EVE Ref switched off']]) {
         copies = answer;
         await page.reload();
@@ -1457,10 +1842,12 @@ If it does at 1,440, narrow the columns as Orders did, never let it scroll.)
     `ContractItem.raw?: number | null` (ESI's `raw_quantity`; null when ESI gave none; absent on an item read before this stage).
   - `src/lib/copyContracts.ts`: `type ContractKind = [typeId, me, te, runs, count]`, `type CopyContract`,
     `type CopyContractsDoc = { list: CopyContract[] }`, `MAX_COPY_CONTRACTS` (5,000), `allCopies(items)`,
-    `copyContractsOf(prev, list, items, kinds, me, readAt)`, `kindsToRead(doc, max?)`, `type PublicItem`, `readKinds(items)`,
+    `copyContractsOf(prev, list, items, kinds, me, readAt)`, `kindsToRead(doc, now, max?)`, `type PublicItem`, `readKinds(items)`,
     `type CopyState = 'listed' | 'expired' | 'sold' | 'deleted' | 'other'`, `copyState(c, now)`, `copiesSaid(copies, name)`,
     `sanitizeCopyContracts(v)`.
   - `Data.copyContracts?: CopyContractsDoc` (absent: not read; `{ list: [] }`: read, none).
+  - `IndustryCopies.tsx`'s `CopyBusiness`, rendered outside the copy market's gate (I4), with the alt's line
+    (`data-industry="copy-contracts-alt"`: an alt's contracts aren't read).
 
 **The rules** (corrections 10 to 14). A copy contract is an item exchange you issued whose items, as your own contract items
 read them, are all given and all copies (`raw` −2). The sync reads items for your outstanding item exchanges as well as the
@@ -1497,20 +1884,29 @@ console.log('\n--- Industry stage 3: your copy contracts (copyContracts.ts, Task
   eq('the document: your copy contracts only, by contract; a private one marked so (never asked); one finished before its kinds were read, gone',
     doc1.list.map((c) => [c.id, c.status, c.availability, c.copies, c.kinds ?? null, c.station, c.acceptor]),
     [[501, 'outstanding', 'public', [[25895, 2]], null, 60003760, null], [502, 'outstanding', 'personal', [[25895, 1]], 'private', 60003760, null], [503, 'finished', 'public', [[688, 1]], 'gone', 60003760, 777]]);
-  eq('  kinds to read: an outstanding public one whose kinds aren\'t read', K.kindsToRead(doc1), [501]);
+  eq('  kinds to read: an outstanding public one whose kinds aren\'t read', K.kindsToRead(doc1, Date.parse('2026-10-02T12:00:00Z')), [501]);
+  // M8: an outstanding contract past its expiry isn't asked (a 404 there would be asked every sync until it's deleted): gone.
+  const expired = K.copyContractsOf(undefined, readContracts([raw(511, { date_expired: '2026-10-01T12:00:00Z' })]), { 511: [copy(25895)] }, {}, ME, '2026-10-02T12:00:00Z');
+  eq('  one past its expiry with its kinds unread: gone, never asked', [expired.list[0].kinds, K.kindsToRead(expired, Date.parse('2026-10-02T12:00:00Z')), K.kindsToRead(doc1, Date.parse('2026-10-16T00:00:00Z'))], ['gone', [], []]);
   const kinds = K.readKinds([
     { type_id: 25895, quantity: 1, is_included: true, is_blueprint_copy: true, material_efficiency: 10, time_efficiency: 20, runs: 40, item_id: 1, record_id: 1 },
     { type_id: 25895, quantity: 1, is_included: true, is_blueprint_copy: true, material_efficiency: 10, time_efficiency: 20, runs: 40, item_id: 2, record_id: 2 },
   ]);
   eq('ESI\'s public items read as kinds: [type, ME, TE, runs, copies]', kinds, [[25895, 10, 20, 40, 2]]);
   eq('  a 204 (no body) or no copy in the answer: gone', [K.readKinds(undefined), K.readKinds([{ type_id: 34, quantity: 5, is_included: true }])], ['gone', 'gone']);
-  const doc2 = K.copyContractsOf(doc1, list.map((c) => (c.id === 501 ? { ...c, status: 'finished', acceptor: 888, completed: '2026-10-03T00:00:00Z' } : c)), items, { 501: kinds }, ME, '2026-10-03T12:00:00Z');
+  const list2 = list.map((c) => (c.id === 501 ? { ...c, status: 'finished', acceptor: 888, completed: '2026-10-03T00:00:00Z' } : c));
+  const doc2 = K.copyContractsOf(doc1, list2, items, { 501: kinds }, ME, '2026-10-03T12:00:00Z');
   eq('  the next read: kinds read kept, the status followed', doc2.list.map((c) => [c.id, c.status, c.kinds]), [[501, 'finished', [[25895, 10, 20, 40, 2]]], [502, 'outstanding', 'private'], [503, 'finished', 'gone']]);
+  // I6: kinds kept are never lost to a read that brings none, and the same read again is the same document (nothing to push).
+  eq('  kinds kept through a read that brings none, while it\'s outstanding', K.copyContractsOf(doc2, list, items, {}, ME, '2026-10-04T12:00:00Z').list.find((c) => c.id === 501).kinds, [[25895, 10, 20, 40, 2]]);
+  eq('  the read that made a document, again, gives that document', K.copyContractsOf(doc2, list2, items, {}, ME, '2026-10-04T12:00:00Z'), doc2);
+  // M14: listed but its items not read this sync (past the 500 kept, waiting their turn): kept, its state followed, never gone.
+  const unread = K.copyContractsOf(doc1, list2, { ...items, 501: undefined }, {}, ME, '2026-10-03T12:00:00Z').list.find((c) => c.id === 501);
+  eq('  a contract still listed whose items weren\'t read this sync: kept with its copies, its status followed, not gone', [unread.status, unread.copies, unread.acceptor, unread.gone ?? null], ['finished', [[25895, 2]], 888, null]);
   const doc3 = K.copyContractsOf(doc2, list.filter((c) => c.id !== 503), items, {}, ME, '2026-11-05T12:00:00Z');
   const doc4 = K.copyContractsOf(doc3, list.filter((c) => c.id !== 503), items, {}, ME, '2026-11-06T12:00:00Z');
   eq('  past ESI\'s 30 days: kept with its last status, stamped gone once', [doc3.list.find((c) => c.id === 503), doc4.list.find((c) => c.id === 503).gone],
     [{ ...doc2.list.find((c) => c.id === 503), gone: '2026-11-05T12:00:00Z' }, '2026-11-05T12:00:00Z']);
-  eq('  the same read twice is the same document (nothing to push)', JSON.stringify(K.copyContractsOf(doc2, list, items, {}, ME, '2026-10-03T13:00:00Z')) === JSON.stringify(K.copyContractsOf(doc2, list, items, {}, ME, '2026-10-03T13:00:00Z')), true);
   const now = Date.parse('2026-10-10T00:00:00Z');
   eq('a copy contract\'s state: listed, expired (outstanding past its expiry), sold, deleted, other', ['outstanding', 'outstanding', 'finished', 'deleted', 'rejected'].map((s, i) => K.copyState({ status: s, expires: i === 1 ? '2026-10-09T00:00:00Z' : '2026-10-15T00:00:00Z' }, now)),
     ['listed', 'expired', 'sold', 'deleted', 'other']);
@@ -1610,16 +2006,23 @@ export const allCopies = (items: readonly ContractItem[] | undefined): boolean =
  */
 export function copyContractsOf(prev: CopyContractsDoc | undefined, list: readonly MyContract[], items: Readonly<Record<number, ContractItem[] | undefined>>,
   kinds: Readonly<Record<number, ContractKind[] | 'gone'>>, me: number, readAt: string): CopyContractsDoc {
+  const now = Date.parse(readAt);
   const byId = new Map((prev?.list ?? []).map((c) => [c.id, c]));
   const listed = new Set<number>();
   for (const c of list) {
-    const its = items[c.id];
-    if (c.type !== 'item_exchange' || c.issuer !== me || !its || !allCopies(its)) continue;
+    if (c.type !== 'item_exchange' || c.issuer !== me) continue;
+    const old = byId.get(c.id), its = items[c.id];
+    if (!its) {
+      // Listed, its items not read this sync (past the 500 kept, waiting their turn): one kept before stays, its state followed (M14).
+      if (old) { const keep: CopyContract = { ...old, status: c.status, price: c.price, acceptor: c.acceptor > 0 ? c.acceptor : null, completed: c.completed }; delete keep.gone; byId.set(c.id, keep); listed.add(c.id); }
+      continue;
+    }
+    if (!allCopies(its)) continue;
     listed.add(c.id);
-    const old = byId.get(c.id);
     const copies = [...its.reduce((m, i) => m.set(i.typeId, (m.get(i.typeId) ?? 0) + i.qty), new Map<number, number>())].sort((a, b) => a[0] - b[0]) as [number, number][];
     const availability = c.availability ?? null;
-    const k = old?.kinds ?? kinds[c.id] ?? (availability != null && availability !== 'public' ? 'private' : c.status !== 'outstanding' ? 'gone' : undefined);
+    // Never asked: a private one, and one no longer outstanding or past its expiry (M8: a 404 there would be asked every sync).
+    const k = old?.kinds ?? kinds[c.id] ?? (availability != null && availability !== 'public' ? 'private' : c.status !== 'outstanding' || Date.parse(c.expires) <= now ? 'gone' : undefined);
     byId.set(c.id, { id: c.id, issued: c.issued, expires: c.expires, status: c.status, price: c.price, availability, acceptor: c.acceptor > 0 ? c.acceptor : null,
       completed: c.completed, station: c.start, copies, ...(k ? { kinds: k } : {}) });
   }
@@ -1627,9 +2030,9 @@ export function copyContractsOf(prev: CopyContractsDoc | undefined, list: readon
   return { list: [...byId.values()].sort((a, b) => a.id - b.id).slice(-MAX_COPY_CONTRACTS) };
 }
 
-/** Your outstanding public copy contracts whose kinds aren't read yet, at most `max` a sync (correction 14). */
-export const kindsToRead = (doc: CopyContractsDoc, max = 20): number[] =>
-  doc.list.filter((c) => c.kinds === undefined && !c.gone && c.status === 'outstanding' && c.availability === 'public').slice(0, max).map((c) => c.id);
+/** Your outstanding public copy contracts, not past their expiry, whose kinds aren't read yet: at most `max` a sync (correction 14). */
+export const kindsToRead = (doc: CopyContractsDoc, now: number, max = 20): number[] =>
+  doc.list.filter((c) => c.kinds === undefined && !c.gone && c.status === 'outstanding' && c.availability === 'public' && Date.parse(c.expires) > now).slice(0, max).map((c) => c.id);
 
 /** ESI's public contract item (`/contracts/public/items/{id}/`, no login), as read on 11 October 2026. */
 export type PublicItem = { type_id: number; quantity: number; is_included: boolean; is_blueprint_copy?: boolean; material_efficiency?: number; time_efficiency?: number; runs?: number; item_id?: number; record_id?: number };
@@ -1691,14 +2094,18 @@ declared beside `metaPatch`):
         const readAt = new Date().toISOString();
         const draft = copyContractsOf(getData().copyContracts, list, items, {}, cid, readAt);
         const kinds: Record<number, ContractKind[] | 'gone'> = {};
-        for (const id of kindsToRead(draft)) {
+        for (const id of kindsToRead(draft, Date.now())) {
           try { kinds[id] = readKinds((await esi<PublicItem[] | undefined>(`/contracts/public/items/${id}/`)).data); } catch { /* asked again next sync */ }
         }
         copyRead = { list, items, kinds, at: readAt };
+        // Their blueprints' names, looked up with the rest (I2): To do and the section never say "Item #…".
+        copyTypes = [...new Set(draft.list.flatMap((x) => x.copies.map(([t]) => t)))];
 ```
 
-and add each expired copy contract's station to `dests` (so `places` names where its copies go back): stations as now, by
-`resolveNames`. In the final `update((cur) => …)`, after the blueprints:
+(`let copyTypes: number[] = [];` beside `copyRead`.) The names lookup further down takes them in: `allTypeIds` gains
+`...copyTypes`, so a copy contract's blueprint is in `fetched.names` (and `d.names`) like any traded type; nothing else writes
+`fetched.names`. And add each expired copy contract's station to `dests` (so `places` names where its copies go back): stations
+as now, by `resolveNames`. In the final `update((cur) => …)`, after the blueprints:
 
 ```ts
       // Your copy contracts, merged onto what the store holds now (a pull may have brought another device's meanwhile): written only when they changed.
@@ -1719,7 +2126,15 @@ it and `refusedDoc` holds it back; an older browser ignores it). `src/lib/config
 
 - [ ] **Step 6: Your copy business**
 
-In `IndustryCopies.tsx`, below the finder, `<CopyBusiness c={c} ix={ix} graph={graph} summary={summary} />`, and add:
+In `IndustryCopies.tsx`, after the finder's gated block and outside it, unconditionally (I4: copy jobs, copies held and your copy
+contracts come from the sync and the cloud's reads of your characters, not from the copy market, so they show with the cloud
+off, a version behind, before its first read or with skills unread), just before `</section>`:
+
+```tsx
+      <CopyBusiness c={c} ix={ix} graph={graph} summary={summary} />
+```
+
+and add:
 
 ```tsx
 /**
@@ -1729,16 +2144,20 @@ In `IndustryCopies.tsx`, below the finder, `<CopyBusiness c={c} ix={ix} graph={g
 function CopyBusiness({ c, ix, graph, summary }: { c: IndustryChar; ix: Indexed; graph: Graph; summary: CopySummary | null }) {
   const d = useData();
   const now = useNow(60_000);
-  const name = (t: number) => ix.b.types[t]?.[0] ?? d.names[t] ?? `Item #${t}`;
   const jobs = c.jobs.state === 'read' ? c.jobs.value.filter((j) => j.activity === 5) : null;
+  const doc = c.isMain ? d.copyContracts : undefined;
+  // Names the bundle lacks (copies of faction or exploration blueprints) are asked of ESI, "…" while they're read (IndustryOwned's way).
+  const looking = useEnsureNames([...new Set([...(jobs ?? []).map((j) => j.blueprintTypeId), ...(doc?.list ?? []).flatMap((x) => x.copies.map(([t]) => t))])].filter((t) => !ix.b.types[t]));
+  const name = (t: number) => ix.b.types[t]?.[0] ?? d.names[t] ?? (looking ? '…' : `Item #${t}`);
   const running = (jobs ?? []).filter((j) => j.status === 'active' || j.status === 'paused' || j.status === 'ready').sort((a, b) => Date.parse(a.end) - Date.parse(b.end));
   const done = (jobs ?? []).filter((j) => (j.status === 'delivered' || j.status === 'cancelled' || j.status === 'reverted') && now - Date.parse(j.completed ?? j.end) <= 30 * 86_400_000)
     .sort((a, b) => Date.parse(b.completed ?? b.end) - Date.parse(a.completed ?? a.end));
   const held = c.blueprints.state === 'read' ? blueprintKinds([{ charId: c.charId, name: c.name, owned: c.blueprints.value }]).filter((k) => k.copy) : null;
-  const station = useStationSaid([...new Set([...(jobs ?? []).map((j) => j.stationId)])], ix, graph);
+  // Stations only: /universe/names refuses a batch holding a structure's ID, and a job's structure is named by jobPlaceSaid (M11).
+  const station = useStationSaid([...new Set((jobs ?? []).map((j) => j.stationId).filter(isStationId))], ix, graph);
   const place = (j: JobRecord) => jobPlaceSaid(j, { names: c.places, jobPlaces: c.jobPlaces, station, system: (id) => graph[id]?.[1] ?? null });
-  const doc = c.isMain ? d.copyContracts : undefined;
   const tile = useTileFilter<'listed' | 'expired' | 'sold'>('copy-contracts');
+  const TILE_SAID = { listed: 'Listed', expired: 'Expired', sold: 'Sold, 30 days' } as const;
   const contracts = (doc?.list ?? []).map((x) => ({ x, st: copyState(x, now) }))
     .filter(({ x, st }) => st === 'listed' || st === 'expired' || now - Date.parse(x.completed ?? x.issued) <= 30 * 86_400_000)
     .sort((a, b) => b.x.id - a.x.id);
@@ -1758,7 +2177,8 @@ function CopyBusiness({ c, ix, graph, summary }: { c: IndustryChar; ix: Indexed;
     : st === 'expired' ? `Expired ${fmtDate(x.expires)}: delete it in game to get the copies back`
       : st === 'sold' ? `Sold ${x.completed ? fmtDate(x.completed) : ''}`.trim()
         : st === 'deleted' ? 'Deleted' : x.status.replace(/_/g, ' ');
-  const goneSaid = (x: CopyContract) => (x.gone ? ' (no longer in your contracts as ESI lists them: 30 days back)' : '');
+  // ESI lists contracts only 30 days back (M7): one that left it while outstanding may still hold its copies.
+  const goneSaid = (x: CopyContract) => (!x.gone ? '' : x.status === 'outstanding' ? '. No longer in your contracts: ESI lists them only 30 days back, so if you didn’t delete it in game, its copies are still in it' : ' (past ESI’s 30 days)');
 
   return (
     <div className="col" style={{ gap: 10 }} data-industry="copy-business">
@@ -1784,8 +2204,8 @@ function CopyBusiness({ c, ix, graph, summary }: { c: IndustryChar; ix: Indexed;
         : !held.length ? <p className="note small" style={{ margin: 0 }}>{c.isMain ? 'You hold' : `${c.name} holds`} no copies.</p>
           : (
             <div className="col" style={{ gap: 4 }} data-industry="copies-held">{held.map((k) => (
-              <div key={k.key}>{`${units(k.count)}× ${name(k.typeId)} · ME ${k.me} / TE ${k.te} · ${units(k.runs ?? 0)} runs`}
-                {c.isMain && <> · <a href={`#blueprints?type=${k.typeId}`}>Price for selling</a></>}</div>))}</div>
+              <div key={k.key}>{`${units(k.count)}× ${name(k.typeId)} · ME ${k.me} / TE ${k.te} · ${k.runs != null ? `${units(k.runs)} runs` : 'runs –'}`}
+                {c.isMain && <> · <button type="button" className="link-btn" onClick={() => navigate(`blueprints?type=${k.typeId}`)}>Price for selling</button></>}</div>))}</div>
           )}
       <span className="lbl small">Your copy contracts</span>
       {!c.isMain ? <p className="note small" data-industry="copy-contracts-alt" style={{ margin: 0 }}>{`${c.name}’s contracts aren’t read: the cloud reads an alt’s wallet, orders and assets, not its contracts.`}</p>
@@ -1798,7 +2218,7 @@ function CopyBusiness({ c, ix, graph, summary }: { c: IndustryChar; ix: Indexed;
                   { l: 'Expired', v: units(count('expired')), c: count('expired') ? 'var(--acc2)' : undefined, tip: 'Past their expiry: the copies stay in them until you delete the contract in game.', press: tile.press('expired', count('expired')) },
                   { l: 'Sold, 30 days', v: units(count('sold')), press: tile.press('sold', count('sold')) },
                 ]} />
-                {tile.on && <TileShowing shown={shown.length} of={contracts.length} what={tile.on} onClear={() => tile.setOn(null)} />}
+                {tile.on && <TileShowing shown={shown.length} of={contracts.length} what={TILE_SAID[tile.on]} onClear={() => tile.setOn(null)} />}
                 <div className="tbl-scroll" id="copy-contracts"><table className="tbl compact rd-table" data-industry="copy-contracts">
                   <thead><tr><Th left>Copies</Th><Th className="rd-wide">Kinds</Th><Th>Price</Th><Th left>State</Th></tr></thead>
                   <tbody>{shown.map(({ x, st }) => (
@@ -1817,9 +2237,10 @@ function CopyBusiness({ c, ix, graph, summary }: { c: IndustryChar; ix: Indexed;
 ```
 
 (Imports to add: `useData` from `../../lib/store`; `until` from `../../lib/format`; `hasScope` from `../../lib/auth`; `SCOPE` from
-`../../lib/config`; `copiesSaid, copyState, type CopyContract, type CopyState` from `../../lib/copyContracts`; `type CopySummary`
-from `../../lib/copyMarket`; `blueprintKinds, jobPlaceSaid, readWhy` from `../../lib/industryOwned`; `type JobRecord` from
-`../../lib/industryTrack`; `jobWaiting` from `../../lib/todo`; `Tiles, TileShowing, useTileFilter` from `../ui` and `tileRows` from
+`../../lib/config`; `navigate` from `../../lib/hooks` (Price for selling is stage 2's button, M19); `useEnsureNames` from
+`../common`; `copiesSaid, copyState, type CopyContract, type CopyState` from `../../lib/copyContracts`; `type CopySummary`
+from `../../lib/copyMarket`; `blueprintKinds, jobPlaceSaid, readWhy` from `../../lib/industryOwned`; `isStationId, type JobRecord`
+from `../../lib/industryTrack`; `jobWaiting` from `../../lib/todo`; `Tiles, TileShowing, useTileFilter` from `../ui` and `tileRows` from
 `../../lib/tileFilter`. Read `TileShowing`'s and `tileRows`' exact signatures first (`ui.tsx:115`, `lib/tileFilter.ts`) and match
 them: `tileRows(rows, on, (row, k) => boolean)`.)
 
@@ -1847,10 +2268,20 @@ In the industry case, above `// --- the end of the industry case`:
       await page.goto(`${BASE}#hustles/industry/copies`);
       await page.waitForSelector('[data-industry="copy-contracts"]', { timeout: 30_000 }).catch(async () => problems.push(`Your copy contracts never drew: “${(await text('[data-industry="copy-business"]')).slice(0, 400)}”`));
       const biz = await text('[data-industry="copy-business"]');
-      for (const want of ['2 × 40 runs', 'Listed until', 'others’ cheapest 100,000 ISK (6 listed): undercut', 'Expired', 'delete it in game to get the copies back', 'Sold', 'kinds not known: a private contract isn’t public', 'kinds not known: it left the public list before they were read'])
+      for (const want of ['2 × 40 runs', 'Listed until', 'others’ cheapest 100,000 ISK (6 listed): undercut', 'kinds not known: a private contract isn’t public', 'kinds not known: it left the public list before they were read'])
         if (!biz.includes(want)) problems.push(`Your copy business doesn’t say “${want}”: “${biz.slice(0, 500)}”`);
+      // The rows' own words, not the tiles' labels (M17): a date after each.
+      const rowsText = await text('[data-industry="copy-contracts"]');
+      if (!/Expired \d{1,2} [A-Z][a-z]{2} \d{4}: delete it in game to get the copies back/.test(rowsText)) problems.push(`the expired contract’s row doesn’t say when and what to do: “${rowsText.slice(0, 300)}”`);
+      if (!/Sold \d{1,2} [A-Z][a-z]{2} \d{4}/.test(rowsText)) problems.push(`the sold contract’s row doesn’t say when: “${rowsText.slice(0, 300)}”`);
       await page.locator('[data-industry="copy-business"] .tile', { hasText: 'Expired' }).click().catch(() => problems.push('the Expired tile can’t be pressed'));
       if ((await page.locator('[data-industry="copy-contracts"] tbody tr').count()) !== 1) problems.push('pressing Expired doesn’t filter the table to the expired contract');
+      // I4: with the cloud a version behind (no copy market at all), Your copy business still shows: it is the sync's, not the cloud's.
+      CLOUD['/v1/copies'] = (url, req, json) => json({ error: 'Not found' }, 404);
+      await page.reload();
+      await page.waitForSelector('[data-industry="copy-contracts"]', { timeout: 20_000 }).catch(() => problems.push('with the cloud a version behind, Your copy business is gone'));
+      if ((await page.locator('[data-industry="copy-contracts"] tbody tr').count()) < 4) problems.push('with the cloud a version behind, Your copy contracts doesn’t list the four contracts');
+      if (!(await text('[data-industry="copy-state"]')).includes('The cloud is a version behind')) problems.push('with the cloud a version behind, Copies doesn’t say so');
       await showFor('Builder Alt');
       if (!(await text('[data-industry="copy-contracts-alt"]')).includes('Builder Alt’s contracts aren’t read')) problems.push('under an alt, Your copy contracts doesn’t say its contracts aren’t read');
       if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-copy-business.png` }); }
@@ -1900,8 +2331,11 @@ sync's own run: `idle()` then compare stored values. `showFor` and `ownerAuth` a
 - [ ] **Step 8: Run everything, plant each rule wrong, notes, commit**
 
 Run the five checks. Plant and see fail: `allCopies` without `i.included &&` (the asked-for item test); `itemsToRead`'s `stale`
-removed (the re-read test); `copyContractsOf` without the `gone` stamp (the 30-days test); `old?.kinds ??` removed (the next
-read's kinds test); in the sync, `kindsToRead` ignoring `availability` (the page case's private contract asked).
+removed (the re-read test); `copyContractsOf` without the `gone` stamp (the 30-days test); `old?.kinds ??` removed (the kept-kinds
+and the same-read tests, I6); the `'private'` branch of `copyContractsOf`'s kinds removed (the document test: 502's kinds
+unread; `kindsToRead`'s own `availability` clause can't fail any test, since nothing reaches it that isn't public, and stays as a
+guard); the `!its` branch removed (the M14 test: 501 stamped gone); the expiry clauses removed (the M8 test asks the expired
+contract); `<CopyBusiness>` moved inside the summary's gate (the page check's 404 case).
 
 Notes: `docs/notes/industry.md` (the document and its rules, corrections 10 to 14, the measured public-items shapes);
 `docs/notes/cloud.md` (the `copyContracts` document: changes only with a copy contract, through `refusedDoc`);
@@ -1924,7 +2358,8 @@ month's sale must stay in Results) and what the page case proved (701's kinds re
 - Consumes: `type CopyContractsDoc`, `copyState` (Task 15A); `type JobRecord` (`industryTrack.ts`); `activityEvents`'s
   `industryJobs`, `inp.journal` (netted), `mine` (`income.ts`).
 - Produces: `CONTRACT_FEE_REFS` (`contract_brokers_fee`, `contract_sales_tax`), `type CopySales = { events: { t: number; isk:
-  number }[]; notMade: { contractId: number; copies: number }[]; toOwn: number[] }`, `copySales(o)`; `IndustryActs.copiesNotMade?: number`.
+  number }[]; notMade: { contractId: number; copies: number }[]; toOwn: number[] }`, `copySales(o)`; `IndustryActs.copiesNotMade?:
+  number`, `IndustryActs.copiesToOwn?: number`.
 
 **The rule** (correction 1). Industry already charges every job's fee at its start, copying included (stage 2, correction 11).
 Copy sales add:
@@ -1988,6 +2423,10 @@ console.log('\n--- Industry stage 3: copies sold count in Industry (copySales, T
   eq('  Industry: the sale, its contract fee and the copy job\'s fee once', Math.round(ind.reduce((s, e) => s + e.isk, 0) * 100) / 100, 9e6 - 50000 - 283177.85);
   const two = N.activityEvents({ ...d, copyContracts: { list: [doc.list[0], doc.list[2]] } }, sets, false, {}, [], new Set([ME]), { state: 'none', mats: null });
   eq('  a copy no job of yours made is said under Industry, not counted', [two.industry.copiesNotMade, N.industrySaid(two.industry, () => '').note], [1, '1 copy sold on contract that no copy job of yours made before it was listed (bought, or given) isn’t counted.']);
+  // M6: a copy contract one of your own characters accepted is a transfer, said as such, never a sale.
+  const toAlt = N.activityEvents({ ...d, copyContracts: { list: [{ ...doc.list[0], acceptor: ALT }] } }, sets, false, {}, [], new Set([ME, ALT]), { state: 'none', mats: null });
+  eq('  a copy contract to one of your characters: no sale, said', [toAlt.events.filter((e) => e.activity === 'Industry' && e.isk > 0).length, toAlt.industry.copiesToOwn, N.industrySaid(toAlt.industry, () => '').note],
+    [0, 1, '1 copy contract went to one of your own characters: a transfer, not a sale.']);
   eq('  with no jobs at all there\'s no Industry, copies or not', N.activityEvents({ ...d, jobs: {} }, sets, false, {}, [], new Set([ME]), { state: 'none', mats: null }).industry, null);
 }
 ```
@@ -2079,11 +2518,14 @@ In `src/lib/income.ts`: import `copySales` from `./copyContracts`; `IndustryActs
   const industryEvents = [...(ind?.events ?? []), ...(copies?.events ?? [])].map((e) => ({ t: e.t, activity: 'Industry' as const, isk: e.isk }));
 ```
 
-(replacing the old `industryEvents` line) and the ready `IndustryActs` gains `copiesNotMade: copies ? copies.notMade.reduce((n, x) => n + x.copies, 0) : 0`.
-In `industrySaid`'s `parts`, after `feesUnknown`'s:
+(replacing the old `industryEvents` line) and the ready `IndustryActs` gains `copiesNotMade: copies ? copies.notMade.reduce((n, x) => n + x.copies, 0) : 0`
+and `copiesToOwn: copies ? copies.toOwn.length : 0` (`IndustryActs` gains both, optional). In `industrySaid`'s `parts`, after
+`feesUnknown`'s:
 
 ```ts
     ind.copiesNotMade ? `${ind.copiesNotMade.toLocaleString('en-US')} cop${ind.copiesNotMade === 1 ? 'y' : 'ies'} sold on contract that no copy job of yours made before it was listed (bought, or given) ${ind.copiesNotMade === 1 ? 'isn’t' : 'aren’t'} counted` : null,
+    // M6: one of your own characters accepting a copy contract moves ISK between yours (characters.md): said, never a sale.
+    ind.copiesToOwn ? `${ind.copiesToOwn.toLocaleString('en-US')} copy contract${ind.copiesToOwn === 1 ? '' : 's'} went to one of your own characters: a transfer, not a sale` : null,
 ```
 
 `ACTIVITY_WHAT.Industry` becomes: `'What you built and sold, after sales tax, and copies your copy jobs made that sold on contract
@@ -2095,14 +2537,17 @@ it a copy contract read by the sync wouldn't reach Results until something else 
 - [ ] **Step 4: Run the tests; plant each rule wrong**
 
 Run: `npm run check`. Plant and see fail: `b.t > issued` → `false` (12 claims all three); the `o.mine?.has` clause dropped (14 a
-sale); `copiedBefore` check dropped (13's fee counted); copy jobs' fees charged again in `copySales` (the activity test's sum).
+sale, and the to-an-alt test counts a sale); `copiedBefore` check dropped (13's fee counted); copy jobs' fees charged again in
+`copySales` (the activity test's sum); the `copiesToOwn` clause dropped from `industrySaid` (the to-an-alt test's note).
 
 - [ ] **Step 5: The income recording**
 
-Run: `npm run check-income`. Expected: **passes unchanged**: no ledger it records holds a job or a `copyContracts` document, so
-Industry is absent there, and `ACTIVITY_WHAT` shows only on an Industry row. If it fails, read the diff: a moved figure is a bug
-here (fix it, never re-record over it); a moved word (the Industry tip, if a page shows it) is this task's, and only then
-`RECORD=1 npm run check-income`, the commit naming each word that moved and why.
+Run: `npm run check-income`. Expected: **passes unchanged**. Every recorded ledger has an Industry row ("Industry – Hours a
+week on industry –": no jobs, so no figure), and no ledger it records holds a job or a `copyContracts` document, so the figure
+can't move; `ACTIVITY_WHAT.Industry`, whose words change here, is the row's `data-tip` (`Results.tsx`), which the recording
+(`panelRows`' `allInnerTexts`) doesn't read (M5). If it fails, read the diff: a moved figure is a bug here (fix it, never
+re-record over it); a moved word is this task's, and only then `RECORD=1 npm run check-income`, the commit naming each word that
+moved and why.
 
 - [ ] **Step 6: The page check**
 
@@ -2135,10 +2580,12 @@ the stage-2 block above does for its figures.)
 
 - `docs/notes/positions-results.md`, the Industry activity's bullet: copy sales, their claim order, the transfer rule, the fees,
   and correction 1 (the jobs' fees are charged once, at their start).
-- `docs/notes/limits.md`: **A copy sale is claimed by blueprint and count, not by kind**: a contract's copies are taken from your
-  delivered copy jobs of that blueprint, oldest first, whatever runs each copy carried; a split contract is counted pro rata of
-  its copies, not their runs. **Contract fees count only where the journal names the contract** (unseen so far), and none for a
-  copy contract of a blueprint you hadn't copied before listing it.
+- `docs/notes/limits.md`: **A copy sale is claimed by blueprint and count, not by kind** (ruling 2): a contract's copies are taken
+  from your delivered copy jobs of that blueprint, oldest first, whatever runs each copy carried; a split contract is counted pro
+  rata of its copies, not their runs. **Copies your own jobs used up (to build or invent) still count as made** for a later sale's
+  claim: the app can't see a copy consumed. **Claims run in the order contracts were listed**, so a contract listed early and sold
+  late can take copies a later one had claimed, moving an earlier period's figure when it sells. **Contract fees count only where
+  the journal names the contract** (unseen so far), and none for a copy contract of a blueprint you hadn't copied before listing it.
 - `docs/notes/industry.md`: the rule, and "After shipping: the first copy contract's journal entries (which ref types, whether
   they name the contract)".
 - Run the five checks (check-income as step 5 says); commit with the reasoning (correction 1's double charge avoided, Brave's free
@@ -2149,21 +2596,23 @@ the stage-2 block above does for its figures.)
 
 **Files:**
 - Modify: `src/lib/todo.ts` (kind `copyContract`, `copyContractItem`, `judgeCopyContract`, `TodoItem.action.contract`),
-  `src/components/Todo.tsx` (build the items, the judge's dispatch, the action, the kind's icon), `scripts/check.mjs`,
+  `src/lib/copyContracts.ts` (`copiesWhat`), `src/components/Todo.tsx` (build the items, their names, the judge's dispatch, the
+  action, the kind's icon), `scripts/check.mjs`,
   `scripts/pages.mjs`, `docs/notes/orders-alerts.md`, `docs/notes/industry.md`
 
 **Interfaces:**
 - Consumes: `type CopyContract`, `copiesSaid`, `copyState` (Task 15A); `openContractWindow` (`src/lib/market.ts`); To do's
   `contractsAt` (the contracts read time, `meta.contracts.at`) and `canOpenInGame`.
 - Produces: `TodoKind` gains `'copyContract'` (`MINUTES` 2, `KIND_LABEL` "Copy contract expired"); `TodoItem.action.contract?: number`;
-  `copyContractItem(c, o)`, `judgeCopyContract(e, c)`.
+  `copyContractItem(c, { what, station, now, canOpen })`, `judgeCopyContract(e, c)`; `copiesWhat(copies, names)` in copyContracts.ts.
 
 **The rule** (spec, To do; correction 13). One item per copy contract of yours that is outstanding past its expiry and still in
 ESI's list: key `copies:<contract>`, version `1`, source `contracts` (seen at the contracts read), Needs action, stake its price.
 It ends only on a contracts read newer than the one that listed it: deleted ("Deleted: its copies went back to …"), no longer
-outstanding (said as ESI's status), or no longer in ESI's list ("deleted, most likely, or past ESI's 30 days"); never on a read
-from before. The button opens the contract in game when it can (the main's own contract: `/ui/openwindow/contract`), else the
-Copies section. A hand tick is a chore's (12 hours).
+outstanding (said as ESI's status), or no longer in ESI's list (ESI lists contracts only 30 days back: if you didn't delete it,
+its copies are still in it; M7); never on a read from before. The button opens the contract in game when the login can ("Open
+in game"), else the Copies section ("Copies"; M13). Its title names the blueprints by `d.names` (the sync looks them up, I2) and
+says "2 copies" while a name is unread, never "Item #…". A hand tick is a chore's (12 hours).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2175,13 +2624,18 @@ console.log('\n--- Industry stage 3: To do lists a copy contract that expired (T
   const TD = await import('../src/lib/todo.ts');
   const now = Date.parse('2026-10-10T00:00:00Z');
   const cc = (over = {}) => ({ id: 21, issued: '2026-09-25T00:00:00Z', expires: '2026-10-09T00:00:00Z', status: 'outstanding', price: 9e6, availability: 'public', acceptor: null, completed: null, station: 60003760, copies: [[25895, 2]], ...over });
-  const it = TD.copyContractItem(cc(), { what: '2× Large Trimark Armor Pump I Blueprint', station: 'Jita IV - Moon 4 - Caldari Navy Assembly Plant', now });
+  const it = TD.copyContractItem(cc(), { what: '2× Large Trimark Armor Pump I Blueprint', station: 'Jita IV - Moon 4 - Caldari Navy Assembly Plant', now, canOpen: true });
   eq('an expired copy contract: one item, its key, version 1, from the contracts read, the button opening it in game',
     [it.key, it.ver, it.kind, it.source, it.stake, it.title, it.action], ['copies:21', '1', 'copyContract', 'contracts', 9e6, 'Copy contract expired: 2× Large Trimark Armor Pump I Blueprint',
       { label: 'Open in game', contract: 21, route: 'hustles/industry/copies' }]);
   eq('  its detail says where the copies go back', it.detail, 'It expired on 9 Oct 2026. The copies stay in it until you delete the contract in game (Contracts, My contracts), which returns them to Jita IV - Moon 4 - Caldari Navy Assembly Plant.');
-  eq('  none while it\'s listed, once it\'s sold or deleted, or once it left ESI\'s list', [TD.copyContractItem(cc({ expires: '2026-10-12T00:00:00Z' }), { what: 'x', station: null, now }), TD.copyContractItem(cc({ status: 'finished' }), { what: 'x', station: null, now }),
-    TD.copyContractItem(cc({ status: 'deleted' }), { what: 'x', station: null, now }), TD.copyContractItem(cc({ gone: '2026-10-09T12:00:00Z' }), { what: 'x', station: null, now })], [null, null, null, null]);
+  eq('  a login that can\'t open windows: the button goes to the Copies section, said so (M13)', TD.copyContractItem(cc(), { what: 'x', station: null, now, canOpen: false }).action, { label: 'Copies', contract: 21, route: 'hustles/industry/copies' });
+  const o = { what: 'x', station: null, now, canOpen: true };
+  eq('  none while it\'s listed, once it\'s sold or deleted, or once it left ESI\'s list', [TD.copyContractItem(cc({ expires: '2026-10-12T00:00:00Z' }), o), TD.copyContractItem(cc({ status: 'finished' }), o),
+    TD.copyContractItem(cc({ status: 'deleted' }), o), TD.copyContractItem(cc({ gone: '2026-10-09T12:00:00Z' }), o)], [null, null, null, null]);
+  const K = await import('../src/lib/copyContracts.ts');
+  eq('what it holds by name, or "2 copies" while a name is unread: never "Item #…" (I2)', [K.copiesWhat([[25895, 2]], { 25895: 'Large Trimark Armor Pump I Blueprint' }), K.copiesWhat([[25895, 2], [688, 1]], { 25895: 'Large Trimark Armor Pump I Blueprint' }), K.copiesWhat([[688, 1]], {})],
+    ['2× Large Trimark Armor Pump I Blueprint', '3 copies', '1 copy']);
   const e = { item: it, seenAt: now - 3600_000, lastAt: now };
   eq('judged only on a newer contracts read: deleted, finished, no longer in ESI\'s list; a read from before says nothing', [
     TD.judgeCopyContract(e, { readAt: now, entry: cc({ status: 'deleted' }) }),
@@ -2190,7 +2644,9 @@ console.log('\n--- Industry stage 3: To do lists a copy contract that expired (T
     TD.judgeCopyContract(e, { readAt: now - 7200_000, entry: cc({ status: 'deleted' }) }),
     TD.judgeCopyContract(e, { readAt: null, entry: cc({ status: 'deleted' }) }),
     TD.judgeCopyContract(e, { readAt: now, entry: undefined }),
-  ], ['Deleted: its copies went back to the station it was made at.', 'It’s no longer outstanding (finished).', 'No longer in your contracts as ESI lists them: deleted, most likely, or past ESI’s 30 days.', null, null, false]);
+    // I6: a read at the very time of the one that listed it is no newer.
+    TD.judgeCopyContract(e, { readAt: e.seenAt, entry: cc({ status: 'deleted' }) }),
+  ], ['Deleted: its copies went back to the station it was made at.', 'It’s no longer outstanding (finished).', 'No longer in your contracts: ESI lists them only 30 days back, so if you didn’t delete it in game, its copies are still in it.', null, null, false, null]);
   eq('the kind: a chore under Needs action', [TD.needs('copyContract'), TD.KIND_LABEL.copyContract, TD.MINUTES.copyContract, TD.HOLDS_UNTIL_CHANGED.has('copyContract')], ['act', 'Copy contract expired', 2, false]);
 }
 ```
@@ -2210,13 +2666,14 @@ expired'`; `TodoItem.action` gains `contract?: number` (with its doc line: "`con
  * A copy contract of yours that expired (spec, To do): outstanding past its expiry and still in ESI's list. Its copies sit in it
  * until you delete it in game, which returns them to where it was made. Version 1: it ticks off only on a newer contracts read.
  */
-export function copyContractItem(c: CopyContract, o: { what: string; station: string | null; now: number }): TodoItem | null {
+export function copyContractItem(c: CopyContract, o: { what: string; station: string | null; now: number; canOpen: boolean }): TodoItem | null {
   if (c.status !== 'outstanding' || c.gone || Date.parse(c.expires) > o.now) return null;
   return {
     key: `copies:${c.id}`, ver: '1', kind: 'copyContract', source: 'contracts', stake: c.price,
     title: `Copy contract expired: ${o.what}`,
     detail: `It expired on ${fmtDate(c.expires)}. The copies stay in it until you delete the contract in game (Contracts, My contracts), which returns them to ${o.station ?? 'the station it was made at'}.`,
-    action: { label: 'Open in game', contract: c.id, route: 'hustles/industry/copies' },
+    // The label as Todo's other items choose theirs: "Open in game" only when the login can open windows (M13).
+    action: { label: o.canOpen ? 'Open in game' : 'Copies', contract: c.id, route: 'hustles/industry/copies' },
   };
 }
 
@@ -2226,18 +2683,32 @@ export function judgeCopyContract(e: Entry, c: { readAt: number | null; entry: C
   if (!c.entry) return false;
   if (c.entry.status === 'deleted') return 'Deleted: its copies went back to the station it was made at.';
   if (c.entry.status !== 'outstanding') return `It’s no longer outstanding (${c.entry.status.replace(/_/g, ' ')}).`;
-  if (c.entry.gone) return 'No longer in your contracts as ESI lists them: deleted, most likely, or past ESI’s 30 days.';
+  // ESI lists a deleted contract as deleted within its 30 days: leaving the list means those passed, its copies maybe still in it (M7).
+  if (c.entry.gone) return 'No longer in your contracts: ESI lists them only 30 days back, so if you didn’t delete it in game, its copies are still in it.';
   return null;
 }
 ```
 
+Append to `src/lib/copyContracts.ts`:
+
+```ts
+/** What a contract holds for a title: by name when every blueprint's is known, else how many copies, never "Item #…" (I2). */
+export function copiesWhat(copies: readonly [number, number][], names: Readonly<Record<number, string>>): string {
+  if (copies.every(([t]) => names[t])) return copiesSaid(copies, (t) => names[t]);
+  const n = copies.reduce((t, [, k]) => t + k, 0);
+  return `${n.toLocaleString('en-US')} ${n === 1 ? 'copy' : 'copies'}`;
+}
+```
+
 In `src/components/Todo.tsx`: the kind's icon (`copyContract: { Icon: ScrollText, c: 'var(--acc2)' }`, `ScrollText` from
-lucide-react); after the couriers, the items (the main's own contracts only):
+lucide-react); `useEnsureNames`' list (`Todo.tsx:183`) gains `...(d.copyContracts?.list ?? []).flatMap((x) => x.copies.map(([t]) => t))`
+(it asks only IDs not in `d.names`, so a doc stored before the sync named them is named on opening); after the couriers, the
+items (the main's own contracts only):
 
 ```tsx
     // Copy contracts of yours that expired (copyContracts.ts): their copies sit in them until deleted in game.
     for (const c of d.copyContracts?.list ?? []) {
-      const item = copyContractItem(c, { what: copiesSaid(c.copies, name), station: c.station != null ? d.meta.contracts?.places?.[c.station] ?? null : null, now });
+      const item = copyContractItem(c, { what: copiesWhat(c.copies, d.names), station: c.station != null ? d.meta.contracts?.places?.[c.station] ?? null : null, now, canOpen: canOpenInGame() });
       if (item) out.push(item);
     }
 ```
@@ -2253,13 +2724,15 @@ window's branch:
     }
 ```
 
-(`openContractWindow` from `../lib/market`; `copyContractItem`, `judgeCopyContract` join the `../lib/todo` import; `copiesSaid`
+(`openContractWindow` from `../lib/market`; `copyContractItem`, `judgeCopyContract` join the `../lib/todo` import; `copiesWhat`
 from `../lib/copyContracts`.)
 
 - [ ] **Step 4: Run the tests; plant each rule wrong**
 
-Run: `npm run check`. Plant and see fail: `c.readAt <= e.seenAt` → `<` (the read-from-before case); the `c.gone` clause dropped
-from `copyContractItem` (the left-the-list case builds); `!c.entry` returning `null` (the gone-entry case).
+Run: `npm run check`. Plant and see fail: `c.readAt <= e.seenAt` → `<` (the read at the same time, I6); the `c.gone` clause dropped
+from `copyContractItem` (the left-the-list case builds); `!c.entry` returning `null` (the gone-entry case); the label always "Open
+in game" (the M13 test); `copiesWhat` naming through a missing name (the "1 copy" case reads "1× undefined"). In the page check:
+the seed's `names` removed reads "Copy contract expired: 2 copies", which the `waitForFunction` rejects.
 
 - [ ] **Step 5: The page check**
 
@@ -2270,11 +2743,13 @@ In the industry case, above `// --- the end of the industry case`:
     {
       const expired = { id: 9901, issued: iso(now - 20 * 86400_000), expires: iso(now - 86400_000), status: 'outstanding', price: 9e6, availability: 'public', acceptor: null, completed: null, station: 60003760, copies: [[25895, 2]], kinds: [[25895, 10, 20, 40, 2]] };
       await page.goto(SEED_PAGE);
-      await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE, copyContracts: { list: [expired] }, meta: { ...ledger.meta, contracts: { at: iso(now - 600_000), list: [], items: {}, places: { 60003760: 'Jita IV - Moon 4 - Caldari Navy Assembly Plant' } } } }, { alts: altStore });
+      // The name as the sync keeps it (I2): the industry case's /universe/names stub answers every ID as a station.
+      await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE, names: { 25895: 'Large Trimark Armor Pump I Blueprint' }, copyContracts: { list: [expired] }, meta: { ...ledger.meta, contracts: { at: iso(now - 600_000), list: [], items: {}, places: { 60003760: 'Jita IV - Moon 4 - Caldari Navy Assembly Plant' } } } }, { alts: altStore });
       await page.goto(`${BASE}#todo`);
       await page.waitForFunction(() => /Copy contract expired: 2× Large Trimark Armor Pump I Blueprint/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 20_000 })
         .catch(async () => problems.push(`To do doesn’t list the expired copy contract: “${(await text()).slice(0, 400)}”`));
       if (!(await text()).includes('which returns them to Jita IV - Moon 4 - Caldari Navy Assembly Plant')) problems.push('the expired copy contract doesn’t say where its copies go back');
+      if (/Item #\d/.test(await text())) problems.push('To do says “Item #…” for a copy contract');
       if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-todo-copies.png` }); }
     }
 ```
@@ -2295,7 +2770,8 @@ never a write), and recorded in `docs/notes/industry.md` under "The first real r
 1. **The first two `37` rounds**: the first keeps the set (`copy_set` rows, their sizes, `scan_meta` 'copies' with no reads), the
    second, about six hours later, puts what vanished in `copy_sold` (how many: the plan expects 300 to 450 a six-hour span) and
    writes the summary (its size: the plan expects 200 to 300 KB). Both rounds' wall time from `wrangler tail` or the logs (the
-   chain must stay under the 15-minute limit with Goonmetrics before it).
+   chain must stay under the 15-minute limit with Goonmetrics before it), and `scan_meta` 'copies' never left at the
+   `interrupted` error (a round the cloud stopped: memory or the wall; the step 8 measure says it shouldn't happen).
 2. **The first copy job of any character, seen within 90 minutes of its start** (correction 15): at an NPC station, its
    `sccShare` against `SCC_COPY` (4%); at a structure site with a copy rig and its tax typed, which reading its cost sits nearer.
    A reading that differs is changed in a commit citing the job, as stage 2 settles the research SCC; until then the Copies
