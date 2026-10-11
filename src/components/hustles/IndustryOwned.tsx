@@ -174,7 +174,7 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
                 const sk = finderSkills(c.pilot.skills, c.clone);
                 const inp = f.input ? charInput(f.input, { skills: sk, clone: c.clone, broker: c.broker, tax: c.tax, mines: c.mines }) : null;
                 const row = bp && bp[2] && inp ? buildRow({ ...inp, bp, me: k.me, te: k.te, copyRuns: k.copy ? k.runs : null, held: true }) : null;
-                const builds = !bp || !bp[2] ? 'builds nothing the finder knows' : !f.input ? '–' : !sk ? `–: ${whose(c)} skills aren’t read` : row?.day ? `${iskBigSigned(row.day.profit)}${beforeSaid([row], f.hub?.short).length ? `, before ${beforeSaid([row], f.hub?.short).join(' and ')}` : ''}${row.lacking.length ? ` · ${row.lacking.length} to train` : ''}` : row?.missing ? `–: it ${MISSING_SAID[row.missing](true)}${row.lacking.length ? ` · ${row.lacking.length} to train` : ''}` : '–: not priced at this site';
+                const builds = !bp || !bp[2] ? '–: the finder ranks blueprints sold on the market, and Tech II' : !f.input ? '–' : !sk ? `–: ${whose(c)} skills aren’t read` : row?.day ? `${iskBigSigned(row.day.profit)}${beforeSaid([row], f.hub?.short).length ? `, before ${beforeSaid([row], f.hub?.short).join(' and ')}` : ''}${row.lacking.length ? ` · ${row.lacking.length} to train` : ''}` : row?.missing ? `–: it ${MISSING_SAID[row.missing](true)}${row.lacking.length ? ` · ${row.lacking.length} to train` : ''}` : '–: not priced at this site';
                 const step = bp ? nextResearch({ ix, bp, me: k.me, te: k.te, copy: k.copy, skills: sk ?? {}, clone: c.clone, lab: f.lab?.site ?? null, adjusted: f.input?.adjusted ?? null }) : 'none';
                 const stepSaid = step === 'copy' ? 'a copy can’t be researched' : step === 'done' ? 'fully researched' : step === 'none' ? '–'
                   : `${step.what.toUpperCase()} ${step.from} → ${step.to}: ${trainSaid(step.seconds * 1000)}${step.cost != null ? ` and ${iskBig(step.cost)}` : ''} at ${f.lab?.at ?? 'an NPC station with a Laboratory'}${sk ? '' : ' (skills not read: at none)'}`;
@@ -190,7 +190,7 @@ export function IndustryOwned({ chars, filter, onFilter, shown, ix, graph }: {
                       {c.isMain
                         ? <button type="button" className="link-btn" data-industry="price-for-selling" onClick={() => navigate(`blueprints?type=${k.typeId}`)}>Price for selling</button>
                         : <span className="sub" data-tip={`The Blueprints page prices your own blueprints; ${c.name}’s are read by the cloud and aren’t priced there.`}>Price for selling: the Blueprints page prices yours only</span>}
-                      <span className="rd-phone"><span>{units(k.count)} held · {where}</span><span>Builds: {builds}</span><span>{stepSaid}</span></span>
+                      <span className="rd-phone"><span>{units(k.count)} held · {where}</span><span>Builds: {builds}</span>{step !== 'none' && <span>{stepSaid}</span>}</span>
                     </td>
                     <td className="rd-wide">{units(k.count)}</td>
                     <td className="l rd-wide">{where}</td>
