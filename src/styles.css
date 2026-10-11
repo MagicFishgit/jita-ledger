@@ -1129,6 +1129,16 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .ind-finder .ind-c-day { width: 14%; }
 .ind-finder .ind-c-unit { width: 13%; }
 .ind-finder td .sub { white-space: normal; }
+.ind-copies { table-layout: fixed; width: 100%; }
+.ind-copies th, .ind-copies td { white-space: normal; vertical-align: top; text-align: left; }
+.ind-copies .flag { display: block; width: fit-content; max-width: 100%; margin-top: 4px; white-space: normal; }
+.ind-copies .ind-c-name { width: 22%; }
+.ind-copies .ind-c-sold { width: 10%; }
+.ind-copies .ind-c-price { width: 13%; }
+.ind-copies .ind-c-cost { width: 10%; }
+.ind-copies .ind-c-day { width: 17%; }
+.ind-copies .ind-c-bpo { width: 17%; }
+.ind-copies .ind-c-pay { width: 11%; }
 .ind-finder tr.detail td { padding: 14px 12px; background: rgba(2, 7, 12, .35); }
 .ind-wrap { white-space: normal; min-width: 260px; }
 /* The ladder on Start (IndustryStart.tsx): one card a rung down the page, its number beside it, the rung you're on lit and

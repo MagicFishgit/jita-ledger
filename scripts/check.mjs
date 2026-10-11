@@ -8716,5 +8716,107 @@ console.log('\n--- Industry stage 3: the copy market (copyMarket.ts, Task 14A) -
   eq('the kind\'s key', M.copyKindKey({ typeId: 693, me: 10, te: 20, runs: 1 }), '693|10|20|1');
 }
 
+console.log('\n--- Industry stage 3: the copy finder (copyFinder.ts, Task 14B) ---');
+{
+  const F = await import('../src/lib/copyFinder.ts');
+  const M = await import('../src/lib/copyMarket.ts');
+  const I = await import('../src/lib/industry.ts');
+  const fsF = await import('node:fs');
+  const ix = I.indexBundle(JSON.parse(fsF.readFileSync(new URL('../src/data/industry.json', import.meta.url))));
+  const FX = JSON.parse(fsF.readFileSync(new URL('./fixtures/industry-everef.json', import.meta.url), 'utf8'));
+  const indices = I.parseIndices(FX.systems);
+  const pump = { typeId: 25895, me: 10, te: 20, runs: 40, contracts: 3, copies: 3, sellers: 1, perRun: 112500 };
+  // An NPC station in Jita's system (copying index 0.14%, its 0.25% tax), Science V and Advanced Industry II.
+  const jitaLab = { kind: 'npc', rigs: [], band: 'high', tax: 0.0025, index: indices[30000142] };
+  const base = { ix, kind: pump, ask: null, days: 7, skills: { 3402: 5, 3388: 2 }, clone: 'omega', lab: jitaLab, adjusted: FX.adjusted, share: 10, held: null,
+    bpo: { state: 'forge', price: 9_000_000, stations: [60003760] }, build: () => 1_234_567 };
+  const r = F.copyRow(base);
+  // A run: 3,600 s × (1 − 25% Science V) × (1 − 6% Advanced Industry II) = 2,538 s; its job: 2% of the pump's EIV a run
+  // (2,424,467.90) × (0.14% + 0.25% + SCC 4%) = 2,128.68.
+  eq('the pump\'s 40-run copies: a run\'s time, runs a day a lab slot makes, sold a day and yours at 10%', [r.time, Math.round(r.labRuns * 100) / 100, Math.round(r.soldRuns * 1000) / 1000, Math.round(r.yourRuns * 1000) / 1000, r.limit],
+    [2538, 34.04, 17.143, 1.714, 'market']);
+  eq('  a run\'s copy job and what a lab slot makes a day', [Math.round(r.eiv), Math.round(r.cost.total * 100) / 100, r.costKnown, Math.round(r.iskDay)], [2424468, 2128.68, true, 189208]);
+  eq('  research from 0/0 to 10/20 at Metallurgy and Research untrained, the original, payback, building instead, one seller',
+    [Math.round(r.research.days * 100) / 100, Math.round(r.research.cost), r.bpoPrice, Math.round(r.payback * 100) / 100, r.buildDay, r.thin], [83.56, 5650996, 9000000, 77.43, 1234567, '1 seller: one person’s prices']);
+  eq('    at Metallurgy IV and Research IV the research takes 66.84 days', Math.round(F.copyRow({ ...base, skills: { 3402: 5, 3388: 2, 3409: 4, 3403: 4 } }).research.days * 100) / 100, 66.84);
+  eq('  an original held at ME 10 / TE 20: nothing to buy or research, no payback', ((x) => [x.research, x.bpoPrice, x.payback])(F.copyRow({ ...base, held: { me: 10, te: 20 } })), ['held', 0, null]);
+  eq('  one held at ME 6 / TE 0: research from there, nothing to buy, payback on the research alone',
+    ((x) => [x.research.me, x.research.te, Math.round(x.research.days * 100) / 100, Math.round(x.research.cost), x.bpoPrice, Math.round(x.payback * 100) / 100])(F.copyRow({ ...base, held: { me: 6, te: 0 } })), [[6, 10], [0, 20], 82.25, 5562699, 0, 29.4]);
+  eq('  asks now under what sold: priced at the median ask', ((x) => [x.price, Math.round(x.iskDay)])(F.copyRow({ ...base, ask: [90000, 95000, 4, 2] })), [{ perRun: 95000, from: 'asks' }, 159208]);
+  eq('  at a 100% share the market still limits it (17.1 sold a day against 34.0 the slot makes)', ((x) => [Math.round(x.yourRuns * 1000) / 1000, x.limit])(F.copyRow({ ...base, share: 100 })), [17.143, 'market']);
+  eq('  a lab whose tax isn\'t typed, or a clone not read: the cost is ranked before it, said', [((x) => [x.costKnown, Math.round(x.cost.total * 100) / 100])(F.copyRow({ ...base, lab: { ...jitaLab, tax: null } })), F.copyRow({ ...base, clone: 'unknown' }).costKnown], [[false, 2007.46], false]);
+  eq('  no Laboratory reached: no cost, no ISK a day, no research time, never 0', ((x) => [x.cost, x.iskDay, x.research.days, x.research.cost])(F.copyRow({ ...base, lab: null })), [null, null, null, null]);
+  eq('  no adjusted prices: no EIV, no cost', ((x) => [x.eiv, x.cost, x.iskDay])(F.copyRow({ ...base, adjusted: null })), [null, null, null]);
+  eq('  half a day counted is a day (120 runs, not 240); three days, a third', [F.copyRow({ ...base, days: 0.5 }).soldRuns, F.copyRow({ ...base, days: 3 }).soldRuns], [120, 40]);
+  // An Azbel in UALX-3 (null-sec, copying index 8.72%, 1% tax) with a Standup L-Set Blueprint Copy Optimization I: time × 0.80 × 0.58, cost × 0.96 × 0.79.
+  const az = F.copyRow({ ...base, lab: { kind: 'azbel', rigs: [43729], band: 'null', tax: 0.01, index: indices[30004807] } });
+  eq('  at an Azbel with a copy rig in null-sec: a run in 1,177.63 s, 5,631.19 a run', [Math.round(az.time * 1000) / 1000, Math.round(az.cost.total * 100) / 100, Math.round(az.iskDay)], [1177.632, 5631.19, 183204]);
+  eq('  a kind the bundle doesn\'t hold, and a Tech II copy (made by invention), are left out', [F.copyRow({ ...base, kind: { ...pump, typeId: 32306 } }), F.copyRow({ ...base, kind: { ...pump, typeId: 39581 } })], ['notInBundle', 'invented']);
+  eq('  thin: one seller, or under three sales', [F.thinSaid({ contracts: 9, sellers: 1 }), F.thinSaid({ contracts: 2, sellers: 2 }), F.thinSaid({ contracts: 3, sellers: 2 })],
+    ['1 seller: one person’s prices', '2 sales this week: too few to say what it sells at', null]);
+  eq('the best original held of a type: highest ME, then TE; copies aren\'t originals', F.heldOriginal([
+    { itemId: 1, typeId: 25895, locationId: 1, flag: 'Hangar', copy: false, count: 1, unused: false, me: 8, te: 20, runs: null },
+    { itemId: 2, typeId: 25895, locationId: 1, flag: 'Hangar', copy: false, count: 1, unused: false, me: 10, te: 4, runs: null },
+    { itemId: 3, typeId: 25895, locationId: 1, flag: 'Hangar', copy: true, count: 1, unused: false, me: 10, te: 20, runs: 40 },
+  ], 25895), { me: 10, te: 4 });
+  eq('  none held, or not read', [F.heldOriginal([], 25895), F.heldOriginal(null, 25895)], [null, null]);
+
+  // The 11 October fixture's summary, ranked at Jita's lab: the pump first (its EIV known), the Standup priced at its asks, the
+  // Capital Turret Hardpoint's 40-run copies limited by the slot; 32306 left out (the bundle doesn't hold it).
+  const fsC = await import('node:fs');
+  const C = JSON.parse(fsC.readFileSync(new URL('./fixtures/copy-snapshots.json', import.meta.url), 'utf8'));
+  const contracts = (s) => s.contracts.map(([id, price, expires, issuer, items]) => ({ id, price, issued: '', expires, stationId: 60003760, issuer, title: '', items: items.map(([typeId, copy, me, te, runs, qty, itemId]) => ({ typeId, copy: copy === 1, me, te, runs, qty, itemId })) }));
+  const [a, b, c] = C.snapshots.map((s) => ({ at: Date.parse(s.at), all: contracts(s) }));
+  const sets = [a, b, c].map((s) => M.compactCopies(s.all));
+  const sold = (older, newer) => M.copiesSold(older, new Set(newer.all.map((x) => x.id)), M.itemIssuers(newer.all), newer.at);
+  const sum = M.copySummary({ sold: [...M.soldRows(sold(sets[0], b), b.at), ...M.soldRows(sold(sets[1], c), c.at)], current: sets[2], reads: [[a.at, b.at, 16], [b.at, c.at, 12]], exclude: new Set(), at: c.at });
+  const got = F.copyRows({ ix, summary: sum, skills: { 3402: 5, 3388: 2 }, clone: 'omega', lab: jitaLab, adjusted: FX.adjusted, share: 10, heldOf: () => null, bpoOf: () => ({ state: 'unread' }), build: () => null });
+  eq('the fixture\'s kinds ranked: priced first, then by type and runs; one left out', [got.rows.map((x) => `${x.kind.typeId}/${x.kind.runs}`), got.left],
+    [['25895/40', '37045/5', '693/1', '693/10', '21012/19', '21012/40'], { notInBundle: 1, invented: 0, noCopying: 0 }]);
+  eq('  the pump at 1,324,456 a day (12 of 120 runs sold a day), the Standup at its median ask, the hardpoint\'s 40-run copies slot-limited',
+    [Math.round(got.rows[0].iskDay), got.rows[1].price.from, got.rows[5].limit], [1324456, 'asks', 'slot']);
+
+  eq('counting: under a week says so; a stretch over 6.5 h between reads is a gap', [F.countingSaid({ days: 3.5 }), F.countingSaid({ days: 0 }), F.countingSaid({ days: 7 }), F.gapSaid({ gapHours: 13 }), F.gapSaid({ gapHours: 6 })],
+    ['Counting what sells: 3.5 days so far.', 'Counting what sells: it began with the cloud’s last read; the next, six hours on, is the first to count.', null, 'The longest stretch between two reads was 13 h: copies listed and sold within it were missed.', null]);
+
+  // What a real copy job says (correction 15): copying's SCC at an NPC station, and a copy rig's cost bonus at your Azbel.
+  const T = await import('../src/lib/industryTrack.ts');
+  const EIV = I.eivOf(I.activityOf(ix.bp.get(25895), 'manufacturing')[1], FX.adjusted);
+  const job = (over) => ({ jobId: 1, activity: 5, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25895, runs: 2, licensedRuns: 40, successfulRuns: null, probability: null, cost: 0,
+    facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: '2026-10-11T10:00:00Z', end: '2026-10-11T20:00:00Z', completed: null, status: 'active', perRun: null,
+    seenAt: '2026-10-11T10:10:00Z', first: { me: 10, te: 20, systemId: 30000119, index: 0.0305, eiv: EIV, at: '2026-10-11T10:10:00Z' }, ...over });
+  const npc = { kind: 'npc', rigs: [], band: 'high', tax: 0.0025, siteId: null };
+  const app = I.copyCost(EIV, 40, 2, { index: 0.0305, structure: 1, rig: 1, tax: 0.0025, clone: 'omega' });
+  const at = (cost, place = npc, over = {}) => [{ job: job({ cost: Math.round(cost * 100) / 100, ...over }), place, clone: 'omega', who: 'Your' }];
+  eq('a copy job at an NPC station that paid the 4% SCC agrees; one that paid none differs', [F.copyReadings(ix, at(app.total)).scc.state, F.copyReadings(ix, at(app.total - app.scc)).scc.state], ['agrees', 'differs']);
+  const azPlace = { kind: 'azbel', rigs: [43729], band: 'null', tax: 0.01, siteId: 'home:30004807' };
+  const sb = I.structureBonus(ix, 'azbel'), rg = I.rigFor(ix, [43729], 'azbel', 'null', null, 'copying');
+  const B = 0.02 * EIV * 80;
+  const azAt = (cost, index = 0.0872) => at(cost, azPlace, { jobId: 2, facilityId: 1046664001931, stationId: 1046664001931, first: { me: 10, te: 20, systemId: 30004807, index, eiv: EIV, at: '2026-10-11T10:10:00Z' } });
+  const mult = B * (0.0872 * sb.cost * rg.cost + 0.05), added = B * (0.0872 * (sb.cost + rg.cost - 1) + 0.05);
+  eq('the rig\'s cost bonus: a job that paid the rig multiplying the structure\'s sits nearer that reading; one that paid it added, nearer that (both within 1%)',
+    [F.copyReadings(ix, azAt(mult)).rig, F.copyReadings(ix, azAt(added)).rig.nearer], [{ state: 'agrees', jobId: 2, start: '2026-10-11T10:00:00Z', who: 'Your', app: F.copyReadings(ix, azAt(mult)).rig.app, charged: Math.round(mult * 100) / 100, nearer: 'multiplied' }, 'added']);
+  eq('  at a 0.14% index the two readings are within the index\'s rounding: can\'t tell', F.copyReadings(ix, azAt(B * (0.0014 * sb.cost * rg.cost + 0.05), 0.0014)).rig.nearer, null);
+  eq('  no cost rig, a tax not typed, a job first seen late: nothing read', [F.copyReadings(ix, at(mult, { ...azPlace, rigs: [] })).rig.state, F.copyReadings(ix, at(mult, { ...azPlace, tax: null })).rig.state,
+    F.copyReadings(ix, at(app.total, npc, { first: { me: 10, te: 20, systemId: 30000119, index: 0.0305, eiv: EIV, at: '2026-10-11T12:00:00Z' } })).scc.state], ['unchecked', 'unchecked', 'unchecked']);
+  eq('  the newest job decides', F.copyReadings(ix, [...at(app.total - app.scc, npc, { jobId: 5, start: '2026-10-01T10:00:00Z', seenAt: '2026-10-01T10:10:00Z', first: { me: 10, te: 20, systemId: 30000119, index: 0.0305, eiv: EIV, at: '2026-10-01T10:10:00Z' } }), ...at(app.total)]).scc.state, 'agrees');
+  const date = (iso) => iso.slice(0, 10);
+  eq('the cost tip says what isn\'t checked yet', F.readingsSaid({ scc: { state: 'unchecked' }, rig: { state: 'unchecked' } }, true, date), [
+    'Copying’s SCC is taken as EVE Ref’s 4% of the job’s base: not yet checked against a copy job of yours (one at an NPC station, seen within 90 minutes of its start, settles it).',
+    'The copy rig’s cost bonus is taken as multiplying the structure’s: not yet checked against a job of yours (a copy or research job at one of your structure sites with such a rig, its tax typed, settles it).',
+  ]);
+  eq('  and what a job said', F.readingsSaid(F.copyReadings(ix, [...at(app.total), ...azAt(added)]), true, date), [
+    'Copying’s SCC checked: your copy job of 2026-10-11 at an NPC station paid it.',
+    'The copy rig’s cost bonus: your job of 2026-10-11 paid within 1% of the app’s figure, but nearer the rig adding to the structure’s bonus than multiplying it, so the costs here with a rig may be a little high.',
+  ]);
+  eq('  no rig line where the lab has no cost rig', F.readingsSaid({ scc: { state: 'unchecked' }, rig: { state: 'unchecked' } }, false, date).length, 1);
+  // An Astrahus has no cost bonus of its own: with its M-Set copy cost rig, adding and multiplying give the same charge (M16).
+  const astra = { kind: 'astrahus', rigs: [43891], band: 'null', tax: 0.01, siteId: 'home:30004807' };
+  const rgA = I.rigFor(ix, [43891], 'astrahus', 'null', null, 'copying');
+  const aJob = at(B * (0.0872 * rgA.cost + 0.05), astra, { jobId: 3, facilityId: 1046664001932, stationId: 1046664001932, first: { me: 10, te: 20, systemId: 30004807, index: 0.0872, eiv: EIV, at: '2026-10-11T10:10:00Z' } });
+  eq('  at a structure with no cost bonus of its own, said as the same either way, not as an index too low to tell', F.readingsSaid(F.copyReadings(ix, aJob), true, date)[1],
+    'The copy rig’s cost bonus: your job of 2026-10-11 paid within 1% of the app’s figure; the structure has no cost bonus of its own, so adding the rig’s and multiplying are the same.');
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

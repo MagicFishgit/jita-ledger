@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { cloudEnabled, cloudHomePrices, cloudIndustryNpc, useCloud } from '../../lib/cloud';
+import { cloudCopies, cloudEnabled, cloudHomePrices, cloudIndustryNpc, useCloud } from '../../lib/cloud';
 import { EsiError, esi } from '../../lib/esi';
 import { shareInFlight } from '../../lib/inFlight';
 import type { IndustryIndex } from '../../lib/industry';
 import { npcHoldMs, type NpcRow } from '../../lib/industryRank';
+import type { CopySummary } from '../../lib/copyMarket';
 import { homeHoldMs, type HomeRow } from '../../lib/homeMarket';
 import { adjustedPricesShared, industrySystemsShared, jitaBook, regionHistory, resolveNames } from '../../lib/market';
 import { nameReader } from '../../lib/nameReader';
@@ -205,6 +206,48 @@ export function useHomePrices(hub: number | null): HomeState {
     return () => { alive = false; };
   }, [hub, cloud.started]);
   return got.hub === hub ? got.st : { status: 'loading' };
+}
+
+/**
+ * The cloud's copy market (Task 14A's answer, told apart by `at`): `off` with the cloud copy off in this browser, `switched` when
+ * the cloud has its EVE Ref reads off, `none` before any round has tried, `tried` when a round tried and none has read yet (with
+ * when, and why it failed), `behind` for a Worker without the route (404), `failed` otherwise; `ok` with the summary, when the
+ * cloud last tried, that try's error beside the last good read, and a note when a read kept a set without counting.
+ */
+export type CopyMarketState = { status: 'off' } | { status: 'loading' } | { status: 'behind' } | { status: 'failed'; error: string; retry: () => void }
+  | { status: 'switched' } | { status: 'none' } | { status: 'tried'; tried: string; error: string | null }
+  | { status: 'ok'; summary: CopySummary; tried: string | null; error: string | null; stale: string | null; note: string | null };
+/** Held like a hub's prices: the cloud reads every six hours, so a read is kept until the next could have landed (homeHoldMs), and dropped on another login and on "Delete all data". */
+let copiesHeld: { until: number; read: ReturnType<typeof cloudCopies> } | null = null;
+const resetCopies = () => { copiesHeld = null; };
+let copiesChar: number | null | undefined;
+onAuthChange(() => { const id = getAuth()?.characterId ?? null; if (copiesChar !== undefined && copiesChar !== id) resetCopies(); copiesChar = id; });
+onClearAll(resetCopies);
+const copiesRead = () => {
+  if (copiesHeld && Date.now() < copiesHeld.until) return copiesHeld.read;
+  const read = cloudCopies();
+  const held = { until: Infinity, read };
+  copiesHeld = held;
+  read.then((r) => { held.until = Date.now() + homeHoldMs(r && 'at' in r ? r.at : null, Date.now()); }, () => { if (copiesHeld === held) copiesHeld = null; });
+  return read;
+};
+export function useCopyMarket(): CopyMarketState {
+  const cloud = useCloud();
+  const [st, setSt] = useState<CopyMarketState>(() => (cloudEnabled() ? { status: 'loading' } : { status: 'off' }));
+  const [tries, setTries] = useState(0);
+  useEffect(() => {
+    if (!cloudEnabled()) { resetCopies(); setSt({ status: 'off' }); return; }
+    if (!cloud.started) return;
+    let alive = true;
+    copiesRead().then((r) => {
+      if (!alive) return;
+      // Told apart by `at`: only a summary has one.
+      setSt(!r ? { status: 'none' } : 'off' in r ? { status: 'switched' } : !('at' in r) ? { status: 'tried', tried: r.tried, error: r.error }
+        : { status: 'ok', summary: r, tried: r.tried, error: r.error, stale: r.stale ?? null, note: r.note ?? null });
+    }, (e) => { if (alive) setSt((e as { status?: number }).status === 404 ? { status: 'behind' } : { status: 'failed', error: e instanceof Error ? e.message : String(e), retry: () => { resetCopies(); setSt({ status: 'loading' }); setTries((n) => n + 1); } }); });
+    return () => { alive = false; };
+  }, [cloud.started, tries]);
+  return st;
 }
 
 /** The home region's daily history for the types asked (regionHistory: kept three hours, shared in flight), four at a time. One that can't be read is left out. */

@@ -542,3 +542,23 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   - **The Blueprints route's answer is unchanged**: on the 00:00 and 12:00 snapshots, `ContractSink` from the `.tar.bz2` gave the
     same contracts in the same order as `blueprintContracts` on the unpacked files (every type at the snapshot's time, a day
     later, the five fixture types, and Domain); `npm run check` pins it on a synthetic tar.
+
+- **The Copies section: what's worth copying for one lab slot** (`src/lib/copyFinder.ts` pure, `IndustryCopies.tsx`, `useCopyMarket` in
+  industryMarket.ts, `cloudCopies`; stage 3, Task 14B). Each kind that sold in The Forge this week (the cloud's `GET /v1/copies`) at the
+  shown character: left out and counted when the bundle lacks its blueprint, it's an invention product (Tech II: Build ranks it) or it
+  can't be copied (correction 8); a run's price is the lower of the median sold and the median ask now (correction 7); a run's copy job
+  at `labFor`'s lab at its copying index (the product's ME 0 EIV); runs a day a lab slot makes against runs a day sold (runs sold ÷ days
+  counted, at least one: correction 16) at the industry share, the lesser, saying which limits it; ISK a day for one lab slot; the
+  original (held: nothing to buy or research; else NPCs' price) with research from the held ME/TE; payback; the finder's profit a day
+  building instead (only for the rows shown). Under three sales or one seller says so ("1 seller: one person's prices").
+  - **The route's four answers are told apart by `at`**: null (no round has tried), `{ off }`, `{ tried, error }` (a round tried, none has
+    read: said as what went wrong and when, never "not read yet", no table) and a summary, whose later failed try is said before its
+    figures with the last good read's age, and whose `note` (a reset) is said as the cloud wrote it. A 404 is "a version behind". No
+    table until a read has compared two sets (`reads > 0`): the counting line alone, never "0 kinds sold".
+  - **The copy cost's two unchecked readings** (`copyReadings`, `readingsSaid`, correction 15): copying's SCC taken as EVE Ref's 4%, and a
+    copy cost rig multiplying the structure's bonus on the index part. The cost's tip says each is unchecked until a job of yours settles
+    it (stage 2's `jobCheck`: a copy job at an NPC station for the SCC; a copy or research job at your structure site with such a rig for
+    the rig, nearer-reading when the two differ by more than the index's rounding), and what a job said. A structure with no cost bonus of
+    its own (Astrahus, Fortizar) reads the same either way, said so.
+  - **Layout**: seven columns at 1,440 (Original and research, and Payback and building instead, each share a column; the table is
+    `table-layout: fixed`), the first and ISK a day on a phone, the rest folded into a line under the name.

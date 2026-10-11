@@ -25,7 +25,7 @@ import { small, large, ALTS, altStoreOf, charsOf, ownerAuth, strangerAuth, withT
 const PAGES = [
   'wallet', 'todo', 'calculator', 'calculator?type=34', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'reprocess',
   'positions', 'positions/{first}', 'orders', 'loot', 'blueprints', 'results', 'loyalty',
-  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/mining', 'hustles/freelance', 'hustles/research', 'hustles/industry', 'hustles/industry/build', 'combat', 'characters', 'omega',
+  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/mining', 'hustles/freelance', 'hustles/research', 'hustles/industry', 'hustles/industry/build', 'hustles/industry/copies', 'combat', 'characters', 'omega',
   'settings/account', 'settings/skills', 'settings/rates', 'settings/alerts', 'settings/appearance', 'settings/data', 'settings/scan',
 ];
 
@@ -365,6 +365,7 @@ try {
       // The Industry tab loads a 1 MB chunk, from a cold dev server too: wait for what it draws, not a fixed time.
       if (hash === 'hustles/industry') await page.waitForSelector('[data-industry="start"]', { timeout: 30_000 }).catch(() => {});
       else if (hash === 'hustles/industry/build') { await page.waitForSelector('[data-industry="build"]', { timeout: 30_000 }).catch(() => {}); await page.waitForTimeout(800); }
+      else if (hash === 'hustles/industry/copies') { await page.waitForSelector('[data-industry="copies"]', { timeout: 30_000 }).catch(() => {}); await page.waitForTimeout(800); }
       else await page.waitForTimeout(1500);
       // The seeded transfers must reach the Wallet as their own line, or the phone check passes without measuring it.
       if (hash === 'wallet') {
@@ -390,6 +391,14 @@ try {
       }
       // Build on a ledger with no build site: the finder asks for one, and nothing is ranked.
       if (hash === 'hustles/industry/build' && !(await page.locator('[data-industry="finder-wait"]', { hasText: 'Pick where you build first: add a site under Where you build, below.' }).count())) problems.push('Build with no site doesn’t ask for one');
+      if (hash === 'hustles/industry/copies') {
+        await page.waitForSelector('[data-industry="copies"]', { timeout: 30_000 }).catch(() => problems.push('Copies never drew'));
+        if (!(await page.locator('[data-industry="copies"]', { hasText: 'Researched originals can make copies that sell on contract.' }).count())) problems.push('not drawn: the Copies section’s lead');
+        // The plain loads' cloud is unreachable (VITE_CLOUD_URL is a closed port): the section says where the copy market stands
+        // (reading, or couldn't read), never a zero or an empty table.
+        if (!(await page.locator('[data-industry="copy-state"]').count())) problems.push('Copies doesn’t say where the copy market stands');
+        if (await page.locator('[data-industry="copy-finder"]').count()) problems.push('Copies drew a finder with no copy market read');
+      }
       // The Industry tab on these ledgers: Start's lead always draws; a main with no skills synced says when they come.
       if (hash === 'hustles/industry') {
         if (!(await page.locator('[data-industry="start"]', { hasText: 'Industry turns materials into things that sell.' }).count())) problems.push('not drawn: the Industry tab’s Start');
@@ -2808,6 +2817,70 @@ try {
       for (let i = 0; i < 100 && h?.structureId !== TYPED; i++) { await page.waitForTimeout(100); h = await homeOf(); }
       if (h?.structureId !== TYPED || h?.name !== 'Home Azbel') problems.push(`Use it didn’t give the home its structure’s ID and name: ${JSON.stringify(h)}`);
       if (await page.locator(offer).count()) problems.push('the typed home is still offered a structure after Use it');
+    }
+
+    // --- Task 14B: the Copies section's finder, on the cloud's summary (stubbed), at the main's skills at the NPC site, then every
+    // state of the cloud's read.
+    {
+      const SUM = { at: iso(now - 2 * 3600_000), days: 3.5, gapHours: 6, reads: 14, tried: iso(now - 2 * 3600_000 + 300_000), error: null,
+        sold: [
+          { typeId: 25895, me: 10, te: 20, runs: 40, contracts: 3, copies: 3, sellers: 1, perRun: 112500 },
+          { typeId: 32306, me: 0, te: 0, runs: 1, contracts: 13, copies: 49, sellers: 6, perRun: 115e6 },
+          { typeId: 37045, me: 10, te: 20, runs: 5, contracts: 4, copies: 4, sellers: 3, perRun: 1780000 },
+          { typeId: 39581, me: 2, te: 4, runs: 10, contracts: 5, copies: 5, sellers: 2, perRun: 100000 },
+        ],
+        asks: { '37045|10|20|5': [1680000, 1690000, 4, 2] } };
+      let copies = SUM;
+      CLOUD['/v1/copies'] = (url, req, json) => (copies === 404 ? json({ error: 'Not found' }, 404) : json(copies));
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } });
+      await page.goto(`${BASE}#hustles/industry/copies`);
+      await page.waitForSelector('[data-industry="copy-finder"] [data-kind="25895|10|20|40"]', { timeout: 30_000 })
+        .catch(async () => problems.push(`the copy finder never priced the pump: “${(await text('[data-industry="copies"]')).slice(0, 400)}”`));
+      const pumpRow = await text('[data-kind="25895|10|20|40"]');
+      if (!pumpRow.toLowerCase().includes('1 seller: one person’s prices')) problems.push(`the pump’s one seller isn’t said: “${pumpRow}”`);
+      if (!/\d.* ISK/.test(await text('[data-kind="25895|10|20|40"] [data-industry="copy-isk"]'))) problems.push(`the pump row has no ISK a day: “${pumpRow}”`);
+      if (!PHONE && !(await text('[data-kind="37045|10|20|5"]')).includes('median ask now, under what sold')) problems.push('the Standup’s price doesn’t say it’s the median ask, under what sold');
+      const count = await text('[data-industry="copy-count"]');
+      if (!count.includes('1 copy of blueprints NPCs don’t sell') || !count.includes('1 Tech II copy (made by invention')) problems.push(`the left-out kinds aren’t said: “${count}”`);
+      if (!(await text('[data-industry="copy-state"]')).includes('Counting what sells: 3.5 days so far.')) problems.push('the days counted aren’t said');
+      const tip = await page.locator('[data-industry="copy-cost"]').first().getAttribute('data-tip').catch(() => '');
+      if (!tip?.includes('not yet checked against a copy job of yours')) problems.push(`the copy cost doesn’t say copying’s SCC isn’t checked yet: “${tip}”`);
+      if (/\b0 ISK\b/.test(await text('[data-industry="copies"]'))) problems.push('the Copies section shows “0 ISK” for something not known');
+      // The overflow is on the table's .tbl-scroll box, not the table (I1); on a phone the box may scroll, as every table's does.
+      const fit = await sideways(page, '[data-industry="copies"] .tbl-scroll');
+      if (!PHONE && fit && fit.over > 0) problems.push(`the copy finder scrolls sideways at 1,440 (${fit.over} px)`);
+      if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-copies.png` }); }
+      // Before any read compared two sets: the counting line alone, no count and no table (I3).
+      copies = { ...SUM, days: 0, gapHours: 0, reads: 0, sold: [] };
+      await page.reload();
+      await page.waitForFunction(() => (document.querySelector('[data-industry="copy-state"]')?.textContent ?? '').includes('Counting what sells'), null, { timeout: 20_000 }).catch(() => undefined);
+      if (!(await text('[data-industry="copy-state"]')).includes('Counting what sells: it began with the cloud’s last read')) problems.push('the first read doesn’t say counting has begun');
+      if (await page.locator('[data-industry="copy-finder"], [data-industry="copy-count"], [data-industry="copy-none"]').count()) problems.push('before a read counted, Copies draws a count, a table or “no copies sold”');
+      if (/\b0 kinds sold/.test(await text('[data-industry="copies"]'))) problems.push('before a read counted, Copies says “0 kinds sold”');
+      // Reads counted, nothing a player can copy sold: one line, never an empty table.
+      copies = { ...SUM, sold: [SUM.sold[1]] };
+      await page.reload();
+      await page.waitForSelector('[data-industry="copy-none"]', { timeout: 20_000 }).catch(() => problems.push('with nothing copyable sold, Copies doesn’t say so in one line'));
+      if (await page.locator('[data-industry="copy-finder"]').count()) problems.push('with nothing copyable sold, Copies still draws a table');
+      for (const [answer, words] of [[null, 'The cloud hasn’t read the copy market yet'], [404, 'The cloud is a version behind'], [{ off: true }, 'reads of EVE Ref switched off'],
+        // A round tried and none has read (no `at`): what went wrong and when, never “not read yet”, never a table.
+        [{ tried: iso(now - 3 * 3600_000), error: 'EVE Ref answered 502 for public-contracts-latest.v2.tar.bz2' }, 'tried to read the copy market 3 h ago and it failed: EVE Ref answered 502'],
+        [{ tried: iso(now - 3 * 3600_000), error: 'interrupted: the cloud stopped the read before it finished' }, 'failed: interrupted: the cloud stopped the read']]) {
+        copies = answer;
+        await page.reload();
+        await page.waitForFunction((w) => (document.querySelector('[data-industry="copy-state"]')?.textContent ?? '').includes(w), words, { timeout: 20_000 }).catch(() => undefined);
+        if (!(await text('[data-industry="copy-state"]')).includes(words)) problems.push(`the copy market ${JSON.stringify(answer)} isn’t said as “${words}”: “${await text('[data-industry="copy-state"]')}”`);
+        if (answer && answer.tried && (/not read yet|hasn’t read/.test(await text('[data-industry="copy-state"]')) || await page.locator('[data-industry="copy-finder"], [data-industry="copy-count"]').count())) problems.push('a round that tried and failed is said as not read yet, or draws a table');
+      }
+      // A summary whose later try failed: the error before the figures, the last good read's time beside it, the figures still drawn;
+      // and a note said as the cloud wrote it.
+      copies = { ...SUM, error: 'EVE Ref answered 502 for public-contracts-latest.v2.tar.bz2', note: 'The copy contracts fell under half the kept set six times running: kept the new set without counting sales from it' };
+      await page.reload();
+      await page.waitForSelector('[data-industry="copy-finder"] [data-kind="25895|10|20|40"]', { timeout: 30_000 }).catch(() => problems.push('a summary with a failed later try draws no figures'));
+      const failedSaid = await text('[data-industry="copy-state"]');
+      if (!failedSaid.startsWith('The cloud’s last read failed') || !failedSaid.includes('EVE Ref answered 502') || !failedSaid.includes('These figures are from the read of 2 h ago')) problems.push(`a failed later try isn’t said before the figures: “${failedSaid}”`);
+      if (!failedSaid.includes('kept the new set without counting sales from it.')) problems.push(`the reset note isn’t said: “${failedSaid}”`);
     }
 
     // --- the end of the industry case

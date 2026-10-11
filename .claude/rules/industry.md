@@ -1,7 +1,7 @@
 ---
 paths:
-  - "src/lib/{industry,industryRank,industrySites,industryLadder,industryTrack,industryOwned,industryReads,homeMarket,altFees,nameReader,copyMarket}.ts"
-  - "src/components/hustles/{Industry.tsx,IndustryStart.tsx,IndustrySites.tsx,IndustryBuild.tsx,IndustryDetail.tsx,IndustryOwned.tsx,industryChars.ts,industryBundle.ts,industryMarket.ts,industryFinder.ts}"
+  - "src/lib/{industry,industryRank,industrySites,industryLadder,industryTrack,industryOwned,industryReads,homeMarket,altFees,nameReader,copyMarket,copyFinder}.ts"
+  - "src/components/hustles/{Industry.tsx,IndustryStart.tsx,IndustrySites.tsx,IndustryBuild.tsx,IndustryDetail.tsx,IndustryOwned.tsx,IndustryCopies.tsx,industryChars.ts,industryBundle.ts,industryMarket.ts,industryFinder.ts}"
   - "src/components/FindStructure.tsx"
   - "src/data/{industry,industryEiv,industryTypes}.json"
   - "scripts/industry-bundle.mjs"

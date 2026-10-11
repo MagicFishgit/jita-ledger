@@ -22,6 +22,7 @@ import { adoptCloudScan, loadCache, mergeLiveBooks, rankProspects, scanBusy, typ
 import type { Book } from './evaluate';
 import type { SnipeRead } from './snipe';
 import type { BpContract } from './bpContracts';
+import type { CopySummary } from './copyMarket';
 import type { NpcRow } from './industryRank';
 import type { Sighting } from './sniped';
 import { DEFAULT_FILTERS } from './prospects';
@@ -619,6 +620,15 @@ export const cloudIndustryNpc = () => call<{ complete: NpcRow | null; partial: N
  * the cloud has Goonmetrics switched off. A Worker a version behind answers 404 (the error's `status`).
  */
 export const cloudHomePrices = (hub: number) => call<{ off: true } | { hub: number; source: string; at: string; prices: Record<string, HomeRow> } | null>(`/v1/home/prices?hub=${hub}`);
+/**
+ * What copies sold for in The Forge over the last week and the asks now (`GET /v1/copies`). Four answers, told apart by `at`:
+ * null (no round has tried yet), `{ off: true }` (the cloud has its EVE Ref reads switched off), `{ tried, error }` with no `at`
+ * (a round tried and none has read yet: a failed or interrupted first round), and a summary (always has `at`) with when the
+ * cloud last tried, that try's error beside its last good `at`, EVE Ref's still-newest snapshot (`stale`), and a `note` when a
+ * read kept a set without counting. A Worker a version behind answers 404 (the error's `status`).
+ */
+export type CopiesAnswer = { off: true } | { tried: string; error: string | null } | (CopySummary & { tried: string | null; error: string | null; stale?: string | null; note?: string | null }) | null;
+export const cloudCopies = () => call<CopiesAnswer>('/v1/copies');
 export const cloudTestMail = () => call<{ mailId: number; about: string }>('/v1/alerts/test', { method: 'POST' });
 
 let costsSent: string | null = null;
