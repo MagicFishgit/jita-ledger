@@ -8361,6 +8361,8 @@ console.log('\n--- Industry stage 2: To do, an alt\'s jobs to deliver (todo.ts, 
     jobs: [{ jobId: 12, activity: 5, what: 'Large Trimark Armor Pump I Blueprint', runs: 1 }, { jobId: 11, activity: 1, what: 'Large Trimark Armor Pump I', runs: 65 }] });
   eq('  one item per alt and facility, keyed by both; the job IDs its version', [it.key, it.ver, it.kind, it.source], ['industry:900091:60003760', '11.12', 'industry', 'industry']);
   eq('    said with whose they are', it.title, 'Builder Alt · 2 industry jobs ready at Jita IV - Moon 4 - Caldari Navy Assembly Plant');
+  const lostIt = D.altIndustryItem({ charId: 900091, who: 'Builder Alt', place: 60003760, placeName: 'Jita', lost: 'EVE refused Builder Alt’s login; hand it over again on the Characters page.', jobs: [{ jobId: 11, activity: 1, what: 'Pump', runs: 1 }] });
+  eq('  a refused or lost login says the jobs are as the cloud last read them, and the version doesn’t move', [lostIt.detail.includes('As the cloud last read it. EVE refused Builder Alt’s login; hand it over again on the Characters page.'), it.detail.includes('last read'), lostIt.ver], [true, false, '11']);
   const e = { item: it, seenAt: 1000, lastAt: 1000 };
   eq('  judged only on a roster read of this session newer than the one that showed it', [
     D.judgeAltIndustry(e, { live: false, readAt: 2000, gone: false, waiting: new Set() }),

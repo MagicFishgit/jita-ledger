@@ -2592,7 +2592,7 @@ try {
     {
       const ready = { jobId: 9401, activity: 1, blueprintId: 8001, blueprintTypeId: 25895, productTypeId: 25894, runs: 65, licensedRuns: null, successfulRuns: null, probability: null, cost: 1e6,
         facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: iso(now - 86400_000), end: iso(now - 3600_000), completed: null, status: 'ready', perRun: 1, seenAt: iso(now - 86400_000 + 600_000) };
-      const alts12 = { ...altStore, [`alt:${BUILDER}`]: { ...altStore[`alt:${BUILDER}`], records: { jobs: { 9401: ready } }, docs: { ...altStore[`alt:${BUILDER}`].docs, meta: { ...altStore[`alt:${BUILDER}`].docs.meta, jobsRead: true } } } };
+      const alts12 = { ...altStore, [`alt:${LOST}`]: { rev: 1, addedAt: now - 5 * 86400_000, records: { jobs: { 9402: { ...ready, jobId: 9402 } } }, docs: { meta: { jobsRead: true } } }, [`alt:${BUILDER}`]: { ...altStore[`alt:${BUILDER}`], records: { jobs: { 9401: ready } }, docs: { ...altStore[`alt:${BUILDER}`].docs, meta: { ...altStore[`alt:${BUILDER}`].docs.meta, jobsRead: true } } } };
       await page.goto(SEED_PAGE);
       await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE }, { alts: alts12 });
       await page.goto(`${BASE}#todo`);
@@ -2600,6 +2600,8 @@ try {
       await page.waitForTimeout(1200);
       const item = await text('.tn-item:has-text("Builder Alt")');
       if (!item.includes('Builder Alt · 1 industry job ready at Station 60003760') || !item.includes('Builder Alt delivers them in the Industry window')) problems.push(`To do doesn’t list Builder Alt’s job to deliver: “${item.slice(0, 200)}”`);
+      const lostItem = await text('.tn-item:has-text("Lost Alt · 1 industry job")');
+      if (!lostItem.includes('As the cloud last read it. EVE refused Lost Alt’s login; hand it over again on the Characters page.')) problems.push(`a refused alt’s job to deliver isn’t said as the cloud’s last read: “${lostItem.slice(0, 300)}”`);
       if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-todo-alt.png` }); }
     }
 

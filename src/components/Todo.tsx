@@ -25,6 +25,7 @@ import { planListRow } from '../lib/positions';
 import { skipPlaceBid, usePlacingCheck, usePlanListing } from './planListing';
 import { useAltCopies, useAltRoster, useRosterAt, useRosterLive } from '../lib/altStore';
 import { jobOk, loginState } from '../lib/roster';
+import { lostSaid } from '../lib/pilot';
 import { FIELDS } from '../lib/researchStart';
 import { useResearchChars } from './hustles/researchChars';
 import { useRunningResearch } from './hustles/researchWorth';
@@ -350,6 +351,7 @@ export function Todo() {
       for (const [place, js] of byAltPlace) {
         out.push(altIndustryItem({
           charId: a.charId, who: a.name ?? `Character ${a.charId}`, place,
+          lost: lostSaid({ isMain: false, name: a.name ?? `Character ${a.charId}`, pilot: { lost: (st => (st === 'working' ? undefined : st))(loginState(a, []).state) } }),
           placeName: jobPlaceSaid(js[0], { names, jobPlaces: {}, station: (id) => placeNames[id] ?? 'a station', system: (id) => placeNames[id] ?? null }),
           jobs: js.map((j) => ({ jobId: j.jobId, activity: j.activity, what: name(j.productTypeId ?? j.blueprintTypeId), runs: j.runs })),
         }));

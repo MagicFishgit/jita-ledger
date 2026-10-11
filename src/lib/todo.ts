@@ -329,12 +329,12 @@ export function judgeIndustry(e: Entry, c: { readAt: number | null; waiting: Rea
  * alt and facility. Keyed `industry:<char>:<place>`, so the main's `industry:<place>` items never reopen; its version is the
  * job IDs, as the main's. `placeName` is the facility as the page can say it (jobPlaceSaid), null when it can't.
  */
-export function altIndustryItem(x: { charId: number; who: string; place: number; placeName: string | null; jobs: { jobId: number; activity: number; what: string; runs: number }[] }): TodoItem {
+export function altIndustryItem(x: { charId: number; who: string; place: number; placeName: string | null; lost?: string | null; jobs: { jobId: number; activity: number; what: string; runs: number }[] }): TodoItem {
   const what = x.jobs.map((j) => `${ACTIVITY_SAID[j.activity] ?? 'Job'}: ${j.what}${j.runs > 1 ? ` ×${units(j.runs)}` : ''}`);
   return {
     key: `industry:${x.charId}:${x.place}`, ver: x.jobs.map((j) => j.jobId).sort((a, b) => a - b).join('.'), kind: 'industry', source: 'industry', stake: 0,
     title: `${x.who} · ${units(x.jobs.length)} industry job${x.jobs.length === 1 ? '' : 's'} ready at ${x.placeName ?? 'a facility'}`,
-    detail: `${what.slice(0, 4).join(' · ')}${what.length > 4 ? ` and ${units(what.length - 4)} more` : ''}. ${x.who} delivers them in the Industry window (Jobs, Deliver).`,
+    detail: `${what.slice(0, 4).join(' · ')}${what.length > 4 ? ` and ${units(what.length - 4)} more` : ''}. ${x.who} delivers them in the Industry window (Jobs, Deliver).${x.lost ? ` As the cloud last read it. ${x.lost}` : ''}`,
     action: { label: 'Blueprints & jobs', route: 'hustles/industry/blueprints' },
   };
 }
