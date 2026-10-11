@@ -15,7 +15,7 @@ Bugs found and verified real but not yet fixed.
   Research tab's Try again for the agents bundle and the stargate map (Research.tsx, researchBundle.ts `loadBundle`), To do's and
   the Wallet's 30-second retry of the agents bundle (researchWorth.ts), Freelance's map (`loadGraph`, Freelance.tsx, which keeps
   the failed promise too), and the sync's EIV table (`loadEiv`, industryReads.ts): each stays failed until the app is reloaded,
-  the last losing the EIV of jobs first seen meanwhile. Industry's own loaders reload instead (Task 13 of stage 2).
+  the last losing the EIV of jobs first seen meanwhile (a job stored without its units a run is filled on the first read after a reload, `lackUnits`, or by the Worker's merge; not in place). Industry's own loaders reload instead (Task 13 of stage 2).
 
 The three an adversarial review found and verified were fixed on 28 September 2026 (see "Each trade and
 each fee belongs to one position" and "Units sold beyond what a position bought" in positions-results): overlapping

@@ -1998,7 +1998,7 @@ try {
       const buildPage = async (sel) => { await page.goto(`${BASE}#hustles/industry/build`); await page.reload(); await page.waitForSelector(sel, { timeout: 30_000 }).catch(() => problems.push(`Build never drew ${sel}`)); await page.waitForTimeout(1200); };
       // Read 5 minutes ago, so it's held whatever the clock (npcHoldMs: until 10 minutes past the next 11:25 scan, at most 15
       // minutes). At 3 hours old it was held for nothing between 11:35 and 14:25 UTC, and the remount check below failed then.
-      npcAnswer = { complete: { at: iso(now - 5 * 60_000), complete: true, pagesFailed: 0, sellers: { 25895: [1_250_000, [60001483, 60001486]] } }, partial: null };
+      npcAnswer = { complete: { at: iso(Date.now() - 5 * 60_000), complete: true, pagesFailed: 0, sellers: { 25895: [1_250_000, [60001483, 60001486]] } }, partial: null };
       await reseed({ ...DOC, site: 'home:30004807', freight: [] });
       await buildPage('[data-industry="finder-count"]');
       const noRoute = await text('[data-industry="finder-count"]');
@@ -2539,8 +2539,10 @@ try {
       await page.reload();
       await page.waitForSelector('.page', { timeout: 20_000 });
       const reached = () => askedPaths.some((x) => x.endsWith('/industry/jobs/'));
-      for (let i = 0; i < 100 && !reached(); i++) await page.waitForTimeout(100); // the reload's own sync, given 10 s to get there
-      if (!reached()) { await page.locator('.sync-btn:not([disabled])').click(); await until('the sync reaching its jobs read', async () => reached()); }
+      // The reload's own sync, given 10 s to get there; the button is busy while it's held, so click it only if it's enabled and no sync got there.
+      for (let i = 0; i < 100 && !reached() && await btnBusy() === false; i++) await page.waitForTimeout(100);
+      if (!reached() && !(await btnBusy())) { await page.locator('.sync-btn:not([disabled])').click(); }
+      await until('the sync reaching its jobs read', async () => reached());
       await until('the sync held on its jobs read (button busy)', btnBusy);
       const before2 = await stored();
       bpAnswer = bpRow(9402, 9);
@@ -2585,7 +2587,9 @@ try {
       const stored = () => page.evaluate(() => new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('industry'); g.onsuccess = () => res(g.result); }; }));
       if (SHOTS) { await page.locator(`[data-industry="${UM}"]`).scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-use-this.png` }); }
       if ((await stored()).sites.find((s) => s.id === 'st:1046664001931').tax != null) problems.push('the measured tax was written without Use this');
-      await page.locator(`[data-industry="${UM}"] button`, { hasText: 'Use this' }).click(); await page.waitForTimeout(800);
+      await page.locator(`[data-industry="${UM}"] button`, { hasText: 'Use this' }).click();
+      // The store writes after a 250 ms debounce: poll IndexedDB for the tax rather than sleep.
+      for (let i = 0; i < 100 && (await stored()).sites.find((s) => s.id === 'st:1046664001931').tax !== 0.01; i++) await page.waitForTimeout(100);
       if ((await stored()).sites.find((s) => s.id === 'st:1046664001931').tax !== 0.01) problems.push('Use this didn’t set the site’s tax to 1.00%');
       if (!(await page.locator(`[data-industry="${AG}"]`).count())) problems.push('after Use this, the site doesn’t say the job agrees');
     }
@@ -2800,8 +2804,8 @@ try {
       if ((await homeOf())?.structureId != null) problems.push('the typed home was given a structure ID without Use it');
       if (SHOTS) { await page.locator(offer).scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-home-offer.png` }); }
       await page.locator(`${offer} button`, { hasText: 'Use it' }).click().catch((e) => problems.push(`couldn’t press Use it: ${e.message.split('\n')[0]}`));
-      await page.waitForTimeout(800);
-      const h = await homeOf();
+      let h = await homeOf();
+      for (let i = 0; i < 100 && h?.structureId !== TYPED; i++) { await page.waitForTimeout(100); h = await homeOf(); }
       if (h?.structureId !== TYPED || h?.name !== 'Home Azbel') problems.push(`Use it didn’t give the home its structure’s ID and name: ${JSON.stringify(h)}`);
       if (await page.locator(offer).count()) problems.push('the typed home is still offered a structure after Use it');
     }

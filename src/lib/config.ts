@@ -156,8 +156,8 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
   },
   'esi-characters.read_blueprints.v1': {
     label: 'Blueprints',
-    unlocks: 'The Blueprints page: every blueprint you hold, with ME, TE and runs, priced against The Forge’s blueprint contracts.',
-    without: 'The Blueprints page can’t read what you hold.',
+    unlocks: 'The Blueprints page: every blueprint you hold, with ME, TE and runs, priced against The Forge’s blueprint contracts. Also Industry’s Blueprints & jobs, Start’s held originals and copies, and a job’s ME and TE when it is first seen.',
+    without: 'The Blueprints page can’t read what you hold, Industry shows none of your originals and copies, and a job’s ME and TE are not recorded (so what it used can’t be costed).',
   },
   'esi-characters.read_freelance_jobs.v1': {
     label: 'Your freelance jobs',
@@ -206,8 +206,8 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
   },
   'esi-industry.read_character_jobs.v1': {
     label: 'Industry jobs',
-    unlocks: 'To do lists industry jobs that have finished and are waiting to be delivered, by facility, and ticks them off once you have.',
-    without: 'Finished jobs wait in the Industry window with nothing to remind you.',
+    unlocks: 'To do lists industry jobs that have finished and are waiting to be delivered, by facility, and ticks them off once you have. Also Industry’s Blueprints & jobs, the check of each job against what EVE charged and the facility tax it measures, Industry as an activity in Results, All income and a character’s Earned, and List what you built.',
+    without: 'Finished jobs wait in the Industry window with nothing to remind you, and Industry has no jobs to show, check or count.',
   },
   'esi-skills.read_skillqueue.v1': {
     label: 'Skill queue',

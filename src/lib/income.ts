@@ -50,7 +50,7 @@ export type Acts = {
  */
 export type BuiltInputs = { state: 'none' | 'loading' | 'ready' | 'failed'; mats: MatsOf | null };
 /** What Industry is: being worked out, not countable (the bundle refused), or counted, with what it couldn't cost. */
-export type IndustryActs = { state: 'loading' | 'failed' | 'ready'; unknownJobs: number; unbought: { typeId: number; units: number }[]; offSite: number; feesUnknown: number };
+export type IndustryActs = { state: 'loading' | 'failed' | 'ready'; unknownJobs: number; unbought: { typeId: number; units: number }[]; offSite: number; feesUnknown: number; feesPartial?: number };
 
 /**
  * Industry's figure and note as the pages say them (Results' row, the Wallet's All income, a Characters card): while its
@@ -63,6 +63,7 @@ export function industrySaid(ind: IndustryActs | null, name: (typeId: number) =>
   if (ind.state === 'loading') return { figure: 'Working out…', note: 'Reading the blueprints, to cost what you built…' };
   if (ind.state === 'failed') return { figure: '–', note: 'The blueprints couldn’t be loaded, so what you built isn’t counted here or in the total.' };
   const parts = [
+    ind.feesPartial ? (ind.feesPartial === 1 ? 'the journal named only part of 1 job’s fees, so ESI’s cost is charged for it' : `the journal named only part of ${ind.feesPartial} jobs’ fees, so ESI’s cost is charged for them`) : null,
     ind.feesUnknown ? (ind.feesUnknown === 1 ? '1 job’s fee isn’t known (ESI gave no cost, and no journal entry names it), so none is charged for it' : `${ind.feesUnknown} jobs’ fees aren’t known (ESI gave no cost, and no journal entry names them), so none is charged for them`) : null,
     ind.unknownJobs ? `${ind.unknownJobs} manufacturing job${ind.unknownJobs === 1 ? '’s' : 's’'} materials aren’t known (no ME recorded when first seen, or a blueprint the bundle lacks)` : null,
     ind.unbought.length ? `materials you didn’t hold from purchases when the job started (mined, looted, or bought and sold again) aren’t costed: ${ind.unbought.slice(0, 3).map((u) => `${u.units.toLocaleString('en-US')} ${name(u.typeId)}`).join(', ')}${ind.unbought.length > 3 ? ` and ${ind.unbought.length - 3} more` : ''}` : null,
@@ -118,7 +119,7 @@ export function activityEvents(d: Data, sets: TypeSets | null, failed: boolean, 
   const industry: IndustryActs | null = !industryJobs.length ? null
     : !ind ? { state: bstate === 'failed' ? 'failed' : 'loading', unknownJobs: 0, unbought: [], offSite: 0, feesUnknown: 0 }
       : {
-        state: 'ready', unknownJobs: ind.unknown.length, offSite: ind.offSite.length, feesUnknown: ind.feeUnknown.length,
+        state: 'ready', unknownJobs: ind.unknown.length, offSite: ind.offSite.length, feesUnknown: ind.feeUnknown.length, feesPartial: ind.feePartial.length,
         unbought: [...ind.unbought.reduce((m, u) => m.set(u.typeId, (m.get(u.typeId) ?? 0) + u.units), new Map<number, number>())].map(([typeId, units]) => ({ typeId, units })),
       };
   if (!sets) return { events: [...attribute(inp), ...industryEvents].filter((e) => WITHOUT_SETS.has(e.activity)), others: [], typeSets: null, industry };

@@ -8081,6 +8081,9 @@ console.log('\n--- Industry stage 2: jobs kept past ESI\'s 90 days (industryTrac
   eq('    read again unchanged: nothing changed', T.readJobs([raw(), raw({ job_id: 502, status: 'delivered', completed_date: '2026-10-10T08:00:00Z' })], held, { ...ctx, seenAt: '2026-10-11T11:00:00Z' }), []);
   // Held from a late sight (no first-sight fields) and running in this read: it isn't sighted again.
   eq('    a held job isn\'t sighted again, whatever it shows now', T.readJobs([raw()], { 501: late }, ctx)[0]?.first, undefined);
+  // A job held with no units a run (the units table failed to load when it was first seen) is asked for again, and filled.
+  const noUnits = { 501: { ...held[501], perRun: null } };
+  eq('    a held manufacturing job with no units a run is one to fill: the table is loaded for it, and the read fills it', [T.lackUnits([raw(), raw({ job_id: 502, status: 'delivered', completed_date: '2026-10-10T08:00:00Z' })], noUnits).map((r) => r.job_id), T.lackUnits([raw()], held).length, T.readJobs([raw()], noUnits, ctx).map((x) => x.perRun)], [[501], 0, [1]]);
   eq('    the jobs not held yet', T.newJobs([raw(), raw({ job_id: 503 })], held).map((r) => r.job_id), [503]);
   eq('  units a job made: runs × units a run, manufacturing only; not known without units a run', [T.jobUnits(job), T.jobUnits({ ...job, perRun: null }), T.jobUnits(inv)], [65, null, null]);
   const sightAt = (at) => ({ ...cloud, first: { ...f, at } });
@@ -8487,7 +8490,7 @@ console.log('\n--- Industry stage 2: built and sold (Task 13) ---');
   // Built and sold: the sale's claimed part after tax, every job's fee (the journal's naming it, else ESI's cost), and each
   // manufacturing job's materials at the purchases before it, newest first, each unit once; what was never bought, said.
   const buys = [tx('m1', '2026-09-30T00:00:00Z', true, 600, 4, 34), tx('m2', '2026-10-01T12:00:00Z', true, 500, 5, 34)];
-  const jobsB = [job(1, '2026-10-02T00:00:00Z', 10, { start: '2026-10-02T00:00:00Z' }), job(2, '2026-10-04T00:00:00Z', 10, { start: '2026-10-04T00:00:00Z', cost: 60_000 }), job(3, '2026-10-04T00:00:00Z', 10, { start: '2026-10-04T00:00:00Z', first: undefined })];
+  const jobsB = [job(1, '2026-10-02T00:00:00Z', 10, { start: '2026-10-02T00:00:00Z', cost: 45_000 }), job(2, '2026-10-04T00:00:00Z', 10, { start: '2026-10-04T00:00:00Z', cost: 60_000 }), job(3, '2026-10-04T00:00:00Z', 10, { start: '2026-10-04T00:00:00Z', first: undefined })];
   const journal = [{ date: '2026-10-02T00:00:01Z', refType: 'industry_job_tax', amount: -40_000, contextId: 1, contextIdType: 'industry_job_id' },
     { date: '2026-10-02T00:00:01Z', refType: 'industry_security_tax', amount: -5_000, contextId: 1, contextIdType: 'industry_job_id' },
     { date: '2026-10-02T00:00:02Z', refType: 'reprocessing_tax', amount: -9, contextId: 1, contextIdType: 'industry_job_id' }];
@@ -8559,6 +8562,13 @@ console.log('\n--- Industry stage 2: built and sold, the review\'s fixes (Task 1
   const fees = T.builtAndSold({ jobs: [job(6, '2026-10-02T00:00:00Z', { cost: null }), job(7, '2026-10-02T00:00:00Z', { cost: null })], txs: [],
     journal: [{ date: '2026-10-02T00:00:01Z', refType: 'industry_job_tax', amount: -40_000, contextId: 7, contextIdType: 'industry_job_id' }], claims: new Map(), taxByTx: new Map(), salesTax: 0.036, personal: new Set(), mats: () => ({ mats: [], atSite: true }) });
   eq('  a job with no cost and no journal entry naming it: its fee isn\'t known, nothing charged; one the journal names is', [fees.feeUnknown, total(fees)], [[6], -40_000]);
+  // Only the facility tax is tagged, the installation fee isn't: ESI's cost (1,000,000) is the whole fee, so it's charged.
+  const part1 = T.builtAndSold({ jobs: [job(8, '2026-10-02T00:00:00Z', { cost: 1_000_000 }), job(9, '2026-10-02T00:00:00Z', { cost: 50_000 })], txs: [],
+    journal: [{ date: '2026-10-02T00:00:01Z', refType: 'industry_job_tax', amount: -10_000, contextId: 8, contextIdType: 'industry_job_id' },
+      { date: '2026-10-02T00:00:01Z', refType: 'industry_job_tax', amount: -50_000, contextId: 9, contextIdType: 'industry_job_id' }], claims: new Map(), taxByTx: new Map(), salesTax: 0.036, personal: new Set(), mats: () => ({ mats: [], atSite: true }) });
+  eq('  a job whose journal names only part of its fee (10,000 of ESI\'s 1,000,000) is charged ESI\'s cost and counted; one named in full (or over) keeps the journal\'s', [total(part1), part1.feePartial], [-1_050_000, [8]]);
+  eq('    and said', [N.industrySaid({ state: 'ready', unknownJobs: 0, unbought: [], offSite: 0, feesUnknown: 0, feesPartial: 1 }, String).note, N.industrySaid({ state: 'ready', unknownJobs: 0, unbought: [], offSite: 0, feesUnknown: 0, feesPartial: 3 }, String).note],
+    ['The journal named only part of 1 job’s fees, so ESI’s cost is charged for it.', 'The journal named only part of 3 jobs’ fees, so ESI’s cost is charged for them.']);
   eq('    and said', [N.industrySaid({ state: 'ready', unknownJobs: 0, unbought: [], offSite: 0, feesUnknown: 1 }, String).note, N.industrySaid({ state: 'ready', unknownJobs: 0, unbought: [], offSite: 0, feesUnknown: 2 }, String).note],
     ['1 job’s fee isn’t known (ESI gave no cost, and no journal entry names it), so none is charged for it.', '2 jobs’ fees aren’t known (ESI gave no cost, and no journal entry names them), so none is charged for them.']);
 

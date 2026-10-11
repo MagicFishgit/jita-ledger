@@ -1,7 +1,7 @@
 import type { RawBlueprint } from './blueprints';
 import { esi, esiAllPages } from './esi';
 import { adjustedPricesShared, industrySystemsShared } from './market';
-import { bpFrom, isStationId, isStructureId, itemPlaces, newJobs, placesToName, readJobs, toBlueprintsDoc, type BlueprintsDoc, type JobRecord, type RawJob } from './industryTrack';
+import { bpFrom, isStationId, isStructureId, itemPlaces, lackUnits, newJobs, placesToName, readJobs, toBlueprintsDoc, type BlueprintsDoc, type JobRecord, type RawJob } from './industryTrack';
 import { station, structureInfo } from './universe';
 
 /**
@@ -56,7 +56,8 @@ export async function readBlueprintsNow(cid: number, prev: BlueprintsDoc | undef
 export async function readJobsNow(cid: number, stored: Record<string, JobRecord>, bps: BlueprintsDoc | undefined, heldBps: BlueprintsDoc | undefined): Promise<{ raw: RawJob[]; changed: JobRecord[] }> {
   const { data: raw } = await esi<RawJob[]>(`/characters/${cid}/industry/jobs/`, { auth: true, query: { include_completed: 'true' } });
   const fresh = newJobs(raw, stored);
-  const eiv = fresh.length ? await loadEiv().catch(() => null) : null;
+  // Also when a held manufacturing job has no units a run (the table failed once): the merge fills it in.
+  const eiv = fresh.length || lackUnits(raw, stored).length ? await loadEiv().catch(() => null) : null;
   const running = fresh.filter((r) => r.status === 'active');
   const [indices, adjusted] = running.length
     ? await Promise.all([industrySystemsShared().catch(() => null), adjustedPricesShared().catch(() => null)])

@@ -154,6 +154,10 @@ export function mergeJob(stored: JobRecord | undefined | null, incoming: JobReco
 export const newJobs = (raw: readonly RawJob[], stored: Readonly<Record<string, JobRecord>>): RawJob[] =>
   raw.filter((r) => Number.isInteger(r?.job_id) && !stored[String(r.job_id)]);
 
+/** ESI's manufacturing rows whose held record has no units a run (the table failed to load when it was first seen): to fill when it loads. */
+export const lackUnits = (raw: readonly RawJob[], stored: Readonly<Record<string, JobRecord>>): RawJob[] =>
+  raw.filter((r) => Number.isInteger(r?.job_id) && r.activity_id === 1 && stored[String(r.job_id)] && stored[String(r.job_id)].perRun == null);
+
 /** What a writer knows while it reads: the time, units a run by blueprint, its blueprints by item ID, each station's system, the indices, prices and EIV table. */
 export type JobsContext = Omit<SightInputs, 'bp' | 'systemId'> & {
   seenAt: string;
@@ -498,6 +502,8 @@ export type BuiltResult = {
   offSite: number[];
   /** Jobs whose fee isn't known: ESI gave no cost and no journal entry names them. Nothing is charged for them, and it's said. */
   feeUnknown: number[];
+  /** Jobs whose named journal entries add up to more than 1 ISK under ESI's cost: charged the cost instead. */
+  feePartial: number[];
 };
 
 /**
@@ -532,7 +538,7 @@ export function builtAndSold(o: {
     const fee = { t: Date.parse(e.date), isk: e.amount };
     if (list) list.push(fee); else fees.set(e.contextId, [fee]);
   }
-  const unbought: BuiltResult['unbought'] = [], unknown: number[] = [], offSite: number[] = [], feeUnknown: number[] = [];
+  const unbought: BuiltResult['unbought'] = [], unknown: number[] = [], offSite: number[] = [], feeUnknown: number[] = [], feePartial: number[] = [];
   // Each material's purchases and sales in time order (a purchase before a sale in the same second).
   type Move = { t: number; buy: boolean; id: string; qty: number; price: number };
   const movesOf = new Map<number, Move[]>();
@@ -564,8 +570,13 @@ export function builtAndSold(o: {
   for (const j of [...o.jobs].sort((a, b) => Date.parse(a.start) - Date.parse(b.start) || a.jobId - b.jobId)) {
     const at = Date.parse(j.start);
     const named = fees.get(j.jobId);
-    if (named) events.push(...named);
-    else if (j.cost != null) events.push({ t: at, isk: -j.cost });
+    if (named) {
+      // The journal may name only some of a job's fee entries (the facility tax but not the installation fee): ESI's cost is the
+      // whole fee, so when it is known and the named entries fall more than 1 ISK short of it, charge the cost.
+      const namedSum = -named.reduce((s, f) => s + f.isk, 0);
+      if (j.cost != null && namedSum < j.cost - 1) { events.push({ t: at, isk: -j.cost }); feePartial.push(j.jobId); }
+      else events.push(...named);
+    } else if (j.cost != null) events.push({ t: at, isk: -j.cost });
     else feeUnknown.push(j.jobId);
     if (j.activity !== 1 || j.status === 'cancelled' || j.status === 'reverted') continue;
     const m = o.mats ? o.mats(j) : null;
@@ -585,5 +596,5 @@ export function builtAndSold(o: {
     }
     if (cost) events.push({ t: at, isk: -cost });
   }
-  return { events, unbought, unknown, offSite, feeUnknown };
+  return { events, unbought, unknown, offSite, feeUnknown, feePartial };
 }
