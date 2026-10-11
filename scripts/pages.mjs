@@ -2614,7 +2614,7 @@ try {
       // useEnsureNames for built types (pre-flight I3). The case's names stub calls everything else a station; Jita 4-4 gets
       // its real name, which the built place is named with (the same lookup as an alt's facilities).
       const prevNames = ESI['/universe/names/'];
-      ESI['/universe/names/'] = (url, req, json) => json(JSON.parse(req.postData() ?? '[]').map((id) => (id === 25894 ? { id, name: 'Large Trimark Armor Pump I', category: 'inventory_type' } : id === 60003760 ? { id, name: 'Jita IV - Moon 4 - Caldari Navy Assembly Plant', category: 'station' } : { id, name: `Station ${id}`, category: 'station' })));
+      ESI['/universe/names/'] = (url, req, json) => json(JSON.parse(req.postData() ?? '[]').map((id) => (id === 25894 ? { id, name: 'Large Trimark Armor Pump I', category: 'inventory_type' } : id === 60003760 ? { id, name: 'Jita IV - Moon 4 - Caldari Navy Assembly Plant', category: 'station' } : id === 30004807 ? { id, name: 'UALX-3', category: 'solar_system' } : { id, name: `Station ${id}`, category: 'station' })));
       await seed({ ...ledger, jobs: { 9501: built }, stock: { at: iso(now - 600_000), jita: { 25894: 10 }, total: { 25894: 10 }, byLocation: { 60003760: { 25894: 10 } } }, industry: DOC, cloud: CLOUD_STATE }, { alts: altStore });
       await page.goto(`${BASE}#todo`);
       await page.waitForSelector('.tn-item', { timeout: 20_000 }).catch(() => problems.push('To do drew no item'));
@@ -2635,11 +2635,24 @@ try {
       const homeItem = await text('.tn-item:has-text("you built")');
       if (!homeItem.includes('you built, at UALX-3 - 1st Byzantigoon') || !homeItem.includes('List at UALX-3 at 7,499,000 ISK') || !/Goonmetrics, read 2 h ago/.test(homeItem)) problems.push(`To do doesn’t list the pumps built at the home hub, named, priced and dated: “${homeItem.slice(0, 400)}”`);
       if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-todo-built-home.png` }); }
+      const okHome = homeAnswer;
       const wasHome = homeAnswer; homeAnswer = () => 404;
       await homeSeed();
       await page.waitForFunction(() => /version behind/.test(document.body.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
       const behindItem = await text('.tn-item:has-text("you built")');
       if (!behindItem.includes('The cloud is a version behind') || /nobody lists/.test(behindItem)) problems.push(`with the cloud a version behind, To do doesn’t say so (or says nobody lists it): “${behindItem.slice(0, 400)}”`);
+      // Your own home, typed in: an Azbel no site names and no hub is (outputId = stationId), known only by the system its job was
+      // first seen in. It lists at the hub because that system is the hub's, and is named by it.
+      const TYPED = 1047000000001;
+      const typedJob = { ...built, jobId: 9504, facilityId: TYPED, stationId: TYPED, outputId: TYPED, first: { me: 10, te: 20, systemId: 30004807, index: 0.05, eiv: 1e6, at: iso(now - 2 * 86400_000 + 600_000) } };
+      homeAnswer = okHome;
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, jobs: { 9504: typedJob }, stock: { at: iso(now - 600_000), jita: {}, total: { 25894: 10 }, byLocation: { [TYPED]: { 25894: 10 } } }, industry: { ...DOC, hub: UALX_HUB }, cloud: CLOUD_STATE }, { alts: altStore });
+      await page.goto(`${BASE}#todo`);
+      await page.waitForFunction(() => /List at UALX-3 at/.test(document.body.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
+      const typedItem = await text('.tn-item:has-text("you built")');
+      if (!typedItem.includes('you built, at a structure in UALX-3') || !typedItem.includes('List at UALX-3 at 7,499,000 ISK')) problems.push(`a module built at a typed home in the hub’s system isn’t listed at the hub and named by its system: “${typedItem.slice(0, 400)}”`);
+      if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-todo-built-typed.png` }); }
       homeAnswer = priorHome;
       // An alt's: named, no price copied, its button opens Blueprints & jobs.
       const BA = `alt:${BUILDER}`;
