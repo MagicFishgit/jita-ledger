@@ -3000,6 +3000,23 @@ try {
       for (const k of Object.keys(ESI)) if (k.includes('/contracts/')) delete ESI[k];
     }
 
+    // --- Task 15B: a copy contract sold counts in Industry on Results: its price less its listing fee and the copy job's fee; a
+    // copy no job of yours made is said, not counted.
+    {
+      const copyJob = { jobId: 9801, activity: 5, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25895, runs: 3, licensedRuns: 40, successfulRuns: null, probability: null, cost: 283177.85,
+        facilityId: 60001483, stationId: 60001483, outputId: 60001483, start: iso(now - 6 * 86400_000), end: iso(now - 5 * 86400_000), completed: iso(now - 5 * 86400_000), status: 'delivered', perRun: null, seenAt: iso(now - 6 * 86400_000) };
+      const sold = (id, copies, price, over = {}) => ({ id, issued: iso(now - 4 * 86400_000), expires: iso(now + 10 * 86400_000), status: 'finished', price, availability: 'public', acceptor: 777, completed: iso(now - 3 * 86400_000), station: 60003760, copies, kinds: 'gone', ...over });
+      const journal = { cj1: { id: 'cj1', date: iso(now - 3 * 86400_000), refType: 'contract_price', amount: 9e6, contextId: 9811, contextIdType: 'contract_id' },
+        cj2: { id: 'cj2', date: iso(now - 4 * 86400_000), refType: 'contract_brokers_fee', amount: -50000, contextId: 9811, contextIdType: 'contract_id' } };
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE, jobs: { 9801: copyJob }, journal, copyContracts: { list: [sold(9811, [[25895, 2]], 9e6), sold(9812, [[688, 1]], 1e6)] }, meta: { ...ledger.meta, jobsRead: true } }, { alts: altStore });
+      await page.goto(`${BASE}#results`);
+      // 9,000,000 - 50,000 - 283,177.85 = 8,666,822.15: "+8.67 M ISK".
+      await page.waitForFunction(() => /8\.67 M ISK/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 20_000 })
+        .catch(async () => problems.push(`Results’ Industry doesn’t count the copy contract sold (+8.67 M): “${(await text()).slice(0, 500)}”`));
+      if (!(await text()).includes('1 copy sold on contract that no copy job of yours made before it was listed (bought, or given) isn’t counted.')) problems.push('Results doesn’t say the Raven copy no job of yours made isn’t counted');
+      if (process.env.SHOTS15B) { await page.waitForTimeout(1200); await page.screenshot({ path: `${process.env.SHOTS15B}/results-${page.viewportSize().width}.png`, fullPage: false }); }
+    }
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

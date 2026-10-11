@@ -244,7 +244,7 @@ function CopyBusiness({ c, ix, graph, summary }: { c: IndustryChar; ix: Indexed;
     : st === 'expired' ? `Expired ${fmtDate(x.expires)}: delete it in game to get the copies back`
       : st === 'unlisted' ? 'No longer listed by ESI'
         : st === 'sold' ? `Sold ${x.completed ? fmtDate(x.completed) : ''}`.trim()
-          : st === 'taken' ? `Taken by ${x.acceptor === c.charId ? c.name : d.chars[String(x.acceptor)]?.name ?? 'one of your characters'}${x.completed ? ` ${fmtDate(x.completed)}` : ''}`
+          : st === 'taken' ? `Taken by ${x.acceptor === c.charId ? c.name : d.chars[String(x.acceptor)]?.name ?? 'one of your characters'}${x.completed ? ` on ${fmtDate(x.completed)}` : ''}`
             : st === 'deleted' ? 'Deleted' : `${x.status.charAt(0).toUpperCase()}${x.status.slice(1).replace(/_/g, ' ')}`;
   // ESI lists contracts only 30 days back (M7, correction 13): one that left it while outstanding may still hold its copies.
   const UNLISTED_TIP = 'ESI lists contracts only 30 days back: if you didn’t delete it in game, its copies are still in it';

@@ -8923,5 +8923,57 @@ console.log('\n--- Industry stage 3: your copy contracts are merged, never repla
     ['unlisted', 'taken', 'sold']);
 }
 
+console.log('\n--- Industry stage 3: copies sold count in Industry (copySales, Task 15B) ---');
+{
+  const K = await import('../src/lib/copyContracts.ts');
+  const N = await import('../src/lib/income.ts');
+  const { emptyData } = await import('../src/lib/emptyData.ts');
+  const ME = 95210486, ALT = 900001;
+  const job = (jobId, runs, completed, typeId = 25895, status = 'delivered') => ({ jobId, activity: 5, blueprintId: 7001, blueprintTypeId: typeId, productTypeId: typeId, runs, licensedRuns: 40, successfulRuns: null, probability: null,
+    cost: 283177.85, facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: '2026-09-30T00:00:00Z', end: completed, completed, status, perRun: null, seenAt: completed });
+  // Two copy jobs of the pump: 3 copies delivered 1 October, 2 on 5 October.
+  const jobs = [job(1, 3, '2026-10-01T00:00:00Z'), job(2, 2, '2026-10-05T00:00:00Z')];
+  const cc = (id, issued, copies, status, over = {}) => ({ id, issued, expires: '2026-10-30T00:00:00Z', status, price: 0, availability: 'public', acceptor: null, completed: null, station: 60003760, copies, ...over });
+  const doc = { list: [
+    cc(11, '2026-10-02T00:00:00Z', [[25895, 2]], 'finished', { price: 9e6, acceptor: 500, completed: '2026-10-03T00:00:00Z' }),
+    cc(12, '2026-10-04T00:00:00Z', [[25895, 3]], 'finished', { price: 12e6, acceptor: 501, completed: '2026-10-06T00:00:00Z' }),
+    cc(13, '2026-10-07T00:00:00Z', [[688, 1]], 'finished', { price: 1e6, acceptor: 502, completed: '2026-10-08T00:00:00Z' }),
+    cc(14, '2026-10-07T00:00:00Z', [[25895, 2]], 'finished', { price: 8e6, acceptor: ALT, completed: '2026-10-08T00:00:00Z' }),
+    cc(15, '2026-10-08T00:00:00Z', [[25895, 1]], 'deleted', { price: 5e6 }),
+  ] };
+  const journal = [
+    { date: '2026-10-03T00:10:00Z', refType: 'contract_price', amount: 9e6, contextId: 11, contextIdType: 'contract_id' },
+    { date: '2026-10-02T00:00:01Z', refType: 'contract_brokers_fee', amount: -50000, contextId: 11, contextIdType: 'contract_id' },
+    { date: '2026-10-07T00:00:01Z', refType: 'contract_brokers_fee', amount: -20000, contextId: 13, contextIdType: 'contract_id' },
+    { date: '2026-10-08T00:00:01Z', refType: 'contract_brokers_fee', amount: -15000, contextId: 15, contextIdType: 'contract_id' },
+  ];
+  const r = K.copySales({ doc, jobs, journal, mine: new Set([ME, ALT]) });
+  const T = (iso) => Date.parse(iso);
+  eq('11: its fee and its price from the journal; 12: 1 of its 3 copies made before it was listed (the 2 Oct contract took two of the three), a third of its price; 15 deleted: its fee',
+    r.events, [{ t: T('2026-10-02T00:00:01Z'), isk: -50000 }, { t: T('2026-10-03T00:10:00Z'), isk: 9e6 }, { t: T('2026-10-06T00:00:00Z'), isk: 4e6 }, { t: T('2026-10-08T00:00:01Z'), isk: -15000 }]);
+  eq('  said apart: 12\'s 2 copies and 13\'s Raven (never copied: its fee isn\'t Industry\'s either); 14 went to an alt, a transfer', [r.notMade, r.toOwn], [[{ contractId: 12, copies: 2 }, { contractId: 13, copies: 1 }], [14]]);
+  eq('  with no characters of yours given, 14 is a sale and takes the 5 Oct job\'s two copies', ((x) => [x.toOwn, x.events.length, x.events.find((e) => e.isk === 8e6) != null])(K.copySales({ doc, jobs, journal })), [[], 5, true]);
+  eq('  a copy job not delivered (or cancelled) made nothing to sell', K.copySales({ doc: { list: [doc.list[0]] }, jobs: [job(1, 3, '2026-10-01T00:00:00Z', 25895, 'active')], journal: [], mine: new Set() }).notMade, [{ contractId: 11, copies: 2 }]);
+  eq('  no document, or an empty one: nothing', [K.copySales({ doc: undefined, jobs, journal }), K.copySales({ doc: { list: [] }, jobs, journal })], [{ events: [], notMade: [], toOwn: [] }, { events: [], notMade: [], toOwn: [] }]);
+  // An outstanding contract that left ESI's list (gone) is unlisted: never a sale, claims no copies, adds no event.
+  eq('  an outstanding contract that left ESI\'s list (gone) claims no copies and adds no event', K.copySales({ doc: { list: [cc(16, '2026-10-02T00:00:00Z', [[25895, 2]], 'outstanding', { price: 9e6, gone: '2026-10-09T00:00:00Z' })] }, jobs, journal: [] }), { events: [], notMade: [], toOwn: [] });
+  eq('  nor does it use up the copies a later sale claims', K.copySales({ doc: { list: [cc(16, '2026-10-02T00:00:00Z', [[25895, 3]], 'outstanding', { price: 9e6, gone: '2026-10-09T00:00:00Z' }), doc.list[0]] }, jobs, journal: [] }).events, [{ t: T('2026-10-03T00:00:00Z'), isk: 9e6 }]);
+
+  // Through the Industry activity: the copy job's fee charged once (stage 2's builtAndSold, at its start), the sale added.
+  const d = { ...emptyData(), jobs: { 1: job(1, 3, '2026-10-01T00:00:00Z') }, copyContracts: { list: [doc.list[0]] },
+    journal: { j1: { id: 'j1', ...journal[0] }, j2: { id: 'j2', ...journal[1] } } };
+  const sets = { filaments: new Set(), abyssLoot: new Set(), pi: new Set(), lpGoods: new Set() };
+  const acts = N.activityEvents(d, sets, false, {}, [], new Set([ME]), { state: 'none', mats: null });
+  const ind = acts.events.filter((e) => e.activity === 'Industry');
+  eq('  Industry: the sale, its contract fee and the copy job\'s fee once', Math.round(ind.reduce((s, e) => s + e.isk, 0) * 100) / 100, 9e6 - 50000 - 283177.85);
+  const two = N.activityEvents({ ...d, copyContracts: { list: [doc.list[0], doc.list[2]] } }, sets, false, {}, [], new Set([ME]), { state: 'none', mats: null });
+  eq('  a copy no job of yours made is said under Industry, not counted', [two.industry.copiesNotMade, N.industrySaid(two.industry, () => '').note], [1, '1 copy sold on contract that no copy job of yours made before it was listed (bought, or given) isn’t counted.']);
+  // M6: a copy contract one of your own characters accepted is a transfer, said as such, never a sale.
+  const toAlt = N.activityEvents({ ...d, copyContracts: { list: [{ ...doc.list[0], acceptor: ALT }] } }, sets, false, {}, [], new Set([ME, ALT]), { state: 'none', mats: null });
+  eq('  a copy contract to one of your characters: no sale, said', [toAlt.events.filter((e) => e.activity === 'Industry' && e.isk > 0).length, toAlt.industry.copiesToOwn, N.industrySaid(toAlt.industry, () => '').note],
+    [0, 1, '1 copy contract went to one of your own characters: a transfer, not a sale.']);
+  eq('  with no jobs at all there\'s no Industry, copies or not', N.activityEvents({ ...d, jobs: {} }, sets, false, {}, [], new Set([ME]), { state: 'none', mats: null }).industry, null);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

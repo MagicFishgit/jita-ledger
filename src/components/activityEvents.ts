@@ -118,7 +118,7 @@ export function useActivityEvents(ledger?: Data, mine?: Set<number>) {
   const posCalc = useMemo(() => d.positions.map((p) => ({ p, c: computePosition(p, d, d.settings) })), [d.positions, d.txs, d.journal, d.settings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const built = useBuiltInputs(d, live.industry.sites);
-  const acts = useMemo(() => activityEvents(d, sets, failed, lossActs, posCalc, own, { state: built.state, mats: built.mats }), [sets, failed, d.txs, d.journal, d.positions, d.names, d.killmails, lossActs, posCalc, d.settings, d.meta.freelance, d.ignored, d.tags, own, d.jobs, built.state, built.mats]); // eslint-disable-line react-hooks/exhaustive-deps
+  const acts = useMemo(() => activityEvents(d, sets, failed, lossActs, posCalc, own, { state: built.state, mats: built.mats }), [sets, failed, d.txs, d.journal, d.positions, d.names, d.killmails, lossActs, posCalc, d.settings, d.meta.freelance, d.ignored, d.tags, own, d.jobs, d.copyContracts, built.state, built.mats]); // eslint-disable-line react-hooks/exhaustive-deps
   // The materials Industry couldn't cost are named in its note: they may be types nothing else here names (mined, looted).
   useEnsureNames(acts.industry?.unbought.map((u) => u.typeId) ?? []);
 

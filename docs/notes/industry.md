@@ -606,3 +606,14 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   stale read, or issued after the read, never one that left; if the window is measured from completion this only delays a stamp until the contract is missing
   anyway); and a stamp already held is carried forward, so the sync and the merge agree and a sync writes nothing when nothing changed. The Worker keeps D1's doc when
   a pushed one doesn't sanitize (a pre-15A backup's null).
+
+- **Copies you made and sold count in Industry** (Task 15B, 11 October 2026; `copySales`, `CONTRACT_FEE_REFS` in copyContracts.ts, `activityEvents` in income.ts).
+  Each copy contract that is `sold` (finished, accepted by someone not yours) adds its price (the journal's `contract_price` entries naming it, else the contract's
+  price at its completion) times the share of its copies your delivered copy jobs of that blueprint had made before it was listed, claimed in the order contracts were
+  listed, each copy once; copies none made are counted apart and said. A `taken` contract (accepted by one of your own characters, `copyState(c, Infinity, mine)`) is a
+  transfer, said, never a sale; `unlisted` (left ESI's list while outstanding), listed, expired and deleted claim nothing. Contract fees the journal names by
+  `contract_id` count in full when you'd copied one of the blueprints before listing it (a listing fee is paid whether or not it sells). The copy jobs' own fees are
+  stage 2's, charged once at each job's start: `copySales` never charges them again. Nothing touches market trades, so the claims and "Sold, never bought" don't move.
+- **After shipping: the first copy contract's journal entries.** Which ref types a copy contract writes (`contract_price`, `contract_brokers_fee`,
+  `contract_sales_tax`, or others), and whether they name the contract (`context_id` with type `contract_id`). Until seen, a sale is counted at the contract's price at
+  its completion and no fee at all; record what the first real one shows.

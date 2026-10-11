@@ -281,3 +281,8 @@ State these rather than letting them be discovered:
   cancelled). Payback leaves the research's days out (the row says them, and flags research past 30 days).
 - **The copy cost rests on two readings not yet checked**: copying's SCC (EVE Ref's 4%) and a cost rig multiplying the structure's
   bonus. The Copies section says so in the cost's tip until a copy or research job of yours settles each.
+- **A copy sale is claimed by blueprint and count, not by kind** (ruling 2): a contract's copies are taken from your delivered copy jobs of that blueprint, oldest first,
+  whatever runs each copy carried; a split contract is counted pro rata of its copies, not their runs. **Copies your own jobs used up (to build or invent) still count as
+  made** for a later sale's claim: the app can't see a copy consumed. **Claims run in the order contracts were listed**, so a contract listed early and sold late can take
+  copies a later one had claimed, moving an earlier period's figure when it sells. **Contract fees count only where the journal names the contract** (unseen so far), and
+  none for a copy contract of a blueprint you hadn't copied before listing it. An outstanding contract that left ESI's list is neither a sale nor a loss.

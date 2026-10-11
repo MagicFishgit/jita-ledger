@@ -5,6 +5,7 @@
  * The main's only: the cloud reads no alt's contracts. Pure; browser only.
  */
 import type { ContractItem, MyContract } from './contracts';
+import type { JobRecord } from './industryTrack';
 
 /** A kind of copy in one of your contracts, from ESI's public contract items: [type, ME, TE, runs a copy, copies]. */
 export type ContractKind = [typeId: number, me: number, te: number, runs: number, count: number];
@@ -163,4 +164,70 @@ export function sanitizeCopyContracts(v: unknown): CopyContractsDoc | undefined 
       copies, ...(kinds !== undefined ? { kinds } : {}), ...(typeof c.gone === 'string' ? { gone: c.gone } : {}) });
   }
   return { list: list.sort((a, b) => a.id - b.id).slice(-MAX_COPY_CONTRACTS) };
+}
+
+/** A copy contract's own fees in the journal, by the contract its context names. Unseen in the user's journal so far (stage 3's evidence). */
+export const CONTRACT_FEE_REFS: ReadonlySet<string> = new Set(['contract_brokers_fee', 'contract_sales_tax']);
+export type CopySales = {
+  events: { t: number; isk: number }[];
+  /** Copies sold that no delivered copy job of yours made before the contract was listed: bought, given, or from before the records. Not counted. */
+  notMade: { contractId: number; copies: number }[];
+  /** Copy contracts one of your own characters accepted: a transfer, not a sale. */
+  toOwn: number[];
+};
+
+/**
+ * Industry's copy sales (correction 1): each copy contract sold, not to one of your characters, counted at its price (the
+ * journal's `contract_price` naming it, else the contract's own at its completion) times the share of its copies your
+ * delivered copy jobs had made before it was listed, claimed in the order the contracts were listed, each copy once; and the
+ * contract fees the journal names for a copy contract of a blueprint you'd copied before listing it. The copy jobs' own fees
+ * are builtAndSold's, at each job's start: never charged here. Only a `sold` contract is a sale: `taken` (accepted by one of
+ * `mine`) goes to `toOwn`, and `unlisted` (left ESI's list while outstanding), listed, expired and deleted claim nothing.
+ */
+export function copySales(o: { doc: CopyContractsDoc | undefined; jobs: readonly JobRecord[]; journal: readonly { date: string; refType: string; amount: number; contextId?: number; contextIdType?: string }[]; mine?: ReadonlySet<number> }): CopySales {
+  const out: CopySales = { events: [], notMade: [], toOwn: [] };
+  if (!o.doc?.list.length) return out;
+  // What your delivered copy jobs made, by blueprint, oldest first: a copy job's runs are the copies it makes.
+  const made = new Map<number, { t: number; left: number }[]>();
+  for (const j of o.jobs) {
+    if (j.activity !== 5 || j.status !== 'delivered') continue;
+    const n = j.successfulRuns ?? j.runs;
+    if (!(n > 0)) continue;
+    const list = made.get(j.blueprintTypeId) ?? [];
+    list.push({ t: Date.parse(j.completed ?? j.end), left: n });
+    made.set(j.blueprintTypeId, list);
+  }
+  for (const l of made.values()) l.sort((a, b) => a.t - b.t);
+  const named = new Map<number, { t: number; isk: number; refType: string }[]>();
+  for (const e of o.journal) {
+    if (e.contextIdType !== 'contract_id' || e.contextId == null || (e.refType !== 'contract_price' && !CONTRACT_FEE_REFS.has(e.refType))) continue;
+    const l = named.get(e.contextId) ?? [];
+    l.push({ t: Date.parse(e.date), isk: e.amount, refType: e.refType });
+    named.set(e.contextId, l);
+  }
+  const copiedBefore = (typeId: number, t: number) => (made.get(typeId) ?? []).some((b) => b.t <= t);
+  for (const c of [...o.doc.list].sort((a, b) => Date.parse(a.issued) - Date.parse(b.issued) || a.id - b.id)) {
+    const issued = Date.parse(c.issued);
+    const entries = named.get(c.id) ?? [];
+    if (c.copies.some(([t]) => copiedBefore(t, issued))) for (const f of entries) if (CONTRACT_FEE_REFS.has(f.refType)) out.events.push({ t: f.t, isk: f.isk });
+    const state = copyState(c, Infinity, o.mine);
+    if (state === 'taken') { out.toOwn.push(c.id); continue; }
+    if (state !== 'sold') continue;
+    const total = c.copies.reduce((n, [, k]) => n + k, 0);
+    let claimed = 0;
+    for (const [typeId, count] of c.copies) {
+      let want = count;
+      for (const b of made.get(typeId) ?? []) {
+        if (want <= 0 || b.t > issued) break;
+        const take = Math.min(b.left, want);
+        b.left -= take; want -= take; claimed += take;
+      }
+    }
+    if (claimed < total) out.notMade.push({ contractId: c.id, copies: total - claimed });
+    if (!claimed) continue;
+    const paid = entries.filter((e) => e.refType === 'contract_price' && e.isk > 0);
+    const isk = paid.length ? paid.reduce((n, e) => n + e.isk, 0) : c.price;
+    out.events.push({ t: paid.length ? paid[0].t : Date.parse(c.completed ?? c.expires), isk: (isk * claimed) / total });
+  }
+  return out;
 }
