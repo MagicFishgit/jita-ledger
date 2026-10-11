@@ -271,5 +271,8 @@ State these rather than letting them be discovered:
   to 06:00 on 11 October came back by the same seller at 12:00). **Read every six hours, so a copy listed and sold within a
   read's span is missed** (the Sold column says so; the summary gives the longest span). **A contract missing from one snapshot**
   (EVE Ref's scraper missed a page) counts as sold until the next whole snapshot shows it again, then is taken out, so a figure
-  can drop by it six hours later; a snapshot under half the kept set is refused instead, and the read after it spans twelve hours. Public contracts of The Forge only: Brave's corporation and alliance contracts aren't visible.
+  can drop by it six hours later; a snapshot under half the kept set is refused instead, and the read after it spans twelve hours.
+  **Six such snapshots in a row and the newest is kept without counting a sale**: the hours since the old set count no sales but
+  sit inside the summary's days, so a kind's pace reads low by that share until they leave the week (the route's `note` says when
+  it happened). Public contracts of The Forge only: Brave's corporation and alliance contracts aren't visible.
   Contract fees aren't modelled.

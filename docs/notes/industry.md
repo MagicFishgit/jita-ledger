@@ -479,10 +479,19 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
     back and left 29 where whole snapshots give 28 (5 reprices under new IDs kept as sales, 4 real sales missed). Now the reader
     refuses an archive lacking meta, contracts or items, a stream cut short (`result()` throws), an empty CSV, and a header
     without a column it reads or with one past the 40 it splits ("EVE Ref’s contracts.csv has no issuer_id column"); the
-    Blueprints route then errors rather than answering empty. And the round refuses a snapshot with no copy contracts, or under
-    half those kept (the 11 October sets held 11,402 to 11,432): it says so, keeps the set and what sold as they are, writes no
-    sale and tries again the next hour; the next whole snapshot is compared with the set kept (the fixture's 00:00 against 12:00:
-    25, the six-hourly count's 28 less what the skipped read would have seen).
+    Blueprints route then errors rather than answering empty. And the round refuses a snapshot with no copy contracts, always,
+    and one under half the kept set (the 11 October sets held 11,402 to 11,432) **only while it would be compared**: a kept set
+    over seven days old is replaced as before, never refused. A refusal says so ("under half the kept set (11,402): a snapshot cut
+    short, or the market changed; nothing compared (2 of 6 in a row)"), keeps the set and what sold as they are, writes no sale
+    and tries again the next hour; the next whole snapshot is compared with the set kept (the fixture's 00:00 against 12:00: 25,
+    the six-hourly count's 28 less what the skipped read would have seen).
+  - **Six in a row under half the kept set and the newest is kept** (`COPIES_RESET_AFTER`, the re-review's ruling): refused for
+    good, a market that really fell would never be read again. Each refusal is counted in the state (`halved`, with the
+    snapshot's time, so the same file refused twice counts once); the sixth different snapshot in a row is kept as the set
+    without counting a sale from it (no comparison, no read span), and the state and the route carry `note`: "The copy contracts
+    fell under half the kept set six times running: kept the new set without counting sales from it", until the next read. A
+    contract of `copy_sold` back in it is still taken out (it never left). The hours from the old set to the new count no sales
+    but sit inside the summary's days, so a kind's pace reads low by that share until they leave the week (limits.md).
   - **A partial snapshot is undone by the next** (correction 20): a page EVE Ref's scraper missed makes its contracts look sold; a
     contract in `copy_sold` that is back in a newer snapshot never left, and is taken out (`back`). Tested with one contract
     missing from the 06:00 snapshot: 17 counted, then 28, as with whole snapshots.
@@ -503,7 +512,7 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   - **`GET /v1/copies` before a set is kept** answers `{ tried, error }` once a round has tried (a failed first read, or one the
     cloud stopped: `INTERRUPTED`), so the tab can say why; `null` only when no round has tried. A summary always carries `at` and
     this never does: Task 14B's `CopiesAnswer` and `useCopyMarket` have to tell them apart (the plan's version maps every answer
-    that isn't null or `off` to a summary).
+    that isn't null or `off` to a summary). A summary's answer also carries `note` (null, or the reset above).
   - **`COPIES_ON`** (copies.ts) switches it off; the route then answers `{ off: true }`. EVE Ref is someone else's site: one file
     every six hours, the Blueprints route's User-Agent naming the project only, not a watched job (the section says how old its
     read is).
