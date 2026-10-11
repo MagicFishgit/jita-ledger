@@ -2286,7 +2286,8 @@ try {
     if (!(await says('t2', 'Pays now at Station 60001483, one slot a day, invented at the nearest Laboratory, in Sobaseki')) || !(await says('t2', 'Large Trimark Armor Pump II')) || (await says('t2', 'not buildable yet')))
       problems.push(`rung 6 doesn’t say what the Tech II pump pays now: “${(await rung('t2')).slice(0, 300)}”`);
     if (SHOTS) { await page.locator('[data-rung="t2"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-industry-rung6.png` }); }
-    // --- Task 9A: a Worker a version behind refuses the new record kind. The rest of the push goes up, the jobs wait.
+    // --- Task 9A: a Worker a version behind refuses the new record kind. The rest of the push goes up, the jobs wait. 1,502 jobs
+    // come first, so the first chunk (1,500) is all a refused kind and the later chunk, with names|34, must still be sent.
     {
       const pushes = [];
       // The case's own stand-ins for these two, put back at the end of the block.
@@ -2300,16 +2301,19 @@ try {
       const job = { jobId: 9001, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 10, licensedRuns: 40, successfulRuns: null, probability: null, cost: 1200000,
         facilityId: 60003760, stationId: 60003760, outputId: 60003760, start: iso(now - 7200_000), end: iso(now + 3600_000), completed: null, status: 'active', perRun: 1, seenAt: iso(now - 7000_000) };
       await page.goto(SEED_PAGE);
-      await seed({ ...ledger, jobs: { 9001: job }, names: { 34: 'Tritanium' }, cloud: { ...CLOUD_STATE, dirty: { r: ['jobs|9001', 'names|34'], d: ['industry'] } } }, { alts: altStore });
+      await seed({ ...ledger, jobs: { 9001: job }, names: { 34: 'Tritanium' }, cloud: { ...CLOUD_STATE, dirty: { r: [...Array.from({ length: 1501 }, (_, n) => `jobs|${8000 - n}`), 'jobs|9001', 'names|34'], d: [] } } }, { alts: altStore });
       // From the seed page, a full load: the sync starts on the seeded unsent list. Wait on the condition, never a clock
       // (pre-flight M13): the saved unsent list (`cloud`, written 500 ms after a push) has let go of what went up.
       await page.goto(`${BASE}#hustles/industry/start`);
       const cloudState = () => page.evaluate(() => new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('cloud'); g.onsuccess = () => res(g.result); }; }));
       let state = await cloudState();
       for (let i = 0; i < 80 && (state?.dirty?.r ?? ['names|34']).includes('names|34'); i++) { await page.waitForTimeout(250); state = await cloudState(); }
-      const sent = pushes.find((b) => !(b.records ?? []).some((r) => r.k === 'jobs'));
+      // The jobs-free pushes together. No document is dirty: it would go with the first chunk, whose push then succeeds and hides a
+      // `break` after a chunk that was all a refused kind (the 1,500 first jobs).
+      const free = pushes.filter((b) => !(b.records ?? []).some((r) => r.k === 'jobs'));
+      const sent = { records: free.flatMap((b) => b.records ?? []), docs: free.flatMap((b) => b.docs ?? []) };
       if (!pushes.some((b) => (b.records ?? []).some((r) => r.k === 'jobs'))) problems.push('the push with a job never went up');
-      if (!sent || !(sent.records ?? []).some((r) => r.k === 'names' && r.i === '34') || !(sent.docs ?? []).some((x) => x.key === 'industry'))
+      if (!sent || !(sent.records ?? []).some((r) => r.k === 'names' && r.i === '34'))
         problems.push(`with the jobs kind refused, the rest of the push didn’t go up: ${JSON.stringify(pushes).slice(0, 300)}`);
       if (!state?.dirty?.r?.includes('jobs|9001') || state.dirty.r.includes('names|34')) problems.push(`the refused job isn’t kept waiting (or what went up is): ${JSON.stringify(state?.dirty)}`);
       CLOUD['/v1/push'] = prevPush; CLOUD['/v1/pull'] = prevPull;

@@ -8099,12 +8099,13 @@ console.log('\n--- Industry stage 2: the blueprints document (industryTrack.ts) 
   const T = await import('../src/lib/industryTrack.ts');
   const { readBlueprints } = await import('../src/lib/blueprints.ts');
   const b = (item_id, type_id, location_id, quantity, runs, me, te) => ({ item_id, type_id, location_id, location_flag: 'Hangar', quantity, runs, material_efficiency: me, time_efficiency: te });
-  const raw = [b(30, 25895, 60003760, -1, -1, 10, 20), b(10, 25895, 1046664001931, -2, 40, 10, 20), b(20, 804, 1_030_000_001, 3, -1, 0, 0)];
-  const doc = T.toBlueprintsDoc(raw, { 1030000001: 'Blueprints', 99: 'gone' });
+  const raw = [b(30, 25895, 60003760, -1, -1, 10, 20), b(10, 25895, 1046664001931, -2, 40, 10, 20), b(20, 804, 1_044_519_007_308, 3, -1, 0, 0)];
+  const doc = T.toBlueprintsDoc(raw, { 1044519007308: 'Blueprints', 99: 'gone' });
   eq('  sorted by item ID, each row [item, type, where, flag, quantity, runs, ME, TE]; names only for places it holds', doc, {
-    list: [[10, 25895, 1046664001931, 'Hangar', -2, 40, 10, 20], [20, 804, 1030000001, 'Hangar', 3, -1, 0, 0], [30, 25895, 60003760, 'Hangar', -1, -1, 10, 20]],
-    names: { 1030000001: 'Blueprints' },
+    list: [[10, 25895, 1046664001931, 'Hangar', -2, 40, 10, 20], [20, 804, 1044519007308, 'Hangar', 3, -1, 0, 0], [30, 25895, 60003760, 'Hangar', -1, -1, 10, 20]],
+    names: { 1044519007308: 'Blueprints' },
   });
+  eq('  the containers and ships found are kept in the doc, only those it has rows in', T.toBlueprintsDoc(raw, undefined, [1044519007308, 5]).items, [1044519007308]);
   eq('  read back as the Blueprints page reads ESI', T.ownedOf(doc), readBlueprints([...raw].sort((x, y) => x.item_id - y.item_id)));
   eq('  a blueprint\'s ME and TE by its item ID; one not held is none', [T.bpAt(doc, 30), T.bpAt(doc, 31), T.bpAt(undefined, 30)], [{ me: 10, te: 20 }, null, null]);
   // A running job's blueprint may be missing from the read just taken (ESI may not list one installed in a job): the doc held
@@ -8112,11 +8113,13 @@ console.log('\n--- Industry stage 2: the blueprints document (industryTrack.ts) 
   const fresh = T.toBlueprintsDoc(raw.filter((x) => x.item_id !== 30));
   eq('  first sight looks in the fresh read, then in the doc held before it', [T.bpFrom(fresh, doc)(30), T.bpFrom(fresh, doc)(10), T.bpFrom(fresh, undefined)(30), T.bpFrom(undefined, doc)(30)],
     [{ me: 10, te: 20 }, { me: 10, te: 20 }, null, { me: 10, te: 20 }]);
-  eq('  places still to name: containers and ships, structures; never a station', T.placesToName(T.toBlueprintsDoc(raw)), { items: [1030000001], structures: [1046664001931] });
-  eq('    a place named once (or found to have no name) isn\'t asked again', T.placesToName(T.toBlueprintsDoc(raw, { 1030000001: '', 1046664001931: '' })), { items: [], structures: [] });
+  eq('  places still to name: containers and ships, structures; never a station', T.placesToName(T.toBlueprintsDoc(raw), new Set([1044519007308, 77])), { items: [1044519007308], structures: [1046664001931] });
+  // Asset item IDs are 13 digits like structures': the container is told from the structure by being the character's own item (the old size rule sent it to /universe/structures).
+  eq('    no assets read: nothing is classified, so nothing is marked named and all is asked next time', [T.placesToName(T.toBlueprintsDoc(raw), null), T.placesToName(T.toBlueprintsDoc(raw), undefined)], [{ items: [], structures: [] }, { items: [], structures: [] }]);
+  eq('    a place named once (or found to have no name) isn\'t asked again', T.placesToName(T.toBlueprintsDoc(raw, { 1044519007308: '', 1046664001931: '' }), new Set([1044519007308])), { items: [], structures: [] });
   eq('  sanitized: absent is not read; a row that isn\'t one is dropped; an empty list is read', [T.sanitizeBlueprints(undefined), T.sanitizeBlueprints({ list: [[1, 2, 3, 'Hangar', -1, -1, 0, 0], ['x'], [5, 6, 7, 'Hangar', -1, -1, 99, 0]] }), T.sanitizeBlueprints({ list: [] }), T.sanitizeBlueprints('x')],
     [undefined, { list: [[1, 2, 3, 'Hangar', -1, -1, 0, 0]] }, { list: [] }, undefined]);
-  eq('  the station and structure bands', [T.isStationId(60003760), T.isStationId(1030000001), T.isStructureId(1046664001931)], [true, false, true]);
+  eq('  the station and structure bands', [T.isStationId(60003760), T.isStationId(1044519007308), T.isStructureId(1046664001931)], [true, false, true]);
 }
 
 console.log('\n--- Industry stage 2: a new record kind and document sync like the others (cloudSync.ts) ---');

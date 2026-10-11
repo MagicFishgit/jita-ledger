@@ -1,7 +1,7 @@
 import type { RawBlueprint } from './blueprints';
 import { esi, esiAllPages } from './esi';
 import { adjustedPricesShared, industrySystemsShared } from './market';
-import { bpFrom, isStationId, isStructureId, newJobs, placesToName, readJobs, toBlueprintsDoc, type BlueprintsDoc, type JobRecord, type RawJob } from './industryTrack';
+import { bpFrom, isStationId, isStructureId, itemPlaces, newJobs, placesToName, readJobs, toBlueprintsDoc, type BlueprintsDoc, type JobRecord, type RawJob } from './industryTrack';
 import { station, structureInfo } from './universe';
 
 /**
@@ -20,12 +20,13 @@ export const loadEiv = (): Promise<EivFile> =>
  * Your blueprints, with the places they sit in named once each (asked only for a place not named yet): a container or ship
  * by the name you gave it (`/assets/names`, with the assets permission; ESI's "None" is no name), a structure by its own
  * (`/universe/structures`, with the structures permission). `''` marks a place asked and found nameless, so it isn't asked
- * again. A failed name lookup is asked again on the next read.
+ * again. A failed name lookup is asked again on the next read. `itemIds` is the character's own asset item IDs from the assets
+ * read just taken (null: not read), which tell a container or ship from a structure (industryTrack.ts placesToName).
  */
-export async function readBlueprintsNow(cid: number, prev: BlueprintsDoc | undefined, can: { assets: boolean; structures: boolean }): Promise<BlueprintsDoc> {
+export async function readBlueprintsNow(cid: number, prev: BlueprintsDoc | undefined, can: { assets: boolean; structures: boolean }, itemIds?: ReadonlySet<number> | null): Promise<BlueprintsDoc> {
   const raw = await esiAllPages<RawBlueprint>(`/characters/${cid}/blueprints/`, { auth: true });
-  const draft = toBlueprintsDoc(raw, prev?.names);
-  const want = placesToName(draft);
+  const draft = toBlueprintsDoc(raw, prev?.names, prev?.items);
+  const want = placesToName(draft, itemIds);
   const names: Record<string, string> = { ...(draft.names ?? {}) };
   if (can.assets) {
     for (let i = 0; i < want.items.length; i += 1000) {
@@ -44,7 +45,7 @@ export async function readBlueprintsNow(cid: number, prev: BlueprintsDoc | undef
       else if (s?.status === 'refused') names[String(id)] = '';
     }
   }
-  return toBlueprintsDoc(raw, names);
+  return toBlueprintsDoc(raw, names, itemPlaces(draft, itemIds));
 }
 
 /**

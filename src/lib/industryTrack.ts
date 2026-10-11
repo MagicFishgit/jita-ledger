@@ -195,7 +195,15 @@ export type BpRow = [itemId: number, typeId: number, locationId: number, flag: s
  * Your blueprints, sorted by item ID, and the names of the containers, ships and structures they sit in, by location ID
  * (`''`: asked, and it has none, or the structure refused the reader). Absent is not read; an empty list is read.
  */
-export type BlueprintsDoc = { list: BpRow[]; names?: Record<string, string> };
+export type BlueprintsDoc = {
+  list: BpRow[]; names?: Record<string, string>;
+  /**
+   * Which of the places are containers or ships of the character's own (their item IDs, found in its assets read), so a
+   * reader can say container or structure without working it out again. Asset item IDs are 13 digits like structures'
+   * (every `item_id` in a real asset read, 155 rows, is 1.044e12 to 1.056e12), so an ID's size can't tell them apart.
+   */
+  items?: number[];
+};
 /** A document is one D1 row (2 MB at most); 20,000 rows are about 1.2 MB. */
 export const MAX_BLUEPRINTS = 20_000;
 
@@ -205,26 +213,27 @@ const isInt = (n: unknown): n is number => Number.isInteger(n);
 const okRow = (r: unknown): r is BpRow => Array.isArray(r) && r.length === 8 && isInt(r[0]) && r[0] > 0 && isInt(r[1]) && r[1] > 0 && isInt(r[2])
   && typeof r[3] === 'string' && isInt(r[4]) && r[4] >= -2 && isInt(r[5]) && r[5] >= -1 && isInt(r[6]) && r[6] >= 0 && r[6] <= 10 && isInt(r[7]) && r[7] >= 0 && r[7] <= 20;
 
-function withNames(list: BpRow[], names: Record<string, string> | undefined): BlueprintsDoc {
+function withNames(list: BpRow[], names: Record<string, string> | undefined, items?: unknown): BlueprintsDoc {
   const used = new Set(list.map((r) => String(r[2])));
   const kept = Object.entries(names ?? {}).filter(([k, v]) => used.has(k) && typeof v === 'string').sort(([a], [b]) => Number(a) - Number(b));
-  return kept.length ? { list, names: Object.fromEntries(kept) } : { list };
+  const held = Array.isArray(items) ? [...new Set(items.filter((n): n is number => isInt(n) && used.has(String(n))))].sort((a, b) => a - b) : [];
+  return { list, ...(kept.length ? { names: Object.fromEntries(kept) } : {}), ...(held.length ? { items: held } : {}) };
 }
 
 /** ESI's blueprints as the document, with the names already known for the places they're in. */
-export function toBlueprintsDoc(raw: readonly RawBlueprint[], names?: Record<string, string>): BlueprintsDoc {
+export function toBlueprintsDoc(raw: readonly RawBlueprint[], names?: Record<string, string>, items?: readonly number[]): BlueprintsDoc {
   const list = raw.map((b): BpRow => [b.item_id, b.type_id, b.location_id, b.location_flag, b.quantity, b.runs, b.material_efficiency, b.time_efficiency])
     .filter(okRow).sort((a, b) => a[0] - b[0]).slice(0, MAX_BLUEPRINTS);
-  return withNames(list, names);
+  return withNames(list, names, items);
 }
 
 /** The document as stored or pulled, cleaned: undefined (not read) when it isn't one; a row that isn't one dropped. */
 export function sanitizeBlueprints(v: unknown): BlueprintsDoc | undefined {
   if (!v || typeof v !== 'object' || Array.isArray(v) || !Array.isArray((v as BlueprintsDoc).list)) return undefined;
-  const x = v as { list: unknown[]; names?: unknown };
+  const x = v as { list: unknown[]; names?: unknown; items?: unknown };
   const list = x.list.filter(okRow).slice(0, MAX_BLUEPRINTS);
   const names = x.names && typeof x.names === 'object' && !Array.isArray(x.names) ? (x.names as Record<string, string>) : undefined;
-  return withNames(list, names);
+  return withNames(list, names, x.items);
 }
 
 const ownedMemo = new WeakMap<BlueprintsDoc, OwnedBlueprint[]>();
@@ -251,8 +260,20 @@ export function bpAt(doc: BlueprintsDoc | undefined, itemId: number): { me: numb
 export const bpFrom = (fresh: BlueprintsDoc | undefined | null, held: BlueprintsDoc | undefined | null) => (itemId: number): { me: number; te: number } | null =>
   bpAt(fresh ?? undefined, itemId) ?? bpAt(held ?? undefined, itemId);
 
-/** The places the document doesn't name yet: containers and ships (by /assets/names), and structures (by /universe/structures). Stations are named by anyone. */
-export function placesToName(doc: BlueprintsDoc): { items: number[]; structures: number[] } {
-  const ids = [...new Set(doc.list.map((r) => r[2]))].filter((id) => !(String(id) in (doc.names ?? {}))).sort((a, b) => a - b);
-  return { items: ids.filter((id) => !isStationId(id) && !isStructureId(id)), structures: ids.filter(isStructureId) };
+/**
+ * The places the document doesn't name yet, by how each is named: containers and ships (by /assets/names), structures (by
+ * /universe/structures). Stations are named by anyone. An asset's item ID is 13 digits, like a structure's, so the size says
+ * nothing: a place that is one of the character's own item IDs (`itemIds`, from its assets read) is a container or ship;
+ * a 13-digit one that isn't is a structure. With no assets read (`itemIds` null) nothing can be told apart, so no place is
+ * classified and none is marked named: it is asked again next time. `items` is every container or ship found, named or not.
+ */
+export function placesToName(doc: BlueprintsDoc, itemIds: ReadonlySet<number> | null | undefined): { items: number[]; structures: number[] } {
+  if (!itemIds) return { items: [], structures: [] };
+  const ids = [...new Set(doc.list.map((r) => r[2]))].filter((id) => !isStationId(id)).sort((a, b) => a - b);
+  const toName = ids.filter((id) => !(String(id) in (doc.names ?? {})));
+  return { items: toName.filter((id) => itemIds.has(id)), structures: toName.filter((id) => !itemIds.has(id) && isStructureId(id)) };
 }
+
+/** The doc's places that are containers or ships: the ones already found, and those among this read's item IDs. */
+export const itemPlaces = (doc: BlueprintsDoc, itemIds: ReadonlySet<number> | null | undefined): number[] =>
+  [...new Set(doc.list.map((r) => r[2]))].filter((id) => (doc.items ?? []).includes(id) || !!itemIds?.has(id)).sort((a, b) => a - b);

@@ -235,11 +235,13 @@ export async function syncCharacter(): Promise<void> {
       read.push('orders');
     }
 
+    let assetIds: Set<number> | null = null;
     if (hasScope(ASSETS)) {
       setState({ message: 'Reading what you’re holding…' });
       try {
         const raw = await esiAllPages<RawAsset>(`/characters/${cid}/assets/`, { auth: true, onExpires: keep('assets') });
         fetched.stock = countStock(raw, JITA_44);
+        assetIds = new Set(raw.map((a) => a.item_id));
         // The containers and ships in an asset safety wrap, by the names you gave them. (The wrap itself has none in
         // ESI: it answers "None", not the lost structure's name the client shows.)
         const holders = unnamedHolders(getData().stock?.safety, fetched.stock.safety);
@@ -315,7 +317,7 @@ export async function syncCharacter(): Promise<void> {
     if (hasScope(SCOPE.blueprints)) {
       setState({ message: 'Reading your blueprints…' });
       try {
-        fetched.blueprints = await readBlueprintsNow(cid, d.blueprints, { assets: hasScope(ASSETS), structures: hasScope(SCOPE.structures) });
+        fetched.blueprints = await readBlueprintsNow(cid, d.blueprints, { assets: hasScope(ASSETS), structures: hasScope(SCOPE.structures) }, assetIds);
         bpsNow = fetched.blueprints;
         metaPatch.blueprintsAt = new Date().toISOString();
         read.push('blueprints');
