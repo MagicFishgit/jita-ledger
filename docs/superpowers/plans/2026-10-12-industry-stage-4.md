@@ -76,6 +76,21 @@ Every call public, with `User-Agent: jita-ledger (research)` and `X-Compatibilit
   and on the worst hour (Goonmetrics cut at 10, a copy fetch hanging 90 s) at about 13½. A Keepstar's market is tens of pages at
   under a second each: three hubs fit in a few minutes. The invocation stops at 15 minutes and has 120 s of CPU (hourly cron).
 
+## The controller's rulings (12 October 2026, `.superpowers/sdd/2026-10-12-industry-stage-4/progress.md`)
+
+1. **The main reads Goonmetrics' two hubs by default** (the spec's reader). Two 403s an hour are nothing against ESI's error limit
+   (100 a minute). A default hub's refusal reads calmly, "<character> isn't on <hub>'s access list yet: Goonmetrics' prices stand
+   in" (`ownMarketSaid`, Task 18B), never on To do, never mailed.
+2. **Names.** Goonmetrics' two keep their short names, UALX-3 and C-J6MT, wherever the finder, To do and `ownMarketSaid` name a hub
+   (existing page checks assert them); a hub added by name is called by its structure's name everywhere ("Mothership Bellicose":
+   there will be two hubs in UALX-3); the Home markets section names each as its structure's name with its system's beside it:
+   "1st Byzantigoon (UALX-3)", "Ceci n’est pas une keeptar (C-J6MT)" (the name `HOME_HUBS` already holds), "Mothership Bellicose
+   (UALX-3)" (Task 18C).
+3. **The `unread` list on each Goonmetrics price read** (Task 18E, up to 2,916 IDs, about 15 KB) is accepted.
+4. **At ship the controller tells the user the order** (log in on the PC, hand the cloud the main's login straight after, then the
+   phone, then alts when wanted) and that the watchdog mails "Cloud lost your login" about 10 to 30 minutes after a relog if the
+   login isn't handed over ("After the last task").
+
 ## Where this plan corrects the spec
 
 Each is said again in the task that owns it, and goes in `docs/notes/industry.md`.
@@ -123,13 +138,17 @@ Each is said again in the task that owns it, and goes in `docs/notes/industry.md
     a change and never be measured; and `measuredRates` wants three placements a day. A placement counts when it is the only order
     version of the character's in its second, its fee all of that second's `brokers_fee` entries, over 100 ISK (the minimum says
     nothing of the rate); the measure is the median of the newest five, said with how many and when, offered with **Use this**.
+    And **from any character's orders there, not only the reader's** (the spec says "the reader's own orders"): the fee is the
+    structure owner's, the same whoever places, and the newest measure across characters is offered, named with whose order it was.
 13. **Routes beside `POST /v1/home/read`**: `GET`, `POST` and `DELETE /v1/home/markets` (the hubs and their states; add one or set
     its reader; stop reading or remove one) and `GET /v1/home/book?hub=` (a hub's last good read); `POST /v1/structures/search`
     answers `{ found }` in `FindStructure`'s own shape (Tasks 17A, 18A).
 14. **The Worker reads at `X-Compatibility-Date: 2025-08-26`**, not the app's 2026-08-18: the three routes are the same at both
     (the extracts above), so nothing changes.
-15. **No copies' home asks exist** (`IndustryCopies.tsx` reads no home price: Brave gives copies free, the research's finding),
-    and the ladder reads the finder's rows: neither changes but through the finder.
+15. **No copies' home asks exist** (`IndustryCopies.tsx` reads no home price: Brave gives copies free, the research's finding).
+    The ladder (Start) reads the finder's rows, and said nothing of where a home price came from: its "pays now" lines now add
+    "sold at UALX-3 on its own market" (or "on Goonmetrics' prices") when a row they show sells at home (Task 18B), so the finder,
+    the detail and the ladder each say which, as the spec asks.
 16. **Goonmetrics' round starts where the last stopped, and a type no round has reached says "not read at X yet"** (Task 18E,
     the limit stage 1 left for stage 4). Kept in `scan_meta` (`goonmetrics`), no migration.
 17. **`FoundStructure` moves to `src/lib/industrySites.ts`** (Task 17B), so `cloud.ts` can type the cloud's search without
@@ -180,15 +199,19 @@ Every task's requirements include these. The quoted lines are the user's or the 
    stands (its `at`, `data` and `pages` untouched), the try is stamped with why, and the next hour reads that hub first. Pinned in
    Task 18A step 2 (check-worker: the deadline passing after page 1 of 2, page 2 answering 500, 301 pages), plant "store the fold
    anyway".
-2. **A reader whose access is lost after reads worked.** Expected: "EVE refused your read of UALX-3: it isn't on its access list
-   (first refused 2 h ago). Goonmetrics' prices stand in." with the last good read's age; past two hours the finder prices UALX-3 on
-   Goonmetrics, and Bellicose on nothing, each said. Pinned in Task 18A step 2 (`refusedAt` kept from the first refusal by the same
-   reader, cleared by a read) and Task 18B step 1 (`ownMarketSaid`'s every state).
+2. **A reader whose access is lost after reads worked.** Expected for a default hub (Ruling 1): "Owner isn't on UALX-3's access list
+   yet (first refused 2 h ago): Goonmetrics' prices stand in." with the last good read's age after it; for a hub you added, "EVE
+   refused your read of Mothership Bellicose: it isn't on its access list (first refused 2 h ago). Nothing stands in: …"; past two
+   hours the finder prices UALX-3 on Goonmetrics, and Bellicose on nothing, each said. Pinned in Task 18A step 2 (a 403 after a good
+   read keeps the read; `refusedAt` kept from the first refusal by the same reader, cleared by a read) and Task 18B step 1
+   (`ownMarketSaid`'s every state).
 3. **The two-hour boundary.** A structure read 2 h 01 old must not speak; Goonmetrics' five-hour-old read does, and the line says
    why its own market isn't used. Pinned in Task 18B step 1 (`homeSpeaks` at 1 h 59 and 2 h 01) and step 9 (the page check).
 4. **A reader whose login can't read.** No permission, refused by EVE, none kept, or taken off the roster: no ESI call, said in
-   its own words with where to fix it, and never read silently with the main instead. Pinned in Task 18A step 2 (no call is made;
-   `login` says which) and Task 18B step 1.
+   its own words with where to fix it, and never read silently with the main instead. The main's own cloud login without the
+   permission is every hub's state from the deploy until the user hands it over: it must read "hand the cloud your login again",
+   never as a failure or a refusal. Pinned in Task 18A step 2 (no call is made; `login` says which, the main's case too), Task 18B
+   step 1 and Task 18C step 4.
 5. **Logging in again in the wrong order.** Handing the cloud the main's login before logging in here stops this browser's own
    login, and the phone's stops either way. Expected: Settings → Account says the order before it happens ("Log in again here …
    then hand the cloud your login again"), the Home markets line for the main's missing permission says the same, and the existing
@@ -208,11 +231,11 @@ Every task's requirements include these. The quoted lines are the user's or the 
 | `worker/src/homeMarkets.ts` (new), `worker/src/index.ts`, `worker/wrangler.toml` (comment) | The hourly round, the routes | 18A |
 | `src/lib/industryRank.ts` | `HomeQuote`'s source, sold counts and levels; buying and selling at a hub priced by its own market | 18B |
 | `src/lib/cloud.ts`, `src/components/hustles/industryMarket.ts` | `cloudHomeMarkets`, `cloudHomeBook` (18B), `cloudSetHomeMarket`, `cloudDropHomeMarket`, `cloudReadHome` (18C); `useHomeMarkets`, `useHomeHubs`, `useHomeBook`, `useHomeQuotes`, `refreshHomeMarkets` | 18B, 18C |
-| `src/components/hustles/industryFinder.ts`, `IndustryBuild.tsx`, `IndustryDetail.tsx` | The hub from the merged list; which price speaks, said | 18B |
+| `src/components/hustles/industryFinder.ts`, `IndustryBuild.tsx`, `IndustryDetail.tsx`, `IndustryStart.tsx` | The hub from the merged list; which price speaks, said | 18B |
 | `src/lib/todo.ts`, `src/components/Todo.tsx` | List what you built at a hub you added, priced by the source that speaks | 18B |
-| `src/components/hustles/IndustryHome.tsx` (new), `Industry.tsx` | The Home markets section | 18C |
+| `src/components/hustles/IndustryHome.tsx` (new), `Industry.tsx`, `src/styles.css` | The Home markets section | 18C |
 | `src/components/hustles/industryChars.ts`, `IndustryHome.tsx`, `IndustryBuild.tsx` | Each character's orders and journal; the measured fee, Use this | 18D |
-| `worker/src/goonmetrics.ts`, `src/lib/homeMarket.ts`, `industryMarket.ts`, `industryFinder.ts` | Where a round starts; types not reached yet | 18E |
+| `worker/src/goonmetrics.ts`, `src/lib/cloud.ts`, `industryMarket.ts`, `industryFinder.ts`, `IndustryBuild.tsx` | Where a round starts; types not reached yet | 18E |
 | `scripts/check.mjs`, `scripts/check-worker.mjs`, `scripts/pages.mjs` | Tests | every task |
 | `docs/notes/industry.md`, `limits.md`, `eve-facts.md`, `cloud.md`, `characters-cloud.md`, `finding-trades.md`, `CLAUDE.md` | Notes | every task |
 
@@ -234,7 +257,7 @@ doesn't parse loads like an import: keep it valid YAML, and run `head -12 .claud
 - Consumes: `SCOPES`, `SCOPE_INFO` (config.ts); `scopesMissing` (watchdog.ts, unchanged).
 - Produces: `SCOPE.structureMarkets` = `'esi-markets.structure_markets.v1'`; `grantSaid(missing: number, total: number): string`
   in `src/lib/watchdog.ts`. Task 18A's Worker spells the same string as `SCOPE_STRUCTURE_MARKETS` (the Worker can't import
-  config.ts); this task's tripwire test reads both.
+  config.ts), and 18A's own test ties the two (this task's test reads config.ts only: homeMarkets.ts doesn't exist yet).
 
 **Why.** The spec puts the permission in `SCOPE`, not `OPTIONAL_SCOPE` (research.md says why for R&D agents: an optional one is
 switched on per browser, so a phone that never switched it on logs the main in with a smaller set, which stops the other logins).
@@ -358,6 +381,11 @@ In `scripts/pages.mjs`, inside the industry case above `// --- the end of the in
     }
 ```
 
+(This is the first time in the industry case that the stand-in login holds every permission, so the app's ESI sync runs, against
+a page route that aborts every path the case hasn't stubbed. The sync catches its failures; if this block pushes a `threw:` problem
+all the same, stub the paths it names under `/characters/95210486/` with empty answers (`ESI[path] = (url, req, json) => json([])`,
+or `json({})` for an object) for the length of the block.)
+
 - [ ] **Step 6: Run everything; plant each rule wrong**
 
 Run: `npm run check && npm run build && LEDGER=industry npm run check-pages`
@@ -408,7 +436,7 @@ Claude-Session: https://claude.ai/code/session_01D3Zx5fms2TWhEQgdkabhCf"
 **Files:**
 - Create: `worker/src/structures.ts`
 - Modify: `worker/src/index.ts` (the route), `scripts/check-worker.mjs`, `.claude/rules/industry.md`, `docs/notes/industry.md`,
-  `docs/notes/characters-cloud.md`, `CLAUDE.md` (nothing in the Worker's imports list changes: structures.ts imports no `src/lib`)
+  `docs/notes/characters-cloud.md`
 
 **Interfaces:**
 - Consumes: `onRoster` (alts.ts); `altReader`, `ledgerReader`, `readerLogin`, `esiGet`, `EveError` (eve.ts); `SCOPE_STRUCTURES`
@@ -481,6 +509,17 @@ console.log('\n--- the cloud searches structures as an alt, with the alt\'s own 
     const { db, env } = await setup();
     db.run(`DELETE FROM keys WHERE purpose = 'alt:${ALT}'`);
     await rejects('  an alt with no login kept: said', () => searchStructures(env, MAIN, ALT, 'Bellicose'), /holds no login for Miner Two/);
+  }
+  {
+    // An alt whose login EVE refuses: its access token stale, EVE's token route answering 400 (useLogin marks it refused).
+    const db = d1();
+    await keepKey(db, MAIN, 'main', MAIN, 'Main', [...SCOPES, SEARCH, READ]);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', [...SCOPES, SEARCH, READ], { expired: true });
+    db.run('INSERT INTO alts (char_id, ledger, name, added_at) VALUES (?, ?, ?, ?)', ALT, MAIN, 'Miner Two', Date.now());
+    const f = stubFetch([['/v2/oauth/token', () => new Response(JSON.stringify({ error: 'invalid_grant', error_description: 'Character grant missing/expired' }), { status: 400 })], ...routes([])]);
+    await rejects('  an alt whose login EVE refuses: said in the login\'s own words', () => searchStructures(testEnv(db), MAIN, ALT, 'Bellicose'), /EVE refused the cloud’s login for Miner Two/);
+    eq('    and no search was asked', f.calls.filter((c) => c.path.endsWith('/search/')).length, 0);
+    f.restore();
   }
 }
 ```
@@ -561,7 +600,8 @@ In `worker/src/index.ts`, import it (`import { searchStructures } from './struct
 - [ ] **Step 4: Run the tests, see them pass; plant each rule wrong**
 
 Run: `npm run check`. Expected: `all passed` twice (the "every Worker module loads" list now includes `structures.ts`). Plant and
-see each fail, putting it back after: drop the `onRoster` check (the not-on-roster test then reaches EVE); search with
+see each fail, putting it back after: catch `readerLogin`'s throw and search anyway with the main's login (the refused-login test
+asks a search); drop the `onRoster` check (the not-on-roster test then reaches EVE); search with
 `ledgerReader(ledger)` for every character (the `seen` test names the main); skip the scope check (the permission test asks EVE);
 drop the `systems` map (the system is read twice).
 
@@ -847,9 +887,9 @@ Create `worker/migrations/0021_home_markets.sql`:
 -- home_markets: every choice you make, keyed by ledger and structure. Goonmetrics' two hubs are read with the main without a row;
 -- a row gives one of them another reader or switches it off (removed_at), or adds a hub, with the system and region the finder
 -- needs (read publicly when it was added).
--- home_books: one row a structure: its last good read (at, data, pages, types; at 0 = never read) apart from its last try (tried,
--- reader, error), and since when that reader has been refused by the structure's access list (refused_at). A read cut short is never
--- stored. Only adds tables: old code runs on it as before.
+-- home_books: one row a structure: its last good read (at, data, pages, types, read_by: whose it was; at 0 = never read) apart from
+-- its last try (tried, reader, error), and since when that reader has been refused by the structure's access list (refused_at). A
+-- read cut short is never stored. Only adds tables: old code runs on it as before.
 CREATE TABLE IF NOT EXISTS home_markets (
   ledger INTEGER NOT NULL,
   structure_id INTEGER NOT NULL,
@@ -870,7 +910,8 @@ CREATE TABLE IF NOT EXISTS home_books (
   tried INTEGER NOT NULL DEFAULT 0,
   reader INTEGER,
   error TEXT,
-  refused_at INTEGER
+  refused_at INTEGER,
+  read_by INTEGER
 );
 ```
 
@@ -935,6 +976,8 @@ console.log('\n--- home markets: a structure\'s own market, read hourly by the c
   };
   const round = async (env, routes, now = NOW, opts = {}) => { const f = stubFetch(routes); try { return { r: await H.refreshHomeBooks(env, now, { want, ...opts }), calls: f.calls }; } finally { f.restore(); } };
   const refused = () => reply({ error: 'Market access denied' }, 403);
+  eq('  the Worker asks for the permission the browser does (config.ts\'s SCOPE.structureMarkets)', H.SCOPE_STRUCTURE_MARKETS,
+    fs.readFileSync(new URL('../src/lib/config.ts', import.meta.url), 'utf8').match(/structureMarkets: '([^']+)'/)[1]);
 
   // The defaults, a hub added, and a round reading all three.
   {
@@ -987,8 +1030,9 @@ console.log('\n--- home markets: a structure\'s own market, read hourly by the c
     await H.dropHomeMarket(db, MAIN, CJ, NOW);
     await round(env, [[`/markets/structures/${BELL}/`, pagesOf([PAGE1, PAGE2])], [/markets\/structures/, refused]]);
     const good = db.rows('SELECT data FROM home_books WHERE structure_id = ?', BELL)[0].data;
-    const slow = (list) => async (url) => { await new Promise((res) => setTimeout(res, 80)); return pagesOf(list)(url); };
-    const cut = await round(env, [[`/markets/structures/${BELL}/`, slow([PAGE2, PAGE1])], [/markets\/structures/, refused]], NOW + HOUR, { deadline: Date.now() + 40 });
+    // Page 1 takes 400 ms against a 200 ms deadline: whatever runs before it (two lookups, the login opened), the deadline falls inside it.
+    const slow = (list) => async (url) => { await new Promise((res) => setTimeout(res, 400)); return pagesOf(list)(url); };
+    const cut = await round(env, [[`/markets/structures/${BELL}/`, slow([PAGE2, PAGE1])], [/markets\/structures/, refused]], NOW + HOUR, { deadline: Date.now() + 200 });
     eq('  the deadline passing after page 1 of 2: nothing stored, the try stamped with why', [cut.r.done[BELL], book(db, BELL), db.rows('SELECT data FROM home_books WHERE structure_id = ?', BELL)[0].data === good],
       ['cut', { at: NOW, tried: NOW + HOUR, reader: ALT, error: 'Cut short at page 2 of 2 by the cloud’s time limit', refusedAt: null, pages: 2, types: 3 }, true]);
     const failing = await round(env, [[`/markets/structures/${BELL}/`, (url) => (url.searchParams.get('page') === '2' ? reply({ error: 'boom' }, 500) : pagesOf([PAGE2, PAGE1])(url))], [/markets\/structures/, refused]], NOW + 2 * HOUR);
@@ -996,6 +1040,13 @@ console.log('\n--- home markets: a structure\'s own market, read hourly by the c
     const big = await round(env, [[`/markets/structures/${BELL}/`, () => reply([], 200, 301)], [/markets\/structures/, refused]], NOW + 3 * HOUR);
     eq('  a market over 300 pages: not read at all, said', [big.r.done[BELL], book(db, BELL).error, big.calls.filter((c) => c.path === `/markets/structures/${BELL}/`).length], ['failed', 'Its market runs to 301 pages, more than the 300 the cloud reads in one go', 1]);
     eq('    and its last good read still serves', (await H.homeBookFor(db, MAIN, BELL)).at, new Date(NOW).toISOString());
+    // Access lost after reads worked (Review Focus 2): a 403 keeps the last good read whole, and is dated from that hour.
+    const lost = await round(env, [[`/markets/structures/${BELL}/`, refused], [/markets\/structures/, refused]], NOW + 4 * HOUR);
+    eq('  a refusal after a good read: the read kept (time, pages, types, data, whose), the refusal dated and said',
+      [lost.r.done[BELL], book(db, BELL), db.rows('SELECT data, read_by AS readBy FROM home_books WHERE structure_id = ?', BELL)[0], (await H.homeBookFor(db, MAIN, BELL)).at],
+      ['refused', { at: NOW, tried: NOW + 4 * HOUR, reader: ALT, error: 'ESI 403: Market access denied', refusedAt: NOW + 4 * HOUR, pages: 2, types: 3 }, { data: good, readBy: ALT }, new Date(NOW).toISOString()]);
+    const said = (await H.homeMarketsFor(db, MAIN)).hubs.find((h) => h.id === BELL).book;
+    eq('    and the list carries both: the refusal and the last good read, by whom', [said.refusedAt, said.at, said.readByName], [new Date(NOW + 4 * HOUR).toISOString(), new Date(NOW).toISOString(), 'Miner Two']);
   }
 
   // A reader whose login can't read: no call to EVE, said from the keys (Review Focus 4).
@@ -1011,6 +1062,17 @@ console.log('\n--- home markets: a structure\'s own market, read hourly by the c
     eq('  a reader taken off the roster: skipped, never read with the main instead, said', [(await round(env, [[/markets\/structures/, refused]], NOW + 2 * HOUR)).calls.some((c) => c.path === `/markets/structures/${BELL}/`), (await H.homeMarketsFor(db, MAIN)).hubs.find((h) => h.id === BELL).login], [false, 'notYours']);
     db.run(`DELETE FROM keys WHERE purpose = 'main'`);
     eq('  no main login kept: no ledger to read for, nothing asked', (await round(env, [], NOW + 3 * HOUR)).calls.length, 0);
+  }
+
+  // The deploy-day state: the main's own cloud login, handed over before the permission was asked, reads nothing and says why
+  // (Review Focus 4): "hand the cloud your login again", never a failure or a refusal.
+  {
+    const { db, env } = await setup({ mainScopes: SCOPES });
+    const r = await round(env, [[/markets\/structures/, refused]]);
+    eq('  the main\'s cloud login without the permission: both defaults skipped, EVE never asked, nothing stamped',
+      [r.r.done, r.calls.filter((c) => c.path.startsWith('/markets/structures/')).length, db.rows('SELECT COUNT(*) AS n FROM home_books')[0].n], [{ [UALX]: 'skipped', [CJ]: 'skipped' }, 0, 0]);
+    eq('    the list says the permission, for both, with no book to call a failure or a refusal',
+      (await H.homeMarketsFor(db, MAIN)).hubs.map((h) => [h.id, h.readerIsMain, h.login, h.book]), [[UALX, true, 'permission', null], [CJ, true, 'permission', null]]);
   }
 
   // Choices: a default switched off and on, a reader that isn't yours, a hub without its place, the cap.
@@ -1172,8 +1234,8 @@ Add to `src/lib/homeMarket.ts` (change its first import to `import type { HomeQu
 ```ts
 /** Whether a reader's login, as the cloud keeps it, can read a structure's market: worked out from the cloud's keys, never by asking EVE. */
 export type HubLogin = 'ok' | 'permission' | 'refused' | 'none' | 'notYours';
-/** A hub's own market as the cloud last read it: the last good read (`at`, null before one) and the last try (when, whose, why it failed). */
-export type HubBook = { at: string | null; tried: string; error: string | null; refusedAt: string | null; pages: number | null; types: number; reader: number | null; readerName: string | null };
+/** A hub's own market as the cloud last read it: the last good read (`at`, null before one, and whose it was: `readBy`) and the last try (when, whose, why it failed). */
+export type HubBook = { at: string | null; tried: string; error: string | null; refusedAt: string | null; pages: number | null; types: number; reader: number | null; readerName: string | null; readBy: number | null; readByName: string | null };
 /**
  * A home market as `GET /v1/home/markets` gives it (worker/src/homeMarkets.ts): Goonmetrics' two (`default`, read with the main
  * unless you chose otherwise, `off` when you stopped reading one) and those you added; its reader, whether that login can read it,
@@ -1247,13 +1309,16 @@ async function loginOf(db: D1Database, ledger: number, reader: number): Promise<
   return k.scopes.split(' ').includes(SCOPE_STRUCTURE_MARKETS) ? 'ok' : 'permission';
 }
 
-/** One page of a structure's market with the reader's token; a 502 to 504 is tried twice more, as esiGet does. */
-async function page(structure: number, p: number, token: string): Promise<{ orders: RawOrder[]; pages: number }> {
+/**
+ * One page of a structure's market with the reader's token. A 502 to 504 is tried twice more, as esiGet does, but never past the
+ * round's deadline: a page asked just before it still ends within its own 20 s, inside the invocation's 15 minutes.
+ */
+async function page(structure: number, p: number, token: string, deadline = Infinity): Promise<{ orders: RawOrder[]; pages: number }> {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`${ESI}/markets/structures/${structure}/?page=${p}`, { headers: { ...HEADERS, Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(PAGE_TIMEOUT_MS) });
     if (res.ok) return { orders: (await res.json()) as RawOrder[], pages: Number(res.headers.get('X-Pages') ?? 1) || 1 };
     const body = (await res.json().catch(() => ({}))) as { error?: string };
-    if ([502, 503, 504].includes(res.status) && attempt < 2) { await new Promise((r) => setTimeout(r, 1500)); continue; }
+    if ([502, 503, 504].includes(res.status) && attempt < 2 && Date.now() + 1500 < deadline) { await new Promise((r) => setTimeout(r, 1500)); continue; }
     throw new EveError(res.status, `ESI ${res.status}${body.error ? `: ${body.error}` : ''}`);
   }
 }
@@ -1293,7 +1358,7 @@ export async function readHomeBook(env: Env, ledger: number, hub: { id: number; 
   const aggs = new Map<number, Agg>();
   let p = 1, pages = 1;
   try {
-    const first = await page(hub.id, 1, token);
+    const first = await page(hub.id, 1, token, deadline);
     pages = first.pages;
     if (pages > MAX_PAGES) {
       const error = `Its market runs to ${pages} pages, more than the ${MAX_PAGES} the cloud reads in one go`;
@@ -1307,7 +1372,7 @@ export async function readHomeBook(env: Env, ledger: number, hub: { id: number; 
         await stamp(error, false);
         return { done: 'cut', error };
       }
-      foldStructurePage(aggs, (await page(hub.id, p, token)).orders, want);
+      foldStructurePage(aggs, (await page(hub.id, p, token, deadline)).orders, want);
     }
   } catch (e) {
     const said = e instanceof Error ? e.message : String(e);
@@ -1317,9 +1382,9 @@ export async function readHomeBook(env: Env, ledger: number, hub: { id: number; 
     return { done: 'failed', error };
   }
   const data = structureSummary(aggs), types = Object.keys(data).length;
-  await db.prepare(`INSERT INTO home_books (structure_id, at, data, pages, types, tried, reader, error, refused_at) VALUES (?1, ?2, ?3, ?4, ?5, ?2, ?6, NULL, NULL)
+  await db.prepare(`INSERT INTO home_books (structure_id, at, data, pages, types, tried, reader, error, refused_at, read_by) VALUES (?1, ?2, ?3, ?4, ?5, ?2, ?6, NULL, NULL, ?6)
     ON CONFLICT(structure_id) DO UPDATE SET at = excluded.at, data = excluded.data, pages = excluded.pages, types = excluded.types, tried = excluded.tried,
-      reader = excluded.reader, error = NULL, refused_at = NULL`).bind(hub.id, now, JSON.stringify(data), pages, types, hub.reader).run();
+      reader = excluded.reader, error = NULL, refused_at = NULL, read_by = excluded.read_by`).bind(hub.id, now, JSON.stringify(data), pages, types, hub.reader).run();
   return { done: 'read', pages, types };
 }
 
@@ -1355,8 +1420,8 @@ export async function refreshHomeBooks(env: Env, now = Date.now(), o: { deadline
 /** `GET /v1/home/markets`: the ledger's hubs, each with its reader, whether that login can read it, and its own reads. */
 export async function homeMarketsFor(db: D1Database, ledger: number): Promise<{ hubs: HubState[] }> {
   const hubs = await hubsOf(db, ledger);
-  type Row = { id: number; at: number; tried: number; error: string | null; refusedAt: number | null; pages: number | null; types: number; reader: number | null };
-  const books = new Map((await db.prepare('SELECT structure_id AS id, at, tried, error, refused_at AS refusedAt, pages, types, reader FROM home_books').all<Row>()).results.map((r) => [r.id, r]));
+  type Row = { id: number; at: number; tried: number; error: string | null; refusedAt: number | null; pages: number | null; types: number; reader: number | null; readBy: number | null };
+  const books = new Map((await db.prepare('SELECT structure_id AS id, at, tried, error, refused_at AS refusedAt, pages, types, reader, read_by AS readBy FROM home_books').all<Row>()).results.map((r) => [r.id, r]));
   const names = new Map<number, string | null>();
   const nameOf = async (char: number): Promise<string | null> => {
     if (!names.has(char)) {
@@ -1376,6 +1441,7 @@ export async function homeMarketsFor(db: D1Database, ledger: number): Promise<{ 
       book: b ? {
         at: b.at > 0 ? iso(b.at) : null, tried: iso(b.tried), error: b.error, refusedAt: b.refusedAt != null ? iso(b.refusedAt) : null,
         pages: b.pages, types: b.types, reader: b.reader, readerName: b.reader != null ? await nameOf(b.reader) : null,
+        readBy: b.readBy, readByName: b.readBy != null ? await nameOf(b.readBy) : null,
       } : null,
     });
   }
@@ -1485,11 +1551,13 @@ which is the evidence the fold moved without changing. Plant each and see it fai
 - store the fold anyway when the deadline passes (`structureSummary` written before `return { done: 'cut' }`): the cut test's
   `data === good` and `at` fail (Review Focus 1);
 - read every hub with `ledgerReader(ledger)`: the round's `seen` names the main for Bellicose;
-- drop the `login !== 'ok'` skip: the permission test asks EVE;
+- drop the `login !== 'ok'` skip: the permission tests (an alt's, and the main's on deploy day) ask EVE;
+- write the 403's stamp over `at`/`data` (or clear `read_by` on a stamp): the refusal-after-a-good-read test fails;
 - clear `refused_at` on every try: "keeps when it was first refused" fails;
 - sort by `tried` instead of `at`: "the hubs never read first" fails;
 - `fold` with `deep` always on: the structure page test's `deep.size` is 1;
-- skip the `onRoster` check in `setHomeMarket`: "a reader that isn't one of yours" fails.
+- skip the `onRoster` check in `setHomeMarket`: "a reader that isn't one of yours" fails;
+- spell `SCOPE_STRUCTURE_MARKETS` otherwise: the tie to config.ts fails.
 
 - [ ] **Step 8: Notes**
 
@@ -1555,8 +1623,9 @@ Claude-Session: https://claude.ai/code/session_01D3Zx5fms2TWhEQgdkabhCf"
   `src/components/hustles/industryMarket.ts` (`useHomeMarkets`, `useHomeHubs`, `useHomeBook`, `useHomeQuotes`,
   `refreshHomeMarkets`), `src/components/hustles/industryFinder.ts` (the hub from the merged list; `homeSaid`; `homeFromSaid`;
   `homePaceSaid`; the home histories read), `src/components/hustles/IndustryBuild.tsx`, `src/components/hustles/IndustryDetail.tsx`,
-  `src/lib/todo.ts` (`builtItem`'s `hub` place and `homeFrom`), `src/components/Todo.tsx`, `scripts/check.mjs`, `scripts/pages.mjs`,
-  `docs/notes/industry.md`, `docs/notes/limits.md`, `docs/notes/orders-alerts.md`
+  `src/components/hustles/IndustryStart.tsx` (the ladder says where a home price comes from), `src/lib/todo.ts` (`builtItem`'s `hub`
+  place, `homeFrom` and `hubWhy`), `src/components/Todo.tsx`, `scripts/check.mjs`, `scripts/pages.mjs`, `docs/notes/industry.md`,
+  `docs/notes/limits.md`, `docs/notes/orders-alerts.md`
 
 **Interfaces:**
 - Consumes: `HubState`, `HomeBookAnswer` (18A, homeMarket.ts); `StructureRow` (bookFold.ts); `GET /v1/home/markets`,
@@ -1574,14 +1643,14 @@ Claude-Session: https://claude.ai/code/session_01D3Zx5fms2TWhEQgdkabhCf"
   - `src/components/hustles/industryFinder.ts`: `Finder` gains `hubs: HomeHub[]`, `home: HomeSource` (was `HomeState`),
     `hubMissing: MarketsState | null`; `homeSaid(f, now, ago)` takes `Pick<Finder, 'hub' | 'home' | 'hubMissing'>`;
     `homeFromSaid(home: HomeSource): string`; `homePaceSaid(s: Sale, hubName: string): string`.
-  - `src/lib/todo.ts`: `builtItem`'s `where` gains `'hub'` (the hub picked isn't known yet) and its options gain `homeFrom?: string |
-    null`.
+  - `src/lib/todo.ts`: `builtItem`'s `where` gains `'hub'` (a hub is picked that isn't known here) and its options gain `homeFrom?:
+    string | null` and `hubWhy?: string | null` (why it isn't known, in that state's words).
 
 **Why.** The spec: "Which price speaks: the structure's own read, when one is under two hours old; else Goonmetrics', labelled with
 its time; else none. The finder, the detail and the ladder say which." Every reader of home prices, as the code is:
 - **the finder** (`useFinder`: the hub, its legs, `market().home`, the home histories), **its rows and count line**
   (IndustryBuild: "sold at UALX-3, Goonmetrics' prices"), **its detail** (the sale's line, the weekly movement, Goonmetrics'
-  per-type age), **the ladder** (IndustryStart reads the finder's rows: no change of its own), and **To do's List what you built**
+  per-type age), **the ladder** (IndustryStart reads the finder's rows, and now says where a row's home price comes from: correction 15), and **To do's List what you built**
   (`builtWhere`, `builtPlaceSystem`, the price and its words). **The copies' section reads no home price** (correction 15).
 - The hub list becomes Goonmetrics' two plus those the cloud lists (correction 4): `HOME_HUBS` stays Goonmetrics' alone (the
   Worker's Goonmetrics round and `homePrices` read it), and `hubsFrom` merges.
@@ -1604,7 +1673,8 @@ console.log('\n--- Industry stage 4: the hub list and which price speaks at home
   const at = (min) => new Date(T - min * 60_000).toISOString();
   const OWNER = 95210486, BUILDER = 900091, BELL = 1049999999999;
   const hub = (o) => ({ id: BELL, name: 'UALX-3 - Mothership Bellicose', systemId: 30004807, regionId: 10000061, kept: 'added', off: false, reader: OWNER, readerName: 'Owner', readerIsMain: true, login: 'ok', book: null, ...o });
-  const bk = (o) => ({ at: null, tried: at(5), error: null, refusedAt: null, pages: null, types: 0, reader: OWNER, readerName: 'Owner', ...o });
+  const bk = (o) => ({ at: null, tried: at(5), error: null, refusedAt: null, pages: null, types: 0, reader: OWNER, readerName: 'Owner', readBy: OWNER, readByName: 'Owner', ...o });
+  const UALX = { id: 1046664001931, kept: 'default', name: 'UALX-3 - 1st Byzantigoon' }, CJ = { id: 1049588174021, kept: 'default', name: 'C-J6MT - Ceci n’est pas une keeptar' };
 
   eq('the hubs the tab knows: Goonmetrics\' two always, then those added and not removed, each named after its system\'s prefix',
     HM.hubsFrom([hub({}), hub({ id: 1046664001931, kept: 'default', name: 'UALX-3 - 1st Byzantigoon' }), hub({ id: 1047000000001, off: true })]).map((h) => [h.id, h.short, h.goonmetrics, h.systemId, h.region]),
@@ -1628,7 +1698,9 @@ console.log('\n--- Industry stage 4: the hub list and which price speaks at home
   eq('every state of a hub\'s own market', [
     said({ book: bk({ at: at(40), pages: 3, types: 812 }) }),
     said({}),
-    said({ book: bk({ refusedAt: at(120) }) }, true),
+    said({ ...UALX, book: bk({ refusedAt: at(120) }) }, true),
+    said({ ...UALX, book: bk({ refusedAt: at(60), at: at(180) }) }, true),
+    said({ ...CJ, ...alt, book: bk({ refusedAt: at(120), reader: BUILDER, readerName: 'Builder Alt' }) }, true),
     said({ book: bk({ refusedAt: at(120), at: at(300) }) }),
     said({ book: bk({ error: 'Cut short at page 31 of 80 by the cloud’s time limit', at: at(190) }) }),
     said({ book: bk({ error: 'ESI 404: Structure not found' }) }),
@@ -1642,11 +1714,13 @@ console.log('\n--- Industry stage 4: the hub list and which price speaks at home
   ], [
     'Its own market was read 40 min ago with your login: 812 of the watched items listed there (3 pages).',
     'Its own market isn’t read yet: the cloud reads it hourly with your login.',
-    'EVE refused your read of Mothership Bellicose: it isn’t on its access list (first refused 2 h ago). Goonmetrics’ prices stand in.',
+    'Owner isn’t on UALX-3’s access list yet (first refused 2 h ago): Goonmetrics’ prices stand in.',
+    'Owner isn’t on UALX-3’s access list yet (first refused 1 h ago): Goonmetrics’ prices stand in. The last good read was 3 h ago.',
+    'Builder Alt isn’t on C-J6MT’s access list yet (first refused 2 h ago): Goonmetrics’ prices stand in.',
     'EVE refused your read of Mothership Bellicose: it isn’t on its access list (first refused 2 h ago). Nothing stands in: Goonmetrics doesn’t track it. The last good read was 5 h ago.',
     'Its own market’s last read, 5 min ago, failed (cut short at page 31 of 80 by the cloud’s time limit). The last good read was 3 h ago.',
     'Its own market’s last read, 5 min ago, failed (ESI 404: Structure not found). Nothing has been read yet.',
-    'Reading its own market needs EVE’s permission for structure markets: log in again here, then hand the cloud your login (Settings → Your data).',
+    'Reading its own market needs EVE’s permission for structure markets: log in again here, then hand the cloud your login again (Settings → Your data).',
     'Reading its own market needs EVE’s permission for structure markets: hand the cloud Builder Alt’s login again on Characters.',
     'EVE refused the cloud’s login for Builder Alt, which reads its own market: hand it over again on Characters.',
     'Its own market is read with your login, which the cloud doesn’t hold: hand it yours under Settings → Your data.',
@@ -1686,6 +1760,9 @@ console.log('\n--- Industry stage 4: the hub list and which price speaks at home
   has('  Goonmetrics\' as before when it speaks', D.builtItem(bx, { name: 'Pump', where: 'home', market: { kind: 'priced', price: 7_099_000 }, hubName: 'UALX-3', isMain: true }).detail, '(the hub’s cheapest listing less a tick, Goonmetrics)');
   const pend = D.builtItem(bx, { name: 'Pump', where: 'hub', market: { kind: 'reading' }, hubName: null, isMain: true });
   eq('  the home hub picked not known yet (the cloud\'s list still being read): said, nothing copied', [pend.detail.includes('Reading your home hub from the cloud.'), pend.action.copy ?? null], [true, null]);
+  const off = D.builtItem(bx, { name: 'Pump', where: 'hub', market: { kind: 'reading' }, hubName: null, isMain: true, hubWhy: 'Your home hub is one the cloud reads, which isn’t on in this browser (Settings → Your data).' });
+  eq('  the hub picked not known for another reason (the cloud off here, failing, no longer listing it): said in that state\'s words, never "no home hub picked", nothing copied',
+    [off.detail.includes('isn’t on in this browser'), /no home hub picked|in Jita/.test(off.detail), off.action.copy ?? null], [true, false, null]);
 }
 ```
 
@@ -1762,11 +1839,17 @@ export function bookHoldMs(at: string | null, now: number): number {
 /**
  * A hub's own market as a sentence, every state in its own words (spec, "Every state"): a reader whose login can't read it (no
  * permission, refused, none kept, not one of yours any more: each with where to fix it), not read yet, refused by the structure's
- * access list (and what stands in), failing, or read (by whom, when). `gm`: Goonmetrics tracks the hub, so its prices stand in. A try
- * by an earlier reader says nothing of this one's: only its last good read is said.
+ * access list (and what stands in), failing, or read (by whom, when). `gm`: Goonmetrics tracks the hub, so its prices stand in, and
+ * its refusal reads calmly ("Owner isn't on UALX-3's access list yet": Ruling 1). Goonmetrics' two are named UALX-3 and C-J6MT, a hub
+ * you added by its structure's name (Ruling 2). A try by an earlier reader says nothing of this one's: only its last good read is said.
  */
 export function ownMarketSaid(h: HubState, now: number, gm: boolean): string {
+  // Goonmetrics' two by their short names (UALX-3, C-J6MT), as the finder and To do name them; a hub you added by its structure's
+  // name (Ruling 2).
+  const name = hubOf(h.id)?.short ?? hubShort(h.name);
   const who = h.readerIsMain ? 'you' : h.readerName ?? `Character ${h.reader}`;
+  // A default hub's refusal names the character, yours by your name, and reads calmly (Ruling 1).
+  const named = h.readerName ?? (h.readerIsMain ? 'Your character' : `Character ${h.reader}`);
   const login = h.readerIsMain ? 'your login' : `${who}’s login`;
   if (h.off) return `Its own market isn’t read with a character: ${gm ? 'Goonmetrics’ prices only' : 'nothing prices it'}.`;
   if (h.login === 'notYours') return `Its own market’s reader, ${who}, isn’t one of your characters any more: pick another.`;
@@ -1774,12 +1857,17 @@ export function ownMarketSaid(h: HubState, now: number, gm: boolean): string {
     : `Its own market is read with ${who}’s login, which the cloud doesn’t hold: hand it over on Characters.`;
   if (h.login === 'refused') return h.readerIsMain ? 'EVE refused the cloud’s login for you, which reads its own market: hand it over again under Settings → Your data.'
     : `EVE refused the cloud’s login for ${who}, which reads its own market: hand it over again on Characters.`;
+  // The main's own cloud login without the permission is every hub's state from the deploy until it's handed over: a login to hand
+  // over again, never a failure or a refusal (Review Focus 4).
   if (h.login === 'permission') return `Reading its own market needs EVE’s permission for structure markets: ${h.readerIsMain
-    ? 'log in again here, then hand the cloud your login (Settings → Your data)' : `hand the cloud ${who}’s login again on Characters`}.`;
+    ? 'log in again here, then hand the cloud your login again (Settings → Your data)' : `hand the cloud ${who}’s login again on Characters`}.`;
   const b = h.book && h.book.reader === h.reader ? h.book : null;
-  const last = h.book?.at ? ` The last good read was ${ago(h.book.at, now)}${h.book.reader !== h.reader && h.book.readerName ? `, with ${h.book.readerName}’s login` : ''}.` : '';
+  // The last good read, and whose it was (`readBy`, the read's, not the last try's) when that isn't this reader's.
+  const last = h.book?.at ? ` The last good read was ${ago(h.book.at, now)}${h.book.readBy != null && h.book.readBy !== h.reader && h.book.readByName ? `, with ${h.book.readByName}’s login` : ''}.` : '';
   if (!b) return `Its own market isn’t read yet: the cloud reads it hourly with ${login}.${last}`;
-  if (b.refusedAt) return `EVE refused ${h.readerIsMain ? 'your' : `${who}’s`} read of ${hubShort(h.name)}: it isn’t on its access list (first refused ${ago(b.refusedAt, now)}). ${gm ? 'Goonmetrics’ prices stand in.' : 'Nothing stands in: Goonmetrics doesn’t track it.'}${last}`;
+  if (b.refusedAt) return gm
+    ? `${named} isn’t on ${name}’s access list yet (first refused ${ago(b.refusedAt, now)}): Goonmetrics’ prices stand in.${last}`
+    : `EVE refused ${h.readerIsMain ? 'your' : `${who}’s`} read of ${name}: it isn’t on its access list (first refused ${ago(b.refusedAt, now)}). Nothing stands in: Goonmetrics doesn’t track it.${last}`;
   // The Worker's words start a sentence: lower-cased inside this one, unless they start with an acronym (ESI).
   const why = /^[A-Z]{2}/.test(b.error ?? '') ? b.error : `${(b.error ?? '').charAt(0).toLowerCase()}${(b.error ?? '').slice(1)}`;
   if (b.error) return `Its own market’s last read, ${ago(b.tried, now)}, failed (${why}).${b.at ? last : ' Nothing has been read yet.'}`;
@@ -1872,7 +1960,9 @@ Run: `npm run check`. Expected: `all passed` twice (the stage-1 sourcing and sel
 `source`, unchanged). Plant and see each fail, putting it back after: `homeSpeaks` with `<=` 3 hours (the 2 h 01 case speaks);
 `structureQuote` leaving `sold` out (the split reads even); the structure branch using Goonmetrics' depth rule (the deep material
 isn't picked); drop the early "none listed" in `sellAt` (the absent type says "Nothing says how fast"); `ownMarketSaid` without the
-`book.reader === h.reader` check (the reader changed reads as refused-or-read by the new one).
+`book.reader === h.reader` check (the reader changed reads as refused-or-read by the new one); `ownMarketSaid` naming every hub
+`hubShort(h.name)` (UALX-3's refusal says "1st Byzantigoon"); `last` naming `book.reader` for `readBy` (the reader-changed case loses
+"with Owner's login"); a default hub's refusal in the added hub's words (the three Goonmetrics cases read "EVE refused").
 
 - [ ] **Step 5: The browser reads the hub list and each hub's own read**
 
@@ -1999,15 +2089,17 @@ export function useHomeQuotes(hub: HomeHub | null): HomeSource {
   const markets = useHomeMarkets(!!hub);
   const now = useNow(60_000);
   const gm: HomeSource['gm'] = hub && !hub.goonmetrics ? UNTRACKED : gmRead;
-  const speaks = homeSpeaks(book.status === 'ok' ? book : null, gm.status === 'ok' ? gm : null, now);
-  const key = speaks ? `${speaks.source}:${speaks.at}` : '';
   const state = hub && markets.status === 'ok' ? markets.list.find((x) => x.id === hub.id) ?? null : null;
+  // A default switched to Nobody keeps its last read in the cloud: it doesn't speak for the hub once you stopped reading it.
+  const own = state?.off ? null : book.status === 'ok' ? book : null;
+  const speaks = homeSpeaks(own, gm.status === 'ok' ? gm : null, now);
+  const key = speaks ? `${speaks.source}:${speaks.at}` : '';
   return useMemo((): HomeSource => {
-    const quote = (t: number): HomeQuote | null => (speaks?.source === 'structure' && book.status === 'ok'
-      ? structureQuote(book.rows[t], book.at, gm.status === 'ok' ? gm.prices[t]?.[1] ?? null : null)
+    const quote = (t: number): HomeQuote | null => (speaks?.source === 'structure' && own
+      ? structureQuote(own.rows[t], own.at, gm.status === 'ok' ? gm.prices[t]?.[1] ?? null : null)
       : speaks?.source === 'goonmetrics' && gm.status === 'ok' ? homeQuote(gm.prices[t]) : null);
     return { gm, book, hub: state, speaks, quote, read: speaks != null };
-  }, [gm, book, state, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [gm, book, state, own, key]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 ```
 
@@ -2015,8 +2107,8 @@ export function useHomeQuotes(hub: HomeHub | null): HomeSource {
 
 - [ ] **Step 6: The finder: the hub from the list, the source said, the home histories read**
 
-In `src/components/hustles/industryFinder.ts`: import `ownMarketSaid` and `hubOf` (kept) from `'../../lib/homeMarket'` (drop
-`homeQuote`, now used by `useHomeQuotes`); import `useHomeHubs`, `useHomeQuotes`, `type HomeSource`, `type MarketsState` from
+In `src/components/hustles/industryFinder.ts`: import `ownMarketSaid` from `'../../lib/homeMarket'` (drop `homeQuote`, now used by
+`useHomeQuotes`, and `hubOf`, which nothing here reads once the list is always asked for); import `useHomeHubs`, `useHomeQuotes`, `type HomeSource`, `type MarketsState` from
 `'./industryMarket'` (drop `useHomePrices` and `type HomeState` there); import `type Sale` from `'../../lib/industryRank'` and
 `SPLIT_SAID, type SplitFrom` from `'../../lib/split'`. Then:
 
@@ -2030,8 +2122,9 @@ In `src/components/hustles/industryFinder.ts`: import `ownMarketSaid` and `hubOf
 - in `useFinder`, replace `const hub = hubOf(doc.hub); const home = useHomePrices(hub?.id ?? null); const prices = …;` with:
 
 ```ts
-  // Goonmetrics' two are always known; a hub you added comes from the cloud's list, asked for only when such a hub is picked.
-  const { hubs, markets } = useHomeHubs(doc.hub != null && !hubOf(doc.hub));
+  // Goonmetrics' two are always known; a hub you added comes from the cloud's list, asked for always, so Build's select offers every
+  // hub you added whichever is picked (held 15 minutes and shared in flight: useHomeQuotes reads the same list).
+  const { hubs, markets } = useHomeHubs();
   const hub = hubs.find((h) => h.id === doc.hub) ?? null;
   const hubMissing = doc.hub != null && !hub ? markets : null;
   const home = useHomeQuotes(hub);
@@ -2049,7 +2142,10 @@ In `src/components/hustles/industryFinder.ts`: import `ownMarketSaid` and `hubOf
     if (!hub) return [];
     const sold = first.filter((r) => r.day && r.sale?.place === 'home');
     const fee = doc.hubFees[hub.id] ?? 0;
-    const unpaced = first.filter((r) => !r.day && r.costUnit != null)
+    // Every row with a home sale priced and unpaced, sold elsewhere or not at all: with Either a row's Jita sale gives it a day, and
+    // without its home history read the hub could never win it (Either would pick Jita silently).
+    const soldSet = new Set(sold);
+    const unpaced = first.filter((r) => r.costUnit != null && !soldSet.has(r))
       .map((r) => ({ r, m: Math.max(-Infinity, ...r.sales.filter((s) => s.place === 'home' && s.paceFrom == null && (s.list ?? s.bid) != null).map((s) => (s.list ?? s.bid)! * (1 - fee) - r.costUnit!)) }))
       .filter((x) => x.m > 0).sort((a, b) => b.m - a.m).map((x) => x.r);
     return [...sold, ...unpaced].slice(0, LIVE_ROWS).map((r) => r.product);
@@ -2096,7 +2192,12 @@ export function homeSaid(f: Pick<Finder, 'hub' | 'home' | 'hubMissing'>, now: nu
   if (gm.status === 'none') return `Not read yet: the cloud reads ${h.short}’s prices from Goonmetrics every six hours.${own}`;
   if (gm.status !== 'ok') return null;
   const old = now - Date.parse(gm.at) > HOME_STALE_MS;
-  return `${h.short}’s prices: Goonmetrics, read ${ago(gm.at, now)}${old ? ': older than a day' : ''}.${own}`;
+  // A read of its own that has gone stale is said as the reason Goonmetrics speaks (Review Focus 3): never the same words as one that
+  // still speaks. Only for a plain good read: a refusal or a failure already says why.
+  const plain = !!st.hub?.book?.at && !st.hub.book.error && !st.hub.book.refusedAt;
+  const stale = st.book.status !== 'ok' || st.hub?.off ? '' : plain ? ' That read is over two hours old, so Goonmetrics’ prices speak.'
+    : !st.hub ? ' Its own market’s last read is over two hours old, so Goonmetrics’ prices speak.' : '';
+  return `${h.short}’s prices: Goonmetrics, read ${ago(gm.at, now)}${old ? ': older than a day' : ''}.${own}${stale}`;
 }
 
 /** Where a home sale's prices come from, for a row and the count line. */
@@ -2129,7 +2230,29 @@ Home hub select becomes
 ```
 
 the count line's `; a sale at ${f.hub.short} on Goonmetrics’ prices` becomes `` `; a sale at ${f.hub.short} on ${homeFromSaid(f.home)}` ``,
-and the row's `book` for a home sale `` `sold at ${f.hub?.short}, ${homeFromSaid(f.home)}` ``.
+and the row's `book` for a home sale `` `sold at ${f.hub?.short}, ${homeFromSaid(f.home)}` ``. The count line's reason for a row with
+no Jita book at a hub says "none listed" when the hub's own read speaks (correction 8: it read every order), "no price" for
+Goonmetrics' (the `why` memo's dependencies gain `f.home`):
+
+```ts
+      const e = n.get(key) ?? { n: 0, said: own ? () => `can’t be sold: ${own}` : invWhy ? () => `Tech II can’t be costed: ${invWhy}`
+        : r.missing === 'noBook' && f.hub && doc.sell !== 'jita' ? (one) => `${one ? 'has' : 'have'} no Jita book this morning and ${f.home.speaks?.source === 'structure' ? 'none listed' : 'no price'} at ${f.hub!.short}` : MISSING_SAID[r.missing] };
+```
+
+In `src/components/hustles/IndustryStart.tsx` (correction 15: the ladder says where a home price comes from): import `homeFromSaid`
+from `'./industryFinder'`; in the "pays now" function, beside `before`:
+
+```ts
+  // Where a home price comes from, when a row shown sells at home (spec: "the finder, the detail and the ladder say which").
+  const soldHome = (rows: readonly { sale: { place: string } | null }[]) => (f.hub && rows.some((r) => r.sale?.place === 'home') ? `, sold at ${f.hub.short} on ${homeFromSaid(f.home)}` : '');
+```
+
+and `${soldHome(top)}` after each `${before(top)}` in the npc / t2 line, `${soldHome(best.map((x) => x.row))}` after each
+`${before(best.map((x) => x.row))}` in the research line, and in the slots paragraph, after `{lacks && …}`:
+
+```tsx
+      {soldHome(paying(opened).slice(0, factory)) && ` Home sales are on ${homeFromSaid(f.home)} at ${f.hub!.short}.`}
+```
 
 In `src/components/hustles/IndustryDetail.tsx`: import `ago` from `'../../lib/format'`, `useNow` from `'../../lib/hooks'`, `type
 HomeQuote` from `'../../lib/industryRank'` and `homePaceSaid` from `'./industryFinder'`; `const now = useNow(60_000);` at the top of the component; the staleness of Goonmetrics'
@@ -2159,10 +2282,11 @@ with, before the return:
 In `src/lib/todo.ts`, `builtItem`'s options and words:
 
 ```ts
-export function builtItem(x: BuiltItem & { who: string | null; placeName: string | null }, o: { name: string; where: 'jita' | 'home' | 'checking' | 'hub' | null; market: BuiltMarket; hubName: string | null; isMain: boolean; age?: string | null; shipFailed?: boolean; lost?: string | null; homeFrom?: string | null }): TodoItem {
+export function builtItem(x: BuiltItem & { who: string | null; placeName: string | null }, o: { name: string; where: 'jita' | 'home' | 'checking' | 'hub' | null; market: BuiltMarket; hubName: string | null; isMain: boolean; age?: string | null; shipFailed?: boolean; lost?: string | null; homeFrom?: string | null; hubWhy?: string | null }): TodoItem {
   const at = o.where === 'home' ? `at ${o.hubName ?? 'your home hub'}` : 'in Jita';
   const copies = o.isMain ? '; opening it copies the price.' : '.';
-  const priceSaid = o.where === 'hub' ? 'Reading your home hub from the cloud.'
+  // 'hub': a hub is picked that isn't known here; `hubWhy` says why in that state's words (the cloud's list loading, off, failing…).
+  const priceSaid = o.where === 'hub' ? o.hubWhy ?? 'Reading your home hub from the cloud.'
     : o.where === 'checking' ? (o.shipFailed ? 'Couldn’t read whether it’s a ship, so it isn’t priced.' : 'Checking whether it’s a ship.')
       : o.where == null ? 'It’s a ship and “never haul ships to Jita” is on, with no home hub picked: pick one on the Industry tab.'
         : o.market.kind === 'priced' ? `List ${at} at ${isk(o.market.price)}${o.where === 'jita' ? ' (others’ cheapest listing less a tick, where trading reaches)' : ` (the hub’s cheapest listing less a tick, ${o.homeFrom ?? 'Goonmetrics'})`}${copies}${o.age ? ` ${o.age}` : ''}`
@@ -2170,7 +2294,8 @@ export function builtItem(x: BuiltItem & { who: string | null; placeName: string
             : o.market.kind === 'none' ? `No price to list ${at}: nobody lists it there.` : o.market.said;
 ```
 
-(the rest of `builtItem` unchanged: `price` is copied only for `jita` or `home`, so `hub` copies nothing).
+(the rest of `builtItem` unchanged: `price` is copied only for `jita` or `home`, so `hub` copies nothing, and its words are never "no
+home hub picked", which only `null` says).
 
 In `src/components/Todo.tsx`: replace the imports of `useHomePrices` (`'./hustles/industryMarket'`) and of `HOME_HUBS, hubOf, homeQuote,
 type HomeHub` (`'../lib/homeMarket'`) with `import { useHomeHubs, useHomeQuotes } from './hustles/industryMarket';` and `import { hubOf }
@@ -2180,12 +2305,15 @@ from '../lib/homeMarket';`, and `homeSaid` stays imported from `'./hustles/indus
   // Goonmetrics' two hubs are always known; one you added comes from the cloud's list, asked for only when such a hub is picked.
   const { hubs, markets: homeMarkets } = useHomeHubs(d.industry.hub != null && !hubOf(d.industry.hub));
   const hub = hubs.find((h) => h.id === d.industry.hub) ?? null;
-  const hubPending = d.industry.hub != null && !hub && homeMarkets.status === 'loading';
+  // A hub picked that isn't known here (the cloud's list still being read, off in this browser, failing, or no longer listing it):
+  // never read as "no hub picked", so nothing built outside Jita 4-4 is priced or copied meanwhile, a ship never falls back to Jita,
+  // and the item says why in that state's own words (the finder's, `homeSaid`).
+  const hubUnknown = d.industry.hub != null && !hub;
   const placeSystem = (b: BuiltItem) => builtPlaceSystem(b, d.industry.sites.find((s) => s.structureId === b.place || s.stationId === b.place)?.systemId ?? null, hubs);
   // Where it lists. Whether it's a ship only matters where the answer differs; until the type is read that's 'checking', never
-  // "not a ship" (a ship built at home must not be priced, or copied, at Jita); a hub picked that the cloud hasn't listed yet, 'hub'.
+  // "not a ship" (a ship built at home must not be priced, or copied, at Jita); a hub picked that isn't known here, 'hub'.
   const whereOf = (b: BuiltItem): 'jita' | 'home' | 'checking' | 'hub' | null => {
-    if (hubPending) return 'hub';
+    if (hubUnknown && b.place !== JITA_44) return 'hub';
     const at = (ship: boolean) => builtWhere({ place: b.place, placeSystem: placeSystem(b), hub, sell: d.industry.sell, ship, noShipsToJita: d.industry.noShipsToJita });
     if (shipKinds.known.has(b.typeId)) return at(shipKinds.ships.has(b.typeId));
     return at(true) === at(false) ? at(false) : 'checking';
@@ -2211,21 +2339,27 @@ and in the loop over `builtAll`, the `home` branch and the names:
 ```
 
 `const hubName = hubOf(b.place)?.name;` becomes `const hubName = hubs.find((h) => h.id === b.place)?.name;`, and the `builtItem`
-call passes `homeFrom: homeQ.speaks?.source === 'structure' ? 'its own market' : 'Goonmetrics'` beside `hubName: hub?.short ?? null`.
-`HomeHub` and `HOME_HUBS` no longer have a reader in Todo.tsx (`builtPlaceSystem` takes `hubs`).
+call passes `homeFrom: homeQ.speaks?.source === 'structure' ? 'its own market' : 'Goonmetrics'` and `hubWhy: hubUnknown ? homeSaid({
+hub: null, home: homeQ, hubMissing: homeMarkets }, now, ago) : null` beside `hubName: hub?.short ?? null`. `HomeHub` and `HOME_HUBS` no
+longer have a reader in Todo.tsx (`builtPlaceSystem` takes `hubs`). In the build's dependencies (`Todo.tsx:501`, `…, builtJita, home,
+shipKinds]`), `home` becomes `homeQ`, and `hubs`, `hubUnknown` and `homeMarkets` join it.
 
 - [ ] **Step 9: The page check**
 
 In `scripts/pages.mjs`, inside the industry case above `// --- the end of the industry case`:
 
 ```js
-    // --- Task 18B: which price speaks at home. UALX-3's own market read 40 minutes ago speaks over Goonmetrics' five-hour-old read;
-    // at 2 h 01 Goonmetrics speaks and the line says when its own market was read; Mothership Bellicose, which Goonmetrics doesn't
-    // track, is priced by its own fresh read (its pace from the home history, read for a row with no pace), and says it isn't priced
-    // past two hours; the cloud's list a version behind with Bellicose picked is said; To do lists a pump built there at its price.
+    // --- Task 18B: which price speaks at home. UALX-3's own market read minutes ago speaks over Goonmetrics' five-hour-old read, and
+    // Build's select offers Mothership Bellicose with UALX-3 picked; Start's rows say where a home price comes from; at 2 h 01
+    // Goonmetrics speaks and the line says its own read is over two hours old; Mothership Bellicose, which Goonmetrics doesn't track,
+    // is priced by its own fresh read (its pace from the home history, read for a row priced there with no pace), at Home and with
+    // Either, and says it isn't priced past two hours; the cloud's list a version behind with Bellicose picked is said on Build and on
+    // To do; To do lists a pump built there at its price. Ages are built from the clock when each answer is set (the case's `now` is
+    // minutes old by here), and minute-scale ones matched by pattern, as the Blueprints block does.
     const BELL = 1049999999999, OWNER = ownerAuth().characterId;
+    const agoIso = (min) => iso(Date.now() - min * 60_000);
     const hubSt = (id, name, kept, extra = {}) => ({ id, name, systemId: 30004807, regionId: 10000061, kept, off: false, reader: OWNER, readerName: 'Owner', readerIsMain: true, login: 'ok', book: null, ...extra });
-    const bookSt = (agoMin, extra = {}) => ({ at: iso(now - agoMin * 60_000), tried: iso(now - agoMin * 60_000), error: null, refusedAt: null, pages: 3, types: 1, reader: OWNER, readerName: 'Owner', ...extra });
+    const bookSt = (agoMin, extra = {}) => ({ at: agoIso(agoMin), tried: agoIso(agoMin), error: null, refusedAt: null, pages: 3, types: 1, reader: OWNER, readerName: 'Owner', readBy: OWNER, readByName: 'Owner', ...extra });
     const bookRow = (sell, buy) => [[[buy, 30]], [[sell, 20], [Math.round(sell * 1.02), 40]], 3, 5, [60, 20, 0, 0]];
     let marketsAnswer = { hubs: [] }, booksAnswer = {};
     CLOUD['/v1/home/markets'] = (url, req, json) => (marketsAnswer === 404 ? json({ error: 'Not found' }, 404) : json(marketsAnswer));
@@ -2233,59 +2367,78 @@ In `scripts/pages.mjs`, inside the industry case above `// --- the end of the in
     {
       homeHistory = true;
       homeAnswer = (hub) => (hub === UALX_HUB ? { hub, source: 'goonmetrics', at: iso(now - 5 * 3600_000), prices: { [PUMP]: [iso(now - 5 * 3600_000), 7 * 841, 7_000_000, 40, 7_500_000, 50] } } : { hub, source: 'goonmetrics', at: iso(now - 26 * 3600_000), prices: {} });
-      const homeAt = async (hub) => {
+      const homeAt = async (hub, sell = 'home') => {
         await page.goto(SEED_PAGE);
-        await seed({ ...ledger, industry: { ...DOC, site: 'home:30004807', hub, sell: 'home', hubFees: { [hub]: 0.01 } }, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } });
+        await seed({ ...ledger, industry: { ...DOC, site: 'home:30004807', hub, sell, hubFees: { [hub]: 0.01 } }, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } });
         await page.goto(`${BASE}#hustles/industry/build`);
         await page.reload();
         await page.waitForSelector('[data-industry="home-said"]', { timeout: 30_000 }).catch(() => problems.push(`Build never said what prices hub ${hub}`));
         await page.waitForTimeout(2500);
         return text('[data-industry="home-said"]');
       };
-      booksAnswer = { [UALX_HUB]: { hub: UALX_HUB, at: iso(now - 40 * 60_000), rows: { [PUMP]: bookRow(7_200_000, 6_900_000) } } };
-      marketsAnswer = { hubs: [hubSt(UALX_HUB, 'UALX-3 - 1st Byzantigoon', 'default', { book: bookSt(40) }), hubSt(1049588174021, 'C-J6MT - Ceci n’est pas une keeptar', 'default')] };
+      const bellSt = (agoMin = 30) => hubSt(BELL, 'UALX-3 - Mothership Bellicose', 'added', { book: bookSt(agoMin) });
+      // Fresh: UALX-3's own read speaks; Bellicose, listed by the cloud, is offered in Build's select with UALX-3 picked.
+      booksAnswer = { [UALX_HUB]: { hub: UALX_HUB, at: agoIso(40), rows: { [PUMP]: bookRow(7_200_000, 6_900_000) } }, [BELL]: { hub: BELL, at: agoIso(30), rows: { [PUMP]: bookRow(7_100_000, 6_800_000) } } };
+      marketsAnswer = { hubs: [hubSt(UALX_HUB, 'UALX-3 - 1st Byzantigoon', 'default', { book: bookSt(40) }), hubSt(1049588174021, 'C-J6MT - Ceci n’est pas une keeptar', 'default'), bellSt()] };
       let said = await homeAt(UALX_HUB);
-      if (!said.includes('UALX-3’s prices: its own market, read 40 min ago.')) problems.push(`UALX-3’s own read 40 minutes old doesn’t speak: “${said}”`);
+      if (!/UALX-3’s prices: its own market, read \d+ min ago\./.test(said)) problems.push(`UALX-3’s own read minutes old doesn’t speak: “${said}”`);
+      if (!(await page.locator('select[aria-label="Home hub"] option', { hasText: 'Mothership Bellicose' }).count())) problems.push('with UALX-3 picked, Build’s select doesn’t offer Mothership Bellicose');
       if (!(await text('[data-bp="25895"]')).includes('sold at UALX-3, its own market')) problems.push('the pump sold at UALX-3 isn’t said to be on its own market');
-      if (!(await pumpOpen()).includes('UALX-3’s own market, read 40 min ago · Goonmetrics: 5,887 a week')) problems.push('the pump’s detail doesn’t say its sale is on UALX-3’s own market, with Goonmetrics’ weekly movement beside it');
-      // 2 h 01: Goonmetrics speaks, and its own market's read is said after it (Review Focus 3).
-      booksAnswer[UALX_HUB] = { ...booksAnswer[UALX_HUB], at: iso(now - 121 * 60_000) };
+      if (!/UALX-3’s own market, read \d+ min ago · Goonmetrics: 5,887 a week/.test(await pumpOpen())) problems.push('the pump’s detail doesn’t say its sale is on UALX-3’s own market, with Goonmetrics’ weekly movement beside it');
+      // Start's first rung says where its home prices come from (correction 15): every row sells at home here.
+      await page.goto(`${BASE}#hustles/industry/start`);
+      await page.waitForSelector('[data-rung="npc"] [data-pays="rows"]', { timeout: 30_000 }).catch(() => problems.push('Start never priced its first rung at UALX-3'));
+      const rung = await page.locator('[data-rung="npc"] [data-pays="rows"]').innerText().catch(() => '');
+      if (!rung.includes('sold at UALX-3 on its own market')) problems.push(`Start’s first rung doesn’t say its home prices come from UALX-3’s own market: “${rung.slice(0, 300)}”`);
+      // 2 h 01: Goonmetrics speaks, and the line says its own read is over two hours old (Review Focus 3).
+      booksAnswer[UALX_HUB] = { ...booksAnswer[UALX_HUB], at: agoIso(121) };
       marketsAnswer.hubs[0].book = bookSt(121);
       said = await homeAt(UALX_HUB);
-      if (!said.includes('UALX-3’s prices: Goonmetrics, read 5 h ago.') || !said.includes('Its own market was read 2 h ago with your login')) problems.push(`past two hours, UALX-3 isn’t priced by Goonmetrics with its own read said: “${said}”`);
+      if (!said.includes('UALX-3’s prices: Goonmetrics, read 5 h ago.') || !said.includes('Its own market was read 2 h ago with your login') || !said.includes('That read is over two hours old, so Goonmetrics’ prices speak.'))
+        problems.push(`past two hours, UALX-3 isn’t priced by Goonmetrics with why said: “${said}”`);
       if (!(await text('[data-bp="25895"]')).includes('sold at UALX-3, Goonmetrics’ prices')) problems.push('past two hours, the pump isn’t said to be on Goonmetrics’ prices');
-      // Mothership Bellicose: in the select; priced by its own fresh read, paced by the home history (correction 10); stale, unpriced.
-      marketsAnswer.hubs.push(hubSt(BELL, 'UALX-3 - Mothership Bellicose', 'added', { book: bookSt(30) }));
-      booksAnswer[BELL] = { hub: BELL, at: iso(now - 30 * 60_000), rows: { [PUMP]: bookRow(7_100_000, 6_800_000) } };
+      // Mothership Bellicose: priced by its own fresh read, paced by the home history (correction 10), at Home and with Either.
       said = await homeAt(BELL);
-      if (!(await page.locator('select[aria-label="Home hub"] option', { hasText: 'Mothership Bellicose' }).count())) problems.push('Mothership Bellicose isn’t in the Home hub select');
-      if (!said.includes('Mothership Bellicose’s prices: its own market, read 30 min ago.')) problems.push(`Bellicose’s fresh read doesn’t price it: “${said}”`);
+      if (!/Mothership Bellicose’s prices: its own market, read \d+ min ago\./.test(said)) problems.push(`Bellicose’s fresh read doesn’t price it: “${said}”`);
       await page.waitForSelector('[data-bp="25895"]', { timeout: 20_000 }).catch(() => problems.push('the pump was never priced at Bellicose (its home history read for a row with no pace)'));
       if (!(await text('[data-bp="25895"]')).includes('sold at Mothership Bellicose, its own market')) problems.push('the pump isn’t sold at Bellicose on its own market');
       if (/Goonmetrics has no price|Goonmetrics: /.test(await text('[data-industry="home-said"]'))) problems.push('Bellicose, which Goonmetrics doesn’t track, is said in Goonmetrics’ words');
-      booksAnswer[BELL] = { ...booksAnswer[BELL], at: iso(now - 180 * 60_000) };
-      marketsAnswer.hubs[2].book = bookSt(180);
+      await homeAt(BELL, 'best');
+      if (!(await pumpOpen()).includes('the home region’s history')) problems.push('with Either, the pump’s sale at Bellicose isn’t paced by the home region’s history (its history never read)');
+      booksAnswer[BELL] = { ...booksAnswer[BELL], at: agoIso(180) };
+      marketsAnswer.hubs[2] = bellSt(180);
       said = await homeAt(BELL);
       if (!said.includes('Mothership Bellicose isn’t priced: Goonmetrics doesn’t track it, and its own market has no read under two hours old.')) problems.push(`Bellicose with a stale read isn’t said as unpriced: “${said}”`);
       if (SHOTS) await page.screenshot({ path: `${SHOTS}-industry-home-speaks.png` });
-      // The cloud's list a version behind, Bellicose picked: said, and the pump sells in Jita meanwhile (no hub known).
+      // The cloud's list a version behind, Bellicose picked: said.
       const keptMarkets = marketsAnswer;
       marketsAnswer = 404;
       said = await homeAt(BELL);
       if (!said.includes('The cloud is a version behind: your home hub comes once it’s updated.')) problems.push(`Bellicose picked with the cloud a version behind isn’t said: “${said}”`);
       marketsAnswer = keptMarkets;
       // To do: a pump built and sitting at Bellicose lists there at its own market's price less a tick.
-      booksAnswer[BELL] = { ...booksAnswer[BELL], at: iso(now - 30 * 60_000) };
-      marketsAnswer.hubs[2].book = bookSt(30);
+      booksAnswer[BELL] = { ...booksAnswer[BELL], at: agoIso(30) };
+      marketsAnswer.hubs[2] = bellSt(30);
       const bellJob = { jobId: 9601, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 10, licensedRuns: null, successfulRuns: null, probability: null, cost: 1e6,
         facilityId: BELL, stationId: BELL, outputId: BELL, start: iso(now - 2 * 86400_000), end: iso(now - 86400_000), completed: iso(now - 86400_000), status: 'delivered', perRun: 1, seenAt: iso(now - 2 * 86400_000 + 600_000) };
-      await page.goto(SEED_PAGE);
-      await seed({ ...ledger, jobs: { 9601: bellJob }, stock: { at: iso(now - 600_000), jita: {}, total: { 25894: 10 }, byLocation: { [BELL]: { 25894: 10 } } }, industry: { ...DOC, hub: BELL }, cloud: CLOUD_STATE }, { alts: altStore });
-      await page.goto(`${BASE}#todo`);
+      const bellTodo = async () => {
+        await page.goto(SEED_PAGE);
+        await seed({ ...ledger, jobs: { 9601: bellJob }, stock: { at: iso(now - 600_000), jita: {}, total: { 25894: 10 }, byLocation: { [BELL]: { 25894: 10 } } }, industry: { ...DOC, hub: BELL }, cloud: CLOUD_STATE }, { alts: altStore });
+        await page.goto(`${BASE}#todo`);
+        await page.waitForFunction(() => /you built/.test(document.body.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
+      };
+      await bellTodo();
       await page.waitForFunction(() => /List at Mothership Bellicose at/.test(document.body.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
       const bellItem = await text('.tn-item:has-text("you built")');
       if (!bellItem.includes('List at Mothership Bellicose at 7,099,000 ISK (the hub’s cheapest listing less a tick, its own market)')) problems.push(`To do doesn’t list the pumps built at Bellicose at its own market’s price: “${bellItem.slice(0, 400)}”`);
       if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-todo-built-bellicose.png` }); }
+      // ... and with the cloud's list a version behind, says so in its own words, never "no home hub picked", never priced in Jita.
+      marketsAnswer = 404;
+      await bellTodo();
+      await page.waitForTimeout(1500);
+      const unknownItem = await text('.tn-item:has-text("you built")');
+      if (!unknownItem.includes('The cloud is a version behind: your home hub comes once it’s updated.') || /no home hub picked|List in Jita/.test(unknownItem)) problems.push(`with Bellicose picked and the cloud a version behind, To do doesn’t say so, or prices it in Jita: “${unknownItem.slice(0, 400)}”`);
+      marketsAnswer = keptMarkets;
     }
 ```
 
@@ -2297,22 +2450,25 @@ them.)
 - [ ] **Step 10: Run everything; plant; notes; commit**
 
 Run: `npm run check && npm run build && LEDGER=industry npm run check-pages`. Then plant and see the page check fail: `homeSpeaks`
-returning Goonmetrics always (the 40-minute read doesn't speak); `homeTypes` without `unpaced` (the pump is never priced at Bellicose);
-`whereOf` without `hubPending` and a list read held (nothing breaks: say so in the commit, the pure test pins `hub`); To do's
-`homeFrom` left out (the Bellicose item says Goonmetrics). Notes:
+returning Goonmetrics always (the fresh read doesn't speak); `homeTypes` without `unpaced` (the pump is never priced at Bellicose);
+`unpaced` keeping `!r.day` (with Either the pump's home sale isn't paced by the history); `useHomeHubs(doc.hub != null &&
+!hubOf(doc.hub))` in the finder (Bellicose isn't in the select with UALX-3 picked); `whereOf` with `hubUnknown` only while loading (the
+version-behind item reads "List in Jita"); the stale-read sentence dropped from `homeSaid` (the 2 h 01 line); `soldHome` dropped from
+Start (the rung doesn't say its source); To do's `homeFrom` left out (the Bellicose item says Goonmetrics). Notes:
 - `docs/notes/industry.md`, stage 4: **Which price speaks** (`homeSpeaks`, `useHomeQuotes`): the rule, every reader of home prices and
   what each now says (corrections 8 to 11 and 15), the hub list (`hubsFrom`: Goonmetrics' two always), `hubShort`, the browser's holds
   (the list 15 minutes, a hub's read until the next hourly could land); and that the home history read for rows with no pace also
   rescues a Goonmetrics type whose weekly movement is unknown (−1), which stage 1 never paced.
 - `docs/notes/limits.md`: **Buying at a hub priced by its own read walks its best five levels for a week's need**: deeper stock isn't
   seen, so a material whose week's need sits past five levels reads too thin there, said with how many are listed.
-- `docs/notes/orders-alerts.md`, the List what you built bullet: "a hub you added is listed at its own market's price, said; while
-  the cloud's list of hubs is being read the item says so and copies nothing".
+- `docs/notes/orders-alerts.md`, the List what you built bullet: "a hub you added is listed at its own market's price, said; a hub
+  picked that isn't known here (the cloud's list loading, the cloud off in this browser, failing, or no longer listing it) says why in
+  that state's words, copies nothing, never prices the item in Jita and never says no hub is picked (`hubWhy`)".
 
 Run the five checks, look at the two screenshots at both widths, then:
 
 ```bash
-git add src/lib/homeMarket.ts src/lib/industryRank.ts src/lib/cloud.ts src/components/hustles/industryMarket.ts src/components/hustles/industryFinder.ts src/components/hustles/IndustryBuild.tsx src/components/hustles/IndustryDetail.tsx src/lib/todo.ts src/components/Todo.tsx scripts/check.mjs scripts/pages.mjs docs/notes/industry.md docs/notes/limits.md docs/notes/orders-alerts.md
+git add src/lib/homeMarket.ts src/lib/industryRank.ts src/lib/cloud.ts src/components/hustles/industryMarket.ts src/components/hustles/industryFinder.ts src/components/hustles/IndustryBuild.tsx src/components/hustles/IndustryDetail.tsx src/components/hustles/IndustryStart.tsx src/lib/todo.ts src/components/Todo.tsx scripts/check.mjs scripts/pages.mjs docs/notes/industry.md docs/notes/limits.md docs/notes/orders-alerts.md
 git commit -m "Industry stage 4: a hub's own market speaks while under two hours old, else Goonmetrics', and every reader says which
 
 The cloud now reads each home market's own book hourly. Which price speaks: that read while under two hours old, else
@@ -2345,7 +2501,8 @@ Claude-Session: https://claude.ai/code/session_01D3Zx5fms2TWhEQgdkabhCf"
   `FindStructure` with `as` (17B); `secText` (industrySites.ts); the routes of 18A.
 - Produces: `IndustryHome({ c, chars, graph })`; `SECTIONS` gains `{ key: 'home', … }` (address `hustles/industry/home`);
   `cloudSetHomeMarket(b: { hub: number; reader: number; name?: string; systemId?: number })`, `cloudDropHomeMarket(hub)`,
-  `cloudReadHome(hub)` in `src/lib/cloud.ts`. Task 18D adds the measured fee under each row's Broker fee.
+  `cloudReadHome(hub)` in `src/lib/cloud.ts`; `sectionName(name)` (the section's naming, Ruling 2). Task 18D adds the measured fee
+  under each row's Broker fee, in the cell and in the phone fold (`feeChip` is shared by both).
 
 **Why.** The spec's section: lead "Prices at home, from Goonmetrics until a character of yours can read the market itself."; the
 list starts with Goonmetrics' two; a character who can see a structure adds one with `FindStructure` as that character (the main in
@@ -2354,7 +2511,10 @@ hub's reader is any character, the main by default; and every state is said (no 
 time, failing with the last good read's time). Each row also lets you make the hub the finder's home hub, so the section is the one
 place a hub you added is picked from as well as Build's select. Nothing here writes a synced document but `industry`'s `hub` and
 `hubFees` (both kept by an older build's sanitizer: any 13-digit ID); which hubs the cloud reads, and with whose login, go to D1
-through the cloud's routes.
+through the cloud's routes. Each hub is named by its structure with its system beside it ("1st Byzantigoon (UALX-3)": Ruling 2), a
+default's refusal is said calmly (Ruling 1), and an add, a reader changed or Read it now toasts what the cloud's read actually did:
+the likeliest first add, as an alt whose login predates the permission, is skipped without asking EVE, and must say so, never
+that it was read. The section joins the plain page loads and the phone's edge check.
 
 - [ ] **Step 1: The cloud's three writes**
 
@@ -2379,7 +2539,7 @@ import { Building2, Store } from 'lucide-react';
 import { hasScope } from '../../lib/auth';
 import { cloudDropHomeMarket, cloudReadHome, cloudSetHomeMarket } from '../../lib/cloud';
 import { SCOPE } from '../../lib/config';
-import { ago, pct } from '../../lib/format';
+import { ago } from '../../lib/format';
 import { useNow } from '../../lib/hooks';
 import { HOME_HUBS, HOME_STALE_MS, homeSpeaks, hubShort, ownMarketSaid, type HubState } from '../../lib/homeMarket';
 import { secText } from '../../lib/industrySites';
@@ -2393,6 +2553,13 @@ import { refreshHomeMarkets, useHomeBook, useHomeMarkets, useHomePrices, useIndu
 
 /** A row: Goonmetrics' two always, then the hubs you added, as the cloud lists them. */
 type HubRow = { id: number; name: string; systemId: number; gm: boolean; state: HubState | null };
+
+/**
+ * A hub as this section names it (Ruling 2): its structure's name with its system's beside it, "1st Byzantigoon (UALX-3)",
+ * "Ceci n’est pas une keeptar (C-J6MT)", "Mothership Bellicose (UALX-3)". Everywhere else Goonmetrics' two are UALX-3 and C-J6MT
+ * and a hub you added its structure's name (`HomeHub.short`).
+ */
+const sectionName = (name: string): string => { const i = name.indexOf(' - '); return i > 0 ? `${hubShort(name)} (${name.slice(0, i)})` : name; };
 
 /** Why the cloud's list isn't here, as a sentence; null once it is. Goonmetrics' two are listed either way. */
 function listWhy(m: MarketsState): string | null {
@@ -2436,7 +2603,7 @@ export function IndustryHome({ c, chars, graph }: { c: IndustryChar; chars: Indu
       <div className="col" style={{ gap: 8 }}>
         <p style={{ margin: 0 }}>Prices at home, from Goonmetrics until a character of yours can read the market itself.</p>
         <Points compact items={[
-          { kind: 'info', icon: Store, lead: 'Goonmetrics', text: 'reads UALX-3’s 1st Byzantigoon and C-J6MT every six hours, from its members’ uploads.' },
+          { kind: 'info', icon: Store, lead: 'Goonmetrics', text: 'reads 1st Byzantigoon (UALX-3) and Ceci n’est pas une keeptar (C-J6MT) every six hours, from its members’ uploads.' },
           { kind: 'good', icon: Building2, lead: 'A market’s own read', text: 'is the cloud reading it every hour with the character you pick, once EVE lets that character use it; it prices the hub while under two hours old.' },
           { kind: 'warn', lead: 'Not in ESI', text: 'a structure’s broker fee: type it, or place an order there and the app measures it.' },
         ]} />
@@ -2471,8 +2638,12 @@ export function IndustryHome({ c, chars, graph }: { c: IndustryChar; chars: Indu
               describe={(f) => (rows.some((r) => r.id === f.id) ? 'already listed' : `read with ${searcher.isMain ? 'your' : `${searcher.name}’s`} login`)}
               onPick={(f) => {
                 if (rows.some((r) => r.id === f.id)) return;
-                void act(async () => { await cloudSetHomeMarket({ hub: f.id, name: f.name, systemId: f.systemId, reader: searcher.charId }); await cloudReadHome(f.id); },
-                  `Added ${hubShort(f.name)}; the cloud has read it as ${searcher.isMain ? 'you' : searcher.name}.`);
+                void act(async () => {
+                  await cloudSetHomeMarket({ hub: f.id, name: f.name, systemId: f.systemId, reader: searcher.charId });
+                  // What the read did, said as it is (read, refused, skipped for a login that can't, failing): never a read claimed.
+                  const st = await cloudReadHome(f.id);
+                  toast(`Added ${hubShort(f.name)}. ${ownMarketSaid(st, Date.now(), false)}`, 'info');
+                });
               }} />
           ) : <p className="note small" style={{ margin: 0 }}>Log in again: finding a structure by name needs EVE’s permission to search structures.</p>}
           <p className="note small" style={{ margin: 0 }} data-industry="home-search-as">{searcher.isMain ? 'Searches as you: the structures EVE lets you see.' : `Searches as ${searcher.name}, through the cloud with ${searcher.name}’s own login.`} Whoever finds it reads it; change that on its row.</p>
@@ -2489,7 +2660,9 @@ function HubLine({ r, chars, graph, now, busy, act, listOk, isHome, fee, setFee,
 }) {
   const gm = useHomePrices(r.gm ? r.id : null);
   const book = useHomeBook(listOk ? r.id : null);
-  const speaks = homeSpeaks(book.status === 'ok' ? book : null, r.gm && gm.status === 'ok' ? gm : null, now);
+  // A default switched to Nobody keeps its last read in the cloud: it doesn't price the hub once you stopped reading it.
+  const ownRead = r.state?.off ? null : book.status === 'ok' ? book : null;
+  const speaks = homeSpeaks(ownRead, r.gm && gm.status === 'ok' ? gm : null, now);
   const short = HOME_HUBS.find((h) => h.id === r.id)?.short ?? hubShort(r.name);
   const sys = graph[r.systemId];
   const where = sys ? `${sys[1]} ${secText(sys[0])}` : '';
@@ -2505,10 +2678,18 @@ function HubLine({ r, chars, graph, now, busy, act, listOk, isHome, fee, setFee,
   const own = r.state ? ownMarketSaid(r.state, now, r.gm) : listOk ? '–' : 'Not known here: see above.';
   const reader = r.state ? (r.state.off ? 0 : r.state.reader) : chars[0].charId;
   const canRead = !!r.state && !r.state.off && r.state.login === 'ok';
+  // A read asked for here says what it did: the hub's own market in words, as the row says it, never a read it didn't make.
+  const readNow = async () => { const st = await cloudReadHome(r.id); toast(ownMarketSaid(st, Date.now(), r.gm), 'info'); };
+  // The broker fee typed, in the fee cell and, on a phone (where that cell is hidden), in the row's fold.
+  const feeChip = (
+    <NumChip label={`Broker fee at ${short}`} hideLabel percent width={56} value={fee != null ? +(fee * 100).toFixed(4) : null} placeholder="–"
+      onChange={(n) => setFee(n == null ? null : n / 100)}
+      tip={fee == null ? 'Not typed: the finder ranks before it and says what each 1% costs a day. Type it from the market window in game, or place an order there and the app measures it.' : 'Typed by you.'} />
+  );
   return (
     <tr data-hub={r.id}>
       <td className="l rd-main">
-        <span className="nm">{r.name}</span>
+        <span className="nm">{sectionName(r.name)}</span>
         <span className="sub">{where}{r.gm ? ' · Goonmetrics tracks it' : ' · added by you'}</span>
         <span className="ind-acts">
           {isHome ? <span className="ind-default">Home hub</span> : <button type="button" className="link-btn" onClick={makeHome}>Make it the home hub</button>}
@@ -2516,24 +2697,20 @@ function HubLine({ r, chars, graph, now, busy, act, listOk, isHome, fee, setFee,
             <select className="ind-sel" aria-label={`Who reads ${short}’s market`} value={reader} disabled={busy}
               onChange={(e) => {
                 const v = Number(e.target.value);
-                void act(v === 0 ? () => cloudDropHomeMarket(r.id) : async () => { await cloudSetHomeMarket({ hub: r.id, reader: v }); await cloudReadHome(r.id); });
+                void act(v === 0 ? () => cloudDropHomeMarket(r.id) : async () => { await cloudSetHomeMarket({ hub: r.id, reader: v }); await readNow(); });
               }}>
               {r.gm && <option value={0}>Nobody: Goonmetrics only</option>}
               {chars.map((x) => <option key={x.charId} value={x.charId}>{x.isMain ? `${x.name} (you)` : x.name}</option>)}
             </select>
           )}
-          {canRead && <button type="button" className="link-btn" disabled={busy} onClick={() => void act(() => cloudReadHome(r.id), `Read ${short}’s market now.`)}>Read it now</button>}
+          {canRead && <button type="button" className="link-btn" disabled={busy} onClick={() => void act(readNow)}>Read it now</button>}
           {!r.gm && listOk && <button type="button" className="link-btn" disabled={busy} onClick={() => void act(async () => { await cloudDropHomeMarket(r.id); onRemoved(); })}>Remove</button>}
         </span>
-        <span className="rd-phone"><span>Prices now: {prices}</span><span>{own}</span><span>Broker fee: {fee != null ? pct(fee) : '–'}</span></span>
+        <span className="rd-phone"><span>Prices now: {prices}</span><span>{own}</span><span>Broker fee {feeChip}</span></span>
       </td>
       <td className="l rd-wide" data-industry="hub-prices">{prices}</td>
       <td className="l rd-wide" data-industry="hub-own">{own}</td>
-      <td className="rd-wide" data-industry="hub-fee">
-        <NumChip label={`Broker fee at ${short}`} hideLabel percent width={56} value={fee != null ? +(fee * 100).toFixed(4) : null} placeholder="–"
-          onChange={(n) => setFee(n == null ? null : n / 100)}
-          tip={fee == null ? 'Not typed: the finder ranks before it and says what each 1% costs a day. Type it from the market window in game, or place an order there and the app measures it.' : 'Typed by you.'} />
-      </td>
+      <td className="rd-wide" data-industry="hub-fee">{feeChip}</td>
     </tr>
   );
 }
@@ -2566,7 +2743,9 @@ In `scripts/pages.mjs`, inside the industry case above `// --- the end of the in
 
 ```js
     // --- Task 18C: the Home markets section, every hub in every state; picking a reader, stopping a default, adding Bellicose as
-    // an alt and removing it go to the cloud's routes; the cloud's list a version behind is said, Goonmetrics' two still listed.
+    // an alt and removing it go to the cloud's routes, and each read is toasted as it went; the main's own cloud login without
+    // the permission (every hub's state from the deploy until it's handed over) reads "hand the cloud your login again"; the cloud's
+    // list a version behind is said, Goonmetrics' two still listed. Minute-scale ages are matched by pattern (the case's clock is minutes old by here).
     {
       const SEC = '[data-industry="home"]';
       const posted = [];
@@ -2576,7 +2755,12 @@ In `scripts/pages.mjs`, inside the industry case above `// --- the end of the in
         if (req.method() === 'DELETE') { posted.push(['drop', Number(url.searchParams.get('hub'))]); return json({ ok: true }); }
         return listStub(url, req, json);
       };
-      CLOUD['/v1/home/read'] = (url, req, json) => { const hub = Number(url.searchParams.get('hub')); posted.push(['read', hub]); return json((marketsAnswer.hubs ?? []).find((x) => x.id === hub) ?? {}); };
+      CLOUD['/v1/home/read'] = (url, req, json) => {
+        const hub = Number(url.searchParams.get('hub'));
+        posted.push(['read', hub]);
+        const h = (marketsAnswer.hubs ?? []).find((x) => x.id === hub);
+        return h ? json(h) : json({ error: 'Not one of the home markets the cloud reads' }, 400);
+      };
       CLOUD['/v1/structures/search'] = (url, req, json) => json({ found: [{ id: BELL, name: 'UALX-3 - Mothership Bellicose', systemId: 30004807, system: 'UALX-3', security: -0.1868, typeId: 35834 }] });
       const section = async () => {
         await page.goto(SEED_PAGE);
@@ -2587,17 +2771,21 @@ In `scripts/pages.mjs`, inside the industry case above `// --- the end of the in
         await page.waitForTimeout(1500);
       };
       const rowText = (id) => text(`${SEC} [data-hub="${id}"]`);
-      // UALX-3 refused by its access list for two hours (Goonmetrics stands in); C-J6MT read by Builder Alt, whose login lacks the permission.
+      const toasted = async () => (await page.locator('.toasts').innerText().catch(() => '')).replace(/\s+/g, ' ');
+      // UALX-3 not on its access list yet for two hours (Ruling 1: said calmly, Goonmetrics stands in); C-J6MT read by Builder Alt,
+      // whose login lacks the permission.
       booksAnswer = {};
       marketsAnswer = { hubs: [
-        hubSt(UALX_HUB, 'UALX-3 - 1st Byzantigoon', 'default', { book: bookSt(5, { at: null, refusedAt: iso(now - 2 * 3600_000), error: 'ESI 403: Market access denied', pages: null, types: 0 }) }),
+        hubSt(UALX_HUB, 'UALX-3 - 1st Byzantigoon', 'default', { book: bookSt(5, { at: null, refusedAt: agoIso(120), error: 'ESI 403: Market access denied', pages: null, types: 0, readBy: null, readByName: null }) }),
         hubSt(1049588174021, 'C-J6MT - Ceci n’est pas une keeptar', 'default', { reader: 900091, readerName: 'Builder Alt', readerIsMain: false, login: 'permission' }),
       ] };
       await section();
+      if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on Home markets: ${o}`);
       const ualx = await rowText(UALX_HUB), cj = await rowText(1049588174021);
-      for (const s of ['Home hub', 'Goonmetrics, read 5 h ago', 'EVE refused your read of 1st Byzantigoon: it isn’t on its access list (first refused 2 h ago). Goonmetrics’ prices stand in.'])
+      for (const s of ['1st Byzantigoon (UALX-3)', 'Home hub', 'Goonmetrics, read 5 h ago', 'Owner isn’t on UALX-3’s access list yet (first refused 2 h ago): Goonmetrics’ prices stand in.'])
         if (!ualx.includes(s)) problems.push(`UALX-3’s row doesn’t say “${s}”: “${ualx.slice(0, 400)}”`);
-      for (const s of ['Goonmetrics, read 1 day ago: older than a day', 'Reading its own market needs EVE’s permission for structure markets: hand the cloud Builder Alt’s login again on Characters.'])
+      if (/EVE refused|failed/.test(ualx)) problems.push('a default hub not on its access list yet reads as a refusal or a failure, not calmly');
+      for (const s of ['Ceci n’est pas une keeptar (C-J6MT)', 'Goonmetrics, read 1 day ago: older than a day', 'Reading its own market needs EVE’s permission for structure markets: hand the cloud Builder Alt’s login again on Characters.'])
         if (!cj.includes(s)) problems.push(`C-J6MT’s row doesn’t say “${s}”: “${cj.slice(0, 400)}”`);
       if (!(await text('[data-industry="bellicose"]')).includes('Brave’s market at UALX-3, Mothership Bellicose: add it once one of your characters can see it.')) problems.push('the section doesn’t name Mothership Bellicose as the one to add');
       if (SHOTS) await page.screenshot({ path: `${SHOTS}-industry-home-markets.png` });
@@ -2608,45 +2796,65 @@ In `scripts/pages.mjs`, inside the industry case above `// --- the end of the in
       await page.waitForTimeout(800);
       const wanted = JSON.stringify([['set', { hub: 1049588174021, reader: OWNER }], ['read', 1049588174021], ['drop', 1049588174021]]);
       if (JSON.stringify(posted.splice(0)) !== wanted) problems.push(`picking C-J6MT’s reader and then nobody didn’t go to the cloud as asked: ${wanted}`);
-      // Bellicose found as Builder Alt and added: set with its name, system and reader, then read.
+      // Bellicose found as Builder Alt and added: set with its name, system and reader, then read; the toast says what the read did.
+      // (Toasts show one at a time, oldest first: C-J6MT's read toasted above is dismissed so the add's is the one in front.)
+      for (let i = 0; i < 5 && (await page.locator('.toasts .tclose').count()); i++) await page.locator('.toasts .tclose').click().catch(() => undefined);
       await page.locator(`${SEC} [aria-label="Search as"] button`, { hasText: 'Builder Alt' }).click();
       await page.locator('input[aria-label="Find a market structure by name"]').fill('Bellicose');
       await page.locator('[data-industry="home-add"] button', { hasText: 'Find' }).click();
       await page.waitForTimeout(800);
-      marketsAnswer.hubs.push(hubSt(BELL, 'UALX-3 - Mothership Bellicose', 'added', { reader: 900091, readerName: 'Builder Alt', readerIsMain: false, book: bookSt(1, { reader: 900091, readerName: 'Builder Alt', types: 812, pages: 3 }) }));
+      marketsAnswer.hubs.push(hubSt(BELL, 'UALX-3 - Mothership Bellicose', 'added', { reader: 900091, readerName: 'Builder Alt', readerIsMain: false, book: bookSt(1, { reader: 900091, readerName: 'Builder Alt', readBy: 900091, readByName: 'Builder Alt', types: 812, pages: 3 }) }));
       await page.locator('[data-industry="home-add"] button', { hasText: 'UALX-3 - Mothership Bellicose' }).click();
       await page.waitForTimeout(1200);
       const addWanted = JSON.stringify([['set', { hub: BELL, name: 'UALX-3 - Mothership Bellicose', systemId: 30004807, reader: 900091 }], ['read', BELL]]);
       if (JSON.stringify(posted.splice(0)) !== addWanted) problems.push(`adding Bellicose as Builder Alt didn’t go to the cloud as asked: ${addWanted}`);
+      if (!/Added Mothership Bellicose\. Its own market was read \d+ min ago with Builder Alt’s login/.test(await toasted())) problems.push(`adding Bellicose doesn’t toast what its read did: “${(await toasted()).slice(0, 300)}”`);
       const bell = await rowText(BELL);
-      if (!bell.includes('Its own market was read 1 min ago with Builder Alt’s login: 812 of the watched items listed there (3 pages).')) problems.push(`Bellicose’s row doesn’t say it was read by Builder Alt: “${bell.slice(0, 400)}”`);
+      if (!bell.includes('Mothership Bellicose (UALX-3)') || !/Its own market was read \d+ min ago with Builder Alt’s login: 812 of the watched items listed there \(3 pages\)\./.test(bell)) problems.push(`Bellicose’s row doesn’t say it was read by Builder Alt: “${bell.slice(0, 400)}”`);
       if (await page.locator('[data-industry="bellicose"]').count()) problems.push('Bellicose added, and the section still names it as one to add');
       // Its read cut short three hours after its last good one: said, and nothing prices it.
-      marketsAnswer.hubs[2].book = bookSt(5, { at: iso(now - 3 * 3600_000), error: 'Cut short at page 31 of 80 by the cloud’s time limit', reader: 900091, readerName: 'Builder Alt' });
-      booksAnswer[BELL] = { hub: BELL, at: iso(now - 3 * 3600_000), rows: {} };
+      marketsAnswer.hubs[2].book = bookSt(5, { at: agoIso(180), error: 'Cut short at page 31 of 80 by the cloud’s time limit', reader: 900091, readerName: 'Builder Alt', readBy: 900091, readByName: 'Builder Alt' });
+      booksAnswer[BELL] = { hub: BELL, at: agoIso(180), rows: {} };
       await section();
       const cut = await rowText(BELL);
-      for (const s of ['Its own market’s last read, 5 min ago, failed (cut short at page 31 of 80 by the cloud’s time limit). The last good read was 3 h ago.', 'Nothing: Goonmetrics doesn’t track it'])
-        if (!cut.includes(s)) problems.push(`Bellicose cut short doesn’t say “${s}”: “${cut.slice(0, 400)}”`);
-      // Removed: the cloud asked, and it stops being the home hub if it was.
+      if (!/Its own market’s last read, \d+ min ago, failed \(cut short at page 31 of 80 by the cloud’s time limit\)\. The last good read was 3 h ago\./.test(cut) || !cut.includes('Nothing: Goonmetrics doesn’t track it'))
+        problems.push(`Bellicose cut short isn’t said with its last good read, or something prices it: “${cut.slice(0, 400)}”`);
+      // Removed: the cloud asked.
       await page.locator(`${SEC} [data-hub="${BELL}"] button`, { hasText: 'Remove' }).click();
       await page.waitForTimeout(800);
       if (JSON.stringify(posted.splice(0)) !== JSON.stringify([['drop', BELL]])) problems.push('removing Bellicose didn’t ask the cloud');
       // The cloud's list a version behind: said, Goonmetrics' two still listed with their prices.
-      const kept = marketsAnswer;
       marketsAnswer = 404;
       await section();
       if (!(await text('[data-industry="home-list-said"]')).includes('The cloud is a version behind: reading a market with your characters comes once it’s updated. Goonmetrics’ prices stand in.')) problems.push('a cloud without the home markets route isn’t said as a version behind');
       if (!(await rowText(UALX_HUB)).includes('Goonmetrics, read 5 h ago')) problems.push('with the cloud a version behind, UALX-3 isn’t priced by Goonmetrics');
-      marketsAnswer = kept;
+      // The deploy-day state: the main's own cloud login, handed over before the permission was asked (Review Focus 4). A login to
+      // hand over again, never a failure or a refusal.
+      marketsAnswer = { hubs: [hubSt(UALX_HUB, 'UALX-3 - 1st Byzantigoon', 'default', { login: 'permission' }), hubSt(1049588174021, 'C-J6MT - Ceci n’est pas une keeptar', 'default', { login: 'permission' })] };
+      await section();
+      const deploy = await rowText(UALX_HUB);
+      if (!deploy.includes('Reading its own market needs EVE’s permission for structure markets: log in again here, then hand the cloud your login again (Settings → Your data).') || /refused|failed/.test(deploy))
+        problems.push(`the main’s cloud login without the permission doesn’t read as a login to hand over again: “${deploy.slice(0, 400)}”`);
     }
 ```
 
+The section also joins the plain page loads and the phone's edge check. In `scripts/pages.mjs`, `PAGES` gains
+`'hustles/industry/home'` after `'hustles/industry/copies'`, and the plain loads wait for it as for the other sections (beside the
+`hustles/industry/copies` line):
+
+```js
+      else if (hash === 'hustles/industry/home') { await page.waitForSelector('[data-industry="home"]', { timeout: 30_000 }).catch(() => {}); await page.waitForTimeout(800); }
+```
+
+so the empty, small and large ledgers draw it (React warnings and throws fail them) and `check-phone` measures it at 390 (`overflow`
+runs on every plain load); the block above measures it too, with the hubs listed.
+
 - [ ] **Step 5: Run everything; plant; notes; commit**
 
-Run: `npm run check && npm run build && LEDGER=industry npm run check-pages && LEDGER=industry npm run check-phone`. Plant and see the
-page check fail: drop the `r.state.off ? 0` (Nobody reads as you); make Remove skip `cloudDropHomeMarket`; make `listWhy` return null
-for `behind`. Look at the section at 1,440 and 390 (`SHOTS=.playwright-mcp/industry4/18C LEDGER=industry npm run check-pages`): the
+Run: `npm run check && npm run build && npm run check-pages && npm run check-phone` (the plain loads now draw the section). Plant and
+see the page check fail: drop the `r.state.off ? 0` (Nobody reads as you); make Remove skip `cloudDropHomeMarket`; make `listWhy`
+return null for `behind`; toast a fixed "the cloud has read it" on adding (the toast check); name rows by `r.name` (the "(UALX-3)"
+checks). Look at the section at 1,440 and 390 (`SHOTS=.playwright-mcp/industry4/18C LEDGER=industry npm run check-pages`): the
 five sections' switch in one row at 1,440 and none alone at 390, the rows folded at 390.
 
 Notes: `docs/notes/industry.md`, stage 4: **The Home markets section** (`IndustryHome.tsx`, `hustles/industry/home`): what each row
@@ -2799,7 +3007,7 @@ In `src/components/hustles/IndustryHome.tsx`: import `useMemo`, `fmtShort` (form
  * What your orders at a hub paid as broker fee (hubFeeRate), the newest of any character's: offered with Use this, never applied by
  * itself (the measured facility tax's pattern); "about the same" within ±0.05% of the fee typed.
  */
-export function HubFeeLine({ hub, chars, typed, onUse, para }: { hub: number; chars: IndustryChar[]; typed: number | null; onUse: (rate: number) => void; para?: string }) {
+export function HubFeeLine({ hub, chars, typed, onUse, para, phone }: { hub: number; chars: IndustryChar[]; typed: number | null; onUse: (rate: number) => void; para?: string; phone?: boolean }) {
   const m = useMemo(() => chars.map((x) => ({ c: x, f: hubFeeRate(hub, x.orders, x.journal) })).filter((x): x is { c: IndustryChar; f: HubFee } => !!x.f)
     .sort((a, b) => Date.parse(b.f.newest) - Date.parse(a.f.newest))[0] ?? null, [hub, chars]);
   // Nothing measured draws nothing, not an empty paragraph (Build shows a hub on every load, most with no order placed there).
@@ -2807,10 +3015,12 @@ export function HubFeeLine({ hub, chars, typed, onUse, para }: { hub: number; ch
   const whose = m.c.isMain ? 'Your' : `${m.c.name}’s`;
   const what = m.f.orders === 1 ? `order there of ${fmtShort(m.f.newest)} paid` : `${m.f.orders} orders there (the newest of ${fmtShort(m.f.newest)}) paid`;
   const spread = taxesDiffer(m.f.low, m.f.high) ? ` (${pct(m.f.low)} to ${pct(m.f.high)})` : '';
+  // The phone fold's copy is marked apart: two copies of one marker in a row would make a strict lookup find neither.
+  const mark = (k: string) => (phone ? `${k}-phone` : k);
   const line = typed != null && !taxesDiffer(typed, m.f.rate)
-    ? <span className="sub" data-industry="hub-fee-agrees">{whose} {what} about the same ({pct(m.f.rate)}).</span>
+    ? <span className="sub" data-industry={mark('hub-fee-agrees')}>{whose} {what} about the same ({pct(m.f.rate)}).</span>
     : (
-      <span className="sub" data-industry="hub-fee-measured">
+      <span className="sub" data-industry={mark('hub-fee-measured')}>
         {whose} {what} {pct(m.f.rate)}{spread}:{' '}
         <button type="button" className="link-btn" onClick={() => onUse(Math.round(m.f.rate * 1e6) / 1e6)}>Use this</button>
       </span>
@@ -2820,8 +3030,9 @@ export function HubFeeLine({ hub, chars, typed, onUse, para }: { hub: number; ch
 }
 ```
 
-In `HubLine`, under the `NumChip` in the Broker fee cell, `<HubFeeLine hub={r.id} chars={chars} typed={fee} onUse={(n) => setFee(n)} />`,
-and in the phone fold, after the broker fee's span, the same line again (`rd-phone` spans can hold it).
+In `HubLine`, the fee cell becomes `<td className="rd-wide" data-industry="hub-fee">{feeChip}<HubFeeLine hub={r.id} chars={chars}
+typed={fee} onUse={(n) => setFee(n)} /></td>`, and in the phone fold, after the broker fee's span, `<HubFeeLine hub={r.id} chars={chars}
+typed={fee} onUse={(n) => setFee(n)} phone />` (marked `…-phone`, so each width finds one). Import `pct` again from format.ts.
 
 In `src/components/hustles/IndustryBuild.tsx`: import `HubFeeLine` from `'./IndustryHome'`; under the `home-said` paragraph:
 
@@ -2849,10 +3060,12 @@ In `scripts/pages.mjs`, inside the industry case above `// --- the end of the in
       await seed({ ...withOrder, industry: { ...DOC, hub: BELL }, cloud: CLOUD_STATE }, { alts: altStore });
       await page.goto(`${BASE}#hustles/industry/home`);
       await page.reload();
-      await page.waitForSelector(`[data-hub="${BELL}"] [data-industry="hub-fee-measured"]`, { timeout: 30_000 }).catch(() => problems.push('Bellicose’s row never offered the fee its order paid'));
-      const offer = await text(`[data-hub="${BELL}"] [data-industry="hub-fee-measured"]`);
+      // One marker for each width: the fee cell's at 1,440, the row's phone fold's at 390 (the other is hidden).
+      const M = PHONE ? 'hub-fee-measured-phone' : 'hub-fee-measured';
+      await page.waitForSelector(`[data-hub="${BELL}"] [data-industry="${M}"]`, { timeout: 30_000 }).catch(() => problems.push('Bellicose’s row never offered the fee its order paid'));
+      const offer = await text(`[data-hub="${BELL}"] [data-industry="${M}"]`);
       if (!offer.includes(`Your order there of ${day} paid 1.20%: Use this`)) problems.push(`the measured fee isn’t offered in its words: “${offer}”`);
-      await page.locator(`[data-hub="${BELL}"] [data-industry="hub-fee-measured"] button`, { hasText: 'Use this' }).first().click();
+      await page.locator(`[data-hub="${BELL}"] [data-industry="${M}"] button`, { hasText: 'Use this' }).click();
       for (let i = 0; i < 100 && (await storedFees())[BELL] !== 0.012; i++) await page.waitForTimeout(100);
       if ((await storedFees())[BELL] !== 0.012) problems.push('Use this didn’t set Bellicose’s broker fee to 1.20% in the industry doc');
       if (!(await text(`[data-hub="${BELL}"]`)).includes(`Your order there of ${day} paid about the same (1.20%).`)) problems.push('after Use this, Bellicose’s row doesn’t say the order agrees');
@@ -3090,7 +3303,7 @@ and in `refreshHomePrices`:
       const homeUnread = r.missing === 'noBook' && !!f.hub && doc.sell !== 'jita' && !(f.home.read && !f.home.unread.has(r.product));
       const key = own ? `noSale:${own}` : invWhy ? `noInvention:${invWhy}` : homeUnread ? 'noBook:unread' : r.missing;
       const e = n.get(key) ?? { n: 0, said: own ? () => `can’t be sold: ${own}` : invWhy ? () => `Tech II can’t be costed: ${invWhy}`
-        : r.missing === 'noBook' && f.hub && doc.sell !== 'jita' ? (one) => `${one ? 'has' : 'have'} no Jita book this morning and ${homeUnread ? `${one ? 'isn’t' : 'aren’t'} read at ${f.hub!.short} yet` : `no price at ${f.hub!.short}`}` : MISSING_SAID[r.missing] };
+        : r.missing === 'noBook' && f.hub && doc.sell !== 'jita' ? (one) => `${one ? 'has' : 'have'} no Jita book this morning and ${homeUnread ? `${one ? 'isn’t' : 'aren’t'} read at ${f.hub!.short} yet` : `${f.home.speaks?.source === 'structure' ? 'none listed' : 'no price'} at ${f.hub!.short}`}` : MISSING_SAID[r.missing] };
 ```
 
   (the `why` memo's dependencies gain `f.home`). The stage-1 page check ("after UALX-3's read, a type with no price there isn't said as
@@ -3135,12 +3348,13 @@ Claude-Session: https://claude.ai/code/session_01D3Zx5fms2TWhEQgdkabhCf"
 - The controller's whole-branch review, then the merge and `npm run deployed` as CLAUDE.md says. The deploy of the Worker applies
   migration 0021; the first `37` round after it reads Goonmetrics' two with the main's cloud login, which **lacks the permission
   until the user logs in again and hands it over** (Task 16): until then the section says so for both hubs ("Reading its own market
-  needs EVE's permission for structure markets: log in again here, then hand the cloud your login"), and Goonmetrics' prices stand
-  in. Once handed over, both are refused hourly (the user isn't in the Imperium) until a character is accepted.
-- Tell the user, in the hand-off, in this order: log in again on the PC (Settings → Account); hand the cloud the main's login
-  (Settings → Your data) soon after, since the watchdog mails "Cloud lost your login" once EVE's refusal of the old one has lasted
-  ten minutes (the cloud notices when its cached access token runs out, up to twenty minutes after the relog), and To do lists it
-  until then; log in again on the phone; hand over each alt on Characters when it should read a market or search structures. The
-  sender's login needs nothing.
+  needs EVE's permission for structure markets: log in again here, then hand the cloud your login again"), and Goonmetrics' prices
+  stand in. Once handed over, both are asked hourly and said calmly ("Owner isn't on UALX-3's access list yet: Goonmetrics' prices
+  stand in", Ruling 1) until a character is accepted; nothing goes on To do and nothing is mailed.
+- The controller tells the user at ship (Ruling 4), in this order: log in again on the PC (Settings → Account); hand the cloud the
+  main's login (Settings → Your data) straight after; then log in again on the phone; then hand over each alt on Characters when it
+  should read a market or search structures. And that if the main's login isn't handed over, the watchdog mails "Cloud lost your
+  login" about 10 to 30 minutes after the relog (the cloud notices when its cached access token runs out, up to twenty minutes on,
+  and mails once the refusal has lasted ten), and To do lists it until then. The sender's login needs nothing.
 - After shipping, in `docs/notes/industry.md`: the first real refusal's status and `error`, the first real structure read's page
   count, types kept and row size, how long a page takes, and the first home-hub order's broker fee entries (Task 18D's note).
