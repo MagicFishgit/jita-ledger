@@ -29,6 +29,7 @@ import { blueprintMarket } from './blueprints';
 import { abyssCells, abyssFit, refreshAbyss } from './abyss';
 import { npcRows } from './industryNpc';
 import { BUDGET_MS, homePrices, refreshHomePrices } from './goonmetrics';
+import { searchStructures } from './structures';
 import { COPIES_BUDGET_MS, copiesFor, refreshCopies } from './copies';
 
 export interface Env {
@@ -357,6 +358,13 @@ export default {
       if (url.pathname === '/v1/industry/npc' && request.method === 'GET') return json(await npcRows(env.DB), 200, c);
       // A home hub's prices as the cloud last read them from Goonmetrics (goonmetrics.ts); 400 for a hub it doesn't read.
       if (url.pathname === '/v1/home/prices' && request.method === 'GET') return json(await homePrices(env.DB, Number(url.searchParams.get('hub'))), 200, c);
+      // A structure search as one of your characters, with its own login (structures.ts): the browser holds no alt's login.
+      if (url.pathname === '/v1/structures/search' && request.method === 'POST') {
+        const body = (await request.json()) as { char?: unknown; q?: unknown };
+        const char = Number(body.char);
+        if (!Number.isInteger(char) || char <= 0) throw new BadRequest('Say which character searches');
+        return json(await searchStructures(env, who.charId, char, String(body.q ?? '')), 200, c);
+      }
       // What copies sold for in The Forge over the last week, and the asks now (copies.ts); null before the cloud's first read.
       if (url.pathname === '/v1/copies' && request.method === 'GET') return json(await copiesFor(env.DB), 200, c);
       // Abyss Tracker, read by the cloud for the Abyssal page: every tier and weather, and one fit when it's opened.

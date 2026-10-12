@@ -630,3 +630,10 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   here, then hand the cloud the main's login, then log in on any other device, alts on Characters when wanted. The sender's login
   (`MAILER_SCOPES`) is untouched; an alt handed over again gains it (`loginAltForCloud` asks `SCOPES`). Handing the cloud a login first would
   stop this browser's own (`stoppedBy` already says so after the fact).
+
+- **The cloud's structure search** (`POST /v1/structures/search`, `worker/src/structures.ts`, Task 17A): ESI searches the structures a
+  character can see only with that character's own login, and the browser never holds an alt's. It runs as the main or an alt on the
+  roster, with that character's login (`ledgerReader` / `altReader`); anyone else is refused before EVE is asked, and so is a login handed
+  over without the search or structure permissions (said, with where to hand it over: Characters, or Settings → Your data for the main).
+  It writes nothing: the found structures go back to the browser, which adds the one picked. A structure the character can't read (403/404)
+  is left out, as the browser's `structureInfo` does; each system is read publicly, once for all the structures in it.

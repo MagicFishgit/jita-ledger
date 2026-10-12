@@ -1779,5 +1779,72 @@ console.log('\n--- what copies sell, read every six hours by the cloud (Task 14A
     (await refreshCopies(dbT, B + 120_000 + H, { read: async () => ({ ...snap(0), etag: '"v0b"' }) })).done, JSON.parse(dbT.rows("SELECT data FROM scan_meta WHERE key = 'copies'")[0].data).etag], ['"v0"', 'same', '"v0b"']);
 }
 
+console.log('\n--- the cloud searches structures as an alt, with the alt\'s own login (Task 17A) ---');
+{
+  const { searchStructures } = await import('../worker/src/structures.ts');
+  const SEARCH = 'esi-search.search_structures.v1', READ = 'esi-universe.read_structures.v1';
+  const setup = async (altScopes = [...SCOPES, SEARCH, READ]) => {
+    const db = d1();
+    await keepKey(db, MAIN, 'main', MAIN, 'Main', [...SCOPES, SEARCH, READ]);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', altScopes);
+    db.run('INSERT INTO alts (char_id, ledger, name, added_at) VALUES (?, ?, ?, ?)', ALT, MAIN, 'Miner Two', Date.now());
+    return { db, env: testEnv(db) };
+  };
+  const BELL = 1049999999999, BYZ = 1046664001931, HIDDEN = 1048888888888;
+  // Whose login a call carried: the character in its access token's `sub`, or null for a public read.
+  const whoAsked = (init) => { const t = (init.headers?.Authorization ?? '').replace('Bearer ', ''); return t ? JSON.parse(Buffer.from(t.split('.')[1], 'base64').toString()).sub : null; };
+  const routes = (seen) => [
+    [`/characters/${ALT}/search/`, (url, init) => { seen.push(['search', whoAsked(init), url.searchParams.get('categories'), url.searchParams.get('search'), url.searchParams.get('strict')]); return { structure: [BELL, HIDDEN, BYZ] }; }],
+    [`/universe/structures/${BELL}/`, (url, init) => { seen.push(['structure', whoAsked(init)]); return { name: 'UALX-3 - Mothership Bellicose', owner_id: 98000001, solar_system_id: 30004807, type_id: 35834 }; }],
+    [`/universe/structures/${BYZ}/`, (url, init) => { seen.push(['structure', whoAsked(init)]); return { name: 'UALX-3 - 1st Byzantigoon', owner_id: 98000002, solar_system_id: 30004807, type_id: 35834 }; }],
+    [`/universe/structures/${HIDDEN}/`, () => new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 })],
+    ['/universe/systems/30004807/', (url, init) => { seen.push(['system', whoAsked(init)]); return { name: 'UALX-3', security_status: -0.18676190078258514, constellation_id: 20000703 }; }],
+  ];
+  {
+    const { db, env } = await setup();
+    const before = counts(db), seen = [];
+    const f = stubFetch(routes(seen));
+    const r = await searchStructures(env, MAIN, ALT, ' Bell ');
+    f.restore();
+    eq('  found as the alt: what it can read, in ESI\'s order; one it can\'t read left out', r.found, [
+      { id: BELL, name: 'UALX-3 - Mothership Bellicose', systemId: 30004807, system: 'UALX-3', security: -0.18676190078258514, typeId: 35834 },
+      { id: BYZ, name: 'UALX-3 - 1st Byzantigoon', systemId: 30004807, system: 'UALX-3', security: -0.18676190078258514, typeId: 35834 }]);
+    eq('    the search and each structure with the alt\'s own login; the system read publicly, once', seen, [
+      ['search', `CHARACTER:EVE:${ALT}`, 'structure', 'Bell', 'false'], ['structure', `CHARACTER:EVE:${ALT}`], ['system', null], ['structure', `CHARACTER:EVE:${ALT}`]]);
+    eq('    nothing written under anyone', counts(db), before);
+  }
+  {
+    const { env } = await setup();
+    const f = stubFetch(routes([]));
+    await rejects('  a character not on the roster is refused before EVE is asked', () => searchStructures(env, MAIN, 900555, 'Bellicose'), /isn’t one of yours/);
+    await rejects('  fewer than three letters', () => searchStructures(env, MAIN, ALT, 'Be'), /three letters/);
+    eq('    neither asked EVE anything', f.calls.length, 0);
+    f.restore();
+  }
+  {
+    const { env } = await setup(SCOPES);
+    const f = stubFetch(routes([]));
+    await rejects('  an alt\'s login handed over without the search permission: said, with where to fix it', () => searchStructures(env, MAIN, ALT, 'Bellicose'), /Miner Two’s login was handed over without EVE’s permission to search structures: hand it over again on Characters/);
+    eq('    and EVE wasn\'t asked', f.calls.length, 0);
+    f.restore();
+  }
+  {
+    const { db, env } = await setup();
+    db.run(`DELETE FROM keys WHERE purpose = 'alt:${ALT}'`);
+    await rejects('  an alt with no login kept: said', () => searchStructures(env, MAIN, ALT, 'Bellicose'), /holds no login for Miner Two/);
+  }
+  {
+    // An alt whose login EVE refuses: its access token stale, EVE's token route answering 400 (useLogin marks it refused).
+    const db = d1();
+    await keepKey(db, MAIN, 'main', MAIN, 'Main', [...SCOPES, SEARCH, READ]);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', [...SCOPES, SEARCH, READ], { expired: true });
+    db.run('INSERT INTO alts (char_id, ledger, name, added_at) VALUES (?, ?, ?, ?)', ALT, MAIN, 'Miner Two', Date.now());
+    const f = stubFetch([['/v2/oauth/token', () => new Response(JSON.stringify({ error: 'invalid_grant', error_description: 'Character grant missing/expired' }), { status: 400 })], ...routes([])]);
+    await rejects('  an alt whose login EVE refuses: said in the login\'s own words', () => searchStructures(testEnv(db), MAIN, ALT, 'Bellicose'), /EVE refused the cloud’s login for Miner Two/);
+    eq('    and no search was asked', f.calls.filter((c) => c.path.endsWith('/search/')).length, 0);
+    f.restore();
+  }
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

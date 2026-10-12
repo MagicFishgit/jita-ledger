@@ -5,7 +5,7 @@ paths:
   - "src/components/FindStructure.tsx"
   - "src/data/{industry,industryEiv,industryTypes}.json"
   - "scripts/industry-bundle.mjs"
-  - "worker/src/{industryNpc,goonmetrics,industryJobs,copies}.ts"
+  - "worker/src/{industryNpc,goonmetrics,industryJobs,copies,structures}.ts"
   - "worker/migrations/{0018_industry_npc,0019_home_prices,0020_copies}.sql"
 ---
 

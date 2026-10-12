@@ -59,6 +59,9 @@ logs in to the app) and the browser's side.
 - **What isn't done for an alt**: order refresh and judging, alerts, opportunity mail, the track record, share
   measuring, the Sniper's bids, asset-safety mail, killmails, the `orders` job row. An alt's first `archive` would
   otherwise mail the main about every wrap it holds.
+- **An alt's login now also serves two requests of the owner's** (Industry stage 4): a structure search when a site or home market is
+  added as that alt (`POST /v1/structures/search`), and the hourly read of a home market the alt is the reader of (`home_books`, keyed by
+  structure, never under the alt or the main).
 - **Clone state is worked out, and can be unknown** (`cloneState`): Alpha when a skill is usable below its trained
   level, Omega when one is usable above Alpha's cap (`lib/alphaCaps.ts`, from CCP's `cloneGrades.jsonl`), else it can't
   be told. "Since" is kept only for a change the cloud saw.
