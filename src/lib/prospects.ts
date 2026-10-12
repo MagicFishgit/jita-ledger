@@ -564,7 +564,7 @@ export function isWall(levels: BookLevel[], unitsPerDay?: number): boolean {
 }
 
 /**
- * Price levels a book summary keeps a side: the cloud's full scan (`LEVELS` in worker/src/scan.ts), the browser's book reads
+ * Price levels a book summary keeps a side: the cloud's full scan (`LEVELS` in src/lib/bookFold.ts), the browser's book reads
  * (`levels(…, 7)` in market.ts) and the cloud's watched books (`bookOf` in worker/src/alerts.ts). A side with fewer was read
  * whole.
  */

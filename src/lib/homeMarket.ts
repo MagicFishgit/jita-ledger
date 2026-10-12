@@ -67,7 +67,7 @@ export const homeQuote = (row: HomeRow | undefined): HomeQuote | null => (row ? 
 /** Whether a reader's login, as the cloud keeps it, can read a structure's market: worked out from the cloud's keys, never by asking EVE. */
 export type HubLogin = 'ok' | 'permission' | 'refused' | 'none' | 'notYours';
 /** A hub's own market as the cloud last read it: the last good read (`at`, null before one, and whose it was: `readBy`) and the last try (when, whose, why it failed). */
-export type HubBook = { at: string | null; tried: string; error: string | null; refusedAt: string | null; pages: number | null; types: number; reader: number | null; readerName: string | null; readBy: number | null; readByName: string | null };
+export type HubBook = { at: string | null; tried: string; error: string | null; refusedAt: string | null; pages: number | null; types: number | null; reader: number | null; readerName: string | null; readBy: number | null; readByName: string | null };
 /**
  * A home market as `GET /v1/home/markets` gives it (worker/src/homeMarkets.ts): Goonmetrics' two (`default`, read with the main
  * unless you chose otherwise, `off` when you stopped reading one) and those you added; its reader, whether that login can read it,

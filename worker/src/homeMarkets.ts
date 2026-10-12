@@ -14,8 +14,14 @@ import { altPurpose, altReader, EveError, esiGet, HEADERS, ledgerReader, readerL
 import { BadRequest } from './sync';
 
 export const SCOPE_STRUCTURE_MARKETS = 'esi-markets.structure_markets.v1';
-/** A hub is read again once its last try is this old: hourly, on a cron at :37, with the alts' read ahead of it varying. */
-export const BOOK_DUE_MS = 50 * 60_000;
+/**
+ * A hub is read again once its last try is this old: hourly, on a cron at :37. `tried` is stamped when the step reaches the hub, about
+ * a minute past :37 on an ordinary hour and up to about 13½ on the worst (the alts' read, Goonmetrics and the copy round run ahead of
+ * it, and no page starts past 14 minutes). A hub stamped at :50:30 is only 47.5 minutes old when the next hour's step starts at :38,
+ * so 50 would skip it and read it two hours on, in exactly the hour that cut it short. The deadline bounds that variance and the cron
+ * is hourly, so 45 can neither skip a hub nor read one twice in an hour.
+ */
+export const BOOK_DUE_MS = 45 * 60_000;
 /** No page is asked for past this from the cron's time: the invocation stops at 15 minutes. */
 export const BOOKS_BUDGET_MS = 14 * 60_000;
 /** A market over this many pages isn't read at all: part of one is never stored. */
@@ -116,6 +122,12 @@ export async function readHomeBook(env: Env, ledger: number, hub: { id: number; 
         await stamp(error, false);
         return { done: 'cut', error };
       }
+      // The token is asked for again before each page: `useLogin` may hand back one with only two minutes left, and a read of a
+      // hundred pages outlasts that. ESI answers an expired token with a 403, which would be stamped as the structure refusing this
+      // reader. It returns the cached token while it has time, so how logins refresh is unchanged.
+      const again = await readerLogin(env, who);
+      if (!again) throw new Error('The reader’s login is no longer kept');
+      token = again.access;
       foldStructurePage(aggs, (await page(hub.id, p, token, deadline)).orders, want);
     }
   } catch (e) {
@@ -184,7 +196,7 @@ export async function homeMarketsFor(db: D1Database, ledger: number): Promise<{ 
       reader: h.reader, readerName: await nameOf(h.reader), readerIsMain: h.reader === ledger, login: await loginOf(db, ledger, h.reader),
       book: b ? {
         at: b.at > 0 ? iso(b.at) : null, tried: iso(b.tried), error: b.error, refusedAt: b.refusedAt != null ? iso(b.refusedAt) : null,
-        pages: b.pages, types: b.types, reader: b.reader, readerName: b.reader != null ? await nameOf(b.reader) : null,
+        pages: b.pages, types: b.at > 0 ? b.types : null, reader: b.reader, readerName: b.reader != null ? await nameOf(b.reader) : null,
         readBy: b.readBy, readByName: b.readBy != null ? await nameOf(b.readBy) : null,
       } : null,
     });
@@ -214,8 +226,14 @@ export async function setHomeMarket(db: D1Database, ledger: number, body: { hub?
   if (!isStructure(hub)) throw new BadRequest('Say which structure: its ID');
   if (!Number.isInteger(reader) || (reader !== ledger && !(await onRoster(db, ledger, reader)))) throw new BadRequest('That character isn’t one of yours');
   const known = HOME_HUBS.find((h) => h.id === hub);
-  const row = await db.prepare('SELECT name, system_id AS systemId, region_id AS regionId FROM home_markets WHERE ledger = ?1 AND structure_id = ?2')
-    .bind(ledger, hub).first<{ name: string; systemId: number; regionId: number }>();
+  const row = await db.prepare('SELECT name, system_id AS systemId, region_id AS regionId, removed_at AS removedAt FROM home_markets WHERE ledger = ?1 AND structure_id = ?2')
+    .bind(ledger, hub).first<{ name: string; systemId: number; regionId: number; removedAt: number | null }>();
+  // Going live as one of the added hubs (new, or one removed and added back) counts against the cap; a default or a live hub changing reader doesn't.
+  if (!known && (!row || row.removedAt != null)) {
+    const added = (await db.prepare('SELECT structure_id AS id FROM home_markets WHERE ledger = ?1 AND removed_at IS NULL').bind(ledger).all<{ id: number }>()).results
+      .filter((r) => !HOME_HUBS.some((h) => h.id === r.id)).length;
+    if (added >= MAX_ADDED) throw new BadRequest(`${MAX_ADDED} home markets is the most the cloud reads, besides Goonmetrics’ two: remove one to add another`);
+  }
   let name: string, systemId: number, regionId: number;
   if (known) ({ name, systemId, regionId } = { name: known.name, systemId: known.systemId, regionId: known.region });
   else if (row) ({ name, systemId, regionId } = row);
@@ -223,9 +241,6 @@ export async function setHomeMarket(db: D1Database, ledger: number, body: { hub?
     name = typeof body.name === 'string' && body.name.trim() && body.name.length <= 120 ? body.name.trim() : '';
     systemId = Number(body.systemId);
     if (!name || !Number.isInteger(systemId) || systemId < 30_000_000 || systemId >= 33_000_000) throw new BadRequest('A new home market needs its name and system');
-    const added = (await db.prepare('SELECT structure_id AS id FROM home_markets WHERE ledger = ?1 AND removed_at IS NULL').bind(ledger).all<{ id: number }>()).results
-      .filter((r) => !HOME_HUBS.some((h) => h.id === r.id)).length;
-    if (added >= MAX_ADDED) throw new BadRequest(`${MAX_ADDED} home markets is the most the cloud reads, besides Goonmetrics’ two: remove one to add another`);
     regionId = await regionOf(systemId);
   }
   await db.prepare(`INSERT INTO home_markets (ledger, structure_id, name, system_id, region_id, reader, added_at, removed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL)

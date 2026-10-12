@@ -1902,8 +1902,8 @@ console.log('\n--- home markets: a structure\'s own market, read hourly by the c
     eq('    a refusal kept: when, by whom, why, and nothing read', book(db, UALX), { at: 0, tried: NOW, reader: MAIN, error: 'ESI 403: Market access denied', refusedAt: NOW, pages: null, types: 0 });
     eq('    a hub never read: no book', await H.homeBookFor(db, MAIN, UALX), null);
     const list = (await H.homeMarketsFor(db, MAIN)).hubs;
-    eq('  GET /v1/home/markets: each hub, its reader and login, its own reads', list.map((h) => [h.id, h.kept, h.off, h.reader, h.readerName, h.readerIsMain, h.login, h.book?.refusedAt ?? null, h.book?.types ?? null]), [
-      [UALX, 'default', false, MAIN, 'Main', true, 'ok', new Date(NOW).toISOString(), 0], [CJ, 'default', false, MAIN, 'Main', true, 'ok', new Date(NOW).toISOString(), 0],
+    eq('  GET /v1/home/markets: each hub, its reader and login, its own reads (types null, not 0, for a hub never read)', list.map((h) => [h.id, h.kept, h.off, h.reader, h.readerName, h.readerIsMain, h.login, h.book?.refusedAt ?? null, h.book?.types ?? null]), [
+      [UALX, 'default', false, MAIN, 'Main', true, 'ok', new Date(NOW).toISOString(), null], [CJ, 'default', false, MAIN, 'Main', true, 'ok', new Date(NOW).toISOString(), null],
       [BELL, 'added', false, ALT, 'Miner Two', false, 'ok', null, 3]]);
     // Within the hour nothing is asked again; an hour on, every hub again, least recently read first: by its last good read, not its
     // last try (the two refused were tried ten minutes after Bellicose was read, so by the try Bellicose would go first).
@@ -1988,6 +1988,45 @@ console.log('\n--- home markets: a structure\'s own market, read hourly by the c
     await rejects('  removing a hub you never added', () => H.dropHomeMarket(db, MAIN, 1047777777777, NOW), /Not one of your home markets/);
     for (let i = 0; i < H.MAX_ADDED; i++) db.run('INSERT INTO home_markets (ledger, structure_id, name, system_id, region_id, reader, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)', MAIN, 1047000000000 + i, `Hub ${i}`, 30004807, 10000061, MAIN, NOW);
     await rejects('  ten added is the most', () => H.setHomeMarket(db, MAIN, { hub: 1047999999999, name: 'One more', systemId: 30004807, reader: MAIN }, NOW), /10 home markets is the most/);
+    db.run('INSERT INTO home_markets (ledger, structure_id, name, system_id, region_id, reader, added_at, removed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', MAIN, 1047888888888, 'Removed once', 30004807, 10000061, MAIN, NOW, NOW);
+    await rejects('  an eleventh re-added from removed: refused with the cap\'s message', () => H.setHomeMarket(db, MAIN, { hub: 1047888888888, reader: MAIN }, NOW), /10 home markets is the most/);
+    await H.setHomeMarket(db, MAIN, { hub: 1047000000000, reader: ALT }, NOW);
+    eq('    a live hub changing reader is not counted again', db.rows('SELECT reader FROM home_markets WHERE structure_id = ?', 1047000000000)[0].reader, ALT);
+  }
+
+  // The hour's variance: a hub tried late in one hour is due at the next hour's start (BOOK_DUE_MS).
+  {
+    const { db, env } = await setup();
+    await addBell(db);
+    await H.dropHomeMarket(db, MAIN, UALX, NOW);
+    await H.dropHomeMarket(db, MAIN, CJ, NOW);
+    db.run('INSERT INTO home_books (structure_id, at, data, pages, types, tried, reader, read_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', BELL, NOW, '{}', 1, 0, NOW + 12.5 * 60_000, ALT, ALT);
+    const r = await round(env, [[`/markets/structures/${BELL}/`, pagesOf([PAGE1])]], NOW + HOUR);
+    eq('  a hub tried at :50:30 is due at the next hour\'s :38 (47.5 minutes on)', [r.r.done[BELL], book(db, BELL).tried], ['read', NOW + HOUR]);
+  }
+
+  // A token that runs out mid-read is asked for again before the next page, and its 403 is not the structure refusing the reader.
+  {
+    const { db, env } = await setup();
+    await addBell(db);
+    await H.dropHomeMarket(db, MAIN, UALX, NOW);
+    await H.dropHomeMarket(db, MAIN, CJ, NOW);
+    const fresh = fakeToken(ALT, 'Miner Two', [...SCOPES, MARKETS], Math.floor(Date.now() / 1000) + 7200);
+    const seen = [];
+    const f = stubFetch([
+      ['/v2/oauth/token', () => ({ access_token: fresh, refresh_token: 'refresh-2' })],
+      [`/markets/structures/${BELL}/`, (url, init) => {
+        const t = (init.headers?.Authorization ?? '').replace('Bearer ', '');
+        const n = Number(url.searchParams.get('page'));
+        seen.push([n, t === fresh ? 'fresh' : 'old']);
+        // The first token runs out after page 1: with two minutes left, the stored one is replaced on the next ask.
+        if (n === 1) db.run('UPDATE keys SET access_exp = ? WHERE purpose = ?', Date.now() + 60_000, `alt:${ALT}`);
+        return t === fresh || n === 1 ? pagesOf([PAGE1, PAGE2])(url) : refused();
+      }],
+    ]);
+    let r;
+    try { r = await H.refreshHomeBooks(env, NOW, { want }); } finally { f.restore(); }
+    eq('  a token that expires mid-read: page 2 asks with a fresh one, the read lands, no refusal stamped', [r.done[BELL], seen, book(db, BELL).refusedAt, book(db, BELL).error], ['read', [[1, 'old'], [2, 'fresh']], null, null]);
   }
 
   // Read it now: one hub at once, with its reader, and its state back.
