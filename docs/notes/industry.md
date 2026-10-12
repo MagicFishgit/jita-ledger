@@ -637,3 +637,11 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   over without the search or structure permissions (said, with where to hand it over: Characters, or Settings → Your data for the main).
   It writes nothing: the found structures go back to the browser, which adds the one picked. A structure the character can't read (403/404)
   is left out, as the browser's `structureInfo` does; each system is read publicly, once for all the structures in it.
+- **FindStructure as any character** (Task 17B, 12 October 2026; `as` and `Searcher` in FindStructure.tsx, `cloudStructureSearch` in cloud.ts,
+  `FoundStructure` moved to industrySites.ts so cloud.ts doesn't import a component). The main searches with this browser's login, as before;
+  an alt through the cloud's `POST /v1/structures/search`, with its own login, which the browser never holds. Each state is said, never
+  "nothing found": the cloud switched off in this browser, a Worker a version behind (404: "The cloud is a version behind: searching as X
+  comes once it's updated"), and the Worker's own words for a login it can't use. Where you build searches as the shown character
+  (the old line "X's own aren't searched here" is gone; an alt's search needs no permission in this browser's login, only the cloud's).
+  Reprocessing passes no `as`: it searches as the main, unchanged. The page check's Builder Alt searches through a stubbed route, then the
+  route answers 404.

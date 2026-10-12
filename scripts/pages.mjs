@@ -3058,6 +3058,32 @@ try {
       if (acct.includes('then log out and in again here.')) problems.push('Settings → Account still says only “log out and in again here”');
       if (SHOTS) { await page.waitForTimeout(1800); await page.screenshot({ path: `${SHOTS}-industry-permission.png` }); }
     }
+    // --- Task 17B: a structure found by name as an alt goes through the cloud, as that alt; the cloud a version behind is said.
+    {
+      let searched = null, answer = { found: [{ id: 1049999999999, name: 'UALX-3 - Mothership Bellicose', systemId: 30004807, system: 'UALX-3', security: -0.1868, typeId: 35826 }] };
+      CLOUD['/v1/structures/search'] = (url, req, json) => { searched = JSON.parse(req.postData() ?? '{}'); return answer === 404 ? json({ error: 'Not found' }, 404) : json(answer); };
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } });
+      await page.goto(`${BASE}#hustles/industry/build`);
+      await page.reload();
+      await page.waitForSelector('[data-industry="build"]', { timeout: 20_000 }).catch(() => problems.push('Build never drew (17B)'));
+      await showFor('Builder Alt');
+      if (!(await page.locator('[data-industry="sites"]').isVisible().catch(() => false))) await page.locator('button.panel-toggle', { hasText: 'Where you build' }).click().catch(() => undefined);
+      await page.locator('[aria-label="Add a site"] button', { hasText: 'A structure by name' }).click().catch((e) => problems.push(`couldn’t pick “A structure by name”: ${e.message.split('\n')[0]}`));
+      const asText = await text('[data-industry="search-as"]');
+      if (!asText.includes('Searches as Builder Alt, through the cloud with Builder Alt’s own login')) problems.push(`under Builder Alt, the search doesn’t say it searches as the alt: “${asText}”`);
+      await page.locator('input[aria-label="Find a structure to build in by name"]').fill('Bellicose');
+      await page.locator('[data-industry="add-site"] button', { hasText: 'Find' }).click();
+      await page.waitForTimeout(800);
+      if (searched?.char !== 900091 || searched?.q !== 'Bellicose') problems.push(`the cloud wasn’t asked to search as Builder Alt: ${JSON.stringify(searched)}`);
+      if (!(await text('[data-industry="add-site"]')).toLowerCase().includes('ualx-3 - mothership bellicose')) problems.push('what the cloud found as Builder Alt isn’t listed');
+      answer = 404;
+      await page.locator('[data-industry="add-site"] button', { hasText: 'Find' }).click();
+      await page.waitForTimeout(800);
+      if (!(await text('[data-industry="find-why"]')).includes('The cloud is a version behind: searching as Builder Alt comes once it’s updated.')) problems.push('a cloud without the search route isn’t said as a version behind');
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}-industry-search-as-alt.png` });
+      await showFor('Owner');
+    }
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

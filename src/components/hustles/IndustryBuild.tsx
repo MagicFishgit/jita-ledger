@@ -235,7 +235,7 @@ export function IndustryBuild({ c, ix, graph, mainName, chars }: { c: IndustryCh
         <button type="button" className="panel-toggle" aria-expanded={sitesOpen} onClick={() => setView({ sitesOpen: !sitesOpen })}>
           <ChevronRight className="chev" aria-hidden="true" /><span className="panel-title">Where you build</span>
         </button>
-        {sitesOpen && <IndustrySites c={c} ix={ix} graph={graph} mainName={mainName} chars={chars} />}
+        {sitesOpen && <IndustrySites c={c} ix={ix} graph={graph} chars={chars} />}
       </div>
     </section>
   );

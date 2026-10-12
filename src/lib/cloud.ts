@@ -24,6 +24,7 @@ import type { Book } from './evaluate';
 import type { SnipeRead } from './snipe';
 import type { BpContract } from './bpContracts';
 import type { CopySummary } from './copyMarket';
+import type { FoundStructure } from './industrySites';
 import type { NpcRow } from './industryRank';
 import type { Sighting } from './sniped';
 import { DEFAULT_FILTERS } from './prospects';
@@ -638,6 +639,13 @@ export const cloudHomePrices = (hub: number) => call<{ off: true } | { hub: numb
  */
 export type CopiesAnswer = { off: true } | { tried: string; error: string | null } | (CopySummary & { tried: string | null; error: string | null; stale?: string | null; note?: string | null }) | null;
 export const cloudCopies = () => call<CopiesAnswer>('/v1/copies');
+
+/**
+ * A structure search run by the cloud as one of your characters, with that character's own login (`POST /v1/structures/search`):
+ * for an alt, whose login the browser never holds. A Worker a version behind answers 404 (the error's `status`); the Worker's own
+ * words say a login it can't use (none kept, or handed over without the permission).
+ */
+export const cloudStructureSearch = (char: number, q: string) => call<{ found: FoundStructure[] }>('/v1/structures/search', { method: 'POST', body: JSON.stringify({ char, q }) });
 export const cloudTestMail = () => call<{ mailId: number; about: string }>('/v1/alerts/test', { method: 'POST' });
 
 let costsSent: string | null = null;

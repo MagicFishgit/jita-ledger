@@ -133,6 +133,9 @@ export const secText = (security: number | null): string => (security == null ? 
 export const stationSite = (p: StationPick, name: string): IndustrySite =>
   ({ id: `npc:${p.stationId}`, name, systemId: p.systemId, kind: 'npc', stationId: p.stationId, rigs: [], tax: NPC_FACILITY_TAX, ...(p.lab ? { lab: true } : {}) });
 /** A site for a structure found by name: its kind from its type; rigs and tax yours to type. */
+/** A structure found by name (FindStructure, or the cloud's search as an alt): its ID, name, system, security and type. */
+export type FoundStructure = { id: number; name: string; systemId: number; system: string; security: number | null; typeId?: number };
+
 export const structureSite = (f: { id: number; name: string; systemId: number; typeId?: number }): IndustrySite =>
   ({ id: `st:${f.id}`, name: f.name, systemId: f.systemId, kind: kindOfType(f.typeId), structureId: f.id, rigs: [], tax: null });
 /** A home typed by you: a system and a kind of structure, with no structure ID, so it holds nothing known. */

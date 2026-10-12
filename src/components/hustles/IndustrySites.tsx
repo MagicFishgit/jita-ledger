@@ -30,7 +30,7 @@ const KIND_PICK: Record<SiteKind, string> = { npc: 'NPC station', raitaru: 'Rait
 const rigName = (ix: Indexed, id: number) => (ix.b.types[id]?.[0] ?? `Rig #${id}`).replace(/^Standup /, '');
 type Adding = 'near' | 'name' | 'home';
 
-export function IndustrySites({ c, ix, graph, mainName, chars }: { c: IndustryChar; ix: Indexed; graph: Graph; mainName: string; chars: IndustryChar[] }) {
+export function IndustrySites({ c, ix, graph, chars }: { c: IndustryChar; ix: Indexed; graph: Graph; chars: IndustryChar[] }) {
   const [doc, setDoc] = useIndustryDoc();
   const indices = useIndices();
   const idx = indices.state === 'ok' ? indices.value : null;
@@ -167,11 +167,12 @@ export function IndustrySites({ c, ix, graph, mainName, chars }: { c: IndustryCh
           <Seg size="sm" label="Add a site" value={adding} onChange={setAdding}
             options={[{ v: 'near', label: 'A station near Jita' }, { v: 'name', label: 'A structure by name' }, { v: 'home', label: 'Home' }]} />
           {adding === 'near' && <NearJita ix={ix} graph={graph} indices={indices} sites={doc.sites} add={add} />}
-          {adding === 'name' && (hasScope(SCOPE.search) && hasScope(SCOPE.structures) ? (
+          {adding === 'name' && (!c.isMain || (hasScope(SCOPE.search) && hasScope(SCOPE.structures)) ? (
             <div className="col" style={{ gap: 6 }}>
-              <FindStructure label="Find a structure to build in by name" onPick={(f) => add(structureSite(f))}
+              <FindStructure label="Find a structure to build in by name" as={c} onPick={(f) => add(structureSite(f))}
                 describe={(f) => { const k = kindOfType(f.typeId); return k === 'other' ? 'no manufacturing bonus the app knows' : KIND_SAID[k]; }} />
-              <p className="note small" style={{ margin: 0 }}>Searches as {c.isMain ? 'you' : mainName}: the structures EVE lets {c.isMain ? 'you' : mainName} see.{c.isMain ? '' : ` ${c.name}’s own aren’t searched here.`}</p>
+              <p className="note small" style={{ margin: 0 }} data-industry="search-as">{c.isMain ? 'Searches as you: the structures EVE lets you see.'
+                : `Searches as ${c.name}, through the cloud with ${c.name}’s own login: the structures EVE lets ${c.name} see.`}</p>
             </div>
           ) : <p className="note small" style={{ margin: 0 }}>Log in again: finding a structure by name needs EVE’s permission to search structures.</p>)}
           {adding === 'home' && <AddHome graph={graph} sites={doc.sites} add={add} />}
