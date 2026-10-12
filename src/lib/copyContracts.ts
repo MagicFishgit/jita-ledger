@@ -149,6 +149,13 @@ export function copiesSaid(copies: readonly [number, number][], name: (typeId: n
   return copies.length > max ? `${parts.join(', ')} and ${copies.length - max} more` : parts.join(', ');
 }
 
+/** What a contract holds for a title: by name when every blueprint's is known, else how many copies, never "Item #…" (I2). */
+export function copiesWhat(copies: readonly [number, number][], names: Readonly<Record<number, string>>): string {
+  if (copies.every(([t]) => names[t])) return copiesSaid(copies, (t) => names[t]);
+  const n = copies.reduce((s, [, k]) => s + k, 0);
+  return `${n.toLocaleString('en-US')} ${n === 1 ? 'copy' : 'copies'}`;
+}
+
 /** On disk and on a pull: a row that isn't one is dropped, the rest kept as written. */
 export function sanitizeCopyContracts(v: unknown): CopyContractsDoc | undefined {
   if (!v || typeof v !== 'object' || !Array.isArray((v as { list?: unknown }).list)) return undefined;

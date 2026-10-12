@@ -184,6 +184,15 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   read (an alt's only on a roster read of this session); a price fall, or the setting switched off or raised, unticks it.
   A hand tick holds until another datacore comes in (`HOLDS_UNTIL_CHANGED`, not WARNINGS, which would make it For
   information), not the 12 hours of other chores. Not mailed.
+- **A copy contract of yours that expired goes on To do** (kind `copyContract`, "Copy contract expired", source `contracts`, Needs action,
+  `copyContractItem`, `judgeCopyContract`, `copiesWhat`; Industry stage 3, Task 15C). One item per contract that is outstanding past
+  its expiry and still in ESI's list (`copyState` 'expired'), keyed `copies:<contract>`, version `1`, stake its price. ESI has no expired
+  status and the copies stay in the contract until you delete it in game, which returns them to where it was made (the station is named
+  from `meta.contracts.places`). It ends only on a contracts read newer than the one that listed it (a read at the same moment is no
+  newer): deleted, no longer outstanding (ESI's status), or no longer listed by ESI (it lists contracts only 30 days back, so if you
+  didn't delete it its copies are still in it; correction 13). The button opens the contract in game when the login can, else the Copies
+  section. Its title names the blueprints from `d.names`, or says "2 copies" while a name is unread, never "Item #…". A hand tick is a
+  chore's (12 hours). Not mailed.
 - **Couriers you've accepted go on To do** (kind `courier`, source `contracts`, `judgeCourierJob`, `lib/contracts.ts`, scope
   `esi-contracts.read_character_contracts.v1`, registered 29 September 2026): due at accepted + days to complete, with the
   reward, the collateral at stake (its ISK, for ordering) and the volume; "Overdue" past it. Ticked off on a newer read of

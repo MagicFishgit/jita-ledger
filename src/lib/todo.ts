@@ -1,9 +1,10 @@
 import { JITA_44 } from './constants';
-import { fmtDateTime, isk, iskBig, units } from './format';
+import { fmtDate, fmtDateTime, isk, iskBig, units } from './format';
 import { placeMovedSaid, planLabel, planListSaid, type DroppedState, type Listed, type PlanItem, type PlanItemState, type PlanListPrice, type TradePlan } from './plans';
 import type { MarketMove } from './prospects';
 import { FEEDS_QUEUE_DO, feedsQueueLead, notReachedSince, type FeedsQueue, type Relist, type Verdict } from './relist';
 import { ACTIVITY_SAID, type BuiltItem } from './industryTrack';
+import { copyState, type CopyContract } from './copyContracts';
 import { DATACORE_FEE, RP_PER_DATACORE } from './research';
 
 /**
@@ -20,7 +21,7 @@ import { DATACORE_FEE, RP_PER_DATACORE } from './research';
  * is simply absent, and reading absent as done would tick the whole list off on every load.
  */
 
-export type TodoKind = 'move' | 'cancel' | 'bid' | 'notReached' | 'underCost' | 'feedsQueue' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry' | 'courier' | 'cloudLogin' | 'placeBuy' | 'planList' | 'cashIn' | 'built';
+export type TodoKind = 'move' | 'cancel' | 'bid' | 'notReached' | 'underCost' | 'feedsQueue' | 'close' | 'squeeze' | 'piExpired' | 'piEnding' | 'nearMiss' | 'scam' | 'backup' | 'industry' | 'courier' | 'cloudLogin' | 'placeBuy' | 'planList' | 'cashIn' | 'built' | 'copyContract';
 
 /** Which read a finding came from, and so which read can say it has gone. */
 export type Source = 'orders' | 'colonies' | 'signals' | 'ledger' | 'industry' | 'contracts' | 'cloud' | 'roster' | 'research' | 'stock';
@@ -48,7 +49,7 @@ export type TodoItem = {
   /** `copy`: a price opening it in game puts on the clipboard, ready for the price box. */
   /** `cloudLogin`: which of the cloud's logins to hand over again. */
   /** `dest`: a station to set as the destination in game first (the main's own R&D agent's). */
-  action: { label: string; route?: string; typeId?: number; exportBackup?: boolean; copy?: number; cloudLogin?: 'main' | 'mailer'; dest?: number };
+  action: { label: string; route?: string; typeId?: number; exportBackup?: boolean; copy?: number; cloudLogin?: 'main' | 'mailer'; dest?: number; contract?: number };
   /**
    * `placeBuy`, when today's book has moved from the plan's prices: "Skip it" beside the button, which marks the plan's item
    * skipped (`skipPlanItem`) with the book it read.
@@ -117,13 +118,13 @@ export function tickAll(m: Memory, keys: string[], now: number): Memory {
  * measured --- they are there so a list of twelve relists reads as a quarter of an hour, not an evening.
  */
 export const MINUTES: Record<TodoKind, number> = {
-  move: 1, cancel: 1, bid: 2, notReached: 1, underCost: 1, feedsQueue: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1, industry: 1, courier: 10, cloudLogin: 1, placeBuy: 1, planList: 1, cashIn: 5, built: 2,
+  move: 1, cancel: 1, bid: 2, notReached: 1, underCost: 1, feedsQueue: 1, close: 1, squeeze: 2, piExpired: 5, piEnding: 4, nearMiss: 1, scam: 0, backup: 1, industry: 1, courier: 10, cloudLogin: 1, placeBuy: 1, planList: 1, cashIn: 5, built: 2, copyContract: 2,
 };
 
 export const KIND_LABEL: Record<TodoKind, string> = {
   move: 'Move order', cancel: 'Cancel order', bid: 'Sell into bids', notReached: 'Not reached since you placed it', underCost: 'Priced under cost', feedsQueue: 'Feeds a long queue', close: 'Close position', squeeze: 'Margin squeeze', piExpired: 'PI expired',
   piEnding: 'PI ending', nearMiss: 'Trades your positions skipped', scam: 'Suspicious market', backup: 'Backup', industry: 'Industry jobs to deliver', courier: 'Courier to deliver',
-  cloudLogin: 'Cloud login', placeBuy: 'Place buy order', planList: 'List what the plan bought', cashIn: 'Cash in datacores', built: 'List what you built',
+  cloudLogin: 'Cloud login', placeBuy: 'Place buy order', planList: 'List what the plan bought', cashIn: 'Cash in datacores', built: 'List what you built', copyContract: 'Copy contract expired',
 };
 
 /**
@@ -420,6 +421,32 @@ export function judgeCourierJob(e: Entry, c: { readAt: number | null; status: st
   if (c.readAt == null || c.readAt <= e.seenAt) return null;
   if (c.status === 'in_progress') return null;
   return c.status === 'failed' ? 'It failed: the collateral went to the issuer.' : c.status === 'finished' || c.status === 'finished_contractor' ? 'Delivered.' : 'It’s no longer in progress.';
+}
+
+/**
+ * A copy contract of yours that expired (spec, To do): outstanding past its expiry and still in ESI's list. Its copies sit in it
+ * until you delete it in game, which returns them to where it was made. Version 1: it ticks off only on a newer contracts read.
+ */
+export function copyContractItem(c: CopyContract, o: { what: string; station: string | null; now: number; canOpen: boolean }): TodoItem | null {
+  if (copyState(c, o.now) !== 'expired') return null;
+  return {
+    key: `copies:${c.id}`, ver: '1', kind: 'copyContract', source: 'contracts', stake: c.price,
+    title: `Copy contract expired: ${o.what}`,
+    detail: `It expired on ${fmtDate(c.expires)}. The copies stay in it until you delete the contract in game (Contracts, My contracts), which returns them to ${o.station ?? 'the station it was made at'}.`,
+    // "Open in game" only when the login can open windows (M13), else the Copies section.
+    action: { label: o.canOpen ? 'Open in game' : 'Copies', contract: c.id, route: 'hustles/industry/copies' },
+  };
+}
+
+/** Gone from the list: on a contracts read newer than the one that listed it, what that read shows; else still being checked. */
+export function judgeCopyContract(e: Entry, c: { readAt: number | null; entry: CopyContract | undefined }): string | null | false {
+  if (c.readAt == null || c.readAt <= e.seenAt) return null;
+  if (!c.entry) return false;
+  if (c.entry.status === 'deleted') return 'Deleted: its copies went back to the station it was made at.';
+  if (c.entry.status !== 'outstanding') return `It’s no longer outstanding (${c.entry.status.replace(/_/g, ' ')}).`;
+  // ESI lists contracts only 30 days back: leaving the list means those passed, its copies maybe still in it (M7).
+  if (c.entry.gone) return 'No longer listed by ESI: it lists contracts only 30 days back, so if you didn’t delete it in game, its copies are still in it.';
+  return null;
 }
 
 /** An industry job that has finished and waits to be delivered: marked ready, or active past its end. */

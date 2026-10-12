@@ -3017,6 +3017,19 @@ try {
       if (!(await text()).includes('1 copy sold on contract that no copy job of yours made before it was listed (bought, or given) isn’t counted.')) problems.push('Results doesn’t say the Raven copy no job of yours made isn’t counted');
       if (process.env.SHOTS15B) { await page.waitForTimeout(1200); await page.screenshot({ path: `${process.env.SHOTS15B}/results-${page.viewportSize().width}.png`, fullPage: false }); }
     }
+    // --- Task 15C: To do lists the expired copy contract, with where its copies go back.
+    {
+      const expired = { id: 9901, issued: iso(now - 20 * 86400_000), expires: iso(now - 86400_000), status: 'outstanding', price: 9e6, availability: 'public', acceptor: null, completed: null, station: 60003760, copies: [[25895, 2]], kinds: [[25895, 10, 20, 40, 2]] };
+      await page.goto(SEED_PAGE);
+      // The name as the sync keeps it (I2): the industry case's /universe/names stub answers every ID as a station.
+      await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE, names: { 25895: 'Large Trimark Armor Pump I Blueprint' }, copyContracts: { list: [expired] }, meta: { ...ledger.meta, contracts: { at: iso(now - 600_000), list: [], items: {}, places: { 60003760: 'Jita IV - Moon 4 - Caldari Navy Assembly Plant' } } } }, { alts: altStore });
+      await page.goto(`${BASE}#todo`);
+      await page.waitForFunction(() => /Copy contract expired: 2× Large Trimark Armor Pump I Blueprint/.test(document.querySelector('.page')?.textContent ?? ''), null, { timeout: 20_000 })
+        .catch(async () => problems.push(`To do doesn’t list the expired copy contract: “${(await text()).slice(0, 400)}”`));
+      if (!(await text()).includes('which returns them to Jita IV - Moon 4 - Caldari Navy Assembly Plant')) problems.push('the expired copy contract doesn’t say where its copies go back');
+      if (/Item #\d/.test(await text())) problems.push('To do says “Item #…” for a copy contract');
+      if (SHOTS) { await page.waitForTimeout(1800); await page.screenshot({ path: `${SHOTS}-industry-todo-copies.png` }); }
+    }
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

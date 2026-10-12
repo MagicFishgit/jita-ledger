@@ -1,21 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, CalendarX, Check, CheckCheck, CircleDollarSign, CircleX, CloudAlert, Factory, Package, FlaskConical, Truck, GitPullRequestArrow, HardDriveDownload, Keyboard, Layers, Leaf, ListChecks, RefreshCw, RotateCcw, ShieldAlert, ShoppingCart, SkipForward, Tag, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
+import { ArrowDownWideNarrow, BanknoteArrowDown, BellRing, CalendarX, Check, CheckCheck, CircleDollarSign, CircleX, CloudAlert, Factory, Package, FlaskConical, Truck, GitPullRequestArrow, HardDriveDownload, Keyboard, Layers, Leaf, ScrollText, ListChecks, RefreshCw, RotateCcw, ShieldAlert, ShoppingCart, SkipForward, Tag, Timer, TrendingDown, TriangleAlert } from 'lucide-react';
 import { getAuth, loginForCloud, loginMailerForCloud } from '../lib/auth';
 import { breakEvenSpread, rates } from '../lib/fees';
 import { ago, fmtDateTime, isk, iskBig, units } from '../lib/format';
 import { navigate, useAuth, useNow } from '../lib/hooks';
-import { openMarketWindow, resolveNames, setDestination } from '../lib/market';
+import { openContractWindow, openMarketWindow, resolveNames, setDestination } from '../lib/market';
 import { checkOrders, costBasis, getOrderCheck, jitaOpen, useOrderCheck, verdicts } from '../lib/orderCheck';
 import { computePosition, finishedPosition } from '../lib/positions';
 import { nearMisses, squeezed } from '../lib/signals';
 import { exportAll, getData, update, useData } from '../lib/store';
 import { FILL_WINDOW } from '../lib/fills';
 import {
-  altIndustryItem, builtItem, builtPlaceSystem, builtWhere, type BuiltMarket, cashInItem, feedsQueueItem, notReachedItem, inFilter, judgeAltIndustry, judgeAltLogin, judgeBuilt, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, placeBuyItem, planListItem, judgeIndustry, judgeLedger, judgeOrder, skippedEmptyItem, skippedCloseState, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
+  altIndustryItem, builtItem, builtPlaceSystem, builtWhere, type BuiltMarket, cashInItem, copyContractItem, judgeCopyContract, feedsQueueItem, notReachedItem, inFilter, judgeAltIndustry, judgeAltLogin, judgeBuilt, judgeCashIn, judgeCloudLogin, judgeCourierJob, judgeFeedsQueue, judgePlaceBuy, judgePlanList, placeBuyItem, planListItem, judgeIndustry, judgeLedger, judgeOrder, skippedEmptyItem, skippedCloseState, judgePi, judgeScam, judgeSqueeze, judgeUnderCost, jobWaiting, HOLDS_UNTIL_CHANGED, KIND_LABEL, MINUTES, remember, needs, SESSION_MS, split, summarise, tickAll, WARNINGS,
   type Entry, type Memory, type TodoFilter, type TodoItem, type TodoKind,
 } from '../lib/todo';
 import type { IndustryJob } from '../lib/types';
 import { couriersDue } from '../lib/contracts';
+import { copiesWhat } from '../lib/copyContracts';
 import { PLANETS_SCOPE, readColonies, useColonies } from '../lib/colonyStore';
 import { readSignals, trackedTypes, useSignals } from '../lib/watch';
 import { BACKUP_DAYS } from '../lib/alertsRunner';
@@ -77,6 +78,7 @@ const LOOK: Record<TodoKind, { Icon: typeof Check; c: string }> = {
   cloudLogin: { Icon: CloudAlert, c: 'var(--neg)' },
   industry: { Icon: Factory, c: 'var(--acc)' },
   courier: { Icon: Truck, c: 'var(--acc2)' },
+  copyContract: { Icon: ScrollText, c: 'var(--acc2)' },
   cashIn: { Icon: FlaskConical, c: 'var(--acc)' },
   built: { Icon: Package, c: 'var(--acc)' },
 };
@@ -180,7 +182,7 @@ export function Todo() {
   const hasOrders = jitaOpen(d).length > 0;
   const tracked = useMemo(() => trackedTypes(d), [d.positions, d.orders, d.watchlist]); // eslint-disable-line react-hooks/exhaustive-deps
   // Industry jobs make things you may never have traded: name them.
-  useEnsureNames([...(d.meta.industry?.jobs ?? []).map((j) => j.productTypeId ?? j.blueprintTypeId), ...altJobs.flatMap((x) => x.jobs.filter((j) => jobWaiting(j, now)).map((j) => j.productTypeId ?? j.blueprintTypeId)), ...d.plans.flatMap((p) => p.items.map((i) => i.typeId)), ...builtAll.map((x) => x.b.typeId)]);
+  useEnsureNames([...(d.meta.industry?.jobs ?? []).map((j) => j.productTypeId ?? j.blueprintTypeId), ...altJobs.flatMap((x) => x.jobs.filter((j) => jobWaiting(j, now)).map((j) => j.productTypeId ?? j.blueprintTypeId)), ...d.plans.flatMap((p) => p.items.map((i) => i.typeId)), ...builtAll.map((x) => x.b.typeId), ...(d.copyContracts?.list ?? []).flatMap((x) => x.copies.map(([t]) => t))]);
   const canPlanets = (auth?.scopes ?? []).includes(PLANETS_SCOPE);
   const vs = useMemo(() => verdicts(d, check, costBasis(d)), [d, check]);
   // What a plan bought and hasn't listed, priced to list (the list step, shared with the plan's checklist).
@@ -362,6 +364,11 @@ export function Todo() {
           action: { label: 'Hauling', route: 'hustles/courier' },
         });
       }
+    }
+    // Copy contracts of yours that expired (copyContracts.ts): their copies sit in them until deleted in game.
+    for (const c of d.copyContracts?.list ?? []) {
+      const item = copyContractItem(c, { what: copiesWhat(c.copies, d.names), station: c.station != null ? d.meta.contracts?.places?.[c.station] ?? null : null, now, canOpen: canOpenInGame() });
+      if (item) out.push(item);
     }
     // Industry jobs finished and waiting to be delivered, one item per facility.
     const byPlace = new Map<number, IndustryJob[]>();
@@ -567,6 +574,7 @@ export function Todo() {
         }
         case 'scam': return judgeScam(e, { tracked: tracked.includes(x.typeId!), signalAt: sig.signals[x.typeId!]?.at ?? null });
         case 'courier': return judgeCourierJob(e, { readAt: contractsAt, status: d.meta.contracts?.list.find((c) => String(c.id) === id)?.status ?? null });
+        case 'copyContract': return judgeCopyContract(e, { readAt: contractsAt, entry: d.copyContracts?.list.find((z) => `copies:${z.id}` === e.item.key) });
         case 'placeBuy': {
           const [, planId, typeId] = x.key.split(':');
           const p = d.plans.find((z) => z.id === planId);
@@ -675,6 +683,10 @@ export function Todo() {
       catch (err) { toast(err instanceof Error ? err.message : String(err), 'err'); }
       if (x.action.route) navigate(x.action.route);
       return;
+    }
+    // One of your contracts: opened in game when it can be (the opening says nothing when it works), else the Copies section.
+    if (x.action.contract != null && canOpenInGame()) {
+      try { await openContractWindow(x.action.contract); return; } catch { /* fall through to the page */ }
     }
     // A beaten order is fixed in the client: open its market window there when we can.
     if (x.action.typeId != null && canOpenInGame()) {

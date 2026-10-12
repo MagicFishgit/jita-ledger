@@ -579,6 +579,7 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   its expiry before they were read, or the answer held no copy), absent (not read: a 404 is asked again next sync). One that leaves ESI's list
   is stamped `gone` once, its last status kept, and never dropped (5,000, newest kept); one still listed whose items weren't read this sync
   (past the 500 kept) keeps its copies and follows its status. Written against live state in the final `update`, only when changed.
+- **An expired copy contract goes on To do** (Task 15C): one item per contract outstanding past its expiry and still in ESI's list; the rule is in orders-alerts.md.
 - **Your copy business** (Copies section, `CopyBusiness`): the shown character's copy jobs (activity 5) and copies held, and the main's copy
   contracts with their state (listed / expired: ESI has no expired status, so an outstanding contract past its expiry, its copies still in it
   until deleted / sold) and the cheapest ask of their kind. It is drawn outside the copy market's gate: it comes from the sync and the

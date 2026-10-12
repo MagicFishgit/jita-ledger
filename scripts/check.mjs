@@ -8981,5 +8981,36 @@ console.log('\n--- Industry stage 3: copies sold count in Industry (copySales, T
   eq('  with no jobs at all there\'s no Industry, copies or not', N.activityEvents({ ...d, jobs: {} }, sets, false, {}, [], new Set([ME]), { state: 'none', mats: null }).industry, null);
 }
 
+console.log('\n--- Industry stage 3: To do lists a copy contract that expired (Task 15C) ---');
+{
+  const TD = await import('../src/lib/todo.ts');
+  const now = Date.parse('2026-10-10T00:00:00Z');
+  const cc = (over = {}) => ({ id: 21, issued: '2026-09-25T00:00:00Z', expires: '2026-10-09T00:00:00Z', status: 'outstanding', price: 9e6, availability: 'public', acceptor: null, completed: null, station: 60003760, copies: [[25895, 2]], ...over });
+  const it = TD.copyContractItem(cc(), { what: '2× Large Trimark Armor Pump I Blueprint', station: 'Jita IV - Moon 4 - Caldari Navy Assembly Plant', now, canOpen: true });
+  eq('an expired copy contract: one item, its key, version 1, from the contracts read, the button opening it in game',
+    [it.key, it.ver, it.kind, it.source, it.stake, it.title, it.action], ['copies:21', '1', 'copyContract', 'contracts', 9e6, 'Copy contract expired: 2× Large Trimark Armor Pump I Blueprint',
+      { label: 'Open in game', contract: 21, route: 'hustles/industry/copies' }]);
+  eq('  its detail says where the copies go back', it.detail, 'It expired on 9 Oct 2026. The copies stay in it until you delete the contract in game (Contracts, My contracts), which returns them to Jita IV - Moon 4 - Caldari Navy Assembly Plant.');
+  eq('  a login that can\'t open windows: the button goes to the Copies section, said so (M13)', TD.copyContractItem(cc(), { what: 'x', station: null, now, canOpen: false }).action, { label: 'Copies', contract: 21, route: 'hustles/industry/copies' });
+  const o = { what: 'x', station: null, now, canOpen: true };
+  eq('  none while it\'s listed, once it\'s sold or deleted, or once it left ESI\'s list', [TD.copyContractItem(cc({ expires: '2026-10-12T00:00:00Z' }), o), TD.copyContractItem(cc({ status: 'finished' }), o),
+    TD.copyContractItem(cc({ status: 'deleted' }), o), TD.copyContractItem(cc({ gone: '2026-10-09T12:00:00Z' }), o)], [null, null, null, null]);
+  const K = await import('../src/lib/copyContracts.ts');
+  eq('what it holds by name, or "2 copies" while a name is unread: never "Item #…" (I2)', [K.copiesWhat([[25895, 2]], { 25895: 'Large Trimark Armor Pump I Blueprint' }), K.copiesWhat([[25895, 2], [688, 1]], { 25895: 'Large Trimark Armor Pump I Blueprint' }), K.copiesWhat([[688, 1]], {})],
+    ['2× Large Trimark Armor Pump I Blueprint', '3 copies', '1 copy']);
+  const e = { item: it, seenAt: now - 3600_000, lastAt: now };
+  eq('judged only on a newer contracts read: deleted, finished, no longer in ESI\'s list; a read from before says nothing', [
+    TD.judgeCopyContract(e, { readAt: now, entry: cc({ status: 'deleted' }) }),
+    TD.judgeCopyContract(e, { readAt: now, entry: cc({ status: 'finished' }) }),
+    TD.judgeCopyContract(e, { readAt: now, entry: cc({ gone: '2026-10-10T00:00:00Z' }) }),
+    TD.judgeCopyContract(e, { readAt: now - 7200_000, entry: cc({ status: 'deleted' }) }),
+    TD.judgeCopyContract(e, { readAt: null, entry: cc({ status: 'deleted' }) }),
+    TD.judgeCopyContract(e, { readAt: now, entry: undefined }),
+    // I6: a read at the very time of the one that listed it is no newer.
+    TD.judgeCopyContract(e, { readAt: e.seenAt, entry: cc({ status: 'deleted' }) }),
+  ], ['Deleted: its copies went back to the station it was made at.', 'It’s no longer outstanding (finished).', 'No longer listed by ESI: it lists contracts only 30 days back, so if you didn’t delete it in game, its copies are still in it.', null, null, false, null]);
+  eq('the kind: a chore under Needs action', [TD.needs('copyContract'), TD.KIND_LABEL.copyContract, TD.MINUTES.copyContract, TD.HOLDS_UNTIL_CHANGED.has('copyContract')], ['act', 'Copy contract expired', 2, false]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
