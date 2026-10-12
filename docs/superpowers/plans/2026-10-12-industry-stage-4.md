@@ -1333,6 +1333,8 @@ export async function refreshHomeBooks(env: Env, now = Date.now(), o: { deadline
   const ledgers = (await db.prepare(`SELECT char_id AS id FROM keys WHERE purpose = 'main'`).all<{ id: number }>()).results.map((r) => r.id);
   const books = new Map((await db.prepare('SELECT structure_id AS id, at, tried FROM home_books').all<{ id: number; at: number; tried: number }>()).results.map((r) => [r.id, r]));
   const due: { ledger: number; hub: Hub }[] = [];
+  // A book is the structure's, so each is read once a round. There is one ledger (the app is its owner's alone, app-conventions.md);
+  // were there two naming the same structure, it would be read with the first one's reader and serve both.
   const seen = new Set<number>();
   for (const ledger of ledgers) {
     for (const hub of await hubsOf(db, ledger)) {
@@ -2041,7 +2043,8 @@ In `src/components/hustles/industryFinder.ts`: import `ownMarketSaid` and `hubOf
 
 ```ts
   // The home region's history for the top rows sold at home, and for rows priced there with no pace yet: a hub Goonmetrics doesn't
-  // track has no weekly movement, so nothing there had a pace to be ranked by until its history was read (correction 10).
+  // track has no weekly movement, so nothing there had a pace to be ranked by until its history was read (correction 10). The same
+  // rescues a type Goonmetrics prices with its weekly movement unknown (its −1), which stage 1 never read the history of either.
   const homeTypes = useMemo(() => {
     if (!hub) return [];
     const sold = first.filter((r) => r.day && r.sale?.place === 'home');
@@ -2299,7 +2302,8 @@ returning Goonmetrics always (the 40-minute read doesn't speak); `homeTypes` wit
 `homeFrom` left out (the Bellicose item says Goonmetrics). Notes:
 - `docs/notes/industry.md`, stage 4: **Which price speaks** (`homeSpeaks`, `useHomeQuotes`): the rule, every reader of home prices and
   what each now says (corrections 8 to 11 and 15), the hub list (`hubsFrom`: Goonmetrics' two always), `hubShort`, the browser's holds
-  (the list 15 minutes, a hub's read until the next hourly could land).
+  (the list 15 minutes, a hub's read until the next hourly could land); and that the home history read for rows with no pace also
+  rescues a Goonmetrics type whose weekly movement is unknown (−1), which stage 1 never paced.
 - `docs/notes/limits.md`: **Buying at a hub priced by its own read walks its best five levels for a week's need**: deeper stock isn't
   seen, so a material whose week's need sits past five levels reads too thin there, said with how many are listed.
 - `docs/notes/orders-alerts.md`, the List what you built bullet: "a hub you added is listed at its own market's price, said; while
@@ -2795,20 +2799,24 @@ In `src/components/hustles/IndustryHome.tsx`: import `useMemo`, `fmtShort` (form
  * What your orders at a hub paid as broker fee (hubFeeRate), the newest of any character's: offered with Use this, never applied by
  * itself (the measured facility tax's pattern); "about the same" within ±0.05% of the fee typed.
  */
-export function HubFeeLine({ hub, chars, typed, onUse }: { hub: number; chars: IndustryChar[]; typed: number | null; onUse: (rate: number) => void }) {
+export function HubFeeLine({ hub, chars, typed, onUse, para }: { hub: number; chars: IndustryChar[]; typed: number | null; onUse: (rate: number) => void; para?: string }) {
   const m = useMemo(() => chars.map((x) => ({ c: x, f: hubFeeRate(hub, x.orders, x.journal) })).filter((x): x is { c: IndustryChar; f: HubFee } => !!x.f)
     .sort((a, b) => Date.parse(b.f.newest) - Date.parse(a.f.newest))[0] ?? null, [hub, chars]);
+  // Nothing measured draws nothing, not an empty paragraph (Build shows a hub on every load, most with no order placed there).
   if (!m) return null;
   const whose = m.c.isMain ? 'Your' : `${m.c.name}’s`;
   const what = m.f.orders === 1 ? `order there of ${fmtShort(m.f.newest)} paid` : `${m.f.orders} orders there (the newest of ${fmtShort(m.f.newest)}) paid`;
   const spread = taxesDiffer(m.f.low, m.f.high) ? ` (${pct(m.f.low)} to ${pct(m.f.high)})` : '';
-  if (typed != null && !taxesDiffer(typed, m.f.rate)) return <span className="sub" data-industry="hub-fee-agrees">{whose} {what} about the same ({pct(m.f.rate)}).</span>;
-  return (
-    <span className="sub" data-industry="hub-fee-measured">
-      {whose} {what} {pct(m.f.rate)}{spread}:{' '}
-      <button type="button" className="link-btn" onClick={() => onUse(Math.round(m.f.rate * 1e6) / 1e6)}>Use this</button>
-    </span>
-  );
+  const line = typed != null && !taxesDiffer(typed, m.f.rate)
+    ? <span className="sub" data-industry="hub-fee-agrees">{whose} {what} about the same ({pct(m.f.rate)}).</span>
+    : (
+      <span className="sub" data-industry="hub-fee-measured">
+        {whose} {what} {pct(m.f.rate)}{spread}:{' '}
+        <button type="button" className="link-btn" onClick={() => onUse(Math.round(m.f.rate * 1e6) / 1e6)}>Use this</button>
+      </span>
+    );
+  // `para`: drawn as a paragraph of its own with that data-industry (Build, under the home hub's words); else a line in a cell.
+  return para ? <p className="note small" style={{ margin: 0 }} data-industry={para}>{line}</p> : line;
 }
 ```
 
@@ -2818,12 +2826,11 @@ and in the phone fold, after the broker fee's span, the same line again (`rd-pho
 In `src/components/hustles/IndustryBuild.tsx`: import `HubFeeLine` from `'./IndustryHome'`; under the `home-said` paragraph:
 
 ```tsx
-      {f.hub && <p className="note small" style={{ margin: 0 }} data-industry="build-hub-fee"><HubFeeLine hub={f.hub.id} chars={chars} typed={doc.hubFees[f.hub.id] ?? null}
-        onUse={(n) => setDoc({ hubFees: { ...doc.hubFees, [f.hub!.id]: n } })} /></p>}
+      {f.hub && <HubFeeLine para="build-hub-fee" hub={f.hub.id} chars={chars} typed={doc.hubFees[f.hub.id] ?? null}
+        onUse={(n) => setDoc({ hubFees: { ...doc.hubFees, [f.hub!.id]: n } })} />}
 ```
 
-(an empty `<p>` when nothing is measured: render it only when `HubFeeLine` has something to say by moving the `<p>` inside
-`HubFeeLine` for this caller, or accept the empty paragraph, which draws nothing; the page check doesn't look for it absent.)
+(nothing measured draws nothing: no empty paragraph under the home hub's words on every Build load.)
 
 - [ ] **Step 6: The page check**
 
