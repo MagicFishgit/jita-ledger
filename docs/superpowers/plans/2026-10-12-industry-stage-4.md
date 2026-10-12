@@ -1633,8 +1633,9 @@ Claude-Session: https://claude.ai/code/session_01D3Zx5fms2TWhEQgdkabhCf"
 - Produces (18C, 18D, 18E rely on these):
   - `src/lib/homeMarket.ts`: `type HomeHub = { id; name; short; systemId; region; regionName?; goonmetrics: boolean }` (`HOME_HUBS`
     typed with it), `hubShort(name)`, `hubsFrom(list: readonly HubState[] | null): HomeHub[]`, `STRUCTURE_FRESH_MS` (2 h), `type
-    HomeSpeaks = { source: 'structure' | 'goonmetrics'; at: string } | null`, `homeSpeaks(book, gm, now)`, `structureQuote(row, at,
-    weekly)`, `bookHoldMs(at, now)`, `ownMarketSaid(h: HubState, now, gm: boolean): string`.
+    HomeSpeaks = { source: 'structure' | 'goonmetrics'; at: string } | null`, `homeSpeaks(book, gm, now)`, `ownRead(book, state)`
+    (none for a default switched to Nobody), `structureQuote(row, at, weekly)`, `bookHoldMs(at, now)`, `ownMarketSaid(h: HubState, now,
+    gm: boolean): string`.
   - `src/lib/industryRank.ts`: `HomeQuote` gains `source?`, `sold?`, `sells?`; `fillCost(levels, units): number | null`.
   - `src/components/hustles/industryMarket.ts`: `type MarketsState`, `useHomeMarkets(on = true)`, `useHomeHubs(on = true): { hubs:
     HomeHub[]; markets: MarketsState }`, `type BookState`, `useHomeBook(hub)`, `type HomeSource = { gm: HomeState | { status:
@@ -1690,6 +1691,8 @@ console.log('\n--- Industry stage 4: the hub list and which price speaks at home
     sell: 7_200_000, buy: 6_900_000, weekly: 5887, at: at(30), source: 'structure', sells: [{ price: 7_200_000, volume: 20 }, { price: 7_350_000, volume: 40 }],
     sold: { sell: 60, buy: 20, single: { sell: 0, buy: 0 }, orders: { sell: 5, buy: 3 } } });
   eq('  a type the whole read doesn\'t have: none listed, which is known (correction 8)', HM.structureQuote(undefined, at(30), null), { sell: null, buy: null, weekly: null, at: at(30), source: 'structure', sells: [] });
+  eq('  a default switched to Nobody: its last read no longer speaks; any other hub\'s does', [HM.ownRead({ at: 'x' }, { off: true }), HM.ownRead({ at: 'x' }, { off: false }), HM.ownRead({ at: 'x' }, null), HM.ownRead(null, { off: false })],
+    [null, { at: 'x' }, { at: 'x' }, null]);
   eq('  a hub\'s read is held until the next hourly read could land, 5 to 15 minutes', [HM.bookHoldMs(at(30), T), HM.bookHoldMs(at(65), T), HM.bookHoldMs(null, T)], [15 * 60_000, 5 * 60_000, 15 * 60_000]);
 
   // Review Focus 2 and 4: every state of a hub's own market, in its words.
@@ -1815,6 +1818,12 @@ export function homeSpeaks(book: { at: string } | null, gm: { at: string } | nul
   if (book && now - Date.parse(book.at) < STRUCTURE_FRESH_MS) return { source: 'structure', at: book.at };
   return gm ? { source: 'goonmetrics', at: gm.at } : null;
 }
+
+/**
+ * A hub's own read as it may speak: none for a default you switched to Nobody, since the cloud keeps its last read, which no longer
+ * prices the hub. One rule for the finder (useHomeQuotes) and the section (HubLine).
+ */
+export const ownRead = <B>(book: B | null, state: Pick<HubState, 'off'> | null): B | null => (state?.off ? null : book);
 
 /**
  * A type's quote from a structure's own read: its best sell and buy, its best sell levels (to buy a week's need up them) and what
@@ -1962,7 +1971,8 @@ Run: `npm run check`. Expected: `all passed` twice (the stage-1 sourcing and sel
 isn't picked); drop the early "none listed" in `sellAt` (the absent type says "Nothing says how fast"); `ownMarketSaid` without the
 `book.reader === h.reader` check (the reader changed reads as refused-or-read by the new one); `ownMarketSaid` naming every hub
 `hubShort(h.name)` (UALX-3's refusal says "1st Byzantigoon"); `last` naming `book.reader` for `readBy` (the reader-changed case loses
-"with Owner's login"); a default hub's refusal in the added hub's words (the three Goonmetrics cases read "EVE refused").
+"with Owner's login"); a default hub's refusal in the added hub's words (the three Goonmetrics cases read "EVE refused"); `ownRead` ignoring `off` (the
+Nobody case speaks).
 
 - [ ] **Step 5: The browser reads the hub list and each hub's own read**
 
@@ -1978,7 +1988,7 @@ export const cloudHomeBook = (hub: number) => call<HomeBookAnswer>(`/v1/home/boo
 
 In `src/components/hustles/industryMarket.ts`: add `useSyncExternalStore` to the React import; import `cloudHomeBook`,
 `cloudHomeMarkets` from `'../../lib/cloud'`; extend the homeMarket import to `{ bookHoldMs, HOME_HOLD_MAX_MS, homeHoldMs, homeQuote,
-homeSpeaks, hubsFrom, structureQuote, type HomeHub, type HomeRow, type HomeSpeaks, type HubState }`; import `type { StructureRow }
+homeSpeaks, hubsFrom, ownRead, structureQuote, type HomeHub, type HomeRow, type HomeSpeaks, type HubState }`; import `type { StructureRow }
 from '../../lib/bookFold'`, `type { HomeQuote } from '../../lib/industryRank'` and `useNow` from `'../../lib/hooks'`; and add after
 `useHomePrices`:
 
@@ -2091,7 +2101,7 @@ export function useHomeQuotes(hub: HomeHub | null): HomeSource {
   const gm: HomeSource['gm'] = hub && !hub.goonmetrics ? UNTRACKED : gmRead;
   const state = hub && markets.status === 'ok' ? markets.list.find((x) => x.id === hub.id) ?? null : null;
   // A default switched to Nobody keeps its last read in the cloud: it doesn't speak for the hub once you stopped reading it.
-  const own = state?.off ? null : book.status === 'ok' ? book : null;
+  const own = ownRead(book.status === 'ok' ? book : null, state);
   const speaks = homeSpeaks(own, gm.status === 'ok' ? gm : null, now);
   const key = speaks ? `${speaks.source}:${speaks.at}` : '';
   return useMemo((): HomeSource => {
@@ -2497,7 +2507,7 @@ Claude-Session: https://claude.ai/code/session_01D3Zx5fms2TWhEQgdkabhCf"
 
 **Interfaces:**
 - Consumes: `useHomeMarkets`, `useHomeBook`, `useHomePrices`, `refreshHomeMarkets`, `useIndustryDoc`, `type MarketsState`
-  (industryMarket.ts, 18B); `HOME_HUBS`, `HOME_STALE_MS`, `homeSpeaks`, `hubShort`, `ownMarketSaid`, `type HubState` (homeMarket.ts);
+  (industryMarket.ts, 18B); `HOME_HUBS`, `HOME_STALE_MS`, `homeSpeaks`, `ownRead`, `hubShort`, `ownMarketSaid`, `type HubState` (homeMarket.ts);
   `FindStructure` with `as` (17B); `secText` (industrySites.ts); the routes of 18A.
 - Produces: `IndustryHome({ c, chars, graph })`; `SECTIONS` gains `{ key: 'home', … }` (address `hustles/industry/home`);
   `cloudSetHomeMarket(b: { hub: number; reader: number; name?: string; systemId?: number })`, `cloudDropHomeMarket(hub)`,
@@ -2541,7 +2551,7 @@ import { cloudDropHomeMarket, cloudReadHome, cloudSetHomeMarket } from '../../li
 import { SCOPE } from '../../lib/config';
 import { ago } from '../../lib/format';
 import { useNow } from '../../lib/hooks';
-import { HOME_HUBS, HOME_STALE_MS, homeSpeaks, hubShort, ownMarketSaid, type HubState } from '../../lib/homeMarket';
+import { HOME_HUBS, HOME_STALE_MS, homeSpeaks, hubShort, ownMarketSaid, ownRead, type HubState } from '../../lib/homeMarket';
 import { secText } from '../../lib/industrySites';
 import type { Graph } from '../../lib/jumps';
 import { toast } from '../../lib/toast';
@@ -2661,8 +2671,7 @@ function HubLine({ r, chars, graph, now, busy, act, listOk, isHome, fee, setFee,
   const gm = useHomePrices(r.gm ? r.id : null);
   const book = useHomeBook(listOk ? r.id : null);
   // A default switched to Nobody keeps its last read in the cloud: it doesn't price the hub once you stopped reading it.
-  const ownRead = r.state?.off ? null : book.status === 'ok' ? book : null;
-  const speaks = homeSpeaks(ownRead, r.gm && gm.status === 'ok' ? gm : null, now);
+  const speaks = homeSpeaks(ownRead(book.status === 'ok' ? book : null, r.state), r.gm && gm.status === 'ok' ? gm : null, now);
   const short = HOME_HUBS.find((h) => h.id === r.id)?.short ?? hubShort(r.name);
   const sys = graph[r.systemId];
   const where = sys ? `${sys[1]} ${secText(sys[0])}` : '';
