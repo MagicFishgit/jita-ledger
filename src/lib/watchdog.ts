@@ -132,3 +132,19 @@ export function errorPredatesLogin(job: { lastRun: number; lastError: string | n
  * finds out when its cached access token runs out, up to twenty minutes later. This says so at once.
  */
 export const scopesMissing = (app: string[], cloud: string[] | undefined): string[] => (cloud ? app.filter((s) => !cloud.includes(s)) : []);
+
+/**
+ * What Settings → Account says of the permissions this browser's login holds (Industry stage 4, 12 October 2026). A permission
+ * added to SCOPE since the last login is missing until the next one, and that login, with a different set of permissions, stops
+ * the character's other logins at EVE's own page (eve-facts.md): the cloud's and any other device's. An alt is another character,
+ * so its login keeps working without the new permission until handed over again. Said before the relog, since nothing else says
+ * it then: `scopesMissing` speaks only once this browser holds the new set, and an alt's card only of what its own login lacks. The
+ * order keeps every login alive: here first, then the cloud (the same set, so both live), then other devices.
+ */
+export function grantSaid(missing: number, total: number): string {
+  if (!missing) return 'All granted. Everything in the app has what it needs.';
+  const it = missing === 1 ? 'it' : 'them';
+  return `${missing} of ${total} not granted. Log in again here to grant ${it} (each must be ticked on your application at developers.eveonline.com first). `
+    + 'That stops your character’s other logins: then hand the cloud your login again (Settings → Your data), and log in again on any other device. '
+    + `Your alts’ logins keep working; hand each over again on Characters for what needs ${it}.`;
+}

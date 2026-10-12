@@ -619,3 +619,14 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
 - **After shipping: the first copy contract's journal entries.** Which ref types a copy contract writes (`contract_price`, `contract_brokers_fee`,
   `contract_sales_tax`, or others), and whether they name the contract (`context_id` with type `contract_id`). Until seen, a sale is counted at the contract's price at
   its completion and no fee at all; record what the first real one shows.
+
+## Stage 4: home markets
+
+Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-design.md`, plan `docs/superpowers/plans/2026-10-12-industry-stage-4.md`).
+
+- **The permission** (`SCOPE.structureMarkets`, 12 October 2026): asked of every login, registered by the user on 9 October. The user's next
+  login stops the cloud's main login and the main's login on any other device, never an alt's (the plan's corrections 1 and 2; eve-facts.md:
+  EVE's rule is per character). Settings → Account says so before the relog (`grantSaid`), in the order that keeps every login alive: log in
+  here, then hand the cloud the main's login, then log in on any other device, alts on Characters when wanted. The sender's login
+  (`MAILER_SCOPES`) is untouched; an alt handed over again gains it (`loginAltForCloud` asks `SCOPES`). Handing the cloud a login first would
+  stop this browser's own (`stoppedBy` already says so after the fact).

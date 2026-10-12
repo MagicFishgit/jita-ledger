@@ -13,7 +13,7 @@ import { askedScopes, isConfigured, login, loginForCloud, loginMailer, loginMail
 import { syncCharacter, useSyncState } from '../lib/sync';
 import { navigate, useAuth, useMailer, useNow, type Route } from '../lib/hooks';
 import { tradeSkillsComing } from '../lib/skillQueue';
-import { errorPredatesLogin, scopesMissing } from '../lib/watchdog';
+import { errorPredatesLogin, grantSaid, scopesMissing } from '../lib/watchdog';
 import { useTradeQueue } from './SkillStrip';
 import { ALPHA_CAPS, JITA_44, OPTIONAL_SCOPES, REDIRECT_URI, SCOPE, SCOPE_INFO, SCOPES, type SkillKey } from '../lib/config';
 import { marketHistory } from '../lib/market';
@@ -273,8 +273,7 @@ function Account() {
             <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--label)', textWrap: 'pretty' }}>
               {!granted.length
                 ? 'Tick each of these on your application at developers.eveonline.com. Each one is read-only.'
-                : !missing.length ? 'All granted. Everything in the app has what it needs.'
-                  : `${missing.length} of ${SCOPES.length} not granted. Each must be ticked on your application at developers.eveonline.com first, then log out and in again here.`}
+                : grantSaid(missing.length, SCOPES.length)}
             </p>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,300px),1fr))', gap: 4 }}>
               {SCOPES.map((sc) => {

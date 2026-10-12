@@ -37,7 +37,8 @@ Don't re-derive or contradict these without new evidence.
   the same account as the main, kept its two-permission login through the main's relog on 29 September 2026. And the
   earlier login is already stopped by the time the app or the Worker is handed the new one, so refusing a login
   afterwards protects nothing: a wrong character picked on EVE's chooser has to be kept as what it is
-  (characters-cloud.md).
+  (characters-cloud.md). The structure markets permission (12 October 2026) goes the same way: the user's next login stops the
+  cloud's main login and the phone's; the alts' logins keep working without it.
 - **An account holds up to three characters, and EVE's login asks for the account, then which of its characters.** It
   remembers the account last used, so logging in a character on another account means signing out on EVE's page first.
 - **An Alpha account can't be in game at the same time as any other account** (the user, 30 September 2026).

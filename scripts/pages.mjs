@@ -3038,6 +3038,26 @@ try {
       if (/Item #\d/.test(await text())) problems.push('To do says “Item #…” for a copy contract');
       if (SHOTS) { await page.waitForTimeout(1800); await page.screenshot({ path: `${SHOTS}-industry-todo-copies.png` }); }
     }
+    // --- Task 16: a login from before the structure markets permission. Settings → Account says what logging in again stops,
+    // in the order that keeps every login alive, before anything is stopped (correction 2).
+    {
+      const cfg = fs.readFileSync(new URL('../src/lib/config.ts', import.meta.url), 'utf8');
+      const at = cfg.indexOf('export const SCOPE = {');
+      const asked = [...cfg.slice(at, cfg.indexOf('} as const;', at)).matchAll(/:\s*'(esi-[a-z_.]+\.v\d)'/g)].map((m) => m[1]);
+      const before = asked.filter((s) => s !== 'esi-markets.structure_markets.v1');
+      await page.goto(SEED_PAGE);
+      await seed(ledger, { alts: altStore });
+      await page.evaluate((sc) => { const a = JSON.parse(localStorage.getItem('jita-ledger:auth')); localStorage.setItem('jita-ledger:auth', JSON.stringify({ ...a, scopes: sc })); }, before);
+      await page.goto(`${BASE}#settings/account`);
+      await page.reload();
+      await page.waitForSelector('text=Permissions', { timeout: 20_000 }).catch(() => problems.push('Settings → Account never drew'));
+      await page.waitForTimeout(600);
+      const acct = await text();
+      for (const s of [`1 of ${asked.length} not granted.`, 'Log in again here to grant it', 'That stops your character’s other logins', 'Your alts’ logins keep working', 'Structure markets'])
+        if (!acct.includes(s)) problems.push(`Settings → Account, with a login from before structure markets, doesn’t say “${s}”`);
+      if (acct.includes('then log out and in again here.')) problems.push('Settings → Account still says only “log out and in again here”');
+      if (SHOTS) { await page.waitForTimeout(1800); await page.screenshot({ path: `${SHOTS}-industry-permission.png` }); }
+    }
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

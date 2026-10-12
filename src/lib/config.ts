@@ -56,6 +56,7 @@ export const SCOPE = {
   location: 'esi-location.read_location.v1', // the system you're in, for Mining's "right now"
   online: 'esi-location.read_online.v1', // whether you're logged in, for Mining's "right now"
   agentsResearch: 'esi-characters.read_agents_research.v1', // your R&D agents: which, the field, points a day and points held
+  structureMarkets: 'esi-markets.structure_markets.v1', // a structure's own market, read hourly by the cloud for Industry's home prices
 } as const;
 export const SCOPES: string[] = Object.values(SCOPE);
 
@@ -218,6 +219,11 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
     label: 'R&D agents',
     unlocks: 'Your R&D agents’ research: which agents, the field, points a day and points held, for the Research tab under Side hustles (the cloud reads your alts’ too).',
     without: 'The Research tab can’t track your agents; its walkthrough still helps you start one.',
+  },
+  'esi-markets.structure_markets.v1': {
+    label: 'Structure markets',
+    unlocks: 'Home prices from a structure’s own market, for Side hustles → Industry: the cloud reads each home hub hourly with the character you pick, once EVE lets that character use the market.',
+    without: 'Home prices come from Goonmetrics alone, and only for the hubs it tracks.',
   },
   'esi-characters.read_loyalty.v1': {
     label: 'Loyalty points',

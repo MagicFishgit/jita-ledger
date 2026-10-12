@@ -9045,5 +9045,25 @@ console.log('\n--- Industry stage 3: To do lists a copy contract that expired (T
   eq('the kind: a chore under Needs action', [TD.needs('copyContract'), TD.KIND_LABEL.copyContract, TD.MINUTES.copyContract, TD.HOLDS_UNTIL_CHANGED.has('copyContract')], ['act', 'Copy contract expired', 2, false]);
 }
 
+console.log('\n--- Industry stage 4: the structure markets permission (Task 16) ---');
+{
+  const fsP = await import('node:fs');
+  const cfg = fsP.readFileSync(new URL('../src/lib/config.ts', import.meta.url), 'utf8');
+  const at = cfg.indexOf('export const SCOPE = {');
+  const asked = [...cfg.slice(at, cfg.indexOf('} as const;', at)).matchAll(/:\s*'(esi-[a-z_.]+\.v\d)'/g)].map((m) => m[1]);
+  const info = [...cfg.slice(cfg.indexOf('export const SCOPE_INFO')).matchAll(/^ {2}'(esi-[a-z_.]+\.v\d)': \{/gm)].map((m) => m[1]);
+  // gotchas.md: SCOPE_INFO is the single answer to "what do I need to enable"; a scope added without its entry shows as its raw name.
+  eq('every permission asked for has its SCOPE_INFO entry, and every entry is one asked for', [asked.filter((s) => !info.includes(s)), info.filter((s) => !asked.includes(s))], [[], []]);
+  eq('  structure markets is asked of every login (SCOPE), never switched on per browser (OPTIONAL_SCOPE stays empty)',
+    [asked.includes('esi-markets.structure_markets.v1'), /export const OPTIONAL_SCOPE = \{\} as const;/.test(cfg)], [true, true]);
+  const W = await import('../src/lib/watchdog.ts');
+  eq('  the Account tab, everything granted', W.grantSaid(0, 29), 'All granted. Everything in the app has what it needs.');
+  const one = W.grantSaid(1, 29);
+  for (const s of ['1 of 29 not granted.', 'Log in again here to grant it', 'That stops your character’s other logins:', 'then hand the cloud your login again (Settings → Your data)',
+    'and log in again on any other device', 'Your alts’ logins keep working; hand each over again on Characters for what needs it.']) has('    one missing: says what logging in again stops, and in what order', one, s);
+  has('    two missing: "them"', W.grantSaid(2, 29), 'Log in again here to grant them');
+  eq('    never "log out and in again" alone: the old words said nothing of the cloud', /log out and in again here\.$/.test(one), false);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

@@ -87,7 +87,8 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
   before, lacks it: **both need handing to the cloud again once the user relogs**. Nothing new says so: Settings'
   `scopesMissing` (the cloud's set against this browser's) and the Characters page's `loginState(...).missing` already
   do. Until then the main's step 4 says "Log in again to read your research", an alt's "Hand the cloud X's login again".
-  Its purpose is in `SCOPE_INFO` (gotchas.md: Settings' list is the single answer).
+  Its purpose is in `SCOPE_INFO` (gotchas.md: Settings' list is the single answer). Structure markets went in `SCOPE` the same way
+  (Industry stage 4); Settings → Account now says what the relog stops before it happens (`grantSaid`).
 - **The research reads** (`toResearch` in research.ts, tested). `GET /characters/{id}/agents_research/` gives each
   agent's `agent_id`, `skill_type_id`, `started_at`, `points_per_day` and `remainder_points` (all required), held an hour.
   **Its shape is ESI's OpenAPI spec at the app's compatibility date, 2026-08-18** (`.playwright-mcp/research/rd-agents/
