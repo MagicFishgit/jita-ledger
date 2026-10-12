@@ -14,10 +14,12 @@
  */
 import type { Book } from '../../src/lib/evaluate';
 import { withWatchedHighs, type WatchedExtremes } from '../../src/lib/fills';
-import { queueCeiling, SELLS_COUNTED_TO, sellsToOf, statsFrom } from '../../src/lib/prospects';
-import type { BookSold } from '../../src/lib/split';
+import { queueCeiling, sellsToOf, statsFrom } from '../../src/lib/prospects';
 import { tickDown, tickUp } from '../../src/lib/tick';
-import type { BookLevel, ProspectStats } from '../../src/lib/types';
+import type { ProspectStats } from '../../src/lib/types';
+import { fold, LEVELS, plainBook, type Agg, type RawOrder } from '../../src/lib/bookFold';
+// snipe.ts imports RawOrder from here: the fold's types stay reachable where they were.
+export type { Agg, RawOrder };
 import { HEADERS } from './eve';
 import { eachHistory } from './hist';
 import { dayBoundary, nextScanAt } from './scanTimes';
@@ -30,8 +32,6 @@ const THE_FORGE = 10000002;
 const JITA_44 = 60003760;
 const PLEX = 44992;
 const PLEX_MARKET = 19000001;
-/** Price levels kept per side, as the app's book summary keeps them. */
-const LEVELS = 7;
 /**
  * The spread one step inside the best prices must be over this for history to be worth fetching: below it, the
  * broker fees on both sides and the sales tax take it all at anyone's rates (best skills and standings still pay
@@ -45,58 +45,6 @@ const BUSIEST = 300;
  * is every one of them with room to grow; `limits.subrequests` in wrangler.toml allows the requests.
  */
 const HISTORY_CAP = 22000;
-
-export type RawOrder = { order_id: number; type_id: number; location_id: number; is_buy_order: boolean; price: number; volume_remain: number; volume_total: number; duration: number;
-  issued?: string; min_volume?: number; range?: string };
-/**
- * One item's Jita book as the pages are read. `deep` is every sell price within SELLS_COUNTED_TO times the best ask (price
- * → units), for counting the whole queue (`sellsTo`): the seven levels alone held 2,781 of the Arbalest's 5,170 units up
- * to where trading reached on 2 October 2026.
- */
-export type Agg = { buys: BookLevel[]; sells: BookLevel[]; buyOrders: number; sellOrders: number; sold: Required<BookSold>; npcSell: boolean; deep: Map<number, number> };
-
-/** Adds an order to the best LEVELS levels on its side. A level dropped is worse than every level kept, and so is anything at its price later. */
-function addLevel(levels: BookLevel[], price: number, volume: number, isBuy: boolean) {
-  const at = levels.find((l) => l.price === price);
-  if (at) { at.volume += volume; return; }
-  const better = (a: number, b: number) => (isBuy ? a > b : a < b);
-  if (levels.length >= LEVELS && !better(price, levels[levels.length - 1].price)) return;
-  levels.push({ price, volume });
-  levels.sort((a, b) => (isBuy ? b.price - a.price : a.price - b.price));
-  if (levels.length > LEVELS) levels.pop();
-}
-
-/**
- * Keeps a sell price for the whole-queue count, if it's within SELLS_COUNTED_TO times the best ask. The best only falls as
- * pages come in, so a price dropped was over that bound then and is over it at the end: what's kept at the end is every
- * listing up to SELLS_COUNTED_TO times the final best ask, whatever order the pages came in.
- */
-function addDeep(a: Agg, price: number, volume: number, wasBest: number | undefined) {
-  const best = a.sells[0].price;
-  if (price > SELLS_COUNTED_TO * best) return;
-  a.deep.set(price, (a.deep.get(price) ?? 0) + volume);
-  // A new best ask: let go of what's now past the bound.
-  if (wasBest != null && best < wasBest) for (const p of a.deep.keys()) if (p > SELLS_COUNTED_TO * best) a.deep.delete(p);
-}
-
-function fold(aggs: Map<number, Agg>, o: RawOrder) {
-  let a = aggs.get(o.type_id);
-  if (!a) {
-    a = { buys: [], sells: [], buyOrders: 0, sellOrders: 0, sold: { sell: 0, buy: 0, single: { sell: 0, buy: 0 }, orders: { sell: 0, buy: 0 } }, npcSell: false, deep: new Map() };
-    aggs.set(o.type_id, a);
-  }
-  const side = o.is_buy_order ? 'buy' : 'sell';
-  if (o.is_buy_order) a.buyOrders++; else a.sellOrders++;
-  const wasBest = a.sells[0]?.price;
-  addLevel(o.is_buy_order ? a.buys : a.sells, o.price, o.volume_remain, o.is_buy_order);
-  if (!o.is_buy_order) addDeep(a, o.price, o.volume_remain, wasBest);
-  // What the live orders have already sold, as `soldFrom` counts it, one order at a time.
-  const total = o.volume_total ?? o.volume_remain;
-  a.sold[side] += Math.max(0, total - o.volume_remain);
-  a.sold.orders[side]++;
-  if (total === 1) a.sold.single[side]++;
-  if (!o.is_buy_order && (o.duration ?? 0) >= NPC_DURATION) a.npcSell = true;
-}
 
 /**
  * NPC sell orders anywhere in The Forge, by item: the lowest price. NPCs sell most skill books, and many other things, at
@@ -138,14 +86,6 @@ export function summaryOf(a: Agg, stats: ProspectStats, at: string, npcAt: numbe
   const ceiling = highs ? queueCeiling(highs) : null;
   if (ceiling != null && a.sells.length >= LEVELS && a.sells[LEVELS - 1].price <= ceiling) book.sellsTo = sellsToOf(a.deep, a.sells[0].price, ceiling);
   return book;
-}
-
-/** The summary without the scan's notes: the seven levels a side, order counts, what the live orders sold, NPCs in Jita. */
-export function plainBook(a: Agg, at: string): Book {
-  return {
-    at, bestBuy: a.buys[0]?.price ?? null, bestSell: a.sells[0]?.price ?? null,
-    buyOrders: a.buyOrders, sellOrders: a.sellOrders, topBuys: a.buys, topSells: a.sells, npcSell: a.npcSell, sold: a.sold,
-  };
 }
 
 /**

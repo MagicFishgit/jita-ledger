@@ -9065,5 +9065,27 @@ console.log('\n--- Industry stage 4: the structure markets permission (Task 16) 
   eq('    never "log out and in again" alone: the old words said nothing of the cloud', /log out and in again here\.$/.test(one), false);
 }
 
+console.log('\n--- Industry stage 4: the fold the scan and a structure\'s read share (bookFold.ts, Task 18A) ---');
+{
+  const F = await import('../src/lib/bookFold.ts');
+  const o = (id, type, buy, price, remain, total = remain, duration = 90, loc = 60003760) => ({ order_id: id, type_id: type, location_id: loc, is_buy_order: buy, price, volume_remain: remain, volume_total: total, duration });
+  const aggs = new Map();
+  for (const x of [o(1, 34, false, 5.1, 1000, 1500), o(2, 34, false, 5.0, 200), o(3, 34, true, 4.5, 800, 1000), o(4, 34, false, 5.2, 10, 10, 365)]) F.fold(aggs, x);
+  const a = aggs.get(34);
+  eq('the fold, moved: levels best first, order counts, what the live orders sold, NPCs in the book', F.plainBook(a, 't'), {
+    at: 't', bestBuy: 4.5, bestSell: 5, buyOrders: 1, sellOrders: 3, topBuys: [{ price: 4.5, volume: 800 }], topSells: [{ price: 5, volume: 200 }, { price: 5.1, volume: 1000 }, { price: 5.2, volume: 10 }],
+    npcSell: true, sold: { sell: 500, buy: 200, single: { sell: 0, buy: 0 }, orders: { sell: 3, buy: 1 } } });
+  eq('  the scan\'s queue count: every sell price within twice the best ask', [...a.deep.entries()].sort((x, y) => x[0] - y[0]), [[5, 200], [5.1, 1000], [5.2, 10]]);
+  const BELL = 1049999999999;
+  const s = new Map();
+  F.foldStructurePage(s, [o(1, 34, false, 5.1, 1000, 1500, 90, BELL), o(2, 44992, false, 5e6, 3, 3, 90, BELL), o(3, 35, true, 11, 1, 1, 90, BELL)], new Set([34, 35]));
+  eq('a structure\'s page: the watched types only, and no queue count kept', [[...s.keys()].sort((x, y) => x - y), s.get(34).deep.size], [[34, 35], 0]);
+  const deepBook = new Map();
+  for (let i = 0; i < 7; i++) F.fold(deepBook, o(10 + i, 34, false, 5 + i, 10 + i), false);
+  eq('  its summary: five levels a side as [price, units], order counts, and sold [sell, buy, single sell, single buy]', F.structureSummary(new Map([...s, [36, deepBook.get(34)]])), {
+    34: [[], [[5.1, 1000]], 0, 1, [500, 0, 0, 0]], 35: [[[11, 1]], [], 1, 0, [0, 0, 0, 1]], 36: [[], [[5, 10], [6, 11], [7, 12], [8, 13], [9, 14]], 0, 7, [0, 0, 0, 0]] });
+  eq('  five levels', F.HOME_LEVELS, 5);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

@@ -645,3 +645,27 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   (the old line "X's own aren't searched here" is gone; an alt's search needs no permission in this browser's login, only the cloud's).
   Reprocessing passes no `as`: it searches as the main, unchanged. The page check's Builder Alt searches through a stubbed route, then the
   route answers 404.
+
+- **The cloud reads each home market** (Task 18A, 12 October 2026; migration 0021 `home_markets` + `home_books`, `worker/src/homeMarkets.ts`,
+  `src/lib/bookFold.ts`). A hub is a structure with a name and a reader: Goonmetrics' two read with the main unless a `home_markets` row says
+  otherwise (or switches one off with `removed_at`), and any hub you add (at most 10), which carries the system and region the finder needs
+  (read publicly when it was added). `home_books` is **the structure's own**, keyed by structure: nothing of it is filed under the main or the
+  alt that read it, and `read_by` says whose login the last good read was. A read folds page by page (`foldStructurePage`, the scan's fold with
+  no queue count), keeping the watch set's types only (2,916), five levels a side as `[price, units]`, order counts and what the live orders
+  sold: about 150 bytes a type. **A read cut short, or with a page failed, is never stored**, and a market over 300 pages isn't read: ESI's
+  pages are shuffled by type, so part of them would price every type wrong; the last good read (`at`, `data`, `pages`, `types`) stands apart from
+  the last try (`tried`, `reader`, `error`). `refused_at` is when this reader was first refused in a row: a read clears it, another failure
+  (a 500 says nothing of access) keeps it, another reader starts it afresh. A refused hub is asked again hourly, so a character accepted onto
+  the access list starts reading within the hour.
+  - **When it reads**: last on the `37` chain (after the alts' read, Goonmetrics and the copy round: a missed Goonmetrics or copy round slips six
+    hours, a missed structure read one), every hub whose last try is 50 minutes old, least recently read first **by `at`** (so a hub cut short goes
+    first next hour, and one long market can't keep another unread), no page asked for past 14 minutes from the cron's time. Inside its own
+    try/catch; **not a watched job** (a hub refused until the user is accepted would mail daily; the tab says each hub's state). The fold moved out
+    of scan.ts unchanged: the scan's tests pass untouched.
+  - **A login that can't read is skipped before EVE is asked and not stamped** (`loginOf`, from the keys): not on the roster (`notYours`, never
+    read with the main instead), none kept, refused, or handed over without the permission (the deploy-day state of the main's own login: "hand the
+    cloud your login again"). `POST /v1/home/read` reads one hub at once with no deadline.
+  - **ESI**: `/markets/structures/{id}/` pages of 1,000 orders with `X-Pages`, held about 300 s, no rate group named in the spec; the 403 for a
+    reader off the access list has no shape in the spec. **After shipping: record the first real refusal (its status and `error`), the first real
+    read's page count, types and row size, and how long a page takes.**
+  - **D1's cost**: one `home_books` write a hub an hour, about 2,200 a month for three hubs; `home_markets` is written only on a choice.

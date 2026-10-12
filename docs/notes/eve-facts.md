@@ -151,3 +151,8 @@ Don't re-derive or contradict these without new evidence.
   body for an expired or accepted contract, a character contract's `availability` (`public`, `personal`…), and an item's `raw_quantity`
   (−2 a blueprint copy, −1 an original or another singleton). The first real sync after Task 15A is the check: if `raw_quantity` is
   absent, no contract reads as a copy contract and the Copies section's contracts stay empty.
+
+- **`/markets/structures/{id}/`** (read from ESI's spec, 12 October 2026; no real answer seen yet): needs `esi-markets.structure_markets.v1` and a
+  character on the structure's market access list; pages of up to 1,000 orders with `X-Pages`, held about 300 seconds, no rate group named; 401
+  without a login. The shape of the refusal for a character off the list is not in the spec (403 assumed): the first real one is recorded in
+  industry.md. Orders are the structure's own, so a page holds no order of another location.

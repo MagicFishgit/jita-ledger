@@ -20,7 +20,7 @@ migrations_dir = "migrations"
 enabled = true
 
 # Background jobs: the market watch every five minutes, the sniper a minute after each (ESI refreshes The Forge's
-# book at about :x0:30 and :x5:30), the archive hourly at seven past, the alts' full reads hourly at 37 past (a cron
+# book at about :x0:30 and :x5:30), the archive hourly at seven past, the alts' full reads hourly at 37 past (then Goonmetrics, the copy market and each home market's own read, in that order; a cron
 # of their own: on the :07 one they would run ahead of a scan whose time budget doesn't know about them), and the
 # full-market scan daily at 11:25 EVE, after ESI publishes the day's history (the hourly run catches up a missed one).
 [triggers]

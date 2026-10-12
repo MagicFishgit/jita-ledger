@@ -91,3 +91,7 @@ Decisions worth not undoing. How the ledger lives in the cloud as well as the br
   came down; the Worker's push merges onto D1's doc and writes a merge that differs from what was pushed at a revision of its own, as for
   `jobs`, and keeps D1's doc when a pushed one doesn't sanitize. Two pushes landing at once can each merge against the older doc; the next
   pull's union repairs that. Don't simplify either side back to newest-wins.
+
+- **The cloud reads home markets with logins handed to it** (`worker/src/homeMarkets.ts`, Industry stage 4): a reader's login, the main's or an
+  alt's, reads a structure's market hourly; nothing is filed under any character (`home_books` is the structure's), and the readers use
+  `ledgerReader` / `altReader` as the other reads do, so a login's refresh and refusal are unchanged.

@@ -31,6 +31,7 @@ import { npcRows } from './industryNpc';
 import { BUDGET_MS, homePrices, refreshHomePrices } from './goonmetrics';
 import { searchStructures } from './structures';
 import { COPIES_BUDGET_MS, copiesFor, refreshCopies } from './copies';
+import { BOOKS_BUDGET_MS, dropHomeMarket, homeBookFor, homeMarketsFor, readHomeNow, refreshHomeBooks, setHomeMarket } from './homeMarkets';
 
 export interface Env {
   DB: D1Database;
@@ -222,6 +223,12 @@ export default {
         // Then what copies sell (copies.ts), when six hours old: after Goonmetrics, never in its way; not a watched job.
         .finally(async () => {
           try { console.log('copies', JSON.stringify(await refreshCopies(env.DB, Date.now(), { deadline: event.scheduledTime + COPIES_BUDGET_MS }))); } catch (e) { console.error('copies failed', e); }
+        })
+        // Then each home market's own read (homeMarkets.ts), every hub hourly with its reader's login: last, since a missed
+        // Goonmetrics or copy round slips six hours and a missed structure read one; no page asked for past 14 minutes. Not a
+        // watched job: a hub refused until the user is accepted would mail every day, and the tab says each hub's state.
+        .finally(async () => {
+          try { console.log('home books', JSON.stringify(await refreshHomeBooks(env, Date.now(), { deadline: event.scheduledTime + BOOKS_BUDGET_MS }))); } catch (e) { console.error('home books failed', e); }
         }));
       return;
     }
@@ -358,6 +365,13 @@ export default {
       if (url.pathname === '/v1/industry/npc' && request.method === 'GET') return json(await npcRows(env.DB), 200, c);
       // A home hub's prices as the cloud last read them from Goonmetrics (goonmetrics.ts); 400 for a hub it doesn't read.
       if (url.pathname === '/v1/home/prices' && request.method === 'GET') return json(await homePrices(env.DB, Number(url.searchParams.get('hub'))), 200, c);
+      // Home markets (homeMarkets.ts): the hubs and their states; add one or set its reader; stop reading or remove one; a hub's
+      // last good read; read one now. New paths: a Worker a version behind answers 404, which the tab says.
+      if (url.pathname === '/v1/home/markets' && request.method === 'GET') return json(await homeMarketsFor(env.DB, who.charId), 200, c);
+      if (url.pathname === '/v1/home/markets' && request.method === 'POST') return json(await setHomeMarket(env.DB, who.charId, (await request.json()) as Record<string, unknown>), 200, c);
+      if (url.pathname === '/v1/home/markets' && request.method === 'DELETE') return json(await dropHomeMarket(env.DB, who.charId, Number(url.searchParams.get('hub'))), 200, c);
+      if (url.pathname === '/v1/home/book' && request.method === 'GET') return json(await homeBookFor(env.DB, who.charId, Number(url.searchParams.get('hub'))), 200, c);
+      if (url.pathname === '/v1/home/read' && request.method === 'POST') return json(await readHomeNow(env, who.charId, Number(url.searchParams.get('hub'))), 200, c);
       // A structure search as one of your characters, with its own login (structures.ts): the browser holds no alt's login.
       if (url.pathname === '/v1/structures/search' && request.method === 'POST') {
         const body = (await request.json()) as { char?: unknown; q?: unknown };

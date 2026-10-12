@@ -50,7 +50,7 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   cache. A deep scan that finishes says so, as a system notification too when browser notifications are on,
   since it's left running. A cloud full-market scan (`runs.cloud`) is fresh for `CLOUD_FRESH_HOURS` (30): it
   runs daily and the watch keeps the best candidates' prices live, so a 6-hour warning would fire every afternoon.
-- **The cloud reads the whole market once a day** (`worker/src/scan.ts`, `hist.ts`, `scanTimes.ts`). The user
+- **The cloud reads the whole market once a day** (`worker/src/scan.ts`, `hist.ts`, `scanTimes.ts`; the fold lives in `src/lib/bookFold.ts` since Industry stage 4, shared with a structure's read; `foldPage` stays in scan.ts). The user
   thought Deep scan already did ("i thought deep scan checks the full market which is what I wanted it to be in the
   first place"): it samples ~15% of the order book, Quick ~5%. The Worker reads all ~405 pages of The Forge's book
   at 11:25 EVE (after ESI's 11:05 history), folds Jita's orders into per-item book summaries (7 levels a side,

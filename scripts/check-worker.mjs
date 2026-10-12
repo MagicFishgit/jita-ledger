@@ -1846,5 +1846,161 @@ console.log('\n--- the cloud searches structures as an alt, with the alt\'s own 
   }
 }
 
+console.log('\n--- home markets: a structure\'s own market, read hourly by the cloud with its reader\'s login (Task 18A) ---');
+{
+  const H = await import('../worker/src/homeMarkets.ts');
+  const UALX = 1046664001931, CJ = 1049588174021, BELL = 1049999999999;
+  const MARKETS = 'esi-markets.structure_markets.v1';
+  const NOW = Date.parse('2026-10-12T13:38:00Z'), HOUR = 3_600_000;
+  const want = new Set([34, 35, 25894]);
+  const o = (id, type, buy, price, remain, total = remain) => ({ order_id: id, type_id: type, location_id: BELL, is_buy_order: buy, price, volume_remain: remain, volume_total: total, min_volume: 1, duration: 90, issued: '2026-10-12T10:00:00Z', range: 'station' });
+  const reply = (body, status = 200, pages = 1) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'X-Pages': String(pages) } });
+  const pagesOf = (list) => (url) => reply(list[Number(url.searchParams.get('page') ?? 1) - 1] ?? [], 200, list.length);
+  const whoAsked = (init) => { const t = (init.headers?.Authorization ?? '').replace('Bearer ', ''); return t ? JSON.parse(Buffer.from(t.split('.')[1], 'base64').toString()).sub : null; };
+  const PAGE1 = [o(1, 34, false, 5.1, 1000, 1500), o(2, 34, false, 5.0, 200), o(3, 34, true, 4.5, 800, 1000), o(4, 44992, false, 5e6, 3)];
+  const PAGE2 = [o(5, 25894, false, 7.2e6, 4, 6), o(6, 34, false, 5.0, 300), o(7, 35, true, 11, 1, 1)];
+  const setup = async ({ mainScopes = [...SCOPES, MARKETS], altScopes = [...SCOPES, MARKETS] } = {}) => {
+    const db = d1();
+    await keepKey(db, MAIN, 'main', MAIN, 'Main', mainScopes);
+    await keepKey(db, MAIN, `alt:${ALT}`, ALT, 'Miner Two', altScopes);
+    db.run('INSERT INTO alts (char_id, ledger, name, added_at) VALUES (?, ?, ?, ?)', ALT, MAIN, 'Miner Two', Date.now());
+    return { db, env: testEnv(db) };
+  };
+  const book = (db, id) => db.rows('SELECT at, tried, reader, error, refused_at AS refusedAt, pages, types FROM home_books WHERE structure_id = ?', id)[0] ?? null;
+  const addBell = async (db, reader = ALT) => {
+    const f = stubFetch([
+      ['/universe/systems/30004807/', (url, init) => (init.headers?.Authorization ? reply({ error: 'a public read sent a login' }, 400) : { name: 'UALX-3', constellation_id: 20000703 })],
+      ['/universe/constellations/20000703/', { region_id: 10000061 }],
+    ]);
+    try { await H.setHomeMarket(db, MAIN, { hub: BELL, name: 'UALX-3 - Mothership Bellicose', systemId: 30004807, reader }, NOW); } finally { f.restore(); }
+  };
+  const round = async (env, routes, now = NOW, opts = {}) => { const f = stubFetch(routes); try { return { r: await H.refreshHomeBooks(env, now, { want, ...opts }), calls: f.calls }; } finally { f.restore(); } };
+  const refused = () => reply({ error: 'Market access denied' }, 403);
+  eq('  the Worker asks for the permission the browser does (config.ts\'s SCOPE.structureMarkets)', H.SCOPE_STRUCTURE_MARKETS,
+    fs.readFileSync(new URL('../src/lib/config.ts', import.meta.url), 'utf8').match(/structureMarkets: '([^']+)'/)[1]);
+
+  // The defaults, a hub added, and a round reading all three.
+  {
+    const { db, env } = await setup();
+    eq('  the defaults: Goonmetrics\' two, read with the main, with no row in D1', (await H.hubsOf(db, MAIN)).map((h) => [h.id, h.reader, h.kept, h.off]), [[UALX, MAIN, 'default', false], [CJ, MAIN, 'default', false]]);
+    await addBell(db);
+    eq('  a hub added: its system and region (read publicly), and its reader', db.rows('SELECT ledger, structure_id AS id, name, system_id AS sys, region_id AS reg, reader, removed_at AS gone FROM home_markets'),
+      [{ ledger: MAIN, id: BELL, name: 'UALX-3 - Mothership Bellicose', sys: 30004807, reg: 10000061, reader: ALT, gone: null }]);
+    const before = counts(db), seen = [];
+    const { r } = await round(env, [
+      [`/markets/structures/${UALX}/`, (url, init) => { seen.push(['ualx', whoAsked(init)]); return refused(); }],
+      [`/markets/structures/${CJ}/`, (url, init) => { seen.push(['cj', whoAsked(init)]); return refused(); }],
+      [`/markets/structures/${BELL}/`, (url, init) => { seen.push(['bell', whoAsked(init), url.searchParams.get('page')]); return pagesOf([PAGE1, PAGE2])(url); }],
+    ]);
+    eq('  one round reads every hub: Goonmetrics\' two refused, Bellicose read with the alt\'s own login, page by page', [r.done, seen.sort((x, y) => String(x).localeCompare(String(y)))],
+      [{ [UALX]: 'refused', [CJ]: 'refused', [BELL]: 'read' }, [['bell', `CHARACTER:EVE:${ALT}`, '1'], ['bell', `CHARACTER:EVE:${ALT}`, '2'], ['cj', `CHARACTER:EVE:${MAIN}`], ['ualx', `CHARACTER:EVE:${MAIN}`]]]);
+    eq('    nothing written under the main or the alt: a market is nobody\'s records', counts(db), before);
+    eq('    the read kept: its time, two pages, the watched types only (PLEX left out)', book(db, BELL), { at: NOW, tried: NOW, reader: ALT, error: null, refusedAt: null, pages: 2, types: 3 });
+    const got = await H.homeBookFor(db, MAIN, BELL);
+    eq('    each type\'s best levels, its order counts and what its live orders sold', [got.at, got.rows[34], got.rows[25894], got.rows[35]], [new Date(NOW).toISOString(),
+      [[[4.5, 800]], [[5, 500], [5.1, 1000]], 1, 3, [500, 200, 0, 0]], [[], [[7200000, 4]], 0, 1, [2, 0, 0, 0]], [[[11, 1]], [], 1, 0, [0, 0, 0, 1]]]);
+    eq('    a refusal kept: when, by whom, why, and nothing read', book(db, UALX), { at: 0, tried: NOW, reader: MAIN, error: 'ESI 403: Market access denied', refusedAt: NOW, pages: null, types: 0 });
+    eq('    a hub never read: no book', await H.homeBookFor(db, MAIN, UALX), null);
+    const list = (await H.homeMarketsFor(db, MAIN)).hubs;
+    eq('  GET /v1/home/markets: each hub, its reader and login, its own reads', list.map((h) => [h.id, h.kept, h.off, h.reader, h.readerName, h.readerIsMain, h.login, h.book?.refusedAt ?? null, h.book?.types ?? null]), [
+      [UALX, 'default', false, MAIN, 'Main', true, 'ok', new Date(NOW).toISOString(), 0], [CJ, 'default', false, MAIN, 'Main', true, 'ok', new Date(NOW).toISOString(), 0],
+      [BELL, 'added', false, ALT, 'Miner Two', false, 'ok', null, 3]]);
+    // Within the hour nothing is asked again; an hour on, every hub again, least recently read first: by its last good read, not its
+    // last try (the two refused were tried ten minutes after Bellicose was read, so by the try Bellicose would go first).
+    eq('  40 minutes on: nothing asked', (await round(env, [], NOW + 40 * 60_000)).calls.length, 0);
+    db.run('UPDATE home_books SET tried = ? WHERE structure_id IN (?, ?)', NOW + 10 * 60_000, UALX, CJ);
+    const order = [];
+    const again = await round(env, [
+      [`/markets/structures/${UALX}/`, () => { order.push(UALX); return refused(); }], [`/markets/structures/${CJ}/`, () => { order.push(CJ); return refused(); }],
+      [`/markets/structures/${BELL}/`, (url) => { order.push(BELL); return pagesOf([PAGE1, PAGE2])(url); }],
+    ], NOW + HOUR + 10 * 60_000);
+    eq('  an hour on: the hubs never read first, the one read last', [order.filter((x, i) => order.indexOf(x) === i), again.r.done[BELL]], [[UALX, CJ, BELL], 'read']);
+    eq('    a hub refused again keeps when it was first refused', book(db, UALX).refusedAt, NOW);
+    // Accepted at last: a read clears the refusal.
+    await round(env, [[`/markets/structures/${UALX}/`, pagesOf([PAGE1])], [`/markets/structures/${CJ}/`, refused], [`/markets/structures/${BELL}/`, pagesOf([PAGE1, PAGE2])]], NOW + 3 * HOUR);
+    eq('    a read clears the refusal', [book(db, UALX).refusedAt, book(db, UALX).error, book(db, UALX).at], [null, null, NOW + 3 * HOUR]);
+  }
+
+  // A read cut short, a page failing, a market too big: the last good read stands (Review Focus 1).
+  {
+    const { db, env } = await setup();
+    await addBell(db);
+    // Bellicose alone, so the deadline below falls inside its read and not in another hub's.
+    await H.dropHomeMarket(db, MAIN, UALX, NOW);
+    await H.dropHomeMarket(db, MAIN, CJ, NOW);
+    await round(env, [[`/markets/structures/${BELL}/`, pagesOf([PAGE1, PAGE2])], [/markets\/structures/, refused]]);
+    const good = db.rows('SELECT data FROM home_books WHERE structure_id = ?', BELL)[0].data;
+    // Page 1 takes 400 ms against a 200 ms deadline: whatever runs before it (two lookups, the login opened), the deadline falls inside it.
+    const slow = (list) => async (url) => { await new Promise((res) => setTimeout(res, 400)); return pagesOf(list)(url); };
+    const cut = await round(env, [[`/markets/structures/${BELL}/`, slow([PAGE2, PAGE1])], [/markets\/structures/, refused]], NOW + HOUR, { deadline: Date.now() + 200 });
+    eq('  the deadline passing after page 1 of 2: nothing stored, the try stamped with why', [cut.r.done[BELL], book(db, BELL), db.rows('SELECT data FROM home_books WHERE structure_id = ?', BELL)[0].data === good],
+      ['cut', { at: NOW, tried: NOW + HOUR, reader: ALT, error: 'Cut short at page 2 of 2 by the cloud’s time limit', refusedAt: null, pages: 2, types: 3 }, true]);
+    const failing = await round(env, [[`/markets/structures/${BELL}/`, (url) => (url.searchParams.get('page') === '2' ? reply({ error: 'boom' }, 500) : pagesOf([PAGE2, PAGE1])(url))], [/markets\/structures/, refused]], NOW + 2 * HOUR);
+    eq('  page 2 answering 500: nothing stored, said', [failing.r.done[BELL], book(db, BELL).error, book(db, BELL).at, db.rows('SELECT data FROM home_books WHERE structure_id = ?', BELL)[0].data === good], ['failed', 'Page 2 of 2 failed (ESI 500: boom)', NOW, true]);
+    const big = await round(env, [[`/markets/structures/${BELL}/`, () => reply([], 200, 301)], [/markets\/structures/, refused]], NOW + 3 * HOUR);
+    eq('  a market over 300 pages: not read at all, said', [big.r.done[BELL], book(db, BELL).error, big.calls.filter((c) => c.path === `/markets/structures/${BELL}/`).length], ['failed', 'Its market runs to 301 pages, more than the 300 the cloud reads in one go', 1]);
+    eq('    and its last good read still serves', (await H.homeBookFor(db, MAIN, BELL)).at, new Date(NOW).toISOString());
+    // Access lost after reads worked (Review Focus 2): a 403 keeps the last good read whole, and is dated from that hour.
+    const lost = await round(env, [[`/markets/structures/${BELL}/`, refused], [/markets\/structures/, refused]], NOW + 4 * HOUR);
+    eq('  a refusal after a good read: the read kept (time, pages, types, data, whose), the refusal dated and said',
+      [lost.r.done[BELL], book(db, BELL), db.rows('SELECT data, read_by AS readBy FROM home_books WHERE structure_id = ?', BELL)[0], (await H.homeBookFor(db, MAIN, BELL)).at],
+      ['refused', { at: NOW, tried: NOW + 4 * HOUR, reader: ALT, error: 'ESI 403: Market access denied', refusedAt: NOW + 4 * HOUR, pages: 2, types: 3 }, { data: good, readBy: ALT }, new Date(NOW).toISOString()]);
+    const said = (await H.homeMarketsFor(db, MAIN)).hubs.find((h) => h.id === BELL).book;
+    eq('    and the list carries both: the refusal and the last good read, by whom', [said.refusedAt, said.at, said.readByName], [new Date(NOW + 4 * HOUR).toISOString(), new Date(NOW).toISOString(), 'Miner Two']);
+  }
+
+  // A reader whose login can't read: no call to EVE, said from the keys (Review Focus 4).
+  {
+    const { db, env } = await setup({ altScopes: SCOPES });
+    await addBell(db);
+    const r = await round(env, [[/markets\/structures/, refused]]);
+    eq('  the alt\'s login without the permission: skipped, EVE not asked for it', [r.r.done[BELL], r.calls.some((c) => c.path === `/markets/structures/${BELL}/`), book(db, BELL)], ['skipped', false, null]);
+    eq('    and the list says why', (await H.homeMarketsFor(db, MAIN)).hubs.find((h) => h.id === BELL).login, 'permission');
+    db.run('UPDATE keys SET scopes = ?, refused_at = ?, refused = ? WHERE purpose = ?', [...SCOPES, MARKETS].join(' '), NOW, 'invalid_grant', `alt:${ALT}`);
+    eq('  a login EVE refused: skipped, said', [(await round(env, [[/markets\/structures/, refused]], NOW + HOUR)).r.done[BELL], (await H.homeMarketsFor(db, MAIN)).hubs.find((h) => h.id === BELL).login], ['skipped', 'refused']);
+    db.run('UPDATE alts SET removed_at = ? WHERE char_id = ?', NOW, ALT);
+    eq('  a reader taken off the roster: skipped, never read with the main instead, said', [(await round(env, [[/markets\/structures/, refused]], NOW + 2 * HOUR)).calls.some((c) => c.path === `/markets/structures/${BELL}/`), (await H.homeMarketsFor(db, MAIN)).hubs.find((h) => h.id === BELL).login], [false, 'notYours']);
+    db.run(`DELETE FROM keys WHERE purpose = 'main'`);
+    eq('  no main login kept: no ledger to read for, nothing asked', (await round(env, [], NOW + 3 * HOUR)).calls.length, 0);
+  }
+
+  // The deploy-day state: the main's own cloud login, handed over before the permission was asked, reads nothing and says why
+  // (Review Focus 4): "hand the cloud your login again", never a failure or a refusal.
+  {
+    const { db, env } = await setup({ mainScopes: SCOPES });
+    const r = await round(env, [[/markets\/structures/, refused]]);
+    eq('  the main\'s cloud login without the permission: both defaults skipped, EVE never asked, nothing stamped',
+      [r.r.done, r.calls.filter((c) => c.path.startsWith('/markets/structures/')).length, db.rows('SELECT COUNT(*) AS n FROM home_books')[0].n], [{ [UALX]: 'skipped', [CJ]: 'skipped' }, 0, 0]);
+    eq('    the list says the permission, for both, with no book to call a failure or a refusal',
+      (await H.homeMarketsFor(db, MAIN)).hubs.map((h) => [h.id, h.readerIsMain, h.login, h.book]), [[UALX, true, 'permission', null], [CJ, true, 'permission', null]]);
+  }
+
+  // Choices: a default switched off and on, a reader that isn't yours, a hub without its place, the cap.
+  {
+    const { db, env } = await setup();
+    await H.dropHomeMarket(db, MAIN, UALX, NOW);
+    eq('  a default switched off: kept as a row with removed_at, listed off, not read', [(await H.hubsOf(db, MAIN)).find((h) => h.id === UALX).off, (await round(env, [[/markets\/structures/, refused]])).calls.some((c) => c.path === `/markets/structures/${UALX}/`)], [true, false]);
+    await H.setHomeMarket(db, MAIN, { hub: UALX, reader: ALT }, NOW);
+    eq('    and on again, with the alt reading it: no public read needed for a default\'s place', (await H.hubsOf(db, MAIN)).find((h) => h.id === UALX), { id: UALX, name: 'UALX-3 - 1st Byzantigoon', systemId: 30004807, regionId: 10000061, reader: ALT, kept: 'default', off: false });
+    await rejects('  a reader that isn\'t one of yours', () => H.setHomeMarket(db, MAIN, { hub: CJ, reader: 900555 }, NOW), /isn’t one of yours/);
+    await rejects('  a new hub without its name and system', () => H.setHomeMarket(db, MAIN, { hub: 1047777777777, reader: MAIN }, NOW), /needs its name and system/);
+    await rejects('  a book of a hub that isn\'t yours', () => H.homeBookFor(db, MAIN, 1047777777777), /Not one of your home markets/);
+    await rejects('  removing a hub you never added', () => H.dropHomeMarket(db, MAIN, 1047777777777, NOW), /Not one of your home markets/);
+    for (let i = 0; i < H.MAX_ADDED; i++) db.run('INSERT INTO home_markets (ledger, structure_id, name, system_id, region_id, reader, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)', MAIN, 1047000000000 + i, `Hub ${i}`, 30004807, 10000061, MAIN, NOW);
+    await rejects('  ten added is the most', () => H.setHomeMarket(db, MAIN, { hub: 1047999999999, name: 'One more', systemId: 30004807, reader: MAIN }, NOW), /10 home markets is the most/);
+  }
+
+  // Read it now: one hub at once, with its reader, and its state back.
+  {
+    const { db, env } = await setup();
+    await addBell(db, MAIN);
+    const f = stubFetch([[`/markets/structures/${BELL}/`, pagesOf([PAGE1])]]);
+    const st = await H.readHomeNow(env, MAIN, BELL);
+    f.restore();
+    // With the real watch set (no `want`): page 1 holds Tritanium, which it watches, and PLEX, which it doesn't.
+    eq('  POST /v1/home/read: read at once with its reader, its state back', [st.id, st.login, st.book.types, st.book.error], [BELL, 'ok', 1, null]);
+  }
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

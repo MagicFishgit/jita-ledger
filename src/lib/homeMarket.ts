@@ -1,4 +1,5 @@
 import type { HomeQuote } from './industryRank';
+import type { StructureRow } from './bookFold';
 
 /**
  * Home prices for the Industry tab (docs/notes/industry.md): Goonmetrics, a Goonswarm tool ("Goonmetrics © GARPA
@@ -62,3 +63,19 @@ export function parseGoonmetrics(xml: string): Record<number, HomeRow> {
 
 /** A type's kept row as the finder reads it (industryRank's HomeQuote); null when the hub's read doesn't have it. */
 export const homeQuote = (row: HomeRow | undefined): HomeQuote | null => (row ? { sell: row[4], buy: row[2], weekly: row[1], at: row[0] } : null);
+
+/** Whether a reader's login, as the cloud keeps it, can read a structure's market: worked out from the cloud's keys, never by asking EVE. */
+export type HubLogin = 'ok' | 'permission' | 'refused' | 'none' | 'notYours';
+/** A hub's own market as the cloud last read it: the last good read (`at`, null before one, and whose it was: `readBy`) and the last try (when, whose, why it failed). */
+export type HubBook = { at: string | null; tried: string; error: string | null; refusedAt: string | null; pages: number | null; types: number; reader: number | null; readerName: string | null; readBy: number | null; readByName: string | null };
+/**
+ * A home market as `GET /v1/home/markets` gives it (worker/src/homeMarkets.ts): Goonmetrics' two (`default`, read with the main
+ * unless you chose otherwise, `off` when you stopped reading one) and those you added; its reader, whether that login can read it,
+ * and its own reads (null before the first try).
+ */
+export type HubState = {
+  id: number; name: string; systemId: number; regionId: number; kept: 'default' | 'added'; off: boolean;
+  reader: number; readerName: string | null; readerIsMain: boolean; login: HubLogin; book: HubBook | null;
+};
+/** `GET /v1/home/book?hub=`: a hub's last good read of its own market, or null before one. */
+export type HomeBookAnswer = { hub: number; at: string; rows: Record<string, StructureRow> } | null;

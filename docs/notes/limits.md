@@ -290,3 +290,7 @@ State these rather than letting them be discovered:
   made** for a later sale's claim: the app can't see a copy consumed. **Claims run in the order contracts were listed**, so a contract listed early and sold late can take
   copies a later one had claimed, moving an earlier period's figure when it sells. **Contract fees count only where the journal names the contract** (unseen so far), and
   none for a copy contract of a blueprint you hadn't copied before listing it. An outstanding contract that left ESI's list is neither a sale nor a claim on your copies; its listing fee still counts.
+- **A home market's own read is the watch set's types, hourly, from one read each time**: what its live orders have sold is since each was
+  placed, not a pace, and nothing is watched between reads; its pace is the home region's history. **A read cut short, or with a page failed, keeps
+  the last good read**, and a market over 300 pages isn't read. **It speaks only while under two hours old**: past that Goonmetrics' prices (hours
+  old) speak for the hubs it tracks, and nothing for the others (Task 18B says so on the tab).
