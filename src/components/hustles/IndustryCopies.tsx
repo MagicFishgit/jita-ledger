@@ -77,7 +77,7 @@ export function IndustryCopies({ c, chars, ix, graph }: { c: IndustryChar; chars
     : market.status === 'loading' ? 'Reading what copies sold from the cloud…'
       : market.status === 'behind' ? 'The cloud is a version behind: what copies sell comes once it’s updated.'
         : market.status === 'switched' ? 'The cloud has its reads of EVE Ref switched off, so what copies sell isn’t counted.'
-          : market.status === 'none' ? 'The cloud hasn’t read the copy market yet: its first read comes on its next six-hourly round, and counting starts six hours after that.'
+          : market.status === 'none' ? 'The cloud hasn’t read the copy market yet: its first read comes within the hour, and counting starts six hours after that.'
             : market.status === 'tried' ? (readingNow(market.tried, market.error, now) ? 'The cloud is reading the copy market now: what it finds comes on the next look, and counting starts six hours after a read lands.'
               : `The cloud tried to read the copy market ${ago(market.tried, now)}${market.error ? ` and it failed: ${market.error}` : ' and has nothing to show yet'}. ${retrySaid(market.error)}, and counting starts six hours after a read lands.`)
               : market.status === 'failed' ? `Couldn’t read what copies sold from the cloud: ${market.error}`
@@ -209,7 +209,7 @@ function CopyBusiness({ c, ix, graph, summary }: { c: IndustryChar; ix: Indexed;
   const doc = c.isMain ? d.copyContracts : undefined;
   // Names the bundle lacks (copies of faction or exploration blueprints) are asked of ESI, "…" while they're read (IndustryOwned's way).
   const looking = useEnsureNames([...new Set([...(jobs ?? []).map((j) => j.blueprintTypeId), ...(doc?.list ?? []).flatMap((x) => x.copies.map(([t]) => t))])].filter((t) => !ix.b.types[t]));
-  const name = (t: number) => ix.b.types[t]?.[0] ?? d.names[t] ?? (looking ? '…' : `Item #${t}`);
+  const name = (t: number) => ix.b.types[t]?.[0] ?? d.names[t] ?? (looking ? '…' : 'a blueprint ESI couldn’t name');
   const running = (jobs ?? []).filter((j) => j.status === 'active' || j.status === 'paused' || j.status === 'ready').sort((a, b) => Date.parse(a.end) - Date.parse(b.end));
   const done = (jobs ?? []).filter((j) => (j.status === 'delivered' || j.status === 'cancelled' || j.status === 'reverted') && now - Date.parse(j.completed ?? j.end) <= 30 * 86_400_000)
     .sort((a, b) => Date.parse(b.completed ?? b.end) - Date.parse(a.completed ?? a.end));

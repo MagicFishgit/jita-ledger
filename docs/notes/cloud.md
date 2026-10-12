@@ -84,4 +84,10 @@ Decisions worth not undoing. How the ledger lives in the cloud as well as the br
 
 - **`copyContracts` is a synced document** (11 October 2026, Industry stage 3): the main's copy contracts, changed only when a copy contract
   changes, merged in the sync's final `update` against live state (never a snapshot) and pulled through `sanitizeCopyContracts`. A Worker a
-  version behind refuses it as unknown and `refusedDoc` holds it back; an older browser ignores it (`isDocKey`).
+  version behind refuses it as unknown and `refusedDoc` holds it back; an older browser ignores it (`isDocKey`). **It is merged, never
+  replaced, on both sides** (`mergeCopyContracts`): ESI lists a character's contracts only 30 days back, so a doc a new browser built from
+  ESI alone, pushed over the cloud's, would lose history nothing can give back. The pull applies the union whether the local doc is dirty
+  or not, under `cloudWins` too (the `|| x.key === 'copyContracts'` in `pullNow`), and marks it dirty when the union holds more than what
+  came down; the Worker's push merges onto D1's doc and writes a merge that differs from what was pushed at a revision of its own, as for
+  `jobs`, and keeps D1's doc when a pushed one doesn't sanitize. Two pushes landing at once can each merge against the older doc; the next
+  pull's union repairs that. Don't simplify either side back to newest-wins.

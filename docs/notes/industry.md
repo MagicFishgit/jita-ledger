@@ -576,9 +576,10 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   reads once more). The sync reads items for your outstanding item exchanges as well as the finished ones. Each contract keeps ESI's status,
   price, availability, acceptor, completion and start station, its copies by type, and its kinds `[type, ME, TE, runs, copies]`, read once
   from the public items while outstanding and public (at most 20 a sync): `private` (never asked), `gone` (no longer outstanding or past
-  its expiry before they were read, or the answer held no copy), absent (not read: a 404 is asked again next sync). One that leaves ESI's list
-  is stamped `gone` once, its last status kept, and never dropped (5,000, newest kept); one still listed whose items weren't read this sync
-  (past the 500 kept) keeps its copies and follows its status. Written against live state in the final `update`, only when changed.
+  its expiry before they were read, or the answer held no copy), absent (not read: a 404 is asked again next sync). One missing from ESI's
+  list and issued more than 30 days before the read is stamped `gone` once (fix round 2 below), its last status kept, and never dropped
+  (3,000, `MAX_COPY_CONTRACTS`, newest kept); one still listed whose items aren't usable this read (read before `raw` was kept, or not read
+  yet) keeps its copies and follows its status. Written against live state in the final `update`, only when changed.
 - **An expired copy contract goes on To do** (Task 15C): one item per contract outstanding past its expiry and still in ESI's list; the rule is in orders-alerts.md.
 - **Your copy business** (Copies section, `CopyBusiness`): the shown character's copy jobs (activity 5) and copies held, and the main's copy
   contracts with their state (listed / expired: ESI has no expired status, so an outstanding contract past its expiry, its copies still in it
@@ -610,9 +611,9 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
 
 - **Copies you made and sold count in Industry** (Task 15B, 11 October 2026; `copySales`, `CONTRACT_FEE_REFS` in copyContracts.ts, `activityEvents` in income.ts).
   Each copy contract that is `sold` (finished, accepted by someone not yours) adds its price (the journal's `contract_price` entries naming it, else the contract's
-  price at its completion) times the share of its copies your delivered copy jobs of that blueprint had made before it was listed, claimed in the order contracts were
+  price at its completion, at its listing when ESI gives no completion) times the share of its copies your delivered copy jobs of that blueprint had made before it was listed, claimed in the order contracts were
   listed, each copy once; copies none made are counted apart and said. A `taken` contract (accepted by one of your own characters, `copyState(c, Infinity, mine)`) is a
-  transfer, said, never a sale; `unlisted` (left ESI's list while outstanding), listed, expired and deleted claim nothing. Contract fees the journal names by
+  transfer, said, never a sale, but it uses up its copies from your copy jobs, oldest first, counting no ISK; `unlisted` (left ESI's list while outstanding), listed, expired and deleted claim nothing. Contract fees the journal names by
   `contract_id` count in full when you'd copied one of the blueprints before listing it (a listing fee is paid whether or not it sells). The copy jobs' own fees are
   stage 2's, charged once at each job's start: `copySales` never charges them again. Nothing touches market trades, so the claims and "Sold, never bought" don't move.
 - **After shipping: the first copy contract's journal entries.** Which ref types a copy contract writes (`contract_price`, `contract_brokers_fee`,

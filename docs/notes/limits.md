@@ -275,7 +275,6 @@ State these rather than letting them be discovered:
   **Six such snapshots in a row and the newest is kept without counting a sale**: the hours since the old set count no sales but
   sit inside the summary's days, so a kind's pace reads low by that share until they leave the week (the route's `note` says when
   it happened). Public contracts of The Forge only: Brave's corporation and alliance contracts aren't visible.
-  Contract fees aren't modelled.
 - **A copy's ISK a day leaves out contract fees and competition**, and **its pace is your share of what sold, counted from vanishings**
   (a contract listed and sold between two six-hourly reads is never seen, so the count is low; a vanished contract may have been
   cancelled). Payback leaves the research's days out (the row says them, and flags research past 30 days).

@@ -197,7 +197,7 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   `esi-contracts.read_character_contracts.v1`, registered 29 September 2026): due at accepted + days to complete, with the
   reward, the collateral at stake (its ISK, for ordering) and the volume; "Overdue" past it. Ticked off on a newer read of
   your contracts: "Delivered.", or "It failed: the collateral went to the issuer." The same read keeps the items of item
-  exchanges you sold or bought (read once each, the newest 500 kept), and the Wallet's contract entries (which carry the
+  exchanges you sold or bought (read once each; the newest 500 kept, and every contract still in ESI's list), and the Wallet's contract entries (which carry the
   contract as `context_id`) say what they held ("2× Rattlesnake Blueprint") instead of "Contract price".
 - **To do's Sell into bids items are judged like order items.** The dispatch listed move and cancel but not bid, so
   a bid item fell to the default judge and was ticked "It no longer needs doing" the moment it went missing, before
