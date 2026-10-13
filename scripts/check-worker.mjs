@@ -982,6 +982,69 @@ console.log('\n--- the Sniper leaves blueprints out of the mail unless asked ---
   eq('    the next round asks ESI only for the type it couldn\'t read', f.calls.filter((c) => c.path.startsWith('/universe/types/') || c.path.startsWith('/universe/groups/')).map((c) => c.path), [`/universe/types/${BATTERY}/`]);
 }
 
+console.log('\n--- a high bid for what you hold: once per item, however the bids move, under its own switch (13 October 2026) ---');
+{
+  // The user's spam (13 October 2026): "sell Mutated Blood Sample into a high bid" every five minutes from 18:36 UTC. The
+  // cloud's alert_log showed a new key each round, `snipebid:<order>@<price>`, as a bid war moved the best bid from 81,690 to
+  // 84,000 across seven orders. Here the same war on a Tracking Speed Script held in Jita (the bids invented for the test).
+  const { sniperRound } = await import('../worker/src/snipe.ts');
+  const { push } = await import('../worker/src/sync.ts');
+  const JITA = 60003760, NOW = Date.parse('2026-10-13T18:36:00Z');
+  const ANODE = 6721, SCRIPT = 29001;
+  const names = { [ANODE]: 'Small Focused Anode Particle Stream I', [SCRIPT]: 'Tracking Speed Script' };
+  const ledger = async (alerts) => {
+    const db = d1();
+    await keepKey(db, MAIN, 'main', MAIN, 'Main', SCOPES);
+    await keepKey(db, MAIN, 'mailer', SENDER, 'Postmaster', SCOPES);
+    await push(db, MAIN, { records: [], docs: [{ key: 'alerts', d: { on: true, mail: true, quiet: false, snipeMinIsk: 1e6, snipeMinPct: 5, ...alerts } }] });
+    await push(db, MAIN, { records: [], docs: [{ key: 'stock', d: { at: new Date(NOW - 10 * MIN).toISOString(), jita: { [SCRIPT]: 3000 }, total: { [SCRIPT]: 3000 }, inContainers: 0 } }] });
+    const stats = (fair, perDay) => JSON.stringify({ highs14: Array(14).fill(fair), unitsPerDay: perDay, daysTraded: 30, lastMove: 0 });
+    for (const [t, fair, perDay] of [[ANODE, 98_935, 100], [SCRIPT, 12_360, 2544]]) db.run('INSERT INTO scan_items (type_id, stats, book, orders, run) VALUES (?, ?, ?, ?, ?)', t, stats(fair, perDay), '{}', 2, 1);
+    return { db, env: testEnv(db) };
+  };
+  const order = (id, type, buy, price, volume, at) => ({ order_id: id, type_id: type, location_id: JITA, is_buy_order: buy, price, volume_remain: volume, volume_total: volume, issued: new Date(at - 10 * MIN).toISOString(), duration: 90, min_volume: 1 });
+  const routes = (book) => [
+    ['/markets/10000002/orders/', book],
+    [`/universe/types/${ANODE}/`, { type_id: ANODE, name: names[ANODE], group_id: 53 }],
+    [`/universe/types/${SCRIPT}/`, { type_id: SCRIPT, name: names[SCRIPT], group_id: 907 }],
+    ['/universe/groups/53/', { group_id: 53, category_id: 7 }],
+    ['/universe/groups/907/', { group_id: 907, category_id: 8 }],
+    [/^POST \/universe\/names\/$/, (u, init) => JSON.parse(init.body).map((id) => ({ id, name: names[id], category: 'inventory_type' }))],
+    [new RegExp(`^POST /characters/${SENDER}/mail/$`), 901],
+  ];
+  const mails = (f) => f.calls.filter((x) => x.method === 'POST' && x.path === `/characters/${SENDER}/mail/`).map((c) => JSON.parse(c.body));
+  const round = async (env, book, at) => {
+    const f = stubFetch(routes(book));
+    const r = await sniperRound(env, at);
+    f.restore();
+    return { mailed: r.mailed?.[MAIN] ?? 0, sent: mails(f) };
+  };
+
+  // The war: a new best bid, by another order at another price, every round.
+  const war = [[0, 7444228112, 14_500], [5, 7444229218, 14_600], [10, 7443723102, 14_550], [15, 7444253168, 14_800], [4 * 60 + 5, 7444277247, 14_900]];
+  const { db, env } = await ledger();
+  const got = [];
+  for (const [min, id, price] of war) got.push(await round(env, [order(id, SCRIPT, true, price, 5000, NOW + min * MIN)], NOW + min * MIN));
+  eq('  a bid war on one item held: mailed once, then nothing while Remind me again after (4 h) runs, then once again', got.map((x) => x.mailed), [1, 0, 0, 0, 1]);
+  eq('    the mail is the high bid', [got[0].sent.length, got[0].sent[0]?.subject], [1, 'Jita Ledger: sell Tracking Speed Script into a high bid']);
+  eq('    remembered by the item alone, under its own kind', db.rows('SELECT key, kind FROM alert_log WHERE char_id = ?', MAIN), [{ key: `snipebid:${SCRIPT}`, kind: 'highBid' }]);
+  eq('    and it says how to stop it', (got[0].sent[0]?.body ?? '').includes('Turn off mail about high bids in Jita Ledger → Settings → Alerts → Mail me about → High bid for what you hold.'), true);
+
+  // Each switch on its own: a mistake listing (the anode at 58,730, next listing 98,860) and the high bid in one book.
+  const both = (at) => [order(1, ANODE, false, 58_730, 133, at), order(2, ANODE, false, 98_860, 50, at), order(8, SCRIPT, true, 14_500, 5000, at)];
+  const kinds = async (alerts) => {
+    const { env: e, db: d } = await ledger(alerts);
+    const r = await round(e, both(NOW), NOW);
+    return [r.mailed, d.rows('SELECT kind FROM alert_log WHERE char_id = ? ORDER BY kind', MAIN).map((x) => x.kind)];
+  };
+  eq('  both on (an older config, without the new switch, takes Mistake listing\'s): both mailed', await kinds({}), [2, ['highBid', 'snipe']]);
+  eq('  High bid for what you hold off under Tell me when: the listing still mailed, the bid not', await kinds({ ev: { highBid: false } }), [1, ['snipe']]);
+  eq('    off under Mail me about: the same', await kinds({ mailEv: { highBid: false } }), [1, ['snipe']]);
+  eq('  Mistake listing off under Tell me when: the bid still mailed, the listing not', await kinds({ ev: { snipe: false, highBid: true }, mailEv: { highBid: true } }), [1, ['highBid']]);
+  eq('    off under Mail me about: the same', await kinds({ mailEv: { snipe: false, highBid: true } }), [1, ['highBid']]);
+  eq('  an older config with Mistake listing off has high bids off too, as before', await kinds({ ev: { snipe: false } }), [0, []]);
+}
+
 console.log('\n--- the full scan notes NPC sellers anywhere in The Forge and counts the whole sell queue (2 October 2026) ---');
 {
   const { fullScan } = await import('../worker/src/scan.ts');

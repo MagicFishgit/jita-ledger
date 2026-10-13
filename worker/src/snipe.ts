@@ -8,9 +8,8 @@
  * Measured on 28 September 2026: the whole book is 404 pages and 96 MB, read in 14 s from a PC and about a minute
  * from the cloud (six connections at a time), with 0.3 s of parsing: cheap enough for every five minutes.
  */
-import type { Finding } from '../../src/lib/alerts';
+import { highBidFinding, listingFinding, type Finding } from '../../src/lib/alerts';
 import { rates, sanitizeSettings, type Settings } from '../../src/lib/fees';
-import { iskBig } from '../../src/lib/format';
 import { sanitizeAlerts } from '../../src/lib/prefs';
 import {
   BASE_RATES, findBid, findListing, judgeBids, judgeListings, KEEP_SELLS, notYours, SEEN_DAYS, SNIPE_FLOOR, splitBlueprints,
@@ -202,12 +201,17 @@ export async function snipeSummary(db: D1Database, now = Date.now()) {
   return { clean: { ...tally(clean), medianDays: days.length ? days[days.length >> 1] : null }, doubted: tally(rows.filter((r) => r.clean === 0)), byDoubt };
 }
 
-/** Mails one ledger the listings and bids that clear its own bar, at its own rates. */
+/**
+ * Mails one ledger the listings and bids that clear its own bar, at its own rates. Each is its own kind with its own switch:
+ * a mistake listing is "Mistake listing", a high bid for what you hold "High bid for what you hold" (13 October 2026: until
+ * then both rode the first, and a bid war mailed every five minutes with no switch that named it).
+ */
 async function mailLedger(env: Env, charId: number, read: SnipeRead, stock: Stock | null, now: number): Promise<number> {
   const hasSender = await env.DB.prepare(`SELECT 1 AS y FROM keys WHERE char_id = ?1 AND purpose = 'mailer'`).bind(charId).first();
   if (!hasSender) return 0;
   const cfg: AlertConfig = sanitizeAlerts(await docOf<Partial<AlertConfig>>(env.DB, charId, 'alerts'));
-  if (!cfg.on || !cfg.mail || !cfg.ev.snipe || !cfg.mailEv.snipe) return 0;
+  const listingsOn = cfg.ev.snipe && cfg.mailEv.snipe, bidsOn = cfg.ev.highBid && cfg.mailEv.highBid;
+  if (!cfg.on || !cfg.mail || (!listingsOn && !bidsOn)) return 0;
   const settings = sanitizeSettings(await docOf<Partial<Settings>>(env.DB, charId, 'settings'));
   const r = rates(settings);
   const bar = { minIsk: cfg.snipeMinIsk, minPct: cfg.snipeMinPct };
@@ -217,28 +221,11 @@ async function mailLedger(env: Env, charId: number, read: SnipeRead, stock: Stoc
   const theirs = notYours(read, new Set(open));
   // Blueprints only when asked, set aside before the mail's few are picked, or they'd take the places and go unsent. High
   // bids for blueprints you hold follow the same switch.
-  const rows = splitBlueprints(judgeListings(theirs.listings, r, settings.share, bar), cfg.snipeBlueprints).shown.filter((x) => x.worth).slice(0, MAIL_LISTINGS);
-  const heldRows = splitBlueprints(judgeBids(theirs.bids, r, stock?.jita ?? {}, bar), cfg.snipeBlueprints).shown.filter((x) => x.worth);
+  const rows = listingsOn ? splitBlueprints(judgeListings(theirs.listings, r, settings.share, bar), cfg.snipeBlueprints).shown.filter((x) => x.worth).slice(0, MAIL_LISTINGS) : [];
+  const heldRows = bidsOn ? splitBlueprints(judgeBids(theirs.bids, r, stock?.jita ?? {}, bar), cfg.snipeBlueprints).shown.filter((x) => x.worth) : [];
   if (!rows.length && !heldRows.length) return 0;
   const names = await namesAnywhere(env.DB, charId, [...rows.map((x) => x.typeId), ...heldRows.map((x) => x.typeId)]);
-  const price = (p: number) => Math.round(p).toLocaleString('en-US');
-  const findings: Finding[] = [
-    ...rows.map((x): Finding => {
-      const name = names[x.typeId] ?? `Item #${x.typeId}`;
-      return {
-        kind: 'snipe', key: `snipe:${x.orderIds[0]}@${x.cheapest}`, title: 'Mistake listing', typeId: x.typeId, name, isk: x.profit,
-        text: `${name}: ${x.units.toLocaleString('en-US')} listed at ${price(x.cheapest)} where it trades at ${price(x.fair)}. Buy and relist at ${price(x.resale)}${x.npc != null && x.resale >= x.npc ? ', what NPCs sell it for elsewhere in The Forge,' : ''} for ${iskBig(x.profit)} after fees.`,
-        snipe: { side: 'buy', units: x.units, cheapest: x.cheapest, top: x.top, cost: x.cost, resale: x.resale, fair: x.fair, nextAsk: x.nextAsk, profit: x.profit, pct: x.pct, pricedAt: x.pricedAt, orders: x.orderIds.length, sellDays: x.sellDays, ...(x.npc != null ? { npc: x.npc } : {}) },
-      };
-    }),
-    ...heldRows.map((x): Finding => {
-      const name = names[x.typeId] ?? `Item #${x.typeId}`;
-      return {
-        kind: 'snipe', key: `snipebid:${x.orderId}@${x.price}`, title: 'High bid for what you hold', typeId: x.typeId, name, isk: x.gain,
-        text: `${name}: a bid at ${price(x.price)} for what you hold, well over where it trades (${price(x.fair)}). Selling ${x.qty.toLocaleString('en-US')} into it gets ${iskBig(x.gain)} more than listing.`,
-        snipe: { side: 'sell', qty: x.qty, held: x.held, price: x.price, proceeds: x.proceeds, gain: x.gain, fair: x.fair, minVolume: x.minVolume, ...(x.npc != null ? { npc: x.npc } : {}) },
-      };
-    }),
-  ];
+  const nameOf = (t: number) => names[t] ?? `Item #${t}`;
+  const findings: Finding[] = [...rows.map((x) => listingFinding(x, nameOf(x.typeId))), ...heldRows.map((x) => highBidFinding(x, nameOf(x.typeId)))];
   return (await mailFindings(env, charId, findings, cfg, now)).mailed;
 }

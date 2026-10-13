@@ -683,7 +683,7 @@ function Alerts() {
             <div className="lbl" style={{ marginBottom: 6 }}>Remind me again after</div>
             <div className="row wide">
               <Seg label="Remind me again after" value={a.repeatH} onChange={(v) => setA({ repeatH: v })} options={REPEAT_HOURS.map((h) => ({ v: h, label: `${h} h` }))} />
-              <span className="note small">The same alert about an order waits this long before it comes again. Something new comes at once: here, a fresh undercut; by mail, a new price of yours, so a bot war doesn’t fill your inbox.</span>
+              <span className="note small">The same alert about an order waits this long before it comes again. Something new comes at once: here, a fresh undercut; by mail, a new price of yours, so a bot war doesn’t fill your inbox. A high bid for what you hold waits this long per item, however the bids move.</span>
             </div>
           </div>
           <div>
@@ -887,7 +887,7 @@ function MailAlerts() {
             </WithTip>
           ))}
         </div>
-        <p className="note small" style={{ marginTop: 8 }}>By default only what you can act on from inside the game: an order worth moving, a planet about to stop, and from the cloud a trade worth a look, a mistake listing, and word when one of its jobs keeps failing.</p>
+        <p className="note small" style={{ marginTop: 8 }}>By default only what you can act on from inside the game: an order worth moving, a planet about to stop, and from the cloud a trade worth a look, a mistake listing, a high bid for what you hold, and word when one of its jobs keeps failing.</p>
       </div>
       <div>
         <div className="lbl" style={{ marginBottom: 6 }}>Delete alert mails after</div>

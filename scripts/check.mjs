@@ -3243,7 +3243,18 @@ eq('alerts start off', sanitizeAlerts({}).on, false);
 eq('an odd interval falls back', sanitizeAlerts({ interval: 7 }).interval, 5);
 eq('remind again after 4 h unless you chose otherwise', [sanitizeAlerts({}).repeatH, sanitizeAlerts({ repeatH: 12 }).repeatH, sanitizeAlerts({ repeatH: 5 }).repeatH], [4, 12, 4]);
 eq('mail starts off', sanitizeAlerts({}).mail, false);
-eq('  and by mail only what you can act on in game, plus the cloud’s trades worth a look, mistake listings, its own failures and asset safety', Object.entries(sanitizeAlerts({}).mailEv).filter(([, v]) => v).map(([k]) => k), ['move', 'pi', 'opportunity', 'snipe', 'watchdog', 'safety']);
+eq('  and by mail only what you can act on in game, plus the cloud’s trades worth a look, mistake listings, high bids for what you hold, its own failures and asset safety', Object.entries(sanitizeAlerts({}).mailEv).filter(([, v]) => v).map(([k]) => k), ['move', 'pi', 'opportunity', 'snipe', 'highBid', 'watchdog', 'safety']);
+// A high bid for what you hold rode "Mistake listing" until 13 October 2026, when a bid war mailed the user every five minutes
+// and nothing named bids to turn off: a config saved before it had a switch of its own takes Mistake listing's for it.
+{
+  const old = (ev, mailEv) => { const a = sanitizeAlerts({ ev, mailEv }); return [a.ev.highBid, a.mailEv.highBid]; };
+  eq('  a config from before high bids had their own switch takes Mistake listing\'s, each side on its own',
+    [old({ snipe: false }, { snipe: true }), old({ snipe: true }, { snipe: false }), old({ snipe: false }, { snipe: false }), old(undefined, undefined)],
+    [[false, true], [true, false], [false, false], [true, true]]);
+  eq('  one that has its own keeps it, whatever Mistake listing says', [old({ snipe: true, highBid: false }, { snipe: true, highBid: false }), old({ snipe: false, highBid: true }, { snipe: false, highBid: true })],
+    [[false, false], [true, true]]);
+  eq('  and Mistake listing keeps its own beside it', [sanitizeAlerts({ ev: { snipe: false, highBid: true } }).ev.snipe, sanitizeAlerts({ mailEv: { snipe: true, highBid: false } }).mailEv.snipe], [false, true]);
+}
 eq('  the Sniper’s bar starts at 5 M and 10%, and keeps what you set', [sanitizeAlerts({}).snipeMinIsk, sanitizeAlerts({}).snipeMinPct, sanitizeAlerts({ snipeMinIsk: 2e7, snipeMinPct: 15 }).snipeMinIsk], [5e6, 10, 2e7]);
 // "Exclude blueprints, as they might be risky to try and sell" (the user, 2 October 2026): out unless switched on, and
 // anything but a plain true (an older device's whole document, a stray value) reads as out.
@@ -4957,7 +4968,7 @@ console.log('\n--- an NPC seller anywhere in The Forge keeps an item out of Pros
   { appUrl: 'https://x/', keepMin: 30, now });
   has('  the mail relists at the NPC price and says why', ccMail.body, 'relist at 2,500,000,000 ISK');
   has('    ', ccMail.body, 'NPCs sell it at 2,500,000,000 elsewhere in The Forge, so it relists no dearer');
-  const bidMail = mailNpc([{ kind: 'snipe', key: 'snipebid:9@2600000000', title: 'High bid for what you hold', typeId: 93983, name: 'Command Carriers', isk: 1, text: 'x',
+  const bidMail = mailNpc([{ kind: 'highBid', key: 'snipebid:93983', title: 'High bid for what you hold', typeId: 93983, name: 'Command Carriers', isk: 1, text: 'x',
     snipe: { side: 'sell', qty: 1, price: 2.6e9, proceeds: 2.51e9, gain: 1, held: 1, fair: 2.5e9, minVolume: 1, npc: 2.5e9 } }], { appUrl: 'https://x/', keepMin: 30, now });
   has('  and a high bid\'s says listing gets no more than the NPCs', bidMail.body, 'NPCs sell it at 2,500,000,000 elsewhere in The Forge, so a listing gets no more.');
 
@@ -5432,9 +5443,31 @@ console.log('\n--- the sniper ---');
   eq('  the body says what to do, and links the name to its market and the page', [m.body.includes('RECOMMENDED: buy the 24 at 15,000,000 ISK, relist at 20,380,000 ISK'), m.body.includes('href="https://x/open.html?market=40554~'), m.body.includes('#sniper')], [true, true, true]);
   // The user asked for the profit right after the words, readable at a glance (28 September 2026).
   eq('  the heading says what it makes', m.body.includes('MISTAKE LISTING - POTENTIAL PROFIT 106.25 M ISK'), true);
-  const hb = mailOf([{ kind: 'snipe', key: 'snipebid:9@1200000', title: 'High bid for what you hold', typeId: 34, name: 'Tritanium', isk: 546525, text: 'x',
+  const hb = mailOf([{ kind: 'highBid', key: 'snipebid:34', title: 'High bid for what you hold', typeId: 34, name: 'Tritanium', isk: 546525, text: 'x',
     snipe: { side: 'sell', qty: 5, price: 1.2e6, proceeds: 5.8e6, gain: 546525, held: 5, fair: 1e6, minVolume: 1 } }], { appUrl: 'https://x/', keepMin: 30, now });
   eq('  so does a high bid\'s', hb.body.includes('HIGH BID FOR WHAT YOU HOLD - 546,525 ISK MORE THAN LISTING'), true);
+  // The user (13 October 2026): "I looked for a control to turn it off but I couldn't find one."
+  eq('    and it names the switch that turns it off, and opens the Sniper', [hb.body.includes('Turn off mail about high bids in Jita Ledger → Settings → Alerts → Mail me about → High bid for what you hold.'), hb.body.includes('#sniper')], [true, true]);
+  eq('    a mail of mistake listings alone doesn\'t', m.body.includes('Turn off mail about high bids'), false);
+  eq('    nor one about an order', mailOf([{ kind: 'move', key: 'k', title: 'Order worth moving', text: 'x' }], { appUrl: 'https://x/', keepMin: 30, now }).body.includes('Turn off mail about high bids'), false);
+  const mixed = mailOf([f, { kind: 'highBid', key: 'snipebid:34', title: 'High bid for what you hold', typeId: 34, name: 'Tritanium', isk: 546525, text: 'x',
+    snipe: { side: 'sell', qty: 5, price: 1.2e6, proceeds: 5.8e6, gain: 546525, held: 5, fair: 1e6, minVolume: 1 } }], { appUrl: 'https://x/', keepMin: 30, now });
+  eq('    a listing and a high bid together: both, the switch named, the Sniper linked', [mixed.body.includes('MISTAKE LISTING'), mixed.body.includes('HIGH BID FOR WHAT YOU HOLD'), mixed.body.includes('Mail me about → High bid for what you hold'), mixed.body.includes('#sniper')], [true, true, true, true]);
+
+  // A bid war (the user's Mutated Blood Sample, 13 October 2026: the best bid's order and price changed nearly every
+  // five-minute read, 81,690 to 84,000 across seven orders, and each read was mailed). A high bid is remembered by its item.
+  const A = await import('../src/lib/alerts.ts');
+  const war = [[7444228112, 81_690], [7444229218, 81_750], [7443723102, 82_510], [7444277247, 84_000]].map(([orderId, price]) =>
+    A.highBidFinding({ ...held[0], typeId: 52307, orderId, price }, 'Mutated Blood Sample'));
+  eq('  a high bid is keyed by its item alone, whatever bid it is', [...new Set(war.map((x) => A.mailKey(x)))], ['snipebid:52307']);
+  eq('    its own kind and title', [war[0].kind, war[0].title], ['highBid', 'High bid for what you hold']);
+  const cfgOn = sanitizeAlerts({ on: true, mail: true });
+  const logged = [{ at: new Date(now).toISOString(), kind: 'highBid', key: A.mailKey(war[0]), title: war[0].title, text: war[0].text }];
+  eq('    so once mailed, the next bid in the war waits for Remind me again after, then comes again',
+    [A.shouldAlert({ ...war[3], key: A.mailKey(war[3]) }, cfgOn, logged, now + 5 * 60_000), A.shouldAlert({ ...war[3], key: A.mailKey(war[3]) }, cfgOn, logged, now + 4 * 3600_000 + 60_000)], [false, true]);
+  eq('    a high bid on another item is its own', A.shouldAlert(A.highBidFinding({ ...held[0], typeId: 35 }, 'Pyerite'), cfgOn, logged, now + 5 * 60_000), true);
+  const lf = A.listingFinding(Sn.judgeListings([hit], { f: 0.01268, t: 0.03375 }, 5, Sn.SNIPE_DEFAULTS)[0], 'Tritanium');
+  eq('  a mistake listing keeps its listing and price as its key', [lf.kind, A.mailKey(lf)], ['snipe', 'snipe:1@500000']);
 
   // Blueprints, by ESI's category, never by name. From the cloud's read of 1 October 2026 (23:27 UTC): a Small Focused
   // Anode Particle Stream I (category 7, a module), an Epithal Blueprint (9), and a Synth Blue Pill Booster Reaction

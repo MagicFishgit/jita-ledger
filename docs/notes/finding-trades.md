@@ -88,7 +88,11 @@ Decisions worth not undoing. Prospects, the Capital planner, the cloud's full-ma
   you hold in Jita" (`judgeBids`, `min_volume` honoured), and `/v1/snipes` returns bids only for the caller's items.
   The bar (default 10% and 5 M after fees, the user's choice) lives in the alert settings (`snipeMinIsk`,
   `snipeMinPct`) and drives both the page and the mail; alert kind `snipe` ("Mistake listing") is mailed by default,
-  through `mailFindings`, which the alert round now shares. "Priced" is ESI's `issued`, which a price change moves.
+  through `mailFindings`, which the alert round now shares. **High bids for what you hold are their own kind** since 13
+  October 2026 (`highBid`, "High bid for what you hold", mailed by default too, a config from before taking Mistake
+  listing's switches), **remembered by item, not by bid**: keyed by the bid's order and price, a bid war mailed the user
+  every five minutes, and nothing named bids to turn off (orders-alerts.md). "Priced" is ESI's `issued`, which a price
+  change moves.
   **Snipes you take are found in your wallet** (`lib/sniped.ts`): a purchase from a listing in Jita (the escrow
   fact above) at 5%+ under where the item had traded in the 14 days before, after your fees then; buys of one item
   within 30 minutes are one snipe; the cloud's sightings (`snipe_seen`, 30 days) mark which the Sniper found. Each

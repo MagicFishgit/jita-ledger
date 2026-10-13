@@ -38,7 +38,7 @@ export const DEFAULT_PREFS: Prefs = {
   omegaPack: '1',
 };
 
-export const ALERT_EVENTS: AlertEvent[] = ['move', 'clearing', 'squeeze', 'pi', 'scam', 'backup', 'opportunity', 'snipe', 'watchdog', 'safety'];
+export const ALERT_EVENTS: AlertEvent[] = ['move', 'clearing', 'squeeze', 'pi', 'scam', 'backup', 'opportunity', 'snipe', 'highBid', 'watchdog', 'safety'];
 
 export const DEFAULT_ALERTS: AlertConfig = {
   on: false,
@@ -46,10 +46,10 @@ export const DEFAULT_ALERTS: AlertConfig = {
   interval: 5,
   minIsk: 5_000_000,
   quiet: false,
-  ev: { move: true, clearing: false, squeeze: true, pi: true, scam: true, backup: true, opportunity: true, snipe: true, watchdog: true, safety: true },
+  ev: { move: true, clearing: false, squeeze: true, pi: true, scam: true, backup: true, opportunity: true, snipe: true, highBid: true, watchdog: true, safety: true },
   mail: false,
   // By mail, only what you can act on from inside the game: an order to move, a colony to reset.
-  mailEv: { move: true, clearing: false, squeeze: false, pi: true, scam: false, backup: false, opportunity: true, snipe: true, watchdog: true, safety: true },
+  mailEv: { move: true, clearing: false, squeeze: false, pi: true, scam: false, backup: false, opportunity: true, snipe: true, highBid: true, watchdog: true, safety: true },
   mailKeepMin: 3 * 1440,
   repeatH: 4,
   snipeMinIsk: 5_000_000,
@@ -128,6 +128,10 @@ export function sanitizeAlerts(a: Partial<AlertConfig> | null | undefined): Aler
   for (const k of ALERT_EVENTS) if (x.ev && typeof x.ev[k] === 'boolean') ev[k] = x.ev[k];
   const mailEv = { ...DEFAULT_ALERTS.mailEv };
   for (const k of ALERT_EVENTS) if (x.mailEv && typeof x.mailEv[k] === 'boolean') mailEv[k] = x.mailEv[k];
+  // A high bid for what you hold was mailed under "Mistake listing" until it got a switch of its own (13 October 2026): a
+  // config saved before then, or by an older build, takes that switch's values for it, so nothing changes until it's set.
+  if (typeof x.ev?.highBid !== 'boolean') ev.highBid = ev.snipe;
+  if (typeof x.mailEv?.highBid !== 'boolean') mailEv.highBid = mailEv.snipe;
   return {
     on: !!x.on,
     browser: !!x.browser,

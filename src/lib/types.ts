@@ -512,7 +512,7 @@ export type Prefs = {
   researchCashIn?: { on: boolean; isk: number | null };
 };
 
-export type AlertEvent = 'move' | 'clearing' | 'squeeze' | 'pi' | 'scam' | 'backup' | 'opportunity' | 'snipe' | 'watchdog' | 'safety';
+export type AlertEvent = 'move' | 'clearing' | 'squeeze' | 'pi' | 'scam' | 'backup' | 'opportunity' | 'snipe' | 'highBid' | 'watchdog' | 'safety';
 export type AlertConfig = {
   on: boolean;
   browser: boolean;

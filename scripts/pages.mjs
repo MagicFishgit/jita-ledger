@@ -426,6 +426,14 @@ try {
         if (!(await page.locator('[role="group"][aria-label="Where it’s found"] button', { hasText: 'Null-sec' }).count())) problems.push('not drawn: no place selector on the best-ore panel');
         if (!(await page.locator('.page', { hasText: 'Couldn’t read the ores’ names from ESI just now' }).count())) problems.push('not drawn: the best-ore panel doesn’t say it couldn’t price');
       }
+      // A high bid for what you hold has a switch of its own (13 October 2026: the user was mailed one every five minutes and
+      // found nothing to turn off), under both lists, and Mistake listing no longer speaks of bids.
+      if (hash === 'settings/alerts') {
+        const under = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.page .lbl')]
+          .filter((l) => ['Tell me when', 'Mail me about'].includes((l.textContent ?? '').trim())).map((l) => [(l.textContent ?? '').trim(), l.parentElement?.textContent ?? ''])));
+        for (const where of ['Tell me when', 'Mail me about']) if (!under[where]?.includes('High bid for what you hold')) problems.push(`not drawn: no “High bid for what you hold” under ${where}`);
+        if (/bids high for something you hold/.test(under['Tell me when'] ?? '')) problems.push('Mistake listing still says it covers high bids');
+      }
       // Orders fits at desktop width: the large ledger's 146 Jita orders, without a sideways scrollbar.
       if (!PHONE && name === 'large' && hash === 'orders') {
         const s = await sideways(page);

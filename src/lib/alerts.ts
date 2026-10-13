@@ -9,6 +9,7 @@ import { FILL_WINDOW } from './fills';
 import { fmtDateTime, isk, iskBig, pct, units } from './format';
 import type { Colony } from './colony';
 import { notReachedSince, sinceLead, type Relist } from './relist';
+import type { HeldBidRow, SnipeRow } from './snipe';
 import type { AlertConfig, AlertEvent, AlertLogEntry } from './types';
 import type { WatchFacts } from './watchdog';
 import { openLink } from './openLink';
@@ -44,8 +45,14 @@ export const ALERT_LABELS: Record<AlertEvent, { label: string; what: string; tip
     tip: 'One of the items the cloud watches for you (the best from your last Prospects scan, and your loyalty plan’s items) newly clears your Prospects filters.\n\n• It has to pass with no warning flag, after at least 6 hours of the cloud watching its book.\n• Judged exactly as Prospects judges it: where trading reaches for the buy, one tick under the best sell, your fees, your horizon.\n• Mailed once when it newly qualifies, at most three to a mail. Only the cloud sends these.\n\nFor example: a module you don’t trade yet now makes 6% after fees in about a day. The mail says where to buy and list.',
   },
   snipe: {
-    label: 'Mistake listing', what: 'Someone listed an item well under where it trades, or bids high for something you hold: mailed by the cloud',
-    tip: 'The cloud reads every order in The Forge every five minutes and looks for listings someone priced well under where the item trades. They’re worth buying out and relisting.\n\n• “Where it trades” is where the bulk of trading got up to on half the last 14 days. You relist a step under the next listing, never above that.\n• It has to clear your bar on the Sniper page, after your fees. Floods, items whose price just moved, thin histories and listings days old are left out.\n• A bid well over where the item trades, for something in your Jita hangar, is mailed too: selling into it beats listing.\n\nFor example: 10 listed at 500,000 on an item trading at 1,000,000, next listing 980,000. Buy the 10, relist at 979,900.',
+    label: 'Mistake listing', what: 'Someone listed an item well under where it trades: mailed by the cloud',
+    tip: 'The cloud reads every order in The Forge every five minutes and looks for listings someone priced well under where the item trades. They’re worth buying out and relisting.\n\n• “Where it trades” is where the bulk of trading got up to on half the last 14 days. You relist a step under the next listing, never above that.\n• It has to clear your bar on the Sniper page, after your fees. Floods, items whose price just moved, thin histories and listings days old are left out.\n• Mailed once per listing and price.\n\nFor example: 10 listed at 500,000 on an item trading at 1,000,000, next listing 980,000. Buy the 10, relist at 979,900.',
+  },
+  // Mailed under "Mistake listing" until 13 October 2026, keyed by the bid's order and price: a bid war on the user's Mutated
+  // Blood Sample changed both nearly every round, so it came every five minutes, and nothing named bids to turn off.
+  highBid: {
+    label: 'High bid for what you hold', what: 'Someone bids well over where an item in your Jita hangar trades: mailed by the cloud',
+    tip: 'The cloud reads every order in The Forge every five minutes and looks at the best Jita bid for each item loose in your Jita hangar. When one is well over where the item trades, selling into it beats listing.\n\n• “Where it trades” is where the bulk of trading got up to on half the last 14 days, or what NPCs sell it for elsewhere in The Forge when that’s lower.\n• It has to clear your bar on the Sniper page: how much more selling into it gets than listing, after tax and fees.\n• Mailed once per item, then not again for “Remind me again after”, however the bids move.\n\nFor example: you hold 500 of an item trading at 10,000, and someone bids 12,000. Selling your 500 into it gets about 1 M more than listing.',
   },
   safety: {
     label: 'Asset safety registered', what: 'The app finds a wrap of your items in asset safety and starts tracking it: mailed by the cloud',
@@ -168,12 +175,41 @@ export function piFindings(colonies: Colony[], systemName: (id: number) => strin
   return out;
 }
 
+const wholeIsk = (p: number) => Math.round(p).toLocaleString('en-US');
+
+/** A mistake listing as the cloud mails it, remembered by the listing and its price. */
+export function listingFinding(x: SnipeRow, name: string): Finding {
+  return {
+    kind: 'snipe', key: `snipe:${x.orderIds[0]}@${x.cheapest}`, title: ALERT_LABELS.snipe.label, typeId: x.typeId, name, isk: x.profit,
+    text: `${name}: ${x.units.toLocaleString('en-US')} listed at ${wholeIsk(x.cheapest)} where it trades at ${wholeIsk(x.fair)}. Buy and relist at ${wholeIsk(x.resale)}${x.npc != null && x.resale >= x.npc ? ', what NPCs sell it for elsewhere in The Forge,' : ''} for ${iskBig(x.profit)} after fees.`,
+    snipe: { side: 'buy', units: x.units, cheapest: x.cheapest, top: x.top, cost: x.cost, resale: x.resale, fair: x.fair, nextAsk: x.nextAsk, profit: x.profit, pct: x.pct, pricedAt: x.pricedAt, orders: x.orderIds.length, sellDays: x.sellDays, ...(x.npc != null ? { npc: x.npc } : {}) },
+  };
+}
+
+/**
+ * What a high bid for something you hold is remembered by: the item alone. It was the bid's order and price, and a bid war
+ * changes both nearly every five-minute read (the user's Mutated Blood Sample, 13 October 2026: 81,690 to 84,000 across
+ * seven orders in an hour), so every read was a new alert and "Remind me again after" never held one back. By the item,
+ * however the bids move, it comes once per that wait.
+ */
+export const highBidKey = (typeId: number) => `snipebid:${typeId}`;
+
+/** A high bid for what you hold, as the cloud mails it. */
+export function highBidFinding(x: HeldBidRow, name: string): Finding {
+  return {
+    kind: 'highBid', key: highBidKey(x.typeId), title: ALERT_LABELS.highBid.label, typeId: x.typeId, name, isk: x.gain,
+    text: `${name}: a bid at ${wholeIsk(x.price)} for what you hold, well over where it trades (${wholeIsk(x.fair)}). Selling ${x.qty.toLocaleString('en-US')} into it gets ${iskBig(x.gain)} more than listing.`,
+    snipe: { side: 'sell', qty: x.qty, held: x.held, price: x.price, proceeds: x.proceeds, gain: x.gain, fair: x.fair, minVolume: x.minVolume, ...(x.npc != null ? { npc: x.npc } : {}) },
+  };
+}
+
 /**
  * What the cloud remembers a mailed finding by. An order's advice changes with every undercut (a new
  * price to move to), and in the six-hour study 46 of 71 beaten orders were undercut again within six
  * hours: keyed by the advice, one order left alone would be mailed about again and again with nobody
  * there to read it. Keyed by the order and your price on it, it is said once, and said again as soon as
- * you have moved it and been beaten at the new price.
+ * you have moved it and been beaten at the new price. Anything else keeps its own key: a mistake listing its listing and
+ * price, a high bid for what you hold its item (`highBidKey`).
  */
 export function mailKey(f: Finding): string {
   if (!f.order) return f.key;
@@ -228,8 +264,9 @@ const price = (n: number) => isk(n).replace(/ ISK$/, '');
 const money = iskBig;
 const hoursSaid = (h: number) => (h < 1 ? 'under an hour' : h < 48 ? `about ${Math.round(h)} h` : `about ${Math.round(h / 24)} days`);
 
-// A mistake listing goes first: it's the one someone else can take while you read the rest.
-const URGENCY: Record<AlertEvent, number> = { snipe: -1, move: 0, watchdog: 0.5, pi: 1, scam: 2, squeeze: 3, clearing: 4, backup: 5, safety: 5.5, opportunity: 6 };
+// A mistake listing goes first: it's the one someone else can take while you read the rest. So is a high bid: someone else
+// can sell into it first.
+const URGENCY: Record<AlertEvent, number> = { snipe: -1, highBid: -1, move: 0, watchdog: 0.5, pi: 1, scam: 2, squeeze: 3, clearing: 4, backup: 5, safety: 5.5, opportunity: 6 };
 
 /** A short phrase for the subject line, which is what the inbox list and the new-mail notice show. */
 export function subjectPart(f: Finding, now = Date.now()): string {
@@ -419,11 +456,15 @@ export function alertMail(findings: Finding[], opts: { appUrl: string; keepMin: 
       ? `<br><a href="${opts.appUrl}#orders">Open your orders in Jita Ledger</a><br>`
       : findings.every((f) => f.kind === 'opportunity')
         ? `<br><a href="${opts.appUrl}#prospects">Open Prospects in Jita Ledger</a><br>`
-        : findings.every((f) => f.kind === 'snipe')
+        : findings.every((f) => f.kind === 'snipe' || f.kind === 'highBid')
           ? `<br><a href="${opts.appUrl}#sniper">Open the Sniper in Jita Ledger</a><br>`
         : findings.every((f) => f.kind === 'safety')
           ? `<br><a href="${opts.appUrl}#wallet">Open your Wallet in Jita Ledger</a><br>`
         : `<br><a href="${opts.appUrl}#todo">Open your to-do list in Jita Ledger</a><br>`,
+    // The user, spammed by a high bid every five minutes (13 October 2026), looked for the switch and couldn't find it: a mail
+    // holding one names it.
+    findings.some((f) => f.kind === 'highBid')
+      ? `<br>${sized(SIZE.small, col('grey', `Turn off mail about high bids in Jita Ledger → Settings → Alerts → Mail me about → ${ALERT_LABELS.highBid.label}.`))}` : '',
     `<br>${sized(SIZE.small, col('grey', `${opts.keepMin == null ? 'Alert mails are kept' : `This mail is deleted after ${keepSaid(opts.keepMin)}, read or not`}. Change that, or turn mail alerts off, in Jita Ledger → Settings → Alerts.`))}`,
     '</font>',
   ].join('');

@@ -125,6 +125,11 @@ State these rather than letting them be discovered:
   hour before the plan that placing falls back to: there a bid placed and cancelled before the plan would drop the item
   for good (the review, 8 October 2026), so a bid placed in that hour and cancelled after the plan started is asked for
   again. A new bid counts as placing it. An expired bid with nothing bought is asked for again (finding-trades.md).
+- **The high bid's own switch rides the synced alerts document, and an older build's save drops it** (`sanitizeAlerts`
+  keeps only the kinds it knows, as with every late field; orders-alerts.md): a device on a version from before it that
+  saves its alerts writes them without `highBid`, and the cloud then takes Mistake listing's values for it again, so high
+  bids for what you hold are mailed again (once per item per "Remind me again after") until the switch is set again from a
+  current version. Browsers reload to a new version within minutes.
 - **A plan bid's re-check against today's book happens only where the checklist or To do is open** (finding-trades.md):
   the cloud doesn't read plan bids not yet placed, so nothing mails "the market moved" for one, and a bid placed straight
   from the game without opening either is placed at the plan's price unchecked. **A skipped item placed again by a bid that bought at once reads as no plan's** on Orders, To do, the list step, the hangar

@@ -115,6 +115,26 @@ Decisions worth not undoing. What the app tells you to do about your orders and 
   again once they stop updating orders by hand. They found six hours too long, so it became the setting. While the cloud holds both logins (`cloudSendsMail`, from `/v1/status`, kept across reloads and
   re-read every 10 minutes) the browser neither mails nor tidies, so nothing arrives twice. Squeeze and
   suspicious-market alerts stay with an open app: they need signals the cloud doesn't keep.
+- **A high bid for what you hold is its own alert, remembered by its item** (kind `highBid`, "High bid for what you hold";
+  `highBidKey` and `highBidFinding` in alerts.ts, `mailLedger` in worker/src/snipe.ts; 13 October 2026). The user: "I am
+  being spammed by this type of notification. I looked for a control to turn it off but I couldn't find one." The mail,
+  "sell Mutated Blood Sample into a high bid" (3,855 into a bid at 84,000, 29.04 M more than listing), reached their inbox at
+  19:16, 19:21, 19:26, 19:31 and 19:41 UTC, and D1's `alert_log` had it every five minutes from 18:36 at least. Two faults:
+  - it was keyed `snipebid:<order>@<price>`, and a bid war moved the best bid's order and price nearly every round (81,690,
+    81,750, 81,780, 81,800, 81,810, 81,890, 81,830, 82,050, 82,510, 82,610, 84,000, across orders 7444228112, 7444229218,
+    7443723102, 7444253168, 7444150141, 7444277070 and 7444277247), so every round was a new key and "Remind me again
+    after" never held one back;
+  - it rode "Mistake listing" (`snipe`), whose label said nothing a reader would take for bids, and the mail's footer
+    offered only turning all mail off.
+  Now it's keyed `snipebid:<type>`, so it comes once per item per "Remind me again after", however the bids move
+  (`check-worker`: a five-round bid war mails 1, 0, 0, 0 and, past 4 h, 1); it's kind `highBid` with its own switch under
+  Tell me when and Mail me about, and in the Worker each switch gates only its own kind; "Mistake listing" is listings only;
+  and a mail holding one names the switch ("Turn off mail about high bids in Jita Ledger → Settings → Alerts → Mail me
+  about → High bid for what you hold."), as does the Sniper page's held-bids panel. A config saved before the switch existed
+  (every one then) takes Mistake listing's two values for it (`sanitizeAlerts`), so nothing changes until it's unticked
+  (limits.md: an older build's save drops it). **Mistake listings keep their per-listing key** (`snipe:<order>@<price>`): a
+  listing repriced is a new chance to buy, and nothing has shown them repeating. The first Sniper round after the deploy
+  mails a held high bid once more, since its old keys don't match the new one.
 - **"Keep it" is said where it's easy to see** (Orders.tsx, todo.ts, `judgeAll` in worker/src/alerts.ts; the guard is in
   market-reading). The user: Orders "told me to relist. It needs to be aware of plans and clearly state, easy to see
   that you should not move it" (1 October 2026). On Orders a refused raise reads **Keep it** with a hand, in a warning's

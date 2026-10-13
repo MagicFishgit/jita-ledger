@@ -287,7 +287,10 @@ export function Sniper() {
   const smallShown = tileRows(small, short, (x, k) => SHORT[k].has(x));
   useEnsureNames([...rows.map((x) => x.typeId), ...held.map((x) => x.typeId)]);
   const setBar = (p: Partial<typeof bar>) => update((x) => ({ alerts: sanitizeAlerts({ ...x.alerts, snipeMinIsk: p.minIsk ?? x.alerts.snipeMinIsk, snipeMinPct: p.minPct ?? x.alerts.snipeMinPct }) }));
-  const mailing = cloudSendsMail() && d.alerts.on && d.alerts.mail && d.alerts.ev.snipe && d.alerts.mailEv.snipe;
+  // Listings and high bids are mailed under switches of their own ("Mistake listing", "High bid for what you hold").
+  const mailOn = cloudSendsMail() && d.alerts.on && d.alerts.mail;
+  const mailing = mailOn && d.alerts.ev.snipe && d.alerts.mailEv.snipe;
+  const mailingBids = mailOn && d.alerts.ev.highBid && d.alerts.mailEv.highBid;
   /** A find, or every find shown, for the Multibuy window: the cheap units, with what they should come to (snipeMultibuy). */
   const copyFinds = (list: SnipeRow[]) => {
     if (!read) return;
@@ -432,7 +435,7 @@ export function Sniper() {
             <Mail aria-hidden="true" style={{ width: 14, height: 14, flex: 'none' }} />
             <span>
               {mailing
-                ? `Anything that clears your bar${include ? '' : ', blueprints aside,'} is mailed to you in game as the cloud finds it, once per listing and price. The item’s name in the mail opens its market.`
+                ? `A listing that clears your bar${include ? '' : ', blueprints aside,'} is mailed to you in game as the cloud finds it, once per listing and price. The item’s name in the mail opens its market.`
                 : cloudSendsMail()
                   ? <>Not mailed: turn on “Mistake listing” mail in <button type="button" className="link-btn" onClick={() => navigate('settings/alerts')}>Settings → Alerts</button>.</>
                   : <>Not mailed: the cloud needs a character to send from (<button type="button" className="link-btn" onClick={() => navigate('settings/data')}>Settings → Your data</button>).</>}
@@ -482,6 +485,16 @@ export function Sniper() {
                     <button type="button" className="link-btn" onClick={() => setBlueprints(true)}>Include blueprints</button>
                   </p>
                 )}
+                <p className="row tight" style={{ fontSize: 12.5, color: mailingBids ? 'var(--pos)' : 'var(--label)', margin: 0 }}>
+                  <Mail aria-hidden="true" style={{ width: 14, height: 14, flex: 'none' }} />
+                  <span>
+                    {mailingBids
+                      ? <>A bid that clears your bar is mailed to you in game once per item, then not again for {d.alerts.repeatH} h however the bids move. Turn it off under “High bid for what you hold” in <button type="button" className="link-btn" onClick={() => navigate('settings/alerts')}>Settings → Alerts</button>.</>
+                      : cloudSendsMail()
+                        ? <>Not mailed: turn on “High bid for what you hold” mail in <button type="button" className="link-btn" onClick={() => navigate('settings/alerts')}>Settings → Alerts</button>.</>
+                        : <>Not mailed: the cloud needs a character to send from (<button type="button" className="link-btn" onClick={() => navigate('settings/data')}>Settings → Your data</button>).</>}
+                  </span>
+                </p>
               </Panel>
 
               {doubted.length > 0 && (

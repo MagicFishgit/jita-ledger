@@ -498,8 +498,9 @@ export async function alertRound(env: Env, charId: number, now = Date.now(), jud
 }
 
 /**
- * Mail whatever of `findings` the settings say to mail and hasn't gone out lately (the same order at the same price
- * within "Remind me again after"), as one mail, and remember it. The alert round and the sniper both send through here.
+ * Mail whatever of `findings` the settings say to mail and hasn't gone out lately (the same key within "Remind me again
+ * after": an order at the same price, a listing at the same price, a high bid for the same item), as one mail, and
+ * remember it. The alert round and the sniper both send through here.
  */
 export async function mailFindings(env: Env, charId: number, findings: Finding[], cfg: AlertConfig, now = Date.now()): Promise<{ mailId: number | null; mailed: number }> {
   const logged = (await env.DB.prepare('SELECT key, kind, at, title, text FROM alert_log WHERE char_id = ?1 AND at > ?2').bind(charId, now - repeatMs(cfg))
