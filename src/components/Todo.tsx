@@ -24,10 +24,10 @@ import { LOGIN_STOPS } from '../lib/watchdog';
 import { droppedState, planItemState, planTargets, skippedEmpty } from '../lib/plans';
 import { planListRow } from '../lib/positions';
 import { skipPlaceBid, useBuiltPrices, usePlacingCheck, usePlanListing } from './planListing';
-import { useHomePrices } from './hustles/industryMarket';
+import { useHomeHubs, useHomeQuotes } from './hustles/industryMarket';
 import { useAltCopies, useAltRoster, useRosterAt, useRosterLive } from '../lib/altStore';
 import { jobOk, loginState } from '../lib/roster';
-import { HOME_HUBS, hubOf, homeQuote, type HomeHub } from '../lib/homeMarket';
+import { hubOf } from '../lib/homeMarket';
 import { homeSaid } from './hustles/industryFinder';
 import { tickDown } from '../lib/tick';
 import type { Stock } from '../lib/types';
@@ -141,18 +141,25 @@ export function Todo() {
       .map((b) => ({ b, who: a.name ?? `Character ${a.charId}` }))),
   ], [d.jobs, d.stock, builtMain, roster, copies]);
   const shipKinds = useShipKinds(builtAll.map((x) => x.b.typeId));
-  const hub = hubOf(d.industry.hub);
-  const placeSystem = (b: BuiltItem) => builtPlaceSystem(b, d.industry.sites.find((s) => s.structureId === b.place || s.stationId === b.place)?.systemId ?? null, HOME_HUBS);
+  // Goonmetrics' two hubs are always known; one you added comes from the cloud's list, asked for only when such a hub is picked.
+  const { hubs, markets: homeMarkets } = useHomeHubs(d.industry.hub != null && !hubOf(d.industry.hub));
+  const hub = hubs.find((h) => h.id === d.industry.hub) ?? null;
+  // A hub picked that isn't known here (the cloud's list still being read, off in this browser, failing, or no longer listing it):
+  // never read as "no hub picked", so nothing built outside Jita 4-4 is priced or copied meanwhile, a ship never falls back to Jita,
+  // and the item says why in that state's own words (the finder's, `homeSaid`).
+  const hubUnknown = d.industry.hub != null && !hub;
+  const placeSystem = (b: BuiltItem) => builtPlaceSystem(b, d.industry.sites.find((s) => s.structureId === b.place || s.stationId === b.place)?.systemId ?? null, hubs);
   // Where it lists. Whether it's a ship only matters where the answer differs; until the type is read that's 'checking', never
-  // "not a ship" (a ship built at home must not be priced, or copied, at Jita).
-  const whereOf = (b: BuiltItem): 'jita' | 'home' | 'checking' | null => {
+  // "not a ship" (a ship built at home must not be priced, or copied, at Jita); a hub picked that isn't known here, 'hub'.
+  const whereOf = (b: BuiltItem): 'jita' | 'home' | 'checking' | 'hub' | null => {
+    if (hubUnknown && b.place !== JITA_44) return 'hub';
     const at = (ship: boolean) => builtWhere({ place: b.place, placeSystem: placeSystem(b), hub, sell: d.industry.sell, ship, noShipsToJita: d.industry.noShipsToJita });
     if (shipKinds.known.has(b.typeId)) return at(shipKinds.ships.has(b.typeId));
     return at(true) === at(false) ? at(false) : 'checking';
   };
   const builtWhereAll = builtAll.map((x) => whereOf(x.b));
   // The hub's prices are fetched only when something built lists there.
-  const home = useHomePrices(builtWhereAll.includes('home') ? hub?.id ?? null : null);
+  const homeQ = useHomeQuotes(builtWhereAll.includes('home') ? hub : null);
   // Every character's open orders, off the books the prices are read on (pre-flight M8).
   const allOrderIds = useMemo(() => [...Object.values(d.orders), ...roster.flatMap((a) => Object.values((copies[a.charId]?.records.orders ?? {}) as Record<string, { orderId: number }>))].map((o) => o.orderId), [d.orders, roster, copies]);
   const builtJita = useBuiltPrices(builtAll.filter((x, i) => builtWhereAll[i] === 'jita').map((x) => x.b.typeId), allOrderIds);
@@ -407,24 +414,26 @@ export function Todo() {
         const p = builtJita[b.typeId];
         market = !p || p.state === 'reading' ? { kind: 'reading' } : p.state === 'priced' ? { kind: 'priced', price: p.price! } : p.state === 'none' ? { kind: 'none' } : { kind: 'unknown', said: 'Couldn’t read its Jita book just now, so it isn’t priced.' };
       } else if (where === 'home') {
-        const said = homeSaid({ hub: hub as HomeHub, home }, now, ago);
-        if (home.status !== 'ok') market = home.status === 'loading' ? { kind: 'reading' } : { kind: 'unknown', said: said ?? 'Home prices aren’t read.' };
+        const said = homeSaid({ hub, home: homeQ, hubMissing: null }, now, ago);
+        if (!homeQ.speaks) market = homeQ.gm.status === 'loading' || homeQ.book.status === 'loading' ? { kind: 'reading' } : { kind: 'unknown', said: said ?? 'Home prices aren’t read.' };
         else {
-          const row = home.prices[b.typeId];
-          const hq = homeQuote(row);
-          market = !row ? { kind: 'unknown', said: `Goonmetrics has no price for it at ${hub!.short}.` } : hq?.sell != null ? { kind: 'priced', price: tickDown(hq.sell) } : { kind: 'none' };
+          // A structure's own read always quotes (a type it lacks is none listed there); Goonmetrics' may have no row for it.
+          const q = homeQ.quote(b.typeId);
+          market = !q ? { kind: 'unknown', said: `Goonmetrics has no price for it at ${hub!.short}.` } : q.sell != null ? { kind: 'priced', price: tickDown(q.sell) } : { kind: 'none' };
           age = said;
         }
       } else market = { kind: 'none' };
       // A place is a station or a structure, never a container: named as an alt's jobs' facilities are (jobPlaceSaid).
       const bpNames = ((b.charId === builtMain ? d.blueprints : copies[b.charId]?.docs.blueprints) as { names?: Record<string, string> } | undefined)?.names ?? {};
       const siteName = d.industry.sites.find((z) => z.structureId === b.place || z.stationId === b.place)?.name;
-      const hubName = hubOf(b.place)?.name;
+      const hubName = hubs.find((h) => h.id === b.place)?.name;
       const placeName = b.place === JITA_44 ? 'Jita 4-4'
         : jobPlaceSaid({ stationId: b.place, first: b.place === b.stationId ? b.first : undefined }, { names: bpNames, jobPlaces: { ...(hubName ? { [b.place]: hubName } : {}), ...(siteName ? { [b.place]: siteName } : {}), ...(d.meta.industry?.places ?? {}) }, station: (id) => placeNames[id] ?? siteName ?? 'a station', system: (id) => placeNames[id] ?? null });
       const alt = who == null ? undefined : roster.find((z) => z.charId === b.charId);
       const lost = alt ? lostSaid({ isMain: false, name: who!, pilot: { lost: (st => (st === 'working' ? undefined : st))(loginState(alt, []).state) } }) : null;
-      out.push(builtItem({ ...b, who, placeName }, { name: name(b.typeId), where, market, hubName: hub?.short ?? null, isMain: who == null, age, shipFailed: shipKinds.failed.has(b.typeId), lost }));
+      out.push(builtItem({ ...b, who, placeName }, { name: name(b.typeId), where, market, hubName: hub?.short ?? null, isMain: who == null, age, shipFailed: shipKinds.failed.has(b.typeId), lost,
+        homeFrom: homeQ.speaks?.source === 'structure' ? 'its own market' : 'Goonmetrics',
+        hubWhy: hubUnknown ? homeSaid({ hub: null, home: homeQ, hubMissing: homeMarkets }, now, ago) : null }));
     }
     // A started plan's buy orders not placed yet (the Capital planner's "Start this plan"), for a week. A bid that bought
     // at once counts by its trade: it shows no order until your order history does; a bid you cancelled with nothing
@@ -498,7 +507,7 @@ export function Todo() {
       });
     }
     return out;
-  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background, roster, listing, placing, research.bundle, research.blocks, research.priced, systemNames, canDest, altJobs, placeNames, copies, builtAll, builtJita, home, shipKinds]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [d, vs, sig.signals, col.read, tracked, now, inCloud, cloud.background, roster, listing, placing, research.bundle, research.blocks, research.priced, systemNames, canDest, altJobs, placeNames, copies, builtAll, builtJita, homeQ, hubs, hubUnknown, homeMarkets, shipKinds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fold each new build into the session: new findings are added, and findings a newer read no longer
   // shows are ticked off with what changed.

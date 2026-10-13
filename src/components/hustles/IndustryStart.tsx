@@ -13,7 +13,7 @@ import { Points } from '../Facts';
 import { SkillNeeds } from '../SkillStrip';
 import { Tiles } from '../ui';
 import { skillsWhy, type IndustryChar } from './industryChars';
-import { useFinder, type Finder } from './industryFinder';
+import { homeFromSaid, useFinder, type Finder } from './industryFinder';
 import { useIndustryDoc } from './industryMarket';
 
 /**
@@ -149,6 +149,8 @@ function RungPays({ k, met, c, ix, f, factory, structure }: { k: RungKey; met: b
   const whose = c.isMain ? 'your' : `${c.name}’s`;
   const buildable = (rows: readonly { lacking: unknown[] }[]) => met && rows.every((r) => r.lacking.length === 0);
   // A figure that leaves something out says so, as the Build tab's rows do (an untyped facility tax or hub broker fee, an unread Alpha tax).
+  // Where a home price comes from, when a row shown sells at home (spec: "the finder, the detail and the ladder say which").
+  const soldHome = (rows: readonly { sale: { place: string } | null }[]) => (f.hub && rows.some((r) => r.sale?.place === 'home') ? `, sold at ${f.hub.short} on ${homeFromSaid(f.home)}` : '');
   const before = (rows: Parameters<typeof beforeSaid>[0]) => { const b = beforeSaid(rows, f.hub?.short); return b.length ? `, before ${b.join(' and ')}` : ''; };
   if (k === 'npc' || k === 't2') {
     const pays = paying(opened);
@@ -159,7 +161,7 @@ function RungPays({ k, met, c, ix, f, factory, structure }: { k: RungKey; met: b
     const how = k === 't2' ? `invented at ${f.lab?.at ?? 'a Laboratory'} at ${whose} sciences` : `at ME ${f.input.me} / TE ${f.input.te}`;
     return (
       <div className="col ind-pays" data-pays="rows">
-        <span className="note small">{now ? `Pays now at ${at}, one slot a day, ${how}${before(top)}:` : `Not buildable yet. Once ${whose} skills cover this, these would make, one slot a day at ${at}, ${how}${before(top)}, priced at ${whose} skills today:`}</span>
+        <span className="note small">{now ? `Pays now at ${at}, one slot a day, ${how}${before(top)}${soldHome(top)}:` : `Not buildable yet. Once ${whose} skills cover this, these would make, one slot a day at ${at}, ${how}${before(top)}${soldHome(top)}, priced at ${whose} skills today:`}</span>
         {top.map((r) => <div key={r.bp} className="ind-pay"><span>{name(r.product)}</span><b>{iskBigSigned(r.day!.profit)}</b></div>)}
       </div>
     );
@@ -169,7 +171,7 @@ function RungPays({ k, met, c, ix, f, factory, structure }: { k: RungKey; met: b
     if (!best.length) return <p className="note small" style={{ margin: 0 }} data-pays="none">Nothing it opens makes a profit at ME 10 at {at} today.</p>;
     return (
       <div className="col ind-pays" data-pays="rows">
-        <span className="note small">{buildable(best.map((x) => x.row)) ? `Researched to ME 10 / TE 20, one slot a day at ${at}${before(best.map((x) => x.row))}:` : `Not buildable yet. Once ${whose} skills cover this, researched to ME 10 / TE 20, these would make, one slot a day at ${at}${before(best.map((x) => x.row))}, priced at ${whose} skills today:`}</span>
+        <span className="note small">{buildable(best.map((x) => x.row)) ? `Researched to ME 10 / TE 20, one slot a day at ${at}${before(best.map((x) => x.row))}${soldHome(best.map((x) => x.row))}:` : `Not buildable yet. Once ${whose} skills cover this, researched to ME 10 / TE 20, these would make, one slot a day at ${at}${before(best.map((x) => x.row))}${soldHome(best.map((x) => x.row))}, priced at ${whose} skills today:`}</span>
         {best.map((x) => <div key={x.row.bp} className="ind-pay"><span>{name(x.row.product)}{x.at0 != null && <span className="sub">{iskBigSigned(x.at10 - x.at0)} a day over ME 0</span>}</span><b>{iskBigSigned(x.at10)}</b></div>)}
       </div>
     );
@@ -189,6 +191,7 @@ function RungPays({ k, met, c, ix, f, factory, structure }: { k: RungKey; met: b
       {!can && ` Not buildable yet: ${whose} skills don’t cover this rung, or a row needs a skill ${c.isMain ? 'you' : 'it'} lack${c.isMain ? '' : 's'}; priced at ${whose} skills today.`}
       {all.items > now.items && ` With ${MAX_SLOTS} slots, the best ${items(all.items)} make ${iskBig(all.profit)} a day.`}
       {lacks && ` These figures are before ${lacks}.`}
+      {soldHome(paying(opened).slice(0, factory)) && ` Home sales are on ${homeFromSaid(f.home)} at ${f.hub!.short}.`}
     </p>
   );
 }

@@ -1,4 +1,5 @@
 import { listingPrice, reachedBid, recentRange } from './fills';
+import { units } from './format';
 import { median, paceDay, withoutOwn } from './prospects';
 import { buyerShare, EVEN_SPLIT, tradingSplit, type BookSold, type SplitFrom } from './split';
 import type { BookLevel, HistRow, ProspectStats } from './types';
@@ -77,8 +78,13 @@ export function shipToJita(o: { ship: boolean; noShipsToJita: boolean; band: Sec
 
 /** A Jita book as the finder reads it: everyone else's orders, the morning's or a live read. */
 export type JitaBook = { ask: number | null; bid: number | null; bids: BookLevel[]; sold?: BookSold; at: string; live: boolean };
-/** A home hub's prices as Goonmetrics gives them (Task 6): best sell and buy, weekly movement; null where not known. */
-export type HomeQuote = { sell: number | null; buy: number | null; weekly: number | null; at: string };
+/**
+ * A home hub's prices: best sell and buy, weekly movement, and when; null where not known. `source`: Goonmetrics' (absent on its
+ * quotes) or the structure's own read (stage 4), which adds what its live orders sold (`sold`, the split) and its best sell levels
+ * (`sells`, to buy a week's need up them: correction 9). A structure's read has no weekly movement of its own: a Goonmetrics hub's
+ * figure rides along.
+ */
+export type HomeQuote = { sell: number | null; buy: number | null; weekly: number | null; at: string; source?: 'structure' | 'goonmetrics'; sold?: BookSold; sells?: BookLevel[] };
 /** What the finder knows of one item's markets. */
 export type Market = {
   jita: JitaBook | null;
@@ -96,6 +102,18 @@ export const NO_ROUTE_WHY = 'no freight route from Jita';
 export type Source = 'jita' | 'home' | 'mined';
 export type SourceOption = { source: Source; price: number | null; why: string; pickable: boolean };
 export type MaterialPick = { type: number; qty: number; pick: Source | null; price: number | null; options: SourceOption[]; patient: number | null };
+
+/** What `units` cost each, bought up `levels` from the best; null when they hold fewer, or none are wanted. */
+export function fillCost(levels: readonly BookLevel[], units: number): number | null {
+  if (!(units > 0)) return null;
+  let left = units, cost = 0;
+  for (const l of levels) {
+    const take = Math.min(left, l.volume);
+    cost += take * l.price; left -= take;
+    if (left <= 1e-9) return cost / units;
+  }
+  return null;
+}
 
 /**
  * Where one material comes from for the steady profit a day: the cheapest delivered of Jita's best ask plus freight in, the
@@ -121,13 +139,25 @@ export function sourceMaterial(o: {
       : { source: 'jita', price: ask + f, why: o.jitaLeg.kind === 'route' ? 'Jita’s best ask, plus freight' : o.jitaLeg.kind === 'carry' ? 'Jita’s best ask; you carry it' : 'Jita’s best ask', pickable: true });
   }
   if (o.home && o.homeLeg && o.hubName) {
-    const at = o.hubName, sell = o.home.sell, weekly = o.home.weekly;
-    const f = sell != null ? legCost(o.homeLeg, o.volume, sell, o.weekNeed) : null;
-    options.push(sell == null ? { source: 'home', price: null, why: `none listed at ${at}`, pickable: false }
-      : weekly == null ? { source: 'home', price: sell, why: `${at}’s weekly movement isn’t known, so its depth can’t be judged`, pickable: false }
-        : weekly < HOME_DEPTH * o.weekNeed ? { source: 'home', price: sell, why: `too thin to buy a week’s need at ${at}`, pickable: false }
+    const at = o.hubName, sell = o.home.sell;
+    if (o.home.source === 'structure') {
+      // Its own read: what a week's need costs bought up its best levels (correction 9); it has no weekly movement to judge depth by.
+      const levels = o.home.sells ?? [];
+      const avg = fillCost(levels, o.weekNeed);
+      const f = avg != null ? legCost(o.homeLeg, o.volume, avg, o.weekNeed) : null;
+      options.push(sell == null ? { source: 'home', price: null, why: `none listed at ${at}`, pickable: false }
+        : avg == null ? { source: 'home', price: sell, why: `too thin to buy a week’s need at ${at}: ${units(levels.reduce((n, l) => n + l.volume, 0))} listed at its best prices`, pickable: false }
           : f == null ? { source: 'home', price: null, why: `no freight route from ${at}`, pickable: false }
-            : { source: 'home', price: sell + f, why: `${at}’s best sell`, pickable: true });
+            : { source: 'home', price: avg + f, why: `${at}’s listings: a week’s need bought up its best prices`, pickable: true });
+    } else {
+      const weekly = o.home.weekly;
+      const f = sell != null ? legCost(o.homeLeg, o.volume, sell, o.weekNeed) : null;
+      options.push(sell == null ? { source: 'home', price: null, why: `none listed at ${at}`, pickable: false }
+        : weekly == null ? { source: 'home', price: sell, why: `${at}’s weekly movement isn’t known, so its depth can’t be judged`, pickable: false }
+          : weekly < HOME_DEPTH * o.weekNeed ? { source: 'home', price: sell, why: `too thin to buy a week’s need at ${at}`, pickable: false }
+            : f == null ? { source: 'home', price: null, why: `no freight route from ${at}`, pickable: false }
+              : { source: 'home', price: sell + f, why: `${at}’s best sell`, pickable: true });
+    }
   }
   else if (o.homeLeg && o.hubName) options.push({ source: 'home', price: null, why: o.homeRead ? `no price at ${o.hubName}` : `not read at ${o.hubName} yet`, pickable: false });
   if (o.mineable) {
@@ -178,16 +208,20 @@ export function sellAt(place: 'jita' | 'home', m: Market, o: { broker: number | 
   } else {
     const h = m.home;
     if (!h) return { ...base, why: m.homeRead ? `No price at ${o.hubName ?? 'home'}` : `Not read at ${o.hubName ?? 'home'} yet` };
+    // A whole read of the structure's own market without the type: none listed there, known, before any word of pace (correction 8).
+    if (h.source === 'structure' && h.sell == null && h.buy == null) return { ...base, why: `none listed at ${o.hubName ?? 'home'}` };
     const hist = m.homeHist && m.homeHist.length ? m.homeHist : null;
     list = listingPrice(h.sell, h.buy, hist ? recentRange(hist, 14, o.now).highs : null);
     bid = h.buy;
     if (hist) {
       pace = paceDay(hist, o.now);
-      const s = tradingSplit({ history: buyerShare(hist.slice(-30)) });
+      // What the structure's live orders sold says who trades there, first when it can (B10, correction 11), as the Jita book does.
+      const s = tradingSplit({ history: buyerShare(hist.slice(-30)), book: h.sold ?? null });
       split = s.share; splitFrom = s.from; paceFrom = 'history';
     } else {
       pace = h.weekly != null ? h.weekly / 7 : null;
-      split = EVEN_SPLIT; splitFrom = 'goonmetrics'; paceFrom = pace != null ? 'goonmetrics' : null;
+      const s = h.sold ? tradingSplit({ book: h.sold }) : null;
+      split = s?.from === 'book' ? s.share : EVEN_SPLIT; splitFrom = s?.from === 'book' ? 'book' : 'goonmetrics'; paceFrom = pace != null ? 'goonmetrics' : null;
     }
   }
   // A pace not known is never a pace of 0: the row says so, and isn't ranked on a guess.

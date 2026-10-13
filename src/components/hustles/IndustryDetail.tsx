@@ -2,11 +2,11 @@ import { useMemo, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { hasScope } from '../../lib/auth';
 import { SCOPE } from '../../lib/config';
-import { isk, iskBig, iskBigSigned, pct, units } from '../../lib/format';
+import { ago, isk, iskBig, iskBigSigned, pct, units } from '../../lib/format';
 import { heldCost } from '../../lib/heldCost';
-import { navigate } from '../../lib/hooks';
+import { navigate, useNow } from '../../lib/hooks';
 import { DAY_S, KIND_SAID, SKILL, structureBonus, rigFor, type Indexed } from '../../lib/industry';
-import { bestOreFor, meLevels, payback, shoppingList, startUp, T2_ME, T2_TE, type Held, type Row } from '../../lib/industryRank';
+import { bestOreFor, meLevels, payback, shoppingList, startUp, T2_ME, T2_TE, type HomeQuote, type Held, type Row } from '../../lib/industryRank';
 import { chanceSaid } from '../../lib/industryOwned';
 import { JITA_SYSTEM } from '../../lib/industrySites';
 import { HIGH_SEC, jumpsFrom, type Graph } from '../../lib/jumps';
@@ -19,7 +19,7 @@ import { typeInfo } from '../../lib/universe';
 import { copyMultibuy, copyPrice } from '../common';
 import { Tiles } from '../ui';
 import type { IndustryChar } from './industryChars';
-import { aDaySaid, bpoSaid, everyDays, useStationSaid, type Finder } from './industryFinder';
+import { aDaySaid, bpoSaid, everyDays, homePaceSaid, useStationSaid, type Finder } from './industryFinder';
 import { NPC_REGIONS, regionSellers, type RegionSeller } from './industryMarket';
 
 /**
@@ -31,6 +31,7 @@ import { NPC_REGIONS, regionSellers, type RegionSeller } from './industryMarket'
 const SOURCE_SAID = { jita: 'Jita', home: 'home hub', mined: 'mined' } as const;
 
 export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: IndustryChar; ix: Indexed; graph: Graph; row: Row; finder: Finder; mainName: string }) {
+  const now = useNow(60_000);
   const input = finder.input!;
   const site = finder.site!, facts = finder.facts!;
   const name = (id: number) => ix.b.types[id]?.[0] ?? `Item #${id}`;
@@ -104,9 +105,13 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
   const sale = row.sale;
   const listPrice = sale?.list ?? null;
   // Goonmetrics stamps each type's own `updated`: a thin item's upload from days before the cloud's read says so, not read as fresh.
-  const homeAt = finder.home.status === 'ok' ? Date.parse(finder.home.at) : NaN, typeAt = Date.parse(input.market(row.product).home?.at ?? '');
+  const homeAt = finder.home.speaks?.source === 'goonmetrics' ? Date.parse(finder.home.speaks.at) : NaN, typeAt = Date.parse(input.market(row.product).home?.at ?? '');
   const staleFigure = Number.isFinite(homeAt) && Number.isFinite(typeAt) && homeAt - typeAt > 24 * 3600_000
     ? ` · Goonmetrics’ figure for it is from ${new Date(typeAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}` : '';
+  // Where a home sale's figures came from: the hub's own market (and Goonmetrics' weekly movement where it has one), or Goonmetrics.
+  const homeTail = (q: HomeQuote | null | undefined) => (q?.source === 'structure'
+    ? ` · ${input.hubName}’s own market, read ${ago(q.at, now)}${q.weekly != null ? ` · Goonmetrics: ${units(q.weekly)} a week` : ''}`
+    : ` · Goonmetrics: ${q?.weekly != null ? units(q.weekly) : '–'} a week${staleFigure}`);
   const setDest = async (id: number) => {
     try { await setDestination(id); toast(`Destination set in ${c.isMain ? 'your' : `${mainName}’s`} client.`, 'info'); }
     catch (e) { toast(e instanceof Error ? e.message : String(e), 'err'); }
@@ -160,7 +165,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
         },
         ...(row.sales.length ? row.sales : [null]).map((s) => s ? ({
           l: s.place === 'home' ? `The sale at ${input.hubName}` : 'The sale in Jita', v: s.list != null ? iskBig(s.list) : '–',
-          n: s.why ?? `nets ${iskBig(s.listNet)} listed${s.brokerKnown ? '' : ' (before the broker fee: not typed)'}, ${iskBig(s.bidNet)} into the best bid · ${units(s.pace)} a day, ${pct(s.split, 0)} buyers taking listings (${s.paceFrom === 'goonmetrics' ? 'Goonmetrics’ weekly movement ÷ 7, at an even split, until the home history is read' : SPLIT_SAID[s.splitFrom as Exclude<typeof s.splitFrom, 'goonmetrics'>]})${s.place === 'home' ? ` · Goonmetrics: ${((w) => (w != null ? units(w) : '–'))(input.market(row.product).home?.weekly)} a week${staleFigure}` : ''}${s.freight ? ` · freight ${isk(s.freight)} a unit` : ''}`,
+          n: s.why ?? `nets ${iskBig(s.listNet)} listed${s.brokerKnown ? '' : ' (before the broker fee: not typed)'}, ${iskBig(s.bidNet)} into the best bid · ${units(s.pace)} a day, ${pct(s.split, 0)} buyers taking listings (${s.place === 'home' ? homePaceSaid(s, input.hubName ?? 'home') : SPLIT_SAID[s.splitFrom as Exclude<typeof s.splitFrom, 'goonmetrics'>]})${s.place === 'home' ? homeTail(input.market(row.product).home) : ''}${s.freight ? ` · freight ${isk(s.freight)} a unit` : ''}`,
         }) : { l: 'The sale', v: '–', n: 'not sold anywhere you said' }),
         { l: 'Profit a day, one slot', v: iskBigSigned(row.day?.profit), n: ((r) => (r.length ? `${r.join('; ')}` : row.day ? `${aDaySaid(row.day.units)} sold of ${aDaySaid(row.makes)} made` : ''))([row.taxPerPct != null && `before the facility tax; each 1% costs ${iskBig(row.taxPerPct)} a day`, row.brokerPerPct != null && `before the broker fee at ${input.hubName}; each 1% costs ${iskBig(row.brokerPerPct)} a day`].filter(Boolean)) + (row.costKnown === false && row.taxPerPct == null ? '; before the Alpha tax, since the clone state isn’t read' : '') },
       ]} />

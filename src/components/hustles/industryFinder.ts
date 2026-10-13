@@ -1,18 +1,20 @@
 import { useMemo, useState } from 'react';
 import { iskBig, units } from '../../lib/format';
-import { HOME_STALE_MS, homeQuote, hubOf, type HomeHub } from '../../lib/homeMarket';
+import { HOME_STALE_MS, ownMarketSaid, type HomeHub } from '../../lib/homeMarket';
 import { watchedFlow } from '../../lib/flowStore';
 import type { Indexed } from '../../lib/industry';
 import {
   bpoWhere, finderBlueprints, inventionBlueprints, LIVE_ROWS, othersBook, rankBuilds, type BpoWhere, type LabSite, type Market, type ProductKind, type Row, type RowInput,
 } from '../../lib/industryRank';
+import { type Sale } from '../../lib/industryRank';
+import { SPLIT_SAID, type SplitFrom } from '../../lib/split';
 import { finderSkills } from '../../lib/industryLadder';
 import { JITA_SYSTEM, labFor, legFor, siteFacts, stationLabel, type SiteFacts } from '../../lib/industrySites';
 import { HIGH_SEC, jumpsFrom, type Graph } from '../../lib/jumps';
 import type { IndustrySite } from '../../lib/prefs';
 import type { OwnOrder } from '../../lib/researchTrack';
 import type { IndustryChar } from './industryChars';
-import { useAdjusted, useHomeHistory, useHomePrices, useIndices, useIndustryDoc, useLiveBooks, useNpcRow, useScanCache, useStationNames, type HomeState, type Loaded, type NpcState } from './industryMarket';
+import { useAdjusted, useHomeHistory, useHomeHubs, useHomeQuotes, useIndices, useIndustryDoc, useLiveBooks, useNpcRow, useScanCache, useStationNames, type HomeSource, type Loaded, type MarketsState, type NpcState } from './industryMarket';
 
 /**
  * The finder's inputs, gathered once for Build and Start (docs/notes/industry.md): the site, its facts and legs, ESI's
@@ -43,8 +45,8 @@ export type Finder = {
   input: Omit<RowInput, 'bp'> | null;
   npc: NpcState; bpo: (bp: number) => BpoWhere;
   scan: Loaded<unknown>;
-  /** The home hub picked, and its prices from the cloud. */
-  hub: HomeHub | null; home: HomeState;
+  /** The home hub picked (Goonmetrics' or one the cloud reads), every hub the tab knows, what prices the hub, and the cloud's list's state while the hub picked isn't known. */
+  hub: HomeHub | null; hubs: HomeHub[]; home: HomeSource; hubMissing: MarketsState | null;
 };
 
 /**
@@ -64,9 +66,12 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph, opts: { ow
   const hasScan = !!cache && Object.keys(cache.stats).length > 0;
   // Skills not read are not level 0: an empty or absent doc is waited for, never ranked at.
   const skills = finderSkills(c.pilot.skills, c.clone);
-  const hub = hubOf(doc.hub);
-  const home = useHomePrices(hub?.id ?? null);
-  const prices = hub && home.status === 'ok' ? home.prices : null;
+  // Goonmetrics' two are always known; a hub you added comes from the cloud's list, asked for always, so Build's select offers every
+  // hub you added whichever is picked (held 15 minutes and shared in flight: useHomeQuotes reads the same list).
+  const { hubs, markets } = useHomeHubs();
+  const hub = hubs.find((h) => h.id === doc.hub) ?? null;
+  const hubMissing = doc.hub != null && !hub ? markets : null;
+  const home = useHomeQuotes(hub);
 
   const input = useMemo((): Omit<RowInput, 'bp'> | null => {
     if (!site || !facts || !facts.index || !cache || !hasScan || adjusted.state !== 'ok' || !skills) return null;
@@ -74,7 +79,7 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph, opts: { ow
     const market = (t: number): Market => {
       const b = cache.books[t];
       if (!flows.has(t)) flows.set(t, watchedFlow(t));
-      return { jita: b ? othersBook(b, own, t, false) : null, stats: cache.stats[t] ?? null, watched: flows.get(t) ?? null, home: prices ? homeQuote(prices[t]) : null, homeRead: !!prices };
+      return { jita: b ? othersBook(b, own, t, false) : null, stats: cache.stats[t] ?? null, watched: flows.get(t) ?? null, home: home.quote(t), homeRead: home.read };
     };
     return {
       ix, me: doc.assume.me, te: doc.assume.te, skills, clone: c.clone,
@@ -85,7 +90,7 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph, opts: { ow
       noShipsToJita: doc.noShipsToJita, jitaJumps: facts.jitaJumps, mines: c.mines, hubName: hub?.short ?? null, now: Date.now(),
       lab: lab?.site ?? null,
     };
-  }, [site, facts, lab, cache, hasScan, adjusted, skills, c, ix, doc.assume, doc.share, doc.freight, doc.noShipsToJita, doc.sell, doc.hubFees, hub, prices]);
+  }, [site, facts, lab, cache, hasScan, adjusted, skills, c, ix, doc.assume, doc.share, doc.freight, doc.noShipsToJita, doc.sell, doc.hubFees, hub, home]);
 
   // Tech I and, through invention, Tech II: ranked together.
   const bps = useMemo(() => [...finderBlueprints(ix), ...inventionBlueprints(ix)], [ix]);
@@ -93,8 +98,21 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph, opts: { ow
   // The top rows' products and materials, read live; ranked again on them.
   const liveTypes = useMemo(() => [...new Set(first.filter((r) => r.day).slice(0, LIVE_ROWS).flatMap((r) => [r.product, ...r.materials.map((m) => m.type), ...(r.invention?.datacores.map((d) => d.type) ?? [])]))], [first]);
   const liveBooks = useLiveBooks(liveTypes);
-  // The home region's history for the top rows sold at home: their pace and split, where Goonmetrics' weekly movement stood in.
-  const homeTypes = useMemo(() => (hub ? first.filter((r) => r.day && r.sale?.place === 'home').slice(0, LIVE_ROWS).map((r) => r.product) : []), [first, hub]);
+  // The home region's history for the top rows sold at home, and for rows priced there with no pace yet: a hub Goonmetrics doesn't
+  // track has no weekly movement, so nothing there had a pace to be ranked by until its history was read (correction 10). The same
+  // rescues a type Goonmetrics prices with its weekly movement unknown (its −1), which stage 1 never read the history of either.
+  const homeTypes = useMemo(() => {
+    if (!hub) return [];
+    const sold = first.filter((r) => r.day && r.sale?.place === 'home');
+    const fee = doc.hubFees[hub.id] ?? 0;
+    // Every row with a home sale priced and unpaced, sold elsewhere or not at all: with Either a row's Jita sale gives it a day, and
+    // without its home history read the hub could never win it (Either would pick Jita silently).
+    const soldSet = new Set(sold);
+    const unpaced = first.filter((r) => r.costUnit != null && !soldSet.has(r))
+      .map((r) => ({ r, m: Math.max(-Infinity, ...r.sales.filter((x) => x.place === 'home' && x.paceFrom == null && (x.list ?? x.bid) != null).map((x) => (x.list ?? x.bid)! * (1 - fee) - r.costUnit!)) }))
+      .filter((x) => x.m > 0).sort((x, y) => y.m - x.m).map((x) => x.r);
+    return [...sold, ...unpaced].slice(0, LIVE_ROWS).map((r) => r.product);
+  }, [first, hub, doc.hubFees]);
   const homeHist = useHomeHistory(homeTypes, hub?.region ?? null);
   // Live Jita books and home histories are told apart: the count line says "on Jita's books now" only for the first.
   const live = Object.keys(liveBooks).length > 0, homeLive = Object.keys(homeHist).length > 0;
@@ -122,7 +140,7 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph, opts: { ow
                 : adjusted.state === 'loading' ? { text: 'Reading CCP’s adjusted prices…' }
                   : adjusted.state === 'failed' ? { text: 'Couldn’t read CCP’s adjusted prices just now, so no job can be costed.', retry: adjusted.retry }
                     : null;
-  return { site, facts, lab, waiting, rows, live, input: liveInput, npc, bpo, scan, hub, home };
+  return { site, facts, lab, waiting, rows, live, input: liveInput, npc, bpo, scan, hub, hubs, home, hubMissing };
 }
 
 /**
@@ -189,16 +207,55 @@ export function useStationSaid(ids: readonly number[], ix: Indexed, graph: Graph
   return (id, systemId) => { const sys = systemId ?? systemOf.get(id); return stationSaid(names, id, sys != null ? graph[sys]?.[1] ?? null : null); };
 }
 
-/** What the home hub's prices are, as a sentence beside the choices (`now` ticks so "read 2 h ago" moves). */
-export function homeSaid(f: Pick<Finder, 'hub' | 'home'>, now: number, ago: (iso: string, now: number) => string): string | null {
+/**
+ * What prices the home hub, as a sentence beside the choices (`now` ticks so "read 2 h ago" moves): its own market's fresh read; else
+ * Goonmetrics' with its time and, after it, what its own market's read says (correction 7, Review Focus 2 and 3); a hub Goonmetrics
+ * doesn't track with no fresh read prices nothing, said; a hub picked that the cloud's list hasn't given yet says why.
+ */
+export function homeSaid(f: Pick<Finder, 'hub' | 'home' | 'hubMissing'>, now: number, ago: (iso: string, now: number) => string): string | null {
   const h = f.hub, st = f.home;
-  if (!h) return null;
-  if (st.status === 'off') return 'Home prices come from the cloud, which isn’t on in this browser (Settings → Your data).';
-  if (st.status === 'loading') return `Reading ${h.short}’s prices from the cloud…`;
-  if (st.status === 'behind') return 'The cloud is a version behind: home prices come once it’s updated.';
-  if (st.status === 'failed') return `Couldn’t read ${h.short}’s prices from the cloud: ${st.error}.`;
-  if (st.status === 'switched') return 'Goonmetrics isn’t read: the cloud has it switched off.';
-  if (st.status === 'none') return `Not read yet: the cloud reads ${h.short}’s prices from Goonmetrics every six hours.`;
-  const old = now - Date.parse(st.at) > HOME_STALE_MS;
-  return `${h.short}’s prices: Goonmetrics, read ${ago(st.at, now)}${old ? ': older than a day' : ''}.`;
+  if (!h) {
+    const m = f.hubMissing;
+    if (!m) return null;
+    return m.status === 'loading' ? 'Reading your home markets from the cloud…'
+      : m.status === 'off' ? 'Your home hub is one the cloud reads, which isn’t on in this browser (Settings → Your data).'
+        : m.status === 'behind' ? 'The cloud is a version behind: your home hub comes once it’s updated.'
+          : m.status === 'failed' ? `Couldn’t read your home markets from the cloud: ${m.error}.`
+            : 'Your home hub isn’t one the cloud reads any more: pick another, or add it again under Home markets.';
+  }
+  if (st.speaks?.source === 'structure') return `${h.short}’s prices: its own market, read ${ago(st.speaks.at, now)}.`;
+  const own = st.hub && !st.hub.off ? ` ${ownMarketSaid(st.hub, now, h.goonmetrics)}` : '';
+  if (!h.goonmetrics) {
+    const b = st.book;
+    if (b.status === 'off') return `${h.short}’s prices come from the cloud, which isn’t on in this browser (Settings → Your data).`;
+    if (b.status === 'loading') return `Reading ${h.short}’s own market from the cloud…`;
+    if (b.status === 'behind') return `The cloud is a version behind: ${h.short}’s own market comes once it’s updated.`;
+    if (b.status === 'failed') return `Couldn’t read ${h.short}’s own market from the cloud: ${b.error}.`;
+    return `${h.short} isn’t priced: Goonmetrics doesn’t track it, and its own market has no read under two hours old.${own}`;
+  }
+  const gm = st.gm;
+  if (gm.status === 'off') return 'Home prices come from the cloud, which isn’t on in this browser (Settings → Your data).';
+  if (gm.status === 'loading') return `Reading ${h.short}’s prices from the cloud…`;
+  if (gm.status === 'behind') return 'The cloud is a version behind: home prices come once it’s updated.';
+  if (gm.status === 'failed') return `Couldn’t read ${h.short}’s prices from the cloud: ${gm.error}.${own}`;
+  if (gm.status === 'switched') return `Goonmetrics isn’t read: the cloud has it switched off.${own}`;
+  if (gm.status === 'none') return `Not read yet: the cloud reads ${h.short}’s prices from Goonmetrics every six hours.${own}`;
+  if (gm.status !== 'ok') return null;
+  const old = now - Date.parse(gm.at) > HOME_STALE_MS;
+  // A read of its own that has gone stale is said as the reason Goonmetrics speaks (Review Focus 3): never the same words as one that
+  // still speaks. Only for a plain good read: a refusal or a failure already says why.
+  const plain = !!st.hub?.book?.at && !st.hub.book.error && !st.hub.book.refusedAt;
+  const stale = st.book.status !== 'ok' || st.hub?.off ? '' : plain ? ' That read is over two hours old, so Goonmetrics’ prices speak.'
+    : !st.hub ? ' Its own market’s last read is over two hours old, so Goonmetrics’ prices speak.' : '';
+  return `${h.short}’s prices: Goonmetrics, read ${ago(gm.at, now)}${old ? ': older than a day' : ''}.${own}${stale}`;
+}
+
+/** Where a home sale's prices come from, for a row and the count line. */
+export const homeFromSaid = (home: HomeSource): string => (home.speaks?.source === 'structure' ? 'its own market' : 'Goonmetrics’ prices');
+
+/** How a home sale's pace and split were worked out, for the detail: Goonmetrics' weekly movement or the region's history, split by the hub's own book where it could tell. */
+export function homePaceSaid(s: Sale, hubName: string): string {
+  const book = `what the orders in ${hubName}’s market have sold`;
+  if (s.paceFrom === 'goonmetrics') return s.splitFrom === 'book' ? `Goonmetrics’ weekly movement ÷ 7, split by ${book}, until the home history is read` : 'Goonmetrics’ weekly movement ÷ 7, at an even split, until the home history is read';
+  return s.splitFrom === 'book' ? `the home region’s history, split by ${book}` : SPLIT_SAID[s.splitFrom as SplitFrom];
 }

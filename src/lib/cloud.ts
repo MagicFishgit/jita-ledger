@@ -1,4 +1,4 @@
-import type { HomeRow } from './homeMarket';
+import type { HomeBookAnswer, HomeRow, HubState } from './homeMarket';
 import type { LeaveSummary, ShareSummary, SnipeSummary } from './track';
 import type { AltPage, RosterEntry } from './roster';
 import type { TrackerCell, TrackerFitDetail } from './abyssTracker';
@@ -630,6 +630,10 @@ export const cloudIndustryNpc = () => call<{ complete: NpcRow | null; partial: N
  * the cloud has Goonmetrics switched off. A Worker a version behind answers 404 (the error's `status`).
  */
 export const cloudHomePrices = (hub: number) => call<{ off: true } | { hub: number; source: string; at: string; prices: Record<string, HomeRow> } | null>(`/v1/home/prices?hub=${hub}`);
+/** The home markets the cloud reads for this ledger (homeMarkets.ts): Goonmetrics' two and any you added, each with its reader and its own reads. A Worker a version behind answers 404. */
+export const cloudHomeMarkets = () => call<{ hubs: HubState[] }>('/v1/home/markets');
+/** A hub's last good read of its own market, null before one. A Worker a version behind answers 404. */
+export const cloudHomeBook = (hub: number) => call<HomeBookAnswer>(`/v1/home/book?hub=${hub}`);
 /**
  * What copies sold for in The Forge over the last week and the asks now (`GET /v1/copies`). Four answers, told apart by `at`:
  * null (no round has tried yet), `{ off: true }` (the cloud has its EVE Ref reads switched off), `{ tried, error }` with no `at`

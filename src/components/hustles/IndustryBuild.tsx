@@ -1,7 +1,6 @@
 import { Fragment, useMemo, useState } from 'react';
 import { ChevronRight, Coins, Scale, Store } from 'lucide-react';
 import { ago, iskBig, iskBigSigned, pct, units } from '../../lib/format';
-import { HOME_HUBS } from '../../lib/homeMarket';
 import { navigate, useNow } from '../../lib/hooks';
 import { productOf, type Indexed } from '../../lib/industry';
 import { payback, productKind, type BpoWhere, type Row } from '../../lib/industryRank';
@@ -11,7 +10,7 @@ import { Points } from '../Facts';
 import { Check, NumChip, Seg, Th } from '../ui';
 import type { IndustryChar } from './industryChars';
 import { IndustryDetail } from './IndustryDetail';
-import { aDaySaid, bpoSaid, everyDays, FINDER_KINDS, homeSaid, KIND_CHOICE, KIND_LABEL, perDayCell, useFinder, useFinderView, useStationSaid, type Finder } from './industryFinder';
+import { aDaySaid, bpoSaid, everyDays, FINDER_KINDS, homeFromSaid, homeSaid, KIND_CHOICE, KIND_LABEL, perDayCell, useFinder, useFinderView, useStationSaid, type Finder } from './industryFinder';
 import { useIndustryDoc } from './industryMarket';
 import { IndustrySites } from './IndustrySites';
 
@@ -73,11 +72,11 @@ export function IndustryBuild({ c, ix, graph, mainName, chars }: { c: IndustryCh
       // A Tech II row says why its invention can't be costed, by that reason (no Laboratory, no index at the lab, a datacore nobody lists, skills not read).
       const invWhy = r.missing === 'noInvention' && r.invention?.why ? lcfirst(r.invention.why) : null;
       const key = own ? `noSale:${own}` : invWhy ? `noInvention:${invWhy}` : r.missing;
-      const e = n.get(key) ?? { n: 0, said: own ? () => `can’t be sold: ${own}` : invWhy ? () => `Tech II can’t be costed: ${invWhy}` : r.missing === 'noBook' && f.hub && doc.sell !== 'jita' ? (one) => `${one ? 'has' : 'have'} no Jita book this morning and no price at ${f.hub!.short}` : MISSING_SAID[r.missing] };
+      const e = n.get(key) ?? { n: 0, said: own ? () => `can’t be sold: ${own}` : invWhy ? () => `Tech II can’t be costed: ${invWhy}` : r.missing === 'noBook' && f.hub && doc.sell !== 'jita' ? (one) => `${one ? 'has' : 'have'} no Jita book this morning and ${f.home.speaks?.source === 'structure' ? 'none listed' : 'no price'} at ${f.hub!.short}` : MISSING_SAID[r.missing] };
       e.n++; n.set(key, e);
     }
     return [...n.values()].map((e) => `${units(e.n)} ${e.said(e.n === 1)}`).join(', ');
-  }, [f.rows, f.hub, doc.sell]);
+  }, [f.rows, f.hub, f.home, doc.sell]);
   const noRoute = f.rows.some((r) => r.missing === 'noRoute');
   const keptHome = f.rows.filter((r) => r.shipsKeptHome).length;
   const station = useStationSaid(shown.slice(0, SHOWN + more).flatMap((r) => { const w = f.bpo(r.bp); return w.state === 'forge' ? [w.stations[0]] : []; }), ix, graph);
@@ -117,7 +116,8 @@ export function IndustryBuild({ c, ix, graph, mainName, chars }: { c: IndustryCh
         <label className="chip h34"><span className="cl">Home hub</span>
           <select value={doc.hub ?? ''} onChange={(e) => setDoc({ hub: e.target.value ? Number(e.target.value) : null })} aria-label="Home hub">
             <option value="">None</option>
-            {HOME_HUBS.map((h) => <option key={h.id} value={h.id}>{h.short}</option>)}
+            {f.hubs.map((h) => <option key={h.id} value={h.id}>{h.short}</option>)}
+            {doc.hub != null && !f.hub && <option value={doc.hub}>{f.hubMissing?.status === 'loading' ? 'Reading…' : 'Not listed'}</option>}
           </select>
         </label>
         {f.hub && (
@@ -156,7 +156,7 @@ export function IndustryBuild({ c, ix, graph, mainName, chars }: { c: IndustryCh
       ) : (
         <div className="col" style={{ gap: 8 }} data-industry="finder">
           <p className="note small" style={{ margin: 0 }} data-industry="finder-count">
-            {units(shown.length)} of {units(priced.length)} priced at {f.site?.name}{f.live ? '; the top rows on Jita’s books now, the rest on this morning’s' : ', on this morning’s Jita books'}{f.hub && doc.sell !== 'jita' ? `; a sale at ${f.hub.short} on Goonmetrics’ prices` : ''}.
+            {units(shown.length)} of {units(priced.length)} priced at {f.site?.name}{f.live ? '; the top rows on Jita’s books now, the rest on this morning’s' : ', on this morning’s Jita books'}{f.hub && doc.sell !== 'jita' ? (f.home.speaks ? `; a sale at ${f.hub.short} on ${homeFromSaid(f.home)}` : `; nothing is priced at ${f.hub.short} to sell on`) : ''}.
             {unpriced > 0 && ` ${units(unpriced)} aren’t priced: ${why}.`}
             {t2Priced > 0 && ` ${units(t2Priced)} of those priced ${t2Priced === 1 ? 'is' : 'are'} Tech II, invented at ${f.lab?.at ?? 'a Laboratory'}; decryptors and reactions aren’t modelled.`}
             {keptHome > 0 && doc.noShipsToJita && ` ${units(keptHome)} ${keptHome === 1 ? 'ship stays' : 'ships stay'} home: never haul ships to Jita is on${f.facts?.band === 'high' && f.facts.jitaJumps == null ? ` (no high-sec route from ${f.site?.name} to Jita on the map)` : f.facts?.band === 'unknown' ? ` (${f.site?.name}’s security isn’t known, so its ships stay home)` : ''}.`}
@@ -187,7 +187,7 @@ export function IndustryBuild({ c, ix, graph, mainName, chars }: { c: IndustryCh
                   const up = unitProfit(r);
                   const name = ix.b.types[r.product]?.[0] ?? `Item #${r.product}`;
                   const tax = [r.taxPerPct != null && `each 1% of tax: ${iskBig(r.taxPerPct)} a day`, r.brokerPerPct != null && `each 1% of broker fee at ${f.hub?.short}: ${iskBig(r.brokerPerPct)} a day`].filter(Boolean).join(' · ') || null;
-                  const book = !r.sale || !f.input ? null : r.sale.place === 'home' ? `sold at ${f.hub?.short}, Goonmetrics’ prices` : f.input.market(r.product).jita?.live ? 'Jita’s book now' : 'this morning’s book';
+                  const book = !r.sale || !f.input ? null : r.sale.place === 'home' ? `sold at ${f.hub?.short}, ${homeFromSaid(f.home)}` : f.input.market(r.product).jita?.live ? 'Jita’s book now' : 'this morning’s book';
                   // Tech II: what it's invented from, and its original is the Tech I one to copy from.
                   const t1 = r.invention ? productOf(ix.bp.get(r.invention.from)!)?.type : null;
                   const tech = t1 != null ? `Tech II from ${ix.b.types[t1]?.[0] ?? `Item #${t1}`}` : null;

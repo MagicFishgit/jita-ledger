@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
-import { cloudCopies, cloudEnabled, cloudHomePrices, cloudIndustryNpc, useCloud } from '../../lib/cloud';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { cloudCopies, cloudEnabled, cloudHomeBook, cloudHomeMarkets, cloudHomePrices, cloudIndustryNpc, useCloud } from '../../lib/cloud';
 import { EsiError, esi } from '../../lib/esi';
 import { shareInFlight } from '../../lib/inFlight';
 import type { IndustryIndex } from '../../lib/industry';
 import { npcHoldMs, type NpcRow } from '../../lib/industryRank';
 import type { CopySummary } from '../../lib/copyMarket';
-import { homeHoldMs, type HomeRow } from '../../lib/homeMarket';
+import type { StructureRow } from '../../lib/bookFold';
+import { bookHoldMs, HOME_HOLD_MAX_MS, homeHoldMs, homeQuote, homeSpeaks, hubsFrom, ownRead, structureQuote, type HomeHub, type HomeRow, type HomeSpeaks, type HubState } from '../../lib/homeMarket';
+import { useNow } from '../../lib/hooks';
+import type { HomeQuote } from '../../lib/industryRank';
 import { adjustedPricesShared, industrySystemsShared, jitaBook, regionHistory, resolveNames } from '../../lib/market';
 import { nameReader } from '../../lib/nameReader';
 import { sanitizeIndustry, type IndustryDoc } from '../../lib/prefs';
@@ -206,6 +209,125 @@ export function useHomePrices(hub: number | null): HomeState {
     return () => { alive = false; };
   }, [hub, cloud.started]);
   return got.hub === hub ? got.st : { status: 'loading' };
+}
+
+/**
+ * Bumped after a change to the home markets (a reader set, a hub added or removed, a read now: Task 18C), so every hook reading them
+ * asks again. Subscribed at module level (gotchas.md: an inline subscribe is a new function every render).
+ */
+let homeVer = 0;
+const homeListeners = new Set<() => void>();
+const subscribeHome = (cb: () => void) => { homeListeners.add(cb); return () => { homeListeners.delete(cb); }; };
+const homeVerNow = () => homeVer;
+const useHomeVer = () => useSyncExternalStore(subscribeHome, homeVerNow);
+
+/**
+ * The home markets the cloud reads (`GET /v1/home/markets`): `off` with the cloud copy off in this browser (or not asked for), `behind`
+ * for a Worker without the route (404), `failed` otherwise, else the list. Held 15 minutes, shared while in flight, and read again
+ * after any change made here (`refreshHomeMarkets`), on another login and on "Delete all data".
+ */
+export type MarketsState = { status: 'off' } | { status: 'loading' } | { status: 'behind' } | { status: 'failed'; error: string } | { status: 'ok'; list: HubState[] };
+const OFF_MARKETS: MarketsState = { status: 'off' };
+let marketsHeld: { until: number; read: ReturnType<typeof cloudHomeMarkets> } | null = null;
+const marketsRead = () => {
+  if (marketsHeld && Date.now() < marketsHeld.until) return marketsHeld.read;
+  const read = cloudHomeMarkets();
+  const held = { until: Infinity, read };
+  marketsHeld = held;
+  read.then(() => { held.until = Date.now() + HOME_HOLD_MAX_MS; }, () => { if (marketsHeld === held) marketsHeld = null; });
+  return read;
+};
+/** A hub's own read, held until the next hourly read could land (bookHoldMs), per hub. */
+const bookHeld = new Map<number, { until: number; read: ReturnType<typeof cloudHomeBook> }>();
+const bookRead = (hub: number) => {
+  const h = bookHeld.get(hub);
+  if (h && Date.now() < h.until) return h.read;
+  const read = cloudHomeBook(hub);
+  const held = { until: Infinity, read };
+  bookHeld.set(hub, held);
+  read.then((r) => { held.until = Date.now() + bookHoldMs(r?.at ?? null, Date.now()); }, () => { if (bookHeld.get(hub) === held) bookHeld.delete(hub); });
+  return read;
+};
+const resetHomeMarkets = () => { marketsHeld = null; bookHeld.clear(); };
+let marketsChar: number | null | undefined;
+onAuthChange(() => { const id = getAuth()?.characterId ?? null; if (marketsChar !== undefined && marketsChar !== id) resetHomeMarkets(); marketsChar = id; });
+onClearAll(resetHomeMarkets);
+/** After a change to the home markets: everything held is let go and every hook reads again. */
+export function refreshHomeMarkets(): void {
+  resetHomeMarkets();
+  homeVer++;
+  for (const l of homeListeners) l();
+}
+
+export function useHomeMarkets(on = true): MarketsState {
+  const cloud = useCloud();
+  const ver = useHomeVer();
+  const [st, setSt] = useState<MarketsState>({ status: 'loading' });
+  useEffect(() => {
+    if (!on) return;
+    if (!cloudEnabled()) { resetHomeMarkets(); setSt(OFF_MARKETS); return; }
+    if (!cloud.started) { setSt({ status: 'loading' }); return; }
+    let alive = true;
+    marketsRead().then((r) => { if (alive) setSt({ status: 'ok', list: r.hubs }); },
+      (e) => { if (alive) setSt((e as { status?: number }).status === 404 ? { status: 'behind' } : { status: 'failed', error: e instanceof Error ? e.message : String(e) }); });
+    return () => { alive = false; };
+  }, [on, cloud.started, ver]);
+  return on ? st : OFF_MARKETS;
+}
+
+/** Every hub the tab knows: Goonmetrics' two always, and those the cloud lists once read. `on`: ask the cloud (only when a hub not Goonmetrics' may be wanted). */
+export function useHomeHubs(on = true): { hubs: HomeHub[]; markets: MarketsState } {
+  const markets = useHomeMarkets(on);
+  const list = markets.status === 'ok' ? markets.list : null;
+  return { hubs: useMemo(() => hubsFrom(list), [list]), markets };
+}
+
+/** A hub's last good read of its own market: `none` before one, `behind` for a Worker without the route, as useHomePrices. */
+export type BookState = { status: 'off' } | { status: 'loading' } | { status: 'behind' } | { status: 'failed'; error: string } | { status: 'none' } | { status: 'ok'; at: string; rows: Record<string, StructureRow> };
+const LOADING_BOOK: BookState = { status: 'loading' };
+export function useHomeBook(hub: number | null): BookState {
+  const cloud = useCloud();
+  const ver = useHomeVer();
+  // Kept with the hub it was read for, so a hub just picked never shows the last one's read for a render.
+  const [got, setGot] = useState<{ hub: number | null; st: BookState }>({ hub: null, st: LOADING_BOOK });
+  useEffect(() => {
+    if (hub == null) return;
+    if (!cloudEnabled()) { bookHeld.clear(); setGot({ hub, st: { status: 'off' } }); return; }
+    if (!cloud.started) { setGot({ hub, st: LOADING_BOOK }); return; }
+    let alive = true;
+    setGot((g) => (g.hub === hub ? g : { hub, st: LOADING_BOOK }));
+    bookRead(hub).then((r) => { if (alive) setGot({ hub, st: r ? { status: 'ok', at: r.at, rows: r.rows } : { status: 'none' } }); },
+      (e) => { if (alive) setGot({ hub, st: (e as { status?: number }).status === 404 ? { status: 'behind' } : { status: 'failed', error: e instanceof Error ? e.message : String(e) } }); });
+    return () => { alive = false; };
+  }, [hub, cloud.started, ver]);
+  return got.hub === hub ? got.st : LOADING_BOOK;
+}
+
+/**
+ * What prices a hub (spec: "Which price speaks"): its own market's read while under two hours old, else Goonmetrics' (a hub it
+ * tracks), else none; `quote` gives each type's price from whichever speaks, `read` whether anything does (a type missing from it then
+ * has no price there, rather than being unread). `hub` is the hub's state on the cloud's list, for what its own market's read says.
+ * The quotes are worked out again only when the source or its time changes, not each minute.
+ */
+export type HomeSource = { gm: HomeState | { status: 'untracked' }; book: BookState; hub: HubState | null; speaks: HomeSpeaks; quote: (type: number) => HomeQuote | null; read: boolean };
+const UNTRACKED = { status: 'untracked' } as const;
+export function useHomeQuotes(hub: HomeHub | null): HomeSource {
+  const gmRead = useHomePrices(hub?.goonmetrics ? hub.id : null);
+  const book = useHomeBook(hub?.id ?? null);
+  const markets = useHomeMarkets(!!hub);
+  const now = useNow(60_000);
+  const gm: HomeSource['gm'] = hub && !hub.goonmetrics ? UNTRACKED : gmRead;
+  const state = hub && markets.status === 'ok' ? markets.list.find((x) => x.id === hub.id) ?? null : null;
+  // A default switched to Nobody keeps its last read in the cloud: it doesn't speak for the hub once you stopped reading it.
+  const own = ownRead(book.status === 'ok' ? book : null, state);
+  const speaks = homeSpeaks(own, gm.status === 'ok' ? gm : null, now);
+  const key = speaks ? `${speaks.source}:${speaks.at}` : '';
+  return useMemo((): HomeSource => {
+    const quote = (t: number): HomeQuote | null => (speaks?.source === 'structure' && own
+      ? structureQuote(own.rows[t], own.at, gm.status === 'ok' ? gm.prices[t]?.[1] ?? null : null)
+      : speaks?.source === 'goonmetrics' && gm.status === 'ok' ? homeQuote(gm.prices[t]) : null);
+    return { gm, book, hub: state, speaks, quote, read: speaks != null };
+  }, [gm, book, state, own, key]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 /**

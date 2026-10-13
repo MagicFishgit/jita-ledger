@@ -9087,5 +9087,109 @@ console.log('\n--- Industry stage 4: the fold the scan and a structure\'s read s
   eq('  five levels', F.HOME_LEVELS, 5);
 }
 
+console.log('\n--- Industry stage 4: the hub list and which price speaks at home (homeMarket.ts, industryRank.ts, Task 18B) ---');
+{
+  const HM = await import('../src/lib/homeMarket.ts');
+  const K = await import('../src/lib/industryRank.ts');
+  const D = await import('../src/lib/todo.ts');
+  const T = Date.parse('2026-10-12T14:00:00Z');
+  const at = (min) => new Date(T - min * 60_000).toISOString();
+  const OWNER = 95210486, BUILDER = 900091, BELL = 1049999999999;
+  const hub = (o) => ({ id: BELL, name: 'UALX-3 - Mothership Bellicose', systemId: 30004807, regionId: 10000061, kept: 'added', off: false, reader: OWNER, readerName: 'Owner', readerIsMain: true, login: 'ok', book: null, ...o });
+  const bk = (o) => ({ at: null, tried: at(5), error: null, refusedAt: null, pages: null, types: 0, reader: OWNER, readerName: 'Owner', readBy: OWNER, readByName: 'Owner', ...o });
+  const UALX = { id: 1046664001931, kept: 'default', name: 'UALX-3 - 1st Byzantigoon' }, CJ = { id: 1049588174021, kept: 'default', name: 'C-J6MT - Ceci n’est pas une keeptar' };
+
+  eq('the hubs the tab knows: Goonmetrics\' two always, then those added and not removed, each named after its system\'s prefix',
+    HM.hubsFrom([hub({}), hub({ id: 1046664001931, kept: 'default', name: 'UALX-3 - 1st Byzantigoon' }), hub({ id: 1047000000001, off: true })]).map((h) => [h.id, h.short, h.goonmetrics, h.systemId, h.region]),
+    [[1046664001931, 'UALX-3', true, 30004807, 10000061], [1049588174021, 'C-J6MT', true, 30000772, 10000009], [BELL, 'Mothership Bellicose', false, 30004807, 10000061]]);
+  eq('  with no list (the cloud off, a version behind, failing): Goonmetrics\' two', HM.hubsFrom(null).map((h) => h.short), ['UALX-3', 'C-J6MT']);
+  eq('  a name with no system prefix is said whole', HM.hubShort('Brave Market'), 'Brave Market');
+
+  // Review Focus 3: the two-hour boundary.
+  eq('the structure\'s own read speaks while under two hours old, else Goonmetrics\', else none', [HM.homeSpeaks({ at: at(119) }, { at: at(300) }, T), HM.homeSpeaks({ at: at(121) }, { at: at(300) }, T), HM.homeSpeaks({ at: at(121) }, null, T), HM.homeSpeaks(null, null, T)],
+    [{ source: 'structure', at: at(119) }, { source: 'goonmetrics', at: at(300) }, null, null]);
+  const row = [[[6_900_000, 30]], [[7_200_000, 20], [7_350_000, 40]], 3, 5, [60, 20, 0, 0]];
+  eq('a type in the structure\'s read: best sell and buy, its sell levels and what its orders sold; Goonmetrics\' weekly movement where it has one', HM.structureQuote(row, at(30), 5887), {
+    sell: 7_200_000, buy: 6_900_000, weekly: 5887, at: at(30), source: 'structure', sells: [{ price: 7_200_000, volume: 20 }, { price: 7_350_000, volume: 40 }],
+    sold: { sell: 60, buy: 20, single: { sell: 0, buy: 0 }, orders: { sell: 5, buy: 3 } } });
+  eq('  a type the whole read doesn\'t have: none listed, which is known (correction 8)', HM.structureQuote(undefined, at(30), null), { sell: null, buy: null, weekly: null, at: at(30), source: 'structure', sells: [] });
+  eq('  a default switched to Nobody: its last read no longer speaks; any other hub\'s does', [HM.ownRead({ at: 'x' }, { off: true }), HM.ownRead({ at: 'x' }, { off: false }), HM.ownRead({ at: 'x' }, null), HM.ownRead(null, { off: false })],
+    [null, { at: 'x' }, { at: 'x' }, null]);
+  eq('  a hub\'s read is held until the next hourly read could land, 5 to 15 minutes', [HM.bookHoldMs(at(30), T), HM.bookHoldMs(at(65), T), HM.bookHoldMs(null, T)], [15 * 60_000, 5 * 60_000, 15 * 60_000]);
+
+  // Review Focus 2 and 4: every state of a hub's own market, in its words.
+  const said = (o, gm = false) => HM.ownMarketSaid(hub(o), T, gm);
+  const alt = { reader: BUILDER, readerName: 'Builder Alt', readerIsMain: false };
+  eq('every state of a hub\'s own market', [
+    said({ book: bk({ at: at(40), pages: 3, types: 812 }) }),
+    said({}),
+    said({ ...UALX, book: bk({ refusedAt: at(120) }) }, true),
+    said({ ...UALX, book: bk({ refusedAt: at(60), at: at(180) }) }, true),
+    said({ ...CJ, ...alt, book: bk({ refusedAt: at(120), reader: BUILDER, readerName: 'Builder Alt' }) }, true),
+    said({ book: bk({ refusedAt: at(120), at: at(300) }) }),
+    said({ book: bk({ error: 'Cut short at page 31 of 80 by the cloud’s time limit', at: at(190) }) }),
+    said({ book: bk({ error: 'ESI 404: Structure not found' }) }),
+    said({ login: 'permission' }),
+    said({ login: 'permission', ...alt }),
+    said({ login: 'refused', ...alt }),
+    said({ login: 'none' }),
+    said({ login: 'notYours', ...alt }),
+    said({ ...alt, book: bk({ at: at(90), types: 5 }) }),
+    said({ off: true, kept: 'default', name: 'UALX-3 - 1st Byzantigoon' }, true),
+  ], [
+    'Its own market was read 40 min ago with your login: 812 of the watched items listed there (3 pages).',
+    'Its own market isn’t read yet: the cloud reads it hourly with your login.',
+    'Owner isn’t on UALX-3’s access list yet (first refused 2 h ago): Goonmetrics’ prices stand in.',
+    'Owner isn’t on UALX-3’s access list yet (first refused 1 h ago): Goonmetrics’ prices stand in. The last good read was 3 h ago.',
+    'Builder Alt isn’t on C-J6MT’s access list yet (first refused 2 h ago): Goonmetrics’ prices stand in.',
+    'EVE refused your read of Mothership Bellicose: it isn’t on its access list (first refused 2 h ago). Nothing stands in: Goonmetrics doesn’t track it. The last good read was 5 h ago.',
+    'Its own market’s last read, 5 min ago, failed (cut short at page 31 of 80 by the cloud’s time limit). The last good read was 3 h ago.',
+    'Its own market’s last read, 5 min ago, failed (ESI 404: Structure not found). Nothing has been read yet.',
+    'Reading its own market needs EVE’s permission for structure markets: log in again here, then hand the cloud your login again (Settings → Your data).',
+    'Reading its own market needs EVE’s permission for structure markets: hand the cloud Builder Alt’s login again on Characters.',
+    'EVE refused the cloud’s login for Builder Alt, which reads its own market: hand it over again on Characters.',
+    'Its own market is read with your login, which the cloud doesn’t hold: hand it yours under Settings → Your data.',
+    'Its own market’s reader, Builder Alt, isn’t one of your characters any more: pick another.',
+    'Its own market isn’t read yet: the cloud reads it hourly with Builder Alt’s login. The last good read was 2 h ago, with Owner’s login.',
+    'Its own market isn’t read with a character: Goonmetrics’ prices only.',
+  ]);
+
+  // Buying at a hub priced by its own read (correction 9).
+  const st = (sells) => ({ sell: sells[0]?.price ?? null, buy: 80, weekly: null, at: at(30), source: 'structure', sells });
+  const src = (o) => K.sourceMaterial({ type: 34, weekNeed: 500, volume: 0.01, mineable: false, mines: false, jita: { ask: 100, bid: 95, patient: 96 }, jitaLeg: { kind: 'carry', jumps: 4 }, home: null, homeLeg: { kind: 'here' }, hubName: 'Mothership Bellicose', ...o });
+  eq('a week\'s need bought up the levels: the cost of each unit where it lies', [K.fillCost([{ price: 10, volume: 5 }, { price: 12, volume: 10 }], 10), K.fillCost([{ price: 10, volume: 5 }], 6), K.fillCost([], 0)], [11, null, null]);
+  const deep = src({ home: st([{ price: 88, volume: 300 }, { price: 92, volume: 400 }]) });
+  eq('  a material at a hub priced by its own read: its levels hold a week\'s need, so it\'s bought up them, no weekly movement needed',
+    [deep.pick, deep.price, deep.options.find((x) => x.source === 'home')], ['home', (300 * 88 + 200 * 92) / 500, { source: 'home', price: (300 * 88 + 200 * 92) / 500, why: 'Mothership Bellicose’s listings: a week’s need bought up its best prices', pickable: true }]);
+  const thin = src({ home: st([{ price: 88, volume: 300 }]) });
+  eq('    too few listed for a week\'s need: said with how many, Jita picked', [thin.pick, thin.options.find((x) => x.source === 'home').why], ['jita', 'too thin to buy a week’s need at Mothership Bellicose: 300 listed at its best prices']);
+  eq('    none listed there: said as at Goonmetrics\' hubs', src({ home: st([]) }).options.find((x) => x.source === 'home').why, 'none listed at Mothership Bellicose');
+  eq('    Goonmetrics\' prices keep Goonmetrics\' rule (ten times a week\'s need moved)', src({ home: { sell: 90, buy: 80, weekly: 4999, at: at(30) } }).options.find((x) => x.source === 'home').why, 'too thin to buy a week’s need at Mothership Bellicose');
+
+  // Selling at a hub priced by its own read (corrections 8 and 11).
+  const sq = (sold, weekly = null) => ({ sell: 105, buy: 95, weekly, at: at(30), source: 'structure', sells: [{ price: 105, volume: 50 }], sold });
+  const sell = (home, hist = null) => K.sellAt('home', { jita: null, stats: null, home, homeHist: hist }, { broker: null, tax: 0.03375, leg: { kind: 'here' }, volume: 1, makes: 50, share: 10, now: T, hubName: 'UALX-3' });
+  const told = { sell: 300, buy: 100, single: { sell: 0, buy: 0 }, orders: { sell: 10, buy: 4 } };
+  eq('selling at a hub priced by its own read, before the history: Goonmetrics\' weekly ÷ 7, split by what its orders sold', [sell(sq(told, 7000)).pace, sell(sq(told, 7000)).split, sell(sq(told, 7000)).splitFrom, sell(sq(told, 7000)).paceFrom], [1000, 0.75, 'book', 'goonmetrics']);
+  const day = (i, avg) => ({ date: new Date(T - (i + 1) * 86400_000).toISOString().slice(0, 10), average: avg, highest: 110, lowest: 90, volume: 1000, order_count: 50 });
+  const dumps = Array.from({ length: 30 }, (_, i) => day(i, 92)).reverse();
+  eq('  with the home history: its pace, the book still first for the split', [sell(sq(told), dumps).pace, sell(sq(told), dumps).splitFrom, sell(sq(told), dumps).listPace], [1000, 'book', 750]);
+  eq('  a book that sold too little to say: history\'s guess, as before', sell(sq({ sell: 5, buy: 2, single: { sell: 0, buy: 0 }, orders: { sell: 10, buy: 4 } }), dumps).splitFrom, 'history');
+  eq('  no weekly movement and no history (a hub Goonmetrics doesn\'t track): no pace, said, never 0', [sell(sq(told)).pace, sell(sq(told)).why], [null, 'Nothing says how fast it sells at UALX-3']);
+  eq('  a type the whole read doesn\'t have: none listed there, before any word of pace', sell({ sell: null, buy: null, weekly: null, at: at(30), source: 'structure', sells: [] }).why, 'none listed at UALX-3');
+
+  // To do: a built item at a hub priced by its own market, and one whose hub isn't known yet.
+  const bx = { charId: 7, who: null, typeId: 25894, place: BELL, placeName: 'UALX-3 - Mothership Bellicose', jobIds: [3], newest: 3, units: 10, held: 10, stationId: BELL };
+  const own = D.builtItem(bx, { name: 'Pump', where: 'home', market: { kind: 'priced', price: 7_099_000 }, hubName: 'Mothership Bellicose', isMain: true, homeFrom: 'its own market' });
+  has('List what you built at a hub priced by its own market says so', own.detail, '(the hub’s cheapest listing less a tick, its own market)');
+  has('  Goonmetrics\' as before when it speaks', D.builtItem(bx, { name: 'Pump', where: 'home', market: { kind: 'priced', price: 7_099_000 }, hubName: 'UALX-3', isMain: true }).detail, '(the hub’s cheapest listing less a tick, Goonmetrics)');
+  const pend = D.builtItem(bx, { name: 'Pump', where: 'hub', market: { kind: 'reading' }, hubName: null, isMain: true });
+  eq('  the home hub picked not known yet (the cloud\'s list still being read): said, nothing copied', [pend.detail.includes('Reading your home hub from the cloud.'), pend.action.copy ?? null], [true, null]);
+  const off = D.builtItem(bx, { name: 'Pump', where: 'hub', market: { kind: 'reading' }, hubName: null, isMain: true, hubWhy: 'Your home hub is one the cloud reads, which isn’t on in this browser (Settings → Your data).' });
+  eq('  the hub picked not known for another reason (the cloud off here, failing, no longer listing it): said in that state\'s words, never "no home hub picked", nothing copied',
+    [off.detail.includes('isn’t on in this browser'), /no home hub picked|in Jita/.test(off.detail), off.action.copy ?? null], [true, false, null]);
+}
+
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

@@ -233,6 +233,8 @@ State these rather than letting them be discovered:
   type in a batch it never reached reads "no price at UALX-3" rather than "not read" until a later round reads it. Rounds
   start from the first batch, so a hub cut at the same point each time (a rate limit no read has met yet) never reaches its
   last batches. Rotating where a round starts would cover them over a few rounds (left for stage 4, which reads home books).
+- **Buying at a hub priced by its own read walks its best five levels for a week's need** (`HOME_LEVELS`): deeper stock isn't seen, so a
+  material whose week's need sits past five levels reads too thin there, said with how many are listed. Goonmetrics' hubs keep its depth rule.
 - **On a thin home market a high profit a day rests on a few sales.** Goonmetrics' weekly movement, the only pace until the home
   region's history is read, is a handful of trades there, so a row selling one unit every couple of weeks at a large margin
   (the first look at the real UALX-3 row ranked such items first) is ranked honestly by the share rule but is the least sure

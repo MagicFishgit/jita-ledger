@@ -385,12 +385,14 @@ export type BuiltMarket = { kind: 'priced'; price: number } | { kind: 'reading' 
  * 'checking' while it isn't known whether a ship (the answer depends on it), and only the main's item opens in game and
  * copies the price (an alt's points at Blueprints & jobs: the alt lists it in person).
  */
-export function builtItem(x: BuiltItem & { who: string | null; placeName: string | null }, o: { name: string; where: 'jita' | 'home' | 'checking' | null; market: BuiltMarket; hubName: string | null; isMain: boolean; age?: string | null; shipFailed?: boolean; lost?: string | null }): TodoItem {
+export function builtItem(x: BuiltItem & { who: string | null; placeName: string | null }, o: { name: string; where: 'jita' | 'home' | 'checking' | 'hub' | null; market: BuiltMarket; hubName: string | null; isMain: boolean; age?: string | null; shipFailed?: boolean; lost?: string | null; homeFrom?: string | null; hubWhy?: string | null }): TodoItem {
   const at = o.where === 'home' ? `at ${o.hubName ?? 'your home hub'}` : 'in Jita';
   const copies = o.isMain ? '; opening it copies the price.' : '.';
-  const priceSaid = o.where === 'checking' ? (o.shipFailed ? 'Couldn’t read whether it’s a ship, so it isn’t priced.' : 'Checking whether it’s a ship.')
+  // 'hub': a hub is picked that isn't known here; `hubWhy` says why in that state's words (the cloud's list loading, off, failing…).
+  const priceSaid = o.where === 'hub' ? o.hubWhy ?? 'Reading your home hub from the cloud.'
+    : o.where === 'checking' ? (o.shipFailed ? 'Couldn’t read whether it’s a ship, so it isn’t priced.' : 'Checking whether it’s a ship.')
     : o.where == null ? 'It’s a ship and “never haul ships to Jita” is on, with no home hub picked: pick one on the Industry tab.'
-      : o.market.kind === 'priced' ? `List ${at} at ${isk(o.market.price)}${o.where === 'jita' ? ' (others’ cheapest listing less a tick, where trading reaches)' : ' (the hub’s cheapest listing less a tick, Goonmetrics)'}${copies}${o.age ? ` ${o.age}` : ''}`
+      : o.market.kind === 'priced' ? `List ${at} at ${isk(o.market.price)}${o.where === 'jita' ? ' (others’ cheapest listing less a tick, where trading reaches)' : ` (the hub’s cheapest listing less a tick, ${o.homeFrom ?? 'Goonmetrics'})`}${copies}${o.age ? ` ${o.age}` : ''}`
         : o.market.kind === 'reading' ? (o.where === 'jita' ? 'Reading its Jita book.' : 'Reading the home hub’s prices.')
           : o.market.kind === 'none' ? `No price to list ${at}: nobody lists it there.` : o.market.said;
   const price = o.market.kind === 'priced' && (o.where === 'jita' || o.where === 'home') ? o.market.price : null;

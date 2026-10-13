@@ -1,5 +1,6 @@
-import type { HomeQuote } from './industryRank';
 import type { StructureRow } from './bookFold';
+import { ago, units } from './format';
+import type { HomeQuote } from './industryRank';
 
 /**
  * Home prices for the Industry tab (docs/notes/industry.md): Goonmetrics, a Goonswarm tool ("Goonmetrics © GARPA
@@ -7,14 +8,15 @@ import type { StructureRow } from './bookFold';
  * header), gently, every six hours. Pure: the Worker parses with it and the browser reads what the Worker keeps.
  */
 
+/** A home hub as the tab reads it: Goonmetrics' two, and any the cloud reads that you added. `short` names it beside the others. */
+export type HomeHub = { id: number; name: string; short: string; systemId: number; region: number; regionName?: string; goonmetrics: boolean };
 /** The hubs Goonmetrics tracks that the tab reads (its importing page, 9 October 2026). 1DQ1-A is left out: the research found almost nothing listed there. */
-export const HOME_HUBS = [
+export const HOME_HUBS: readonly HomeHub[] = [
   // The Imperium's market at UALX-3 (the user, 10 October 2026: "1st Byzantigoon is probably the goons and therefor the imperium alliances market").
-  { id: 1046664001931, name: 'UALX-3 - 1st Byzantigoon', short: 'UALX-3', systemId: 30004807, region: 10000061, regionName: 'Tenerifis' },
+  { id: 1046664001931, name: 'UALX-3 - 1st Byzantigoon', short: 'UALX-3', systemId: 30004807, region: 10000061, regionName: 'Tenerifis', goonmetrics: true },
   // Goonswarm's staging.
-  { id: 1049588174021, name: 'C-J6MT - Ceci n’est pas une keeptar', short: 'C-J6MT', systemId: 30000772, region: 10000009, regionName: 'Insmother' },
-] as const;
-export type HomeHub = (typeof HOME_HUBS)[number];
+  { id: 1049588174021, name: 'C-J6MT - Ceci n’est pas une keeptar', short: 'C-J6MT', systemId: 30000772, region: 10000009, regionName: 'Insmother', goonmetrics: true },
+];
 export const hubOf = (id: number | null | undefined): HomeHub | null => HOME_HUBS.find((h) => h.id === id) ?? null;
 
 /** Home prices older than this say so with their time. */
@@ -64,6 +66,50 @@ export function parseGoonmetrics(xml: string): Record<number, HomeRow> {
 /** A type's kept row as the finder reads it (industryRank's HomeQuote); null when the hub's read doesn't have it. */
 export const homeQuote = (row: HomeRow | undefined): HomeQuote | null => (row ? { sell: row[4], buy: row[2], weekly: row[1], at: row[0] } : null);
 
+/** A structure's name beside the others: what follows its system's (UALX-3 - Mothership Bellicose is Mothership Bellicose). */
+export const hubShort = (name: string): string => { const i = name.indexOf(' - '); const s = i > 0 ? name.slice(i + 3).trim() : ''; return s || name; };
+
+/** Every hub the tab knows: Goonmetrics' two always (the cloud off, a version behind or failing too), then those you added that the cloud lists. */
+export function hubsFrom(list: readonly HubState[] | null): HomeHub[] {
+  return [...HOME_HUBS, ...(list ?? []).filter((h) => h.kept === 'added' && !h.off && !HOME_HUBS.some((g) => g.id === h.id))
+    .map((h): HomeHub => ({ id: h.id, name: h.name, short: hubShort(h.name), systemId: h.systemId, region: h.regionId, goonmetrics: false }))];
+}
+
+/** A structure's own read speaks while under this old (the spec): it's read hourly, so one read missed still speaks. */
+export const STRUCTURE_FRESH_MS = 2 * 3600_000;
+export type HomeSpeaks = { source: 'structure' | 'goonmetrics'; at: string } | null;
+/** Which price speaks at a hub: its own market's read while under two hours old, else Goonmetrics' (whatever its age, said), else none. */
+export function homeSpeaks(book: { at: string } | null, gm: { at: string } | null, now: number): HomeSpeaks {
+  if (book && now - Date.parse(book.at) < STRUCTURE_FRESH_MS) return { source: 'structure', at: book.at };
+  return gm ? { source: 'goonmetrics', at: gm.at } : null;
+}
+
+/**
+ * A hub's own read as it may speak: none for a default you switched to Nobody, since the cloud keeps its last read, which no longer
+ * prices the hub. One rule for the finder (useHomeQuotes) and the section (HubLine).
+ */
+export const ownRead = <B>(book: B | null, state: Pick<HubState, 'off'> | null): B | null => (state?.off ? null : book);
+
+/**
+ * A type's quote from a structure's own read: its best sell and buy, its best sell levels (to buy a week's need up them) and what
+ * its live orders sold (the split). The read held every order, so a type it lacks has none listed there, which is known (correction
+ * 8). Weekly movement isn't in a structure's read: a Goonmetrics hub's figure is carried, labelled where it's said.
+ */
+export function structureQuote(row: StructureRow | undefined, at: string, weekly: number | null): HomeQuote {
+  return {
+    sell: row?.[1][0]?.[0] ?? null, buy: row?.[0][0]?.[0] ?? null, weekly, at, source: 'structure',
+    sells: (row?.[1] ?? []).map(([price, volume]) => ({ price, volume })),
+    ...(row ? { sold: { sell: row[4][0], buy: row[4][1], single: { sell: row[4][2], buy: row[4][3] }, orders: { sell: row[3], buy: row[2] } } } : {}),
+  };
+}
+
+/** How long the browser keeps a hub's own read: until the next hourly read could land (its `at` + an hour + a margin), 5 to 15 minutes. */
+export function bookHoldMs(at: string | null, now: number): number {
+  const t = at ? Date.parse(at) : NaN;
+  if (!Number.isFinite(t)) return HOME_HOLD_MAX_MS;
+  return Math.max(HOME_HOLD_MIN_MS, Math.min(HOME_HOLD_MAX_MS, t + 3600_000 + HOME_HOLD_MARGIN_MS - now));
+}
+
 /** Whether a reader's login, as the cloud keeps it, can read a structure's market: worked out from the cloud's keys, never by asking EVE. */
 export type HubLogin = 'ok' | 'permission' | 'refused' | 'none' | 'notYours';
 /** A hub's own market as the cloud last read it: the last good read (`at`, null before one, and whose it was: `readBy`) and the last try (when, whose, why it failed). */
@@ -79,3 +125,40 @@ export type HubState = {
 };
 /** `GET /v1/home/book?hub=`: a hub's last good read of its own market, or null before one. */
 export type HomeBookAnswer = { hub: number; at: string; rows: Record<string, StructureRow> } | null;
+
+/**
+ * A hub's own market as a sentence, every state in its own words (spec, "Every state"): a reader whose login can't read it (no
+ * permission, refused, none kept, not one of yours any more: each with where to fix it), not read yet, refused by the structure's
+ * access list (and what stands in), failing, or read (by whom, when). `gm`: Goonmetrics tracks the hub, so its prices stand in, and
+ * its refusal reads calmly ("Owner isn't on UALX-3's access list yet": Ruling 1). Goonmetrics' two are named UALX-3 and C-J6MT, a hub
+ * you added by its structure's name (Ruling 2). A try by an earlier reader says nothing of this one's: only its last good read is said.
+ */
+export function ownMarketSaid(h: HubState, now: number, gm: boolean): string {
+  const name = hubOf(h.id)?.short ?? hubShort(h.name);
+  const who = h.readerIsMain ? 'you' : h.readerName ?? `Character ${h.reader}`;
+  // A default hub's refusal names the character, yours by your name, and reads calmly (Ruling 1).
+  const named = h.readerName ?? (h.readerIsMain ? 'Your character' : `Character ${h.reader}`);
+  const login = h.readerIsMain ? 'your login' : `${who}’s login`;
+  if (h.off) return `Its own market isn’t read with a character: ${gm ? 'Goonmetrics’ prices only' : 'nothing prices it'}.`;
+  if (h.login === 'notYours') return `Its own market’s reader, ${who}, isn’t one of your characters any more: pick another.`;
+  if (h.login === 'none') return h.readerIsMain ? 'Its own market is read with your login, which the cloud doesn’t hold: hand it yours under Settings → Your data.'
+    : `Its own market is read with ${who}’s login, which the cloud doesn’t hold: hand it over on Characters.`;
+  if (h.login === 'refused') return h.readerIsMain ? 'EVE refused the cloud’s login for you, which reads its own market: hand it over again under Settings → Your data.'
+    : `EVE refused the cloud’s login for ${who}, which reads its own market: hand it over again on Characters.`;
+  // The main's own cloud login without the permission is every hub's state from the deploy until it's handed over: a login to hand
+  // over again, never a failure or a refusal (Review Focus 4).
+  if (h.login === 'permission') return `Reading its own market needs EVE’s permission for structure markets: ${h.readerIsMain
+    ? 'log in again here, then hand the cloud your login again (Settings → Your data)' : `hand the cloud ${who}’s login again on Characters`}.`;
+  const b = h.book && h.book.reader === h.reader ? h.book : null;
+  // The last good read, and whose it was (`readBy`, the read's, not the last try's) when that isn't this reader's.
+  const last = h.book?.at ? ` The last good read was ${ago(h.book.at, now)}${h.book.readBy != null && h.book.readBy !== h.reader && h.book.readByName ? `, with ${h.book.readByName}’s login` : ''}.` : '';
+  if (!b) return `Its own market isn’t read yet: the cloud reads it hourly with ${login}.${last}`;
+  if (b.refusedAt) return gm
+    ? `${named} isn’t on ${name}’s access list yet (first refused ${ago(b.refusedAt, now)}): Goonmetrics’ prices stand in.${last}`
+    : `EVE refused ${h.readerIsMain ? 'your' : `${who}’s`} read of ${name}: it isn’t on its access list (first refused ${ago(b.refusedAt, now)}). Nothing stands in: Goonmetrics doesn’t track it.${last}`;
+  // The Worker's words start a sentence: lower-cased inside this one, unless they start with an acronym (ESI).
+  const why = /^[A-Z]{2}/.test(b.error ?? '') ? b.error : `${(b.error ?? '').charAt(0).toLowerCase()}${(b.error ?? '').slice(1)}`;
+  if (b.error) return `Its own market’s last read, ${ago(b.tried, now)}, failed (${why}).${b.at ? last : ' Nothing has been read yet.'}`;
+  // A read has a time and, with it, its types and pages; a read with neither count says only when.
+  return `Its own market was read ${ago(b.at ?? b.tried, now)} with ${login}${b.types != null ? `: ${units(b.types)} of the watched items listed there${b.pages ? ` (${units(b.pages)} page${b.pages === 1 ? '' : 's'})` : ''}` : ''}.`;
+}

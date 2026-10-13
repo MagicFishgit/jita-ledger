@@ -669,3 +669,27 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
     reader off the access list has no shape in the spec. **After shipping: record the first real refusal (its status and `error`), the first real
     read's page count, types and row size, and how long a page takes.**
   - **D1's cost**: one `home_books` write a hub an hour, about 2,200 a month for three hubs; `home_markets` is written only on a choice.
+
+- **Which price speaks at a home hub** (Task 18B, 12 October 2026; `homeSpeaks`, `useHomeQuotes`): the hub's own market's read while under two
+  hours old (`STRUCTURE_FRESH_MS`; 1 h 59 speaks, 2 h 01 doesn't), else Goonmetrics' (whatever its age, said), else none. Every reader says which:
+  the finder's count line, rows (`sold at UALX-3, its own market`) and detail (the sale's note: "<hub>'s own market, read 12 min ago", with
+  Goonmetrics' weekly movement beside it where the hub has one), the ladder (Start's "pays now" lines add "sold at UALX-3 on its own market" when a
+  row they show sells at home: correction 15), and To do's List what you built. Past two hours the line says its own read is over two hours old
+  and Goonmetrics speaks; a hub Goonmetrics doesn't track says it isn't priced.
+  - **The hub list** (`hubsFrom`): Goonmetrics' two always (the cloud off, a version behind or failing too), then the hubs the cloud lists that
+    you added and haven't removed. `HOME_HUBS` stays Goonmetrics' alone (the Worker's round reads it). `hubShort`: Goonmetrics' two keep UALX-3
+    and C-J6MT; a hub you added is its structure's name after the system's ("Mothership Bellicose"; Ruling 2). The cloud's list is asked for always
+    in the finder (Build's select offers every hub you added whichever is picked) and, on To do, only when the hub picked isn't Goonmetrics'.
+  - **At a hub priced by its own read**: a whole read without a type is "none listed there" (known; Goonmetrics' missing type stays "no price at");
+    a material is bought up its best five levels for a week's need (`fillCost`); the pace is the home region's history, or Goonmetrics' weekly
+    movement ÷ 7 before it, split by what the hub's live orders sold where the book can tell (the Jita book's rule, `tradingSplit`), else even.
+  - **The home history is read for rows priced at the hub with no pace too** (`homeTypes`' `unpaced`, correction 10): a hub Goonmetrics doesn't
+    track has no weekly movement, so no row had a pace to be ranked by. The same rescues a Goonmetrics type whose weekly movement is unknown
+    (its -1), which stage 1 never paced or read the history of.
+  - **The browser's holds**: the cloud's list 15 minutes (shared in flight, read again after any change made here: `refreshHomeMarkets`), a hub's
+    own read until the next hourly read could land (`bookHoldMs`, 5 to 15 minutes).
+  - **A hub picked that isn't known here** (the list loading, the cloud off in this browser, failing, a version behind, or no longer listing it)
+    is never "no hub picked": Build's select keeps it ("Reading…" / "Not listed") and says why; To do lists nothing from it in Jita and says why
+    in the same words (`hubWhy`), copying no price.
+  - **The page check** found that rung 1 (an NPC original) pays nothing at the page case's home site, so the ladder's words are asserted on the
+    research rung.

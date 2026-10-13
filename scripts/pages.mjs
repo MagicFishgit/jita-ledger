@@ -3084,6 +3084,98 @@ try {
       if (SHOTS) await page.screenshot({ path: `${SHOTS}-industry-search-as-alt.png` });
       await showFor('Owner');
     }
+    // --- Task 18B: which price speaks at home. UALX-3's own market read minutes ago speaks over Goonmetrics' five-hour-old read, and
+    // Build's select offers Mothership Bellicose with UALX-3 picked; Start's rows say where a home price comes from; at 2 h 01
+    // Goonmetrics speaks and the line says its own read is over two hours old; Mothership Bellicose, which Goonmetrics doesn't track,
+    // is priced by its own fresh read (its pace from the home history, read for a row priced there with no pace), at Home and with
+    // Either, and says it isn't priced past two hours; the cloud's list a version behind with Bellicose picked is said on Build and on
+    // To do; To do lists a pump built there at its price. Ages are built from the clock when each answer is set (the case's `now` is
+    // minutes old by here), and minute-scale ones matched by pattern, as the Blueprints block does.
+    const BELL = 1049999999999, OWNER = ownerAuth().characterId;
+    const agoIso = (min) => iso(Date.now() - min * 60_000);
+    const hubSt = (id, name, kept, extra = {}) => ({ id, name, systemId: 30004807, regionId: 10000061, kept, off: false, reader: OWNER, readerName: 'Owner', readerIsMain: true, login: 'ok', book: null, ...extra });
+    const bookSt = (agoMin, extra = {}) => ({ at: agoIso(agoMin), tried: agoIso(agoMin), error: null, refusedAt: null, pages: 3, types: 1, reader: OWNER, readerName: 'Owner', readBy: OWNER, readByName: 'Owner', ...extra });
+    const bookRow = (sell, buy) => [[[buy, 30]], [[sell, 20], [Math.round(sell * 1.02), 40]], 3, 5, [60, 20, 0, 0]];
+    let marketsAnswer = { hubs: [] }, booksAnswer = {};
+    CLOUD['/v1/home/markets'] = (url, req, json) => (marketsAnswer === 404 ? json({ error: 'Not found' }, 404) : json(marketsAnswer));
+    CLOUD['/v1/home/book'] = (url, req, json) => { const b = booksAnswer[Number(url.searchParams.get('hub'))]; return b === 404 ? json({ error: 'Not found' }, 404) : json(b ?? null); };
+    {
+      homeHistory = true;
+      homeAnswer = (hub) => (hub === UALX_HUB ? { hub, source: 'goonmetrics', at: iso(now - 5 * 3600_000), prices: { [PUMP]: [iso(now - 5 * 3600_000), 7 * 841, 7_000_000, 40, 7_500_000, 50] } } : { hub, source: 'goonmetrics', at: iso(now - 26 * 3600_000), prices: {} });
+      const homeAt = async (hub, sell = 'home') => {
+        await page.goto(SEED_PAGE);
+        await seed({ ...ledger, industry: { ...DOC, site: 'home:30004807', hub, sell, hubFees: { [hub]: 0.01 } }, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } });
+        await page.goto(`${BASE}#hustles/industry/build`);
+        await page.reload();
+        await page.waitForSelector('[data-industry="home-said"]', { timeout: 30_000 }).catch(() => problems.push(`Build never said what prices hub ${hub}`));
+        await page.waitForTimeout(2500);
+        return text('[data-industry="home-said"]');
+      };
+      const bellSt = (agoMin = 30) => hubSt(BELL, 'UALX-3 - Mothership Bellicose', 'added', { book: bookSt(agoMin) });
+      // Fresh: UALX-3's own read speaks; Bellicose, listed by the cloud, is offered in Build's select with UALX-3 picked.
+      booksAnswer = { [UALX_HUB]: { hub: UALX_HUB, at: agoIso(40), rows: { [PUMP]: bookRow(7_200_000, 6_900_000) } }, [BELL]: { hub: BELL, at: agoIso(30), rows: { [PUMP]: bookRow(7_100_000, 6_800_000) } } };
+      marketsAnswer = { hubs: [hubSt(UALX_HUB, 'UALX-3 - 1st Byzantigoon', 'default', { book: bookSt(40) }), hubSt(1049588174021, 'C-J6MT - Ceci n’est pas une keeptar', 'default'), bellSt()] };
+      let said = await homeAt(UALX_HUB);
+      if (!/UALX-3’s prices: its own market, read \d+ min ago\./.test(said)) problems.push(`UALX-3’s own read minutes old doesn’t speak: “${said}”`);
+      if (!(await page.locator('select[aria-label="Home hub"] option', { hasText: 'Mothership Bellicose' }).count())) problems.push('with UALX-3 picked, Build’s select doesn’t offer Mothership Bellicose');
+      if (!(await text('[data-bp="25895"]')).includes('sold at UALX-3, its own market')) problems.push('the pump sold at UALX-3 isn’t said to be on its own market');
+      if (!/UALX-3’s own market, read \d+ min ago · Goonmetrics: 5,887 a week/.test(await pumpOpen())) problems.push('the pump’s detail doesn’t say its sale is on UALX-3’s own market, with Goonmetrics’ weekly movement beside it');
+      // Start's second rung (research) says where its home prices come from (correction 15): its rows sell at home here. The first rung (an NPC original) pays nothing at this site, so it can't carry the words.
+      await page.goto(`${BASE}#hustles/industry/start`);
+      await page.waitForSelector('[data-rung="research"] [data-pays="rows"]', { timeout: 30_000 }).catch(() => problems.push('Start never priced its research rung at UALX-3'));
+      const rung = await page.locator('[data-rung="research"] [data-pays="rows"]').innerText().catch(() => '');
+      if (!rung.includes('sold at UALX-3 on its own market')) problems.push(`Start’s research rung doesn’t say its home prices come from UALX-3’s own market: “${rung.slice(0, 300)}”`);
+      // 2 h 01: Goonmetrics speaks, and the line says its own read is over two hours old (Review Focus 3).
+      booksAnswer[UALX_HUB] = { ...booksAnswer[UALX_HUB], at: agoIso(121) };
+      marketsAnswer.hubs[0].book = bookSt(121);
+      said = await homeAt(UALX_HUB);
+      if (!said.includes('UALX-3’s prices: Goonmetrics, read 5 h ago.') || !said.includes('Its own market was read 2 h ago with your login') || !said.includes('That read is over two hours old, so Goonmetrics’ prices speak.'))
+        problems.push(`past two hours, UALX-3 isn’t priced by Goonmetrics with why said: “${said}”`);
+      if (!(await text('[data-bp="25895"]')).includes('sold at UALX-3, Goonmetrics’ prices')) problems.push('past two hours, the pump isn’t said to be on Goonmetrics’ prices');
+      // Mothership Bellicose: priced by its own fresh read, paced by the home history (correction 10), at Home and with Either.
+      said = await homeAt(BELL);
+      if (!/Mothership Bellicose’s prices: its own market, read \d+ min ago\./.test(said)) problems.push(`Bellicose’s fresh read doesn’t price it: “${said}”`);
+      await page.waitForSelector('[data-bp="25895"]', { timeout: 20_000 }).catch(() => problems.push('the pump was never priced at Bellicose (its home history read for a row with no pace)'));
+      if (!(await text('[data-bp="25895"]')).includes('sold at Mothership Bellicose, its own market')) problems.push('the pump isn’t sold at Bellicose on its own market');
+      if (SHOTS) { await page.locator('[data-bp="25895"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-industry-home-own-read.png` }); }
+      if (/Goonmetrics has no price|Goonmetrics: /.test(await text('[data-industry="home-said"]'))) problems.push('Bellicose, which Goonmetrics doesn’t track, is said in Goonmetrics’ words');
+      await homeAt(BELL, 'best');
+      if (!(await pumpOpen()).includes('the home region’s history')) problems.push('with Either, the pump’s sale at Bellicose isn’t paced by the home region’s history (its history never read)');
+      booksAnswer[BELL] = { ...booksAnswer[BELL], at: agoIso(180) };
+      marketsAnswer.hubs[2] = bellSt(180);
+      said = await homeAt(BELL);
+      if (!said.includes('Mothership Bellicose isn’t priced: Goonmetrics doesn’t track it, and its own market has no read under two hours old.')) problems.push(`Bellicose with a stale read isn’t said as unpriced: “${said}”`);
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}-industry-home-speaks.png` });
+      // The cloud's list a version behind, Bellicose picked: said.
+      const keptMarkets = marketsAnswer;
+      marketsAnswer = 404;
+      said = await homeAt(BELL);
+      if (!said.includes('The cloud is a version behind: your home hub comes once it’s updated.')) problems.push(`Bellicose picked with the cloud a version behind isn’t said: “${said}”`);
+      marketsAnswer = keptMarkets;
+      // To do: a pump built and sitting at Bellicose lists there at its own market's price less a tick.
+      booksAnswer[BELL] = { ...booksAnswer[BELL], at: agoIso(30) };
+      marketsAnswer.hubs[2] = bellSt(30);
+      const bellJob = { jobId: 9601, activity: 1, blueprintId: 7001, blueprintTypeId: 25895, productTypeId: 25894, runs: 10, licensedRuns: null, successfulRuns: null, probability: null, cost: 1e6,
+        facilityId: BELL, stationId: BELL, outputId: BELL, start: iso(now - 2 * 86400_000), end: iso(now - 86400_000), completed: iso(now - 86400_000), status: 'delivered', perRun: 1, seenAt: iso(now - 2 * 86400_000 + 600_000) };
+      const bellTodo = async () => {
+        await page.goto(SEED_PAGE);
+        await seed({ ...ledger, jobs: { 9601: bellJob }, stock: { at: iso(now - 600_000), jita: {}, total: { 25894: 10 }, byLocation: { [BELL]: { 25894: 10 } } }, industry: { ...DOC, hub: BELL }, cloud: CLOUD_STATE }, { alts: altStore });
+        await page.goto(`${BASE}#todo`);
+        await page.waitForFunction(() => /you built/.test(document.body.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
+      };
+      await bellTodo();
+      await page.waitForFunction(() => /List at Mothership Bellicose at/.test(document.body.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
+      const bellItem = await text('.tn-item:has-text("you built")');
+      if (!bellItem.includes('List at Mothership Bellicose at 7,099,000 ISK (the hub’s cheapest listing less a tick, its own market)')) problems.push(`To do doesn’t list the pumps built at Bellicose at its own market’s price: “${bellItem.slice(0, 400)}”`);
+      if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-todo-built-bellicose.png` }); }
+      // ... and with the cloud's list a version behind, says so in its own words, never "no home hub picked", never priced in Jita.
+      marketsAnswer = 404;
+      await bellTodo();
+      await page.waitForTimeout(1500);
+      const unknownItem = await text('.tn-item:has-text("you built")');
+      if (!unknownItem.includes('The cloud is a version behind: your home hub comes once it’s updated.') || /no home hub picked|List in Jita/.test(unknownItem)) problems.push(`with Bellicose picked and the cloud a version behind, To do doesn’t say so, or prices it in Jita: “${unknownItem.slice(0, 400)}”`);
+      marketsAnswer = keptMarkets;
+    }
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');
