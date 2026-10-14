@@ -887,7 +887,7 @@ function MailAlerts() {
             </WithTip>
           ))}
         </div>
-        <p className="note small" style={{ marginTop: 8 }}>By default only what you can act on from inside the game: an order worth moving, a planet about to stop, and from the cloud a trade worth a look, a mistake listing, a high bid for what you hold, and word when one of its jobs keeps failing.</p>
+        <p className="note small" style={{ marginTop: 8 }}>By default only what you can act on from inside the game: an order worth moving, a planet about to stop, and from the cloud a trade worth a look, a mistake listing, a high bid for what you hold, word when one of its jobs keeps failing, and a wrap of your things it finds in asset safety.</p>
       </div>
       <div>
         <div className="lbl" style={{ marginBottom: 6 }}>Delete alert mails after</div>

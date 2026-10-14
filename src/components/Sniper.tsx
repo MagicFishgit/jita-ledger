@@ -489,7 +489,7 @@ export function Sniper() {
                   <Mail aria-hidden="true" style={{ width: 14, height: 14, flex: 'none' }} />
                   <span>
                     {mailingBids
-                      ? <>A bid that clears your bar is mailed to you in game once per item, then not again for {d.alerts.repeatH} h however the bids move. Turn it off under “High bid for what you hold” in <button type="button" className="link-btn" onClick={() => navigate('settings/alerts')}>Settings → Alerts</button>.</>
+                      ? <>A bid that clears your bar{include ? '' : ', blueprints aside,'} is mailed to you in game once per item, then not again for {d.alerts.repeatH} h however the bids move. Turn it off under “High bid for what you hold” in <button type="button" className="link-btn" onClick={() => navigate('settings/alerts')}>Settings → Alerts</button>.</>
                       : cloudSendsMail()
                         ? <>Not mailed: turn on “High bid for what you hold” mail in <button type="button" className="link-btn" onClick={() => navigate('settings/alerts')}>Settings → Alerts</button>.</>
                         : <>Not mailed: the cloud needs a character to send from (<button type="button" className="link-btn" onClick={() => navigate('settings/data')}>Settings → Your data</button>).</>}
