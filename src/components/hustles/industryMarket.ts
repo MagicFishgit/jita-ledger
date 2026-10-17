@@ -174,7 +174,7 @@ export const regionSellers = shareInFlight((bp: number) => String(bp), async (bp
  * otherwise; `ok` with when it was read and each type's row.
  */
 export type HomeState = { status: 'off' } | { status: 'loading' } | { status: 'behind' } | { status: 'failed'; error: string } | { status: 'switched' } | { status: 'none' }
-  | { status: 'ok'; at: string; prices: Record<string, HomeRow> };
+  | { status: 'ok'; at: string; prices: Record<string, HomeRow>; unread: ReadonlySet<number> };
 /**
  * The cloud writes a hub's row every six hours: a read is shared while in flight and kept until the next refresh could have
  * replaced it or 15 minutes (homeHoldMs). Dropped when the cloud is switched off, on a different login and on "Delete all
@@ -204,7 +204,7 @@ export function useHomePrices(hub: number | null): HomeState {
     if (!cloud.started) { setGot({ hub, st: { status: 'loading' } }); return; }
     let alive = true;
     setGot({ hub, st: { status: 'loading' } });
-    homeRead(hub).then((r) => { if (alive) setGot({ hub, st: !r ? { status: 'none' } : 'off' in r ? { status: 'switched' } : { status: 'ok', at: r.at, prices: r.prices } }); },
+    homeRead(hub).then((r) => { if (alive) setGot({ hub, st: !r ? { status: 'none' } : 'off' in r ? { status: 'switched' } : { status: 'ok', at: r.at, prices: r.prices, unread: new Set(r.unread ?? []) } }); },
       (e) => { if (alive) setGot({ hub, st: (e as { status?: number }).status === 404 ? { status: 'behind' } : { status: 'failed', error: e instanceof Error ? e.message : String(e) } }); });
     return () => { alive = false; };
   }, [hub, cloud.started]);
@@ -317,7 +317,10 @@ export type HomeSource = {
   itemsFailed: boolean;
   /** A type outside the watch set: the structure's read holds only watched types, so it says nothing of this one (never "none listed there"). */
   unwatched: (type: number) => boolean;
+  /** Types no Goonmetrics round has reached yet (only while Goonmetrics speaks): "not read yet", never "no price". */
+  unread: ReadonlySet<number>;
 };
+const NO_TYPES: ReadonlySet<number> = new Set();
 const UNTRACKED = { status: 'untracked' } as const;
 /** The cloud's watch set (src/data/industryTypes.json, its own chunk), loaded once when a hub's own read first speaks. */
 let watchSet: Set<number> | null = null;
@@ -356,7 +359,7 @@ export function useHomeQuotes(hub: HomeHub | null, mine: readonly HubOrder[] = N
       ? (watch?.has(t) ? structureQuote(own.rows[t], own.at, gm.status === 'ok' ? gm.prices[t]?.[1] ?? null : null, ordersInRead(here, t, own.at)) : null)
       : speaks?.source === 'goonmetrics' && gm.status === 'ok' ? homeQuote(gm.prices[t]) : null);
     // A read that exists but doesn't speak (past two hours, refused since) is a hub with no price, not one never read.
-    return { gm, book, hub: state, speaks, quote, read: !pending && (speaks != null || own != null) && !(hub?.goonmetrics && gm.status === 'loading'), pending, itemsFailed, unwatched: (t) => speaks?.source === 'structure' && !!watch && !watch.has(t) };
+    return { gm, book, hub: state, speaks, quote, read: !pending && (speaks != null || own != null) && !(hub?.goonmetrics && gm.status === 'loading'), pending, itemsFailed, unwatched: (t) => speaks?.source === 'structure' && !!watch && !watch.has(t), unread: speaks?.source === 'goonmetrics' && gm.status === 'ok' ? gm.unread : NO_TYPES };
   }, [gm, book, state, own, key, here, watch, pending, itemsFailed]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 const NO_ORDERS: readonly HubOrder[] = [];

@@ -741,6 +741,16 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
     and again with its login lacking the permission), Remove, and a cloud a version behind; the plain loads draw the section on the
     empty, small and large ledgers, and `check-phone` measures it.
 
+- **Goonmetrics' round starts where the last stopped** (Task 18E, correction 16; `scan_meta` 'goonmetrics' = `{ next, unread }` per hub, no migration). A hub's round
+  began at the first batch every time, so a host that cut it at the same call (a rate limit no read had met) never reached its last
+  batches. Now it starts after the last batch tried (`next`: where it started when it tried them all), and the types no round has reached since
+  are kept (`unread`: all of them for a hub never read, none for one read before this was kept, less every batch that came back) and served
+  with the hub's prices (`GET /v1/home/prices` `unread`, absent when none). Evidence: against a host that answers ten calls a round, C-J6MT's
+  eight batches are all read in five rounds (it starts at the sixth batch, types 1250, in round two), tested; planted starting at 0, 50
+  types stay out. **A save whose write throws leaves its batches unread** (ruling 18E-1): `settle` removes a batch from `unread` only when the
+  row stored it, while `next` moves on either way. The finder, its count line and To do's built item say "not read at X yet" / "Goonmetrics
+  hasn’t read it at X yet" for an unread type (`HomeSource.unread`, empty unless Goonmetrics is the source speaking), and "no price" only for a
+  type read and absent. Calls, pauses, User-Agent, cadence and `GOONMETRICS_ON` are unchanged.
 - **The hub's broker fee, measured from your orders there** (Task 18D, 17 October 2026; `hubFeeRate`, `HUB_FEE_ORDERS`, `HubFee` in homeMarket.ts; `HubFeeLine`
   in IndustryHome.tsx, under each row's typed fee and under the home hub's words on Build; `IndustryChar.orders` / `.journal`). A structure's broker fee is its
   owner's and isn't in ESI. Correction 12: `matchFees` calls a fee a placement only at 75% of the Jita rate times the order, so a hub fee under that (1.2% is,

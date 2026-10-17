@@ -73,8 +73,11 @@ export function IndustryBuild({ c, ix, graph, mainName, chars }: { c: IndustryCh
       const own = r.missing === 'noSale' && r.sales.length ? [...new Set(r.sales.map((x) => x.why).filter((w): w is string => !!w))].map(lcfirst).join('; ') || null : null;
       // A Tech II row says why its invention can't be costed, by that reason (no Laboratory, no index at the lab, a datacore nobody lists, skills not read).
       const invWhy = r.missing === 'noInvention' && r.invention?.why ? lcfirst(r.invention.why) : null;
-      const key = own ? `noSale:${own}` : invWhy ? `noInvention:${invWhy}` : r.missing;
-      const e = n.get(key) ?? { n: 0, said: own ? () => `can’t be sold: ${own}` : invWhy ? () => `Tech II can’t be costed: ${invWhy}` : r.missing === 'noBook' && f.hub && doc.sell !== 'jita' ? (one) => `${one ? 'has' : 'have'} no Jita book this morning and ${f.home.speaks?.source === 'structure' ? 'none listed' : 'no price'} at ${f.hub!.short}` : MISSING_SAID[r.missing] };
+      // No Jita book and nothing read for it at the hub (the hub's prices not in, or a type no Goonmetrics round has reached yet): said as
+      // not read, never "no price there", which is for a type read and absent.
+      const homeUnread = r.missing === 'noBook' && !!f.hub && doc.sell !== 'jita' && !(f.home.read && !f.home.unread.has(r.product));
+      const key = own ? `noSale:${own}` : invWhy ? `noInvention:${invWhy}` : homeUnread ? 'noBook:unread' : r.missing;
+      const e = n.get(key) ?? { n: 0, said: own ? () => `can’t be sold: ${own}` : invWhy ? () => `Tech II can’t be costed: ${invWhy}` : r.missing === 'noBook' && f.hub && doc.sell !== 'jita' ? (one) => `${one ? 'has' : 'have'} no Jita book this morning and ${homeUnread ? `${one ? 'isn’t' : 'aren’t'} read at ${f.hub!.short} yet` : `${f.home.speaks?.source === 'structure' ? 'none listed' : 'no price'} at ${f.hub!.short}`}` : MISSING_SAID[r.missing] };
       e.n++; n.set(key, e);
     }
     return [...n.values()].map((e) => `${units(e.n)} ${e.said(e.n === 1)}`).join(', ');

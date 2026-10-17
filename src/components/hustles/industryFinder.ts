@@ -79,7 +79,7 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph, opts: { ow
     const market = (t: number): Market => {
       const b = cache.books[t];
       if (!flows.has(t)) flows.set(t, watchedFlow(t));
-      return { jita: b ? othersBook(b, own, t, false) : null, stats: cache.stats[t] ?? null, watched: flows.get(t) ?? null, home: home.quote(t), homeRead: home.read && !home.unwatched(t) };
+      return { jita: b ? othersBook(b, own, t, false) : null, stats: cache.stats[t] ?? null, watched: flows.get(t) ?? null, home: home.quote(t), homeRead: home.read && !home.unwatched(t) && !home.unread.has(t) };
     };
     return {
       ix, me: doc.assume.me, te: doc.assume.te, skills, clone: c.clone,

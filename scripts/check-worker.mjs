@@ -2041,5 +2041,44 @@ console.log('\n--- home markets: a structure\'s own market, read hourly by the c
   }
 }
 
+console.log('\n--- Goonmetrics\' round starts where the last stopped, and says which types no round has reached (Task 18E) ---');
+{
+  const { refreshHomePrices, homePrices, REFRESH_MS } = await import('../worker/src/goonmetrics.ts');
+  const NOW = Date.parse('2026-10-12T12:37:00Z'), CJ = 1049588174021;
+  const xmlFor = (ids) => `<goonmetrics method="price_data" version="1.0"><price_data>${ids.map((id) => `<type id="${id}"><updated>2026-10-12T12:00:00Z</updated><all><weekly_movement>700</weekly_movement></all><buy><max>9.5</max><listed>100</listed></buy><sell><min>10</min><listed>200</listed></sell></type>`).join('')}</price_data></goonmetrics>`;
+  const types = Array.from({ length: 400 }, (_, i) => 1000 + i);
+  // A host that answers ten calls a round and then refuses every one (a rate limit no read has met yet).
+  const round = async (db, now) => {
+    const real = globalThis.fetch, asked = [];
+    let n = 0;
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      asked.push([Number(url.searchParams.get('station_id')), Number(url.searchParams.get('type_id').split(',')[0])]);
+      return ++n > 10 ? new Response('busy', { status: 429 }) : new Response(xmlFor(url.searchParams.get('type_id').split(',').map(Number)), { status: 200 });
+    };
+    try { return { r: await refreshHomePrices(db, now, types, async () => undefined, true), asked }; } finally { globalThis.fetch = real; }
+  };
+  const db = d1();
+  const first = await round(db, NOW);
+  eq('  the first round as before: UALX-3 whole, C-J6MT\'s first two batches, stopped', [first.asked.length, first.r.done, Object.keys((await homePrices(db, CJ)).prices).length], [13, { 'UALX-3': 'read', 'C-J6MT': 'partial' }, 100]);
+  eq('    and the types no round has reached are said: C-J6MT\'s six batches not read', (await homePrices(db, CJ)).unread?.length, 300);
+  const second = await round(db, NOW + REFRESH_MS);
+  eq('  six hours on, C-J6MT starts at the batch after the last one tried (the 6th), not the first', second.asked.filter(([hub]) => hub === CJ)[0], [CJ, 1250]);
+  for (let k = 2; k <= 4; k++) await round(db, NOW + k * REFRESH_MS);
+  const cj = await homePrices(db, CJ);
+  eq('  after five rounds every batch has been read once, and nothing is left unread', [Object.keys(cj.prices).length, cj.unread ?? []], [400, []]);
+  // A hub read before this change: nothing kept of where it stopped, so it starts from the first batch and takes its row as read.
+  const dbOld = d1();
+  dbOld.run("INSERT INTO home_prices (hub, source, at, data, tried) VALUES (?, 'goonmetrics', ?, '{}', ?)", CJ, NOW - REFRESH_MS, NOW - REFRESH_MS);
+  const old = await round(dbOld, NOW);
+  eq('  a hub read before: from the first batch, its earlier types not said unread', [old.asked.filter(([hub]) => hub === CJ)[0], ((await homePrices(dbOld, CJ)).unread ?? []).length], [[CJ, 1000], 0]);
+  // Ruling 18E-1: a save whose write throws leaves its batches unread (the row doesn't hold them), and the next round still moves on.
+  const dbT = d1();
+  const throwing = { ...dbT, prepare: (sql) => { if (sql.includes('home_prices') && sql.includes('excluded.data')) throw new Error('disk full'); return dbT.prepare(sql); } };
+  await round(throwing, NOW);
+  const kept = JSON.parse((await dbT.prepare(`SELECT data FROM scan_meta WHERE key = 'goonmetrics'`).first()).data);
+  eq('  a save that throws: the batches stay unread, and the next round still moves on', [kept.unread[CJ].length, kept.next[CJ]], [400, 5]);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

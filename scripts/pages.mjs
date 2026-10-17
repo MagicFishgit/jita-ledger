@@ -2666,6 +2666,21 @@ try {
       const homeItem = await text('.tn-item:has-text("you built")');
       if (!homeItem.includes('you built, at UALX-3 - 1st Byzantigoon') || !homeItem.includes('List at UALX-3 at 7,499,000 ISK') || !/Goonmetrics, read 2 h ago/.test(homeItem)) problems.push(`To do doesn’t list the pumps built at the home hub, named, priced and dated: “${homeItem.slice(0, 400)}”`);
       if (SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `${SHOTS}-industry-todo-built-home.png` }); }
+      // Task 18E (ruling 18E-2): a type no Goonmetrics round has reached is "hasn’t read it", a type read and absent "has no price".
+      {
+        const okAnswer = homeAnswer;
+        homeAnswer = (hub) => ({ hub, source: 'goonmetrics', at: iso(now - 2 * 3600_000), prices: {}, unread: [PUMP] });
+        await homeSeed();
+        await page.waitForFunction(() => /Goonmetrics (hasn’t read it|has no price)/.test(document.body.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
+        const unreadItem = await text('.tn-item:has-text("you built")');
+        if (!unreadItem.includes('Goonmetrics hasn’t read it at UALX-3 yet.')) problems.push(`To do doesn’t say Goonmetrics hasn’t read a type no round has reached: “${unreadItem.slice(0, 400)}”`);
+        homeAnswer = (hub) => ({ hub, source: 'goonmetrics', at: iso(now - 2 * 3600_000), prices: {} });
+        await homeSeed();
+        await page.waitForFunction(() => /Goonmetrics (hasn’t read it|has no price)/.test(document.body.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
+        const absentItem = await text('.tn-item:has-text("you built")');
+        if (!absentItem.includes('Goonmetrics has no price for it at UALX-3.')) problems.push(`To do doesn’t say a type read and absent has no price: “${absentItem.slice(0, 400)}”`);
+        homeAnswer = okAnswer;
+      }
       const okHome = homeAnswer;
       const wasHome = homeAnswer; homeAnswer = () => 404;
       await homeSeed();
@@ -3466,6 +3481,19 @@ try {
       if (!(await text('[data-industry="build-hub-fee"]')).includes('paid about the same (1.20%)')) problems.push('Build’s home hub line doesn’t carry the measured fee');
       if (SHOTS) await page.screenshot({ path: `${SHOTS}-industry-hub-fee.png` });
       marketsAnswer = keptMarkets;
+    }
+    // --- Task 18E: Goonmetrics' read of UALX-3 not yet reaching every type: those types are "not read at UALX-3 yet", never "no price".
+    {
+      const watch = JSON.parse(fs.readFileSync(new URL('../src/data/industryTypes.json', import.meta.url), 'utf8')).watch;
+      marketsAnswer = { hubs: [] };
+      booksAnswer = {};
+      homeAnswer = (hub) => ({ hub, source: 'goonmetrics', at: iso(now - 2 * 3600_000), prices: { [PUMP]: [iso(now - 2 * 3600_000), 7 * 841, 7_000_000, 40, 7_500_000, 50] }, unread: watch.filter((t) => t !== PUMP) });
+      await page.goto(SEED_PAGE);
+      await seed({ ...ledger, industry: { ...DOC, site: 'home:30004807', hub: UALX_HUB, sell: 'home', hubFees: { [UALX_HUB]: 0.01 } }, cloud: CLOUD_STATE }, { alts: altStore, cache: { prospects: SCAN } });
+      await finder();
+      const said = await text('[data-industry="finder-count"]');
+      // Every type but the pump unread: rows sold there say "not read at UALX-3 yet", rows with no Jita book "aren’t read at UALX-3 yet".
+      if (!/read at UALX-3 yet/.test(said) || /no price at UALX-3/.test(said)) problems.push(`types Goonmetrics' rounds haven't reached aren't said as not read yet: “${said.slice(0, 400)}”`);
     }
     // --- the end of the industry case
     const all = await text();

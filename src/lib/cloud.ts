@@ -629,7 +629,7 @@ export const cloudIndustryNpc = () => call<{ complete: NpcRow | null; partial: N
  * A home hub's prices as the cloud last read them from Goonmetrics (goonmetrics.ts): null before its first read, `off` when
  * the cloud has Goonmetrics switched off. A Worker a version behind answers 404 (the error's `status`).
  */
-export const cloudHomePrices = (hub: number) => call<{ off: true } | { hub: number; source: string; at: string; prices: Record<string, HomeRow> } | null>(`/v1/home/prices?hub=${hub}`);
+export const cloudHomePrices = (hub: number) => call<{ off: true } | { hub: number; source: string; at: string; prices: Record<string, HomeRow>; unread?: number[] } | null>(`/v1/home/prices?hub=${hub}`);
 /** The home markets the cloud reads for this ledger (homeMarkets.ts): Goonmetrics' two and any you added, each with its reader and its own reads. A Worker a version behind answers 404. */
 export const cloudHomeMarkets = () => call<{ hubs: HubState[] }>('/v1/home/markets');
 /** A hub's last good read of its own market, null before one. A Worker a version behind answers 404. */

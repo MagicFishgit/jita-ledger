@@ -424,7 +424,7 @@ export function Todo() {
         else {
           // A structure's own read always quotes (a type it lacks is none listed there); Goonmetrics' may have no row for it.
           const q = homeQ.quote(b.typeId);
-          market = !q ? { kind: 'unknown', said: homeQ.unwatched(b.typeId) ? `${hub!.short}’s own market is read for the Industry tab’s items only, which don’t include it.` : `Goonmetrics has no price for it at ${hub!.short}.` } : q.sell != null ? { kind: 'priced', price: tickDown(q.sell) } : { kind: 'none' };
+          market = !q ? { kind: 'unknown', said: homeQ.unwatched(b.typeId) ? `${hub!.short}’s own market is read for the Industry tab’s items only, which don’t include it.` : homeQ.unread.has(b.typeId) ? `Goonmetrics hasn’t read it at ${hub!.short} yet.` : `Goonmetrics has no price for it at ${hub!.short}.` } : q.sell != null ? { kind: 'priced', price: tickDown(q.sell) } : { kind: 'none' };
           age = said;
         }
       } else market = { kind: 'none' };

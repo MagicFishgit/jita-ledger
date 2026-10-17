@@ -228,11 +228,7 @@ State these rather than letting them be discovered:
 - **Home prices are Goonmetrics'**, a Goonswarm tool fed partly by its members' client uploads, read every six hours: a
   hub's best sell can be hours old, and its weekly movement is the only pace until the home region's history is read (and
   that history is the whole region's, not the hub's). The hub's broker fee is typed, not known.
-- **A Goonmetrics read cut short reads the types it never reached as having no price there.** A hub's row holds only the
-  types that came back; one stopped by three failures in a row, or by the round's time, is kept and stamped (partial), and a
-  type in a batch it never reached reads "no price at UALX-3" rather than "not read" until a later round reads it. Rounds
-  start from the first batch, so a hub cut at the same point each time (a rate limit no read has met yet) never reaches its
-  last batches. Rotating where a round starts would cover them over a few rounds (left for stage 4, which reads home books).
+- **A Goonmetrics round cut short starts the next where it stopped** (Industry stage 4), and the types no round has reached since say "not read at UALX-3 yet"; a type read once keeps that read until a round reaches its batch again, however old (each type carries Goonmetrics' own `updated`, which the detail says when it's over a day before the read).
 - **Buying at a hub priced by its own read walks its best five levels for a week's need** (`HOME_LEVELS`): deeper stock isn't seen, so a
   material whose week's need sits past five levels reads too thin there, said with how many are listed. Goonmetrics' hubs keep its depth rule.
 - **A hub's own read is hourly, so an order you placed since it is still in the book until the next read** (your own orders of that item come off its levels by exact price, if issued by the time of the read; one placed or repriced after it is left alone, whatever its price, and priced as a rival until then). **At a hub with no weekly movement the top rows' materials are priced on this morning's Jita asks**: the live Jita books are read for rows that already have a pace, and nothing there has one until the home history is read.
