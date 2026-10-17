@@ -7465,6 +7465,41 @@ console.log('\n--- Industry: the bundle (scripts/industry-bundle.mjs, CCP static
   eq('    sorted, so a rebuild of one build changes nothing', [watchF.watch.every((t, i, a) => !i || a[i - 1] < t), b.bps.every((x, i, a) => !i || a[i - 1][0] < x[0])], [true, true]);
 }
 
+console.log('\n--- Planets: the bundle (scripts/planets-bundle.mjs, CCP static data build 3569502) ---');
+{
+  const fsP = await import('node:fs');
+  const zlibP = await import('node:zlib');
+  const { indexPlanets, madeAlone, decodeRadii, p0Of, planetTypeOf } = await import('../src/lib/piBundle.ts');
+  const { PLANET_TYPES } = await import('../src/lib/pi.ts');
+  const readP = (p) => fsP.readFileSync(new URL(p, import.meta.url));
+  const raw = readP('../src/data/planets.json');
+  const rRaw = readP('../src/data/planetRadii.json');
+  const gz = (x) => zlibP.gzipSync(x);
+  const b = JSON.parse(raw);
+  const radii = JSON.parse(rRaw);
+  const ix = indexPlanets(b);
+  eq('  build', b.build, 3569502);
+  eq('  83 goods by tier', ['P0','P1','P2','P3','P4'].map((t) => b.commodities.filter((c) => c.tier === t).length), [15, 15, 24, 21, 8]);
+  eq('  68 schematics by tier', ['P1','P2','P3','P4'].map((t) => b.schematics.filter((s) => s.tier === t).length), [15, 24, 21, 8]);
+  eq('  tax bases', ['P0','P1','P2','P3','P4'].map((t) => b.commodities.find((c) => c.tier === t).taxBase), [5, 400, 7200, 60000, 1200000]);
+  eq('  volumes', ['P0','P1','P2','P3','P4'].map((t) => b.commodities.find((c) => c.tier === t).volume), [0.005, 0.19, 0.75, 3, 50]);
+  const nm = (ids) => ids.map((id) => ix.byId.get(id).name).sort();
+  eq('  Barren makes five P2 alone', nm(madeAlone(ix, 'Barren').P2), ['Biocells', 'Mechanical Parts', 'Nanites', 'Test Cultures', 'Water-Cooled CPU']);
+  eq('  Gas makes four', nm(madeAlone(ix, 'Gas').P2), ['Coolant', 'Oxides', 'Synthetic Oil', 'Water-Cooled CPU']);
+  eq('  no planet makes these alone', ['Microfiber Shielding','Polyaramids','Silicate Glass'].map((n) => PLANET_TYPES.some((t) => nm(madeAlone(ix, t).P2).includes(n))), [false, false, false]);
+  eq('  P4 only on Barren and Temperate', [...new Set(b.schematics.filter((s) => s.tier === 'P4').flatMap((s) => s.planetTypes))].sort(), ['Barren', 'Temperate']);
+  eq('  CCP spells it Microorganisms', ix.byId.get(2073).name, 'Microorganisms');
+  eq('  CC levels at IV and V', [b.planetTypes.Barren.cc[4], b.planetTypes.Barren.cc[5]].map((c) => [c.cpu, c.pg]), [[21315, 17000], [25415, 19000]]);
+  eq('  an extractor head', [b.planetTypes.Barren.pins.ecu.headCpu, b.planetTypes.Barren.pins.ecu.headPg], [110, 550]);
+  eq('  radii: 5-NZNW has 12, planet I among them', [decodeRadii(radii['30004865']).length, decodeRadii(radii['30004865']).find(([id]) => id === 40307990)?.[1] > 0], [12, true]);
+  eq('  bundle budget: 60 KB raw; radii 750 KB raw, 260 KB gzipped', [raw.length <= 60_000, rRaw.length <= 750_000, gz(rRaw).length <= 260_000], [true, true, true]);
+  eq('  sourced constants', [b.link.minKmPerRadiusKm, b.maxHeads], [0.012008578, 10]);
+  eq('  the P0 a good is made from, sorted; Shattered and Scorched Barren have no PI type',
+    [nm(p0Of(ix, b.schematics.find((s) => s.name === 'Coolant').out.id)), planetTypeOf(ix, 2016), planetTypeOf(ix, 30889), planetTypeOf(ix, 73911)], [['Aqueous Liquids', 'Ionic Solutions'], 'Barren', null, null]);
+  eq('  the link and the extraction decay', [b.link.cpu, b.link.pg, b.link.cpuPerKm, b.link.pgPerKm, b.extraction.decay, b.extraction.noise], [15, 10, 0.2, 0.15, 0.012, 0.8]);
+  eq('  sorted, so a rebuild of one build changes nothing', [b.schematics.every((s, i, a) => !i || a[i - 1].id < s.id), Object.values(b.planetTypes).every((t) => t.p0.every((x, i, a) => !i || a[i - 1] < x))], [true, true]);
+}
+
 console.log('\n--- Industry: the rules (industry.ts), on EVE Ref\'s own figures ---');
 {
   // Each rule against EVE Ref's industry API on the research's Large Trimark Armor Pump I (an Azbel in null-sec with a
