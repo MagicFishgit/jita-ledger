@@ -157,14 +157,24 @@ the P0s it has.
 
 ### What it needs, and what it does when it doesn't have it
 
-- **Extraction, per planet type in this system, in P0 an hour.**
-  - Learned from the shown character's own colonies on that planet type: the average over each running program by the
-    formula, once the reading is settled (below).
-  - Otherwise a rate the user types.
-  - When neither exists, the setups are ranked at what the factories that fit could make. The row then says "if your
-    heads deliver X P0 an hour", like Industry's "before the facility tax", and never claims that rate.
-  - Each figure says which of the three it is. A rate learned on a planet type in another system says so: richness
-    varies from planet to planet.
+- **Extraction, in P0 an hour per extractor (one control unit with its heads), averaged over its program** (my call:
+  the builder check, 17 October 2026).
+  - **Learned** from the shown character's own extractors, keyed by planet type and P0 (falling back to the planet
+    type's other P0s, said). Each one's average over its own program is by the formula, which already includes the
+    decay. It keeps the program length and head count it was measured at.
+  - **Typed** in the same unit: the "Total" the game shows for a program on that planet, divided by the program's
+    hours, with that program's length and head count. The page says where in the game to read it.
+  - Decay is never applied again to a learned or typed rate.
+  - A rate holds only at the program length it was measured at. If the program length chosen below differs, the row
+    says the rate is from N-day programs; nothing predicts another length (the game's per-cycle base for a longer
+    program isn't documented).
+  - Heads aren't scaled. A rate is for the head count it was measured with. The layout is chosen to fit that many
+    heads per extractor, with factories sized to the output; if those heads don't fit at the shown character's CCU
+    level, it says so.
+  - When no rate exists, the setups are ranked at what the factories that fit could make. The row then says "if your
+    extractors deliver X P0 an hour", like Industry's "before the facility tax", and never claims that rate.
+  - Each figure says which of these it is. A rate learned on a planet type in another system says so: richness varies
+    from planet to planet.
 - **Customs tax, per planet type in this system, with a per-planet override** (my call: Brave's rates were by planet
   type).
   - Null-sec: Brave's wiki rates by default: 2% on Barren and Temperate, 5% on every other type. The user, 17 October
@@ -176,7 +186,8 @@ the P0s it has.
     office's rate is typed, said as unverified.
   - Low-sec: typed.
 - **How often you reset**, as a program length. It defaults to the length of the shown character's own extractor
-  programs, else 3 days (my call, said), and drives the decay and upkeep.
+  programs, else 3 days (my call, said). It sets the upkeep (resets a week), and which learned rates apply as
+  measured.
 - **Where it sells.** The Industry doc's home hub, Jita, or Either (the better per good), with the Industry doc's
   freight route from the home hub to Jita. The prices are Industry's:
   - a home hub's own read, or Goonmetrics' prices;
@@ -190,6 +201,11 @@ the P0s it has.
 
 Every setup uses only planets in the chosen system, at most one colony per planet per character, no more planets
 than the character is allowed, and fits from the exact CPU and powergrid at the shown character's CCU level.
+- **A fit uses each planet's own radius** (my call: the builder check). A link's minimum length is 0.012 × the planet's
+  radius, and within one type the radius ranges from 348 to 159,270 km on Gas, so a median would make a head count look
+  exact when it isn't.
+- Radii come from CCP's static data (`mapPlanets.jsonl`), since ESI's planet route has none. They go in a chunk of
+  their own, loaded only when a system is planned: about 67,000 planets, compact by system.
 1. **P0 → P1 on each planet.** Each planet extracts and refines the P0 pair that pays most, and exports P1.
 2. **P0 → P2 on each planet** (the user's setup). Each planet makes the best P2 it can make alone, in the layout that
    fits: a 2 + 4 layout with more heads, or 3 + 6 with fewer. The choice depends on the extraction rate.
@@ -199,8 +215,13 @@ than the character is allowed, and fits from the exact CPU and powergrid at the 
 4. **A factory planet on bought inputs.** It buys P1, P2 or P3 at the market (home, or Jita plus freight in) and makes
    P2, P3 or P4. P4 is made only on a Barren or Temperate planet in the system.
 5. **Chains across characters.** A chain that needs more planets than one character has, P4 from scratch being the
-   usual case. It is sized as a number of characters with that many planets each, from the characters whose skills are
-   read, and names the skills each still lacks.
+   usual case.
+   - It uses the characters whose skills are read, each with its own planet allowance and CCU level, in roster order
+     starting with the shown character. It names the skills each still lacks, and says when there aren't enough
+     characters.
+   - **It is ranked by ISK a day per character used** (my call): its total ÷ the number of characters in it. So it sits
+     in the same list as one character's setups on a like-for-like figure. Its row also shows the total and each
+     character's planets and roles.
 
 For each setup type, the planner shows its **best arrangement in this system**. Among arrangements with equal ISK,
 it prefers the one with less upkeep. It shows:
@@ -247,6 +268,10 @@ how far it is from the best.
     in a commit that cites the extractor.
   - Until then, learned rates are marked "not yet checked against the game's total", and `colony.ts`'s per-hour figure
     is said as unconfirmed for cycles over 15 minutes.
+  - **Until then, the planner ranks on the lower of the two readings** and shows the higher beside it (my call: the
+    readings differ by 4× at 1-hour cycles, and a figure that may be four times too high must not put a setup on top).
+  - The plan schedules the check right after the first stage 1 task that keeps colonies ships. The user's one number
+    is asked for then.
 
 ### Home prices for every planetary good
 
@@ -303,7 +328,10 @@ Worker uses has no enums or parameter properties. The builder names the modules.
 ## The cloud's part
 
 - Stage 1:
-  - the main's hourly PI job keeps its layouts, which it already reads;
+  - the main's hourly PI job keeps its layouts. Today it reads them only while PI alerts are on and mailed
+    (`worker/src/alerts.ts`, `cfg.ev.pi && cfg.mailEv.pi`). So the read moves out from under those settings: it runs
+    hourly whenever the main's cloud login holds the planets permission. The mail still follows the settings, and
+    no login changes;
   - the planetary goods join the home reads.
 - Stage 2: alts' colonies in the hourly alt read.
 - ESI's `char-industry` group allows 600 requests every 15 minutes; one character with six planets costs seven reads
@@ -339,6 +367,21 @@ Every section works at 390 px:
   colonies. It checks the chart, each setup type's lines, a typed and an untyped tax, learned and typed rates, and an
   Alpha alt. Stage 2 adds alts' colonies and All.
 - `check-income` doesn't move.
+
+## Calls made in writing this (for the user to check)
+
+- The old walkthrough goes; its pieces live on in the setups, as described in "The page".
+- Customs tax is set per planet type for each system, with a per-planet override.
+- The program length defaults to the user's own, else 3 days.
+- Extraction is a rate per extractor, averaged over its program, at the head count and program length it was measured
+  at. It is never scaled or decayed again.
+- Fits use each planet's real radius, from a chunk loaded only when a system is planned.
+- Chains across characters are ranked by ISK a day per character used.
+- Until the in-game check, the planner ranks on the lower reading of `qty_per_cycle`.
+- Alts' expiring extractors go on To do, never mail.
+- The main's hourly PI read runs whatever the alert settings say.
+- Following Industry: the "Either" market choice (`sell: 'best'`), and colonies given up dropped from the merged
+  document. The haul from the system to the hub counts as upkeep, not ISK.
 
 ## Left to the builder
 
