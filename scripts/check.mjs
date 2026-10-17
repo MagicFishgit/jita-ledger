@@ -7500,6 +7500,30 @@ console.log('\n--- Planets: the bundle (scripts/planets-bundle.mjs, CCP static d
   eq('  sorted, so a rebuild of one build changes nothing', [b.schematics.every((s, i, a) => !i || a[i - 1].id < s.id), Object.values(b.planetTypes).every((t) => t.p0.every((x, i, a) => !i || a[i - 1] < x))], [true, true]);
 }
 
+console.log('\n--- Planets: what fits (piFit.ts, the research\'s fit.py) ---');
+{
+  const fsP = await import('node:fs');
+  const { indexPlanets } = await import('../src/lib/piBundle.ts');
+  const { fitOf, maxHeads, maxFactories } = await import('../src/lib/piFit.ts');
+  const ix = indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
+  const p2 = (ad) => ({ ecus: 2, basic: 2 * ad, advanced: ad, hightech: 0, storage: 0, launchpads: 1 });
+  eq('  Barren, CCU IV: heads that fit with 2+4 and 3+6', [maxHeads(ix, 'Barren', 4, p2(2), 3750), maxHeads(ix, 'Barren', 4, p2(3), 3750)], [11, 7]);
+  eq('  Barren, CCU V', [maxHeads(ix, 'Barren', 5, p2(2), 3750), maxHeads(ix, 'Barren', 5, p2(3), 3750)], [15, 10]);
+  eq('  Gas, CCU IV', [maxHeads(ix, 'Gas', 4, p2(2), 26370), maxHeads(ix, 'Gas', 4, p2(3), 26370)], [10, 6]);
+  eq('  factory planet, Advanced, one launchpad, IV and V', [maxFactories(ix, 'Barren', 4, 'advanced', 1, 3750), maxFactories(ix, 'Barren', 5, 'advanced', 1, 3750)], [22, 25]);
+  eq('  High-Tech, one launchpad, IV and V', [maxFactories(ix, 'Barren', 4, 'hightech', 1, 3750), maxFactories(ix, 'Barren', 5, 'hightech', 1, 3750)], [15, 19]);
+  eq('  no High-Tech on Gas', maxFactories(ix, 'Gas', 5, 'hightech', 1, 26370), 0);
+  eq('  a layout over budget does not fit', fitOf(ix, 'Barren', 4, { ...p2(4), heads: 8 }, 3750).fits, false);
+  eq('  a huge Gas planet: links cost more', maxHeads(ix, 'Gas', 4, p2(2), 159270) < maxHeads(ix, 'Gas', 4, p2(2), 26370), true);
+  {
+    // One ECU and one launchpad are two structures, so one link (the command centre isn't a structure), 45.03 km long.
+    const pn = ix.planetTypes.Barren.pins, km = 0.012008578 * 3750;
+    const f = fitOf(ix, 'Barren', 4, { ecus: 1, heads: 2, basic: 0, advanced: 0, hightech: 0, storage: 0, launchpads: 1 }, 3750);
+    eq('  the cost of one ECU with two heads and a launchpad, one link', [f.cpu, f.pg], [pn.ecu.cpu + 2 * pn.ecu.headCpu + pn.launchpad.cpu + 15 + 0.2 * km, pn.ecu.pg + 2 * pn.ecu.headPg + pn.launchpad.pg + 10 + 0.15 * km]);
+  }
+  eq('  heads are capped at ten an ECU, and -1 when nothing fits', [maxHeads(ix, 'Barren', 5, { ecus: 1, basic: 0, advanced: 0, hightech: 0, storage: 0, launchpads: 1 }, 3750), maxHeads(ix, 'Barren', 0, p2(4), 3750)], [10, -1]);
+}
+
 console.log('\n--- Industry: the rules (industry.ts), on EVE Ref\'s own figures ---');
 {
   // Each rule against EVE Ref's industry API on the research's Large Trimark Armor Pump I (an Azbel in null-sec with a
