@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { getAuth, hasScope } from './auth';
+import { keptFromEsi, mergeColonies, type KeptColony } from './colonies';
 import { byAttention, readColony, typesIn, type Colony } from './colony';
 import { rates } from './fees';
 import { colonyLayout, jitaBook, myPlanets, resolveNames } from './market';
@@ -45,10 +46,17 @@ export async function readColonies(maxAgeMs = 0): Promise<ColonyRead | null> {
     const r = rates(d.settings);
     const heads = await myPlanets(auth.characterId);
     const built: Colony[] = [];
+    const kept: KeptColony[] = [];
     for (const h of heads) {
       setState({ busy: `Reading colony ${built.length + 1} of ${heads.length}…` });
       const raw = await colonyLayout(auth.characterId, h.planetId);
       built.push(readColony(h, raw, Date.now()));
+      kept.push(keptFromEsi(h, raw));
+    }
+    // Kept as a synced document, against live state: only when it differs from what's held.
+    const held = getData().colonies;
+    if (JSON.stringify(mergeColonies(held, kept)) !== JSON.stringify(held)) {
+      update((x) => ({ colonies: mergeColonies(x.colonies, kept) }));
     }
     built.sort(byAttention);
 

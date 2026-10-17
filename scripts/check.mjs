@@ -9368,5 +9368,41 @@ console.log('\n--- Industry stage 4: a hub\'s broker fee measured from your orde
     J(fee('a', '2026-10-09T10:00:00Z', -12_000), fee('b', '2026-10-09T12:00:00Z', -600)))?.rate, 0.012);
 }
 
+console.log('\n--- Planets: the main\'s colonies, kept as a synced document (colonies.ts) ---');
+{
+  const { keptFromEsi, planetTypeOfEsi, mergeColonies, sanitizeColonies, colonyOfKept } = await import('../src/lib/colonies.ts');
+  const { readColony } = await import('../src/lib/colony.ts');
+  const { DOC_KEYS, refusedDoc } = await import('../src/lib/cloudSync.ts');
+  const head = { planetId: 5, planetType: 'barren', solarSystemId: 30000142, upgradeLevel: 4, numPins: 3, lastUpdate: '2026-10-17T10:00:00Z' };
+  const head2 = { planetId: 2, planetType: 'gas', solarSystemId: 30000144, upgradeLevel: 3, numPins: 1, lastUpdate: '2026-10-17T09:00:00Z' };
+  const raw = {
+    pins: [
+      { pin_id: 30, type_id: 2544, contents: [{ type_id: 2267, amount: 900 }, { type_id: 2268, amount: 5 }] },
+      { pin_id: 10, type_id: 2848, install_time: '2026-10-15T00:00:00Z', expiry_time: '2026-10-19T00:00:00Z', last_cycle_start: '2026-10-17T09:30:00Z',
+        extractor_details: { cycle_time: 1800, product_type_id: 2267, qty_per_cycle: 6965, heads: [{ head_id: 0 }, { head_id: 1 }, { head_id: 2 }, { head_id: 3 }, { head_id: 4 }] } },
+      { pin_id: 20, type_id: 2469, factory_details: { schematic_id: 121 } },
+    ],
+    links: [{ source_pin_id: 10, destination_pin_id: 20, link_level: 1 }],
+    routes: [{ source_pin_id: 10, destination_pin_id: 20, content_type_id: 2267, quantity: 100 }],
+  };
+  const rawNoQty = { ...raw, pins: raw.pins.map((p) => p.extractor_details ? { ...p, extractor_details: { ...p.extractor_details, qty_per_cycle: undefined } } : p) };
+  const k1 = keptFromEsi(head, raw), k2 = keptFromEsi(head2, { pins: [], links: [] });
+  eq('  kept from ESI, in the app\'s names', k1.pins.find((p) => p.extractor).extractor, { cycle: 1800, product: 2267, qty: 6965, heads: 5 });
+  eq('  pins sorted by id, contents by type', [k1.pins.map((p) => p.id), k1.pins[2].contents], [[10, 20, 30], [[2267, 900], [2268, 5]]]);
+  eq('  ESI\'s lowercase planet type', [k1.planetType, planetTypeOfEsi('gas'), planetTypeOfEsi('shattered')], ['Barren', 'Gas', null]);
+  eq('  no qty_per_cycle stays null', keptFromEsi(head, rawNoQty).pins.find((p) => p.extractor).extractor.qty, null);
+  eq('  equal reads stringify equal', JSON.stringify(mergeColonies(undefined, [k2, k1])), JSON.stringify(mergeColonies(undefined, [k1, k2])));
+  const newer = { ...k1, lastUpdate: '2026-10-17T12:00:00Z' }, older = { ...k1, lastUpdate: '2026-10-17T08:00:00Z' };
+  eq('  an older read does not roll a colony back', mergeColonies({ colonies: [newer] }, [older]).colonies[0].lastUpdate, newer.lastUpdate);
+  eq('  a colony given up drops', mergeColonies({ colonies: [k1, k2] }, [k1]).colonies.map((c) => c.planetId), [k1.planetId]);
+  eq('  junk sanitizes to undefined', [sanitizeColonies(null), sanitizeColonies({ colonies: 'x' })], [undefined, undefined]);
+  eq('  a good document survives sanitizing unchanged', sanitizeColonies(JSON.parse(JSON.stringify(mergeColonies(undefined, [k1, k2])))), mergeColonies(undefined, [k1, k2]));
+  eq('  a bad colony inside is dropped', sanitizeColonies({ colonies: [k1, { planetId: 'x' }] }).colonies.length, 1);
+  const a = colonyOfKept(k1, NOW), b = readColony(head, raw, NOW);
+  eq('  the panel reads the kept colony as before', [a.extractors, a.factories, a.stored, a.warnings, a.unitsPerHour, a.soonest], [b.extractors, b.factories, b.stored, b.warnings, b.unitsPerHour, b.soonest]);
+  eq('  and its head, as the panel prints it', [a.head.planetType, a.head.solarSystemId, a.head.upgradeLevel], ['barren', 30000142, 4]);
+  eq('  a synced document', [DOC_KEYS.includes('colonies'), refusedDoc('Unknown document: colonies')], [true, 'colonies']);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

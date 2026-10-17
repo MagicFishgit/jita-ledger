@@ -27,7 +27,10 @@ export type RawPin = {
   factory_details?: { schematic_id: number };
 };
 
-export type RawColony = { pins: RawPin[]; links: unknown[]; routes?: unknown[] };
+export type RawLink = { source_pin_id: number; destination_pin_id: number; link_level: number };
+export type RawRoute = { source_pin_id: number; destination_pin_id: number; content_type_id: number; quantity: number };
+
+export type RawColony = { pins: RawPin[]; links: RawLink[]; routes?: RawRoute[] };
 
 export type PlanetHead = {
   planetId: number;

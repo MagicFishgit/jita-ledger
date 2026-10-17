@@ -1234,6 +1234,14 @@ console.log('\n--- the industry doc goes up like any other ---');
   eq('  a push carrying the industry doc is taken, not refused as unknown', [r.docs, db.rows(`SELECT key FROM docs WHERE char_id = ?`, MAIN).map((x) => x.key)], [1, ['industry']]);
 }
 
+console.log('\n--- the colonies doc goes up like any other ---');
+{
+  const { push } = await import('../worker/src/sync.ts');
+  const db = d1();
+  const r = await push(db, MAIN, { records: [], docs: [{ key: 'colonies', d: { colonies: [] } }] });
+  eq('  a push carrying the colonies doc is taken, not refused as unknown', [r.docs, db.rows(`SELECT key FROM docs WHERE char_id = ?`, MAIN).map((x) => x.key)], [1, ['colonies']]);
+}
+
 console.log('\n--- the full scan reads the Industry tab\'s watch set, and keeps NPCs\' blueprint sellers (Task 5A) ---');
 {
   const { fullScan } = await import('../worker/src/scan.ts');
