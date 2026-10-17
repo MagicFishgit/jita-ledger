@@ -7533,7 +7533,12 @@ console.log('\n--- Planets: extraction (piExtraction.ts, CCP\'s developer guide)
   eq('  both readings', [r.formula.total, r.perCycle.total, r.hours], [789314, 6965 * 95, 47.5]);
   eq('  the lower one', lowerReading(r).which, 'perCycle');
   eq('  cycles from the program and the cycle time', readings({ qtyPerCycle: 1000, cycleSeconds: 3600, install: 0, expiry: 72 * 3600_000 }).perCycle.total, 72_000);
-  eq('  no cycles, nothing', readings({ qtyPerCycle: 1000, cycleSeconds: 900, install: 0, expiry: 0 }).formula.total, 0);
+  const base = { qtyPerCycle: 1000, cycleSeconds: 900, install: 0, expiry: 3600_000 };
+  eq('  a missing install is not known', readings({ ...base, install: undefined }), null);
+  eq('  a missing expiry is not known', readings({ ...base, expiry: NaN }), null);
+  eq('  a reversed programme is not known', [readings({ ...base, install: 5, expiry: 5 }), readings({ ...base, install: 9, expiry: 5 })], [null, null]);
+  eq('  a quantity of 0 is not known', readings({ ...base, qtyPerCycle: 0 }), null);
+  eq('  a programme shorter than a cycle is known and makes nothing', readings({ ...base, expiry: 600_000 }).formula.total, 0);
   eq('  the bands', CYCLE_BANDS.length, 5);
 }
 

@@ -21,13 +21,15 @@ export function cycleOutputs(qtyPerCycle: number, cycleSeconds: number, cycles: 
 export type Program = { qtyPerCycle: number; cycleSeconds: number; install: number; expiry: number };
 export type Readings = { formula: { total: number; perHour: number }; perCycle: { total: number; perHour: number }; hours: number };
 
-export function readings(p: Program): Readings {
+/** Null when the programme isn't known (a missing or reversed time, no quantity or cycle): never 0 or NaN for not known. */
+export function readings(p: Program): Readings | null {
+  if (!Number.isFinite(p.install) || !Number.isFinite(p.expiry) || p.expiry <= p.install) return null;
+  if (!Number.isFinite(p.qtyPerCycle) || !(p.qtyPerCycle > 0) || !(p.cycleSeconds > 0)) return null;
   const hours = (p.expiry - p.install) / 3600e3;
-  const cycles = p.cycleSeconds > 0 ? Math.max(0, Math.floor((hours * 3600) / p.cycleSeconds)) : 0;
+  const cycles = Math.floor((p.expiry - p.install) / 1000 / p.cycleSeconds);
   const formulaTotal = cycleOutputs(p.qtyPerCycle, p.cycleSeconds, cycles).reduce((a, b) => a + b, 0);
   const cycleTotal = p.qtyPerCycle * cycles;
-  const per = (n: number) => (hours > 0 ? n / hours : 0);
-  return { formula: { total: formulaTotal, perHour: per(formulaTotal) }, perCycle: { total: cycleTotal, perHour: per(cycleTotal) }, hours };
+  return { formula: { total: formulaTotal, perHour: formulaTotal / hours }, perCycle: { total: cycleTotal, perHour: cycleTotal / hours }, hours };
 }
 
 /** The lower of the two readings' rates, the one to plan on. */
