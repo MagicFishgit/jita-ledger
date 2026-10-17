@@ -3116,6 +3116,10 @@ try {
     // minutes old by here), and minute-scale ones matched by pattern, as the Blueprints block does.
     const BELL = 1049999999999, OWNER = ownerAuth().characterId;
     const agoIso = (min) => iso(Date.now() - min * 60_000);
+    // homeAgo's words, as a pattern, for something seeded `min` minutes back: the page's clock ticks once a minute (useNow), so
+    // it can be up to a minute behind the seeding and say a minute less. Exact strings here failed on that boundary (17 October
+    // 2026: "first refused 1 h 59 min ago" where "2 h ago" was asked for).
+    const agoSaid = (min) => { const f = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`); return `(?:${f(min)}|${f(min - 1)}) ago`; };
     const hubSt = (id, name, kept, extra = {}) => ({ id, name, systemId: 30004807, regionId: 10000061, kept, off: false, reader: OWNER, readerName: 'Owner', readerIsMain: true, login: 'ok', book: null, ...extra });
     const bookSt = (agoMin, extra = {}) => ({ at: agoIso(agoMin), tried: agoIso(agoMin), error: null, refusedAt: null, pages: 3, types: 1, reader: OWNER, readerName: 'Owner', readBy: OWNER, readByName: 'Owner', ...extra });
     const bookRow = (sell, buy) => [[[buy, 30]], [[sell, 20], [Math.round(sell * 1.02), 40]], 3, 5, [60, 20, 0, 0]];
@@ -3152,7 +3156,7 @@ try {
       booksAnswer[UALX_HUB] = { ...booksAnswer[UALX_HUB], at: agoIso(121) };
       marketsAnswer.hubs[0].book = bookSt(121);
       said = await homeAt(UALX_HUB);
-      if (!said.includes('UALX-3’s prices: Goonmetrics, read 5 h ago.') || !said.includes('Its own market was read 2 h 1 min ago with your login') || !said.includes('That read is over two hours old, so Goonmetrics’ prices speak.'))
+      if (!said.includes('UALX-3’s prices: Goonmetrics, read 5 h ago.') || !new RegExp(`Its own market was read ${agoSaid(121)} with your login`).test(said) || !said.includes('That read is over two hours old, so Goonmetrics’ prices speak.'))
         problems.push(`past two hours, UALX-3 isn’t priced by Goonmetrics with why said: “${said}”`);
       if (!(await text('[data-bp="25895"]')).includes('sold at UALX-3, Goonmetrics’ prices')) problems.push('past two hours, the pump isn’t said to be on Goonmetrics’ prices');
       // Mothership Bellicose: priced by its own fresh read, paced by the home history (correction 10), at Home and with Either.
@@ -3312,8 +3316,10 @@ try {
       await section();
       if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on Home markets: ${o}`);
       const ualx = await rowText(UALX_HUB), cj = await rowText(CJ);
-      for (const s of ['1st Byzantigoon (UALX-3)', 'Home hub', 'Goonmetrics, read 5 h ago', 'Owner isn’t on UALX-3’s access list yet (first refused 2 h ago): Goonmetrics’ prices stand in.'])
+      for (const s of ['1st Byzantigoon (UALX-3)', 'Home hub', 'Goonmetrics, read 5 h ago'])
         if (!ualx.includes(s)) problems.push(`UALX-3’s row doesn’t say “${s}”: “${ualx.slice(0, 400)}”`);
+      if (!new RegExp(`Owner isn’t on UALX-3’s access list yet \\(first refused ${agoSaid(120)}\\): Goonmetrics’ prices stand in\\.`).test(ualx))
+        problems.push(`UALX-3’s row doesn’t say its owner isn’t on the access list yet, first refused 2 h ago, with Goonmetrics standing in: “${ualx.slice(0, 400)}”`);
       if (/EVE refused|failed/.test(ualx)) problems.push('a default hub not on its access list yet reads as a refusal or a failure, not calmly');
       for (const s of ['Ceci n’est pas une keeptar (C-J6MT)', 'Goonmetrics, read 1 day ago: older than a day', 'Reading its own market needs EVE’s permission for structure markets: hand the cloud Builder Alt’s login again on Characters.'])
         if (!cj.includes(s)) problems.push(`C-J6MT’s row doesn’t say “${s}”: “${cj.slice(0, 400)}”`);
@@ -3352,9 +3358,10 @@ try {
       if (!bell.includes('Mothership Bellicose (UALX-3)') || !/Its own market was read \d+ min ago with Builder Alt’s login: 812 of the watched items listed there \(3 pages\)\./.test(bell)) problems.push(`Bellicose’s row doesn’t say it was read by Builder Alt: “${bell.slice(0, 400)}”`);
       if (!/Its own market, read \d+ min ago/.test(bell)) problems.push(`Bellicose’s fresh read isn’t what prices it now: “${bell.slice(0, 400)}”`);
       if (await page.locator('[data-industry="bellicose"]').count()) problems.push('Bellicose added, and the section still names it as one to add');
-      // Its read cut short three hours after its last good one: said, and nothing prices it.
-      marketsAnswer.hubs[2].book = bookSt(5, { at: agoIso(180), error: 'Cut short at page 31 of 80 by the cloud’s time limit', reader: 900091, readerName: 'Builder Alt', readBy: 900091, readByName: 'Builder Alt' });
-      booksAnswer[BELL] = { hub: BELL, at: agoIso(180), rows: {} };
+      // Its read cut short three hours after its last good one: said, and nothing prices it. 185 minutes, not 180: the page's
+      // clock ticks a minute at a time, so a read seeded exactly 180 minutes back can still read "2 h 59 min ago".
+      marketsAnswer.hubs[2].book = bookSt(5, { at: agoIso(185), error: 'Cut short at page 31 of 80 by the cloud’s time limit', reader: 900091, readerName: 'Builder Alt', readBy: 900091, readByName: 'Builder Alt' });
+      booksAnswer[BELL] = { hub: BELL, at: agoIso(185), rows: {} };
       await section();
       const cut = await rowText(BELL);
       if (!/Its own market’s last read, \d+ min ago, failed \(cut short at page 31 of 80 by the cloud’s time limit\)\. The last good read was 3 h ago\./.test(cut) || !cut.includes('Nothing: Goonmetrics doesn’t track it'))
@@ -3405,7 +3412,7 @@ try {
       if ((await readerOf('UALX-3')) !== 'Nobody: Goonmetrics only' || !nobody.includes('Its own market isn’t read with a character: Goonmetrics’ prices only.') || !nobody.includes('Goonmetrics, read 5 h ago') || /Its own market, read|Read it now/i.test(nobody))
         problems.push(`UALX-3 switched to Nobody isn’t shown so, or its last read still prices it: reader “${await readerOf('UALX-3')}”, “${nobody.slice(0, 400)}”`);
       const unread = await rowText(CJ);
-      if (!unread.includes('Owner isn’t on C-J6MT’s access list yet (first refused 2 h ago).') || /stand in/.test(unread) || !unread.includes('Not read yet: Goonmetrics every six hours'))
+      if (!new RegExp(`Owner isn’t on C-J6MT’s access list yet \\(first refused ${agoSaid(120)}\\)\\.`).test(unread) || /stand in/.test(unread) || !unread.includes('Not read yet: Goonmetrics every six hours'))
         problems.push(`C-J6MT refused with Goonmetrics not read yet says its prices stand in, or isn’t said calmly: “${unread.slice(0, 400)}”`);
       homeAnswer = keptHome;
       // UALX-3 read fresh, its read still coming from the cloud: "Reading…", never Goonmetrics' line meanwhile. C-J6MT's reader a
