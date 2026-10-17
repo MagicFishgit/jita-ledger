@@ -28,9 +28,9 @@ const sectionParts = (name: string): { hub: string; system: string | null } => {
 
 /** Why the cloud's list isn't here, as a sentence; null once it is. Goonmetrics' two are listed either way. */
 function listWhy(m: MarketsState): string | null {
-  return m.status === 'off' ? 'Home markets are read by the cloud, which isn’t on in this browser (Settings → Your data): Goonmetrics’ prices are all there is here.'
+  return m.status === 'off' ? 'Home markets, Goonmetrics’ prices among them, are read by the cloud, which isn’t on in this browser (Settings → Your data).'
     : m.status === 'loading' ? 'Reading your home markets from the cloud…'
-      : m.status === 'behind' ? 'The cloud is a version behind: reading a market with your characters comes once it’s updated. Goonmetrics’ prices stand in.'
+      : m.status === 'behind' ? 'The cloud is a version behind: reading a market with your characters comes once it’s updated.'
         : m.status === 'failed' ? `Couldn’t read your home markets from the cloud: ${m.error}.`
           : null;
 }
@@ -73,7 +73,7 @@ export function IndustryHome({ c, chars, graph }: { c: IndustryChar; chars: Indu
         <p style={{ margin: 0 }}>Prices at home, from Goonmetrics until a character of yours can read the market itself.</p>
         <Points compact items={[
           { kind: 'info', icon: Store, lead: 'Goonmetrics', text: 'prices 1st Byzantigoon (UALX-3) and Ceci n’est pas une keeptar (C-J6MT) from its members’ uploads; the cloud reads it every six hours.' },
-          { kind: 'good', icon: Building2, lead: 'A market’s own read', text: 'is the cloud reading it every hour with the character you pick, once EVE lets that character use it; it prices the hub while under two hours old.' },
+          { kind: 'good', icon: Building2, lead: 'A market’s own read', text: 'is the cloud reading it every hour with the character you pick; it prices the hub while under two hours old.' },
           { kind: 'warn', lead: 'Not in ESI', text: 'a structure’s broker fee: type it, or place an order there and the app measures it.' },
         ]} />
       </div>
@@ -84,7 +84,7 @@ export function IndustryHome({ c, chars, graph }: { c: IndustryChar; chars: Indu
             <tr>
               <Th left>Hub</Th>
               <Th left className="rd-wide" tip={'What prices the hub now.\n\n• Its own market’s read, while under two hours old.\n• Else Goonmetrics’, with how old it is.\n• Else nothing, said.'}>Prices now</Th>
-              <Th left className="rd-wide" tip="The cloud reads the hub’s own market every hour with this character’s login, for the items the Industry tab watches.">Its own market</Th>
+              <Th left className="rd-wide" tip="The cloud reads the hub’s own market every hour with this character’s login, once EVE lets that character use the market, for the items the Industry tab watches.">Its own market</Th>
               <Th className="rd-wide" tip="Set by the structure’s owner and not in ESI: typed by you, or measured from your own orders there.">Broker fee</Th>
             </tr>
           </thead>
@@ -97,7 +97,7 @@ export function IndustryHome({ c, chars, graph }: { c: IndustryChar; chars: Indu
           </tbody>
         </table>
       </div>
-      {!bellicose && <p className="note small" style={{ margin: 0 }} data-industry="bellicose">Brave’s market at UALX-3, Mothership Bellicose: add it once one of your characters can see it.</p>}
+      {list && !bellicose && <p className="note small" style={{ margin: 0 }} data-industry="bellicose">Brave’s market at UALX-3, Mothership Bellicose: add it once one of your characters can see it.</p>}
       {list && (
         <div className="col" style={{ gap: 8 }} data-industry="home-add">
           <div className="lbl">Add a market</div>

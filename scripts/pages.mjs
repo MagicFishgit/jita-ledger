@@ -3239,9 +3239,24 @@ try {
       let readFails = false;
       const listStub = CLOUD['/v1/home/markets'], readStub = CLOUD['/v1/home/read'], searchStub = CLOUD['/v1/structures/search'];
       const keptMarkets = marketsAnswer, keptBooks = booksAnswer, keptHome = homeAnswer;
+      // The set and the drop do to the list what the Worker does: a reader set (and a default switched back on), a default switched off,
+      // an added hub taken off; so a read after a reader change answers with the new reader's state.
+      const NAMES = { [OWNER]: 'Owner', 900091: 'Builder Alt', 900092: 'Fresh Alt', 900093: 'Lost Alt' };
       CLOUD['/v1/home/markets'] = (url, req, json) => {
-        if (req.method() === 'POST') { posted.push(['set', JSON.parse(req.postData() ?? '{}')]); return json({ ok: true }); }
-        if (req.method() === 'DELETE') { posted.push(['drop', Number(url.searchParams.get('hub'))]); return json({ ok: true }); }
+        if (req.method() === 'POST') {
+          const b = JSON.parse(req.postData() ?? '{}');
+          posted.push(['set', b]);
+          const h = (marketsAnswer.hubs ?? []).find((x) => x.id === b.hub);
+          if (h) Object.assign(h, { off: false, reader: b.reader, readerName: NAMES[b.reader] ?? null, readerIsMain: b.reader === OWNER });
+          return json({ ok: true });
+        }
+        if (req.method() === 'DELETE') {
+          const hub = Number(url.searchParams.get('hub'));
+          posted.push(['drop', hub]);
+          const i = (marketsAnswer.hubs ?? []).findIndex((x) => x.id === hub);
+          if (i >= 0) { if (marketsAnswer.hubs[i].kept === 'default') marketsAnswer.hubs[i].off = true; else marketsAnswer.hubs.splice(i, 1); }
+          return json({ ok: true });
+        }
         return listStub(url, req, json);
       };
       CLOUD['/v1/home/read'] = (url, req, json) => {
@@ -3252,15 +3267,18 @@ try {
         return h ? json(h) : json({ error: 'Not one of the home markets the cloud reads' }, 400);
       };
       CLOUD['/v1/structures/search'] = (url, req, json) => json({ found: [{ id: BELL, name: 'UALX-3 - Mothership Bellicose', systemId: 30004807, system: 'UALX-3', security: -0.1868, typeId: 35834 }] });
-      const section = async () => {
+      const section = async (cloudOff = false) => {
         await page.goto(SEED_PAGE);
         await seed({ ...ledger, industry: { ...DOC, hub: UALX_HUB }, cloud: CLOUD_STATE }, { alts: altStore });
+        if (cloudOff) await page.evaluate(() => localStorage.setItem('jita-ledger:cloud-off', '1'));
         await page.goto(`${BASE}#hustles/industry/home`);
         await page.reload();
         await page.waitForSelector(`${SEC} [data-hub="${UALX_HUB}"]`, { timeout: 30_000 }).catch(() => problems.push('Home markets never drew its hubs'));
         await page.waitForTimeout(1500);
       };
       const rowText = (id) => text(`${SEC} [data-hub="${id}"]`);
+      // The synced industry doc as stored (its home hub and typed fees are the only things this section writes there).
+      const storedIndustry = () => page.evaluate(() => new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('industry'); g.onsuccess = () => res(g.result ?? null); }; }));
       const toasted = async () => (await page.locator('.toasts').innerText().catch(() => '')).replace(/\s+/g, ' ');
       const dismissToasts = async () => { for (let i = 0; i < 5 && (await page.locator('.toasts .tclose').count()); i++) await page.locator('.toasts .tclose').first().click().catch(() => undefined); };
       const findBellicose = async () => {
@@ -3286,9 +3304,19 @@ try {
         if (!cj.includes(s)) problems.push(`C-J6MT’s row doesn’t say “${s}”: “${cj.slice(0, 400)}”`);
       if (!(await text('[data-industry="bellicose"]')).includes('Brave’s market at UALX-3, Mothership Bellicose: add it once one of your characters can see it.')) problems.push('the section doesn’t name Mothership Bellicose as the one to add');
       if (SHOTS) await page.screenshot({ path: `${SHOTS}-industry-home-markets.png` });
-      // C-J6MT read by you instead: set, then read at once; then Nobody: stopped.
+      // C-J6MT made the home hub, and a broker fee typed at UALX-3: both written to the synced industry doc.
+      await page.locator(`${SEC} [data-hub="${CJ}"] button`, { hasText: 'Make it the home hub' }).click();
+      await page.waitForTimeout(800);
+      if ((await storedIndustry())?.hub !== CJ) problems.push(`Make it the home hub on C-J6MT didn’t store it as the home hub: ${JSON.stringify((await storedIndustry())?.hub)}`);
+      await page.locator(`${SEC} [data-hub="${UALX_HUB}"] input:visible`).fill('1.5');
+      await page.waitForTimeout(800);
+      if ((await storedIndustry())?.hubFees?.[UALX_HUB] !== 0.015) problems.push(`1.5% typed as UALX-3’s broker fee wasn’t stored as 0.015: ${JSON.stringify((await storedIndustry())?.hubFees)}`);
+      // C-J6MT read by you instead: set, then read at once, the toast saying what that read did for you (your cloud login lacks the
+      // permission here); then Nobody: stopped.
       await page.locator('select[aria-label="Who reads C-J6MT’s market"]').selectOption({ label: 'Owner (you)' });
       await page.waitForTimeout(800);
+      if (!(await toasted()).includes('Reading its own market needs EVE’s permission for structure markets: log in again here, then hand the cloud your login again (Settings → Your data).'))
+        problems.push(`picking yourself as C-J6MT’s reader doesn’t toast what the read did with your login: “${(await toasted()).slice(0, 300)}”`);
       await page.locator('select[aria-label="Who reads C-J6MT’s market"]').selectOption({ label: 'Nobody: Goonmetrics only' });
       await page.waitForTimeout(800);
       const wanted = JSON.stringify([['set', { hub: CJ, reader: OWNER }], ['read', CJ], ['drop', CJ]]);
@@ -3316,10 +3344,14 @@ try {
       const cut = await rowText(BELL);
       if (!/Its own market’s last read, \d+ min ago, failed \(cut short at page 31 of 80 by the cloud’s time limit\)\. The last good read was 3 h ago\./.test(cut) || !cut.includes('Nothing: Goonmetrics doesn’t track it'))
         problems.push(`Bellicose cut short isn’t said with its last good read, or something prices it: “${cut.slice(0, 400)}”`);
-      // Removed: the cloud asked.
+      // Made the home hub, then removed: the cloud asked, and the home hub let go in the synced doc.
+      await page.locator(`${SEC} [data-hub="${BELL}"] button`, { hasText: 'Make it the home hub' }).click();
+      await page.waitForTimeout(800);
+      if ((await storedIndustry())?.hub !== BELL) problems.push(`Make it the home hub on Bellicose didn’t store it: ${JSON.stringify((await storedIndustry())?.hub)}`);
       await page.locator(`${SEC} [data-hub="${BELL}"] button`, { hasText: 'Remove' }).click();
       await page.waitForTimeout(800);
       if (JSON.stringify(posted.splice(0)) !== JSON.stringify([['drop', BELL]])) problems.push('removing Bellicose didn’t ask the cloud');
+      if ((await storedIndustry())?.hub != null) problems.push(`removing Bellicose, the home hub, left it as the home hub: ${JSON.stringify((await storedIndustry())?.hub)}`);
       // Added again as Builder Alt, whose cloud login predates the permission (the likeliest first add): the cloud skips it without
       // asking EVE, and the toast says to hand the login over again, never that it was read.
       marketsAnswer.hubs.splice(2);
@@ -3376,8 +3408,18 @@ try {
       // The cloud's list a version behind: said, Goonmetrics' two still listed with their prices.
       marketsAnswer = 404;
       await section();
-      if (!(await text('[data-industry="home-list-said"]')).includes('The cloud is a version behind: reading a market with your characters comes once it’s updated. Goonmetrics’ prices stand in.')) problems.push('a cloud without the home markets route isn’t said as a version behind');
+      const behind = await text('[data-industry="home-list-said"]');
+      if (!behind.includes('The cloud is a version behind: reading a market with your characters comes once it’s updated.') || /stand in/.test(behind)) problems.push(`a cloud without the home markets route isn’t said as a version behind, or says Goonmetrics’ prices stand in for every hub: “${behind}”`);
       if (!(await rowText(UALX_HUB)).includes('Goonmetrics, read 5 h ago')) problems.push('with the cloud a version behind, UALX-3 isn’t priced by Goonmetrics');
+      if (await page.locator('[data-industry="bellicose"]').count()) problems.push('Bellicose is named as one to add while the cloud’s list isn’t in');
+      // The cloud switched off in this browser: Goonmetrics' prices come through the cloud too, so nothing is said to be here; each row
+      // says the cloud isn't on, and there's no Add a market.
+      await section(true);
+      const off = await text('[data-industry="home-list-said"]');
+      if (!off.includes('Home markets, Goonmetrics’ prices among them, are read by the cloud, which isn’t on in this browser (Settings → Your data).') || /all there is/.test(off))
+        problems.push(`the cloud off in this browser isn’t said as the cloud reading Goonmetrics too: “${off}”`);
+      if (!(await rowText(UALX_HUB)).includes('The cloud isn’t on in this browser')) problems.push('with the cloud off, UALX-3’s row doesn’t say the cloud isn’t on');
+      if (await page.locator('[data-industry="home-add"]').count()) problems.push('with the cloud off, Add a market is offered');
       // The deploy-day state: the main's own cloud login, handed over before the permission was asked (Review Focus 4). A login to
       // hand over again, never a failure or a refusal.
       marketsAnswer = { hubs: [hubSt(UALX_HUB, 'UALX-3 - 1st Byzantigoon', 'default', { login: 'permission' }), hubSt(CJ, 'C-J6MT - Ceci n’est pas une keeptar', 'default', { login: 'permission' })] };

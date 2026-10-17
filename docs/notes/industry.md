@@ -728,7 +728,13 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
     whom, refused, failing, or skipped without asking EVE for a reader whose login can't (the likeliest first add: an alt handed over
     before the permission, "hand the cloud X's login again on Characters"); never a read it didn't make. A read that throws after the add
     still says Added, with why it couldn't read. Mothership Bellicose is named as the one to add ("Brave's market at UALX-3, Mothership
-    Bellicose: add it once one of your characters can see it") until a hub of that name is listed.
+    Bellicose: add it once one of your characters can see it") once the cloud's list is in and until a hub of that name is listed (shown
+    while the list loads, it vanished when a listed Bellicose arrived).
+  - **The list's own states say nothing stands in** (fix round 1): with the cloud off in this browser, "Home markets, Goonmetrics'
+    prices among them, are read by the cloud, which isn't on in this browser": Goonmetrics is read only through the cloud
+    (`useHomePrices` is `off` then), so the first wording's "Goonmetrics' prices are all there is here" was false. A version behind says
+    only that reading a market with your characters comes once it's updated: each row says what prices it, and "stand in" is said
+    only where Goonmetrics' prices are read.
   - **Logins**: the section calls only the cloud's routes, with the logins the cloud already holds; it never starts an EVE login, hands
     one over or touches `auth.ts`. Where a login is the problem it says where to fix it (Settings → Your data, Characters).
   - The page check's industry case (Task 18C block) drives every state above, the reader select, Nobody, an add as Builder Alt (read,
