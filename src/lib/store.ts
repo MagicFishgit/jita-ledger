@@ -7,6 +7,7 @@ import type { MiningRecord } from './mining';
 import { emptyData } from './emptyData';
 import { sanitizeBlueprints, type BlueprintsDoc, type JobRecord } from './industryTrack';
 import { sanitizeColonies, type ColoniesDoc } from './colonies';
+import { sanitizePlanets, type PlanetsDoc } from './planetsDoc';
 import { sanitizeCopyContracts, type CopyContractsDoc } from './copyContracts';
 import type {
   AlertConfig, AlertLogEntry, Goal, JournalEntry, Killmail, Meta, NetWorthPoint, Order, Position, Prefs,
@@ -74,13 +75,15 @@ export type Data = {
   blueprints?: BlueprintsDoc;
   /** Your copy contracts as last read (copyContracts.ts). Absent: not read yet. */
   copyContracts?: CopyContractsDoc;
+  /** The Planets settings: customs tax, typed extraction rates (planetsDoc.ts). */
+  planets: PlanetsDoc;
   /** The main's planetary colonies as last read (colonies.ts). Absent: never read. */
   colonies?: ColoniesDoc;
 };
 type Key = keyof Data;
 const KEYS: Key[] = [
   'settings', 'txs', 'journal', 'orders', 'positions', 'watchlist', 'names', 'ignored', 'stock', 'skills', 'meta',
-  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'leaveFrom', 'safetyTimes', 'notSnipes', 'plans', 'mining', 'chars', 'industry', 'jobs', 'blueprints', 'copyContracts', 'colonies',
+  'prefs', 'alerts', 'alertLog', 'goals', 'tags', 'nearDone', 'killmails', 'netWorth', 'unusualOk', 'leave', 'leaveFrom', 'safetyTimes', 'notSnipes', 'plans', 'mining', 'chars', 'industry', 'jobs', 'blueprints', 'copyContracts', 'colonies', 'planets',
 ];
 
 const idb = createStore('jita-ledger', 'kv');
@@ -125,6 +128,7 @@ export async function initStore(): Promise<void> {
   data.blueprints = sanitizeBlueprints(data.blueprints);
   data.copyContracts = sanitizeCopyContracts(data.copyContracts);
   data.colonies = sanitizeColonies(data.colonies);
+  data.planets = sanitizePlanets(data.planets);
   if (!data.meta.rateHistory?.length) {
     // Assume today's rates applied to everything before the first recorded change.
     const r = rates(data.settings);
@@ -276,6 +280,7 @@ export async function importAll(json: string): Promise<void> {
   if (p.blueprints !== undefined) p.blueprints = sanitizeBlueprints(p.blueprints);
   if (p.copyContracts !== undefined) p.copyContracts = sanitizeCopyContracts(p.copyContracts);
   if (p.colonies !== undefined) p.colonies = sanitizeColonies(p.colonies);
+  if (p.planets !== undefined) p.planets = sanitizePlanets(p.planets);
   update(p);
 }
 

@@ -16,6 +16,7 @@ import type { HourBucket } from './rhythm';
 import type { FlowLog } from './flow';
 import { sanitizeBlueprints } from './industryTrack';
 import { sanitizeColonies } from './colonies';
+import { sanitizePlanets } from './planetsDoc';
 import { sanitizeCopyContracts } from './copyContracts';
 import { sanitizeAlerts, sanitizeChars, sanitizeIndustry, sanitizeLeave, sanitizeLeaveFrom, sanitizeNotSnipes, sanitizePrefs, sanitizeSafetyTimes } from './prefs';
 import { sanitizePlans } from './plans';
@@ -297,6 +298,7 @@ async function pullNow(cloudWins = false): Promise<Map<string, Set<string>>> {
         if (p.blueprints !== undefined) p.blueprints = sanitizeBlueprints(p.blueprints);
         if (p.copyContracts !== undefined) p.copyContracts = sanitizeCopyContracts(p.copyContracts);
         if (p.colonies !== undefined) p.colonies = sanitizeColonies(p.colonies);
+        if (p.planets !== undefined) p.planets = sanitizePlanets(p.planets);
         return p;
       }, { origin: 'cloud' });
       // Applied over what was waiting here, so that no longer goes up.

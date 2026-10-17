@@ -7542,6 +7542,54 @@ console.log('\n--- Planets: extraction (piExtraction.ts, CCP\'s developer guide)
   eq('  the bands', CYCLE_BANDS.length, 5);
 }
 
+console.log('\n--- Planets: the settings document and the rates learned from your colonies (planetsDoc.ts, piLearn.ts) ---');
+{
+  const { sanitizePlanets, customsRate, DEFAULT_PLANETS } = await import('../src/lib/planetsDoc.ts');
+  const { learnedRates, rateFor, PI_READING } = await import('../src/lib/piLearn.ts');
+  const { indexPlanets } = await import('../src/lib/piBundle.ts');
+  const { DOC_KEYS, refusedDoc } = await import('../src/lib/cloudSync.ts');
+  const fsP = await import('node:fs');
+  const ix = indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
+  const doc = sanitizePlanets({ systems: { 30004865: { tax: { Gas: 0.07 }, planetTax: { 40308002: 0.1 }, notBrave: false, rates: {} } }, programHours: 72 });
+  const R = (...a) => { const t = customsRate(...a); return { rate: t.rate, from: t.from }; };
+  eq('  Brave by default in null-sec', R(doc, 30004865, -0.22, 'Barren', 40307990, 0), { rate: 0.02, from: 'brave' });
+  eq('  5% on other types', R(doc, 30004865, -0.22, 'Lava', 1, 0), { rate: 0.05, from: 'brave' });
+  eq('  a typed type rate wins', R(doc, 30004865, -0.22, 'Gas', 40308003, 0), { rate: 0.07, from: 'typed' });
+  eq('  a planet override wins over both', R(doc, 30004865, -0.22, 'Gas', 40308002, 0), { rate: 0.1, from: 'planet' });
+  eq('  not Brave’s: nothing assumed', R(sanitizePlanets({ systems: { 30000001: { notBrave: true } } }), 30000001, -0.4, 'Barren', 2, 0), { rate: null, from: 'none' });
+  eq('  high-sec: owner’s rate not typed, so not known', customsRate(doc, 30000142, 0.95, 'Barren', 2, 3).rate, null);
+  eq('  high-sec player office: owner 1% + NPC 10% less CCE III', customsRate(sanitizePlanets({ systems: { 30000142: { tax: { Barren: 0.01 } } } }), 30000142, 0.95, 'Barren', 2, 3), { rate: 0.08, from: 'typed', npc: 0.07, interbus: false });
+  eq('  high-sec: CCE not read, so not known', customsRate(sanitizePlanets({ systems: { 30000142: { tax: { Barren: 0.01 } } } }), 30000142, 0.95, 'Barren', 2, null).rate, null);
+  eq('  InterBus: the typed rate alone, said so', customsRate(sanitizePlanets({ systems: { 30000142: { tax: { Barren: 0.05 }, interbus: { 2: true } } } }), 30000142, 0.95, 'Barren', 2, 3), { rate: 0.05, from: 'typed', npc: 0, interbus: true });
+  eq('  low-sec: nothing assumed', R(doc, 30002000, 0.2, 'Barren', 2, 0), { rate: null, from: 'none' });
+  eq('  a wormhole gets no Brave default', customsRate(doc, 31000005, -1, 'Barren', 2, 0).rate, null);
+  eq('  a synced document', [DOC_KEYS.includes('planets'), refusedDoc('Unknown document: planets')], [true, 'planets']);
+  eq('  junk rates dropped', sanitizePlanets({ systems: { 1: { tax: { Barren: 7 } } } }).systems['1'].tax, {});
+  eq('  junk typed rates dropped, good kept', sanitizePlanets({ systems: { 1: { rates: { Gas: { 2267: { perHour: 0, programHours: 72, heads: 5 }, 2268: { perHour: 10, programHours: 72, heads: 5 } } } } } }).systems['1'].rates, { Gas: { 2268: { perHour: 10, programHours: 72, heads: 5 } } });
+  eq('  at most 40 systems', Object.keys(sanitizePlanets({ systems: Object.fromEntries(Array.from({ length: 60 }, (_, i) => [String(i + 1), {}])) }).systems).length, 40);
+  eq('  junk is the default', sanitizePlanets('x'), DEFAULT_PLANETS);
+
+  const ext = (over = {}) => ({ id: 1, typeId: 2848, install: '2026-10-15T00:00:00Z', expiry: '2026-10-16T23:30:00Z', lastCycle: null, schematic: null, contents: [], extractor: { cycle: 1800, product: 2267, qty: 6965, heads: 5, ...over.extractor }, ...over.pin });
+  const col = (planetType, systemId, pins) => ({ planetId: systemId, systemId, planetType, level: 4, lastUpdate: '2026-10-17T00:00:00Z', pins, links: [], routes: [] });
+  const cols = [{ colonies: [col('Barren', 30000142, [ext(), ext({ pin: { id: 2, expiry: '2026-10-16T23:30:00Z' } })])] }];
+  const L = learnedRates(cols, ix, null);
+  const b = L.Barren['2267'];
+  eq('  learned: the lower mean is the rate, the other beside it', [b.perHour, b.higher, b.which, b.checked, b.extractors, b.systems], [661675 / 47.5, 789314 / 47.5, 'perCycle', false, 2, [30000142]]);
+  eq('  learned: programme length and heads are medians', [b.programHours, b.heads], [47.5, 5]);
+  const Lf = learnedRates(cols, ix, 'formula').Barren['2267'];
+  eq('  learned: once checked, the checked reading', [Lf.perHour, Lf.higher, Lf.checked, Lf.which], [789314 / 47.5, null, true, 'formula']);
+  eq('  an unchecked build reads null', PI_READING, null);
+  eq('  not learned from: qty null, no expiry, no planet type', learnedRates([{ colonies: [
+    col('Barren', 1, [ext({ extractor: { qty: null } })]), col('Barren', 2, [ext({ pin: { expiry: null } })]), col(null, 3, [ext()])] }], ix, null), {});
+  const typed = { perHour: 5000, programHours: 72, heads: 4 };
+  eq('  rateFor: learned beats typed', rateFor(L, typed, 'Barren', 2267).from, 'learned');
+  eq('  rateFor: typed when nothing learned for it', rateFor({}, typed, 'Barren', 2267), { perHour: 5000, higher: null, from: 'typed', programHours: 72, heads: 4, otherP0: false, checked: false });
+  const other = rateFor(L, undefined, 'Barren', 2268);
+  eq('  rateFor: another P0 of the type is marked', [other.from, other.otherP0, other.perHour], ['learned', true, 661675 / 47.5]);
+  eq('  rateFor: typed beats another P0', rateFor(L, typed, 'Barren', 2268).from, 'typed');
+  eq('  rateFor: none is null', [rateFor(L, undefined, 'Gas', 2267), rateFor({}, undefined, 'Barren', 1)], [null, null]);
+}
+
 console.log('\n--- Industry: the rules (industry.ts), on EVE Ref\'s own figures ---');
 {
   // Each rule against EVE Ref's industry API on the research's Large Trimark Armor Pump I (an Azbel in null-sec with a

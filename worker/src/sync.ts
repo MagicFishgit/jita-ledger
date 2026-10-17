@@ -18,7 +18,7 @@ export const RECORD_KINDS = new Set([
 // `chars` is which characters are yours (the main's ledger holds that and nothing else of an alt's); allowed here
 // before any app sends it, since a push naming a document the Worker doesn't know is refused whole. `industry` is the
 // Industry tab's decisions: sites, freight, typed taxes, the share.
-export const DOC_KEYS = new Set(['settings', 'meta', 'prefs', 'alerts', 'stock', 'skills', 'ignored', 'nearDone', 'unusualOk', 'costs', 'watch', 'leave', 'safetyTimes', 'notSnipes', 'plans', 'chars', 'leaveFrom', 'industry', 'blueprints', 'copyContracts', 'colonies']);
+export const DOC_KEYS = new Set(['settings', 'meta', 'prefs', 'alerts', 'stock', 'skills', 'ignored', 'nearDone', 'unusualOk', 'costs', 'watch', 'leave', 'safetyTimes', 'notSnipes', 'plans', 'chars', 'leaveFrom', 'industry', 'blueprints', 'copyContracts', 'colonies', 'planets']);
 
 /** D1 takes a bound string up to 2 MB; records go up in chunks well under that. */
 const CHUNK_BYTES = 900_000;
