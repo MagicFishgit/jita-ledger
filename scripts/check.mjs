@@ -9235,6 +9235,7 @@ console.log('\n--- Industry stage 4: a hub\'s broker fee measured from your orde
   eq('  every broker fee entry of that second is its fee (an owner\'s part and any other alike)', HM.hubFeeRate(BELL, [ord(1, BELL, '2026-10-09T10:00:00Z', 10_000, 100)], J(fee('a', '2026-10-09T10:00:00.000Z', -7_000), fee('b', '2026-10-09T10:00:00Z', -5_000)))?.rate, 0.012);
   eq('  another order of yours in the same second, anywhere: can\'t be told apart, not counted', HM.hubFeeRate(BELL, [ord(1, BELL, '2026-10-09T10:00:00Z', 10_000, 100), ord(2, JITA, '2026-10-09T10:00:00Z', 50, 1000)], J(fee('a', '2026-10-09T10:00:00Z', -12_650))), null);
   eq('  the 100 ISK minimum says nothing of the rate', HM.hubFeeRate(BELL, [ord(1, BELL, '2026-10-09T10:00:00Z', 10, 10)], J(fee('a', '2026-10-09T10:00:00Z', -100))), null);
+  eq('  a fee just over the minimum does', HM.hubFeeRate(BELL, [ord(1, BELL, '2026-10-09T10:00:00Z', 100, 101)], J(fee('a', '2026-10-09T10:00:00Z', -101)))?.rate, 0.01);
   eq('  an order elsewhere is no measure of this hub', HM.hubFeeRate(BELL, [ord(1, JITA, '2026-10-09T10:00:00Z', 10_000, 100)], J(fee('a', '2026-10-09T10:00:00Z', -1_300))), null);
   eq('  a fee far under 75% of Jita\'s rate still counts (matchFees would call it a price change)', HM.hubFeeRate(BELL, [ord(1, BELL, '2026-10-09T10:00:00Z', 10_000, 100)], J(fee('a', '2026-10-09T10:00:00Z', -5_000)))?.rate, 0.005);
   const six = [1, 2, 3, 4, 5, 6].map((i) => ord(i, BELL, `2026-10-0${i}T10:00:00Z`, 10_000, 100));

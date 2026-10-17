@@ -3451,10 +3451,13 @@ try {
       // One marker for each width: the fee cell's at 1,440, the row's phone fold's at 390 (the other is hidden).
       const M = PHONE ? 'hub-fee-measured-phone' : 'hub-fee-measured';
       await page.waitForSelector(`[data-hub="${BELL}"] [data-industry="${M}"]`, { timeout: 30_000 }).catch(() => problems.push('Bellicose’s row never offered the fee its order paid'));
-      // The button is upper-cased by the stylesheet, so the words are compared without case.
+      // The button is upper-cased by the stylesheet, so its words are read from textContent, which the CSS doesn't change.
       const offer = await text(`[data-hub="${BELL}"] [data-industry="${M}"]`);
-      if (!offer.toLowerCase().includes(`Your order there of ${day} paid 1.20%: Use this`.toLowerCase())) problems.push(`the measured fee isn’t offered in its words: “${offer}”`);
-      await page.locator(`[data-hub="${BELL}"] [data-industry="${M}"] button`, { hasText: 'Use this' }).click();
+      if (!offer.includes(`Your order there of ${day} paid 1.20%:`)) problems.push(`the measured fee isn’t offered in its words: “${offer}”`);
+      const useIt = page.locator(`[data-hub="${BELL}"] [data-industry="${M}"] button`, { hasText: 'Use this' });
+      const useSaid = (await useIt.first().textContent({ timeout: 5_000 }).catch(() => null))?.trim();
+      if (useSaid !== 'Use this') problems.push(`the measured fee’s button says “${useSaid}”, not “Use this”`);
+      await useIt.click();
       for (let i = 0; i < 100 && (await storedFees())[BELL] !== 0.012; i++) await page.waitForTimeout(100);
       if ((await storedFees())[BELL] !== 0.012) problems.push('Use this didn’t set Bellicose’s broker fee to 1.20% in the industry doc');
       if (!(await text(`[data-hub="${BELL}"]`)).includes(`Your order there of ${day} paid about the same (1.20%).`)) problems.push('after Use this, Bellicose’s row doesn’t say the order agrees');
