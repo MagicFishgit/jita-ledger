@@ -10,6 +10,7 @@ import { ASSUME_CHOICES } from '../../lib/prefs';
 import { Points } from '../Facts';
 import { Check, NumChip, Seg, Th } from '../ui';
 import type { IndustryChar } from './industryChars';
+import { HubFeeLine } from './IndustryHome';
 import { IndustryDetail } from './IndustryDetail';
 import { aDaySaid, bpoSaid, everyDays, FINDER_KINDS, homeFromSaid, homeSaid, KIND_CHOICE, KIND_LABEL, perDayCell, useFinder, useFinderView, useStationSaid, type Finder } from './industryFinder';
 import { useIndustryDoc } from './industryMarket';
@@ -148,6 +149,8 @@ export function IndustryBuild({ c, ix, graph, mainName, chars }: { c: IndustryCh
       </div>
 
       {homeLine && <p className="note small" style={{ margin: 0 }} data-industry="home-said">{homeLine}{f.home.itemsFailed && <> <button type="button" className="link-btn" onClick={() => void reloadApp()}>Reload to try again</button></>}</p>}
+      {f.hub && <HubFeeLine para="build-hub-fee" hub={f.hub.id} chars={chars} typed={doc.hubFees[f.hub.id] ?? null}
+        onUse={(n) => setDoc({ hubFees: { ...doc.hubFees, [f.hub!.id]: n } })} />}
       {f.waiting ? (
         <p className="note small" style={{ margin: 0 }} data-industry="finder-wait">
           {f.waiting.text}

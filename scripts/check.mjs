@@ -9222,5 +9222,28 @@ console.log('\n--- Industry stage 4: the hub list and which price speaks at home
 }
 
 
+console.log('\n--- Industry stage 4: a hub\'s broker fee measured from your orders there (hubFeeRate, Task 18D) ---');
+{
+  const HM = await import('../src/lib/homeMarket.ts');
+  const BELL = 1049999999999, JITA = 60003760;
+  const ord = (id, loc, issued, price, total, seen) => ({ orderId: id, typeId: 34, isBuy: false, price, volumeTotal: total, volumeRemain: total, issued, state: 'open', locationId: loc, ...(seen ? { seen } : {}) });
+  const fee = (id, date, amount) => [id, { id, date, refType: 'brokers_fee', amount }];
+  const J = (...xs) => Object.fromEntries(xs);
+  // 100 units at 10,000 ISK placed at Bellicose: a 1.2% fee is 12,000 ISK.
+  eq('one order placed at the hub, alone in its second: its fee over its value', HM.hubFeeRate(BELL, [ord(1, BELL, '2026-10-09T10:00:00Z', 10_000, 100)], J(fee('a', '2026-10-09T10:00:00Z', -12_000))),
+    { rate: 0.012, orders: 1, newest: '2026-10-09T10:00:00Z', low: 0.012, high: 0.012 });
+  eq('  every broker fee entry of that second is its fee (an owner\'s part and any other alike)', HM.hubFeeRate(BELL, [ord(1, BELL, '2026-10-09T10:00:00Z', 10_000, 100)], J(fee('a', '2026-10-09T10:00:00.000Z', -7_000), fee('b', '2026-10-09T10:00:00Z', -5_000)))?.rate, 0.012);
+  eq('  another order of yours in the same second, anywhere: can\'t be told apart, not counted', HM.hubFeeRate(BELL, [ord(1, BELL, '2026-10-09T10:00:00Z', 10_000, 100), ord(2, JITA, '2026-10-09T10:00:00Z', 50, 1000)], J(fee('a', '2026-10-09T10:00:00Z', -12_650))), null);
+  eq('  the 100 ISK minimum says nothing of the rate', HM.hubFeeRate(BELL, [ord(1, BELL, '2026-10-09T10:00:00Z', 10, 10)], J(fee('a', '2026-10-09T10:00:00Z', -100))), null);
+  eq('  an order elsewhere is no measure of this hub', HM.hubFeeRate(BELL, [ord(1, JITA, '2026-10-09T10:00:00Z', 10_000, 100)], J(fee('a', '2026-10-09T10:00:00Z', -1_300))), null);
+  eq('  a fee far under 75% of Jita\'s rate still counts (matchFees would call it a price change)', HM.hubFeeRate(BELL, [ord(1, BELL, '2026-10-09T10:00:00Z', 10_000, 100)], J(fee('a', '2026-10-09T10:00:00Z', -5_000)))?.rate, 0.005);
+  const six = [1, 2, 3, 4, 5, 6].map((i) => ord(i, BELL, `2026-10-0${i}T10:00:00Z`, 10_000, 100));
+  const sixFees = J(...[1, 2, 3, 4, 5, 6].map((i) => fee(`f${i}`, `2026-10-0${i}T10:00:00Z`, i === 6 ? -3_000 : i === 1 ? -50_000 : -12_000)));
+  eq('  the median of the newest five, with how many, the newest and their spread: one wrong match can\'t decide it', HM.hubFeeRate(BELL, six, sixFees),
+    { rate: 0.012, orders: 5, newest: '2026-10-06T10:00:00Z', low: 0.003, high: 0.012 });
+  eq('  an order whose price changed: its first version is the placement', HM.hubFeeRate(BELL, [ord(1, BELL, '2026-10-09T12:00:00Z', 9_000, 100, [{ issued: '2026-10-09T10:00:00Z', price: 10_000, remain: 100 }, { issued: '2026-10-09T12:00:00Z', price: 9_000, remain: 80 }])],
+    J(fee('a', '2026-10-09T10:00:00Z', -12_000), fee('b', '2026-10-09T12:00:00Z', -600)))?.rate, 0.012);
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);

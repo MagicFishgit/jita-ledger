@@ -14,7 +14,7 @@ import { pilotFrom, unreadNote, type Pilot } from '../../lib/pilot';
 import type { OwnOrder } from '../../lib/researchTrack';
 import { emptyAlt, jobOk, loginState, type AltSaved, type RosterEntry } from '../../lib/roster';
 import { useData } from '../../lib/store';
-import type { Tx } from '../../lib/types';
+import type { JournalEntry, Order, Tx } from '../../lib/types';
 import type { HubOrder } from '../../lib/homeMarket';
 import { openInJita } from './researchChars';
 
@@ -33,6 +33,8 @@ export type IndustryChar = {
   clone: Clone;
   /** Its Jita 4-4 broker fee and sales tax: the main's from its settings; an alt's at its read standings (none read: no standing). */
   broker: number; tax: number;
+  /** Every order it holds, any station, and its journal: a home hub's broker fee is measured from its own orders there (hubFeeRate). The main's from its sync, an alt's from the cloud's hourly read. */
+  orders: Order[]; journal: Record<string, JournalEntry>;
   /** An alt's standings read (the cloud's hourly sheet); always true for the main, whose fee follows its settings. */
   standingsRead: boolean;
   /**
@@ -74,7 +76,7 @@ export function useIndustryChars(alts: IndustryAlts): IndustryChar[] {
   const auth = useAuth();
   const mainId = auth?.characterId ?? 0;
   const mainName = auth?.characterName ?? 'You';
-  const { skills, meta, settings, orders, txs, stock, mining, chars: known, jobs, blueprints } = d;
+  const { skills, meta, settings, orders, journal, txs, stock, mining, chars: known, jobs, blueprints } = d;
   // The hour, so a minute's re-render keeps the same characters (minedLately's 30 days don't need finer).
   const hour = Math.floor(Date.now() / 3_600_000) * 3_600_000;
   return useMemo(() => {
@@ -88,7 +90,7 @@ export function useIndustryChars(alts: IndustryAlts): IndustryChar[] {
       stock: stock?.byLocation ? { byLocation: stock.byLocation, at: stock.at } : null,
       buys: Object.values(txs).filter((t) => t.isBuy),
       mines: minedLately(mining, mainId, hour),
-      own: openInJita(orders), hubOrders: [],
+      own: openInJita(orders), hubOrders: [], orders: Object.values(orders), journal,
       blueprints: blueprints ? { state: 'read', value: ownedOf(blueprints), at: timeOf(meta.blueprintsAt) } : hasScope(SCOPE.blueprints) ? { state: 'unread' } : { state: 'login' },
       // Read once a stage-2 read has happened (meta.jobsRead, correction 3) or a record came from the cloud's archive. A
       // stage-1 meta.industry isn't one: it listed only the jobs to deliver, and would read here as "0 in use".
@@ -125,13 +127,13 @@ export function useIndustryChars(alts: IndustryAlts): IndustryChar[] {
         stock: st?.byLocation ? { byLocation: st.byLocation, at: st.at } : null,
         buys: Object.values(ledger.txs).filter((t) => t.isBuy),
         mines: minedLately(ledger.mining, entry.charId, hour),
-        own: openInJita(ledger.orders), hubOrders: [],
+        own: openInJita(ledger.orders), hubOrders: [], orders: Object.values(ledger.orders), journal: ledger.journal,
         blueprints: altBps, jobs: altJobs, places: bpd?.names ?? {}, placeItems: bpd?.items ?? [], jobPlaces: {},
       };
     });
     const hubOrders = [...openAnywhere(orders), ...altOrders];
     return [main, ...others].map((c) => ({ ...c, hubOrders }));
-  }, [mainId, mainName, skills, meta, settings, orders, txs, stock, mining, known, jobs, blueprints, alts.roster, alts.alts, hour]);
+  }, [mainId, mainName, skills, meta, settings, orders, journal, txs, stock, mining, known, jobs, blueprints, alts.roster, alts.alts, hour]);
 }
 
 /** Why a character's skills aren't shown, as a sentence: the main's next sync, an alt's first read, or its login to hand over again. */

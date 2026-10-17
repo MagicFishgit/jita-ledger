@@ -740,3 +740,16 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   - The page check's industry case (Task 18C block) drives every state above, the reader select, Nobody, an add as Builder Alt (read,
     and again with its login lacking the permission), Remove, and a cloud a version behind; the plain loads draw the section on the
     empty, small and large ledgers, and `check-phone` measures it.
+
+- **The hub's broker fee, measured from your orders there** (Task 18D, 17 October 2026; `hubFeeRate`, `HUB_FEE_ORDERS`, `HubFee` in homeMarket.ts; `HubFeeLine`
+  in IndustryHome.tsx, under each row's typed fee and under the home hub's words on Build; `IndustryChar.orders` / `.journal`). A structure's broker fee is its
+  owner's and isn't in ESI. Correction 12: `matchFees` calls a fee a placement only at 75% of the Jita rate times the order, so a hub fee under that (1.2% is,
+  at the main's 1.55%) would read as a price change, and `measuredRates` wants three placements a day. So `hubFeeRate` matches by the second itself: a
+  placement counts when its order's first version seen is the only version of any of the character's orders in that second, its fee is every `brokers_fee`
+  entry of the second (an owner's part and any other alike), and it is over the 100 ISK minimum (which says nothing of the rate). The median of the newest
+  five, so a price change the app first saw as an order can't decide it. From any character's orders (the main's from its sync, an alt's from the cloud's
+  hourly read): a structure's fee is its owner's, the same for all. **Only offered with Use this**, never applied, and "about the same" within the facility
+  tax's band (`taxesDiffer`, ±0.05%); nothing measured draws nothing. The page check compares the offer without case (the button is upper-cased by the stylesheet).
+  **After shipping: record the first real order placed at a home hub: how many journal entries its fee wrote, their ref types and amounts, and whether the
+  measure matched the fee the market window showed.**
+

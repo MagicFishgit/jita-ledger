@@ -2,6 +2,7 @@ import type { StructureRow } from './bookFold';
 import { withoutOwn } from './prospects';
 import { ago, units } from './format';
 import type { HomeQuote } from './industryRank';
+import type { JournalEntry, Order } from './types';
 
 /**
  * Home prices for the Industry tab (docs/notes/industry.md): Goonmetrics, a Goonswarm tool ("Goonmetrics © GARPA
@@ -189,4 +190,38 @@ export function ownMarketSaid(h: HubState, now: number, gm: boolean | 'tracked')
   if (b.error) return `Its own market’s last read, ${homeAgo(b.tried, now)}, failed (${why}).${b.at ? last : ' Nothing has been read yet.'}`;
   // A read has a time and, with it, its types and pages; a read with neither count says only when.
   return `Its own market was read ${homeAgo(b.at ?? b.tried, now)} with ${login}${b.types != null ? `: ${units(b.types)} of the watched items listed there${b.pages ? ` (${units(b.pages)} page${b.pages === 1 ? '' : 's'})` : ''}` : ''}.`;
+}
+
+/** A hub's broker fee as your orders there paid it: the median of the newest placements measured, how many, the newest's time, the lowest and highest. */
+export type HubFee = { rate: number; orders: number; newest: string; low: number; high: number };
+/** The newest placements a hub's fee is measured over. */
+export const HUB_FEE_ORDERS = 5;
+
+/**
+ * The broker fee a hub charged, from one character's orders placed there and its journal (Industry stage 4, correction 12). A fee
+ * carries no order (eve-facts.md): it is matched by the second. A placement counts when its order's first version seen is the only
+ * version of any of this character's orders in that second, its fee is every `brokers_fee` entry of the second (an owner's part and
+ * any other alike), and that fee is over the 100 ISK minimum, which says nothing of the rate. Not `matchFees`: it tells a placement
+ * from a price change at 75% of the Jita rate, so a hub fee under that would read as a change and never be measured. The median of
+ * the newest HUB_FEE_ORDERS, so a price change the app first saw as the order can't decide it. Null when none counts.
+ */
+export function hubFeeRate(hub: number, orders: readonly Order[], journal: Readonly<Record<string, JournalEntry>>): HubFee | null {
+  const second = (iso: string) => iso.slice(0, 19);
+  const first = (o: Order) => o.seen?.[0] ?? { issued: o.issued, price: o.price, remain: o.volumeRemain };
+  const busy = new Map<string, number>();
+  for (const o of orders) for (const v of o.seen?.length ? o.seen : [first(o)]) busy.set(second(v.issued), (busy.get(second(v.issued)) ?? 0) + 1);
+  const fees = new Map<string, number>();
+  for (const e of Object.values(journal)) if (e.refType === 'brokers_fee' && e.amount < 0) fees.set(second(e.date), (fees.get(second(e.date)) ?? 0) - e.amount);
+  const got: { rate: number; at: string }[] = [];
+  for (const o of orders) {
+    if (o.locationId !== hub) continue;
+    const v = first(o), s = second(v.issued), fee = fees.get(s), value = v.price * o.volumeTotal;
+    if (busy.get(s) !== 1 || fee == null || fee <= 100.5 || !(value > 0)) continue;
+    got.push({ rate: fee / value, at: v.issued });
+  }
+  if (!got.length) return null;
+  const recent = got.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, HUB_FEE_ORDERS);
+  const rates = recent.map((x) => x.rate).sort((a, b) => a - b);
+  const n = rates.length;
+  return { rate: n % 2 ? rates[(n - 1) / 2] : (rates[n / 2 - 1] + rates[n / 2]) / 2, orders: n, newest: recent[0].at, low: rates[0], high: rates[n - 1] };
 }

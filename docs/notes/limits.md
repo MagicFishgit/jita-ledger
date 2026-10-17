@@ -297,3 +297,6 @@ State these rather than letting them be discovered:
   placed, not a pace, and nothing is watched between reads; its pace is the home region's history. **A read cut short, or with a page failed, keeps
   the last good read**, and a market over 300 pages isn't read. **It speaks only while under two hours old**: past that Goonmetrics' prices (hours
   old) speak for the hubs it tracks, and nothing for the others (Task 18B says so on the tab).
+- **A hub's measured broker fee is matched by the second**: an order placed in the same second as another of the character's is left out, and the first version
+  the app saw is taken as the placement (a price change before the app's first read would read as the fee; the median of five keeps one such from deciding it).
+  It holds until the owner changes the fee, and is only offered.

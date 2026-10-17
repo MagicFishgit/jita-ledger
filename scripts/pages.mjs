@@ -3435,6 +3435,35 @@ try {
       marketsAnswer = keptMarkets;
       booksAnswer = keptBooks;
     }
+    // --- Task 18D: the main placed an order at Bellicose three days ago and paid 12,000 ISK on 1,000,000 ISK: 1.20% is offered with
+    // Use this, which sets the hub's fee in the synced doc; then the row says it agrees. Build says the same under its home hub.
+    {
+      const keptMarkets = marketsAnswer;
+      const placed = iso(now - 3 * 86400_000), day = new Date(now - 3 * 86400_000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+      marketsAnswer = { hubs: [hubSt(UALX_HUB, 'UALX-3 - 1st Byzantigoon', 'default'), hubSt(1049588174021, 'C-J6MT - Ceci n’est pas une keeptar', 'default'), hubSt(BELL, 'UALX-3 - Mothership Bellicose', 'added', { book: bookSt(30) })] };
+      const withOrder = { ...ledger, orders: { 701: { orderId: 701, typeId: 34, isBuy: false, price: 10_000, volumeTotal: 100, volumeRemain: 100, issued: placed, state: 'open', locationId: BELL } },
+        journal: { 'f-701': { id: 'f-701', date: placed, refType: 'brokers_fee', amount: -12_000 } } };
+      const storedFees = () => page.evaluate(() => new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('industry'); g.onsuccess = () => res(g.result?.hubFees ?? {}); }; }));
+      await page.goto(SEED_PAGE);
+      await seed({ ...withOrder, industry: { ...DOC, hub: BELL }, cloud: CLOUD_STATE }, { alts: altStore });
+      await page.goto(`${BASE}#hustles/industry/home`);
+      await page.reload();
+      // One marker for each width: the fee cell's at 1,440, the row's phone fold's at 390 (the other is hidden).
+      const M = PHONE ? 'hub-fee-measured-phone' : 'hub-fee-measured';
+      await page.waitForSelector(`[data-hub="${BELL}"] [data-industry="${M}"]`, { timeout: 30_000 }).catch(() => problems.push('Bellicose’s row never offered the fee its order paid'));
+      // The button is upper-cased by the stylesheet, so the words are compared without case.
+      const offer = await text(`[data-hub="${BELL}"] [data-industry="${M}"]`);
+      if (!offer.toLowerCase().includes(`Your order there of ${day} paid 1.20%: Use this`.toLowerCase())) problems.push(`the measured fee isn’t offered in its words: “${offer}”`);
+      await page.locator(`[data-hub="${BELL}"] [data-industry="${M}"] button`, { hasText: 'Use this' }).click();
+      for (let i = 0; i < 100 && (await storedFees())[BELL] !== 0.012; i++) await page.waitForTimeout(100);
+      if ((await storedFees())[BELL] !== 0.012) problems.push('Use this didn’t set Bellicose’s broker fee to 1.20% in the industry doc');
+      if (!(await text(`[data-hub="${BELL}"]`)).includes(`Your order there of ${day} paid about the same (1.20%).`)) problems.push('after Use this, Bellicose’s row doesn’t say the order agrees');
+      await page.goto(`${BASE}#hustles/industry/build`);
+      await page.waitForSelector('[data-industry="build-hub-fee"]', { timeout: 20_000 }).catch(() => problems.push('Build doesn’t say what the home hub’s fee was measured at'));
+      if (!(await text('[data-industry="build-hub-fee"]')).includes('paid about the same (1.20%)')) problems.push('Build’s home hub line doesn’t carry the measured fee');
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}-industry-hub-fee.png` });
+      marketsAnswer = keptMarkets;
+    }
     // --- the end of the industry case
     const all = await text();
     if (/\bNaN\b/.test(all)) problems.push('the Industry tab shows NaN');

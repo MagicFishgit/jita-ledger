@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Building2, Store } from 'lucide-react';
 import { hasScope } from '../../lib/auth';
 import { cloudDropHomeMarket, cloudReadHome, cloudSetHomeMarket } from '../../lib/cloud';
 import { SCOPE } from '../../lib/config';
 import { useNow } from '../../lib/hooks';
-import { HOME_HUBS, HOME_STALE_MS, homeAgo, homeSpeaks, hubShort, ownMarketSaid, ownRead, type HubState } from '../../lib/homeMarket';
+import { fmtShort, pct } from '../../lib/format';
+import { HOME_HUBS, HOME_STALE_MS, homeAgo, homeSpeaks, hubFeeRate, hubShort, ownMarketSaid, ownRead, type HubFee, type HubState } from '../../lib/homeMarket';
+import { taxesDiffer } from '../../lib/industryTrack';
 import { secText } from '../../lib/industrySites';
 import type { Graph } from '../../lib/jumps';
 import { toast } from '../../lib/toast';
@@ -25,6 +27,32 @@ type HubRow = { id: number; name: string; systemId: number; gm: boolean; state: 
 export const sectionName = (name: string): string => { const p = sectionParts(name); return p.system ? `${p.hub} (${p.system})` : p.hub; };
 /** sectionName's two parts, drawn apart so the system in brackets never breaks at its hyphen ("(C-" / "J6MT)"). */
 const sectionParts = (name: string): { hub: string; system: string | null } => { const i = name.indexOf(' - '); return i > 0 ? { hub: hubShort(name), system: name.slice(0, i) } : { hub: name, system: null }; };
+
+/**
+ * What your orders at a hub paid as broker fee (hubFeeRate), the newest of any character's: offered with Use this, never applied by
+ * itself (the measured facility tax's pattern); "about the same" within ±0.05% of the fee typed.
+ */
+export function HubFeeLine({ hub, chars, typed, onUse, para, phone }: { hub: number; chars: IndustryChar[]; typed: number | null; onUse: (rate: number) => void; para?: string; phone?: boolean }) {
+  const m = useMemo(() => chars.map((x) => ({ c: x, f: hubFeeRate(hub, x.orders, x.journal) })).filter((x): x is { c: IndustryChar; f: HubFee } => !!x.f)
+    .sort((a, b) => Date.parse(b.f.newest) - Date.parse(a.f.newest))[0] ?? null, [hub, chars]);
+  // Nothing measured draws nothing, not an empty paragraph (Build shows a hub on every load, most with no order placed there).
+  if (!m) return null;
+  const whose = m.c.isMain ? 'Your' : `${m.c.name}’s`;
+  const what = m.f.orders === 1 ? `order there of ${fmtShort(m.f.newest)} paid` : `${m.f.orders} orders there (the newest of ${fmtShort(m.f.newest)}) paid`;
+  const spread = taxesDiffer(m.f.low, m.f.high) ? ` (${pct(m.f.low)} to ${pct(m.f.high)})` : '';
+  // The phone fold's copy is marked apart: two copies of one marker in a row would make a strict lookup find neither.
+  const mark = (k: string) => (phone ? `${k}-phone` : k);
+  const line = typed != null && !taxesDiffer(typed, m.f.rate)
+    ? <span className="sub" data-industry={mark('hub-fee-agrees')}>{whose} {what} about the same ({pct(m.f.rate)}).</span>
+    : (
+      <span className="sub" data-industry={mark('hub-fee-measured')}>
+        {whose} {what} {pct(m.f.rate)}{spread}:{' '}
+        <button type="button" className="link-btn" onClick={() => onUse(Math.round(m.f.rate * 1e6) / 1e6)}>Use this</button>
+      </span>
+    );
+  // `para`: drawn as a paragraph of its own with that data-industry (Build, under the home hub's words); else a line in a cell.
+  return para ? <p className="note small" style={{ margin: 0 }} data-industry={para}>{line}</p> : line;
+}
 
 /** Why the cloud's list isn't here, as a sentence; null once it is. Goonmetrics' two are listed either way. */
 function listWhy(m: MarketsState): string | null {
@@ -198,11 +226,11 @@ function HubLine({ r, chars, graph, now, busy, act, listOk, listLoading, isHome,
           {canRead && <button type="button" className="link-btn" disabled={busy} onClick={() => void act(readNow)}>Read it now</button>}
           {!r.gm && listOk && <button type="button" className="link-btn" disabled={busy} onClick={() => void act(async () => { await cloudDropHomeMarket(r.id); onRemoved(); })}>Remove</button>}
         </span>
-        <span className="rd-phone"><span>Prices now: {prices}</span><span>{own}</span><span>Broker fee {feeChip}</span></span>
+        <span className="rd-phone"><span>Prices now: {prices}</span><span>{own}</span><span>Broker fee {feeChip}</span><HubFeeLine hub={r.id} chars={chars} typed={fee} onUse={(n) => setFee(n)} phone /></span>
       </td>
       <td className="l rd-wide ind-said" data-industry="hub-prices">{prices}</td>
       <td className="l rd-wide ind-said" data-industry="hub-own">{own}</td>
-      <td className="rd-wide" data-industry="hub-fee">{feeChip}</td>
+      <td className="rd-wide" data-industry="hub-fee">{feeChip}<HubFeeLine hub={r.id} chars={chars} typed={fee} onUse={(n) => setFee(n)} /></td>
     </tr>
   );
 }
