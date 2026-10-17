@@ -2183,6 +2183,33 @@ eq('the series runs oldest first', balanceSeries(bal, 0).map((p) => p.balance), 
 eq('a sale of something never bought is loot', autoTag(tx2('z', '', false, 1, 1, 5), new Set([34])), 'loot');
 eq('tags cycle', nextTag('other'), 'loot');
 eq('runway is wallet over burn', runwayDays(100, 10), 10);
+{
+  // HyperNet (17 October 2026, the user's choice "As play"): the main's real ticket entries carry PKN Cryptographic
+  // (1000299) as second party, no context and ESI's placeholder description; a refund's shape hasn't been seen.
+  const { playOf, burnOf, describeRef } = await import('../src/lib/wallet.ts');
+  const UNKNOWN = '(unknown reference 143, 95210486, 1000299, None)';
+  const ticket = (id, date, amount) => J(id, date, 'flux_ticket_sale', amount, { firstPartyId: 95210486, secondPartyId: 1000299, description: UNKNOWN });
+  eq('HyperNet: a ticket is its own line, play', [categoryOf(ticket('h', '', -5)).label, categoryOf(ticket('h', '', -5)).kind], ['HyperNet tickets', 'Personal']);
+  eq('  a refund lands on the same line, never Other income', categoryOf(J('r', '', 'flux_ticket_repayment', 5)).key, 'hypernet');
+  eq('  the chart and the CSV say what it is', [describeRef('flux_ticket_sale'), describeRef('flux_ticket_repayment')], ['HyperNet tickets', 'HyperNet tickets']);
+  const hf = flows(
+    [ticket('h1', '2026-10-12T17:08:00Z', -124_798_865), ticket('h2', '2026-10-13T19:52:28Z', -5_175_782), ticket('h3', '2026-10-13T19:52:28Z', -5_175_782),
+      J('h4', '2026-10-16T19:52:28Z', 'flux_ticket_repayment', 5_175_782, { description: UNKNOWN }), J('k', '2026-10-13T00:00:00Z', 'jump_clone_activation_fee', -900_000)],
+    [], () => ({ tracked: false, tag: 'other' }), Date.parse('2026-10-01T00:00:00Z'),
+  );
+  const hl = hf.outs.find((l) => l.key === 'hypernet');
+  eq('  a refund cancels tickets on the line', [hl.amount, hl.count], [124_798_865 + 5_175_782, 4]);
+  eq('  opened, tickets and refunds apart', hl.parts.map((p) => [p.label, p.amount, p.count]), [['Tickets bought', 135_150_429, 3], ['Tickets refunded', -5_175_782, 1]]);
+  eq('  an entry ESI can’t describe says its kind, not ESI’s placeholder', hl.parts[0].entries[0].text, 'Tickets bought');
+  eq('  play counts it with the other Personal lines', playOf(hf), 129_974_647 + 900_000);
+  eq('  so does the runway’s burn', burnOf(hf), 129_974_647 + 900_000);
+  // A window holding a refund whose tickets were bought before it: the line is money in, and it takes from play.
+  const refundOnly = flows([J('r1', '2026-10-16T00:00:00Z', 'flux_ticket_repayment', 2_000_000), J('k', '2026-10-16T00:00:00Z', 'skill_purchase', -3_000_000)],
+    [], () => ({ tracked: false, tag: 'other' }), Date.parse('2026-10-15T00:00:00Z'));
+  eq('  a refund alone is money in on its line', refundOnly.ins.map((l) => [l.key, l.amount]), [['hypernet', 2_000_000]]);
+  eq('  and comes off play, never below nothing', [playOf(refundOnly), playOf({ ins: refundOnly.ins, outs: [] })], [1_000_000, 0]);
+  eq('  an entry with its own words keeps them', flows([J('d', '2026-10-16T00:00:00Z', 'player_trading', 5, { description: 'Trade with Bob' })], [], () => ({ tracked: false, tag: 'other' }), 0).ins[0].parts[0].entries[0].text, 'Trade with Bob');
+}
 const odd = unusual([
   J('1', '2026-09-01T00:00:00Z', 'player_donation', 5e6, { firstPartyId: 9 }),
   J('2', '2026-09-02T00:00:00Z', 'player_donation', 5e6, { firstPartyId: 9 }),

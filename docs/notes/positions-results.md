@@ -327,6 +327,27 @@ Decisions worth not undoing. How a position, a fee and a period's results are wo
   from its spec: daily goals, the AIR career program, and the older challenges, milestones, opportunities and campaign
   objectives, four of which were "Bounties & missions" and so Combat (none in the user's journal). A corporation's tax on
   a payout (`daily_goal_payouts_tax`) is a fee on the Wallet and nets in Rewards.
+- **HyperNet tickets are play** (`hypernet` in `OUT`, `HYPERNET`, `playOf`, `burnOf`, `entryText` in wallet.ts; `FlowLine`'s
+  `said` in Wallet.tsx; the user's choice, 17 October 2026, from the research of 13 October in `.playwright-mcp/research/hypernet/`).
+  The user won an Odysseus on the HyperNet Relay ("it is with game money and just for fun now and then") and asked whether the
+  app tracks it. It didn't: the main's tickets (122 then; 255, −988.30 M ISK, by 16 October) sat in "Other spending" with no
+  kind, out of play and the runway; 13 October's "Biggest cost today" read "Other spending, −290.26 M on 85 entries"; and a
+  refund would have read as "Other income". Offered play, a Results activity, or only a name, they chose play:
+  - `flux_ticket_sale` and `flux_ticket_repayment` are one Wallet line, "HyperNet tickets", Personal, decided before the
+    in/out split, so a refund cancels tickets on it and opens as "Tickets refunded" with its own sign (a line's parts and
+    entries against its way say theirs). A window holding only a refund puts the line under money in and takes it off play
+    and the burn (`playOf`, `burnOf`, never below nothing).
+  - "Spent on play" (Trading against play, All income against play) and the runway's burn count it. Results, All income and
+    a card's Earned don't: they never read the cash-flow lines.
+  - **A prize is counted only when sold**, as any item never bought: "Sold, never bought" in All income and Earned, its sale
+    after tax, with no ticket cost set against it (the tickets are play). Until then it is in net worth only, at CCP's
+    average price. A win writes nothing to the journal and a ship appearing with no purchase looks like loot or a gift, so
+    nothing guesses.
+  - An entry whose description is ESI's placeholder ("(unknown reference 143, …)") is said by its kind on the Wallet's lines.
+  - Left alone: the unusual-activity check (your own purchases), `flux_payout` and `flux_tax` (a host's; none seen).
+  - The page check's research case holds a 10 M ticket and a 2 M refund: "HyperNet tickets · Personal · −8 M ISK", opening to
+    "Tickets bought 1× · −10 M ISK" and "Tickets refunded 1× · +2 M ISK", no placeholder, "Spent on play −8 M ISK"; planted
+    without the line, it failed.
 - **Built and sold is Industry's, claimed first** (Industry stage 2's last task, 11 October 2026; `builtClaims`,
   `builtAndSold` and `JOB_FEE_REFS` in industryTrack.ts, `claimsOf` in everyItem.ts, `Position.claimed`, `AttributionInput.claims`,
   `activityEvents`' `built` and `industrySaid` in income.ts, `useBuiltInputs` in components/activityEvents.ts; the rules of the

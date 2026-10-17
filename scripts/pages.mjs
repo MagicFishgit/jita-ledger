@@ -1412,11 +1412,14 @@ try {
       journal: {
         1: { id: '1', date: iso(now - 2 * 86400_000), refType: 'bounty_prizes', amount: 20_000_000, balance: 70_000_000, firstPartyId: 1000125, secondPartyId: 95210486, description: 'Bounty' },
         2: { id: '2', date: iso(now - 86400_000), refType: 'datacore_fee', amount: -60_000, balance: 69_940_000, firstPartyId: 95210486, secondPartyId: 3016563, description: 'Datacores' },
+        // A HyperNet ticket and a refund (the user's choice, "As play"): one line in money out, 8 M net, counted as play.
+        3: { id: '3', date: iso(now - 20 * 3600_000), refType: 'flux_ticket_sale', amount: -10_000_000, balance: 59_940_000, firstPartyId: 95210486, secondPartyId: 1000299, description: '(unknown reference 143, 95210486, 1000299, None)' },
+        4: { id: '4', date: iso(now - 10 * 3600_000), refType: 'flux_ticket_repayment', amount: 2_000_000, balance: 61_940_000, firstPartyId: 1000299, secondPartyId: 95210486, description: '(unknown reference 144, 1000299, 95210486, None)' },
       },
       // Graviton Physics III for Okila Tsurvalen's card: its rate should be 35, where ESI still says 33.75.
       skills: { 3402: 5, 3426: 5, 3413: 5, 3392: 5, 11453: 4, 11446: 3, 3356: 4, 3359: 4, 3355: 4 },
       meta: {
-        lastSync: iso(now - 600_000), cloneDetected: 'omega', walletBalance: 69_940_000,
+        lastSync: iso(now - 600_000), cloneDetected: 'omega', walletBalance: 61_940_000,
         attributes: { intelligence: 24, memory: 24, perception: 20, willpower: 20, charisma: 23 },
         // And a little standing with Shitsu Ashoma itself (0.50 raw, 2.02 at Connections IV), so step 1's Connections line
         // says what its next level adds there: (10 − 0.5) × 4% of the standing term, × (4 + 2)², +0.14 RP a day.
@@ -1674,6 +1677,19 @@ try {
     if (!(await page.locator('[data-alts] [data-research="wallet-all"]').count())) problems.push('the research figures across characters aren’t inside data-alts');
     const flowsText = (await page.locator('section.panel', { hasText: 'Money out' }).first().innerText().catch(() => '')).toLowerCase();
     if (!flowsText.includes('datacores from agents')) problems.push('the datacore fee isn’t under “Datacores from agents” in money out');
+    // HyperNet: the ticket less its refund on one line, Personal, opening to both kinds with their own signs, ESI's placeholder
+    // never shown; and play counts it.
+    const hyper = page.locator('section.panel', { hasText: 'Money out' }).first().locator('.panel-toggle', { hasText: 'HyperNet tickets' }).first();
+    const hyperLine = (await hyper.locator('xpath=ancestor::div[contains(@class,"kv")][1]').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!/HyperNet tickets\s*Personal\s*−8 M ISK/i.test(hyperLine)) problems.push(`the HyperNet line isn’t “HyperNet tickets · Personal · −8 M ISK”: “${hyperLine}”`);
+    await hyper.click().catch((e) => problems.push(`couldn't open the HyperNet line: ${e.message.split('\n')[0]}`));
+    await page.locator('.flow-parts .panel-toggle', { hasText: 'Tickets refunded' }).first().click().catch((e) => problems.push(`couldn't open the refunds: ${e.message.split('\n')[0]}`));
+    const hyperParts = (await page.locator('.flow-parts').first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+    for (const t of ['Tickets bought 1× · −10 M ISK', 'Tickets refunded 1× · +2 M ISK'])
+      if (!hyperParts.includes(t)) problems.push(`the HyperNet line doesn’t open to “${t}”: “${hyperParts}”`);
+    if (/unknown reference/.test(hyperParts)) problems.push('the HyperNet line shows ESI’s placeholder, not what the entry is');
+    const playText = (await page.locator('section.panel', { hasText: 'Trading profit' }).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!/Spent on play\s*−8 M ISK/.test(playText)) problems.push(`Trading against play doesn’t count the HyperNet tickets as play: “${playText.slice(0, 300)}”`);
     if (SHOTS) { await rdCard.scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(800); await page.screenshot({ path: `${SHOTS}-research-wallet.png` }); }
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out on the Wallet: ${o}`);
     // Switched off on the tab, the amount kept: the item leaves To do unticked, neither open nor done.

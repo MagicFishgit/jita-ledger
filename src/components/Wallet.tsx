@@ -15,7 +15,7 @@ import { toast } from '../lib/toast';
 import { isStation, isStructure, isSystem, structureInfo, system, type StructureRead } from '../lib/universe';
 import { isAbyssalSystem, netLoss } from '../lib/combat';
 import {
-  autoTag, balanceAt, balanceSeries, csvCell, describeRef, feeLeak, fittedShips, flows, multibuys, nextTag, PERIOD_DAYS, periodStart, RUNNING, runwayDays,
+  autoTag, balanceAt, balanceSeries, burnOf, csvCell, describeRef, feeLeak, fittedShips, flows, multibuys, nextTag, PERIOD_DAYS, periodStart, playOf, RUNNING, runwayDays,
   startOfUtcDay, unusual, type Between, type Days, type Line, type Multibuy, type TradeClass,
 } from '../lib/wallet';
 import { emptyAlt, lastRead, ownIds, type AltSaved, type RosterEntry } from '../lib/roster';
@@ -52,10 +52,11 @@ const DAYS_KEY = 'jita-ledger:wallet-days';
 
 const IN_COLOR: Record<string, string> = {
   freelance: '#f5b86b', freelanceSales: '#f5b86b', trading: 'var(--acc)', contracts: 'var(--acc2)', loot: '#eed79a', bounties: '#ff8d9a', courier: '#a98bff', insurance: '#90a5b8', donation: '#6ee7a8',
+  hypernet: '#ff8d9a',
 };
 const OUT_COLOR: Record<string, string> = {
   freelanceBuys: '#f5b86b', stock: 'var(--acc)', personal: '#ff8d9a', fees: 'var(--acc2)', couriers: '#a98bff', rent: '#90a5b8', clones: '#90a5b8', skills: '#ff8d9a', travel: '#ff8d9a', lp: '#a98bff',
-  datacores: '#6ee7a8',
+  datacores: '#6ee7a8', hypernet: '#ff8d9a',
 };
 const TAG_LOOK: Record<UntrackedTag, { sell: string; buy: string; c: string }> = {
   loot: { sell: 'Loot sale', buy: 'Loot', c: '#eed79a' },
@@ -83,6 +84,8 @@ function FlowLine({ l, sign, frac, color, kindColor, contractItems }: { l: Line;
   const name = useTypeName();
   // What a contract held, when your contracts are read: "3× Rifter Blueprint" beside its ISK.
   useEnsureNames(open && contractItems ? l.parts.flatMap((p) => (p.entries ?? []).flatMap((e) => (e.contract ? contractItems[e.contract] ?? [] : []).map((i) => i.typeId))) : []);
+  // A part or entry against the line's way (HyperNet's refunds on a line of tickets) is said with its own sign.
+  const said = (v: number) => (v >= 0 ? `${sign}${iskBig(v)}` : `${sign === '−' ? '+' : '−'}${iskBig(-v)}`);
   const label = l.parts.length ? (
     <button type="button" className="panel-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
       <ChevronRight className="chev" aria-hidden="true" />{l.label}
@@ -101,14 +104,14 @@ function FlowLine({ l, sign, frac, color, kindColor, contractItems }: { l: Line;
                     <ChevronRight className="chev" aria-hidden="true" /><span>{p.label}</span>
                   </button>
                 ) : <span>{p.typeId != null ? name(p.typeId) : p.label}</span>}
-                <span className="v">{units(p.count)}× · {sign}{iskBig(p.amount)}</span>
+                <span className="v">{units(p.count)}× · {said(p.amount)}</span>
               </div>
               {part === p.key && p.entries && (
                 <div className="flow-entries">
                   {p.entries.map((e) => (
                     <div key={e.id} className="kv">
                       <span><span className="mono faint">{fmtShort(Date.parse(e.date))}</span> {(e.contract && contractSaid(contractItems?.[e.contract], name)) || e.text || '–'}</span>
-                      <span className="v">{sign}{iskBig(e.amount)}</span>
+                      <span className="v">{said(e.amount)}</span>
                     </div>
                   ))}
                   {p.count > p.entries.length && <p className="note small" style={{ margin: 0 }}>The {units(p.entries.length)} biggest of {units(p.count)}.</p>}
@@ -437,11 +440,11 @@ export function Wallet() {
 
   // ---- Trading against play
   const profit = posSeries.reduce((t, x) => t + realizedBetween(x.series, since, now), 0);
-  const play = f.outs.filter((l) => l.kind === 'Personal').reduce((t, l) => t + l.amount, 0);
+  const play = playOf(f);
   const left = profit - play;
 
   // ---- Runway: personal spending plus the running costs, over the last 30 days.
-  const burn30 = f30.outs.filter((l) => l.kind === 'Personal' || RUNNING.has(l.key)).reduce((t, l) => t + l.amount, 0);
+  const burn30 = burnOf(f30);
   const runway = wallet != null ? runwayDays(wallet, burn30 / 30) : null;
   const net30 = f30.inTotal - f30.outTotal;
 
@@ -485,7 +488,7 @@ export function Wallet() {
             <div>
               <div className="kv" style={{ marginBottom: 8 }}><span className="lbl">Money in</span><span className="v" style={{ color: 'var(--pos)' }}>+{iskBig(f.inTotal)}</span></div>
               <div className="col" style={{ gap: 9 }}>
-                {ins.length ? ins.map((l) => <FlowLine key={l.key} l={l} sign="+" frac={l.amount / fmax} color={IN_COLOR[l.key] ?? '#adbfcf'} contractItems={d.meta.contracts?.items} />) : <p className="note">Nothing came in.</p>}
+                {ins.length ? ins.map((l) => <FlowLine key={l.key} l={l} sign="+" frac={l.amount / fmax} color={IN_COLOR[l.key] ?? '#adbfcf'} kindColor={l.kind === 'Personal' ? '#ff8d9a' : undefined} contractItems={d.meta.contracts?.items} />) : <p className="note">Nothing came in.</p>}
               </div>
             </div>
             <div>

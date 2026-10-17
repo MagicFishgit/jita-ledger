@@ -67,9 +67,20 @@ const OUT: Record<string, Category> = {
   donation: { key: 'donationOut', label: 'Donations given', kind: 'Personal' },
   travel: { key: 'travel', label: 'Repairs & travel', kind: 'Personal' },
   safety: { key: 'safety', label: 'Asset safety fee', kind: 'Personal' },
+  // HyperNet Relay tickets (the user's choice, 17 October 2026: "As play"): spending for fun, so Personal, in play and the
+  // runway. A refund comes back on the same line and cancels them; a prize sold counts as any item never bought does.
+  hypernet: { key: 'hypernet', label: 'HyperNet tickets', kind: 'Personal' },
   contracts: { key: 'contractsOut', label: 'Contracts bought' },
   other: { key: 'otherOut', label: 'Other spending' },
 };
+
+/**
+ * HyperNet Relay's journal types, both sides on one line: a ticket bought (`flux_ticket_sale`, money out, despite the
+ * name) and a ticket refunded when an offer doesn't sell out (`flux_ticket_repayment`, ESI's spec; none seen yet). The
+ * main's 255 tickets to 16 October 2026 each name PKN Cryptographic (1000299), with no context and ESI's placeholder
+ * description. `flux_payout` and `flux_tax` are a host's, so they stay where they fall.
+ */
+const HYPERNET = new Set(['flux_ticket_sale', 'flux_ticket_repayment']);
 
 /** ISK moving between your own characters: neither income nor spending. */
 export const BETWEEN: Category = { key: 'between', label: 'Between your characters', kind: 'Transfer' };
@@ -94,6 +105,7 @@ export function categoryOf(e: Pick<JournalEntry, 'refType' | 'amount' | 'firstPa
   const r = e.refType;
   if (NEUTRAL.has(r) || e.amount === 0) return null;
   if (mine && ownTransfer(e, mine)) return BETWEEN;
+  if (HYPERNET.has(r)) return OUT.hypernet;
   if (e.amount > 0) {
     if (r === 'freelance_jobs_reward') return IN.freelance;
     if (REWARDS.has(r)) return IN.rewards;
@@ -127,6 +139,19 @@ export function categoryOf(e: Pick<JournalEntry, 'refType' | 'amount' | 'firstPa
 /** Running costs: the ones that recur whatever you are doing. */
 export const RUNNING = new Set(['rent', 'couriers', 'planets', 'clones']);
 
+type Flows = { ins: Pick<Line, 'kind' | 'amount'>[]; outs: Pick<Line, 'key' | 'kind' | 'amount'>[] };
+/**
+ * Personal lines that came out ahead in a window: only HyperNet's can, a refund for tickets bought before the window. It
+ * cancels them, so it comes off play and the burn rather than counting as income.
+ */
+const personalBack = (f: Flows) => f.ins.filter((l) => l.kind === 'Personal').reduce((t, l) => t + l.amount, 0);
+/** What play took in a window: every Personal line, never below nothing. */
+export const playOf = (f: Flows): number =>
+  Math.max(0, f.outs.filter((l) => l.kind === 'Personal').reduce((t, l) => t + l.amount, 0) - personalBack(f));
+/** The runway's burn over a window: play and the running costs, never below nothing. */
+export const burnOf = (f: Flows): number =>
+  Math.max(0, f.outs.filter((l) => l.kind === 'Personal' || RUNNING.has(l.key)).reduce((t, l) => t + l.amount, 0) - personalBack(f));
+
 export type Line = {
   key: string; label: string; amount: number; kind?: FlowKind; count: number;
   /** What's behind it, biggest first: the kinds of journal entry it holds, or the items its trades were in. */
@@ -148,8 +173,18 @@ const REF_SAID: Record<string, string> = {
   asset_safety_recovery_tax: 'Asset safety fee', contract_price: 'Contract prices', contract_reward: 'Courier rewards', lp_store: 'Loyalty store',
   corporation_account_withdrawal: 'Corporation withdrawals', daily_goal_payouts: 'Daily goal payouts', skill_purchase: 'Skill books',
   air_career_program_reward: 'AIR career program rewards', daily_goal_payouts_tax: 'Tax on daily goal payouts', datacore_fee: 'Datacore fees',
+  flux_ticket_sale: 'Tickets bought', flux_ticket_repayment: 'Tickets refunded',
 };
 export const refSaid = (r: string) => REF_SAID[r] ?? (r.charAt(0).toUpperCase() + r.slice(1).replace(/_/g, ' '));
+
+/**
+ * An entry's own words, or its kind's where ESI has none: for a type its text table doesn't know, ESI writes a placeholder
+ * ("(unknown reference 143, 95210486, 1000299, None)" on every HyperNet ticket), which says nothing to a reader.
+ */
+const entryText = (e: JournalEntry) => {
+  const t = e.description ?? e.reason ?? '';
+  return t.startsWith('(unknown reference') ? refSaid(e.refType) : t;
+};
 
 /**
  * One kind of journal entry (donations, contract prices, direct trades) moved between your own characters: what came
@@ -209,12 +244,12 @@ export function flows(
       if (e.amount > 0) p.in += e.amount; else p.out += -e.amount;
       p.count++;
       // ownTransfer only says yes with both parties set.
-      p.entries.push({ id: e.id, date: e.date, amount: e.amount, text: e.description ?? e.reason ?? '', first: e.firstPartyId!, second: e.secondPartyId! });
+      p.entries.push({ id: e.id, date: e.date, amount: e.amount, text: entryText(e), first: e.firstPartyId!, second: e.secondPartyId! });
       continue;
     }
     // A contract's entries carry its ID, so the Wallet can name what it held (contracts.ts).
     const contract = e.contextIdType === 'contract_id' && e.contextId ? e.contextId : undefined;
-    if (c) add(c, e.amount, { key: `ref:${e.refType}`, label: refSaid(e.refType), refType: e.refType }, { id: e.id, date: e.date, text: e.description ?? e.reason ?? '', ...(contract ? { contract } : {}) });
+    if (c) add(c, e.amount, { key: `ref:${e.refType}`, label: refSaid(e.refType), refType: e.refType }, { id: e.id, date: e.date, text: entryText(e), ...(contract ? { contract } : {}) });
   }
   for (const tx of txs) {
     const t = Date.parse(tx.date);

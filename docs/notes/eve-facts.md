@@ -145,6 +145,16 @@ Don't re-derive or contradict these without new evidence.
   placed that matched at once. This is how `instantBuys` tells a snipe from a fill; matching fills to your orders'
   prices failed, because orders placed or repriced before their history was kept aren't known.
 
+- **HyperNet Relay writes one journal entry a ticket, `flux_ticket_sale`, as money out** (the main's journal, 12 to 16
+  October 2026: 255 entries, −988,295,167 ISK): PKN Cryptographic (1000299, which runs the relay) as second party, no
+  context ID, and ESI's placeholder for a description, "(unknown reference 143, <character>, 1000299, None)"; 20 tickets
+  bought in one second are 20 rows. So no ticket can be tied to its offer. ESI's spec also lists `flux_ticket_repayment` (a
+  refund when an offer doesn't sell out), `flux_payout` and `flux_tax` (a host's), and the notifications `RaffleCreated`,
+  `RaffleExpired` and `RaffleFinished`: none seen yet. A win writes nothing to the journal; CCP says the winner claims the
+  item from the HyperNet window's History, into the hangar at the station the offer was made in, so it reaches the assets
+  only once claimed. How long an offer runs before it refunds isn't in CCP's current article (3 days in the 2019 patch
+  notes). Record the first refund's shape when it comes.
+
 - **A character's contracts carry `availability`, and their items `raw_quantity`** (11 October 2026). **Observed** (the plan's research, on the public route): an unknown contract answers 404 "Contract not found",
   and one just expired may still answer 200 from cache; ESI's public contract items (`/contracts/public/items/{id}/`, no login, held about
   an hour) give a copy's `material_efficiency`, `time_efficiency` and `runs`. **Spec only, never seen on a real answer**: the 204 with no
