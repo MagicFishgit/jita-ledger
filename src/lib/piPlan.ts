@@ -190,11 +190,14 @@ function replan(input: PlanInput, p: Plan, kind: 'p1' | 'p2', high: boolean): Pl
   return again ?? p;
 }
 
-const exportTax = (input: PlanInput, p: Plan): { tier: Tier; base: number; perDay: number | null }[] => {
+type Ship = { id: number; perDay: number };
+
+/** Export tax per tier on what a planet exports: units × the tier's base × the planet's rate (null when its rate isn't known). */
+function exportTax(input: PlanInput, p: Plan, exported: Ship[]): { tier: Tier; base: number; perDay: number | null }[] {
   const byTier = new Map<Tier, number>();
-  for (const s of p.ships) {
+  for (const s of exported) {
     const c = input.ix.byId.get(s.id);
-    if (!c) continue;
+    if (!c || !(s.perDay > 0)) continue;
     byTier.set(c.tier, (byTier.get(c.tier) ?? 0) + s.perDay * c.taxBase);
   }
   const rate = p.planet.tax.rate;
@@ -202,8 +205,7 @@ const exportTax = (input: PlanInput, p: Plan): { tier: Tier; base: number; perDa
     const base = byTier.get(tier)!;
     return { tier, base, perDay: rate == null ? null : base * rate };
   });
-};
-const knownTax = (input: PlanInput, p: Plan) => exportTax(input, p).reduce((s, x) => s + (x.perDay ?? 0), 0);
+}
 
 /** One `sell` per good and amount: the search asks again for amounts it has already asked about. */
 function seller(sell: Sell) {
@@ -215,59 +217,127 @@ function seller(sell: Sell) {
     return s;
   };
 }
+type Seller = (id: number, q: number) => Sold;
+
+/** A set of planets' plans, worked out: each good summed and sold once, what each planet exports, and the ISK after the known tax. */
+type Assessed = { plans: Plan[]; outputs: Output[]; exports: Ship[][]; value: number; unpriced: number };
+
+const bySlot = (plans: Plan[]) => [...plans].sort((a, b) => a.at - b.at);
 
 /**
- * The planets that pay most, up to the character's allowance: each step takes the planet and product adding most to what
- * the setup already sells (a good two planets make shares one market's cap), after the known tax. An output with no price
- * adds nothing to the ranking, never a figure; ties go to the planet listed first, then the first product.
+ * Each good is summed over the planets and sold once, so two planets share one market's cap. What the market takes is
+ * exported from the planets with the lowest known tax first (then the one listed first; a tax not known last); the rest
+ * stays on its planet, building up, and pays no export tax. A good with no price is taken as all exported: nothing says
+ * how much of it would build up.
  */
-function choose(input: PlanInput, kind: 'p1' | 'p2', allowed: number, sold: (id: number, q: number) => Sold): Plan[] {
-  const options = input.planets.map((p, at) => plansFor(input, p, at, kind, false));
-  const totals = new Map<number, number>();
-  const iskAt = (id: number, q: number): number | null => (q > EPS ? sold(id, q).isk : 0);
-  const chosen: Plan[] = [];
-  const used = new Set<number>();
-  while (chosen.length < allowed) {
-    let best: { p: Plan; gain: number; unpriced: number } | null = null;
-    for (let at = 0; at < options.length; at++) {
-      if (used.has(at)) continue;
-      for (const p of options[at]) {
-        let gain = -knownTax(input, p), unpriced = 0;
-        for (const s of p.ships) {
-          const cur = totals.get(s.id) ?? 0;
-          const after = iskAt(s.id, cur + s.perDay), before = iskAt(s.id, cur);
-          if (after == null || before == null) unpriced++;
-          else gain += after - before;
-        }
-        if (!best || gain > best.gain + EPS || (Math.abs(gain - best.gain) <= EPS && unpriced < best.unpriced)) best = { p, gain, unpriced };
-      }
-    }
-    if (!best) break;
-    chosen.push(best.p);
-    used.add(best.p.at);
-    for (const s of best.p.ships) totals.set(s.id, (totals.get(s.id) ?? 0) + s.perDay);
-  }
-  return chosen.sort((x, y) => x.at - y.at);
-}
-
-/** Each good summed over the planets, sold once. */
-function outputsOf(input: PlanInput, plans: Plan[], sold: (id: number, q: number) => Sold): Output[] {
+function assess(input: PlanInput, plansIn: Plan[], sold: Seller): Assessed {
+  const plans = bySlot(plansIn);
   const totals = new Map<number, number>();
   for (const p of plans) for (const s of p.ships) totals.set(s.id, (totals.get(s.id) ?? 0) + s.perDay);
   const tierAt = (id: number) => TIERS_DOWN.indexOf(input.ix.byId.get(id)?.tier ?? 'P0');
-  return [...totals.entries()]
+  const outputs: Output[] = [...totals.entries()]
     .sort((a, b) => tierAt(a[0]) - tierAt(b[0]) || a[0] - b[0])
     .map(([id, perDay]) => {
       const s = sold(id, perDay);
       // A good with no price says why; nothing is claimed to build up for it.
       return { id, perDay, sold: s, buildingUp: s.isk == null ? 0 : Math.max(0, perDay - s.units) };
     });
+  const exports: Ship[][] = plans.map(() => []);
+  const taxOrder = plans.map((p, k) => k).sort((a, b) => {
+    const ra = plans[a].planet.tax.rate, rb = plans[b].planet.tax.rate;
+    return (ra ?? Infinity) - (rb ?? Infinity) || plans[a].at - plans[b].at;
+  });
+  for (const o of outputs) {
+    let left = o.perDay - o.buildingUp;
+    for (const k of taxOrder) {
+      const made = plans[k].ships.find((s) => s.id === o.id)?.perDay ?? 0;
+      if (!(made > 0)) continue;
+      const out = Math.min(made, Math.max(0, left));
+      left -= out;
+      exports[k].push({ id: o.id, perDay: out });
+    }
+  }
+  let value = outputs.reduce((t, o) => t + (o.sold.isk ?? 0), 0);
+  plans.forEach((p, k) => { for (const t of exportTax(input, p, exports[k])) value -= t.perDay ?? 0; });
+  return { plans, outputs, exports, value, unpriced: outputs.filter((o) => o.sold.isk == null).length };
 }
 
-/** What the planets' outputs fetch, less the taxes known. */
-function iskOf(input: PlanInput, plans: Plan[], outputs: Output[]): number {
-  const isk = outputs.reduce((t, o) => t + (o.sold.isk ?? 0), 0);
-  return isk - plans.reduce((t, p) => t + knownTax(input, p), 0);
+/** Within a hundredth of an ISK is the same: sums of the same figures in another order differ by rounding. */
+const SAME_ISK = 0.01;
+const better = (a: Assessed, b: Assessed | null) =>
+  !b || a.value > b.value + SAME_ISK || (Math.abs(a.value - b.value) <= SAME_ISK && a.unpriced < b.unpriced);
+
+/**
+ * The planets that pay most, up to the character's allowance. First, step by step, the planet and product adding most to
+ * the setup so far (a good two planets make shares one market's cap), after the known tax; an output with no price adds
+ * nothing to the ranking, never a figure; ties go to the planet listed first, then the first product. Then `improve`.
+ */
+function choose(input: PlanInput, kind: 'p1' | 'p2', allowed: number, sold: Seller): Plan[] {
+  const options = input.planets.map((p, at) => plansFor(input, p, at, kind, false));
+  let chosen: Plan[] = [];
+  const used = new Set<number>();
+  while (chosen.length < allowed) {
+    let best: Assessed | null = null, pick: Plan | null = null;
+    for (let at = 0; at < options.length; at++) {
+      if (used.has(at)) continue;
+      for (const p of options[at]) {
+        const a = assess(input, [...chosen, p], sold);
+        if (better(a, best)) { best = a; pick = p; }
+      }
+    }
+    if (!pick) break;
+    chosen = bySlot([...chosen, pick]);
+    used.add(pick.at);
+  }
+  return improve(input, options, chosen, sold);
+}
+
+/** At most this many improving moves: each strictly gains, so the search ends anyway; the bound keeps a re-rank quick. */
+const MAX_MOVES = 50;
+
+/**
+ * Taking planets one at a time can lock in a pick a later planet would have done better: Ice takes Test Cultures, the only
+ * dear P2 both it and Temperate make, and Temperate is left with a cheap one, where Ice on another dear P2 and Temperate on
+ * Test Cultures pays more. So each chosen planet's product is picked again, and each planet not used is tried in place of
+ * each chosen one; when the new pick makes a good another chosen planet makes, that planet's product is picked again with
+ * it. The first move that gains is taken, until none does.
+ */
+function improve(input: PlanInput, options: Plan[][], start: Plan[], sold: Seller): Plan[] {
+  let now = assess(input, start, sold);
+  const tryMove = (): Assessed | null => {
+    const cur = now.plans;
+    const usedAt = new Set(cur.map((p) => p.at));
+    for (let i = 0; i < cur.length; i++) {
+      for (let at = 0; at < options.length; at++) {
+        if (at !== cur[i].at && usedAt.has(at)) continue;
+        for (const q of options[at]) {
+          if (q === cur[i]) continue;
+          const next = cur.slice();
+          next[i] = q;
+          const a = assess(input, next, sold);
+          if (better(a, now)) return a;
+          const goods = new Set(q.ships.map((s) => s.id));
+          for (let j = 0; j < cur.length; j++) {
+            if (j === i || !cur[j].ships.some((s) => goods.has(s.id))) continue;
+            for (const r of options[cur[j].at]) {
+              if (r === cur[j]) continue;
+              const both = next.slice();
+              both[j] = r;
+              const b = assess(input, both, sold);
+              if (better(b, now)) return b;
+            }
+          }
+        }
+      }
+    }
+    return null;
+  };
+  for (let n = 0; n < MAX_MOVES; n++) {
+    const a = tryMove();
+    if (!a) break;
+    now = a;
+  }
+  return now.plans;
 }
 
 /** Fit the plan at the character's CCU level and the planet's own radius; the heads a rate didn't give are the most that fit. */
@@ -346,7 +416,8 @@ const jitaUnits = (s: Sold) => s.jitaUnits ?? (s.where.length === 1 && s.where[0
  */
 export function upkeepOf(input: PlanInput, outputs: Output[], planets: number, restocksPerWeek = 0): Upkeep {
   const vol = (id: number) => input.ix.byId.get(id)?.volume ?? 0;
-  const haul = outputs.reduce((t, o) => t + o.perDay * vol(o.id) * 7, 0);
+  // Shipped to market: what sells (all of a good with no price); what builds up stays on its planet.
+  const haul = outputs.reduce((t, o) => t + (o.perDay - o.buildingUp) * vol(o.id) * 7, 0);
   const jita = outputs.reduce((t, o) => t + jitaUnits(o.sold) * vol(o.id) * 7, 0);
   const f = input.freight;
   const batch = f && f.min != null && f.min > 0 && f.perM3 > 0 ? f.min / f.perM3 : null;
@@ -375,18 +446,26 @@ export function planSingle(input: PlanInput, kind: 'p1' | 'p2'): Setup {
   if (!input.planets.some((p) => p.type)) return blocked(input, kind, NO_PI_HERE, []);
   const cc = char.ccLevel!, allowed = char.planets!;
   const sold = seller(input.sell);
-  const plans = choose(input, kind, allowed, sold);
-  const outputs = outputsOf(input, plans, sold);
+  const now = assess(input, choose(input, kind, allowed, sold), sold);
+  const { plans, outputs } = now;
+  const name = (id: number) => input.ix.byId.get(id)?.name ?? `#${id}`;
 
-  const byPlanet = new Map(plans.map((p) => [p.planet.planetId, p]));
+  const byPlanet = new Map(plans.map((p, k) => [p.planet.planetId, k]));
   const lacks = new Set<string>();
   const roles = input.planets.map((planet): Role => {
     if (!planet.type) return unusedRole(planet, char.charId, NO_PI);
-    const p = byPlanet.get(planet.planetId);
-    if (!p) return unusedRole(planet, char.charId, allowed === 1 ? 'Your 1 planet goes to one that pays more' : `Your ${allowed} planets go to ones that pay more`);
+    const k = byPlanet.get(planet.planetId);
+    if (k == null) return unusedRole(planet, char.charId, allowed === 1 ? 'Your 1 planet goes to one that pays more' : `Your ${allowed} planets go to ones that pay more`);
+    const p = plans[k], exported = now.exports[k];
     const f = fitted(input, p, cc);
     if (f.lacks) lacks.add(f.lacks);
-    const notes = [...rateNotes(input, p), ...f.notes];
+    // What the market doesn't take stays on the planet, building up, and pays no export tax.
+    const stays = p.ships
+      .map((s) => ({ id: s.id, perDay: s.perDay - (exported.find((e) => e.id === s.id)?.perDay ?? 0) }))
+      .filter((s) => s.perDay > 1e-6)
+      .map((s) => `${unitsSaid(s.perDay)} ${name(s.id)}`);
+    const notes = [...rateNotes(input, p), ...f.notes,
+      ...(stays.length ? [`${listSaid(stays)} a day stay on the planet, building up: the market takes no more, so they aren’t exported or taxed`] : [])];
     return {
       planetId: planet.planetId, charId: char.charId, does: 'extract',
       extracts: p.lines.map((l, i) => ({ p0: l.p0, perHour: l.perHour, heads: f.heads[i], rate: l.rate })),
@@ -394,7 +473,7 @@ export function planSingle(input: PlanInput, kind: 'p1' | 'p2'): Setup {
         ...p.lines.map((l) => ({ id: l.p1, perDay: l.p1PerHour * 24, facility: 'basic' as const, count: l.basics })),
         ...(p.advanced ? [{ id: p.advanced.id, perDay: p.advanced.perHour * 24, facility: 'advanced' as const, count: p.advanced.count }] : []),
       ],
-      ships: p.ships.map((s) => ({ id: s.id, perDay: s.perDay, to: 'market' as const })),
+      ships: exported.filter((s) => s.perDay > 1e-6).map((s) => ({ id: s.id, perDay: s.perDay, to: 'market' as const })),
       fit: f.fit,
       why: notes.length ? notes.map(cap).join('. ') : null,
     };
@@ -402,20 +481,20 @@ export function planSingle(input: PlanInput, kind: 'p1' | 'p2'): Setup {
 
   const taxes: Setup['taxes'] = [];
   let perPctBase = 0;
-  for (const p of plans) for (const t of exportTax(input, p)) {
+  plans.forEach((p, k) => { for (const t of exportTax(input, p, now.exports[k])) {
     taxes.push({ planetId: p.planet.planetId, tier: t.tier, perDay: t.perDay });
     if (t.perDay == null) perPctBase += t.base;
-  }
+  } });
   const taxKnown = taxes.every((t) => t.perDay != null);
   const unvalued = outputs.filter((o) => o.sold.isk == null).length;
-  const iskDay = iskOf(input, plans, outputs);
+  const iskDay = now.value;
 
   // The higher reading: the same planets and products, sized to it.
   const anyHigher = plans.some((p) => p.lines.some((l) => l.rate?.higher != null));
   let iskDayHigh: number | null = null;
   if (anyHigher) {
     const high = plans.map((p) => replan(input, p, kind, true));
-    iskDayHigh = iskOf(input, high, outputsOf(input, high, sold));
+    iskDayHigh = assess(input, high, sold).value;
   }
 
   const before: Setup['before'] = [];

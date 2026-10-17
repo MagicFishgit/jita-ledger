@@ -7713,10 +7713,40 @@ console.log('\n--- Planets: the planner, one planet at a time (piPlan.ts: P0 →
   const capped = planSingle({ ...three, sell: sellBy(unitOf, (id) => (id === NANITES ? 400 : Infinity)) }, 'p2');
   const nan = capped.outputs.find((o) => o.id === NANITES);
   eq('  one cap for both planets: 400 of 480 sell, 80 build up', [nan.perDay, nan.sold.units, nan.buildingUp, nan.sold.isk], [480, 400, 80, 4_000_000]);
+  // What the market doesn't take stays on its planet, untaxed: A exports its 240 (listed first, same 2%), D 160 of its 240.
+  eq('  only what sells is exported and taxed', [capped.taxes.map((t) => [t.planetId, t.perDay]), capped.iskDay, role(capped, D).ships.map((x) => x.perDay)], [[[A, 34_560], [D, 160 * 7200 * 0.02]], 4_000_000 - 400 * 7200 * 0.02, [160]]);
+  has('  the rest is said to build up there', role(capped, D).why ?? '', '80 Nanites a day stay on the planet, building up');
+  eq('  hauled: what sells', capped.upkeep.haulM3PerWeek, 400 * 0.75 * 7);
   const tight = planSingle({ ...three, sell: sellBy(unitOf, (id) => (id === NANITES ? 300 : Infinity)) }, 'p2');
   eq('  a cap the first planet nearly fills sends the second elsewhere', [tight.outputs.find((o) => o.id === NANITES).perDay, adv(role(tight, D)).id !== NANITES, role(tight, B).does], [240, true, 'unused']);
   eq('  a single planet allowed', planSingle({ ...three, char: { ...char, planets: 1 } }, 'p2').roles.find((r) => r.planetId === D).why, 'Your 1 planet goes to one that pays more');
   eq('  no planet with PI: said, nothing throws', planSingle({ ...input, planets: [planets[2]] }, 'p2').why, 'No planet here has planetary industry');
+
+  // The review's case: Test Cultures, the only P2 both Ice and Temperate make alone, at 10,000 capped at 240 a day; Ice's
+  // other P2s at 9,000, Temperate's at 1,000. One planet at a time, Ice (0%) takes Test Cultures and Temperate (2%) is left
+  // with a 1,000 P2: 2,605,440. Ice on another 9,000 P2 and Temperate on Test Cultures: 2,160,000 + 2,400,000 − 34,560.
+  {
+    const TC = idOf('Test Cultures');
+    const iceOwn = ix.commodities.filter((c) => ['Supertensile Plastics', 'Viral Agent'].includes(c.name)).map((c) => c.id);
+    const price = (id) => (id === TC ? 10_000 : iceOwn.includes(id) ? 9000 : ix.byId.get(id).tier === 'P2' ? 1000 : 400);
+    const typed = (rate) => ({ rate, from: 'typed', npc: 0, interbus: false });
+    const pair = planSingle({ ...input, rateOf: () => rate(),
+      planets: [{ planetId: 1, name: 'Temperate', type: 'Temperate', radiusKm: 3000, tax: typed(0.02) }, { planetId: 2, name: 'Ice', type: 'Ice', radiusKm: 3000, tax: typed(0) }],
+      sell: sellBy(price, (id) => (id === TC ? 240 : Infinity)) }, 'p2');
+    eq('  a planet taken first gives way when another needs its good more', [pair.iskDay, pair.roles.map((r) => ix.byId.get(adv(r).id).name)], [4_525_440, ['Test Cultures', 'Supertensile Plastics']]);
+  }
+  // The review's other case: twelve planets, P0 → P1, every good capped at 300 a day, rates 12,000 with 14,000 beside. Taxed on
+  // every unit made, the higher reading read lower (954,240 against 913,280): the extra units built up and paid tax.
+  {
+    const kinds = ['Barren', 'Lava', 'Barren', 'Barren', 'Temperate', 'Barren', 'Gas', 'Gas', 'Gas', 'Gas', 'Ice', 'Oceanic'];
+    const big = kinds.map((type, i) => ({ planetId: 40000100 + i, name: `P${i}`, type, radiusKm: 5000, tax: brave(type === 'Barren' || type === 'Temperate' ? 0.02 : 0.05) }));
+    const price = (id) => ({ P0: 2, P1: 400, P2: 3000 + (id % 7) * 1000 })[ix.byId.get(id).tier] ?? null;
+    const capIn = { ...input, planets: big, char: { ...char, planets: 5 }, rateOf: () => rate({ higher: 14000, checked: false }), sell: sellBy(price, () => 300) };
+    for (const k of ['p1', 'p2']) {
+      const s = planSingle(capIn, k);
+      eq(`  ${k}: under a binding cap the higher reading is never lower`, s.iskDayHigh >= s.iskDay, true);
+    }
+  }
 }
 
 console.log('\n--- Industry: the rules (industry.ts), on EVE Ref\'s own figures ---');
