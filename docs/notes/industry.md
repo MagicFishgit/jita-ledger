@@ -662,7 +662,7 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   (a 500 says nothing of access) keeps it, another reader starts it afresh. A refused hub is asked again hourly, so a character accepted onto
   the access list starts reading within the hour.
   - **When it reads**: last on the `37` chain (after the alts' read, Goonmetrics and the copy round: a missed Goonmetrics or copy round slips six
-    hours, a missed structure read one), every hub whose last try is 50 minutes old, least recently read first **by `at`** (so a hub cut short goes
+    hours, a missed structure read one), every hub whose last try is 45 minutes old (`BOOK_DUE_MS`; a try stamped as late as :50:30 is 47.5 minutes old at the next :38, so 50 would skip that hour), least recently read first **by `at`** (so a hub cut short goes
     first next hour, and one long market can't keep another unread), no page asked for past 14 minutes from the cron's time. Inside its own
     try/catch; **not a watched job** (a hub refused until the user is accepted would mail daily; the tab says each hub's state). The fold moved out
     of scan.ts unchanged: the scan's tests pass untouched.

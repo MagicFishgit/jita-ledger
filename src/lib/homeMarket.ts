@@ -160,7 +160,7 @@ export type HomeBookAnswer = { hub: number; at: string; rows: Record<string, Str
  * its refusal reads calmly ("Owner isn't on UALX-3's access list yet": Ruling 1). Goonmetrics' two are named UALX-3 and C-J6MT, a hub
  * you added by its structure's name (Ruling 2). A try by an earlier reader says nothing of this one's: only its last good read is said.
  */
-export function ownMarketSaid(h: HubState, now: number, gm: boolean | 'tracked'): string {
+export function ownMarketSaid(h: HubState, now: number, gm: boolean | 'tracked', loginHolds = false): string {
   const name = hubOf(h.id)?.short ?? hubShort(h.name);
   const who = h.readerIsMain ? 'you' : h.readerName ?? `Character ${h.reader}`;
   // A default hub's refusal names the character, yours by your name, and reads calmly (Ruling 1).
@@ -175,7 +175,7 @@ export function ownMarketSaid(h: HubState, now: number, gm: boolean | 'tracked')
   // The main's own cloud login without the permission is every hub's state from the deploy until it's handed over: a login to hand
   // over again, never a failure or a refusal (Review Focus 4).
   if (h.login === 'permission') return `Reading its own market needs EVE’s permission for structure markets: ${h.readerIsMain
-    ? 'log in again here, then hand the cloud your login again (Settings → Your data)' : `hand the cloud ${who}’s login again on Characters`}.`;
+    ? `${loginHolds ? '' : 'log in again here, then '}hand the cloud your login again (Settings → Your data)` : `hand the cloud ${who}’s login again on Characters`}.`;
   const b = h.book && h.book.reader === h.reader ? h.book : null;
   // The last good read, and whose it was (`readBy`, the read's, not the last try's) when that isn't this reader's.
   const last = h.book?.at ? ` The last good read was ${homeAgo(h.book.at, now)}${h.book.readBy != null && h.book.readBy !== h.reader && h.book.readByName ? `, with ${h.book.readByName}’s login` : ''}.` : '';
@@ -191,6 +191,14 @@ export function ownMarketSaid(h: HubState, now: number, gm: boolean | 'tracked')
   // A read has a time and, with it, its types and pages; a read with neither count says only when.
   return `Its own market was read ${homeAgo(b.at ?? b.tried, now)} with ${login}${b.types != null ? `: ${units(b.types)} of the watched items listed there${b.pages ? ` (${units(b.pages)} page${b.pages === 1 ? '' : 's'})` : ''}` : ''}.`;
 }
+
+/**
+ * Whether to ask the cloud for a hub's own read, and whether to wait for the list first (the review of 17 October 2026, M3). The read is
+ * asked for only once the cloud's list is in and the hub isn't switched off with Nobody: until then a default you switched off would
+ * speak from its last read, which is what `ownRead` stops. \`pending\`: the list is still coming, or the asked-for read is.
+ */
+export function bookWanted(list: 'loading' | 'ok' | 'other', state: { off?: boolean } | null): boolean { return list === 'ok' && !state?.off; }
+export function listPending(list: 'loading' | 'ok' | 'other'): boolean { return list === 'loading'; }
 
 /** A hub's broker fee as your orders there paid it: the median of the newest placements measured, how many, the newest's time, the lowest and highest. */
 export type HubFee = { rate: number; orders: number; newest: string; low: number; high: number };

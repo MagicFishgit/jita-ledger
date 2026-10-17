@@ -93,7 +93,7 @@ npx wrangler tail jita-ledger-cloud                      # live logs
 ```
 
 `npm run build` type-checks the Worker too (`tsc -p worker`). **The Worker deploys itself**
-(`.github/workflows/deploy-worker.yml`) on a push to `main` that touches `worker/`, `src/lib/`, the package files or
+(`.github/workflows/deploy-worker.yml`) on a push to `main` that touches `worker/`, `src/lib/`, the data files the Worker imports (`src/data/industryTypes.json`, `industryEiv.json`), the package files or
 the workflow: the logic tests, the Worker's types, a wait while a full-market scan is running (a deploy cuts a run
 off), every pending migration, then `wrangler deploy`. It uses the `CLOUDFLARE_API_TOKEN` repository secret (Workers
 Scripts: Edit and D1: Edit, made by the user on 28 September 2026) and the `account_id` in `wrangler.toml`. The site

@@ -9,6 +9,8 @@ on:
     paths:
       - 'worker/**'
       - 'src/lib/**'
+      - 'src/data/industryTypes.json'
+      - 'src/data/industryEiv.json'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/deploy-worker.yml'

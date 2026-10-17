@@ -212,7 +212,7 @@ export function useStationSaid(ids: readonly number[], ix: Indexed, graph: Graph
  * Goonmetrics' with its time and, after it, what its own market's read says (correction 7, Review Focus 2 and 3); a hub Goonmetrics
  * doesn't track with no fresh read prices nothing, said; a hub picked that the cloud's list hasn't given yet says why.
  */
-export function homeSaid(f: Pick<Finder, 'hub' | 'home' | 'hubMissing'>, now: number, ago: (iso: string, now: number) => string, o: { own?: boolean } = {}): string | null {
+export function homeSaid(f: Pick<Finder, 'hub' | 'home' | 'hubMissing'>, now: number, ago: (iso: string, now: number) => string, o: { own?: boolean; loginHolds?: boolean } = {}): string | null {
   // `own: false` (To do): only which price speaks and its age; a refused or unreadable own market is said on the Industry tab alone (Ruling 1).
   const withOwn = o.own !== false;
   const h = f.hub, st = f.home;
@@ -231,7 +231,7 @@ export function homeSaid(f: Pick<Finder, 'hub' | 'home' | 'hubMissing'>, now: nu
   if (st.itemsFailed && !h.goonmetrics) return itemsLost.trim();
   if (st.speaks?.source === 'structure') return `${h.short}’s prices: its own market, read ${homeAgo(st.speaks.at, now)}.`;
   const hb = st.hub && !st.hub.off ? st.hub : null;
-  const ownSaid = (gm: boolean | 'tracked') => (withOwn && hb ? ` ${ownMarketSaid(hb, now, gm)}` : '');
+  const ownSaid = (gm: boolean | 'tracked') => (withOwn && hb ? ` ${ownMarketSaid(hb, now, gm, o.loginHolds)}` : '');
   if (!h.goonmetrics) {
     const b = st.book;
     if (b.status === 'off') return `${h.short}’s prices come from the cloud, which isn’t on in this browser (Settings → Your data).`;

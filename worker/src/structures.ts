@@ -24,7 +24,7 @@ export async function searchStructures(env: Env, ledger: number, char: number, q
   if (char !== ledger && !(await onRoster(env.DB, ledger, char))) throw new BadRequest('That character isn’t one of yours.');
   const main = char === ledger;
   const where = main ? 'under Settings → Your data' : 'on Characters';
-  const named = main ? 'you' : (await env.DB.prepare('SELECT name FROM alts WHERE char_id = ?1').bind(char).first<{ name: string | null }>())?.name ?? 'that character';
+  const named = main ? 'you' : (await env.DB.prepare('SELECT name FROM alts WHERE char_id = ?1 AND ledger = ?2').bind(char, ledger).first<{ name: string | null }>())?.name ?? 'that character';
   const login = await readerLogin(env, main ? ledgerReader(ledger) : altReader(ledger, char));
   if (!login) throw new BadRequest(`The cloud holds no login for ${named}: hand it over ${where} first.`);
   const lacks = [SCOPE_SEARCH, SCOPE_STRUCTURES].find((s) => !login.scopes.includes(s));

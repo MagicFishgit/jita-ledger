@@ -9154,6 +9154,24 @@ console.log('\n--- Industry stage 4: the hub list and which price speaks at home
     'Its own market isn’t read with a character: Goonmetrics’ prices only.',
   ]);
 
+  // Final review M4: once this browser's login holds the structure-markets permission, only the hand-over is left to do.
+  eq('the main\'s login without the permission: "log in again here" only while this browser lacks it', [said({ login: 'permission' }, false), HM.ownMarketSaid(hub({ login: 'permission' }), T, false, true), HM.ownMarketSaid(hub({ login: 'permission', ...alt }), T, false, true)], [
+    'Reading its own market needs EVE’s permission for structure markets: log in again here, then hand the cloud your login again (Settings → Your data).',
+    'Reading its own market needs EVE’s permission for structure markets: hand the cloud your login again (Settings → Your data).',
+    'Reading its own market needs EVE’s permission for structure markets: hand the cloud Builder Alt’s login again on Characters.',
+  ]);
+  // Final review M3: a hub's own read is asked for only once the cloud's list is in and the hub isn't switched to Nobody.
+  eq('a hub\'s own read waits for the cloud\'s list and isn\'t asked for a hub switched to Nobody; the list loading holds everything', [
+    HM.bookWanted('loading', null), HM.bookWanted('other', null), HM.bookWanted('ok', { off: true }), HM.bookWanted('ok', { off: false }), HM.bookWanted('ok', null),
+    HM.listPending('loading'), HM.listPending('other'), HM.listPending('ok'),
+  ], [false, false, false, true, true, true, false, false]);
+  // Final review M5: a built item whose home hub's item list failed to load offers the reload, not a retry.
+  {
+    const bb = { charId: 7, who: null, typeId: 25894, place: 60003760, placeName: 'Home', jobIds: [2], newest: 2, units: 1, held: 1, stationId: 60003760 };
+    const mk = (reload) => D.builtItem(bb, { name: 'Pump', where: 'home', hubName: 'Mothership', isMain: true, market: { kind: 'unknown', said: 'x' }, reload });
+    eq('a built item with its hub\'s item list failed offers Reload to try again; otherwise Blueprints & jobs', [mk(true).action, mk(false).action.label], [{ label: 'Reload to try again', reload: true }, 'Blueprints & jobs']);
+  }
+
   // Fix round 1: ages at the two-hour edge, the reader of the last good read, Goonmetrics standing in only when it does.
   eq('ages near the two-hour edge never read "2 h ago" on both sides of the rule', [HM.homeAgo(at(119), T), HM.homeAgo(at(121), T), HM.homeAgo(at(120), T), HM.homeAgo(at(179), T), HM.homeAgo(at(30), T), HM.homeAgo(at(300), T)],
     ['1 h 59 min ago', '2 h 1 min ago', '2 h ago', '2 h 59 min ago', '30 min ago', '5 h ago']);

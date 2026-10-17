@@ -38,6 +38,7 @@ import { useRunningResearch } from './hustles/researchWorth';
 import { cloudCovers, useCloud } from '../lib/cloud';
 import { JITA_44, SCOPE } from '../lib/config';
 import { toast } from '../lib/toast';
+import { reloadApp } from '../lib/reload';
 import { ACTIVITY_SAID, builtItems, isStationId, type BuiltItem, type JobRecord } from '../lib/industryTrack';
 import { jobPlaceSaid } from '../lib/industryOwned';
 import { canOpenInGame, copyPrice, downloadText, useEnsureNames, useShipKinds, useTypeName } from './common';
@@ -438,6 +439,7 @@ export function Todo() {
       const lost = alt ? lostSaid({ isMain: false, name: who!, pilot: { lost: (st => (st === 'working' ? undefined : st))(loginState(alt, []).state) } }) : null;
       out.push(builtItem({ ...b, who, placeName }, { name: name(b.typeId), where, market, hubName: hub?.short ?? null, isMain: who == null, age, shipFailed: shipKinds.failed.has(b.typeId), lost,
         homeFrom: homeQ.speaks?.source === 'structure' ? 'its own market' : 'Goonmetrics',
+        reload: where === 'home' && homeQ.itemsFailed && !homeQ.speaks,
         hubWhy: hubUnknown ? homeSaid({ hub: null, home: homeQ, hubMissing: homeMarkets }, now, ago) : null }));
     }
     // A started plan's buy orders not placed yet (the Capital planner's "Start this plan"), for a week. A bid that bought
@@ -680,6 +682,7 @@ export function Todo() {
   });
 
   async function act(x: TodoItem, checking = false) {
+    if (x.action.reload) { void reloadApp(); return; }
     if (x.action.cloudLogin) { if (x.action.cloudLogin === 'main') loginForCloud(); else loginMailerForCloud(); return; }
     if (x.action.exportBackup) {
       // Exporting moves the last-backup time, and that alone ticks this off.

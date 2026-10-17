@@ -2,6 +2,8 @@ import { Fragment, useMemo, useState } from 'react';
 import { ChevronRight, Coins, Scale, Store } from 'lucide-react';
 import { ago, iskBig, iskBigSigned, pct, units } from '../../lib/format';
 import { navigate, useNow } from '../../lib/hooks';
+import { hasScope } from '../../lib/auth';
+import { SCOPE } from '../../lib/config';
 import { reloadApp } from '../../lib/reload';
 import { productOf, type Indexed } from '../../lib/industry';
 import { payback, productKind, type BpoWhere, type Row } from '../../lib/industryRank';
@@ -91,7 +93,7 @@ export function IndustryBuild({ c, ix, graph, mainName, chars }: { c: IndustryCh
   const before = [beforeTax && 'the facility tax', beforeBroker && `the broker fee at ${f.hub?.short}`].filter(Boolean).join(' and ');
   const headSaid = before ? `Profit a day, before ${before}` : 'Profit a day, one slot';
   const now = useNow(60_000);
-  const homeLine = homeSaid(f, now, ago);
+  const homeLine = homeSaid(f, now, ago, { loginHolds: hasScope(SCOPE.structureMarkets) });
   // A job's total leaves out an Alpha tax whose clone state isn't read (jobCostOf): every figure built on it says so.
   const cloneUnread = c.clone === 'unknown';
 

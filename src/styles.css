@@ -1562,8 +1562,9 @@ button.tile.press .tile-v, button.tile.press .tile-n { display: block; }
   .hc-table .hc-phone .hc-doubt { color: var(--acc2); }
   .hc-table th:first-child, .hc-table td:first-child { padding-left: 10px; }
   /* A number box whose label names a hub by its structure's name can be longer than the screen: its label wraps. */
-  .chip:has(.cu) { height: auto; min-height: 36px; }
-  .chip:has(.cu) .cl { white-space: normal; padding-top: 4px; padding-bottom: 4px; }
+  .ind-choices .chip:has(.cu) { height: auto; min-height: 36px; }
+  .ind-choices .chip:has(.cu) .cl { white-space: normal; padding-top: 4px; padding-bottom: 4px; }
+  .ind-choices .chip:has(.cu) input { align-self: stretch; height: auto; }
   /* The Industry tab's five sections wrap to three rows: each row is filled, so Home markets, last, runs across its row rather than
      sitting alone in a corner (Side hustles' tabs do the same). */
   .ind-head .seg[aria-label="Industry section"] { width: 100%; }

@@ -140,7 +140,7 @@ export function IndustryHome({ c, chars, graph }: { c: IndustryChar; chars: Indu
                   // Added, whatever the read then does; and what the read did, said as it is (read, refused, skipped for a login that
                   // can't, failing): never a read claimed. An added hub is one Goonmetrics doesn't track.
                   let said: string;
-                  try { said = ownMarketSaid(await cloudReadHome(f.id), Date.now(), false); }
+                  try { said = ownMarketSaid(await cloudReadHome(f.id), Date.now(), false, hasScope(SCOPE.structureMarkets)); }
                   catch (e) { said = `Couldn’t read its market just now (${errorSaid(e)}): the cloud reads it hourly.`; }
                   toast(`Added ${hubShort(f.name)}. ${said}`, 'info');
                 });
@@ -184,7 +184,7 @@ function HubLine({ r, chars, graph, now, busy, act, listOk, listLoading, isHome,
                 : gm.status === 'behind' ? 'The cloud is a version behind'
                   : gm.status === 'off' ? 'The cloud isn’t on in this browser'
                     : gm.status === 'failed' ? `Couldn’t read Goonmetrics’ prices: ${gm.error}` : '–';
-  const own = r.state ? ownMarketSaid(r.state, now, gmSaid) : listLoading ? 'Reading…' : listOk ? '–' : 'Not known here: see above.';
+  const own = r.state ? ownMarketSaid(r.state, now, gmSaid, hasScope(SCOPE.structureMarkets)) : listLoading ? 'Reading…' : listOk ? '–' : 'Not known here: see above.';
   // The select shows only once the list is in, and the cloud always lists Goonmetrics' two and every hub you added with its state, so
   // the main as a fallback is never what a row with no state shows as its reader.
   const reader = r.state ? (r.state.off ? 0 : r.state.reader) : chars[0].charId;
@@ -195,7 +195,7 @@ function HubLine({ r, chars, graph, now, busy, act, listOk, listLoading, isHome,
   // A read asked for here says what it did: the hub's own market in words, as the row says it, never a read it didn't make.
   const readNow = async () => {
     let said: string;
-    try { said = ownMarketSaid(await cloudReadHome(r.id), Date.now(), gmSaid); }
+    try { said = ownMarketSaid(await cloudReadHome(r.id), Date.now(), gmSaid, hasScope(SCOPE.structureMarkets)); }
     catch (e) { if ((e as { status?: number }).status === 404) throw e; said = `Couldn’t read ${short}’s market just now (${errorSaid(e)}): the cloud reads it hourly.`; }
     toast(said, 'info');
   };

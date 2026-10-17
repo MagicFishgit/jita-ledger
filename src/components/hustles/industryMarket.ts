@@ -6,7 +6,7 @@ import type { IndustryIndex } from '../../lib/industry';
 import { npcHoldMs, type NpcRow } from '../../lib/industryRank';
 import type { CopySummary } from '../../lib/copyMarket';
 import type { StructureRow } from '../../lib/bookFold';
-import { bookHoldMs, HOME_HOLD_MAX_MS, homeHoldMs, homeQuote, homeSpeaks, hubsFrom, ordersInRead, ownRead, structureQuote, type HomeHub, type HomeRow, type HomeSpeaks, type HubOrder, type HubState } from '../../lib/homeMarket';
+import { bookHoldMs, bookWanted, listPending, HOME_HOLD_MAX_MS, homeHoldMs, homeQuote, homeSpeaks, hubsFrom, ordersInRead, ownRead, structureQuote, type HomeHub, type HomeRow, type HomeSpeaks, type HubOrder, type HubState } from '../../lib/homeMarket';
 import { useNow } from '../../lib/hooks';
 import type { HomeQuote } from '../../lib/industryRank';
 import { adjustedPricesShared, industrySystemsShared, jitaBook, regionHistory, resolveNames } from '../../lib/market';
@@ -285,6 +285,7 @@ export function useHomeHubs(on = true): { hubs: HomeHub[]; markets: MarketsState
 /** A hub's last good read of its own market: `none` before one, `behind` for a Worker without the route, as useHomePrices. */
 export type BookState = { status: 'off' } | { status: 'loading' } | { status: 'behind' } | { status: 'failed'; error: string } | { status: 'none' } | { status: 'ok'; at: string; rows: Record<string, StructureRow> };
 const LOADING_BOOK: BookState = { status: 'loading' };
+const NO_BOOK: BookState = { status: 'none' };
 export function useHomeBook(hub: number | null): BookState {
   const cloud = useCloud();
   const ver = useHomeVer();
@@ -332,14 +333,19 @@ let watchBad = false;
 const loadWatch = () => (watchLoad ??= import('../../data/industryTypes.json').then((m) => { watchSet = new Set<number>(m.default.watch); }, () => { watchBad = true; }));
 export function useHomeQuotes(hub: HomeHub | null, mine: readonly HubOrder[] = NO_ORDERS): HomeSource {
   const gmRead = useHomePrices(hub?.goonmetrics ? hub.id : null);
-  const book = useHomeBook(hub?.id ?? null);
   const markets = useHomeMarkets(!!hub);
+  const listKind = markets.status === 'ok' ? 'ok' : markets.status === 'loading' ? 'loading' : 'other';
+  const state = hub && markets.status === 'ok' ? markets.list.find((x) => x.id === hub.id) ?? null : null;
+  // The hub's own read waits for the cloud's list (as the Home markets row does): a default switched to Nobody must not speak from its
+  // last read meanwhile, or for good when the list fails. Goonmetrics' prices don't wait on the list's failing, only on its loading.
+  const asked = !!hub && bookWanted(listKind, state);
+  const bookRead = useHomeBook(asked ? hub!.id : null);
+  const book: BookState = asked ? bookRead : NO_BOOK;
   const now = useNow(60_000);
   const gm: HomeSource['gm'] = hub && !hub.goonmetrics ? UNTRACKED : gmRead;
-  const state = hub && markets.status === 'ok' ? markets.list.find((x) => x.id === hub.id) ?? null : null;
   // A default switched to Nobody keeps its last read in the cloud: it doesn't speak for the hub once you stopped reading it.
   const own = ownRead(book.status === 'ok' ? book : null, state);
-  const bookPending = !!hub && book.status === 'loading' && !state?.off;
+  const bookPending = !!hub && (listPending(listKind) || (asked && book.status === 'loading'));
   const structureSpeaks = homeSpeaks(own, null, now)?.source === 'structure';
   const [watch, setWatch] = useState<Set<number> | null>(watchSet);
   const [watchFailed, setWatchFailed] = useState(watchBad);

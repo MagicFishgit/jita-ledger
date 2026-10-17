@@ -49,7 +49,7 @@ export type TodoItem = {
   /** `copy`: a price opening it in game puts on the clipboard, ready for the price box. */
   /** `cloudLogin`: which of the cloud's logins to hand over again. */
   /** `dest`: a station to set as the destination in game first (the main's own R&D agent's). */
-  action: { label: string; route?: string; typeId?: number; exportBackup?: boolean; copy?: number; cloudLogin?: 'main' | 'mailer'; dest?: number; contract?: number };
+  action: { label: string; route?: string; typeId?: number; exportBackup?: boolean; copy?: number; cloudLogin?: 'main' | 'mailer'; dest?: number; contract?: number; reload?: boolean };
   /**
    * `placeBuy`, when today's book has moved from the plan's prices: "Skip it" beside the button, which marks the plan's item
    * skipped (`skipPlanItem`) with the book it read.
@@ -385,7 +385,7 @@ export type BuiltMarket = { kind: 'priced'; price: number } | { kind: 'reading' 
  * 'checking' while it isn't known whether a ship (the answer depends on it), and only the main's item opens in game and
  * copies the price (an alt's points at Blueprints & jobs: the alt lists it in person).
  */
-export function builtItem(x: BuiltItem & { who: string | null; placeName: string | null }, o: { name: string; where: 'jita' | 'home' | 'checking' | 'hub' | null; market: BuiltMarket; hubName: string | null; isMain: boolean; age?: string | null; shipFailed?: boolean; lost?: string | null; homeFrom?: string | null; hubWhy?: string | null }): TodoItem {
+export function builtItem(x: BuiltItem & { who: string | null; placeName: string | null }, o: { name: string; where: 'jita' | 'home' | 'checking' | 'hub' | null; market: BuiltMarket; hubName: string | null; isMain: boolean; age?: string | null; shipFailed?: boolean; lost?: string | null; homeFrom?: string | null; hubWhy?: string | null; reload?: boolean }): TodoItem {
   const at = o.where === 'home' ? `at ${o.hubName ?? 'your home hub'}` : 'in Jita';
   const copies = o.isMain ? '; opening it copies the price.' : '.';
   // 'hub': a hub is picked that isn't known here; `hubWhy` says why in that state's words (the cloud's list loading, off, failing…).
@@ -401,7 +401,8 @@ export function builtItem(x: BuiltItem & { who: string | null; placeName: string
     stake: price != null ? price * x.units : 0,
     title: `${x.who ? `${x.who} · ` : ''}List ${units(x.units)} ${o.name} you built, at ${x.placeName ?? 'where it landed'}`,
     detail: `${units(x.jobIds.length)} job${x.jobIds.length === 1 ? '' : 's'} delivered there made ${x.held === 1 ? 'it' : 'them'}, and ${units(x.held)} ${x.held === 1 ? 'sits' : 'sit'} loose in that hangar. ${priceSaid}${o.lost ? ` As the cloud last read it. ${o.lost}` : ''}`,
-    action: o.isMain && price != null ? { label: 'Open in game', typeId: x.typeId, copy: price } : { label: 'Blueprints & jobs', route: 'hustles/industry/blueprints' },
+    // A chunk that failed to load can't be retried in place (gotchas.md): the item offers a reload.
+    action: o.reload ? { label: 'Reload to try again', reload: true } : o.isMain && price != null ? { label: 'Open in game', typeId: x.typeId, copy: price } : { label: 'Blueprints & jobs', route: 'hustles/industry/blueprints' },
   };
 }
 
