@@ -226,6 +226,8 @@ for (const id of [...t2].sort((a, b) => a - b)) {
   for (const x of m.materials ?? []) watch.add(x.typeID);
 }
 for (const id of [...t1].sort((a, b) => a - b)) for (const x of bps.get(id).activities.invention?.materials ?? []) watch.add(x.typeID);
+// Every planetary good (market groups 1333-1337): Planets values each output at home, so the home reads must price them.
+for (const [id, t] of types) if (t.marketGroupID >= 1333 && t.marketGroupID <= 1337 && t.published !== false) watch.add(id);
 
 const released = sde.releaseDate;
 const out = { build: sde.buildNumber, released, source: `CCP static data build ${sde.buildNumber}, released ${released}`, bps: outBps, types: outTypes, groups: outGroups, filters, rigs, structures, stations, skills };

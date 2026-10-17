@@ -7459,7 +7459,9 @@ console.log('\n--- Industry: the bundle (scripts/industry-bundle.mjs, CCP static
   const eivF = JSON.parse(read('../src/data/industryEiv.json'));
   eq('  every published blueprint\'s ME 0 materials (stage 2 reads them)', [Object.keys(eivF.eiv).length, eivF.eiv[25895]], [4039, [[25601, 83], [25605, 72], [25590, 56]]]);
   const watchF = JSON.parse(read('../src/data/industryTypes.json'));
-  eq('  the cloud\'s watch set (every Tech I and Tech II product, their materials and the datacores) and the blueprints it keeps NPC sellers for', [watchF.watch.length, watchF.bpos.length], [2916, 1673]);
+  eq('  the cloud\'s watch set (every Tech I and Tech II product, their materials, the datacores and the planetary goods) and the blueprints it keeps NPC sellers for', [watchF.watch.length, watchF.bpos.length], [2959, 1673]);
+  const piIds = JSON.parse(read('../src/data/planets.json')).commodities.map((c) => c.id);
+  eq('  every planetary good watched (Planets values every output at home)', [piIds.length, piIds.every((t) => watchF.watch.includes(t))], [83, true]);
   eq('    the pump and its circuits watched; its Tech II blueprint no NPC\'s; its Tech II product and datacores watched',
     [watchF.watch.includes(25894), watchF.watch.includes(25601), watchF.bpos.includes(25895), watchF.bpos.includes(26303), watchF.watch.includes(26302), watchF.watch.includes(20171)], [true, true, true, false, true, true]);
   eq('    sorted, so a rebuild of one build changes nothing', [watchF.watch.every((t, i, a) => !i || a[i - 1] < t), b.bps.every((x, i, a) => !i || a[i - 1][0] < x[0])], [true, true]);

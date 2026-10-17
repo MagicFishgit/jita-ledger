@@ -241,6 +241,11 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
     for what sells and for what the row makes, so a Tech II ship's half a hull a day reads "<1 / <1".
   - **The watch set grew to 2,916** (Tech II products, their materials, the datacores): the morning scan reads up to 1,058
     more types watch-only, Goonmetrics 59 calls a hub instead of 38.
+  - **The watch set grew to 2,959 for Planets** (17 October 2026): every planetary good (market groups 1333-1337, 83 types) joins it, 43
+    of them new (15 P0, 11 P1, 10 P2, 7 P3), since Planets values every output at home. Goonmetrics goes from 59 to 60 calls a hub
+    (50 types a call, 1.5 s apart, every six hours, unchanged); the hubs' own reads and the morning scan's watch-only pass take them with no code
+    change. `scripts/industry-bundle.mjs` adds them from `types.jsonl`'s `marketGroupID`; the other outputs came out byte-identical, and
+    `npm run check` asserts all 83 IDs of `planets.json` are watched.
   - **Rung 6's "pays now"** is the Tech II rows the character could build with the item's own sciences and encryption skill,
     at its sciences' chance now, and only when the rung is met and no row shown lacks a skill (as the other rungs): otherwise
     "Not buildable yet. Once <whose> skills cover this, these would make …, priced at <whose> skills today".
