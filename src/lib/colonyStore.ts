@@ -5,7 +5,7 @@ import { byAttention, readColony, typesIn, type Colony } from './colony';
 import { rates } from './fees';
 import { colonyLayout, jitaBook, myPlanets, resolveNames } from './market';
 import { marketBest } from './relist';
-import { getData, update } from './store';
+import { dataGeneration, getData, update } from './store';
 import { system } from './universe';
 import { SCOPE } from './config';
 
@@ -42,6 +42,7 @@ export async function readColonies(maxAgeMs = 0): Promise<ColonyRead | null> {
   if (state.read && Date.now() - Date.parse(state.read.at) < maxAgeMs) return state.read;
   setState({ busy: 'Reading your colonies…', error: null });
   try {
+    const gen = dataGeneration();
     const d = getData();
     const r = rates(d.settings);
     const heads = await myPlanets(auth.characterId);
@@ -54,8 +55,10 @@ export async function readColonies(maxAgeMs = 0): Promise<ColonyRead | null> {
       kept.push(keptFromEsi(h, raw));
     }
     // Kept as a synced document, against live state: only when it differs from what's held.
+    // The reads above took a while: a wipe (generation moved) or another login since means these colonies aren't this
+    // ledger's to write (cloud.md: a write in flight stops when dataGeneration() moves).
     const held = getData().colonies;
-    if (JSON.stringify(mergeColonies(held, kept)) !== JSON.stringify(held)) {
+    if (dataGeneration() === gen && getAuth()?.characterId === auth.characterId && JSON.stringify(mergeColonies(held, kept)) !== JSON.stringify(held)) {
       update((x) => ({ colonies: mergeColonies(x.colonies, kept) }));
     }
     built.sort(byAttention);
