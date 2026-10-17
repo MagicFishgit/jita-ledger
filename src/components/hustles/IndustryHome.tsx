@@ -131,7 +131,8 @@ function HubLine({ r, chars, graph, now, busy, act, listOk, listLoading, isHome,
   isHome: boolean; fee: number | null; setFee: (n: number | null) => void; makeHome: () => void; onRemoved: () => void;
 }) {
   const gm = useHomePrices(r.gm ? r.id : null);
-  const book = useHomeBook(listOk ? r.id : null);
+  // Not asked for a default switched to Nobody: its last read prices nothing (ownRead below says the same, for the finder too).
+  const book = useHomeBook(listOk && !r.state?.off ? r.id : null);
   // Goonmetrics as ownMarketSaid takes it: its prices read (they stand in), tracked but not read, or not tracked at all.
   const gmSaid: boolean | 'tracked' = !r.gm ? false : gm.status === 'ok' ? true : 'tracked';
   // A default switched to Nobody keeps its last read in the cloud: it doesn't price the hub once you stopped reading it.
@@ -156,6 +157,8 @@ function HubLine({ r, chars, graph, now, busy, act, listOk, listLoading, isHome,
                   : gm.status === 'off' ? 'The cloud isn’t on in this browser'
                     : gm.status === 'failed' ? `Couldn’t read Goonmetrics’ prices: ${gm.error}` : '–';
   const own = r.state ? ownMarketSaid(r.state, now, gmSaid) : listLoading ? 'Reading…' : listOk ? '–' : 'Not known here: see above.';
+  // The select shows only once the list is in, and the cloud always lists Goonmetrics' two and every hub you added with its state, so
+  // the main as a fallback is never what a row with no state shows as its reader.
   const reader = r.state ? (r.state.off ? 0 : r.state.reader) : chars[0].charId;
   // A reader the cloud keeps who isn't among your characters here (off the roster): listed as itself, so the control never shows
   // another character as the one reading.

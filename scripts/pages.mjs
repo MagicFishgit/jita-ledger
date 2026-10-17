@@ -3236,6 +3236,7 @@ try {
     {
       const SEC = '[data-industry="home"]', CJ = 1049588174021;
       const posted = [];
+      let readFails = false;
       const listStub = CLOUD['/v1/home/markets'], readStub = CLOUD['/v1/home/read'], searchStub = CLOUD['/v1/structures/search'];
       const keptMarkets = marketsAnswer, keptBooks = booksAnswer, keptHome = homeAnswer;
       CLOUD['/v1/home/markets'] = (url, req, json) => {
@@ -3246,6 +3247,7 @@ try {
       CLOUD['/v1/home/read'] = (url, req, json) => {
         const hub = Number(url.searchParams.get('hub'));
         posted.push(['read', hub]);
+        if (readFails) return json({}, 500);
         const h = (marketsAnswer.hubs ?? []).find((x) => x.id === hub);
         return h ? json(h) : json({ error: 'Not one of the home markets the cloud reads' }, 400);
       };
@@ -3332,14 +3334,16 @@ try {
       if (!skipped.includes('Added Mothership Bellicose. Reading its own market needs EVE’s permission for structure markets: hand the cloud Builder Alt’s login again on Characters.') || /was read/.test(skipped))
         problems.push(`adding Bellicose as an alt whose login lacks the permission doesn’t toast that it wasn’t read: “${skipped.slice(0, 300)}”`);
       marketsAnswer.hubs.splice(2);
-      // Added again, and the read after it fails (here: the cloud doesn't list it yet): still said as added, with why it wasn't read.
+      // Added again, and the read after it fails (the cloud answers 500): still said as added, with why it wasn't read.
       await section();
       await findBellicose();
+      readFails = true;
       await page.locator('[data-industry="home-add"] button', { hasText: 'UALX-3 - Mothership Bellicose' }).click();
       await page.waitForTimeout(1200);
+      readFails = false;
       posted.splice(0);
       const unreadAdd = await toasted();
-      if (!unreadAdd.includes('Added Mothership Bellicose. Couldn’t read its market just now (Not one of the home markets the cloud reads): the cloud reads it hourly.'))
+      if (!unreadAdd.includes('Added Mothership Bellicose. Couldn’t read its market just now (The cloud answered 500): the cloud reads it hourly.'))
         problems.push(`an add whose read then fails doesn’t toast that it was added, and why it wasn’t read: “${unreadAdd.slice(0, 300)}”`);
       // UALX-3 switched to Nobody, its last read 30 minutes old: Nobody shown as its reader, that read prices nothing (Goonmetrics does),
       // and no Read it now. C-J6MT refused by its access list while Goonmetrics hasn't read it yet: calm, and nothing said to stand in
