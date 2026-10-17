@@ -412,7 +412,9 @@ export function buildRow(o: RowInput): Row {
   // Materials (or a Tech II's datacores) nobody can bring in because no freight route from Jita is picked say so (the user's
   // first run at a null-sec home), not "a material nobody lists".
   const noRoute = (materialCost == null && materials.some((x) => !x.pick && x.options.some((q) => q.source === 'jita' && q.why === NO_ROUTE_WHY))) || !!invention?.noRoute;
-  const missing: Missing | null = !pm.jita && !pm.home ? 'noBook' : !o.site.index ? 'noIndex' : eiv == null ? 'noAdjusted'
+  // A whole read of the hub's own market without the type has no home book to sell on either (none listed there).
+  const homeNone = pm.home?.source === 'structure' && pm.home.sell == null && pm.home.buy == null;
+  const missing: Missing | null = !pm.jita && (!pm.home || homeNone) ? 'noBook' : !o.site.index ? 'noIndex' : eiv == null ? 'noAdjusted'
     : noRoute ? 'noRoute' : materialCost == null ? 'noMaterials' : invented && invention?.perUnit == null ? 'noInvention' : !day ? 'noSale' : null;
   // A tax not typed: the manufacturing job's, and the lab's too where the lab is the site, each 1% of their bases a day.
   // Profit a day charges costs on the units sold (`day.units`, under what's made where the market limits it), so these are on them too.

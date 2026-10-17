@@ -3129,7 +3129,7 @@ try {
       booksAnswer[UALX_HUB] = { ...booksAnswer[UALX_HUB], at: agoIso(121) };
       marketsAnswer.hubs[0].book = bookSt(121);
       said = await homeAt(UALX_HUB);
-      if (!said.includes('UALX-3’s prices: Goonmetrics, read 5 h ago.') || !said.includes('Its own market was read 2 h ago with your login') || !said.includes('That read is over two hours old, so Goonmetrics’ prices speak.'))
+      if (!said.includes('UALX-3’s prices: Goonmetrics, read 5 h ago.') || !said.includes('Its own market was read 2 h 1 min ago with your login') || !said.includes('That read is over two hours old, so Goonmetrics’ prices speak.'))
         problems.push(`past two hours, UALX-3 isn’t priced by Goonmetrics with why said: “${said}”`);
       if (!(await text('[data-bp="25895"]')).includes('sold at UALX-3, Goonmetrics’ prices')) problems.push('past two hours, the pump isn’t said to be on Goonmetrics’ prices');
       // Mothership Bellicose: priced by its own fresh read, paced by the home history (correction 10), at Home and with Either.
@@ -3174,6 +3174,33 @@ try {
       await page.waitForTimeout(1500);
       const unknownItem = await text('.tn-item:has-text("you built")');
       if (!unknownItem.includes('The cloud is a version behind: your home hub comes once it’s updated.') || /no home hub picked|List in Jita/.test(unknownItem)) problems.push(`with Bellicose picked and the cloud a version behind, To do doesn’t say so, or prices it in Jita: “${unknownItem.slice(0, 400)}”`);
+      marketsAnswer = keptMarkets;
+      // --- Fix round 1 of Task 18B. A built item at a hub says only which price it used and its age, never the hub's refusal or a relog
+      // (Ruling 1); a product outside the watch set isn't "none listed" at a hub priced by its own read; your own listing at the hub is no
+      // one's best price.
+      const hubTodo = async ({ hub, product = 25894, orders = {} }) => {
+        const job = { ...bellJob, productTypeId: product, facilityId: hub, stationId: hub, outputId: hub };
+        await page.goto(SEED_PAGE);
+        await seed({ ...ledger, orders: { ...ledger.orders, ...orders }, jobs: { 9601: job }, stock: { at: iso(now - 600_000), jita: {}, total: { [product]: 10 }, byLocation: { [hub]: { [product]: 10 } } }, industry: { ...DOC, hub }, cloud: CLOUD_STATE }, { alts: altStore });
+        await page.goto(`${BASE}#todo`);
+        await page.reload();
+        await page.waitForFunction(() => /you built/.test(document.body.textContent ?? ''), null, { timeout: 20_000 }).catch(() => undefined);
+        await page.waitForTimeout(2500);
+        return text('.tn-item:has-text("you built")');
+      };
+      booksAnswer[UALX_HUB] = { ...booksAnswer[UALX_HUB], at: agoIso(180) };
+      for (const login of ['ok', 'permission']) {
+        marketsAnswer.hubs[0] = hubSt(UALX_HUB, 'UALX-3 - 1st Byzantigoon', 'default', { login, book: bookSt(180, { refusedAt: agoIso(120), at: agoIso(180) }) });
+        const ualx = await hubTodo({ hub: UALX_HUB });
+        if (!ualx.includes('List at UALX-3 at 7,499,000 ISK (the hub’s cheapest listing less a tick, Goonmetrics)') || !ualx.includes('UALX-3’s prices: Goonmetrics, read 5 h ago.') || /access list|log in again|hand the cloud|two hours/.test(ualx))
+          problems.push(`To do at UALX-3 (own market ${login === 'ok' ? 'refused' : 'without the permission'}) doesn’t say only which price it used and its age: “${ualx.slice(0, 500)}”`);
+      }
+      marketsAnswer.hubs[2] = bellSt(30);
+      booksAnswer[BELL] = { ...booksAnswer[BELL], at: agoIso(30) };
+      const unwatched = await hubTodo({ hub: BELL, product: 17619 });
+      if (!unwatched.includes('is read for the Industry tab’s items only, which don’t include it') || /nobody lists it/.test(unwatched)) problems.push(`To do at Bellicose, a product outside the watch set, isn’t said as not read there: “${unwatched.slice(0, 400)}”`);
+      const mine = await hubTodo({ hub: BELL, orders: { 777001: { orderId: 777001, typeId: 25894, isBuy: false, price: 7_100_000, volumeTotal: 20, volumeRemain: 20, issued: iso(now - 3600_000), state: 'open', locationId: BELL } } });
+      if (!mine.includes('List at Mothership Bellicose at 7,241,000 ISK')) problems.push(`To do at Bellicose prices a tick under your own listing, not the next level: “${mine.slice(0, 400)}”`);
       marketsAnswer = keptMarkets;
     }
     // --- the end of the industry case

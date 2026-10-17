@@ -15,7 +15,11 @@ import type { OwnOrder } from '../../lib/researchTrack';
 import { emptyAlt, jobOk, loginState, type AltSaved, type RosterEntry } from '../../lib/roster';
 import { useData } from '../../lib/store';
 import type { Tx } from '../../lib/types';
+import type { HubOrder } from '../../lib/homeMarket';
 import { openInJita } from './researchChars';
+
+const openAnywhere = (orders: Record<string, { state: string; locationId: number; isBuy: boolean; price: number; volumeRemain: number }>): HubOrder[] => Object.values(orders)
+  .filter((o) => o.state === 'open').map((o) => ({ locationId: o.locationId, isBuy: o.isBuy, price: o.price, volume: o.volumeRemain }));
 
 /**
  * Every character the Industry tab can be shown for: the main from the store, each alt from its pulled copy (altLedger),
@@ -45,6 +49,8 @@ export type IndustryChar = {
   mines: boolean;
   /** Its open Jita 4-4 orders, so a sale is worked out on everyone else's book. */
   own: OwnOrder[];
+  /** Every character's open orders anywhere (the main's and each alt's, the same list on every character), so a hub's own read is priced on everyone else's orders. */
+  hubOrders: HubOrder[];
   /** Its blueprints as last read: the main's by its sync (`meta.blueprintsAt`), an alt's by the cloud's sheet (its `lastOk`). */
   blueprints: Read<OwnedBlueprint[]>;
   /** Its industry jobs, every status kept: the main's by its sync and the cloud's archive, an alt's by the sheet. */
@@ -82,7 +88,7 @@ export function useIndustryChars(alts: IndustryAlts): IndustryChar[] {
       stock: stock?.byLocation ? { byLocation: stock.byLocation, at: stock.at } : null,
       buys: Object.values(txs).filter((t) => t.isBuy),
       mines: minedLately(mining, mainId, hour),
-      own: openInJita(orders),
+      own: openInJita(orders), hubOrders: [],
       blueprints: blueprints ? { state: 'read', value: ownedOf(blueprints), at: timeOf(meta.blueprintsAt) } : hasScope(SCOPE.blueprints) ? { state: 'unread' } : { state: 'login' },
       // Read once a stage-2 read has happened (meta.jobsRead, correction 3) or a record came from the cloud's archive. A
       // stage-1 meta.industry isn't one: it listed only the jobs to deliver, and would read here as "0 in use".
@@ -92,10 +98,12 @@ export function useIndustryChars(alts: IndustryAlts): IndustryChar[] {
       jobPlaces: meta.industry?.places ?? {},
     };
     const wanted = [...SCOPES, ...askedScopes()];
+    const altOrders: HubOrder[] = [];
     const others = alts.roster.map((entry): IndustryChar => {
       const saved = alts.alts[entry.charId] ?? NO_ALT;
       const byHand = known[String(entry.charId)]?.clone;
       const ledger = altLedger(saved, byHand);
+      altOrders.push(...openAnywhere(ledger.orders));
       const name = entry.name ?? known[String(entry.charId)]?.name ?? `Character ${entry.charId}`;
       const login = loginState(entry, wanted);
       const lost = login.state === 'working' ? undefined : login.state;
@@ -117,11 +125,12 @@ export function useIndustryChars(alts: IndustryAlts): IndustryChar[] {
         stock: st?.byLocation ? { byLocation: st.byLocation, at: st.at } : null,
         buys: Object.values(ledger.txs).filter((t) => t.isBuy),
         mines: minedLately(ledger.mining, entry.charId, hour),
-        own: openInJita(ledger.orders),
+        own: openInJita(ledger.orders), hubOrders: [],
         blueprints: altBps, jobs: altJobs, places: bpd?.names ?? {}, placeItems: bpd?.items ?? [], jobPlaces: {},
       };
     });
-    return [main, ...others];
+    const hubOrders = [...openAnywhere(orders), ...altOrders];
+    return [main, ...others].map((c) => ({ ...c, hubOrders }));
   }, [mainId, mainName, skills, meta, settings, orders, txs, stock, mining, known, jobs, blueprints, alts.roster, alts.alts, hour]);
 }
 

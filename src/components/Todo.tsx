@@ -27,10 +27,10 @@ import { skipPlaceBid, useBuiltPrices, usePlacingCheck, usePlanListing } from '.
 import { useHomeHubs, useHomeQuotes } from './hustles/industryMarket';
 import { useAltCopies, useAltRoster, useRosterAt, useRosterLive } from '../lib/altStore';
 import { jobOk, loginState } from '../lib/roster';
-import { hubOf } from '../lib/homeMarket';
+import { hubOf, type HubOrder } from '../lib/homeMarket';
 import { homeSaid } from './hustles/industryFinder';
 import { tickDown } from '../lib/tick';
-import type { Stock } from '../lib/types';
+import type { Order, Stock } from '../lib/types';
 import { lostSaid } from '../lib/pilot';
 import { FIELDS } from '../lib/researchStart';
 import { useResearchChars } from './hustles/researchChars';
@@ -141,7 +141,8 @@ export function Todo() {
       .map((b) => ({ b, who: a.name ?? `Character ${a.charId}` }))),
   ], [d.jobs, d.stock, builtMain, roster, copies]);
   const shipKinds = useShipKinds(builtAll.map((x) => x.b.typeId));
-  // Goonmetrics' two hubs are always known; one you added comes from the cloud's list, asked for only when such a hub is picked.
+  // Goonmetrics' two hubs are always known; one you added comes from the cloud's list, asked for here when such a hub is picked (and
+  // `useHomeQuotes` below reads the hub's state and its own read whenever something built lists at the home hub, Goonmetrics' two too).
   const { hubs, markets: homeMarkets } = useHomeHubs(d.industry.hub != null && !hubOf(d.industry.hub));
   const hub = hubs.find((h) => h.id === d.industry.hub) ?? null;
   // A hub picked that isn't known here (the cloud's list still being read, off in this browser, failing, or no longer listing it):
@@ -159,7 +160,10 @@ export function Todo() {
   };
   const builtWhereAll = builtAll.map((x) => whereOf(x.b));
   // The hub's prices are fetched only when something built lists there.
-  const homeQ = useHomeQuotes(builtWhereAll.includes('home') ? hub : null);
+  // Every character's open orders at any station: the hub's own read holds them too, and none is a rival (as the Jita leg's).
+  const hubOrders = useMemo((): HubOrder[] => [...Object.values(d.orders), ...roster.flatMap((a) => Object.values((copies[a.charId]?.records.orders ?? {}) as Record<string, Order>))]
+    .filter((o) => o.state === 'open').map((o) => ({ locationId: o.locationId, isBuy: o.isBuy, price: o.price, volume: o.volumeRemain })), [d.orders, roster, copies]);
+  const homeQ = useHomeQuotes(builtWhereAll.includes('home') ? hub : null, hubOrders);
   // Every character's open orders, off the books the prices are read on (pre-flight M8).
   const allOrderIds = useMemo(() => [...Object.values(d.orders), ...roster.flatMap((a) => Object.values((copies[a.charId]?.records.orders ?? {}) as Record<string, { orderId: number }>))].map((o) => o.orderId), [d.orders, roster, copies]);
   const builtJita = useBuiltPrices(builtAll.filter((x, i) => builtWhereAll[i] === 'jita').map((x) => x.b.typeId), allOrderIds);
@@ -414,12 +418,13 @@ export function Todo() {
         const p = builtJita[b.typeId];
         market = !p || p.state === 'reading' ? { kind: 'reading' } : p.state === 'priced' ? { kind: 'priced', price: p.price! } : p.state === 'none' ? { kind: 'none' } : { kind: 'unknown', said: 'Couldn’t read its Jita book just now, so it isn’t priced.' };
       } else if (where === 'home') {
-        const said = homeSaid({ hub, home: homeQ, hubMissing: null }, now, ago);
-        if (!homeQ.speaks) market = homeQ.gm.status === 'loading' || homeQ.book.status === 'loading' ? { kind: 'reading' } : { kind: 'unknown', said: said ?? 'Home prices aren’t read.' };
+        // To do says only which price it used and its age: a refused or unreadable own market is said on the Industry tab (Ruling 1).
+        const said = homeSaid({ hub, home: homeQ, hubMissing: null }, now, ago, { own: false });
+        if (!homeQ.speaks) market = homeQ.pending || homeQ.gm.status === 'loading' ? { kind: 'reading' } : { kind: 'unknown', said: said ?? 'Home prices aren’t read.' };
         else {
           // A structure's own read always quotes (a type it lacks is none listed there); Goonmetrics' may have no row for it.
           const q = homeQ.quote(b.typeId);
-          market = !q ? { kind: 'unknown', said: `Goonmetrics has no price for it at ${hub!.short}.` } : q.sell != null ? { kind: 'priced', price: tickDown(q.sell) } : { kind: 'none' };
+          market = !q ? { kind: 'unknown', said: homeQ.unwatched(b.typeId) ? `${hub!.short}’s own market is read for the Industry tab’s items only, which don’t include it.` : `Goonmetrics has no price for it at ${hub!.short}.` } : q.sell != null ? { kind: 'priced', price: tickDown(q.sell) } : { kind: 'none' };
           age = said;
         }
       } else market = { kind: 'none' };

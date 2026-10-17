@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { iskBig, units } from '../../lib/format';
-import { HOME_STALE_MS, ownMarketSaid, type HomeHub } from '../../lib/homeMarket';
+import { HOME_STALE_MS, homeAgo, ownMarketSaid, type HomeHub } from '../../lib/homeMarket';
 import { watchedFlow } from '../../lib/flowStore';
 import type { Indexed } from '../../lib/industry';
 import {
@@ -71,7 +71,7 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph, opts: { ow
   const { hubs, markets } = useHomeHubs();
   const hub = hubs.find((h) => h.id === doc.hub) ?? null;
   const hubMissing = doc.hub != null && !hub ? markets : null;
-  const home = useHomeQuotes(hub);
+  const home = useHomeQuotes(hub, c.hubOrders);
 
   const input = useMemo((): Omit<RowInput, 'bp'> | null => {
     if (!site || !facts || !facts.index || !cache || !hasScan || adjusted.state !== 'ok' || !skills) return null;
@@ -79,7 +79,7 @@ export function useFinder(c: IndustryChar, ix: Indexed, graph: Graph, opts: { ow
     const market = (t: number): Market => {
       const b = cache.books[t];
       if (!flows.has(t)) flows.set(t, watchedFlow(t));
-      return { jita: b ? othersBook(b, own, t, false) : null, stats: cache.stats[t] ?? null, watched: flows.get(t) ?? null, home: home.quote(t), homeRead: home.read };
+      return { jita: b ? othersBook(b, own, t, false) : null, stats: cache.stats[t] ?? null, watched: flows.get(t) ?? null, home: home.quote(t), homeRead: home.read && !home.unwatched(t) };
     };
     return {
       ix, me: doc.assume.me, te: doc.assume.te, skills, clone: c.clone,
@@ -212,7 +212,9 @@ export function useStationSaid(ids: readonly number[], ix: Indexed, graph: Graph
  * Goonmetrics' with its time and, after it, what its own market's read says (correction 7, Review Focus 2 and 3); a hub Goonmetrics
  * doesn't track with no fresh read prices nothing, said; a hub picked that the cloud's list hasn't given yet says why.
  */
-export function homeSaid(f: Pick<Finder, 'hub' | 'home' | 'hubMissing'>, now: number, ago: (iso: string, now: number) => string): string | null {
+export function homeSaid(f: Pick<Finder, 'hub' | 'home' | 'hubMissing'>, now: number, ago: (iso: string, now: number) => string, o: { own?: boolean } = {}): string | null {
+  // `own: false` (To do): only which price speaks and its age; a refused or unreadable own market is said on the Industry tab alone (Ruling 1).
+  const withOwn = o.own !== false;
   const h = f.hub, st = f.home;
   if (!h) {
     const m = f.hubMissing;
@@ -221,33 +223,41 @@ export function homeSaid(f: Pick<Finder, 'hub' | 'home' | 'hubMissing'>, now: nu
       : m.status === 'off' ? 'Your home hub is one the cloud reads, which isn’t on in this browser (Settings → Your data).'
         : m.status === 'behind' ? 'The cloud is a version behind: your home hub comes once it’s updated.'
           : m.status === 'failed' ? `Couldn’t read your home markets from the cloud: ${m.error}.`
-            : 'Your home hub isn’t one the cloud reads any more: pick another, or add it again under Home markets.';
+            : 'Your home hub isn’t one the cloud reads any more: pick another on the Industry tab, or add it again under Home markets.';
   }
-  if (st.speaks?.source === 'structure') return `${h.short}’s prices: its own market, read ${ago(st.speaks.at, now)}.`;
-  const own = st.hub && !st.hub.off ? ` ${ownMarketSaid(st.hub, now, h.goonmetrics)}` : '';
+  if (st.pending) return `Reading ${h.short}’s prices from the cloud…`;
+  if (st.speaks?.source === 'structure') return `${h.short}’s prices: its own market, read ${homeAgo(st.speaks.at, now)}.`;
+  const hb = st.hub && !st.hub.off ? st.hub : null;
+  const ownSaid = (gm: boolean | 'tracked') => (withOwn && hb ? ` ${ownMarketSaid(hb, now, gm)}` : '');
   if (!h.goonmetrics) {
     const b = st.book;
     if (b.status === 'off') return `${h.short}’s prices come from the cloud, which isn’t on in this browser (Settings → Your data).`;
     if (b.status === 'loading') return `Reading ${h.short}’s own market from the cloud…`;
     if (b.status === 'behind') return `The cloud is a version behind: ${h.short}’s own market comes once it’s updated.`;
     if (b.status === 'failed') return `Couldn’t read ${h.short}’s own market from the cloud: ${b.error}.`;
-    return `${h.short} isn’t priced: Goonmetrics doesn’t track it, and its own market has no read under two hours old.${own}`;
+    // Its own refusal already says Goonmetrics doesn't track it.
+    const refused = withOwn && !!hb?.book?.refusedAt;
+    return `${h.short} isn’t priced: ${refused ? '' : 'Goonmetrics doesn’t track it, and '}its own market has no read under two hours old.${ownSaid(false)}`;
   }
   const gm = st.gm;
   if (gm.status === 'off') return 'Home prices come from the cloud, which isn’t on in this browser (Settings → Your data).';
   if (gm.status === 'loading') return `Reading ${h.short}’s prices from the cloud…`;
   if (gm.status === 'behind') return 'The cloud is a version behind: home prices come once it’s updated.';
-  if (gm.status === 'failed') return `Couldn’t read ${h.short}’s prices from the cloud: ${gm.error}.${own}`;
-  if (gm.status === 'switched') return `Goonmetrics isn’t read: the cloud has it switched off.${own}`;
-  if (gm.status === 'none') return `Not read yet: the cloud reads ${h.short}’s prices from Goonmetrics every six hours.${own}`;
+  if (gm.status === 'failed') return `Couldn’t read ${h.short}’s prices from the cloud: ${gm.error}.${ownSaid('tracked')}`;
+  if (gm.status === 'switched') return `Goonmetrics isn’t read: the cloud has it switched off.${ownSaid('tracked')}`;
+  if (gm.status === 'none') return `Not read yet: the cloud reads ${h.short}’s prices from Goonmetrics every six hours.${ownSaid('tracked')}`;
   if (gm.status !== 'ok') return null;
   const old = now - Date.parse(gm.at) > HOME_STALE_MS;
-  // A read of its own that has gone stale is said as the reason Goonmetrics speaks (Review Focus 3): never the same words as one that
-  // still speaks. Only for a plain good read: a refusal or a failure already says why.
-  const plain = !!st.hub?.book?.at && !st.hub.book.error && !st.hub.book.refusedAt;
+  const head = `${h.short}’s prices: Goonmetrics, read ${ago(gm.at, now)}${old ? ': older than a day' : ''}.`;
+  if (!withOwn) return head;
+  // Why its own market isn't the one speaking (Review Focus 3): never the same words as one that still speaks. "That read" only
+  // where the sentence before names a read; a login that can't read, or a read by another reader, says it whole.
+  const plain = hb?.login === 'ok' && !!hb.book?.at && hb.book.reader === hb.reader && !hb.book.error && !hb.book.refusedAt;
   const stale = st.book.status !== 'ok' || st.hub?.off ? '' : plain ? ' That read is over two hours old, so Goonmetrics’ prices speak.'
-    : !st.hub ? ' Its own market’s last read is over two hours old, so Goonmetrics’ prices speak.' : '';
-  return `${h.short}’s prices: Goonmetrics, read ${ago(gm.at, now)}${old ? ': older than a day' : ''}.${own}${stale}`;
+    : !st.hub || (hb && hb.login !== 'ok' && hb.book?.at) ? ' Its own market’s last read is over two hours old, so Goonmetrics’ prices speak.' : '';
+  // The list says it was read, but this browser couldn't fetch the read: say why Goonmetrics speaks.
+  const fetchFailed = st.book.status === 'failed' && !st.hub?.off ? ` Its own market’s read couldn’t be fetched from the cloud just now (${st.book.error}), so Goonmetrics’ prices speak.` : '';
+  return `${head}${ownSaid(true)}${fetchFailed}${stale}`;
 }
 
 /** Where a home sale's prices come from, for a row and the count line. */

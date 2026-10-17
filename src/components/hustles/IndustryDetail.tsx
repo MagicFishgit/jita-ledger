@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { hasScope } from '../../lib/auth';
 import { SCOPE } from '../../lib/config';
-import { ago, isk, iskBig, iskBigSigned, pct, units } from '../../lib/format';
+import { isk, iskBig, iskBigSigned, pct, units } from '../../lib/format';
+import { homeAgo } from '../../lib/homeMarket';
 import { heldCost } from '../../lib/heldCost';
 import { navigate, useNow } from '../../lib/hooks';
 import { DAY_S, KIND_SAID, SKILL, structureBonus, rigFor, type Indexed } from '../../lib/industry';
@@ -110,7 +111,7 @@ export function IndustryDetail({ c, ix, graph, row, finder, mainName }: { c: Ind
     ? ` · Goonmetrics’ figure for it is from ${new Date(typeAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}` : '';
   // Where a home sale's figures came from: the hub's own market (and Goonmetrics' weekly movement where it has one), or Goonmetrics.
   const homeTail = (q: HomeQuote | null | undefined) => (q?.source === 'structure'
-    ? ` · ${input.hubName}’s own market, read ${ago(q.at, now)}${q.weekly != null ? ` · Goonmetrics: ${units(q.weekly)} a week` : ''}`
+    ? ` · ${input.hubName}’s own market, read ${homeAgo(q.at, now)}${q.weekly != null ? ` · Goonmetrics: ${units(q.weekly)} a week` : ''}`
     : ` · Goonmetrics: ${q?.weekly != null ? units(q.weekly) : '–'} a week${staleFigure}`);
   const setDest = async (id: number) => {
     try { await setDestination(id); toast(`Destination set in ${c.isMain ? 'your' : `${mainName}’s`} client.`, 'info'); }

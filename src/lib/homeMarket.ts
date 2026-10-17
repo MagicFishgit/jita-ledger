@@ -1,4 +1,5 @@
 import type { StructureRow } from './bookFold';
+import { withoutOwn } from './prospects';
 import { ago, units } from './format';
 import type { HomeQuote } from './industryRank';
 
@@ -95,12 +96,31 @@ export const ownRead = <B>(book: B | null, state: Pick<HubState, 'off'> | null):
  * its live orders sold (the split). The read held every order, so a type it lacks has none listed there, which is known (correction
  * 8). Weekly movement isn't in a structure's read: a Goonmetrics hub's figure is carried, labelled where it's said.
  */
-export function structureQuote(row: StructureRow | undefined, at: string, weekly: number | null): HomeQuote {
+export type HubOrder = { locationId: number; isBuy: boolean; price: number; volume: number };
+export function structureQuote(row: StructureRow | undefined, at: string, weekly: number | null, mine: readonly HubOrder[] = []): HomeQuote {
+  // The read holds every order in the structure, yours included (ESI's orders carry no owner): your own come off the levels at their
+  // exact prices, as `othersBook` does for Jita, so nothing is priced a tick under your own listing. An order whose price matches no
+  // level (the read predates it) leaves the levels alone. `sold` stays as read, as Jita keeps its own.
+  const sells = withoutOwn((row?.[1] ?? []).map(([price, volume]) => ({ price, volume })), mine.filter((o) => !o.isBuy));
+  const buys = withoutOwn((row?.[0] ?? []).map(([price, volume]) => ({ price, volume })), mine.filter((o) => o.isBuy));
   return {
-    sell: row?.[1][0]?.[0] ?? null, buy: row?.[0][0]?.[0] ?? null, weekly, at, source: 'structure',
-    sells: (row?.[1] ?? []).map(([price, volume]) => ({ price, volume })),
+    sell: sells[0]?.price ?? null, buy: buys[0]?.price ?? null, weekly, at, source: 'structure',
+    sells,
     ...(row ? { sold: { sell: row[4][0], buy: row[4][1], single: { sell: row[4][2], buy: row[4][3] }, orders: { sell: row[3], buy: row[2] } } } : {}),
   };
+}
+
+/**
+ * A hub's read or price as an age: minutes up to 2 h 59, so an age at or near two hours (the rule's edge) never reads "2 h ago" on
+ * both sides of it; the shared `ago` beyond.
+ */
+export function homeAgo(iso: string, now: number): string {
+  const s = (now - Date.parse(iso)) / 1000;
+  if (!(s >= 60)) return ago(iso, now);
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min ago`;
+  if (m < 180) return `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''} ago`;
+  return ago(iso, now);
 }
 
 /** How long the browser keeps a hub's own read: until the next hourly read could land (its `at` + an hour + a margin), 5 to 15 minutes. */
@@ -133,15 +153,15 @@ export type HomeBookAnswer = { hub: number; at: string; rows: Record<string, Str
  * its refusal reads calmly ("Owner isn't on UALX-3's access list yet": Ruling 1). Goonmetrics' two are named UALX-3 and C-J6MT, a hub
  * you added by its structure's name (Ruling 2). A try by an earlier reader says nothing of this one's: only its last good read is said.
  */
-export function ownMarketSaid(h: HubState, now: number, gm: boolean): string {
+export function ownMarketSaid(h: HubState, now: number, gm: boolean | 'tracked'): string {
   const name = hubOf(h.id)?.short ?? hubShort(h.name);
   const who = h.readerIsMain ? 'you' : h.readerName ?? `Character ${h.reader}`;
   // A default hub's refusal names the character, yours by your name, and reads calmly (Ruling 1).
   const named = h.readerName ?? (h.readerIsMain ? 'Your character' : `Character ${h.reader}`);
   const login = h.readerIsMain ? 'your login' : `${who}’s login`;
-  if (h.off) return `Its own market isn’t read with a character: ${gm ? 'Goonmetrics’ prices only' : 'nothing prices it'}.`;
+  if (h.off) return `Its own market isn’t read with a character${gm === true ? ': Goonmetrics’ prices only' : gm === 'tracked' ? '' : ': nothing prices it'}.`;
   if (h.login === 'notYours') return `Its own market’s reader, ${who}, isn’t one of your characters any more: pick another.`;
-  if (h.login === 'none') return h.readerIsMain ? 'Its own market is read with your login, which the cloud doesn’t hold: hand it yours under Settings → Your data.'
+  if (h.login === 'none') return h.readerIsMain ? 'Its own market is read with your login, which the cloud doesn’t hold: hand it over under Settings → Your data.'
     : `Its own market is read with ${who}’s login, which the cloud doesn’t hold: hand it over on Characters.`;
   if (h.login === 'refused') return h.readerIsMain ? 'EVE refused the cloud’s login for you, which reads its own market: hand it over again under Settings → Your data.'
     : `EVE refused the cloud’s login for ${who}, which reads its own market: hand it over again on Characters.`;
@@ -151,14 +171,16 @@ export function ownMarketSaid(h: HubState, now: number, gm: boolean): string {
     ? 'log in again here, then hand the cloud your login again (Settings → Your data)' : `hand the cloud ${who}’s login again on Characters`}.`;
   const b = h.book && h.book.reader === h.reader ? h.book : null;
   // The last good read, and whose it was (`readBy`, the read's, not the last try's) when that isn't this reader's.
-  const last = h.book?.at ? ` The last good read was ${ago(h.book.at, now)}${h.book.readBy != null && h.book.readBy !== h.reader && h.book.readByName ? `, with ${h.book.readByName}’s login` : ''}.` : '';
+  const last = h.book?.at ? ` The last good read was ${homeAgo(h.book.at, now)}${h.book.readBy != null && h.book.readBy !== h.reader && h.book.readByName ? `, with ${h.book.readByName}’s login` : ''}.` : '';
   if (!b) return `Its own market isn’t read yet: the cloud reads it hourly with ${login}.${last}`;
+  // "Stand in" only where Goonmetrics' prices really do (`gm === true`: read and not switched off); where it tracks the hub but isn't
+  // read, the refusal ends there (Ruling 3 of the fix round).
   if (b.refusedAt) return gm
-    ? `${named} isn’t on ${name}’s access list yet (first refused ${ago(b.refusedAt, now)}): Goonmetrics’ prices stand in.${last}`
-    : `EVE refused ${h.readerIsMain ? 'your' : `${who}’s`} read of ${name}: it isn’t on its access list (first refused ${ago(b.refusedAt, now)}). Nothing stands in: Goonmetrics doesn’t track it.${last}`;
+    ? `${named} isn’t on ${name}’s access list yet (first refused ${homeAgo(b.refusedAt, now)})${gm === true ? ': Goonmetrics’ prices stand in' : ''}.${last}`
+    : `EVE refused ${h.readerIsMain ? 'your' : `${who}’s`} read of ${name}: it isn’t on its access list (first refused ${homeAgo(b.refusedAt, now)}). Nothing stands in: Goonmetrics doesn’t track it.${last}`;
   // The Worker's words start a sentence: lower-cased inside this one, unless they start with an acronym (ESI).
   const why = /^[A-Z]{2}/.test(b.error ?? '') ? b.error : `${(b.error ?? '').charAt(0).toLowerCase()}${(b.error ?? '').slice(1)}`;
-  if (b.error) return `Its own market’s last read, ${ago(b.tried, now)}, failed (${why}).${b.at ? last : ' Nothing has been read yet.'}`;
+  if (b.error) return `Its own market’s last read, ${homeAgo(b.tried, now)}, failed (${why}).${b.at ? last : ' Nothing has been read yet.'}`;
   // A read has a time and, with it, its types and pages; a read with neither count says only when.
-  return `Its own market was read ${ago(b.at ?? b.tried, now)} with ${login}${b.types != null ? `: ${units(b.types)} of the watched items listed there${b.pages ? ` (${units(b.pages)} page${b.pages === 1 ? '' : 's'})` : ''}` : ''}.`;
+  return `Its own market was read ${homeAgo(b.at ?? b.tried, now)} with ${login}${b.types != null ? `: ${units(b.types)} of the watched items listed there${b.pages ? ` (${units(b.pages)} page${b.pages === 1 ? '' : 's'})` : ''}` : ''}.`;
 }

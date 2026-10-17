@@ -235,6 +235,7 @@ State these rather than letting them be discovered:
   last batches. Rotating where a round starts would cover them over a few rounds (left for stage 4, which reads home books).
 - **Buying at a hub priced by its own read walks its best five levels for a week's need** (`HOME_LEVELS`): deeper stock isn't seen, so a
   material whose week's need sits past five levels reads too thin there, said with how many are listed. Goonmetrics' hubs keep its depth rule.
+- **A hub's own read is hourly, so an order you placed since it is still in the book until the next read** (your own orders come off its levels by exact price; one placed after the read matches no level and is priced as a rival until then). **At a hub with no weekly movement the top rows' materials are priced on this morning's Jita asks**: the live Jita books are read for rows that already have a pace, and nothing there has one until the home history is read.
 - **On a thin home market a high profit a day rests on a few sales.** Goonmetrics' weekly movement, the only pace until the home
   region's history is read, is a handful of trades there, so a row selling one unit every couple of weeks at a large margin
   (the first look at the real UALX-3 row ranked such items first) is ranked honestly by the share rule but is the least sure

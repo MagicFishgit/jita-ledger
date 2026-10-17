@@ -679,13 +679,13 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   - **The hub list** (`hubsFrom`): Goonmetrics' two always (the cloud off, a version behind or failing too), then the hubs the cloud lists that
     you added and haven't removed. `HOME_HUBS` stays Goonmetrics' alone (the Worker's round reads it). `hubShort`: Goonmetrics' two keep UALX-3
     and C-J6MT; a hub you added is its structure's name after the system's ("Mothership Bellicose"; Ruling 2). The cloud's list is asked for always
-    in the finder (Build's select offers every hub you added whichever is picked) and, on To do, only when the hub picked isn't Goonmetrics'.
-  - **At a hub priced by its own read**: a whole read without a type is "none listed there" (known; Goonmetrics' missing type stays "no price at");
+    in the finder (Build's select offers every hub you added whichever is picked) and, on To do, when a hub you added is picked or when something built lists at the home hub (`useHomeQuotes` reads the hub's state and its own read, Goonmetrics' two included).
+  - **At a hub priced by its own read**: a watched type absent from a whole read is "none listed there" (known; Goonmetrics' missing type stays "no price at"); **a type outside the watch set (`industryTypes.json`, loaded when the hub's own read first speaks) is never "none listed"**: the read holds watched types only, so `quote` is null and To do says the hub's own market is read for the Industry tab's items only (the review's fix round: 1,344 products of built jobs aren't in it);
     a material is bought up its best five levels for a week's need (`fillCost`); the pace is the home region's history, or Goonmetrics' weekly
     movement ÷ 7 before it, split by what the hub's live orders sold where the book can tell (the Jita book's rule, `tradingSplit`), else even.
   - **The home history is read for rows priced at the hub with no pace too** (`homeTypes`' `unpaced`, correction 10): a hub Goonmetrics doesn't
     track has no weekly movement, so no row had a pace to be ranked by. The same rescues a Goonmetrics type whose weekly movement is unknown
-    (its -1), which stage 1 never paced or read the history of.
+    (its -1), which stage 1 never paced or read the history of, but only within the 40 rows read, after the rows already sold at home.
   - **The browser's holds**: the cloud's list 15 minutes (shared in flight, read again after any change made here: `refreshHomeMarkets`), a hub's
     own read until the next hourly read could land (`bookHoldMs`, 5 to 15 minutes).
   - **A hub picked that isn't known here** (the list loading, the cloud off in this browser, failing, a version behind, or no longer listing it)
@@ -693,3 +693,5 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
     in the same words (`hubWhy`), copying no price.
   - **The page check** found that rung 1 (an NPC original) pays nothing at the page case's home site, so the ladder's words are asserted on the
     research rung.
+
+  - **Fix round 1 (the review of Task 18B)**: **your own orders at the hub come off its read** (`structureQuote`'s `mine`: every character's open orders at that structure, by exact price, a level that empties dropped, an order matching no level leaves them alone; `IndustryChar.hubOrders`, To do's `hubOrders`): the structure's read holds every order, yours included, and priced a tick under your own listing. **Nothing speaks while the hub's own read (or the watch set) is still coming** (`HomeSource.pending`): Goonmetrics' prices no longer rank the rows or price a built item for the moments before the book lands. **To do says only which price it used and its age** ("UALX-3's prices: Goonmetrics, read 5 h ago."; `homeSaid`'s `own: false`): a refused or unreadable own market, a relog or an access list is said on the Industry tab alone (Ruling 1, the logging-in constraint). **"Goonmetrics' prices stand in" only where they do** (`ownMarketSaid`'s `'tracked'`: read and not switched off). **Ages in a hub's lines are minutes up to 2 h 59** (`homeAgo`), so 1 h 59 and 2 h 01 never both read "2 h ago". A hub's read that exists but doesn't speak reads "no price at X", not "not read yet".

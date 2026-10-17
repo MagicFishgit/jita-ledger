@@ -6,7 +6,7 @@ import type { IndustryIndex } from '../../lib/industry';
 import { npcHoldMs, type NpcRow } from '../../lib/industryRank';
 import type { CopySummary } from '../../lib/copyMarket';
 import type { StructureRow } from '../../lib/bookFold';
-import { bookHoldMs, HOME_HOLD_MAX_MS, homeHoldMs, homeQuote, homeSpeaks, hubsFrom, ownRead, structureQuote, type HomeHub, type HomeRow, type HomeSpeaks, type HubState } from '../../lib/homeMarket';
+import { bookHoldMs, HOME_HOLD_MAX_MS, homeHoldMs, homeQuote, homeSpeaks, hubsFrom, ownRead, structureQuote, type HomeHub, type HomeRow, type HomeSpeaks, type HubOrder, type HubState } from '../../lib/homeMarket';
 import { useNow } from '../../lib/hooks';
 import type { HomeQuote } from '../../lib/industryRank';
 import { adjustedPricesShared, industrySystemsShared, jitaBook, regionHistory, resolveNames } from '../../lib/market';
@@ -309,9 +309,19 @@ export function useHomeBook(hub: number | null): BookState {
  * has no price there, rather than being unread). `hub` is the hub's state on the cloud's list, for what its own market's read says.
  * The quotes are worked out again only when the source or its time changes, not each minute.
  */
-export type HomeSource = { gm: HomeState | { status: 'untracked' }; book: BookState; hub: HubState | null; speaks: HomeSpeaks; quote: (type: number) => HomeQuote | null; read: boolean };
+export type HomeSource = {
+  gm: HomeState | { status: 'untracked' }; book: BookState; hub: HubState | null; speaks: HomeSpeaks; quote: (type: number) => HomeQuote | null; read: boolean;
+  /** The hub's own read (or the watch set that says which types it holds) is still coming: nothing speaks yet, so nothing is priced on Goonmetrics' meanwhile. */
+  pending: boolean;
+  /** A type outside the watch set: the structure's read holds only watched types, so it says nothing of this one (never "none listed there"). */
+  unwatched: (type: number) => boolean;
+};
 const UNTRACKED = { status: 'untracked' } as const;
-export function useHomeQuotes(hub: HomeHub | null): HomeSource {
+/** The cloud's watch set (src/data/industryTypes.json, its own chunk), loaded once when a hub's own read first speaks. */
+let watchSet: Set<number> | null = null;
+let watchLoad: Promise<void> | null = null;
+const loadWatch = () => (watchLoad ??= import('../../data/industryTypes.json').then((m) => { watchSet = new Set<number>(m.default.watch); }, () => { watchLoad = null; }));
+export function useHomeQuotes(hub: HomeHub | null, mine: readonly HubOrder[] = NO_ORDERS): HomeSource {
   const gmRead = useHomePrices(hub?.goonmetrics ? hub.id : null);
   const book = useHomeBook(hub?.id ?? null);
   const markets = useHomeMarkets(!!hub);
@@ -320,15 +330,28 @@ export function useHomeQuotes(hub: HomeHub | null): HomeSource {
   const state = hub && markets.status === 'ok' ? markets.list.find((x) => x.id === hub.id) ?? null : null;
   // A default switched to Nobody keeps its last read in the cloud: it doesn't speak for the hub once you stopped reading it.
   const own = ownRead(book.status === 'ok' ? book : null, state);
-  const speaks = homeSpeaks(own, gm.status === 'ok' ? gm : null, now);
+  const bookPending = !!hub && book.status === 'loading' && !state?.off;
+  const structureSpeaks = homeSpeaks(own, null, now)?.source === 'structure';
+  const [watch, setWatch] = useState<Set<number> | null>(watchSet);
+  useEffect(() => {
+    if (!structureSpeaks || watch) return;
+    let alive = true;
+    loadWatch().then(() => { if (alive && watchSet) setWatch(watchSet); });
+    return () => { alive = false; };
+  }, [structureSpeaks, watch]);
+  const pending = bookPending || (structureSpeaks && !watch);
+  const speaks = pending ? null : homeSpeaks(own, gm.status === 'ok' ? gm : null, now);
   const key = speaks ? `${speaks.source}:${speaks.at}` : '';
+  const here = useMemo(() => mine.filter((o) => o.locationId === hub?.id), [mine, hub]);
   return useMemo((): HomeSource => {
     const quote = (t: number): HomeQuote | null => (speaks?.source === 'structure' && own
-      ? structureQuote(own.rows[t], own.at, gm.status === 'ok' ? gm.prices[t]?.[1] ?? null : null)
+      ? (watch?.has(t) ? structureQuote(own.rows[t], own.at, gm.status === 'ok' ? gm.prices[t]?.[1] ?? null : null, here) : null)
       : speaks?.source === 'goonmetrics' && gm.status === 'ok' ? homeQuote(gm.prices[t]) : null);
-    return { gm, book, hub: state, speaks, quote, read: speaks != null };
-  }, [gm, book, state, own, key]); // eslint-disable-line react-hooks/exhaustive-deps
+    // A read that exists but doesn't speak (past two hours, refused since) is a hub with no price, not one never read.
+    return { gm, book, hub: state, speaks, quote, read: !pending && (speaks != null || own != null), pending, unwatched: (t) => speaks?.source === 'structure' && !!watch && !watch.has(t) };
+  }, [gm, book, state, own, key, here, watch, pending]); // eslint-disable-line react-hooks/exhaustive-deps
 }
+const NO_ORDERS: readonly HubOrder[] = [];
 
 /**
  * The cloud's copy market (Task 14A's answer, told apart by `at`): `off` with the cloud copy off in this browser, `switched` when

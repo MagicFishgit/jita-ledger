@@ -9148,11 +9148,35 @@ console.log('\n--- Industry stage 4: the hub list and which price speaks at home
     'Reading its own market needs EVE’s permission for structure markets: log in again here, then hand the cloud your login again (Settings → Your data).',
     'Reading its own market needs EVE’s permission for structure markets: hand the cloud Builder Alt’s login again on Characters.',
     'EVE refused the cloud’s login for Builder Alt, which reads its own market: hand it over again on Characters.',
-    'Its own market is read with your login, which the cloud doesn’t hold: hand it yours under Settings → Your data.',
+    'Its own market is read with your login, which the cloud doesn’t hold: hand it over under Settings → Your data.',
     'Its own market’s reader, Builder Alt, isn’t one of your characters any more: pick another.',
-    'Its own market isn’t read yet: the cloud reads it hourly with Builder Alt’s login. The last good read was 2 h ago, with Owner’s login.',
+    'Its own market isn’t read yet: the cloud reads it hourly with Builder Alt’s login. The last good read was 1 h 30 min ago, with Owner’s login.',
     'Its own market isn’t read with a character: Goonmetrics’ prices only.',
   ]);
+
+  // Fix round 1: ages at the two-hour edge, the reader of the last good read, Goonmetrics standing in only when it does.
+  eq('ages near the two-hour edge never read "2 h ago" on both sides of the rule', [HM.homeAgo(at(119), T), HM.homeAgo(at(121), T), HM.homeAgo(at(120), T), HM.homeAgo(at(179), T), HM.homeAgo(at(30), T), HM.homeAgo(at(300), T)],
+    ['1 h 59 min ago', '2 h 1 min ago', '2 h ago', '2 h 59 min ago', '30 min ago', '5 h ago']);
+  eq('the last good read\'s own reader is named when the last try was another\'s, and not when it was this reader\'s', [
+    said({ ...alt, book: bk({ reader: BUILDER, readerName: 'Builder Alt', error: 'ESI 500: Internal error', at: at(150) }) }),
+    said({ book: bk({ reader: BUILDER, readerName: 'Builder Alt', at: at(150) }) }),
+    said({ ...alt, book: bk({ reader: BUILDER, readerName: 'Builder Alt', readBy: OWNER, readByName: 'Owner', at: at(180), refusedAt: at(30) }) }),
+  ], [
+    'Its own market’s last read, 5 min ago, failed (ESI 500: Internal error). The last good read was 2 h 30 min ago, with Owner’s login.',
+    'Its own market isn’t read yet: the cloud reads it hourly with your login. The last good read was 2 h 30 min ago.',
+    'EVE refused Builder Alt’s read of Mothership Bellicose: it isn’t on its access list (first refused 30 min ago). Nothing stands in: Goonmetrics doesn’t track it. The last good read was 3 h ago, with Owner’s login.',
+  ]);
+  eq('  "Goonmetrics\' prices stand in" only where they do: tracked but not read ends at the refusal', [said({ ...UALX, book: bk({ refusedAt: at(120) }) }, 'tracked'), said({ ...UALX, book: bk({ refusedAt: at(120) }) }, true)],
+    ['Owner isn’t on UALX-3’s access list yet (first refused 2 h ago).', 'Owner isn’t on UALX-3’s access list yet (first refused 2 h ago): Goonmetrics’ prices stand in.']);
+
+  // Your own orders in a hub's own read (the fix round): taken off the levels at their exact prices, a level that empties dropped.
+  const mineRow = [[[6_900_000, 30], [6_800_000, 10]], [[7_200_000, 20], [7_350_000, 40]], 3, 5, [60, 20, 0, 0]];
+  const ord = (isBuy, price, volume) => ({ locationId: BELL, isBuy, price, volume });
+  const q1 = HM.structureQuote(mineRow, at(30), null, [ord(false, 7_200_000, 20), ord(true, 6_900_000, 5)]);
+  eq('your own listing as the best level: gone from the quote, so nobody prices a tick under it', [q1.sell, q1.sells, q1.buy], [7_350_000, [{ price: 7_350_000, volume: 40 }], 6_900_000]);
+  eq('  a part of a level comes off its volume; an order matching no level (the read predates it) changes nothing', [HM.structureQuote(mineRow, at(30), null, [ord(false, 7_200_000, 5)]).sells[0], HM.structureQuote(mineRow, at(30), null, [ord(false, 7_199_000, 20)]).sells.length],
+    [{ price: 7_200_000, volume: 15 }, 2]);
+  eq('  the only listing being yours reads none listed, and what its orders sold stays as read', [HM.structureQuote([[], [[7_200_000, 20]], 0, 1, [60, 0, 0, 0]], at(30), null, [ord(false, 7_200_000, 20)]).sell, HM.structureQuote(mineRow, at(30), null, [ord(false, 7_200_000, 20)]).sold.sell], [null, 60]);
 
   // Buying at a hub priced by its own read (correction 9).
   const st = (sells) => ({ sell: sells[0]?.price ?? null, buy: 80, weekly: null, at: at(30), source: 'structure', sells });
