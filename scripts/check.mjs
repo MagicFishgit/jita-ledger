@@ -7592,6 +7592,133 @@ console.log('\n--- Planets: the settings document and the rates learned from you
   eq('  rateFor: none is null', [rateFor(L, undefined, 'Gas', 2267), rateFor({}, undefined, 'Barren', 1)], [null, null]);
 }
 
+console.log('\n--- Planets: the planner, one planet at a time (piPlan.ts: P0 → P2 and P0 → P1 on each planet) ---');
+{
+  const fsP = await import('node:fs');
+  const { indexPlanets } = await import('../src/lib/piBundle.ts');
+  const { planSingle } = await import('../src/lib/piPlan.ts');
+  const ix = indexPlanets(JSON.parse(fsP.readFileSync(new URL('../src/data/planets.json', import.meta.url))));
+  const idOf = (name) => ix.commodities.find((c) => c.name === name).id;
+  const NANITES = idOf('Nanites'), REACTIVE = idOf('Reactive Metals'), BASE_METALS = idOf('Base Metals');
+  // A system worked out by hand: A Barren and B Gas at Brave's 2% / 5%, C Shattered (no PI type).
+  const A = 40000001, B = 40000002, C = 40000003, D = 40000004;
+  const brave = (rate) => ({ rate, from: 'brave', npc: 0, interbus: false });
+  const planets = [
+    { planetId: A, name: 'Test I', type: 'Barren', radiusKm: 3750, tax: brave(0.02) },
+    { planetId: B, name: 'Test II', type: 'Gas', radiusKm: 26370, tax: brave(0.05) },
+    { planetId: C, name: 'Test III', type: null, radiusKm: 1000, tax: brave(0.05) },
+  ];
+  const char = { charId: 1, name: 'Owner', planets: 2, ccLevel: 4, alpha: false };
+  const rate = (over = {}) => ({ perHour: 12000, higher: null, from: 'learned', programHours: 72, heads: 5, otherP0: false, checked: true, ...over });
+  const rateOf = (t) => (t === 'Barren' || t === 'Gas' ? rate() : null);
+  // Nanites 10,000 a unit, every other P2 3,000, P1 400, P0 2, every one sold whole in Jita.
+  const unitOf = (id) => (id === NANITES ? 10_000 : { P2: 3000, P1: 400, P0: 2 }[ix.byId.get(id).tier] ?? null);
+  const sellBy = (price, cap = () => Infinity) => (id, perDay) => {
+    const u = price(id);
+    if (u == null) return { isk: null, units: 0, where: [], why: 'No price read' };
+    const units = Math.min(perDay, cap(id));
+    return { isk: units * u, units, where: ['jita'], why: null };
+  };
+  const input = { ix, planets, char, others: [], rateOf, sell: sellBy(unitOf), buy: () => ({ isk: null, where: null, why: 'Not bought here' }), programHours: 72 };
+  const role = (s, id) => s.roles.find((r) => r.planetId === id);
+  const adv = (r) => r.makes.find((m) => m.facility === 'advanced');
+
+  const s2 = planSingle(input, 'p2');
+  const a = role(s2, A);
+  eq('  Barren makes Nanites, 10 an hour from 2+4', [adv(a).id, adv(a).perDay, adv(a).count], [NANITES, 240, 2]);
+  eq('  its basics: 2 for each P0', a.makes.filter((m) => m.facility === 'basic').map((m) => [m.perDay, m.count]), [[1920, 2], [1920, 2]]);
+  eq('  it fits: 10 heads of 11', [a.fit.fits, a.extracts.reduce((h, e) => h + e.heads, 0)], [true, 10]);
+  eq('  Nanites: 240 a day for 2.4 M', [s2.outputs.find((o) => o.id === NANITES).perDay, s2.outputs.find((o) => o.id === NANITES).sold.isk], [240, 2_400_000]);
+  // Gas makes a 3,000 P2 the same way: 240 × 3,000 = 720,000. Tax: 240 × 7,200 × 2% on Barren + 240 × 7,200 × 5% on Gas = 120,960.
+  eq('  ISK a day, after tax', [s2.taxDay, s2.iskDay], [120_960, 2_999_040]);
+  eq('  taxes per planet and tier', s2.taxes.filter((t) => t.planetId === A), [{ planetId: A, tier: 'P2', perDay: 34_560 }]);
+  eq('  every rate checked: no higher figure, nothing left out', [s2.iskDayHigh, s2.before, s2.unvalued, s2.why], [null, [], 0, null]);
+  eq('  the Shattered planet says why', [role(s2, C)?.does, role(s2, C)?.why, role(s2, C)?.fit], ['unused', 'No planetary industry on this kind of planet', null]);
+  eq('  every planet of the system has a role', s2.roles.map((r) => r.planetId), [A, B, C]);
+  eq('  upkeep: two planets reset every 72 h', s2.upkeep.resetsPerWeek, 2 * 168 / 72);
+  eq('  upkeep: 480 P2 a day hauled, all of it to Jita, no freight route given', [s2.upkeep.haulM3PerWeek, s2.upkeep.jitaM3PerWeek, s2.upkeep.restocksPerWeek, s2.upkeep.contractsPerWeek], [480 * 0.75 * 7, 480 * 0.75 * 7, 0, null]);
+  eq('  a route with a minimum batches up to it (5 M at 900 a m³ is 5,556 m³)', planSingle({ ...input, freight: { perM3: 900, collateral: 0, min: 5_000_000 } }, 'p2').upkeep.contractsPerWeek, (480 * 0.75 * 7) / (5_000_000 / 900));
+  eq('  a route with no minimum takes a week’s batch', planSingle({ ...input, freight: { perM3: 1150, collateral: 0, min: null } }, 'p2').upkeep.contractsPerWeek, 1);
+  eq('  one character, its ISK', s2.perChar, [{ charId: 1, iskDay: 2_999_040, lacks: [] }]);
+  eq('  ships to market', a.ships, [{ id: NANITES, perDay: 240, to: 'market' }]);
+
+  const s1 = planSingle(input, 'p1');
+  eq('  P0 → P1 exports P1, 80 an hour each extractor', role(s1, A).ships.map((x) => x.perDay), [1920, 1920]);
+  eq('  P0 → P1: two basics each, no Advanced', role(s1, A).makes.map((m) => [m.facility, m.count]), [['basic', 2], ['basic', 2]]);
+  eq('  P0 → P1: taxed as P1', s1.taxes.filter((t) => t.planetId === A), [{ planetId: A, tier: 'P1', perDay: 3840 * 400 * 0.02 }]);
+  eq('  P0 → P1: one output per good, summed across planets', s1.outputs.reduce((n, o) => n + o.perDay, 0), 4 * 1920);
+
+  // No rate for Gas: ranked at what fits, said, never claimed.
+  const noGas = planSingle({ ...input, rateOf: (t) => (t === 'Barren' ? rate() : null) }, 'p2');
+  const b = role(noGas, B);
+  eq('  no rate: ranked at 2 basics a P0, "before" says so', [b.extracts.map((e) => [e.perHour, e.rate]), adv(b).perDay, noGas.before.includes('extraction'), noGas.iskDay], [[[12000, null], [12000, null]], 240, true, 2_999_040]);
+  has('  no rate: the role says what it assumes', b.why ?? '', 'if your extractors deliver 12,000 P0 an hour');
+  eq('  no rate: the 2+4 layout at its most heads (10 on this Gas planet)', [b.extracts.reduce((h, e) => h + e.heads, 0), b.fit.fits], [10, true]);
+
+  // A tax not known: ranked before it, and each 1% of it priced.
+  const noTax = planSingle({ ...input, planets: planets.map((p) => (p.planetId === A ? { ...p, tax: { rate: null, from: 'none', npc: 0, interbus: false } } : p)) }, 'p2');
+  eq('  tax not known: taxDay null, A’s row null, "before" says so', [noTax.taxDay, noTax.taxes.filter((t) => t.planetId === A), noTax.before.includes('tax')], [null, [{ planetId: A, tier: 'P2', perDay: null }], true]);
+  eq('  tax not known: each 1% of A’s is 240 × 7,200 / 100; ISK before it', [noTax.perPct, noTax.iskDay], [240 * 7200 / 100, 3_120_000 - 86_400]);
+  eq('  every tax known: nothing ranked before tax', s2.perPct, 0);
+
+  // A P1 surplus: Base Metals at 14,000 on Barren makes 93.3 Reactive Metals an hour, the Advanced take 80.
+  const surplus = planSingle({ ...input, rateOf: (t, p0) => (t === 'Barren' && p0 === BASE_METALS ? rate({ perHour: 14000 }) : rateOf(t)) }, 'p2');
+  const rm = surplus.outputs.find((o) => o.id === REACTIVE);
+  eq('  a surplus P1 is an output, valued, never dropped', [Math.round(rm?.perDay), Math.round(rm?.sold.isk)], [320, 128_000]);
+  eq('  and taxed as P1', surplus.taxes.filter((t) => t.planetId === A).map((t) => [t.tier, Math.round(t.perDay)]), [['P2', 34_560], ['P1', 2560]]);
+  eq('  its ISK counts it', Math.round(surplus.iskDay), 2_999_040 + 128_000 - 2560);
+  eq('  3 basics for 14,000 an hour', role(surplus, A).makes.filter((m) => m.facility === 'basic').map((m) => m.count).sort(), [2, 3]);
+
+  // A price not known: unvalued, counted out, never 0.
+  const noPrice = planSingle({ ...input, sell: sellBy((id) => (['Coolant', 'Oxides', 'Synthetic Oil'].includes(ix.byId.get(id).name) ? null : unitOf(id))) }, 'p2');
+  // Gas could make Water-Cooled CPU, priced: it does, so nothing is unvalued.
+  eq('  a priced product beats an unpriced one', noPrice.unvalued, 0);
+  const noPriceAll = planSingle({ ...input, sell: sellBy((id) => (['Coolant', 'Oxides', 'Synthetic Oil', 'Water-Cooled CPU'].includes(ix.byId.get(id).name) ? null : unitOf(id))) }, 'p2');
+  eq('  a price not known: unvalued 1, ISK counts the rest, "before" says so', [noPriceAll.unvalued, noPriceAll.iskDay, noPriceAll.before.includes('price')], [1, 2_400_000 - 120_960, true]);
+  eq('  its output says why, and no building up claimed', [noPriceAll.outputs.find((o) => o.sold.isk == null)?.sold.why, noPriceAll.outputs.find((o) => o.sold.isk == null)?.buildingUp], ['No price read', 0]);
+
+  // Skills not read, or an Alpha: said, no zeros.
+  const unread = planSingle({ ...input, char: { ...char, planets: null } }, 'p2');
+  eq('  skills not read: said, nothing worked out', [unread.why, unread.iskDay, unread.taxDay, unread.outputs.length, unread.roles.map((r) => r.does)], ['Skills not read', null, null, 0, ['unused', 'unused', 'unused']]);
+  eq('  CCU not read: the same', planSingle({ ...input, char: { ...char, ccLevel: null } }, 'p1').why, 'Skills not read');
+  const alpha = planSingle({ ...input, char: { ...char, alpha: true } }, 'p2');
+  eq('  an Alpha: said', [alpha.why, alpha.iskDay, alpha.perChar[0].iskDay], ['Alphas can’t do planetary industry', null, null]);
+  eq('  a clone state not read still plans', planSingle({ ...input, char: { ...char, alpha: null } }, 'p2').iskDay, 2_999_040);
+
+  // Rates unchecked: the higher reading beside.
+  const unchecked = planSingle({ ...input, rateOf: (t) => (t === 'Barren' || t === 'Gas' ? rate({ higher: 14000, checked: false }) : null) }, 'p2');
+  // At 14,000 each line makes 93.3 P1 an hour, so 11.67 P2 an hour, 280 a day: 2.8 M + 840,000 − 280 × 7,200 × 7%.
+  eq('  rates unchecked: the higher figure beside, on the same products', [unchecked.iskDay, Math.round(unchecked.iskDayHigh)], [2_999_040, 2_800_000 + 840_000 - 141_120]);
+  // P0 → P1 at 14,000: 2,240 P1 a line, four lines at 400, less 4,480 × 400 at 2% and at 5%.
+  const unchecked1 = planSingle({ ...input, rateOf: (t) => (t === 'Barren' || t === 'Gas' ? rate({ higher: 14000, checked: false }) : null) }, 'p1');
+  eq('  P0 → P1 has the higher figure too', [unchecked1.iskDay, Math.round(unchecked1.iskDayHigh)], [3_072_000 - 107_520, 4 * 2240 * 400 - 35_840 - 89_600]);
+
+  // A rate from another programme length, heads that don't fit, heads not read, a radius not known.
+  const day = planSingle({ ...input, rateOf: (t) => (t === 'Barren' ? rate({ programHours: 24 }) : rateOf(t)) }, 'p2');
+  eq('  a rate from 1-day programs, 3 days chosen: said', [/rates from 1-day programs/i.test(role(day, A).why ?? ''), role(day, B).why], [true, null]);
+  const eight = planSingle({ ...input, rateOf: (t) => (t === 'Barren' ? rate({ heads: 8 }) : rateOf(t)) }, 'p2');
+  eq('  8 heads an extractor on Barren with 2+4 at CCU IV: they don’t fit, said', [role(eight, A).fit.fits, /heads don’t fit at Command Center Upgrades IV/i.test(role(eight, A).why ?? '')], [false, true]);
+  eq('  still ranked, never a silent zero', eight.iskDay, 2_999_040);
+  const noHeads = planSingle({ ...input, rateOf: (t) => (t === 'Barren' ? rate({ heads: 0 }) : rateOf(t)) }, 'p2');
+  eq('  heads not read (0): the most that fit, said', [role(noHeads, A).extracts.reduce((h, e) => h + e.heads, 0), role(noHeads, A).fit.fits, /heads/i.test(role(noHeads, A).why ?? '')], [11, true, true]);
+  const noRadius = planSingle({ ...input, planets: planets.map((p) => (p.planetId === A ? { ...p, radiusKm: null } : p)) }, 'p2');
+  eq('  a radius not known: no fit claimed, said, still ranked', [role(noRadius, A).fit, /size/i.test(role(noRadius, A).why ?? ''), noRadius.iskDay], [null, true, 2_999_040]);
+  has('  a rate learned on another P0 of the type: said', role(planSingle({ ...input, rateOf: (t) => (t === 'Barren' ? rate({ otherP0: true }) : rateOf(t)) }, 'p2'), A).why ?? '', 'at the rate learned for another P0 of Barren planets');
+
+  // A third planet: two allowed go to the ones that pay more; one market cap per good, shared.
+  const three = { ...input, planets: [...planets, { planetId: D, name: 'Test IV', type: 'Barren', radiusKm: 3750, tax: brave(0.02) }] };
+  const both = planSingle(three, 'p2');
+  eq('  two Barren planets make Nanites, Gas left', [both.roles.map((r) => r.does), role(both, B).why], [['extract', 'unused', 'unused', 'extract'], 'Your 2 planets go to ones that pay more']);
+  eq('  Nanites summed into one output', [both.outputs.length, both.outputs[0].perDay], [1, 480]);
+  const capped = planSingle({ ...three, sell: sellBy(unitOf, (id) => (id === NANITES ? 400 : Infinity)) }, 'p2');
+  const nan = capped.outputs.find((o) => o.id === NANITES);
+  eq('  one cap for both planets: 400 of 480 sell, 80 build up', [nan.perDay, nan.sold.units, nan.buildingUp, nan.sold.isk], [480, 400, 80, 4_000_000]);
+  const tight = planSingle({ ...three, sell: sellBy(unitOf, (id) => (id === NANITES ? 300 : Infinity)) }, 'p2');
+  eq('  a cap the first planet nearly fills sends the second elsewhere', [tight.outputs.find((o) => o.id === NANITES).perDay, adv(role(tight, D)).id !== NANITES, role(tight, B).does], [240, true, 'unused']);
+  eq('  a single planet allowed', planSingle({ ...three, char: { ...char, planets: 1 } }, 'p2').roles.find((r) => r.planetId === D).why, 'Your 1 planet goes to one that pays more');
+  eq('  no planet with PI: said, nothing throws', planSingle({ ...input, planets: [planets[2]] }, 'p2').why, 'No planet here has planetary industry');
+}
+
 console.log('\n--- Industry: the rules (industry.ts), on EVE Ref\'s own figures ---');
 {
   // Each rule against EVE Ref's industry API on the research's Large Trimark Armor Pump I (an Azbel in null-sec with a
