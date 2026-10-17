@@ -3208,6 +3208,13 @@ try {
       await page.waitForTimeout(1500);
       const lostNow = await text('[data-industry="home-said"]');
       if (!lostNow.includes('the list of items it holds couldn’t be loaded') || /Reading|Not read at/.test(lostNow + lost) || !(await page.locator('[data-industry="home-said"] button', { hasText: 'Reload to try again' }).count())) problems.push(`with the watch-set chunk refused, Build doesn’t say so with a reload offered (or still says Reading): “${lostNow}”`);
+      // The same at UALX-3, its own read fresh: Goonmetrics speaks, and the line never calls the fresh read over two hours old.
+      booksAnswer[UALX_HUB] = { ...booksAnswer[UALX_HUB], at: agoIso(40) };
+      marketsAnswer.hubs[0].book = bookSt(40);
+      await homeAt(UALX_HUB);
+      await page.waitForTimeout(1500);
+      const lostGm = await text('[data-industry="home-said"]');
+      if (!lostGm.includes('UALX-3’s own market can’t be used: the list of items it holds couldn’t be loaded. UALX-3’s prices: Goonmetrics') || /over two hours old/.test(lostGm)) problems.push(`with the watch-set chunk refused, UALX-3’s fresh read isn’t said as unusable with Goonmetrics speaking (or is called over two hours old): “${lostGm}”`);
       await page.unroute('**/industryTypes.json*', failChunk);
       marketsAnswer = keptMarkets;
     }

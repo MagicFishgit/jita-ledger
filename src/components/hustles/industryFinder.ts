@@ -257,7 +257,8 @@ export function homeSaid(f: Pick<Finder, 'hub' | 'home' | 'hubMissing'>, now: nu
   // Why its own market isn't the one speaking (Review Focus 3): never the same words as one that still speaks. "That read" only
   // where the sentence before names a read; a login that can't read, or a read by another reader, says it whole.
   const plain = hb?.login === 'ok' && !!hb.book?.at && hb.book.reader === hb.reader && !hb.book.error && !hb.book.refusedAt;
-  const stale = st.book.status !== 'ok' || st.hub?.off ? '' : plain ? ' That read is over two hours old, so Goonmetrics’ prices speak.'
+  // A read that can't be used for want of its item list is fresh: the head already says why Goonmetrics speaks.
+  const stale = st.book.status !== 'ok' || st.hub?.off || st.itemsFailed ? '' : plain ? ' That read is over two hours old, so Goonmetrics’ prices speak.'
     : !st.hub || (hb && hb.login !== 'ok' && hb.book?.at) ? ' Its own market’s last read is over two hours old, so Goonmetrics’ prices speak.' : '';
   // The list says it was read, but this browser couldn't fetch the read: say why Goonmetrics speaks.
   const fetchFailed = st.book.status === 'failed' && !st.hub?.off ? ` Its own market’s read couldn’t be fetched from the cloud just now (${st.book.error}), so Goonmetrics’ prices speak.` : '';
