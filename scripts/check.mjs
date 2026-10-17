@@ -7524,6 +7524,19 @@ console.log('\n--- Planets: what fits (piFit.ts, the research\'s fit.py) ---');
   eq('  heads are capped at ten an ECU, and -1 when nothing fits', [maxHeads(ix, 'Barren', 5, { ecus: 1, basic: 0, advanced: 0, hightech: 0, storage: 0, launchpads: 1 }, 3750), maxHeads(ix, 'Barren', 0, p2(4), 3750)], [10, -1]);
 }
 
+console.log('\n--- Planets: extraction (piExtraction.ts, CCP\'s developer guide) ---');
+{
+  const { cycleOutputs, readings, lowerReading, CYCLE_BANDS } = await import('../src/lib/piExtraction.ts');
+  const ex = cycleOutputs(6965, 1800, 95);
+  eq('  CCP example: first, last and total', [ex[0], ex[94], ex.reduce((a, b) => a + b, 0)], [24261, 5389, 789314]);
+  const r = readings({ qtyPerCycle: 6965, cycleSeconds: 1800, install: 0, expiry: 47.5 * 3600_000 });
+  eq('  both readings', [r.formula.total, r.perCycle.total, r.hours], [789314, 6965 * 95, 47.5]);
+  eq('  the lower one', lowerReading(r).which, 'perCycle');
+  eq('  cycles from the program and the cycle time', readings({ qtyPerCycle: 1000, cycleSeconds: 3600, install: 0, expiry: 72 * 3600_000 }).perCycle.total, 72_000);
+  eq('  no cycles, nothing', readings({ qtyPerCycle: 1000, cycleSeconds: 900, install: 0, expiry: 0 }).formula.total, 0);
+  eq('  the bands', CYCLE_BANDS.length, 5);
+}
+
 console.log('\n--- Industry: the rules (industry.ts), on EVE Ref\'s own figures ---');
 {
   // Each rule against EVE Ref's industry API on the research's Large Trimark Armor Pump I (an Azbel in null-sec with a
