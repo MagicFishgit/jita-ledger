@@ -20,6 +20,7 @@ const SNIPER_CRON = '1-59/5 * * * *';
 const ALTS_CRON = '37 * * * *';
 import { sanitizeSettings, type Settings } from '../../src/lib/fees';
 import { archive, noteJob, refreshOrders } from './archive';
+import { mainColoniesHourly } from './planets';
 import { flowFor, hoursFor, pricesFor, unpack, watchMarkets } from './market';
 import { altReader, dropLogin, EveError, keepHandedOver, ledgerReader } from './eve';
 import { altsHourly, altsMining, altsStatus, altTicks, isAlt, onRoster, readAlt, removeAlt } from './alts';
@@ -78,6 +79,8 @@ async function fiveMinutes(env: Env) {
       judged = await judgeAll(env.DB, id, sanitizeSettings(row ? (JSON.parse(row.data) as Partial<Settings>) : null));
       await trackRecord(env.DB, id, judged);
     } catch (e) { console.error('track record failed', id, e); }
+    // The main's colonies, kept hourly whatever the alert settings say; the alert round reads the kept document.
+    try { await mainColoniesHourly(env, id, Date.now()); } catch (e) { console.error('colonies failed', id, e); }
     try {
       const r = await alertRound(env, id, Date.now(), judged);
       if (r.ran) console.log('alerts', id, JSON.stringify(r));

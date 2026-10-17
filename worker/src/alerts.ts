@@ -13,7 +13,7 @@
  * stay with the browser: they read signals the cloud doesn't keep.
  */
 import { alertMail, isStaleAlertMail, mailKey, orderFacts, orderFindings, piFindings, repeatMs, shouldAlert, tidyEvery, type Finding } from '../../src/lib/alerts';
-import { readColony, type PlanetHead, type RawColony } from '../../src/lib/colony';
+import { colonyOfKept } from '../../src/lib/colonies';
 import type { OrderRecord, TxRecord } from '../../src/lib/esiRecords';
 import { rates, sanitizeSettings, type Settings } from '../../src/lib/fees';
 import { FILL_WINDOW, recentRange } from '../../src/lib/fills';
@@ -31,6 +31,7 @@ import { noteJob } from './archive';
 import { esiDelete, esiGet, esiPost, useLogin, type Login } from './eve';
 import { flowFor, unpack } from './market';
 import { histories } from './hist';
+import { keptColonies } from './planets';
 
 const JITA_44 = 60003760;
 const PLEX = 44992;
@@ -44,7 +45,8 @@ const BOOK_MAX_AGE = 15 * 60_000;
 /** Your own buys count as fills for this long (`fillingNow` in fills.ts). */
 const OWN_FILL_MS = 3 * 86400_000;
 /** Colonies change slowly and a programme's end is known a day ahead, so they're read hourly. */
-const PI_EVERY = 60 * 60_000;
+export const PI_EVERY = 60 * 60_000;
+export const PLANETS_SCOPE = S.planets;
 
 type Env = { DB: D1Database; EVE_CLIENT_ID: string; TOKEN_KEY: string; APP_URL: string };
 
@@ -52,7 +54,7 @@ async function doc<T>(db: D1Database, charId: number, key: string): Promise<T | 
   const row = await db.prepare('SELECT data FROM docs WHERE char_id = ?1 AND key = ?2').bind(charId, key).first<{ data: string }>();
   return row ? (JSON.parse(row.data) as T) : null;
 }
-async function lastRun(db: D1Database, charId: number, job: string): Promise<number> {
+export async function lastRun(db: D1Database, charId: number, job: string): Promise<number> {
   return (await db.prepare('SELECT last_run FROM jobs WHERE char_id = ?1 AND job = ?2').bind(charId, job).first<{ last_run: number }>())?.last_run ?? 0;
 }
 const inList = (n: number, from = 1) => Array.from({ length: n }, (_, i) => `?${i + from}`).join(',');
@@ -155,18 +157,14 @@ export async function judgeAll(db: D1Database, charId: number, settings: Setting
   return { list: list.sort(byUrgency), unread, pace };
 }
 
-type RawPlanetHead = { planet_id: number; planet_type: string; solar_system_id: number; upgrade_level: number; num_pins: number; last_update: string };
-
-/** Extraction programmes ending or ended, read from the colonies themselves. */
-async function colonyFindings(db: D1Database, charId: number, token: string, now: number): Promise<Finding[]> {
-  const heads: PlanetHead[] = (await esiGet<RawPlanetHead[]>(`/characters/${charId}/planets/`, { token })).data.map((p) => ({
-    planetId: p.planet_id, planetType: p.planet_type, solarSystemId: p.solar_system_id,
-    upgradeLevel: p.upgrade_level, numPins: p.num_pins, lastUpdate: p.last_update,
-  }));
-  const colonies = [];
-  for (const h of heads) colonies.push(readColony(h, (await esiGet<RawColony>(`/characters/${charId}/planets/${h.planetId}/`, { token })).data, now));
+/** Extraction programmes ending or ended, from the colonies the hourly read keeps (planets.ts): never from ESI itself. */
+async function colonyFindings(db: D1Database, charId: number, now: number): Promise<Finding[]> {
+  const kept = await keptColonies(db, charId);
+  if (!kept?.colonies.length) return [];
+  const colonies = kept.colonies.map((k) => colonyOfKept(k, now));
+  // System names are public; one that can't be read falls back to the planet.
   const systems: Record<number, string> = {};
-  for (const id of new Set(heads.map((h) => h.solarSystemId))) {
+  for (const id of new Set(kept.colonies.map((k) => k.systemId))) {
     try { systems[id] = (await esiGet<{ name: string }>(`/universe/systems/${id}/`)).data.name; } catch { /* planet named instead */ }
   }
   const products = [...new Set(colonies.flatMap((c) => c.extractors.map((e) => e.productTypeId).filter((t): t is number => t != null)))];
@@ -479,12 +477,10 @@ export async function alertRound(env: Env, charId: number, now = Date.now(), jud
       });
     }
   }
-  if (cfg.ev.pi && cfg.mailEv.pi && main.scopes.includes(S.planets) && now - (await lastRun(env.DB, charId, 'pi')) >= PI_EVERY - 60_000) {
-    try {
-      const pi = await colonyFindings(env.DB, charId, main.access, now);
-      findings.push(...pi);
-      await noteJob(env.DB, charId, 'pi', { ok: true, detail: { findings: pi.length } });
-    } catch (e) {
+  // From the kept document, every round: the hourly read (planets.ts) has run just before this, whatever these settings say,
+  // and `mailKey` / "Remind me again after" keep a finding from going out every round.
+  if (cfg.ev.pi && cfg.mailEv.pi) {
+    try { findings.push(...await colonyFindings(env.DB, charId, now)); } catch (e) {
       await noteJob(env.DB, charId, 'pi', { ok: false, error: e instanceof Error ? e.message : String(e) });
     }
   }

@@ -2105,5 +2105,80 @@ console.log('\n--- Goonmetrics\' round starts where the last stopped, and says w
   eq('  a save that throws: the batches stay unread, and the next round still moves on', [kept.unread[CJ].length, kept.next[CJ]], [400, 5]);
 }
 
+console.log('\n--- the main\'s colonies, kept hourly (Planets task 5) ---');
+{
+  const { mainColoniesHourly } = await import('../worker/src/planets.ts');
+  const { alertRound } = await import('../worker/src/alerts.ts');
+  const { push } = await import('../worker/src/sync.ts');
+  const docOf = (db, char, key) => { const r = db.rows('SELECT data FROM docs WHERE char_id = ? AND key = ?', char, key)[0]; return r ? JSON.parse(r.data) : null; };
+  const rev = (db, char) => db.rows('SELECT rev FROM revs WHERE char_id = ?', char)[0]?.rev ?? 0;
+  const PLANETS = 'esi-planets.manage_planets.v1', PLANET = 40307990, SYSTEM = 30000142;
+  const NOW = Date.now(), ENDED = new Date(NOW - 3 * 3600_000).toISOString();
+  const heads = [{ planet_id: PLANET, planet_type: 'barren', solar_system_id: SYSTEM, upgrade_level: 4, num_pins: 1, last_update: new Date(NOW - 600_000).toISOString() }];
+  const colony = { pins: [{ pin_id: 1001, type_id: 2848, expiry_time: ENDED, install_time: new Date(NOW - 86400_000).toISOString(), last_cycle_start: new Date(NOW - 7200_000).toISOString(),
+    extractor_details: { cycle_time: 1800, product_type_id: 2268, qty_per_cycle: 500, heads: [{ head_id: 0 }] } }], links: [], routes: [] };
+  const routes = (over = {}) => [[`/characters/${MAIN}/planets/`, over.heads ?? heads], [`/characters/${MAIN}/planets/${PLANET}/`, over.colony ?? colony]];
+  const jobRow = (db, job) => db.rows('SELECT detail, last_ok FROM jobs WHERE char_id = ? AND job = ?', MAIN, job);
+
+  {
+    const db = d1(), env = testEnv(db);
+    await keepKey(db, MAIN, 'main', MAIN, 'Main', [...SCOPES, PLANETS]);
+    const f = stubFetch(routes());
+    await mainColoniesHourly(env, MAIN, NOW);
+    eq('  kept under the main', docOf(db, MAIN, 'colonies')?.colonies.map((c) => [c.planetId, c.planetType]), [[PLANET, 'Barren']]);
+    eq('  read with PI alerts off (no alerts doc, no sender)', JSON.parse(jobRow(db, 'pi')[0].detail), { colonies: 1 });
+    const planetReads = () => f.calls.filter((c) => c.path === `/characters/${MAIN}/planets/`).length;
+    const r0 = rev(db, MAIN);
+    await mainColoniesHourly(env, MAIN, NOW + 60_000);
+    eq('  not read again before the hour is up', planetReads(), 1);
+    await mainColoniesHourly(env, MAIN, NOW + 3600_000);
+    eq('  the same read again writes nothing', [planetReads(), rev(db, MAIN)], [2, r0]);
+    f.restore();
+    // A read older than the kept colony (another writer's newer one) can't roll it back, and pushes nothing.
+    const newer = { ...docOf(db, MAIN, 'colonies').colonies[0], lastUpdate: new Date(NOW + 86400_000).toISOString(), level: 5 };
+    await push(db, MAIN, { records: [], docs: [{ key: 'colonies', d: { colonies: [newer] } }] });
+    const r1 = rev(db, MAIN);
+    const g = stubFetch(routes());
+    await mainColoniesHourly(env, MAIN, NOW + 2 * 3600_000);
+    g.restore();
+    eq('  an older read leaves a newer kept colony as it is and pushes nothing', [docOf(db, MAIN, 'colonies').colonies[0].level, rev(db, MAIN)], [5, r1]);
+  }
+  {
+    // A 500 from ESI keeps the document and notes the failure.
+    const db = d1(), env = testEnv(db);
+    await keepKey(db, MAIN, 'main', MAIN, 'Main', [...SCOPES, PLANETS]);
+    let f = stubFetch(routes()); await mainColoniesHourly(env, MAIN, NOW); f.restore();
+    const before = JSON.stringify(docOf(db, MAIN, 'colonies')), r0 = rev(db, MAIN);
+    f = stubFetch([[`/characters/${MAIN}/planets/`, new Response(JSON.stringify({ error: 'boom' }), { status: 500 })]]);
+    await mainColoniesHourly(env, MAIN, NOW + 2 * 3600_000); f.restore();
+    eq('  a failed read keeps the document and the revision', [JSON.stringify(docOf(db, MAIN, 'colonies')), rev(db, MAIN)], [before, r0]);
+    eq('  and notes the failure', [true, db.rows("SELECT fails FROM jobs WHERE char_id = ? AND job = 'pi'", MAIN)[0].fails], [true, 1]);
+  }
+  {
+    // A login without the planets permission: nothing read, no job row.
+    const db = d1(), env = testEnv(db);
+    await keepKey(db, MAIN, 'main', MAIN, 'Main', SCOPES);
+    const f = stubFetch(routes());
+    await mainColoniesHourly(env, MAIN, NOW);
+    eq('  without the permission: no ESI call, no document, no job row', [f.calls.length, docOf(db, MAIN, 'colonies'), jobRow(db, 'pi').length], [0, null, 0]);
+    f.restore();
+  }
+  {
+    // In one round: the hourly read, then the alert round with PI mail on. The ended programme is found from the kept document alone.
+    const db = d1(), env = testEnv(db);
+    await keepKey(db, MAIN, 'main', MAIN, 'Main', [...SCOPES, PLANETS]);
+    await keepKey(db, MAIN, 'mailer', SENDER, 'Postmaster', SCOPES);
+    await push(db, MAIN, { records: [], docs: [{ key: 'alerts', d: { on: true, mail: true, quiet: false } }] });
+    let f = stubFetch(routes());
+    await mainColoniesHourly(env, MAIN, NOW);
+    f.restore();
+    f = stubFetch([[new RegExp(`^POST /characters/${SENDER}/mail/$`), 777], [/^GET \/universe\/systems\//, { name: 'Jita' }]]);
+    const r = await alertRound(env, MAIN, NOW);
+    const mails = f.calls.filter((c) => c.method === 'POST' && c.path === `/characters/${SENDER}/mail/`);
+    eq('  the round mails the ended programme without reading the planets', [r.found >= 1, mails.length, f.calls.some((c) => c.path.includes('/planets/')), /PI PROGRAMME ENDED/.test(String(mails[0]?.body))], [true, 1, false, true]);
+    f.restore();
+  }
+}
+
 console.log(failed ? `\n${failed} FAILURES` : '\nall passed');
 process.exit(failed ? 1 : 0);
