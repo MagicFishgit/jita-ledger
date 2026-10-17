@@ -619,6 +619,10 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
 - **After shipping: the first copy contract's journal entries.** Which ref types a copy contract writes (`contract_price`, `contract_brokers_fee`,
   `contract_sales_tax`, or others), and whether they name the contract (`context_id` with type `contract_id`). Until seen, a sale is counted at the contract's price at
   its completion and no fee at all; record what the first real one shows.
+- **The first real reads after stage 3 shipped** (read from D1 with SELECTs only, 13 October 2026 at 19:47 UTC): a copy round every six
+  hours since 12 October 09:37 UTC, none failed, none refused a snapshot, no reset. The five comparisons counted 282, 324,
+  159, 212 and 350 sold (1,327 rows in `copy_sold`), against 327 and 430 in the two six-hour spans measured on 11 October. The kept set
+  was 4 rows (`COPY_PART`), 1,052,451 bytes; the summary 160,103 bytes.
 
 ## Stage 4: home markets
 
