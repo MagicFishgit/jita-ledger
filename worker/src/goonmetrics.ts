@@ -29,12 +29,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * 16). A round that starts from the first batch every time and is always cut at the same call (a rate limit) never reaches its last
  * batches; starting after the last batch tried covers them over a few rounds. A hub read before this was kept takes its row as read.
  */
-type RoundState = { next: Record<string, number>; unread: Record<string, number[]> };
+type RoundState = { next: Record<string, number>; unread: Record<string, number[]>; types?: number[] };
 async function roundState(db: D1Database): Promise<RoundState> {
   try {
     const r = await db.prepare(`SELECT data FROM scan_meta WHERE key = 'goonmetrics'`).first<{ data: string }>();
     const s = r ? (JSON.parse(r.data) as Partial<RoundState>) : {};
-    return { next: s.next ?? {}, unread: s.unread ?? {} };
+    return { next: s.next ?? {}, unread: s.unread ?? {}, ...(s.types ? { types: s.types } : {}) };
   } catch { return { next: {}, unread: {} }; }
 }
 
@@ -53,6 +53,13 @@ export async function refreshHomePrices(db: D1Database, now = Date.now(), types:
   const kept = new Map(rows.map((r) => [r.hub, r]));
   const state = await roundState(db);
   const wanted = new Set(types);
+  // A type that joined the watch set since the state was kept is unread for every hub that has a kept list (a state without `types`
+  // takes the current list and adds nothing); one that left it drops out in `settle`.
+  if (state.types) {
+    const had = new Set(state.types), fresh = types.filter((t) => !had.has(t));
+    if (fresh.length) for (const h of HOME_HUBS) if (state.unread[h.id] || (kept.get(h.id)?.at ?? 0) > 0) state.unread[h.id] = [...new Set([...(state.unread[h.id] ?? []), ...fresh])];
+  }
+  state.types = [...types];
   const done: Record<string, 'read' | 'partial' | 'fresh' | 'later' | 'failed'> = {};
   let error: string | null = null, inARow = 0, calls = 0;
   // A hub's try is stamped on its row, or on a stub (at 0: never read) when it has none yet.
@@ -86,10 +93,10 @@ export async function refreshHomePrices(db: D1Database, now = Date.now(), types:
   // Where the hub's next round starts (after the last batch tried, or where this one started when it tried them all), and which of
   // its types no round has reached since: the old list (all of them for a hub never read, none for one read before this was kept),
   // less every batch that came back, when the save stored them (a write that threw must not mark types reached that the row lacks).
-  const settle = (hub: number, old: unknown, start: number, tried: number, n: number, came: number[], batches: number[][], stored: boolean) => {
+  const settle = (hub: number, old: { at: number } | undefined, start: number, tried: number, n: number, came: number[], batches: number[][], stored: boolean) => {
     state.next[hub] = tried >= n ? start : (start + tried) % n;
     const back = new Set(stored ? came.flatMap((k) => batches[k]) : []);
-    state.unread[hub] = (state.unread[hub] ?? (old ? [] : [...types])).filter((t) => wanted.has(t) && !back.has(t));
+    state.unread[hub] = (state.unread[hub] ?? (old && old.at > 0 ? [] : [...types])).filter((t) => wanted.has(t) && !back.has(t));
   };
   // Kept, or said in the log: a write that throws (even in `prepare`, as the stage-1 test's broken D1 does) never stops the round.
   const keepState = async () => {

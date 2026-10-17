@@ -290,7 +290,7 @@ behind it `.playwright-mcp/research/bpo/report.md` (gitignored). Stage 1 (what t
   - FindStructure prints a negative security with the typographic minus (`MINUS`), as `secText` does; CLAUDE.md lists `homeMarket`
     and `industryRank` among the modules the Worker imports; `nameReader` is in this note's `paths:`.
   - **Left as a limit** (limits.md): the row doesn't record which types a cut-short round asked for, so a type in a batch it
-    never reached reads as no price there, and a round always starts from the first batch. No read has been cut short yet.
+    never reached reads as no price there, and a round always starts from the first batch. No read has been cut short yet. (Left for stage 4 and done there: Task 18E below.)
 
 ## Stage 2: blueprints and jobs
 
@@ -750,7 +750,9 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   types stay out. **A save whose write throws leaves its batches unread** (ruling 18E-1): `settle` removes a batch from `unread` only when the
   row stored it, while `next` moves on either way. The finder, its count line and To do's built item say "not read at X yet" / "Goonmetrics
   hasn’t read it at X yet" for an unread type (`HomeSource.unread`, empty unless Goonmetrics is the source speaking), and "no price" only for a
-  type read and absent. Calls, pauses, User-Agent, cadence and `GOONMETRICS_ON` are unchanged.
+  type read and absent; a built product outside the watch set at a Goonmetrics hub says Goonmetrics is read for the Industry tab’s items only (the
+  watch chunk loads when Goonmetrics speaks too, never holding Build's rows back; To do shows it reading meanwhile). A type added to the watch set
+  joins every kept hub's `unread` (`state.types`). Calls, pauses, User-Agent, cadence and `GOONMETRICS_ON` are unchanged.
 - **The hub's broker fee, measured from your orders there** (Task 18D, 17 October 2026; `hubFeeRate`, `HUB_FEE_ORDERS`, `HubFee` in homeMarket.ts; `HubFeeLine`
   in IndustryHome.tsx, under each row's typed fee and under the home hub's words on Build; `IndustryChar.orders` / `.journal`). A structure's broker fee is its
   owner's and isn't in ESI. Correction 12: `matchFees` calls a fee a placement only at 75% of the Jita rate times the order, so a hub fee under that (1.2% is,

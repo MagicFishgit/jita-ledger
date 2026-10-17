@@ -2072,6 +2072,23 @@ console.log('\n--- Goonmetrics\' round starts where the last stopped, and says w
   dbOld.run("INSERT INTO home_prices (hub, source, at, data, tried) VALUES (?, 'goonmetrics', ?, '{}', ?)", CJ, NOW - REFRESH_MS, NOW - REFRESH_MS);
   const old = await round(dbOld, NOW);
   eq('  a hub read before: from the first batch, its earlier types not said unread', [old.asked.filter(([hub]) => hub === CJ)[0], ((await homePrices(dbOld, CJ)).unread ?? []).length], [[CJ, 1000], 0]);
+  // Review I1: types added to the watch set after a state was kept are unread for a hub, not "no price", when the next round is cut before them.
+  const dbG = d1();
+  await round(dbG, NOW);
+  const grown = [...types, ...Array.from({ length: 50 }, (_, i) => 2000 + i)];
+  {
+    const real = globalThis.fetch;
+    let n = 0;
+    globalThis.fetch = async () => (++n > 3 ? new Response('busy', { status: 429 }) : new Response('x', { status: 429 }));
+    try { await refreshHomePrices(dbG, NOW + REFRESH_MS, grown, async () => undefined, true); } finally { globalThis.fetch = real; }
+  }
+  const gu = (await homePrices(dbG, CJ)).unread ?? [];
+  eq('  a type added to the watch set is unread for a hub whose round was cut before it', [2000, 2049].map((t) => gu.includes(t)), [true, true]);
+  // Review M2: a never-read stub row (at 0) is a hub never read, so a cut first round serves its unreached types as unread.
+  const dbS = d1();
+  dbS.run("INSERT INTO home_prices (hub, source, at, data, tried) VALUES (?, 'goonmetrics', 0, '{}', ?)", CJ, NOW - REFRESH_MS);
+  await round(dbS, NOW);
+  eq('  a stub row (never read) cut short: its unreached types are unread', ((await homePrices(dbS, CJ)).unread ?? []).length, 300);
   // Ruling 18E-1: a save whose write throws leaves its batches unread (the row doesn't hold them), and the next round still moves on.
   const dbT = d1();
   const throwing = { ...dbT, prepare: (sql) => { if (sql.includes('home_prices') && sql.includes('excluded.data')) throw new Error('disk full'); return dbT.prepare(sql); } };

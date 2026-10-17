@@ -306,7 +306,7 @@ export function useHomeBook(hub: number | null): BookState {
 /**
  * What prices a hub (spec: "Which price speaks"): its own market's read while under two hours old, else Goonmetrics' (a hub it
  * tracks), else none; `quote` gives each type's price from whichever speaks, `read` whether anything does (a type missing from it then
- * has no price there, rather than being unread). `hub` is the hub's state on the cloud's list, for what its own market's read says.
+ * has no price there, rather than being unread, unless `unread` names it: a type no Goonmetrics round has reached). `hub` is the hub's state on the cloud's list, for what its own market's read says.
  * The quotes are worked out again only when the source or its time changes, not each minute.
  */
 export type HomeSource = {
@@ -319,6 +319,8 @@ export type HomeSource = {
   unwatched: (type: number) => boolean;
   /** Types no Goonmetrics round has reached yet (only while Goonmetrics speaks): "not read yet", never "no price". */
   unread: ReadonlySet<number>;
+  /** While Goonmetrics speaks: the watch set it's read for ('loading' until its chunk is in, null if that failed or Goonmetrics isn't speaking). Never holds Build's rows back. */
+  gmWatch: ReadonlySet<number> | 'loading' | null;
 };
 const NO_TYPES: ReadonlySet<number> = new Set();
 const UNTRACKED = { status: 'untracked' } as const;
@@ -342,11 +344,11 @@ export function useHomeQuotes(hub: HomeHub | null, mine: readonly HubOrder[] = N
   const [watch, setWatch] = useState<Set<number> | null>(watchSet);
   const [watchFailed, setWatchFailed] = useState(watchBad);
   useEffect(() => {
-    if (!structureSpeaks || watch || watchFailed) return;
+    if (!(structureSpeaks || gm.status === 'ok') || watch || watchFailed) return;
     let alive = true;
     loadWatch().then(() => { if (!alive) return; if (watchSet) setWatch(watchSet); else setWatchFailed(true); });
     return () => { alive = false; };
-  }, [structureSpeaks, watch, watchFailed]);
+  }, [structureSpeaks, gm.status, watch, watchFailed]);
   // The item list failed to load: the structure's read can't say which types it holds, so it doesn't speak (Goonmetrics' may), and the
   // hub isn't pending for good.
   const itemsFailed = structureSpeaks && !watch && watchFailed;
@@ -359,7 +361,7 @@ export function useHomeQuotes(hub: HomeHub | null, mine: readonly HubOrder[] = N
       ? (watch?.has(t) ? structureQuote(own.rows[t], own.at, gm.status === 'ok' ? gm.prices[t]?.[1] ?? null : null, ordersInRead(here, t, own.at)) : null)
       : speaks?.source === 'goonmetrics' && gm.status === 'ok' ? homeQuote(gm.prices[t]) : null);
     // A read that exists but doesn't speak (past two hours, refused since) is a hub with no price, not one never read.
-    return { gm, book, hub: state, speaks, quote, read: !pending && (speaks != null || own != null) && !(hub?.goonmetrics && gm.status === 'loading'), pending, itemsFailed, unwatched: (t) => speaks?.source === 'structure' && !!watch && !watch.has(t), unread: speaks?.source === 'goonmetrics' && gm.status === 'ok' ? gm.unread : NO_TYPES };
+    return { gm, book, hub: state, speaks, quote, read: !pending && (speaks != null || own != null) && !(hub?.goonmetrics && gm.status === 'loading'), pending, itemsFailed, unwatched: (t) => speaks?.source === 'structure' && !!watch && !watch.has(t), unread: speaks?.source === 'goonmetrics' && gm.status === 'ok' ? gm.unread : NO_TYPES, gmWatch: speaks?.source !== 'goonmetrics' ? null : watch ?? (watchFailed ? null : 'loading') };
   }, [gm, book, state, own, key, here, watch, pending, itemsFailed]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 const NO_ORDERS: readonly HubOrder[] = [];

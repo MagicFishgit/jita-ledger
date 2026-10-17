@@ -91,7 +91,7 @@ export type Market = {
   stats: ProspectStats | null;
   watched?: { sell: number; buy: number; h: number } | null;
   home?: HomeQuote | null;
-  /** The hub's prices have been read (the type may still be missing from them: Goonmetrics has no price for it); false before the first read. */
+  /** This type's price at the hub has been read (it may still be missing: Goonmetrics has no price for it); false before the first read, or while no Goonmetrics round has reached the type. */
   homeRead?: boolean;
   /** The home region's daily history (Tenerifis, Insmother), once read; until then home pace is Goonmetrics' weekly movement ÷ 7. */
   homeHist?: HistRow[] | null;
@@ -127,7 +127,7 @@ export function sourceMaterial(o: {
   jita: { ask: number | null; bid: number | null; patient: number | null } | null;
   jitaLeg: Leg;
   home: HomeQuote | null; homeLeg: Leg | null; hubName: string | null;
-  /** The hub's prices were read, so a type missing from them has no price there rather than being unread. */
+  /** This type was read at the hub, so it being missing means no price there rather than being unread. */
   homeRead?: boolean;
 }): Omit<MaterialPick, 'qty'> {
   const options: SourceOption[] = [];
