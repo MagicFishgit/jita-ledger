@@ -764,4 +764,11 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   tax's band (`taxesDiffer`, ±0.05%); nothing measured draws nothing. The page check compares the offer without case (the button is upper-cased by the stylesheet).
   **After shipping: record the first real order placed at a home hub: how many journal entries its fee wrote, their ref types and amounts, and whether the
   measure matched the fee the market window showed.**
+- **The first real reads after stage 4 shipped** (main d8da485, the Worker deployed 17 October 2026 at 16:03 UTC; read from D1 with SELECTs only at 18:58
+  UTC). The user logged in again and handed the cloud the main's login: the main's and FannySchmeller's cloud logins hold the structure markets permission, the
+  sender's doesn't (as planned). The 18:37 round read both of Goonmetrics' hubs with the main and **neither refused**: 1st Byzantigoon (UALX-3) 19 pages, 1,882
+  of the watch set's types listed, a 150,401-byte row; C-J6MT 54 pages, 2,311 types, 239,939 bytes. Both rows carry the round's start (18:37:16) as `at`, so a
+  page's time isn't in D1 (`wrangler tail` during a round would show it). So **no structure refusal has been seen yet**: record its status and `error` the first
+  time a reader isn't on a market's access list (Mothership Bellicose's, likeliest). Goonmetrics' round state: `next` 0 for both hubs, nothing unread, `types`
+  the 2,916; its rows read at 16:37 (159,936 and 166,329 bytes). No order placed at a home hub yet, so its broker fee's entries are still to record.
 
