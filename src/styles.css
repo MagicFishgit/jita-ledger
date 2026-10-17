@@ -1118,6 +1118,15 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .ind-jobs td[data-off="1"], .ind-jobs .rd-phone span[data-off="1"] { color: var(--acc2); }
 .ind-total td { border-top: 1px solid var(--line-3); }
 .ind-sites td.rd-main .sub { max-width: 280px; }
+/* Home markets (IndustryHome.tsx): its cells wrap, as Where you build's do; a row's actions (the home hub, its reader, Read it now,
+   Remove) wrap under its name rather than run past it. */
+.ind-home td { white-space: normal; vertical-align: top; }
+.ind-home td.rd-main { min-width: 220px; }
+.ind-home td .sub { display: block; white-space: normal; }
+.ind-home .ind-acts { flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+/* Its two cells of sentences read in the body face (the table's mono is for figures), and a hub's system stays whole: "(C-J6MT)". */
+.ind-home td.ind-said { font-family: var(--f-body); font-size: 13px; line-height: 1.45; }
+.ind-home .ind-sys { white-space: nowrap; }
 /* The finder (IndustryBuild.tsx): its choices wrap; a row's detail spans the table and wraps its words. */
 .ind-choices { gap: 8px 12px; flex-wrap: wrap; align-items: center; }
 /* Fixed layout: a row's detail spans the table's own width, and what it holds scrolls inside it (its tables have their own
@@ -1555,4 +1564,8 @@ button.tile.press .tile-v, button.tile.press .tile-n { display: block; }
   /* A number box whose label names a hub by its structure's name can be longer than the screen: its label wraps. */
   .chip:has(.cu) { height: auto; min-height: 36px; }
   .chip:has(.cu) .cl { white-space: normal; padding-top: 4px; padding-bottom: 4px; }
+  /* The Industry tab's five sections wrap to three rows: each row is filled, so Home markets, last, runs across its row rather than
+     sitting alone in a corner (Side hustles' tabs do the same). */
+  .ind-head .seg[aria-label="Industry section"] { width: 100%; }
+  .ind-head .seg[aria-label="Industry section"] button { flex: 1 1 auto; justify-content: center; }
 }

@@ -635,6 +635,18 @@ export const cloudHomeMarkets = () => call<{ hubs: HubState[] }>('/v1/home/marke
 /** A hub's last good read of its own market, null before one. A Worker a version behind answers 404. */
 export const cloudHomeBook = (hub: number) => call<HomeBookAnswer>(`/v1/home/book?hub=${hub}`);
 /**
+ * Read a hub with this reader (`POST /v1/home/markets`), adding it when it's new (its name and system from the structure found), or
+ * switching a default back on. The reader is the main or an alt on the roster; the cloud uses the login it already holds for it.
+ */
+export const cloudSetHomeMarket = (b: { hub: number; reader: number; name?: string; systemId?: number }) => call<{ ok: true }>('/v1/home/markets', { method: 'POST', body: JSON.stringify(b) });
+/** Stop reading a default hub, or take one you added off the list (`DELETE /v1/home/markets`). */
+export const cloudDropHomeMarket = (hub: number) => call<{ ok: true }>(`/v1/home/markets?hub=${hub}`, { method: 'DELETE' });
+/**
+ * Read one hub's own market now, with its reader (`POST /v1/home/read`), and its state back: what the read did (read, refused by the
+ * access list, failing) or, for a reader whose login can't read, skipped without asking EVE (the state's `login` says why).
+ */
+export const cloudReadHome = (hub: number) => call<HubState>(`/v1/home/read?hub=${hub}`, { method: 'POST' });
+/**
  * What copies sold for in The Forge over the last week and the asks now (`GET /v1/copies`). Four answers, told apart by `at`:
  * null (no round has tried yet), `{ off: true }` (the cloud has its EVE Ref reads switched off), `{ tried, error }` with no `at`
  * (a round tried and none has read yet: a failed or interrupted first round), and a summary (always has `at`) with when the

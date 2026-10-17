@@ -10,6 +10,7 @@ import { loadGraph, loadIndustry } from './industryBundle';
 import { useIndustryChars } from './industryChars';
 import { IndustryBuild } from './IndustryBuild';
 import { IndustryCopies } from './IndustryCopies';
+import { IndustryHome } from './IndustryHome';
 import { IndustryOwned } from './IndustryOwned';
 import { IndustryStart } from './IndustryStart';
 
@@ -17,7 +18,7 @@ import { IndustryStart } from './IndustryStart';
  * Industry: what to build, where, and what it pays (docs/notes/industry.md; spec
  * docs/superpowers/specs/2026-10-10-industry-design.md). Its sections sit in the address (hustles/industry/<section>)
  * and the last one picked is kept per browser: Start (where you stand and the ladder), Build (where you
- * build and the finder) and Blueprints & jobs; stage 4 adds Home markets. "Show for" picks whose skills,
+ * build and the finder), Blueprints & jobs, Copies and Home markets. "Show for" picks whose skills,
  * clone, fees, held stock and mining every figure uses: the main, or an alt from its pulled copy, read and never written.
  * The one file of the tab that imports the alt store (scripts/check.mjs keeps the list).
  */
@@ -33,6 +34,7 @@ export const SECTIONS = [
   { key: 'build', label: 'Build', tip: 'What pays at your build site, and where you build' },
   { key: 'blueprints', label: 'Blueprints & jobs', tip: 'What your characters hold and have running' },
   { key: 'copies', label: 'Copies', tip: 'Copies worth making for one lab slot, and your own copy business' },
+  { key: 'home', label: 'Home markets', tip: 'Prices at your home hubs: Goonmetrics, or a character’s own read of the market' },
 ] as const;
 type Section = (typeof SECTIONS)[number]['key'];
 
@@ -86,6 +88,7 @@ export function Industry({ route }: { route: Route }) {
           {section === 'start' && <IndustryStart key={shown.charId} c={shown} ix={ix} graph={graph} />}
           {section === 'build' && <IndustryBuild key={shown.charId} c={shown} ix={ix} graph={graph} mainName={main.name} chars={chars} />}
           {section === 'copies' && <IndustryCopies key={shown.charId} c={shown} chars={chars} ix={ix} graph={graph} />}
+          {section === 'home' && <IndustryHome key={shown.charId} c={shown} chars={chars} graph={graph} />}
           {section === 'blueprints' && <IndustryOwned chars={chars} filter={filter} onFilter={chooseFilter} shown={shown} ix={ix} graph={graph} />}
         </PilotProvider>
       )}

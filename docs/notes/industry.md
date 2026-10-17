@@ -697,3 +697,36 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   - **Fix round 1 (the review of Task 18B)**: **your own orders at the hub come off its read** (`structureQuote`'s `mine`: every character's open orders at that structure, by exact price, a level that empties dropped, an order matching no level leaves them alone; `IndustryChar.hubOrders`, To do's `hubOrders`): the structure's read holds every order, yours included, and priced a tick under your own listing. **Nothing speaks while the hub's own read (or the watch set) is still coming** (`HomeSource.pending`): Goonmetrics' prices no longer rank the rows or price a built item for the moments before the book lands. **To do says only which price it used and its age** ("UALX-3's prices: Goonmetrics, read 5 h ago."; `homeSaid`'s `own: false`): a refused or unreadable own market, a relog or an access list is said on the Industry tab alone (Ruling 1, the logging-in constraint). **"Goonmetrics' prices stand in" only where they do** (`ownMarketSaid`'s `'tracked'`: read and not switched off). **Ages in a hub's lines are minutes up to 2 h 59** (`homeAgo`), so 1 h 59 and 2 h 01 never both read "2 h ago". A hub's read that exists but doesn't speak reads "no price at X", not "not read yet".
 
   - **Fix round 2**: your orders come off a type's levels only if they are that type's (`ordersInRead`: prices carry four significant figures, so another item's order at a level's price is ordinary) and issued by the time of the read (`issued` moves on a reprice). A watch-set chunk that fails to load is final for the page (gotchas.md): the hub's own read doesn't speak, isn't pending for good, and Build says the item list couldn't be loaded with "Reload to try again" (`HomeSource.itemsFailed`). A Goonmetrics hub isn't "read" while its Goonmetrics read is loading.
+
+- **The Home markets section** (Task 18C, 17 October 2026; `IndustryHome.tsx`, `hustles/industry/home`, the tab's fifth section). Lead
+  "Prices at home, from Goonmetrics until a character of yours can read the market itself." One row per hub: Goonmetrics' two always
+  (the cloud off, loading, a version behind or failing each said once over the table, in `listWhy`'s words), then the hubs you added,
+  as the cloud lists them. Each is named by its structure with its system beside it, "1st Byzantigoon (UALX-3)" (Ruling 2; the
+  system's part kept whole so "(C-J6MT)" never breaks at its hyphen), and says:
+  - **Prices now**: its own read under two hours old, else Goonmetrics' with its age (`homeAgo`) and "older than a day" past one, else
+    nothing, said, or why Goonmetrics' prices aren't here. While its own read is still coming from the cloud it says "Reading…", so
+    Goonmetrics' line never shows for a moment and gives way. A default switched to Nobody isn't priced by its own last read (`ownRead`).
+    It reads the hub's book and Goonmetrics' row directly, not through `useHomeQuotes`: the section never loads the watch set, so a
+    watch-set chunk that failed on Build isn't reflected here (Build says it).
+  - **Its own market**: `ownMarketSaid`, with Goonmetrics passed as it is for that row: `true` only while its prices are read, else
+    `'tracked'` (a default), `false` for a hub you added. So a default refused by its access list reads calmly, and says "Goonmetrics'
+    prices stand in" only where they do. The main's cloud login without the permission (every hub's state from the deploy until it's
+    handed over) reads "log in again here, then hand the cloud your login again", never a refusal or a failure.
+  - **Its reader**, a select per row (once the cloud's list is in): any of your characters, the main by default; Goonmetrics' two add
+    "Nobody: Goonmetrics only", which stops reading them (`DELETE /v1/home/markets`, the cloud keeps the row with `removed_at`); picking a
+    character sets it (`POST /v1/home/markets`) and reads at once. A reader the cloud keeps who isn't among your characters here is
+    listed as itself, so the select never shows another as the one reading. **Read it now** only while its reader's login can read;
+    **Remove** for a hub you added; **Make it the home hub** writes the `industry` doc's `hub` (and removing the home hub clears it).
+  - **Its broker fee**, typed per hub into `hubFees` (the cell, and the row's fold on a phone): Task 18D adds the measured one.
+  - **Adding a market**: `FindStructure` as any character ("Search as": the main here with this browser's login and its search
+    permissions, an alt through the cloud's search with its own login). Whoever finds it reads it. The add posts the structure's name and
+    system, then reads it at once, and the toast says "Added <name>." and what that read did in `ownMarketSaid`'s words: read and by
+    whom, refused, failing, or skipped without asking EVE for a reader whose login can't (the likeliest first add: an alt handed over
+    before the permission, "hand the cloud X's login again on Characters"); never a read it didn't make. A read that throws after the add
+    still says Added, with why it couldn't read. Mothership Bellicose is named as the one to add ("Brave's market at UALX-3, Mothership
+    Bellicose: add it once one of your characters can see it") until a hub of that name is listed.
+  - **Logins**: the section calls only the cloud's routes, with the logins the cloud already holds; it never starts an EVE login, hands
+    one over or touches `auth.ts`. Where a login is the problem it says where to fix it (Settings → Your data, Characters).
+  - The page check's industry case (Task 18C block) drives every state above, the reader select, Nobody, an add as Builder Alt (read,
+    and again with its login lacking the permission), Remove, and a cloud a version behind; the plain loads draw the section on the
+    empty, small and large ledgers, and `check-phone` measures it.
