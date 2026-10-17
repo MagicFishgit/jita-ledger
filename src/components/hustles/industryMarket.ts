@@ -6,7 +6,7 @@ import type { IndustryIndex } from '../../lib/industry';
 import { npcHoldMs, type NpcRow } from '../../lib/industryRank';
 import type { CopySummary } from '../../lib/copyMarket';
 import type { StructureRow } from '../../lib/bookFold';
-import { bookHoldMs, HOME_HOLD_MAX_MS, homeHoldMs, homeQuote, homeSpeaks, hubsFrom, ownRead, structureQuote, type HomeHub, type HomeRow, type HomeSpeaks, type HubOrder, type HubState } from '../../lib/homeMarket';
+import { bookHoldMs, HOME_HOLD_MAX_MS, homeHoldMs, homeQuote, homeSpeaks, hubsFrom, ordersInRead, ownRead, structureQuote, type HomeHub, type HomeRow, type HomeSpeaks, type HubOrder, type HubState } from '../../lib/homeMarket';
 import { useNow } from '../../lib/hooks';
 import type { HomeQuote } from '../../lib/industryRank';
 import { adjustedPricesShared, industrySystemsShared, jitaBook, regionHistory, resolveNames } from '../../lib/market';
@@ -313,6 +313,8 @@ export type HomeSource = {
   gm: HomeState | { status: 'untracked' }; book: BookState; hub: HubState | null; speaks: HomeSpeaks; quote: (type: number) => HomeQuote | null; read: boolean;
   /** The hub's own read (or the watch set that says which types it holds) is still coming: nothing speaks yet, so nothing is priced on Goonmetrics' meanwhile. */
   pending: boolean;
+  /** The list of types the hub's own read holds couldn't be loaded (a failed chunk), so the read doesn't speak until the app is reloaded. */
+  itemsFailed: boolean;
   /** A type outside the watch set: the structure's read holds only watched types, so it says nothing of this one (never "none listed there"). */
   unwatched: (type: number) => boolean;
 };
@@ -320,7 +322,9 @@ const UNTRACKED = { status: 'untracked' } as const;
 /** The cloud's watch set (src/data/industryTypes.json, its own chunk), loaded once when a hub's own read first speaks. */
 let watchSet: Set<number> | null = null;
 let watchLoad: Promise<void> | null = null;
-const loadWatch = () => (watchLoad ??= import('../../data/industryTypes.json').then((m) => { watchSet = new Set<number>(m.default.watch); }, () => { watchLoad = null; }));
+// Chromium keeps a failed dynamic import for the life of the page (gotchas.md), so a failure is final here: the tab offers a reload.
+let watchBad = false;
+const loadWatch = () => (watchLoad ??= import('../../data/industryTypes.json').then((m) => { watchSet = new Set<number>(m.default.watch); }, () => { watchBad = true; }));
 export function useHomeQuotes(hub: HomeHub | null, mine: readonly HubOrder[] = NO_ORDERS): HomeSource {
   const gmRead = useHomePrices(hub?.goonmetrics ? hub.id : null);
   const book = useHomeBook(hub?.id ?? null);
@@ -333,23 +337,27 @@ export function useHomeQuotes(hub: HomeHub | null, mine: readonly HubOrder[] = N
   const bookPending = !!hub && book.status === 'loading' && !state?.off;
   const structureSpeaks = homeSpeaks(own, null, now)?.source === 'structure';
   const [watch, setWatch] = useState<Set<number> | null>(watchSet);
+  const [watchFailed, setWatchFailed] = useState(watchBad);
   useEffect(() => {
-    if (!structureSpeaks || watch) return;
+    if (!structureSpeaks || watch || watchFailed) return;
     let alive = true;
-    loadWatch().then(() => { if (alive && watchSet) setWatch(watchSet); });
+    loadWatch().then(() => { if (!alive) return; if (watchSet) setWatch(watchSet); else setWatchFailed(true); });
     return () => { alive = false; };
-  }, [structureSpeaks, watch]);
-  const pending = bookPending || (structureSpeaks && !watch);
-  const speaks = pending ? null : homeSpeaks(own, gm.status === 'ok' ? gm : null, now);
+  }, [structureSpeaks, watch, watchFailed]);
+  // The item list failed to load: the structure's read can't say which types it holds, so it doesn't speak (Goonmetrics' may), and the
+  // hub isn't pending for good.
+  const itemsFailed = structureSpeaks && !watch && watchFailed;
+  const pending = bookPending || (structureSpeaks && !watch && !watchFailed);
+  const speaks = pending ? null : homeSpeaks(itemsFailed ? null : own, gm.status === 'ok' ? gm : null, now);
   const key = speaks ? `${speaks.source}:${speaks.at}` : '';
   const here = useMemo(() => mine.filter((o) => o.locationId === hub?.id), [mine, hub]);
   return useMemo((): HomeSource => {
     const quote = (t: number): HomeQuote | null => (speaks?.source === 'structure' && own
-      ? (watch?.has(t) ? structureQuote(own.rows[t], own.at, gm.status === 'ok' ? gm.prices[t]?.[1] ?? null : null, here) : null)
+      ? (watch?.has(t) ? structureQuote(own.rows[t], own.at, gm.status === 'ok' ? gm.prices[t]?.[1] ?? null : null, ordersInRead(here, t, own.at)) : null)
       : speaks?.source === 'goonmetrics' && gm.status === 'ok' ? homeQuote(gm.prices[t]) : null);
     // A read that exists but doesn't speak (past two hours, refused since) is a hub with no price, not one never read.
-    return { gm, book, hub: state, speaks, quote, read: !pending && (speaks != null || own != null), pending, unwatched: (t) => speaks?.source === 'structure' && !!watch && !watch.has(t) };
-  }, [gm, book, state, own, key, here, watch, pending]); // eslint-disable-line react-hooks/exhaustive-deps
+    return { gm, book, hub: state, speaks, quote, read: !pending && (speaks != null || own != null) && !(hub?.goonmetrics && gm.status === 'loading'), pending, itemsFailed, unwatched: (t) => speaks?.source === 'structure' && !!watch && !watch.has(t) };
+  }, [gm, book, state, own, key, here, watch, pending, itemsFailed]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 const NO_ORDERS: readonly HubOrder[] = [];
 

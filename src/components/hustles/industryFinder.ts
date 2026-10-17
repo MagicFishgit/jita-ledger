@@ -226,6 +226,9 @@ export function homeSaid(f: Pick<Finder, 'hub' | 'home' | 'hubMissing'>, now: nu
             : 'Your home hub isn’t one the cloud reads any more: pick another on the Industry tab, or add it again under Home markets.';
   }
   if (st.pending) return `Reading ${h.short}’s prices from the cloud…`;
+  // The list of items its read holds couldn't load (a failed chunk, never retried in place): Build offers a reload.
+  const itemsLost = st.itemsFailed ? `${h.short}’s own market can’t be used: the list of items it holds couldn’t be loaded. ` : '';
+  if (st.itemsFailed && !h.goonmetrics) return itemsLost.trim();
   if (st.speaks?.source === 'structure') return `${h.short}’s prices: its own market, read ${homeAgo(st.speaks.at, now)}.`;
   const hb = st.hub && !st.hub.off ? st.hub : null;
   const ownSaid = (gm: boolean | 'tracked') => (withOwn && hb ? ` ${ownMarketSaid(hb, now, gm)}` : '');
@@ -236,7 +239,8 @@ export function homeSaid(f: Pick<Finder, 'hub' | 'home' | 'hubMissing'>, now: nu
     if (b.status === 'behind') return `The cloud is a version behind: ${h.short}’s own market comes once it’s updated.`;
     if (b.status === 'failed') return `Couldn’t read ${h.short}’s own market from the cloud: ${b.error}.`;
     // Its own refusal already says Goonmetrics doesn't track it.
-    const refused = withOwn && !!hb?.book?.refusedAt;
+    // ownMarketSaid says "Goonmetrics doesn't track it" only on its refusal branch: a login that can read, by the read's own reader.
+    const refused = withOwn && !!hb?.book?.refusedAt && hb.login === 'ok' && hb.book.reader === hb.reader;
     return `${h.short} isn’t priced: ${refused ? '' : 'Goonmetrics doesn’t track it, and '}its own market has no read under two hours old.${ownSaid(false)}`;
   }
   const gm = st.gm;
@@ -248,7 +252,7 @@ export function homeSaid(f: Pick<Finder, 'hub' | 'home' | 'hubMissing'>, now: nu
   if (gm.status === 'none') return `Not read yet: the cloud reads ${h.short}’s prices from Goonmetrics every six hours.${ownSaid('tracked')}`;
   if (gm.status !== 'ok') return null;
   const old = now - Date.parse(gm.at) > HOME_STALE_MS;
-  const head = `${h.short}’s prices: Goonmetrics, read ${ago(gm.at, now)}${old ? ': older than a day' : ''}.`;
+  const head = `${itemsLost}${h.short}’s prices: Goonmetrics, read ${ago(gm.at, now)}${old ? ': older than a day' : ''}.`;
   if (!withOwn) return head;
   // Why its own market isn't the one speaking (Review Focus 3): never the same words as one that still speaks. "That read" only
   // where the sentence before names a read; a login that can't read, or a read by another reader, says it whole.

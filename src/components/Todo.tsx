@@ -162,7 +162,7 @@ export function Todo() {
   // The hub's prices are fetched only when something built lists there.
   // Every character's open orders at any station: the hub's own read holds them too, and none is a rival (as the Jita leg's).
   const hubOrders = useMemo((): HubOrder[] => [...Object.values(d.orders), ...roster.flatMap((a) => Object.values((copies[a.charId]?.records.orders ?? {}) as Record<string, Order>))]
-    .filter((o) => o.state === 'open').map((o) => ({ locationId: o.locationId, isBuy: o.isBuy, price: o.price, volume: o.volumeRemain })), [d.orders, roster, copies]);
+    .filter((o) => o.state === 'open').map((o) => ({ locationId: o.locationId, typeId: o.typeId, isBuy: o.isBuy, price: o.price, volume: o.volumeRemain, issued: o.issued })), [d.orders, roster, copies]);
   const homeQ = useHomeQuotes(builtWhereAll.includes('home') ? hub : null, hubOrders);
   // Every character's open orders, off the books the prices are read on (pre-flight M8).
   const allOrderIds = useMemo(() => [...Object.values(d.orders), ...roster.flatMap((a) => Object.values((copies[a.charId]?.records.orders ?? {}) as Record<string, { orderId: number }>))].map((o) => o.orderId), [d.orders, roster, copies]);

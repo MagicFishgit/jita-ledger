@@ -9178,6 +9178,13 @@ console.log('\n--- Industry stage 4: the hub list and which price speaks at home
     [{ price: 7_200_000, volume: 15 }, 2]);
   eq('  the only listing being yours reads none listed, and what its orders sold stays as read', [HM.structureQuote([[], [[7_200_000, 20]], 0, 1, [60, 0, 0, 0]], at(30), null, [ord(false, 7_200_000, 20)]).sell, HM.structureQuote(mineRow, at(30), null, [ord(false, 7_200_000, 20)]).sold.sell], [null, 60]);
 
+  // Fix round 2: only your orders of this type, issued by the time of the read, are in it.
+  const own2 = (typeId, issued, price = 7_200_000) => ({ locationId: BELL, typeId, isBuy: false, price, volume: 3, issued });
+  const row2 = [[], [[7_200_000, 3], [7_350_000, 4]], 0, 2, [0, 0, 0, 0]];
+  const quoted = (orders, t = 25894) => HM.structureQuote(row2, at(30), null, HM.ordersInRead(orders, t, at(30))).sell;
+  eq('your order of another type at a level\'s price leaves that level whole (four significant figures make equal prices ordinary)', [quoted([own2(99999, at(60))]), quoted([own2(25894, at(60))])], [7_200_000, 7_350_000]);
+  eq('  an order issued after the read (placed or repriced since) leaves its own type\'s level alone, whatever its price', [quoted([own2(25894, at(10))]), quoted([own2(25894, at(30))]), quoted([own2(25894, at(10), 7_300_000)])], [7_200_000, 7_350_000, 7_200_000]);
+
   // Buying at a hub priced by its own read (correction 9).
   const st = (sells) => ({ sell: sells[0]?.price ?? null, buy: 80, weekly: null, at: at(30), source: 'structure', sells });
   const src = (o) => K.sourceMaterial({ type: 34, weekNeed: 500, volume: 0.01, mineable: false, mines: false, jita: { ask: 100, bid: 95, patient: 96 }, jitaLeg: { kind: 'carry', jumps: 4 }, home: null, homeLeg: { kind: 'here' }, hubName: 'Mothership Bellicose', ...o });

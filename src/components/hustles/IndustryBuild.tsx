@@ -2,6 +2,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { ChevronRight, Coins, Scale, Store } from 'lucide-react';
 import { ago, iskBig, iskBigSigned, pct, units } from '../../lib/format';
 import { navigate, useNow } from '../../lib/hooks';
+import { reloadApp } from '../../lib/reload';
 import { productOf, type Indexed } from '../../lib/industry';
 import { payback, productKind, type BpoWhere, type Row } from '../../lib/industryRank';
 import type { Graph } from '../../lib/jumps';
@@ -146,7 +147,7 @@ export function IndustryBuild({ c, ix, graph, mainName, chars }: { c: IndustryCh
           options={[{ v: 'day', label: 'Profit a day' }, { v: 'unit', label: 'Profit a unit' }, { v: 'payback', label: 'Payback' }]} />
       </div>
 
-      {homeLine && <p className="note small" style={{ margin: 0 }} data-industry="home-said">{homeLine}</p>}
+      {homeLine && <p className="note small" style={{ margin: 0 }} data-industry="home-said">{homeLine}{f.home.itemsFailed && <> <button type="button" className="link-btn" onClick={() => void reloadApp()}>Reload to try again</button></>}</p>}
       {f.waiting ? (
         <p className="note small" style={{ margin: 0 }} data-industry="finder-wait">
           {f.waiting.text}
@@ -156,7 +157,7 @@ export function IndustryBuild({ c, ix, graph, mainName, chars }: { c: IndustryCh
       ) : (
         <div className="col" style={{ gap: 8 }} data-industry="finder">
           <p className="note small" style={{ margin: 0 }} data-industry="finder-count">
-            {units(shown.length)} of {units(priced.length)} priced at {f.site?.name}{f.live ? '; the top rows on Jita’s books now, the rest on this morning’s' : ', on this morning’s Jita books'}{f.hub && doc.sell !== 'jita' ? (f.home.speaks ? `; a sale at ${f.hub.short} on ${homeFromSaid(f.home)}` : `; nothing is priced at ${f.hub.short} to sell on`) : ''}.
+            {units(shown.length)} of {units(priced.length)} priced at {f.site?.name}{f.live ? '; the top rows on Jita’s books now, the rest on this morning’s' : ', on this morning’s Jita books'}{f.hub && doc.sell !== 'jita' ? (f.home.speaks ? `; a sale at ${f.hub.short} on ${homeFromSaid(f.home)}` : f.home.pending || f.home.gm.status === 'loading' || f.home.book.status === 'loading' ? `; reading ${f.hub.short}’s prices` : `; nothing is priced at ${f.hub.short} to sell on`) : ''}.
             {unpriced > 0 && ` ${units(unpriced)} aren’t priced: ${why}.`}
             {t2Priced > 0 && ` ${units(t2Priced)} of those priced ${t2Priced === 1 ? 'is' : 'are'} Tech II, invented at ${f.lab?.at ?? 'a Laboratory'}; decryptors and reactions aren’t modelled.`}
             {keptHome > 0 && doc.noShipsToJita && ` ${units(keptHome)} ${keptHome === 1 ? 'ship stays' : 'ships stay'} home: never haul ships to Jita is on${f.facts?.band === 'high' && f.facts.jitaJumps == null ? ` (no high-sec route from ${f.site?.name} to Jita on the map)` : f.facts?.band === 'unknown' ? ` (${f.site?.name}’s security isn’t known, so its ships stay home)` : ''}.`}

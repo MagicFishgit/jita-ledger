@@ -96,7 +96,13 @@ export const ownRead = <B>(book: B | null, state: Pick<HubState, 'off'> | null):
  * its live orders sold (the split). The read held every order, so a type it lacks has none listed there, which is known (correction
  * 8). Weekly movement isn't in a structure's read: a Goonmetrics hub's figure is carried, labelled where it's said.
  */
-export type HubOrder = { locationId: number; isBuy: boolean; price: number; volume: number };
+export type HubOrder = { locationId: number; typeId: number; isBuy: boolean; price: number; volume: number; issued: string };
+/**
+ * Your orders that are in a hub's read of one type: that item's own, issued at or before the read. Prices carry four significant
+ * figures, so another item's order at a level's price is ordinary and no part of it; `issued` moves on a reprice, so an order placed
+ * or repriced after the read isn't in it (and is left alone, whatever its price).
+ */
+export const ordersInRead = (mine: readonly HubOrder[], typeId: number, readAt: string): HubOrder[] => mine.filter((o) => o.typeId === typeId && Date.parse(o.issued) <= Date.parse(readAt));
 export function structureQuote(row: StructureRow | undefined, at: string, weekly: number | null, mine: readonly HubOrder[] = []): HomeQuote {
   // The read holds every order in the structure, yours included (ESI's orders carry no owner): your own come off the levels at their
   // exact prices, as `othersBook` does for Jita, so nothing is priced a tick under your own listing. An order whose price matches no

@@ -3201,6 +3201,14 @@ try {
       if (!unwatched.includes('is read for the Industry tab’s items only, which don’t include it') || /nobody lists it/.test(unwatched)) problems.push(`To do at Bellicose, a product outside the watch set, isn’t said as not read there: “${unwatched.slice(0, 400)}”`);
       const mine = await hubTodo({ hub: BELL, orders: { 777001: { orderId: 777001, typeId: 25894, isBuy: false, price: 7_100_000, volumeTotal: 20, volumeRemain: 20, issued: iso(now - 3600_000), state: 'open', locationId: BELL } } });
       if (!mine.includes('List at Mothership Bellicose at 7,241,000 ISK')) problems.push(`To do at Bellicose prices a tick under your own listing, not the next level: “${mine.slice(0, 400)}”`);
+      // A failed watch-set chunk (never retried in place): the hub isn't pending for good; it says so and offers a reload.
+      const failChunk = (route) => route.abort();
+      await page.route('**/industryTypes.json*', failChunk);
+      const lost = await homeAt(BELL);
+      await page.waitForTimeout(1500);
+      const lostNow = await text('[data-industry="home-said"]');
+      if (!lostNow.includes('the list of items it holds couldn’t be loaded') || /Reading|Not read at/.test(lostNow + lost) || !(await page.locator('[data-industry="home-said"] button', { hasText: 'Reload to try again' }).count())) problems.push(`with the watch-set chunk refused, Build doesn’t say so with a reload offered (or still says Reading): “${lostNow}”`);
+      await page.unroute('**/industryTypes.json*', failChunk);
       marketsAnswer = keptMarkets;
     }
     // --- the end of the industry case

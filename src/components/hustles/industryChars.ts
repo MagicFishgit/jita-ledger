@@ -18,8 +18,8 @@ import type { Tx } from '../../lib/types';
 import type { HubOrder } from '../../lib/homeMarket';
 import { openInJita } from './researchChars';
 
-const openAnywhere = (orders: Record<string, { state: string; locationId: number; isBuy: boolean; price: number; volumeRemain: number }>): HubOrder[] => Object.values(orders)
-  .filter((o) => o.state === 'open').map((o) => ({ locationId: o.locationId, isBuy: o.isBuy, price: o.price, volume: o.volumeRemain }));
+const openAnywhere = (orders: Record<string, { state: string; locationId: number; isBuy: boolean; price: number; volumeRemain: number; typeId: number; issued: string }>): HubOrder[] => Object.values(orders)
+  .filter((o) => o.state === 'open').map((o) => ({ locationId: o.locationId, typeId: o.typeId, isBuy: o.isBuy, price: o.price, volume: o.volumeRemain, issued: o.issued }));
 
 /**
  * Every character the Industry tab can be shown for: the main from the store, each alt from its pulled copy (altLedger),
