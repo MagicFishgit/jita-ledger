@@ -7,7 +7,7 @@ import { adviseRelist, byUrgency, weightedLevel, marketBest } from '../src/lib/r
 import { valueOffer, byIskPerLp, patientPrice, instantPrice, daysToClear, planFor, notesFor, spendPlan } from '../src/lib/loyalty.ts';
 import { parseFilament, byTier, runsFrom, TIERS } from '../src/lib/abyssal.ts';
 import { judgeCourier, byRewardPerJump, byUsefulness, roundTrips, tally, HAULERS, effectiveCapacity, hullClassOf } from '../src/lib/courier.ts';
-import { parsePlanetType, planetsFor, estimate, inBand, P0_PER_P1, sortSystems, rankProducts, refineVerdict, RAW_PER_HOUR, MADE_PER_HOUR, BASIC_FACTORY, P1_PER_P2, setupSteps, P1_TO_P0 } from '../src/lib/pi.ts';
+import { parsePlanetType, setupSteps } from '../src/lib/pi.ts';
 import { classify, readExtractor, contentsOf, readColony, byAttention, typesIn, valueOf } from '../src/lib/colony.ts';
 import { check, byUrgency as bySkillUrgency, readiness, skillsOf, trainedOptions, HAULING_SKILLS } from '../src/lib/skills.ts';
 import { iskPerHour, RUN_MINUTES } from '../src/lib/abyssal.ts';
@@ -16,7 +16,6 @@ import { calcWith, RELIST_LEFT, breakEvenSell, breakEvenSpread } from '../src/li
 import { walkBids } from '../src/lib/relist.ts';
 import { isWall, paceDay, withoutOwn } from '../src/lib/prospects.ts';
 import { nearMisses, squeezed as isSqueezed } from '../src/lib/signals.ts';
-import { exportTax, PI_BASE, HIGHSEC_NPC_TAX } from '../src/lib/pi.ts';
 import { allocate } from '../src/lib/planner.ts';
 import { priceHub, shipment, goingRate } from '../src/lib/arbitrage.ts';
 import { shouldAlert, nextCheckIn, alertMail, isStaleAlertMail, MAIL_SUBJECT, keepSaid, tidyEvery } from '../src/lib/alerts.ts';
@@ -871,114 +870,21 @@ console.log('\n--- planets ---');
 eq('ESI planet type names parse', parsePlanetType('Planet (Barren)'), 'Barren');
 eq('  including the shattered ones we do not want', parsePlanetType('Planet (Shattered)'), null);
 eq('  and anything else', parsePlanetType('Jita IV'), null);
-has('plasmoids come from lava', planetsFor('Plasmoids'), 'Lava');
-has('  and storm', planetsFor('Plasmoids'), 'Storm');
-has('  and plasma', planetsFor('Plasmoids'), 'Plasma');
-if (planetsFor('Plasmoids').includes('Ice')) { failed++; console.log('  FAIL ice planets do not yield suspended plasma'); }
-eq('an unknown product has no planets', planetsFor('Nanites').length, 0);
-eq('high-sec band', inBand(0.5, 'high'), true);
-eq('  0.45 is not high-sec', inBand(0.4, 'high'), false);
-eq('low-sec band', inBand(0.3, 'low'), true);
-eq('  and null is not low-sec', inBand(0.0, 'low'), false);
-// Every raw material must refine into something, and every product come from somewhere.
-eq('fifteen products, fifteen inputs', Object.keys(P1_TO_P0).length, 15);
-
-console.log('\n--- the factory ratio, which was wrong by an order of magnitude ---');
-// A Basic Industry Facility: 3,000 raw per 30 minutes for 20 refined. That is 150 raw per unit, not
-// the 14 this once used --- which flattered refining roughly tenfold.
-eq('150 raw make one refined unit', P0_PER_P1, 150);
-eq('  which is the schematic, not a guess', BASIC_FACTORY.rawPerCycle / BASIC_FACTORY.madePerCycle, 150);
-eq('one factory eats 6,000 raw an hour', RAW_PER_HOUR, 6000);
-eq('  and returns 40', MADE_PER_HOUR, 40);
-eq('sixteen refined units make one processed good', P1_PER_P2, 16);
-
-console.log('\n--- what a day of extraction comes to ---');
-let est = estimate(1000, 4, 100, 20000, 0.02, 0.01);
-eq('a day of extraction across four planets', est.rawPerDay, 1000 * 24 * 4);
-eq('refined at the real ratio', est.madePerDay, (1000 * 24 * 4) / 150);
-eq('raw value is net of fees', est.rawValue, 96_000 * 100 * 0.97);
-eq('refined value likewise', est.madeValue, (96_000 / 150) * 20_000 * 0.97);
-// A factory fed below its rate does not stop existing; it runs fewer cycles. One is still needed.
-eq('a slow extractor still needs one factory', est.factories, 1);
-eq('  which idles most of the time', Math.round(est.utilisation * 100), Math.round(1000 / 6000 * 100));
-// Factories are per planet: four colonies cannot pool their extraction into one factory.
-est = estimate(6000, 4, 100, 20000, 0.02, 0.01);
-eq('one factory exactly keeps up with 6,000 an hour', est.factories, 1);
-eq('  and is busy all the time', Math.round(est.utilisation * 100), 100);
-est = estimate(13000, 1, 100, 20000, 0.02, 0.01);
-eq('13,000 an hour needs three factories', est.factories, 3);
-eq('  the third barely used', Math.round(est.utilisation * 100), Math.round(13000 / 18000 * 100));
-eq('extracting nothing needs no factories', estimate(0, 4, 100, 20000, 0.02, 0.01).factories, 0);
-eq('no planets, no income', estimate(1000, 0, 100, 2000, 0.02, 0.01).rawValue, 0);
-eq('an unpriced product is worth nothing rather than NaN', estimate(1000, 4, null, null, 0.02, 0.01).madeValue, 0);
-
-console.log('\n--- refine it, or sell it as it comes out ---');
-eq('double the value is worth refining', refineVerdict(2.4).worth, true);
-eq('a clear gain is worth refining', refineVerdict(1.3).worth, true);
-eq('a coin-flip is not worth the factories', refineVerdict(1.02).worth, false);
-eq('  and says so plainly', refineVerdict(1.02).short, 'Barely matters');
-eq('a loss says sell it raw', refineVerdict(0.6).short, 'Sell it raw');
-eq('nothing priced is not a recommendation', refineVerdict(0).worth, false);
-
-console.log('\n--- which product to make ---');
-// Same raw cost for every product, so the ranking is on what the refined unit fetches.
-const prices = { Plasmoids: 500, 'Suspended Plasma': 3, Water: 100, 'Aqueous Liquids': 1 };
-let ranked = rankProducts((n) => prices[n] ?? null, 0, 0);
-eq('all fifteen are ranked', ranked.length, 15);
-eq('the most valuable refined product leads', ranked[0].p1, 'Plasmoids');
-// 1,000 raw makes 6.67 units, so 6.67 x 500.
-eq('  valued per thousand units of extraction', Math.round(ranked[0].refinedPer1000Raw), Math.round((1000 / 150) * 500));
-eq('  against what that raw would fetch unrefined', ranked[0].rawPer1000Raw, 1000 * 3);
-eq('  giving the gain from refining', Math.round(ranked[0].uplift * 100), Math.round(((1000 / 150) * 500) / 3000 * 100));
-// Refining Aqueous Liquids at these prices is a loss, and must not be dressed up as a gain.
-const water = ranked.find((p) => p.p1 === 'Water');
-eq('a poor product still reports its real uplift', Math.round(water.uplift * 100) / 100, Math.round(((1000 / 150) * 100) / 1000 * 100) / 100);
-eq('  and is judged accordingly', refineVerdict(water.uplift).worth, false);
-// Nothing priced must not crash the ranking or invent an order.
-eq('unpriced products still appear', rankProducts(() => null, 0, 0).length, 15);
-eq('  worth nothing rather than NaN', rankProducts(() => null, 0, 0)[0].refinedPer1000Raw, 0);
-// Availability is carried so a scarce input can be seen, not silently preferred.
-eq('availability counts the planet types', ranked.find((p) => p.p1 === 'Plasmoids').availability, 3);
-
-console.log('\n--- the build guide follows the decision ---');
-const withFactories = setupSteps('Plasmoids', true);
-const rawOnly = setupSteps('Plasmoids', false);
-if (!withFactories.some((s) => /Basic Industry Facility/.test(s.title))) {
-  failed++; console.log('  FAIL refining should tell you to build a factory');
+console.log('\n--- the build guide follows the setup (pi.ts setupSteps) ---');
+{
+  const names = { p0s: ['Base Metals', 'Microorganisms'], makes: ['Nanites'], takesIn: ['Bacteria', 'Reactive Metals'] };
+  const at = (steps, re) => steps.findIndex((x) => re.test(`${x.title} ${x.body}`));
+  const p1 = setupSteps('p1', names), p2 = setupSteps('p2', names), feed = setupSteps('feed', names), bought = setupSteps('bought', names);
+  eq('  P0 → P1: Basic factories, no Advanced', [at(p1, /Basic Industry Facilit/) >= 0, at(p1, /Advanced Industry Facility/)], [true, -1]);
+  eq('  P0 → P2: the Advanced ones too, named for what they make', [at(p2, /Advanced Industry Facility/) >= 0, p2.some((x) => x.body.includes('Nanites'))], [true, true]);
+  // Surveying must come before anything is placed; doing it later is the classic wasted colony.
+  eq('  every setup that extracts surveys for its own P0s before placing an extractor',
+    [p1, p2, feed].map((st) => { const sv = at(st, /^Survey/); return sv >= 0 && sv < at(st, /extractor control unit/) && st[sv].title.includes('Base Metals and Microorganisms'); }), [true, true, true]);
+  eq('  the routing step people miss is there in every setup', [p1, p2, feed, bought].map((st) => st.some((x) => /route/i.test(x.title))), [true, true, true, true]);
+  eq('  the ratio that drives refining is stated', p1.some((x) => `${x.body} ${x.tip ?? ''}`.includes('150')), true);
+  eq('  bought inputs: no survey and no extractor, and the inputs brought in by name', [at(bought, /^Survey/), at(bought, /extractor control unit|extraction program/i), bought.some((x) => x.title === 'Bring in Bacteria and Reactive Metals')], [-1, -1, true]);
+  eq('  a factory planet fed by others: its factories and the carrying between them', [at(feed, /factory planet/i) >= 0, feed.some((x) => /half/.test(x.body))], [true, true]);
 }
-if (rawOnly.some((s) => /Basic Industry Facility/.test(s.title))) {
-  failed++; console.log('  FAIL selling raw should not tell you to build factories');
-}
-if (!rawOnly.some((s) => /launchpad/i.test(s.title))) {
-  failed++; console.log('  FAIL every colony needs somewhere to put the output');
-}
-// Surveying must come before anything is placed; doing it later is the classic wasted colony.
-const surveyAt = withFactories.findIndex((s) => /Survey/i.test(s.title));
-const extractorAt = withFactories.findIndex((s) => /extractor control unit/i.test(s.title));
-eq('survey comes before the extractor is placed', surveyAt < extractorAt && surveyAt >= 0, true);
-// The routing step is the one people miss, so it must be there whenever there is a factory.
-if (!withFactories.some((s) => /Route/i.test(s.title))) {
-  failed++; console.log('  FAIL routing is the step people miss and must be spelled out');
-}
-if (!withFactories.some((s) => `${s.body} ${s.tip ?? ''}`.includes('150'))) {
-  failed++; console.log('  FAIL the guide should state the ratio that drives the decision');
-}
-
-console.log('\n--- ordering PI systems, which runs against the instinct ---');
-const sys = [
-  { name: 'Safe far', security: 1.0, jumps: 20 },
-  { name: 'Rich near', security: 0.5, jumps: 3 },
-  { name: 'Middle', security: 0.7, jumps: 9 },
-];
-// Lower security means richer planets, so "best yield" puts 0.5 first, not 1.0.
-eq('best yield takes the lowest security', sortSystems(sys, 'yield')[0].name, 'Rich near');
-eq('  and the highest last', sortSystems(sys, 'yield')[2].name, 'Safe far');
-eq('closest to Jita is by jumps', sortSystems(sys, 'near')[0].name, 'Rich near');
-eq('safest is the old order', sortSystems(sys, 'safe')[0].name, 'Safe far');
-// A system whose jumps have not arrived yet must not pretend to be next door.
-const pending = [{ name: 'Unknown', security: 0.5, jumps: null }, { name: 'Known', security: 0.5, jumps: 12 }];
-eq('unknown distance sorts last, not first', sortSystems(pending, 'near')[0].name, 'Known');
-eq('  and does not disturb the yield order', sortSystems(pending, 'yield').length, 2);
 
 console.log('\n--- reading a colony, which is mostly about when it stops ---');
 const NOWP = Date.parse('2026-09-26T12:00:00Z');
@@ -1156,11 +1062,6 @@ eq('a range falling to near break-even is a squeeze', isSqueezed([0.136, 0.128, 
 eq('a steady thin item is not', isSqueezed([0.08, 0.081, 0.079, 0.08, 0.08], 0.07), false);
 eq('a falling but still wide range is not', isSqueezed([0.5, 0.4, 0.3], 0.07), false);
 eq('too little history says nothing', isSqueezed([0.1, 0.05], 0.07), false);
-
-console.log('\n--- PI customs tax on base values ---');
-eq('raw is taxed on 5 ISK a unit', exportTax(1000, PI_BASE.raw, 0.1), 500);
-eq('refined on 400', exportTax(10, PI_BASE.refined, HIGHSEC_NPC_TAX), 400);
-eq('no rate, no tax', exportTax(10, PI_BASE.refined, 0), 0);
 
 console.log('\n--- loyalty spend capped by ISK as well as points ---');
 const candI = (offerId, iskPerLp, lpCost, profit, outlay) =>
@@ -5873,7 +5774,7 @@ console.log('\n--- which characters are yours ---');
   // Alt data reaches a page only on purpose: a page that starts reading the alt store is added here in the commit that makes it.
   const walk = (dir) => fs2.readdirSync(new URL(dir, import.meta.url), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${dir}${e.name}/`) : /\.(ts|tsx)$/.test(e.name) ? [`${dir}${e.name}`] : []));
   const users = walk('../src/').filter((p) => /(from\s*|import\s*\(\s*)['"][^'"]*\/altStore['"]/.test(src(p))).map((p) => p.replace('../src/', '')).sort();
-  eq('  and only the shell, the Characters page, the Mining, Research and Industry tabs, the Wallet and To do read the alt store', users, ['App.tsx', 'components/Characters.tsx', 'components/Todo.tsx', 'components/Wallet.tsx', 'components/hustles/Industry.tsx', 'components/hustles/Mining.tsx', 'components/hustles/Research.tsx']);
+  eq('  and only the shell, the Characters page, the Mining, Planets, Research and Industry tabs, the Wallet and To do read the alt store', users, ['App.tsx', 'components/Characters.tsx', 'components/Todo.tsx', 'components/Wallet.tsx', 'components/hustles/Industry.tsx', 'components/hustles/Mining.tsx', 'components/hustles/Planets.tsx', 'components/hustles/Research.tsx']);
   eq('  an alt with nothing read yet: nothing, not zeros', R.altFacts(R.emptyAlt(), NOW2), { wallet: null, walletAt: null, netWorth: null, clone: 'unknown', cloneSince: null, training: null, queueEnds: null, queueKnown: false, totalSp: null });
   const readEmpty = R.altFacts({ rev: 1, records: {}, docs: { meta: { skillQueue: [] } } }, NOW2);
   eq('    an alt whose queue was read empty: known, and "Nothing in the queue"', [readEmpty.training, readEmpty.queueKnown, R.idleQueueSaid(readEmpty)], [null, true, 'Nothing in the queue']);
@@ -7902,6 +7803,10 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     [cappedB.iskDay, role(cappedB, B).makes.map((m) => [m.id, m.perDay, m.count]), role(cappedB, A).makes[0].id !== NANITES], [3_146_880 + 2_364_000, [[NANITES, 300, 3]], true]);
   const unpricedBuy = planBought(input);
   eq('  bought with no input priced: no figure, said', [unpricedBuy.iskDay, unpricedBuy.why], [null, 'No input is priced to buy: Not bought here']);
+  // A hub that prices a few units but not a factory planet's week (Task 10's re-review): every input priced at one unit, none at
+  // what 21 Advanced take. Its reason is the setup's, never "nothing pays more than its inputs cost", which would be false.
+  const thinHub = planBought({ ...input, buy: (id, perDay) => (perDay <= 10 ? { isk: perDay * 100, where: 'home', why: null } : { isk: null, where: null, why: 'too thin to buy a week’s need at UALX-3' }) });
+  eq('  bought from a hub too thin for a week: its reason, not "nothing pays"', [thinHub.iskDay, thinHub.why], [null, 'No input can be bought in the amount its factories need: too thin to buy a week’s need at UALX-3']);
   // A's tax not known: ranked before it (26,400,000 − 4,224,000 there, B as before), each 1% priced on A's bases: the import
   // at half (42,240 × 400 × ½) and the export (2,640 × 7,200).
   const blindB = planBought({ ...input, planets: planets.map((p) => (p.planetId === A ? { ...p, tax: { rate: null, from: 'none', npc: 0, interbus: false } } : p)), buy: (id, perDay) => ({ isk: perDay * 100, where: 'jita', why: null }) });
@@ -8072,6 +7977,19 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   eq('  no rate at CCU I on Gas: at least a head an extractor, so III', one('Gas', 26370, 1, () => null).perChar[0].lacks, ['Command Center Upgrades III']);
 }
 
+console.log('\n--- Planets: whose setup (piPlan.ts planCharOf, customsLevel) ---');
+{
+  const { planCharOf, customsLevel, PI_SKILL } = await import('../src/lib/piPlan.ts');
+  const who = (skills, clone = 'omega') => planCharOf({ charId: 7, name: 'Owner', skills, clone });
+  const lv = { [PI_SKILL.consolidation]: 4, [PI_SKILL.ccu]: 4, [PI_SKILL.customs]: 2 };
+  eq('  skills read: 1 + Interplanetary Consolidation planets, its Command Center Upgrades, not Alpha', [who(lv).planets, who(lv).ccLevel, who(lv).alpha], [5, 4, false]);
+  // Skills not read are never level 0: absent (a main before its first sync) or empty (an alt's copy before the cloud's first read).
+  eq('  skills not read: no planets and no level, never 1 planet at CCU 0', [who(undefined), who({})].map((c) => [c.planets, c.ccLevel]), [[null, null], [null, null]]);
+  eq('  skills read without the planet skills: one planet, no upgrades (never injected is 0)', [who({ 3380: 5 }).planets, who({ 3380: 5 }).ccLevel], [1, 0]);
+  eq('  an Alpha is Alpha; a clone state not read is neither', [who(lv, 'alpha').alpha, who(lv, 'unknown').alpha], [true, null]);
+  eq('  Customs Code Expertise: its level, 0 when never injected, null when not read', [customsLevel(lv), customsLevel({ 3380: 5 }), customsLevel({}), customsLevel(undefined)], [2, 0, null, null]);
+}
+
 console.log('\n--- Planets: prices for the planner (piPlan.ts soldOf; the hook is planetsMarket.ts) ---');
 {
   const { soldOf } = await import('../src/lib/piPlan.ts');
@@ -8113,16 +8031,23 @@ console.log('\n--- Planets: prices for the planner (piPlan.ts soldOf; the hook i
   const avgsBest = (f) => qs.map((q) => { const r = f(q); return r.isk / r.units; });
   const bestAvg = avgsBest((q) => soldOf(q, imp, 'best', 10));
   eq('  best across both places: a unit\'s net never rises as the amount grows', nonIncreasing(bestAvg), true);
-  const one = soldOf(1, imp, 'best', 10);
-  eq('  best: no amount is worth more than its units at the first unit\'s net (the planner\'s bound)', qs.every((q) => { const r = soldOf(q, imp, 'best', 10); return r.isk <= one.isk * r.units + 1e-6; }), true);
+  // The planner's bound: no amount is worth more than its units at the first unit's net. Two shapes: the import market above, and
+  // a thin P4 (the hub's listings 1.5 M and bids 0.9 M at half a unit a day each at 10%, Jita's 1.35 M and 1.15 M at 100 a day),
+  // where a place filled whole sold the hub's bids before Jita's better listings: 2,685,000 for 2 units against 1,335,000 × 2
+  // (Task 10's re-review: only this shape broke the bound under the old order).
+  const thin = { home: two('home', 1_500_000, 900_000, 5, 5), jita: two('jita', 1_350_000, 1_150_000, 1000, 1000) };
+  const bounded = (shape, sold) => { const one = sold(1, shape); return qs.every((q) => { const r = sold(q, shape); return r.isk <= one.isk * r.units + 1e-6; }); };
+  const best2 = (q, shape) => soldOf(q, shape, 'best', 10);
+  eq('  best: no amount is worth more than its units at the first unit\'s net (the planner\'s bound), on both shapes', [bounded(imp, best2), bounded(thin, best2)], [true, true]);
   eq('  best: at 55 units, the listings first (500,000), not the hub\'s bids ahead of Jita\'s', soldOf(55, imp, 'best', 10).isk, 5 * 10000 + 50 * 9000 + 0);
   // The old order, planted: a place at a time, its best side then its other side.
-  const placeByPlace = (q) => {
+  const placeByPlace = (q, shape = imp) => {
     const order = ['home', 'jita']; let left = q, isk = 0, units = 0;
-    for (const p of order) { const d = slotDay(left, imp[p], 0, 10); if (d && d.units > 0) { isk += d.profit; units += d.units; left -= d.units; } }
+    for (const p of order) { const d = slotDay(left, shape[p], 0, 10); if (d && d.units > 0) { isk += d.profit; units += d.units; left -= d.units; } }
     return { isk, units };
   };
   eq('  planted: filling a place at a time breaks it (so these tests can fail)', nonIncreasing(avgsBest(placeByPlace)), false);
+  eq('  planted: and breaks the bound on the thin P4', bounded(thin, placeByPlace), false);
 
   // Buying at a hub walks its levels for a week's need: what a unit costs only rises with the amount.
   const { fillCost } = await import('../src/lib/industryRank.ts');

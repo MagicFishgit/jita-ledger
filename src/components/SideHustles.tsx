@@ -51,7 +51,7 @@ export function SideHustles({ route }: { route: Route }) {
       </nav>
       </div>
       <section className="panel" data-rv="" key={sub} style={{ padding: '18px 20px', gap: 16, animation: 'rise .38s cubic-bezier(.2,.8,.2,1)' }}>
-        {sub === 'abyssal' ? <Abyssal /> : sub === 'courier' ? <Courier /> : sub === 'planets' ? <Planets /> : sub === 'freelance' ? <Freelance /> : sub === 'industry' ? <Industry route={route} /> : sub === 'research' ? <Research /> : <Mining />}
+        {sub === 'abyssal' ? <Abyssal /> : sub === 'courier' ? <Courier /> : sub === 'planets' ? <Planets route={route} /> : sub === 'freelance' ? <Freelance /> : sub === 'industry' ? <Industry route={route} /> : sub === 'research' ? <Research /> : <Mining />}
       </section>
       <Guide
         title="How to use Side hustles"
@@ -59,7 +59,7 @@ export function SideHustles({ route }: { route: Route }) {
         steps={[
           { icon: Tornado, title: 'Abyssal', body: 'Filament costs are known; loot is not. The page measures what your own runs have paid from your wallet.' },
           { icon: Truck, title: 'Hauling', body: 'Keep Safe only on. Every hidden contract failed a check for a reason — the notes say which.' },
-          { icon: Globe, title: 'Planets', body: 'Work down the steps. Choosing a system adds its tax, trip home and how many colonies fit.' },
+          { icon: Globe, title: 'Planets', body: 'Give it a system: each way of setting planets up, ranked by ISK a day, and which planet does what.' },
           { icon: Pickaxe, title: 'Mining', body: 'Mine, and the cloud times your sessions. The ladder says what the next ship costs and how many hours of mining pay for it.' },
           { icon: Briefcase, title: 'Freelance', body: 'Buy in Jita what a job pays more for, haul it, deliver it. Accept the job in game first.' },
           { icon: FlaskConical, title: 'Research', body: 'Train, reach an R&D agent, start it in person, then leave it: its points buy datacores whenever you pass.' },

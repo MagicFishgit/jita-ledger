@@ -30,3 +30,25 @@ export function useRightNow(): Live | null {
   }, [auth?.characterId]); // eslint-disable-line react-hooks/exhaustive-deps
   return now;
 }
+
+/** The main's system, as the Planets tab's "Where <main> is" offers it. */
+export type MainSystem = { systemId: number; name: string; security: number };
+/**
+ * Where the main is, read once when the tab opens (ESI holds the location 5 seconds), with the location permission every login
+ * already asks for. Never asked for: `'noScope'` when this login wasn't given it, so the page can say so; null while reading,
+ * `'failed'` when ESI didn't answer. Alts' locations aren't read (alts never log in to the app).
+ */
+export function useMainSystem(): MainSystem | null | 'noScope' | 'failed' {
+  const auth = useAuth();
+  const can = !!auth && hasScope(SCOPE.location);
+  const [at, setAt] = useState<MainSystem | 'failed' | null>(null);
+  useEffect(() => {
+    if (!auth || !can) return;
+    let alive = true;
+    esi<{ solar_system_id: number }>(`/characters/${auth.characterId}/location/`, { auth: true })
+      .then((r) => system(r.data.solar_system_id))
+      .then((x) => { if (alive) setAt({ systemId: x.systemId, name: x.name, security: x.security }); }, () => { if (alive) setAt('failed'); });
+    return () => { alive = false; };
+  }, [auth?.characterId, can]); // eslint-disable-line react-hooks/exhaustive-deps
+  return !auth || !can ? 'noScope' : at;
+}

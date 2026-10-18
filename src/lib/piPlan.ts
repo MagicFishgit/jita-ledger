@@ -63,8 +63,11 @@ export function soldOf(perDay: number, sales: { jita: Sale | null; home: Sale | 
   });
   return { isk, units, where: [...where], why: null, jitaUnits: jita };
 }
-/** What `perDay` units cost a day to buy, and where; null with `why` when not known. */
-export type Bought = { isk: number | null; where: 'jita' | 'home' | null; why: string | null };
+/**
+ * What `perDay` units cost a day to buy, and where; null with `why` when not known. `note`: why it's bought where it is when the
+ * better place couldn't take it (the home hub too thin for a week's need, so it's bought at Jita), for the page to say.
+ */
+export type Bought = { isk: number | null; where: 'jita' | 'home' | null; why: string | null; note?: string | null };
 /**
  * The same contract as `Sell`, the other way: a unit's cost never falls as the amount grows, and there's no fixed charge a
  * call, so what a planet's factories buy alone is never more than their share of buying with others.
@@ -500,6 +503,27 @@ export function upkeepOf(input: PlanInput, outputs: Output[], planets: number, r
     contractsPerWeek: !f ? null : !(jita > 0) ? 0 : batch != null ? jita / Math.max(batch, jita) : 1,
   };
 }
+
+/** The skills a character's planets rest on, by CCP's static data (build 3569502): Interplanetary Consolidation, Command Center Upgrades, Customs Code Expertise. */
+export const PI_SKILL = { consolidation: 2495, ccu: 2505, customs: 33467 } as const;
+/** Skills read: absent before the main's first sync, an empty map in an alt's copy before the cloud's first read. */
+const skillsRead = (s: Record<number, number> | undefined): s is Record<number, number> => !!s && Object.keys(s).length > 0;
+/**
+ * Whose setup, from a character's skills and clone state: 1 + Interplanetary Consolidation planets, Command Center Upgrades for
+ * the fits. Skills not read are null, never level 0; once read, a skill missing from them was never injected, and is 0. Alpha
+ * only when known: a clone state not read is null, worked out as Omega and said by the page.
+ */
+export function planCharOf(c: { charId: number; name: string; skills: Record<number, number> | undefined; clone: 'alpha' | 'omega' | 'unknown' }): PlanChar {
+  const read = skillsRead(c.skills);
+  return {
+    charId: c.charId, name: c.name,
+    planets: read ? 1 + (c.skills![PI_SKILL.consolidation] ?? 0) : null,
+    ccLevel: read ? c.skills![PI_SKILL.ccu] ?? 0 : null,
+    alpha: c.clone === 'alpha' ? true : c.clone === 'omega' ? false : null,
+  };
+}
+/** Customs Code Expertise's level (a high-sec player office's NPC part), or null while the skills aren't read. */
+export const customsLevel = (skills: Record<number, number> | undefined): number | null => (skillsRead(skills) ? skills[PI_SKILL.customs] ?? 0 : null);
 
 /** Why a character can't plan at all, or null. */
 export function charWhy(c: PlanChar): string | null {
@@ -1632,8 +1656,8 @@ export function planFeed(input: PlanInput): Setup {
  * When every arrangement tried had its factory too big for its planet even at the top level, and the search wasn't cut short,
  * that's why nothing is planned. One cut short before it found anything says so, never blaming the planets or characters.
  */
-const NO_FIT = 'Every factory these planets could feed is too big for its planet, even at Command Center Upgrades V';
-const RAN_OUT = 'The search’s budget ran out before it found an arrangement';
+export const NO_FIT = 'Every factory these planets could feed is too big for its planet, even at Command Center Upgrades V';
+export const RAN_OUT = 'The search’s budget ran out before it found an arrangement';
 const withCut = (s: Setup, budget: Budget): Setup => (budget.cut ? { ...s, cut: true } : s);
 
 /**
@@ -1705,7 +1729,8 @@ type Buyer = (id: number, q: number) => Bought;
 
 /** A product a class of planets can make on bought inputs: as many factories as fit at the character's level, one launchpad. */
 type BuyOpt = { cls: number; x: number; facility: Facility; n: number; perFactory: number; inputs: { id: number; per: number }[]; alone: number };
-type BuyCtx = { input: PlanInput; sold: Seller; buy: Buyer; classes: Cls[]; opts: BuyOpt[] };
+/** `buyWhy`: the first reason an input couldn't be bought at the amount a factory planet needs (its hub too thin for a week's need), so a setup blocked by it says that rather than that nothing pays. */
+type BuyCtx = { input: PlanInput; sold: Seller; buy: Buyer; classes: Cls[]; opts: BuyOpt[]; buyWhy: string | null };
 type BoughtValue = { score: Score; q: number[]; sold: Map<number, Sold>; need: Map<number, number>; bought: Map<number, Bought>; tax: TaxRow[][]; restocks: number[] };
 
 /**
@@ -1739,7 +1764,7 @@ function valueBought(ctx: BuyCtx, inst: number[]): BoughtValue | null {
   const bought = new Map<number, Bought>();
   for (const [id, amount] of need) {
     const b = buy(id, amount);
-    if (b.isk == null) return null;
+    if (b.isk == null) { ctx.buyWhy ??= b.why; return null; }
     bought.set(id, b);
     value -= b.isk;
   }
@@ -1777,7 +1802,7 @@ export function planBought(input: PlanInput): Setup {
   const classes = classesOf(input, (p, t) => { const n = nOf(p, t); return n ? `${t}|${p.tax.rate ?? '?'}|${n[0]}|${n[1]}` : null; });
   const sizeWhy = 'This planet’s size isn’t known, so how many factories fit isn’t known';
   if (!classes.length) return blocked(input, 'bought', sizeWhy, []);
-  const ctx: BuyCtx = { input, sold, buy, classes, opts: [] };
+  const ctx: BuyCtx = { input, sold, buy, classes, opts: [], buyWhy: null };
   let inputWhy: string | null = null, anyPriced = false;
   classes.forEach((c, ci) => {
     const [adv, ht] = nOf(c.members[0].planet, c.t)!;
@@ -1794,8 +1819,13 @@ export function planBought(input: PlanInput): Setup {
   ctx.opts.forEach((o, i) => { o.alone = valueBought(ctx, [i])?.score.value ?? -Infinity; });
   const byAlone = ctx.opts.map((_, i) => i).filter((i) => ctx.opts[i].alone > SAME_ISK)
     .sort((a, b) => ctx.opts[b].alone - ctx.opts[a].alone || byRate(classes[ctx.opts[a].cls].rate, classes[ctx.opts[b].cls].rate) || a - b);
+  // Priced at one unit, an input can still be refused at the amount a planet's factories take (a hub too thin for a week's need):
+  // when that is what stopped every product, it is the reason, never "nothing pays" (Task 10's re-review).
+  const noneValued = ctx.opts.every((o) => o.alone === -Infinity);
+  const paysWhy = () => (noneValued && ctx.buyWhy ? `No input can be bought in the amount its factories need: ${ctx.buyWhy}`
+    : `No product here pays more than its inputs cost${ctx.buyWhy ? `, and some inputs can’t be bought in the amount needed: ${ctx.buyWhy}` : ''}`);
   if (!byAlone.length) {
-    const why = anyPriced ? 'No product here pays more than its inputs cost' : inputWhy ? `No input is priced to buy: ${inputWhy}` : 'Nothing a factory here could make is priced';
+    const why = anyPriced ? paysWhy() : inputWhy ? `No input is priced to buy: ${inputWhy}` : 'Nothing a factory here could make is priced';
     return blocked(input, 'bought', why, []);
   }
   // Every assignment of products to planets, at most a class's planets each; the products in order of what they make alone.
@@ -1831,7 +1861,7 @@ export function planBought(input: PlanInput): Setup {
   };
   dfs(0, 0, 0, allowed);
   const chosen = best as { score: Score; inst: number[] } | null;
-  if (!chosen) return cut ? { ...blocked(input, 'bought', RAN_OUT, []), cut: true } : blocked(input, 'bought', 'No product here pays more than its inputs cost', []);
+  if (!chosen) return cut ? { ...blocked(input, 'bought', RAN_OUT, []), cut: true } : blocked(input, 'bought', paysWhy(), []);
   const v = valueBought(ctx, chosen.inst)!;
 
   // Each class's factories on its planets in order.

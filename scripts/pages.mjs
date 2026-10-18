@@ -25,7 +25,7 @@ import { small, large, ALTS, altStoreOf, charsOf, ownerAuth, strangerAuth, withT
 const PAGES = [
   'wallet', 'todo', 'calculator', 'calculator?type=34', 'prospects', 'watchlist', 'planner', 'arbitrage', 'sniper', 'reprocess',
   'positions', 'positions/{first}', 'orders', 'loot', 'blueprints', 'results', 'loyalty',
-  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/mining', 'hustles/freelance', 'hustles/research', 'hustles/industry', 'hustles/industry/build', 'hustles/industry/copies', 'hustles/industry/home', 'combat', 'characters', 'omega',
+  'hustles/abyssal', 'hustles/courier', 'hustles/planets', 'hustles/planets/chart', 'hustles/planets/colonies', 'hustles/mining', 'hustles/freelance', 'hustles/research', 'hustles/industry', 'hustles/industry/build', 'hustles/industry/copies', 'hustles/industry/home', 'combat', 'characters', 'omega',
   'settings/account', 'settings/skills', 'settings/rates', 'settings/alerts', 'settings/appearance', 'settings/data', 'settings/scan',
 ];
 
@@ -367,6 +367,8 @@ try {
       else if (hash === 'hustles/industry/build') { await page.waitForSelector('[data-industry="build"]', { timeout: 30_000 }).catch(() => {}); await page.waitForTimeout(800); }
       else if (hash === 'hustles/industry/copies') { await page.waitForSelector('[data-industry="copies"]', { timeout: 30_000 }).catch(() => {}); await page.waitForTimeout(800); }
       else if (hash === 'hustles/industry/home') { await page.waitForSelector('[data-industry="home"]', { timeout: 30_000 }).catch(() => {}); await page.waitForTimeout(800); }
+      // The Planets tab loads its bundle as a chunk of its own: wait for the tab, not a fixed time.
+      else if (hash.startsWith('hustles/planets')) { await page.waitForSelector('[data-planets="tab"]', { timeout: 30_000 }).catch(() => problems.push('the Planets tab never drew')); await page.waitForTimeout(800); }
       else await page.waitForTimeout(1500);
       // The seeded transfers must reach the Wallet as their own line, or the phone check passes without measuring it.
       if (hash === 'wallet') {
@@ -3528,6 +3530,207 @@ try {
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'industry', page: 'hustles/industry', problems: unique });
     process.stdout.write(unique.length ? `  FAIL industry #hustles/industry\n${unique.map((x) => `       ${x}`).join('\n')}\n` : `  ok   industry #hustles/industry (Start for the main and three alts, each one’s fee at its own standings; ${esiAsked} ESI reads)\n`);
+    await page.close();
+  }
+  // The Planets tab (Task 11 of the Planets upgrade): Plan, on 5-NZNW as public ESI gave it on 17 October 2026 and the 83 planetary
+  // goods priced from the research's reads (scripts/fixtures/planets-5nznw.json), with the main's one kept colony: a Barren planet
+  // extracting Base Metals and Microorganisms at CCP's own example (6,965 a 30-minute cycle over 47.5 hours), its reading not yet
+  // checked against the game. Show for: an Alpha alt, and an alt whose skills the cloud hasn't read.
+  if (SHOWN.includes('hustles/planets') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('planets'))) {
+    const now = Date.now(), iso = (t) => new Date(t).toISOString();
+    const FXP = JSON.parse(fs.readFileSync(new URL('./fixtures/planets-5nznw.json', import.meta.url), 'utf8'));
+    const ATTRS = { intelligence: 24, memory: 24, perception: 20, willpower: 20, charisma: 23 };
+    const SYS = 30004865, PLANET_I = 40307990, UALX_HUB = 1046664001931;
+    const install = now - 24 * 3600_000;
+    const ecu = (id, product) => ({ id, typeId: 2848, install: iso(install), expiry: iso(install + 47.5 * 3600_000), lastCycle: iso(now - 600_000), schematic: null,
+      extractor: { cycle: 1800, product, qty: 6965, heads: 10 }, contents: [] });
+    const colonies = { colonies: [{ planetId: PLANET_I, systemId: SYS, planetType: 'Barren', level: 4, lastUpdate: iso(now - 3600_000),
+      pins: [ecu(1001, 2267), ecu(1002, 2073), { id: 1003, typeId: 2544, install: null, expiry: null, lastCycle: null, schematic: null, extractor: null, contents: [] }], links: [], routes: [] }] };
+    // The main: Interplanetary Consolidation IV and Command Center Upgrades IV (five planets at CCU IV), Planetology IV, and the trade
+    // skills its fees come from.
+    const ledger = {
+      settings: { acc: 4, br: 4, abr: 0, trade: 4, retail: 0, wholesale: 0, tycoon: 0, clone: 'omega', faction: 3.63, corp: 7.04, fromCharacter: true },
+      skills: { 2495: 4, 2505: 4, 2406: 4, 3446: 4, 16622: 4, 3443: 4 },
+      meta: { lastSync: iso(now - 600_000), cloneDetected: 'omega', walletBalance: 2e9, attributes: ATTRS },
+      colonies,
+    };
+    const BRAVE = [{ id: 'brave-jita-ualx', name: 'Brave Freight, Jita ↔ UALX-3', a: 30000142, b: 30004807, perM3: 900, collateral: 0.007875, min: 5e6, source: 'Brave wiki, 3 June 2026' }];
+    const DOC = { sites: [], site: null, sell: 'best', hub: UALX_HUB, hubFees: { [UALX_HUB]: 0.01 }, freight: BRAVE, share: 10, noShipsToJita: true, assume: { me: 0, te: 0 } };
+    const CLOUD_STATE = { charId: ownerAuth().characterId, rev: 1, started: true, dirty: { r: [], d: [] } };
+    const ALPHA = 900101, UNREAD = 900102;
+    const ok = (job, ago) => ({ job, lastRun: now - ago, lastOk: now - ago, lastError: null });
+    const entry = (charId, name, extra = {}) => ({ charId, name, addedAt: now - 5 * 86400_000, scopes: ['esi-skills.read_skills.v1', 'esi-planets.manage_planets.v1'],
+      at: now - 3600_000, refusedAt: null, refused: null, rev: 2, ship: null, shipAt: null, jobs: [ok('archive', 1800_000), ok('sheet', 1700_000)], ...extra });
+    const altStore = {
+      roster: { at: now - 60_000, list: [entry(ALPHA, 'Alpha Alt'), entry(UNREAD, 'Unread Alt', { jobs: [] })] },
+      [`alt:${ALPHA}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: { 3446: 2, 3443: 2 }, meta: { cloneDetected: 'alpha', attributes: ATTRS } } },
+      [`alt:${UNREAD}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: {} },
+    };
+    // The morning scan's stats and books for every planetary good, shaped as the industry case's.
+    const dayP = (i) => iso(now - i * 86400_000).slice(0, 10);
+    const stP = (g) => ({ typeId: g.id, at: iso(now - 3600_000), daysTraded: 30, tradesPerDay: 40, unitsPerDay: g.perDay, spikiness: 0.05, dailyRange: 0.1, trend: 0,
+      avgPrice: g.avg, spark: Array(30).fill(g.perDay), buyerShare: 0.5, lows14: Array(14).fill(g.bid), lowsEnd: dayP(1), highs14: Array(14).fill(g.ask), lastMove: 0 });
+    const bkP = (g) => ({ at: iso(now - 3600_000), bestBuy: g.bid, bestSell: g.ask, buyOrders: 5, sellOrders: 20, topBuys: [{ price: g.bid, volume: Math.ceil(g.perDay) }], topSells: [{ price: g.ask, volume: Math.ceil(g.perDay * 5) }], npcSell: false });
+    const goods = FXP.goods.filter((g) => g.bid != null && g.ask != null && g.perDay > 0);
+    const SCAN = { stats: Object.fromEntries(goods.map((g) => [g.id, stP(g)])), books: Object.fromEntries(goods.map((g) => [g.id, bkP(g)])),
+      sample: { at: iso(now - 3600_000), totalPages: 400, sampledPages: 400, minSampled: 1, counts: {} }, runs: { cloud: iso(now - 3600_000) } };
+    const page = await browser.newPage(VIEW);
+    let esiAsked = 0, located = 0;
+    const SKILL_IDS = { 'Interplanetary Consolidation': 2495, 'Command Center Upgrades': 2505, Planetology: 2406, 'Advanced Planetology': 2403, 'Remote Sensing': 13279 };
+    const ESI = {
+      '/characters/95210486/location/': (url, req, json) => (located++, json({ solar_system_id: SYS })),
+      [`/universe/systems/${SYS}/`]: (url, req, json) => json(FXP.system),
+      '/universe/ids/': (url, req, json) => json({ inventory_types: JSON.parse(req.postData() ?? '[]').filter((n) => SKILL_IDS[n]).map((n) => ({ id: SKILL_IDS[n], name: n })) }),
+    };
+    for (const p of FXP.planets) ESI[`/universe/planets/${p.planet_id}/`] = (url, req, json) => json(p);
+    const byId = new Map(FXP.goods.map((g) => [g.id, g]));
+    const CLOUD = {
+      '/v1/pull': (url, req, json) => json({ rev: 1, next: null, records: [], docs: [] }),
+      '/v1/push': (url, req, json) => json({ rev: 2 }),
+      '/v1/home/markets': (url, req, json) => json({ hubs: [] }),
+      '/v1/home/book': (url, req, json) => json(null),
+      '/v1/home/prices': (url, req, json) => (Number(url.searchParams.get('hub')) === UALX_HUB
+        ? json({ hub: UALX_HUB, source: 'goonmetrics', at: iso(now - 2 * 3600_000), prices: Object.fromEntries(FXP.goods.filter((g) => g.ualx).map((g) => [g.id, g.ualx])) })
+        : json({ hub: Number(url.searchParams.get('hub')), source: 'goonmetrics', at: iso(now - 26 * 3600_000), prices: {} })),
+    };
+    await page.route('**/*', (route) => {
+      const req = route.request(), url = new URL(req.url());
+      if (req.url().startsWith(`http://localhost:${PORT}/`)) return route.continue();
+      const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', headers: { expires: new Date(now + 300_000).toUTCString(), 'x-pages': '1' }, body: JSON.stringify(body) });
+      if (url.hostname === 'esi.evetech.net') {
+        esiAsked++;
+        if (url.pathname === '/markets/10000002/orders/') {
+          const g = byId.get(Number(url.searchParams.get('type_id')));
+          if (!g || g.bid == null) return json([]);
+          const o = (n, buy, price, vol) => ({ order_id: g.id * 10 + n, type_id: g.id, location_id: 60003760, system_id: 30000142, is_buy_order: buy, price, volume_remain: vol, volume_total: vol, issued: iso(now - 86400_000), duration: 90, min_volume: 1, range: 'station' });
+          return json([o(1, true, g.bid, Math.ceil(g.perDay)), o(2, false, g.ask, Math.ceil(g.perDay * 5))]);
+        }
+        const answer = ESI[url.pathname];
+        return answer ? answer(url, req, json) : route.abort();
+      }
+      const cloud = CLOUD[url.pathname];
+      return cloud ? cloud(url, req, json) : route.abort();
+    });
+    const problems = [];
+    page.on('pageerror', (e) => problems.push(`threw: ${e.message.split('\n')[0]}`));
+    page.on('console', (m) => { if (m.type() === 'error' && /^Warning: /.test(m.text())) problems.push(`React: ${m.text().split('\n')[0].replace(/%s/g, '').slice(0, 160)}`); });
+    const seed = (d, alts, cache) => page.evaluate(async ([d2, auth, a, c]) => {
+      localStorage.clear(); sessionStorage.clear();
+      localStorage.setItem('jita-ledger:auth', JSON.stringify(auth));
+      for (const [db, put] of [['jita-ledger', d2], ['jita-ledger-cache', c ?? {}], ['jita-ledger-alts', a]]) {
+        const h = await new Promise((res) => { const q = indexedDB.open(db); q.onsuccess = () => res(q.result); q.onupgradeneeded = () => q.result.createObjectStore('kv'); });
+        if (!h.objectStoreNames.contains('kv')) { h.close(); continue; }
+        await new Promise((res) => { const t = h.transaction('kv', 'readwrite'); const st = t.objectStore('kv'); st.clear(); for (const [k, v] of Object.entries(put)) st.put(v, k); t.oncomplete = res; });
+        h.close();
+      }
+    }, [d, { ...ownerAuth(), scopes: ['esi-planets.manage_planets.v1', 'esi-location.read_location.v1'] }, alts, cache]);
+    const text = async (sel = '.page') => (await page.locator(sel).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+    const showFor = async (name) => { await page.locator('[aria-label="Show for"] button', { hasText: name }).click().catch((e) => problems.push(`couldn’t show for ${name}: ${e.message.split('\n')[0]}`)); await page.waitForTimeout(900); };
+    // The setups are worked out on a timer once the inputs settle: wait until none says it's being worked out.
+    const settled = async () => { await page.waitForFunction(() => !document.querySelector('[data-planets="working"]') && document.querySelectorAll('[data-planets^="setup:"]').length >= 5, null, { timeout: 30_000 }).catch(() => problems.push('the setups never settled')); await page.waitForTimeout(300); };
+    await page.goto(SEED_PAGE);
+    await seed({ ...ledger, industry: DOC, cloud: CLOUD_STATE }, altStore, { prospects: SCAN });
+    await page.goto(`${BASE}#hustles/planets/plan`);
+    page.setDefaultTimeout(10_000);
+    const drew = await page.waitForSelector('[data-planets="plan"]', { timeout: 30_000 }).then(() => true, () => (problems.push('Plan never drew'), false));
+    if (drew) {
+
+    // --- the system: "Where Owner is" fills 5-NZNW, and its 12 planets are listed.
+    await page.locator('[data-planets="system"] button', { hasText: 'Where Owner is' }).click({ timeout: 10_000 }).catch((e) => problems.push(`no “Where Owner is”: ${e.message.split('\n')[0]}`));
+    await page.waitForSelector(`[data-planets="planet:${PLANET_I}"]`, { timeout: 20_000 }).catch(() => problems.push('5-NZNW’s planets never listed'));
+    if (!(await text('[data-planets="system"]')).includes('5-NZNW')) problems.push(`“Where Owner is” didn’t fill 5-NZNW: “${(await text('[data-planets="system"]')).slice(0, 200)}”`);
+    const planetsListed = await page.locator('[data-planets^="planet:"]').count();
+    if (planetsListed !== 12) problems.push(`${planetsListed} planets listed, not 5-NZNW’s 12`);
+    if (!(await text(`[data-planets="planet:${PLANET_I}"]`)).includes('Barren')) problems.push('planet I isn’t listed as Barren');
+
+    // --- customs: Brave's wiki in null-sec, 2% on Barren and 5% on Lava, said as the wiki's.
+    const taxOf = (t) => text(`[data-planets="tax:${t}"]`);
+    if (!/2%/.test(await taxOf('Barren')) || !(await taxOf('Barren')).includes('Brave’s wiki, 17 Jul 2023')) problems.push(`Barren’s tax: “${await taxOf('Barren')}”, wanted 2% with Brave’s wiki’s note`);
+    if (!/5%/.test(await taxOf('Lava'))) problems.push(`Lava’s tax: “${await taxOf('Lava')}”, wanted 5%`);
+    await settled();
+
+    // --- the learned rate: Barren's Base Metals from the kept colony, not yet checked against the game.
+    const learned = await text('[data-planets="rate:Barren:2267"]');
+    if (!/learned/i.test(learned) || !learned.includes('not yet checked against the game’s total')) problems.push(`Barren’s Base Metals rate: “${learned}”`);
+
+    // --- the five setups, each with its ISK a day or its reason; P0 → P2 with its gap to the best.
+    for (const k of ['p1', 'p2', 'feed', 'bought', 'chain']) {
+      const t = await text(`[data-planets="setup:${k}"]`);
+      if (!t) problems.push(`no setup row for ${k}`);
+      else if (!/ISK a day|a day|\bNeeds\b|can’t|No |budget/i.test(t)) problems.push(`setup ${k} says neither an ISK a day nor why: “${t.slice(0, 160)}”`);
+    }
+    const gap = await text('[data-planets="setup:p2"] [data-planets="gap"]');
+    if (!/a day under the best here|the best here/.test(gap)) problems.push(`P0 → P2’s gap to the best: “${gap}”`);
+    // The seeded extractor's reading isn't checked, so a setup on Barren's learned rates says what the other reading would make.
+    if (!(await page.locator('[data-planets^="setup:"]', { hasText: 'if the game reads extraction the other way' }).count())) problems.push('no setup shows the higher figure beside its ISK a day');
+    // Planet I's role lines name what it makes and its factories (in P0 → P2 its Basic and Advanced ones); the upkeep says resets a week.
+    const rolesI = (await page.locator(`[data-planets^="setup:"] [data-planets="role:${PLANET_I}"]`).allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+    if (!rolesI.length || !rolesI.every((t) => /\d+ (Basic|Advanced|High-Tech) [^;]* makes? [\d,]+ \w/.test(t))) problems.push(`planet I’s role lines: ${JSON.stringify(rolesI).slice(0, 400)}`);
+    const p2I = await text(`[data-planets="setup:p2"] [data-planets="role:${PLANET_I}"]`);
+    if (p2I && !(/Basic Industry Facilit/.test(p2I) && /Advanced Industry Facilit/.test(p2I))) problems.push(`planet I in P0 → P2 doesn’t name its Basic and Advanced factories: “${p2I}”`);
+    const upkeep = await text('[data-planets="setup:p2"] [data-planets="upkeep"]');
+    if (!/Resets a week/i.test(upkeep)) problems.push(`P0 → P2’s upkeep: “${upkeep}”`);
+    if (SHOTS) { await page.locator('[data-planets="setup:p2"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-planets-plan.png` }); }
+
+    // --- Not Brave's space: no tax assumed, so the tax is not known and the rows are before it.
+    await page.locator('[data-planets="notBrave"]').click().catch((e) => problems.push(`no “Not Brave’s space”: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(400);
+    await settled();
+    if (!/not known/.test(await taxOf('Barren'))) problems.push(`with “Not Brave’s space” on, Barren’s tax: “${await taxOf('Barren')}”`);
+    if (!(await page.locator('[data-planets^="setup:"]', { hasText: 'before the customs tax' }).count())) problems.push('with no tax known, no setup says it is before the customs tax');
+    await page.locator('[data-planets="notBrave"]').click().catch(() => undefined);
+    await page.waitForTimeout(400);
+    await settled();
+
+    // --- a typed Gas rate: the Gas planets' lines go from "if your extractors deliver" to typed.
+    const gasIds = FXP.planets.filter((p) => p.type_id === 13).map((p) => p.planet_id);
+    const gasLines = async () => (await Promise.all(gasIds.map((id) => page.locator(`[data-planets="planet:${id}"], [data-planets^="setup:"] [data-planets="role:${id}"]`).allInnerTexts()))).flat().map((t) => t.replace(/\s+/g, ' '));
+    const before = await gasLines();
+    if (!before.some((t) => t.includes('if your extractors deliver'))) problems.push(`no Gas planet’s line says “if your extractors deliver” before a rate is typed: ${JSON.stringify(before.slice(0, 2))}`);
+    for (const p0 of [2268, 2267, 2309, 2310, 2311]) {
+      await page.locator(`[data-planets="rate:Gas:${p0}"] button`).first().click().catch((e) => problems.push(`no rate chip for Gas ${p0}: ${e.message.split('\n')[0]}`));
+      await page.locator('[data-planets="rate-edit"] input[aria-label="P0 an hour"]').fill('9000').catch(() => problems.push('no P0-an-hour box'));
+      await page.locator('[data-planets="rate-edit"] input[aria-label="Heads"]').fill('8').catch(() => problems.push('no heads box'));
+      await page.locator('[data-planets="rate-edit"] button', { hasText: 'Save' }).click().catch(() => problems.push('no Save'));
+      await page.waitForTimeout(250);
+    }
+    await page.waitForTimeout(400);
+    await settled();
+    if (!/typed/i.test(await text('[data-planets="rate:Gas:2310"]'))) problems.push(`Gas’s Noble Gas rate doesn’t read typed: “${await text('[data-planets="rate:Gas:2310"]')}”`);
+    const after = await gasLines();
+    if (after.some((t) => t.includes('if your extractors deliver')) || !after.some((t) => /typed/.test(t))) problems.push(`the Gas planets’ lines after typing: ${JSON.stringify(after.slice(0, 2))}`);
+    const kept = await page.evaluate(async () => {
+      const h = await new Promise((res) => { const q = indexedDB.open('jita-ledger'); q.onsuccess = () => res(q.result); });
+      return new Promise((res) => { const q = h.transaction('kv').objectStore('kv').get('planets'); q.onsuccess = () => res(q.result); });
+    });
+    if (kept?.systems?.[SYS]?.rates?.Gas?.['2310']?.heads !== 8) problems.push(`the typed Gas rate wasn’t kept in the planets doc: ${JSON.stringify(kept?.systems?.[SYS]?.rates ?? null).slice(0, 200)}`);
+
+    // --- the skills panel, at the shown character.
+    const skillsAt = await text('[data-planets="skills"]');
+    for (const s of ['Interplanetary Consolidation', 'Command Center Upgrades']) if (!skillsAt.includes(s)) problems.push(`the skills panel doesn’t list ${s}`);
+    if (/\bNaN\b/.test(await text())) problems.push('the Planets tab shows NaN');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (the main’s plan): ${o}`);
+    if (SHOTS) { await page.evaluate(() => { const c = document.querySelector('.content'); if (c) c.scrollTop = 0; }); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-top.png` }); }
+
+    // --- Show for: an Alpha can't do planetary industry; an alt whose skills aren't read says so, never a 0.
+    await showFor('Alpha Alt');
+    await page.waitForSelector('[data-planets="who"]').catch(() => problems.push('nothing says whose plan for the Alpha alt'));
+    if (!(await text('[data-planets="plan"]')).includes('Alphas can’t do planetary industry')) problems.push('the Alpha alt isn’t told Alphas can’t do planetary industry');
+    await showFor('Unread Alt');
+    await page.waitForSelector('[data-planets="who"]').catch(() => problems.push('nothing says whose plan for the unread alt'));
+    const unread = await text('[data-planets="plan"]');
+    if (!/Unread Alt’s skills aren’t read/.test(unread)) problems.push(`the unread alt doesn’t say its skills aren’t read: “${unread.slice(0, 240)}”`);
+    if (/\b0 planets?\b|\b0 ISK\b|Command Center Upgrades 0\b/.test(unread)) problems.push('the unread alt shows a 0 for what isn’t read');
+    if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (the unread alt): ${o}`);
+    await showFor('Owner');
+    }
+
+    const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
+    if (boundary) problems.push('error boundary');
+    checked++;
+    const unique = [...new Set(problems)];
+    if (unique.length) failures.push({ ledger: 'planets', page: 'hustles/planets', problems: unique });
+    process.stdout.write(unique.length ? `  FAIL planets #hustles/planets\n${unique.map((x) => `       ${x}`).join('\n')}\n` : `  ok   planets #hustles/planets (5-NZNW planned for the main, an Alpha and an unread alt; ${esiAsked} ESI reads, ${located} of the location)\n`);
     await page.close();
   }
   // An alt's broker fee on the Research tab comes from its read standings (altFees.ts), not altLedger's zeros: Fee Alt (Broker

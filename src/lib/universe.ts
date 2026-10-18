@@ -4,14 +4,13 @@ import { cacheStore } from './store';
 import type { Endpoint } from './courier';
 import { hasScope } from './auth';
 import { SCOPE } from './config';
-import { parsePlanetType, type PiPlanet } from './pi';
 
 /**
  * Stations, systems, planets and routes.
  *
  * None of this ever changes, so everything here is cached in IndexedDB for good rather than for a
- * few minutes. That matters: finding the Barren planets in a region means a request per planet, and
- * doing it twice would be rude to ESI and slow for you.
+ * few minutes. That matters: a system's planets are a request each, and reading them twice would be
+ * rude to ESI and slow for you.
  */
 
 const mem = new Map<string, unknown>();
@@ -142,21 +141,12 @@ export async function endpoint(locationId: number): Promise<Endpoint> {
 }
 
 /**
- * Jumps on a high-sec-only route, or null when there isn't one.
+ * Every system on the high-sec-only route, start and end included, or null when there isn't one.
+ * Kept whole rather than as a jump count so a route can be checked for the gank systems on it.
  *
  * The route endpoint is one of the few that still lives under a version prefix rather than the
  * compatibility-date root, so this path is spelled out rather than built like the others. A 404
  * here is an answer --- no such route exists --- not a failure.
- */
-export async function secureJumps(from: number, to: number): Promise<number | null> {
-  if (from === to) return 0;
-  const route = await secureRoute(from, to);
-  return route ? route.length - 1 : null;
-}
-
-/**
- * Every system on the high-sec-only route, start and end included, or null when there isn't one.
- * Kept whole rather than as a jump count so a route can be checked for the gank systems on it.
  */
 export async function secureRoute(from: number, to: number): Promise<number[] | null> {
   if (from === to) return [from];
@@ -261,13 +251,6 @@ export const stationPlace = (id: number) => cached(`stn-place:${id}`, async () =
   return { name: s.name, systemId: s.systemId, regionId: con.region_id };
 });
 
-export const regionSystems = (regionId: number) => cached(`region-sys:${regionId}`, async () => {
-  const { data: region } = await esi<{ constellations: number[] }>(`/universe/regions/${regionId}/`);
-  const cons = await Promise.all(region.constellations.map((c) =>
-    esi<{ systems: number[] }>(`/universe/constellations/${c}/`).then((r) => r.data.systems).catch(() => [])));
-  return cons.flat();
-});
-
 export const planet = (id: number) => cached(`planet:${id}`, async () => {
   const { data } = await esi<{ name: string; system_id: number; type_id: number }>(`/universe/planets/${id}/`);
   return { name: data.name, systemId: data.system_id, typeId: data.type_id };
@@ -278,57 +261,5 @@ export const typeName = (id: number) => cached(`typename:${id}`, async () => {
   return data.name;
 });
 
-/**
- * Every planet in a region whose system sits in the chosen security band.
- *
- * This is the expensive one --- a request per planet --- so it reports progress and everything it
- * learns is kept. Running it a second time on the same region costs nothing.
- */
-export async function scanPlanets(
-  regionId: number,
-  keepSystem: (security: number) => boolean,
-  onProgress: (done: number, total: number) => void,
-  signal?: { stopped: boolean },
-): Promise<PiPlanet[]> {
-  const ids = await regionSystems(regionId);
-  const systems: SystemInfo[] = [];
-  for (let i = 0; i < ids.length; i += 8) {
-    if (signal?.stopped) break;
-    const batch = await Promise.all(ids.slice(i, i + 8).map((s) => system(s).catch(() => null)));
-    systems.push(...batch.filter((s): s is SystemInfo => !!s));
-    onProgress(Math.min(i + 8, ids.length), ids.length);
-  }
-
-  const wanted = systems.filter((s) => keepSystem(s.security));
-  const planetIds = wanted.flatMap((s) => s.planetIds.map((p) => ({ p, s })));
-  const out: PiPlanet[] = [];
-  for (let i = 0; i < planetIds.length; i += 8) {
-    if (signal?.stopped) break;
-    const batch = await Promise.all(planetIds.slice(i, i + 8).map(async ({ p, s }) => {
-      try {
-        const info = await planet(p);
-        const t = parsePlanetType(await typeName(info.typeId));
-        return t ? { planetId: p, name: info.name, type: t, systemId: s.systemId, systemName: s.name, security: s.security } : null;
-      } catch { return null; }
-    }));
-    out.push(...batch.filter((x): x is PiPlanet => !!x));
-    onProgress(Math.min(i + 8, planetIds.length), planetIds.length);
-  }
-  return out;
-}
-
 /** Jita, for working out how far a system is from home. */
 export const JITA_SYSTEM = 30000142;
-
-/** Regions a Jita trader can reach without a long trip. */
-export const NEAR_JITA: { id: number; name: string }[] = [
-  { id: 10000002, name: 'The Forge' },
-  { id: 10000020, name: 'Tash-Murkon' },
-  { id: 10000016, name: 'Lonetrek' },
-  { id: 10000033, name: 'The Citadel' },
-  { id: 10000032, name: 'Sinq Laison' },
-  { id: 10000030, name: 'Heimatar' },
-  { id: 10000042, name: 'Metropolis' },
-  { id: 10000043, name: 'Domain' },
-  { id: 10000064, name: 'Essence' },
-];

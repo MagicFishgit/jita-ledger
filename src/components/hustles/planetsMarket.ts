@@ -1,20 +1,27 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { homeAgo } from '../../lib/homeMarket';
 import { useNow } from '../../lib/hooks';
 import { fillCost, HOME_DEPTH, legCost, NO_ROUTE_WHY, othersBook, sellAt, type Freight, type Leg, type Market, type Sale } from '../../lib/industryRank';
 import { JITA_SYSTEM, legFor } from '../../lib/industrySites';
 import { watchedFlow } from '../../lib/flowStore';
-import type { Buy, Sell, Sold } from '../../lib/piPlan';
+import type { Buy, PlanPlanet, Sell, Sold } from '../../lib/piPlan';
 import { soldOf } from '../../lib/piPlan';
-import type { PiIndex } from '../../lib/piBundle';
+import { decodeRadii, planetTypeOf, type PiIndex } from '../../lib/piBundle';
+import { customsRate, type Tax } from '../../lib/planetsDoc';
+import { reloadApp } from '../../lib/reload';
+import { useData } from '../../lib/store';
+import { planet as planetInfo, system as systemInfo, typeName, type SystemInfo } from '../../lib/universe';
+import { loadRadii } from './planetsBundle';
 import type { IndustryChar } from './industryChars';
 import { homeSaid } from './industryFinder';
-import { useHomeHistory, useHomeHubs, useHomeQuotes, useIndustryDoc, useLiveBooks, useScanCache } from './industryMarket';
+import { useHomeHistory, useHomeHubs, useHomeQuotes, useIndustryDoc, useLiveBooks, useScanCache, type Loaded } from './industryMarket';
 
 /** One unit's net at the better place, uncapped (for the chart: `sell(id, 1)` would be capped on a thin P4). */
 export type UnitNet = { isk: number | null; where: 'jita' | 'home' | null; why: string | null };
 export type PlanetMarket = {
   sell: Sell; buy: Buy; unit: (typeId: number) => UnitNet; ready: boolean; said: string;
+  /** Whether any of the goods named in `live` has its Jita book read live yet: the planner ranks again on them only then. */
+  live: boolean;
   /** The hub → Jita route Jita's sales and purchases are priced on (null: none picked, or no hub), so `PlanInput.freight` uses the same one. */
   freight: Freight | null;
 };
@@ -22,7 +29,10 @@ export type PlanetMarket = {
 /** A sale's makes: so large that a week's sales are bounded by the market's pace at your share, never by what's made, and a sale doesn't depend on the amount asked for. */
 const ANY_MAKES = 1e9;
 const NO_HUB_WHY = 'no home hub picked: pick one on the Industry tab';
-const NOTHING_TRADED_WHY = 'nothing traded in Jita in the last 14 days, so a freight minimum can’t be spread over its sales';
+/** A pace of 0 at Jita: said with the freight minimum only on a route that has one (Brave's Jita ↔ C-J6MT has none). */
+const nothingTradedWhy = (f: Freight | null) => (f?.min != null && f.min > 0
+  ? 'nothing traded in Jita in the last 14 days, so a freight minimum can’t be spread over its sales'
+  : 'nothing traded in Jita in the last 14 days');
 const NO_LEG: Leg = { kind: 'none' };
 const HERE: Leg = { kind: 'here' };
 
@@ -86,7 +96,7 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       let jita = hub ? sellAt('jita', m, { broker: c.broker, tax: c.tax, leg: jitaLeg, volume: volume(t), makes: ANY_MAKES, share, now })
         : unpriced('jita', noHub ?? NO_HUB_WHY);
       // A pace of 0 spreads the freight minimum over nothing: unpriced, never priced without it.
-      if (hub && jitaLeg.kind === 'route' && jita.pace === 0) jita = unpriced('jita', NOTHING_TRADED_WHY);
+      if (hub && jitaLeg.kind === 'route' && jita.pace === 0) jita = unpriced('jita', nothingTradedWhy(jitaLeg.f));
       const homeSale = hub ? sellAt('home', m, { broker: hubFee, tax: c.tax, leg: HERE, volume: volume(t), makes: ANY_MAKES, share, now, hubName: hub.short })
         : unpriced('home', noHub ?? NO_HUB_WHY);
       s = { jita, home: homeSale, m };
@@ -119,7 +129,7 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       else if (ask == null) jitaWhy = 'none listed in Jita';
       else if (jitaLeg.kind === 'none') jitaWhy = NO_ROUTE_WHY;
       else if (jitaLeg.kind === 'route' && s.jita.pace == null) jitaWhy = s.jita.why ?? 'No history this morning to say how fast it sells';
-      else if (jitaLeg.kind === 'route' && !(s.jita.pace! > 0)) jitaWhy = NOTHING_TRADED_WHY;
+      else if (jitaLeg.kind === 'route' && !(s.jita.pace! > 0)) jitaWhy = nothingTradedWhy(jitaLeg.f);
       else {
         const cap = s.jita.pace != null && s.jita.pace > 0 ? (s.jita.pace * share) / 100 : 0;
         const f = legCost(jitaLeg, volume(t), ask, cap > 0 ? 7 * cap : ANY_MAKES);
@@ -141,7 +151,8 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       const u = buyUnit(t, perDay);
       const opts = (['home', 'jita'] as const).filter((p) => where === 'best' || where === p)
         .map((p) => ({ p, v: u[p] })).filter((x): x is { p: 'home' | 'jita'; v: number } => x.v != null).sort((a, b) => a.v - b.v);
-      if (opts.length) return { isk: opts[0].v * perDay, where: opts[0].p, why: null };
+      // Bought at Jita because the hub couldn't take it (too thin for a week's need, its depth not known): the hub's reason is kept, so the page can say why.
+      if (opts.length) return { isk: opts[0].v * perDay, where: opts[0].p, why: null, note: where === 'best' && opts[0].p === 'jita' && u.home == null && hub ? u.homeWhy : null };
       const why = [...new Set((['home', 'jita'] as const).filter((p) => where === 'best' || where === p).map((p) => u[p === 'jita' ? 'jitaWhy' : 'homeWhy']).filter((w): w is string => !!w))].join('; ');
       return { isk: null, where: null, why: why || 'no price read' };
     };
@@ -158,14 +169,82 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
   const liveCount = Object.keys(liveBooks).length;
   const jitaSource = liveCount > 0 ? 'the planner’s goods on Jita’s books now, the rest on this morning’s' : 'this morning’s Jita books';
   const usesHome = !!hub && doc.sell !== 'jita';
+  // Under 'home' nothing sells or is bought at Jita, so nothing is said of it.
+  const usesJita = !hub || doc.sell !== 'home';
   const said = waiting ?? (!hub
-    ? `${(hubSaid ?? 'No home hub picked: pick one on the Industry tab.').replace(/\.?$/, '.')} Jita is priced through the hub’s freight route, so nothing is priced until then.`
+    ? (hubMissing
+      // A hub picked that isn't known here (the cloud's list off, failing, a version behind, or no longer listing it): said in
+      // that state's words, as Industry's To do does (`hubWhy`), never "pick one".
+      ? `${(hubSaid ?? 'Your home hub isn’t known here.').replace(/\.?$/, '.')} Jita is priced through your home hub’s freight route, so nothing is priced while the hub isn’t known here.`
+      : `${(hubSaid ?? 'No home hub picked: pick one on the Industry tab.').replace(/\.?$/, '.')} Jita is priced through the hub’s freight route, so nothing is priced until then.`)
     : [
       usesHome ? hubSaid : null,
-      jitaLeg.kind === 'route' ? `Jita: ${jitaSource}, reached by ${jitaLeg.name} from ${hub.short}.`
-        : jitaLeg.kind === 'none' ? `No freight route between ${hub.short} and Jita is picked on the Industry tab, so nothing is priced at Jita.`
-          : `Jita: ${jitaSource}.`,
+      !usesJita ? null
+        : jitaLeg.kind === 'route' ? `Jita: ${jitaSource}, reached by ${jitaLeg.name} from ${hub.short}.`
+          : jitaLeg.kind === 'none' ? `No freight route between ${hub.short} and Jita is picked on the Industry tab, so nothing is priced at Jita.`
+            : `Jita: ${jitaSource}.`,
       usesHome && doc.hubFees[hub.id] == null ? `${hub.short}’s broker fee isn’t typed, so home sales are ranked before it.` : null,
     ].filter(Boolean).join(' '));
-  return { ...fns, ready: !waiting, said, freight: jitaLeg.kind === 'route' ? jitaLeg.f : null };
+  return { ...fns, ready: !waiting, said, live: liveCount > 0, freight: jitaLeg.kind === 'route' ? jitaLeg.f : null };
+}
+
+/** A planet of the chosen system as the planner takes it, with its type's ID and, for a type with no planetary industry (Shattered, Scorched Barren), ESI's name for it. */
+export type SystemPlanet = PlanPlanet & { typeId: number; typeName: string | null };
+export type SystemPlanets = { system: SystemInfo; planets: SystemPlanet[] };
+/** A read that failed: `reload` when it was the radii chunk, which can't be asked for again in the same page (gotchas.md). */
+export type SystemState = Loaded<SystemPlanets> | { state: 'failed'; error: string; retry: () => void; reload: true };
+type Raw = { system: SystemInfo; planets: { planetId: number; name: string; typeId: number; typeName: string | null }[]; radii: Map<number, number> };
+const NO_TAX: Tax = { rate: null, from: 'none', npc: 0, interbus: false };
+
+/**
+ * A system's planets for the planner: the system and each planet read publicly from ESI (kept for good, as the universe module
+ * keeps them), each one's PI type from the bundle by its type ID (null for Shattered and Scorched Barren, named from ESI so the
+ * page can say what it is), its radius from the radii chunk, and its customs tax from the `planets` doc (`customsRate`), worked
+ * out again whenever the doc or the character's Customs Code Expertise changes without reading anything again.
+ */
+export function useSystemPlanets(systemId: number | null, ix: PiIndex | null, cce: number | null): SystemState {
+  const doc = useData().planets;
+  const [got, setGot] = useState<{ id: number | null; st: { state: 'loading' } | { state: 'ok'; raw: Raw } | { state: 'failed'; error: string; reload: boolean } }>({ id: null, st: { state: 'loading' } });
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (systemId == null || !ix) return;
+    let alive = true;
+    setGot({ id: systemId, st: { state: 'loading' } });
+    (async () => {
+      let radiiRow: number[] | undefined;
+      try { radiiRow = (await loadRadii())[String(systemId)]; } catch {
+        if (alive) setGot({ id: systemId, st: { state: 'failed', error: 'the planets’ sizes couldn’t be loaded just now', reload: true } });
+        return;
+      }
+      try {
+        const sys = await systemInfo(systemId);
+        const planets = await Promise.all(sys.planetIds.map(async (id) => {
+          const p = await planetInfo(id);
+          const known = planetTypeOf(ix, p.typeId);
+          // A type the bundle lacks has no PI: its name only says which it is ("Planet (Shattered)"), so a failed read leaves it unnamed.
+          return { planetId: id, name: p.name, typeId: p.typeId, typeName: known ? null : await typeName(p.typeId).catch(() => null) };
+        }));
+        if (alive) setGot({ id: systemId, st: { state: 'ok', raw: { system: sys, planets, radii: new Map(radiiRow ? decodeRadii(radiiRow) : []) } } });
+      } catch (e) {
+        if (alive) setGot({ id: systemId, st: { state: 'failed', error: `couldn’t read the system from ESI: ${e instanceof Error ? e.message : String(e)}`, reload: false } });
+      }
+    })();
+    return () => { alive = false; };
+  }, [systemId, ix, attempt]);
+  const st = got.id === systemId ? got.st : { state: 'loading' as const };
+  const raw = st.state === 'ok' ? st.raw : null;
+  const value = useMemo((): SystemPlanets | null => {
+    if (!raw || !ix) return null;
+    const sec = raw.system.security;
+    return {
+      system: raw.system,
+      planets: raw.planets.map((p) => {
+        const t = planetTypeOf(ix, p.typeId);
+        return { planetId: p.planetId, name: p.name, type: t, typeId: p.typeId, typeName: p.typeName, radiusKm: raw.radii.get(p.planetId) ?? null,
+          tax: t ? customsRate(doc, raw.system.systemId, sec, t, p.planetId, cce) : NO_TAX };
+      }),
+    };
+  }, [raw, ix, doc, cce]);
+  if (st.state === 'failed') return st.reload ? { state: 'failed', error: st.error, retry: () => void reloadApp(), reload: true } : { state: 'failed', error: st.error, retry: () => setAttempt((n) => n + 1) };
+  return value ? { state: 'ok', value } : { state: 'loading' };
 }

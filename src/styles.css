@@ -1026,25 +1026,46 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .htab:hover { border-color: color-mix(in oklab, var(--acc) 50%, transparent); }
 .htab[aria-current='page'] { background: linear-gradient(180deg, color-mix(in oklab, var(--acc) 16%, transparent), color-mix(in oklab, var(--acc) 4%, transparent)); border-color: var(--acc); color: #fff; }
 .htab[aria-current='page'] svg { color: var(--acc); }
-.pi-step { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 14px; }
-.pi-num { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--acc); color: var(--acc); font-family: var(--f-mono); font-size: 14px; }
-.pi-step.done .pi-num { background: var(--acc); color: #03121a; }
-.pi-svg { width: 100%; max-width: 660px; height: auto; display: block; }
-.pi-svg .pi-link line { stroke: color-mix(in oklab, var(--acc) 55%, transparent); stroke-width: 2; stroke-dasharray: 5 4; }
-.pi-svg rect { fill: rgba(2, 7, 12, .7); stroke: var(--line-strong); }
-.pi-svg rect.pi-ex { stroke: var(--acc2); }
-.pi-svg rect.pi-fac { stroke: var(--acc); }
-.pi-svg rect.pi-pad { stroke: var(--pos); }
-.pi-svg rect.pi-p2 { stroke: var(--violet); }
-.pi-svg text { text-anchor: middle; fill: var(--body); font-family: var(--f-body); }
-.pi-svg .pi-label { font-size: 13px; font-weight: 600; fill: var(--ink); }
-.pi-svg .pi-sub { font-size: 11px; fill: var(--note); }
-.pi-svg .pi-big { font-family: var(--f-mono); font-size: 18px; fill: var(--acc); }
-.chain { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; }
-.chain-node { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--inset); border: 1px solid var(--line-2); min-width: 0; }
-.chain-node svg { width: 18px; height: 18px; color: var(--acc); flex: none; }
-.chain-arrow { display: grid; place-items: center; padding: 0 8px; color: var(--acc); }
-.chain-arrow svg { width: 18px; height: 18px; }
+/* The Planets tab (hustles/Planets.tsx, PlanetsPlan.tsx). Its section switch and Show for share a row, wrapping on a phone; a
+   planet's line, its rates and each setup's row keep their name and fold the rest under it on a phone. */
+.pl-head { gap: 10px 16px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.pl-planet { display: grid; grid-template-columns: minmax(150px, 190px) minmax(0, 1fr) auto; gap: 6px 14px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line-soft); min-width: 0; }
+.pl-planet-name { display: flex; flex-direction: column; min-width: 0; color: var(--ink); }
+.pl-planet-name b { font-weight: 500; }
+.pl-planet-name .sub, .pl-setup .sub { display: block; font-size: 12px; color: var(--note); }
+.pl-p0s { flex-wrap: wrap; min-width: 0; }
+.pl-tax { flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 10px; min-width: 0; }
+.pl-taxes { flex-wrap: wrap; gap: 10px 18px; align-items: flex-start; }
+.pl-taxcell { display: inline-flex; flex-direction: column; gap: 3px; min-width: 0; max-width: 100%; }
+.pl-rates { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 6px 12px; padding: 6px 0; border-bottom: 1px solid var(--line-soft); }
+.pl-rate-type { font-weight: 500; color: var(--ink); font-size: 13px; }
+.pl-rate { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-size: 12.5px; color: var(--body); min-width: 0; }
+.pl-rate b { font-weight: 500; color: var(--ink); }
+.pl-setup { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: rgba(2, 7, 12, .45); border: 1px solid var(--line-2); min-width: 0; }
+.pl-setup.best { border-left: 2px solid var(--acc); }
+.pl-setup-head { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 4px 12px; align-items: start; }
+.pl-rank { font-family: var(--f-head); font-size: 20px; line-height: 1; color: var(--label); }
+.pl-setup.best .pl-rank { color: var(--acc); }
+.pl-setup-name { min-width: 0; color: var(--ink); }
+.pl-setup-name b { font-weight: 600; }
+.pl-yours { margin-left: 8px; font-family: var(--f-head); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--acc2); }
+.pl-isk { text-align: right; min-width: 0; }
+.pl-isk b { font-family: var(--f-mono); font-size: 18px; font-weight: 500; color: var(--pos); white-space: nowrap; }
+.pl-setup .pl-high { color: var(--acc2); max-width: 260px; margin-left: auto; }
+.pl-notes { gap: 3px; }
+.pl-lines { gap: 4px; min-width: 0; }
+.pl-lines .lbl { font-family: var(--f-head); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--label); }
+.pl-line { font-size: 12.5px; color: var(--body); line-height: 1.45; min-width: 0; overflow-wrap: anywhere; }
+.pl-line b { font-weight: 500; color: var(--ink); }
+.pl-role .pl-why { display: block; }
+.pl-type { color: var(--note); }
+.pl-up { color: var(--acc2); }
+.pl-steps { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 10px; }
+.pl-steps li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; padding: 10px 12px; background: rgba(2, 7, 12, .55); border: 1px solid var(--line-3); border-top: 2px solid var(--acc); min-width: 0; }
+.pl-steps li .mono { font-size: 12px; color: var(--acc); }
+.pl-steps b { font-size: 13px; color: var(--ink); font-weight: 600; }
+.pl-steps p { margin: 4px 0 0; font-size: 12.5px; color: #9fb3c5; text-wrap: pretty; }
+.pl-steps .pl-tip { color: var(--acc2); }
 
 /* combat */
 .party { display: grid; grid-template-columns: 34px minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 1fr) 90px; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line-4); font-size: 12.5px; }
@@ -1569,4 +1590,13 @@ button.tile.press .tile-v, button.tile.press .tile-n { display: block; }
      sitting alone in a corner (Side hustles' tabs do the same). */
   .ind-head .seg[aria-label="Industry section"] { width: 100%; }
   .ind-head .seg[aria-label="Industry section"] button { flex: 1 1 auto; justify-content: center; }
+  /* The Planets tab's three sections fill their row, as Industry's; a planet's line and its rates stack; a setup keeps its name
+     and its ISK a day side by side, everything else under them. */
+  .pl-head .seg[aria-label="Planets section"] { width: 100%; }
+  .pl-head .seg[aria-label="Planets section"] button { flex: 1 1 auto; justify-content: center; }
+  .pl-planet, .pl-rates { grid-template-columns: minmax(0, 1fr); }
+  .pl-tax { justify-content: flex-start; }
+  .pl-setup { padding: 12px; }
+  .pl-setup-head { grid-template-columns: 20px minmax(0, 1fr) auto; gap: 4px 8px; }
+  .pl-setup .pl-high { max-width: 130px; }
 }
