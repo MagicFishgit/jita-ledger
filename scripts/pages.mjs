@@ -3535,7 +3535,8 @@ try {
   // The Planets tab (Task 11 of the Planets upgrade): Plan, on 5-NZNW as public ESI gave it on 17 October 2026 and the 83 planetary
   // goods priced from the research's reads (scripts/fixtures/planets-5nznw.json), with the main's one kept colony: a Barren planet
   // extracting Base Metals and Microorganisms at CCP's own example (6,965 a 30-minute cycle over 47.5 hours), its reading not yet
-  // checked against the game. Show for: an Alpha alt, and an alt whose skills the cloud hasn't read.
+  // checked against the game. Show for: an Alpha alt, and an alt whose skills the cloud hasn't read. The Chart (Task 12) at 5-NZNW and
+  // UALX-3, and Colonies drawing the kept colony with its extractors' program totals both ways.
   if (SHOWN.includes('hustles/planets') && (!only(process.env.LEDGER) || only(process.env.LEDGER).includes('planets'))) {
     const now = Date.now(), iso = (t) => new Date(t).toISOString();
     const FXP = JSON.parse(fs.readFileSync(new URL('./fixtures/planets-5nznw.json', import.meta.url), 'utf8'));
@@ -3584,6 +3585,9 @@ try {
       '/universe/ids/': (url, req, json) => json({ inventory_types: JSON.parse(req.postData() ?? '[]').filter((n) => SKILL_IDS[n]).map((n) => ({ id: SKILL_IDS[n], name: n })) }),
     };
     for (const p of FXP.planets) ESI[`/universe/planets/${p.planet_id}/`] = (url, req, json) => json(p);
+    // UALX-3 (Task 12's chart): no Lava, Plasma, Ice or Oceanic planet, so four P0s are missing there.
+    ESI[`/universe/systems/${FXP.ualx.system.system_id}/`] = (url, req, json) => json(FXP.ualx.system);
+    for (const p of FXP.ualx.planets) ESI[`/universe/planets/${p.planet_id}/`] = (url, req, json) => json(p);
     const byId = new Map(FXP.goods.map((g) => [g.id, g]));
     const CLOUD = {
       '/v1/pull': (url, req, json) => json({ rev: 1, next: null, records: [], docs: [] }),
@@ -3795,6 +3799,113 @@ try {
     if (/\b0 planets?\b|\b0 ISK\b|Command Center Upgrades 0\b/.test(unread)) problems.push('the unread alt shows a 0 for what isn’t read');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (the unread alt): ${o}`);
     await showFor('Owner');
+
+    // --- the Chart (Task 12): the 83 goods by tier, each valued a unit and a m³; Nanites' recipe down to P0, the planet types its
+    // P0s come from and 5-NZNW's planets that have them; which setups make it there (P0 → P2 can, made alone on Barren planets).
+    const section = async (name) => { await page.locator('[aria-label="Planets section"] button', { hasText: name }).click().catch((e) => problems.push(`no ${name} section: ${e.message.split('\n')[0]}`)); await page.waitForTimeout(900); };
+    const NANITES = 2463, BACTERIA = 2393, REACTIVE = 2398, MICRO = 2073, BASE = 2267, FELSIC = 2307, NONCS = 2306, HEAVY = 2272, PLANKTIC = 2286, BROADCAST = 2867, OXIDES = 2317;
+    const good = (id) => `[data-planets="chart"] [data-planets="good:${id}"]`;
+    const disabledGoods = () => page.evaluate(() => [...document.querySelectorAll('[data-planets="chart"] [data-planets^="good:"][aria-disabled="true"]')].map((e) => Number(e.getAttribute('data-planets').slice(5))));
+    // Which setups make it is worked out with the Plan section's ranking, on a timer: wait until it no longer says it's working.
+    const makesSettled = async () => { await page.waitForFunction(() => { const m = document.querySelector('[data-planets="makes"]'); return !!m && !m.querySelector('[data-planets="working"]'); }, null, { timeout: 30_000 }).catch(() => problems.push('which setups make it never settled')); await page.waitForTimeout(300); };
+    await section('Chart');
+    const charted = await page.waitForSelector('[data-planets="chart"]', { timeout: 20_000 }).then(() => true, () => (problems.push('the Chart never drew'), false));
+    if (charted) {
+      const goods83 = await page.locator('[data-planets="chart"] [data-planets^="good:"]').count();
+      if (goods83 !== 83) problems.push(`the chart shows ${goods83} goods, not 83`);
+      const tiers = await page.evaluate(() => [...document.querySelectorAll('[data-planets="chart"] [data-planets^="tier:"]')].map((t) => [t.getAttribute('data-planets'), t.querySelectorAll('[data-planets^="good:"]').length]));
+      if (JSON.stringify(tiers) !== JSON.stringify([['tier:P0', 15], ['tier:P1', 15], ['tier:P2', 24], ['tier:P3', 21], ['tier:P4', 8]])) problems.push(`the chart's tiers: ${JSON.stringify(tiers)}`);
+      // 5-NZNW has every P0 on some planet: nothing is greyed.
+      const greyed = await disabledGoods();
+      if (greyed.length) problems.push(`at 5-NZNW, which supplies every P0, ${greyed.length} goods are greyed`);
+      const nanChip = await text(good(NANITES));
+      if (!/Nanites/.test(nanChip) || !/[\d.,]+ (K |M )?ISK/.test(nanChip) || !/a m³/.test(nanChip)) problems.push(`Nanites in the chart isn't valued a unit and a m³: “${nanChip}”`);
+      if (/\b0 ISK\b|NaN/.test(await text('[data-planets="chart"]'))) problems.push('the chart shows a 0 or NaN');
+      await page.locator(good(NANITES)).click().catch((e) => problems.push(`couldn't pick Nanites: ${e.message.split('\n')[0]}`));
+      await page.waitForSelector('[data-planets="tree"]', { timeout: 10_000 }).catch(() => problems.push('picking Nanites showed no recipe'));
+      const tree = await text('[data-planets="tree"]');
+      for (const n of ['Nanites', 'Bacteria', 'Reactive Metals', 'Microorganisms', 'Base Metals']) if (!tree.includes(n)) problems.push(`Nanites' recipe doesn't name ${n}`);
+      // Quantities and cycle times: 40 + 40 → 5 an hour; 3,000 → 20 every 30 minutes; and what one Nanites takes all the way down.
+      if (!/40 Bacteria \+ 40 Reactive Metals → 5 Nanites/.test(tree) || !/every hour/.test(tree)) problems.push(`Nanites' own step lacks its quantities or cycle: “${tree.slice(0, 300)}”`);
+      if (!/3,000 Microorganisms → 20 Bacteria/.test(tree) || !/every 30 minutes/.test(tree)) problems.push(`Bacteria's step lacks its quantities or cycle: “${tree.slice(0, 400)}”`);
+      if (!/1,200 Microorganisms/.test(tree) || !/8 Bacteria/.test(tree)) problems.push(`the recipe doesn't say what one Nanites takes all the way down: “${tree.slice(0, 400)}”`);
+      const p0Line = (id) => text(`[data-planets="tree"] [data-planets="p0:${id}"]`);
+      const micro = await p0Line(MICRO), base = await p0Line(BASE);
+      if (!micro.includes('Temperate, Ice, Oceanic and Barren')) problems.push(`Microorganisms' planet types: “${micro}”`);
+      if (!base.includes('Gas, Lava, Barren, Storm and Plasma')) problems.push(`Base Metals' planet types: “${base}”`);
+      // 5-NZNW's planets that have each: I, III, IV and VI (Barren), V (Temperate), XI (Ice), XII (Oceanic) have Microorganisms; II (Lava) and VII to X (Gas) Base Metals.
+      if (!/5-NZNW I\b/.test(micro) || !/5-NZNW XII\b/.test(micro) || /5-NZNW II\b/.test(micro)) problems.push(`5-NZNW's planets with Microorganisms: “${micro}”`);
+      if (!/5-NZNW II\b/.test(base) || !/5-NZNW VII\b/.test(base) || /5-NZNW XII\b/.test(base)) problems.push(`5-NZNW's planets with Base Metals: “${base}”`);
+      await makesSettled();
+      if (!(await page.locator('[data-planets="makes"] [data-planets="makes:p2"]').count())) problems.push(`P0 → P2 isn't among the setups that make Nanites at 5-NZNW: “${await text('[data-planets="makes"]')}”`);
+      if (await page.locator('[data-planets="makes"] [data-planets="makes:p1"]').count()) problems.push('P0 → P1 is said to make a P2');
+      // Its line says what the Plan section's ranked P0 → P2 makes here, so the two agree (on this fixture it makes no Nanites).
+      const p2Line = await text('[data-planets="makes"] [data-planets="makes:p2"]');
+      if (!/Mechanical Parts/.test(p2Line)) problems.push(`P0 → P2's line doesn't say what the ranking makes instead: “${p2Line}”`);
+      // A price that isn't known is "–" with its reason: selling at UALX-3 alone, Oxides has no price there.
+      await page.locator('[data-planets="market"] button', { hasText: /^UALX-3$/ }).click().catch((e) => problems.push(`no Sell at UALX-3 on the chart: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(500);
+      const oxides = await text(good(OXIDES)), oxTip = await page.locator(good(OXIDES)).getAttribute('data-tip').catch(() => '');
+      if (!/–/.test(oxides) || /\d ISK/.test(oxides)) problems.push(`Oxides, with no price at UALX-3, reads “${oxides}”`);
+      if (!/UALX-3/.test(oxTip ?? '')) problems.push(`Oxides' “–” doesn't say why: “${oxTip}”`);
+      await page.locator('[data-planets="market"] button', { hasText: /^Either$/ }).click().catch(() => undefined);
+      await page.waitForTimeout(400);
+      if (PHONE) {
+        for (const o of await overflow(page)) problems.push(`sticks out (the chart at 5-NZNW): ${o}`);
+        // The tiers wrap: the P0 tier's 15 goods sit on more than one line.
+        const lines = await page.evaluate(() => new Set([...document.querySelectorAll('[data-planets="tier:P0"] [data-planets^="good:"]')].map((e) => Math.round(e.getBoundingClientRect().top))).size);
+        if (lines < 2) problems.push('at 390 px the P0 tier doesn’t wrap');
+      }
+      if (SHOTS) { await page.locator('[data-planets="tree"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-chart.png` }); }
+
+      // --- the unread alt: prices are after fees it hasn't read, so every good is "–" and the line says why; never 0.
+      await showFor('Unread Alt');
+      const unreadChart = await text('[data-planets="chart-section"]');
+      if (!/Unread Alt’s skills aren’t read/.test(unreadChart)) problems.push(`the chart under the unread alt doesn't say its skills aren't read: “${unreadChart.slice(0, 300)}”`);
+      if (/\d ISK/.test(await text('[data-planets="chart"]'))) problems.push('the chart prices goods at fees the unread alt hasn’t read');
+      await showFor('Owner');
+
+      // --- UALX-3 (chosen on Plan): no Lava, Plasma, Ice or Oceanic planet, so Felsic Magma, Heavy Metals, Non-CS Crystals and
+      // Planktic Colonies are missing and the 40 goods needing any of them are greyed. Broadcast Node says its missing parts.
+      await section('Plan');
+      await page.locator('[data-planets="system"] input[aria-label="System"]').fill('UALX-3').catch(() => problems.push('no system box'));
+      await page.locator('[data-planets="system"] button', { hasText: 'Plan it' }).click().catch(() => problems.push('no Plan it'));
+      await page.waitForSelector(`[data-planets="planet:${FXP.ualx.planets[0].planet_id}"]`, { timeout: 20_000 }).catch(() => problems.push('UALX-3’s planets never listed'));
+      await section('Chart');
+      await page.waitForSelector('[data-planets="chart"]', { timeout: 20_000 }).catch(() => undefined);
+      await page.waitForFunction(() => document.querySelectorAll('[data-planets="chart"] [aria-disabled="true"]').length > 0, null, { timeout: 15_000 }).catch(() => undefined);
+      const grey = await disabledGoods();
+      for (const id of [FELSIC, NONCS, HEAVY, PLANKTIC, BROADCAST]) if (!grey.includes(id)) problems.push(`at UALX-3, ${byId.get(id)?.name ?? id} isn't greyed`);
+      for (const id of [BACTERIA, REACTIVE, NANITES]) if (grey.includes(id)) problems.push(`at UALX-3, ${byId.get(id)?.name ?? id} is greyed though its P0s are there`);
+      if (grey.length !== 40) problems.push(`at UALX-3, ${grey.length} goods are greyed, not the 40 that need a missing P0`);
+      const felsicTip = await page.locator(good(FELSIC)).getAttribute('data-tip').catch(() => '');
+      if (!/Lava/.test(felsicTip ?? '') || !/UALX-3/.test(felsicTip ?? '')) problems.push(`Felsic Magma's greying doesn't say which planet types give it: “${felsicTip}”`);
+      await page.locator(good(BROADCAST)).click().catch((e) => problems.push(`couldn't pick Broadcast Node: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(400);
+      const missing = await text('[data-planets="tree"] [data-planets="missing"]');
+      for (const n of ['Felsic Magma', 'Non-CS Crystals', 'Planktic Colonies']) if (!missing.includes(n)) problems.push(`Broadcast Node's missing parts at UALX-3 don't name ${n}: “${missing}”`);
+      if (/Heavy Metals/.test(missing)) problems.push(`Broadcast Node's missing parts name Heavy Metals, which it doesn't need: “${missing}”`);
+      if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (the chart at UALX-3): ${o}`);
+    }
+
+    // --- Colonies (Task 12): with no read in memory, the kept document's colony; its extractor's program total both ways
+    // (789,314 by CCP's formula, 661,675 as 6,965 × 95 cycles), not yet checked against the game.
+    await section('Colonies');
+    const colonied = await page.waitForSelector('[data-planets="colonies"]', { timeout: 10_000 }).then(() => true, () => (problems.push('Colonies never drew'), false));
+    if (colonied) {
+      const col = await text('[data-planets="colonies"]');
+      if (!/5-NZNW/.test(col)) problems.push(`Colonies doesn't show the kept colony in 5-NZNW: “${col.slice(0, 300)}”`);
+      if (!/kept/i.test(col)) problems.push(`Colonies doesn't say the colonies shown were kept: “${col.slice(0, 300)}”`);
+      if (/\b0 ISK\b|NaN/.test(col)) problems.push('the kept colonies show a 0 or NaN where no price was read');
+      await page.locator('[data-planets="colonies"] .expander').first().click().catch((e) => problems.push(`couldn't open the kept colony: ${e.message.split('\n')[0]}`));
+      await page.waitForTimeout(300);
+      for (const pin of [1001, 1002]) {
+        const prog = await text(`[data-planets="program:${pin}"]`);
+        if (!prog.includes('789,314') || !prog.includes('661,675')) problems.push(`extractor ${pin}'s program doesn't give both totals: “${prog}”`);
+        if (!prog.includes('not yet checked against the game’s total')) problems.push(`extractor ${pin}'s program doesn't say it isn't checked: “${prog}”`);
+      }
+      if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (the kept colonies): ${o}`);
+    }
     }
 
     const boundary = await page.locator('.notice.err[role="alert"]', { hasText: 'This page hit an error' }).count();
@@ -3802,7 +3913,7 @@ try {
     checked++;
     const unique = [...new Set(problems)];
     if (unique.length) failures.push({ ledger: 'planets', page: 'hustles/planets', problems: unique });
-    process.stdout.write(unique.length ? `  FAIL planets #hustles/planets\n${unique.map((x) => `       ${x}`).join('\n')}\n` : `  ok   planets #hustles/planets (5-NZNW planned for the main, an Alpha and an unread alt; ${esiAsked} ESI reads, ${located} of the location)\n`);
+    process.stdout.write(unique.length ? `  FAIL planets #hustles/planets\n${unique.map((x) => `       ${x}`).join('\n')}\n` : `  ok   planets #hustles/planets (5-NZNW planned for the main, an Alpha and an unread alt; the chart at 5-NZNW and UALX-3; the kept colony; ${esiAsked} ESI reads, ${located} of the location)\n`);
     await page.close();
   }
   // An alt's broker fee on the Research tab comes from its read standings (altFees.ts), not altLedger's zeros: Fee Alt (Broker
