@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { homeAgo } from '../../lib/homeMarket';
 import { units } from '../../lib/format';
 import { useNow } from '../../lib/hooks';
-import { fillCost, HOME_DEPTH, legCost, NO_ROUTE_WHY, othersBook, sellAt, type Freight, type Leg, type Market, type Sale } from '../../lib/industryRank';
+import { HOME_DEPTH, legCost, NO_ROUTE_WHY, othersBook, sellAt, type Freight, type Leg, type Market, type Sale } from '../../lib/industryRank';
 import { JITA_SYSTEM, legFor } from '../../lib/industrySites';
 import { watchedFlow } from '../../lib/flowStore';
 import type { Buy, PlanPlanet, Sell, Sold } from '../../lib/piPlan';
-import { jitaSupply, soldOf } from '../../lib/piPlan';
+import { boughtOf, jitaSteps, soldOf, type BuyPlace } from '../../lib/piPlan';
 import { decodeRadii, planetTypeOf, type PiIndex } from '../../lib/piBundle';
 import { customsRate, type Tax } from '../../lib/planetsDoc';
 import { reloadApp } from '../../lib/reload';
@@ -117,64 +117,61 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       if (best) return { isk: best.v, where: best.p, why: null };
       return { isk: null, where: null, why: [...new Set(nets.map((x) => x.why).filter((w): w is string => !!w))].join('; ') || 'no price read' };
     };
-    // What a unit costs to buy for `perDay` a day, and the most a day each place supplies (`jitaMax`, `homeMax`: never depending on the
-    // amount). Jita (Ruling T11-3): a week's need bought up others' listings, held to your share of its day in The Forge (`jitaSupply`),
-    // plus freight in on the hub's route, the minimum spread over a week of the market's pace at your share. The hub: its own read's
-    // levels walked for a week's need (`fillCost`, at most what they hold), or Goonmetrics' best sell where it moves HOME_DEPTH times
-    // that need. A unit's cost only rises with the amount at either.
-    type Unit = { jita: number | null; jitaWhy: string | null; jitaMax: number | null; jitaMaxSaid: string | null; home: number | null; homeWhy: string | null; homeMax: number | null; homeMaxSaid: string | null };
-    const buyUnit = (t: number, perDay: number): Unit => {
+    // Each place's offer for a good, as steps cheapest first up to its max (Ruling T11-7), never depending on the amount. Jita
+    // (Ruling T11-3): others' listings, a week's need bought up them, held to your share of its day in The Forge (`jitaSteps`), each
+    // level with its own freight in on the hub's route (the route's minimum spread over a week at your share), so a unit's cost only
+    // rises up the book. The hub: its own read's levels, a week's need up them; or Goonmetrics' best sell, up to a tenth of its
+    // weekly movement (HOME_DEPTH). `buy` then fills across the places allowed cheapest first (`boughtOf`), as `soldOf` sells.
+    const placesOf = new Map<number, { jita: BuyPlace; home: BuyPlace }>();
+    const offerOf = (t: number) => {
+      let o = placesOf.get(t);
+      if (o) return o;
       const s = salesOf(t);
-      const need = 7 * perDay;
-      let jitaP: number | null = null, jitaWhy: string | null = null, jitaMax: number | null = null, jitaMaxSaid: string | null = null;
+      const jita: BuyPlace = { place: 'jita', at: 'Jita', steps: [], maxSaid: null, why: null };
       const ask = s.m.jita?.ask ?? null;
       const pace = s.jita.pace;
-      if (!hub) jitaWhy = noHub ?? NO_HUB_WHY;
-      else if (!s.m.jita) jitaWhy = 'No Jita book this morning';
-      else if (ask == null) jitaWhy = 'none listed in Jita';
-      else if (jitaLeg.kind === 'none') jitaWhy = NO_ROUTE_WHY;
+      if (!hub) jita.why = noHub ?? NO_HUB_WHY;
+      else if (!s.m.jita) jita.why = 'No Jita book this morning';
+      else if (ask == null) jita.why = 'none listed in Jita';
+      else if (jitaLeg.kind === 'none') jita.why = NO_ROUTE_WHY;
       // Buying is held to your share of the day, so a day not known can't be bought on, never bought without a cap.
-      else if (pace == null) jitaWhy = s.jita.why ?? 'No history this morning to say how much trades in Jita';
-      else if (!(pace > 0)) jitaWhy = nothingTradedWhy(jitaLeg.kind === 'route' ? jitaLeg.f : null);
+      else if (pace == null) jita.why = s.jita.why ?? 'No history this morning to say how much trades in Jita';
+      else if (!(pace > 0)) jita.why = nothingTradedWhy(jitaLeg.kind === 'route' ? jitaLeg.f : null);
       else {
-        const sup = jitaSupply(s.m.jita.asks ?? [{ price: ask, volume: Infinity }], pace, share, perDay);
-        jitaMax = sup.max; jitaMaxSaid = sup.maxSaid;
-        if (sup.avg == null) jitaWhy = sup.why;
-        else {
-          const f = legCost(jitaLeg, volume(t), sup.avg, 7 * ((pace * share) / 100));
-          if (f == null) jitaWhy = NO_ROUTE_WHY; else jitaP = sup.avg + f;
-        }
+        const off = jitaSteps(s.m.jita.asks ?? [{ price: ask, volume: Infinity }], pace, share);
+        const week = 7 * ((pace * share) / 100);
+        const steps = off.steps.map((x) => ({ units: x.units, unit: x.unit + (legCost(jitaLeg, volume(t), x.unit, week) ?? NaN) }));
+        if (steps.some((x) => !Number.isFinite(x.unit))) jita.why = NO_ROUTE_WHY;
+        else { jita.steps = steps; jita.maxSaid = off.maxSaid; if (!(off.max > 0)) jita.why = `Jita supplies none: ${off.maxSaid}`; }
       }
-      let homeP: number | null = null, homeWhy: string | null = null, homeMax: number | null = null, homeMaxSaid: string | null = null;
+      const home: BuyPlace = { place: 'home', at: hub?.short ?? 'the hub', steps: [], maxSaid: null, why: null };
       const q = s.m.home;
-      if (!hub) homeWhy = noHub ?? NO_HUB_WHY;
-      else if (!q || q.sell == null) homeWhy = s.home.why ?? `No price at ${hub.short}`;
+      if (!hub) home.why = noHub ?? NO_HUB_WHY;
+      else if (!q || q.sell == null) home.why = s.home.why ?? `No price at ${hub.short}`;
       else if (q.source === 'structure') {
         const levels = q.sells ?? [];
         const listed = levels.reduce((n, l) => n + l.volume, 0);
-        homeMax = listed / 7; homeMaxSaid = `what its best listings hold for a week (${units(listed)} listed)`;
-        const avg = perDay <= homeMax * (1 + 1e-9) ? fillCost(levels, Math.min(need, listed)) : null;
-        if (avg == null) homeWhy = `too thin to buy a week’s need at ${hub.short}`; else homeP = avg;
-      } else if (q.weekly == null) homeWhy = `${hub.short}’s weekly movement isn’t known, so its depth can’t be judged`;
+        home.steps = levels.map((l) => ({ units: l.volume / 7, unit: l.price }));
+        home.maxSaid = `what its best listings hold for a week (${units(listed)} listed)`;
+        if (!(listed > 0)) home.why = `too thin to buy a week’s need at ${hub.short}`;
+      } else if (q.weekly == null) home.why = `${hub.short}’s weekly movement isn’t known, so its depth can’t be judged`;
       else {
-        homeMax = q.weekly / (7 * HOME_DEPTH); homeMaxSaid = `a tenth of its weekly movement, ${units(q.weekly)} a week`;
-        if (q.weekly < HOME_DEPTH * need * (1 - 1e-9)) homeWhy = `too thin to buy a week’s need at ${hub.short}`;
-        else homeP = q.sell;
+        home.steps = [{ units: q.weekly / (7 * HOME_DEPTH), unit: q.sell }];
+        home.maxSaid = `a tenth of its weekly movement, ${units(q.weekly)} a week`;
+        if (!(q.weekly > 0)) home.why = `too thin to buy a week’s need at ${hub.short}`;
       }
-      return { jita: jitaP, jitaWhy, jitaMax, jitaMaxSaid, home: homeP, homeWhy, homeMax, homeMaxSaid };
+      o = { jita, home };
+      placesOf.set(t, o);
+      return o;
     };
     const buy: Buy = (t, perDay) => {
-      const u = buyUnit(t, perDay);
-      const places = (['home', 'jita'] as const).filter((p) => where === 'best' || where === p);
-      // The most a day: the larger place's, which takes it whole (an amount isn't split between places).
-      const caps = places.map((p) => ({ max: p === 'jita' ? u.jitaMax : u.homeMax, at: p === 'jita' ? 'Jita' : hub?.short ?? 'the hub', said: p === 'jita' ? u.jitaMaxSaid : u.homeMaxSaid }))
-        .filter((c): c is { max: number; at: string; said: string } => c.max != null).sort((a, b) => b.max - a.max);
-      const max = caps.length ? caps[0].max : null, maxAt = caps.length ? caps[0].at : null, maxSaid = caps.length ? caps[0].said : null;
-      const opts = places.map((p) => ({ p, v: u[p] })).filter((x): x is { p: 'home' | 'jita'; v: number } => x.v != null).sort((a, b) => a.v - b.v);
-      // Bought at Jita because the hub couldn't take it (too thin for a week's need, its depth not known): the hub's reason is kept, so the page can say why.
-      if (opts.length) return { isk: opts[0].v * perDay, where: opts[0].p, why: null, note: where === 'best' && opts[0].p === 'jita' && u.home == null && hub ? u.homeWhy : null, max, maxAt, maxSaid };
-      const why = [...new Set(places.map((p) => u[p === 'jita' ? 'jitaWhy' : 'homeWhy']).filter((w): w is string => !!w))].join('; ');
-      return { isk: null, where: null, why: why || 'no price read', max, maxAt, maxSaid };
+      const o = offerOf(t);
+      const places = (['home', 'jita'] as const).filter((p) => where === 'best' || where === p).map((p) => o[p]);
+      const b = boughtOf(perDay, places);
+      // Bought at Jita alone because the hub supplies none of it (no price there, its depth not known): the hub's reason is kept,
+      // so the page can say why. A hub that's only dearer has nothing to say.
+      const homeNone = !o.home.steps.some((x) => x.units > 0);
+      return b.isk != null && where === 'best' && hub && homeNone && b.where?.length === 1 && b.where[0] === 'jita' ? { ...b, note: o.home.why } : b;
     };
     return { sell, buy, unit };
   }, [doc.share, doc.hubFees, doc.sell, hub, noHub, jitaLeg, cache, liveBooks, homeHist, home, c, ix]);

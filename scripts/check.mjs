@@ -7703,7 +7703,7 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   eq('  feeds one factory planet', feed.roles.filter((r) => r.does === 'factory').length, 1);
   eq('  imports pay half the tax', feed.taxDay > 0 && feed.roles.some((r) => r.does === 'factory'), true);
   // Every P1 bought at 100 ISK a unit (Bought.isk is the cost a day of perDay units).
-  const bought = planBought({ ...input, buy: (id, perDay) => ({ isk: perDay * 100, where: 'jita', why: null }) });
+  const bought = planBought({ ...input, buy: (id, perDay) => ({ isk: perDay * 100, where: ['jita'], why: null }) });
   // A (Barren, 2%): 22 Advanced → 2,640 Nanites a day = 26,400,000; inputs 42,240 P1 = 4,224,000; import 42,240 × 400 × 2% × ½ = 168,960;
   //   export 2,640 × 7,200 × 2% = 380,160 → 21,626,880.
   // B (Gas, 5%): 21 Advanced → 2,520 = 25,200,000; inputs 40,320 = 4,032,000; import 403,200; export 907,200 → 19,857,600.
@@ -7813,23 +7813,23 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   eq('  bought: no resets, restocks from the launchpad on what comes in and what goes out', [bought.upkeep.resetsPerWeek, +bought.upkeep.restocksPerWeek.toFixed(6)], [0, +(((42_240 + 40_320) * 0.19 + (2640 + 2520) * 0.75) * 7 / 10_000).toFixed(6)]);
   eq('  bought: the m³ brought in a week, all of it from Jita; no route given, no contracts', [bought.upkeep.inM3PerWeek, bought.upkeep.jitaInM3PerWeek, bought.upkeep.contractsInPerWeek], [82_560 * 0.19 * 7, 82_560 * 0.19 * 7, null]);
   {
-    const routed = planBought({ ...input, buy: (id, perDay) => ({ isk: perDay * 100, where: 'jita', why: null }), freight: { perM3: 900, collateral: 0, min: 5_000_000 } });
+    const routed = planBought({ ...input, buy: (id, perDay) => ({ isk: perDay * 100, where: ['jita'], why: null }), freight: { perM3: 900, collateral: 0, min: 5_000_000 } });
     eq('  bought on Brave’s route: a contract each way at the least (each week’s m³ is over the 5,556 m³ batch)', [routed.upkeep.contractsPerWeek, routed.upkeep.contractsInPerWeek], [1, 1]);
-    const home = planBought({ ...input, buy: (id, perDay) => ({ isk: perDay * 100, where: 'home', why: null }), freight: { perM3: 900, collateral: 0, min: 5_000_000 } });
+    const home = planBought({ ...input, buy: (id, perDay) => ({ isk: perDay * 100, where: ['home'], why: null }), freight: { perM3: 900, collateral: 0, min: 5_000_000 } });
     eq('  bought at the home hub: brought in, none of it from Jita, no contract in', [home.upkeep.inM3PerWeek, home.upkeep.jitaInM3PerWeek, home.upkeep.contractsInPerWeek], [82_560 * 0.19 * 7, 0, 0]);
   }
   eq('  bought: one character, nothing lacking', bought.perChar, [{ charId: 1, iskDay: 41_484_480, lacks: [] }]);
   eq('  bought: the Shattered planet says why', role(bought, C).why, 'No planetary industry on this kind of planet');
   // Nanites capped at 300 a day: the 2% planet makes the uncapped 3,000 P2 at full (2,640 × (3,000 − 1,600 − 64 − 144)) and the 5%
   // one the 300 Nanites (300 × (10,000 − 1,600 − 160 − 360)), on 3 of its 21 Advanced; the other way round pays 5,364,480 less.
-  const cappedB = planBought({ ...input, sell: sellBy(unitOf, (id) => (id === NANITES ? 300 : Infinity)), buy: (id, perDay) => ({ isk: perDay * 100, where: 'jita', why: null }) });
+  const cappedB = planBought({ ...input, sell: sellBy(unitOf, (id) => (id === NANITES ? 300 : Infinity)), buy: (id, perDay) => ({ isk: perDay * 100, where: ['jita'], why: null }) });
   eq('  bought under a cap: the low-tax planet makes the uncapped good, the factories run for what sells',
     [cappedB.iskDay, role(cappedB, B).makes.map((m) => [m.id, m.perDay, m.count]), role(cappedB, A).makes[0].id !== NANITES], [3_146_880 + 2_364_000, [[NANITES, 300, 3]], true]);
   const unpricedBuy = planBought(input);
   eq('  bought with no input priced: no figure, said', [unpricedBuy.iskDay, unpricedBuy.why], [null, 'No input is priced to buy: Not bought here']);
   // A hub that prices a few units but not a factory planet's week (Task 10's re-review): every input priced at one unit, none at
   // what 21 Advanced take. Its reason is the setup's, never "nothing pays more than its inputs cost", which would be false.
-  const thinHub = planBought({ ...input, buy: (id, perDay) => (perDay <= 10 ? { isk: perDay * 100, where: 'home', why: null } : { isk: null, where: null, why: 'too thin to buy a week’s need at UALX-3' }) });
+  const thinHub = planBought({ ...input, buy: (id, perDay) => (perDay <= 10 ? { isk: perDay * 100, where: ['home'], why: null } : { isk: null, where: null, why: 'too thin to buy a week’s need at UALX-3' }) });
   eq('  bought from a hub too thin for a week: its reason, not "nothing pays"', [thinHub.iskDay, thinHub.why], [null, 'No input can be bought in the amount its factories need: too thin to buy a week’s need at UALX-3']);
   // Ruling T11-3: what the market supplies of an input a day (`Bought.max`) sizes a setup down, never blocks it. Bacteria held to
   // 10,000 a day: B (5%) makes 1,250 Nanites on 11 of its 21 Advanced (1,250 × (10,000 − 1,600 − 160 − 360)) and A (2%) a P2 that
@@ -7840,7 +7840,7 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     const capOf = (id) => (id === BACTERIA ? 10_000 : null);
     const capBuy = (id, perDay) => {
       const at = { max: capOf(id), maxAt: 'Jita', maxSaid: 'your 10% share of the 100,000 traded a day in The Forge' };
-      return capOf(id) != null && perDay > capOf(id) ? { isk: null, where: null, why: 'Jita supplies about 10,000 a day', ...at } : { isk: perDay * 100, where: 'jita', why: null, ...at };
+      return capOf(id) != null && perDay > capOf(id) ? { isk: null, where: null, why: 'Jita supplies about 10,000 a day', ...at } : { isk: perDay * 100, where: ['jita'], why: null, ...at };
     };
     const capped = planBought({ ...input, buy: capBuy });
     eq('  bought with an input held to what Jita supplies: sized down to it, not blocked',
@@ -7849,7 +7849,7 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     // Bacteria held to 2 a day on B alone: a quarter of a Nanite a day, said as 0.3, never "enough for 0 Nanites".
     const tiny = planBought({ ...input, planets: [planets[1]], char: { ...char, planets: 1 }, sell: sellBy((id) => (id === NANITES ? 10_000 : null)),
       buy: (id, perDay) => { const at = { max: id === BACTERIA ? 2 : null, maxAt: 'Jita', maxSaid: 'your 10% share of the 20 traded a day in The Forge' };
-        return id === BACTERIA && perDay > 2 ? { isk: null, where: null, why: 'past', ...at } : { isk: perDay * 100, where: 'jita', why: null, ...at }; } });
+        return id === BACTERIA && perDay > 2 ? { isk: null, where: null, why: 'past', ...at } : { isk: perDay * 100, where: ['jita'], why: null, ...at }; } });
     eq('  a planet held to under one a day says so with its decimal', role(tiny, B).why,
       'Jita supplies about 2 Bacteria a day: your 10% share of the 20 traded a day in The Forge. That is enough for 0.3 Nanites a day here, so 1 of the 21 factories that fit run');
     eq('  … and the planet’s line says what held it', role(capped, B).why,
@@ -7864,7 +7864,7 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
       if (id === NANITES) { const a = Math.min(perDay, 1000); return { isk: a * 10_000 + (perDay - a) * 1500, units: perDay, where: ['jita'], why: null }; }
       return sellBy(unitOf)(id, perDay);
     };
-    const pays = planBought({ ...input, sell: stepped, buy: (id, perDay) => ({ isk: perDay * 100, where: 'jita', why: null }) });
+    const pays = planBought({ ...input, sell: stepped, buy: (id, perDay) => ({ isk: perDay * 100, where: ['jita'], why: null }) });
     eq('  bought: a planet runs only while its last unit pays', [+pays.iskDay.toFixed(2), role(pays, B).makes.map((m) => [m.id, +m.perDay.toFixed(6), m.count])], [7_880_000 + 3_146_880, [[NANITES, 1000, 9]]]);
     eq('  … and its line says so', role(pays, B).why, '9 of the 21 factories that fit run, for 1,000 Nanites a day: past that, a unit costs more to make than it sells for');
     const { lastPaying } = await import('../src/lib/piPlan.ts');
@@ -7888,20 +7888,34 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     eq('  … a unit never costs less as the amount grows (Buy’s contract)', sweep.every((c, i) => c != null && (i === 0 || c >= sweep[i - 1] - 1e-9)), true);
     // N2: a supply under one a day is said as a pace is, never rounded to a whole number: a known 0.3 isn't "about 0", and a refusal
     // at one unit isn't "about 1 a day".
+    // Ruling T11-7: under Either an input is bought across both places cheapest first, each to its own max, as soldOf sells. The hub
+    // at 300 to 4,000 a day, Jita at 700 to 100,000: 5,000 a day is the hub's 4,000 and 1,000 from Jita, never all 5,000 at Jita
+    // (3.5 M), so the total cost stays convex.
+    const { boughtOf } = await import('../src/lib/piPlan.ts');
+    const hubPlace = { place: 'home', at: 'UALX-3', steps: [{ units: 4000, unit: 300 }], maxSaid: 'a tenth of its weekly movement, 280,000 a week', why: null };
+    const jitaPlace = { place: 'jita', at: 'Jita', steps: [{ units: 100_000, unit: 700 }], maxSaid: 'your 10% share of the 1,000,000 traded a day in The Forge', why: null };
+    eq('  Either: across both places cheapest first, each to its own max', (({ isk, where, jitaUnits, max, maxAt }) => ({ isk, where, jitaUnits, max, maxAt }))(boughtOf(5000, [hubPlace, jitaPlace])),
+      { isk: 4000 * 300 + 1000 * 700, where: ['home', 'jita'], jitaUnits: 1000, max: 104_000, maxAt: 'UALX-3 and Jita' });
+    const costs = Array.from({ length: 60 }, (_, i) => boughtOf(100 * (i + 1), [jitaPlace, hubPlace]).isk);
+    eq('  … the total is convex: a unit’s marginal cost never falls', costs.every((c, i) => i < 2 || c - costs[i - 1] >= costs[i - 1] - costs[i - 2] - 1e-6), true);
+    eq('  … past both places’ max together: no price, what both supply said', boughtOf(200_000, [hubPlace, jitaPlace]).why,
+      'UALX-3 and Jita supply about 104,000 a day: a tenth of its weekly movement, 280,000 a week at UALX-3; your 10% share of the 1,000,000 traded a day in The Forge at Jita');
+    eq('  … Jita alone: Jita’s own, all of it there', (({ isk, where, jitaUnits }) => ({ isk, where, jitaUnits }))(boughtOf(5000, [jitaPlace])), { isk: 3_500_000, where: ['jita'], jitaUnits: 5000 });
+    eq('  … a place with nothing to offer gives its reason', boughtOf(10, [{ place: 'home', at: 'UALX-3', steps: [], maxSaid: null, why: 'No price at UALX-3' }]).why, 'No price at UALX-3');
     eq('  … a supply under one a day keeps its decimal', [jitaSupply(deep, 3, 10, 1).why, jitaSupply(deep, 7, 10, 1).why, jitaSupply(deep, 0.5, 10, 1).why],
       ['Jita supplies about 0.3 a day: your 10% share of the 3 traded a day in The Forge', 'Jita supplies about 0.7 a day: your 10% share of the 7 traded a day in The Forge',
         'Jita supplies under 0.1 a day: your 10% share of the 0.5 traded a day in The Forge']);
   }
   // A's tax not known: ranked before it (26,400,000 − 4,224,000 there, B as before), each 1% priced on A's bases: the import
   // at half (42,240 × 400 × ½) and the export (2,640 × 7,200).
-  const blindB = planBought({ ...input, planets: planets.map((p) => (p.planetId === A ? { ...p, tax: { rate: null, from: 'none', npc: 0, interbus: false } } : p)), buy: (id, perDay) => ({ isk: perDay * 100, where: 'jita', why: null }) });
+  const blindB = planBought({ ...input, planets: planets.map((p) => (p.planetId === A ? { ...p, tax: { rate: null, from: 'none', npc: 0, interbus: false } } : p)), buy: (id, perDay) => ({ isk: perDay * 100, where: ['jita'], why: null }) });
   eq('  bought with a planet whose tax isn’t known: ranked before it, each 1% priced', [blindB.iskDay, blindB.taxDay, blindB.perPct, blindB.before, blindB.taxes.filter((t) => t.planetId === A).map((t) => t.perDay)],
     [22_176_000 + 19_857_600, null, (42_240 * 400 * 0.5 + 2640 * 7200) / 100, ['tax'], [null, null]]);
-  const tight = planBought({ ...input, buy: (id, perDay) => ({ isk: perDay * 100, where: 'jita', why: null }), budget: 1 });
+  const tight = planBought({ ...input, buy: (id, perDay) => ({ isk: perDay * 100, where: ['jita'], why: null }), budget: 1 });
   eq('  bought past its budget: the best it tried, marked cut', [tight.iskDay > 0, tight.cut], [true, true]);
   // P4 on big, buying every input at big's prices: 15 High-Tech on each 2% Barren or Temperate planet, 360 Broadcast Nodes a day,
   // 6,480 P3 bought (259.2 M); import 6,480 × 60,000 × 2% × ½; export 360 × 1,200,000 × 2%: 268,272,000 a planet, five of them.
-  const boughtBig = planBought({ ...big, buy: (id, perDay) => ({ isk: perDay * bigPrice(id), where: 'jita', why: null }) });
+  const boughtBig = planBought({ ...big, buy: (id, perDay) => ({ isk: perDay * bigPrice(id), where: ['jita'], why: null }) });
   const p4Roles = boughtBig.roles.filter((r) => r.makes.some((m) => ix.byId.get(m.id).tier === 'P4'));
   eq('  P4 only on Barren or Temperate', [p4Roles.length, p4Roles.every((r) => ['Barren', 'Temperate'].includes(typeAt(r.planetId)))], [5, true]);
   eq('  P4 bought: 15 High-Tech each, 268,272,000 a planet', [p4Roles.map((r) => r.makes[0].count), boughtBig.iskDay], [[15, 15, 15, 15, 15], 5 * 268_272_000]);
@@ -7999,7 +8013,7 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   const outFeed = planFeed({ ...big, budget: 1 }), outChain = planChain({ ...big, budget: 1 }), outFit = planFeed({ ...input, rateOf: () => rate({ perHour: 400_000 }), char: { ...char, ccLevel: 5 }, budget: 1 });
   eq('  a budget that runs out with nothing found: said, cut', [outFeed.why, outFeed.cut, outChain.why, outChain.cut, outFit.why, outFit.cut], [RAN_OUT, true, RAN_OUT, true, RAN_OUT, true]);
   // Bought counts assignments valued, and with none allowed it values none.
-  const outBought = planBought({ ...input, buy: (id, perDay) => ({ isk: perDay * 100, where: 'jita', why: null }), budget: 0 });
+  const outBought = planBought({ ...input, buy: (id, perDay) => ({ isk: perDay * 100, where: ['jita'], why: null }), budget: 0 });
   eq('  bought with no budget: said, cut', [outBought.why, outBought.cut], [RAN_OUT, true]);
   // At 30,000 an hour two Barren planets feed 1,200 Nanites a day: 10 Advanced on the Gas planet, where CCU I fits 5. The
   // factory says so and the character lacks II (14 fit). 12,000,000 − 2 × 9,600 × 400 × 2% − 19,200 × 400 × 5% × ½ − 1,200 × 7,200 × 5%.

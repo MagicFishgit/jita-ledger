@@ -11,8 +11,8 @@ import { PI_LINKS, setupSteps, type PlanetType } from '../../lib/pi';
 import type { Facility, PiIndex } from '../../lib/piBundle';
 import { learnedRates, PI_READING, rateFor, type Learned } from '../../lib/piLearn';
 import {
-  ALPHA_NO_PI, charWhy, customsLevel, planBought, planChain, planCharOf, planFeed, planSingle, rankSetups, RAN_OUT,
-  type PlanChar, type PlanInput, type Role, type Setup, type SetupKind,
+  ALPHA_NO_PI, boughtAtJita, charWhy, customsLevel, planBought, planChain, planCharOf, planFeed, planSingle, rankSetups, RAN_OUT,
+  type Bought, type PlanChar, type PlanInput, type Role, type Setup, type SetupKind,
 } from '../../lib/piPlan';
 import { BRAVE_TAX_SOURCE, customsRate, sanitizePlanets, type SystemPrefs, type Tax, type TypedRate } from '../../lib/planetsDoc';
 import { update, useData } from '../../lib/store';
@@ -596,8 +596,8 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
                 // At what the market supplies a day (Ruling T11-3): said, so a figure held there reads as the market's limit, not the factories'.
                 const atMax = i.bought.max != null && i.perDay >= i.bought.max * (1 - 1e-6);
                 return (
-                  <span key={i.id} className="pl-line" data-planets={atMax ? 'at-max' : undefined}>{aDay(i.perDay)} {name(i.id)} a day{i.bought.isk == null ? `: can’t be bought (${clause(i.bought.why ?? 'no price')})` : `, ${iskBig(i.bought.isk)} a day at ${i.bought.where === 'home' ? 'the home hub' : 'Jita'}${i.bought.note ? ` (${clause(i.bought.note)})` : ''}`}
-                    {atMax && <span className="sub pl-why">All {i.bought.maxAt ?? 'the market'} supplies{i.bought.maxSaid ? `: ${i.bought.maxSaid}` : ''}.</span>}
+                  <span key={i.id} className="pl-line" data-planets={atMax ? 'at-max' : undefined}>{aDay(i.perDay)} {name(i.id)} a day{i.bought.isk == null ? `: can’t be bought (${clause(i.bought.why ?? 'no price')})` : `, ${iskBig(i.bought.isk)} a day at ${boughtWhere(i.bought, i.perDay)}${i.bought.note ? ` (${clause(i.bought.note)})` : ''}`}
+                    {atMax && <span className="sub pl-why">All {i.bought.maxAt ?? 'the market'} {(i.bought.maxAt ?? '').includes(' and ') ? 'supply' : 'supplies'}{i.bought.maxSaid ? `: ${i.bought.maxSaid}` : ''}.</span>}
                   </span>
                 );
               })}
@@ -680,6 +680,13 @@ function RoleLine({ r, s, planet, pname, name, whose, untaxed }: {
       </div>
     </div>
   );
+}
+
+/** Where an input is bought (Ruling T11-7): the home hub, Jita, or both, with how many at Jita when it's both. */
+function boughtWhere(b: Bought, perDay: number): string {
+  const w = b.where ?? [];
+  if (w.length === 2) { const j = boughtAtJita(b, perDay); return `the home hub and Jita (${aDay(perDay - j)} at the home hub, ${aDay(j)} at Jita)`; }
+  return w[0] === 'home' ? 'the home hub' : 'Jita';
 }
 
 /** Weeks between, said: "1.2 weeks", "56 weeks", "2.1 years". */

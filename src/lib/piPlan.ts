@@ -72,19 +72,63 @@ export function soldOf(perDay: number, sales: { jita: Sale | null; home: Sale | 
   return { isk, units, where: [...where], why: null, jitaUnits: jita };
 }
 /**
- * What `perDay` units cost a day to buy, and where; null with `why` when not known. `note`: why it's bought where it is when the
- * better place couldn't take it (the home hub too thin for a week's need, so it's bought at Jita), for the page to say.
- * `max`: the most a day the places allowed supply (Jita's at your share of its pace, up the listings for a week; a hub's up its
- * depth), the same whatever the amount asked; past it `isk` is null and `why` says what they supply. Absent or null: no cap
+ * What `perDay` units cost a day to buy, and where: every place some are bought at, the home hub first, as `Sold.where` says where
+ * it sells (Ruling T11-7: under Either an amount is bought across both places), with `jitaUnits` the ones bought at Jita (absent:
+ * all of them when Jita is the only place, else none); null with `why` when not known. `note`: why it's bought at Jita when the
+ * hub supplies none (no price there, its depth not known), for the page to say.
+ * `max`: the most a day the places allowed supply together (Jita's at your share of its pace, up the listings for a week; a hub's
+ * up its depth), the same whatever the amount asked; past it `isk` is null and `why` says what they supply. Absent or null: no cap
  * known, and an amount refused is refused outright. `maxAt` and `maxSaid`: where that is and what holds it there, for the page
- * ("Jita", "your 10% share of the 5,773 traded a day in The Forge").
+ * ("Jita", "your 10% share of the 5,773 traded a day in The Forge"; two places named together under Either).
  */
-export type Bought = { isk: number | null; where: 'jita' | 'home' | null; why: string | null; note?: string | null; max?: number | null; maxAt?: string | null; maxSaid?: string | null };
+export type Bought = { isk: number | null; where: ('jita' | 'home')[] | null; why: string | null; note?: string | null; jitaUnits?: number; max?: number | null; maxAt?: string | null; maxSaid?: string | null };
 /**
- * The same contract as `Sell`, the other way: a unit's cost never falls as the amount grows, and there's no fixed charge a
- * call, so what a planet's factories buy alone is never more than their share of buying with others.
+ * The same contract as `Sell`, the other way (Ruling T11-7): a unit's marginal cost never falls as the amount grows, so the total
+ * cost is convex, and there's no fixed charge a call. So what a planet's factories buy alone is never more than their share of
+ * buying with others, and a planet's value in its own amount is concave, which `lastPaying` rests on. A cheaper place that runs
+ * out must hand over only the units past it, never the whole amount (`boughtOf`): handing over the whole amount makes the total
+ * jump, and the planner misses the amount that pays most.
  */
 export type Buy = (typeId: number, perDay: number) => Bought;
+/** Units a day at a cost a unit: a place's offer, cheapest first. */
+export type BuyStep = { units: number; unit: number };
+/** One place's offer for a good: its steps up to its `max` (none, with `why`, when it can't be bought there), and what holds it. */
+export type BuyPlace = { place: 'jita' | 'home'; at: string; steps: BuyStep[]; maxSaid: string | null; why: string | null };
+const suppliesSaid = (at: string) => (at.includes(' and ') ? `${at} supply` : `${at} supplies`);
+/**
+ * What `perDay` units cost bought across the places given (Ruling T11-7): every place's steps taken cheapest first, each to its own
+ * max, as `soldOf` sells (a tie goes to the hub), so a cheaper place that runs out hands over only the units past it and the total
+ * stays convex. Past every place's max together it isn't priced, and says what they supply. Pure.
+ */
+export function boughtOf(perDay: number, places: BuyPlace[]): Bought {
+  const offered = places.filter((p) => p.steps.some((s) => s.units > 0)).sort((a, b) => (a.place === b.place ? 0 : a.place === 'home' ? -1 : 1));
+  const steps = offered.flatMap((p) => p.steps.filter((s) => s.units > 0).map((s) => ({ ...s, place: p.place })))
+    .sort((a, b) => a.unit - b.unit || (a.place === b.place ? 0 : a.place === 'home' ? -1 : 1));
+  const total = steps.reduce((n, s) => n + s.units, 0);
+  const max = offered.length ? total : null;
+  const maxAt = offered.length ? offered.map((p) => p.at).join(' and ') : null;
+  const maxSaid = !offered.length ? null : offered.length === 1 ? offered[0].maxSaid : offered.map((p) => `${p.maxSaid ?? 'what it lists'} at ${p.at}`).join('; ');
+  const cap = { max, maxAt, maxSaid };
+  if (!offered.length || perDay > total * (1 + 1e-9)) {
+    const why = [
+      ...(offered.length ? [`${suppliesSaid(maxAt!)} ${perDaySaid(total)}${maxSaid ? `: ${maxSaid}` : ''}`] : []),
+      ...places.filter((p) => !offered.includes(p)).map((p) => p.why).filter((w): w is string => !!w),
+    ];
+    return { isk: null, where: null, why: [...new Set(why)].join('; ') || 'no price read', ...cap };
+  }
+  if (!(perDay > 0)) return { isk: null, where: null, why: 'none wanted', ...cap };
+  let left = perDay, isk = 0, jita = 0;
+  const used = new Set<'jita' | 'home'>();
+  for (const s of steps) {
+    if (!(left > 1e-12)) break;
+    const take = Math.min(left, s.units);
+    isk += take * s.unit; left -= take; used.add(s.place);
+    if (s.place === 'jita') jita += take;
+  }
+  return { isk, where: (['home', 'jita'] as const).filter((p) => used.has(p)), jitaUnits: jita, why: null, ...cap };
+}
+/** Units of a purchase bought at Jita: as `boughtOf` splits them, else all when Jita is the only place. */
+export const boughtAtJita = (b: Bought, perDay: number) => b.jitaUnits ?? (b.where?.length === 1 && b.where[0] === 'jita' ? perDay : 0);
 /** What Jita supplies of a good a day, and what a unit of `perDay` costs there before freight (null past `max`, with `why`). */
 export type Supply = { avg: number | null; max: number; maxSaid: string; why: string | null };
 /**
@@ -94,13 +138,31 @@ export type Supply = { avg: number | null; max: number; maxSaid: string; why: st
  * what Jita supplies. A unit's cost only rises with the amount (the walk goes further up the book), as `Buy`'s contract asks.
  * `pace` must be over 0 (the caller says why when it isn't). Pure.
  */
-export function jitaSupply(asks: readonly { price: number; volume: number }[], pace: number, share: number, perDay: number): Supply {
+/**
+ * Jita's offer as steps (Ruling T11-7): each of others' listings from the best, a day's share of it (a week's need bought up them), cut
+ * where the listings' week or your share of the day ends, whichever is first; the cost a unit is the listing's price (freight is the
+ * caller's, a level at a time). Pure.
+ */
+export function jitaSteps(asks: readonly { price: number; volume: number }[], pace: number, share: number): { steps: BuyStep[]; max: number; maxSaid: string } {
   const listed = asks.reduce((n, l) => n + Math.max(0, l.volume), 0);
   const depth = listed / 7, atShare = (pace * share) / 100;
   const max = Math.min(depth, atShare);
   const maxSaid = depth < atShare
     ? `what its best listings hold for a week (${unitsSaid(listed)} listed)`
     : `your ${plainNum(share)}% share of the ${amountSaid(pace)} traded a day in The Forge`;
+  const steps: BuyStep[] = [];
+  let left = max;
+  for (const l of asks) {
+    if (!(left > 0)) break;
+    const units = Math.min(left, Math.max(0, l.volume) / 7);
+    if (units > 0) steps.push({ units, unit: l.price });
+    left -= units;
+  }
+  return { steps, max, maxSaid };
+}
+export function jitaSupply(asks: readonly { price: number; volume: number }[], pace: number, share: number, perDay: number): Supply {
+  const listed = asks.reduce((n, l) => n + Math.max(0, l.volume), 0);
+  const { max, maxSaid } = jitaSteps(asks, pace, share);
   if (!(perDay > 0)) return { avg: null, max, maxSaid, why: 'none wanted' };
   if (perDay > max * (1 + 1e-9)) return { avg: null, max, maxSaid, why: max > 0 ? `Jita supplies ${perDaySaid(max)}: ${maxSaid}` : `Jita supplies none: ${maxSaid}` };
   // Within the cap; the walk is held to what's listed, so a need at the cap to the last float still finds its price.
@@ -554,7 +616,7 @@ export function upkeepOf(input: PlanInput, outputs: Output[], planets: number, r
   const haul = outputs.reduce((t, o) => t + (o.perDay - o.buildingUp) * vol(o.id) * 7, 0);
   const jita = outputs.reduce((t, o) => t + jitaUnits(o.sold) * vol(o.id) * 7, 0);
   const inM3 = bought.reduce((t, i) => t + i.perDay * vol(i.id) * 7, 0);
-  const jitaIn = bought.reduce((t, i) => t + (i.bought.where === 'jita' ? i.perDay * vol(i.id) * 7 : 0), 0);
+  const jitaIn = bought.reduce((t, i) => t + boughtAtJita(i.bought, i.perDay) * vol(i.id) * 7, 0);
   const f = input.freight;
   const batch = f && f.min != null && f.min > 0 && f.perM3 > 0 ? f.min / f.perM3 : null;
   const contracts = (m3: number) => (!f ? null : !(m3 > 0) ? 0 : batch != null ? m3 / Math.max(batch, m3) : 1);
@@ -2063,7 +2125,7 @@ export function planBought(input: PlanInput): Setup {
     const shared = typeof lim === 'number' && chosen.inst.some((o2, k2) => k2 !== k && ctx.opts[o2].inputs.some((i) => i.id === lim));
     const notes = count >= opt.n ? []
       : typeof lim === 'number'
-        ? [`${held?.maxAt ?? 'the market'} supplies ${held?.max != null && held.max > 0 ? qtyAday(held.max, name(lim)) : `no ${name(lim)}`}${held?.maxSaid ? `: ${held.maxSaid}` : ''}`,
+        ? [`${suppliesSaid(held?.maxAt ?? 'the market')} ${held?.max != null && held.max > 0 ? qtyAday(held.max, name(lim)) : `no ${name(lim)}`}${held?.maxSaid ? `: ${held.maxSaid}` : ''}`,
           `${shared ? 'Shared by the planets that take it, this one gets' : 'That is'} enough for ${amountSaid(v.q[k])} ${name(opt.x)} a day here, so ${count} of the ${opt.n} factories that fit run`]
         : lim === 'pays'
           // The last unit that pays holds it (Ruling T11-6): said, never left unexplained.

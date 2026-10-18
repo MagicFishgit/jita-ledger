@@ -3672,13 +3672,17 @@ try {
       if (await toggle.count()) await toggle.click().catch(() => undefined);
       const lines = (await page.locator('[data-planets="setup:bought"] .pl-lines').filter({ hasText: 'Bought' }).locator('.pl-line').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
       const byName = new Map(FXP.goods.map((g) => [g.name, g]));
+      // What's bought at Jita: the whole line's amount when Jita is the only place, its Jita part when the hub takes some first (T11-7).
       for (const l of lines) {
-        const m = /^([\d,]+) (.+?) a day[,:]/.exec(l);
+        const m = /^([\d.,]+) (.+?) a day[,:]/.exec(l);
         const g = m && byName.get(m[2]);
-        if (g && Number(m[1].replace(/,/g, '')) > Math.ceil(g.perDay * 0.1)) problems.push(`bought buys ${m[1]} ${m[2]} a day, past 10% of the ${Math.round(g.perDay)} The Forge trades: “${l.slice(0, 160)}”`);
+        if (!g) continue;
+        const both = /at the home hub and Jita \(([\d.,]+|under 0\.1) at the home hub, ([\d.,]+|under 0\.1) at Jita\)/.exec(l);
+        const atJita = both ? Number(both[2].replace(/,/g, '').replace('under ', '')) : / a day at Jita\b/.test(l) ? Number(m[1].replace(/,/g, '')) : 0;
+        if (atJita > Math.ceil(g.perDay * 0.1)) problems.push(`bought buys ${atJita} ${m[2]} a day at Jita, past 10% of the ${Math.round(g.perDay)} The Forge trades: “${l.slice(0, 200)}”`);
       }
       if (!lines.some((l) => /^[\d,]+ .+ a day,/.test(l))) problems.push(`the bought setup lists no purchase: ${JSON.stringify(lines).slice(0, 300)}`);
-      if (!lines.some((l) => /All Jita supplies: your 10% share of the [\d,]+ traded a day in The Forge/.test(l))) problems.push(`no bought input says it's at what Jita supplies: ${JSON.stringify(lines).slice(0, 400)}`);
+      if (!lines.some((l) => /All (?:UALX-3 and Jita supply: .*your 10% share of the [\d,]+ traded a day in The Forge at Jita|Jita supplies: your 10% share of the [\d,]+ traded a day in The Forge)/.test(l))) problems.push(`no bought input says it's at what Jita supplies: ${JSON.stringify(lines).slice(0, 400)}`);
       if (!lines.some((l) => /^In all, [\d.,]+ [MBk]? ?ISK a day of purchases/.test(l))) problems.push(`the bought setup's purchases aren't totalled: ${JSON.stringify(lines.slice(-2))}`);
     }
     // Its upkeep (Ruling T11-4): restocks on what comes in and what's made, across its factory planets; the m³ brought in, from
@@ -3686,7 +3690,7 @@ try {
     {
       const up = await text('[data-planets="setup:bought"] [data-planets="upkeep"]');
       if (!/Restocks a week [\d.,]+ a launchpad \(10,000 m³\) emptied and refilled, on what comes in and what it makes, across \d+ factory planets/i.test(up)) problems.push(`the bought setup's restocks: “${up.slice(0, 300)}”`);
-      if (!/Brought in a week [\d,]+ m³ to the factory planets, all of it bought at Jita/i.test(up)) problems.push(`the bought setup's m³ brought in: “${up.slice(0, 400)}”`);
+      if (!/Brought in a week [\d,]+ m³ to the factory planets, (?:all of it|[\d,]+ m³ of it) bought at Jita/i.test(up)) problems.push(`the bought setup's m³ brought in: “${up.slice(0, 400)}”`);
       if (!/Freight a week at least 2 [\d,]+ m³ to Jita, [\d,]+ m³ from Jita: one contract a week each way at the least/i.test(up)) problems.push(`the bought setup's freight: “${up.slice(0, 500)}”`);
       // P0 → P2 sends 100 m³ a week to Jita, under Brave's 5,556 m³ batch: time between, never "0.02".
       const p2up = await text('[data-planets="setup:p2"] [data-planets="upkeep"]');
