@@ -7368,6 +7368,32 @@ console.log('\n--- Industry: the bundle (scripts/industry-bundle.mjs, CCP static
   eq('    sorted, so a rebuild of one build changes nothing', [watchF.watch.every((t, i, a) => !i || a[i - 1] < t), b.bps.every((x, i, a) => !i || a[i - 1][0] < x[0])], [true, true]);
 }
 
+console.log('\n--- A small linear programme, solved exactly (lp.ts; Ruling T11-11 sizes a bought setup with it) ---');
+{
+  const { maximise } = await import('../src/lib/lp.ts');
+  const at = (r) => [r.status, +r.value.toFixed(9), r.x.map((v) => +v.toFixed(9))];
+  // Known optima: max 3x + 2y with x + y ≤ 4, x + 3y ≤ 6 and x up to 3 (a bound, not a row) is 11 at (3, 1); Chvátal's first
+  // example, 13 at (2, 0, 1).
+  eq('  a bounded variable and two rows: 11 at (3, 1)', at(maximise({ c: [3, 2], hi: [3, Infinity], rows: [{ a: [1, 1], b: 4 }, { a: [1, 3], b: 6 }] })), ['optimal', 11, [3, 1]]);
+  eq('  Chvátal’s example: 13 at (2, 0, 1)', at(maximise({ c: [5, 4, 3], hi: [Infinity, Infinity, Infinity], rows: [{ a: [2, 3, 1], b: 5 }, { a: [4, 1, 2], b: 11 }, { a: [3, 4, 2], b: 8 }] })), ['optimal', 13, [2, 0, 1]]);
+  eq('  nothing holds it: unbounded, said', maximise({ c: [1, 1], hi: [Infinity, Infinity], rows: [{ a: [1, -1], b: 1 }] }).status, 'unbounded');
+  // Beale's example (Chvátal ch. 3), degenerate: by the largest reduced cost alone, ties to the lowest row, it cycles through six
+  // bases at 0 for ever; with Bland's rule taking over through a degenerate run it ends at the optimum, 5/4 at x4 = x6 = 1.
+  const beale = { c: [0.75, -20, 0.5, -6], hi: [Infinity, Infinity, Infinity, Infinity], rows: [{ a: [0.25, -8, -1, 9], b: 0 }, { a: [0.5, -12, -0.5, 3], b: 0 }, { a: [0, 0, 1, 0], b: 1 }] };
+  eq('  Beale’s cycling example: the largest reduced cost alone cycles', [maximise(beale, { rule: 'dantzig', maxPivots: 500 }).status, maximise(beale, { rule: 'dantzig', maxPivots: 500 }).value], ['stalled', 0]);
+  eq('  … and with anti-cycling it ends at the optimum', at(maximise(beale)), ['optimal', 1.25, [1, 0, 1, 0]]);
+  eq('  … as Bland’s rule alone does', at(maximise(beale, { rule: 'bland' })), ['optimal', 1.25, [1, 0, 1, 0]]);
+  // Shaped like a bought setup: planets A (tax 1 a unit) and B (2), each up to 100 a day, one product selling its first 120 at 50 and
+  // 60 more at 20; its input, 2 a unit, 150 a day at 5, then any at 12. A unit pays 39 while the cheap input lasts (75), then 25 on A
+  // (to 100) and 24 on B (to 120); past what sells at 50 a unit loses 6. So A 100, B 20: 75 × 39 + 25 × 25 + 20 × 24 = 4,030.
+  // Columns: qA, qB, the two sale steps, the two buy steps; rows: what sells ≤ what's made, what's bought = what's used.
+  const shaped = { c: [-1, -2, 50, 20, -5, -12], hi: [100, 100, 120, 60, 150, Infinity],
+    rows: [{ a: [-1, -1, 1, 1, 0, 0], b: 0 }, { a: [-2, -2, 0, 0, 1, 1], b: 0, eq: true }] };
+  eq('  step-bounded, as a bought setup: two planets sized together, 4,030 at (100, 20)', at(maximise(shaped)), ['optimal', 4030, [100, 20, 120, 0, 150, 90]]);
+  eq('  … all amounts at zero must be feasible: a row that isn’t met at zero is refused', (() => { try { maximise({ c: [1], hi: [1], rows: [{ a: [1], b: -1 }] }); return 'solved'; } catch (e) { return e.message; } })(),
+    'lp: row 0 isn\'t met at zero (b -1)');
+}
+
 console.log('\n--- Planets: the bundle (scripts/planets-bundle.mjs, CCP static data build 3569502) ---');
 {
   const fsP = await import('node:fs');
@@ -7825,6 +7851,8 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   const cappedB = planBought({ ...input, sell: sellBy(unitOf, (id) => (id === NANITES ? 300 : Infinity)), buy: (id, perDay) => ({ isk: perDay * 100, where: ['jita'], why: null }) });
   eq('  bought under a cap: the low-tax planet makes the uncapped good, the factories run for what sells',
     [cappedB.iskDay, role(cappedB, B).makes.map((m) => [m.id, m.perDay, m.count]), role(cappedB, A).makes[0].id !== NANITES], [3_146_880 + 2_364_000, [[NANITES, 300, 3]], true]);
+  // What holds it is said as the market, never as a unit that doesn't pay (Ruling T11-11: the line says which limit binds).
+  eq('  … and its line says the market holds it', role(cappedB, B).why, 'The market takes 300 Nanites a day here: 3 of the 21 factories that fit run');
   const unpricedBuy = planBought(input);
   eq('  bought with no input priced: no figure, said', [unpricedBuy.iskDay, unpricedBuy.why], [null, 'No input is priced to buy: Not bought here']);
   // A hub that prices a few units but not a factory planet's week (Task 10's re-review): every input priced at one unit, none at
@@ -7880,31 +7908,63 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
       eq('  bought: a planet held to its last unit that pays beside the setup’s other planets', [Math.round(joint.iskDay), factories(joint).map((r) => [r.planetId, Math.round(r.makes[0].perDay)])], [40_063_680, [[1, 2640], [2, 360]]]);
       eq('  … and its line says why', role(joint, 2).why, '3 of the 22 factories that fit run, for 360 Superconductors a day: past that, a unit costs more to make than the market here pays, after the other planets’ share');
     }
-    const { lastPaying } = await import('../src/lib/piPlan.ts');
-    // A concave curve with kinks at 500 and 1,234.5: the most is at the second, found exactly from the curve.
+    // Ruling T11-11: a set's planets are sized exactly, together (a linear programme over their amounts and the sale and buy steps).
+    // Two shapes from the review's random setups (scripts/fixtures/planets-bought-trials.json).
+    {
+      const { sizeBought, boughtOf } = await import('../src/lib/piPlan.ts');
+      const trials = JSON.parse(fsP.readFileSync(new URL('./fixtures/planets-bought-trials.json', import.meta.url))).trials;
+      const setOf = (t) => {
+        const sp = new Map(t.sells.map((s) => [s.x, s])), places = new Map(t.places);
+        return { ix, planets: [0.02, 0.05, 0.1].map((r, i) => ({ planetId: i + 1, name: `P${i}`, type: 'Barren', radiusKm: 3750, tax: brave(r) })),
+          char: { charId: 1, name: 'A', planets: 3, ccLevel: 4, alpha: false }, others: [], rateOf: () => null, programHours: 72,
+          sell: (id, perDay) => { const s = sp.get(id); if (!s) return { isk: null, units: 0, where: [], why: 'none' }; const n = Math.min(perDay, s.cap ?? Infinity), x = Math.min(n, s.k); return { isk: x * s.p + (n - x) * s.p * s.f, units: n, where: ['jita'], why: null }; },
+          buy: (id, perDay) => (places.has(id) ? boughtOf(perDay, places.get(id)) : { isk: null, where: null, why: 'none' }) };
+      };
+      // Genetically Enhanced Livestock on the 2% planet and Viral Agent on the 5% one share Biomass, cheap up its first Jita step, so
+      // the two must move together, Livestock down and Viral Agent up. A planet at a time (round 3's passes) stopped at 2,273 and 546
+      // a day for 14,628,765; the review's grid found 19,253,778 at 1,096 and 1,743; sized exactly, 19,273,510 at 1,100.6 and 1,718.5.
+      const pair = sizeBought(setOf(trials.together), [{ planetId: 1, x: idOf('Genetically Enhanced Livestock') }, { planetId: 2, x: idOf('Viral Agent') }]);
+      eq('  bought, sized exactly: two planets that must move together', [Math.round(pair.value), pair.q.map((v) => +v.toFixed(1))], [19_273_510, [1100.6, 1718.5]]);
+      eq('  … the linear programme’s optimum is the worth (worthOf) at its amounts', Math.abs(pair.lp - pair.value) <= 1e-6 * pair.value, true);
+      // The search goes past a set the sizing zeroes a planet in. Microfiber Shielding (2%), Miniature Electronics (5%) and Polytextiles
+      // (10%) make 13,583,818 a day, but every pair of Polytextiles with Microfiber Shielding sizes Polytextiles to nothing, and the
+      // search reaches the three only through such a pair: stopping there, it found 12,615,397.
+      const zeroed = planBought(setOf(trials.zeroed));
+      eq('  bought: the search goes past a set with a planet sized to nothing', [Math.round(zeroed.iskDay), factories(zeroed).map((r) => [r.planetId, nameOf(r.makes[0].id)])],
+        [13_583_818, [[1, 'Microfiber Shielding'], [2, 'Miniature Electronics'], [3, 'Polytextiles']]]);
+      eq('  … where Polytextiles beside Microfiber Shielding alone is sized to nothing', sizeBought(setOf(trials.zeroed), [{ planetId: 1, x: idOf('Microfiber Shielding') }, { planetId: 3, x: idOf('Polytextiles') }]), null);
+    }
+    // Ruling T11-11: a curve's kinks are found from the curve (Sell and Buy are closures). A concave curve with kinks at 500, 1,234.5
+    // and 20,000 ÷ 13: each found exactly, and the curve between them a straight line (checked at 997 amounts).
+    const { kinksOf } = await import('../src/lib/piPlan.ts');
     const kinked = (q) => Math.min(30 * q, 10 * q + 10_000, 30_000 - 3 * q) - Math.max(0, q - 1234.5) * 50;
-    eq('  lastPaying: the largest amount at the most, at a kink, exactly', [+lastPaying(kinked, 3000).toFixed(6), lastPaying((q) => 5 * q, 800), lastPaying((q) => -2 * q, 800)], [1234.5, 800, 0]);
+    const kk = kinksOf(kinked, 3000);
+    const near = (x) => kk.x.some((k) => Math.abs(k - x) < 1e-9);
+    const interp = (q) => { const j = kk.x.findIndex((k, i) => q >= k && q <= kk.x[i + 1]); return kk.y[j] + (kk.y[j + 1] - kk.y[j]) * (q - kk.x[j]) / (kk.x[j + 1] - kk.x[j]); };
+    eq('  kinksOf: every kink of a concave curve, exactly', [near(500), near(1234.5), near(20_000 / 13)], [true, true, true]);
+    eq('  … and a straight line between them', Array.from({ length: 997 }, (_, i) => (i + 1) * 3000 / 998).every((q) => Math.abs(interp(q) - kinked(q)) <= 1e-9 * Math.max(1, Math.abs(kinked(q)))), true);
+    eq('  … a line is its two ends; a market that takes 300 a kink at 300', [kinksOf((q) => 5 * q, 800).x, kinksOf((q) => Math.min(q, 300) * 10_000, 1000).x.map((x) => +x.toFixed(9))], [[0, 800], [0, 300, 1000]]);
   }
-  // Buying at Jita (Ruling T11-3): a week's need up others' listings, held to your share of the day.
+  // Buying at Jita (Ruling T11-3): a week's need up others' listings, held to your share of the day (jitaSteps, bought through boughtOf).
   {
-    const { jitaSupply } = await import('../src/lib/piPlan.ts');
+    const { jitaSteps, boughtOf } = await import('../src/lib/piPlan.ts');
     const deep = [{ price: 100, volume: 700 }, { price: 110, volume: 700 }, { price: 130, volume: 70_000 }];
     const thin = [{ price: 100, volume: 700 }, { price: 110, volume: 700 }];
-    eq('  Jita supply: a deep book is held to your share of the day', [jitaSupply(deep, 5000, 10, 1).max, jitaSupply(deep, 5000, 10, 1).maxSaid], [500, 'your 10% share of the 5,000 traded a day in The Forge']);
-    eq('  … a thin one to what its listings hold for a week', [jitaSupply(thin, 5000, 10, 1).max, jitaSupply(thin, 5000, 10, 1).maxSaid], [200, 'what its best listings hold for a week (1,400 listed)']);
-    eq('  … a week’s need is bought up the listings: 100 a day at the best ask, 200 a day half at the next', [jitaSupply(deep, 5000, 10, 100).avg, jitaSupply(deep, 5000, 10, 200).avg, jitaSupply(deep, 5000, 10, 300).avg],
+    const atJita = (asks, pace) => { const s = jitaSteps(asks, pace, 10); return [{ place: 'jita', at: 'Jita', steps: s.steps, maxSaid: s.maxSaid, why: null }]; };
+    eq('  Jita supply: a deep book is held to your share of the day', [jitaSteps(deep, 5000, 10).max, jitaSteps(deep, 5000, 10).maxSaid], [500, 'your 10% share of the 5,000 traded a day in The Forge']);
+    eq('  … a thin one to what its listings hold for a week', [jitaSteps(thin, 5000, 10).max, jitaSteps(thin, 5000, 10).maxSaid], [200, 'what its best listings hold for a week (1,400 listed)']);
+    eq('  … a week’s need is bought up the listings: 100 a day at the best ask, 200 a day half at the next', [100, 200, 300].map((n) => boughtOf(n, atJita(deep, 5000)).isk / n),
       [100, 105, (700 * 100 + 700 * 110 + 700 * 130) / 2100]);
-    eq('  … past what it supplies: no price, said, and the most it supplies still given', jitaSupply(deep, 5000, 10, 600),
-      { avg: null, max: 500, maxSaid: 'your 10% share of the 5,000 traded a day in The Forge', why: 'Jita supplies about 500 a day: your 10% share of the 5,000 traded a day in The Forge' });
-    eq('  … the most it supplies doesn’t depend on the amount asked', [1, 250, 499, 600, 10_000].map((n) => jitaSupply(deep, 5000, 10, n).max), [500, 500, 500, 500, 500]);
-    const sweep = Array.from({ length: 50 }, (_, i) => jitaSupply(deep, 5000, 10, 10 * (i + 1)).avg);
-    eq('  … a unit never costs less as the amount grows (Buy’s contract)', sweep.every((c, i) => c != null && (i === 0 || c >= sweep[i - 1] - 1e-9)), true);
+    eq('  … past what it supplies: no price, said, and the most it supplies still given', (({ isk, max, maxSaid, why }) => ({ isk, max, maxSaid, why }))(boughtOf(600, atJita(deep, 5000))),
+      { isk: null, max: 500, maxSaid: 'your 10% share of the 5,000 traded a day in The Forge', why: 'Jita supplies about 500 a day: your 10% share of the 5,000 traded a day in The Forge' });
+    eq('  … the most it supplies doesn’t depend on the amount asked', [1, 250, 499, 600, 10_000].map((n) => boughtOf(n, atJita(deep, 5000)).max), [500, 500, 500, 500, 500]);
+    const sweep = Array.from({ length: 50 }, (_, i) => boughtOf(10 * (i + 1), atJita(deep, 5000)).isk);
+    eq('  … a unit never costs less as the amount grows (Buy’s contract)', sweep.every((c, i) => c != null && (i < 2 || c - sweep[i - 1] >= sweep[i - 1] - sweep[i - 2] - 1e-6)), true);
     // N2: a supply under one a day is said as a pace is, never rounded to a whole number: a known 0.3 isn't "about 0", and a refusal
     // at one unit isn't "about 1 a day".
     // Ruling T11-7: under Either an input is bought across both places cheapest first, each to its own max, as soldOf sells. The hub
     // at 300 to 4,000 a day, Jita at 700 to 100,000: 5,000 a day is the hub's 4,000 and 1,000 from Jita, never all 5,000 at Jita
     // (3.5 M), so the total cost stays convex.
-    const { boughtOf } = await import('../src/lib/piPlan.ts');
     const hubPlace = { place: 'home', at: 'UALX-3', steps: [{ units: 4000, unit: 300 }], maxSaid: 'a tenth of its weekly movement, 280,000 a week', why: null };
     const jitaPlace = { place: 'jita', at: 'Jita', steps: [{ units: 100_000, unit: 700 }], maxSaid: 'your 10% share of the 1,000,000 traded a day in The Forge', why: null };
     eq('  Either: across both places cheapest first, each to its own max', (({ isk, where, jitaUnits, max, maxAt }) => ({ isk, where, jitaUnits, max, maxAt }))(boughtOf(5000, [hubPlace, jitaPlace])),
@@ -7915,7 +7975,7 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
       'UALX-3 and Jita supply about 104,000 a day: a tenth of its weekly movement, 280,000 a week at UALX-3; your 10% share of the 1,000,000 traded a day in The Forge at Jita');
     eq('  … Jita alone: Jita’s own, all of it there', (({ isk, where, jitaUnits }) => ({ isk, where, jitaUnits }))(boughtOf(5000, [jitaPlace])), { isk: 3_500_000, where: ['jita'], jitaUnits: 5000 });
     eq('  … a place with nothing to offer gives its reason', boughtOf(10, [{ place: 'home', at: 'UALX-3', steps: [], maxSaid: null, why: 'No price at UALX-3' }]).why, 'No price at UALX-3');
-    eq('  … a supply under one a day keeps its decimal', [jitaSupply(deep, 3, 10, 1).why, jitaSupply(deep, 7, 10, 1).why, jitaSupply(deep, 0.5, 10, 1).why],
+    eq('  … a supply under one a day keeps its decimal', [3, 7, 0.5].map((pace) => boughtOf(1, atJita(deep, pace)).why),
       ['Jita supplies about 0.3 a day: your 10% share of the 3 traded a day in The Forge', 'Jita supplies about 0.7 a day: your 10% share of the 7 traded a day in The Forge',
         'Jita supplies under 0.1 a day: your 10% share of the 0.5 traded a day in The Forge']);
   }

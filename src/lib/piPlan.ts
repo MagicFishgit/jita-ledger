@@ -6,6 +6,7 @@ import type { Tax } from './planetsDoc';
 import { slotDay, type Freight, type Sale } from './industryRank';
 import { units as unitsSaid, plainNum } from './format';
 import { dayCount, perDaySaid } from './split';
+import { maximise } from './lp';
 
 /**
  * Units a day, said as split.ts says a pace (N2): whole from 10, one decimal under it, "under 0.1" for less, so a known 0.3 never
@@ -32,10 +33,11 @@ export type PlanChar = { charId: number; name: string; planets: number | null; c
  */
 export type Sold = { isk: number | null; units: number; where: ('jita' | 'home')[]; why: string | null; jitaUnits?: number };
 /**
- * The planner's searches bound what an arrangement can be worth by each good's first unit, so a `Sell` must keep to this:
- * a unit's net never rises as the amount grows (`isk ÷ units` at more is no more than at less), the units that sell never
- * fall as the amount grows, and there's no fixed charge a call (a freight minimum is spread over a batch, as `batchLeg`
- * does, never charged on each call). Broken, the best arrangement can be pruned without a word.
+ * The planner's searches bound what an arrangement can be worth by each good's first unit, and size a bought setup exactly on
+ * its curve (Ruling T11-11), so a `Sell` must keep to this: the next unit never nets more than the last as the amount grows (the
+ * ISK is concave in the amount, so its average never rises either), the units that sell never fall as the amount grows, and
+ * there's no fixed charge a call (a freight minimum is spread over a batch, as `batchLeg` does, never charged on each call).
+ * Broken, the best arrangement can be pruned without a word.
  */
 export type Sell = (typeId: number, perDay: number) => Sold;
 /**
@@ -85,9 +87,10 @@ export type Bought = { isk: number | null; where: ('jita' | 'home')[] | null; wh
 /**
  * The same contract as `Sell`, the other way (Ruling T11-7): a unit's marginal cost never falls as the amount grows, so the total
  * cost is convex, and there's no fixed charge a call. So what a planet's factories buy alone is never more than their share of
- * buying with others, and a planet's value in its own amount is concave, which `lastPaying` rests on. A cheaper place that runs
- * out must hand over only the units past it, never the whole amount (`boughtOf`): handing over the whole amount makes the total
- * jump, and the planner misses the amount that pays most.
+ * buying with others, and a bought setup's worth is concave in its planets' amounts, which its exact sizing rests on (`sizeGroup`:
+ * the cost's kinks, `kinksOf`, are the steps of a linear programme). A cheaper place that runs out must hand over only the units
+ * past it, never the whole amount (`boughtOf`): handing over the whole amount makes the total jump, and the planner misses the
+ * amount that pays most.
  */
 export type Buy = (typeId: number, perDay: number) => Bought;
 /** Units a day at a cost a unit: a place's offer, cheapest first. */
@@ -129,19 +132,12 @@ export function boughtOf(perDay: number, places: BuyPlace[]): Bought {
 }
 /** Units of a purchase bought at Jita: as `boughtOf` splits them, else all when Jita is the only place. */
 export const boughtAtJita = (b: Bought, perDay: number) => b.jitaUnits ?? (b.where?.length === 1 && b.where[0] === 'jita' ? perDay : 0);
-/** What Jita supplies of a good a day, and what a unit of `perDay` costs there before freight (null past `max`, with `why`). */
-export type Supply = { avg: number | null; max: number; maxSaid: string; why: string | null };
 /**
- * Buying at Jita (Ruling T11-3): a week's need bought up others' listings from the best (`asks`, your own taken off), held to your
- * share of the good's day in The Forge (`pace`, units a typical day), the share that holds what you sell. `max` is the lesser of
- * what the listings hold for a week and that share, and never depends on the amount; past it nothing is priced and `why` says
- * what Jita supplies. A unit's cost only rises with the amount (the walk goes further up the book), as `Buy`'s contract asks.
- * `pace` must be over 0 (the caller says why when it isn't). Pure.
- */
-/**
- * Jita's offer as steps (Ruling T11-7): each of others' listings from the best, a day's share of it (a week's need bought up them), cut
- * where the listings' week or your share of the day ends, whichever is first; the cost a unit is the listing's price (freight is the
- * caller's, a level at a time). Pure.
+ * Buying at Jita (Rulings T11-3 and T11-7), as steps: each of others' listings from the best (`asks`, your own taken off), a day's share
+ * of it (a week's need bought up them), cut where the listings' week or your share of the good's day in The Forge (`pace`, units a
+ * typical day) ends, whichever is first: the share that holds what you sell. `max` is the lesser of the two and never depends on the
+ * amount. The cost a unit is the listing's price (freight is the caller's, a level at a time), so it only rises up the book, as `Buy`'s
+ * contract asks. `pace` must be over 0 (the caller says why when it isn't). Pure.
  */
 export function jitaSteps(asks: readonly { price: number; volume: number }[], pace: number, share: number): { steps: BuyStep[]; max: number; maxSaid: string } {
   const listed = asks.reduce((n, l) => n + Math.max(0, l.volume), 0);
@@ -159,21 +155,6 @@ export function jitaSteps(asks: readonly { price: number; volume: number }[], pa
     left -= units;
   }
   return { steps, max, maxSaid };
-}
-export function jitaSupply(asks: readonly { price: number; volume: number }[], pace: number, share: number, perDay: number): Supply {
-  const listed = asks.reduce((n, l) => n + Math.max(0, l.volume), 0);
-  const { max, maxSaid } = jitaSteps(asks, pace, share);
-  if (!(perDay > 0)) return { avg: null, max, maxSaid, why: 'none wanted' };
-  if (perDay > max * (1 + 1e-9)) return { avg: null, max, maxSaid, why: max > 0 ? `Jita supplies ${perDaySaid(max)}: ${maxSaid}` : `Jita supplies none: ${maxSaid}` };
-  // Within the cap; the walk is held to what's listed, so a need at the cap to the last float still finds its price.
-  let left = Math.min(7 * perDay, listed), cost = 0;
-  const want = left;
-  for (const l of asks) {
-    const take = Math.min(left, Math.max(0, l.volume));
-    cost += take * l.price; left -= take;
-    if (left <= 1e-9) break;
-  }
-  return { avg: want > 0 ? cost / want : null, max, maxSaid, why: null };
 }
 export type PlanInput = {
   ix: PiIndex; planets: PlanPlanet[]; char: PlanChar; others: PlanChar[];
@@ -1854,70 +1835,82 @@ function buyer(buy: Buy) {
 type Buyer = (id: number, q: number) => Bought;
 
 /** A product a class of planets can make on bought inputs: as many factories as fit at the character's level, one launchpad. */
+/** `taxUnit`: its import and export tax a unit (`taxUnitOf`), worked out once and kept here. */
+type BuyOpt = { cls: number; x: number; facility: Facility; n: number; perFactory: number; inputs: { id: number; per: number }[]; alone: number; taxUnit?: number };
 /**
- * `top`: the most a day it runs alone and still pays for its last unit, and what holds it there (`topOf`), worked out once and kept
- * here; `taxUnit` its import and export tax a unit (`taxUnitOf`), likewise.
+ * A good's worth to a bought setup, as a curve with its kinks (`kinksOf`): what a product's output fetches, or minus what an input's
+ * intake costs, at each amount a day from 0 to `to`, a straight line between. `to`: what the market takes of a product (past it, what's
+ * made builds up and fetches nothing more), or what the places supply of an input (`Bought.max`), else as far as any setup could need;
+ * `capped` when it's what the market takes or supplies, which then holds what the planets make.
  */
-type BuyOpt = { cls: number; x: number; facility: Facility; n: number; perFactory: number; inputs: { id: number; per: number }[]; alone: number; top?: { q: number; why: 'market' | 'pays' | number | null }; taxUnit?: number };
-/** `buyWhy`: the first reason an input couldn't be bought at the amount a factory planet needs (its hub too thin for a week's need), so a setup blocked by it says that rather than that nothing pays. */
-type BuyCtx = { input: PlanInput; sold: Seller; buy: Buyer; classes: Cls[]; opts: BuyOpt[]; buyWhy: string | null };
-/** `limit`: what holds each planet's factories below what fits: what sells of its product ('market'), or an input whose supply ran out (its ID); null when every factory that fits runs. */
+type Curve = { x: number[]; y: number[]; to: number; capped: boolean };
 /**
- * `limit`: what holds each planet's factories below what fits: what sells of its product ('market'), the last unit that pays alone
- * ('pays'), the last that pays beside the other planets of the setup ('joint'), or an input whose supply ran out (its ID); null when
- * every factory that fits runs.
+ * A set's sizing (`sizeSet`): each planet's amount a day, the set's worth there (`worthOf`, the figure shown), the linear programme's
+ * own optimum (`lp`, which equals it: the tests' consistency check), the restocks a week, whether a planet is sized to nothing, and
+ * why it can't be bought when an input is refused outright.
+ */
+type Sizing = { q: number[]; value: number; lp: number; upkeep: number; zeroed: boolean; refused: string | null };
+/** What `sizeSet` keeps on the context: each good's curves, and each group of linked planets' sizing by its options. */
+type BuyMemo = { sells: Map<number, Curve>; buys: Map<string, Curve | string | null>; reach: Map<string, number>; sized: Map<string, Sizing> };
+/**
+ * `buyWhy`: the first reason an input couldn't be bought at the amount a factory planet needs (its hub too thin for a week's need), so
+ * a setup blocked by it says that rather than that nothing pays. `memo`: `sizeSet`'s, made on first use (a context made by hand, as the
+ * tests' brute force makes them, gets one too).
+ */
+type BuyCtx = { input: PlanInput; sold: Seller; buy: Buyer; classes: Cls[]; opts: BuyOpt[]; buyWhy: string | null; memo?: BuyMemo };
+/**
+ * `limit`: what holds each planet's factories below what fits: what the market takes of its product ('market'), an input whose supply
+ * ran out (its ID), the last unit that pays even alone ('pays'), or the last that pays beside the other planets of the setup ('joint');
+ * null when every factory that fits runs.
  */
 type BoughtValue = { score: Score; q: number[]; limit: ('market' | 'pays' | 'joint' | number | null)[]; sold: Map<number, Sold>; need: Map<number, number>; bought: Map<number, Bought>; tax: TaxRow[][]; restocks: number[] };
 
+/** The most evaluations `kinksOf` makes of one curve; past it, the curve is what was found (the chord between). */
+const KINK_EVALS = 400;
 /**
- * The largest amount in [0, `Q`] at which a concave, piecewise-linear `V` is at its most: where its last unit stops paying. `V`'s
- * kinks (a sale's sides stepping down, a book's levels, a cap) aren't given, since `Sell` and `Buy` are closures, so they're found
- * from the curve: the tangents at the two ends meet at `c`; concavity keeps `V` on or under both, so `V(c)` on them means `c` is
- * the kink where the slope turns negative, and otherwise `c` splits the range by its own slopes. One step a kink, never unit by
- * unit. `V(0)` is 0 (nothing made, bought or taxed). Pure.
+ * The kinks of a concave, piecewise-linear `f` on [0, `to`], with f(0) = 0 (Ruling T11-11): amounts `x` from 0 to `to` and `f` there,
+ * a straight line between each two. `Sell` and `Buy` are closures, so the kinks (a sale's sides stepping down, a book's levels, the
+ * places) are found from the curve, not read: on an interval, `f` on the chord through its ends at a ten-thousandth in from each end
+ * is a line there (concave, so four points on one line are a line); otherwise the tangents at the ends meet at `c`, and `f(c)` on both
+ * is one kink there (three points on each line), put exactly where two chords well clear of it meet; else `c` splits the interval. A
+ * step a kink, never unit by unit. A curve that isn't piecewise linear is taken at up to `KINK_EVALS` points. Pure.
  */
-export function lastPaying(V: (q: number) => number, Q: number): number {
-  if (!(Q > 0)) return 0;
-  const h = Q * 1e-7;
-  const tolOf = (...v: number[]) => 1e-12 * Math.max(1, ...v.map(Math.abs)) + 1e-9;
-  const val = (q: number) => (q <= 0 ? 0 : V(q));
-  const vQ = val(Q);
-  const s0 = val(h) / h;
-  if (s0 < 0) return 0;
-  const sQ = (vQ - val(Q - h)) / h;
-  if (sQ >= 0) return Q;
-  let lo = 0, vlo = 0, slo = s0, hi = Q, vhi = vQ, shi = sQ;
-  // A kink found to within the finite differences: its two lines again from chords well clear of it on either side, met; kept
-  // only when that lands within a step of it (another kink inside the chords would move it further).
-  const refine = (c: number) => {
-    const d = Math.min(c - lo, hi - c) / 4;
-    if (!(d > 8 * h)) return c;
-    const va = val(c - d), vb = val(c + d);
-    const sa = (va - val(c - 2 * d)) / d, sb = (val(c + 2 * d) - vb) / d;
-    const k = sa - sb > 0 ? (vb - va + sa * (c - d) - sb * (c + d)) / (sa - sb) : c;
-    return Math.abs(k - c) <= 2 * h ? k : c;
-  };
-  for (let i = 0; i < 64; i++) {
-    let c = slo - shi > 0 ? (vhi - vlo + slo * lo - shi * hi) / (slo - shi) : (lo + hi) / 2;
-    if (!(c > lo + h && c < hi - h)) c = (lo + hi) / 2;
-    const vc = val(c);
-    if (Math.abs(vc - (vlo + slo * (c - lo))) <= tolOf(vlo, vc) && Math.abs(vc - (vhi + shi * (c - hi))) <= tolOf(vhi, vc)) return refine(c);
-    const sl = (vc - val(c - h)) / h, sr = (val(c + h) - vc) / h;
-    if (sr >= 0) { lo = c; vlo = vc; slo = sr; } else if (sl < 0) { hi = c; vhi = vc; shi = sl; } else return refine(c);
-    if (hi - lo <= 2 * h) break;
+export function kinksOf(f: (q: number) => number, to: number): { x: number[]; y: number[] } {
+  if (!(to > 0)) return { x: [0], y: [0] };
+  let evals = 0;
+  const at = (q: number) => { evals++; return f(q); };
+  const fto = at(to);
+  const pts = new Map<number, number>([[0, 0], [to, fto]]);
+  const stack: [number, number, number, number][] = [[0, 0, to, fto]];
+  while (stack.length && evals < KINK_EVALS) {
+    const [a, fa, b, fb] = stack.pop()!;
+    const w = b - a;
+    if (!(w > to * 1e-12)) continue;
+    const h = w * 1e-4;
+    const fa1 = at(a + h), fb1 = at(b - h);
+    const chord = (fb - fa) / w;
+    const scale = Math.max(Math.abs(fa), Math.abs(fb), Math.abs(fa1), Math.abs(fb1));
+    if (Math.abs(fa1 - (fa + chord * h)) <= 1e-11 * scale + 1e-12 && Math.abs(fb1 - (fb - chord * h)) <= 1e-11 * scale + 1e-12) continue;
+    const sa = (fa1 - fa) / h, sb = (fb - fb1) / h;
+    let c = sa > sb ? (fb - fa + sa * a - sb * b) / (sa - sb) : NaN;
+    if (!(c > a + h && c < b - h)) c = a + w / 2;
+    const fc = at(c);
+    const tol = 1e-10 * Math.max(scale, Math.abs(fc)) + 1e-12;
+    if (Math.abs(fc - (fa + sa * (c - a))) <= tol && Math.abs(fc - (fb + sb * (c - b))) <= tol) {
+      // One kink: where the chords from each end to halfway to it meet.
+      const m1 = a + (c - a) / 2, m2 = c + (b - c) / 2;
+      const s1 = (at(m1) - fa) / (m1 - a), s2 = (fb - at(m2)) / (b - m2);
+      const k = s1 > s2 ? (fb - fa + s1 * a - s2 * b) / (s1 - s2) : c;
+      if (k > m1 && k < m2) pts.set(k, at(k)); else pts.set(c, fc);
+      continue;
+    }
+    pts.set(c, fc);
+    stack.push([c, fc, b, fb], [a, fa, c, fc]);
   }
-  // Ranges too short to split: the better end.
-  return vhi > vlo ? hi : lo;
+  const x = [...pts.keys()].sort((p, q) => p - q);
+  return { x, y: x.map((q) => pts.get(q)!) };
 }
 
-/**
- * How much option `o` runs alone and still pays (Ruling T11-6): no more than its factories make, what sells and what each input's
- * market supplies alone, and only while a unit's sale net covers its inputs' cost and its taxes. `Sell` and `Buy`'s contracts make
- * that a concave curve, so its last paying unit is its most (`lastPaying`); a planet sized to it alone is worth the most it can be,
- * and any amount a shared cap shrinks it to is a prefix of paying units, worth no more, which keeps the search's bound (`alone`)
- * sound. An input refused within that for another reason than its supply (a hub too thin with no `max`) leaves the amount as it
- * was, for `valueBought` to refuse as before.
- */
 /** An option's tax a unit: the import tax on its inputs at half the rate and the export tax on it (none while the rate isn't known: ranked before it). */
 function taxUnitOf(ctx: BuyCtx, o: number): number {
   const opt = ctx.opts[o];
@@ -1932,7 +1925,7 @@ function taxUnitOf(ctx: BuyCtx, o: number): number {
 /**
  * What a set of factory planets is worth a day at amounts `q`: each product summed and sold once, each input summed and bought once,
  * each planet's taxes; nothing bought or sold of a good at an amount of 0. −Infinity when an input is refused at its amount (past
- * what its market supplies). `valueBought`'s own figure is this at the amounts it sizes. Pure.
+ * what its market supplies). The sizing's figure is this at the amounts it sizes. Pure.
  */
 function worthOf(ctx: BuyCtx, inst: number[], q: number[]): number {
   const sales = new Map<number, number>(), need = new Map<number, number>();
@@ -1953,175 +1946,192 @@ function worthOf(ctx: BuyCtx, inst: number[], q: number[]): number {
   return v;
 }
 
-/**
- * Whether the joint passes run their second, stabilising round (fix round 3 of Task 11): Ruling T11-8's pass holds each planet given
- * the planets before it; this one then holds each given all the others, so no planet's last unit loses money beside a planet after
- * it either (a low-tax planet sharing a walked input with a dearer product behind it). Off, the ruling's pass alone.
- */
-export const JOINT_SETTLE = true;
+/** A planet's restocks a week (Ruling T11-4): a visit empties and refills its launchpad, on what's brought in and what's made. */
+function restocksOf(ctx: BuyCtx, o: number, q: number): number {
+  const { ix } = ctx.input, opt = ctx.opts[o];
+  const m3 = opt.inputs.reduce((n, i) => n + q * i.per * (ix.byId.get(i.id)?.volume ?? 0), 0) + q * (ix.byId.get(opt.x)?.volume ?? 0);
+  return (m3 * 7) / ix.planetTypes[ctx.classes[opt.cls].t].pins.launchpad.capacity;
+}
 
-function topOf(ctx: BuyCtx, o: number): NonNullable<BuyOpt['top']> {
-  const opt = ctx.opts[o];
-  if (opt.top != null) return opt.top;
-  const full = opt.n * opt.perFactory;
-  const s = ctx.sold(opt.x, full);
-  let Q = full, why: 'market' | 'pays' | number | null = null;
-  const sells = s.isk == null ? 0 : s.units;
-  if (sells < Q - EPS) { Q = sells; why = 'market'; }
-  for (const i of opt.inputs) {
-    const max = ctx.buy(i.id, full * i.per).max;
-    if (max != null && max / i.per < Q - EPS) { Q = max / i.per; why = i.id; }
-  }
-  const taxUnit = taxUnitOf(ctx, o);
-  let refused = false;
-  const V = (q: number) => {
-    const sale = ctx.sold(opt.x, q).isk ?? 0;
-    let cost = 0;
-    for (const i of opt.inputs) {
-      const b = ctx.buy(i.id, q * i.per);
-      if (b.isk == null) { refused = true; return -Infinity; }
-      cost += b.isk;
+const memoOf = (ctx: BuyCtx): BuyMemo => (ctx.memo ??= { sells: new Map(), buys: new Map(), reach: new Map(), sized: new Map() });
+/** The most a day any setup of these options could make of a product (`side` 'x') or take of an input ('in'): every planet of every class at full. */
+function reachOf(ctx: BuyCtx, side: 'x' | 'in', id: number): number {
+  const memo = memoOf(ctx), key = `${side}${id}`;
+  let r = memo.reach.get(key);
+  if (r == null) {
+    r = 0;
+    for (const o of ctx.opts) {
+      const per = side === 'x' ? (o.x === id ? 1 : 0) : o.inputs.find((i) => i.id === id)?.per ?? 0;
+      r += o.n * o.perFactory * per * ctx.classes[o.cls].members.length;
     }
-    return sale - cost - taxUnit * q;
+    memo.reach.set(key, r);
+  }
+  return r;
+}
+/** A product's sale curve: what sells is concave in the amount (`Sell`'s contract); past what the market takes (`Sold.units`), flat. */
+function sellCurve(ctx: BuyCtx, x: number): Curve {
+  const memo = memoOf(ctx);
+  let c = memo.sells.get(x);
+  if (!c) {
+    const D = reachOf(ctx, 'x', x);
+    const s = ctx.sold(x, D);
+    // Where the market stops taking more, exactly as the sale says it: no kink to find there.
+    const M = s.isk == null ? 0 : s.units < D * (1 - 1e-12) ? Math.max(0, s.units) : D;
+    c = { ...kinksOf((q) => ctx.sold(x, q).isk ?? 0, M), to: M, capped: M < D };
+    memo.sells.set(x, c);
+  }
+  return c;
+}
+/**
+ * An input's cost curve, negated (so concave, by `Buy`'s contract), up to what the places supply (`Bought.max`) or as far as any setup
+ * could need. An input with no `max` refused at that (only a buy made by hand does that) is refused outright at what the set's factories
+ * take at full, as before the sizing was exact (carry 5), and known up to it otherwise: its reason when refused.
+ */
+function buyCurve(ctx: BuyCtx, id: number, full: number): Curve | string {
+  const memo = memoOf(ctx);
+  const curve = (to: number, capped: boolean): Curve | string => {
+    const k = kinksOf((q) => { const b = ctx.buy(id, q); return b.isk == null ? NaN : -b.isk; }, to);
+    return k.y.every(Number.isFinite) ? { ...k, to, capped } : ctx.buy(id, to).why ?? 'no price read';
   };
-  let top = Q > 0 ? lastPaying(V, Q) : 0;
-  if (refused) top = Q;
-  opt.top = top < Q - EPS ? { q: top, why: 'pays' } : { q: Q, why };
-  return opt.top;
+  let c = memo.buys.get(`${id}`);
+  if (c === undefined) {
+    const D = reachOf(ctx, 'in', id);
+    const b = ctx.buy(id, D);
+    c = b.isk != null ? curve(D, false) : b.max != null ? curve(Math.max(0, Math.min(D, b.max)), true) : null;
+    memo.buys.set(`${id}`, c);
+  }
+  if (c !== null) return c;
+  const key = `${id}@${full}`;
+  let d = memo.buys.get(key);
+  if (d === undefined) {
+    const b = ctx.buy(id, full);
+    d = b.isk == null ? b.why ?? 'no price read' : curve(full, false);
+    memo.buys.set(key, d);
+  }
+  return d!;
 }
 
 /**
- * Ruling T11-8: T11-6's last paying unit read over the setup, not one planet alone. After the market and supply passes, each planet,
- * in tax order (the order those were dealt in), is held to its last unit that pays given the planets before it: one `lastPaying` on
- * the setup's worth in that planet's own amount, which is concave once costs are convex (Ruling T11-7). Then, with `JOINT_SETTLE`,
- * rounds in the same order hold each planet given all the others, up to what its factories, its alone top and each input's supply
- * left by the others allow, until none moves (at most `SETTLE_ROUNDS`). A planet that shares no product and no input with another is
- * left at its alone figure, which is already its most. Every amount stays at or under its alone top, so the search's bound holds.
- * Changes `q` and `limit` in place; true when it held any planet.
+ * Ruling T11-11: a group of linked planets (sharing a product or an input) sized exactly, by a linear programme over their amounts
+ * (`lp.ts`). The setup's worth is concave and piecewise linear in them (revenue concave, purchases convex, taxes and upkeep a unit), so
+ * it is: each planet's amount (up to its factories), the units sold at each step of each product's sale curve (each up to the step's
+ * depth; what's made past what sells builds up), the units bought at each step of each input's cost curve (each up to its depth, so
+ * what the places supply holds it); what's bought of an input equals what the planets use; the objective is sales less purchases less
+ * each planet's taxes a unit. The figure is `worthOf` at the programme's amounts, and equals its optimum (the tests check). `comp`: the
+ * options, in order.
  */
-const SETTLE_ROUNDS = 6;
-function heldJointly(ctx: BuyCtx, inst: number[], q: number[], limit: BoughtValue['limit']): boolean {
-  const { opts, classes } = ctx;
-  const shares = (a: number, b: number) => opts[inst[a]].x === opts[inst[b]].x || opts[inst[a]].inputs.some((i) => opts[inst[b]].inputs.some((j) => j.id === i.id));
-  const linked = inst.map((_, k) => inst.some((_2, j) => j !== k && shares(k, j)));
-  if (!linked.some(Boolean)) return false;
-  const order = inst.map((_, k) => k).sort((a, b) => byRate(classes[opts[inst[a]].cls].rate, classes[opts[inst[b]].cls].rate) || a - b);
-  const dealt = q.slice();
-  let changed = false;
-  // The worth in planet k's own amount, the others as `at` holds them, shifted so 0 is worth 0 (lastPaying's convention).
-  const bestFor = (k: number, at: number[], upTo: number) => {
-    const base = worthOf(ctx, inst, at.map((x, j) => (j === k ? 0 : x)));
-    if (!Number.isFinite(base)) return at[k];
-    return lastPaying((x) => worthOf(ctx, inst, at.map((y, j) => (j === k ? x : y))) - base, upTo);
+function sizeGroup(ctx: BuyCtx, comp: number[]): Sizing {
+  const { opts } = ctx;
+  const K = comp.length;
+  const U = comp.map((o) => opts[o].n * opts[o].perFactory);
+  const xs = [...new Set(comp.map((o) => opts[o].x))].sort((a, b) => a - b);
+  const ins = [...new Set(comp.flatMap((o) => opts[o].inputs.map((i) => i.id)))].sort((a, b) => a - b);
+  const perOf = (k: number, id: number) => opts[comp[k]].inputs.find((i) => i.id === id)?.per ?? 0;
+  const none: Sizing = { q: comp.map(() => 0), value: 0, lp: 0, upkeep: 0, zeroed: true, refused: null };
+  // Columns: the planets' amounts, then each product's sale steps that pay, then each input's buy steps.
+  const c: number[] = comp.map((o) => -taxUnitOf(ctx, o));
+  const hi: number[] = U.slice();
+  const owner: number[] = comp.map(() => -1);
+  const steps = (cv: Curve, upTo: number, keep: (slope: number) => boolean, row: number) => {
+    for (let j = 0; j + 1 < cv.x.length && cv.x[j] < upTo; j++) {
+      const w = Math.min(cv.x[j + 1], upTo) - cv.x[j], slope = (cv.y[j + 1] - cv.y[j]) / (cv.x[j + 1] - cv.x[j]);
+      if (!(w > 0) || !keep(slope)) continue;
+      c.push(slope); hi.push(w); owner.push(row);
+    }
   };
-  // The ruling's pass: given the planets before it (those after at 0).
-  const at = q.map(() => 0);
-  for (const k of order) {
-    at[k] = dealt[k];
-    if (!order.slice(0, order.indexOf(k)).some((j) => shares(k, j))) continue;
-    const t = bestFor(k, at, dealt[k]);
-    if (t < at[k] - EPS) { at[k] = t; limit[k] = 'joint'; changed = true; }
+  const caps: { id: number; to: number }[] = [];
+  xs.forEach((x, r) => steps(sellCurve(ctx, x), comp.reduce((n, o, k) => n + (opts[o].x === x ? U[k] : 0), 0), (s) => s > 0, r));
+  for (const [r, id] of ins.entries()) {
+    const full = comp.reduce((n, _o, k) => n + U[k] * perOf(k, id), 0);
+    const cv = buyCurve(ctx, id, full);
+    if (typeof cv === 'string') return { ...none, refused: cv };
+    if (cv.capped) caps.push({ id, to: cv.to });
+    steps(cv, full, () => true, xs.length + r);
   }
-  if (JOINT_SETTLE) {
-    // Settling: each planet given all the others, shrinking or growing up to what's left for it.
-    const roomOf = (k: number) => {
-      const opt = opts[inst[k]];
-      let room = Math.min(opt.n * opt.perFactory, topOf(ctx, inst[k]).q);
-      for (const i of opt.inputs) {
-        const others = inst.reduce((n, o, j) => n + (j === k ? 0 : at[j] * (opts[o].inputs.find((y) => y.id === i.id)?.per ?? 0)), 0);
-        const max = ctx.buy(i.id, Math.max(others, 1e-9) + at[k] * i.per).max;
-        if (max != null) room = Math.min(room, Math.max(0, max - others) / i.per);
-      }
-      return room;
-    };
-    for (let round = 0; round < SETTLE_ROUNDS; round++) {
-      let moved = false;
-      for (const k of order) {
-        if (!linked[k]) continue;
-        const room = roomOf(k);
-        // A slope test first: nothing to do when one unit less loses value and one more (if there's room) adds none.
-        const h = Math.max(1e-6, at[k] * 1e-7);
-        const here = worthOf(ctx, inst, at);
-        const less = at[k] > h ? worthOf(ctx, inst, at.map((y, j) => (j === k ? y - h : y))) : -Infinity;
-        const more = at[k] < room - h ? worthOf(ctx, inst, at.map((y, j) => (j === k ? y + h : y))) : -Infinity;
-        const tol = 1e-12 * Math.max(1, Math.abs(here));
-        if (!(less > here + tol) && !(more > here + tol)) continue;
-        const t = bestFor(k, at, room);
-        if (Math.abs(t - at[k]) > EPS) { at[k] = t; moved = true; changed = true; }
-      }
-      if (!moved) break;
-    }
-    // What holds each planet now: all its factories (none), under what it was dealt (the joint hold), over it but short of its room
-    // (the joint hold again: its last unit there pays nothing more), else what held it before.
-    for (const k of order) {
-      if (at[k] >= opts[inst[k]].n * opts[inst[k]].perFactory - EPS) limit[k] = null;
-      else if (at[k] < dealt[k] - EPS || (at[k] > dealt[k] + EPS && at[k] < roomOf(k) - EPS)) limit[k] = 'joint';
-    }
+  const rows = [...xs.map((x) => ({ x, eq: false })), ...ins.map((id) => ({ x: id, eq: true }))].map((row, r) => {
+    const a = c.map((_v, j) => (j < K ? (r < xs.length ? (opts[comp[j]].x === row.x ? -1 : 0) : -perOf(j, row.x)) : owner[j] === r ? 1 : 0));
+    return { a, b: 0, eq: row.eq };
+  });
+  const sol = maximise({ c, hi, rows });
+  const q = sol.x.slice(0, K).map((v, k) => Math.min(U[k], Math.max(0, v)));
+  // An input at what the places supply: the programme's amounts can land a rounding over it; held to it, so a strict closure prices it.
+  for (const { id, to } of caps) {
+    const need = q.reduce((n, v, k) => n + v * perOf(k, id), 0);
+    if (need > to) { const f = (to / need) * (1 - 1e-14); for (let k = 0; k < K; k++) if (perOf(k, id) > 0) q[k] *= f; }
   }
-  for (let k = 0; k < q.length; k++) q[k] = at[k];
-  return changed;
+  for (let k = 0; k < K; k++) if (!(q[k] > 1e-9 * Math.max(1, U[k]))) q[k] = 0;
+  const value = worthOf(ctx, comp, q);
+  if (!Number.isFinite(value)) {
+    const id = ins.find((i) => ctx.buy(i, q.reduce((n, v, k) => n + v * perOf(k, i), 0)).isk == null);
+    return { ...none, refused: (id != null ? ctx.buy(id, q.reduce((n, v, k) => n + v * perOf(k, id), 0)).why : null) ?? 'no price read' };
+  }
+  return { q, value, lp: sol.value, upkeep: comp.reduce((n, o, k) => n + restocksOf(ctx, o, q[k]), 0), zeroed: q.some((v) => !(v > 0)), refused: null };
 }
 
 /**
- * Factory planets on bought inputs, worked out together: each good summed and sold once, so two planets share one market's
- * cap; a planet's factories run for what sells, the lowest-tax planet first, and buy only what they use (inputs summed and
- * bought once). What the market supplies of an input a day (`Bought.max`) is shared the same way, the lowest-tax planet first,
- * and holds a planet's factories to what it allows (Ruling T11-3): a cap sizes the setup down, never blocks it. Each pays import
- * tax at half its rate on what it buys and export tax on what it sells. Null when an input can't be priced at the amount, or a
- * planet would make nothing.
+ * A set of factory planets sized together (Ruling T11-11): planets linked by a product or an input are sized as one group (`sizeGroup`),
+ * kept by the group's options so a group met again in the search isn't sized again; groups sharing nothing are independent, and their
+ * figures add. `zeroed` when a planet is sized to nothing: the set is then worth what the others are.
+ */
+function sizeSet(ctx: BuyCtx, inst: number[]): Sizing {
+  const memo = memoOf(ctx), { opts } = ctx;
+  const root = inst.map((_, k) => k);
+  const find = (k: number): number => (root[k] === k ? k : (root[k] = find(root[k])));
+  const first = new Map<string, number>();
+  inst.forEach((o, k) => {
+    for (const g of [`x${opts[o].x}`, ...opts[o].inputs.map((i) => `i${i.id}`)]) {
+      const j = first.get(g);
+      if (j == null) first.set(g, k); else root[find(k)] = find(j);
+    }
+  });
+  const groups = new Map<number, number[]>();
+  inst.forEach((_, k) => { const r = find(k); const g = groups.get(r) ?? []; g.push(k); groups.set(r, g); });
+  const out: Sizing = { q: inst.map(() => 0), value: 0, lp: 0, upkeep: 0, zeroed: false, refused: null };
+  for (const ks of groups.values()) {
+    ks.sort((a, b) => inst[a] - inst[b] || a - b);
+    const comp = ks.map((k) => inst[k]), key = comp.join(',');
+    let s = memo.sized.get(key);
+    if (!s) memo.sized.set(key, s = sizeGroup(ctx, comp));
+    if (s.refused) return { ...out, refused: s.refused, zeroed: true };
+    ks.forEach((k, t) => { out.q[k] = s!.q[t]; });
+    out.value += s.value; out.lp += s.lp; out.upkeep += s.upkeep;
+    out.zeroed ||= s.zeroed;
+  }
+  return out;
+}
+
+/** A set with every planet the sizing zeroes taken out, again until none is: the same worth (a planet at nothing adds nothing). Null when nothing is left or it's refused. */
+function liveOf(ctx: BuyCtx, inst: number[], s: Sizing): { inst: number[]; s: Sizing } | null {
+  for (let left = inst.length; s.zeroed && !s.refused && left-- > 0;) {
+    const q = s.q;
+    inst = inst.filter((_, k) => q[k] > 0);
+    if (!inst.length) return null;
+    s = sizeSet(ctx, inst);
+  }
+  return s.refused || s.zeroed ? null : { inst, s };
+}
+
+/**
+ * Factory planets on bought inputs, worked out together (Ruling T11-11): each good summed and sold once, so two planets share one
+ * market; each input summed and bought once, so they share what its places supply; each planet paying import tax at half its rate on
+ * what it buys and export tax on what it sells; every planet's amount sized at once to the setup's most (`sizeSet`), so no unit in the
+ * figure loses money. Null when an input can't be bought at the amount, or a planet is sized to nothing.
  */
 function valueBought(ctx: BuyCtx, inst: number[]): BoughtValue | null {
   const { input, sold, buy, classes, opts } = ctx;
   const { ix } = input;
-  const q = inst.map(() => 0);
-  const limit: BoughtValue['limit'] = inst.map(() => null);
+  const s = sizeSet(ctx, inst);
+  if (s.refused) { ctx.buyWhy ??= s.refused; return null; }
+  if (s.zeroed) return null;
+  const q = s.q;
   const byX = new Map<number, number[]>();
   inst.forEach((o, k) => { const xs = byX.get(opts[o].x) ?? []; xs.push(k); byX.set(opts[o].x, xs); });
-  for (const [x, ks] of byX) {
-    const full = ks.reduce((n, k) => n + opts[inst[k]].n * opts[inst[k]].perFactory, 0);
-    const s = sold(x, full);
-    let left = s.isk == null ? 0 : s.units;
-    for (const k of [...ks].sort((a, b) => byRate(classes[opts[inst[a]].cls].rate, classes[opts[inst[b]].cls].rate) || a - b)) {
-      const most = opts[inst[k]].n * opts[inst[k]].perFactory;
-      // The last unit that pays (Ruling T11-6), worked out alone: a planet never runs on into units that lose.
-      const top = topOf(ctx, inst[k]);
-      q[k] = Math.min(most, top.q, Math.max(0, left));
-      // What held it: what's left of the shared market, else what held it alone (the last paying unit, what sells, an input's supply).
-      if (q[k] < most - EPS) limit[k] = left < top.q - EPS ? 'market' : top.why ?? 'market';
-      left -= q[k];
-    }
-  }
-  if (q.some((x) => !(x > MIN_RATE))) return null;
-  const needOf = () => {
-    const m = new Map<number, number>();
-    inst.forEach((o, k) => { for (const i of opts[o].inputs) m.set(i.id, (m.get(i.id) ?? 0) + q[k] * i.per); });
-    return m;
-  };
-  // What each input's market supplies a day, shared by the planets that use it in one order (the lowest tax first, then the order
-  // given): each planet runs for no more than what's left of every input it takes.
-  const left = new Map<number, number>();
-  for (const [id, amount] of needOf()) {
-    const max = buy(id, amount).max;
-    if (max != null && amount > max * (1 + 1e-9)) left.set(id, max);
-  }
-  if (left.size) {
-    for (const k of inst.map((_, k) => k).sort((a, b) => byRate(classes[opts[inst[a]].cls].rate, classes[opts[inst[b]].cls].rate) || a - b)) {
-      for (const i of opts[inst[k]].inputs) {
-        const m = left.get(i.id);
-        if (m == null) continue;
-        const allows = Math.max(0, m) / i.per;
-        if (allows < q[k] - EPS) { q[k] = allows; limit[k] = i.id; }
-      }
-      for (const i of opts[inst[k]].inputs) if (left.has(i.id)) left.set(i.id, left.get(i.id)! - q[k] * i.per);
-    }
-    if (q.some((x) => !(x > MIN_RATE))) return null;
-  }
-  if (inst.length > 1 && heldJointly(ctx, inst, q, limit) && q.some((x) => !(x > MIN_RATE))) return null;
   const soldBy = new Map<number, Sold>();
   for (const [x, ks] of byX) soldBy.set(x, sold(x, ks.reduce((n, k) => n + q[k], 0)));
-  const need = needOf();
+  const need = new Map<number, number>();
+  inst.forEach((o, k) => { for (const i of opts[o].inputs) need.set(i.id, (need.get(i.id) ?? 0) + q[k] * i.per); });
   let value = 0;
-  for (const s of soldBy.values()) value += s.isk ?? 0;
+  for (const v of soldBy.values()) value += v.isk ?? 0;
   const bought = new Map<number, Bought>();
   for (const [id, amount] of need) {
     const b = buy(id, amount);
@@ -2134,26 +2144,29 @@ function valueBought(ctx: BuyCtx, inst: number[]): BoughtValue | null {
     return mergeRows([...taxRows(ix, opts[o].inputs.map((i) => ({ id: i.id, perDay: q[k] * i.per })), rate, 0.5), ...taxRows(ix, [{ id: opts[o].x, perDay: q[k] }], rate, 1)]);
   });
   for (const rows of tax) for (const t of rows) value -= t.perDay ?? 0;
-  // The launchpad holds what's brought in and what's made (Ruling T11-4): a visit empties and refills it, on both.
-  const restocks = inst.map((o, k) => {
-    const t = classes[opts[o].cls].t;
-    const m3 = opts[o].inputs.reduce((n, i) => n + q[k] * i.per * (ix.byId.get(i.id)?.volume ?? 0), 0) + q[k] * (ix.byId.get(opts[o].x)?.volume ?? 0);
-    return (m3 * 7) / ix.planetTypes[t].pins.launchpad.capacity;
+  const restocks = inst.map((o, k) => restocksOf(ctx, o, q[k]));
+  // What holds each planet below what fits, in order: an input whose places' supply it reached, what the market takes of its product,
+  // its last paying unit (where it would stop alone too), else the other planets' share of a market or a supply.
+  const at = (v: number, to: number) => v >= to * (1 - 1e-9) - 1e-9;
+  const limit: BoughtValue['limit'] = inst.map((o, k) => {
+    const opt = opts[o];
+    if (at(q[k], opt.n * opt.perFactory)) return null;
+    for (const i of opt.inputs) {
+      const cv = memoOf(ctx).buys.get(`${i.id}`);
+      if (cv && typeof cv !== 'string' && cv.capped && at(need.get(i.id) ?? 0, cv.to)) return i.id;
+    }
+    const sc = sellCurve(ctx, opt.x);
+    if (sc.capped && at(byX.get(opt.x)!.reduce((n, j) => n + q[j], 0), sc.to)) return 'market';
+    const alone = sizeSet(ctx, [o]);
+    return !alone.refused && at(q[k], alone.q[0]) ? 'pays' : 'joint';
   });
   return { score: { value, unpriced: 0, upkeep: restocks.reduce((n, x) => n + x, 0) }, q, limit, sold: soldBy, need, bought, tax, restocks };
 }
 
-/**
- * A factory planet on bought inputs: each planet allowed buys its inputs through `buy` and makes a P2 or P3, or a P4 on
- * Barren or Temperate (where High-Tech plants fit), from one recipe step. Every product and planet assignment is searched,
- * the products by what each would make alone, a product whose ISK at full capacity can't beat the best so far skipped.
- */
-export function planBought(input: PlanInput): Setup {
+/** The bought setup's context: the planets in classes alike for it, and each product a class could make whose sale and inputs price at one unit. */
+function boughtCtx(input: PlanInput): { ctx: BuyCtx; inputWhy: string | null; anyPriced: boolean } {
   const { char, ix } = input;
-  const cw = charWhy(char);
-  if (cw) return blocked(input, 'bought', cw, char.alpha === true ? ['Omega'] : []);
-  if (!input.planets.some((p) => p.type)) return blocked(input, 'bought', NO_PI_HERE, []);
-  const cc = char.ccLevel!, allowed = char.planets!;
+  const cc = char.ccLevel!;
   const sold = seller(input.sell), buy = buyer(input.buy);
   const counts = new Map<number, [number, number]>();
   const nOf = (p: PlanPlanet, t: PlanetType): [number, number] | null => {
@@ -2163,8 +2176,6 @@ export function planBought(input: PlanInput): Setup {
     return n;
   };
   const classes = classesOf(input, (p, t) => { const n = nOf(p, t); return n ? `${t}|${p.tax.rate ?? '?'}|${n[0]}|${n[1]}` : null; });
-  const sizeWhy = 'This planet’s size isn’t known, so how many factories fit isn’t known';
-  if (!classes.length) return blocked(input, 'bought', sizeWhy, []);
   const ctx: BuyCtx = { input, sold, buy, classes, opts: [], buyWhy: null };
   let inputWhy: string | null = null, anyPriced = false;
   classes.forEach((c, ci) => {
@@ -2179,7 +2190,51 @@ export function planBought(input: PlanInput): Setup {
       ctx.opts.push({ cls: ci, x: s.out.id, facility: s.facility, n, perFactory: anHour(s, s.out.qty) * 24, inputs: s.inputs.map((i) => ({ id: i.id, per: i.qty / s.out.qty })), alone: 0 });
     }
   });
-  ctx.opts.forEach((o, i) => { o.alone = valueBought(ctx, [i])?.score.value ?? -Infinity; });
+  return { ctx, inputWhy, anyPriced };
+}
+
+/**
+ * What factory planets on bought inputs make, sized exactly (Ruling T11-11): each pick a planet and the product it makes. `value` is the
+ * figure the planner shows (`worthOf` at the amounts), `lp` the linear programme's own optimum, which equals it, `q` each pick's amount a
+ * day. Null when a pick can't be made there or isn't priced, an input is refused, or a planet is sized to nothing. For the tests.
+ */
+export function sizeBought(input: PlanInput, picks: { planetId: number; x: number }[]): { value: number; lp: number; q: number[] } | null {
+  if (charWhy(input.char)) return null;
+  const { ctx } = boughtCtx(input);
+  const inst: number[] = [];
+  for (const p of picks) {
+    const ci = ctx.classes.findIndex((c) => c.members.some((m) => m.planet.planetId === p.planetId));
+    const o = ctx.opts.findIndex((op) => op.cls === ci && op.x === p.x);
+    if (ci < 0 || o < 0) return null;
+    inst.push(o);
+  }
+  const v = valueBought(ctx, inst);
+  return v && { value: v.score.value, lp: sizeSet(ctx, inst).lp, q: v.q };
+}
+
+/**
+ * A factory planet on bought inputs: each planet allowed buys its inputs through `buy` and makes a P2 or P3, or a P4 on
+ * Barren or Temperate (where High-Tech plants fit), from one recipe step. Every product and planet assignment is searched,
+ * the products by what each would make alone, each set sized exactly (`sizeSet`), and a branch skipped when the set's worth and
+ * what the products still to add make alone can't beat the best so far.
+ */
+export function planBought(input: PlanInput): Setup {
+  const { char, ix } = input;
+  const cw = charWhy(char);
+  if (cw) return blocked(input, 'bought', cw, char.alpha === true ? ['Omega'] : []);
+  if (!input.planets.some((p) => p.type)) return blocked(input, 'bought', NO_PI_HERE, []);
+  const cc = char.ccLevel!, allowed = char.planets!;
+  const { ctx, inputWhy, anyPriced } = boughtCtx(input);
+  const { classes } = ctx;
+  const sizeWhy = 'This planet’s size isn’t known, so how many factories fit isn’t known';
+  if (!classes.length) return blocked(input, 'bought', sizeWhy, []);
+  // Each option alone, sized exactly: the most it can add to any set (revenue concave and costs convex, a planet beside others adds
+  // no more than alone), which the search's bound rests on.
+  ctx.opts.forEach((o, i) => {
+    const s = sizeSet(ctx, [i]);
+    if (s.refused) ctx.buyWhy ??= s.refused;
+    o.alone = s.refused || s.zeroed ? -Infinity : s.value;
+  });
   const byAlone = ctx.opts.map((_, i) => i).filter((i) => ctx.opts[i].alone > SAME_ISK)
     .sort((a, b) => ctx.opts[b].alone - ctx.opts[a].alone || byRate(classes[ctx.opts[a].cls].rate, classes[ctx.opts[b].cls].rate) || a - b);
   // Priced at one unit, an input can still be refused at the amount a planet's factories take (a hub too thin for a week's need):
@@ -2214,10 +2269,14 @@ export function planBought(input: PlanInput): Setup {
       if (best && !mayBeat(cur + topFrom(j, left), curUpkeep, best.score)) break;
       if (tries-- <= 0) { cut = true; return; }
       room[o.cls]--; inst.push(byAlone[j]);
-      const v = valueBought(ctx, inst);
-      if (v) {
-        if (beats(v.score, best?.score ?? null)) best = { score: v.score, inst: inst.slice() };
-        if (left > 1) dfs(j, v.score.value, v.score.upkeep, left - 1);
+      const s = sizeSet(ctx, inst);
+      // Sized exactly, `s.value` is the set's most, so `cur + topFrom` bounds every set grown from it. A set the sizing zeroes a planet
+      // in is worth what the rest are (they stand for it), and is no dead end: a planet added can bring the zeroed one back.
+      if (!s.refused) {
+        const live = s.zeroed ? liveOf(ctx, inst.slice(), s) : { inst, s };
+        const score = live && { value: live.s.value, unpriced: 0, upkeep: live.s.upkeep };
+        if (live && score && beats(score, best?.score ?? null)) best = { score, inst: live.inst.slice() };
+        if (left > 1) dfs(j, s.value, s.upkeep, left - 1);
       }
       inst.pop(); room[o.cls]++;
     }
