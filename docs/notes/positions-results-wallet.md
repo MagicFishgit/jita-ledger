@@ -164,7 +164,7 @@ against play, rewards, HyperNet, what you built and copied, transfers, net worth
     every item" and "Sold, never bought", `otherSales` skips its sales), which would have taken an item both built and bought out
     of trading entirely. Instead a claimed sale's units come off Results' every-item position (`Position.claimed`: the sale is
     counted for what's left, its tax pro rata, and the sell orders' broker fees are spread over the claimed units too, so
-    trading isn't charged the listing fee of what it didn't sell; that fee is in neither, industry-jobs.md), and `attribute` and
+    trading isn't charged the listing fee of what it didn't sell; that fee is in neither), and `attribute` and
     `otherSales` see only what's left. So an item both built and bought keeps its bought part's profit in trading (tested:
     10 bought, 10 built, 15 sold: trading sells 5 against what it bought). `everyItemCalcs`' key, and the Results, Wallet and
     Omega memos on it, gained `claimsOf(d)` itself: the same Map while its inputs hold, one constant without jobs.
@@ -192,7 +192,7 @@ against play, rewards, HyperNet, what you built and copied, transfers, net worth
   - **A sale Industry claims offers no position on the Wallet** ("Trades no position tracks" says "Built by you: Industry counts
     it", or how many of the sale's units, and has no Start a position; its tag and the cash flow stay as they were). A position
     opened on a product you build counts its sales, which are then never claimed, and reads the built units as sold beyond what
-    it bought (`oversold`), left out of both (industry-jobs.md): open positions only for what you buy.
+    it bought (`oversold`), left out of both: open positions only for what you buy.
   - **While the blueprints load, nothing is said as a figure** (pre-flight I4): the bundle loads beyond the Industry tab only
     for a ledger with a manufacturing job whose ME was recorded. Meanwhile Results' Industry reads "Working out…" with "Reading
     the blueprints, to cost what you built…" under it and the Made tile says what you built is still being worked out; the
@@ -250,6 +250,30 @@ Moved here from limits.md on 19 October 2026: state these rather than letting th
   income only for the stores you currently hold points with.
 - **The Wallet's unusual-activity check is a prompt, not a detector**: new donors, large donations out, and big
   contracts at hours with under 2% of your journal activity.
+- **A Sniper "Copy all" with a ship in it is guessed Personal on the Wallet** ("a fit to fly", the multibuy rule); Results
+  and Your snipes read only what you mark.
+- **All income doesn't net the 10,000 ISK datacore fee against datacore sales**: the fee is its own Wallet line,
+  "Datacores from agents", and the datacores sell as "Sold, never bought" (or as trading when you also bought some).
+- **Built and sold costs each job's materials at the blueprint's ME as first seen running**, with your site's bonuses where it
+  ran at one (an NPC station has none; another structure's aren't known and aren't applied, nor a site of kind Other's, nor a
+  site's rigs when its system's security couldn't be read, each said), at what you still held from your purchases at the job's
+  start, newest first (a purchase sold again before the job isn't held, so trading and Industry never both cost it); materials
+  you never bought, or bought and sold again, aren't costed, and are said. **But a material still held at the job and sold
+  later, along with units you didn't buy, is still costed in both**: Results' every-item lots don't know a job used units, so
+  they cost the later sale against the purchases the job took. **Materials bought inside a tracked position stay in its stock**
+  after a job uses them (no income counted twice: a position realizes only on sales). **A buy order's broker fee on a material
+  counts nowhere** (Industry costs materials at their price; trading carries the fee in stock never sold), beside built units'
+  share of their sell orders' broker fees (in neither Industry nor trading). Invention's datacores and copies aren't charged. A
+  job with no cost from ESI and no journal entry naming it is charged no fee, and said. **A home you typed in (no structure ID)
+  matches no job**, as for the job check: its jobs are costed with no structure or rig bonus, so their materials read up to its
+  material bonus dear (said as "a structure that isn't one of your build sites"), until it has the structure's ID: found by name,
+  or chosen from the structures in its system your jobs ran at (the sites table offers them; never set by itself). A sale split
+  between built and bought units is claimed for the built ones first, and a built unit used or moved rather than sold can still
+  claim a later sale of bought stock. Each character's own: a unit built by one and sold by another isn't claimed. **A position
+  opened on a product you build reads the built units' sales as sold beyond what it bought, left out of its profit and, since a
+  sale a position counts is never claimed, out of Industry's too**: open positions only for what you buy (the Wallet offers none
+  on a sale Industry counts). The Wallet's "Trades no position tracks" says a built sale's why ("Built by you: Industry counts
+  it"), but its tag and the cash flow's "Loot & other sales" stay as `autoTag` reads it.
 - **HyperNet tickets are play, and a prize counts only when sold** (positions-results-wallet.md): no ticket can be tied to its offer, so
   there's no result per offer; a win leaves no ISK trace; an unsold prize sits in net worth at CCP's average price, which flatters
   a hard-to-sell ship; a refund's shape hasn't been seen (it is taken to cancel tickets on their line).

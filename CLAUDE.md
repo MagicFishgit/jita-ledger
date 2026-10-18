@@ -26,6 +26,7 @@ npm run check-income  # the main's income figures against a recording, and alts 
 npm run build    # tsc --noEmit && vite build
 npm run dev      # http://localhost:5173/jita-ledger/
 npm run scan-live   # end-to-end funnel against real ESI (needs the resolver hook, so not bare node)
+npm run notes-budget   # instruction characters each file loads (CLAUDE.md, imports, its rules); fails at 140,000
 ```
 
 **Verify before claiming.** `npm run check` and `npm run build` for every change, `npm run check-pages` for any
@@ -148,13 +149,13 @@ The heaviest file to open was then `Orders.tsx`, at about 120,000. The Planets n
 `npm run notes-budget` (this file, its imports and every rule note whose `paths:` match, for every tracked file under
 `src/`, `worker/` and `scripts/`) found 161 files past 140,000 (`lib/prospects.ts` 235,870, Industry's 212,351,
 `Orders.tsx` 201,842) and 94,461 loaded at the start. So limits.md left the start, and industry, finding-trades,
-market-reading, orders-alerts and positions-results were split by area (no fact cut): now 58,423 at the start and none
-past 133,724 (`lib/relist.ts`). Run it after adding to a note: it fails at 140,000, and the fix is the same split by
-area.
+market-reading, orders-alerts and positions-results were split by area (no fact cut): now 58,865 at the start and none
+past 136,310 (`Todo.tsx`). Run it after adding to a note: it fails at 140,000, and the fix is the same split by area.
 
 Loaded when you read a file it covers (`.claude/rules/<topic>.md`: a `paths:` list and an import of the note). A
 session that hasn't read such a file doesn't have the note, so **Read it yourself before designing, researching or
-answering in its area**:
+answering in its area**. A file loads only the parts about it: a page or shell that touches other areas (Orders, To do,
+a tab's shell) doesn't load theirs, so Read them too:
 
 - `eve-facts.md` (anything under `src/`, `worker/` or `scripts/`): EVE and ESI facts that cost real research: ESI itself,
   logins and accounts, the wallet and journal. Don't re-derive or contradict these, or the four below, without new
@@ -200,7 +201,9 @@ Always loaded, imported below, because they apply to any change:
 - `known-bugs.md`: verified bugs not yet fixed.
 
 **Honest limits of the model, to state rather than let be discovered, load with their area** since 19 October 2026: each
-area's are a `## Limits` section at the end of its note, and limits.md keeps the three that hold for all trading.
+note ends with a `## Limits` for the decisions it holds (Industry's are in its parts, not industry.md; To do's in
+orders-alerts-todo, the Wallet's and Results' in positions-results-wallet), and limits.md keeps the three that hold for
+all trading. `grep -n '^## Limits' docs/notes/*.md` lists them.
 
 Keeping it that way: a new source file goes in its topic's `paths:`; a new note gets a rule of its own rather than an
 import here, and its honest limits a `## Limits` section at its end; and a rule's frontmatter has to stay valid YAML,

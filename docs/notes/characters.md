@@ -63,7 +63,7 @@ logins are in characters-cloud.md, mining across characters in mining.md (split 
   on an empty ledger. `chars` goes up only when you edit it (a clone state), carrying every character the device knows.
 - **ISK moved between two of your characters is a transfer** (stage 4: `ownTransfer` and `ownIds` in `lib/roster.ts`, the
   optional `mine` on `categoryOf`, `describeRef`, `flows`, `unusual` and `attribute`; without it each answers as before).
-  Yours are the main and every character in `chars`, removed ones too, so past transfers stay transfers (characters.md: a
+  Yours are the main and every character in `chars`, removed ones too, so past transfers stay transfers (a
   sold one stays yours). A donation, direct trade or contract counts only when it names two *distinct* parties, both
   yours: CCP writes some of a character's own entries (`market_escrow` among them) with it on both sides, which a set of
   the main alone would otherwise make transfers. Only donations are known to name both (eve-facts). The Wallet shows them once, as "Between your characters", and nothing it sums counts them

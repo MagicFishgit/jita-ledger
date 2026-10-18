@@ -96,3 +96,14 @@ plans.
   isn't checked against today's market."). After a skip, To do offers **Close position** for the item's empty position when
   the plan opened it (kind `close`, version `skipped`, `skippedEmptyItem`), as it does a position backed out of after a
   cancelled bid; put back on the plan, that item is done ("You put it back on the plan: place its bid from the checklist.").
+
+## Limits
+
+Moved here from limits.md on 19 October 2026: state these rather than letting them be discovered.
+
+- **"Feeds a long queue" counts your own listings at any price**, and tags a buy not meant for resale alike (ore bought for
+  a freelance job; ore markets clear fast, so unlikely). **Its To do item ticks off when a check no longer tags it**,
+  which a pace the check can no longer read does too: the words say what Orders now shows, not that the queue is short.
+- **To do's "Fewer datacores waiting: bought, most likely" is an inference**: cancelling and starting again with the same
+  agent between ESI's hourly reads reads the same.
+- **List what you built can lag and can come back** (To do, industry-jobs.md). Its units come from the hangar copy ESI holds for an hour, so an item can stay up to about an hour after you've listed; units are alike, so an old job's item can come back if you later buy the same product at that place (stated, not bounded); and products delivered into a container never list (nested units aren't loose stock) until the first real delivery says how they land. A ship is "checking" until its kind is read and is never priced at Jita from a home hub while "never haul ships to Jita" is on. "Either" lists at Jita here.

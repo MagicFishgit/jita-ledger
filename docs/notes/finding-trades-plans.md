@@ -57,7 +57,7 @@ against today's book, and the list step for what the plan bought.
   - **cancelled**: nothing placed, and a Jita 4-4 buy of it was cancelled with nothing bought, placed since the plan
     started (less SLACK_MS) or since its position opened when that was within the day before the plan. Not
     `planPlacement`'s fallback hour before the plan: ESI doesn't say when an order was cancelled, and the review (8
-    October 2026) found that a bid placed, cancelled, and then a plan started with the item never asked for it (finding-trades-plans.md).
+    October 2026) found that a bid placed, cancelled, and then a plan started with the item never asked for it.
     So the checklist names the bid ("Your bid of 9 at 2,813,000 ISK, placed 2 Oct") rather than a date. A new bid placed
     after it counts as placing it, as ever: re-placing at another price;
   - **skipped**: nothing placed, and you pressed Skip it, offered when today's book had moved from the plan's prices (the
@@ -141,7 +141,7 @@ against today's book, and the list step for what the plan bought.
     since the position opened has filled that no sale records yet still count as listed, or a listing that sold would read
     as stock to list again until its trade came, up to an hour later. Each item is listed under the one plan
     `planTargets` gives it: Clone Soldier Transporter Tag is in both the 30 September and 2 October plans on one position.
-    The hangar cap has a cost (finding-trades-plans.md): a hangar read from before a fill reads the item as none, so a filled buy reaches
+    The hangar cap has a cost: a hangar read from before a fill reads the item as none, so a filled buy reaches
     the list only at the next assets read (ESI holds them an hour), and its trade has to arrive first too.
   - **The price**: Place and leave lists at the plan's own `sellAt` (list and wait), with today's List patiently beside it
     (`reachedAsk` at FILL_TYPICAL, one step over others' best bid at least, as the position page shows it); at the front,
@@ -158,7 +158,7 @@ against today's book, and the list step for what the plan bought.
     listing of 801,200 ISK"). At the front the price is already today's listing price, so only a break-even lift over it is
     said. "Today's cheapest listing" is others' cheapest as it is: `marketBest`'s token-guarded front was tried and read
     Fed Navy's at 919,000, skipping 379 real units from 801,200 (known-bugs.md), hiding the very case; so one unit listed
-    far under can say the market moved down (finding-trades-plans.md). The position page's "The plan sells at" reads the same book and
+    far under can say the market moved down. The position page's "The plan sells at" reads the same book and
     says when its profit is "at a price over today's cheapest listing". On the review's held items (`liststep-today.mjs`): 5 of 8 Place-and-leave items now say the market moved down (3
     before, by List patiently: Gravid Modulated Strip Miner, Raging Dark, the Infiltrator; now Fed Navy Insignia and
     Raging Gamma Filament, 6.5% under, too), and all 8 profits carry the caveat.

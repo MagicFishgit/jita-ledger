@@ -1,7 +1,7 @@
 ---
 paths:
   - "src/lib/{fills,prospects,evaluate,relist}.ts"
-  - "src/components/Calculator.tsx"
+  - "src/components/{Calculator,Prospects}.tsx"
 ---
 
 # Reading the market

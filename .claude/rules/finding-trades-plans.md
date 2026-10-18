@@ -1,7 +1,7 @@
 ---
 paths:
-  - "src/lib/plans.ts"
-  - "src/components/PlanStart.tsx"
+  - "src/lib/{plans,todo}.ts"
+  - "src/components/{PlanStart,Todo}.tsx"
   - "src/components/planListing.ts"
 ---
 

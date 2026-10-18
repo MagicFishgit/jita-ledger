@@ -90,7 +90,7 @@ Multibuy and blueprint contracts in finding-trades-sniper.md.
   or more in the 14 days, not in a row) saw twice as many units newly placed at the front as filled on a side, 2 changes
   on that side, each k × price × the whole order, come off the margin before "Return ≥ %" and the ranking ("Raises kept
   back"). Not on Place and leave; on Busy markets too. At one-for-one it hit 93 of 94 watched candidates; at twice, 91,
-  removing 7, median −1.05%. An unwatched item carries none (finding-trades.md); its tip and the planner's Guide say so.
+  removing 7, median −1.05%. An unwatched item carries none; its tip and the planner's Guide say so.
 - **Measured on the cloud's 1 October scan** (13,465 items, the user's rates, the planner's defaults): 957 → 779
   candidates at the front (−18.6%: the recent window −145 and 148 repriced, run-up −36, reserve −7, 7 newly admitted);
   Place and leave 942 → 923 (the run-up); the 25%-cap mix 95.47 M → 77.70 M ISK a day. The planner also follows the

@@ -1,7 +1,7 @@
 ---
 paths:
   - "src/lib/{industryRank,industrySites,industryLadder,nameReader}.ts"
-  - "src/components/hustles/{IndustryStart.tsx,IndustrySites.tsx,IndustryBuild.tsx,IndustryDetail.tsx,industryFinder.ts}"
+  - "src/components/hustles/{Industry.tsx,IndustryStart.tsx,IndustrySites.tsx,IndustryBuild.tsx,IndustryDetail.tsx,industryFinder.ts}"
   - "src/components/FindStructure.tsx"
   - "scripts/industry-bundle.mjs"
   - "worker/src/goonmetrics.ts"

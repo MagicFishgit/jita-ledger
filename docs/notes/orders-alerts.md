@@ -112,7 +112,7 @@ words in orders-alerts-orders.md, and List loot in orders-alerts-loot.md.
   and a mail holding one names the switch ("Turn off mail about high bids in Jita Ledger → Settings → Alerts → Mail me
   about → High bid for what you hold."), as does the Sniper page's held-bids panel. A config saved before the switch existed
   (every one then) takes Mistake listing's two values for it (`sanitizeAlerts`), so nothing changes until it's unticked
-  (orders-alerts.md: an older build's save drops it). **Mistake listings keep their per-listing key** (`snipe:<order>@<price>`): a
+  (an older build's save drops it). **Mistake listings keep their per-listing key** (`snipe:<order>@<price>`): a
   listing repriced is a new chance to buy, and nothing has shown them repeating. The first Sniper round after the deploy
   mails a held high bid once more, since its old keys don't match the new one.
 - **Pages that need the same live answer share one store**: `orderCheck` (your orders against the book),

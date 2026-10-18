@@ -102,7 +102,7 @@ on the fortnight, Market moved, the round trips a plan expects, the run-up bar, 
     3 days and 12.0 within 7, against 0, 0 and 2 that came round by the count's own rule (a day's low at or under the plan's
     bid, then a high at or over its sale, by ESI's days from placing); the review's 6 within 7 days are the round trips the
     user traded (one at a loss), which also counts sales under the plan's price. The markets moved away from the
-    fortnight's prices (finding-trades-leave.md). Cost: 57 µs an item on top of statsFrom's ~830
+    fortnight's prices. Cost: 57 µs an item on top of statsFrom's ~830
     (1,721 histories of up to 396 days), 0.8 s over the scan's 13,434 items; 58 bytes an item stored, 0.78 MB on the
     scan's 17.2 MB of stats and books (4.5%).
 - **Orders you're leaving aren't told to get back in front** (`Data.leave`, a synced doc of type IDs; `leave` in

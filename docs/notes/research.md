@@ -243,7 +243,7 @@ behind it, with every figure's source and where sources disagree, is `.playwrigh
 - **The fee** (`datacore_fee` in `categoryOf`): a Wallet line of its own, "Datacores from agents", a business cost, its
   entries "Datacore fees"; not a running cost. It fell to "Other spending" before. None is in the user's journal yet (3
   October 2026), nor in the recorded ledgers, so `npm run check-income` passed unchanged. All income doesn't net the fee
-  against datacore sales (research.md).
+  against datacore sales (positions-results-wallet.md).
 - **The setting lives in the synced prefs, and an older build's save can drop it** (`sanitizePrefs` keeps only the fields
   it knows, as with every late pref): a device on a version from before it that saves its prefs writes them without
   `researchCashIn`, and the reminder then reads off until set again. Browsers reload to a new version within minutes
@@ -300,7 +300,6 @@ Moved here from limits.md on 19 October 2026: state these rather than letting th
   should be and says so when the two differ past 2 RP or 2%.
 - **An alt's standings and research are as of the cloud's last hourly read**, and stop at it while its login is refused or
   not held (the page says which).
-- **All income doesn't net the 10,000 ISK datacore fee against datacore sales**: the fee is its own Wallet line,
-  "Datacores from agents", and the datacores sell as "Sold, never bought" (or as trading when you also bought some).
-- **To do's "Fewer datacores waiting: bought, most likely" is an inference**: cancelling and starting again with the same
-  agent between ESI's hourly reads reads the same.
+
+Moved to orders-alerts-todo.md, with To do's limits: "Fewer datacores waiting: bought, most likely" as an inference.
+Moved to positions-results-wallet.md, with the Wallet's: All income and the datacore fee.

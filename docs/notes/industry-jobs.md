@@ -48,7 +48,7 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   - **Read states, never zeros** (`Read<T>`, `charRows`): not read yet, login lacking the permission, handed over without it,
     lost. Read data wins over a lost login and says it is as the cloud last read it (`lostSaid`, now in `pilot.ts` for Research
     and Industry). Totals count only characters read and say how many. A stage-1 `meta.industry` is not a jobs read.
-  - **Slots in use count ready jobs** (correction 13): a finished job is said to hold its slot until delivered (industry-jobs.md).
+  - **Slots in use count ready jobs** (correction 13): a finished job is said to hold its slot until delivered.
   - **Each blueprint row is worked out at its own character's** usable skills, clone, Jita fees and mining (`charInput`), with
     every character's open orders off the books (`useFinder`'s `own`); the finder's inputs come from the shown character, else
     the first with skills read. A held copy is built as it is and never invented again (`RowInput.held`, correction 12).
@@ -130,7 +130,7 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
 - **To do lists an alt's jobs to deliver** (Task 12A): `industry:<char>:<place>`, seen at the alt's `sheet` read and judged only on a roster read of this session; the rule is in orders-alerts-todo.md.
 - **To do lists what you built** (Task 12B): `built:<char>:<product>:<place>`, the rule and its version in orders-alerts-todo.md. Two corrections to the spec. **Correction 15, where it's listed follows where it sits** (`builtWhere`): in Jita 4-4 on Jita's live book (`listingPrice`, every character's open orders taken off it), at the home hub's structure or in its system on the hub's Goonmetrics sell less a tick, anywhere else by the `industry` doc's `sell` choice, and a ship never goes to Jita while "never haul ships to Jita" is on (with no hub picked it says so and prices nothing). Running the finder inside To do would load the bundle, the map and every book. **Correction 18, versioned by the newest delivered job's ID**, not every delivered job's: the item is built from the newest jobs whose units the place still holds, so listing part of an older batch would drop that job, change the version and reopen a hand tick the user meant to hold. Another delivery changes it, which is when a hand tick should reopen. The place is named as an alt's jobs' facilities are (`jobPlaceSaid`, one `/universe/names` call for both).
 - **Built and sold is the Industry activity** (Task 13, 11 October 2026: `builtClaims`, `builtAndSold`, `JOB_FEE_REFS` here; the
-  claim order, what it counts and every state's words are in positions-results-wallet.md, its limits in industry-jobs.md). Three corrections to
+  claim order, what it counts and every state's words are in positions-results-wallet.md, its limits in positions-results-wallet.md). Three corrections to
   the spec: **9**, the claims are derived from the ledger (`claimsOf(d)`: jobs, trades, positions, Personal marks), not passed by
   each caller, and a split sale rides `Position.claimed` on Results' every-item positions; **10**, the bundle loads beyond this
   tab, on Results, the Wallet and the Characters page, only for a ledger holding a manufacturing job whose ME was recorded (not
@@ -138,7 +138,7 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   and the income recording's, never asks for it, so stage 1's "loaded by the tab only" holds for them; **11**, what Industry
   counts (claimed sales after tax, every job's fee, manufacturing materials at your own purchases before each job; invention's
   datacores and copies not charged). Where a job ran is Task 11's `jobPlace`: an NPC station has no material bonus, a structure
-  only when it is one of your sites with a structure ID, so a home typed in costs its jobs without its bonuses, said (industry-jobs.md).
+  only when it is one of your sites with a structure ID, so a home typed in costs its jobs without its bonuses, said (positions-results-wallet.md).
   A failed load can't be retried in place (gotchas.md): its button reloads the app, and so does this tab's own "Reload to try
   again" for the bundle and the map (it asked again in place, which did nothing). **A typed home is offered the structure its
   jobs ran at** (the review's ruling, 11 October 2026; positions-results-wallet.md): never matched by a guess inside `jobPlace`, which
@@ -156,24 +156,6 @@ Moved here from limits.md on 19 October 2026: state these rather than letting th
 - **A job's check and its measured tax need it first seen running within 90 minutes of its start**: a job installed and finished
   between reads can't be checked. Its EIV is at that hour's adjusted prices and its index ESI's four decimals (a few hundred ISK on a
   big job). A measured tax holds until the owner changes it, and is only offered. **They use the character's clone state now, not at install**: one that was Alpha when the job started and is Omega now reads 0.25% off (the Alpha tax is missing from the app's side, or the measured tax comes out that much under).
-- **List what you built can lag and can come back** (To do, industry-jobs.md). Its units come from the hangar copy ESI holds for an hour, so an item can stay up to about an hour after you've listed; units are alike, so an old job's item can come back if you later buy the same product at that place (stated, not bounded); and products delivered into a container never list (nested units aren't loose stock) until the first real delivery says how they land. A ship is "checking" until its kind is read and is never priced at Jita from a home hub while "never haul ships to Jita" is on. "Either" lists at Jita here.
-- **Built and sold costs each job's materials at the blueprint's ME as first seen running**, with your site's bonuses where it
-  ran at one (an NPC station has none; another structure's aren't known and aren't applied, nor a site of kind Other's, nor a
-  site's rigs when its system's security couldn't be read, each said), at what you still held from your purchases at the job's
-  start, newest first (a purchase sold again before the job isn't held, so trading and Industry never both cost it); materials
-  you never bought, or bought and sold again, aren't costed, and are said. **But a material still held at the job and sold
-  later, along with units you didn't buy, is still costed in both**: Results' every-item lots don't know a job used units, so
-  they cost the later sale against the purchases the job took. **Materials bought inside a tracked position stay in its stock**
-  after a job uses them (no income counted twice: a position realizes only on sales). **A buy order's broker fee on a material
-  counts nowhere** (Industry costs materials at their price; trading carries the fee in stock never sold), beside built units'
-  share of their sell orders' broker fees (in neither Industry nor trading). Invention's datacores and copies aren't charged. A
-  job with no cost from ESI and no journal entry naming it is charged no fee, and said. **A home you typed in (no structure ID)
-  matches no job**, as for the job check: its jobs are costed with no structure or rig bonus, so their materials read up to its
-  material bonus dear (said as "a structure that isn't one of your build sites"), until it has the structure's ID: found by name,
-  or chosen from the structures in its system your jobs ran at (the sites table offers them; never set by itself). A sale split
-  between built and bought units is claimed for the built ones first, and a built unit used or moved rather than sold can still
-  claim a later sale of bought stock. Each character's own: a unit built by one and sold by another isn't claimed. **A position
-  opened on a product you build reads the built units' sales as sold beyond what it bought, left out of its profit and, since a
-  sale a position counts is never claimed, out of Industry's too**: open positions only for what you buy (the Wallet offers none
-  on a sale Industry counts). The Wallet's "Trades no position tracks" says a built sale's why ("Built by you: Industry counts
-  it"), but its tag and the cash flow's "Loot & other sales" stay as `autoTag` reads it.
+
+Moved to orders-alerts-todo.md, with To do's limits: List what you built lagging and coming back. Moved to
+positions-results-wallet.md, with Results' limits: what built and sold costs.

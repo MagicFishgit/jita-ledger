@@ -17,7 +17,7 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
   October and one row would fail outright the day the market doubles; correction 3). A row is `[contract, type, ME, TE, runs a
   copy, copies, price, issuer, expires in seconds, item IDs]`. Each contract of the kept set that is gone from the new snapshot,
   wasn't past its expiry at the new snapshot's time, and none of whose copies came back in a contract by the same seller,
-  vanished before expiry (sold, most likely; a seller cancelling looks the same, industry-copy-round.md) and goes in `copy_sold` at the new
+  vanished before expiry (sold, most likely; a seller cancelling looks the same) and goes in `copy_sold` at the new
   snapshot's time, kept eight days (`COPY_KEEP_DAYS`; the summary counts seven, `COPY_WINDOW_DAYS`). Back under another seller,
   it was bought and relisted: a sale.
   - **Six-hourly reads, because days apart miss most sales** (correction 2): 327 contracts vanished from 00:00 to 06:00 UTC and
@@ -62,7 +62,7 @@ Decisions worth not undoing (spec `docs/superpowers/specs/2026-10-10-industry-de
     without counting a sale from it (no comparison, no read span), and the state and the route carry `note`: "The copy contracts
     fell under half the kept set six times running: kept the new set without counting sales from it", until the next read. A
     contract of `copy_sold` back in it is still taken out (it never left). The hours from the old set to the new count no sales
-    but sit inside the summary's days, so a kind's pace reads low by that share until they leave the week (industry-copy-round.md).
+    but sit inside the summary's days, so a kind's pace reads low by that share until they leave the week.
   - **A partial snapshot is undone by the next** (correction 20): a page EVE Ref's scraper missed makes its contracts look sold; a
     contract in `copy_sold` that is back in a newer snapshot never left, and is taken out (`back`). Tested with one contract
     missing from the 06:00 snapshot: 17 counted, then 28, as with whole snapshots.

@@ -120,7 +120,4 @@ contracts.
 
 ## Limits
 
-Moved here from limits.md on 19 October 2026: state these rather than letting them be discovered.
-
-- **A Sniper "Copy all" with a ship in it is guessed Personal on the Wallet** ("a fit to fly", the multibuy rule); Results
-  and Your snipes read only what you mark.
+Moved to positions-results-wallet.md, with the Wallet's limits: a Sniper "Copy all" with a ship in it guessed Personal.

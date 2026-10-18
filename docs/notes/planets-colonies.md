@@ -58,7 +58,7 @@ in planets.md and planets-planner.md.
 
 ## Open, and left for the stage-1 final review
 
-- **No real colony has been drawn yet** (planets-colonies.md): the first hourly read after the ship is the first look, and its kept
+- **No real colony has been drawn yet**: the first hourly read after the ship is the first look, and its kept
   document is what the in-game check reads (planets.md).
 - `readColoniesFor` pushes under `who.ledger`, which is right for the main; Task 14 must push an alt's under `who.char`.
 

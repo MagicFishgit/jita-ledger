@@ -2,6 +2,7 @@
 paths:
   - "src/lib/{piPlan,lp,sameValue}.ts"
   - "src/components/hustles/{PlanetsPlan.tsx,planetsMarket.ts}"
+  - "src/components/hustles/Planets.tsx"
 ---
 
 # Planets: the planner

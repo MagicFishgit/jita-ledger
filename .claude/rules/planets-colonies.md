@@ -3,6 +3,7 @@ paths:
   - "src/lib/{colonies,colony,colonyStore}.ts"
   - "src/components/hustles/Colonies.tsx"
   - "worker/src/planets.ts"
+  - "src/components/hustles/Planets.tsx"
 ---
 
 # Planets: the colonies

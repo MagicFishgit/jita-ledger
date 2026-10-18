@@ -264,6 +264,6 @@ Moved here from limits.md on 19 October 2026: state these rather than letting th
   CNMGC moved to 345,150,000 on 6 October would have sat there unsold and unflagged until about the 17th.
 - **The token guard's history lags a market that moved over 10% within the fortnight**: falling, a real undercutter can
   read as a token. The share and day's-volume guards catch most (the Key's sell: 26 ahead against its pace).
-- **"Feeds a long queue" counts your own listings at any price**, and tags a buy not meant for resale alike (ore bought for
-  a freelance job; ore markets clear fast, so unlikely). **Its To do item ticks off when a check no longer tags it**,
-  which a pace the check can no longer read does too: the words say what Orders now shows, not that the queue is short.
+
+Moved to orders-alerts-todo.md, with To do's limits: "Feeds a long queue" counting your own listings, and its To do
+item.
