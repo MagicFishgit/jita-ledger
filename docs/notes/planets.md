@@ -123,3 +123,6 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
 - Settled in the final fix round (planets-planner.md): `sizeGroup`'s status (T11-12), "No input is priced to buy", the sizing
   question (only bought is sized to what pays), the chain's timing (above). Kept as ruled: a layout that fits at no level is still
   ranked and said; the in-game check's head count decides whether that ever bites. The colonies' own are in planets-colonies.md.
+- **A bought setup cut because its sizing didn't settle says the budget ran out** (`cut`'s one note): untrue for that path, never
+  seen (no LP in 5,500 random programmes or any gate failed to settle). Telling the two apart needs a field saying which kind of
+  cut; carried to stage 2 (the final re-review, 18 October 2026).

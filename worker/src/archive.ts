@@ -271,8 +271,7 @@ export async function archive(env: Env, who: Reader, opts: { prices?: Record<num
   return result;
 }
 
-/** Records what a job did, for the Settings panel. */
-/** `now`: the caller's clock when it has one (the colonies' hourly read gates on `last_run` by it); the time of the call otherwise. */
+/** Records what a job did, for the Settings panel. `now`: the caller's clock when it has one (the colonies' hourly read gates on `last_run` by it); the time of the call otherwise. */
 export async function noteJob(db: D1Database, charId: number, job: string, outcome: { ok: true; detail: unknown } | { ok: false; error: string }, now = Date.now()) {
   // Failures in a row feed the watchdog (watchdog.ts), except in EVE's daily downtime, when ESI fails for everyone.
   const counts = !outcome.ok && !isDowntime(now) ? 1 : 0;
