@@ -3,7 +3,7 @@ import { madeAlone, type Facility, type PiIndex, type Schematic, type Tier } fro
 import { fitOf, maxFactories, maxHeads, type Fit, type Layout } from './piFit';
 import type { Rate } from './piLearn';
 import type { Tax } from './planetsDoc';
-import type { Freight } from './industryRank';
+import { slotDay, type Freight, type Sale } from './industryRank';
 import { units as unitsSaid, plainNum } from './format';
 
 /**
@@ -30,6 +30,35 @@ export type Sold = { isk: number | null; units: number; where: ('jita' | 'home')
  * does, never charged on each call). Broken, the best arrangement can be pruned without a word.
  */
 export type Sell = (typeId: number, perDay: number) => Sold;
+/**
+ * A good's whole output a day sold: `sell` picks the place (Jita, the home hub, or the better of the two). Each place's sale
+ * is worked out by `slotDay` at your share of its pace. Under 'best' the place whose first unit nets more is filled to its cap
+ * first and the other takes what's left, only where its unit pays, so every output is valued where it can sell; `where` lists
+ * both when both sell and `jitaUnits` is how many go to Jita (for the week's freight volume). Works on nets already worked
+ * out: a freight minimum belongs in the `Sale`s (spread over a week's sales), never charged per call here. `why` is the
+ * sales' own reasons when neither prices. Pure.
+ */
+export function soldOf(perDay: number, sales: { jita: Sale | null; home: Sale | null }, sell: 'jita' | 'home' | 'best', share: number): Sold {
+  const places = (['home', 'jita'] as const).filter((p) => sell === 'best' || sell === p).map((p) => ({ p, sale: sales[p] }));
+  const first = (sale: Sale | null) => (sale ? Math.max(sale.listNet ?? -Infinity, sale.bidNet ?? -Infinity) : -Infinity);
+  const priced = places.filter((x) => x.sale && slotDay(1, x.sale, 0, share)).sort((a, b) => first(b.sale) - first(a.sale) || (a.p === 'home' ? -1 : 1));
+  if (!priced.length) {
+    const why = [...new Set(places.map((x) => x.sale?.why).filter((w): w is string => !!w))].join('; ');
+    return { isk: null, units: 0, where: [], why: why || 'no price read', jitaUnits: 0 };
+  }
+  let left = perDay, isk = 0, units = 0, jita = 0;
+  const where: ('jita' | 'home')[] = [];
+  priced.forEach((x, i) => {
+    if (!(left > 0)) return;
+    if (i > 0 && !(first(x.sale) > 0)) return;
+    const d = slotDay(left, x.sale!, 0, share);
+    if (!d || !(d.units > 0)) return;
+    isk += d.profit; units += d.units; left -= d.units;
+    if (x.p === 'jita') jita += d.units;
+    where.push(x.p);
+  });
+  return { isk, units, where, why: null, jitaUnits: jita };
+}
 /** What `perDay` units cost a day to buy, and where; null with `why` when not known. */
 export type Bought = { isk: number | null; where: 'jita' | 'home' | null; why: string | null };
 /**
@@ -1609,7 +1638,7 @@ const withCut = (s: Setup, budget: Budget): Setup => (budget.cut ? { ...s, cut: 
  * level, as many as pay most per character. A P4 the shown character can make alone is also a one-character chain, so more
  * planets a character never take a P4 out of every setup (P2s and P3s one character can make are the feed's). Ranked by ISK
  * a day per character in it; each one's share is the whole's, by its colonies. Every number of characters is searched in one
- * budget, best first.
+ * budget, spent in rounds: every product gets its first dive before any gets a second, and within a round the highest bound goes first.
  */
 export function planChain(input: PlanInput): Setup {
   const { char } = input;
@@ -1685,7 +1714,7 @@ function valueBought(ctx: BuyCtx, inst: number[]): BoughtValue | null {
   const { input, sold, buy, classes, opts } = ctx;
   const { ix } = input;
   const q = inst.map(() => 0);
-  const soldOf = new Map<number, Sold>();
+  const soldBy = new Map<number, Sold>();
   const byX = new Map<number, number[]>();
   inst.forEach((o, k) => { const xs = byX.get(opts[o].x) ?? []; xs.push(k); byX.set(opts[o].x, xs); });
   for (const [x, ks] of byX) {
@@ -1696,13 +1725,13 @@ function valueBought(ctx: BuyCtx, inst: number[]): BoughtValue | null {
       q[k] = Math.min(opts[inst[k]].n * opts[inst[k]].perFactory, Math.max(0, left));
       left -= q[k];
     }
-    soldOf.set(x, sold(x, ks.reduce((n, k) => n + q[k], 0)));
+    soldBy.set(x, sold(x, ks.reduce((n, k) => n + q[k], 0)));
   }
   if (q.some((x) => !(x > MIN_RATE))) return null;
   const need = new Map<number, number>();
   inst.forEach((o, k) => { for (const i of opts[o].inputs) need.set(i.id, (need.get(i.id) ?? 0) + q[k] * i.per); });
   let value = 0;
-  for (const s of soldOf.values()) value += s.isk ?? 0;
+  for (const s of soldBy.values()) value += s.isk ?? 0;
   const bought = new Map<number, Bought>();
   for (const [id, amount] of need) {
     const b = buy(id, amount);
@@ -1719,7 +1748,7 @@ function valueBought(ctx: BuyCtx, inst: number[]): BoughtValue | null {
     const t = classes[opts[o].cls].t;
     return opts[o].inputs.reduce((n, i) => n + q[k] * i.per * (ix.byId.get(i.id)?.volume ?? 0) * 7, 0) / ix.planetTypes[t].pins.launchpad.capacity;
   });
-  return { score: { value, unpriced: 0, upkeep: restocks.reduce((n, x) => n + x, 0) }, q, sold: soldOf, need, bought, tax, restocks };
+  return { score: { value, unpriced: 0, upkeep: restocks.reduce((n, x) => n + x, 0) }, q, sold: soldBy, need, bought, tax, restocks };
 }
 
 /**

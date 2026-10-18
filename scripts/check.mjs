@@ -7821,7 +7821,7 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   // The re-review's case: six Brave planets, one of each of Barren, Lava, Temperate, Gas, Ice and Oceanic; two characters of 5
   // planets at CCU IV; P1 150, P2 7,000, P3 90,000, P4 1,500,000. With 2 million arrangements the chain makes 17,588,160 a
   // character (searched to the end), against the feed's 12,464,640. Dealt evenly between products tied on their bound, the
-  // budget starved the one that wins, read 9,702,240 and ranked the feed first. Spent best-first, the default reaches it.
+  // budget starved the one that wins, read 9,702,240 and ranked the feed first. Spent in rounds (every product's first dive before any second, the highest bound first within a round), the default reaches it.
   {
     const SIX = ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic'];
     const six = { ...big, planets: SIX.map((type, i) => ({ planetId: 1 + i, name: type, type, radiusKm: MEDIAN[type], tax: brave(type === 'Barren' || type === 'Temperate' ? 0.02 : 0.05) })),
@@ -8070,6 +8070,40 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   const one = (type, radiusKm, ccLevel, rateOf) => planSingle({ ...input, planets: [{ planetId: 9, name: 'One', type, radiusKm, tax: brave(0.02) }], char: { ...char, planets: 1, ccLevel }, rateOf }, 'p2');
   eq('  a 5-head rate at CCU III on Barren lacks Command Center Upgrades IV', one('Barren', 3750, 3, () => rate()).perChar[0].lacks, ['Command Center Upgrades IV']);
   eq('  no rate at CCU I on Gas: at least a head an extractor, so III', one('Gas', 26370, 1, () => null).perChar[0].lacks, ['Command Center Upgrades III']);
+}
+
+console.log('\n--- Planets: prices for the planner (piPlan.ts soldOf; the hook is planetsMarket.ts) ---');
+{
+  const { soldOf } = await import('../src/lib/piPlan.ts');
+  const { sellAt } = await import('../src/lib/industryRank.ts');
+  const sale = (place, listNet, listPace, why = null) => ({ place, list: listNet, listNet, bid: null, bidNet: null, pace: listPace, listPace, bidPace: null, split: 1, splitFrom: 'even', paceFrom: 'scan', freight: 0, brokerKnown: true, why });
+  const jita = sale('jita', 9000, 1000), home = sale('home', 10000, 50);
+  const best = soldOf(300, { jita, home }, 'best', 10);
+  eq('  best: the better net place to its cap (5 at home), the rest at Jita (100)', [best.isk, best.units, best.where, best.why], [5 * 10000 + 100 * 9000, 105, ['home', 'jita'], null]);
+  eq('  a sale split between the two sends the Jita part to freight', best.jitaUnits, 100);
+  eq('  Jita alone sells its cap, all of it to Jita', (({ isk, units, where, jitaUnits }) => [isk, units, where, jitaUnits])(soldOf(300, { jita, home }, 'jita', 10)), [900_000, 100, ['jita'], 100]);
+  eq('  home alone sends none to Jita', (({ units, where, jitaUnits }) => [units, where, jitaUnits])(soldOf(300, { jita, home }, 'home', 10)), [5, ['home'], 0]);
+  eq('  less than a cap fills only the better place', (({ isk, units, where }) => [isk, units, where])(soldOf(3, { jita, home }, 'best', 10)), [30000, 3, ['home']]);
+  const none = soldOf(300, { jita: null, home: sale('home', null, null, 'Not read at UALX-3 yet') }, 'best', 10);
+  eq('  neither prices: unvalued, with the sale\'s reason, never 0', [none.isk, none.units, none.why], [null, 0, 'Not read at UALX-3 yet']);
+  eq('  a second place that loses is not sold into', soldOf(300, { jita: sale('jita', -5, 1000), home }, 'best', 10).where, ['home']);
+
+  // The contract the planner's searches rely on: a unit's net never rises with the amount, and no fixed charge a call. The hook
+  // works a Sale once a good (a week at your share, the freight minimum spread over it); a Sale worked out for each call's amount,
+  // as the finder's rows are for what a slot makes, lets the minimum fall on fewer units and breaks it.
+  const market = { jita: { ask: 10000, bid: 8000, bids: [], at: '2026-10-17T00:00:00Z', live: false }, stats: { spark: Array(14).fill(1000) } };
+  const leg = { kind: 'route', name: 'route', f: { perM3: 900, collateral: 0.0075, min: 5_000_000 } };
+  const saleFor = (makes) => sellAt('jita', market, { broker: 0.015, tax: 0.03375, leg, volume: 3, makes, share: 10, now: Date.parse('2026-10-17T12:00:00Z') });
+  const once = saleFor(1e9);
+  const amounts = [1, 5, 20, 50, 100, 400];
+  const nets = (sold) => amounts.map((n) => { const s = sold(n); return s.isk / s.units; });
+  const nonIncreasing = (a) => a.every((x, i) => i === 0 || x <= a[i - 1] + 1e-9);
+  const right = nets((n) => soldOf(n, { jita: once, home: null }, 'jita', 10));
+  eq('  a unit\'s net never rises as the amount grows', nonIncreasing(right), true);
+  eq('  no fixed charge a call: one unit nets what twenty do each', Math.abs(right[0] - right[2]) < 1e-9, true);
+  eq('  the freight minimum is in the sale, spread over a week\'s sales (not 0)', once.freight > 2700 + 75, true);
+  const planted = nets((n) => soldOf(n, { jita: saleFor(n), home: null }, 'jita', 10));
+  eq('  planted: a sale worked out for each call\'s amount breaks it (so this test can fail)', nonIncreasing(planted), false);
 }
 
 console.log('\n--- Industry: the rules (industry.ts), on EVE Ref\'s own figures ---');
