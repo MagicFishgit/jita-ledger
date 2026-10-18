@@ -47,6 +47,8 @@ const ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V'];
 /** "2%", "2.5%": a customs rate as a player types it. */
 const pctSaid = (x: number) => `${+(x * 100).toFixed(2)}%`;
 const hoursSaid = (h: number) => (h % 24 === 0 ? `${h / 24}-day` : `${+h.toFixed(1)}-hour`);
+/** A reason from elsewhere set inside a sentence: its first letter in lower case ("No price at UALX-3" → "no price at UALX-3"). */
+const clause = (w: string) => w.charAt(0).toLowerCase() + w.slice(1);
 const listSaid = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 /** The spec's default program length when the character has none of its own: 3 days. */
@@ -556,7 +558,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
         <>
           <div data-planets="upkeep">
             <Tiles min={150} items={[
-              { l: 'Resets a week', v: (+s.upkeep.resetsPerWeek.toFixed(1)).toLocaleString('en-US'), n: 'a program each extraction planet, at the length chosen' },
+              { l: 'Resets a week', v: (+s.upkeep.resetsPerWeek.toFixed(1)).toLocaleString('en-US'), n: s.upkeep.resetsPerWeek > 0 ? 'a program each extraction planet, at the length chosen' : 'none: it has no extractors' },
               ...(s.upkeep.restocksPerWeek > 0 ? [{ l: 'Restocks a week', v: (+s.upkeep.restocksPerWeek.toFixed(1)).toLocaleString('en-US'), n: 'a factory planet’s launchpad (10,000 m³) refilled' }] : []),
               { l: 'Hauled a week', v: `${units(s.upkeep.haulM3PerWeek)} m³`, n: 'from the system to market' },
               { l: 'Freight a week', v: s.upkeep.contractsPerWeek == null ? '–' : (+s.upkeep.contractsPerWeek.toFixed(2)).toLocaleString('en-US'),
@@ -581,7 +583,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
             <div className="col pl-lines">
               <span className="lbl">Bought</span>
               {s.inputs.map((i) => (
-                <span key={i.id} className="pl-line">{units(i.perDay)} {name(i.id)} a day{i.bought.isk == null ? `: can’t be bought (${i.bought.why ?? 'no price'})` : `, ${iskBig(i.bought.isk)} a day at ${i.bought.where === 'home' ? 'the home hub' : 'Jita'}${i.bought.note ? ` (${i.bought.note})` : ''}`}</span>
+                <span key={i.id} className="pl-line">{units(i.perDay)} {name(i.id)} a day{i.bought.isk == null ? `: can’t be bought (${clause(i.bought.why ?? 'no price')})` : `, ${iskBig(i.bought.isk)} a day at ${i.bought.where === 'home' ? 'the home hub' : 'Jita'}${i.bought.note ? ` (${clause(i.bought.note)})` : ''}`}</span>
               ))}
             </div>
           )}
@@ -615,7 +617,7 @@ function Outputs({ s, name }: { s: Setup; name: (id: number) => string }) {
       {s.outputs.map((o) => (
         <span key={o.id} className="pl-line">
           <b>{name(o.id)}</b>: {units(o.perDay)} a day
-          {o.sold.isk == null ? `, not valued: ${o.sold.why ?? 'no price read'}`
+          {o.sold.isk == null ? `, not valued: ${clause(o.sold.why ?? 'no price read')}`
             : `, ${units(o.sold.units)} sold at ${o.sold.where.length ? listSaid(o.sold.where.map((w) => (w === 'jita' ? 'Jita' : 'the home hub'))) : 'nowhere (nothing sells at your share)'} for ${iskBig(o.sold.isk)} a day`}
           {o.sold.isk != null && o.buildingUp > 1e-6 && <span className="pl-up">; {units(o.buildingUp)} a day build up: the market takes no more at your share</span>}
         </span>

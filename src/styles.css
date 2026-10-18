@@ -1606,6 +1606,7 @@ button.tile.press .tile-v, button.tile.press .tile-n { display: block; }
   .pl-planet, .pl-rates, .pl-role { grid-template-columns: minmax(0, 1fr); }
   .pl-tax { justify-content: flex-start; }
   .pl-setup { padding: 12px; }
-  .pl-setup-head { grid-template-columns: 20px minmax(0, 1fr) auto; gap: 4px 8px; }
-  .pl-setup .pl-high { max-width: 130px; }
+  .pl-setup-head { grid-template-columns: 20px minmax(0, 1fr); gap: 4px 8px; }
+  .pl-isk { grid-column: 2; text-align: left; }
+  .pl-setup .pl-high { max-width: none; margin-left: 0; }
 }
