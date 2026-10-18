@@ -63,11 +63,11 @@ logins are in characters-cloud.md, mining across characters in mining.md (split 
   on an empty ledger. `chars` goes up only when you edit it (a clone state), carrying every character the device knows.
 - **ISK moved between two of your characters is a transfer** (stage 4: `ownTransfer` and `ownIds` in `lib/roster.ts`, the
   optional `mine` on `categoryOf`, `describeRef`, `flows`, `unusual` and `attribute`; without it each answers as before).
-  Yours are the main and every character in `chars`, removed ones too, so past transfers stay transfers (limits.md: a
+  Yours are the main and every character in `chars`, removed ones too, so past transfers stay transfers (characters.md: a
   sold one stays yours). A donation, direct trade or contract counts only when it names two *distinct* parties, both
   yours: CCP writes some of a character's own entries (`market_escrow` among them) with it on both sides, which a set of
   the main alone would otherwise make transfers. Only donations are known to name both (eve-facts). The Wallet shows them once, as "Between your characters", and nothing it sums counts them
-  (positions-results). A Characters card's set is the same family, for an alt plus itself, so a contract between two of
+  (positions-results-wallet). A Characters card's set is the same family, for an alt plus itself, so a contract between two of
   yours would read the same on every card.
 - **A card never shows a zero for "not known"** (`charFacts`): an alt just added has no wallet, net-worth point or
   queue yet, and each reads "–" with why; the Training tile says "Nothing in the queue" only when the queue was read
@@ -98,7 +98,7 @@ logins are in characters-cloud.md, mining across characters in mining.md (split 
   rows or its `archive` job has succeeded, Mined once it has mining rows or its `mining` job has; an alt whose login
   lacks the mining permission says so, as the main's card does. Saying "Nothing earned" for an alt whose wallet read
   never succeeded would be a zero for not known.
-- **Earned counts what a character built and sold as Industry** (Industry stage 2, Task 13; positions-results.md): its own
+- **Earned counts what a character built and sold as Industry** (Industry stage 2, Task 13; positions-results-wallet.md): its own
   delivered jobs against its own sales, an alt's from its pulled copy, the materials at its own purchases. While the blueprints
   load the card says "Reading the blueprints, to cost what you built…"; if they couldn't be loaded, "In the last 7 days, without
   what was built" (its tip says so), and the card adds nothing to Earned, all characters, whose count says how many did.
@@ -117,3 +117,20 @@ logins are in characters-cloud.md, mining across characters in mining.md (split 
   document's fields in whatever order its updates land), pages read mid-render (now read once settled), and seeding
   IndexedDB while the app was open (now from a page on the same origin that isn't the app; docs/notes/gotchas.md). A
   deliberate change to the Wallet's or Results' wording means re-recording with `RECORD=1` in the same commit.
+
+## Limits
+
+Moved here from limits.md on 19 October 2026: state these rather than letting them be discovered.
+
+- **The income recording compares figures as the pages show them** ("−41.48 B ISK"), so a drift under about half a
+  percent of a row wouldn't show there; the exact sums are pinned by the hand-worked tests in `scripts/check.mjs`.
+- **An alt's Earned leaves out ships it lost and what it bought for freelance jobs**, since the cloud reads neither for
+  an alt, and it's as of the cloud's last read of it. Its card's tip says so.
+- **A courier contract between two of your characters isn't a transfer**: the hauler's reward names the Secure Commerce
+  Commission (eve-facts), so it's Hauling income, which the Characters page's Earned for all characters counts, and the
+  issuer's side is a running cost ("Couriers & contract fees") unless it names both characters (not yet seen).
+- **Contract and direct-trade transfers between your characters rest on the both-parties rule alone**: no real
+  `contract_price` or `player_trading` entry between two characters has been seen.
+- **A character taken off the roster stays yours for good** (`chars` keeps it, so past transfers stay transfers). One
+  sold to another player keeps reading as yours: their ISK to you is "Between your characters", not money in, and the
+  unusual-activity list never calls them a new donor.

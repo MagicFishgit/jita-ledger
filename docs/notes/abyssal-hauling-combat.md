@@ -98,3 +98,25 @@ loyalty-hustles.md on 1 October 2026; the dogma and research behind them are in 
   hulls whose holds differ. They're now one real hull a class (Tayra, Crane, Bustard, Orca, Rhea, Charon) with ESI's rules.
   ESI's renaming of group 28 to "Hauler" had also quietly dropped Tech I industrials from learned gank lines and hauling
   losses.
+
+## Limits
+
+Moved here from limits.md on 19 October 2026: state these rather than letting them be discovered.
+
+- Abyssal ISK-per-run only counts loot that has been **sold**. A good week looks flat until you list
+  the hangar, and filaments you looted rather than bought aren't counted as runs at all.
+- Hauling reads The Forge only. Contracts starting elsewhere are invisible, which is the right
+  default for someone sitting in Jita and the wrong one for a dedicated hauler.
+- Deep Space Transports, Blockade Runners, Industrials and Jump Freighters get **no** skill cargo
+  bonus, because their bonus attributes do not say which stat they modify. Their presets are bare
+  hulls and the figure stays editable.
+- **Combat's "Does PvP pay?" is a ceiling**: everything that dropped from your kills, whether or not you looted
+  it, against what PvP cost you.
+- **Abyss Tracker is what its users log**: it leans to dedicated runners, its losses are far under what zKillboard shows,
+  a trio's run is logged under one hull, and its DPS, EHP and cost come from its own engine at all V. A ship's "most run"
+  totals add up only its fits on the most-run lists, not every run in it. Where a ship sits on the Abyssal tree and which
+  cells it suits come from what players run there, not from a simulation of the fit against the pocket.
+- **No fit on the Abyssal or Hauling trees has been checked in a fitting tool against today's game.** Items that stopped
+  existing would fail to price or save; ones whose stats changed wouldn't show it. Abyss Tracker's fits migrated from the
+  old tracker all say they were uploaded on 29 March 2024; their real age is older. A hauling fit's EHP is EVE Workbench's,
+  at skills it doesn't state.

@@ -126,3 +126,22 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
 - **A bought setup cut because its sizing didn't settle says the budget ran out** (`cut`'s one note): untrue for that path, never
   seen (no LP in 5,500 random programmes or any gate failed to settle). Telling the two apart needs a field saying which kind of
   cut; carried to stage 2 (the final re-review, 18 October 2026).
+
+## Limits
+
+Moved here from limits.md on 19 October 2026: state these rather than letting them be discovered.
+
+- **Planets' fits are CPU and powergrid at minimum-length links** (planets.md): the command centre's budget at your Command
+  Center Upgrades level, extractors and heads, factories, one launchpad and the links, all from the static data on the planet's
+  own radius. Not modelled: links longer than the minimum (a real layout's are, so it fits less), storage, link upgrades and
+  whether a route's bandwidth carries the flow, and where pins sit (head overlap moves the yield, not the fit).
+- **A planet's yield can't be known before it is built.** A learned rate averages your own extractors of that planet type and
+  P0, measured at their head count and programme length (another length says so, never rescaled), and planets of one type
+  differ; with none, a setup is ranked at what its factories take, "if your extractors deliver" 12,000 an hour, never claimed.
+- **Which reading of `qty_per_cycle` is the game's is unconfirmed** until one programme's total is checked in game
+  (`PI_READING`, planets.md). Until then Plan ranks on the lower reading and shows the higher beside it: over a programme they
+  differ by 1.19× on CCP's example (47.5 h), and by the formula's averages about 2× on 3 days and 3× on 14. Either way a
+  programme's output decays: no per-hour figure is steady.
+- **Planets' customs tax is typed or Brave's wiki's 2023 rates** (2% Barren and Temperate, 5% the rest, in sov null-sec): ESI
+  shows no skyhook's or office's rate, and what a high-sec InterBus office charges is unverified. A system "not Brave's" or a
+  wormhole is ranked before the tax.

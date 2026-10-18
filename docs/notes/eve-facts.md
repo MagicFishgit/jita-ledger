@@ -165,4 +165,4 @@ Don't re-derive or contradict these without new evidence.
 - **`/markets/structures/{id}/`** (read from ESI's spec, 12 October 2026; no real answer seen yet): needs `esi-markets.structure_markets.v1` and a
   character on the structure's market access list; pages of up to 1,000 orders with `X-Pages`, held about 300 seconds, no rate group named; 401
   without a login. The shape of the refusal for a character off the list is not in the spec (403 assumed; an expired access token also answers 403, so the cloud asks for its token again before each page and only a 403 on a fresh one is taken as the structure refusing): the first real one is recorded in
-  industry.md. Orders are the structure's own, so a page holds no order of another location.
+  industry-home.md. Orders are the structure's own, so a page holds no order of another location.

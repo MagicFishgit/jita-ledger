@@ -58,6 +58,14 @@ in planets.md and planets-planner.md.
 
 ## Open, and left for the stage-1 final review
 
-- **No real colony has been drawn yet** (limits.md): the first hourly read after the ship is the first look, and its kept
+- **No real colony has been drawn yet** (planets-colonies.md): the first hourly read after the ship is the first look, and its kept
   document is what the in-game check reads (planets.md).
 - `readColoniesFor` pushes under `who.ledger`, which is right for the main; Task 14 must push an alt's under `who.char`.
+
+## Limits
+
+Moved here from limits.md on 19 October 2026: state these rather than letting them be discovered.
+
+- **No real colony has been drawn yet.** Colonies draws the main's kept `colonies` document, which the cloud keeps hourly, and the
+  page case draws a seeded one; nothing of Planets has shipped, so the first real look is after the first hourly read
+  following the ship (planets.md).

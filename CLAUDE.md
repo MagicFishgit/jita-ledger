@@ -138,17 +138,19 @@ Your data → Send a test mail).
 Everything learned the hard way lives in `docs/notes/`, one file per topic. Read the one for the area you are changing
 before you change it, and add to it when you learn something: what was wrong, the evidence, and what to do instead.
 
-**Only five of them are in context when a session starts.** Instruction files loaded at the start share a budget of
+**Only four of them are in context when a session starts.** Instruction files loaded at the start share a budget of
 150,000 characters; on 30 September 2026 this file and all eleven notes, every one imported here, came to 206,800 and
-Claude Code warned. The notes only grow, so nothing was cut from them. What changed is when each is loaded. On 1
-October 2026 the three biggest path-loaded notes were split by area as well (no fact cut): opening `Mining.tsx` loaded
+Claude Code warned. The notes only grow, so nothing was cut from them. What changed is when each is loaded. On 1 October
+2026 the three biggest path-loaded notes were split by area as well (no fact cut): opening `Mining.tsx` loaded
 eve-facts, loyalty-hustles and characters whole, about 146,000 characters with this file; it now loads about 100,000.
-The heaviest file to open was then `Orders.tsx`, at about 120,000. Measured again on 18 October 2026 (this file, its
-imports and every rule note whose `paths:` match, in characters): what every session starts with is about 94,000 and any file
-under `src/` adds eve-facts' 17,000; `Industry.tsx` loads about 212,000, `Orders.tsx` 202,000, `Mining.tsx` 158,000 and
-`lib/todo.ts` 151,000, past the budget, since limits.md (always loaded, 37,000), industry.md (99,000) and the order notes grew.
-The Planets notes were split by area from the start (planets, planets-planner, planets-colonies) to keep a Planets file under
-135,000. If one file's notes come near 150,000 again, split the biggest of them by area the same way.
+The heaviest file to open was then `Orders.tsx`, at about 120,000. The Planets notes were split by area from the start
+(planets, planets-planner, planets-colonies) to keep a Planets file under 135,000. On 19 October 2026
+`npm run notes-budget` (this file, its imports and every rule note whose `paths:` match, for every tracked file under
+`src/`, `worker/` and `scripts/`) found 161 files past 140,000 (`lib/prospects.ts` 235,870, Industry's 212,351,
+`Orders.tsx` 201,842) and 94,461 loaded at the start. So limits.md left the start, and industry, finding-trades,
+market-reading, orders-alerts and positions-results were split by area (no fact cut): now 58,423 at the start and none
+past 133,724 (`lib/relist.ts`). Run it after adding to a note: it fails at 140,000, and the fix is the same split by
+area.
 
 Loaded when you read a file it covers (`.claude/rules/<topic>.md`: a `paths:` list and an import of the note). A
 session that hasn't read such a file doesn't have the note, so **Read it yourself before designing, researching or
@@ -162,18 +164,24 @@ answering in its area**:
 - `eve-planets.md`: planets, colonies and planetary goods, from ESI and CCP's static data (recipes, CPU and powergrid,
   volumes, customs and skyhooks, the extraction formula).
 - `eve-client.md`: EVE mail, notifications, the Sell window, inventory filters, asset safety.
-- `market-reading.md`: how books, prices and paces are judged (reach, the buyer/seller split, Clears in, relist advice).
-- `finding-trades.md`: Prospects, the Capital planner, the full-market scan, the Sniper, Place and leave.
-- `orders-alerts.md`: To do, browser notifications, in-game mail.
-- `positions-results.md`: positions, fees, Results, the Wallet, goals, standings.
+- `market-reading.md`: where trading reaches, the price a listing goes at; `-flow` the buyer/seller split, Clears in, after
+  a move; `-relist` what Orders advises on your orders.
+- `finding-trades.md`: Prospects, the full-market scan; `-planner` the Capital planner's mix; `-leave` Place and leave;
+  `-plans` a plan once started (the checklist, the list step); `-sniper` the Sniper, Multibuy, blueprint contracts.
+- `orders-alerts.md`: in-game mail, browser notifications, the track record, the watchdog; `-todo` To do; `-orders` the
+  Orders page's own words; `-loot` List loot.
+- `positions-results.md`: positions and their fees; `-hangar` Check my hangar; `-wallet` Results, the Wallet, income, goals,
+  standings, asset safety.
+- `limits.md`: the three honest limits that hold for all trading.
 - `loyalty-hustles.md`: Loyalty, Freelance, Reprocessing, skills.
 - `mining.md`: the Mining side hustle, Scaling up, mining across characters.
 - `abyssal-hauling-combat.md`: Abyssal, Hauling, Combat.
 - `characters.md`: alts, and how they are kept apart from the main on the browser's side (the alt store, the Characters
   page, what each earned, transfers).
 - `research.md`: the Research tab, R&D agents (points a day, access, the agents bundle) and its walkthrough.
-- `industry.md`: the Industry side hustle: the static-data bundle, the job, research, copying and invention rules, build
-  sites, the finder, home prices from Goonmetrics, the ladder, what copies sell (the cloud's copy round).
+- `industry.md`: the Industry side hustle: the static-data bundle, the job, research, copying and invention rules, the tab;
+  `-build` build sites, the finder, the ladder, Tech II; `-jobs` blueprints and jobs; `-copy-round` what copies sell (the
+  cloud's count); `-copies` the Copies section, your copy contracts; `-home` Goonmetrics and home markets.
 - `characters-cloud.md`: the cloud's side of alts (whose login, whose data; the roster) and how a returning login is
   sorted out.
 - `planets.md`: the Planets side hustle: its static-data bundle, what fits on a planet, the extraction readings and the
@@ -190,14 +198,15 @@ Always loaded, imported below, because they apply to any change:
 - `app-conventions.md`: wording, layout, tooltips, numbers and charts.
 - `gotchas.md`: traps in the code and tools that have cost time.
 - `known-bugs.md`: verified bugs not yet fixed.
-- `limits.md`: honest limits of the model, to state rather than let be discovered.
+
+**Honest limits of the model, to state rather than let be discovered, load with their area** since 19 October 2026: each
+area's are a `## Limits` section at the end of its note, and limits.md keeps the three that hold for all trading.
 
 Keeping it that way: a new source file goes in its topic's `paths:`; a new note gets a rule of its own rather than an
-import here; and a rule's frontmatter has to stay valid YAML, since one that doesn't parse is loaded at the start like
-an import. `/context` lists what a session has loaded.
+import here, and its honest limits a `## Limits` section at its end; and a rule's frontmatter has to stay valid YAML,
+since one that doesn't parse is loaded at the start like an import. `/context` lists what a session has loaded.
 
 @docs/notes/cloud.md
 @docs/notes/app-conventions.md
 @docs/notes/gotchas.md
 @docs/notes/known-bugs.md
-@docs/notes/limits.md

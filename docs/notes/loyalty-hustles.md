@@ -179,3 +179,13 @@ R&D agents (the Research tab under Side hustles, datacores from research points)
   "Plagioclase III-Grade"): Plagioclase, II-, III- and IV-Grade give 175/70, 184/74, 193/77 and 201/81 Tritanium and
   Mexallon per 100, each with Compressed and Batch Compressed forms, all naming Simple Ore Processing; the bundle has all
   of them and ESI resolves the names, so nothing needed changing.
+
+## Limits
+
+Moved here from limits.md on 19 October 2026: state these rather than letting them be discovered.
+
+- Loyalty prices the best 40 offers against the live book first, then every other offer that looks
+  profitable on the rough prices in a background pass (`priceRest`, about half a minute for Caldari Navy's
+  store). Loss-makers on the rough price stay rough.
+- **A freelance reward's tax, worked out without the journal's own, uses its corporation's rate now** (ESI keeps no past
+  rate): one whose rate changed reads "not recorded" (loyalty-hustles).

@@ -182,3 +182,17 @@ characters.md, the dogma behind the yields in eve-ships.md.
     from ESI fixtures, a row opened. **The measured-pace path hasn't been seen in a browser** (no cloud there).
   - Found with it: Scaling up's ore was the type mined most, ice included (a mostly-ice alt's ore fits at ice's price);
     it counts ore only. The ore table's "−0.35 ISK" from a missed book is "–", retried at 2, 4, 8, 16 min.
+
+## Limits
+
+Moved here from limits.md on 19 October 2026: state these rather than letting them be discovered.
+
+- **A mining fit's yield "at your skills" on a hull you can't fly yet** counts your yield skills and none of the hull's
+  own (a Hulk at Mining I reads 1,185 m³ a minute, 3,177 at all V). It's what the fit would do the day you could undock
+  in it with nothing else trained, and payback over what you mine now is measured against that. Boosts, drones and heat
+  are in no yield figure; the Porpoise, Orca and Rorqual mine only with drones and say so.
+- **Where an ore is found rests on one wiki page that asks for a post-Catalyst update**, with no second source for its
+  belt tables. A place lumps region quarters and null-sec security classes together (a row's words say which), and the
+  companion ores of sov deposits aren't all placed.
+- **Best ore's ISK a m³ is the top bid**, not what a hold of it fetches through the book, and its ISK an hour leaves out
+  boosts, drones, travel and selling time.

@@ -67,7 +67,7 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   - **Cut is said** (`Setup.cut`: "the best of the arrangements tried … may be well under what this system can do"); a search that
     found nothing in budget says `RAN_OUT`, never a planets, characters or size shortage (Ruling T9-10); `NO_FIT` only when
     arrangements were tried, every one failed for size alone, and the search wasn't cut. Brute force agrees where the search
-    finishes (256 feed and chain systems, 0 differ); the shortfall where it doesn't is in limits.md.
+    finishes (256 feed and chain systems, 0 differ); the shortfall where it doesn't is in planets-planner.md.
   - **Spent in steps** (Ruling T11-13; `Steps`, `planSteps`, `planFeedSteps`, `planChainSteps`). `searchPools` is a generator that
     yields every `STEP_CHUNKS` (2) chunks of 128 arrangements, by count, never a clock, and each product's context and covering
     search is a step; the page (`usePlanned`) runs steps until 8 ms have passed, then hands the page back (a message to itself:
@@ -140,3 +140,21 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
 - **On the page case's 5-NZNW** (seeded colony, the research's prices): bought first at 71.86 M ISK a day (one Broadcast Node
   planet at 96 a day on 5 of its 15 High-Tech plants, held by Jita's supply of High-Tech Transmitters); P0 → P2 second at
   14.78 M, 57.08 M under it. The whole planner 148–240 ms with one character doing PI (task-11-rereview-4.md).
+
+## Limits
+
+Moved here from limits.md on 19 October 2026: state these rather than letting them be discovered.
+
+- **Planets compares setups within one system**, prices nothing until a home hub is picked on the Industry tab (Jita is priced
+  through the hub's freight route, so even a high-sec system planned with no hub gets no prices), and at a thin home market a
+  price moves with a few trades.
+- **A bought setup runs each planet to its last unit that pays** after the other planets' share, all sized together exactly
+  (a linear programme over the planets' amounts, the sale steps and the buy steps): a sale or a book that steps down sizes it
+  under what sells, on purpose. Buying at Jita is held to your industry share of the good's day in The Forge, walked up the
+  book (seven levels, the morning scan's or the live one) for a week's need; at a hub, its own read's levels spread over a
+  week, or a tenth of Goonmetrics' weekly movement. A deeper book isn't seen.
+- **Plan's chain can read short of what the system can do**, said as "the best of the arrangements tried" (a budget of 80,000
+  arrangements): at 12,000 P0 an hour 13 of 65 random systems read over 2% short and 1 over 25%; at 25,000 it ranks under a setup
+  it beats in 8 of 21; at 50,000–100,000 an hour it can find nothing within its budget and says so (5-NZNW, two characters of 5:
+  a bigger budget finds 44–83 M ISK a day). A P4 one character makes alone is planned only for the character shown, so the
+  main's view doesn't offer an alt's (one case: 10.83 M a character across both against 18.70 M for the alt alone).
