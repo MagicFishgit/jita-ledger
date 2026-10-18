@@ -562,14 +562,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
       {priced && (
         <>
           <div data-planets="upkeep">
-            <Tiles min={150} items={[
-              { l: 'Resets a week', v: (+s.upkeep.resetsPerWeek.toFixed(1)).toLocaleString('en-US'), n: s.upkeep.resetsPerWeek > 0 ? 'a program each extraction planet, at the length chosen' : 'none: it has no extractors' },
-              ...(s.upkeep.restocksPerWeek > 0 ? [{ l: 'Restocks a week', v: (+s.upkeep.restocksPerWeek.toFixed(1)).toLocaleString('en-US'), n: 'a factory planet’s launchpad (10,000 m³) refilled' }] : []),
-              { l: 'Hauled a week', v: `${units(s.upkeep.haulM3PerWeek)} m³`, n: 'from the system to market' },
-              { l: 'Freight a week', v: s.upkeep.contractsPerWeek == null ? '–' : (+s.upkeep.contractsPerWeek.toFixed(2)).toLocaleString('en-US'),
-                n: s.upkeep.contractsPerWeek == null ? 'no freight route to Jita picked' : s.upkeep.jitaM3PerWeek > 0 ? `contracts to Jita for ${units(s.upkeep.jitaM3PerWeek)} m³` : 'nothing goes to Jita' },
-              { l: 'Customs a day', v: s.taxDay == null ? '–' : iskBig(s.taxDay), n: s.taxDay == null ? 'some planets’ tax isn’t known' : 'export and import, every planet' },
-            ]} />
+            <Tiles min={150} items={upkeepTiles(s)} />
           </div>
           {(s.kind === 'chain' || lacks.length > 0) && (
             <div className="col pl-lines">
@@ -675,6 +668,43 @@ function RoleLine({ r, s, planet, pname, name, whose, untaxed, noLevel }: {
       </div>
     </div>
   );
+}
+
+/** Weeks between, said: "1.2 weeks", "56 weeks", "2.1 years". */
+function weeksSaid(w: number): string {
+  if (w >= 104) return `${+(w / 52).toFixed(1)} years`;
+  return `${w < 10 ? +w.toFixed(1) : Math.round(w)} weeks`;
+}
+/** A rate a week: under one, said as time between (m2), as Industry says a slot's day. */
+const perWeekSaid = (x: number) => (!(x > 0) ? '0' : x < 1 ? `one every ${weeksSaid(1 / x)}` : (+x.toFixed(1)).toLocaleString('en-US'));
+
+/**
+ * A setup's upkeep as tiles (Ruling T11-4): resets; restocks on what's brought in and what's made, across its factory planets; the
+ * m³ hauled to market and brought in (and how much of that from Jita); freight contracts each way, "at least" one a week once a
+ * week's m³ is over the route's batch (no contract's size is known), else time between; customs.
+ */
+function upkeepTiles(s: Setup) {
+  const u = s.upkeep;
+  const factories = s.roles.filter((r) => r.does === 'factory').length;
+  const dirs = [
+    { to: 'to Jita', m3: u.jitaM3PerWeek, c: u.contractsPerWeek },
+    { to: 'from Jita', m3: u.jitaInM3PerWeek, c: u.contractsInPerWeek },
+  ].filter((d): d is { to: string; m3: number; c: number } => d.m3 > 0 && d.c != null && d.c > 0);
+  const full = dirs.filter((d) => d.c >= 1 - 1e-9).length;
+  const fewer = dirs.reduce((t, d) => t + d.c, 0);
+  const freightV = u.contractsPerWeek == null ? '–' : !dirs.length ? 'none' : full ? `at least ${full}` : `one every ${weeksSaid(1 / fewer)}`;
+  const freightN = u.contractsPerWeek == null ? 'no freight route to Jita picked' : !dirs.length ? 'nothing goes to or from Jita'
+    : `${dirs.map((d) => `${units(d.m3)} m³ ${d.to}${d.c < 1 - 1e-9 ? ` (one contract every ${weeksSaid(1 / d.c)})` : ''}`).join(', ')}${full ? `: one contract a week${full > 1 ? ' each way' : ''} at the least, more if one can’t carry it` : ''}`;
+  return [
+    { l: 'Resets a week', v: perWeekSaid(u.resetsPerWeek), n: u.resetsPerWeek > 0 ? 'a program each extraction planet, at the length chosen' : 'none: it has no extractors' },
+    ...(u.restocksPerWeek > 0 ? [{ l: 'Restocks a week', v: perWeekSaid(u.restocksPerWeek),
+      n: `a launchpad (10,000 m³) emptied and refilled, on what comes in and what it makes${factories > 1 ? `, across ${factories} factory planets` : ''}` }] : []),
+    { l: 'Hauled a week', v: `${units(u.haulM3PerWeek)} m³`, n: 'from the planets to market' },
+    ...(u.inM3PerWeek > 0 ? [{ l: 'Brought in a week', v: `${units(u.inM3PerWeek)} m³`,
+      n: `to the factory planets, ${u.jitaInM3PerWeek >= u.inM3PerWeek - 1e-6 ? 'all of it bought at Jita' : u.jitaInM3PerWeek > 0 ? `${units(u.jitaInM3PerWeek)} m³ of it bought at Jita` : 'all of it bought at the home hub'}` }] : []),
+    { l: 'Freight a week', v: freightV, n: freightN },
+    { l: 'Customs a day', v: s.taxDay == null ? '–' : iskBig(s.taxDay), n: s.taxDay == null ? 'some planets’ tax isn’t known' : 'export and import, every planet' },
+  ];
 }
 
 /** The planets a setup leaves unused, grouped by why, so one reason isn't said once a planet. */

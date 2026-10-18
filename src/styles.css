@@ -1066,6 +1066,7 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .pl-k { font-family: var(--f-head); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--label); margin-right: 4px; }
 .pl-why { color: var(--note); font-size: 12px; }
 .pl-line > .pl-why { display: block; }
+[data-planets="upkeep"] .tile-v { white-space: normal; }
 .pl-type { color: var(--note); font-size: 12px; }
 .pl-up { color: var(--acc2); }
 .pl-steps { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 10px; }

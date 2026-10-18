@@ -137,7 +137,18 @@ export type Role = {
 };
 /** A good the setup makes, summed over its planets and sold in one go, so two planets share one market's cap; what doesn't sell builds up. */
 export type Output = { id: number; perDay: number; sold: Sold; buildingUp: number };
-export type Upkeep = { resetsPerWeek: number; restocksPerWeek: number; haulM3PerWeek: number; jitaM3PerWeek: number; contractsPerWeek: number | null };
+/**
+ * A setup's work a week. `restocksPerWeek`: a factory planet's launchpad emptied and refilled, on what's brought in and what's
+ * made together (the launchpad holds both), summed over the factory planets. `haulM3PerWeek` goes from the planets to market,
+ * `jitaM3PerWeek` of it on to Jita; `inM3PerWeek` comes from market to the factory planets (bought only), `jitaInM3PerWeek` of
+ * it bought at Jita. `contractsPerWeek` and `contractsInPerWeek` are freight contracts a week each way, a week's batch in one, or
+ * under one a week when a week's m³ is short of the route's minimum: at 1, one contract a week at the least, more if one can't
+ * carry it (no contract's size is known). Null with no freight route given.
+ */
+export type Upkeep = {
+  resetsPerWeek: number; restocksPerWeek: number; haulM3PerWeek: number; jitaM3PerWeek: number; contractsPerWeek: number | null;
+  inM3PerWeek: number; jitaInM3PerWeek: number; contractsInPerWeek: number | null;
+};
 export type Setup = {
   kind: SetupKind;
   /** On each rate's lower reading; before what `before` lists. A chain's is per character in it: `perChar`'s mean. */
@@ -510,7 +521,7 @@ function blocked(input: PlanInput, kind: SetupKind, why: string, lacks: string[]
   return {
     kind, iskDay: null, iskDayHigh: null, before: [], taxDay: null, perPct: 0, taxes: [], outputs: [], inputs: [],
     roles: input.planets.map((p) => unusedRole(p, input.char.charId, p.type ? why : NO_PI)),
-    upkeep: { resetsPerWeek: 0, restocksPerWeek: 0, haulM3PerWeek: 0, jitaM3PerWeek: 0, contractsPerWeek: null },
+    upkeep: { resetsPerWeek: 0, restocksPerWeek: 0, haulM3PerWeek: 0, jitaM3PerWeek: 0, contractsPerWeek: null, inM3PerWeek: 0, jitaInM3PerWeek: 0, contractsInPerWeek: null },
     perChar: [{ charId: input.char.charId, iskDay: null, lacks }], unvalued: 0, why,
   };
 }
@@ -519,20 +530,24 @@ function blocked(input: PlanInput, kind: SetupKind, why: string, lacks: string[]
 const jitaUnits = (s: Sold) => s.jitaUnits ?? (s.where.length === 1 && s.where[0] === 'jita' ? s.units : 0);
 
 /**
- * Upkeep: a reset a planet each program; m³ a week hauled to market and the share sold at Jita; freight contracts a week,
- * batched up to the route's minimum (5 M at 900 ISK a m³ is worth paying on about 5,556 m³), else a week's batch in one.
+ * Upkeep: a reset a planet each program; m³ a week hauled to market and the share sold at Jita; m³ a week brought in to the
+ * factory planets (bought) and the share bought at Jita; freight contracts a week each way, batched up to the route's minimum
+ * (5 M at 900 ISK a m³ is worth paying on about 5,556 m³), else a week's batch in one: 1 is the least, not a count.
  */
-export function upkeepOf(input: PlanInput, outputs: Output[], planets: number, restocksPerWeek = 0): Upkeep {
+export function upkeepOf(input: PlanInput, outputs: Output[], planets: number, restocksPerWeek = 0, bought: Setup['inputs'] = []): Upkeep {
   const vol = (id: number) => input.ix.byId.get(id)?.volume ?? 0;
   // Shipped to market: what sells (all of a good with no price); what builds up stays on its planet.
   const haul = outputs.reduce((t, o) => t + (o.perDay - o.buildingUp) * vol(o.id) * 7, 0);
   const jita = outputs.reduce((t, o) => t + jitaUnits(o.sold) * vol(o.id) * 7, 0);
+  const inM3 = bought.reduce((t, i) => t + i.perDay * vol(i.id) * 7, 0);
+  const jitaIn = bought.reduce((t, i) => t + (i.bought.where === 'jita' ? i.perDay * vol(i.id) * 7 : 0), 0);
   const f = input.freight;
   const batch = f && f.min != null && f.min > 0 && f.perM3 > 0 ? f.min / f.perM3 : null;
+  const contracts = (m3: number) => (!f ? null : !(m3 > 0) ? 0 : batch != null ? m3 / Math.max(batch, m3) : 1);
   return {
     resetsPerWeek: input.programHours > 0 ? (planets * HOURS_A_WEEK) / input.programHours : 0,
-    restocksPerWeek, haulM3PerWeek: haul, jitaM3PerWeek: jita,
-    contractsPerWeek: !f ? null : !(jita > 0) ? 0 : batch != null ? jita / Math.max(batch, jita) : 1,
+    restocksPerWeek, haulM3PerWeek: haul, jitaM3PerWeek: jita, contractsPerWeek: contracts(jita),
+    inM3PerWeek: inM3, jitaInM3PerWeek: jitaIn, contractsInPerWeek: contracts(jitaIn),
   };
 }
 
@@ -997,7 +1012,8 @@ function valueFed(ctx: FedCtx, counts: Int32Array, f: number, S: Float64Array, R
   };
   const t = classes[f].t, r = factoryMember(classes[f]).planet.radiusKm;
   const fitsAtV = r == null || !(r > 0) ? null : fitOf(ix, t, ix.planetTypes[t].cc.length - 1, layout, r).fits;
-  let m3 = 0, colonies = 0;
+  // The factory planet's launchpad holds what its planets bring and what it makes (Ruling T11-4): a visit on both.
+  let m3 = run * (ix.byId.get(tree.x)?.volume ?? 0) * 7, colonies = 0;
   for (let g = 0; g < G; g++) m3 += used[g] * (ix.byId.get(goods[g])?.volume ?? 0) * 7;
   for (let i = 0; i < counts.length; i++) colonies += counts[i];
   const restocks = m3 / ix.planetTypes[t].pins.launchpad.capacity;
@@ -1834,9 +1850,11 @@ function valueBought(ctx: BuyCtx, inst: number[]): BoughtValue | null {
     return mergeRows([...taxRows(ix, opts[o].inputs.map((i) => ({ id: i.id, perDay: q[k] * i.per })), rate, 0.5), ...taxRows(ix, [{ id: opts[o].x, perDay: q[k] }], rate, 1)]);
   });
   for (const rows of tax) for (const t of rows) value -= t.perDay ?? 0;
+  // The launchpad holds what's brought in and what's made (Ruling T11-4): a visit empties and refills it, on both.
   const restocks = inst.map((o, k) => {
     const t = classes[opts[o].cls].t;
-    return opts[o].inputs.reduce((n, i) => n + q[k] * i.per * (ix.byId.get(i.id)?.volume ?? 0) * 7, 0) / ix.planetTypes[t].pins.launchpad.capacity;
+    const m3 = opts[o].inputs.reduce((n, i) => n + q[k] * i.per * (ix.byId.get(i.id)?.volume ?? 0), 0) + q[k] * (ix.byId.get(opts[o].x)?.volume ?? 0);
+    return (m3 * 7) / ix.planetTypes[t].pins.launchpad.capacity;
   });
   return { score: { value, unpriced: 0, upkeep: restocks.reduce((n, x) => n + x, 0) }, q, limit, sold: soldBy, need, bought, tax, restocks };
 }
@@ -1965,7 +1983,7 @@ export function planBought(input: PlanInput): Setup {
     kind: 'bought', iskDay: v.score.value, iskDayHigh: null, before: taxKnown ? [] : ['tax'],
     taxDay: taxKnown ? taxes.reduce((t, x) => t + x.perDay!, 0) : null, perPct: perPctBase / 100,
     taxes, outputs, inputs, roles,
-    upkeep: upkeepOf(input, outputs, 0, v.restocks.reduce((n, x) => n + x, 0)),
+    upkeep: upkeepOf(input, outputs, 0, v.restocks.reduce((n, x) => n + x, 0), inputs),
     perChar: [{ charId: char.charId, iskDay: v.score.value, lacks: [] }], unvalued: 0, why: null,
     ...(cut ? { cut: true as const } : {}),
   };

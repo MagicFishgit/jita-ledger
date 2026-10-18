@@ -7793,7 +7793,15 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     ['factory', [[NANITES, 2640, 'advanced', 22]], [[NANITES, 2520, 21]]]);
   eq('  bought: taxes per planet and tier, import and export', bought.taxes.filter((t) => t.planetId === A).map((t) => [t.tier, t.perDay]).sort(), [['P1', 168_960], ['P2', 380_160]]);
   eq('  bought: the inputs, summed over both planets', bought.inputs.map((x) => [nameOf(x.id), x.perDay, x.bought.isk]).sort(), [['Bacteria', 41_280, 4_128_000], ['Reactive Metals', 41_280, 4_128_000]]);
-  eq('  bought: no resets, restocks from the launchpad', [bought.upkeep.resetsPerWeek, bought.upkeep.restocksPerWeek], [0, (42_240 + 40_320) * 0.19 * 7 / 10_000]);
+  // The launchpad holds what's brought in and what's made (Ruling T11-4): 82,560 P1 in and 5,160 Nanites out a day, both.
+  eq('  bought: no resets, restocks from the launchpad on what comes in and what goes out', [bought.upkeep.resetsPerWeek, +bought.upkeep.restocksPerWeek.toFixed(6)], [0, +(((42_240 + 40_320) * 0.19 + (2640 + 2520) * 0.75) * 7 / 10_000).toFixed(6)]);
+  eq('  bought: the m³ brought in a week, all of it from Jita; no route given, no contracts', [bought.upkeep.inM3PerWeek, bought.upkeep.jitaInM3PerWeek, bought.upkeep.contractsInPerWeek], [82_560 * 0.19 * 7, 82_560 * 0.19 * 7, null]);
+  {
+    const routed = planBought({ ...input, buy: (id, perDay) => ({ isk: perDay * 100, where: 'jita', why: null }), freight: { perM3: 900, collateral: 0, min: 5_000_000 } });
+    eq('  bought on Brave’s route: a contract each way at the least (each week’s m³ is over the 5,556 m³ batch)', [routed.upkeep.contractsPerWeek, routed.upkeep.contractsInPerWeek], [1, 1]);
+    const home = planBought({ ...input, buy: (id, perDay) => ({ isk: perDay * 100, where: 'home', why: null }), freight: { perM3: 900, collateral: 0, min: 5_000_000 } });
+    eq('  bought at the home hub: brought in, none of it from Jita, no contract in', [home.upkeep.inM3PerWeek, home.upkeep.jitaInM3PerWeek, home.upkeep.contractsInPerWeek], [82_560 * 0.19 * 7, 0, 0]);
+  }
   eq('  bought: one character, nothing lacking', bought.perChar, [{ charId: 1, iskDay: 41_484_480, lacks: [] }]);
   eq('  bought: the Shattered planet says why', role(bought, C).why, 'No planetary industry on this kind of planet');
   // Nanites capped at 300 a day: the 2% planet makes the uncapped 3,000 P2 at full (2,640 × (3,000 − 1,600 − 64 − 144)) and the 5%
@@ -7868,7 +7876,7 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     eq('  feed: the factory imports what it’s fed, from each planet', (g.imports ?? []).map((x) => [nameOf(x.id), x.perDay, x.from]).sort(), [['Bacteria', 1920, A], ['Bacteria', 1920, D], ['Reactive Metals', 1920, A], ['Reactive Metals', 1920, D]]);
     eq('  feed: each Barren planet ships its P1 to the factory', role(f, A).ships.map((s) => [nameOf(s.id), s.perDay, s.to]).sort(), [['Bacteria', 1920, B], ['Reactive Metals', 1920, B]]);
     eq('  feed: taxes per planet and tier, the import at half the rate', f.taxes.filter((t) => t.planetId === B).map((t) => [t.tier, t.perDay]).sort(), [['P1', 76_800], ['P2', 172_800]]);
-    eq('  feed: upkeep: two resets each program, restocks from the launchpad, the Nanites hauled', [f.upkeep.resetsPerWeek, f.upkeep.restocksPerWeek, f.upkeep.haulM3PerWeek], [2 * 168 / 72, 7680 * 0.19 * 7 / 10_000, 480 * 0.75 * 7]);
+    eq('  feed: upkeep: two resets each program, restocks from the launchpad on the P1 in and the Nanites out, the Nanites hauled', [f.upkeep.resetsPerWeek, f.upkeep.restocksPerWeek, f.upkeep.haulM3PerWeek], [2 * 168 / 72, (7680 * 0.19 + 480 * 0.75) * 7 / 10_000, 480 * 0.75 * 7]);
     eq('  feed: one output, nothing unvalued', [f.outputs.map((o) => [o.id, o.perDay]), f.unvalued, f.why], [[[NANITES, 480]], 0, null]);
     // Rates unchecked at 14,000: 2,240 a line, 560 Nanites; 5,600,000 − 2 × 4,480 × 400 × 2% − 8,960 × 400 × 5% × ½ − 560 × 7,200 × 5%.
     const high = planFeed({ ...three, rateOf: () => rate({ higher: 14_000, checked: false }) });

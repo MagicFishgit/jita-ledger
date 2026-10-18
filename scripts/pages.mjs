@@ -3677,6 +3677,17 @@ try {
       if (!lines.some((l) => /All Jita supplies: your 10% share of the [\d,]+ traded a day in The Forge/.test(l))) problems.push(`no bought input says it's at what Jita supplies: ${JSON.stringify(lines).slice(0, 400)}`);
       if (!lines.some((l) => /^In all, [\d.,]+ [MBk]? ?ISK a day of purchases/.test(l))) problems.push(`the bought setup's purchases aren't totalled: ${JSON.stringify(lines.slice(-2))}`);
     }
+    // Its upkeep (Ruling T11-4): restocks on what comes in and what's made, across its factory planets; the m³ brought in, from
+    // Jita; freight each way, "at least" one a week once a week is over Brave's batch, never a bare 1.
+    {
+      const up = await text('[data-planets="setup:bought"] [data-planets="upkeep"]');
+      if (!/Restocks a week [\d.,]+ a launchpad \(10,000 m³\) emptied and refilled, on what comes in and what it makes, across \d+ factory planets/i.test(up)) problems.push(`the bought setup's restocks: “${up.slice(0, 300)}”`);
+      if (!/Brought in a week [\d,]+ m³ to the factory planets, all of it bought at Jita/i.test(up)) problems.push(`the bought setup's m³ brought in: “${up.slice(0, 400)}”`);
+      if (!/Freight a week at least 2 [\d,]+ m³ to Jita, [\d,]+ m³ from Jita: one contract a week each way at the least/i.test(up)) problems.push(`the bought setup's freight: “${up.slice(0, 500)}”`);
+      // P0 → P2 sends 100 m³ a week to Jita, under Brave's 5,556 m³ batch: time between, never "0.02".
+      const p2up = await text('[data-planets="setup:p2"] [data-planets="upkeep"]');
+      if (!/Freight a week one every [\d.]+ (weeks|years) [\d,]+ m³ to Jita \(one contract every/i.test(p2up) || /\b0\.\d+\b/.test(p2up.match(/Freight a week ([^ ]+ ){0,4}/i)?.[0] ?? '')) problems.push(`P0 → P2's freight under one a week: “${p2up.slice(0, 300)}”`);
+    }
     // The seeded extractor's reading isn't checked, so a setup on Barren's learned rates says what the other reading would make.
     if (!(await page.locator('[data-planets^="setup:"]', { hasText: 'if the game reads extraction the other way' }).count())) problems.push('no setup shows the higher figure beside its ISK a day');
     // Planet I's role lines name what it makes and its factories (in P0 → P2 its Basic and Advanced ones); the upkeep says resets a week.
