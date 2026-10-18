@@ -5,6 +5,14 @@ import type { Rate } from './piLearn';
 import type { Tax } from './planetsDoc';
 import { slotDay, type Freight, type Sale } from './industryRank';
 import { units as unitsSaid, plainNum } from './format';
+import { dayCount, perDaySaid } from './split';
+
+/**
+ * Units a day, said as split.ts says a pace (N2): whole from 10, one decimal under it, "under 0.1" for less, so a known 0.3 never
+ * reads 0 nor 0.7 reads 1. `qtyAday` puts the good's name in: "about 577 High-Tech Transmitters a day", "under 0.1 Neocoms a day".
+ */
+const amountSaid = (n: number) => dayCount(n);
+const qtyAday = (n: number, what: string) => (n > 0 && n < 0.1 ? `under 0.1 ${what} a day` : `about ${dayCount(n)} ${what} a day`);
 
 /**
  * The Planets planner (docs/superpowers/specs/2026-10-17-planets-design.md, "The setup types"): for a chosen system and
@@ -92,9 +100,9 @@ export function jitaSupply(asks: readonly { price: number; volume: number }[], p
   const max = Math.min(depth, atShare);
   const maxSaid = depth < atShare
     ? `what its best listings hold for a week (${unitsSaid(listed)} listed)`
-    : `your ${plainNum(share)}% share of the ${unitsSaid(pace)} traded a day in The Forge`;
+    : `your ${plainNum(share)}% share of the ${amountSaid(pace)} traded a day in The Forge`;
   if (!(perDay > 0)) return { avg: null, max, maxSaid, why: 'none wanted' };
-  if (perDay > max * (1 + 1e-9)) return { avg: null, max, maxSaid, why: max > 0 ? `Jita supplies about ${unitsSaid(max)} a day: ${maxSaid}` : `Jita supplies none: ${maxSaid}` };
+  if (perDay > max * (1 + 1e-9)) return { avg: null, max, maxSaid, why: max > 0 ? `Jita supplies ${perDaySaid(max)}: ${maxSaid}` : `Jita supplies none: ${maxSaid}` };
   // Within the cap; the walk is held to what's listed, so a need at the cap to the last float still finds its price.
   let left = Math.min(7 * perDay, listed), cost = 0;
   const want = left;
@@ -1784,11 +1792,96 @@ function buyer(buy: Buy) {
 type Buyer = (id: number, q: number) => Bought;
 
 /** A product a class of planets can make on bought inputs: as many factories as fit at the character's level, one launchpad. */
-type BuyOpt = { cls: number; x: number; facility: Facility; n: number; perFactory: number; inputs: { id: number; per: number }[]; alone: number };
+/** `top`: the most a day it runs alone and still pays for its last unit, and what holds it there (`topOf`), worked out once and kept here. */
+type BuyOpt = { cls: number; x: number; facility: Facility; n: number; perFactory: number; inputs: { id: number; per: number }[]; alone: number; top?: { q: number; why: 'market' | 'pays' | number | null } };
 /** `buyWhy`: the first reason an input couldn't be bought at the amount a factory planet needs (its hub too thin for a week's need), so a setup blocked by it says that rather than that nothing pays. */
 type BuyCtx = { input: PlanInput; sold: Seller; buy: Buyer; classes: Cls[]; opts: BuyOpt[]; buyWhy: string | null };
 /** `limit`: what holds each planet's factories below what fits: what sells of its product ('market'), or an input whose supply ran out (its ID); null when every factory that fits runs. */
-type BoughtValue = { score: Score; q: number[]; limit: ('market' | number | null)[]; sold: Map<number, Sold>; need: Map<number, number>; bought: Map<number, Bought>; tax: TaxRow[][]; restocks: number[] };
+/** `limit`: what holds each planet's factories below what fits: what sells of its product ('market'), the last unit that pays ('pays'), or an input whose supply ran out (its ID); null when every factory that fits runs. */
+type BoughtValue = { score: Score; q: number[]; limit: ('market' | 'pays' | number | null)[]; sold: Map<number, Sold>; need: Map<number, number>; bought: Map<number, Bought>; tax: TaxRow[][]; restocks: number[] };
+
+/**
+ * The largest amount in [0, `Q`] at which a concave, piecewise-linear `V` is at its most: where its last unit stops paying. `V`'s
+ * kinks (a sale's sides stepping down, a book's levels, a cap) aren't given, since `Sell` and `Buy` are closures, so they're found
+ * from the curve: the tangents at the two ends meet at `c`; concavity keeps `V` on or under both, so `V(c)` on them means `c` is
+ * the kink where the slope turns negative, and otherwise `c` splits the range by its own slopes. One step a kink, never unit by
+ * unit. `V(0)` is 0 (nothing made, bought or taxed). Pure.
+ */
+export function lastPaying(V: (q: number) => number, Q: number): number {
+  if (!(Q > 0)) return 0;
+  const h = Q * 1e-7;
+  const tolOf = (...v: number[]) => 1e-12 * Math.max(1, ...v.map(Math.abs)) + 1e-9;
+  const val = (q: number) => (q <= 0 ? 0 : V(q));
+  const vQ = val(Q);
+  const s0 = val(h) / h;
+  if (s0 < 0) return 0;
+  const sQ = (vQ - val(Q - h)) / h;
+  if (sQ >= 0) return Q;
+  let lo = 0, vlo = 0, slo = s0, hi = Q, vhi = vQ, shi = sQ;
+  // A kink found to within the finite differences: its two lines again from chords well clear of it on either side, met; kept
+  // only when that lands within a step of it (another kink inside the chords would move it further).
+  const refine = (c: number) => {
+    const d = Math.min(c - lo, hi - c) / 4;
+    if (!(d > 8 * h)) return c;
+    const va = val(c - d), vb = val(c + d);
+    const sa = (va - val(c - 2 * d)) / d, sb = (val(c + 2 * d) - vb) / d;
+    const k = sa - sb > 0 ? (vb - va + sa * (c - d) - sb * (c + d)) / (sa - sb) : c;
+    return Math.abs(k - c) <= 2 * h ? k : c;
+  };
+  for (let i = 0; i < 64; i++) {
+    let c = slo - shi > 0 ? (vhi - vlo + slo * lo - shi * hi) / (slo - shi) : (lo + hi) / 2;
+    if (!(c > lo + h && c < hi - h)) c = (lo + hi) / 2;
+    const vc = val(c);
+    if (Math.abs(vc - (vlo + slo * (c - lo))) <= tolOf(vlo, vc) && Math.abs(vc - (vhi + shi * (c - hi))) <= tolOf(vhi, vc)) return refine(c);
+    const sl = (vc - val(c - h)) / h, sr = (val(c + h) - vc) / h;
+    if (sr >= 0) { lo = c; vlo = vc; slo = sr; } else if (sl < 0) { hi = c; vhi = vc; shi = sl; } else return refine(c);
+    if (hi - lo <= 2 * h) break;
+  }
+  // Ranges too short to split: the better end.
+  return vhi > vlo ? hi : lo;
+}
+
+/**
+ * How much option `o` runs alone and still pays (Ruling T11-6): no more than its factories make, what sells and what each input's
+ * market supplies alone, and only while a unit's sale net covers its inputs' cost and its taxes. `Sell` and `Buy`'s contracts make
+ * that a concave curve, so its last paying unit is its most (`lastPaying`); a planet sized to it alone is worth the most it can be,
+ * and any amount a shared cap shrinks it to is a prefix of paying units, worth no more, which keeps the search's bound (`alone`)
+ * sound. An input refused within that for another reason than its supply (a hub too thin with no `max`) leaves the amount as it
+ * was, for `valueBought` to refuse as before.
+ */
+function topOf(ctx: BuyCtx, o: number): NonNullable<BuyOpt['top']> {
+  const opt = ctx.opts[o];
+  if (opt.top != null) return opt.top;
+  const { ix } = ctx.input;
+  const rate = ctx.classes[opt.cls].rate;
+  const full = opt.n * opt.perFactory;
+  const s = ctx.sold(opt.x, full);
+  let Q = full, why: 'market' | 'pays' | number | null = null;
+  const sells = s.isk == null ? 0 : s.units;
+  if (sells < Q - EPS) { Q = sells; why = 'market'; }
+  for (const i of opt.inputs) {
+    const max = ctx.buy(i.id, full * i.per).max;
+    if (max != null && max / i.per < Q - EPS) { Q = max / i.per; why = i.id; }
+  }
+  // Per unit: the import tax on its inputs at half the rate and the export tax on it (none while the rate isn't known: ranked before it).
+  const taxUnit = [...taxRows(ix, opt.inputs.map((i) => ({ id: i.id, perDay: i.per })), rate, 0.5), ...taxRows(ix, [{ id: opt.x, perDay: 1 }], rate, 1)]
+    .reduce((t, r) => t + (r.perDay ?? 0), 0);
+  let refused = false;
+  const V = (q: number) => {
+    const sale = ctx.sold(opt.x, q).isk ?? 0;
+    let cost = 0;
+    for (const i of opt.inputs) {
+      const b = ctx.buy(i.id, q * i.per);
+      if (b.isk == null) { refused = true; return -Infinity; }
+      cost += b.isk;
+    }
+    return sale - cost - taxUnit * q;
+  };
+  let top = Q > 0 ? lastPaying(V, Q) : 0;
+  if (refused) top = Q;
+  opt.top = top < Q - EPS ? { q: top, why: 'pays' } : { q: Q, why };
+  return opt.top;
+}
 
 /**
  * Factory planets on bought inputs, worked out together: each good summed and sold once, so two planets share one market's
@@ -1811,8 +1904,11 @@ function valueBought(ctx: BuyCtx, inst: number[]): BoughtValue | null {
     let left = s.isk == null ? 0 : s.units;
     for (const k of [...ks].sort((a, b) => byRate(classes[opts[inst[a]].cls].rate, classes[opts[inst[b]].cls].rate) || a - b)) {
       const most = opts[inst[k]].n * opts[inst[k]].perFactory;
-      q[k] = Math.min(most, Math.max(0, left));
-      if (q[k] < most - EPS) limit[k] = 'market';
+      // The last unit that pays (Ruling T11-6), worked out alone: a planet never runs on into units that lose.
+      const top = topOf(ctx, inst[k]);
+      q[k] = Math.min(most, top.q, Math.max(0, left));
+      // What held it: what's left of the shared market, else what held it alone (the last paying unit, what sells, an input's supply).
+      if (q[k] < most - EPS) limit[k] = left < top.q - EPS ? 'market' : top.why ?? 'market';
       left -= q[k];
     }
   }
@@ -1964,10 +2060,15 @@ export function planBought(input: PlanInput): Setup {
     const layout: Layout = { ecus: 0, heads: 0, basic: 0, storage: 0, launchpads: 1, advanced: opt.facility === 'advanced' ? count : 0, hightech: opt.facility === 'hightech' ? count : 0 };
     const lim = v.limit[k];
     const held = typeof lim === 'number' ? v.bought.get(lim) : null;
+    const shared = typeof lim === 'number' && chosen.inst.some((o2, k2) => k2 !== k && ctx.opts[o2].inputs.some((i) => i.id === lim));
     const notes = count >= opt.n ? []
       : typeof lim === 'number'
-        ? [`${held?.maxAt ?? 'the market'} supplies about ${unitsSaid(held?.max ?? 0)} ${name(lim)} a day${held?.maxSaid ? ` (${held.maxSaid})` : ''}${v.q.length > 1 && chosen.inst.some((o2, k2) => k2 !== k && ctx.opts[o2].inputs.some((i) => i.id === lim)) ? ', shared by the planets that take it' : ''}: enough for ${unitsSaid(v.q[k])} ${name(opt.x)} a day here, so ${count} of the ${opt.n} factories that fit run`]
-        : [`the market takes ${unitsSaid(v.q[k])} ${name(opt.x)} a day here: ${count} of the ${opt.n} factories that fit run`];
+        ? [`${held?.maxAt ?? 'the market'} supplies ${held?.max != null && held.max > 0 ? qtyAday(held.max, name(lim)) : `no ${name(lim)}`}${held?.maxSaid ? `: ${held.maxSaid}` : ''}`,
+          `${shared ? 'Shared by the planets that take it, this one gets' : 'That is'} enough for ${amountSaid(v.q[k])} ${name(opt.x)} a day here, so ${count} of the ${opt.n} factories that fit run`]
+        : lim === 'pays'
+          // The last unit that pays holds it (Ruling T11-6): said, never left unexplained.
+          ? [`${count} of the ${opt.n} factories that fit run, for ${amountSaid(v.q[k])} ${name(opt.x)} a day: past that, a unit costs more to make than it sells for`]
+          : [`the market takes ${amountSaid(v.q[k])} ${name(opt.x)} a day here: ${count} of the ${opt.n} factories that fit run`];
     roleOf.set(m.planet.planetId, {
       planetId: m.planet.planetId, charId: char.charId, does: 'factory', extracts: [],
       makes: [{ id: opt.x, perDay: v.q[k], facility: opt.facility, count }],

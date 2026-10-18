@@ -7846,8 +7846,31 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     eq('  bought with an input held to what Jita supplies: sized down to it, not blocked',
       [capped.iskDay, role(capped, B).makes.map((m) => [m.id, m.perDay, m.count]), capped.inputs.find((x) => x.id === BACTERIA)?.perDay],
       [9_850_000 + 3_146_880, [[NANITES, 1250, 11]], 10_000]);
+    // Bacteria held to 2 a day on B alone: a quarter of a Nanite a day, said as 0.3, never "enough for 0 Nanites".
+    const tiny = planBought({ ...input, planets: [planets[1]], char: { ...char, planets: 1 }, sell: sellBy((id) => (id === NANITES ? 10_000 : null)),
+      buy: (id, perDay) => { const at = { max: id === BACTERIA ? 2 : null, maxAt: 'Jita', maxSaid: 'your 10% share of the 20 traded a day in The Forge' };
+        return id === BACTERIA && perDay > 2 ? { isk: null, where: null, why: 'past', ...at } : { isk: perDay * 100, where: 'jita', why: null, ...at }; } });
+    eq('  a planet held to under one a day says so with its decimal', role(tiny, B).why,
+      'Jita supplies about 2 Bacteria a day: your 10% share of the 20 traded a day in The Forge. That is enough for 0.3 Nanites a day here, so 1 of the 21 factories that fit run');
     eq('  … and the planet’s line says what held it', role(capped, B).why,
-      'Jita supplies about 10,000 Bacteria a day (your 10% share of the 100,000 traded a day in The Forge): enough for 1,250 Nanites a day here, so 11 of the 21 factories that fit run');
+      'Jita supplies about 10,000 Bacteria a day: your 10% share of the 100,000 traded a day in The Forge. That is enough for 1,250 Nanites a day here, so 11 of the 21 factories that fit run');
+  }
+  // Ruling T11-6: a bought planet runs only while its last unit pays. Nanites sell the first 1,000 a day at 10,000 and the rest at
+  // 1,500, under the 1,600 of P1 and the taxes a unit costs: B (5%) runs 1,000 on 9 of its 21 Advanced (1,000 × (10,000 − 1,600 −
+  // 160 − 360)) beside A (2%) on a P2 at full (3,146,880). Run to what sells (the rule before), B made 2,520 at a loss past the
+  // first 1,000 and the best was 10,084,480.
+  {
+    const stepped = (id, perDay) => {
+      if (id === NANITES) { const a = Math.min(perDay, 1000); return { isk: a * 10_000 + (perDay - a) * 1500, units: perDay, where: ['jita'], why: null }; }
+      return sellBy(unitOf)(id, perDay);
+    };
+    const pays = planBought({ ...input, sell: stepped, buy: (id, perDay) => ({ isk: perDay * 100, where: 'jita', why: null }) });
+    eq('  bought: a planet runs only while its last unit pays', [+pays.iskDay.toFixed(2), role(pays, B).makes.map((m) => [m.id, +m.perDay.toFixed(6), m.count])], [7_880_000 + 3_146_880, [[NANITES, 1000, 9]]]);
+    eq('  … and its line says so', role(pays, B).why, '9 of the 21 factories that fit run, for 1,000 Nanites a day: past that, a unit costs more to make than it sells for');
+    const { lastPaying } = await import('../src/lib/piPlan.ts');
+    // A concave curve with kinks at 500 and 1,234.5: the most is at the second, found exactly from the curve.
+    const kinked = (q) => Math.min(30 * q, 10 * q + 10_000, 30_000 - 3 * q) - Math.max(0, q - 1234.5) * 50;
+    eq('  lastPaying: the largest amount at the most, at a kink, exactly', [+lastPaying(kinked, 3000).toFixed(6), lastPaying((q) => 5 * q, 800), lastPaying((q) => -2 * q, 800)], [1234.5, 800, 0]);
   }
   // Buying at Jita (Ruling T11-3): a week's need up others' listings, held to your share of the day.
   {
@@ -7863,6 +7886,11 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     eq('  … the most it supplies doesn’t depend on the amount asked', [1, 250, 499, 600, 10_000].map((n) => jitaSupply(deep, 5000, 10, n).max), [500, 500, 500, 500, 500]);
     const sweep = Array.from({ length: 50 }, (_, i) => jitaSupply(deep, 5000, 10, 10 * (i + 1)).avg);
     eq('  … a unit never costs less as the amount grows (Buy’s contract)', sweep.every((c, i) => c != null && (i === 0 || c >= sweep[i - 1] - 1e-9)), true);
+    // N2: a supply under one a day is said as a pace is, never rounded to a whole number: a known 0.3 isn't "about 0", and a refusal
+    // at one unit isn't "about 1 a day".
+    eq('  … a supply under one a day keeps its decimal', [jitaSupply(deep, 3, 10, 1).why, jitaSupply(deep, 7, 10, 1).why, jitaSupply(deep, 0.5, 10, 1).why],
+      ['Jita supplies about 0.3 a day: your 10% share of the 3 traded a day in The Forge', 'Jita supplies about 0.7 a day: your 10% share of the 7 traded a day in The Forge',
+        'Jita supplies under 0.1 a day: your 10% share of the 0.5 traded a day in The Forge']);
   }
   // A's tax not known: ranked before it (26,400,000 − 4,224,000 there, B as before), each 1% priced on A's bases: the import
   // at half (42,240 × 400 × ½) and the export (2,640 × 7,200).
