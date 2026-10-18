@@ -134,6 +134,12 @@ export type Role = {
   /** A factory planet's intake: from the market (bought) or from a planet of the setup (by its ID). */
   imports?: { id: number; perDay: number; from: 'market' | number }[];
   fit: Fit | null; why: string | null;
+  /**
+   * When this planet's layout doesn't fit at its character's level: the lowest Command Center Upgrades level it fits at, said as
+   * the skill, or null when no level does (Ruling T11-2: judged a planet at a time, so a level that fixes one is never offered for
+   * another). Absent or null when it fits, or when what fits isn't checked (`fit` null).
+   */
+  lacks?: string | null;
 };
 /** A good the setup makes, summed over its planets and sold in one go, so two planets share one market's cap; what doesn't sell builds up. */
 export type Output = { id: number; perDay: number; sold: Sold; buildingUp: number };
@@ -620,6 +626,7 @@ export function planSingle(input: PlanInput, kind: 'p1' | 'p2'): Setup {
       ships: exported.filter((s) => s.perDay > 1e-6).map((s) => ({ id: s.id, perDay: s.perDay, to: 'market' as const })),
       fit: f.fit,
       why: notes.length ? notes.map(cap).join('. ') : null,
+      lacks: f.fit && !f.fit.fits ? f.lacks : null,
     };
   });
 
@@ -1579,19 +1586,20 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
         ...(plan.advanced ? [{ id: plan.advanced.id, perDay: plan.advanced.perHour * 24, facility: 'advanced' as const, count: plan.advanced.count }] : []),
       ],
       ships, fit: fit.fit, why: notes.length ? notes.map(cap).join('. ') : null,
+      lacks: fit.fit && !fit.fit.fits ? fit.lacks : null,
     };
   });
 
   const r = fm.planet.radiusKm;
   const fNotes: string[] = [];
-  let fFit: Fit | null = null;
+  let fFit: Fit | null = null, fLacks: string | null = null;
   if (r == null || !(r > 0)) fNotes.push('this planet’s size isn’t known, so what fits isn’t checked');
   else {
     fFit = fitOf(ix, fm.planet.type!, fw.cc, v.layout, r);
     if (!fFit.fits) {
       fNotes.push(`these factories don’t fit ${atCcu(fw.cc)}`);
-      const l = levelFor(ix, fm.planet.type!, fw.cc, v.layout, r);
-      if (l) lacks[placed.factory.char].add(l);
+      fLacks = levelFor(ix, fm.planet.type!, fw.cc, v.layout, r);
+      if (fLacks) lacks[placed.factory.char].add(fLacks);
     }
   }
   const xSold = v.soldX.isk == null ? v.run : Math.min(v.run, v.soldX.units);
@@ -1604,7 +1612,7 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
   const factoryRole: Role = {
     planetId: factoryId, charId: fw.c.charId, does: 'factory', extracts: [],
     makes: v.made, ships: xSold > 1e-6 ? [{ id: tree.x, perDay: xSold, to: 'market' }] : [], imports,
-    fit: fFit, why: fNotes.length ? fNotes.map(cap).join('. ') : null,
+    fit: fFit, why: fNotes.length ? fNotes.map(cap).join('. ') : null, lacks: fLacks,
   };
 
   // Every planet of the system, in order; on one, the factory first, then the feeders by character.

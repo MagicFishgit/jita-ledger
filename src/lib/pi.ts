@@ -62,7 +62,7 @@ export function setupSteps(kind: BuildKind, n: BuildNames): Step[] {
       },
       {
         title: 'Place the extractor control units on the hottest ground',
-        body: 'One extractor a P0, in the middle of the best colour, then drag out its heads: as many as the planet’s line says, which is what fits beside its factories. More heads pull more in all, but each takes CPU and powergrid, and spreading them thins the yield a head.',
+        body: 'One extractor a P0, in the middle of the best colour, then drag out its heads: as many as the planet’s line says. Where it says they don’t fit beside its factories, train the level it names; where it says no level fits, fit fewer heads, which makes less than the figure above. More heads pull more in all, but each takes CPU and powergrid, and spreading them thins the yield a head.',
       },
     );
   }

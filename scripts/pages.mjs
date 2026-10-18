@@ -3700,6 +3700,16 @@ try {
       const row = await text(`[data-planets="setup:${k}"]`);
       if (/don’t fit at/.test(row) && !/fit as planned \(said on/.test(row)) problems.push(`setup ${k} has a planet that doesn’t fit, and its head doesn’t say the figure assumes it does`);
     }
+    // Ruling T11-2: a level is named only for the planets it fixes, so a planet whose line says no level fits it is never in a
+    // row's "To fit … train" line.
+    for (const k of ['p1', 'p2', 'feed', 'bought', 'chain']) {
+      const train = await text(`[data-planets="setup:${k}"] [data-planets="train"]`);
+      if (!train) continue;
+      for (const t of await page.locator(`[data-planets="setup:${k}"] [data-planets^="role:"]`, { hasText: 'No Command Center Upgrades level fits it' }).allInnerTexts()) {
+        const nm = t.trim().split('\n')[0].trim();
+        if (nm && train.includes(nm)) problems.push(`setup ${k} tells you to train for ${nm}, whose own line says no level fits it: “${train}”`);
+      }
+    }
     const upkeep = await text('[data-planets="setup:p2"] [data-planets="upkeep"]');
     if (!/Resets a week/i.test(upkeep)) problems.push(`P0 → P2’s upkeep: “${upkeep}”`);
     if (SHOTS) { await page.locator('[data-planets="setup:p2"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-planets-plan.png` }); }

@@ -7712,6 +7712,22 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   eq('  a Broadcast Node chain across two characters', [chain.outputs.some((o) => o.id === BROADCAST_NODE), chain.perChar.length], [true, 2]);
   eq('  ranked per character used', chain.iskDay, chain.perChar.reduce((t, c) => t + c.iskDay, 0) / chain.perChar.length);
   eq('  the CCU II character lacks the level its roles need', chain.perChar[1].lacks.some((x) => x.startsWith('Command Center Upgrades')), true);
+  // Ruling T11-2: what a planet lacks is its own. Each character's lacks are exactly what its planets that don't fit lack, and a
+  // planet that fits carries none.
+  eq('  chain: each character lacks just what its own planets lack', chain.perChar.map((p) => [...new Set(chain.roles.filter((r) => r.charId === p.charId && r.lacks).map((r) => r.lacks))].sort()), chain.perChar.map((p) => p.lacks));
+  eq('  chain: a planet that fits lacks nothing', chain.roles.filter((r) => r.fit?.fits && r.lacks).length, 0);
+  {
+    // The review's shape (I1): two planets at CCU IV, 5-NZNW I (Barren, 1,950 km) at a learned 10 heads an extractor, which fits at
+    // no level, beside 5-NZNW II (Lava, 3,020 km) at a typed 6, which fits at V. Judged from the whole character, V was offered
+    // for both and I lost its "no level fits".
+    const I = 40307990, II = 40307991;
+    const mixed = planSingle({ ix, planets: [{ planetId: I, name: '5-NZNW I', type: 'Barren', radiusKm: 1950, tax: brave(0.02) }, { planetId: II, name: '5-NZNW II', type: 'Lava', radiusKm: 3020, tax: brave(0.05) }],
+      char: { charId: 1, name: 'Owner', planets: 2, ccLevel: 4, alpha: false }, others: [],
+      rateOf: (t) => (t === 'Barren' ? rate({ perHour: 13_930, heads: 10 }) : t === 'Lava' ? rate({ heads: 6, from: 'typed' }) : null),
+      sell: sellBy(() => 10_000), buy: noBuy, programHours: 72 }, 'p2');
+    eq('  a planet no level fits says so; the one V fixes names V; the character lacks V', [[role(mixed, I).fit.fits, role(mixed, I).lacks], [role(mixed, II).fit.fits, role(mixed, II).lacks], mixed.perChar[0].lacks],
+      [[false, null], [false, 'Command Center Upgrades V'], ['Command Center Upgrades V']]);
+  }
   eq('  the unread character is left out', chain.perChar.some((c) => c.charId === UNREAD), false);
   eq('  big’s chain is searched to the end: not cut', chain.cut, undefined);
   // The review's blow-up: 5-NZNW's shape with every P2, P3 and P4 priced and two characters at CCU IV, which visited 1.7

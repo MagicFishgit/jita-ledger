@@ -526,9 +526,9 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
   if (priced && s.unvalued) notes.push(`${s.unvalued} output${s.unvalued === 1 ? '' : 's'} not valued (no price read), so not counted: never as 0.`);
   // A layout that doesn't fit is kept and priced as if it did (the planner's rule): the head says so, not only the planet's line.
   const unfit = s.roles.filter((r) => r.fit && !r.fit.fits);
-  const noLevel = (r: Role) => !(s.perChar.find((p) => p.charId === r.charId)?.lacks.length);
   if (priced && unfit.length) notes.push(`${unfit.length} planet${unfit.length === 1 ? '’s layout doesn’t' : 's’ layouts don’t'} fit as planned (said on ${unfit.length === 1 ? 'its line' : 'their lines'}): the figure is what ${unfit.length === 1 ? 'it would' : 'they would'} make if ${unfit.length === 1 ? 'it' : 'they'} did.`);
-  const lacks = [...new Set(s.perChar.flatMap((p) => p.lacks))];
+  // What fixes each planet that doesn't fit, a planet at a time (Ruling T11-2): a level is named only for the planets it fixes.
+  const lacks = trainSaid(used, pname);
   const gapSaid = s.kind !== 'p2' ? null : !priced ? 'No figure to set against the best here.'
     : best === s || !best || best.iskDay == null ? 'The best here.' : `${iskBig(best.iskDay - s.iskDay!)} a day under the best here${best.kind === 'chain' ? ' (a chain’s figure is per character)' : ''}.`;
   const steps = open ? setupSteps(s.kind, {
@@ -564,14 +564,15 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
           <div data-planets="upkeep">
             <Tiles min={150} items={upkeepTiles(s)} />
           </div>
-          {(s.kind === 'chain' || lacks.length > 0) && (
+          {(s.kind === 'chain' || lacks) && (
             <div className="col pl-lines">
               {s.kind === 'chain' && s.perChar.map((p) => {
                 const ch = who(p.charId);
                 const n = used.filter((r) => r.charId === p.charId).length;
-                return <span key={p.charId} className="pl-line"><b>{ch?.name ?? `Character ${p.charId}`}</b>: {n} colon{n === 1 ? 'y' : 'ies'}{p.iskDay != null ? `, ${iskBig(p.iskDay)} a day as its share` : ''}{p.lacks.length ? `; to fit, train ${listSaid(p.lacks)}` : ''}{ch?.alpha == null ? '; clone state not read: worked out as Omega' : ''}</span>;
+                const train = trainSaid(used.filter((r) => r.charId === p.charId), pname);
+                return <span key={p.charId} className="pl-line"><b>{ch?.name ?? `Character ${p.charId}`}</b>: {n} colon{n === 1 ? 'y' : 'ies'}{p.iskDay != null ? `, ${iskBig(p.iskDay)} a day as its share` : ''}{train ? `; ${train.charAt(0).toLowerCase()}${train.slice(1)}` : ''}{ch?.alpha == null ? '; clone state not read: worked out as Omega' : ''}</span>;
               })}
-              {s.kind !== 'chain' && lacks.length > 0 && <span className="pl-line">To fit as planned, train {listSaid(lacks)}.</span>}
+              {s.kind !== 'chain' && lacks && <span className="pl-line" data-planets="train">{lacks}.</span>}
             </div>
           )}
           <div><Toggle open={detail} onToggle={() => setDetail(!detail)}>What it makes and which planet does what</Toggle></div>
@@ -597,7 +598,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
           )}
           <div className="col pl-lines">
             <span className="lbl">Which planet does what</span>
-            {used.map((r, i) => <RoleLine key={`${r.planetId}:${r.charId}:${i}`} r={r} s={s} planet={planet(r.planetId)} pname={pname} name={name} whose={s.kind === 'chain' || r.charId !== shown.charId ? who(r.charId)?.name ?? null : null} untaxed={taxedPlanets.has(r.planetId)} noLevel={!!r.fit && !r.fit.fits && noLevel(r)} />)}
+            {used.map((r, i) => <RoleLine key={`${r.planetId}:${r.charId}:${i}`} r={r} s={s} planet={planet(r.planetId)} pname={pname} name={name} whose={s.kind === 'chain' || r.charId !== shown.charId ? who(r.charId)?.name ?? null : null} untaxed={taxedPlanets.has(r.planetId)} />)}
             {unused.length > 0 && <span className="note small">Not used: {unusedSaid(unused, pname)}.</span>}
           </div>
           <div>
@@ -635,11 +636,11 @@ function Outputs({ s, name }: { s: Setup; name: (id: number) => string }) {
 }
 
 /** One planet's part: what it extracts (each extractor's rate and where it comes from), what its factories make, what it takes in and ships, its customs. */
-function RoleLine({ r, s, planet, pname, name, whose, untaxed, noLevel }: {
+function RoleLine({ r, s, planet, pname, name, whose, untaxed }: {
   r: Role; s: Setup; planet: SystemPlanet | undefined; pname: (id: number) => string; name: (id: number) => string; whose: string | null; untaxed: boolean;
-  /** It doesn't fit, and no Command Center Upgrades level the character could train fits it either. */
-  noLevel: boolean;
 }) {
+  // It doesn't fit, and no Command Center Upgrades level fits it either: judged on this planet alone (Ruling T11-2).
+  const noLevel = !!r.fit && !r.fit.fits && !r.lacks;
   const extract = r.extracts.map((e) => {
     const from = !e.rate ? 'no rate: if your extractors deliver it' : e.rate.from === 'typed' ? 'typed' : e.rate.otherP0 ? 'learned for another P0' : 'learned';
     const heads = e.heads != null ? `${e.heads} head${e.heads === 1 ? '' : 's'}` : e.rate && !(e.rate.heads > 0) ? 'heads not known: the colony didn’t say how many' : 'heads not known';
@@ -705,6 +706,17 @@ function upkeepTiles(s: Setup) {
     { l: 'Freight a week', v: freightV, n: freightN },
     { l: 'Customs a day', v: s.taxDay == null ? '–' : iskBig(s.taxDay), n: s.taxDay == null ? 'some planets’ tax isn’t known' : 'export and import, every planet' },
   ];
+}
+
+/**
+ * What to train so the planets that don't fit do, grouped by level, each level naming only the planets it fixes ("To fit 5-NZNW II
+ * as planned, train Command Center Upgrades V"); null when no planet a level would fix. A planet no level fixes says so on its line.
+ */
+function trainSaid(roles: Role[], pname: (id: number) => string): string | null {
+  const by = new Map<string, string[]>();
+  for (const r of roles) if (r.fit && !r.fit.fits && r.lacks) by.set(r.lacks, [...(by.get(r.lacks) ?? []), pname(r.planetId)]);
+  if (!by.size) return null;
+  return [...by.entries()].map(([lv, ps], i) => `${i ? 'to' : 'To'} fit ${listSaid(ps)} as planned, train ${lv}`).join('; ');
 }
 
 /** The planets a setup leaves unused, grouped by why, so one reason isn't said once a planet. */
