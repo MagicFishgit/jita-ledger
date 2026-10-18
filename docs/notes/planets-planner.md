@@ -21,7 +21,8 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   valued ones make. What a feeder ships to the factory is taxed as ever, what it ships to market unpriced isn't. A setup none of
   whose outputs is valued is blocked with their own reason ("No home hub picked: pick one on the Industry tab"); feed and chain
   search only products priced, so there it is a guard. The bounds already counted such a good at nothing (a first unit's net,
-  floored at 0), so they stay sound: brute force agreed after the change (256 feed and chain systems, 0 differ; planner against brute force on bought, 0 of 400).
+  floored at 0), so they stay sound: brute force agreed after the change (256 feed and chain systems, 0 differ; planner against
+  brute force on bought, 0 of 400).
 - **Only bought is sized to what pays** (the final review's sizing verdict). The others export what sells: a unit costs them nothing
   to make but its customs, so their only loss-making tail is a good whose first side nets under its export tax (`soldOf` sells the
   first side even at a loss, shown as a loss), or one taxed while unpriced, which I1 ended; at today's prices the first doesn't

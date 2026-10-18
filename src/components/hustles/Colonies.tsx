@@ -102,7 +102,7 @@ export function Colonies({ goods }: { goods?: PiIndex | null }) {
   const noScope = (
     <Notice kind="warn">
         Add <code>esi-planets.manage_planets.v1</code> to your application on developers.eveonline.com and log in again, and this reads your real colonies:
-        when each extraction programme runs out, what every extractor is pulling an hour, and what is waiting in the launchpads. Until then the steps below are the best this can do.
+        when each extraction programme runs out, what every extractor is pulling an hour, and what is waiting in the launchpads. Until then Plan learns no extraction rates from them: it works a system out at rates you type, or at what its factories could take.
     </Notice>
   );
   if (!canRead && !kept) return noScope;
@@ -130,7 +130,7 @@ export function Colonies({ goods }: { goods?: PiIndex | null }) {
       {!shown ? (
         !busy && <p className="note">Press <b style={{ color: 'var(--figure)' }}>Read my colonies</b>. It lists every planet you have a command centre on, with the countdown to each extraction programme running out.</p>
       ) : !shown.length ? (
-        <p className="note">No colonies yet. Pick a product below, put a command centre on a planet, and this fills in.</p>
+        <p className="note">No colonies yet. Find what pays on Plan, put a command centre on a planet, and this fills in.</p>
       ) : (
         <>
           {trouble.length > 0 && (

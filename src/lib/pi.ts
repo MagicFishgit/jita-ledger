@@ -77,7 +77,7 @@ export function setupSteps(kind: BuildKind, n: BuildNames): Step[] {
       {
         title: 'Place the Basic Industry Facilities, then the Advanced ones',
         body: `The Basics turn each P0 into its P1 (3,000 in every 30 minutes, 20 out: 150 P0 a P1). An Advanced Industry Facility takes 40 each of two P1 an hour and makes 5 of the P2: here, ${made}. The line says how many of each.`,
-        tip: 'The layout with fewer factories leaves room for more heads; the planner picked the one that pays at your rate.',
+        tip: 'The planner sizes the factories to your extraction rate, so the line’s counts are the ones that keep up with it; each factory more leaves room for fewer heads.',
       },
     );
   }

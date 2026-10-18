@@ -44,16 +44,16 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
     programme "Total" in game; the reading within 2% of it goes into `PI_READING` (`piLearn.ts`) in a commit citing the
     extractor, both totals and the game's. If neither is within 2%, the three numbers go here and `PI_READING` stays null.
 - **Learned rates** (`piLearn.ts`: `learnedRates`, `rateFor`). Each extractor's per hour over its whole programme (ended ones too:
-  a programme that ran out still says what the planet gave), keyed by planet type and product P0; only extractors with a
-  quantity over 0, known install and expiry, a planet type and a P0 product. The two readings are averaged apart and the lower
-  mean is the rate, the other `higher`; with `PI_READING` set, that reading alone, `higher` null. Programme hours and heads are
-  the medians of what was averaged, heads over the extractors that said how many (0 is not known, Ruling T8-1: [0, 10] read 5,
-  a count neither had, until the final review; now 10, and all zeros not known). A rate is for the head count and programme length it was measured at: never scaled, never
-  decayed again. `rateFor` takes the learned rate for that P0, then a typed one, then the type's other learned P0 (most
-  extractors, then lowest ID), marked `otherP0` and said. A learned rate can't be typed over (the page offers no box: `rateFor`
-  would never use it). In stage 1 only the shown character's own kept colonies teach it (the main's; an alt's once Task 14 keeps
-  them). A typed rate needs P0 an hour, the programme's hours and heads, all three. The programme length defaults to the median
-  of the shown character's learned programmes, else 72 h (the spec's 3 days), until typed into the `planets` doc.
+  a programme that ran out still says what the planet gave), keyed by planet type and product P0; only extractors with a quantity
+  over 0, known install and expiry, a planet type and a P0 product. The two readings are averaged apart and the lower mean is the
+  rate, the other `higher`; with `PI_READING` set, that reading alone, `higher` null. Programme hours and heads are the medians of
+  what was averaged, heads over the extractors that said how many (0 is not known, Ruling T8-1: [0, 10] read 5, a count neither
+  had, until the final review; now 10, and all zeros not known). A rate is for the head count and programme length it was measured
+  at: never scaled, never decayed again. `rateFor` takes the learned rate for that P0, then a typed one, then the type's other
+  learned P0 (most extractors, then lowest ID), marked `otherP0` and said. A learned rate can't be typed over (the page offers no
+  box: `rateFor` would never use it). In stage 1 only the shown character's own kept colonies teach it (the main's; an alt's once
+  Task 14 keeps them). A typed rate needs P0 an hour, the programme's hours and heads, all three. The programme length defaults to
+  the median of the shown character's learned programmes, else 72 h (the spec's 3 days), until typed into the `planets` doc.
 - **The `planets` document** (`planetsDoc.ts`, `sanitizePlanets`): per system, customs tax by planet type and by planet, which
   high-sec planets are InterBus's, "not Brave's", and typed rates by type and P0; plus the programme length. Fractions 0 to 1,
   rates and hours positive and finite, at most 40 systems. Synced like `colonies` (`DOC_KEYS` on both sides), sanitized on pull,
@@ -120,6 +120,6 @@ system, the Chart, the main's colonies kept) is Tasks 1–12 on branch `planets`
   (seed the chain's bound from the feed's answer), not a limit.
 - **The real colony's head count.** The fit model holds at most 11 heads beside a P0 → P2 colony's factories at CCU IV; if the
   main's real colonies run more, the model is wrong. Record it with the reading.
-- Carried to the final review's fix: `sizeGroup` taking the solver's answer without its status (T11-12); "No input is priced to
-  buy" when only one input is refused; whether feed, P0 → P2 and the chain should stop at a loss-making tail as bought does;
-  ranking a layout that fits at no level; the chain's timing (above). The colonies' own are in planets-colonies.md.
+- Settled in the final fix round (planets-planner.md): `sizeGroup`'s status (T11-12), "No input is priced to buy", the sizing
+  question (only bought is sized to what pays), the chain's timing (above). Kept as ruled: a layout that fits at no level is still
+  ranked and said; the in-game check's head count decides whether that ever bites. The colonies' own are in planets-colonies.md.

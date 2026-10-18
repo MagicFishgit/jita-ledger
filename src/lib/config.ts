@@ -117,8 +117,8 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
   },
   'esi-planets.manage_planets.v1': {
     label: 'Planetary colonies',
-    unlocks: 'Your real colonies on the Planets page: when each extraction programme runs out, what every extractor is pulling an hour, and what is sitting in the launchpads waiting to be collected.',
-    without: 'Planets falls back to the estimator, where you type in an extraction rate yourself. Nothing warns you when a programme has expired.',
+    unlocks: 'Your real colonies on the Planets page: when each extraction programme runs out, what every extractor is pulling an hour, and what is sitting in the launchpads waiting to be collected. The cloud keeps them hourly, and Plan learns each planet type’s extraction rate from them.',
+    without: 'Plan learns no extraction rates from your colonies: it works a system out at rates you type, or at what its factories could take. Nothing warns you when a programme has expired.',
   },
   'esi-universe.read_structures.v1': {
     label: 'Player structure names',
@@ -192,7 +192,7 @@ export const SCOPE_INFO: Record<string, { label: string; unlocks: string; withou
   },
   'esi-location.read_location.v1': {
     label: 'Location',
-    unlocks: 'Mining shows the system you’re in right now.',
+    unlocks: 'Mining shows the system you’re in right now, and Planets’ Plan can plan it in one click.',
     without: 'Mining doesn’t say where you are.',
   },
   'esi-location.read_online.v1': {

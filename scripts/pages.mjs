@@ -3982,6 +3982,28 @@ try {
         const cut = await page.evaluate(() => [...document.querySelectorAll('[data-planets^="program:"]')].map((el) => { const box = el.closest('.tbl-scroll')?.getBoundingClientRect(), r = el.getBoundingClientRect(); return box && r.right > box.right + 1 ? Math.round(r.right - box.right) : 0; }).filter((x) => x > 0));
         if (cut.length) problems.push(`at 390 px the programme totals run ${cut.join(', ')} px past the table's visible edge`);
       }
+      // Between a phone and a wide screen (Ruling T12-3, the final review): at 800 px the opened colony's extractor cards and totals
+      // keep to the table's visible width with the rail shut (72 px, as it starts there) and open (236 px). The phone's rule stopped
+      // at 640 px (they ran 179 and 147 px past, 309 and 277 with the rail open), and its width, for the phone's 56 px rail, would
+      // still run past with the rail open.
+      if (!PHONE) {
+        const past = () => page.evaluate(() => [...document.querySelectorAll('[data-planets="colonies"] .col-ex, [data-planets^="program:"]')].map((el) => {
+          const box = el.closest('.tbl-scroll')?.getBoundingClientRect(), r = el.getBoundingClientRect(); return box && r.right > box.right + 1 ? Math.round(r.right - box.right) : 0; }).filter((x) => x > 0));
+        const rail = () => page.evaluate(() => Math.round(document.querySelector('.rail')?.getBoundingClientRect().width ?? -1));
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.waitForTimeout(500);
+        const first = await past(), firstRail = await rail();
+        if (SHOTS) { await page.locator('[data-planets="colonies"] .col-unfold').first().scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-colonies-800-rail${firstRail}.png` }); }
+        await page.locator('.rail-toggle').click().catch((e) => problems.push(`couldn't toggle the rail: ${e.message.split('\n')[0]}`));
+        await page.waitForTimeout(600);
+        const second = await past(), secondRail = await rail();
+        if (SHOTS) { await page.locator('[data-planets="colonies"] .col-unfold').first().scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-colonies-800-rail${secondRail}.png` }); }
+        await page.locator('.rail-toggle').click().catch(() => undefined);
+        await page.setViewportSize(VIEW.viewport);
+        await page.waitForTimeout(500);
+        if (firstRail === secondRail) problems.push(`at 800 px the rail didn't change (${firstRail} px both times): the check didn't see both widths`);
+        for (const [cut, w] of [[first, firstRail], [second, secondRail]]) if (cut.length) problems.push(`at 800 px with the rail at ${w} px the opened colony runs ${cut.join(', ')} px past the table's visible edge`);
+      }
       if (SHOTS) { await page.locator('[data-planets="colonies"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-colonies.png` }); }
     }
     }

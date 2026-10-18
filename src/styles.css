@@ -1117,6 +1117,14 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
   .pl-chart-wrap { grid-template-columns: minmax(0, 1fr); }
   .pl-tree, .pl-tree-none { position: static; max-height: none; overflow: visible; }
 }
+/* Colonies between a phone and a wide screen (Ruling T12-3): an opened colony keeps to the table's visible width, pinned to its left
+   edge while the row scrolls, beside the rail as it is (72 px shut, 236 open), and its extractor cards wrap. 166 px is the content's,
+   the panel's and the cell's padding, measured at 800 px with either rail; 18 more for a desktop scrollbar on the content. The phone's
+   rule, last in the file, keeps its own width. */
+@media (max-width: 1099px) {
+  .col-unfold { position: sticky; left: 0; max-width: calc(100vw - var(--rail-w) - 184px); }
+  .col-ex { min-width: 0; flex: 1 1 100%; }
+}
 
 /* combat */
 .party { display: grid; grid-template-columns: 34px minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 1fr) 90px; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line-4); font-size: 12.5px; }

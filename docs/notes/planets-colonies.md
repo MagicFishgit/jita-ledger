@@ -47,6 +47,11 @@ in planets.md and planets-planner.md.
   - **On a phone** an opened colony's detail wraps (`.col-unfold`), pinned within the table's visible width, and the extractor
     cards take the row's width; `check-phone` lets a box that scrolls sideways be, so the page case checks each total's right
     edge against its `.tbl-scroll` box (the crash's leftover rule, planted back, put both 31 px past).
+  - **From 641 to 1,099 px** (Ruling T12-3, the final fix round) the same, sized beside the rail as it is: `calc(100vw -
+    var(--rail-w) - 184px)`, 166 px of the content's, the panel's and the cell's padding measured at 800 px with either rail,
+    and 18 for a desktop scrollbar on the content (headless Chromium hides scrollbars, so the check can't see one). The phone's
+    width (for its 56 px rail) would still run past with the rail open: before, the cards ran 179 and 147 px past at 800 with the
+    rail shut (72 px, as it starts there), 309 and 277 open (236). The page case measures every card and total at 800 px both ways.
 - **Stage 2** (planned): the cloud reads every alt's colonies with its own login in the hourly alt read, filed under the alt;
   Colonies shows the shown character's or All; To do lists each character's expiring extractors (an alt's judged on a roster
   read of this session); mail stays the main's alone.
@@ -56,5 +61,3 @@ in planets.md and planets-planner.md.
 - **No real colony has been drawn yet** (limits.md): the first hourly read after the ship is the first look, and its kept
   document is what the in-game check reads (planets.md).
 - `readColoniesFor` pushes under `who.ledger`, which is right for the main; Task 14 must push an alt's under `who.char`.
-- Colonies' phone rule stops at 640 px, so from 641 to 1,099 px an opened colony's second extractor card runs past the table's
-  edge (147 px at 800); the table scrolls sideways there (Ruling T12-3: the same rule under 1,099 px, with a check at 800).

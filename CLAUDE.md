@@ -177,10 +177,12 @@ answering in its area**:
 - `characters-cloud.md`: the cloud's side of alts (whose login, whose data; the roster) and how a returning login is
   sorted out.
 - `planets.md`: the Planets side hustle: its static-data bundle, what fits on a planet, the extraction readings and the
-  in-game check that settles them, the `colonies` and `planets` documents, customs tax (Brave's default), the cloud's hourly
-  read of the main's colonies, and the page (Plan, Chart, Colonies).
+  in-game check that settles them, learned rates, the `planets` document, customs tax (Brave's default), and the page (Plan,
+  Chart).
 - `planets-planner.md`: how Plan ranks a system's setups: what each counts, the searches' budget, the exact sizing of a
   bought setup (a linear programme), the prices it sells and buys at, upkeep and the ranking.
+- `planets-colonies.md`: your colonies: the synced `colonies` document, the cloud's hourly read of the main's colonies, and
+  the Colonies section.
 
 Always loaded, imported below, because they apply to any change:
 
