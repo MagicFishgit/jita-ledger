@@ -3719,7 +3719,10 @@ try {
     await showFor('Unread Alt');
     await page.waitForSelector('[data-planets="who"]').catch(() => problems.push('nothing says whose plan for the unread alt'));
     const unread = await text('[data-planets="plan"]');
-    if (!/Unread Alt’s skills aren’t read/.test(unread)) problems.push(`the unread alt doesn’t say its skills aren’t read: “${unread.slice(0, 240)}”`);
+    // Whose plan says it, not only the prices' waiting line: skills not read are never level 0 (one planet, no upgrades).
+    const unreadWho = await text('[data-planets="who"]');
+    if (!/Unread Alt’s skills aren’t read/.test(unreadWho)) problems.push(`the unread alt’s plan doesn’t say its skills aren’t read: “${unreadWho.slice(0, 240)}”`);
+    if (/\b\d+ planets?\b|without Command Center Upgrades/.test(unreadWho)) problems.push(`the unread alt is planned at skills it hasn’t read: “${unreadWho.slice(0, 200)}”`);
     if (/\b0 planets?\b|\b0 ISK\b|Command Center Upgrades 0\b/.test(unread)) problems.push('the unread alt shows a 0 for what isn’t read');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (the unread alt): ${o}`);
     await showFor('Owner');

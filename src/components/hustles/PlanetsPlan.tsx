@@ -17,7 +17,7 @@ import { BRAVE_TAX_SOURCE, customsRate, sanitizePlanets, type SystemPrefs, type 
 import { update, useData } from '../../lib/store';
 import { system as systemInfo } from '../../lib/universe';
 import { Points } from '../Facts';
-import { Check, NumChip, Seg, Tiles, Tip } from '../ui';
+import { Check, Notice, NumChip, Seg, Tiles, Tip } from '../ui';
 import type { IndustryChar } from './industryChars';
 import { useHomeHubs, useIndustryDoc } from './industryMarket';
 import { usePlanetMarket, useSystemPlanets, type SystemPlanet } from './planetsMarket';
@@ -179,7 +179,7 @@ function Who({ c, pc }: { c: IndustryChar; pc: PlanChar }) {
   const why = charWhy(pc);
   const whose = c.isMain ? 'Your' : `${c.name}’s`;
   if (why === ALPHA_NO_PI) {
-    return <p className="notice warn" style={{ margin: 0 }} data-planets="who">{ALPHA_NO_PI}: none of the planet skills is in any Alpha clone, so nothing can be planned for {c.isMain ? 'you' : c.name} until {c.isMain ? 'you are' : 'it is'} Omega.</p>;
+    return <div data-planets="who"><Notice kind="warn">{ALPHA_NO_PI}: none of the planet skills is in any Alpha clone, so nothing can be planned for {c.isMain ? 'you' : c.name} until {c.isMain ? 'you are' : 'it is'} Omega.</Notice></div>;
   }
   if (why) {
     const reason = c.isMain ? 'they come with the next sync' : c.pilot.lost === 'refused' ? `EVE refused ${c.name}’s login; hand it over again on the Characters page`
@@ -368,7 +368,7 @@ function Inputs({ ix, systemId, security, planets, prefs, cce, learned, programH
     <div className="col inset-box" style={{ gap: 12 }} data-planets="inputs">
       <div className="row ind-choices">
         <span data-planets="program" className="row tight">
-          <NumChip label="Program, hours" width={60} decimals={1} placeholder={String(+defaultHours.toFixed(1))} value={typedHours}
+          <NumChip label="Program, hours" width={60} decimals={1} placeholder="–" value={typedHours}
             onChange={(n) => update((x) => ({ planets: sanitizePlanets({ ...x.planets, programHours: n }) }))}
             tip={'How often you reset, as the extraction program’s length.\n\n• It sets the resets a week in each setup’s upkeep.\n• A learned or typed rate holds at the program length it was measured at: the rows say when yours differs.'} />
           <span className="note small">{typedHours != null ? `${+programHours.toFixed(1)} hours, typed` : ownHours ? `${+defaultHours.toFixed(1)} hours: your own programs’ median` : '3 days until you type one or your colonies show yours'}</span>
@@ -407,10 +407,11 @@ function Inputs({ ix, systemId, security, planets, prefs, cce, learned, programH
               {ix.planetTypes[t].p0.filter((p0) => learned[t]?.[String(p0)] || prefs.rates[t]?.[String(p0)]).map((p0) => {
                 const own = learned[t]?.[String(p0)];
                 const typed = prefs.rates[t]?.[String(p0)];
+                // A learned rate is used before a typed one (rateFor): typing over it would change nothing, so it offers no box.
                 return (
                   <span key={p0} className="pl-rate" data-planets={`rate:${t}:${p0}`}>
-                    <span><b>{name(p0)}</b> {own ? learnedSaid(own, systemId) : typedSaid(typed!)}</span>
-                    <button type="button" className="link-btn" onClick={() => setEdit({ t, p0 })}>{typed ? 'Change' : 'Type over it'}</button>
+                    <span><b>{name(p0)}</b> {own ? learnedSaid(own, systemId) : typedSaid(typed!)}{own && typed ? ` · your typed ${units(typed.perHour)} an hour stands aside while a rate is learned` : ''}</span>
+                    {!own && <button type="button" className="link-btn" onClick={() => setEdit({ t, p0 })}>Change</button>}
                   </span>
                 );
               })}
