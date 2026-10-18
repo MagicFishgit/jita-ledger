@@ -9,10 +9,10 @@ import type { Graph } from '../../lib/jumps';
 import { resolveIds } from '../../lib/market';
 import { PI_LINKS, setupSteps, type PlanetType } from '../../lib/pi';
 import type { Facility, PiIndex } from '../../lib/piBundle';
-import { learnedRates, PI_READING, rateFor, type Learned } from '../../lib/piLearn';
+import { PI_UNCHECKED, rateFor, type Learned } from '../../lib/piLearn';
 import {
-  ALPHA_NO_PI, boughtAtJita, charWhy, customsLevel, planBought, planChain, planCharOf, planFeed, planSingle, rankSetups, RAN_OUT,
-  type Bought, type PlanChar, type PlanInput, type Role, type Setup, type SetupKind,
+  ALPHA_NO_PI, boughtAtJita, charWhy, RAN_OUT,
+  type Bought, type PlanChar, type Role, type Setup, type SetupKind,
 } from '../../lib/piPlan';
 import { BRAVE_TAX_SOURCE, customsRate, sanitizePlanets, type SystemPrefs, type Tax, type TypedRate } from '../../lib/planetsDoc';
 import { update, useData } from '../../lib/store';
@@ -21,7 +21,8 @@ import { Points } from '../Facts';
 import { Check, Notice, NumChip, Seg, Tiles, Tip } from '../ui';
 import type { IndustryChar } from './industryChars';
 import { useHomeHubs, useIndustryDoc } from './industryMarket';
-import { usePlanetMarket, useSystemPlanets, type SystemPlanet } from './planetsMarket';
+import type { SystemPlanet } from './planetsMarket';
+import { NO_SYS, usePlanning } from './planetsPlanning';
 import { useMainSystem } from './rightNow';
 
 /** An amount a day as a pace is said (N2): whole from 10, one decimal under it, "under 0.1" below that; never a known 0.4 read as 0. */
@@ -31,11 +32,11 @@ const aDay = (n: number) => dayCount(n);
  * Plan: give it a system and every way of setting its planets up is ranked by ISK a day for the character shown, with the upkeep
  * beside it, which planet does what, and every output valued (spec "Stage 1: plan a system"). The inputs (customs tax per planet
  * type with a planet's own, extraction rates learned or typed, the program length) are kept in the synced `planets` doc; where it
- * sells is the `industry` doc's, as Industry's finder sells. The planner (piPlan.ts) runs on a timer once the inputs settle, the
- * last ranking shown meanwhile, first on the morning's books and then again on the live books of the goods that ranking names.
+ * sells is the `industry` doc's, as Industry's finder sells. The ranking is worked out in planetsPlanning.ts, which the Chart reads
+ * too, so both sections say the same of a system.
  */
 
-const KIND: Record<SetupKind, { label: string; tip: string }> = {
+export const KIND: Record<SetupKind, { label: string; tip: string }> = {
   p1: { label: 'P0 → P1 on each planet', tip: 'Each planet extracts two of its P0s and refines them into P1 in Basic factories, and exports the P1.\n\n• The pair on each planet is the one that pays most here.\n• The simplest setup: no Advanced factories, nothing carried between planets.' },
   p2: { label: 'P0 → P2 on each planet', tip: 'Each planet makes the best P2 it can make alone: two extractors, their Basic factories, and Advanced ones making the P2.\n\n• The layout is 2 Advanced + 4 Basic with more heads, or 3 + 6 with fewer: whichever your extraction rate fills.\n• Less management time than a factory planet: each planet is its own island.' },
   feed: { label: 'Planets feeding a factory planet', tip: 'Some planets make P1 (or a P2 alone) and ship it to one factory planet in the system that makes a P2 or P3 from it.\n\n• Includes the P2s no single planet can make.\n• Each feeder pays export tax, the factory half that to import, and the factory is sized to what it is fed.' },
@@ -54,12 +55,6 @@ const hoursSaid = (h: number) => (h % 24 === 0 ? `${h / 24}-day` : `${+h.toFixed
 /** A reason from elsewhere set inside a sentence: its first letter in lower case ("No price at UALX-3" → "no price at UALX-3"). */
 const clause = (w: string) => w.charAt(0).toLowerCase() + w.slice(1);
 const listSaid = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
-const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
-/** The spec's default program length when the character has none of its own: 3 days. */
-const DEFAULT_PROGRAM_HOURS = 72;
-/** How long the inputs must stay still before the setups are worked out again (the planner takes up to most of a second). */
-const SETTLE_MS = 350;
-const NO_SYS: SystemPrefs = { tax: {}, planetTax: {}, interbus: {}, notBrave: false, rates: {} };
 
 /** A type's own customs tax (no planet's override), as `customsRate` gives it: planet ID −1 is never a planet. */
 const typeTax = (doc: ReturnType<typeof useData>['planets'], systemId: number, sec: number, t: PlanetType, cce: number | null) => customsRate(doc, systemId, sec, t, -1, cce);
@@ -73,74 +68,13 @@ function taxSaid(tax: Tax, t: PlanetType | null): string {
   return tax.from === 'brave' ? `${r} · Brave’s wiki, 17 Jul 2023` : tax.from === 'planet' ? `${r} · typed for this planet` : `${r} · typed for ${t ?? 'this type'}`;
 }
 
-type Planned = { setups: Setup[] | null; working: boolean };
-/**
- * The five setups for an input, worked out on a timer once the input has stayed the same `SETTLE_MS`, one setup a turn of the
- * event loop so the page keeps drawing between them, and ranked. The last ranking stays (marked as being worked out again) until
- * the new one lands; a different `scope` (another system) drops it, since its planets are another system's.
- */
-function usePlanned(input: PlanInput | null, scope: number | null): Planned {
-  const [st, setSt] = useState<{ setups: Setup[] | null; for: PlanInput | null; scope: number | null }>({ setups: null, for: null, scope: null });
-  useEffect(() => {
-    if (!input) return;
-    let alive = true;
-    const steps: ((i: PlanInput) => Setup)[] = [(i) => planSingle(i, 'p1'), (i) => planSingle(i, 'p2'), planFeed, planBought, planChain];
-    const done: Setup[] = [];
-    let timer = setTimeout(function next() {
-      if (!alive) return;
-      done.push(steps[done.length](input));
-      if (done.length < steps.length) timer = setTimeout(next, 0);
-      else setSt({ setups: rankSetups(done), for: input, scope });
-    }, SETTLE_MS);
-    return () => { alive = false; clearTimeout(timer); };
-  }, [input, scope]);
-  const mine = st.scope === scope ? st.setups : null;
-  return { setups: input ? mine : null, working: !!input && st.for !== input };
-}
-
-/** The goods a ranking names (what its setups sell and buy), sorted, so the same goods keep one array. */
-function goodsOf(setups: Setup[] | null): string {
-  if (!setups) return '';
-  const ids = new Set<number>();
-  for (const s of setups) { for (const o of s.outputs) ids.add(o.id); for (const i of s.inputs) ids.add(i.id); }
-  return [...ids].sort((a, b) => a - b).join(',');
-}
-
 export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem, mainName }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; graph: Graph;
   systemId: number | null; onSystem: (id: number | null) => void; mainName: string;
 }) {
-  const d = useData();
-  const doc = d.planets;
-  const planChar = useMemo(() => planCharOf({ charId: c.charId, name: c.name, skills: c.pilot.skills, clone: c.clone }), [c]);
-  const others = useMemo(() => chars.filter((x) => x.charId !== c.charId).map((x) => planCharOf({ charId: x.charId, name: x.name, skills: x.pilot.skills, clone: x.clone })), [chars, c.charId]);
-  const cce = customsLevel(c.pilot.skills);
-  const sys = useSystemPlanets(systemId, ix, cce);
-  const value = sys.state === 'ok' ? sys.value : null;
-
-  // Learned from the shown character's own extractors (the main's kept colonies; an alt's once the cloud keeps them).
-  const learned = useMemo(() => learnedRates(colonies[c.charId] ? [colonies[c.charId]!] : [], ix, PI_READING), [colonies, c.charId, ix]);
-  const ownHours = useMemo(() => Object.values(learned).flatMap((byP0) => Object.values(byP0 ?? {}).map((l) => l.programHours)), [learned]);
-  const defaultHours = ownHours.length ? median(ownHours) : DEFAULT_PROGRAM_HOURS;
-  const programHours = doc.programHours ?? defaultHours;
-  const prefs = (systemId != null ? doc.systems[String(systemId)] : undefined) ?? NO_SYS;
-  const rateOf = useMemo(() => (t: PlanetType, p0: number) => rateFor(learned, prefs.rates[t]?.[String(p0)], t, p0), [learned, prefs.rates]);
-
-  const morning = usePlanetMarket(c, ix);
-  const planets = value?.planets ?? null;
-  const inputM = useMemo((): PlanInput | null => (planets && morning.ready
-    ? { ix, planets, char: planChar, others, rateOf, sell: morning.sell, buy: morning.buy, programHours, freight: morning.freight } : null),
-  [ix, planets, planChar, others, rateOf, morning.ready, morning.sell, morning.buy, morning.freight, programHours]);
-  const first = usePlanned(inputM, systemId);
-  // The goods to read live come from the ranking on the morning's books, never the live one: each live re-rank could name more.
-  const goodsKey = goodsOf(first.setups);
-  const live = useMemo(() => (goodsKey ? goodsKey.split(',').map(Number) : []), [goodsKey]);
-  const market = usePlanetMarket(c, ix, { live });
-  const inputL = useMemo((): PlanInput | null => (inputM && market.live && market.ready ? { ...inputM, sell: market.sell, buy: market.buy, freight: market.freight } : null),
-    [inputM, market.live, market.ready, market.sell, market.buy, market.freight]);
-  const second = usePlanned(inputL, systemId);
-  const setups = (inputL && second.setups) ? second.setups : first.setups;
-  const working = first.working || (!!inputL && second.working);
+  const doc = useData().planets;
+  // One ranking from one input, shared with the Chart (planetsPlanning.ts).
+  const { planChar, others, cce, sys, value, learned, ownHours, defaultHours, programHours, prefs, morning, market, setups, working } = usePlanning({ c, chars, colonies, ix, systemId });
 
   const name = (id: number) => ix.byId.get(id)?.name ?? `type ${id}`;
   const blockedWhy = charWhy(planChar);
@@ -283,7 +217,7 @@ function SystemHead({ name, security, planets }: { name: string; security: numbe
 }
 
 /** Where it sells: the Industry doc's home hub and its choice of Jita, the hub or either, as the finder sells. */
-function Selling({ said }: { said: string }) {
+export function Selling({ said }: { said: string }) {
   const [doc, setDoc] = useIndustryDoc();
   const { hubs } = useHomeHubs();
   const hub = hubs.find((h) => h.id === doc.hub) ?? null;
@@ -446,7 +380,7 @@ function learnedSaid(l: Learned, systemId: number): string {
     `${units(l.perHour)} an hour, learned from ${l.extractors} extractor${l.extractors === 1 ? '' : 's'}`,
     `${hoursSaid(l.programHours)} programs, ${heads}`,
     ...(l.systems.includes(systemId) ? [] : ['learned in another system: richness varies from planet to planet']),
-    l.checked ? null : `not yet checked against the game’s total${l.higher != null ? ` (${units(l.higher)} the other way)` : ''}`,
+    l.checked ? null : `${PI_UNCHECKED}${l.higher != null ? ` (${units(l.higher)} the other way)` : ''}`,
   ].filter(Boolean).join(' · ');
 }
 const typedSaid = (r: TypedRate) => `${units(r.perHour)} an hour, typed · ${hoursSaid(r.programHours)} programs, ${+r.heads.toFixed(1)} heads`;

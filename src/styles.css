@@ -1077,6 +1077,42 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .pl-steps .pl-tip { color: var(--acc2); }
 .pl-toggle { font-family: var(--f-head); font-size: 11.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--sec); }
 .pl-toggle:hover { color: var(--ink); }
+/* The Chart: every planetary good by tier, a chip each; a picked good's recipe beside the grid (sticky), or under it when narrow. */
+.pl-chart-wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 400px); gap: 16px; align-items: start; }
+.pl-chart { gap: 14px; min-width: 0; }
+.pl-tier { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pl-tier-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.pl-tier-head b { font-family: var(--f-head); font-size: 14px; letter-spacing: .08em; color: var(--acc); }
+.pl-tier-head span { font-size: 12px; color: var(--note); }
+.pl-goods { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: 6px; }
+.pl-good { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 8px; text-align: left; background: rgba(2, 7, 12, .45); border: 1px solid var(--line-3); color: var(--body); cursor: pointer; transition: border-color .15s, background .15s, opacity .15s; }
+.pl-good:hover { border-color: color-mix(in oklab, var(--acc) 50%, transparent); }
+.pl-good.sel { border-color: var(--acc); background: color-mix(in oklab, var(--acc) 10%, transparent); }
+.pl-good.off { opacity: .42; border-style: dashed; }
+.pl-good.off.sel, .pl-good.off:hover { opacity: .75; }
+.pl-good-text { display: flex; flex-direction: column; min-width: 0; }
+.pl-good-name { font-size: 12.5px; color: var(--ink); line-height: 1.25; overflow-wrap: anywhere; }
+.pl-good-v { font-family: var(--f-mono); font-size: 11.5px; color: var(--pos); line-height: 1.35; overflow-wrap: anywhere; }
+.pl-good-v .sub { display: block; color: var(--note); font-size: 11px; }
+.pl-good-v.neg { color: var(--neg); }
+.pl-tree, .pl-tree-none { position: sticky; top: 8px; }
+.pl-tree { max-height: calc(100vh - 140px); overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border: 1px solid var(--line-2); border-left: 2px solid var(--acc); background: rgba(2, 7, 12, .45); min-width: 0; animation: unfold .3s ease-out; }
+.pl-tree-none { margin: 0; padding: 14px 16px; border: 1px dashed var(--line-3); }
+.pl-tree-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start; }
+.pl-tree-head b { font-size: 15px; color: var(--ink); font-weight: 600; }
+.pl-tree-head .sub, .pl-step .sub { font-size: 12px; color: var(--note); }
+.pl-step { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-top: 1px solid var(--line-soft); min-width: 0; }
+.pl-step-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+.pl-step-name b { font-weight: 500; color: var(--ink); font-size: 13px; }
+.pl-step.off .pl-step-name b { color: var(--note); }
+.pl-need { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; min-width: 0; }
+.pl-need > b { font-family: var(--f-head); font-size: 11px; letter-spacing: .08em; color: var(--acc); min-width: 20px; }
+.pl-need .pill-tag { max-width: 100%; white-space: normal; }
+.pl-ico { width: 12px; height: 12px; vertical-align: -1px; margin-right: 5px; color: var(--acc); }
+@media (max-width: 1100px) {
+  .pl-chart-wrap { grid-template-columns: minmax(0, 1fr); }
+  .pl-tree, .pl-tree-none { position: static; max-height: none; overflow: visible; }
+}
 
 /* combat */
 .party { display: grid; grid-template-columns: 34px minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 1fr) 90px; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line-4); font-size: 12.5px; }
@@ -1611,4 +1647,9 @@ button.tile.press .tile-v, button.tile.press .tile-n { display: block; }
   .pl-setup-head { grid-template-columns: 20px minmax(0, 1fr); gap: 4px 8px; }
   .pl-isk { grid-column: 2; text-align: left; }
   .pl-setup .pl-high { max-width: none; margin-left: 0; }
+  /* Two goods a row on a phone: the icon gives way to the name and the figures. */
+  .pl-goods { grid-template-columns: repeat(auto-fill, minmax(min(100%, 112px), 1fr)); gap: 5px; }
+  .pl-good { padding: 5px 7px; }
+  .pl-good .ticon { display: none; }
+  .pl-tree { padding: 12px; }
 }

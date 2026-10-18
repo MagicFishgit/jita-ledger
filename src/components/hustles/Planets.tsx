@@ -13,6 +13,7 @@ import { Colonies } from './Colonies';
 import { loadGraph } from './industryBundle';
 import { useIndustryChars } from './industryChars';
 import { loadPlanets } from './planetsBundle';
+import { PlanetsChart } from './PlanetsChart';
 import { PlanetsPlan } from './PlanetsPlan';
 import { SkillPanel } from './SkillPanel';
 
@@ -77,15 +78,13 @@ export function Planets({ route }: { route: Route }) {
         )}
       </div>
       <PilotProvider value={shown.pilot}>
-        {section === 'colonies' ? <Colonies /> : ix === 'failed' || graph === 'failed' ? (
+        {section === 'colonies' ? <Colonies goods={ix && ix !== 'failed' ? ix : null} /> : ix === 'failed' || graph === 'failed' ? (
           <p className="note small" style={{ margin: 0 }}>Couldn’t load {ix === 'failed' ? 'the planets’ data' : 'the stargate map'} just now. {/* A chunk that failed can't be asked for again in the same page (gotchas.md): trying again is a reload. */}
             <button type="button" className="link-btn" onClick={() => void reloadApp()}>Reload to try again</button></p>
         ) : !ix || !graph ? (
           <p className="note small" style={{ margin: 0 }}>Loading the planets’ data and the map…</p>
         ) : section === 'chart' ? (
-          <section className="col" style={{ gap: 8 }} data-planets="chart-soon">
-            <p style={{ margin: 0, fontSize: 13.5, color: 'var(--body-2)', maxWidth: '72ch' }}>Every planetary good from P0 to P4 and what it is made from, with which of a system’s planets supply it: the chart comes with the next part of this page.</p>
-          </section>
+          <PlanetsChart key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} systemId={systemId} onPlan={() => choose('plan')} />
         ) : (
           <PlanetsPlan key={shown.charId} c={shown} chars={chars} colonies={colonies} ix={ix} graph={graph} systemId={systemId} onSystem={chooseSystem} mainName={main.name} />
         )}

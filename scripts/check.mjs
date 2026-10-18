@@ -7468,7 +7468,7 @@ console.log('\n--- Planets: the chart (piChart.ts: goods by tier, a recipe down 
   const can = (n, types) => canMake(ix, id(n), types).map((c) => [c.kind, c.can, c.can ? c.on : c.why]);
   eq('  Nanites at 5-NZNW: P0 → P2 makes it alone on Barren planets; a fed factory and a bought one can; P0 → P1 and a chain can’t', can('Nanites', NZNW), [
     ['p1', false, 'it sells P1 only'], ['p2', true, ['Barren']], ['feed', true, ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic']],
-    ['bought', true, ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic']], ['chain', false, 'a chain makes P3 and P4 only']]);
+    ['bought', true, ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic']], ['chain', false, 'it makes P3 and P4 only']]);
   eq('  Broadcast Node at UALX-3: only on bought inputs, at its Barren and Temperate planets; a chain lacks three P0s', can('Broadcast Node', UALX), [
     ['p1', false, 'it sells P1 only'], ['p2', false, 'it sells P2 only'], ['feed', false, 'its factory makes P2 and P3 only'],
     ['bought', true, ['Barren', 'Temperate']], ['chain', false, 'Planktic Colonies, Non-CS Crystals and Felsic Magma aren’t on any planet here']]);
@@ -10155,6 +10155,7 @@ console.log('\n--- Planets: the main\'s colonies, kept as a synced document (col
   eq('  a bad colony inside is dropped', sanitizeColonies({ colonies: [k1, { planetId: 'x' }] }).colonies.length, 1);
   const a = colonyOfKept(k1, NOW), b = readColony(head, raw, NOW);
   eq('  the panel reads the kept colony as before', [a.extractors, a.factories, a.stored, a.warnings, a.unitsPerHour, a.soonest], [b.extractors, b.factories, b.stored, b.warnings, b.unitsPerHour, b.soonest]);
+  eq('  each extractor keeps when its programme was installed, for the programme’s total', [a.extractors.map((e) => e.install), b.extractors.length > 0 && b.extractors.every((e) => e.install == null || Number.isFinite(e.install))], [raw.pins.filter((p) => p.extractor_details).map((p) => (p.install_time ? Date.parse(p.install_time) : null)), true]);
   eq('  and its head, as the panel prints it', [a.head.planetType, a.head.solarSystemId, a.head.upgradeLevel], ['barren', 30000142, 4]);
   eq('  a synced document', [DOC_KEYS.includes('colonies'), refusedDoc('Unknown document: colonies')], [true, 'colonies']);
 }

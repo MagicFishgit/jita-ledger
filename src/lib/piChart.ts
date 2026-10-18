@@ -78,7 +78,7 @@ const SELLS: Record<SetupKind, { tiers: Tier[]; said: string }> = {
   p2: { tiers: ['P2'], said: 'it sells P2 only' },
   feed: { tiers: ['P2', 'P3'], said: 'its factory makes P2 and P3 only' },
   bought: { tiers: ['P2', 'P3', 'P4'], said: 'its factory makes P2, P3 and P4 only' },
-  chain: { tiers: ['P3', 'P4'], said: 'a chain makes P3 and P4 only' },
+  chain: { tiers: ['P3', 'P4'], said: 'it makes P3 and P4 only' },
 };
 export const SETUP_KINDS: readonly SetupKind[] = ['p1', 'p2', 'feed', 'bought', 'chain'];
 const FACILITY_SAID = { basic: 'Basic Industry Facility', advanced: 'Advanced Industry Facility', hightech: 'High-Tech Production Plant' } as const;

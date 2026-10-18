@@ -63,6 +63,8 @@ export type Extractor = {
   qtyPerCycle: number;
   cycleSeconds: number;
   heads: number;
+  /** When the programme was installed: with the expiry, its length, for the programme's total (piExtraction.ts `readings`). */
+  install: number | null;
   expiry: number | null;
   state: ExtractorState;
   /** Hours until the programme ends, or since it ended. Infinite when there is no programme at all. */
@@ -91,6 +93,7 @@ export function readExtractor(pin: RawPin, now: number, soonHours = 24): Extract
     qtyPerCycle: qty,
     cycleSeconds: cycle,
     heads: d.heads?.length ?? 0,
+    install: pin.install_time ? Date.parse(pin.install_time) : null,
     expiry,
     state,
     hours: Number.isFinite(hours) ? hours : Infinity,

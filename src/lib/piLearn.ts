@@ -15,6 +15,8 @@ export type Rate = { perHour: number; higher: number | null; from: 'learned' | '
 
 /** Set by the in-game check (Task 13): which reading of ESI's qty_per_cycle is right. Null until then. */
 export const PI_READING: 'formula' | 'perCycle' | null = null;
+/** How a rate or a programme's total is said until that check: the Plan section's learned rates and the Colonies panel's programmes alike. */
+export const PI_UNCHECKED = 'not yet checked against the game’s total';
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 const median = (xs: number[]) => {

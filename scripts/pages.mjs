@@ -3880,12 +3880,14 @@ try {
       if (grey.length !== 40) problems.push(`at UALX-3, ${grey.length} goods are greyed, not the 40 that need a missing P0`);
       const felsicTip = await page.locator(good(FELSIC)).getAttribute('data-tip').catch(() => '');
       if (!/Lava/.test(felsicTip ?? '') || !/UALX-3/.test(felsicTip ?? '')) problems.push(`Felsic Magma's greying doesn't say which planet types give it: “${felsicTip}”`);
-      await page.locator(good(BROADCAST)).click().catch((e) => problems.push(`couldn't pick Broadcast Node: ${e.message.split('\n')[0]}`));
+      // Greyed is aria-disabled, which Playwright takes for disabled; a person's click still picks it.
+      await page.locator(good(BROADCAST)).click({ force: true }).catch((e) => problems.push(`couldn't pick Broadcast Node: ${e.message.split('\n')[0]}`));
       await page.waitForTimeout(400);
       const missing = await text('[data-planets="tree"] [data-planets="missing"]');
       for (const n of ['Felsic Magma', 'Non-CS Crystals', 'Planktic Colonies']) if (!missing.includes(n)) problems.push(`Broadcast Node's missing parts at UALX-3 don't name ${n}: “${missing}”`);
       if (/Heavy Metals/.test(missing)) problems.push(`Broadcast Node's missing parts name Heavy Metals, which it doesn't need: “${missing}”`);
       if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (the chart at UALX-3): ${o}`);
+      if (SHOTS) { await page.locator('[data-planets="tier:P1"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-chart-ualx.png` }); }
     }
 
     // --- Colonies (Task 12): with no read in memory, the kept document's colony; its extractor's program total both ways
@@ -3899,12 +3901,15 @@ try {
       if (/\b0 ISK\b|NaN/.test(col)) problems.push('the kept colonies show a 0 or NaN where no price was read');
       await page.locator('[data-planets="colonies"] .expander').first().click().catch((e) => problems.push(`couldn't open the kept colony: ${e.message.split('\n')[0]}`));
       await page.waitForTimeout(300);
+      const opened = await text('[data-planets="colonies"]');
+      if (/Item #/.test(opened) || !/Base Metals/.test(opened) || !/Microorganisms/.test(opened)) problems.push(`the kept colony's extractors aren't named: “${opened.slice(0, 400)}”`);
       for (const pin of [1001, 1002]) {
         const prog = await text(`[data-planets="program:${pin}"]`);
         if (!prog.includes('789,314') || !prog.includes('661,675')) problems.push(`extractor ${pin}'s program doesn't give both totals: “${prog}”`);
         if (!prog.includes('not yet checked against the game’s total')) problems.push(`extractor ${pin}'s program doesn't say it isn't checked: “${prog}”`);
       }
       if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (the kept colonies): ${o}`);
+      if (SHOTS) { await page.locator('[data-planets="colonies"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-colonies.png` }); }
     }
     }
 
