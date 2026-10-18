@@ -3668,6 +3668,11 @@ try {
     if (!rolesI.length || !rolesI.every((t) => /\d+ (Basic|Advanced|High-Tech) [^;]* makes? [\d,]+ \w/.test(t))) problems.push(`planet I’s role lines: ${JSON.stringify(rolesI).slice(0, 400)}`);
     const p2I = await text(`[data-planets="setup:p2"] [data-planets="role:${PLANET_I}"]`);
     if (p2I && !(/Basic Industry Facilit/.test(p2I) && /Advanced Industry Facilit/.test(p2I))) problems.push(`planet I in P0 → P2 doesn’t name its Basic and Advanced factories: “${p2I}”`);
+    // A layout that doesn't fit is priced as if it did: the row's head says so whenever a planet's line does.
+    for (const k of ['p1', 'p2']) {
+      const row = await text(`[data-planets="setup:${k}"]`);
+      if (/don’t fit at/.test(row) && !/fit as planned \(said on/.test(row)) problems.push(`setup ${k} has a planet that doesn’t fit, and its head doesn’t say the figure assumes it does`);
+    }
     const upkeep = await text('[data-planets="setup:p2"] [data-planets="upkeep"]');
     if (!/Resets a week/i.test(upkeep)) problems.push(`P0 → P2’s upkeep: “${upkeep}”`);
     if (SHOTS) { await page.locator('[data-planets="setup:p2"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.screenshot({ path: `${SHOTS}-planets-plan.png` }); }

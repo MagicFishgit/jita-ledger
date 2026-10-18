@@ -524,6 +524,10 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
   if (priced && s.before.includes('tax')) notes.push(`Before the customs tax on ${taxedPlanets.size} planet${taxedPlanets.size === 1 ? '' : 's'} whose tax isn’t known: each 1% costs ${iskBig(s.perPct)} a day.`);
   if (priced && s.before.includes('extraction')) notes.push('Some extractors have no rate: worked out at what their factories take, if your extractors deliver that.');
   if (priced && s.unvalued) notes.push(`${s.unvalued} output${s.unvalued === 1 ? '' : 's'} not valued (no price read), so not counted: never as 0.`);
+  // A layout that doesn't fit is kept and priced as if it did (the planner's rule): the head says so, not only the planet's line.
+  const unfit = s.roles.filter((r) => r.fit && !r.fit.fits);
+  const noLevel = (r: Role) => !(s.perChar.find((p) => p.charId === r.charId)?.lacks.length);
+  if (priced && unfit.length) notes.push(`${unfit.length} planet${unfit.length === 1 ? '’s layout doesn’t' : 's’ layouts don’t'} fit as planned (said on ${unfit.length === 1 ? 'its line' : 'their lines'}): the figure is what ${unfit.length === 1 ? 'it would' : 'they would'} make if ${unfit.length === 1 ? 'it' : 'they'} did.`);
   const lacks = [...new Set(s.perChar.flatMap((p) => p.lacks))];
   const gapSaid = s.kind !== 'p2' ? null : !priced ? 'No figure to set against the best here.'
     : best === s || !best || best.iskDay == null ? 'The best here.' : `${iskBig(best.iskDay - s.iskDay!)} a day under the best here${best.kind === 'chain' ? ' (a chain’s figure is per character)' : ''}.`;
@@ -590,7 +594,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
           )}
           <div className="col pl-lines">
             <span className="lbl">Which planet does what</span>
-            {used.map((r, i) => <RoleLine key={`${r.planetId}:${r.charId}:${i}`} r={r} s={s} planet={planet(r.planetId)} pname={pname} name={name} whose={s.kind === 'chain' || r.charId !== shown.charId ? who(r.charId)?.name ?? null : null} untaxed={taxedPlanets.has(r.planetId)} />)}
+            {used.map((r, i) => <RoleLine key={`${r.planetId}:${r.charId}:${i}`} r={r} s={s} planet={planet(r.planetId)} pname={pname} name={name} whose={s.kind === 'chain' || r.charId !== shown.charId ? who(r.charId)?.name ?? null : null} untaxed={taxedPlanets.has(r.planetId)} noLevel={!!r.fit && !r.fit.fits && noLevel(r)} />)}
             {unused.length > 0 && <span className="note small">Not used: {unusedSaid(unused, pname)}.</span>}
           </div>
           <div>
@@ -628,8 +632,10 @@ function Outputs({ s, name }: { s: Setup; name: (id: number) => string }) {
 }
 
 /** One planet's part: what it extracts (each extractor's rate and where it comes from), what its factories make, what it takes in and ships, its customs. */
-function RoleLine({ r, s, planet, pname, name, whose, untaxed }: {
+function RoleLine({ r, s, planet, pname, name, whose, untaxed, noLevel }: {
   r: Role; s: Setup; planet: SystemPlanet | undefined; pname: (id: number) => string; name: (id: number) => string; whose: string | null; untaxed: boolean;
+  /** It doesn't fit, and no Command Center Upgrades level the character could train fits it either. */
+  noLevel: boolean;
 }) {
   const extract = r.extracts.map((e) => {
     const from = !e.rate ? 'no rate: if your extractors deliver it' : e.rate.from === 'typed' ? 'typed' : e.rate.otherP0 ? 'learned for another P0' : 'learned';
@@ -655,6 +661,7 @@ function RoleLine({ r, s, planet, pname, name, whose, untaxed }: {
         {parts.map(([k, v]) => <span key={k} className="pl-line"><span className="pl-k">{k}</span> {v}</span>)}
         {r.does === 'factory' && untaxed && <span className="pl-line pl-up">Picked before its customs tax, which isn’t known here.</span>}
         {r.why && <span className="pl-line pl-why">{r.why}.</span>}
+        {noLevel && <span className="pl-line pl-up">No Command Center Upgrades level fits it on this planet: {r.extracts.some((e) => e.rate && e.rate.heads > 0) ? 'the heads its rate was measured with are more than this layout leaves room for' : 'its factories are more than the planet holds'}.</span>}
       </div>
     </div>
   );
