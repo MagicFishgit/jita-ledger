@@ -2121,7 +2121,10 @@ console.log('\n--- the main\'s colonies, kept hourly (Planets task 5) ---');
   const docOf = (db, char, key) => { const r = db.rows('SELECT data FROM docs WHERE char_id = ? AND key = ?', char, key)[0]; return r ? JSON.parse(r.data) : null; };
   const rev = (db, char) => db.rows('SELECT rev FROM revs WHERE char_id = ?', char)[0]?.rev ?? 0;
   const PLANETS = 'esi-planets.manage_planets.v1', PLANET = 40307990, SYSTEM = 30000142;
-  const NOW = Date.now(), ENDED = new Date(NOW - 3 * 3600_000).toISOString();
+  // A fixed instant outside EVE's downtime (10:55–11:30 UTC, when a failure isn't counted): with the clock, "and notes the failure"
+  // failed when the suite ran in that window (the final review). `mainColoniesHourly` notes its job at the same `now`, the clock its
+  // hour's gate reads.
+  const NOW = Date.parse('2026-10-18T14:00:00Z'), ENDED = new Date(NOW - 3 * 3600_000).toISOString();
   const heads = [{ planet_id: PLANET, planet_type: 'barren', solar_system_id: SYSTEM, upgrade_level: 4, num_pins: 1, last_update: new Date(NOW - 600_000).toISOString() }];
   const colony = { pins: [{ pin_id: 1001, type_id: 2848, expiry_time: ENDED, install_time: new Date(NOW - 86400_000).toISOString(), last_cycle_start: new Date(NOW - 7200_000).toISOString(),
     extractor_details: { cycle_time: 1800, product_type_id: 2268, qty_per_cycle: 500, heads: [{ head_id: 0 }] } }], links: [], routes: [] };
@@ -2184,6 +2187,33 @@ console.log('\n--- the main\'s colonies, kept hourly (Planets task 5) ---');
     const r = await alertRound(env, MAIN, NOW);
     const mails = f.calls.filter((c) => c.method === 'POST' && c.path === `/characters/${SENDER}/mail/`);
     eq('  the round mails the ended programme without reading the planets', [r.found >= 1, mails.length, f.calls.some((c) => c.path.includes('/planets/')), /PI PROGRAMME ENDED/.test(String(mails[0]?.body))], [true, 1, false, true]);
+    f.restore();
+  }
+  {
+    // The final review's M1: an alert round whose PI part throws is the round's failure, never the 'pi' job's. It noted 'pi', which
+    // stamped its last run, so the hourly read (gated on it) skipped; with a failure every round the colonies stopped being kept.
+    const db = d1(), env = testEnv(db);
+    await keepKey(db, MAIN, 'main', MAIN, 'Main', [...SCOPES, PLANETS]);
+    await keepKey(db, MAIN, 'mailer', SENDER, 'Postmaster', SCOPES);
+    await push(db, MAIN, { records: [], docs: [{ key: 'alerts', d: { on: true, mail: true, quiet: false } }] });
+    let f = stubFetch(routes());
+    await mainColoniesHourly(env, MAIN, NOW);
+    f.restore();
+    const piRow = () => db.rows("SELECT last_run, last_ok, fails, last_error FROM jobs WHERE char_id = ? AND job = 'pi'", MAIN)[0];
+    const before = piRow();
+    // The kept colonies can't be read for the round (a D1 error), so working out the PI findings throws.
+    const failing = { ...db, prepare: (sql) => { const st = db.prepare(sql); return /FROM docs WHERE char_id = \?1 AND key = \?2/.test(sql) ? { ...st, bind: (...a) => { if (a[1] === 'colonies') throw new Error('D1 refused the read'); return st.bind(...a); } } : st; } };
+    const errors = [], realError = console.error;
+    console.error = (...a) => errors.push(a.join(' '));
+    f = stubFetch([[new RegExp(`^POST /characters/${SENDER}/mail/$`), 777], [/^GET \/universe\/systems\//, { name: 'Jita' }]]);
+    try { await alertRound({ ...env, DB: failing }, MAIN, NOW + 600_000); } finally { console.error = realError; f.restore(); }
+    eq('  an alert round whose PI part throws leaves the pi job as the hourly read left it', piRow(), before);
+    const alertsDetail = JSON.parse(db.rows("SELECT detail FROM jobs WHERE char_id = ? AND job = 'alerts'", MAIN)[0]?.detail ?? 'null');
+    eq('  … logged, and kept in the alert round\'s own detail', [errors.length, alertsDetail?.piError], [1, 'D1 refused the read']);
+    // The next hour's read still happens: the alert round didn't stamp 'pi'.
+    f = stubFetch(routes());
+    await mainColoniesHourly(env, MAIN, NOW + 3600_000);
+    eq('  … so the next hour\'s read still runs', f.calls.filter((c) => c.path === `/characters/${MAIN}/planets/`).length, 1);
     f.restore();
   }
 }

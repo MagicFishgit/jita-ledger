@@ -52,8 +52,8 @@ export async function mainColoniesHourly(env: Env, charId: number, now: number):
   if (now - (await lastRun(env.DB, charId, 'pi')) < PI_EVERY - 60_000) return;
   try {
     const r = await readColoniesFor(env, ledgerReader(charId), now);
-    await noteJob(env.DB, charId, 'pi', { ok: true, detail: { colonies: r.colonies } });
+    await noteJob(env.DB, charId, 'pi', { ok: true, detail: { colonies: r.colonies } }, now);
   } catch (e) {
-    await noteJob(env.DB, charId, 'pi', { ok: false, error: e instanceof Error ? e.message : String(e) });
+    await noteJob(env.DB, charId, 'pi', { ok: false, error: e instanceof Error ? e.message : String(e) }, now);
   }
 }

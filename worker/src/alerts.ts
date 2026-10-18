@@ -478,10 +478,15 @@ export async function alertRound(env: Env, charId: number, now = Date.now(), jud
     }
   }
   // From the kept document, every round: the hourly read (planets.ts) has run just before this, whatever these settings say,
-  // and `mailKey` / "Remind me again after" keep a finding from going out every round.
+  // and `mailKey` / "Remind me again after" keep a finding from going out every round. A failure here is the round's, logged and
+  // kept in the 'alerts' job's detail, never the 'pi' job's (the final review's M1): noting 'pi' stamped its last run, so the hourly
+  // colony read (gated on it) skipped, and with a failure every round the colonies stopped being kept while the watchdog mailed
+  // "Reading your planets" failing when the read was fine.
+  let piError: string | null = null;
   if (cfg.ev.pi && cfg.mailEv.pi) {
     try { findings.push(...await colonyFindings(env.DB, charId, now)); } catch (e) {
-      await noteJob(env.DB, charId, 'pi', { ok: false, error: e instanceof Error ? e.message : String(e) });
+      piError = e instanceof Error ? e.message : String(e);
+      console.error('alerts: the colonies’ findings failed', charId, piError);
     }
   }
   out.found = findings.length;
@@ -489,7 +494,7 @@ export async function alertRound(env: Env, charId: number, now = Date.now(), jud
   const sent = await mailFindings(env, charId, findings, cfg, now);
   out.mailId = sent.mailId;
   out.mailed = sent.mailed;
-  await noteJob(env.DB, charId, 'alerts', { ok: true, detail: { judged: out.judged, unread: out.unread, found: out.found, mailed: out.mailed } });
+  await noteJob(env.DB, charId, 'alerts', { ok: true, detail: { judged: out.judged, unread: out.unread, found: out.found, mailed: out.mailed, ...(piError ? { piError } : {}) } });
   return out;
 }
 

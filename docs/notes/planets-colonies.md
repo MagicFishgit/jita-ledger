@@ -25,9 +25,16 @@ in planets.md and planets-planner.md.
   login is still kept. `alertRound`'s PI findings come from the kept document (`colonyOfKept`), never ESI, every round under
   those settings; `mailKey` and "Remind me again after" keep them from going out every round, and system names are still read
   publicly. A failing read mails "Cloud job failing" with PI alerts off too: `'pi'` is watchdog-mailed, and the read is what
-  keeps the colonies. `check-worker` pins it: kept with PI alerts off, the same read twice writes nothing, a 500 keeps the
-  document, a login without the permission reads nothing, and in one round the read then the alert round finds an ended
-  programme from the document alone.
+  keeps the colonies (its mail says the colonies aren't kept meanwhile, so the planner doesn't learn from them). `check-worker`
+  pins it: kept with PI alerts off, the same read twice writes nothing, a 500 keeps the document, a login without the permission
+  reads nothing, and in one round the read then the alert round finds an ended programme from the document alone.
+  - **Only the read notes `'pi'`** (the final review's M1). The alert round's catch noted `'pi'` too, which stamped its last run, so
+    the hourly read (gated on it) skipped; with a failure every round the colonies stopped being kept while the watchdog mailed
+    "Reading your planets" failing when the read was fine. Now that failure is logged and kept in the `'alerts'` job's detail
+    (`piError`); `check-worker` throws in it and finds `'pi'` as the read left it, and the next hour's read still running.
+  - **The read's job is noted at its own `now`** (`noteJob`'s optional `now`, the default `Date.now()`), the clock its hour's gate
+    reads; nothing changes in production, where it is `Date.now()`. The suite's block is pinned to 14:00 UTC: on the real clock
+    its "and notes the failure" failed when run from 10:55 to 11:30 UTC, EVE's downtime, when a failure isn't counted.
 - **The Colonies section** (`Colonies.tsx`, Task 12): with no read in memory, the main's kept document, saying it is as of the
   last read (this browser's or the cloud's hourly one) and when EVE last updated the newest: the document has no read time,
   and `lastUpdate` is the game's, never said as a read. No prices come with it: "–" and "not priced", never 0. Goods are named
@@ -49,6 +56,5 @@ in planets.md and planets-planner.md.
 - **No real colony has been drawn yet** (limits.md): the first hourly read after the ship is the first look, and its kept
   document is what the in-game check reads (planets.md).
 - `readColoniesFor` pushes under `who.ledger`, which is right for the main; Task 14 must push an alt's under `who.char`.
-- The alert round's catch still notes `'pi'` failures, which moves its `last_run` and counts towards the watchdog.
 - Colonies' phone rule stops at 640 px, so from 641 to 1,099 px an opened colony's second extractor card runs past the table's
   edge (147 px at 800); the table scrolls sideways there (Ruling T12-3: the same rule under 1,099 px, with a check at 800).

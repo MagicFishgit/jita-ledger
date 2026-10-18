@@ -26,7 +26,7 @@ export const JOB_SAID: Record<string, { label: string; retry: string; meanwhile:
   orders: { label: 'Reading your market orders', retry: 'every 20 minutes', meanwhile: 'orders you placed or changed since aren’t seen by the alert checks' },
   alerts: { label: 'Checking your orders for alerts', retry: 'every few minutes', meanwhile: 'no alert mail is sent' },
   mailtidy: { label: 'Tidying old alert mail', retry: 'on its usual cadence', meanwhile: 'old alert mails stay in your inbox' },
-  pi: { label: 'Reading your planets', retry: 'every hour', meanwhile: 'nothing warns you before an extractor stops' },
+  pi: { label: 'Reading your planets', retry: 'every hour', meanwhile: 'nothing warns you before an extractor stops, and your colonies aren’t kept, so the planner doesn’t learn from them' },
   scan: { label: 'The daily full-market scan', retry: 'every hour', meanwhile: 'Prospects and the planner work from the last scan that finished' },
   sniper: { label: 'The Sniper', retry: 'every five minutes', meanwhile: 'no mistake listings are found or mailed' },
   checks: { label: 'The daily checks', retry: 'every hour', meanwhile: 'the Sniper’s and your share’s records aren’t brought up to date' },
