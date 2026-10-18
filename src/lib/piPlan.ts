@@ -2325,10 +2325,11 @@ export function planBought(input: PlanInput): Setup {
   const paysWhy = () => (noneValued && ctx.buyWhy ? `No input can be bought in the amount its factories need: ${ctx.buyWhy}`
     : `No product here pays more than its inputs cost${ctx.buyWhy ? `, and some inputs can’t be bought in the amount needed: ${ctx.buyWhy}` : ''}`);
   const unsettledWhy = `No product here could be sized exactly: ${UNSETTLED}`;
-  // Not one sized because the sizing never settled (and no input was refused): said as that, never "nothing pays".
-  const onlyUnsettled = unsettled && !ctx.buyWhy;
+  // Not one sized because the sizing never settled (and no input was refused): said as that, never "nothing pays". Asked again at
+  // the end, after the search has met more sets.
+  const onlyUnsettled = () => unsettled && !ctx.buyWhy;
   if (!byAlone.length) {
-    const why = noneValued && onlyUnsettled ? unsettledWhy
+    const why = noneValued && onlyUnsettled() ? unsettledWhy
       : anyPriced ? paysWhy() : inputWhy ? `No product here has every input priced to buy: ${inputWhy}` : 'Nothing a factory here could make is priced';
     return unsettled ? { ...blocked(input, 'bought', why, []), cut: true } : blocked(input, 'bought', why, []);
   }
@@ -2375,7 +2376,7 @@ export function planBought(input: PlanInput): Setup {
   dfs(0, 0, 0, allowed);
   const chosen = best as { score: Score; inst: number[] } | null;
   cut ||= unsettled;
-  if (!chosen) return { ...blocked(input, 'bought', budgetCut() ? RAN_OUT : onlyUnsettled ? unsettledWhy : paysWhy(), []), ...(cut ? { cut: true as const } : {}) };
+  if (!chosen) return { ...blocked(input, 'bought', budgetCut() ? RAN_OUT : onlyUnsettled() ? unsettledWhy : paysWhy(), []), ...(cut ? { cut: true as const } : {}) };
   const v = valueBought(ctx, chosen.inst)!;
 
   // Each class's factories on its planets in order.

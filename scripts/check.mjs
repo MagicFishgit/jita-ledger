@@ -8290,7 +8290,10 @@ console.log('\n--- Planets: the planner in steps (piPlan.ts planSteps; the page 
   const FILE = new URL('./fixtures/planets-steps.json', import.meta.url);
   const now = Object.fromEntries(Object.entries(CASES).map(([name, input]) => [name, PP.planSystem(input).map(digest)]));
   if (process.env.RECORD_STEPS) {
-    fsP.writeFileSync(FILE, JSON.stringify({ about: 'Every setup of check.mjs\'s "planner in steps" cases as piPlan.ts gave them before the searches were sliced (Ruling T11-13): the slicing must not move one.', cases: now }, null, 1) + '\n');
+    // A setup a line, so the file reads (and diffs) by setup.
+    const about = 'Every setup of check.mjs\'s "planner in steps" cases as piPlan.ts gave them before the searches were sliced (Ruling T11-13): the slicing must not move one.';
+    const body = Object.entries(now).map(([n, ss]) => `  ${JSON.stringify(n)}: [\n${ss.map((x) => `   ${JSON.stringify(x)}`).join(',\n')}\n  ]`).join(',\n');
+    fsP.writeFileSync(FILE, `{\n "about": ${JSON.stringify(about)},\n "cases": {\n${body}\n }\n}\n`);
     console.log('  recorded scripts/fixtures/planets-steps.json');
   } else {
     const was = JSON.parse(fsP.readFileSync(FILE, 'utf8')).cases;
