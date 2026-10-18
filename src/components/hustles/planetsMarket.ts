@@ -17,8 +17,13 @@ import type { IndustryChar } from './industryChars';
 import { homeSaid } from './industryFinder';
 import { useHomeHistory, useHomeHubs, useHomeQuotes, useIndustryDoc, useLiveBooks, useScanCache, type Loaded } from './industryMarket';
 
-/** One unit's net at the better place, uncapped (for the chart: `sell(id, 1)` would be capped on a thin P4). */
-export type UnitNet = { isk: number | null; where: 'jita' | 'home' | null; why: string | null };
+/**
+ * One unit's net at the better place, uncapped (for the chart: `sell(id, 1)` would be capped on a thin P4). `book`: what that
+ * place's price was read from (Ruling T12-2), so a value says it where it shows: Jita's book read live now, or this morning's
+ * scan; the hub's own market's read, or Goonmetrics'. Null with no value.
+ */
+export type UnitBook = 'now' | 'morning' | 'hub' | 'goonmetrics';
+export type UnitNet = { isk: number | null; where: 'jita' | 'home' | null; why: string | null; book?: UnitBook | null };
 export type PlanetMarket = {
   sell: Sell; buy: Buy; unit: (typeId: number) => UnitNet; ready: boolean; said: string;
   /** Whether any of the goods named in `live` has its Jita book read live yet: the planner ranks again on them only then. */
@@ -114,7 +119,9 @@ export function usePlanetMarket(c: IndustryChar, ix: PiIndex | null, opts: { liv
       const nets = (['home', 'jita'] as const).filter((p) => where === 'best' || where === p)
         .map((p) => ({ p, v: Math.max(s[p].listNet ?? -Infinity, s[p].bidNet ?? -Infinity), why: s[p].why }));
       const best = nets.filter((x) => x.v > -Infinity).sort((a, b) => b.v - a.v)[0];
-      if (best) return { isk: best.v, where: best.p, why: null };
+      // The book `marketOf` priced it on: Jita's live one when read, else this morning's scan; at the hub, its quote's source.
+      const book: UnitBook | null = !best ? null : best.p === 'jita' ? (liveBooks[t] ? 'now' : 'morning') : s.m.home?.source === 'structure' ? 'hub' : 'goonmetrics';
+      if (best) return { isk: best.v, where: best.p, why: null, book };
       return { isk: null, where: null, why: [...new Set(nets.map((x) => x.why).filter((w): w is string => !!w))].join('; ') || 'no price read' };
     };
     // Each place's offer for a good, as steps cheapest first up to its max (Ruling T11-7), never depending on the amount. Jita

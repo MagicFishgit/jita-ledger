@@ -7472,6 +7472,11 @@ console.log('\n--- Planets: the chart (piChart.ts: goods by tier, a recipe down 
   eq('  Broadcast Node at UALX-3: only on bought inputs, at its Barren and Temperate planets; a chain lacks three P0s', can('Broadcast Node', UALX), [
     ['p1', false, 'it sells P1 only'], ['p2', false, 'it sells P2 only'], ['feed', false, 'its factory makes P2 and P3 only'],
     ['bought', true, ['Barren', 'Temperate']], ['chain', false, 'Planktic Colonies, Non-CS Crystals and Felsic Magma aren’t on any planet here']]);
+  // A chain is planned for a P3 only when one character's planets can't make it (planChain): its "can" says so, a P4's doesn't.
+  eq('  a chain\'s P3 "can" carries the planner\'s condition; a P4\'s, a fed factory\'s and a bought one\'s none',
+    [canMake(ix, id('Robotics'), NZNW).find((c) => c.kind === 'chain'), canMake(ix, id('Broadcast Node'), NZNW).find((c) => c.kind === 'chain').when,
+      canMake(ix, id('Robotics'), NZNW).filter((c) => c.kind !== 'chain').map((c) => c.when)],
+    [{ kind: 'chain', can: true, on: ['Barren', 'Lava', 'Temperate', 'Gas', 'Ice', 'Oceanic'], why: null, when: 'only when it needs more planets than one character has (a fed factory plans the rest)' }, null, [null, null, null, null]]);
   eq('  a P4 where no planet takes a High-Tech Production Plant; a P2 no planet makes alone; a P1 whose P0 isn’t here; a P0',
     [can('Broadcast Node', ['Gas'])[3], can('Microfiber Shielding', NZNW)[1], can('Silicon', UALX)[0], can('Microorganisms', NZNW).map((c) => c[1])],
     [['bought', false, 'only Barren and Temperate planets take its High-Tech Production Plant, and none is here'], ['p2', false, 'no planet here has all its P0s: they are on different planets'],

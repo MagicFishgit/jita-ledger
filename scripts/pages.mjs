@@ -3823,6 +3823,12 @@ try {
       if (/\b0 ISK\b|NaN/.test(await text('[data-planets="chart"]'))) problems.push('the chart shows a 0 or NaN');
       await page.locator(good(NANITES)).click().catch((e) => problems.push(`couldn't pick Nanites: ${e.message.split('\n')[0]}`));
       await page.waitForSelector('[data-planets="tree"]', { timeout: 10_000 }).catch(() => problems.push('picking Nanites showed no recipe'));
+      // Below 1,100 px the recipe sits under the grid: a pick made now brings it into view.
+      if (PHONE) {
+        await page.waitForTimeout(1200);
+        const at = await page.evaluate(() => { const r = document.querySelector('[data-planets="tree"]')?.getBoundingClientRect(); return r ? [r.top, r.bottom, innerHeight] : null; });
+        if (!at || at[0] >= at[2] || at[1] <= 0) problems.push(`at 390 px picking Nanites didn't bring its recipe into view: ${JSON.stringify(at)}`);
+      }
       const tree = await text('[data-planets="tree"]');
       for (const n of ['Nanites', 'Bacteria', 'Reactive Metals', 'Microorganisms', 'Base Metals']) if (!tree.includes(n)) problems.push(`Nanites' recipe doesn't name ${n}`);
       // Quantities and cycle times: 40 + 40 → 5 an hour; 3,000 → 20 every 30 minutes; and what one Nanites takes all the way down.
@@ -3838,10 +3844,13 @@ try {
       if (!/5-NZNW II\b/.test(base) || !/5-NZNW VII\b/.test(base) || /5-NZNW XII\b/.test(base)) problems.push(`5-NZNW's planets with Base Metals: “${base}”`);
       await makesSettled();
       if (!(await page.locator('[data-planets="makes"] [data-planets="makes:p2"]').count())) problems.push(`P0 → P2 isn't among the setups that make Nanites at 5-NZNW: “${await text('[data-planets="makes"]')}”`);
+      // Ruling T12-1: what a setup can do is said as "can", apart from what the ranking does.
+      if (!/Which setups can make it at 5-NZNW/i.test(await text('[data-planets="makes"] .lbl'))) problems.push(`the setups' heading doesn't say "can": “${await text('[data-planets="makes"] .lbl')}”`);
       if (await page.locator('[data-planets="makes"] [data-planets="makes:p1"]').count()) problems.push('P0 → P1 is said to make a P2');
       // Its line says what the Plan section's ranked P0 → P2 makes here, so the two agree (on this fixture it makes no Nanites).
       const p2Line = await text('[data-planets="makes"] [data-planets="makes:p2"]');
       if (!/Mechanical Parts/.test(p2Line)) problems.push(`P0 → P2's line doesn't say what the ranking makes instead: “${p2Line}”`);
+      if (!/: can make it alone on its Barren planets/.test(p2Line) || !/As ranked on Plan/.test(p2Line)) problems.push(`P0 → P2's line doesn't keep "can" apart from the ranking: “${p2Line}”`);
       // A price that isn't known is "–" with its reason: selling at UALX-3 alone, Oxides has no price there.
       await page.locator('[data-planets="market"] button', { hasText: /^UALX-3$/ }).click().catch((e) => problems.push(`no Sell at UALX-3 on the chart: ${e.message.split('\n')[0]}`));
       await page.waitForTimeout(500);
@@ -3858,6 +3867,23 @@ try {
       }
       if (SHOTS) { await page.locator('[data-planets="tree"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-chart.png` }); }
 
+      // Ruling T12-2: a value says which book it's on where it shows. A good the ranking doesn't name has no live book read, so
+      // valued at Jita it's on this morning's book, and its tip and its recipe's head say so; one read live says "now".
+      const books = await page.evaluate(() => [...document.querySelectorAll('[data-planets="chart"] [data-planets^="good:"]')].map((e) => [Number(e.getAttribute('data-planets').slice(5)), e.getAttribute('data-book'), e.getAttribute('data-tip') ?? '']));
+      const BOOK_WORDS = { now: 'on its Jita book now', morning: 'on this morning’s Jita book', hub: 'on the hub’s own market’s read', goonmetrics: 'on Goonmetrics’ prices' };
+      const unsaid = books.filter(([, b, tip]) => !b || !tip.includes(BOOK_WORDS[b]));
+      if (unsaid.length) problems.push(`${unsaid.length} goods' values don't say which book they're on, e.g. ${JSON.stringify(unsaid[0]).slice(0, 240)}`);
+      const morningGood = books.find(([, b]) => b === 'morning');
+      if (!morningGood) problems.push('no good outside the ranking is valued on this morning’s Jita book');
+      else {
+        await page.locator(good(morningGood[0])).click().catch(() => undefined);
+        await page.waitForTimeout(400);
+        const head = await text('[data-planets="tree"] .pl-tree-head');
+        if (!head.includes('on this morning’s Jita book')) problems.push(`${byId.get(morningGood[0])?.name ?? morningGood[0]}'s recipe head doesn't say its value is on this morning's book: “${head}”`);
+        await page.locator(good(NANITES)).click().catch(() => undefined);
+        await page.waitForTimeout(400);
+      }
+
       // --- the unread alt: prices are after fees it hasn't read, so every good is "–" and the line says why; never 0.
       await showFor('Unread Alt');
       const unreadChart = await text('[data-planets="chart-section"]');
@@ -3873,6 +3899,13 @@ try {
       await page.waitForSelector(`[data-planets="planet:${FXP.ualx.planets[0].planet_id}"]`, { timeout: 20_000 }).catch(() => problems.push('UALX-3’s planets never listed'));
       await section('Chart');
       await page.waitForSelector('[data-planets="chart"]', { timeout: 20_000 }).catch(() => undefined);
+      // Coming back to the Chart with Nanites kept doesn't scroll past the grid to its recipe (only a pick made now does).
+      if (PHONE) {
+        await page.waitForTimeout(1200);
+        // The recipe sits under 83 goods, far below the screen, unless something scrolled to it.
+        const top = await page.evaluate(() => { const r = document.querySelector('[data-planets="tree"]')?.getBoundingClientRect(); return r ? [r.top, innerHeight] : null; });
+        if (!top || top[0] < top[1]) problems.push(`at 390 px, opening the Chart with a good kept scrolled past the grid to its recipe: ${JSON.stringify(top)}`);
+      }
       await page.waitForFunction(() => document.querySelectorAll('[data-planets="chart"] [aria-disabled="true"]').length > 0, null, { timeout: 15_000 }).catch(() => undefined);
       const grey = await disabledGoods();
       for (const id of [FELSIC, NONCS, HEAVY, PLANKTIC, BROADCAST]) if (!grey.includes(id)) problems.push(`at UALX-3, ${byId.get(id)?.name ?? id} isn't greyed`);
@@ -3909,6 +3942,12 @@ try {
         if (!prog.includes('not yet checked against the game’s total')) problems.push(`extractor ${pin}'s program doesn't say it isn't checked: “${prog}”`);
       }
       if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (the kept colonies): ${o}`);
+      // The programme totals sit in a table that scrolls sideways, which the overflow check lets be: they must still fit the box's
+      // visible width, not need scrolling to read (the reading check's one figure).
+      if (PHONE) {
+        const cut = await page.evaluate(() => [...document.querySelectorAll('[data-planets^="program:"]')].map((el) => { const box = el.closest('.tbl-scroll')?.getBoundingClientRect(), r = el.getBoundingClientRect(); return box && r.right > box.right + 1 ? Math.round(r.right - box.right) : 0; }).filter((x) => x > 0));
+        if (cut.length) problems.push(`at 390 px the programme totals run ${cut.join(', ')} px past the table's visible edge`);
+      }
       if (SHOTS) { await page.locator('[data-planets="colonies"]').scrollIntoViewIfNeeded().catch(() => undefined); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-colonies.png` }); }
     }
     }

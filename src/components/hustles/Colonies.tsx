@@ -202,11 +202,13 @@ export function Colonies({ goods }: { goods?: PiIndex | null }) {
                       </tr>
                       {isOpen && (
                         <tr className="detail">
-                          <td colSpan={6} style={{ paddingLeft: 34 }}>
-                            <div className="unfold">
+                          <td colSpan={6} className="col-detail">
+                            {/* On a phone the opened colony keeps to the table's visible width (styles.css `.col-unfold`), so an
+                                extractor's programme totals, the reading check's one figure, aren't cut off past the edge. */}
+                            <div className="unfold col-unfold">
                               <div className="row" style={{ alignItems: 'stretch' }}>
                                 {c.extractors.map((e) => (
-                                  <div key={e.pinId} style={{ minWidth: 200, padding: '10px 12px', background: 'rgba(2,7,12,.55)', borderLeft: `2px solid ${STATE_C[e.state]}` }}>
+                                  <div key={e.pinId} className="col-ex" style={{ padding: '10px 12px', background: 'rgba(2,7,12,.55)', borderLeft: `2px solid ${STATE_C[e.state]}` }}>
                                     <div className="lbl">{e.productTypeId ? nameOf(e.productTypeId) : 'Idle extractor'}</div>
                                     <div className="mono" style={{ fontSize: 14, color: STATE_C[e.state], marginTop: 3 }}>{e.unitsPerHour > 0 ? `${units(Math.round(e.unitsPerHour))}/hour` : '–'}</div>
                                     <div style={{ fontSize: 11.5, color: 'var(--note)' }}>

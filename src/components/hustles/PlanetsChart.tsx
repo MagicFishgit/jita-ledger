@@ -11,7 +11,7 @@ import { Points } from '../Facts';
 import { ItemIcon } from '../ui';
 import type { IndustryChar } from './industryChars';
 import { useHomeHubs, useIndustryDoc } from './industryMarket';
-import type { UnitNet } from './planetsMarket';
+import type { UnitBook, UnitNet } from './planetsMarket';
 import { usePlanning } from './planetsPlanning';
 import { KIND, Selling } from './PlanetsPlan';
 
@@ -47,6 +47,11 @@ function cycleSaid(sec: number): string {
 const recipeSaid = (s: Schematic, name: (id: number) => string) =>
   `${s.inputs.map((i) => `${units(i.qty)} ${name(i.id)}`).join(' + ')} → ${units(s.out.qty)} ${name(s.out.id)} ${cycleSaid(s.cycleSeconds)}`;
 const whereSaid = (w: UnitNet['where'], hub: string | null) => (w === 'home' ? hub ?? 'the home hub' : 'Jita');
+/** What the value was read from, said beside it (Ruling T12-2): a good the ranking doesn't name is on this morning's Jita book. */
+const BOOK_SAID: Record<UnitBook, string> = {
+  now: 'on its Jita book now', morning: 'on this morning’s Jita book', hub: 'on the hub’s own market’s read', goonmetrics: 'on Goonmetrics’ prices',
+};
+const valueSaid = (u: UnitNet, hub: string | null) => `at ${whereSaid(u.where, hub)}${u.book ? `, ${BOOK_SAID[u.book]}` : ''}`;
 
 export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan }: {
   c: IndustryChar; chars: IndustryChar[]; colonies: Record<number, ColoniesDoc | undefined>; ix: PiIndex; systemId: number | null; onPlan: () => void;
@@ -54,7 +59,9 @@ export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan }: {
   const p = usePlanning({ c, chars, colonies, ix, systemId });
   const tiers = useMemo(() => goodsByTier(ix), [ix]);
   const [pick, setPick] = useState<number | null>(() => { const k = readPick(); return k != null && ix.byId.has(k) ? k : null; });
-  const choose = (id: number | null) => { setPick(id); keepPick(id); };
+  // A pick made now brings its recipe into view; a kept one drawn on opening the Chart doesn't scroll past the grid.
+  const pickedNow = useRef(false);
+  const choose = (id: number | null) => { pickedNow.current = id != null; setPick(id); keepPick(id); };
   const value = p.value;
   const sysName = value?.system.name ?? null;
   const types = useMemo(() => [...new Set((value?.planets ?? []).map((x) => x.type).filter((t): t is PlanetType => !!t))], [value]);
@@ -88,7 +95,7 @@ export function PlanetsChart({ c, chars, colonies, ix, systemId, onPlan }: {
           ))}
         </div>
         {pick != null && ix.byId.has(pick)
-          ? <Tree key={pick} id={pick} ix={ix} p={p} unit={unit} hub={hubShort} missing={missing.get(pick) ?? []} sysName={sysName} onClose={() => choose(null)} onPlan={onPlan} />
+          ? <Tree key={pick} id={pick} ix={ix} p={p} unit={unit} hub={hubShort} missing={missing.get(pick) ?? []} sysName={sysName} scroll={pickedNow.current} onClose={() => choose(null)} onPlan={onPlan} />
           : <p className="note small pl-tree-none">Pick a good for its recipe down to P0{sysName ? `, which of ${sysName}’s planets supply it, and which setups make it there` : ''}.</p>}
       </div>
     </section>
@@ -133,12 +140,12 @@ function GoodChip({ g, u, ready, picked, missing, sysName, ix, hub, onPick }: {
   }
   if (ready && u.isk == null) lines.push(...(lines.length ? [''] : []), `No value: ${u.why ?? 'no price read'}.`);
   else if (ready && u.isk != null) {
-    lines.push(...(lines.length ? [''] : []), `${iskSaid(u.isk)} a unit at ${whereSaid(u.where, hub)}, after your fees${u.where === 'jita' ? ` and the freight from ${hub ?? 'your hub'}` : ''}; ${g.volume} m³ a unit.`);
+    lines.push(...(lines.length ? [''] : []), `${iskSaid(u.isk)} a unit ${valueSaid(u, hub)}, after your fees${u.where === 'jita' ? ` and the freight from ${hub ?? 'your hub'}` : ''}; ${g.volume} m³ a unit.`);
     if (u.isk < 0) lines.push('', 'Under nothing: its fees and freight cost more than it sells for.');
   }
   return (
     <button type="button" className={'pl-good' + (picked ? ' sel' : '') + (off ? ' off' : '')} aria-pressed={picked} aria-disabled={off ? true : undefined}
-      data-planets={`good:${g.id}`} data-tip={lines.length ? lines.join('\n') : undefined} data-tip-title={lines.length ? g.name : undefined} onClick={onPick}>
+      data-planets={`good:${g.id}`} data-book={u.isk != null ? u.book ?? undefined : undefined} data-tip={lines.length ? lines.join('\n') : undefined} data-tip-title={lines.length ? g.name : undefined} onClick={onPick}>
       <ItemIcon id={g.id} size="sm" />
       <span className="pl-good-text">
         <span className="pl-good-name">{g.name}</span>
@@ -148,15 +155,17 @@ function GoodChip({ g, u, ready, picked, missing, sysName, ix, hub, onPick }: {
   );
 }
 
-/** A picked good: its recipe down to P0, what the system lacks of it, its P0s' planets here, and which setups make it there. */
-function Tree({ id, ix, p, unit, hub, missing, sysName, onClose, onPlan }: {
-  id: number; ix: PiIndex; p: ReturnType<typeof usePlanning>; unit: (id: number) => UnitNet; hub: string | null; missing: number[]; sysName: string | null; onClose: () => void; onPlan: () => void;
+/** A picked good: its recipe down to P0, what the system lacks of it, its P0s' planets here, and which setups can make it there. */
+function Tree({ id, ix, p, unit, hub, missing, sysName, scroll, onClose, onPlan }: {
+  id: number; ix: PiIndex; p: ReturnType<typeof usePlanning>; unit: (id: number) => UnitNet; hub: string | null; missing: number[]; sysName: string | null; scroll: boolean; onClose: () => void; onPlan: () => void;
 }) {
   const ref = useRef<HTMLElement>(null);
-  // Below the grid (a phone, a narrow window) the tree would land out of sight: brought into view when it isn't.
+  // Below the grid (a phone, a narrow window) a recipe picked now would land out of sight: brought into view when it isn't. Only
+  // on a pick: a kept recipe drawn when the Chart opens leaves the page at the grid.
+  const scrollOnPick = useRef(scroll);
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || !scrollOnPick.current) return;
     const r = el.getBoundingClientRect();
     if (r.top > window.innerHeight - 60 || r.bottom < 0) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }, []);
@@ -183,7 +192,7 @@ function Tree({ id, ix, p, unit, hub, missing, sysName, onClose, onPlan }: {
         <ItemIcon id={id} />
         <div className="col" style={{ gap: 2, minWidth: 0 }}>
           <b>{g.name}</b>
-          <span className="sub">{g.tier} · {g.volume} m³ a unit · {u.isk != null ? `${iskSaid(u.isk)} a unit at ${whereSaid(u.where, hub)}, ${iskSaid(u.isk / g.volume)} a m³` : u.why ? `no value: ${u.why}` : 'not valued yet'}</span>
+          <span className="sub">{g.tier} · {g.volume} m³ a unit · {u.isk != null ? `${iskSaid(u.isk)} a unit ${valueSaid(u, hub)}; ${iskSaid(u.isk / g.volume)} a m³` : u.why ? `no value: ${u.why}` : 'not valued yet'}</span>
         </div>
         <button type="button" className="icon-btn" aria-label="Close the recipe" onClick={onClose}><X aria-hidden="true" /></button>
       </div>
@@ -232,7 +241,7 @@ function Tree({ id, ix, p, unit, hub, missing, sysName, onClose, onPlan }: {
 }
 
 /**
- * Which setups make it at the system: each kind that can (by what it sells, from these planets' types) or that the Plan section's
+ * Which setups can make it at the system: each kind that can (by what it sells, from these planets' types) or that the Plan section's
  * ranking does make it with, and for each what the ranking does; the kinds that can't, in one line.
  */
 function Makes({ id, ix, p, sysName, onPlan }: { id: number; ix: PiIndex; p: ReturnType<typeof usePlanning>; sysName: string; onPlan: () => void }) {
@@ -255,12 +264,13 @@ function Makes({ id, ix, p, sysName, onPlan }: { id: number; ix: PiIndex; p: Ret
     const here = planets.filter((pl) => pl.type && x.on.includes(pl.type));
     return `its ${listSaid(x.on)} planet${here.length === 1 ? '' : 's'} (${sysName} ${listSaid(here.map((pl) => pname(pl.planetId)))})`;
   };
+  // What it can do here, always said as "can" (Ruling T12-1), kept apart from what the ranking does ("As ranked on Plan").
   const canSaid = (x: CanMake): string => {
-    if (!x.can) return `it doesn’t sell it (${x.why}).`;
-    if (x.kind === 'p1' || x.kind === 'p2') return `made alone on ${typesOn(x)}.`;
-    if (x.kind === 'bought') return `its inputs bought at the market, its factory on ${typesOn(x)}.`;
-    if (x.kind === 'chain') return `every P0 it needs is on these planets: extracted across your characters’ colonies, its factory on ${typesOn(x)}.`;
-    return `every P0 it needs is on these planets, fed to a factory on ${typesOn(x)}.`;
+    if (!x.can) return `can’t sell it (${x.why}).`;
+    if (x.kind === 'p1' || x.kind === 'p2') return `can make it alone on ${typesOn(x)}.`;
+    if (x.kind === 'bought') return `can, on inputs bought at the market, with its factory on ${typesOn(x)}.`;
+    if (x.kind === 'chain') return `can${x.when ? `, ${x.when}` : ''}: every P0 it needs is on these planets, extracted across your characters’ colonies, with its factory on ${typesOn(x)}.`;
+    return `can: every P0 it needs is on these planets, fed to a factory on ${typesOn(x)}.`;
   };
   const rankSaid = (kind: SetupKind): string => {
     if (blocked) return '';
@@ -275,14 +285,14 @@ function Makes({ id, ix, p, sysName, onPlan }: { id: number; ix: PiIndex; p: Ret
   };
   return (
     <div className="col pl-lines" data-planets="makes">
-      <span className="lbl">Which setups make it at {sysName}</span>
+      <span className="lbl">Which setups can make it at {sysName}</span>
       {blocked ? <span className="note small">{blocked === NO_SKILLS ? 'Skills aren’t read for this character, so no setup is ranked; what each kind of setup can make here is by these planets alone.' : `${blocked}: no setup is ranked for this character; what each kind can make here is by these planets alone.`}</span>
         : waiting ? <span className="note small">Prices aren’t in yet, so no setup is ranked: {p.morning.said}</span>
           : working ? <span className="note small" data-planets="working">Working the setups out as Plan does…</span> : null}
       {shown.length ? shown.map((x) => (
         <span key={x.kind} className="pl-line" data-planets={`makes:${x.kind}`}><b>{KIND[x.kind].label}</b>: {[canSaid(x), rankSaid(x.kind)].filter(Boolean).join(' ')}</span>
       )) : <span className="pl-line">{g.tier === 'P0' ? 'No setup sells P0: each refines what it extracts first.' : 'None can make it from these planets.'}</span>}
-      {not.length > 0 && <span className="note small" data-planets="makes-not">Not these: {not.map((x) => `${lower(KIND[x.kind].label)} (${x.why})`).join('; ')}.</span>}
+      {not.length > 0 && <span className="note small" data-planets="makes-not">These can’t: {not.map((x) => `${lower(KIND[x.kind].label)} (${x.why})`).join('; ')}.</span>}
       <span className="note small">Ranked by ISK a day, with which planet does what, on <button type="button" className="link-btn" onClick={onPlan}>Plan</button>.</span>
     </div>
   );

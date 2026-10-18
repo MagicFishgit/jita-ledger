@@ -69,9 +69,16 @@ export function missingFor(ix: PiIndex, id: number, types: Iterable<PlanetType>)
 
 /**
  * Whether a kind of setup can make a good from these planets, by what the kind sells. `on`: the planet types here that would
- * make it (made alone, for P0 → P1 and P0 → P2) or take its factory (a fed factory, a bought one, a chain's); `why`: why not.
+ * make it (made alone, for P0 → P1 and P0 → P2) or take its factory (a fed factory, a bought one, a chain's); `why`: why not;
+ * `when`: the condition a "can" holds under, said with it (a chain's P3).
  */
-export type CanMake = { kind: SetupKind; can: boolean; on: PlanetType[]; why: string | null };
+export type CanMake = { kind: SetupKind; can: boolean; on: PlanetType[]; why: string | null; when: string | null };
+/**
+ * The planner chains a P3 only when one character's planets can't make it, and plans the rest as a fed factory (planChain's
+ * own rule, in piPlan.ts). Whether it can't depends on the character and the fit, which only the planner works out, so the
+ * chart says the condition with the "can" rather than a second copy of the rule that could drift from it.
+ */
+export const CHAIN_P3_WHEN = 'only when it needs more planets than one character has (a fed factory plans the rest)';
 
 const SELLS: Record<SetupKind, { tiers: Tier[]; said: string }> = {
   p1: { tiers: ['P1'], said: 'it sells P1 only' },
@@ -94,16 +101,16 @@ export function canMake(ix: PiIndex, id: number, types: readonly PlanetType[]): 
   const hosts = s ? present.filter((t) => s.planetTypes.includes(t)) : [];
   const hostWhy = s ? `only ${listSaid(s.planetTypes)} planets take its ${FACILITY_SAID[s.facility]}, and none is here` : 'nothing makes it';
   return SETUP_KINDS.map((kind): CanMake => {
-    const no = (why: string): CanMake => ({ kind, can: false, on: [], why });
+    const no = (why: string): CanMake => ({ kind, can: false, on: [], why, when: null });
     if (!good) return no('the bundle doesn’t know it');
     if (!SELLS[kind].tiers.includes(good.tier)) return no(SELLS[kind].said);
     if (kind === 'p1' || kind === 'p2') {
       const on = present.filter((t) => madeAlone(ix, t)[good.tier].includes(id));
-      if (on.length) return { kind, can: true, on, why: null };
+      if (on.length) return { kind, can: true, on, why: null, when: null };
       return no(missing.length ? missingSaid : 'no planet here has all its P0s: they are on different planets');
     }
     if (kind !== 'bought' && missing.length) return no(missingSaid);
-    return hosts.length ? { kind, can: true, on: hosts, why: null } : no(hostWhy);
+    return hosts.length ? { kind, can: true, on: hosts, why: null, when: kind === 'chain' && good.tier === 'P3' ? CHAIN_P3_WHEN : null } : no(hostWhy);
   });
 }
 
