@@ -67,7 +67,7 @@ buys at (`planetsMarket.ts`). The data, the `planets` document and the page are 
   - **Cut is said** (`Setup.cut`: "the best of the arrangements tried … may be well under what this system can do"); a search that
     found nothing in budget says `RAN_OUT`, never a planets, characters or size shortage (Ruling T9-10); `NO_FIT` only when
     arrangements were tried, every one failed for size alone, and the search wasn't cut. Brute force agrees where the search
-    finishes (256 feed and chain systems, 0 differ); the shortfall where it doesn't is in planets-planner.md.
+    finishes (256 feed and chain systems, 0 differ); the shortfall where it doesn't is in this note's Limits.
   - **Spent in steps** (Ruling T11-13; `Steps`, `planSteps`, `planFeedSteps`, `planChainSteps`). `searchPools` is a generator that
     yields every `STEP_CHUNKS` (2) chunks of 128 arrangements, by count, never a clock, and each product's context and covering
     search is a step; the page (`usePlanned`) runs steps until 8 ms have passed, then hands the page back (a message to itself:
