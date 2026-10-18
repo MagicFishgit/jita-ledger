@@ -296,7 +296,8 @@ function Selling({ said }: { said: string }) {
         {hub && <Seg size="sm" label="Sell at" value={doc.sell} onChange={(v) => setDoc({ sell: v })}
           options={[{ v: 'jita' as const, label: 'Jita' }, { v: 'home' as const, label: hub.short }, { v: 'best' as const, label: 'Either', tip: 'Each good where it nets more: the hub’s listings and bids and Jita’s, in order of what they pay' }]} />}
       </div>
-      <p className="note small" style={{ margin: 0 }}>{said} The freight route and the hub’s broker fee are the Industry tab’s.</p>
+      <p className="note small" style={{ margin: 0 }}>{said} The freight route and the hub’s broker fee are the Industry tab’s.
+        <Tip title="Where it sells" text={'The home hub and Sell at here are the Industry tab’s own settings, not a copy.\n\n• Changing either here changes it for the Industry tab’s finder and To do’s items too, and the other way round.\n• The freight route and the hub’s broker fee are set on the Industry tab.'} /></p>
     </div>
   );
 }
@@ -505,8 +506,14 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
   s: Setup; rank: number; best: Setup | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string;
 }) {
   const [open, setOpen] = useState(false);
-  // The best and the user's own P0 → P2 open with their detail; the rest fold to their head, figures and upkeep.
-  const [detail, setDetail] = useState(rank === 1 || s.kind === 'p2');
+  // The best and the user's own P0 → P2 open with their detail; the rest fold to their head, figures and upkeep. A fold the user
+  // set holds only for the place it was set in (m3): when a live re-rank makes this row the best, it opens; when it stops being
+  // the best, it folds again, unless set by hand in that place too.
+  const opensItself = rank === 1 || s.kind === 'p2';
+  const [setByHand, setSetByHand] = useState<{ open?: boolean; shut?: boolean }>({});
+  const place = opensItself ? 'open' : 'shut';
+  const detail = setByHand[place] ?? opensItself;
+  const setDetail = (v: boolean) => setSetByHand((x) => ({ ...x, [place]: v }));
   const planet = (id: number) => planets.find((p) => p.planetId === id);
   const pname = (id: number) => planet(id)?.name ?? `planet ${id}`;
   const who = (id: number) => chars.find((x) => x.charId === id);

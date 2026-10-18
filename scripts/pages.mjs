@@ -3563,7 +3563,8 @@ try {
       at: now - 3600_000, refusedAt: null, refused: null, rev: 2, ship: null, shipAt: null, jobs: [ok('archive', 1800_000), ok('sheet', 1700_000)], ...extra });
     const altStore = {
       roster: { at: now - 60_000, list: [entry(ALPHA, 'Alpha Alt'), entry(UNREAD, 'Unread Alt', { jobs: [] })] },
-      [`alt:${ALPHA}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: { 3446: 2, 3443: 2 }, meta: { cloneDetected: 'alpha', attributes: ATTRS } } },
+      // Command Center Upgrades II, so the skills panel under Show for must read the alt's II, not the main's IV (m5).
+      [`alt:${ALPHA}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: { skills: { 3446: 2, 3443: 2, 2505: 2 }, meta: { cloneDetected: 'alpha', attributes: ATTRS } } },
       [`alt:${UNREAD}`]: { rev: 2, addedAt: now - 5 * 86400_000, records: {}, docs: {} },
     };
     // The morning scan's stats and books for every planetary good, shaped as the industry case's.
@@ -3654,10 +3655,13 @@ try {
     if (!/learned/i.test(learned) || !learned.includes('not yet checked against the game’s total')) problems.push(`Barren’s Base Metals rate: “${learned}”`);
 
     // --- the five setups, each with its ISK a day or its reason; P0 → P2 with its gap to the best.
+    // Each a figure in ISK, or "–" with the reason in its notes (m4: the old check passed on almost any text).
     for (const k of ['p1', 'p2', 'feed', 'bought', 'chain']) {
       const t = await text(`[data-planets="setup:${k}"]`);
+      const fig = (await text(`[data-planets="setup:${k}"] .pl-isk b`)).trim();
+      const why = await text(`[data-planets="setup:${k}"] .pl-notes`);
       if (!t) problems.push(`no setup row for ${k}`);
-      else if (!/ISK a day|a day|\bNeeds\b|can’t|No |budget/i.test(t)) problems.push(`setup ${k} says neither an ISK a day nor why: “${t.slice(0, 160)}”`);
+      else if (!/^−?[\d.,]+ (?:[kMB] )?ISK$/.test(fig) && !(fig === '–' && why.length > 12)) problems.push(`setup ${k} shows neither an ISK a day nor why: “${fig}”, notes “${why.slice(0, 120)}”`);
     }
     const gap = await text('[data-planets="setup:p2"] [data-planets="gap"]');
     if (!/a day under the best here|the best here/.test(gap)) problems.push(`P0 → P2’s gap to the best: “${gap}”`);
@@ -3747,9 +3751,27 @@ try {
     });
     if (kept?.systems?.[SYS]?.rates?.Gas?.['2310']?.heads !== 8) problems.push(`the typed Gas rate wasn’t kept in the planets doc: ${JSON.stringify(kept?.systems?.[SYS]?.rates ?? null).slice(0, 200)}`);
 
-    // --- the skills panel, at the shown character.
+    // --- the open row follows a re-rank (m3): selling at UALX-3 alone moves another setup to first; it opens, and the old best folds.
+    const openRows = () => page.evaluate(() => [...document.querySelectorAll('[data-planets^="setup:"]')].map((r) => [r.getAttribute('data-planets'), !!r.querySelector('button[aria-expanded="true"]')]));
+    const firstBefore = (await openRows())[0]?.[0];
+    await page.locator('[data-planets="market"] button', { hasText: /^UALX-3$/ }).click().catch((e) => problems.push(`no Sell at UALX-3: ${e.message.split('\n')[0]}`));
+    await page.waitForTimeout(400);
+    await settled();
+    const rerank = await openRows();
+    if (rerank[0]?.[0] === firstBefore) problems.push(`selling at UALX-3 alone didn't move another setup to first (${firstBefore}): the re-rank isn't tested`);
+    else {
+      if (!rerank[0]?.[1]) problems.push(`after a re-rank, the new best (${rerank[0]?.[0]}) isn't open`);
+      if (firstBefore !== 'setup:p2' && rerank.find((r) => r[0] === firstBefore)?.[1]) problems.push(`after a re-rank, the old best (${firstBefore}) stays open`);
+    }
+    await page.locator('[data-planets="market"] button', { hasText: /^Either$/ }).click().catch(() => undefined);
+    await page.waitForTimeout(400);
+    await settled();
+
+    // --- the skills panel, at the shown character: the main's Command Center Upgrades IV here, the Alpha alt's II under Show for (m5).
     const skillsAt = await text('[data-planets="skills"]');
     for (const s of ['Interplanetary Consolidation', 'Command Center Upgrades']) if (!skillsAt.includes(s)) problems.push(`the skills panel doesn’t list ${s}`);
+    const ccuYou = async () => (await page.locator('[data-planets="skills"] tr', { hasText: 'Command Center Upgrades' }).first().locator('td').nth(2).innerText().catch(() => '')).trim();
+    if (await ccuYou() !== 'IV') problems.push(`the skills panel gives the main Command Center Upgrades “${await ccuYou()}”, not IV`);
     if (/\bNaN\b/.test(await text())) problems.push('the Planets tab shows NaN');
     if (PHONE) for (const o of await overflow(page)) problems.push(`sticks out (the main’s plan): ${o}`);
     if (SHOTS) { await page.evaluate(() => { const c = document.querySelector('.content'); if (c) c.scrollTop = 0; }); await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}-planets-top.png` }); }
@@ -3758,6 +3780,7 @@ try {
     await showFor('Alpha Alt');
     await page.waitForSelector('[data-planets="who"]').catch(() => problems.push('nothing says whose plan for the Alpha alt'));
     if (!(await text('[data-planets="plan"]')).includes('Alphas can’t do planetary industry')) problems.push('the Alpha alt isn’t told Alphas can’t do planetary industry');
+    if (await ccuYou() !== 'II') problems.push(`under Show for Alpha Alt, the skills panel gives Command Center Upgrades “${await ccuYou()}”, not the alt's II`);
     await showFor('Unread Alt');
     await page.waitForSelector('[data-planets="who"]').catch(() => problems.push('nothing says whose plan for the unread alt'));
     const unread = await text('[data-planets="plan"]');
