@@ -45,10 +45,23 @@ export function useMainSystem(): MainSystem | null | 'noScope' | 'failed' {
   useEffect(() => {
     if (!auth || !can) return;
     let alive = true;
-    esi<{ solar_system_id: number }>(`/characters/${auth.characterId}/location/`, { auth: true })
-      .then((r) => system(r.data.solar_system_id))
+    locationOf(auth.characterId)
       .then((x) => { if (alive) setAt({ systemId: x.systemId, name: x.name, security: x.security }); }, () => { if (alive) setAt('failed'); });
     return () => { alive = false; };
   }, [auth?.characterId, can]); // eslint-disable-line react-hooks/exhaustive-deps
   return !auth || !can ? 'noScope' : at;
+}
+
+/** One read a minute, shared: the Plan is drawn again for each character shown, and a failed read is let go so the next visit asks again. */
+const LOCATION_HOLD_MS = 60_000;
+let held: { charId: number; at: number; p: Promise<MainSystem> } | null = null;
+function locationOf(charId: number): Promise<MainSystem> {
+  if (held && held.charId === charId && Date.now() - held.at < LOCATION_HOLD_MS) return held.p;
+  const p = esi<{ solar_system_id: number }>(`/characters/${charId}/location/`, { auth: true })
+    .then((r) => system(r.data.solar_system_id))
+    .then((x) => ({ systemId: x.systemId, name: x.name, security: x.security }));
+  const mine = { charId, at: Date.now(), p };
+  held = mine;
+  p.catch(() => { if (held === mine) held = null; });
+  return p;
 }

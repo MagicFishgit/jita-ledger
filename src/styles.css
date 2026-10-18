@@ -1041,6 +1041,8 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .pl-rate-type { font-weight: 500; color: var(--ink); font-size: 13px; }
 .pl-rate { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-size: 12.5px; color: var(--body); min-width: 0; }
 .pl-rate b { font-weight: 500; color: var(--ink); }
+.pl-rate .pill-btn { padding: 1px 7px; font-size: 11.5px; color: var(--sec); background: none; border: 1px dashed var(--line-strong); cursor: pointer; }
+.pl-rate .pill-btn:hover { border-color: var(--acc); color: var(--ink); }
 .pl-setup { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: rgba(2, 7, 12, .45); border: 1px solid var(--line-2); min-width: 0; }
 .pl-setup.best { border-left: 2px solid var(--acc); }
 .pl-setup-head { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 4px 12px; align-items: start; }
@@ -1057,8 +1059,13 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .pl-lines .lbl { font-family: var(--f-head); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--label); }
 .pl-line { font-size: 12.5px; color: var(--body); line-height: 1.45; min-width: 0; overflow-wrap: anywhere; }
 .pl-line b { font-weight: 500; color: var(--ink); }
-.pl-role .pl-why { display: block; }
-.pl-type { color: var(--note); }
+.pl-role { display: grid; grid-template-columns: minmax(120px, 170px) minmax(0, 1fr); gap: 2px 14px; padding: 6px 0; border-top: 1px solid var(--line-soft); min-width: 0; }
+.pl-role-name { display: flex; flex-direction: column; min-width: 0; font-size: 13px; color: var(--ink); }
+.pl-role-name b { font-weight: 500; }
+.pl-role-parts { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pl-k { font-family: var(--f-head); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--label); margin-right: 4px; }
+.pl-why { color: var(--note); font-size: 12px; }
+.pl-type { color: var(--note); font-size: 12px; }
 .pl-up { color: var(--acc2); }
 .pl-steps { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 10px; }
 .pl-steps li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; padding: 10px 12px; background: rgba(2, 7, 12, .55); border: 1px solid var(--line-3); border-top: 2px solid var(--acc); min-width: 0; }
@@ -1066,6 +1073,8 @@ dialog.confirm::backdrop { background: rgba(1, 4, 8, .7); backdrop-filter: blur(
 .pl-steps b { font-size: 13px; color: var(--ink); font-weight: 600; }
 .pl-steps p { margin: 4px 0 0; font-size: 12.5px; color: #9fb3c5; text-wrap: pretty; }
 .pl-steps .pl-tip { color: var(--acc2); }
+.pl-toggle { font-family: var(--f-head); font-size: 11.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--sec); }
+.pl-toggle:hover { color: var(--ink); }
 
 /* combat */
 .party { display: grid; grid-template-columns: 34px minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 1fr) 90px; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line-4); font-size: 12.5px; }
@@ -1594,7 +1603,7 @@ button.tile.press .tile-v, button.tile.press .tile-n { display: block; }
      and its ISK a day side by side, everything else under them. */
   .pl-head .seg[aria-label="Planets section"] { width: 100%; }
   .pl-head .seg[aria-label="Planets section"] button { flex: 1 1 auto; justify-content: center; }
-  .pl-planet, .pl-rates { grid-template-columns: minmax(0, 1fr); }
+  .pl-planet, .pl-rates, .pl-role { grid-template-columns: minmax(0, 1fr); }
   .pl-tax { justify-content: flex-start; }
   .pl-setup { padding: 12px; }
   .pl-setup-head { grid-template-columns: 20px minmax(0, 1fr) auto; gap: 4px 8px; }

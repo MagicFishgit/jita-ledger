@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ExternalLink, Factory, Landmark, ListOrdered, MapPin, Pickaxe } from 'lucide-react';
+import { ChevronRight, ExternalLink, Landmark, ListOrdered, MapPin, Pickaxe } from 'lucide-react';
 import type { ColoniesDoc } from '../../lib/colonies';
 import { iskBig, units } from '../../lib/format';
 import { secBand } from '../../lib/industry';
@@ -17,7 +17,7 @@ import { BRAVE_TAX_SOURCE, customsRate, sanitizePlanets, type SystemPrefs, type 
 import { update, useData } from '../../lib/store';
 import { system as systemInfo } from '../../lib/universe';
 import { Points } from '../Facts';
-import { Check, Expander, NumChip, Seg, Tiles, Tip } from '../ui';
+import { Check, NumChip, Seg, Tiles, Tip } from '../ui';
 import type { IndustryChar } from './industryChars';
 import { useHomeHubs, useIndustryDoc } from './industryMarket';
 import { usePlanetMarket, useSystemPlanets, type SystemPlanet } from './planetsMarket';
@@ -159,12 +159,12 @@ export function PlanetsPlan({ c, chars, colonies, ix, graph, systemId, onSystem,
           <>
             <SystemHead name={value.system.name} security={value.system.security} planets={value.planets} />
             <Selling said={market.said} />
-            <PlanetList ix={ix} systemId={value.system.systemId} security={value.system.security} planets={value.planets} prefs={prefs} learned={learned} />
-            <Inputs ix={ix} systemId={value.system.systemId} security={value.system.security} planets={value.planets} prefs={prefs} cce={cce}
-              learned={learned} programHours={programHours} defaultHours={defaultHours} ownHours={ownHours.length > 0} typedHours={doc.programHours} />
             {blockedWhy ? null : !morning.ready ? <p className="note small" style={{ margin: 0 }} data-planets="waiting">{morning.said}</p> : (
               <Setups setups={setups} working={working} ix={ix} planets={value.planets} chars={[planChar, ...others]} shown={planChar} name={name} />
             )}
+            <Inputs ix={ix} systemId={value.system.systemId} security={value.system.security} planets={value.planets} prefs={prefs} cce={cce}
+              learned={learned} programHours={programHours} defaultHours={defaultHours} ownHours={ownHours.length > 0} typedHours={doc.programHours} />
+            <PlanetList ix={ix} systemId={value.system.systemId} security={value.system.security} planets={value.planets} prefs={prefs} learned={learned} />
           </>
         ))}
       <Points compact items={PI_LINKS.map((l) => ({ kind: 'tip' as const, icon: ExternalLink, lead: <a href={l.href} target="_blank" rel="noopener noreferrer">{l.title}</a>, text: l.what }))} />
@@ -336,7 +336,7 @@ function PlanetList({ ix, systemId, security, planets, prefs, learned }: { ix: P
                 <span className="note small">Extraction: {extractionSaid(p.type)}.</span>
               </span>
               <span className="row tight pl-tax">
-                <NumChip label="Its tax" percent width={44} decimals={2} placeholder={p.tax.from === 'planet' ? '' : p.tax.rate == null ? '–' : String(+(p.tax.rate * 100).toFixed(2))}
+                <NumChip label="Its tax" percent width={44} decimals={2} placeholder="–"
                   value={prefs.planetTax[String(p.planetId)] == null ? null : prefs.planetTax[String(p.planetId)] * 100}
                   onChange={(n) => setPrefs(systemId, (s) => { const planetTax = { ...s.planetTax }; if (n == null) delete planetTax[String(p.planetId)]; else planetTax[String(p.planetId)] = Math.min(100, Math.max(0, n)) / 100; return { ...s, planetTax }; })}
                   tip="This planet’s own customs tax, over its type’s. Empty: its type’s." />
@@ -385,7 +385,7 @@ function Inputs({ ix, systemId, security, planets, prefs, cce, learned, programH
             const tax = typeTax(doc, systemId, security, t, cce);
             return (
               <span key={t} className="pl-taxcell" data-planets={`tax:${t}`}>
-                <NumChip label={t} percent width={44} decimals={2} placeholder={tax.from === 'brave' && tax.rate != null ? String(+(tax.rate * 100).toFixed(2)) : '–'}
+                <NumChip label={t} percent width={44} decimals={2} placeholder="–"
                   value={prefs.tax[t] == null ? null : prefs.tax[t]! * 100}
                   onChange={(n) => setPrefs(systemId, (s) => { const tx = { ...s.tax }; if (n == null) delete tx[t]; else tx[t] = Math.min(100, Math.max(0, n)) / 100; return { ...s, tax: tx }; })}
                   tip={band === 'high' ? 'The owner’s rate on this type’s planets here: the NPC part is added to it.' : `The customs tax on ${t} planets here. Empty: ${band === 'null' && !prefs.notBrave ? 'Brave’s wiki’s' : 'not known, ranked before it'}.`} />
@@ -401,17 +401,28 @@ function Inputs({ ix, systemId, security, planets, prefs, cce, learned, programH
           <div key={t} className="pl-rates">
             <b className="pl-rate-type">{t}</b>
             <div className="col" style={{ gap: 4, minWidth: 0 }}>
-              {ix.planetTypes[t].p0.map((p0) => {
+              {/* A P0 with a rate of its own (learned or typed) is a line; the rest are named together, each a button to type one. */}
+              {ix.planetTypes[t].p0.filter((p0) => learned[t]?.[String(p0)] || prefs.rates[t]?.[String(p0)]).map((p0) => {
                 const own = learned[t]?.[String(p0)];
                 const typed = prefs.rates[t]?.[String(p0)];
-                const fallback = !own && !typed ? rateFor(learned, undefined, t, p0) : null;
                 return (
                   <span key={p0} className="pl-rate" data-planets={`rate:${t}:${p0}`}>
-                    <span><b>{name(p0)}</b> {own ? learnedSaid(own, systemId) : typed ? typedSaid(typed) : fallback ? `none of its own: at another ${t} P0’s learned rate, ${units(fallback.perHour)} an hour` : 'no rate: worked out at what the factories take'}</span>
-                    <button type="button" className="link-btn" onClick={() => setEdit({ t, p0 })}>{typed ? 'Change' : own ? 'Type over it' : 'Type a rate'}</button>
+                    <span><b>{name(p0)}</b> {own ? learnedSaid(own, systemId) : typedSaid(typed!)}</span>
+                    <button type="button" className="link-btn" onClick={() => setEdit({ t, p0 })}>{typed ? 'Change' : 'Type over it'}</button>
                   </span>
                 );
               })}
+              {(() => {
+                const rest = ix.planetTypes[t].p0.filter((p0) => !learned[t]?.[String(p0)] && !prefs.rates[t]?.[String(p0)]);
+                if (!rest.length) return null;
+                const other = rateFor(learned, undefined, t, rest[0]);
+                return (
+                  <span className="pl-rate">
+                    <span className="note small">{other ? `At another ${t} P0’s learned rate (${units(other.perHour)} an hour):` : 'No rate, so worked out at what the factories take:'}</span>
+                    {rest.map((p0) => <span key={p0} data-planets={`rate:${t}:${p0}`}><button type="button" className="pill-btn" onClick={() => setEdit({ t, p0 })} data-tip={`Type ${name(p0)}’s rate on ${t} planets`}>{name(p0)}</button></span>)}
+                  </span>
+                );
+              })()}
               {edit && edit.t === t && <RateEdit key={`${edit.t}:${edit.p0}`} systemId={systemId} t={t} p0={edit.p0} p0Name={name(edit.p0)} typed={prefs.rates[t]?.[String(edit.p0)]} programHours={programHours} onDone={() => setEdit(null)} />}
             </div>
           </div>
@@ -464,6 +475,11 @@ function RateEdit({ systemId, t, p0, p0Name, typed, programHours, onDone }: { sy
   );
 }
 
+/** A fold within a setup's row: the panels' own toggle, a chevron and its words. */
+function Toggle({ open, onToggle, children }: { open: boolean; onToggle: () => void; children: ReactNode }) {
+  return <button type="button" className="panel-toggle pl-toggle" aria-expanded={open} onClick={onToggle}><ChevronRight className="chev" aria-hidden="true" />{children}</button>;
+}
+
 /** The setups, ranked, each a row; the user's own P0 → P2 says how far it is from the best. */
 function Setups({ setups, working, ix, planets, chars, shown, name }: {
   setups: Setup[] | null; working: boolean; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string;
@@ -476,6 +492,7 @@ function Setups({ setups, working, ix, planets, chars, shown, name }: {
         <span className="panel-title">The setups, best first</span>
         {working && <span className="note small" data-planets="working">Working them out again for what you changed…</span>}
       </div>
+      <span className="note small">Worked out at the customs tax, extraction rates and program length below; change any and they are worked out again.</span>
       {setups.map((s, i) => <SetupRow key={s.kind} s={s} rank={i + 1} best={best} ix={ix} planets={planets} chars={chars} shown={shown} name={name} />)}
     </div>
   );
@@ -485,6 +502,8 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
   s: Setup; rank: number; best: Setup | null; ix: PiIndex; planets: SystemPlanet[]; chars: PlanChar[]; shown: PlanChar; name: (id: number) => string;
 }) {
   const [open, setOpen] = useState(false);
+  // The best and the user's own P0 → P2 open with their detail; the rest fold to their head, figures and upkeep.
+  const [detail, setDetail] = useState(rank === 1 || s.kind === 'p2');
   const planet = (id: number) => planets.find((p) => p.planetId === id);
   const pname = (id: number) => planet(id)?.name ?? `planet ${id}`;
   const who = (id: number) => chars.find((x) => x.charId === id);
@@ -525,6 +544,13 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
         </div>
       </div>
       {notes.length > 0 && <div className="col pl-notes">{notes.map((n, i) => <span key={i} className="note small">{n}</span>)}</div>}
+      {s.kind === 'chain' && s.why != null && s.perChar.length > 0 && (
+        <span className="note small">{(() => {
+          const can = s.perChar.filter((p) => !p.lacks.includes('Omega')).map((p) => who(p.charId)?.name ?? `Character ${p.charId}`);
+          const alpha = s.perChar.filter((p) => p.lacks.includes('Omega')).map((p) => who(p.charId)?.name ?? `Character ${p.charId}`);
+          return [can.length ? `With planetary industry: ${listSaid(can)}.` : null, alpha.length ? `${listSaid(alpha)} could make one up once Omega.` : null].filter(Boolean).join(' ');
+        })()}</span>
+      )}
       {gapSaid && <span className="note small" data-planets="gap">{gapSaid}</span>}
       {priced && (
         <>
@@ -538,15 +564,6 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
               { l: 'Customs a day', v: s.taxDay == null ? '–' : iskBig(s.taxDay), n: s.taxDay == null ? 'some planets’ tax isn’t known' : 'export and import, every planet' },
             ]} />
           </div>
-          <Outputs s={s} name={name} />
-          {s.inputs.length > 0 && (
-            <div className="col pl-lines">
-              <span className="lbl">Bought</span>
-              {s.inputs.map((i) => (
-                <span key={i.id} className="pl-line">{units(i.perDay)} {name(i.id)} a day{i.bought.isk == null ? `: can’t be bought (${i.bought.why ?? 'no price'})` : `, ${iskBig(i.bought.isk)} a day at ${i.bought.where === 'home' ? 'the home hub' : 'Jita'}${i.bought.note ? ` (${i.bought.note})` : ''}`}</span>
-              ))}
-            </div>
-          )}
           {(s.kind === 'chain' || lacks.length > 0) && (
             <div className="col pl-lines">
               {s.kind === 'chain' && s.perChar.map((p) => {
@@ -557,13 +574,24 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
               {s.kind !== 'chain' && lacks.length > 0 && <span className="pl-line">To fit as planned, train {listSaid(lacks)}.</span>}
             </div>
           )}
+          <div><Toggle open={detail} onToggle={() => setDetail(!detail)}>What it makes and which planet does what</Toggle></div>
+          {detail && <>
+          <Outputs s={s} name={name} />
+          {s.inputs.length > 0 && (
+            <div className="col pl-lines">
+              <span className="lbl">Bought</span>
+              {s.inputs.map((i) => (
+                <span key={i.id} className="pl-line">{units(i.perDay)} {name(i.id)} a day{i.bought.isk == null ? `: can’t be bought (${i.bought.why ?? 'no price'})` : `, ${iskBig(i.bought.isk)} a day at ${i.bought.where === 'home' ? 'the home hub' : 'Jita'}${i.bought.note ? ` (${i.bought.note})` : ''}`}</span>
+              ))}
+            </div>
+          )}
           <div className="col pl-lines">
             <span className="lbl">Which planet does what</span>
             {used.map((r, i) => <RoleLine key={`${r.planetId}:${r.charId}:${i}`} r={r} s={s} planet={planet(r.planetId)} pname={pname} name={name} whose={s.kind === 'chain' || r.charId !== shown.charId ? who(r.charId)?.name ?? null : null} untaxed={taxedPlanets.has(r.planetId)} />)}
-            {unused.length > 0 && <span className="note small">Not used: {unused.map((r) => `${pname(r.planetId)} (${r.why ?? 'not needed'})`).join('; ')}.</span>}
+            {unused.length > 0 && <span className="note small">Not used: {unusedSaid(unused, pname)}.</span>}
           </div>
           <div>
-            <Expander open={open} onToggle={() => setOpen(!open)}>How to build it</Expander>
+            <Toggle open={open} onToggle={() => setOpen(!open)}>How to build it</Toggle>
             {open && (
               <ol className="pl-steps">
                 {steps.map((st, i) => (
@@ -572,6 +600,7 @@ function SetupRow({ s, rank, best, ix, planets, chars, shown, name }: {
               </ol>
             )}
           </div>
+          </>}
         </>
       )}
     </article>
@@ -608,16 +637,29 @@ function RoleLine({ r, s, planet, pname, name, whose, untaxed }: {
   const imports = (r.imports ?? []).map((x) => `${units(x.perDay)} ${name(x.id)} a day from ${x.from === 'market' ? 'the market' : pname(x.from)}`);
   const ships = r.ships.map((x) => `${units(x.perDay)} ${name(x.id)} a day to ${x.to === 'market' ? 'market' : pname(x.to)}`);
   const rows = s.taxes.filter((t) => t.planetId === r.planetId);
-  const tax = rows.length === 0 ? null : rows.some((t) => t.perDay == null) ? 'customs not known' : `customs ${iskBig(rows.reduce((n, t) => n + t.perDay!, 0))} a day (${rows.map((t) => `${t.tier} ${iskBig(t.perDay)}`).join(', ')})`;
+  const tax = rows.length === 0 ? null : rows.some((t) => t.perDay == null) ? 'not known: ranked before it' : `${iskBig(rows.reduce((n, t) => n + t.perDay!, 0))} a day (${rows.map((t) => `${t.tier} ${iskBig(t.perDay)}`).join(', ')})`;
+  const parts: [string, string][] = [
+    ...(extract.length ? [['Extracts', listSaid(extract)] as [string, string]] : []),
+    ...(imports.length ? [['Takes in', listSaid(imports)] as [string, string]] : []),
+    ...(makes.length ? [['Makes', listSaid(makes)] as [string, string]] : []),
+    ...(ships.length ? [['Ships', listSaid(ships)] as [string, string]] : []),
+    ...(tax ? [['Customs', tax] as [string, string]] : []),
+  ];
   return (
-    <span className="pl-line pl-role" data-planets={`role:${r.planetId}`}>
-      <b>{pname(r.planetId)}</b> <span className="pl-type">({planet?.type ?? 'no planetary industry'}{whose ? `, ${whose}’s` : ''}{r.does === 'factory' ? ', factory planet' : ''})</span>:{' '}
-      {[extract.length ? `extracts ${listSaid(extract)}` : null, makes.length ? listSaid(makes) : null, imports.length ? `takes in ${listSaid(imports)}` : null,
-        ships.length ? `ships ${listSaid(ships)}` : null, tax].filter(Boolean).join('; ')}.
-      {r.does === 'factory' && untaxed && <span className="pl-up"> Picked before its customs tax, which isn’t known here.</span>}
-      {r.why && <span className="sub pl-why">{r.why}.</span>}
-      {r.fit && !r.fit.fits && <span className="sub pl-why"><Factory aria-hidden="true" style={{ width: 12, height: 12 }} /> It doesn’t fit as planned at this level.</span>}
-    </span>
+    <div className="pl-role" data-planets={`role:${r.planetId}`}>
+      <div className="pl-role-name"><b>{pname(r.planetId)}</b><span className="pl-type">{[planet?.type ?? 'no planetary industry', r.does === 'factory' ? 'factory planet' : null, whose ? `${whose}’s` : null].filter(Boolean).join(' · ')}</span></div>
+      <div className="pl-role-parts">
+        {parts.map(([k, v]) => <span key={k} className="pl-line"><span className="pl-k">{k}</span> {v}</span>)}
+        {r.does === 'factory' && untaxed && <span className="pl-line pl-up">Picked before its customs tax, which isn’t known here.</span>}
+        {r.why && <span className="pl-line pl-why">{r.why}.</span>}
+      </div>
+    </div>
   );
 }
 
+/** The planets a setup leaves unused, grouped by why, so one reason isn't said once a planet. */
+function unusedSaid(unused: Role[], pname: (id: number) => string): string {
+  const by = new Map<string, string[]>();
+  for (const r of unused) { const w = r.why ?? 'not needed'; by.set(w, [...(by.get(w) ?? []), pname(r.planetId)]); }
+  return [...by.entries()].map(([w, ps]) => `${listSaid(ps)}: ${w.charAt(0).toLowerCase()}${w.slice(1)}`).join('. ');
+}
