@@ -7812,6 +7812,12 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   eq('  ranked per character used', chain.iskDay, chain.perChar.reduce((t, c) => t + c.iskDay, 0) / chain.perChar.length);
   eq('  the CCU II character lacks the level its roles need', chain.perChar[1].lacks.some((x) => x.startsWith('Command Center Upgrades')), true);
   eq('  the unread character is left out', chain.perChar.some((c) => c.charId === UNREAD), false);
+  eq('  big’s chain is searched to the end: not cut', chain.cut, undefined);
+  // The review's blow-up: 5-NZNW's shape with every P2, P3 and P4 priced and two characters at CCU IV, which visited 1.7
+  // million arrangements of one product unbounded. Within a budget it returns the best it tried, and says so.
+  const vary = (id) => ({ P1: 400, P2: 3000 + (id % 7) * 500, P3: 40_000 + (id % 5) * 4000, P4: 1_200_000 + (id % 3) * 200_000 })[ix.byId.get(id).tier] ?? null;
+  const wide = planChain({ ...big, sell: sellBy(vary), others: [{ ...second, ccLevel: 4 }], budget: 3000 });
+  eq('  a search past its budget: the best it tried, marked cut', [wide.iskDay > 0, wide.cut, wide.perChar.length, wide.why], [true, true, 2, null]);
   const all = planSystem(big);
   eq('  every kind, P0 → P2 always there', all.map((s) => s.kind).sort(), ['bought', 'chain', 'feed', 'p1', 'p2']);
   eq('  ranked by ISK a day', all.filter((s) => s.iskDay != null).every((s, i, a) => i === 0 || a[i - 1].iskDay >= s.iskDay), true);
@@ -7833,6 +7839,13 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
     [cappedB.iskDay, role(cappedB, B).makes.map((m) => [m.id, m.perDay, m.count]), role(cappedB, A).makes[0].id !== NANITES], [3_146_880 + 2_364_000, [[NANITES, 300, 3]], true]);
   const unpricedBuy = planBought(input);
   eq('  bought with no input priced: no figure, said', [unpricedBuy.iskDay, unpricedBuy.why], [null, 'No input is priced to buy: Not bought here']);
+  // A's tax not known: ranked before it (26,400,000 − 4,224,000 there, B as before), each 1% priced on A's bases: the import
+  // at half (42,240 × 400 × ½) and the export (2,640 × 7,200).
+  const blindB = planBought({ ...input, planets: planets.map((p) => (p.planetId === A ? { ...p, tax: { rate: null, from: 'none', npc: 0, interbus: false } } : p)), buy: (id, perDay) => ({ isk: perDay * 100, where: 'jita', why: null }) });
+  eq('  bought with a planet whose tax isn’t known: ranked before it, each 1% priced', [blindB.iskDay, blindB.taxDay, blindB.perPct, blindB.before, blindB.taxes.filter((t) => t.planetId === A).map((t) => t.perDay)],
+    [22_176_000 + 19_857_600, null, (42_240 * 400 * 0.5 + 2640 * 7200) / 100, ['tax'], [null, null]]);
+  const tight = planBought({ ...input, buy: (id, perDay) => ({ isk: perDay * 100, where: 'jita', why: null }), budget: 1 });
+  eq('  bought past its budget: the best it tried, marked cut', [tight.iskDay > 0, tight.cut], [true, true]);
   // P4 on big, buying every input at big's prices: 15 High-Tech on each 2% Barren or Temperate planet, 360 Broadcast Nodes a day,
   // 6,480 P3 bought (259.2 M); import 6,480 × 60,000 × 2% × ½; export 360 × 1,200,000 × 2%: 268,272,000 a planet, five of them.
   const boughtBig = planBought({ ...big, buy: (id, perDay) => ({ isk: perDay * bigPrice(id), where: 'jita', why: null }) });
@@ -7871,6 +7884,26 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
       planets: [three.planets[0], three.planets[1], { planetId: I, name: 'Test V', type: 'Ice', radiusKm: 14600, tax: brave(0.05) }, { planetId: O, name: 'Test VI', type: 'Oceanic', radiusKm: 4365, tax: brave(0.05) }] });
     eq('  feed: every feeder needed, the rest unused', [four.iskDay, four.roles.filter((r) => r.does === 'extract').map((r) => r.planetId).sort(), four.roles.filter((r) => r.does === 'unused').map((r) => r.why)],
       [4_488_960, [A, D], ['Not needed by this setup']]);
+    // Nanites' market takes 100 a day, every P1 at 400 (the review's case): the factory runs for what sells, on 1,600 P1
+    // (1 Advanced); the other 6,080 P1 the Barren planets make are sold as they are. 1,000,000 + 2,432,000, less the feeders'
+    // export (7,680 × 400 × 2%), the import (1,600 × 400 × 5% × ½) and the export (100 × 7,200 × 5%). Running at what the
+    // feeders allow made 480, imported 7,680 P1 and let 380 Nanites build up: 2,400,160.
+    const capped = planFeed({ ...three, sell: sellBy((id) => (id === NANITES ? 10_000 : ix.byId.get(id).tier === 'P1' ? 400 : null), (id) => (id === NANITES ? 100 : Infinity)) });
+    const cf = role(capped, B);
+    eq('  feed: the factory runs for what sells, the rest of the P1 sold as it is', [capped.iskDay, cf.makes.map((m) => [m.id, m.perDay, m.count]), (cf.imports ?? []).reduce((n, x) => n + x.perDay, 0),
+      capped.outputs.map((o) => [nameOf(o.id), o.perDay, o.buildingUp]).sort()],
+      [1_000_000 + 2_432_000 - 61_440 - 16_000 - 36_000, [[NANITES, 100, 1]], 1600, [['Bacteria', 3040, 0], ['Nanites', 100, 0], ['Reactive Metals', 3040, 0]]]);
+    has('  feed: the factory says why it runs below what it is fed', cf.why ?? '', 'The market takes 100 Nanites a day');
+  }
+  // A product worth less than its goods (Water-Cooled CPU at 2,500 against 16 P1 at 400), its market taking 199 a day: the
+  // factory on the 2% Ice planet and a 2% Gas pair feeding it. 199 made on 3,184 P1 and 656 sold as they are: 497,500 +
+  // 262,400 less 30,720 export, 12,736 import, 28,656 export. Bounding by what the feeders allow rather than what the factory
+  // makes cut this off, and took the 5% Gas planet's pair (641,708).
+  {
+    const WC = idOf('Water-Cooled CPU');
+    const s = planFeed({ ...input, rateOf: () => rate(), sell: sellBy((id) => (id === WC ? 2500 : ix.byId.get(id).tier === 'P1' ? 400 : null), (id) => (id === WC ? 199 : Infinity)),
+      planets: [['Gas', 0.05], ['Ice', 0.02], ['Gas', 0.02], ['Ice', 0.05]].map(([type, r], i) => ({ planetId: 1 + i, name: type, type, radiusKm: MEDIAN[type], tax: brave(r) })) });
+    eq('  feed: a product worth less than its goods, its market capped: bounded by what the factory makes', [s.iskDay, s.roles.map((r) => r.does)], [497_500 + 262_400 - 30_720 - 12_736 - 28_656, ['unused', 'factory', 'extract', 'unused']]);
   }
   // Test Cultures (Bacteria and Water) where Aqueous Liquids comes out at 3,000 an hour (480 Water a day): Gas 5%, Ice 2%,
   // Temperate 2%, Lava 2%, three planets allowed, most P1 at 400. The factory on Ice; Gas ships its 480 Water and sells 1,920
@@ -7904,6 +7937,20 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
       [72 * 100_000, [['Robotics', 72]], ['Consumer Electronics', 'Mechanical Parts']]);
   }
   eq('  feed with one planet allowed: said', planFeed({ ...input, char: { ...char, planets: 1 } }).why, 'A factory planet and one to feed it take 2 planets: you have 1');
+  // Extractors at 400,000 an hour: one Barren planet feeding the Gas one would need 67 Advanced, where 24 fit even at V.
+  eq('  feed: no factory fits even at CCU V: said', planFeed({ ...input, rateOf: () => rate({ perHour: 400_000 }), char: { ...char, ccLevel: 5 } }).why,
+    'Every factory these planets could feed is too big for its planet, even at Command Center Upgrades V');
+  // At 30,000 an hour two Barren planets feed 1,200 Nanites a day: 10 Advanced on the Gas planet, where CCU I fits 5. The
+  // factory says so and the character lacks II (14 fit). 12,000,000 − 2 × 9,600 × 400 × 2% − 19,200 × 400 × 5% × ½ − 1,200 × 7,200 × 5%.
+  {
+    const D = 40000004;
+    const big30 = planFeed({ ...input, char: { ...char, planets: 3, ccLevel: 1 }, rateOf: () => rate({ perHour: 30_000 }), sell: sellBy((id) => (id === NANITES ? 10_000 : null)),
+      planets: [planets[0], { planetId: D, name: 'Test IV', type: 'Barren', radiusKm: 3750, tax: brave(0.02) }, planets[1]] });
+    const fr = role(big30, B);
+    eq('  feed: a factory that doesn’t fit at its owner’s level says so and lacks the level', [big30.iskDay, fr.makes.map((m) => m.count), fr.fit.fits, big30.perChar[0].lacks.includes('Command Center Upgrades II')],
+      [12_000_000 - 153_600 - 192_000 - 432_000, [10], false, true]);
+    has('  feed: its note', fr.why ?? '', 'These factories don’t fit at Command Center Upgrades I');
+  }
   eq('  feed: skills not read, an Alpha', [planFeed({ ...input, char: { ...char, planets: null } }).why, planFeed({ ...input, char: { ...char, alpha: true } }).perChar[0].lacks], ['Skills not read', ['Omega']]);
 
   // The chain, worked through on big: Lava II is the only Lava, so two colonies there (one each) give 2 × 1,920 Silicon a day and
@@ -7931,6 +7978,20 @@ console.log('\n--- Planets: the planner, factory planets and the ranking (piPlan
   // planSystem's order: by ISK a day, nulls last, and at equal ISK less upkeep first.
   const fake = (kind, iskDay, resets, restocks) => ({ kind, iskDay, upkeep: { resetsPerWeek: resets, restocksPerWeek: restocks } });
   eq('  ranking: at equal ISK the one with less upkeep first; nulls last', rankSetups([fake('p1', 5, 3, 0), fake('feed', null, 0, 0), fake('p2', 5, 2, 0), fake('bought', 7, 9, 9)]).map((s) => s.kind), ['bought', 'p2', 'p1', 'feed']);
+  // By the cent, so the order holds however they're compared: within ±0.01, 5.000 ~ 5.008 ~ 5.016 but 5.000 ≁ 5.016.
+  eq('  ranking: ISK to the cent first, transitive', rankSetups([fake('p1', 5.000, 1, 0), fake('p2', 5.008, 2, 0), fake('feed', 5.016, 3, 0)]).map((s) => s.kind), ['feed', 'p2', 'p1']);
+  // A chain's upkeep, like its ISK, is per character in it: 6 resets over 2 characters is 3, under P0 → P2's 4.
+  eq('  ranking: a chain’s upkeep per character', rankSetups([fake('p2', 5, 4, 0), { ...fake('chain', 5, 6, 0), perChar: [{ charId: 1 }, { charId: 2 }] }]).map((s) => s.kind), ['chain', 'p2']);
+  // Colonies go first to a character they fit at its own level. Two planets, Barren and Lava; only Robotics priced, which
+  // takes three colonies, so two characters. The second (CCU II, 6 planets) holds the Barren feeder beside the factory; the
+  // Lava colony fits at the shown character's IV, not at II, though the second has more room.
+  {
+    const ROBOTICS = idOf('Robotics');
+    const two = planChain({ ...input, rateOf: () => rate(), sell: sellBy((id) => (id === ROBOTICS ? 100_000 : null)),
+      planets: [{ planetId: 1, name: 'B', type: 'Barren', radiusKm: 3750, tax: brave(0.02) }, { planetId: 2, name: 'L', type: 'Lava', radiusKm: 3360, tax: brave(0.05) }],
+      char: { ...char, planets: 5, ccLevel: 4 }, others: [{ ...second, planets: 6 }] });
+    eq('  chain: a colony goes to a character it fits at before one with more room', two.roles.map((r) => [r.planetId, r.charId, r.does]), [[1, OWNER, 'factory'], [1, SECOND, 'extract'], [2, OWNER, 'extract']]);
+  }
 
   // Task 8's lacks: the level a layout needs, at least one head an extractor. A 5-head rate at CCU III on Barren with 2 + 4:
   // 10 heads where 7 fit, so IV (11). No rate on Gas at CCU I: the layout doesn't fit without heads; with one head each it needs

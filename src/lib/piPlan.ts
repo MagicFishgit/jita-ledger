@@ -23,9 +23,19 @@ export type PlanChar = { charId: number; name: string; planets: number | null; c
  * is how many of `units` sell at Jita; absent, all of them when Jita is the only place, else none.
  */
 export type Sold = { isk: number | null; units: number; where: ('jita' | 'home')[]; why: string | null; jitaUnits?: number };
+/**
+ * The planner's searches bound what an arrangement can be worth by each good's first unit, so a `Sell` must keep to this:
+ * a unit's net never rises as the amount grows (`isk ÷ units` at more is no more than at less), the units that sell never
+ * fall as the amount grows, and there's no fixed charge a call (a freight minimum is spread over a batch, as `batchLeg`
+ * does, never charged on each call). Broken, the best arrangement can be pruned without a word.
+ */
 export type Sell = (typeId: number, perDay: number) => Sold;
 /** What `perDay` units cost a day to buy, and where; null with `why` when not known. */
 export type Bought = { isk: number | null; where: 'jita' | 'home' | null; why: string | null };
+/**
+ * The same contract as `Sell`, the other way: a unit's cost never falls as the amount grows, and there's no fixed charge a
+ * call, so what a planet's factories buy alone is never more than their share of buying with others.
+ */
 export type Buy = (typeId: number, perDay: number) => Bought;
 export type PlanInput = {
   ix: PiIndex; planets: PlanPlanet[]; char: PlanChar; others: PlanChar[];
@@ -35,6 +45,12 @@ export type PlanInput = {
   programHours: number;
   /** The freight route from the home hub to Jita, for the contracts a week; absent or null, none is counted. */
   freight?: Freight | null;
+  /**
+   * How many arrangements a setup's search may try (`SEARCH_BUDGET` when absent): feed and chain count arrangements of
+   * planets visited, across every product and number of characters; bought counts assignments valued. A setup whose search
+   * ran out of it before ruling out what's left says so (`Setup.cut`).
+   */
+  budget?: number;
 };
 export type SetupKind = 'p1' | 'p2' | 'feed' | 'bought' | 'chain';
 /**
@@ -78,6 +94,8 @@ export type Setup = {
   /** Outputs whose price isn't read: counted out of the ISK, never as 0. */
   unvalued: number;
   why: string | null;
+  /** The search ran out of its budget before it could rule out a better arrangement: this is the best of those tried. */
+  cut?: true;
 };
 
 const EPS = 1e-9;
@@ -652,6 +670,8 @@ type FedCtx = {
   feeders: Feeder[];
   /** For each P1 the factory takes, the feeders that ship it or a P2 made of it, the most first. */
   byEq: number[][];
+  /** What each feeder relieves of each P1 (P1 units a day, a P2 shipped counted by its P1), and the P1 one X takes of each. */
+  relieves: Float64Array[]; perX: Float64Array;
   /**
    * For the bounds: X's first unit's net, the least the goods making one X fetch, per class the most a feeder ships of each
    * good and is worth after its export tax, and the classes in order of each.
@@ -722,7 +742,7 @@ function fedCtx(input: PlanInput, sold: Seller, classes: Cls[], x: number): FedC
   for (const [g, e] of tree.p2) content[gi.get(g)!] = [...e.inputs.values()].reduce((n, x) => n + x, 0);
   const allP1 = eqs.reduce((n, eq) => n + eq.alpha + eq.terms.reduce((m, t) => m + t.per * t.beta, 0), 0);
   const pX = unitNet(sold, x);
-  const feeders: Feeder[] = raw.map(({ cls, plan }) => {
+  const all: Feeder[] = raw.map(({ cls, plan }) => {
     const ships = new Float64Array(goods.length);
     for (const s of plan.ships) ships[gi.get(s.id)!] += s.perDay;
     // What it ships at each good's first unit's net, after its export tax: what's shipped is exported, to market or the factory.
@@ -735,6 +755,11 @@ function fedCtx(input: PlanInput, sold: Seller, classes: Cls[], x: number): FedC
     }
     return { cls, plan, ships, market, worth, eqs: eqs.map((eq, e) => (relief(ships, eq) > 0 ? e : -1)).filter((e) => e >= 0) };
   });
+  // A feeder that ships exactly what another of its class ships adds no arrangement of its own (counts of the two are counts of
+  // one), so it's dropped. Nothing looser: one that ships more of every good can make another feeder unneeded, or ship a good
+  // nobody prices (exported and taxed all the same), so it doesn't always do better under the needed rule.
+  const shipped = new Set<string>();
+  const feeders = all.filter((f) => { const k = `${f.cls}|${f.ships.join(',')}`; return !shipped.has(k) && !!shipped.add(k); });
   const byEq = eqs.map((eq, e) => feeders.map((f, i) => (f.eqs.includes(e) ? i : -1)).filter((i) => i >= 0)
     .sort((a, b) => relief(feeders[b].ships, eq) - relief(feeders[a].ships, eq) || a - b));
   if (byEq.some((xs) => !xs.length)) return null;
@@ -754,6 +779,8 @@ function fedCtx(input: PlanInput, sold: Seller, classes: Cls[], x: number): FedC
   const order = (v: (ci: number) => number) => classes.map((_, ci) => ci).filter((ci) => v(ci) > 0).sort((a, b) => v(b) - v(a) || a - b);
   return {
     input, sold, tree, classes, goods, eqs, feeders, byEq,
+    relieves: feeders.map((f) => Float64Array.from(eqs, (eq) => relief(f.ships, eq))),
+    perX: Float64Array.from(eqs, (eq) => eq.alpha + eq.terms.reduce((m, t) => m + t.per * t.beta, 0)),
     p2: [...tree.p2.entries()].map(([id, e]) => ({ g: gi.get(id)!, id, beta: e.beta, perFactory: e.perFactory })),
     pX, cmin, topShip, topMarket, topWorth,
     byMarket: order((ci) => topMarket[ci]), byShip: goods.map((_, g) => order((ci) => topShip[ci][g])), byWorth: order((ci) => topWorth[ci]),
@@ -796,7 +823,8 @@ type Placed = { factory: { member: Member; char: number }; feeders: { item: numb
 
 /** An arrangement worked out: what the factory makes, what each feeder ships where, the taxes, the score. */
 type FedValue = {
-  score: Score; R: number; used: Float64Array; soldX: Sold;
+  /** R is what the feeders allow a day; `run` what the factory makes, no more than its market takes when X is priced. */
+  score: Score; R: number; run: number; used: Float64Array; soldX: Sold;
   surplus: { g: number; perDay: number; sold: Sold }[];
   toFactory: Float64Array[]; toMarket: Float64Array[];
   feederTax: TaxRow[][]; factoryTax: TaxRow[];
@@ -810,21 +838,30 @@ const mergeRows = (rows: TaxRow[]): TaxRow[] => TIERS_DOWN.filter((t) => rows.so
   return { tier, base: of.reduce((n, r) => n + r.base, 0), perDay: of.some((r) => r.perDay == null) ? null : of.reduce((n, r) => n + r.perDay!, 0) };
 });
 
+/** What the factory makes a day: what its feeders allow, no more than the market takes when X is priced (as bought runs). */
+function runOf(ctx: FedCtx, R: number): { run: number; soldX: Sold } {
+  const atR = ctx.sold(ctx.tree.x, R);
+  if (atR.isk == null || !(atR.units < R)) return { run: R, soldX: atR };
+  const run = Math.max(0, atR.units);
+  return { run, soldX: ctx.sold(ctx.tree.x, run) };
+}
+
 /**
- * An arrangement's worth. The factory takes what X needs; every other unit a feeder ships goes to market from its planet,
- * summed per good and sold once. What's exported (to the factory, or to market and sold) leaves the lowest-tax feeders
- * first and pays their export tax; the factory pays import tax at half its rate on what it takes, and export tax on the X
- * that sells. What doesn't sell stays where it was made, untaxed. The search asks only for the score; `detail` adds what
- * each feeder ships where and the tax rows, which a setup shows.
+ * An arrangement's worth. The factory makes what its market takes, no more than its feeders allow (`runOf`), and takes what
+ * that needs; every other unit a feeder ships goes to market from its planet, summed per good and sold once. What's
+ * exported (to the factory, or to market and sold) leaves the lowest-tax feeders first and pays their export tax; the
+ * factory pays import tax at half its rate on what it takes, and export tax on what it makes. What doesn't sell stays where
+ * it was made, untaxed. The search asks only for the score; `detail` adds what each feeder ships where and the tax rows,
+ * which a setup shows.
  */
 function valueFed(ctx: FedCtx, counts: Int32Array, f: number, S: Float64Array, R: number, detail = false): FedValue {
   const { input, sold, tree, goods, classes, feeders } = ctx;
   const { ix } = input;
   const G = goods.length;
+  const { run, soldX } = runOf(ctx, R);
   const used = new Float64Array(G);
-  for (const eq of ctx.eqs) used[eq.k] = Math.min(S[eq.k], demandOf(eq, S, R));
-  for (const p of ctx.p2) used[p.g] = Math.min(S[p.g], p.beta * R);
-  const soldX = sold(tree.x, R);
+  for (const eq of ctx.eqs) used[eq.k] = Math.min(S[eq.k], demandOf(eq, S, run));
+  for (const p of ctx.p2) used[p.g] = Math.min(S[p.g], p.beta * run);
   const surplus: FedValue['surplus'] = [];
   for (let g = 0; g < G; g++) {
     const left = S[g] - used[g];
@@ -854,11 +891,11 @@ function valueFed(ctx: FedCtx, counts: Int32Array, f: number, S: Float64Array, R
 
   const made: FedValue['made'] = [];
   for (const p of ctx.p2) {
-    const m = p.beta * R - S[p.g];
+    const m = p.beta * run - S[p.g];
     if (m > 1e-6) made.push({ id: p.id, perDay: m, facility: 'advanced', count: factoriesFor(m, p.perFactory) });
   }
-  for (const [id, e] of tree.p3) made.push({ id, perDay: e.per * R, facility: 'advanced', count: factoriesFor(e.per * R, e.perFactory) });
-  made.push({ id: tree.x, perDay: R, facility: tree.facility, count: factoriesFor(R, tree.perFactory) });
+  for (const [id, e] of tree.p3) made.push({ id, perDay: e.per * run, facility: 'advanced', count: factoriesFor(e.per * run, e.perFactory) });
+  made.push({ id: tree.x, perDay: run, facility: tree.facility, count: factoriesFor(run, tree.perFactory) });
   const layout: Layout = {
     ecus: 0, heads: 0, basic: 0, storage: 0, launchpads: 1,
     advanced: made.filter((m) => m.facility === 'advanced').reduce((n, m) => n + m.count, 0),
@@ -871,24 +908,28 @@ function valueFed(ctx: FedCtx, counts: Int32Array, f: number, S: Float64Array, R
   for (let i = 0; i < counts.length; i++) colonies += counts[i];
   const restocks = m3 / ix.planetTypes[t].pins.launchpad.capacity;
   const unpriced = surplus.filter((s) => s.sold.isk == null).length + (soldX.isk == null ? 1 : 0);
-  const v: FedValue = { score: { value, unpriced, upkeep: resets(input, colonies) + restocks }, R, used, soldX, surplus, toFactory: [], toMarket: [], feederTax: [], factoryTax: [], made, layout, fitsAtV, restocks };
+  const v: FedValue = { score: { value, unpriced, upkeep: resets(input, colonies) + restocks }, R, run, used, soldX, surplus, toFactory: [], toMarket: [], feederTax: [], factoryTax: [], made, layout, fitsAtV, restocks };
   if (!detail) return v;
 
-  // Each feeder's part, in the same order: the lowest tax first, a class's feeders one after another.
+  // Each feeder's part, in the same order: what's exported leaves the lowest tax first, a class's feeders one after another;
+  // what each exports goes to the factory and to market in the same proportion (which doesn't change the tax), so every
+  // feeder shows its part of what the factory takes.
   const inst: number[] = [];
   counts.forEach((n, i) => { for (let k = 0; k < n; k++) inst.push(i); });
   const order = inst.map((_, k) => k).sort((a, b) => byRate(classes[feeders[inst[a]].cls].rate, classes[feeders[inst[b]].cls].rate) || a - b);
   v.toFactory = inst.map(() => new Float64Array(G));
   v.toMarket = inst.map(() => new Float64Array(G));
   for (let g = 0; g < G; g++) {
-    let u = used[g], m = toSell[g];
+    const out = used[g] + toSell[g];
+    if (!(out > 0)) continue;
+    let left = out;
     for (const k of order) {
-      let have = feeders[inst[k]].ships[g];
-      if (!(have > 0)) continue;
-      const a = Math.min(have, u);
-      u -= a; have -= a; v.toFactory[k][g] = a;
-      const b = Math.min(have, m);
-      m -= b; v.toMarket[k][g] = b;
+      const have = feeders[inst[k]].ships[g];
+      if (!(have > 0) || !(left > 0)) continue;
+      const a = Math.min(have, left);
+      left -= a;
+      v.toFactory[k][g] = (a * used[g]) / out;
+      v.toMarket[k][g] = a - v.toFactory[k][g];
     }
   }
   const shipsOf = (a: Float64Array, b?: Float64Array): Ship[] => goods.map((id, g) => ({ id, perDay: a[g] + (b ? b[g] : 0) })).filter((x) => x.perDay > 0);
@@ -910,10 +951,13 @@ function allNeeded(ctx: FedCtx, counts: Int32Array, S: Float64Array, R: number):
 
 /**
  * Colonies on planets and characters. Each class's feeders go to the planets of the class with fewest colonies, at most one
- * a character on a planet; then the factory goes to the shown character, and each feeder, the planets with most colonies
- * first, to the character with most room that has none there. Null when they don't fit the characters' planets.
+ * a character on a planet. The factory goes to the first character, from the shown one, at whose own Command Center Upgrades
+ * level it fits (else the shown one); each feeder, the planets with most colonies first, to a character with room that has
+ * none there, one it fits at its own level before one with merely more room. When putting fit first leaves a colony
+ * nowhere, room alone decides (the most first), which places whatever can be. Null when they don't fit the characters' planets.
  */
-function placeFed(ctx: FedCtx, counts: Int32Array, f: number, who: Who[]): Placed | null {
+function placeFed(ctx: FedCtx, counts: Int32Array, f: number, who: Who[], layout?: Layout): Placed | null {
+  const { input } = ctx;
   const K = who.length;
   const fm = factoryMember(ctx.classes[f]);
   const load = new Map<number, number>([[fm.at, 1]]);
@@ -928,21 +972,43 @@ function placeFed(ctx: FedCtx, counts: Int32Array, f: number, who: Who[]): Place
       feeders.push({ item: i, member: pick });
     }
   }
-  const room = who.map((w) => w.cap);
-  room[0] -= 1;
-  if (room[0] < 0) return null;
-  const on = new Map<number, Set<number>>([[fm.at, new Set([0])]]);
   const order = feeders.map((_, k) => k).sort((a, b) => (load.get(feeders[b].member.at)! - load.get(feeders[a].member.at)!) || feeders[a].member.at - feeders[b].member.at || a - b);
-  const charOf: number[] = [];
-  for (const k of order) {
-    const at = feeders[k].member.at;
-    const there = on.get(at) ?? new Set<number>();
-    let best = -1;
-    for (let c = 0; c < K; c++) if (!there.has(c) && room[c] > 0 && (best < 0 || room[c] > room[best])) best = c;
-    if (best < 0) return null;
-    room[best]--; there.add(best); on.set(at, there); charOf[k] = best;
-  }
-  return { factory: { member: fm, char: 0 }, feeders: feeders.map((x, k) => ({ ...x, char: charOf[k] })) };
+  // Whether a colony fits at a character's own level (a planet whose size isn't known isn't checked, so it counts as fitting).
+  const fitMemo = new Map<string, boolean>();
+  const feederFits = (k: number, c: number) => {
+    const key = `${k}:${c}`;
+    let ok = fitMemo.get(key);
+    if (ok == null) {
+      const plan = remake(input, ctx.feeders[feeders[k].item].plan, feeders[k].member);
+      fitMemo.set(key, ok = fitted(input, plan, who[c].cc).fit?.fits !== false);
+    }
+    return ok;
+  };
+  const r = fm.planet.radiusKm;
+  const factoryFits = (c: number) => !layout || r == null || !(r > 0) || fitOf(input.ix, fm.planet.type!, who[c].cc, layout, r).fits;
+  const assign = (fitFirst: boolean): Placed | null => {
+    const room = who.map((w) => w.cap);
+    let fc = 0;
+    if (fitFirst) { const c = who.findIndex((w, i) => w.cap > 0 && factoryFits(i)); if (c >= 0) fc = c; }
+    room[fc] -= 1;
+    if (room[fc] < 0) return null;
+    const on = new Map<number, Set<number>>([[fm.at, new Set([fc])]]);
+    const charOf: number[] = [];
+    for (const k of order) {
+      const at = feeders[k].member.at;
+      const there = on.get(at) ?? new Set<number>();
+      let best = -1, bestFits = false;
+      for (let c = 0; c < K; c++) {
+        if (there.has(c) || room[c] <= 0) continue;
+        const fits = fitFirst && feederFits(k, c);
+        if (best < 0 || (fits && !bestFits) || (fits === bestFits && room[c] > room[best])) { best = c; bestFits = fits; }
+      }
+      if (best < 0) return null;
+      room[best]--; there.add(best); on.set(at, there); charOf[k] = best;
+    }
+    return { factory: { member: fm, char: fc }, feeders: feeders.map((x, k) => ({ ...x, char: charOf[k] })) };
+  };
+  return assign(true) ?? assign(false);
 }
 
 type FedBest = { ctx: FedCtx; f: number; counts: Int32Array; score: Score; who: Who[]; placed: Placed };
@@ -976,7 +1042,9 @@ function boundByMargin(ctx: FedCtx, counts: Int32Array, S: Float64Array, R: numb
     total += k * ctx.topMarket[ci]; left -= k;
   }
   const d = ctx.pX - ctx.cmin;
-  if (!(d > 0)) return total + d * R;
+  // X worth less than its goods: what the factory makes only grows as feeders are added (R does, and what sells of more never
+  // falls: the `Sell` contract), so what it makes now is the least it can.
+  if (!(d > 0)) return total + d * runOf(ctx, R).run;
   const S2 = ctx.buf;
   for (let g = 0; g < S2.length; g++) {
     S2[g] = S[g];
@@ -991,13 +1059,40 @@ function boundByMargin(ctx: FedCtx, counts: Int32Array, S: Float64Array, R: numb
 }
 
 /**
+ * The arrangements a setup's search may try when `PlanInput.budget` doesn't say. Measured on 18 October 2026: the heaviest
+ * realistic systems tried (every P2 to P4 priced, up to 20 planets each at its own customs rate, three characters) took at
+ * most about 250 ms a setup and 25 MB; without it, one took a minute or ran out of memory.
+ */
+export const SEARCH_BUDGET = 40_000;
+/** What a covering search (does a product need more planets than one character has?) may try, for each product. */
+const COVER_BUDGET = 4000;
+
+/** A search's allowance, shared by every product and number of characters a setup tries; `cut` once it ran out too soon. */
+type Budget = { left: number; cut: boolean };
+
+/**
+ * The weight each feeder adds to an arrangement's key: deterministic, whole numbers under 2^38, so a key (the weights of the
+ * feeders in it, summed) stays an exact integer, kept as a number rather than a string. Two different arrangements share a
+ * key only if their weights happen to sum alike: about one chance in 2^38 a pair.
+ */
+const keyWeights = (n: number) => {
+  let x = 0x9e3779b9;
+  const next = () => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return x >>> 0; };
+  return Float64Array.from({ length: n }, () => ((next() % 262144) * 1048576) + (next() % 1048576) + 1);
+};
+
+type Searched = { b: FedBest | null; unfit: boolean };
+
+/**
  * The best arrangement of feeders for X: every arrangement the rules allow in which each feeder is needed, found by adding at
  * each step a feeder of the P1 the factory runs short of first (any arrangement whose feeders are all needed can be built
  * that way), each arrangement once. An arrangement an upper bound says can't beat the best so far isn't followed. The
  * factory goes where its own taxes are least: the first class with room whose rate is known, the lowest first, or one whose
- * rate isn't known, ranked before its tax (as on every planet whose tax isn't known); its class changes nothing else.
+ * rate isn't known, ranked before its tax (as on every planet whose tax isn't known); its class changes nothing else. It
+ * yields once an arrangement visited, so a caller can share a budget between products and pick each up where it left off;
+ * it's done when the search has ended on its own.
  */
-function searchFed(ctx: FedCtx, who: Who[], best: { b: FedBest | null }): void {
+function* searchFed(ctx: FedCtx, who: Who[], best: Searched): Generator<void, void, void> {
   const { feeders, classes, eqs } = ctx;
   const K = who.length;
   const slots = who.reduce((n, w) => n + w.cap, 0) - 1;
@@ -1005,30 +1100,35 @@ function searchFed(ctx: FedCtx, who: Who[], best: { b: FedBest | null }): void {
   const sites = factoryClasses(ctx);
   const G = ctx.goods.length;
   const counts = new Int32Array(feeders.length), S = new Float64Array(G);
-  const seen = new Set<string>();
+  const weight = keyWeights(feeders.length);
+  const seen = new Set<number>();
+  let key = 0;
   const consider = (R: number, n: number) => {
     // The bound with nothing added is this arrangement's own: what can't beat the best isn't worked out.
     if (best.b && !mayBeat(boundFed(ctx, counts, S, R, caps, 0), resets(ctx.input, n), best.b.score)) return;
     if (!allNeeded(ctx, counts, S, R)) return;
+    // A later site of the same kind (rate known, or not) is worth no more, so the first that places decides for its kind; one
+    // that can't beat the best already found decides too, without placing.
     let known = false, unknown = false;
     for (const f of sites) {
       const blind = classes[f].rate == null;
       if (caps[f] <= 0 || (blind ? unknown : known)) continue;
       const v = valueFed(ctx, counts, f, S, R);
-      if (v.fitsAtV === false) continue;
-      const placed = placeFed(ctx, counts, f, who);
-      if (!placed) continue;
+      if (v.fitsAtV === false) { best.unfit = true; continue; }
+      if (beats(v.score, best.b?.score ?? null)) {
+        const placed = placeFed(ctx, counts, f, who, v.layout);
+        if (!placed) continue;
+        best.b = { ctx, f, counts: counts.slice(), score: v.score, who, placed };
+      }
       if (blind) unknown = true; else known = true;
-      if (beats(v.score, best.b?.score ?? null)) best.b = { ctx, f, counts: counts.slice(), score: v.score, who, placed };
       if (known && unknown) break;
     }
   };
   const lim = new Float64Array(eqs.length);
-  const visit = (n: number) => {
-    let key = '';
-    for (let i = 0; i < counts.length; i++) if (counts[i]) key += `${i}:${counts[i]},`;
+  function* visit(n: number): Generator<void, void, void> {
     if (seen.has(key)) return;
     seen.add(key);
+    yield;
     let low = Infinity;
     for (let k = 0; k < eqs.length; k++) { lim[k] = limitOf(eqs[k], S); if (lim[k] < low) low = lim[k]; }
     const R = low === Infinity || !(low > MIN_RATE) ? 0 : low;
@@ -1044,54 +1144,86 @@ function searchFed(ctx: FedCtx, who: Who[], best: { b: FedBest | null }): void {
       if (sup < fewest) { fewest = sup; e = k; }
     }
     if (e < 0 || !fewest) return;
-    for (const i of ctx.byEq[e]) {
+    // The feeders of that P1, the one that would raise what the factory makes most first (each P1's limit, plus what the
+    // feeder ships of it over what one X takes, the least of them), so a first dive pairs what's short with what's short.
+    const next = ctx.byEq[e].filter((i) => caps[feeders[i].cls] > 0);
+    const after = new Map<number, number>();
+    for (const i of next) {
+      let r = Infinity;
+      for (let k = 0; k < eqs.length; k++) r = Math.min(r, lim[k] + ctx.relieves[i][k] / ctx.perX[k]);
+      after.set(i, r);
+    }
+    next.sort((a, b) => after.get(b)! - after.get(a)!);
+    for (const i of next) {
       const fd = feeders[i];
       if (caps[fd.cls] <= 0) continue;
-      counts[i]++; caps[fd.cls]--;
+      counts[i]++; caps[fd.cls]--; key += weight[i];
       for (let g = 0; g < G; g++) S[g] += fd.ships[g];
-      visit(n + 1);
-      counts[i]--; caps[fd.cls]++;
+      yield* visit(n + 1);
+      counts[i]--; caps[fd.cls]++; key -= weight[i];
       for (let g = 0; g < G; g++) { S[g] -= fd.ships[g]; if (Math.abs(S[g]) < 1e-9) S[g] = 0; }
     }
-  };
-  visit(0);
+  }
+  yield* visit(0);
 }
+
+/** Arrangements a product's search is given at a turn, before the next product's. */
+const SLICE = 256;
 
 /** The classes X's factory can go on: any for Advanced factories, Barren and Temperate for High-Tech; the lowest tax first. */
 const factoryClasses = (ctx: FedCtx) => ctx.classes.map((c, ci) => ci)
   .filter((ci) => ctx.tree.facility !== 'hightech' || ctx.input.ix.planetTypes[ctx.classes[ci].t].pins.hightech != null)
   .sort((a, b) => byRate(ctx.classes[a].rate, ctx.classes[b].rate) || a - b);
 
-/** The best arrangement over the targets given, each target's upper bound first, a target whose bound can't beat the best skipped. */
-function bestFed(ctxs: FedCtx[], who: Who[]): FedBest | null {
+/**
+ * The best arrangement over the targets given, within the budget. Every product's search runs side by side, a slice of
+ * arrangements a turn, the products in order of their upper bound, the highest first; one whose bound can't beat the best
+ * found drops out. So no product whose search could take the whole budget keeps the rest unseen, and none is searched twice.
+ * The budget is marked cut when a product not searched to the end could still beat the best found.
+ */
+function bestFed(ctxs: FedCtx[], who: Who[], budget: Budget): Searched {
   const slots = who.reduce((n, w) => n + w.cap, 0) - 1;
-  const ub = ctxs.map((ctx) => {
+  const best: Searched = { b: null, unfit: false };
+  const runs = ctxs.map((ctx) => {
     const caps = ctx.classes.map((c) => c.members.length * who.length);
-    return { ctx, ub: boundFed(ctx, new Int32Array(ctx.feeders.length), new Float64Array(ctx.goods.length), 0, caps, slots) };
+    return { ctx, ub: boundFed(ctx, new Int32Array(ctx.feeders.length), new Float64Array(ctx.goods.length), 0, caps, slots), it: searchFed(ctx, who, best), done: false };
   }).sort((a, b) => b.ub - a.ub || a.ctx.tree.x - b.ctx.tree.x);
-  const best: { b: FedBest | null } = { b: null };
-  for (const { ctx, ub: u } of ub) {
-    if (best.b && !mayBeat(u, 0, best.b.score)) break;
-    searchFed(ctx, who, best);
+  const open = (u: number) => !best.b || mayBeat(u, 0, best.b.score);
+  for (let live = runs; budget.left > 0;) {
+    live = live.filter((r) => !r.done && open(r.ub));
+    if (!live.length) break;
+    for (const r of live) {
+      if (budget.left <= 0) break;
+      if (!open(r.ub)) continue;
+      for (let i = 0; i < SLICE && budget.left > 0; i++) {
+        if (r.it.next().done) { r.done = true; break; }
+        budget.left--;
+      }
+    }
   }
-  return best.b;
+  if (runs.some((r) => !r.done && open(r.ub))) budget.cut = true;
+  return best;
 }
 
 /**
  * Whether some arrangement makes X at all within these characters' planets (each P1 shipped, the colonies placeable): a
  * search that covers, at each step, a P1 nothing ships yet, never deeper than a feeder for every two P1s left could reach.
+ * It tries at most `COVER_BUDGET` arrangements; one that runs out answers no.
  */
 function coverable(ctx: FedCtx, who: Who[]): boolean {
   const K = who.length;
   const slots = who.reduce((n, w) => n + w.cap, 0) - 1;
+  const weight = keyWeights(ctx.feeders.length);
+  let tries = 0;
   for (const f of factoryClasses(ctx)) {
     const caps = ctx.classes.map((c, ci) => c.members.length * K - (ci === f ? 1 : 0));
     const counts = new Int32Array(ctx.feeders.length), S = new Float64Array(ctx.goods.length);
-    const seen = new Set<string>();
+    const seen = new Set<number>();
+    let key = 0;
     const go = (n: number): boolean => {
-      const key = counts.join(',');
-      if (seen.has(key)) return false;
+      if (seen.has(key) || tries >= COVER_BUDGET) return false;
       seen.add(key);
+      tries++;
       const lim = ctx.eqs.map((eq) => limitOf(eq, S));
       const open = lim.map((l, k) => (l > MIN_RATE ? -1 : k)).filter((k) => k >= 0);
       if (!open.length) return placeFed(ctx, counts, f, who) != null;
@@ -1106,10 +1238,10 @@ function coverable(ctx: FedCtx, who: Who[]): boolean {
       for (const i of ctx.byEq[e]) {
         const fd = ctx.feeders[i];
         if (caps[fd.cls] <= 0) continue;
-        counts[i]++; caps[fd.cls]--;
+        counts[i]++; caps[fd.cls]--; key += weight[i];
         for (let g = 0; g < S.length; g++) S[g] += fd.ships[g];
         const ok = go(n + 1);
-        counts[i]--; caps[fd.cls]++;
+        counts[i]--; caps[fd.cls]++; key -= weight[i];
         for (let g = 0; g < S.length; g++) { S[g] -= fd.ships[g]; if (Math.abs(S[g]) < 1e-9) S[g] = 0; }
         if (ok) return true;
       }
@@ -1183,8 +1315,9 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
       if (l) lacks[placed.factory.char].add(l);
     }
   }
-  const xSold = v.soldX.isk == null ? v.R : Math.min(v.R, v.soldX.units);
-  if (v.R - xSold > 1e-6) fNotes.push(stayNote([`${unitsSaid(v.R - xSold)} ${name(tree.x)}`]));
+  const xSold = v.soldX.isk == null ? v.run : Math.min(v.run, v.soldX.units);
+  if (v.R - v.run > 1e-6) fNotes.push(`the market takes ${unitsSaid(v.run)} ${name(tree.x)} a day, so the factory runs for that: what its planets ship beyond it goes to market as it is, or stays on them`);
+  if (v.run - xSold > 1e-6) fNotes.push(stayNote([`${unitsSaid(v.run - xSold)} ${name(tree.x)}`]));
   const imports: NonNullable<Role['imports']> = [];
   placed.feeders.forEach((pl, k) => goods.forEach((id, g) => {
     if (v.toFactory[k][g] > 1e-6) imports.push({ id, perDay: v.toFactory[k][g], from: pl.member.planet.planetId });
@@ -1221,7 +1354,7 @@ function setupFed(kind: 'feed' | 'chain', input: PlanInput, best: FedBest, unuse
   const taxKnown = taxes.every((t) => t.perDay != null);
 
   const outputs: Output[] = [
-    { id: tree.x, perDay: v.R, sold: v.soldX, buildingUp: v.soldX.isk == null ? 0 : Math.max(0, v.R - v.soldX.units) },
+    { id: tree.x, perDay: v.run, sold: v.soldX, buildingUp: v.soldX.isk == null ? 0 : Math.max(0, v.run - v.soldX.units) },
     ...v.surplus.map((s) => ({ id: goods[s.g], perDay: s.perDay, sold: s.sold, buildingUp: s.sold.isk == null ? 0 : Math.max(0, s.perDay - s.sold.units) })),
   ].sort((a, b) => tierRank(ix, a.id) - tierRank(ix, b.id) || a.id - b.id);
   const unvalued = outputs.filter((o) => o.sold.isk == null).length;
@@ -1278,11 +1411,16 @@ export function planFeed(input: PlanInput): Setup {
   const ctxs = fedTargets(input, sold, classesOf(input), ['P2', 'P3']);
   if (!ctxs.length) return blocked(input, 'feed', 'Nothing a factory here could make from this system’s planets is priced', []);
   const who: Who[] = [{ c: char, cap: allowed, cc: char.ccLevel! }];
-  const best = bestFed(ctxs, who);
-  if (!best) return blocked(input, 'feed', `No factory planet here can be fed within your ${allowed} planets`, []);
+  const budget: Budget = { left: input.budget ?? SEARCH_BUDGET, cut: false };
+  const { b: best, unfit } = bestFed(ctxs, who, budget);
+  if (!best) return withCut(blocked(input, 'feed', unfit ? NO_FIT : `No factory planet here can be fed within your ${allowed} planets`, []), budget);
   const used = best.placed.feeders.length + 1;
-  return setupFed('feed', input, best, used >= allowed ? `Your ${allowed} planets go to ones that pay more` : 'Not needed by this setup');
+  return withCut(setupFed('feed', input, best, used >= allowed ? `Your ${allowed} planets go to ones that pay more` : 'Not needed by this setup'), budget);
 }
+
+/** When every arrangement's factory is too big for its planet even at the top level, that's why nothing is planned. */
+const NO_FIT = 'Every factory these planets could feed is too big for its planet, even at Command Center Upgrades V';
+const withCut = (s: Setup, budget: Budget): Setup => (budget.cut ? { ...s, cut: true } : s);
 
 /**
  * A chain across characters, for a P3 or P4 whose chain needs more planets than the shown character has: the characters
@@ -1303,15 +1441,23 @@ export function planChain(input: PlanInput): Setup {
   const ctxs = priced.filter((ctx) => !coverable(ctx, usable.slice(0, 1)));
   if (!ctxs.length) return blocked(input, 'chain', `Every P3 or P4 made here fits in your ${char.planets} planets: no chain needed`, []);
 
-  let pick: { best: FedBest; per: number } | null = null;
+  // Each number of characters gets an even share of what the budget has left.
+  const budget: Budget = { left: input.budget ?? SEARCH_BUDGET, cut: false };
+  let pick: { best: FedBest; per: number } | null = null, unfit = false;
   for (let k = 2; k <= usable.length; k++) {
-    const best = bestFed(ctxs, usable.slice(0, k));
+    const share: Budget = { left: Math.floor(budget.left / (usable.length - k + 1)), cut: false };
+    const was = share.left;
+    const { b: best, unfit: tooBig } = bestFed(ctxs, usable.slice(0, k), share);
+    budget.left -= was - share.left;
+    if (share.cut) budget.cut = true;
+    if (tooBig) unfit = true;
     if (!best) continue;
     const used = new Set([best.placed.factory.char, ...best.placed.feeders.map((x) => x.char)]).size;
     const per = best.score.value / used;
     if (!pick || per > pick.per + SAME_ISK) pick = { best, per };
   }
-  if (pick) return setupFed('chain', input, pick.best, 'The chain needs no colony here');
+  if (pick) return withCut(setupFed('chain', input, pick.best, 'The chain needs no colony here'), budget);
+  if (unfit && usable.length > 1) return withCut(blocked(input, 'chain', NO_FIT, []), budget);
 
   // Too few characters: how many more like the shown one the least demanding chain needs.
   const like: Who = { c: char, cap: char.planets!, cc: char.ccLevel! };
@@ -1449,11 +1595,14 @@ export function planBought(input: PlanInput): Setup {
     }
     return t;
   };
+  // At most the budget of assignments valued; one cut off while its bound could still beat the best marks the setup.
+  let tries = input.budget ?? SEARCH_BUDGET, cut = false;
   const dfs = (start: number, cur: number, curUpkeep: number, left: number) => {
     for (let j = start; j < byAlone.length; j++) {
       const o = ctx.opts[byAlone[j]];
       if (room[o.cls] <= 0) continue;
       if (best && !mayBeat(cur + topFrom(j, left), curUpkeep, best.score)) break;
+      if (tries-- <= 0) { cut = true; return; }
       room[o.cls]--; inst.push(byAlone[j]);
       const v = valueBought(ctx, inst);
       if (v) {
@@ -1505,20 +1654,24 @@ export function planBought(input: PlanInput): Setup {
     taxes, outputs, inputs, roles,
     upkeep: upkeepOf(input, outputs, 0, v.restocks.reduce((n, x) => n + x, 0)),
     perChar: [{ charId: char.charId, iskDay: v.score.value, lacks: [] }], unvalued: 0, why: null,
+    ...(cut ? { cut: true as const } : {}),
   };
 }
 
 // ---- The ranking ----
 
-type Rankable = { iskDay: number | null; upkeep: { resetsPerWeek: number; restocksPerWeek: number } };
-/** Best first by ISK a day (a chain's per character in it), the ones without a figure last; at equal ISK, less upkeep first. */
+type Rankable = { kind?: SetupKind; iskDay: number | null; upkeep: { resetsPerWeek: number; restocksPerWeek: number }; perChar?: unknown[] };
+/**
+ * Best first by ISK a day to the cent (a chain's per character in it), the ones without a figure last; at the same cent,
+ * less upkeep first (a chain's per character in it too, as its ISK is). By the cent rather than "within a cent of each
+ * other", which isn't transitive (5.000 is within a cent of 5.008, and 5.008 of 5.016, but 5.000 isn't of 5.016).
+ */
 export function rankSetups<T extends Rankable>(setups: T[]): T[] {
-  const upkeep = (s: T) => s.upkeep.resetsPerWeek + s.upkeep.restocksPerWeek;
+  const upkeep = (s: T) => (s.upkeep.resetsPerWeek + s.upkeep.restocksPerWeek) / (s.kind === 'chain' && s.perChar?.length ? s.perChar.length : 1);
   return setups.map((s, i) => ({ s, i })).sort((a, b) => {
     const x = a.s.iskDay, y = b.s.iskDay;
     if (x == null || y == null) return x == null && y == null ? a.i - b.i : x == null ? 1 : -1;
-    if (Math.abs(x - y) > SAME_ISK) return y - x;
-    return upkeep(a.s) - upkeep(b.s) || a.i - b.i;
+    return Math.round(y * 100) - Math.round(x * 100) || upkeep(a.s) - upkeep(b.s) || a.i - b.i;
   }).map((e) => e.s);
 }
 
